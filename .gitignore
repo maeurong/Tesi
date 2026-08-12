@@ -1,0 +1,14 @@
+graphify-out/
+meshrec/graphify-out/
+
+# Materiale di lavoro dei tutor (MeshReconstructorPro, ~767 MB) e articoli di
+# riferimento (~179 MB): non prodotto del progetto. Toglierla dall'elenco e'
+# tutto cio' che serve per versionarla.
+MeshReconstructorPro/
+Articoli/
+
+# Dati di scansione (nuvole di punti, ~175 MB) e file di lavoro Abaqus: non
+# prodotto del progetto. Toglierla dall'elenco e' tutto cio' che serve per
+# versionarla.
+Nuvole di punti/
+Cartella di lavoro Abaqus/

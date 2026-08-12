@@ -1,0 +1,37 @@
+[project]
+name = "meshrec"
+version = "0.1.0"
+description = "Pipeline riproducibile da nuvola di punti a modello FEM di muratura"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "numpy>=2.0",
+    "scipy>=1.13",
+    "open3d>=0.19",
+    "tetgen>=0.6",
+    "meshio>=5.3",
+    "pydantic>=2.7",
+    "pymeshfix>=0.18.1",
+    "pymeshlab>=2025.7.post1",
+]
+
+[project.optional-dependencies]
+feasibility = [
+    "gmsh>=4.15.2",
+]
+
+[dependency-groups]
+dev = ["pytest>=8.0"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/meshrec"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-m 'not feasibility'"
+markers = [
+    "feasibility: verifica di fattibilita di una dipendenza esterna (Fase 0)",
+]
