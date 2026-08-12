@@ -82,9 +82,36 @@ def test_node_and_element_indices_are_one_based(tmp_path, cube_mesh):
     assert max(first_element[1:]) <= len(nodes)
 
 
-def test_base_set_holds_only_the_lowest_nodes(tmp_path, cube_mesh):
+def _read_nset(text: str, name: str) -> set[int]:
+    """Rilegge un blocco *NSET dal testo dell'.inp, indici riconvertiti a 0-based."""
+    lines = text.splitlines()
+    header = lines.index(f"*NSET, NSET={name}") + 1
+    data_lines = []
+    for line in lines[header:]:
+        if line.startswith("*"):
+            break
+        data_lines.append(line)
+    return {
+        int(value) - 1
+        for line in data_lines
+        for value in line.split(",")
+    }
+
+
+def test_base_set_written_matches_expected_and_holds_only_the_lowest_nodes(tmp_path, cube_mesh):
     nodes, tets = cube_mesh
     sets = _base_and_top(nodes)
+    path = tmp_path / "model.inp"
 
-    assert len(sets["BASE"]) >= 4
-    assert np.allclose(nodes[sets["BASE"], 2], nodes[:, 2].min())
+    abaqus.write_inp(
+        path, nodes, tets,
+        node_sets=sets,
+        material=Material(),
+    )
+    text = path.read_text(encoding="ascii")
+
+    written_base = _read_nset(text, "BASE")
+
+    assert written_base == set(sets["BASE"].tolist())
+    assert len(written_base) >= 4
+    assert np.allclose(nodes[sorted(written_base), 2], nodes[:, 2].min())
