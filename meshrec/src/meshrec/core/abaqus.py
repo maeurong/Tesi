@@ -6,7 +6,7 @@ from pathlib import Path
 
 import numpy as np
 
-from meshrec.config import GRAVITY_MM_S2, Material
+from meshrec.core.config import GRAVITY_MM_S2, Material
 
 _SET_ITEMS_PER_LINE = 8
 

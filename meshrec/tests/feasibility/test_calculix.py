@@ -10,8 +10,8 @@ import subprocess
 import numpy as np
 import pytest
 
-from meshrec import abaqus, synth, volume
-from meshrec.config import GRAVITY_MM_S2, Material
+from meshrec.core import abaqus, synth, volume
+from meshrec.core.config import GRAVITY_MM_S2, Material
 from ccx_utils import read_dat_displacements
 
 pytestmark = pytest.mark.feasibility

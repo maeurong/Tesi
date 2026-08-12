@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from meshrec import quality, synth
+from meshrec.core import quality, synth
 
 SIZE = (100.0, 40.0, 200.0)
 EXACT_VOLUME = 100.0 * 40.0 * 200.0

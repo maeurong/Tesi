@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from meshrec import synth
+from meshrec.core import synth
 
 SIZE = (100.0, 40.0, 200.0)
 

@@ -2,8 +2,8 @@ import meshio
 import numpy as np
 import pytest
 
-from meshrec import abaqus, synth, volume
-from meshrec.config import Material
+from meshrec.core import abaqus, synth, volume
+from meshrec.core.config import Material
 
 SIZE = (100.0, 40.0, 200.0)
 

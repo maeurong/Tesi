@@ -466,6 +466,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "pymeshfix" },
     { name = "pymeshlab" },
+    { name = "pyyaml" },
     { name = "scipy" },
     { name = "tetgen" },
 ]
@@ -489,6 +490,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.7" },
     { name = "pymeshfix", specifier = ">=0.18.1" },
     { name = "pymeshlab", specifier = ">=2025.7.post1" },
+    { name = "pyyaml", specifier = ">=6.0" },
     { name = "scipy", specifier = ">=1.13" },
     { name = "tetgen", specifier = ">=0.6" },
 ]

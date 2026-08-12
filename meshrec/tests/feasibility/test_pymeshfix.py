@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from meshrec import quality, synth
+from meshrec.core import quality, synth
 
 pytestmark = pytest.mark.feasibility
 
