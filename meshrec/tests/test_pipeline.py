@@ -4,12 +4,19 @@ import json
 
 import numpy as np
 import pytest
+from pydantic import ValidationError
 
 from meshrec.core import config, io, pipeline, quality, synth
 
 SIZE = (120.0, 60.0, 240.0)
 SPACING = 4.0
 EXACT_VOLUME = 120.0 * 60.0 * 240.0
+
+
+def test_from_step_beyond_tetrahedralize_is_rejected():
+    """Gli step 10 e 11 non hanno lavoro costoso da saltare: from_step si ferma a 9."""
+    with pytest.raises(ValidationError):
+        config.RunConfig(from_step=10)
 
 
 @pytest.fixture(scope="module")

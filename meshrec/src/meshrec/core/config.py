@@ -128,7 +128,16 @@ class RunConfig(BaseModel):
     """Esecuzione: percorsi e ripresa."""
 
     out_dir: Path = Path("runs/default")
-    from_step: int = Field(default=1, ge=1, le=11)
+    from_step: int = Field(
+        default=1,
+        ge=1,
+        le=9,
+        description=(
+            "la ripresa arriva fino allo step 9 (tetraedrizzazione); gli step 10 e 11 "
+            "sono metriche di volume ed esportazione, senza lavoro costoso da saltare, "
+            "e vengono comunque rieseguiti a ogni corsa"
+        ),
+    )
 
 
 class PipelineConfig(BaseModel):

@@ -74,6 +74,11 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
     l'artefatto 8, che esiste solo se una corsa precedente aveva
     `simplify.enabled=True`; con quella corsa disabilitata la ripresa fallisce
     con `FileNotFoundError`, ed e' corretto che fallisca invece di indovinare).
+
+    La ripresa arriva fino allo step 9 (tetraedrizzazione): `RunConfig.from_step`
+    e' vincolato a 9 (vedi `config.py`). Gli step 10 e 11 sono il calcolo delle
+    metriche di volume e l'esportazione del deck, senza lavoro costoso da
+    saltare, quindi vengono sempre rieseguiti, qualunque sia `from_step`.
     """
     out = Path(cfg.run.out_dir)
     out.mkdir(parents=True, exist_ok=True)
