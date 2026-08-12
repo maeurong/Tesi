@@ -106,6 +106,11 @@ def align_to_axes(nodes: np.ndarray) -> tuple[np.ndarray, np.ndarray, dict[str, 
 
     La trasformazione e' restituita come matrice 4x4 e va salvata nei metadati:
     e' l'unico modo per riportare i risultati nel sistema originale dello scanner.
+
+    Assunzione: lo scanner e' livellato, cioe' la z della nuvola in ingresso
+    e' gia' il verticale reale e l'unica ambiguita' e' l'imbardata. Se la
+    nuvola e' inclinata fuori dal piano orizzontale (beccheggio o rollio),
+    l'assegnazione dell'asse altezza non e' garantita.
     """
     points = np.asarray(nodes, dtype=np.float64)
     centre = points.mean(axis=0)
