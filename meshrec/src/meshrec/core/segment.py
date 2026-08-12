@@ -6,44 +6,17 @@ nel viewport, ma il core resta lo stesso.
 
 from __future__ import annotations
 
-import ctypes
-import os
-
 import numpy as np
 import open3d as o3d
 
 from meshrec.core.config import SegmentConfig
 
-# Il RANSAC di Open3D (segment_plane) e' parallelo via OpenMP: con piu thread
-# l'ordine di scoperta del piano migliore dipende dallo scheduling, quindi
-# o3d.utility.random.seed da solo NON basta a rendere l'estrazione riproducibile
-# (verificato: due run della stessa config davano un numero diverso di punti
-# residui). Stesso principio gia' in uso per Poisson (SurfaceConfig.poisson_n_threads,
-# default 1), qui applicato all'unico punto dove Open3D non offre un parametro
-# esplicito per il numero di thread.
-#
-# La sola variabile d'ambiente OMP_NUM_THREADS letta all'import non basta: se
-# un'altra libreria ha gia' fatto partire il pool di thread di OpenMP nello
-# stesso processo (verificato con l'intera `pytest`, dove test_pipeline.py
-# gira prima di test_segment.py), la lettura tardiva dell'env var arriva
-# troppo tardi. Va quindi richiamato anche a runtime, subito prima del RANSAC.
-# ponytail: il nome della dll (vcomp140, runtime OpenMP di MSVC) e' specifico
-# a Windows/questo wheel di Open3D (verificato: risolve anche il caso in cui
-# `pytest` esegue prima test_pipeline.py, che scalda il pool con piu thread).
-# Su un runtime diverso il pin a runtime fallisce silenziosamente e resta solo
-# l'env var, affidabile quando segment_cloud e' la prima operazione Open3D del
-# processo (vero per l'uso reale via CLI e per `pytest tests/test_segment.py`
-# da solo).
-os.environ.setdefault("OMP_NUM_THREADS", "1")
-
-
-def _pin_openmp_to_one_thread() -> None:
-    """Rende un solo thread OpenMP anche se il pool era gia' partito con piu' thread."""
-    if os.name == "nt":
-        try:
-            ctypes.CDLL("vcomp140.dll").omp_set_num_threads(1)
-        except OSError:
-            pass
+# Il RANSAC di segment_plane e' parallelo via OpenMP: con piu thread l'ordine di
+# scoperta del piano migliore dipende dallo scheduling, quindi
+# o3d.utility.random.seed da solo non basta a rendere l'estrazione riproducibile.
+# Il numero di thread e' fissato in meshrec/__init__.py, che Python esegue prima
+# di questo modulo e quindi prima che Open3D avvii il proprio pool: vedi il
+# commento la' per il motivo per cui non puo' stare qui.
 
 
 def remove_outliers(
@@ -99,7 +72,6 @@ def extract_planes(
     Il seme fissato rende l'estrazione riproducibile: senza, la stessa
     configurazione produrrebbe segmentazioni diverse a ogni esecuzione.
     """
-    _pin_openmp_to_one_thread()
     o3d.utility.random.seed(0)
     threshold = cfg.plane_distance_factor * spacing
     minimum = max(3, int(cfg.plane_min_points_ratio * len(points)))

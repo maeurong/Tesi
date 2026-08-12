@@ -146,9 +146,9 @@ def test_choosing_a_cluster_index_beyond_the_last_raises():
 def test_auto_mode_is_reproducible_across_runs():
     """Criterio di accettazione della Fase 1: stessa config, stesso risultato.
 
-    RANSAC in Open3D e' multithread: senza il pin a un thread solo
-    (vedi cima di segment.py) o3d.utility.random.seed non basta, e due run
-    della stessa config estraggono piani diversi. Qui lo si verifica.
+    RANSAC in Open3D e' multithread: senza OMP_NUM_THREADS=1 impostato
+    all'import del pacchetto (vedi meshrec/__init__.py) o3d.utility.random.seed
+    non basta, e due run della stessa config estraggono piani diversi.
     """
     points = _scene()
     cfg = config.SegmentConfig(method="auto", plane_max_count=1, cluster_min_points=25)
