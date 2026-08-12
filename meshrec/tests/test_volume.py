@@ -60,8 +60,12 @@ def test_with_metrics_reports_counts_and_time():
     assert metrics["element"] == "C3D4"
 
 
-def test_inverted_elements_are_a_blocking_error():
-    """La spec chiede errore bloccante, non avviso: qui lo si verifica sul percorso reale."""
+def test_inverted_elements_are_a_blocking_error(monkeypatch):
+    """La spec chiede errore bloccante, non avviso: qui si esercita il sollevamento."""
+    nodes = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+    flipped = np.array([[0, 2, 1, 3]])
+    monkeypatch.setattr(volume, "tetrahedralize", lambda *args, **kwargs: (nodes, flipped))
+
     vertices, faces = synth.box_mesh(SIZE)
-    nodes, tets, _ = volume.tetrahedralize_with_metrics(vertices, faces, config.TetConfig())
-    assert len(quality.inverted_tets(nodes, tets)) == 0
+    with pytest.raises(volume.InvertedElementsError, match="invertiti"):
+        volume.tetrahedralize_with_metrics(vertices, faces, config.TetConfig())
