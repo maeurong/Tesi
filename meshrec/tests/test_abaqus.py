@@ -2,7 +2,7 @@ import meshio
 import numpy as np
 import pytest
 
-from meshrec.core import abaqus, synth, volume
+from meshrec.core import abaqus, config, synth, volume
 from meshrec.core.config import Material
 
 SIZE = (100.0, 40.0, 200.0)
@@ -148,3 +148,109 @@ def test_material_values_round_trip_with_precision(tmp_path, cube_mesh):
 
     assert f"*MATERIAL, NAME={material.name}" in lines
     assert f"*SOLID SECTION, ELSET=ALL_WALL, MATERIAL={material.name}" in lines
+
+
+def test_alignment_puts_thickness_on_x_length_on_y_height_on_z():
+    """Muro 1000 lungo, 300 alto, 50 spesso, ruotato di 30 gradi attorno a z."""
+    rng = np.random.default_rng(0)
+    raw = rng.uniform([0.0, 0.0, 0.0], [1000.0, 50.0, 300.0], size=(2000, 3))
+    angle = np.radians(30.0)
+    rotation = np.array(
+        [[np.cos(angle), -np.sin(angle), 0.0], [np.sin(angle), np.cos(angle), 0.0], [0.0, 0.0, 1.0]]
+    )
+    rotated = raw @ rotation.T + np.array([500.0, -200.0, 75.0])
+
+    aligned, transform, metrics = abaqus.align_to_axes(rotated)
+    extent = aligned.max(axis=0) - aligned.min(axis=0)
+
+    assert extent[0] == pytest.approx(50.0, rel=0.1)     # spessore su x
+    assert extent[1] == pytest.approx(1000.0, rel=0.1)   # lunghezza su y
+    assert extent[2] == pytest.approx(300.0, rel=0.1)    # altezza su z
+    assert aligned[:, 2].min() == pytest.approx(0.0, abs=1e-9)
+    assert transform.shape == (4, 4)
+    assert metrics["extent"] == pytest.approx(extent.tolist(), rel=0.1)
+
+
+def test_the_transform_is_invertible_back_to_the_original_frame():
+    rng = np.random.default_rng(1)
+    original = rng.uniform([0.0, 0.0, 0.0], [1000.0, 50.0, 300.0], size=(500, 3))
+    aligned, transform, _ = abaqus.align_to_axes(original)
+
+    homogeneous = np.column_stack([aligned, np.ones(len(aligned))])
+    back = (homogeneous @ np.linalg.inv(transform).T)[:, :3]
+
+    assert back == pytest.approx(original, abs=1e-6)
+
+
+def test_node_sets_cover_the_six_faces_of_a_box():
+    nodes = np.array(
+        [[x, y, z] for x in (0.0, 50.0) for y in (0.0, 1000.0) for z in (0.0, 300.0)]
+    )
+    sets = abaqus.build_node_sets(nodes, tolerance=1.0)
+
+    assert sorted(sets) == ["BASE", "FACE_BACK", "FACE_FRONT", "SIDE_LEFT", "SIDE_RIGHT", "TOP"]
+    assert len(sets["BASE"]) == 4
+    assert nodes[sets["BASE"]][:, 2] == pytest.approx(0.0)
+    assert nodes[sets["TOP"]][:, 2] == pytest.approx(300.0)
+    assert nodes[sets["FACE_FRONT"]][:, 0] == pytest.approx(0.0)
+    assert nodes[sets["FACE_BACK"]][:, 0] == pytest.approx(50.0)
+
+
+def test_output_requests_are_in_the_modern_form(tmp_path):
+    """*NODE FILE produce .fil in Abaqus, non .odb: la Fase 1 usa *OUTPUT, FIELD."""
+    vertices, faces = synth.box_mesh((100.0, 40.0, 200.0))
+    nodes, tets, _ = volume.tetrahedralize_with_metrics(vertices, faces, config.TetConfig())
+    path = tmp_path / "modello.inp"
+
+    abaqus.write_inp(
+        path,
+        nodes,
+        tets,
+        node_sets=abaqus.build_node_sets(nodes, tolerance=1.0),
+        material=config.Material(),
+    )
+    text = path.read_text(encoding="ascii")
+
+    assert "*OUTPUT, FIELD" in text
+    assert "*NODE OUTPUT" in text
+    assert "*ELEMENT OUTPUT" in text
+    assert "*NODE FILE" not in text
+    assert "*EL FILE" not in text
+
+
+def test_export_model_writes_both_files_and_reports_mass(tmp_path):
+    meshio = pytest.importorskip("meshio")
+    vertices, faces = synth.box_mesh((100.0, 40.0, 200.0))
+    nodes, tets, _ = volume.tetrahedralize_with_metrics(vertices, faces, config.TetConfig())
+
+    metrics = abaqus.export_model(
+        tmp_path / "wall_model.inp",
+        tmp_path / "wall_model.vtu",
+        nodes,
+        tets,
+        config.AnalysisConfig(),
+        config.TetConfig(),
+    )
+
+    assert (tmp_path / "wall_model.inp").exists()
+    assert (tmp_path / "wall_model.vtu").exists()
+    assert metrics["volume"] == pytest.approx(100.0 * 40.0 * 200.0, rel=0.02)
+    assert metrics["mass"] == pytest.approx(metrics["volume"] * 1.8e-9, rel=1e-6)
+    assert metrics["node_sets"]["BASE"] > 0
+    read_back = meshio.read(tmp_path / "wall_model.vtu")
+    assert len(read_back.points) == len(nodes)
+
+
+def test_c3d10_is_refused_until_the_writer_supports_it(tmp_path):
+    vertices, faces = synth.box_mesh((100.0, 40.0, 200.0))
+    nodes, tets, _ = volume.tetrahedralize_with_metrics(vertices, faces, config.TetConfig())
+
+    with pytest.raises(NotImplementedError, match="C3D10"):
+        abaqus.export_model(
+            tmp_path / "m.inp",
+            tmp_path / "m.vtu",
+            nodes,
+            tets,
+            config.AnalysisConfig(),
+            config.TetConfig(element="C3D10"),
+        )

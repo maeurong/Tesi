@@ -6,7 +6,7 @@ from pathlib import Path
 
 import numpy as np
 
-from meshrec.core.config import GRAVITY_MM_S2, Material
+from meshrec.core.config import GRAVITY_MM_S2, AnalysisConfig, Material, TetConfig
 
 _SET_ITEMS_PER_LINE = 8
 
@@ -77,6 +77,142 @@ def write_inp(
     for name in print_nsets:
         lines += [f"*NODE PRINT, NSET={name}", "U"]
 
-    lines += ["*NODE FILE", "U", "*EL FILE", "S, E", "*END STEP", ""]
+    lines += [
+        "*OUTPUT, FIELD",
+        "*NODE OUTPUT",
+        "U",
+        "*ELEMENT OUTPUT",
+        "S, E",
+        "*END STEP",
+        "",
+    ]
 
     Path(path).write_text("\n".join(lines), encoding="ascii")
+
+
+def align_to_axes(nodes: np.ndarray) -> tuple[np.ndarray, np.ndarray, dict[str, object]]:
+    """Rototraslazione ai piani principali: spessore su x, lunghezza su y, altezza su z.
+
+    La trasformazione e' restituita come matrice 4x4 e va salvata nei metadati:
+    e' l'unico modo per riportare i risultati nel sistema originale dello scanner.
+    """
+    points = np.asarray(nodes, dtype=np.float64)
+    centre = points.mean(axis=0)
+    centred = points - centre
+
+    _, _, principal = np.linalg.svd(centred, full_matrices=False)
+    extents = np.ptp(centred @ principal.T, axis=0)
+
+    thickness_axis = int(np.argmin(extents))
+    remaining = [index for index in range(3) if index != thickness_axis]
+    # fra le due direzioni restanti, l'altezza e' quella piu vicina al verticale
+    # originale: la gravita agisce lungo il verticale reale, non lungo l'asse
+    # con l'estensione maggiore.
+    verticality = [abs(principal[index][2]) for index in remaining]
+    height_axis = remaining[int(np.argmax(verticality))]
+    length_axis = remaining[1 - int(np.argmax(verticality))]
+
+    rotation = np.stack(
+        [principal[thickness_axis], principal[length_axis], principal[height_axis]]
+    )
+    if np.linalg.det(rotation) < 0.0:
+        rotation[2] = -rotation[2]  # mantiene la terna destrorsa: una riflessione invertirebbe i tetraedri
+
+    aligned = centred @ rotation.T
+    shift = aligned.min(axis=0)
+    aligned = aligned - shift
+
+    transform = np.eye(4)
+    transform[:3, :3] = rotation
+    transform[:3, 3] = -rotation @ centre - shift
+
+    metrics = {
+        "extent": (aligned.max(axis=0) - aligned.min(axis=0)).tolist(),
+        "transform": transform.tolist(),
+    }
+    return np.ascontiguousarray(aligned), transform, metrics
+
+
+def set_tolerance(nodes: np.ndarray, tets: np.ndarray, factor: float) -> float:
+    """Tolleranza dei set derivata dalla dimensione media dell'elemento."""
+    from meshrec.core.quality import tet_volumes
+
+    mean_volume = float(np.abs(tet_volumes(nodes, tets)).mean())
+    edge = (mean_volume * 6.0 * np.sqrt(2.0)) ** (1.0 / 3.0)
+    return factor * edge
+
+
+def build_node_sets(nodes: np.ndarray, tolerance: float) -> dict[str, np.ndarray]:
+    """I sei set di faccia, sul modello gia allineato agli assi."""
+    points = np.asarray(nodes, dtype=np.float64)
+    low = points.min(axis=0)
+    high = points.max(axis=0)
+    return {
+        "BASE": np.flatnonzero(points[:, 2] <= low[2] + tolerance),
+        "TOP": np.flatnonzero(points[:, 2] >= high[2] - tolerance),
+        "FACE_FRONT": np.flatnonzero(points[:, 0] <= low[0] + tolerance),
+        "FACE_BACK": np.flatnonzero(points[:, 0] >= high[0] - tolerance),
+        "SIDE_LEFT": np.flatnonzero(points[:, 1] <= low[1] + tolerance),
+        "SIDE_RIGHT": np.flatnonzero(points[:, 1] >= high[1] - tolerance),
+    }
+
+
+def write_vtu(path: Path, nodes: np.ndarray, tets: np.ndarray) -> None:
+    """Esportazione per la visualizzazione, delegata a meshio."""
+    import meshio
+
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    meshio.write_points_cells(
+        str(path),
+        np.asarray(nodes, dtype=np.float64),
+        [("tetra", np.asarray(tets, dtype=np.int64))],
+    )
+
+
+def export_model(
+    path_inp: Path,
+    path_vtu: Path,
+    nodes: np.ndarray,
+    tets: np.ndarray,
+    cfg: AnalysisConfig,
+    tet_cfg: TetConfig,
+) -> dict[str, object]:
+    """Step 11: allinea, costruisce i set, scrive il deck e il file di visualizzazione."""
+    from meshrec.core.quality import tet_volumes
+
+    if tet_cfg.element != "C3D4":
+        raise NotImplementedError(
+            f"elemento {tet_cfg.element} non supportato dal writer: TetGen produce i nodi "
+            "di lato con order=2, ma il deck scrive quattro nodi per elemento. "
+            "Usa C3D4 finche il writer non gestisce i dieci nodi."
+        )
+
+    aligned, transform, align_metrics = align_to_axes(nodes)
+    tolerance = set_tolerance(aligned, tets, cfg.set_tolerance_factor)
+    node_sets = build_node_sets(aligned, tolerance)
+    if len(node_sets[cfg.fixed_nset]) == 0:
+        raise ValueError(f"il set vincolato '{cfg.fixed_nset}' e vuoto: tolleranza {tolerance:.3f} mm troppo stretta")
+
+    write_inp(
+        path_inp,
+        aligned,
+        tets,
+        node_sets=node_sets,
+        material=cfg.material,
+        fixed_nset=cfg.fixed_nset,
+        gravity=cfg.gravity,
+        step_name=cfg.step_name,
+    )
+    write_vtu(path_vtu, aligned, tets)
+
+    volume = float(np.abs(tet_volumes(aligned, tets)).sum())
+    return {
+        "transform": transform.tolist(),
+        "extent": align_metrics["extent"],
+        "set_tolerance": float(tolerance),
+        "node_sets": {name: int(len(indices)) for name, indices in node_sets.items()},
+        "volume": volume,
+        "mass": volume * cfg.material.density,
+        "inp": str(path_inp),
+        "vtu": str(path_vtu),
+    }
