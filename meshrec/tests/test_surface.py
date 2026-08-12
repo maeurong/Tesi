@@ -61,6 +61,20 @@ def test_density_trimming_removes_vertices(cloud):
     assert trimmed["triangles"] < kept["triangles"]
 
 
+def test_poisson_reconstruction_is_deterministic(cloud):
+    """A parita di ingresso, la stessa configurazione deve dare lo stesso risultato.
+
+    n_threads di default (1 in SurfaceConfig) evita il riordinamento non deterministico
+    che con thread multipli si propaga fino a TetGen (vedi task-6-report.md, round 1).
+    """
+    normals, _ = surface.estimate_normals(cloud, config.NormalsConfig(), SPACING)
+    cfg = config.SurfaceConfig(poisson_depth=8)
+    vertices_a, faces_a, _ = surface.reconstruct(cloud, normals, cfg, SPACING)
+    vertices_b, faces_b, _ = surface.reconstruct(cloud, normals, cfg, SPACING)
+    assert np.array_equal(vertices_a, vertices_b)
+    assert np.array_equal(faces_a, faces_b)
+
+
 def test_alpha_shape_produces_a_surface(cloud):
     vertices, faces, metrics = surface.reconstruct(
         cloud, None, config.SurfaceConfig(method="alpha"), SPACING

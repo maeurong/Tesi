@@ -77,6 +77,9 @@ class SurfaceConfig(BaseModel):
     density_quantile: float = Field(
         default=0.05, ge=0.0, lt=1.0, description="quantile di densita sotto il quale i vertici sono scartati"
     )
+    poisson_n_threads: int = Field(
+        default=1, description="thread per il solutore Poisson; 1 = riproducibile, -1 = automatico"
+    )
     bpa_radius_factors: tuple[float, ...] = (1.0, 2.0, 4.0)
     alpha_factor: float = Field(default=5.0, gt=0.0, description="x spaziatura media")
 

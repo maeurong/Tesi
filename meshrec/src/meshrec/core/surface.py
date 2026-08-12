@@ -73,11 +73,16 @@ def reconstruct(
     metrics: dict[str, object] = {"method": cfg.method, "vertices_trimmed": 0}
 
     if cfg.method == "poisson":
+        # n_threads=1 (di norma) rende deterministico l'ordine di vertici e facce:
+        # con thread multipli (l'automatico di Open3D e' n_threads=-1) l'ordine di
+        # riduzione cambia ad ogni chiamata e si propaga a valle fino a TetGen,
+        # violando il requisito di riproducibilita a parita di configurazione.
         mesh, densities = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(
             cloud,
             depth=cfg.poisson_depth,
             width=cfg.poisson_width,
             scale=cfg.poisson_scale,
+            n_threads=cfg.poisson_n_threads,
         )
         # Il trimming e' il rimedio diretto all'artefatto principale del programma
         # sostituito: Poisson chiude le zone non rilevate inventando superficie.
