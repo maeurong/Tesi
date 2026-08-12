@@ -119,3 +119,32 @@ def test_base_set_written_matches_expected_and_holds_only_the_lowest_nodes(tmp_p
     assert written_base == set(sets["BASE"].tolist())
     assert len(written_base) >= 4
     assert np.allclose(nodes[sorted(written_base), 2], nodes[:, 2].min())
+
+
+def test_material_values_round_trip_with_precision(tmp_path, cube_mesh):
+    """Materiale con valori non predefiniti, scelti per mettere in difficolta la
+    formattazione (young con molte cifre decimali, poisson diverso dal default,
+    densita in notazione scientifica lontana dal default): i valori riletti dal
+    testo devono coincidere numericamente con quelli di partenza, non solo
+    'sembrare giusti' guardando le cifre stampate."""
+    nodes, tets = cube_mesh
+    material = Material(name="LATERIZIO", young=2750.123456789, poisson=0.27, density=7.654321e-6)
+    path = tmp_path / "model.inp"
+
+    abaqus.write_inp(
+        path, nodes, tets,
+        node_sets=_base_and_top(nodes),
+        material=material,
+    )
+    lines = path.read_text(encoding="ascii").splitlines()
+
+    elastic_line = lines[lines.index("*ELASTIC") + 1]
+    written_young, written_poisson = (float(value) for value in elastic_line.split(","))
+    written_density = float(lines[lines.index("*DENSITY") + 1])
+
+    assert written_young == pytest.approx(material.young)
+    assert written_poisson == pytest.approx(material.poisson)
+    assert written_density == pytest.approx(material.density)
+
+    assert f"*MATERIAL, NAME={material.name}" in lines
+    assert f"*SOLID SECTION, ELSET=ALL_WALL, MATERIAL={material.name}" in lines
