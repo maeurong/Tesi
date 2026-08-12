@@ -102,6 +102,16 @@ def repair_surface(
         f = np.ascontiguousarray(f[labels[f[:, 0]] == biggest])
         metrics["components_kept"] = 1
 
+    # I vertici della componente scartata resterebbero nell'array: MeshFix
+    # riceverebbe punti non referenziati da alcun triangolo.
+    referenced = np.unique(f)
+    metrics["orphan_vertices_removed"] = int(len(v) - len(referenced))
+    if len(referenced) < len(v):
+        orphan_remap = np.full(len(v), -1, dtype=np.int64)
+        orphan_remap[referenced] = np.arange(len(referenced))
+        v = np.ascontiguousarray(v[referenced])
+        f = np.ascontiguousarray(orphan_remap[f])
+
     # 4. misura dei fori, prima che la chiusura ne cancelli la traccia
     loops = hole_loops(f)
     areas = sorted((_loop_area(v, loop) for loop in loops), reverse=True)

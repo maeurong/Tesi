@@ -61,15 +61,19 @@ def test_the_smaller_connected_component_is_dropped():
     assert len(np.unique(labels)) == 2
 
     pytest.importorskip("pymeshfix")
-    _, kept_faces, metrics = repair.repair_surface(
+    kept_vertices, kept_faces, metrics = repair.repair_surface(
         both_vertices, both_faces, config.RepairConfig(largest_component_only=True)
     )
     assert metrics["components_before"] == 2
     assert metrics["components_kept"] == 1
     assert len(kept_faces) < len(both_faces)
+    assert quality.is_watertight(kept_faces)
+    assert metrics["watertight_after"] is True
+    assert len(kept_vertices) < len(both_vertices)
 
 
 def test_degenerate_and_duplicate_faces_are_removed():
+    pytest.importorskip("pymeshfix")
     vertices, faces = synth.box_mesh(SIZE)
     degenerate = np.array([[0, 0, 1]])
     duplicated = faces[:1]
