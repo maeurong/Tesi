@@ -90,6 +90,17 @@ def write_inp(
     Path(path).write_text("\n".join(lines), encoding="ascii")
 
 
+def _fix_sign(direction: np.ndarray) -> np.ndarray:
+    """Convenzione deterministica di segno: componente di modulo massimo positiva.
+
+    Le direzioni principali restituite dalla SVD hanno segno arbitrario: senza
+    una convenzione, due esecuzioni sulla stessa nuvola possono produrre assi
+    opposti e quindi set di faccia scambiati.
+    """
+    direction = np.asarray(direction, dtype=np.float64)
+    return direction if direction[int(np.argmax(np.abs(direction)))] >= 0.0 else -direction
+
+
 def align_to_axes(nodes: np.ndarray) -> tuple[np.ndarray, np.ndarray, dict[str, object]]:
     """Rototraslazione ai piani principali: spessore su x, lunghezza su y, altezza su z.
 
@@ -110,13 +121,24 @@ def align_to_axes(nodes: np.ndarray) -> tuple[np.ndarray, np.ndarray, dict[str, 
     # con l'estensione maggiore.
     verticality = [abs(principal[index][2]) for index in remaining]
     height_axis = remaining[int(np.argmax(verticality))]
-    length_axis = remaining[1 - int(np.argmax(verticality))]
 
-    rotation = np.stack(
-        [principal[thickness_axis], principal[length_axis], principal[height_axis]]
-    )
-    if np.linalg.det(rotation) < 0.0:
-        rotation[2] = -rotation[2]  # mantiene la terna destrorsa: una riflessione invertirebbe i tetraedri
+    vertical = principal[height_axis]
+    # L'altezza punta verso l'alto del sistema originale: la gravita agisce
+    # lungo il verticale reale, e BASE deve restare l'estremita fisicamente
+    # piu bassa. Se la nuvola e' quasi coricata il prodotto scalare non decide,
+    # e si ricade sulla convenzione di segno deterministica.
+    if abs(vertical[2]) > 1e-6:
+        z_dir = vertical if vertical[2] > 0.0 else -vertical
+    else:
+        z_dir = _fix_sign(vertical)
+
+    x_dir = _fix_sign(principal[thickness_axis])
+    # y come prodotto vettoriale: la terna e' destrorsa per costruzione, quindi
+    # il determinante vale +1 e non serve alcuna correzione a posteriori, che
+    # cambierebbe il verso di un asse gia deciso.
+    y_dir = np.cross(z_dir, x_dir)
+
+    rotation = np.stack([x_dir, y_dir, z_dir])
 
     aligned = centred @ rotation.T
     shift = aligned.min(axis=0)

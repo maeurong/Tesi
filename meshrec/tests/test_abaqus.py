@@ -254,3 +254,57 @@ def test_c3d10_is_refused_until_the_writer_supports_it(tmp_path):
             config.AnalysisConfig(),
             config.TetConfig(element="C3D10"),
         )
+
+
+def _yaw(angle_deg: float) -> np.ndarray:
+    """Rotazione attorno a z: lo z del sistema d'ingresso resta il verticale vero."""
+    angle = np.radians(angle_deg)
+    return np.array(
+        [[np.cos(angle), -np.sin(angle), 0.0], [np.sin(angle), np.cos(angle), 0.0], [0.0, 0.0, 1.0]]
+    )
+
+
+def test_height_axis_points_up_regardless_of_svd_sign():
+    """Il verso di z deve seguire il verticale reale, non il segno arbitrario della SVD.
+
+    Un punto isolato oltre la quota massima marca l'estremita fisicamente
+    superiore del muro: dopo l'allineamento deve trovarsi sempre alla quota
+    massima, mai alla minima, qualunque sia la rotazione (attorno a z) applicata
+    in ingresso.
+    """
+    rng = np.random.default_rng(2)
+    base = rng.uniform([0.0, 0.0, 0.0], [1000.0, 50.0, 300.0], size=(1500, 3))
+    marker = np.array([[500.0, 25.0, 305.0]])  # oltre la quota massima del muro
+
+    for angle_deg in (0.0, 47.0, 137.0, 200.0, 311.0):
+        cloud = np.vstack([base, marker]) @ _yaw(angle_deg).T + np.array([100.0, -300.0, 50.0])
+
+        aligned, _, _ = abaqus.align_to_axes(cloud)
+        marker_z = aligned[-1, 2]
+
+        assert marker_z == pytest.approx(aligned[:, 2].max())
+        assert marker_z != pytest.approx(aligned[:, 2].min())
+
+
+def test_rotation_matrix_is_always_right_handed():
+    rng = np.random.default_rng(3)
+    base = rng.uniform([0.0, 0.0, 0.0], [1000.0, 50.0, 300.0], size=(800, 3))
+
+    for angle_deg in (0.0, 15.0, 61.0, 123.0, 250.0):
+        cloud = base @ _yaw(angle_deg).T + np.array([10.0, 20.0, 30.0])
+        _, transform, _ = abaqus.align_to_axes(cloud)
+
+        assert np.linalg.det(transform[:3, :3]) == pytest.approx(1.0)
+
+
+def test_extent_is_invariant_to_the_input_rotation():
+    rng = np.random.default_rng(4)
+    base = rng.uniform([0.0, 0.0, 0.0], [1000.0, 50.0, 300.0], size=(1000, 3))
+
+    aligned_a, _, _ = abaqus.align_to_axes(base @ _yaw(10.0).T + np.array([500.0, -100.0, 20.0]))
+    aligned_b, _, _ = abaqus.align_to_axes(base @ _yaw(200.0).T + np.array([-300.0, 400.0, -50.0]))
+
+    extent_a = aligned_a.max(axis=0) - aligned_a.min(axis=0)
+    extent_b = aligned_b.max(axis=0) - aligned_b.min(axis=0)
+
+    assert extent_a == pytest.approx(extent_b, rel=1e-6)
