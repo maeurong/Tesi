@@ -276,6 +276,19 @@ Materiali non lineari, analisi dinamiche o modali, edifici o assemblaggi di più
 rilevamento automatico di fessure, impacchettamento in eseguibile, esecuzione remota e
 multiutente. Si valutano solo se emerge una necessità concreta.
 
+### Alternative valutate e scartate
+
+**OpenSees come secondo solutore di verifica.** Con un'analisi elastica lineare due solutori
+indipendenti concordano a meno della precisione macchina, perché implementano lo stesso
+tetraedro standard: l'accordo verificherebbe i solutori, non il modello, mentre il rischio
+di questo lavoro è geometrico. In più OpenSees non legge il formato `.inp` e richiederebbe
+un secondo writer da scrivere e mantenere, mentre CalculiX riusa lo stesso identico deck
+destinato ad Abaqus, che è la verifica incrociata a costo quasi nullo.
+
+La decisione si riapre se l'ambito si sposta ad analisi non lineari o dinamiche — danno nella
+muratura, azione sismica, aggiornamento del modello da vibrazioni ambientali: lì i due solutori
+non concordano banalmente e il confronto acquista contenuto.
+
 ## 13. Rischi
 
 | Rischio | Effetto | Mitigazione |
