@@ -2,8 +2,21 @@
 
 from __future__ import annotations
 
+import time
+
 import numpy as np
 import tetgen
+
+from meshrec.core.config import TetConfig
+from meshrec.core.quality import boundary_edges, inverted_tets, is_watertight
+
+
+class NotWatertightError(ValueError):
+    """La superficie non e chiusa: TetGen non puo tetraedrizzarla."""
+
+
+class InvertedElementsError(ValueError):
+    """La mesh di volume contiene elementi invertiti o degeneri."""
 
 
 def tetrahedralize(
@@ -18,6 +31,15 @@ def tetrahedralize(
     elementi piu regolari e piu numerosi); `max_volume` limita il volume del
     singolo elemento nelle unita di lavoro.
     """
+    faces = np.asarray(faces)
+    if not is_watertight(faces):
+        open_edges = len(boundary_edges(faces))
+        raise NotWatertightError(
+            f"superficie non chiusa: {open_edges} spigoli di bordo. "
+            "TetGen richiede un ingresso manifold chiuso; ripara la superficie "
+            "con core.repair.repair_surface prima di tetraedrizzare."
+        )
+
     generator = tetgen.TetGen(
         np.ascontiguousarray(vertices, dtype=np.float64),
         np.ascontiguousarray(faces, dtype=np.int32),
@@ -37,3 +59,29 @@ def tetrahedralize(
         np.ascontiguousarray(nodes, dtype=np.float64),
         np.ascontiguousarray(tets, dtype=np.int64),
     )
+
+
+def tetrahedralize_with_metrics(
+    vertices: np.ndarray, faces: np.ndarray, cfg: TetConfig
+) -> tuple[np.ndarray, np.ndarray, dict[str, object]]:
+    """Step 9 completo: tetraedrizza, cronometra e rifiuta gli elementi invertiti."""
+    start = time.perf_counter()
+    nodes, tets = tetrahedralize(vertices, faces, cfg.min_ratio, cfg.max_volume)
+    seconds = time.perf_counter() - start
+
+    inverted = inverted_tets(nodes, tets)
+    if len(inverted) > 0:
+        raise InvertedElementsError(
+            f"{len(inverted)} tetraedri invertiti o degeneri su {len(tets)}: "
+            "risultato inutilizzabile per l'analisi, non un avviso"
+        )
+
+    metrics = {
+        "nodes": int(len(nodes)),
+        "tets": int(len(tets)),
+        "seconds": float(seconds),
+        "element": cfg.element,
+        "min_ratio": cfg.min_ratio,
+        "max_volume": cfg.max_volume,
+    }
+    return nodes, tets, metrics

@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from meshrec.core import quality, synth, volume
+from meshrec.core import config, quality, synth, volume
 
 SIZE = (100.0, 40.0, 200.0)
 EXACT_VOLUME = 100.0 * 40.0 * 200.0
@@ -38,3 +38,30 @@ def test_max_volume_controls_the_number_of_elements():
     _, fine = volume.tetrahedralize(vertices, faces, max_volume=20_000.0)
 
     assert len(fine) > len(coarse)
+
+
+def test_an_open_surface_is_refused_before_tetgen_runs():
+    """fTetWild non e' installabile su Windows: la guardia e' l'unica difesa."""
+    vertices, faces = synth.box_mesh(SIZE)
+    damaged = synth.punch_holes(faces)
+
+    with pytest.raises(volume.NotWatertightError, match="4 spigoli di bordo"):
+        volume.tetrahedralize(vertices, damaged)
+
+
+def test_with_metrics_reports_counts_and_time():
+    vertices, faces = synth.box_mesh(SIZE)
+
+    nodes, tets, metrics = volume.tetrahedralize_with_metrics(vertices, faces, config.TetConfig())
+
+    assert metrics["nodes"] == len(nodes)
+    assert metrics["tets"] == len(tets)
+    assert metrics["seconds"] > 0.0
+    assert metrics["element"] == "C3D4"
+
+
+def test_inverted_elements_are_a_blocking_error():
+    """La spec chiede errore bloccante, non avviso: qui lo si verifica sul percorso reale."""
+    vertices, faces = synth.box_mesh(SIZE)
+    nodes, tets, _ = volume.tetrahedralize_with_metrics(vertices, faces, config.TetConfig())
+    assert len(quality.inverted_tets(nodes, tets)) == 0
