@@ -33,3 +33,16 @@ def mesh_volume(vertices: np.ndarray, faces: np.ndarray) -> float:
     f = np.asarray(faces)
     a, b, c = v[f[:, 0]], v[f[:, 1]], v[f[:, 2]]
     return float(np.einsum("ij,ij->i", a, np.cross(b, c)).sum() / 6.0)
+
+
+def tet_volumes(nodes: np.ndarray, tets: np.ndarray) -> np.ndarray:
+    """Volume con segno di ogni tetraedro; negativo se l'elemento e invertito."""
+    n = np.asarray(nodes, dtype=np.float64)
+    t = np.asarray(tets)
+    a, b, c, d = n[t[:, 0]], n[t[:, 1]], n[t[:, 2]], n[t[:, 3]]
+    return np.einsum("ij,ij->i", b - a, np.cross(c - a, d - a)) / 6.0
+
+
+def inverted_tets(nodes: np.ndarray, tets: np.ndarray) -> np.ndarray:
+    """Indici dei tetraedri degeneri o invertiti (volume non positivo)."""
+    return np.flatnonzero(tet_volumes(nodes, tets) <= 0.0)
