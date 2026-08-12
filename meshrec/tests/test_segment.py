@@ -64,3 +64,30 @@ def test_auto_mode_is_not_available_yet():
     points = synth.sample_box_surface(SIZE, SPACING)
     with pytest.raises(NotImplementedError):
         segment.segment_cloud(points, config.SegmentConfig(method="auto"), SPACING)
+
+
+def test_crop_box_with_inverted_bounds_raises():
+    points = synth.sample_box_surface(SIZE, SPACING)
+    cfg = config.SegmentConfig(crop_min=(100.0, 0.0, 0.0), crop_max=(0.0, 40.0, 100.0))
+    with pytest.raises(ValueError, match="non e maggiore"):
+        segment.crop_box(points, cfg)
+
+
+def test_remove_outliers_that_empties_the_cloud_raises():
+    points = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]])
+    cfg = config.SegmentConfig(outlier_neighbors=1, outlier_std_ratio=1e-9)
+    with pytest.raises(ValueError, match="svuotato"):
+        segment.remove_outliers(points, cfg)
+
+
+def test_segment_cloud_reports_original_points_before_not_intermediate():
+    points = synth.sample_box_surface(SIZE, SPACING)
+    dirty = np.vstack([points, [[500.0, 500.0, 500.0]]])
+    cfg = config.SegmentConfig(
+        method="crop", crop_min=(0.0, 0.0, 0.0), crop_max=(100.0, 40.0, 100.0)
+    )
+
+    result, metrics = segment.segment_cloud(dirty, cfg, SPACING)
+
+    assert metrics["points_before"] == len(dirty)
+    assert metrics["points_after"] == len(result)

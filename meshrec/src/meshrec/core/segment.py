@@ -26,7 +26,6 @@ def remove_outliers(
     if len(kept) == 0:
         raise ValueError("la rimozione degli outlier ha svuotato la nuvola: allenta std_ratio")
     return kept, {
-        "points_before": int(len(points)),
         "outliers_removed": int(len(points) - len(kept)),
     }
 
@@ -50,7 +49,6 @@ def crop_box(points: np.ndarray, cfg: SegmentConfig) -> tuple[np.ndarray, dict[s
         )
     return np.ascontiguousarray(points[inside]), {
         "cropped": True,
-        "points_before": int(len(points)),
         "points_after": int(inside.sum()),
     }
 
