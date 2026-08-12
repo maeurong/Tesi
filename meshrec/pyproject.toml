@@ -13,7 +13,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-feasibility = []
+feasibility = [
+    "gmsh>=4.15.2",
+    "pymeshfix>=0.18.1",
+    "pymeshlab>=2025.7.post1",
+]
 
 [dependency-groups]
 dev = ["pytest>=8.0"]
