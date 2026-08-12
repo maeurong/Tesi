@@ -49,6 +49,11 @@ def test_gmsh_meshes_and_optimizes_a_box(tmp_path):
         _, tags_after, _ = gmsh.model.mesh.getElements(3)
         after = np.asarray(gmsh.model.mesh.getElementQualities(tags_after[0]))
 
+        # L'esito di Fase 0 dichiara optimize("Netgen") come scelta per la
+        # Fase 1: se qui servisse il ripiego, l'asserzione deve fallire,
+        # cosi' il documento degli esiti si corregge invece di restare falso.
+        assert optimizer_used == "Netgen"
+
         # L'ottimizzazione puo aggiungere/rimuovere elementi (split/collapse):
         # il confronto e' sulla qualita minima dell'intera mesh, non elemento
         # per elemento, quindi resta valido anche se il conteggio cambia. Nella

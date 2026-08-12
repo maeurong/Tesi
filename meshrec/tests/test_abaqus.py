@@ -34,7 +34,11 @@ def test_inp_is_readable_by_meshio(tmp_path, cube_mesh):
 
     mesh = meshio.read(path)
     assert len(mesh.points) == len(nodes)
-    assert sum(len(block.data) for block in mesh.cells if block.type == "tetra") == len(tets)
+    reread_tets = np.vstack([block.data for block in mesh.cells if block.type == "tetra"])
+    assert len(reread_tets) == len(tets)
+    # meshio riconverte gli indici 1-based del file in 0-based in lettura:
+    # il confronto coi tets di partenza (gia' 0-based) e' diretto, verificato.
+    assert np.array_equal(reread_tets, tets)
 
 
 def test_inp_contains_sets_material_and_gravity_step(tmp_path, cube_mesh):

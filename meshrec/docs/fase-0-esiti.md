@@ -70,6 +70,15 @@ cd meshrec
 uv run pytest tests/feasibility/test_calculix.py -v -m feasibility
 ```
 
+## Decisione: `punch_holes` e adiacenza dei triangoli rimossi
+
+`synth.punch_holes(faces, remove=(0, 6))` rimuove i triangoli di indice 0 e 6
+di `_BOX_FACES`, che condividono lo spigolo (1, 2): sono adiacenti, quindi il
+default apre **un foro unico** a cavallo delle due facce, con **4** spigoli di
+bordo — non due fori separati da tre spigoli ciascuno. Decisione presa perche'
+riflette il caso di danno piu comune sulla muratura reale (lacuna continua),
+non due lesioni isolate; `tests/test_quality.py` verifica il valore 4.
+
 ## Alternativa valutata e scartata: OpenSees
 
 OpenSees (`openseespy`) è stato valutato come secondo solutore di verifica

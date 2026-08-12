@@ -13,9 +13,27 @@ Python 3.12 e [uv](https://docs.astral.sh/uv/).
 
 ```bash
 uv sync
-uv run pytest                 # test del nucleo
-uv run pytest -m feasibility  # verifiche sulle dipendenze esterne (Fase 0)
+uv run pytest                          # test del nucleo
+
+uv sync --all-extras                   # installa anche gmsh (gruppo opzionale "feasibility")
+uv run pytest -m feasibility           # verifiche sulle dipendenze esterne (Fase 0)
 ```
+
+`uv sync` da solo **non installa** gli extra: `gmsh` sta nel gruppo opzionale
+`feasibility` di `pyproject.toml`, quindi il suo test viene saltato senza
+`--all-extras`.
+
+### Salti attesi nelle prove di fattibilità
+
+Su questa macchina, cinque verifiche, un salto è atteso e quattro no:
+
+- `wildmeshing` **salta sempre**, per progetto: nessuna wheel disponibile per
+  Windows, si è deciso il ripiego TetGen + PyMeshFix (vedi `docs/fase-0-esiti.md`).
+- `pymeshfix`, `pymeshlab`, `gmsh`, CalculiX **devono passare**. Se uno di
+  questi salta, la verifica **non** è stata eseguita e l'esito registrato in
+  `docs/fase-0-esiti.md` non vale per questa run.
+- CalculiX richiede l'eseguibile `ccx` nel `PATH` (su questa macchina:
+  `C:\Users\mario\tools\PrePoMax v2.5.0\Solver`, già nel PATH utente).
 
 ### Verifica CalculiX
 

@@ -336,8 +336,9 @@ def test_punch_holes_opens_the_mesh():
     damaged = synth.punch_holes(faces, remove=(0, 6))
 
     assert len(damaged) == 10
-    # due triangoli non adiacenti rimossi: tre spigoli di bordo ciascuno
-    assert len(quality.boundary_edges(damaged)) == 6
+    # triangoli 0 e 6 condividono spigolo (1,2): sono adiacenti, quindi un
+    # foro unico con 4 spigoli di bordo (non due fori separati da 3 ciascuno)
+    assert len(quality.boundary_edges(damaged)) == 4
     assert not quality.is_watertight(damaged)
 ```
 

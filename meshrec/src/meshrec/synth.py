@@ -79,7 +79,13 @@ def box_mesh(size: tuple[float, float, float]) -> tuple[np.ndarray, np.ndarray]:
 
 
 def punch_holes(faces: np.ndarray, remove: tuple[int, ...] = (0, 6)) -> np.ndarray:
-    """Rimuove i triangoli indicati, aprendo altrettanti fori nella mesh."""
+    """Rimuove i triangoli indicati dalla mesh.
+
+    Il numero di fori dipende dall'adiacenza dei triangoli rimossi, non dal
+    loro numero: i due indici di default (0, 6) condividono lo spigolo (1, 2),
+    quindi aprono un foro unico a cavallo delle due facce, con 4 spigoli di
+    bordo (non due fori separati con tre spigoli ciascuno).
+    """
     keep = np.ones(len(faces), dtype=bool)
     keep[list(remove)] = False
     return np.ascontiguousarray(np.asarray(faces)[keep])
