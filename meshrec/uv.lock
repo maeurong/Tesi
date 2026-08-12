@@ -464,6 +464,8 @@ dependencies = [
     { name = "numpy" },
     { name = "open3d" },
     { name = "pydantic" },
+    { name = "pymeshfix" },
+    { name = "pymeshlab" },
     { name = "scipy" },
     { name = "tetgen" },
 ]
@@ -471,8 +473,6 @@ dependencies = [
 [package.optional-dependencies]
 feasibility = [
     { name = "gmsh" },
-    { name = "pymeshfix" },
-    { name = "pymeshlab" },
 ]
 
 [package.dev-dependencies]
@@ -487,8 +487,8 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.0" },
     { name = "open3d", specifier = ">=0.19" },
     { name = "pydantic", specifier = ">=2.7" },
-    { name = "pymeshfix", marker = "extra == 'feasibility'", specifier = ">=0.18.1" },
-    { name = "pymeshlab", marker = "extra == 'feasibility'", specifier = ">=2025.7.post1" },
+    { name = "pymeshfix", specifier = ">=0.18.1" },
+    { name = "pymeshlab", specifier = ">=2025.7.post1" },
     { name = "scipy", specifier = ">=1.13" },
     { name = "tetgen", specifier = ">=0.6" },
 ]

@@ -10,13 +10,13 @@ dependencies = [
     "tetgen>=0.6",
     "meshio>=5.3",
     "pydantic>=2.7",
+    "pymeshfix>=0.18.1",
+    "pymeshlab>=2025.7.post1",
 ]
 
 [project.optional-dependencies]
 feasibility = [
     "gmsh>=4.15.2",
-    "pymeshfix>=0.18.1",
-    "pymeshlab>=2025.7.post1",
 ]
 
 [dependency-groups]
