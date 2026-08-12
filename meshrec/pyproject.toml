@@ -15,6 +15,9 @@ dependencies = [
     "pyyaml>=6.0",
 ]
 
+[project.scripts]
+meshrec = "meshrec.cli:main"
+
 [project.optional-dependencies]
 feasibility = [
     "gmsh>=4.15.2",
