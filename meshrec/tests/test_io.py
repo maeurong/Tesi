@@ -85,3 +85,21 @@ def test_cloud_round_trip_preserves_points_and_normals(tmp_path):
 
     assert back == pytest.approx(points, abs=1e-3)
     assert back_normals == pytest.approx(normals, abs=1e-3)
+
+
+def test_missing_file_raises_with_message(tmp_path):
+    """open3d.io.read_point_cloud non solleva su file assente: va controllato a mano."""
+    path = tmp_path / "assente.ply"
+
+    with pytest.raises(ValueError, match="nessun punto letto"):
+        io.load_cloud(config.InputConfig(path=path))
+
+
+def test_all_points_non_finite_raises_with_message(tmp_path):
+    """Se il filtro dei non finiti svuota la nuvola, l'errore deve dirlo esplicitamente."""
+    points = np.full((5, 3), np.nan)
+    path = tmp_path / "tutta_non_finita.ply"
+    _write_ply(path, points)
+
+    with pytest.raises(ValueError, match="coordinate non finite"):
+        io.load_cloud(config.InputConfig(path=path))
