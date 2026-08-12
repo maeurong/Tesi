@@ -21,6 +21,7 @@ def test_pymeshfix_closes_a_punched_box():
     fixer = pymeshfix.MeshFix(np.asarray(vertices), np.asarray(damaged, dtype=np.int32))
     fixer.repair()
 
+    # API reale di pymeshfix 0.18.1: .points/.faces, non .v/.f come previsto dal piano.
     repaired_vertices = np.asarray(fixer.points, dtype=np.float64)
     repaired_faces = np.asarray(fixer.faces, dtype=np.int64)
 

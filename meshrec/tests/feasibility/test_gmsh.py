@@ -51,10 +51,14 @@ def test_gmsh_meshes_and_optimizes_a_box(tmp_path):
 
         # L'ottimizzazione puo aggiungere/rimuovere elementi (split/collapse):
         # il confronto e' sulla qualita minima dell'intera mesh, non elemento
-        # per elemento, quindi resta valido anche se il conteggio cambia.
+        # per elemento, quindi resta valido anche se il conteggio cambia. Nella
+        # misura di riferimento il numero di elementi passa da 540 a 775, quindi
+        # il confronto non e' a parita di elementi: parte del guadagno di qualita
+        # viene dal raffittimento, non dalla sola ottimizzazione.
         assert len(before) > 10
         assert before.min() > 0.0
-        assert after.min() >= before.min() - 1e-9
+        assert after.min() > before.min()  # miglioramento stretto: un optimize no-op deve far fallire il test
+        assert after.min() > 0.1  # soglia assoluta di usabilita per FEM (misura di riferimento: 0.42)
 
         print(
             f"optimizer_used={optimizer_used} "
