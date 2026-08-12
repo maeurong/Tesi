@@ -1,5 +1,6 @@
 """Riga di comando minima: eseguire una configurazione e generarne una di esempio."""
 
+import pydantic
 import pytest
 
 from meshrec import cli
@@ -50,4 +51,22 @@ def test_a_failing_run_reports_the_error_without_a_traceback(tmp_path, capsys):
     config.save_config(cfg, tmp_path / "config.yaml")
 
     assert cli.main(["run", str(tmp_path / "config.yaml")]) == 1
-    assert "nessun punto letto" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "nessun punto letto" in err
+    assert "Traceback" not in err
+
+
+def test_from_step_out_of_domain_is_rejected_by_pydantic_not_a_keyerror(tmp_path, capsys):
+    cfg = config.PipelineConfig(input=config.InputConfig(path="nuvola.ply"))
+    config.save_config(cfg, tmp_path / "config.yaml")
+
+    assert cli.main(["run", str(tmp_path / "config.yaml"), "--from-step", "10"]) == 1
+    err = capsys.readouterr().err
+    assert "KeyError" not in err
+    assert "from_step" in err
+
+
+def test_run_config_rejects_an_out_of_domain_assignment(tmp_path):
+    cfg = config.PipelineConfig(input=config.InputConfig(path="nuvola.ply"))
+    with pytest.raises(pydantic.ValidationError):
+        cfg.run.from_step = 999

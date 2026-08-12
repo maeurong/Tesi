@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 GRAVITY_MM_S2: float = 9810.0
 
@@ -126,6 +126,11 @@ class AnalysisConfig(BaseModel):
 
 class RunConfig(BaseModel):
     """Esecuzione: percorsi e ripresa."""
+
+    # La riga di comando e, in Fase 3, l'interfaccia assegnano questi campi
+    # direttamente: senza validate_assignment pydantic non li verifica e un
+    # valore fuori dominio arriva silenziosamente fino alla pipeline.
+    model_config = ConfigDict(validate_assignment=True)
 
     out_dir: Path = Path("runs/default")
     from_step: int = Field(

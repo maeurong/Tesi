@@ -47,12 +47,11 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     cfg = load_config(args.config)
-    if args.from_step is not None:
-        cfg.run.from_step = args.from_step
-    if args.out_dir is not None:
-        cfg.run.out_dir = args.out_dir
-
     try:
+        if args.from_step is not None:
+            cfg.run.from_step = args.from_step
+        if args.out_dir is not None:
+            cfg.run.out_dir = args.out_dir
         metrics = pipeline.run(cfg)
     except Exception as error:  # la riga di comando riporta il problema, non lo stack
         print(f"{type(error).__name__}: {error}", file=sys.stderr)
