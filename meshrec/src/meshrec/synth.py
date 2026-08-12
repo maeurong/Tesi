@@ -50,3 +50,36 @@ def sample_box_surface(
         points = points + rng.normal(0.0, noise, points.shape)
 
     return np.ascontiguousarray(points, dtype=np.float64)
+
+
+_BOX_FACES = np.array(
+    [
+        [0, 2, 1], [0, 3, 2],   # z = 0
+        [4, 5, 6], [4, 6, 7],   # z = lz
+        [0, 1, 5], [0, 5, 4],   # y = 0
+        [1, 2, 6], [1, 6, 5],   # x = lx
+        [2, 3, 7], [2, 7, 6],   # y = ly
+        [3, 0, 4], [3, 4, 7],   # x = 0
+    ],
+    dtype=np.int64,
+)
+
+
+def box_mesh(size: tuple[float, float, float]) -> tuple[np.ndarray, np.ndarray]:
+    """Parallelepipedo come mesh triangolare chiusa con normali uscenti."""
+    lx, ly, lz = (float(value) for value in size)
+    vertices = np.array(
+        [
+            [0.0, 0.0, 0.0], [lx, 0.0, 0.0], [lx, ly, 0.0], [0.0, ly, 0.0],
+            [0.0, 0.0, lz], [lx, 0.0, lz], [lx, ly, lz], [0.0, ly, lz],
+        ],
+        dtype=np.float64,
+    )
+    return vertices, _BOX_FACES.copy()
+
+
+def punch_holes(faces: np.ndarray, remove: tuple[int, ...] = (0, 6)) -> np.ndarray:
+    """Rimuove i triangoli indicati, aprendo altrettanti fori nella mesh."""
+    keep = np.ones(len(faces), dtype=bool)
+    keep[list(remove)] = False
+    return np.ascontiguousarray(np.asarray(faces)[keep])
