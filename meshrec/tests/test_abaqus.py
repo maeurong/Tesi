@@ -419,3 +419,114 @@ def test_export_model_estimates_the_triad_on_the_reference_it_is_given(tmp_path)
 
     assert metrics["extent"] == pytest.approx(sorted(SIZE), rel=1e-6)
     assert metrics["node_sets"]["BASE"] > 0
+
+
+def test_the_tolerance_follows_the_boundary_spacing_not_the_element_volume(cube_mesh):
+    """La tolleranza si lega alla geometria, non a un artefatto del raffinamento.
+
+    L'euristica precedente derivava dal volume medio dell'elemento, che su una
+    distribuzione a coda pesante e' dominato da pochi tetraedri enormi
+    dell'interno: sul muro reale la mediana vale 14,6 mm^3 contro una media di
+    30.735, un fattore duemila. La scala che conta e' la spaziatura dei nodi sul
+    bordo del maglio di volume, perche' e' li che i set vengono estratti ed e'
+    quella la scala su cui la faccia ricostruita ondula.
+
+    Il parallelepipedo sintetico non puo' dimostrarlo: ha maglia uniforme,
+    quindi le due scale vi coincidono quasi. Qui si fissa la definizione; la
+    misura che ha scartato l'euristica precedente e le due candidate e' su dati
+    reali, in docs/fase-1-tolleranza-set.md.
+    """
+    nodes, tets = cube_mesh
+    facce = abaqus._boundary_faces(tets)
+    spigoli = np.unique(
+        np.sort(np.vstack([facce[:, [0, 1]], facce[:, [1, 2]], facce[:, [0, 2]]]), axis=1), axis=0
+    )
+    atteso = np.median(np.linalg.norm(nodes[spigoli[:, 0]] - nodes[spigoli[:, 1]], axis=1))
+
+    assert abaqus.set_tolerance(nodes, tets, 6.0) == pytest.approx(6.0 * atteso)
+    assert abaqus.set_tolerance(nodes, tets, 1.0) == pytest.approx(atteso)
+
+
+def test_the_boundary_nodes_are_the_nodes_of_the_boundary_faces(cube_mesh):
+    """Le due funzioni non devono divergere: la seconda deriva dalla prima."""
+    _, tets = cube_mesh
+
+    assert np.array_equal(abaqus._boundary_nodes(tets), np.unique(abaqus._boundary_faces(tets)))
+
+
+def test_the_footprint_is_fully_covered_on_a_flat_base(cube_mesh):
+    """Su una base piana l'insieme vincolato copre tutta la superficie d'appoggio."""
+    nodes, tets = cube_mesh
+    bordo = abaqus._boundary_nodes(tets)
+    spaziatura = abaqus.set_tolerance(nodes, tets, 1.0)
+    insieme = abaqus.build_node_sets(nodes, 6.0 * spaziatura)["BASE"]
+
+    assert abaqus.footprint_coverage(nodes, bordo, insieme, spaziatura) == 1.0
+
+
+def test_the_coverage_counts_columns_of_the_footprint_not_nodes():
+    """Contare i nodi di un insieme non dice se copra la faccia che deve coprire.
+
+    4738 nodi su una faccia coperta al 55,78% e 4738 su una coperta al 100%
+    sono lo stesso numero in metrics.json: e' il difetto per cui un `BASE` da 9
+    nodi produceva un deck formalmente valido per un modello non vincolato.
+
+    La griglia e' esplicita e non tetraedrizzata perche' il parallelepipedo
+    sintetico non serve allo scopo: con la sua maglia l'impronta intera entra in
+    una cella sola, e la copertura vi vale 1 per costruzione qualunque cosa
+    accada. E' lo stesso motivo per cui la regola e' stata scelta su dati reali.
+    """
+    passo = 10.0
+    x, y = np.meshgrid(np.arange(10) * passo, np.arange(10) * passo, indexing="ij")
+    bassi = np.column_stack([x.ravel(), y.ravel(), np.zeros(x.size)])
+    nodes = np.vstack([bassi, bassi + [0.0, 0.0, 500.0]])
+    bordo = np.arange(len(nodes))
+
+    # celle di lato 4 x 5 = 20 mm su un'impronta di 90 x 90: venticinque colonne,
+    # tutte a contatto. Il vincolo copre il solo angolo, cioe' una colonna.
+    angolo = np.flatnonzero((nodes[:, 2] == 0.0) & (nodes[:, 0] < 20.0) & (nodes[:, 1] < 20.0))
+    tutti = np.flatnonzero(nodes[:, 2] == 0.0)
+
+    assert len(angolo) == 4
+    assert abaqus.footprint_coverage(nodes, bordo, angolo, 5.0) == pytest.approx(1.0 / 25.0)
+    assert abaqus.footprint_coverage(nodes, bordo, tutti, 5.0) == 1.0
+
+
+def test_export_warns_when_the_constrained_set_misses_the_footprint(tmp_path, cube_mesh, monkeypatch):
+    """La guardia sul set vuoto era cieca su tutto cio' che non era vuoto.
+
+    La copertura e' sostituita perche' costruire una geometria che la faccia
+    scendere richiederebbe una scansione reale: sul parallelepipedo sintetico la
+    base e' un piano esatto e la copertura vale 1 per qualunque tolleranza.
+    """
+    nodes, tets = cube_mesh
+    monkeypatch.setattr(abaqus, "footprint_coverage", lambda *args: 0.3)
+
+    with pytest.warns(abaqus.UnconstrainedModelWarning, match="appoggio"):
+        metrics = abaqus.export_model(
+            tmp_path / "wall_model.inp",
+            tmp_path / "wall_model.vtu",
+            nodes,
+            tets,
+            config.AnalysisConfig(),
+            config.TetConfig(),
+        )
+
+    assert metrics["fixed_nset_coverage"] == 0.3
+
+
+def test_export_reports_how_much_of_the_footprint_is_constrained(tmp_path, cube_mesh):
+    nodes, tets = cube_mesh
+
+    metrics = abaqus.export_model(
+        tmp_path / "wall_model.inp",
+        tmp_path / "wall_model.vtu",
+        nodes,
+        tets,
+        config.AnalysisConfig(),
+        config.TetConfig(),
+    )
+
+    assert metrics["fixed_nset_coverage"] == 1.0
+    assert metrics["boundary_spacing"] > 0.0
+    assert metrics["set_tolerance"] == pytest.approx(6.0 * metrics["boundary_spacing"])

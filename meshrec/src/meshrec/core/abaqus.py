@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -9,6 +10,10 @@ import numpy as np
 from meshrec.core.config import GRAVITY_MM_S2, AnalysisConfig, Material, TetConfig
 
 _SET_ITEMS_PER_LINE = 8
+
+
+class UnconstrainedModelWarning(UserWarning):
+    """L'insieme vincolato raggiunge meno della meta' della superficie d'appoggio."""
 
 
 def _set_lines(indices: np.ndarray) -> list[str]:
@@ -104,21 +109,44 @@ def _fix_sign(direction: np.ndarray) -> np.ndarray:
 _TET_FACE_COMBOS = ((0, 1, 2), (0, 1, 3), (0, 2, 3), (1, 2, 3))
 
 
-def _boundary_nodes(tets: np.ndarray) -> np.ndarray:
-    """Indici dei nodi sul bordo della mesh tetraedrica.
+def _boundary_faces(tets: np.ndarray) -> np.ndarray:
+    """Facce triangolari sul bordo della mesh tetraedrica.
 
     Stesso ragionamento di quality.boundary_edges, esteso alle facce
     triangolari dei tetraedri: si costruiscono le quattro facce di ogni
     tetraedro, si ordinano gli indici al loro interno, si contano le
-    occorrenze e si tengono quelle con occorrenza singola. I punti di
-    Steiner interni aggiunti da TetGen compaiono solo in facce condivise
-    da due tetraedri (occorrenza doppia) e restano esclusi.
+    occorrenze e si tengono quelle con occorrenza singola.
     """
     t = np.asarray(tets, dtype=np.int64)
     faces = np.vstack([t[:, combo] for combo in _TET_FACE_COMBOS])
     faces = np.sort(faces, axis=1)
     unique, counts = np.unique(faces, axis=0, return_counts=True)
-    return np.unique(unique[counts == 1])
+    return unique[counts == 1]
+
+
+def _boundary_nodes(tets: np.ndarray) -> np.ndarray:
+    """Indici dei nodi sul bordo della mesh tetraedrica.
+
+    I punti di Steiner interni aggiunti da TetGen compaiono solo in facce
+    condivise da due tetraedri e restano quindi esclusi.
+    """
+    return np.unique(_boundary_faces(tets))
+
+
+def boundary_spacing(nodes: np.ndarray, faces: np.ndarray) -> float:
+    """Mediana della lunghezza degli spigoli delle facce di bordo date.
+
+    E' la scala geometrica del maglio dove i set vengono estratti, e non va
+    confusa con quella della superficie riparata da cui il maglio deriva: con
+    `tet.nobisect` falso TetGen suddivide le facce di ingresso, e sul muro di
+    riferimento il bordo del maglio di volume risulta 2,4 volte piu fitto
+    della superficie (13,73 mm contro 33,55 mm).
+    """
+    points = np.asarray(nodes, dtype=np.float64)
+    f = np.asarray(faces, dtype=np.int64)
+    edges = np.sort(np.vstack([f[:, [0, 1]], f[:, [1, 2]], f[:, [0, 2]]]), axis=1)
+    edges = np.unique(edges, axis=0)
+    return float(np.median(np.linalg.norm(points[edges[:, 0]] - points[edges[:, 1]], axis=1)))
 
 
 def align_to_axes(
@@ -201,33 +229,81 @@ def align_to_axes(
 
 
 def set_tolerance(nodes: np.ndarray, tets: np.ndarray, factor: float) -> float:
-    """Tolleranza dei set derivata dalla dimensione media dell'elemento.
+    """Tolleranza dei set: un multiplo della spaziatura dei nodi sul bordo.
 
-    La media e' una scelta debole e va dichiarata: la distribuzione dei volumi
-    ha una coda pesantissima, e sul muro di riferimento la mediana vale 14,6 mm^3
-    contro una media di 30.735 mm^3, un fattore duemila. La tolleranza che decide
-    quali nodi finiscono in `BASE`, cioe' dove il modello e' vincolato, dipende
-    quindi da una manciata di elementi enormi.
+    L'euristica precedente derivava dal volume medio dell'elemento, cioe' da un
+    artefatto del raffinamento e non dalla geometria: su una distribuzione a
+    coda pesante la media e' dominata da pochi tetraedri enormi dell'interno
+    (sul muro di riferimento mediana 14,6 mm^3 contro media 30.735 mm^3). Il
+    costo e' misurato: `BASE` raggiungeva il 55,78% della superficie che poggia
+    davvero a terra sul muro e il 34,76% su lab_crop.
 
-    Il passaggio alla mediana e' stato provato e misurato sulle due corse, e
-    peggiora il risultato invece di migliorarlo: la tolleranza sul muro scende
-    da 31,95 mm a 2,50 mm e `BASE` passa da 4738 nodi a 9 su 420.547, un vincolo
-    puntiforme sotto un muro da 97 t. Il motivo e' che nessuna delle due
-    statistiche descrive l'elemento tipico: la mediana e' dominata dai tetraedri
-    minuscoli che il raffinamento lascia sulla superficie (lato equivalente
-    5,0 mm), la media dai pochi elementi enormi dell'interno (lato equivalente
-    63,9 mm), mentre la scala che conta e' la spaziatura dei nodi sul bordo,
-    mediana 13,7 mm. Legare la tolleranza al volume dell'elemento e' l'euristica
-    sbagliata in partenza; finche' non viene sostituita resta la media, che e'
-    la sola sotto cui i set sono stati verificati utilizzabili. Il numero di
-    nodi di ogni set e' comunque riportato in `metrics.json`, quindi un set
-    degenere e' visibile e non silenzioso.
+    Le due candidate note sono state misurate e respinte, ciascuna da un
+    numero. Il volume mediano dell'elemento da' 2,50 mm di tolleranza e un
+    `BASE` di 9 nodi su 420.547. La selezione per direzione della normale, che
+    e' lo standard dei preprocessori, e' catastrofica su una scansione con
+    aperture: l'87,8% dell'area di lab_crop rivolta verso il basso e'
+    l'intradosso dell'architrave, a 1493,5 mm su 1693,99 di altezza, e
+    finirebbe in `BASE`.
+
+    La scala giusta e' quella su cui la faccia ricostruita ondula, che e' la
+    scala del campionamento e non quella del solido: misurata in spaziature,
+    l'ondulazione trasferisce fra i due modelli entro un fattore 1,79, mentre
+    misurata in frazioni dell'estensione entro un fattore 3,2. Misura completa,
+    criterio di accettazione e sweep del fattore in
+    docs/fase-1-tolleranza-set.md.
     """
-    from meshrec.core.quality import tet_volumes
+    return factor * boundary_spacing(nodes, _boundary_faces(tets))
 
-    mean_volume = float(np.abs(tet_volumes(nodes, tets)).mean())
-    edge = (mean_volume * 6.0 * np.sqrt(2.0)) ** (1.0 / 3.0)
-    return factor * edge
+
+def footprint_coverage(
+    nodes: np.ndarray, boundary: np.ndarray, indices: np.ndarray, spacing: float
+) -> float:
+    """Frazione della superficie d'appoggio che l'insieme dato raggiunge davvero.
+
+    Contare i nodi di un insieme non dice se copra la faccia che deve coprire:
+    possono stare tutti ammucchiati in un angolo. 4738 nodi su una faccia
+    coperta al 55,78% e 4738 su una coperta al 100% sono lo stesso numero.
+
+    L'impronta viene divisa in celle quadrate di lato `4 * spacing`. Una
+    colonna e' *a contatto* se il suo nodo di bordo piu basso cade entro il 2%
+    dell'altezza dal minimo globale, cioe' se in quel punto il solido tocca
+    davvero il piano d'appoggio; il risultato e' la frazione di colonne a
+    contatto che contengono almeno un nodo dell'insieme.
+
+    Il lato `4 * spacing` non e' arbitrario: con una cella larga quanto la
+    spaziatura la griglia diventa piu fine dei triangoli della faccia inferiore
+    (su quella del muro il p95 degli spigoli vale 47,4 mm contro una mediana di
+    13,7) e una colonna su dieci risulta priva di nodi bassi per puro artefatto
+    di griglia. Misurato, e scartato per questo.
+
+    La misura ha tre parametri impliciti — il lato della cella, la banda di
+    contatto e l'asse — ed e' per questo che serve come diagnosi e non come
+    regola: la tolleranza dei set ne ha uno solo.
+    """
+    points = np.asarray(nodes, dtype=np.float64)
+    edge = np.asarray(boundary, dtype=np.int64)
+    low = points.min(axis=0)
+    height = float(points[:, 2].max() - low[2])
+
+    cell = np.floor((points[edge, :2] - low[:2]) / (4.0 * spacing)).astype(np.int64)
+    # Chiave intera invece di np.unique(..., axis=0): stesso risultato, e su un
+    # maglio a scala reale costa un terzo. Le celle sono non negative perche'
+    # misurate dal minimo.
+    key = cell[:, 0] * (cell[:, 1].max() + 1) + cell[:, 1]
+    _, inverse = np.unique(key, return_inverse=True)
+    columns = int(inverse.max()) + 1
+
+    floor_height = np.full(columns, np.inf)
+    np.minimum.at(floor_height, inverse, points[edge, 2])
+    in_contact = floor_height <= low[2] + 0.02 * height
+    if not in_contact.any():
+        return 0.0
+
+    in_set = np.zeros(len(points), dtype=bool)
+    in_set[np.asarray(indices, dtype=np.int64)] = True
+    reached = np.bincount(inverse, weights=in_set[edge], minlength=columns) > 0
+    return float(reached[in_contact].mean())
 
 
 def build_node_sets(nodes: np.ndarray, tolerance: float) -> dict[str, np.ndarray]:
@@ -289,6 +365,13 @@ def export_model(
     Senza riferimento si ripiega sui nodi di bordo della mesh di volume, che
     e' il comportamento precedente e resta valido sulle geometrie di prova,
     dove i nodi coincidono con la superficie.
+
+    Su dati reali quel ripiego non e' valido, ed e' ora misurato: sul muro di
+    riferimento la terna stimata sui nodi di bordo si scosta di 15,33 gradi dal
+    verticale, `BASE` scende da 18.020 nodi a 874 e la copertura della
+    superficie d'appoggio dal 100,00% al 44,23% — abbastanza da far scattare
+    UnconstrainedModelWarning. Chi chiama questa funzione su una scansione deve
+    passare `reference`.
     """
     from meshrec.core.quality import tet_volumes
 
@@ -299,13 +382,36 @@ def export_model(
             "Usa C3D4 finche il writer non gestisce i dieci nodi."
         )
 
+    boundary_faces = _boundary_faces(tets)
+    boundary = np.unique(boundary_faces)
     if reference is None:
-        reference = np.asarray(nodes, dtype=np.float64)[_boundary_nodes(tets)]
+        reference = np.asarray(nodes, dtype=np.float64)[boundary]
     aligned, transform, align_metrics = align_to_axes(nodes, reference=reference)
-    tolerance = set_tolerance(aligned, tets, cfg.set_tolerance_factor)
+    spacing = boundary_spacing(aligned, boundary_faces)
+    tolerance = cfg.set_tolerance_factor * spacing
     node_sets = build_node_sets(aligned, tolerance)
     if len(node_sets[cfg.fixed_nset]) == 0:
         raise ValueError(f"il set vincolato '{cfg.fixed_nset}' e vuoto: tolleranza {tolerance:.3f} mm troppo stretta")
+
+    # La guardia sul set vuoto era cieca su tutto il resto: un `BASE` da 9 nodi
+    # produce un deck formalmente valido per un modello di fatto non vincolato,
+    # e nessuna metrica confrontava la taglia dell'insieme con la faccia che
+    # deve coprire. La soglia e' la meta', che non e' un numero tarato ma
+    # un'affermazione qualitativa: quando la superficie d'appoggio vincolata e'
+    # meno di quella libera, il modello non e' vincolato in alcun senso utile.
+    # Avrebbe segnalato entrambe le corse sotto l'euristica precedente
+    # (55,78% sul muro e 34,76% su lab_crop), e tace sotto quella attuale
+    # (100,00% e 98,93%).
+    coverage = footprint_coverage(aligned, boundary, node_sets[cfg.fixed_nset], spacing)
+    if coverage <= 0.5:
+        warnings.warn(
+            f"l'insieme vincolato '{cfg.fixed_nset}' raggiunge il {coverage:.2%} della "
+            f"superficie d'appoggio con una tolleranza di {tolerance:.3f} mm: il modello "
+            "e' vincolato su una chiazza, non sulla base. Alza "
+            "analysis.set_tolerance_factor o verifica la geometria.",
+            UnconstrainedModelWarning,
+            stacklevel=2,
+        )
 
     write_inp(
         path_inp,
@@ -323,7 +429,9 @@ def export_model(
     return {
         "transform": transform.tolist(),
         "extent": align_metrics["extent"],
+        "boundary_spacing": float(spacing),
         "set_tolerance": float(tolerance),
+        "fixed_nset_coverage": float(coverage),
         "node_sets": {name: int(len(indices)) for name, indices in node_sets.items()},
         "volume": volume,
         "mass": volume * cfg.material.density,

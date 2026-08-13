@@ -160,7 +160,22 @@ class AnalysisConfig(BaseModel):
     fixed_nset: str = "BASE"
     step_name: str = "GRAVITA"
     set_tolerance_factor: float = Field(
-        default=0.5, gt=0.0, description="x dimensione media dell'elemento, per l'estrazione dei set"
+        default=6.0,
+        gt=0.0,
+        description=(
+            "moltiplica la spaziatura dei nodi sul bordo del maglio di volume e "
+            "da' la tolleranza con cui i set di faccia sono estratti. Il "
+            "predefinito 6 e' misurato: e' il piu piccolo intero che copre almeno "
+            "il 95% della superficie d'appoggio su entrambe le corse di "
+            "riferimento e per i quattro set utilizzabili. Il margine ha la "
+            "stessa struttura di quello di tet.min_ratio: 5 e' il primo valore "
+            "che non regge (SIDE_LEFT di lab_crop si ferma al 94,37%), 4 il primo "
+            "che crolla (77,89%), e sopra 6 si compra copertura marginale a "
+            "prezzo pieno (a 8 il BASE del muro cresce del 41% per l'1,58% di "
+            "copertura). Il predefinito precedente, 0,5 volte il volume medio "
+            "dell'elemento, lasciava BASE al 55,78% della base sul muro e al "
+            "34,76% su lab_crop. Vedi docs/fase-1-tolleranza-set.md"
+        ),
     )
 
 

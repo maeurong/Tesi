@@ -63,7 +63,7 @@ analysis:
   gravity: 9810.0
   fixed_nset: BASE
   step_name: GRAVITA
-  set_tolerance_factor: 0.5
+  set_tolerance_factor: 6.0
 run:
   out_dir: runs\muro
   from_step: 1
