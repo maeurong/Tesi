@@ -191,8 +191,9 @@ riparata, che con `nobisect` falso è 2,4 volte più rada — e il fattore prede
 su nessuno dei due modelli. Il margine del 6 ha la stessa struttura di quello di `tet.min_ratio`:
 5 è il primo valore che non regge, 4 il primo che crolla.
 
-**L'implementazione non è ancora stata fatta.** Tocca `abaqus.set_tolerance`, il predefinito di
-`analysis.set_tolerance_factor` in `config.py` e `tests/test_abaqus.py`.
+**La regola è ora implementata**, e i sei insiemi che produce coincidono con la misura su entrambe
+le corse reali, non solo `BASE`. Il predefinito di `analysis.set_tolerance_factor` è 6 e le due
+configurazioni tracciate sono allineate.
 
 **Due esiti negativi che la misura ha prodotto e che la regola non risolve.** Il primo:
 `FACE_FRONT` e `FACE_BACK` su una scansione reale sono inutilizzabili **per qualunque tolleranza**,
@@ -205,14 +206,30 @@ due piedritti e un architrave, non un muro pieno; riempie il 19,4% della propria
 **16,26%** della sua impronta poggia a terra. I 5915 nodi di `BASE` non sono un fallimento della
 regola: quella è la superficie d'appoggio fisica, e nessuna regola può inventarne una più larga.
 
-**La guardia sull'insieme vincolato è cieca su tutto ciò che non è vuoto, e nessuna metrica dice
-se l'insieme copra la faccia.** `export_model` rifiuta un `BASE` vuoto ma accetta un `BASE` da 9
-nodi, che produce un deck formalmente valido per un modello di fatto non vincolato. Il difetto ha
-ora un nome e una misura: 4738 nodi su una faccia coperta al 55,78% e 4738 su una coperta al 100%
-sono lo stesso numero in `metrics.json`. La copertura per colonne esiste come misura in
-`fase-1-tolleranza-set.md` e non nel codice. È il candidato naturale per la stessa famiglia di
-controlli che ha chiuso `max_steiner_points`, `max_volume` e `min_ratio`: una metrica in
-`11_export` che dichiari la frazione di impronta d'appoggio effettivamente vincolata.
+**~~La guardia sull'insieme vincolato è cieca su tutto ciò che non è vuoto.~~ Chiusa.**
+`export_model` rifiutava un `BASE` vuoto ma accettava un `BASE` da 9 nodi, che produce un deck
+formalmente valido per un modello di fatto non vincolato, e nessuna metrica confrontava la taglia
+dell'insieme con la faccia che deve coprire: 4738 nodi su una faccia coperta al 55,78% e 4738 su
+una coperta al 100% erano lo stesso numero in `metrics.json`.
+
+`abaqus.footprint_coverage` divide l'impronta in colonne di lato quattro spaziature, distingue
+quelle che toccano davvero terra e riporta quante ne raggiunge l'insieme vincolato; il valore
+entra in `11_export` accanto alla spaziatura. La soglia dell'avviso è la metà, e come per
+`min_ratio` non è un numero tarato ma un'affermazione qualitativa: quando la superficie d'appoggio
+vincolata è meno di quella libera, il modello non è vincolato in alcun senso utile. Avrebbe
+segnalato entrambe le corse sotto l'euristica precedente e tace sotto quella attuale.
+
+La misura ha tre parametri impliciti — il lato della cella, la banda di contatto e l'asse — ed è
+per questo che serve come diagnosi e non come regola: la tolleranza dei set ne ha uno solo.
+
+**Il ripiego di `export_model` quando manca il riferimento non è utilizzabile su dati reali.** Era
+già dichiarato inferiore — la terna stimata sui nodi di bordo del maglio si scosta di 15,33 gradi
+dal verticale contro 0,45 stimandola sui vertici della superficie — con la postilla che restasse
+«valido sulle geometrie di prova». La postilla regge, il ripiego no: sul muro reale porta `BASE`
+da 18.020 nodi a **874** e la copertura della superficie d'appoggio dal 100,00% al **44,23%**. La
+pipeline passa sempre il riferimento e non è quindi esposta, ma chiunque chiami `export_model` a
+mano lo è. Il difetto è stato trovato dalla metrica di copertura il giorno in cui è nata, il che
+è la miglior prova che serviva.
 
 **Poisson ingrassa il muro e l'errore geometrico non lo rivela.** Sulla scansione reale lo
 spessore ricostruito vale 212,9 mm contro i 176 mm misurati, ma l'errore bidirezionale resta

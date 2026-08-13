@@ -7,7 +7,14 @@
   estrae i sei set di faccia, oggi derivata dal volume medio dell'elemento in
   `abaqus.set_tolerance` e regolata da `analysis.set_tolerance_factor`
   (predefinito 0,5)
-- **Esito:** una raccomandazione. Nessun file sorgente è stato modificato.
+- **Esito:** una raccomandazione. Nessun file sorgente è stato modificato *durante la misura*.
+- **Implementata il 13 agosto 2026.** `abaqus.set_tolerance` segue la regola raccomandata e
+  `analysis.set_tolerance_factor` vale 6. La verifica sulle due corse reali riproduce tutti e sei
+  gli insiemi di questo documento, non solo `BASE`: muro 18.020 / 13.932 / 241.021 / 137.151 /
+  15.417 / 15.807 con copertura 100,00%, `lab_crop` 5915 / 34.866 / 105.878 / 96.459 / 25.668 /
+  24.782 con copertura 98,93%. La copertura per colonne descritta più sotto è ora
+  `abaqus.footprint_coverage` e compare in `11_export`, come il punto 3 di «che cosa la regola non
+  risolve» chiedeva.
 
 ## Perché questo documento esiste
 
@@ -496,14 +503,18 @@ davanzale a 100 mm con un maglio di spaziatura 20 mm — la regola lo
 vincolerebbe a terra senza che nulla lo segnali. **Non è misurato: nessuna
 delle due corse disponibili ha una geometria simile.**
 
-**3. La regola non si verifica da sé.** Nessuna metrica della pipeline dice
-oggi se `BASE` copra l'impronta d'appoggio o solo una sua chiazza: il
-`metrics.json` riporta la cardinalità dei set, e 4738 nodi su una faccia
-coperta al 55,78% e 4738 su una coperta al 100% sono lo stesso numero. La
-copertura per colonne usata in questo documento non esiste nel codice. È il
-candidato naturale per la stessa famiglia di controlli che ha chiuso
-`max_steiner_points`, `max_volume` e `min_ratio`: una metrica in `11_export`
-che dichiari la frazione di impronta d'appoggio effettivamente vincolata.
+**3. ~~La regola non si verifica da sé.~~ Risolto in fase di implementazione.**
+Nessuna metrica della pipeline diceva se `BASE` coprisse l'impronta d'appoggio
+o solo una sua chiazza: il `metrics.json` riportava la cardinalità dei set, e
+4738 nodi su una faccia coperta al 55,78% e 4738 su una coperta al 100% sono lo
+stesso numero. La copertura per colonne è ora `abaqus.footprint_coverage`, entra
+in `11_export` e ha una guardia che scatta sotto la metà.
+
+Ha dimostrato la propria utilità il giorno in cui è nata, trovando un difetto
+che nessuno cercava: il ripiego di `export_model` quando manca il riferimento —
+la terna stimata sui nodi di bordo invece che sui vertici della superficie —
+porta `BASE` da 18.020 nodi a **874** e la copertura al **44,23%**, e ora lo
+dichiara.
 
 **4. I nomi dei set restano convenzioni.** La regola cambia la tolleranza, non
 l'identificazione: quale delle due grandi facce sia l'«anteriore» e quale il
