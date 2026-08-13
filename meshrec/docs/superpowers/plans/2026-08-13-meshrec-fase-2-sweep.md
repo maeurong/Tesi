@@ -539,10 +539,21 @@ def test_a_declared_pair_is_crossed_in_full():
     )
 
     candidates = sweep.expand(experiment, _base())
-    crossed = [axes for axes, _ in candidates if len(axes) == 2]
+    marks = {sweep.fingerprint(cfg) for _, cfg in candidates}
+    atteso = {
+        sweep.fingerprint(
+            sweep.with_override(sweep.with_override(_base(), "tet.min_ratio", a), "tet.nobisect", b)
+        )
+        for a in (1.8, 2.0)
+        for b in (False, True)
+    }
 
-    assert len(crossed) == 4
-    assert len({sweep.fingerprint(cfg) for _, cfg in candidates}) == len(candidates)
+    # Le quattro combinazioni della coppia esistono tutte fra i candidati. Non
+    # si contano le etichette `axes` con due voci: una combinazione della
+    # coppia che coincide con la base, o con una voce a un asse solo, viene
+    # deduplicata per impronta e sopravvive con l'etichetta piu corta.
+    assert atteso <= marks
+    assert len(marks) == len(candidates)
 ```
 
 - [ ] **Step 2: Eseguire il test e verificare che fallisca**
@@ -1277,13 +1288,20 @@ def run_experiment(
     OMP_NUM_THREADS=1 continua a valere dentro ciascun candidato e la
     riproducibilita verificata in Fase 1 regge invariata.
     """
-    from meshrec.core import io, quality
+    from meshrec.core import io, quality, segment
 
     root = Path(experiment.sweep.runs_root) / experiment.name
     registry = Path(experiment.sweep.registry_root) / experiment.name / "registro.jsonl"
 
-    source, _ = io.read_cloud(Path(base.input.path))
-    spacing = float(io.mean_spacing(source, base.input.spacing_sample, base.input.seed))
+    # La sorgente si legge con load_cloud, che applica input.scale: read_cloud
+    # non lo fa, e su una configurazione con scale 1000 la misura uscirebbe in
+    # metri contro un valore noto in millimetri. Si segmenta poi con i
+    # parametri della base perche' la segmentazione non e' un asse, quindi e'
+    # comune a tutti i candidati, ed e' la stessa nuvola su cui si misura lo
+    # spessore ricostruito.
+    source, load_metrics = io.load_cloud(base.input)
+    spacing = float(load_metrics["spacing"])
+    source, _ = segment.segment_cloud(source, base.segment, spacing)
     source_thickness = quality.thickness(source, bin_width=spacing)
     if experiment.known_thickness is not None:
         scarto = abs(source_thickness["thickness"] - experiment.known_thickness)
