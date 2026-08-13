@@ -163,7 +163,7 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
         metrics["09_tetrahedralize"] = step_metrics
         abaqus.write_vtu(out / ARTIFACTS[9], nodes, tets)
 
-        metrics["10_volume_quality"] = quality.volume_metrics(nodes, tets)
+        metrics["10_volume_quality"] = quality.volume_metrics(nodes, tets, cfg.tet.reference_ratio)
 
         # `vertices` e' la superficie da cui la mesh di volume e' stata
         # generata: e' quella, e non i nodi del volume, a definire il sistema

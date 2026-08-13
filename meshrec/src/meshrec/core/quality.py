@@ -207,8 +207,29 @@ def surface_metrics(vertices: np.ndarray, faces: np.ndarray) -> dict[str, object
     }
 
 
-def volume_metrics(nodes: np.ndarray, tets: np.ndarray) -> dict[str, object]:
-    """Step 10: elementi invertiti, angolo diedro minimo, aspetto, volumi, raggio-spigolo."""
+def fraction_over_ratio(nodes: np.ndarray, tets: np.ndarray, limit: float) -> float:
+    """Frazione di elementi con rapporto raggio-spigolo oltre `limit`.
+
+    `limit` e' un metro esterno e non il vincolo chiesto a TetGen: nel motore
+    di sweep min_ratio e' una variabile, e contare le violazioni del proprio
+    vincolo confronterebbe candidati contro vincoli diversi.
+
+    La grandezza distingue una mesh sana da una troncata scambiata per
+    riuscita: 8,10% sul muro e 9,55% su lab_frame contro l'86,36% della mesh
+    tagliata dal tetto ereditato ai punti di Steiner.
+    """
+    ratios = radius_edge_ratios(nodes, tets)
+    finite = ratios[np.isfinite(ratios)]
+    return float((finite > limit).mean()) if len(finite) else 1.0
+
+
+def volume_metrics(nodes: np.ndarray, tets: np.ndarray, reference_ratio: float) -> dict[str, object]:
+    """Step 10: elementi invertiti, angolo diedro minimo, aspetto, volumi, raggio-spigolo.
+
+    `reference_ratio` e' il metro fisso con cui si conta la frazione fuori
+    vincolo: non ha predefinito in firma perche' il suo unico predefinito
+    vive in TetConfig.
+    """
     volumes = tet_volumes(nodes, tets)
     return {
         "nodes": int(len(np.asarray(nodes))),
@@ -219,6 +240,8 @@ def volume_metrics(nodes: np.ndarray, tets: np.ndarray) -> dict[str, object]:
         "min_dihedral_deg": _distribution(min_dihedral_angles(nodes, tets)),
         "aspect_ratio": _distribution(tet_aspect_ratios(nodes, tets)),
         "radius_edge_ratio": _distribution(radius_edge_ratios(nodes, tets)),
+        "radius_edge_over_reference": fraction_over_ratio(nodes, tets, reference_ratio),
+        "reference_ratio": float(reference_ratio),
     }
 
 
@@ -250,4 +273,113 @@ def geometric_error(
         "cloud_to_mesh": cloud_to_mesh,
         "mesh_to_cloud": mesh_to_cloud,
         "hausdorff": max(float(cloud_to_mesh["max"]), float(mesh_to_cloud["max"])),
+    }
+
+
+def thickness(points: np.ndarray, bin_width: float) -> dict[str, object]:
+    """Spessore come distanza fra i due modi lungo la direzione di minore estensione.
+
+    Si applica indifferentemente a una nuvola e ai vertici di una superficie:
+    e' il requisito che rende la misura verificabile, perche' il valore letto
+    sulla ricostruzione si confronta con quello letto sulla sorgente.
+
+    L'ingombro non risponde alla stessa domanda: e' sistematicamente piu
+    grande dello spessore, perche' il rumore e gli sguinci allargano la
+    scatola, non il muro. Attenzione ai sistemi di riferimento: l'ingombro
+    assiale nel sistema del mondo (231 mm sul ritaglio di lab_frame, da
+    fase-1-esiti-lab-frame.md) non e' la stessa grandezza di `extent`, che
+    questa funzione misura lungo l'autovettore di minore estensione (237,1 mm
+    sullo stesso ritaglio): due sistemi di riferimento diversi, due numeri
+    diversi, nessuno dei due e' lo spessore.
+
+    La divisione fra i due modi cade al punto medio dell'estensione, che per
+    una lastra sta fra le due facce: nessuna finestra da tarare. Se fra i due
+    modi non c'e' una valle la distribuzione non e' bimodale, la misura non
+    e' valida e `bimodal` lo dichiara invece di restituire un numero comunque:
+    su una nuvola piena i due massimi cadrebbero comunque da qualche parte, e
+    la loro distanza non sarebbe uno spessore.
+    """
+    values = np.asarray(points, dtype=np.float64)
+    if (
+        len(values) < 2
+        or not np.isfinite(values).all()
+        or not np.isfinite(bin_width)
+        or bin_width <= 0.0
+    ):
+        # Tre ingressi su cui l'autodecomposizione o l'istogramma non
+        # girano affatto, non un errore del programma da propagare:
+        # - meno di due punti, nuvola vuota compresa (np.ptp su una
+        #   riduzione a zero elementi solleva ValueError);
+        # - coordinate non finite (NaN, inf), che possono uscire da una
+        #   ricostruzione di Poisson andata male, da una chiusura dei fori
+        #   o da una stima delle normali degenere (eigh su una matrice
+        #   corrotta da NaN non solleva: non converge in silenzio);
+        # - bin_width non finito o non positivo: zero esce davvero da
+        #   io.mean_spacing su punti duplicati esatti, e np.arange con
+        #   passo zero o NaN solleva (dimensione impossibile o lunghezza
+        #   incalcolabile) invece di produrre un istogramma vuoto.
+        # Stesso dizionario in tutti e tre i casi: la misura non si
+        # applica, mai un errore grezzo di numpy propagato al chiamante.
+        return {"thickness": None, "axis": None, "extent": None, "bimodal": False}
+    centred = values - values.mean(axis=0)
+    # eigh su una 3x3: costo indipendente dal numero di punti, al contrario
+    # di una SVD sulla matrice intera, che su 6,3 milioni di punti materializza
+    # una U da oltre 150 MB per restituire le stesse tre direzioni.
+    _, directions = np.linalg.eigh(centred.T @ centred)
+    projected = centred @ directions
+    extents = np.ptp(projected, axis=0)
+    axis = int(np.argmin(extents))
+
+    if extents[axis] / bin_width > len(values):
+        # Il numero di bin che np.arange proverebbe ad allocare supera il
+        # numero di punti: un istogramma con piu bin che campioni non misura
+        # nulla comunque, quindi l'ingresso e' degenere quanto una nuvola
+        # troppo piccola. La grandezza giusta e' questo rapporto, non una
+        # soglia sul bin_width: un bin_width valido per la densita' reale dei
+        # punti resta ben sotto, e senza la guardia np.arange solleverebbe
+        # MemoryError provando ad allocare l'array dei bordi dei bin.
+        return {"thickness": None, "axis": None, "extent": None, "bimodal": False}
+
+    along = projected[:, axis]
+    edges = np.arange(along.min(), along.max() + bin_width, bin_width)
+    if len(edges) < 3:
+        # Meno di due bin: la nuvola e' piatta, collineare o piu piccola del
+        # passo di campionamento lungo l'asse di minore estensione. Non c'e'
+        # una valle da cercare fra due meta' che non esistono entrambe:
+        # np.argmax su una fetta vuota solleverebbe ValueError piu sotto.
+        # bimodal lo dichiara invece di sollevare, come sul resto della nuvola
+        # piena: e' un ingresso su cui la misura non si applica, non un
+        # errore del programma. thickness resta None, non uno zero che fra
+        # mesi si leggerebbe in una riga del registro come un numero
+        # misurato invece che come un'assenza dichiarata.
+        return {
+            "thickness": None,
+            "axis": axis,
+            "extent": float(extents[axis]),
+            "bimodal": False,
+        }
+    counts, _ = np.histogram(along, bins=edges)
+    centres = (edges[:-1] + edges[1:]) / 2.0
+    split = len(counts) // 2
+
+    lower = int(np.argmax(counts[:split]))
+    upper = split + int(np.argmax(counts[split:]))
+    # La valle fra i due modi deve essere almeno mezza vuota rispetto al modo
+    # piu basso. Non e' una soglia tarata ma un'affermazione qualitativa: se
+    # fra i due massimi il conteggio non cala, non ci sono due facce.
+    #
+    # La media sui bin della valle, non il minimo di un solo bin: il minimo e'
+    # una statistica d'ordine estremo, e su una densita' di punti bassa scende
+    # per rumore di conteggio anche quando la nuvola e piena, dichiarando
+    # bimodale cio' che non lo e'. La media converge alla densita' vera al
+    # crescere del numero di bin nella valle, che e' la stessa leva (bin_width,
+    # densita' della nuvola) su cui lo sweep della Fase 2 non da' garanzie.
+    valley = float(counts[lower + 1 : upper].mean()) if upper > lower + 1 else float(counts[lower])
+    bimodal = bool(valley < 0.5 * min(counts[lower], counts[upper]))
+
+    return {
+        "thickness": float(centres[upper] - centres[lower]),
+        "axis": axis,
+        "extent": float(extents[axis]),
+        "bimodal": bimodal,
     }

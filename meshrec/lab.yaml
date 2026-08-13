@@ -32,7 +32,7 @@ normals:
   orient_knn: 30
 surface:
   method: poisson
-  poisson_depth: 9
+  poisson_depth: 7
   poisson_width: 0.0
   poisson_scale: 1.1
   density_quantile: 0.05
@@ -69,5 +69,5 @@ analysis:
   step_name: GRAVITA
   set_tolerance_factor: 6.0
 run:
-  out_dir: runs\lab_crop
+  out_dir: runs\sweep\lab_crop\2e93bb805afe
   from_step: 1

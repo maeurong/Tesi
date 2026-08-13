@@ -1,3 +1,4 @@
+import inspect
 import json
 
 import numpy as np
@@ -89,8 +90,8 @@ def test_volume_metrics_flag_inverted_elements():
     nodes = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
     good = np.array([[0, 1, 2, 3]])
     flipped = np.array([[0, 2, 1, 3]])
-    assert quality.volume_metrics(nodes, good)["inverted"] == 0
-    assert quality.volume_metrics(nodes, flipped)["inverted"] == 1
+    assert quality.volume_metrics(nodes, good, reference_ratio=1.8)["inverted"] == 0
+    assert quality.volume_metrics(nodes, flipped, reference_ratio=1.8)["inverted"] == 1
 
 
 def test_geometric_error_of_a_cloud_sampled_on_its_own_mesh_is_small():
@@ -165,3 +166,134 @@ def test_a_degenerate_tetrahedron_is_infinite_not_a_crash():
     tetraedri = np.array([[0, 1, 2, 3]])
 
     assert not np.isfinite(quality.radius_edge_ratios(nodi, tetraedri)[0])
+
+
+def test_thickness_measures_the_distance_between_the_two_faces():
+    """Su una lastra campionata su entrambe le facce lo spessore e' la distanza fra i modi.
+
+    L'ingombro non risponde alla stessa domanda: con rumore sulle facce e'
+    sistematicamente piu grande della distanza fra i piani medi, ed e' il
+    motivo per cui la misura e' un istogramma e non un bounding box.
+    """
+    rng = np.random.default_rng(0)
+    n = 20_000
+    y = rng.normal(0.0, 2.0, n) + np.where(rng.random(n) < 0.5, 0.0, 176.0)
+    points = np.column_stack([rng.uniform(0.0, 2700.0, n), y, rng.uniform(0.0, 2000.0, n)])
+
+    measured = quality.thickness(points, bin_width=1.0)
+
+    assert measured["bimodal"] is True
+    assert measured["thickness"] == pytest.approx(176.0, abs=3.0)
+    assert measured["extent"] > measured["thickness"]
+
+
+def test_thickness_declares_itself_invalid_on_a_solid_without_two_faces():
+    """Una nuvola piena non ha due modi: la misura lo dichiara invece di restituire un numero."""
+    rng = np.random.default_rng(1)
+    # n grande per tenere il rumore di conteggio per bin sotto la soglia della
+    # valle: con 5.000 punti (media ~56 per bin) capita per caso un avvallamento
+    # che supera il 50% e fa dichiarare bimodale una nuvola piena.
+    points = rng.uniform(0.0, 1.0, (50_000, 3)) * np.array([2700.0, 176.0, 2000.0])
+
+    measured = quality.thickness(points, bin_width=2.0)
+
+    assert measured["bimodal"] is False
+
+
+def test_thickness_declares_itself_invalid_on_a_degenerate_cloud_instead_of_raising():
+    """Tre punti piatti non danno due meta' popolate: np.argmax su una fetta
+    vuota solleverebbe ValueError senza la guardia sul numero di bin.
+
+    E' l'ingresso che ha fatto sollevare measure_thickness_error su una mesh
+    degenere: la guardia sta qui perche' thickness e' chiamata sia dal
+    cancello sulla nuvola sorgente sia dalla misura sulla superficie riparata.
+
+    thickness deve restituire None, non uno zero: uno zero sembrerebbe una
+    misura letta in una riga del registro, invece di un'assenza dichiarata.
+    """
+    points = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+
+    measured = quality.thickness(points, bin_width=1.0)
+
+    assert measured["bimodal"] is False
+    assert measured["thickness"] is None
+
+
+def test_thickness_declares_itself_invalid_on_a_cloud_with_a_nan_vertex():
+    """Un vertice non finito puo' uscire da una ricostruzione di Poisson andata
+    male, da una chiusura dei fori o da una stima delle normali degenere.
+
+    eigh su una matrice corrotta da NaN non solleva: non converge in
+    silenzio (LinAlgError). La guardia sui valori finiti deve intercettarlo
+    prima che il calcolo delle direzioni principali lo raggiunga.
+    """
+    points = np.array([[np.nan, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+
+    measured = quality.thickness(points, bin_width=1.0)
+
+    assert measured["bimodal"] is False
+    assert measured["thickness"] is None
+
+
+def test_thickness_declares_itself_invalid_on_fewer_than_two_points():
+    """Nuvola vuota compresa: np.ptp su una riduzione a zero elementi
+    solleverebbe ValueError prima di arrivare all'istogramma."""
+    assert quality.thickness(np.zeros((0, 3)), bin_width=1.0)["bimodal"] is False
+    assert quality.thickness(np.zeros((0, 3)), bin_width=1.0)["thickness"] is None
+    assert quality.thickness(np.array([[0.0, 0.0, 0.0]]), bin_width=1.0)["bimodal"] is False
+
+
+def test_thickness_declares_itself_invalid_on_a_bad_bin_width():
+    """bin_width zero esce davvero da io.mean_spacing su punti duplicati
+    esatti: np.arange con passo zero o NaN solleva invece di produrre un
+    istogramma vuoto, e measure_thickness_error lo passa qui senza guardia
+    propria perche' e' un float valido, non una chiave mancante."""
+    points = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+
+    for bin_width in (0.0, -1.0, float("nan"), float("inf")):
+        measured = quality.thickness(points, bin_width=bin_width)
+        assert measured["bimodal"] is False
+        assert measured["thickness"] is None
+
+
+def test_thickness_declares_itself_invalid_instead_of_exhausting_memory_on_a_tiny_bin_width():
+    """Un bin_width minuscolo rispetto all'estensione fa provare a np.arange
+    l'allocazione di un array enorme (MemoryError), pur essendo finito e
+    positivo, quindi passa tutte le guardie precedenti. La grandezza giusta
+    e' il numero di bin contro il numero di punti: un istogramma con piu bin
+    che campioni non misura nulla comunque."""
+    points = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [1000.0, 0.0, 1.0]])
+
+    measured = quality.thickness(points, bin_width=1e-6)
+
+    assert measured == {"thickness": None, "axis": None, "extent": None, "bimodal": False}
+
+
+def test_the_reference_fraction_does_not_depend_on_the_requested_min_ratio():
+    """L'asse di qualita' del fronte usa un metro unico per tutti i candidati.
+
+    Se contasse gli elementi che violano il min_ratio richiesto da ciascun
+    candidato, un candidato lasco supererebbe facilmente un vincolo lasco e
+    il confronto sarebbe privo di senso.
+    """
+    nodes = np.array(
+        [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0], [1.0, 1.0, 1.0]]
+    )
+    tets = np.array([[0, 1, 2, 3], [1, 2, 3, 4]])
+
+    lasco = quality.fraction_over_ratio(nodes, tets, limit=100.0)
+    severo = quality.fraction_over_ratio(nodes, tets, limit=0.1)
+
+    assert lasco == pytest.approx(0.0)
+    assert severo == pytest.approx(1.0)
+    assert quality.volume_metrics(nodes, tets, reference_ratio=100.0)[
+        "radius_edge_over_reference"
+    ] == pytest.approx(0.0)
+
+
+def test_the_reference_ratio_default_lives_in_config():
+    from meshrec.core import config
+
+    assert config.TetConfig().reference_ratio == pytest.approx(1.8)
+    parameters = inspect.signature(quality.volume_metrics).parameters
+    assert parameters["reference_ratio"].default is inspect.Parameter.empty

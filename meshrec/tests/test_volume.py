@@ -217,6 +217,10 @@ def test_a_mesh_the_constraint_does_not_govern_is_reported(monkeypatch):
     fuori_vincolo = np.full(len(tets), 10.0)
     fuori_vincolo[: len(tets) // 4] = 1.0
     monkeypatch.setattr(volume, "radius_edge_ratios", lambda *args: fuori_vincolo)
+    # `over_limit` passa ora da quality.fraction_over_ratio, che chiama la
+    # radius_edge_ratios del proprio modulo: va patchata anche li', non solo
+    # sul nome importato in volume.
+    monkeypatch.setattr(quality, "radius_edge_ratios", lambda *args: fuori_vincolo)
     monkeypatch.setattr(volume, "tetrahedralize", lambda *args, **kwargs: (nodes, tets))
 
     with pytest.warns(volume.UnmetQualityConstraintWarning, match="supera il min_ratio"):

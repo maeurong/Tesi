@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 from meshrec.core import pipeline
-from meshrec.core.config import InputConfig, PipelineConfig, load_config, save_config
+from meshrec.core.config import InputConfig, PipelineConfig, load_config, load_experiment, save_config
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -35,6 +35,18 @@ def _build_parser() -> argparse.ArgumentParser:
     init_command = commands.add_parser("init", help="scrive una configurazione completa di esempio")
     init_command.add_argument("config", type=Path)
     init_command.add_argument("--input", type=Path, required=True, help="nuvola di partenza")
+
+    sweep_command = commands.add_parser("sweep", help="esegue una griglia di candidati")
+    sweep_command.add_argument("experiment", type=Path)
+
+    verify_command = commands.add_parser(
+        "sweep-verify", help="ricontrolla le impronte degli artefatti di un registro"
+    )
+    verify_command.add_argument("registry", type=Path)
+
+    report_command = commands.add_parser("sweep-report", help="genera il report da un registro")
+    report_command.add_argument("registry", type=Path)
+    report_command.add_argument("--out", type=Path, required=True)
     return parser
 
 
@@ -44,6 +56,36 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "init":
         save_config(PipelineConfig(input=InputConfig(path=args.input)), args.config)
         print(f"configurazione scritta in {args.config}")
+        return 0
+
+    if args.command == "sweep":
+        from meshrec.core import sweep
+
+        experiment = load_experiment(args.experiment)
+        try:
+            result = sweep.run_experiment(experiment, load_config(experiment.base))
+        except Exception as error:
+            print(f"{type(error).__name__}: {error}", file=sys.stderr)
+            return 1
+        print(json.dumps(result["summary"], indent=2, ensure_ascii=False, default=float))
+        print(f"registro in {result['registry']}", file=sys.stderr)
+        return 0
+
+    if args.command == "sweep-verify":
+        from meshrec.core import sweep
+
+        esito = sweep.verify_registry(args.registry)
+        print(json.dumps(esito, indent=2, ensure_ascii=False))
+        stantie = [voce for voce in esito if voce["stale"]]
+        if stantie:
+            print(f"{len(stantie)} righe stantie", file=sys.stderr)
+            return 1
+        return 0
+
+    if args.command == "sweep-report":
+        from meshrec.core import report
+
+        print(f"report in {report.write_report(args.registry, args.out)}")
         return 0
 
     cfg = load_config(args.config)
