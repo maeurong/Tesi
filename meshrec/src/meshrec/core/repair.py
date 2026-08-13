@@ -165,7 +165,20 @@ def repair_surface(
     v = np.ascontiguousarray(fixer.points, dtype=np.float64)
     f = np.ascontiguousarray(fixer.faces, dtype=np.int64)
 
+    # Una superficie chiusa puo' essere chiusa e rovesciata: `is_watertight`
+    # conta gli spigoli e una mesh capovolta ne ha due per spigolo come una
+    # diritta. Su lab_frame.pcd la superficie riparata usciva con volume
+    # racchiuso di -0,173 m^3, avvolgimento coerente ovunque e globalmente
+    # invertito, e lo step 9 falliva senza che nulla indicasse il verso. Chi
+    # promette una superficie chiusa promette anche il verso, perche' e' cio'
+    # che TetGen richiede in ingresso. L'inversione dell'avvolgimento e'
+    # esatta: non approssima nulla e non sposta un solo vertice.
+    flipped = mesh_volume(v, f) < 0.0
+    if flipped:
+        f = np.ascontiguousarray(f[:, [0, 2, 1]])
+
     metrics["watertight_after"] = is_watertight(f)
+    metrics["orientation_flipped"] = flipped
     metrics["volume_after"] = mesh_volume(v, f)
     metrics["vertices"] = int(len(v))
     metrics["triangles"] = int(len(f))

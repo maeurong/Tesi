@@ -140,3 +140,31 @@ def test_a_non_manifold_boundary_junction_does_not_loop_forever():
     )
     assert metrics["open_boundary_paths"] > 0
     assert metrics["holes_before"] == len(metrics["hole_areas"])
+
+
+def test_repair_returns_an_outward_oriented_surface():
+    """Una superficie chiusa ma rovesciata supera il controllo di chiusura.
+
+    `is_watertight` conta gli spigoli: una mesh capovolta ne ha due per
+    spigolo esattamente come una diritta. Su lab_frame.pcd la superficie
+    riparata usciva con volume racchiuso di -0,173 m^3, e lo step 9 falliva
+    tre cause piu' in la'. Chi promette una superficie chiusa deve promettere
+    anche il verso, perche' e' quello che TetGen richiede.
+    """
+    vertices, faces = synth.box_mesh((100.0, 40.0, 200.0))
+    rovesciata = np.ascontiguousarray(faces[:, [0, 2, 1]])
+    assert quality.mesh_volume(vertices, rovesciata) < 0.0
+
+    v, f, metrics = repair.repair_surface(vertices, rovesciata, config.RepairConfig())
+
+    assert quality.mesh_volume(v, f) > 0.0
+    assert metrics["volume_after"] > 0.0
+    assert metrics["orientation_flipped"] is True
+
+
+def test_an_already_outward_surface_is_left_alone():
+    vertices, faces = synth.box_mesh((100.0, 40.0, 200.0))
+
+    _, _, metrics = repair.repair_surface(vertices, faces, config.RepairConfig())
+
+    assert metrics["orientation_flipped"] is False
