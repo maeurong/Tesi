@@ -126,13 +126,18 @@ def main(argv: list[str] | None = None) -> int:
 
     cfg = load_config(args.config)
     try:
-        if args.from_step is not None:
-            cfg.run.from_step = args.from_step
+        # to_step prima di from_step: con validate_assignment=True ogni riga
+        # rivalida l'intero modello, e assegnare from_step mentre il to_step
+        # ancora sul disco (per esempio scritto da PUT /api/config) e' piu
+        # piccolo violerebbe l'invariante to_step >= from_step su uno stato
+        # intermedio che non esiste mai nella configurazione finale.
         if args.to_step is not None:
             cfg.run.to_step = args.to_step
+        if args.from_step is not None:
+            cfg.run.from_step = args.from_step
         if args.only_step is not None:
-            cfg.run.from_step = args.only_step
             cfg.run.to_step = args.only_step
+            cfg.run.from_step = args.only_step
         if args.out_dir is not None:
             cfg.run.out_dir = args.out_dir
         metrics = pipeline.run(cfg)

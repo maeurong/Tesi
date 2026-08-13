@@ -5,6 +5,8 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
+import pytest
+
 from meshrec.app.worker import Worker
 from meshrec.core.config import InputConfig, PipelineConfig, save_config
 
@@ -34,3 +36,25 @@ def test_il_worker_cattura_le_righe_del_processo(tmp_path):
 
 def test_annullare_un_worker_fermo_non_solleva():
     assert Worker().cancel() is False
+
+
+def test_avviare_un_secondo_step_mentre_il_primo_gira_solleva(tmp_path):
+    """E' un errore del chiamante, non un esito dell'elaborazione: la nuvola
+    assente tiene comunque il processo in volo abbastanza a lungo (avvio
+    dell'interprete) da coglierlo con is_running() subito dopo lo start."""
+    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "assente.ply"))
+    cfg.run.out_dir = tmp_path / "corsa"
+    percorso = tmp_path / "config.yaml"
+    save_config(cfg, percorso)
+
+    lavoratore = Worker()
+    lavoratore.start(percorso, 1, 1)
+    assert lavoratore.is_running() is True
+    with pytest.raises(RuntimeError):
+        lavoratore.start(percorso, 1, 1)
+
+    for _ in range(600):
+        if not lavoratore.is_running():
+            break
+        time.sleep(0.1)
+    assert lavoratore.is_running() is False

@@ -172,6 +172,18 @@ def test_only_step_esegue_soltanto_quello(tmp_path, capsys):
     assert set(uscita) == {"01_load"}
 
 
+def test_uno_step_parte_anche_se_il_config_su_disco_e_gia_ristretto(tmp_path):
+    """E' il caso del worker: ogni step passa da qui, e la configurazione sul
+    disco puo' portare un to_step piu' piccolo dello step che si chiede."""
+    percorso = _config_cubo_su_disco(tmp_path)
+    cfg = config.load_config(percorso)
+    cfg.run.to_step = 1
+    config.save_config(cfg, percorso)
+
+    assert cli.main(["run", str(percorso), "--only-step", "1"]) == 0
+    assert cli.main(["run", str(percorso), "--from-step", "2", "--to-step", "2"]) == 0
+
+
 def test_the_sweep_command_reports_the_thickness_gate_failure(tmp_path, capsys):
     """Il cancello sulla misura di spessore ferma lo sweep prima di partire.
 
