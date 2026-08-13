@@ -178,3 +178,11 @@ Il test di integrazione passa. Su `muro_generato.ply` la pipeline produce un `.i
 accetta al controllo dei dati. Le metriche di errore geometrico rispetto alla nuvola sorgente
 sono calcolate e riportate. Su `lab_frame.pcd` la segmentazione isola il muro e la pipeline
 arriva in fondo. La stessa configurazione, rieseguita, produce lo stesso risultato.
+
+> **Esito del 13 agosto 2026.** Il criterio su `lab_frame.pcd` è soddisfatto con il ritaglio a
+> box, non con la segmentazione automatica: quel file contiene un singolo muro e non un ambiente
+> da cui isolarlo, quindi l'estrazione di piani rimuove le facce del muro stesso. Vedi la
+> correzione in testa alla spec di architettura e `meshrec/docs/fase-1-esiti-lab-frame.md`.
+> Il criterio sul controllo dei dati con Abaqus **non** è soddisfatto: Abaqus non è disponibile
+> sulla macchina di sviluppo, e il deck è verificato in lettura con `meshio` e in soluzione con
+> CalculiX. Resta dovuto alla prima occasione di accesso a una licenza.
