@@ -398,6 +398,29 @@ def test_the_gate_raises_when_the_source_distribution_is_not_bimodal(tmp_path, m
         sweep.run_experiment(_experiment(tmp_path, known_thickness=100.0), _base())
 
 
+def test_the_gate_reports_a_readable_message_when_the_source_thickness_is_not_measurable(
+    tmp_path, monkeypatch
+):
+    """quality.thickness su una nuvola sorgente degenere restituisce thickness None.
+
+    abs(None - known_thickness) romperebbe il cancello con un TypeError
+    proprio mentre sta segnalando il problema: qui si verifica che il
+    messaggio dichiari esplicitamente la nuvola non misurabile, senza
+    stampare un numero fabbricato ne' sollevare l'eccezione sbagliata.
+    """
+    import numpy as np
+
+    monkeypatch.setattr("meshrec.core.io.load_cloud", lambda cfg: (np.zeros((4, 3)), {"spacing": 1.0}))
+    monkeypatch.setattr("meshrec.core.segment.segment_cloud", lambda points, cfg, spacing: (points, {}))
+    monkeypatch.setattr(
+        "meshrec.core.quality.thickness",
+        lambda points, bin_width: {"thickness": None, "axis": 0, "extent": 10.0, "bimodal": False},
+    )
+
+    with pytest.raises(ValueError, match="non misurabile"):
+        sweep.run_experiment(_experiment(tmp_path, known_thickness=100.0), _base())
+
+
 def test_measure_thickness_error_returns_none_without_raising_when_metrics_is_empty(tmp_path):
     """06_repaired.ply esiste ma metrics.json non e' mai stato scritto: il candidato
     ucciso dopo la riparazione e prima del blocco finally che lo scrive. La riga

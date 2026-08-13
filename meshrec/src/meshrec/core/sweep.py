@@ -399,7 +399,7 @@ def check_sweep(
     }
 
 
-def measure_thickness_error(row: dict[str, object], source_thickness: float) -> float | None:
+def measure_thickness_error(row: dict[str, object], source_thickness: float | None) -> float | None:
     """Scarto fra lo spessore ricostruito e quello della nuvola sorgente [mm].
 
     Lo spessore ricostruito si misura sui vertici della superficie riparata,
@@ -413,7 +413,9 @@ def measure_thickness_error(row: dict[str, object], source_thickness: float) -> 
     funzione dopo aver gia' eseguito tutti i candidati e prima di scrivere il
     registro: un'eccezione qui perderebbe ore di calcolo senza lasciarne
     traccia. Un asse di fedelta' che non si riesce a misurare per una riga e'
-    un thickness_error nullo, non un registro vuoto.
+    un thickness_error nullo, non un registro vuoto. source_thickness e'
+    None quando la nuvola sorgente stessa e' risultata non bimodale: nessuno
+    scarto e' calcolabile contro un valore che non esiste.
     """
     from meshrec.core import quality
 
@@ -442,7 +444,7 @@ def measure_thickness_error(row: dict[str, object], source_thickness: float) -> 
     measured = quality.thickness(vertices, bin_width=spacing)
     row["thickness_reconstructed"] = measured["thickness"]
     row["thickness_bimodal"] = measured["bimodal"]
-    if not measured["bimodal"]:
+    if not measured["bimodal"] or source_thickness is None:
         return None
     return abs(measured["thickness"] - source_thickness)
 
@@ -492,11 +494,20 @@ def run_experiment(
     source, _ = segment.segment_cloud(source, base.segment, spacing)
     source_thickness = quality.thickness(source, bin_width=spacing)
     if experiment.known_thickness is not None:
-        scarto = abs(source_thickness["thickness"] - experiment.known_thickness)
-        if not source_thickness["bimodal"] or scarto / experiment.known_thickness > 0.05:
+        misurato = source_thickness["thickness"]
+        # bimodal falso comporta thickness assente (None, dichiarato invece di
+        # simulato): il controllo precede quello sullo scarto, altrimenti
+        # abs(None - known_thickness) romperebbe il cancello con un TypeError
+        # proprio mentre sta segnalando il problema.
+        non_valido = misurato is None or not source_thickness["bimodal"]
+        if not non_valido:
+            scarto = abs(misurato - experiment.known_thickness)
+            non_valido = scarto / experiment.known_thickness > 0.05
+        if non_valido:
+            letto = "non misurabile" if misurato is None else f"{misurato:.1f} mm"
             raise ValueError(
                 "la misura di spessore non riproduce il valore noto sulla nuvola "
-                f"sorgente: letto {source_thickness['thickness']:.1f} mm contro "
+                f"sorgente: letto {letto} contro "
                 f"{experiment.known_thickness:.1f} mm noti, bimodale="
                 f"{source_thickness['bimodal']}. L'asse di fedelta non e' "
                 "utilizzabile e lo sweep non parte"

@@ -318,9 +318,11 @@ def thickness(points: np.ndarray, bin_width: float) -> dict[str, object]:
         # np.argmax su una fetta vuota solleverebbe ValueError piu sotto.
         # bimodal lo dichiara invece di sollevare, come sul resto della nuvola
         # piena: e' un ingresso su cui la misura non si applica, non un
-        # errore del programma.
+        # errore del programma. thickness resta None, non uno zero che fra
+        # mesi si leggerebbe in una riga del registro come un numero
+        # misurato invece che come un'assenza dichiarata.
         return {
-            "thickness": 0.0,
+            "thickness": None,
             "axis": axis,
             "extent": float(extents[axis]),
             "bimodal": False,
