@@ -16,5 +16,6 @@ axes:
   - path: tet.nobisect
     values: [false, true]
 sweep:
+  runs_root: runs/sweep
   workers: 4
   timeout_s: 1800.0

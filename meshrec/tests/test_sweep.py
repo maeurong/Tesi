@@ -357,6 +357,22 @@ def _experiment(tmp_path, known_thickness):
     )
 
 
+def test_run_experiment_refuses_to_write_inside_an_existing_run(tmp_path):
+    """root/metrics.json esiste gia': e' una corsa della pipeline, non una cartella d'esperimento.
+
+    Il cancello scatta prima di expand() e prima della misura di spessore:
+    nessuna delle due chiama run_candidate, quindi il messaggio deve arrivare
+    senza toccare io.load_cloud o alcun sottoprocesso.
+    """
+    experiment = _experiment(tmp_path, known_thickness=100.0)
+    run_dir = Path(experiment.sweep.runs_root) / experiment.name
+    run_dir.mkdir(parents=True)
+    (run_dir / "metrics.json").write_text("{}", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="corsa della pipeline"):
+        sweep.run_experiment(experiment, _base())
+
+
 def test_the_gate_raises_when_the_thickness_error_exceeds_five_percent(tmp_path, monkeypatch):
     """Il cancello ferma lo sweep prima di eseguire candidati, coi numeri nel messaggio.
 

@@ -485,6 +485,18 @@ def run_experiment(
     root = Path(experiment.sweep.runs_root) / experiment.name
     registry = Path(experiment.sweep.registry_root) / experiment.name / "registro.jsonl"
 
+    if (root / "metrics.json").exists():
+        # metrics.json e' cio' che pipeline.run scrive nel blocco finally: se
+        # e' li' dentro root, root e' la cartella di una corsa della pipeline
+        # e non una cartella d'esperimento vuota. Un esperimento non scrive
+        # mai dentro una corsa esistente, a maggior ragione se e' runs/muro o
+        # runs/lab_crop, dichiarate di sola lettura.
+        raise ValueError(
+            f"{root} esiste gia' e contiene metrics.json: e' la cartella di "
+            "una corsa della pipeline, non una cartella d'esperimento vuota. "
+            "Mi rifiuto di scrivere sopra una corsa esistente"
+        )
+
     # La sorgente si legge con load_cloud, che applica input.scale: read_cloud
     # non lo fa, e su una configurazione con scale 1000 la misura uscirebbe in
     # metri contro un valore noto in millimetri. Si segmenta poi con i
