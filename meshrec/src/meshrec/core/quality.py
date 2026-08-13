@@ -260,9 +260,14 @@ def thickness(points: np.ndarray, bin_width: float) -> dict[str, object]:
     e' il requisito che rende la misura verificabile, perche' il valore letto
     sulla ricostruzione si confronta con quello letto sulla sorgente.
 
-    L'ingombro non risponde alla stessa domanda. Sul ritaglio di lab_frame
-    l'estensione lungo lo spessore vale 231 mm mentre le due facce del muro
-    distano 176 mm: il rumore e gli sguinci allargano la scatola, non il muro.
+    L'ingombro non risponde alla stessa domanda: e' sistematicamente piu
+    grande dello spessore, perche' il rumore e gli sguinci allargano la
+    scatola, non il muro. Attenzione ai sistemi di riferimento: l'ingombro
+    assiale nel sistema del mondo (231 mm sul ritaglio di lab_frame, da
+    fase-1-esiti-lab-frame.md) non e' la stessa grandezza di `extent`, che
+    questa funzione misura lungo l'autovettore di minore estensione (237,1 mm
+    sullo stesso ritaglio): due sistemi di riferimento diversi, due numeri
+    diversi, nessuno dei due e' lo spessore.
 
     La divisione fra i due modi cade al punto medio dell'estensione, che per
     una lastra sta fra le due facce: nessuna finestra da tarare. Se fra i due
@@ -292,7 +297,14 @@ def thickness(points: np.ndarray, bin_width: float) -> dict[str, object]:
     # La valle fra i due modi deve essere almeno mezza vuota rispetto al modo
     # piu basso. Non e' una soglia tarata ma un'affermazione qualitativa: se
     # fra i due massimi il conteggio non cala, non ci sono due facce.
-    valley = int(counts[lower + 1 : upper].min()) if upper > lower + 1 else int(counts[lower])
+    #
+    # La media sui bin della valle, non il minimo di un solo bin: il minimo e'
+    # una statistica d'ordine estremo, e su una densita' di punti bassa scende
+    # per rumore di conteggio anche quando la nuvola e piena, dichiarando
+    # bimodale cio' che non lo e'. La media converge alla densita' vera al
+    # crescere del numero di bin nella valle, che e' la stessa leva (bin_width,
+    # densita' della nuvola) su cui lo sweep della Fase 2 non da' garanzie.
+    valley = float(counts[lower + 1 : upper].mean()) if upper > lower + 1 else float(counts[lower])
     bimodal = bool(valley < 0.5 * min(counts[lower], counts[upper]))
 
     return {
