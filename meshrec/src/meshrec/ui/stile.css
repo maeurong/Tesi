@@ -1,0 +1,29 @@
+:root {
+  --sfondo: #fbfaf8;
+  --superficie: #ffffff;
+  --testo: #1c1b19;
+  --tenue: #6b6862;
+  --bordo: #ddd9d2;
+  --accento: #2f5d50;
+  --passo: 0.5rem;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  background: var(--sfondo);
+  color: var(--testo);
+}
+.testata { display: flex; align-items: baseline; gap: 1rem; padding: var(--passo) 1rem; border-bottom: 1px solid var(--bordo); }
+.testata h1 { font-size: 1rem; margin: 0; }
+.corsa { margin: 0; color: var(--tenue); font-size: 0.85rem; }
+.tre-zone { display: grid; grid-template-columns: 18rem 1fr 22rem; height: calc(100vh - 3rem); }
+.zona { padding: 1rem; overflow: auto; }
+.zona-step, .zona-dettaglio { background: var(--superficie); }
+.zona-step { border-right: 1px solid var(--bordo); }
+.zona-dettaglio { border-left: 1px solid var(--bordo); }
+.zona h2 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--tenue); margin: 0 0 var(--passo); }
+.elenco-step { list-style: none; margin: 0; padding: 0; }
+.viewport { width: 100%; height: 100%; }
+.vuoto { color: var(--tenue); font-size: 0.9rem; }
+@media (max-width: 60rem) { .tre-zone { grid-template-columns: 1fr; height: auto; } }

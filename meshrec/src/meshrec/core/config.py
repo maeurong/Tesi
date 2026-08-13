@@ -314,3 +314,32 @@ def load_experiment(path: Path) -> ExperimentConfig:
     """Legge la dichiarazione di un esperimento."""
     with Path(path).open(encoding="utf-8") as handle:
         return ExperimentConfig.model_validate(yaml.safe_load(handle))
+
+
+class ViewportConfig(BaseModel):
+    """Disegno nel browser. Non entra in PipelineConfig: vedi la nota sotto.
+
+    Aggiungere un campo a PipelineConfig cambierebbe sweep.fingerprint e quindi
+    l'impronta di ogni riga gia' scritta nei registri della Fase 2, che sono la
+    tabella sperimentale della tesi. Questi parametri governano il disegno e non
+    l'elaborazione, quindi restano fuori.
+    """
+
+    max_points: int = Field(
+        default=400_000,
+        gt=0,
+        description=(
+            "punti al massimo inviati al browser per il disegno. 400.000 punti "
+            "sono 4,8 MB in Float32, dell'ordine di 04_normals.ply di lab_crop "
+            "(5.571.038 byte), un artefatto che la pipeline scrive e rilegge a "
+            "ogni corsa. Non e' un limite grafico ma di trasporto"
+        ),
+    )
+
+
+class ServerConfig(BaseModel):
+    """Server locale. Utente singolo, nessuna autenticazione."""
+
+    host: str = "127.0.0.1"
+    port: int = Field(default=8765, gt=0, le=65535)
+    open_browser: bool = True

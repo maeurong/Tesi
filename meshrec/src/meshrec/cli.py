@@ -47,6 +47,11 @@ def _build_parser() -> argparse.ArgumentParser:
     report_command = commands.add_parser("sweep-report", help="genera il report da un registro")
     report_command.add_argument("registry", type=Path)
     report_command.add_argument("--out", type=Path, required=True)
+
+    serve_command = commands.add_parser("serve", help="avvia il server locale e apre il browser")
+    serve_command.add_argument("config", type=Path)
+    serve_command.add_argument("--port", type=int, default=None)
+    serve_command.add_argument("--no-browser", action="store_true")
     return parser
 
 
@@ -86,6 +91,30 @@ def main(argv: list[str] | None = None) -> int:
         from meshrec.core import report
 
         print(f"report in {report.write_report(args.registry, args.out)}")
+        return 0
+
+    if args.command == "serve":
+        import threading
+        import webbrowser
+
+        import uvicorn
+
+        from meshrec.app.server import create_app
+        from meshrec.core.config import ServerConfig
+
+        impostazioni = ServerConfig()
+        if args.port is not None:
+            impostazioni.port = args.port
+        indirizzo = f"http://{impostazioni.host}:{impostazioni.port}/"
+        if impostazioni.open_browser and not args.no_browser:
+            # Dopo un secondo: uvicorn non e' ancora in ascolto al momento della
+            # chiamata, e un browser aperto su una porta chiusa mostra un errore
+            # invece dell'interfaccia.
+            threading.Timer(1.0, webbrowser.open, args=(indirizzo,)).start()
+        print(f"MeshRec in ascolto su {indirizzo}", file=sys.stderr)
+        uvicorn.run(
+            create_app(args.config), host=impostazioni.host, port=impostazioni.port, log_level="warning"
+        )
         return 0
 
     cfg = load_config(args.config)

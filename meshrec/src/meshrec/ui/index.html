@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MeshRec</title>
+<link rel="stylesheet" href="/ui/stile.css">
+</head>
+<body>
+<header class="testata">
+  <h1>MeshRec</h1>
+  <p class="corsa" id="corsa">nessuna corsa</p>
+</header>
+<main class="tre-zone">
+  <nav class="zona zona-step" aria-label="Step della pipeline">
+    <h2>Pipeline</h2>
+    <ol class="elenco-step" id="elenco-step"></ol>
+  </nav>
+  <section class="zona zona-vista" aria-label="Vista tridimensionale">
+    <div id="viewport" class="viewport"></div>
+  </section>
+  <aside class="zona zona-dettaglio" aria-label="Parametri e metriche">
+    <h2>Dettaglio</h2>
+    <div id="dettaglio"><p class="vuoto">Scegli uno step per vederne parametri e metriche.</p></div>
+  </aside>
+</main>
+<script type="module" src="/ui/app.js"></script>
+</body>
+</html>

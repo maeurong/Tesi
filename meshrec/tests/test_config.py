@@ -57,3 +57,24 @@ def test_experiment_round_trip_and_defaults(tmp_path):
 def test_an_axis_with_no_values_is_rejected():
     with pytest.raises(ValueError):
         config.AxisSpec(path="tet.min_ratio", values=[])
+
+
+def test_l_impronta_di_una_corsa_registrata_non_cambia(tmp_path):
+    """L'impronta della Fase 2 vive nei registri: allargare PipelineConfig la
+    cambierebbe, e con essa la provenienza di ogni riga della tabella della tesi.
+    """
+    from meshrec.core.sweep import fingerprint
+
+    cfg = config.PipelineConfig(
+        input=config.InputConfig(path=Path("Nuvole di punti/lab_frame.pcd"), scale=1000.0),
+    )
+    prima = fingerprint(cfg)
+    assert len(prima) == 64
+    # Un campo nuovo in PipelineConfig cambierebbe questo valore: il test lo fissa
+    # sulla forma canonica corrente e non su un valore magico, cosi' fallisce
+    # anche se il campo nuovo ha un predefinito innocuo.
+    payload = cfg.model_dump(mode="json")
+    assert set(payload) == {
+        "input", "segment", "downsample", "normals", "surface",
+        "repair", "simplify", "tet", "analysis", "run",
+    }

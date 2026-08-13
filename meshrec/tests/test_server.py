@@ -1,0 +1,61 @@
+"""Endpoint del server. Il contratto vale sulla tratta, non sulla funzione."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+from fastapi.testclient import TestClient
+
+from meshrec.app.server import create_app
+from meshrec.core.config import InputConfig, PipelineConfig, save_config
+
+
+@pytest.fixture()
+def cliente(tmp_path: Path) -> TestClient:
+    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"))
+    cfg.run.out_dir = tmp_path / "corsa"
+    save_config(cfg, tmp_path / "config.yaml")
+    return TestClient(create_app(tmp_path / "config.yaml"))
+
+
+def test_la_radice_serve_l_interfaccia(cliente):
+    risposta = cliente.get("/")
+    assert risposta.status_code == 200
+    assert "text/html" in risposta.headers["content-type"]
+
+
+def test_lo_stato_della_corsa_elenca_gli_undici_step(cliente):
+    corpo = cliente.get("/api/run").json()
+    assert len(corpo["steps"]) == 11
+    assert corpo["steps"][0]["chiave"] == "01_load"
+    assert {voce["stato"] for voce in corpo["steps"]} == {"mai eseguito"}
+
+
+def test_la_configurazione_torna_intera(cliente):
+    corpo = cliente.get("/api/config").json()
+    assert set(corpo) >= {"input", "segment", "surface", "tet", "analysis"}
+
+
+# /api/events e' un generatore SSE senza fine: una GET secca lo terrebbe
+# aperto e bloccherebbe la suite. Ha il proprio test dedicato, con un tetto
+# agli eventi emessi. Tenere questo insieme corto: cio' che vi entra esce
+# dal contratto.
+STREAMING = {"/api/events"}
+
+
+def test_nessun_endpoint_solleva_verso_il_browser(cliente):
+    """Il contratto vale sull'elenco intero, derivato dall'applicazione stessa:
+    un endpoint aggiunto domani vi entra da solo e non puo' essere dimenticato.
+    """
+    percorsi = [
+        rotta.path
+        for rotta in cliente.app.routes
+        if getattr(rotta, "methods", None) and "GET" in rotta.methods
+    ]
+    assert len(percorsi) >= 3
+    for percorso in percorsi:
+        if "{" in percorso or percorso in STREAMING:
+            continue
+        risposta = cliente.get(percorso)
+        assert risposta.status_code < 500, f"{percorso} ha sollevato verso il browser"
