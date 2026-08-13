@@ -207,8 +207,29 @@ def surface_metrics(vertices: np.ndarray, faces: np.ndarray) -> dict[str, object
     }
 
 
-def volume_metrics(nodes: np.ndarray, tets: np.ndarray) -> dict[str, object]:
-    """Step 10: elementi invertiti, angolo diedro minimo, aspetto, volumi, raggio-spigolo."""
+def fraction_over_ratio(nodes: np.ndarray, tets: np.ndarray, limit: float) -> float:
+    """Frazione di elementi con rapporto raggio-spigolo oltre `limit`.
+
+    `limit` e' un metro esterno e non il vincolo chiesto a TetGen: nel motore
+    di sweep min_ratio e' una variabile, e contare le violazioni del proprio
+    vincolo confronterebbe candidati contro vincoli diversi.
+
+    La grandezza distingue una mesh sana da una troncata scambiata per
+    riuscita: 8,10% sul muro e 9,55% su lab_frame contro l'86,36% della mesh
+    tagliata dal tetto ereditato ai punti di Steiner.
+    """
+    ratios = radius_edge_ratios(nodes, tets)
+    finite = ratios[np.isfinite(ratios)]
+    return float((finite > limit).mean()) if len(finite) else 1.0
+
+
+def volume_metrics(nodes: np.ndarray, tets: np.ndarray, reference_ratio: float) -> dict[str, object]:
+    """Step 10: elementi invertiti, angolo diedro minimo, aspetto, volumi, raggio-spigolo.
+
+    `reference_ratio` e' il metro fisso con cui si conta la frazione fuori
+    vincolo: non ha predefinito in firma perche' il suo unico predefinito
+    vive in TetConfig.
+    """
     volumes = tet_volumes(nodes, tets)
     return {
         "nodes": int(len(np.asarray(nodes))),
@@ -219,6 +240,8 @@ def volume_metrics(nodes: np.ndarray, tets: np.ndarray) -> dict[str, object]:
         "min_dihedral_deg": _distribution(min_dihedral_angles(nodes, tets)),
         "aspect_ratio": _distribution(tet_aspect_ratios(nodes, tets)),
         "radius_edge_ratio": _distribution(radius_edge_ratios(nodes, tets)),
+        "radius_edge_over_reference": fraction_over_ratio(nodes, tets, reference_ratio),
+        "reference_ratio": float(reference_ratio),
     }
 
 

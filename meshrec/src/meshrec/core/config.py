@@ -149,6 +149,19 @@ class TetConfig(BaseModel):
             "IneffectiveVolumeLimitWarning. Vedi docs/fase-1-min-ratio.md"
         ),
     )
+    reference_ratio: float = Field(
+        default=1.8,
+        gt=0.0,
+        description=(
+            "metro fisso con cui lo step 10 conta la frazione di elementi fuori "
+            "vincolo raggio-spigolo. Non e' il vincolo chiesto a TetGen: nel "
+            "motore di sweep min_ratio e' una variabile della griglia, e una "
+            "frazione contata contro il proprio min_ratio confronterebbe "
+            "candidati contro vincoli diversi. Il valore 1.8 coincide con il "
+            "predefinito di min_ratio perche' e' il metro con cui sono state "
+            "misurate le due corse di riferimento (8,10% e 9,55%)"
+        ),
+    )
     element: Literal["C3D4", "C3D10"] = "C3D4"
 
 
