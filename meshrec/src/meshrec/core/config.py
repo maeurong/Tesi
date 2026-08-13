@@ -118,7 +118,10 @@ class TetConfig(BaseModel):
             "rapporto raggio-spigolo massimo: valori piu bassi danno elementi piu "
             "regolari, ma il raffinamento puo' non convergere su geometrie difficili. "
             "Sul muro di riferimento 1.6 e valori inferiori interrompono TetGen con un "
-            "errore interno, 1.8 e' il valore piu severo che porta a termine il lavoro"
+            "errore interno mentre 1.7 converge: il predefinito 1.8 non e' quindi il "
+            "valore piu severo che porta a termine il lavoro, ma quello che tiene un "
+            "decimo di margine sopra di esso. Misura completa da 1.4 a 2.5 in "
+            "docs/fase-1-min-ratio.md"
         ),
     )
     max_volume: float | None = Field(default=None, gt=0.0, description="volume massimo elemento [mm^3]")

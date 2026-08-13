@@ -86,6 +86,12 @@ non è più una nota a margine ma la copia esatta, emessa dalla pipeline stessa,
 dei parametri della corsa qui documentata, così che rieseguire `meshrec run
 muro.yaml` riproduca questi numeri e non una configurazione andata perduta.
 
+Un solo parametro della tetraedrizzazione è stato poi misurato per conto suo,
+riprendendo la pipeline dallo step 9 su questa stessa superficie riparata:
+`tet.min_ratio`, il cui margine è riportato in `fase-1-min-ratio.md`. Ne è
+uscito che il predefinito 1,8 non è il valore più severo che converge — lo è
+1,7 — e che sotto 1,7 il raffinamento si interrompe.
+
 ## Metriche di ogni step
 
 I numeri seguenti vengono da `runs/muro/metrics.json` di una corsa pulita
