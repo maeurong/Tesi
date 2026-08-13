@@ -3,11 +3,13 @@
 - **Data:** 13 agosto 2026
 - **Stato del ramo:** dodici task completati, tutti revisionati; ogni rilievo Critical e
   Important chiuso e verificato in modo indipendente.
-- **Aggiornato il 13 agosto 2026**, dopo tre interventi su questo documento stesso: l'orientazione
-  della superficie riparata è garantita, `min_ratio` è verificato sul maglio prodotto, e la regola
-  che sostituisce la tolleranza dei set è misurata e in attesa di implementazione. Le voci
-  interessate lo dicono al loro posto invece di essere cancellate, perché come si è arrivati a
-  chiuderle è parte di ciò che il documento serve a tramandare.
+- **Aggiornato il 13 agosto 2026**, dopo quattro interventi su questo documento stesso:
+  l'orientazione della superficie riparata è garantita, `min_ratio` è verificato sul maglio
+  prodotto, la regola che sostituisce la tolleranza dei set è misurata e implementata, e lo sweep
+  di Fase 2 ha chiuso la domanda su `nobisect` e dato una misura all'errore di spessore che la
+  Fase 1 non vedeva ([`fase-2-sweep.md`](fase-2-sweep.md)). Le voci interessate lo dicono al loro
+  posto invece di essere cancellate, perché come si è arrivati a chiuderle è parte di ciò che il
+  documento serve a tramandare.
 
 Questo documento raccoglie ciò che è stato deliberatamente lasciato aperto, perché un debito
 noto e scritto è governabile e un debito dimenticato no. È il seguito naturale della sezione
@@ -84,6 +86,15 @@ per un difetto — `lab_frame` è un telaio, e solo il 16,26% della sua impronta
 Non è la fine della questione. Le strozzature sotto il millimetro nascono nella ricostruzione, e
 `nobisect` chiede a TetGen di conviverci invece di rimuoverle: è la leva che funziona, non
 necessariamente quella giusta. Affrontarle a monte resta l'alternativa da valutare in Fase 2.
+
+**La domanda e' stata posta in Fase 2, ed ha una risposta negativa** (misura completa in
+[`fase-2-sweep.md`](fase-2-sweep.md), punto 6). Lo sweep a un asse per volta su `lab_crop` prova
+`tet.nobisect: false` con tutti gli altri assi alla configurazione in vigore — che gia' porta
+`nobisect: true` — ed e' l'unico candidato fallito della corsa, con lo stesso `split_subface` di
+sempre. Nessuna variazione a un asse per volta di `downsample.voxel_size`, `surface.poisson_depth`
+o `surface.density_quantile` rende evitabile la leva. E' un esito negativo documentato, non un
+fallimento della fase, con la postilla che il metodo a un asse per volta non esclude che una
+combinazione di piu' assi la aggiri.
 
 **Esporre `nobisect` ha rivelato una trappola gemella di quella di `fixedvolume`.** Con
 `nobisect` attivo TetGen non aggiunge punti sul bordo, e su una superficie di ingresso grossolana
@@ -245,6 +256,15 @@ spessore ricostruito vale 212,9 mm contro i 176 mm misurati, ma l'errore bidirez
 piccolo perché è una distanza punto-superficie e un ispessimento simmetrico la lascia bassa. La
 metrica di fedeltà adottata è cieca proprio all'errore sistematico che più conta per la rigidezza
 di una muratura. Serve un controllo dedicato sullo spessore.
+
+**Ora c'è, ed è la misura più importante della Fase 2** (dettaglio in
+[`fase-2-sweep.md`](fase-2-sweep.md), punto 7). L'asse di fedeltà introdotto nello sweep confronta
+lo spessore ricostruito con quello noto invece di una distanza punto-superficie: alla profondità 9
+— quella con cui la Fase 1 aveva raggiunto il deck su `lab_frame.pcd` — misurava 214,0 mm contro
+176 mm reali (`fase-1-esiti-lab-frame.md`), un ispessimento del 21% che l'errore bidirezionale
+lasciava a 3,85 mm, invisibile. Alla profondità 7, ora adottata in `meshrec/lab.yaml`, lo spessore
+ricostruito è 174,07 mm. Il controllo dedicato che questa voce chiedeva esiste, ed è quello che ha
+trovato l'errore che la Fase 1 non poteva vedere.
 
 **I nomi dei set di faccia sono convenzioni.** `FACE_FRONT`, `FACE_BACK`, `SIDE_LEFT` e
 `SIDE_RIGHT` non hanno una corrispondenza verificata con le facce fisiche della scansione. Finché
