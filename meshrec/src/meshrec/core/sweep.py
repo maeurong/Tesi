@@ -406,6 +406,14 @@ def measure_thickness_error(row: dict[str, object], source_thickness: float) -> 
     cioe' sulla geometria che entra nella tetraedrizzazione, con la stessa
     funzione usata sulla sorgente: e' il confronto a misura unica che rende
     l'asse verificabile.
+
+    Non solleva mai: un candidato ucciso dopo la riparazione e prima del
+    blocco finally che scrive metrics.json (memoria esaurita, timeout) lascia
+    06_repaired.ply sul disco ma metrics vuoto. run_experiment chiama questa
+    funzione dopo aver gia' eseguito tutti i candidati e prima di scrivere il
+    registro: un'eccezione qui perderebbe ore di calcolo senza lasciarne
+    traccia. Un asse di fedelta' che non si riesce a misurare per una riga e'
+    un thickness_error nullo, non un registro vuoto.
     """
     from meshrec.core import quality
 
@@ -414,10 +422,27 @@ def measure_thickness_error(row: dict[str, object], source_thickness: float) -> 
         return None
     import open3d as o3d
 
-    mesh = o3d.io.read_triangle_mesh(str(repaired))
+    try:
+        mesh = o3d.io.read_triangle_mesh(str(repaired))
+    except OSError:
+        # File cancellato o illeggibile fra il controllo e l'apertura: nessuna
+        # mesh, quindi nessuna misura, non un'eccezione che ferma lo sweep.
+        return None
     vertices = np.asarray(mesh.vertices)
-    spacing = float(row["metrics"]["01_load"]["spacing"])
-    measured = quality.thickness(vertices, bin_width=spacing)
+    if len(vertices) == 0:
+        return None
+    try:
+        spacing = float(row["metrics"]["01_load"]["spacing"])
+    except (KeyError, TypeError):
+        # metrics.json manca o e' incompleto: il caso del candidato ucciso a
+        # meta'. La riga resta, semplicemente senza asse di fedelta'.
+        return None
+    try:
+        measured = quality.thickness(vertices, bin_width=spacing)
+    except np.linalg.LinAlgError:
+        # Vertici degeneri (mesh vuota o piatta su tutti gli assi): la
+        # decomposizione non converge, la misura non e' disponibile.
+        return None
     row["thickness_reconstructed"] = measured["thickness"]
     row["thickness_bimodal"] = measured["bimodal"]
     if not measured["bimodal"]:

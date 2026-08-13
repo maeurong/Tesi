@@ -343,3 +343,77 @@ def test_pruning_keeps_config_and_metrics_and_marks_the_row(tmp_path):
     assert (sopravvive / "09_volume.vtu").exists()
     assert scartato["artifacts_kept"] is False
     assert tenuto["artifacts_kept"] is True
+
+
+def _experiment(tmp_path, known_thickness):
+    return config.ExperimentConfig(
+        name="prova",
+        base=Path("muro.yaml"),
+        axes=[config.AxisSpec(path="tet.min_ratio", values=[1.8, 2.0])],
+        known_thickness=known_thickness,
+        sweep=config.SweepConfig(
+            runs_root=tmp_path / "runs", registry_root=tmp_path / "experiments"
+        ),
+    )
+
+
+def test_the_gate_raises_when_the_thickness_error_exceeds_five_percent(tmp_path, monkeypatch):
+    """Il cancello ferma lo sweep prima di eseguire candidati, coi numeri nel messaggio.
+
+    run_candidate e' sostituito con uno che solleva se chiamato: se il cancello
+    non fermasse lo sweep prima di expand(), pytest.raises vedrebbe
+    AssertionError al posto di ValueError e il test fallirebbe da solo, senza
+    bisogno di una quarta asserzione o di un contatore di chiamate.
+    """
+    import numpy as np
+
+    monkeypatch.setattr("meshrec.core.io.load_cloud", lambda cfg: (np.zeros((4, 3)), {"spacing": 1.0}))
+    monkeypatch.setattr("meshrec.core.segment.segment_cloud", lambda points, cfg, spacing: (points, {}))
+    monkeypatch.setattr(
+        "meshrec.core.quality.thickness",
+        lambda points, bin_width: {"thickness": 120.0, "axis": 0, "extent": 10.0, "bimodal": True},
+    )
+
+    def _boom(*args, **kwargs):
+        raise AssertionError("run_candidate chiamato: il cancello non ha fermato lo sweep")
+
+    monkeypatch.setattr(sweep, "run_candidate", _boom)
+
+    with pytest.raises(ValueError, match="120.0 mm contro 100.0 mm"):
+        sweep.run_experiment(_experiment(tmp_path, known_thickness=100.0), _base())
+
+
+def test_the_gate_raises_when_the_source_distribution_is_not_bimodal(tmp_path, monkeypatch):
+    """Anche a scarto piccolo, senza due modi la misura non e' utilizzabile: il cancello scatta lo stesso."""
+    import numpy as np
+
+    monkeypatch.setattr("meshrec.core.io.load_cloud", lambda cfg: (np.zeros((4, 3)), {"spacing": 1.0}))
+    monkeypatch.setattr("meshrec.core.segment.segment_cloud", lambda points, cfg, spacing: (points, {}))
+    monkeypatch.setattr(
+        "meshrec.core.quality.thickness",
+        lambda points, bin_width: {"thickness": 100.5, "axis": 0, "extent": 10.0, "bimodal": False},
+    )
+
+    with pytest.raises(ValueError, match="bimodale=False"):
+        sweep.run_experiment(_experiment(tmp_path, known_thickness=100.0), _base())
+
+
+def test_measure_thickness_error_returns_none_without_raising_when_metrics_is_empty(tmp_path):
+    """06_repaired.ply esiste ma metrics.json non e' mai stato scritto: il candidato
+    ucciso dopo la riparazione e prima del blocco finally che lo scrive. La riga
+    resta comparabile a False, ma la funzione non deve sollevare KeyError."""
+    import numpy as np
+    import open3d as o3d
+
+    out_dir = tmp_path / "candidato"
+    out_dir.mkdir()
+    mesh = o3d.geometry.TriangleMesh()
+    mesh.vertices = o3d.utility.Vector3dVector(
+        np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+    )
+    mesh.triangles = o3d.utility.Vector3iVector(np.array([[0, 1, 2]]))
+    o3d.io.write_triangle_mesh(str(out_dir / "06_repaired.ply"), mesh)
+
+    row = {"out_dir": str(out_dir), "metrics": {}}
+
+    assert sweep.measure_thickness_error(row, source_thickness=100.0) is None
