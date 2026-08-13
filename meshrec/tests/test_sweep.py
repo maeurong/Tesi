@@ -291,13 +291,30 @@ def test_a_front_as_large_as_the_grid_is_reported():
 
 
 def test_more_than_half_failing_is_reported():
+    """Con un solo candidato confrontabile il fronte e' anche largo quanto
+    la griglia comparabile: scattano entrambi gli avvisi, e vanno asseriti
+    entrambi, altrimenti quello che sfugge non conta piu' nella suite."""
     rows = [
         _row("a", thickness_error=1.0, tets=1, over=0.1),
         {"fingerprint": "b", "outcome": "fallito", "complete": False},
         {"fingerprint": "c", "outcome": "timeout", "complete": False},
     ]
 
-    with pytest.warns(sweep.SweepDiagnosticWarning, match="griglia"):
+    with pytest.warns(sweep.SweepDiagnosticWarning) as record:
         report = sweep.check_sweep(rows, sweep.pareto_front(rows))
 
+    messages = [str(warning.message) for warning in record]
+    assert any("griglia" in message for message in messages)
+    assert any("non discrimina" in message for message in messages)
     assert report["failed_fraction"] == pytest.approx(2 / 3)
+
+
+def test_candidates_tied_on_every_axis_all_survive():
+    """Due tuple uguali non si dominano a vicenda: ne' _dominates ne'
+    other != score le fa cadere, in nessuna delle due direzioni."""
+    prima = _row("a", thickness_error=5.0, tets=1_000_000, over=0.10)
+    seconda = _row("b", thickness_error=5.0, tets=1_000_000, over=0.10)
+
+    front = sweep.pareto_front([prima, seconda])
+
+    assert {row["fingerprint"] for row in front} == {"a", "b"}
