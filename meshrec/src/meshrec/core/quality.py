@@ -300,6 +300,15 @@ def thickness(points: np.ndarray, bin_width: float) -> dict[str, object]:
     la loro distanza non sarebbe uno spessore.
     """
     values = np.asarray(points, dtype=np.float64)
+    if not np.isfinite(values).all():
+        # Coordinate non finite (NaN, inf) possono uscire da una
+        # ricostruzione di Poisson andata male, da una chiusura dei fori o
+        # da una stima delle normali degenere. eigh su una matrice corrotta
+        # da NaN non solleva: non converge in silenzio (LinAlgError:
+        # Eigenvalues did not converge), un percorso che il chiamante non
+        # deve intercettare. La misura non si applica, stesso dizionario del
+        # ramo degenere piu sotto.
+        return {"thickness": None, "axis": None, "extent": None, "bimodal": False}
     centred = values - values.mean(axis=0)
     # eigh su una 3x3: costo indipendente dal numero di punti, al contrario
     # di una SVD sulla matrice intera, che su 6,3 milioni di punti materializza

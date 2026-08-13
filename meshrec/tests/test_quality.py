@@ -219,6 +219,22 @@ def test_thickness_declares_itself_invalid_on_a_degenerate_cloud_instead_of_rais
     assert measured["thickness"] is None
 
 
+def test_thickness_declares_itself_invalid_on_a_cloud_with_a_nan_vertex():
+    """Un vertice non finito puo' uscire da una ricostruzione di Poisson andata
+    male, da una chiusura dei fori o da una stima delle normali degenere.
+
+    eigh su una matrice corrotta da NaN non solleva: non converge in
+    silenzio (LinAlgError). La guardia sui valori finiti deve intercettarlo
+    prima che il calcolo delle direzioni principali lo raggiunga.
+    """
+    points = np.array([[np.nan, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+
+    measured = quality.thickness(points, bin_width=1.0)
+
+    assert measured["bimodal"] is False
+    assert measured["thickness"] is None
+
+
 def test_the_reference_fraction_does_not_depend_on_the_requested_min_ratio():
     """L'asse di qualita' del fronte usa un metro unico per tutti i candidati.
 

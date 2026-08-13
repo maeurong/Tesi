@@ -461,3 +461,26 @@ def test_measure_thickness_error_returns_none_without_raising_on_a_degenerate_me
     row = {"out_dir": str(out_dir), "metrics": {"01_load": {"spacing": 1.0}}}
 
     assert sweep.measure_thickness_error(row, source_thickness=100.0) is None
+
+
+def test_measure_thickness_error_returns_none_without_raising_on_a_nan_vertex(tmp_path):
+    """Prova end-to-end: un vertice NaN nella mesh riparata non deve fermare
+    run_experiment dopo che tutti i candidati sono gia' stati eseguiti e
+    prima di ogni append_row. Coordinate non finite possono uscire da una
+    ricostruzione di Poisson andata male, da una chiusura dei fori o da una
+    stima delle normali degenere: non e' un caso teorico."""
+    import numpy as np
+    import open3d as o3d
+
+    out_dir = tmp_path / "candidato"
+    out_dir.mkdir()
+    mesh = o3d.geometry.TriangleMesh()
+    mesh.vertices = o3d.utility.Vector3dVector(
+        np.array([[np.nan, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+    )
+    mesh.triangles = o3d.utility.Vector3iVector(np.array([[0, 1, 2], [1, 2, 3]]))
+    o3d.io.write_triangle_mesh(str(out_dir / "06_repaired.ply"), mesh)
+
+    row = {"out_dir": str(out_dir), "metrics": {"01_load": {"spacing": 1.0}}}
+
+    assert sweep.measure_thickness_error(row, source_thickness=100.0) is None
