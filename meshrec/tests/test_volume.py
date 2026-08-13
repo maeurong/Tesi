@@ -12,7 +12,7 @@ EXACT_VOLUME = 100.0 * 40.0 * 200.0
 def test_tetrahedralize_fills_the_box():
     vertices, faces = synth.box_mesh(SIZE)
     nodes, tets = volume.tetrahedralize(
-        vertices, faces, max_volume=50_000.0, min_ratio=1.8, max_steiner_points=-1
+        vertices, faces, max_volume=50_000.0, min_ratio=1.8, max_steiner_points=-1, nobisect=False
     )
 
     assert nodes.ndim == 2 and nodes.shape[1] == 3
@@ -24,7 +24,7 @@ def test_tetrahedralize_fills_the_box():
 def test_sum_of_tet_volumes_equals_the_exact_volume():
     vertices, faces = synth.box_mesh(SIZE)
     nodes, tets = volume.tetrahedralize(
-        vertices, faces, max_volume=50_000.0, min_ratio=1.8, max_steiner_points=-1
+        vertices, faces, max_volume=50_000.0, min_ratio=1.8, max_steiner_points=-1, nobisect=False
     )
 
     total = np.abs(quality.tet_volumes(nodes, tets)).sum()
@@ -34,7 +34,7 @@ def test_sum_of_tet_volumes_equals_the_exact_volume():
 def test_no_inverted_elements():
     vertices, faces = synth.box_mesh(SIZE)
     nodes, tets = volume.tetrahedralize(
-        vertices, faces, max_volume=50_000.0, min_ratio=1.8, max_steiner_points=-1
+        vertices, faces, max_volume=50_000.0, min_ratio=1.8, max_steiner_points=-1, nobisect=False
     )
 
     assert len(quality.inverted_tets(nodes, tets)) == 0
@@ -43,10 +43,10 @@ def test_no_inverted_elements():
 def test_max_volume_controls_the_number_of_elements():
     vertices, faces = synth.box_mesh(SIZE)
     _, coarse = volume.tetrahedralize(
-        vertices, faces, max_volume=200_000.0, min_ratio=1.8, max_steiner_points=-1
+        vertices, faces, max_volume=200_000.0, min_ratio=1.8, max_steiner_points=-1, nobisect=False
     )
     _, fine = volume.tetrahedralize(
-        vertices, faces, max_volume=20_000.0, min_ratio=1.8, max_steiner_points=-1
+        vertices, faces, max_volume=20_000.0, min_ratio=1.8, max_steiner_points=-1, nobisect=False
     )
 
     assert len(fine) > len(coarse)
@@ -58,7 +58,7 @@ def test_an_open_surface_is_refused_before_tetgen_runs():
     damaged = synth.punch_holes(faces)
 
     with pytest.raises(volume.NotWatertightError, match="4 spigoli di bordo"):
-        volume.tetrahedralize(vertices, damaged, min_ratio=1.8, max_steiner_points=-1)
+        volume.tetrahedralize(vertices, damaged, min_ratio=1.8, max_steiner_points=-1, nobisect=False)
 
 
 def test_with_metrics_reports_counts_and_time():
@@ -96,8 +96,46 @@ def test_no_processing_default_lives_in_the_signature():
     che lo lasciava implicito otteneva un valore diverso da quello configurato.
     """
     parameters = inspect.signature(volume.tetrahedralize).parameters
-    for name in ("min_ratio", "max_steiner_points"):
+    for name in ("min_ratio", "max_steiner_points", "nobisect"):
         assert parameters[name].default is inspect.Parameter.empty
+
+
+def test_nobisect_leaves_the_input_surface_untouched():
+    """`nobisect` vieta a TetGen di suddividere le facce di ingresso.
+
+    E' la leva che porta a termine il raffinamento dove la scala locale della
+    superficie scende sotto il millimetro (vedi docs/fase-1-min-ratio.md). Sul
+    cubo l'effetto e' visibile in modo netto: senza, il bordo viene infittito e
+    i nodi si moltiplicano; con, restano gli otto vertici dati piu i punti
+    aggiunti all'interno.
+    """
+    vertices, faces = synth.box_mesh(SIZE)
+    common = {"max_volume": 2_000.0, "min_ratio": 1.8, "max_steiner_points": -1}
+
+    liberi, _ = volume.tetrahedralize(vertices, faces, nobisect=False, **common)
+    vincolati, _ = volume.tetrahedralize(vertices, faces, nobisect=True, **common)
+
+    assert len(liberi) > 10 * len(vincolati)
+    conservati = {tuple(riga) for riga in np.round(vincolati, 9)}
+    assert all(tuple(riga) in conservati for riga in np.round(np.asarray(vertices), 9))
+
+
+def test_nobisect_can_make_the_volume_limit_inert_and_says_so():
+    """Con `nobisect` il limite di volume puo' restare lettera morta.
+
+    Se la superficie di ingresso e' grossolana, TetGen non ha punti di bordo da
+    cui partire e restituisce pochi tetraedri enormi senza segnalare nulla:
+    `max_volume` risulta impostato e disatteso. E' la stessa trappola di
+    `fixedvolume`, e come quella va dichiarata invece che scoperta a valle.
+    """
+    vertices, faces = synth.box_mesh(SIZE)
+    cfg = config.TetConfig(max_volume=2_000.0, nobisect=True)
+
+    with pytest.warns(volume.IneffectiveVolumeLimitWarning):
+        nodes, tets, metrics = volume.tetrahedralize_with_metrics(vertices, faces, cfg)
+
+    assert metrics["nobisect"] is True
+    assert np.abs(quality.tet_volumes(nodes, tets)).max() > cfg.max_volume
 
 
 def test_an_exhausted_steiner_budget_is_reported_not_hidden():

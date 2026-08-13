@@ -12,7 +12,7 @@ SIZE = (100.0, 40.0, 200.0)
 def cube_mesh():
     vertices, faces = synth.box_mesh(SIZE)
     return volume.tetrahedralize(
-        vertices, faces, max_volume=100_000.0, min_ratio=1.8, max_steiner_points=-1
+        vertices, faces, max_volume=100_000.0, min_ratio=1.8, max_steiner_points=-1, nobisect=False
     )
 
 
@@ -404,7 +404,7 @@ def test_export_model_estimates_the_triad_on_the_reference_it_is_given(tmp_path)
     """Il riferimento arriva fino al deck: e' la strada che usa la pipeline."""
     vertices, faces = synth.box_mesh(SIZE)
     nodes, tets = volume.tetrahedralize(
-        vertices, faces, max_volume=100_000.0, min_ratio=1.8, max_steiner_points=-1
+        vertices, faces, max_volume=100_000.0, min_ratio=1.8, max_steiner_points=-1, nobisect=False
     )
 
     metrics = abaqus.export_model(

@@ -135,6 +135,20 @@ class TetConfig(BaseModel):
             "restituendo una mesh troncata che nessuna metrica segnalava"
         ),
     )
+    nobisect: bool = Field(
+        default=False,
+        description=(
+            "vieta a TetGen di suddividere le facce della superficie di ingresso. "
+            "Serve dove la scala locale della superficie e' minuscola: la "
+            "suddivisione per invasione ricorre fino alla distanza fra lembi "
+            "opposti, e su lab_frame.pcd, che ha strozzature sotto il millimetro, "
+            "il raffinamento non converge a nessun min_ratio finche' resta "
+            "consentita. Attenzione: con nobisect attivo TetGen non aggiunge punti "
+            "sul bordo, quindi su una superficie di ingresso grossolana max_volume "
+            "puo' restare disatteso; il caso e' segnalato con "
+            "IneffectiveVolumeLimitWarning. Vedi docs/fase-1-min-ratio.md"
+        ),
+    )
     element: Literal["C3D4", "C3D10"] = "C3D4"
 
 

@@ -9,7 +9,7 @@ import numpy as np
 import tetgen
 
 from meshrec.core.config import TetConfig
-from meshrec.core.quality import boundary_edges, inverted_tets, is_watertight
+from meshrec.core.quality import boundary_edges, inverted_tets, is_watertight, tet_volumes
 
 
 class NotWatertightError(ValueError):
@@ -18,6 +18,10 @@ class NotWatertightError(ValueError):
 
 class TruncatedRefinementWarning(UserWarning):
     """TetGen ha esaurito i punti di Steiner: la mesh e' troncata, non completa."""
+
+
+class IneffectiveVolumeLimitWarning(UserWarning):
+    """`max_volume` era impostato ma la mesh non lo rispetta: il limite e' rimasto inerte."""
 
 
 class RefinementFailedError(RuntimeError):
@@ -35,15 +39,18 @@ def tetrahedralize(
     *,
     min_ratio: float,
     max_steiner_points: int,
+    nobisect: bool,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Riempie di tetraedri lineari la superficie chiusa data.
 
     `min_ratio` e il rapporto raggio-spigolo massimo ammesso (piu basso =
     elementi piu regolari e piu numerosi); `max_volume` limita il volume del
     singolo elemento nelle unita di lavoro; `max_steiner_points` limita i punti
-    che TetGen puo' aggiungere per raffinare, e -1 toglie il limite.
+    che TetGen puo' aggiungere per raffinare, e -1 toglie il limite. `nobisect`
+    vieta la suddivisione delle facce di ingresso: la superficie esce identica a
+    come e' entrata, e il raffinamento resta confinato all'interno.
 
-    Ne' `min_ratio` ne' `max_steiner_points` hanno un valore predefinito qui,
+    Ne' `min_ratio`, ne' `max_steiner_points`, ne' `nobisect` hanno un valore predefinito qui,
     apposta: l'unico luogo dove un parametro di elaborazione ha un predefinito
     e' `core.config`. Il predefinito ereditato dalla libreria tetgen per
     `max_steiner_points` (100000) ha prodotto mesh troncate senza che nulla lo
@@ -68,6 +75,7 @@ def tetrahedralize(
         "order": 1,
         "minratio": float(min_ratio),
         "steinerleft": int(max_steiner_points),
+        "nobisect": bool(nobisect),
     }
     if max_volume is not None:
         # Non e' un bug: e' una trappola dell'API di tetgen 0.8.4, per scelta
@@ -112,6 +120,7 @@ def tetrahedralize_with_metrics(
         cfg.max_volume,
         min_ratio=cfg.min_ratio,
         max_steiner_points=cfg.max_steiner_points,
+        nobisect=cfg.nobisect,
     )
     seconds = time.perf_counter() - start
 
@@ -139,6 +148,33 @@ def tetrahedralize_with_metrics(
             stacklevel=2,
         )
 
+    # Con nobisect TetGen non ha punti di bordo da cui partire, e su una
+    # superficie di ingresso grossolana restituisce pochi elementi enormi senza
+    # dire nulla: max_volume risulta impostato e disatteso. E' la stessa trappola
+    # di fixedvolume, scoperta sul cubo (12 tetraedri invece di 7103), e come
+    # quella non deve arrivare a valle in silenzio.
+    #
+    # La soglia e' un fattore 2 e non l'uguaglianza perche' per TetGen maxvolume
+    # e' un obiettivo, non un tetto rigido: sul cubo il piu grande supera di
+    # routine il limite di circa il 10% anche quando il raffinamento fa tutto il
+    # suo lavoro. Un avviso che scatta a ogni corsa regolare e' un avviso che
+    # nessuno legge piu quando conta; il caso da segnalare, sul cubo con
+    # nobisect, e' trenta volte oltre.
+    largest = float(np.abs(tet_volumes(nodes, tets)).max()) if len(tets) else 0.0
+    if cfg.max_volume is not None and largest > 2.0 * cfg.max_volume:
+        warnings.warn(
+            f"il tetraedro piu grande misura {largest:.6g} contro il max_volume "
+            f"di {cfg.max_volume:.6g} richiesto: il limite non e' stato applicato. "
+            + (
+                "Con nobisect attivo TetGen non aggiunge punti sul bordo: "
+                "infittisci la superficie di ingresso o disattiva nobisect."
+                if cfg.nobisect
+                else "Verifica i vincoli di qualita richiesti."
+            ),
+            IneffectiveVolumeLimitWarning,
+            stacklevel=2,
+        )
+
     metrics = {
         "nodes": int(len(nodes)),
         "tets": int(len(tets)),
@@ -147,6 +183,8 @@ def tetrahedralize_with_metrics(
         "min_ratio": cfg.min_ratio,
         "max_volume": cfg.max_volume,
         "max_steiner_points": cfg.max_steiner_points,
+        "nobisect": bool(cfg.nobisect),
+        "largest_element_volume": largest,
         "steiner_points": steiner_points,
         "steiner_saturated": bool(saturated),
     }
