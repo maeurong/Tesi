@@ -596,3 +596,67 @@ def test_verify_does_not_call_pruned_rows_stale(tmp_path):
 
     assert esito[0]["stale"] is False
     assert "potati" in esito[0]["reason"]
+
+
+def test_prune_skips_a_row_whose_out_dir_is_not_a_directory():
+    """C2, in isolamento: prune non deve chiamare iterdir() su un file.
+
+    run_candidate produce questa riga quando la cartella del candidato non si
+    e' potuta creare (permessi negati, collisione con un file omonimo):
+    out_dir e' una stringa non vuota, ma il percorso e' un file. Prima della
+    guardia, Path(out_dir).iterdir() sollevava NotADirectoryError qui.
+    """
+    errore = _row("a", thickness_error=1.0, tets=1, over=0.1, out_dir="C:/non/esiste/come/cartella")
+    errore["outcome"] = "errore"
+    tenuto = _row("b", thickness_error=9.0, tets=900_000, over=0.10)
+
+    removed = sweep.prune([errore, tenuto], [tenuto])
+
+    assert removed == 0
+    assert errore["artifacts_kept"] is True  # non toccata: nessuna cartella da potare
+
+
+def test_run_experiment_writes_the_registry_even_when_a_candidate_cannot_create_its_folder(
+    tmp_path, monkeypatch
+):
+    """Prova end-to-end per C2: prune() non deve mai impedire la scrittura del registro.
+
+    Un candidato la cui cartella non si e' potuta creare produce una riga con
+    outcome 'errore' e un out_dir che non e' una cartella (run_candidate,
+    ramo dell'OSError). run_experiment chiama prune() prima del ciclo che
+    scrive le righe: senza la guardia in prune(), Path(out_dir).iterdir()
+    solleva NotADirectoryError e il registro non viene scritto affatto,
+    perdendo con esso ogni candidato riuscito nello stesso sweep.
+    """
+    import numpy as np
+
+    monkeypatch.setattr("meshrec.core.io.load_cloud", lambda cfg: (np.zeros((4, 3)), {"spacing": 1.0}))
+    monkeypatch.setattr("meshrec.core.segment.segment_cloud", lambda points, cfg, spacing: (points, {}))
+    monkeypatch.setattr(
+        "meshrec.core.quality.thickness",
+        lambda points, bin_width: {"thickness": 100.0, "axis": 0, "extent": 10.0, "bimodal": True},
+    )
+
+    def _fake_run(cmd, **kwargs):
+        return sweep.subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(sweep.subprocess, "run", _fake_run)
+
+    experiment = _experiment(tmp_path, known_thickness=None)
+    base = _base()
+    root = Path(experiment.sweep.runs_root) / experiment.name
+
+    # Blocca la cartella del secondo candidato con un file omonimo: stessa
+    # collisione di test_a_candidate_whose_folder_cannot_be_created_becomes_a_row_and_not_an_exception,
+    # ma qui dentro il flusso reale di run_experiment.
+    candidates = sweep.expand(experiment, base)
+    assert len(candidates) == 2
+    blocked_dir = root / sweep.fingerprint(candidates[-1][1])[:12]
+    blocked_dir.parent.mkdir(parents=True, exist_ok=True)
+    blocked_dir.write_text("non e' una cartella", encoding="utf-8")
+
+    result = sweep.run_experiment(experiment, base)
+
+    rows = sweep.load_registry(Path(result["registry"]))
+    assert len(rows) == 2
+    assert {row["outcome"] for row in rows} == {"riuscito", "errore"}

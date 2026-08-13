@@ -463,7 +463,16 @@ def prune(rows: list[dict[str, object]], front: list[dict[str, object]]) -> int:
     for row in rows:
         if row["fingerprint"] in kept or not row.get("out_dir"):
             continue
-        for item in Path(row["out_dir"]).iterdir():
+        candidate_dir = Path(row["out_dir"])
+        if not candidate_dir.is_dir():
+            # run_candidate scrive questa riga quando la cartella del
+            # candidato non si e' potuta creare (permessi negati, collisione
+            # con un file omonimo): out_dir esiste come stringa ma non come
+            # cartella. iterdir() su un file solleva NotADirectoryError; la
+            # riga porta gia' artifacts_kept=False dalla sua origine, quindi
+            # non c'e' nulla da potare qui.
+            continue
+        for item in candidate_dir.iterdir():
             if item.is_file() and item.name not in ("config.yaml", "metrics.json"):
                 item.unlink()
                 removed += 1
