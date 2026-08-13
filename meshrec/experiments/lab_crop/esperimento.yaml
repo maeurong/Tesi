@@ -17,5 +17,11 @@ axes:
     values: [false, true]
 sweep:
   runs_root: runs/sweep
-  workers: 4
+  # workers abbassato da 4 a 2: memoria libera sulla macchina ~9 GB su 15,8 GB
+  # totali, e ogni candidato lavora su 6,3 milioni di punti con un picco
+  # misurato di TetGen di 1,35 GB da solo. Quattro candidati in volo insieme
+  # (5,4 GB di solo TetGen, piu il resto della pipeline per ciascuno) non
+  # lasciano margine su questa macchina. Parametro di macchina, non un
+  # risultato dell'esperimento.
+  workers: 2
   timeout_s: 1800.0
