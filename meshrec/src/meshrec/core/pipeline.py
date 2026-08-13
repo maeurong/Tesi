@@ -40,7 +40,9 @@ _RESUME_POINTS: dict[int, int] = {2: 1, 3: 2, 4: 3, 5: 4, 6: 4, 7: 4, 8: 4, 9: 4
 # Mesh (vertici/facce) da ricaricare come ingresso dello step che riparte.
 # Lo step 7 non scrive un proprio artefatto (produce solo metriche), quindi
 # from_step=8 riparte anch'esso dalla superficie riparata dello step 6.
-_RESUME_MESH: dict[int, int] = {6: 5, 7: 6, 8: 6, 9: 8}
+# from_step=9 non e' qui: l'artefatto giusto dipende da cfg.simplify.enabled
+# (vedi run()), perche' lo step 8 scrive 08_simplified.ply solo se abilitato.
+_RESUME_MESH: dict[int, int] = {6: 5, 7: 6, 8: 6}
 
 
 def _write_mesh(path: Path, vertices: np.ndarray, faces: np.ndarray) -> None:
@@ -70,10 +72,14 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
     l'artefatto numerato che precede quello di ripartenza, secondo le tabelle
     `_RESUME_POINTS` e `_RESUME_MESH`. La ripresa si fida dell'operatore: non
     verifica che quegli artefatti siano stati prodotti con la configurazione
-    corrente, e nemmeno che esistano (per esempio `from_step=9` richiede
-    l'artefatto 8, che esiste solo se una corsa precedente aveva
-    `simplify.enabled=True`; con quella corsa disabilitata la ripresa fallisce
-    con `FileNotFoundError`, ed e' corretto che fallisca invece di indovinare).
+    corrente, e nemmeno che esistano. Unica eccezione governata da `cfg`
+    invece che dalla tabella: `from_step=9` ricarica `08_simplified.ply` se
+    `cfg.simplify.enabled` e' vero, altrimenti `06_repaired.ply`, perche' lo
+    step 8 scrive il proprio artefatto solo quando la semplificazione e'
+    abilitata (predefinito: disabilitata). Se l'operatore riparte da 9 con
+    `simplify.enabled=True` ma la corsa precedente non aveva scritto
+    `08_simplified.ply` (per esempio perche' era disabilitata in quella
+    corsa), la ripresa fallisce con `FileNotFoundError` invece di indovinare.
 
     La ripresa arriva fino allo step 9 (tetraedrizzazione): `RunConfig.from_step`
     e' vincolato a 9 (vedi `config.py`). Gli step 10 e 11 sono il calcolo delle
@@ -126,6 +132,14 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
             vertices, faces, step_metrics = surface.reconstruct(points, normals, cfg.surface, spacing)
             metrics["05_reconstruct"] = step_metrics
             _write_mesh(out / ARTIFACTS[5], vertices, faces)
+        elif start == 9:
+            # lo step 8 scrive 08_simplified.ply solo se la semplificazione e'
+            # abilitata: con from_step=9 la mesh valida a monte e' quella
+            # dello step 8 se abilitata, altrimenti quella riparata dello
+            # step 6 (predefinito), mai un ripiego generico sull'ultimo file
+            # esistente.
+            resume_from = 8 if cfg.simplify.enabled else 6
+            vertices, faces = _read_mesh(out / ARTIFACTS[resume_from])
         else:
             vertices, faces = _read_mesh(out / ARTIFACTS[_RESUME_MESH[start]])
 

@@ -132,3 +132,38 @@ def test_the_same_configuration_run_twice_gives_the_same_result(tmp_path):
     assert first["09_tetrahedralize"]["nodes"] == second["09_tetrahedralize"]["nodes"]
     assert first["09_tetrahedralize"]["tets"] == second["09_tetrahedralize"]["tets"]
     assert first["11_export"]["volume"] == pytest.approx(second["11_export"]["volume"], rel=1e-9)
+
+
+def test_resuming_from_tetrahedralize_works_when_simplify_is_disabled(run_dir):
+    """Configurazione predefinita (simplify.enabled=False): lo step 8 non scrive
+    08_simplified.ply, quindi from_step=9 deve ricaricare la superficie riparata
+    dello step 6, non l'artefatto (assente) dello step 8."""
+    out, _ = run_dir
+    cfg = config.load_config(out / "config.yaml")
+    assert cfg.simplify.enabled is False
+    cfg.run.from_step = 9
+
+    resumed = pipeline.run(cfg)
+    assert resumed["09_tetrahedralize"]["nodes"] > 0
+    assert resumed["11_export"]["volume"] == pytest.approx(EXACT_VOLUME, rel=0.1)
+
+
+def test_resuming_from_tetrahedralize_still_works_when_simplify_is_enabled(tmp_path):
+    """La correzione per simplify disabilitato non deve rompere il caso abilitato."""
+    pytest.importorskip("pymeshfix")
+    cloud_path = tmp_path / "box.ply"
+    io.write_cloud(cloud_path, synth.sample_box_surface(SIZE, SPACING))
+
+    def make_cfg(from_step):
+        return config.PipelineConfig(
+            input=config.InputConfig(path=cloud_path, spacing_sample=5000),
+            downsample=config.DownsampleConfig(voxel_size=SPACING),
+            surface=config.SurfaceConfig(poisson_depth=8, density_quantile=0.02),
+            simplify=config.SimplifyConfig(enabled=True, mode="decimate", target_faces=500),
+            run=config.RunConfig(out_dir=tmp_path / "out", from_step=from_step),
+        )
+
+    pipeline.run(make_cfg(1))
+    resumed = pipeline.run(make_cfg(9))
+    assert resumed["09_tetrahedralize"]["nodes"] > 0
+    assert resumed["11_export"]["volume"] == pytest.approx(EXACT_VOLUME, rel=0.1)
