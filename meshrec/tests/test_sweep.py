@@ -243,6 +243,7 @@ def _row(fingerprint_: str, thickness_error: float, tets: int, over: float, **ex
         "metrics": {
             "10_volume_quality": {"tets": tets, "radius_edge_over_reference": over},
         },
+        "artifacts_kept": True,
     }
     row.update(extra)
     return row
@@ -318,3 +319,27 @@ def test_candidates_tied_on_every_axis_all_survive():
     front = sweep.pareto_front([prima, seconda])
 
     assert {row["fingerprint"] for row in front} == {"a", "b"}
+
+
+def test_pruning_keeps_config_and_metrics_and_marks_the_row(tmp_path):
+    """Una corsa completa pesa circa 300 MB: i dominati conservano la riga, non i file."""
+    dominato = tmp_path / "dominato"
+    dominato.mkdir()
+    for name in ("config.yaml", "metrics.json", "09_volume.vtu", "wall_model.inp"):
+        (dominato / name).write_text("x", encoding="utf-8")
+    sopravvive = tmp_path / "fronte"
+    sopravvive.mkdir()
+    (sopravvive / "09_volume.vtu").write_text("x", encoding="utf-8")
+
+    scartato = _row("a", thickness_error=20.0, tets=2, over=0.5, out_dir=str(dominato))
+    tenuto = _row("b", thickness_error=1.0, tets=1, over=0.1, out_dir=str(sopravvive))
+
+    removed = sweep.prune([scartato, tenuto], [tenuto])
+
+    assert removed == 2
+    assert (dominato / "config.yaml").exists()
+    assert (dominato / "metrics.json").exists()
+    assert not (dominato / "09_volume.vtu").exists()
+    assert (sopravvive / "09_volume.vtu").exists()
+    assert scartato["artifacts_kept"] is False
+    assert tenuto["artifacts_kept"] is True

@@ -15,8 +15,11 @@ import subprocess
 import sys
 import time
 import warnings
+from concurrent.futures import ThreadPoolExecutor
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
+
+import numpy as np
 
 from meshrec.core.config import ExperimentConfig, PipelineConfig
 
@@ -394,3 +397,115 @@ def check_sweep(
         "front": len(front),
         "front_is_whole_grid": front_is_whole_grid,
     }
+
+
+def measure_thickness_error(row: dict[str, object], source_thickness: float) -> float | None:
+    """Scarto fra lo spessore ricostruito e quello della nuvola sorgente [mm].
+
+    Lo spessore ricostruito si misura sui vertici della superficie riparata,
+    cioe' sulla geometria che entra nella tetraedrizzazione, con la stessa
+    funzione usata sulla sorgente: e' il confronto a misura unica che rende
+    l'asse verificabile.
+    """
+    from meshrec.core import quality
+
+    repaired = Path(row["out_dir"]) / "06_repaired.ply"
+    if not repaired.exists():
+        return None
+    import open3d as o3d
+
+    mesh = o3d.io.read_triangle_mesh(str(repaired))
+    vertices = np.asarray(mesh.vertices)
+    spacing = float(row["metrics"]["01_load"]["spacing"])
+    measured = quality.thickness(vertices, bin_width=spacing)
+    row["thickness_reconstructed"] = measured["thickness"]
+    row["thickness_bimodal"] = measured["bimodal"]
+    if not measured["bimodal"]:
+        return None
+    return abs(measured["thickness"] - source_thickness)
+
+
+def prune(rows: list[dict[str, object]], front: list[dict[str, object]]) -> int:
+    """Rimuove gli artefatti dei dominati; config.yaml e metrics.json restano.
+
+    La riga dichiara `artifacts_kept: false` e porta gia' il comando che li
+    rigenera: config completo piu impronta del codice rendono la
+    riesecuzione un comando, non una ricostruzione.
+    """
+    kept = {row["fingerprint"] for row in front}
+    removed = 0
+    for row in rows:
+        if row["fingerprint"] in kept or not row.get("out_dir"):
+            continue
+        for item in Path(row["out_dir"]).iterdir():
+            if item.is_file() and item.name not in ("config.yaml", "metrics.json"):
+                item.unlink()
+                removed += 1
+        row["artifacts_kept"] = False
+    return removed
+
+
+def run_experiment(
+    experiment: ExperimentConfig, base: PipelineConfig
+) -> dict[str, object]:
+    """Espande la griglia, esegue i candidati in parallelo, scrive il registro.
+
+    I thread attendono soltanto i sottoprocessi e non calcolano nulla, quindi
+    OMP_NUM_THREADS=1 continua a valere dentro ciascun candidato e la
+    riproducibilita verificata in Fase 1 regge invariata.
+    """
+    from meshrec.core import io, quality, segment
+
+    root = Path(experiment.sweep.runs_root) / experiment.name
+    registry = Path(experiment.sweep.registry_root) / experiment.name / "registro.jsonl"
+
+    # La sorgente si legge con load_cloud, che applica input.scale: read_cloud
+    # non lo fa, e su una configurazione con scale 1000 la misura uscirebbe in
+    # metri contro un valore noto in millimetri. Si segmenta poi con i
+    # parametri della base perche' la segmentazione non e' un asse, quindi e'
+    # comune a tutti i candidati, ed e' la stessa nuvola su cui si misura lo
+    # spessore ricostruito.
+    source, load_metrics = io.load_cloud(base.input)
+    spacing = float(load_metrics["spacing"])
+    source, _ = segment.segment_cloud(source, base.segment, spacing)
+    source_thickness = quality.thickness(source, bin_width=spacing)
+    if experiment.known_thickness is not None:
+        scarto = abs(source_thickness["thickness"] - experiment.known_thickness)
+        if not source_thickness["bimodal"] or scarto / experiment.known_thickness > 0.05:
+            raise ValueError(
+                "la misura di spessore non riproduce il valore noto sulla nuvola "
+                f"sorgente: letto {source_thickness['thickness']:.1f} mm contro "
+                f"{experiment.known_thickness:.1f} mm noti, bimodale="
+                f"{source_thickness['bimodal']}. L'asse di fedelta non e' "
+                "utilizzabile e lo sweep non parte"
+            )
+
+    candidates = expand(experiment, base)
+    with ThreadPoolExecutor(max_workers=experiment.sweep.workers) as pool:
+        rows = list(
+            pool.map(
+                lambda item: run_candidate(
+                    item[0],
+                    item[1],
+                    root / fingerprint(item[1])[:12],
+                    experiment.sweep.timeout_s,
+                ),
+                candidates,
+            )
+        )
+
+    for row in rows:
+        row["thickness_source"] = source_thickness["thickness"]
+        row["thickness_error"] = measure_thickness_error(row, source_thickness["thickness"])
+
+    front = pareto_front(rows)
+    summary = check_sweep(rows, front)
+    if not experiment.sweep.keep_dominated_artifacts:
+        summary["pruned_files"] = prune(rows, front)
+
+    front_marks = {row["fingerprint"] for row in front}
+    for row in rows:
+        row["on_front"] = row["fingerprint"] in front_marks
+        append_row(registry, row)
+
+    return {"summary": summary, "rows": rows, "front": front, "registry": str(registry)}
