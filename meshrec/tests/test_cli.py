@@ -70,3 +70,52 @@ def test_run_config_rejects_an_out_of_domain_assignment(tmp_path):
     cfg = config.PipelineConfig(input=config.InputConfig(path="nuvola.ply"))
     with pytest.raises(pydantic.ValidationError):
         cfg.run.from_step = 999
+
+
+def test_the_sweep_command_runs_a_two_candidate_grid_on_the_synthetic_cube(tmp_path):
+    """Prova end-to-end del motore: griglia, sottoprocessi, registro, fronte.
+
+    Il cubo e' l'unica geometria su cui la catena intera sta dentro la suite.
+    Verifica che la catena non si spezzi, non che produca qualcosa di
+    sensato: quello si misura sulle due corse reali, fuori dai test.
+    """
+    import yaml
+
+    from meshrec.core import config, io, synth, sweep
+
+    cloud = tmp_path / "cubo.ply"
+    io.write_cloud(cloud, synth.sample_box_surface(size=(100.0, 40.0, 200.0), spacing=4.0))
+    base = config.PipelineConfig(
+        input=config.InputConfig(path=str(cloud)),
+        surface=config.SurfaceConfig(poisson_depth=6),
+    )
+    base_path = tmp_path / "base.yaml"
+    config.save_config(base, base_path)
+
+    experiment = config.ExperimentConfig(
+        name="cubo",
+        base=base_path,
+        axes=[config.AxisSpec(path="tet.min_ratio", values=[2.0])],
+        sweep=config.SweepConfig(
+            workers=2, runs_root=tmp_path / "runs", registry_root=tmp_path / "experiments"
+        ),
+    )
+    experiment_path = tmp_path / "cubo.yaml"
+    experiment_path.write_text(
+        yaml.safe_dump(experiment.model_dump(mode="json"), sort_keys=False), encoding="utf-8"
+    )
+
+    # Con due soli candidati confrontabili il fronte li contiene entrambi:
+    # e' il caso "non discrimina" gia' previsto da check_sweep, atteso qui.
+    with pytest.warns(sweep.SweepDiagnosticWarning, match="non discrimina"):
+        assert cli.main(["sweep", str(experiment_path)]) == 0
+
+    registry = tmp_path / "experiments" / "cubo" / "registro.jsonl"
+    rows = sweep.load_registry(registry)
+    assert len(rows) == 2
+    assert all(row["outcome"] == "riuscito" for row in rows)
+    assert any(row["on_front"] for row in rows)
+
+    assert cli.main(["sweep-verify", str(registry)]) == 0
+    assert cli.main(["sweep-report", str(registry), "--out", str(tmp_path / "r.html")]) == 0
+    assert (tmp_path / "r.html").exists()
