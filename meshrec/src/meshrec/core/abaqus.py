@@ -101,7 +101,29 @@ def _fix_sign(direction: np.ndarray) -> np.ndarray:
     return direction if direction[int(np.argmax(np.abs(direction)))] >= 0.0 else -direction
 
 
-def align_to_axes(nodes: np.ndarray) -> tuple[np.ndarray, np.ndarray, dict[str, object]]:
+_TET_FACE_COMBOS = ((0, 1, 2), (0, 1, 3), (0, 2, 3), (1, 2, 3))
+
+
+def _boundary_nodes(tets: np.ndarray) -> np.ndarray:
+    """Indici dei nodi sul bordo della mesh tetraedrica.
+
+    Stesso ragionamento di quality.boundary_edges, esteso alle facce
+    triangolari dei tetraedri: si costruiscono le quattro facce di ogni
+    tetraedro, si ordinano gli indici al loro interno, si contano le
+    occorrenze e si tengono quelle con occorrenza singola. I punti di
+    Steiner interni aggiunti da TetGen compaiono solo in facce condivise
+    da due tetraedri (occorrenza doppia) e restano esclusi.
+    """
+    t = np.asarray(tets, dtype=np.int64)
+    faces = np.vstack([t[:, combo] for combo in _TET_FACE_COMBOS])
+    faces = np.sort(faces, axis=1)
+    unique, counts = np.unique(faces, axis=0, return_counts=True)
+    return np.unique(unique[counts == 1])
+
+
+def align_to_axes(
+    nodes: np.ndarray, reference_indices: np.ndarray | None = None
+) -> tuple[np.ndarray, np.ndarray, dict[str, object]]:
     """Rototraslazione ai piani principali: spessore su x, lunghezza su y, altezza su z.
 
     La trasformazione e' restituita come matrice 4x4 e va salvata nei metadati:
@@ -111,13 +133,22 @@ def align_to_axes(nodes: np.ndarray) -> tuple[np.ndarray, np.ndarray, dict[str, 
     e' gia' il verticale reale e l'unica ambiguita' e' l'imbardata. Se la
     nuvola e' inclinata fuori dal piano orizzontale (beccheggio o rollio),
     l'assegnazione dell'asse altezza non e' garantita.
+
+    reference_indices, se fornito, limita la stima di centro e direzioni
+    principali ai soli nodi indicati (i nodi di bordo, tipicamente): i punti
+    di Steiner interni aggiunti dalla tetraedrizzazione non portano
+    informazione sulla forma del solido e, mediati coi nodi di bordo,
+    possono ruotare il riferimento di diversi gradi dal verticale reale. La
+    trasformazione risultante si applica comunque a tutti i nodi passati.
     """
     points = np.asarray(nodes, dtype=np.float64)
-    centre = points.mean(axis=0)
+    reference = points if reference_indices is None else points[np.asarray(reference_indices)]
+    centre = reference.mean(axis=0)
     centred = points - centre
+    centred_reference = reference - centre
 
-    _, _, principal = np.linalg.svd(centred, full_matrices=False)
-    extents = np.ptp(centred @ principal.T, axis=0)
+    _, _, principal = np.linalg.svd(centred_reference, full_matrices=False)
+    extents = np.ptp(centred_reference @ principal.T, axis=0)
 
     thickness_axis = int(np.argmin(extents))
     remaining = [index for index in range(3) if index != thickness_axis]
@@ -214,7 +245,7 @@ def export_model(
             "Usa C3D4 finche il writer non gestisce i dieci nodi."
         )
 
-    aligned, transform, align_metrics = align_to_axes(nodes)
+    aligned, transform, align_metrics = align_to_axes(nodes, reference_indices=_boundary_nodes(tets))
     tolerance = set_tolerance(aligned, tets, cfg.set_tolerance_factor)
     node_sets = build_node_sets(aligned, tolerance)
     if len(node_sets[cfg.fixed_nset]) == 0:

@@ -308,3 +308,64 @@ def test_extent_is_invariant_to_the_input_rotation():
     extent_b = aligned_b.max(axis=0) - aligned_b.min(axis=0)
 
     assert extent_a == pytest.approx(extent_b, rel=1e-6)
+
+
+def test_align_to_axes_ignores_interior_nodes_when_given_boundary_reference():
+    """Riproduce il difetto misurato sul muro reale: i punti di Steiner interni
+    aggiunti da TetGen, mediati con quelli di bordo, ruotavano il riferimento
+    di oltre 13 gradi dal verticale vero. Se la stima torna a usare tutti i
+    nodi, questo test deve fallire."""
+    corners = np.array(
+        [[x, y, z] for x in (0.0, 50.0) for y in (0.0, 1000.0) for z in (0.0, 300.0)]
+    )
+    index = {tuple(point): position for position, point in enumerate(corners)}
+
+    def idx(x: float, y: float, z: float) -> int:
+        return index[(x, y, z)]
+
+    # decomposizione standard di un cuboide in sei tetraedri lungo la
+    # diagonale principale (000)-(111): sei permutazioni degli assi.
+    o = idx(0.0, 0.0, 0.0)
+    full = idx(50.0, 1000.0, 300.0)
+    x1 = idx(50.0, 0.0, 0.0)
+    y1 = idx(0.0, 1000.0, 0.0)
+    z1 = idx(0.0, 0.0, 300.0)
+    xy = idx(50.0, 1000.0, 0.0)
+    xz = idx(50.0, 0.0, 300.0)
+    yz = idx(0.0, 1000.0, 300.0)
+
+    hex_tets = [
+        (o, x1, xy, full),
+        (o, x1, xz, full),
+        (o, y1, xy, full),
+        (o, y1, yz, full),
+        (o, z1, xz, full),
+        (o, z1, yz, full),
+    ]
+
+    # il primo tetraedro viene spaccato in quattro, introducendo un nodo
+    # interno fortemente sbilanciato verso uno dei suoi vertici: come i punti
+    # di Steiner di TetGen, non appartiene mai a una faccia di bordo.
+    a, b, c, d = hex_tets[0]
+    steiner = 0.85 * corners[a] + 0.05 * corners[b] + 0.05 * corners[c] + 0.05 * corners[d]
+    nodes = np.vstack([corners, steiner])
+    steiner_index = len(corners)
+
+    tets = np.array(
+        [
+            (steiner_index, b, c, d),
+            (steiner_index, a, c, d),
+            (steiner_index, a, b, d),
+            (steiner_index, a, b, c),
+        ]
+        + hex_tets[1:]
+    )
+
+    boundary = abaqus._boundary_nodes(tets)
+    assert steiner_index not in boundary
+
+    _, _, metrics_boundary_only = abaqus.align_to_axes(nodes, reference_indices=boundary)
+    _, _, metrics_all_nodes = abaqus.align_to_axes(nodes)
+
+    assert metrics_boundary_only["extent"] == pytest.approx([50.0, 1000.0, 300.0], rel=1e-6)
+    assert metrics_all_nodes["extent"] != pytest.approx([50.0, 1000.0, 300.0], rel=0.05)
