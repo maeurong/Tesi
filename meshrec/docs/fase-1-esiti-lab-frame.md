@@ -214,7 +214,7 @@ step da 1 a 8 girano regolarmente e in tempi modesti, e lo step 9 fallisce.
 | 9 tetraedrizzazione | **fallita**, `RefinementFailedError`: il raffinamento non converge |
 | 10, 11 | non raggiunti |
 
-L'intera corsa si ferma dopo **134 s**, cioè ben dentro il limite di venti minuti
+L'intera corsa si ferma dopo **134,2 s** (misura a orologio dell'esecuzione, non presente in `metrics.json`), cioè ben dentro il limite di venti minuti
 per esecuzione che mi ero imposto: il limite qui non è il tempo né la memoria.
 
 Errore geometrico fra superficie riparata e nuvola segmentata dello step 2,

@@ -160,7 +160,7 @@ in 12,77 secondi, ma quella mesh era troncata.
 
 **Step 10 — qualità del volume.** **Zero elementi invertiti**, volume totale
 coerente con quello della superficie. L'angolo diedro minimo ha **mediana
-38,27°** e media 36,94°, con un minimo di 0,0025° e un massimo di 68,87°. Per confronto, la mesh troncata che questo
+38,26°** e media 36,94°, con un minimo di 0,0025° e un massimo di 68,87°. Per confronto, la mesh troncata che questo
 step produceva prima aveva mediana 6,04°: la differenza dà la misura di quanto
 la troncatura degradasse la mesh senza che nulla lo segnalasse.
 
@@ -244,7 +244,8 @@ punti, cioè è simmetrica allo **0,14%**: la sorgente è, a tutti gli effetti,
 bilanciata. Lo squilibrio è quindi introdotto dalla pipeline, e per la quasi
 totalità dall'ultimo passo: **è il raffinamento di bordo di TetGen** a infittire
 una faccia molto più dell'altra, dopo che la ricostruzione di Poisson e la
-chiusura ne avevano già introdotto un settimo.
+chiusura ne avevano già introdotto una frazione modesta: il 7,0% dello step 6
+contro l'83,2% del deck, cioè circa un dodicesimo dello squilibrio finale.
 
 Non è nemmeno un effetto della tolleranza che seleziona i set. I due strati sono
 piani: la normale ai minimi quadrati dei nodi di `FACE_FRONT` si scosta di
@@ -319,7 +320,7 @@ superficie, e il riempimento non era mai cominciato. Nessuna metrica lo
 segnalava: non c'erano elementi invertiti, il volume tornava, e la mediana
 dell'angolo diedro di 6,04° si poteva scambiare per una mesh semplicemente
 mediocre invece che per una mesh interrotta a metà. Sulla mesh completa la
-mediana sale a 38,27°.
+mediana sale a 38,26°.
 
 Questo spiega anche perché correggere l'allineamento perché stimasse la terna
 sui soli nodi di bordo non cambiava nulla sul muro: su quella mesh **tutti** i

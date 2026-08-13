@@ -89,7 +89,11 @@ class RepairConfig(BaseModel):
 
     largest_component_only: bool = True
     max_hole_area: float | None = Field(
-        default=None, description="area [mm^2] oltre la quale un foro chiuso viene segnalato"
+        default=None,
+        description=(
+            "area [mm^2] oltre la quale un'apertura viene segnalata, sia essa un ciclo "
+            "di bordo chiuso o un cammino aperto"
+        ),
     )
     join_components: bool = False
 
