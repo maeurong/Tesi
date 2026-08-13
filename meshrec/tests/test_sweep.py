@@ -78,3 +78,46 @@ def test_a_declared_pair_is_crossed_in_full():
     # deduplicata per impronta e sopravvive con l'etichetta piu corta.
     assert atteso <= marks
     assert len(marks) == len(candidates)
+
+
+def test_a_partial_metrics_file_is_not_complete():
+    """Il blocco finally di pipeline.run scrive un dizionario parziale quando una corsa muore.
+
+    Quel file e' oggi indistinguibile da uno completo, ed e' il motivo per cui
+    un candidato entra nel fronte solo se porta tutte le chiavi di step.
+    """
+    completo = {name: {} for name in sweep.REQUIRED_STEPS}
+
+    assert sweep.is_complete(completo) is True
+    assert sweep.is_complete({"01_load": {}, "08_simplify": {}}) is False
+    assert sweep.is_complete({}) is False
+
+
+def test_the_registry_is_append_only_and_reads_back(tmp_path):
+    path = tmp_path / "registro.jsonl"
+
+    sweep.append_row(path, {"fingerprint": "aaa", "outcome": "riuscito"})
+    sweep.append_row(path, {"fingerprint": "bbb", "outcome": "fallito"})
+
+    rows = sweep.load_registry(path)
+    assert [row["fingerprint"] for row in rows] == ["aaa", "bbb"]
+    assert path.read_text(encoding="utf-8").count("\n") == 2
+
+
+def test_the_digest_of_a_file_changes_with_its_content(tmp_path):
+    path = tmp_path / "artefatto.ply"
+    path.write_bytes(b"uno")
+    prima = sweep.file_digest(path)
+    path.write_bytes(b"due")
+
+    assert sweep.file_digest(path) != prima
+    assert len(prima) == 64
+
+
+def test_provenance_records_the_code_that_produced_the_row():
+    provenance = sweep.provenance()
+
+    assert len(provenance["commit"]) >= 7
+    assert isinstance(provenance["dirty"], bool)
+    assert "open3d" in provenance["versions"]
+    assert "tetgen" in provenance["versions"]
