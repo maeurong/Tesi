@@ -13,6 +13,7 @@ import itertools
 import json
 import subprocess
 import sys
+import warnings
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
@@ -124,21 +125,28 @@ def file_digest(path: Path) -> str:
     return digest.hexdigest()
 
 
+class GitUnavailableWarning(UserWarning):
+    """git non e' partito: la riga scrive provenienza incompleta, non fabbricata."""
+
+
 def provenance() -> dict[str, object]:
     """Commit del codice, stato dell'albero e versioni delle librerie che contano.
 
     Senza queste tre cose una riga non e' ricostruibile a distanza di mesi:
     la stessa configurazione su un codice diverso e' un altro esperimento.
     """
-    def _git(*args: str) -> str:
+    def _git(*args: str) -> str | None:
         try:
             result = subprocess.run(
                 ["git", *args], capture_output=True, text=True, check=False
             )
-        except OSError:
-            # Niente git in PATH, o il sistema operativo non riesce ad avviare
-            # il processo: la riga resta scrivibile, con provenienza "sconosciuto".
-            return ""
+        except OSError as exc:
+            # CreateProcess puo' rifiutarsi di avviare git anche quando l'eseguibile
+            # e' sul PATH (osservato dopo molte chiamate native precedenti nello
+            # stesso processo). None e' distinto da "" (comando riuscito, output
+            # vuoto): altrimenti un albero sporco letto a vuoto si scriverebbe pulito.
+            warnings.warn(f"git non avviabile, provenienza incompleta: {exc}", GitUnavailableWarning)
+            return None
         return result.stdout.strip()
 
     versions: dict[str, str] = {}
@@ -148,9 +156,11 @@ def provenance() -> dict[str, object]:
         except PackageNotFoundError:
             versions[name] = "assente"
 
+    dirty_raw = _git("status", "--porcelain")
+
     return {
         "commit": _git("rev-parse", "HEAD") or "sconosciuto",
-        "dirty": bool(_git("status", "--porcelain")),
+        "dirty": None if dirty_raw is None else bool(dirty_raw),
         "python": sys.version.split()[0],
         "versions": versions,
     }

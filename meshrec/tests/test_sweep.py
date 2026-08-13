@@ -121,3 +121,22 @@ def test_provenance_records_the_code_that_produced_the_row():
     assert isinstance(provenance["dirty"], bool)
     assert "open3d" in provenance["versions"]
     assert "tetgen" in provenance["versions"]
+
+
+def test_provenance_when_git_cannot_start_reports_dirty_as_unknown_not_false(monkeypatch):
+    """Se git non parte, dirty deve restare sconosciuto, non fabbricato a False.
+
+    bool("") e' False: se il fallimento venisse letto come uno stdout vuoto,
+    un albero sporco si scriverebbe pulito con apparente certezza. E' precisamente
+    il difetto che questo registro esiste per impedire, riprodotto dentro la riga.
+    """
+    def _raise(*args, **kwargs):
+        raise OSError("git non trovato")
+
+    monkeypatch.setattr(sweep.subprocess, "run", _raise)
+
+    with pytest.warns(sweep.GitUnavailableWarning):
+        provenance = sweep.provenance()
+
+    assert provenance["dirty"] is None
+    assert provenance["commit"] == "sconosciuto"
