@@ -1,0 +1,69 @@
+input:
+  path: ..\Nuvole di punti\muro_generato.ply
+  scale: 1000.0
+  max_points: 20000000
+  expected_size:
+  - 5823.35
+  - 1245.73
+  - 7802.62
+  size_tolerance: 0.2
+  spacing_sample: 20000
+  seed: 0
+segment:
+  method: crop
+  outlier_neighbors: 20
+  outlier_std_ratio: 2.0
+  crop_min: null
+  crop_max: null
+  plane_distance_factor: 3.0
+  plane_max_count: 4
+  plane_min_points_ratio: 0.05
+  cluster_eps_factor: 4.0
+  cluster_min_points: 50
+  cluster_index: 0
+downsample:
+  voxel_size: 25.0
+  voxel_factor: 2.0
+normals:
+  knn: 30
+  orient_knn: 30
+surface:
+  method: poisson
+  poisson_depth: 8
+  poisson_width: 0.0
+  poisson_scale: 1.1
+  density_quantile: 0.05
+  poisson_n_threads: 1
+  bpa_radius_factors:
+  - 1.0
+  - 2.0
+  - 4.0
+  alpha_factor: 5.0
+repair:
+  largest_component_only: true
+  max_hole_area: null
+  join_components: false
+simplify:
+  enabled: false
+  mode: remesh
+  target_faces: null
+  remesh_target_len_pct: 1.0
+  taubin_iterations: 0
+tet:
+  min_ratio: 1.8
+  max_volume: null
+  max_steiner_points: -1
+  element: C3D4
+analysis:
+  material:
+    name: MURATURA
+    young: 1500.0
+    poisson: 0.2
+    density: 1.8e-09
+  gravity: 9810.0
+  fixed_nset: BASE
+  step_name: GRAVITA
+  set_tolerance_factor: 0.5
+run:
+  out_dir: runs\muro
+  from_step: 1

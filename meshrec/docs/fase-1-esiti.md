@@ -81,6 +81,11 @@ lettura della nuvola alla scrittura del deck, di cui una quarantina nella sola
 tetraedrizzazione. Il valore è il tempo di parete di due corse consecutive dal
 primo step, misurate attorno al comando `meshrec run muro.yaml`: 97,5 s e 98,1 s.
 
+Questa configurazione è ora tracciata da git in `meshrec/muro.yaml`: il file
+non è più una nota a margine ma la copia esatta, emessa dalla pipeline stessa,
+dei parametri della corsa qui documentata, così che rieseguire `meshrec run
+muro.yaml` riproduca questi numeri e non una configurazione andata perduta.
+
 ## Metriche di ogni step
 
 I numeri seguenti vengono da `runs/muro/metrics.json` di una corsa pulita
