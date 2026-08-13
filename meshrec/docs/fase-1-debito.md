@@ -120,6 +120,14 @@ grossolana e **non** di `nobisect` in sé — su `lab_frame`, dove la superficie
 la frazione è il 9,55%, in linea con l'8,10% del muro senza `nobisect`. Il sospetto opposto era
 naturale ed è stato misurato prima di essere scritto.
 
+**La prova che questo avviso serviva è retrospettiva, ed è la più forte disponibile.** La mesh che
+la Fase 1 aveva scambiato per un successo su `lab_frame` era quella troncata dal tetto ereditato di
+100.000 punti di Steiner — 313.154 nodi meno i 213.154 vertici della superficie fanno esattamente
+100.000, verificato — e nessuna metrica dell'epoca la smentiva: zero elementi invertiti, deck
+scritto, tutto in ordine. Su quella mesh la frazione fuori vincolo vale l'**86,36%**. L'avviso
+l'avrebbe segnalata. È il caso da manuale del requisito enunciato in fondo a questo documento: una
+metrica senza un controllo che la smentisca misura soltanto che il codice ha girato.
+
 **La semplificazione può rompere le garanzie della riparazione, e nulla se ne accorge.** Lo step 6
 produce una superficie chiusa e senza autointersezioni, lo step 7 lo verifica, e lo step 8 la
 modifica senza che nessun controllo venga rieseguito. Le 16 autointersezioni introdotte dal

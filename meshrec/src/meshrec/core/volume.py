@@ -211,9 +211,15 @@ def tetrahedralize_with_metrics(
     # sono piu' di quelli che lo rispettano, il parametro non sta governando
     # quel maglio. Sui magli grossolani scatta davvero, ed e' corretto che lo
     # faccia: sul cubo con nobisect, dodici tetraedri in tutto, il 66,67% e'
-    # fuori vincolo. Sulla mesh di volume archiviata in runs/lab_crop lo e'
-    # l'86,36%, ma quella corsa non ha piu' un metrics.json che ne dichiari i
-    # parametri e la sua provenienza resta incerta.
+    # fuori vincolo.
+    #
+    # La prova migliore che serve e' pero' retrospettiva. La mesh che la Fase 1
+    # aveva scambiato per un successo su lab_frame era troncata dal tetto
+    # ereditato di 100.000 punti di Steiner — 313.154 nodi meno i 213.154
+    # vertici della superficie fanno esattamente 100.000 — e nessuna metrica
+    # dell'epoca la smentiva: zero elementi invertiti, deck scritto, tutto
+    # regolare. Su quella mesh la frazione fuori vincolo vale l'86,36%. Questo
+    # avviso l'avrebbe segnalata.
     ratios = radius_edge_ratios(nodes, tets)
     finite = ratios[np.isfinite(ratios)]
     over_limit = float((finite > cfg.min_ratio).mean()) if len(finite) else 1.0
