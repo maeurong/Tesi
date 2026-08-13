@@ -19,6 +19,20 @@ La causa più probabile è la qualità della superficie riparata su quella geome
 cammini di bordo aperti e schegge residue; va affrontata in Fase 2, non aggirata alzando il
 vincolo di qualità.
 
+**Il margine di `tet.min_ratio` è ora misurato, ma su una sola superficie.** Il predefinito 1,8
+era stato scelto per aneddoto — 1,6 falliva, 1,8 no — senza sapere quanto distasse dal punto di
+rottura. La misura su sei valori da 1,4 a 2,5, riportata in
+[`fase-1-min-ratio.md`](fase-1-min-ratio.md), colloca il confine fra 1,6 e 1,7: 1,8 non è quindi
+il valore più severo che converge, ma quello che tiene un decimo di margine sopra di esso. Il
+debito che resta è la generalità del numero. La misura vale per la superficie riparata di
+`muro_generato.ply` con quel passo di voxel e quella profondità di Poisson; il confine dipende
+dalla superficie, non dal parametro da solo, e su una geometria diversa può cadere altrove. Ha
+però un corollario utile per la voce precedente: se su `muro_generato.ply` il parametro ha un
+intervallo di lavoro largo e ben ordinato, e su `lab_frame.pcd` nessun valore fra 1,8 e 4,0
+converge, allora il guasto su quella scansione non è una taratura da correggere ma la qualità
+della superficie che entra nello step 9. È l'argomento più solido a favore della diagnosi scritta
+sopra.
+
 **Il controllo dei dati con Abaqus non è stato eseguito**, perché Abaqus non è disponibile sulla
 macchina di sviluppo. Il deck è verificato in lettura con `meshio` e in soluzione con CalculiX
 2.22. Resta dovuto alla prima occasione di accesso a una licenza.
