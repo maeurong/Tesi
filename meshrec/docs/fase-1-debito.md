@@ -26,9 +26,21 @@ autointersezioni misurate sono zero, e la mesh è un manifold pulito di spigoli 
 difetto è uno solo e preciso: **la superficie è rovesciata**. Le sue 426.600 facce puntano tutte
 verso l'interno, con avvolgimento globalmente coerente (zero spigoli incoerenti su 639.900), e il
 volume racchiuso è negativo, −0,173 m³, che capovolge esattamente di segno invertendo ogni
-triangolo. Che correggere l'orientazione basti a far convergere TetGen resta però un'ipotesi non
-verificata: è la prima cosa da provare in Fase 2, prima del remeshing e prima di toccare
-`min_ratio`.
+triangolo.
+
+La correzione è stata poi provata, e il risultato è più informativo di un sì o di un no.
+Capovolgendo l'avvolgimento di tutti i triangoli, senza toccare vertici né connettività, lo step 9
+**converge a `min_ratio` 12,0** — 692.617 nodi, 2.230.860 tetraedri, nessun elemento invertito —
+mentre la stessa superficie non raddrizzata, allo stesso valore e nella stessa cartella, continua a
+fallire. L'orientazione è quindi una causa reale, verificata da un controllo in cui l'unica
+variabile è il verso delle facce. Ma non è l'unica: sulla superficie raddrizzata i valori da 1,8 a
+10,0 falliscono ancora, e il confine di convergenza cade fra 10,0 e 12,0, cioè a un vincolo di
+qualità di fatto inerte. Il modello che ne esce non è utilizzabile — mediana dell'angolo diedro
+minimo 25,33° contro 38,26° del muro sintetico, `BASE` con 420 nodi su 692.617 — ed è un esito
+diagnostico, non un successo. Resta quindi una seconda causa da trovare, e il sospetto misurato
+sono le 108 facce con rapporto d'aspetto oltre 1000, che è esattamente ciò che rende mal
+condizionata la `split_subface` dove TetGen si arrende. La prova successiva è abilitare il
+remeshing isotropo dello step 8, che esiste già ed è solo disabilitato.
 
 **Lo step 7 dichiara chiusa una superficie rovesciata.** `watertight: true`, `boundary_edges: 0` e
 un volume racchiuso **negativo** convivono senza che nulla protesti: il controllo di qualità della

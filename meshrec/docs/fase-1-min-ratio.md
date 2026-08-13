@@ -330,3 +330,61 @@ globale dell'avvolgimento): la superficie riparata di `lab_frame.pcd` è
 rovesciata. La prima cosa da provare in Fase 2, prima di toccare `min_ratio` o
 il remeshing dello step 8, è correggere l'orientazione e rieseguire lo step 9
 sulla stessa superficie.
+
+### La prova: superficie raddrizzata e step 9 rieseguito
+
+La prova indicata nel paragrafo precedente è stata eseguita subito dopo, ed è
+il caso in cui vale la pena aver scritto l'ipotesi in forma falsificabile: il
+risultato non conferma né smentisce, precisa.
+
+Il metodo è minimo. Sulla copia di lavoro `runs/minratio_lab/06_repaired.ply`
+— mai sull'archivio — l'avvolgimento di tutti i 426 600 triangoli è stato
+capovolto scambiando due dei tre indici di ciascuna faccia, senza toccare né i
+vertici né la connettività: la geometria è identica, cambia solo il verso. Il
+volume con segno passa da −173 282 926,9 mm³ a +173 282 926,9 mm³, e il file
+riletto da disco conferma il valore. Poi lo step 9 è stato rieseguito con
+`--from-step 9`, come in tutte le misure di questo documento.
+
+| Superficie | `min_ratio` | Esito |
+|---|---|---|
+| rovesciata (originale) | 1,8 – 12,0 | fallita a ogni valore, vedi tabella sopra |
+| **raddrizzata** | 1,8 | fallita |
+| **raddrizzata** | 4,0 | fallita |
+| **raddrizzata** | 6,0 | fallita |
+| **raddrizzata** | 8,0 | fallita |
+| **raddrizzata** | 10,0 | fallita |
+| **raddrizzata** | **12,0** | **riuscita** — 692 617 nodi, 2 230 860 tetraedri, 186,4 s |
+| rovesciata (controllo, rieseguito) | 12,0 | fallita, stesso `split_subface` |
+
+L'ultima riga è il controllo che regge tutto il resto: la stessa superficie
+non raddrizzata, allo stesso `min_ratio` 12,0, con la stessa configurazione e
+nella stessa cartella, fallisce. L'unica variabile fra la penultima riga e
+l'ultima è il verso dei triangoli.
+
+**L'orientazione è quindi necessaria ma non sufficiente.** Raddrizzarla non
+basta da sola — a 1,8, il predefinito, il fallimento resta identico — ma senza
+raddrizzarla non converge nemmeno il vincolo più lasco provato. Le due
+condizioni servono entrambe, e il confine di convergenza sulla superficie
+raddrizzata cade fra 10,0 e 12,0: un valore enorme, circa sette volte il
+predefinito e sei volte quello del muro sintetico.
+
+**Il modello che ne esce non è utilizzabile, ed è la parte più importante di
+questo risultato.** La mesh converge, non ha elementi invertiti e produce un
+deck completo, ma la mediana dell'angolo diedro minimo vale 25,33° contro i
+38,26° del muro sintetico, e il minimo scende a 7,5 · 10⁻⁵ gradi: elementi
+piatti al limite della degenerazione. L'insieme `BASE` raccoglie 420 nodi su
+692 617, cioè un modello di fatto quasi non vincolato, che è il difetto già
+registrato nel debito a proposito della tolleranza dei set. Aver ottenuto un
+`.inp` non significa aver ottenuto un modello: significa aver misurato dove
+sta il confine.
+
+**Che cosa resta da spiegare.** Il fallimento a `min_ratio` ordinari
+sopravvive alla correzione dell'orientazione, quindi c'è una seconda causa che
+questa prova non tocca. I candidati misurati nella diagnosi sopra sono i 108
+triangoli con rapporto d'aspetto oltre 1000 e i 13 di area quasi nulla: pochi
+in frazione, ma `split_subface` è la subroutine con cui TetGen inserisce punti
+su una faccia di bordo, ed è esattamente ciò che una scheggia estrema rende
+mal condizionato. La prova successiva, in Fase 2, è abilitare il remeshing
+isotropo dello step 8 — che esiste già ed è solo disabilitato — e rieseguire
+lo step 9 a `min_ratio` ordinario su una superficie con l'orientazione
+corretta e le schegge rimosse.
