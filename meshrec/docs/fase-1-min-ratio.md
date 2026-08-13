@@ -6,6 +6,19 @@
   dalla corsa archiviata su `muro_generato.ply` (`meshrec/runs/muro/`)
 - **Parametro sotto misura:** `tet.min_ratio`, il rapporto raggio-spigolo
   massimo imposto a TetGen nello step 9
+- **Nota sui percorsi, 13 agosto 2026.** Le due cartelle di lavoro citate nel
+  seguito, `runs/minratio/` e `runs/minratio_lab/`, sono state rimosse a misure
+  concluse. Nessun dato è andato perso: erano copie, e i loro artefatti
+  coincidono al byte con quelli delle corse di riferimento. Chi ripete le misure
+  legga `runs/muro/` al posto di `runs/minratio/` e `runs/lab_crop/` al posto di
+  `runs/minratio_lab/` — verificato per md5 su `06_repaired.ply`, che è
+  l'ingresso vero dello step 9 in entrambi i casi. Il testo che segue conserva i
+  percorsi originali perché è il verbale di come le misure furono fatte.
+
+  Un dettaglio che quel confronto ha chiarito: la superficie di
+  `runs/minratio_lab/` era stata raddrizzata a mano durante gli esperimenti, e
+  risulta identica a quella che la pipeline produce ora da sola, dopo che la
+  garanzia di orientazione è entrata nello step 6.
 
 ## Che cosa è stato misurato e come
 
