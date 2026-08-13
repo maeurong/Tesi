@@ -11,6 +11,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.responses import FileResponse, JSONResponse
 
+from meshrec.app.worker import Worker
 from meshrec.core import steps
 from meshrec.core.config import PipelineConfig, load_config, save_config
 
@@ -65,5 +66,21 @@ def create_app(config_path: Path) -> FastAPI:
         # propria, e un valore fuori dominio non arriva mai alla pipeline.
         save_config(nuova, config_path)
         return nuova.model_dump(mode="json")
+
+    lavoratore = Worker()
+
+    @app.post("/api/step/{numero}")
+    def esegui_step(numero: int) -> dict[str, object]:
+        lavoratore.start(config_path, numero, numero)
+        return {"avviato": numero, "fino_a": numero}
+
+    @app.post("/api/step/{numero}/from")
+    def esegui_da(numero: int) -> dict[str, object]:
+        lavoratore.start(config_path, numero, 11)
+        return {"avviato": numero, "fino_a": 11}
+
+    @app.post("/api/cancel")
+    def annulla() -> dict[str, object]:
+        return {"annullato": lavoratore.cancel()}
 
     return app

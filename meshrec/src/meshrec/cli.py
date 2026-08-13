@@ -30,6 +30,13 @@ def _build_parser() -> argparse.ArgumentParser:
             "Non verifica che siano stati prodotti con questa configurazione."
         ),
     )
+    run_command.add_argument("--to-step", type=int, default=None)
+    run_command.add_argument(
+        "--only-step",
+        type=int,
+        default=None,
+        help="esegue soltanto questo step, riusando gli artefatti a monte",
+    )
     run_command.add_argument("--out-dir", type=Path, default=None)
 
     init_command = commands.add_parser("init", help="scrive una configurazione completa di esempio")
@@ -121,6 +128,11 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.from_step is not None:
             cfg.run.from_step = args.from_step
+        if args.to_step is not None:
+            cfg.run.to_step = args.to_step
+        if args.only_step is not None:
+            cfg.run.from_step = args.only_step
+            cfg.run.to_step = args.only_step
         if args.out_dir is not None:
             cfg.run.out_dir = args.out_dir
         metrics = pipeline.run(cfg)

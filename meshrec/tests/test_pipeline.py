@@ -228,3 +228,66 @@ def test_cambiare_un_parametro_a_monte_invalida_gli_step_a_valle(tmp_path):
     per_numero = {voce["numero"]: voce["stato"] for voce in steps.run_state(cfg.run.out_dir, cfg)}
     assert [per_numero[n] for n in (1, 2, 3, 4)] == ["valido"] * 4
     assert [per_numero[n] for n in (5, 6, 7, 8, 9, 10, 11)] == ["non valido"] * 7
+
+
+def test_fermarsi_a_uno_step_non_esegue_quelli_dopo(tmp_path):
+    from meshrec.core import pipeline, steps
+
+    cfg = _config_cubo(tmp_path)
+    cfg.run.to_step = 3
+    metriche = pipeline.run(cfg)
+    assert set(metriche) == {"01_load", "02_segment", "03_downsample"}
+    per_numero = {voce["numero"]: voce["stato"] for voce in steps.run_state(cfg.run.out_dir, cfg)}
+    assert per_numero[3] == "valido"
+    assert per_numero[4] == "mai eseguito"
+
+
+def test_to_step_non_puo_precedere_from_step(tmp_path):
+    from meshrec.core.config import RunConfig
+
+    with pytest.raises(ValueError):
+        RunConfig(from_step=5, to_step=3)
+
+
+def test_una_corsa_interrotta_registra_quale_step_si_e_rotto(tmp_path, monkeypatch):
+    """Il ramo che scrive lo stato 'fallito' va provato su una corsa vera:
+    e' un'affermazione scritta su disco, e finora nulla la smentiva."""
+    from meshrec.core import pipeline, steps, surface
+
+    cfg = _config_cubo(tmp_path)
+
+    def esplode(*_argomenti, **_chiavi):
+        raise RuntimeError("interruzione simulata dello step 3")
+
+    monkeypatch.setattr(surface, "downsample", esplode)
+    with pytest.raises(RuntimeError):
+        pipeline.run(cfg)
+
+    salvato = steps.read_state(cfg.run.out_dir)
+    assert salvato["03_downsample"]["esito"] == "fallito"
+    assert salvato["02_segment"]["esito"] == "riuscito"
+    assert "04_normals" not in salvato
+
+
+def test_gli_step_eseguiti_uno_alla_volta_accumulano_le_metriche(tmp_path):
+    """L'interfaccia esegue uno step per volta: se ognuno sostituisse
+    metrics.json, il pannello delle metriche perderebbe tutto cio' che sta a
+    monte dello step aperto."""
+    from meshrec.core import pipeline
+
+    cfg = _config_cubo(tmp_path)
+    cfg.run.to_step = 1
+    pipeline.run(cfg)
+
+    # to_step prima di from_step: con validate_assignment=True ogni riga
+    # rivalida l'intero modello, e assegnare from_step=2 mentre to_step e'
+    # ancora 1 (il valore lasciato dalla corsa precedente) violerebbe il
+    # vincolo to_step >= from_step su uno stato intermedio che non esiste
+    # mai nella configurazione finale.
+    cfg.run.to_step = 2
+    cfg.run.from_step = 2
+    unite = pipeline.run(cfg)
+
+    assert set(unite) == {"01_load", "02_segment"}
+    rilette = json.loads((cfg.run.out_dir / pipeline.METRICS_FILENAME).read_text(encoding="utf-8"))
+    assert rilette == unite

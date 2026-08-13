@@ -18,6 +18,16 @@ from meshrec.core.config import PipelineConfig, save_config
 METRICS_FILENAME = "metrics.json"
 METRICS_PARTIAL = "metrics.partial.json"
 
+
+class _FermataRichiesta(Exception):
+    """Uscita normale quando to_step e' raggiunto: non e' un errore.
+
+    Serve perche' le guardie degli step hanno rami else di ripresa, che
+    ricaricano artefatti a monte: spegnerle con una condizione su to_step
+    farebbe scattare proprio quei rami sugli step che non si devono toccare.
+    Interrompere il flusso e' l'unico modo che non tocca le guardie.
+    """
+
 ARTIFACTS: dict[int, str] = {
     1: "01_cloud.ply",
     2: "02_segmented.ply",
@@ -97,6 +107,7 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
     impronte = steps.step_fingerprints(cfg)
     metrics: dict[str, object] = {}
     start = cfg.run.from_step
+    stop = cfg.run.to_step
     # Lo step su cui il lavoro e' fermo in questo istante: serve al ramo di
     # fallimento, che deve dire quale step si e' rotto e non che la corsa
     # e' finita male in un punto imprecisato.
@@ -115,6 +126,8 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
             metrics["01_load"] = step_metrics
             io.write_cloud(out / ARTIFACTS[1], points)
             registra(1, avvio, ARTIFACTS[1])
+            if stop <= 1:
+                raise _FermataRichiesta
         else:
             points, _ = io.read_cloud(out / ARTIFACTS[_RESUME_POINTS[start]])
 
@@ -131,6 +144,8 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
             io.write_cloud(out / ARTIFACTS[2], points)
             source_cloud = points
             registra(2, avvio, ARTIFACTS[2])
+            if stop <= 2:
+                raise _FermataRichiesta
         else:
             # nuvola segmentata (uscita dello step 2), sempre ricaricata da qui
             # indipendentemente da cosa serva a `points` piu sotto: e' il
@@ -144,6 +159,8 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
             metrics["03_downsample"] = step_metrics
             io.write_cloud(out / ARTIFACTS[3], points)
             registra(3, avvio, ARTIFACTS[3])
+            if stop <= 3:
+                raise _FermataRichiesta
 
         if start <= 4:
             in_corso = 4
@@ -152,6 +169,8 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
             metrics["04_normals"] = step_metrics
             io.write_cloud(out / ARTIFACTS[4], points, normals)
             registra(4, avvio, ARTIFACTS[4])
+            if stop <= 4:
+                raise _FermataRichiesta
         else:
             points, normals = io.read_cloud(out / ARTIFACTS[4])
 
@@ -162,6 +181,8 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
             metrics["05_reconstruct"] = step_metrics
             _write_mesh(out / ARTIFACTS[5], vertices, faces)
             registra(5, avvio, ARTIFACTS[5])
+            if stop <= 5:
+                raise _FermataRichiesta
         elif start == 9:
             # lo step 8 scrive 08_simplified.ply solo se la semplificazione e'
             # abilitata: con from_step=9 la mesh valida a monte e' quella
@@ -180,6 +201,8 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
             metrics["06_repair"] = step_metrics
             _write_mesh(out / ARTIFACTS[6], vertices, faces)
             registra(6, avvio, ARTIFACTS[6])
+            if stop <= 6:
+                raise _FermataRichiesta
 
         if start <= 7:
             in_corso = 7
@@ -188,6 +211,8 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
             step_metrics["geometric_error"] = quality.geometric_error(vertices, faces, source_cloud)
             metrics["07_surface_quality"] = step_metrics
             registra(7, avvio, None)
+            if stop <= 7:
+                raise _FermataRichiesta
 
         if start <= 8:
             in_corso = 8
@@ -197,6 +222,8 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
             if cfg.simplify.enabled:
                 _write_mesh(out / ARTIFACTS[8], vertices, faces)
             registra(8, avvio, ARTIFACTS[8] if cfg.simplify.enabled else None)
+            if stop <= 8:
+                raise _FermataRichiesta
 
         in_corso = 9
         avvio = time.monotonic()
@@ -204,11 +231,15 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
         metrics["09_tetrahedralize"] = step_metrics
         abaqus.write_vtu(out / ARTIFACTS[9], nodes, tets)
         registra(9, avvio, ARTIFACTS[9])
+        if stop <= 9:
+            raise _FermataRichiesta
 
         in_corso = 10
         avvio = time.monotonic()
         metrics["10_volume_quality"] = quality.volume_metrics(nodes, tets, cfg.tet.reference_ratio)
         registra(10, avvio, None)
+        if stop <= 10:
+            raise _FermataRichiesta
 
         in_corso = 11
         avvio = time.monotonic()
@@ -225,6 +256,11 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
             reference=vertices,
         )
         registra(11, avvio, "wall_model.inp")
+    except _FermataRichiesta:
+        # Fermata su richiesta: gli step chiesti sono stati eseguiti e il
+        # risultato e' valido quanto quello di una corsa intera, per gli step
+        # che comprende.
+        pass
     except BaseException:
         # Registra il fallimento dello step su cui il lavoro era fermo, poi
         # rilancia intatto: la pipeline non ingoia mai un errore, si limita a
@@ -240,7 +276,32 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
         with (out / METRICS_PARTIAL).open("w", encoding="utf-8") as handle:
             json.dump(metrics, handle, indent=2, default=float, ensure_ascii=False)
 
-    # Solo qui, cioe' solo se nessuna eccezione e' uscita dal try: la corsa e'
-    # arrivata in fondo e il parziale diventa il risultato.
-    (out / METRICS_PARTIAL).replace(out / METRICS_FILENAME)
-    return metrics
+    # Solo qui, cioe' solo se nessuna eccezione non gestita e' uscita dal try:
+    # la corsa e' arrivata dove doveva arrivare.
+    completa = start == 1 and stop == 11
+    if completa:
+        # Una corsa intera e' autoritativa: sostituisce, non fonde. E' il
+        # percorso che lo sweep esegue, e la Fase 2 dipende dal fatto che una
+        # cartella di candidato non erediti nulla.
+        (out / METRICS_PARTIAL).replace(out / METRICS_FILENAME)
+        return metrics
+
+    precedenti: dict[str, object] = {}
+    if (out / METRICS_FILENAME).exists():
+        try:
+            with (out / METRICS_FILENAME).open(encoding="utf-8") as handle:
+                letto = json.load(handle)
+            precedenti = letto if isinstance(letto, dict) else {}
+        except (OSError, json.JSONDecodeError):
+            # Un metrics.json illeggibile non fa fallire una corsa riuscita:
+            # si riparte da quello che questa corsa ha misurato.
+            precedenti = {}
+    unite = dict(sorted({**precedenti, **metrics}.items()))
+    io.scrivi_atomico(
+        out / METRICS_FILENAME,
+        lambda destinazione: destinazione.write_text(
+            json.dumps(unite, indent=2, default=float, ensure_ascii=False), encoding="utf-8"
+        ),
+    )
+    (out / METRICS_PARTIAL).unlink(missing_ok=True)
+    return unite

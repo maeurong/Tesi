@@ -61,6 +61,18 @@ def test_una_configurazione_fuori_dominio_non_solleva_ma_spiega(cliente):
 STREAMING = {"/api/events"}
 
 
+def test_avviare_uno_step_risponde_senza_bloccare(cliente):
+    risposta = cliente.post("/api/step/1")
+    assert risposta.status_code == 200
+    assert risposta.json()["avviato"] == 1
+
+
+def test_annullare_quando_non_gira_nulla_non_solleva(cliente):
+    risposta = cliente.post("/api/cancel")
+    assert risposta.status_code == 200
+    assert risposta.json()["annullato"] is False
+
+
 def test_nessun_endpoint_solleva_verso_il_browser(cliente):
     """Il contratto vale sull'elenco intero, derivato dall'applicazione stessa:
     un endpoint aggiunto domani vi entra da solo e non puo' essere dimenticato.

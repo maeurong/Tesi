@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 GRAVITY_MM_S2: float = 9810.0
 
@@ -211,6 +211,21 @@ class RunConfig(BaseModel):
             "e vengono comunque rieseguiti a ogni corsa"
         ),
     )
+    to_step: int = Field(
+        default=11,
+        ge=1,
+        le=11,
+        description=(
+            "ultimo step eseguito. Serve all'interfaccia, che esegue uno step "
+            "alla volta: from_step e to_step uguali eseguono soltanto quello"
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _intervallo_coerente(self) -> "RunConfig":
+        if self.to_step < self.from_step:
+            raise ValueError(f"to_step={self.to_step} precede from_step={self.from_step}")
+        return self
 
 
 class PipelineConfig(BaseModel):

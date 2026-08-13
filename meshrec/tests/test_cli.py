@@ -3,10 +3,26 @@
 import pydantic
 import pytest
 
+import json
+
 from meshrec import cli
 from meshrec.core import config, io, synth
 
 SIZE = (120.0, 60.0, 240.0)
+
+
+def _config_cubo_su_disco(tmp_path):
+    """Configurazione del cubo scritta su disco, come negli altri test di questo file."""
+    cloud_path = tmp_path / "box.ply"
+    io.write_cloud(cloud_path, synth.sample_box_surface(SIZE, 8.0))
+    cfg = config.PipelineConfig(
+        input=config.InputConfig(path=cloud_path, spacing_sample=2000),
+        downsample=config.DownsampleConfig(voxel_size=8.0),
+        surface=config.SurfaceConfig(poisson_depth=7, density_quantile=0.02),
+        run=config.RunConfig(out_dir=tmp_path / "out"),
+    )
+    config.save_config(cfg, tmp_path / "config.yaml")
+    return tmp_path / "config.yaml"
 
 
 def test_init_writes_a_loadable_configuration(tmp_path):
@@ -145,6 +161,15 @@ def test_sweep_verify_reports_a_nonzero_exit_when_an_artifact_row_is_stale(tmp_p
     artifact.write_text("alterato", encoding="utf-8")
 
     assert cli.main(["sweep-verify", str(registry)]) == 1
+
+
+def test_only_step_esegue_soltanto_quello(tmp_path, capsys):
+    from meshrec import cli
+
+    percorso = _config_cubo_su_disco(tmp_path)   # helper gia' presente nel file
+    assert cli.main(["run", str(percorso), "--only-step", "1"]) == 0
+    uscita = json.loads(capsys.readouterr().out)
+    assert set(uscita) == {"01_load"}
 
 
 def test_the_sweep_command_reports_the_thickness_gate_failure(tmp_path, capsys):
