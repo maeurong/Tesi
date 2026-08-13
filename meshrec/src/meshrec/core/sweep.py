@@ -361,23 +361,34 @@ def pareto_front(rows: list[dict[str, object]]) -> list[dict[str, object]]:
 def check_sweep(
     rows: list[dict[str, object]], front: list[dict[str, object]]
 ) -> dict[str, object]:
-    """Le due sorveglianze sull'esito complessivo dello sweep.
+    """Le tre sorveglianze sull'esito complessivo dello sweep.
 
-    Nessuna delle due e' tarata: sono affermazioni qualitative, come la
+    Nessuna delle tre e' tarata: sono affermazioni qualitative, come la
     soglia a meta di min_ratio e quella della copertura d'appoggio. Quando
     piu di meta della griglia non arriva in fondo e' la griglia a stare nel
     posto sbagliato; quando nessun candidato e' dominato gli assi non stanno
-    discriminando e il fronte non sta scartando nulla.
+    discriminando e il fronte non sta scartando nulla; quando nessuna riga e'
+    confrontabile lo sweep finisce con fronte vuoto e uscita zero, e senza
+    questo avviso quell'esito e' indistinguibile da uno sweep che non aveva
+    ancora candidati da confrontare.
     """
     failed = [row for row in rows if row.get("outcome") != "riuscito"]
     comparable = [row for row in rows if objectives(row) is not None]
     failed_fraction = len(failed) / len(rows) if rows else 0.0
     front_is_whole_grid = bool(comparable) and len(front) == len(comparable)
+    no_comparable_candidates = bool(rows) and not comparable
 
     if failed_fraction > 0.5:
         warnings.warn(
             f"il {failed_fraction:.0%} dei candidati non arriva in fondo: "
             "e' la griglia a stare nel posto sbagliato, non i candidati",
+            SweepDiagnosticWarning,
+            stacklevel=2,
+        )
+    if no_comparable_candidates:
+        warnings.warn(
+            f"nessuno dei {len(rows)} candidati e' confrontabile: nessuna riga "
+            "porta un errore di spessore misurabile, il fronte e' vuoto",
             SweepDiagnosticWarning,
             stacklevel=2,
         )
@@ -504,6 +515,20 @@ def run_experiment(
             f"{root} esiste gia' e contiene metrics.json: e' la cartella di "
             "una corsa della pipeline, non una cartella d'esperimento vuota. "
             "Mi rifiuto di scrivere sopra una corsa esistente"
+        )
+    if registry.exists():
+        # La radice di un esperimento non ha metrics.json (i candidati sono
+        # sottocartelle), quindi la guardia sopra non basta: un secondo
+        # `meshrec sweep` sullo stesso esperimento la supererebbe, rigirerebbe
+        # tutto e appenderebbe altre righe in coda allo stesso registro, che
+        # essendo in sola aggiunta non sostituisce nulla. Il registro
+        # raddoppia in silenzio, e verify_registry non se ne accorge perche'
+        # le impronte restano le stesse.
+        raise ValueError(
+            f"{registry} esiste gia': un secondo sweep dello stesso esperimento "
+            "appenderebbe altre righe allo stesso registro invece di "
+            "sostituirlo. Cancella il registro per rifare questo esperimento, "
+            "o cambia experiment.name per farne uno nuovo"
         )
 
     # La sorgente si legge con load_cloud, che applica input.scale: read_cloud

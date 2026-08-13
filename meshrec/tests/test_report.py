@@ -30,7 +30,12 @@ def test_the_report_lists_every_row_and_marks_the_front(tmp_path):
     html = out.read_text(encoding="utf-8")
 
     assert "aaa" in html and "bbb" in html
-    assert "fronte" in html.lower()
+    # "fronte" compare anche nella prosa statica del report: contare la
+    # parola non prova che la marcatura funzioni. tr.fronte e' la classe che
+    # write_report assegna solo alle righe con on_front=True (report.py:85),
+    # quindi contarne le occorrenze e' l'unica prova che una riga (aaa) e'
+    # marcata e l'altra (bbb) no.
+    assert html.count("<tr class='fronte'>") == 1
     assert "<svg" in html
 
 

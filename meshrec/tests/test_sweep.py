@@ -291,6 +291,25 @@ def test_a_front_as_large_as_the_grid_is_reported():
     assert report["front_is_whole_grid"] is True
 
 
+def test_zero_comparable_candidates_is_reported():
+    """I1: front_is_whole_grid protegge dal falso allarme sul fronte vuoto
+    quando comparable e' vuoto (bool(comparable) lo esclude apposta), ma il
+    caso vuoto reale restava scoperto: se nessuna riga ha un errore di
+    spessore misurabile lo sweep finisce con fronte vuoto, uscita zero, e
+    prima di questa correzione nessun avviso."""
+    rows = [
+        _row("a", thickness_error=None, tets=1, over=0.1),
+        _row("b", thickness_error=None, tets=2, over=0.2),
+    ]
+
+    with pytest.warns(sweep.SweepDiagnosticWarning, match="nessuno dei 2 candidati"):
+        report = sweep.check_sweep(rows, sweep.pareto_front(rows))
+
+    assert report["comparable"] == 0
+    assert report["front"] == 0
+    assert report["front_is_whole_grid"] is False
+
+
 def test_more_than_half_failing_is_reported():
     """Con un solo candidato confrontabile il fronte e' anche largo quanto
     la griglia comparabile: scattano entrambi gli avvisi, e vanno asseriti
@@ -370,6 +389,23 @@ def test_run_experiment_refuses_to_write_inside_an_existing_run(tmp_path):
     (run_dir / "metrics.json").write_text("{}", encoding="utf-8")
 
     with pytest.raises(ValueError, match="corsa della pipeline"):
+        sweep.run_experiment(experiment, _base())
+
+
+def test_run_experiment_refuses_a_second_sweep_over_an_existing_registry(tmp_path):
+    """I3: la radice di un esperimento non ha metrics.json, i candidati sono
+    sottocartelle, quindi la guardia sopra non basta a fermare un secondo
+    sweep. Senza questa seconda guardia un secondo `meshrec sweep` sullo
+    stesso esperimento rigirerebbe tutto e appenderebbe altre righe in coda
+    allo stesso registro in sola aggiunta, raddoppiando il report in
+    silenzio. Il cancello deve scattare prima di expand(), senza toccare
+    io.load_cloud o alcun sottoprocesso.
+    """
+    experiment = _experiment(tmp_path, known_thickness=100.0)
+    registry = Path(experiment.sweep.registry_root) / experiment.name / "registro.jsonl"
+    sweep.append_row(registry, {"fingerprint": "aaa", "outcome": "riuscito"})
+
+    with pytest.raises(ValueError, match="registro"):
         sweep.run_experiment(experiment, _base())
 
 
@@ -655,7 +691,11 @@ def test_run_experiment_writes_the_registry_even_when_a_candidate_cannot_create_
     blocked_dir.parent.mkdir(parents=True, exist_ok=True)
     blocked_dir.write_text("non e' una cartella", encoding="utf-8")
 
-    result = sweep.run_experiment(experiment, base)
+    # Il sottoprocesso e' finto e non scrive mai 06_repaired.ply, quindi
+    # nessuna riga ha un errore di spessore misurabile: check_sweep (I1) lo
+    # segnala. Atteso qui, non un effetto collaterale da ignorare.
+    with pytest.warns(sweep.SweepDiagnosticWarning, match="nessuno dei 2 candidati"):
+        result = sweep.run_experiment(experiment, base)
 
     rows = sweep.load_registry(Path(result["registry"]))
     assert len(rows) == 2
