@@ -49,6 +49,8 @@ def inverted_tets(nodes: np.ndarray, tets: np.ndarray) -> np.ndarray:
 
 
 _TET_FACES = ((1, 2, 3), (0, 3, 2), (0, 1, 3), (0, 2, 1))
+# Le sei combinazioni di due indici su quattro: valgono sia come coppie di facce
+# (angoli diedri) sia come spigoli del tetraedro (rapporto d'aspetto).
 _FACE_PAIRS = ((0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3))
 
 
@@ -108,9 +110,8 @@ def tet_aspect_ratios(nodes: np.ndarray, tets: np.ndarray) -> np.ndarray:
     for i, j, k in _TET_FACES:
         p, q, r = n[t[:, i]], n[t[:, j]], n[t[:, k]]
         area += np.linalg.norm(np.cross(q - p, r - p), axis=1) / 2.0
-    edges = ((0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3))
     longest = np.max(
-        [np.linalg.norm(n[t[:, i]] - n[t[:, j]], axis=1) for i, j in edges], axis=0
+        [np.linalg.norm(n[t[:, i]] - n[t[:, j]], axis=1) for i, j in _FACE_PAIRS], axis=0
     )
     with np.errstate(divide="ignore", invalid="ignore"):
         inradius = 3.0 * volume / area
@@ -118,17 +119,29 @@ def tet_aspect_ratios(nodes: np.ndarray, tets: np.ndarray) -> np.ndarray:
     return np.where(np.isfinite(ratio) & (inradius > 0.0), ratio, np.inf)
 
 
-def _distribution(values: np.ndarray) -> dict[str, float]:
-    """Riassunto di una distribuzione, per il report e per metrics.json."""
-    finite = np.asarray(values, dtype=np.float64)
-    finite = finite[np.isfinite(finite)]
+def _distribution(values: np.ndarray) -> dict[str, float | int | None]:
+    """Riassunto di una distribuzione, per il report e per metrics.json.
+
+    I valori non finiti sono esclusi dalle statistiche e contati in
+    `non_finite`, perche' quanti se ne sono scartati e' parte del risultato: un
+    riassunto calcolato su meta dei valori senza dirlo e' un numero plausibile e
+    non verificabile.
+
+    Quando non resta alcun valore finito le voci valgono `null` e non `NaN`:
+    `NaN` non fa parte di JSON, e un `metrics.json` che lo contiene smette di
+    essere leggibile da qualunque lettore che non sia quello di Python.
+    """
+    all_values = np.asarray(values, dtype=np.float64)
+    finite = all_values[np.isfinite(all_values)]
+    summary: dict[str, float | int | None] = {"non_finite": int(len(all_values) - len(finite))}
     if len(finite) == 0:
-        return {"min": float("nan"), "median": float("nan"), "mean": float("nan"), "max": float("nan")}
+        return {"min": None, "median": None, "mean": None, "max": None, **summary}
     return {
         "min": float(finite.min()),
         "median": float(np.median(finite)),
         "mean": float(finite.mean()),
         "max": float(finite.max()),
+        **summary,
     }
 
 

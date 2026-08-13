@@ -51,6 +51,31 @@ def test_a_hole_over_the_threshold_is_reported_not_hidden():
     assert metrics["holes_over_threshold"][0] > 100.0
 
 
+def test_a_large_opening_on_an_open_path_does_not_slip_past_the_threshold():
+    """La guardia non deve essere cieca proprio sulle aperture piu grandi.
+
+    Dopo la separazione fra cicli chiusi e cammini aperti, le aperture maggiori
+    finiscono fra i secondi: sul muro reale le due facce aperte da circa 23 m2
+    sono cammini aperti. Una soglia che guardasse i soli cicli chiusi le
+    lascerebbe passare senza un segno, che e' l'esatto contrario del motivo per
+    cui `max_hole_area` esiste. Qui il ciclo chiuso sta sotto soglia e i due
+    cammini aperti sopra: se la soglia torna cieca, la lista resta vuota.
+    """
+    pytest.importorskip("pymeshfix")
+    vertices = np.array(
+        [[0.0, 0.0, 0.0], [100.0, 0.0, 0.0], [0.0, 100.0, 0.0], [-100.0, 0.0, 0.0], [0.0, -100.0, 0.0]]
+    )
+    faces = np.array([[0, 1, 2], [0, 3, 4]], dtype=np.int64)
+
+    _, _, metrics = repair.repair_surface(
+        vertices, faces, config.RepairConfig(largest_component_only=False, max_hole_area=6000.0)
+    )
+
+    assert metrics["holes_over_threshold"] == []
+    assert len(metrics["open_paths_over_threshold"]) == 2
+    assert min(metrics["open_paths_over_threshold"]) > 6000.0
+
+
 def test_the_smaller_connected_component_is_dropped():
     vertices, faces = synth.box_mesh(SIZE)
     far_vertices = vertices + np.array([1000.0, 0.0, 0.0])

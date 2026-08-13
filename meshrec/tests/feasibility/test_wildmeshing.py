@@ -1,5 +1,5 @@
 """
-Fase 0 — Verifica di fattibilità di fTetWild (wildmeshing).
+Fase 0 — Verifica di fattibilita di fTetWild (wildmeshing).
 
 NOTA PIATTAFORMA (win_amd64):
 wildmeshing==0.4.1 non ha wheel per Windows. Installazione fallita con:
@@ -12,7 +12,7 @@ wildmeshing==0.4.1 non ha wheel per Windows. Installazione fallita con:
 Esito: SKIP atteso. Ripiego adottato per Fase 1: TetGen + PyMeshFix con guardia
 di superficie chiusa mantenuta.
 
-Su Linux/macOS: test skippa se il pacchetto non è installato, passa se presente.
+Su Linux/macOS: test skippa se il pacchetto non e' installato, passa se presente.
 """
 
 import numpy as np

@@ -201,7 +201,28 @@ def align_to_axes(
 
 
 def set_tolerance(nodes: np.ndarray, tets: np.ndarray, factor: float) -> float:
-    """Tolleranza dei set derivata dalla dimensione media dell'elemento."""
+    """Tolleranza dei set derivata dalla dimensione media dell'elemento.
+
+    La media e' una scelta debole e va dichiarata: la distribuzione dei volumi
+    ha una coda pesantissima, e sul muro di riferimento la mediana vale 14,6 mm^3
+    contro una media di 30.735 mm^3, un fattore duemila. La tolleranza che decide
+    quali nodi finiscono in `BASE`, cioe' dove il modello e' vincolato, dipende
+    quindi da una manciata di elementi enormi.
+
+    Il passaggio alla mediana e' stato provato e misurato sulle due corse, e
+    peggiora il risultato invece di migliorarlo: la tolleranza sul muro scende
+    da 31,95 mm a 2,50 mm e `BASE` passa da 4738 nodi a 9 su 420.547, un vincolo
+    puntiforme sotto un muro da 97 t. Il motivo e' che nessuna delle due
+    statistiche descrive l'elemento tipico: la mediana e' dominata dai tetraedri
+    minuscoli che il raffinamento lascia sulla superficie (lato equivalente
+    5,0 mm), la media dai pochi elementi enormi dell'interno (lato equivalente
+    63,9 mm), mentre la scala che conta e' la spaziatura dei nodi sul bordo,
+    mediana 13,7 mm. Legare la tolleranza al volume dell'elemento e' l'euristica
+    sbagliata in partenza; finche' non viene sostituita resta la media, che e'
+    la sola sotto cui i set sono stati verificati utilizzabili. Il numero di
+    nodi di ogni set e' comunque riportato in `metrics.json`, quindi un set
+    degenere e' visibile e non silenzioso.
+    """
     from meshrec.core.quality import tet_volumes
 
     mean_volume = float(np.abs(tet_volumes(nodes, tets)).mean())
@@ -210,7 +231,22 @@ def set_tolerance(nodes: np.ndarray, tets: np.ndarray, factor: float) -> float:
 
 
 def build_node_sets(nodes: np.ndarray, tolerance: float) -> dict[str, np.ndarray]:
-    """I sei set di faccia, sul modello gia allineato agli assi."""
+    """I sei set di faccia, sul modello gia allineato agli assi.
+
+    `BASE` e `TOP` sono verificati: l'asse z e' il verticale reale (vedi
+    `align_to_axes`), quindi il minimo e' davvero la base del solido.
+
+    `FACE_FRONT`, `FACE_BACK`, `SIDE_LEFT` e `SIDE_RIGHT` sono invece **nomi di
+    convenzione**, non identificazioni fisiche. Sono assegnati al minimo e al
+    massimo di x e di y dopo l'allineamento, e nulla nella pipeline sa quale
+    delle due grandi facce sia quella «anteriore» del muro reale, ne' quale sia
+    il lato «sinistro»: il segno degli assi viene da una convenzione
+    deterministica (`_fix_sign`), scelta per la ripetibilita, non da un
+    riferimento sul campo. La coppia e' quindi affidabile come coppia (le due
+    facce opposte sono quelle giuste), l'attribuzione del singolo nome no.
+    Chiunque usi questi set per confrontare il modello con misure fatte sul muro
+    deve prima verificare l'orientamento sul file allineato.
+    """
     points = np.asarray(nodes, dtype=np.float64)
     low = points.min(axis=0)
     high = points.max(axis=0)

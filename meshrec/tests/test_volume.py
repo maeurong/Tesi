@@ -1,3 +1,5 @@
+import inspect
+
 import numpy as np
 import pytest
 
@@ -9,7 +11,9 @@ EXACT_VOLUME = 100.0 * 40.0 * 200.0
 
 def test_tetrahedralize_fills_the_box():
     vertices, faces = synth.box_mesh(SIZE)
-    nodes, tets = volume.tetrahedralize(vertices, faces, max_volume=50_000.0, max_steiner_points=-1)
+    nodes, tets = volume.tetrahedralize(
+        vertices, faces, max_volume=50_000.0, min_ratio=1.8, max_steiner_points=-1
+    )
 
     assert nodes.ndim == 2 and nodes.shape[1] == 3
     assert tets.ndim == 2 and tets.shape[1] == 4
@@ -19,7 +23,9 @@ def test_tetrahedralize_fills_the_box():
 
 def test_sum_of_tet_volumes_equals_the_exact_volume():
     vertices, faces = synth.box_mesh(SIZE)
-    nodes, tets = volume.tetrahedralize(vertices, faces, max_volume=50_000.0, max_steiner_points=-1)
+    nodes, tets = volume.tetrahedralize(
+        vertices, faces, max_volume=50_000.0, min_ratio=1.8, max_steiner_points=-1
+    )
 
     total = np.abs(quality.tet_volumes(nodes, tets)).sum()
     assert total == pytest.approx(EXACT_VOLUME, rel=1e-6)
@@ -27,15 +33,21 @@ def test_sum_of_tet_volumes_equals_the_exact_volume():
 
 def test_no_inverted_elements():
     vertices, faces = synth.box_mesh(SIZE)
-    nodes, tets = volume.tetrahedralize(vertices, faces, max_volume=50_000.0, max_steiner_points=-1)
+    nodes, tets = volume.tetrahedralize(
+        vertices, faces, max_volume=50_000.0, min_ratio=1.8, max_steiner_points=-1
+    )
 
     assert len(quality.inverted_tets(nodes, tets)) == 0
 
 
 def test_max_volume_controls_the_number_of_elements():
     vertices, faces = synth.box_mesh(SIZE)
-    _, coarse = volume.tetrahedralize(vertices, faces, max_volume=200_000.0, max_steiner_points=-1)
-    _, fine = volume.tetrahedralize(vertices, faces, max_volume=20_000.0, max_steiner_points=-1)
+    _, coarse = volume.tetrahedralize(
+        vertices, faces, max_volume=200_000.0, min_ratio=1.8, max_steiner_points=-1
+    )
+    _, fine = volume.tetrahedralize(
+        vertices, faces, max_volume=20_000.0, min_ratio=1.8, max_steiner_points=-1
+    )
 
     assert len(fine) > len(coarse)
 
@@ -46,7 +58,7 @@ def test_an_open_surface_is_refused_before_tetgen_runs():
     damaged = synth.punch_holes(faces)
 
     with pytest.raises(volume.NotWatertightError, match="4 spigoli di bordo"):
-        volume.tetrahedralize(vertices, damaged, max_steiner_points=-1)
+        volume.tetrahedralize(vertices, damaged, min_ratio=1.8, max_steiner_points=-1)
 
 
 def test_with_metrics_reports_counts_and_time():
@@ -74,6 +86,18 @@ def test_inverted_elements_are_a_blocking_error(monkeypatch):
 def test_the_default_config_puts_no_ceiling_on_the_refinement():
     """Il tetto predefinito della libreria (100000) non deve tornare di nascosto."""
     assert config.TetConfig().max_steiner_points == -1
+
+
+def test_no_processing_default_lives_in_the_signature():
+    """L'unico luogo dove un parametro di elaborazione ha un predefinito e' config.
+
+    `min_ratio: float = 1.1` nella firma contraddiceva il predefinito 1.8 di
+    `TetConfig` ed era il valore che sul muro reale non converge: un chiamante
+    che lo lasciava implicito otteneva un valore diverso da quello configurato.
+    """
+    parameters = inspect.signature(volume.tetrahedralize).parameters
+    for name in ("min_ratio", "max_steiner_points"):
+        assert parameters[name].default is inspect.Parameter.empty
 
 
 def test_an_exhausted_steiner_budget_is_reported_not_hidden():

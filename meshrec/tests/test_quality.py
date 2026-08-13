@@ -1,3 +1,5 @@
+import json
+
 import numpy as np
 import pytest
 
@@ -113,3 +115,20 @@ def test_geometric_error_grows_with_a_displaced_cloud():
     error = quality.geometric_error(vertices, faces, cloud)
 
     assert error["cloud_to_mesh"]["max"] > 5.0
+
+
+def test_a_summary_without_finite_values_stays_valid_json():
+    """`NaN` non fa parte di JSON: un metrics.json che lo contiene non si rilegge.
+
+    Il riassunto dichiara anche quanti valori ha scartato, perche' una statistica
+    calcolata su una frazione dei valori senza dirlo e' un numero plausibile e
+    non verificabile.
+    """
+    summary = quality._distribution(np.array([np.nan, np.inf, -np.inf]))
+
+    assert summary == {"min": None, "median": None, "mean": None, "max": None, "non_finite": 3}
+    assert json.loads(json.dumps(summary)) == summary
+
+    partial = quality._distribution(np.array([1.0, np.nan, 3.0]))
+    assert partial["non_finite"] == 1
+    assert partial["median"] == pytest.approx(2.0)

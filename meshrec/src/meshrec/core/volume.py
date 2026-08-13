@@ -31,9 +31,9 @@ class InvertedElementsError(ValueError):
 def tetrahedralize(
     vertices: np.ndarray,
     faces: np.ndarray,
-    min_ratio: float = 1.1,
     max_volume: float | None = None,
     *,
+    min_ratio: float,
     max_steiner_points: int,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Riempie di tetraedri lineari la superficie chiusa data.
@@ -43,9 +43,13 @@ def tetrahedralize(
     singolo elemento nelle unita di lavoro; `max_steiner_points` limita i punti
     che TetGen puo' aggiungere per raffinare, e -1 toglie il limite.
 
-    `max_steiner_points` non ha un valore predefinito qui apposta: il
-    predefinito della libreria tetgen e' 100000, e lasciarlo implicito e'
-    quello che ha prodotto mesh troncate senza che nulla lo segnalasse.
+    Ne' `min_ratio` ne' `max_steiner_points` hanno un valore predefinito qui,
+    apposta: l'unico luogo dove un parametro di elaborazione ha un predefinito
+    e' `core.config`. Il predefinito ereditato dalla libreria tetgen per
+    `max_steiner_points` (100000) ha prodotto mesh troncate senza che nulla lo
+    segnalasse; il predefinito 1.1 che questa firma portava per `min_ratio`
+    contraddiceva il predefinito 1.8 di `TetConfig` ed era il valore che sul
+    muro reale non porta a termine il raffinamento.
     """
     faces = np.asarray(faces)
     if not is_watertight(faces):
@@ -103,7 +107,11 @@ def tetrahedralize_with_metrics(
     """Step 9 completo: tetraedrizza, cronometra e rifiuta gli elementi invertiti."""
     start = time.perf_counter()
     nodes, tets = tetrahedralize(
-        vertices, faces, cfg.min_ratio, cfg.max_volume, max_steiner_points=cfg.max_steiner_points
+        vertices,
+        faces,
+        cfg.max_volume,
+        min_ratio=cfg.min_ratio,
+        max_steiner_points=cfg.max_steiner_points,
     )
     seconds = time.perf_counter() - start
 

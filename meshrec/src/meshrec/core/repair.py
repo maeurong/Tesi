@@ -142,8 +142,21 @@ def repair_surface(
     # fra i fori gonfierebbe `holes_before` con voci di cui `hole_areas`
     # riporterebbe un'area priva di significato.
     metrics["open_boundary_paths"] = len(open_paths)
+    open_areas = sorted((_loop_area(v, path) for path in open_paths), reverse=True)
     metrics["holes_over_threshold"] = (
         [] if cfg.max_hole_area is None else [area for area in areas if area > cfg.max_hole_area]
+    )
+    # Le aperture piu grandi non finiscono fra i cicli chiusi: sul muro le due
+    # facce aperte, circa 23 m^2 ciascuna, sono cammini aperti. Una soglia che
+    # guardasse i soli cicli chiusi sarebbe cieca proprio dove serve, e la
+    # ragione per cui `max_hole_area` esiste e' che un'apertura grande non passi
+    # inosservata. L'area di un cammino aperto e' pero' indicativa, calcolata
+    # come se il cammino si richiudesse: sta in una voce separata proprio per
+    # non essere scambiata per la misura di un foro.
+    metrics["open_paths_over_threshold"] = (
+        []
+        if cfg.max_hole_area is None
+        else [area for area in open_areas if area > cfg.max_hole_area]
     )
 
     # 5. chiusura garantita

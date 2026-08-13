@@ -11,7 +11,9 @@ SIZE = (100.0, 40.0, 200.0)
 @pytest.fixture
 def cube_mesh():
     vertices, faces = synth.box_mesh(SIZE)
-    return volume.tetrahedralize(vertices, faces, max_volume=100_000.0, max_steiner_points=-1)
+    return volume.tetrahedralize(
+        vertices, faces, max_volume=100_000.0, min_ratio=1.8, max_steiner_points=-1
+    )
 
 
 def _base_and_top(nodes: np.ndarray, tolerance: float = 1e-6) -> dict[str, np.ndarray]:
@@ -402,7 +404,7 @@ def test_export_model_estimates_the_triad_on_the_reference_it_is_given(tmp_path)
     """Il riferimento arriva fino al deck: e' la strada che usa la pipeline."""
     vertices, faces = synth.box_mesh(SIZE)
     nodes, tets = volume.tetrahedralize(
-        vertices, faces, max_volume=100_000.0, max_steiner_points=-1
+        vertices, faces, max_volume=100_000.0, min_ratio=1.8, max_steiner_points=-1
     )
 
     metrics = abaqus.export_model(
