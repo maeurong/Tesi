@@ -542,3 +542,45 @@ def run_experiment(
         append_row(registry, row)
 
     return {"summary": summary, "rows": rows, "front": front, "registry": str(registry)}
+
+
+def verify_registry(path: Path) -> list[dict[str, object]]:
+    """Ricalcola le impronte degli artefatti e marca stantia ogni riga che non torna.
+
+    E' il primo principio applicato al registro stesso: senza questo controllo
+    una riga e i file che dice di descrivere possono divergere in silenzio, ed
+    e' esattamente cio' che e' accaduto in Fase 1.
+
+    Una riga potata non e' stantia: dichiara di non avere piu artefatti, e
+    quella dichiarazione e' coerente con il disco.
+    """
+    esito: list[dict[str, object]] = []
+    for row in load_registry(path):
+        if not row.get("artifacts_kept", True):
+            esito.append(
+                {"fingerprint": row["fingerprint"], "stale": False, "reason": "artefatti potati"}
+            )
+            continue
+
+        mancanti: list[str] = []
+        diversi: list[str] = []
+        for name, digest in row.get("artifacts", {}).items():
+            item = Path(row["out_dir"]) / name
+            if not item.exists():
+                mancanti.append(name)
+            elif file_digest(item) != digest:
+                diversi.append(name)
+
+        reason = ""
+        if diversi:
+            reason = f"impronta diversa: {', '.join(sorted(diversi))}"
+        elif mancanti:
+            reason = f"artefatti assenti: {', '.join(sorted(mancanti))}"
+        esito.append(
+            {
+                "fingerprint": row["fingerprint"],
+                "stale": bool(diversi or mancanti),
+                "reason": reason or "coerente",
+            }
+        )
+    return esito

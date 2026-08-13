@@ -507,3 +507,53 @@ def test_measure_thickness_error_returns_none_without_raising_on_a_zero_spacing(
     row = {"out_dir": str(out_dir), "metrics": {"01_load": {"spacing": 0.0}}}
 
     assert sweep.measure_thickness_error(row, source_thickness=100.0) is None
+
+
+def test_verify_declares_stale_a_row_whose_artifact_changed(tmp_path):
+    """La prova a variabile unica: si altera un artefatto e la riga deve cadere.
+
+    E' il caso della Fase 1 in cui un wall_model.inp di una corsa superata e'
+    rimasto accanto a un metrics.json fermo a 08_simplify, e niente nei due
+    file diceva che non appartenessero alla stessa elaborazione.
+    """
+    out_dir = tmp_path / "candidato"
+    out_dir.mkdir()
+    artefatto = out_dir / "wall_model.inp"
+    artefatto.write_text("corsa corrente", encoding="utf-8")
+
+    registry = tmp_path / "registro.jsonl"
+    sweep.append_row(
+        registry,
+        {
+            "fingerprint": "aaa",
+            "out_dir": str(out_dir),
+            "artifacts_kept": True,
+            "artifacts": {"wall_model.inp": sweep.file_digest(artefatto)},
+        },
+    )
+
+    assert all(voce["stale"] is False for voce in sweep.verify_registry(registry))
+
+    artefatto.write_text("corsa superata", encoding="utf-8")
+    esito = sweep.verify_registry(registry)
+
+    assert esito[0]["stale"] is True
+    assert "wall_model.inp" in esito[0]["reason"]
+
+
+def test_verify_does_not_call_pruned_rows_stale(tmp_path):
+    registry = tmp_path / "registro.jsonl"
+    sweep.append_row(
+        registry,
+        {
+            "fingerprint": "bbb",
+            "out_dir": str(tmp_path / "assente"),
+            "artifacts_kept": False,
+            "artifacts": {"wall_model.inp": "0" * 64},
+        },
+    )
+
+    esito = sweep.verify_registry(registry)
+
+    assert esito[0]["stale"] is False
+    assert "potati" in esito[0]["reason"]
