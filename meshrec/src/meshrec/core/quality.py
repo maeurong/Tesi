@@ -251,3 +251,53 @@ def geometric_error(
         "mesh_to_cloud": mesh_to_cloud,
         "hausdorff": max(float(cloud_to_mesh["max"]), float(mesh_to_cloud["max"])),
     }
+
+
+def thickness(points: np.ndarray, bin_width: float) -> dict[str, object]:
+    """Spessore come distanza fra i due modi lungo la direzione di minore estensione.
+
+    Si applica indifferentemente a una nuvola e ai vertici di una superficie:
+    e' il requisito che rende la misura verificabile, perche' il valore letto
+    sulla ricostruzione si confronta con quello letto sulla sorgente.
+
+    L'ingombro non risponde alla stessa domanda. Sul ritaglio di lab_frame
+    l'estensione lungo lo spessore vale 231 mm mentre le due facce del muro
+    distano 176 mm: il rumore e gli sguinci allargano la scatola, non il muro.
+
+    La divisione fra i due modi cade al punto medio dell'estensione, che per
+    una lastra sta fra le due facce: nessuna finestra da tarare. Se fra i due
+    modi non c'e' una valle la distribuzione non e' bimodale, la misura non
+    e' valida e `bimodal` lo dichiara invece di restituire un numero comunque:
+    su una nuvola piena i due massimi cadrebbero comunque da qualche parte, e
+    la loro distanza non sarebbe uno spessore.
+    """
+    values = np.asarray(points, dtype=np.float64)
+    centred = values - values.mean(axis=0)
+    # eigh su una 3x3: costo indipendente dal numero di punti, al contrario
+    # di una SVD sulla matrice intera, che su 6,3 milioni di punti materializza
+    # una U da oltre 150 MB per restituire le stesse tre direzioni.
+    _, directions = np.linalg.eigh(centred.T @ centred)
+    projected = centred @ directions
+    extents = np.ptp(projected, axis=0)
+    axis = int(np.argmin(extents))
+
+    along = projected[:, axis]
+    edges = np.arange(along.min(), along.max() + bin_width, bin_width)
+    counts, _ = np.histogram(along, bins=edges)
+    centres = (edges[:-1] + edges[1:]) / 2.0
+    split = len(counts) // 2
+
+    lower = int(np.argmax(counts[:split]))
+    upper = split + int(np.argmax(counts[split:]))
+    # La valle fra i due modi deve essere almeno mezza vuota rispetto al modo
+    # piu basso. Non e' una soglia tarata ma un'affermazione qualitativa: se
+    # fra i due massimi il conteggio non cala, non ci sono due facce.
+    valley = int(counts[lower + 1 : upper].min()) if upper > lower + 1 else int(counts[lower])
+    bimodal = bool(valley < 0.5 * min(counts[lower], counts[upper]))
+
+    return {
+        "thickness": float(centres[upper] - centres[lower]),
+        "axis": axis,
+        "extent": float(extents[axis]),
+        "bimodal": bimodal,
+    }

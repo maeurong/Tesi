@@ -165,3 +165,35 @@ def test_a_degenerate_tetrahedron_is_infinite_not_a_crash():
     tetraedri = np.array([[0, 1, 2, 3]])
 
     assert not np.isfinite(quality.radius_edge_ratios(nodi, tetraedri)[0])
+
+
+def test_thickness_measures_the_distance_between_the_two_faces():
+    """Su una lastra campionata su entrambe le facce lo spessore e' la distanza fra i modi.
+
+    L'ingombro non risponde alla stessa domanda: con rumore sulle facce e'
+    sistematicamente piu grande della distanza fra i piani medi, ed e' il
+    motivo per cui la misura e' un istogramma e non un bounding box.
+    """
+    rng = np.random.default_rng(0)
+    n = 20_000
+    y = rng.normal(0.0, 2.0, n) + np.where(rng.random(n) < 0.5, 0.0, 176.0)
+    points = np.column_stack([rng.uniform(0.0, 2700.0, n), y, rng.uniform(0.0, 2000.0, n)])
+
+    measured = quality.thickness(points, bin_width=1.0)
+
+    assert measured["bimodal"] is True
+    assert measured["thickness"] == pytest.approx(176.0, abs=3.0)
+    assert measured["extent"] > measured["thickness"]
+
+
+def test_thickness_declares_itself_invalid_on_a_solid_without_two_faces():
+    """Una nuvola piena non ha due modi: la misura lo dichiara invece di restituire un numero."""
+    rng = np.random.default_rng(1)
+    # n grande per tenere il rumore di conteggio per bin sotto la soglia della
+    # valle: con 5.000 punti (media ~56 per bin) capita per caso un avvallamento
+    # che supera il 50% e fa dichiarare bimodale una nuvola piena.
+    points = rng.uniform(0.0, 1.0, (50_000, 3)) * np.array([2700.0, 176.0, 2000.0])
+
+    measured = quality.thickness(points, bin_width=2.0)
+
+    assert measured["bimodal"] is False
