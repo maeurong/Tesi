@@ -1,0 +1,19 @@
+# Dichiarazione dell'esperimento sul muro sintetico (corsa di riferimento).
+# I livelli sono definiti nel brief del Task 12, Step 1: non sono una mia scelta.
+name: muro
+base: muro.yaml
+known_thickness: 1245.7
+axes:
+  - path: downsample.voxel_size
+    values: [18.25, 25.0, 35.0]
+  - path: surface.poisson_depth
+    values: [7, 8, 9]
+  - path: surface.density_quantile
+    values: [0.0, 0.05, 0.12]
+  - path: tet.min_ratio
+    values: [1.7, 1.8, 2.0, 2.5]
+  - path: tet.nobisect
+    values: [false, true]
+sweep:
+  workers: 4
+  timeout_s: 1800.0
