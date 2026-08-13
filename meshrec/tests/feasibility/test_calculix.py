@@ -26,7 +26,7 @@ def test_calculix_solves_a_column_under_self_weight(tmp_path):
 
     material = Material()
     vertices, faces = synth.box_mesh(SIZE)
-    nodes, tets = volume.tetrahedralize(vertices, faces, max_volume=20_000.0)
+    nodes, tets = volume.tetrahedralize(vertices, faces, max_volume=20_000.0, max_steiner_points=-1)
 
     z = nodes[:, 2]
     node_sets = {

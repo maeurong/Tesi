@@ -11,7 +11,7 @@ SIZE = (100.0, 40.0, 200.0)
 @pytest.fixture
 def cube_mesh():
     vertices, faces = synth.box_mesh(SIZE)
-    return volume.tetrahedralize(vertices, faces, max_volume=100_000.0)
+    return volume.tetrahedralize(vertices, faces, max_volume=100_000.0, max_steiner_points=-1)
 
 
 def _base_and_top(nodes: np.ndarray, tolerance: float = 1e-6) -> dict[str, np.ndarray]:

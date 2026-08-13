@@ -109,6 +109,16 @@ class TetConfig(BaseModel):
 
     min_ratio: float = Field(default=1.1, gt=0.0, description="rapporto raggio-spigolo massimo")
     max_volume: float | None = Field(default=None, gt=0.0, description="volume massimo elemento [mm^3]")
+    max_steiner_points: int = Field(
+        default=-1,
+        ge=-1,
+        description=(
+            "punti che TetGen puo' aggiungere per raffinare; -1 = nessun limite. "
+            "Il predefinito della libreria tetgen e' 100000: su geometrie a scala "
+            "reale quel tetto viene raggiunto e il raffinamento si ferma li, "
+            "restituendo una mesh troncata che nessuna metrica segnalava"
+        ),
+    )
     element: Literal["C3D4", "C3D10"] = "C3D4"
 
 

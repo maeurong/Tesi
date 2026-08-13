@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+import warnings
 
 import numpy as np
 import tetgen
@@ -15,6 +16,10 @@ class NotWatertightError(ValueError):
     """La superficie non e chiusa: TetGen non puo tetraedrizzarla."""
 
 
+class TruncatedRefinementWarning(UserWarning):
+    """TetGen ha esaurito i punti di Steiner: la mesh e' troncata, non completa."""
+
+
 class InvertedElementsError(ValueError):
     """La mesh di volume contiene elementi invertiti o degeneri."""
 
@@ -24,12 +29,19 @@ def tetrahedralize(
     faces: np.ndarray,
     min_ratio: float = 1.1,
     max_volume: float | None = None,
+    *,
+    max_steiner_points: int,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Riempie di tetraedri lineari la superficie chiusa data.
 
     `min_ratio` e il rapporto raggio-spigolo massimo ammesso (piu basso =
     elementi piu regolari e piu numerosi); `max_volume` limita il volume del
-    singolo elemento nelle unita di lavoro.
+    singolo elemento nelle unita di lavoro; `max_steiner_points` limita i punti
+    che TetGen puo' aggiungere per raffinare, e -1 toglie il limite.
+
+    `max_steiner_points` non ha un valore predefinito qui apposta: il
+    predefinito della libreria tetgen e' 100000, e lasciarlo implicito e'
+    quello che ha prodotto mesh troncate senza che nulla lo segnalasse.
     """
     faces = np.asarray(faces)
     if not is_watertight(faces):
@@ -44,7 +56,11 @@ def tetrahedralize(
         np.ascontiguousarray(vertices, dtype=np.float64),
         np.ascontiguousarray(faces, dtype=np.int32),
     )
-    options: dict[str, object] = {"order": 1, "minratio": float(min_ratio)}
+    options: dict[str, object] = {
+        "order": 1,
+        "minratio": float(min_ratio),
+        "steinerleft": int(max_steiner_points),
+    }
     if max_volume is not None:
         # Non e' un bug: e' una trappola dell'API di tetgen 0.8.4, per scelta
         # di progetto della libreria. maxvolume da solo e' inerte; il flag
@@ -66,7 +82,9 @@ def tetrahedralize_with_metrics(
 ) -> tuple[np.ndarray, np.ndarray, dict[str, object]]:
     """Step 9 completo: tetraedrizza, cronometra e rifiuta gli elementi invertiti."""
     start = time.perf_counter()
-    nodes, tets = tetrahedralize(vertices, faces, cfg.min_ratio, cfg.max_volume)
+    nodes, tets = tetrahedralize(
+        vertices, faces, cfg.min_ratio, cfg.max_volume, max_steiner_points=cfg.max_steiner_points
+    )
     seconds = time.perf_counter() - start
 
     inverted = inverted_tets(nodes, tets)
@@ -76,6 +94,23 @@ def tetrahedralize_with_metrics(
             "risultato inutilizzabile per l'analisi, non un avviso"
         )
 
+    # TetGen non dichiara di aver esaurito il budget di punti di Steiner. L'indizio
+    # utilizzabile e' il conteggio: i nodi che escono in piu rispetto ai vertici
+    # della superficie sono i punti aggiunti, e quando il budget si esaurisce
+    # eguagliano il tetto esattamente, mai per difetto. Verificato sul muro reale a
+    # sei tetti diversi (25000, 50000, 100000, 120000, 150000, 175000): i punti
+    # aggiunti sono risultati ogni volta pari al tetto in modo esatto.
+    steiner_points = int(len(nodes) - len(np.asarray(vertices)))
+    saturated = cfg.max_steiner_points > 0 and steiner_points >= cfg.max_steiner_points
+    if saturated:
+        warnings.warn(
+            f"TetGen ha esaurito i {cfg.max_steiner_points} punti di Steiner concessi: "
+            "il raffinamento e' stato troncato e la mesh non rispetta i vincoli di "
+            "qualita richiesti. Alza max_steiner_points o portalo a -1.",
+            TruncatedRefinementWarning,
+            stacklevel=2,
+        )
+
     metrics = {
         "nodes": int(len(nodes)),
         "tets": int(len(tets)),
@@ -83,5 +118,8 @@ def tetrahedralize_with_metrics(
         "element": cfg.element,
         "min_ratio": cfg.min_ratio,
         "max_volume": cfg.max_volume,
+        "max_steiner_points": cfg.max_steiner_points,
+        "steiner_points": steiner_points,
+        "steiner_saturated": bool(saturated),
     }
     return nodes, tets, metrics

@@ -62,12 +62,15 @@ vicolo cieco o per tetto raggiunto — sono contati a parte in
 `open_boundary_paths`, che è il segnale che il bordo è non manifold.
 
 I parametri effettivamente usati nella corsa finale si discostano dai predefiniti
-in due punti, entrambi scelti per contenere la taglia della superficie:
+in tre punti: i primi due per contenere la taglia della superficie, il terzo
+perché la qualità richiesta dal predefinito non è raggiungibile su questa
+geometria.
 
 | Parametro | Predefinito | Usato | Motivo |
 |---|---|---|---|
 | `downsample.voxel_size` | `null` (2 × spaziatura = 18,25 mm) | **25,0 mm** | riduce la nuvola da 593.728 a 200.296 punti, un terzo del carico a valle, senza scendere sotto la risoluzione utile per un muro di 1,25 m di spessore |
 | `surface.poisson_depth` | 9 | **8** | dimezza il lato della cella dell'ottree e porta la superficie da 908.118 a 221.369 triangoli, cioè da 22 MB a 5,6 MB di artefatto |
+| `tet.min_ratio` | 1,1 | **1,8** | con 1,1 il raffinamento non converge affatto su questa superficie: senza tetto ai punti di Steiner TetGen si interrompe con un errore interno. 1,8 è il valore più severo che porti a termine il lavoro (vedi sotto) |
 
 Tutto il resto è rimasto ai valori predefiniti. In particolare `simplify` è
 rimasto **disabilitato**: nella sequenza della pipeline la semplificazione è lo
@@ -76,8 +79,9 @@ step 6, che era il punto di rottura. È una precisazione che vale la pena
 lasciare scritta, perché la si potrebbe supporre il contrario leggendo l'elenco
 dei parametri invece dell'ordine degli step.
 
-Con questi parametri la pipeline completa gira in **circa 60 secondi**, dalla
-lettura della nuvola alla scrittura del deck.
+Con questi parametri la pipeline completa gira in **101 secondi**, dalla
+lettura della nuvola alla scrittura del deck, di cui 41,8 nella sola
+tetraedrizzazione.
 
 ## Metriche di ogni step
 
@@ -131,37 +135,142 @@ dalla chiusura, e non impedisce la tetraedrizzazione.
 **Step 8 — semplificazione.** Disabilitata: 233.930 triangoli in ingresso e in
 uscita.
 
-**Step 9 — tetraedrizzazione.** TetGen con rapporto raggio-spigolo 1,1 e nessun
-vincolo di volume massimo: 216.967 nodi e **635.336 tetraedri** in 12,77
-secondi.
+**Step 9 — tetraedrizzazione.** TetGen con rapporto raggio-spigolo 1,8, nessun
+vincolo di volume massimo e **nessun tetto ai punti di Steiner**: 420.547 nodi e
+**1.752.795 tetraedri** in 41,43 secondi, con 303.580 punti aggiunti e
+`steiner_saturated: false`. I due parametri si discostano dai predefiniti per il
+motivo spiegato nella sezione «La mesh troncata», più sotto: fino a poco fa
+questo step produceva 216.967 nodi e 635.336 tetraedri in 12,77 secondi, ma
+quella mesh era troncata.
 
 **Step 10 — qualità del volume.** **Zero elementi invertiti**, volume totale
-53,87 m³ coerente con quello della superficie. L'angolo diedro minimo ha mediana
-6,04° e media 15,08°, con un minimo di 0,00084°; il rapporto d'aspetto ha
-mediana 20,82 e massimo 2,1 × 10⁵. La mesh è dunque valida ma con una coda di
-elementi molto schiacciati, che è esattamente il problema su cui interviene il
-confronto con Gmsh più avanti.
+coerente con quello della superficie. L'angolo diedro minimo ha **mediana
+38,27°** e media 36,94°, con un minimo di 0,0025° e un massimo di 68,87°. Per confronto, la mesh troncata che questo
+step produceva prima aveva mediana 6,04°: la differenza dà la misura di quanto
+la troncatura degradasse la mesh senza che nulla lo segnalasse.
 
-**Step 11 — esportazione.** Deck scritto in `wall_model.inp` (37,5 MB) e
+**Step 11 — esportazione.** Deck scritto in `wall_model.inp` e
 `wall_model.vtu`. Volume 53,87 m³, massa **96,97 t** con la densità di 1,8 ×
-10⁻⁹ t/mm³. Insiemi di nodi estratti con tolleranza 44,80 mm: `BASE` 382,
-`TOP` 452, `FACE_FRONT` 82.837, `FACE_BACK` 49.918, `SIDE_LEFT` 435,
-`SIDE_RIGHT` 390.
+10⁻⁹ t/mm³. Insiemi di nodi: `BASE` 387, `TOP` 474, `FACE_FRONT` 84.927,
+`FACE_BACK` 32.205, `SIDE_LEFT` 350, `SIDE_RIGHT` 295.
 
-Su quest'ultimo step va segnalata un'anomalia che merita un controllo in Fase 2.
-L'allineamento ai piani principali riporta un ingombro di 1270,4 × 7422,1 ×
-8887,6 mm, mentre la nuvola sorgente misura 1247,0 × 5823,8 × 7802,1 mm anche
-calcolando le sue direzioni principali, che coincidono con gli assi globali. La
-matrice di rototraslazione contiene una rotazione di circa 13,4° nel piano del
-muro, e i due ingombri anomali sono esattamente quelli che un rettangolo di
-5823 × 7802 mm produce se il riferimento viene ruotato di quell'angolo
-(5823·cos13,4° + 7802·sin13,4° ≈ 7473, e 5823·sin13,4° + 7802·cos13,4° ≈ 8939).
-Le direzioni principali calcolate sui nodi del volume non ritrovano quindi gli
-assi del muro. Lo squilibrio fra `FACE_FRONT` (82.837 nodi) e `FACE_BACK`
-(49.918) punta nella stessa direzione. Poiché il deck vincola l'insieme `BASE`,
-che con questo allineamento conta appena 382 nodi, la questione tocca la
-validità dell'analisi e non solo l'estetica del riferimento: va chiarita prima
-di dare per buoni i risultati tensionali.
+Su quest'ultimo step resta aperta un'anomalia, che merita un controllo in Fase 2
+e che la mesh completa **non** ha risolto. L'allineamento ai piani principali
+riporta un ingombro di 1301,3 × 7633,4 × 9011,0 mm, mentre la nuvola sorgente
+misura 1247,0 × 5823,8 × 7802,1 mm anche calcolando le sue direzioni principali,
+che coincidono con gli assi globali entro 0,001. La prima direzione principale
+dei nodi del volume si scosta dal verticale di **21,44°**; restringendo il
+calcolo ai soli nodi topologicamente di bordo lo scarto scende a 15,33°, non a
+zero. `BASE` raccoglie 387 nodi, quando la base di un muro lungo 5,8 m e spesso
+1,25 m dovrebbe raccoglierne molti di più.
+
+L'origine è ora chiara, ed è indipendente dalla troncatura: la stima della terna
+è una PCA **sui nodi**, cioè pesa ogni nodo allo stesso modo, ma la densità di
+nodi è un artefatto del maglio, non una proprietà della forma. Il raffinamento
+di TetGen infittisce dove i triangoli della superficie sono grandi o mal fatti —
+in particolare sulle due facce che la chiusura ha inventato — e quella
+concentrazione sbilancia il tensore che la PCA calcola. La superficie riparata,
+dove i vertici seguono la geometria e non il raffinamento, ha assi principali
+allineati entro 0,45°. La direzione della correzione è quindi pesare i punti per
+volume o per area invece di contarli, oppure stimare la terna sulla superficie
+dello step 6; restringersi ai nodi di bordo, da solo, non basta.
+
+## La mesh troncata: un tetto ereditato da una libreria
+
+Il numero tondo di 100.000 nodi interni notato nel rapporto sull'allineamento
+non era una coincidenza. Il pacchetto `tetgen` ha come predefinito
+`steinerleft = 100000`, cioè un tetto al numero di punti che TetGen può
+aggiungere per raffinare, e `core/volume.py` non lo impostava mai: il valore
+arrivava dalla libreria senza che nessuno lo avesse scelto.
+
+### La verifica, prima della correzione
+
+Il tetto è stato fatto variare sulla superficie riparata del muro, lasciando
+tutto il resto invariato:
+
+| `steinerleft` | Nodi | Tetraedri | Punti aggiunti | Esito |
+|---|---|---|---|---|
+| 25.000 | 141.967 | 439.180 | **25.000** | esaurito |
+| 50.000 | 166.967 | 501.700 | **50.000** | esaurito |
+| 100.000 (predefinito ereditato) | 216.967 | 635.336 | **100.000** | esaurito |
+| 120.000 | 236.967 | 691.227 | **120.000** | esaurito |
+| 150.000 | 266.967 | 777.643 | **150.000** | esaurito |
+| 175.000 | 291.967 | 848.506 | **175.000** | esaurito |
+| 200.000 e senza limite | — | — | — | errore interno di TetGen |
+
+I punti aggiunti eguagliano il tetto **esattamente**, a ogni livello e mai per
+difetto: il raffinamento non finiva perché era completo, finiva perché il budget
+era esaurito. La diagnosi è confermata, e questo conteggio è anche l'indizio su
+cui si appoggia la nuova metrica, visto che TetGen non dichiara in alcun modo di
+essersi fermato per esaurimento.
+
+### Quanto era grave
+
+Molto più di quanto la parola «troncata» suggerisca. Contando quali nodi
+appartengono a facce che compaiono una sola volta, cioè quali stanno sul bordo
+del solido:
+
+| Mesh | Nodi | Tetraedri | Nodi di bordo | Nodi interni |
+|---|---|---|---|---|
+| Troncata (predefinito ereditato, `min_ratio` 1,1) | 216.967 | 635.336 | 216.967 | **0** |
+| Completa (nessun tetto, `min_ratio` 1,8) | 420.547 | 1.752.795 | 258.581 | **161.966** |
+
+La mesh che la pipeline ha prodotto finora aveva **zero nodi interni**: un muro
+pieno riempito con 635.336 tetraedri, e non un solo vertice dentro il volume.
+L'intero budget di 100.000 punti era stato consumato a suddividere la
+superficie, e il riempimento non era mai cominciato. Nessuna metrica lo
+segnalava: non c'erano elementi invertiti, il volume tornava, e la mediana
+dell'angolo diedro di 6,04° si poteva scambiare per una mesh semplicemente
+mediocre invece che per una mesh interrotta a metà. Sulla mesh completa la
+mediana sale a 38,27°.
+
+Questo spiega anche perché correggere l'allineamento perché stimasse la terna
+sui soli nodi di bordo non cambiava nulla sul muro: su quella mesh **tutti** i
+nodi erano di bordo, quindi selezionarli non selezionava niente.
+
+### Il limite vero: la qualità richiesta non è raggiungibile
+
+Tolto il tetto, viene alla luce un secondo problema che il tetto stesso nascondeva.
+Con `min_ratio` 1,1 — il predefinito della pipeline, molto più severo del 2,0 di
+TetGen — il raffinamento **non converge**: TetGen si interrompe con un errore
+interno (`split_subface` o `split_segment`) dopo pochi secondi. Provando a
+scendere per gradi, sulla superficie del muro:
+
+| `min_ratio` | Senza tetto ai punti di Steiner |
+|---|---|
+| 1,1 / 1,2 / 1,4 / 1,5 / 1,6 | errore interno di TetGen dopo ~6 s |
+| **1,8** | **420.547 nodi, 1.752.795 tetraedri, 303.580 punti aggiunti, 40,8 s, 1,35 GB** |
+| 2,0 | 372.068 nodi, 1.498.226 tetraedri, 255.101 punti aggiunti, 33,2 s, 1,39 GB |
+
+Il tetto, insomma, mascherava una configurazione che non poteva funzionare: si
+fermava prima che TetGen arrivasse alla configurazione degenere, e restituiva
+una mesh a metà con l'aria di un successo. 1,8 è il valore più severo che porti
+a termine il lavoro su questa geometria, ed è quello usato per l'esecuzione
+riportata qui.
+
+### Che cosa è cambiato nel codice
+
+`TetConfig` ha ora un campo `max_steiner_points`, il cui **predefinito è -1,
+cioè nessun limite**, dichiarato nel campo e nella sua descrizione. La scelta
+dell'assenza di limite è deliberata: qualunque numero sarebbe stato arbitrario
+quanto quello ereditato, e un tetto è precisamente ciò che ha reso il difetto
+invisibile. `core/volume.py` passa il valore a TetGen esplicitamente, e la firma
+di `tetrahedralize` **non** gli dà un valore predefinito, così che nessun
+chiamante possa tornare a lasciarlo implicito.
+
+Il troncamento non è più silenzioso: le metriche dello step 9 riportano ora
+`max_steiner_points`, `steiner_points` e `steiner_saturated`, e quando il budget
+si esaurisce viene emesso un `TruncatedRefinementWarning`. Poiché TetGen non
+dichiara l'esaurimento, l'indizio usato è il conteggio dei punti aggiunti
+confrontato con il tetto, verificato esatto ai sei livelli della tabella sopra.
+
+Conseguenza pratica da tenere presente: con i predefiniti attuali
+(`min_ratio` 1,1 e nessun tetto) la pipeline sul muro reale **fallisce a voce**
+con l'errore interno di TetGen, invece di restituire in silenzio una mesh
+troncata. È il comportamento corretto, ma significa che il predefinito di
+`min_ratio` va rivisto: la scelta fra abbassare la pretesa di qualità a un valore
+raggiungibile e cambiare strategia di maglio è una decisione di progetto e non è
+stata presa qui.
 
 ## Errore geometrico rispetto alla nuvola sorgente
 
@@ -338,7 +447,7 @@ dalle due verifiche sopra.
 |---|---|
 | Il test di integrazione passa | Sì: 99 test passati, 5 prove di fattibilità passate, 1 saltata (`wildmeshing` non installabile su Windows) |
 | Le metriche di errore geometrico sono calcolate e riportate | Sì: `07_surface_quality.geometric_error`, Hausdorff 54,18 mm, RMS 5,16 e 9,77 mm |
-| La pipeline arriva in fondo sul muro sintetico | Sì, in circa 60 secondi, dopo la correzione di `repair.hole_loops` |
+| La pipeline arriva in fondo sul muro sintetico | Sì, in 101 secondi, dopo la correzione di `repair.hole_loops` e la rimozione del tetto ai punti di Steiner |
 | La segmentazione automatica su `lab_frame.pcd` | Vedi [`fase-1-esiti-lab-frame.md`](fase-1-esiti-lab-frame.md) |
 | La stessa configurazione rieseguita dà lo stesso risultato | Coperto da `test_the_same_configuration_run_twice_gives_the_same_result`; il costo della scelta è misurato qui sopra |
 | Il deck è valido | Parziale: `meshio` e CalculiX sì, controllo dei dati Abaqus dovuto |
