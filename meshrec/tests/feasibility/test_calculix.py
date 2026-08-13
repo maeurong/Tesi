@@ -10,8 +10,8 @@ import subprocess
 import numpy as np
 import pytest
 
-from meshrec import abaqus, synth, volume
-from meshrec.config import GRAVITY_MM_S2, Material
+from meshrec.core import abaqus, synth, volume
+from meshrec.core.config import GRAVITY_MM_S2, Material
 from ccx_utils import read_dat_displacements
 
 pytestmark = pytest.mark.feasibility
@@ -26,7 +26,9 @@ def test_calculix_solves_a_column_under_self_weight(tmp_path):
 
     material = Material()
     vertices, faces = synth.box_mesh(SIZE)
-    nodes, tets = volume.tetrahedralize(vertices, faces, max_volume=20_000.0)
+    nodes, tets = volume.tetrahedralize(
+        vertices, faces, max_volume=20_000.0, min_ratio=1.8, max_steiner_points=-1
+    )
 
     z = nodes[:, 2]
     node_sets = {

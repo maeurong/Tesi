@@ -4,7 +4,7 @@ import meshio
 import numpy as np
 import pytest
 
-from meshrec import synth
+from meshrec.core import synth
 
 pytestmark = pytest.mark.feasibility
 

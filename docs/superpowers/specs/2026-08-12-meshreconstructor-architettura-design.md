@@ -15,8 +15,21 @@ Il materiale di partenza è quello condiviso dai tutor per la tesi:
   senza codice sorgente. Il bundle contiene PySide6, Open3D, VTK/PyVista, TetGen 0.8.3,
   meshio 5.3.5, numpy/scipy, più dipendenze inutilizzate (dash, flask, plotly, matplotlib,
   IPython, nbformat).
-- `Nuvole di punti/lab_frame.pcd` (152 MB) — scansione reale di un ambiente di laboratorio:
-  contiene pavimento, oggetti e più pareti, quindi richiede segmentazione.
+- `Nuvole di punti/lab_frame.pcd` (152 MB) — scansione reale eseguita in laboratorio.
+
+  > **Correzione del 13 agosto 2026.** Questa spec assumeva che il file contenesse pavimento,
+  > oggetti e più pareti, e da quell'assunto discendeva il progetto della segmentazione. La
+  > misura diretta lo smentisce: il file contiene un **singolo muro di prova**, circa
+  > 2759 × 2000 mm e spesso 176 mm, con un'apertura di circa 2093 × 1400 mm, ripreso su
+  > entrambe le facce. Ingombro misurato 2759 × 785 × 2000 mm su 6.329.096 punti; l'istogramma
+  > lungo lo spessore è bimodale con i picchi distanti 177 mm, cioè le due facce. Verificato
+  > due volte in modo indipendente durante la Fase 1.
+  >
+  > La conseguenza pratica è che l'estrazione iterativa di piani rimuove proprio le due facce
+  > del muro, che sono i piani dominanti della scena, e lascia il resto: la segmentazione
+  > automatica progettata per isolare un muro da un ambiente non ha, su questo file, l'ambiente
+  > da cui isolarlo. La via praticabile è il ritaglio a box. Vedi
+  > `meshrec/docs/fase-1-esiti-lab-frame.md`.
 - `Nuvole di punti/muro_generato.ply` (31 MB) — muro sintetico generato al calcolatore:
   geometria nota, quindi utilizzabile come verità di riferimento per la validazione.
 - `Cartella di lavoro Abaqus/prova_1.inp`, `prova_2.inp` — output del programma attuale:

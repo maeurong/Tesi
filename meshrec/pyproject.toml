@@ -12,7 +12,11 @@ dependencies = [
     "pydantic>=2.7",
     "pymeshfix>=0.18.1",
     "pymeshlab>=2025.7.post1",
+    "pyyaml>=6.0",
 ]
+
+[project.scripts]
+meshrec = "meshrec.cli:main"
 
 [project.optional-dependencies]
 feasibility = [

@@ -1119,11 +1119,20 @@ def test_with_metrics_reports_counts_and_time():
     assert metrics["element"] == "C3D4"
 
 
-def test_inverted_elements_are_a_blocking_error():
-    """La spec chiede errore bloccante, non avviso: qui lo si verifica sul percorso reale."""
+def test_inverted_elements_are_a_blocking_error(monkeypatch):
+    """La spec chiede errore bloccante, non avviso: qui si esercita il sollevamento.
+
+    Su una scatola valida TetGen non produce elementi invertiti, quindi il
+    percorso di errore va raggiunto sostituendo il generatore: un test che si
+    limita a verificare l'assenza di invertiti non tocca mai il `raise`.
+    """
+    nodes = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+    flipped = np.array([[0, 2, 1, 3]])
+    monkeypatch.setattr(volume, "tetrahedralize", lambda *args, **kwargs: (nodes, flipped))
+
     vertices, faces = synth.box_mesh(SIZE)
-    nodes, tets, _ = volume.tetrahedralize_with_metrics(vertices, faces, config.TetConfig())
-    assert len(quality.inverted_tets(nodes, tets)) == 0
+    with pytest.raises(volume.InvertedElementsError, match="invertiti"):
+        volume.tetrahedralize_with_metrics(vertices, faces, config.TetConfig())
 ```
 
 Completare gli import di `tests/test_volume.py` con `config`, `quality` e `synth` se non già presenti.
@@ -1657,10 +1666,10 @@ def remove_outliers(
     kept = np.ascontiguousarray(np.asarray(filtered.points), dtype=np.float64)
     if len(kept) == 0:
         raise ValueError("la rimozione degli outlier ha svuotato la nuvola: allenta std_ratio")
-    return kept, {
-        "points_before": int(len(points)),
-        "outliers_removed": int(len(points) - len(kept)),
-    }
+    # Nessun `points_before` qui: il conteggio complessivo appartiene a
+    # `segment_cloud`, e duplicarlo produrrebbe una collisione di chiavi
+    # quando i dizionari degli step vengono fusi.
+    return kept, {"outliers_removed": int(len(points) - len(kept))}
 
 
 def crop_box(points: np.ndarray, cfg: SegmentConfig) -> tuple[np.ndarray, dict[str, object]]:
@@ -1668,6 +1677,7 @@ def crop_box(points: np.ndarray, cfg: SegmentConfig) -> tuple[np.ndarray, dict[s
     points = np.asarray(points, dtype=np.float64)
     if cfg.crop_min is None or cfg.crop_max is None:
         return points, {"cropped": False, "points_after": int(len(points))}
+    # Come sopra: nessun `points_before` nei dizionari degli step.
 
     low = np.asarray(cfg.crop_min, dtype=np.float64)
     high = np.asarray(cfg.crop_max, dtype=np.float64)
@@ -1682,7 +1692,6 @@ def crop_box(points: np.ndarray, cfg: SegmentConfig) -> tuple[np.ndarray, dict[s
         )
     return np.ascontiguousarray(points[inside]), {
         "cropped": True,
-        "points_before": int(len(points)),
         "points_after": int(inside.sum()),
     }
 
@@ -1863,6 +1872,17 @@ Note vincolanti:
 - `write_inp` cambia solo nelle ultime righe: `*NODE FILE`/`*EL FILE` diventano `*OUTPUT, FIELD` più `*NODE OUTPUT` con `U` e `*ELEMENT OUTPUT` con `S, E`. CalculiX 2.22 accetta questa forma.
 
 ```python
+def _fix_sign(direction: np.ndarray) -> np.ndarray:
+    """Convenzione deterministica di segno: componente di modulo massimo positiva.
+
+    Le direzioni principali restituite dalla SVD hanno segno arbitrario: senza
+    una convenzione, due esecuzioni sulla stessa nuvola possono produrre assi
+    opposti e quindi set di faccia scambiati.
+    """
+    direction = np.asarray(direction, dtype=np.float64)
+    return direction if direction[int(np.argmax(np.abs(direction)))] >= 0.0 else -direction
+
+
 def align_to_axes(nodes: np.ndarray) -> tuple[np.ndarray, np.ndarray, dict[str, object]]:
     """Rototraslazione ai piani principali: spessore su x, lunghezza su y, altezza su z.
 
@@ -1883,13 +1903,26 @@ def align_to_axes(nodes: np.ndarray) -> tuple[np.ndarray, np.ndarray, dict[str, 
     # con l'estensione maggiore.
     verticality = [abs(principal[index][2]) for index in remaining]
     height_axis = remaining[int(np.argmax(verticality))]
-    length_axis = remaining[1 - int(np.argmax(verticality))]
 
-    rotation = np.stack(
-        [principal[thickness_axis], principal[length_axis], principal[height_axis]]
-    )
-    if np.linalg.det(rotation) < 0.0:
-        rotation[2] = -rotation[2]  # mantiene la terna destrorsa: una riflessione invertirebbe i tetraedri
+    vertical = principal[height_axis]
+    # L'altezza punta verso l'alto del sistema originale: la gravita agisce
+    # lungo il verticale reale, e BASE deve restare l'estremita fisicamente
+    # piu bassa. Le direzioni della SVD hanno segno arbitrario, quindi senza
+    # questo vincolo BASE e TOP si scambiano circa una volta su due. Se la
+    # nuvola e' quasi coricata il prodotto scalare non decide, e si ricade
+    # sulla convenzione di segno deterministica.
+    if abs(vertical[2]) > 1e-6:
+        z_dir = vertical if vertical[2] > 0.0 else -vertical
+    else:
+        z_dir = _fix_sign(vertical)
+
+    x_dir = _fix_sign(principal[thickness_axis])
+    # y come prodotto vettoriale: la terna e' destrorsa per costruzione, quindi
+    # il determinante vale +1 e non serve alcuna correzione a posteriori, che
+    # cambierebbe il verso di un asse gia deciso.
+    y_dir = np.cross(z_dir, x_dir)
+
+    rotation = np.stack([x_dir, y_dir, z_dir])
 
     aligned = centred @ rotation.T
     shift = aligned.min(axis=0)

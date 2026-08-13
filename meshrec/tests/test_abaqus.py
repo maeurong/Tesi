@@ -2,8 +2,8 @@ import meshio
 import numpy as np
 import pytest
 
-from meshrec import abaqus, synth, volume
-from meshrec.config import Material
+from meshrec.core import abaqus, config, synth, volume
+from meshrec.core.config import Material
 
 SIZE = (100.0, 40.0, 200.0)
 
@@ -11,7 +11,9 @@ SIZE = (100.0, 40.0, 200.0)
 @pytest.fixture
 def cube_mesh():
     vertices, faces = synth.box_mesh(SIZE)
-    return volume.tetrahedralize(vertices, faces, max_volume=100_000.0)
+    return volume.tetrahedralize(
+        vertices, faces, max_volume=100_000.0, min_ratio=1.8, max_steiner_points=-1
+    )
 
 
 def _base_and_top(nodes: np.ndarray, tolerance: float = 1e-6) -> dict[str, np.ndarray]:
@@ -148,3 +150,272 @@ def test_material_values_round_trip_with_precision(tmp_path, cube_mesh):
 
     assert f"*MATERIAL, NAME={material.name}" in lines
     assert f"*SOLID SECTION, ELSET=ALL_WALL, MATERIAL={material.name}" in lines
+
+
+def test_alignment_puts_thickness_on_x_length_on_y_height_on_z():
+    """Muro 1000 lungo, 300 alto, 50 spesso, ruotato di 30 gradi attorno a z."""
+    rng = np.random.default_rng(0)
+    raw = rng.uniform([0.0, 0.0, 0.0], [1000.0, 50.0, 300.0], size=(2000, 3))
+    angle = np.radians(30.0)
+    rotation = np.array(
+        [[np.cos(angle), -np.sin(angle), 0.0], [np.sin(angle), np.cos(angle), 0.0], [0.0, 0.0, 1.0]]
+    )
+    rotated = raw @ rotation.T + np.array([500.0, -200.0, 75.0])
+
+    aligned, transform, metrics = abaqus.align_to_axes(rotated)
+    extent = aligned.max(axis=0) - aligned.min(axis=0)
+
+    assert extent[0] == pytest.approx(50.0, rel=0.1)     # spessore su x
+    assert extent[1] == pytest.approx(1000.0, rel=0.1)   # lunghezza su y
+    assert extent[2] == pytest.approx(300.0, rel=0.1)    # altezza su z
+    assert aligned[:, 2].min() == pytest.approx(0.0, abs=1e-9)
+    assert transform.shape == (4, 4)
+    assert metrics["extent"] == pytest.approx(extent.tolist(), rel=0.1)
+
+
+def test_the_transform_is_invertible_back_to_the_original_frame():
+    rng = np.random.default_rng(1)
+    original = rng.uniform([0.0, 0.0, 0.0], [1000.0, 50.0, 300.0], size=(500, 3))
+    aligned, transform, _ = abaqus.align_to_axes(original)
+
+    homogeneous = np.column_stack([aligned, np.ones(len(aligned))])
+    back = (homogeneous @ np.linalg.inv(transform).T)[:, :3]
+
+    assert back == pytest.approx(original, abs=1e-6)
+
+
+def test_node_sets_cover_the_six_faces_of_a_box():
+    nodes = np.array(
+        [[x, y, z] for x in (0.0, 50.0) for y in (0.0, 1000.0) for z in (0.0, 300.0)]
+    )
+    sets = abaqus.build_node_sets(nodes, tolerance=1.0)
+
+    assert sorted(sets) == ["BASE", "FACE_BACK", "FACE_FRONT", "SIDE_LEFT", "SIDE_RIGHT", "TOP"]
+    assert len(sets["BASE"]) == 4
+    assert nodes[sets["BASE"]][:, 2] == pytest.approx(0.0)
+    assert nodes[sets["TOP"]][:, 2] == pytest.approx(300.0)
+    assert nodes[sets["FACE_FRONT"]][:, 0] == pytest.approx(0.0)
+    assert nodes[sets["FACE_BACK"]][:, 0] == pytest.approx(50.0)
+
+
+def test_output_requests_are_in_the_modern_form(tmp_path):
+    """*NODE FILE produce .fil in Abaqus, non .odb: la Fase 1 usa *OUTPUT, FIELD."""
+    vertices, faces = synth.box_mesh((100.0, 40.0, 200.0))
+    nodes, tets, _ = volume.tetrahedralize_with_metrics(vertices, faces, config.TetConfig())
+    path = tmp_path / "modello.inp"
+
+    abaqus.write_inp(
+        path,
+        nodes,
+        tets,
+        node_sets=abaqus.build_node_sets(nodes, tolerance=1.0),
+        material=config.Material(),
+    )
+    text = path.read_text(encoding="ascii")
+
+    assert "*OUTPUT, FIELD" in text
+    assert "*NODE OUTPUT" in text
+    assert "*ELEMENT OUTPUT" in text
+    assert "*NODE FILE" not in text
+    assert "*EL FILE" not in text
+
+
+def test_export_model_writes_both_files_and_reports_mass(tmp_path):
+    meshio = pytest.importorskip("meshio")
+    vertices, faces = synth.box_mesh((100.0, 40.0, 200.0))
+    nodes, tets, _ = volume.tetrahedralize_with_metrics(vertices, faces, config.TetConfig())
+
+    metrics = abaqus.export_model(
+        tmp_path / "wall_model.inp",
+        tmp_path / "wall_model.vtu",
+        nodes,
+        tets,
+        config.AnalysisConfig(),
+        config.TetConfig(),
+    )
+
+    assert (tmp_path / "wall_model.inp").exists()
+    assert (tmp_path / "wall_model.vtu").exists()
+    assert metrics["volume"] == pytest.approx(100.0 * 40.0 * 200.0, rel=0.02)
+    assert metrics["mass"] == pytest.approx(metrics["volume"] * 1.8e-9, rel=1e-6)
+    assert metrics["node_sets"]["BASE"] > 0
+    read_back = meshio.read(tmp_path / "wall_model.vtu")
+    assert len(read_back.points) == len(nodes)
+
+
+def test_c3d10_is_refused_until_the_writer_supports_it(tmp_path):
+    vertices, faces = synth.box_mesh((100.0, 40.0, 200.0))
+    nodes, tets, _ = volume.tetrahedralize_with_metrics(vertices, faces, config.TetConfig())
+
+    with pytest.raises(NotImplementedError, match="C3D10"):
+        abaqus.export_model(
+            tmp_path / "m.inp",
+            tmp_path / "m.vtu",
+            nodes,
+            tets,
+            config.AnalysisConfig(),
+            config.TetConfig(element="C3D10"),
+        )
+
+
+def _yaw(angle_deg: float) -> np.ndarray:
+    """Rotazione attorno a z: lo z del sistema d'ingresso resta il verticale vero."""
+    angle = np.radians(angle_deg)
+    return np.array(
+        [[np.cos(angle), -np.sin(angle), 0.0], [np.sin(angle), np.cos(angle), 0.0], [0.0, 0.0, 1.0]]
+    )
+
+
+def test_height_axis_points_up_regardless_of_svd_sign():
+    """Il verso di z deve seguire il verticale reale, non il segno arbitrario della SVD.
+
+    Un punto isolato oltre la quota massima marca l'estremita fisicamente
+    superiore del muro: dopo l'allineamento deve trovarsi sempre alla quota
+    massima, mai alla minima, qualunque sia la rotazione (attorno a z) applicata
+    in ingresso.
+    """
+    rng = np.random.default_rng(2)
+    base = rng.uniform([0.0, 0.0, 0.0], [1000.0, 50.0, 300.0], size=(1500, 3))
+    marker = np.array([[500.0, 25.0, 305.0]])  # oltre la quota massima del muro
+
+    for angle_deg in (0.0, 47.0, 137.0, 200.0, 311.0):
+        cloud = np.vstack([base, marker]) @ _yaw(angle_deg).T + np.array([100.0, -300.0, 50.0])
+
+        aligned, _, _ = abaqus.align_to_axes(cloud)
+        marker_z = aligned[-1, 2]
+
+        assert marker_z == pytest.approx(aligned[:, 2].max())
+        assert marker_z != pytest.approx(aligned[:, 2].min())
+
+
+def test_rotation_matrix_is_always_right_handed():
+    rng = np.random.default_rng(3)
+    base = rng.uniform([0.0, 0.0, 0.0], [1000.0, 50.0, 300.0], size=(800, 3))
+
+    for angle_deg in (0.0, 15.0, 61.0, 123.0, 250.0):
+        cloud = base @ _yaw(angle_deg).T + np.array([10.0, 20.0, 30.0])
+        _, transform, _ = abaqus.align_to_axes(cloud)
+
+        assert np.linalg.det(transform[:3, :3]) == pytest.approx(1.0)
+
+
+def test_extent_is_invariant_to_the_input_rotation():
+    rng = np.random.default_rng(4)
+    base = rng.uniform([0.0, 0.0, 0.0], [1000.0, 50.0, 300.0], size=(1000, 3))
+
+    aligned_a, _, _ = abaqus.align_to_axes(base @ _yaw(10.0).T + np.array([500.0, -100.0, 20.0]))
+    aligned_b, _, _ = abaqus.align_to_axes(base @ _yaw(200.0).T + np.array([-300.0, 400.0, -50.0]))
+
+    extent_a = aligned_a.max(axis=0) - aligned_a.min(axis=0)
+    extent_b = aligned_b.max(axis=0) - aligned_b.min(axis=0)
+
+    assert extent_a == pytest.approx(extent_b, rel=1e-6)
+
+
+def test_align_to_axes_ignores_interior_nodes_when_given_boundary_reference():
+    """Riproduce il difetto misurato sul muro reale: i punti di Steiner interni
+    aggiunti da TetGen, mediati con quelli di bordo, ruotavano il riferimento
+    di oltre 13 gradi dal verticale vero. Se la stima torna a usare tutti i
+    nodi, questo test deve fallire."""
+    corners = np.array(
+        [[x, y, z] for x in (0.0, 50.0) for y in (0.0, 1000.0) for z in (0.0, 300.0)]
+    )
+    index = {tuple(point): position for position, point in enumerate(corners)}
+
+    def idx(x: float, y: float, z: float) -> int:
+        return index[(x, y, z)]
+
+    # decomposizione standard di un cuboide in sei tetraedri lungo la
+    # diagonale principale (000)-(111): sei permutazioni degli assi.
+    o = idx(0.0, 0.0, 0.0)
+    full = idx(50.0, 1000.0, 300.0)
+    x1 = idx(50.0, 0.0, 0.0)
+    y1 = idx(0.0, 1000.0, 0.0)
+    z1 = idx(0.0, 0.0, 300.0)
+    xy = idx(50.0, 1000.0, 0.0)
+    xz = idx(50.0, 0.0, 300.0)
+    yz = idx(0.0, 1000.0, 300.0)
+
+    hex_tets = [
+        (o, x1, xy, full),
+        (o, x1, xz, full),
+        (o, y1, xy, full),
+        (o, y1, yz, full),
+        (o, z1, xz, full),
+        (o, z1, yz, full),
+    ]
+
+    # il primo tetraedro viene spaccato in quattro, introducendo un nodo
+    # interno fortemente sbilanciato verso uno dei suoi vertici: come i punti
+    # di Steiner di TetGen, non appartiene mai a una faccia di bordo.
+    a, b, c, d = hex_tets[0]
+    steiner = 0.85 * corners[a] + 0.05 * corners[b] + 0.05 * corners[c] + 0.05 * corners[d]
+    nodes = np.vstack([corners, steiner])
+    steiner_index = len(corners)
+
+    tets = np.array(
+        [
+            (steiner_index, b, c, d),
+            (steiner_index, a, c, d),
+            (steiner_index, a, b, d),
+            (steiner_index, a, b, c),
+        ]
+        + hex_tets[1:]
+    )
+
+    boundary = abaqus._boundary_nodes(tets)
+    assert steiner_index not in boundary
+
+    _, _, metrics_boundary_only = abaqus.align_to_axes(nodes, reference=nodes[boundary])
+    _, _, metrics_all_nodes = abaqus.align_to_axes(nodes)
+
+    assert metrics_boundary_only["extent"] == pytest.approx([50.0, 1000.0, 300.0], rel=1e-6)
+    assert metrics_all_nodes["extent"] != pytest.approx([50.0, 1000.0, 300.0], rel=0.05)
+
+
+def test_the_triad_follows_the_surface_not_the_distribution_of_nodes():
+    """Il riferimento e' una proprieta della geometria, non del maglio.
+
+    I nodi interni sono addensati lungo la diagonale del solido, come fa un
+    raffinamento che infittisce dove i triangoli sono grandi: una PCA sui nodi
+    ne esce ruotata, una PCA sulla superficie no. Se qualcuno rimette la stima
+    sui nodi, questo test deve fallire.
+    """
+    superficie = np.array(
+        [[x, y, z] for x in (0.0, 50.0) for y in (0.0, 1000.0) for z in (0.0, 300.0)]
+    )
+    passo = np.linspace(0.0, 1.0, 2000)[:, None]
+    interni = passo * np.array([[50.0, 1000.0, 300.0]])
+
+    nodi = np.vstack([superficie, interni])
+
+    allineati, _, con_superficie = abaqus.align_to_axes(nodi, reference=superficie)
+    _, _, sui_nodi = abaqus.align_to_axes(nodi)
+
+    assert con_superficie["extent"] == pytest.approx([50.0, 1000.0, 300.0], rel=1e-6)
+    assert sui_nodi["extent"] != pytest.approx([50.0, 1000.0, 300.0], rel=0.05)
+
+    # Lo scostamento al primo ottante si calcola sui nodi trasformati, non sul
+    # riferimento: senza questo, BASE non corrisponderebbe alla base del solido.
+    assert allineati.min(axis=0) == pytest.approx([0.0, 0.0, 0.0], abs=1e-9)
+
+
+def test_export_model_estimates_the_triad_on_the_reference_it_is_given(tmp_path):
+    """Il riferimento arriva fino al deck: e' la strada che usa la pipeline."""
+    vertices, faces = synth.box_mesh(SIZE)
+    nodes, tets = volume.tetrahedralize(
+        vertices, faces, max_volume=100_000.0, min_ratio=1.8, max_steiner_points=-1
+    )
+
+    metrics = abaqus.export_model(
+        tmp_path / "m.inp",
+        tmp_path / "m.vtu",
+        nodes,
+        tets,
+        config.AnalysisConfig(),
+        config.TetConfig(),
+        reference=vertices,
+    )
+
+    assert metrics["extent"] == pytest.approx(sorted(SIZE), rel=1e-6)
+    assert metrics["node_sets"]["BASE"] > 0
