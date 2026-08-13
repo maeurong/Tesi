@@ -222,7 +222,7 @@ def run_candidate(
     out_dir = Path(out_dir)
     cfg = cfg.model_copy(deep=True)
     cfg.run.out_dir = out_dir
-    config_path = out_dir / "config.yaml"
+    config_path = out_dir / CONFIG_FILENAME
 
     try:
         out_dir.mkdir(parents=True, exist_ok=True)
