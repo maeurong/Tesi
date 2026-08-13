@@ -311,6 +311,20 @@ def thickness(points: np.ndarray, bin_width: float) -> dict[str, object]:
 
     along = projected[:, axis]
     edges = np.arange(along.min(), along.max() + bin_width, bin_width)
+    if len(edges) < 3:
+        # Meno di due bin: la nuvola e' piatta, collineare o piu piccola del
+        # passo di campionamento lungo l'asse di minore estensione. Non c'e'
+        # una valle da cercare fra due meta' che non esistono entrambe:
+        # np.argmax su una fetta vuota solleverebbe ValueError piu sotto.
+        # bimodal lo dichiara invece di sollevare, come sul resto della nuvola
+        # piena: e' un ingresso su cui la misura non si applica, non un
+        # errore del programma.
+        return {
+            "thickness": 0.0,
+            "axis": axis,
+            "extent": float(extents[axis]),
+            "bimodal": False,
+        }
     counts, _ = np.histogram(along, bins=edges)
     centres = (edges[:-1] + edges[1:]) / 2.0
     split = len(counts) // 2

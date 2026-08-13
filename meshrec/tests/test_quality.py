@@ -200,6 +200,21 @@ def test_thickness_declares_itself_invalid_on_a_solid_without_two_faces():
     assert measured["bimodal"] is False
 
 
+def test_thickness_declares_itself_invalid_on_a_degenerate_cloud_instead_of_raising():
+    """Tre punti piatti non danno due meta' popolate: np.argmax su una fetta
+    vuota solleverebbe ValueError senza la guardia sul numero di bin.
+
+    E' l'ingresso che ha fatto sollevare measure_thickness_error su una mesh
+    degenere: la guardia sta qui perche' thickness e' chiamata sia dal
+    cancello sulla nuvola sorgente sia dalla misura sulla superficie riparata.
+    """
+    points = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+
+    measured = quality.thickness(points, bin_width=1.0)
+
+    assert measured["bimodal"] is False
+
+
 def test_the_reference_fraction_does_not_depend_on_the_requested_min_ratio():
     """L'asse di qualita' del fronte usa un metro unico per tutti i candidati.
 

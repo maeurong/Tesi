@@ -437,12 +437,9 @@ def measure_thickness_error(row: dict[str, object], source_thickness: float) -> 
         # metrics.json manca o e' incompleto: il caso del candidato ucciso a
         # meta'. La riga resta, semplicemente senza asse di fedelta'.
         return None
-    try:
-        measured = quality.thickness(vertices, bin_width=spacing)
-    except np.linalg.LinAlgError:
-        # Vertici degeneri (mesh vuota o piatta su tutti gli assi): la
-        # decomposizione non converge, la misura non e' disponibile.
-        return None
+    # Su vertici degeneri (mesh piatta o collineare) quality.thickness non
+    # solleva: dichiara bimodal False, gestito subito sotto.
+    measured = quality.thickness(vertices, bin_width=spacing)
     row["thickness_reconstructed"] = measured["thickness"]
     row["thickness_bimodal"] = measured["bimodal"]
     if not measured["bimodal"]:

@@ -417,3 +417,24 @@ def test_measure_thickness_error_returns_none_without_raising_when_metrics_is_em
     row = {"out_dir": str(out_dir), "metrics": {}}
 
     assert sweep.measure_thickness_error(row, source_thickness=100.0) is None
+
+
+def test_measure_thickness_error_returns_none_without_raising_on_a_degenerate_mesh(tmp_path):
+    """06_repaired.ply esiste, metrics.json e' completo, ma la mesh riparata e'
+    piatta: quality.thickness dichiara bimodal False (radice corretta in
+    quality.py), non ValueError su np.argmax di una fetta vuota."""
+    import numpy as np
+    import open3d as o3d
+
+    out_dir = tmp_path / "candidato"
+    out_dir.mkdir()
+    mesh = o3d.geometry.TriangleMesh()
+    mesh.vertices = o3d.utility.Vector3dVector(
+        np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+    )
+    mesh.triangles = o3d.utility.Vector3iVector(np.array([[0, 1, 2]]))
+    o3d.io.write_triangle_mesh(str(out_dir / "06_repaired.ply"), mesh)
+
+    row = {"out_dir": str(out_dir), "metrics": {"01_load": {"spacing": 1.0}}}
+
+    assert sweep.measure_thickness_error(row, source_thickness=100.0) is None
