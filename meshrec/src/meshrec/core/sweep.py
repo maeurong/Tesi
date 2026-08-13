@@ -59,7 +59,8 @@ def expand(
 ) -> list[tuple[dict[str, object], PipelineConfig]]:
     """Candidati della griglia: la base, un asse alla volta, poi le coppie dichiarate.
 
-    Un fattoriale pieno su cinque assi a tre livelli sono 162 candidati, in
+    Un fattoriale pieno sui cinque assi della griglia reale (3x3x3x4x2 livelli)
+    sono 216 candidati, in
     gran parte combinazioni che nessuno leggera'. Il fronte di Pareto si
     costruisce su qualunque insieme di candidati e non richiede una griglia
     cartesiana per essere valido.
@@ -109,6 +110,14 @@ REQUIRED_STEPS: tuple[str, ...] = (
 
 _TRACKED_PACKAGES: tuple[str, ...] = ("open3d", "tetgen", "pymeshfix", "pymeshlab", "numpy")
 
+# Nomi dei due file che ogni candidato porta a prescindere dall'esito: la
+# configurazione con cui e' partito e le metriche con cui e' arrivato (anche
+# vuote, se e' morto a meta'). Non sono artefatti della pipeline e vanno
+# esclusi ovunque si elenchino o si potino gli artefatti di un candidato.
+CONFIG_FILENAME = "config.yaml"
+METRICS_FILENAME = "metrics.json"
+_CANDIDATE_FILES: tuple[str, str] = (CONFIG_FILENAME, METRICS_FILENAME)
+
 
 def is_complete(metrics: dict[str, object]) -> bool:
     """Vero se il metrics.json porta tutte le chiavi di step.
@@ -116,8 +125,13 @@ def is_complete(metrics: dict[str, object]) -> bool:
     pipeline.run scrive metrics.json in un blocco finally, quindi una corsa
     uccisa lascia un dizionario parziale che nessun controllo distingueva da
     uno completo. Un candidato incompleto non puo' entrare nel fronte.
+
+    metrics puo' essere un JSON scalare valido (per esempio 5) invece di un
+    dizionario, se il file e' stato troncato o scritto a meta': `step in
+    metrics` solleverebbe TypeError su un intero, quindi il controllo di tipo
+    precede il controllo delle chiavi.
     """
-    return all(step in metrics for step in REQUIRED_STEPS)
+    return isinstance(metrics, dict) and all(step in metrics for step in REQUIRED_STEPS)
 
 
 def file_digest(path: Path) -> str:
@@ -255,7 +269,7 @@ def run_candidate(
         stderr = f"nessuna uscita entro {timeout_s} s\n{expired.stderr or ''}"
     duration = time.monotonic() - started
 
-    metrics_path = out_dir / "metrics.json"
+    metrics_path = out_dir / METRICS_FILENAME
     metrics: dict[str, object] = {}
     if metrics_path.exists():
         try:
@@ -271,7 +285,7 @@ def run_candidate(
     artifacts: dict[str, str | None] = {}
     for item in sorted(out_dir.iterdir()):
         try:
-            if not item.is_file() or item.name in ("config.yaml", "metrics.json"):
+            if not item.is_file() or item.name in _CANDIDATE_FILES:
                 continue
             artifacts[item.name] = file_digest(item)
         except OSError:
@@ -329,11 +343,16 @@ def objectives(row: dict[str, object]) -> tuple[float, float, float] | None:
     volume = row.get("metrics", {}).get("10_volume_quality")
     if volume is None or row.get("thickness_error") is None:
         return None
-    return (
-        float(row["thickness_error"]),
-        float(volume["tets"]),
-        float(volume["radius_edge_over_reference"]),
-    )
+    # is_complete controlla solo che la chiave di step "10_volume_quality"
+    # esista, non le sue sottochiavi: un candidato ucciso a meta' scrittura
+    # puo' completare tutti gli step ma lasciare il dizionario dello step
+    # senza radius_edge_over_reference o tets. Accesso difensivo invece di
+    # KeyError, con lo stesso esito di una riga non confrontabile.
+    tets = volume.get("tets")
+    over = volume.get("radius_edge_over_reference")
+    if tets is None or over is None:
+        return None
+    return (float(row["thickness_error"]), float(tets), float(over))
 
 
 def _dominates(a: tuple[float, ...], b: tuple[float, ...]) -> bool:
@@ -429,8 +448,9 @@ def measure_thickness_error(row: dict[str, object], source_thickness: float | No
     scarto e' calcolabile contro un valore che non esiste.
     """
     from meshrec.core import quality
+    from meshrec.core.pipeline import ARTIFACTS
 
-    repaired = Path(row["out_dir"]) / "06_repaired.ply"
+    repaired = Path(row["out_dir"]) / ARTIFACTS[6]
     if not repaired.exists():
         return None
     import open3d as o3d
@@ -484,7 +504,7 @@ def prune(rows: list[dict[str, object]], front: list[dict[str, object]]) -> int:
             # non c'e' nulla da potare qui.
             continue
         for item in candidate_dir.iterdir():
-            if item.is_file() and item.name not in ("config.yaml", "metrics.json"):
+            if item.is_file() and item.name not in _CANDIDATE_FILES:
                 item.unlink()
                 removed += 1
         row["artifacts_kept"] = False
@@ -505,7 +525,7 @@ def run_experiment(
     root = Path(experiment.sweep.runs_root) / experiment.name
     registry = Path(experiment.sweep.registry_root) / experiment.name / "registro.jsonl"
 
-    if (root / "metrics.json").exists():
+    if (root / METRICS_FILENAME).exists():
         # metrics.json e' cio' che pipeline.run scrive nel blocco finally: se
         # e' li' dentro root, root e' la cartella di una corsa della pipeline
         # e non una cartella d'esperimento vuota. Un esperimento non scrive

@@ -224,13 +224,17 @@ def tetrahedralize_with_metrics(
     ratios = radius_edge_ratios(nodes, tets)
     finite = ratios[np.isfinite(ratios)]
     over_limit = fraction_over_ratio(nodes, tets, cfg.min_ratio)
-    p99 = float(np.quantile(finite, 0.99)) if len(finite) else float("inf")
+    # Lotto vuoto: nessun rapporto finito su cui misurare un percentile. None,
+    # non float("inf"), che in metrics.json diventerebbe Infinity e non e'
+    # JSON valido; quality.py usa gia' questa stessa convenzione altrove.
+    p99 = float(np.quantile(finite, 0.99)) if len(finite) else None
     if over_limit > 0.5:
+        p99_testo = f"{p99:.4g}" if p99 is not None else "non calcolabile (nessun rapporto finito)"
         warnings.warn(
             f"il {over_limit:.2%} degli elementi supera il min_ratio di "
             f"{cfg.min_ratio:.4g} richiesto: il vincolo di qualita non governa "
             "questo maglio. Il novantanovesimo percentile del rapporto "
-            f"raggio-spigolo vale {p99:.4g}.",
+            f"raggio-spigolo vale {p99_testo}.",
             UnmetQualityConstraintWarning,
             stacklevel=2,
         )

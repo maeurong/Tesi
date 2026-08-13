@@ -91,6 +91,10 @@ def test_a_partial_metrics_file_is_not_complete():
     assert sweep.is_complete(completo) is True
     assert sweep.is_complete({"01_load": {}, "08_simplify": {}}) is False
     assert sweep.is_complete({}) is False
+    # metrics.json puo' essere uno scalare JSON valido (un intero) se il file
+    # e' stato troncato o scritto a meta': "step in metrics" solleverebbe
+    # TypeError su un intero senza il controllo di tipo.
+    assert sweep.is_complete(5) is False
 
 
 def test_the_registry_is_append_only_and_reads_back(tmp_path):
@@ -274,6 +278,22 @@ def test_an_incomplete_candidate_never_enters_the_front():
     normale = _row("b", thickness_error=9.0, tets=900_000, over=0.10)
 
     assert [row["fingerprint"] for row in sweep.pareto_front([parziale, normale])] == ["b"]
+
+
+def test_objectives_returns_none_without_raising_when_a_volume_subkey_is_missing():
+    """is_complete controlla solo la chiave di step "10_volume_quality", non le
+    sue sottochiavi: un candidato ucciso a meta' scrittura puo' completare
+    tutti gli step ma lasciare il dizionario dello step senza
+    radius_edge_over_reference o tets. Prima della correzione objectives()
+    sollevava KeyError qui, prima ancora che il registro venisse scritto."""
+    riga = {
+        "outcome": "riuscito",
+        "complete": True,
+        "thickness_error": 5.0,
+        "metrics": {"10_volume_quality": {"tets": 1000}},
+    }
+
+    assert sweep.objectives(riga) is None
 
 
 def test_a_front_as_large_as_the_grid_is_reported():

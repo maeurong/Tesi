@@ -295,8 +295,8 @@ class ExperimentConfig(BaseModel):
         description=(
             "coppie di assi da incrociare in fattoriale, oltre allo sweep a un "
             "asse alla volta. Si dichiarano solo le coppie che la misura mostra "
-            "interagenti: un fattoriale pieno su cinque assi a tre livelli sono "
-            "162 candidati"
+            "interagenti: un fattoriale pieno sui cinque assi della griglia "
+            "reale (3x3x3x4x2 livelli) sono 216 candidati"
         ),
     )
     known_thickness: float | None = Field(
