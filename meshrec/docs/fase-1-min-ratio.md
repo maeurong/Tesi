@@ -541,9 +541,27 @@ tetraedri, quindi l'angolo diedro minimo assoluto scende a 4,8 · 10⁻⁴ gradi
 muro sintetico ha 2,5 · 10⁻³ gradi — ma qui è peggiore, e va tenuta d'occhio
 perché sono gli elementi che rovinano il condizionamento del sistema.
 
-**Che cosa resta da decidere.** `nobisect` non è ancora un parametro di
-`config.py` e non è stato adottato: questa sezione lo misura, non lo introduce.
-La scelta fra esporlo come opzione, renderlo il comportamento predefinito, o
-lasciarlo fuori e affrontare invece le strozzature a monte — cioè in
-ricostruzione, dove nascono — è una decisione di progetto per la Fase 2, non
-una conseguenza automatica di questa misura.
+**Che cosa ne è stato fatto.** `nobisect` è ora esposto come `tet.nobisect` in
+`config.py`, con predefinito **falso**: nessuno dei risultati documentati in
+questo documento o negli esiti cambia, e chi vuole la leva la chiede. Con
+`tet.nobisect: true` e il `min_ratio` predefinito 1,8, la pipeline su
+`lab_frame.pcd` **arriva al deck**: 365.212 nodi, 1.607.146 tetraedri, 31,7 s,
+zero elementi invertiti, mediana dell'angolo diedro minimo 38,83°, volume del
+solido pari a quello della superficie fino all'ultima cifra.
+
+Esporlo ha però fatto emergere una trappola vicina a quella di `fixedvolume`.
+Con `nobisect` attivo TetGen non ha punti di bordo da cui partire, e su una
+superficie di ingresso grossolana restituisce pochi elementi enormi senza
+segnalare nulla: sul cubo di prova, con un `max_volume` di 2000 mm³, produce
+**12 tetraedri invece di 7103**, lasciando il limite impostato e disatteso. Il
+caso è ora dichiarato da `IneffectiveVolumeLimitWarning`, e il volume del
+tetraedro maggiore entra fra le metriche dello step 9. La soglia dell'avviso è
+un fattore due e non l'uguaglianza, perché per TetGen `maxvolume` è un
+obiettivo e non un tetto rigido: sul cubo il massimo lo supera di routine di
+circa il 10% anche quando il raffinamento fa tutto il suo lavoro, e un avviso
+che scatta a ogni corsa regolare non viene più letto quando conta.
+
+Resta aperta la scelta di fondo, che questa misura non risolve: se `nobisect`
+sia la risposta giusta o solo quella che funziona. Le strozzature sotto il
+millimetro nascono nella ricostruzione, e affrontarle lì — invece di chiedere a
+TetGen di conviverci — è l'alternativa da valutare in Fase 2.

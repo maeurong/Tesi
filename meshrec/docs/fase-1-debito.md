@@ -62,10 +62,27 @@ di ingresso, la stessa superficie allo stesso `min_ratio` 1,8 **converge** — 3
 fallisce in 72 s. I dettagli e il costo della leva sono in
 [`fase-1-min-ratio.md`](fase-1-min-ratio.md).
 
-Resta una decisione di progetto, non una lacuna: se esporre `nobisect` in `config.py`, se renderlo
-il predefinito — sul muro sintetico produce 2,7 volte meno elementi in un terzo del tempo, con
-qualità mediana pari o migliore — o se affrontare invece le strozzature dove nascono, nella
-ricostruzione. Va deciso in Fase 2 con i dati di questa misura in mano.
+`nobisect` è stato quindi esposto come `tet.nobisect`, con predefinito **falso** perché nessun
+risultato documentato cambi. Con `tet.nobisect: true` e il `min_ratio` predefinito, **la pipeline
+su `lab_frame.pcd` arriva al deck**: il criterio di accettazione della Fase 1 è raggiungibile, non
+più solo mancato. Resta però un modello che non si può ancora usare, e per una ragione diversa da
+quelle di questa voce: `BASE` raccoglie 850 nodi su 365.212, cioè il difetto della tolleranza dei
+set descritto più sotto. Il criterio va quindi considerato soddisfatto nella lettera —
+l'elaborazione arriva in fondo e scrive un deck valido — e non nella sostanza.
+
+Non è la fine della questione. Le strozzature sotto il millimetro nascono nella ricostruzione, e
+`nobisect` chiede a TetGen di conviverci invece di rimuoverle: è la leva che funziona, non
+necessariamente quella giusta. Affrontarle a monte resta l'alternativa da valutare in Fase 2.
+
+**Esporre `nobisect` ha rivelato una trappola gemella di quella di `fixedvolume`.** Con
+`nobisect` attivo TetGen non aggiunge punti sul bordo, e su una superficie di ingresso grossolana
+restituisce pochi elementi enormi senza segnalare nulla: sul cubo di prova, con `max_volume` di
+2000 mm³, dà **12 tetraedri invece di 7103**, lasciando il limite impostato e disatteso. È ora
+dichiarata da `IneffectiveVolumeLimitWarning`, con soglia a un fattore due perché `maxvolume` per
+TetGen è un obiettivo e non un tetto: lo scarto di routine è di circa il 10% anche a raffinamento
+riuscito. Il conto dei parametri della libreria che risultano impostati e inerti sale così a tre —
+`maxvolume` senza `fixedvolume`, `steinerleft` al predefinito, `max_volume` sotto `nobisect` — e
+tutti e tre sono stati trovati per caso, nessuno da un controllo che li cercasse.
 
 **La semplificazione può rompere le garanzie della riparazione, e nulla se ne accorge.** Lo step 6
 produce una superficie chiusa e senza autointersezioni, lo step 7 lo verifica, e lo step 8 la
