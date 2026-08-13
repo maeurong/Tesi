@@ -232,3 +232,72 @@ def test_a_candidate_whose_folder_cannot_be_created_becomes_a_row_and_not_an_exc
     assert row["outcome"] == "errore"
     assert row["stderr"]
     assert row["fingerprint"] == sweep.fingerprint(cfg)
+
+
+def _row(fingerprint_: str, thickness_error: float, tets: int, over: float, **extra):
+    row = {
+        "fingerprint": fingerprint_,
+        "outcome": "riuscito",
+        "complete": True,
+        "thickness_error": thickness_error,
+        "metrics": {
+            "10_volume_quality": {"tets": tets, "radius_edge_over_reference": over},
+        },
+    }
+    row.update(extra)
+    return row
+
+
+def test_a_dominated_candidate_leaves_the_front():
+    peggiore = _row("a", thickness_error=20.0, tets=2_000_000, over=0.20)
+    migliore = _row("b", thickness_error=5.0, tets=1_000_000, over=0.08)
+
+    front = sweep.pareto_front([peggiore, migliore])
+
+    assert [row["fingerprint"] for row in front] == ["b"]
+
+
+def test_a_candidate_better_on_one_axis_survives():
+    """Il fronte non sceglie: scarta solo chi e' battuto su tutto."""
+    leggero = _row("a", thickness_error=20.0, tets=500_000, over=0.20)
+    fedele = _row("b", thickness_error=2.0, tets=2_000_000, over=0.09)
+
+    front = sweep.pareto_front([leggero, fedele])
+
+    assert {row["fingerprint"] for row in front} == {"a", "b"}
+
+
+def test_an_incomplete_candidate_never_enters_the_front():
+    parziale = _row("a", thickness_error=1.0, tets=1, over=0.0)
+    parziale["complete"] = False
+    normale = _row("b", thickness_error=9.0, tets=900_000, over=0.10)
+
+    assert [row["fingerprint"] for row in sweep.pareto_front([parziale, normale])] == ["b"]
+
+
+def test_a_front_as_large_as_the_grid_is_reported():
+    """Se nessun candidato e' dominato gli assi non discriminano, e senza
+    questa sorveglianza il caso si presenterebbe come un fronte ricco."""
+    rows = [
+        _row("a", thickness_error=1.0, tets=3, over=0.3),
+        _row("b", thickness_error=2.0, tets=2, over=0.2),
+        _row("c", thickness_error=3.0, tets=1, over=0.1),
+    ]
+
+    with pytest.warns(sweep.SweepDiagnosticWarning, match="non discrimina"):
+        report = sweep.check_sweep(rows, sweep.pareto_front(rows))
+
+    assert report["front_is_whole_grid"] is True
+
+
+def test_more_than_half_failing_is_reported():
+    rows = [
+        _row("a", thickness_error=1.0, tets=1, over=0.1),
+        {"fingerprint": "b", "outcome": "fallito", "complete": False},
+        {"fingerprint": "c", "outcome": "timeout", "complete": False},
+    ]
+
+    with pytest.warns(sweep.SweepDiagnosticWarning, match="griglia"):
+        report = sweep.check_sweep(rows, sweep.pareto_front(rows))
+
+    assert report["failed_fraction"] == pytest.approx(2 / 3)

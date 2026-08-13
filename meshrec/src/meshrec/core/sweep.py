@@ -228,7 +228,9 @@ def run_candidate(
             "artifacts": {},
             "artifacts_kept": False,
             "out_dir": str(out_dir),
-            "rerun": f"uv run meshrec run {config_path}",
+            # config.yaml non e' mai stato scritto su disco in questo ramo:
+            # un rerun che lo cita fallirebbe fra mesi. None, non un comando morto.
+            "rerun": None,
             "metrics": {},
             "provenance": provenance(),
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
@@ -304,4 +306,91 @@ def run_candidate(
         "metrics": metrics,
         "provenance": provenance(),
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+
+
+class SweepDiagnosticWarning(UserWarning):
+    """Lo sweep e' arrivato in fondo ma il suo esito non e' utilizzabile cosi' com'e'."""
+
+
+def objectives(row: dict[str, object]) -> tuple[float, float, float] | None:
+    """I tre assi del fronte, tutti da minimizzare, o None se la riga non ne ha.
+
+    Errore di spessore, numero di tetraedri, frazione di elementi oltre il
+    metro fisso. La fedelta' e' lo spessore e non l'errore bidirezionale
+    perche' quello resta piccolo mentre Poisson ingrassa il muro reale da
+    176 a 214 mm: e' cieco proprio sull'errore che governa la rigidezza.
+    """
+    if row.get("outcome") != "riuscito" or not row.get("complete"):
+        return None
+    volume = row.get("metrics", {}).get("10_volume_quality")
+    if volume is None or row.get("thickness_error") is None:
+        return None
+    return (
+        float(row["thickness_error"]),
+        float(volume["tets"]),
+        float(volume["radius_edge_over_reference"]),
+    )
+
+
+def _dominates(a: tuple[float, ...], b: tuple[float, ...]) -> bool:
+    return all(x <= y for x, y in zip(a, b)) and any(x < y for x, y in zip(a, b))
+
+
+def pareto_front(rows: list[dict[str, object]]) -> list[dict[str, object]]:
+    """Righe non dominate. Nessun punteggio pesato, nessun peso arbitrario.
+
+    Un candidato cade se un altro lo eguaglia o lo batte su tutti e tre gli
+    assi e lo batte su almeno uno. I candidati falliti o incompleti non
+    entrano: restano righe, ma non sono confrontabili.
+    """
+    # ponytail: confronto O(n^2), adeguato a decine di candidati; se la
+    # griglia crescera' di un ordine, ordinare per il primo asse e potare.
+    scored = [(row, objectives(row)) for row in rows]
+    valid = [(row, score) for row, score in scored if score is not None]
+    return [
+        row
+        for row, score in valid
+        if not any(_dominates(other, score) for _, other in valid if other != score)
+    ]
+
+
+def check_sweep(
+    rows: list[dict[str, object]], front: list[dict[str, object]]
+) -> dict[str, object]:
+    """Le due sorveglianze sull'esito complessivo dello sweep.
+
+    Nessuna delle due e' tarata: sono affermazioni qualitative, come la
+    soglia a meta di min_ratio e quella della copertura d'appoggio. Quando
+    piu di meta della griglia non arriva in fondo e' la griglia a stare nel
+    posto sbagliato; quando nessun candidato e' dominato gli assi non stanno
+    discriminando e il fronte non sta scartando nulla.
+    """
+    failed = [row for row in rows if row.get("outcome") != "riuscito"]
+    comparable = [row for row in rows if objectives(row) is not None]
+    failed_fraction = len(failed) / len(rows) if rows else 0.0
+    front_is_whole_grid = bool(comparable) and len(front) == len(comparable)
+
+    if failed_fraction > 0.5:
+        warnings.warn(
+            f"il {failed_fraction:.0%} dei candidati non arriva in fondo: "
+            "e' la griglia a stare nel posto sbagliato, non i candidati",
+            SweepDiagnosticWarning,
+            stacklevel=2,
+        )
+    if front_is_whole_grid:
+        warnings.warn(
+            f"il fronte contiene tutti e {len(front)} i candidati confrontabili: "
+            "non discrimina, e non sta scartando nulla",
+            SweepDiagnosticWarning,
+            stacklevel=2,
+        )
+
+    return {
+        "candidates": len(rows),
+        "failed": len(failed),
+        "failed_fraction": failed_fraction,
+        "comparable": len(comparable),
+        "front": len(front),
+        "front_is_whole_grid": front_is_whole_grid,
     }
