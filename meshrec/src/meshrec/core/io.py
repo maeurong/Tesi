@@ -34,8 +34,7 @@ def write_cloud(path: Path, points: np.ndarray, normals: np.ndarray | None = Non
     cloud = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(np.asarray(points, dtype=np.float64)))
     if normals is not None:
         cloud.normals = o3d.utility.Vector3dVector(np.asarray(normals, dtype=np.float64))
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
-    o3d.io.write_point_cloud(str(path), cloud)
+    scrivi_atomico(Path(path), lambda destinazione: o3d.io.write_point_cloud(str(destinazione), cloud))
 
 
 def mean_spacing(points: np.ndarray, sample: int, seed: int) -> float:
@@ -97,3 +96,47 @@ def load_cloud(cfg: InputConfig) -> tuple[np.ndarray, dict[str, object]]:
         "size_check": size_check,
     }
     return points, metrics
+
+
+def scrivi_atomico(path: Path, scrittore) -> None:
+    """Scrive su un nome temporaneo e rinomina: l'esito e' completo o assente.
+
+    Serve perche' un'interruzione puo' cadere in mezzo alla scrittura di un
+    artefatto grande: 09_volume.vtu di lab_crop pesa 34.665.787 byte e
+    wall_model.inp 87.229.481, quindi la finestra e' reale e non teorica.
+    Path.replace e' atomico sullo stesso volume anche su Windows.
+
+    Il nome temporaneo porta ".tmp" prima dell'estensione, non dopo
+    (box.tmp.ply, non box.ply.tmp): write_triangle_mesh di open3d non ha un
+    parametro di formato esplicito e lo deduce dall'ultima estensione del
+    nome file, quindi "box.ply.tmp" verrebbe scritto come formato "tmp"
+    sconosciuto, fallirebbe in silenzio (restituisce False, non solleva) e
+    la successiva replace() troverebbe un file mai creato.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporaneo = path.with_name(path.stem + ".tmp" + path.suffix)
+    try:
+        scrittore(temporaneo)
+        temporaneo.replace(path)
+    finally:
+        # Un fallimento a meta' scrittura non deve lasciare un .tmp che il
+        # prossimo elenco degli artefatti scambierebbe per un artefatto.
+        if temporaneo.exists():
+            temporaneo.unlink()
+
+
+def scarta_temporanei(directory: Path) -> int:
+    """Rimuove i temporanei rimasti da un processo ucciso. Restituisce quanti.
+
+    Il nome porta ".tmp" prima dell'estensione (vedi scrivi_atomico), quindi
+    il pattern e' "*.tmp.*" e non "*.tmp".
+    """
+    directory = Path(directory)
+    if not directory.is_dir():
+        return 0
+    rimossi = 0
+    for elemento in directory.glob("*.tmp.*"):
+        elemento.unlink()
+        rimossi += 1
+    return rimossi

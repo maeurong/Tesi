@@ -92,31 +92,20 @@ def expand(
     return candidates
 
 
-# Le undici chiavi che una corsa completa scrive in metrics.json. Lo step 7
-# non ha artefatto proprio ma ha metriche, quindi c'e' anche lui.
-REQUIRED_STEPS: tuple[str, ...] = (
-    "01_load",
-    "02_segment",
-    "03_downsample",
-    "04_normals",
-    "05_reconstruct",
-    "06_repair",
-    "07_surface_quality",
-    "08_simplify",
-    "09_tetrahedralize",
-    "10_volume_quality",
-    "11_export",
-)
+# Registro unico delle undici chiavi che una corsa completa scrive in
+# metrics.json (Task 1): importato invece di riscritto, per non avere due
+# elenchi da tenere allineati a mano.
+from meshrec.core.pipeline import METRICS_FILENAME, METRICS_PARTIAL
+from meshrec.core.steps import STEP_KEYS as REQUIRED_STEPS
 
 _TRACKED_PACKAGES: tuple[str, ...] = ("open3d", "tetgen", "pymeshfix", "pymeshlab", "numpy")
 
-# Nomi dei due file che ogni candidato porta a prescindere dall'esito: la
-# configurazione con cui e' partito e le metriche con cui e' arrivato (anche
-# vuote, se e' morto a meta'). Non sono artefatti della pipeline e vanno
+# Nomi dei file che ogni candidato porta a prescindere dall'esito: la
+# configurazione con cui e' partito e le metriche con cui e' arrivato, complete
+# o parziali se e' morto a meta'. Non sono artefatti della pipeline e vanno
 # esclusi ovunque si elenchino o si potino gli artefatti di un candidato.
 CONFIG_FILENAME = "config.yaml"
-METRICS_FILENAME = "metrics.json"
-_CANDIDATE_FILES: tuple[str, str] = (CONFIG_FILENAME, METRICS_FILENAME)
+_CANDIDATE_FILES: tuple[str, str, str] = (CONFIG_FILENAME, METRICS_FILENAME, METRICS_PARTIAL)
 
 
 def is_complete(metrics: dict[str, object]) -> bool:
@@ -132,6 +121,27 @@ def is_complete(metrics: dict[str, object]) -> bool:
     precede il controllo delle chiavi.
     """
     return isinstance(metrics, dict) and all(step in metrics for step in REQUIRED_STEPS)
+
+
+def leggi_metriche(out_dir: Path) -> dict[str, object]:
+    """metrics.json se c'e', altrimenti il parziale che la corsa ha lasciato.
+
+    Dalla Fase 3 la pipeline scrive metrics.json solo quando arriva in fondo:
+    un candidato fallito lascia soltanto il parziale, e la riga del registro
+    deve continuare a portarne le metriche come faceva prima.
+    """
+    for nome in (METRICS_FILENAME, METRICS_PARTIAL):
+        percorso = Path(out_dir) / nome
+        if not percorso.exists():
+            continue
+        try:
+            with percorso.open(encoding="utf-8") as maniglia:
+                return json.load(maniglia)
+        except (OSError, json.JSONDecodeError):
+            # Un processo ucciso puo' lasciare il file troncato: si prova il
+            # successivo invece di sollevare, e is_complete({}) resta falso.
+            continue
+    return {}
 
 
 def file_digest(path: Path) -> str:
@@ -269,18 +279,7 @@ def run_candidate(
         stderr = f"nessuna uscita entro {timeout_s} s\n{expired.stderr or ''}"
     duration = time.monotonic() - started
 
-    metrics_path = out_dir / METRICS_FILENAME
-    metrics: dict[str, object] = {}
-    if metrics_path.exists():
-        try:
-            with metrics_path.open(encoding="utf-8") as handle:
-                metrics = json.load(handle)
-        except (OSError, json.JSONDecodeError):
-            # Il blocco finally di pipeline.run scrive questo file: un
-            # processo ucciso (timeout, memoria esaurita) puo' lasciarlo
-            # troncato a meta' scrittura. is_complete({}) e' gia' falso,
-            # quindi la riga dice la verita' da sola senza sollevare qui.
-            metrics = {}
+    metrics = leggi_metriche(out_dir)
 
     artifacts: dict[str, str | None] = {}
     for item in sorted(out_dir.iterdir()):

@@ -14,6 +14,9 @@ import numpy as np
 from meshrec.core import abaqus, io, quality, repair, segment, surface, volume
 from meshrec.core.config import PipelineConfig, save_config
 
+METRICS_FILENAME = "metrics.json"
+METRICS_PARTIAL = "metrics.partial.json"
+
 ARTIFACTS: dict[int, str] = {
     1: "01_cloud.ply",
     2: "02_segmented.ply",
@@ -52,7 +55,7 @@ def _write_mesh(path: Path, vertices: np.ndarray, faces: np.ndarray) -> None:
         o3d.utility.Vector3dVector(np.asarray(vertices, dtype=np.float64)),
         o3d.utility.Vector3iVector(np.asarray(faces, dtype=np.int32)),
     )
-    o3d.io.write_triangle_mesh(str(path), mesh)
+    io.scrivi_atomico(path, lambda destinazione: o3d.io.write_triangle_mesh(str(destinazione), mesh))
 
 
 def _read_mesh(path: Path) -> tuple[np.ndarray, np.ndarray]:
@@ -89,6 +92,7 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
     out = Path(cfg.run.out_dir)
     out.mkdir(parents=True, exist_ok=True)
     save_config(cfg, out / "config.yaml")
+    io.scarta_temporanei(out)
     metrics: dict[str, object] = {}
     start = cfg.run.from_step
 
@@ -178,7 +182,14 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
             reference=vertices,
         )
     finally:
-        with (out / "metrics.json").open("w", encoding="utf-8") as handle:
+        # Il parziale, non metrics.json: una corsa interrotta lascia intatto
+        # l'ultimo risultato completo invece di sostituirlo con il proprio
+        # frammento. Era il difetto per cui la Fase 2 ha dovuto costruire
+        # is_complete per distinguerli.
+        with (out / METRICS_PARTIAL).open("w", encoding="utf-8") as handle:
             json.dump(metrics, handle, indent=2, default=float, ensure_ascii=False)
 
+    # Solo qui, cioe' solo se nessuna eccezione e' uscita dal try: la corsa e'
+    # arrivata in fondo e il parziale diventa il risultato.
+    (out / METRICS_PARTIAL).replace(out / METRICS_FILENAME)
     return metrics

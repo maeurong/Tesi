@@ -1,14 +1,35 @@
 """Il motore di sweep: impronta, griglia, registro, dominanza."""
 
+import json
 from pathlib import Path
 
 import pytest
 
-from meshrec.core import config, sweep
+from meshrec.core import config, pipeline, sweep
 
 
 def _base() -> config.PipelineConfig:
     return config.PipelineConfig(input=config.InputConfig(path="nuvola.ply", scale=1000.0))
+
+
+def test_un_candidato_fallito_porta_ancora_le_sue_metriche_parziali(tmp_path):
+    """La Fase 2 legge metrics.json anche dai candidati falliti: con la
+    correzione quel file non esiste piu', e la riga deve leggere il parziale.
+    """
+    from meshrec.core import pipeline, sweep
+
+    cartella = tmp_path / "candidato"
+    cartella.mkdir()
+    (cartella / pipeline.METRICS_PARTIAL).write_text(
+        json.dumps({"01_load": {"spacing": 1.19}}), encoding="utf-8"
+    )
+    lette = sweep.leggi_metriche(cartella)
+    assert lette["01_load"]["spacing"] == pytest.approx(1.19)
+    assert sweep.is_complete(lette) is False
+
+
+def test_il_parziale_non_viene_contato_fra_gli_artefatti():
+    assert pipeline.METRICS_PARTIAL in sweep._CANDIDATE_FILES
 
 
 def test_the_fingerprint_ignores_where_the_run_is_written():

@@ -13,6 +13,46 @@ SPACING = 4.0
 EXACT_VOLUME = 120.0 * 60.0 * 240.0
 
 
+def _config_cubo(tmp_path):
+    """Configurazione del cubo di prova, la stessa della fixture run_dir."""
+    pytest.importorskip("pymeshfix")
+    cloud_path = tmp_path / "box.ply"
+    io.write_cloud(cloud_path, synth.sample_box_surface(SIZE, SPACING))
+    return config.PipelineConfig(
+        input=config.InputConfig(path=cloud_path, spacing_sample=5000),
+        downsample=config.DownsampleConfig(voxel_size=SPACING),
+        surface=config.SurfaceConfig(poisson_depth=8, density_quantile=0.02),
+        tet=config.TetConfig(min_ratio=1.2),
+        run=config.RunConfig(out_dir=tmp_path / "out"),
+    )
+
+
+def test_una_corsa_interrotta_non_sostituisce_le_metriche_complete(tmp_path, monkeypatch):
+    """Il difetto storico: il finally scriveva metrics.json col dizionario com'era,
+    e una corsa morta a meta' cancellava quella completa di prima.
+    """
+    from meshrec.core import pipeline, surface
+
+    corsa = tmp_path / "corsa"
+    corsa.mkdir()
+    complete = {chiave: {"ok": True} for chiave in ("01_load", "11_export")}
+    (corsa / pipeline.METRICS_FILENAME).write_text(json.dumps(complete), encoding="utf-8")
+
+    cfg = _config_cubo(tmp_path)
+    cfg.run.out_dir = corsa
+
+    def esplode(*_argomenti, **_chiavi):
+        raise RuntimeError("interruzione simulata dello step 3")
+
+    monkeypatch.setattr(surface, "downsample", esplode)
+    with pytest.raises(RuntimeError):
+        pipeline.run(cfg)
+
+    rilette = json.loads((corsa / pipeline.METRICS_FILENAME).read_text(encoding="utf-8"))
+    assert rilette == complete, "metrics.json completo sostituito da uno parziale"
+    assert (corsa / pipeline.METRICS_PARTIAL).exists(), "il parziale deve restare, per diagnosi"
+
+
 def test_from_step_beyond_tetrahedralize_is_rejected():
     """Gli step 10 e 11 non hanno lavoro costoso da saltare: from_step si ferma a 9."""
     with pytest.raises(ValidationError):
