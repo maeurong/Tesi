@@ -556,11 +556,10 @@ perché sono gli elementi che rovinano il condizionamento del sistema.
 
 **Che cosa ne è stato fatto.** `nobisect` è ora esposto come `tet.nobisect` in
 `config.py`, con predefinito **falso**: nessuno dei risultati documentati in
-questo documento o negli esiti cambia, e chi vuole la leva la chiede. Con
-`tet.nobisect: true` e il `min_ratio` predefinito 1,8, la pipeline su
-`lab_frame.pcd` **arriva al deck**: 365.212 nodi, 1.607.146 tetraedri, 31,7 s,
-zero elementi invertiti, mediana dell'angolo diedro minimo 38,83°, volume del
-solido pari a quello della superficie fino all'ultima cifra.
+questo documento o negli esiti cambia, e chi vuole la leva la chiede.
+`meshrec/lab.yaml` la chiede, ed è la configurazione con cui la pipeline su
+`lab_frame.pcd` **arriva al deck**: i numeri della corsa completa sono nella
+sezione finale di questo documento.
 
 Esporlo ha però fatto emergere una trappola vicina a quella di `fixedvolume`.
 Con `nobisect` attivo TetGen non ha punti di bordo da cui partire, e su una
@@ -578,3 +577,53 @@ Resta aperta la scelta di fondo, che questa misura non risolve: se `nobisect`
 sia la risposta giusta o solo quella che funziona. Le strozzature sotto il
 millimetro nascono nella ricostruzione, e affrontarle lì — invece di chiedere a
 TetGen di conviverci — è l'alternativa da valutare in Fase 2.
+
+## L'esito finale: la pipeline completa, dal primo step al deck
+
+Tutte le prove di questo documento sono riprese dallo step 9 su superfici già
+pronte. La verifica che chiude la questione è invece una corsa intera, dal file
+`.pcd` al deck, con `meshrec/lab.yaml` che ora porta `tet.nobisect: true`:
+
+| grandezza | valore |
+|---|---|
+| nodi / tetraedri | 365 212 / 1 607 146 |
+| tempo dello step 9 | 34,4 s, 152 058 punti di Steiner, budget non esaurito |
+| elementi invertiti | **0** |
+| angolo diedro minimo, mediana | 38,83° |
+| volume del solido | 173 282 926,9485 mm³, pari a quello della superficie |
+| `BASE` | 5915 nodi, copertura della superficie d'appoggio **98,93%** |
+| massa | 0,312 t |
+
+I numeri dello step 9 coincidono con quelli delle prove qui sopra, il che era
+atteso ma non ovvio: la corsa completa ricostruisce la superficie da capo invece
+di rileggerla.
+
+**Il raddrizzamento manuale è diventato un passo della pipeline.** Le prove della
+sezione «La prova: superficie raddrizzata» capovolgevano l'avvolgimento con uno
+script. Quel passo è ora nello step 6, che garantisce l'orientazione oltre alla
+chiusura, e la verifica è diretta: la superficie che quello script produceva è
+**identica al byte** (stesso md5) a quella che la pipeline scrive oggi da sola.
+Il difetto era in `metrics.json` da sempre, sotto forma di `volume_after`
+negativo, e nessuno lo confrontava con lo zero.
+
+### Il parametro di questo documento è ora verificato sul risultato
+
+C'è un'ultima cosa da scrivere, ed è quella che chiude il cerchio. Questo
+documento misura da cima a fondo un parametro, `min_ratio`, che **nessuna
+metrica verificava sul maglio prodotto**: si chiedeva a TetGen un tetto al
+rapporto raggio-spigolo e non si guardava mai se lo avesse rispettato.
+
+Ora si guarda, e la risposta è che **`minratio` è un obiettivo e non un tetto**,
+esattamente come `maxvolume`. Con `min_ratio` 1,8 il vincolo resta violato dal
+**9,55%** degli elementi su questa scansione e dall'**8,10%** sul muro
+sintetico: sono gli sliver di bordo che il raffinamento non può correggere
+legalmente. Una corsa sana a scala reale lascia fuori vincolo circa un elemento
+su dieci, e chi legge lo sweep di questo documento deve saperlo — i valori della
+tabella dei risultati non sono soglie rispettate, sono soglie richieste.
+
+La prova che quella verifica serviva è nello stesso documento, poche sezioni più
+su. La mesh troncata dal tetto ereditato di 100 000 punti di Steiner, quella che
+la Fase 1 aveva scambiato per un successo, ha il **86,36%** degli elementi fuori
+vincolo. Nessuna metrica dell'epoca la smentiva: zero elementi invertiti, deck
+scritto, tutto in ordine. L'avviso su `min_ratio` scatta oltre la metà, quindi
+**l'avrebbe segnalata**.
