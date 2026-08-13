@@ -47,8 +47,25 @@ n'erano, e lo step 9 fallisce allora prima ancora del raffinamento, nel recupero
 (`recoversubfaces`), a qualunque `min_ratio`. Riparando con MeshFix dopo la semplificazione le
 autointersezioni spariscono e il recupero del bordo torna a passare, ma il raffinamento fallisce
 comunque da 1,8 fino a 12,0 — cioè anche al valore che sulla superficie non semplificata
-convergeva. Resta quindi una terza causa, sotto l'orientazione e sotto le autointersezioni, che si
-manifesta sempre come `split_subface`.
+convergeva.
+
+La terza causa è stata poi trovata, e chiude la questione. Un fallimento che non cambia quando il
+vincolo di qualità diventa inerte non è causato dal vincolo di qualità: nel raffinamento di
+Delaunay una faccia di bordo viene suddivisa anche per **invasione** della sua sfera diametrale, e
+quella suddivisione ricorre fino alla distanza locale fra lembi opposti della superficie. Su
+`lab_frame.pcd` quella distanza crolla: lo 0,15% della superficie ha dietro di sé meno di un
+millimetro di materiale e lo 0,41% meno di cinque, contro una mediana di 181,5 mm, mentre il muro
+sintetico non scende mai sotto i 1190 mm. Sono strozzature interne, non l'assottigliamento del
+bordo. La verifica è a variabile unica: con `nobisect`, che vieta a TetGen di suddividere le facce
+di ingresso, la stessa superficie allo stesso `min_ratio` 1,8 **converge** — 365.212 nodi,
+1.607.146 tetraedri, 32,6 s, zero invertiti, mediana dell'angolo diedro minimo 38,83°. Senza,
+fallisce in 72 s. I dettagli e il costo della leva sono in
+[`fase-1-min-ratio.md`](fase-1-min-ratio.md).
+
+Resta una decisione di progetto, non una lacuna: se esporre `nobisect` in `config.py`, se renderlo
+il predefinito — sul muro sintetico produce 2,7 volte meno elementi in un terzo del tempo, con
+qualità mediana pari o migliore — o se affrontare invece le strozzature dove nascono, nella
+ricostruzione. Va deciso in Fase 2 con i dati di questa misura in mano.
 
 **La semplificazione può rompere le garanzie della riparazione, e nulla se ne accorge.** Lo step 6
 produce una superficie chiusa e senza autointersezioni, lo step 7 lo verifica, e lo step 8 la

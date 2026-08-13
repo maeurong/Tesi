@@ -456,3 +456,94 @@ step 6, lo step 7 lo verifica, e poi lo step 8 la modifica senza che nulla
 verifichi più nulla. Una semplificazione che rompe le garanzie della
 riparazione è precisamente ciò che è appena successo, e la pipeline non ha
 modo di accorgersene.
+
+### La terza causa: l'invasione, non la qualità
+
+Le due prove precedenti hanno rimosso due ostacoli reali e lasciato in piedi un
+fallimento sempre identico, `split_subface`, insensibile a `min_ratio` fino a
+12,0. Questa sezione lo spiega, e la spiegazione parte da un'osservazione che
+avrebbe dovuto insospettire prima: **un fallimento che non cambia quando il
+vincolo di qualità diventa inerte non può essere causato dal vincolo di
+qualità.**
+
+Nel raffinamento di Delaunay una faccia di bordo viene suddivisa per due motivi
+distinti. Il primo è la qualità, ed è governato dal rapporto raggio-spigolo,
+cioè da `min_ratio`. Il secondo è l'**invasione**: se un vertice cade dentro la
+sfera diametrale di una faccia, quella faccia va spezzata comunque, qualunque
+sia il vincolo di qualità. La suddivisione per invasione ricorre finché le
+facce non scendono sotto la distanza locale fra lembi opposti della superficie.
+Se in qualche punto quella distanza è minuscola, la ricorsione scende con lei
+fino a dove l'aritmetica non regge più, e TetGen si arrende.
+
+**La misura.** Lo spessore locale del materiale è stato misurato lanciando un
+raggio verso l'interno dal baricentro di ciascuno dei 426 600 triangoli e
+registrando la distanza del primo impatto sulla superficie opposta. È la scala
+che il raffinamento deve risolvere in quel punto.
+
+| spessore locale | `lab_frame` | `muro_generato` |
+|---|---|---|
+| 1° percentile | **8,5 mm** | ~1190 mm |
+| 5° percentile | **23,4 mm** | ~1190 mm |
+| mediana | 181,5 mm | 1203,9 mm |
+| campioni sotto 5 mm | **1751** (0,41%) | nessuno |
+| campioni sotto 1 mm | **628** (0,15%) | nessuno |
+
+La mediana di 181,5 mm conferma che il muro scansionato è un solido di spessore
+plausibile, vicino ai 176 mm misurati sul posto: non è una lamina. Ma lo 0,15%
+della superficie ha dietro di sé meno di un millimetro di materiale, e il muro
+sintetico non ha **nulla** sotto i 1190 mm. È una differenza di oltre tre
+ordini di grandezza nella scala che il raffinamento deve risolvere.
+
+Questi punti sottili non stanno sul bordo del lembo scansionato, dove ci si
+aspetterebbe l'assottigliamento naturale di una superficie chiusa attorno a una
+lastra: la loro distanza mediana dal perimetro del lembo è di 135 mm per i
+campioni sotto 1 mm, contro 101 mm per l'insieme di tutti i campioni. Sono
+strozzature interne, punti in cui la ricostruzione di Poisson ha fatto quasi
+combaciare le due facce del muro.
+
+**La prova.** L'ipotesi è verificabile con una variabile sola. L'opzione
+`nobisect` di TetGen vieta la suddivisione delle facce di ingresso: se il
+fallimento nasce lì, vietarla lo fa sparire; se nasce altrove, non cambia
+nulla. Sulla stessa superficie, allo stesso `min_ratio` 1,8, nella stessa
+chiamata a parte quel booleano:
+
+| `nobisect` | esito |
+|---|---|
+| falso (comportamento attuale) | **fallito** in `split_subface`, dopo 72,0 s |
+| **vero** | **riuscito** — 365 212 nodi, 1 607 146 tetraedri, 32,6 s |
+
+La causa è quindi individuata: **il fallimento è nella suddivisione delle facce
+di ingresso, guidata dall'invasione e non dalla qualità**, su una superficie la
+cui scala locale scende sotto il millimetro in strozzature interne. Spiega
+anche perché `min_ratio` era irrilevante, perché raddrizzare l'orientazione non
+bastava, e perché il remeshing peggiorava: nessuno dei tre tocca la distanza
+fra lembi opposti.
+
+**Che cosa costa la leva, misurato e non supposto.** Con `nobisect` la
+superficie di ingresso viene conservata esatta, senza punti aggiunti sul bordo.
+Il volume del solido coincide con quello della superficie fino all'ultima cifra
+(173 282 926,9485 mm³), e la qualità non peggiora — al contrario:
+
+| | `lab_frame`, `nobisect` | `lab_frame`, via `min_ratio` 12,0 | `muro_generato`, `nobisect` | `muro_generato`, archiviato |
+|---|---|---|---|---|
+| nodi | 365 212 | 692 617 | 164 576 | 420 547 |
+| tetraedri | 1 607 146 | 2 230 860 | 653 643 | 1 752 795 |
+| tempo | 32,6 s | 186,4 s | 15,4 s | 44,6 s |
+| invertiti | 0 | 0 | 0 | 0 |
+| diedro minimo, mediana | **38,83°** | 25,33° | **38,68°** | 38,26° |
+
+Sul muro sintetico, dove nulla era rotto, `nobisect` produce una mesh con 2,7
+volte meno elementi, in un terzo del tempo, con mediana dell'angolo diedro
+minimo leggermente migliore. Il prezzo sta nella coda: le schegge della
+superficie di ingresso non vengono più suddivise e sopravvivono come facce di
+tetraedri, quindi l'angolo diedro minimo assoluto scende a 4,8 · 10⁻⁴ gradi su
+`lab_frame`. È una coda che esiste in ogni corsa documentata — l'archivio del
+muro sintetico ha 2,5 · 10⁻³ gradi — ma qui è peggiore, e va tenuta d'occhio
+perché sono gli elementi che rovinano il condizionamento del sistema.
+
+**Che cosa resta da decidere.** `nobisect` non è ancora un parametro di
+`config.py` e non è stato adottato: questa sezione lo misura, non lo introduce.
+La scelta fra esporlo come opzione, renderlo il comportamento predefinito, o
+lasciarlo fuori e affrontare invece le strozzature a monte — cioè in
+ricostruzione, dove nascono — è una decisione di progetto per la Fase 2, non
+una conseguenza automatica di questa misura.
