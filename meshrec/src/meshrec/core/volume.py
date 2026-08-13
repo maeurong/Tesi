@@ -11,6 +11,7 @@ import tetgen
 from meshrec.core.config import TetConfig
 from meshrec.core.quality import (
     boundary_edges,
+    fraction_over_ratio,
     inverted_tets,
     is_watertight,
     radius_edge_ratios,
@@ -222,7 +223,7 @@ def tetrahedralize_with_metrics(
     # avviso l'avrebbe segnalata.
     ratios = radius_edge_ratios(nodes, tets)
     finite = ratios[np.isfinite(ratios)]
-    over_limit = float((finite > cfg.min_ratio).mean()) if len(finite) else 1.0
+    over_limit = fraction_over_ratio(nodes, tets, cfg.min_ratio)
     p99 = float(np.quantile(finite, 0.99)) if len(finite) else float("inf")
     if over_limit > 0.5:
         warnings.warn(
