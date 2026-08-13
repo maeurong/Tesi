@@ -626,10 +626,10 @@ del formato è già coperta dalle due verifiche sopra.
 
 | Criterio | Esito |
 |---|---|
-| Il test di integrazione passa | Sì: **111 test passati** in 22 s, 5 prove di fattibilità passate, 1 saltata (`wildmeshing` non installabile su Windows) |
+| Il test di integrazione passa | Sì: **126 test passati** in 23 s, 5 prove di fattibilità passate, 1 saltata (`wildmeshing` non installabile su Windows). Erano 111 alla prima stesura |
 | Le metriche di errore geometrico sono calcolate e riportate | Sì: `07_surface_quality.geometric_error`, Hausdorff 54,18 mm, RMS 5,16 e 9,77 mm |
 | La pipeline arriva in fondo sul muro sintetico | Sì, in circa 98 secondi, dopo la correzione di `repair.hole_loops` e la rimozione del tetto ai punti di Steiner |
-| La pipeline arriva in fondo sulla scansione reale `lab_frame.pcd` | **No**: gli step 1–8 girano, lo step 9 non converge con alcun `min_ratio` provato fino a 4,0. Esito misurato e documentato in [`fase-1-esiti-lab-frame.md`](fase-1-esiti-lab-frame.md) § 5 |
+| La pipeline arriva in fondo sulla scansione reale `lab_frame.pcd` | **Sì**, con `tet.nobisect: true`: 365 212 nodi, 1 607 146 tetraedri, zero invertiti, deck scritto. Il criterio era mancato alla prima stesura, e le tre cause del fallimento sono state poi misurate una alla volta — vedi [`fase-1-esiti-lab-frame.md`](fase-1-esiti-lab-frame.md) § 5 e [`fase-1-min-ratio.md`](fase-1-min-ratio.md). Va letto sapendo che `nobisect` fa convivere TetGen con le strozzature sotto il millimetro invece di rimuoverle, e che quelle nascono nella ricostruzione |
 | La segmentazione automatica su `lab_frame.pcd` | Vedi [`fase-1-esiti-lab-frame.md`](fase-1-esiti-lab-frame.md) |
 | La stessa configurazione rieseguita dà lo stesso risultato | Coperto da `test_the_same_configuration_run_twice_gives_the_same_result`; il costo della scelta è misurato qui sopra |
 | Il deck è valido | Parziale: `meshio` e CalculiX sì, controllo dei dati Abaqus dovuto |

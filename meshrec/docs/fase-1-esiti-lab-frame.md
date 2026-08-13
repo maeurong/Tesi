@@ -3,6 +3,13 @@
 Documento di verifica della segmentazione automatica (step 2, `segment.method: auto`)
 sui dati reali. Tutti i numeri qui riportati sono misurati, non stimati.
 
+**Aggiornato il 13 agosto 2026.** La sezione 5 riportava una pipeline che si
+fermava allo step 9; con `tet.nobisect: true`, ora in `meshrec/lab.yaml`, arriva
+al deck. Le sezioni da 1 a 4 non sono toccate: riguardano gli step 1 e 2, il cui
+codice non è cambiato, e la corsa nuova ne riproduce i numeri identici. Il
+racconto del fallimento resta dov'era, perché è il contenuto diagnostico del
+documento e perché due delle tre cause trovate valgono anche altrove.
+
 Macchina: Windows 11, 12 CPU logiche, 16 GB di RAM, con un secondo processo Python
 attivo in parallelo che ne occupava fra 5 e 11 GB. Unità di lavoro: mm, N, MPa,
 tonnellata, secondo.
@@ -188,16 +195,21 @@ su `lab_frame.pcd` con `segment.method: crop`, il box indicato sopra,
 `downsample.voxel_size: 10.0` esplicito e i parametri della tetraedrizzazione ai
 **predefiniti attuali** (`tet.min_ratio: 1.8`, `tet.max_steiner_points: -1`).
 
-Questa configurazione è ora tracciata da git in `meshrec/lab.yaml`. Va però
-detto con chiarezza, perché non è ovvio dal solo file: **rieseguire oggi
-`meshrec run lab.yaml` non riproduce i numeri archiviati in questa sezione**,
-perché si ferma allo step 9 con `RefinementFailedError`, esattamente come
-descritto più sotto. Non è una regressione introdotta dopo la corsa: quei
-numeri venivano da una mesh troncata in silenzio dal tetto ereditato di 100 000
-punti di Steiner della libreria TetGen, tetto che `meshrec/lab.yaml` non porta
-più (`max_steiner_points: -1`). Con il tetto rimosso il fallimento allo step 9
-è il comportamento corretto e onesto su questa superficie, non un difetto
-introdotto dalla configurazione versionata.
+Questa configurazione è ora tracciata da git in `meshrec/lab.yaml`, e **porta
+`tet.nobisect: true`**. Con quel parametro la pipeline arriva in fondo su questa
+scansione, e `meshrec run lab.yaml` riproduce i numeri riportati qui sotto.
+
+La storia di come ci si è arrivati va però tenuta, perché è il contenuto
+diagnostico di questa sezione. Con `nobisect` falso — il predefinito, e l'unico
+comportamento disponibile fino al 13 agosto 2026 — lo step 9 fallisce con
+`RefinementFailedError` a qualunque `min_ratio`, come la sezione «Lo step 9 non
+converge» documenta in dettaglio. Prima ancora, una versione di questo documento
+riportava un successo che non era tale: quei numeri venivano da una mesh
+troncata in silenzio dal tetto ereditato di 100 000 punti di Steiner della
+libreria TetGen, tetto che `meshrec/lab.yaml` non porta più
+(`max_steiner_points: -1`). Le tre configurazioni vanno quindi tenute distinte:
+il falso successo del tetto, il fallimento onesto senza tetto, e il successo
+vero con `nobisect`.
 
 **Fonte dei numeri di questa sezione:** `runs/lab_crop/metrics.json`, corsa dal
 primo step del 13 agosto 2026 con il codice corrente. Sostituiscono
@@ -209,8 +221,9 @@ da 1 a 4 di questo documento non sono toccate: riguardano gli step 1 e 2, il cui
 codice non è cambiato, e la corsa nuova ne riproduce i numeri identici
 (6 329 096 punti letti, spaziatura 1,1923 mm, 4 229 538 punti dopo il ritaglio).
 
-Il risultato è che **la pipeline non arriva in fondo su questa scansione**: gli
-step da 1 a 8 girano regolarmente e in tempi modesti, e lo step 9 fallisce.
+Il risultato è che **la pipeline arriva in fondo e scrive il deck**, con
+`tet.nobisect: true`. Gli step da 1 a 8 sono identici in entrambe le
+configurazioni; solo lo step 9 e i due successivi dipendono da `nobisect`.
 
 | step | esito |
 | --- | --- |
@@ -219,14 +232,23 @@ step da 1 a 8 girano regolarmente e in tempi modesti, e lo step 9 fallisce.
 | 3 riduzione a voxel (10 mm) | da 4 229 538 a 116 059 punti, riduzione del 97,3% |
 | 4 normali | nessuna normale degenere |
 | 5 Poisson (profondità 9) | 10 521 vertici scartati al quantile di densità 0,05 (soglia 8,1796), 199 891 vertici e 398 044 triangoli |
-| 6 riparazione | 3 vertici coincidenti saldati, 6 triangoli degeneri e 39 duplicati rimossi, 126 componenti ridotte a 1, 1354 vertici orfani; **7 cicli chiusi** e **41 cammini di bordo aperti** prima della chiusura; dopo MeshFix superficie chiusa, 213 154 vertici e 426 600 triangoli |
-| 7 qualità di superficie | chiusa, 0 spigoli di bordo, area 4,489 m²; rapporto d'aspetto dei triangoli: mediana 1,399, media 4,030, massimo 34 973 |
+| 6 riparazione | 3 vertici coincidenti saldati, 6 triangoli degeneri e 39 duplicati rimossi, 126 componenti ridotte a 1, 1354 vertici orfani; **7 cicli chiusi** e **41 cammini di bordo aperti** prima della chiusura; dopo MeshFix superficie chiusa, 213 154 vertici e 426 600 triangoli, e **capovolta** (`orientation_flipped: true`) |
+| 7 qualità di superficie | chiusa, 0 spigoli di bordo, area 4,489 m², volume racchiuso **+0,1733 m³**; rapporto d'aspetto dei triangoli: mediana 1,399, media 4,030, massimo 34 973 |
 | 8 semplificazione | disabilitata: 426 600 triangoli in ingresso e in uscita |
-| 9 tetraedrizzazione | **fallita**, `RefinementFailedError`: il raffinamento non converge |
-| 10, 11 | non raggiunti |
+| 9 tetraedrizzazione | **365 212 nodi, 1 607 146 tetraedri in 34,4 s**, 152 058 punti di Steiner aggiunti, budget non esaurito |
+| 10 qualità del volume | **zero elementi invertiti**, mediana dell'angolo diedro minimo **38,83°**, volume totale 0,1733 m³ |
+| 11 esportazione | deck scritto; spaziatura di bordo 5,381 mm, tolleranza dei set 32,28 mm, `BASE` **5915 nodi** con copertura d'appoggio **98,93%**, massa 0,312 t |
 
-L'intera corsa si ferma dopo **134,2 s** (misura a orologio dell'esecuzione, non presente in `metrics.json`), cioè ben dentro il limite di venti minuti
-per esecuzione che mi ero imposto: il limite qui non è il tempo né la memoria.
+Lo step 6 è il punto in cui questa scansione differisce dal muro sintetico in
+modo decisivo: **la superficie riparata esce rovesciata**, con volume racchiuso
+negativo e avvolgimento coerente ovunque. La riparazione la raddrizza e lo
+dichiara. Fino al 13 agosto 2026 non lo faceva, e quel difetto è la prima delle
+tre cause del fallimento dello step 9 ricostruite in
+[`fase-1-min-ratio.md`](fase-1-min-ratio.md).
+
+Senza `nobisect` la corsa si ferma dopo **134,2 s** (misura a orologio, non
+presente in `metrics.json`), ben dentro il limite di venti minuti per esecuzione
+che mi ero imposto: il limite qui non è mai stato il tempo né la memoria.
 
 Errore geometrico fra superficie riparata e nuvola segmentata dello step 2,
 riportato per intero perché il massimo e la media dicono cose diverse dall'RMS:
@@ -277,7 +299,7 @@ proprio sul caso per cui esiste. Le metriche riportano ora anche
 `open_paths_over_threshold`. Su questa corsa la soglia è nulla, quindi entrambe
 le liste sono vuote.
 
-### Lo step 9 non converge su questa superficie
+### Lo step 9 non converge senza `nobisect`, e perché
 
 TetGen si interrompe con il proprio errore interno (`split_subface`), tradotto
 dalla pipeline in `RefinementFailedError`. Non è una questione di severità del
@@ -296,15 +318,38 @@ e senza tetto ai punti di Steiner.
 
 **Nessun valore provato porta a termine il lavoro.** Sul muro sintetico 1,8
 bastava; qui non basta neanche 4,0, cioè un vincolo praticamente inerte. Il
-problema non è quindi il parametro ma la superficie. L'indizio misurato è il
-rapporto d'aspetto dei triangoli, che qui arriva a 34 973 contro i 3968 del muro
-sintetico: la superficie porta schegge un ordine di grandezza peggiori. Che siano
-proprio quelle la configurazione degenere su cui TetGen si arrende è l'ipotesi
-naturale, non una verifica: il messaggio di TetGen non localizza il punto in cui
-si interrompe. È comunque un esito legittimo e va scritto: **su questa scansione
-la pipeline si ferma allo step 9**, e la prima via d'uscita da provare in Fase 2 è
-il remeshing dello step 8, che è il passo che rimuove le schegge, non un'ulteriore
-taratura di `min_ratio`.
+problema non è quindi il parametro ma la superficie.
+
+Quanto sopra è il punto a cui la Fase 1 si era fermata, con un'ipotesi: che la
+colpa fosse delle schegge, il rapporto d'aspetto dei triangoli qui arriva a
+34 973 contro i 3968 del muro sintetico, e che la via d'uscita fosse il remeshing
+dello step 8. **L'ipotesi era sbagliata su entrambi i punti**, e l'indagine che
+l'ha smontata è in [`fase-1-min-ratio.md`](fase-1-min-ratio.md). In sintesi, con
+tre cause misurate una alla volta:
+
+1. **`min_ratio` è escluso.** Lo sweep è stato portato fino a 12,0, quasi sette
+   volte il predefinito: fallisce identico, sempre dentro `split_subface`.
+2. **La superficie è rovesciata.** Volume racchiuso −0,173 m³, avvolgimento
+   coerente ovunque. Raddrizzandola lo step 9 converge a `min_ratio` 12,0
+   mentre la stessa superficie non raddrizzata continua a fallire: causa reale,
+   verificata a variabile unica. Necessaria ma non sufficiente.
+3. **Il remeshing peggiora.** Porta i triangoli da 426 600 a 89 772 ma vi
+   introduce 16 autointersezioni dove non ce n'erano, e il fallimento si sposta
+   più a monte, nel recupero del bordo. Era la via d'uscita raccomandata qui
+   sopra, ed è una regressione netta.
+4. **La causa vera è la scala locale della superficie.** Nel raffinamento di
+   Delaunay una faccia di bordo viene suddivisa anche per *invasione* della
+   propria sfera diametrale, e quella suddivisione ricorre fino alla distanza
+   fra lembi opposti. Qui lo 0,15% della superficie ha dietro di sé meno di un
+   millimetro di materiale, contro una mediana di 181,5 mm; il muro sintetico
+   non scende mai sotto i 1190 mm. Con `nobisect`, che vieta a TetGen di
+   suddividere le facce di ingresso, la stessa superficie allo stesso
+   `min_ratio` 1,8 converge in 32,6 s.
+
+Il criterio di accettazione «su `lab_frame.pcd` la pipeline arriva in fondo» è
+quindi **soddisfatto**. Va però letto per quello che è: `nobisect` chiede a
+TetGen di convivere con le strozzature invece di rimuoverle, e quelle nascono
+nella ricostruzione. È la leva che funziona, non necessariamente quella giusta.
 
 ### La corsa superata, e perché i suoi numeri non valevano
 
@@ -358,8 +403,26 @@ circa 19 mm per faccia, e l'errore geometrico medio di 3,85 mm non lo rivela,
 perché è una distanza punto-superficie e non una misura di spessore. Il valore è
 l'ingombro orientato della superficie riparata (214,0 × 2468,8 × 1694,0 mm),
 calcolato con `abaqus.align_to_axes` sui vertici di
-`runs/lab_crop/06_repaired.ply`, e non viene da uno step 11 che questa corsa non
-raggiunge.
+`runs/lab_crop/06_repaired.ply`. Lo step 11 della corsa con `nobisect` conferma
+ora lo stesso ingombro dalla propria trasformazione di allineamento.
+
+**Il muro di questa scansione è un telaio, e va tenuto presente leggendo
+`BASE`.** La sezione 2 lo aveva già descritto — due testate, un architrave e
+un'apertura larga 2093 mm — e la misura della superficie d'appoggio lo conferma
+dal lato opposto: solo il **16,26%** dell'impronta tocca terra, perché a
+toccarla sono i piedi delle due testate e nient'altro. I 5915 nodi di `BASE` su
+365 212 non sono quindi un vincolo scarso, sono la superficie d'appoggio fisica:
+la copertura di quella superficie vale il 98,93%. Chi legge il conteggio senza
+aver visto la forma del modello lo scambia per un difetto, ed è il motivo per
+cui la mappa di occupazione sta in
+[`fase-1-tolleranza-set.md`](fase-1-tolleranza-set.md).
+
+La stessa sezione 2 aveva individuato l'intradosso dell'architrave a *z* ≈ 1013,
+cioè in alto e con normale verso il basso. È esattamente la ragione per cui la
+selezione dei set per direzione della normale — lo standard dei preprocessori —
+è stata scartata: su questa geometria l'87,8% dell'area rivolta verso il basso è
+quell'intradosso, e finirebbe fra i nodi vincolati. Le due misure sono
+indipendenti e concordano.
 
 ## 6. Riproducibilità
 

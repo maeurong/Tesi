@@ -15,7 +15,9 @@ omonima degli esiti di Fase 0.
 
 ## 1. Questioni che toccano la validità dei risultati
 
-**La pipeline non arriva in fondo su `lab_frame.pcd`.** Con i parametri onesti la
+**~~La pipeline non arriva in fondo su `lab_frame.pcd`.~~ Ora ci arriva, con `tet.nobisect: true`.
+Il racconto di come si è arrivati a capirlo resta, perché due delle tre cause valgono anche
+altrove.** Con i parametri onesti la
 tetraedrizzazione non converge: `RefinementFailedError` con ogni valore di `min_ratio` provato,
 da 1,8 a 4,0. Il risultato che in precedenza sembrava un successo era la mesh troncata dal tetto
 ai punti di Steiner, e rimettendo quel tetto si riproducono esattamente i numeri archiviati. Il
@@ -69,16 +71,15 @@ fallisce in 72 s. I dettagli e il costo della leva sono in
 
 `nobisect` è stato quindi esposto come `tet.nobisect`, con predefinito **falso** perché nessun
 risultato documentato cambi. Con `tet.nobisect: true` e il `min_ratio` predefinito, **la pipeline
-su `lab_frame.pcd` arriva al deck**: il criterio di accettazione della Fase 1 è raggiungibile, non
-più solo mancato. Resta però un modello che non si può ancora usare, e per una ragione diversa da
-quelle di questa voce: `BASE` raccoglie 850 nodi su 365.212, cioè il difetto della tolleranza dei
-set descritto più sotto. Il criterio va quindi considerato soddisfatto nella lettera —
-l'elaborazione arriva in fondo e scrive un deck valido — e non nella sostanza.
+su `lab_frame.pcd` arriva al deck**: **il criterio di accettazione della Fase 1 è soddisfatto**,
+e `meshrec/lab.yaml` porta il parametro.
 
-Quel numero è ora quantificato: gli 850 nodi coprono il **34,76%** della superficie che poggia
-davvero a terra, e sotto la regola raccomandata in [`fase-1-tolleranza-set.md`](fase-1-tolleranza-set.md)
-diventano 5915 nodi al 98,93% di copertura. Restano pochi in assoluto, ma per una ragione fisica e
-non per un difetto: `lab_frame` è un telaio, e solo il 16,26% della sua impronta tocca il suolo.
+Per un certo tempo il criterio è stato soddisfatto solo nella lettera: l'elaborazione arrivava in
+fondo e scriveva un deck valido, ma `BASE` raccoglieva 850 nodi su 365.212, cioè il difetto della
+tolleranza dei set descritto più sotto. Con quel difetto corretto `BASE` sale a **5915 nodi**, e
+la misura che allora mancava dice quanto valgono: coprono il **98,93%** della superficie che poggia
+davvero a terra, contro il 34,76% di prima. Restano pochi in assoluto per una ragione fisica e non
+per un difetto — `lab_frame` è un telaio, e solo il 16,26% della sua impronta tocca il suolo.
 
 Non è la fine della questione. Le strozzature sotto il millimetro nascono nella ricostruzione, e
 `nobisect` chiede a TetGen di conviverci invece di rimuoverle: è la leva che funziona, non
