@@ -119,3 +119,213 @@ Chi ha bisogno di mesh più leggere e più veloci può salire fino a 2,5 (e oltr
 non misurato qui) pagando in regolarità degli elementi; chi ha bisogno di
 qualità migliore ha un solo gradino di manovra verso il basso, 1,7, prima del
 muro.
+
+## La scansione di laboratorio: lo stesso sweep su `lab_frame.pcd`
+
+- **Data di esecuzione:** 13 agosto 2026
+- **Ambiente:** stessa macchina delle misure precedenti in questo documento
+- **Superficie di partenza:** `06_repaired.ply` della corsa archiviata
+  `runs/lab_crop/` (ritaglio a box di `lab_frame.pcd`, scansione reale di un
+  singolo muro di laboratorio) — 213 154 vertici, 426 600 triangoli
+- **Parametro sotto misura:** `tet.min_ratio`, lo stesso dell'esperimento
+  gemello sopra
+
+Questa sezione è il gemello di quella precedente, con lo scopo di metterne
+alla prova la conclusione su una geometria diversa. `fase-1-debito.md` ipotizza
+che il fallimento di TetGen su questa scansione non dipenda dalla taratura del
+parametro ma dalla qualità della superficie riparata che entra nello step 9.
+È un'ipotesi ragionevole, sostenuta da un solo confronto — sei valori da 1,8 a
+4,0, tutti falliti — e da due indizi mai spiegati nei dettagli: un volume
+racchiuso negativo e un rapporto d'aspetto massimo di 34 972,8. Qui la si
+verifica fino in fondo: allargando lo sweep a valori molto più laschi
+(fino a 12,0, quasi sette volte il predefinito), e scomponendo i due indizi in
+numeri verificabili invece di lasciarli come sintomi.
+
+### Metodo
+
+Identico al gemello: ripresa della pipeline da `--from-step 9`, stessa
+superficie di partenza per tutte le corse. Da `runs/lab_crop/` (archivio, mai
+scritto) sono stati copiati in `runs/minratio_lab/`: `02_segmented.ply`,
+`04_normals.ply`, `06_repaired.ply` e `config.yaml`, con `run.out_dir` corretto
+a `runs\minratio_lab`. Il primo file, `02_segmented.ply`, non serve alla
+tetraedrizzazione in sé ma è comunque necessario: la ripresa da `from_step=9`
+ricarica sempre la nuvola segmentata come riferimento fisso dell'errore
+geometrico, esattamente come documentato per il gemello — qui pesa 101 MB,
+molto più che nel caso sintetico, perché la nuvola segmentata reale è più
+grande.
+
+Per ciascuno dei sei valori di `tet.min_ratio` (**1,8 · 2,5 · 3,0 · 4,0 · 6,0 ·
+12,0**) la sequenza è stata: scrivere il valore in
+`runs/minratio_lab/config.yaml`, eseguire
+`uv run meshrec run runs/minratio_lab/config.yaml --from-step 9` dalla
+cartella `meshrec/`, leggere `runs/minratio_lab/metrics.json`. La prima corsa,
+a 1,8, riproduce esattamente il fallimento già registrato in
+`fase-1-debito.md` e in `fase-1-esiti-lab-frame.md` per lo stesso valore sulla
+stessa superficie — stesso messaggio, stesso punto interno di TetGen — e
+funge da controllo che la preparazione sia corretta, come la ripetizione a 1,8
+nel gemello.
+
+### Risultati dello sweep
+
+| `min_ratio` | Esito |
+|---|---|
+| 1,8 (predefinito) | **fallito** |
+| 2,5 | **fallito** |
+| 3,0 | **fallito** |
+| 4,0 | **fallito** |
+| 6,0 | **fallito** |
+| 12,0 | **fallito** |
+
+Le sei corse falliscono con lo stesso messaggio, identico a parte il valore
+del parametro riportato nel testo (caso 12,0, il più lasco provato):
+
+```
+RefinementFailedError: TetGen si e' interrotto con min_ratio=12.0: il vincolo raggio-spigolo puo' essere troppo severo per questa geometria, il raffinamento non converge. Alza min_ratio (valori piu alti = elementi meno regolari ma raffinamento che termina) e riprova. Errore originale di TetGen: Internal TetGen error within `split_subface`.
+```
+
+In ogni caso `metrics.json` resta un dizionario vuoto, come nel gemello quando
+la tetraedrizzazione fallisce. Nessuna delle sei corse ha prodotto
+`09_volume.vtu` né un deck Abaqus: lo step 9 non arriva mai a restituire una
+mesh.
+
+Vale la pena notare, senza forzarne il peso, che il punto interno di rottura
+di TetGen qui è sempre `split_subface`, mentre nel caso del muro sintetico a
+1,4 e 1,6 era `split_segment`: sono subroutine diverse di TetGen, il che è
+coerente con — ma non prova da solo — una causa di fondo diversa dal semplice
+vincolo raggio-spigolo troppo severo.
+
+**12,0 è un vincolo praticamente inerte** — quasi sette volte il predefinito,
+ben oltre il valore di TetGen stesso (2,0) e ben oltre qualunque valore che un
+progetto userebbe per una mesh accettabile — e fallisce in modo identico a
+1,8. Se il raffinamento non converge nemmeno lasciando che gli elementi siano
+quasi arbitrariamente irregolari, il vincolo raggio-spigolo non è la causa:
+può al più essere un fattore che accelera un fallimento che accadrebbe comunque.
+
+### Diagnosi della superficie (sola lettura, nessuna correzione)
+
+Misure dirette su `runs/minratio_lab/06_repaired.ply`, la stessa superficie di
+tutte le sei corse sopra, con uno script Python usa-e-getta (open3d + numpy per
+i controlli geometrici, pymeshlab per le autointersezioni; niente modifiche al
+file, niente tentativi di riparazione). Confronto di riferimento:
+`runs/muro/metrics.json`, la stessa superficie usata nel gemello di questo
+documento.
+
+**Il volume è negativo, e non per rumore: l'intera superficie ha
+un'orientazione unica ma rovesciata.**
+
+| grandezza | `lab_frame` (`06_repaired.ply`) | `muro_generato` (riferimento) |
+|---|---|---|
+| volume con segno | **−173 282 926,9 mm³ (−0,173 m³)** | +53 872 970 753,7 mm³ (+53,873 m³) |
+| volume dopo aver invertito tutti i triangoli | +173 282 926,9 mm³ | — (non misurato, non serve) |
+| spigoli interni condivisi controllati | 639 900 | — |
+| spigoli con verso incoerente fra le due facce adiacenti | **0** | — |
+| `is_edge_manifold` | vero | — |
+| `is_vertex_manifold` | vero | — |
+
+Il volume con segno calcolato direttamente dai vertici e dalla connettività
+(somma di v₀·(v₁×v₂)/6 su tutti i triangoli) riproduce esattamente il
+−173 282 926,9485 mm³ già presente in `runs/lab_crop/metrics.json`: non è un
+artefatto del calcolo dello step 7, è la geometria reale della mesh. Capovolgendo
+il verso di tutti e 426 600 i triangoli il volume diventa positivo e di segno
+opposto esatto (+173 282 926,9 mm³): il segno dipende per intero dal verso di
+avvolgimento, non da un errore di scala o da vertici scambiati.
+
+Il controllo decisivo è quello combinatorio: su 639 900 spigoli interni
+condivisi da due triangoli, **zero** sono percorsi nello stesso verso dalle due
+facce che li toccano — cioè l'avvolgimento è **globalmente coerente** su tutta
+la superficie, non un mosaico di patch invertite a caso. Insieme a
+`is_edge_manifold` e `is_vertex_manifold` entrambi veri, il quadro è netto:
+`06_repaired.ply` è una superficie chiusa, topologicamente pulita, a
+orientazione singola e coerente — ma quella singola orientazione è quella
+sbagliata. Le normali puntano verso l'interno del solido, non verso l'esterno.
+È esattamente il caso descritto nel mandato: **la superficie è rovesciata**, e
+lo è nella sua interezza, non a chiazze.
+
+**Le schegge estreme sono poche, non il grosso della mesh.**
+
+| soglia | triangoli | frazione del totale (426 600) |
+|---|---|---|
+| aspect ratio > 100 | 1 077 | 0,25% |
+| aspect ratio > 1 000 | 108 | 0,03% |
+| area quasi nulla (< 1 · 10⁻⁶ mm²) | 13 | 0,003% |
+| area < 1 · 10⁻⁹ mm² | 0 | 0% |
+
+Il rapporto d'aspetto massimo, 34 972,8, e la mediana, 1,399, coincidono con
+quelli già riportati in `runs/lab_crop/metrics.json` — confermano che questa è
+la stessa misura, non una ricalcolata diversamente. Ma il massimo è un valore
+isolato: solo 1 077 triangoli su 426 600 (0,25%) superano un rapporto
+d'aspetto di 100, e appena 108 (0,03%) superano 1000. Il 99,75% dei triangoli
+ha quindi un rapporto d'aspetto ragionevole. Confrontato con il muro
+sintetico, dove il rapporto d'aspetto massimo è 3 968,08 su una mediana quasi
+identica (1,394), qui il massimo è circa 8,8 volte più alto — ma resta un
+singolo valore estremo, non la descrizione di come sia fatta la mesh nel suo
+insieme. Le aree quasi nulle sono ancora più rare: appena 13 triangoli sotto
+1 µm², nessuno sotto 1 nm².
+
+**Nessuna autointersezione.** Il filtro
+`compute_selection_by_self_intersections_per_face` di pymeshlab, eseguito
+sull'intera superficie, seleziona **0 triangoli su 426 600 (0,00%)**. La
+superficie non si autointerseca in nessun punto misurabile da questo
+controllo.
+
+Non è stato possibile misurare un secondo controllo indipendente di
+autointersezione: `open3d.geometry.TriangleMesh.is_self_intersecting()` (e con
+esso `is_watertight()`, che lo richiama internamente) non ha terminato entro
+600 s in primo piano, per due tentativi separati, ed è stato interrotto. Non è
+un dato nascosto per comodità: è un limite dichiarato. Il controllo pymeshlab
+sopra, più mirato e più veloce, resta comunque una risposta diretta alla
+domanda del mandato («quante autointersezioni»), solo non doppiamente
+verificata da una seconda libreria.
+
+### Lettura
+
+**La parte sulla taratura del parametro è confermata, e in modo più netto di
+quanto il debito registrasse.** Il debito noto elenca cinque valori falliti da
+1,8 a 4,0. Questo sweep ne aggiunge due molto più laschi, 6,0 e 12,0 — l'ultimo
+quasi sette volte il predefinito, un vincolo praticamente inerte — e falliscono
+in modo identico, stesso errore interno di TetGen, stesso punto di rottura
+(`split_subface`). Se un vincolo raggio-spigolo così permissivo da accettare
+elementi quasi arbitrariamente irregolari non basta a far convergere il
+raffinamento, **`tet.min_ratio` è escluso come causa**: non è un problema di
+taratura, per nessun valore ragionevole del parametro. Su questo punto la
+diagnosi del debito regge, ed è ora una misura, non più un'inferenza da sei
+soli valori vicini fra loro.
+
+**La parte sulla «qualità della superficie» era vaga, e i numeri la precisano
+in una direzione specifica.** «La qualità della superficie riparata è scarsa»
+descrive male ciò che si misura qui. La superficie non è invasa da schegge
+(99,75% dei triangoli ha rapporto d'aspetto sotto 100), non ha
+autointersezioni misurabili, ed è un manifold di spigoli e vertici pulito,
+con un'unica orientazione coerente su 639 900 spigoli interni controllati:
+per quasi ogni criterio comune di qualità di mesh, `06_repaired.ply` non è
+messa peggio del muro sintetico in modo drammatico. Il difetto che davvero
+salta ai numeri è uno solo, preciso, e diverso da «qualità generica»: **la
+superficie è rovesciata**. Le sue 426 600 facce puntano tutte, in modo
+consistente, verso l'interno del volume che racchiudono, e il volume con
+segno che ne risulta, −173 282 926,9 mm³, capovolge esattamente in
++173 282 926,9 mm³ se si inverte l'avvolgimento di ogni triangolo. Non è
+un'inferenza dal solo segno del volume: la coerenza globale dell'avvolgimento
+(zero spigoli incoerenti su 639 900) esclude che sia rumore o un mosaico di
+patch mal orientate, e conferma che è un singolo difetto di orientazione
+dell'intera superficie.
+
+**Che cosa questo non dimostra.** Non è stato verificato — e non doveva
+esserlo in questo lavoro, che misura e non ripara — se correggere
+l'orientazione permetta a TetGen di convergere: resta un'ipotesi, per quanto
+molto più precisa e più azionabile di «la qualità è scarsa». È altrettanto
+possibile che l'inversione sia correlata ad altro (per esempio a come
+MeshFix ha richiuso i 41 cammini di bordo aperti della Fase 1, di cui due
+molto estesi) piuttosto che esserne la causa diretta del fallimento di
+TetGen; il messaggio di TetGen non localizza il punto interno in cui si
+arrende, quindi nessuna delle due letture è verificabile da qui.
+
+**In sintesi: la diagnosi del debito è confermata nella sua metà negativa
+(non è `tet.min_ratio`) e va precisata nella sua metà positiva.** Non è «la
+qualità della superficie», espressione che i numeri non sostengono nel senso
+comune del termine — schegge, autointersezioni, non-manifold. È un difetto
+singolo, misurato con tre controlli indipendenti che convergono sullo stesso
+punto (segno del volume, capovolgimento esatto sotto inversione, coerenza
+globale dell'avvolgimento): la superficie riparata di `lab_frame.pcd` è
+rovesciata. La prima cosa da provare in Fase 2, prima di toccare `min_ratio` o
+il remeshing dello step 8, è correggere l'orientazione e rieseguire lo step 9
+sulla stessa superficie.
