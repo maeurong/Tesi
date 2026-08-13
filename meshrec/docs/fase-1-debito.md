@@ -39,8 +39,23 @@ qualità di fatto inerte. Il modello che ne esce non è utilizzabile — mediana
 minimo 25,33° contro 38,26° del muro sintetico, `BASE` con 420 nodi su 692.617 — ed è un esito
 diagnostico, non un successo. Resta quindi una seconda causa da trovare, e il sospetto misurato
 sono le 108 facce con rapporto d'aspetto oltre 1000, che è esattamente ciò che rende mal
-condizionata la `split_subface` dove TetGen si arrende. La prova successiva è abilitare il
-remeshing isotropo dello step 8, che esiste già ed è solo disabilitato.
+condizionata la `split_subface` dove TetGen si arrende.
+
+Anche il remeshing isotropo dello step 8 è stato provato, e non risolve: peggiora. Porta la
+superficie da 426.600 a 89.772 triangoli ma vi **introduce 16 autointersezioni** dove non ce
+n'erano, e lo step 9 fallisce allora prima ancora del raffinamento, nel recupero del bordo
+(`recoversubfaces`), a qualunque `min_ratio`. Riparando con MeshFix dopo la semplificazione le
+autointersezioni spariscono e il recupero del bordo torna a passare, ma il raffinamento fallisce
+comunque da 1,8 fino a 12,0 — cioè anche al valore che sulla superficie non semplificata
+convergeva. Resta quindi una terza causa, sotto l'orientazione e sotto le autointersezioni, che si
+manifesta sempre come `split_subface`.
+
+**La semplificazione può rompere le garanzie della riparazione, e nulla se ne accorge.** Lo step 6
+produce una superficie chiusa e senza autointersezioni, lo step 7 lo verifica, e lo step 8 la
+modifica senza che nessun controllo venga rieseguito. Le 16 autointersezioni introdotte dal
+remeshing sono la dimostrazione che non è un rischio teorico: la superficie risultante resta chiusa
+e manifold, quindi supera ogni criterio che la pipeline sappia applicare, ed è comunque inservibile
+per TetGen.
 
 **Lo step 7 dichiara chiusa una superficie rovesciata.** `watertight: true`, `boundary_edges: 0` e
 un volume racchiuso **negativo** convivono senza che nulla protesti: il controllo di qualità della

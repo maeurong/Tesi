@@ -388,3 +388,71 @@ mal condizionato. La prova successiva, in Fase 2, è abilitare il remeshing
 isotropo dello step 8 — che esiste già ed è solo disabilitato — e rieseguire
 lo step 9 a `min_ratio` ordinario su una superficie con l'orientazione
 corretta e le schegge rimosse.
+
+### La prova successiva: remeshing isotropo dello step 8
+
+Il paragrafo precedente indicava come prova seguente l'abilitazione del
+remeshing isotropo, già presente nella pipeline come step 8 e disabilitato per
+predefinito. È stata eseguita, e il risultato è negativo in un modo che vale la
+pena documentare per intero: non solo il remeshing non risolve, ma peggiora, e
+il modo in cui peggiora dice qualcosa sull'ordine degli step.
+
+Il punto di partenza è la superficie raddrizzata della prova precedente.
+Abilitando `simplify.enabled` con `mode: remesh` e i parametri predefiniti, e
+riprendendo da `--from-step 8`, la semplificazione porta la superficie da
+426.600 a **89.772 triangoli** su 44.740 vertici, con una perdita di volume
+racchiuso dello 0,48% — da 173.282.926,9 a 172.449.534,7 mm³. Fin qui è quanto
+ci si aspetta da una semplificazione.
+
+Lo step 9, però, fallisce a **ogni** valore di `min_ratio` provato, 1,8 · 2,5 ·
+4,0 · 6,0 · 12,0, e fallisce in un punto interno di TetGen diverso da tutti
+quelli visti finora: `recoversubfaces` invece di `split_subface`. Non è un
+dettaglio di nomenclatura. `recoversubfaces` appartiene al recupero del bordo,
+la fase in cui TetGen impone la superficie di ingresso alla triangolazione, e
+viene **prima** del raffinamento di qualità. Fallire lì significa che il
+vincolo raggio-spigolo non è nemmeno arrivato in gioco: ecco perché anche
+12,0, che sulla superficie non semplificata convergeva, qui fallisce.
+
+La diagnosi in sola lettura sulla superficie semplificata spiega il perché:
+
+| grandezza | prima dello step 8 | dopo lo step 8 |
+|---|---|---|
+| triangoli | 426.600 | 89.772 |
+| **autointersezioni** | **0** | **16** |
+| manifold di spigoli e vertici | vero | vero |
+| spigoli di bordo | 0 | 0 |
+| spigolo mediano | 5,38 mm | 6,76 mm |
+
+**Il remeshing ha introdotto sedici autointersezioni dove non ce n'era
+nessuna.** È esattamente ciò che il recupero del bordo di TetGen non tollera, e
+la superficie resta al tempo stesso chiusa e manifold — cioè supera ogni
+controllo che la pipeline sappia fare.
+
+A quel punto la prova naturale è riparare *dopo* aver semplificato, cosa che
+la sequenza attuale non prevede: la riparazione è lo step 6 e la
+semplificazione lo step 8, quindi nulla ricontrolla la superficie dopo averla
+modificata. Applicando MeshFix alla superficie semplificata, fuori pipeline e
+in sola lettura sul resto, i sedici triangoli autointersecanti spariscono
+(89.772 → 89.754 triangoli, volume invariato allo 0,0003%, orientazione
+conservata). Rieseguito lo step 9, il fallimento in `recoversubfaces`
+scompare: TetGen torna a fallire in `split_subface`, cioè a superare il
+recupero del bordo e a fermarsi nel raffinamento, e lo fa in 7 secondi contro
+i minuti delle prove precedenti.
+
+Ma continua a fallire, e stavolta **a ogni valore fra 1,8 e 12,0**, compreso
+quel 12,0 che sulla superficie non semplificata convergeva. Il bilancio del
+remeshing è quindi negativo su tutta la linea: rimuove un ostacolo che non era
+quello bloccante e ne introduce uno nuovo, e la superficie da 89.754 triangoli
+è per TetGen più difficile di quella da 426.600 da cui deriva.
+
+**Che cosa se ne ricava, al netto del fallimento.** Primo, una gerarchia di
+cause ormai misurata: l'orientazione è necessaria e verificata, le
+autointersezioni introdotte dallo step 8 sono un ostacolo reale e rimovibile,
+e sotto entrambe resta una terza causa che nessuna delle due prove tocca, che
+si manifesta sempre come `split_subface` e che non cede nemmeno a un vincolo
+di qualità inerte. Secondo, un difetto di progetto della sequenza: la
+riparazione garantisce una superficie chiusa e senza autointersezioni allo
+step 6, lo step 7 lo verifica, e poi lo step 8 la modifica senza che nulla
+verifichi più nulla. Una semplificazione che rompe le garanzie della
+riparazione è precisamente ciò che è appena successo, e la pipeline non ha
+modo di accorgersene.
