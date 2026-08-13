@@ -65,7 +65,9 @@ def _cell(row: dict[str, object], key: str) -> str:
     if isinstance(value, float):
         return f"{value:.4g}"
     if isinstance(value, dict):
-        return ", ".join(f"{name}={item}" for name, item in value.items()) or "base"
+        return ", ".join(
+            f"{html.escape(str(name))}={html.escape(str(item))}" for name, item in value.items()
+        ) or "base"
     return html.escape(str(value)) if value is not None else ""
 
 

@@ -40,3 +40,24 @@ def test_the_histogram_is_svg_without_any_chart_library():
     assert svg.startswith("<svg")
     assert svg.count("<rect") >= 3
     assert "prova" in svg
+
+
+def test_the_histogram_handles_no_values():
+    svg = report.histogram_svg([], title="vuoto", bins=3)
+
+    assert svg.startswith("<svg")
+    assert "vuoto" in svg
+
+
+def test_the_histogram_handles_a_single_value():
+    svg = report.histogram_svg([5.0], title="singolo", bins=3)
+
+    assert svg.startswith("<svg")
+    assert "<rect" in svg
+
+
+def test_the_histogram_handles_a_constant_axis():
+    svg = report.histogram_svg([5.0, 5.0, 5.0], title="costante", bins=3)
+
+    assert svg.startswith("<svg")
+    assert "<rect" in svg
