@@ -4,6 +4,15 @@
 - **Ambiente:** Windows 11, Python 3.12.10, 16 GB di RAM, 12 processori logici
 - **Nuvola di riferimento:** `Nuvole di punti/muro_generato.ply`, il muro sintetico a geometria nota
 - **Unità di lavoro:** mm, N, MPa, tonnellata, secondo
+- **Numeri riverificati il 13 agosto 2026** su una corsa completa rifatta dopo
+  tre interventi sul core: la garanzia di orientazione allo step 6, la verifica
+  di `min_ratio` sul maglio prodotto e la nuova regola per la tolleranza dei
+  set. **Ventuno grandezze su ventisei sono risultate identiche**, dai 611.008
+  punti letti ai 96,97 t di massa, passando per 420.547 nodi, 1.752.795
+  tetraedri, Hausdorff 54,18 mm e mediana dell'angolo diedro minimo 38,26°.
+  Cambiano soltanto i sei insiemi di faccia, per effetto della nuova tolleranza,
+  e si aggiungono tre metriche che prima non esistevano. Le sezioni interessate
+  lo dicono al loro posto.
 
 Questo documento riporta la validazione sul muro sintetico e il confronto fra i
 due generatori di mesh di volume. Per la segmentazione automatica sulla
@@ -124,6 +133,13 @@ solo la maggiore, con 37 vertici orfani rimossi. Prima della chiusura si contano
 successivi di 0,244 e 0,140 m², più **2 cammini di bordo aperti**
 (`open_boundary_paths`), che non sono fori. Dopo MeshFix la superficie è
 **chiusa** (`watertight_after: true`), con 116.967 vertici e 233.930 triangoli.
+
+Lo step garantisce ora anche l'orientazione: se il volume racchiuso esce
+negativo, cioè se la superficie è chiusa ma rovesciata, l'avvolgimento dei
+triangoli viene invertito e il fatto è dichiarato in `orientation_flipped`. Su
+questo muro il valore è **falso**, perché la superficie era già orientata verso
+l'esterno; è vero su `lab_frame.pcd`, dove il difetto è costato un giro completo
+di indagine prima di essere trovato.
 Il volume racchiuso passa da 46,17 m³ prima della chiusura a 53,87 m³ dopo:
 l'incremento è quasi tutto la materia aggiunta chiudendo le due facce aperte del
 muro.
@@ -164,6 +180,14 @@ la sola grandezza dello step che varia fra corse identiche, misurata fra 40,2 e
 44,3 secondi su tre esecuzioni della stessa configurazione. Nodi, tetraedri e
 punti aggiunti sono invece riprodotti identici.
 
+Lo step misura ora anche il vincolo che chiede. `min_ratio` limita il rapporto
+raggio-spigolo, e nessuna metrica lo verificava sul maglio prodotto: qui
+l'**8,10%** degli elementi lo supera. Non è un difetto di questa corsa ma la
+natura di TetGen, che tratta `minratio` come un obiettivo e non come un tetto,
+esattamente come tratta `maxvolume`; sono gli sliver di bordo che il
+raffinamento non può correggere legalmente. Il valore è in `metrics.json` come
+`radius_edge_ratio_over_limit`, e l'avviso scatta solo se supera la metà.
+
 Rapporto raggio-spigolo 1,8 e assenza di tetto sono ora entrambi i predefiniti di
 `TetConfig`, cambiati per il motivo spiegato nella sezione «La mesh troncata»,
 più sotto: fino a poco fa questo step produceva 216.967 nodi e 635.336 tetraedri
@@ -177,9 +201,11 @@ la troncatura degradasse la mesh senza che nulla lo segnalasse.
 
 **Step 11 — esportazione.** Deck scritto in `wall_model.inp` e
 `wall_model.vtu`. Volume 53,873 m³, massa **96,97 t** con la densità di 1,8 ×
-10⁻⁹ t/mm³. Ingombro allineato **1224,1 × 5854,3 × 7823,6 mm**, con tolleranza
-dei set di 31,95 mm e insiemi di nodi `BASE` **4738**, `TOP` 3468,
-`FACE_FRONT` 224.875, `FACE_BACK` 122.728, `SIDE_LEFT` 4272, `SIDE_RIGHT` 4085.
+10⁻⁹ t/mm³. Ingombro allineato **1224,1 × 5854,3 × 7823,6 mm**, con spaziatura
+dei nodi di bordo 13,73 mm, tolleranza dei set di **82,37 mm** e insiemi di nodi
+`BASE` **18.020**, `TOP` 13.932, `FACE_FRONT` 241.021, `FACE_BACK` 137.151,
+`SIDE_LEFT` 15.417, `SIDE_RIGHT` 15.807. La copertura della superficie
+d'appoggio da parte di `BASE` vale **100,00%**.
 
 Questo step portava fino a poco fa un'anomalia seria, **ora risolta**. Il
 sistema di riferimento del modello veniva stimato con una PCA sui nodi della
@@ -204,34 +230,54 @@ I numeri prima e dopo:
 | `BASE` | 387 nodi | **4738 nodi** |
 | `SIDE_LEFT` / `SIDE_RIGHT` | 350 / 295 | **4272 / 4085** |
 
-Sulla **tolleranza dei set** resta invece un limite dichiarato e non risolto. I
-31,95 mm derivano dal lato del tetraedro regolare di volume *medio*, e la
-distribuzione dei volumi ha una coda pesantissima: mediana 14,6 mm³ contro media
-30.735 mm³, un fattore duemila. La tolleranza che decide quali nodi finiscono in
-`BASE` dipende quindi da una manciata di elementi enormi. Il passaggio alla
-mediana è stato provato e misurato: la tolleranza scende a 2,50 mm e `BASE`
-passa da 4738 nodi a **9** su 420.547, cioè a un vincolo puntiforme sotto un muro
-da 97 t. Il motivo è che nessuna delle due statistiche descrive l'elemento
-tipico — la mediana è dominata dai tetraedri minuscoli lasciati dal raffinamento
-sulla superficie (lato equivalente 5,0 mm), la media dai pochi elementi enormi
-dell'interno (63,9 mm) — mentre la scala che conterebbe è la spaziatura dei nodi
-sul bordo, che vale 13,7 mm di mediana. Legare la tolleranza al volume
-dell'elemento è l'euristica sbagliata in partenza. Finché non viene sostituita
-resta la media, che è la sola sotto cui i set sono stati verificati utilizzabili;
-il numero di nodi di ogni set è comunque scritto in `metrics.json`, quindi un set
-degenere sarebbe visibile e non silenzioso.
+I conteggi di questa tabella sono quelli misurati allora, con la tolleranza dei
+set di 31,95 mm: è un confronto a tolleranza fissa, dove l'unica variabile è la
+terna, e va letto così. Sotto la tolleranza attuale gli stessi insiemi valgono
+18.020 e 15.417 / 15.807, per la ragione della sezione che segue.
+
+**La tolleranza dei set era il limite dichiarato e non risolto di questa
+sezione. Ora è risolto.** I 31,95 mm derivavano dal lato del tetraedro regolare
+di volume *medio*, e la distribuzione dei volumi ha una coda pesantissima:
+mediana 14,6 mm³ contro media 30.735 mm³, un fattore duemila. La tolleranza che
+decide quali nodi finiscono in `BASE` dipendeva quindi da una manciata di
+elementi enormi, cioè da un artefatto del raffinamento e non dalla geometria.
+
+Quanto costasse non era però noto, perché mancava la misura che lo dicesse:
+contare i nodi di un insieme non dice se copra la faccia che deve coprire.
+Introdotta quella — la frazione di superficie d'appoggio che l'insieme raggiunge
+davvero — il verdetto è netto: i 4738 nodi di `BASE` coprivano il **55,78%**
+della base, lasciandone scoperto il 44%.
+
+Le due regole candidate sono state misurate e respinte entrambe. Il volume
+mediano dell'elemento porta la tolleranza a 2,50 mm e `BASE` a **9 nodi** su
+420.547, un vincolo puntiforme sotto un muro da 97 t. La selezione per direzione
+della normale, che è lo standard dei preprocessori, funzionerebbe qui ma è
+catastrofica su una scansione con aperture, dove l'intradosso di un architrave
+ha normale verso il basso e finirebbe fra i nodi vincolati.
+
+La regola adottata mantiene la forma «fattore × scala» e cambia entrambi: la
+scala è la mediana degli spigoli sul bordo del maglio di volume, **13,73 mm**, e
+il fattore predefinito passa da 0,5 a **6**. La tolleranza diventa 82,37 mm e
+`BASE` sale a **18.020 nodi**, con copertura **100,00%**. La scelta della scala
+è misurata e non stilistica: l'ondulazione della faccia, che è ciò che la
+tolleranza deve coprire, trasferisce fra i due modelli di riferimento entro un
+fattore 1,79 se misurata in spaziature e entro 3,2 se misurata in frazioni
+dell'estensione. Nasce nella ricostruzione, che ha la scala del campionamento,
+non in quanto è alto il muro. Misura completa, criterio di accettazione e sweep
+del fattore in [`fase-1-tolleranza-set.md`](fase-1-tolleranza-set.md).
 
 L'ingombro allineato coincide ora con quello della nuvola sorgente entro il 2%,
 e i set laterali, prima squilibrati e minuscoli, sono diventati simmetrici fra
 loro e di taglia sensata. **I set di faccia sono finalmente utilizzabili per
-un'analisi vera**: `BASE`, che è l'insieme vincolato dal deck, raccoglie 4738
-nodi distribuiti sulla base reale del muro invece di 387 nodi raccolti su uno
-spigolo obliquo, e con quel vincolo il carico di gravità scarica dove deve.
+un'analisi vera**: `BASE`, che è l'insieme vincolato dal deck, raccoglie 18.020
+nodi che coprono per intero la base reale del muro, invece di 387 nodi raccolti
+su uno spigolo obliquo, e con quel vincolo il carico di gravità scarica dove
+deve.
 
 ### Lo squilibrio fra le due grandi facce nasce nella pipeline, non nel dato
 
-Resta uno squilibrio fra `FACE_FRONT` (224.875 nodi) e `FACE_BACK` (122.728): il
-primo insieme ha l'**83% di nodi in più** del secondo. Non è un difetto di
+Resta uno squilibrio fra `FACE_FRONT` (241.021 nodi) e `FACE_BACK` (137.151): il
+primo insieme ha il **76% di nodi in più** del secondo. Non è un difetto di
 allineamento, ma **non è nemmeno una proprietà del dato**, come una versione
 precedente di questa sezione affermava attribuendolo alla scansione. Quella
 lettura era sbagliata due volte. Anzitutto `muro_generato.ply` non è una
@@ -240,23 +286,28 @@ alcun punto di vista che ne abbia visto una faccia meglio dell'altra. E poi i
 dati per verificarlo sono nel repository, e dicono il contrario.
 
 Misurando quanti punti cadono entro la stessa banda ai due estremi dello spessore
-— la banda è la tolleranza dei set, 31,95 mm, applicata dopo la stessa
+— la banda è la tolleranza dei set, 82,37 mm, applicata dopo la stessa
 trasformazione di allineamento — lo squilibrio compare **solo all'ultimo
 passaggio**:
 
 | stadio | verso *x* minimo | verso *x* massimo | eccesso del maggiore |
 |---|---|---|---|
-| nuvola segmentata (`02_segmented.ply`, 593.728 punti) | 214.543 | 210.064 | **2,1%** |
-| superficie riparata (`06_repaired.ply`, 116.967 vertici) | 46.031 | 43.012 | **7,0%** |
-| nodi del deck (`wall_model.vtu`, 420.547 nodi) | 224.875 | 122.728 | **83,2%** |
+| nuvola segmentata (`02_segmented.ply`, 593.728 punti) | 225.896 | 225.562 | **0,1%** |
+| superficie riparata (`06_repaired.ply`, 116.967 vertici) | 47.697 | 44.696 | **6,7%** |
+| nodi del deck (`wall_model.vtu`, 420.547 nodi) | 241.021 | 137.151 | **75,7%** |
 
-Allargando la banda al doppio, la nuvola segmentata dà 223.435 contro 223.114
-punti, cioè è simmetrica allo **0,14%**: la sorgente è, a tutti gli effetti,
-bilanciata. Lo squilibrio è quindi introdotto dalla pipeline, e per la quasi
+La sorgente è, a tutti gli effetti, bilanciata: un punto per mille di scarto su
+593.728 punti. Lo squilibrio è quindi introdotto dalla pipeline, e per la quasi
 totalità dall'ultimo passo: **è il raffinamento di bordo di TetGen** a infittire
 una faccia molto più dell'altra, dopo che la ricostruzione di Poisson e la
-chiusura ne avevano già introdotto una frazione modesta: il 7,0% dello step 6
-contro l'83,2% del deck, cioè circa un dodicesimo dello squilibrio finale.
+chiusura ne avevano già introdotto una frazione modesta: il 6,7% dello step 6
+contro il 75,7% del deck, cioè circa un undicesimo dello squilibrio finale.
+
+Questi numeri sono stati rimisurati con la tolleranza attuale. Rispetto alla
+prima stesura, fatta a 31,95 mm, la conclusione non cambia e l'argomento si
+rafforza: la banda più larga rende la nuvola sorgente ancora più simmetrica
+(dallo 2,1% allo 0,1%) mentre lo squilibrio del deck resta dell'ordine
+dell'80%.
 
 Non è nemmeno un effetto della tolleranza che seleziona i set. I due strati sono
 piani: la normale ai minimi quadrati dei nodi di `FACE_FRONT` si scosta di
@@ -551,13 +602,13 @@ Il deck prodotto è però verificato per altre due vie, entrambe eseguite:
   `runs/muro/wall_model.inp` viene riletto senza errori, restituendo **420.547
   punti** e **1.752.795 elementi `tetra`**, cioè esattamente i conteggi dello
   step 9, e i sei insiemi di nodi con le taglie dichiarate dallo step 11:
-  `BASE` 4738, `TOP` 3468, `FACE_FRONT` 224.875, `FACE_BACK` 122.728,
-  `SIDE_LEFT` 4272, `SIDE_RIGHT` 4085. Sono **1.261.641 gradi di libertà** (tre
-  per nodo), di cui 1.247.427 liberi dopo il vincolo dei 4738 nodi di `BASE`.
-  Una versione precedente di questa sezione riportava qui 216.967 punti e
-  635.336 elementi: erano i numeri della mesh troncata, rimasti dopo che il deck
-  era stato rigenerato senza il tetto ai punti di Steiner, e la lettura è stata
-  rifatta sul deck corrente;
+  `BASE` 18.020, `TOP` 13.932, `FACE_FRONT` 241.021, `FACE_BACK` 137.151,
+  `SIDE_LEFT` 15.417, `SIDE_RIGHT` 15.807. Sono **1.261.641 gradi di libertà**
+  (tre per nodo), di cui 1.207.581 liberi dopo il vincolo dei 18.020 nodi di
+  `BASE`. Una versione precedente di questa sezione riportava qui 216.967 punti
+  e 635.336 elementi: erano i numeri della mesh troncata, rimasti dopo che il
+  deck era stato rigenerato senza il tetto ai punti di Steiner, e la lettura è
+  stata rifatta sul deck corrente;
 - **in soluzione da CalculiX 2.22**, tramite la prova di fattibilità
   `tests/feasibility/test_calculix.py`, che risolve un deck scritto dallo stesso
   `abaqus.export_model` e ne rilegge gli spostamenti. La prova passa su questa
