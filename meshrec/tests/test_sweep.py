@@ -149,3 +149,42 @@ def test_provenance_when_git_cannot_start_reports_dirty_as_unknown_not_false(mon
 
     assert provenance["dirty"] is None
     assert provenance["commit"] == "sconosciuto"
+
+
+def test_a_candidate_that_fails_becomes_a_row_and_not_an_exception(tmp_path):
+    """Un buco nel registro sarebbe indistinguibile da un candidato mai provato.
+
+    Qui il fallimento e' provocato con una nuvola inesistente, che e' il modo
+    piu rapido di far uscire `meshrec run` con codice diverso da zero.
+    """
+    cfg = config.PipelineConfig(input=config.InputConfig(path=str(tmp_path / "assente.ply")))
+
+    row = sweep.run_candidate({}, cfg, tmp_path / "candidato", timeout_s=120.0)
+
+    assert row["outcome"] == "fallito"
+    assert row["exit_code"] != 0
+    assert row["stderr"]
+    assert row["complete"] is False
+    assert row["fingerprint"] == sweep.fingerprint(cfg)
+
+
+def test_a_candidate_that_succeeds_records_its_artifacts(tmp_path):
+    """Sul cubo sintetico la catena intera gira in pochi secondi ed e' l'unico
+    caso in cui il motore puo' essere provato end-to-end dentro la suite."""
+    from meshrec.core import io, synth
+
+    cloud = tmp_path / "cubo.ply"
+    io.write_cloud(cloud, synth.sample_box_surface(size=(100.0, 40.0, 200.0), spacing=4.0))
+    cfg = config.PipelineConfig(
+        input=config.InputConfig(path=str(cloud)),
+        surface=config.SurfaceConfig(poisson_depth=6),
+    )
+
+    row = sweep.run_candidate({"tet.min_ratio": 1.8}, cfg, tmp_path / "candidato", timeout_s=600.0)
+
+    assert row["outcome"] == "riuscito"
+    assert row["complete"] is True
+    assert row["axes"] == {"tet.min_ratio": 1.8}
+    assert row["input_digest"] == sweep.file_digest(cloud)
+    assert "09_volume.vtu" in row["artifacts"]
+    assert row["duration_s"] > 0.0

@@ -13,6 +13,7 @@ import itertools
 import json
 import subprocess
 import sys
+import time
 import warnings
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -180,3 +181,82 @@ def load_registry(path: Path) -> list[dict[str, object]]:
         return []
     with path.open(encoding="utf-8") as handle:
         return [json.loads(line) for line in handle if line.strip()]
+
+
+def run_candidate(
+    axes: dict[str, object],
+    cfg: PipelineConfig,
+    out_dir: Path,
+    timeout_s: float,
+) -> dict[str, object]:
+    """Esegue un candidato come processo separato e ne restituisce la riga.
+
+    Il sottoprocesso, e non un pool in memoria, per una ragione misurata: in
+    Fase 1 il processo e' stato ucciso dal sistema per esaurimento della
+    memoria senza sollevare alcuna eccezione. Un worker perso cosi' rompe un
+    ProcessPoolExecutor e porta giu' lo sweep; un sottoprocesso lascia un
+    codice di uscita e una riga di fallimento.
+
+    Non solleva mai per un candidato che fallisce: fallire e' un esito, e un
+    buco nel registro sarebbe indistinguibile da un candidato mai provato.
+    """
+    from meshrec.core.config import save_config
+
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    cfg = cfg.model_copy(deep=True)
+    cfg.run.out_dir = out_dir
+    config_path = out_dir / "config.yaml"
+    save_config(cfg, config_path)
+
+    started = time.monotonic()
+    try:
+        completed = subprocess.run(
+            [sys.executable, "-m", "meshrec.cli", "run", str(config_path)],
+            capture_output=True,
+            text=True,
+            timeout=timeout_s,
+            check=False,
+        )
+        exit_code, stderr = completed.returncode, completed.stderr
+        outcome = "riuscito" if exit_code == 0 else "fallito"
+    except subprocess.TimeoutExpired as expired:
+        exit_code, outcome = None, "timeout"
+        stderr = f"nessuna uscita entro {timeout_s} s\n{expired.stderr or ''}"
+    duration = time.monotonic() - started
+
+    metrics_path = out_dir / "metrics.json"
+    metrics: dict[str, object] = {}
+    if metrics_path.exists():
+        with metrics_path.open(encoding="utf-8") as handle:
+            metrics = json.load(handle)
+
+    artifacts = {
+        item.name: file_digest(item)
+        for item in sorted(out_dir.iterdir())
+        if item.is_file() and item.name not in ("config.yaml", "metrics.json")
+    }
+    input_path = Path(cfg.input.path)
+
+    return {
+        "fingerprint": fingerprint(cfg),
+        "axes": axes,
+        "outcome": outcome,
+        "exit_code": exit_code,
+        "duration_s": duration,
+        "complete": is_complete(metrics),
+        # stderr e' dove finiscono TruncatedRefinementWarning,
+        # IneffectiveVolumeLimitWarning e UnconstrainedModelWarning: qui
+        # diventano un campo della riga invece di una riga su un terminale
+        # che nel frattempo si e' chiuso.
+        "stderr": stderr.strip(),
+        "config": cfg.model_dump(mode="json"),
+        "input_digest": file_digest(input_path) if input_path.exists() else None,
+        "artifacts": artifacts,
+        "artifacts_kept": True,
+        "out_dir": str(out_dir),
+        "rerun": f"uv run meshrec run {config_path}",
+        "metrics": metrics,
+        "provenance": provenance(),
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
