@@ -330,6 +330,16 @@ def thickness(points: np.ndarray, bin_width: float) -> dict[str, object]:
     extents = np.ptp(projected, axis=0)
     axis = int(np.argmin(extents))
 
+    if extents[axis] / bin_width > len(values):
+        # Il numero di bin che np.arange proverebbe ad allocare supera il
+        # numero di punti: un istogramma con piu bin che campioni non misura
+        # nulla comunque, quindi l'ingresso e' degenere quanto una nuvola
+        # troppo piccola. La grandezza giusta e' questo rapporto, non una
+        # soglia sul bin_width: un bin_width valido per la densita' reale dei
+        # punti resta ben sotto, e senza la guardia np.arange solleverebbe
+        # MemoryError provando ad allocare l'array dei bordi dei bin.
+        return {"thickness": None, "axis": None, "extent": None, "bimodal": False}
+
     along = projected[:, axis]
     edges = np.arange(along.min(), along.max() + bin_width, bin_width)
     if len(edges) < 3:

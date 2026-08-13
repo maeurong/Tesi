@@ -435,9 +435,11 @@ def measure_thickness_error(row: dict[str, object], source_thickness: float | No
         return None
     try:
         spacing = float(row["metrics"]["01_load"]["spacing"])
-    except (KeyError, TypeError):
-        # metrics.json manca o e' incompleto: il caso del candidato ucciso a
-        # meta'. La riga resta, semplicemente senza asse di fedelta'.
+    except (KeyError, TypeError, ValueError):
+        # metrics.json manca, e' incompleto o porta un valore non numerico
+        # ("abc", ""): float() solleva ValueError, non catturato in
+        # precedenza. Il caso del candidato ucciso a meta'. La riga resta,
+        # semplicemente senza asse di fedelta'.
         return None
     # Su vertici degeneri (mesh piatta o collineare) quality.thickness non
     # solleva: dichiara bimodal False, gestito subito sotto.

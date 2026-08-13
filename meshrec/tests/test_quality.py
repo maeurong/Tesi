@@ -256,6 +256,19 @@ def test_thickness_declares_itself_invalid_on_a_bad_bin_width():
         assert measured["thickness"] is None
 
 
+def test_thickness_declares_itself_invalid_instead_of_exhausting_memory_on_a_tiny_bin_width():
+    """Un bin_width minuscolo rispetto all'estensione fa provare a np.arange
+    l'allocazione di un array enorme (MemoryError), pur essendo finito e
+    positivo, quindi passa tutte le guardie precedenti. La grandezza giusta
+    e' il numero di bin contro il numero di punti: un istogramma con piu bin
+    che campioni non misura nulla comunque."""
+    points = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [1000.0, 0.0, 1.0]])
+
+    measured = quality.thickness(points, bin_width=1e-6)
+
+    assert measured == {"thickness": None, "axis": None, "extent": None, "bimodal": False}
+
+
 def test_the_reference_fraction_does_not_depend_on_the_requested_min_ratio():
     """L'asse di qualita' del fronte usa un metro unico per tutti i candidati.
 

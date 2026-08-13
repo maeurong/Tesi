@@ -509,6 +509,29 @@ def test_measure_thickness_error_returns_none_without_raising_on_a_zero_spacing(
     assert sweep.measure_thickness_error(row, source_thickness=100.0) is None
 
 
+def test_measure_thickness_error_returns_none_without_raising_on_a_non_numeric_spacing(tmp_path):
+    """spacing e' una stringa non numerica ("abc"): float() solleva ValueError,
+    non catturato dalla cattura originale (KeyError, TypeError). E' lo stesso
+    caso del candidato ucciso a meta', letto da un metrics.json corrotto in
+    un altro modo: la riga resta comparabile a False, la funzione non deve
+    sollevare."""
+    import numpy as np
+    import open3d as o3d
+
+    out_dir = tmp_path / "candidato"
+    out_dir.mkdir()
+    mesh = o3d.geometry.TriangleMesh()
+    mesh.vertices = o3d.utility.Vector3dVector(
+        np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+    )
+    mesh.triangles = o3d.utility.Vector3iVector(np.array([[0, 1, 2], [1, 2, 3]]))
+    o3d.io.write_triangle_mesh(str(out_dir / "06_repaired.ply"), mesh)
+
+    row = {"out_dir": str(out_dir), "metrics": {"01_load": {"spacing": "abc"}}}
+
+    assert sweep.measure_thickness_error(row, source_thickness=100.0) is None
+
+
 def test_verify_declares_stale_a_row_whose_artifact_changed(tmp_path):
     """La prova a variabile unica: si altera un artefatto e la riga deve cadere.
 
