@@ -188,6 +188,17 @@ su `lab_frame.pcd` con `segment.method: crop`, il box indicato sopra,
 `downsample.voxel_size: 10.0` esplicito e i parametri della tetraedrizzazione ai
 **predefiniti attuali** (`tet.min_ratio: 1.8`, `tet.max_steiner_points: -1`).
 
+Questa configurazione è ora tracciata da git in `meshrec/lab.yaml`. Va però
+detto con chiarezza, perché non è ovvio dal solo file: **rieseguire oggi
+`meshrec run lab.yaml` non riproduce i numeri archiviati in questa sezione**,
+perché si ferma allo step 9 con `RefinementFailedError`, esattamente come
+descritto più sotto. Non è una regressione introdotta dopo la corsa: quei
+numeri venivano da una mesh troncata in silenzio dal tetto ereditato di 100 000
+punti di Steiner della libreria TetGen, tetto che `meshrec/lab.yaml` non porta
+più (`max_steiner_points: -1`). Con il tetto rimosso il fallimento allo step 9
+è il comportamento corretto e onesto su questa superficie, non un difetto
+introdotto dalla configurazione versionata.
+
 **Fonte dei numeri di questa sezione:** `runs/lab_crop/metrics.json`, corsa dal
 primo step del 13 agosto 2026 con il codice corrente. Sostituiscono
 integralmente quelli che una versione precedente di questo documento riportava
