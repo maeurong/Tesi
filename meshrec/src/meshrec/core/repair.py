@@ -28,11 +28,18 @@ def component_labels(faces: np.ndarray, n_vertices: int) -> np.ndarray:
     return labels
 
 
-def hole_loops(faces: np.ndarray) -> list[np.ndarray]:
-    """Cicli chiusi di spigoli di bordo: un ciclo e' un foro."""
+def hole_loops(faces: np.ndarray) -> tuple[list[np.ndarray], list[np.ndarray]]:
+    """Cammini sugli spigoli di bordo, separati in cicli chiusi e cammini aperti.
+
+    Solo un ciclo chiuso e' un foro, e solo di quello ha senso misurare l'area.
+    Un cammino che non si richiude non lo e': o finisce in un vicolo cieco, o
+    ha raggiunto il tetto di lunghezza. I due casi vanno tenuti distinti perche'
+    il registro delle operazioni e' il prodotto di questo modulo, e un cammino
+    troncato contato come foro sarebbe un foro fantasma con un'area inventata.
+    """
     edges = boundary_edges(faces)
     if len(edges) == 0:
-        return []
+        return [], []
 
     neighbours: dict[int, list[int]] = {}
     for a, b in edges:
@@ -40,20 +47,33 @@ def hole_loops(faces: np.ndarray) -> list[np.ndarray]:
         neighbours.setdefault(int(b), []).append(int(a))
 
     loops: list[np.ndarray] = []
+    open_paths: list[np.ndarray] = []
     unvisited = set(neighbours)
     while unvisited:
         start = unvisited.pop()
         loop = [start]
         previous, current = start, neighbours[start][0]
-        while current != start:
+        closed = False
+        # Un ciclo non puo' essere piu lungo del numero di spigoli di bordo.
+        # Il tetto non e' prudenza: su una giunzione non manifold (un vertice
+        # con piu di due spigoli di bordo, frequente sui bordi lasciati dal
+        # trimming per densita del Poisson) scegliere sempre il primo vicino
+        # disponibile puo' entrare in un circuito che non ripassa mai da
+        # `start`, e la lista cresce fino a esaurire la memoria. Osservato
+        # sulla superficie del muro sintetico: MemoryError dentro questo ciclo,
+        # con 2285 soli spigoli di bordo.
+        while len(loop) <= len(edges):
+            if current == start:
+                closed = True
+                break
             unvisited.discard(current)
             loop.append(current)
             options = [node for node in neighbours[current] if node != previous]
             if not options:
                 break
             previous, current = current, options[0]
-        loops.append(np.array(loop, dtype=np.int64))
-    return loops
+        (loops if closed else open_paths).append(np.array(loop, dtype=np.int64))
+    return loops, open_paths
 
 
 def _loop_area(vertices: np.ndarray, loop: np.ndarray) -> float:
@@ -113,10 +133,15 @@ def repair_surface(
         f = np.ascontiguousarray(orphan_remap[f])
 
     # 4. misura dei fori, prima che la chiusura ne cancelli la traccia
-    loops = hole_loops(f)
+    loops, open_paths = hole_loops(f)
     areas = sorted((_loop_area(v, loop) for loop in loops), reverse=True)
     metrics["holes_before"] = len(loops)
     metrics["hole_areas"] = areas
+    # Cammini di bordo che non si richiudono: non sono fori e non hanno un'area
+    # da riportare, ma sono il segnale che il bordo e' non manifold. Contarli
+    # fra i fori gonfierebbe `holes_before` con voci di cui `hole_areas`
+    # riporterebbe un'area priva di significato.
+    metrics["open_boundary_paths"] = len(open_paths)
     metrics["holes_over_threshold"] = (
         [] if cfg.max_hole_area is None else [area for area in areas if area > cfg.max_hole_area]
     )

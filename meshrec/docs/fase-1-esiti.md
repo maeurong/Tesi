@@ -51,9 +51,15 @@ depth 9 sarebbe accaduto lo stesso.
 Con un tetto sulla lunghezza del ciclo, pari al numero di spigoli di bordo — un
 ciclo non può essere più lungo del grafo che percorre — lo step 6 completa in
 5,9 secondi su 221.369 triangoli. La correzione tocca `src/meshrec/core/repair.py`
-e porta con sé una prova di non regressione in `tests/test_repair.py`; entrambe
-restano **fuori dal commit di questo task**, che per vincolo esplicito comprende
-soltanto i tre percorsi del backend Gmsh e questo documento.
+e porta con sé una prova di non regressione in `tests/test_repair.py`.
+
+Il tetto introduce però un caso nuovo, che va registrato onestamente: un cammino
+interrotto perché ha raggiunto il tetto non è un foro, e contarlo fra i fori
+significherebbe attribuirgli un'area calcolata su un ciclo troncato. I due casi
+sono quindi tenuti distinti: `holes_before` e `hole_areas` riguardano solo i
+cicli che si richiudono davvero, mentre i cammini che non si richiudono — per
+vicolo cieco o per tetto raggiunto — sono contati a parte in
+`open_boundary_paths`, che è il segnale che il bordo è non manifold.
 
 I parametri effettivamente usati nella corsa finale si discostano dai predefiniti
 in due punti, entrambi scelti per contenere la taglia della superficie:
@@ -99,18 +105,22 @@ quantile di densità 0,05: 5882 vertici scartati sopra la soglia di densità
 **Step 6 — riparazione.** Nessun vertice coincidente da saldare, nessun
 triangolo degenere o duplicato; tre componenti connesse, di cui viene tenuta
 solo la maggiore, con 37 vertici orfani rimossi. Prima della chiusura si contano
-89 fori, i due maggiori di circa 23,0 e 23,0 m² e il terzo di 4,63 m²: sono le
-due facce aperte del muro e una lacuna di scansione, non difetti locali. Dopo
-MeshFix la superficie è **chiusa** (`watertight_after: true`), con 116.967
-vertici e 233.930 triangoli. Il volume racchiuso passa da 46,17 m³ prima della
-chiusura a 53,87 m³ dopo: l'incremento è quasi tutto la materia aggiunta
-chiudendo le due facce aperte.
+**87 fori**, cioè cicli di bordo che si richiudono, il maggiore di 4,63 m² e i
+successivi di 0,244 e 0,140 m², più **2 cammini di bordo aperti**
+(`open_boundary_paths`), che non sono fori. Dopo MeshFix la superficie è
+**chiusa** (`watertight_after: true`), con 116.967 vertici e 233.930 triangoli.
+Il volume racchiuso passa da 46,17 m³ prima della chiusura a 53,87 m³ dopo:
+l'incremento è quasi tutto la materia aggiunta chiudendo le due facce aperte del
+muro.
 
-Su questo punto va lasciata una riserva onesta: poiché due dei cicli di bordo
-hanno raggiunto il tetto introdotto per fermare il cammino non manifold, i due
-valori di area di 23,0 m² sono stime della grandezza dei fori, non misure
-esatte. La chiusura vera la esegue MeshFix, e la chiusura è verificata; è solo
-la misura descrittiva dei due fori maggiori a essere approssimata.
+I due cammini aperti sono proprio quelli che percorrono le facce aperte
+passando per giunzioni non manifold e non si richiudono mai. Contarli fra i fori
+li avrebbe fatti apparire come due lacune da circa 23,0 m² ciascuna — un valore
+calcolato su un cammino troncato, cioè un'area priva di significato. Il registro
+li tiene ora separati: `holes_before` conta solo i cicli chiusi e `hole_areas`
+ha esattamente un'area per ciascuno di essi, mentre `open_boundary_paths`
+segnala che il bordo è non manifold senza attribuirgli una superficie. La
+chiusura la esegue comunque MeshFix, ed è verificata.
 
 **Step 7 — qualità della superficie.** 116.967 vertici, 233.930 triangoli,
 superficie chiusa con zero spigoli di bordo, area 121,57 m², volume racchiuso

@@ -83,3 +83,35 @@ def test_degenerate_and_duplicate_faces_are_removed():
 
     assert metrics["degenerate_faces_removed"] == 1
     assert metrics["duplicate_faces_removed"] == 1
+
+
+def test_a_non_manifold_boundary_junction_does_not_loop_forever():
+    """Due triangoli uniti in un solo vertice: il vertice ha quattro spigoli di bordo.
+
+    Partendo da un vertice esterno al triangolo in cui il cammino finisce per
+    entrare, la ricerca dei cicli non ripassa mai dal punto di partenza: senza
+    il tetto sulla lunghezza del ciclo questa chiamata non termina e consuma
+    tutta la memoria. E' il guasto che ha ucciso l'esecuzione sul muro
+    sintetico, dove il trimming per densita del Poisson lascia giunzioni di
+    questo tipo sui bordi.
+    """
+    faces = np.array([[0, 1, 2], [0, 3, 4]], dtype=np.int64)
+
+    loops, open_paths = repair.hole_loops(faces)
+
+    # Un cammino troncato non deve passare per un foro: i due triangoli hanno un
+    # solo ciclo chiuso vero, e i cammini che si perdono nella giunzione vanno
+    # contati a parte invece di diventare fori fantasma con un'area inventata.
+    assert len(open_paths) > 0
+    assert all(len(loop) <= len(quality.boundary_edges(faces)) for loop in loops)
+    assert max(len(path) for path in open_paths) <= len(quality.boundary_edges(faces)) + 1
+
+    _, _, metrics = repair.repair_surface(
+        np.array(
+            [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [-1.0, 0.0, 0.0], [0.0, -1.0, 0.0]]
+        ),
+        faces,
+        config.RepairConfig(largest_component_only=False),
+    )
+    assert metrics["open_boundary_paths"] > 0
+    assert metrics["holes_before"] == len(metrics["hole_areas"])
