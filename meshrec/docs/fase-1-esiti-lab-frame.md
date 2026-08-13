@@ -184,49 +184,171 @@ Per la Fase 2 restano due indicazioni, entrambe ricavate da questi numeri:
 ## 5. Fin dove arriva la pipeline sui dati reali
 
 Stabilito che la via praticabile è il ritaglio, si è eseguita la pipeline completa
-su `lab_frame.pcd` con `segment.method: crop`, il box indicato sopra e
-`downsample.voxel_size: 10.0` esplicito, per verificare dove si ferma sui dati reali
-con questa macchina.
+su `lab_frame.pcd` con `segment.method: crop`, il box indicato sopra,
+`downsample.voxel_size: 10.0` esplicito e i parametri della tetraedrizzazione ai
+**predefiniti attuali** (`tet.min_ratio: 1.8`, `tet.max_steiner_points: -1`).
 
-Il risultato è che **arriva in fondo**, fino al deck Abaqus. La cronologia degli
-step, misurata dagli artefatti scritti:
+**Fonte dei numeri di questa sezione:** `runs/lab_crop/metrics.json`, corsa dal
+primo step del 13 agosto 2026 con il codice corrente. Sostituiscono
+integralmente quelli che una versione precedente di questo documento riportava
+qui, ottenuti con codice poi corretto e con `min_ratio: 1.1`: quella corsa
+dichiarava un deck Abaqus completo e non lo era. La ricostruzione di che cosa
+fosse davvero è nella sotto-sezione «La corsa superata», più sotto. Le sezioni
+da 1 a 4 di questo documento non sono toccate: riguardano gli step 1 e 2, il cui
+codice non è cambiato, e la corsa nuova ne riproduce i numeri identici
+(6 329 096 punti letti, spaziatura 1,1923 mm, 4 229 538 punti dopo il ritaglio).
+
+Il risultato è che **la pipeline non arriva in fondo su questa scansione**: gli
+step da 1 a 8 girano regolarmente e in tempi modesti, e lo step 9 fallisce.
 
 | step | esito |
 | --- | --- |
-| 1 lettura | 6 329 096 punti, 10 s |
-| 2 ritaglio | 4 229 538 punti |
-| 3 riduzione a voxel (10 mm) | ≈ 116 000 punti |
-| 4 normali | 8 s, nessuna normale degenere |
-| 5 Poisson (profondità 9) | 199 891 vertici, 398 044 triangoli, 11 s |
-| 6 riparazione | 126 componenti ridotte a 1, 48 fori chiusi, superficie chiusa: 213 154 vertici, 426 600 triangoli |
-| 7 qualità di superficie | errore geometrico nuvola → mesh: RMS 4,90 mm, media 3,85 mm, massimo 29,19 mm su 4 229 538 campioni; mesh → nuvola: RMS 3,90 mm |
-| 9 tetraedrizzazione | 313 154 nodi, 1 003 804 tetraedri in 10,4 s, nessun elemento invertito |
-| 11 esportazione | ingombro orientato 212,9 × 2465,8 × 1705,4 mm, volume 173 282 774 mm³, massa 0,312 t, insieme `BASE` da 1289 nodi |
+| 1 lettura | 6 329 096 punti, nessuno scartato, spaziatura media 1,1923 mm, ingombro 2759,0 × 785,0 × 2000,0 mm |
+| 2 ritaglio | 244 304 punti isolati rimossi, 4 229 538 punti dentro il box |
+| 3 riduzione a voxel (10 mm) | da 4 229 538 a 116 059 punti, riduzione del 97,3% |
+| 4 normali | nessuna normale degenere |
+| 5 Poisson (profondità 9) | 10 521 vertici scartati al quantile di densità 0,05 (soglia 8,1796), 199 891 vertici e 398 044 triangoli |
+| 6 riparazione | 3 vertici coincidenti saldati, 6 triangoli degeneri e 39 duplicati rimossi, 126 componenti ridotte a 1, 1354 vertici orfani; **7 cicli chiusi** e **41 cammini di bordo aperti** prima della chiusura; dopo MeshFix superficie chiusa, 213 154 vertici e 426 600 triangoli |
+| 7 qualità di superficie | chiusa, 0 spigoli di bordo, area 4,489 m²; rapporto d'aspetto dei triangoli: mediana 1,399, media 4,030, massimo 34 973 |
+| 8 semplificazione | disabilitata: 426 600 triangoli in ingresso e in uscita |
+| 9 tetraedrizzazione | **fallita**, `RefinementFailedError`: il raffinamento non converge |
+| 10, 11 | non raggiunti |
 
-Il `voxel_size: 10.0` esplicito è la scelta che rende praticabile lo step 4. Con il
-valore derivato dai dati (`voxel_factor: 2.0`, cioè 2,4 mm) la riduzione lascia
+L'intera corsa si ferma dopo **134 s**, cioè ben dentro il limite di venti minuti
+per esecuzione che mi ero imposto: il limite qui non è il tempo né la memoria.
+
+Errore geometrico fra superficie riparata e nuvola segmentata dello step 2,
+riportato per intero perché il massimo e la media dicono cose diverse dall'RMS:
+
+| direzione | campioni | media | RMS | massimo |
+| --- | --- | --- | --- | --- |
+| nuvola → mesh | 4 229 538 | 3,854 mm | 4,897 mm | 29,191 mm |
+| mesh → nuvola | 213 154 | 1,955 mm | 3,898 mm | **77,361 mm** |
+
+La distanza di Hausdorff, cioè il massimo dei due massimi, vale **77,36 mm**.
+Rapportata alla diagonale dell'ingombro, circa 3006 mm, è il **2,6%**: un valore
+molto più alto del 0,55% del muro sintetico. Che l'errore massimo cada dove la
+chiusura di MeshFix ha inventato superficie sui bordi aperti del ritaglio — cioè
+dove per costruzione non esistono punti di riferimento — è la spiegazione
+plausibile e coerente con il caso del muro sintetico, ma non è stata verificata
+localizzando i campioni peggiori: va presa come ipotesi. Riportare qui il solo
+RMS di 3,90 mm, come faceva la versione precedente, nascondeva comunque un errore
+massimo venti volte più grande.
+
+### I fori: 7 cicli chiusi e 41 cammini aperti, non 48 fori
+
+Una versione precedente di questa sezione riportava «48 fori chiusi». Il numero
+veniva da `holes_before` prima della correzione di `repair.hole_loops`, quando la
+funzione contava fra i fori anche i cammini di bordo che non si richiudono. La
+distinzione, in una riga: **un ciclo chiuso è un foro** e ha un'area misurabile;
+**un cammino aperto** finisce in un vicolo cieco o su una giunzione non manifold,
+non delimita nulla, e qualunque area gli si attribuisca è calcolata su un
+poligono che non si chiude.
+
+Rimisurato con il codice corrente sulla stessa superficie dello step 5:
+
+| grandezza | valore |
+| --- | --- |
+| cicli chiusi (`holes_before`) | **7**, di area 54,81 / 90,69 / 792,97 / 4407,65 / 31 012,34 / 34 670,18 / 279 816,08 mm² |
+| cammini aperti (`open_boundary_paths`) | **41**, di cui **39 di lunghezza 2** e 2 di lunghezza 1620 |
+
+I 48 «fori» del registro archiviato erano esattamente 7 + 41, e nel file
+archiviato **39 delle 48 aree valevano esattamente zero**: sono i cammini di
+lunghezza 2, due soli vertici, che non racchiudono alcuna superficie. Le due voci
+da 256 320 mm² erano invece i due cammini lunghi, cioè le due grandi aperture del
+bordo del ritaglio, la cui area è indicativa e non misurata. Il registro ora le
+tiene separate, ed è per questo che quel registro è diventato onesto.
+
+Quei due cammini sono anche il motivo per cui la guardia `repair.max_hole_area`
+non poteva restare limitata ai cicli chiusi: le due aperture maggiori di questa
+superficie sono cammini aperti, e una soglia che non le guardasse sarebbe cieca
+proprio sul caso per cui esiste. Le metriche riportano ora anche
+`open_paths_over_threshold`. Su questa corsa la soglia è nulla, quindi entrambe
+le liste sono vuote.
+
+### Lo step 9 non converge su questa superficie
+
+TetGen si interrompe con il proprio errore interno (`split_subface`), tradotto
+dalla pipeline in `RefinementFailedError`. Non è una questione di severità del
+vincolo raggio-spigolo: il valore è stato fatto salire ben oltre il predefinito
+di TetGen, che è 2,0, sulla superficie riparata `runs/lab_crop/06_repaired.ply`
+e senza tetto ai punti di Steiner.
+
+| `min_ratio` | esito |
+| --- | --- |
+| 1,8 (predefinito attuale) | errore interno dopo 36 s |
+| 2,0 | errore interno dopo 36 s |
+| 2,2 | errore interno dopo 38 s |
+| 2,5 | errore interno dopo 35 s |
+| 3,0 | errore interno dopo 30 s |
+| 4,0 | errore interno dopo 25 s |
+
+**Nessun valore provato porta a termine il lavoro.** Sul muro sintetico 1,8
+bastava; qui non basta neanche 4,0, cioè un vincolo praticamente inerte. Il
+problema non è quindi il parametro ma la superficie. L'indizio misurato è il
+rapporto d'aspetto dei triangoli, che qui arriva a 34 973 contro i 3968 del muro
+sintetico: la superficie porta schegge un ordine di grandezza peggiori. Che siano
+proprio quelle la configurazione degenere su cui TetGen si arrende è l'ipotesi
+naturale, non una verifica: il messaggio di TetGen non localizza il punto in cui
+si interrompe. È comunque un esito legittimo e va scritto: **su questa scansione
+la pipeline si ferma allo step 9**, e la prima via d'uscita da provare in Fase 2 è
+il remeshing dello step 8, che è il passo che rimuove le schegge, non un'ulteriore
+taratura di `min_ratio`.
+
+### La corsa superata, e perché i suoi numeri non valevano
+
+La versione precedente di questa sezione dichiarava che la pipeline arrivava in
+fondo, con «313 154 nodi, 1 003 804 tetraedri in 10,4 s, nessun elemento
+invertito» e un deck esportato. Quei numeri sono stati riprodotti esattamente,
+sulla stessa superficie riparata, e la spiegazione è che erano il prodotto del
+tetto ereditato di 100 000 punti di Steiner:
+
+| configurazione | nodi | tetraedri | punti aggiunti | tempo |
+| --- | --- | --- | --- | --- |
+| `min_ratio` 1,1, tetto 100 000 (la corsa archiviata) | 313 154 | 1 003 804 | **100 000, esauriti** | 9,8 s |
+| `min_ratio` 1,8, tetto 100 000 | 313 154 | 1 003 804 | **100 000, esauriti** | 9,9 s |
+| `min_ratio` 1,8, nessun tetto (predefinito attuale) | — | — | — | errore interno |
+
+313 154 nodi meno i 213 154 vertici della superficie fanno esattamente 100 000:
+la firma dell'esaurimento del budget. Le due prime righe danno lo stesso identico
+risultato proprio perché il tetto si esaurisce prima che `min_ratio` conti
+qualcosa. Il tetto, cioè, fermava TetGen **prima** che arrivasse alla
+configurazione degenere, e restituiva una mesh troncata con l'aria di un
+successo: è lo stesso meccanismo documentato sul muro sintetico in
+[`fase-1-esiti.md`](fase-1-esiti.md), con l'aggravante che qui nascondeva non un
+degrado di qualità ma un fallimento completo. Il `metrics.json` archiviato di
+quella corsa non aveva nemmeno le chiavi `max_steiner_points`, `steiner_points` e
+`steiner_saturated`, perché la metrica che avrebbe segnalato la saturazione non
+esisteva ancora.
+
+Vanno considerati superati, insieme a quei numeri, anche il rapporto di forma
+mediano 7,6 e l'angolo diedro minimo mediano 11,7° che la sezione riportava: sono
+misure sulla mesh troncata, e non descrivono alcuna mesh che questa pipeline
+produca oggi. La corsa superata era stata inoltre interrotta una prima volta dal
+limite di venti minuti mentre era nello step 6, con l'altro processo Python della
+macchina a 11 GB di RAM, e ripresa con `--from-step 6` a macchina più libera: la
+lentezza di allora era contesa di memoria, non un blocco algoritmico, e infatti
+la corsa nuova, a macchina libera, arriva allo step 9 in poco meno di cento
+secondi e fallisce lì dopo altri trentasei.
+
+### Che cosa resta valido per la Fase 2
+
+Il `voxel_size: 10.0` esplicito è la scelta che rende praticabile lo step 4. Con
+il valore derivato dai dati (`voxel_factor: 2.0`, cioè 2,4 mm) la riduzione lascia
 milioni di punti, e `orient_normals_consistent_tangent_plane` costruisce un albero
 di supporto minimo su tutti: è il punto in cui una precedente esecuzione sull'intera
 nuvola era stata uccisa dal sistema per esaurimento della memoria, senza sollevare
 alcuna eccezione — diagnosi confermata dall'assenza di `metrics.json`, che
 `pipeline.run` scrive in un blocco `finally` anche quando uno step fallisce.
 
-Due avvertenze sui numeri, entrambe da tenere presenti in Fase 2:
-
-- lo spessore del modello ricostruito è 212,9 mm contro i **176 mm** misurati fra le
-  due facce nella nuvola. La ricostruzione di Poisson ingrassa il muro di circa
-  18 mm per faccia; l'errore geometrico medio di 3,85 mm non lo rivela, perché è una
-  distanza punto-superficie e non una misura di spessore;
-- la qualità degli elementi è disomogenea: rapporto di forma mediano 7,6 ma massimo
-  7,4 × 10⁵, e angolo diedro minimo mediano 11,7° con minimo 1,2 × 10⁻⁴ gradi. Il
-  modello si esporta ma non è ancora adatto a un calcolo affidabile senza il
-  remeshing dello step 8, qui lasciato disattivato.
-
-La prima esecuzione di questa configurazione è stata interrotta dal limite di 20
-minuti che mi ero imposto, mentre era nello step 6 e con l'altro processo Python
-della macchina a 11 GB di RAM; la ripresa con `--from-step 6`, a macchina più
-libera, ha completato gli step da 6 a 11 in meno di 9 minuti. La lentezza era
-contesa di memoria, non un blocco algoritmico.
+Lo spessore del modello ricostruito è **214,0 mm** contro i **176 mm** misurati
+fra le due facce nella nuvola: la ricostruzione di Poisson ingrassa il muro di
+circa 19 mm per faccia, e l'errore geometrico medio di 3,85 mm non lo rivela,
+perché è una distanza punto-superficie e non una misura di spessore. Il valore è
+l'ingombro orientato della superficie riparata (214,0 × 2468,8 × 1694,0 mm),
+calcolato con `abaqus.align_to_axes` sui vertici di
+`runs/lab_crop/06_repaired.ply`, e non viene da uno step 11 che questa corsa non
+raggiunge.
 
 ## 6. Riproducibilità
 
@@ -254,7 +376,7 @@ Verifiche eseguite, tutte superate:
 
 | verifica | esito |
 | --- | --- |
-| suite completa `pytest -v`, cioè nell'ordine in cui `test_pipeline.py` gira prima di `test_segment.py` e scalda il pool di thread | 99 test passati in 21 s, compreso `test_auto_mode_is_reproducible_across_runs` |
+| suite completa `pytest -v`, cioè nell'ordine in cui `test_pipeline.py` gira prima di `test_segment.py` e scalda il pool di thread | 111 test passati in 22 s, compreso `test_auto_mode_is_reproducible_across_runs` (erano 99 quando la verifica fu eseguita la prima volta) |
 | due segmentazioni `auto` di seguito nello stesso processo, sulla scena sintetica, dopo una ricostruzione Poisson con `poisson_n_threads: -1` | `np.array_equal` vero, metriche identiche |
 | due segmentazioni `auto` di seguito nello stesso processo, sulla nuvola reale `lab_frame.pcd` | `np.array_equal` vero, metriche identiche: 4 piani da 612 748 / 450 159 / 440 424 / 359 631 punti e cluster da 639 655 / 281 084 / 103 297 in entrambe le esecuzioni |
 | `poisson_n_threads: -1` continua a usare più thread anche dopo una segmentazione automatica | 7,00 thread medi su processo fresco, 6,93 dopo la segmentazione; con `poisson_n_threads: 1` restano 1,02 |

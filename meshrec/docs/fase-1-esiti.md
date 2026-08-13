@@ -76,14 +76,17 @@ step 6, che era il punto di rottura. È una precisazione che vale la pena
 lasciare scritta, perché la si potrebbe supporre il contrario leggendo l'elenco
 dei parametri invece dell'ordine degli step.
 
-Con questi parametri la pipeline completa gira in **circa 90 secondi**, dalla
+Con questi parametri la pipeline completa gira in **circa 98 secondi**, dalla
 lettura della nuvola alla scrittura del deck, di cui una quarantina nella sola
-tetraedrizzazione.
+tetraedrizzazione. Il valore è il tempo di parete di due corse consecutive dal
+primo step, misurate attorno al comando `meshrec run muro.yaml`: 97,5 s e 98,1 s.
 
 ## Metriche di ogni step
 
 I numeri seguenti vengono da `runs/muro/metrics.json` di una corsa pulita
-dall'inizio.
+dall'inizio, eseguita il 13 agosto 2026 con il codice corrente. Quando un numero
+in questo documento viene da una misura fatta a parte, e non da quel file, è
+detto sul posto.
 
 **Step 1 — lettura e scala.** 611.008 punti letti, nessuno scartato per
 coordinate non finite, fattore di scala 1000,0, spaziatura media 9,125 mm,
@@ -123,6 +126,16 @@ ha esattamente un'area per ciascuno di essi, mentre `open_boundary_paths`
 segnala che il bordo è non manifold senza attribuirgli una superficie. La
 chiusura la esegue comunque MeshFix, ed è verificata.
 
+Questa separazione ha però reso cieca, per un tratto, la guardia
+`repair.max_hole_area`: `holes_over_threshold` scandiva i soli cicli chiusi, e
+proprio qui le due aperture maggiori — 22,989 e 23,005 m² di area indicativa —
+sono cammini aperti. Una soglia pensata perché un'apertura grande non passi
+inosservata non poteva essere l'unica cosa che non le vedeva. Le metriche
+riportano ora anche `open_paths_over_threshold`, con le aree indicative dei
+cammini oltre soglia, tenute in una voce a parte per non confondersi con le aree
+misurate dei fori veri. In questa corsa `max_hole_area` è nullo, quindi entrambe
+le liste sono vuote.
+
 **Step 7 — qualità della superficie.** 116.967 vertici, 233.930 triangoli,
 superficie chiusa con zero spigoli di bordo, area 121,57 m², volume racchiuso
 53,87 m³. Il rapporto d'aspetto dei triangoli ha mediana 1,394 e media 2,009,
@@ -134,11 +147,16 @@ uscita.
 
 **Step 9 — tetraedrizzazione.** TetGen con rapporto raggio-spigolo 1,8, nessun
 vincolo di volume massimo e **nessun tetto ai punti di Steiner**: 420.547 nodi e
-**1.752.795 tetraedri** in 41,43 secondi, con 303.580 punti aggiunti e
-`steiner_saturated: false`. Entrambi i valori sono ora i predefiniti, cambiati
-per il motivo spiegato nella sezione «La mesh troncata», più sotto: fino a poco
-fa questo step produceva 216.967 nodi e 635.336 tetraedri in 12,77 secondi, ma
-quella mesh era troncata.
+**1.752.795 tetraedri** in **43,77 secondi**, con 303.580 punti aggiunti e
+`steiner_saturated: false`. Il tempo è quello del `metrics.json` citato sopra; è
+la sola grandezza dello step che varia fra corse identiche, misurata fra 40,2 e
+44,3 secondi su tre esecuzioni della stessa configurazione. Nodi, tetraedri e
+punti aggiunti sono invece riprodotti identici.
+
+Rapporto raggio-spigolo 1,8 e assenza di tetto sono ora entrambi i predefiniti di
+`TetConfig`, cambiati per il motivo spiegato nella sezione «La mesh troncata»,
+più sotto: fino a poco fa questo step produceva 216.967 nodi e 635.336 tetraedri
+in 12,77 secondi, ma quella mesh era troncata.
 
 **Step 10 — qualità del volume.** **Zero elementi invertiti**, volume totale
 coerente con quello della superficie. L'angolo diedro minimo ha **mediana
@@ -175,6 +193,23 @@ I numeri prima e dopo:
 | `BASE` | 387 nodi | **4738 nodi** |
 | `SIDE_LEFT` / `SIDE_RIGHT` | 350 / 295 | **4272 / 4085** |
 
+Sulla **tolleranza dei set** resta invece un limite dichiarato e non risolto. I
+31,95 mm derivano dal lato del tetraedro regolare di volume *medio*, e la
+distribuzione dei volumi ha una coda pesantissima: mediana 14,6 mm³ contro media
+30.735 mm³, un fattore duemila. La tolleranza che decide quali nodi finiscono in
+`BASE` dipende quindi da una manciata di elementi enormi. Il passaggio alla
+mediana è stato provato e misurato: la tolleranza scende a 2,50 mm e `BASE`
+passa da 4738 nodi a **9** su 420.547, cioè a un vincolo puntiforme sotto un muro
+da 97 t. Il motivo è che nessuna delle due statistiche descrive l'elemento
+tipico — la mediana è dominata dai tetraedri minuscoli lasciati dal raffinamento
+sulla superficie (lato equivalente 5,0 mm), la media dai pochi elementi enormi
+dell'interno (63,9 mm) — mentre la scala che conterebbe è la spaziatura dei nodi
+sul bordo, che vale 13,7 mm di mediana. Legare la tolleranza al volume
+dell'elemento è l'euristica sbagliata in partenza. Finché non viene sostituita
+resta la media, che è la sola sotto cui i set sono stati verificati utilizzabili;
+il numero di nodi di ogni set è comunque scritto in `metrics.json`, quindi un set
+degenere sarebbe visibile e non silenzioso.
+
 L'ingombro allineato coincide ora con quello della nuvola sorgente entro il 2%,
 e i set laterali, prima squilibrati e minuscoli, sono diventati simmetrici fra
 loro e di taglia sensata. **I set di faccia sono finalmente utilizzabili per
@@ -182,10 +217,60 @@ un'analisi vera**: `BASE`, che è l'insieme vincolato dal deck, raccoglie 4738
 nodi distribuiti sulla base reale del muro invece di 387 nodi raccolti su uno
 spigolo obliquo, e con quel vincolo il carico di gravità scarica dove deve.
 
-Resta uno squilibrio fra `FACE_FRONT` (224.875 nodi) e `FACE_BACK` (122.728),
-che però non è un difetto di allineamento: sono le due grandi facce del muro, e
-la scansione ne ha vista una molto meglio dell'altra, quindi la superficie
-ricostruita ha lì più vertici. È una proprietà del dato, non del riferimento.
+### Lo squilibrio fra le due grandi facce nasce nella pipeline, non nel dato
+
+Resta uno squilibrio fra `FACE_FRONT` (224.875 nodi) e `FACE_BACK` (122.728): il
+primo insieme ha l'**83% di nodi in più** del secondo. Non è un difetto di
+allineamento, ma **non è nemmeno una proprietà del dato**, come una versione
+precedente di questa sezione affermava attribuendolo alla scansione. Quella
+lettura era sbagliata due volte. Anzitutto `muro_generato.ply` non è una
+scansione: è il muro **sintetico** a geometria nota, generato, quindi non esiste
+alcun punto di vista che ne abbia visto una faccia meglio dell'altra. E poi i
+dati per verificarlo sono nel repository, e dicono il contrario.
+
+Misurando quanti punti cadono entro la stessa banda ai due estremi dello spessore
+— la banda è la tolleranza dei set, 31,95 mm, applicata dopo la stessa
+trasformazione di allineamento — lo squilibrio compare **solo all'ultimo
+passaggio**:
+
+| stadio | verso *x* minimo | verso *x* massimo | eccesso del maggiore |
+|---|---|---|---|
+| nuvola segmentata (`02_segmented.ply`, 593.728 punti) | 214.543 | 210.064 | **2,1%** |
+| superficie riparata (`06_repaired.ply`, 116.967 vertici) | 46.031 | 43.012 | **7,0%** |
+| nodi del deck (`wall_model.vtu`, 420.547 nodi) | 224.875 | 122.728 | **83,2%** |
+
+Allargando la banda al doppio, la nuvola segmentata dà 223.435 contro 223.114
+punti, cioè è simmetrica allo **0,14%**: la sorgente è, a tutti gli effetti,
+bilanciata. Lo squilibrio è quindi introdotto dalla pipeline, e per la quasi
+totalità dall'ultimo passo: **è il raffinamento di bordo di TetGen** a infittire
+una faccia molto più dell'altra, dopo che la ricostruzione di Poisson e la
+chiusura ne avevano già introdotto un settimo.
+
+Non è nemmeno un effetto della tolleranza che seleziona i set. I due strati sono
+piani: la normale ai minimi quadrati dei nodi di `FACE_FRONT` si scosta di
+**0,030°** dal piano a *x* costante e quella di `FACE_BACK` di **0,042°**, con
+dispersione in spessore di 4,1 mm su entrambi. Le due facce sono ugualmente
+piatte e ugualmente dentro la banda; a differire è solo quanti nodi TetGen ci ha
+messo.
+
+### I nomi dei set di faccia sono una convenzione, non un'identificazione
+
+`BASE` e `TOP` sono verificati: l'asse *z* del modello allineato è il verticale
+reale, quindi il minimo è davvero la base del solido, ed è su questo che poggia
+il vincolo del deck.
+
+`FACE_FRONT`, `FACE_BACK`, `SIDE_LEFT` e `SIDE_RIGHT` **no**. Sono etichette
+assegnate per convenzione al minimo e al massimo di *x* e di *y* dopo
+l'allineamento, e il verso di quegli assi viene da una regola deterministica di
+segno (`abaqus._fix_sign`), scelta perché due esecuzioni non producano assi
+opposti — non da un riferimento preso sul muro. Nessuna verifica in questo
+progetto stabilisce quale delle due grandi facce sia l'«anteriore» del muro
+fisico, né quale sia il lato «sinistro». La coppia è affidabile come coppia (le
+due facce opposte sono quelle giuste); il singolo nome no. Ovunque in questo
+documento e in [`fase-1-esiti-lab-frame.md`](fase-1-esiti-lab-frame.md) si legga
+`FACE_FRONT` o `SIDE_LEFT`, va inteso come «uno dei due estremi lungo quell'asse»
+e nulla di più. Chi userà questi set per confrontare il modello con misure fatte
+in campo dovrà prima verificare l'orientamento sul file allineato.
 
 ## La mesh troncata: un tetto ereditato da una libreria
 
@@ -253,6 +338,13 @@ scendere per gradi, sulla superficie del muro:
 | 1,1 / 1,2 / 1,4 / 1,5 / 1,6 | errore interno di TetGen dopo ~6 s |
 | **1,8** | **420.547 nodi, 1.752.795 tetraedri, 303.580 punti aggiunti, 40,8 s, 1,35 GB** |
 | 2,0 | 372.068 nodi, 1.498.226 tetraedri, 255.101 punti aggiunti, 33,2 s, 1,39 GB |
+
+I tempi e le occupazioni di memoria di questa tabella vengono dalla prova
+comparativa, eseguita a parte sulla sola superficie riparata e non attraverso la
+pipeline: il 40,8 s della riga 1,8 non è quindi il 43,77 s dello step 9 riportato
+sopra, che è il tempo della corsa completa in `runs/muro/metrics.json`. Le due
+misure sono della stessa configurazione e differiscono per la sola variabilità
+fra esecuzioni.
 
 Il tetto, insomma, mascherava una configurazione che non poteva funzionare: si
 fermava prima che TetGen arrivasse alla configurazione degenere, e restituiva
@@ -399,10 +491,14 @@ tutto nella **coda**, cioè nell'eliminare gli elementi peggiori — che è per�
 proprio ciò che conta per il condizionamento del sistema in un calcolo agli
 elementi finiti, dove è l'elemento peggiore a dettare il passo.
 
-Resta da correggere, nel documento di Fase 0, l'attribuzione della misura: quei
-due numeri riguardano l'ottimizzatore interno di Gmsh e un indice di qualità
-adimensionale, non il confronto con TetGen sull'angolo diedro. Il confronto con
-TetGen è quello riportato qui.
+L'attribuzione della misura è stata **corretta nel documento di Fase 0**, sia nel
+riquadro di rettifica a [`fase-0-esiti.md`](fase-0-esiti.md) § «Conseguenze sulla
+Fase 1», sia nella riga della tabella delle dipendenze che presentava Gmsh come
+«ottimizzatore post-mesh opzionale accanto a TetGen»: quella formula sovrapponeva
+due cose diverse, perché Gmsh non ottimizza una mesh prodotta da TetGen, genera
+la propria e semmai ottimizza quella. Le due fonti dicono ora la stessa cosa. Il
+confronto vero fra i due generatori, a parità di elementi, è quello riportato
+qui.
 
 Una precisazione di ambito: questa misura è stata fatta sulla geometria
 sintetica di prova, non sul muro ricostruito. Il percorso principale della
@@ -425,8 +521,8 @@ normali dello step 4 del muro, profondità 8, scala 1,1 — si ottiene:
 | **-1** (automatico, 12 processori) | **2,63 s** | 117.636 | 235.268 |
 
 La riproducibilità costa dunque **2,47 secondi**, cioè poco meno del doppio del
-tempo, su una ricostruzione che pesa comunque meno del 10% dei circa 60 secondi
-dell'intera pipeline. Il conteggio di vertici e triangoli coincide fra le due
+tempo, su una ricostruzione che pesa comunque poco più del 5% dei circa 98
+secondi dell'intera pipeline misurati sopra. Il conteggio di vertici e triangoli coincide fra le due
 configurazioni: a cambiare con più thread è l'ordine, non la taglia del
 risultato. **Il valore predefinito resta 1**: questa misura documenta un
 compromesso accettato, non lo mette in discussione.
@@ -440,28 +536,37 @@ del deck ancora aperta.
 Il deck prodotto è però verificato per altre due vie, entrambe eseguite:
 
 - **in lettura da `meshio`**, direttamente sul file di questa esecuzione:
-  `runs/muro/wall_model.inp` viene riletto senza errori, restituendo 216.967
-  punti, 635.336 elementi `tetra` e i sei insiemi di nodi `BASE`, `TOP`,
-  `FACE_FRONT`, `FACE_BACK`, `SIDE_LEFT`, `SIDE_RIGHT`;
+  `runs/muro/wall_model.inp` viene riletto senza errori, restituendo **420.547
+  punti** e **1.752.795 elementi `tetra`**, cioè esattamente i conteggi dello
+  step 9, e i sei insiemi di nodi con le taglie dichiarate dallo step 11:
+  `BASE` 4738, `TOP` 3468, `FACE_FRONT` 224.875, `FACE_BACK` 122.728,
+  `SIDE_LEFT` 4272, `SIDE_RIGHT` 4085. Sono **1.261.641 gradi di libertà** (tre
+  per nodo), di cui 1.247.427 liberi dopo il vincolo dei 4738 nodi di `BASE`.
+  Una versione precedente di questa sezione riportava qui 216.967 punti e
+  635.336 elementi: erano i numeri della mesh troncata, rimasti dopo che il deck
+  era stato rigenerato senza il tetto ai punti di Steiner, e la lettura è stata
+  rifatta sul deck corrente;
 - **in soluzione da CalculiX 2.22**, tramite la prova di fattibilità
   `tests/feasibility/test_calculix.py`, che risolve un deck scritto dallo stesso
   `abaqus.export_model` e ne rilegge gli spostamenti. La prova passa su questa
   macchina.
 
-La soluzione con CalculiX del deck completo del muro, 635.336 elementi e circa
-650.000 gradi di libertà, non è stata tentata: con 16 GB di RAM, di cui 7
+La soluzione con CalculiX del deck completo del muro, 1.752.795 elementi e
+1.261.641 gradi di libertà, non è stata tentata: con 16 GB di RAM, di cui 7
 liberi, un solutore diretto su un sistema di quella taglia rischia di finire in
-swap, e la macchina è condivisa con un'altra elaborazione in corso. È un
-controllo utile ma rinviabile, perché la validità del formato è già coperta
-dalle due verifiche sopra.
+swap, e la macchina è condivisa con un'altra elaborazione in corso. La taglia
+reale è quasi il doppio di quella che questa sezione stimava prima della
+rigenerazione del deck. È un controllo utile ma rinviabile, perché la validità
+del formato è già coperta dalle due verifiche sopra.
 
 ## Riepilogo dei criteri di accettazione
 
 | Criterio | Esito |
 |---|---|
-| Il test di integrazione passa | Sì: 99 test passati, 5 prove di fattibilità passate, 1 saltata (`wildmeshing` non installabile su Windows) |
+| Il test di integrazione passa | Sì: **111 test passati** in 22 s, 5 prove di fattibilità passate, 1 saltata (`wildmeshing` non installabile su Windows) |
 | Le metriche di errore geometrico sono calcolate e riportate | Sì: `07_surface_quality.geometric_error`, Hausdorff 54,18 mm, RMS 5,16 e 9,77 mm |
-| La pipeline arriva in fondo sul muro sintetico | Sì, in circa 90 secondi, dopo la correzione di `repair.hole_loops` e la rimozione del tetto ai punti di Steiner |
+| La pipeline arriva in fondo sul muro sintetico | Sì, in circa 98 secondi, dopo la correzione di `repair.hole_loops` e la rimozione del tetto ai punti di Steiner |
+| La pipeline arriva in fondo sulla scansione reale `lab_frame.pcd` | **No**: gli step 1–8 girano, lo step 9 non converge con alcun `min_ratio` provato fino a 4,0. Esito misurato e documentato in [`fase-1-esiti-lab-frame.md`](fase-1-esiti-lab-frame.md) § 5 |
 | La segmentazione automatica su `lab_frame.pcd` | Vedi [`fase-1-esiti-lab-frame.md`](fase-1-esiti-lab-frame.md) |
 | La stessa configurazione rieseguita dà lo stesso risultato | Coperto da `test_the_same_configuration_run_twice_gives_the_same_result`; il costo della scelta è misurato qui sopra |
 | Il deck è valido | Parziale: `meshio` e CalculiX sì, controllo dei dati Abaqus dovuto |
