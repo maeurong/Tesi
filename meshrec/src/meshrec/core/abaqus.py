@@ -122,7 +122,7 @@ def _boundary_nodes(tets: np.ndarray) -> np.ndarray:
 
 
 def align_to_axes(
-    nodes: np.ndarray, reference_indices: np.ndarray | None = None
+    nodes: np.ndarray, reference: np.ndarray | None = None
 ) -> tuple[np.ndarray, np.ndarray, dict[str, object]]:
     """Rototraslazione ai piani principali: spessore su x, lunghezza su y, altezza su z.
 
@@ -134,15 +134,24 @@ def align_to_axes(
     nuvola e' inclinata fuori dal piano orizzontale (beccheggio o rollio),
     l'assegnazione dell'asse altezza non e' garantita.
 
-    reference_indices, se fornito, limita la stima di centro e direzioni
-    principali ai soli nodi indicati (i nodi di bordo, tipicamente): i punti
-    di Steiner interni aggiunti dalla tetraedrizzazione non portano
-    informazione sulla forma del solido e, mediati coi nodi di bordo,
-    possono ruotare il riferimento di diversi gradi dal verticale reale. La
-    trasformazione risultante si applica comunque a tutti i nodi passati.
+    `reference`, se fornito, e' l'insieme di punti su cui stimare centro e
+    direzioni principali; in sua assenza si usano i nodi stessi. Il
+    riferimento e' una proprieta della geometria e non del maglio, e la
+    distinzione non e' teorica: la stima e' una PCA che pesa ogni punto allo
+    stesso modo, mentre la densita dei nodi dipende da dove il raffinamento
+    ha infittito, cioe' da un artefatto. Misurato sul muro reale: stimando
+    sui nodi del volume la prima direzione principale si scosta di 21,44
+    gradi dal verticale, e di 15,33 anche restringendosi ai soli nodi di
+    bordo, mentre sui vertici della superficie ricostruita lo scarto e' di
+    0,45 gradi.
+
+    La trasformazione si applica comunque a tutti i nodi passati, e lo
+    scostamento al primo ottante si calcola sui nodi trasformati, non sul
+    riferimento: BASE deve corrispondere alla base del solido, quindi la
+    quota minima a valere zero e' quella dei nodi.
     """
     points = np.asarray(nodes, dtype=np.float64)
-    reference = points if reference_indices is None else points[np.asarray(reference_indices)]
+    reference = points if reference is None else np.asarray(reference, dtype=np.float64)
     centre = reference.mean(axis=0)
     centred = points - centre
     centred_reference = reference - centre
@@ -234,8 +243,17 @@ def export_model(
     tets: np.ndarray,
     cfg: AnalysisConfig,
     tet_cfg: TetConfig,
+    reference: np.ndarray | None = None,
 ) -> dict[str, object]:
-    """Step 11: allinea, costruisce i set, scrive il deck e il file di visualizzazione."""
+    """Step 11: allinea, costruisce i set, scrive il deck e il file di visualizzazione.
+
+    `reference` sono i punti su cui stimare la terna: la pipeline passa i
+    vertici della superficie da cui la mesh e' stata generata, perche' il
+    sistema di riferimento e' una proprieta della geometria e non del maglio.
+    Senza riferimento si ripiega sui nodi di bordo della mesh di volume, che
+    e' il comportamento precedente e resta valido sulle geometrie di prova,
+    dove i nodi coincidono con la superficie.
+    """
     from meshrec.core.quality import tet_volumes
 
     if tet_cfg.element != "C3D4":
@@ -245,7 +263,9 @@ def export_model(
             "Usa C3D4 finche il writer non gestisce i dieci nodi."
         )
 
-    aligned, transform, align_metrics = align_to_axes(nodes, reference_indices=_boundary_nodes(tets))
+    if reference is None:
+        reference = np.asarray(nodes, dtype=np.float64)[_boundary_nodes(tets)]
+    aligned, transform, align_metrics = align_to_axes(nodes, reference=reference)
     tolerance = set_tolerance(aligned, tets, cfg.set_tolerance_factor)
     node_sets = build_node_sets(aligned, tolerance)
     if len(node_sets[cfg.fixed_nset]) == 0:

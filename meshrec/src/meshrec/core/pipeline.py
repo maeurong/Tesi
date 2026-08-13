@@ -151,8 +151,17 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
 
         metrics["10_volume_quality"] = quality.volume_metrics(nodes, tets)
 
+        # `vertices` e' la superficie da cui la mesh di volume e' stata
+        # generata: e' quella, e non i nodi del volume, a definire il sistema
+        # di riferimento del modello (vedi abaqus.align_to_axes).
         metrics["11_export"] = abaqus.export_model(
-            out / "wall_model.inp", out / "wall_model.vtu", nodes, tets, cfg.analysis, cfg.tet
+            out / "wall_model.inp",
+            out / "wall_model.vtu",
+            nodes,
+            tets,
+            cfg.analysis,
+            cfg.tet,
+            reference=vertices,
         )
     finally:
         with (out / "metrics.json").open("w", encoding="utf-8") as handle:

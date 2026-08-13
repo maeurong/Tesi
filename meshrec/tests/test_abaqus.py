@@ -364,8 +364,56 @@ def test_align_to_axes_ignores_interior_nodes_when_given_boundary_reference():
     boundary = abaqus._boundary_nodes(tets)
     assert steiner_index not in boundary
 
-    _, _, metrics_boundary_only = abaqus.align_to_axes(nodes, reference_indices=boundary)
+    _, _, metrics_boundary_only = abaqus.align_to_axes(nodes, reference=nodes[boundary])
     _, _, metrics_all_nodes = abaqus.align_to_axes(nodes)
 
     assert metrics_boundary_only["extent"] == pytest.approx([50.0, 1000.0, 300.0], rel=1e-6)
     assert metrics_all_nodes["extent"] != pytest.approx([50.0, 1000.0, 300.0], rel=0.05)
+
+
+def test_the_triad_follows_the_surface_not_the_distribution_of_nodes():
+    """Il riferimento e' una proprieta della geometria, non del maglio.
+
+    I nodi interni sono addensati lungo la diagonale del solido, come fa un
+    raffinamento che infittisce dove i triangoli sono grandi: una PCA sui nodi
+    ne esce ruotata, una PCA sulla superficie no. Se qualcuno rimette la stima
+    sui nodi, questo test deve fallire.
+    """
+    superficie = np.array(
+        [[x, y, z] for x in (0.0, 50.0) for y in (0.0, 1000.0) for z in (0.0, 300.0)]
+    )
+    passo = np.linspace(0.0, 1.0, 2000)[:, None]
+    interni = passo * np.array([[50.0, 1000.0, 300.0]])
+
+    nodi = np.vstack([superficie, interni])
+
+    allineati, _, con_superficie = abaqus.align_to_axes(nodi, reference=superficie)
+    _, _, sui_nodi = abaqus.align_to_axes(nodi)
+
+    assert con_superficie["extent"] == pytest.approx([50.0, 1000.0, 300.0], rel=1e-6)
+    assert sui_nodi["extent"] != pytest.approx([50.0, 1000.0, 300.0], rel=0.05)
+
+    # Lo scostamento al primo ottante si calcola sui nodi trasformati, non sul
+    # riferimento: senza questo, BASE non corrisponderebbe alla base del solido.
+    assert allineati.min(axis=0) == pytest.approx([0.0, 0.0, 0.0], abs=1e-9)
+
+
+def test_export_model_estimates_the_triad_on_the_reference_it_is_given(tmp_path):
+    """Il riferimento arriva fino al deck: e' la strada che usa la pipeline."""
+    vertices, faces = synth.box_mesh(SIZE)
+    nodes, tets = volume.tetrahedralize(
+        vertices, faces, max_volume=100_000.0, max_steiner_points=-1
+    )
+
+    metrics = abaqus.export_model(
+        tmp_path / "m.inp",
+        tmp_path / "m.vtu",
+        nodes,
+        tets,
+        config.AnalysisConfig(),
+        config.TetConfig(),
+        reference=vertices,
+    )
+
+    assert metrics["extent"] == pytest.approx(sorted(SIZE), rel=1e-6)
+    assert metrics["node_sets"]["BASE"] > 0

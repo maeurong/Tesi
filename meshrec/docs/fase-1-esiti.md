@@ -62,15 +62,12 @@ vicolo cieco o per tetto raggiunto — sono contati a parte in
 `open_boundary_paths`, che è il segnale che il bordo è non manifold.
 
 I parametri effettivamente usati nella corsa finale si discostano dai predefiniti
-in tre punti: i primi due per contenere la taglia della superficie, il terzo
-perché la qualità richiesta dal predefinito non è raggiungibile su questa
-geometria.
+in due punti, entrambi scelti per contenere la taglia della superficie:
 
 | Parametro | Predefinito | Usato | Motivo |
 |---|---|---|---|
 | `downsample.voxel_size` | `null` (2 × spaziatura = 18,25 mm) | **25,0 mm** | riduce la nuvola da 593.728 a 200.296 punti, un terzo del carico a valle, senza scendere sotto la risoluzione utile per un muro di 1,25 m di spessore |
 | `surface.poisson_depth` | 9 | **8** | dimezza il lato della cella dell'ottree e porta la superficie da 908.118 a 221.369 triangoli, cioè da 22 MB a 5,6 MB di artefatto |
-| `tet.min_ratio` | 1,1 | **1,8** | con 1,1 il raffinamento non converge affatto su questa superficie: senza tetto ai punti di Steiner TetGen si interrompe con un errore interno. 1,8 è il valore più severo che porti a termine il lavoro (vedi sotto) |
 
 Tutto il resto è rimasto ai valori predefiniti. In particolare `simplify` è
 rimasto **disabilitato**: nella sequenza della pipeline la semplificazione è lo
@@ -79,8 +76,8 @@ step 6, che era il punto di rottura. È una precisazione che vale la pena
 lasciare scritta, perché la si potrebbe supporre il contrario leggendo l'elenco
 dei parametri invece dell'ordine degli step.
 
-Con questi parametri la pipeline completa gira in **101 secondi**, dalla
-lettura della nuvola alla scrittura del deck, di cui 41,8 nella sola
+Con questi parametri la pipeline completa gira in **circa 90 secondi**, dalla
+lettura della nuvola alla scrittura del deck, di cui una quarantina nella sola
 tetraedrizzazione.
 
 ## Metriche di ogni step
@@ -138,9 +135,9 @@ uscita.
 **Step 9 — tetraedrizzazione.** TetGen con rapporto raggio-spigolo 1,8, nessun
 vincolo di volume massimo e **nessun tetto ai punti di Steiner**: 420.547 nodi e
 **1.752.795 tetraedri** in 41,43 secondi, con 303.580 punti aggiunti e
-`steiner_saturated: false`. I due parametri si discostano dai predefiniti per il
-motivo spiegato nella sezione «La mesh troncata», più sotto: fino a poco fa
-questo step produceva 216.967 nodi e 635.336 tetraedri in 12,77 secondi, ma
+`steiner_saturated: false`. Entrambi i valori sono ora i predefiniti, cambiati
+per il motivo spiegato nella sezione «La mesh troncata», più sotto: fino a poco
+fa questo step produceva 216.967 nodi e 635.336 tetraedri in 12,77 secondi, ma
 quella mesh era troncata.
 
 **Step 10 — qualità del volume.** **Zero elementi invertiti**, volume totale
@@ -150,30 +147,45 @@ step produceva prima aveva mediana 6,04°: la differenza dà la misura di quanto
 la troncatura degradasse la mesh senza che nulla lo segnalasse.
 
 **Step 11 — esportazione.** Deck scritto in `wall_model.inp` e
-`wall_model.vtu`. Volume 53,87 m³, massa **96,97 t** con la densità di 1,8 ×
-10⁻⁹ t/mm³. Insiemi di nodi: `BASE` 387, `TOP` 474, `FACE_FRONT` 84.927,
-`FACE_BACK` 32.205, `SIDE_LEFT` 350, `SIDE_RIGHT` 295.
+`wall_model.vtu`. Volume 53,873 m³, massa **96,97 t** con la densità di 1,8 ×
+10⁻⁹ t/mm³. Ingombro allineato **1224,1 × 5854,3 × 7823,6 mm**, con tolleranza
+dei set di 31,95 mm e insiemi di nodi `BASE` **4738**, `TOP` 3468,
+`FACE_FRONT` 224.875, `FACE_BACK` 122.728, `SIDE_LEFT` 4272, `SIDE_RIGHT` 4085.
 
-Su quest'ultimo step resta aperta un'anomalia, che merita un controllo in Fase 2
-e che la mesh completa **non** ha risolto. L'allineamento ai piani principali
-riporta un ingombro di 1301,3 × 7633,4 × 9011,0 mm, mentre la nuvola sorgente
-misura 1247,0 × 5823,8 × 7802,1 mm anche calcolando le sue direzioni principali,
-che coincidono con gli assi globali entro 0,001. La prima direzione principale
-dei nodi del volume si scosta dal verticale di **21,44°**; restringendo il
-calcolo ai soli nodi topologicamente di bordo lo scarto scende a 15,33°, non a
-zero. `BASE` raccoglie 387 nodi, quando la base di un muro lungo 5,8 m e spesso
-1,25 m dovrebbe raccoglierne molti di più.
+Questo step portava fino a poco fa un'anomalia seria, **ora risolta**. Il
+sistema di riferimento del modello veniva stimato con una PCA sui nodi della
+mesh di volume, e ne usciva ruotato: la prima direzione principale si scostava
+dal verticale di 21,44°, l'ingombro allineato risultava 1301,3 × 7633,4 × 9011,0
+mm contro i 1245,7 × 5823,4 × 7802,6 mm della nuvola, e `BASE` raccoglieva 387
+nodi sulla base di un muro largo 5,8 m e spesso 1,2 m. La causa era che una PCA
+pesa ogni nodo allo stesso modo, mentre la densità dei nodi non è una proprietà
+della forma: dipende da dove il raffinamento ha infittito, cioè da un artefatto
+del maglio.
 
-L'origine è ora chiara, ed è indipendente dalla troncatura: la stima della terna
-è una PCA **sui nodi**, cioè pesa ogni nodo allo stesso modo, ma la densità di
-nodi è un artefatto del maglio, non una proprietà della forma. Il raffinamento
-di TetGen infittisce dove i triangoli della superficie sono grandi o mal fatti —
-in particolare sulle due facce che la chiusura ha inventato — e quella
-concentrazione sbilancia il tensore che la PCA calcola. La superficie riparata,
-dove i vertici seguono la geometria e non il raffinamento, ha assi principali
-allineati entro 0,45°. La direzione della correzione è quindi pesare i punti per
-volume o per area invece di contarli, oppure stimare la terna sulla superficie
-dello step 6; restringersi ai nodi di bordo, da solo, non basta.
+La terna si stima ora sui **vertici della superficie riparata**, che è la
+geometria vera, e la trasformazione si applica a tutti i nodi del volume; lo
+scostamento al primo ottante continua a calcolarsi sui nodi trasformati, così
+che la quota minima dei nodi valga zero e `BASE` corrisponda davvero alla base.
+I numeri prima e dopo:
+
+| Grandezza | Terna stimata sui nodi | Terna stimata sulla superficie |
+|---|---|---|
+| Scarto della prima direzione principale dal verticale | 21,44° | **0,45°** |
+| Ingombro allineato [mm] | 1301,3 × 7633,4 × 9011,0 | **1224,1 × 5854,3 × 7823,6** |
+| `BASE` | 387 nodi | **4738 nodi** |
+| `SIDE_LEFT` / `SIDE_RIGHT` | 350 / 295 | **4272 / 4085** |
+
+L'ingombro allineato coincide ora con quello della nuvola sorgente entro il 2%,
+e i set laterali, prima squilibrati e minuscoli, sono diventati simmetrici fra
+loro e di taglia sensata. **I set di faccia sono finalmente utilizzabili per
+un'analisi vera**: `BASE`, che è l'insieme vincolato dal deck, raccoglie 4738
+nodi distribuiti sulla base reale del muro invece di 387 nodi raccolti su uno
+spigolo obliquo, e con quel vincolo il carico di gravità scarica dove deve.
+
+Resta uno squilibrio fra `FACE_FRONT` (224.875 nodi) e `FACE_BACK` (122.728),
+che però non è un difetto di allineamento: sono le due grandi facce del muro, e
+la scansione ne ha vista una molto meglio dell'altra, quindi la superficie
+ricostruita ha lì più vertici. È una proprietà del dato, non del riferimento.
 
 ## La mesh troncata: un tetto ereditato da una libreria
 
@@ -231,7 +243,7 @@ nodi erano di bordo, quindi selezionarli non selezionava niente.
 ### Il limite vero: la qualità richiesta non è raggiungibile
 
 Tolto il tetto, viene alla luce un secondo problema che il tetto stesso nascondeva.
-Con `min_ratio` 1,1 — il predefinito della pipeline, molto più severo del 2,0 di
+Con `min_ratio` 1,1 — il predefinito di allora, molto più severo del 2,0 di
 TetGen — il raffinamento **non converge**: TetGen si interrompe con un errore
 interno (`split_subface` o `split_segment`) dopo pochi secondi. Provando a
 scendere per gradi, sulla superficie del muro:
@@ -264,13 +276,15 @@ si esaurisce viene emesso un `TruncatedRefinementWarning`. Poiché TetGen non
 dichiara l'esaurimento, l'indizio usato è il conteggio dei punti aggiunti
 confrontato con il tetto, verificato esatto ai sei livelli della tabella sopra.
 
-Conseguenza pratica da tenere presente: con i predefiniti attuali
-(`min_ratio` 1,1 e nessun tetto) la pipeline sul muro reale **fallisce a voce**
-con l'errore interno di TetGen, invece di restituire in silenzio una mesh
-troncata. È il comportamento corretto, ma significa che il predefinito di
-`min_ratio` va rivisto: la scelta fra abbassare la pretesa di qualità a un valore
-raggiungibile e cambiare strategia di maglio è una decisione di progetto e non è
-stata presa qui.
+Di conseguenza il **predefinito di `min_ratio` è stato portato da 1,1 a 1,8**:
+1,1 era troppo vicino al limite teorico e faceva fallire la tetraedrizzazione su
+geometria reale. Il margine resta però sottile, perché 1,8 è tarato su un solo
+caso e già 1,6 non converge, quindi su un'altra geometria può non bastare. Il
+rischio è dichiarato e mitigato, non nascosto: l'errore interno grezzo di TetGen
+non risale più al chiamante così com'è, ma viene tradotto in un
+`RefinementFailedError` che dice esplicitamente che il vincolo raggio-spigolo
+può essere troppo severo per quella geometria e che va alzato. La descrizione del
+campo in `TetConfig` avverte nello stesso senso.
 
 ## Errore geometrico rispetto alla nuvola sorgente
 
@@ -447,7 +461,7 @@ dalle due verifiche sopra.
 |---|---|
 | Il test di integrazione passa | Sì: 99 test passati, 5 prove di fattibilità passate, 1 saltata (`wildmeshing` non installabile su Windows) |
 | Le metriche di errore geometrico sono calcolate e riportate | Sì: `07_surface_quality.geometric_error`, Hausdorff 54,18 mm, RMS 5,16 e 9,77 mm |
-| La pipeline arriva in fondo sul muro sintetico | Sì, in 101 secondi, dopo la correzione di `repair.hole_loops` e la rimozione del tetto ai punti di Steiner |
+| La pipeline arriva in fondo sul muro sintetico | Sì, in circa 90 secondi, dopo la correzione di `repair.hole_loops` e la rimozione del tetto ai punti di Steiner |
 | La segmentazione automatica su `lab_frame.pcd` | Vedi [`fase-1-esiti-lab-frame.md`](fase-1-esiti-lab-frame.md) |
 | La stessa configurazione rieseguita dà lo stesso risultato | Coperto da `test_the_same_configuration_run_twice_gives_the_same_result`; il costo della scelta è misurato qui sopra |
 | Il deck è valido | Parziale: `meshio` e CalculiX sì, controllo dei dati Abaqus dovuto |

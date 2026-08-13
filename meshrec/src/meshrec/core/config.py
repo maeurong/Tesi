@@ -107,7 +107,16 @@ class SimplifyConfig(BaseModel):
 class TetConfig(BaseModel):
     """Step 9: tetraedrizzazione."""
 
-    min_ratio: float = Field(default=1.1, gt=0.0, description="rapporto raggio-spigolo massimo")
+    min_ratio: float = Field(
+        default=1.8,
+        gt=0.0,
+        description=(
+            "rapporto raggio-spigolo massimo: valori piu bassi danno elementi piu "
+            "regolari, ma il raffinamento puo' non convergere su geometrie difficili. "
+            "Sul muro di riferimento 1.6 e valori inferiori interrompono TetGen con un "
+            "errore interno, 1.8 e' il valore piu severo che porta a termine il lavoro"
+        ),
+    )
     max_volume: float | None = Field(default=None, gt=0.0, description="volume massimo elemento [mm^3]")
     max_steiner_points: int = Field(
         default=-1,

@@ -20,6 +20,10 @@ class TruncatedRefinementWarning(UserWarning):
     """TetGen ha esaurito i punti di Steiner: la mesh e' troncata, non completa."""
 
 
+class RefinementFailedError(RuntimeError):
+    """Il raffinamento non converge: il vincolo di qualita e' troppo severo."""
+
+
 class InvertedElementsError(ValueError):
     """La mesh di volume contiene elementi invertiti o degeneri."""
 
@@ -70,7 +74,23 @@ def tetrahedralize(
         options["fixedvolume"] = True
 
     # tetgen 0.8.4 restituisce (node, elem, attributes, triface_markers): teniamo solo i primi due.
-    nodes, tets, *_ = generator.tetrahedralize(**options)
+    try:
+        nodes, tets, *_ = generator.tetrahedralize(**options)
+    except RuntimeError as errore:
+        # L'errore grezzo della libreria ("Internal TetGen error within
+        # `split_subface`") non dice nulla a chi lo riceve. Nella pratica arriva
+        # quando il vincolo raggio-spigolo e' troppo severo per la geometria: il
+        # raffinamento non converge e TetGen si arrende su una configurazione
+        # degenere. Sul muro di riferimento accade con min_ratio fino a 1.6, non
+        # con 1.8, quindi il margine e' sottile e su un'altra geometria puo' non
+        # bastare.
+        raise RefinementFailedError(
+            f"TetGen si e' interrotto con min_ratio={min_ratio}: "
+            "il vincolo raggio-spigolo puo' essere troppo severo per questa "
+            "geometria, il raffinamento non converge. Alza min_ratio (valori piu "
+            "alti = elementi meno regolari ma raffinamento che termina) e riprova. "
+            f"Errore originale di TetGen: {errore}"
+        ) from errore
     return (
         np.ascontiguousarray(nodes, dtype=np.float64),
         np.ascontiguousarray(tets, dtype=np.int64),
