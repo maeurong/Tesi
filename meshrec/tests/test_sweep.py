@@ -188,3 +188,47 @@ def test_a_candidate_that_succeeds_records_its_artifacts(tmp_path):
     assert row["input_digest"] == sweep.file_digest(cloud)
     assert "09_volume.vtu" in row["artifacts"]
     assert row["duration_s"] > 0.0
+
+
+def test_a_truncated_metrics_file_does_not_raise_and_becomes_incomplete(tmp_path, monkeypatch):
+    """pipeline.run scrive metrics.json in un blocco finally: un processo ucciso
+    a meta' (timeout, memoria esaurita) lo lascia troncato. json.JSONDecodeError
+    non deve salire qui: e' esattamente il caso che questa funzione esiste per
+    assorbire.
+
+    Il sottoprocesso reale e' sostituito con uno finto, cosi' il file troncato
+    scritto a mano sopravvive fino alla lettura che questo test verifica.
+    """
+    out_dir = tmp_path / "candidato"
+    out_dir.mkdir()
+    (out_dir / "metrics.json").write_text('{"01_load": {"n":', encoding="utf-8")
+
+    def _fake_run(cmd, **kwargs):
+        return sweep.subprocess.CompletedProcess(cmd, returncode=1, stdout="", stderr="ucciso")
+
+    monkeypatch.setattr(sweep.subprocess, "run", _fake_run)
+
+    row = sweep.run_candidate({}, _base(), out_dir, timeout_s=120.0)
+
+    assert row["metrics"] == {}
+    assert row["complete"] is False
+    assert row["fingerprint"] == sweep.fingerprint(_base())
+
+
+def test_a_candidate_whose_folder_cannot_be_created_becomes_a_row_and_not_an_exception(tmp_path):
+    """Permessi negati o collisione con un file omonimo non devono far salire
+    OSError: il candidato diventa comunque una riga, con esito 'errore'.
+
+    Qui la collisione e' un file normale creato al percorso dove out_dir
+    dovrebbe nascere: mkdir(exist_ok=True) solleva se il percorso esiste ma
+    non e' una cartella.
+    """
+    blocked = tmp_path / "candidato"
+    blocked.write_text("non e' una cartella", encoding="utf-8")
+
+    cfg = _base()
+    row = sweep.run_candidate({}, cfg, blocked, timeout_s=120.0)
+
+    assert row["outcome"] == "errore"
+    assert row["stderr"]
+    assert row["fingerprint"] == sweep.fingerprint(cfg)

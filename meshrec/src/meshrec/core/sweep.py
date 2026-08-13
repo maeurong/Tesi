@@ -203,11 +203,36 @@ def run_candidate(
     from meshrec.core.config import save_config
 
     out_dir = Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
     cfg = cfg.model_copy(deep=True)
     cfg.run.out_dir = out_dir
     config_path = out_dir / "config.yaml"
-    save_config(cfg, config_path)
+
+    try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        save_config(cfg, config_path)
+    except OSError as exc:
+        # La cartella del candidato non si e' potuta preparare (permessi
+        # negati, collisione con un file omonimo): nessun sottoprocesso e'
+        # partito, ma la riga esiste comunque. L'impronta si calcola senza
+        # toccare il disco, quindi resta valida anche qui.
+        return {
+            "fingerprint": fingerprint(cfg),
+            "axes": axes,
+            "outcome": "errore",
+            "exit_code": None,
+            "duration_s": 0.0,
+            "complete": False,
+            "stderr": f"preparazione della cartella del candidato fallita: {exc}",
+            "config": cfg.model_dump(mode="json"),
+            "input_digest": None,
+            "artifacts": {},
+            "artifacts_kept": False,
+            "out_dir": str(out_dir),
+            "rerun": f"uv run meshrec run {config_path}",
+            "metrics": {},
+            "provenance": provenance(),
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        }
 
     started = time.monotonic()
     try:
@@ -228,15 +253,35 @@ def run_candidate(
     metrics_path = out_dir / "metrics.json"
     metrics: dict[str, object] = {}
     if metrics_path.exists():
-        with metrics_path.open(encoding="utf-8") as handle:
-            metrics = json.load(handle)
+        try:
+            with metrics_path.open(encoding="utf-8") as handle:
+                metrics = json.load(handle)
+        except (OSError, json.JSONDecodeError):
+            # Il blocco finally di pipeline.run scrive questo file: un
+            # processo ucciso (timeout, memoria esaurita) puo' lasciarlo
+            # troncato a meta' scrittura. is_complete({}) e' gia' falso,
+            # quindi la riga dice la verita' da sola senza sollevare qui.
+            metrics = {}
 
-    artifacts = {
-        item.name: file_digest(item)
-        for item in sorted(out_dir.iterdir())
-        if item.is_file() and item.name not in ("config.yaml", "metrics.json")
-    }
+    artifacts: dict[str, str | None] = {}
+    for item in sorted(out_dir.iterdir()):
+        try:
+            if not item.is_file() or item.name in ("config.yaml", "metrics.json"):
+                continue
+            artifacts[item.name] = file_digest(item)
+        except OSError:
+            # File cancellato o illeggibile fra l'elenco e la lettura: la
+            # riga registra che l'impronta manca invece di sollevare qui.
+            artifacts[item.name] = None
     input_path = Path(cfg.input.path)
+    input_digest: str | None = None
+    if input_path.exists():
+        try:
+            input_digest = file_digest(input_path)
+        except OSError:
+            # Stesso principio dell'elenco artefatti: l'impronta manca, la
+            # riga lo registra invece di sollevare qui.
+            input_digest = None
 
     return {
         "fingerprint": fingerprint(cfg),
@@ -251,7 +296,7 @@ def run_candidate(
         # che nel frattempo si e' chiuso.
         "stderr": stderr.strip(),
         "config": cfg.model_dump(mode="json"),
-        "input_digest": file_digest(input_path) if input_path.exists() else None,
+        "input_digest": input_digest,
         "artifacts": artifacts,
         "artifacts_kept": True,
         "out_dir": str(out_dir),
