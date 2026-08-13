@@ -226,3 +226,78 @@ def save_config(cfg: PipelineConfig, path: Path) -> None:
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     with Path(path).open("w", encoding="utf-8") as handle:
         yaml.safe_dump(cfg.model_dump(mode="json"), handle, sort_keys=False, allow_unicode=True)
+
+
+class SweepConfig(BaseModel):
+    """Motore di sweep: risorse di macchina e politica sugli artefatti."""
+
+    workers: int = Field(
+        default=4,
+        gt=0,
+        description=(
+            "candidati in volo insieme, come processi separati. Non e' il numero "
+            "di processori: TetGen ha un picco misurato di 1,35 GB sulla corsa "
+            "del muro e la macchina di sviluppo ha 7 GB liberi, quindi quattro "
+            "candidati sono circa 5,4 GB di picco. Va tarato sulla macchina che "
+            "esegue: nessun valore dedotto dai processori logici e' corretto qui"
+        ),
+    )
+    timeout_s: float = Field(
+        default=1800.0,
+        gt=0.0,
+        description=(
+            "tetto al tempo di un singolo candidato, perche' uno patologico non "
+            "blocchi lo sweep. La corsa completa piu lenta documentata vale 134 s "
+            "e il singolo step piu lento 186 s: e' un tetto contro il patologico, "
+            "non contro il lento"
+        ),
+    )
+    runs_root: Path = Path("runs")
+    registry_root: Path = Path("experiments")
+    keep_dominated_artifacts: bool = Field(
+        default=False,
+        description=(
+            "gli artefatti dei candidati dominati vengono rimossi a sweep "
+            "concluso; config.yaml e metrics.json restano sempre. Una corsa "
+            "completa pesa circa 300 MB"
+        ),
+    )
+
+
+class AxisSpec(BaseModel):
+    """Un asse della griglia: il percorso puntato del parametro e i suoi livelli."""
+
+    path: str = Field(description="percorso puntato dentro PipelineConfig, es. tet.min_ratio")
+    values: list[float | int | bool | None] = Field(min_length=1)
+
+
+class ExperimentConfig(BaseModel):
+    """Dichiarazione di un esperimento. Tracciata da git accanto al proprio registro."""
+
+    name: str
+    base: Path = Field(description="configurazione di partenza, es. muro.yaml")
+    axes: list[AxisSpec] = Field(min_length=1)
+    pairs: list[tuple[str, str]] = Field(
+        default_factory=list,
+        description=(
+            "coppie di assi da incrociare in fattoriale, oltre allo sweep a un "
+            "asse alla volta. Si dichiarano solo le coppie che la misura mostra "
+            "interagenti: un fattoriale pieno su cinque assi a tre livelli sono "
+            "162 candidati"
+        ),
+    )
+    known_thickness: float | None = Field(
+        default=None,
+        description=(
+            "spessore reale misurato [mm], contro cui si controlla la misura "
+            "letta sulla nuvola sorgente. E' il controllo che smentisce l'asse "
+            "di fedelta: 176 su lab_frame, 1245.7 su muro_generato"
+        ),
+    )
+    sweep: SweepConfig = Field(default_factory=SweepConfig)
+
+
+def load_experiment(path: Path) -> ExperimentConfig:
+    """Legge la dichiarazione di un esperimento."""
+    with Path(path).open(encoding="utf-8") as handle:
+        return ExperimentConfig.model_validate(yaml.safe_load(handle))

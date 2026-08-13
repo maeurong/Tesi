@@ -1,5 +1,7 @@
 """La configurazione e l'unico luogo dei valori predefiniti, e sopravvive al round-trip YAML."""
 
+from pathlib import Path
+
 import pytest
 
 from meshrec.core import config
@@ -29,3 +31,29 @@ def test_invalid_values_are_rejected():
         config.InputConfig(path="nuvola.ply", scale=0.0)
     with pytest.raises(ValueError):
         config.SurfaceConfig(density_quantile=1.5)
+
+
+def test_experiment_round_trip_and_defaults(tmp_path):
+    """L'esperimento sopravvive al round-trip e i suoi predefiniti vivono qui."""
+    import yaml
+
+    experiment = config.ExperimentConfig(
+        name="muro_ricostruzione",
+        base=Path("muro.yaml"),
+        axes=[config.AxisSpec(path="tet.min_ratio", values=[1.7, 1.8, 2.0])],
+        known_thickness=1245.7,
+    )
+    assert experiment.sweep.workers == 4
+    assert experiment.sweep.timeout_s == 1800
+    assert experiment.sweep.keep_dominated_artifacts is False
+
+    path = tmp_path / "esperimento.yaml"
+    path.write_text(
+        yaml.safe_dump(experiment.model_dump(mode="json"), sort_keys=False), encoding="utf-8"
+    )
+    assert config.load_experiment(path) == experiment
+
+
+def test_an_axis_with_no_values_is_rejected():
+    with pytest.raises(ValueError):
+        config.AxisSpec(path="tet.min_ratio", values=[])
