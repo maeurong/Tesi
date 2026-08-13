@@ -280,8 +280,9 @@ verificata da una seconda libreria.
 ### Lettura
 
 **La parte sulla taratura del parametro è confermata, e in modo più netto di
-quanto il debito registrasse.** Il debito noto elenca cinque valori falliti da
-1,8 a 4,0. Questo sweep ne aggiunge due molto più laschi, 6,0 e 12,0 — l'ultimo
+quanto il debito registrasse.** Il debito noto riferisce che ogni valore
+provato fra 1,8 e 4,0 falliva, senza elencare quali né in quale numero. Questo
+sweep li misura e ne aggiunge due molto più laschi, 6,0 e 12,0 — l'ultimo
 quasi sette volte il predefinito, un vincolo praticamente inerte — e falliscono
 in modo identico, stesso errore interno di TetGen, stesso punto di rottura
 (`split_subface`). Se un vincolo raggio-spigolo così permissivo da accettare

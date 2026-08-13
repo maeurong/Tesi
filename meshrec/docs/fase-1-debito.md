@@ -15,9 +15,27 @@ tetraedrizzazione non converge: `RefinementFailedError` con ogni valore di `min_
 da 1,8 a 4,0. Il risultato che in precedenza sembrava un successo era la mesh troncata dal tetto
 ai punti di Steiner, e rimettendo quel tetto si riproducono esattamente i numeri archiviati. Il
 criterio di accettazione «su `lab_frame.pcd` la pipeline arriva in fondo» **non è soddisfatto**.
-La causa più probabile è la qualità della superficie riparata su quella geometria, che ha 41
-cammini di bordo aperti e schegge residue; va affrontata in Fase 2, non aggirata alzando il
-vincolo di qualità.
+
+La causa è stata poi misurata, e la diagnosi che questa voce riportava — «la qualità della
+superficie riparata» — era giusta a metà. Lo sweep documentato in
+[`fase-1-min-ratio.md`](fase-1-min-ratio.md) porta `min_ratio` fino a 12,0, quasi sette volte il
+predefinito e un vincolo di fatto inerte: fallisce identico a 1,8, sempre dentro `split_subface`.
+La taratura del parametro è quindi esclusa. Ma i numeri non descrivono nemmeno una superficie
+genericamente degradata: il 99,75% dei triangoli ha rapporto d'aspetto sotto 100, le
+autointersezioni misurate sono zero, e la mesh è un manifold pulito di spigoli e vertici. Il
+difetto è uno solo e preciso: **la superficie è rovesciata**. Le sue 426.600 facce puntano tutte
+verso l'interno, con avvolgimento globalmente coerente (zero spigoli incoerenti su 639.900), e il
+volume racchiuso è negativo, −0,173 m³, che capovolge esattamente di segno invertendo ogni
+triangolo. Che correggere l'orientazione basti a far convergere TetGen resta però un'ipotesi non
+verificata: è la prima cosa da provare in Fase 2, prima del remeshing e prima di toccare
+`min_ratio`.
+
+**Lo step 7 dichiara chiusa una superficie rovesciata.** `watertight: true`, `boundary_edges: 0` e
+un volume racchiuso **negativo** convivono senza che nulla protesti: il controllo di qualità della
+superficie verifica la topologia e non l'orientazione, quindi lascia passare verso la
+tetraedrizzazione una mesh il cui interno e il cui esterno sono scambiati. Un volume con segno
+negativo su una superficie chiusa non è un caso limite da interpretare, è un difetto: andrebbe
+segnalato dallo step 7, o corretto dallo step 6.
 
 **Il margine di `tet.min_ratio` è ora misurato, ma su una sola superficie.** Il predefinito 1,8
 era stato scelto per aneddoto — 1,6 falliva, 1,8 no — senza sapere quanto distasse dal punto di
