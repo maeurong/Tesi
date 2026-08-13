@@ -12,7 +12,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse, JSONResponse
 
 from meshrec.core import steps
-from meshrec.core.config import PipelineConfig, load_config
+from meshrec.core.config import PipelineConfig, load_config, save_config
 
 UI_DIR = Path(__file__).resolve().parent.parent / "ui"
 
@@ -58,5 +58,12 @@ def create_app(config_path: Path) -> FastAPI:
     @app.get("/api/config")
     def configurazione() -> dict[str, object]:
         return corrente().model_dump(mode="json")
+
+    @app.put("/api/config")
+    def scrivi_configurazione(nuova: PipelineConfig) -> dict[str, object]:
+        # La validazione e' quella dei modelli: l'interfaccia non ne ha una
+        # propria, e un valore fuori dominio non arriva mai alla pipeline.
+        save_config(nuova, config_path)
+        return nuova.model_dump(mode="json")
 
     return app

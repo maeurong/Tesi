@@ -207,3 +207,24 @@ def test_resuming_from_tetrahedralize_still_works_when_simplify_is_enabled(tmp_p
     resumed = pipeline.run(make_cfg(9))
     assert resumed["09_tetrahedralize"]["nodes"] > 0
     assert resumed["11_export"]["volume"] == pytest.approx(EXACT_VOLUME, rel=0.1)
+
+
+def test_una_corsa_completa_lascia_gli_undici_step_validi(tmp_path):
+    from meshrec.core import pipeline, steps
+
+    cfg = _config_cubo(tmp_path)
+    pipeline.run(cfg)
+    stato = steps.run_state(cfg.run.out_dir, cfg)
+    assert {voce["stato"] for voce in stato} == {"valido"}
+
+
+def test_cambiare_un_parametro_a_monte_invalida_gli_step_a_valle(tmp_path):
+    """Prova a variabile unica sulla corsa vera, non sulle sole impronte."""
+    from meshrec.core import pipeline, steps
+
+    cfg = _config_cubo(tmp_path)
+    pipeline.run(cfg)
+    cfg.surface.poisson_depth = cfg.surface.poisson_depth - 1
+    per_numero = {voce["numero"]: voce["stato"] for voce in steps.run_state(cfg.run.out_dir, cfg)}
+    assert [per_numero[n] for n in (1, 2, 3, 4)] == ["valido"] * 4
+    assert [per_numero[n] for n in (5, 6, 7, 8, 9, 10, 11)] == ["non valido"] * 7

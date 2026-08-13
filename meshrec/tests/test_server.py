@@ -37,6 +37,23 @@ def test_la_configurazione_torna_intera(cliente):
     assert set(corpo) >= {"input", "segment", "surface", "tet", "analysis"}
 
 
+def test_scrivere_la_configurazione_invalida_gli_step_a_valle(cliente, tmp_path):
+    prima = cliente.get("/api/config").json()
+    prima["surface"]["poisson_depth"] = 7
+    risposta = cliente.put("/api/config", json=prima)
+    assert risposta.status_code == 200
+    assert risposta.json()["surface"]["poisson_depth"] == 7
+    assert cliente.get("/api/config").json()["surface"]["poisson_depth"] == 7
+
+
+def test_una_configurazione_fuori_dominio_non_solleva_ma_spiega(cliente):
+    guasta = cliente.get("/api/config").json()
+    guasta["surface"]["poisson_depth"] = 99   # il modello ammette 4..14
+    risposta = cliente.put("/api/config", json=guasta)
+    assert risposta.status_code == 422
+    assert "poisson_depth" in risposta.text
+
+
 # /api/events e' un generatore SSE senza fine: una GET secca lo terrebbe
 # aperto e bloccherebbe la suite. Ha il proprio test dedicato, con un tetto
 # agli eventi emessi. Tenere questo insieme corto: cio' che vi entra esce

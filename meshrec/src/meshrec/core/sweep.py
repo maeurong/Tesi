@@ -525,11 +525,13 @@ def run_experiment(
     registry = Path(experiment.sweep.registry_root) / experiment.name / "registro.jsonl"
 
     if (root / METRICS_FILENAME).exists():
-        # metrics.json e' cio' che pipeline.run scrive nel blocco finally: se
-        # e' li' dentro root, root e' la cartella di una corsa della pipeline
-        # e non una cartella d'esperimento vuota. Un esperimento non scrive
-        # mai dentro una corsa esistente, a maggior ragione se e' runs/muro o
-        # runs/lab_crop, dichiarate di sola lettura.
+        # metrics.json nasce solo dalla rinomina che pipeline.run fa a corsa
+        # conclusa (il blocco finally scrive metrics.partial.json, non
+        # questo): se metrics.json e' li' dentro root, root e' comunque la
+        # cartella di una corsa della pipeline, e non una cartella
+        # d'esperimento vuota. Un esperimento non scrive mai dentro una corsa
+        # esistente, a maggior ragione se e' runs/muro o runs/lab_crop,
+        # dichiarate di sola lettura.
         raise ValueError(
             f"{root} esiste gia' e contiene metrics.json: e' la cartella di "
             "una corsa della pipeline, non una cartella d'esperimento vuota. "

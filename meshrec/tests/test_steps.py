@@ -71,3 +71,35 @@ def test_uno_steps_json_troncato_non_solleva_e_non_rassicura(tmp_path):
     corsa.mkdir()
     (corsa / steps.STATE_FILENAME).write_text('{"01_load": {"impro', encoding="utf-8")
     assert {voce["stato"] for voce in steps.run_state(corsa, cfg)} == {"mai eseguito"}
+
+
+def test_lo_stato_si_scrive_uno_step_alla_volta(tmp_path):
+    corsa = tmp_path / "corsa"
+    steps.write_state(corsa, 1, "abc", "riuscito", "01_cloud.ply", 2.5)
+    steps.write_state(corsa, 2, "def", "riuscito", "02_segmented.ply", 9.0)
+    salvato = steps.read_state(corsa)
+    assert salvato["01_load"]["impronta"] == "abc"
+    assert salvato["02_segment"]["secondi"] == 9.0
+    assert len(salvato) == 2, "scrivere uno step non deve cancellare gli altri"
+
+
+def test_uno_step_fallito_resta_fallito_anche_con_l_impronta_giusta(tmp_path):
+    cfg = _config(tmp_path)
+    corsa = tmp_path / "corsa"
+    marchi = steps.step_fingerprints(cfg)
+    steps.write_state(corsa, 5, marchi[5], "fallito", None, 1.0)
+    per_chiave = {voce["chiave"]: voce["stato"] for voce in steps.run_state(corsa, cfg)}
+    assert per_chiave["05_reconstruct"] == "fallito"
+
+
+def test_una_voce_di_stato_non_dizionario_non_solleva(tmp_path):
+    """Il contratto del modulo: uno stato illeggibile e' uno stato assente."""
+    cfg = _config(tmp_path)
+    corsa = tmp_path / "corsa"
+    corsa.mkdir()
+    (corsa / steps.STATE_FILENAME).write_text(
+        json.dumps({"01_load": "troncato", "05_reconstruct": 5}), encoding="utf-8"
+    )
+    per_chiave = {voce["chiave"]: voce["stato"] for voce in steps.run_state(corsa, cfg)}
+    assert per_chiave["01_load"] == "mai eseguito"
+    assert per_chiave["05_reconstruct"] == "mai eseguito"

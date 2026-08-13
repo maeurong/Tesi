@@ -88,6 +88,37 @@ def read_state(out_dir: Path) -> dict[str, object]:
     return contenuto if isinstance(contenuto, dict) else {}
 
 
+def write_state(
+    out_dir: Path,
+    numero: int,
+    impronta: str,
+    esito: str,
+    artefatto: str | None,
+    secondi: float,
+) -> None:
+    """Registra l'esito di un solo step, senza toccare gli altri.
+
+    Rilegge e riscrive l'intero file a ogni step: sono undici voci, il costo e'
+    nullo, e cosi' lo stato su disco resta un solo documento coerente invece di
+    undici frammenti da ricomporre.
+    """
+    from meshrec.core.io import scrivi_atomico
+
+    salvato = read_state(out_dir)
+    salvato[STEP_KEYS[numero - 1]] = {
+        "impronta": impronta,
+        "esito": esito,
+        "artefatto": artefatto,
+        "secondi": float(secondi),
+    }
+    scrivi_atomico(
+        Path(out_dir) / STATE_FILENAME,
+        lambda destinazione: destinazione.write_text(
+            json.dumps(salvato, indent=2, ensure_ascii=False), encoding="utf-8"
+        ),
+    )
+
+
 def run_state(out_dir: Path, cfg: PipelineConfig) -> list[dict[str, object]]:
     """Stato dei undici step per la corsa in `out_dir` con la configurazione `cfg`.
 
@@ -116,8 +147,8 @@ def run_state(out_dir: Path, cfg: PipelineConfig) -> list[dict[str, object]]:
                 "chiave": chiave,
                 "stato": corrente,
                 "impronta": attesi[numero],
-                "artefatto": (voce or {}).get("artefatto"),
-                "secondi": (voce or {}).get("secondi"),
+                "artefatto": (voce if isinstance(voce, dict) else {}).get("artefatto"),
+                "secondi": (voce if isinstance(voce, dict) else {}).get("secondi"),
             }
         )
     return stato

@@ -7,11 +7,12 @@ ricarica l'artefatto precedente invece di rifare il lavoro.
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 import numpy as np
 
-from meshrec.core import abaqus, io, quality, repair, segment, surface, volume
+from meshrec.core import abaqus, io, quality, repair, segment, steps, surface, volume
 from meshrec.core.config import PipelineConfig, save_config
 
 METRICS_FILENAME = "metrics.json"
@@ -93,14 +94,27 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
     out.mkdir(parents=True, exist_ok=True)
     save_config(cfg, out / "config.yaml")
     io.scarta_temporanei(out)
+    impronte = steps.step_fingerprints(cfg)
     metrics: dict[str, object] = {}
     start = cfg.run.from_step
+    # Lo step su cui il lavoro e' fermo in questo istante: serve al ramo di
+    # fallimento, che deve dire quale step si e' rotto e non che la corsa
+    # e' finita male in un punto imprecisato.
+    in_corso = start
+
+    def registra(numero: int, avvio: float, artefatto: str | None) -> None:
+        steps.write_state(
+            out, numero, impronte[numero], "riuscito", artefatto, time.monotonic() - avvio
+        )
 
     try:
         if start <= 1:
+            in_corso = 1
+            avvio = time.monotonic()
             points, step_metrics = io.load_cloud(cfg.input)
             metrics["01_load"] = step_metrics
             io.write_cloud(out / ARTIFACTS[1], points)
+            registra(1, avvio, ARTIFACTS[1])
         else:
             points, _ = io.read_cloud(out / ARTIFACTS[_RESUME_POINTS[start]])
 
@@ -110,10 +124,13 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
         )
 
         if start <= 2:
+            in_corso = 2
+            avvio = time.monotonic()
             points, step_metrics = segment.segment_cloud(points, cfg.segment, spacing)
             metrics["02_segment"] = step_metrics
             io.write_cloud(out / ARTIFACTS[2], points)
             source_cloud = points
+            registra(2, avvio, ARTIFACTS[2])
         else:
             # nuvola segmentata (uscita dello step 2), sempre ricaricata da qui
             # indipendentemente da cosa serva a `points` piu sotto: e' il
@@ -121,21 +138,30 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
             source_cloud, _ = io.read_cloud(out / ARTIFACTS[2])
 
         if start <= 3:
+            in_corso = 3
+            avvio = time.monotonic()
             points, step_metrics = surface.downsample(points, cfg.downsample, spacing)
             metrics["03_downsample"] = step_metrics
             io.write_cloud(out / ARTIFACTS[3], points)
+            registra(3, avvio, ARTIFACTS[3])
 
         if start <= 4:
+            in_corso = 4
+            avvio = time.monotonic()
             normals, step_metrics = surface.estimate_normals(points, cfg.normals, spacing)
             metrics["04_normals"] = step_metrics
             io.write_cloud(out / ARTIFACTS[4], points, normals)
+            registra(4, avvio, ARTIFACTS[4])
         else:
             points, normals = io.read_cloud(out / ARTIFACTS[4])
 
         if start <= 5:
+            in_corso = 5
+            avvio = time.monotonic()
             vertices, faces, step_metrics = surface.reconstruct(points, normals, cfg.surface, spacing)
             metrics["05_reconstruct"] = step_metrics
             _write_mesh(out / ARTIFACTS[5], vertices, faces)
+            registra(5, avvio, ARTIFACTS[5])
         elif start == 9:
             # lo step 8 scrive 08_simplified.ply solo se la semplificazione e'
             # abilitata: con from_step=9 la mesh valida a monte e' quella
@@ -148,27 +174,44 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
             vertices, faces = _read_mesh(out / ARTIFACTS[_RESUME_MESH[start]])
 
         if start <= 6:
+            in_corso = 6
+            avvio = time.monotonic()
             vertices, faces, step_metrics = repair.repair_surface(vertices, faces, cfg.repair)
             metrics["06_repair"] = step_metrics
             _write_mesh(out / ARTIFACTS[6], vertices, faces)
+            registra(6, avvio, ARTIFACTS[6])
 
         if start <= 7:
+            in_corso = 7
+            avvio = time.monotonic()
             step_metrics = quality.surface_metrics(vertices, faces)
             step_metrics["geometric_error"] = quality.geometric_error(vertices, faces, source_cloud)
             metrics["07_surface_quality"] = step_metrics
+            registra(7, avvio, None)
 
         if start <= 8:
+            in_corso = 8
+            avvio = time.monotonic()
             vertices, faces, step_metrics = surface.simplify(vertices, faces, cfg.simplify)
             metrics["08_simplify"] = step_metrics
             if cfg.simplify.enabled:
                 _write_mesh(out / ARTIFACTS[8], vertices, faces)
+            registra(8, avvio, ARTIFACTS[8] if cfg.simplify.enabled else None)
 
+        in_corso = 9
+        avvio = time.monotonic()
         nodes, tets, step_metrics = volume.tetrahedralize_with_metrics(vertices, faces, cfg.tet)
         metrics["09_tetrahedralize"] = step_metrics
         abaqus.write_vtu(out / ARTIFACTS[9], nodes, tets)
+        registra(9, avvio, ARTIFACTS[9])
 
+        in_corso = 10
+        avvio = time.monotonic()
         metrics["10_volume_quality"] = quality.volume_metrics(nodes, tets, cfg.tet.reference_ratio)
+        registra(10, avvio, None)
 
+        in_corso = 11
+        avvio = time.monotonic()
         # `vertices` e' la superficie da cui la mesh di volume e' stata
         # generata: e' quella, e non i nodi del volume, a definire il sistema
         # di riferimento del modello (vedi abaqus.align_to_axes).
@@ -181,6 +224,14 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
             cfg.tet,
             reference=vertices,
         )
+        registra(11, avvio, "wall_model.inp")
+    except BaseException:
+        # Registra il fallimento dello step su cui il lavoro era fermo, poi
+        # rilancia intatto: la pipeline non ingoia mai un errore, si limita a
+        # lasciarne traccia. BaseException e non Exception perche' anche
+        # un'interruzione da tastiera lascia lo stato coerente.
+        steps.write_state(out, in_corso, impronte[in_corso], "fallito", None, 0.0)
+        raise
     finally:
         # Il parziale, non metrics.json: una corsa interrotta lascia intatto
         # l'ultimo risultato completo invece di sostituirlo con il proprio
