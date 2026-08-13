@@ -132,3 +132,36 @@ def test_a_summary_without_finite_values_stays_valid_json():
     partial = quality._distribution(np.array([1.0, np.nan, 3.0]))
     assert partial["non_finite"] == 1
     assert partial["median"] == pytest.approx(2.0)
+
+
+def test_radius_edge_ratio_of_the_regular_tetrahedron():
+    """Il tetraedro regolare vale sqrt(6)/4: e' il minimo possibile."""
+    nodi = np.array(
+        [
+            [1.0, 1.0, 1.0],
+            [1.0, -1.0, -1.0],
+            [-1.0, 1.0, -1.0],
+            [-1.0, -1.0, 1.0],
+        ]
+    )
+    tetraedri = np.array([[0, 1, 2, 3]])
+
+    rapporti = quality.radius_edge_ratios(nodi, tetraedri)
+
+    assert rapporti == pytest.approx([np.sqrt(6.0) / 4.0], rel=1e-9)
+
+
+def test_radius_edge_ratio_grows_on_a_flattened_tetrahedron():
+    """Uno schiacciato ha rapporto alto: e' la grandezza che min_ratio limita."""
+    nodi = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.5, 0.5, 0.001]])
+    tetraedri = np.array([[0, 1, 2, 3]])
+
+    assert quality.radius_edge_ratios(nodi, tetraedri)[0] > 10.0
+
+
+def test_a_degenerate_tetrahedron_is_infinite_not_a_crash():
+    """Quattro punti complanari: nessuna sfera circoscritta finita."""
+    nodi = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [1.0, 1.0, 0.0]])
+    tetraedri = np.array([[0, 1, 2, 3]])
+
+    assert not np.isfinite(quality.radius_edge_ratios(nodi, tetraedri)[0])

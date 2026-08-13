@@ -9,7 +9,13 @@ import numpy as np
 import tetgen
 
 from meshrec.core.config import TetConfig
-from meshrec.core.quality import boundary_edges, inverted_tets, is_watertight, tet_volumes
+from meshrec.core.quality import (
+    boundary_edges,
+    inverted_tets,
+    is_watertight,
+    radius_edge_ratios,
+    tet_volumes,
+)
 
 
 class NotWatertightError(ValueError):
@@ -22,6 +28,10 @@ class TruncatedRefinementWarning(UserWarning):
 
 class IneffectiveVolumeLimitWarning(UserWarning):
     """`max_volume` era impostato ma la mesh non lo rispetta: il limite e' rimasto inerte."""
+
+
+class UnmetQualityConstraintWarning(UserWarning):
+    """Il maglio prodotto non rispetta il `min_ratio` richiesto: il vincolo e' rimasto lettera morta."""
 
 
 class RefinementFailedError(RuntimeError):
@@ -175,6 +185,49 @@ def tetrahedralize_with_metrics(
             stacklevel=2,
         )
 
+    # `min_ratio` era il solo parametro di TetConfig che nessuna metrica
+    # verificava sul risultato: `max_steiner_points` e' controllato dal
+    # conteggio dei punti aggiunti, `max_volume` da largest_element_volume, e
+    # il rapporto raggio-spigolo da nulla. Tre parametri di libreria sono gia'
+    # stati trovati impostati e inerti, tutti per caso: questa chiude la
+    # famiglia.
+    #
+    # La grandezza sorvegliata e' la frazione di elementi che superano il
+    # vincolo, non un percentile alto della distribuzione. Un percentile
+    # avrebbe richiesto una soglia tarata, e tarare su due sole corse e'
+    # esattamente il debito che gia' portiamo per min_ratio stesso; la frazione
+    # invece si legge da sola.
+    #
+    # TetGen tratta minratio come un obiettivo e non come un tetto rigido,
+    # come gia' documentato per maxvolume. Con min_ratio=1.8 il vincolo resta
+    # violato dall'8,10% degli elementi sul muro di riferimento (1.752.795
+    # tetraedri), dal 9,55% su lab_frame tetraedrizzato con nobisect
+    # (1.607.146 tetraedri) e dallo 0,00% sul cubo sintetico. Una corsa sana a
+    # scala reale lascia quindi fuori vincolo una minoranza di elementi, gli
+    # sliver di bordo che il raffinamento non puo' legalmente correggere.
+    #
+    # L'avviso scatta oltre la meta', che non e' una soglia scelta ma
+    # un'affermazione qualitativa: quando gli elementi che violano il vincolo
+    # sono piu' di quelli che lo rispettano, il parametro non sta governando
+    # quel maglio. Sui magli grossolani scatta davvero, ed e' corretto che lo
+    # faccia: sul cubo con nobisect, dodici tetraedri in tutto, il 66,67% e'
+    # fuori vincolo. Sulla mesh di volume archiviata in runs/lab_crop lo e'
+    # l'86,36%, ma quella corsa non ha piu' un metrics.json che ne dichiari i
+    # parametri e la sua provenienza resta incerta.
+    ratios = radius_edge_ratios(nodes, tets)
+    finite = ratios[np.isfinite(ratios)]
+    over_limit = float((finite > cfg.min_ratio).mean()) if len(finite) else 1.0
+    p99 = float(np.quantile(finite, 0.99)) if len(finite) else float("inf")
+    if over_limit > 0.5:
+        warnings.warn(
+            f"il {over_limit:.2%} degli elementi supera il min_ratio di "
+            f"{cfg.min_ratio:.4g} richiesto: il vincolo di qualita non governa "
+            "questo maglio. Il novantanovesimo percentile del rapporto "
+            f"raggio-spigolo vale {p99:.4g}.",
+            UnmetQualityConstraintWarning,
+            stacklevel=2,
+        )
+
     metrics = {
         "nodes": int(len(nodes)),
         "tets": int(len(tets)),
@@ -187,5 +240,7 @@ def tetrahedralize_with_metrics(
         "largest_element_volume": largest,
         "steiner_points": steiner_points,
         "steiner_saturated": bool(saturated),
+        "radius_edge_ratio_over_limit": over_limit,
+        "radius_edge_ratio_p99": p99,
     }
     return nodes, tets, metrics

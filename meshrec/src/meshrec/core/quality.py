@@ -119,6 +119,52 @@ def tet_aspect_ratios(nodes: np.ndarray, tets: np.ndarray) -> np.ndarray:
     return np.where(np.isfinite(ratio) & (inradius > 0.0), ratio, np.inf)
 
 
+def radius_edge_ratios(nodes: np.ndarray, tets: np.ndarray) -> np.ndarray:
+    """Raggio della sfera circoscritta diviso lo spigolo piu corto.
+
+    E' la grandezza che TetGen limita con `minratio`: vale sqrt(6)/4 = 0,6124
+    per il tetraedro regolare e cresce sugli elementi mal condizionati. Serve a
+    verificare sul maglio prodotto un vincolo che finora era solo richiesto: dei
+    parametri di TetConfig, `max_steiner_points` e `max_volume` sono controllati
+    sul risultato, `min_ratio` no.
+
+    Il centro della sfera circoscritta si ottiene risolvendo il sistema lineare
+    che impone uguale distanza dai quattro vertici. Su un tetraedro degenere la
+    matrice e singolare: il risultato e' infinito e non un'eccezione, cosi la
+    metrica resta calcolabile su un maglio che contiene qualche elemento piatto.
+    """
+    n = np.asarray(nodes, dtype=np.float64)
+    t = np.asarray(tets)
+    a = n[t[:, 0]]
+    spigoli = np.stack([n[t[:, i]] - a for i in (1, 2, 3)], axis=1)
+
+    # 2 (p - a) . d = |p - a|^2 per ciascuno dei tre vertici restanti, con d il
+    # centro riferito ad a.
+    matrice = 2.0 * spigoli
+    termine = np.einsum("ijk,ijk->ij", spigoli, spigoli)
+
+    determinante = np.linalg.det(matrice)
+    regolare = np.abs(determinante) > 0.0
+    centri = np.zeros((len(t), 3), dtype=np.float64)
+    if regolare.any():
+        # Il termine noto porta un asse finale esplicito (colonna singola):
+        # senza, quando il numero di tetraedri regolari coincide con 1 o con 3
+        # (la dimensione della matrice), np.linalg.solve confonde il lotto con
+        # un'unica matrice 3x3 condivisa invece di risolvere un sistema per
+        # tetraedro, e sbaglia in silenzio anziche' sollevare un errore.
+        centri[regolare] = np.linalg.solve(
+            matrice[regolare], termine[regolare, :, None]
+        )[..., 0]
+    raggio = np.linalg.norm(centri, axis=1)
+
+    piu_corto = np.min(
+        [np.linalg.norm(n[t[:, i]] - n[t[:, j]], axis=1) for i, j in _FACE_PAIRS], axis=0
+    )
+    with np.errstate(divide="ignore", invalid="ignore"):
+        rapporto = raggio / piu_corto
+    return np.where(regolare & (piu_corto > 0.0), rapporto, np.inf)
+
+
 def _distribution(values: np.ndarray) -> dict[str, float | int | None]:
     """Riassunto di una distribuzione, per il report e per metrics.json.
 
@@ -162,7 +208,7 @@ def surface_metrics(vertices: np.ndarray, faces: np.ndarray) -> dict[str, object
 
 
 def volume_metrics(nodes: np.ndarray, tets: np.ndarray) -> dict[str, object]:
-    """Step 10: elementi invertiti, angolo diedro minimo, aspetto, volumi."""
+    """Step 10: elementi invertiti, angolo diedro minimo, aspetto, volumi, raggio-spigolo."""
     volumes = tet_volumes(nodes, tets)
     return {
         "nodes": int(len(np.asarray(nodes))),
@@ -172,6 +218,7 @@ def volume_metrics(nodes: np.ndarray, tets: np.ndarray) -> dict[str, object]:
         "element_volume": _distribution(volumes),
         "min_dihedral_deg": _distribution(min_dihedral_angles(nodes, tets)),
         "aspect_ratio": _distribution(tet_aspect_ratios(nodes, tets)),
+        "radius_edge_ratio": _distribution(radius_edge_ratios(nodes, tets)),
     }
 
 
