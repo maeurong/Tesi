@@ -53,7 +53,7 @@ tet:
   min_ratio: 1.8
   max_volume: null
   max_steiner_points: -1
-  nobisect: false
+  nobisect: true
   element: C3D4
 analysis:
   material:

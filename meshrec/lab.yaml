@@ -32,7 +32,7 @@ normals:
   orient_knn: 30
 surface:
   method: poisson
-  poisson_depth: 9
+  poisson_depth: 7
   poisson_width: 0.0
   poisson_scale: 1.1
   density_quantile: 0.05
