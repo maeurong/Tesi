@@ -235,6 +235,27 @@ def test_thickness_declares_itself_invalid_on_a_cloud_with_a_nan_vertex():
     assert measured["thickness"] is None
 
 
+def test_thickness_declares_itself_invalid_on_fewer_than_two_points():
+    """Nuvola vuota compresa: np.ptp su una riduzione a zero elementi
+    solleverebbe ValueError prima di arrivare all'istogramma."""
+    assert quality.thickness(np.zeros((0, 3)), bin_width=1.0)["bimodal"] is False
+    assert quality.thickness(np.zeros((0, 3)), bin_width=1.0)["thickness"] is None
+    assert quality.thickness(np.array([[0.0, 0.0, 0.0]]), bin_width=1.0)["bimodal"] is False
+
+
+def test_thickness_declares_itself_invalid_on_a_bad_bin_width():
+    """bin_width zero esce davvero da io.mean_spacing su punti duplicati
+    esatti: np.arange con passo zero o NaN solleva invece di produrre un
+    istogramma vuoto, e measure_thickness_error lo passa qui senza guardia
+    propria perche' e' un float valido, non una chiave mancante."""
+    points = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+
+    for bin_width in (0.0, -1.0, float("nan"), float("inf")):
+        measured = quality.thickness(points, bin_width=bin_width)
+        assert measured["bimodal"] is False
+        assert measured["thickness"] is None
+
+
 def test_the_reference_fraction_does_not_depend_on_the_requested_min_ratio():
     """L'asse di qualita' del fronte usa un metro unico per tutti i candidati.
 

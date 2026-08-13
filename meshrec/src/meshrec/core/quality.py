@@ -300,14 +300,26 @@ def thickness(points: np.ndarray, bin_width: float) -> dict[str, object]:
     la loro distanza non sarebbe uno spessore.
     """
     values = np.asarray(points, dtype=np.float64)
-    if not np.isfinite(values).all():
-        # Coordinate non finite (NaN, inf) possono uscire da una
-        # ricostruzione di Poisson andata male, da una chiusura dei fori o
-        # da una stima delle normali degenere. eigh su una matrice corrotta
-        # da NaN non solleva: non converge in silenzio (LinAlgError:
-        # Eigenvalues did not converge), un percorso che il chiamante non
-        # deve intercettare. La misura non si applica, stesso dizionario del
-        # ramo degenere piu sotto.
+    if (
+        len(values) < 2
+        or not np.isfinite(values).all()
+        or not np.isfinite(bin_width)
+        or bin_width <= 0.0
+    ):
+        # Tre ingressi su cui l'autodecomposizione o l'istogramma non
+        # girano affatto, non un errore del programma da propagare:
+        # - meno di due punti, nuvola vuota compresa (np.ptp su una
+        #   riduzione a zero elementi solleva ValueError);
+        # - coordinate non finite (NaN, inf), che possono uscire da una
+        #   ricostruzione di Poisson andata male, da una chiusura dei fori
+        #   o da una stima delle normali degenere (eigh su una matrice
+        #   corrotta da NaN non solleva: non converge in silenzio);
+        # - bin_width non finito o non positivo: zero esce davvero da
+        #   io.mean_spacing su punti duplicati esatti, e np.arange con
+        #   passo zero o NaN solleva (dimensione impossibile o lunghezza
+        #   incalcolabile) invece di produrre un istogramma vuoto.
+        # Stesso dizionario in tutti e tre i casi: la misura non si
+        # applica, mai un errore grezzo di numpy propagato al chiamante.
         return {"thickness": None, "axis": None, "extent": None, "bimodal": False}
     centred = values - values.mean(axis=0)
     # eigh su una 3x3: costo indipendente dal numero di punti, al contrario

@@ -484,3 +484,26 @@ def test_measure_thickness_error_returns_none_without_raising_on_a_nan_vertex(tm
     row = {"out_dir": str(out_dir), "metrics": {"01_load": {"spacing": 1.0}}}
 
     assert sweep.measure_thickness_error(row, source_thickness=100.0) is None
+
+
+def test_measure_thickness_error_returns_none_without_raising_on_a_zero_spacing(tmp_path):
+    """Prova end-to-end che conta di piu: uno spacing 0.0 esce davvero da
+    io.mean_spacing su punti duplicati esatti, e la cattura (KeyError,
+    TypeError) su row["metrics"] non lo intercetta perche' spacing e' un
+    float valido. np.arange con passo zero solleva dentro quality.thickness,
+    non qui: la mesh su disco e' valida, solo il passo e' corrotto."""
+    import numpy as np
+    import open3d as o3d
+
+    out_dir = tmp_path / "candidato"
+    out_dir.mkdir()
+    mesh = o3d.geometry.TriangleMesh()
+    mesh.vertices = o3d.utility.Vector3dVector(
+        np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+    )
+    mesh.triangles = o3d.utility.Vector3iVector(np.array([[0, 1, 2], [1, 2, 3]]))
+    o3d.io.write_triangle_mesh(str(out_dir / "06_repaired.ply"), mesh)
+
+    row = {"out_dir": str(out_dir), "metrics": {"01_load": {"spacing": 0.0}}}
+
+    assert sweep.measure_thickness_error(row, source_thickness=100.0) is None
