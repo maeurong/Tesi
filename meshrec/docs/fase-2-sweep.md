@@ -16,9 +16,11 @@
 Le due dichiarazioni d'esperimento condividono la forma: cinque assi,
 `downsample.voxel_size`, `surface.poisson_depth`, `surface.density_quantile`,
 `tet.min_ratio` e `tet.nobisect`, esplorati **un asse alla volta** a partire
-dalla configurazione in vigore. Un fattoriale pieno su cinque assi a tre
-livelli sarebbe 162 candidati per corsa; a un asse per volta, ciascuna corsa
-ne misura **11** — la configurazione base piu' le variazioni non ridondanti
+dalla configurazione in vigore. I cinque assi hanno livelli 3, 3, 3, 4 e 2 —
+tre valori ciascuno per `downsample.voxel_size`, `surface.poisson_depth` e
+`surface.density_quantile`, quattro per `tet.min_ratio`, due per
+`tet.nobisect` — quindi un fattoriale pieno sarebbe 3×3×3×4×2 = **216**
+candidati per corsa; a un asse per volta, ciascuna corsa ne misura **11** — la configurazione base piu' le variazioni non ridondanti
 sui cinque assi (2+2+2+3+1 sopra la base, piu' la base stessa). Il metodo
 sacrifica le interazioni fra assi per rendere la griglia eseguibile in ore
 invece che in giorni, ed e' dichiarato come limite al punto 8.
@@ -188,7 +190,7 @@ che nessuna variazione di un asse singolo, fra quelle misurate qui, lo fa.
 Alla profondita' di Poisson 9 — quella con cui la Fase 1 aveva raggiunto il
 deck su `lab_frame.pcd` prima di introdurre `nobisect` — lo spessore
 ricostruito misurava **214,0 mm contro 176 mm reali**
-(`fase-1-esiti-lab-frame.md`), un ispessimento del **21%**. L'errore
+(`fase-1-esiti-lab-frame.md`), un ispessimento del **21,6%**. L'errore
 geometrico bidirezionale allora adottato come metrica di fedelta' restava a
 **3,85 mm**: una distanza punto-superficie che un ispessimento simmetrico
 lascia bassa, e che quindi non rivelava affatto l'ispessimento — era

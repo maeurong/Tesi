@@ -168,9 +168,9 @@ assi del fronte, e nessun asse del fronte resta senza un parametro che lo muova.
 Il metodo è **un asse alla volta attorno alla configurazione di riferimento**, e
 passano a un fattoriale ridotto solo le coppie che la misura mostra interagenti,
 cioè quelle in cui l'effetto di un asse cambia al variare dell'altro.
-Un fattoriale pieno su cinque assi a tre livelli sono 162 candidati, cioè circa
-cento minuti per corsa di riferimento e più di tre ore per entrambe, in gran parte
-spesi su combinazioni che nessuno leggerà. Il fronte di Pareto si costruisce su
+I cinque assi hanno livelli 3, 3, 3, 4 e 2, non tutti uguali: un fattoriale pieno
+sono 3×3×3×4×2 = 216 candidati, cioè circa cento minuti per corsa di riferimento e
+più di tre ore per entrambe, in gran parte spesi su combinazioni che nessuno leggerà. Il fronte di Pareto si costruisce su
 qualunque insieme di candidati, quindi non richiede una griglia cartesiana per
 essere valido.
 
