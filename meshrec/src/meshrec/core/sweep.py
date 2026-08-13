@@ -141,10 +141,9 @@ def provenance() -> dict[str, object]:
                 ["git", *args], capture_output=True, text=True, check=False
             )
         except OSError as exc:
-            # CreateProcess puo' rifiutarsi di avviare git anche quando l'eseguibile
-            # e' sul PATH (osservato dopo molte chiamate native precedenti nello
-            # stesso processo). None e' distinto da "" (comando riuscito, output
-            # vuoto): altrimenti un albero sporco letto a vuoto si scriverebbe pulito.
+            # git assente, o l'avvio del processo negato dall'ambiente: in ogni
+            # caso None e' distinto da "" (comando riuscito, output vuoto),
+            # altrimenti un albero sporco letto a vuoto si scriverebbe pulito.
             warnings.warn(f"git non avviabile, provenienza incompleta: {exc}", GitUnavailableWarning)
             return None
         return result.stdout.strip()

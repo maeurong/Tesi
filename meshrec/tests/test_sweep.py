@@ -115,10 +115,19 @@ def test_the_digest_of_a_file_changes_with_its_content(tmp_path):
 
 
 def test_provenance_records_the_code_that_produced_the_row():
+    """Il commit e' leggibile, o dirty e' sconosciuto: mai un dirty fabbricato accanto a un commit assente.
+
+    Su una macchina dove git non riesce a partire (sandbox che nega l'avvio del
+    processo) commit vale "sconosciuto" e dirty deve restare None, non un bool
+    inventato. Dove git parte, valgono le garanzie piene.
+    """
     provenance = sweep.provenance()
 
-    assert len(provenance["commit"]) >= 7
-    assert isinstance(provenance["dirty"], bool)
+    if provenance["commit"] == "sconosciuto":
+        assert provenance["dirty"] is None
+    else:
+        assert len(provenance["commit"]) >= 7
+        assert isinstance(provenance["dirty"], bool)
     assert "open3d" in provenance["versions"]
     assert "tetgen" in provenance["versions"]
 
