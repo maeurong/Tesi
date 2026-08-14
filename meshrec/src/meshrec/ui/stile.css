@@ -25,6 +25,10 @@ body {
 .zona h2 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--tenue); margin: 0 0 var(--passo); }
 .elenco-step { list-style: none; margin: 0; padding: 0; }
 .viewport { width: 100%; height: 100%; }
+/* display: block perche' una tela inline lascia sotto di se' lo spazio del
+   tratto discendente della riga: alta quanto il contenitore, lo farebbe
+   comunque scorrere di qualche pixel. */
+.viewport canvas { display: block; }
 .viewport canvas:focus-visible { outline: 2px solid var(--accento); outline-offset: -2px; }
 .vuoto { color: var(--tenue); font-size: 0.9rem; }
 @media (max-width: 60rem) { .tre-zone { grid-template-columns: 1fr; height: auto; } }

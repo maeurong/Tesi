@@ -41,7 +41,14 @@ export function creaViewport(contenitore) {
   function ridimensiona() {
     const larghezza = contenitore.clientWidth || 1;
     const altezza = contenitore.clientHeight || 1;
-    renderer.setSize(larghezza, altezza, false);
+    // Il terzo argomento di setSize e' updateStyle, e va lasciato al suo
+    // valore vero. Con false three.js dimensiona il buffer di disegno a
+    // larghezza * pixelRatio ma non scrive la misura in CSS, e la tela viene
+    // impaginata alla dimensione del buffer: su uno schermo con
+    // devicePixelRatio 1,25 una tela di 881x576 si impagina 1101x720, esce
+    // dal contenitore e lo fa scorrere, tagliando la scena. Misurato nel
+    // browser, non dedotto.
+    renderer.setSize(larghezza, altezza);
     camera.aspect = larghezza / altezza;
     camera.updateProjectionMatrix();
   }

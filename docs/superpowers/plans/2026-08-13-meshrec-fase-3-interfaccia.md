@@ -2056,7 +2056,7 @@ export function creaViewport(contenitore) {
   function ridimensiona() {
     const larghezza = contenitore.clientWidth || 1;
     const altezza = contenitore.clientHeight || 1;
-    renderer.setSize(larghezza, altezza, false);
+    renderer.setSize(larghezza, altezza);
     camera.aspect = larghezza / altezza;
     camera.updateProjectionMatrix();
   }
