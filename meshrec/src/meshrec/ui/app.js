@@ -60,7 +60,18 @@ flusso.addEventListener("stato", (evento) => {
   // sinistra mentre a destra restano le metriche di prima, o nessuna. Non a
   // ogni evento, perche' lo stato arriva ogni mezzo secondo e il pannello si
   // riscriverebbe sotto le dita di chi sta compilando un campo.
-  if (eraInCorso && !stato.in_corso && stepAperto !== null) apriDettaglio(stepAperto);
+  if (eraInCorso && !stato.in_corso) {
+    if (stepAperto !== null) apriDettaglio(stepAperto);
+    // La vista quanto il pannello: senza questa riga lo step rieseguito mostra
+    // a destra le metriche nuove e nel viewport il contorno vecchio, col
+    // cursore del taglio tarato su un ingombro che non esiste piu'.
+    // Una corsa partita dallo step N riscrive gli artefatti dall'N in giu',
+    // quindi solo un numero >= N puo' essere scaduto: sotto non c'e' niente da
+    // ricaricare, e ogni ricaricamento e' una richiesta in piu'.
+    if (stepMostrato !== null && stato.step !== null && stepMostrato >= stato.step) {
+      ricaricaVista(stepMostrato);
+    }
+  }
   eraInCorso = stato.in_corso;
 });
 
@@ -185,10 +196,23 @@ const SCATTI_DEL_CURSORE = 1000;
 
 function applicaTaglio() {
   const quota = Number(quotaTaglio.value);
-  vista.attivaTaglio(Number(asseTaglio.value), quota);
+  // Il primo scatto del cursore, il minimo dell'ingombro, e' la posizione
+  // spenta: li' il piano non esiste. E' l'unico modo di rivedere il volume
+  // intero senza uscire dallo step, ed e' il comando che il viewport esponeva
+  // (disattivaTaglio) senza che l'interfaccia lo raggiungesse.
+  // Spenta e non «taglio che non toglie niente» apposta: alla quota del
+  // minimo il piano sarebbe complanare alla faccia estrema, e three.js tiene i
+  // punti con normale . punto + costante > 0, cioe' quei vertici li
+  // toglierebbe. Cosi' invece nessuna quota tagliata e' mai complanare: la
+  // prima vale minimo + passo.
+  const intero = quota <= Number(quotaTaglio.min);
+  if (intero) vista.disattivaTaglio();
+  else vista.attivaTaglio(Number(asseTaglio.value), quota);
   // La quota e' una coordinata della geometria, che il progetto tiene in
   // millimetri (lo stesso sistema che l'esportazione dichiara nel .inp).
-  const testo = `${quota.toLocaleString("it", { maximumFractionDigits: 1 })} mm`;
+  const testo = intero
+    ? "volume intero"
+    : `${quota.toLocaleString("it", { maximumFractionDigits: 1 })} mm`;
   valoreTaglio.textContent = testo;
   // Senza aria-valuetext un lettore di schermo legge il numero grezzo, senza
   // unita': su un cursore che va da 1697 a 4168 non dice nulla.
@@ -202,14 +226,22 @@ function riallineaTaglio(numero) {
   comandoTaglio.hidden = ingombro === null;
   // Comando nascosto e taglio ancora attivo sarebbe la vista che contraddice
   // il suo comando: quando sparisce, sparisce anche il piano.
-  if (ingombro === null) return vista.disattivaTaglio();
+  if (ingombro === null) {
+    // E con lui la sua quota: lasciata li', resterebbe l'ultima lettura su un
+    // comando che non c'e' piu', cioe' un numero che non misura piu' niente.
+    valoreTaglio.textContent = "";
+    quotaTaglio.removeAttribute("aria-valuetext");
+    return vista.disattivaTaglio();
+  }
   const asse = Number(asseTaglio.value);
   const minimo = ingombro.min[asse];
   const massimo = ingombro.max[asse];
   quotaTaglio.min = minimo;
   quotaTaglio.max = massimo;
   quotaTaglio.step = (massimo - minimo) / SCATTI_DEL_CURSORE;
-  // Al minimo il piano non toglie niente: si riparte dal volume intero.
+  // Si riparte dal volume intero, e questa volta e' vero: il minimo e' la
+  // posizione spenta, non un taglio che non toglie niente. L'intervallo del
+  // cursore resta quello dell'ingombro, misurato a video.
   quotaTaglio.value = minimo;
   applicaTaglio();
 }
@@ -229,12 +261,22 @@ document.getElementById("elenco-step").addEventListener("click", (evento) => {
   // Il comando del taglio si rifa' quando la geometria e' arrivata, non prima:
   // il suo intervallo esce dall'ingombro di cio' che e' disegnato. Non si rifa'
   // affatto se questo clic e' stato superato, altrimenti una risposta vecchia
-  // riporterebbe il cursore al minimo sotto le dita di chi lo sta muovendo.
+  // riporterebbe il cursore sullo spento sotto le dita di chi lo sta muovendo.
+  ricaricaVista(numero, ordine);
+  apriDettaglio(numero, ordine);
+});
+
+// La geometria mostrata e il cursore che ne dipende, in un punto solo: due
+// gesti lo chiedono, il clic su uno step e la fine di una corsa, e scriverlo
+// due volte lascerebbe che uno dei due perda la guardia dell'ordine.
+// ordine: dal clic arriva la generazione appena aperta; dallo scorrere degli
+// eventi quella in corso, cosi' il ricaricamento non annulla una geometria in
+// volo ma viene battuto da un clic dell'utente.
+function ricaricaVista(numero, ordine = generazione) {
   mostraStep(numero, ordine).then(() => {
     if (!superata(ordine)) riallineaTaglio(numero);
   });
-  apriDettaglio(numero, ordine);
-});
+}
 
 // Lo schema e le descrizioni vengono dai modelli di config.py: l'interfaccia
 // non li riscrive, e la validazione di cio' che si scrive resta quella dei

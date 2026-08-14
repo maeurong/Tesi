@@ -592,6 +592,63 @@ def test_l_intervallo_del_cursore_di_taglio_esce_da_una_lettura_e_non_da_numeri_
         assert f"{attributo}=" not in cursore, cursore
 
 
+def test_il_cursore_del_taglio_ha_una_posizione_spenta_e_ci_parte():
+    """IM-2. `disattivaTaglio()` esisteva nel viewport e l'interfaccia non la
+    raggiungeva: `riallineaTaglio` chiamava `applicaTaglio()` sempre, il taglio
+    si accendeva da solo appena il comando compariva e l'unico modo di
+    spegnerlo era uscire dallo step. Il primo scatto del cursore e' la
+    posizione spenta, ed e' quella da cui si parte: il volume compare intero e
+    ci si torna trascinando a sinistra, senza lasciare lo step.
+
+    Spenta e non «un taglio che non toglie niente» (IM-3): alla quota del
+    minimo il piano sarebbe complanare alla faccia estrema, e three.js tiene i
+    punti con normale . punto + costante > 0. Cosi' invece nessuna quota
+    tagliata e' complanare, perche' la prima vale minimo + passo.
+
+    Tutto testuale: il resto e' `quota <= minimo`, un confronto, e una funzione
+    pura che lo avvolge proverebbe il segno di minore, non il comportamento.
+    Quello resta da guardare a video, e il rapporto dice come.
+    """
+    from meshrec.app.server import UI_DIR
+
+    testo = (UI_DIR / "app.js").read_text(encoding="utf-8")
+    applica = _sorgente_di("applicaTaglio", testo)
+    assert "vista.disattivaTaglio()" in applica, "il cursore non puo' spegnere il taglio"
+    # Spento e' una posizione del cursore, non un caso a parte: il confronto e'
+    # con il minimo del cursore stesso, cosi' vale su ogni asse e ogni geometria.
+    assert re.search(r"quotaTaglio\.min\b", applica), applica
+    riallinea = _sorgente_di("riallineaTaglio", testo)
+    # E si parte da li': min e value sono lo stesso estremo dell'ingombro.
+    assert re.search(r"quotaTaglio\.min\s*=\s*minimo\b", riallinea), riallinea
+    assert re.search(r"quotaTaglio\.value\s*=\s*minimo\b", riallinea), riallinea
+
+
+def test_il_fronte_di_discesa_ricarica_anche_la_vista_e_non_solo_il_pannello():
+    """IM-4. Si rieseguiva lo step aperto e il pannello mostrava le metriche
+    nuove mentre il viewport teneva il contorno vecchio, col cursore del taglio
+    tarato su un ingombro che non esisteva piu'. Le due avvertenze del giro 2
+    valgono anche qui: il ricaricamento non apre una generazione (prende quella
+    in corso, cosi' un clic dell'utente lo batte) e non chiede niente se cio'
+    che e' disegnato non puo' essere stato riscritto.
+    """
+    from meshrec.app.server import UI_DIR
+
+    testo = (UI_DIR / "app.js").read_text(encoding="utf-8")
+    corpo = testo.split('addEventListener("stato"', 1)[1].split("\n});", 1)[0]
+    assert "apriDettaglio(stepAperto)" in corpo
+    assert "ricaricaVista(stepMostrato)" in corpo, "la vista resta indietro sul fronte di discesa"
+    assert "stepMostrato >= stato.step" in corpo, "chiede anche cio' che nessuna corsa ha toccato"
+    assert "apriGenerazione" not in corpo, "il fronte di discesa annulla una geometria in volo"
+    # Lo stesso punto serve il clic: se il clic smettesse di passarci, il
+    # riallineamento del cursore resterebbe scritto per un solo chiamante.
+    # Il solo corpo del gestore: fino alla graffa che lo chiude. Sul resto del
+    # file la ricerca troverebbe la definizione di ricaricaVista, che sta piu'
+    # sotto, e passerebbe anche con un clic che non ci passa piu'.
+    gestore = testo.split('getElementById("elenco-step").addEventListener', 1)[1]
+    gestore = gestore.split("\n});", 1)[0]
+    assert re.search(r"ricaricaVista\(numero[,)]", gestore), gestore
+
+
 def test_i_moduli_dell_interfaccia_sono_sintatticamente_validi():
     """node --check prende gli errori di sintassi che altrimenti si scoprono
     solo aprendo la pagina, dove nessuna suite guarda."""
