@@ -15,6 +15,9 @@ Cartella di lavoro Abaqus/
 
 # Residui di un npm install finito nella radice per sbaglio (installazione di
 # una dipendenza del plugin impeccable). Non fanno parte del progetto.
-node_modules/
-package.json
-package-lock.json
+# La barra iniziale limita la regola alla radice: senza, i due nomi sarebbero
+# ignorati in tutto l'albero, e un giorno un package.json legittimo dentro un
+# sottoalbero sparirebbe senza che nessuno se ne accorga.
+/node_modules/
+/package.json
+/package-lock.json
