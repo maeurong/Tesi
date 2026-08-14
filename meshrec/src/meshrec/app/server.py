@@ -19,6 +19,12 @@ from meshrec.core.config import PipelineConfig, ViewportConfig, load_config, sav
 
 UI_DIR = Path(__file__).resolve().parent.parent / "ui"
 
+# Mai dentro una cartella di corsa: runs/muro, runs/lab_crop, runs/sweep,
+# experiments/muro ed experiments/lab_crop sono di sola lettura e contengono
+# la tabella sperimentale della tesi. Percorso relativo come run.out_dir:
+# risolto rispetto alla cartella da cui gira il server (meshrec/).
+CACHE_DIR = Path(".cache/viewport")
+
 
 def create_app(config_path: Path) -> FastAPI:
     """Applicazione legata a un file di configurazione, che e' la corsa corrente."""
@@ -98,23 +104,33 @@ def create_app(config_path: Path) -> FastAPI:
         pronta, mostrerebbe una nuvola diversa da quella su cui il ritaglio
         agisce.
         """
+        if numero not in pipeline.ARTIFACTS:
+            raise ValueError(
+                f"lo step {numero} non esiste: gli step con una nuvola sono {sorted(pipeline.ARTIFACTS)}"
+            )
         cfg = corrente()
         percorso = Path(cfg.run.out_dir) / pipeline.ARTIFACTS[numero]
         if not percorso.exists():
             raise FileNotFoundError(
                 f"lo step {numero} non ha ancora prodotto {pipeline.ARTIFACTS[numero]}"
             )
-        punti, _normali = io.read_cloud(percorso)
         budget = max_points if max_points is not None else ViewportConfig().max_points
-        spaziatura = io.mean_spacing(punti, cfg.input.spacing_sample, cfg.input.seed)
-        ridotti, gruppi, voxel = viewport.decimate(punti, budget, spaziatura)
+        if viewport.cache_path(percorso, budget, CACHE_DIR).exists():
+            # Cache calda: i 2 s di mean_spacing sarebbero l'intero costo
+            # della risposta, e il valore non serve perche' decimate_file non
+            # richiama decimate quando trova la voce.
+            spaziatura = 0.0
+        else:
+            punti, _normali = io.read_cloud(percorso)
+            spaziatura = io.mean_spacing(punti, cfg.input.spacing_sample, cfg.input.seed)
+        ridotti, gruppi, voxel = viewport.decimate_file(percorso, budget, spaziatura, CACHE_DIR)
         mappe[numero] = gruppi
         return Response(
             content=viewport.to_float32(ridotti),
             media_type="application/octet-stream",
             headers={
                 "X-Points-Drawn": str(len(ridotti)),
-                "X-Points-Total": str(len(punti)),
+                "X-Points-Total": str(sum(len(gruppo) for gruppo in gruppi)),
                 "X-Voxel": f"{voxel:.6g}",
             },
         )

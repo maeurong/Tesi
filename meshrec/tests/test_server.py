@@ -109,6 +109,19 @@ def test_chiedere_la_nuvola_di_uno_step_mai_eseguito_non_solleva(cliente):
     assert "errore" in risposta.json()
 
 
+def test_chiedere_la_nuvola_di_uno_step_fuori_intervallo_spiega_quali_esistono(cliente):
+    """Prima della guardia, uno step fuori intervallo faceva sollevare
+    pipeline.ARTIFACTS[numero] con un KeyError generico ('99', senza
+    contesto), che il gestore trasformava in un messaggio inutile per
+    l'utente. Deve dire quali step esistono."""
+    risposta = cliente.get("/api/cloud/99")
+    assert risposta.status_code == 400
+    corpo = risposta.json()
+    assert corpo["errore"] != "KeyError"
+    assert "99" in corpo["messaggio"]
+    assert "1" in corpo["messaggio"] and "9" in corpo["messaggio"]
+
+
 def test_three_js_e_servito_dal_server_e_non_dalla_rete(cliente):
     for nome in ("three.module.js", "three.core.js"):
         risposta = cliente.get(f"/ui/vendor/{nome}")
