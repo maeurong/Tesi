@@ -9,9 +9,29 @@ rivestira' questo report invece di riscriverlo.
 from __future__ import annotations
 
 import html
+import json
+import os
 from pathlib import Path
+from typing import Iterator
 
+import yaml
+
+from meshrec.core import steps
+from meshrec.core.pipeline import METRICS_FILENAME
 from meshrec.core.sweep import load_registry
+
+CONFIG_FILENAME = "config.yaml"
+RUN_REPORT_FILENAME = "report.html"
+
+# Intestazione della dichiarazione degli step mai misurati. E' una costante
+# perche' il test che la cerca deve puntare alla stessa stringa che il report
+# scrive, non a una copia che puo' divergere in silenzio.
+SENZA_METRICHE = "step senza metriche:"
+
+# Sotto questa lunghezza una lista di numeri non e' una distribuzione ma un
+# vettore di coordinate (extent, bbox_min, bbox_max hanno tre componenti): un
+# istogramma di tre barre in appendice a una tesi e' rumore, non una misura.
+_MINIMO_PER_ISTOGRAMMA = 4
 
 _COLUMNS: tuple[tuple[str, str], ...] = (
     ("fingerprint", "impronta"),
@@ -117,3 +137,154 @@ errore di spessore, numero di tetraedri e frazione fuori vincolo, tutti da minim
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(document, encoding="utf-8")
     return out_path
+
+
+_STILE = """
+body { font-family: system-ui, sans-serif; margin: 2rem; color: #222; }
+table { border-collapse: collapse; font-size: 0.85rem; margin-bottom: 1rem; }
+th, td { border: 1px solid #ccc; padding: 0.25rem 0.5rem; text-align: left; }
+th { background: #eee; }
+p.assente { background: #fbeaea; padding: 0.25rem 0.5rem; }
+figure { display: inline-block; margin: 0 1rem 1rem 0; }
+img { max-width: 30rem; border: 1px solid #ccc; }
+"""
+
+
+def _leggi(percorso: Path, caricatore) -> object | None:
+    """Contenuto del file, o None se manca o non si lascia leggere.
+
+    Un file illeggibile non deve impedire il report: il documento dichiara
+    l'assenza, che e' un'informazione, invece di sollevare e non produrre nulla.
+    """
+    try:
+        with percorso.open(encoding="utf-8") as handle:
+            return caricatore(handle)
+    except (OSError, ValueError, yaml.YAMLError):
+        return None
+
+
+def _testo(valore: object) -> str:
+    """Rappresentazione stampabile di un valore letto, senza arrotondarlo a zero."""
+    if isinstance(valore, list):
+        return ", ".join(_testo(item) for item in valore)
+    if isinstance(valore, float):
+        return f"{valore:.6g}"
+    return str(valore)
+
+
+def _piatto(prefisso: str, valore: object) -> Iterator[tuple[str, object]]:
+    """Coppie (nome puntato, foglia) da una struttura annidata."""
+    if isinstance(valore, dict):
+        for chiave, dentro in valore.items():
+            yield from _piatto(f"{prefisso}.{chiave}" if prefisso else str(chiave), dentro)
+    else:
+        yield prefisso, valore
+
+
+def _tabella(coppie: Iterator[tuple[str, object]]) -> str:
+    righe = "".join(
+        f"<tr><th>{html.escape(nome)}</th><td>{html.escape(_testo(valore))}</td></tr>"
+        for nome, valore in coppie
+    )
+    return f"<table>{righe}</table>" if righe else "<p>nessuna voce.</p>"
+
+
+def _sezione_metriche(metriche: dict[str, object] | None) -> str:
+    """Le metriche presenti, e la dichiarazione esplicita di quelle mancanti."""
+    if not isinstance(metriche, dict):
+        return f"<p class='assente'>{METRICS_FILENAME} assente: questa corsa non ha metriche sul disco.</p>"
+
+    presenti = "".join(
+        f"<h3>{html.escape(nome)}</h3>{_tabella(_piatto('', valore))}"
+        for nome, valore in sorted(metriche.items())
+    )
+    mancanti = [chiave for chiave in steps.STEP_KEYS if chiave not in metriche]
+    coda = (
+        f"<p class='assente'>{SENZA_METRICHE} {html.escape(', '.join(mancanti))}. "
+        "Non sono righe a zero: sono step che questa corsa non ha eseguito.</p>"
+        if mancanti
+        else "<p>tutti gli step di una corsa completa hanno metriche.</p>"
+    )
+    return presenti + coda
+
+
+def _istogrammi(metriche: dict[str, object] | None) -> str:
+    """Un istogramma per ogni lista di numeri trovata: nessun nome di metrica scritto qui."""
+    grafici = [
+        histogram_svg([float(item) for item in valore], nome, bins=12)
+        for nome, valore in _piatto("", metriche if isinstance(metriche, dict) else {})
+        if isinstance(valore, list)
+        and len(valore) >= _MINIMO_PER_ISTOGRAMMA
+        and all(isinstance(item, (int, float)) and not isinstance(item, bool) for item in valore)
+    ]
+    return "".join(grafici) or "<p>nessuna distribuzione fra le metriche di questa corsa.</p>"
+
+
+def _sezione_viste(viste: list[Path], cartella: Path) -> str:
+    """Le viste presenti come immagini relative, le altre dichiarate assenti."""
+    pezzi = []
+    for vista in viste:
+        vista = Path(vista)
+        nome = html.escape(vista.name)
+        if not vista.exists():
+            pezzi.append(f"<p class='assente'>vista {nome}: file assente, non incorporata.</p>")
+            continue
+        try:
+            riferimento = Path(os.path.relpath(vista, cartella)).as_posix()
+        except ValueError:
+            # Su Windows fra unita' diverse nessun percorso relativo esiste:
+            # meglio un percorso assoluto dichiarato che un report non scritto.
+            riferimento = vista.as_posix()
+        pezzi.append(
+            f'<figure><img src="{html.escape(riferimento)}" alt="{nome}">'
+            f"<figcaption>{nome}</figcaption></figure>"
+        )
+    return "".join(pezzi)
+
+
+def _conteggio_viste(viste: list[Path]) -> str:
+    if not viste:
+        return "<p class='assente'>nessuna vista catturata: 0 attese, 0 presenti.</p>"
+    presenti = sum(1 for vista in viste if Path(vista).exists())
+    classe = "" if presenti == len(viste) else " class='assente'"
+    return f"<p{classe}>{len(viste)} attese, {presenti} presenti, {len(viste) - presenti} assenti.</p>"
+
+
+def write_run_report(out_dir: Path, viste: list[Path]) -> Path:
+    """Report di una corsa: configurazione, metriche, istogrammi, viste catturate.
+
+    Le viste assenti vengono dichiarate e non lasciate come riquadri muti: un
+    report con buchi silenziosi non e' distinguibile da uno completo se
+    nessuno conta. Vale per ogni buco: metriche mai misurate, parametri mai
+    salvati, immagini sparite dal disco. Ogni cifra qui dentro arriva da una
+    lettura di metrics.json o di config.yaml, mai da un valore scritto nel
+    codice.
+    """
+    out_dir = Path(out_dir)
+    metriche = _leggi(out_dir / METRICS_FILENAME, json.load)
+    configurazione = _leggi(out_dir / CONFIG_FILENAME, yaml.safe_load)
+    parametri = (
+        _tabella(_piatto("", configurazione))
+        if isinstance(configurazione, dict)
+        else f"<p class='assente'>{CONFIG_FILENAME} assente: i parametri di questa corsa non sono sul disco.</p>"
+    )
+
+    documento = f"""<!doctype html>
+<html lang="it"><head><meta charset="utf-8"><title>Corsa: {html.escape(out_dir.name)}</title>
+<style>{_STILE}</style></head><body>
+<h1>Corsa: {html.escape(out_dir.name)}</h1>
+<h2>Parametri</h2>
+{parametri}
+<h2>Metriche per step</h2>
+{_sezione_metriche(metriche if isinstance(metriche, dict) else None)}
+<h2>Distribuzioni</h2>
+{_istogrammi(metriche if isinstance(metriche, dict) else None)}
+<h2>Viste</h2>
+{_conteggio_viste(viste)}
+{_sezione_viste(viste, out_dir)}
+</body></html>"""
+
+    percorso = out_dir / RUN_REPORT_FILENAME
+    percorso.parent.mkdir(parents=True, exist_ok=True)
+    percorso.write_text(documento, encoding="utf-8")
+    return percorso
