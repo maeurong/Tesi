@@ -330,6 +330,72 @@ def test_la_seconda_richiesta_del_contorno_non_riestrae(cliente, tmp_path, monke
     assert poi.headers["X-Triangles"] == prima.headers["X-Triangles"]
 
 
+def test_una_voce_di_cache_incoerente_non_arriva_al_browser(cliente, tmp_path):
+    """BL-2: una voce formalmente valida ma con un indice oltre i vertici.
+
+    np.load la legge senza un rumore e nessun indice fuori misura solleva in
+    numpy: il 200 arriva al browser con una faccia che punta oltre l'array di
+    vertici appena mandato, three.js disegna fuori dall'attributo position e
+    non lo dice a nessuno. Una voce cosi' si tratta come corrotta e si
+    ricalcola, la stessa cura che _leggi_cache da' al suo offsets.
+    """
+    import numpy as np
+
+    from meshrec.core import pipeline
+
+    punti = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+    _scrivi_volume(tmp_path / "corsa", punti, [[0, 1, 2, 3]])
+    assert cliente.get("/api/mesh/9").status_code == 200
+
+    voce = server._percorso_contorno(tmp_path / "corsa" / pipeline.ARTIFACTS[9])
+    assert voce.exists(), "la prima richiesta non ha scritto la voce che il test avvelena"
+    np.savez(
+        str(voce),
+        vertici=np.zeros((4, 3), dtype="<f4"),
+        facce=np.full((1, 3), 99, dtype="<u4"),
+    )
+
+    risposta = cliente.get("/api/mesh/9")
+    assert risposta.status_code == 200
+    vertici, facce = _mesh_dalla_risposta(risposta)
+    # Il contorno vero del tetraedro, non la voce avvelenata.
+    assert (risposta.headers["X-Vertices"], risposta.headers["X-Triangles"]) == ("4", "4")
+    assert facce.max() < len(vertici), "un indice oltre i vertici e' arrivato al browser"
+
+
+def test_cambiare_la_versione_della_cache_del_contorno_fa_ricalcolare(
+    cliente, tmp_path, monkeypatch
+):
+    """BL-2, l'altra meta': la chiave (sorgente, mtime) non registra il codice.
+
+    Il verso delle facce (quality._TET_FACES) e la regola di compattazione dei
+    vertici decidono il risultato e nella chiave non ci sono: se cambiano, ogni
+    voce gia' su disco risponde col risultato vecchio per tutta la vita del
+    file sorgente. La versione nel nome le sfratta, perche' la pulizia per
+    marchio non guarda che cosa segue il marchio.
+
+    La forma osservabile e' quella di test_la_seconda_richiesta_del_contorno_non_riestrae,
+    al contrario: con la lettura del volume che solleva, la richiesta deve
+    fallire: se riesce, ha riusato la voce della versione precedente.
+    """
+    import meshio
+    import numpy as np
+
+    punti = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+    _scrivi_volume(tmp_path / "corsa", punti, [[0, 1, 2, 3]])
+    assert cliente.get("/api/mesh/9").status_code == 200
+
+    monkeypatch.setattr(server, "VERSIONE_CONTORNO", server.VERSIONE_CONTORNO + 1)
+
+    def _riestrazione(*_args, **_kwargs):
+        raise RuntimeError("riestratto")
+
+    monkeypatch.setattr(meshio, "read", _riestrazione)
+    risposta = cliente.get("/api/mesh/9")
+    assert risposta.status_code == 400, "la voce della versione precedente e' stata riusata"
+    assert risposta.json()["errore"] == "RuntimeError"
+
+
 def test_un_volume_senza_tetraedri_dice_che_cosa_contiene(cliente, tmp_path):
     """M-2: cells_dict["tetra"] dava un KeyError nudo ("'tetra'"), la stessa
     forma inutile che la guardia sullo step ha appena tolto."""
@@ -497,6 +563,14 @@ def test_l_intervallo_del_cursore_di_taglio_esce_da_una_lettura_e_non_da_numeri_
     sul muro di riferimento (2470,99 x 231,00 x 1697,00 mm) sarebbe sbagliata
     per due assi su tre. min, max e step devono venire dall'ingombro della
     geometria disegnata, che il viewport misura.
+
+    MI-1 della revisione: la scansione e' testuale e vede solo il corpo di
+    riallineaTaglio, quindi copre la cifra scritta accanto all'assegnamento e
+    la costante scritta a mano dentro il corpo, che e' il modo naturale in cui
+    un numero rientra dopo essere stato tolto. Non copre, e non puo' coprire
+    senza interpretare il modulo, un `const QUOTA_MINIMA = 0` dichiarato fuori
+    dalla funzione: quello lo prenderebbe solo un test che esegue il codice, e
+    l'interfaccia non ha un motore JS sotto test.
     """
     from meshrec.app.server import UI_DIR
 
@@ -507,6 +581,9 @@ def test_l_intervallo_del_cursore_di_taglio_esce_da_una_lettura_e_non_da_numeri_
         assegnamento = re.search(r"quotaTaglio\.(min|max|step|value)\s*=\s*(.+)", riga)
         if assegnamento:
             assert not re.match(r"-?\d", assegnamento.group(2)), riga
+    # Nemmeno dietro un nome: un `const QUOTA_MINIMA = 0;` dichiarato nel corpo
+    # e usato due righe sotto passerebbe intatto dalla scansione qui sopra.
+    assert not re.search(r"\b(?:const|let|var)\s+\w+\s*=\s*-?\d", corpo), corpo
 
     # Nemmeno nel markup: scritti li' non li vedrebbe nessun test sul codice.
     pagina = (UI_DIR / "index.html").read_text(encoding="utf-8")

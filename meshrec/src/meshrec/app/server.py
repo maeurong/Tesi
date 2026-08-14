@@ -29,9 +29,20 @@ UI_DIR = Path(__file__).resolve().parent.parent / "ui"
 # risolto rispetto alla cartella da cui gira il server (meshrec/).
 CACHE_DIR = Path(".cache/viewport")
 
+# Incrementala quando cambia il modo in cui il contorno viene calcolato: il
+# verso delle facce (quality._TET_FACES) o la regola di compattazione dei
+# vertici (np.unique(..., return_inverse) in _contorno_del_volume). La chiave
+# (sorgente, mtime) e' completa come parametri ma non registra il codice che ha
+# prodotto la voce: senza incremento, ogni voce gia' su disco continuerebbe a
+# rispondere col risultato vecchio per tutta la vita del file sorgente, che e'
+# «restituisce in silenzio il risultato di qualcun altro». Entra nel nome, non
+# nel contenuto, perche' _rimuovi_voci_vecchie sfratta per marchio e non guarda
+# che cosa segue: cambiare la versione basta a far ripulire le voci precedenti.
+VERSIONE_CONTORNO = 1
+
 
 def _percorso_contorno(sorgente: Path) -> Path:
-    """Voce di cache del contorno di un volume, con chiave (sorgente, mtime).
+    """Voce di cache del contorno di un volume, con chiave (sorgente, versione, mtime).
 
     Duplica in piccolo viewport._cache_path, che non e' riusabile qui: la sua
     chiave porta budget, spacing_sample e seed, che l'estrazione del contorno
@@ -48,7 +59,11 @@ def _percorso_contorno(sorgente: Path) -> Path:
     """
     sorgente = Path(sorgente)
     marchio = hashlib.sha256(str(sorgente.resolve()).encode("utf-8")).hexdigest()[:16]
-    return Path(CACHE_DIR) / "contorno" / f"{marchio}-{sorgente.stat().st_mtime_ns}.npz"
+    return (
+        Path(CACHE_DIR)
+        / "contorno"
+        / f"{marchio}-{VERSIONE_CONTORNO}-{sorgente.stat().st_mtime_ns}.npz"
+    )
 
 
 def _leggi_contorno(voce: Path) -> tuple[np.ndarray, np.ndarray] | None:
@@ -57,12 +72,23 @@ def _leggi_contorno(voce: Path) -> tuple[np.ndarray, np.ndarray] | None:
         return None
     try:
         with np.load(voce, allow_pickle=False) as dati:
-            return dati["vertici"], dati["facce"]
+            vertici, facce = dati["vertici"], dati["facce"]
+        if len(facce) and facce.max() >= len(vertici):
+            # Come _leggi_cache col suo offsets: un indice fuori misura non
+            # solleva mai in numpy, quindi va negato qui. Senza, la voce arriva
+            # al browser con un 200 e three.js disegna fuori dall'attributo
+            # position, senza un errore e senza un messaggio. Zero facce e' una
+            # voce valida e max() su un array vuoto solleverebbe: il len() a
+            # sinistra la lascia passare.
+            raise ValueError("facce incoerenti con i vertici")
     except (OSError, ValueError, KeyError, EOFError, zipfile.BadZipFile):
         return None
+    return vertici, facce
 
 
-def _scrivi_contorno(voce: Path, vertici: np.ndarray, facce: np.ndarray) -> None:
+def _scrivi_contorno(voce: Path, vertici: np.ndarray, facce: np.ndarray) -> bool:
+    """Vero se la voce e' finita su disco. Il chiamante ci lega la pulizia (MI-2)."""
+
     def scrittore(destinazione: Path) -> None:
         np.savez(str(destinazione), vertici=vertici, facce=facce)
 
@@ -72,7 +98,8 @@ def _scrivi_contorno(voce: Path, vertici: np.ndarray, facce: np.ndarray) -> None
         # Come in viewport._scrivi_cache: due richieste sovrapposte condividono
         # il nome del temporaneo. Una cache che non riesce a scriversi costa un
         # ricalcolo alla prossima chiamata, mai una richiesta fallita.
-        return
+        return False
+    return True
 
 
 def _contorno_del_volume(percorso: Path) -> tuple[np.ndarray, np.ndarray]:
@@ -119,8 +146,12 @@ def _contorno_del_volume(percorso: Path) -> tuple[np.ndarray, np.ndarray]:
     # dipendere la precisione da quale delle due strade ha risposto.
     vertici = np.ascontiguousarray(griglia.points[usati], dtype="<f4")
     facce = np.ascontiguousarray(rimappate.reshape(contorno.shape), dtype="<u4")
-    _scrivi_contorno(voce, vertici, facce)
-    viewport._rimuovi_voci_vecchie(voce.parent, voce)
+    # MI-2: la pulizia solo se la scrittura e' riuscita. Sfrattare la voce
+    # vecchia quando la nuova non esiste lascia la cache vuota e costa un
+    # ricalcolo da quindici secondi, mai un dato sbagliato. viewport ha lo
+    # stesso schema e non e' modificabile da qui: i due divergono apposta.
+    if _scrivi_contorno(voce, vertici, facce):
+        viewport._rimuovi_voci_vecchie(voce.parent, voce)
     return vertici, facce
 
 
