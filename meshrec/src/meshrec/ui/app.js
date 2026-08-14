@@ -43,6 +43,8 @@ caricaStato();
 // tornerebbe a zero a ogni ricarica mentre il calcolo prosegue.
 const flusso = new EventSource("/api/events");
 
+let eraInCorso = false;
+
 flusso.addEventListener("stato", (evento) => {
   const stato = JSON.parse(evento.data);
   disegnaStep(stato.steps);
@@ -53,6 +55,13 @@ flusso.addEventListener("stato", (evento) => {
   } else {
     barra.hidden = true;
   }
+  // Solo sul fronte di discesa: la colonna degli step si aggiorna da questo
+  // stesso flusso, e senza questa riga uno step diventerebbe "valido" a
+  // sinistra mentre a destra restano le metriche di prima, o nessuna. Non a
+  // ogni evento, perche' lo stato arriva ogni mezzo secondo e il pannello si
+  // riscriverebbe sotto le dita di chi sta compilando un campo.
+  if (eraInCorso && !stato.in_corso && stepAperto !== null) apriDettaglio(stepAperto);
+  eraInCorso = stato.in_corso;
 });
 
 flusso.addEventListener("riga", (evento) => {
@@ -105,14 +114,65 @@ document.getElementById("elenco-step").addEventListener("click", (evento) => {
 // modelli, non una copia lato browser.
 let schemaParametri = null;
 let configurazione = null;
+let stepAperto = null;
+let rigaErrore = null;
+
+// Il server manda sempre la ragione di un rifiuto: {"errore", "messaggio"} dal
+// gestore generico, il "detail" di pydantic da un 422 su /api/config. Leggerla
+// e' l'ultimo metro del contratto, che senza questo si interrompe nel browser.
+// Nessun ramo resta muto: se il corpo non e' leggibile, resta lo stato.
+async function ragioneDelRifiuto(risposta) {
+  const grezzo = await risposta.text();
+  try {
+    const corpo = JSON.parse(grezzo);
+    if (typeof corpo.messaggio === "string") return corpo.messaggio;
+    const voce = Array.isArray(corpo.detail) ? corpo.detail[0] : null;
+    if (voce?.msg) return `${(voce.loc ?? []).slice(1).join(".")}: ${voce.msg}`;
+  } catch {
+    // Non e' JSON: sotto si mostra il testo grezzo accorciato.
+  }
+  return `il server ha risposto ${risposta.status}: ${grezzo.slice(0, 200)}`;
+}
+
+function paragrafoErrore(testo) {
+  // role="alert": chi usa un lettore di schermo deve sentire il rifiuto senza
+  // andarlo a cercare.
+  const paragrafo = document.createElement("p");
+  paragrafo.className = "errore";
+  paragrafo.setAttribute("role", "alert");
+  paragrafo.textContent = testo;
+  return paragrafo;
+}
+
+function dichiaraErrore(testo) {
+  rigaErrore.textContent = testo ?? "";
+  rigaErrore.hidden = !testo;
+}
 
 async function apriDettaglio(numero) {
-  schemaParametri = schemaParametri ?? await (await fetch("/api/schema")).json();
+  const dettaglio = document.getElementById("dettaglio");
+  if (schemaParametri === null) {
+    const risposta = await fetch("/api/schema");
+    // Solo una risposta valida entra in memoria: memorizzare un corpo
+    // d'errore avvelenerebbe il pannello per tutta la vita della pagina,
+    // perche' nessun click successivo ritenterebbe.
+    if (!risposta.ok) {
+      dettaglio.replaceChildren(paragrafoErrore(await ragioneDelRifiuto(risposta)));
+      return;
+    }
+    schemaParametri = await risposta.json();
+  }
   configurazione = await (await fetch("/api/config")).json();
   const metriche = await (await fetch("/api/metrics")).json();
   const voce = schemaParametri[String(numero)];
-  const dettaglio = document.getElementById("dettaglio");
+  stepAperto = numero;
   dettaglio.replaceChildren();
+
+  // Svuotata a ogni apertura e prima di ogni tentativo: un errore gia' risolto
+  // lasciato a video contraddice cio' che il pannello mostra.
+  rigaErrore = paragrafoErrore("");
+  rigaErrore.hidden = true;
+  dettaglio.append(rigaErrore);
 
   const azioni = document.createElement("div");
   azioni.className = "azioni";
@@ -124,7 +184,13 @@ async function apriDettaglio(numero) {
     bottone.type = "button";
     bottone.className = "bottone";
     bottone.textContent = etichetta;
-    bottone.addEventListener("click", () => fetch(percorso, { method: "POST" }));
+    bottone.addEventListener("click", async () => {
+      dichiaraErrore(null);
+      const risposta = await fetch(percorso, { method: "POST" });
+      // Un click rifiutato in silenzio non e' distinguibile da uno andato a
+      // buon fine: il server ha gia' scritto il perche', e va mostrato.
+      if (!risposta.ok) dichiaraErrore(await ragioneDelRifiuto(risposta));
+    });
     azioni.append(bottone);
   }
   dettaglio.append(azioni);
@@ -139,32 +205,63 @@ async function apriDettaglio(numero) {
       const riga = document.createElement("label");
       riga.className = "campo";
       riga.append(Object.assign(document.createElement("span"), { textContent: nome }));
+      const valore = configurazione[blocco][nome];
+      // Una lista o un modello annidato non sono scritti in una casella di
+      // testo: String() li renderebbe come "1,2,4" o "[object Object]", cioe'
+      // un testo che nessuna lettura produce, e ogni modifica tornerebbe
+      // comunque rifiutata dal modello.
+      const scalare = valore === null || ["string", "number", "boolean"].includes(typeof valore);
       const input = document.createElement("input");
-      input.value = String(configurazione[blocco][nome] ?? "");
+      input.value = scalare ? String(valore ?? "") : JSON.stringify(valore);
       input.title = campo.description;
-      input.addEventListener("change", async () => {
-        const grezzo = input.value;
-        const numerico = Number(grezzo);
-        configurazione[blocco][nome] =
-          grezzo === "true" ? true : grezzo === "false" ? false :
-          grezzo === "" ? null : Number.isNaN(numerico) ? grezzo : numerico;
-        const risposta = await fetch("/api/config", {
-          method: "PUT",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(configurazione),
+      const messaggio = document.createElement("small");
+      messaggio.className = "errore-campo";
+      messaggio.id = `errore-${blocco}-${nome}`;
+      messaggio.hidden = true;
+      if (!scalare) {
+        // readOnly e non disabled: disabled lo toglierebbe anche dalla
+        // navigazione da tastiera e dal lettore di schermo.
+        input.readOnly = true;
+      } else {
+        input.addEventListener("change", async () => {
+          const precedente = configurazione[blocco][nome];
+          const grezzo = input.value;
+          const numerico = Number(grezzo);
+          configurazione[blocco][nome] =
+            grezzo === "true" ? true : grezzo === "false" ? false :
+            grezzo === "" ? null : Number.isNaN(numerico) ? grezzo : numerico;
+          const risposta = await fetch("/api/config", {
+            method: "PUT",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(configurazione),
+          });
+          input.classList.toggle("campo-rifiutato", !risposta.ok);
+          if (!risposta.ok) {
+            // Il valore rifiutato non resta nell'oggetto: la PUT manda
+            // l'intera configurazione, e tenerlo farebbe rifiutare ogni
+            // modifica successiva accusando il campo sbagliato.
+            configurazione[blocco][nome] = precedente;
+            messaggio.textContent = await ragioneDelRifiuto(risposta);
+            messaggio.hidden = false;
+            input.setAttribute("aria-invalid", "true");
+            // aria-invalid da solo dice che c'e' un errore, mai quale.
+            input.setAttribute("aria-errormessage", messaggio.id);
+          } else {
+            messaggio.hidden = true;
+            messaggio.textContent = "";
+            input.removeAttribute("aria-invalid");
+            input.removeAttribute("aria-errormessage");
+          }
         });
-        input.classList.toggle("campo-rifiutato", !risposta.ok);
-        if (!risposta.ok) {
-          input.setAttribute("aria-invalid", "true");
-        } else {
-          input.removeAttribute("aria-invalid");
-        }
-      });
+      }
       riga.append(input);
       const aiuto = document.createElement("small");
       aiuto.className = "aiuto";
-      aiuto.textContent = campo.description;
-      riga.append(aiuto);
+      aiuto.textContent = scalare
+        ? campo.description
+        : [campo.description, "si modifica dal file di configurazione"]
+            .filter(Boolean).join(" — ");
+      riga.append(aiuto, messaggio);
       gruppo.append(riga);
     }
     dettaglio.append(gruppo);

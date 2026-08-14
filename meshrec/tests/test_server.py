@@ -207,26 +207,58 @@ def test_le_metriche_tornano_quelle_scritte_su_disco(cliente, tmp_path):
     (corsa / pipeline.METRICS_FILENAME).write_text(
         json.dumps({"01_load": {"points_kept": 6_329_096}}), encoding="utf-8"
     )
-    corpo = cliente.get("/api/metrics").json()
-    assert corpo["01_load"]["points_kept"] == 6_329_096
+    # Lo stato per primo: con raise_server_exceptions=False un errore diventa
+    # un 400 con corpo {"errore", "messaggio"}, e leggere il corpo darebbe un
+    # KeyError che non nomina la causa vera (M-6 della revisione).
+    risposta = cliente.get("/api/metrics")
+    assert risposta.status_code == 200
+    assert risposta.json()["01_load"]["points_kept"] == 6_329_096
 
 
 def test_le_metriche_di_una_corsa_mai_eseguita_sono_vuote_e_non_sollevano(cliente):
-    assert cliente.get("/api/metrics").json() == {}
+    risposta = cliente.get("/api/metrics")
+    assert risposta.status_code == 200
+    assert risposta.json() == {}
 
 
 def test_lo_schema_dice_quali_parametri_appartengono_a_ogni_step(cliente):
-    corpo = cliente.get("/api/schema").json()
+    risposta = cliente.get("/api/schema")
+    assert risposta.status_code == 200
+    corpo = risposta.json()
     assert corpo["5"]["blocchi"] == ["surface"]
     assert "poisson_depth" in corpo["5"]["campi"]["surface"]
     assert corpo["5"]["campi"]["surface"]["poisson_depth"]["description"]
+    # Un campo obbligatorio non ha un predefinito: deve uscire null e non la
+    # stringa "PydanticUndefined", che somiglia a un valore (M-5).
+    assert corpo["1"]["campi"]["input"]["path"]["default"] is None
 
 
 def test_il_tempo_dello_step_viene_dal_server_e_non_dal_browser(cliente):
-    corpo = cliente.get("/api/events?max_eventi=1").text
-    stato = json.loads(corpo.split("data: ", 1)[1].split("\n", 1)[0])
-    assert stato["da_secondi"] is None   # non gira nulla: nessun tempo inventato
+    risposta = cliente.get("/api/events?max_eventi=1")
+    assert risposta.status_code == 200
+    stato = json.loads(risposta.text.split("data: ", 1)[1].split("\n", 1)[0])
+    # L'ordine conta: la chiave prima, cosi' che la sua assenza fallisca
+    # dicendo cosa manca; poi il valore, che smentisce un tempo inventato
+    # mentre non gira nulla (M-7).
     assert "da_secondi" in stato
+    assert stato["da_secondi"] is None
+
+
+def test_il_cronometro_non_puo_tornare_nel_browser():
+    """Il tempo trascorso deve venire dal server, dove lo step parte davvero.
+
+    Senza questo controllo una riscrittura futura potrebbe rimettere il
+    cronometro nel browser in silenzio, con la suite verde: il tempo
+    ripartirebbe da zero a ogni ricarica mentre il calcolo prosegue (M-2).
+    """
+    from meshrec.app.server import UI_DIR
+
+    for percorso in UI_DIR.rglob("*.js"):
+        if "vendor" in percorso.parts:
+            continue
+        testo = percorso.read_text(encoding="utf-8")
+        assert "Date.now" not in testo, f"{percorso.name} misura il tempo nel browser"
+        assert "avvioStep" not in testo, f"{percorso.name} ha di nuovo un cronometro locale"
 
 
 def test_nessun_endpoint_solleva_verso_il_browser(cliente):

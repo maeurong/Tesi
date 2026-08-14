@@ -52,6 +52,9 @@ body {
 .campo input { font: inherit; padding: 0.25rem; border: 1px solid var(--bordo); border-radius: 0.2rem; background: var(--sfondo); color: var(--testo); }
 .campo input:focus-visible { outline: 2px solid var(--accento); outline-offset: 1px; }
 .campo-rifiutato { border-color: #a02020; }
+.errore { margin: 0 0 var(--passo); color: #a02020; font-size: 0.8rem; line-height: 1.35; overflow-wrap: anywhere; }
+.errore-campo { color: #a02020; font-size: 0.7rem; line-height: 1.35; overflow-wrap: anywhere; }
+.campo input[readonly] { background: color-mix(in srgb, var(--tenue) 8%, transparent); color: var(--tenue); }
 .aiuto { color: var(--tenue); font-size: 0.7rem; line-height: 1.35; }
 .metriche { display: grid; grid-template-columns: auto 1fr; gap: 0.15rem var(--passo); font-size: 0.8rem; }
 .metriche dt { color: var(--tenue); }

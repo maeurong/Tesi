@@ -97,7 +97,15 @@ def create_app(config_path: Path) -> FastAPI:
                 campi[blocco] = {
                     nome: {
                         "description": campo.description or "",
-                        "default": campo.get_default(call_default_factory=True),
+                        # Un campo obbligatorio non ha predefinito: null, e non
+                        # il sentinella di pydantic, che finirebbe a video come
+                        # la stringa "PydanticUndefined" e somiglierebbe a un
+                        # valore.
+                        "default": (
+                            None
+                            if campo.is_required()
+                            else campo.get_default(call_default_factory=True)
+                        ),
                     }
                     for nome, campo in annidato.model_fields.items()
                 }

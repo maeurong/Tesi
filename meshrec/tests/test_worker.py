@@ -49,6 +49,12 @@ def test_il_tempo_trascorso_lo_misura_il_worker_e_finisce_con_lo_step(tmp_path):
     assert lavoratore.is_running() is True
     trascorsi = lavoratore.da_secondi()
     assert trascorsi is not None and trascorsi >= 0.0
+    # Il discriminante fra i due orologi, senza orologi finti: time.monotonic
+    # conta dall'avvio della macchina, time.time dal 1970, e i due valori non
+    # possono essere vicini. Senza questa riga, sostituire monotonic con time
+    # lascerebbe la suite verde e riporterebbe il difetto che monotonic evita:
+    # un orologio di sistema che salta all'indietro da' un tempo negativo.
+    assert abs(lavoratore.avviato - time.time()) > 1e6
 
     for _ in range(600):
         if not lavoratore.is_running():
