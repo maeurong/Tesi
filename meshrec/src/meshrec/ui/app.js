@@ -411,6 +411,23 @@ function dichiaraErrore(testo) {
   rigaErrore.textContent = testo ?? "";
 }
 
+// Il valore che finisce nella configurazione, dalla stringa lasciata nel campo.
+// Pura e di primo livello apposta, come superata(): e' l'unico punto in cui dei
+// tasti diventano un dato scritto su disco, e da fuori si puo' provare senza un
+// motore di DOM.
+// trim() perche' Number(" ") e' 0, non NaN: uno spazio scriveva zero in un
+// campo che a video sembra vuoto. Tolto lo spazio, un campo che sembra vuoto e'
+// vuoto, e vuoto vale null — che e' cio' che il campo mostra.
+// Quello che non si legge come numero resta la stringa battuta e parte cosi':
+// il modello la rifiuta con un 422 leggibile, che e' l'unico posto dove il tipo
+// vero si conosce. Trasformarla in null qui la farebbe accettare in silenzio.
+function valoreScritto(grezzo) {
+  const testo = grezzo.trim();
+  const numerico = Number(testo);
+  return testo === "true" ? true : testo === "false" ? false :
+    testo === "" ? null : Number.isNaN(numerico) ? testo : numerico;
+}
+
 // Il ritaglio si comanda dallo step che lo esegue: crop_min e crop_max sono
 // parametri di segment, e lo step 2 e' quello che li applica.
 const STEP_CON_RITAGLIO = 2;
@@ -492,18 +509,42 @@ function pannelloRitaglio(ordine) {
     // Il bottone dice «Applica», non «Anteprima»: /api/crop scrive crop_min e
     // crop_max nella configurazione della corsa, e chi sta esplorando deve
     // saperlo qui, non riaprendo il pannello.
-    // Il numero e' riproducibile: il server ripete la tratta dello step 2
-    // (remove_outliers e poi crop_box) sull'ingresso dello step 2, quindi
-    // rieseguirlo con questo box da' esattamente questo conteggio. Dirlo qui
-    // e' l'unico modo che ha chi guarda di sapere che cosa il numero e'.
+    // Che numero sia lo dice il server, non questa riga: `completo` e' vero
+    // solo quando l'anteprima e' tutto lo step 2. Con `method: auto` lo step
+    // prosegue dopo il ritaglio con i piani e i cluster e ne tiene molti meno
+    // (5 000 contro 82 su una nuvola di prova), e affermare la coincidenza li'
+    // sarebbe un numero falso con una didascalia che lo garantisce.
+    // «questo metodo» e non «method: auto»: l'endpoint dichiara completa solo
+    // la tratta di `crop`, cosi' che un terzo metodo futuro cada dalla parte
+    // prudente, e nominare `auto` disferebbe proprio quella prudenza.
+    // «non ne terra' di piu'» e non «ne terra' di meno»: il cluster scelto e'
+    // un sottoinsieme del ritagliato, e nel caso degenere — nessun piano
+    // trovato, un cluster solo, nessun rumore — i due numeri coincidono.
     esito.textContent =
-      `${corpo.points_after.toLocaleString("it")} punti: e' quanti ne terrebbe lo step 2 ` +
-      "rieseguito con questo box. crop_min e crop_max sono stati scritti nella " +
-      "configurazione della corsa.";
+      (corpo.completo
+        ? `${corpo.points_after.toLocaleString("it")} punti: e' quanti ne terrebbe lo step 2 ` +
+          "rieseguito con questo box."
+        : `${corpo.points_after.toLocaleString("it")} punti dopo il ritaglio: con ` +
+          "questo metodo lo step 2 prosegue con i piani e i cluster, e non ne terra' di piu'.") +
+      " crop_min e crop_max sono stati scritti nella configurazione della corsa.";
   });
   contenitore.append(applica, esito);
   vista.mostraBox(valori.min, valori.max);
   return contenitore;
+}
+
+// Le due uscite d'errore di apriDettaglio, in un punto solo. Il pannello resta
+// vuoto, quindi non c'e' nessuno step aperto: il marchio non puo' restare su
+// quello di prima. Restandoci, l'unico canale che dice «stai guardando questo»
+// nominava lo step 3 mentre la riga d'errore, il pannello e il viewport erano
+// tutti sul 5 — lo stesso guasto contro cui il foglio motiva il marchio.
+// stepAperto va con lui: e' lui a dire allo scorrere degli eventi quale
+// pannello ricaricare a fine corsa, e non c'e' nessun pannello da ricaricare.
+function fallisciDettaglio(dettaglio, ragione) {
+  dettaglio.replaceChildren();
+  dichiaraErrore(ragione);
+  stepAperto = null;
+  segnaStepAperto(null);
 }
 
 // ordine: la generazione del clic che ha chiesto questo pannello. Il
@@ -519,8 +560,7 @@ async function apriDettaglio(numero, ordine = generazione) {
     if (!risposta.ok) {
       const ragione = await ragioneDelRifiuto(risposta);
       if (superata(ordine)) return;
-      dettaglio.replaceChildren();
-      dichiaraErrore(ragione);
+      fallisciDettaglio(dettaglio, ragione);
       return;
     }
     schemaParametri = await risposta.json();
@@ -534,8 +574,7 @@ async function apriDettaglio(numero, ordine = generazione) {
   if (!rispostaConfig.ok || !rispostaMetriche.ok) {
     const ragione = await ragioneDelRifiuto(rispostaConfig.ok ? rispostaMetriche : rispostaConfig);
     if (superata(ordine)) return;
-    dettaglio.replaceChildren();
-    dichiaraErrore(ragione);
+    fallisciDettaglio(dettaglio, ragione);
     return;
   }
   configurazione = await rispostaConfig.json();
@@ -602,16 +641,18 @@ async function apriDettaglio(numero, ordine = generazione) {
       // comunque rifiutata dal modello.
       const scalare = valore === null || ["string", "number", "boolean"].includes(typeof valore);
       const input = document.createElement("input");
-      // Un parametro numerico stava in una casella di testo nuda: nessun
-      // vincolo d'ingresso, mentre i sei campi del ritaglio, dieci righe piu'
-      // su, sono type="number" da sempre. Due convenzioni per la stessa cosa
-      // dentro lo stesso pannello. step="any" perche' quasi tutti sono
-      // decimali, e senza il browser rifiuterebbe la virgola del passo unitario.
-      // La validazione non si sposta: resta quella dei modelli, sul server.
-      if (typeof valore === "number") {
-        input.type = "number";
-        input.step = "any";
-      }
+      // Casella di testo, e il tipo non si indovina. type="number" era stato
+      // messo guardando `typeof` del valore corrente, cioe' indovinando il tipo
+      // dal valore: i nove campi numerici nullabili erano testo finche'
+      // valevano None e numerici appena valevano qualcosa, e i diciotto interi
+      // ricevevano step="any", che il passo unitario lo toglie invece di
+      // metterlo. Ma il guasto vero e' un altro: Chrome sanifica cio' che non
+      // sa leggere: battuto `1e`, `.value` torna `""` mentre a video resta
+      // scritto `1e`, e `""` diventava null. La configurazione della corsa
+      // finiva su disco col parametro azzerato e sullo schermo non compariva
+      // niente. Il tipo lo conosce solo il modello, e /api/schema oggi non lo
+      // manda: finche' non lo manda, la casella lascia passare cio' che e'
+      // stato battuto e il rifiuto torna visibile come 422.
       input.value = scalare ? String(valore ?? "") : JSON.stringify(valore);
       input.title = campo.description;
       const messaggio = document.createElement("small");
@@ -625,11 +666,7 @@ async function apriDettaglio(numero, ordine = generazione) {
       } else {
         input.addEventListener("change", async () => {
           const precedente = configurazione[blocco][nome];
-          const grezzo = input.value;
-          const numerico = Number(grezzo);
-          configurazione[blocco][nome] =
-            grezzo === "true" ? true : grezzo === "false" ? false :
-            grezzo === "" ? null : Number.isNaN(numerico) ? grezzo : numerico;
+          configurazione[blocco][nome] = valoreScritto(input.value);
           const risposta = await fetch("/api/config", {
             method: "PUT",
             headers: { "content-type": "application/json" },
