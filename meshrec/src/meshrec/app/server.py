@@ -36,12 +36,19 @@ def _percorso_contorno(sorgente: Path) -> Path:
     Duplica in piccolo viewport._cache_path, che non e' riusabile qui: la sua
     chiave porta budget, spacing_sample e seed, che l'estrazione del contorno
     non ha (dipende solo dal file), e il suo formato salva punti e gruppi di
-    lunghezza variabile, non vertici e facce. Marchio e cartella restano gli
-    stessi, cosi' viewport._rimuovi_voci_vecchie vale anche su queste voci.
+    lunghezza variabile, non vertici e facce.
+
+    Sottocartella propria, e non la stessa di viewport: _rimuovi_voci_vecchie
+    cancella ogni altra voce che porta il marchio della sorgente, e il marchio
+    e' l'hash del solo percorso. Nella stessa cartella la nuvola e il contorno
+    di uno stesso file si sfratterebbero a vicenda ad ogni scrittura, e il
+    ritorno del ricalcolo da dodici secondi non avrebbe alcun segnale. Oggi non
+    accade perche' read_cloud rifiuta un .vtu, cioe' per una ragione che sta in
+    un altro modulo: separare le cartelle non dipende da quella ragione.
     """
     sorgente = Path(sorgente)
     marchio = hashlib.sha256(str(sorgente.resolve()).encode("utf-8")).hexdigest()[:16]
-    return Path(CACHE_DIR) / f"{marchio}-contorno-{sorgente.stat().st_mtime_ns}.npz"
+    return Path(CACHE_DIR) / "contorno" / f"{marchio}-{sorgente.stat().st_mtime_ns}.npz"
 
 
 def _leggi_contorno(voce: Path) -> tuple[np.ndarray, np.ndarray] | None:

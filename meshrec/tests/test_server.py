@@ -378,8 +378,86 @@ def test_il_clic_sullo_step_sceglie_fra_nuvola_e_mesh_senza_perdere_il_pannello(
 
     testo = (UI_DIR / "app.js").read_text(encoding="utf-8")
     gestore = testo.split('getElementById("elenco-step").addEventListener', 1)[1]
-    assert "mostraStep(numero)" in gestore
-    assert "apriDettaglio(numero)" in gestore
+    # Il numero d'ordine del giro 2 (I-4) aggiunge un argomento a entrambe: cio'
+    # che il test difende e' che il clic le chiami tutte e due sullo step
+    # cliccato, non quanti argomenti passi.
+    assert re.search(r"mostraStep\(numero[,)]", gestore)
+    assert re.search(r"apriDettaglio\(numero[,)]", gestore)
+
+
+def _sorgente_di(nome: str, testo: str) -> str:
+    """Il corpo di una funzione di primo livello, dalla firma alla graffa che la
+    chiude in prima colonna. I moduli dell'interfaccia non sono importabili da
+    qui (importano percorsi serviti dal server), quindi si estrae il testo."""
+    corpo = testo.split(f"function {nome}(", 1)[1]
+    return f"function {nome}(" + corpo.split("\n}\n", 1)[0] + "\n}"
+
+
+def test_una_risposta_superata_si_scarta_e_una_corrente_no():
+    """I-4. La regola dell'ordine sta in una funzione pura apposta perche' si
+    possa provare senza un motore di DOM. Se la sua polarita' si invertisse, o
+    ogni risposta verrebbe buttata (la vista non cambierebbe piu') o nessuna (il
+    difetto tornerebbe): entrambe passerebbero un test solo testuale."""
+    from meshrec.app.server import UI_DIR
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node non installato: la regola resta verificata a mano")
+    sorgente = _sorgente_di("superata", (UI_DIR / "app.js").read_text(encoding="utf-8"))
+    prova = Path(__file__).parent / "_prova_ordine.mjs"
+    prova.write_text(
+        sorgente + "\n"
+        "import assert from 'node:assert/strict';\n"
+        # Una risposta partita prima di un clic successivo e' superata.
+        "assert.equal(superata(1, 2), true);\n"
+        # Quella della generazione in corso passa, ed e' l'unica.
+        "assert.equal(superata(2, 2), false);\n"
+        # Anche la prima in assoluto, che non deve restare bloccata.
+        "assert.equal(superata(1, 1), false);\n",
+        encoding="utf-8",
+    )
+    try:
+        esito = subprocess.run([node, str(prova)], capture_output=True, text=True)
+        assert esito.returncode == 0, esito.stderr
+    finally:
+        prova.unlink()
+
+
+def test_ogni_tratta_che_interroga_il_server_si_scarta_se_e_stata_superata():
+    """I-4, sulla tratta e non sulla funzione: l'elenco non e' scritto a mano ma
+    ricavato dal modulo, cosi' una tratta aggiunta domani vi entra da sola e non
+    puo' essere dimenticata."""
+    from meshrec.app.server import UI_DIR
+
+    testo = (UI_DIR / "app.js").read_text(encoding="utf-8")
+    # caricaStato parte una volta sola all'avvio della pagina e non da un clic:
+    # non c'e' nessuna generazione che possa superarla.
+    senza_ordine = {"caricaStato"}
+    interrogano = 0
+    for nome in re.findall(r"^async function (\w+)\(", testo, re.MULTILINE):
+        sorgente = _sorgente_di(nome, testo)
+        if "await fetch(" not in sorgente or nome in senza_ordine:
+            continue
+        interrogano += 1
+        assert "superata(" in sorgente, f"{nome} scrive senza guardare l'ordine"
+    # Senza questo, cancellare le funzioni farebbe passare il test a vuoto.
+    assert interrogano >= 3, "le tratte attese sono sparite dal modulo"
+
+
+def test_svuota_libera_i_buffer_e_non_tocca_i_piani_di_taglio():
+    """I-5. gruppo.clear() toglie dalla scena e non libera: senza dispose ogni
+    passaggio fra step lascia i suoi buffer sulla scheda. E i piani di taglio
+    non sono una risorsa da liberare: sono condivisi apposta perche'
+    sopravvivano alla geometria (Task 13), e azzerarli qui farebbe nascere la
+    geometria nuova senza taglio mentre il comando lo dichiara attivo."""
+    from meshrec.app.server import UI_DIR
+
+    testo = (UI_DIR / "viewport.js").read_text(encoding="utf-8")
+    corpo = testo.split("svuota() {", 1)[1].split("\n    },", 1)[0]
+    assert "geometry?.dispose()" in corpo
+    assert "material?.dispose()" in corpo
+    righe = [r for r in corpo.splitlines() if not r.strip().startswith("//")]
+    assert not any("pianiTaglio" in r for r in righe), "svuota() tocca i piani di taglio"
 
 
 def test_l_intervallo_del_cursore_di_taglio_esce_da_una_lettura_e_non_da_numeri_scritti():
@@ -519,3 +597,36 @@ def test_nessun_endpoint_solleva_verso_il_browser(cliente):
             continue
         risposta = cliente.get(percorso)
         assert risposta.status_code < 500, f"{percorso} ha sollevato verso il browser"
+
+
+def test_la_cache_del_contorno_non_sfratta_quella_della_nuvola(cliente, tmp_path):
+    """Le due cache condividono il marchio, e la pulizia cancella per marchio.
+
+    Il marchio e' l'hash del solo percorso della sorgente, e
+    viewport._rimuovi_voci_vecchie elimina ogni altra voce che lo porta. Nella
+    stessa cartella, la nuvola e il contorno di uno stesso file si
+    sfratterebbero a vicenda ad ogni scrittura, e il ricalcolo tornerebbe senza
+    alcun segnale. Oggi non accade perche' read_cloud rifiuta un .vtu, cioe'
+    per una ragione che sta in un altro modulo: questo test sorveglia la
+    separazione, non quella ragione.
+    """
+    import numpy as np
+
+    from meshrec.core import viewport
+
+    sorgente = tmp_path / "corsa" / "09_volume.vtu"
+    sorgente.parent.mkdir(parents=True, exist_ok=True)
+    sorgente.write_bytes(b"non conta il contenuto: contano i nomi delle voci")
+
+    voce_nuvola = viewport._cache_path(sorgente, 400_000, 20_000, 0, server.CACHE_DIR)
+    voce_nuvola.parent.mkdir(parents=True, exist_ok=True)
+    voce_nuvola.write_bytes(b"voce finta della nuvola")
+
+    voce_contorno = server._percorso_contorno(sorgente)
+    server._scrivi_contorno(
+        voce_contorno, np.zeros((1, 3), dtype="<f4"), np.zeros((1, 3), dtype="<u4")
+    )
+    viewport._rimuovi_voci_vecchie(voce_contorno.parent, voce_contorno)
+
+    assert voce_contorno.exists()
+    assert voce_nuvola.exists(), "scrivere il contorno ha cancellato la voce della nuvola"
