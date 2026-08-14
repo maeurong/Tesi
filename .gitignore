@@ -12,3 +12,9 @@ Articoli/
 # versionarla.
 Nuvole di punti/
 Cartella di lavoro Abaqus/
+
+# Residui di un npm install finito nella radice per sbaglio (installazione di
+# una dipendenza del plugin impeccable). Non fanno parte del progetto.
+node_modules/
+package.json
+package-lock.json
