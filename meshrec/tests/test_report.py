@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from meshrec.core import pipeline, report, steps, sweep
+from meshrec.core.config import InputConfig, PipelineConfig, save_config
 
 
 def test_the_report_lists_every_row_and_marks_the_front(tmp_path):
@@ -236,6 +237,106 @@ def test_la_firma_del_report_di_corsa_non_ha_predefiniti():
     assert all(
         parametro.default is inspect.Parameter.empty for parametro in parametri.values()
     )
+
+
+# --- coerenza fra i parametri mostrati e le metriche mostrate --------------
+#
+# metrics.json e' cumulativo: pipeline.run fonde le metriche di una corsa
+# parziale con quelle precedenti. Una tabella di parametri affiancata a righe
+# prodotte da parametri diversi afferma un legame che non esiste, e su carta
+# nessuno puo' accorgersene. steps.json porta l'impronta con cui ogni step e'
+# stato prodotto: e' quella la smentita.
+
+
+def _corsa_con_impronte(tmp_path, impronte_scritte):
+    """Corsa con config.yaml valido e uno steps.json costruito a mano.
+
+    `impronte_scritte` mappa la chiave di uno step all'impronta da salvare:
+    scriverne una diversa da quella ricalcolata simula uno step prodotto con
+    parametri che nel config.yaml corrente non ci sono piu'.
+    """
+    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"))
+    corsa = tmp_path / "corsa"
+    corsa.mkdir()
+    save_config(cfg, corsa / report.CONFIG_FILENAME)
+    (corsa / pipeline.METRICS_FILENAME).write_text(
+        json.dumps({chiave: {"misura": 1} for chiave in steps.STEP_KEYS}), encoding="utf-8"
+    )
+    (corsa / steps.STATE_FILENAME).write_text(
+        json.dumps(
+            {
+                chiave: {
+                    "impronta": impronte_scritte(chiave, attesa),
+                    "esito": "riuscito",
+                    "artefatto": None,
+                    "secondi": 1.0,
+                }
+                for chiave, attesa in zip(
+                    steps.STEP_KEYS, steps.step_fingerprints(cfg).values()
+                )
+            }
+        ),
+        encoding="utf-8",
+    )
+    return corsa
+
+
+def test_il_report_dichiara_quanti_step_sono_coerenti_con_i_parametri(tmp_path):
+    corsa = _corsa_con_impronte(tmp_path, lambda _chiave, attesa: attesa)
+
+    testo = report.write_run_report(corsa, viste=[]).read_text(encoding="utf-8")
+
+    totale = len(steps.STEP_KEYS)
+    assert f"{totale} step su {totale} {report.COERENTI}." in testo
+    assert report.NON_VERIFICABILE not in testo
+
+
+def test_il_report_nomina_lo_step_prodotto_con_altri_parametri(tmp_path):
+    """Il conteggio da solo passerebbe anche marcando lo step sbagliato."""
+    corsa = _corsa_con_impronte(
+        tmp_path,
+        lambda chiave, attesa: "impronta-di-un-altra-corsa"
+        if chiave == "03_downsample"
+        else attesa,
+    )
+
+    testo = report.write_run_report(corsa, viste=[]).read_text(encoding="utf-8")
+
+    totale = len(steps.STEP_KEYS)
+    assert f"{totale - 1} step su {totale} {report.COERENTI}, 1 no:" in testo
+    assert "03_downsample (non valido)" in testo
+    assert "01_load (non valido)" not in testo
+    # lo stato viaggia con la riga di metrica, non solo nel conteggio in cima
+    assert "<h3>03_downsample [non valido]</h3>" in testo
+    assert "<h3>01_load [valido]</h3>" in testo
+
+
+def test_una_configurazione_non_valida_rende_la_coerenza_non_verificabile(tmp_path):
+    """yaml.safe_load mostra comunque i parametri grezzi: il report non sparisce."""
+    corsa = _corsa(
+        tmp_path,
+        metriche={"01_load": {"points_kept": 10}},
+        configurazione="tet:\n  min_ratio: 1.8\n",
+    )
+    (corsa / steps.STATE_FILENAME).write_text("{}", encoding="utf-8")
+
+    testo = report.write_run_report(corsa, viste=[]).read_text(encoding="utf-8")
+
+    assert f"{report.NON_VERIFICABILE}: {report.CONFIG_FILENAME}" in testo
+    assert "tet.min_ratio" in testo and "1.8" in testo
+    assert report.COERENTI not in testo
+
+
+def test_senza_steps_json_la_coerenza_non_e_verificabile(tmp_path):
+    """Ogni corsa anteriore a steps.json cade qui: non e' un caso teorico."""
+    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"))
+    corsa = _corsa(tmp_path, metriche={"01_load": {"points_kept": 10}})
+    save_config(cfg, corsa / report.CONFIG_FILENAME)
+
+    testo = report.write_run_report(corsa, viste=[]).read_text(encoding="utf-8")
+
+    assert f"{report.NON_VERIFICABILE}: {steps.STATE_FILENAME}" in testo
+    assert report.COERENTI not in testo
 
 
 def test_il_report_di_corsa_non_usa_lettere_accentate(tmp_path):

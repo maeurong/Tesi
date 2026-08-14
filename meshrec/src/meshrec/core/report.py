@@ -17,6 +17,7 @@ from typing import Iterator
 import yaml
 
 from meshrec.core import steps
+from meshrec.core.config import load_config
 from meshrec.core.pipeline import METRICS_FILENAME
 from meshrec.core.sweep import load_registry
 
@@ -27,6 +28,14 @@ RUN_REPORT_FILENAME = "report.html"
 # perche' il test che la cerca deve puntare alla stessa stringa che il report
 # scrive, non a una copia che puo' divergere in silenzio.
 SENZA_METRICHE = "step senza metriche:"
+
+# metrics.json e' cumulativo: una corsa parziale fonde le proprie metriche con
+# quelle precedenti (pipeline.run). Affiancare la tabella dei parametri a righe
+# prodotte da parametri diversi afferma un legame che non esiste, e su carta
+# nessuno puo' accorgersene. Queste due stringhe sono la dichiarazione, ed e'
+# la stessa che i test cercano: non ne esiste una seconda copia.
+COERENTI = "coerenti con i parametri mostrati"
+NON_VERIFICABILE = "corrispondenza fra parametri e metriche non verificabile"
 
 # Sotto questa lunghezza una lista di numeri non e' una distribuzione ma un
 # vettore di coordinate (extent, bbox_min, bbox_max hanno tre componenti): un
@@ -189,13 +198,48 @@ def _tabella(coppie: Iterator[tuple[str, object]]) -> str:
     return f"<table>{righe}</table>" if righe else "<p>nessuna voce.</p>"
 
 
-def _sezione_metriche(metriche: dict[str, object] | None) -> str:
-    """Le metriche presenti, e la dichiarazione esplicita di quelle mancanti."""
+def _stato_degli_step(out_dir: Path) -> tuple[dict[str, str] | None, str]:
+    """Stato di ogni step rispetto ai parametri sul disco, o il motivo per cui non si sa.
+
+    Non riusa la configurazione gia' letta con yaml.safe_load, perche'
+    `run_state` vuole un PipelineConfig vero: se la validazione non passa, il
+    report esce lo stesso e lo dichiara, invece di sparire.
+    """
+    if not (out_dir / steps.STATE_FILENAME).exists():
+        return None, f"{steps.STATE_FILENAME} assente: nessuna traccia delle impronte"
+    try:
+        stato = steps.run_state(out_dir, load_config(out_dir / CONFIG_FILENAME))
+    except (OSError, ValueError, yaml.YAMLError):
+        return None, f"{CONFIG_FILENAME} non e' una configurazione valida"
+    return {str(voce["chiave"]): str(voce["stato"]) for voce in stato}, ""
+
+
+def _riga_coerenza(stato: dict[str, str] | None, motivo: str) -> str:
+    """Quanti step vengono davvero dai parametri mostrati sopra, e quali no."""
+    if stato is None:
+        return f"<p class='assente'>{NON_VERIFICABILE}: {html.escape(motivo)}.</p>"
+    incoerenti = [f"{chiave} ({valore})" for chiave, valore in stato.items() if valore != "valido"]
+    totale = len(steps.STEP_KEYS)
+    if not incoerenti:
+        return f"<p>{totale} step su {totale} {COERENTI}.</p>"
+    return (
+        f"<p class='assente'>{totale - len(incoerenti)} step su {totale} {COERENTI}, "
+        f"{len(incoerenti)} no: {html.escape(', '.join(incoerenti))}. "
+        "Le loro metriche vengono da parametri che questo report non mostra.</p>"
+    )
+
+
+def _sezione_metriche(metriche: dict[str, object] | None, stato: dict[str, str] | None) -> str:
+    """Le metriche presenti, con il proprio stato, e quelle mancanti dichiarate."""
     if not isinstance(metriche, dict):
         return f"<p class='assente'>{METRICS_FILENAME} assente: questa corsa non ha metriche sul disco.</p>"
 
     presenti = "".join(
-        f"<h3>{html.escape(nome)}</h3>{_tabella(_piatto('', valore))}"
+        "<h3>{} [{}]</h3>{}".format(
+            html.escape(nome),
+            html.escape((stato or {}).get(nome, "stato ignoto")),
+            _tabella(_piatto("", valore)),
+        )
         for nome, valore in sorted(metriche.items())
     )
     mancanti = [chiave for chiave in steps.STEP_KEYS if chiave not in metriche]
@@ -263,6 +307,7 @@ def write_run_report(out_dir: Path, viste: list[Path]) -> Path:
     out_dir = Path(out_dir)
     metriche = _leggi(out_dir / METRICS_FILENAME, json.load)
     configurazione = _leggi(out_dir / CONFIG_FILENAME, yaml.safe_load)
+    stato, motivo = _stato_degli_step(out_dir)
     parametri = (
         _tabella(_piatto("", configurazione))
         if isinstance(configurazione, dict)
@@ -276,7 +321,8 @@ def write_run_report(out_dir: Path, viste: list[Path]) -> Path:
 <h2>Parametri</h2>
 {parametri}
 <h2>Metriche per step</h2>
-{_sezione_metriche(metriche if isinstance(metriche, dict) else None)}
+{_riga_coerenza(stato, motivo)}
+{_sezione_metriche(metriche if isinstance(metriche, dict) else None, stato)}
 <h2>Distribuzioni</h2>
 {_istogrammi(metriche if isinstance(metriche, dict) else None)}
 <h2>Viste</h2>
