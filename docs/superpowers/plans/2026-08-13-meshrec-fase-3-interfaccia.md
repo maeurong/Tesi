@@ -1224,7 +1224,99 @@ Aggiungere `model_validator` all'importazione da `pydantic`.
 
 - [ ] **Step 4: `to_step` in `pipeline.run`**
 
-Dopo `start = cfg.run.from_step`, aggiungere `stop = cfg.run.to_step`. Trasformare ogni guardia `if start <= N:` in `if start <= N <= stop:`. Gli step 9, 10 e 11, oggi incondizionati, diventano rispettivamente `if start <= 9 <= stop:`, `if stop >= 10:` e `if stop >= 11:`. Le variabili `nodes` e `tets` vanno inizializzate a `None` prima del `try` perche' gli step 10 e 11 non girino su nomi non definiti quando `stop < 9`; quei due blocchi si eseguono solo se `nodes is not None`.
+**Questo passo e' stato riscritto durante l'esecuzione: la prima versione era sbagliata.** Diceva di trasformare ogni guardia `if start <= N:` in `if start <= N <= stop:`. Non funziona: quelle guardie hanno rami `else` che servono alla **ripresa**, cioe' ricaricano dal disco l'artefatto di uno step saltato perche' gia' fatto. Con `stop < N` il ramo `else` scatterebbe e la pipeline proverebbe a leggere artefatti che non deve neppure guardare — con `to_step=3` andrebbe a cercare `04_normals.ply`.
+
+Le guardie `if start <= N:` restano quindi **invariate**. Si aggiunge invece un'uscita anticipata dopo ogni step.
+
+In testa al modulo:
+
+```python
+class _FermataRichiesta(Exception):
+    """Uscita normale quando to_step e' raggiunto: non e' un errore.
+
+    Serve perche' le guardie degli step hanno rami else di ripresa, che
+    ricaricano artefatti a monte: spegnerle con una condizione su to_step
+    farebbe scattare proprio quei rami sugli step che non si devono toccare.
+    Interrompere il flusso e' l'unico modo che non tocca le guardie.
+    """
+```
+
+In `run`, dopo `start = cfg.run.from_step`, aggiungere `stop = cfg.run.to_step`. Poi, **dopo il blocco di ogni step N** (compresa la riga `registra(N, ...)` introdotta dal Task 3, e per gli step da 1 a 10 soltanto):
+
+```python
+        if stop <= N:
+            raise _FermataRichiesta
+```
+
+E fra la fine del `try` e il ramo `except BaseException` del Task 3, **prima** di quello:
+
+```python
+    except _FermataRichiesta:
+        # Fermata su richiesta: gli step chiesti sono stati eseguiti e il
+        # risultato e' valido quanto quello di una corsa intera, per gli step
+        # che comprende.
+        pass
+```
+
+### Le metriche di una corsa parziale si fondono, non sostituiscono
+
+L'interfaccia esegue uno step alla volta, quindi le metriche devono **accumularsi**: se lo step 5 sostituisse `metrics.json` con le proprie sole tre righe, cancellerebbe quelle degli step 1-4 — che e' la stessa forma del difetto corretto dal Task 2, per un'altra strada.
+
+La regola, alla fine di `run`, al posto della sola rinomina introdotta dal Task 2:
+
+```python
+    completa = start == 1 and stop == 11
+    if completa:
+        # Una corsa intera e' autoritativa: sostituisce, non fonde. E' il
+        # percorso che lo sweep esegue, e la Fase 2 dipende dal fatto che una
+        # cartella di candidato non erediti nulla.
+        (out / METRICS_PARTIAL).replace(out / METRICS_FILENAME)
+        return metrics
+
+    precedenti: dict[str, object] = {}
+    if (out / METRICS_FILENAME).exists():
+        try:
+            with (out / METRICS_FILENAME).open(encoding="utf-8") as handle:
+                letto = json.load(handle)
+            precedenti = letto if isinstance(letto, dict) else {}
+        except (OSError, json.JSONDecodeError):
+            # Un metrics.json illeggibile non fa fallire una corsa riuscita:
+            # si riparte da quello che questa corsa ha misurato.
+            precedenti = {}
+    unite = dict(sorted({**precedenti, **metrics}.items()))
+    io.scrivi_atomico(
+        out / METRICS_FILENAME,
+        lambda destinazione: destinazione.write_text(
+            json.dumps(unite, indent=2, default=float, ensure_ascii=False), encoding="utf-8"
+        ),
+    )
+    (out / METRICS_PARTIAL).unlink(missing_ok=True)
+    return unite
+```
+
+Si restituisce il dizionario fuso e non quello della sola corsa: cosi' resta vera in ogni caso l'invariante che il test esistente `test_metrics_json_is_the_same_as_the_returned_dictionary` verifica, cioe' che il valore restituito e `metrics.json` coincidano.
+
+Aggiungere il test che fissa l'accumulo:
+
+```python
+def test_gli_step_eseguiti_uno_alla_volta_accumulano_le_metriche(tmp_path):
+    """L'interfaccia esegue uno step per volta: se ognuno sostituisse
+    metrics.json, il pannello delle metriche perderebbe tutto cio' che sta a
+    monte dello step aperto."""
+    from meshrec.core import pipeline
+
+    cfg = _config_cubo(tmp_path)
+    cfg.run.to_step = 1
+    pipeline.run(cfg)
+
+    cfg.run.from_step = 2
+    cfg.run.to_step = 2
+    unite = pipeline.run(cfg)
+
+    assert set(unite) == {"01_load", "02_segment"}
+    rilette = json.loads((cfg.run.out_dir / pipeline.METRICS_FILENAME).read_text(encoding="utf-8"))
+    assert rilette == unite
+```
 
 - [ ] **Step 5: Eseguire**
 
@@ -1888,15 +1980,22 @@ dichiara di esserlo e' un dato falso presentato come vero."
 - Consumes: `GET /api/cloud/{numero}` (Task 6).
 - Produces: `ui/viewport.js` che esporta `creaViewport(contenitore)` con i metodi `mostraNuvola(punti)`, `mostraMesh(vertici, facce)`, `svuota()`, `inquadra()`, `cattura()`.
 
-- [ ] **Step 1: Vendorizzare three.js**
+- [ ] **Step 1: three.js e' gia' vendorizzato — solo verificarlo**
 
-Scaricare il build ESM di three.js e salvarlo in `src/meshrec/ui/vendor/three.module.js`. Verificarne la presenza e la dimensione:
+I file sono gia' in `src/meshrec/ui/vendor/`, scaricati e verificati prima dell'esecuzione. **Non riscaricarli.** Sono **due** e non uno, perche' dalla r0.16x il build ESM e' diviso:
 
-```powershell
-uv run python -c "from pathlib import Path; p = Path('src/meshrec/ui/vendor/three.module.js'); print(p.exists(), p.stat().st_size)"
-```
+| File | Byte |
+|---|---|
+| `three.module.js` | 603.113 |
+| `three.core.js` | 1.403.455 |
 
-Se la rete non e' disponibile, **fermarsi e registrare un ruling**: senza three.js i punti 4, 6, 7, 8, 9, 10 e 12 della lista di priorita' non sono realizzabili, e la notte prosegue dal punto 11 in giu' piu' il consolidamento del design sui punti gia' fatti.
+`three.module.js` importa `./three.core.js` con percorso relativo, che l'endpoint `GET /ui/{nome:path}` risolve senza configurazione aggiuntiva.
+
+**Corregge la § 3.4 della spec**, che diceva «un file, circa 1,2 MB»: sono due file e 2.006.568 byte in tutto. Il numero della spec era stimato e non letto; questo e' letto.
+
+Verifica gia' eseguita, da non ripetere: `import('./three.module.js')` sotto node espone 422 simboli, fra cui tutti quelli che i Task 7, 10, 11, 12 e 13 usano — `Scene`, `PerspectiveCamera`, `WebGLRenderer`, `BufferGeometry`, `Points`, `Mesh`, `Box3`, `Box3Helper`, `Raycaster`, `Plane`, `Group`.
+
+Il test del passo seguente va quindi esteso a **entrambi** i file.
 
 - [ ] **Step 2: Test che il file venga servito**
 
