@@ -10,6 +10,7 @@ import json
 import time
 from pathlib import Path
 
+import numpy as np
 from fastapi import FastAPI, Response
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
@@ -173,6 +174,64 @@ def create_app(config_path: Path) -> FastAPI:
                 "X-Points-Total": str(sum(len(gruppo) for gruppo in gruppi)),
                 "X-Voxel": f"{voxel:.6g}",
             },
+        )
+
+    @app.get("/api/mesh/{numero}")
+    def mesh(numero: int) -> Response:
+        """Vertici e facce in un solo corpo binario: prima i Float32 delle
+        coordinate, poi gli Uint32 degli indici. I conteggi stanno nelle
+        intestazioni, cosi' il browser sa dove tagliare.
+        """
+        if numero not in pipeline.ARTIFACTS:
+            raise ValueError(
+                f"lo step {numero} non esiste: gli step con un artefatto sono {sorted(pipeline.ARTIFACTS)}"
+            )
+        cfg = corrente()
+        percorso = Path(cfg.run.out_dir) / pipeline.ARTIFACTS[numero]
+        if not percorso.exists():
+            raise FileNotFoundError(
+                f"lo step {numero} non ha ancora prodotto {pipeline.ARTIFACTS[numero]}"
+            )
+        if percorso.suffix == ".vtu":
+            import meshio
+
+            griglia = meshio.read(percorso)
+            tetraedri = griglia.cells_dict["tetra"]
+            facce_tutte = np.vstack(
+                [
+                    tetraedri[:, list(combinazione)]
+                    for combinazione in ((1, 2, 3), (0, 3, 2), (0, 1, 3), (0, 2, 1))
+                ]
+            )
+            # L'ordinamento serve solo a confrontare le facce e perde il verso.
+            # return_index riporta la faccia originale, quindi l'orientamento
+            # uscente dei quattro schemi qui sopra sopravvive al conteggio.
+            _ordinate, primo, conteggi = np.unique(
+                np.sort(facce_tutte, axis=1), axis=0, return_index=True, return_counts=True
+            )
+            # Una faccia che appartiene a un solo tetraedro sta sul contorno:
+            # e' la stessa definizione che quality.boundary_edges applica agli
+            # spigoli di una superficie.
+            contorno = facce_tutte[primo[conteggi == 1]]
+            # Solo i nodi che il contorno tocca: griglia.points porta anche
+            # quelli interni, che nessun triangolo disegna, e X-Vertices
+            # direbbe un numero che nessuna lettura sostiene.
+            usati, rimappate = np.unique(contorno, return_inverse=True)
+            vertici = griglia.points[usati]
+            facce = rimappate.reshape(contorno.shape)
+        else:
+            import open3d as o3d
+
+            triangolare = o3d.io.read_triangle_mesh(str(percorso))
+            vertici = np.asarray(triangolare.vertices)
+            facce = np.asarray(triangolare.triangles)
+        if len(vertici) == 0:
+            raise ValueError(f"{percorso.name} non contiene vertici")
+        corpo = viewport.to_float32(vertici) + np.ascontiguousarray(facce, dtype="<u4").tobytes()
+        return Response(
+            content=corpo,
+            media_type="application/octet-stream",
+            headers={"X-Vertices": str(len(vertici)), "X-Triangles": str(len(facce))},
         )
 
     @app.get("/api/events")

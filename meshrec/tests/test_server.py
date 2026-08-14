@@ -180,6 +180,87 @@ def test_chiedere_la_nuvola_di_uno_step_fuori_intervallo_spiega_quali_esistono(c
     assert "8" in corpo["messaggio"]
 
 
+def test_la_mesh_torna_in_binario_con_i_conteggi(cliente, tmp_path):
+    import open3d as o3d
+
+    from meshrec.core import pipeline
+
+    corsa = tmp_path / "corsa"
+    corsa.mkdir()
+    cubo = o3d.geometry.TriangleMesh.create_box(1.0, 1.0, 1.0)
+    o3d.io.write_triangle_mesh(str(corsa / pipeline.ARTIFACTS[6]), cubo)
+
+    risposta = cliente.get("/api/mesh/6")
+    assert risposta.status_code == 200
+    vertici = int(risposta.headers["X-Vertices"])
+    triangoli = int(risposta.headers["X-Triangles"])
+    assert vertici == 8 and triangoli == 12
+    assert len(risposta.content) == vertici * 3 * 4 + triangoli * 3 * 4
+
+
+def test_chiedere_la_mesh_di_uno_step_senza_artefatto_non_solleva(cliente):
+    risposta = cliente.get("/api/mesh/6")
+    assert risposta.status_code == 400
+    assert "errore" in risposta.json()
+
+
+def test_chiedere_la_mesh_di_uno_step_fuori_intervallo_spiega_quali_esistono(cliente):
+    """Stessa guardia di /api/cloud: senza, ARTIFACTS[99] darebbe un KeyError
+    generico ('99', senza contesto) e il gestore lo mostrerebbe cosi'."""
+    risposta = cliente.get("/api/mesh/99")
+    assert risposta.status_code == 400
+    corpo = risposta.json()
+    assert corpo["errore"] != "KeyError"
+    assert "99" in corpo["messaggio"]
+    # "8" e' uno step valido e non e' una sottostringa di "99".
+    assert "8" in corpo["messaggio"]
+
+
+def test_il_contorno_del_volume_porta_solo_i_vertici_che_disegna(cliente, tmp_path):
+    """X-Vertices deve contare i vertici che il browser disegna davvero.
+
+    griglia.points contiene anche i nodi interni della tetraedralizzazione,
+    che nessuna faccia di contorno tocca: qui il quinto nodo non appartiene ad
+    alcun tetraedro, e se finisse nella risposta il conteggio mostrato a video
+    non sarebbe sostenuto da nessuna lettura.
+    """
+    import meshio
+    import numpy as np
+
+    from meshrec.core import pipeline
+
+    corsa = tmp_path / "corsa"
+    corsa.mkdir()
+    punti = np.array(
+        [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0], [9.0, 9.0, 9.0]]
+    )
+    meshio.write_points_cells(
+        corsa / pipeline.ARTIFACTS[9], punti, [("tetra", np.array([[0, 1, 2, 3]]))]
+    )
+
+    risposta = cliente.get("/api/mesh/9")
+    assert risposta.status_code == 200
+    vertici = int(risposta.headers["X-Vertices"])
+    triangoli = int(risposta.headers["X-Triangles"])
+    # Le quattro facce del solo tetraedro, sui suoi soli quattro nodi.
+    assert (vertici, triangoli) == (4, 4)
+    assert len(risposta.content) == vertici * 3 * 4 + triangoli * 3 * 4
+    indici = np.frombuffer(risposta.content, dtype="<u4", offset=vertici * 3 * 4)
+    # Rimappati sui vertici mandati: un indice fuori intervallo non disegna.
+    assert indici.max() < vertici
+
+
+def test_il_clic_sullo_step_sceglie_fra_nuvola_e_mesh_senza_perdere_il_pannello():
+    """Il gestore del clic apre anche il pannello dei parametri (Task 8): una
+    riscrittura che ne sostituisce l'intero corpo lo perderebbe in silenzio."""
+    from meshrec.app.server import UI_DIR
+
+    testo = (UI_DIR / "app.js").read_text(encoding="utf-8")
+    gestore = testo.split('getElementById("elenco-step").addEventListener', 1)[1]
+    assert "mostraStep(numero)" in gestore
+    assert "apriDettaglio(numero)" in gestore
+
+
 def test_three_js_e_servito_dal_server_e_non_dalla_rete(cliente):
     for nome in ("three.module.js", "three.core.js"):
         risposta = cliente.get(f"/ui/vendor/{nome}")

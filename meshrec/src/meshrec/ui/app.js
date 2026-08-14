@@ -101,11 +101,40 @@ async function mostraNuvolaDelloStep(numero) {
     `${disegnati.toLocaleString("it")} punti disegnati su ${pieni.toLocaleString("it")}`;
 }
 
+// Gli step che producono una superficie o un volume: dal 5 in poi l'artefatto
+// non e' piu' una nuvola, e disegnarne i soli vertici mostrerebbe punti dove
+// c'e' un solido.
+const STEP_CON_MESH = new Set([5, 6, 8, 9]);
+
+async function mostraStep(numero) {
+  if (!STEP_CON_MESH.has(numero)) return mostraNuvolaDelloStep(numero);
+  const risposta = await fetch(`/api/mesh/${numero}`);
+  if (!risposta.ok) {
+    // Come per la nuvola: svuotare e' obbligatorio, una vista che contraddice
+    // la sua didascalia e' peggio di una vista vuota.
+    vista.svuota();
+    document.getElementById("conteggi").textContent = "nessun artefatto per questo step";
+    return;
+  }
+  const vertici = Number(risposta.headers.get("X-Vertices"));
+  const triangoli = Number(risposta.headers.get("X-Triangles"));
+  const grezzi = await risposta.arrayBuffer();
+  vista.svuota();
+  vista.mostraMesh(
+    new Float32Array(grezzi, 0, vertici * 3),
+    new Uint32Array(grezzi, vertici * 3 * 4, triangoli * 3),
+  );
+  // I conteggi sono quelli che il server ha contato sull'artefatto: per lo
+  // step 9 sono i vertici e i triangoli del contorno, non i nodi del volume.
+  document.getElementById("conteggi").textContent =
+    `${vertici.toLocaleString("it")} vertici, ${triangoli.toLocaleString("it")} triangoli`;
+}
+
 document.getElementById("elenco-step").addEventListener("click", (evento) => {
   const riga = evento.target.closest(".step");
   if (!riga) return;
   const numero = Number(riga.dataset.numero);
-  mostraNuvolaDelloStep(numero);
+  mostraStep(numero);
   apriDettaglio(numero);
 });
 
