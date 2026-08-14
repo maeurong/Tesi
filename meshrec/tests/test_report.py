@@ -613,6 +613,25 @@ def test_nessuno_step_riceve_due_descrizioni_incompatibili(tmp_path):
         assert trovati, f"{chiave} non compare da nessuna parte nel documento"
 
 
+def test_una_corsa_senza_step_eseguiti_non_stampa_zero_su_zero(tmp_path):
+    """Ogni corsa appena creata dall'interfaccia passa di qui: steps.json vuoto.
+
+    Il caso lo verifica a mano il revisore a ogni giro perche' nessun test lo
+    guarda: «0 su 0» e' un rapporto che non si puo' leggere, e «restano fuori
+    dal conteggio» nomina un conteggio che non c'e'.
+    """
+    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"))
+    corsa = _corsa(tmp_path, metriche={})
+    save_config(cfg, corsa / report.CONFIG_FILENAME)
+    (corsa / steps.STATE_FILENAME).write_text("{}", encoding="utf-8")
+
+    testo = report.write_run_report(corsa, viste=[]).read_text(encoding="utf-8")
+
+    assert report.NESSUNO_ESEGUITO in testo
+    assert f"0 step su 0 {report.COERENTI}" not in testo
+    assert report.NON_ESEGUITI not in testo
+
+
 def test_le_viste_dichiarate_presenti_sono_quelle_che_diventano_immagini(tmp_path):
     """Il conteggio e l'incorporazione devono leggere lo stesso insieme.
 
