@@ -132,6 +132,11 @@ body {
 .bottone:hover { background: var(--evidenza); }
 .bottone:active { background: color-mix(in srgb, var(--accento) 14%, transparent); }
 .bottone:focus-visible { outline: 2px solid var(--accento); outline-offset: 2px; }
+/* Un comando spento non e' un comando pallido: il testo scende a --tenue, che
+   resta sopra 4,5:1, e il cursore dice che non c'e' niente da premere. Il
+   contorno resta pieno perche' l'elemento c'e' ancora e non deve sparire. */
+.bottone:disabled { color: var(--tenue); cursor: default; }
+.bottone:disabled:hover { background: var(--superficie); }
 /* I secondi trascorsi cambiano una volta al secondo: senza cifre tabulari la
    riga si allarga e si stringe sotto gli occhi a ogni passaggio da 9 a 10. */
 .in-corso { margin: 0; color: var(--accento); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); font-variant-numeric: tabular-nums; }
@@ -158,8 +163,25 @@ body {
 .taglio input[type="range"] { width: 10rem; }
 .taglio :focus-visible { outline: 2px solid var(--accento); outline-offset: 2px; }
 .taglio output { min-width: 5.5rem; text-align: right; font-variant-numeric: tabular-nums; color: var(--tenue); }
-.step { display: flex; justify-content: space-between; align-items: baseline; gap: var(--passo-3); padding: var(--passo-2); border-radius: var(--raggio); cursor: pointer; font-size: var(--tipo-corpo); line-height: var(--interlinea-riga); transition: background-color var(--durata-tocco) var(--curva); }
+/* .step e' un <button> dentro il <li>, non piu' il <li> stesso: undici righe
+   cliccabili senza ruolo erano l'intera interfaccia irraggiungibile da tastiera.
+   Le prime cinque dichiarazioni disfano cio' che il browser mette di suo su un
+   bottone (carattere proprio, bordo, sfondo, testo centrato, larghezza al
+   contenuto): senza, la riga cambierebbe aspetto pur restando la stessa riga.
+   Il nome della classe non cambia, perche' app.js lo scrive da codice e il
+   foglio non si lamenterebbe di un selettore che non trova piu' nulla. */
+.step { font: inherit; border: none; background: none; color: inherit; text-align: left; width: 100%; display: flex; justify-content: space-between; align-items: baseline; gap: var(--passo-3); padding: var(--passo-2); border-radius: var(--raggio); cursor: pointer; font-size: var(--tipo-corpo); line-height: var(--interlinea-riga); transition: background-color var(--durata-tocco) var(--curva); }
 .step:hover { background: var(--evidenza); }
+/* Il contorno e' interno: la riga tocca il bordo della colonna, e uno esterno
+   verrebbe tagliato dallo scorrimento della zona. */
+.step:focus-visible { outline: 2px solid var(--accento); outline-offset: -2px; }
+/* Lo step aperto. Due canali, non il solo fondo: il filetto a sinistra regge
+   anche dove il fondo non si distingue, e aria-current lo dice a chi non vede
+   ne' l'uno ne' l'altro. Era l'unica cosa che l'interfaccia sapeva e non
+   diceva: su nomi che si somigliano — Superficie, Semplificazione,
+   Riparazione — si modifica il parametro di uno credendo di essere su un
+   altro, e la scrittura sul disco e' immediata. */
+.step[aria-current="true"] { background: var(--evidenza); box-shadow: inset 2px 0 0 var(--accento); }
 /* Lo stato e' l'annotazione del nome, non il nome: sta un gradino sotto e
    pesa meno, cosi' la colonna si scorre leggendo gli step e non gli stati. */
 .step-stato { color: var(--tenue); font-size: var(--tipo-nota); line-height: var(--interlinea-riga); white-space: nowrap; }

@@ -15,21 +15,68 @@ async function caricaStato() {
   disegnaStep(corpo.steps);
 }
 
+// Quale step e' aperto lo sapeva solo una variabile di modulo, e a video non lo
+// diceva niente. Marcarlo sta in un punto solo perche' due strade lo chiedono —
+// l'elenco riscritto dal flusso degli eventi e il clic che apre il pannello — e
+// scritto due volte una delle due resterebbe indietro alla prima modifica.
+// aria-current e non una classe: e' l'attributo che porta il significato, il
+// foglio ci si aggancia sopra, e cosi' non esiste un nome da tenere allineato
+// fra il modulo e il CSS.
+function segnaStepAperto(numero) {
+  for (const comando of document.querySelectorAll(".step")) {
+    if (Number(comando.dataset.numero) === numero) comando.setAttribute("aria-current", "true");
+    else comando.removeAttribute("aria-current");
+  }
+}
+
+// La riga vuota, senza contenuto: il contenuto lo scrive disegnaStep, che la
+// riusa. Un <button> e non il <li> con un gestore sopra — undici voci d'elenco
+// con cursor: pointer erano l'intera interfaccia pilotabile col solo mouse
+// (WCAG 2.1.1, livello A) e annunciate come righe inerti (WCAG 4.1.2). Il
+// gestore delegato piu' sotto non cambia: il clic sale dal bottone e
+// closest(".step") lo trova, e con lui Invio e Spazio, che un bottone da' di suo.
+// Lo stato resta sul <li> e il comando gli sta dentro: i selettori di stato del
+// foglio sono discendenti (.stato-fallito .step-stato), quindi continuano a
+// valere senza toccare un solo nome di classe.
+function nuovaRiga() {
+  const riga = document.createElement("li");
+  const comando = document.createElement("button");
+  comando.type = "button";
+  comando.className = "step";
+  const nome = document.createElement("span");
+  nome.className = "step-nome";
+  const stato = document.createElement("span");
+  stato.className = "step-stato";
+  comando.append(nome, stato);
+  riga.append(comando);
+  return riga;
+}
+
 function disegnaStep(steps) {
   const elenco = document.getElementById("elenco-step");
-  elenco.replaceChildren(...steps.map((voce) => {
-    const riga = document.createElement("li");
-    riga.className = `step stato-${voce.stato.replace(" ", "-")}`;
-    riga.dataset.numero = voce.numero;
-    const nome = document.createElement("span");
-    nome.className = "step-nome";
-    nome.textContent = ETICHETTE[voce.chiave] ?? voce.chiave;
-    const stato = document.createElement("span");
-    stato.className = "step-stato";
-    stato.textContent = voce.stato;
-    riga.append(nome, stato);
-    return riga;
-  }));
+  // Le righe si costruiscono una volta sola e poi si aggiornano sul posto.
+  // Ricostruirle a ogni evento — due volte al secondo mentre la pipeline gira —
+  // le buttava via tutte: finche' erano <li> inerti non si perdeva niente, ma
+  // da quando lo step e' un comando focalizzabile chi naviga da tastiera
+  // perderebbe il fuoco su <body> una sessantina di volte durante uno step da
+  // 34 secondi, e un lettore di schermo la posizione del cursore. La
+  // correzione della tastiera, da sola, avrebbe aperto il difetto che chiudeva.
+  // Il foglio aveva gia' visto meta' del problema: la nota sul movimento
+  // rinuncia ad animare l'elenco per la stessa riscrittura continua.
+  if (elenco.childElementCount !== steps.length) {
+    elenco.replaceChildren(...steps.map(() => nuovaRiga()));
+  }
+  steps.forEach((voce, indice) => {
+    const comando = elenco.children[indice].firstElementChild;
+    elenco.children[indice].className = `stato-${voce.stato.replace(" ", "-")}`;
+    comando.dataset.numero = voce.numero;
+    comando.firstElementChild.textContent = ETICHETTE[voce.chiave] ?? voce.chiave;
+    comando.lastElementChild.textContent = voce.stato;
+  });
+  // stepAperto e' gia' inizializzato: disegnaStep gira solo da caricaStato, che
+  // si sospende sulla prima attesa, e dallo scorrere degli eventi, cioe' sempre
+  // dopo che il modulo e' stato valutato per intero.
+  segnaStepAperto(stepAperto);
 }
 
 caricaStato();
@@ -55,6 +102,12 @@ flusso.addEventListener("stato", (evento) => {
   } else {
     barra.hidden = true;
   }
+  // Il bottone segue la corsa. Sempre acceso, un clic a corsa ferma tornava
+  // {"annullato": false} e il modulo lo scartava: il silenzio di «non c'era
+  // niente da annullare» era identico a quello di un annullamento riuscito.
+  // Spento, la domanda non si pone piu' — ed e' il ritorno che il clic non
+  // dava, perche' il bottone si spegne quando la corsa finisce.
+  document.getElementById("annulla").disabled = !stato.in_corso;
   // Solo sul fronte di discesa: la colonna degli step si aggiorna da questo
   // stesso flusso, e senza questa riga uno step diventerebbe "valido" a
   // sinistra mentre a destra restano le metriche di prima, o nessuna. Non a
@@ -75,12 +128,21 @@ flusso.addEventListener("stato", (evento) => {
   eraInCorso = stato.in_corso;
 });
 
+// Quante righe restano nel registro. E' una finestra di lettura, non una
+// misura: chi vuole tutto lo stdout ha il file della corsa su disco.
+const RIGHE_DEL_REGISTRO = 500;
+
 flusso.addEventListener("riga", (evento) => {
   const registro = document.getElementById("registro");
   const riga = document.createElement("div");
   riga.className = "riga-log";
   riga.textContent = JSON.parse(evento.data);
   registro.append(riga);
+  // Il registro cresceva senza tetto: una corsa lunga lascia nel DOM ogni riga
+  // che il sottoprocesso ha scritto, e nessuna veniva mai tolta. Il tetto e'
+  // sulle righe e non sui caratteri perche' e' cio' che si conta guardando, e
+  // le piu' vecchie escono dalla testa, che e' il verso in cui si legge un log.
+  while (registro.childElementCount > RIGHE_DEL_REGISTRO) registro.firstElementChild.remove();
   registro.scrollTop = registro.scrollHeight;
 });
 
@@ -316,7 +378,13 @@ function ricaricaVista(numero, ordine = generazione) {
 let schemaParametri = null;
 let configurazione = null;
 let stepAperto = null;
-let rigaErrore = null;
+// Presa dal markup, non creata qui. La regione role="alert" deve preesistere a
+// cio' che annuncia: creata nell'istante in cui ci si scrive dentro, l'annuncio
+// non e' garantito. E' la ragione per cui il difetto e' tornato tre volte —
+// hidden, poi una regola di stile, poi replaceChildren() che la distruggeva a
+// ogni apertura di pannello. Fuori da #dettaglio non c'e' piu' un ramo che
+// possa toglierla.
+const rigaErrore = document.getElementById("errore");
 
 // Il server manda sempre la ragione di un rifiuto: {"errore", "messaggio"} dal
 // gestore generico, il "detail" di pydantic da un 422 su /api/config. Leggerla
@@ -333,16 +401,6 @@ async function ragioneDelRifiuto(risposta) {
     // Non e' JSON: sotto si mostra il testo grezzo accorciato.
   }
   return `il server ha risposto ${risposta.status}: ${grezzo.slice(0, 200)}`;
-}
-
-function paragrafoErrore(testo) {
-  // role="alert": chi usa un lettore di schermo deve sentire il rifiuto senza
-  // andarlo a cercare.
-  const paragrafo = document.createElement("p");
-  paragrafo.className = "errore";
-  paragrafo.setAttribute("role", "alert");
-  paragrafo.textContent = testo;
-  return paragrafo;
 }
 
 // Niente hidden: un elemento nascosto cosi' esce dall'albero di accessibilita',
@@ -461,7 +519,8 @@ async function apriDettaglio(numero, ordine = generazione) {
     if (!risposta.ok) {
       const ragione = await ragioneDelRifiuto(risposta);
       if (superata(ordine)) return;
-      dettaglio.replaceChildren(paragrafoErrore(ragione));
+      dettaglio.replaceChildren();
+      dichiaraErrore(ragione);
       return;
     }
     schemaParametri = await risposta.json();
@@ -475,7 +534,8 @@ async function apriDettaglio(numero, ordine = generazione) {
   if (!rispostaConfig.ok || !rispostaMetriche.ok) {
     const ragione = await ragioneDelRifiuto(rispostaConfig.ok ? rispostaMetriche : rispostaConfig);
     if (superata(ordine)) return;
-    dettaglio.replaceChildren(paragrafoErrore(ragione));
+    dettaglio.replaceChildren();
+    dichiaraErrore(ragione);
     return;
   }
   configurazione = await rispostaConfig.json();
@@ -487,12 +547,16 @@ async function apriDettaglio(numero, ordine = generazione) {
   if (superata(ordine)) return;
   const voce = schemaParametri[String(numero)];
   stepAperto = numero;
+  // Il marchio segue il pannello nello stesso istante: rimandarlo alla
+  // prossima riscrittura dell'elenco lo farebbe comparire mezzo secondo dopo
+  // il clic, e a corsa ferma resterebbe indietro finche' qualcosa non si muove.
+  segnaStepAperto(numero);
   dettaglio.replaceChildren();
 
   // Svuotata a ogni apertura e prima di ogni tentativo: un errore gia' risolto
-  // lasciato a video contraddice cio' che il pannello mostra.
-  rigaErrore = paragrafoErrore("");
-  dettaglio.append(rigaErrore);
+  // lasciato a video contraddice cio' che il pannello mostra. La riga adesso
+  // vive nel markup e non viene ricreata: si svuota, non si sostituisce.
+  dichiaraErrore(null);
 
   const azioni = document.createElement("div");
   azioni.className = "azioni";
@@ -538,6 +602,16 @@ async function apriDettaglio(numero, ordine = generazione) {
       // comunque rifiutata dal modello.
       const scalare = valore === null || ["string", "number", "boolean"].includes(typeof valore);
       const input = document.createElement("input");
+      // Un parametro numerico stava in una casella di testo nuda: nessun
+      // vincolo d'ingresso, mentre i sei campi del ritaglio, dieci righe piu'
+      // su, sono type="number" da sempre. Due convenzioni per la stessa cosa
+      // dentro lo stesso pannello. step="any" perche' quasi tutti sono
+      // decimali, e senza il browser rifiuterebbe la virgola del passo unitario.
+      // La validazione non si sposta: resta quella dei modelli, sul server.
+      if (typeof valore === "number") {
+        input.type = "number";
+        input.step = "any";
+      }
       input.value = scalare ? String(valore ?? "") : JSON.stringify(valore);
       input.title = campo.description;
       const messaggio = document.createElement("small");

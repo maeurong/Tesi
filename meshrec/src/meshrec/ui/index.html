@@ -11,7 +11,12 @@
   <h1>MeshRec</h1>
   <p class="corsa" id="corsa">nessuna corsa</p>
   <p class="in-corso" id="in-corso" hidden></p>
-  <button type="button" id="annulla" class="bottone">Annulla</button>
+  <!-- Nasce spento: a corsa ferma non c'e' niente da annullare, e un bottone
+       sempre acceso che risponde con un silenzio identico al successo non
+       distingue «annullato» da «non c'era nulla da annullare». app.js lo
+       accende dallo scorrere degli eventi, cioe' dall'unico posto che sa se
+       una corsa gira davvero. -->
+  <button type="button" id="annulla" class="bottone" disabled>Annulla</button>
 </header>
 <main class="tre-zone">
   <nav class="zona zona-step" aria-label="Step della pipeline">
@@ -40,6 +45,16 @@
   </section>
   <aside class="zona zona-dettaglio" aria-label="Parametri e metriche">
     <h2>Dettaglio</h2>
+    <!-- La riga d'errore sta QUI, nel markup e fuori da #dettaglio, e app.js
+         non la crea piu'. E' la terza strada per cui lo stesso difetto e'
+         tornato: prima l'attributo hidden, poi una regola di stile che nessun
+         test sorvegliava, e adesso replaceChildren() su #dettaglio, che a ogni
+         apertura di pannello distruggeva la regione role="alert" e ne creava
+         una nuova. Una regione viva creata nell'istante in cui ci si scrive
+         dentro non garantisce l'annuncio: deve preesistere a cio' che annuncia.
+         Scritta nel markup non c'e' piu' un ramo del modulo che possa
+         distruggerla, e test_app_js.py sorveglia che non ci si torni. -->
+    <p class="errore" id="errore" role="alert"></p>
     <div id="dettaglio"><p class="vuoto">Scegli uno step per vederne parametri e metriche.</p></div>
     <h2>Registro</h2>
     <!-- tabindex="0": il registro e' alto 14rem e scorre, e dentro non c'e'
@@ -49,7 +64,13 @@
          mette da solo il fuoco sui contenitori che scorrono; Chrome no. Le due
          colonne che scorrono non ne hanno bisogno: contengono bottoni e campi,
          e il fuoco che ci entra le porta in vista da se'. -->
-    <div class="registro" id="registro" role="log" aria-live="polite" tabindex="0"></div>
+    <!-- aria-live="off" e non "polite": role="log" porta con se' una regione
+         viva, e qui dentro finisce tutto lo stdout del sottoprocesso. Un
+         lettore di schermo leggeva ad alta voce ogni riga di TetGen per i 34
+         secondi di uno step, coprendo l'unica cosa che va davvero sentita, il
+         role="alert" della riga d'errore. Spenta, il registro resta leggibile
+         quando lo si vuole: e' raggiungibile col tabindex qui sopra. -->
+    <div class="registro" id="registro" role="log" aria-live="off" tabindex="0"></div>
   </aside>
 </main>
 <script type="module" src="/ui/app.js"></script>
