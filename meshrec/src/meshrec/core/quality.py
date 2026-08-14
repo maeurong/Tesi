@@ -250,16 +250,27 @@ def geometric_error(
 ) -> dict[str, object]:
     """Errore geometrico bidirezionale fra superficie ricostruita e nuvola sorgente.
 
-    Il campionamento della superficie e' delegato a PyMeshLab: una distanza
-    calcolata sui soli vertici sovrastimerebbe l'errore dove i triangoli sono
-    grandi, e la fedelta geometrica e' una delle metriche riportate in tesi.
+    I due versi non misurano la stessa cosa, e la differenza conta.
 
-    Questo vale pero' per il solo verso cloud_to_mesh. Nel verso mesh_to_cloud
-    PyMeshLab campiona i soli vertici: su lab_crop n_samples vale 213.154, cioe'
-    esattamente il numero di vertici della superficie. Quel verso e' dunque gia'
-    una misura per vertice, e vertex_deviation ne riproduce l'RMS a cinque
-    cifre. Il fatto e' letto da runs/lab_crop/metrics.json, non dedotto, e vale
-    la pena saperlo: senza, l'accordo fra le due funzioni sembra un errore.
+    In cloud_to_mesh i campioni sono i punti della nuvola e il bersaglio e' la
+    superficie con le sue facce: e' una distanza punto-superficie. Su lab_crop
+    n_samples vale 4.229.538, cioe' tutti i punti.
+
+    In mesh_to_cloud PyMeshLab campiona i **soli vertici**, e il bersaglio e'
+    una nuvola, che facce non ne ha. Su lab_crop n_samples vale 213.154, cioe'
+    esattamente il numero di vertici della superficie. Quel verso e' dunque una
+    misura per vertice, e vertex_deviation lo riproduce esattamente.
+
+    Il limite da tenere presente quando si legge il numero: campionare i soli
+    vertici **sottostima** l'errore dove i triangoli sono grandi, non lo
+    sovrastima. Se i vertici cadono sulla nuvola, cio' che la superficie
+    sbaglia fra un vertice e l'altro non entra in nessun campione. Misurato su
+    una calotta di raggio 200 mm, nuvola a passo 1 mm, triangoli da 32,7 mm con
+    i vertici sulla calotta: mesh_to_cloud da' 0,2458 mm mentre la saetta fra i
+    vertici vale 0,667 mm e cloud_to_mesh, che campiona le facce, da' 0,6094 mm.
+
+    Il calcolo non e' cambiato e i numeri gia' pubblicati restano quelli: qui e'
+    cambiata solo la loro descrizione, che diceva il contrario del vero.
     """
     import pymeshlab
 
@@ -290,16 +301,18 @@ def vertex_deviation(vertices: np.ndarray, cloud: np.ndarray) -> np.ndarray:
     colore ha bisogno di uno scalare per vertice. Il KD-tree e' gia' in uso in
     io.mean_spacing, quindi non entra alcuna dipendenza nuova.
 
-    E' una distanza punto-nuvola e non una distanza punto-superficie: sulle
-    zone dove i triangoli sono grandi sovrastima, esattamente come farebbe una
-    distanza calcolata sui soli vertici. Serve come mappa diagnostica, e il
-    numero pubblicato resta quello di geometric_error.
+    E' una distanza punto-nuvola misurata nei soli vertici, quindi
+    **sottostima** l'errore dove i triangoli sono grandi: cio' che la
+    superficie sbaglia fra un vertice e l'altro non entra in nessun campione.
+    Serve come mappa diagnostica, non come misura di fedelta'.
 
-    Non e' pero' una seconda misura indipendente del verso mesh_to_cloud: la
-    riproduce, perche' anche PyMeshLab in quel verso campiona i soli vertici
-    (vedi geometric_error). Su lab_crop l'RMS vale 3,8984 mm qui e 3,898384 mm
-    li'. La misura che questa funzione non replica e' cloud_to_mesh, dove i
-    campioni sono i 4.229.538 punti della nuvola e l'RMS vale 4,897 mm.
+    Non e' una seconda misura indipendente: riproduce esattamente il verso
+    mesh_to_cloud di geometric_error, perche' anche PyMeshLab in quel verso
+    campiona i soli vertici contro una nuvola senza facce. Su lab_crop l'RMS
+    vale 3,8984 mm qui e 3,898384 mm li', e la differenza e' la precisione a
+    32 bit di PyMeshLab. La misura che questa funzione non replica e'
+    cloud_to_mesh, dove i campioni sono i 4.229.538 punti della nuvola, il
+    bersaglio sono le facce e l'RMS vale 4,897 mm.
     """
     from scipy.spatial import cKDTree
 
