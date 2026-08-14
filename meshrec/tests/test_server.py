@@ -634,8 +634,9 @@ def test_due_geometrie_in_volo_nella_stessa_generazione_non_si_arbitrano_per_arr
 # sotto ci vanno le funzioni vere di app.js, e il caso da riprodurre.
 # `generazione` e `ultimaGeometria` sono dichiarate qui perche' in app.js sono
 # variabili di modulo e non funzioni: e' la sola parte di stato che il banco
-# rifa'. STEP_CON_MESH tiene il solo step 9, che e' quello del caso: quali step
-# abbiano una mesh non e' cio' che si sta provando.
+# rifa'. STEP_CON_MESH tiene il solo step 9: __NUMERO__ decide se il caso cade
+# dentro (tratta della mesh) o fuori (tratta della nuvola) — e' il medesimo
+# banco per tutte e due le tratte, non due banchi.
 _BANCO_ORDINE = """import assert from 'node:assert/strict';
 
 let generazione = 1;
@@ -644,7 +645,7 @@ const STEP_CON_MESH = new Set([9]);
 const scritture = [];
 const vista = {
   svuota() {},
-  mostraNuvola() { scritture.push('nuvola'); },
+  mostraNuvola(vertici) { scritture.push(`nuvola:${vertici.length / 3}`); },
   mostraMesh(vertici) { scritture.push(`mesh:${vertici.length / 3}`); },
 };
 const document = { getElementById: () => ({ textContent: '' }) };
@@ -658,8 +659,10 @@ globalThis.fetch = () => {
   const marcatore = ++partite;
   return new Promise((risolvi) => sospese.push(() => risolvi({
     ok: true,
-    // Il marcatore viaggia come numero di vertici: cosi' la scrittura nel
-    // viewport dice quale delle due geometrie l'ha fatta.
+    // Il marcatore viaggia come numero di vertici (tratta della mesh) o come
+    // un terzo del numero di numeri in virgola mobile (tratta della nuvola,
+    // che legge il buffer intero): sull'una o sull'altra tratta la scrittura
+    // nel viewport dice comunque quale delle due geometrie l'ha fatta.
     headers: { get: (nome) => (nome === 'X-Vertices' ? marcatore : 0) },
     arrayBuffer: async () => new ArrayBuffer(marcatore * 12),
   })));
@@ -668,10 +671,11 @@ const giro = async () => { for (let i = 0; i < 8; i += 1) await Promise.resolve(
 
 __FUNZIONI__
 
-// Step 9 aperto, «Esegui questo step», riclic sullo step 9 mentre gira.
-ricaricaVista(9, generazione);   // il clic: apre la richiesta 1
+// Step __NUMERO__ aperto, «Esegui questo step», riclic sullo stesso step
+// mentre gira.
+ricaricaVista(__NUMERO__, generazione);   // il clic: apre la richiesta 1
 await giro();
-ricaricaVista(9);                // il fronte di discesa: stessa generazione, richiesta 2
+ricaricaVista(__NUMERO__);                // il fronte di discesa: stessa generazione, richiesta 2
 await giro();
 assert.equal(sospese.length, 2, 'le due richieste non sono partite');
 sospese[1]();                    // il contorno nuovo arriva per primo
@@ -679,28 +683,48 @@ await giro();
 sospese[0]();                    // la risposta del clic, col contorno vecchio, arriva per ultima
 await giro();
 
-assert.deepEqual(scritture, ['mesh:2', 'riallinea:9'],
+assert.deepEqual(scritture, [__ATTESO__],
   'scritture nel viewport: ' + JSON.stringify(scritture));
 """
 
 
-def test_fra_due_geometrie_della_stessa_generazione_vince_chi_e_partita_dopo():
-    """IMP-1. L'arbitraggio **eseguito**, non letto.
+@pytest.mark.parametrize(
+    ("numero", "atteso"),
+    [
+        # 9 sta in STEP_CON_MESH del banco: mostraStep gira la tratta della
+        # mesh davvero, senza delegare.
+        pytest.param(9, "'mesh:2', 'riallinea:9'", id="mesh"),
+        # 2 non sta in STEP_CON_MESH del banco: mostraStep delega subito a
+        # mostraNuvolaDelloStep, che e' la tratta che il giro 2 non eseguiva
+        # mai — il suo banco usava solo lo step 9.
+        pytest.param(2, "'nuvola:2', 'riallinea:2'", id="nuvola"),
+    ],
+)
+def test_fra_due_geometrie_della_stessa_generazione_vince_chi_e_partita_dopo(numero, atteso):
+    """IMP-1. L'arbitraggio **eseguito**, non letto, su tutte e due le tratte.
 
-    I tre asserti testuali qui sotto guardano la forma — una `apriGeometria()`
-    per strada, la guardia presente, la delega prima del contatore — e restano
-    tutti e tre veri se `const emissione = apriGeometria();` si sposta **dopo**
-    la `fetch`. Ma spostata li' l'emissione smette di essere il numero di
-    **partenza** e diventa quello di **arrivo**, cioe' esattamente cio' che il
-    secondo contatore doveva togliere di mezzo: le due risposte tornano ad
-    arbitrarsi per arrivo e il contorno vecchio si riposa sopra quello nuovo.
+    I tre asserti testuali del test qui sopra guardano la forma — una
+    `apriGeometria()` per strada, la guardia presente, la delega prima del
+    contatore — e restano tutti e tre veri se `const emissione =
+    apriGeometria();` si sposta **dopo** la `fetch`, in una tratta o
+    nell'altra: `mostraStep` e `mostraNuvolaDelloStep` hanno la stessa forma.
+    Ma spostata li' l'emissione smette di essere il numero di **partenza** e
+    diventa quello di **arrivo**, cioe' esattamente cio' che il secondo
+    contatore doveva togliere di mezzo: le due risposte tornano ad arbitrarsi
+    per arrivo e il contorno vecchio si riposa sopra quello nuovo.
 
-    Qui le funzioni vere girano davvero, sopra una quarantina di righe di stub e
-    senza nessun motore di DOM, ed e' lo stesso idioma di
+    Un banco che esercitasse solo lo step 9 proverebbe solo `mostraStep`:
+    lo spostamento nell'altra funzione passerebbe intatto con la suite
+    intera verde, perche' nessuna riga eseguirebbe mai
+    `mostraNuvolaDelloStep`. Da qui il parametro: stesso banco, uno step
+    dentro `STEP_CON_MESH` e uno fuori.
+
+    Qui le funzioni vere girano davvero, sopra una quarantina di righe di stub
+    e senza nessun motore di DOM, ed e' lo stesso idioma di
     `test_una_risposta_superata_si_scarta_e_una_corrente_no` e
-    `test_l_ingombro_non_conta_il_box_di_ritaglio`. Con quello spostamento il
-    banco stampa `['mesh:2','riallinea:9','mesh:1','riallinea:9']`: la geometria
-    vecchia scrive per seconda e il cursore del taglio si rifa' due volte.
+    `test_l_ingombro_non_conta_il_box_di_ritaglio`. Con quello spostamento, sulla
+    tratta toccata, il banco stampa due scritture in piu': la geometria vecchia
+    scrive per seconda e il cursore del taglio si rifa' due volte.
     """
     from meshrec.app.server import UI_DIR
 
@@ -718,8 +742,15 @@ def test_fra_due_geometrie_della_stessa_generazione_vince_chi_e_partita_dopo():
             "ricaricaVista",
         )
     )
-    prova = Path(__file__).parent / "_prova_arbitraggio.mjs"
-    prova.write_text(_BANCO_ORDINE.replace("__FUNZIONI__", funzioni), encoding="utf-8")
+    banco = (
+        _BANCO_ORDINE.replace("__FUNZIONI__", funzioni)
+        .replace("__NUMERO__", str(numero))
+        .replace("__ATTESO__", atteso)
+    )
+    # Nome per step: due prove dello stesso modulo, in parallelo con -n, non
+    # devono scriversi addosso lo stesso file .mjs.
+    prova = Path(__file__).parent / f"_prova_arbitraggio_{numero}.mjs"
+    prova.write_text(banco, encoding="utf-8")
     try:
         esito = subprocess.run([node, str(prova)], capture_output=True, text=True)
         assert esito.returncode == 0, esito.stderr
