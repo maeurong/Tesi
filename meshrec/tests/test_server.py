@@ -443,12 +443,19 @@ def test_il_clic_sullo_step_sceglie_fra_nuvola_e_mesh_senza_perdere_il_pannello(
     from meshrec.app.server import UI_DIR
 
     testo = (UI_DIR / "app.js").read_text(encoding="utf-8")
+    # La fetta finisce dove finisce il gestore. Senza il secondo split prendeva
+    # tutto il file che segue, e i due asserti erano vacui tutti e due:
+    # `ricaricaVista` chiama `mostraStep` piu' sotto, e `apriDettaglio(numero`
+    # trovava la **propria definizione**. Provato: svuotando del tutto il
+    # gestore del clic, il test passava lo stesso.
     gestore = testo.split('getElementById("elenco-step").addEventListener', 1)[1]
+    gestore = gestore.split("\n});", 1)[0]
     # Il numero d'ordine del giro 2 (I-4) aggiunge un argomento a entrambe: cio'
     # che il test difende e' che il clic le chiami tutte e due sullo step
-    # cliccato, non quanti argomenti passi.
-    assert re.search(r"mostraStep\(numero[,)]", gestore)
-    assert re.search(r"apriDettaglio\(numero[,)]", gestore)
+    # cliccato, non quanti argomenti passi. La geometria passa da ricaricaVista,
+    # che e' l'unico punto in cui e' chiesta.
+    assert re.search(r"ricaricaVista\(numero[,)]", gestore), gestore
+    assert re.search(r"apriDettaglio\(numero[,)]", gestore), gestore
 
 
 def _sorgente_di(nome: str, testo: str) -> str:
@@ -490,17 +497,32 @@ def test_una_risposta_superata_si_scarta_e_una_corrente_no():
 
 
 def _corpi_freccia_asincroni(testo: str) -> list[str]:
-    """I corpi dei gestori `async (...) => {`, presi contando le graffe.
+    """I corpi dei gestori `async (...) => {` e `async x => {`, contando le graffe.
 
     Il regex delle funzioni nominate non li vede: un gestore inline non ha un
     nome e non chiude in prima colonna, quindi la regola dell'ordine vi
-    resterebbe scoperta con l'aria di essere coperta. Il tetto: il conteggio
-    non distingue una graffa dentro una stringa o un commento da una vera, e
-    oggi in app.js non ce ne sono di spaiate; se un giorno ce ne fossero, il
-    corpo estratto finirebbe nel posto sbagliato e questo test lo direbbe.
+    resterebbe scoperta con l'aria di essere coperta. L'alternanza copre anche
+    il parametro singolo senza parentesi, che e' la forma piu' comune delle
+    tre che restavano invisibili.
+
+    Il tetto vero, misurato caso per caso (I-2 della revisione), perche' quello
+    dichiarato prima non era questo:
+    - una graffa **aperta** spaiata in una stringa o in un commento non fa
+      finire il corpo nel posto sbagliato: fa sparire la tratta dall'elenco
+      senza estrarre niente, in silenzio;
+    - una graffa **chiusa** spaiata tronca il corpo, e li' si', la guardia
+      potrebbe restare fuori da cio' che si legge;
+    - restano invisibili il corpo conciso (`async () => (await f()).json()`) e
+      le parentesi dentro i parametri (`async ({ a = (1) }) => {`);
+    - le frecce annidate sono contate due volte, quindi l'interna pretende una
+      guardia sua anche quando l'esterna ce l'ha.
+
+    La rete che resta in tutti questi casi non e' il conteggio delle graffe: e'
+    la soglia finale `interrogano >= 6`, che pareggia il numero vero di tratte.
+    Se una sparisce dall'elenco per una di queste ragioni, e' la soglia a dirlo.
     """
     corpi = []
-    for avvio in re.finditer(r"async\s*\([^)]*\)\s*=>\s*\{", testo):
+    for avvio in re.finditer(r"async\s*(?:\([^)]*\)|\w+)\s*=>\s*\{", testo):
         profondita = 0
         for posizione in range(avvio.end() - 1, len(testo)):
             profondita += {"{": 1, "}": -1}.get(testo[posizione], 0)
@@ -508,6 +530,21 @@ def _corpi_freccia_asincroni(testo: str) -> list[str]:
                 corpi.append(testo[avvio.start() : posizione + 1])
                 break
     return corpi
+
+
+def test_lo_scanner_vede_anche_la_freccia_senza_parentesi():
+    """I-2. `async evento => { ... }` e' la forma piu' comune delle tre che
+    restavano invisibili, e un gestore scritto cosi' entrava nel modulo senza
+    guardia lasciando il test verde: la tratta non veniva vista e il conteggio
+    non cambiava. Il tetto residuo e' dichiarato in _corpi_freccia_asincroni.
+    """
+    con_parentesi = 'async () => { await fetch("/api/x"); superata(o); }'
+    senza_parentesi = 'async evento => { await fetch("/api/y"); esito.textContent = "fatto"; }'
+    assert len(_corpi_freccia_asincroni(con_parentesi)) == 1
+    assert len(_corpi_freccia_asincroni(senza_parentesi)) == 1, "la freccia senza parentesi e' invisibile"
+    # E il corpo estratto arriva intero fino alla graffa che lo chiude: se si
+    # fermasse prima, la guardia potrebbe restare fuori da cio' che si legge.
+    assert _corpi_freccia_asincroni(senza_parentesi)[0].endswith('"fatto"; }')
 
 
 def test_ogni_tratta_che_interroga_il_server_si_scarta_se_e_stata_superata():
@@ -537,8 +574,47 @@ def test_ogni_tratta_che_interroga_il_server_si_scarta_se_e_stata_superata():
             continue
         interrogano += 1
         assert "superata(" in sorgente, f"{nome} scrive senza guardare l'ordine:\n{sorgente}"
-    # Senza questo, cancellare le funzioni farebbe passare il test a vuoto.
+    # Senza questo, cancellare le funzioni farebbe passare il test a vuoto. Ed
+    # e' anche l'unica rete che resta quando l'estrazione per graffe fallisce
+    # (vedi il tetto di _corpi_freccia_asincroni): le tratte reali sono 3
+    # nominate piu' 3 freccia, quindi la soglia pareggia il numero vero. Se ne
+    # aggiungi una, alza la soglia invece di lasciarla indietro.
     assert interrogano >= 6, "le tratte attese sono sparite dal modulo"
+
+
+def test_due_geometrie_in_volo_nella_stessa_generazione_non_si_arbitrano_per_arrivo():
+    """Il ricaricamento dal fronte di discesa non apre una generazione — aprirla
+    butterebbe via il clic che l'utente ha appena fatto — quindi porta lo stesso
+    ordine di una risposta partita prima, e con un contatore solo `superata()`
+    non puo' dire quale delle due vince: vince chi arriva ultimo.
+
+    Ingresso concreto: step 9 aperto, «Esegui questo step», e riclic sullo step
+    9 mentre gira. Se la risposta del clic — che porta il contorno vecchio —
+    arriva per ultima, il viewport torna indietro. E' IM-4 per un'altra strada.
+
+    Sono due requisiti diversi e servono due contatori: la generazione ordina i
+    clic, la richiesta di geometria ordina le geometrie. La regola resta
+    `superata`, che e' pura e ha gia' il suo test eseguito: qui si sorveglia che
+    ogni strada apra esattamente una richiesta e la guardi prima di scrivere.
+    """
+    from meshrec.app.server import UI_DIR
+
+    testo = (UI_DIR / "app.js").read_text(encoding="utf-8")
+    for nome in ("mostraNuvolaDelloStep", "mostraStep"):
+        sorgente = _sorgente_di(nome, testo)
+        assert sorgente.count("apriGeometria()") == 1, f"{nome} non apre una richiesta sola"
+        assert "superata(emissione, ultimaGeometria)" in sorgente, (
+            f"{nome} scrive senza guardare se una geometria piu' nuova e' gia' partita"
+        )
+    # La delega di mostraStep sta prima del contatore: se stesse dopo, la strada
+    # della nuvola aprirebbe due richieste e batterebbe se stessa, e nessuna
+    # nuvola verrebbe piu' disegnata.
+    mostra = _sorgente_di("mostraStep", testo)
+    assert mostra.index("mostraNuvolaDelloStep(numero") < mostra.index("apriGeometria()"), mostra
+    # E il cursore del taglio si rifa' solo se questa risposta ha scritto: sulla
+    # geometria di qualcun altro sarebbe una taratura che nessuna lettura regge.
+    ricarica = _sorgente_di("ricaricaVista", testo)
+    assert re.search(r"if \(disegnato && !superata\(ordine\)\)", ricarica), ricarica
 
 
 def test_svuota_libera_i_buffer_e_non_tocca_i_piani_di_taglio():
@@ -555,6 +631,110 @@ def test_svuota_libera_i_buffer_e_non_tocca_i_piani_di_taglio():
     assert "material?.dispose()" in corpo
     righe = [r for r in corpo.splitlines() if not r.strip().startswith("//")]
     assert not any("pianiTaglio" in r for r in righe), "svuota() tocca i piani di taglio"
+
+
+def test_l_ingombro_non_conta_il_box_di_ritaglio():
+    """I-1. Il Box3Helper sta dentro `gruppo` perche' svuota() lo liberi con gli
+    altri, ma `gruppo` e' anche cio' che `ingombro()` e `inquadra()` misurano.
+    Contandolo, `ingombro()` smette di restituire l'ingombro della geometria e
+    restituisce l'unione con un rettangolo che l'utente allarga a piacere: il
+    Task 13 ci tara l'intervallo del cursore del taglio, e `pannelloRitaglio`
+    ci riprecompila i sei campi, allargandosi a ogni giro senza tornare
+    indietro.
+
+    Eseguito, non letto: `box.visible = false` — la correzione piu' corta che
+    la revisione suggeriva — qui si vedrebbe passare, perche'
+    `Box3.expandByObject` non guarda `visible` (vendor/three.core.js:9730). La
+    funzione vera del viewport gira sopra il three.js vendorizzato, che e' lo
+    stesso che il browser riceve.
+    """
+    from meshrec.app.server import UI_DIR
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node non installato: l'ingombro resta verificato a mano")
+    testo = (UI_DIR / "viewport.js").read_text(encoding="utf-8")
+    # scatolaDelGruppo sta dentro creaViewport, quindi non chiude in prima
+    # colonna: si taglia sulla graffa al suo livello di rientro.
+    sorgente = "function scatolaDelGruppo" + testo.split("function scatolaDelGruppo", 1)[1].split(
+        "\n  }\n", 1
+    )[0] + "\n  }"
+    prova = Path(__file__).parent / "_prova_ingombro.mjs"
+    prova.write_text(
+        f"import * as THREE from {(UI_DIR / 'vendor' / 'three.core.js').as_uri()!r};\n"
+        "import assert from 'node:assert/strict';\n"
+        "const gruppo = new THREE.Group();\n"
+        "const box = new THREE.Box3Helper(new THREE.Box3(), new THREE.Color(0xc4671b));\n"
+        "box.box.set(new THREE.Vector3(-1000, -1000, -1000), new THREE.Vector3(1000, 1000, 1000));\n"
+        "function punti(coordinate) {\n"
+        "  const geometria = new THREE.BufferGeometry();\n"
+        "  geometria.setAttribute('position',"
+        " new THREE.BufferAttribute(new Float32Array(coordinate), 3));\n"
+        "  return new THREE.Points(geometria, new THREE.PointsMaterial());\n"
+        "}\n"
+        "gruppo.add(punti([0, 0, 0, 10, 20, 30]));\n"
+        + sorgente + "\n"
+        "const solaNuvola = scatolaDelGruppo();\n"
+        "assert.deepEqual(solaNuvola.min.toArray(), [0, 0, 0]);\n"
+        "assert.deepEqual(solaNuvola.max.toArray(), [10, 20, 30]);\n"
+        # Il box entra nel gruppo e viene reso: e' dopo un fotogramma che
+        # Box3Helper.updateMatrixWorld scrive position e scale dal proprio box,
+        # ed e' quello che setFromObject leggerebbe.
+        "gruppo.add(box);\n"
+        "box.updateMatrixWorld(true);\n"
+        "const conIlBox = scatolaDelGruppo();\n"
+        "assert.deepEqual(conIlBox.min.toArray(), solaNuvola.min.toArray(),"
+        " 'il box di ritaglio e entrato nell ingombro');\n"
+        "assert.deepEqual(conIlBox.max.toArray(), solaNuvola.max.toArray(),"
+        " 'il box di ritaglio e entrato nell ingombro');\n"
+        # E cambia quando cambia la geometria: senza questo, un ingombro
+        # sempre vuoto passerebbe gli asserti qui sopra.
+        "gruppo.add(punti([-5, -5, -5]));\n"
+        "assert.deepEqual(scatolaDelGruppo().min.toArray(), [-5, -5, -5],"
+        " 'l ingombro non segue piu la geometria');\n",
+        encoding="utf-8",
+    )
+    try:
+        esito = subprocess.run([node, str(prova)], capture_output=True, text=True)
+        assert esito.returncode == 0, esito.stderr
+    finally:
+        prova.unlink()
+
+
+def test_un_campo_del_ritaglio_lasciato_vuoto_non_muove_il_box():
+    """M-1. `Number("")` e' 0, non NaN: cancellare il contenuto di «min x»
+    portava quell'estremo a zero, il box saltava all'origine e «Applica il
+    ritaglio» mandava 0 al server, che lo accettava. Nessun messaggio, e il
+    numero che tornava era quello di un box che nessuno aveva disegnato.
+    """
+    from meshrec.app.server import UI_DIR
+
+    sorgente = _sorgente_di("pannelloRitaglio", (UI_DIR / "app.js").read_text(encoding="utf-8"))
+    assert "Number.isFinite" in sorgente, "un campo vuoto o a meta' muove ancora il box"
+    assert not re.search(r"valori\[estremo\]\[asse\]\s*=\s*Number\(", sorgente), sorgente
+
+
+def test_la_riga_d_errore_resta_nell_albero_anche_da_vuota():
+    """M-3. La meta' funzionale di R75 vive in una regola di stile.css, file che
+    nessun test sorvegliava: se una riscrittura del sistema visivo la perdesse,
+    R75 regredirebbe in silenzio e la suite resterebbe verde.
+
+    La regola deve esserci e non deve essere `display: none`: nascondere cosi'
+    la regione `role="alert"` la toglie dall'albero di accessibilita', che e'
+    esattamente il difetto che R75 chiedeva di chiudere. A contenuto vuoto il
+    paragrafo non genera line box e ha altezza zero da solo: alla regola serve
+    azzerare il margine, non toglierlo dal flusso.
+    """
+    from meshrec.app.server import UI_DIR
+
+    foglio = (UI_DIR / "stile.css").read_text(encoding="utf-8")
+    assert re.search(r"\.errore:empty\s*\{", foglio), "la regola .errore:empty e' sparita da stile.css"
+    regola = foglio.split(".errore:empty", 1)[1].split("}", 1)[0]
+    assert "display" not in regola, f"display toglie la regione role=alert dall'albero: {regola}"
+    # E nessun ramo del modulo la rimette dietro hidden, che e' la strada per
+    # cui il difetto era arrivato la prima volta.
+    testo = (UI_DIR / "app.js").read_text(encoding="utf-8")
+    assert not re.search(r"rigaErrore\.hidden", testo), "un ramo nasconde di nuovo la riga d'errore"
 
 
 def test_l_intervallo_del_cursore_di_taglio_esce_da_una_lettura_e_non_da_numeri_scritti():
@@ -797,27 +977,77 @@ def test_la_cache_del_contorno_non_sfratta_quella_della_nuvola(cliente, tmp_path
     assert voce_nuvola.exists(), "scrivere il contorno ha cancellato la voce della nuvola"
 
 
-def test_il_box_del_viewport_seleziona_gli_stessi_punti_del_core(cliente, tmp_path):
-    """Il controllo che smentisce: se i due insiemi differiscono, il viewport
-    sta disegnando su un dato diverso da quello su cui la pipeline lavora."""
+def _nuvola_con_isolati(seme: int = 0):
+    """Un ammasso denso piu' qualche punto isolato: remove_outliers ne toglie
+    davvero, quindi la sua presenza o assenza si vede nel conteggio."""
     import numpy as np
 
+    generatore = np.random.default_rng(seme)
+    denso = generatore.random((5_000, 3)) * 20.0
+    isolati = generatore.random((50, 3)) * 100.0
+    return np.vstack([denso, isolati])
+
+
+def test_l_anteprima_toglie_gli_outlier_prima_di_ritagliare_come_lo_step_2(cliente, tmp_path):
+    """B-2. L'ordine e' quello dello step 2: remove_outliers e poi crop_box
+    (core/segment.py:142-143). Il secondo asserto e' quello che morde: con un
+    box che contiene tutto, saltare la pulizia darebbe il totale del file, cioe'
+    un numero piu' alto di quello che lo step 2 produrrebbe."""
     from meshrec.core import io, pipeline, segment
     from meshrec.core.config import SegmentConfig
 
-    corsa = tmp_path / "corsa"
-    punti = np.random.default_rng(0).random((10_000, 3)) * 100.0
-    io.write_cloud(corsa / pipeline.ARTIFACTS[2], punti)
+    punti = _nuvola_con_isolati()
+    io.write_cloud(tmp_path / "corsa" / pipeline.ARTIFACTS[1], punti)
 
-    basso, alto = [10.0, 10.0, 10.0], [60.0, 60.0, 60.0]
-    risposta = cliente.post("/api/crop", json={"min": basso, "max": alto})
+    tutto = {"min": [-1.0, -1.0, -1.0], "max": [101.0, 101.0, 101.0]}
+    risposta = cliente.post("/api/crop", json=tutto)
     assert risposta.status_code == 200
     dal_server = risposta.json()["points_after"]
 
-    atteso, _metriche = segment.crop_box(
-        punti, SegmentConfig(crop_min=tuple(basso), crop_max=tuple(alto))
-    )
-    assert dal_server == len(atteso)
+    puliti, _metriche = segment.remove_outliers(punti, SegmentConfig())
+    assert dal_server == len(puliti)
+    assert dal_server < len(punti), "l'anteprima non ha tolto nessun outlier: e' la nuvola grezza"
+
+
+def test_l_anteprima_del_ritaglio_coincide_con_lo_step_2_rieseguito(cliente, tmp_path):
+    """B-2, il controllo che sa dire di no.
+
+    Il confronto «endpoint contro metrics.json» del giro precedente era una
+    tautologia: l'endpoint ritagliava 02_segmented.ply, cioe' l'uscita gia'
+    ritagliata dello step 2, e ogni punto di quel file sta dentro il box che
+    l'ha prodotto per costruzione. Qui il box chiesto all'anteprima e' piu'
+    largo di quello che ha prodotto 02_segmented.ply: leggere l'uscita non puo'
+    far tornare indietro i punti che quel file non contiene, quindi i due
+    numeri divergono e il test lo dice.
+
+    Lo step 2 viene eseguito davvero, non simulato: e' l'unico modo che il
+    confronto ha di non essere un'altra tautologia.
+    """
+    from meshrec.core import io, pipeline
+    from meshrec.core.config import RunConfig, load_config
+
+    io.write_cloud(tmp_path / "corsa" / pipeline.ARTIFACTS[1], _nuvola_con_isolati())
+
+    def esegui_lo_step_2(cfg) -> int:
+        # from_step e to_step si assegnano insieme, con una sola validazione
+        # dell'oggetto intero: e' quello che RunConfig documenta.
+        cfg.run = RunConfig.model_validate({**cfg.run.model_dump(), "from_step": 2, "to_step": 2})
+        return pipeline.run(cfg)["02_segment"]["points_after"]
+
+    stretto = load_config(tmp_path / "config.yaml")
+    stretto.segment.crop_min, stretto.segment.crop_max = (0.0, 0.0, 0.0), (10.0, 10.0, 10.0)
+    dallo_stretto = esegui_lo_step_2(stretto)
+
+    largo = {"min": [0.0, 0.0, 0.0], "max": [20.0, 20.0, 20.0]}
+    risposta = cliente.post("/api/crop", json=largo)
+    assert risposta.status_code == 200
+    anteprima = risposta.json()["points_after"]
+    assert anteprima > dallo_stretto, "il box largo non e' piu' largo: il confronto non morderebbe"
+
+    # /api/crop ha scritto crop_min e crop_max: lo step 2 li rilegge da li',
+    # quindi i due lati stanno guardando davvero lo stesso box.
+    davvero = esegui_lo_step_2(load_config(tmp_path / "config.yaml"))
+    assert anteprima == davvero
 
 
 def test_un_box_vuoto_non_solleva_ma_lo_dice(cliente, tmp_path):
@@ -827,16 +1057,59 @@ def test_un_box_vuoto_non_solleva_ma_lo_dice(cliente, tmp_path):
     sul posto il rifiuto puo' venire solo da crop_box, e il suo messaggio deve
     arrivare intero fino al browser: e' quello che dice dove guardare.
     """
-    import numpy as np
-
     from meshrec.core import io, pipeline
 
-    io.write_cloud(
-        tmp_path / "corsa" / pipeline.ARTIFACTS[2],
-        np.random.default_rng(0).random((1_000, 3)) * 100.0,
-    )
+    io.write_cloud(tmp_path / "corsa" / pipeline.ARTIFACTS[1], _nuvola_con_isolati())
     risposta = cliente.post("/api/crop", json={"min": [1e9, 1e9, 1e9], "max": [2e9, 2e9, 2e9]})
     assert risposta.status_code == 400
     corpo = risposta.json()
     assert "errore" in corpo
     assert "nelle unita di lavoro (mm)" in corpo["messaggio"]
+
+
+# Arita' sbagliata, valore non numerico, NaN e chiave mancante: le forme che
+# l'endpoint accettava o rifiutava male. L'arita' 1 e' quella che passava del
+# tutto, perche' numpy trasmette (N,3) >= (1,) senza lamentarsi.
+# I corpi sono JSON grezzo e non dizionari: NaN non e' JSON valido e nessun
+# codificatore di Python lo scrive senza forzatura, ma json.loads lo legge, e
+# quindi lato server arriva come un float. E' il caso che l'interfaccia non
+# produce e che un altro cliente puo' produrre: il confine deve reggerlo.
+@pytest.mark.parametrize(
+    ("corpo", "campo"),
+    [
+        ('{"min": [10.0], "max": [60.0, 60.0, 60.0]}', "min"),
+        ('{"min": [10.0, 10.0, 10.0], "max": [60.0, 60.0, 60.0, 60.0]}', "max"),
+        ('{"min": [10.0, 10.0, "non un numero"], "max": [60.0, 60.0, 60.0]}', "min"),
+        ('{"min": [NaN, 10.0, 10.0], "max": [60.0, 60.0, 60.0]}', "min"),
+        ('{"min": [Infinity, 10.0, 10.0], "max": [60.0, 60.0, 60.0]}', "min"),
+        ('{"min": [10.0, 10.0, 10.0]}', "max"),
+    ],
+)
+def test_un_box_malformato_e_rifiutato_e_non_tocca_la_configurazione(cliente, tmp_path, corpo, campo):
+    """B-1. Il rifiuto non basta: quello che rendeva il difetto permanente era
+    la scrittura. `{"min":[10.0],"max":[60.0]}` rispondeva 200 e lasciava sul
+    disco una tupla di uno in un campo dichiarato di tre; da li' in poi
+    load_config rifiutava, e /api/config, /api/run e /api/crop stessa
+    rispondevano 400 finche' qualcuno non riapriva config.yaml a mano.
+
+    La nuvola va scritta davvero, altrimenti il test passa per la ragione
+    sbagliata: senza artefatto la richiesta morirebbe comunque prima di
+    scrivere, e passerebbe anche senza nessuna validazione al confine.
+
+    Il confronto e' sui byte del file e non sul codice di stato: e' il file che
+    governa la corsa, ed e' l'unica cosa che dice se la scrittura c'e' stata.
+    """
+    from meshrec.core import io, pipeline
+
+    io.write_cloud(tmp_path / "corsa" / pipeline.ARTIFACTS[1], _nuvola_con_isolati())
+    prima = (tmp_path / "config.yaml").read_bytes()
+
+    risposta = cliente.post(
+        "/api/crop", content=corpo, headers={"content-type": "application/json"}
+    )
+    assert risposta.status_code != 200, risposta.text
+    assert campo in risposta.text, f"il rifiuto non dice quale campo: {risposta.text}"
+    assert (tmp_path / "config.yaml").read_bytes() == prima, "il box rifiutato ha scritto lo stesso"
+    # E la corsa resta leggibile: e' la conseguenza che rendeva il difetto
+    # permanente invece che transitorio.
+    assert cliente.get("/api/config").status_code == 200

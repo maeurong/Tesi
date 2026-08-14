@@ -125,8 +125,21 @@ export function creaViewport(contenitore) {
   ridimensiona();
   disegna();
 
+  // L'ingombro della sola geometria. Il box di ritaglio sta dentro `gruppo`
+  // perche' svuota() lo liberi con gli altri, ma `gruppo` e' anche cio' che
+  // questa misura: contandolo, ingombro() smetterebbe di restituire l'ingombro
+  // della geometria e restituirebbe l'unione con un rettangolo che l'utente
+  // allarga a piacere, che poi taglia il cursore del taglio (Task 13) e
+  // riprecompila i sei campi del ritaglio, allargandosi a ogni giro.
+  // Escluso a mano e non con box.visible = false: Box3.expandByObject non
+  // guarda `visible` (vendor/three.core.js:9730), quindi nasconderlo non
+  // toglierebbe niente dalla misura. Misurato in node, non dedotto.
   function scatolaDelGruppo() {
-    return new THREE.Box3().setFromObject(gruppo);
+    const scatola = new THREE.Box3();
+    for (const figlio of gruppo.children) {
+      if (figlio !== box) scatola.expandByObject(figlio);
+    }
+    return scatola;
   }
 
   function inquadra() {

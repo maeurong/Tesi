@@ -118,16 +118,36 @@ function superata(ordine, corrente = generazione) {
   return ordine !== corrente;
 }
 
+// Le generazioni ordinano i clic, ma dentro una sola generazione possono
+// esserci due richieste di geometria in volo: il fronte di discesa ricarica la
+// vista senza aprire una generazione (aprirla butterebbe via il clic che
+// l'utente ha appena fatto), quindi il suo ricaricamento e una risposta partita
+// prima portano lo stesso ordine. Con quel solo numero superata() non puo'
+// dirimerli e vince chi arriva ultimo, che e' la geometria vecchia: si riclicca
+// lo step 9 mentre gira, la risposta del clic arriva dopo il ricaricamento, e
+// il viewport torna al contorno di prima. E' IM-4 per un'altra strada.
+// Un secondo contatore basta, e la regola e' la stessa: numera le richieste di
+// geometria e lascia scrivere solo l'ultima partita. Due requisiti diversi,
+// due contatori — il ricaricamento non apre una generazione, ma apre sempre
+// una richiesta, quindi batte le proprie precedenti senza toccare i clic.
+let ultimaGeometria = 0;
+
+function apriGeometria() {
+  ultimaGeometria += 1;
+  return ultimaGeometria;
+}
+
 async function mostraNuvolaDelloStep(numero, ordine) {
+  const emissione = apriGeometria();
   const risposta = await fetch(`/api/cloud/${numero}`);
   if (!risposta.ok) {
-    if (superata(ordine)) return;
+    if (superata(ordine) || superata(emissione, ultimaGeometria)) return false;
     // Svuotare e' obbligatorio: senza, la scena resta quella dello step
     // precedente mentre il testo dice che non c'e' nulla. Una vista che
     // contraddice la sua didascalia e' peggio di una vista vuota.
     vista.svuota();
     document.getElementById("conteggi").textContent = "nessun artefatto per questo step";
-    return;
+    return true;
   }
   const disegnati = Number(risposta.headers.get("X-Points-Drawn"));
   const pieni = Number(risposta.headers.get("X-Points-Total"));
@@ -135,12 +155,16 @@ async function mostraNuvolaDelloStep(numero, ordine) {
   // Il controllo sta dopo l'ultima attesa e prima della prima scrittura: piu'
   // in alto lascerebbe passare cio' che e' stato superato mentre il corpo
   // arrivava.
-  if (superata(ordine)) return;
+  if (superata(ordine) || superata(emissione, ultimaGeometria)) return false;
   vista.svuota();
   vista.mostraNuvola(new Float32Array(grezzi));
   // Sempre entrambi: una nuvola decimata che non lo dichiara e' un dato falso.
   document.getElementById("conteggi").textContent =
     `${disegnati.toLocaleString("it")} punti disegnati su ${pieni.toLocaleString("it")}`;
+  // Vero solo se questa risposta ha davvero scritto: il cursore del taglio si
+  // rifa' sull'ingombro di cio' che e' disegnato, e rifarlo dopo una risposta
+  // scartata lo tarerebbe sulla geometria di qualcun altro.
+  return true;
 }
 
 // Gli step che producono una superficie o un volume: dal 5 in poi l'artefatto
@@ -149,22 +173,26 @@ async function mostraNuvolaDelloStep(numero, ordine) {
 const STEP_CON_MESH = new Set([5, 6, 8, 9]);
 
 async function mostraStep(numero, ordine) {
+  // La delega sta prima del contatore: incrementarlo qui e di nuovo la' sotto
+  // farebbe battere questa richiesta da se stessa, e nessuna nuvola verrebbe
+  // piu' disegnata. Ogni strada apre esattamente una richiesta.
   if (!STEP_CON_MESH.has(numero)) return mostraNuvolaDelloStep(numero, ordine);
+  const emissione = apriGeometria();
   const risposta = await fetch(`/api/mesh/${numero}`);
   if (!risposta.ok) {
-    if (superata(ordine)) return;
+    if (superata(ordine) || superata(emissione, ultimaGeometria)) return false;
     // Come per la nuvola: svuotare e' obbligatorio, una vista che contraddice
     // la sua didascalia e' peggio di una vista vuota.
     vista.svuota();
     document.getElementById("conteggi").textContent = "nessun artefatto per questo step";
-    return;
+    return true;
   }
   const vertici = Number(risposta.headers.get("X-Vertices"));
   const triangoli = Number(risposta.headers.get("X-Triangles"));
   const grezzi = await risposta.arrayBuffer();
   // Qui la latenza e' quella vera: e' la mesh dello step 9 che arriva tardi a
   // posarsi sulla nuvola di un altro step.
-  if (superata(ordine)) return;
+  if (superata(ordine) || superata(emissione, ultimaGeometria)) return false;
   vista.svuota();
   vista.mostraMesh(
     new Float32Array(grezzi, 0, vertici * 3),
@@ -174,6 +202,7 @@ async function mostraStep(numero, ordine) {
   // step 9 sono i vertici e i triangoli del contorno, non i nodi del volume.
   document.getElementById("conteggi").textContent =
     `${vertici.toLocaleString("it")} vertici, ${triangoli.toLocaleString("it")} triangoli`;
+  return true;
 }
 
 // Il piano di taglio serve a guardare dentro il volume, percio' il comando
@@ -273,8 +302,11 @@ document.getElementById("elenco-step").addEventListener("click", (evento) => {
 // eventi quella in corso, cosi' il ricaricamento non annulla una geometria in
 // volo ma viene battuto da un clic dell'utente.
 function ricaricaVista(numero, ordine = generazione) {
-  mostraStep(numero, ordine).then(() => {
-    if (!superata(ordine)) riallineaTaglio(numero);
+  // `disegnato` e' falso quando la risposta e' stata scartata: senza guardarlo,
+  // il cursore si rifarebbe sull'ingombro di una geometria che qualcun altro
+  // ha disegnato, cioe' su una lettura che non appartiene a questo numero.
+  mostraStep(numero, ordine).then((disegnato) => {
+    if (disegnato && !superata(ordine)) riallineaTaglio(numero);
   });
 }
 
@@ -357,7 +389,13 @@ function pannelloRitaglio(ordine) {
       input.step = "any";
       input.value = valori[estremo][asse].toFixed(1);
       input.addEventListener("input", () => {
-        valori[estremo][asse] = Number(input.value);
+        const scritto = Number(input.value);
+        // Number("") e' 0, non NaN: senza questa riga svuotare il campo
+        // porterebbe l'estremo all'origine, il box salterebbe li' e «Applica»
+        // manderebbe 0 al server. Un campo vuoto, o a meta' di un numero, non
+        // muove il box: si aspetta che ci sia scritto qualcosa di finito.
+        if (input.value.trim() === "" || !Number.isFinite(scritto)) return;
+        valori[estremo][asse] = scritto;
         vista.mostraBox(valori.min, valori.max);
       });
       riga.append(input);
@@ -372,7 +410,11 @@ function pannelloRitaglio(ordine) {
   esito.className = "aiuto";
   applica.addEventListener("click", async () => {
     dichiaraErrore(null);
-    esito.textContent = "";
+    // Il server rilegge la nuvola piena e ne toglie gli outlier, come fa lo
+    // step 2: su lab_crop sono 26 s la prima volta, poi la nuvola ripulita
+    // resta in memoria. Senza questa riga il bottone resta muto per mezzo
+    // minuto e sembra non aver fatto niente.
+    esito.textContent = "ritaglio in corso: la prima volta rilegge la nuvola piena, circa mezzo minuto.";
     const risposta = await fetch("/api/crop", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -392,9 +434,14 @@ function pannelloRitaglio(ordine) {
     // Il bottone dice «Applica», non «Anteprima»: /api/crop scrive crop_min e
     // crop_max nella configurazione della corsa, e chi sta esplorando deve
     // saperlo qui, non riaprendo il pannello.
+    // Il numero e' riproducibile: il server ripete la tratta dello step 2
+    // (remove_outliers e poi crop_box) sull'ingresso dello step 2, quindi
+    // rieseguirlo con questo box da' esattamente questo conteggio. Dirlo qui
+    // e' l'unico modo che ha chi guarda di sapere che cosa il numero e'.
     esito.textContent =
-      `${corpo.points_after.toLocaleString("it")} punti dentro il box. ` +
-      "crop_min e crop_max sono stati scritti nella configurazione della corsa.";
+      `${corpo.points_after.toLocaleString("it")} punti: e' quanti ne terrebbe lo step 2 ` +
+      "rieseguito con questo box. crop_min e crop_max sono stati scritti nella " +
+      "configurazione della corsa.";
   });
   contenitore.append(applica, esito);
   vista.mostraBox(valori.min, valori.max);

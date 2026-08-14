@@ -8,17 +8,26 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import time
 import zipfile
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
 from fastapi import FastAPI, Response
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from pydantic import BaseModel, ConfigDict
 
 from meshrec.app.worker import Worker
 from meshrec.core import io, pipeline, quality, segment, steps, sweep, viewport
-from meshrec.core.config import PipelineConfig, ViewportConfig, load_config, save_config
+from meshrec.core.config import (
+    PipelineConfig,
+    SegmentConfig,
+    ViewportConfig,
+    load_config,
+    save_config,
+)
 from meshrec.core.io import scrivi_atomico
 
 UI_DIR = Path(__file__).resolve().parent.parent / "ui"
@@ -155,6 +164,80 @@ def _contorno_del_volume(percorso: Path) -> tuple[np.ndarray, np.ndarray]:
     return vertici, facce
 
 
+class BoxRitaglio(BaseModel):
+    """Il corpo di POST /api/crop, verificato prima di toccare la configurazione.
+
+    Tipizzato invece di dict[str, list[float]] apposta: cosi' e' FastAPI a
+    rifiutare arita' sbagliata, chiave mancante e valore non numerico, con un
+    messaggio che dice quale campo e perche', e la tratta non arriva mai ad
+    assegnare. Senza, l'assegnazione finiva su SegmentConfig, che non ha
+    validate_assignment e quindi non verifica nulla; numpy trasmetteva
+    (N,3) >= (1,) senza lamentarsi; save_config usa model_dump, che non valida,
+    e scriveva su disco una tupla di uno in un campo dichiarato di tre. Da li'
+    in poi load_config rifiutava la corsa e l'interfaccia restava morta.
+
+    NaN e Infinity restano fuori di qui e li guarda `_estremi_finiti`: json
+    non li ammette in uscita, e il corpo del 422 di FastAPI riporta il valore
+    ricevuto. Rifiutarli con `allow_inf_nan=False` farebbe quindi fallire la
+    codifica della risposta, e a video arriverebbe «Out of range float values
+    are not JSON compliant» invece del nome del campo — misurato, non dedotto.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    min: tuple[float, float, float]
+    max: tuple[float, float, float]
+
+
+def _estremi_finiti(box: BoxRitaglio) -> None:
+    """NaN e Infinity fuori dal box: sono float per pydantic e non coordinate.
+
+    json.loads li legge, quindi arrivano davvero. Il messaggio dice quale
+    estremo e quale asse, come le altre tratte del modulo: «KeyError: 'max'»
+    era la forma da cui non si capiva dove guardare.
+    """
+    for nome, estremo in (("min", box.min), ("max", box.max)):
+        for asse, coordinata in zip("xyz", estremo):
+            if not math.isfinite(coordinata):
+                raise ValueError(
+                    f"la coordinata {asse} di '{nome}' vale {coordinata} e non un numero finito: "
+                    "il box va dato in coordinate della nuvola, nelle unita di lavoro (mm)"
+                )
+
+
+@lru_cache(maxsize=1)
+def _ingresso_del_ritaglio(sorgente: Path, _mtime_ns: int, vicini: int, scarto: float) -> np.ndarray:
+    """La nuvola come lo step 2 la vede un istante prima di ritagliarla.
+
+    Riproduce la tratta, non la funzione: segment_cloud legge l'artefatto dello
+    step 1 e fa remove_outliers e poi crop_box, in quest'ordine
+    (core/segment.py:142-143). Un'anteprima che ritagliasse 02_segmented.ply
+    lavorerebbe su un file gia' ripulito e gia' ritagliato, e allargando il box
+    non potrebbe far tornare indietro nessun punto; una che ritagliasse
+    01_cloud.ply e basta sovrastimerebbe, perche' terrebbe gli outlier che lo
+    step toglie prima. Il ritaglio resta di segment.crop_box: qui non ce n'e'
+    una seconda copia da tenere allineata.
+
+    Misurato su runs/lab_crop, 6 329 096 punti: 0,70 s di lettura piu' 25,86 s
+    di remove_outliers. Senza memoria ogni ritocco del box li ripagherebbe
+    interi, e il pannello del ritaglio si usa proprio ritoccando.
+
+    _mtime_ns sta nella chiave e non nel corpo: e' quello che fa scadere la
+    voce quando lo step 1 riscrive l'artefatto.
+
+    Il tetto: una voce sola, in memoria, viva quanto il processo — circa 146 MB
+    per la nuvola di lab_crop. Due corse usate a turno se la scambiano e
+    ripagano i 26 s ogni volta; alzare maxsize costa un'altra nuvola intera.
+    L'array torna condiviso fra i chiamanti: crop_box lo legge e copia i punti
+    scelti, non lo modifica.
+    """
+    punti, _normali = io.read_cloud(sorgente)
+    puliti, _metriche = segment.remove_outliers(
+        punti, SegmentConfig(outlier_neighbors=vicini, outlier_std_ratio=scarto)
+    )
+    return puliti
+
+
 def create_app(config_path: Path) -> FastAPI:
     """Applicazione legata a un file di configurazione, che e' la corsa corrente."""
     config_path = Path(config_path)
@@ -265,25 +348,43 @@ def create_app(config_path: Path) -> FastAPI:
         return {"annullato": lavoratore.cancel()}
 
     @app.post("/api/crop")
-    def ritaglia(box: dict[str, list[float]]) -> dict[str, object]:
+    def ritaglia(box: BoxRitaglio) -> dict[str, object]:
         """Il box disegnato nel viewport diventa segment.crop_min e crop_max.
 
-        L'interfaccia disegna il box; il ritaglio lo esegue segment.crop_box,
-        che e' la stessa funzione che la pipeline usa. Non c'e' una seconda
-        implementazione del ritaglio da tenere allineata.
+        L'interfaccia disegna il box; la pulizia la esegue
+        segment.remove_outliers e il ritaglio segment.crop_box, che sono le
+        stesse funzioni che la pipeline usa allo step 2 e nello stesso ordine.
+        Non c'e' una seconda implementazione da tenere allineata, e il numero
+        restituito e' quello che rieseguire lo step 2 con questo box produce.
 
         La configurazione si scrive solo se il ritaglio e' andato a buon fine:
         un box degenere o vuoto solleva prima, e non lascia sul disco estremi
         che nessuno step potrebbe applicare.
         """
+        _estremi_finiti(box)
         cfg = corrente()
-        cfg.segment.crop_min = tuple(box["min"])
-        cfg.segment.crop_max = tuple(box["max"])
-        percorso = Path(cfg.run.out_dir) / pipeline.ARTIFACTS[2]
-        if not percorso.exists():
-            percorso = Path(cfg.run.out_dir) / pipeline.ARTIFACTS[1]
-        punti, _normali = io.read_cloud(percorso)
-        _dentro, metriche = segment.crop_box(punti, cfg.segment)
+        cfg.segment.crop_min = box.min
+        cfg.segment.crop_max = box.max
+        # I due estremi sono accoppiati e SegmentConfig non ha
+        # validate_assignment: l'unico punto in cui lo stato risultante viene
+        # verificato per intero e' qui, prima che finisca su disco.
+        # model_validate e' la stessa che load_config applica in lettura,
+        # quindi cio' che si scrive e' per costruzione rileggibile.
+        cfg = PipelineConfig.model_validate(cfg.model_dump())
+        # L'ingresso dello step 2, non la sua uscita: vedi _ingresso_del_ritaglio.
+        sorgente = Path(cfg.run.out_dir) / pipeline.ARTIFACTS[1]
+        if not sorgente.exists():
+            raise FileNotFoundError(
+                f"lo step 1 non ha ancora prodotto {pipeline.ARTIFACTS[1]}: "
+                "il ritaglio si misura sulla nuvola letta, che e' l'ingresso dello step 2"
+            )
+        puliti = _ingresso_del_ritaglio(
+            sorgente,
+            sorgente.stat().st_mtime_ns,
+            cfg.segment.outlier_neighbors,
+            cfg.segment.outlier_std_ratio,
+        )
+        _dentro, metriche = segment.crop_box(puliti, cfg.segment)
         save_config(cfg, config_path)
         # Le metriche del core sono l'unica fonte: points_after c'e' gia'
         # dentro (core/segment.py:59), e riscriverlo qui sarebbe una riga che
