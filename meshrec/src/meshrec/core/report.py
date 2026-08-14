@@ -1,4 +1,8 @@
-"""Report statico generato dal registro: tabella, fronte, istogrammi SVG.
+"""Report statici in HTML: quello dello sweep e quello di una singola corsa.
+
+`write_report` nasce dal registro degli esperimenti: tabella, fronte di
+Pareto, istogrammi. `write_run_report` nasce invece dai file di una corsa
+sola: config.yaml, metrics.json, steps.json e le viste catturate.
 
 Nessuna libreria di grafici: per pochi istogrammi non si giustifica, ed e'
 gia' escluso dalla spec di architettura. Nessuna miniatura e nessun
@@ -37,10 +41,45 @@ SENZA_METRICHE = "step senza metriche:"
 COERENTI = "coerenti con i parametri mostrati"
 NON_VERIFICABILE = "corrispondenza fra parametri e metriche non verificabile"
 
+# I quattro stati di steps.run_state, ripetuti qui perche' quel modulo non li
+# esporta. Non sono due categorie: uno step mai eseguito non ha metriche
+# prodotte da altri parametri, non ne ha affatto, e uno fallito non e' uno
+# prodotto con parametri diversi. Il conteggio di coerenza riguarda i soli
+# step eseguiti; i mai eseguiti li dichiara la sezione delle metriche.
+VALIDO = "valido"
+MAI_ESEGUITO = "mai eseguito"
+NON_ESEGUITI = "non ancora eseguiti restano fuori dal conteggio"
+NESSUNO_ESEGUITO = "nessuno step di questa corsa e' stato eseguito"
+SPIEGAZIONE_GUASTI = (
+    "Fra parentesi lo stato: 'non valido' vuol dire prodotto con parametri che "
+    "questo report non mostra, 'fallito' che lo step non e' arrivato in fondo."
+)
+
+# Un file che manca e un file che c'e' ma non si legge sono due fatti diversi
+# sul disco, e mandano a cercare due cose diverse. steps.read_state documenta
+# proprio il caso del processo ucciso a meta' scrittura.
+ILLEGGIBILE = "presente ma illeggibile"
+FORMA_INATTESA = "presente ma non contiene una mappa di voci"
+
+# Una lista vuota e' un dato, e spesso il migliore possibile (nessun buco oltre
+# la soglia). Scritta come cella bianca non si distingue da un dato mancante.
+LISTA_VUOTA = "nessuno (lista vuota)"
+NON_IMPOSTATO = "non impostato"
+VUOTO = "(vuoto)"
+
+ESCLUSE_CORTE = "liste troppo corte per un istogramma"
+PNG_NON_LEGGIBILE = "il file c'e' ma non e' un PNG leggibile, non incorporata."
+
 # Sotto questa lunghezza una lista di numeri non e' una distribuzione ma un
 # vettore di coordinate (extent, bbox_min, bbox_max hanno tre componenti): un
 # istogramma di tre barre in appendice a una tesi e' rumore, non una misura.
 _MINIMO_PER_ISTOGRAMMA = 4
+
+# Firma PNG e taglia del PNG piu' piccolo che esista: 8 di firma, 25 di IHDR,
+# almeno 22 di IDAT e 12 di IEND. Sotto questa soglia il file e' troncato o
+# vuoto, e nel documento diventerebbe un riquadro rotto senza spiegazione.
+_FIRMA_PNG = b"\x89PNG\r\n\x1a\n"
+_MINIMO_PNG = 67
 
 _COLUMNS: tuple[tuple[str, str], ...] = (
     ("fingerprint", "impronta"),
@@ -159,26 +198,50 @@ img { max-width: 30rem; border: 1px solid #ccc; }
 """
 
 
-def _leggi(percorso: Path, caricatore) -> object | None:
-    """Contenuto del file, o None se manca o non si lascia leggere.
+def _mappa(percorso: Path, caricatore, assente: str) -> tuple[dict | None, str]:
+    """La mappa contenuta nel file, oppure la frase che dice perche' non c'e'.
 
-    Un file illeggibile non deve impedire il report: il documento dichiara
-    l'assenza, che e' un'informazione, invece di sollevare e non produrre nulla.
+    Un file illeggibile non deve impedire il report: il documento dichiara il
+    buco, che e' un'informazione, invece di sollevare e non produrre nulla. Ma
+    dichiararlo 'assente' quando il file c'e' e' un'affermazione falsa sul
+    disco, e manda a cercare una corsa mai fatta invece che un file rotto.
     """
+    if not percorso.exists():
+        return None, f"{percorso.name} assente: {assente}"
     try:
-        with percorso.open(encoding="utf-8") as handle:
-            return caricatore(handle)
+        with percorso.open(encoding="utf-8") as maniglia:
+            contenuto = caricatore(maniglia)
     except (OSError, ValueError, yaml.YAMLError):
-        return None
+        return None, f"{percorso.name} {ILLEGGIBILE}: il file c'e' sul disco e non si rilegge."
+    if not isinstance(contenuto, dict):
+        return None, f"{percorso.name} {FORMA_INATTESA}: il file c'e' sul disco ma non ha la forma attesa."
+    return contenuto, ""
+
+
+def _numero(valore: float) -> str:
+    """Sei cifre significative senza passare alla notazione esponenziale.
+
+    %.6g da solo scrive 168845511.1 come 1.68846e+08: e' lo stesso valore, ma
+    in una tabella stampata in appendice si legge peggio dell'intero. Fuori
+    dall'intervallo qui sotto l'esponenziale resta l'unica resa leggibile.
+    """
+    arrotondato = float(f"{valore:.6g}")
+    if arrotondato and not 1e-4 <= abs(arrotondato) < 1e12:
+        return f"{arrotondato:.6g}"
+    return f"{arrotondato:.10f}".rstrip("0").rstrip(".")
 
 
 def _testo(valore: object) -> str:
     """Rappresentazione stampabile di un valore letto, senza arrotondarlo a zero."""
     if isinstance(valore, list):
-        return ", ".join(_testo(item) for item in valore)
+        return ", ".join(_testo(item) for item in valore) or LISTA_VUOTA
+    if isinstance(valore, bool):
+        return "si" if valore else "no"
+    if valore is None:
+        return NON_IMPOSTATO
     if isinstance(valore, float):
-        return f"{valore:.6g}"
-    return str(valore)
+        return _numero(valore)
+    return str(valore) or VUOTO
 
 
 def _piatto(prefisso: str, valore: object) -> Iterator[tuple[str, object]]:
@@ -215,24 +278,39 @@ def _stato_degli_step(out_dir: Path) -> tuple[dict[str, str] | None, str]:
 
 
 def _riga_coerenza(stato: dict[str, str] | None, motivo: str) -> str:
-    """Quanti step vengono davvero dai parametri mostrati sopra, e quali no."""
+    """Quanti step *eseguiti* vengono davvero dai parametri mostrati sopra, e quali no.
+
+    Il denominatore sono gli step eseguiti: contare fra gli incoerenti anche
+    quelli mai eseguiti fa leggere una corsa non ancora fatta come una corsa
+    sbagliata, e contraddice la dichiarazione che il documento fa piu' sotto.
+    """
     if stato is None:
         return f"<p class='assente'>{NON_VERIFICABILE}: {html.escape(motivo)}.</p>"
-    incoerenti = [f"{chiave} ({valore})" for chiave, valore in stato.items() if valore != "valido"]
-    totale = len(steps.STEP_KEYS)
-    if not incoerenti:
-        return f"<p>{totale} step su {totale} {COERENTI}.</p>"
+    mai = [chiave for chiave, valore in stato.items() if valore == MAI_ESEGUITO]
+    guasti = [
+        f"{chiave} ({valore})"
+        for chiave, valore in stato.items()
+        if valore not in (VALIDO, MAI_ESEGUITO)
+    ]
+    eseguiti = len(stato) - len(mai)
+    coda = f" {len(mai)} step {NON_ESEGUITI}." if mai else ""
+    if not eseguiti:
+        return f"<p class='assente'>{NESSUNO_ESEGUITO}.{coda}</p>"
+    if not guasti:
+        return f"<p>{eseguiti} step su {eseguiti} {COERENTI}.{coda}</p>"
     return (
-        f"<p class='assente'>{totale - len(incoerenti)} step su {totale} {COERENTI}, "
-        f"{len(incoerenti)} no: {html.escape(', '.join(incoerenti))}. "
-        "Le loro metriche vengono da parametri che questo report non mostra.</p>"
+        f"<p class='assente'>{eseguiti - len(guasti)} step su {eseguiti} {COERENTI}, "
+        f"{len(guasti)} no: {html.escape(', '.join(guasti))}. "
+        f"{SPIEGAZIONE_GUASTI}{coda}</p>"
     )
 
 
-def _sezione_metriche(metriche: dict[str, object] | None, stato: dict[str, str] | None) -> str:
+def _sezione_metriche(
+    metriche: dict[str, object] | None, motivo: str, stato: dict[str, str] | None
+) -> str:
     """Le metriche presenti, con il proprio stato, e quelle mancanti dichiarate."""
-    if not isinstance(metriche, dict):
-        return f"<p class='assente'>{METRICS_FILENAME} assente: questa corsa non ha metriche sul disco.</p>"
+    if metriche is None:
+        return f"<p class='assente'>{html.escape(motivo)}</p>"
 
     presenti = "".join(
         "<h3>{} [{}]</h3>{}".format(
@@ -253,15 +331,45 @@ def _sezione_metriche(metriche: dict[str, object] | None, stato: dict[str, str] 
 
 
 def _istogrammi(metriche: dict[str, object] | None) -> str:
-    """Un istogramma per ogni lista di numeri trovata: nessun nome di metrica scritto qui."""
-    grafici = [
-        histogram_svg([float(item) for item in valore], nome, bins=12)
+    """Un istogramma per ogni lista di numeri trovata: nessun nome di metrica scritto qui.
+
+    Le liste sotto la soglia non spariscono in silenzio: una di tre valori puo'
+    essere una distribuzione vera (hole_areas di una corsa dello sweep) tanto
+    quanto una terna di coordinate, e il lettore deve poterlo sapere.
+    """
+    numeriche = [
+        (nome, valore)
         for nome, valore in _piatto("", metriche if isinstance(metriche, dict) else {})
         if isinstance(valore, list)
-        and len(valore) >= _MINIMO_PER_ISTOGRAMMA
         and all(isinstance(item, (int, float)) and not isinstance(item, bool) for item in valore)
     ]
-    return "".join(grafici) or "<p>nessuna distribuzione fra le metriche di questa corsa.</p>"
+    grafici = [
+        histogram_svg([float(item) for item in valore], nome, bins=12)
+        for nome, valore in numeriche
+        if len(valore) >= _MINIMO_PER_ISTOGRAMMA
+    ]
+    corte = [nome for nome, valore in numeriche if len(valore) < _MINIMO_PER_ISTOGRAMMA]
+    coda = (
+        f"<p>{ESCLUSE_CORTE} (meno di {_MINIMO_PER_ISTOGRAMMA} valori): "
+        f"{html.escape(', '.join(corte))}. I valori restano nella tabella qui sopra.</p>"
+        if corte
+        else ""
+    )
+    return ("".join(grafici) or "<p>nessuna distribuzione fra le metriche di questa corsa.</p>") + coda
+
+
+def _e_png(vista: Path) -> bool:
+    """Il file e' plausibilmente un PNG: firma giusta e non troncato.
+
+    exists() da solo lascia passare una cattura interrotta o un file di zero
+    byte, che nel documento diventa un riquadro vuoto senza spiegazione.
+    """
+    try:
+        with vista.open("rb") as maniglia:
+            firma = maniglia.read(len(_FIRMA_PNG))
+        return firma == _FIRMA_PNG and vista.stat().st_size >= _MINIMO_PNG
+    except OSError:
+        return False
 
 
 def _sezione_viste(viste: list[Path], cartella: Path) -> str:
@@ -272,6 +380,9 @@ def _sezione_viste(viste: list[Path], cartella: Path) -> str:
         nome = html.escape(vista.name)
         if not vista.exists():
             pezzi.append(f"<p class='assente'>vista {nome}: file assente, non incorporata.</p>")
+            continue
+        if not _e_png(vista):
+            pezzi.append(f"<p class='assente'>vista {nome}: {PNG_NON_LEGGIBILE}</p>")
             continue
         try:
             riferimento = Path(os.path.relpath(vista, cartella)).as_posix()
@@ -305,13 +416,19 @@ def write_run_report(out_dir: Path, viste: list[Path]) -> Path:
     codice.
     """
     out_dir = Path(out_dir)
-    metriche = _leggi(out_dir / METRICS_FILENAME, json.load)
-    configurazione = _leggi(out_dir / CONFIG_FILENAME, yaml.safe_load)
+    metriche, motivo_metriche = _mappa(
+        out_dir / METRICS_FILENAME, json.load, "questa corsa non ha metriche sul disco."
+    )
+    configurazione, motivo_config = _mappa(
+        out_dir / CONFIG_FILENAME,
+        yaml.safe_load,
+        "i parametri di questa corsa non sono sul disco.",
+    )
     stato, motivo = _stato_degli_step(out_dir)
     parametri = (
         _tabella(_piatto("", configurazione))
-        if isinstance(configurazione, dict)
-        else f"<p class='assente'>{CONFIG_FILENAME} assente: i parametri di questa corsa non sono sul disco.</p>"
+        if configurazione is not None
+        else f"<p class='assente'>{html.escape(motivo_config)}</p>"
     )
 
     documento = f"""<!doctype html>
@@ -322,9 +439,9 @@ def write_run_report(out_dir: Path, viste: list[Path]) -> Path:
 {parametri}
 <h2>Metriche per step</h2>
 {_riga_coerenza(stato, motivo)}
-{_sezione_metriche(metriche if isinstance(metriche, dict) else None, stato)}
+{_sezione_metriche(metriche, motivo_metriche, stato)}
 <h2>Distribuzioni</h2>
-{_istogrammi(metriche if isinstance(metriche, dict) else None)}
+{_istogrammi(metriche)}
 <h2>Viste</h2>
 {_conteggio_viste(viste)}
 {_sezione_viste(viste, out_dir)}

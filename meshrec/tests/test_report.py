@@ -2,10 +2,44 @@
 
 import inspect
 import json
+import struct
+import zlib
 from pathlib import Path
 
 from meshrec.core import pipeline, report, steps, sweep
 from meshrec.core.config import InputConfig, PipelineConfig, save_config
+
+
+def _png_minimo() -> bytes:
+    """Un PNG 1x1 vero, costruito qui: la sola firma non e' un'immagine.
+
+    La fixture precedente scriveva gli otto byte della firma, e il report li
+    incorporava: un riquadro rotto stampato in appendice. Un PNG minimo lo si
+    costruisce con la libreria standard, senza dipendenze e senza blob opachi.
+    """
+
+    def pezzo(tipo: bytes, dati: bytes) -> bytes:
+        lunghezza = struct.pack(">I", len(dati))
+        return lunghezza + tipo + dati + struct.pack(">I", zlib.crc32(tipo + dati))
+
+    intestazione = struct.pack(">IIBBBBB", 1, 1, 8, 0, 0, 0, 0)
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + pezzo(b"IHDR", intestazione)
+        + pezzo(b"IDAT", zlib.compress(b"\x00\x00", 0))
+        + pezzo(b"IEND", b"")
+    )
+
+
+def _paragrafo(testo: str, ago: str) -> str:
+    """Il solo paragrafo che contiene `ago`.
+
+    Cercare un nome di step in tutto il documento non prova niente: compare
+    anche nelle intestazioni delle metriche. Le asserzioni sui conteggi devono
+    guardare dentro un paragrafo solo.
+    """
+    prima, dopo = testo.split(ago, 1)
+    return prima.rsplit("<p", 1)[1] + ago + dopo.split("</p>", 1)[0]
 
 
 def test_the_report_lists_every_row_and_marks_the_front(tmp_path):
@@ -154,7 +188,7 @@ def test_le_viste_presenti_hanno_percorsi_relativi_al_report(tmp_path):
     """Il report deve restare apribile se la cartella viene spostata."""
     corsa = _corsa(tmp_path, metriche={"01_load": {"points_kept": 10}})
     (corsa / "viste").mkdir()
-    (corsa / "viste" / "fronte.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    (corsa / "viste" / "fronte.png").write_bytes(_png_minimo())
 
     testo = report.write_run_report(
         corsa, viste=[corsa / "viste" / "fronte.png"]
@@ -170,7 +204,7 @@ def test_una_vista_su_un_altra_unita_non_fa_fallire_il_report(tmp_path, monkeypa
     corsa = _corsa(tmp_path, metriche={"01_load": {"points_kept": 10}})
     (corsa / "viste").mkdir()
     vista = corsa / "viste" / "fronte.png"
-    vista.write_bytes(b"\x89PNG\r\n\x1a\n")
+    vista.write_bytes(_png_minimo())
 
     def _solleva(*_):
         raise ValueError("percorsi su unita' diverse")
@@ -248,32 +282,36 @@ def test_la_firma_del_report_di_corsa_non_ha_predefiniti():
 # stato prodotto: e' quella la smentita.
 
 
-def _corsa_con_impronte(tmp_path, impronte_scritte):
+def _corsa_con_impronte(tmp_path, impronte_scritte, chiavi=steps.STEP_KEYS, esiti=None):
     """Corsa con config.yaml valido e uno steps.json costruito a mano.
 
     `impronte_scritte` mappa la chiave di uno step all'impronta da salvare:
     scriverne una diversa da quella ricalcolata simula uno step prodotto con
     parametri che nel config.yaml corrente non ci sono piu'.
+
+    `chiavi` sono le sole voci scritte, in steps.json e in metrics.json.
+    Scrivendole sempre tutte e undici, il caso normale dell'interfaccia — uno
+    step eseguito e gli altri mai — non si presenta in nessun test.
+    `esiti` mappa la chiave all'esito salvato; per il resto vale "riuscito".
     """
     cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"))
     corsa = tmp_path / "corsa"
     corsa.mkdir()
     save_config(cfg, corsa / report.CONFIG_FILENAME)
     (corsa / pipeline.METRICS_FILENAME).write_text(
-        json.dumps({chiave: {"misura": 1} for chiave in steps.STEP_KEYS}), encoding="utf-8"
+        json.dumps({chiave: {"misura": 1} for chiave in chiavi}), encoding="utf-8"
     )
+    attese = dict(zip(steps.STEP_KEYS, steps.step_fingerprints(cfg).values()))
     (corsa / steps.STATE_FILENAME).write_text(
         json.dumps(
             {
                 chiave: {
-                    "impronta": impronte_scritte(chiave, attesa),
-                    "esito": "riuscito",
+                    "impronta": impronte_scritte(chiave, attese[chiave]),
+                    "esito": (esiti or {}).get(chiave, "riuscito"),
                     "artefatto": None,
                     "secondi": 1.0,
                 }
-                for chiave, attesa in zip(
-                    steps.STEP_KEYS, steps.step_fingerprints(cfg).values()
-                )
+                for chiave in chiavi
             }
         ),
         encoding="utf-8",
@@ -352,3 +390,153 @@ def test_il_report_di_corsa_non_usa_lettere_accentate(tmp_path):
     )
 
     assert testo.isascii()
+
+
+# --- tre categorie, non due -----------------------------------------------
+#
+# run_state restituisce quattro stati, non due: "mai eseguito", "fallito",
+# "non valido", "valido". Contarli come "valido" contro "tutto il resto" fa
+# dire al documento che le metriche di uno step mai eseguito vengono da altri
+# parametri, mentre quelle metriche non esistono affatto.
+
+
+def test_uno_step_mai_eseguito_non_e_anche_incoerente(tmp_path):
+    """Il caso normale dell'interfaccia: uno step eseguito, gli altri mai.
+
+    Un documento che chiama lo stesso step incoerente in un paragrafo e mai
+    eseguito due paragrafi dopo si contraddice, e stampato non si corregge.
+    """
+    corsa = _corsa_con_impronte(
+        tmp_path, lambda _chiave, attesa: attesa, chiavi=("01_load",)
+    )
+
+    testo = report.write_run_report(corsa, viste=[]).read_text(encoding="utf-8")
+
+    coerenza = _paragrafo(testo, report.COERENTI)
+    mai = len(steps.STEP_KEYS) - 1
+    assert f"1 step su 1 {report.COERENTI}." in coerenza
+    assert f"{mai} step {report.NON_ESEGUITI}" in coerenza
+    # nessuno step mai eseguito puo' comparire fra quelli che non tornano
+    assert all(chiave not in coerenza for chiave in steps.STEP_KEYS[1:])
+    # e la dichiarazione che gia' esiste piu' sotto resta l'unica a nominarli
+    assert "02_segment" in _paragrafo(testo, report.SENZA_METRICHE)
+
+
+def test_uno_step_fallito_non_e_uno_step_prodotto_con_altri_parametri(tmp_path):
+    """«fallito» e «non valido» sono due stati diversi di run_state."""
+    corsa = _corsa_con_impronte(
+        tmp_path,
+        lambda _chiave, attesa: attesa,
+        esiti={"05_reconstruct": "fallito"},
+    )
+
+    testo = report.write_run_report(corsa, viste=[]).read_text(encoding="utf-8")
+
+    coerenza = _paragrafo(testo, report.COERENTI)
+    totale = len(steps.STEP_KEYS)
+    assert f"{totale - 1} step su {totale} {report.COERENTI}, 1 no:" in coerenza
+    assert "05_reconstruct (fallito)" in coerenza
+    assert "05_reconstruct (non valido)" not in coerenza
+    assert "<h3>05_reconstruct [fallito]</h3>" in testo
+
+
+def test_una_lista_vuota_non_diventa_una_cella_bianca(tmp_path):
+    """Zero fori oltre soglia e' il risultato migliore possibile, non un buco.
+
+    Stampata, una cella vuota accanto a holes_over_threshold non si distingue
+    da un dato mancante. Le due liste sempre vuote compaiono in ogni
+    metrics.json dell'albero: e' il caso normale, non un caso di laboratorio.
+    """
+    corsa = _corsa(
+        tmp_path, metriche={"06_repair": {"holes_over_threshold": [], "buchi": 0}}
+    )
+
+    testo = report.write_run_report(corsa, viste=[]).read_text(encoding="utf-8")
+
+    assert "<td></td>" not in testo
+    assert f"<th>holes_over_threshold</th><td>{report.LISTA_VUOTA}</td>" in testo
+    # una lista vuota e uno zero numerico non sono la stessa cosa
+    assert "<th>buchi</th><td>0</td>" in testo
+
+
+def test_un_file_illeggibile_non_viene_dichiarato_assente(tmp_path):
+    """steps.read_state documenta il processo ucciso a meta' scrittura.
+
+    Un file troncato dichiarato assente manda il lettore a cercare una corsa
+    mai fatta invece che un file da riscrivere.
+    """
+    corsa = _corsa(tmp_path, configurazione="a: [1, 2\n")
+    (corsa / pipeline.METRICS_FILENAME).write_text("{non json", encoding="utf-8")
+
+    testo = report.write_run_report(corsa, viste=[]).read_text(encoding="utf-8")
+
+    assert f"{report.CONFIG_FILENAME} assente" not in testo
+    assert f"{pipeline.METRICS_FILENAME} assente" not in testo
+    assert f"{report.CONFIG_FILENAME} {report.ILLEGGIBILE}" in testo
+    assert f"{pipeline.METRICS_FILENAME} {report.ILLEGGIBILE}" in testo
+
+
+def test_un_file_di_forma_inattesa_non_viene_dichiarato_assente(tmp_path):
+    """config.yaml che contiene «ciao», metrics.json che contiene una lista."""
+    corsa = _corsa(tmp_path, configurazione="ciao\n")
+    (corsa / pipeline.METRICS_FILENAME).write_text("[1,2,3]", encoding="utf-8")
+
+    testo = report.write_run_report(corsa, viste=[]).read_text(encoding="utf-8")
+
+    assert f"{report.CONFIG_FILENAME} assente" not in testo
+    assert f"{pipeline.METRICS_FILENAME} assente" not in testo
+    assert f"{report.CONFIG_FILENAME} {report.FORMA_INATTESA}" in testo
+    assert f"{pipeline.METRICS_FILENAME} {report.FORMA_INATTESA}" in testo
+
+
+def test_una_lista_troppo_corta_per_un_istogramma_viene_dichiarata(tmp_path):
+    """runs/sweep/lab_crop/51de6c2c9145 ha hole_areas con tre valori soli.
+
+    E' una distribuzione vera, scartata perche' lunga come una terna di
+    coordinate: la soglia resta dov'e', ma l'esclusione va detta.
+    """
+    corsa = _corsa(
+        tmp_path, metriche={"06_repair": {"hole_areas": [42120.4, 33986.0, 31702.6]}}
+    )
+
+    testo = report.write_run_report(corsa, viste=[]).read_text(encoding="utf-8")
+
+    assert "<rect" not in testo
+    assert report.ESCLUSE_CORTE in testo
+    assert "06_repair.hole_areas" in _paragrafo(testo, report.ESCLUSE_CORTE)
+
+
+def test_una_vista_che_non_e_un_png_leggibile_non_diventa_immagine_rotta(tmp_path):
+    """Otto byte di firma passano exists() e in appendice sono un riquadro rotto."""
+    corsa = _corsa(tmp_path, metriche={"01_load": {"points_kept": 10}})
+    (corsa / "viste").mkdir()
+    vista = corsa / "viste" / "fronte.png"
+    vista.write_bytes(b"\x89PNG\r\n\x1a\n")
+
+    testo = report.write_run_report(corsa, viste=[vista]).read_text(encoding="utf-8")
+
+    assert "<img" not in testo
+    assert f"vista fronte.png: {report.PNG_NON_LEGGIBILE}" in testo
+
+
+def test_i_valori_logici_e_quelli_mancanti_sono_in_italiano(tmp_path):
+    """None e True in un documento italiano sono lingua sbagliata, non dato."""
+    corsa = _corsa(tmp_path, configurazione="tet:\n  max_volume: null\n  nobisect: true\n")
+
+    testo = report.write_run_report(corsa, viste=[]).read_text(encoding="utf-8")
+
+    assert "None" not in testo and "True" not in testo
+    assert f"<th>tet.max_volume</th><td>{report.NON_IMPOSTATO}</td>" in testo
+    assert "<th>tet.nobisect</th><td>si</td>" in testo
+
+
+def test_un_numero_grande_non_passa_alla_notazione_esponenziale(tmp_path):
+    """In una tabella stampata 1.68846e+08 si legge peggio dell'intero."""
+    corsa = _corsa(
+        tmp_path, metriche={"10_volume_quality": {"volume_mm3": 168845511.10290658}}
+    )
+
+    testo = report.write_run_report(corsa, viste=[]).read_text(encoding="utf-8")
+
+    assert "e+08" not in testo
+    assert "168846000" in testo
