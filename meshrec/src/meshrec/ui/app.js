@@ -81,9 +81,30 @@ import { creaViewport } from "/ui/viewport.js";
 
 const vista = creaViewport(document.getElementById("viewport"));
 
-async function mostraNuvolaDelloStep(numero) {
+// Le richieste si accavallano, e senza un ordine una risposta vecchia vince su
+// una nuova: si clicca lo step 9, che ci mette quindici secondi, si clicca lo
+// step 1, compare la nuvola giusta, e quindici secondi dopo la mesh del 9 la
+// sostituisce con la propria didascalia mentre il pannello mostra il 1. E'
+// proprio la vista che contraddice la sua didascalia.
+// Ogni clic apre una generazione; chi torna da una generazione chiusa non
+// scrive nulla. Un contatore basta: non servono AbortController ne' code.
+let generazione = 0;
+
+function apriGenerazione() {
+  generazione += 1;
+  return generazione;
+}
+
+// Pura apposta, cosi' la regola dell'ordine si puo' guardare da fuori invece
+// di doverla dedurre dai punti in cui e' usata.
+function superata(ordine, corrente = generazione) {
+  return ordine !== corrente;
+}
+
+async function mostraNuvolaDelloStep(numero, ordine) {
   const risposta = await fetch(`/api/cloud/${numero}`);
   if (!risposta.ok) {
+    if (superata(ordine)) return;
     // Svuotare e' obbligatorio: senza, la scena resta quella dello step
     // precedente mentre il testo dice che non c'e' nulla. Una vista che
     // contraddice la sua didascalia e' peggio di una vista vuota.
@@ -94,6 +115,10 @@ async function mostraNuvolaDelloStep(numero) {
   const disegnati = Number(risposta.headers.get("X-Points-Drawn"));
   const pieni = Number(risposta.headers.get("X-Points-Total"));
   const grezzi = await risposta.arrayBuffer();
+  // Il controllo sta dopo l'ultima attesa e prima della prima scrittura: piu'
+  // in alto lascerebbe passare cio' che e' stato superato mentre il corpo
+  // arrivava.
+  if (superata(ordine)) return;
   vista.svuota();
   vista.mostraNuvola(new Float32Array(grezzi));
   // Sempre entrambi: una nuvola decimata che non lo dichiara e' un dato falso.
@@ -106,10 +131,11 @@ async function mostraNuvolaDelloStep(numero) {
 // c'e' un solido.
 const STEP_CON_MESH = new Set([5, 6, 8, 9]);
 
-async function mostraStep(numero) {
-  if (!STEP_CON_MESH.has(numero)) return mostraNuvolaDelloStep(numero);
+async function mostraStep(numero, ordine) {
+  if (!STEP_CON_MESH.has(numero)) return mostraNuvolaDelloStep(numero, ordine);
   const risposta = await fetch(`/api/mesh/${numero}`);
   if (!risposta.ok) {
+    if (superata(ordine)) return;
     // Come per la nuvola: svuotare e' obbligatorio, una vista che contraddice
     // la sua didascalia e' peggio di una vista vuota.
     vista.svuota();
@@ -119,6 +145,9 @@ async function mostraStep(numero) {
   const vertici = Number(risposta.headers.get("X-Vertices"));
   const triangoli = Number(risposta.headers.get("X-Triangles"));
   const grezzi = await risposta.arrayBuffer();
+  // Qui la latenza e' quella vera: e' la mesh dello step 9 che arriva tardi a
+  // posarsi sulla nuvola di un altro step.
+  if (superata(ordine)) return;
   vista.svuota();
   vista.mostraMesh(
     new Float32Array(grezzi, 0, vertici * 3),
@@ -187,12 +216,18 @@ document.getElementById("elenco-step").addEventListener("click", (evento) => {
   if (!riga) return;
   const numero = Number(riga.dataset.numero);
   stepMostrato = numero;
-  // Il comando del taglio si rifa' quando la geometria e' arrivata, non
-  // prima: il suo intervallo esce dall'ingombro di cio' che e' disegnato.
-  // Si guarda stepMostrato e non numero perche' di due clic ravvicinati deve
-  // valere l'ultimo, anche se la sua risposta arriva per prima.
-  mostraStep(numero).then(() => riallineaTaglio(stepMostrato));
-  apriDettaglio(numero);
+  // Una sola generazione per il clic, passata a tutte e due le tratte: se la
+  // guardia stesse su mostraStep e non su apriDettaglio, meta' del difetto
+  // resterebbe con l'aria di essere risolta.
+  const ordine = apriGenerazione();
+  // Il comando del taglio si rifa' quando la geometria e' arrivata, non prima:
+  // il suo intervallo esce dall'ingombro di cio' che e' disegnato. Non si rifa'
+  // affatto se questo clic e' stato superato, altrimenti una risposta vecchia
+  // riporterebbe il cursore al minimo sotto le dita di chi lo sta muovendo.
+  mostraStep(numero, ordine).then(() => {
+    if (!superata(ordine)) riallineaTaglio(numero);
+  });
+  apriDettaglio(numero, ordine);
 });
 
 // Lo schema e le descrizioni vengono dai modelli di config.py: l'interfaccia
@@ -235,7 +270,10 @@ function dichiaraErrore(testo) {
   rigaErrore.hidden = !testo;
 }
 
-async function apriDettaglio(numero) {
+// ordine: la generazione del clic che ha chiesto questo pannello. Il
+// ricaricamento dallo scorrere degli eventi non ne apre una: prende quella in
+// corso, cosi' un clic dell'utente arrivato nel frattempo lo batte.
+async function apriDettaglio(numero, ordine = generazione) {
   const dettaglio = document.getElementById("dettaglio");
   if (schemaParametri === null) {
     const risposta = await fetch("/api/schema");
@@ -243,13 +281,20 @@ async function apriDettaglio(numero) {
     // d'errore avvelenerebbe il pannello per tutta la vita della pagina,
     // perche' nessun click successivo ritenterebbe.
     if (!risposta.ok) {
-      dettaglio.replaceChildren(paragrafoErrore(await ragioneDelRifiuto(risposta)));
+      const ragione = await ragioneDelRifiuto(risposta);
+      if (superata(ordine)) return;
+      dettaglio.replaceChildren(paragrafoErrore(ragione));
       return;
     }
     schemaParametri = await risposta.json();
   }
   configurazione = await (await fetch("/api/config")).json();
   const metriche = await (await fetch("/api/metrics")).json();
+  // Dopo l'ultima attesa e prima della prima scrittura: qui sono tre andate e
+  // ritorni, e in mezzo l'utente puo' aver scelto un altro step. Anche
+  // stepAperto sta sotto la guardia, perche' e' lui a dire allo scorrere degli
+  // eventi quale pannello ricaricare.
+  if (superata(ordine)) return;
   const voce = schemaParametri[String(numero)];
   stepAperto = numero;
   dettaglio.replaceChildren();
@@ -273,9 +318,15 @@ async function apriDettaglio(numero) {
     bottone.addEventListener("click", async () => {
       dichiaraErrore(null);
       const risposta = await fetch(percorso, { method: "POST" });
+      if (risposta.ok) return;
+      const ragione = await ragioneDelRifiuto(risposta);
+      // rigaErrore e' quella del pannello aperto adesso: se nel frattempo ne e'
+      // stato aperto un altro, questo rifiuto finirebbe scritto sotto lo step
+      // sbagliato, e accuserebbe uno step che nessuno ha lanciato.
+      if (superata(ordine)) return;
       // Un click rifiutato in silenzio non e' distinguibile da uno andato a
       // buon fine: il server ha gia' scritto il perche', e va mostrato.
-      if (!risposta.ok) dichiaraErrore(await ragioneDelRifiuto(risposta));
+      dichiaraErrore(ragione);
     });
     azioni.append(bottone);
   }

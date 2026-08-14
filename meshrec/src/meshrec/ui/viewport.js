@@ -133,6 +133,23 @@ export function creaViewport(contenitore) {
 
   return {
     svuota() {
+      // Togliere un oggetto dalla scena non libera i suoi buffer: in three.js
+      // sono gli eventi di dispose a cancellarli davvero (three.module.js:3821,
+      // onGeometryDispose, toglie l'indice e ogni attributo). Senza, ogni
+      // passaggio fra lo step 5, il 6 e il 9 lasciava sul posto 7,6 MB di
+      // attributi piu' un materiale, e il ciclo fra gli step e' un gesto che
+      // si ripete.
+      // Ogni oggetto ha il materiale che gli ha creato mostraNuvola o
+      // mostraMesh, e nessun altro lo usa: liberarlo qui non lascia scoperto
+      // nessuno.
+      // pianiTaglio non si tocca: non e' una risorsa della scheda grafica ed
+      // e' condiviso apposta perche' sopravviva alla geometria. Azzerarlo qui
+      // farebbe nascere la geometria nuova senza taglio mentre il comando lo
+      // dichiara attivo.
+      gruppo.traverse((oggetto) => {
+        oggetto.geometry?.dispose();
+        oggetto.material?.dispose();
+      });
       gruppo.clear();
       descrivi("vuota");
     },
