@@ -227,9 +227,12 @@ class RunConfig(BaseModel):
             "ultimo step eseguito. Serve all'interfaccia, che esegue uno step "
             "alla volta: from_step e to_step uguali eseguono soltanto quello. "
             "Con validate_assignment attivo il validatore incrociato rifiuta "
-            "uno stato intermedio incoerente, quindi restringendo entrambi i "
-            "campi su un oggetto gia' costruito va assegnato prima to_step e "
-            "poi from_step"
+            "ogni stato intermedio incoerente, e nessun ordine di assegnazione "
+            "e' sicuro: restringendo un intervallo verso l'alto rompe to_step "
+            "per primo, verso il basso rompe from_step. I due campi si "
+            "assegnano quindi insieme, con una sola validazione dell'oggetto "
+            "intero (RunConfig.model_validate su model_dump aggiornato), mai "
+            "uno alla volta"
         ),
     )
 
