@@ -53,6 +53,68 @@ def _paragrafo(testo: str, ago: str) -> str:
     return prima.rsplit("<p", 1)[1] + ago + dopo.split("</p>", 1)[0]
 
 
+def _glosse(paragrafo: str) -> dict[str, str]:
+    """Le glosse del modulo che compaiono nel paragrafo, per stato.
+
+    Serve a pretendere l'uguaglianza con gli stati elencati: una glossa in piu'
+    spiega uno stato che li' non c'e', una in meno lascia una parentesi muta.
+    """
+    return {stato: glossa for stato, glossa in report.GLOSSA.items() if glossa in paragrafo}
+
+
+def _residuo(paragrafo: str, pezzi: list[str]) -> str:
+    """Il paragrafo tolte le parti che vengono da una lettura.
+
+    Quel che resta e' prosa scritta a mano che parla degli step elencati senza
+    rispondere a nessuna lettura, ed e' la forma con cui questo difetto e'
+    tornato tre volte: sempre una frase sola, ogni volta con parole diverse.
+    Cercare le parole sbagliate e' una lista che non finisce mai; pretendere
+    che non ne resti nessuna e' una condizione sola.
+    """
+    resto = paragrafo.split(">", 1)[1]
+    for pezzo in sorted(pezzi, key=len, reverse=True):
+        resto = resto.replace(pezzo, " ")
+    return re.sub(r"[\s.,:]", "", resto)
+
+
+def _affermazioni_coerenti(testo: str, atteso: dict[str, str], mancanti: list[str]) -> None:
+    """Nessuno step riceve, nello stesso documento, due descrizioni incompatibili.
+
+    Non cerca una sottostringa: raccoglie dal documento reso tutto quello che
+    il documento afferma di ogni step — lo stato accanto al nome, dovunque
+    compaia, e la glossa che quello stato riceve — e pretende che sia una cosa
+    sola, e che nell'elenco non resti altra prosa. Gli stati non sono scritti
+    qui: arrivano da run_state.
+
+    L'intestazione dell'elenco e' l'unica stringa scritta a mano in questo
+    file. Sta qui apposta: e' la sola prosa che il documento aggiunge ai dati,
+    e leggerla dalla costante del modulo renderebbe invisibile proprio la
+    mutazione che ha riportato tre volte il difetto — la frase riscritta al
+    posto suo. Cambiarla vuol dire riscriverla qui, e rileggerla.
+    """
+    for chiave, stato in atteso.items():
+        trovati = re.findall(rf"{chiave} \(([^)]*)\)|{chiave} \[([^\]]*)\]", testo)
+        assert trovati, f"{chiave} non compare da nessuna parte nel documento"
+        assert all(set(coppia) <= {stato, ""} for coppia in trovati), (chiave, trovati)
+
+    senza = _paragrafo(testo, "step senza metriche:")
+    for chiave in mancanti:
+        assert f"{chiave} ({atteso[chiave]})" in senza
+
+    stati = {atteso[chiave] for chiave in mancanti}
+    assert _glosse(senza) == {stato: report.GLOSSA[stato] for stato in stati}
+
+    pezzi = ["step senza metriche"]
+    pezzi += [f"{chiave} ({atteso[chiave]})" for chiave in mancanti]
+    pezzi += [f"{stato}: {report.GLOSSA[stato]}" for stato in stati]
+    assert _residuo(senza, pezzi) == ""
+
+    # e la frase di troppo non puo' nemmeno spostarsi accanto: la sezione che
+    # parla degli step ha il paragrafo della coerenza e questo, non un terzo
+    sezione = testo.split("<h2>Metriche per step</h2>", 1)[1].split("<h2>", 1)[0]
+    assert len(re.findall(r"<p[^>]*>", sezione)) == 2, sezione
+
+
 def test_the_report_lists_every_row_and_marks_the_front(tmp_path):
     registry = tmp_path / "registro.jsonl"
     for mark, error, tets, on_front in (("aaa", 2.0, 1000, True), ("bbb", 40.0, 9000, False)):
@@ -388,6 +450,24 @@ def test_senza_steps_json_la_coerenza_non_e_verificabile(tmp_path):
     assert report.COERENTI not in testo
 
 
+def test_senza_config_yaml_la_coerenza_non_lo_chiama_invalido(tmp_path):
+    """Un file che non c'e' e un file che non si valida sono due fatti diversi.
+
+    La sezione Parametri dice «config.yaml assente». Chiamarlo, due righe
+    sotto, «non e' una configurazione valida» manda a cercare un errore di
+    scrittura dentro un file che sul disco non c'e'.
+    """
+    corsa = _corsa(tmp_path, metriche={"01_load": {"misura": 1}})
+    (corsa / steps.STATE_FILENAME).write_text("{}", encoding="utf-8")
+
+    testo = report.write_run_report(corsa, viste=[]).read_text(encoding="utf-8")
+
+    assert f"{report.NON_VERIFICABILE}: {report.CONFIG_FILENAME} assente" in testo
+    # qualunque cosa il documento dica di config.yaml, la dice una sola
+    detti = set(re.findall(rf"{re.escape(report.CONFIG_FILENAME)} ([a-z' ]+?)[:.,]", testo))
+    assert detti == {"assente"}
+
+
 def test_il_report_di_corsa_non_usa_lettere_accentate(tmp_path):
     """Vincolo del core, qui verificato sul documento prodotto."""
     corsa = _corsa(
@@ -449,6 +529,10 @@ def test_uno_step_fallito_non_e_uno_step_prodotto_con_altri_parametri(tmp_path):
     assert "05_reconstruct (fallito)" in coerenza
     assert "05_reconstruct (non valido)" not in coerenza
     assert "<h3>05_reconstruct [fallito]</h3>" in testo
+    # con un solo stato guasto si spiega quello, e non anche l'altro: una
+    # frase che li elenca tutti e due dice di questo step quel che vale per
+    # un altro, che e' il difetto in miniatura
+    assert _glosse(coerenza) == {report.FALLITO: report.GLOSSA[report.FALLITO]}
 
 
 def test_una_lista_vuota_non_diventa_una_cella_bianca(tmp_path):
@@ -572,10 +656,11 @@ def test_un_numero_grande_non_passa_alla_notazione_esponenziale(tmp_path):
 def test_nessuno_step_riceve_due_descrizioni_incompatibili(tmp_path):
     """Tutti e quattro gli stati di run_state nello stesso documento.
 
-    E' la seconda volta che questa contraddizione torna cambiando stato: la
-    prima volta su «mai eseguito», la seconda su «fallito». Un test che ne
-    guardasse uno solo la lascerebbe tornare una terza. Gli stati non sono
-    scritti qui: si rileggono da run_state, che rilegge steps.json.
+    E' la terza volta che questa contraddizione torna cambiando stato: «mai
+    eseguito», poi «fallito», poi «stato ignoto». Ogni volta il test guardava
+    la forma della correzione — la parentesi giusta — e lasciava libera la
+    frase che le accompagna, che e' l'altra meta' del difetto. Qui la verifica
+    e' la proprieta': vedi _affermazioni_coerenti.
     """
     corsa = _corsa_con_impronte(
         tmp_path,
@@ -597,20 +682,83 @@ def test_nessuno_step_riceve_due_descrizioni_incompatibili(tmp_path):
         for voce in steps.run_state(corsa, load_config(corsa / report.CONFIG_FILENAME))
     }
     assert set(letto.values()) == {"valido", "fallito", "non valido", "mai eseguito"}
+    # ogni stato che run_state sa produrre ha la sua glossa, e nessuno stato
+    # spiegato manca dal documento perche' il modulo non lo conosce
+    assert set(report.GLOSSA) == set(letto.values()) | {report.STATO_IGNOTO}
+    # lo stato scritto quando non c'e' niente da leggere non e' nessuno dei
+    # quattro: dirne uno sarebbe riferire una lettura mai avvenuta
+    assert report.STATO_IGNOTO not in letto.values()
 
-    # ogni step senza metriche porta il proprio stato, quale che sia: senza,
-    # la frase che li accomuna ne descrive tre su quattro al contrario
-    senza = _paragrafo(testo, report.SENZA_METRICHE)
-    for chiave, stato in letto.items():
-        if chiave == "01_load":
-            continue
-        assert f"{chiave} ({stato})" in senza
+    _affermazioni_coerenti(testo, letto, [chiave for chiave in letto if chiave != "01_load"])
 
-    # e nessuno step porta due stati diversi in due punti del documento
-    for chiave, stato in letto.items():
-        trovati = re.findall(rf"{chiave} \(([^)]*)\)|{chiave} \[([^\]]*)\]", testo)
-        assert all(set(coppia) <= {stato, ""} for coppia in trovati)
-        assert trovati, f"{chiave} non compare da nessuna parte nel documento"
+    # anche il paragrafo di coerenza spiega gli stati che nomina, e non altri
+    coerenza = _paragrafo(testo, report.COERENTI)
+    guasti = {
+        stato for stato in letto.values() if stato not in (report.VALIDO, report.MAI_ESEGUITO)
+    }
+    assert _glosse(coerenza) == {stato: report.GLOSSA[stato] for stato in guasti}
+    # e non dice altro: il conteggio, una glossa per stato guasto, la coda
+    # degli step non ancora eseguiti. Una frase in piu' sarebbe la stessa
+    # frase di troppo, rimessa nel paragrafo accanto
+    assert coerenza.count(".") == 1 + len(guasti) + 1
+
+
+def test_senza_steps_json_nessuna_frase_riferisce_una_lettura_che_non_c_e(tmp_path):
+    """Le corse di riferimento della tesi sono cosi': runs/muro e runs/lab_crop.
+
+    Il documento dichiarava steps.json assente e due paragrafi sotto scriveva
+    «fra parentesi lo stato letto da steps.json». E' la stessa contraddizione
+    sul quinto caso, che non e' uno stato ma l'assenza del file, e basta una
+    chiave in meno in metrics.json — cioe' una corsa parziale, il caso normale
+    dell'interfaccia — perche' esca.
+    """
+    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"))
+    corsa = _corsa(tmp_path, metriche={"01_load": {"misura": 1}})
+    save_config(cfg, corsa / report.CONFIG_FILENAME)
+
+    testo = report.write_run_report(corsa, viste=[]).read_text(encoding="utf-8")
+
+    assert f"{report.NON_VERIFICABILE}: {steps.STATE_FILENAME} assente" in testo
+    _affermazioni_coerenti(
+        testo,
+        {chiave: report.STATO_IGNOTO for chiave in steps.STEP_KEYS},
+        list(steps.STEP_KEYS[1:]),
+    )
+
+
+def test_ogni_stato_si_spiega_da_solo():
+    """Una glossa che nomina uno stato e' la vecchia frase fissa travestita.
+
+    La frase che elencava gli stati possibili poteva dire, di uno step
+    fallito, quello che vale per uno mai eseguito: erano nella stessa riga.
+    Se nessuna glossa nomina uno stato — lo scrive davanti chi la stampa, e lo
+    prende da run_state — quella confusione non e' piu' esprimibile.
+    """
+    assert len(set(report.GLOSSA.values())) == len(report.GLOSSA)
+    for stato, glossa in report.GLOSSA.items():
+        assert all(altro not in glossa for altro in report.GLOSSA), (stato, glossa)
+
+
+def test_ogni_dichiarazione_ha_una_frase_sua():
+    """Due dati diversi dichiarati con la stessa frase si confondono in silenzio.
+
+    Le asserzioni degli altri test puntano alla costante del modulo — la
+    regola che impedisce alla copia scritta nel test di divergere — e proprio
+    per questo non possono accorgersi di due costanti diventate una stringa
+    sola: una mappa vuota dichiarata «lista vuota» le soddisfa tutte.
+    """
+    dichiarazioni = [
+        report.LISTA_VUOTA,
+        report.MAPPA_VUOTA,
+        report.VUOTO,
+        report.SOLI_SPAZI,
+        report.NON_IMPOSTATO,
+        report.NON_UN_NUMERO,
+        report.INFINITO,
+        report.SENZA_NOME,
+    ]
+
+    assert len(set(dichiarazioni)) == len(dichiarazioni)
 
 
 def test_una_corsa_senza_step_eseguiti_non_stampa_zero_su_zero(tmp_path):
@@ -643,18 +791,46 @@ def test_le_viste_dichiarate_presenti_sono_quelle_che_diventano_immagini(tmp_pat
     (corsa / "viste").mkdir()
     buona = corsa / "viste" / "fronte.png"
     buona.write_bytes(_png_minimo())
+    # due immagini buone, non una: con una sola, il numero delle immagini
+    # scritto nel codice come costante 1 soddisfa l'asserzione qui sotto
+    seconda = corsa / "viste" / "lato.png"
+    seconda.write_bytes(_png_minimo())
     rotta = corsa / "viste" / "retro.png"
     rotta.write_bytes(b"\x89PNG\r\n\x1a\n")
     mancante = corsa / "viste" / "alto.png"
 
     testo = report.write_run_report(
-        corsa, viste=[buona, rotta, mancante]
+        corsa, viste=[buona, seconda, rotta, mancante]
     ).read_text(encoding="utf-8")
 
     conteggio = _paragrafo(testo, " attese,")
-    assert "3 attese, 2 presenti, 1 assenti" in conteggio
+    assert "4 attese, 3 presenti, 1 assenti" in conteggio
     assert f"1 {report.NON_INCORPORABILI}" in conteggio
     # il numero dichiarato e' quello contato nel documento, non uno detto a parte
+    assert testo.count("<img") == 2
+    assert f"{report.IMMAGINI_NEL_DOCUMENTO} {testo.count('<img')}" in conteggio
+    assert "class='assente'" in conteggio
+
+
+def test_viste_tutte_presenti_e_una_non_incorporabile_non_sono_tutto_a_posto(tmp_path):
+    """Zero assenti e una rotta: il caso che il fondo colorato deve dichiarare.
+
+    Con una vista assente il fondo scatta comunque, e la promessa — sul fondo
+    bianco non si legge piu' «tutto a posto» — resta non provata proprio nel
+    caso che l'ha fatta nascere.
+    """
+    corsa = _corsa(tmp_path, metriche={"01_load": {"points_kept": 10}})
+    (corsa / "viste").mkdir()
+    buona = corsa / "viste" / "fronte.png"
+    buona.write_bytes(_png_minimo())
+    rotta = corsa / "viste" / "retro.png"
+    rotta.write_bytes(b"\x89PNG\r\n\x1a\n")
+
+    testo = report.write_run_report(corsa, viste=[buona, rotta]).read_text(encoding="utf-8")
+
+    conteggio = _paragrafo(testo, " attese,")
+    assert "2 attese, 2 presenti, 0 assenti" in conteggio
+    assert f"1 {report.NON_INCORPORABILI}" in conteggio
     assert f"{report.IMMAGINI_NEL_DOCUMENTO} {testo.count('<img')}" in conteggio
     assert "class='assente'" in conteggio
 
@@ -666,6 +842,9 @@ def test_una_mappa_vuota_annidata_non_fa_sparire_la_riga(tmp_path):
         metriche={
             "01_load": {"dettagli": {}, "annidato": {"dentro": {}}, "punti": 10},
             "02_segment": {},
+            # uno step il cui valore non e' una mappa non porta nomi di voce:
+            # senza dichiararlo, l'intestazione esce vuota come una cella bianca
+            "03_downsample": 5,
         },
     )
 
@@ -674,6 +853,7 @@ def test_una_mappa_vuota_annidata_non_fa_sparire_la_riga(tmp_path):
     assert f"<th>dettagli</th><td>{report.MAPPA_VUOTA}</td>" in testo
     assert f"<th>annidato.dentro</th><td>{report.MAPPA_VUOTA}</td>" in testo
     assert "<th>punti</th><td>10</td>" in testo
+    assert f"<th>{report.SENZA_NOME}</th><td>5</td>" in testo
     # uno step le cui metriche sono una mappa vuota resta dichiarato com'era:
     # una riga senza nome sarebbe il buco appena tolto, rimesso altrove
     assert "<p>nessuna voce.</p>" in testo

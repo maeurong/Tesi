@@ -31,21 +31,11 @@ RUN_REPORT_FILENAME = "report.html"
 
 # Intestazione della dichiarazione degli step mai misurati. E' una costante
 # perche' il test che la cerca deve puntare alla stessa stringa che il report
-# scrive, non a una copia che puo' divergere in silenzio.
+# scrive, non a una copia che puo' divergere in silenzio. L'unica eccezione e'
+# scritta apposta: il test della proprieta' la ricopia a mano, perche' e' la
+# sola prosa che questo elenco aggiunge ai dati e leggerla da qui renderebbe
+# invisibile la mutazione che la riscrive.
 SENZA_METRICHE = "step senza metriche:"
-
-# "senza metriche" e "non eseguito" sono due domande diverse: pipeline.run
-# scrive lo stato "fallito" e salva solo metrics.partial.json, quindi uno step
-# fallito e' partito davvero e non ha una riga in metrics.json. Dedurre da
-# quell'assenza che lo step non e' stato eseguito smentisce il paragrafo di
-# coerenza qui sopra, che lo conta fra gli eseguiti. L'assenza di metriche la
-# legge questa sezione; lo stato lo dice steps.json, e va riportato, non
-# indovinato.
-SPIEGAZIONE_SENZA_METRICHE = (
-    "Non sono righe a zero: fra parentesi lo stato letto da steps.json, che dice "
-    "se lo step non e' mai partito oppure se e' partito senza lasciare metriche."
-)
-STATO_IGNOTO = "stato ignoto"
 
 # metrics.json e' cumulativo: una corsa parziale fonde le proprie metriche con
 # quelle precedenti (pipeline.run). Affiancare la tabella dei parametri a righe
@@ -62,12 +52,36 @@ NON_VERIFICABILE = "corrispondenza fra parametri e metriche non verificabile"
 # step eseguiti; i mai eseguiti li dichiara la sezione delle metriche.
 VALIDO = "valido"
 MAI_ESEGUITO = "mai eseguito"
+FALLITO = "fallito"
+NON_VALIDO = "non valido"
 NON_ESEGUITI = "non ancora eseguiti restano fuori dal conteggio"
 NESSUNO_ESEGUITO = "nessuno step di questa corsa e' stato eseguito"
-SPIEGAZIONE_GUASTI = (
-    "Fra parentesi lo stato: 'non valido' vuol dire prodotto con parametri che "
-    "questo report non mostra, 'fallito' che lo step non e' arrivato in fondo."
-)
+
+# Il quinto caso non e' uno stato di run_state: senza steps.json non c'e'
+# niente da leggere. Scrivere qui uno dei quattro sarebbe affermare una lettura
+# che il paragrafo della coerenza, poche righe sopra, dichiara impossibile.
+STATO_IGNOTO = "stato ignoto"
+
+# "senza metriche" e "non eseguito" sono due domande diverse: pipeline.run
+# scrive lo stato "fallito" e salva solo metrics.partial.json, quindi uno step
+# fallito e' partito davvero e non ha una riga in metrics.json. Dedurre da
+# quell'assenza che lo step non e' stato eseguito smentisce il paragrafo di
+# coerenza, che lo conta fra gli eseguiti.
+#
+# Ogni stato si spiega da solo, e solo dove compare. Una frase fissa che vale
+# per l'intero elenco afferma degli step elencati quello che e' vero di altri:
+# e' cosi' che il documento ha detto di uno step fallito che questa corsa non
+# l'ha eseguito, e ha promesso "lo stato letto da steps.json" a una corsa che
+# steps.json non ce l'ha. Nessuna glossa nomina uno stato, nemmeno il proprio:
+# lo stato lo scrive chi la stampa, davanti, una volta sola, e viene da una
+# lettura. Cosi' l'elenco degli step non ha altra prosa che questa.
+GLOSSA = {
+    VALIDO: "prodotto con i parametri mostrati, e di misure non ne ha lasciate",
+    MAI_ESEGUITO: "lo step non e' mai partito",
+    FALLITO: "lo step e' partito e non e' arrivato in fondo",
+    NON_VALIDO: "prodotto con parametri che questo report non mostra",
+    STATO_IGNOTO: "steps.json non si e' letto, e di questo step non si sa niente",
+}
 
 # Un file che manca e un file che c'e' ma non si legge sono due fatti diversi
 # sul disco, e mandano a cercare due cose diverse. steps.read_state documenta
@@ -86,6 +100,9 @@ VUOTO = "(vuoto)"
 # bugia della cella vuota, con un sintomo che nessuno nota.
 SOLI_SPAZI = "(soli spazi)"
 MAPPA_VUOTA = "nessuna voce (mappa vuota)"
+# Uno step le cui metriche non sono una mappa non porta nomi di voce: senza
+# questo l'intestazione esce vuota, che stampata e' la cella bianca di sempre.
+SENZA_NOME = "(voce senza nome)"
 # nan e inf arrivano davvero: pipeline scrive metrics.json con json.dump, che
 # li salva come NaN e Infinity, e riletti tornano float non finiti.
 NON_UN_NUMERO = "non un numero"
@@ -298,7 +315,7 @@ def _piatto(prefisso: str, valore: object) -> Iterator[tuple[str, object]]:
         for chiave, dentro in valore.items():
             yield from _piatto(f"{prefisso}.{chiave}" if prefisso else str(chiave), dentro)
     else:
-        yield prefisso, valore
+        yield prefisso or SENZA_NOME, valore
 
 
 def _tabella(coppie: Iterator[tuple[str, object]]) -> str:
@@ -318,11 +335,28 @@ def _stato_degli_step(out_dir: Path) -> tuple[dict[str, str] | None, str]:
     """
     if not (out_dir / steps.STATE_FILENAME).exists():
         return None, f"{steps.STATE_FILENAME} assente: nessuna traccia delle impronte"
+    if not (out_dir / CONFIG_FILENAME).exists():
+        # Un file che manca e uno che non si valida sono due fatti diversi, e
+        # la sezione Parametri qui sopra dice gia' quale dei due e'.
+        return None, f"{CONFIG_FILENAME} assente: niente con cui ricalcolare le impronte"
     try:
         stato = steps.run_state(out_dir, load_config(out_dir / CONFIG_FILENAME))
     except (OSError, ValueError, yaml.YAMLError):
         return None, f"{CONFIG_FILENAME} non e' una configurazione valida"
     return {str(voce["chiave"]): str(voce["stato"]) for voce in stato}, ""
+
+
+def _glossa(stati: list[str]) -> str:
+    """La spiegazione dei soli stati che compaiono davvero nell'elenco.
+
+    Elencare gli stati possibili invece di quelli presenti dice, degli step
+    elencati, quello che vale per altri. Uno stato che il modulo non conosce
+    resta senza glossa: il documento esce lo stesso, con una parola in meno e
+    nessuna frase inventata.
+    """
+    return " ".join(
+        f"{stato}: {GLOSSA[stato]}." for stato in sorted(set(stati)) if stato in GLOSSA
+    )
 
 
 def _riga_coerenza(stato: dict[str, str] | None, motivo: str) -> str:
@@ -336,21 +370,22 @@ def _riga_coerenza(stato: dict[str, str] | None, motivo: str) -> str:
         return f"<p class='assente'>{NON_VERIFICABILE}: {html.escape(motivo)}.</p>"
     mai = [chiave for chiave, valore in stato.items() if valore == MAI_ESEGUITO]
     guasti = [
-        f"{chiave} ({valore})"
+        (chiave, valore)
         for chiave, valore in stato.items()
         if valore not in (VALIDO, MAI_ESEGUITO)
     ]
     eseguiti = len(stato) - len(mai)
-    coda = f" {len(mai)} step {NON_ESEGUITI}." if mai else ""
     if not eseguiti:
         # Senza un conteggio, "restano fuori dal conteggio" non dice niente.
         return f"<p class='assente'>{NESSUNO_ESEGUITO}.</p>"
+    coda = f" {len(mai)} step {NON_ESEGUITI}." if mai else ""
     if not guasti:
         return f"<p>{eseguiti} step su {eseguiti} {COERENTI}.{coda}</p>"
+    nomi = ", ".join(f"{chiave} ({valore})" for chiave, valore in guasti)
     return (
         f"<p class='assente'>{eseguiti - len(guasti)} step su {eseguiti} {COERENTI}, "
-        f"{len(guasti)} no: {html.escape(', '.join(guasti))}. "
-        f"{SPIEGAZIONE_GUASTI}{coda}</p>"
+        f"{len(guasti)} no: {html.escape(nomi)}. "
+        f"{_glossa([valore for _, valore in guasti])}{coda}</p>"
     )
 
 
@@ -370,17 +405,17 @@ def _sezione_metriche(
         for nome, valore in sorted(metriche.items())
     )
     mancanti = [
-        f"{chiave} ({(stato or {}).get(chiave, STATO_IGNOTO)})"
+        (chiave, (stato or {}).get(chiave, STATO_IGNOTO))
         for chiave in steps.STEP_KEYS
         if chiave not in metriche
     ]
-    coda = (
-        f"<p class='assente'>{SENZA_METRICHE} {html.escape(', '.join(mancanti))}. "
-        f"{SPIEGAZIONE_SENZA_METRICHE}</p>"
-        if mancanti
-        else "<p>tutti gli step di una corsa completa hanno metriche.</p>"
+    if not mancanti:
+        return presenti + "<p>tutti gli step di una corsa completa hanno metriche.</p>"
+    nomi = ", ".join(f"{chiave} ({valore})" for chiave, valore in mancanti)
+    return presenti + (
+        f"<p class='assente'>{SENZA_METRICHE} {html.escape(nomi)}. "
+        f"{_glossa([valore for _, valore in mancanti])}</p>"
     )
-    return presenti + coda
 
 
 def _istogrammi(metriche: dict[str, object] | None) -> str:
