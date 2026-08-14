@@ -2,12 +2,13 @@
 
 import inspect
 import json
+import re
 import struct
 import zlib
 from pathlib import Path
 
 from meshrec.core import pipeline, report, steps, sweep
-from meshrec.core.config import InputConfig, PipelineConfig, save_config
+from meshrec.core.config import InputConfig, PipelineConfig, load_config, save_config
 
 
 def _png_minimo() -> bytes:
@@ -29,6 +30,16 @@ def _png_minimo() -> bytes:
         + pezzo(b"IDAT", zlib.compress(b"\x00\x00", 0))
         + pezzo(b"IEND", b"")
     )
+
+
+def _celle_bianche(testo: str) -> list[str]:
+    """Le celle che stampate non mostrano niente, non solo quelle vuote.
+
+    `"<td></td>" not in testo` e' un confronto letterale: una cella che
+    contiene uno spazio lo soddisfa e sulla carta e' bianca identica. La
+    guardia deve guardare come la cella si stampa, non come si scrive.
+    """
+    return re.findall(r"<td>\s*</td>", testo)
 
 
 def _paragrafo(testo: str, ago: str) -> str:
@@ -146,7 +157,7 @@ def test_il_report_esce_anche_senza_metriche_e_lo_dichiara(tmp_path):
     assert f"{pipeline.METRICS_FILENAME} assente" in testo
     # nessuno step puo' comparire con una casella vuota, che si leggerebbe
     # come una metrica pari a zero invece che come una metrica mai misurata
-    assert "<td></td>" not in testo
+    assert _celle_bianche(testo) == []
 
 
 def test_il_report_esce_anche_senza_configurazione_e_lo_dichiara(tmp_path):
@@ -453,7 +464,7 @@ def test_una_lista_vuota_non_diventa_una_cella_bianca(tmp_path):
 
     testo = report.write_run_report(corsa, viste=[]).read_text(encoding="utf-8")
 
-    assert "<td></td>" not in testo
+    assert _celle_bianche(testo) == []
     assert f"<th>holes_over_threshold</th><td>{report.LISTA_VUOTA}</td>" in testo
     # una lista vuota e uno zero numerico non sono la stessa cosa
     assert "<th>buchi</th><td>0</td>" in testo
@@ -520,14 +531,22 @@ def test_una_vista_che_non_e_un_png_leggibile_non_diventa_immagine_rotta(tmp_pat
 
 
 def test_i_valori_logici_e_quelli_mancanti_sono_in_italiano(tmp_path):
-    """None e True in un documento italiano sono lingua sbagliata, non dato."""
-    corsa = _corsa(tmp_path, configurazione="tet:\n  max_volume: null\n  nobisect: true\n")
+    """None, True e False in un documento italiano sono lingua sbagliata, non dato.
+
+    `simplify.enabled: false` sta nel config.yaml di ogni corsa dell'albero:
+    il ramo falso e' quello percorso davvero, non un caso di laboratorio.
+    """
+    corsa = _corsa(
+        tmp_path,
+        configurazione="tet:\n  max_volume: null\n  nobisect: true\nsimplify:\n  enabled: false\n",
+    )
 
     testo = report.write_run_report(corsa, viste=[]).read_text(encoding="utf-8")
 
-    assert "None" not in testo and "True" not in testo
+    assert "None" not in testo and "True" not in testo and "False" not in testo
     assert f"<th>tet.max_volume</th><td>{report.NON_IMPOSTATO}</td>" in testo
     assert "<th>tet.nobisect</th><td>si</td>" in testo
+    assert "<th>simplify.enabled</th><td>no</td>" in testo
 
 
 def test_un_numero_grande_non_passa_alla_notazione_esponenziale(tmp_path):
@@ -540,3 +559,164 @@ def test_un_numero_grande_non_passa_alla_notazione_esponenziale(tmp_path):
 
     assert "e+08" not in testo
     assert "168846000" in testo
+
+
+# --- eseguito e misurato sono due domande diverse --------------------------
+#
+# pipeline.run scrive lo stato "fallito" in steps.json e nel finally salva solo
+# metrics.partial.json: uno step fallito e' partito davvero e non lascia una
+# riga in metrics.json. Dedurre da quell'assenza che lo step non e' stato
+# eseguito smentisce il paragrafo di coerenza, che lo conta fra gli eseguiti.
+
+
+def test_nessuno_step_riceve_due_descrizioni_incompatibili(tmp_path):
+    """Tutti e quattro gli stati di run_state nello stesso documento.
+
+    E' la seconda volta che questa contraddizione torna cambiando stato: la
+    prima volta su «mai eseguito», la seconda su «fallito». Un test che ne
+    guardasse uno solo la lascerebbe tornare una terza. Gli stati non sono
+    scritti qui: si rileggono da run_state, che rilegge steps.json.
+    """
+    corsa = _corsa_con_impronte(
+        tmp_path,
+        lambda chiave, attesa: "impronta-di-un-altra-corsa"
+        if chiave == "03_downsample"
+        else attesa,
+        chiavi=("01_load", "02_segment", "03_downsample"),
+        esiti={"02_segment": "fallito"},
+    )
+    # la tratta di produzione: solo lo step arrivato in fondo lascia metriche
+    (corsa / pipeline.METRICS_FILENAME).write_text(
+        json.dumps({"01_load": {"misura": 1}}), encoding="utf-8"
+    )
+
+    testo = report.write_run_report(corsa, viste=[]).read_text(encoding="utf-8")
+
+    letto = {
+        str(voce["chiave"]): str(voce["stato"])
+        for voce in steps.run_state(corsa, load_config(corsa / report.CONFIG_FILENAME))
+    }
+    assert set(letto.values()) == {"valido", "fallito", "non valido", "mai eseguito"}
+
+    # ogni step senza metriche porta il proprio stato, quale che sia: senza,
+    # la frase che li accomuna ne descrive tre su quattro al contrario
+    senza = _paragrafo(testo, report.SENZA_METRICHE)
+    for chiave, stato in letto.items():
+        if chiave == "01_load":
+            continue
+        assert f"{chiave} ({stato})" in senza
+
+    # e nessuno step porta due stati diversi in due punti del documento
+    for chiave, stato in letto.items():
+        trovati = re.findall(rf"{chiave} \(([^)]*)\)|{chiave} \[([^\]]*)\]", testo)
+        assert all(set(coppia) <= {stato, ""} for coppia in trovati)
+        assert trovati, f"{chiave} non compare da nessuna parte nel documento"
+
+
+def test_le_viste_dichiarate_presenti_sono_quelle_che_diventano_immagini(tmp_path):
+    """Il conteggio e l'incorporazione devono leggere lo stesso insieme.
+
+    Contate con exists() e incorporate con _e_png, due viste rotte danno «2
+    presenti» e zero figure, su fondo bianco perche' nessuna risulta assente.
+    Chi conta le figure in appendice non ritrova il numero dichiarato.
+    """
+    corsa = _corsa(tmp_path, metriche={"01_load": {"points_kept": 10}})
+    (corsa / "viste").mkdir()
+    buona = corsa / "viste" / "fronte.png"
+    buona.write_bytes(_png_minimo())
+    rotta = corsa / "viste" / "retro.png"
+    rotta.write_bytes(b"\x89PNG\r\n\x1a\n")
+    mancante = corsa / "viste" / "alto.png"
+
+    testo = report.write_run_report(
+        corsa, viste=[buona, rotta, mancante]
+    ).read_text(encoding="utf-8")
+
+    conteggio = _paragrafo(testo, " attese,")
+    assert "3 attese, 2 presenti, 1 assenti" in conteggio
+    assert f"1 {report.NON_INCORPORABILI}" in conteggio
+    # il numero dichiarato e' quello contato nel documento, non uno detto a parte
+    assert f"{report.IMMAGINI_NEL_DOCUMENTO} {testo.count('<img')}" in conteggio
+    assert "class='assente'" in conteggio
+
+
+def test_una_mappa_vuota_annidata_non_fa_sparire_la_riga(tmp_path):
+    """Una riga che sparisce e' la cella vuota senza nemmeno il buco visibile."""
+    corsa = _corsa(
+        tmp_path,
+        metriche={
+            "01_load": {"dettagli": {}, "annidato": {"dentro": {}}, "punti": 10},
+            "02_segment": {},
+        },
+    )
+
+    testo = report.write_run_report(corsa, viste=[]).read_text(encoding="utf-8")
+
+    assert f"<th>dettagli</th><td>{report.MAPPA_VUOTA}</td>" in testo
+    assert f"<th>annidato.dentro</th><td>{report.MAPPA_VUOTA}</td>" in testo
+    assert "<th>punti</th><td>10</td>" in testo
+    # uno step le cui metriche sono una mappa vuota resta dichiarato com'era:
+    # una riga senza nome sarebbe il buco appena tolto, rimesso altrove
+    assert "<p>nessuna voce.</p>" in testo
+    assert "<th></th>" not in testo
+
+
+def test_una_cella_di_soli_spazi_non_e_una_cella_bianca(tmp_path):
+    """Stampato, <td>   </td> e' bianco esattamente come <td></td>."""
+    corsa = _corsa(tmp_path, metriche={"01_load": {"spazi": "   ", "vuota": ""}})
+
+    testo = report.write_run_report(corsa, viste=[]).read_text(encoding="utf-8")
+
+    assert _celle_bianche(testo) == []
+    assert f"<th>spazi</th><td>{report.SOLI_SPAZI}</td>" in testo
+    assert f"<th>vuota</th><td>{report.VUOTO}</td>" in testo
+
+
+def test_la_riga_delle_liste_escluse_non_nomina_quelle_che_hanno_l_istogramma(tmp_path):
+    """La corsa vera ha hole_areas con sei valori ed extent con tre.
+
+    Una fixture con la sola lista corta non distingue «le corte» da «tutte»:
+    la riga puo' dichiarare troppo corta, sotto il suo stesso istogramma, una
+    lista che l'istogramma ce l'ha.
+    """
+    corsa = _corsa(
+        tmp_path,
+        metriche={
+            "06_repair": {
+                "hole_areas": [42120.5, 33986.0, 31702.6, 12231.8, 8784.52, 2659.27],
+                "extent": [1.0, 2.0, 3.0],
+            }
+        },
+    )
+
+    testo = report.write_run_report(corsa, viste=[]).read_text(encoding="utf-8")
+
+    escluse = _paragrafo(testo, report.ESCLUSE_CORTE)
+    assert "<rect" in testo
+    assert "06_repair.extent" in escluse
+    assert "hole_areas" not in escluse
+
+
+def test_i_valori_non_finiti_escono_in_italiano(tmp_path):
+    """json.dump scrive NaN e Infinity, e json.load li rilegge come float.
+
+    `nan` e `inf` non sono numeri da formattare ma esiti da dichiarare, e
+    scritti cosi' restano due parole inglesi in un documento italiano.
+    """
+    corsa = _corsa(
+        tmp_path,
+        metriche={
+            "10_volume_quality": {
+                "a": float("nan"),
+                "b": float("inf"),
+                "c": float("-inf"),
+            }
+        },
+    )
+
+    testo = report.write_run_report(corsa, viste=[]).read_text(encoding="utf-8")
+
+    assert f"<th>a</th><td>{report.NON_UN_NUMERO}</td>" in testo
+    assert f"<th>b</th><td>{report.INFINITO}</td>" in testo
+    assert f"<th>c</th><td>-{report.INFINITO}</td>" in testo
+    assert "<td>nan</td>" not in testo and "<td>inf</td>" not in testo

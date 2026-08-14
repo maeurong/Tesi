@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import html
 import json
+import math
 import os
 from pathlib import Path
 from typing import Iterator
@@ -32,6 +33,19 @@ RUN_REPORT_FILENAME = "report.html"
 # perche' il test che la cerca deve puntare alla stessa stringa che il report
 # scrive, non a una copia che puo' divergere in silenzio.
 SENZA_METRICHE = "step senza metriche:"
+
+# "senza metriche" e "non eseguito" sono due domande diverse: pipeline.run
+# scrive lo stato "fallito" e salva solo metrics.partial.json, quindi uno step
+# fallito e' partito davvero e non ha una riga in metrics.json. Dedurre da
+# quell'assenza che lo step non e' stato eseguito smentisce il paragrafo di
+# coerenza qui sopra, che lo conta fra gli eseguiti. L'assenza di metriche la
+# legge questa sezione; lo stato lo dice steps.json, e va riportato, non
+# indovinato.
+SPIEGAZIONE_SENZA_METRICHE = (
+    "Non sono righe a zero: fra parentesi lo stato letto da steps.json, che dice "
+    "se lo step non e' mai partito oppure se e' partito senza lasciare metriche."
+)
+STATO_IGNOTO = "stato ignoto"
 
 # metrics.json e' cumulativo: una corsa parziale fonde le proprie metriche con
 # quelle precedenti (pipeline.run). Affiancare la tabella dei parametri a righe
@@ -66,9 +80,24 @@ FORMA_INATTESA = "presente ma non contiene una mappa di voci"
 LISTA_VUOTA = "nessuno (lista vuota)"
 NON_IMPOSTATO = "non impostato"
 VUOTO = "(vuoto)"
+# Una stringa di soli spazi stampata cruda e' una cella bianca esattamente come
+# una cella vuota, e una mappa vuota annidata non e' nemmeno una cella: e' una
+# riga che sparisce. Un dato che c'e' e che il documento non mostra e' la stessa
+# bugia della cella vuota, con un sintomo che nessuno nota.
+SOLI_SPAZI = "(soli spazi)"
+MAPPA_VUOTA = "nessuna voce (mappa vuota)"
+# nan e inf arrivano davvero: pipeline scrive metrics.json con json.dump, che
+# li salva come NaN e Infinity, e riletti tornano float non finiti.
+NON_UN_NUMERO = "non un numero"
+INFINITO = "infinito"
 
 ESCLUSE_CORTE = "liste troppo corte per un istogramma"
 PNG_NON_LEGGIBILE = "il file c'e' ma non e' un PNG leggibile, non incorporata."
+# Contare le viste con exists() e incorporarle con _e_png sono due criteri
+# diversi sullo stesso insieme: due file rotti danno "2 presenti" e zero
+# immagini, e chi conta le figure in appendice non ritrova il conteggio.
+NON_INCORPORABILI = "presenti ma non incorporabili"
+IMMAGINI_NEL_DOCUMENTO = "le immagini nel documento sono"
 
 # Sotto questa lunghezza una lista di numeri non e' una distribuzione ma un
 # vettore di coordinate (extent, bbox_min, bbox_max hanno tre componenti): un
@@ -224,7 +253,14 @@ def _numero(valore: float) -> str:
     %.6g da solo scrive 168845511.1 come 1.68846e+08: e' lo stesso valore, ma
     in una tabella stampata in appendice si legge peggio dell'intero. Fuori
     dall'intervallo qui sotto l'esponenziale resta l'unica resa leggibile.
+
+    nan e inf non sono numeri da formattare ma esiti da dichiarare, e scritti
+    cosi' come sono restano due parole inglesi in un documento italiano.
     """
+    if math.isnan(valore):
+        return NON_UN_NUMERO
+    if math.isinf(valore):
+        return f"-{INFINITO}" if valore < 0 else INFINITO
     arrotondato = float(f"{valore:.6g}")
     if arrotondato and not 1e-4 <= abs(arrotondato) < 1e12:
         return f"{arrotondato:.6g}"
@@ -241,12 +277,24 @@ def _testo(valore: object) -> str:
         return NON_IMPOSTATO
     if isinstance(valore, float):
         return _numero(valore)
-    return str(valore) or VUOTO
+    if isinstance(valore, dict) and not valore:
+        return MAPPA_VUOTA
+    scritto = str(valore)
+    if scritto.strip():
+        return scritto
+    return VUOTO if not scritto else SOLI_SPAZI
 
 
 def _piatto(prefisso: str, valore: object) -> Iterator[tuple[str, object]]:
-    """Coppie (nome puntato, foglia) da una struttura annidata."""
-    if isinstance(valore, dict):
+    """Coppie (nome puntato, foglia) da una struttura annidata.
+
+    Una mappa vuota annidata e' una foglia, non un ramo: ricorrendoci sopra non
+    si produce nulla e la chiave sparisce dal documento senza lasciare traccia,
+    che e' peggio di una cella vuota perche' non lascia nemmeno il buco. In cima
+    invece la mappa vuota resta un ramo senza rami, altrimenti la riga uscirebbe
+    con il nome vuoto, e a dire "nessuna voce" ci pensa gia' _tabella.
+    """
+    if isinstance(valore, dict) and (valore or not prefisso):
         for chiave, dentro in valore.items():
             yield from _piatto(f"{prefisso}.{chiave}" if prefisso else str(chiave), dentro)
     else:
@@ -295,7 +343,8 @@ def _riga_coerenza(stato: dict[str, str] | None, motivo: str) -> str:
     eseguiti = len(stato) - len(mai)
     coda = f" {len(mai)} step {NON_ESEGUITI}." if mai else ""
     if not eseguiti:
-        return f"<p class='assente'>{NESSUNO_ESEGUITO}.{coda}</p>"
+        # Senza un conteggio, "restano fuori dal conteggio" non dice niente.
+        return f"<p class='assente'>{NESSUNO_ESEGUITO}.</p>"
     if not guasti:
         return f"<p>{eseguiti} step su {eseguiti} {COERENTI}.{coda}</p>"
     return (
@@ -308,22 +357,26 @@ def _riga_coerenza(stato: dict[str, str] | None, motivo: str) -> str:
 def _sezione_metriche(
     metriche: dict[str, object] | None, motivo: str, stato: dict[str, str] | None
 ) -> str:
-    """Le metriche presenti, con il proprio stato, e quelle mancanti dichiarate."""
+    """Le metriche presenti e quelle mancanti, ognuna con il proprio stato."""
     if metriche is None:
         return f"<p class='assente'>{html.escape(motivo)}</p>"
 
     presenti = "".join(
         "<h3>{} [{}]</h3>{}".format(
             html.escape(nome),
-            html.escape((stato or {}).get(nome, "stato ignoto")),
+            html.escape((stato or {}).get(nome, STATO_IGNOTO)),
             _tabella(_piatto("", valore)),
         )
         for nome, valore in sorted(metriche.items())
     )
-    mancanti = [chiave for chiave in steps.STEP_KEYS if chiave not in metriche]
+    mancanti = [
+        f"{chiave} ({(stato or {}).get(chiave, STATO_IGNOTO)})"
+        for chiave in steps.STEP_KEYS
+        if chiave not in metriche
+    ]
     coda = (
         f"<p class='assente'>{SENZA_METRICHE} {html.escape(', '.join(mancanti))}. "
-        "Non sono righe a zero: sono step che questa corsa non ha eseguito.</p>"
+        f"{SPIEGAZIONE_SENZA_METRICHE}</p>"
         if mancanti
         else "<p>tutti gli step di una corsa completa hanno metriche.</p>"
     )
@@ -398,11 +451,28 @@ def _sezione_viste(viste: list[Path], cartella: Path) -> str:
 
 
 def _conteggio_viste(viste: list[Path]) -> str:
+    """Quante viste sono attese, quante sul disco, e quante finiscono in figura.
+
+    Contarle con exists() e incorporarle con _e_png dichiara presenti immagini
+    che il documento non mostra: chi conta le figure in appendice non ritrova
+    il numero. Il file c'e' davvero, quindi "assente" sarebbe falso; e' il
+    numero delle immagini che va detto, ed e' quello che manca.
+    """
     if not viste:
         return "<p class='assente'>nessuna vista catturata: 0 attese, 0 presenti.</p>"
-    presenti = sum(1 for vista in viste if Path(vista).exists())
-    classe = "" if presenti == len(viste) else " class='assente'"
-    return f"<p{classe}>{len(viste)} attese, {presenti} presenti, {len(viste) - presenti} assenti.</p>"
+    presenti = [Path(vista) for vista in viste if Path(vista).exists()]
+    rotte = [vista for vista in presenti if not _e_png(vista)]
+    coda = (
+        f" Di queste, {len(rotte)} {NON_INCORPORABILI}: "
+        f"{IMMAGINI_NEL_DOCUMENTO} {len(presenti) - len(rotte)}."
+        if rotte
+        else ""
+    )
+    classe = "" if len(presenti) == len(viste) and not rotte else " class='assente'"
+    return (
+        f"<p{classe}>{len(viste)} attese, {len(presenti)} presenti, "
+        f"{len(viste) - len(presenti)} assenti.{coda}</p>"
+    )
 
 
 def write_run_report(out_dir: Path, viste: list[Path]) -> Path:
