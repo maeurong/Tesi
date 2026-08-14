@@ -6,8 +6,10 @@ parametro che scrive passa dai modelli di config.py.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import time
+import zipfile
 from pathlib import Path
 
 import numpy as np
@@ -15,8 +17,9 @@ from fastapi import FastAPI, Response
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 from meshrec.app.worker import Worker
-from meshrec.core import pipeline, steps, sweep, viewport
+from meshrec.core import pipeline, quality, steps, sweep, viewport
 from meshrec.core.config import PipelineConfig, ViewportConfig, load_config, save_config
+from meshrec.core.io import scrivi_atomico
 
 UI_DIR = Path(__file__).resolve().parent.parent / "ui"
 
@@ -25,6 +28,93 @@ UI_DIR = Path(__file__).resolve().parent.parent / "ui"
 # la tabella sperimentale della tesi. Percorso relativo come run.out_dir:
 # risolto rispetto alla cartella da cui gira il server (meshrec/).
 CACHE_DIR = Path(".cache/viewport")
+
+
+def _percorso_contorno(sorgente: Path) -> Path:
+    """Voce di cache del contorno di un volume, con chiave (sorgente, mtime).
+
+    Duplica in piccolo viewport._cache_path, che non e' riusabile qui: la sua
+    chiave porta budget, spacing_sample e seed, che l'estrazione del contorno
+    non ha (dipende solo dal file), e il suo formato salva punti e gruppi di
+    lunghezza variabile, non vertici e facce. Marchio e cartella restano gli
+    stessi, cosi' viewport._rimuovi_voci_vecchie vale anche su queste voci.
+    """
+    sorgente = Path(sorgente)
+    marchio = hashlib.sha256(str(sorgente.resolve()).encode("utf-8")).hexdigest()[:16]
+    return Path(CACHE_DIR) / f"{marchio}-contorno-{sorgente.stat().st_mtime_ns}.npz"
+
+
+def _leggi_contorno(voce: Path) -> tuple[np.ndarray, np.ndarray] | None:
+    """Una voce assente o corrotta non e' un errore: si ricalcola, come _leggi_cache."""
+    if not voce.exists():
+        return None
+    try:
+        with np.load(voce, allow_pickle=False) as dati:
+            return dati["vertici"], dati["facce"]
+    except (OSError, ValueError, KeyError, EOFError, zipfile.BadZipFile):
+        return None
+
+
+def _scrivi_contorno(voce: Path, vertici: np.ndarray, facce: np.ndarray) -> None:
+    def scrittore(destinazione: Path) -> None:
+        np.savez(str(destinazione), vertici=vertici, facce=facce)
+
+    try:
+        scrivi_atomico(voce, scrittore)
+    except OSError:
+        # Come in viewport._scrivi_cache: due richieste sovrapposte condividono
+        # il nome del temporaneo. Una cache che non riesce a scriversi costa un
+        # ricalcolo alla prossima chiamata, mai una richiesta fallita.
+        return
+
+
+def _contorno_del_volume(percorso: Path) -> tuple[np.ndarray, np.ndarray]:
+    """Vertici e triangoli del contorno di una mesh di volume, con cache su disco.
+
+    Su lab_crop l'estrazione costa circa 15 s e oltre un gigabyte di picco, e
+    senza cache ogni clic sullo step 9 la rifa' identica. La chiave e' la sola
+    coppia (sorgente, mtime) perche' l'estrazione non ha altri ingressi: non
+    legge la configurazione e non ha parametri.
+    """
+    import meshio
+
+    voce = _percorso_contorno(percorso)
+    trovato = _leggi_contorno(voce)
+    if trovato is not None:
+        return trovato
+
+    griglia = meshio.read(percorso)
+    if "tetra" not in griglia.cells_dict:
+        raise ValueError(
+            f"{percorso.name} non contiene tetraedri: le celle sono {sorted(griglia.cells_dict)}"
+        )
+    tetraedri = griglia.cells_dict["tetra"]
+    # quality._TET_FACES: la stessa convenzione, non una copia. E' privata, ma
+    # da lei dipende il verso uscente delle facce (core/quality.py:51) e due
+    # copie di una convenzione che decide un segno prima o poi divergono.
+    facce_tutte = np.vstack([tetraedri[:, list(schema)] for schema in quality._TET_FACES])
+    # L'ordinamento serve solo a confrontare le facce e perde il verso.
+    # return_index riporta la faccia originale, quindi l'orientamento
+    # uscente degli schemi qui sopra sopravvive al conteggio.
+    _ordinate, primo, conteggi = np.unique(
+        np.sort(facce_tutte, axis=1), axis=0, return_index=True, return_counts=True
+    )
+    # Una faccia che appartiene a un solo tetraedro sta sul contorno: e' la
+    # stessa definizione che quality.boundary_edges applica agli spigoli di
+    # una superficie.
+    contorno = facce_tutte[primo[conteggi == 1]]
+    # Solo i nodi che il contorno tocca: griglia.points porta anche quelli
+    # interni, che nessun triangolo disegna, e X-Vertices direbbe un numero
+    # che nessuna lettura sostiene.
+    usati, rimappate = np.unique(contorno, return_inverse=True)
+    # I tipi del trasporto gia' qui, non solo nella risposta: cosi' la cache
+    # calda e quella fredda restituiscono gli stessi byte invece di far
+    # dipendere la precisione da quale delle due strade ha risposto.
+    vertici = np.ascontiguousarray(griglia.points[usati], dtype="<f4")
+    facce = np.ascontiguousarray(rimappate.reshape(contorno.shape), dtype="<u4")
+    _scrivi_contorno(voce, vertici, facce)
+    viewport._rimuovi_voci_vecchie(voce.parent, voce)
+    return vertici, facce
 
 
 def create_app(config_path: Path) -> FastAPI:
@@ -193,40 +283,21 @@ def create_app(config_path: Path) -> FastAPI:
                 f"lo step {numero} non ha ancora prodotto {pipeline.ARTIFACTS[numero]}"
             )
         if percorso.suffix == ".vtu":
-            import meshio
-
-            griglia = meshio.read(percorso)
-            tetraedri = griglia.cells_dict["tetra"]
-            facce_tutte = np.vstack(
-                [
-                    tetraedri[:, list(combinazione)]
-                    for combinazione in ((1, 2, 3), (0, 3, 2), (0, 1, 3), (0, 2, 1))
-                ]
-            )
-            # L'ordinamento serve solo a confrontare le facce e perde il verso.
-            # return_index riporta la faccia originale, quindi l'orientamento
-            # uscente dei quattro schemi qui sopra sopravvive al conteggio.
-            _ordinate, primo, conteggi = np.unique(
-                np.sort(facce_tutte, axis=1), axis=0, return_index=True, return_counts=True
-            )
-            # Una faccia che appartiene a un solo tetraedro sta sul contorno:
-            # e' la stessa definizione che quality.boundary_edges applica agli
-            # spigoli di una superficie.
-            contorno = facce_tutte[primo[conteggi == 1]]
-            # Solo i nodi che il contorno tocca: griglia.points porta anche
-            # quelli interni, che nessun triangolo disegna, e X-Vertices
-            # direbbe un numero che nessuna lettura sostiene.
-            usati, rimappate = np.unique(contorno, return_inverse=True)
-            vertici = griglia.points[usati]
-            facce = rimappate.reshape(contorno.shape)
+            vertici, facce = _contorno_del_volume(percorso)
         else:
             import open3d as o3d
 
             triangolare = o3d.io.read_triangle_mesh(str(percorso))
             vertici = np.asarray(triangolare.vertices)
             facce = np.asarray(triangolare.triangles)
-        if len(vertici) == 0:
-            raise ValueError(f"{percorso.name} non contiene vertici")
+        # Senza triangoli non c'e' nulla da disegnare: 01_cloud.ply letto come
+        # mesh da' vertici e zero facce, e risponderebbe 200 con un solido
+        # vuoto invece di dire che quell'artefatto e' una nuvola.
+        if len(vertici) == 0 or len(facce) == 0:
+            raise ValueError(
+                f"{percorso.name} non e' una mesh disegnabile: "
+                f"{len(vertici)} vertici e {len(facce)} triangoli"
+            )
         corpo = viewport.to_float32(vertici) + np.ascontiguousarray(facce, dtype="<u4").tobytes()
         return Response(
             content=corpo,

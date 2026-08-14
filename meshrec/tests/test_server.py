@@ -219,14 +219,120 @@ def test_chiedere_la_mesh_di_uno_step_fuori_intervallo_spiega_quali_esistono(cli
     assert "8" in corpo["messaggio"]
 
 
+def _scrivi_volume(corsa: Path, punti, tetraedri) -> None:
+    """Un .vtu allo step 9, come lo scriverebbe abaqus.write_vtu."""
+    import meshio
+    import numpy as np
+
+    from meshrec.core import pipeline
+
+    corsa.mkdir(exist_ok=True)
+    meshio.write_points_cells(
+        corsa / pipeline.ARTIFACTS[9], np.asarray(punti), [("tetra", np.asarray(tetraedri))]
+    )
+
+
+def _mesh_dalla_risposta(risposta):
+    """Vertici e facce ricostruiti dal corpo binario come fa il browser."""
+    import numpy as np
+
+    vertici = int(risposta.headers["X-Vertices"])
+    triangoli = int(risposta.headers["X-Triangles"])
+    assert len(risposta.content) == vertici * 3 * 4 + triangoli * 3 * 4
+    return (
+        np.frombuffer(risposta.content, dtype="<f4", count=vertici * 3).reshape(vertici, 3),
+        np.frombuffer(risposta.content, dtype="<u4", offset=vertici * 3 * 4).reshape(triangoli, 3),
+    )
+
+
 def test_il_contorno_del_volume_porta_solo_i_vertici_che_disegna(cliente, tmp_path):
     """X-Vertices deve contare i vertici che il browser disegna davvero.
 
     griglia.points contiene anche i nodi interni della tetraedralizzazione,
-    che nessuna faccia di contorno tocca: qui il quinto nodo non appartiene ad
+    che nessuna faccia di contorno tocca: qui il nodo isolato non appartiene ad
     alcun tetraedro, e se finisse nella risposta il conteggio mostrato a video
     non sarebbe sostenuto da nessuna lettura.
+
+    Il nodo isolato sta all'indice 2, in mezzo, e non in coda: con l'intruso in
+    fondo la rimappatura sarebbe l'identita' e il test non distinguerebbe una
+    mappa corretta da un semplice troncamento della coda dei nodi, che e'
+    proprio il modo in cui la compattazione puo' essere disfatta per sbaglio.
     """
+    import numpy as np
+
+    punti = np.array(
+        [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [9.0, 9.0, 9.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+    )
+    _scrivi_volume(tmp_path / "corsa", punti, [[0, 1, 3, 4]])
+
+    risposta = cliente.get("/api/mesh/9")
+    assert risposta.status_code == 200
+    # Le quattro facce del solo tetraedro, sui suoi soli quattro nodi.
+    assert (risposta.headers["X-Vertices"], risposta.headers["X-Triangles"]) == ("4", "4")
+    vertici, facce = _mesh_dalla_risposta(risposta)
+    # Le coordinate, non il conteggio: sono i nodi 0, 1, 3, 4 e non i primi
+    # quattro dell'array, che comprenderebbero l'intruso.
+    assert np.array_equal(vertici, punti[[0, 1, 3, 4]].astype("<f4"))
+    # Rimappati sui vertici mandati: un indice fuori intervallo non disegna.
+    assert facce.max() < len(vertici)
+
+
+def test_il_contorno_del_volume_torna_con_le_facce_uscenti(cliente, tmp_path):
+    """Il verso delle facce, che np.sort perde e return_index conserva.
+
+    Il criterio e' il volume con segno racchiuso dalle facce restituite: con
+    le facce ordinate invece che orientate il conto da' un altro numero (su
+    lab_crop, -1.202.490 contro 173.282.926). Il tetraedro e' traslato lontano
+    dall'origine apposta: nell'origine mesh_volume vale 1/6 in entrambi i casi
+    e il test non morderebbe.
+    """
+    import numpy as np
+
+    from meshrec.core import quality
+
+    base = np.array([10.0, 10.0, 10.0])
+    punti = base + np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+    _scrivi_volume(tmp_path / "corsa", punti, [[0, 1, 2, 3]])
+
+    risposta = cliente.get("/api/mesh/9")
+    assert risposta.status_code == 200
+    vertici, facce = _mesh_dalla_risposta(risposta)
+    # Positivo e pari al volume del tetraedro: le quattro facce sono uscenti.
+    # Con le facce ordinate lo stesso conto darebbe 6,833333.
+    assert quality.mesh_volume(vertici, facce) == pytest.approx(1.0 / 6.0)
+
+
+def test_la_seconda_richiesta_del_contorno_non_riestrae(cliente, tmp_path, monkeypatch):
+    """I-3 della revisione: l'estrazione costa 14,9 s e oltre un gigabyte di
+    picco su lab_crop, e senza cache si rifa' identica a ogni clic. La prova e'
+    osservabile e non temporale, come per /api/cloud: la seconda richiesta deve
+    riuscire anche se leggere il file adesso solleva.
+    """
+    import meshio
+    import numpy as np
+
+    punti = np.array(
+        [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+    )
+    _scrivi_volume(tmp_path / "corsa", punti, [[0, 1, 2, 3]])
+
+    prima = cliente.get("/api/mesh/9")
+    assert prima.status_code == 200
+
+    def _non_chiamarmi(*_args, **_kwargs):
+        raise AssertionError("il contorno non deve essere riestratto a cache calda")
+
+    monkeypatch.setattr(meshio, "read", _non_chiamarmi)
+    poi = cliente.get("/api/mesh/9")
+    assert poi.status_code == 200
+    assert poi.content == prima.content
+    assert poi.headers["X-Vertices"] == prima.headers["X-Vertices"]
+    assert poi.headers["X-Triangles"] == prima.headers["X-Triangles"]
+
+
+def test_un_volume_senza_tetraedri_dice_che_cosa_contiene(cliente, tmp_path):
+    """M-2: cells_dict["tetra"] dava un KeyError nudo ("'tetra'"), la stessa
+    forma inutile che la guardia sullo step ha appena tolto."""
     import meshio
     import numpy as np
 
@@ -234,23 +340,35 @@ def test_il_contorno_del_volume_porta_solo_i_vertici_che_disegna(cliente, tmp_pa
 
     corsa = tmp_path / "corsa"
     corsa.mkdir()
-    punti = np.array(
-        [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0], [9.0, 9.0, 9.0]]
-    )
     meshio.write_points_cells(
-        corsa / pipeline.ARTIFACTS[9], punti, [("tetra", np.array([[0, 1, 2, 3]]))]
+        corsa / pipeline.ARTIFACTS[9],
+        np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]),
+        [("triangle", np.array([[0, 1, 2]]))],
     )
 
     risposta = cliente.get("/api/mesh/9")
-    assert risposta.status_code == 200
-    vertici = int(risposta.headers["X-Vertices"])
-    triangoli = int(risposta.headers["X-Triangles"])
-    # Le quattro facce del solo tetraedro, sui suoi soli quattro nodi.
-    assert (vertici, triangoli) == (4, 4)
-    assert len(risposta.content) == vertici * 3 * 4 + triangoli * 3 * 4
-    indici = np.frombuffer(risposta.content, dtype="<u4", offset=vertici * 3 * 4)
-    # Rimappati sui vertici mandati: un indice fuori intervallo non disegna.
-    assert indici.max() < vertici
+    assert risposta.status_code == 400
+    corpo = risposta.json()
+    assert corpo["errore"] != "KeyError"
+    assert "tetra" in corpo["messaggio"] and "triangle" in corpo["messaggio"]
+
+
+def test_una_nuvola_chiesta_come_mesh_e_rifiutata_invece_di_tornare_vuota(cliente, tmp_path):
+    """M-3: 01_cloud.ply letto con read_triangle_mesh da' vertici e zero facce.
+    Un 200 con X-Triangles: 0 farebbe disegnare un solido vuoto."""
+    import numpy as np
+
+    from meshrec.core import io, pipeline
+
+    corsa = tmp_path / "corsa"
+    punti = np.random.default_rng(0).random((100, 3)) * 10.0
+    io.write_cloud(corsa / pipeline.ARTIFACTS[1], punti)
+
+    risposta = cliente.get("/api/mesh/1")
+    assert risposta.status_code == 400
+    corpo = risposta.json()
+    assert "triangoli" in corpo["messaggio"]
+    assert "0 triangoli" in corpo["messaggio"]
 
 
 def test_il_clic_sullo_step_sceglie_fra_nuvola_e_mesh_senza_perdere_il_pannello():
