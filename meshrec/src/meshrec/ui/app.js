@@ -130,11 +130,68 @@ async function mostraStep(numero) {
     `${vertici.toLocaleString("it")} vertici, ${triangoli.toLocaleString("it")} triangoli`;
 }
 
+// Il piano di taglio serve a guardare dentro il volume, percio' il comando
+// compare solo sullo step che il volume lo produce, e solo se qualcosa e'
+// stato davvero disegnato.
+const STEP_CON_TAGLIO = 9;
+// Lo step la cui geometria e' nel viewport: non e' sempre quello del pannello,
+// che resta aperto anche mentre la geometria nuova sta arrivando.
+let stepMostrato = null;
+const comandoTaglio = document.getElementById("taglio");
+const asseTaglio = document.getElementById("taglio-asse");
+const quotaTaglio = document.getElementById("taglio-quota");
+const valoreTaglio = document.getElementById("taglio-valore");
+
+// Quanti scatti percorrono l'asse da un capo all'altro. E' una risoluzione,
+// non una misura: il passo in millimetri esce dall'ingombro, percio' resta
+// utile sia sull'asse lungo due metri e mezzo sia su quello spesso ventitre
+// centimetri, dove un passo fisso sarebbe grossolano o inutilmente fitto.
+const SCATTI_DEL_CURSORE = 1000;
+
+function applicaTaglio() {
+  const quota = Number(quotaTaglio.value);
+  vista.attivaTaglio(Number(asseTaglio.value), quota);
+  // La quota e' una coordinata della geometria, che il progetto tiene in
+  // millimetri (lo stesso sistema che l'esportazione dichiara nel .inp).
+  const testo = `${quota.toLocaleString("it", { maximumFractionDigits: 1 })} mm`;
+  valoreTaglio.textContent = testo;
+  // Senza aria-valuetext un lettore di schermo legge il numero grezzo, senza
+  // unita': su un cursore che va da 1697 a 4168 non dice nulla.
+  quotaTaglio.setAttribute("aria-valuetext", testo);
+}
+
+// Rifatto a ogni geometria nuova e a ogni cambio d'asse: l'intervallo del
+// cursore e' quello della geometria mostrata adesso, non quello di prima.
+function riallineaTaglio(numero) {
+  const ingombro = numero === STEP_CON_TAGLIO ? vista.ingombro() : null;
+  comandoTaglio.hidden = ingombro === null;
+  // Comando nascosto e taglio ancora attivo sarebbe la vista che contraddice
+  // il suo comando: quando sparisce, sparisce anche il piano.
+  if (ingombro === null) return vista.disattivaTaglio();
+  const asse = Number(asseTaglio.value);
+  const minimo = ingombro.min[asse];
+  const massimo = ingombro.max[asse];
+  quotaTaglio.min = minimo;
+  quotaTaglio.max = massimo;
+  quotaTaglio.step = (massimo - minimo) / SCATTI_DEL_CURSORE;
+  // Al minimo il piano non toglie niente: si riparte dal volume intero.
+  quotaTaglio.value = minimo;
+  applicaTaglio();
+}
+
+quotaTaglio.addEventListener("input", applicaTaglio);
+asseTaglio.addEventListener("change", () => riallineaTaglio(stepMostrato));
+
 document.getElementById("elenco-step").addEventListener("click", (evento) => {
   const riga = evento.target.closest(".step");
   if (!riga) return;
   const numero = Number(riga.dataset.numero);
-  mostraStep(numero);
+  stepMostrato = numero;
+  // Il comando del taglio si rifa' quando la geometria e' arrivata, non
+  // prima: il suo intervallo esce dall'ingombro di cio' che e' disegnato.
+  // Si guarda stepMostrato e non numero perche' di due clic ravvicinati deve
+  // valere l'ultimo, anche se la sua risposta arriva per prima.
+  mostraStep(numero).then(() => riallineaTaglio(stepMostrato));
   apriDettaglio(numero);
 });
 

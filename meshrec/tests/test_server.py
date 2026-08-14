@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import re
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -259,6 +262,47 @@ def test_il_clic_sullo_step_sceglie_fra_nuvola_e_mesh_senza_perdere_il_pannello(
     gestore = testo.split('getElementById("elenco-step").addEventListener', 1)[1]
     assert "mostraStep(numero)" in gestore
     assert "apriDettaglio(numero)" in gestore
+
+
+def test_l_intervallo_del_cursore_di_taglio_esce_da_una_lettura_e_non_da_numeri_scritti():
+    """Il cursore del taglio mostra una quota in millimetri: se i suoi estremi
+    fossero scritti nel codice sarebbe una cifra che nessuna lettura sostiene, e
+    sul muro di riferimento (2470,99 x 231,00 x 1697,00 mm) sarebbe sbagliata
+    per due assi su tre. min, max e step devono venire dall'ingombro della
+    geometria disegnata, che il viewport misura.
+    """
+    from meshrec.app.server import UI_DIR
+
+    testo = (UI_DIR / "app.js").read_text(encoding="utf-8")
+    corpo = testo.split("function riallineaTaglio", 1)[1].split("\n}\n", 1)[0]
+    assert "vista.ingombro()" in corpo
+    for riga in corpo.splitlines():
+        assegnamento = re.search(r"quotaTaglio\.(min|max|step|value)\s*=\s*(.+)", riga)
+        if assegnamento:
+            assert not re.match(r"-?\d", assegnamento.group(2)), riga
+
+    # Nemmeno nel markup: scritti li' non li vedrebbe nessun test sul codice.
+    pagina = (UI_DIR / "index.html").read_text(encoding="utf-8")
+    cursore = pagina.split('id="taglio-quota"', 1)[0].rsplit("<input", 1)[1]
+    for attributo in ("min", "max", "step", "value"):
+        assert f"{attributo}=" not in cursore, cursore
+
+
+def test_i_moduli_dell_interfaccia_sono_sintatticamente_validi():
+    """node --check prende gli errori di sintassi che altrimenti si scoprono
+    solo aprendo la pagina, dove nessuna suite guarda."""
+    from meshrec.app.server import UI_DIR
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node non installato: la sintassi resta verificata a mano")
+    for percorso in sorted(UI_DIR.rglob("*.js")):
+        if "vendor" in percorso.parts:
+            continue
+        esito = subprocess.run(
+            [node, "--check", str(percorso)], capture_output=True, text=True,
+        )
+        assert esito.returncode == 0, f"{percorso.name}: {esito.stderr}"
 
 
 def test_three_js_e_servito_dal_server_e_non_dalla_rete(cliente):

@@ -21,6 +21,22 @@
   <section class="zona zona-vista" aria-label="Vista tridimensionale">
     <div id="viewport" class="viewport"></div>
     <p class="conteggi" id="conteggi" aria-live="polite"></p>
+    <!-- Il comando del taglio. Nasce nascosto: app.js lo mostra solo dove c'e'
+         un volume disegnato, e l'intervallo del cursore lo scrive da li'
+         leggendo l'ingombro della geometria. min, max e step non stanno qui
+         apposta: scritti nel markup sarebbero numeri che nessuna misura
+         sostiene. -->
+    <div class="taglio" id="taglio" hidden>
+      <label for="taglio-asse">Taglio lungo</label>
+      <select id="taglio-asse">
+        <option value="0" selected>X</option>
+        <option value="1">Y</option>
+        <option value="2">Z</option>
+      </select>
+      <label for="taglio-quota">Quota</label>
+      <input type="range" id="taglio-quota">
+      <output id="taglio-valore" for="taglio-quota"></output>
+    </div>
   </section>
   <aside class="zona zona-dettaglio" aria-label="Parametri e metriche">
     <h2>Dettaglio</h2>

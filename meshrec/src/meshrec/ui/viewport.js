@@ -12,6 +12,15 @@ export function creaViewport(contenitore) {
   // per il report, perche' il browser lo azzera dopo la presentazione.
   const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.localClippingEnabled = true;
+
+  // Il taglio: un solo piano, e un solo elenco condiviso da tutti i materiali.
+  // Condividere l'elenco invece di ripercorrere il gruppo a ogni comando chiude
+  // il caso della geometria che entra dopo: un materiale nuovo riceve lo stesso
+  // elenco e nasce gia' tagliato, percio' la vista non puo' contraddire il
+  // comando. three.js ricompila da se' quando cambia il numero di piani.
+  const pianoTaglio = new THREE.Plane(new THREE.Vector3(1, 0, 0), 0);
+  const pianiTaglio = [];
 
   // Il canvas non ha testo proprio: senza un'alternativa, chi usa uno
   // screen reader vede un buco muto. L'aria-label aggiornato ad ogni disegno
@@ -110,8 +119,12 @@ export function creaViewport(contenitore) {
   ridimensiona();
   disegna();
 
+  function scatolaDelGruppo() {
+    return new THREE.Box3().setFromObject(gruppo);
+  }
+
   function inquadra() {
-    const scatola = new THREE.Box3().setFromObject(gruppo);
+    const scatola = scatolaDelGruppo();
     if (scatola.isEmpty()) return;
     scatola.getCenter(orbita.centro);
     orbita.raggio = scatola.getSize(new THREE.Vector3()).length() * 1.2;
@@ -126,7 +139,9 @@ export function creaViewport(contenitore) {
     mostraNuvola(punti) {
       const geometria = new THREE.BufferGeometry();
       geometria.setAttribute("position", new THREE.BufferAttribute(punti, 3));
-      const materiale = new THREE.PointsMaterial({ size: 1.5, sizeAttenuation: false, color: 0x2f5d50 });
+      const materiale = new THREE.PointsMaterial({
+        size: 1.5, sizeAttenuation: false, color: 0x2f5d50, clippingPlanes: pianiTaglio,
+      });
       gruppo.add(new THREE.Points(geometria, materiale));
       descrivi(`nuvola di ${(punti.length / 3).toLocaleString("it")} punti`);
       inquadra();
@@ -138,11 +153,31 @@ export function creaViewport(contenitore) {
       geometria.computeVertexNormals();
       gruppo.add(new THREE.Mesh(geometria, new THREE.MeshStandardMaterial({
         color: 0xb8b2a7, roughness: 0.9, metalness: 0.0, side: THREE.DoubleSide,
+        clippingPlanes: pianiTaglio,
       })));
       descrivi(`superficie di ${(facce.length / 3).toLocaleString("it")} facce`);
       inquadra();
     },
     inquadra,
+    // L'ingombro di cio' che e' disegnato ora, nelle stesse unita' della
+    // geometria (millimetri). Serve a chi comanda il taglio per fissare
+    // l'intervallo del cursore su una lettura invece che su numeri scelti a
+    // mano. null quando la scena e' vuota: non c'e' nessuna quota da scorrere.
+    ingombro() {
+      const scatola = scatolaDelGruppo();
+      if (scatola.isEmpty()) return null;
+      return { min: scatola.min.toArray(), max: scatola.max.toArray() };
+    },
+    // asse: 0 per x, 1 per y, 2 per z. Resta visibile la meta' oltre la quota,
+    // perche' three.js tiene i punti dove normale . punto + costante > 0.
+    attivaTaglio(asse, quota) {
+      pianoTaglio.normal.set(asse === 0 ? 1 : 0, asse === 1 ? 1 : 0, asse === 2 ? 1 : 0);
+      pianoTaglio.constant = -quota;
+      pianiTaglio[0] = pianoTaglio;
+    },
+    disattivaTaglio() {
+      pianiTaglio.length = 0;
+    },
     cattura() {
       renderer.render(scena, camera);
       return tela.toDataURL("image/png");

@@ -39,6 +39,15 @@ body {
 .riga-log { white-space: pre-wrap; word-break: break-word; }
 .zona-vista { position: relative; padding: 0; }
 .conteggi { position: absolute; bottom: var(--passo); left: var(--passo); margin: 0; padding: 0.2rem 0.5rem; background: color-mix(in srgb, var(--superficie) 85%, transparent); border-radius: 0.25rem; font-size: 0.8rem; font-variant-numeric: tabular-nums; color: var(--tenue); }
+/* Il comando del taglio sta in basso a destra sulla vista: i conteggi occupano
+   gia' l'angolo sinistro. hidden non basta su un elemento con display: flex,
+   che lo sovrascriverebbe e lo lascerebbe a video. */
+.taglio { position: absolute; bottom: var(--passo); right: var(--passo); display: flex; align-items: center; gap: var(--passo); padding: 0.3rem 0.5rem; background: color-mix(in srgb, var(--superficie) 85%, transparent); border: 1px solid var(--bordo); border-radius: 0.25rem; font-size: 0.8rem; }
+.taglio[hidden] { display: none; }
+.taglio select { font: inherit; font-size: 0.8rem; background: var(--superficie); color: var(--testo); border: 1px solid var(--bordo); border-radius: 0.2rem; }
+.taglio input[type="range"] { width: 10rem; accent-color: var(--accento); }
+.taglio :focus-visible { outline: 2px solid var(--accento); outline-offset: 2px; }
+.taglio output { min-width: 5.5rem; text-align: right; font-variant-numeric: tabular-nums; color: var(--tenue); }
 .step { display: flex; justify-content: space-between; gap: var(--passo); padding: 0.35rem 0.5rem; border-radius: 0.25rem; cursor: pointer; font-size: 0.9rem; }
 .step:hover { background: color-mix(in srgb, var(--accento) 8%, transparent); }
 .step-stato { color: var(--tenue); font-size: 0.75rem; }
