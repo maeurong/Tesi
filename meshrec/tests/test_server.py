@@ -461,9 +461,16 @@ def test_il_clic_sullo_step_sceglie_fra_nuvola_e_mesh_senza_perdere_il_pannello(
 def _sorgente_di(nome: str, testo: str) -> str:
     """Il corpo di una funzione di primo livello, dalla firma alla graffa che la
     chiude in prima colonna. I moduli dell'interfaccia non sono importabili da
-    qui (importano percorsi serviti dal server), quindi si estrae il testo."""
+    qui (importano percorsi serviti dal server), quindi si estrae il testo.
+
+    `async` va tenuto: senza, il testo estratto resta leggibile ma non e' piu'
+    eseguibile — `await` dentro una funzione non asincrona e' un errore di
+    sintassi, e il banco che esegue queste funzioni morirebbe prima di provare
+    qualcosa.
+    """
     corpo = testo.split(f"function {nome}(", 1)[1]
-    return f"function {nome}(" + corpo.split("\n}\n", 1)[0] + "\n}"
+    prefisso = "async " if f"async function {nome}(" in testo else ""
+    return f"{prefisso}function {nome}(" + corpo.split("\n}\n", 1)[0] + "\n}"
 
 
 def test_una_risposta_superata_si_scarta_e_una_corrente_no():
@@ -517,9 +524,15 @@ def _corpi_freccia_asincroni(testo: str) -> list[str]:
     - le frecce annidate sono contate due volte, quindi l'interna pretende una
       guardia sua anche quando l'esterna ce l'ha.
 
-    La rete che resta in tutti questi casi non e' il conteggio delle graffe: e'
-    la soglia finale `interrogano >= 6`, che pareggia il numero vero di tratte.
-    Se una sparisce dall'elenco per una di queste ragioni, e' la soglia a dirlo.
+    La soglia finale `interrogano >= 6` pareggia il numero vero di tratte, e
+    copre **una sola** di queste direzioni: se una tratta sparisce dall'elenco,
+    per una graffa spaiata o per una cancellazione, il conteggio scende e la
+    soglia lo dice. Non copre l'altra, che era il caso di I-2: una tratta
+    **aggiunta** in una delle forme invisibili non fa scendere niente —
+    `interrogano` resta 6, `>= 6` resta vero, e il test resta verde con un
+    gestore senza guardia dentro il modulo. Per quella direzione la rete e' il
+    riconoscimento della forma, cioe' l'alternanza qui sopra, e le forme che
+    l'alternanza non riconosce restano scoperte.
     """
     corpi = []
     for avvio in re.finditer(r"async\s*(?:\([^)]*\)|\w+)\s*=>\s*\{", testo):
@@ -615,6 +628,103 @@ def test_due_geometrie_in_volo_nella_stessa_generazione_non_si_arbitrano_per_arr
     # geometria di qualcun altro sarebbe una taratura che nessuna lettura regge.
     ricarica = _sorgente_di("ricaricaVista", testo)
     assert re.search(r"if \(disegnato && !superata\(ordine\)\)", ricarica), ricarica
+
+
+# Il banco che esegue l'arbitraggio invece di guardarlo. Lo stub finisce qui:
+# sotto ci vanno le funzioni vere di app.js, e il caso da riprodurre.
+# `generazione` e `ultimaGeometria` sono dichiarate qui perche' in app.js sono
+# variabili di modulo e non funzioni: e' la sola parte di stato che il banco
+# rifa'. STEP_CON_MESH tiene il solo step 9, che e' quello del caso: quali step
+# abbiano una mesh non e' cio' che si sta provando.
+_BANCO_ORDINE = """import assert from 'node:assert/strict';
+
+let generazione = 1;
+let ultimaGeometria = 0;
+const STEP_CON_MESH = new Set([9]);
+const scritture = [];
+const vista = {
+  svuota() {},
+  mostraNuvola() { scritture.push('nuvola'); },
+  mostraMesh(vertici) { scritture.push(`mesh:${vertici.length / 3}`); },
+};
+const document = { getElementById: () => ({ textContent: '' }) };
+function riallineaTaglio(numero) { scritture.push(`riallinea:${numero}`); }
+
+// Ogni richiesta resta sospesa finche' il banco non la sblocca: l'ordine di
+// arrivo e' l'ingresso della prova, non un caso.
+const sospese = [];
+let partite = 0;
+globalThis.fetch = () => {
+  const marcatore = ++partite;
+  return new Promise((risolvi) => sospese.push(() => risolvi({
+    ok: true,
+    // Il marcatore viaggia come numero di vertici: cosi' la scrittura nel
+    // viewport dice quale delle due geometrie l'ha fatta.
+    headers: { get: (nome) => (nome === 'X-Vertices' ? marcatore : 0) },
+    arrayBuffer: async () => new ArrayBuffer(marcatore * 12),
+  })));
+};
+const giro = async () => { for (let i = 0; i < 8; i += 1) await Promise.resolve(); };
+
+__FUNZIONI__
+
+// Step 9 aperto, «Esegui questo step», riclic sullo step 9 mentre gira.
+ricaricaVista(9, generazione);   // il clic: apre la richiesta 1
+await giro();
+ricaricaVista(9);                // il fronte di discesa: stessa generazione, richiesta 2
+await giro();
+assert.equal(sospese.length, 2, 'le due richieste non sono partite');
+sospese[1]();                    // il contorno nuovo arriva per primo
+await giro();
+sospese[0]();                    // la risposta del clic, col contorno vecchio, arriva per ultima
+await giro();
+
+assert.deepEqual(scritture, ['mesh:2', 'riallinea:9'],
+  'scritture nel viewport: ' + JSON.stringify(scritture));
+"""
+
+
+def test_fra_due_geometrie_della_stessa_generazione_vince_chi_e_partita_dopo():
+    """IMP-1. L'arbitraggio **eseguito**, non letto.
+
+    I tre asserti testuali qui sotto guardano la forma — una `apriGeometria()`
+    per strada, la guardia presente, la delega prima del contatore — e restano
+    tutti e tre veri se `const emissione = apriGeometria();` si sposta **dopo**
+    la `fetch`. Ma spostata li' l'emissione smette di essere il numero di
+    **partenza** e diventa quello di **arrivo**, cioe' esattamente cio' che il
+    secondo contatore doveva togliere di mezzo: le due risposte tornano ad
+    arbitrarsi per arrivo e il contorno vecchio si riposa sopra quello nuovo.
+
+    Qui le funzioni vere girano davvero, sopra una quarantina di righe di stub e
+    senza nessun motore di DOM, ed e' lo stesso idioma di
+    `test_una_risposta_superata_si_scarta_e_una_corrente_no` e
+    `test_l_ingombro_non_conta_il_box_di_ritaglio`. Con quello spostamento il
+    banco stampa `['mesh:2','riallinea:9','mesh:1','riallinea:9']`: la geometria
+    vecchia scrive per seconda e il cursore del taglio si rifa' due volte.
+    """
+    from meshrec.app.server import UI_DIR
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node non installato: l'arbitraggio resta verificato a mano")
+    testo = (UI_DIR / "app.js").read_text(encoding="utf-8")
+    funzioni = "\n".join(
+        _sorgente_di(nome, testo)
+        for nome in (
+            "superata",
+            "apriGeometria",
+            "mostraNuvolaDelloStep",
+            "mostraStep",
+            "ricaricaVista",
+        )
+    )
+    prova = Path(__file__).parent / "_prova_arbitraggio.mjs"
+    prova.write_text(_BANCO_ORDINE.replace("__FUNZIONI__", funzioni), encoding="utf-8")
+    try:
+        esito = subprocess.run([node, str(prova)], capture_output=True, text=True)
+        assert esito.returncode == 0, esito.stderr
+    finally:
+        prova.unlink()
 
 
 def test_svuota_libera_i_buffer_e_non_tocca_i_piani_di_taglio():
@@ -1009,10 +1119,11 @@ def test_l_anteprima_toglie_gli_outlier_prima_di_ritagliare_come_lo_step_2(clien
     assert dal_server < len(punti), "l'anteprima non ha tolto nessun outlier: e' la nuvola grezza"
 
 
-def test_l_anteprima_del_ritaglio_coincide_con_lo_step_2_rieseguito(cliente, tmp_path):
-    """B-2, il controllo che sa dire di no.
+@pytest.mark.parametrize("metodo", ["crop", "auto"])
+def test_l_anteprima_del_ritaglio_dice_esattamente_che_numero_e(cliente, tmp_path, metodo):
+    """B-2 e BL-1. Il numero dell'anteprima, confrontato con lo step 2 eseguito.
 
-    Il confronto «endpoint contro metrics.json» del giro precedente era una
+    Il confronto «endpoint contro metrics.json» del primo giro era una
     tautologia: l'endpoint ritagliava 02_segmented.ply, cioe' l'uscita gia'
     ritagliata dello step 2, e ogni punto di quel file sta dentro il box che
     l'ha prodotto per costruzione. Qui il box chiesto all'anteprima e' piu'
@@ -1022,6 +1133,17 @@ def test_l_anteprima_del_ritaglio_coincide_con_lo_step_2_rieseguito(cliente, tmp
 
     Lo step 2 viene eseguito davvero, non simulato: e' l'unico modo che il
     confronto ha di non essere un'altra tautologia.
+
+    Parametrizzato su **tutti** i valori di `segment.method`, che e' un campo
+    dello stesso pannello dell'anteprima: con `auto` lo step 2 prosegue dopo il
+    ritaglio (extract_planes, cluster, `groups[cluster_index]`) e riscrive
+    points_after, mentre l'anteprima si ferma al ritaglio. Fino al giro 2 la
+    didascalia affermava lo stesso la coincidenza, e il test girava solo sul
+    predefinito `crop`, quindi non poteva vederlo. La coincidenza si pretende
+    dove esiste; dove non esiste si pretende che `completo` la neghi, e che i
+    due numeri **divergano davvero** — senza quest'ultimo asserto una
+    dichiarazione di incompletezza sarebbe verde anche su un'anteprima esatta,
+    cioe' non direbbe niente.
     """
     from meshrec.core import io, pipeline
     from meshrec.core.config import RunConfig, load_config
@@ -1034,20 +1156,42 @@ def test_l_anteprima_del_ritaglio_coincide_con_lo_step_2_rieseguito(cliente, tmp
         cfg.run = RunConfig.model_validate({**cfg.run.model_dump(), "from_step": 2, "to_step": 2})
         return pipeline.run(cfg)["02_segment"]["points_after"]
 
+    # Il metodo entra nella configurazione della corsa prima della richiesta:
+    # e' da li' che l'endpoint lo legge, come lo leggerebbe dal pannello.
+    scelta = load_config(tmp_path / "config.yaml")
+    scelta.segment.method = metodo
+    save_config(scelta, tmp_path / "config.yaml")
+
+    # Il box stretto passa sempre da `crop`: serve solo a provare che il box
+    # largo e' piu' largo, cioe' che l'anteprima non sta leggendo un artefatto
+    # gia' ritagliato. Farlo con `auto` misurerebbe un cluster e non un box.
     stretto = load_config(tmp_path / "config.yaml")
+    stretto.segment.method = "crop"
     stretto.segment.crop_min, stretto.segment.crop_max = (0.0, 0.0, 0.0), (10.0, 10.0, 10.0)
     dallo_stretto = esegui_lo_step_2(stretto)
 
     largo = {"min": [0.0, 0.0, 0.0], "max": [20.0, 20.0, 20.0]}
     risposta = cliente.post("/api/crop", json=largo)
     assert risposta.status_code == 200
-    anteprima = risposta.json()["points_after"]
+    corpo = risposta.json()
+    anteprima = corpo["points_after"]
     assert anteprima > dallo_stretto, "il box largo non e' piu' largo: il confronto non morderebbe"
 
     # /api/crop ha scritto crop_min e crop_max: lo step 2 li rilegge da li',
     # quindi i due lati stanno guardando davvero lo stesso box.
     davvero = esegui_lo_step_2(load_config(tmp_path / "config.yaml"))
-    assert anteprima == davvero
+    if metodo == "crop":
+        assert corpo["completo"] is True
+        assert anteprima == davvero
+    else:
+        assert corpo["completo"] is False, (
+            f"l'anteprima si dichiara completa con method={metodo}, "
+            f"ma dice {anteprima} dove lo step 2 ne tiene {davvero}"
+        )
+        assert anteprima != davvero, (
+            "l'anteprima coincide con lo step 2 anche con method=auto: "
+            "allora la dichiarazione di incompletezza non e' provata da nulla"
+        )
 
 
 def test_un_box_vuoto_non_solleva_ma_lo_dice(cliente, tmp_path):
@@ -1083,6 +1227,9 @@ def test_un_box_vuoto_non_solleva_ma_lo_dice(cliente, tmp_path):
         ('{"min": [NaN, 10.0, 10.0], "max": [60.0, 60.0, 60.0]}', "min"),
         ('{"min": [Infinity, 10.0, 10.0], "max": [60.0, 60.0, 60.0]}', "min"),
         ('{"min": [10.0, 10.0, 10.0]}', "max"),
+        # MIN-1: bool e' sottotipo di int, quindi senza il controllo davanti
+        # pydantic scriveva (1.0, 0.0, 1.0) in configurazione e rispondeva 200.
+        ('{"min": [true, false, true], "max": [60.0, 60.0, 60.0]}', "min"),
     ],
 )
 def test_un_box_malformato_e_rifiutato_e_non_tocca_la_configurazione(cliente, tmp_path, corpo, campo):

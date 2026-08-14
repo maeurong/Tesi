@@ -13,11 +13,12 @@ import time
 import zipfile
 from functools import lru_cache
 from pathlib import Path
+from typing import Annotated
 
 import numpy as np
 from fastapi import FastAPI, Response
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, BeforeValidator, ConfigDict
 
 from meshrec.app.worker import Worker
 from meshrec.core import io, pipeline, quality, segment, steps, sweep, viewport
@@ -164,6 +165,24 @@ def _contorno_del_volume(percorso: Path) -> tuple[np.ndarray, np.ndarray]:
     return vertici, facce
 
 
+def _non_booleano(valore: object) -> object:
+    """True e False non sono coordinate, ma pydantic li accetta come float.
+
+    `bool` e' sottotipo di `int` per Python, quindi `{"min": [true, false, true]}`
+    passava il confine e finiva in configurazione come `(1.0, 0.0, 1.0)`: un tipo
+    sbagliato scritto sul disco, che e' esattamente cio' che B-1 vietava. Il
+    controllo sta prima della conversione, perche' dopo il booleano non esiste
+    piu'. I numeri scritti come stringhe restano accettati apposta: `"1.0"` e' un
+    numero espresso male, `true` non e' un numero.
+    """
+    if isinstance(valore, bool):
+        raise ValueError("un booleano non e' una coordinata: attesa una misura in mm")
+    return valore
+
+
+Coordinata = Annotated[float, BeforeValidator(_non_booleano)]
+
+
 class BoxRitaglio(BaseModel):
     """Il corpo di POST /api/crop, verificato prima di toccare la configurazione.
 
@@ -185,8 +204,8 @@ class BoxRitaglio(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    min: tuple[float, float, float]
-    max: tuple[float, float, float]
+    min: tuple[Coordinata, Coordinata, Coordinata]
+    max: tuple[Coordinata, Coordinata, Coordinata]
 
 
 def _estremi_finiti(box: BoxRitaglio) -> None:
@@ -354,8 +373,18 @@ def create_app(config_path: Path) -> FastAPI:
         L'interfaccia disegna il box; la pulizia la esegue
         segment.remove_outliers e il ritaglio segment.crop_box, che sono le
         stesse funzioni che la pipeline usa allo step 2 e nello stesso ordine.
-        Non c'e' una seconda implementazione da tenere allineata, e il numero
-        restituito e' quello che rieseguire lo step 2 con questo box produce.
+        Non c'e' una seconda implementazione da tenere allineata.
+
+        `completo` dice fin dove l'anteprima arriva, e non e' un ornamento: con
+        `method: auto` lo step 2 non finisce col ritaglio, prosegue con
+        extract_planes e cluster e riscrive points_after col numero del cluster
+        scelto (core/segment.py:146-159). Su una nuvola di 5 050 punti sono 5 000
+        contro 82. L'anteprima si ferma comunque al ritaglio, e lo dichiara
+        invece di affermare il falso: il resto della tratta, misurato su
+        runs/lab_crop, costa 57,76 s di extract_planes piu' 26,35 s di cluster,
+        e quel costo non e' memorizzabile perche' dipende dal box, cioe' proprio
+        dalla cosa che si sta ritoccando. Un pannello in cui ogni ritocco costa
+        un minuto e mezzo non e' un'anteprima. La didascalia legge questo campo.
 
         La configurazione si scrive solo se il ritaglio e' andato a buon fine:
         un box degenere o vuoto solleva prima, e non lascia sul disco estremi
@@ -389,7 +418,11 @@ def create_app(config_path: Path) -> FastAPI:
         # Le metriche del core sono l'unica fonte: points_after c'e' gia'
         # dentro (core/segment.py:59), e riscriverlo qui sarebbe una riga che
         # sembra calcolare qualcosa e non lo fa.
-        return metriche
+        #
+        # `== "crop"` e non `!= "auto"`: il giorno che segment.method prendesse
+        # un terzo valore, questo direbbe «incompleta» per prudenza invece di
+        # promettere una coincidenza che nessuno ha verificato.
+        return {**metriche, "completo": cfg.segment.method == "crop"}
 
     @app.get("/api/cloud/{numero}")
     def nuvola(numero: int, max_points: int | None = None) -> Response:
