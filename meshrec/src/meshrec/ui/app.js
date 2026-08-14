@@ -76,6 +76,10 @@ const vista = creaViewport(document.getElementById("viewport"));
 async function mostraNuvolaDelloStep(numero) {
   const risposta = await fetch(`/api/cloud/${numero}`);
   if (!risposta.ok) {
+    // Svuotare e' obbligatorio: senza, la scena resta quella dello step
+    // precedente mentre il testo dice che non c'e' nulla. Una vista che
+    // contraddice la sua didascalia e' peggio di una vista vuota.
+    vista.svuota();
     document.getElementById("conteggi").textContent = "nessun artefatto per questo step";
     return;
   }

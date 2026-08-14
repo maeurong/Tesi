@@ -14,13 +14,19 @@ export function creaViewport(contenitore) {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
   // Il canvas non ha testo proprio: senza un'alternativa, chi usa uno
-  // screen reader vede un buco muto. role="img" + aria-label aggiornato ad
-  // ogni disegno danno un contenuto testuale equivalente; tabindex lo rende
-  // raggiungibile da tastiera cosi' l'indicatore di fuoco ha senso.
+  // screen reader vede un buco muto. L'aria-label aggiornato ad ogni disegno
+  // da' il contenuto testuale equivalente; tabindex lo rende raggiungibile da
+  // tastiera. Il ruolo e' "application" e non "img" perche' la tela si comanda
+  // davvero dalla tastiera: "img" la annuncerebbe come figura ferma e lo
+  // screen reader intercetterebbe le frecce invece di passarle qui.
+  const COMANDI = "frecce per ruotare, piu' e meno per lo zoom";
   const tela = renderer.domElement;
-  tela.setAttribute("role", "img");
+  tela.setAttribute("role", "application");
   tela.setAttribute("tabindex", "0");
-  tela.setAttribute("aria-label", "Vista tridimensionale, vuota");
+  function descrivi(contenuto) {
+    tela.setAttribute("aria-label", `Vista tridimensionale: ${contenuto}. Comandi: ${COMANDI}.`);
+  }
+  descrivi("vuota");
   contenitore.append(tela);
 
   const gruppo = new THREE.Group();
@@ -108,14 +114,14 @@ export function creaViewport(contenitore) {
   return {
     svuota() {
       gruppo.clear();
-      tela.setAttribute("aria-label", "Vista tridimensionale, vuota");
+      descrivi("vuota");
     },
     mostraNuvola(punti) {
       const geometria = new THREE.BufferGeometry();
       geometria.setAttribute("position", new THREE.BufferAttribute(punti, 3));
       const materiale = new THREE.PointsMaterial({ size: 1.5, sizeAttenuation: false, color: 0x2f5d50 });
       gruppo.add(new THREE.Points(geometria, materiale));
-      tela.setAttribute("aria-label", `Vista tridimensionale: nuvola di ${(punti.length / 3).toLocaleString("it")} punti`);
+      descrivi(`nuvola di ${(punti.length / 3).toLocaleString("it")} punti`);
       inquadra();
     },
     mostraMesh(vertici, facce) {
@@ -126,7 +132,7 @@ export function creaViewport(contenitore) {
       gruppo.add(new THREE.Mesh(geometria, new THREE.MeshStandardMaterial({
         color: 0xb8b2a7, roughness: 0.9, metalness: 0.0, side: THREE.DoubleSide,
       })));
-      tela.setAttribute("aria-label", `Vista tridimensionale: superficie di ${(facce.length / 3).toLocaleString("it")} facce`);
+      descrivi(`superficie di ${(facce.length / 3).toLocaleString("it")} facce`);
       inquadra();
     },
     inquadra,
