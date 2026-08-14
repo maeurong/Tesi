@@ -16,7 +16,7 @@ from pathlib import Path
 import numpy as np
 import open3d as o3d
 
-from meshrec.core.io import read_cloud, scrivi_atomico
+from meshrec.core.io import mean_spacing, read_cloud, scrivi_atomico
 
 _ESPONENTE_DENSITA = 1.45
 """Esponente della stima del primo passo di voxel, non un vincolo del ciclo.
@@ -84,42 +84,55 @@ def to_float32(array: np.ndarray) -> bytes:
     return np.ascontiguousarray(np.asarray(array), dtype="<f4").tobytes()
 
 
-def cache_path(source: Path, max_points: int, cache_dir: Path) -> Path:
-    """Nome del file di cache per una terna (sorgente, budget), senza leggerne il contenuto.
+def _cache_path(source: Path, max_points: int, spacing_sample: int, seed: int, cache_dir: Path) -> Path:
+    """Nome del file di cache per (sorgente, budget, spacing_sample, seed), senza leggerne il contenuto.
 
-    Un solo Path.stat() basta a saperlo: e' cio' che permette al chiamante di
-    scoprire se la cache e' calda prima di calcolare la spaziatura media, che
-    su lab_crop costa da sola 2 s.
+    spacing_sample e seed sostituiscono lo spacing gia' calcolato: mean_spacing
+    e' deterministica su (sorgente, spacing_sample, seed), quindi le due chiavi
+    sono equivalenti, ma questa si ottiene con un solo Path.stat().
     """
     source = Path(source)
     marchio = hashlib.sha256(str(source.resolve()).encode("utf-8")).hexdigest()[:16]
-    return Path(cache_dir) / f"{marchio}-{max_points}-{source.stat().st_mtime_ns}.npz"
+    mtime = source.stat().st_mtime_ns
+    return Path(cache_dir) / f"{marchio}-{max_points}-{spacing_sample}-{seed}-{mtime}.npz"
 
 
 def decimate_file(
-    source: Path, max_points: int, spacing: float, cache_dir: Path
+    source: Path,
+    max_points: int,
+    spacing_sample: int,
+    seed: int,
+    cache_dir: Path,
 ) -> tuple[np.ndarray, list[np.ndarray], float]:
-    """Come decimate, ma il risultato e' salvato su disco per la terna (sorgente, budget, mtime).
+    """Come decimate, ma il risultato e' salvato su disco per (sorgente, budget, spacing_sample, seed, mtime).
 
-    La chiave e' il percorso assoluto della sorgente, il budget e la data di
-    modifica in nanosecondi (Path.stat().st_mtime_ns): una sorgente riscritta
-    cambia mtime e quindi chiave, non viene mai letta una voce stantia. La
-    voce vecchia della stessa sorgente e dello stesso budget viene rimossa
-    quando la nuova viene scritta, cosi' la cache non cresce senza fine a ogni
-    riesecuzione di uno step.
+    La spaziatura non e' un parametro di questa funzione: viene calcolata qui
+    dentro, una sola volta e solo a cache fredda, dalla stessa lettura della
+    sorgente che serve a decimate. Passarla gia' calcolata (come faceva la
+    prima versione) la escluderebbe dalla chiave: due chiamate con la stessa
+    sorgente e budget ma spaziatura diversa condividerebbero la voce e la
+    seconda vedrebbe il risultato della prima. spacing_sample e seed nella
+    chiave chiudono il buco perche' mean_spacing e' deterministica su di essi
+    (vedi _cache_path): stessa garanzia di prima, senza che il chiamante
+    debba leggere la nuvola solo per scoprire se puo' evitarlo.
+
+    La voce vecchia della stessa sorgente viene rimossa quando la nuova viene
+    scritta, qualunque fossero budget, spacing_sample o seed: una voce per
+    file sorgente, mai una cache che cresce senza fine.
 
     Una cache illeggibile o corrotta non e' un errore verso il chiamante: si
     ricalcola, la stessa regola gia' applicata a read_state e leggi_metriche.
     """
     source = Path(source)
     cache_dir = Path(cache_dir)
-    percorso = cache_path(source, max_points, cache_dir)
+    percorso = _cache_path(source, max_points, spacing_sample, seed, cache_dir)
 
     trovato = _leggi_cache(percorso)
     if trovato is not None:
         return trovato
 
     punti, _normali = read_cloud(source)
+    spacing = mean_spacing(punti, spacing_sample, seed)
     ridotti, gruppi, voxel = decimate(punti, max_points, spacing)
     # Il float32 e' gia' il formato di trasporto (to_float32): scendere qui,
     # non solo nella cache, tiene identico il risultato a cache fredda e a
@@ -140,11 +153,20 @@ def _leggi_cache(percorso: Path) -> tuple[np.ndarray, list[np.ndarray], float] |
             indici = dati["indici"]
             offsets = dati["offsets"]
             voxel = float(dati["voxel"])
-    except (OSError, ValueError, KeyError, EOFError, zipfile.BadZipFile):
-        # Un file troncato o sostituito da byte a caso non e' un errore: e'
-        # una voce assente, e si ricalcola (vedi read_state, leggi_metriche).
+        if len(offsets) != len(punti) + 1 or int(offsets[-1]) != len(indici):
+            # offsets[i]:offsets[i+1] non solleva mai su un array numpy anche
+            # quando gli indici sono fuori misura: uno scarto di lunghezza
+            # trunca in silenzio invece di alzare un'eccezione, quindi va
+            # negato qui, non lasciato al try sottostante che non lo vedrebbe.
+            raise ValueError("offsets incoerente con punti/indici")
+        gruppi = [indici[offsets[i] : offsets[i + 1]] for i in range(len(offsets) - 1)]
+    except (OSError, ValueError, KeyError, EOFError, IndexError, zipfile.BadZipFile):
+        # Un file troncato, sostituito da byte a caso, o formalmente valido
+        # ma con offsets/indici incoerenti non e' un errore: e' una voce
+        # assente, e si ricalcola (vedi read_state, leggi_metriche). La
+        # ricostruzione dei gruppi sta dentro il try apposta: un'incoerenza
+        # che la farebbe fallire deve scartare la voce, non propagarsi.
         return None
-    gruppi = [indici[offsets[i] : offsets[i + 1]] for i in range(len(offsets) - 1)]
     return punti, gruppi, voxel
 
 
@@ -167,17 +189,27 @@ def _scrivi_cache(percorso: Path, punti: np.ndarray, gruppi: list[np.ndarray], v
             voxel=np.float64(voxel),
         )
 
-    scrivi_atomico(percorso, scrittore)
+    try:
+        scrivi_atomico(percorso, scrittore)
+    except OSError:
+        # Due richieste sovrapposte sullo stesso step (doppio clic durante i
+        # secondi di decimazione fredda) condividono lo stesso nome di
+        # temporaneo (stessa terna, stesso mtime): la replace() della seconda
+        # puo' non trovare piu' il file che la prima ha gia' spostato. Una
+        # cache che non riesce a scriversi deve costare un ricalcolo alla
+        # prossima chiamata, mai una richiesta fallita verso il browser.
+        return
 
 
 def _rimuovi_voci_vecchie(cache_dir: Path, corrente: Path) -> None:
-    """Elimina le altre voci della stessa sorgente e dello stesso budget.
+    """Elimina ogni altra voce della stessa sorgente, qualunque budget o parametro di spaziatura.
 
-    Il nome corrente e' "{marchio}-{max_points}-{mtime}.npz": marchio e
-    max_points non contengono mai un trattino, quindi l'ultimo trattino nel
-    nome separa in modo affidabile il prefisso condiviso dal mtime.
+    Il marchio e' sempre il primo campo del nome ed e' esadecimale, quindi non
+    contiene mai un trattino: split("-", 1) lo isola in modo affidabile
+    indipendentemente da che cosa segua. Una voce per sorgente: la pipeline ha
+    otto artefatti con nuvola, quindi al piu' otto voci in cache in totale.
     """
-    prefisso = corrente.stem.rsplit("-", 1)[0]
-    for vecchia in cache_dir.glob(f"{prefisso}-*.npz"):
+    marchio = corrente.name.split("-", 1)[0]
+    for vecchia in cache_dir.glob(f"{marchio}-*.npz"):
         if vecchia != corrente:
             vecchia.unlink()

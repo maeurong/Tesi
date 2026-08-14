@@ -14,7 +14,7 @@ from fastapi import FastAPI, Response
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 from meshrec.app.worker import Worker
-from meshrec.core import io, pipeline, steps, viewport
+from meshrec.core import pipeline, steps, viewport
 from meshrec.core.config import PipelineConfig, ViewportConfig, load_config, save_config
 
 UI_DIR = Path(__file__).resolve().parent.parent / "ui"
@@ -114,16 +114,16 @@ def create_app(config_path: Path) -> FastAPI:
             raise FileNotFoundError(
                 f"lo step {numero} non ha ancora prodotto {pipeline.ARTIFACTS[numero]}"
             )
+        if max_points is not None and max_points <= 0:
+            raise ValueError(f"max_points={max_points} non valido: atteso un intero positivo")
         budget = max_points if max_points is not None else ViewportConfig().max_points
-        if viewport.cache_path(percorso, budget, CACHE_DIR).exists():
-            # Cache calda: i 2 s di mean_spacing sarebbero l'intero costo
-            # della risposta, e il valore non serve perche' decimate_file non
-            # richiama decimate quando trova la voce.
-            spaziatura = 0.0
-        else:
-            punti, _normali = io.read_cloud(percorso)
-            spaziatura = io.mean_spacing(punti, cfg.input.spacing_sample, cfg.input.seed)
-        ridotti, gruppi, voxel = viewport.decimate_file(percorso, budget, spaziatura, CACHE_DIR)
+        # decimate_file calcola la spaziatura al proprio interno, solo a
+        # cache fredda: qui non si legge piu' la nuvola ne' si controlla la
+        # cache in anticipo, perche' spacing_sample e seed sono gia' nella
+        # sua chiave (vedi viewport.decimate_file).
+        ridotti, gruppi, voxel = viewport.decimate_file(
+            percorso, budget, cfg.input.spacing_sample, cfg.input.seed, CACHE_DIR
+        )
         mappe[numero] = gruppi
         return Response(
             content=viewport.to_float32(ridotti),

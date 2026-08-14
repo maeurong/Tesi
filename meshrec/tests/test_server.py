@@ -7,15 +7,21 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from meshrec.app import server
 from meshrec.app.server import create_app
 from meshrec.core.config import InputConfig, PipelineConfig, save_config
 
 
 @pytest.fixture()
-def cliente(tmp_path: Path) -> TestClient:
+def cliente(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"))
     cfg.run.out_dir = tmp_path / "corsa"
     save_config(cfg, tmp_path / "config.yaml")
+    # I-5 della revisione: CACHE_DIR e' una costante di modulo che punta a
+    # meshrec/.cache/viewport/ per davvero. Senza questo dirottamento, ogni
+    # test che chiama /api/cloud lascia una voce che nessuna pulizia
+    # raggiungera' mai (la sorgente e' sotto tmp_path e sparisce col test).
+    monkeypatch.setattr(server, "CACHE_DIR", tmp_path / "cache")
     # raise_server_exceptions=False: il gestore generico in server.py risponde
     # con 400 e corpo strutturato, ma starlette rilancia comunque l'eccezione
     # al chiamante quando questo flag e' vero (e' il predefinito), per dare a
@@ -103,6 +109,54 @@ def test_la_nuvola_dichiara_sempre_entrambi_i_conteggi(cliente, tmp_path):
     assert len(risposta.content) == disegnati * 3 * 4
 
 
+def test_la_seconda_richiesta_della_stessa_nuvola_non_ricalcola(cliente, tmp_path, monkeypatch):
+    """I-1 della revisione: il guadagno del Task 6-bis vive nell'endpoint, non
+    nella funzione. Un test che chiama solo decimate_file lascerebbe scoperte
+    proprio le tre righe che lo producono in server.py."""
+    import numpy as np
+    from meshrec.core import io, pipeline, viewport
+
+    corsa = tmp_path / "corsa"
+    punti = np.random.default_rng(0).random((50_000, 3)) * 100.0
+    io.write_cloud(corsa / pipeline.ARTIFACTS[2], punti)
+
+    prima = cliente.get("/api/cloud/2?max_points=1000")
+    assert prima.status_code == 200
+
+    def _non_chiamarmi(*_args, **_kwargs):
+        raise AssertionError("decimate non deve essere richiamata a cache calda")
+
+    monkeypatch.setattr(viewport, "decimate", _non_chiamarmi)
+    poi = cliente.get("/api/cloud/2?max_points=1000")
+    # status_code == 200 e non solo "non solleva": con raise_server_exceptions
+    # =False un errore diventa comunque un 400, che passerebbe inosservato
+    # senza questa asserzione esplicita.
+    assert poi.status_code == 200
+    assert poi.content == prima.content
+    assert poi.headers["X-Points-Drawn"] == prima.headers["X-Points-Drawn"]
+    assert poi.headers["X-Points-Total"] == prima.headers["X-Points-Total"]
+
+
+def test_max_points_zero_o_negativo_e_rifiutato_con_messaggio_chiaro(cliente, tmp_path):
+    """M-11 della revisione: prima della guardia, max_points=0 dava
+    ZeroDivisionError e un negativo TypeError su un numero complesso — la
+    tratta reggeva (400 in entrambi i casi) ma il messaggio era opaco."""
+    import numpy as np
+    from meshrec.core import io, pipeline
+
+    corsa = tmp_path / "corsa"
+    punti = np.random.default_rng(0).random((100, 3)) * 10.0
+    io.write_cloud(corsa / pipeline.ARTIFACTS[1], punti)
+
+    for valore in (0, -5):
+        risposta = cliente.get(f"/api/cloud/1?max_points={valore}")
+        assert risposta.status_code == 400
+        corpo = risposta.json()
+        assert corpo["errore"] not in ("ZeroDivisionError", "TypeError")
+        assert str(valore) in corpo["messaggio"]
+        assert "positivo" in corpo["messaggio"]
+
+
 def test_chiedere_la_nuvola_di_uno_step_mai_eseguito_non_solleva(cliente):
     risposta = cliente.get("/api/cloud/9")
     assert risposta.status_code == 400
@@ -119,7 +173,10 @@ def test_chiedere_la_nuvola_di_uno_step_fuori_intervallo_spiega_quali_esistono(c
     corpo = risposta.json()
     assert corpo["errore"] != "KeyError"
     assert "99" in corpo["messaggio"]
-    assert "1" in corpo["messaggio"] and "9" in corpo["messaggio"]
+    # "8" e' uno step valido e non e' una sottostringa di "99": a differenza
+    # di "9", puo' davvero far fallire il test se l'elenco sparisse dal
+    # messaggio (M-8 della revisione).
+    assert "8" in corpo["messaggio"]
 
 
 def test_three_js_e_servito_dal_server_e_non_dalla_rete(cliente):

@@ -63,8 +63,8 @@ def test_decimate_file_la_seconda_chiamata_da_lo_stesso_risultato(tmp_path):
     sorgente = tmp_path / "nuvola.ply"
     io.write_cloud(sorgente, _nuvola(50_000))
     cache_dir = tmp_path / "cache"
-    prima = viewport.decimate_file(sorgente, 5_000, 1.0, cache_dir)
-    seconda = viewport.decimate_file(sorgente, 5_000, 1.0, cache_dir)
+    prima = viewport.decimate_file(sorgente, 5_000, 20_000, 0, cache_dir)
+    seconda = viewport.decimate_file(sorgente, 5_000, 20_000, 0, cache_dir)
     np.testing.assert_array_equal(prima[0], seconda[0])
     assert len(prima[1]) == len(seconda[1])
     for gruppo_a, gruppo_b in zip(prima[1], seconda[1]):
@@ -79,13 +79,13 @@ def test_decimate_file_la_seconda_chiamata_non_ricalcola(tmp_path, monkeypatch):
     sorgente = tmp_path / "nuvola.ply"
     io.write_cloud(sorgente, _nuvola(50_000))
     cache_dir = tmp_path / "cache"
-    viewport.decimate_file(sorgente, 5_000, 1.0, cache_dir)
+    viewport.decimate_file(sorgente, 5_000, 20_000, 0, cache_dir)
 
     def _esplode(*_args, **_kwargs):
         raise AssertionError("decimate non deve essere richiamata a cache calda")
 
     monkeypatch.setattr(viewport, "decimate", _esplode)
-    ridotti, _gruppi, _voxel = viewport.decimate_file(sorgente, 5_000, 1.0, cache_dir)
+    ridotti, _gruppi, _voxel = viewport.decimate_file(sorgente, 5_000, 20_000, 0, cache_dir)
     assert len(ridotti) <= 5_000
 
 
@@ -93,13 +93,13 @@ def test_decimate_file_sorgente_modificata_invalida_la_cache(tmp_path):
     sorgente = tmp_path / "nuvola.ply"
     io.write_cloud(sorgente, _nuvola(50_000, seme=1))
     cache_dir = tmp_path / "cache"
-    prima = viewport.decimate_file(sorgente, 5_000, 1.0, cache_dir)
+    prima = viewport.decimate_file(sorgente, 5_000, 20_000, 0, cache_dir)
     assert sum(len(gruppo) for gruppo in prima[1]) == 50_000
 
     io.write_cloud(sorgente, _nuvola(60_000, seme=2))
     stato = sorgente.stat()
     os.utime(sorgente, ns=(stato.st_atime_ns, stato.st_mtime_ns + 1_000_000))
-    dopo = viewport.decimate_file(sorgente, 5_000, 1.0, cache_dir)
+    dopo = viewport.decimate_file(sorgente, 5_000, 20_000, 0, cache_dir)
     assert sum(len(gruppo) for gruppo in dopo[1]) == 60_000, "la cache non si e' accorta della sorgente cambiata"
 
 
@@ -107,11 +107,11 @@ def test_decimate_file_cache_corrotta_non_solleva(tmp_path):
     sorgente = tmp_path / "nuvola.ply"
     io.write_cloud(sorgente, _nuvola(50_000))
     cache_dir = tmp_path / "cache"
-    viewport.decimate_file(sorgente, 5_000, 1.0, cache_dir)
-    percorso = viewport.cache_path(sorgente, 5_000, cache_dir)
+    viewport.decimate_file(sorgente, 5_000, 20_000, 0, cache_dir)
+    percorso = next(cache_dir.glob("*.npz"))
     percorso.write_bytes(os.urandom(200))
 
-    ridotti, _gruppi, _voxel = viewport.decimate_file(sorgente, 5_000, 1.0, cache_dir)
+    ridotti, _gruppi, _voxel = viewport.decimate_file(sorgente, 5_000, 20_000, 0, cache_dir)
     assert len(ridotti) <= 5_000
 
 
@@ -123,7 +123,19 @@ def test_decimate_file_non_scrive_dentro_la_cartella_della_corsa(tmp_path):
     prima = {percorso.name for percorso in corsa.iterdir()}
 
     cache_dir = tmp_path / ".cache" / "viewport"
-    viewport.decimate_file(sorgente, 2_000, 1.0, cache_dir)
+    viewport.decimate_file(sorgente, 2_000, 20_000, 0, cache_dir)
 
     dopo = {percorso.name for percorso in corsa.iterdir()}
     assert dopo == prima, "la cache ha scritto dentro la cartella della corsa"
+
+
+def test_decimate_file_pulisce_la_voce_vecchia_anche_se_cambia_il_budget(tmp_path):
+    """I-3/fix-1: la pulizia e' per sola sorgente, non per sorgente+budget, cosi'
+    la cache resta a una voce per file anche quando max_points cambia fra una
+    richiesta e la successiva (es. ?max_points= diverso dal browser)."""
+    sorgente = tmp_path / "nuvola.ply"
+    io.write_cloud(sorgente, _nuvola(50_000))
+    cache_dir = tmp_path / "cache"
+    viewport.decimate_file(sorgente, 5_000, 20_000, 0, cache_dir)
+    viewport.decimate_file(sorgente, 2_000, 20_000, 0, cache_dir)
+    assert len(list(cache_dir.glob("*.npz"))) == 1, "e' rimasta piu' di una voce per la stessa sorgente"
