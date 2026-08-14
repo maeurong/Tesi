@@ -217,7 +217,11 @@ class RunConfig(BaseModel):
         le=11,
         description=(
             "ultimo step eseguito. Serve all'interfaccia, che esegue uno step "
-            "alla volta: from_step e to_step uguali eseguono soltanto quello"
+            "alla volta: from_step e to_step uguali eseguono soltanto quello. "
+            "Con validate_assignment attivo il validatore incrociato rifiuta "
+            "uno stato intermedio incoerente, quindi restringendo entrambi i "
+            "campi su un oggetto gia' costruito va assegnato prima to_step e "
+            "poi from_step"
         ),
     )
 

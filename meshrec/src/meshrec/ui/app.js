@@ -33,3 +33,38 @@ function disegnaStep(steps) {
 }
 
 caricaStato();
+
+// Il progresso non e' una percentuale: le librerie di calcolo non ne
+// forniscono una, e una barra fabbricata sarebbe un numero plausibile che
+// nessuna misura smentisce. Si mostra quale step gira, da quanto, e le righe
+// che scrive.
+const flusso = new EventSource("/api/events");
+let avvioStep = null;
+
+flusso.addEventListener("stato", (evento) => {
+  const stato = JSON.parse(evento.data);
+  disegnaStep(stato.steps);
+  const barra = document.getElementById("in-corso");
+  if (stato.in_corso) {
+    avvioStep = avvioStep ?? Date.now();
+    const trascorsi = Math.round((Date.now() - avvioStep) / 1000);
+    barra.textContent = `step ${stato.step} in corso, ${trascorsi} s`;
+    barra.hidden = false;
+  } else {
+    avvioStep = null;
+    barra.hidden = true;
+  }
+});
+
+flusso.addEventListener("riga", (evento) => {
+  const registro = document.getElementById("registro");
+  const riga = document.createElement("div");
+  riga.className = "riga-log";
+  riga.textContent = JSON.parse(evento.data);
+  registro.append(riga);
+  registro.scrollTop = registro.scrollHeight;
+});
+
+document.getElementById("annulla").addEventListener("click", async () => {
+  await fetch("/api/cancel", { method: "POST" });
+});

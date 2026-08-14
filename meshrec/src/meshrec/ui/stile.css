@@ -27,3 +27,8 @@ body {
 .viewport { width: 100%; height: 100%; }
 .vuoto { color: var(--tenue); font-size: 0.9rem; }
 @media (max-width: 60rem) { .tre-zone { grid-template-columns: 1fr; height: auto; } }
+.bottone { font: inherit; padding: 0.25rem 0.75rem; border: 1px solid var(--bordo); border-radius: 0.25rem; background: var(--superficie); color: var(--testo); cursor: pointer; }
+.bottone:focus-visible { outline: 2px solid var(--accento); outline-offset: 2px; }
+.in-corso { margin: 0; color: var(--accento); font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+.registro { max-height: 14rem; overflow: auto; font-family: ui-monospace, monospace; font-size: 0.75rem; border: 1px solid var(--bordo); border-radius: 0.25rem; padding: var(--passo); }
+.riga-log { white-space: pre-wrap; word-break: break-word; }

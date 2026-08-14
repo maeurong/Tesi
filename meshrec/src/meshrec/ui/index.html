@@ -10,6 +10,8 @@
 <header class="testata">
   <h1>MeshRec</h1>
   <p class="corsa" id="corsa">nessuna corsa</p>
+  <p class="in-corso" id="in-corso" hidden></p>
+  <button type="button" id="annulla" class="bottone">Annulla</button>
 </header>
 <main class="tre-zone">
   <nav class="zona zona-step" aria-label="Step della pipeline">
@@ -22,6 +24,8 @@
   <aside class="zona zona-dettaglio" aria-label="Parametri e metriche">
     <h2>Dettaglio</h2>
     <div id="dettaglio"><p class="vuoto">Scegli uno step per vederne parametri e metriche.</p></div>
+    <h2>Registro</h2>
+    <div class="registro" id="registro" role="log" aria-live="polite"></div>
   </aside>
 </main>
 <script type="module" src="/ui/app.js"></script>

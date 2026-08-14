@@ -73,6 +73,15 @@ def test_annullare_quando_non_gira_nulla_non_solleva(cliente):
     assert risposta.json()["annullato"] is False
 
 
+def test_lo_stream_degli_eventi_manda_lo_stato_e_si_chiude(cliente):
+    with cliente.stream("GET", "/api/events?max_eventi=1") as risposta:
+        assert risposta.status_code == 200
+        assert "text/event-stream" in risposta.headers["content-type"]
+        testo = "".join(risposta.iter_text())
+    assert "event: stato" in testo
+    assert '"in_corso"' in testo
+
+
 def test_nessun_endpoint_solleva_verso_il_browser(cliente):
     """Il contratto vale sull'elenco intero, derivato dall'applicazione stessa:
     un endpoint aggiunto domani vi entra da solo e non puo' essere dimenticato.
