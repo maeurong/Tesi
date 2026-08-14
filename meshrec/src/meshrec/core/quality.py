@@ -276,6 +276,25 @@ def geometric_error(
     }
 
 
+def vertex_deviation(vertices: np.ndarray, cloud: np.ndarray) -> np.ndarray:
+    """Distanza di ogni vertice della superficie dal punto piu prossimo della nuvola.
+
+    geometric_error restituisce soltanto aggregati, max e RMS: una mappa di
+    colore ha bisogno di uno scalare per vertice. Il KD-tree e' gia' in uso in
+    io.mean_spacing, quindi non entra alcuna dipendenza nuova.
+
+    E' una distanza punto-nuvola e non una distanza punto-superficie: sulle
+    zone dove i triangoli sono grandi sovrastima, esattamente come farebbe una
+    distanza calcolata sui soli vertici. Serve come mappa diagnostica, e il
+    numero pubblicato resta quello di geometric_error.
+    """
+    from scipy.spatial import cKDTree
+
+    albero = cKDTree(np.asarray(cloud, dtype=np.float64))
+    distanze, _indici = albero.query(np.asarray(vertices, dtype=np.float64), k=1)
+    return np.ascontiguousarray(distanze, dtype=np.float64)
+
+
 def thickness(points: np.ndarray, bin_width: float) -> dict[str, object]:
     """Spessore come distanza fra i due modi lungo la direzione di minore estensione.
 

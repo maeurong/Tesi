@@ -291,6 +291,70 @@ def test_the_reference_fraction_does_not_depend_on_the_requested_min_ratio():
     ] == pytest.approx(0.0)
 
 
+def test_la_deviazione_per_vertice_e_zero_su_vertici_presi_dalla_nuvola():
+    nuvola = np.random.default_rng(0).random((5_000, 3)) * 100.0
+    vertici = nuvola[:100]
+    campo = quality.vertex_deviation(vertici, nuvola)
+    assert campo.shape == (100,)
+    assert campo.max() == pytest.approx(0.0, abs=1e-12)
+
+
+def test_la_deviazione_per_vertice_misura_lo_scostamento_noto():
+    nuvola = np.zeros((500, 3))
+    nuvola[:, 0] = np.linspace(0.0, 100.0, 500)
+    vertici = nuvola[:10].copy()
+    vertici[:, 2] += 3.0     # sollevati di 3 mm esatti
+    campo = quality.vertex_deviation(vertici, nuvola)
+    assert campo == pytest.approx(np.full(10, 3.0), abs=1e-9)
+
+
+def _griglia_piana(lato: float, passo: float) -> tuple[np.ndarray, np.ndarray]:
+    """Piano z = 0 triangolato con passo regolare: triangoli piccoli e uguali.
+
+    Serve al confronto con geometric_error: su triangoli grandi le due misure
+    divergono per costruzione, e il confronto non direbbe nulla.
+    """
+    n = int(round(lato / passo)) + 1
+    x, y = np.meshgrid(np.linspace(0.0, lato, n), np.linspace(0.0, lato, n), indexing="ij")
+    vertici = np.column_stack([x.ravel(), y.ravel(), np.zeros(n * n)])
+    i, j = np.meshgrid(np.arange(n - 1), np.arange(n - 1), indexing="ij")
+    angolo = (i * n + j).ravel()
+    triangoli = np.column_stack(
+        [angolo, angolo + n, angolo + n + 1, angolo, angolo + n + 1, angolo + 1]
+    ).reshape(-1, 3)
+    return vertici, triangoli
+
+
+def test_il_campo_per_vertice_resta_nell_ordine_di_grandezza_dell_aggregato():
+    """Il controllo che smentisce: il campo per vertice deve restare vicino
+    all'aggregato gia' pubblicato, `geometric_error`.
+
+    Le due misure non coincidono per costruzione: `vertex_deviation` e' una
+    distanza punto-nuvola calcolata sui soli vertici, `geometric_error` una
+    distanza punto-superficie con la superficie campionata da PyMeshLab. Il
+    verso confrontabile e' `mesh_to_cloud`, che parte anch'esso dalla
+    superficie e cerca il punto piu vicino della nuvola.
+
+    Margine dichiarato: un fattore due sul rapporto fra i due RMS. La
+    geometria e' scelta perche' il margine sia onesto (triangoli da 5 mm
+    contro una nuvola a passo 1 mm), e il residuo atteso e' solo lo
+    scostamento nel piano fra un campione qualunque della superficie e il
+    punto di griglia piu vicino. Se un giorno le due misure divergono di un
+    fattore dieci, qualcosa e' cambiato e il fattore due se ne accorge.
+    """
+    pytest.importorskip("pymeshlab")
+    vertici, triangoli = _griglia_piana(100.0, 5.0)
+    piano, _ = _griglia_piana(100.0, 1.0)
+    nuvola = piano + np.array([0.0, 0.0, 0.5])   # sollevata di 0,5 mm esatti
+
+    campo = quality.vertex_deviation(vertici, nuvola)
+    rms_campo = float(np.sqrt(np.mean(campo**2)))
+    aggregato = float(quality.geometric_error(vertici, triangoli, nuvola)["mesh_to_cloud"]["RMS"])
+
+    assert rms_campo == pytest.approx(0.5, abs=1e-9)
+    assert 0.5 < rms_campo / aggregato < 2.0
+
+
 def test_the_reference_ratio_default_lives_in_config():
     from meshrec.core import config
 
