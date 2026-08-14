@@ -10,12 +10,12 @@ import json
 import time
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 from meshrec.app.worker import Worker
-from meshrec.core import steps
-from meshrec.core.config import PipelineConfig, load_config, save_config
+from meshrec.core import io, pipeline, steps, viewport
+from meshrec.core.config import PipelineConfig, ViewportConfig, load_config, save_config
 
 UI_DIR = Path(__file__).resolve().parent.parent / "ui"
 
@@ -71,6 +71,10 @@ def create_app(config_path: Path) -> FastAPI:
 
     lavoratore = Worker()
 
+    # Le mappe dell'ultima decimazione servita, per step. Il ritaglio e la
+    # selezione le rileggono: senza, agirebbero su indici che non esistono.
+    mappe: dict[int, list] = {}
+
     @app.post("/api/step/{numero}")
     def esegui_step(numero: int) -> dict[str, object]:
         lavoratore.start(config_path, numero, numero)
@@ -84,6 +88,36 @@ def create_app(config_path: Path) -> FastAPI:
     @app.post("/api/cancel")
     def annulla() -> dict[str, object]:
         return {"annullato": lavoratore.cancel()}
+
+    @app.get("/api/cloud/{numero}")
+    def nuvola(numero: int, max_points: int | None = None) -> Response:
+        """Punti decimati dello step richiesto, in binario Float32.
+
+        Decima l'artefatto dello step chiesto e non un altro: servire al posto
+        della nuvola dello step 2 quella dello step 3, che e' gia' piccola e
+        pronta, mostrerebbe una nuvola diversa da quella su cui il ritaglio
+        agisce.
+        """
+        cfg = corrente()
+        percorso = Path(cfg.run.out_dir) / pipeline.ARTIFACTS[numero]
+        if not percorso.exists():
+            raise FileNotFoundError(
+                f"lo step {numero} non ha ancora prodotto {pipeline.ARTIFACTS[numero]}"
+            )
+        punti, _normali = io.read_cloud(percorso)
+        budget = max_points if max_points is not None else ViewportConfig().max_points
+        spaziatura = io.mean_spacing(punti, cfg.input.spacing_sample, cfg.input.seed)
+        ridotti, gruppi, voxel = viewport.decimate(punti, budget, spaziatura)
+        mappe[numero] = gruppi
+        return Response(
+            content=viewport.to_float32(ridotti),
+            media_type="application/octet-stream",
+            headers={
+                "X-Points-Drawn": str(len(ridotti)),
+                "X-Points-Total": str(len(punti)),
+                "X-Voxel": f"{voxel:.6g}",
+            },
+        )
 
     @app.get("/api/events")
     def eventi(max_eventi: int | None = None) -> StreamingResponse:

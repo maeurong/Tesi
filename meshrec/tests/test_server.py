@@ -16,7 +16,12 @@ def cliente(tmp_path: Path) -> TestClient:
     cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"))
     cfg.run.out_dir = tmp_path / "corsa"
     save_config(cfg, tmp_path / "config.yaml")
-    return TestClient(create_app(tmp_path / "config.yaml"))
+    # raise_server_exceptions=False: il gestore generico in server.py risponde
+    # con 400 e corpo strutturato, ma starlette rilancia comunque l'eccezione
+    # al chiamante quando questo flag e' vero (e' il predefinito), per dare a
+    # chi testa la scelta di vederla. Qui si vuole il contratto HTTP che vede
+    # il browser, non l'eccezione interna.
+    return TestClient(create_app(tmp_path / "config.yaml"), raise_server_exceptions=False)
 
 
 def test_la_radice_serve_l_interfaccia(cliente):
@@ -80,6 +85,28 @@ def test_lo_stream_degli_eventi_manda_lo_stato_e_si_chiude(cliente):
         testo = "".join(risposta.iter_text())
     assert "event: stato" in testo
     assert '"in_corso"' in testo
+
+
+def test_la_nuvola_dichiara_sempre_entrambi_i_conteggi(cliente, tmp_path):
+    import numpy as np
+    from meshrec.core import io, pipeline
+
+    corsa = tmp_path / "corsa"
+    punti = np.random.default_rng(0).random((50_000, 3)) * 100.0
+    io.write_cloud(corsa / pipeline.ARTIFACTS[1], punti)
+
+    risposta = cliente.get("/api/cloud/1?max_points=1000")
+    assert risposta.status_code == 200
+    assert int(risposta.headers["X-Points-Total"]) == 50_000
+    disegnati = int(risposta.headers["X-Points-Drawn"])
+    assert disegnati <= 1000
+    assert len(risposta.content) == disegnati * 3 * 4
+
+
+def test_chiedere_la_nuvola_di_uno_step_mai_eseguito_non_solleva(cliente):
+    risposta = cliente.get("/api/cloud/9")
+    assert risposta.status_code == 400
+    assert "errore" in risposta.json()
 
 
 def test_nessun_endpoint_solleva_verso_il_browser(cliente):
