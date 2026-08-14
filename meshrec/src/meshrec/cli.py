@@ -12,7 +12,14 @@ import sys
 from pathlib import Path
 
 from meshrec.core import pipeline
-from meshrec.core.config import InputConfig, PipelineConfig, load_config, load_experiment, save_config
+from meshrec.core.config import (
+    InputConfig,
+    PipelineConfig,
+    RunConfig,
+    load_config,
+    load_experiment,
+    save_config,
+)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -126,18 +133,24 @@ def main(argv: list[str] | None = None) -> int:
 
     cfg = load_config(args.config)
     try:
-        # to_step prima di from_step: con validate_assignment=True ogni riga
-        # rivalida l'intero modello, e assegnare from_step mentre il to_step
-        # ancora sul disco (per esempio scritto da PUT /api/config) e' piu
-        # piccolo violerebbe l'invariante to_step >= from_step su uno stato
-        # intermedio che non esiste mai nella configurazione finale.
-        if args.to_step is not None:
-            cfg.run.to_step = args.to_step
-        if args.from_step is not None:
-            cfg.run.from_step = args.from_step
+        # from_step e to_step si assegnano insieme, mai uno alla volta: con
+        # validate_assignment=True ogni riga rivalida l'intero modello, e
+        # nessun ordine e' sicuro. La configurazione sul disco puo' portare un
+        # to_step piu' piccolo di quello chiesto, e allora from_step per primo
+        # rompe; oppure un from_step piu' grande, lasciato da una corsa
+        # precedente, e allora to_step per primo rompe. Chiedere lo step 2 con
+        # from_step=4 sul disco falliva cosi', e il pannello non lo diceva.
+        # L'unico stato che deve esistere e' quello finale.
+        richiesti: dict[str, int] = {}
         if args.only_step is not None:
-            cfg.run.to_step = args.only_step
-            cfg.run.from_step = args.only_step
+            richiesti = {"from_step": args.only_step, "to_step": args.only_step}
+        else:
+            if args.from_step is not None:
+                richiesti["from_step"] = args.from_step
+            if args.to_step is not None:
+                richiesti["to_step"] = args.to_step
+        if richiesti:
+            cfg.run = RunConfig.model_validate({**cfg.run.model_dump(), **richiesti})
         if args.out_dir is not None:
             cfg.run.out_dir = args.out_dir
         metrics = pipeline.run(cfg)
