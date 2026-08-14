@@ -264,10 +264,34 @@ def geometric_error(
     Il limite da tenere presente quando si legge il numero: campionare i soli
     vertici **sottostima** l'errore dove i triangoli sono grandi, non lo
     sovrastima. Se i vertici cadono sulla nuvola, cio' che la superficie
-    sbaglia fra un vertice e l'altro non entra in nessun campione. Misurato su
-    una calotta di raggio 200 mm, nuvola a passo 1 mm, triangoli da 32,7 mm con
-    i vertici sulla calotta: mesh_to_cloud da' 0,2458 mm mentre la saetta fra i
-    vertici vale 0,667 mm e cloud_to_mesh, che campiona le facce, da' 0,6094 mm.
+    sbaglia fra un vertice e l'altro non entra in nessun campione. La calotta
+    che lo mostra non sta scritta qui in una frase ma in un test che la
+    ricostruisce, coi suoi parametri dichiarati nel codice del test:
+    test_su_una_calotta_il_campionamento_dei_soli_vertici_sottostima_l_errore,
+    in tests/test_quality.py. La misura che quel test verifica e' la
+    relazione fra le tre grandezze, non tre valori assoluti, che dipendono
+    dalla geometria scelta e dalla macchina.
+
+    Il verso della disuguaglianza fra i due numeri vale in un regime, e il
+    regime va detto. cloud_to_mesh misura l'errore di corda, cioe' quanto la
+    superficie si discosta dalla forma vera fra un vertice e l'altro;
+    mesh_to_cloud e' una distanza punto-punto e porta con se' il pavimento
+    della spaziatura della nuvola, perche' un vertice non puo' avvicinarsi a
+    una nuvola discreta piu di quanto la nuvola sia fitta. Finche' l'errore di
+    corda resta sopra quel pavimento, cloud_to_mesh e' il piu grande; sotto,
+    il pavimento domina e il verso si rovescia
+    (test_su_triangoli_piu_fini_il_verso_della_disuguaglianza_si_rovescia).
+
+    Il metro del regime non e' il lato del triangolo contro la spaziatura:
+    l'errore di corda cresce col quadrato del lato e cala col raggio di
+    curvatura, e sulla stessa calotta il verso e' gia' rovesciato con
+    triangoli da 6 mm contro una nuvola a passo 1 mm.
+
+    Su lab_crop, il caso reale della tesi, il pavimento non morde: la
+    spaziatura vale 1,1923 mm (chiave 01_load.spacing di metrics.json) contro
+    un mesh_to_cloud RMS di 3,8984 mm (chiave
+    07_surface_quality.geometric_error, verso mesh_to_cloud, campo RMS), cioe'
+    3,27 volte la spaziatura.
 
     Il calcolo non e' cambiato e i numeri gia' pubblicati restano quelli: qui e'
     cambiata solo la loro descrizione, che diceva il contrario del vero.
@@ -304,7 +328,14 @@ def vertex_deviation(vertices: np.ndarray, cloud: np.ndarray) -> np.ndarray:
     E' una distanza punto-nuvola misurata nei soli vertici, quindi
     **sottostima** l'errore dove i triangoli sono grandi: cio' che la
     superficie sbaglia fra un vertice e l'altro non entra in nessun campione.
-    Serve come mappa diagnostica, non come misura di fedelta'.
+    Serve come mappa diagnostica, non come misura di fedelta'. La calotta su
+    cui la sottostima si misura sta in
+    test_su_una_calotta_il_campionamento_dei_soli_vertici_sottostima_l_errore,
+    che la ricostruisce dai parametri invece di citarne i valori.
+
+    Vale anche qui il pavimento della spaziatura descritto in
+    geometric_error: sotto quel pavimento questa mappa non scende, quindi su
+    triangoli piu fini dell'errore di corda misura la nuvola e non la mesh.
 
     Non e' una seconda misura indipendente: riproduce esattamente il verso
     mesh_to_cloud di geometric_error, perche' anche PyMeshLab in quel verso

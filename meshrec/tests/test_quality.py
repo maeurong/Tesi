@@ -291,12 +291,23 @@ def test_the_reference_fraction_does_not_depend_on_the_requested_min_ratio():
     ] == pytest.approx(0.0)
 
 
-def test_la_deviazione_per_vertice_e_zero_su_vertici_presi_dalla_nuvola():
+def test_la_deviazione_per_vertice_e_zero_sui_vertici_della_nuvola_e_nota_fuori():
+    """Meta' dei vertici sono punti della nuvola, meta' sono sollevati di 0,25 mm.
+
+    Il solo controllo sullo zero non distingueva questa funzione da una che
+    restituisce sempre zero. Lo scostamento di 0,25 mm sta ben sotto la
+    distanza tipica fra due punti della nuvola (5.000 punti in un cubo di
+    100 mm di lato: circa 3,2 mm), quindi il punto piu vicino a un vertice
+    sollevato resta quello da cui e' stato preso e la distanza attesa e'
+    esattamente 0,25 mm.
+    """
     nuvola = np.random.default_rng(0).random((5_000, 3)) * 100.0
-    vertici = nuvola[:100]
+    vertici = nuvola[:100].copy()
+    vertici[50:, 2] += 0.25
     campo = quality.vertex_deviation(vertici, nuvola)
     assert campo.shape == (100,)
-    assert campo.max() == pytest.approx(0.0, abs=1e-12)
+    assert campo[:50].max() == pytest.approx(0.0, abs=1e-12)
+    assert campo[50:] == pytest.approx(np.full(50, 0.25), abs=1e-9)
 
 
 def test_la_deviazione_per_vertice_misura_lo_scostamento_noto():
@@ -353,6 +364,118 @@ def test_il_campo_per_vertice_resta_nell_ordine_di_grandezza_dell_aggregato():
 
     assert rms_campo == pytest.approx(0.5, abs=1e-9)
     assert 0.5 < rms_campo / aggregato < 2.0
+
+
+def _calotta(
+    raggio: float, semilato: float, passo: float, scarto: float = 0.0
+) -> tuple[np.ndarray, np.ndarray]:
+    """Calotta sferica: griglia in pianta di lato 2*semilato sollevata sulla sfera.
+
+    La griglia ha passo `passo` ed e' traslata di `scarto` prima del
+    sollevamento z = sqrt(raggio^2 - x^2 - y^2). Lo scarto serve a sfasare la
+    nuvola rispetto ai vertici della mesh: con un passo della mesh multiplo di
+    quello della nuvola i vertici cadrebbero esattamente sui punti e
+    mesh_to_cloud misurerebbe zero per costruzione, non per merito della mesh.
+    """
+    vertici, triangoli = _griglia_piana(2.0 * semilato, passo)
+    vertici[:, :2] += scarto - semilato
+    vertici[:, 2] = np.sqrt(raggio**2 - vertici[:, 0] ** 2 - vertici[:, 1] ** 2)
+    return vertici, triangoli
+
+
+def _errore_di_corda(vertici: np.ndarray, triangoli: np.ndarray, raggio: float) -> float:
+    """Scostamento massimo della sfera dal piano dei triangoli, in forma chiusa.
+
+    Con i tre vertici sulla sfera il piano del triangolo taglia un cerchio di
+    raggio pari al circoraggio rho = abc/(4A) e dista sqrt(R^2 - rho^2) dal
+    centro: la sfera se ne discosta al massimo di R - sqrt(R^2 - rho^2), sopra
+    il circocentro. Nessun campionamento e nessuna tolleranza da tarare: e'
+    l'errore geometrico vero della calotta fra un vertice e l'altro.
+    """
+    a, b, c = vertici[triangoli[:, 0]], vertici[triangoli[:, 1]], vertici[triangoli[:, 2]]
+    lati = np.stack(
+        [
+            np.linalg.norm(b - c, axis=1),
+            np.linalg.norm(a - c, axis=1),
+            np.linalg.norm(a - b, axis=1),
+        ],
+        axis=1,
+    )
+    area = np.linalg.norm(np.cross(b - a, c - a), axis=1) / 2.0
+    circoraggio = lati.prod(axis=1) / (4.0 * area)
+    return float((raggio - np.sqrt(raggio**2 - circoraggio**2)).max())
+
+
+def test_su_una_calotta_il_campionamento_dei_soli_vertici_sottostima_l_errore():
+    """La geometria che la docstring di geometric_error affermava a parole.
+
+    Calotta di raggio 200 mm su un quadrato in pianta di 160x160 mm, mesh a
+    passo 40 mm (25 vertici, 32 triangoli), nuvola a passo 1 mm sfasata di
+    0,5 mm in x e in y (25.921 punti, tutti sulla stessa sfera). Valori letti
+    su questa macchina: vertex_deviation RMS 0,7227 mm, mesh_to_cloud RMS
+    0,7227 mm con n_samples 25, cloud_to_mesh RMS 1,4866 mm, errore di corda
+    2,4936 mm contro un cloud_to_mesh max misurato di 2,4671 mm.
+
+    Fissate sono le relazioni, non i valori: fissare i valori fisserebbe
+    questa macchina invece della proprieta'. La terza relazione e' quella che
+    prova la sottostima; le prime due la sostengono, e se un giorno
+    mesh_to_cloud smettesse di campionare i soli vertici diventa rossa la
+    prima e la conclusione della docstring va riscritta.
+    """
+    pytest.importorskip("pymeshlab")
+    raggio, semilato = 200.0, 80.0
+    vertici, triangoli = _calotta(raggio, semilato, 40.0)
+    nuvola, _ = _calotta(raggio, semilato, 1.0, scarto=0.5)
+
+    campo = quality.vertex_deviation(vertici, nuvola)
+    errore = quality.geometric_error(vertici, triangoli, nuvola)
+    mesh_verso_nuvola = errore["mesh_to_cloud"]
+    nuvola_verso_mesh = errore["cloud_to_mesh"]
+    corda = _errore_di_corda(vertici, triangoli, raggio)
+
+    # 1. mesh_to_cloud campiona i soli vertici: e' vertex_deviation.
+    rms_campo = float(np.sqrt(np.mean(campo**2)))
+    assert mesh_verso_nuvola["n_samples"] == len(vertici)
+    assert rms_campo == pytest.approx(float(mesh_verso_nuvola["RMS"]), rel=1e-5)
+    assert campo.max() == pytest.approx(float(mesh_verso_nuvola["max"]), rel=1e-5)
+
+    # 2. il verso che campiona le facce e' il piu grande.
+    assert float(nuvola_verso_mesh["RMS"]) > float(mesh_verso_nuvola["RMS"])
+
+    # 3. l'errore vero, calcolato in forma chiusa, sta sopra entrambi: e' la
+    #    sottostima. Il confronto col massimo misurato da cloud_to_mesh vale
+    #    da controprova che la forma chiusa descriva questa calotta e non
+    #    un'altra.
+    assert corda > float(mesh_verso_nuvola["RMS"])
+    assert corda == pytest.approx(float(nuvola_verso_mesh["max"]), rel=0.05)
+
+
+def test_su_triangoli_piu_fini_il_verso_della_disuguaglianza_si_rovescia():
+    """Il regime in cui la relazione vale, esibito dal caso in cui non vale.
+
+    Stessa calotta e stessa nuvola del test precedente, mesh a passo 6 mm
+    (784 vertici, 1.458 triangoli). Valori letti su questa macchina:
+    mesh_to_cloud RMS 0,4410 mm, cloud_to_mesh RMS 0,0684 mm, errore di corda
+    0,0644 mm contro una nuvola a passo 1 mm.
+
+    cloud_to_mesh e' una distanza punto-superficie e misura l'errore di corda;
+    mesh_to_cloud e' una distanza punto-punto e porta con se' il pavimento
+    della spaziatura della nuvola. Quando l'errore di corda scende sotto quel
+    pavimento il pavimento domina e il verso si capovolge. Il metro non e' il
+    lato del triangolo contro la spaziatura: qui il lato vale sei volte la
+    spaziatura e il verso e' gia' rovesciato, perche' l'errore di corda cresce
+    col quadrato del lato e cala col raggio di curvatura.
+    """
+    pytest.importorskip("pymeshlab")
+    raggio, semilato = 200.0, 80.0
+    vertici, triangoli = _calotta(raggio, semilato, 6.0)
+    nuvola, _ = _calotta(raggio, semilato, 1.0, scarto=0.5)
+
+    errore = quality.geometric_error(vertici, triangoli, nuvola)
+    corda = _errore_di_corda(vertici, triangoli, raggio)
+
+    assert corda < 1.0   # sotto il passo della nuvola: il pavimento domina
+    assert float(errore["cloud_to_mesh"]["RMS"]) < float(errore["mesh_to_cloud"]["RMS"])
 
 
 def test_the_reference_ratio_default_lives_in_config():
