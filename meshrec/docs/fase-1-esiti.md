@@ -76,7 +76,7 @@ in due punti, entrambi scelti per contenere la taglia della superficie:
 | Parametro | Predefinito | Usato | Motivo |
 |---|---|---|---|
 | `downsample.voxel_size` | `null` (2 × spaziatura = 18,25 mm) | **25,0 mm** | riduce la nuvola da 593.728 a 200.296 punti, un terzo del carico a valle, senza scendere sotto la risoluzione utile per un muro di 1,25 m di spessore |
-| `surface.poisson_depth` | 9 | **8** | dimezza il lato della cella dell'ottree e porta la superficie da 908.118 a 221.369 triangoli, cioè da 22 MB a 5,6 MB di artefatto |
+| `surface.poisson_depth` | 9 | **8** | raddoppia il lato della cella dell'ottree e porta la superficie da 908.118 a 221.369 triangoli, cioè da 22 MB a 5,6 MB di artefatto |
 
 Tutto il resto è rimasto ai valori predefiniti. In particolare `simplify` è
 rimasto **disabilitato**: nella sequenza della pipeline la semplificazione è lo
