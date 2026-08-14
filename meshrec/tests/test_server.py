@@ -423,25 +423,56 @@ def test_una_risposta_superata_si_scarta_e_una_corrente_no():
         prova.unlink()
 
 
+def _corpi_freccia_asincroni(testo: str) -> list[str]:
+    """I corpi dei gestori `async (...) => {`, presi contando le graffe.
+
+    Il regex delle funzioni nominate non li vede: un gestore inline non ha un
+    nome e non chiude in prima colonna, quindi la regola dell'ordine vi
+    resterebbe scoperta con l'aria di essere coperta. Il tetto: il conteggio
+    non distingue una graffa dentro una stringa o un commento da una vera, e
+    oggi in app.js non ce ne sono di spaiate; se un giorno ce ne fossero, il
+    corpo estratto finirebbe nel posto sbagliato e questo test lo direbbe.
+    """
+    corpi = []
+    for avvio in re.finditer(r"async\s*\([^)]*\)\s*=>\s*\{", testo):
+        profondita = 0
+        for posizione in range(avvio.end() - 1, len(testo)):
+            profondita += {"{": 1, "}": -1}.get(testo[posizione], 0)
+            if profondita == 0:
+                corpi.append(testo[avvio.start() : posizione + 1])
+                break
+    return corpi
+
+
 def test_ogni_tratta_che_interroga_il_server_si_scarta_se_e_stata_superata():
     """I-4, sulla tratta e non sulla funzione: l'elenco non e' scritto a mano ma
     ricavato dal modulo, cosi' una tratta aggiunta domani vi entra da sola e non
-    puo' essere dimenticata."""
+    puo' essere dimenticata. Le funzioni freccia asincrone entrano nell'elenco
+    quanto quelle nominate: la meta' dei gestori dell'interfaccia sono inline, e
+    lasciarle fuori teneva aperto un buco con l'aria di essere chiuso.
+    """
     from meshrec.app.server import UI_DIR
 
     testo = (UI_DIR / "app.js").read_text(encoding="utf-8")
     # caricaStato parte una volta sola all'avvio della pagina e non da un clic:
-    # non c'e' nessuna generazione che possa superarla.
-    senza_ordine = {"caricaStato"}
+    # non c'e' nessuna generazione che possa superarla. annullaLaCorsa non
+    # scrive nulla dopo l'attesa, quindi non ha niente da contraddire; ha un
+    # nome apposta per poter comparire qui invece di non essere mai incontrata.
+    senza_ordine = {"caricaStato", "annullaLaCorsa"}
+    tratte = [
+        (nome, _sorgente_di(nome, testo))
+        for nome in re.findall(r"^async function (\w+)\(", testo, re.MULTILINE)
+        if nome not in senza_ordine
+    ]
+    tratte += [("una funzione freccia asincrona", corpo) for corpo in _corpi_freccia_asincroni(testo)]
     interrogano = 0
-    for nome in re.findall(r"^async function (\w+)\(", testo, re.MULTILINE):
-        sorgente = _sorgente_di(nome, testo)
-        if "await fetch(" not in sorgente or nome in senza_ordine:
+    for nome, sorgente in tratte:
+        if "await fetch(" not in sorgente:
             continue
         interrogano += 1
-        assert "superata(" in sorgente, f"{nome} scrive senza guardare l'ordine"
+        assert "superata(" in sorgente, f"{nome} scrive senza guardare l'ordine:\n{sorgente}"
     # Senza questo, cancellare le funzioni farebbe passare il test a vuoto.
-    assert interrogano >= 3, "le tratte attese sono sparite dal modulo"
+    assert interrogano >= 6, "le tratte attese sono sparite dal modulo"
 
 
 def test_svuota_libera_i_buffer_e_non_tocca_i_piani_di_taglio():
@@ -630,3 +661,48 @@ def test_la_cache_del_contorno_non_sfratta_quella_della_nuvola(cliente, tmp_path
 
     assert voce_contorno.exists()
     assert voce_nuvola.exists(), "scrivere il contorno ha cancellato la voce della nuvola"
+
+
+def test_il_box_del_viewport_seleziona_gli_stessi_punti_del_core(cliente, tmp_path):
+    """Il controllo che smentisce: se i due insiemi differiscono, il viewport
+    sta disegnando su un dato diverso da quello su cui la pipeline lavora."""
+    import numpy as np
+
+    from meshrec.core import io, pipeline, segment
+    from meshrec.core.config import SegmentConfig
+
+    corsa = tmp_path / "corsa"
+    punti = np.random.default_rng(0).random((10_000, 3)) * 100.0
+    io.write_cloud(corsa / pipeline.ARTIFACTS[2], punti)
+
+    basso, alto = [10.0, 10.0, 10.0], [60.0, 60.0, 60.0]
+    risposta = cliente.post("/api/crop", json={"min": basso, "max": alto})
+    assert risposta.status_code == 200
+    dal_server = risposta.json()["points_after"]
+
+    atteso, _metriche = segment.crop_box(
+        punti, SegmentConfig(crop_min=tuple(basso), crop_max=tuple(alto))
+    )
+    assert dal_server == len(atteso)
+
+
+def test_un_box_vuoto_non_solleva_ma_lo_dice(cliente, tmp_path):
+    """La nuvola va scritta davvero, altrimenti il test passa per la ragione
+    sbagliata: senza artefatto la richiesta muore su io.read_cloud e il 400
+    arriva da li', anche se il ramo del box vuoto non esistesse. Con la nuvola
+    sul posto il rifiuto puo' venire solo da crop_box, e il suo messaggio deve
+    arrivare intero fino al browser: e' quello che dice dove guardare.
+    """
+    import numpy as np
+
+    from meshrec.core import io, pipeline
+
+    io.write_cloud(
+        tmp_path / "corsa" / pipeline.ARTIFACTS[2],
+        np.random.default_rng(0).random((1_000, 3)) * 100.0,
+    )
+    risposta = cliente.post("/api/crop", json={"min": [1e9, 1e9, 1e9], "max": [2e9, 2e9, 2e9]})
+    assert risposta.status_code == 400
+    corpo = risposta.json()
+    assert "errore" in corpo
+    assert "nelle unita di lavoro (mm)" in corpo["messaggio"]

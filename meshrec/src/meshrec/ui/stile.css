@@ -62,6 +62,10 @@ body {
 .campo input:focus-visible { outline: 2px solid var(--accento); outline-offset: 1px; }
 .campo-rifiutato { border-color: #a02020; }
 .errore { margin: 0 0 var(--passo); color: #a02020; font-size: 0.8rem; line-height: 1.35; overflow-wrap: anywhere; }
+/* Vuota non occupa spazio, ma resta nell'albero di accessibilita': display:none
+   e hidden ne toglierebbero la regione role="alert", che deve essere viva prima
+   che ci si scriva dentro perche' l'annuncio sia garantito. */
+.errore:empty { margin: 0; }
 .errore-campo { color: #a02020; font-size: 0.7rem; line-height: 1.35; overflow-wrap: anywhere; }
 .campo input[readonly] { background: color-mix(in srgb, var(--tenue) 8%, transparent); color: var(--tenue); }
 .aiuto { color: var(--tenue); font-size: 0.7rem; line-height: 1.35; }

@@ -17,7 +17,7 @@ from fastapi import FastAPI, Response
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 from meshrec.app.worker import Worker
-from meshrec.core import pipeline, quality, steps, sweep, viewport
+from meshrec.core import io, pipeline, quality, segment, steps, sweep, viewport
 from meshrec.core.config import PipelineConfig, ViewportConfig, load_config, save_config
 from meshrec.core.io import scrivi_atomico
 
@@ -232,6 +232,32 @@ def create_app(config_path: Path) -> FastAPI:
     @app.post("/api/cancel")
     def annulla() -> dict[str, object]:
         return {"annullato": lavoratore.cancel()}
+
+    @app.post("/api/crop")
+    def ritaglia(box: dict[str, list[float]]) -> dict[str, object]:
+        """Il box disegnato nel viewport diventa segment.crop_min e crop_max.
+
+        L'interfaccia disegna il box; il ritaglio lo esegue segment.crop_box,
+        che e' la stessa funzione che la pipeline usa. Non c'e' una seconda
+        implementazione del ritaglio da tenere allineata.
+
+        La configurazione si scrive solo se il ritaglio e' andato a buon fine:
+        un box degenere o vuoto solleva prima, e non lascia sul disco estremi
+        che nessuno step potrebbe applicare.
+        """
+        cfg = corrente()
+        cfg.segment.crop_min = tuple(box["min"])
+        cfg.segment.crop_max = tuple(box["max"])
+        percorso = Path(cfg.run.out_dir) / pipeline.ARTIFACTS[2]
+        if not percorso.exists():
+            percorso = Path(cfg.run.out_dir) / pipeline.ARTIFACTS[1]
+        punti, _normali = io.read_cloud(percorso)
+        _dentro, metriche = segment.crop_box(punti, cfg.segment)
+        save_config(cfg, config_path)
+        # Le metriche del core sono l'unica fonte: points_after c'e' gia'
+        # dentro (core/segment.py:59), e riscriverlo qui sarebbe una riga che
+        # sembra calcolare qualcosa e non lo fa.
+        return metriche
 
     @app.get("/api/cloud/{numero}")
     def nuvola(numero: int, max_points: int | None = None) -> Response:

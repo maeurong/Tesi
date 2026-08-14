@@ -73,9 +73,15 @@ flusso.addEventListener("riga", (evento) => {
   registro.scrollTop = registro.scrollHeight;
 });
 
-document.getElementById("annulla").addEventListener("click", async () => {
+// Con un nome, non inline: cosi' il test che sorveglia la regola dell'ordine
+// la vede e la puo' escludere per iscritto invece di non incontrarla mai.
+// Nessuna scrittura dopo l'attesa — lo stato torna dallo scorrere degli
+// eventi — quindi non c'e' nulla che una generazione superata contraddica.
+async function annullaLaCorsa() {
   await fetch("/api/cancel", { method: "POST" });
-});
+}
+
+document.getElementById("annulla").addEventListener("click", annullaLaCorsa);
 
 import { creaViewport } from "/ui/viewport.js";
 
@@ -265,9 +271,92 @@ function paragrafoErrore(testo) {
   return paragrafo;
 }
 
+// Niente hidden: un elemento nascosto cosi' esce dall'albero di accessibilita',
+// e role="alert" non ha piu' una regione viva da sorvegliare, quindi l'annuncio
+// non e' garantito. La regione resta sempre nell'albero e cambia solo
+// contenuto; a vuota non occupa spazio (.errore:empty in stile.css).
 function dichiaraErrore(testo) {
   rigaErrore.textContent = testo ?? "";
-  rigaErrore.hidden = !testo;
+}
+
+// Il ritaglio si comanda dallo step che lo esegue: crop_min e crop_max sono
+// parametri di segment, e lo step 2 e' quello che li applica.
+const STEP_CON_RITAGLIO = 2;
+
+// Sei campi sull'ingombro della nuvola disegnata, il box ridisegnato a ogni
+// modifica, e un bottone che manda gli estremi a /api/crop. Il conteggio non
+// lo calcola il browser: lo restituisce segment.crop_box, la stessa funzione
+// che la pipeline usa allo step 2.
+function pannelloRitaglio(ordine) {
+  const contenitore = document.createElement("fieldset");
+  contenitore.className = "gruppo";
+  contenitore.append(Object.assign(document.createElement("legend"), { textContent: "Ritaglio" }));
+  const ingombro = vista.ingombro();
+  // Senza geometria non c'e' nessun ingombro da leggere, e ingombro() lo dice
+  // con null apposta: una scatola vuota darebbe +Infinity e -Infinity, che
+  // sono valori accettabili per un campo numerico e per nient'altro.
+  if (ingombro === null) {
+    contenitore.append(Object.assign(document.createElement("p"), {
+      className: "aiuto",
+      textContent: "Nessuna nuvola disegnata: esegui lo step per vedere i punti e ritagliarli.",
+    }));
+    return contenitore;
+  }
+  const valori = { min: [...ingombro.min], max: [...ingombro.max] };
+  for (const estremo of ["min", "max"]) {
+    for (const asse of [0, 1, 2]) {
+      const riga = document.createElement("label");
+      riga.className = "campo";
+      riga.append(Object.assign(document.createElement("span"), {
+        textContent: `${estremo} ${"xyz"[asse]}`,
+      }));
+      const input = document.createElement("input");
+      input.type = "number";
+      input.step = "any";
+      input.value = valori[estremo][asse].toFixed(1);
+      input.addEventListener("input", () => {
+        valori[estremo][asse] = Number(input.value);
+        vista.mostraBox(valori.min, valori.max);
+      });
+      riga.append(input);
+      contenitore.append(riga);
+    }
+  }
+  const applica = document.createElement("button");
+  applica.type = "button";
+  applica.className = "bottone";
+  applica.textContent = "Applica il ritaglio";
+  const esito = document.createElement("p");
+  esito.className = "aiuto";
+  applica.addEventListener("click", async () => {
+    dichiaraErrore(null);
+    esito.textContent = "";
+    const risposta = await fetch("/api/crop", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(valori),
+    });
+    if (!risposta.ok) {
+      const ragione = await ragioneDelRifiuto(risposta);
+      // Dopo l'ultima attesa e prima della prima scrittura, come le altre
+      // tratte: il ritaglio legge la nuvola piena e puo' metterci qualche
+      // secondo, e in quel tempo il pannello sotto puo' essere un altro.
+      if (superata(ordine)) return;
+      dichiaraErrore(ragione);
+      return;
+    }
+    const corpo = await risposta.json();
+    if (superata(ordine)) return;
+    // Il bottone dice «Applica», non «Anteprima»: /api/crop scrive crop_min e
+    // crop_max nella configurazione della corsa, e chi sta esplorando deve
+    // saperlo qui, non riaprendo il pannello.
+    esito.textContent =
+      `${corpo.points_after.toLocaleString("it")} punti dentro il box. ` +
+      "crop_min e crop_max sono stati scritti nella configurazione della corsa.";
+  });
+  contenitore.append(applica, esito);
+  vista.mostraBox(valori.min, valori.max);
+  return contenitore;
 }
 
 // ordine: la generazione del clic che ha chiesto questo pannello. Il
@@ -288,8 +377,20 @@ async function apriDettaglio(numero, ordine = generazione) {
     }
     schemaParametri = await risposta.json();
   }
-  configurazione = await (await fetch("/api/config")).json();
-  const metriche = await (await fetch("/api/metrics")).json();
+  // Come il ramo dello schema qui sopra: senza guardare risposta.ok, .json()
+  // solleva un SyntaxError sul corpo d'errore e il pannello resta bianco senza
+  // dire perche'. Qui pero' non si memorizza nulla — si rilegge a ogni
+  // apertura — quindi basta mostrare la ragione, non c'e' cache da avvelenare.
+  const rispostaConfig = await fetch("/api/config");
+  const rispostaMetriche = await fetch("/api/metrics");
+  if (!rispostaConfig.ok || !rispostaMetriche.ok) {
+    const ragione = await ragioneDelRifiuto(rispostaConfig.ok ? rispostaMetriche : rispostaConfig);
+    if (superata(ordine)) return;
+    dettaglio.replaceChildren(paragrafoErrore(ragione));
+    return;
+  }
+  configurazione = await rispostaConfig.json();
+  const metriche = await rispostaMetriche.json();
   // Dopo l'ultima attesa e prima della prima scrittura: qui sono tre andate e
   // ritorni, e in mezzo l'utente puo' aver scelto un altro step. Anche
   // stepAperto sta sotto la guardia, perche' e' lui a dire allo scorrere degli
@@ -302,7 +403,6 @@ async function apriDettaglio(numero, ordine = generazione) {
   // Svuotata a ogni apertura e prima di ogni tentativo: un errore gia' risolto
   // lasciato a video contraddice cio' che il pannello mostra.
   rigaErrore = paragrafoErrore("");
-  rigaErrore.hidden = true;
   dettaglio.append(rigaErrore);
 
   const azioni = document.createElement("div");
@@ -372,13 +472,19 @@ async function apriDettaglio(numero, ordine = generazione) {
             headers: { "content-type": "application/json" },
             body: JSON.stringify(configurazione),
           });
+          const rifiuto = risposta.ok ? null : await ragioneDelRifiuto(risposta);
+          // Dopo l'ultima attesa e prima della prima scrittura: configurazione
+          // e' di modulo e la riapre ogni pannello, quindi un rifiuto tornato
+          // tardi rimetterebbe il proprio valore di prima dentro la
+          // configurazione di un altro step.
+          if (superata(ordine)) return;
           input.classList.toggle("campo-rifiutato", !risposta.ok);
-          if (!risposta.ok) {
+          if (rifiuto !== null) {
             // Il valore rifiutato non resta nell'oggetto: la PUT manda
             // l'intera configurazione, e tenerlo farebbe rifiutare ogni
             // modifica successiva accusando il campo sbagliato.
             configurazione[blocco][nome] = precedente;
-            messaggio.textContent = await ragioneDelRifiuto(risposta);
+            messaggio.textContent = rifiuto;
             messaggio.hidden = false;
             input.setAttribute("aria-invalid", "true");
             // aria-invalid da solo dice che c'e' un errore, mai quale.
@@ -403,6 +509,10 @@ async function apriDettaglio(numero, ordine = generazione) {
     }
     dettaglio.append(gruppo);
   }
+
+  // Dentro dettaglio, che replaceChildren() svuota a ogni apertura: cosi' il
+  // pannello non puo' sopravvivere a uno step che non e' il suo.
+  if (numero === STEP_CON_RITAGLIO) dettaglio.append(pannelloRitaglio(ordine));
 
   const chiave = Object.keys(metriche).find((k) => k.startsWith(String(numero).padStart(2, "0")));
   if (chiave) {

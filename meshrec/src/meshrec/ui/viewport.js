@@ -40,6 +40,12 @@ export function creaViewport(contenitore) {
 
   const gruppo = new THREE.Group();
   scena.add(gruppo);
+
+  // Il box di ritaglio: uno solo, tenuto in una variabile di chiusura come
+  // pianoTaglio e non su this, perche' svuota() deve poterlo azzerare quando
+  // libera la geometria. Sta dentro il gruppo apposta: cosi' la stessa
+  // traversata che libera nuvola e mesh libera anche lui.
+  let box = null;
   scena.add(new THREE.AmbientLight(0xffffff, 0.7));
   const direzionale = new THREE.DirectionalLight(0xffffff, 0.8);
   direzionale.position.set(1, 2, 3);
@@ -151,6 +157,10 @@ export function creaViewport(contenitore) {
         oggetto.material?.dispose();
       });
       gruppo.clear();
+      // Il box e' appena stato liberato dalla traversata qui sopra: tenerne il
+      // riferimento lascerebbe mostraBox a riscrivere una geometria che non
+      // esiste piu' sulla scheda.
+      box = null;
       descrivi("vuota");
     },
     mostraNuvola(punti) {
@@ -184,6 +194,19 @@ export function creaViewport(contenitore) {
       const scatola = scatolaDelGruppo();
       if (scatola.isEmpty()) return null;
       return { min: scatola.min.toArray(), max: scatola.max.toArray() };
+    },
+    // Il box di ritaglio disegnato sopra la nuvola, in millimetri come lei.
+    // Un solo Box3Helper riusato: si ridisegna a ogni tasto premuto nei sei
+    // campi, e crearne uno nuovo ogni volta lascerebbe sulla scheda la
+    // geometria di quello di prima. three.js rilegge this.box a ogni
+    // fotogramma (three.core.js:57620, updateMatrixWorld), quindi riscrivere
+    // gli estremi basta e non serve ricostruire nulla.
+    mostraBox(basso, alto) {
+      if (box === null) {
+        box = new THREE.Box3Helper(new THREE.Box3(), new THREE.Color(0xc4671b));
+        gruppo.add(box);
+      }
+      box.box.set(new THREE.Vector3(...basso), new THREE.Vector3(...alto));
     },
     // asse: 0 per x, 1 per y, 2 per z. Resta visibile la meta' oltre la quota,
     // perche' three.js tiene i punti dove normale . punto + costante > 0.
