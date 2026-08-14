@@ -34,6 +34,30 @@ def test_il_worker_cattura_le_righe_del_processo(tmp_path):
     assert any("ValueError" in riga or "nessun punto" in riga for riga in lavoratore.righe())
 
 
+def test_il_tempo_trascorso_lo_misura_il_worker_e_finisce_con_lo_step(tmp_path):
+    """Il cronometro deve stare dove lo step parte davvero: misurato nel
+    browser conterebbe da quando quella pagina ha visto lo stato 'in corso',
+    e tornerebbe a zero a ogni ricarica mentre il calcolo prosegue."""
+    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "assente.ply"))
+    cfg.run.out_dir = tmp_path / "corsa"
+    percorso = tmp_path / "config.yaml"
+    save_config(cfg, percorso)
+
+    lavoratore = Worker()
+    assert lavoratore.da_secondi() is None
+    lavoratore.start(percorso, 1, 1)
+    assert lavoratore.is_running() is True
+    trascorsi = lavoratore.da_secondi()
+    assert trascorsi is not None and trascorsi >= 0.0
+
+    for _ in range(600):
+        if not lavoratore.is_running():
+            break
+        time.sleep(0.1)
+    assert lavoratore.is_running() is False
+    assert lavoratore.da_secondi() is None
+
+
 def test_annullare_un_worker_fermo_non_solleva():
     assert Worker().cancel() is False
 

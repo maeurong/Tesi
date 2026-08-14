@@ -12,6 +12,7 @@ from __future__ import annotations
 import subprocess
 import sys
 import threading
+import time
 from collections import deque
 from pathlib import Path
 
@@ -31,9 +32,23 @@ class Worker:
         self.exit_code: int | None = None
         self.step: int | None = None
         self.annullato = False
+        self.avviato: float | None = None
 
     def is_running(self) -> bool:
         return self._processo is not None and self._processo.poll() is None
+
+    def da_secondi(self) -> float | None:
+        """Secondi dall'avvio dello step in corso. None se non gira nulla.
+
+        Il tempo si misura qui, dove lo step parte davvero: contato nel
+        browser conterebbe da quando quella pagina ha visto lo stato "in
+        corso", non da quando il calcolo e' partito. time.monotonic e non
+        time.time perche' l'orologio di sistema puo' saltare all'indietro e
+        darebbe un tempo trascorso negativo.
+        """
+        if not self.is_running() or self.avviato is None:
+            return None
+        return time.monotonic() - self.avviato
 
     def righe(self) -> list[str]:
         with self._lucchetto:
@@ -49,6 +64,7 @@ class Worker:
         self.exit_code = None
         self.annullato = False
         self.step = from_step
+        self.avviato = time.monotonic()
         self._processo = subprocess.Popen(
             [
                 sys.executable, "-m", "meshrec.cli", "run", str(config_path),

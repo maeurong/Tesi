@@ -45,3 +45,14 @@ body {
 .stato-valido .step-stato { color: var(--accento); }
 .stato-non-valido .step-stato { color: #9a5b12; }
 .stato-fallito .step-stato { color: #a02020; }
+.azioni { display: flex; gap: var(--passo); flex-wrap: wrap; margin-bottom: 1rem; }
+.gruppo { border: 1px solid var(--bordo); border-radius: 0.25rem; padding: var(--passo); margin: 0 0 var(--passo); }
+.gruppo legend { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--tenue); }
+.campo { display: grid; gap: 0.15rem; margin-bottom: var(--passo); font-size: 0.85rem; }
+.campo input { font: inherit; padding: 0.25rem; border: 1px solid var(--bordo); border-radius: 0.2rem; background: var(--sfondo); color: var(--testo); }
+.campo input:focus-visible { outline: 2px solid var(--accento); outline-offset: 1px; }
+.campo-rifiutato { border-color: #a02020; }
+.aiuto { color: var(--tenue); font-size: 0.7rem; line-height: 1.35; }
+.metriche { display: grid; grid-template-columns: auto 1fr; gap: 0.15rem var(--passo); font-size: 0.8rem; }
+.metriche dt { color: var(--tenue); }
+.metriche dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }

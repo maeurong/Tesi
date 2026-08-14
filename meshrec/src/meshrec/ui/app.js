@@ -38,20 +38,19 @@ caricaStato();
 // forniscono una, e una barra fabbricata sarebbe un numero plausibile che
 // nessuna misura smentisce. Si mostra quale step gira, da quanto, e le righe
 // che scrive.
+// Il tempo trascorso lo misura il server, dove lo step parte davvero: contato
+// qui conterebbe da quando questa pagina ha visto lo stato "in corso", e
+// tornerebbe a zero a ogni ricarica mentre il calcolo prosegue.
 const flusso = new EventSource("/api/events");
-let avvioStep = null;
 
 flusso.addEventListener("stato", (evento) => {
   const stato = JSON.parse(evento.data);
   disegnaStep(stato.steps);
   const barra = document.getElementById("in-corso");
-  if (stato.in_corso) {
-    avvioStep = avvioStep ?? Date.now();
-    const trascorsi = Math.round((Date.now() - avvioStep) / 1000);
-    barra.textContent = `step ${stato.step} in corso, ${trascorsi} s`;
+  if (stato.in_corso && stato.da_secondi !== null) {
+    barra.textContent = `step ${stato.step} in corso, ${Math.round(stato.da_secondi)} s`;
     barra.hidden = false;
   } else {
-    avvioStep = null;
     barra.hidden = true;
   }
 });
@@ -95,5 +94,106 @@ async function mostraNuvolaDelloStep(numero) {
 
 document.getElementById("elenco-step").addEventListener("click", (evento) => {
   const riga = evento.target.closest(".step");
-  if (riga) mostraNuvolaDelloStep(Number(riga.dataset.numero));
+  if (!riga) return;
+  const numero = Number(riga.dataset.numero);
+  mostraNuvolaDelloStep(numero);
+  apriDettaglio(numero);
 });
+
+// Lo schema e le descrizioni vengono dai modelli di config.py: l'interfaccia
+// non li riscrive, e la validazione di cio' che si scrive resta quella dei
+// modelli, non una copia lato browser.
+let schemaParametri = null;
+let configurazione = null;
+
+async function apriDettaglio(numero) {
+  schemaParametri = schemaParametri ?? await (await fetch("/api/schema")).json();
+  configurazione = await (await fetch("/api/config")).json();
+  const metriche = await (await fetch("/api/metrics")).json();
+  const voce = schemaParametri[String(numero)];
+  const dettaglio = document.getElementById("dettaglio");
+  dettaglio.replaceChildren();
+
+  const azioni = document.createElement("div");
+  azioni.className = "azioni";
+  for (const [etichetta, percorso] of [
+    ["Esegui questo step", `/api/step/${numero}`],
+    ["Esegui da qui in giu'", `/api/step/${numero}/from`],
+  ]) {
+    const bottone = document.createElement("button");
+    bottone.type = "button";
+    bottone.className = "bottone";
+    bottone.textContent = etichetta;
+    bottone.addEventListener("click", () => fetch(percorso, { method: "POST" }));
+    azioni.append(bottone);
+  }
+  dettaglio.append(azioni);
+
+  for (const blocco of voce.blocchi) {
+    const gruppo = document.createElement("fieldset");
+    gruppo.className = "gruppo";
+    const titolo = document.createElement("legend");
+    titolo.textContent = blocco;
+    gruppo.append(titolo);
+    for (const [nome, campo] of Object.entries(voce.campi[blocco])) {
+      const riga = document.createElement("label");
+      riga.className = "campo";
+      riga.append(Object.assign(document.createElement("span"), { textContent: nome }));
+      const input = document.createElement("input");
+      input.value = String(configurazione[blocco][nome] ?? "");
+      input.title = campo.description;
+      input.addEventListener("change", async () => {
+        const grezzo = input.value;
+        const numerico = Number(grezzo);
+        configurazione[blocco][nome] =
+          grezzo === "true" ? true : grezzo === "false" ? false :
+          grezzo === "" ? null : Number.isNaN(numerico) ? grezzo : numerico;
+        const risposta = await fetch("/api/config", {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(configurazione),
+        });
+        input.classList.toggle("campo-rifiutato", !risposta.ok);
+        if (!risposta.ok) {
+          input.setAttribute("aria-invalid", "true");
+        } else {
+          input.removeAttribute("aria-invalid");
+        }
+      });
+      riga.append(input);
+      const aiuto = document.createElement("small");
+      aiuto.className = "aiuto";
+      aiuto.textContent = campo.description;
+      riga.append(aiuto);
+      gruppo.append(riga);
+    }
+    dettaglio.append(gruppo);
+  }
+
+  const chiave = Object.keys(metriche).find((k) => k.startsWith(String(numero).padStart(2, "0")));
+  if (chiave) {
+    const titolo = document.createElement("h3");
+    titolo.textContent = "Metriche";
+    const tabella = document.createElement("dl");
+    tabella.className = "metriche";
+    for (const [nome, valore] of Object.entries(metriche[chiave])) {
+      tabella.append(
+        Object.assign(document.createElement("dt"), { textContent: nome }),
+        Object.assign(document.createElement("dd"), {
+          textContent: typeof valore === "object" ? JSON.stringify(valore) : String(valore),
+        }),
+      );
+    }
+    dettaglio.append(titolo, tabella);
+  }
+
+  // Lo step 7 non ha parametri propri: senza metriche il pannello resterebbe
+  // i soli bottoni, e un riquadro vuoto non distingue "niente da mostrare" da
+  // "non ha caricato".
+  if (voce.blocchi.length === 0 && !chiave) {
+    dettaglio.append(Object.assign(document.createElement("p"), {
+      className: "vuoto",
+      textContent: "Questo step non ha parametri propri e non ha ancora prodotto metriche.",
+    }));
+  }
+}

@@ -71,7 +71,15 @@ class SurfaceConfig(BaseModel):
     """Step 5: ricostruzione della superficie."""
 
     method: Literal["poisson", "bpa", "alpha"] = "poisson"
-    poisson_depth: int = Field(default=9, ge=4, le=14)
+    poisson_depth: int = Field(
+        default=9,
+        ge=4,
+        le=14,
+        description=(
+            "profondita' dell'ottree del solutore Poisson: piu' alta, superficie piu' "
+            "fitta; su muro, 9 -> 8 porta i triangoli da 908.118 a 221.369"
+        ),
+    )
     poisson_width: float = Field(default=0.0, ge=0.0)
     poisson_scale: float = Field(default=1.1, gt=0.0)
     density_quantile: float = Field(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -196,6 +197,36 @@ def test_nessun_riferimento_a_una_rete_esterna_nell_interfaccia():
         testo = percorso.read_text(encoding="utf-8")
         for sospetto in ("https://", "http://", "//cdn.", "unpkg", "jsdelivr"):
             assert sospetto not in testo, f"{percorso.name} punta fuori dalla macchina"
+
+
+def test_le_metriche_tornano_quelle_scritte_su_disco(cliente, tmp_path):
+    from meshrec.core import pipeline
+
+    corsa = tmp_path / "corsa"
+    corsa.mkdir()
+    (corsa / pipeline.METRICS_FILENAME).write_text(
+        json.dumps({"01_load": {"points_kept": 6_329_096}}), encoding="utf-8"
+    )
+    corpo = cliente.get("/api/metrics").json()
+    assert corpo["01_load"]["points_kept"] == 6_329_096
+
+
+def test_le_metriche_di_una_corsa_mai_eseguita_sono_vuote_e_non_sollevano(cliente):
+    assert cliente.get("/api/metrics").json() == {}
+
+
+def test_lo_schema_dice_quali_parametri_appartengono_a_ogni_step(cliente):
+    corpo = cliente.get("/api/schema").json()
+    assert corpo["5"]["blocchi"] == ["surface"]
+    assert "poisson_depth" in corpo["5"]["campi"]["surface"]
+    assert corpo["5"]["campi"]["surface"]["poisson_depth"]["description"]
+
+
+def test_il_tempo_dello_step_viene_dal_server_e_non_dal_browser(cliente):
+    corpo = cliente.get("/api/events?max_eventi=1").text
+    stato = json.loads(corpo.split("data: ", 1)[1].split("\n", 1)[0])
+    assert stato["da_secondi"] is None   # non gira nulla: nessun tempo inventato
+    assert "da_secondi" in stato
 
 
 def test_nessun_endpoint_solleva_verso_il_browser(cliente):

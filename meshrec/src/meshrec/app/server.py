@@ -14,7 +14,7 @@ from fastapi import FastAPI, Response
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 from meshrec.app.worker import Worker
-from meshrec.core import pipeline, steps, viewport
+from meshrec.core import pipeline, steps, sweep, viewport
 from meshrec.core.config import PipelineConfig, ViewportConfig, load_config, save_config
 
 UI_DIR = Path(__file__).resolve().parent.parent / "ui"
@@ -74,6 +74,38 @@ def create_app(config_path: Path) -> FastAPI:
         # propria, e un valore fuori dominio non arriva mai alla pipeline.
         save_config(nuova, config_path)
         return nuova.model_dump(mode="json")
+
+    @app.get("/api/metrics")
+    def metriche() -> dict[str, object]:
+        """Le metriche cosi' come stanno sul disco. L'interfaccia non ne calcola."""
+        return sweep.leggi_metriche(corrente().run.out_dir)
+
+    @app.get("/api/schema")
+    def schema() -> dict[str, object]:
+        """Quali parametri appartengono a quale step, con descrizione e dominio.
+
+        Le descrizioni vengono dai modelli: sono le stesse che documentano il
+        perche' di ogni predefinito misurato, e vanno mostrate accanto al
+        campo invece di essere riscritte nell'interfaccia.
+        """
+        modelli = PipelineConfig.model_fields
+        fuori: dict[str, object] = {}
+        for numero, blocchi in steps.STEP_BLOCKS.items():
+            campi: dict[str, object] = {}
+            for blocco in blocchi:
+                annidato = modelli[blocco].annotation
+                campi[blocco] = {
+                    nome: {
+                        "description": campo.description or "",
+                        "default": campo.get_default(call_default_factory=True),
+                    }
+                    for nome, campo in annidato.model_fields.items()
+                }
+            fuori[str(numero)] = {"blocchi": list(blocchi), "campi": campi}
+        # Un predefinito puo' essere un Path, una tupla o un modello annidato:
+        # non tutti sono serializzabili in JSON, e il pannello li mostra come
+        # testo. default=str li rende senza inventarne il valore.
+        return json.loads(json.dumps(fuori, default=str))
 
     lavoratore = Worker()
 
@@ -151,6 +183,7 @@ def create_app(config_path: Path) -> FastAPI:
                     "step": lavoratore.step,
                     "exit_code": lavoratore.exit_code,
                     "annullato": lavoratore.annullato,
+                    "da_secondi": lavoratore.da_secondi(),
                     "steps": steps.run_state(cfg.run.out_dir, cfg),
                 }
                 yield f"event: stato\ndata: {json.dumps(stato, default=str)}\n\n"
