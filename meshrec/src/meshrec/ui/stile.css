@@ -25,6 +25,7 @@ body {
 .zona h2 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--tenue); margin: 0 0 var(--passo); }
 .elenco-step { list-style: none; margin: 0; padding: 0; }
 .viewport { width: 100%; height: 100%; }
+.viewport canvas:focus-visible { outline: 2px solid var(--accento); outline-offset: -2px; }
 .vuoto { color: var(--tenue); font-size: 0.9rem; }
 @media (max-width: 60rem) { .tre-zone { grid-template-columns: 1fr; height: auto; } }
 .bottone { font: inherit; padding: 0.25rem 0.75rem; border: 1px solid var(--bordo); border-radius: 0.25rem; background: var(--superficie); color: var(--testo); cursor: pointer; }
@@ -32,3 +33,11 @@ body {
 .in-corso { margin: 0; color: var(--accento); font-size: 0.85rem; font-variant-numeric: tabular-nums; }
 .registro { max-height: 14rem; overflow: auto; font-family: ui-monospace, monospace; font-size: 0.75rem; border: 1px solid var(--bordo); border-radius: 0.25rem; padding: var(--passo); }
 .riga-log { white-space: pre-wrap; word-break: break-word; }
+.zona-vista { position: relative; padding: 0; }
+.conteggi { position: absolute; bottom: var(--passo); left: var(--passo); margin: 0; padding: 0.2rem 0.5rem; background: color-mix(in srgb, var(--superficie) 85%, transparent); border-radius: 0.25rem; font-size: 0.8rem; font-variant-numeric: tabular-nums; color: var(--tenue); }
+.step { display: flex; justify-content: space-between; gap: var(--passo); padding: 0.35rem 0.5rem; border-radius: 0.25rem; cursor: pointer; font-size: 0.9rem; }
+.step:hover { background: color-mix(in srgb, var(--accento) 8%, transparent); }
+.step-stato { color: var(--tenue); font-size: 0.75rem; }
+.stato-valido .step-stato { color: var(--accento); }
+.stato-non-valido .step-stato { color: #9a5b12; }
+.stato-fallito .step-stato { color: #a02020; }

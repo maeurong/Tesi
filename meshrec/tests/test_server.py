@@ -109,6 +109,25 @@ def test_chiedere_la_nuvola_di_uno_step_mai_eseguito_non_solleva(cliente):
     assert "errore" in risposta.json()
 
 
+def test_three_js_e_servito_dal_server_e_non_dalla_rete(cliente):
+    for nome in ("three.module.js", "three.core.js"):
+        risposta = cliente.get(f"/ui/vendor/{nome}")
+        assert risposta.status_code == 200
+        assert len(risposta.content) > 100_000
+
+
+def test_nessun_riferimento_a_una_rete_esterna_nell_interfaccia():
+    """Il server e' locale e l'applicazione deve partire senza rete."""
+    from meshrec.app.server import UI_DIR
+
+    for percorso in UI_DIR.rglob("*"):
+        if percorso.suffix not in {".html", ".js", ".css"} or "vendor" in percorso.parts:
+            continue
+        testo = percorso.read_text(encoding="utf-8")
+        for sospetto in ("https://", "http://", "//cdn.", "unpkg", "jsdelivr"):
+            assert sospetto not in testo, f"{percorso.name} punta fuori dalla macchina"
+
+
 def test_nessun_endpoint_solleva_verso_il_browser(cliente):
     """Il contratto vale sull'elenco intero, derivato dall'applicazione stessa:
     un endpoint aggiunto domani vi entra da solo e non puo' essere dimenticato.

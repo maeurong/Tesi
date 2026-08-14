@@ -68,3 +68,28 @@ flusso.addEventListener("riga", (evento) => {
 document.getElementById("annulla").addEventListener("click", async () => {
   await fetch("/api/cancel", { method: "POST" });
 });
+
+import { creaViewport } from "/ui/viewport.js";
+
+const vista = creaViewport(document.getElementById("viewport"));
+
+async function mostraNuvolaDelloStep(numero) {
+  const risposta = await fetch(`/api/cloud/${numero}`);
+  if (!risposta.ok) {
+    document.getElementById("conteggi").textContent = "nessun artefatto per questo step";
+    return;
+  }
+  const disegnati = Number(risposta.headers.get("X-Points-Drawn"));
+  const pieni = Number(risposta.headers.get("X-Points-Total"));
+  const grezzi = await risposta.arrayBuffer();
+  vista.svuota();
+  vista.mostraNuvola(new Float32Array(grezzi));
+  // Sempre entrambi: una nuvola decimata che non lo dichiara e' un dato falso.
+  document.getElementById("conteggi").textContent =
+    `${disegnati.toLocaleString("it")} punti disegnati su ${pieni.toLocaleString("it")}`;
+}
+
+document.getElementById("elenco-step").addEventListener("click", (evento) => {
+  const riga = evento.target.closest(".step");
+  if (riga) mostraNuvolaDelloStep(Number(riga.dataset.numero));
+});
