@@ -42,7 +42,14 @@
     <h2>Dettaglio</h2>
     <div id="dettaglio"><p class="vuoto">Scegli uno step per vederne parametri e metriche.</p></div>
     <h2>Registro</h2>
-    <div class="registro" id="registro" role="log" aria-live="polite"></div>
+    <!-- tabindex="0": il registro e' alto 14rem e scorre, e dentro non c'e'
+         niente su cui il fuoco possa posarsi. Senza questo attributo Chrome non
+         lo rende raggiungibile da tastiera e le righe uscite dall'alto non si
+         possono piu' leggere senza il mouse (WCAG 2.1.1, livello A). Firefox
+         mette da solo il fuoco sui contenitori che scorrono; Chrome no. Le due
+         colonne che scorrono non ne hanno bisogno: contengono bottoni e campi,
+         e il fuoco che ci entra le porta in vista da se'. -->
+    <div class="registro" id="registro" role="log" aria-live="polite" tabindex="0"></div>
   </aside>
 </main>
 <script type="module" src="/ui/app.js"></script>

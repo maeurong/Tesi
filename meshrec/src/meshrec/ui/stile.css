@@ -136,6 +136,11 @@ body {
    riga si allarga e si stringe sotto gli occhi a ogni passaggio da 9 a 10. */
 .in-corso { margin: 0; color: var(--accento); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); font-variant-numeric: tabular-nums; }
 .registro { max-height: 14rem; overflow: auto; font-family: var(--stack-cifre); font-size: var(--tipo-nota); line-height: var(--interlinea); border: 1px solid var(--bordo); border-radius: var(--raggio); padding: var(--passo-2); }
+/* Il registro e' una tappa di tabulazione (tabindex="0" in index.html, perche'
+   scorre e non contiene nulla di focalizzabile): reso raggiungibile senza un
+   contorno visibile sarebbe una tappa cieca, cioe' un difetto al posto di una
+   correzione. Stesso contorno degli altri comandi, non uno suo. */
+.registro:focus-visible { outline: 2px solid var(--accento); outline-offset: 2px; }
 .riga-log { white-space: pre-wrap; word-break: break-word; }
 .zona-vista { position: relative; padding: 0; }
 .conteggi { position: absolute; bottom: var(--passo-2); left: var(--passo-2); margin: 0; padding: var(--passo-1) var(--passo-2); background: var(--velo); border-radius: var(--raggio); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); font-variant-numeric: tabular-nums; color: var(--tenue); }
