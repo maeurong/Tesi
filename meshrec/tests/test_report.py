@@ -62,35 +62,96 @@ def _glosse(paragrafo: str) -> dict[str, str]:
     return {stato: glossa for stato, glossa in report.GLOSSA.items() if glossa in paragrafo}
 
 
-def _residuo(paragrafo: str, pezzi: list[str]) -> str:
-    """Il paragrafo tolte le parti che vengono da una lettura.
+def _visibile(testo: str) -> str:
+    """Tutto quello che la sezione «Metriche per step» mostra a chi legge.
 
-    Quel che resta e' prosa scritta a mano che parla degli step elencati senza
-    rispondere a nessuna lettura, ed e' la forma con cui questo difetto e'
-    tornato tre volte: sempre una frase sola, ogni volta con parole diverse.
-    Cercare le parole sbagliate e' una lista che non finisce mai; pretendere
-    che non ne resti nessuna e' una condizione sola.
+    Un paragrafo solo non basta come perimetro: la stessa frase spostata di due
+    righe — nell'altro paragrafo, in un <div>, dietro un <h3>, dentro una cella
+    — torna a dire il contrario e nessuna asserzione la vede. Il perimetro e'
+    la sezione intera.
+
+    Le tabelle restano dentro: toglierle lascerebbe una cella libera di
+    contraddire le intestazioni sopra di se'. Gli attributi che il browser
+    stampa (title, alt) valgono come testo, perche' stampati lo sono.
     """
-    resto = paragrafo.split(">", 1)[1]
+    sezione = testo.split("<h2>Metriche per step</h2>", 1)[1].split("<h2>", 1)[0]
+    mostrati = re.findall(r"\b(?:title|alt)\s*=\s*[\"']([^\"']*)[\"']", sezione)
+    return re.sub(r"<[^>]*>", " ", sezione) + " " + " ".join(mostrati)
+
+
+def _residuo(sezione: str, pezzi: list[str]) -> str:
+    """La sezione tolto, un'occorrenza per pezzo, quello che viene da una lettura.
+
+    Quel che resta e' prosa scritta a mano che parla degli step senza
+    rispondere a nessuna lettura, ed e' la forma con cui questo difetto e'
+    tornato quattro volte: sempre una frase sola, ogni volta con parole
+    diverse, ogni volta in un punto diverso della sezione. Cercare le parole
+    sbagliate e' una lista che non finisce mai; pretendere che non ne resti
+    nessuna e' una condizione sola.
+
+    Un'occorrenza per pezzo, non tutte: `replace` senza limite cancella anche
+    la frase stampata due volte, e una frase ripetuta e' prosa che nessuna
+    lettura giustifica. Le ripetizioni legittime — la glossa di uno stato che
+    compare in due paragrafi — stanno nell'elenco due volte.
+
+    Le cifre spariscono con la punteggiatura: sono conteggi, e i conteggi li
+    provano gli altri test. Qui si guarda solo la prosa.
+    """
+    resto = sezione
     for pezzo in sorted(pezzi, key=len, reverse=True):
-        resto = resto.replace(pezzo, " ")
-    return re.sub(r"[\s.,:]", "", resto)
+        resto = resto.replace(pezzo, " ", 1)
+    return re.sub(r"[\s.,:\d]", "", resto)
 
 
-def _affermazioni_coerenti(testo: str, atteso: dict[str, str], mancanti: list[str]) -> None:
+def _prosa_della_coerenza(atteso: dict[str, str]) -> list[str]:
+    """Quello che il paragrafo della coerenza ha diritto di dire, per questa corsa.
+
+    Senza steps.json non si e' letto niente, e allora quel paragrafo dichiara
+    di non poter verificare: gli stati che il documento scrive sono tutti
+    «stato ignoto». Con steps.json letto dichiara invece il conteggio, nomina
+    i guasti e li glossa. Sono due paragrafi diversi, e nessuno dei due puo'
+    portare la prosa dell'altro.
+    """
+    if report.STATO_IGNOTO in atteso.values():
+        return [
+            "corrispondenza fra parametri e metriche non verificabile",
+            f"{steps.STATE_FILENAME} assente",
+            "nessuna traccia delle impronte",
+        ]
+    guasti = [
+        chiave
+        for chiave, stato in atteso.items()
+        if stato not in (report.VALIDO, report.MAI_ESEGUITO)
+    ]
+    pezzi = ["step su", "coerenti con i parametri mostrati", "no:"]
+    pezzi += [f"{chiave} ({atteso[chiave]})" for chiave in guasti]
+    pezzi += [f"{stato}: {report.GLOSSA[stato]}" for stato in {atteso[c] for c in guasti}]
+    if report.MAI_ESEGUITO in atteso.values():
+        pezzi += ["step", "non ancora eseguiti restano fuori dal conteggio"]
+    return pezzi
+
+
+def _affermazioni_coerenti(
+    testo: str, atteso: dict[str, str], mancanti: list[str], voci: list[str]
+) -> None:
     """Nessuno step riceve, nello stesso documento, due descrizioni incompatibili.
 
     Non cerca una sottostringa: raccoglie dal documento reso tutto quello che
     il documento afferma di ogni step — lo stato accanto al nome, dovunque
     compaia, e la glossa che quello stato riceve — e pretende che sia una cosa
-    sola, e che nell'elenco non resti altra prosa. Gli stati non sono scritti
-    qui: arrivano da run_state.
+    sola, e che nella sezione intera non resti altra prosa. Gli stati non sono
+    scritti qui: arrivano da run_state. `voci` sono i nomi di metrica che la
+    fixture ha scritto sul disco, cioe' il contenuto delle tabelle.
 
-    L'intestazione dell'elenco e' l'unica stringa scritta a mano in questo
-    file. Sta qui apposta: e' la sola prosa che il documento aggiunge ai dati,
-    e leggerla dalla costante del modulo renderebbe invisibile proprio la
-    mutazione che ha riportato tre volte il difetto — la frase riscritta al
-    posto suo. Cambiarla vuol dire riscriverla qui, e rileggerla.
+    La prosa ammessa e' ricopiata a mano, qui e in _prosa_della_coerenza. E'
+    l'unica duplicazione di questo file, e sta qui apposta: e' la sola prosa
+    che il documento aggiunge ai dati, e leggerla dalle costanti del modulo
+    renderebbe invisibile proprio la mutazione che ha riportato quattro volte
+    il difetto — la frase riscritta al posto suo, che il test seguirebbe.
+    Cambiare una di queste frasi vuol dire riscriverla qui, e rileggerla.
+
+    Il perimetro non e' piu' un paragrafo ma la sezione: la frase di troppo
+    non ha piu' un posto dove spostarsi restando dentro il documento.
     """
     for chiave, stato in atteso.items():
         trovati = re.findall(rf"{chiave} \(([^)]*)\)|{chiave} \[([^\]]*)\]", testo)
@@ -102,17 +163,16 @@ def _affermazioni_coerenti(testo: str, atteso: dict[str, str], mancanti: list[st
         assert f"{chiave} ({atteso[chiave]})" in senza
 
     stati = {atteso[chiave] for chiave in mancanti}
+    # ogni stato elencato e' spiegato dove e' elencato, e nessun altro lo e':
+    # il residuo vede la glossa di troppo, non la glossa nel paragrafo sbagliato
     assert _glosse(senza) == {stato: report.GLOSSA[stato] for stato in stati}
 
-    pezzi = ["step senza metriche"]
+    pezzi = list(voci) + _prosa_della_coerenza(atteso)
+    pezzi += [f"{chiave} [{atteso[chiave]}]" for chiave in atteso if chiave not in mancanti]
+    pezzi.append("step senza metriche:")
     pezzi += [f"{chiave} ({atteso[chiave]})" for chiave in mancanti]
     pezzi += [f"{stato}: {report.GLOSSA[stato]}" for stato in stati]
-    assert _residuo(senza, pezzi) == ""
-
-    # e la frase di troppo non puo' nemmeno spostarsi accanto: la sezione che
-    # parla degli step ha il paragrafo della coerenza e questo, non un terzo
-    sezione = testo.split("<h2>Metriche per step</h2>", 1)[1].split("<h2>", 1)[0]
-    assert len(re.findall(r"<p[^>]*>", sezione)) == 2, sezione
+    assert _residuo(_visibile(testo), pezzi) == "", _residuo(_visibile(testo), pezzi)
 
 
 def test_the_report_lists_every_row_and_marks_the_front(tmp_path):
@@ -689,7 +749,9 @@ def test_nessuno_step_riceve_due_descrizioni_incompatibili(tmp_path):
     # quattro: dirne uno sarebbe riferire una lettura mai avvenuta
     assert report.STATO_IGNOTO not in letto.values()
 
-    _affermazioni_coerenti(testo, letto, [chiave for chiave in letto if chiave != "01_load"])
+    _affermazioni_coerenti(
+        testo, letto, [chiave for chiave in letto if chiave != "01_load"], ["misura"]
+    )
 
     # anche il paragrafo di coerenza spiega gli stati che nomina, e non altri
     coerenza = _paragrafo(testo, report.COERENTI)
@@ -697,10 +759,6 @@ def test_nessuno_step_riceve_due_descrizioni_incompatibili(tmp_path):
         stato for stato in letto.values() if stato not in (report.VALIDO, report.MAI_ESEGUITO)
     }
     assert _glosse(coerenza) == {stato: report.GLOSSA[stato] for stato in guasti}
-    # e non dice altro: il conteggio, una glossa per stato guasto, la coda
-    # degli step non ancora eseguiti. Una frase in piu' sarebbe la stessa
-    # frase di troppo, rimessa nel paragrafo accanto
-    assert coerenza.count(".") == 1 + len(guasti) + 1
 
 
 def test_senza_steps_json_nessuna_frase_riferisce_una_lettura_che_non_c_e(tmp_path):
@@ -723,6 +781,7 @@ def test_senza_steps_json_nessuna_frase_riferisce_una_lettura_che_non_c_e(tmp_pa
         testo,
         {chiave: report.STATO_IGNOTO for chiave in steps.STEP_KEYS},
         list(steps.STEP_KEYS[1:]),
+        ["misura"],
     )
 
 
