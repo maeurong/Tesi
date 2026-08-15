@@ -242,6 +242,27 @@ def test_un_clic_senza_mappa_caricata_non_solleva(cliente):
     assert risposta.status_code == 400
 
 
+def test_un_clic_senza_mappa_solleva_anche_con_la_nuvola_gia_su_disco(cliente, tmp_path):
+    """Isola la sola variabile della mappa: qui, a differenza del test sopra,
+    02_segmented.ply esiste davvero ed e' leggibile. Senza questo test la
+    guardia sulla mappa mancante puo' sparire dall'endpoint senza che la
+    suite se ne accorga: il 400 del test sopra arriva anche da un file
+    assente (io.read_cloud solleva comunque), non prova la guardia. Qui
+    l'unica cosa che manca e' che /api/cloud/2 non e' mai stato chiamato, e
+    deve bastare a dare 400: se la guardia venisse tolta, la lettura andrebbe
+    a buon fine e la richiesta risponderebbe 200.
+    """
+    import numpy as np
+    from meshrec.core import io, pipeline
+
+    corsa = tmp_path / "corsa"
+    punti = np.random.default_rng(0).random((200, 3)) * 10.0
+    io.write_cloud(corsa / pipeline.ARTIFACTS[2], punti)
+
+    risposta = cliente.post("/api/cluster", json={"punto": 0})
+    assert risposta.status_code == 400
+
+
 def test_il_clic_sul_gruppo_piccolo_risolve_al_cluster_piccolo(cliente, tmp_path):
     """Il controllo che smentisce (brief task-11a): il primo test passerebbe
     identico anche se l'endpoint ignorasse la mappa e rispondesse sempre col
