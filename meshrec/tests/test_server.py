@@ -379,6 +379,133 @@ def test_il_clic_sul_gruppo_in_pareggio_risolve_al_cluster_piu_popoloso_in_assol
     assert corpo["cluster_index"] == 0
 
 
+def test_il_clic_sul_pareggio_esatto_fra_rumore_e_cluster_risolve_al_cluster(cliente, tmp_path):
+    """Mutazione D del revisore (task-11a-fix-2-review.md): il commento di
+    scegli_cluster dichiara "a parita' fra il cluster piu' votato e il
+    rumore vince il cluster", ma nessun test costruiva il confine ESATTO
+    (tutti i test esistenti hanno o rumore strettamente minoritario o
+    maggioranza schiacciante). Qui un blocco di 55 punti fitti (stesso
+    raggio 3 mm del test della maggioranza-rumore, sopra cluster_min_points
+    =50) forma un cluster vero, e una catena di ESATTAMENTE 55 punti isolati
+    (passo 50 mm, oltre l'eps calcolato sulla spaziatura mista) resta tutta
+    rumore: misurato fuori dal test, voti-cluster=55 e voti-rumore=55, un
+    pareggio esatto, non una minoranza. Con max_points=1 l'intera nuvola
+    (110 punti) e' un solo gruppo disegnato, come nel test della
+    maggioranza-rumore sopra. La richiesta deve rispondere 200 col cluster:
+    con `>=` al posto di `>` (la mutazione D) il pareggio si leggerebbe come
+    rumore in maggioranza e risponderebbe 400.
+    """
+    import numpy as np
+    from meshrec.core import io, pipeline
+
+    corsa = tmp_path / "corsa"
+    denso = np.random.default_rng(0).random((55, 3)) * 3.0
+    catena = np.zeros((55, 3))
+    catena[:, 0] = 300.0 + np.arange(55) * 50.0
+    io.write_cloud(corsa / pipeline.ARTIFACTS[2], np.vstack([denso, catena]))
+
+    risposta_nuvola = cliente.get("/api/cloud/2?max_points=1")
+    assert risposta_nuvola.status_code == 200
+
+    risposta = cliente.post("/api/cluster", json={"punto": 0})
+    assert risposta.status_code == 200
+    corpo = risposta.json()
+    # Precondizione: il pareggio e' avvenuto davvero (55 voti-cluster contro
+    # 55 voti-rumore), non un rumore minoritario che sarebbe accettato
+    # comunque anche senza la regola del confine.
+    assert corpo["clusters_found"] == 1
+    assert corpo["cluster_sizes"][0] == 55
+    assert corpo["noise_points"] == 55
+    assert corpo["cluster_index"] == 0
+
+
+def test_il_clic_sul_pareggio_di_voti_fra_cluster_di_taglia_diversa_risolve_al_piu_popoloso(
+    cliente, tmp_path, monkeypatch
+):
+    """Mutazione E del revisore (task-11a-fix-2-review.md), la piu'
+    istruttiva: il test ufficiale del pareggio (sopra) costruisce due
+    cluster di taglia ASSOLUTA identica, quindi passa anche senza il
+    criterio di spareggio dichiarato (`-kv[0]` nel key del max()), per
+    coincidenza fra le taglie e l'ordine di iterazione del Counter — non
+    perche' la regola "vince il cluster piu' popoloso IN ASSOLUTO" sia
+    verificata.
+
+    Qui i due cluster hanno taglia assoluta DIVERSA (misurato: 2 781 e 797
+    punti su questa nuvola), ma il gruppo disegnato e' costruito a mano
+    (patch di viewport.decimate_file, non la voxelizzazione vera) con
+    ESATTAMENTE 5 voti a testa nel gruppo: un pareggio nei VOTI, non nella
+    taglia. Gli indici del cluster PICCOLO stanno PRIMA di quelli del
+    cluster GRANDE nell'array del gruppo, apposta: il Counter costruito
+    iterando il gruppo incontra il piccolo per primo, quindi un max() senza
+    lo spareggio esplicito (la mutazione E) risponderebbe il cluster
+    piccolo, indice 1 — l'ordine di iterazione da solo non puo' dare la
+    risposta corretta. La regola dichiarata pretende il piu' popoloso in
+    assoluto, indice 0 (2 781 punti): solo lo spareggio esplicito lo
+    garantisce contro quest'ordine avverso.
+    """
+    import numpy as np
+    from meshrec.core import io, pipeline, segment
+    from meshrec.core.config import SegmentConfig
+
+    corsa = tmp_path / "corsa"
+    grande = np.random.default_rng(2).random((3_000, 3)) * 10.0
+    piccolo = np.random.default_rng(1).random((1_000, 3)) * 7.0 + 500.0
+    percorso = corsa / pipeline.ARTIFACTS[2]
+    io.write_cloud(percorso, np.vstack([grande, piccolo]))
+
+    # Stessa lettura e stesso calcolo che l'endpoint rifara' alla POST
+    # (read_cloud, mean_spacing, segment.cluster coi predefiniti): gli
+    # indici scelti qui devono restare validi in quel momento.
+    punti, _normali = io.read_cloud(percorso)
+    spaziatura = io.mean_spacing(punti, 20_000, 0)
+    insiemi, metriche = segment.cluster(punti, SegmentConfig(), spaziatura)
+    assert metriche["clusters_found"] == 2
+    # Precondizione: le taglie ASSOLUTE sono diverse (altrimenti questo test
+    # sarebbe solo una copia del pareggio-di-taglia-uguale sopra).
+    assert metriche["cluster_sizes"][0] > metriche["cluster_sizes"][1]
+
+    def cluster_del_punto_pieno(indice_pieno: int) -> int | None:
+        coordinata = punti[indice_pieno]
+        return next(
+            (
+                indice
+                for indice, insieme in enumerate(insiemi)
+                if np.isclose(insieme, coordinata).all(axis=1).any()
+            ),
+            None,
+        )
+
+    grande_idx: list[int] = []
+    piccolo_idx: list[int] = []
+    for i in range(len(punti)):
+        c = cluster_del_punto_pieno(i)
+        if c == 0 and len(grande_idx) < 5:
+            grande_idx.append(i)
+        elif c == 1 and len(piccolo_idx) < 5:
+            piccolo_idx.append(i)
+        if len(grande_idx) == 5 and len(piccolo_idx) == 5:
+            break
+    assert len(grande_idx) == 5 and len(piccolo_idx) == 5
+
+    # Il piccolo prima del grande: l'ordine di iterazione del Counter, da
+    # solo, indicherebbe il piccolo.
+    gruppo_avverso = np.array(piccolo_idx + grande_idx, dtype=np.int64)
+
+    def decimate_file_finto(*_args, **_kwargs):
+        return np.zeros((1, 3), dtype=np.float32), [gruppo_avverso], 1.0
+
+    monkeypatch.setattr(server.viewport, "decimate_file", decimate_file_finto)
+
+    risposta_nuvola = cliente.get("/api/cloud/2?max_points=1")
+    assert risposta_nuvola.status_code == 200
+
+    risposta = cliente.post("/api/cluster", json={"punto": 0})
+    assert risposta.status_code == 200
+    corpo = risposta.json()
+    assert corpo["cluster_index"] == 0
+    assert corpo["cluster_points"] == metriche["cluster_sizes"][0]
+
+
 def test_il_clic_sul_gruppo_a_maggioranza_rumore_solleva_come_rumore(cliente, tmp_path):
     """La maggioranza-rumore che la maggioranza da sola non decide
     (dichiarato in server.py, scegli_cluster): un blocco di 55 punti
@@ -524,6 +651,33 @@ def test_il_clic_dichiara_il_cambio_di_metodo(cliente, tmp_path):
     assert risposta.status_code == 200
     corpo = risposta.json()
     assert corpo["method_before"] == "crop"
+    assert corpo["method_after"] == "auto"
+
+
+def test_il_secondo_clic_dichiara_auto_auto(cliente, tmp_path):
+    """Buco minore segnalato in task-11a-fix-2-review.md (sezione 5): il
+    test sopra copre solo il primo clic (crop -> auto). Un secondo clic
+    sullo stesso gruppo, con cfg.segment.method gia' 'auto' dal primo, deve
+    dichiarare method_before='auto' (letto davvero, non un valore stantio)
+    e method_after='auto'.
+    """
+    import numpy as np
+    from meshrec.core import io, pipeline
+
+    corsa = tmp_path / "corsa"
+    primo = np.random.default_rng(0).random((3_000, 3)) * 10.0
+    secondo = np.random.default_rng(1).random((1_000, 3)) * 10.0 + 500.0
+    io.write_cloud(corsa / pipeline.ARTIFACTS[2], np.vstack([primo, secondo]))
+
+    cliente.get("/api/cloud/2?max_points=2000")
+    prima_risposta = cliente.post("/api/cluster", json={"punto": 0})
+    assert prima_risposta.status_code == 200
+    assert prima_risposta.json()["method_after"] == "auto"
+
+    seconda_risposta = cliente.post("/api/cluster", json={"punto": 0})
+    assert seconda_risposta.status_code == 200
+    corpo = seconda_risposta.json()
+    assert corpo["method_before"] == "auto"
     assert corpo["method_after"] == "auto"
 
 
