@@ -491,9 +491,35 @@ def create_app(config_path: Path) -> FastAPI:
         gruppo = gruppi[disegnato]
 
         cfg = corrente()
+        # I punti pieni per la ricerca delle coordinate (sotto) restano quelli
+        # DISEGNATI, cioe' 02_segmented.ply: e' la nuvola che /api/cloud/2 ha
+        # servito e su cui gli indici di `gruppo` sono definiti.
         punti, _normali = io.read_cloud(Path(cfg.run.out_dir) / pipeline.ARTIFACTS[2])
-        spaziatura = io.mean_spacing(punti, cfg.input.spacing_sample, cfg.input.seed)
-        insiemi, metriche = segment.cluster(punti, cfg.segment, spaziatura)
+
+        # Ma la CLUSTERIZZAZIONE deve essere quella che la corsa 'auto' esegue
+        # davvero (core/segment.py:146-150, segment_cloud), non quella di
+        # 02_segmented.ply preso a se': quel file e' l'uscita del metodo
+        # 'crop' (nessun piano tolto), mentre la corsa parte sempre
+        # dall'ingresso grezzo dello step 2 (ARTIFACTS[1], vedi
+        # pipeline.py:132-148) per la spaziatura e per
+        # remove_outliers -> crop_box -> extract_planes -> cluster, in
+        # quest'ordine. Saltare extract_planes clusterizzava un insieme
+        # diverso: sul dato vero, 4293 gruppi (il clic, sbagliato) contro
+        # 2447 (la corsa, task-11b-allineamento.md). Nessuna cache qui,
+        # apposta (vedi il mandato di questo giro): ogni clic ripaga
+        # l'intera tratta, come la pagherebbe la corsa.
+        sorgente_grezza = Path(cfg.run.out_dir) / pipeline.ARTIFACTS[1]
+        if not sorgente_grezza.exists():
+            raise FileNotFoundError(
+                f"lo step 1 non ha ancora prodotto {pipeline.ARTIFACTS[1]}: "
+                "il clic clusterizza a partire dall'ingresso grezzo dello step 2"
+            )
+        grezzi, _normali_grezze = io.read_cloud(sorgente_grezza)
+        spaziatura = io.mean_spacing(grezzi, cfg.input.spacing_sample, cfg.input.seed)
+        puliti, _metriche_outlier = segment.remove_outliers(grezzi, cfg.segment)
+        ritagliati, _metriche_crop = segment.crop_box(puliti, cfg.segment)
+        _piani, residuo, _metriche_piani = segment.extract_planes(ritagliati, cfg.segment, spaziatura)
+        insiemi, metriche = segment.cluster(residuo, cfg.segment, spaziatura)
 
         def cluster_del_punto_pieno(indice_pieno: int) -> int | None:
             coordinata = punti[indice_pieno]

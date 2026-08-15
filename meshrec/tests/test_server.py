@@ -219,15 +219,56 @@ def test_chiedere_la_mesh_di_uno_step_fuori_intervallo_spiega_quali_esistono(cli
     assert "8" in corpo["messaggio"]
 
 
+def _prepara_click_semplice(cliente, corsa: Path, punti) -> None:
+    """Scrive la stessa nuvola come ingresso grezzo (step 1, ARTIFACTS[1]) e
+    come uscita segmentata (step 2, ARTIFACTS[2]): dopo l'allineamento
+    (task-11b), /api/cluster legge sempre ARTIFACTS[1] e rifa'
+    remove_outliers -> crop_box -> extract_planes -> cluster (vedi
+    server.scegli_cluster). I test di questa sezione, tranne quello
+    dell'allineamento stesso, esercitano solo la REGOLA DI VOTO sul gruppo
+    disegnato: con plane_max_count=0 e un outlier_std_ratio enorme quella
+    tratta diventa un non-operazione, e la nuvola che arriva davvero a
+    segment.cluster torna a essere esattamente quella scritta qui, come lo
+    era prima dell'allineamento (quando l'endpoint clusterizzava
+    ARTIFACTS[2] senza altro).
+    """
+    from meshrec.core import io, pipeline
+
+    io.write_cloud(corsa / pipeline.ARTIFACTS[1], punti)
+    io.write_cloud(corsa / pipeline.ARTIFACTS[2], punti)
+    attuale = cliente.get("/api/config").json()
+    attuale["segment"]["plane_max_count"] = 0
+    attuale["segment"]["outlier_std_ratio"] = 1_000_000.0
+    risposta = cliente.put("/api/config", json=attuale)
+    assert risposta.status_code == 200
+
+
+def _clusterizza_come_l_endpoint(corsa: Path, cfg):
+    """Rifa', fuori dall'endpoint, esattamente il calcolo che /api/cluster fa
+    dopo l'allineamento: stessa base di spaziatura (ARTIFACTS[1], grezzo) e
+    la stessa sequenza remove_outliers -> crop_box -> extract_planes ->
+    cluster. Oracolo indipendente per i test che pretendono un
+    cluster_index preciso, senza duplicare la logica dell'endpoint a mano.
+    """
+    from meshrec.core import io, pipeline, segment
+
+    grezzi, _normali = io.read_cloud(corsa / pipeline.ARTIFACTS[1])
+    spaziatura = io.mean_spacing(grezzi, cfg.input.spacing_sample, cfg.input.seed)
+    puliti, _metriche_outlier = segment.remove_outliers(grezzi, cfg.segment)
+    ritagliati, _metriche_crop = segment.crop_box(puliti, cfg.segment)
+    _piani, residuo, _metriche_piani = segment.extract_planes(ritagliati, cfg.segment, spaziatura)
+    insiemi, metriche = segment.cluster(residuo, cfg.segment, spaziatura)
+    return insiemi, metriche, spaziatura
+
+
 def test_il_clic_risolve_il_punto_disegnato_a_un_cluster(cliente, tmp_path):
     import numpy as np
-    from meshrec.core import io, pipeline
 
     corsa = tmp_path / "corsa"
     # Due gruppi ben separati: il cluster di appartenenza non e' ambiguo.
     primo = np.random.default_rng(0).random((3_000, 3)) * 10.0
     secondo = np.random.default_rng(1).random((1_000, 3)) * 10.0 + 500.0
-    io.write_cloud(corsa / pipeline.ARTIFACTS[2], np.vstack([primo, secondo]))
+    _prepara_click_semplice(cliente, corsa, np.vstack([primo, secondo]))
 
     cliente.get("/api/cloud/2?max_points=2000")     # popola la mappa
     risposta = cliente.post("/api/cluster", json={"punto": 0})
@@ -297,7 +338,7 @@ def test_il_clic_sul_gruppo_piccolo_risolve_al_cluster_piccolo(cliente, tmp_path
     corsa = tmp_path / "corsa"
     primo = np.random.default_rng(0).random((3_000, 3)) * 10.0
     secondo = np.random.default_rng(1).random((1_000, 3)) * 7.0 + 500.0
-    io.write_cloud(corsa / pipeline.ARTIFACTS[2], np.vstack([primo, secondo]))
+    _prepara_click_semplice(cliente, corsa, np.vstack([primo, secondo]))
 
     risposta_nuvola = cliente.get("/api/cloud/2?max_points=2000")
     assert risposta_nuvola.status_code == 200
@@ -333,12 +374,11 @@ def test_il_clic_sul_gruppo_a_cavallo_risolve_alla_maggioranza(cliente, tmp_path
     punti): questo test pretende il cluster di maggioranza, indice 0.
     """
     import numpy as np
-    from meshrec.core import io, pipeline
 
     corsa = tmp_path / "corsa"
     minoranza = np.random.default_rng(1).random((800, 3)) * 7.0
     maggioranza = np.random.default_rng(2).random((3_000, 3)) * 10.0 + 500.0
-    io.write_cloud(corsa / pipeline.ARTIFACTS[2], np.vstack([minoranza, maggioranza]))
+    _prepara_click_semplice(cliente, corsa, np.vstack([minoranza, maggioranza]))
 
     risposta_nuvola = cliente.get("/api/cloud/2?max_points=1")
     assert risposta_nuvola.status_code == 200
@@ -359,13 +399,12 @@ def test_il_clic_sul_gruppo_in_pareggio_risolve_al_cluster_piu_popoloso_in_assol
     piu' basso (0), la scelta deterministica dichiarata.
     """
     import numpy as np
-    from meshrec.core import io, pipeline
 
     corsa = tmp_path / "corsa"
     base = np.random.default_rng(0).random((1_500, 3)) * 10.0
     copia = base.copy()
     copia[:, 0] += 500.0
-    io.write_cloud(corsa / pipeline.ARTIFACTS[2], np.vstack([base, copia]))
+    _prepara_click_semplice(cliente, corsa, np.vstack([base, copia]))
 
     risposta_nuvola = cliente.get("/api/cloud/2?max_points=1")
     assert risposta_nuvola.status_code == 200
@@ -396,13 +435,12 @@ def test_il_clic_sul_pareggio_esatto_fra_rumore_e_cluster_risolve_al_cluster(cli
     rumore in maggioranza e risponderebbe 400.
     """
     import numpy as np
-    from meshrec.core import io, pipeline
 
     corsa = tmp_path / "corsa"
     denso = np.random.default_rng(0).random((55, 3)) * 3.0
     catena = np.zeros((55, 3))
     catena[:, 0] = 300.0 + np.arange(55) * 50.0
-    io.write_cloud(corsa / pipeline.ARTIFACTS[2], np.vstack([denso, catena]))
+    _prepara_click_semplice(cliente, corsa, np.vstack([denso, catena]))
 
     risposta_nuvola = cliente.get("/api/cloud/2?max_points=1")
     assert risposta_nuvola.status_code == 200
@@ -444,25 +482,28 @@ def test_il_clic_sul_pareggio_di_voti_fra_cluster_di_taglia_diversa_risolve_al_p
     garantisce contro quest'ordine avverso.
     """
     import numpy as np
-    from meshrec.core import io, pipeline, segment
-    from meshrec.core.config import SegmentConfig
+    from meshrec.core import io, pipeline
+    from meshrec.core.config import load_config
 
     corsa = tmp_path / "corsa"
     grande = np.random.default_rng(2).random((3_000, 3)) * 10.0
     piccolo = np.random.default_rng(1).random((1_000, 3)) * 7.0 + 500.0
-    percorso = corsa / pipeline.ARTIFACTS[2]
-    io.write_cloud(percorso, np.vstack([grande, piccolo]))
+    _prepara_click_semplice(cliente, corsa, np.vstack([grande, piccolo]))
 
-    # Stessa lettura e stesso calcolo che l'endpoint rifara' alla POST
-    # (read_cloud, mean_spacing, segment.cluster coi predefiniti): gli
-    # indici scelti qui devono restare validi in quel momento.
-    punti, _normali = io.read_cloud(percorso)
-    spaziatura = io.mean_spacing(punti, 20_000, 0)
-    insiemi, metriche = segment.cluster(punti, SegmentConfig(), spaziatura)
+    # Stesso calcolo che l'endpoint rifara' alla POST (ARTIFACTS[1] ->
+    # remove_outliers -> crop_box -> extract_planes -> cluster, coi
+    # predefiniti salvati da _prepara_click_semplice): gli indici scelti
+    # qui devono restare validi in quel momento.
+    cfg = load_config(tmp_path / "config.yaml")
+    insiemi, metriche, _spaziatura = _clusterizza_come_l_endpoint(corsa, cfg)
     assert metriche["clusters_found"] == 2
     # Precondizione: le taglie ASSOLUTE sono diverse (altrimenti questo test
     # sarebbe solo una copia del pareggio-di-taglia-uguale sopra).
     assert metriche["cluster_sizes"][0] > metriche["cluster_sizes"][1]
+
+    # Il gruppo disegnato e' un indice nella nuvola SERVITA (ARTIFACTS[2]),
+    # non nel residuo: la stessa distinzione che fa l'endpoint.
+    punti, _normali = io.read_cloud(corsa / pipeline.ARTIFACTS[2])
 
     def cluster_del_punto_pieno(indice_pieno: int) -> int | None:
         coordinata = punti[indice_pieno]
@@ -522,14 +563,13 @@ def test_il_clic_sul_gruppo_a_maggioranza_rumore_solleva_come_rumore(cliente, tm
     disco.
     """
     import numpy as np
-    from meshrec.core import io, pipeline
     from meshrec.core.config import load_config
 
     corsa = tmp_path / "corsa"
     denso = np.random.default_rng(0).random((55, 3)) * 3.0
     catena = np.zeros((70, 3))
     catena[:, 0] = 300.0 + np.arange(70) * 50.0
-    io.write_cloud(corsa / pipeline.ARTIFACTS[2], np.vstack([denso, catena]))
+    _prepara_click_semplice(cliente, corsa, np.vstack([denso, catena]))
 
     risposta_nuvola = cliente.get("/api/cloud/2?max_points=1")
     assert risposta_nuvola.status_code == 200
@@ -587,7 +627,7 @@ def test_il_cluster_index_scritto_su_disco_coincide_con_la_risposta(cliente, tmp
     corsa = tmp_path / "corsa"
     primo = np.random.default_rng(0).random((3_000, 3)) * 10.0
     secondo = np.random.default_rng(1).random((1_000, 3)) * 7.0 + 500.0
-    io.write_cloud(corsa / pipeline.ARTIFACTS[2], np.vstack([primo, secondo]))
+    _prepara_click_semplice(cliente, corsa, np.vstack([primo, secondo]))
 
     cliente.get("/api/cloud/2?max_points=2000")
     punti_letti, _normali = io.read_cloud(corsa / pipeline.ARTIFACTS[2])
@@ -619,14 +659,17 @@ def test_il_cluster_eps_e_sensibile_alla_spaziatura_vera(cliente, tmp_path):
     corsa = tmp_path / "corsa"
     primo = np.random.default_rng(0).random((3_000, 3)) * 10.0
     secondo = np.random.default_rng(1).random((1_000, 3)) * 10.0 + 500.0
-    io.write_cloud(corsa / pipeline.ARTIFACTS[2], np.vstack([primo, secondo]))
+    _prepara_click_semplice(cliente, corsa, np.vstack([primo, secondo]))
 
     cliente.get("/api/cloud/2?max_points=2000")
     risposta = cliente.post("/api/cluster", json={"punto": 0})
     assert risposta.status_code == 200
     corpo = risposta.json()
 
-    punti_letti, _normali = io.read_cloud(corsa / pipeline.ARTIFACTS[2])
+    # La spaziatura vera si legge sull'ingresso GREZZO (ARTIFACTS[1]), non
+    # sulla nuvola servita: e' la base su cui l'endpoint la ricalcola dopo
+    # l'allineamento (task-11b), non piu' su ARTIFACTS[2].
+    punti_letti, _normali = io.read_cloud(corsa / pipeline.ARTIFACTS[1])
     spaziatura_vera = io.mean_spacing(punti_letti, 20_000, 0)
     assert corpo["cluster_eps"] == pytest.approx(4.0 * spaziatura_vera)
 
@@ -639,12 +682,11 @@ def test_il_clic_dichiara_il_cambio_di_metodo(cliente, tmp_path):
     file che non vede.
     """
     import numpy as np
-    from meshrec.core import io, pipeline
 
     corsa = tmp_path / "corsa"
     primo = np.random.default_rng(0).random((3_000, 3)) * 10.0
     secondo = np.random.default_rng(1).random((1_000, 3)) * 10.0 + 500.0
-    io.write_cloud(corsa / pipeline.ARTIFACTS[2], np.vstack([primo, secondo]))
+    _prepara_click_semplice(cliente, corsa, np.vstack([primo, secondo]))
 
     cliente.get("/api/cloud/2?max_points=2000")
     risposta = cliente.post("/api/cluster", json={"punto": 0})
@@ -662,12 +704,11 @@ def test_il_secondo_clic_dichiara_auto_auto(cliente, tmp_path):
     e method_after='auto'.
     """
     import numpy as np
-    from meshrec.core import io, pipeline
 
     corsa = tmp_path / "corsa"
     primo = np.random.default_rng(0).random((3_000, 3)) * 10.0
     secondo = np.random.default_rng(1).random((1_000, 3)) * 10.0 + 500.0
-    io.write_cloud(corsa / pipeline.ARTIFACTS[2], np.vstack([primo, secondo]))
+    _prepara_click_semplice(cliente, corsa, np.vstack([primo, secondo]))
 
     cliente.get("/api/cloud/2?max_points=2000")
     prima_risposta = cliente.post("/api/cluster", json={"punto": 0})
@@ -679,6 +720,141 @@ def test_il_secondo_clic_dichiara_auto_auto(cliente, tmp_path):
     corpo = seconda_risposta.json()
     assert corpo["method_before"] == "auto"
     assert corpo["method_after"] == "auto"
+
+
+def test_il_clic_senza_lo_step_1_non_solleva(cliente, tmp_path):
+    """L'allineamento (task-11b) fa dipendere il clic da ARTIFACTS[1], non
+    piu' solo da ARTIFACTS[2]: uno scenario nuovo, impossibile prima di
+    questo giro, e' che la mappa sia popolata (02_segmented.ply esiste ed e'
+    stato aperto nel viewport) ma 01_cloud.ply sia assente (una corsa mai
+    arrivata allo step 1 con questo out_dir, o il file cancellato a mano).
+    Deve fallire con un errore chiaro, non con l'eccezione grezza di
+    io.read_cloud su un file mancante.
+    """
+    import numpy as np
+    from meshrec.core import io, pipeline
+
+    corsa = tmp_path / "corsa"
+    punti = np.random.default_rng(0).random((200, 3)) * 10.0
+    io.write_cloud(corsa / pipeline.ARTIFACTS[2], punti)  # niente ARTIFACTS[1]
+
+    cliente.get("/api/cloud/2?max_points=200")
+    risposta = cliente.post("/api/cluster", json={"punto": 0})
+    assert risposta.status_code == 400
+    corpo = risposta.json()
+    assert corpo["errore"] == "FileNotFoundError"
+    assert pipeline.ARTIFACTS[1] in corpo["messaggio"]
+
+
+def test_lindice_del_clic_coincide_con_quello_della_corsa_vera(cliente, tmp_path, monkeypatch):
+    """La prova che l'allineamento (task-11b) tiene: l'indice che il clic
+    sceglie e quello che la corsa 'auto' assegnerebbe DAVVERO allo stesso
+    punto devono coincidere. Prima di questo giro non coincidevano: il clic
+    clusterizzava 02_segmented.ply intero (senza extract_planes), mentre la
+    corsa clusterizza il residuo DOPO extract_planes (core/segment.py,
+    segment_cloud, righe 146-150) — sul dato vero (lab_crop) 4293 gruppi
+    (il clic, sbagliato) contro 2447 (la corsa), vedi
+    task-11b-allineamento.md.
+
+    Qui un "pavimento" piatto (2 000 punti a z=0, un piano vero) sta sopra
+    la soglia di estrazione (plane_min_points_ratio=0.05 di 4 000 punti =
+    200), e due "pareti" (1 500 e 500 punti, cubi separati fra loro e
+    lontani dal pavimento) restano nel residuo. Con plane_max_count=1
+    l'estrazione si ferma dopo il pavimento, deterministica: il residuo e'
+    ESATTAMENTE le due pareti, 2 000 punti.
+
+    La differenza e' osservabile: SENZA extract_planes (il difetto),
+    DBSCAN sull'intera nuvola (pavimento+pareti) troverebbe TRE cluster
+    ordinati per numerosita' decrescente (2000, 1500, 500), e un clic sulla
+    parete piccola risolverebbe all'indice 2 — il pavimento occuperebbe lo
+    0. CON extract_planes (questo giro), il residuo ha solo le due pareti:
+    lo stesso clic deve risolvere all'indice 1, che e' anche l'indice che
+    la clusterizzazione REALE (ricalcolata qui sotto, indipendentemente
+    dall'endpoint, con la stessa sequenza che la corsa 'auto' esegue)
+    assegna allo stesso punto.
+    """
+    import numpy as np
+    from meshrec.core import io, pipeline, segment
+    from meshrec.core.config import load_config
+
+    corsa = tmp_path / "corsa"
+    rng_pavimento = np.random.default_rng(3)
+    pavimento = np.zeros((2_000, 3))
+    pavimento[:, 0] = rng_pavimento.random(2_000) * 300.0
+    pavimento[:, 1] = rng_pavimento.random(2_000) * 300.0
+    parete_grande = np.random.default_rng(4).random((1_500, 3)) * 10.0 + np.array(
+        [0.0, 0.0, 2_000.0]
+    )
+    parete_piccola = np.random.default_rng(5).random((500, 3)) * 7.0 + np.array(
+        [500.0, 0.0, 2_000.0]
+    )
+    nuvola = np.vstack([pavimento, parete_grande, parete_piccola])
+
+    io.write_cloud(corsa / pipeline.ARTIFACTS[1], nuvola)
+    io.write_cloud(corsa / pipeline.ARTIFACTS[2], nuvola)
+
+    attuale = cliente.get("/api/config").json()
+    attuale["segment"]["plane_max_count"] = 1
+    attuale["segment"]["outlier_std_ratio"] = 1_000_000.0
+    # plane_distance_factor piccolo: col predefinito (3.0) la soglia
+    # (~5,8 mm, misurato) e' comparabile all'estensione dei cubi delle
+    # pareti (10 e 7 mm) e RANSAC trova per rumore un "piano" che ne
+    # cattura una fetta — misurato, 1 951 dei 2 025 punti del piano
+    # spurio venivano dalle pareti, non dal pavimento. A 0.1 la soglia
+    # (~0,19 mm) e' trascurabile rispetto ai cubi e cattura solo il
+    # pavimento, che e' esattamente a z=0 e quindi a distanza zero da
+    # qualunque soglia positiva.
+    attuale["segment"]["plane_distance_factor"] = 0.1
+    risposta_cfg = cliente.put("/api/config", json=attuale)
+    assert risposta_cfg.status_code == 200
+
+    # Oracolo: la clusterizzazione REALE, calcolata fuori dall'endpoint,
+    # con la stessa sequenza di segment_cloud quando method='auto'
+    # (core/segment.py:146-150): remove_outliers -> crop_box ->
+    # extract_planes -> cluster, sullo stesso ingresso grezzo che
+    # l'endpoint legge.
+    cfg = load_config(tmp_path / "config.yaml")
+    grezzi, _normali = io.read_cloud(corsa / pipeline.ARTIFACTS[1])
+    spaziatura = io.mean_spacing(grezzi, cfg.input.spacing_sample, cfg.input.seed)
+    puliti, _metriche_outlier = segment.remove_outliers(grezzi, cfg.segment)
+    ritagliati, _metriche_crop = segment.crop_box(puliti, cfg.segment)
+    _piani, residuo, metriche_piani = segment.extract_planes(ritagliati, cfg.segment, spaziatura)
+    # Precondizione: il pavimento e' stato estratto come piano vero, e il
+    # residuo sono esattamente le due pareti.
+    assert metriche_piani["planes_found"] == 1
+    assert metriche_piani["residual_points"] == 2_000
+    insiemi_reali, metriche_reali = segment.cluster(residuo, cfg.segment, spaziatura)
+    assert metriche_reali["clusters_found"] == 2
+    assert metriche_reali["cluster_sizes"] == [1_500, 500]
+
+    # Il punto cliccato: un punto della parete piccola, individuato per
+    # coordinate nel residuo reale (indice 1 dell'oracolo), non per
+    # posizione nell'array di partenza.
+    punto_parete_piccola = insiemi_reali[1][0]
+    indice_pieno = int(np.where((nuvola == punto_parete_piccola).all(axis=1))[0][0])
+
+    def decimate_file_finto(*_args, **_kwargs):
+        return (
+            np.zeros((1, 3), dtype=np.float32),
+            [np.array([indice_pieno], dtype=np.int64)],
+            1.0,
+        )
+
+    monkeypatch.setattr(server.viewport, "decimate_file", decimate_file_finto)
+    risposta_nuvola = cliente.get("/api/cloud/2?max_points=1")
+    assert risposta_nuvola.status_code == 200
+
+    risposta = cliente.post("/api/cluster", json={"punto": 0})
+    assert risposta.status_code == 200
+    corpo = risposta.json()
+    # La prova che conta: l'indice del clic coincide con l'indice che la
+    # clusterizzazione REALE assegna allo stesso punto. Prima
+    # dell'allineamento l'endpoint avrebbe risposto 2 (la parete piccola e'
+    # la terza per numerosita' clusterizzando pavimento+pareti insieme,
+    # senza extract_planes): questo test fallisce con quel codice (vedi
+    # mutazione nel rapporto).
+    assert corpo["cluster_index"] == 1
+    assert corpo["cluster_points"] == 500
 
 
 def _scrivi_volume(corsa: Path, punti, tetraedri) -> None:
