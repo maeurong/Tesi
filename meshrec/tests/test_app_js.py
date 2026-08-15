@@ -124,7 +124,20 @@ class Elemento {
     this.testo = "";
     this.scrollTop = 0;
     this.padre = null;
+    this.gestori = {};
+    this.classList = {
+      toggle: (nome, attivo) => {
+        const classi = new Set(this.className.split(" ").filter(Boolean));
+        if (attivo) classi.add(nome); else classi.delete(nome);
+        this.className = [...classi].join(" ");
+      },
+    };
   }
+  addEventListener(tipo, gestore) { (this.gestori[tipo] ??= []).push(gestore); }
+  // Il gestore vero, eseguito: e' cio' che mancava al banco. `await` perche' il
+  // gestore del campo e' asincrono, e senza aspettarlo il controllo guarderebbe
+  // lo stato di prima della risposta.
+  async scatena(tipo) { for (const gestore of this.gestori[tipo] ?? []) await gestore(); }
   get children() { return this.figli; }
   get childElementCount() { return this.figli.length; }
   get firstElementChild() { return this.figli[0] ?? null; }
@@ -163,6 +176,10 @@ const document = {
 const ETICHETTE = {};
 const rigaErrore = document.getElementById("errore");
 let stepAperto = null;
+// Le due variabili di modulo che le funzioni estratte leggono e scrivono:
+// senza, il banco proverebbe una copia che non e' quella del modulo.
+let configurazione = null;
+let generazione = 0;
 const elenco = document.getElementById("elenco-step");
 const STEPS = [
   { numero: 1, chiave: "01_load", stato: "valido" },
@@ -409,23 +426,27 @@ def test_il_fuoco_da_tastiera_si_vede_su_ogni_comando():
 
 def test_il_campo_parametro_non_indovina_il_tipo_dal_valore():
     """La radice del difetto. Il tipo veniva da `typeof` del valore corrente,
-    cioe' indovinato: i nove campi numerici nullabili erano una casella di testo
-    finche' valevano `None` e una numerica appena valevano qualcosa, e con
-    `type="number"` Chrome sanifica cio' che non sa leggere — `.value` torna
-    `""` mentre a video resta scritto `1e`. Il tipo lo conosce solo il modello,
-    e `/api/schema` oggi non lo manda.
+    cioe' indovinato: i quattro campi numerici nullabili scalari erano una
+    casella di testo finche' valevano `None` e una numerica appena valevano
+    qualcosa, e con `type="number"` Chrome sanifica cio' che non sa leggere —
+    `.value` torna `""` mentre a video resta scritto `1e`. Il tipo lo conosce
+    solo il modello, e `/api/schema` oggi non lo manda.
 
     I sei campi del ritaglio restano `type="number"`, e non e' un'incoerenza:
     li' il tipo non e' indovinato, sono le coordinate dell'ingombro e sono
     numeri per costruzione, con la loro guardia sul campo vuoto.
+
+    I conteggi sono contati, non copiati: sui blocchi che l'interfaccia mostra i
+    campi nullabili sono 7, di cui 4 numerici scalari (gli altri 3 sono tuple,
+    che il pannello rende readOnly), gli interi 14, i decimali 19, i booleani 4,
+    i `Literal` 4.
     """
-    campo = _modulo().split("const valore = configurazione[blocco][nome];", 1)[1]
-    campo = campo.split("gruppo.append(riga);", 1)[0]
+    campo = _sorgente_di("campoParametro", _modulo())
     assert "typeof valore ===" not in campo, "il tipo del campo torna a dipendere dal valore"
     assert 'input.type = "number"' not in campo, (
         'type="number" sanifica in silenzio: cio\' che il browser non legge diventa ""'
     )
-    assert 'input.step = "any"' not in campo, "step=any toglie il passo unitario ai 18 interi"
+    assert 'input.step = "any"' not in campo, "step=any toglie il passo unitario ai 14 interi"
 
 
 def test_una_battuta_illeggibile_resta_quella_battuta(tmp_path):
@@ -433,9 +454,9 @@ def test_una_battuta_illeggibile_resta_quella_battuta(tmp_path):
 
     `1e`, `-`, `1.2.3` non si leggono come numeri e restano la stringa battuta:
     il modello le rifiuta con un 422 leggibile, che e' l'unico posto dove il
-    tipo vero si conosce. Diventassero `null` sarebbero accettate in silenzio su
-    nove campi. E lo spazio non vale zero: `Number(" ")` e' `0`, e un campo che
-    a video sembra vuoto scriveva `0`.
+    tipo vero si conosce. Diventassero `null` sarebbero accettate in silenzio
+    sui quattro campi numerici nullabili. E lo spazio non vale zero:
+    `Number(" ")` e' `0`, e un campo che a video sembra vuoto scriveva `0`.
     """
     _esegui(tmp_path, "import assert from 'node:assert/strict';\n" + _funzioni("valoreScritto") + """
 for (const battuto of ["1e", "-", "1.2.3", "abc", "1,5"]) {
@@ -449,6 +470,73 @@ assert.equal(valoreScritto(" 2.5 "), 2.5);
 assert.equal(valoreScritto("true"), true);
 assert.equal(valoreScritto("false"), false);
 """)
+
+
+def test_il_fuori_scala_non_diventa_un_numero(tmp_path):
+    """Il confine della guardia. `Number("1e999")` e `Number("Infinity")` non
+    sono `NaN`: passavano come numeri, e `JSON.stringify` li scrive **`null`**.
+    Il corpo della PUT partiva gia' azzerato, il server accettava, e su
+    `simplify.target_faces` e `tet.max_volume` — dove `null` significa «nessun
+    limite» — chi batteva `1e999` credendo di alzare il tetto se lo vedeva
+    tolto, con un 200 e lo schermo muto.
+
+    Col controllo che lo smentisce: `1e3` e' notazione esponenziale legittima e
+    deve continuare a valere `1000`, altrimenti la guardia rifiuta tutto e
+    l'assenza di difetti e' solo l'assenza dell'interfaccia.
+    """
+    _esegui(tmp_path, "import assert from 'node:assert/strict';\n" + _funzioni("valoreScritto")
+            + """
+for (const battuto of ["Infinity", "-Infinity", "1e999", "2e400"]) {
+  assert.equal(valoreScritto(battuto), battuto,
+    `${battuto} diventa un numero, e JSON.stringify lo scrive null`);
+}
+assert.equal(valoreScritto("  Infinity  "), "Infinity", "il trim non basta: resta un non finito");
+assert.equal(valoreScritto("1e3"), 1000, "la notazione esponenziale legittima non passa piu'");
+assert.equal(valoreScritto("2.5"), 2.5);
+assert.equal(valoreScritto("-3"), -3);
+""")
+
+
+def test_il_fuori_scala_non_scrive_null_sul_disco(tmp_path):
+    """La stessa cosa letta dal disco, che e' dove il danno si misura.
+
+    `null` non e' piu' cio' che parte dal browser: la battuta arriva al modello,
+    che su un intero la rifiuta con un 422 e lascia il file com'era. Su un
+    decimale nullabile il modello oggi la **accetta** come infinito e scrive
+    `.inf`: e' un residuo che sta nel modello e non qui — `allow_inf_nan=False`
+    in `core/config.py`, misurato nel rapporto — e questo controllo afferma cio'
+    che vale in tutti e due i casi, cosi' che quella correzione non lo rompa: il
+    fronte non fabbrica piu' un `null` che nessuno ha battuto.
+    """
+    percorso = tmp_path / "config.yaml"
+    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"))
+    cfg.run.out_dir = tmp_path / "corsa"
+    cfg.downsample.voxel_size = 25.0
+    cfg.simplify.target_faces = 200000
+    save_config(cfg, percorso)
+    cliente = TestClient(create_app(percorso), raise_server_exceptions=False)
+
+    uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
+                     + _funzioni("valoreScritto")
+                     + 'process.stdout.write(JSON.stringify(valoreScritto("1e999")));')
+    assert json.loads(uscita) == "1e999", (
+        "il browser manda un valore che nessuno ha battuto: JSON.stringify scrive null"
+    )
+
+    configurazione = cliente.get("/api/config").json()
+    prima = percorso.read_bytes()
+
+    configurazione["simplify"]["target_faces"] = json.loads(uscita)
+    rifiuto = cliente.put("/api/config", json=configurazione)
+    assert rifiuto.status_code == 422, "il fuori scala e' stato accettato su un intero"
+    assert percorso.read_bytes() == prima, "il tetto della semplificazione e' cambiato su disco"
+
+    configurazione = cliente.get("/api/config").json()
+    configurazione["downsample"]["voxel_size"] = json.loads(uscita)
+    cliente.put("/api/config", json=configurazione)
+    assert "voxel_size: null" not in percorso.read_text(encoding="utf-8"), (
+        "il campo e' stato azzerato dal browser, non dal modello"
+    )
 
 
 def test_una_battuta_illeggibile_non_cambia_la_configurazione_su_disco(tmp_path):
@@ -500,6 +588,159 @@ def test_una_battuta_illeggibile_non_cambia_la_configurazione_su_disco(tmp_path)
         "un valore legittimo non arriva piu' a destinazione"
     )
     assert percorso.read_bytes() != prima, "il valore buono non e' stato scritto su disco"
+
+
+# --------------------------------------------------------------------------
+# BL-2: il gestore del campo, eseguito.
+# --------------------------------------------------------------------------
+
+
+def _banco_del_campo() -> str:
+    """Il gestore vero del campo, con le sue dipendenze, su un DOM finto e con
+    una `fetch` che decide il banco.
+
+    Fino a ieri qui non arrivava niente: il gestore era una funzione anonima
+    dentro un ciclo dentro `apriDettaglio`, e nessun banco la raggiungeva.
+    Quello che si vedeva provato era la catena ricucita a mano — `valoreScritto`
+    piu' `TestClient` — che e' la catena giusta ma **non e' il gestore**: il
+    ripristino del valore di prima e il ramo del campo nullabile si potevano
+    togliere e la suite restava verde. Adesso `campoParametro` costruisce la
+    riga vera e `scriviParametro` la scrive, entrambe di primo livello apposta.
+    """
+    return _DOM + _funzioni(
+        "valoreScritto", "ragioneDelRifiuto", "serverMuto", "superata",
+        "segnalaCampo", "scriviParametro", "campoParametro",
+    ) + """
+const CAMPO = { description: "la spaziatura del voxel" };
+const richieste = [];
+let risponde = null;
+globalThis.fetch = async (percorso, opzioni) => {
+  richieste.push({ percorso, corpo: JSON.parse(opzioni.body) });
+  return risponde(percorso, opzioni);
+};
+const accetta = (canonica) => async () => ({ ok: true, status: 200, json: async () => canonica });
+const rifiuta = (corpo) => async () => ({
+  ok: false, status: 422, text: async () => JSON.stringify(corpo),
+});
+// Il server che non risponde: `fetch` non torna un 500, solleva.
+const cade = () => { throw new TypeError("fetch failed"); };
+function apriCampo(blocco, nome) {
+  const riga = campoParametro(blocco, nome, CAMPO, generazione);
+  const [, input, , messaggio] = riga.children;
+  assert.equal(input.tag, "input", "la riga non e' piu' fatta come il banco crede");
+  assert.equal(messaggio.className, "errore-campo", "il messaggio non e' piu' il quarto figlio");
+  return { input, messaggio };
+}
+"""
+
+
+def test_un_campo_nullabile_vuoto_non_mostra_la_stringa_null(tmp_path):
+    """`String(null)` e' `"null"`: quattro parole in una casella dove `null`
+    significa «lascia decidere alla misura», e chi la riscrive senza toccarla
+    manda al modello la stringa `null`, che non e' un numero.
+    """
+    _esegui(tmp_path, _banco_del_campo() + """
+configurazione = { downsample: { voxel_size: null }, segment: { crop_min: [1, 2, 3] } };
+const { input } = apriCampo("downsample", "voxel_size");
+assert.equal(input.value, "", "un campo nullabile vuoto mostra la stringa null");
+// Una tupla non e' scritta in una casella di testo: String() la renderebbe
+// "1,2,3", cioe' un testo che nessuna lettura produce. readOnly e non disabled,
+// che la toglierebbe anche dal lettore di schermo.
+const tupla = apriCampo("segment", "crop_min");
+assert.equal(tupla.input.value, "[1,2,3]", "la lista finisce nel campo come testo di nessuno");
+assert.equal(tupla.input.readOnly, true, "una lista diventa modificabile e ogni modifica e' rifiutata");
+assert.equal((tupla.input.gestori.change ?? []).length, 0, "la lista manda una PUT a ogni battuta");
+""")
+
+
+def test_il_campo_mostra_il_valore_che_il_server_ha_accettato(tmp_path):
+    """Il campo continuava a mostrare la battuta anche quando sul disco era
+    finito un altro numero: `1_0` diventa `10.0`, `1e1_0` diventa dieci
+    miliardi, `0x10` diventa `16.0`, `9.0` su un intero diventa `9`, `no`
+    diventa `false`. Tutte con 200 e schermo muto.
+
+    Riscrivere la casella con cio' che il server ha risposto le rende visibili
+    in blocco, invece che una difesa per ogni grafia: a video finisce cio' che
+    e' stato salvato.
+    """
+    _esegui(tmp_path, _banco_del_campo() + """
+configurazione = { downsample: { voxel_size: 25 }, normals: { knn: 30 } };
+const { input, messaggio } = apriCampo("downsample", "voxel_size");
+assert.equal(input.value, "25", "il campo non parte dal valore della configurazione");
+input.value = "1_0";
+risponde = accetta({ downsample: { voxel_size: 10.0 }, normals: { knn: 30 } });
+await input.scatena("change");
+assert.deepEqual(
+  richieste.map((r) => [r.percorso, r.corpo.downsample.voxel_size]), [["/api/config", "1_0"]],
+  "cio' che il browser non legge non arriva piu' al modello, che e' l'unico che lo sa leggere",
+);
+assert.equal(input.value, "10", "il campo mostra la battuta e sul disco c'e' un altro numero");
+assert.equal(configurazione.downsample.voxel_size, 10, "in memoria resta la battuta");
+assert.equal(messaggio.hidden, true, "un campo accettato porta un messaggio d'errore");
+assert.equal(input.getAttribute("aria-invalid"), null);
+assert.ok(!input.className.includes("campo-rifiutato"));
+""")
+
+
+def test_il_valore_rifiutato_non_resta_nella_configurazione(tmp_path):
+    """La PUT manda l'**intera** configurazione: un valore rifiutato lasciato
+    dentro farebbe rifiutare ogni modifica successiva accusando il campo
+    sbagliato. E il rifiuto va detto su tre canali, perche' due su tre lasciano
+    fuori qualcuno.
+    """
+    _esegui(tmp_path, _banco_del_campo() + """
+configurazione = { downsample: { voxel_size: 25 } };
+const { input, messaggio } = apriCampo("downsample", "voxel_size");
+input.value = "1e";
+risponde = rifiuta({ detail: [
+  { loc: ["body", "downsample", "voxel_size"], msg: "Input should be a valid number" },
+] });
+await input.scatena("change");
+assert.equal(configurazione.downsample.voxel_size, 25,
+  "il valore rifiutato resta in memoria: la prossima modifica sara' accusata al posto suo");
+assert.equal(input.value, "1e", "la battuta rifiutata sparisce: non si vede piu' che correggere");
+assert.match(messaggio.textContent, /downsample\\.voxel_size: Input should be a valid number/);
+assert.equal(messaggio.hidden, false, "la ragione c'e' ma resta nascosta");
+assert.equal(input.getAttribute("aria-invalid"), "true");
+assert.equal(input.getAttribute("aria-errormessage"), messaggio.id,
+  "aria-invalid da solo dice che c'e' un errore, mai quale");
+assert.ok(input.className.includes("campo-rifiutato"));
+""")
+
+
+def test_il_server_caduto_non_manda_il_valore_con_la_modifica_di_un_altro_campo(tmp_path):
+    """Il bloccante peggiore, perche' il valore trasportato e' arbitrario.
+
+    `fetch` **solleva** quando il server non risponde — fermo, riavviato, la
+    rete caduta — e l'eccezione usciva dal gestore: niente messaggio a video, e
+    niente ripristino, che stava solo nel ramo del rifiuto. Il valore restava in
+    `configurazione`, che e' di modulo, e partiva con la PUT successiva, quella
+    di un altro campo. L'utente toccava `knn` e sul disco cambiava anche
+    `voxel_size`, senza che nulla lo avesse mai detto.
+    """
+    _esegui(tmp_path, _banco_del_campo() + """
+configurazione = { downsample: { voxel_size: 25 }, normals: { knn: 30 } };
+const voxel = apriCampo("downsample", "voxel_size");
+const knn = apriCampo("normals", "knn");
+
+voxel.input.value = "3.5";
+risponde = cade;
+await voxel.input.scatena("change");
+assert.equal(configurazione.downsample.voxel_size, 25,
+  "il valore resta in memoria e lo portera' su disco la prima modifica riuscita");
+assert.equal(voxel.messaggio.hidden, false, "il server non ha risposto e lo schermo tace");
+assert.match(voxel.messaggio.textContent, /il server non ha risposto/);
+assert.equal(voxel.input.getAttribute("aria-invalid"), "true");
+
+knn.input.value = "31";
+risponde = accetta({ downsample: { voxel_size: 25 }, normals: { knn: 31 } });
+await knn.input.scatena("change");
+assert.equal(richieste.length, 2, "il banco non ha mandato le due PUT che sta guardando");
+const ultima = richieste[1].corpo;
+assert.equal(ultima.normals.knn, 31, "la modifica dell'utente non arriva piu' a destinazione");
+assert.equal(ultima.downsample.voxel_size, 25,
+  "l'utente ha toccato knn e sul disco cambia anche voxel_size, che non ha mai visto");
+""")
 
 
 # --------------------------------------------------------------------------

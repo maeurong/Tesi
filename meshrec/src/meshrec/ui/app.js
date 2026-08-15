@@ -403,6 +403,29 @@ async function ragioneDelRifiuto(risposta) {
   return `il server ha risposto ${risposta.status}: ${grezzo.slice(0, 200)}`;
 }
 
+// La risposta di un server che non ha risposto. `fetch` solleva quando il
+// server non c'e' — fermo, riavviato, rete caduta — e l'eccezione usciva dal
+// gestore: tutto cio' che viene dopo non girava, ne' il messaggio a video ne'
+// il ripristino del valore di prima, che restava in `configurazione` e partiva
+// con la PUT successiva, quella di un altro campo. L'utente toccava knn e sul
+// disco cambiava anche voxel_size.
+// Un server che non risponde e' un rifiuto come gli altri, quindi prende la
+// forma del rifiuto e i rami che gia' mostrano la ragione lo trattano senza
+// sapere che e' successo: la stessa coppia {errore, messaggio} del gestore
+// generico del server, cosi' ragioneDelRifiuto la legge come qualunque altra.
+// Si usa come `.catch(serverMuto)` e non come una fetch avvolta: la fetch resta
+// dentro la tratta che la chiede, dove la regola dell'ordine la puo' vedere.
+function serverMuto(errore) {
+  return {
+    ok: false,
+    status: 0,
+    text: async () => JSON.stringify({
+      errore: errore.name,
+      messaggio: `il server non ha risposto: ${errore.message}`,
+    }),
+  };
+}
+
 // Niente hidden: un elemento nascosto cosi' esce dall'albero di accessibilita',
 // e role="alert" non ha piu' una regione viva da sorvegliare, quindi l'annuncio
 // non e' garantito. La regione resta sempre nell'albero e cambia solo
@@ -421,11 +444,17 @@ function dichiaraErrore(testo) {
 // Quello che non si legge come numero resta la stringa battuta e parte cosi':
 // il modello la rifiuta con un 422 leggibile, che e' l'unico posto dove il tipo
 // vero si conosce. Trasformarla in null qui la farebbe accettare in silenzio.
+// isFinite e non isNaN: Number("1e999") e Number("Infinity") non sono NaN, ma
+// JSON.stringify li scrive `null`. Passavano la guardia come numeri e il corpo
+// della PUT partiva gia' azzerato: chi batteva `1e999` su max_volume credendo
+// di alzare il tetto se lo vedeva tolto, con un 200 e lo schermo muto. Fuori
+// scala si comporta come illeggibile — resta la stringa battuta, e la decide il
+// modello. (Sul residuo che il modello oggi non ferma, vedi il rapporto.)
 function valoreScritto(grezzo) {
   const testo = grezzo.trim();
   const numerico = Number(testo);
   return testo === "true" ? true : testo === "false" ? false :
-    testo === "" ? null : Number.isNaN(numerico) ? testo : numerico;
+    testo === "" ? null : Number.isFinite(numerico) ? numerico : testo;
 }
 
 // Il ritaglio si comanda dallo step che lo esegue: crop_min e crop_max sono
@@ -494,7 +523,7 @@ function pannelloRitaglio(ordine) {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(valori),
-    });
+    }).catch(serverMuto);
     if (!risposta.ok) {
       const ragione = await ragioneDelRifiuto(risposta);
       // Dopo l'ultima attesa e prima della prima scrittura, come le altre
@@ -533,6 +562,118 @@ function pannelloRitaglio(ordine) {
   return contenitore;
 }
 
+// Lo stato di un campo a video, in un punto solo: `rifiuto` e' la ragione
+// oppure null. Tre canali insieme perche' due su tre lasciano fuori qualcuno —
+// il bordo non lo vede chi non distingue i colori, il testo non lo trova chi
+// naviga a tastiera senza aria-errormessage, e aria-invalid da solo dice che
+// c'e' un errore ma mai quale.
+function segnalaCampo(input, messaggio, rifiuto) {
+  input.classList.toggle("campo-rifiutato", rifiuto !== null);
+  messaggio.textContent = rifiuto ?? "";
+  messaggio.hidden = rifiuto === null;
+  if (rifiuto === null) {
+    input.removeAttribute("aria-invalid");
+    input.removeAttribute("aria-errormessage");
+  } else {
+    input.setAttribute("aria-invalid", "true");
+    input.setAttribute("aria-errormessage", messaggio.id);
+  }
+}
+
+// Dai tasti al disco: e' l'unica strada per cui una battuta diventa un dato
+// persistito, quindi sta di primo livello come valoreScritto() e si esegue da
+// fuori con una fetch finta. Dentro un gestore anonimo non era raggiungibile da
+// nessun banco, e due difese che mancavano — il ripristino dopo una rete caduta
+// e la riscrittura del valore accettato — non le fermava nessun controllo.
+// ordine: la generazione del clic che ha aperto questo pannello.
+async function scriviParametro(blocco, nome, input, messaggio, ordine) {
+  const precedente = configurazione[blocco][nome];
+  configurazione[blocco][nome] = valoreScritto(input.value);
+  const risposta = await fetch("/api/config", {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(configurazione),
+  }).catch(serverMuto);
+  const rifiuto = risposta.ok ? null : await ragioneDelRifiuto(risposta);
+  const salvata = risposta.ok ? await risposta.json() : null;
+  // Dopo l'ultima attesa e prima della prima scrittura: configurazione e' di
+  // modulo e la riapre ogni pannello, quindi un rifiuto tornato tardi
+  // rimetterebbe il proprio valore di prima dentro la configurazione di un
+  // altro step.
+  if (superata(ordine)) return;
+  if (rifiuto !== null) {
+    // Il valore rifiutato non resta nell'oggetto: la PUT manda l'intera
+    // configurazione, e tenerlo farebbe rifiutare ogni modifica successiva
+    // accusando il campo sbagliato — o, quando il rifiuto e' una rete caduta,
+    // lo scriverebbe su disco alla prima modifica riuscita di un altro campo.
+    configurazione[blocco][nome] = precedente;
+    segnalaCampo(input, messaggio, rifiuto);
+    return;
+  }
+  // Nel campo finisce il valore che il server ha accettato, non quello battuto.
+  // Non e' grafia: `1_0` diventa 10, `0x10` diventa 16, `9.0` su un intero
+  // diventa 9, `no` diventa false. Tutte accettate con 200 e schermo muto,
+  // tutte con il campo che continuava a mostrare la battuta. Riscriverlo e' cio'
+  // che rende la differenza visibile invece che caso per caso: a video finisce
+  // cio' che e' stato salvato.
+  // La memoria segue il disco per intero, non solo su questo campo: la risposta
+  // e' la configurazione canonica appena scritta, ed e' quella che la PUT
+  // successiva deve mandare.
+  configurazione = salvata;
+  input.value = String(configurazione[blocco][nome] ?? "");
+  segnalaCampo(input, messaggio, null);
+}
+
+// La riga di un parametro: etichetta, casella, aiuto e messaggio d'errore.
+// Estratta dal ciclo che la costruiva perche' e' il punto in cui la casella
+// nasce e in cui il gestore le viene attaccato, e da dentro un ciclo dentro una
+// funzione da duecento righe non la esegue nessun banco.
+// Casella di testo, e il tipo non si indovina. type="number" era stato messo
+// guardando `typeof` del valore corrente, cioe' indovinando il tipo dal valore:
+// i quattro campi numerici nullabili scalari erano testo finche' valevano None
+// e numerici appena valevano qualcosa, e i quattordici interi ricevevano
+// step="any", che il passo unitario lo toglie invece di metterlo. Ma il guasto
+// vero e' un altro: Chrome sanifica cio' che non sa leggere: battuto `1e`,
+// `.value` torna `""` mentre a video resta scritto `1e`, e `""` diventava null.
+// La configurazione della corsa finiva su disco col parametro azzerato e sullo
+// schermo non compariva niente. Il tipo lo conosce solo il modello, e
+// /api/schema oggi non lo manda: finche' non lo manda, la casella lascia
+// passare cio' che e' stato battuto e il rifiuto torna visibile come 422.
+function campoParametro(blocco, nome, campo, ordine) {
+  const riga = document.createElement("label");
+  riga.className = "campo";
+  riga.append(Object.assign(document.createElement("span"), { textContent: nome }));
+  const valore = configurazione[blocco][nome];
+  // Una lista o un modello annidato non sono scritti in una casella di testo:
+  // String() li renderebbe come "1,2,4" o "[object Object]", cioe' un testo che
+  // nessuna lettura produce, e ogni modifica tornerebbe comunque rifiutata dal
+  // modello.
+  const scalare = valore === null || ["string", "number", "boolean"].includes(typeof valore);
+  const input = document.createElement("input");
+  input.value = scalare ? String(valore ?? "") : JSON.stringify(valore);
+  input.title = campo.description;
+  const messaggio = document.createElement("small");
+  messaggio.className = "errore-campo";
+  messaggio.id = `errore-${blocco}-${nome}`;
+  messaggio.hidden = true;
+  if (!scalare) {
+    // readOnly e non disabled: disabled lo toglierebbe anche dalla navigazione
+    // da tastiera e dal lettore di schermo.
+    input.readOnly = true;
+  } else {
+    input.addEventListener("change", () => scriviParametro(blocco, nome, input, messaggio, ordine));
+  }
+  riga.append(input);
+  const aiuto = document.createElement("small");
+  aiuto.className = "aiuto";
+  aiuto.textContent = scalare
+    ? campo.description
+    : [campo.description, "si modifica dal file di configurazione"]
+        .filter(Boolean).join(" — ");
+  riga.append(aiuto, messaggio);
+  return riga;
+}
+
 // Le due uscite d'errore di apriDettaglio, in un punto solo. Il pannello resta
 // vuoto, quindi non c'e' nessuno step aperto: il marchio non puo' restare su
 // quello di prima. Restandoci, l'unico canale che dice «stai guardando questo»
@@ -553,7 +694,7 @@ function fallisciDettaglio(dettaglio, ragione) {
 async function apriDettaglio(numero, ordine = generazione) {
   const dettaglio = document.getElementById("dettaglio");
   if (schemaParametri === null) {
-    const risposta = await fetch("/api/schema");
+    const risposta = await fetch("/api/schema").catch(serverMuto);
     // Solo una risposta valida entra in memoria: memorizzare un corpo
     // d'errore avvelenerebbe il pannello per tutta la vita della pagina,
     // perche' nessun click successivo ritenterebbe.
@@ -569,8 +710,8 @@ async function apriDettaglio(numero, ordine = generazione) {
   // solleva un SyntaxError sul corpo d'errore e il pannello resta bianco senza
   // dire perche'. Qui pero' non si memorizza nulla — si rilegge a ogni
   // apertura — quindi basta mostrare la ragione, non c'e' cache da avvelenare.
-  const rispostaConfig = await fetch("/api/config");
-  const rispostaMetriche = await fetch("/api/metrics");
+  const rispostaConfig = await fetch("/api/config").catch(serverMuto);
+  const rispostaMetriche = await fetch("/api/metrics").catch(serverMuto);
   if (!rispostaConfig.ok || !rispostaMetriche.ok) {
     const ragione = await ragioneDelRifiuto(rispostaConfig.ok ? rispostaMetriche : rispostaConfig);
     if (superata(ordine)) return;
@@ -609,7 +750,7 @@ async function apriDettaglio(numero, ordine = generazione) {
     bottone.textContent = etichetta;
     bottone.addEventListener("click", async () => {
       dichiaraErrore(null);
-      const risposta = await fetch(percorso, { method: "POST" });
+      const risposta = await fetch(percorso, { method: "POST" }).catch(serverMuto);
       if (risposta.ok) return;
       const ragione = await ragioneDelRifiuto(risposta);
       // rigaErrore e' quella del pannello aperto adesso: se nel frattempo ne e'
@@ -631,81 +772,7 @@ async function apriDettaglio(numero, ordine = generazione) {
     titolo.textContent = blocco;
     gruppo.append(titolo);
     for (const [nome, campo] of Object.entries(voce.campi[blocco])) {
-      const riga = document.createElement("label");
-      riga.className = "campo";
-      riga.append(Object.assign(document.createElement("span"), { textContent: nome }));
-      const valore = configurazione[blocco][nome];
-      // Una lista o un modello annidato non sono scritti in una casella di
-      // testo: String() li renderebbe come "1,2,4" o "[object Object]", cioe'
-      // un testo che nessuna lettura produce, e ogni modifica tornerebbe
-      // comunque rifiutata dal modello.
-      const scalare = valore === null || ["string", "number", "boolean"].includes(typeof valore);
-      const input = document.createElement("input");
-      // Casella di testo, e il tipo non si indovina. type="number" era stato
-      // messo guardando `typeof` del valore corrente, cioe' indovinando il tipo
-      // dal valore: i nove campi numerici nullabili erano testo finche'
-      // valevano None e numerici appena valevano qualcosa, e i diciotto interi
-      // ricevevano step="any", che il passo unitario lo toglie invece di
-      // metterlo. Ma il guasto vero e' un altro: Chrome sanifica cio' che non
-      // sa leggere: battuto `1e`, `.value` torna `""` mentre a video resta
-      // scritto `1e`, e `""` diventava null. La configurazione della corsa
-      // finiva su disco col parametro azzerato e sullo schermo non compariva
-      // niente. Il tipo lo conosce solo il modello, e /api/schema oggi non lo
-      // manda: finche' non lo manda, la casella lascia passare cio' che e'
-      // stato battuto e il rifiuto torna visibile come 422.
-      input.value = scalare ? String(valore ?? "") : JSON.stringify(valore);
-      input.title = campo.description;
-      const messaggio = document.createElement("small");
-      messaggio.className = "errore-campo";
-      messaggio.id = `errore-${blocco}-${nome}`;
-      messaggio.hidden = true;
-      if (!scalare) {
-        // readOnly e non disabled: disabled lo toglierebbe anche dalla
-        // navigazione da tastiera e dal lettore di schermo.
-        input.readOnly = true;
-      } else {
-        input.addEventListener("change", async () => {
-          const precedente = configurazione[blocco][nome];
-          configurazione[blocco][nome] = valoreScritto(input.value);
-          const risposta = await fetch("/api/config", {
-            method: "PUT",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify(configurazione),
-          });
-          const rifiuto = risposta.ok ? null : await ragioneDelRifiuto(risposta);
-          // Dopo l'ultima attesa e prima della prima scrittura: configurazione
-          // e' di modulo e la riapre ogni pannello, quindi un rifiuto tornato
-          // tardi rimetterebbe il proprio valore di prima dentro la
-          // configurazione di un altro step.
-          if (superata(ordine)) return;
-          input.classList.toggle("campo-rifiutato", !risposta.ok);
-          if (rifiuto !== null) {
-            // Il valore rifiutato non resta nell'oggetto: la PUT manda
-            // l'intera configurazione, e tenerlo farebbe rifiutare ogni
-            // modifica successiva accusando il campo sbagliato.
-            configurazione[blocco][nome] = precedente;
-            messaggio.textContent = rifiuto;
-            messaggio.hidden = false;
-            input.setAttribute("aria-invalid", "true");
-            // aria-invalid da solo dice che c'e' un errore, mai quale.
-            input.setAttribute("aria-errormessage", messaggio.id);
-          } else {
-            messaggio.hidden = true;
-            messaggio.textContent = "";
-            input.removeAttribute("aria-invalid");
-            input.removeAttribute("aria-errormessage");
-          }
-        });
-      }
-      riga.append(input);
-      const aiuto = document.createElement("small");
-      aiuto.className = "aiuto";
-      aiuto.textContent = scalare
-        ? campo.description
-        : [campo.description, "si modifica dal file di configurazione"]
-            .filter(Boolean).join(" — ");
-      riga.append(aiuto, messaggio);
-      gruppo.append(riga);
+      gruppo.append(campoParametro(blocco, nome, campo, ordine));
     }
     dettaglio.append(gruppo);
   }
