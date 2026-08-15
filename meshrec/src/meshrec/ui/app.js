@@ -10,7 +10,14 @@ const ETICHETTE = {
 
 async function caricaStato() {
   const risposta = await fetch("/api/run");
-  const corpo = await risposta.json();
+  const corpo = await corpoLetto(risposta);
+  // Un 200 con un corpo che non si legge, o senza l'elenco degli step, faceva
+  // sollevare qui sotto (disegnaStep su un valore che non e' un array) fuori
+  // da qualunque catch: la pagina restava bianca, senza un solo messaggio.
+  if (corpo === undefined || !Array.isArray(corpo.steps)) {
+    dichiaraErrore("il server ha risposto con uno stato della corsa che non si legge");
+    return;
+  }
   document.getElementById("corsa").textContent = corpo.out_dir;
   disegnaStep(corpo.steps);
 }
@@ -426,6 +433,22 @@ function serverMuto(errore) {
   };
 }
 
+// Un 200 che ha gia' superato risposta.ok puo' comunque rispondere spazzatura:
+// corpo malformato (JSON invalido) o corpo che non e' piu' un oggetto leggibile.
+// `await risposta.json()` da solo solleva un SyntaxError fuori da qualunque
+// catch, e il gestore muore a meta' senza dire niente — l'utente resta davanti
+// a un pannello fermo. undefined marca "il corpo non si legge", ed e' diverso
+// da null: null e' cio' che il server ha davvero risposto (un campo nullabile
+// letto per bene), undefined e' che qui non si e' letto niente. E' la stessa
+// distinzione che valoreScritto fa fra un numero e una stringa che non lo e'.
+async function corpoLetto(risposta) {
+  try {
+    return await risposta.json();
+  } catch {
+    return undefined;
+  }
+}
+
 // Niente hidden: un elemento nascosto cosi' esce dall'albero di accessibilita',
 // e role="alert" non ha piu' una regione viva da sorvegliare, quindi l'annuncio
 // non e' garantito. La regione resta sempre nell'albero e cambia solo
@@ -533,8 +556,16 @@ function pannelloRitaglio(ordine) {
       dichiaraErrore(ragione);
       return;
     }
-    const corpo = await risposta.json();
+    const corpo = await corpoLetto(risposta);
     if (superata(ordine)) return;
+    // Un 200 il cui corpo non si legge, o senza points_after, e' un rifiuto
+    // come gli altri: senza questo, la riga sotto solleva su un valore che
+    // non c'e' e il bottone resta muto per sempre — esattamente il silenzio
+    // che il testo appena scritto ("ritaglio in corso") promette di rompere.
+    if (corpo === undefined || typeof corpo.points_after !== "number") {
+      dichiaraErrore("il server ha risposto con un corpo che non descrive il ritaglio applicato");
+      return;
+    }
     // Il bottone dice «Applica», non «Anteprima»: /api/crop scrive crop_min e
     // crop_max nella configurazione della corsa, e chi sta esplorando deve
     // saperlo qui, non riaprendo il pannello.
@@ -580,6 +611,26 @@ function segnalaCampo(input, messaggio, rifiuto) {
   }
 }
 
+// Le scritture di parametro sono il terzo requisito con lo stesso raggio del
+// difetto dell'ordine, alla granularita' del singolo campo. Due battute sullo
+// stesso campo, nello stesso pannello aperto, condividono `ordine` — che e' la
+// generazione del clic che ha aperto il pannello, non della battuta — quindi
+// superata(ordine) da solo non le distingue fra loro: se la PUT della prima
+// battuta rientra dopo la seconda, riscrive sul campo (e sulla prossima PUT di
+// un altro campo, che riparte da `configurazione`) un valore piu' vecchio di
+// quello appena battuto. E' la stessa famiglia di difetto — l'ordine fra
+// risposte — gia' corretta due volte su questo file, sulla generazione del
+// clic (`generazione`) e sulla richiesta di geometria (`ultimaGeometria`); qui
+// il requisito e' un terzo, non coperto da nessuno dei due: un contatore per
+// campo.
+const ultimaBattutaDelCampo = new Map();
+
+function apriBattuta(chiave) {
+  const battuta = (ultimaBattutaDelCampo.get(chiave) ?? 0) + 1;
+  ultimaBattutaDelCampo.set(chiave, battuta);
+  return battuta;
+}
+
 // Dai tasti al disco: e' l'unica strada per cui una battuta diventa un dato
 // persistito, quindi sta di primo livello come valoreScritto() e si esegue da
 // fuori con una fetch finta. Dentro un gestore anonimo non era raggiungibile da
@@ -587,6 +638,8 @@ function segnalaCampo(input, messaggio, rifiuto) {
 // e la riscrittura del valore accettato — non le fermava nessun controllo.
 // ordine: la generazione del clic che ha aperto questo pannello.
 async function scriviParametro(blocco, nome, input, messaggio, ordine) {
+  const chiave = `${blocco}.${nome}`;
+  const battuta = apriBattuta(chiave);
   const precedente = configurazione[blocco][nome];
   configurazione[blocco][nome] = valoreScritto(input.value);
   const risposta = await fetch("/api/config", {
@@ -595,12 +648,14 @@ async function scriviParametro(blocco, nome, input, messaggio, ordine) {
     body: JSON.stringify(configurazione),
   }).catch(serverMuto);
   const rifiuto = risposta.ok ? null : await ragioneDelRifiuto(risposta);
-  const salvata = risposta.ok ? await risposta.json() : null;
+  const salvata = risposta.ok ? await corpoLetto(risposta) : null;
   // Dopo l'ultima attesa e prima della prima scrittura: configurazione e' di
   // modulo e la riapre ogni pannello, quindi un rifiuto tornato tardi
   // rimetterebbe il proprio valore di prima dentro la configurazione di un
-  // altro step.
-  if (superata(ordine)) return;
+  // altro step. superata(battuta, ...) scarta anche la risposta di una
+  // battuta piu' vecchia sullo stesso campo, che superata(ordine) da solo non
+  // vede perche' tutte le battute di questo pannello condividono `ordine`.
+  if (superata(ordine) || superata(battuta, ultimaBattutaDelCampo.get(chiave))) return;
   if (rifiuto !== null) {
     // Il valore rifiutato non resta nell'oggetto: la PUT manda l'intera
     // configurazione, e tenerlo farebbe rifiutare ogni modifica successiva
@@ -608,6 +663,18 @@ async function scriviParametro(blocco, nome, input, messaggio, ordine) {
     // lo scriverebbe su disco alla prima modifica riuscita di un altro campo.
     configurazione[blocco][nome] = precedente;
     segnalaCampo(input, messaggio, rifiuto);
+    return;
+  }
+  // Un 200 il cui corpo non si legge, o non descrive piu' il blocco appena
+  // scritto, non ripristina precedente: la PUT e' stata accettata (risposta.ok),
+  // quindi il valore appena battuto e' gia' su disco. Ripristinare precedente
+  // qui lo terrebbe sbagliato in memoria, e la prossima PUT di un altro campo
+  // lo riscriverebbe sopra — lo stesso guasto per cui un rifiuto vero, sotto,
+  // non tocca mai un valore che il server ha davvero accettato. Non si cachea
+  // nemmeno: `configurazione = salvata` resta fuori da questo ramo.
+  if (salvata === undefined || salvata[blocco]?.[nome] === undefined) {
+    segnalaCampo(input, messaggio,
+      "il server ha accettato la modifica ma non ne ha confermato il valore");
     return;
   }
   // Nel campo finisce il valore che il server ha accettato, non quello battuto.
@@ -704,12 +771,21 @@ async function apriDettaglio(numero, ordine = generazione) {
       fallisciDettaglio(dettaglio, ragione);
       return;
     }
-    schemaParametri = await risposta.json();
+    const corpo = await corpoLetto(risposta);
+    if (superata(ordine)) return;
+    // Solo uno schema che si legge entra in memoria: un corpo malformato che
+    // finisse in schemaParametri avvelenerebbe il pannello per tutta la vita
+    // della pagina, perche' schemaParametri non e' piu' null e nessun clic
+    // successivo ritenterebbe la richiesta.
+    if (corpo === undefined) {
+      fallisciDettaglio(dettaglio, "il server ha risposto con uno schema che non si legge");
+      return;
+    }
+    schemaParametri = corpo;
   }
   // Come il ramo dello schema qui sopra: senza guardare risposta.ok, .json()
   // solleva un SyntaxError sul corpo d'errore e il pannello resta bianco senza
-  // dire perche'. Qui pero' non si memorizza nulla — si rilegge a ogni
-  // apertura — quindi basta mostrare la ragione, non c'e' cache da avvelenare.
+  // dire perche'.
   const rispostaConfig = await fetch("/api/config").catch(serverMuto);
   const rispostaMetriche = await fetch("/api/metrics").catch(serverMuto);
   if (!rispostaConfig.ok || !rispostaMetriche.ok) {
@@ -718,13 +794,22 @@ async function apriDettaglio(numero, ordine = generazione) {
     fallisciDettaglio(dettaglio, ragione);
     return;
   }
-  configurazione = await rispostaConfig.json();
-  const metriche = await rispostaMetriche.json();
+  const corpoConfig = await corpoLetto(rispostaConfig);
+  const corpoMetriche = await corpoLetto(rispostaMetriche);
   // Dopo l'ultima attesa e prima della prima scrittura: qui sono tre andate e
   // ritorni, e in mezzo l'utente puo' aver scelto un altro step. Anche
   // stepAperto sta sotto la guardia, perche' e' lui a dire allo scorrere degli
   // eventi quale pannello ricaricare.
   if (superata(ordine)) return;
+  // configurazione e' di modulo e resta quella dell'apertura precedente finche'
+  // non si assegna: un corpo che non si legge non deve entrarci, altrimenti la
+  // prossima PUT di scriviParametro partirebbe da una configurazione rotta.
+  if (corpoConfig === undefined || corpoMetriche === undefined) {
+    fallisciDettaglio(dettaglio, "il server ha risposto con un corpo che non si legge");
+    return;
+  }
+  configurazione = corpoConfig;
+  const metriche = corpoMetriche;
   const voce = schemaParametri[String(numero)];
   stepAperto = numero;
   // Il marchio segue il pannello nello stesso istante: rimandarlo alla

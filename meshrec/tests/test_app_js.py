@@ -608,9 +608,13 @@ def _banco_del_campo() -> str:
     riga vera e `scriviParametro` la scrive, entrambe di primo livello apposta.
     """
     return _DOM + _funzioni(
-        "valoreScritto", "ragioneDelRifiuto", "serverMuto", "superata",
-        "segnalaCampo", "scriviParametro", "campoParametro",
+        "valoreScritto", "ragioneDelRifiuto", "serverMuto", "superata", "corpoLetto",
+        "segnalaCampo", "apriBattuta", "scriviParametro", "campoParametro",
     ) + """
+// Il terzo contatore di Rilievo 1, per campo: scriviParametro lo legge dal
+// modulo per nome, non da un parametro, quindi il banco deve ricrearlo tale e
+// quale a `generazione` e `configurazione` qui sopra.
+let ultimaBattutaDelCampo = new Map();
 const CAMPO = { description: "la spaziatura del voxel" };
 const richieste = [];
 let risponde = null;
@@ -788,3 +792,366 @@ for (const testo of [parziale, intero]) {
 }
 """)
     assert uscita == ""
+
+
+# --------------------------------------------------------------------------
+# Rilievo 1 (giro 2): l'ordine fra risposte, alla granularita' del campo.
+#
+# `superata(ordine)` lega la guardia alla generazione del clic che ha aperto
+# il pannello: due battute sullo stesso campo, nello stesso pannello, portano
+# lo stesso `ordine`, e la guardia non le distingue. E' il terzo requisito
+# dello stesso difetto gia' corretto due volte su questo file (`generazione`
+# per i clic, `ultimaGeometria` per le richieste di geometria) — qui la
+# granularita' giusta e' il campo, non il pannello.
+# --------------------------------------------------------------------------
+
+
+def test_apriBattuta_apre_in_ordine_e_non_confonde_due_campi(tmp_path):
+    """La meta' pura della guardia, eseguita da sola: sale di uno per campo,
+    comincia da 1, e due campi diversi non condividono il contatore. L'altra
+    meta' — l'uso vero dentro `scriviParametro` — e' nel banco piu' sotto."""
+    _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
+            "let ultimaBattutaDelCampo = new Map();\n"
+            + _funzioni("apriBattuta") + """
+assert.equal(apriBattuta("downsample.voxel_size"), 1, "la prima battuta di un campo non parte da 1");
+assert.equal(apriBattuta("downsample.voxel_size"), 2, "la battuta sullo stesso campo non sale");
+assert.equal(apriBattuta("normals.knn"), 1, "due campi diversi condividono il contatore");
+assert.equal(ultimaBattutaDelCampo.get("downsample.voxel_size"), 2,
+  "la mappa non tiene l'ultima battuta registrata per quel campo");
+assert.equal(ultimaBattutaDelCampo.get("normals.knn"), 1);
+""")
+
+
+def test_scriviparametro_guarda_anche_la_battuta_del_campo_per_iscritto():
+    """Il contratto per iscritto, cosi' una modifica futura che tolga la
+    guardia lo dice senza dover eseguire `node`. Non basta da solo — una
+    guardia scritta e resa inerte passerebbe questo controllo — percio' il
+    controllo che conta e' quello che esegue, subito sotto."""
+    corpo = _sorgente_di("scriviParametro", _modulo())
+    assert "apriBattuta(chiave)" in corpo, "la battuta non si apre piu' per campo"
+    assert "superata(battuta, ultimaBattutaDelCampo.get(chiave))" in corpo, (
+        "la guardia sulla battuta del campo e' sparita: due scritture sullo stesso "
+        "campo tornano a condividere solo l'ordine del pannello, ed e' esattamente "
+        "il difetto tornato una quarta volta"
+    )
+
+
+def test_la_risposta_della_battuta_piu_vecchia_sullo_stesso_campo_non_vince(tmp_path):
+    """L'ingresso concreto di Rilievo 1. Due battute sullo stesso campo, nello
+    stesso pannello aperto (stesso `ordine`): la prima e' lenta, la seconda
+    parte dopo e arriva prima. Senza la guardia per campo, la risposta della
+    prima — che descrive un valore piu' vecchio di quello che l'utente ha gia'
+    scritto — vince perche' arriva per ultima, e la prossima PUT su un altro
+    campo la riporterebbe sul disco sopra il valore vero.
+
+    Il controllo che smentisce e' nello stesso banco: due scritture in ordine
+    normale (nessun accavallamento) devono continuare a funzionare, altrimenti
+    la guardia rifiuta tutto e non e' una correzione.
+    """
+    _esegui(tmp_path, _banco_del_campo() + """
+// --- il caso che rompeva: risposte invertite -------------------------------
+configurazione = { downsample: { voxel_size: 1 } };
+const campo = apriCampo("downsample", "voxel_size");
+
+let risolvi1, risolvi2;
+const risposte = [
+  new Promise((r) => { risolvi1 = r; }),
+  new Promise((r) => { risolvi2 = r; }),
+];
+let chiamata = 0;
+globalThis.fetch = async (percorso, opzioni) => {
+  richieste.push({ percorso, corpo: JSON.parse(opzioni.body) });
+  return risposte[chiamata++];
+};
+
+campo.input.value = "1";
+const primaBattuta = scriviParametro("downsample", "voxel_size", campo.input, campo.messaggio, generazione);
+campo.input.value = "2";
+const secondaBattuta = scriviParametro("downsample", "voxel_size", campo.input, campo.messaggio, generazione);
+
+// La risposta della seconda battuta (l'ultima che l'utente ha davvero
+// scritto) arriva per prima; quella della prima, piu' vecchia, rientra dopo.
+risolvi2({ ok: true, status: 200, json: async () => ({ downsample: { voxel_size: 2 } }) });
+await secondaBattuta;
+risolvi1({ ok: true, status: 200, json: async () => ({ downsample: { voxel_size: 1 } }) });
+await primaBattuta;
+
+assert.equal(configurazione.downsample.voxel_size, 2,
+  "la risposta della battuta vecchia ha scritto sopra quella nuova in memoria");
+assert.equal(campo.input.value, "2",
+  "il campo torna a mostrare la battuta vecchia dopo che l'utente ha gia' scritto la nuova");
+
+// --- il controllo che smentisce: ordine normale, nessun accavallamento -----
+globalThis.fetch = async (percorso, opzioni) => {
+  richieste.push({ percorso, corpo: JSON.parse(opzioni.body) });
+  return { ok: true, status: 200, json: async () => ({ downsample: { voxel_size: 3 } }) };
+};
+campo.input.value = "3";
+await scriviParametro("downsample", "voxel_size", campo.input, campo.messaggio, generazione);
+assert.equal(configurazione.downsample.voxel_size, 3,
+  "una scrittura normale, senza accavallamento, smette di funzionare");
+assert.equal(campo.input.value, "3");
+""")
+
+
+def test_scriviparametro_200_illeggibile_non_va_in_crash_ne_ripristina_ne_cachea(tmp_path):
+    """Rilievo 2 sul terzo `.json()`: la conferma di una PUT accettata. Due
+    corpi spazzatura — JSON invalido, e JSON valido ma senza il blocco appena
+    scritto — non devono far sollevare il gestore, non devono ripristinare
+    `precedente` (la PUT e' stata accettata: il valore vecchio in memoria
+    scriverebbe sopra quello vero alla prossima modifica di un altro campo, lo
+    stesso guasto di BL-2), e non devono entrare in `configurazione`.
+    """
+    _esegui(tmp_path, _banco_del_campo() + """
+for (const corpoRotto of [
+  async () => { throw new SyntaxError("non e' JSON"); },
+  async () => ({ normals: { knn: 30 } }),  // valido, ma senza il blocco downsample
+]) {
+  configurazione = { downsample: { voxel_size: 9 } };
+  const campo = apriCampo("downsample", "voxel_size");
+  campo.input.value = "12";
+  risponde = async () => ({ ok: true, status: 200, json: corpoRotto });
+  await campo.input.scatena("change");
+  assert.equal(configurazione.downsample.voxel_size, 12,
+    "un 200 accettato ma illeggibile ripristina un valore che il server ha gia' scritto");
+  assert.equal(campo.messaggio.hidden, false, "un 200 illeggibile non deve restare muto");
+  assert.match(campo.messaggio.textContent, /non ne ha confermato/);
+}
+""")
+
+
+# --------------------------------------------------------------------------
+# Rilievo 2, il resto del censimento: caricaStato e apriDettaglio.
+# --------------------------------------------------------------------------
+
+
+def test_corpoLetto_distingue_illeggibile_da_null(tmp_path):
+    """La difesa unica che protegge i sei punti di `app.js` che leggevano
+    `risposta.json()` senza guardia (il censimento e' nel rapporto). `undefined`
+    marca "non si legge"; `null` resta `null`, perche' e' cio' che il server ha
+    davvero risposto — la stessa distinzione che `valoreScritto` fa sui campi
+    nullabili."""
+    _esegui(tmp_path, "import assert from 'node:assert/strict';\n" + _funzioni("corpoLetto") + """
+const buono = { json: async () => ({ a: 1 }) };
+assert.deepEqual(await corpoLetto(buono), { a: 1 }, "un corpo buono non arriva piu' intatto");
+const nullo = { json: async () => null };
+assert.equal(await corpoLetto(nullo), null, "un null vero diventa qualcos'altro");
+const rotto = { json: async () => { throw new SyntaxError("non e' JSON"); } };
+assert.equal(await corpoLetto(rotto), undefined, "il corpo illeggibile continua a sollevare fuori da qui");
+""")
+
+
+def test_ogni_lettura_di_un_corpo_passa_da_corpoLetto():
+    """Il censimento per iscritto: `corpoLetto()` e' la difesa unica, e ogni
+    punto che legge un corpo deve passare da li'. Un settimo punto aggiunto
+    domani con `.json()` diretto invece di `corpoLetto()` torna a rompere il
+    gestore su un 200 spazzatura senza che nessuno se ne accorga leggendo — e
+    questo controllo lo dice senza dover eseguire `node`."""
+    modulo = _modulo()
+    corpo_funzione = _sorgente_di("corpoLetto", modulo)
+    resto = modulo.replace(corpo_funzione, "", 1)
+    assert resto != modulo, "corpoLetto() e' sparita dal modulo: non si estrae piu' il suo corpo"
+    codice = _senza_commenti_js(resto)
+    assert ".json()" not in codice, (
+        "un punto legge risposta.json() direttamente invece di passare da corpoLetto()"
+    )
+
+
+def _banco_di_caricaStato() -> str:
+    """`caricaStato` e' l'unica tratta senza `ordine` (parte una volta sola
+    all'avvio, non da un clic — vedi `test_ogni_tratta_che_interroga_il_server`
+    in `test_server.py`, che la esclude per lo stesso motivo): qui si guarda
+    solo che il suo `.json()`, il primo del censimento, non faccia cadere la
+    pagina su un 200 spazzatura. `corpoLetto` e' estratta **dopo** `caricaStato`
+    nello stesso ordine del file vero: se lo hoisting non reggesse, questo
+    banco lo direbbe eseguendo, non ragionandoci sopra.
+    """
+    return _DOM + _funzioni(
+        "caricaStato", "segnaStepAperto", "nuovaRiga", "disegnaStep", "dichiaraErrore", "corpoLetto",
+    ) + """
+let risponde = null;
+globalThis.fetch = async () => risponde();
+"""
+
+
+def test_caricaStato_non_crolla_su_un_corpo_che_non_si_legge(tmp_path):
+    """Due grafie di spazzatura su un 200: JSON invalido, e JSON valido ma
+    senza `steps`. Nessuna delle due deve far sollevare `caricaStato` (la
+    pagina cadrebbe bianca all'avvio, prima ancora che l'elenco degli step
+    compaia) e la prima deve dirlo a video, con lo stesso canale degli altri
+    rifiuti. Il controllo che smentisce e' nello stesso banco: un corpo buono
+    deve continuare a disegnare gli step.
+    """
+    _esegui(tmp_path, _banco_di_caricaStato() + """
+risponde = async () => ({ ok: true, status: 200, json: async () => { throw new SyntaxError("boom"); } });
+await caricaStato();
+assert.match(rigaErrore.textContent, /non si legge/, "il corpo illeggibile non dice niente a video");
+assert.equal(document.getElementById("corsa").textContent, "",
+  "un corpo illeggibile non deve scrivere corsa");
+
+rigaErrore.textContent = "";
+risponde = async () => ({ ok: true, status: 200, json: async () => ({ out_dir: "/tmp/corsa" }) });
+await caricaStato();
+assert.match(rigaErrore.textContent, /non si legge/,
+  "un corpo senza l'elenco degli step non dice niente a video");
+
+// --- il controllo che smentisce: un corpo buono deve continuare a funzionare
+rigaErrore.textContent = "";
+risponde = async () => ({ ok: true, status: 200, json: async () => ({ out_dir: "/tmp/corsa", steps: STEPS }) });
+await caricaStato();
+assert.equal(rigaErrore.textContent, "", "un corpo buono non deve mostrare errore");
+assert.equal(document.getElementById("corsa").textContent, "/tmp/corsa");
+assert.equal(elenco.childElementCount, 3, "un corpo buono deve continuare a disegnare gli step");
+""")
+
+
+def _banco_di_apriDettaglio() -> str:
+    """`apriDettaglio` intero, con le sue dipendenze vere: e' il punto in cui
+    stanno quattro dei sei `.json()` del censimento (schema, config, metriche
+    — le ultime due nella stessa guardia). `campoParametro`/`scriviParametro`
+    servono solo perche' il ramo buono del pannello li chiama costruendo le
+    righe; nessun banco qui li scatena.
+    """
+    return _DOM + _funzioni(
+        "segnaStepAperto", "nuovaRiga", "disegnaStep", "dichiaraErrore", "fallisciDettaglio",
+        "ragioneDelRifiuto", "serverMuto", "superata", "corpoLetto", "valoreScritto",
+        "segnalaCampo", "apriBattuta", "scriviParametro", "campoParametro", "apriDettaglio",
+    ) + """
+let ultimaBattutaDelCampo = new Map();
+let schemaParametri = null;
+const richieste = [];
+let risponde = {};
+globalThis.fetch = async (percorso) => {
+  richieste.push(percorso);
+  return risponde[percorso]();
+};
+// Letto e non chiamato in questi banchi (numero e' sempre 1): apriDettaglio
+// lo confronta comunque a ogni apertura, quindi deve esistere.
+const STEP_CON_RITAGLIO = 2;
+const SCHEMA_BUONO = { "1": { blocchi: ["input"], campi: { input: { path: { description: "percorso" } } } } };
+const CONFIG_BUONA = { input: { path: "nuvola.ply" } };
+const METRICHE_BUONE = {};
+"""
+
+
+def test_apriDettaglio_schema_illeggibile_non_avvelena_la_cache(tmp_path):
+    """Il caso che l'addendum nomina esplicitamente: uno schema mezzo letto
+    resterebbe in memoria per tutta la vita della pagina, perche'
+    `schemaParametri` non e' piu' `null` e nessun clic successivo ritenterebbe
+    la richiesta. Il controllo che smentisce e' nello stesso banco: dopo un
+    fallimento, un secondo clic con uno schema buono deve ancora funzionare —
+    provato solo perche' la cache e' rimasta vuota.
+    """
+    _esegui(tmp_path, _banco_di_apriDettaglio() + """
+risponde = {
+  "/api/schema": async () => ({ ok: true, status: 200, json: async () => { throw new SyntaxError("boom"); } }),
+};
+await apriDettaglio(1);
+assert.match(rigaErrore.textContent, /schema/, "il corpo illeggibile non nomina lo schema a video");
+assert.equal(schemaParametri, null,
+  "un corpo illeggibile e' finito comunque in cache: nessun clic successivo ritentera'");
+assert.equal(document.getElementById("dettaglio").childElementCount, 0,
+  "il pannello non e' stato svuotato dopo il fallimento");
+
+risponde = {
+  "/api/schema": async () => ({ ok: true, status: 200, json: async () => SCHEMA_BUONO }),
+  "/api/config": async () => ({ ok: true, status: 200, json: async () => CONFIG_BUONA }),
+  "/api/metrics": async () => ({ ok: true, status: 200, json: async () => METRICHE_BUONE }),
+};
+await apriDettaglio(1);
+assert.equal(schemaParametri, SCHEMA_BUONO, "lo schema buono non e' stato memorizzato");
+assert.ok(document.getElementById("dettaglio").childElementCount > 0,
+  "il pannello non si e' ripreso con uno schema buono, dopo che il primo era fallito");
+""")
+
+
+def test_apriDettaglio_config_illeggibile_non_scrive_la_configurazione_di_modulo(tmp_path):
+    """Un rischio in piu' rispetto a quanto l'addendum nomina: `configurazione`
+    e' anch'essa una variabile di modulo che sopravvive fra un'apertura e
+    l'altra, ed e' quella da cui riparte la prossima PUT di `scriviParametro`.
+    Un corpo illeggibile non deve entrarci, altrimenti la prossima modifica di
+    un campo qualsiasi partirebbe da un valore rotto invece che da quello
+    dell'apertura precedente.
+    """
+    _esegui(tmp_path, _banco_di_apriDettaglio() + """
+configurazione = { input: { path: "valore-precedente.ply" } };
+risponde = {
+  "/api/schema": async () => ({ ok: true, status: 200, json: async () => SCHEMA_BUONO }),
+  "/api/config": async () => ({ ok: true, status: 200, json: async () => { throw new SyntaxError("boom"); } }),
+  "/api/metrics": async () => ({ ok: true, status: 200, json: async () => METRICHE_BUONE }),
+};
+await apriDettaglio(1);
+assert.match(rigaErrore.textContent, /non si legge/, "il corpo illeggibile non dice niente a video");
+assert.equal(configurazione.input.path, "valore-precedente.ply",
+  "la configurazione di modulo e' stata sovrascritta da un corpo che non si legge: " +
+  "la prossima PUT partirebbe da un valore rotto");
+assert.equal(schemaParametri, SCHEMA_BUONO, "lo schema, gia' buono, non doveva essere ritoccato");
+""")
+
+
+def test_apriDettaglio_metriche_illeggibili_non_scrivono_la_configurazione_di_modulo(tmp_path):
+    """Il verso simmetrico del controllo sopra. La guardia e' una condizione
+    sola con un `||` fra `corpoConfig` e `corpoMetriche`: un mutante che
+    rompesse solo il lato destro non si vedrebbe da un controllo dove a
+    fallire e' la config. Qui la config e' buona e sono le metriche a essere
+    spazzatura.
+    """
+    _esegui(tmp_path, _banco_di_apriDettaglio() + """
+configurazione = { input: { path: "valore-precedente.ply" } };
+risponde = {
+  "/api/schema": async () => ({ ok: true, status: 200, json: async () => SCHEMA_BUONO }),
+  "/api/config": async () => ({ ok: true, status: 200, json: async () => CONFIG_BUONA }),
+  "/api/metrics": async () => ({ ok: true, status: 200, json: async () => { throw new SyntaxError("boom"); } }),
+};
+await apriDettaglio(1);
+assert.match(rigaErrore.textContent, /non si legge/, "il corpo illeggibile non dice niente a video");
+assert.equal(configurazione.input.path, "valore-precedente.ply",
+  "la configurazione di modulo e' stata sovrascritta anche se solo le metriche erano illeggibili");
+""")
+
+
+# --------------------------------------------------------------------------
+# Il sesto punto del censimento: la conferma di /api/crop.
+# --------------------------------------------------------------------------
+
+
+def _banco_del_ritaglio() -> str:
+    return _DOM + _funzioni(
+        "superata", "ragioneDelRifiuto", "serverMuto", "corpoLetto", "dichiaraErrore", "pannelloRitaglio",
+    ) + """
+const vista = {
+  ingombro: () => ({ min: [0, 0, 0], max: [1, 1, 1] }),
+  mostraBox: () => {},
+};
+let risponde = null;
+globalThis.fetch = async () => risponde();
+function apriPannello(ordine) {
+  const contenitore = pannelloRitaglio(ordine);
+  const applica = contenitore.figli.find((f) => f.tag === "button");
+  const esito = contenitore.figli[contenitore.figli.length - 1];
+  return { applica, esito };
+}
+"""
+
+
+def test_applica_il_ritaglio_200_illeggibile_non_va_in_crash(tmp_path):
+    """Il sesto `.json()` del censimento: la conferma di `/api/crop`. Un 200
+    illeggibile, o senza `points_after`, non deve far sollevare il gestore del
+    bottone — il testo "ritaglio in corso" scritto poco prima (`esito`)
+    resterebbe a video per sempre, il silenzio peggiore perche' promette una
+    fine che non arriva mai. Lo stesso canale delle altre due uscite d'errore
+    di questo bottone: `dichiaraErrore`, non `esito`.
+    """
+    _esegui(tmp_path, _banco_del_ritaglio() + """
+for (const corpoRotto of [
+  async () => { throw new SyntaxError("non e' JSON"); },
+  async () => ({ completo: true }),  // valido, ma senza points_after
+]) {
+  rigaErrore.textContent = "";
+  const { applica } = apriPannello(generazione);
+  risponde = async () => ({ ok: true, status: 200, json: corpoRotto });
+  await applica.scatena("click");
+  assert.match(rigaErrore.textContent, /non descrive il ritaglio/,
+    "un 200 illeggibile non dice niente a video, e il bottone resta muto per sempre");
+}
+""")
