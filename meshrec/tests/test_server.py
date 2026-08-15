@@ -756,20 +756,26 @@ def test_lindice_del_clic_coincide_con_quello_della_corsa_vera(cliente, tmp_path
     (il clic, sbagliato) contro 2447 (la corsa), vedi
     task-11b-allineamento.md.
 
-    Qui un "pavimento" piatto (2 000 punti a z=0, un piano vero) sta sopra
-    la soglia di estrazione (plane_min_points_ratio=0.05 di 4 000 punti =
-    200), e due "pareti" (1 500 e 500 punti, cubi separati fra loro e
-    lontani dal pavimento) restano nel residuo. Con plane_max_count=1
+    Qui un "pavimento" piatto (2 000 punti a z=0 su 30x30 mm, un piano vero)
+    sta sopra la soglia di estrazione (plane_min_points_ratio=0.05 di 4 000
+    punti = 200), e due "pareti" (1 500 e 500 punti, cubi separati fra loro
+    e lontani dal pavimento) restano nel residuo. Con plane_max_count=1
     l'estrazione si ferma dopo il pavimento, deterministica: il residuo e'
     ESATTAMENTE le due pareti, 2 000 punti.
 
-    La differenza e' osservabile: SENZA extract_planes (il difetto),
-    DBSCAN sull'intera nuvola (pavimento+pareti) troverebbe TRE cluster
-    ordinati per numerosita' decrescente (2000, 1500, 500), e un clic sulla
-    parete piccola risolverebbe all'indice 2 — il pavimento occuperebbe lo
-    0. CON extract_planes (questo giro), il residuo ha solo le due pareti:
-    lo stesso clic deve risolvere all'indice 1, che e' anche l'indice che
-    la clusterizzazione REALE (ricalcolata qui sotto, indipendentemente
+    La differenza e' osservabile, misurata (non solo dedotta): con
+    cluster_eps_factor=8 (vedi sotto) il pavimento e' denso abbastanza da
+    formare DBSCAN un cluster vero anche SENZA extract_planes (il difetto),
+    non solo rumore — la scelta che rende la mutazione visibile invece di
+    silenziosamente innocua (un pavimento troppo rado, misurato in un primo
+    tentativo, finiva sempre in rumore in entrambi i casi, e la mutazione
+    passava lo stesso test per coincidenza). Cosi' DBSCAN sull'intera nuvola
+    (pavimento+pareti) trova TRE cluster ordinati per numerosita'
+    decrescente (2000, 1500, 500), zero rumore: un clic sulla parete
+    piccola risolverebbe all'indice 2 — il pavimento occuperebbe lo 0. CON
+    extract_planes (questo giro), il residuo ha solo le due pareti: lo
+    stesso clic deve risolvere all'indice 1, che e' anche l'indice che la
+    clusterizzazione REALE (ricalcolata qui sotto, indipendentemente
     dall'endpoint, con la stessa sequenza che la corsa 'auto' esegue)
     assegna allo stesso punto.
     """
@@ -780,8 +786,8 @@ def test_lindice_del_clic_coincide_con_quello_della_corsa_vera(cliente, tmp_path
     corsa = tmp_path / "corsa"
     rng_pavimento = np.random.default_rng(3)
     pavimento = np.zeros((2_000, 3))
-    pavimento[:, 0] = rng_pavimento.random(2_000) * 300.0
-    pavimento[:, 1] = rng_pavimento.random(2_000) * 300.0
+    pavimento[:, 0] = rng_pavimento.random(2_000) * 30.0
+    pavimento[:, 1] = rng_pavimento.random(2_000) * 30.0
     parete_grande = np.random.default_rng(4).random((1_500, 3)) * 10.0 + np.array(
         [0.0, 0.0, 2_000.0]
     )
@@ -801,10 +807,15 @@ def test_lindice_del_clic_coincide_con_quello_della_corsa_vera(cliente, tmp_path
     # pareti (10 e 7 mm) e RANSAC trova per rumore un "piano" che ne
     # cattura una fetta — misurato, 1 951 dei 2 025 punti del piano
     # spurio venivano dalle pareti, non dal pavimento. A 0.1 la soglia
-    # (~0,19 mm) e' trascurabile rispetto ai cubi e cattura solo il
-    # pavimento, che e' esattamente a z=0 e quindi a distanza zero da
-    # qualunque soglia positiva.
+    # (~0,04 mm, misurato con questa spaziatura) e' trascurabile rispetto
+    # ai cubi e cattura solo il pavimento, che e' esattamente a z=0 e
+    # quindi a distanza zero da qualunque soglia positiva.
     attuale["segment"]["plane_distance_factor"] = 0.1
+    # cluster_eps_factor piu' largo del predefinito (4): misurato, e'
+    # cio' che serve perche' il pavimento denso (30x30 mm, 2000 punti)
+    # formi un cluster DBSCAN vero invece di cadere in rumore — la
+    # condizione che rende la mutazione (saltare extract_planes) visibile.
+    attuale["segment"]["cluster_eps_factor"] = 8.0
     risposta_cfg = cliente.put("/api/config", json=attuale)
     assert risposta_cfg.status_code == 200
 
