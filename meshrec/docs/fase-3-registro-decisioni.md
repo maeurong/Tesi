@@ -5870,3 +5870,475 @@ scelta consapevole o dimenticanza.
 **Costo se sbaglio:** una verifica in piu' su un elenco probabilmente completo.
 Il rischio opposto e' dichiarare chiusa una serie a sei istanze contando le
 tratte a mano.
+
+## `4fbe0f9` — revisione: passa, e il censimento a nove regge alla derivazione indipendente
+
+Conformita' piena, qualita' buona, nessun bloccante. Due rilievi nuovi non
+bloccanti, messi in coda.
+
+**R123 ha risposta, ed e' quella buona.** Il revisore ha derivato il censimento
+dal codice con un criterio meccanico — ogni `await` seguito da scrittura di stato
+condiviso in `app.js`; `viewport.js` non ne ha nessuno — e ha trovato **nove**,
+esattamente le stesse del rapporto. **Nessuna decima.** L'elenco fatto a mano due
+giri fa era completo, e adesso lo sappiamo invece di sperarlo.
+
+**La prova del contatore decorativo su tutte e nove:** sette tratte con contatore
+mordono isolatamente, **1 failed su 43 raccolti** ciascuna. Le due esenzioni —
+`caricaStato` e `annullaLaCorsa` — sono confermate con un criterio **misurabile**
+e non a giudizio: un solo sito di chiamata, e nessuna riga dopo l'unico `await`.
+Era il punto su cui avevo insistito, perche' «non ne ha bisogno» e' un'opinione.
+
+**Il pannello del ritaglio dopo un'applicazione fallita** — sonda del revisore,
+non richiesta dal rapporto: il box a video resta quello appena battuto
+dall'utente, non torna al disegnato ne' si sovrascrive col persistito. **Il
+difetto centrale non rientra dalla porta di servizio**, che era il mio sospetto.
+
+Le tre prove inventate dal revisore hanno tutte trovato risposta pulita: uno
+scanner provato su un file JavaScript **vero** e vulnerabile e non solo su una
+directory finta; `readOnly` e `.remove()` confermati non riconosciuti ma **oggi
+innocui**, perche' non stanno mai davanti a un `await fetch`; e un persistito
+asimmetrico — un solo estremo valorizzato — che ripiega correttamente sul
+disegnato senza box ibridi.
+
+### R124 — il glob non ricorsivo e' la stessa svista al terzo livello, e va in coda
+
+Il revisore ha stabilito che non e' una scelta consapevole: la docstring
+giustifica l'esclusione di `vendor/`, che oggi e' l'unica sottocartella, e **non
+dice niente** su una sottocartella futura dell'interfaccia. Con questo glob,
+`ui/pannelli/qualcosa.js` resterebbe fuori dal raggio dello scanner **in
+silenzio**.
+
+Vale la pena nominare la forma, perche' e' la terza volta che compare in questa
+serie e ogni volta un livello piu' in la':
+
+1. la guardia c'era ma con la grana sbagliata;
+2. lo scanner c'era ma guardava **un file solo**, per percorso letterale;
+3. l'insieme dei file e' derivato, ma con un glob che **non scende**.
+
+Ogni volta la difesa e' reale e la sua **portata** e' piu' stretta di quanto
+sembri, e ogni volta non fallisce: tace. La correzione e' `base.rglob("*.js")`
+filtrato su `vendor/`.
+
+Secondo rilievo, minore: nel ramo di fallimento del bottone «Applica»,
+`esito.textContent` conserva «ritaglio in corso...» e coesiste con l'errore
+appena comparso.
+
+**Messi in coda e non dispacciati subito**, perche' il Task 14 e' vivo su `app.js`
+e uno dei due tocca `test_app_js.py`, fuori dal suo perimetro. Due agenti sugli
+stessi file e' la situazione che questo ramo ha gia' pagato. Partono dopo il
+rientro del 14.
+
+## Il registro entra nel repository — `b01566b`
+
+`.superpowers/sdd/` porta un gitignore con `*`, quindi 5,2 MB in 159 file — il
+registro delle decisioni compreso — erano fuori da git, e un `git clean` li
+avrebbe cancellati. Copiati in `meshrec/docs/` i due documenti che portano il
+ragionamento e non il dettaglio operativo: `fase-3-registro-decisioni.md` e
+`fase-3-rulings-inventario.md`, 6.639 righe.
+
+**Sono copie, e il messaggio di commit lo dichiara**, cosi' nessuno le scambia per
+la fonte: vanno riallineate quando la fase si chiude. Gli altri 157 file restano
+fuori.
+
+### R125 — il Task 17 non si anticipa, e la mia proposta di farlo era sbagliata
+
+Avevo proposto all'utente di far girare il Task 17 adesso per chiudere il rischio
+del registro. Riletto il piano, e' sbagliato: il Task 17 deve contenere «che cosa
+gira e che cosa no» e **il punteggio `impeccable` con il dettaglio per criterio**,
+che lo produce il Task 16, oggi al giro 2 di 10. Scriverlo adesso significa
+scrivere gli esiti prima che esistano, e poi riscriverlo.
+
+Il Task 14 sta prima per una ragione sua e non per numerazione: e' l'ultima
+**funzione**, ed e' fra i task che il piano elenca nelle verifiche manuali sul
+dato vero. Finche' non c'e', il 16 non ha l'interfaccia completa da vestire e il
+17 non ha «che cosa gira» da dichiarare.
+
+L'ordine resta **14 → 16 → 17**. Il rischio del registro era un problema
+separato, e la copia lo chiude senza toccare la sequenza. — **Se sbaglio:** due
+file di troppo nel repository, cancellabili con un commit.
+
+## `4fbe0f9` — revisione: passa, e il censimento a nove regge alla derivazione indipendente
+
+Conformita' piena, qualita' buona, nessun bloccante. Due rilievi nuovi non
+bloccanti, messi in coda.
+
+**R123 ha risposta, ed e' quella buona.** Il revisore ha derivato il censimento
+dal codice con un criterio meccanico — ogni `await` seguito da scrittura di stato
+condiviso in `app.js`; `viewport.js` non ne ha nessuno — e ha trovato **nove**,
+esattamente le stesse del rapporto. **Nessuna decima.** L'elenco fatto a mano due
+giri fa era completo, e adesso lo sappiamo invece di sperarlo.
+
+**La prova del contatore decorativo su tutte e nove:** sette tratte con contatore
+mordono isolatamente, **1 failed su 43 raccolti** ciascuna. Le due esenzioni —
+`caricaStato` e `annullaLaCorsa` — sono confermate con un criterio **misurabile**
+e non a giudizio: un solo sito di chiamata, e nessuna riga dopo l'unico `await`.
+Era il punto su cui avevo insistito, perche' «non ne ha bisogno» e' un'opinione.
+
+**Il pannello del ritaglio dopo un'applicazione fallita** — sonda del revisore,
+non richiesta dal rapporto: il box a video resta quello appena battuto
+dall'utente, non torna al disegnato ne' si sovrascrive col persistito. **Il
+difetto centrale non rientra dalla porta di servizio**, che era il mio sospetto.
+
+Le tre prove inventate dal revisore hanno tutte trovato risposta pulita: uno
+scanner provato su un file JavaScript **vero** e vulnerabile e non solo su una
+directory finta; `readOnly` e `.remove()` confermati non riconosciuti ma **oggi
+innocui**, perche' non stanno mai davanti a un `await fetch`; e un persistito
+asimmetrico — un solo estremo valorizzato — che ripiega correttamente sul
+disegnato senza box ibridi.
+
+### R124 — il glob non ricorsivo e' la stessa svista al terzo livello, e va in coda
+
+Il revisore ha stabilito che non e' una scelta consapevole: la docstring
+giustifica l'esclusione di `vendor/`, che oggi e' l'unica sottocartella, e **non
+dice niente** su una sottocartella futura dell'interfaccia. Con questo glob,
+`ui/pannelli/qualcosa.js` resterebbe fuori dal raggio dello scanner **in
+silenzio**.
+
+Vale la pena nominare la forma, perche' e' la terza volta che compare in questa
+serie e ogni volta un livello piu' in la':
+
+1. la guardia c'era ma con la grana sbagliata;
+2. lo scanner c'era ma guardava **un file solo**, per percorso letterale;
+3. l'insieme dei file e' derivato, ma con un glob che **non scende**.
+
+Ogni volta la difesa e' reale e la sua **portata** e' piu' stretta di quanto
+sembri, e ogni volta non fallisce: tace. La correzione e' `base.rglob("*.js")`
+filtrato su `vendor/`.
+
+Secondo rilievo, minore: nel ramo di fallimento del bottone «Applica»,
+`esito.textContent` conserva «ritaglio in corso...» e coesiste con l'errore
+appena comparso.
+
+**Messi in coda e non dispacciati subito**, perche' il Task 14 e' vivo su `app.js`
+e uno dei due tocca `test_app_js.py`, fuori dal suo perimetro. Due agenti sugli
+stessi file e' la situazione che questo ramo ha gia' pagato. Partono dopo il
+rientro del 14.
+
+## Il registro entra nel repository — `b01566b`
+
+`.superpowers/sdd/` porta un gitignore con `*`, quindi 5,2 MB in 159 file — il
+registro delle decisioni compreso — erano fuori da git, e un `git clean` li
+avrebbe cancellati. Copiati in `meshrec/docs/` i due documenti che portano il
+ragionamento e non il dettaglio operativo: `fase-3-registro-decisioni.md` e
+`fase-3-rulings-inventario.md`, 6.639 righe.
+
+**Sono copie, e il messaggio di commit lo dichiara**, cosi' nessuno le scambia per
+la fonte: vanno riallineate quando la fase si chiude. Gli altri 157 file restano
+fuori.
+
+### R125 — il Task 17 non si anticipa, e la mia proposta di farlo era sbagliata
+
+Avevo proposto all'utente di far girare il Task 17 adesso per chiudere il rischio
+del registro. Riletto il piano, e' sbagliato: il Task 17 deve contenere «che cosa
+gira e che cosa no» e **il punteggio `impeccable` con il dettaglio per criterio**,
+che lo produce il Task 16, oggi al giro 2 di 10. Scriverlo adesso significa
+scrivere gli esiti prima che esistano, e poi riscriverlo.
+
+Il Task 14 sta prima per una ragione sua e non per numerazione: e' l'ultima
+**funzione**, ed e' fra i task che il piano elenca nelle verifiche manuali sul
+dato vero. Finche' non c'e', il 16 non ha l'interfaccia completa da vestire e il
+17 non ha «che cosa gira» da dichiarare.
+
+L'ordine resta **14 → 16 → 17**. Il rischio del registro era un problema
+separato, e la copia lo chiude senza toccare la sequenza. — **Se sbaglio:** due
+file di troppo nel repository, cancellabili con un commit.
+
+## Task 14 — galleria di curazione, `93d4057`. E un incidente sulle cartelle di sola lettura
+
+L'ultima funzione della Fase 3 e' atterrata. Due endpoint in sola lettura piu' la
+scheda che elenca gli esperimenti con la riga di fronte evidenziata. Suite a
+**396** dal worktree staccato.
+
+**I quattro valori della verifica sul dato vero coincidono tutti**, e nessuno e'
+stato piegato per farli coincidere: `surface.poisson_depth = 7`, **50.630**
+tetraedri, **0,06844** fuori vincolo, **1,192 mm** di errore di spessore. Sono i
+valori di `fase-2-sweep.md` § 3, letti dalla galleria attraverso
+`sweep.load_registry`.
+
+**Il test della sola lettura e' piu' forte di come lo prescriveva il piano**, come
+richiesto: le rotte sono scoperte da `cliente.app.routes` filtrando il prefisso
+`/api/experiments` invece di essere elencate a mano — quindi un endpoint aggiunto
+domani vi entra da solo — e l'istantanea e' **ricorsiva su tutta**
+`experiments/`, piu' file e piu' esperimenti, non un file solo dopo una chiamata
+sola.
+
+### Una correzione al mio brief, trovata da chi l'ha eseguito
+
+Il brief diceva di riusare le colonne di `core/report.py:16-25`, copiando il
+riferimento dal piano. **Le righe vere sono 130-139 e 168-185**: il modulo e'
+cresciuto e il piano porta numeri di riga stantii. L'implementatore l'ha
+verificato con un `grep` **prima** di riusare, invece di fidarsi del numero
+scritto nel brief.
+
+E' il comportamento giusto e va registrato: i riferimenti per numero di riga nel
+piano della Fase 3 sono da ricontrollare ogni volta, non da citare.
+
+### L'incidente, e perche' e' stato gestito bene
+
+Durante la mutazione 1, un `pytest -k galleria` ha tirato dentro anche il test
+sul dato vero, e la scrittura fittizia introdotta dalla mutazione **ha scritto per
+davvero un file dentro `experiments/lab_crop/`** — la tabella sperimentale della
+tesi, dichiarata di sola lettura dal primo giorno.
+
+L'implementatore l'ha trovato con `git status`, rimosso, e **dichiarato nel
+rapporto invece di tacerlo**. Che e' la sola ragione per cui adesso lo sappiamo.
+
+**Verifica rifatta da me, e non fidandomi della sua**, perche' la sua aveva un
+buco: diceva «`git diff --stat` pulito su `experiments/` e `runs/`», ma **`runs/`
+non e' tracciata da git** — zero file — quindi li' un `git diff` non poteva dire
+niente.
+
+```
+experiments/   6 file tracciati, git diff --stat HEAD vuoto: byte-identici
+               il disco contiene esattamente quei 6 file, nessun residuo
+               un file nuovo non sarebbe ignorato, quindi comparirebbe come ??
+runs/          non tracciata: verificata per data di modifica
+               lab_crop, muro, sweep  -> 13 agosto, intatte
+               default                -> toccata oggi, ma e' la cartella di
+                                         lavoro predefinita, non di riferimento
+```
+
+Le quattro cartelle di riferimento piu' `runs/sweep` (R12) sono **intatte**.
+
+### R126 — `pytest -k` e' una fionda, e va detto nei brief
+
+Il difetto non e' dell'implementatore: e' che un filtro per sottostringa non ha
+modo di sapere quali test toccano il dato vero. Una mutazione innocua diventa una
+scrittura reale dentro la cartella che non si tocca, e nessun vincolo scritto nel
+brief lo impedisce — perche' il brief vieta di **scrivere**, non di **selezionare
+male**.
+
+**Da qui in avanti nei brief:** prima del commit, `git status --short` sulle
+cartelle di sola lettura, e attenzione ai filtri `-k` troppo larghi quando c'e'
+una mutazione applicata. E' gia' nel brief `fix-portata-scanner.md`.
+
+**Se sbaglio:** una riga in piu' nei brief. Il rischio opposto e' una scrittura
+dentro la tabella della tesi che nessuno nota, ed e' mancato poco.
+
+## Task 14 — galleria di curazione, `93d4057`. E un incidente sulle cartelle di sola lettura
+
+L'ultima funzione della Fase 3 e' atterrata. Due endpoint in sola lettura piu' la
+scheda che elenca gli esperimenti con la riga di fronte evidenziata. Suite a
+**396** dal worktree staccato.
+
+**I quattro valori della verifica sul dato vero coincidono tutti**, e nessuno e'
+stato piegato per farli coincidere: `surface.poisson_depth = 7`, **50.630**
+tetraedri, **0,06844** fuori vincolo, **1,192 mm** di errore di spessore. Sono i
+valori di `fase-2-sweep.md` § 3, letti dalla galleria attraverso
+`sweep.load_registry`.
+
+**Il test della sola lettura e' piu' forte di come lo prescriveva il piano**, come
+richiesto: le rotte sono scoperte da `cliente.app.routes` filtrando il prefisso
+`/api/experiments` invece di essere elencate a mano — quindi un endpoint aggiunto
+domani vi entra da solo — e l'istantanea e' **ricorsiva su tutta**
+`experiments/`, piu' file e piu' esperimenti, non un file solo dopo una chiamata
+sola.
+
+### Una correzione al mio brief, trovata da chi l'ha eseguito
+
+Il brief diceva di riusare le colonne di `core/report.py:16-25`, copiando il
+riferimento dal piano. **Le righe vere sono 130-139 e 168-185**: il modulo e'
+cresciuto e il piano porta numeri di riga stantii. L'implementatore l'ha
+verificato con un `grep` **prima** di riusare, invece di fidarsi del numero
+scritto nel brief.
+
+E' il comportamento giusto e va registrato: i riferimenti per numero di riga nel
+piano della Fase 3 sono da ricontrollare ogni volta, non da citare.
+
+### L'incidente, e perche' e' stato gestito bene
+
+Durante la mutazione 1, un `pytest -k galleria` ha tirato dentro anche il test
+sul dato vero, e la scrittura fittizia introdotta dalla mutazione **ha scritto per
+davvero un file dentro `experiments/lab_crop/`** — la tabella sperimentale della
+tesi, dichiarata di sola lettura dal primo giorno.
+
+L'implementatore l'ha trovato con `git status`, rimosso, e **dichiarato nel
+rapporto invece di tacerlo**. Che e' la sola ragione per cui adesso lo sappiamo.
+
+**Verifica rifatta da me, e non fidandomi della sua**, perche' la sua aveva un
+buco: diceva «`git diff --stat` pulito su `experiments/` e `runs/`», ma **`runs/`
+non e' tracciata da git** — zero file — quindi li' un `git diff` non poteva dire
+niente.
+
+```
+experiments/   6 file tracciati, git diff --stat HEAD vuoto: byte-identici
+               il disco contiene esattamente quei 6 file, nessun residuo
+               un file nuovo non sarebbe ignorato, quindi comparirebbe come ??
+runs/          non tracciata: verificata per data di modifica
+               lab_crop, muro, sweep  -> 13 agosto, intatte
+               default                -> toccata oggi, ma e' la cartella di
+                                         lavoro predefinita, non di riferimento
+```
+
+Le quattro cartelle di riferimento piu' `runs/sweep` (R12) sono **intatte**.
+
+### R126 — `pytest -k` e' una fionda, e va detto nei brief
+
+Il difetto non e' dell'implementatore: e' che un filtro per sottostringa non ha
+modo di sapere quali test toccano il dato vero. Una mutazione innocua diventa una
+scrittura reale dentro la cartella che non si tocca, e nessun vincolo scritto nel
+brief lo impedisce — perche' il brief vieta di **scrivere**, non di **selezionare
+male**.
+
+**Da qui in avanti nei brief:** prima del commit, `git status --short` sulle
+cartelle di sola lettura, e attenzione ai filtri `-k` troppo larghi quando c'e'
+una mutazione applicata. E' gia' nel brief `fix-portata-scanner.md`.
+
+**Se sbaglio:** una riga in piu' nei brief. Il rischio opposto e' una scrittura
+dentro la tabella della tesi che nessuno nota, ed e' mancato poco.
+
+## `93d4057` e `d7e0c04` — revisione: passano. Tutto cio' che poteva essere rivisto e' rivisto
+
+Nessun bloccante. Con questa, ogni commit della Fase 3 escluso il Task 16 ha
+avuto la sua revisione indipendente.
+
+**La difesa della sola lettura morde davvero**, e non e' stata creduta: il
+revisore ha aggiunto un endpoint `GET` finto che scrive sotto `experiments/` e il
+test e' diventato rosso, con la differenza esatta nel messaggio. L'istantanea
+copre il **contenuto in byte per file**, non i nomi ne' le date: una riscrittura
+di lunghezza uguale non passerebbe. E `sweep.load_registry` apre in `"r"` vero,
+quindi non puo' scrivere nemmeno volendo.
+
+**I quattro valori riletti dal registro grezzo**, non dal rapporto:
+`poisson_depth=7`, 50.630 tetraedri, 0,06844 fuori vincolo, 1,192 mm — coincidono
+con `fase-2-sweep.md` riga 119, e sono **derivati** attraverso `report._COLUMNS` e
+`report._cell` con la formattazione `.4g`, non fabbricati per una seconda strada.
+
+**Il censimento e' salito a undici tratte** dopo i due commit, e la prova del
+contatore decorativo su `mostraEsperimento` morde su **due** test — lo scanner
+meccanico dell'ordine e il comportamentale. Lo scanner strutturale resta verde su
+quella tratta per un limite **gia' dichiarato e vero**, non perche' la tratta
+sfugga: giudica il corpo del gestore, che delega senza `await fetch` diretto.
+
+**Il quarto livello della portata non esiste oggi**, e il revisore l'ha verificato
+invece di dedurlo: letto `index.html` per intero, nessuno script inline e nessun
+attributo `on*=`. La docstring dichiara `.html` e `.css` fuori raggio ed e' vero.
+
+### R127 — un buco che il revisore ha trovato contro se stesso, e la condizione che lo riapre
+
+Cercando di aggirare la propria verifica, il revisore ha trovato che un endpoint
+**POST con corpo obbligatorio evade la difesa della sola lettura**: la sonda lo
+chiama senza corpo, FastAPI risponde 422 **prima** di eseguire il gestore, e la
+scrittura non parte mai — quindi il test non puo' vederla.
+
+Oggi nessun endpoint reale ci casca: la galleria e' tutta in lettura. Ma la
+difesa e' piu' stretta di come si presenta, ed e' la **quarta volta** che questa
+forma compare in questa fase.
+
+**Condizione dichiarata:** il giorno in cui la galleria — o qualunque tratta sotto
+quella difesa — acquista un endpoint di scrittura reale, la sonda va rinforzata
+per interrogare anche con un corpo JSON minimo, **prima** che l'endpoint esista,
+non dopo. Registrato qui perche' e' esattamente il tipo di condizione che si
+dimentica.
+
+**Se sbaglio:** una riga di sonda in piu' il giorno in cui serve.
+
+### Una deviazione dichiarata
+
+Al revisore e' scappato un heredoc verso la shell, per uno script Python che
+applicava una mutazione. Dichiarato, non ripetuto, e nessun messaggio di commit
+coinvolto. Il divieto nasce da un heredoc rientrato dentro un messaggio di commit,
+quindi il caso qui era innocuo — ma averlo detto e' il comportamento giusto.
+
+## Stato della Fase 3 alla consegna del Task 16
+
+Suite verificata **da me** nella cartella principale, non riportata da un agente:
+**401 passed, 6 deselected, 0 falliti** in 74,8 s. I tre `gmsh` qui girano invece
+di essere saltati, quindi 398 + 3 dei worktree.
+
+```
+chiuse e riviste   allow_inf_nan, type="number", Task 11a, Task 11b,
+                   Task 14 (galleria), portata dello scanner
+dell'utente        Task 16, il ciclo del design, fermo al giro 2 di 10
+al suo ok          Task 17, il documento finale
+```
+
+Undici commit in giornata, albero pulito, cartelle di riferimento intatte e
+verificate due volte — una volta per l'incidente del `-k`, una volta di mia
+iniziativa perche' la verifica dell'implementatore aveva un buco su `runs/`.
+
+**Due avvertenze passate all'utente per il Task 16**, perche' lo riguardano
+direttamente: il 16 tocca tutti i file di `ui/`, e `app.js` adesso ha uno scanner
+strutturale che lo sorveglia — se un ciclo di `impeccable` riscrive un gestore e
+il test diventa rosso, e' un **vero positivo** e la regola del piano («un ciclo
+che alza il punteggio e rompe un test si annulla») vale doppio. E il Task 17
+aspetta dal 16 una cosa sola: il punteggio con il dettaglio per criterio, che e'
+l'unica parte del documento che oggi non esiste.
+
+## `93d4057` e `d7e0c04` — revisione: passano. Tutto cio' che poteva essere rivisto e' rivisto
+
+Nessun bloccante. Con questa, ogni commit della Fase 3 escluso il Task 16 ha
+avuto la sua revisione indipendente.
+
+**La difesa della sola lettura morde davvero**, e non e' stata creduta: il
+revisore ha aggiunto un endpoint `GET` finto che scrive sotto `experiments/` e il
+test e' diventato rosso, con la differenza esatta nel messaggio. L'istantanea
+copre il **contenuto in byte per file**, non i nomi ne' le date: una riscrittura
+di lunghezza uguale non passerebbe. E `sweep.load_registry` apre in `"r"` vero,
+quindi non puo' scrivere nemmeno volendo.
+
+**I quattro valori riletti dal registro grezzo**, non dal rapporto:
+`poisson_depth=7`, 50.630 tetraedri, 0,06844 fuori vincolo, 1,192 mm — coincidono
+con `fase-2-sweep.md` riga 119, e sono **derivati** attraverso `report._COLUMNS` e
+`report._cell` con la formattazione `.4g`, non fabbricati per una seconda strada.
+
+**Il censimento e' salito a undici tratte** dopo i due commit, e la prova del
+contatore decorativo su `mostraEsperimento` morde su **due** test — lo scanner
+meccanico dell'ordine e il comportamentale. Lo scanner strutturale resta verde su
+quella tratta per un limite **gia' dichiarato e vero**, non perche' la tratta
+sfugga: giudica il corpo del gestore, che delega senza `await fetch` diretto.
+
+**Il quarto livello della portata non esiste oggi**, e il revisore l'ha verificato
+invece di dedurlo: letto `index.html` per intero, nessuno script inline e nessun
+attributo `on*=`. La docstring dichiara `.html` e `.css` fuori raggio ed e' vero.
+
+### R127 — un buco che il revisore ha trovato contro se stesso, e la condizione che lo riapre
+
+Cercando di aggirare la propria verifica, il revisore ha trovato che un endpoint
+**POST con corpo obbligatorio evade la difesa della sola lettura**: la sonda lo
+chiama senza corpo, FastAPI risponde 422 **prima** di eseguire il gestore, e la
+scrittura non parte mai — quindi il test non puo' vederla.
+
+Oggi nessun endpoint reale ci casca: la galleria e' tutta in lettura. Ma la
+difesa e' piu' stretta di come si presenta, ed e' la **quarta volta** che questa
+forma compare in questa fase.
+
+**Condizione dichiarata:** il giorno in cui la galleria — o qualunque tratta sotto
+quella difesa — acquista un endpoint di scrittura reale, la sonda va rinforzata
+per interrogare anche con un corpo JSON minimo, **prima** che l'endpoint esista,
+non dopo. Registrato qui perche' e' esattamente il tipo di condizione che si
+dimentica.
+
+**Se sbaglio:** una riga di sonda in piu' il giorno in cui serve.
+
+### Una deviazione dichiarata
+
+Al revisore e' scappato un heredoc verso la shell, per uno script Python che
+applicava una mutazione. Dichiarato, non ripetuto, e nessun messaggio di commit
+coinvolto. Il divieto nasce da un heredoc rientrato dentro un messaggio di commit,
+quindi il caso qui era innocuo — ma averlo detto e' il comportamento giusto.
+
+## Stato della Fase 3 alla consegna del Task 16
+
+Suite verificata **da me** nella cartella principale, non riportata da un agente:
+**401 passed, 6 deselected, 0 falliti** in 74,8 s. I tre `gmsh` qui girano invece
+di essere saltati, quindi 398 + 3 dei worktree.
+
+```
+chiuse e riviste   allow_inf_nan, type="number", Task 11a, Task 11b,
+                   Task 14 (galleria), portata dello scanner
+dell'utente        Task 16, il ciclo del design, fermo al giro 2 di 10
+al suo ok          Task 17, il documento finale
+```
+
+Undici commit in giornata, albero pulito, cartelle di riferimento intatte e
+verificate due volte — una volta per l'incidente del `-k`, una volta di mia
+iniziativa perche' la verifica dell'implementatore aveva un buco su `runs/`.
+
+**Due avvertenze passate all'utente per il Task 16**, perche' lo riguardano
+direttamente: il 16 tocca tutti i file di `ui/`, e `app.js` adesso ha uno scanner
+strutturale che lo sorveglia — se un ciclo di `impeccable` riscrive un gestore e
+il test diventa rosso, e' un **vero positivo** e la regola del piano («un ciclo
+che alza il punteggio e rompe un test si annulla») vale doppio. E il Task 17
+aspetta dal 16 una cosa sola: il punteggio con il dettaglio per criterio, che e'
+l'unica parte del documento che oggi non esiste.
