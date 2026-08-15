@@ -496,14 +496,24 @@ def _fine_chiamata(testo: str, apertura: int) -> int:
 
 
 def _file_js_dell_interfaccia(base: Path = UI_DIR) -> list[Path]:
-    """Ogni `.js` a livello di `base`, derivato con un glob e non elencato a
-    mano: uno scanner che leggesse un percorso letterale (`base / "app.js"`)
-    lascerebbe un secondo file con un gestore vulnerabile invisibile in
-    silenzio — e un elenco a mano dei nomi avrebbe lo stesso difetto un
-    livello piu' in la', perche' un file nuovo non finirebbe nell'elenco.
-    `vendor/` resta fuori da solo: il glob non e' ricorsivo, e non e' nostro
-    codice."""
-    return sorted(base.glob("*.js"))
+    """Ogni `.js` sotto `base`, in qualunque sottocartella, derivato con un
+    glob e non elencato a mano: uno scanner che leggesse un percorso
+    letterale (`base / "app.js"`) lascerebbe un secondo file con un gestore
+    vulnerabile invisibile in silenzio — e un elenco a mano dei nomi avrebbe
+    lo stesso difetto un livello piu' in la', perche' un file nuovo non
+    finirebbe nell'elenco. Un glob non ricorsivo ha lo stesso difetto ancora
+    un livello piu' in la': cattura un file nuovo a fianco di `app.js` ma non
+    uno nato domani in una sottocartella (`ui/pannelli/qualcosa.js`), e tace
+    esattamente come i due difetti precedenti — percio' `rglob`, non `glob`.
+
+    `vendor/` resta fuori per nome, non perche' un glob ricorsivo non ci
+    arrivi: ci arriverebbe, ed e' filtrato apposta, perche' non e' nostro
+    codice. Fuori raggio anche cio' che non finisce in `.js` — `index.html`,
+    `stile.css` — dichiarato qui e non lasciato implicito: quei file hanno le
+    proprie prove altrove in questo modulo, non questo scanner."""
+    return sorted(
+        p for p in base.rglob("*.js") if "vendor" not in p.relative_to(base).parts
+    )
 
 
 def _addEventListener_del_modulo(modulo: str) -> list[dict]:
@@ -537,6 +547,23 @@ def _vulnerabile(corpo: str) -> tuple[bool, str]:
     if _CONTATORE_FRESCO.search(prima) or _DISABLE_ELEMENTO.search(prima):
         return False, "contatore fresco o disable aperti prima dell'attesa"
     return True, "nessun contatore fresco ne' disable prima dell'attesa fetch, e scrive dopo"
+
+
+def _segnalazioni(base: Path = UI_DIR) -> list[str]:
+    """Applica la proprieta' `_vulnerabile` a ogni gestore di ogni file
+    trovato da `_file_js_dell_interfaccia(base)`. Estratta a parte cosi' la
+    portata (quali file entrano nella scansione) e la proprieta' (cosa rende
+    un gestore vulnerabile) si provano insieme, con la stessa funzione, sia
+    sull'interfaccia vera sia su una directory finta."""
+    segnalati = []
+    for percorso in _file_js_dell_interfaccia(base):
+        modulo = percorso.read_text(encoding="utf-8")
+        for voce in _addEventListener_del_modulo(modulo):
+            corpo = _corpo_del_gestore(voce["gestore"], modulo)
+            vulnerabile, ragione = _vulnerabile(corpo)
+            if vulnerabile:
+                segnalati.append(f"{percorso.name}, riga {voce['riga']} (evento {voce['evento']}): {ragione}")
+    return segnalati
 
 
 def test_ogni_gestore_che_scrive_dopo_un_attesa_si_difende():
@@ -607,18 +634,10 @@ def test_ogni_gestore_che_scrive_dopo_un_attesa_si_difende():
     forma riconoscibile** — non stabilisce quale sia la grana giusta (per
     campo? per clic? per pannello?), quella resta una decisione di dominio.
     """
-    segnalati = []
-    for percorso in _file_js_dell_interfaccia():
-        modulo = percorso.read_text(encoding="utf-8")
-        for voce in _addEventListener_del_modulo(modulo):
-            corpo = _corpo_del_gestore(voce["gestore"], modulo)
-            vulnerabile, ragione = _vulnerabile(corpo)
-            if vulnerabile:
-                segnalati.append(f"{percorso.name}, riga {voce['riga']} (evento {voce['evento']}): {ragione}")
-    assert segnalati == [], (
+    assert _segnalazioni() == [], (
         "gestori senza contatore fresco (apri\\w*()) ne' disable riconosciuto "
         '(.disabled = true, oppure .setAttribute("disabled", ...)) prima dell\'attesa:\n'
-        + "\n".join(segnalati)
+        + "\n".join(_segnalazioni())
     )
 
 
@@ -634,7 +653,9 @@ def test_l_insieme_dei_file_scanditi_e_derivato_non_elencato_a_mano(tmp_path):
     oggi ma avrebbe lo stesso identico difetto un livello piu' in la' — un
     terzo file futuro resterebbe fuori dall'elenco esattamente come restava
     fuori dal percorso letterale. Il glob non ha questo problema: qualunque
-    `.js` a livello della directory ci entra da solo.
+    `.js`, a qualunque profondita' sotto la directory, ci entra da solo —
+    `pannelli/qualcosa.js` qui sotto non esiste oggi in `UI_DIR`: e' il caso
+    futuro che un glob non ricorsivo lasciava fuori in silenzio.
     """
     finto = tmp_path / "ui"
     finto.mkdir()
@@ -642,10 +663,40 @@ def test_l_insieme_dei_file_scanditi_e_derivato_non_elencato_a_mano(tmp_path):
     (finto / "altro.js").write_text("", encoding="utf-8")
     (finto / "vendor").mkdir()
     (finto / "vendor" / "three.module.js").write_text("", encoding="utf-8")
-    trovati = {p.name for p in _file_js_dell_interfaccia(finto)}
-    assert trovati == {"app.js", "altro.js"}, (
-        f"il glob non deriva l'insieme giusto, o non esclude vendor/: {trovati}"
+    (finto / "pannelli").mkdir()
+    (finto / "pannelli" / "qualcosa.js").write_text("", encoding="utf-8")
+    trovati = {p.relative_to(finto) for p in _file_js_dell_interfaccia(finto)}
+    assert trovati == {Path("app.js"), Path("altro.js"), Path("pannelli/qualcosa.js")}, (
+        f"il glob non scende nelle sottocartelle, o non esclude vendor/: {trovati}"
     )
+
+
+def test_un_gestore_vulnerabile_in_una_sottocartella_futura_viene_visto(tmp_path):
+    """Dai alla portata un test proprio, non solo all'insieme dei nomi qui
+    sopra: qui il file in sottocartella non e' vuoto, contiene un gestore
+    vulnerabile per davvero — la stessa proprieta' di
+    `test_ogni_gestore_che_scrive_dopo_un_attesa_si_difende`, applicata a un
+    file che oggi non esiste in `UI_DIR` (`pannelli/qualcosa.js`) ma
+    domani potrebbe. Morde: con `base.glob("*.js")` al posto di
+    `base.rglob("*.js")` questo file resta fuori e `_segnalazioni` torna
+    vuota nonostante il gestore sotto sia vulnerabile — verificato a mano
+    ripristinando temporaneamente il glob non ricorsivo nel worktree di
+    lavoro, vedi il rapporto.
+    """
+    finto = tmp_path / "ui"
+    (finto / "pannelli").mkdir(parents=True)
+    (finto / "pannelli" / "qualcosa.js").write_text(
+        'bottone.addEventListener("click", async () => {\n'
+        '  const risposta = await fetch("/api/qualcosa");\n'
+        '  esito.textContent = risposta.status;\n'
+        "});\n",
+        encoding="utf-8",
+    )
+    segnalati = _segnalazioni(finto)
+    assert segnalati != [], (
+        "un gestore vulnerabile in sottocartella resta invisibile allo scanner"
+    )
+    assert segnalati[0].startswith("qualcosa.js"), segnalati
 
 
 def test_lo_scanner_riconosce_anche_setAttribute_disabled_come_disable_legittimo():
@@ -1818,6 +1869,37 @@ for (const corpoRotto of [
   await applica.scatena("click");
   assert.match(rigaErrore.textContent, /non descrive il ritaglio/,
     "un 200 illeggibile non dice niente a video, e il bottone resta muto per sempre");
+}
+""")
+
+
+def test_applica_il_ritaglio_fallito_non_lascia_il_messaggio_in_corso_a_video(tmp_path):
+    """Rilievo 2 di questo giro. Nel ramo di fallimento `esito` conservava
+    «ritaglio in corso: la prima volta rilegge la nuvola piena, circa mezzo
+    minuto.» scritto poco prima del `fetch`, mentre `rigaErrore` mostrava gia'
+    il rifiuto: l'utente leggeva insieme "sto lavorando" e "e' fallito".
+    Provato sulle due uscite d'errore del bottone (il rifiuto del server e il
+    200 il cui corpo non descrive il ritaglio applicato), non solo su una:
+    la stessa dimenticanza poteva ripetersi identica sulla seconda.
+    """
+    _esegui(tmp_path, _banco_del_ritaglio() + """
+{
+  const { applica, esito } = apriPannello(generazione);
+  risponde = async () => (
+    { ok: false, status: 422, text: async () => JSON.stringify({ messaggio: "box non valido" }) }
+  );
+  await applica.scatena("click");
+  assert.equal(esito.textContent, "",
+    "'ritaglio in corso' resta a video accanto all'errore del server");
+  assert.match(rigaErrore.textContent, /box non valido/, "il rifiuto del server non arriva a video");
+}
+{
+  const { applica, esito } = apriPannello(generazione);
+  risponde = async () => ({ ok: true, status: 200, json: async () => ({ completo: true }) });
+  await applica.scatena("click");
+  assert.equal(esito.textContent, "",
+    "'ritaglio in corso' resta a video accanto all'errore sul corpo illeggibile");
+  assert.match(rigaErrore.textContent, /non descrive il ritaglio/, "il corpo illeggibile non arriva a video");
 }
 """)
 

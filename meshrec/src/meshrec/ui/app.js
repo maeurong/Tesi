@@ -582,6 +582,10 @@ function pannelloRitaglio(ordine) {
       // secondo, e in quel tempo il pannello sotto puo' essere un altro, o lo
       // stesso pannello puo' aver gia' visto un secondo clic.
       if (superata(ordine) || superata(richiesta, ultimaRichiesta)) return;
+      // Senza questa riga «ritaglio in corso» resta scritta qui sotto mentre
+      // la riga d'errore appena sopra dice il contrario: l'utente legge
+      // insieme "sto lavorando" e "e' fallito".
+      esito.textContent = "";
       dichiaraErrore(ragione);
       return;
     }
@@ -594,6 +598,7 @@ function pannelloRitaglio(ordine) {
     // == e non ===: un corpo null qui non e' mai una risposta legittima (a
     // differenza di un campo nullabile innestato), e passava la guardia.
     if (corpo == null || typeof corpo.points_after !== "number") {
+      esito.textContent = "";
       dichiaraErrore("il server ha risposto con un corpo che non descrive il ritaglio applicato");
       return;
     }
