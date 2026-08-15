@@ -596,13 +596,20 @@ def test_un_indice_negativo_non_avvolge_al_gruppo_di_coda(cliente, tmp_path):
     un solo cubo, misurato fuori dal test, gruppi[-1] cade INTERO in un
     cluster vero (indice 0): senza la guardia la richiesta risponderebbe
     200, non 400, e questo test lo pretenderebbe rifiutato comunque.
+
+    ARTIFACTS[1] scritto qui (con _prepara_click_semplice, non solo
+    ARTIFACTS[2] come prima dell'allineamento): senza, dopo l'allineamento
+    (task-11b) questo test passava per una ragione DIVERSA da quella che
+    dichiara — la guardia nuova su ARTIFACTS[1] mancante avrebbe dato lo
+    stesso 400 anche a guardia dei limiti RIMOSSA, e la mutazione A
+    sarebbe rimasta invisibile (verificato per esecuzione: 74 passed con
+    la guardia dei limiti tolta, prima di questa correzione).
     """
     import numpy as np
-    from meshrec.core import io, pipeline
 
     corsa = tmp_path / "corsa"
     punti = np.random.default_rng(0).random((15_000, 3)) * 10.0
-    io.write_cloud(corsa / pipeline.ARTIFACTS[2], punti)
+    _prepara_click_semplice(cliente, corsa, punti)
 
     cliente.get("/api/cloud/2?max_points=2000")
     risposta = cliente.post("/api/cluster", json={"punto": -1})
