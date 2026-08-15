@@ -14,7 +14,12 @@ async function caricaStato() {
   // Un 200 con un corpo che non si legge, o senza l'elenco degli step, faceva
   // sollevare qui sotto (disegnaStep su un valore che non e' un array) fuori
   // da qualunque catch: la pagina restava bianca, senza un solo messaggio.
-  if (corpo === undefined || !Array.isArray(corpo.steps)) {
+  // == e non ===: un corpo intero non e' mai un null legittimo su questo
+  // endpoint (a differenza di un campo nullabile innestato, che e' il caso per
+  // cui la distinzione undefined/null di corpoLetto esiste). Un null vero
+  // qui passava la guardia e faceva sollevare la riga sotto fuori da ogni
+  // catch, esattamente cio' che questa guardia doveva impedire.
+  if (corpo == null || !Array.isArray(corpo.steps)) {
     dichiaraErrore("il server ha risposto con uno stato della corsa che non si legge");
     return;
   }
@@ -535,8 +540,18 @@ function pannelloRitaglio(ordine) {
   applica.textContent = "Applica il ritaglio";
   const esito = document.createElement("p");
   esito.className = "aiuto";
+  // Il bottone si riclicca per affinare il box: e' il flusso normale, non un
+  // incidente. `ordine` e' la generazione del pannello e non distingue un
+  // clic dall'altro nello stesso pannello, esattamente come per i campi
+  // (Rilievo 1): un contatore per clic, stessa meccanica di apriBattuta.
+  let ultimaRichiesta = 0;
+  function apriRichiesta() {
+    ultimaRichiesta += 1;
+    return ultimaRichiesta;
+  }
   applica.addEventListener("click", async () => {
     dichiaraErrore(null);
+    const richiesta = apriRichiesta();
     // Il server rilegge la nuvola piena e ne toglie gli outlier, come fa lo
     // step 2: su lab_crop sono 26 s la prima volta, poi la nuvola ripulita
     // resta in memoria. Senza questa riga il bottone resta muto per mezzo
@@ -551,18 +566,21 @@ function pannelloRitaglio(ordine) {
       const ragione = await ragioneDelRifiuto(risposta);
       // Dopo l'ultima attesa e prima della prima scrittura, come le altre
       // tratte: il ritaglio legge la nuvola piena e puo' metterci qualche
-      // secondo, e in quel tempo il pannello sotto puo' essere un altro.
-      if (superata(ordine)) return;
+      // secondo, e in quel tempo il pannello sotto puo' essere un altro, o lo
+      // stesso pannello puo' aver gia' visto un secondo clic.
+      if (superata(ordine) || superata(richiesta, ultimaRichiesta)) return;
       dichiaraErrore(ragione);
       return;
     }
     const corpo = await corpoLetto(risposta);
-    if (superata(ordine)) return;
+    if (superata(ordine) || superata(richiesta, ultimaRichiesta)) return;
     // Un 200 il cui corpo non si legge, o senza points_after, e' un rifiuto
     // come gli altri: senza questo, la riga sotto solleva su un valore che
     // non c'e' e il bottone resta muto per sempre — esattamente il silenzio
     // che il testo appena scritto ("ritaglio in corso") promette di rompere.
-    if (corpo === undefined || typeof corpo.points_after !== "number") {
+    // == e non ===: un corpo null qui non e' mai una risposta legittima (a
+    // differenza di un campo nullabile innestato), e passava la guardia.
+    if (corpo == null || typeof corpo.points_after !== "number") {
       dichiaraErrore("il server ha risposto con un corpo che non descrive il ritaglio applicato");
       return;
     }
@@ -672,7 +690,12 @@ async function scriviParametro(blocco, nome, input, messaggio, ordine) {
   // lo riscriverebbe sopra — lo stesso guasto per cui un rifiuto vero, sotto,
   // non tocca mai un valore che il server ha davvero accettato. Non si cachea
   // nemmeno: `configurazione = salvata` resta fuori da questo ramo.
-  if (salvata === undefined || salvata[blocco]?.[nome] === undefined) {
+  // == e non ===: il corpo intero di /api/config non e' mai un null
+  // legittimo (a differenza di un campo nullabile innestato, come
+  // downsample.voxel_size, che e' il caso per cui esiste la distinzione
+  // undefined/null). Un null vero qui bypassava il primo `?.` non c'e' sul
+  // primo livello e faceva sollevare la riga sotto fuori da ogni catch.
+  if (salvata == null || salvata[blocco]?.[nome] === undefined) {
     segnalaCampo(input, messaggio,
       "il server ha accettato la modifica ma non ne ha confermato il valore");
     return;
@@ -777,7 +800,8 @@ async function apriDettaglio(numero, ordine = generazione) {
     // finisse in schemaParametri avvelenerebbe il pannello per tutta la vita
     // della pagina, perche' schemaParametri non e' piu' null e nessun clic
     // successivo ritenterebbe la richiesta.
-    if (corpo === undefined) {
+    // == e non ===: lo schema non e' mai legittimamente null per intero.
+    if (corpo == null) {
       fallisciDettaglio(dettaglio, "il server ha risposto con uno schema che non si legge");
       return;
     }
@@ -804,7 +828,9 @@ async function apriDettaglio(numero, ordine = generazione) {
   // configurazione e' di modulo e resta quella dell'apertura precedente finche'
   // non si assegna: un corpo che non si legge non deve entrarci, altrimenti la
   // prossima PUT di scriviParametro partirebbe da una configurazione rotta.
-  if (corpoConfig === undefined || corpoMetriche === undefined) {
+  // == e non ===: ne' la configurazione ne' le metriche sono mai
+  // legittimamente null per intero.
+  if (corpoConfig == null || corpoMetriche == null) {
     fallisciDettaglio(dettaglio, "il server ha risposto con un corpo che non si legge");
     return;
   }
@@ -825,6 +851,16 @@ async function apriDettaglio(numero, ordine = generazione) {
 
   const azioni = document.createElement("div");
   azioni.className = "azioni";
+  // I due bottoni condividono `ordine` (la generazione del pannello) e la
+  // stessa rigaErrore: due clic — sullo stesso bottone o su quello diverso —
+  // condividono `ordine` senza distinguersi fra loro, la stessa famiglia di
+  // Rilievo 1. Un contatore per clic, condiviso dai due bottoni perche'
+  // condividono il canale d'errore che proteggono.
+  let ultimaAzione = 0;
+  function apriAzione() {
+    ultimaAzione += 1;
+    return ultimaAzione;
+  }
   for (const [etichetta, percorso] of [
     ["Esegui questo step", `/api/step/${numero}`],
     ["Esegui da qui in giu'", `/api/step/${numero}/from`],
@@ -835,13 +871,15 @@ async function apriDettaglio(numero, ordine = generazione) {
     bottone.textContent = etichetta;
     bottone.addEventListener("click", async () => {
       dichiaraErrore(null);
+      const azione = apriAzione();
       const risposta = await fetch(percorso, { method: "POST" }).catch(serverMuto);
       if (risposta.ok) return;
       const ragione = await ragioneDelRifiuto(risposta);
       // rigaErrore e' quella del pannello aperto adesso: se nel frattempo ne e'
-      // stato aperto un altro, questo rifiuto finirebbe scritto sotto lo step
-      // sbagliato, e accuserebbe uno step che nessuno ha lanciato.
-      if (superata(ordine)) return;
+      // stato aperto un altro, o e' partito un secondo clic su uno dei due
+      // bottoni, questo rifiuto finirebbe scritto sotto lo step o il clic
+      // sbagliato.
+      if (superata(ordine) || superata(azione, ultimaAzione)) return;
       // Un click rifiutato in silenzio non e' distinguibile da uno andato a
       // buon fine: il server ha gia' scritto il perche', e va mostrato.
       dichiaraErrore(ragione);

@@ -420,6 +420,172 @@ def test_il_fuoco_da_tastiera_si_vede_su_ogni_comando():
 
 
 # --------------------------------------------------------------------------
+# Lo scanner strutturale: ogni gestore che scrive dopo un'attesa fetch si
+# difende con un contatore fresco o un disable, non solo con `ordine`.
+#
+# La proprieta' e' generica, non di dominio: un `addEventListener` agganciato
+# una volta puo' rifirare piu' volte (due clic, non un solo evento), e un
+# contatore catturato nella chiusura esterna (`ordine` = la generazione del
+# pannello) non si aggiorna fra un clic e l'altro. Applicato al file prima di
+# questo giro lo scanner sotto avrebbe segnalato **entrambi** i bottoni che
+# questo giro corregge — riga del ritaglio e righe dei due «Esegui» — insieme
+# a `scriviParametro`, gia' corretto in un giro precedente: la quarta istanza
+# senza che nessuno la trovasse leggendo a mano.
+# --------------------------------------------------------------------------
+
+
+_GESTORE_NOMINATO = re.compile(r"^\w+$")
+_DELEGA_A_UNA_FUNZIONE = re.compile(r"^\([^)]*\)\s*=>\s*(\w+)\(")
+_CONTATORE_FRESCO = re.compile(r"\bapri\w*\(")
+_DISABLE_ELEMENTO = re.compile(r"\.disabled\s*=\s*true\b")
+_SCRITTURA = re.compile(r"(?<![=!<>])=(?!=|>)")
+
+
+def _corpo_del_gestore(gestore: str, modulo: str) -> str:
+    """Risolve il testo del gestore per un solo livello di delega: un
+    riferimento nominato (`annullaLaCorsa`) o una singola espressione di
+    chiamata (`() => scriviParametro(...)`) vengono seguiti fino al corpo
+    della funzione richiamata. Non piu' in la': un gestore che delega a una
+    funzione che a sua volta delega a quella che apre il contatore non viene
+    risolto — e' il primo confine dichiarato piu' sotto, nel corpo del test.
+    """
+    gestore = gestore.strip()
+    if _GESTORE_NOMINATO.match(gestore):
+        try:
+            return _sorgente_di(gestore, modulo)
+        except (IndexError, ValueError):
+            return gestore
+    apertura = gestore.find("{")
+    if apertura != -1:
+        profondita = 0
+        for indice in range(apertura, len(gestore)):
+            if gestore[indice] == "{":
+                profondita += 1
+            elif gestore[indice] == "}":
+                profondita -= 1
+                if profondita == 0:
+                    return gestore[apertura + 1 : indice]
+        return gestore[apertura + 1 :]
+    delega = _DELEGA_A_UNA_FUNZIONE.match(gestore)
+    if delega:
+        try:
+            return _sorgente_di(delega.group(1), modulo)
+        except (IndexError, ValueError):
+            return gestore
+    return gestore
+
+
+def _fine_chiamata(testo: str, apertura: int) -> int:
+    """Indice appena dopo la ')' che chiude la chiamata la cui '(' sta a
+    `apertura`, contando la profondita' delle parentesi."""
+    profondita = 1
+    indice = apertura + 1
+    while indice < len(testo) and profondita > 0:
+        if testo[indice] == "(":
+            profondita += 1
+        elif testo[indice] == ")":
+            profondita -= 1
+        indice += 1
+    return indice
+
+
+def _addEventListener_del_modulo(modulo: str) -> list[dict]:
+    """Ogni `.addEventListener(evento, gestore)` a livello di modulo, con la
+    riga sorgente e il testo grezzo (non ancora risolto) del gestore."""
+    risultati = []
+    for trovato in re.finditer(r'\.addEventListener\(\s*["\'](\w+)["\']\s*,\s*', modulo):
+        evento = trovato.group(1)
+        apertura = modulo.index("(", trovato.start())
+        fine = _fine_chiamata(modulo, apertura)
+        gestore = modulo[trovato.end() : fine - 1]
+        riga = modulo.count("\n", 0, trovato.start()) + 1
+        risultati.append({"riga": riga, "evento": evento, "gestore": gestore})
+    return risultati
+
+
+def _vulnerabile(corpo: str) -> tuple[bool, str]:
+    """La proprieta': un corpo che attende `fetch` e scrive dopo, senza aprire
+    un contatore fresco (`apri\\w*(`, la famiglia di apriGenerazione /
+    apriGeometria / apriBattuta / apriRichiesta / apriAzione) ne'
+    disabilitare l'elemento (`.disabled = true`) **prima** dell'attesa, e'
+    vulnerabile all'ordine invertito di due chiamate sovrapposte."""
+    indice = corpo.find("await fetch(")
+    if indice == -1:
+        return False, "nessuna await fetch nel corpo risolto"
+    apertura = corpo.index("(", indice)
+    dopo = corpo[_fine_chiamata(corpo, apertura) :]
+    if not _SCRITTURA.search(dopo):
+        return False, "nessuna scrittura dopo l'attesa"
+    prima = corpo[:indice]
+    if _CONTATORE_FRESCO.search(prima) or _DISABLE_ELEMENTO.search(prima):
+        return False, "contatore fresco o disable aperti prima dell'attesa"
+    return True, "nessun contatore fresco ne' disable prima dell'attesa fetch, e scrive dopo"
+
+
+def test_ogni_gestore_che_scrive_dopo_un_attesa_si_difende():
+    """Lo scanner strutturale che chiude la serie — il cuore di questo giro.
+    Vedi il commento di sezione qui sopra per la proprieta'; qui sotto, per
+    iscritto e non taciuto, il confine di quello che questo scanner NON vede
+    — tacerlo ripeterebbe esattamente il difetto del test sui `.json()`, che
+    scandiva la sola sottostringa letterale ed e' stato aggirato in tre modi:
+
+    - **un solo livello di delega.** Un gestore che delega a una funzione la
+      quale a sua volta delega a un'altra che apre il contatore non viene
+      risolto: passerebbe per «nessuna await fetch nel corpo risolto» anche
+      se in realta' ne contiene una, due chiamate piu' in la'.
+    - **solo la stringa letterale `await fetch(`.** Un gestore che attende
+      una funzione intermedia (`await ricaricaVistaAsync()`) che al suo
+      interno fa la fetch non viene riconosciuto come «attende» da questo
+      scanner, anche se il gestore risolto la contiene per intero.
+    - **controllo posizionale sul testo, non sul flusso di controllo.** Il
+      contatore o il disable devono comparire testualmente prima della prima
+      `await fetch(`: una chiamata `apriX()` scritta dentro un `if` che a
+      runtime puo' non eseguirsi affatto prima della fetch supera comunque
+      questo controllo, perche' lo scanner non sa se quel ramo si esegue
+      davvero.
+    - **il contatore va solo aperto, non controllato.** Lo scanner guarda se
+      `apri\\w*(` compare nel testo prima della fetch — non se il valore che
+      restituisce viene davvero letto da una `superata(...)`. Una
+      `apriRichiesta()` lasciata li' per decorazione, con la guardia vera
+      tolta subito dopo, resta invisibile: verificato mutando cosi' il
+      bottone del ritaglio nel worktree di lavoro — lo scanner e' rimasto
+      verde, e solo il test comportamentale sui due clic sovrapposti (sotto)
+      e' diventato rosso. E' il motivo per cui questo giro non si ferma allo
+      scanner: la coppia struttura+comportamento e' quella che chiude,
+      nessuna delle due da sola.
+    - **solo `.disabled = true` come forma di disable.** Un
+      `setAttribute("disabled", "")`, un `readOnly = true`, o togliere
+      l'elemento dal DOM per la durata dell'attesa non vengono riconosciuti:
+      un gestore disabilitato in una di queste forme risulterebbe un falso
+      vulnerabile (innocuo qui: nessuno di questi casi e' nel file oggi,
+      verificato leggendolo).
+    - **«scrive dopo l'attesa» e' un `=` di assegnazione nel testo dopo la
+      fetch** (che non sia `==`, `===` ne' `=>`). Conta anche una `const x =
+      ...` puramente locale che non scrive mai fuori dal gestore — puo'
+      quindi sovrastimare (falso vulnerabile) — ma non vede una scrittura per
+      side-effect senza `=` dopo la fetch, come una `Array.push(...)` o una
+      chiamata a un setter senza segno `=` visibile — puo' quindi
+      sottostimare (falso sicuro) in quel caso specifico, non presente oggi
+      in questo file, verificato leggendolo.
+
+    La parte che resta vera della dichiarazione di limite del giro precedente:
+    questa proprieta' cattura la guardia **assente o troppo grossolana in una
+    forma riconoscibile** — non stabilisce quale sia la grana giusta (per
+    campo? per clic? per pannello?), quella resta una decisione di dominio.
+    """
+    modulo = _modulo()
+    segnalati = []
+    for voce in _addEventListener_del_modulo(modulo):
+        corpo = _corpo_del_gestore(voce["gestore"], modulo)
+        vulnerabile, ragione = _vulnerabile(corpo)
+        if vulnerabile:
+            segnalati.append(f"riga {voce['riga']} (evento {voce['evento']}): {ragione}")
+    assert segnalati == [], (
+        "gestori senza contatore fresco ne' disable prima dell'attesa:\n" + "\n".join(segnalati)
+    )
+
+
+# --------------------------------------------------------------------------
 # BL-1: dai tasti al disco.
 # --------------------------------------------------------------------------
 
@@ -895,17 +1061,24 @@ assert.equal(campo.input.value, "3");
 
 
 def test_scriviparametro_200_illeggibile_non_va_in_crash_ne_ripristina_ne_cachea(tmp_path):
-    """Rilievo 2 sul terzo `.json()`: la conferma di una PUT accettata. Due
-    corpi spazzatura — JSON invalido, e JSON valido ma senza il blocco appena
-    scritto — non devono far sollevare il gestore, non devono ripristinare
-    `precedente` (la PUT e' stata accettata: il valore vecchio in memoria
-    scriverebbe sopra quello vero alla prossima modifica di un altro campo, lo
-    stesso guasto di BL-2), e non devono entrare in `configurazione`.
+    """Rilievo 2 sul terzo `.json()`: la conferma di una PUT accettata. Tre
+    corpi spazzatura — JSON invalido, JSON valido ma senza il blocco appena
+    scritto, e il `null` letterale — non devono far sollevare il gestore, non
+    devono ripristinare `precedente` (la PUT e' stata accettata: il valore
+    vecchio in memoria scriverebbe sopra quello vero alla prossima modifica di
+    un altro campo, lo stesso guasto di BL-2), e non devono entrare in
+    `configurazione`.
+
+    Il `null` letterale e' il caso che la correzione di questo giro chiude:
+    prima, `salvata === undefined` lasciava passare `null`, e
+    `salvata[blocco]` (senza `?.` sul primo livello — solo il secondo,
+    `?.[nome]`, era protetto) sollevava fuori da ogni catch.
     """
     _esegui(tmp_path, _banco_del_campo() + """
 for (const corpoRotto of [
   async () => { throw new SyntaxError("non e' JSON"); },
   async () => ({ normals: { knn: 30 } }),  // valido, ma senza il blocco downsample
+  async () => null,                        // null letterale: mai legittimo qui
 ]) {
   configurazione = { downsample: { voxel_size: 9 } };
   const campo = apriCampo("downsample", "voxel_size");
@@ -946,14 +1119,57 @@ def test_ogni_lettura_di_un_corpo_passa_da_corpoLetto():
     punto che legge un corpo deve passare da li'. Un settimo punto aggiunto
     domani con `.json()` diretto invece di `corpoLetto()` torna a rompere il
     gestore su un 200 spazzatura senza che nessuno se ne accorga leggendo — e
-    questo controllo lo dice senza dover eseguire `node`."""
+    questo controllo lo dice senza dover eseguire `node`.
+
+    La sottostringa letterale `.json()` si aggira scrivendo `r.json\\n()` (la
+    chiamata avviene lo stesso, verificato eseguendo in node): il controllo
+    tollera spazi e a capo fra `.json` e le parentesi, cosi' quella grafia
+    specifica non passa piu' inosservata. Restano fuori — dichiarato, non
+    taciuto — l'accesso indicizzato (`r["json"]()`, `r[j]()`) e la chiamata
+    indiretta (`r.json.call(r)`), che nessuna forma testuale di questo
+    controllo puo' distinguere da codice legittimo che non tocca affatto
+    `.json`. Il bypass piu' realistico non e' nessuno di questi tre — e' il
+    modello `.text()` + `JSON.parse()` gia' presente in `ragioneDelRifiuto`,
+    copiato su un settimo punto: lo controlla il test qui sotto.
+    """
     modulo = _modulo()
     corpo_funzione = _sorgente_di("corpoLetto", modulo)
     resto = modulo.replace(corpo_funzione, "", 1)
     assert resto != modulo, "corpoLetto() e' sparita dal modulo: non si estrae piu' il suo corpo"
     codice = _senza_commenti_js(resto)
-    assert ".json()" not in codice, (
+    assert not re.search(r"\.json\s*\(\s*\)", codice), (
         "un punto legge risposta.json() direttamente invece di passare da corpoLetto()"
+    )
+
+
+def test_nessun_punto_oltre_ragioneDelRifiuto_legge_un_corpo_con_text():
+    """Il bypass realistico del controllo sopra: non una grafia equivalente
+    di `.json()` scritta apposta per aggirarlo, ma il modello gia' presente
+    nello stesso file — `ragioneDelRifiuto` legge con `.text()` piu'
+    `JSON.parse()`, non con `.json()` — copiato domani su un settimo punto,
+    naturalmente, perche' e' li' e nello stesso stile. Se quel settimo punto
+    dimenticasse il `try/catch` che `ragioneDelRifiuto` ha, romperebbe il
+    gestore esattamente come il difetto che questo giro chiude, senza che
+    lo scanner sui `.json()` se ne accorga: quello scanner non contiene
+    `.json()` in nessuna forma.
+
+    Il controllo e' grosso apposta: vieta `.text()` fuori da `corpoLetto` e
+    `ragioneDelRifiuto` senza distinguere se prosegue con `JSON.parse()` o
+    no, perche' la distinzione fine e' esattamente il punto cieco che ha
+    aggirato la versione precedente — un settimo punto scritto con `.text()`
+    e basta, senza `JSON.parse()`, sarebbe comunque un modo nuovo di leggere
+    un corpo fuori dalla difesa unica.
+    """
+    modulo = _modulo()
+    corpo_corpoLetto = _sorgente_di("corpoLetto", modulo)
+    corpo_ragione = _sorgente_di("ragioneDelRifiuto", modulo)
+    resto = modulo.replace(corpo_corpoLetto, "", 1).replace(corpo_ragione, "", 1)
+    assert resto != modulo, "una delle due funzioni ammesse e' sparita: non si estrae piu' il suo corpo"
+    codice = _senza_commenti_js(resto)
+    assert ".text(" not in codice, (
+        "un punto fuori da corpoLetto e ragioneDelRifiuto legge un corpo con .text(): "
+        "se prosegue con JSON.parse() senza il try/catch di ragioneDelRifiuto, e' lo stesso "
+        "difetto che questo giro doveva chiudere, per una grafia diversa da .json()"
     )
 
 
@@ -975,12 +1191,20 @@ globalThis.fetch = async () => risponde();
 
 
 def test_caricaStato_non_crolla_su_un_corpo_che_non_si_legge(tmp_path):
-    """Due grafie di spazzatura su un 200: JSON invalido, e JSON valido ma
-    senza `steps`. Nessuna delle due deve far sollevare `caricaStato` (la
-    pagina cadrebbe bianca all'avvio, prima ancora che l'elenco degli step
-    compaia) e la prima deve dirlo a video, con lo stesso canale degli altri
-    rifiuti. Il controllo che smentisce e' nello stesso banco: un corpo buono
-    deve continuare a disegnare gli step.
+    """Tre grafie di spazzatura su un 200: JSON invalido, JSON valido ma
+    senza `steps`, e il `null` letterale. Nessuna delle tre deve far
+    sollevare `caricaStato` (la pagina cadrebbe bianca all'avvio, prima
+    ancora che l'elenco degli step compaia) e le prime due devono dirlo a
+    video, con lo stesso canale degli altri rifiuti. Il controllo che
+    smentisce e' nello stesso banco: un corpo buono deve continuare a
+    disegnare gli step.
+
+    Il `null` letterale e' un caso a parte: `corpoLetto` lo lascia passare
+    intatto per contratto (e' cio' che il server ha davvero risposto), ma un
+    corpo `null` per intero non e' mai una risposta legittima di `/api/run` —
+    solo un campo nullabile innestato lo sarebbe. Prima della correzione,
+    `corpo === undefined` lasciava passare `null`, e `!Array.isArray(null.steps)`
+    sollevava fuori da ogni catch.
     """
     _esegui(tmp_path, _banco_di_caricaStato() + """
 risponde = async () => ({ ok: true, status: 200, json: async () => { throw new SyntaxError("boom"); } });
@@ -988,6 +1212,13 @@ await caricaStato();
 assert.match(rigaErrore.textContent, /non si legge/, "il corpo illeggibile non dice niente a video");
 assert.equal(document.getElementById("corsa").textContent, "",
   "un corpo illeggibile non deve scrivere corsa");
+
+rigaErrore.textContent = "";
+risponde = async () => ({ ok: true, status: 200, json: async () => null });
+await caricaStato();
+assert.match(rigaErrore.textContent, /non si legge/, "un null letterale fa sollevare caricaStato fuori da ogni catch");
+assert.equal(document.getElementById("corsa").textContent, "",
+  "un null letterale non deve scrivere corsa");
 
 rigaErrore.textContent = "";
 risponde = async () => ({ ok: true, status: 200, json: async () => ({ out_dir: "/tmp/corsa" }) });
@@ -1041,6 +1272,12 @@ def test_apriDettaglio_schema_illeggibile_non_avvelena_la_cache(tmp_path):
     la richiesta. Il controllo che smentisce e' nello stesso banco: dopo un
     fallimento, un secondo clic con uno schema buono deve ancora funzionare —
     provato solo perche' la cache e' rimasta vuota.
+
+    Ripetuto anche sul `null` letterale: prima della correzione,
+    `corpo === undefined` lasciava passare `null`, `schemaParametri = null`
+    veniva assegnato comunque (la guardia non se ne accorgeva), e il primo
+    clic successivo andava in crash differito su `schemaParametri[...]`
+    invece di ritentare la richiesta.
     """
     _esegui(tmp_path, _banco_di_apriDettaglio() + """
 risponde = {
@@ -1052,6 +1289,13 @@ assert.equal(schemaParametri, null,
   "un corpo illeggibile e' finito comunque in cache: nessun clic successivo ritentera'");
 assert.equal(document.getElementById("dettaglio").childElementCount, 0,
   "il pannello non e' stato svuotato dopo il fallimento");
+
+risponde = {
+  "/api/schema": async () => ({ ok: true, status: 200, json: async () => null }),
+};
+await apriDettaglio(1);
+assert.match(rigaErrore.textContent, /schema/, "un null letterale non nomina lo schema a video");
+assert.equal(schemaParametri, null, "un null letterale e' finito in cache: nessun clic successivo ritentera'");
 
 risponde = {
   "/api/schema": async () => ({ ok: true, status: 200, json: async () => SCHEMA_BUONO }),
@@ -1072,6 +1316,12 @@ def test_apriDettaglio_config_illeggibile_non_scrive_la_configurazione_di_modulo
     Un corpo illeggibile non deve entrarci, altrimenti la prossima modifica di
     un campo qualsiasi partirebbe da un valore rotto invece che da quello
     dell'apertura precedente.
+
+    Ripetuto sul `null` letterale: prima della correzione,
+    `corpoConfig === undefined` lasciava passare `null`,
+    `configurazione = null` veniva assegnato comunque, e la prossima
+    `scriviParametro` sarebbe andata in crash differito su
+    `configurazione[blocco]` invece di ripartire da un valore buono.
     """
     _esegui(tmp_path, _banco_di_apriDettaglio() + """
 configurazione = { input: { path: "valore-precedente.ply" } };
@@ -1086,6 +1336,17 @@ assert.equal(configurazione.input.path, "valore-precedente.ply",
   "la configurazione di modulo e' stata sovrascritta da un corpo che non si legge: " +
   "la prossima PUT partirebbe da un valore rotto");
 assert.equal(schemaParametri, SCHEMA_BUONO, "lo schema, gia' buono, non doveva essere ritoccato");
+
+rigaErrore.textContent = "";
+risponde = {
+  "/api/schema": async () => ({ ok: true, status: 200, json: async () => SCHEMA_BUONO }),
+  "/api/config": async () => ({ ok: true, status: 200, json: async () => null }),
+  "/api/metrics": async () => ({ ok: true, status: 200, json: async () => METRICHE_BUONE }),
+};
+await apriDettaglio(1);
+assert.match(rigaErrore.textContent, /non si legge/, "un null letterale non dice niente a video");
+assert.equal(configurazione.input.path, "valore-precedente.ply",
+  "un null letterale ha sovrascritto la configurazione di modulo");
 """)
 
 
@@ -1094,7 +1355,7 @@ def test_apriDettaglio_metriche_illeggibili_non_scrivono_la_configurazione_di_mo
     sola con un `||` fra `corpoConfig` e `corpoMetriche`: un mutante che
     rompesse solo il lato destro non si vedrebbe da un controllo dove a
     fallire e' la config. Qui la config e' buona e sono le metriche a essere
-    spazzatura.
+    spazzatura, comprese le metriche `null` per intero.
     """
     _esegui(tmp_path, _banco_di_apriDettaglio() + """
 configurazione = { input: { path: "valore-precedente.ply" } };
@@ -1107,6 +1368,75 @@ await apriDettaglio(1);
 assert.match(rigaErrore.textContent, /non si legge/, "il corpo illeggibile non dice niente a video");
 assert.equal(configurazione.input.path, "valore-precedente.ply",
   "la configurazione di modulo e' stata sovrascritta anche se solo le metriche erano illeggibili");
+
+rigaErrore.textContent = "";
+risponde = {
+  "/api/schema": async () => ({ ok: true, status: 200, json: async () => SCHEMA_BUONO }),
+  "/api/config": async () => ({ ok: true, status: 200, json: async () => CONFIG_BUONA }),
+  "/api/metrics": async () => ({ ok: true, status: 200, json: async () => null }),
+};
+await apriDettaglio(1);
+assert.match(rigaErrore.textContent, /non si legge/, "metriche null letterale non dicono niente a video");
+assert.equal(configurazione.input.path, "valore-precedente.ply",
+  "la configurazione di modulo e' stata sovrascritta anche se solo le metriche erano null");
+""")
+
+
+def test_i_bottoni_esegui_due_clic_sovrapposti_non_lasciano_vincere_il_rifiuto_vecchio(tmp_path):
+    """Riga 836 di `app.js`: la seconda istanza che lo scanner strutturale
+    segnala, mai nominata come buco distinto prima di questo giro. I due
+    bottoni («Esegui questo step», «Esegui da qui in giu'») condividono
+    `ordine` (la generazione del pannello, non del clic) e la stessa
+    `rigaErrore`: cliccato uno, poi — mentre e' ancora in volo — l'altro, con
+    le risposte invertite, il rifiuto del clic piu' vecchio arriverebbe per
+    ultimo e scriverebbe sopra il messaggio del clic piu' recente, accusando
+    l'azione sbagliata. Un contatore condiviso dai due bottoni, aperto a ogni
+    clic su uno qualunque dei due, li distingue.
+    """
+    _esegui(tmp_path, _banco_di_apriDettaglio() + """
+risponde = {
+  "/api/schema": async () => ({ ok: true, status: 200, json: async () => SCHEMA_BUONO }),
+  "/api/config": async () => ({ ok: true, status: 200, json: async () => CONFIG_BUONA }),
+  "/api/metrics": async () => ({ ok: true, status: 200, json: async () => METRICHE_BUONE }),
+};
+await apriDettaglio(1);
+const azioni = document.getElementById("dettaglio").figli[0];
+const [questo, daQui] = azioni.figli;
+
+let risolvi1, risolvi2;
+const risposte = [
+  new Promise((r) => { risolvi1 = r; }),
+  new Promise((r) => { risolvi2 = r; }),
+];
+let chiamata = 0;
+globalThis.fetch = async () => risposte[chiamata++];
+
+// Clic 1 (piu' vecchio) su "questo step", poi clic 2 (piu' recente) su
+// "da qui in giu'", mentre il primo e' ancora in volo.
+const primoClic = questo.scatena("click");
+const secondoClic = daQui.scatena("click");
+
+// Il secondo clic e' rifiutato e arriva per primo.
+risolvi2({ ok: false, status: 500, text: async () => JSON.stringify({ messaggio: "errore nuovo" }) });
+await secondoClic;
+assert.match(rigaErrore.textContent, /errore nuovo/, "il rifiuto del clic piu' recente non arriva a video");
+
+// Il primo clic, piu' vecchio, e' rifiutato anche lui ma rientra per ultimo.
+risolvi1({ ok: false, status: 500, text: async () => JSON.stringify({ messaggio: "errore vecchio" }) });
+await primoClic;
+assert.match(rigaErrore.textContent, /errore nuovo/,
+  "il rifiuto del clic vecchio, arrivato per ultimo, ha scritto sopra quello nuovo");
+assert.doesNotMatch(rigaErrore.textContent, /errore vecchio/,
+  "il messaggio a video accusa un clic che l'utente ha gia' superato");
+
+// --- il controllo che smentisce: un clic normale, senza accavallamento -----
+chiamata = 0;
+rigaErrore.textContent = "";
+globalThis.fetch = async () => (
+  { ok: false, status: 500, text: async () => JSON.stringify({ messaggio: "guasto" }) }
+);
+await questo.scatena("click");
+assert.match(rigaErrore.textContent, /guasto/, "un clic normale, senza accavallamento, smette di funzionare");
 """)
 
 
@@ -1141,11 +1471,19 @@ def test_applica_il_ritaglio_200_illeggibile_non_va_in_crash(tmp_path):
     resterebbe a video per sempre, il silenzio peggiore perche' promette una
     fine che non arriva mai. Lo stesso canale delle altre due uscite d'errore
     di questo bottone: `dichiaraErrore`, non `esito`.
+
+    Il terzo caso e' il `null` letterale: `corpoLetto` lo lascia passare
+    intatto per contratto (e' cio' che il server ha davvero risposto), ma un
+    corpo `null` per intero non e' mai una risposta legittima di /api/crop —
+    solo un campo nullabile innestato lo sarebbe. Prima della correzione,
+    `corpo === undefined` lasciava passare `null` e la riga sotto
+    (`corpo.points_after`) sollevava fuori da ogni catch.
     """
     _esegui(tmp_path, _banco_del_ritaglio() + """
 for (const corpoRotto of [
   async () => { throw new SyntaxError("non e' JSON"); },
   async () => ({ completo: true }),  // valido, ma senza points_after
+  async () => null,                  // null letterale: mai legittimo qui
 ]) {
   rigaErrore.textContent = "";
   const { applica } = apriPannello(generazione);
@@ -1154,4 +1492,47 @@ for (const corpoRotto of [
   assert.match(rigaErrore.textContent, /non descrive il ritaglio/,
     "un 200 illeggibile non dice niente a video, e il bottone resta muto per sempre");
 }
+""")
+
+
+def test_applica_il_ritaglio_due_clic_sovrapposti_lascia_vincere_l_ultimo(tmp_path):
+    """Rilievo 1, terza istanza sullo stesso file. `ordine` e' la generazione
+    del pannello, condivisa da tutti i clic fatti mentre il pannello resta
+    aperto: regolare il box e ricliccare «Applica» per affinarlo e' il flusso
+    normale, non un incidente — e senza un contatore per clic la risposta del
+    clic vecchio, arrivata per ultima, scrive sopra l'esito del clic nuovo.
+    Stessa meccanica di `apriBattuta`: un contatore locale al pannello,
+    aperto a ogni clic.
+    """
+    _esegui(tmp_path, _banco_del_ritaglio() + """
+const { applica, esito } = apriPannello(generazione);
+
+let risolvi1, risolvi2;
+const risposte = [
+  new Promise((r) => { risolvi1 = r; }),
+  new Promise((r) => { risolvi2 = r; }),
+];
+let chiamata = 0;
+globalThis.fetch = async () => risposte[chiamata++];
+
+const primoClic = applica.scatena("click");
+const secondoClic = applica.scatena("click");
+
+// La risposta del secondo clic (l'ultimo box che l'utente ha davvero
+// battuto) arriva per prima; quella del primo, piu' vecchio, rientra dopo.
+risolvi2({ ok: true, status: 200, json: async () => ({ points_after: 99, completo: true }) });
+await secondoClic;
+risolvi1({ ok: true, status: 200, json: async () => ({ points_after: 1, completo: true }) });
+await primoClic;
+
+assert.match(esito.textContent, /^99\\s+punti/,
+  "la risposta del clic vecchio ha scritto sopra l'esito del clic nuovo");
+assert.doesNotMatch(esito.textContent, /^1\\s+punti/,
+  "l'esito mostra ancora il numero del clic superato");
+
+// --- il controllo che smentisce: un clic normale, senza accavallamento -----
+chiamata = 0;
+globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({ points_after: 7, completo: true }) });
+await applica.scatena("click");
+assert.match(esito.textContent, /^7\\s+punti/, "un clic normale, senza accavallamento, smette di funzionare");
 """)
