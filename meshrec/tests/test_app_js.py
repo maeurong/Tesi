@@ -437,7 +437,13 @@ def test_il_fuoco_da_tastiera_si_vede_su_ogni_comando():
 _GESTORE_NOMINATO = re.compile(r"^\w+$")
 _DELEGA_A_UNA_FUNZIONE = re.compile(r"^\([^)]*\)\s*=>\s*(\w+)\(")
 _CONTATORE_FRESCO = re.compile(r"\bapri\w*\(")
-_DISABLE_ELEMENTO = re.compile(r"\.disabled\s*=\s*true\b")
+# Due forme riconosciute, non una sola: `.disabled = true` e
+# `.setAttribute("disabled", ...)` disabilitano l'elemento allo stesso modo
+# (un attributo booleano HTML, il valore del secondo argomento non conta).
+# Prima di questa riga solo la prima forma era riconosciuta, e la seconda —
+# una difesa legittima quanto la prima — veniva segnalata come vulnerabile:
+# un falso positivo che disattiva chi lo incontra invece di proteggerlo.
+_DISABLE_ELEMENTO = re.compile(r"""\.disabled\s*=\s*true\b|\.setAttribute\(\s*["']disabled["']""")
 _SCRITTURA = re.compile(r"(?<![=!<>])=(?!=|>)")
 
 
@@ -487,6 +493,17 @@ def _fine_chiamata(testo: str, apertura: int) -> int:
             profondita -= 1
         indice += 1
     return indice
+
+
+def _file_js_dell_interfaccia(base: Path = UI_DIR) -> list[Path]:
+    """Ogni `.js` a livello di `base`, derivato con un glob e non elencato a
+    mano: uno scanner che leggesse un percorso letterale (`base / "app.js"`)
+    lascerebbe un secondo file con un gestore vulnerabile invisibile in
+    silenzio — e un elenco a mano dei nomi avrebbe lo stesso difetto un
+    livello piu' in la', perche' un file nuovo non finirebbe nell'elenco.
+    `vendor/` resta fuori da solo: il glob non e' ricorsivo, e non e' nostro
+    codice."""
+    return sorted(base.glob("*.js"))
 
 
 def _addEventListener_del_modulo(modulo: str) -> list[dict]:
@@ -553,12 +570,17 @@ def test_ogni_gestore_che_scrive_dopo_un_attesa_si_difende():
       e' diventato rosso. E' il motivo per cui questo giro non si ferma allo
       scanner: la coppia struttura+comportamento e' quella che chiude,
       nessuna delle due da sola.
-    - **solo `.disabled = true` come forma di disable.** Un
-      `setAttribute("disabled", "")`, un `readOnly = true`, o togliere
-      l'elemento dal DOM per la durata dell'attesa non vengono riconosciuti:
-      un gestore disabilitato in una di queste forme risulterebbe un falso
-      vulnerabile (innocuo qui: nessuno di questi casi e' nel file oggi,
-      verificato leggendolo).
+    - **due forme di disable riconosciute, non tutte.** `.disabled = true` e
+      `.setAttribute("disabled", ...)` (qualunque secondo argomento: e' un
+      attributo booleano HTML) contano come difesa. Un `readOnly = true`, o
+      togliere l'elemento dal DOM per la durata dell'attesa, restano non
+      riconosciuti: un gestore disabilitato in una di queste due forme
+      risulterebbe un falso vulnerabile (innocuo qui: nessuno dei due casi e'
+      nel file oggi, verificato leggendolo). Fino alla correzione di questo
+      giro solo `.disabled = true` era riconosciuta, e `setAttribute` — una
+      difesa legittima quanto l'altra — veniva segnalata a torto: un falso
+      positivo che disattiva chi lo incontra, verificato in
+      `test_lo_scanner_riconosce_anche_setAttribute_disabled_come_disable_legittimo`.
     - **«scrive dopo l'attesa» e' un `=` di assegnazione nel testo dopo la
       fetch** (che non sia `==`, `===` ne' `=>`). Conta anche una `const x =
       ...` puramente locale che non scrive mai fuori dal gestore — puo'
@@ -568,21 +590,189 @@ def test_ogni_gestore_che_scrive_dopo_un_attesa_si_difende():
       sottostimare (falso sicuro) in quel caso specifico, non presente oggi
       in questo file, verificato leggendolo.
 
+    - **la portata era un percorso letterale, non dichiarata.** Fino alla
+      correzione di questo giro lo scanner leggeva solo `UI_DIR / "app.js"`:
+      un secondo file dell'interfaccia con un gestore vulnerabile restava
+      invisibile in silenzio, il difetto peggiore per un test strutturale
+      perche' non fallisce e non avverte. Ora scandisce ogni `.js` derivato
+      da `_file_js_dell_interfaccia()` (oggi: `app.js` e `viewport.js`;
+      `vendor/` resta fuori) — verificato che il glob deriva l'insieme giusto
+      in `test_l_insieme_dei_file_scanditi_e_derivato_non_elencato_a_mano`.
+      `viewport.js` oggi non contiene nessuna `fetch(`: scandirlo non
+      aggiunge segnalazioni, ma lo mette nel raggio se un giorno ne
+      aggiungesse una.
+
     La parte che resta vera della dichiarazione di limite del giro precedente:
     questa proprieta' cattura la guardia **assente o troppo grossolana in una
     forma riconoscibile** — non stabilisce quale sia la grana giusta (per
     campo? per clic? per pannello?), quella resta una decisione di dominio.
     """
-    modulo = _modulo()
     segnalati = []
-    for voce in _addEventListener_del_modulo(modulo):
-        corpo = _corpo_del_gestore(voce["gestore"], modulo)
-        vulnerabile, ragione = _vulnerabile(corpo)
-        if vulnerabile:
-            segnalati.append(f"riga {voce['riga']} (evento {voce['evento']}): {ragione}")
+    for percorso in _file_js_dell_interfaccia():
+        modulo = percorso.read_text(encoding="utf-8")
+        for voce in _addEventListener_del_modulo(modulo):
+            corpo = _corpo_del_gestore(voce["gestore"], modulo)
+            vulnerabile, ragione = _vulnerabile(corpo)
+            if vulnerabile:
+                segnalati.append(f"{percorso.name}, riga {voce['riga']} (evento {voce['evento']}): {ragione}")
     assert segnalati == [], (
-        "gestori senza contatore fresco ne' disable prima dell'attesa:\n" + "\n".join(segnalati)
+        "gestori senza contatore fresco (apri\\w*()) ne' disable riconosciuto "
+        '(.disabled = true, oppure .setAttribute("disabled", ...)) prima dell\'attesa:\n'
+        + "\n".join(segnalati)
     )
+
+
+def test_l_insieme_dei_file_scanditi_e_derivato_non_elencato_a_mano(tmp_path):
+    """Il limite trovato dal revisore: lo scanner leggeva `UI_DIR / "app.js"`,
+    un percorso letterale. Un secondo file dell'interfaccia con un gestore
+    vulnerabile restava invisibile in silenzio — provato dal revisore
+    creandone uno vero in un worktree isolato e vedendo lo scanner non
+    accorgersene.
+
+    Qui si prova la derivazione da sola, su una directory finta: un elenco a
+    mano dei nomi (`["app.js", "viewport.js"]`) avrebbe risolto il caso di
+    oggi ma avrebbe lo stesso identico difetto un livello piu' in la' — un
+    terzo file futuro resterebbe fuori dall'elenco esattamente come restava
+    fuori dal percorso letterale. Il glob non ha questo problema: qualunque
+    `.js` a livello della directory ci entra da solo.
+    """
+    finto = tmp_path / "ui"
+    finto.mkdir()
+    (finto / "app.js").write_text("", encoding="utf-8")
+    (finto / "altro.js").write_text("", encoding="utf-8")
+    (finto / "vendor").mkdir()
+    (finto / "vendor" / "three.module.js").write_text("", encoding="utf-8")
+    trovati = {p.name for p in _file_js_dell_interfaccia(finto)}
+    assert trovati == {"app.js", "altro.js"}, (
+        f"il glob non deriva l'insieme giusto, o non esclude vendor/: {trovati}"
+    )
+
+
+def test_lo_scanner_riconosce_anche_setAttribute_disabled_come_disable_legittimo():
+    """Il falso positivo trovato dal revisore: `setAttribute("disabled", "")`
+    disabilita l'elemento tanto quanto `.disabled = true` — e' lo stesso
+    attributo booleano HTML, letto da entrambe le forme — ma prima di questa
+    correzione lo scanner riconosceva solo la seconda e segnalava la prima
+    come vulnerabile. Un test strutturale che grida al lupo per una difesa
+    legittima si disattiva al primo che ha fretta, e allora non protegge piu'
+    niente."""
+    corpo = """
+      bottone.setAttribute("disabled", "");
+      const risposta = await fetch("/api/qualcosa");
+      esito.textContent = risposta.status;
+    """
+    vulnerabile, ragione = _vulnerabile(corpo)
+    assert not vulnerabile, f"setAttribute('disabled', ...) e' una difesa legittima, segnalata comunque: {ragione}"
+
+
+# --------------------------------------------------------------------------
+# Rilievo 1, quarta istanza: `ultimaGeometria`. Il buco principale trovato
+# dalla revisione di questo giro. Le quattro guardie (righe 218, 232, 257,
+# 269) esistono gia' e sono corrette — il difetto non e' nel codice, e' nella
+# copertura: nessun test le provava, e rese decorative (`apriGeometria()`
+# lasciata a chiamare, la lettura tolta) la suite intera restava 36 passed su
+# 36, in un worktree isolato. Questi due test chiudono quel buco.
+# --------------------------------------------------------------------------
+
+
+def _banco_di_geometria() -> str:
+    """`mostraNuvolaDelloStep` e `mostraStep`, con `vista` finta: e' dove sta
+    il quarto contatore del censimento, `ultimaGeometria`, condiviso fra la
+    tratta della nuvola e quella della mesh — il fronte di discesa ricarica
+    la vista senza aprire una nuova generazione, quindi puo' gareggiare con
+    una risposta partita prima portando lo stesso `ordine`; solo
+    `ultimaGeometria` li distingue.
+    """
+    return _DOM + _funzioni("apriGeometria", "superata", "mostraNuvolaDelloStep", "mostraStep") + """
+let ultimaGeometria = 0;
+const STEP_CON_MESH = new Set([5, 6, 8, 9]);
+const vista = {
+  svuotate: 0,
+  disegnato: null,
+  svuota() { this.svuotate += 1; },
+  mostraNuvola(dati) { this.disegnato = { tipo: "nuvola", lunghezza: dati.length }; },
+  mostraMesh(vertici) { this.disegnato = { tipo: "mesh", lunghezza: vertici.length }; },
+};
+let risponde = [];
+let chiamata = 0;
+globalThis.fetch = async () => risponde[chiamata++]();
+"""
+
+
+def test_due_richieste_di_nuvola_sovrapposte_con_lo_stesso_ordine_non_fanno_vincere_la_vecchia(tmp_path):
+    """La tratta della nuvola. Due richieste con lo stesso `ordine` — il caso
+    del fronte di discesa in gara con una risposta partita prima, righe
+    195-206 del modulo — invertite: quella piu' recente arriva per prima e
+    disegna, quella piu' vecchia rientra dopo e non deve scrivere sopra."""
+    _esegui(tmp_path, _banco_di_geometria() + """
+let risolvi1, risolvi2;
+risponde = [
+  () => new Promise((r) => { risolvi1 = r; }),
+  () => new Promise((r) => { risolvi2 = r; }),
+];
+
+const vecchia = mostraNuvolaDelloStep(9, generazione);
+const nuova = mostraNuvolaDelloStep(9, generazione);
+
+// La piu' recente arriva per prima.
+risolvi2({
+  ok: true,
+  headers: { get: (nome) => ({ "X-Points-Drawn": "20", "X-Points-Total": "20" }[nome]) },
+  arrayBuffer: async () => new ArrayBuffer(80),
+});
+assert.equal(await nuova, true, "la richiesta piu' recente non risulta disegnata");
+assert.equal(vista.disegnato.lunghezza, 20, "il disegno a video non e' quello della richiesta recente");
+assert.equal(vista.svuotate, 1, "la vista si e' svuotata piu' volte del dovuto finora");
+
+// La piu' vecchia, rimasta in volo, rientra per ultima.
+risolvi1({
+  ok: true,
+  headers: { get: (nome) => ({ "X-Points-Drawn": "5", "X-Points-Total": "5" }[nome]) },
+  arrayBuffer: async () => new ArrayBuffer(20),
+});
+assert.equal(await vecchia, false, "la richiesta vecchia risulta disegnata: doveva essere scartata");
+assert.equal(vista.disegnato.lunghezza, 20,
+  "la risposta vecchia, arrivata per ultima, ha scritto sopra la nuvola piu' recente");
+assert.equal(vista.svuotate, 1,
+  "la vista vecchia e' stata svuotata di nuovo dopo essere gia' aggiornata dalla richiesta recente");
+""")
+
+
+def test_due_richieste_di_mesh_sovrapposte_con_lo_stesso_ordine_non_fanno_vincere_la_vecchia(tmp_path):
+    """Stessa istanza sul ramo della mesh (righe 254-269 del modulo): stesso
+    contatore `ultimaGeometria`, stessa guardia ripetuta due volte. Provata a
+    parte perche' la mutazione decorativa del giro precedente ha svuotato
+    tutte e quattro le guardie insieme, e un solo test sulla nuvola non
+    proverebbe che anche questo ramo si difende per davvero."""
+    _esegui(tmp_path, _banco_di_geometria() + """
+let risolvi1, risolvi2;
+risponde = [
+  () => new Promise((r) => { risolvi1 = r; }),
+  () => new Promise((r) => { risolvi2 = r; }),
+];
+
+const vecchia = mostraStep(9, generazione);
+const nuova = mostraStep(9, generazione);
+
+// La piu' recente arriva per prima: 7 vertici, 0 triangoli.
+risolvi2({
+  ok: true,
+  headers: { get: (nome) => ({ "X-Vertices": "7", "X-Triangles": "0" }[nome]) },
+  arrayBuffer: async () => new ArrayBuffer(84),
+});
+assert.equal(await nuova, true, "la richiesta piu' recente non risulta disegnata");
+assert.equal(vista.disegnato.lunghezza, 21, "il disegno a video non e' quello della mesh recente");
+
+// La piu' vecchia, rimasta in volo, rientra per ultima: 2 vertici.
+risolvi1({
+  ok: true,
+  headers: { get: (nome) => ({ "X-Vertices": "2", "X-Triangles": "0" }[nome]) },
+  arrayBuffer: async () => new ArrayBuffer(24),
+});
+assert.equal(await vecchia, false, "la mesh vecchia risulta disegnata: doveva essere scartata");
+assert.equal(vista.disegnato.lunghezza, 21,
+  "la mesh vecchia, arrivata per ultima, ha scritto sopra quella piu' recente");
+""")
 
 
 # --------------------------------------------------------------------------
@@ -1382,6 +1572,103 @@ assert.equal(configurazione.input.path, "valore-precedente.ply",
 """)
 
 
+# --------------------------------------------------------------------------
+# La quinta e la sesta tratta nella stessa condizione di `ultimaGeometria`:
+# i rami di `apriDettaglio` che leggono schema e config+metriche hanno solo
+# `ordine`/`generazione` come guardia — nessun contatore locale, quindi
+# niente da rendere decorativo — ma quella guardia stessa non era mai stata
+# provata da un test che aprisse davvero due pannelli sovrapposti.
+# Verificato rimuovendola (worktree isolato): la suite intera restava 36
+# passed su 36.
+# --------------------------------------------------------------------------
+
+
+def test_apriDettaglio_due_pannelli_sovrapposti_lo_schema_vecchio_non_scrive_sopra_il_nuovo(tmp_path):
+    """`schemaParametri` e' una cache di modulo che parte `null`: il primo
+    pannello aperto la va sempre a prendere. Se un secondo step si apre prima
+    che la risposta arrivi, e la prima e' un rifiuto arrivato tardi, senza la
+    guardia `fallisciDettaglio` svuoterebbe il pannello del secondo step gia'
+    disegnato e gli toglierebbe il marchio — la stessa famiglia "risposta
+    vecchia vince", per una strada diversa da `ultimaGeometria`.
+    """
+    _esegui(tmp_path, _banco_di_apriDettaglio() + """
+// Serve una voce anche per lo step 3: SCHEMA_BUONO del banco ne ha una sola,
+// per lo step 1. Non lo step 2: e' STEP_CON_RITAGLIO nel banco, e farebbe
+// costruire anche il pannello del ritaglio, non extratto qui.
+const SCHEMA_DUE_STEP = { "1": SCHEMA_BUONO["1"], "3": SCHEMA_BUONO["1"] };
+let filaSchema = [];
+globalThis.fetch = async (percorso) => {
+  if (percorso === "/api/schema") return new Promise((r) => filaSchema.push(r));
+  return risponde[percorso]();
+};
+risponde = {
+  "/api/config": async () => ({ ok: true, status: 200, json: async () => CONFIG_BUONA }),
+  "/api/metrics": async () => ({ ok: true, status: 200, json: async () => METRICHE_BUONE }),
+};
+
+// Primo pannello (step 1): schema non ancora in cache, resta in attesa.
+const primoPannello = apriDettaglio(1);
+// Secondo pannello (step 2), un clic dopo: schema ancora null quando parte,
+// resta in attesa anche lui, con la propria richiesta.
+generazione += 1;
+const secondoPannello = apriDettaglio(3, generazione);
+assert.equal(filaSchema.length, 2, "il secondo pannello non ha aperto una propria richiesta di schema");
+
+// Lo schema del secondo pannello, il piu' recente, arriva per primo.
+filaSchema[1]({ ok: true, status: 200, json: async () => SCHEMA_DUE_STEP });
+await secondoPannello;
+assert.equal(stepAperto, 3, "il secondo pannello non risulta aperto");
+assert.ok(document.getElementById("dettaglio").childElementCount > 0,
+  "il secondo pannello non si e' disegnato");
+
+// Lo schema del primo, il piu' vecchio, rientra per ultimo: un rifiuto.
+filaSchema[0]({ ok: false, status: 500, text: async () => JSON.stringify({ messaggio: "schema vecchio" }) });
+await primoPannello;
+assert.equal(stepAperto, 3,
+  "il rifiuto dello schema del pannello vecchio ha tolto il marchio dal pannello nuovo");
+assert.ok(document.getElementById("dettaglio").childElementCount > 0,
+  "il rifiuto dello schema del pannello vecchio ha svuotato il pannello nuovo gia' disegnato");
+""")
+
+
+def test_apriDettaglio_due_pannelli_sovrapposti_la_config_vecchia_non_scrive_sopra_la_nuova(tmp_path):
+    """Lo stesso caso sul ramo di config+metriche di `apriDettaglio`: schema
+    gia' in cache per isolare la guardia sotto esame, e la config a
+    gareggiare."""
+    _esegui(tmp_path, _banco_di_apriDettaglio() + """
+// Serve una voce anche per lo step 3: SCHEMA_BUONO del banco ne ha una sola,
+// per lo step 1. Non lo step 2: e' STEP_CON_RITAGLIO nel banco, e farebbe
+// costruire anche il pannello del ritaglio, non extratto qui.
+schemaParametri = { "1": SCHEMA_BUONO["1"], "3": SCHEMA_BUONO["1"] };
+let filaConfig = [];
+globalThis.fetch = async (percorso) => {
+  if (percorso === "/api/config") return new Promise((r) => filaConfig.push(r));
+  return risponde[percorso]();
+};
+risponde = {
+  "/api/metrics": async () => ({ ok: true, status: 200, json: async () => METRICHE_BUONE }),
+};
+
+const primoPannello = apriDettaglio(1);
+generazione += 1;
+const secondoPannello = apriDettaglio(3, generazione);
+assert.equal(filaConfig.length, 2, "il secondo pannello non ha aperto una propria richiesta di config");
+
+filaConfig[1]({ ok: true, status: 200, json: async () => CONFIG_BUONA });
+await secondoPannello;
+assert.equal(stepAperto, 3, "il secondo pannello non risulta aperto");
+assert.ok(document.getElementById("dettaglio").childElementCount > 0,
+  "il secondo pannello non si e' disegnato");
+
+filaConfig[0]({ ok: false, status: 500, text: async () => JSON.stringify({ messaggio: "config vecchia" }) });
+await primoPannello;
+assert.equal(stepAperto, 3,
+  "il rifiuto della config del pannello vecchio ha tolto il marchio dal pannello nuovo");
+assert.ok(document.getElementById("dettaglio").childElementCount > 0,
+  "il rifiuto della config del pannello vecchio ha svuotato il pannello nuovo gia' disegnato");
+""")
+
+
 def test_i_bottoni_esegui_due_clic_sovrapposti_non_lasciano_vincere_il_rifiuto_vecchio(tmp_path):
     """Riga 836 di `app.js`: la seconda istanza che lo scanner strutturale
     segnala, mai nominata come buco distinto prima di questo giro. I due
@@ -1451,8 +1738,13 @@ def _banco_del_ritaglio() -> str:
     ) + """
 const vista = {
   ingombro: () => ({ min: [0, 0, 0], max: [1, 1, 1] }),
-  mostraBox: () => {},
+  ultimoBox: null,
+  mostraBox(min, max) { this.ultimoBox = { min: [...min], max: [...max] }; },
 };
+// Come nel modulo vero: configurazione e' gia' popolata quando il pannello si
+// costruisce, con crop_min/crop_max al loro default (null, core/config.py)
+// finche' nessun ritaglio e' stato applicato.
+configurazione = { segment: { crop_min: null, crop_max: null } };
 let risponde = null;
 globalThis.fetch = async () => risponde();
 function apriPannello(ordine) {
@@ -1462,6 +1754,41 @@ function apriPannello(ordine) {
   return { applica, esito };
 }
 """
+
+
+def test_il_pannello_del_ritaglio_mostra_il_box_persistito_quando_c_e(tmp_path):
+    """Rimasto aperto da due revisioni: il pannello leggeva solo
+    `vista.ingombro()`, il box **disegnato**, e mai
+    `configurazione.segment.crop_min/max`, quello **scritto su disco**. Anche
+    dopo che i due clic sovrapposti non si scavalcano piu' (il test sopra),
+    l'utente non aveva modo di vedere che cosa fosse davvero persistito.
+
+    I due valori possono divergere legittimamente, e il pannello li distingue
+    cosi': `crop_min`/`crop_max` sono `null` (il default del modello,
+    core/config.py) finche' nessun ritaglio e' mai stato applicato — solo
+    allora l'ingombro disegnato e' l'unico punto di partenza sensato, ed e'
+    quello che il primo blocco sotto prova. Una volta valorizzati, sono la
+    fonte anche se la nuvola nel frattempo e' la stessa: e' cio' che il
+    server ha davvero scritto, non una nuova lettura dell'ingombro — il
+    secondo blocco lo dimostra con numeri apposta diversi dall'ingombro finto,
+    cosi' un pannello che leggesse ancora `vista.ingombro()` per errore li
+    tradirebbe.
+    """
+    _esegui(tmp_path, _banco_del_ritaglio() + """
+// Prima di ogni applicazione: crop_min/crop_max sono null, il pannello
+// riparte dall'ingombro disegnato.
+apriPannello(generazione);
+assert.deepEqual(vista.ultimoBox, { min: [0, 0, 0], max: [1, 1, 1] },
+  "senza un ritaglio persistito il pannello non riparte piu' dall'ingombro disegnato");
+
+// Dopo un'applicazione riuscita (o alla riapertura con una configurazione
+// gia' scritta): il pannello mostra il persistito, non l'ingombro — apposta
+// diverso qui sotto, per non poter combaciare per caso.
+configurazione = { segment: { crop_min: [5, 6, 7], crop_max: [8, 9, 10] } };
+apriPannello(generazione);
+assert.deepEqual(vista.ultimoBox, { min: [5, 6, 7], max: [8, 9, 10] },
+  "il pannello riaperto non mostra il box persistito nella configurazione, mostra ancora l'ingombro disegnato");
+""")
 
 
 def test_applica_il_ritaglio_200_illeggibile_non_va_in_crash(tmp_path):

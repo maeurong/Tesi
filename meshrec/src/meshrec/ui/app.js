@@ -508,7 +508,20 @@ function pannelloRitaglio(ordine) {
     }));
     return contenitore;
   }
-  const valori = { min: [...ingombro.min], max: [...ingombro.max] };
+  // Il pannello si ricostruisce da zero a ogni apertura e leggeva sempre
+  // l'ingombro disegnato: dopo un'applicazione riuscita non c'era modo di
+  // vedere che cosa fosse davvero scritto su disco. crop_min/crop_max sono
+  // null (il default del modello, core/config.py) finche' nessun ritaglio e'
+  // stato applicato — solo allora l'ingombro disegnato e' l'unico punto di
+  // partenza sensato. Da quel momento in poi il persistito e' la fonte:
+  // anche quando coincide con l'ingombro su una nuvola invariata, non e' la
+  // stessa domanda, ed e' l'unica che risponde a "che cosa c'e' sul disco".
+  const persistito = configurazione.segment.crop_min != null && configurazione.segment.crop_max != null
+    ? configurazione.segment
+    : null;
+  const valori = persistito
+    ? { min: [...persistito.crop_min], max: [...persistito.crop_max] }
+    : { min: [...ingombro.min], max: [...ingombro.max] };
   for (const estremo of ["min", "max"]) {
     for (const asse of [0, 1, 2]) {
       const riga = document.createElement("label");
