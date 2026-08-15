@@ -944,3 +944,108 @@ async function apriDettaglio(numero, ordine = generazione) {
     }));
   }
 }
+
+// Galleria di curazione: i registri della Fase 2 (/api/experiments*), in
+// sola lettura. Nessun clic da qui scrive mai sul disco.
+
+async function caricaGalleria() {
+  const risposta = await fetch("/api/experiments").catch(serverMuto);
+  const corpo = await corpoLetto(risposta);
+  // Silenzioso e non un errore a video: una corsa senza cartella experiments/
+  // accanto (la comune, durante lo sviluppo di uno step) non e' un guasto
+  // della galleria, e' solo che non c'e' niente da elencare.
+  if (corpo == null || !Array.isArray(corpo.esperimenti)) return;
+  const elenco = document.getElementById("galleria-elenco");
+  elenco.replaceChildren(...corpo.esperimenti.map((nome) => {
+    const bottone = document.createElement("button");
+    bottone.type = "button";
+    bottone.className = "bottone";
+    bottone.textContent = nome;
+    bottone.dataset.nome = nome;
+    return bottone;
+  }));
+}
+
+caricaGalleria();
+
+// Le colonne e le celle arrivano gia' formattate dal server (report._COLUMNS
+// e report._cell, riusate in server.py): questa funzione si limita a
+// disegnarle, senza una seconda scelta di colonne che potrebbe divergere da
+// quella dell'appendice della tesi.
+function disegnaTabellaGalleria(corpo) {
+  const contenitore = document.getElementById("galleria-tabella");
+  contenitore.replaceChildren();
+  if (corpo.righe.length === 0) {
+    contenitore.append(Object.assign(document.createElement("p"), {
+      className: "vuoto",
+      textContent: `${corpo.nome}: registro vuoto.`,
+    }));
+    return;
+  }
+  const rigaTesta = document.createElement("tr");
+  for (const colonna of corpo.colonne) {
+    rigaTesta.append(Object.assign(document.createElement("th"), { textContent: colonna.etichetta }));
+  }
+  const testa = document.createElement("thead");
+  testa.append(rigaTesta);
+  const corpoTabella = document.createElement("tbody");
+  corpo.righe.forEach((riga, indice) => {
+    const rigaHtml = document.createElement("tr");
+    // "fronte", non un nuovo nome: e' la stessa classe che report.write_report
+    // scrive sulla riga di fronte dell'appendice della tesi.
+    if (riga.on_front) rigaHtml.className = "fronte";
+    for (const cella of corpo.celle[indice]) {
+      rigaHtml.append(Object.assign(document.createElement("td"), { textContent: cella }));
+    }
+    corpoTabella.append(rigaHtml);
+  });
+  const tabella = document.createElement("table");
+  tabella.append(testa, corpoTabella);
+  contenitore.append(
+    Object.assign(document.createElement("p"), {
+      className: "aiuto",
+      textContent: `${corpo.nome}: ${corpo.righe.length} candidati, ${corpo.fronte} sul fronte.`,
+    }),
+    tabella,
+  );
+}
+
+// Un contatore fresco per clic, come apriGeometria/apriBattuta: due clic su
+// due esperimenti sovrapposti — o due riaperture dello stesso — non devono
+// far vincere la risposta piu' vecchia.
+let ultimaGalleria = 0;
+
+function apriGalleria() {
+  ultimaGalleria += 1;
+  return ultimaGalleria;
+}
+
+// Vero se questa richiesta ha scritto (compresa la dichiarazione di un
+// rifiuto), falso se e' stata scartata perche' superata da una piu' recente.
+async function mostraEsperimento(nome) {
+  const richiesta = apriGalleria();
+  const risposta = await fetch(`/api/experiments/${encodeURIComponent(nome)}`).catch(serverMuto);
+  if (!risposta.ok) {
+    const ragione = await ragioneDelRifiuto(risposta);
+    // Dopo l'ultima attesa e prima della prima scrittura, come le altre
+    // tratte del modulo.
+    if (superata(richiesta, ultimaGalleria)) return false;
+    dichiaraErrore(ragione);
+    return true;
+  }
+  const corpo = await corpoLetto(risposta);
+  if (superata(richiesta, ultimaGalleria)) return false;
+  if (corpo == null || !Array.isArray(corpo.righe) || !Array.isArray(corpo.colonne) || !Array.isArray(corpo.celle)) {
+    dichiaraErrore("il server ha risposto con un registro che non si legge");
+    return true;
+  }
+  dichiaraErrore(null);
+  disegnaTabellaGalleria(corpo);
+  return true;
+}
+
+document.getElementById("galleria-elenco").addEventListener("click", (evento) => {
+  const bottone = evento.target.closest("button");
+  if (!bottone) return;
+  mostraEsperimento(bottone.dataset.nome);
+});

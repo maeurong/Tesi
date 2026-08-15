@@ -1226,11 +1226,12 @@ def test_ogni_tratta_che_interroga_il_server_si_scarta_se_e_stata_superata():
     from meshrec.app.server import UI_DIR
 
     testo = (UI_DIR / "app.js").read_text(encoding="utf-8")
-    # caricaStato parte una volta sola all'avvio della pagina e non da un clic:
-    # non c'e' nessuna generazione che possa superarla. annullaLaCorsa non
-    # scrive nulla dopo l'attesa, quindi non ha niente da contraddire; ha un
-    # nome apposta per poter comparire qui invece di non essere mai incontrata.
-    senza_ordine = {"caricaStato", "annullaLaCorsa"}
+    # caricaStato e caricaGalleria partono una volta sola all'avvio della
+    # pagina e non da un clic: non c'e' nessuna generazione che possa
+    # superarle. annullaLaCorsa non scrive nulla dopo l'attesa, quindi non ha
+    # niente da contraddire; ha un nome apposta per poter comparire qui invece
+    # di non essere mai incontrata.
+    senza_ordine = {"caricaStato", "annullaLaCorsa", "caricaGalleria"}
     tratte = [
         (nome, _sorgente_di(nome, testo))
         for nome in re.findall(r"^async function (\w+)\(", testo, re.MULTILINE)
@@ -1245,10 +1246,12 @@ def test_ogni_tratta_che_interroga_il_server_si_scarta_se_e_stata_superata():
         assert "superata(" in sorgente, f"{nome} scrive senza guardare l'ordine:\n{sorgente}"
     # Senza questo, cancellare le funzioni farebbe passare il test a vuoto. Ed
     # e' anche l'unica rete che resta quando l'estrazione per graffe fallisce
-    # (vedi il tetto di _corpi_freccia_asincroni): le tratte reali sono 3
-    # nominate piu' 3 freccia, quindi la soglia pareggia il numero vero. Se ne
-    # aggiungi una, alza la soglia invece di lasciarla indietro.
-    assert interrogano >= 6, "le tratte attese sono sparite dal modulo"
+    # (vedi il tetto di _corpi_freccia_asincroni): le tratte reali sono 5
+    # nominate (mostraNuvolaDelloStep, mostraStep, scriviParametro,
+    # apriDettaglio, mostraEsperimento) piu' 2 freccia, quindi la soglia
+    # pareggia il numero vero. Se ne aggiungi una, alza la soglia invece di
+    # lasciarla indietro.
+    assert interrogano >= 7, "le tratte attese sono sparite dal modulo"
 
 
 def test_due_geometrie_in_volo_nella_stessa_generazione_non_si_arbitrano_per_arrivo():
@@ -1947,3 +1950,118 @@ def test_un_box_malformato_e_rifiutato_e_non_tocca_la_configurazione(cliente, tm
     # E la corsa resta leggibile: e' la conseguenza che rendeva il difetto
     # permanente invece che transitorio.
     assert cliente.get("/api/config").status_code == 200
+
+
+# --------------------------------------------------------------------------
+# Task 14: galleria di curazione. Due endpoint in sola lettura sui registri
+# della Fase 2 (core.sweep.load_registry), colonne riusate da
+# core.report._COLUMNS / core.report._cell.
+# --------------------------------------------------------------------------
+
+
+def test_la_galleria_elenca_gli_esperimenti_esistenti(cliente, tmp_path):
+    registro = tmp_path / "experiments" / "prova" / "registro.jsonl"
+    registro.parent.mkdir(parents=True)
+    registro.write_text(
+        json.dumps({"fingerprint": "abc", "axes": {}, "outcome": "riuscito", "on_front": True})
+        + "\n",
+        encoding="utf-8",
+    )
+    elenco = cliente.get("/api/experiments").json()
+    assert "prova" in elenco["esperimenti"]
+    corpo = cliente.get("/api/experiments/prova").json()
+    assert corpo["righe"][0]["on_front"] is True
+    # Le colonne sono quelle di report._COLUMNS, non un elenco scelto qui:
+    # se un giorno divergono, questo campo lo dice.
+    from meshrec.core import report as report_modulo
+
+    assert [voce["chiave"] for voce in corpo["colonne"]] == [chiave for chiave, _ in report_modulo._COLUMNS]
+    assert len(corpo["celle"]) == 1
+    assert len(corpo["celle"][0]) == len(report_modulo._COLUMNS)
+
+
+def test_una_sottocartella_senza_registro_non_e_un_esperimento(cliente, tmp_path):
+    """Una cartella d'esperimento a meta' (nessun registro ancora scritto) non
+    e' un esperimento concluso: comparirebbe in elenco e /api/experiments/{nome}
+    risponderebbe con un registro vuoto, che sembra un esperimento senza
+    candidati invece di uno mai partito."""
+    (tmp_path / "experiments" / "a_meta").mkdir(parents=True)
+    elenco = cliente.get("/api/experiments").json()
+    assert elenco["esperimenti"] == []
+
+
+def test_un_esperimento_inesistente_risponde_quattrocento(cliente, tmp_path):
+    (tmp_path / "experiments").mkdir()
+    risposta = cliente.get("/api/experiments/non-esiste")
+    assert risposta.status_code == 400
+    assert "non-esiste" in risposta.json()["messaggio"]
+
+
+def test_la_galleria_non_scrive_mai_nei_registri(cliente, tmp_path):
+    """Le corse di riferimento e i registri della Fase 2 sono di sola lettura.
+
+    Il piano guarda un file solo dopo una chiamata sola; qui la difesa vale
+    su TUTTE le tratte /api/experiments* (scoperte dalle rotte dell'app, non
+    elencate a mano: un endpoint aggiunto domani con questo prefisso ci
+    entra da solo) e sul contenuto dell'intera cartella experiments/, non di
+    un file scelto in anticipo.
+    """
+    radice_esperimenti = tmp_path / "experiments"
+    for nome in ("prova", "seconda"):
+        cartella = radice_esperimenti / nome
+        cartella.mkdir(parents=True)
+        (cartella / "registro.jsonl").write_text(
+            json.dumps({"fingerprint": nome, "axes": {}, "outcome": "riuscito", "on_front": True})
+            + "\n",
+            encoding="utf-8",
+        )
+        # Un secondo file, non registro.jsonl: la difesa deve valere sulla
+        # cartella intera, non sul solo file che gli endpoint leggono oggi.
+        (cartella / "esperimento.yaml").write_text(f"nome: {nome}\n", encoding="utf-8")
+
+    def istantanea() -> dict[str, bytes]:
+        return {
+            str(percorso.relative_to(radice_esperimenti)): percorso.read_bytes()
+            for percorso in sorted(radice_esperimenti.rglob("*"))
+            if percorso.is_file()
+        }
+
+    prima = istantanea()
+
+    tratte_galleria = [
+        rotta for rotta in cliente.app.routes
+        if getattr(rotta, "path", "").startswith("/api/experiments")
+    ]
+    # Se domani sparisse /api/experiments/{nome} o l'intero prefisso non
+    # comparisse piu' fra le rotte, questo test non proverebbe piu' niente
+    # in silenzio: qui si accorge e si ferma.
+    assert len(tratte_galleria) >= 2, "le rotte della galleria non si trovano piu' in app.routes"
+
+    for rotta in tratte_galleria:
+        bersaglio = re.sub(r"\{[^}]+\}", "prova", rotta.path)
+        for metodo in rotta.methods:
+            if metodo == "HEAD":
+                continue
+            cliente.request(metodo, bersaglio)
+
+    assert istantanea() == prima, "la galleria ha scritto o cancellato qualcosa in experiments/"
+
+
+def test_la_galleria_mostra_il_candidato_di_fronte_su_lab_crop():
+    """Verifica sul dato vero, non su tmp_path: i quattro valori vengono da
+    meshrec/docs/fase-2-sweep.md, paragrafo 3, riga del fronte
+    (surface.poisson_depth = 7). Il client punta a lab.yaml e experiments/
+    reali del repository: la tratta e' GET, quindi non scrive su nessuno dei due.
+    """
+    radice_repo = Path(__file__).resolve().parents[1]
+    cliente_reale = TestClient(create_app(radice_repo / "lab.yaml"), raise_server_exceptions=False)
+    corpo = cliente_reale.get("/api/experiments/lab_crop").json()
+    indice_colonne = {voce["chiave"]: i for i, voce in enumerate(corpo["colonne"])}
+    fronte = [i for i, riga in enumerate(corpo["righe"]) if riga.get("on_front")]
+    assert len(fronte) == 1, f"atteso un solo candidato di fronte, trovati {len(fronte)}"
+    celle = corpo["celle"][fronte[0]]
+
+    assert celle[indice_colonne["axes"]] == "surface.poisson_depth=7"
+    assert celle[indice_colonne["tets"]] == "50630"
+    assert celle[indice_colonne["over"]] == "0.06844"
+    assert celle[indice_colonne["thickness_error"]] == "1.192"

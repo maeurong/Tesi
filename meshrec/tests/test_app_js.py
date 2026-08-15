@@ -1863,3 +1863,105 @@ globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({ po
 await applica.scatena("click");
 assert.match(esito.textContent, /^7\\s+punti/, "un clic normale, senza accavallamento, smette di funzionare");
 """)
+
+
+# --------------------------------------------------------------------------
+# Task 14: galleria di curazione. mostraEsperimento e' la stessa famiglia di
+# guardia di mostraNuvolaDelloStep/mostraStep (Rilievo 1): un contatore
+# fresco per clic, aperto prima della fetch e controllato dopo, prima di
+# ogni scrittura. Lo scanner strutturale sopra non vede questa tratta —
+# il click su #galleria-elenco chiama mostraEsperimento senza attenderla, e
+# "nessuna await fetch nel corpo risolto" del gestore la lascia fuori dal suo
+# raggio dichiarato — quindi la prova che il contatore e' controllato e non
+# solo aperto sta qui, non nello scanner.
+# --------------------------------------------------------------------------
+
+
+def _banco_di_galleria() -> str:
+    return _DOM + _funzioni(
+        "corpoLetto", "ragioneDelRifiuto", "serverMuto", "superata",
+        "apriGalleria", "dichiaraErrore", "disegnaTabellaGalleria", "mostraEsperimento",
+    ) + """
+let ultimaGalleria = 0;
+let risponde = [];
+let chiamata = 0;
+globalThis.fetch = async () => risponde[chiamata++]();
+"""
+
+
+def test_due_richieste_di_esperimento_sovrapposte_non_fanno_vincere_la_vecchia(tmp_path):
+    """Due clic su due esperimenti — o due riaperture dello stesso — possono
+    accavallarsi, e la risposta piu' vecchia non deve scrivere sopra la
+    tabella piu' recente.
+
+    Il contatore va aperto E controllato: `apriGalleria()` lasciato per
+    decorazione con la guardia (`superata(richiesta, ultimaGalleria)`) tolta
+    subito dopo resta invisibile allo scanner strutturale del file (vedi la
+    sua stessa dichiarazione di limite, sopra) — verificato mutando cosi'
+    questa coppia nel worktree di lavoro: lo scanner resta verde, solo
+    questo test diventa rosso.
+    """
+    _esegui(tmp_path, _banco_di_galleria() + """
+let risolvi1, risolvi2;
+risponde = [
+  () => new Promise((r) => { risolvi1 = r; }),
+  () => new Promise((r) => { risolvi2 = r; }),
+];
+
+const vecchia = mostraEsperimento("muro");
+const nuova = mostraEsperimento("lab_crop");
+
+// La piu' recente arriva per prima.
+risolvi2({
+  ok: true,
+  json: async () => ({
+    nome: "lab_crop", fronte: 1,
+    colonne: [{ chiave: "esito", etichetta: "esito" }],
+    righe: [{ on_front: true }],
+    celle: [["riuscito"]],
+  }),
+});
+assert.equal(await nuova, true, "la richiesta piu' recente non risulta scritta");
+assert.equal(
+  document.getElementById("galleria-tabella").figli[0].testo,
+  "lab_crop: 1 candidati, 1 sul fronte.",
+  "la tabella non mostra l'esperimento appena arrivato",
+);
+
+// La piu' vecchia, rimasta in volo, rientra per ultima.
+risolvi1({
+  ok: true,
+  json: async () => ({
+    nome: "muro", fronte: 0,
+    colonne: [{ chiave: "esito", etichetta: "esito" }],
+    righe: [],
+    celle: [],
+  }),
+});
+assert.equal(await vecchia, false, "la richiesta vecchia risulta scritta: doveva essere scartata");
+assert.equal(
+  document.getElementById("galleria-tabella").figli[0].testo,
+  "lab_crop: 1 candidati, 1 sul fronte.",
+  "la risposta vecchia, arrivata per ultima, ha scritto sopra la tabella piu' recente",
+);
+""")
+
+
+def test_mostraEsperimento_dichiara_il_rifiuto_del_server(tmp_path):
+    """Un 4xx del server (server.py solleva FileNotFoundError su un nome che
+    non esiste, il gestore generico lo traduce in {"errore", "messaggio"})
+    e' un rifiuto come gli altri: finisce nel canale d'errore condiviso, non
+    in un silenzio."""
+    _esegui(tmp_path, _banco_di_galleria() + """
+risponde = [() => ({
+  ok: false, status: 400,
+  text: async () => JSON.stringify({ messaggio: "nessun registro per l'esperimento fantasma" }),
+})];
+const scritto = await mostraEsperimento("fantasma");
+assert.equal(scritto, true, "un rifiuto e' comunque una scrittura: la ragione va dichiarata");
+assert.match(
+  rigaErrore.textContent,
+  /nessun registro per l'esperimento fantasma/,
+  "il rifiuto del server non arriva nella regione d'errore",
+);
+""")

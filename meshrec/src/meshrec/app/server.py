@@ -22,7 +22,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, BeforeValidator, ConfigDict
 
 from meshrec.app.worker import Worker
-from meshrec.core import io, pipeline, quality, segment, steps, sweep, viewport
+from meshrec.core import io, pipeline, quality, report, segment, steps, sweep, viewport
 from meshrec.core.config import (
     PipelineConfig,
     SegmentConfig,
@@ -346,6 +346,52 @@ def create_app(config_path: Path) -> FastAPI:
         # non tutti sono serializzabili in JSON, e il pannello li mostra come
         # testo. default=str li rende senza inventarne il valore.
         return json.loads(json.dumps(fuori, default=str))
+
+    @app.get("/api/experiments")
+    def esperimenti() -> dict[str, object]:
+        """Nomi degli esperimenti della Fase 2. Sola lettura: mai una scrittura.
+
+        Una sottocartella di experiments/ senza registro.jsonl non e' un
+        esperimento concluso, e resta fuori dall'elenco.
+        """
+        radice = config_path.parent / "experiments"
+        if not radice.is_dir():
+            return {"esperimenti": []}
+        return {
+            "esperimenti": sorted(
+                voce.name for voce in radice.iterdir()
+                if (voce / "registro.jsonl").exists()
+            )
+        }
+
+    @app.get("/api/experiments/{nome}")
+    def esperimento(nome: str) -> dict[str, object]:
+        """Le righe del registro di un esperimento, per la galleria di curazione.
+
+        Le colonne e la formattazione di ogni cella sono quelle di
+        report._COLUMNS e report._cell: riusate, non riscelte. Sono le stesse
+        che finiscono nell'appendice della tesi (report.write_report), e due
+        elenchi di colonne che divergono sono precisamente il difetto che
+        questo ramo ha gia' inseguito per giorni.
+        """
+        radice = (config_path.parent / "experiments").resolve()
+        percorso = (radice / nome / "registro.jsonl").resolve()
+        if not percorso.is_relative_to(radice) or not percorso.exists():
+            raise FileNotFoundError(f"nessun registro per l'esperimento {nome}")
+        righe = sweep.load_registry(percorso)
+        return {
+            "nome": nome,
+            "righe": righe,
+            "fronte": sum(1 for riga in righe if riga.get("on_front")),
+            "colonne": [
+                {"chiave": chiave, "etichetta": etichetta}
+                for chiave, etichetta in report._COLUMNS
+            ],
+            "celle": [
+                [report._cell(riga, chiave) for chiave, _ in report._COLUMNS]
+                for riga in righe
+            ],
+        }
 
     lavoratore = Worker()
 

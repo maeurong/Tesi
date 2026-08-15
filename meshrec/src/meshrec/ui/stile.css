@@ -216,6 +216,16 @@ body {
 /* Il valore e' un numero misurato: cifre tabulari, cosi' due metriche
    incolonnate si confrontano senza rileggerle. */
 .metriche dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+/* La colonna della galleria e' stretta (22rem) e la tabella dei candidati ha
+   otto colonne: scorre in orizzontale dentro il proprio contenitore, non la
+   pagina. */
+.galleria-tabella { overflow-x: auto; }
+.galleria-tabella table { border-collapse: collapse; width: 100%; font-size: var(--tipo-dato); line-height: var(--interlinea-riga); font-variant-numeric: tabular-nums; }
+.galleria-tabella th, .galleria-tabella td { padding: var(--passo-1) var(--passo-2); border-bottom: 1px solid var(--bordo); text-align: left; white-space: nowrap; }
+.galleria-tabella th { color: var(--tenue); font-weight: 600; }
+/* Il candidato di fronte: stesso canale doppio dello step aperto (fondo piu'
+   filetto), non il solo colore. */
+.galleria-tabella tr.fronte { background: var(--evidenza); box-shadow: inset 2px 0 0 var(--accento); }
 
 /* --- Movimento ------------------------------------------------------------
    Tre soli momenti, e nessuno decorativo.
