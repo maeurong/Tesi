@@ -318,6 +318,215 @@ def test_il_clic_sul_gruppo_piccolo_risolve_al_cluster_piccolo(cliente, tmp_path
     assert corpo["cluster_points"] < 2_000
 
 
+def test_il_clic_sul_gruppo_a_cavallo_risolve_alla_maggioranza(cliente, tmp_path):
+    """Task 11a, giro 2 (bloccante misurato in task-11a-review.md): un gruppo
+    di decimazione a cavallo di un confine fra due cluster deve risolvere al
+    cluster della MAGGIORANZA dei suoi punti pieni, non al primo.
+
+    max_points=1 forza tutta la nuvola in un solo punto disegnato: il gruppo
+    unico contiene sia il blocco minoranza (indici 0-799, primi nell'array)
+    sia il blocco maggioranza (indici 800-3799). Misurato fuori dal test:
+    DBSCAN trova due cluster, 2 875 punti (maggioranza, dal blocco grande) e
+    238 punti (minoranza, dal blocco piccolo), e il PRIMO indice del gruppo
+    (0) appartiene al cluster di minoranza (238). Con `pieno = gruppi[0][0]`
+    (il codice del primo giro) la risposta sarebbe cluster_index=1 (238
+    punti): questo test pretende il cluster di maggioranza, indice 0.
+    """
+    import numpy as np
+    from meshrec.core import io, pipeline
+
+    corsa = tmp_path / "corsa"
+    minoranza = np.random.default_rng(1).random((800, 3)) * 7.0
+    maggioranza = np.random.default_rng(2).random((3_000, 3)) * 10.0 + 500.0
+    io.write_cloud(corsa / pipeline.ARTIFACTS[2], np.vstack([minoranza, maggioranza]))
+
+    risposta_nuvola = cliente.get("/api/cloud/2?max_points=1")
+    assert risposta_nuvola.status_code == 200
+
+    risposta = cliente.post("/api/cluster", json={"punto": 0})
+    assert risposta.status_code == 200
+    corpo = risposta.json()
+    assert corpo["cluster_index"] == 0
+    assert corpo["cluster_points"] > 2_000
+
+
+def test_il_clic_sul_gruppo_in_pareggio_risolve_al_cluster_piu_popoloso_in_assoluto(cliente, tmp_path):
+    """Il pareggio che la maggioranza da sola non decide (dichiarato in
+    server.py, scegli_cluster): due copie traslate dello stesso blocco
+    danno per costruzione due cluster della stessa numerosita' (misurato:
+    1 375 e 1 375). A parita' di voti nel gruppo vince il cluster piu'
+    popoloso IN ASSOLUTO; qui i due sono identici, quindi vince l'indice
+    piu' basso (0), la scelta deterministica dichiarata.
+    """
+    import numpy as np
+    from meshrec.core import io, pipeline
+
+    corsa = tmp_path / "corsa"
+    base = np.random.default_rng(0).random((1_500, 3)) * 10.0
+    copia = base.copy()
+    copia[:, 0] += 500.0
+    io.write_cloud(corsa / pipeline.ARTIFACTS[2], np.vstack([base, copia]))
+
+    risposta_nuvola = cliente.get("/api/cloud/2?max_points=1")
+    assert risposta_nuvola.status_code == 200
+
+    risposta = cliente.post("/api/cluster", json={"punto": 0})
+    assert risposta.status_code == 200
+    corpo = risposta.json()
+    # Precondizione: il pareggio e' avvenuto davvero, non solo per fortuna.
+    assert corpo["clusters_found"] == 2
+    assert corpo["cluster_sizes"][0] == corpo["cluster_sizes"][1]
+    assert corpo["cluster_index"] == 0
+
+
+def test_il_clic_sul_gruppo_a_maggioranza_rumore_solleva_come_rumore(cliente, tmp_path):
+    """La maggioranza-rumore che la maggioranza da sola non decide
+    (dichiarato in server.py, scegli_cluster): un blocco di 55 punti
+    fitti forma un cluster valido (>= cluster_min_points=50), ma una
+    catena di 70 punti isolati (troppo radi per il min_points, anche se
+    a coppie dentro l'eps globale) resta tutta rumore. Misurato fuori dal
+    test: clusters_found=1, cluster_sizes=[55], noise_points=70 — il
+    rumore e' in maggioranza STRETTA sul gruppo (70 contro 55).
+
+    Il primo indice del gruppo (0) appartiene pero' al cluster valido: con
+    `pieno = gruppi[0][0]` (il codice del primo giro) la risposta sarebbe
+    200 col cluster da 55 punti, nascondendo che la maggioranza del gruppo
+    e' rumore. Qui si pretende il rifiuto, e che nulla sia scritto su
+    disco.
+    """
+    import numpy as np
+    from meshrec.core import io, pipeline
+    from meshrec.core.config import load_config
+
+    corsa = tmp_path / "corsa"
+    denso = np.random.default_rng(0).random((55, 3)) * 3.0
+    catena = np.zeros((70, 3))
+    catena[:, 0] = 300.0 + np.arange(70) * 50.0
+    io.write_cloud(corsa / pipeline.ARTIFACTS[2], np.vstack([denso, catena]))
+
+    risposta_nuvola = cliente.get("/api/cloud/2?max_points=1")
+    assert risposta_nuvola.status_code == 200
+
+    prima = load_config(tmp_path / "config.yaml")
+    risposta = cliente.post("/api/cluster", json={"punto": 0})
+    assert risposta.status_code == 400
+
+    dopo = load_config(tmp_path / "config.yaml")
+    assert dopo.segment.method == prima.segment.method
+    assert dopo.segment.cluster_index == prima.segment.cluster_index
+
+
+def test_un_indice_negativo_non_avvolge_al_gruppo_di_coda(cliente, tmp_path):
+    """Mutazione A del revisore (task-11a-review.md): senza la guardia sui
+    limiti, un indice negativo si indicizza da solo (regola di Python) e
+    risponde il cluster di un gruppo che l'utente non ha cliccato, invece
+    di rifiutare.
+
+    Un solo blocco denso e non due, apposta: con due blocchi separati
+    l'ultimo gruppo di decimazione (gruppi[-1]) e' quasi sempre rumore di
+    bordo (misurato), e un 400 ottenuto cosi' non proverebbe la guardia,
+    esattamente il rischio che il revisore segnala. Con 15 000 punti in
+    un solo cubo, misurato fuori dal test, gruppi[-1] cade INTERO in un
+    cluster vero (indice 0): senza la guardia la richiesta risponderebbe
+    200, non 400, e questo test lo pretenderebbe rifiutato comunque.
+    """
+    import numpy as np
+    from meshrec.core import io, pipeline
+
+    corsa = tmp_path / "corsa"
+    punti = np.random.default_rng(0).random((15_000, 3)) * 10.0
+    io.write_cloud(corsa / pipeline.ARTIFACTS[2], punti)
+
+    cliente.get("/api/cloud/2?max_points=2000")
+    risposta = cliente.post("/api/cluster", json={"punto": -1})
+    assert risposta.status_code == 400
+
+
+def test_il_cluster_index_scritto_su_disco_coincide_con_la_risposta(cliente, tmp_path):
+    """Mutazione B del revisore: nessun test rileggeva config.yaml dopo la
+    POST per verificare che cio' che finisce SUL DISCO sia cio' che torna
+    NELLA RISPOSTA. E' la stessa specie di difetto che il ramo insegue da
+    ieri (disco e schermo che divergono in silenzio).
+
+    Serve un cluster_index DIVERSO da 0, altrimenti la mutazione
+    'scrivi sempre 0' resterebbe invisibile per coincidenza: stessa nuvola
+    di test_il_clic_sul_gruppo_piccolo_risolve_al_cluster_piccolo (7 mm,
+    due cluster reali), click sul gruppo piccolo, cluster_index atteso 1.
+    """
+    import numpy as np
+    from meshrec.core import io, pipeline, viewport
+    from meshrec.core.config import load_config
+
+    corsa = tmp_path / "corsa"
+    primo = np.random.default_rng(0).random((3_000, 3)) * 10.0
+    secondo = np.random.default_rng(1).random((1_000, 3)) * 7.0 + 500.0
+    io.write_cloud(corsa / pipeline.ARTIFACTS[2], np.vstack([primo, secondo]))
+
+    cliente.get("/api/cloud/2?max_points=2000")
+    punti_letti, _normali = io.read_cloud(corsa / pipeline.ARTIFACTS[2])
+    spaziatura = io.mean_spacing(punti_letti, 20_000, 0)
+    _ridotti, gruppi, _voxel = viewport.decimate(punti_letti, 2_000, spaziatura)
+    disegnato = next(i for i, gruppo in enumerate(gruppi) if (gruppo >= 3_000).all())
+
+    risposta = cliente.post("/api/cluster", json={"punto": disegnato})
+    assert risposta.status_code == 200
+    corpo = risposta.json()
+    assert corpo["cluster_index"] == 1
+
+    scritta = load_config(tmp_path / "config.yaml")
+    assert scritta.segment.cluster_index == corpo["cluster_index"]
+    assert scritta.segment.method == "auto"
+
+
+def test_il_cluster_eps_e_sensibile_alla_spaziatura_vera(cliente, tmp_path):
+    """Mutazione C del revisore: nessun test legava cluster_eps alla
+    spaziatura calcolata sulla nuvola VERA. Il valore atteso e' ricalcolato
+    qui in modo indipendente, sugli stessi punti e parametri che l'endpoint
+    usa (spacing_sample=20000, seed=0, i predefiniti di InputConfig che
+    'cliente' non sovrascrive); una spaziatura calcolata su un campione
+    troncato (es. i primi 50 punti soli) darebbe un valore diverso.
+    """
+    import numpy as np
+    from meshrec.core import io, pipeline
+
+    corsa = tmp_path / "corsa"
+    primo = np.random.default_rng(0).random((3_000, 3)) * 10.0
+    secondo = np.random.default_rng(1).random((1_000, 3)) * 10.0 + 500.0
+    io.write_cloud(corsa / pipeline.ARTIFACTS[2], np.vstack([primo, secondo]))
+
+    cliente.get("/api/cloud/2?max_points=2000")
+    risposta = cliente.post("/api/cluster", json={"punto": 0})
+    assert risposta.status_code == 200
+    corpo = risposta.json()
+
+    punti_letti, _normali = io.read_cloud(corsa / pipeline.ARTIFACTS[2])
+    spaziatura_vera = io.mean_spacing(punti_letti, 20_000, 0)
+    assert corpo["cluster_eps"] == pytest.approx(4.0 * spaziatura_vera)
+
+
+def test_il_clic_dichiara_il_cambio_di_metodo(cliente, tmp_path):
+    """Il cambio silenzioso crop -> auto (segnalato in task-11a-review.md,
+    non verificabile dal browser): la risposta deve portare il metodo che
+    c'era prima del clic e quello che c'e' dopo, cosi' chi mostra la UI
+    puo' avvisare l'utente invece di lasciarlo scoprire il cambio da un
+    file che non vede.
+    """
+    import numpy as np
+    from meshrec.core import io, pipeline
+
+    corsa = tmp_path / "corsa"
+    primo = np.random.default_rng(0).random((3_000, 3)) * 10.0
+    secondo = np.random.default_rng(1).random((1_000, 3)) * 10.0 + 500.0
+    io.write_cloud(corsa / pipeline.ARTIFACTS[2], np.vstack([primo, secondo]))
+
+    cliente.get("/api/cloud/2?max_points=2000")
+    risposta = cliente.post("/api/cluster", json={"punto": 0})
+    assert risposta.status_code == 200
+    corpo = risposta.json()
+    assert corpo["method_before"] == "crop"
+    assert corpo["method_after"] == "auto"
+
+
 def _scrivi_volume(corsa: Path, punti, tetraedri) -> None:
     """Un .vtu allo step 9, come lo scriverebbe abaqus.write_vtu."""
     import meshio

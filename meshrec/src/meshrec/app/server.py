@@ -11,6 +11,7 @@ import json
 import math
 import time
 import zipfile
+from collections import Counter
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated
@@ -472,8 +473,11 @@ def create_app(config_path: Path) -> FastAPI:
         cioe' quella che /api/cloud/2 ha servito al browser: interpretarlo
         come indice della nuvola piena risponderebbe un cluster plausibile
         ma sbagliato, senza sollevare. La mappa che /api/cloud/2 ha salvato
-        in `mappe` lo riporta all'indice pieno; da li' si cerca in quale
-        gruppo DBSCAN quel punto ricade.
+        in `mappe` lo riporta a TUTTI i punti pieni del gruppo di
+        decimazione (un voxel puo' contenere punti di piu' cluster): il
+        rappresentante e' il cluster in maggioranza fra loro, non il primo
+        punto del gruppo (task-11a-review.md misura il difetto del primo
+        punto sopra qualche milione di punti).
 
         Il raggruppamento resta in core.segment.cluster: qui non ce n'e' una
         seconda implementazione da tenere allineata.
@@ -484,28 +488,65 @@ def create_app(config_path: Path) -> FastAPI:
         disegnato = int(richiesta["punto"])
         if not 0 <= disegnato < len(gruppi):
             raise ValueError(f"il punto {disegnato} non appartiene alla nuvola disegnata")
-        pieno = int(gruppi[disegnato][0])
+        gruppo = gruppi[disegnato]
 
         cfg = corrente()
         punti, _normali = io.read_cloud(Path(cfg.run.out_dir) / pipeline.ARTIFACTS[2])
         spaziatura = io.mean_spacing(punti, cfg.input.spacing_sample, cfg.input.seed)
         insiemi, metriche = segment.cluster(punti, cfg.segment, spaziatura)
-        scelto = next(
-            (
-                indice
-                for indice, insieme in enumerate(insiemi)
-                if np.isclose(insieme, punti[pieno]).all(axis=1).any()
-            ),
-            None,
+
+        def cluster_del_punto_pieno(indice_pieno: int) -> int | None:
+            coordinata = punti[indice_pieno]
+            return next(
+                (
+                    indice
+                    for indice, insieme in enumerate(insiemi)
+                    if np.isclose(insieme, coordinata).all(axis=1).any()
+                ),
+                None,
+            )
+
+        # Un gruppo disegnato e' un voxel di decimazione: quando il voxel e'
+        # piu' grande del raggio che separa due cluster (nuvole sopra
+        # qualche milione di punti, vedi task-11a-review.md), il gruppo puo'
+        # contenere punti pieni di piu' cluster. Il primo punto del gruppo e'
+        # un rappresentante arbitrario; il rappresentante corretto e' la
+        # MAGGIORANZA del gruppo: si vota il cluster (o il rumore, None) di
+        # ogni punto pieno e vince chi ha piu' voti.
+        #
+        # Due casi che la maggioranza da sola non decide, dichiarati qui:
+        # - pareggio fra cluster (o fra un cluster e il rumore): vince il
+        #   cluster piu' popoloso IN ASSOLUTO. insiemi e' gia' ordinato per
+        #   numerosita' decrescente (core.segment.cluster), quindi a parita'
+        #   di voti nel gruppo l'indice piu' basso e' la scelta piu'
+        #   prudente e deterministica.
+        # - il rumore e' in MAGGIORANZA STRETTA (piu' voti di ogni singolo
+        #   cluster): il clic e' trattato come rumore e solleva, senza
+        #   scrivere. A parita' con il cluster piu' votato vince il cluster:
+        #   un pareggio non e' un'evidenza sufficiente per scartare un
+        #   match reale.
+        voti = Counter(
+            v for v in (cluster_del_punto_pieno(int(p)) for p in gruppo) if v is not None
         )
-        if scelto is None:
-            raise ValueError("il punto cliccato e' rumore: DBSCAN non lo assegna a nessun cluster")
+        voti_rumore = len(gruppo) - sum(voti.values())
+        scelto, voti_vincitore = max(
+            voti.items(), key=lambda kv: (kv[1], -kv[0]), default=(None, 0)
+        )
+        if scelto is None or voti_rumore > voti_vincitore:
+            raise ValueError(
+                "il punto cliccato ricade per lo piu' nel rumore: "
+                "DBSCAN non assegna il gruppo a nessun cluster"
+            )
+
+        metodo_precedente = cfg.segment.method
         cfg.segment.method = "auto"
         cfg.segment.cluster_index = scelto
         save_config(cfg, config_path)
         return {
             "cluster_index": scelto,
             "cluster_points": int(len(insiemi[scelto])),
+            "method_before": metodo_precedente,
+            "method_after": cfg.segment.method,
             **metriche,
         }
 
