@@ -464,6 +464,51 @@ def create_app(config_path: Path) -> FastAPI:
             },
         )
 
+    @app.post("/api/cluster")
+    def scegli_cluster(richiesta: dict[str, int]) -> dict[str, object]:
+        """Dal punto disegnato al cluster_index che segment_cloud consuma.
+
+        Il punto cliccato e' un indice della nuvola DISEGNATA (decimata),
+        cioe' quella che /api/cloud/2 ha servito al browser: interpretarlo
+        come indice della nuvola piena risponderebbe un cluster plausibile
+        ma sbagliato, senza sollevare. La mappa che /api/cloud/2 ha salvato
+        in `mappe` lo riporta all'indice pieno; da li' si cerca in quale
+        gruppo DBSCAN quel punto ricade.
+
+        Il raggruppamento resta in core.segment.cluster: qui non ce n'e' una
+        seconda implementazione da tenere allineata.
+        """
+        gruppi = mappe.get(2)
+        if not gruppi:
+            raise ValueError("nessuna nuvola caricata: apri prima lo step 2 nel viewport")
+        disegnato = int(richiesta["punto"])
+        if not 0 <= disegnato < len(gruppi):
+            raise ValueError(f"il punto {disegnato} non appartiene alla nuvola disegnata")
+        pieno = int(gruppi[disegnato][0])
+
+        cfg = corrente()
+        punti, _normali = io.read_cloud(Path(cfg.run.out_dir) / pipeline.ARTIFACTS[2])
+        spaziatura = io.mean_spacing(punti, cfg.input.spacing_sample, cfg.input.seed)
+        insiemi, metriche = segment.cluster(punti, cfg.segment, spaziatura)
+        scelto = next(
+            (
+                indice
+                for indice, insieme in enumerate(insiemi)
+                if np.isclose(insieme, punti[pieno]).all(axis=1).any()
+            ),
+            None,
+        )
+        if scelto is None:
+            raise ValueError("il punto cliccato e' rumore: DBSCAN non lo assegna a nessun cluster")
+        cfg.segment.method = "auto"
+        cfg.segment.cluster_index = scelto
+        save_config(cfg, config_path)
+        return {
+            "cluster_index": scelto,
+            "cluster_points": int(len(insiemi[scelto])),
+            **metriche,
+        }
+
     @app.get("/api/mesh/{numero}")
     def mesh(numero: int) -> Response:
         """Vertici e facce in un solo corpo binario: prima i Float32 delle

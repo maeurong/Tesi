@@ -219,6 +219,84 @@ def test_chiedere_la_mesh_di_uno_step_fuori_intervallo_spiega_quali_esistono(cli
     assert "8" in corpo["messaggio"]
 
 
+def test_il_clic_risolve_il_punto_disegnato_a_un_cluster(cliente, tmp_path):
+    import numpy as np
+    from meshrec.core import io, pipeline
+
+    corsa = tmp_path / "corsa"
+    # Due gruppi ben separati: il cluster di appartenenza non e' ambiguo.
+    primo = np.random.default_rng(0).random((3_000, 3)) * 10.0
+    secondo = np.random.default_rng(1).random((1_000, 3)) * 10.0 + 500.0
+    io.write_cloud(corsa / pipeline.ARTIFACTS[2], np.vstack([primo, secondo]))
+
+    cliente.get("/api/cloud/2?max_points=2000")     # popola la mappa
+    risposta = cliente.post("/api/cluster", json={"punto": 0})
+    assert risposta.status_code == 200
+    corpo = risposta.json()
+    assert corpo["cluster_index"] in (0, 1)
+    assert corpo["cluster_points"] > 0
+
+
+def test_un_clic_senza_mappa_caricata_non_solleva(cliente):
+    risposta = cliente.post("/api/cluster", json={"punto": 0})
+    assert risposta.status_code == 400
+
+
+def test_il_clic_sul_gruppo_piccolo_risolve_al_cluster_piccolo(cliente, tmp_path):
+    """Il controllo che smentisce (brief task-11a): il primo test passerebbe
+    identico anche se l'endpoint ignorasse la mappa e rispondesse sempre col
+    cluster piu' numeroso. Qui si clicca un indice disegnato che la mappa di
+    decimazione fa risalire SOLO a indici del gruppo piccolo, e si pretende
+    cluster_index == 1: nel ritorno di segment.cluster i gruppi sono
+    ordinati per numerosita' decrescente (core/segment.py), quindi il gruppo
+    piccolo non puo' mai finire in 0.
+
+    Il gruppo piccolo qui e' 1 000 punti in un cubo da 7 mm e non da 10 mm
+    come nel test del piano: con lo stesso cubo di 10 mm la densita' locale
+    del gruppo piccolo (1 000 punti / 1000 mm^3) resta sotto la soglia che
+    DBSCAN userebbe con cluster_min_points=50 e l'eps calcolato sulla
+    spaziatura media DELLA NUVOLA MISTA (dominata dal gruppo grande, piu'
+    denso): misurato, il gruppo piccolo cadrebbe intero nel rumore invece che
+    in un proprio cluster, e il test non avrebbe piu' un cluster piccolo da
+    pretendere. A 7 mm la densita' dei due gruppi e' paragonabile
+    (3 000/1000mm^3 contro 1 000/343mm^3) e DBSCAN, coi predefiniti di
+    SegmentConfig e senza toccare core.segment.cluster, trova davvero due
+    cluster: misurato qui, 2 747 e 792 punti.
+
+    L'indice disegnato non si legge da uno stato interno del server: si
+    ricalcola con la stessa funzione (viewport.decimate) sugli stessi
+    argomenti che l'endpoint /api/cloud/2 ha gia' usato (spacing_sample=20000,
+    seed=0, i predefiniti di InputConfig che 'cliente' non sovrascrive), sulla
+    nuvola riletta da disco esattamente come la rilegge il server: read_cloud
+    passa per Open3D e non garantisce di restituire gli stessi byte scritti.
+    """
+    import numpy as np
+    from meshrec.core import io, pipeline, viewport
+
+    corsa = tmp_path / "corsa"
+    primo = np.random.default_rng(0).random((3_000, 3)) * 10.0
+    secondo = np.random.default_rng(1).random((1_000, 3)) * 7.0 + 500.0
+    io.write_cloud(corsa / pipeline.ARTIFACTS[2], np.vstack([primo, secondo]))
+
+    risposta_nuvola = cliente.get("/api/cloud/2?max_points=2000")
+    assert risposta_nuvola.status_code == 200
+
+    punti_letti, _normali = io.read_cloud(corsa / pipeline.ARTIFACTS[2])
+    spaziatura = io.mean_spacing(punti_letti, 20_000, 0)
+    _ridotti, gruppi, _voxel = viewport.decimate(punti_letti, 2_000, spaziatura)
+    # Solo un gruppo i cui indici pieni appartengono TUTTI al secondo blocco:
+    # i due blocchi sono a 500 mm di distanza e il voxel di decimazione e'
+    # microscopico al confronto, quindi nessun gruppo dovrebbe mischiarli, ma
+    # 'all' (e non 'any') lo pretende invece di assumerlo.
+    disegnato = next(i for i, gruppo in enumerate(gruppi) if (gruppo >= 3_000).all())
+
+    risposta = cliente.post("/api/cluster", json={"punto": disegnato})
+    assert risposta.status_code == 200
+    corpo = risposta.json()
+    assert corpo["cluster_index"] == 1
+    assert corpo["cluster_points"] < 2_000
+
+
 def _scrivi_volume(corsa: Path, punti, tetraedri) -> None:
     """Un .vtu allo step 9, come lo scriverebbe abaqus.write_vtu."""
     import meshio
