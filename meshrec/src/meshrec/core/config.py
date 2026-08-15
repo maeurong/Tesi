@@ -14,7 +14,24 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 GRAVITY_MM_S2: float = 9810.0
 
 
-class Material(BaseModel):
+class _ModelloBase(BaseModel):
+    """Base comune a ogni modello del file: rifiuta infinito e NaN nei campi decimali.
+
+    Un valore infinito battuto in un campo decimale dell'interfaccia arriva al
+    server come stringa; senza questo vincolo pydantic lo legge come infinito
+    e lo scrive sul disco come .inf, da cui /api/config non torna piu'
+    indietro (risponde null su quel campo). Sta sulla base e non sul singolo
+    modello apparso nel difetto: i campi decimali sono sparsi su piu' modelli,
+    e allow_inf_nan=False sul modello sbagliato lascia gli altri esposti con
+    l'aria di averli coperti. pydantic unisce model_config lungo la catena di
+    ereditarieta', quindi RunConfig puo' ancora aggiungere
+    validate_assignment=True senza perdere questo vincolo.
+    """
+
+    model_config = ConfigDict(allow_inf_nan=False)
+
+
+class Material(_ModelloBase):
     """Materiale elastico isotropo. Valori indicativi per muratura."""
 
     name: str = "MURATURA"
@@ -23,7 +40,7 @@ class Material(BaseModel):
     density: float = Field(default=1.8e-9, gt=0.0, description="densita [t/mm^3]")
 
 
-class InputConfig(BaseModel):
+class InputConfig(_ModelloBase):
     """Step 1: ingresso e scala."""
 
     path: Path
@@ -37,7 +54,7 @@ class InputConfig(BaseModel):
     seed: int = 0
 
 
-class SegmentConfig(BaseModel):
+class SegmentConfig(_ModelloBase):
     """Step 2: segmentazione."""
 
     method: Literal["crop", "auto"] = "crop"
@@ -53,21 +70,21 @@ class SegmentConfig(BaseModel):
     cluster_index: int = Field(default=0, ge=0, description="0 = cluster piu numeroso")
 
 
-class DownsampleConfig(BaseModel):
+class DownsampleConfig(_ModelloBase):
     """Step 3: riduzione a voxel."""
 
     voxel_size: float | None = Field(default=None, description="None = 2 x spaziatura media")
     voxel_factor: float = Field(default=2.0, gt=0.0)
 
 
-class NormalsConfig(BaseModel):
+class NormalsConfig(_ModelloBase):
     """Step 4: normali."""
 
     knn: int = Field(default=30, gt=2)
     orient_knn: int = Field(default=30, gt=2)
 
 
-class SurfaceConfig(BaseModel):
+class SurfaceConfig(_ModelloBase):
     """Step 5: ricostruzione della superficie."""
 
     method: Literal["poisson", "bpa", "alpha"] = "poisson"
@@ -92,7 +109,7 @@ class SurfaceConfig(BaseModel):
     alpha_factor: float = Field(default=5.0, gt=0.0, description="x spaziatura media")
 
 
-class RepairConfig(BaseModel):
+class RepairConfig(_ModelloBase):
     """Step 6: riparazione."""
 
     largest_component_only: bool = True
@@ -106,7 +123,7 @@ class RepairConfig(BaseModel):
     join_components: bool = False
 
 
-class SimplifyConfig(BaseModel):
+class SimplifyConfig(_ModelloBase):
     """Step 8: semplificazione, opzionale."""
 
     enabled: bool = False
@@ -116,7 +133,7 @@ class SimplifyConfig(BaseModel):
     taubin_iterations: int = Field(default=0, ge=0)
 
 
-class TetConfig(BaseModel):
+class TetConfig(_ModelloBase):
     """Step 9: tetraedrizzazione."""
 
     min_ratio: float = Field(
@@ -173,7 +190,7 @@ class TetConfig(BaseModel):
     element: Literal["C3D4", "C3D10"] = "C3D4"
 
 
-class AnalysisConfig(BaseModel):
+class AnalysisConfig(_ModelloBase):
     """Materiale e analisi."""
 
     material: Material = Field(default_factory=Material)
@@ -200,7 +217,7 @@ class AnalysisConfig(BaseModel):
     )
 
 
-class RunConfig(BaseModel):
+class RunConfig(_ModelloBase):
     """Esecuzione: percorsi e ripresa."""
 
     # La riga di comando e, in Fase 3, l'interfaccia assegnano questi campi
@@ -243,7 +260,7 @@ class RunConfig(BaseModel):
         return self
 
 
-class PipelineConfig(BaseModel):
+class PipelineConfig(_ModelloBase):
     """Configurazione completa di un'elaborazione."""
 
     input: InputConfig
@@ -271,7 +288,7 @@ def save_config(cfg: PipelineConfig, path: Path) -> None:
         yaml.safe_dump(cfg.model_dump(mode="json"), handle, sort_keys=False, allow_unicode=True)
 
 
-class SweepConfig(BaseModel):
+class SweepConfig(_ModelloBase):
     """Motore di sweep: risorse di macchina e politica sugli artefatti."""
 
     workers: int = Field(
@@ -307,14 +324,14 @@ class SweepConfig(BaseModel):
     )
 
 
-class AxisSpec(BaseModel):
+class AxisSpec(_ModelloBase):
     """Un asse della griglia: il percorso puntato del parametro e i suoi livelli."""
 
     path: str = Field(description="percorso puntato dentro PipelineConfig, es. tet.min_ratio")
     values: list[float | int | bool | None] = Field(min_length=1)
 
 
-class ExperimentConfig(BaseModel):
+class ExperimentConfig(_ModelloBase):
     """Dichiarazione di un esperimento. Tracciata da git accanto al proprio registro."""
 
     name: str
@@ -346,7 +363,7 @@ def load_experiment(path: Path) -> ExperimentConfig:
         return ExperimentConfig.model_validate(yaml.safe_load(handle))
 
 
-class ViewportConfig(BaseModel):
+class ViewportConfig(_ModelloBase):
     """Disegno nel browser. Non entra in PipelineConfig: vedi la nota sotto.
 
     Aggiungere un campo a PipelineConfig cambierebbe sweep.fingerprint e quindi
@@ -367,7 +384,7 @@ class ViewportConfig(BaseModel):
     )
 
 
-class ServerConfig(BaseModel):
+class ServerConfig(_ModelloBase):
     """Server locale. Utente singolo, nessuna autenticazione."""
 
     host: str = "127.0.0.1"

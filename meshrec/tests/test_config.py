@@ -59,6 +59,39 @@ def test_an_axis_with_no_values_is_rejected():
         config.AxisSpec(path="tet.min_ratio", values=[])
 
 
+# Due modelli distinti, non uno solo: la difesa deve stare sulla base comune
+# e non su un singolo model_config scritto a mano dove il difetto e' stato visto.
+@pytest.mark.parametrize("grafia", ["1e999", "Infinity", "inf", "nan", "NaN"])
+def test_un_infinito_o_nan_su_material_young_e_rifiutato(grafia):
+    with pytest.raises(ValueError, match="finite number"):
+        config.Material(young=grafia)
+
+
+@pytest.mark.parametrize("grafia", ["1e999", "Infinity", "inf", "nan", "NaN"])
+def test_un_infinito_o_nan_su_tet_max_volume_e_rifiutato(grafia):
+    with pytest.raises(ValueError, match="finite number"):
+        config.TetConfig(max_volume=grafia)
+
+
+def test_i_valori_decimali_normali_arrivano_ancora_a_destinazione():
+    """Il controllo che smentisce: un vincolo che rifiuta tutto passerebbe il test sopra."""
+    assert config.Material(young="2.5").young == pytest.approx(2.5)
+    assert config.Material(young="1e3").young == pytest.approx(1000.0)
+    assert config.TetConfig(max_volume="2.5").max_volume == pytest.approx(2.5)
+    assert config.TetConfig(max_volume="1e3").max_volume == pytest.approx(1000.0)
+
+
+def test_un_inf_gia_scritto_su_disco_non_si_rilegge(tmp_path):
+    """Il verso della lettura: una configurazione con .inf non deve poter tornare dentro."""
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        "input:\n  path: nuvola.ply\ndownsample:\n  voxel_size: .inf\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="finite number"):
+        config.load_config(path)
+
+
 def test_l_impronta_di_una_corsa_registrata_non_cambia(tmp_path):
     """L'impronta della Fase 2 vive nei registri: allargare PipelineConfig la
     cambierebbe, e con essa la provenienza di ogni riga della tabella della tesi.
