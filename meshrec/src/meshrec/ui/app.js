@@ -29,7 +29,16 @@ function nomeDelloStep(numero, steps = []) {
 function esitoDellaCorsa(stato) {
   const nome = nomeDelloStep(stato.step, stato.steps ?? []);
   if (stato.annullato) return { errore: null, esito: `${nome} annullato` };
-  if (stato.exit_code !== 0 && stato.exit_code !== null && stato.exit_code !== undefined) {
+  // Una corsa finita senza codice d'uscita non e' piu' uno stato possibile: il
+  // worker fissa exit_code prima di dichiararsi fermo, quindi in_corso: false
+  // implica un codice gia' scritto. Se arriva lo stesso — una start() che
+  // solleva prima di avere un figlio, un frame caduto dentro il fork — si tace.
+  // Dirlo «concluso» annuncerebbe riuscita una corsa mai partita, che e' il
+  // falso successo per cui esiste tutto questo ramo.
+  if (stato.exit_code === null || stato.exit_code === undefined) {
+    return { errore: null, esito: null };
+  }
+  if (stato.exit_code !== 0) {
     return {
       errore: `${nome} è fallito (codice ${stato.exit_code}). ` +
         "Il motivo è nelle ultime righe del registro, qui sotto.",

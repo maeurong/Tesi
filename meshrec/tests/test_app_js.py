@@ -2342,22 +2342,36 @@ console.log("ok");
     assert _esegui(tmp_path, sorgente).strip() == "ok"
 
 
-def test_exit_code_null_o_assente_non_e_un_fallimento(tmp_path):
-    """La guardia su exit_code confronta tre valori (0, null, undefined), non
-    uno solo: un file di stato scritto prima che il worker fissi il codice, o
-    un campo che il JSON non porta, non sono un fallimento. Una guardia
-    ridotta a `!== 0` tratterebbe entrambi come un crollo mai avvenuto."""
+def test_exit_code_null_o_assente_non_si_annuncia_affatto(tmp_path):
+    """Un codice d'uscita mancante non e' un fallimento, ma non e' nemmeno una
+    riuscita: si tace.
+
+    La prova diceva prima l'opposto — «va detto concluso, non taciuto» — e la
+    sua motivazione era un file di stato letto prima che il worker fissasse il
+    codice. Quello stato non esiste piu': il worker scrive exit_code prima di
+    dichiararsi fermo, quindi `in_corso: false` implica un codice gia' scritto,
+    e questo ramo si percorre solo quando qualcosa e' andato storto nell'avvio.
+    Li' «concluso» e' un falso successo su una corsa mai partita, che e' la
+    famiglia di difetti per cui il ramo esiste. Il silenzio non afferma niente.
+    """
     sorgente = _DOM + """
 ETICHETTE["09_tetrahedralize"] = "Tetraedri";
 const steps = [{ numero: 9, chiave: "09_tetrahedralize", stato: "valido" }];
 """ + _funzioni("nomeDelloStep", "esitoDellaCorsa") + """
 const conNull = esitoDellaCorsa({ step: 9, exit_code: null, annullato: false, steps });
 assert.equal(conNull.errore, null, "exit_code null non e' un fallimento");
-assert.match(conNull.esito, /Tetraedri concluso/, "va detto concluso, non taciuto");
+assert.equal(conNull.esito, null, `una corsa mai partita si annuncia riuscita: ${conNull.esito}`);
 
 const senzaCampo = esitoDellaCorsa({ step: 9, annullato: false, steps });
 assert.equal(senzaCampo.errore, null, "exit_code assente non e' un fallimento");
-assert.match(senzaCampo.esito, /Tetraedri concluso/, "va detto concluso, non taciuto");
+assert.equal(
+  senzaCampo.esito, null, `una corsa mai partita si annuncia riuscita: ${senzaCampo.esito}`,
+);
+
+// Un annullamento arriva con exit_code non nullo, ma la marcatura viene
+// guardata per prima: il silenzio non deve avergliela portata via.
+const annullata = esitoDellaCorsa({ step: 9, exit_code: null, annullato: true, steps });
+assert.match(annullata.esito, /Tetraedri annullato/, "il silenzio ha inghiottito l'annullamento");
 
 console.log("ok");
 """

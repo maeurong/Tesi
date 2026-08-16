@@ -331,6 +331,10 @@ def test_annullare_dentro_la_finestra_del_fork_non_esplode(tmp_path, monkeypatch
         visto["prenotato"] = lavoratore.is_running()
         visto["processo"] = lavoratore._processo
         visto["esito"] = lavoratore.cancel()
+        # Catturato qui e non dopo start(): il blocco subito sotto la Popen
+        # riazzera annullato, quindi un'asserzione fatta alla fine sarebbe
+        # verde qualunque cosa cancel() marchi.
+        visto["annullato"] = lavoratore.annullato
         finito, gia = threading.Event(), threading.Event()
         gia.set()
         return _ProcessoUscitoCollettoStdout(0, finito, gia)
@@ -341,7 +345,7 @@ def test_annullare_dentro_la_finestra_del_fork_non_esplode(tmp_path, monkeypatch
     assert visto["prenotato"] is True, "la finestra che si vuole provare non esiste piu'"
     assert visto["processo"] is None, "il figlio esisteva gia': non e' la finestra giusta"
     assert visto["esito"] is False, "ha annullato una corsa senza processo"
-    assert lavoratore.annullato is False, "una corsa che sta partendo si racconta annullata"
+    assert visto["annullato"] is False, "una corsa che sta partendo si racconta annullata"
 
 
 class _ProcessoVivoFinoAlKill:
