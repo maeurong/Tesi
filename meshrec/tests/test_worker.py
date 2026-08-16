@@ -306,6 +306,44 @@ def test_dentro_la_popen_lo_stato_e_gia_quello_della_corsa_nuova(tmp_path, monke
     )
 
 
+def test_annullare_dentro_la_finestra_del_fork_non_esplode(tmp_path, monkeypatch):
+    """Il rovescio della prenotazione, ed e' il rovescio di un'invariante persa.
+
+    Da quando is_running() consulta `_concluso` anche con `_processo is None`,
+    esiste una finestra in cui il worker si dichiara occupato senza avere
+    ancora un figlio — e sulla prima corsa `exit_code` e' None, quindi cancel()
+    superava entrambi i controlli e arrivava a terminare un processo che non
+    c'era: `assert self._processo is not None` non era piu' un'invariante. Un
+    Annulla che cade li' rispondeva 500 con traceback e lasciava `annullato`
+    alzato per la corsa che stava partendo.
+    """
+    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "assente.ply"))
+    cfg.run.out_dir = tmp_path / "corsa"
+    percorso = tmp_path / "config.yaml"
+    save_config(cfg, percorso)
+
+    lavoratore = Worker()
+    visto = {}
+
+    def popen_annullata(*_args, **_chiavi):
+        # Dentro il fork+exec, con la prenotazione presa e `_processo` ancora
+        # None: e' l'istante che rende falsa la vecchia invariante.
+        visto["prenotato"] = lavoratore.is_running()
+        visto["processo"] = lavoratore._processo
+        visto["esito"] = lavoratore.cancel()
+        finito, gia = threading.Event(), threading.Event()
+        gia.set()
+        return _ProcessoUscitoCollettoStdout(0, finito, gia)
+
+    monkeypatch.setattr("meshrec.app.worker.subprocess.Popen", popen_annullata)
+    lavoratore.start(percorso, 1, 1)
+
+    assert visto["prenotato"] is True, "la finestra che si vuole provare non esiste piu'"
+    assert visto["processo"] is None, "il figlio esisteva gia': non e' la finestra giusta"
+    assert visto["esito"] is False, "ha annullato una corsa senza processo"
+    assert lavoratore.annullato is False, "una corsa che sta partendo si racconta annullata"
+
+
 class _ProcessoVivoFinoAlKill:
     """Un figlio che resta vivo finche' non lo si uccide.
 
@@ -366,6 +404,11 @@ def test_un_thread_che_non_parte_non_lascia_un_figlio_orfano(tmp_path, monkeypat
 
     assert figli[0].ucciso is True, "il figlio resta a girare senza nessuno che lo legga"
     assert lavoratore.is_running() is False, "il worker si dichiara occupato per sempre"
+    # La coppia proibita, di nuovo: il blocco dentro start() ha gia' azzerato
+    # exit_code, e in_corso: false con exit_code: null il browser lo annuncia
+    # come «concluso» — un falso successo su una corsa mai partita.
+    assert lavoratore.exit_code is not None, "una corsa mai partita si annuncia riuscita"
+    assert lavoratore.exit_code != 0
 
 
 def test_un_annullamento_che_arriva_a_esito_gia_scritto_non_marca(tmp_path):

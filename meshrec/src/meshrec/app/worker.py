@@ -137,6 +137,14 @@ class Worker:
                 # uscita) e nessun lettore, recuperabile solo con Annulla.
                 processo.kill()
                 processo.wait()
+                # L'esito del figlio ucciso, o il frame che ne esce e' la
+                # coppia proibita: il blocco qui sopra ha gia' azzerato
+                # exit_code, e in_corso: false con exit_code: null il browser
+                # lo annuncia -- correttamente, per la propria specifica --
+                # come «concluso». Un falso successo su una corsa che non e'
+                # mai partita, che e' la famiglia del Critico.
+                with self._lucchetto:
+                    self.exit_code = processo.returncode
             self._concluso.set()
             raise
 
@@ -183,12 +191,18 @@ class Worker:
         # exit_code gia' fissato vuol dire che non c'e' piu' niente da fermare,
         # anche quando _concluso non e' ancora stato rialzato.
         # is_running() non prende il lucchetto: legge solo poll() e _concluso.
+        # Il controllo su _processo non e' ridondante: dalla prenotazione presa
+        # in start() fino alla Popen che torna, is_running() risponde True con
+        # _processo ancora None -- sulla prima corsa anche con exit_code None.
+        # Un Annulla che cade li' passava entrambi gli altri controlli e
+        # arrivava a terminare un processo che non esiste. Nessun figlio vuol
+        # dire niente da fermare.
         with self._lucchetto:
-            if not self.is_running() or self.exit_code is not None:
+            processo = self._processo
+            if processo is None or not self.is_running() or self.exit_code is not None:
                 return False
             self.annullato = True
-        assert self._processo is not None
-        self._processo.terminate()
+        processo.terminate()
         with self._lucchetto:
             self._righe.append("--- annullato su richiesta ---")
         return True
