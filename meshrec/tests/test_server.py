@@ -163,7 +163,7 @@ def test_max_points_zero_o_negativo_e_rifiutato_con_messaggio_chiaro(cliente, tm
 
 def test_chiedere_la_nuvola_di_uno_step_mai_eseguito_non_solleva(cliente):
     risposta = cliente.get("/api/cloud/9")
-    assert risposta.status_code == 400
+    assert risposta.status_code == 404
     assert "errore" in risposta.json()
 
 
@@ -203,7 +203,7 @@ def test_la_mesh_torna_in_binario_con_i_conteggi(cliente, tmp_path):
 
 def test_chiedere_la_mesh_di_uno_step_senza_artefatto_non_solleva(cliente):
     risposta = cliente.get("/api/mesh/6")
-    assert risposta.status_code == 400
+    assert risposta.status_code == 404
     assert "errore" in risposta.json()
 
 
@@ -794,7 +794,7 @@ def test_il_clic_senza_lo_step_1_non_solleva(cliente, tmp_path):
 
     cliente.get("/api/cloud/2?max_points=200")
     risposta = cliente.post("/api/cluster", json={"punto": 0})
-    assert risposta.status_code == 400
+    assert risposta.status_code == 404
     corpo = risposta.json()
     assert corpo["errore"] == "FileNotFoundError"
     assert pipeline.ARTIFACTS[1] in corpo["messaggio"]
@@ -2068,10 +2068,10 @@ def test_una_sottocartella_senza_registro_non_e_un_esperimento(cliente, tmp_path
     assert elenco["esperimenti"] == []
 
 
-def test_un_esperimento_inesistente_risponde_quattrocento(cliente, tmp_path):
+def test_un_esperimento_inesistente_risponde_quattrocentoquattro(cliente, tmp_path):
     (tmp_path / "experiments").mkdir()
     risposta = cliente.get("/api/experiments/non-esiste")
-    assert risposta.status_code == 400
+    assert risposta.status_code == 404
     assert "non-esiste" in risposta.json()["messaggio"]
 
 
@@ -2143,3 +2143,23 @@ def test_la_galleria_mostra_il_candidato_di_fronte_su_lab_crop():
     assert celle[indice_colonne["tets"]] == "50630"
     assert celle[indice_colonne["over"]] == "0.06844"
     assert celle[indice_colonne["thickness_error"]] == "1.192"
+
+
+def test_un_artefatto_mai_prodotto_risponde_404_e_non_un_guasto(tmp_path):
+    """Cliccare uno step mai eseguito faceva sollevare FileNotFoundError fino al
+    gestore generico, che risponde 400 e poi rilancia: il browser riceveva la
+    risposta giusta e il terminale un traceback ASGI per ogni clic.
+
+    Un artefatto che non c'e' non e' un guasto del server: e' lo stato normale
+    di uno step mai eseguito, e ha il proprio codice.
+    """
+    config = tmp_path / "prova.yaml"
+    save_config(PipelineConfig(input=InputConfig(path=tmp_path / "vuota.ply")), config)
+    with TestClient(create_app(config), raise_server_exceptions=False) as client:
+        risposta = client.get("/api/cloud/1")
+    assert risposta.status_code == 404, (
+        f"un artefatto mancante risponde {risposta.status_code}"
+    )
+    corpo = risposta.json()
+    assert corpo["errore"] == "FileNotFoundError", f"la forma del rifiuto e' cambiata: {corpo}"
+    assert "messaggio" in corpo, f"il rifiuto non dice piu' perche': {corpo}"

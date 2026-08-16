@@ -45,6 +45,20 @@ viene saltato in modo pulito (`SKIPPED`), non fallisce. Per eseguirlo:
 uv run pytest tests/feasibility/test_calculix.py -v -m feasibility
 ```
 
+## Avviare l'interfaccia
+
+```bash
+uv run meshrec serve lab.yaml
+```
+
+Il percorso della configurazione e' obbligatorio: e' la corsa su cui
+l'interfaccia lavora, e senza non c'e' niente da mostrare. `--port` sceglie la
+porta, `--no-browser` non apre il browser.
+
+Le configurazioni gia' pronte nel repository sono `lab.yaml` (il caso studio),
+`muro.yaml` (il muro sintetico) e `prova-interfaccia.yaml` (una corsa vuota, per
+guardare l'interfaccia senza calcolare niente).
+
 ## Unità
 
 Tutto il codice lavora in **mm, N, MPa, tonnellata, secondo**. Le densità sono

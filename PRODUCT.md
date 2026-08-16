@@ -9,9 +9,9 @@ web
 ## Users
 
 **Utente primario:** l'autore della tesi. Apre l'applicazione da riga di comando
-con `uv run meshrec serve`, e la usa ogni giorno per tarare e rieseguire la
-pipeline sulle proprie scansioni. Conosce a memoria gli undici step e i nomi dei
-parametri.
+con `uv run meshrec serve <configurazione>.yaml`, e la usa ogni giorno per tarare
+e rieseguire la pipeline sulle proprie scansioni. Conosce a memoria gli undici
+step e i nomi dei parametri.
 
 Ha lavorato su Windows 11 fino al 16/08/2026 e da allora su macOS con Apple
 Silicon. Il fatto è di prodotto e non di ambiente: la stessa pipeline gira su due
@@ -70,7 +70,9 @@ distanza di mesi.
 ## Operating Context
 
 Applicazione **locale**, utente singolo, nessuna autenticazione, nessun server
-remoto. Si avvia da riga di comando e apre il browser.
+remoto. Si avvia da riga di comando con `uv run meshrec serve <configurazione>.yaml`
+e apre il browser. Il percorso della configurazione e' obbligatorio: e' la corsa
+su cui l'interfaccia lavora.
 
 Lo stato non vive in memoria ma su disco: ogni elaborazione è una cartella
 `runs/<nome>/` con la configurazione completa, gli artefatti numerati step per

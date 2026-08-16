@@ -266,6 +266,27 @@ def create_app(config_path: Path) -> FastAPI:
     def corrente() -> PipelineConfig:
         return load_config(config_path)
 
+    @app.exception_handler(FileNotFoundError)
+    async def artefatto_mancante(_richiesta, errore: FileNotFoundError):
+        # Un artefatto che non c'e' non e' un guasto del server: e' lo stato
+        # normale di uno step mai eseguito, ed e' cio' che l'interfaccia
+        # gia' sa leggere («nessun artefatto per questo step»).
+        #
+        # Senza questo gestore la FileNotFoundError arrivava a quello generico,
+        # registrato su Exception: Starlette lo esegue dentro
+        # ServerErrorMiddleware, che manda la risposta e poi **rilancia**
+        # l'eccezione perche' il server la registri. Il browser riceveva la
+        # risposta giusta e il terminale un traceback completo per ogni clic su
+        # uno step non ancora eseguito. Registrato sul tipo, il rifiuto passa
+        # invece da ExceptionMiddleware, che non rilancia.
+        #
+        # La forma del corpo resta la stessa del gestore generico, cosi'
+        # ragioneDelRifiuto la legge senza sapere che e' successo.
+        return JSONResponse(
+            status_code=404,
+            content={"errore": type(errore).__name__, "messaggio": str(errore)},
+        )
+
     @app.exception_handler(Exception)
     async def nessuna_eccezione_verso_il_browser(_richiesta, errore: Exception):
         # Il contratto vale sulla tratta: nessun endpoint solleva verso il
