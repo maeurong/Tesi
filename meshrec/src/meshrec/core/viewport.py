@@ -49,6 +49,17 @@ def decimate(
 
     Voxel zero dichiara che nessuna decimazione e' stata applicata: la nuvola
     era gia' sotto il budget e i gruppi sono le identita'.
+
+    L'ordine dei punti disegnati fa parte del contratto: i gruppi crescono per
+    indice pieno minimo, e il punto i-esimo e' sempre quello del gruppo
+    i-esimo. Non e' una comodita': voxel_down_sample_and_trace enumera i voxel
+    nell'ordine di iterazione di una std::unordered_map interna a Open3D, che
+    e' stabile dentro una build ma cambia fra libc++ (macOS) e la STL
+    Microsoft (Windows). Propagarlo tale e quale farebbe indicare a 'punto
+    disegnato numero 0' un pezzo di nuvola diverso a seconda della macchina,
+    senza che nulla lo smentisca: il disegno resta identico, solo rinumerato.
+    L'ordine preteso qui e' anche l'unico coerente con il ramo sotto budget,
+    che restituisce gia' le identita' in ordine crescente.
     """
     punti = np.ascontiguousarray(np.asarray(points, dtype=np.float64))
     if len(punti) <= max_points:
@@ -65,9 +76,21 @@ def decimate(
         ridotta, _indici, tracce = nuvola.voxel_down_sample_and_trace(voxel, basso, alto)
         if len(ridotta.points) <= max_points:
             gruppi = [np.asarray(traccia, dtype=np.int64) for traccia in tracce]
+            # L'ordine dei voxel che Open3D restituisce e' quello di una sua
+            # hash map interna: stabile dentro una build, diverso fra libc++ e
+            # la STL Microsoft. Riordinare per indice pieno minimo lo rende
+            # una funzione del dato. Punti e gruppi si permutano con lo stesso
+            # ordine: sfasarli slaccerebbe in silenzio l'indice che il browser
+            # rimanda dal gruppo che rappresenta.
+            # Nessun criterio di pareggio, e non serve: le tracce partizionano
+            # la nuvola, quindi ogni indice pieno cade in un voxel e uno solo e
+            # i minimi sono unici. Un sort stabile qui sarebbe anzi fuorviante,
+            # perche' fra eventuali pari conserverebbe proprio l'ordine di
+            # Open3D che questa riga esiste per togliere di mezzo.
+            ordine = np.argsort([int(gruppo.min()) for gruppo in gruppi])
             return (
-                np.ascontiguousarray(np.asarray(ridotta.points), dtype=np.float64),
-                gruppi,
+                np.ascontiguousarray(np.asarray(ridotta.points)[ordine], dtype=np.float64),
+                [gruppi[posizione] for posizione in ordine],
                 voxel,
             )
         voxel *= 2.0
@@ -84,17 +107,33 @@ def to_float32(array: np.ndarray) -> bytes:
     return np.ascontiguousarray(np.asarray(array), dtype="<f4").tobytes()
 
 
+# Gettone del contratto di decimate, non della sorgente. Va alzato ogni volta
+# che cambia CHE COSA decimate promette, non come lo calcola: una voce scritta
+# sotto il contratto vecchio resterebbe altrimenti valida per chiave e servirebbe
+# un risultato che non rispetta piu' la promessa, con la suite verde perche' i
+# test esercitano decimate e non la cache. Il 2 e' l'ordine dei gruppi, diventato
+# contratto quando si e' scoperto che quello di Open3D cambia con la piattaforma.
+_VERSIONE_CONTRATTO = 2
+
+
 def _cache_path(source: Path, max_points: int, spacing_sample: int, seed: int, cache_dir: Path) -> Path:
-    """Nome del file di cache per (sorgente, budget, spacing_sample, seed), senza leggerne il contenuto.
+    """Nome del file di cache per (contratto, sorgente, budget, spacing_sample, seed), senza leggerne il contenuto.
 
     spacing_sample e seed sostituiscono lo spacing gia' calcolato: mean_spacing
     e' deterministica su (sorgente, spacing_sample, seed), quindi le due chiavi
     sono equivalenti, ma questa si ottiene con un solo Path.stat().
+
+    Il gettone di contratto sta nel nome e non nel contenuto perche' cosi'
+    invalida senza aprire il file: le voci vecchie non vengono lette, non
+    vengono migrate, semplicemente non rispondono piu' alla chiave.
     """
     source = Path(source)
     marchio = hashlib.sha256(str(source.resolve()).encode("utf-8")).hexdigest()[:16]
     mtime = source.stat().st_mtime_ns
-    return Path(cache_dir) / f"{marchio}-{max_points}-{spacing_sample}-{seed}-{mtime}.npz"
+    return (
+        Path(cache_dir)
+        / f"{marchio}-v{_VERSIONE_CONTRATTO}-{max_points}-{spacing_sample}-{seed}-{mtime}.npz"
+    )
 
 
 def decimate_file(

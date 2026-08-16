@@ -59,6 +59,57 @@ def test_la_stima_iniziale_rispetta_budget_e_copertura():
     assert len(tutti) == len(punti), "un punto pieno compare in piu' di un gruppo"
 
 
+def test_l_ordine_dei_gruppi_non_dipende_dall_implementazione_di_open3d():
+    """Un indice disegnato deve significare lo stesso punto su ogni macchina.
+
+    voxel_down_sample_and_trace restituisce i voxel nell'ordine di iterazione
+    di una std::unordered_map interna a Open3D: e' stabile dentro una stessa
+    build, ma dipende dall'implementazione della libreria standard (libc++ su
+    macOS, STL Microsoft su Windows). decimate lo propaga tale e quale, quindi
+    'il punto disegnato numero 0' indica un pezzo di nuvola diverso a seconda
+    della piattaforma, e nessuna metrica lo smentisce: il disegno e' identico,
+    solo rinumerato.
+
+    Misurato su questa macchina (macOS arm64, Open3D 0.19.0): con la nuvola
+    dei test di /api/cluster (3 000 punti fitti nell'origine piu' 1 000 punti
+    radi a 500 mm) il gruppo 0 e' l'indice pieno 3995, cioe' il blocco rado,
+    che DBSCAN classifica interamente come rumore. Che su Windows lo stesso
+    gruppo 0 cadesse nel blocco fitto e' invece *dedotto* dai test allora
+    verdi, non misurato, e non e' piu' misurabile da qui. Da lì i quattro
+    fallimenti di tests/test_server.py sull'endpoint POST /api/cluster.
+
+    L'ordine preteso qui e' quello indotto dal dato: i gruppi crescono per
+    indice pieno minimo. Qualunque ordine totale derivato dalla nuvola
+    andrebbe bene, ma un test deve nominarne uno; questo e' il piu' economico
+    (interi gia' disponibili, nessun confronto in virgola mobile) e coincide
+    con l'identita' gia' pretesa a budget non raggiunto (vedi
+    test_una_nuvola_gia_sotto_il_budget_non_viene_toccata).
+    """
+    punti = _nuvola(100_000)
+    ridotti, gruppi, voxel = viewport.decimate(punti, max_points=20_000, spacing=1.0)
+    assert voxel > 0.0, "precondizione: la decimazione deve essere davvero avvenuta"
+
+    minimi = [int(np.asarray(gruppo).min()) for gruppo in gruppi]
+    # La premessa prima della conclusione: "ordinato" equivale a "determinato
+    # dal dato" solo se le chiavi sono uniche. Con minimi ripetuti l'ordine dei
+    # pari resterebbe quello di Open3D e questo test resterebbe verde.
+    assert len(set(minimi)) == len(minimi), (
+        "minimi non unici: l'ordinamento da solo non basta a fissare l'ordine"
+    )
+    assert minimi == sorted(minimi), (
+        "l'ordine dei gruppi non e' derivato dalla nuvola: e' quello della hash "
+        "map di Open3D, e cambia con la piattaforma"
+    )
+
+    # Riordinare i gruppi senza riordinare i punti disegnati slaccerebbe la
+    # mappa in silenzio: il punto disegnato deve restare dentro il voxel del
+    # proprio gruppo, non solo esserci un gruppo per ogni punto.
+    for disegnato, gruppo in zip(ridotti, gruppi, strict=True):
+        pieni = punti[np.asarray(gruppo)]
+        assert (disegnato >= pieni.min(axis=0) - 1e-9).all(), "punto disegnato fuori dal suo gruppo"
+        assert (disegnato <= pieni.max(axis=0) + 1e-9).all(), "punto disegnato fuori dal suo gruppo"
+
+
 def test_decimate_file_la_seconda_chiamata_da_lo_stesso_risultato(tmp_path):
     sorgente = tmp_path / "nuvola.ply"
     io.write_cloud(sorgente, _nuvola(50_000))

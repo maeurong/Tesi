@@ -12,12 +12,14 @@
 
 ## Global Constraints
 
-- Ramo di lavoro: `fase-3-interfaccia`. Nessun push, nessun merge su `main`.
+- Ramo di lavoro: `fase-3-interfaccia`. Nessun merge su `main`. Il divieto di push e' decaduto il 16/08/2026 su istruzione dell'utente: `main` e `fase-3-interfaccia` sono ora su `origin`, allineati in fast-forward senza perdere nulla di remoto.
 - Mai `git add -A`: la radice ha centinaia di MB non tracciati. Sempre percorsi espliciti.
 - `meshrec/runs/muro/`, `meshrec/runs/lab_crop/`, `meshrec/experiments/muro/`, `meshrec/experiments/lab_crop/` sono di **sola lettura**: si leggono e si copiano, mai si scrive al loro interno.
 - L'unico luogo dove un parametro di elaborazione ha un valore predefinito e' `meshrec/src/meshrec/core/config.py`. Le firme del core non portano predefiniti.
 - Italiano per commenti, docstring, documenti e messaggi di commit. **Niente lettere accentate nelle docstring e nei commenti del core.**
-- Comandi eseguiti da `meshrec/` con `uv run`. Windows, PowerShell.
+- Comandi eseguiti da `meshrec/` con `uv run`. **macOS su Apple Silicon (arm64), zsh, Python 3.12.13**, dal 16/08/2026: la cartella di lavoro e' stata spostata da Windows 11 dopo i Task 1-16. I task da 1 a 16 sono stati eseguiti su Windows, e i documenti di esito che ne citano i numeri vanno letti con quella provenienza.
+- Conseguenza misurata del trasloco, non teorica: l'ordine dei voxel restituito da `voxel_down_sample_and_trace` di Open3D dipende dall'implementazione di `std::unordered_map`, e differisce fra libc++ e la STL Microsoft. Non e' la funzione di hash a cambiare — `hash_eigen` e' la stessa sulle due piattaforme — ma la politica dei bucket e l'ordine di iterazione. Su Windows i test del clic passavano per una coincidenza di quell'ordine, non perche' fossero giusti. Ogni verifica che dipenda dall'ordine di quella chiamata va derivata, mai fissata su un indice letterale — **a meno che** l'indice non sia fissato dal contratto di `core.viewport.decimate` (gruppi crescenti per indice pieno minimo, dal 16/08/2026), che e' il caso dei clic su `punto: 0` in `tests/test_server.py`.
+- I registri `meshrec/experiments/*/registro.jsonl` contengono i path con i separatori Windows dentro la configurazione serializzata, e `sweep.fingerprint` li include. Verificato il 16/08/2026 che le impronte storiche **coincidono ancora**, perche' quelle stringhe riserializzano identiche attraverso `PosixPath`. Correggere quei path per farli risolvere su macOS cambierebbe l'impronta e spezzerebbe il legame con la tabella sperimentale della tesi: non si fa. Le corse nuove usano path POSIX e accettano un'impronta nuova.
 - Utente singolo, nessuna autenticazione, server locale. Non progettare per il multiutente.
 - Dipendenze nuove ammesse, e nessun'altra: `fastapi`, `uvicorn`, piu' il file vendorizzato `three.module.js`. Verificate risolvibili: `fastapi==0.141.1`, `uvicorn==0.52.3`, con quattro transitive (`annotated-doc`, `anyio`, `h11`, `starlette`).
 - La suite deve restare verde a ogni commit. Riferimento di partenza: **181 test raccolti, 6 deselezionati**.

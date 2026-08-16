@@ -8,10 +8,23 @@ web
 
 ## Users
 
-**Utente primario:** l'autore della tesi. Lavora su Windows 11, apre l'applicazione
-da riga di comando con `uv run meshrec serve`, e la usa ogni giorno per tarare e
-rieseguire la pipeline sulle proprie scansioni. Conosce a memoria gli undici step
-e i nomi dei parametri.
+**Utente primario:** l'autore della tesi. Apre l'applicazione da riga di comando
+con `uv run meshrec serve`, e la usa ogni giorno per tarare e rieseguire la
+pipeline sulle proprie scansioni. Conosce a memoria gli undici step e i nomi dei
+parametri.
+
+Ha lavorato su Windows 11 fino al 16/08/2026 e da allora su macOS con Apple
+Silicon. Il fatto è di prodotto e non di ambiente: la stessa pipeline gira su due
+piattaforme.
+
+Ne discende una norma di progetto, non un requisito d'interfaccia: un esito
+**discreto** che dipende dalla piattaforma — un ordine, un indice, un conteggio,
+una scelta fra alternative — è un difetto e va reso funzione del dato. Ne è già
+stato misurato e corretto uno: l'ordine dei voxel restituito da Open3D differisce
+fra le due piattaforme. Le grandezze **continue** non ricadono sotto questa norma:
+le riduzioni in virgola mobile e le librerie di algebra non sono bit-identiche fra
+arm64 e x86-64, e inseguire le ultime cifre di una metrica fra due macchine
+sarebbe fabbricare una precisione che non esiste.
 
 **Utenti successivi (confermati):** altri tesisti e il laboratorio, dopo la
 discussione, sui propri dati. Questo è un fatto vincolante e non un'ipotesi:

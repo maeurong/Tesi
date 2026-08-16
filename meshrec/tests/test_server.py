@@ -262,10 +262,23 @@ def _clusterizza_come_l_endpoint(corsa: Path, cfg):
 
 
 def test_il_clic_risolve_il_punto_disegnato_a_un_cluster(cliente, tmp_path):
+    """Un clic dentro il blocco fitto risolve al cluster che lo contiene.
+
+    Attenzione a come e' fatta la nuvola, perche' e' la stessa dei tre test
+    piu' sotto: il secondo blocco NON e' un secondo cluster. Mille punti
+    sparsi in dieci millimetri cubi sono troppo radi per l'eps che
+    segment.cluster deriva dalla spaziatura, e DBSCAN li classifica in blocco
+    come rumore (misurato: un solo cluster da 2992 punti, 1008 di rumore).
+    Un clic che ci cadesse dentro dovrebbe dare 400, non un secondo cluster.
+
+    Il punto disegnato 0 cade nel blocco fitto perche' viewport.decimate
+    ordina i gruppi per indice pieno minimo, e l'indice pieno 0 e' del primo
+    blocco: senza quel contratto l'indice 0 dipenderebbe dalla hash map di
+    Open3D e quindi dalla piattaforma.
+    """
     import numpy as np
 
     corsa = tmp_path / "corsa"
-    # Due gruppi ben separati: il cluster di appartenenza non e' ambiguo.
     primo = np.random.default_rng(0).random((3_000, 3)) * 10.0
     secondo = np.random.default_rng(1).random((1_000, 3)) * 10.0 + 500.0
     _prepara_click_semplice(cliente, corsa, np.vstack([primo, secondo]))
@@ -274,7 +287,9 @@ def test_il_clic_risolve_il_punto_disegnato_a_un_cluster(cliente, tmp_path):
     risposta = cliente.post("/api/cluster", json={"punto": 0})
     assert risposta.status_code == 200
     corpo = risposta.json()
-    assert corpo["cluster_index"] in (0, 1)
+    # Zero e non "0 oppure 1": su questa nuvola DBSCAN trova un cluster solo
+    # (misurato sopra), quindi ammettere un 1 contraddirebbe la docstring.
+    assert corpo["cluster_index"] == 0
     assert corpo["cluster_points"] > 0
 
 
@@ -659,6 +674,11 @@ def test_il_cluster_eps_e_sensibile_alla_spaziatura_vera(cliente, tmp_path):
     usa (spacing_sample=20000, seed=0, i predefiniti di InputConfig che
     'cliente' non sovrascrive); una spaziatura calcolata su un campione
     troncato (es. i primi 50 punti soli) darebbe un valore diverso.
+
+    Stessa nuvola del primo test dell'endpoint, e stessa avvertenza: il
+    secondo blocco e' rumore per DBSCAN, non un secondo cluster; il punto
+    disegnato 0 cade nel primo blocco perche' viewport.decimate ordina i
+    gruppi per indice pieno minimo.
     """
     import numpy as np
     from meshrec.core import io, pipeline
@@ -687,6 +707,11 @@ def test_il_clic_dichiara_il_cambio_di_metodo(cliente, tmp_path):
     c'era prima del clic e quello che c'e' dopo, cosi' chi mostra la UI
     puo' avvisare l'utente invece di lasciarlo scoprire il cambio da un
     file che non vede.
+
+    Stessa nuvola del primo test dell'endpoint, e stessa avvertenza: il
+    secondo blocco e' rumore per DBSCAN, non un secondo cluster; il punto
+    disegnato 0 cade nel primo blocco perche' viewport.decimate ordina i
+    gruppi per indice pieno minimo.
     """
     import numpy as np
 
@@ -709,6 +734,11 @@ def test_il_secondo_clic_dichiara_auto_auto(cliente, tmp_path):
     sullo stesso gruppo, con cfg.segment.method gia' 'auto' dal primo, deve
     dichiarare method_before='auto' (letto davvero, non un valore stantio)
     e method_after='auto'.
+
+    Stessa nuvola del primo test dell'endpoint, e stessa avvertenza: il
+    secondo blocco e' rumore per DBSCAN, non un secondo cluster; il punto
+    disegnato 0 cade nel primo blocco perche' viewport.decimate ordina i
+    gruppi per indice pieno minimo.
     """
     import numpy as np
 
