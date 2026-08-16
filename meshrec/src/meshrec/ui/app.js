@@ -287,35 +287,88 @@ function dichiaraCaricamento(numero) {
 }
 
 // Chiude cio' che dichiaraCaricamento ha aperto. Una superficie sola e non
-// quattro copie letterali della stessa riga nei quattro punti sotto: quattro
-// copie sono duplicazione da manuale di stile, e una superficie sola e' anche
-// l'unica che un test puo' sorvegliare per tutti e quattro insieme.
+// tante copie letterali della stessa riga: una superficie sola e' anche
+// l'unica che un test puo' sorvegliare per tutti i punti che la chiamano.
 function chiudiCaricamento() {
   document.getElementById("viewport").removeAttribute("aria-busy");
+}
+
+// Il corpo binario di una risposta ok, letto senza lasciare uscire un rigetto
+// a meta' del download: stesso principio di corpoLetto per il JSON, qui
+// duplicato apposta per non far dipendere le due tratte binarie da quella che
+// legge testo. undefined marca "il download non e' arrivato" — un
+// ArrayBuffer vuoto (byteLength 0) e' un dato legittimo, non un errore, e
+// confonderli con undefined tratterebbe una mesh vuota come un guasto di
+// rete. Usata da entrambe le tratte binarie: cosi' un rigetto a meta' del
+// download si racconta nello stesso modo su nuvola e mesh, senza due try/catch
+// copiati che potrebbero divergere.
+async function corpoBinarioLetto(risposta) {
+  try {
+    return await risposta.arrayBuffer();
+  } catch {
+    return undefined;
+  }
+}
+
+// Il testo di un artefatto che non e' arrivato. status 0 e' la firma di
+// serverMuto (vedi sopra): un server che non ha risposto — alla fetch
+// iniziale o a meta' del download, che e' lo stesso fatto letto piu' tardi —
+// non e' lo stesso fatto di un server che ha risposto "questo step non ha
+// ancora un artefatto". Confonderli direbbe un dato negativo documentato dove
+// invece il server non e' mai stato interrogato con successo. Duplicata fra
+// nuvola e mesh prima di questa correzione, e con lei il rischio di
+// modificarne una copia e dimenticare l'altra.
+async function messaggioArtefattoMancante(risposta) {
+  return risposta.status === 0
+    ? await ragioneDelRifiuto(risposta)
+    : "nessun artefatto per questo step";
+}
+
+// Il messaggio quando il download si ferma a meta', dopo che gli header erano
+// gia' arrivati: lo stesso fatto di un server muto (sopra), letto piu' tardi.
+// Riusa serverMuto/messaggioArtefattoMancante invece di un testo proprio, cosi'
+// la formula "il server non ha risposto: ..." resta una sola in tutto il file,
+// e non due copie fra nuvola e mesh che potrebbero divergere.
+function messaggioDownloadInterrotto() {
+  return messaggioArtefattoMancante(serverMuto(new Error("connessione interrotta durante il download")));
+}
+
+// Sposta la vista nello stato "niente da mostrare", con un messaggio gia'
+// calcolato. Sincrona apposta: il chiamante calcola il messaggio (che puo'
+// aspettare ragioneDelRifiuto) e controlla la guardia dell'ordine PRIMA di
+// chiamare questa funzione, cosi' una risposta scartata non arriva mai qui —
+// spostare la guardia dentro sposterebbe la scrittura dopo un'altra attesa
+// invece di tenerla subito dopo l'ultima, riaprendo la corsa che le
+// generazioni esistono per chiudere.
+function segnalaArtefattoMancante(messaggio) {
+  chiudiCaricamento();
+  // Svuotare e' obbligatorio: senza, la scena resta quella dello step
+  // precedente mentre il testo dice che non c'e' nulla. Una vista che
+  // contraddice la sua didascalia e' peggio di una vista vuota.
+  vista.svuota();
+  document.getElementById("conteggi").textContent = messaggio;
 }
 
 async function mostraNuvolaDelloStep(numero, ordine) {
   const emissione = apriGeometria();
   const risposta = await fetch(`/api/cloud/${numero}`).catch(serverMuto);
   if (!risposta.ok) {
-    // status 0 e' la firma di serverMuto: un server che non ha risposto non e'
-    // lo stesso fatto di un server che ha risposto "questo step non ha ancora
-    // un artefatto". Confonderli direbbe un dato negativo documentato dove
-    // invece il server non e' mai stato interrogato con successo.
-    const muto = risposta.status === 0;
-    const messaggio = muto ? await ragioneDelRifiuto(risposta) : "nessun artefatto per questo step";
+    const messaggio = await messaggioArtefattoMancante(risposta);
     if (superata(ordine) || superata(emissione, ultimaGeometria)) return false;
-    chiudiCaricamento();
-    // Svuotare e' obbligatorio: senza, la scena resta quella dello step
-    // precedente mentre il testo dice che non c'e' nulla. Una vista che
-    // contraddice la sua didascalia e' peggio di una vista vuota.
-    vista.svuota();
-    document.getElementById("conteggi").textContent = messaggio;
+    segnalaArtefattoMancante(messaggio);
     return true;
   }
   const disegnati = Number(risposta.headers.get("X-Points-Drawn"));
   const pieni = Number(risposta.headers.get("X-Points-Total"));
-  const grezzi = await risposta.arrayBuffer();
+  const grezzi = await corpoBinarioLetto(risposta);
+  if (grezzi === undefined) {
+    // Su una nuvola vera il download dura alcuni secondi, e la rete puo'
+    // cadere in quella finestra tanto quanto prima della prima risposta.
+    const messaggio = await messaggioDownloadInterrotto();
+    if (superata(ordine) || superata(emissione, ultimaGeometria)) return false;
+    segnalaArtefattoMancante(messaggio);
+    return true;
+  }
   // Il controllo sta dopo l'ultima attesa e prima della prima scrittura: piu'
   // in alto lascerebbe passare cio' che e' stato superato mentre il corpo
   // arrivava.
@@ -349,21 +402,22 @@ async function mostraStep(numero, ordine) {
   const emissione = apriGeometria();
   const risposta = await fetch(`/api/mesh/${numero}`).catch(serverMuto);
   if (!risposta.ok) {
-    // Come per la nuvola: status 0 e' un server muto, non lo stesso fatto di
-    // un server che ha risposto "questo step non ha ancora un artefatto".
-    const muto = risposta.status === 0;
-    const messaggio = muto ? await ragioneDelRifiuto(risposta) : "nessun artefatto per questo step";
+    const messaggio = await messaggioArtefattoMancante(risposta);
     if (superata(ordine) || superata(emissione, ultimaGeometria)) return false;
-    chiudiCaricamento();
-    // Come per la nuvola: svuotare e' obbligatorio, una vista che contraddice
-    // la sua didascalia e' peggio di una vista vuota.
-    vista.svuota();
-    document.getElementById("conteggi").textContent = messaggio;
+    segnalaArtefattoMancante(messaggio);
     return true;
   }
   const vertici = Number(risposta.headers.get("X-Vertices"));
   const triangoli = Number(risposta.headers.get("X-Triangles"));
-  const grezzi = await risposta.arrayBuffer();
+  const grezzi = await corpoBinarioLetto(risposta);
+  if (grezzi === undefined) {
+    // Come per la nuvola: la connessione caduta a meta' del download e' lo
+    // stesso fatto di un server muto, letto piu' tardi.
+    const messaggio = await messaggioDownloadInterrotto();
+    if (superata(ordine) || superata(emissione, ultimaGeometria)) return false;
+    segnalaArtefattoMancante(messaggio);
+    return true;
+  }
   // Qui la latenza e' quella vera: e' la mesh dello step 9 che arriva tardi a
   // posarsi sulla nuvola di un altro step.
   if (superata(ordine) || superata(emissione, ultimaGeometria)) return false;

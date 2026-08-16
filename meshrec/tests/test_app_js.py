@@ -736,7 +736,9 @@ def _banco_di_geometria() -> str:
     """
     return _DOM + _funzioni(
         "apriGeometria", "superata", "nomeDelloStep", "dichiaraCaricamento", "chiudiCaricamento",
-        "serverMuto", "ragioneDelRifiuto", "mostraNuvolaDelloStep", "mostraStep",
+        "serverMuto", "ragioneDelRifiuto", "corpoBinarioLetto", "messaggioArtefattoMancante",
+        "messaggioDownloadInterrotto", "segnalaArtefattoMancante",
+        "mostraNuvolaDelloStep", "mostraStep",
     ) + """
 let ultimaGeometria = 0;
 let ultimiSteps = [];
@@ -915,6 +917,113 @@ assert.equal(
   "la risposta scartata ha tolto aria-busy: doveva lasciarlo a chi vince la corsa",
 );
 """)
+
+
+def test_messaggioArtefattoMancante_distingue_server_muto_da_rifiuto_documentato(tmp_path):
+    """La funzione estratta, chiamata da sola: e' l'unica superficie che
+    decide il testo, e questo la sorveglia senza passare da mostraStep o
+    mostraNuvolaDelloStep."""
+    _esegui(tmp_path, _banco_di_geometria() + """
+const documentato = await messaggioArtefattoMancante({ status: 404 });
+assert.equal(documentato, "nessun artefatto per questo step",
+  "il rifiuto documentato non deve cambiare testo");
+
+const muto = await messaggioArtefattoMancante({
+  status: 0,
+  text: async () => JSON.stringify({ messaggio: "il server non ha risposto: boom" }),
+});
+assert.match(muto, /il server non ha risposto: boom/,
+  `lo status 0 non produce il messaggio del server muto: ${muto}`);
+""")
+
+
+def test_segnalaArtefattoMancante_chiude_svuota_e_scrive_il_messaggio(tmp_path):
+    """L'altra meta' estratta, chiamata da sola: chiude aria-busy, svuota la
+    vista e scrive il messaggio che riceve — niente di piu', niente di meno."""
+    _esegui(tmp_path, _banco_di_geometria() + """
+document.getElementById("viewport").setAttribute("aria-busy", "true");
+segnalaArtefattoMancante("un messaggio qualsiasi");
+assert.equal(
+  document.getElementById("viewport").getAttribute("aria-busy"), null,
+  "segnalaArtefattoMancante non chiude aria-busy",
+);
+assert.equal(vista.svuotate, 1, "segnalaArtefattoMancante non svuota la vista");
+assert.equal(
+  document.getElementById("conteggi").textContent, "un messaggio qualsiasi",
+  "segnalaArtefattoMancante non scrive il messaggio ricevuto",
+);
+""")
+
+
+def test_corpoBinarioLetto_torna_undefined_se_il_download_si_interrompe(tmp_path):
+    """La funzione che tiene fuori il rigetto di arrayBuffer(): un download
+    riuscito torna il buffer, uno interrotto torna undefined invece di
+    sollevare. Il controllo positivo evita che basti sempre restituire
+    undefined per passare."""
+    _esegui(tmp_path, _banco_di_geometria() + """
+const buono = await corpoBinarioLetto({ arrayBuffer: async () => new ArrayBuffer(4) });
+assert.equal(buono.byteLength, 4, "un download riuscito non deve tornare undefined");
+
+const interrotto = await corpoBinarioLetto({
+  arrayBuffer: async () => { throw new Error("connessione caduta"); },
+});
+assert.equal(interrotto, undefined,
+  "un download interrotto deve tornare undefined, non far sollevare la funzione");
+""")
+
+
+def test_messaggioDownloadInterrotto_racconta_un_server_muto(tmp_path):
+    """Il messaggio del download interrotto e' lo stesso di un server muto,
+    non un testo proprio: se divergesse, questo lo direbbe."""
+    _esegui(tmp_path, _banco_di_geometria() + """
+const messaggio = await messaggioDownloadInterrotto();
+assert.match(messaggio, /il server non ha risposto/,
+  `il download interrotto non si racconta come un server muto: ${messaggio}`);
+""")
+
+
+def test_il_download_interrotto_a_meta_chiude_il_caricamento_e_segnala_il_server(tmp_path):
+    """Finding 3: gli header arrivano (risposta.ok e' vero, i conteggi sono
+    leggibili), poi arrayBuffer() rigetta a meta' del trasferimento. Prima
+    della correzione questo rigetto usciva non gestito da mostraNuvolaDelloStep
+    e da mostraStep(...).then() senza .catch: la tela restava marcata occupata
+    per sempre. Deve leggersi come un server muto, non come uno step senza
+    artefatto — i byte erano in arrivo."""
+    _esegui(tmp_path, _banco_di_geometria() + """
+document.getElementById("viewport").setAttribute("aria-busy", "true");
+risponde = [() => ({
+  ok: true,
+  headers: { get: (nome) => ({ "X-Points-Drawn": "20", "X-Points-Total": "20" }[nome]) },
+  arrayBuffer: async () => { throw new Error("connessione caduta a meta' del download"); },
+})];
+await mostraNuvolaDelloStep(9, generazione);
+assert.equal(
+  document.getElementById("viewport").getAttribute("aria-busy"), null,
+  "il download interrotto lascia la tela marcata come occupata",
+);
+const didascalia = document.getElementById("conteggi").textContent;
+assert.match(didascalia, /il server non ha risposto/,
+  `il download interrotto non viene raccontato come un server muto: ${didascalia}`);
+assert.doesNotMatch(didascalia, /nessun artefatto/,
+  `il download interrotto si confonde con un rifiuto documentato: ${didascalia}`);
+""")
+
+
+def test_mostraStep_instrada_il_ramo_mesh_attraverso_le_funzioni_condivise():
+    """Finding 4: nuvola e mesh condividevano lo stesso ramo di rifiuto
+    copiato verbatim. Estratto in funzioni comuni, questo guarda che il ramo
+    mesh ci passi davvero — una divergenza copia-incolla che tornasse a
+    duplicare la logica invece di chiamare le funzioni condivise diventerebbe
+    rossa qui, non solo sulla tratta della nuvola che i test sopra
+    esercitano."""
+    corpo = _sorgente_di("mostraStep", _modulo())
+    for nome in (
+        "messaggioArtefattoMancante(", "segnalaArtefattoMancante(",
+        "corpoBinarioLetto(", "messaggioDownloadInterrotto(",
+    ):
+        assert nome in corpo, (
+            f"mostraStep non instrada piu' per {nome}: torna a duplicare la logica della nuvola"
+        )
 
 
 # --------------------------------------------------------------------------
