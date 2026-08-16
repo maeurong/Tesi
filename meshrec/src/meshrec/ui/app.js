@@ -1237,12 +1237,14 @@ function disegnaTabellaGalleria(corpo) {
       // nodo .fuori-vista dentro la stessa cella, cosi' chi usa un lettore di
       // schermo lo raggiunge quanto chi punta il cursore.
       if (colonna.chiave === "fingerprint") {
-        cella.textContent = testo.slice(0, 8);
         cella.setAttribute("title", testo);
+        const breve = document.createElement("span");
+        breve.className = "impronta-breve";
+        breve.textContent = testo.slice(0, 8);
         const completa = document.createElement("span");
         completa.className = "fuori-vista";
         completa.textContent = testo;
-        cella.append(completa);
+        cella.append(breve, completa);
       } else {
         cella.textContent = testo;
       }
