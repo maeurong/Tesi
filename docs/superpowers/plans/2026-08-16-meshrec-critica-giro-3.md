@@ -110,7 +110,7 @@ const steps = [{ numero: 9, chiave: "09_tetrahedralize", stato: "valido", second
 const rotto = esitoDellaCorsa({ step: 9, exit_code: 1, annullato: false, steps });
 assert.equal(rotto.esito, null, "un fallimento non e' un esito neutro");
 assert.match(rotto.errore, /Tetraedri/, "il nome dello step, non il suo numero");
-assert.match(rotto.errore, /1/, "il codice d'uscita e' l'unico indizio che il server manda");
+assert.match(rotto.errore, /codice 1/, "il codice d'uscita e' l'unico indizio che il server manda");
 assert.match(rotto.errore, /registro/, "senza un rimando, il motivo resta introvabile");
 
 const fermo = esitoDellaCorsa({ step: 9, exit_code: -15, annullato: true, steps });
@@ -759,7 +759,8 @@ disegnaTabellaGalleria({
   celle: [["a".repeat(64), "ok"], ["b".repeat(64), "ok"]],
 });
 const tabella = document.getElementById("galleria-tabella").figli[0];
-const righe = tabella.figli[1].figli;
+// figli[0] e' <caption>, figli[1] <thead>, figli[2] <tbody>.
+const righe = tabella.figli[2].figli;
 const testi = righe.map((r) => r.figli.map((c) => c.textContent));
 assert.notEqual(testi[0][0], testi[1][0], "le due righe non si distinguono per testo");
 assert.ok(testi[0].join(" ").includes("fronte"), `nessun canale testuale: ${testi[0]}`);
@@ -934,7 +935,7 @@ function disegnaTabellaGalleria(corpo) {
 }
 ```
 
-**Attenzione:** il controllo del passo 1 legge `tabella.figli[1]` come `thead` e `figli[2]`… no: legge `tabella.figli[1].figli` come le righe del corpo. Con `caption` in prima posizione, `thead` e' `figli[1]` e `tbody` e' `figli[2]`. Correggere il controllo in `tabella.figli[2].figli` **oppure** appendere `caption` dopo `thead`; il primo e' preferibile perche' `<caption>` deve stare per primo dentro `<table>`. Aggiornare il test di conseguenza prima di rieseguirlo.
+`<caption>` sta per primo dentro `<table>`, come vuole l'HTML: il controllo del passo 1 legge il corpo da `tabella.figli[2]` proprio per questo.
 
 - [ ] **Step 7: Marcare l'esperimento scelto**
 
@@ -1077,7 +1078,13 @@ def test_le_etichette_mostrate_portano_gli_accenti_italiani():
     modulo = _modulo()
     assert '"Qualità superficie"' in modulo, "l'etichetta dello step 7 e' senza accento"
     assert '"Qualità volume"' in modulo, "l'etichetta dello step 10 e' senza accento"
-    assert "in giu'" not in modulo, "un'etichetta usa ancora l'apostrofo al posto dell'accento"
+    # Senza i commenti: «riscrive gli artefatti dall'N in giu'» e' una
+    # spiegazione, non un'etichetta, e vietare la stringa nei commenti
+    # vieterebbe la spiegazione. E' la stessa ragione per cui
+    # _senza_commenti_js esiste.
+    assert "in giu'" not in _senza_commenti_js(modulo), (
+        "un'etichetta mostrata dice ancora «da qui in giu'» invece della portata"
+    )
 ```
 
 - [ ] **Step 2: Eseguire i controlli e verificare che falliscano**
@@ -1709,11 +1716,13 @@ flusso.addEventListener("riga", (evento) => {
 });
 ```
 
-**Attenzione:** il DOM finto non espone `clientHeight`, quindi vale `undefined` e la somma diventa `NaN`, che rende `inFondo` falso: il controllo preesistente sul tetto delle righe continua a passare, ma se ne esiste uno che asserisce `scrollTop === scrollHeight` fallira'. In quel caso aggiungere a `_DOM`, dentro `class Elemento`, la riga:
+**Da fare nello stesso passo:** il DOM finto non espone `clientHeight`, quindi la somma varrebbe `NaN` e `inFondo` sarebbe sempre falso — un banco che non puo' vedere lo scorrimento avvenire. Aggiungere a `_DOM` in `tests/test_app_js.py`, dentro `class Elemento`, accanto a `get scrollHeight()`:
 
 ```js
   get clientHeight() { return this.figli.length; }
 ```
+
+(Verificato in pre-flight: nessun controllo preesistente asserisce `scrollTop === scrollHeight`, quindi la riga non ne rompe nessuno.)
 
 - [ ] **Step 7: Eseguire i controlli e verificare che passino**
 
