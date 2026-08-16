@@ -1386,6 +1386,11 @@ function disegnaTabellaGalleria(corpo) {
   const contenitore = document.getElementById("galleria-tabella");
   const didascalia = document.getElementById("galleria-didascalia");
   contenitore.replaceChildren();
+  // Il nome della region insieme allo svuotamento, e prima del ritorno
+  // anticipato: scritto piu' in basso, un esperimento senza righe lasciava
+  // annunciato il nome di quello di prima — un nome fermo e generico era
+  // meglio di uno attivamente sbagliato.
+  contenitore.setAttribute("aria-label", `Registro dell'esperimento ${corpo.nome}`);
   if (corpo.righe.length === 0) {
     didascalia.textContent = `${corpo.nome}: registro vuoto.`;
     return;
@@ -1448,11 +1453,6 @@ function disegnaTabellaGalleria(corpo) {
   const tabella = document.createElement("table");
   const nome = document.createElement("caption");
   nome.textContent = `Registro dell'esperimento ${corpo.nome}`;
-  // Il riquadro che scorre e' una region con un nome suo, scritto nel markup e
-  // fermo a «Registro dell'esperimento»: cambiando esperimento il nome
-  // annunciato restava quello di prima, cioe' nessuno. Segue la didascalia,
-  // dalla stessa fonte.
-  contenitore.setAttribute("aria-label", nome.textContent);
   tabella.append(nome, testa, corpoTabella);
   contenitore.append(tabella);
 }

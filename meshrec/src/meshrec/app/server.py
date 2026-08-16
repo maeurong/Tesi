@@ -295,7 +295,8 @@ def create_app(config_path: Path) -> FastAPI:
                 status_code=500,
                 content={
                     "errore": type(errore).__name__,
-                    "messaggio": f"la configurazione {config_path} non c'e' piu'",
+                    # Mostrata all'utente da ragioneDelRifiuto: accenti veri.
+                    "messaggio": f"la configurazione {config_path} non c'è più",
                 },
             )
         return JSONResponse(

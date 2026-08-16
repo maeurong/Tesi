@@ -76,14 +76,14 @@ class Worker:
         del chiamante, non un esito dell'elaborazione."""
         if self.is_running():
             raise RuntimeError("uno step sta gia' girando: annullalo prima di avviarne un altro")
-        with self._lucchetto:
-            self._righe.clear()
-        self.exit_code = None
-        self.annullato = False
-        self.step = from_step
-        self.avviato = time.monotonic()
-        self._concluso.clear()
-        self._processo = subprocess.Popen(
+        # Prima il processo, poi lo stato della corsa nuova. Scritto nell'ordine
+        # opposto, un Popen che solleva (risorse esaurite, interprete sparito)
+        # lascerebbe dietro di se' proprio la coppia proibita che is_running()
+        # esiste per impedire: exit_code azzerato su una corsa che nessuno sta
+        # piu' eseguendo, e _concluso abbassato senza un lettore che lo rialzi —
+        # cioe' un worker impiccato, con ogni start() successiva rifiutata e
+        # niente da annullare. Da questa riga in giu' non si solleva piu'.
+        processo = subprocess.Popen(
             [
                 sys.executable, "-m", "meshrec.cli", "run", str(config_path),
                 "--from-step", str(from_step), "--to-step", str(to_step),
@@ -93,6 +93,14 @@ class Worker:
             text=True,
             bufsize=1,
         )
+        with self._lucchetto:
+            self._righe.clear()
+            self.exit_code = None
+            self.annullato = False
+        self.step = from_step
+        self.avviato = time.monotonic()
+        self._concluso.clear()
+        self._processo = processo
         threading.Thread(target=self._leggi, daemon=True).start()
 
     def _leggi(self) -> None:
@@ -104,15 +112,20 @@ class Worker:
                 with self._lucchetto:
                     self._righe.append(riga.rstrip("\n"))
             processo.wait()
-            self.exit_code = processo.returncode
-            # Un annullamento chiesto a un processo che era gia' uscito bene non
-            # e' un annullamento: cancel() guarda is_running() e poi marca, e
-            # fra le due cose il figlio puo' finire da se'. Un terminate() che
-            # arriva dopo l'ultimo respiro lascia il codice d'uscita a 0, e
-            # annullato: true con exit_code: 0 racconterebbe come interrotta
-            # una corsa che ha prodotto i suoi artefatti.
-            if self.exit_code == 0:
-                self.annullato = False
+            # L'esito e la marcatura si scrivono insieme, sotto il lucchetto che
+            # cancel() prende a sua volta. Un annullamento chiesto a un processo
+            # che era gia' uscito bene non e' un annullamento: il terminate()
+            # arriva dopo l'ultimo respiro e il codice d'uscita resta 0, e
+            # annullato: true con exit_code: 0 racconterebbe come interrotta una
+            # corsa che ha prodotto i suoi artefatti. Rettificare qui senza il
+            # lucchetto non basterebbe: cancel() puo' marcare *dopo* la
+            # rettifica e prima che _concluso si rialzi, e la coppia proibita
+            # tornerebbe. Un SIGTERM non produce mai un codice 0, quindi lo zero
+            # e' la firma di una corsa arrivata in fondo.
+            with self._lucchetto:
+                self.exit_code = processo.returncode
+                if self.exit_code == 0:
+                    self.annullato = False
         finally:
             # Nel finally e non in coda: un'uscita anticipata (nessun processo,
             # nessuno stdout) deve comunque sbloccare is_running(), altrimenti
@@ -127,9 +140,17 @@ class Worker:
         cartella resta coerente perche' metrics.json viene riscritto solo a
         corsa conclusa e gli artefatti sono scritti in modo atomico.
         """
-        if not self.is_running():
-            return False
-        self.annullato = True
+        # Il controllo e la marcatura sotto lo stesso lucchetto che il lettore
+        # prende per scrivere l'esito: separati, il lettore poteva scrivere
+        # exit_code 0 e rettificare la marcatura fra il controllo qui sotto e la
+        # riga che marca, e la corsa riuscita si sarebbe raccontata annullata.
+        # exit_code gia' fissato vuol dire che non c'e' piu' niente da fermare,
+        # anche quando _concluso non e' ancora stato rialzato.
+        # is_running() non prende il lucchetto: legge solo poll() e _concluso.
+        with self._lucchetto:
+            if not self.is_running() or self.exit_code is not None:
+                return False
+            self.annullato = True
         assert self._processo is not None
         self._processo.terminate()
         with self._lucchetto:

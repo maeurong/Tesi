@@ -104,6 +104,7 @@ class _ProcessoUscitoCollettoStdout:
     def __init__(self, codice: int, a_meta: threading.Event, prosegui: threading.Event) -> None:
         self.returncode = codice
         self.stdout = self._righe(a_meta, prosegui)
+        self.terminato = False
 
     def _righe(self, a_meta: threading.Event, prosegui: threading.Event):
         yield "prima riga\n"
@@ -116,6 +117,12 @@ class _ProcessoUscitoCollettoStdout:
 
     def wait(self) -> int:
         return self.returncode
+
+    def terminate(self) -> None:
+        # Registrato e non un errore: se manca, un cancel() che non doveva
+        # passare esplode qui e la prova diventa rossa per l'attributo assente
+        # invece che per il fatto che si vuole sorvegliare.
+        self.terminato = True
 
 
 def test_una_corsa_conclusa_porta_sempre_il_proprio_codice_di_uscita():
@@ -151,6 +158,84 @@ def test_una_corsa_conclusa_porta_sempre_il_proprio_codice_di_uscita():
     assert lavoratore.is_running() is False
     assert lavoratore.exit_code == 1
     assert lavoratore.righe() == ["prima riga", "ultima riga"]
+
+
+def test_un_popen_che_solleva_non_lascia_il_worker_impiccato(tmp_path, monkeypatch):
+    """`start()` scrive lo stato della corsa nuova solo dopo che il processo
+    esiste. Nell'ordine opposto, un Popen che solleva lasciava exit_code
+    azzerato e `_concluso` abbassato senza un lettore che lo rialzasse: la
+    coppia proibita che is_running() esiste per impedire, piu' un worker che
+    si dichiara occupato per sempre — ogni start() successiva rifiutata, e
+    niente da annullare.
+    """
+    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "assente.ply"))
+    cfg.run.out_dir = tmp_path / "corsa"
+    percorso = tmp_path / "config.yaml"
+    save_config(cfg, percorso)
+
+    # Un worker che ha gia' concluso una corsa: e' lo stato in cui il difetto si
+    # vede: `_processo` esiste ed e' uscito, quindi `poll()` non basta a dire
+    # «ferma» e la risposta dipende tutta da `_concluso`. Su un worker mai
+    # avviato (`_processo is None`) il sintomo non si presenta.
+    lavoratore = Worker()
+    fatto, subito = threading.Event(), threading.Event()
+    subito.set()
+    lavoratore._processo = _ProcessoUscitoCollettoStdout(3, fatto, subito)
+    lavoratore._concluso.clear()
+    lavoratore._leggi()
+    assert lavoratore.is_running() is False
+    assert lavoratore.exit_code == 3
+    lavoratore.annullato = True
+
+    def niente_processi(*_args, **_chiavi):
+        raise OSError("niente risorse per un altro processo")
+
+    monkeypatch.setattr("meshrec.app.worker.subprocess.Popen", niente_processi)
+    with pytest.raises(OSError):
+        lavoratore.start(percorso, 1, 1)
+
+    assert lavoratore.is_running() is False, "il worker si dichiara occupato senza un processo"
+    # Lo stato della corsa precedente non e' stato toccato: non e' cominciata
+    # nessuna corsa nuova da cui azzerarlo.
+    assert lavoratore.exit_code == 3
+    assert lavoratore.annullato is True
+
+    monkeypatch.undo()
+    lavoratore.start(percorso, 1, 1)
+    for _ in range(600):
+        if not lavoratore.is_running():
+            break
+        time.sleep(0.1)
+    assert lavoratore.is_running() is False
+    assert lavoratore.exit_code is not None
+
+
+def test_un_annullamento_che_arriva_a_esito_gia_scritto_non_marca(tmp_path):
+    """Il fratello visto da `cancel()`, che e' la strada vera: il banco qui
+    sotto chiama `_leggi()` diretto e non prova mai l'ordinamento fra i due.
+
+    Il lettore scrive l'esito e rettifica la marcatura sotto il lucchetto, poi
+    rialza `_concluso`. Fra le due cose `is_running()` risponde ancora True:
+    senza il controllo su exit_code, `cancel()` marcava li' e la coppia
+    proibita tornava — «annullato» su una corsa che ha scritto i suoi
+    artefatti, che e' proprio cio' che la rettifica doveva impedire.
+    """
+    lavoratore = Worker()
+    a_meta, prosegui = threading.Event(), threading.Event()
+    prosegui.set()
+    lavoratore._processo = _ProcessoUscitoCollettoStdout(0, a_meta, prosegui)
+    lavoratore._concluso.clear()
+
+    # Il lettore fino in fondo, ma senza rialzare _concluso: e' la finestra in
+    # cui is_running() risponde ancora True con l'esito gia' scritto.
+    with lavoratore._lucchetto:
+        lavoratore.exit_code = 0
+    assert lavoratore.is_running() is True, "la finestra che si vuole provare non esiste piu'"
+
+    assert lavoratore.cancel() is False, "ha annullato una corsa che era gia' finita"
+    assert lavoratore.annullato is False, "una corsa riuscita si racconta annullata"
+    assert lavoratore._processo.terminato is False, "ha mandato un segnale a un processo gia' uscito"
+    assert "--- annullato su richiesta ---" not in lavoratore.righe()
 
 
 def test_un_annullamento_arrivato_dopo_una_corsa_riuscita_non_dice_annullato():

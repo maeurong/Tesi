@@ -2285,11 +2285,15 @@ def test_la_riga_dell_esito_esiste_nel_markup_ed_e_una_regione_viva():
     elemento = _elemento(markup, "esito")
     assert 'aria-live="polite"' in elemento, f"la riga dell'esito non e' viva: {elemento}"
     assert "hidden" not in elemento, f"hidden la toglie dall'albero: {elemento}"
-    # E fuori dalla colonna del dettaglio, che apriDettaglio riscrive: e' li'
-    # che l'annuncio del fallimento veniva cancellato due righe dopo essere
-    # comparso, ed e' la ragione per cui l'esito ha una regione tutta sua.
-    dentro = markup.split('<div id="dettaglio"', 1)[1]
-    assert 'id="esito"' not in dentro, "la riga dell'esito e' finita dentro #dettaglio"
+    # E nella testata, prima delle tre colonne. «Non dentro #dettaglio» non si
+    # prova tagliando il file a quel tag: la collocazione pericolosa — accanto
+    # alla riga d'errore, dentro la colonna del dettaglio — sta *prima* del
+    # punto di taglio e passerebbe (provato: la suite resta verde). Che l'esito
+    # stia fuori dalla colonna che apriDettaglio riscrive e' l'unica ragione
+    # per cui ha una regione tutta sua, e qui si guarda dov'e' davvero.
+    assert markup.index('id="esito"') < markup.index("<main"), (
+        "la riga dell'esito e' scesa nelle tre colonne, dove il pannello la puo' raggiungere"
+    )
 
 
 def test_la_fine_della_corsa_distingue_fallito_annullato_e_concluso(tmp_path):
@@ -2360,34 +2364,41 @@ console.log("ok");
     assert _esegui(tmp_path, sorgente).strip() == "ok"
 
 
-# Il cablaggio del fronte di discesa, e non la sola decisione.
-_FRONTE_DI_DISCESA = """
-ETICHETTE["09_tetrahedralize"] = "Tetraedri";
-const steps = [{ numero: 9, chiave: "09_tetrahedralize", stato: "fallito" }];
+def _banco_del_fronte_di_discesa() -> str:
+    """Il fronte di discesa con `apriDettaglio` VERO, non un finto.
+
+    Un finto `apriDettaglio` che si limita a chiamare `dichiaraErrore(null)`
+    sorveglia una cosa sola: che l'annuncio non torni nella riga d'errore.
+    Non sorveglia che nessuno svuoti `#esito` — e il difetto vive proprio
+    dentro `apriDettaglio`, quindi il finto lo escluderebbe per costruzione.
+    Qui la funzione vera viene eseguita per intero, con le sue fetch e le sue
+    attese, sopra il banco che gia' esiste per lei.
+    """
+    return _banco_di_apriDettaglio() + _funzioni(
+        "nomeDelloStep", "esitoDellaCorsa", "mostraEsito", "spegniLeEsecuzioni", "aggiornaDaStato",
+    ) + """
+// disegnaStep vero e' gia' nel banco e scrive qui dentro.
+let ultimiSteps = [];
 // Una corsa stava girando: e' il fronte di discesa che si vuole esercitare.
 let eraInCorso = true;
-let corsaInCorso = true;
 // null: il viewport non mostra niente, quindi non c'e' nessuna vista da
 // ricaricare e ricaricaVista non deve essere chiamata.
 let stepMostrato = null;
+function ricaricaVista() { throw new Error("stepMostrato e' null: non c'era niente da ricaricare"); }
+ETICHETTE["01_load"] = "Lettura";
+const steps = [{ numero: 1, chiave: "01_load", stato: "fallito" }];
 // Il pannello e' aperto, che e' lo stato normale: il bottone Esegui vive
 // dentro quel pannello, quindi chi ha appena fatto partire una corsa lo ha
-// aperto per forza.
-stepAperto = 9;
-let riaperto = null;
-function disegnaStep() {}
-function spegniLeEsecuzioni() {}
-function ricaricaVista() { throw new Error("stepMostrato e' null: non c'era niente da ricaricare"); }
-// Il finto apriDettaglio fa le due sole cose di quello vero che contano qui:
-// si sospende su un'attesa (le sue due fetch) e poi chiama dichiaraErrore(null)
-// (app.js, subito dopo replaceChildren). Non e' un comodo del banco che rende
-// vera l'asserzione: e' la riga che cancellava l'annuncio, ritagliata al minimo
-// che la riproduce.
-async function apriDettaglio(numero) {
-  riaperto = numero;
-  await Promise.resolve();
-  dichiaraErrore(null);
-}
+// aperto per forza. Lo step 1 e' quello che SCHEMA_BUONO descrive.
+stepAperto = 1;
+risponde = {
+  "/api/schema": async () => ({ ok: true, status: 200, json: async () => SCHEMA_BUONO }),
+  "/api/config": async () => ({ ok: true, status: 200, json: async () => CONFIG_BUONA }),
+  "/api/metrics": async () => ({ ok: true, status: 200, json: async () => METRICHE_BUONE }),
+};
+// Il ciclo degli eventi fino in fondo: apriDettaglio non viene atteso dal
+// gestore, e le sue tre risposte si risolvono in altrettanti giri.
+const finoInFondo = async () => { for (let i = 0; i < 10; i += 1) await new Promise((r) => setTimeout(r, 0)); };
 """
 
 
@@ -2405,22 +2416,28 @@ def test_l_annuncio_del_fallimento_sopravvive_alla_riapertura_del_pannello(tmp_p
     indistinguibile da una corsa riuscita. E' il P0 della critica alla lettera,
     e il fronte di discesa scatta una volta sola: l'annuncio non torna piu'.
 
-    Il controllo esegue il gestore vero, con un pannello aperto, e guarda che
-    cosa resta scritto **dopo** che apriDettaglio ha ripreso dalle sue attese.
+    Il controllo esegue il gestore vero **e apriDettaglio vero**, con un
+    pannello aperto, e guarda che cosa resta scritto dopo che quest'ultimo ha
+    ripreso dalle proprie attese. Con un finto apriDettaglio il controllo
+    sorveglierebbe solo che l'annuncio non torni nella riga d'errore: il
+    difetto vive dentro apriDettaglio, e un finto lo escluderebbe per
+    costruzione.
     """
-    sorgente = _DOM + _FRONTE_DI_DISCESA + _funzioni(
-        "nomeDelloStep", "esitoDellaCorsa", "mostraEsito", "dichiaraErrore", "aggiornaDaStato",
-    ) + """
-aggiornaDaStato({ in_corso: false, step: 9, da_secondi: null, exit_code: 1, annullato: false, steps });
+    _esegui(tmp_path, _banco_del_fronte_di_discesa() + """
+aggiornaDaStato({ in_corso: false, step: 1, da_secondi: null, exit_code: 1, annullato: false, steps });
 
 const riga = document.getElementById("esito");
 assert.match(riga.textContent, /codice 1/, "il fallimento non e' stato annunciato affatto");
 
-// Il turno successivo del ciclo degli eventi: apriDettaglio riprende da dopo
-// le proprie attese ed e' li' che l'annuncio spariva.
-await new Promise((r) => setTimeout(r, 0));
-assert.equal(riaperto, 9, "il pannello non e' stato riaperto: il caso non e' stato esercitato");
-assert.match(riga.textContent, /Tetraedri/, "l'annuncio non nomina piu' lo step");
+await finoInFondo();
+// Il pannello si e' davvero riaperto: senza questo, un apriDettaglio che
+// fallisse presto renderebbe il resto del controllo una formalita'.
+assert.ok(
+  document.getElementById("dettaglio").childElementCount > 0,
+  "il pannello non e' stato riaperto: il caso non e' stato esercitato",
+);
+assert.equal(rigaErrore.textContent, "", "apriDettaglio non ha svuotato la riga d'errore");
+assert.match(riga.textContent, /Lettura/, "l'annuncio non nomina piu' lo step");
 assert.match(
   riga.textContent,
   /codice 1/,
@@ -2434,37 +2451,30 @@ assert.ok(
 // Una corsa nuova pulisce, e quella che finisce bene non eredita il segno del
 // fallimento precedente: senza il ramo negativo del toggle, ogni esito buono
 // resterebbe colorato come un guasto per tutta la sessione.
-aggiornaDaStato({ in_corso: true, step: 9, da_secondi: 2, exit_code: null, annullato: false, steps });
+aggiornaDaStato({ in_corso: true, step: 1, da_secondi: 2, exit_code: null, annullato: false, steps });
 assert.equal(riga.textContent, "", "l'esito della corsa di prima descrive un lavoro diverso");
-aggiornaDaStato({ in_corso: false, step: 9, da_secondi: null, exit_code: 0, annullato: false, steps });
-await new Promise((r) => setTimeout(r, 0));
-assert.match(riga.textContent, /Tetraedri concluso/, "una corsa riuscita non e' annunciata");
+aggiornaDaStato({ in_corso: false, step: 1, da_secondi: null, exit_code: 0, annullato: false, steps });
+await finoInFondo();
+assert.match(riga.textContent, /Lettura concluso/, "una corsa riuscita non e' annunciata");
 assert.ok(
   !riga.className.split(" ").includes("esito-fallito"),
   `una corsa riuscita porta il segno del fallimento: "${riga.className}"`,
 );
-
-console.log("ok");
-"""
-    assert _esegui(tmp_path, sorgente).strip() == "ok"
+""")
 
 
 def test_la_riga_di_stato_nomina_lo_step_invece_di_numerarlo(tmp_path):
     """Il reperto della critica che il piano aveva accolto e non consegnato: la
-    colonna di sinistra mostra i nomi e questa riga diceva ancora «step 9».
+    colonna di sinistra mostra i nomi e questa riga diceva ancora «step 1».
     `nomeDelloStep` esiste per togliere le due lingue; qui era rimasta la
     seconda."""
-    sorgente = _DOM + _FRONTE_DI_DISCESA + _funzioni(
-        "nomeDelloStep", "esitoDellaCorsa", "mostraEsito", "dichiaraErrore", "aggiornaDaStato",
-    ) + """
-aggiornaDaStato({ in_corso: true, step: 9, da_secondi: 34.4, exit_code: null, annullato: false, steps });
+    _esegui(tmp_path, _banco_del_fronte_di_discesa() + """
+aggiornaDaStato({ in_corso: true, step: 1, da_secondi: 34.4, exit_code: null, annullato: false, steps });
 const barra = document.getElementById("in-corso");
-assert.match(barra.textContent, /^Tetraedri in corso/, `numera invece di nominare: "${barra.textContent}"`);
-assert.ok(!/step 9/.test(barra.textContent), `dice ancora il numero nudo: "${barra.textContent}"`);
+assert.match(barra.textContent, /^Lettura in corso/, `numera invece di nominare: "${barra.textContent}"`);
+assert.ok(!/step 1/.test(barra.textContent), `dice ancora il numero nudo: "${barra.textContent}"`);
 assert.match(barra.textContent, /34 s/, "il tempo misurato dal server non c'e' piu'");
-console.log("ok");
-"""
-    assert _esegui(tmp_path, sorgente).strip() == "ok"
+""")
 
 
 # --------------------------------------------------------------------------
@@ -3105,6 +3115,25 @@ disegnaTabellaGalleria({
 assert.match(
   contenitore.getAttribute("aria-label"), /lab_crop/,
   `il nome annunciato non segue l'esperimento: ${contenitore.getAttribute("aria-label")}`,
+);
+
+// E anche verso un esperimento senza righe. Scritto dopo il ritorno anticipato
+// del registro vuoto, il nome restava quello di prima: un nome fermo e
+// generico e' meglio di uno attivamente sbagliato.
+disegnaTabellaGalleria({
+  nome: "muro",
+  fronte: 0,
+  righe: [],
+  colonne: [{ chiave: "outcome", etichetta: "esito" }],
+  celle: [],
+});
+assert.doesNotMatch(
+  contenitore.getAttribute("aria-label"), /lab_crop/,
+  `il nome dell'esperimento precedente e' rimasto: ${contenitore.getAttribute("aria-label")}`,
+);
+assert.match(
+  contenitore.getAttribute("aria-label"), /muro/,
+  `un registro vuoto perde il nome: ${contenitore.getAttribute("aria-label")}`,
 );
 console.log("ok");
 """
