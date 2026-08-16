@@ -102,9 +102,20 @@ def scrivi_atomico(path: Path, scrittore) -> None:
     """Scrive su un nome temporaneo e rinomina: l'esito e' completo o assente.
 
     Serve perche' un'interruzione puo' cadere in mezzo alla scrittura di un
-    artefatto grande: 09_volume.vtu di lab_crop pesa 34.665.787 byte e
-    wall_model.inp 87.229.481, quindi la finestra e' reale e non teorica.
-    Path.replace e' atomico sullo stesso volume anche su Windows.
+    artefatto grande: 01_cloud.ply di lab_crop pesa 151.898.454 byte e
+    wall_model.inp di muro 35.931.310, quindi la finestra e' reale e non
+    teorica. Path.replace e' atomico sullo stesso volume anche su Windows.
+
+    Rimisurato il 16/08/2026 sulle corse di riferimento. La versione prima
+    citava 34.665.787 byte per 09_volume.vtu di lab_crop e 87.229.481 per il
+    suo wall_model.inp: valori veri quando furono scritti, falsi dopo che lo
+    sweep di Fase 2 adotto' poisson_depth=7 e i due artefatti scesero a
+    938.012 e 2.545.069 byte, cioe' trentacinque volte meno.
+
+    Da qui una regola per chi cita una taglia in una docstring: un artefatto
+    a valle di un parametro dello sweep cambia quando il fronte cambia, e il
+    numero invecchia in silenzio. 01_cloud.ply e' lo step 1 e non dipende da
+    nessun parametro adottato, quindi e' la citazione che regge nel tempo.
 
     Il nome temporaneo porta ".tmp" prima dell'estensione, non dopo
     (box.tmp.ply, non box.ply.tmp): write_triangle_mesh di open3d non ha un

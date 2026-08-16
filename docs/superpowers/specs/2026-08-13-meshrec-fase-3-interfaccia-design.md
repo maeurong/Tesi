@@ -396,11 +396,19 @@ un candidato fallito porti le stesse informazioni di oggi.
 ### 7.2 Artefatti scritti in modo atomico
 
 L'annullamento di uno step lungo può cadere in mezzo alla scrittura di un
-artefatto: `09_volume.vtu` di `lab_crop` pesa 34.665.787 byte e `wall_model.inp`
-87.229.481 byte, quindi la finestra è reale e non teorica. Ogni artefatto si
+artefatto: `01_cloud.ply` di `lab_crop` pesa 151.898.454 byte e `wall_model.inp`
+di `muro` 35.931.310 byte, quindi la finestra è reale e non teorica. Ogni artefatto si
 scrive su un nome temporaneo nella stessa cartella e si rinomina a scrittura
 conclusa. Dopo un annullamento l'artefatto di uno step o è completo o non esiste:
 non esiste il terzo caso, che è quello che rende una cartella incoerente.
+
+> **Numeri corretti il 16/08/2026.** La stesura originale citava 34.665.787 byte
+> per `09_volume.vtu` di `lab_crop` e 87.229.481 per il suo `wall_model.inp`.
+> Erano veri quando furono misurati e sono diventati falsi quando lo sweep di
+> Fase 2 ha adottato `poisson_depth=7`: oggi quei due artefatti pesano 938.012 e
+> 2.545.069 byte, trentacinque volte meno. L'argomento non cambia — la finestra
+> di scrittura resta reale — ma la citazione ora usa uno step a monte del fronte
+> adottato, che non invecchia quando il fronte cambia.
 
 ### 7.3 Granularità e onestà del progresso
 

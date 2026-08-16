@@ -779,8 +779,13 @@ def scrivi_atomico(path: Path, scrittore) -> None:
     """Scrive su un nome temporaneo e rinomina: l'esito e' completo o assente.
 
     Serve perche' un'interruzione puo' cadere in mezzo alla scrittura di un
-    artefatto grande: 09_volume.vtu di lab_crop pesa 34.665.787 byte e
-    wall_model.inp 87.229.481, quindi la finestra e' reale e non teorica.
+    artefatto grande: 01_cloud.ply di lab_crop pesa 151.898.454 byte e
+    wall_model.inp di muro 35.931.310, quindi la finestra e' reale e non
+    teorica.
+    (Numeri corretti il 16/08/2026: la stesura originale citava 34.665.787 e
+    87.229.481 byte per 09_volume.vtu e wall_model.inp di lab_crop, veri prima
+    che lo sweep adottasse poisson_depth=7 e falsi dopo - i due artefatti oggi
+    pesano 938.012 e 2.545.069 byte.)
     Path.replace e' atomico sullo stesso volume anche su Windows.
     """
     path = Path(path)
