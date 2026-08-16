@@ -225,12 +225,19 @@ body {
    otto colonne: scorre in orizzontale dentro il proprio contenitore, non la
    pagina. */
 .galleria-tabella { overflow-x: auto; }
+/* Raggiungibile da tastiera e senza contorno sarebbe una tappa cieca, cioe' un
+   difetto al posto di una correzione. Stesso contorno del registro, non uno suo. */
+.galleria-tabella:focus-visible { outline: 2px solid var(--accento); outline-offset: 2px; }
 .galleria-tabella table { border-collapse: collapse; width: 100%; font-size: var(--tipo-dato); line-height: var(--interlinea-riga); font-variant-numeric: tabular-nums; }
 .galleria-tabella th, .galleria-tabella td { padding: var(--passo-1) var(--passo-2); border-bottom: 1px solid var(--bordo); text-align: left; white-space: nowrap; }
 .galleria-tabella th { color: var(--tenue); font-weight: 600; }
-/* Il candidato di fronte: stesso canale doppio dello step aperto (fondo piu'
-   filetto), non il solo colore. */
-.galleria-tabella tr.fronte { background: var(--evidenza); box-shadow: inset 2px 0 0 var(--accento); }
+/* Il fondo resta, il filetto no: e' ancorato al bordo sinistro della riga e
+   scorre fuori dalla vista appena si guarda a destra, cioe' proprio quando i
+   numeri diventano leggibili. Un canale che sparisce quando serve non e' un
+   canale. Il posto suo lo ha preso la prima colonna, che e' testo e non se ne
+   va da nessuna parte. */
+.galleria-tabella tr.fronte { background: var(--evidenza); }
+.galleria-tabella tr.fronte td:first-child { font-weight: 600; color: var(--accento); }
 
 /* --- Movimento ------------------------------------------------------------
    Tre soli momenti, e nessuno decorativo.

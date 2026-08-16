@@ -1149,11 +1149,41 @@ async function caricaGalleria() {
     bottone.className = "bottone";
     bottone.textContent = nome;
     bottone.dataset.nome = nome;
+    // Nessuno stato scelto: due bottoni identici e nessun segno di quale
+    // tabella si sta guardando. .step ha aria-current e un doppio canale con
+    // sei righe di commento a difenderlo; qui non c'era niente.
+    bottone.setAttribute("aria-pressed", "false");
     return bottone;
   }));
 }
 
 caricaGalleria();
+
+// L'ordine dell'appendice stampata non e' l'ordine di una colonna da 22rem:
+// l'impronta SHA-256 e' 64 caratteri che non vanno a capo, e da sola sfondava
+// il riquadro, lasciando fuori schermo tutte e sette le grandezze per cui il
+// pannello esiste.
+// L'insieme resta quello di report._COLUMNS: qui si sceglie per chiave, e una
+// chiave che questo elenco non nomina compare comunque, in coda. Una colonna
+// aggiunta al server domani appare da sola, che e' la proprieta' per cui le
+// colonne sono riusate invece di riscelte.
+const ORDINE_GALLERIA = [
+  "outcome", "thickness_error", "tets", "over", "dihedral", "duration_s", "axes", "fingerprint",
+];
+
+// Le colonne nel verso di lettura, ognuna con il proprio indice di partenza:
+// e' quello con cui si indicizzano le celle, che il server manda nell'ordine
+// suo. Perderlo vorrebbe dire mettere i numeri sotto l'intestazione sbagliata,
+// che e' peggio di una tabella troppo larga.
+function colonneOrdinate(colonne, ordine = ORDINE_GALLERIA) {
+  const posizione = (colonna) => {
+    const trovata = ordine.indexOf(colonna.chiave);
+    return trovata === -1 ? ordine.length : trovata;
+  };
+  return colonne
+    .map((colonna, indice) => ({ colonna, indice }))
+    .sort((a, b) => posizione(a.colonna) - posizione(b.colonna) || a.indice - b.indice);
+}
 
 // Le colonne e le celle arrivano gia' formattate dal server (report._COLUMNS
 // e report._cell, riusate in server.py): questa funzione si limita a
@@ -1161,17 +1191,30 @@ caricaGalleria();
 // quella dell'appendice della tesi.
 function disegnaTabellaGalleria(corpo) {
   const contenitore = document.getElementById("galleria-tabella");
+  const didascalia = document.getElementById("galleria-didascalia");
   contenitore.replaceChildren();
   if (corpo.righe.length === 0) {
-    contenitore.append(Object.assign(document.createElement("p"), {
-      className: "vuoto",
-      textContent: `${corpo.nome}: registro vuoto.`,
-    }));
+    didascalia.textContent = `${corpo.nome}: registro vuoto.`;
     return;
   }
+  didascalia.textContent =
+    `${corpo.nome}: ${corpo.righe.length} candidati, ${corpo.fronte} sul fronte.`;
+  const ordinate = colonneOrdinate(corpo.colonne);
   const rigaTesta = document.createElement("tr");
-  for (const colonna of corpo.colonne) {
-    rigaTesta.append(Object.assign(document.createElement("th"), { textContent: colonna.etichetta }));
+  // La colonna del fronte e' derivata, non una grandezza in piu': nell'appendice
+  // lo stesso fatto e' gia' li', come classe della riga. A video una classe non
+  // si legge, e il colore da solo non basta (WCAG 1.4.1).
+  const testaFronte = document.createElement("th");
+  testaFronte.textContent = "fronte";
+  testaFronte.setAttribute("scope", "col");
+  rigaTesta.append(testaFronte);
+  for (const { colonna } of ordinate) {
+    const testa = document.createElement("th");
+    testa.textContent = colonna.etichetta;
+    // scope="col": senza, un lettore di schermo non lega la cella alla sua
+    // intestazione, e otto numeri di fila non dicono di che cosa siano.
+    testa.setAttribute("scope", "col");
+    rigaTesta.append(testa);
   }
   const testa = document.createElement("thead");
   testa.append(rigaTesta);
@@ -1181,20 +1224,30 @@ function disegnaTabellaGalleria(corpo) {
     // "fronte", non un nuovo nome: e' la stessa classe che report.write_report
     // scrive sulla riga di fronte dell'appendice della tesi.
     if (riga.on_front) rigaHtml.className = "fronte";
-    for (const cella of corpo.celle[indice]) {
-      rigaHtml.append(Object.assign(document.createElement("td"), { textContent: cella }));
+    const cellaFronte = document.createElement("td");
+    cellaFronte.textContent = riga.on_front ? "fronte" : "";
+    rigaHtml.append(cellaFronte);
+    for (const { colonna, indice: originale } of ordinate) {
+      const testo = String(corpo.celle[indice][originale] ?? "");
+      const cella = document.createElement("td");
+      // L'impronta troncata, con il valore pieno nel titolo: e' un
+      // identificatore da riconoscere, non da leggere, e otto caratteri di
+      // SHA-256 bastano a distinguere undici candidati.
+      if (colonna.chiave === "fingerprint") {
+        cella.textContent = testo.slice(0, 8);
+        cella.setAttribute("title", testo);
+      } else {
+        cella.textContent = testo;
+      }
+      rigaHtml.append(cella);
     }
     corpoTabella.append(rigaHtml);
   });
   const tabella = document.createElement("table");
-  tabella.append(testa, corpoTabella);
-  contenitore.append(
-    Object.assign(document.createElement("p"), {
-      className: "aiuto",
-      textContent: `${corpo.nome}: ${corpo.righe.length} candidati, ${corpo.fronte} sul fronte.`,
-    }),
-    tabella,
-  );
+  const nome = document.createElement("caption");
+  nome.textContent = `Registro dell'esperimento ${corpo.nome}`;
+  tabella.append(nome, testa, corpoTabella);
+  contenitore.append(tabella);
 }
 
 // Un contatore fresco per clic, come apriGeometria/apriBattuta: due clic su
@@ -1234,5 +1287,15 @@ async function mostraEsperimento(nome) {
 document.getElementById("galleria-elenco").addEventListener("click", (evento) => {
   const bottone = evento.target.closest("button");
   if (!bottone) return;
-  mostraEsperimento(bottone.dataset.nome);
+  mostraEsperimento(bottone.dataset.nome).then((scritto) => {
+    // Solo se questa richiesta ha davvero scritto: marcare un bottone la cui
+    // risposta e' stata scartata direbbe che si sta guardando una tabella che
+    // non e' a video.
+    if (!scritto) return;
+    for (const altro of document.querySelectorAll(".bottone")) {
+      if (altro.dataset.nome !== undefined) {
+        altro.setAttribute("aria-pressed", String(altro === bottone));
+      }
+    }
+  });
 });

@@ -2160,9 +2160,9 @@ assert.match(esito.textContent, /^7\\s+punti/, "un clic normale, senza accavalla
 
 
 def _banco_di_galleria() -> str:
-    return _DOM + _funzioni(
+    return _DOM + "const ORDINE_GALLERIA = [\"esito\"];\n" + _funzioni(
         "corpoLetto", "ragioneDelRifiuto", "serverMuto", "superata",
-        "apriGalleria", "dichiaraErrore", "disegnaTabellaGalleria", "mostraEsperimento",
+        "apriGalleria", "dichiaraErrore", "colonneOrdinate", "disegnaTabellaGalleria", "mostraEsperimento",
     ) + """
 let ultimaGalleria = 0;
 let risponde = [];
@@ -2205,7 +2205,7 @@ risolvi2({
 });
 assert.equal(await nuova, true, "la richiesta piu' recente non risulta scritta");
 assert.equal(
-  document.getElementById("galleria-tabella").figli[0].testo,
+  document.getElementById("galleria-didascalia").testo,
   "lab_crop: 1 candidati, 1 sul fronte.",
   "la tabella non mostra l'esperimento appena arrivato",
 );
@@ -2222,7 +2222,7 @@ risolvi1({
 });
 assert.equal(await vecchia, false, "la richiesta vecchia risulta scritta: doveva essere scartata");
 assert.equal(
-  document.getElementById("galleria-tabella").figli[0].testo,
+  document.getElementById("galleria-didascalia").testo,
   "lab_crop: 1 candidati, 1 sul fronte.",
   "la risposta vecchia, arrivata per ultima, ha scritto sopra la tabella piu' recente",
 );
@@ -2457,4 +2457,97 @@ await campi[0].scatena("input");
 assert.equal(applica.disabled, true, "un campo e' ancora vuoto e Applica si e' riacceso");
 console.log("ok");
 """
+
+
+# --------------------------------------------------------------------------
+# La galleria: otto colonne in 22rem, e l'impronta che le sfondava tutte.
+# --------------------------------------------------------------------------
+
+
+def test_la_didascalia_della_galleria_sta_fuori_dal_riquadro_che_scorre():
+    """Stava dentro .galleria-tabella, che ha overflow-x: auto. Scorrendo a
+    destra per leggere i numeri, «11 candidati, 1 sul fronte» usciva dallo
+    schermo insieme all'impronta: si perdeva insieme il conto e l'identita'
+    delle righe."""
+    markup = _senza_commenti_html(_markup())
+    assert 'id="galleria-didascalia"' in markup, "la didascalia non ha un posto proprio"
+    assert markup.index('id="galleria-didascalia"') < markup.index('id="galleria-tabella"'), (
+        "la didascalia e' finita dopo il riquadro che scorre"
+    )
+
+
+def test_il_riquadro_che_scorre_e_raggiungibile_da_tastiera():
+    """Lo stesso difetto per cui #registro ha un tabindex e otto righe di
+    commento: un contenitore che scorre e non contiene nulla di focalizzabile
+    e' irraggiungibile senza mouse su Chrome (WCAG 2.1.1, livello A)."""
+    elemento = _elemento(_senza_commenti_html(_markup()), "galleria-tabella")
+    assert 'tabindex="0"' in elemento, f"irraggiungibile senza mouse: {elemento}"
+    assert "aria-label" in elemento, f"raggiungibile e senza nome: {elemento}"
+
+
+def test_l_ordine_delle_colonne_mette_l_impronta_in_coda(tmp_path):
+    """L'insieme resta quello di report._COLUMNS — si sceglie per chiave, e una
+    colonna che l'ordine non nomina compare comunque — cambia il verso di
+    lettura. L'indice originale torna insieme alla colonna, perche' e' quello
+    con cui si indicizzano le celle della riga."""
+    sorgente = _DOM + _funzioni("colonneOrdinate") + """
+const ORDINE_GALLERIA = [
+  "outcome", "thickness_error", "tets", "over", "dihedral", "duration_s", "axes", "fingerprint",
+];
+const colonne = [
+  { chiave: "fingerprint", etichetta: "impronta" },
+  { chiave: "axes", etichetta: "assi" },
+  { chiave: "outcome", etichetta: "esito" },
+  { chiave: "tets", etichetta: "tetraedri" },
+  { chiave: "novita", etichetta: "colonna futura" },
+];
+const ordinate = colonneOrdinate(colonne, ORDINE_GALLERIA);
+const chiavi = ordinate.map((v) => v.colonna.chiave);
+assert.equal(chiavi[0], "outcome", `apre con ${chiavi[0]} invece che con l'esito`);
+assert.equal(chiavi[chiavi.length - 1], "novita", "una chiave sconosciuta e' sparita invece di finire in coda");
+assert.ok(chiavi.indexOf("fingerprint") > chiavi.indexOf("tets"), "l'impronta apre ancora la tabella");
+assert.equal(chiavi.length, colonne.length, "il riordino ha perso o duplicato una colonna");
+assert.equal(
+  ordinate.find((v) => v.colonna.chiave === "fingerprint").indice, 0,
+  "l'indice originale non torna: le celle finirebbero sotto la colonna sbagliata",
+);
+console.log("ok");
+"""
+    assert _esegui(tmp_path, sorgente).strip() == "ok"
+
+
+def test_la_riga_di_fronte_ha_un_canale_che_non_e_il_colore(tmp_path):
+    """L'appartenenza al fronte di Pareto e' la risposta all'intera domanda
+    della Fase 2, e a video era una tinta e un filetto: due canali visivi e
+    nessun canale testuale (WCAG 1.4.1). Peggio, il filetto e' ancorato al
+    bordo sinistro della riga ed esce dalla vista appena si scorre a destra,
+    cioe' proprio quando i numeri diventano leggibili."""
+    sorgente = _DOM + """
+const ORDINE_GALLERIA = ["outcome", "fingerprint"];
+""" + _funzioni("colonneOrdinate", "disegnaTabellaGalleria") + """
+disegnaTabellaGalleria({
+  nome: "lab_crop",
+  fronte: 1,
+  righe: [{ on_front: true }, { on_front: false }],
+  colonne: [
+    { chiave: "fingerprint", etichetta: "impronta" },
+    { chiave: "outcome", etichetta: "esito" },
+  ],
+  celle: [["a".repeat(64), "ok"], ["b".repeat(64), "ok"]],
+});
+const tabella = document.getElementById("galleria-tabella").figli[0];
+// figli[0] e' <caption>, figli[1] <thead>, figli[2] <tbody>.
+const righe = tabella.figli[2].figli;
+const testi = righe.map((r) => r.figli.map((c) => c.textContent));
+assert.notEqual(testi[0][0], testi[1][0], "le due righe non si distinguono per testo");
+assert.ok(testi[0].join(" ").includes("fronte"), `nessun canale testuale: ${testi[0]}`);
+const impronta = testi[0][testi[0].length - 1];
+assert.ok(impronta.length <= 12, `l'impronta piena sfonda ancora la colonna: ${impronta}`);
+assert.equal(
+  righe[0].figli[righe[0].figli.length - 1].getAttribute("title"), "a".repeat(64),
+  "l'impronta troncata ha perso il valore pieno",
+);
+console.log("ok");
+"""
+    assert _esegui(tmp_path, sorgente).strip() == "ok"
     assert _esegui(tmp_path, sorgente).strip() == "ok"
