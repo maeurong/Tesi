@@ -343,9 +343,18 @@ def create_app(config_path: Path) -> FastAPI:
                 }
             fuori[str(numero)] = {"blocchi": list(blocchi), "campi": campi}
         # Un predefinito puo' essere un Path, una tupla o un modello annidato:
-        # non tutti sono serializzabili in JSON, e il pannello li mostra come
-        # testo. default=str li rende senza inventarne il valore.
-        return json.loads(json.dumps(fuori, default=str))
+        # non tutti sono serializzabili in JSON. Un modello annidato (Material,
+        # per esempio) si serializza da solo in JSON quando gli si chiede
+        # model_dump(mode="json"): usare str() al suo posto produrrebbe il repr
+        # Python del modello, e il confronto col valore vivo (anch'esso JSON,
+        # da /api/config) non potrebbe mai risultare uguale — il campo
+        # risulterebbe cambiato a ogni corsa, sempre, e il repr finirebbe
+        # scritto a video in un'interfaccia italiana. str() resta la via per
+        # cio' che non e' un modello, come Path o una tupla.
+        def per_json(valore: object) -> object:
+            return valore.model_dump(mode="json") if isinstance(valore, BaseModel) else str(valore)
+
+        return json.loads(json.dumps(fuori, default=per_json))
 
     @app.get("/api/experiments")
     def esperimenti() -> dict[str, object]:

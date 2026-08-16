@@ -2805,6 +2805,10 @@ assert.equal(cambiatoDalPredefinito(9, 10), true, "due numeri diversi risultano 
 assert.equal(cambiatoDalPredefinito(false, false), false, "due booleani uguali");
 assert.equal(cambiatoDalPredefinito([1, 2], [1, 2]), false, "due liste uguali");
 assert.equal(cambiatoDalPredefinito([1, 2], [1, 3]), true, "due liste diverse");
+// Scelta deliberata e non un caso sfuggito: il confronto e' sul testo reso, e
+// un numero e la stessa cifra come stringa rendono lo stesso testo. Senza
+// questa riga la decisione resta scritta solo in un commento.
+assert.equal(cambiatoDalPredefinito(5, "5"), false, "un numero e la sua stringa risultano cambiati");
 console.log("ok");
 """
     assert _esegui(tmp_path, sorgente).strip() == "ok"
@@ -2864,6 +2868,22 @@ const riga = campoParametro("segment", "knn", { description: "vicini", default: 
 const testo = riga.figli.map((f) => f.textContent).join(" ");
 assert.match(testo, /30/, `il predefinito non e' scritto da nessuna parte: ${testo}`);
 assert.ok(riga.className.split(" ").includes("campo-cambiato"), "manca il canale visivo");
+console.log("ok");
+"""
+    assert _esegui(tmp_path, sorgente).strip() == "ok"
+
+
+def test_un_campo_al_predefinito_non_porta_ne_classe_ne_segno(tmp_path):
+    """Il rovescio del controllo sopra: un campo mai toccato non deve portare
+    ne' la classe ne' la nota, altrimenti «cambiato» smette di significare
+    qualcosa — un canale che si accende sempre non distingue piu' niente."""
+    sorgente = _DOM + """
+configurazione = { segment: { knn: 30 } };
+""" + _funzioni("cambiatoDalPredefinito", "campoParametro") + """
+const riga = campoParametro("segment", "knn", { description: "vicini", default: 30 }, 0);
+assert.ok(!riga.className.split(" ").includes("campo-cambiato"), "un campo fermo porta il canale visivo");
+const testo = riga.figli.map((f) => f.textContent).join(" ");
+assert.doesNotMatch(testo, /cambiato/, `un campo fermo dichiara comunque un cambiamento: ${testo}`);
 console.log("ok");
 """
     assert _esegui(tmp_path, sorgente).strip() == "ok"

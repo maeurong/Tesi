@@ -1762,6 +1762,21 @@ def test_lo_schema_dice_quali_parametri_appartengono_a_ogni_step(cliente):
     assert corpo["1"]["campi"]["input"]["path"]["default"] is None
 
 
+def test_il_predefinito_di_un_modello_annidato_e_json_non_un_repr(cliente):
+    """`analysis.material` e' un modello Pydantic con default_factory, non uno
+    scalare: se il suo predefinito esce come repr Python (`default=str` sul
+    modello intero) invece che come oggetto JSON, il confronto col valore vivo
+    di /api/config -- che e' sempre JSON -- non puo' mai risultare uguale, e il
+    pannello lo segnerebbe cambiato a ogni corsa, per sempre. Si guarda la
+    forma (un dict con le stesse chiavi del valore vivo), non i valori del
+    materiale: quelli vivono solo in config.py, non qui.
+    """
+    predefinito = cliente.get("/api/schema").json()["11"]["campi"]["analysis"]["material"]["default"]
+    assert isinstance(predefinito, dict), f"il predefinito e' un repr, non JSON: {predefinito!r}"
+    vivo = cliente.get("/api/config").json()["analysis"]["material"]
+    assert set(predefinito) == set(vivo), "il predefinito non ha le stesse chiavi del valore vivo"
+
+
 def test_il_tempo_dello_step_viene_dal_server_e_non_dal_browser(cliente):
     risposta = cliente.get("/api/events?max_eventi=1")
     assert risposta.status_code == 200
