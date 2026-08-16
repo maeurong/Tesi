@@ -1677,7 +1677,15 @@ def test_il_fronte_di_discesa_ricarica_anche_la_vista_e_non_solo_il_pannello():
     from meshrec.app.server import UI_DIR
 
     testo = (UI_DIR / "app.js").read_text(encoding="utf-8")
-    corpo = testo.split('addEventListener("stato"', 1)[1].split("\n});", 1)[0]
+    # Il corpo del gestore e' stato tirato fuori dalla freccia inline in una
+    # funzione di primo livello, perche' dentro la freccia non lo eseguiva
+    # nessun banco: e' li' che l'annuncio del fallimento veniva cancellato. Il
+    # controllo segue il corpo dove e' andato, e in piu' pretende che il flusso
+    # ci passi davvero — un corpo giusto che nessuno chiama e' codice morto.
+    assert 'addEventListener("stato", (evento) => aggiornaDaStato(' in testo, (
+        "il flusso degli eventi non chiama piu' il gestore"
+    )
+    corpo = testo.split("function aggiornaDaStato(", 1)[1].split("\n}\n", 1)[0]
     assert "apriDettaglio(stepAperto)" in corpo
     assert "ricaricaVista(stepMostrato)" in corpo, "la vista resta indietro sul fronte di discesa"
     assert "stepMostrato >= stato.step" in corpo, "chiede anche cio' che nessuna corsa ha toccato"

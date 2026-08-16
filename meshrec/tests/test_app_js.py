@@ -2279,9 +2279,15 @@ def test_la_riga_dell_esito_esiste_nel_markup_ed_e_una_regione_viva():
     """Come la regione role="alert": deve preesistere a cio' che annuncia.
     Creata nell'istante in cui ci si scrive dentro, l'annuncio non e'
     garantito."""
-    elemento = _elemento(_senza_commenti_html(_markup()), "esito")
+    markup = _senza_commenti_html(_markup())
+    elemento = _elemento(markup, "esito")
     assert 'aria-live="polite"' in elemento, f"la riga dell'esito non e' viva: {elemento}"
     assert "hidden" not in elemento, f"hidden la toglie dall'albero: {elemento}"
+    # E fuori dalla colonna del dettaglio, che apriDettaglio riscrive: e' li'
+    # che l'annuncio del fallimento veniva cancellato due righe dopo essere
+    # comparso, ed e' la ragione per cui l'esito ha una regione tutta sua.
+    dentro = markup.split('<div id="dettaglio"', 1)[1]
+    assert 'id="esito"' not in dentro, "la riga dell'esito e' finita dentro #dettaglio"
 
 
 def test_la_fine_della_corsa_distingue_fallito_annullato_e_concluso(tmp_path):
@@ -2347,6 +2353,113 @@ const senzaCampo = esitoDellaCorsa({ step: 9, annullato: false, steps });
 assert.equal(senzaCampo.errore, null, "exit_code assente non e' un fallimento");
 assert.match(senzaCampo.esito, /Tetraedri concluso/, "va detto concluso, non taciuto");
 
+console.log("ok");
+"""
+    assert _esegui(tmp_path, sorgente).strip() == "ok"
+
+
+# Il cablaggio del fronte di discesa, e non la sola decisione.
+_FRONTE_DI_DISCESA = """
+ETICHETTE["09_tetrahedralize"] = "Tetraedri";
+const steps = [{ numero: 9, chiave: "09_tetrahedralize", stato: "fallito" }];
+// Una corsa stava girando: e' il fronte di discesa che si vuole esercitare.
+let eraInCorso = true;
+let corsaInCorso = true;
+// null: il viewport non mostra niente, quindi non c'e' nessuna vista da
+// ricaricare e ricaricaVista non deve essere chiamata.
+let stepMostrato = null;
+// Il pannello e' aperto, che e' lo stato normale: il bottone Esegui vive
+// dentro quel pannello, quindi chi ha appena fatto partire una corsa lo ha
+// aperto per forza.
+stepAperto = 9;
+let riaperto = null;
+function disegnaStep() {}
+function spegniLeEsecuzioni() {}
+function ricaricaVista() { throw new Error("stepMostrato e' null: non c'era niente da ricaricare"); }
+// Il finto apriDettaglio fa le due sole cose di quello vero che contano qui:
+// si sospende su un'attesa (le sue due fetch) e poi chiama dichiaraErrore(null)
+// (app.js, subito dopo replaceChildren). Non e' un comodo del banco che rende
+// vera l'asserzione: e' la riga che cancellava l'annuncio, ritagliata al minimo
+// che la riproduce.
+async function apriDettaglio(numero) {
+  riaperto = numero;
+  await Promise.resolve();
+  dichiaraErrore(null);
+}
+"""
+
+
+def test_l_annuncio_del_fallimento_sopravvive_alla_riapertura_del_pannello(tmp_path):
+    """Il reperto Critico della revisione di branch, e il caso che nessun banco
+    eseguiva.
+
+    `esitoDellaCorsa` era stata estratta apposta perche' fosse eseguibile, ed e'
+    provata tre volte qui sopra. Ma il *cablaggio* — quale regione riceve il
+    testo e chi la svuota subito dopo — stava dentro la freccia inline del
+    gestore SSE, che `_sorgente_di` non sa estrarre. Scritto il fallimento nella
+    riga d'errore del pannello, la riga successiva riapriva il pannello, e
+    `apriDettaglio` svuotava quella regione dopo le proprie attese: l'allarme
+    durava due fetch su localhost e spariva, lasciando a video qualcosa di
+    indistinguibile da una corsa riuscita. E' il P0 della critica alla lettera,
+    e il fronte di discesa scatta una volta sola: l'annuncio non torna piu'.
+
+    Il controllo esegue il gestore vero, con un pannello aperto, e guarda che
+    cosa resta scritto **dopo** che apriDettaglio ha ripreso dalle sue attese.
+    """
+    sorgente = _DOM + _FRONTE_DI_DISCESA + _funzioni(
+        "nomeDelloStep", "esitoDellaCorsa", "mostraEsito", "dichiaraErrore", "aggiornaDaStato",
+    ) + """
+aggiornaDaStato({ in_corso: false, step: 9, da_secondi: null, exit_code: 1, annullato: false, steps });
+
+const riga = document.getElementById("esito");
+assert.match(riga.textContent, /codice 1/, "il fallimento non e' stato annunciato affatto");
+
+// Il turno successivo del ciclo degli eventi: apriDettaglio riprende da dopo
+// le proprie attese ed e' li' che l'annuncio spariva.
+await new Promise((r) => setTimeout(r, 0));
+assert.equal(riaperto, 9, "il pannello non e' stato riaperto: il caso non e' stato esercitato");
+assert.match(riga.textContent, /Tetraedri/, "l'annuncio non nomina piu' lo step");
+assert.match(
+  riga.textContent,
+  /codice 1/,
+  `l'annuncio del fallimento e' stato cancellato dalla riapertura del pannello: "${riga.textContent}"`,
+);
+assert.ok(
+  riga.className.split(" ").includes("esito-fallito"),
+  `un fallimento senza il proprio segno: "${riga.className}"`,
+);
+
+// Una corsa nuova pulisce, e quella che finisce bene non eredita il segno del
+// fallimento precedente: senza il ramo negativo del toggle, ogni esito buono
+// resterebbe colorato come un guasto per tutta la sessione.
+aggiornaDaStato({ in_corso: true, step: 9, da_secondi: 2, exit_code: null, annullato: false, steps });
+assert.equal(riga.textContent, "", "l'esito della corsa di prima descrive un lavoro diverso");
+aggiornaDaStato({ in_corso: false, step: 9, da_secondi: null, exit_code: 0, annullato: false, steps });
+await new Promise((r) => setTimeout(r, 0));
+assert.match(riga.textContent, /Tetraedri concluso/, "una corsa riuscita non e' annunciata");
+assert.ok(
+  !riga.className.split(" ").includes("esito-fallito"),
+  `una corsa riuscita porta il segno del fallimento: "${riga.className}"`,
+);
+
+console.log("ok");
+"""
+    assert _esegui(tmp_path, sorgente).strip() == "ok"
+
+
+def test_la_riga_di_stato_nomina_lo_step_invece_di_numerarlo(tmp_path):
+    """Il reperto della critica che il piano aveva accolto e non consegnato: la
+    colonna di sinistra mostra i nomi e questa riga diceva ancora «step 9».
+    `nomeDelloStep` esiste per togliere le due lingue; qui era rimasta la
+    seconda."""
+    sorgente = _DOM + _FRONTE_DI_DISCESA + _funzioni(
+        "nomeDelloStep", "esitoDellaCorsa", "mostraEsito", "dichiaraErrore", "aggiornaDaStato",
+    ) + """
+aggiornaDaStato({ in_corso: true, step: 9, da_secondi: 34.4, exit_code: null, annullato: false, steps });
+const barra = document.getElementById("in-corso");
+assert.match(barra.textContent, /^Tetraedri in corso/, `numera invece di nominare: "${barra.textContent}"`);
+assert.ok(!/step 9/.test(barra.textContent), `dice ancora il numero nudo: "${barra.textContent}"`);
+assert.match(barra.textContent, /34 s/, "il tempo misurato dal server non c'e' piu'");
 console.log("ok");
 """
     assert _esegui(tmp_path, sorgente).strip() == "ok"
@@ -2642,6 +2755,15 @@ def test_le_etichette_mostrate_portano_gli_accenti_italiani():
     modulo = _modulo()
     assert '"Qualità superficie"' in modulo, "l'etichetta dello step 7 e' senza accento"
     assert '"Qualità volume"' in modulo, "l'etichetta dello step 10 e' senza accento"
+    # Le due frasi piu' in vista del ramo: sono l'annuncio di un fallimento, e
+    # arrivavano davanti alla commissione scritte «e' fallito». Senza i
+    # commenti per la stessa ragione di «in giu'» qui sotto: un commento che
+    # discute la frase non e' la frase.
+    assert "è fallito (codice" in modulo, "l'annuncio del fallimento e' senza accento"
+    assert "e' fallito" not in _senza_commenti_js(modulo), (
+        "l'annuncio del fallimento e' senza accento"
+    )
+    assert "Il motivo è nelle ultime righe" in modulo, "il rimando al registro e' senza accento"
     # Senza i commenti: «riscrive gli artefatti dall'N in giu'» e' una
     # spiegazione, non un'etichetta, e vietare la stringa nei commenti
     # vieterebbe la spiegazione. E' la stessa ragione per cui

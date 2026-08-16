@@ -165,6 +165,12 @@ body {
    Cifre tabulari perche' ci finisce dentro una durata misurata. */
 .esito { margin: 0; font-size: var(--tipo-dato); line-height: var(--interlinea-riga); font-variant-numeric: tabular-nums; color: var(--tenue); }
 .esito:empty { margin: 0; }
+/* Una corsa fallita si annuncia qui e non nella riga d'errore del pannello:
+   quella la svuota apriDettaglio a ogni apertura, e il pannello si riapre da
+   solo appena la corsa finisce. Stesso colore di .errore, che e' lo stesso
+   fatto detto nello stesso posto di sempre; il testo lo dice comunque per
+   esteso, quindi il colore non e' l'unico canale (WCAG 1.4.1). */
+.esito-fallito { color: var(--guasto); }
 .registro { max-height: 14rem; overflow: auto; font-family: var(--stack-cifre); font-size: var(--tipo-nota); line-height: var(--interlinea); border: 1px solid var(--bordo); border-radius: var(--raggio); padding: var(--passo-2); }
 /* Il registro e' una tappa di tabulazione (tabindex="0" in index.html, perche'
    scorre e non contiene nulla di focalizzabile): reso raggiungibile senza un

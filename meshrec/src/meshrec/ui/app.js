@@ -31,8 +31,8 @@ function esitoDellaCorsa(stato) {
   if (stato.annullato) return { errore: null, esito: `${nome} annullato` };
   if (stato.exit_code !== 0 && stato.exit_code !== null && stato.exit_code !== undefined) {
     return {
-      errore: `${nome} e' fallito (codice ${stato.exit_code}). ` +
-        "Il motivo e' nelle ultime righe del registro, qui sotto.",
+      errore: `${nome} è fallito (codice ${stato.exit_code}). ` +
+        "Il motivo è nelle ultime righe del registro, qui sotto.",
       esito: null,
     };
   }
@@ -44,6 +44,22 @@ function esitoDellaCorsa(stato) {
   if (typeof secondi !== "number") return { errore: null, esito: `${nome} concluso` };
   const misura = secondi.toLocaleString("it", { maximumFractionDigits: 2 });
   return { errore: null, esito: `${nome} concluso in ${misura} s` };
+}
+
+// Dove finisce l'esito di una corsa: una regione sola per tutti e tre gli
+// esiti, #esito, che sta nella testata. Il fallimento andava in #errore, che
+// vive nella colonna del dettaglio, e apriDettaglio la svuota a ogni apertura:
+// l'annuncio spariva il tempo di due fetch dopo essere comparso, e cio' che
+// restava a video era indistinguibile da una corsa riuscita. Due meccanismi si
+// contendevano la stessa riga; adesso l'esito ne ha una sua, dove nessun
+// ricaricamento di pannello passa.
+// La classe accanto al testo e non al posto del testo: il fallimento si legge
+// per esteso comunque, e chi non distingue le tinte non perde niente (WCAG
+// 1.4.1). La classe aggiunge il peso visivo, non l'informazione.
+function mostraEsito(errore, esito) {
+  const riga = document.getElementById("esito");
+  riga.textContent = errore ?? esito ?? "";
+  riga.classList.toggle("esito-fallito", errore !== null && errore !== undefined);
 }
 
 // L'ultimo elenco di step arrivato dal server. Serve ai nomi: la didascalia
@@ -148,12 +164,21 @@ const flusso = new EventSource("/api/events");
 
 let eraInCorso = false;
 
-flusso.addEventListener("stato", (evento) => {
-  const stato = JSON.parse(evento.data);
+// Che cosa succede quando arriva un frame di stato. Di primo livello e non una
+// freccia dentro addEventListener, per la stessa ragione di esitoDellaCorsa:
+// dentro la freccia non lo esegue nessun banco. La decisione su come finisce
+// una corsa era gia' stata portata a tiro dei test; il *cablaggio* — quale
+// regione riceve il testo e chi la svuota subito dopo — era rimasto qui dentro,
+// ed e' li' che il difetto peggiore del giro e' sopravvissuto a otto revisioni.
+function aggiornaDaStato(stato) {
   disegnaStep(stato.steps);
   const barra = document.getElementById("in-corso");
   if (stato.in_corso && stato.da_secondi !== null) {
-    barra.textContent = `step ${stato.step} in corso, ${Math.round(stato.da_secondi)} s`;
+    // Il nome e non il numero: la colonna di sinistra mostra i nomi, e questa
+    // riga diceva «step 9». Sono le due lingue per la stessa cosa che
+    // nomeDelloStep esiste per togliere, e la riga di stato era rimasta indietro.
+    barra.textContent =
+      `${nomeDelloStep(stato.step, stato.steps)} in corso, ${Math.round(stato.da_secondi)} s`;
     barra.hidden = false;
   } else {
     barra.hidden = true;
@@ -173,21 +198,25 @@ flusso.addEventListener("stato", (evento) => {
   // sinistra mentre a destra restano le metriche di prima, o nessuna. Non a
   // ogni evento, perche' lo stato arriva ogni mezzo secondo e il pannello si
   // riscriverebbe sotto le dita di chi sta compilando un campo.
-  const rigaEsito = document.getElementById("esito");
   // Sul fronte di salita si pulisce: l'esito della corsa precedente, lasciato
   // li', descriverebbe un lavoro diverso da quello che sta girando adesso.
   // L'errore va con l'esito, per la stessa ragione: lasciato a video per
   // tutta la corsa nuova, non solo per l'istante del cambio di stato.
   if (!eraInCorso && stato.in_corso) {
-    rigaEsito.textContent = "";
+    mostraEsito(null, null);
     dichiaraErrore(null);
   }
   if (eraInCorso && !stato.in_corso) {
     const { errore, esito } = esitoDellaCorsa(stato);
-    // dichiaraErrore(null) su un esito buono e' voluto: un errore di prima
-    // lasciato a video contraddirebbe la corsa che si e' appena conclusa bene.
-    dichiaraErrore(errore);
-    rigaEsito.textContent = esito ?? "";
+    // Tutti e tre gli esiti vanno in #esito, fallimento compreso, e #errore si
+    // svuota. Il fallimento scritto in #errore non sopravviveva alla riga qui
+    // sotto: apriDettaglio svuota quella regione dopo le proprie attese, e
+    // stepAperto !== null e' lo stato normale perche' il bottone Esegui sta
+    // dentro il pannello che si riapre. Un errore di prima lasciato a video
+    // contraddirebbe comunque la corsa appena conclusa, quindi si svuota anche
+    // quando la corsa e' andata bene.
+    dichiaraErrore(null);
+    mostraEsito(errore, esito);
     if (stepAperto !== null) apriDettaglio(stepAperto);
     // La vista quanto il pannello: senza questa riga lo step rieseguito mostra
     // a destra le metriche nuove e nel viewport il contorno vecchio, col
@@ -200,7 +229,9 @@ flusso.addEventListener("stato", (evento) => {
     }
   }
   eraInCorso = stato.in_corso;
-});
+}
+
+flusso.addEventListener("stato", (evento) => aggiornaDaStato(JSON.parse(evento.data)));
 
 // Quante righe restano nel registro. E' una finestra di lettura, non una
 // misura: chi vuole tutto lo stdout ha il file della corsa su disco.
