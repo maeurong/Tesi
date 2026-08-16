@@ -226,6 +226,18 @@ body {
 .errore:empty { margin: 0; }
 .errore-campo { color: var(--guasto); font-size: var(--tipo-nota); line-height: var(--interlinea); max-width: var(--misura); overflow-wrap: anywhere; text-wrap: pretty; }
 .campo input[readonly] { background: var(--spento); color: var(--tenue); }
+/* Il campo che questa corsa ha spostato dal predefinito. Nessun fondo pieno e
+   nessuna barra laterale: un filetto sotto l'etichetta basta a farlo trovare
+   scorrendo, e il fatto sta comunque scritto sotto il campo. */
+.campo-cambiato > span:first-child { font-weight: 600; }
+.segno-cambiato { color: var(--tenue); }
+/* La piega dei predefiniti. Il triangolo resta quello del browser: e' un
+   affordance standard, e riscriverlo sarebbe reinventare un comando che tutti
+   riconoscono. */
+.gruppo details { margin-top: var(--passo-2); }
+.gruppo summary { font-size: var(--tipo-nota); line-height: var(--interlinea-riga); color: var(--tenue); cursor: pointer; padding: var(--passo-1) 0; }
+.gruppo summary:focus-visible { outline: 2px solid var(--accento); outline-offset: 2px; }
+.gruppo details[open] summary { margin-bottom: var(--passo-2); }
 .aiuto { color: var(--tenue); font-size: var(--tipo-nota); line-height: var(--interlinea); max-width: var(--misura); text-wrap: pretty; }
 .metriche { display: grid; grid-template-columns: auto 1fr; gap: var(--passo-1) var(--passo-3); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); }
 .metriche dt { color: var(--tenue); }

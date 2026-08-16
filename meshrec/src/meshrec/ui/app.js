@@ -928,6 +928,25 @@ async function scriviParametro(blocco, nome, input, messaggio, ordine) {
 // schermo non compariva niente. Il tipo lo conosce solo il modello, e
 // /api/schema oggi non lo manda: finche' non lo manda, la casella lascia
 // passare cio' che e' stato battuto e il rifiuto torna visibile come 422.
+// Se questa corsa ha spostato il parametro da cio' che il modello scrive quando
+// nessuno tocca niente. /api/schema manda il predefinito di ogni campo e
+// l'interfaccia lo buttava via: in un prodotto la cui tesi e' la
+// riproducibilita', «che cosa ho cambiato dallo stock» e' la prima domanda, e
+// la risposta era gia' nel browser.
+// Il confronto e' sul testo reso e non sui valori: il campo mostra una stringa,
+// e /api/schema serializza i predefiniti con default=str, quindi un Path arriva
+// gia' come testo. Confrontare i valori grezzi segnerebbe come cambiato un
+// parametro che nessuno ha toccato.
+function cambiatoDalPredefinito(valore, predefinito) {
+  const reso = (v) =>
+    v === null || v === undefined
+      ? ""
+      : ["string", "number", "boolean"].includes(typeof v)
+        ? String(v)
+        : JSON.stringify(v);
+  return reso(valore) !== reso(predefinito);
+}
+
 function campoParametro(blocco, nome, campo, ordine) {
   const riga = document.createElement("label");
   riga.className = "campo";
@@ -960,7 +979,60 @@ function campoParametro(blocco, nome, campo, ordine) {
     : [campo.description, "si modifica dal file di configurazione"]
         .filter(Boolean).join(" — ");
   riga.append(aiuto, messaggio);
+  // Due canali: la classe per chi guarda, il predefinito scritto per chi legge.
+  // Il colore da solo lascerebbe fuori chi non distingue le tinte, e il valore
+  // di partenza e' l'informazione vera — sapere che «e' cambiato» senza sapere
+  // «da che cosa» non chiude nessuna domanda.
+  if (cambiatoDalPredefinito(valore, campo.default)) {
+    riga.classList.toggle("campo-cambiato", true);
+    const segno = document.createElement("small");
+    segno.className = "aiuto segno-cambiato";
+    const stock = campo.default === null || campo.default === undefined
+      ? "nessuno"
+      : String(campo.default);
+    segno.textContent = `cambiato — predefinito: ${stock}`;
+    riga.append(segno);
+  }
   return riga;
+}
+
+// Il fieldset di un blocco. `segment` rende undici campi, `surface` nove: molto
+// oltre i quattro elementi che si tengono in mente insieme, e senza nessun
+// ordine dentro.
+// Il taglio fra cio' che si apre e cio' che si richiude non lo decide il gusto:
+// e' cio' che questa corsa ha spostato dal predefinito. Un elenco
+// base/avanzato scritto qui sarebbe una classificazione che nessun dato
+// sostiene, e i nomi dei parametri non ne portano una — la stessa ragione per
+// cui l'ordine dei gruppi del viewport e' diventato funzione del dato.
+// <details> nativo e non un pannello richiudibile scritto a mano: porta con se'
+// il proprio ruolo, la propria tastiera e il proprio stato, e nessuno dei tre
+// va reimplementato.
+function gruppoDelBlocco(blocco, campi, ordine) {
+  const gruppo = document.createElement("fieldset");
+  gruppo.className = "gruppo";
+  gruppo.append(Object.assign(document.createElement("legend"), { textContent: blocco }));
+  const cambiati = [];
+  const fermi = [];
+  for (const [nome, campo] of Object.entries(campi)) {
+    const riga = campoParametro(blocco, nome, campo, ordine);
+    const spostato = cambiatoDalPredefinito(configurazione[blocco][nome], campo.default);
+    (spostato ? cambiati : fermi).push(riga);
+  }
+  gruppo.append(...cambiati);
+  if (fermi.length > 0) {
+    const piega = document.createElement("details");
+    const titolo = document.createElement("summary");
+    titolo.textContent = fermi.length === 1
+      ? "1 parametro al valore predefinito"
+      : `${fermi.length} parametri al valore predefinito`;
+    piega.append(titolo, ...fermi);
+    // Aperta quando non c'e' nient'altro: alla prima corsa nessun parametro e'
+    // stato spostato, e un pannello che mostra solo una riga da cliccare non
+    // insegna niente a chi apre lo step per la prima volta.
+    if (cambiati.length === 0) piega.open = true;
+    gruppo.append(piega);
+  }
+  return gruppo;
 }
 
 // Le due uscite d'errore di apriDettaglio, in un punto solo. Il pannello resta
@@ -1153,15 +1225,7 @@ async function apriDettaglio(numero, ordine = generazione) {
   dettaglio.append(azioniDelloStep(numero, ordine));
 
   for (const blocco of voce.blocchi) {
-    const gruppo = document.createElement("fieldset");
-    gruppo.className = "gruppo";
-    const titolo = document.createElement("legend");
-    titolo.textContent = blocco;
-    gruppo.append(titolo);
-    for (const [nome, campo] of Object.entries(voce.campi[blocco])) {
-      gruppo.append(campoParametro(blocco, nome, campo, ordine));
-    }
-    dettaglio.append(gruppo);
+    dettaglio.append(gruppoDelBlocco(blocco, voce.campi[blocco], ordine));
   }
 
   // Dentro dettaglio, che replaceChildren() svuota a ogni apertura: cosi' il

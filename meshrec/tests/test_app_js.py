@@ -1216,7 +1216,7 @@ def _banco_del_campo() -> str:
     """
     return _DOM + _funzioni(
         "valoreScritto", "ragioneDelRifiuto", "serverMuto", "superata", "corpoLetto",
-        "segnalaCampo", "apriBattuta", "scriviParametro", "campoParametro",
+        "segnalaCampo", "apriBattuta", "scriviParametro", "cambiatoDalPredefinito", "campoParametro",
     ) + """
 // Il terzo contatore di Rilievo 1, per campo: scriviParametro lo legge dal
 // modulo per nome, non da un parametro, quindi il banco deve ricrearlo tale e
@@ -1687,8 +1687,8 @@ def _banco_di_apriDettaglio() -> str:
     return _DOM + _funzioni(
         "segnaStepAperto", "nuovaRiga", "disegnaStep", "dichiaraErrore", "fallisciDettaglio",
         "ragioneDelRifiuto", "serverMuto", "superata", "corpoLetto", "valoreScritto",
-        "segnalaCampo", "apriBattuta", "scriviParametro", "campoParametro", "azioniDelloStep",
-        "apriDettaglio",
+        "segnalaCampo", "apriBattuta", "scriviParametro", "cambiatoDalPredefinito", "campoParametro",
+        "gruppoDelBlocco", "azioniDelloStep", "apriDettaglio",
     ) + """
 let ultimaBattutaDelCampo = new Map();
 let schemaParametri = null;
@@ -2785,3 +2785,85 @@ def test_l_ultimo_step_ha_un_nome_solo_e_lo_leggono_entrambe_le_etichette():
     assert re.search(r"all'11\b", corpo) is None, (
         "un'etichetta scrive ancora il numero dell'ultimo step alla lettera"
     )
+
+
+# --------------------------------------------------------------------------
+# I predefiniti: erano sul filo e finivano nel cestino.
+# --------------------------------------------------------------------------
+
+
+def test_il_confronto_col_predefinito_e_sul_testo_reso(tmp_path):
+    """Il campo mostra una stringa, e /api/schema serializza i predefiniti con
+    default=str: un Path arriva come testo. Confrontare i valori grezzi
+    segnerebbe come «cambiato» un parametro che nessuno ha toccato, solo perche'
+    le due grafie dello stesso valore non sono lo stesso oggetto."""
+    sorgente = _DOM + _funzioni("cambiatoDalPredefinito") + """
+assert.equal(cambiatoDalPredefinito(9, 9), false, "lo stesso numero risulta cambiato");
+assert.equal(cambiatoDalPredefinito(null, null), false, "due assenze risultano diverse");
+assert.equal(cambiatoDalPredefinito(0.005, null), true, "un valore su un predefinito assente");
+assert.equal(cambiatoDalPredefinito(9, 10), true, "due numeri diversi risultano uguali");
+assert.equal(cambiatoDalPredefinito(false, false), false, "due booleani uguali");
+assert.equal(cambiatoDalPredefinito([1, 2], [1, 2]), false, "due liste uguali");
+assert.equal(cambiatoDalPredefinito([1, 2], [1, 3]), true, "due liste diverse");
+console.log("ok");
+"""
+    assert _esegui(tmp_path, sorgente).strip() == "ok"
+
+
+def test_il_blocco_apre_sui_cambiati_e_richiude_i_predefiniti(tmp_path):
+    """Il fieldset `segment` rendeva undici campi di fila, `surface` nove: molto
+    oltre i quattro elementi che si tengono in mente insieme. Il taglio non e'
+    inventato — e' cio' che questa corsa ha spostato dal predefinito, che e'
+    anche la sola domanda che un prodotto sulla riproducibilita' deve saper
+    rispondere a colpo d'occhio."""
+    sorgente = _DOM + """
+configurazione = { segment: { method: "auto", knn: 20, soglia: 0.01 } };
+""" + _funzioni("cambiatoDalPredefinito", "campoParametro", "gruppoDelBlocco") + """
+const campi = {
+  method: { description: "come segmentare", default: "auto" },
+  knn: { description: "vicini", default: 30 },
+  soglia: { description: "soglia", default: 0.01 },
+};
+const gruppo = gruppoDelBlocco("segment", campi, 0);
+const pieghe = gruppo.figli.filter((f) => f.tag === "details");
+assert.equal(pieghe.length, 1, "i predefiniti non si richiudono");
+const aperti = gruppo.figli.filter((f) => f.tag === "label");
+assert.equal(aperti.length, 1, `aperto ${aperti.length} campi invece del solo cambiato`);
+assert.equal(pieghe[0].figli.filter((f) => f.tag === "label").length, 2, "due predefiniti nella piega");
+assert.notEqual(pieghe[0].open, true, "la piega e' aperta pur avendo un cambiato fuori");
+console.log("ok");
+"""
+    assert _esegui(tmp_path, sorgente).strip() == "ok"
+
+
+def test_un_blocco_tutto_al_predefinito_nasce_aperto(tmp_path):
+    """Alla prima corsa nessun parametro e' stato spostato, e un pannello che
+    mostra solo una riga da cliccare non insegna niente a chi apre lo step per
+    la prima volta. E' l'utente successivo confermato da PRODUCT.md."""
+    sorgente = _DOM + """
+configurazione = { segment: { knn: 30, soglia: 0.01 } };
+""" + _funzioni("cambiatoDalPredefinito", "campoParametro", "gruppoDelBlocco") + """
+const gruppo = gruppoDelBlocco("segment", {
+  knn: { description: "vicini", default: 30 },
+  soglia: { description: "soglia", default: 0.01 },
+}, 0);
+const piega = gruppo.figli.find((f) => f.tag === "details");
+assert.equal(piega.open, true, "il primo avvio si apre su una riga da cliccare");
+console.log("ok");
+"""
+    assert _esegui(tmp_path, sorgente).strip() == "ok"
+
+
+def test_un_campo_cambiato_dichiara_il_predefinito_per_iscritto(tmp_path):
+    """Non il solo colore: «che cosa ho spostato dallo stock» e' la storia che la
+    tesi racconta, e chi non distingue le tinte deve poterla leggere."""
+    sorgente = _DOM + """
+configurazione = { segment: { knn: 20 } };
+""" + _funzioni("cambiatoDalPredefinito", "campoParametro") + """
+const riga = campoParametro("segment", "knn", { description: "vicini", default: 30 }, 0);
+const testo = riga.figli.map((f) => f.textContent).join(" ");
+assert.match(testo, /30/, `il predefinito non e' scritto da nessuna parte: ${testo}`);
+assert.ok(riga.className.split(" ").includes("campo-cambiato"), "manca il canale visivo");
+console.log("ok");
+"""
+    assert _esegui(tmp_path, sorgente).strip() == "ok"
