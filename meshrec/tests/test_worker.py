@@ -141,7 +141,7 @@ def test_una_corsa_conclusa_porta_sempre_il_proprio_codice_di_uscita():
     lavoratore = Worker()
     lavoratore._processo = _ProcessoUscitoCollettoStdout(1, a_meta, prosegui)
     lavoratore._concluso.clear()
-    lettore = threading.Thread(target=lavoratore._leggi, daemon=True)
+    lettore = threading.Thread(target=lavoratore._leggi, args=(lavoratore._processo,), daemon=True)
     lettore.start()
     assert a_meta.wait(timeout=10), "il lettore non e' mai partito"
 
@@ -182,7 +182,7 @@ def test_un_popen_che_solleva_non_lascia_il_worker_impiccato(tmp_path, monkeypat
     subito.set()
     lavoratore._processo = _ProcessoUscitoCollettoStdout(3, fatto, subito)
     lavoratore._concluso.clear()
-    lavoratore._leggi()
+    lavoratore._leggi(lavoratore._processo)
     assert lavoratore.is_running() is False
     assert lavoratore.exit_code == 3
     lavoratore.annullato = True
@@ -218,20 +218,19 @@ def test_due_start_sovrapposte_avviano_un_solo_processo(tmp_path, monkeypatch):
     un pool di thread — ed e' la stessa riga su cui il registro fonda il Minor
     lasciato dei bottoni Esegui: «un secondo clic prende un 400 dal worker».
     Dentro quella finestra il 400 non arrivava.
+
+    Il worker parte qui vergine, `_processo is None`, che e' il caso piu'
+    probabile e non il piu' raro: pagina fresca dopo l'avvio del server, doppio
+    clic impaziente. E' anche l'unico ramo in cui una prenotazione presa ma non
+    consultata resta inerte, perche' is_running() usciva su `_processo is None`
+    prima ancora di guardare `_concluso`.
     """
     cfg = PipelineConfig(input=InputConfig(path=tmp_path / "assente.ply"))
     cfg.run.out_dir = tmp_path / "corsa"
     percorso = tmp_path / "config.yaml"
     save_config(cfg, percorso)
 
-    # Come sopra: un worker che ha gia' concluso una corsa. E' li' che la
-    # prenotazione conta, perche' poll() da solo non dice piu' «ferma».
     lavoratore = Worker()
-    fatto, subito = threading.Event(), threading.Event()
-    subito.set()
-    lavoratore._processo = _ProcessoUscitoCollettoStdout(0, fatto, subito)
-    lavoratore._concluso.clear()
-    lavoratore._leggi()
     assert lavoratore.is_running() is False
 
     creati = []
@@ -267,6 +266,106 @@ def test_due_start_sovrapposte_avviano_un_solo_processo(tmp_path, monkeypatch):
     primo.join(timeout=10)
     assert creati == [1], f"sono stati avviati {len(creati)} processi sulla stessa corsa"
     assert esiti == ["rifiutata"], f"il secondo clic non e' stato rifiutato: {esiti}"
+
+
+def test_dentro_la_popen_lo_stato_e_gia_quello_della_corsa_nuova(tmp_path, monkeypatch):
+    """La prenotazione rende viva la finestra del fork+exec: da li' is_running()
+    risponde True e il frame SSE porta step e secondi. Se le due righe stanno
+    sotto la Popen, quel frame porta lo step e il cronometro della corsa
+    *precedente* -- «Riduzione in corso, 800 s» per una corsa appena lanciata su
+    Tetraedri. Un numero misurato che nessuna misura sostiene, che e' il difetto
+    che questo ramo esiste per non commettere.
+    """
+    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "assente.ply"))
+    cfg.run.out_dir = tmp_path / "corsa"
+    percorso = tmp_path / "config.yaml"
+    save_config(cfg, percorso)
+
+    lavoratore = Worker()
+    # Una corsa precedente conclusa sullo step 3, partita ottocento secondi fa.
+    lavoratore.step = 3
+    lavoratore.avviato = time.monotonic() - 800.0
+
+    visto = {}
+
+    def popen_che_guarda(*_args, **_chiavi):
+        # Dentro il fork+exec: e' il momento in cui un frame SSE puo' cadere.
+        visto["step"] = lavoratore.step
+        visto["da_secondi"] = lavoratore.da_secondi()
+        finito, gia = threading.Event(), threading.Event()
+        gia.set()
+        return _ProcessoUscitoCollettoStdout(0, finito, gia)
+
+    monkeypatch.setattr("meshrec.app.worker.subprocess.Popen", popen_che_guarda)
+    lavoratore.start(percorso, 9, 9)
+
+    assert visto["step"] == 9, "il frame nomina lo step della corsa precedente"
+    assert visto["da_secondi"] is not None, "la finestra viva che si vuole provare non esiste piu'"
+    assert visto["da_secondi"] < 5.0, (
+        f"la corsa appena lanciata si dichiara vecchia di {visto['da_secondi']:.0f} s"
+    )
+
+
+class _ProcessoVivoFinoAlKill:
+    """Un figlio che resta vivo finche' non lo si uccide.
+
+    Serve a distinguere «rilasciata la prenotazione» da «il figlio non c'e'
+    piu'»: con un fantoccio gia' uscito poll() risponderebbe subito e il worker
+    sembrerebbe a posto anche senza il kill.
+    """
+
+    def __init__(self) -> None:
+        self.stdout = iter(())
+        self.returncode: int | None = None
+        self.ucciso = False
+
+    def poll(self) -> int | None:
+        return self.returncode
+
+    def kill(self) -> None:
+        self.ucciso = True
+        self.returncode = -9
+
+    def wait(self) -> int | None:
+        return self.returncode
+
+
+def test_un_thread_che_non_parte_non_lascia_un_figlio_orfano(tmp_path, monkeypatch):
+    """Il gemello di `test_un_popen_che_solleva...`, un passo piu' avanti.
+
+    Quando e' Thread.start() a fallire -- esaurimento dei thread -- il figlio e'
+    gia' vivo. Rialzare `_concluso` non basta: `poll()` non vede nessuna uscita,
+    quindi is_running() resta True per sempre, senza nessun lettore che ne
+    svuoti lo stdout, e il `meshrec run` orfano continua a girare. Si
+    recuperava solo cliccando Annulla.
+    """
+    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "assente.ply"))
+    cfg.run.out_dir = tmp_path / "corsa"
+    percorso = tmp_path / "config.yaml"
+    save_config(cfg, percorso)
+
+    figli = []
+
+    def popen_finta(*_args, **_chiavi):
+        figli.append(_ProcessoVivoFinoAlKill())
+        return figli[-1]
+
+    class _ThreadCheNonParte:
+        def __init__(self, *_args, **_chiavi) -> None:
+            pass
+
+        def start(self) -> None:
+            raise RuntimeError("can't start new thread")
+
+    monkeypatch.setattr("meshrec.app.worker.subprocess.Popen", popen_finta)
+    monkeypatch.setattr("meshrec.app.worker.threading.Thread", _ThreadCheNonParte)
+
+    lavoratore = Worker()
+    with pytest.raises(RuntimeError):
+        lavoratore.start(percorso, 1, 1)
+
+    assert figli[0].ucciso is True, "il figlio resta a girare senza nessuno che lo legga"
+    assert lavoratore.is_running() is False, "il worker si dichiara occupato per sempre"
 
 
 def test_un_annullamento_che_arriva_a_esito_gia_scritto_non_marca(tmp_path):
@@ -314,7 +413,7 @@ def test_un_annullamento_arrivato_dopo_una_corsa_riuscita_non_dice_annullato():
     # Lo stato che cancel() lascia quando arriva un istante troppo tardi.
     lavoratore.annullato = True
 
-    lavoratore._leggi()
+    lavoratore._leggi(lavoratore._processo)
 
     assert lavoratore.exit_code == 0
     assert lavoratore.annullato is False, (

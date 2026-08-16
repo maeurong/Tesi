@@ -40,7 +40,14 @@ class Worker:
 
     def is_running(self) -> bool:
         if self._processo is None:
-            return False
+            # Nessun processo non vuol dire libero: fra la prenotazione presa
+            # da start() e la Popen che assegna _processo ci sta un fork+exec,
+            # e sulla PRIMA corsa del server questo ramo e' l'unico che si
+            # percorre. Rispondendo False si lasciavano passare due start()
+            # sovrapposte proprio nel caso piu' probabile -- pagina fresca,
+            # doppio clic impaziente. Su un Worker appena costruito _concluso
+            # nasce alzato, quindi la risposta resta False.
+            return not self._concluso.is_set()
         if self._processo.poll() is None:
             return True
         # Il figlio e' uscito, ma l'esito lo scrive il thread lettore dopo aver
@@ -84,9 +91,21 @@ class Worker:
         # E va rilasciata se qualcosa sotto solleva: un _concluso abbassato
         # senza un lettore che lo rialzi e' un worker impiccato, con ogni
         # start() successiva rifiutata e niente da annullare. Il try copre
-        # anche Thread.start(), che puo' fallire quanto la Popen.
+        # anche Thread.start(), che puo' fallire quanto la Popen: li' il figlio
+        # esiste gia', e rilasciare la prenotazione senza ucciderlo lascerebbe
+        # un `meshrec run` orfano con lo stdout che nessuno drena.
         self._concluso.clear()
+        processo = None
         try:
+            # Lo step e il cronometro prima della Popen: la prenotazione rende
+            # ora *viva* la finestra del fork+exec, e un frame SSE che ci cade
+            # dentro portava in_corso: true con lo step e i secondi della corsa
+            # precedente -- «Riduzione in corso, 800 s» per una corsa appena
+            # lanciata su Tetraedri, cioe' un numero che nessuna misura
+            # sostiene. Se la Popen solleva, l'except rialza _concluso e
+            # da_secondi() torna None, quindi nessuno li legge.
+            self.step = from_step
+            self.avviato = time.monotonic()
             processo = subprocess.Popen(
                 [
                     sys.executable, "-m", "meshrec.cli", "run", str(config_path),
@@ -105,18 +124,25 @@ class Worker:
                 self._righe.clear()
                 self.exit_code = None
                 self.annullato = False
-            self.step = from_step
-            self.avviato = time.monotonic()
             self._processo = processo
-            threading.Thread(target=self._leggi, daemon=True).start()
+            # Il processo passato per argomento e non riletto da self: due
+            # start() sovrapposte si scrivono _processo a turno, e un lettore
+            # che rilegge il campo puo' agganciarsi al figlio dell'altra corsa,
+            # lasciando il proprio stdout senza nessuno che lo svuoti.
+            threading.Thread(target=self._leggi, args=(processo,), daemon=True).start()
         except BaseException:
+            if processo is not None:
+                # Il figlio e' gia' vivo: senza questo resta orfano, con
+                # is_running() bloccato su True (poll() non vede nessuna
+                # uscita) e nessun lettore, recuperabile solo con Annulla.
+                processo.kill()
+                processo.wait()
             self._concluso.set()
             raise
 
-    def _leggi(self) -> None:
-        processo = self._processo
+    def _leggi(self, processo: subprocess.Popen[str]) -> None:
         try:
-            if processo is None or processo.stdout is None:
+            if processo.stdout is None:
                 return
             for riga in processo.stdout:
                 with self._lucchetto:
@@ -137,8 +163,8 @@ class Worker:
                 if self.exit_code == 0:
                     self.annullato = False
         finally:
-            # Nel finally e non in coda: un'uscita anticipata (nessun processo,
-            # nessuno stdout) deve comunque sbloccare is_running(), altrimenti
+            # Nel finally e non in coda: un'uscita anticipata (nessuno stdout)
+            # deve comunque sbloccare is_running(), altrimenti
             # la corsa resterebbe «in volo» per sempre.
             self._concluso.set()
 
