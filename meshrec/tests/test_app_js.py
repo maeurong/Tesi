@@ -735,8 +735,8 @@ def _banco_di_geometria() -> str:
     `ultimaGeometria` li distingue.
     """
     return _DOM + _funzioni(
-        "apriGeometria", "superata", "nomeDelloStep", "dichiaraCaricamento",
-        "mostraNuvolaDelloStep", "mostraStep",
+        "apriGeometria", "superata", "nomeDelloStep", "dichiaraCaricamento", "chiudiCaricamento",
+        "serverMuto", "ragioneDelRifiuto", "mostraNuvolaDelloStep", "mostraStep",
     ) + """
 let ultimaGeometria = 0;
 let ultimiSteps = [];
@@ -827,6 +827,93 @@ risolvi1({
 assert.equal(await vecchia, false, "la mesh vecchia risulta disegnata: doveva essere scartata");
 assert.equal(vista.disegnato.lunghezza, 21,
   "la mesh vecchia, arrivata per ultima, ha scritto sopra quella piu' recente");
+""")
+
+
+# --------------------------------------------------------------------------
+# aria-busy: chi lo chiude, e chi non deve toccarlo.
+# --------------------------------------------------------------------------
+
+
+def test_una_risposta_arrivata_chiude_il_caricamento(tmp_path):
+    """Il caso comune: la risposta passa la guardia dell'ordine e scrive.
+    chiudiCaricamento() deve girare, non restare marcato all'infinito."""
+    _esegui(tmp_path, _banco_di_geometria() + """
+document.getElementById("viewport").setAttribute("aria-busy", "true");
+risponde = [() => ({
+  ok: true,
+  headers: { get: (nome) => ({ "X-Points-Drawn": "3", "X-Points-Total": "3" }[nome]) },
+  arrayBuffer: async () => new ArrayBuffer(12),
+})];
+await mostraNuvolaDelloStep(9, generazione);
+assert.equal(
+  document.getElementById("viewport").getAttribute("aria-busy"), null,
+  "una risposta disegnata lascia la tela marcata come occupata",
+);
+""")
+
+
+def test_nessun_artefatto_chiude_il_caricamento_e_non_lo_confonde_con_un_server_muto(tmp_path):
+    """Un 404 vero (lo step non ha ancora un artefatto) e' un dato negativo
+    documentato, non un guasto: il testo resta quello di sempre e la tela
+    smette comunque di dirsi occupata."""
+    _esegui(tmp_path, _banco_di_geometria() + """
+document.getElementById("viewport").setAttribute("aria-busy", "true");
+risponde = [() => ({ ok: false, status: 404, text: async () => "" })];
+await mostraNuvolaDelloStep(9, generazione);
+assert.equal(
+  document.getElementById("viewport").getAttribute("aria-busy"), null,
+  "\\"nessun artefatto\\" lascia la tela marcata come occupata",
+);
+assert.equal(
+  document.getElementById("conteggi").textContent, "nessun artefatto per questo step",
+  "il testo del rifiuto documentato e' cambiato",
+);
+""")
+
+
+def test_il_server_muto_chiude_il_caricamento_e_segnala_il_server_non_il_dato(tmp_path):
+    """Il guasto vero: fetch rigetta (rete caduta, non un HTTP di rifiuto).
+    Prima della correzione questo rigetto usciva non gestito e la tela restava
+    marcata occupata per sempre. Ora .catch(serverMuto) lo prende, e il testo
+    deve dire che il server non ha risposto — non che il dato non esiste,
+    che e' il fatto opposto."""
+    _esegui(tmp_path, _banco_di_geometria() + """
+document.getElementById("viewport").setAttribute("aria-busy", "true");
+risponde = [() => { throw new TypeError("fetch failed"); }];
+await mostraNuvolaDelloStep(9, generazione);
+assert.equal(
+  document.getElementById("viewport").getAttribute("aria-busy"), null,
+  "il server muto lascia la tela marcata come occupata",
+);
+const didascalia = document.getElementById("conteggi").textContent;
+assert.match(didascalia, /il server non ha risposto/,
+  `il server muto non viene raccontato come tale: ${didascalia}`);
+assert.doesNotMatch(didascalia, /nessun artefatto/,
+  `il server muto si confonde con un rifiuto documentato: ${didascalia}`);
+""")
+
+
+def test_una_risposta_scartata_non_chiude_il_caricamento(tmp_path):
+    """La guardia contro un chiudiCaricamento() spostato in un finally: una
+    risposta che la regola dell'ordine scarta non deve toccare aria-busy,
+    perche' e' la risposta che vince la propria corsa a doverlo chiudere. Un
+    finally cieco lo toglierebbe anche qui, e questo diventerebbe rosso."""
+    _esegui(tmp_path, _banco_di_geometria() + """
+document.getElementById("viewport").setAttribute("aria-busy", "true");
+risponde = [() => ({
+  ok: true,
+  headers: { get: (nome) => ({ "X-Points-Drawn": "3", "X-Points-Total": "3" }[nome]) },
+  arrayBuffer: async () => new ArrayBuffer(12),
+})];
+const ordine = generazione;
+const scartata = mostraNuvolaDelloStep(9, ordine);
+generazione += 1; // un nuovo clic supera questa richiesta prima che risponda
+assert.equal(await scartata, false, "la risposta scartata risulta disegnata");
+assert.equal(
+  document.getElementById("viewport").getAttribute("aria-busy"), "true",
+  "la risposta scartata ha tolto aria-busy: doveva lasciarlo a chi vince la corsa",
+);
 """)
 
 

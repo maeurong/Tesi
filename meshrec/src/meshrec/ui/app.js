@@ -286,17 +286,31 @@ function dichiaraCaricamento(numero) {
   document.getElementById("viewport").setAttribute("aria-busy", "true");
 }
 
+// Chiude cio' che dichiaraCaricamento ha aperto. Una superficie sola e non
+// quattro copie letterali della stessa riga nei quattro punti sotto: quattro
+// copie sono duplicazione da manuale di stile, e una superficie sola e' anche
+// l'unica che un test puo' sorvegliare per tutti e quattro insieme.
+function chiudiCaricamento() {
+  document.getElementById("viewport").removeAttribute("aria-busy");
+}
+
 async function mostraNuvolaDelloStep(numero, ordine) {
   const emissione = apriGeometria();
-  const risposta = await fetch(`/api/cloud/${numero}`);
+  const risposta = await fetch(`/api/cloud/${numero}`).catch(serverMuto);
   if (!risposta.ok) {
+    // status 0 e' la firma di serverMuto: un server che non ha risposto non e'
+    // lo stesso fatto di un server che ha risposto "questo step non ha ancora
+    // un artefatto". Confonderli direbbe un dato negativo documentato dove
+    // invece il server non e' mai stato interrogato con successo.
+    const muto = risposta.status === 0;
+    const messaggio = muto ? await ragioneDelRifiuto(risposta) : "nessun artefatto per questo step";
     if (superata(ordine) || superata(emissione, ultimaGeometria)) return false;
-    document.getElementById("viewport").removeAttribute("aria-busy");
+    chiudiCaricamento();
     // Svuotare e' obbligatorio: senza, la scena resta quella dello step
     // precedente mentre il testo dice che non c'e' nulla. Una vista che
     // contraddice la sua didascalia e' peggio di una vista vuota.
     vista.svuota();
-    document.getElementById("conteggi").textContent = "nessun artefatto per questo step";
+    document.getElementById("conteggi").textContent = messaggio;
     return true;
   }
   const disegnati = Number(risposta.headers.get("X-Points-Drawn"));
@@ -306,7 +320,7 @@ async function mostraNuvolaDelloStep(numero, ordine) {
   // in alto lascerebbe passare cio' che e' stato superato mentre il corpo
   // arrivava.
   if (superata(ordine) || superata(emissione, ultimaGeometria)) return false;
-  document.getElementById("viewport").removeAttribute("aria-busy");
+  chiudiCaricamento();
   vista.svuota();
   vista.mostraNuvola(new Float32Array(grezzi));
   // Sempre entrambi: una nuvola decimata che non lo dichiara e' un dato falso.
@@ -333,14 +347,18 @@ async function mostraStep(numero, ordine) {
   // piu' disegnata. Ogni strada apre esattamente una richiesta.
   if (!STEP_CON_MESH.has(numero)) return mostraNuvolaDelloStep(numero, ordine);
   const emissione = apriGeometria();
-  const risposta = await fetch(`/api/mesh/${numero}`);
+  const risposta = await fetch(`/api/mesh/${numero}`).catch(serverMuto);
   if (!risposta.ok) {
+    // Come per la nuvola: status 0 e' un server muto, non lo stesso fatto di
+    // un server che ha risposto "questo step non ha ancora un artefatto".
+    const muto = risposta.status === 0;
+    const messaggio = muto ? await ragioneDelRifiuto(risposta) : "nessun artefatto per questo step";
     if (superata(ordine) || superata(emissione, ultimaGeometria)) return false;
-    document.getElementById("viewport").removeAttribute("aria-busy");
+    chiudiCaricamento();
     // Come per la nuvola: svuotare e' obbligatorio, una vista che contraddice
     // la sua didascalia e' peggio di una vista vuota.
     vista.svuota();
-    document.getElementById("conteggi").textContent = "nessun artefatto per questo step";
+    document.getElementById("conteggi").textContent = messaggio;
     return true;
   }
   const vertici = Number(risposta.headers.get("X-Vertices"));
@@ -349,7 +367,7 @@ async function mostraStep(numero, ordine) {
   // Qui la latenza e' quella vera: e' la mesh dello step 9 che arriva tardi a
   // posarsi sulla nuvola di un altro step.
   if (superata(ordine) || superata(emissione, ultimaGeometria)) return false;
-  document.getElementById("viewport").removeAttribute("aria-busy");
+  chiudiCaricamento();
   vista.svuota();
   vista.mostraMesh(
     new Float32Array(grezzi, 0, vertici * 3),
