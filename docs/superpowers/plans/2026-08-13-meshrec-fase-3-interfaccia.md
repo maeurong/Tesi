@@ -24,7 +24,7 @@ fabbricherebbe una cronologia che non c'e' stata.
 | Task 16 | in corso, condotto **a mano** dall'utente (vedi la nota nel task) |
 | Task 17 | non iniziato; aspetta dal 16 il punteggio per criterio |
 | Suite | 399 passed, 3 skipped, 6 deselected su macOS arm64 |
-| `meshrec/runs/` | **assente su questa macchina**, in trasferimento dal PC Windows. Nessun test ne dipende (usano tutti `tmp_path`); ne dipendono la scena d'uso reale del Task 16 e i numeri citati dal Task 17 |
+| `meshrec/runs/` | **rientrate il 16/08/2026** dal PC Windows: `lab_crop` (255 MB) e `muro` (115 MB), 24 file identici al byte all'archivio di origine. Tutti e ventidue gli step ricalcolano `valido` su macOS contro lo `steps.json` scritto su Windows, e i numeri documentati coincidono (50.630 e 653.643 tetraedri, 1,192 mm, 6.329.096 punti). `runs/sweep/` non e' stata trasferita: le 22 impronte del fronte, compresa la `2e93bb805afe...` citata dal ruling del Task 1, si ricalcolano dai `registro.jsonl` tracciati in git |
 
 ## Global Constraints
 
