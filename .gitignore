@@ -21,3 +21,13 @@ Cartella di lavoro Abaqus/
 /node_modules/
 /package.json
 /package-lock.json
+
+# Materiale di stesura della tesi: bibliografia in lavorazione e tavole
+# esportate. Sono documenti binari che si riscrivono per intero a ogni
+# salvataggio, quindi in git peserebbero come allegati e non come storia.
+# Stessa ragione per cui Articoli/ resta fuori.
+/fonti bibliografiche.docx
+/muro_1.pdf
+
+# Rumore del Finder, dal passaggio a macOS del 16/08/2026.
+.DS_Store

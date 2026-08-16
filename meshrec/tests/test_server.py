@@ -219,6 +219,41 @@ def test_chiedere_la_mesh_di_uno_step_fuori_intervallo_spiega_quali_esistono(cli
     assert "8" in corpo["messaggio"]
 
 
+def _nuvola_un_cluster_e_rumore():
+    """3.000 punti fitti nell'origine, 1.000 radi a 500 mm.
+
+    Il secondo blocco e' disperso su 10 mm, quindi con eps = 4 x spaziatura
+    DBSCAN non ci trova nessun nucleo: e' rumore, non un secondo cluster.
+    Misurato: un cluster da 2.992 punti e 1.008 punti di rumore. Un clic che
+    ricada li' dentro DEVE ottenere 400.
+
+    Esiste come funzione, e non copiata in ogni test, perche' tre docstring
+    affermano "stessa nuvola" l'una dell'altra: cosi' l'affermazione e' vera
+    per costruzione invece che per manutenzione.
+    """
+    import numpy as np
+
+    primo = np.random.default_rng(0).random((3_000, 3)) * 10.0
+    secondo = np.random.default_rng(1).random((1_000, 3)) * 10.0 + 500.0
+    return np.vstack([primo, secondo])
+
+
+def _nuvola_due_cluster():
+    """Come sopra, ma il secondo blocco e' disperso su 7 mm invece che 10.
+
+    Tre millimetri di differenza cambiano la natura del dato, non la sua
+    taglia: a 7 mm il secondo blocco supera min_points e diventa un cluster
+    vero, quindi esiste un cluster_index 1 su cui puntare. Serve ai test che
+    devono distinguere una scrittura corretta da un "scrivi sempre 0", che
+    sulla nuvola a 10 mm resterebbe invisibile per coincidenza.
+    """
+    import numpy as np
+
+    primo = np.random.default_rng(0).random((3_000, 3)) * 10.0
+    secondo = np.random.default_rng(1).random((1_000, 3)) * 7.0 + 500.0
+    return np.vstack([primo, secondo])
+
+
 def _prepara_click_semplice(cliente, corsa: Path, punti) -> None:
     """Scrive la stessa nuvola come ingresso grezzo (step 1, ARTIFACTS[1]) e
     come uscita segmentata (step 2, ARTIFACTS[2]): dopo l'allineamento
@@ -276,12 +311,9 @@ def test_il_clic_risolve_il_punto_disegnato_a_un_cluster(cliente, tmp_path):
     blocco: senza quel contratto l'indice 0 dipenderebbe dalla hash map di
     Open3D e quindi dalla piattaforma.
     """
-    import numpy as np
 
     corsa = tmp_path / "corsa"
-    primo = np.random.default_rng(0).random((3_000, 3)) * 10.0
-    secondo = np.random.default_rng(1).random((1_000, 3)) * 10.0 + 500.0
-    _prepara_click_semplice(cliente, corsa, np.vstack([primo, secondo]))
+    _prepara_click_semplice(cliente, corsa, _nuvola_un_cluster_e_rumore())
 
     cliente.get("/api/cloud/2?max_points=2000")     # popola la mappa
     risposta = cliente.post("/api/cluster", json={"punto": 0})
@@ -347,13 +379,10 @@ def test_il_clic_sul_gruppo_piccolo_risolve_al_cluster_piccolo(cliente, tmp_path
     nuvola riletta da disco esattamente come la rilegge il server: read_cloud
     passa per Open3D e non garantisce di restituire gli stessi byte scritti.
     """
-    import numpy as np
     from meshrec.core import io, pipeline, viewport
 
     corsa = tmp_path / "corsa"
-    primo = np.random.default_rng(0).random((3_000, 3)) * 10.0
-    secondo = np.random.default_rng(1).random((1_000, 3)) * 7.0 + 500.0
-    _prepara_click_semplice(cliente, corsa, np.vstack([primo, secondo]))
+    _prepara_click_semplice(cliente, corsa, _nuvola_due_cluster())
 
     risposta_nuvola = cliente.get("/api/cloud/2?max_points=2000")
     assert risposta_nuvola.status_code == 200
@@ -642,14 +671,11 @@ def test_il_cluster_index_scritto_su_disco_coincide_con_la_risposta(cliente, tmp
     di test_il_clic_sul_gruppo_piccolo_risolve_al_cluster_piccolo (7 mm,
     due cluster reali), click sul gruppo piccolo, cluster_index atteso 1.
     """
-    import numpy as np
     from meshrec.core import io, pipeline, viewport
     from meshrec.core.config import load_config
 
     corsa = tmp_path / "corsa"
-    primo = np.random.default_rng(0).random((3_000, 3)) * 10.0
-    secondo = np.random.default_rng(1).random((1_000, 3)) * 7.0 + 500.0
-    _prepara_click_semplice(cliente, corsa, np.vstack([primo, secondo]))
+    _prepara_click_semplice(cliente, corsa, _nuvola_due_cluster())
 
     cliente.get("/api/cloud/2?max_points=2000")
     punti_letti, _normali = io.read_cloud(corsa / pipeline.ARTIFACTS[2])
@@ -675,18 +701,15 @@ def test_il_cluster_eps_e_sensibile_alla_spaziatura_vera(cliente, tmp_path):
     'cliente' non sovrascrive); una spaziatura calcolata su un campione
     troncato (es. i primi 50 punti soli) darebbe un valore diverso.
 
-    Stessa nuvola del primo test dell'endpoint, e stessa avvertenza: il
-    secondo blocco e' rumore per DBSCAN, non un secondo cluster; il punto
-    disegnato 0 cade nel primo blocco perche' viewport.decimate ordina i
-    gruppi per indice pieno minimo.
+    Sulla nuvola di _nuvola_un_cluster_e_rumore, che dichiara da se' perche'
+    il secondo blocco sia rumore e non un secondo cluster. Il punto disegnato
+    0 cade nel primo blocco perche' viewport.decimate ordina i gruppi per
+    indice pieno minimo.
     """
-    import numpy as np
     from meshrec.core import io, pipeline
 
     corsa = tmp_path / "corsa"
-    primo = np.random.default_rng(0).random((3_000, 3)) * 10.0
-    secondo = np.random.default_rng(1).random((1_000, 3)) * 10.0 + 500.0
-    _prepara_click_semplice(cliente, corsa, np.vstack([primo, secondo]))
+    _prepara_click_semplice(cliente, corsa, _nuvola_un_cluster_e_rumore())
 
     cliente.get("/api/cloud/2?max_points=2000")
     risposta = cliente.post("/api/cluster", json={"punto": 0})
@@ -708,17 +731,14 @@ def test_il_clic_dichiara_il_cambio_di_metodo(cliente, tmp_path):
     puo' avvisare l'utente invece di lasciarlo scoprire il cambio da un
     file che non vede.
 
-    Stessa nuvola del primo test dell'endpoint, e stessa avvertenza: il
-    secondo blocco e' rumore per DBSCAN, non un secondo cluster; il punto
-    disegnato 0 cade nel primo blocco perche' viewport.decimate ordina i
-    gruppi per indice pieno minimo.
+    Sulla nuvola di _nuvola_un_cluster_e_rumore, che dichiara da se' perche'
+    il secondo blocco sia rumore e non un secondo cluster. Il punto disegnato
+    0 cade nel primo blocco perche' viewport.decimate ordina i gruppi per
+    indice pieno minimo.
     """
-    import numpy as np
 
     corsa = tmp_path / "corsa"
-    primo = np.random.default_rng(0).random((3_000, 3)) * 10.0
-    secondo = np.random.default_rng(1).random((1_000, 3)) * 10.0 + 500.0
-    _prepara_click_semplice(cliente, corsa, np.vstack([primo, secondo]))
+    _prepara_click_semplice(cliente, corsa, _nuvola_un_cluster_e_rumore())
 
     cliente.get("/api/cloud/2?max_points=2000")
     risposta = cliente.post("/api/cluster", json={"punto": 0})
@@ -735,17 +755,14 @@ def test_il_secondo_clic_dichiara_auto_auto(cliente, tmp_path):
     dichiarare method_before='auto' (letto davvero, non un valore stantio)
     e method_after='auto'.
 
-    Stessa nuvola del primo test dell'endpoint, e stessa avvertenza: il
-    secondo blocco e' rumore per DBSCAN, non un secondo cluster; il punto
-    disegnato 0 cade nel primo blocco perche' viewport.decimate ordina i
-    gruppi per indice pieno minimo.
+    Sulla nuvola di _nuvola_un_cluster_e_rumore, che dichiara da se' perche'
+    il secondo blocco sia rumore e non un secondo cluster. Il punto disegnato
+    0 cade nel primo blocco perche' viewport.decimate ordina i gruppi per
+    indice pieno minimo.
     """
-    import numpy as np
 
     corsa = tmp_path / "corsa"
-    primo = np.random.default_rng(0).random((3_000, 3)) * 10.0
-    secondo = np.random.default_rng(1).random((1_000, 3)) * 10.0 + 500.0
-    _prepara_click_semplice(cliente, corsa, np.vstack([primo, secondo]))
+    _prepara_click_semplice(cliente, corsa, _nuvola_un_cluster_e_rumore())
 
     cliente.get("/api/cloud/2?max_points=2000")
     prima_risposta = cliente.post("/api/cluster", json={"punto": 0})

@@ -10,6 +10,22 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-13-meshrec-fase-3-interfaccia-design.md`
 
+## Stato, al 16/08/2026
+
+**Le caselle `- [ ]` di questo documento non sono mai state usate come
+tracciamento e vanno lette come vuote, non come "da fare".** Il registro reale
+degli avanzamenti e' `meshrec/docs/fase-3-registro-decisioni.md`. Sono lasciate
+com'erano invece di spuntarle a posteriori: spuntarne 123 in blocco oggi
+fabbricherebbe una cronologia che non c'e' stata.
+
+| | |
+|---|---|
+| Task 1-15 | consegnati e rivisti, ciascuno con la propria revisione indipendente |
+| Task 16 | in corso, condotto **a mano** dall'utente (vedi la nota nel task) |
+| Task 17 | non iniziato; aspetta dal 16 il punteggio per criterio |
+| Suite | 399 passed, 3 skipped, 6 deselected su macOS arm64 |
+| `meshrec/runs/` | **assente su questa macchina**, in trasferimento dal PC Windows. Nessun test ne dipende (usano tutti `tmp_path`); ne dipendono la scena d'uso reale del Task 16 e i numeri citati dal Task 17 |
+
 ## Global Constraints
 
 - Ramo di lavoro: `fase-3-interfaccia`. Nessun merge su `main`. Il divieto di push e' decaduto il 16/08/2026 su istruzione dell'utente: `main` e `fase-3-interfaccia` sono ora su `origin`, allineati in fast-forward senza perdere nulla di remoto.
@@ -19,6 +35,7 @@
 - Italiano per commenti, docstring, documenti e messaggi di commit. **Niente lettere accentate nelle docstring e nei commenti del core.**
 - Comandi eseguiti da `meshrec/` con `uv run`. **macOS su Apple Silicon (arm64), zsh, Python 3.12.13**, dal 16/08/2026: la cartella di lavoro e' stata spostata da Windows 11 dopo i Task 1-16. I task da 1 a 16 sono stati eseguiti su Windows, e i documenti di esito che ne citano i numeri vanno letti con quella provenienza.
 - Conseguenza misurata del trasloco, non teorica: l'ordine dei voxel restituito da `voxel_down_sample_and_trace` di Open3D dipende dall'implementazione di `std::unordered_map`, e differisce fra libc++ e la STL Microsoft. Non e' la funzione di hash a cambiare — `hash_eigen` e' la stessa sulle due piattaforme — ma la politica dei bucket e l'ordine di iterazione. Su Windows i test del clic passavano per una coincidenza di quell'ordine, non perche' fossero giusti. Ogni verifica che dipenda dall'ordine di quella chiamata va derivata, mai fissata su un indice letterale — **a meno che** l'indice non sia fissato dal contratto di `core.viewport.decimate` (gruppi crescenti per indice pieno minimo, dal 16/08/2026), che e' il caso dei clic su `punto: 0` in `tests/test_server.py`.
+- Residuo noto e **deliberatamente non corretto**: 63 file tracciati hanno CRLF nella copia di lavoro, eredita' del checkout Windows. L'indice ha gia' LF (`* text=auto` in `.gitattributes`), quindi il contenuto del repository e' corretto e `git status` e' pulito: e' un artefatto solo locale. Rinormalizzare la copia di lavoro scriverebbe dentro `experiments/`, che e' di sola lettura, per un guadagno nullo. Le impronte non ne risentono perche' si calcolano dallo YAML/JSON interpretato, non dai byte grezzi (riverificato: 22 righe su 22).
 - I registri `meshrec/experiments/*/registro.jsonl` contengono i path con i separatori Windows dentro la configurazione serializzata, e `sweep.fingerprint` li include. Verificato il 16/08/2026 che le impronte storiche **coincidono ancora**, perche' quelle stringhe riserializzano identiche attraverso `PosixPath`. Correggere quei path per farli risolvere su macOS cambierebbe l'impronta e spezzerebbe il legame con la tabella sperimentale della tesi: non si fa. Le corse nuove usano path POSIX e accettano un'impronta nuova.
 - Utente singolo, nessuna autenticazione, server locale. Non progettare per il multiutente.
 - Dipendenze nuove ammesse, e nessun'altra: `fastapi`, `uvicorn`, piu' il file vendorizzato `three.module.js`. Verificate risolvibili: `fastapi==0.141.1`, `uvicorn==0.52.3`, con quattro transitive (`annotated-doc`, `anyio`, `h11`, `starlette`).
@@ -3307,6 +3324,25 @@ report esce senza viste e lo dichiara, invece di lasciare riquadri muti."
 **Files:** tutti i file di `src/meshrec/ui/`, piu' `core/report.py` per il rivestimento del report.
 
 Questo task non ha passi TDD: e' il ciclo dichiarato nella § 13 della spec.
+
+> **Cambio di conduzione, 16/08/2026 — deciso dall'utente.** Il ciclo automatico
+> con ralph loop **non prosegue**. I due giri gia' fatti restano agli atti in
+> `.impeccable/critique/` (entrambi su `index.html`, 14/08). Da qui in avanti il
+> lavoro sull'interfaccia lo conduce l'utente **a mano**, senza tetto di dieci
+> cicli e senza un commit per giro.
+>
+> Gli Step 1-5 sotto restano **come riferimento di merito**, non come procedura:
+> dicono che cosa il lavoro deve ottenere — modalita' Operate, `prefers-reduced-motion`
+> con un'alternativa intenzionale e non un azzeramento globale, il miglior stato
+> raggiunto e non l'ultimo. Restano vincolanti due cose:
+>
+> 1. **La suite resta verde.** `uv run pytest` fra una modifica e l'altra. Se un
+>    cambiamento all'interfaccia rompe lo scanner strutturale di `app.js`, e' un
+>    **vero positivo** e non un test da allentare.
+> 2. **Il Task 17 aspetta il punteggio per criterio.** Comunque lo si ottenga —
+>    ciclo automatico o giudizio a mano — va scritto per ciascun criterio dove si
+>    e' arrivati e che cosa manca. E' l'unica parte del documento finale che oggi
+>    non esiste, e senza di essa il Task 17 non puo' chiudere.
 
 - [ ] **Step 1: Costruire il mondo visivo**
 
