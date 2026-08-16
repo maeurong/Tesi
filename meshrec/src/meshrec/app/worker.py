@@ -29,13 +29,30 @@ class Worker:
         self._processo: subprocess.Popen[str] | None = None
         self._righe: deque[str] = deque(maxlen=MAX_RIGHE)
         self._lucchetto = threading.Lock()
+        # Alzato quando il thread lettore ha finito di scrivere l'esito. Nasce
+        # alzato: senza una corsa in volo non c'e' niente da attendere.
+        self._concluso = threading.Event()
+        self._concluso.set()
         self.exit_code: int | None = None
         self.step: int | None = None
         self.annullato = False
         self.avviato: float | None = None
 
     def is_running(self) -> bool:
-        return self._processo is not None and self._processo.poll() is None
+        if self._processo is None:
+            return False
+        if self._processo.poll() is None:
+            return True
+        # Il figlio e' uscito, ma l'esito lo scrive il thread lettore dopo aver
+        # svuotato stdout, e fra i due momenti passa tutto il tempo che serve a
+        # leggere il buffer. Fermandosi a poll(), un frame SSE poteva portare
+        # in_corso: false con exit_code ancora None, e il browser lo classifica
+        # -- correttamente, per la propria specifica -- come "conclusa". Una
+        # corsa fallita si annunciava riuscita, e il fronte di discesa scatta
+        # una volta sola: l'annuncio sbagliato non si correggeva mai piu'.
+        # Lo stato concluso e' atomico qui dentro: chi legge in_corso: false
+        # trova sempre un exit_code gia' fissato.
+        return not self._concluso.is_set()
 
     def da_secondi(self) -> float | None:
         """Secondi dall'avvio dello step in corso. None se non gira nulla.
@@ -65,6 +82,7 @@ class Worker:
         self.annullato = False
         self.step = from_step
         self.avviato = time.monotonic()
+        self._concluso.clear()
         self._processo = subprocess.Popen(
             [
                 sys.executable, "-m", "meshrec.cli", "run", str(config_path),
@@ -79,13 +97,27 @@ class Worker:
 
     def _leggi(self) -> None:
         processo = self._processo
-        if processo is None or processo.stdout is None:
-            return
-        for riga in processo.stdout:
-            with self._lucchetto:
-                self._righe.append(riga.rstrip("\n"))
-        processo.wait()
-        self.exit_code = processo.returncode
+        try:
+            if processo is None or processo.stdout is None:
+                return
+            for riga in processo.stdout:
+                with self._lucchetto:
+                    self._righe.append(riga.rstrip("\n"))
+            processo.wait()
+            self.exit_code = processo.returncode
+            # Un annullamento chiesto a un processo che era gia' uscito bene non
+            # e' un annullamento: cancel() guarda is_running() e poi marca, e
+            # fra le due cose il figlio puo' finire da se'. Un terminate() che
+            # arriva dopo l'ultimo respiro lascia il codice d'uscita a 0, e
+            # annullato: true con exit_code: 0 racconterebbe come interrotta
+            # una corsa che ha prodotto i suoi artefatti.
+            if self.exit_code == 0:
+                self.annullato = False
+        finally:
+            # Nel finally e non in coda: un'uscita anticipata (nessun processo,
+            # nessuno stdout) deve comunque sbloccare is_running(), altrimenti
+            # la corsa resterebbe «in volo» per sempre.
+            self._concluso.set()
 
     def cancel(self) -> bool:
         """Termina lo step in corso. Falso se non ce n'era uno.

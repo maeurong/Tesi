@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 import time
 from pathlib import Path
 
@@ -88,3 +89,90 @@ def test_avviare_un_secondo_step_mentre_il_primo_gira_solleva(tmp_path):
             break
         time.sleep(0.1)
     assert lavoratore.is_running() is False
+
+
+class _ProcessoUscitoCollettoStdout:
+    """Un sottoprocesso gia' terminato il cui stdout non e' ancora stato letto.
+
+    E' la finestra vera e non una sua caricatura: `poll()` vede il figlio uscito
+    nell'istante in cui muore, mentre le righe restano nel buffer della pipe
+    finche' il thread lettore non le consuma. Il generatore si ferma a meta'
+    apposta, cosi' la prova puo' guardare lo stato del Worker mentre la lettura
+    e' ancora in corso, senza dipendere da una temporizzazione.
+    """
+
+    def __init__(self, codice: int, a_meta: threading.Event, prosegui: threading.Event) -> None:
+        self.returncode = codice
+        self.stdout = self._righe(a_meta, prosegui)
+
+    def _righe(self, a_meta: threading.Event, prosegui: threading.Event):
+        yield "prima riga\n"
+        a_meta.set()
+        assert prosegui.wait(timeout=10), "la prova non ha sbloccato il lettore"
+        yield "ultima riga\n"
+
+    def poll(self) -> int:
+        return self.returncode
+
+    def wait(self) -> int:
+        return self.returncode
+
+
+def test_una_corsa_conclusa_porta_sempre_il_proprio_codice_di_uscita():
+    """La corsa fra is_running() e exit_code, parcheggiata in Task 1.
+
+    Il frame SSE legge i due campi insieme (server.py: "in_corso" ed
+    "exit_code" nello stesso dizionario). Fermandosi a poll(), is_running()
+    diventava falso appena il figlio usciva, mentre exit_code lo scrive il
+    thread lettore dopo aver svuotato stdout: nel mezzo il browser riceveva
+    in_corso: false con exit_code: null, che esitoDellaCorsa classifica —
+    correttamente, per la propria specifica — come conclusa. Una corsa fallita
+    annunciata come riuscita, e il fronte di discesa scatta una volta sola:
+    l'annuncio sbagliato e' permanente, non transitorio.
+    """
+    a_meta, prosegui = threading.Event(), threading.Event()
+    lavoratore = Worker()
+    lavoratore._processo = _ProcessoUscitoCollettoStdout(1, a_meta, prosegui)
+    lavoratore._concluso.clear()
+    lettore = threading.Thread(target=lavoratore._leggi, daemon=True)
+    lettore.start()
+    assert a_meta.wait(timeout=10), "il lettore non e' mai partito"
+
+    # Qui il figlio e' gia' uscito (poll() torna 1) e l'esito non e' ancora
+    # scritto: e' esattamente il frame che il browser leggeva male.
+    assert lavoratore.exit_code is None
+    assert lavoratore.is_running() is True, (
+        "una corsa senza esito si dichiara conclusa: il browser la annuncia riuscita"
+    )
+
+    prosegui.set()
+    lettore.join(timeout=10)
+    assert lettore.is_alive() is False
+    assert lavoratore.is_running() is False
+    assert lavoratore.exit_code == 1
+    assert lavoratore.righe() == ["prima riga", "ultima riga"]
+
+
+def test_un_annullamento_arrivato_dopo_una_corsa_riuscita_non_dice_annullato():
+    """Il fratello della corsa qui sopra. `cancel()` guarda is_running() e poi
+    marca `annullato`, e fra le due cose il figlio puo' finire da se': il
+    terminate() arriva dopo l'ultimo respiro, il codice d'uscita resta 0, e la
+    corsa si racconta interrotta pur avendo prodotto i propri artefatti.
+
+    Un processo terminato da SIGTERM non esce mai con 0, quindi lo zero e'
+    l'unica firma possibile di una corsa arrivata in fondo.
+    """
+    a_meta, prosegui = threading.Event(), threading.Event()
+    prosegui.set()
+    lavoratore = Worker()
+    lavoratore._processo = _ProcessoUscitoCollettoStdout(0, a_meta, prosegui)
+    lavoratore._concluso.clear()
+    # Lo stato che cancel() lascia quando arriva un istante troppo tardi.
+    lavoratore.annullato = True
+
+    lavoratore._leggi()
+
+    assert lavoratore.exit_code == 0
+    assert lavoratore.annullato is False, (
+        "una corsa riuscita si racconta annullata"
+    )
