@@ -3050,6 +3050,39 @@ console.log("ok");
     assert _esegui(tmp_path, sorgente).strip() == "ok"
 
 
+def test_l_ordine_della_galleria_nomina_le_stesse_colonne_del_registro():
+    """`ORDINE_GALLERIA` e' un rispecchiamento scritto a mano delle chiavi di
+    `report._COLUMNS`, e i tre banchi dell'interfaccia iniettano ciascuno la
+    propria copia dell'elenco: scrivere «fingerprint» dentro un test non lega
+    l'interfaccia al server, lega il test a se stesso.
+
+    Rinominare una chiave in `report._COLUMNS` faceva scivolare quella colonna
+    in coda in silenzio — cioe' riapriva il P1 che il branch esiste per
+    chiudere — e disattivava insieme il troncamento dell'impronta, che si
+    aggancia allo stesso letterale. La suite restava verde.
+    """
+    from meshrec.core import report
+
+    trovato = re.search(r"const ORDINE_GALLERIA = \[(.*?)\];", _modulo(), flags=re.DOTALL)
+    assert trovato is not None, "ORDINE_GALLERIA non e' piu' un elenco letterale"
+    ordine = re.findall(r'"([^"]+)"', trovato.group(1))
+    colonne = [chiave for chiave, _ in report._COLUMNS]
+    assert set(ordine) == set(colonne), (
+        "l'interfaccia e il registro non nominano le stesse colonne: "
+        f"solo nell'interfaccia {sorted(set(ordine) - set(colonne))}, "
+        f"solo nel registro {sorted(set(colonne) - set(ordine))}"
+    )
+    # set() da solo non vedrebbe una chiave scritta due volte.
+    assert len(ordine) == len(colonne), f"una chiave compare piu' di una volta: {ordine}"
+    # L'impronta e' 64 caratteri che non vanno a capo: in testa sfondava il
+    # riquadro da 22rem e lasciava fuori schermo tutte le grandezze per cui il
+    # pannello esiste. E il ramo che la tronca cerca lo stesso letterale.
+    assert ordine[-1] == "fingerprint", f"l'impronta non e' piu' l'ultima colonna: {ordine}"
+    assert '"fingerprint"' in _senza_commenti_js(_modulo()).split("colonneOrdinate", 1)[1], (
+        "il troncamento dell'impronta non si aggancia piu' alla chiave"
+    )
+
+
 def test_il_registro_ha_un_nome_accessibile():
     """role="log" con tabindex="0" e nessun nome: il lettore di schermo
     annunciava «log» e basta. L'h2 accanto e' adiacente, non associato."""
