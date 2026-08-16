@@ -1695,6 +1695,7 @@ let schemaParametri = null;
 // apriDettaglio ora costruisce le sue azioni con azioniDelloStep, che legge
 // questa variabile di modulo: nessun banco qui fa girare una corsa, resta ferma.
 let corsaInCorso = false;
+const ULTIMO_STEP = 11;
 const richieste = [];
 let risponde = {};
 globalThis.fetch = async (percorso) => {
@@ -1958,10 +1959,15 @@ const risposte = [
 let chiamata = 0;
 globalThis.fetch = async () => risposte[chiamata++];
 
-// Clic 1 (piu' vecchio) su "questo step", poi clic 2 (piu' recente) su
-// "da qui in giu'", mentre il primo e' ancora in volo.
-const primoClic = questo.scatena("click");
-const secondoClic = daQui.scatena("click");
+// Clic 1 (piu' vecchio) su "da qui in giu'" (gia' armato, quindi spara subito
+// senza chiedere una seconda conferma), poi clic 2 (piu' recente) su "questo
+// step", mentre il primo e' ancora in volo. Nell'ordine opposto il clic su
+// "questo step" disarmerebbe "da qui in giu'" prima che quest'ultimo possa
+// leggere la propria conferma, un'interazione fra fratelli che il test sulla
+// disarma copre per conto suo: qui la gara resta sui due clic che davvero
+// partono in fretta.
+const primoClic = daQui.scatena("click");
+const secondoClic = questo.scatena("click");
 
 // Il secondo clic e' rifiutato e arriva per primo.
 risolvi2({ ok: false, status: 500, text: async () => JSON.stringify({ messaggio: "errore nuovo" }) });
@@ -2585,6 +2591,7 @@ def test_un_solo_ceto_primario_e_la_portata_e_scritta_nell_etichetta(tmp_path):
     sorgente = _DOM + """
 function dichiaraErrore() {}
 let corsaInCorso = false;
+const ULTIMO_STEP = 11;
 """ + _funzioni("azioniDelloStep") + """
 const azioni = azioniDelloStep(9, 0);
 const bottoni = azioni.figli;
@@ -2609,6 +2616,7 @@ def test_le_esecuzioni_si_spengono_mentre_la_corsa_gira(tmp_path):
     sorgente = _DOM + """
 function dichiaraErrore() {}
 let corsaInCorso = false;
+const ULTIMO_STEP = 11;
 """ + _funzioni("azioniDelloStep", "spegniLeEsecuzioni") + """
 const azioni = azioniDelloStep(9, 0);
 radice.append(azioni);
@@ -2646,6 +2654,7 @@ def test_il_bottone_non_primario_chiede_conferma_e_poi_si_resetta(tmp_path):
     sorgente = _DOM + """
 function dichiaraErrore() {}
 let corsaInCorso = false;
+const ULTIMO_STEP = 11;
 """ + _funzioni("azioniDelloStep", "serverMuto", "superata") + """
 let chiamate = 0;
 globalThis.fetch = async () => { chiamate += 1; return { ok: true, status: 200 }; };
@@ -2667,3 +2676,112 @@ assert.equal(chiamate, 2, "il bottone primario chiede conferma, e non dovrebbe")
 console.log("ok");
 """
     assert _esegui(tmp_path, sorgente).strip() == "ok"
+
+
+def test_un_bottone_armato_si_disarma_se_si_clicca_il_fratello(tmp_path):
+    """Un armato che non si disarma mai e' peggio di nessuna conferma: se dopo
+    aver armato "Esegui dallo step" l'utente cambia idea e clicca l'altro
+    bottone, il primo deve tornare al riposo — non restare in attesa di un
+    secondo clic che magari arriva molto piu' tardi, su un'intenzione diversa
+    da quella che lo aveva armato."""
+    sorgente = _DOM + """
+function dichiaraErrore() {}
+let corsaInCorso = false;
+const ULTIMO_STEP = 11;
+""" + _funzioni("azioniDelloStep", "serverMuto", "superata") + """
+let chiamate = 0;
+globalThis.fetch = async () => { chiamate += 1; return { ok: true, status: 200 }; };
+const azioni = azioniDelloStep(9, 0);
+const [questo, daQui] = azioni.figli;
+const etichettaIniziale = daQui.textContent;
+
+await daQui.scatena("click");
+assert.notEqual(daQui.textContent, etichettaIniziale, "il primo clic non arma la conferma");
+
+// Cambio idea: si clicca l'altro bottone. E' primario, quindi spara subito.
+await questo.scatena("click");
+assert.equal(chiamate, 1, "il bottone primario non ha sparato al primo clic");
+assert.equal(daQui.textContent, etichettaIniziale,
+  "il clic sul fratello non ha disarmato la conferma rimasta accesa");
+
+// Il controllo che smentisce: disarmato, un clic su daQui deve tornare a
+// chiedere conferma, non sparare come se il "Confermi?" di prima valesse ancora.
+await daQui.scatena("click");
+assert.equal(chiamate, 1, "un clic su daQui subito dopo il disarmo ha sparato senza chiedere conferma");
+console.log("ok");
+"""
+    assert _esegui(tmp_path, sorgente).strip() == "ok"
+
+
+def test_spegniLeEsecuzioni_disarma_la_conferma_rimasta_accesa(tmp_path):
+    """Una corsa partita altrove disabilita i bottoni ma prima non toccava la
+    spunta di conferma: riaccesi a fine corsa, un "Confermi?" dimenticato
+    sparava al primo clic invece di chiederlo di nuovo — la corsa nel
+    frattempo poteva anche essere finita male, e il primo clic dopo non era
+    piu' la stessa decisione che aveva armato il bottone."""
+    sorgente = _DOM + """
+function dichiaraErrore() {}
+let corsaInCorso = false;
+const ULTIMO_STEP = 11;
+""" + _funzioni("azioniDelloStep", "spegniLeEsecuzioni", "serverMuto", "superata") + """
+let chiamate = 0;
+globalThis.fetch = async () => { chiamate += 1; return { ok: true, status: 200 }; };
+const azioni = azioniDelloStep(9, 0);
+radice.append(azioni);
+const [questo, daQui] = azioni.figli;
+const etichettaIniziale = daQui.textContent;
+
+await daQui.scatena("click");
+assert.notEqual(daQui.textContent, etichettaIniziale, "il primo clic non arma la conferma");
+
+// Una corsa parte altrove: i bottoni si spengono, e la conferma deve sparire.
+spegniLeEsecuzioni(true);
+assert.equal(daQui.textContent, etichettaIniziale,
+  "spegniLeEsecuzioni non ha disarmato la conferma rimasta accesa");
+
+// A corsa finita si riaccendono: il primo clic deve chiedere di nuovo, non sparare.
+spegniLeEsecuzioni(false);
+await daQui.scatena("click");
+assert.equal(chiamate, 0, "il primo clic dopo la corsa altrui ha gia' sparato invece di chiedere conferma");
+console.log("ok");
+"""
+    assert _esegui(tmp_path, sorgente).strip() == "ok"
+
+
+def test_i_bottoni_nascono_spenti_se_una_corsa_gira_gia(tmp_path):
+    """Un pannello aperto in mezzo a una corsa nasceva con i bottoni vivi: la
+    riga che li disabilita alla costruzione non la esercita nessun banco che
+    parte da corsaInCorso = false, che e' quello che fa ogni banco di questo
+    file. La stessa forma di buco gia' vista nei Task 1 e 2 di questo piano:
+    la riga che chiude il caso raro e' quella che nessun controllo esegue."""
+    sorgente = _DOM + """
+function dichiaraErrore() {}
+let corsaInCorso = true;
+const ULTIMO_STEP = 11;
+""" + _funzioni("azioniDelloStep") + """
+const azioni = azioniDelloStep(9, 0);
+assert.ok(
+  azioni.figli.every((b) => b.disabled === true),
+  "un bottone nasce vivo mentre una corsa gia' gira altrove",
+);
+console.log("ok");
+"""
+    assert _esegui(tmp_path, sorgente).strip() == "ok"
+
+
+def test_l_ultimo_step_ha_un_nome_solo_e_lo_leggono_entrambe_le_etichette():
+    """Il numero dell'ultimo step, ripetuto alla lettera in due etichette, e'
+    un terzo posto da tenere allineato il giorno che la catena cambia
+    lunghezza. Un nome solo, e le due etichette lo leggono invece di scrivere
+    ciascuna il proprio 11."""
+    modulo = _modulo()
+    assert modulo.count("const ULTIMO_STEP = ") == 1, (
+        "il numero dell'ultimo step non e' definito in un punto solo"
+    )
+    corpo = _sorgente_di("azioniDelloStep", modulo)
+    assert corpo.count("${ULTIMO_STEP}") == 2, (
+        "le due etichette non leggono entrambe lo stesso nome per l'ultimo step"
+    )
+    assert re.search(r"all'11\b", corpo) is None, (
+        "un'etichetta scrive ancora il numero dell'ultimo step alla lettera"
+    )

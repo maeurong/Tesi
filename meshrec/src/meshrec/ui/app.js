@@ -987,8 +987,17 @@ let corsaInCorso = false;
 function spegniLeEsecuzioni(inCorso) {
   for (const bottone of document.querySelectorAll(".esecuzione")) {
     bottone.disabled = inCorso;
+    // Una corsa partita altrove disarma anche la conferma: senza, un
+    // "Confermi?" dimenticato su un bottone spento aspetta solo che si
+    // riaccenda per sparare senza chiedere niente una seconda volta.
+    if (inCorso) bottone.disarma();
   }
 }
+
+// L'ultimo step della catena. La ripetono le due etichette qui sotto, e un
+// terzo posto in cui scriverlo di nuovo sarebbe un terzo punto da aggiornare
+// il giorno che la catena cambia lunghezza: un solo nome, usato ovunque serve.
+const ULTIMO_STEP = 11;
 
 // I due comandi d'esecuzione del pannello. Estratti da apriDettaglio per la
 // stessa ragione di campoParametro e scriviParametro: dentro una funzione di
@@ -1010,12 +1019,15 @@ function azioniDelloStep(numero, ordine) {
     { etichetta: "Esegui questo step", percorso: `/api/step/${numero}`, primario: true },
     {
       // La portata sta nell'etichetta: «da qui in giu'» non dice quanti step
-      // riscrive, e sono tutti quelli dallo step aperto all'undicesimo.
-      etichetta: `Esegui dallo step ${numero} all'11`,
+      // riscrive, e sono tutti quelli dallo step aperto all'ultimo.
+      etichetta: `Esegui dallo step ${numero} all'${ULTIMO_STEP}`,
       percorso: `/api/step/${numero}/from`,
       primario: false,
     },
   ];
+  // I bottoni del gruppo, cosi' ciascuno puo' disarmare gli altri: una scelta
+  // diversa e' un cambio idea, e la domanda rimasta sul primo non lo era piu'.
+  const bottoni = [];
   for (const { etichetta, percorso, primario } of comandi) {
     const bottone = document.createElement("button");
     bottone.type = "button";
@@ -1027,14 +1039,24 @@ function azioniDelloStep(numero, ordine) {
     // artefatti che si possono rifare — e' cara. Una seconda pressione basta a
     // separare il clic voluto da quello sbagliato di mira.
     let chiesta = false;
-    bottone.addEventListener("click", async () => {
-      if (!primario && !chiesta) {
-        chiesta = true;
-        bottone.textContent = `Confermi? riscrive dallo step ${numero} all'11`;
-        return;
-      }
+    // Un solo punto che riporta il bottone al riposo. Lo chiamano il clic su
+    // un fratello (una scelta diversa e' un cambio idea) e spegniLeEsecuzioni
+    // quando una corsa parte altrove: senza, un bottone armato restava armato
+    // oltre la corsa che lo aveva reso muto, e un clic successivo — non piu'
+    // distinguibile da una prima pressione — partiva senza chiedere niente,
+    // proprio il difetto che la conferma esiste per chiudere.
+    bottone.disarma = () => {
       chiesta = false;
       bottone.textContent = etichetta;
+    };
+    bottone.addEventListener("click", async () => {
+      for (const altro of bottoni) if (altro !== bottone) altro.disarma();
+      if (!primario && !chiesta) {
+        chiesta = true;
+        bottone.textContent = `Confermi? riscrive dallo step ${numero} all'${ULTIMO_STEP}`;
+        return;
+      }
+      bottone.disarma();
       dichiaraErrore(null);
       const azione = apriAzione();
       const risposta = await fetch(percorso, { method: "POST" }).catch(serverMuto);
@@ -1046,6 +1068,7 @@ function azioniDelloStep(numero, ordine) {
       if (superata(ordine) || superata(azione, ultimaAzione)) return;
       dichiaraErrore(ragione);
     });
+    bottoni.push(bottone);
     azioni.append(bottone);
   }
   return azioni;
