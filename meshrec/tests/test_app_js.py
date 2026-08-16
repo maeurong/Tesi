@@ -143,6 +143,7 @@ class Elemento {
   get firstElementChild() { return this.figli[0] ?? null; }
   get lastElementChild() { return this.figli[this.figli.length - 1] ?? null; }
   get scrollHeight() { return this.figli.length; }
+  get clientHeight() { return this.figli.length; }
   get textContent() { return this.testo; }
   set textContent(valore) { this.testo = String(valore); }
   append(...nodi) { for (const nodo of nodi) { nodo.padre = this; this.figli.push(nodo); } }
@@ -2884,6 +2885,60 @@ const riga = campoParametro("segment", "knn", { description: "vicini", default: 
 assert.ok(!riga.className.split(" ").includes("campo-cambiato"), "un campo fermo porta il canale visivo");
 const testo = riga.figli.map((f) => f.textContent).join(" ");
 assert.doesNotMatch(testo, /cambiato/, `un campo fermo dichiara comunque un cambiamento: ${testo}`);
+console.log("ok");
+"""
+    assert _esegui(tmp_path, sorgente).strip() == "ok"
+
+
+def test_il_registro_ha_un_nome_accessibile():
+    """role="log" con tabindex="0" e nessun nome: il lettore di schermo
+    annunciava «log» e basta. L'h2 accanto e' adiacente, non associato."""
+    markup = _senza_commenti_html(_markup())
+    elemento = _elemento(markup, "registro")
+    assert "aria-labelledby=" in elemento, f"raggiungibile e senza nome: {elemento}"
+    assert 'id="titolo-registro"' in markup, "il titolo a cui puntare non esiste"
+
+
+def test_il_registro_non_strappa_in_fondo_chi_sta_leggendo():
+    """Lo scorrimento era incondizionato, due volte al secondo per i 34 secondi
+    di uno step: chi leggeva a meta' veniva riportato in fondo a ogni riga."""
+    corpo = _modulo().split('flusso.addEventListener("riga"', 1)[1].split("\n});", 1)[0]
+    assert "scrollTop = registro.scrollHeight" in corpo, "il registro non segue piu' la coda"
+    assert "clientHeight" in corpo, "lo scorrimento e' tornato incondizionato"
+
+
+def _corpo_riga_come_funzione() -> str:
+    """Il corpo del gestore "riga", incapsulato in una funzione chiamabile dal
+    banco: la controprova testuale sopra non basta, perche' una mutazione che
+    scorre sempre lascia intatte entrambe le stringhe che quel test cerca."""
+    corpo = _modulo().split('flusso.addEventListener("riga", (evento) => {', 1)[1]
+    corpo = corpo.split("\n});", 1)[0]
+    return "function aggiungiRiga(evento) {" + corpo + "}\n"
+
+
+def test_il_registro_segue_la_coda_per_chi_era_gia_in_fondo(tmp_path):
+    """Il lato affermativo del ramo: scrollTop e' quello che lascia
+    `scrollTop + clientHeight >= scrollHeight - 2`, cioe' il lettore era gia'
+    in fondo, e la riga nuova deve restare visibile senza scorrere a mano."""
+    sorgente = _DOM + "const RIGHE_DEL_REGISTRO = 500;\n" + _corpo_riga_come_funzione() + """
+const registro = document.getElementById("registro");
+registro.scrollTop = 0;
+aggiungiRiga({ data: JSON.stringify("riga 1") });
+assert.equal(registro.scrollTop, registro.scrollHeight, "in fondo, ma il registro non segue la coda");
+console.log("ok");
+"""
+    assert _esegui(tmp_path, sorgente).strip() == "ok"
+
+
+def test_il_registro_resta_fermo_per_chi_non_era_in_fondo(tmp_path):
+    """Il lato opposto dello stesso ramo: scrollTop scostato dal fondo
+    (`scrollTop + clientHeight < scrollHeight - 2`) e' chi sta leggendo a
+    meta'. Quella riga non deve muovere scrollTop di una virgola."""
+    sorgente = _DOM + "const RIGHE_DEL_REGISTRO = 500;\n" + _corpo_riga_come_funzione() + """
+const registro = document.getElementById("registro");
+registro.scrollTop = -100;
+aggiungiRiga({ data: JSON.stringify("riga 1") });
+assert.equal(registro.scrollTop, -100, "chi leggeva a meta' e' stato riportato in fondo");
 console.log("ok");
 """
     assert _esegui(tmp_path, sorgente).strip() == "ok"

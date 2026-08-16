@@ -208,6 +208,13 @@ const RIGHE_DEL_REGISTRO = 500;
 
 flusso.addEventListener("riga", (evento) => {
   const registro = document.getElementById("registro");
+  // Letto PRIMA di appendere: dopo, scrollHeight e' gia' cresciuto e la
+  // risposta e' sempre «no».
+  // La soglia di due unita' assorbe l'arrotondamento subpixel che i browser
+  // fanno su un contenitore che scorre: senza, «in fondo» risulterebbe falso
+  // per una frazione di pixel e il registro non seguirebbe mai la coda.
+  const inFondo =
+    registro.scrollTop + registro.clientHeight >= registro.scrollHeight - 2;
   const riga = document.createElement("div");
   riga.className = "riga-log";
   riga.textContent = JSON.parse(evento.data);
@@ -217,7 +224,10 @@ flusso.addEventListener("riga", (evento) => {
   // sulle righe e non sui caratteri perche' e' cio' che si conta guardando, e
   // le piu' vecchie escono dalla testa, che e' il verso in cui si legge un log.
   while (registro.childElementCount > RIGHE_DEL_REGISTRO) registro.firstElementChild.remove();
-  registro.scrollTop = registro.scrollHeight;
+  // Solo per chi ci era gia'. Incondizionato, riportava in fondo due volte al
+  // secondo per i 34 secondi di uno step: la riga che si stava leggendo veniva
+  // strappata via a meta'.
+  if (inFondo) registro.scrollTop = registro.scrollHeight;
 });
 
 // Con un nome, non inline: cosi' il test che sorveglia la regola dell'ordine

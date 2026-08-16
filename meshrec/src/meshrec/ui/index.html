@@ -63,7 +63,7 @@
          distruggerla, e test_app_js.py sorveglia che non ci si torni. -->
     <p class="errore" id="errore" role="alert"></p>
     <div id="dettaglio"><p class="vuoto">Scegli uno step per vederne parametri e metriche.</p></div>
-    <h2>Registro</h2>
+    <h2 id="titolo-registro">Registro</h2>
     <!-- tabindex="0": il registro e' alto 14rem e scorre, e dentro non c'e'
          niente su cui il fuoco possa posarsi. Senza questo attributo Chrome non
          lo rende raggiungibile da tastiera e le righe uscite dall'alto non si
@@ -77,7 +77,8 @@
          secondi di uno step, coprendo l'unica cosa che va davvero sentita, il
          role="alert" della riga d'errore. Spenta, il registro resta leggibile
          quando lo si vuole: e' raggiungibile col tabindex qui sopra. -->
-    <div class="registro" id="registro" role="log" aria-live="off" tabindex="0"></div>
+    <div class="registro" id="registro" role="log" aria-live="off" tabindex="0"
+         aria-labelledby="titolo-registro"></div>
     <h2>Galleria di curazione</h2>
     <!-- Sola lettura: nessun clic qui scrive sul disco. I registri sono
          quelli della Fase 2 (experiments/), la tabella sperimentale della

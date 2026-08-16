@@ -7,12 +7,15 @@
   --testo: #1c1b19;
   --tenue: #6b6862;
   /* Linee. --bordo separa (1,41:1, non porta informazione); --bordo-comando
-     disegna il contorno di cio' che si puo' toccare, e sta sopra 3:1 su
-     entrambe le superfici (3,22:1 e 3,11:1) come chiede WCAG 1.4.11: il
-     riempimento dei campi e dei bottoni non li distingue dallo sfondo, quindi
-     l'unico indizio del comando e' quel contorno. */
+     disegna il contorno di cio' che si puo' toccare. Il riempimento dei campi e
+     dei bottoni non li distingue dallo sfondo, quindi l'unico indizio del
+     comando e' quel contorno, e WCAG 1.4.11 chiede 3:1.
+     Le superfici sono TRE e non due: al passaggio del puntatore il fondo di un
+     bottone diventa --evidenza, e li' il valore di prima misurava 2,88 —
+     sotto soglia proprio nell'istante in cui si sta per premere. Ricalcolati:
+     3,71 su --superficie, 3,56 su --sfondo, 3,29 su --evidenza. */
   --bordo: #ddd9d2;
-  --bordo-comando: #948e85;
+  --bordo-comando: #8a8479;
   /* Azione e stati. Le tre tinte di stato erano scritte a mano dentro le
      regole; qui sono ruoli, e ogni rapporto e' calcolato su --superficie, dove
      tutte e tre compaiono: 7,49:1, 5,41:1, 7,71:1. */
@@ -105,7 +108,13 @@ body {
    tabulari e lo stack a larghezza fissa lo tengono leggibile carattere per
    carattere accanto al titolo. */
 .corsa { margin: 0; color: var(--tenue); font-family: var(--stack-cifre); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); overflow-wrap: anywhere; }
-.tre-zone { display: grid; grid-template-columns: 18rem 1fr 22rem; flex: 1; min-height: 0; }
+/* minmax e non due larghezze fisse: 18rem + 22rem sono 640 px di cornice che
+   non cede, e fra ~961 e ~1250 px la colonna centrale — la vista 3D, la ragione
+   per cui l'applicazione esiste — restava piu' stretta di entrambe le laterali.
+   A 200% di ingrandimento su uno schermo grande si atterra esattamente li'.
+   Un punto di rottura in piu' avrebbe risolto una fascia sola; cedere le
+   laterali risolve tutte le larghezze intermedie con una riga. */
+.tre-zone { display: grid; grid-template-columns: minmax(12rem, 18rem) 1fr minmax(16rem, 22rem); flex: 1; min-height: 0; }
 .zona { padding: var(--passo-4); overflow: auto; }
 .zona-step, .zona-dettaglio { background: var(--superficie); }
 .zona-step { border-right: 1px solid var(--bordo); }
@@ -162,6 +171,10 @@ body {
    contorno visibile sarebbe una tappa cieca, cioe' un difetto al posto di una
    correzione. Stesso contorno degli altri comandi, non uno suo. */
 .registro:focus-visible { outline: 2px solid var(--accento); outline-offset: 2px; }
+/* Vuoto era un rettangolo alto un pixel con un contorno intorno, che si legge
+   come un campo di testo rotto. Stesso rimedio di .conteggi:empty: si toglie
+   cio' che si vede, non l'elemento. */
+.registro:empty { border: none; padding: 0; }
 .riga-log { white-space: pre-wrap; word-break: break-word; }
 .zona-vista { position: relative; padding: 0; }
 .conteggi { position: absolute; bottom: var(--passo-2); left: var(--passo-2); margin: 0; padding: var(--passo-1) var(--passo-2); background: var(--velo); border-radius: var(--raggio); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); font-variant-numeric: tabular-nums; color: var(--tenue); }
