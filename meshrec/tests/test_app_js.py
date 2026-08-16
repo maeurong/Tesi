@@ -1222,7 +1222,8 @@ def _banco_del_campo() -> str:
     """
     return _DOM + _funzioni(
         "valoreScritto", "ragioneDelRifiuto", "serverMuto", "superata", "corpoLetto",
-        "segnalaCampo", "apriBattuta", "scriviParametro", "cambiatoDalPredefinito", "campoParametro",
+        "reso", "segnalaCampo", "apriBattuta", "scriviParametro", "cambiatoDalPredefinito",
+        "campoParametro",
     ) + """
 // Il terzo contatore di Rilievo 1, per campo: scriviParametro lo legge dal
 // modulo per nome, non da un parametro, quindi il banco deve ricrearlo tale e
@@ -1693,7 +1694,8 @@ def _banco_di_apriDettaglio() -> str:
     return _DOM + _funzioni(
         "segnaStepAperto", "nuovaRiga", "disegnaStep", "dichiaraErrore", "fallisciDettaglio",
         "ragioneDelRifiuto", "serverMuto", "superata", "corpoLetto", "valoreScritto",
-        "segnalaCampo", "apriBattuta", "scriviParametro", "cambiatoDalPredefinito", "campoParametro",
+        "reso", "segnalaCampo", "apriBattuta", "scriviParametro", "cambiatoDalPredefinito",
+        "campoParametro",
         "gruppoDelBlocco", "azioniDelloStep", "apriDettaglio",
     ) + """
 let ultimaBattutaDelCampo = new Map();
@@ -2925,7 +2927,7 @@ def test_il_confronto_col_predefinito_e_sul_testo_reso(tmp_path):
     default=str: un Path arriva come testo. Confrontare i valori grezzi
     segnerebbe come «cambiato» un parametro che nessuno ha toccato, solo perche'
     le due grafie dello stesso valore non sono lo stesso oggetto."""
-    sorgente = _DOM + _funzioni("cambiatoDalPredefinito") + """
+    sorgente = _DOM + _funzioni("reso", "cambiatoDalPredefinito") + """
 assert.equal(cambiatoDalPredefinito(9, 9), false, "lo stesso numero risulta cambiato");
 assert.equal(cambiatoDalPredefinito(null, null), false, "due assenze risultano diverse");
 assert.equal(cambiatoDalPredefinito(0.005, null), true, "un valore su un predefinito assente");
@@ -2950,7 +2952,7 @@ def test_il_blocco_apre_sui_cambiati_e_richiude_i_predefiniti(tmp_path):
     rispondere a colpo d'occhio."""
     sorgente = _DOM + """
 configurazione = { segment: { method: "auto", knn: 20, soglia: 0.01 } };
-""" + _funzioni("cambiatoDalPredefinito", "campoParametro", "gruppoDelBlocco") + """
+""" + _funzioni("reso", "cambiatoDalPredefinito", "campoParametro", "gruppoDelBlocco") + """
 const campi = {
   method: { description: "come segmentare", default: "auto" },
   knn: { description: "vicini", default: 30 },
@@ -2974,7 +2976,7 @@ def test_un_blocco_tutto_al_predefinito_nasce_aperto(tmp_path):
     la prima volta. E' l'utente successivo confermato da PRODUCT.md."""
     sorgente = _DOM + """
 configurazione = { segment: { knn: 30, soglia: 0.01 } };
-""" + _funzioni("cambiatoDalPredefinito", "campoParametro", "gruppoDelBlocco") + """
+""" + _funzioni("reso", "cambiatoDalPredefinito", "campoParametro", "gruppoDelBlocco") + """
 const gruppo = gruppoDelBlocco("segment", {
   knn: { description: "vicini", default: 30 },
   soglia: { description: "soglia", default: 0.01 },
@@ -2991,7 +2993,7 @@ def test_un_campo_cambiato_dichiara_il_predefinito_per_iscritto(tmp_path):
     tesi racconta, e chi non distingue le tinte deve poterla leggere."""
     sorgente = _DOM + """
 configurazione = { segment: { knn: 20 } };
-""" + _funzioni("cambiatoDalPredefinito", "campoParametro") + """
+""" + _funzioni("reso", "cambiatoDalPredefinito", "campoParametro") + """
 const riga = campoParametro("segment", "knn", { description: "vicini", default: 30 }, 0);
 const testo = riga.figli.map((f) => f.textContent).join(" ");
 assert.match(testo, /30/, `il predefinito non e' scritto da nessuna parte: ${testo}`);
@@ -3007,11 +3009,42 @@ def test_un_campo_al_predefinito_non_porta_ne_classe_ne_segno(tmp_path):
     qualcosa — un canale che si accende sempre non distingue piu' niente."""
     sorgente = _DOM + """
 configurazione = { segment: { knn: 30 } };
-""" + _funzioni("cambiatoDalPredefinito", "campoParametro") + """
+""" + _funzioni("reso", "cambiatoDalPredefinito", "campoParametro") + """
 const riga = campoParametro("segment", "knn", { description: "vicini", default: 30 }, 0);
 assert.ok(!riga.className.split(" ").includes("campo-cambiato"), "un campo fermo porta il canale visivo");
 const testo = riga.figli.map((f) => f.textContent).join(" ");
 assert.doesNotMatch(testo, /cambiato/, `un campo fermo dichiara comunque un cambiamento: ${testo}`);
+console.log("ok");
+"""
+    assert _esegui(tmp_path, sorgente).strip() == "ok"
+
+
+def test_il_segno_del_predefinito_rende_un_modello_come_lo_rende_il_confronto(tmp_path):
+    """`analysis.material` e' un modello Pydantic e una lista e' una lista: il
+    segno accanto al campo li passava per String(), che scrive «[object Object]»
+    e «1,2,4». Sono i due testi che il commento di campoParametro vieta per
+    nome trentaquattro righe sopra, e che nessuna lettura produce.
+
+    Il confronto usava gia' la resa JSON: le due domande — «e' cambiato?» e «da
+    che cosa?» — rispondevano in due lingue diverse, e la seconda si vede al
+    primo parametro che un lavoro strutturale sposta.
+    """
+    sorgente = _DOM + """
+configurazione = { analysis: { material: { name: "MATTONE", young: 900 }, assi: [1, 2, 4] } };
+""" + _funzioni("reso", "cambiatoDalPredefinito", "campoParametro") + """
+const modello = campoParametro("analysis", "material",
+  { description: "materiale", default: { name: "MURATURA", young: 1500 } }, 0);
+const testoModello = modello.figli.map((f) => f.textContent).join(" ");
+assert.doesNotMatch(
+  testoModello,
+  /\\[object Object\\]/,
+  `il segno rende un modello annidato con String(): ${testoModello}`,
+);
+assert.match(testoModello, /"name":\\s*"MURATURA"/, `il predefinito non si legge: ${testoModello}`);
+
+const lista = campoParametro("analysis", "assi", { description: "assi", default: [0, 1, 2] }, 0);
+const testoLista = lista.figli.map((f) => f.textContent).join(" ");
+assert.match(testoLista, /\\[0,1,2\\]/, `la lista e' resa come una sequenza di virgole: ${testoLista}`);
 console.log("ok");
 """
     assert _esegui(tmp_path, sorgente).strip() == "ok"

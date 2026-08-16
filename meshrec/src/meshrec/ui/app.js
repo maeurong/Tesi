@@ -974,17 +974,25 @@ async function scriviParametro(blocco, nome, input, messaggio, ordine) {
 // l'interfaccia lo buttava via: in un prodotto la cui tesi e' la
 // riproducibilita', «che cosa ho cambiato dallo stock» e' la prima domanda, e
 // la risposta era gia' nel browser.
-// Il confronto e' sul testo reso e non sui valori: il campo mostra una stringa,
-// e /api/schema serializza i predefiniti con default=str, quindi un Path arriva
+// Il confronto e' sul testo reso e non sui valori: il campo mostra una
+// stringa, e /api/schema serializza i predefiniti con per_json — i modelli
+// annidati come oggetti JSON, tutto il resto per str(), quindi un Path arriva
 // gia' come testo. Confrontare i valori grezzi segnerebbe come cambiato un
 // parametro che nessuno ha toccato.
+//
+// Come si legge un valore di configurazione, in un punto solo. Le due
+// domande — «e' cambiato?» e «da che cosa?» — devono per forza rispondere
+// nella stessa lingua: il confronto usava questa resa e il segno accanto al
+// campo usava String(), che su un modello annidato scrive «[object Object]»
+// e su una lista «1,2,4». Sono esattamente i due testi che il commento di
+// campoParametro vieta per nome trentaquattro righe sopra, e comparivano al
+// primo parametro che un lavoro strutturale sposta (material.young).
+function reso(v) {
+  if (v === null || v === undefined) return "";
+  return ["string", "number", "boolean"].includes(typeof v) ? String(v) : JSON.stringify(v);
+}
+
 function cambiatoDalPredefinito(valore, predefinito) {
-  const reso = (v) =>
-    v === null || v === undefined
-      ? ""
-      : ["string", "number", "boolean"].includes(typeof v)
-        ? String(v)
-        : JSON.stringify(v);
   return reso(valore) !== reso(predefinito);
 }
 
@@ -999,7 +1007,7 @@ function campoParametro(blocco, nome, campo, ordine) {
   // modello.
   const scalare = valore === null || ["string", "number", "boolean"].includes(typeof valore);
   const input = document.createElement("input");
-  input.value = scalare ? String(valore ?? "") : JSON.stringify(valore);
+  input.value = reso(valore);
   input.title = campo.description;
   const messaggio = document.createElement("small");
   messaggio.className = "errore-campo";
@@ -1030,7 +1038,7 @@ function campoParametro(blocco, nome, campo, ordine) {
     segno.className = "aiuto segno-cambiato";
     const stock = campo.default === null || campo.default === undefined
       ? "nessuno"
-      : String(campo.default);
+      : reso(campo.default);
     segno.textContent = `cambiato — predefinito: ${stock}`;
     riga.append(segno);
   }

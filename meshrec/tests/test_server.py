@@ -1782,7 +1782,15 @@ def test_il_predefinito_di_un_modello_annidato_e_json_non_un_repr(cliente):
     predefinito = cliente.get("/api/schema").json()["11"]["campi"]["analysis"]["material"]["default"]
     assert isinstance(predefinito, dict), f"il predefinito e' un repr, non JSON: {predefinito!r}"
     vivo = cliente.get("/api/config").json()["analysis"]["material"]
-    assert set(predefinito) == set(vivo), "il predefinito non ha le stesse chiavi del valore vivo"
+    # list() e non set(): il browser confronta le due forme per JSON.stringify,
+    # che e' sensibile all'ordine delle chiavi. Oggi combaciano perche' le due
+    # tratte passano tutt'e due per model_dump(mode="json") sullo stesso
+    # modello, e Pydantic emette i campi nell'ordine di dichiarazione — ma
+    # niente lo pinzava. Se un domani un lato cambiasse strada, material
+    # tornerebbe a segnalarsi cambiato a ogni corsa con la suite tutta verde.
+    assert list(predefinito) == list(vivo), (
+        "il predefinito non ha le stesse chiavi, nello stesso ordine, del valore vivo"
+    )
 
 
 def test_il_tempo_dello_step_viene_dal_server_e_non_dal_browser(cliente):

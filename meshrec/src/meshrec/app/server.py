@@ -371,7 +371,9 @@ def create_app(config_path: Path) -> FastAPI:
         # da /api/config) non potrebbe mai risultare uguale — il campo
         # risulterebbe cambiato a ogni corsa, sempre, e il repr finirebbe
         # scritto a video in un'interfaccia italiana. str() resta la via per
-        # cio' che non e' un modello, come Path o una tupla.
+        # cio' che non e' un modello e che json non sa scrivere da se', come
+        # Path. Una tupla non passa di qui: json.dumps la scrive come lista, e
+        # `default` viene chiamato solo su cio' che non sa serializzare.
         def per_json(valore: object) -> object:
             return valore.model_dump(mode="json") if isinstance(valore, BaseModel) else str(valore)
 
