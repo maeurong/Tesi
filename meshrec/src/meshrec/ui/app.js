@@ -677,6 +677,14 @@ function pannelloRitaglio(ordine) {
   const valori = persistito
     ? { min: [...persistito.crop_min], max: [...persistito.crop_max] }
     : { min: [...ingombro.min], max: [...ingombro.max] };
+  const applica = document.createElement("button");
+  applica.type = "button";
+  applica.className = "bottone";
+  applica.textContent = "Applica il ritaglio";
+  // Quali dei sei estremi non si leggono adesso. Un insieme e non un booleano:
+  // con due campi rotti, risolverne uno riaccenderebbe il bottone mentre
+  // l'altro e' ancora illeggibile.
+  const rifiutati = new Set();
   for (const estremo of ["min", "max"]) {
     for (const asse of [0, 1, 2]) {
       const riga = document.createElement("label");
@@ -688,24 +696,38 @@ function pannelloRitaglio(ordine) {
       input.type = "number";
       input.step = "any";
       input.value = valori[estremo][asse].toFixed(1);
+      const messaggio = document.createElement("small");
+      messaggio.className = "errore-campo";
+      messaggio.id = `errore-ritaglio-${estremo}-${asse}`;
+      messaggio.hidden = true;
+      const chiave = `${estremo}${asse}`;
       input.addEventListener("input", () => {
         const scritto = Number(input.value);
-        // Number("") e' 0, non NaN: senza questa riga svuotare il campo
-        // porterebbe l'estremo all'origine, il box salterebbe li' e «Applica»
-        // manderebbe 0 al server. Un campo vuoto, o a meta' di un numero, non
-        // muove il box: si aspetta che ci sia scritto qualcosa di finito.
-        if (input.value.trim() === "" || !Number.isFinite(scritto)) return;
+        // Number("") e' 0, non NaN: senza questa guardia svuotare il campo
+        // porterebbe l'estremo all'origine e il box salterebbe li'.
+        // Prima usciva in silenzio, e li' finiva: il box smetteva di muoversi
+        // senza dire perche', e «Applica» mandava comunque l'ultimo array
+        // valido — cioe' un ritaglio diverso da quello che i campi mostravano,
+        // scritto su disco con un messaggio di successo sopra.
+        // Gli stessi tre canali dei campi di parametro, con la stessa funzione:
+        // bordo, testo, e aria-invalid con aria-errormessage.
+        if (input.value.trim() === "" || !Number.isFinite(scritto)) {
+          rifiutati.add(chiave);
+          segnalaCampo(input, messaggio, "serve un numero: il box non si muove e «Applica» resta spento.");
+          applica.disabled = true;
+          return;
+        }
+        rifiutati.delete(chiave);
+        segnalaCampo(input, messaggio, null);
+        // Non `false` secco: gli altri cinque campi possono essere ancora rotti.
+        applica.disabled = rifiutati.size > 0;
         valori[estremo][asse] = scritto;
         vista.mostraBox(valori.min, valori.max);
       });
-      riga.append(input);
+      riga.append(input, messaggio);
       contenitore.append(riga);
     }
   }
-  const applica = document.createElement("button");
-  applica.type = "button";
-  applica.className = "bottone";
-  applica.textContent = "Applica il ritaglio";
   const esito = document.createElement("p");
   esito.className = "aiuto";
   // Il bottone si riclicca per affinare il box: e' il flusso normale, non un

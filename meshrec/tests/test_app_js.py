@@ -2384,3 +2384,77 @@ def test_la_configurazione_e_le_metriche_si_chiedono_insieme():
     assert corpo.count("await fetch(\"/api/config\")") == 0, (
         "e' rimasta un'attesa separata su /api/config"
     )
+
+
+# --------------------------------------------------------------------------
+# Il ritaglio: cio' che il campo mostra e cio' che finisce sul disco.
+# --------------------------------------------------------------------------
+
+
+def _stub_ritaglio() -> str:
+    """Il minimo che pannelloRitaglio tocca: la vista con un ingombro noto e una
+    configurazione senza ritaglio gia' applicato."""
+    return """
+const vista = {
+  ingombro: () => ({ min: [0, 0, 0], max: [10, 20, 30] }),
+  mostraBox() {},
+};
+configurazione = { segment: { crop_min: null, crop_max: null } };
+function dichiaraErrore() {}
+function superata() { return false; }
+const campiDi = (pannello) =>
+  pannello.figli.flatMap((f) => f.figli).filter((n) => n.tag === "input");
+const bottoneDi = (pannello) =>
+  pannello.figli.find((n) => n.tag === "button");
+"""
+
+
+def test_un_campo_del_ritaglio_illeggibile_si_dichiara_e_spegne_applica(tmp_path):
+    """Il silenzio era doppio. Il box smetteva di muoversi senza dire perche',
+    e «Applica» restava acceso e mandava l'ultimo array valido: sul disco
+    finiva un estremo che i sei campi non mostravano piu'. E' il principio 1
+    rovesciato — si mostra un numero, se ne usa un altro, e nessun controllo lo
+    smentisce."""
+    sorgente = _DOM + _stub_ritaglio() + _funzioni("segnalaCampo", "pannelloRitaglio") + """
+const pannello = pannelloRitaglio(0);
+const campi = campiDi(pannello);
+assert.equal(campi.length, 6, `sei estremi, non ${campi.length}`);
+const applica = bottoneDi(pannello);
+assert.notEqual(applica, undefined, "il bottone Applica non c'e' piu'");
+assert.notEqual(applica.disabled, true, "nasce spento senza che nulla sia rifiutato");
+
+campi[0].value = "abc";
+await campi[0].scatena("input");
+assert.equal(applica.disabled, true, "Applica manderebbe un valore che il campo non mostra");
+assert.ok(
+  campi[0].className.split(" ").includes("campo-rifiutato"),
+  `il rifiuto non ha un canale visivo: ${campi[0].className}`,
+);
+assert.equal(campi[0].getAttribute("aria-invalid"), "true", "e nessun canale per chi non vede");
+
+campi[0].value = "1.5";
+await campi[0].scatena("input");
+assert.equal(applica.disabled, false, "corretto il campo, Applica resta spento per sempre");
+assert.equal(campi[0].getAttribute("aria-invalid"), null, "il rifiuto risolto resta a video");
+console.log("ok");
+"""
+    assert _esegui(tmp_path, sorgente).strip() == "ok"
+
+
+def test_un_solo_campo_rotto_su_sei_basta_a_spegnere_applica(tmp_path):
+    """Il contatore e' per campo, non un booleano: risolto uno dei due rifiuti,
+    un booleano avrebbe riacceso il bottone con l'altro campo ancora rotto."""
+    sorgente = _DOM + _stub_ritaglio() + _funzioni("segnalaCampo", "pannelloRitaglio") + """
+const pannello = pannelloRitaglio(0);
+const campi = campiDi(pannello);
+const applica = bottoneDi(pannello);
+campi[0].value = "abc";
+await campi[0].scatena("input");
+campi[3].value = "";
+await campi[3].scatena("input");
+campi[0].value = "1";
+await campi[0].scatena("input");
+assert.equal(applica.disabled, true, "un campo e' ancora vuoto e Applica si e' riacceso");
+console.log("ok");
+"""
+    assert _esegui(tmp_path, sorgente).strip() == "ok"
