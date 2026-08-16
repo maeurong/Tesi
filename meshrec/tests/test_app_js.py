@@ -2107,3 +2107,25 @@ assert.equal(senza.esito, "Tetraedri concluso", `ha inventato una durata: ${senz
 console.log("ok");
 """
     assert _esegui(tmp_path, sorgente).strip() == "ok"
+
+
+def test_exit_code_null_o_assente_non_e_un_fallimento(tmp_path):
+    """La guardia su exit_code confronta tre valori (0, null, undefined), non
+    uno solo: un file di stato scritto prima che il worker fissi il codice, o
+    un campo che il JSON non porta, non sono un fallimento. Una guardia
+    ridotta a `!== 0` tratterebbe entrambi come un crollo mai avvenuto."""
+    sorgente = _DOM + """
+ETICHETTE["09_tetrahedralize"] = "Tetraedri";
+const steps = [{ numero: 9, chiave: "09_tetrahedralize", stato: "valido" }];
+""" + _funzioni("nomeDelloStep", "esitoDellaCorsa") + """
+const conNull = esitoDellaCorsa({ step: 9, exit_code: null, annullato: false, steps });
+assert.equal(conNull.errore, null, "exit_code null non e' un fallimento");
+assert.match(conNull.esito, /Tetraedri concluso/, "va detto concluso, non taciuto");
+
+const senzaCampo = esitoDellaCorsa({ step: 9, annullato: false, steps });
+assert.equal(senzaCampo.errore, null, "exit_code assente non e' un fallimento");
+assert.match(senzaCampo.esito, /Tetraedri concluso/, "va detto concluso, non taciuto");
+
+console.log("ok");
+"""
+    assert _esegui(tmp_path, sorgente).strip() == "ok"

@@ -166,7 +166,12 @@ flusso.addEventListener("stato", (evento) => {
   const rigaEsito = document.getElementById("esito");
   // Sul fronte di salita si pulisce: l'esito della corsa precedente, lasciato
   // li', descriverebbe un lavoro diverso da quello che sta girando adesso.
-  if (!eraInCorso && stato.in_corso) rigaEsito.textContent = "";
+  // L'errore va con l'esito, per la stessa ragione: lasciato a video per
+  // tutta la corsa nuova, non solo per l'istante del cambio di stato.
+  if (!eraInCorso && stato.in_corso) {
+    rigaEsito.textContent = "";
+    dichiaraErrore(null);
+  }
   if (eraInCorso && !stato.in_corso) {
     const { errore, esito } = esitoDellaCorsa(stato);
     // dichiaraErrore(null) su un esito buono e' voluto: un errore di prima
