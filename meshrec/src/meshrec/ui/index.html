@@ -28,11 +28,27 @@
 <main class="tre-zone">
   <nav class="zona zona-step" aria-label="Step della pipeline">
     <h2>Pipeline</h2>
+    <!-- La legenda dei quattro stati, scritta una volta. «non valido» e' il
+         concetto su cui l'intero strumento e' costruito e non era spiegato in
+         nessun punto: chi arriva dopo lo legge come «rotto» e riesegue tutto
+         invece di riprendere da dove serve. Statica nel markup perche' le
+         quattro parole vengono da steps.run_state e non cambiano con la corsa. -->
+    <p class="aiuto">
+      Undici step in fila: ognuno lavora sul risultato del precedente.
+      <strong>valido</strong> = l'artefatto sul disco è stato prodotto proprio
+      da questi parametri. <strong>non valido</strong> = i parametri sono
+      cambiati dopo: l'artefatto è vecchio, non guasto, e si riallinea
+      rieseguendo lo step. <strong>mai eseguito</strong> e
+      <strong>fallito</strong> si spiegano da sé.
+    </p>
     <ol class="elenco-step" id="elenco-step"></ol>
   </nav>
   <section class="zona zona-vista" aria-label="Vista tridimensionale">
     <div id="viewport" class="viewport"></div>
-    <p class="conteggi" id="conteggi" aria-live="polite"></p>
+    <!-- Nasce con una frase e non vuota: alla prima apertura il 55% della
+         finestra e' un rettangolo scuro senza didascalia, e niente dice che si
+         comincia scegliendo uno step. app.js la sovrascrive al primo clic. -->
+    <p class="conteggi" id="conteggi" aria-live="polite">Scegli uno step a sinistra per vederne la geometria.</p>
     <!-- Il comando del taglio. Nasce nascosto: app.js lo mostra solo dove c'e'
          un volume disegnato, e l'intervallo del cursore lo scrive da li'
          leggendo l'ingombro della geometria. min, max e step non stanno qui
@@ -63,7 +79,14 @@
          distruggerla, e test_app_js.py sorveglia che non ci si torni. -->
     <p class="errore" id="errore" role="alert"></p>
     <div id="dettaglio"><p class="vuoto">Scegli uno step per vederne parametri e metriche.</p></div>
-    <h2 id="titolo-registro">Registro</h2>
+    <!-- «Registro dell'esecuzione» e non «Registro»: piu' in basso, nella
+         Galleria, «registro» e' il registro dell'esperimento della Fase 2, che
+         e' un'altra cosa — una tabella di candidati misurati, non le righe che
+         il sottoprocesso sta scrivendo adesso. La stessa parola per due cose
+         diverse nella stessa colonna e' la sola ambiguita' di vocabolario
+         dell'interfaccia. -->
+    <h2 id="titolo-registro">Registro dell'esecuzione</h2>
+    <p class="aiuto">Quello che il programma scrive mentre lavora. Quando uno step fallisce, il motivo è nelle ultime righe.</p>
     <!-- tabindex="0": il registro e' alto 14rem e scorre, e dentro non c'e'
          niente su cui il fuoco possa posarsi. Senza questo attributo Chrome non
          lo rende raggiungibile da tastiera e le righe uscite dall'alto non si
@@ -83,7 +106,7 @@
     <!-- Sola lettura: nessun clic qui scrive sul disco. I registri sono
          quelli della Fase 2 (experiments/), la tabella sperimentale della
          tesi. -->
-    <p class="aiuto">Registri della Fase 2. I candidati sul fronte di Pareto sono segnati nella prima colonna.</p>
+    <p class="aiuto">Le prove già misurate della Fase 2, in sola lettura: nessun comando qui scrive sul disco. Ogni riga è una configurazione provata. La prima colonna segna i candidati sul <em>fronte di Pareto</em>, cioè quelli che nessun altro batte su tutti gli assi di confronto insieme.</p>
     <div class="azioni" id="galleria-elenco"></div>
     <!-- La didascalia sta FUORI dal riquadro che scorre. Dentro, «11 candidati,
          1 sul fronte» usciva dallo schermo appena si scorreva a destra per

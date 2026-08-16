@@ -111,3 +111,44 @@ def test_l_impronta_di_una_corsa_registrata_non_cambia(tmp_path):
         "input", "segment", "downsample", "normals", "surface",
         "repair", "simplify", "tet", "analysis", "run",
     }
+
+
+def test_ogni_parametro_che_l_interfaccia_mostra_ha_la_propria_descrizione():
+    """Lo spazio dell'aiuto sotto una casella si stampa vuoto quando il campo
+    non ha `description`, e /api/schema manda "" senza distinguere «non ho
+    niente da dire» da «nessuno l'ha scritto». Erano ventisei campi su
+    novantuno, e fra loro i tre del primo pannello che un tesista nuovo apre
+    (`method`, `outlier_neighbors`, `outlier_std_ratio`). Il controllo guarda
+    solo i blocchi che STEP_BLOCKS espone: quelli sono le caselle a video.
+    """
+    from meshrec.core.steps import STEP_BLOCKS
+
+    muti = [
+        f"{blocco}.{nome}"
+        for blocchi in STEP_BLOCKS.values()
+        for blocco in blocchi
+        for nome, campo in config.PipelineConfig.model_fields[blocco]
+        .annotation.model_fields.items()
+        if not (campo.description or "").strip()
+    ]
+    assert muti == [], f"campi a video senza aiuto: {sorted(set(muti))}"
+
+
+def test_le_descrizioni_mostrate_non_scrivono_gli_accenti_con_l_apostrofo():
+    """I sorgenti di questo repository sono ASCII per convenzione, ma queste
+    stringhe non restano nei sorgenti: escono sotto le caselle dell'interfaccia
+    e finiscono proiettate in sede di discussione. «piu'» e «densita'» sono
+    l'apostrofo al posto dell'accento, cioe' italiano scritto male a video.
+    """
+    from meshrec.core.steps import STEP_BLOCKS
+
+    sospette = [
+        f"{blocco}.{nome}: {parola}"
+        for blocchi in STEP_BLOCKS.values()
+        for blocco in blocchi
+        for nome, campo in config.PipelineConfig.model_fields[blocco]
+        .annotation.model_fields.items()
+        for parola in ("piu'", "puo'", "perche'", "densita'", "profondita'", "cosi'", "gia'")
+        if parola in (campo.description or "")
+    ]
+    assert sospette == [], f"accenti scritti con l'apostrofo: {sorted(set(sospette))}"

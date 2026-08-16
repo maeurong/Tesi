@@ -263,6 +263,11 @@ body {
 /* Il valore e' un numero misurato: cifre tabulari, cosi' due metriche
    incolonnate si confrontano senza rileggerle. */
 .metriche dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+/* La glossa di una metrica sta sotto il proprio valore, non di fianco: in
+   linea spingerebbe il numero fuori dalla colonna da 22rem, che e' l'unica
+   cosa che deve restare leggibile. Cifre normali, non tabulari: e' una frase,
+   e le tabulari allargano le cifre che ci compaiono dentro. */
+.metriche dd .aiuto { display: block; font-variant-numeric: normal; }
 /* La colonna della galleria e' stretta (22rem) e la tabella dei candidati ha
    otto colonne: scorre in orizzontale dentro il proprio contenitore, non la
    pagina. */

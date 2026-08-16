@@ -874,7 +874,8 @@ assert.equal(
   "\\"nessun artefatto\\" lascia la tela marcata come occupata",
 );
 assert.equal(
-  document.getElementById("conteggi").textContent, "nessun artefatto per questo step",
+  document.getElementById("conteggi").textContent,
+  "nessun artefatto per questo step: eseguilo per vederne il risultato.",
   "il testo del rifiuto documentato e' cambiato",
 );
 """)
@@ -931,7 +932,8 @@ def test_messaggioArtefattoMancante_distingue_server_muto_da_rifiuto_documentato
     mostraNuvolaDelloStep."""
     _esegui(tmp_path, _banco_di_geometria() + """
 const documentato = await messaggioArtefattoMancante({ status: 404 });
-assert.equal(documentato, "nessun artefatto per questo step",
+assert.equal(documentato,
+  "nessun artefatto per questo step: eseguilo per vederne il risultato.",
   "il rifiuto documentato non deve cambiare testo");
 
 const muto = await messaggioArtefattoMancante({
@@ -1388,7 +1390,7 @@ def test_la_didascalia_del_ritaglio_dice_di_quale_numero_si_tratta(tmp_path):
                      "function didascalia(corpo) { return (" + espressione + "); }\n" + """
 const parziale = didascalia({ points_after: 5602, completo: false });
 const intero = didascalia({ points_after: 84, completo: true });
-const COINCIDENZA = /e' quanti ne terrebbe lo step 2/;
+const COINCIDENZA = /è quanti ne terrebbe lo step 2/;
 const SEGUITO = /prosegue/;
 assert.match(parziale, SEGUITO,
   "l'anteprima non e' tutto lo step 2 e la didascalia non dice che lo step prosegue");
@@ -1679,7 +1681,8 @@ rigaErrore.textContent = "";
 risponde = async () => ({ ok: true, status: 200, json: async () => ({ out_dir: "/tmp/corsa", steps: STEPS }) });
 await caricaStato();
 assert.equal(rigaErrore.textContent, "", "un corpo buono non deve mostrare errore");
-assert.equal(document.getElementById("corsa").textContent, "/tmp/corsa");
+assert.equal(document.getElementById("corsa").textContent, "corsa: /tmp/corsa",
+  "la riga della testata non dice piu' che quel percorso e' la corsa aperta");
 assert.equal(elenco.childElementCount, 3, "un corpo buono deve continuare a disegnare gli step");
 """)
 
@@ -1696,8 +1699,13 @@ def _banco_di_apriDettaglio() -> str:
         "ragioneDelRifiuto", "serverMuto", "superata", "corpoLetto", "valoreScritto",
         "reso", "segnalaCampo", "apriBattuta", "scriviParametro", "cambiatoDalPredefinito",
         "campoParametro",
-        "gruppoDelBlocco", "azioniDelloStep", "apriDettaglio",
+        "gruppoDelBlocco", "azioniDelloStep", "intestazioneDelloStep", "apriDettaglio",
     ) + """
+// L'intestazione del pannello legge i nomi degli step da qui: in questi banchi
+// resta vuota, e la funzione deve reggere lo stesso (titolo senza nome).
+let ultimiSteps = [];
+// ETICHETTE arriva dal DOM finto; PROPOSITI no, e l'intestazione lo legge.
+const PROPOSITI = {};
 let ultimaBattutaDelCampo = new Map();
 let schemaParametri = null;
 // apriDettaglio ora costruisce le sue azioni con azioniDelloStep, che legge
@@ -1951,7 +1959,9 @@ risponde = {
   "/api/metrics": async () => ({ ok: true, status: 200, json: async () => METRICHE_BUONE }),
 };
 await apriDettaglio(1);
-const azioni = document.getElementById("dettaglio").figli[0];
+// Per classe e non per posizione: il pannello si apre sull'intestazione dello
+// step, e un indice fisso legherebbe questo controllo all'ordine dei blocchi.
+const azioni = document.getElementById("dettaglio").figli.find((n) => n.className === "azioni");
 const [questo, daQui] = azioni.figli;
 
 // "da qui in giu'" chiede conferma al primo clic e non spara nessuna fetch:
@@ -2391,8 +2401,8 @@ def _banco_del_fronte_di_discesa() -> str:
     return _banco_di_apriDettaglio() + _funzioni(
         "nomeDelloStep", "esitoDellaCorsa", "mostraEsito", "spegniLeEsecuzioni", "aggiornaDaStato",
     ) + """
-// disegnaStep vero e' gia' nel banco e scrive qui dentro.
-let ultimiSteps = [];
+// disegnaStep vero e' gia' nel banco e scrive qui dentro; ultimiSteps e'
+// dichiarata la' dentro, perche' anche l'intestazione del pannello la legge.
 // Una corsa stava girando: e' il fronte di discesa che si vuole esercitare.
 let eraInCorso = true;
 // null: il viewport non mostra niente, quindi non c'e' nessuna vista da
@@ -3271,6 +3281,150 @@ def test_il_registro_resta_fermo_per_chi_non_era_in_fondo(tmp_path):
 registro.scrollTop = 12;
 aggiungiRiga({ data: JSON.stringify("riga nuova") });
 assert.equal(registro.scrollTop, 12, "chi leggeva a meta' e' stato riportato in fondo");
+console.log("ok");
+"""
+    assert _esegui(tmp_path, sorgente).strip() == "ok"
+
+
+# Passata di chiarezza: le metriche smettono di essere chiavi inglesi nude e
+# JSON grezzo, il pannello dice quale step si sta guardando, e la colonna degli
+# step spiega le quattro parole di stato. Le funzioni sono pure e di primo
+# livello apposta, come reso() e superata(): si eseguono senza un pannello.
+
+
+def test_resaMetrica_scrive_una_distribuzione_a_parole_e_non_in_JSON(tmp_path):
+    """Le distribuzioni di quality.py sono quattro numeri, e `dd` mostrava
+    `{"min":0.32,"median":0.71,...}`: graffe e virgolette sono la forma del
+    trasporto, non il dato. Il caso dichiarato in cui nessun valore finito
+    esiste (min a null) non deve stampare «null»."""
+    _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
+            + _funzioni("numeroReso", "riassuntoDistribuzione", "resaMetrica") + """
+const reso = resaMetrica({ min: 0.32, median: 0.71, mean: 0.7, max: 1, non_finite: 0 });
+assert.doesNotMatch(reso, /[{}"]/, `la distribuzione esce ancora come JSON: ${reso}`);
+assert.match(reso, /min .*mediana .*media .*max /, `la distribuzione non si legge: ${reso}`);
+
+const vuota = resaMetrica({ min: null, median: null, mean: null, max: null, non_finite: 3 });
+assert.match(vuota, /nessun valore finito/, `il caso senza valori finiti dice: ${vuota}`);
+assert.doesNotMatch(vuota, /null/, "«null» arriva a video come se fosse una misura");
+
+const sporca = resaMetrica({ min: 1, median: 2, mean: 2, max: 3, non_finite: 5 });
+assert.match(sporca, /non finiti: 5/, `i valori non finiti spariscono: ${sporca}`);
+""")
+
+
+def test_resaMetrica_dice_i_valori_semplici_nella_lingua_dell_interfaccia(tmp_path):
+    """`true`, `false` e `null` sono la lingua di JSON, non quella di chi
+    guarda: `watertight: true` e `max_volume: null` erano la meta' delle voci
+    di due pannelli."""
+    _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
+            + _funzioni("numeroReso", "riassuntoDistribuzione", "resaMetrica") + """
+assert.equal(resaMetrica(true), "sì");
+assert.equal(resaMetrica(false), "no");
+assert.equal(resaMetrica(null), "non impostato");
+assert.equal(resaMetrica([]), "nessuno");
+assert.equal(resaMetrica("crop"), "crop", "una stringa del server resta quella che e'");
+// Un oggetto di oggetti (geometric_error) si apre di un livello: piu' giu' non
+// c'e' nome che l'interfaccia sappia dire, e torna il JSON invece di inventarne uno.
+const annidato = resaMetrica({ hausdorff: 12.5, cloud_to_mesh: { min: 0, median: 1, mean: 1, max: 2, non_finite: 0 } });
+assert.match(annidato, /hausdorff: /, `il primo livello non si apre: ${annidato}`);
+assert.match(annidato, /mediana/, `la distribuzione dentro resta JSON: ${annidato}`);
+""")
+
+
+def test_resaMetrica_non_arrotonda_un_numero_fino_a_cambiarlo(tmp_path):
+    """maximumSignificantDigits scriverebbe 168.846.000 dove la misura vale
+    168.845.511: un numero plausibile che nessuna lettura ha prodotto, cioe' il
+    principio 3 del prodotto rovesciato."""
+    _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
+            + _funzioni("numeroReso", "riassuntoDistribuzione", "resaMetrica") + """
+const grande = resaMetrica(168845511.10290658);
+assert.ok(grande.startsWith((168845511).toLocaleString("it")),
+  `il volume misurato e' stato arrotondato a ${grande}`);
+
+// L'altro capo della stessa regola. Il volume dell'elemento piu' piccolo di
+// lab_crop vale 1,76e-06 mm^3 e con tre cifre decimali usciva «0», accanto a
+// un massimo di 85.788: uno zero che vuol dire «sotto la risoluzione di questa
+// resa» presentato come uno zero esatto.
+const minuscolo = resaMetrica(1.7615617942227708e-06);
+assert.notEqual(minuscolo, "0", "una misura sotto il millesimo diventa uno zero esatto");
+assert.ok(/[1-9]/.test(minuscolo), `la misura piccola non porta nessuna cifra: ${minuscolo}`);
+assert.equal(resaMetrica(0), "0", "uno zero vero non deve diventare altro");
+""")
+
+
+def test_l_intestazione_del_pannello_nomina_lo_step_e_dice_che_cosa_fa(tmp_path):
+    """Il pannello si apriva sui due bottoni d'esecuzione: quale step si stesse
+    guardando lo diceva soltanto il marchio nella colonna a sinistra, a 1100 px
+    di distanza. E «Normali» da solo non dice a chi non conosce la pipeline che
+    cosa stia per succedere al proprio dato."""
+    _esegui(tmp_path, _DOM + _funzioni("intestazioneDelloStep") + """
+const PROPOSITI = { "04_normals": "Stima in ogni punto da che parte guarda la superficie." };
+ETICHETTE["04_normals"] = "Normali";
+const [titolo, aiuto] = intestazioneDelloStep(4, [{ numero: 4, chiave: "04_normals" }]);
+assert.equal(titolo.tag, "h3");
+assert.match(titolo.textContent, /4/, "l'intestazione non dice quale step e'");
+assert.match(titolo.textContent, /Normali/, "l'intestazione non porta il nome dello step");
+assert.match(aiuto.textContent, /da che parte guarda/, "il proposito dello step non arriva a video");
+assert.equal(aiuto.className, "aiuto");
+""")
+
+
+def test_l_intestazione_non_inventa_un_nome_per_uno_step_che_non_conosce(tmp_path):
+    """Dove il dato manca si dichiara che manca: uno step la cui chiave non
+    sta negli elenchi resta il proprio numero, senza una frase inventata."""
+    _esegui(tmp_path, _DOM + _funzioni("intestazioneDelloStep") + """
+const PROPOSITI = {};
+const pezzi = intestazioneDelloStep(12, []);
+assert.equal(pezzi.length, 1, "uno step sconosciuto si porta dietro una frase che nessuno ha scritto");
+assert.equal(pezzi[0].textContent, "Step 12");
+""")
+
+
+def test_ogni_step_dell_elenco_ha_il_proprio_proposito():
+    """ETICHETTE e PROPOSITI descrivono gli stessi undici step: una chiave in
+    uno e non nell'altro e' un pannello che si apre senza dire che cosa fa,
+    proprio per lo step aggiunto per ultimo."""
+    testo = _senza_commenti_js(_modulo())
+    etichette = set(re.findall(r'"(\d\d_[a-z_]+)":', testo.split("const PROPOSITI", 1)[0]))
+    propositi = set(re.findall(r'"(\d\d_[a-z_]+)":', testo.split("const PROPOSITI", 1)[1].split("\n};", 1)[0]))
+    assert etichette, "l'elenco dei nomi degli step non si trova piu'"
+    assert etichette == propositi, f"step senza proposito: {sorted(etichette - propositi)}"
+
+
+def test_la_colonna_degli_step_spiega_che_cosa_vuol_dire_non_valido():
+    """«non valido» e' il concetto su cui l'intero strumento e' costruito — e
+    l'unica cosa che distingue questo prodotto dall'eseguibile che sostituisce —
+    e non era spiegato in nessun punto dell'interfaccia. Chi arriva dopo lo
+    legge come «rotto» e riesegue tutto invece di riprendere da dove serve."""
+    markup = _senza_commenti_html(_markup())
+    assert "non valido" in markup, "la legenda degli stati non nomina «non valido»"
+    assert "mai eseguito" in markup, "la legenda degli stati non e' completa"
+
+
+def test_il_registro_dell_esecuzione_non_si_chiama_come_quello_dell_esperimento():
+    """Nella stessa colonna, «Registro» erano due cose diverse: le righe che il
+    sottoprocesso sta scrivendo adesso, e il registro dell'esperimento della
+    Fase 2, che e' una tabella di candidati misurati."""
+    markup = _senza_commenti_html(_markup())
+    assert "Registro dell'esecuzione" in markup, "il registro delle righe non si distingue dall'altro"
+
+
+def test_una_casella_di_sola_lettura_non_manda_in_due_posti_diversi(tmp_path):
+    """La nota sotto una casella non modificabile diceva «si modifica dal file
+    di configurazione», e su `crop_min` finiva tre righe sopra il riquadro
+    «Ritaglio», che quello stesso valore lo scrive dall'interfaccia: due
+    istruzioni opposte sullo stesso campo, misurate a video. La nota adesso
+    dichiara solo che la casella non si scrive; dove si cambia il valore lo
+    dice la descrizione del campo, che e' l'unica a saperlo."""
+    sorgente = _DOM + _funzioni("reso", "cambiatoDalPredefinito", "campoParametro") + """
+configurazione = { segment: { crop_min: [1690, -470, -480] } };
+const riga = campoParametro("segment", "crop_min",
+  { description: "si imposta dal riquadro «Ritaglio»", default: null }, 0);
+const testo = riga.figli.map((f) => f.textContent).join(" ");
+assert.match(testo, /riquadro/, "la descrizione del campo non arriva a video");
+assert.doesNotMatch(testo, /file di configurazione/,
+  `la nota manda al file mentre la descrizione manda al riquadro: ${testo}`);
+assert.match(testo, /sola lettura/, "niente dice che la casella non si scrive");
 console.log("ok");
 """
     assert _esegui(tmp_path, sorgente).strip() == "ok"

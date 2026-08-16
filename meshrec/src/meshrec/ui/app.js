@@ -8,6 +8,26 @@ const ETICHETTE = {
   "11_export": "Esportazione",
 };
 
+// Che cosa fa uno step, in una riga. L'utente successivo dichiarato in
+// PRODUCT.md non conosce gli undici step, e la colonna di sinistra gli mostra
+// undici sostantivi soli: «Normali» non dice a nessuno che cosa stia per
+// succedere al proprio dato. Chi la pipeline la conosce a memoria non viene
+// rallentato — e' una riga sotto il titolo del pannello, non un passaggio in
+// piu' da fare.
+const PROPOSITI = {
+  "01_load": "Legge la nuvola dal file, la porta in millimetri e ne misura ingombro e spaziatura.",
+  "02_segment": "Tiene i soli punti dell'oggetto: toglie il rumore e ritaglia via il resto della stanza.",
+  "03_downsample": "Dirada i punti a passo costante: meno punti, stessa forma, calcolo più leggero.",
+  "04_normals": "Stima in ogni punto da che parte guarda la superficie: serve alla ricostruzione.",
+  "05_reconstruct": "Costruisce dai punti una superficie fatta di triangoli.",
+  "06_repair": "Chiude i buchi, toglie i pezzi staccati e rigira le facce finché la superficie racchiude un volume.",
+  "07_surface_quality": "Misura la superficie: se è chiusa, quanto sono regolari i triangoli, quanto si scosta dalla nuvola di partenza.",
+  "08_simplify": "Rifà o dirada i triangoli. È opzionale: senza «enabled» la superficie passa avanti com'è.",
+  "09_tetrahedralize": "Riempie il volume di tetraedri: è il maglio su cui si calcola.",
+  "10_volume_quality": "Misura il maglio: elementi rovesciati, volumi, angoli, allungamento.",
+  "11_export": "Scrive il file .inp per Abaqus o CalculiX, con materiale, gravità e set di nodi.",
+};
+
 // Il nome leggibile di uno step. La colonna di sinistra mostra i nomi, e la
 // riga di stato diceva «step 9»: due lingue per la stessa cosa, e la traduzione
 // a carico di chi guarda. La chiave sta in ogni voce di run_state, quindi il
@@ -88,10 +108,16 @@ async function caricaStato() {
   // qui passava la guardia e faceva sollevare la riga sotto fuori da ogni
   // catch, esattamente cio' che questa guardia doveva impedire.
   if (corpo == null || !Array.isArray(corpo.steps)) {
-    dichiaraErrore("il server ha risposto con uno stato della corsa che non si legge");
+    dichiaraErrore(
+      "il server ha risposto con uno stato della corsa che non si legge. " +
+        "Ricarica la pagina; se il messaggio torna, riavvia «meshrec serve» dal terminale.",
+    );
     return;
   }
-  document.getElementById("corsa").textContent = corpo.out_dir;
+  // Con l'etichetta: nudo era un percorso solo, sotto il nome del programma, e
+  // niente diceva che quella cartella e' la corsa su cui l'interfaccia lavora
+  // ne' che gli artefatti finiscono li'.
+  document.getElementById("corsa").textContent = `corsa: ${corpo.out_dir}`;
   disegnaStep(corpo.steps);
 }
 
@@ -375,7 +401,7 @@ async function corpoBinarioLetto(risposta) {
 async function messaggioArtefattoMancante(risposta) {
   return risposta.status === 0
     ? await ragioneDelRifiuto(risposta)
-    : "nessun artefatto per questo step";
+    : "nessun artefatto per questo step: eseguilo per vederne il risultato.";
 }
 
 // Il messaggio quando il download si ferma a meta', dopo che gli header erano
@@ -642,7 +668,9 @@ function serverMuto(errore) {
     status: 0,
     text: async () => JSON.stringify({
       errore: errore.name,
-      messaggio: `il server non ha risposto: ${errore.message}`,
+      messaggio:
+        `il server non ha risposto: ${errore.message}. ` +
+        "Controlla il terminale in cui gira «meshrec serve».",
     }),
   };
 }
@@ -744,7 +772,7 @@ function pannelloRitaglio(ordine) {
       const riga = document.createElement("label");
       riga.className = "campo";
       riga.append(Object.assign(document.createElement("span"), {
-        textContent: `${estremo} ${"xyz"[asse]}`,
+        textContent: `${estremo} ${"xyz"[asse]} [mm]`,
       }));
       const input = document.createElement("input");
       input.type = "number";
@@ -830,7 +858,10 @@ function pannelloRitaglio(ordine) {
     // differenza di un campo nullabile innestato), e passava la guardia.
     if (corpo == null || typeof corpo.points_after !== "number") {
       esito.textContent = "";
-      dichiaraErrore("il server ha risposto con un corpo che non descrive il ritaglio applicato");
+      dichiaraErrore(
+        "il server ha risposto con un corpo che non descrive il ritaglio applicato: " +
+          "riapri lo step 2 per rileggere che cosa c'è nella configurazione della corsa.",
+      );
       return;
     }
     // Il bottone dice «Applica», non «Anteprima»: /api/crop scrive crop_min e
@@ -849,10 +880,10 @@ function pannelloRitaglio(ordine) {
     // trovato, un cluster solo, nessun rumore — i due numeri coincidono.
     esito.textContent =
       (corpo.completo
-        ? `${corpo.points_after.toLocaleString("it")} punti: e' quanti ne terrebbe lo step 2 ` +
+        ? `${corpo.points_after.toLocaleString("it")} punti: è quanti ne terrebbe lo step 2 ` +
           "rieseguito con questo box."
         : `${corpo.points_after.toLocaleString("it")} punti dopo il ritaglio: con ` +
-          "questo metodo lo step 2 prosegue con i piani e i cluster, e non ne terra' di piu'.") +
+          "questo metodo lo step 2 prosegue con i piani e i cluster, e non ne terrà di più.") +
       " crop_min e crop_max sono stati scritti nella configurazione della corsa.";
   });
   contenitore.append(applica, esito);
@@ -946,7 +977,8 @@ async function scriviParametro(blocco, nome, input, messaggio, ordine) {
   // primo livello e faceva sollevare la riga sotto fuori da ogni catch.
   if (salvata == null || salvata[blocco]?.[nome] === undefined) {
     segnalaCampo(input, messaggio,
-      "il server ha accettato la modifica ma non ne ha confermato il valore");
+      "il server ha accettato la modifica ma non ne ha confermato il valore: " +
+      "ricarica la pagina per rileggere che cosa c'è sul disco.");
     return;
   }
   // Nel campo finisce il valore che il server ha accettato, non quello battuto.
@@ -1005,6 +1037,154 @@ function cambiatoDalPredefinito(valore, predefinito) {
   return reso(valore) !== reso(predefinito);
 }
 
+// Il glossario delle metriche. La chiave resta quella di metrics.json — e'
+// l'identificatore che finisce nella tesi e nei registri della Fase 2, e
+// tradurla la farebbe sparire — e accanto le si mette la frase che la spiega,
+// con l'unita' in cui e' misurata. Una chiave che questo elenco non nomina
+// compare comunque, senza glossa: una metrica nuova del server appare da se',
+// e non si inventa una spiegazione per un dato che non si conosce.
+const GLOSSARIO_METRICHE = {
+  points_read: "punti letti dal file",
+  points_dropped: "punti scartati: avevano una coordinata non finita",
+  points_kept: "punti tenuti dopo lo scarto",
+  points_before: "punti in ingresso a questo step",
+  points_after: "punti rimasti dopo questo step",
+  scale: "fattore applicato per portare il file in mm",
+  spacing: "distanza media fra un punto e il suo vicino più prossimo [mm]",
+  extent: "ingombro lungo x, y, z [mm]",
+  bbox_min: "spigolo inferiore dell'ingombro [mm]",
+  bbox_max: "spigolo superiore dell'ingombro [mm]",
+  size_check: "esito del controllo di scala contro le dimensioni attese",
+  method: "metodo usato in questo step",
+  outliers_removed: "punti isolati tolti come rumore",
+  cropped: "se il box di ritaglio è stato applicato",
+  voxel_size: "lato del cubo di riduzione [mm]",
+  reduction: "frazione di punti tolti dalla riduzione: 0,97 vuol dire che ne resta il 3%",
+  knn: "vicini usati per stimare le normali",
+  orient_knn: "vicini usati per orientarle tutte dallo stesso lato",
+  degenerate_normals: "normali di lunghezza quasi nulla: non indicano nessuna direzione",
+  vertices_trimmed: "vertici tagliati via perché in zona poco densa",
+  density_threshold: "densità sotto la quale i vertici sono stati tagliati",
+  vertices: "vertici della superficie",
+  triangles: "triangoli della superficie",
+  volume_before: "volume racchiuso prima della riparazione [mm^3]: negativo vuol dire superficie rovesciata",
+  volume_after: "volume racchiuso dopo la riparazione [mm^3]",
+  duplicate_vertices_merged: "vertici coincidenti fusi in uno",
+  degenerate_faces_removed: "triangoli di area nulla tolti",
+  duplicate_faces_removed: "triangoli ripetuti tolti",
+  components_before: "pezzi staccati trovati nella superficie",
+  components_kept: "pezzi tenuti",
+  orphan_vertices_removed: "vertici che nessun triangolo usava",
+  holes_before: "buchi chiusi trovati prima della chiusura",
+  hole_areas: "area di ogni buco [mm^2], dal più grande",
+  open_boundary_paths: "bordi aperti che non si richiudono: non sono buchi, sono bordo non manifold",
+  holes_over_threshold: "buchi oltre max_hole_area [mm^2]",
+  open_paths_over_threshold: "bordi aperti oltre max_hole_area [mm^2]",
+  watertight_after: "se dopo la riparazione la superficie è chiusa",
+  watertight: "se la superficie è chiusa: nessun buco, nessun bordo",
+  orientation_flipped: "se le facce sono state rigirate per far uscire le normali",
+  boundary_edges: "spigoli lasciati sul bordo: su una superficie chiusa sono 0",
+  area: "area della superficie [mm^2]",
+  volume: "volume racchiuso [mm^3]",
+  aspect_ratio: "allungamento degli elementi: 1 è regolare, più alto è più schiacciato",
+  geometric_error: "distanza fra la nuvola sorgente e la superficie ricostruita [mm]",
+  cloud_to_mesh: "da ogni punto della nuvola alla superficie [mm]",
+  mesh_to_cloud: "da ogni vertice della superficie alla nuvola [mm]",
+  hausdorff: "la peggiore delle due distanze qui sopra [mm]",
+  enabled: "se lo step è stato eseguito",
+  mode: "modo di semplificazione usato",
+  triangles_before: "triangoli in ingresso",
+  triangles_after: "triangoli in uscita",
+  nodes: "nodi del maglio di volume",
+  tets: "tetraedri del maglio di volume",
+  seconds: "durata dello step [s]",
+  element: "tipo di elemento scritto nel deck",
+  min_ratio: "vincolo raggio-spigolo chiesto a TetGen",
+  max_volume: "volume massimo chiesto per un elemento [mm^3]",
+  max_steiner_points: "tetto ai punti che TetGen poteva aggiungere; -1 = nessun tetto",
+  nobisect: "se a TetGen è stato vietato suddividere le facce di ingresso",
+  largest_element_volume: "volume del tetraedro più grande [mm^3]",
+  steiner_points: "punti che TetGen ha aggiunto per raffinare",
+  steiner_saturated: "se il tetto ai punti aggiunti è stato raggiunto: la mesh sarebbe troncata",
+  radius_edge_ratio_over_limit: "frazione di elementi oltre il vincolo chiesto",
+  radius_edge_ratio_p99: "rapporto raggio-spigolo al 99esimo percentile: la coda peggiore",
+  inverted: "tetraedri rovesciati, di volume negativo: devono essere 0",
+  total_volume: "somma dei volumi degli elementi [mm^3]",
+  element_volume: "volume dei singoli elementi [mm^3]",
+  min_dihedral_deg: "angolo diedro minimo di ogni elemento [gradi]: vicino a 0 è una lama",
+  radius_edge_ratio: "rapporto raggio-spigolo degli elementi",
+  radius_edge_over_reference: "frazione di elementi oltre reference_ratio, il metro fisso del confronto",
+  reference_ratio: "metro fisso con cui si conta la frazione qui sopra",
+  non_finite: "valori non finiti incontrati nel calcolo",
+  transform: "matrice 4x4 che allinea il modello agli assi prima dell'esportazione",
+  boundary_spacing: "distanza media fra i nodi sul bordo [mm]",
+  set_tolerance: "tolleranza con cui i set di faccia sono stati estratti [mm]",
+  fixed_nset_coverage: "frazione della superficie d'appoggio coperta dal set vincolato",
+  node_sets: "quanti nodi ha ciascun set scritto nel deck",
+  mass: "massa del modello [t]: volume per densità del materiale",
+  inp: "file .inp scritto, da aprire in Abaqus o CalculiX",
+  vtu: "file .vtu scritto, per la visualizzazione",
+};
+
+// Le cifre di un numero mostrato. maximumFractionDigits e non un numero di
+// cifre significative: significative arrotonderebbe 168.845.511 a 168.846.000,
+// cioe' scriverebbe un numero che nessuna misura ha prodotto.
+// Sotto il millesimo pero' le tre cifre decimali scrivono «0», e uno zero che
+// vuol dire «sotto la risoluzione di questa resa» presentato come zero esatto
+// e' il principio 3 del prodotto rovesciato: misurato a video sul volume
+// dell'elemento piu' piccolo di lab_crop, 1,76e-06 mm^3, che compariva come
+// «min 0» accanto a un massimo di 85.788. Li' comandano le cifre
+// significative, che tengono la misura invece della scala.
+function numeroReso(valore) {
+  return valore !== 0 && Math.abs(valore) < 0.001
+    ? valore.toLocaleString("it", { maximumSignificantDigits: 3 })
+    : valore.toLocaleString("it", { maximumFractionDigits: 3 });
+}
+
+// Le distribuzioni di quality.py sono quattro numeri e un conteggio, e
+// JSON.stringify le rendeva come {"min":0.32,"median":...}: le graffe e le
+// virgolette sono la struttura del trasporto, non il dato. min a null e' il
+// caso dichiarato in cui nessun valore finito esiste, e va detto invece di
+// stampare «null».
+function riassuntoDistribuzione(valore) {
+  if (valore.min === null) return "nessun valore finito";
+  const coda = valore.non_finite > 0 ? ` · non finiti: ${numeroReso(valore.non_finite)}` : "";
+  return `min ${numeroReso(valore.min)} · mediana ${numeroReso(valore.median)}` +
+    ` · media ${numeroReso(valore.mean)} · max ${numeroReso(valore.max)}${coda}` ;
+}
+
+// Come si legge una metrica. Pura e di primo livello come reso(): e' l'unico
+// punto in cui un valore del disco diventa una frase, e da fuori si prova
+// senza un motore di DOM.
+// La profondita' ferma la ricorsione a due livelli, che e' quanto sono
+// profonde le metriche vere: geometric_error porta due riassunti di distanza
+// dentro di se', e i loro campi (RMS, n_samples) sono scalari. Piu' sotto non
+// c'e' niente nel formato di oggi, e li' torna il JSON, che e' brutto ma non
+// mente.
+function resaMetrica(valore, profondita = 0) {
+  if (valore === null || valore === undefined) return "non impostato";
+  if (typeof valore === "boolean") return valore ? "sì" : "no";
+  if (typeof valore === "number") return numeroReso(valore);
+  if (typeof valore === "string") return valore;
+  if (Array.isArray(valore)) {
+    if (valore.length === 0) return "nessuno";
+    return valore.every((v) => typeof v === "number")
+      ? valore.map(numeroReso).join(" · ")
+      : JSON.stringify(valore);
+  }
+  if (["min", "median", "mean", "max"].every((k) => k in valore)) {
+    return riassuntoDistribuzione(valore);
+  }
+  if (profondita > 1) return JSON.stringify(valore);
+  // Il separatore cambia col livello: dentro un gruppo il punto mediano, fra un
+  // gruppo e l'altro il trattino. Con lo stesso segno a tutti e due i livelli,
+  // geometric_error rendeva una riga sola di quindici voci in cui non si vedeva
+  // piu' dove finisse cloud_to_mesh e cominciasse mesh_to_cloud.
+  return Object.entries(valore)
+    .map(([nome, dentro]) => `${nome}: ${resaMetrica(dentro, profondita + 1)}`)
+    .join(profondita === 0 ? " — " : " · ");
+}
+
 function campoParametro(blocco, nome, campo, ordine) {
   const riga = document.createElement("label");
   riga.className = "campo";
@@ -1034,7 +1214,7 @@ function campoParametro(blocco, nome, campo, ordine) {
   aiuto.className = "aiuto";
   aiuto.textContent = scalare
     ? campo.description
-    : [campo.description, "si modifica dal file di configurazione"]
+    : [campo.description, "casella di sola lettura"]
         .filter(Boolean).join(" — ");
   riga.append(aiuto, messaggio);
   // Un campo obbligatorio non ha un predefinito da cui scostarsi, quindi non
@@ -1107,6 +1287,26 @@ function gruppoDelBlocco(blocco, campi, ordine) {
     gruppo.append(piega);
   }
   return gruppo;
+}
+
+// L'intestazione del pannello: quale step si sta guardando e che cosa fa. Il
+// pannello si apriva sui due bottoni d'esecuzione, senza nominare lo step: il
+// solo canale che lo diceva era il marchio nella colonna a sinistra, a 1100 px
+// di distanza. Di primo livello come le altre funzioni del modulo, cosi' un
+// banco la esegue senza aprire un pannello intero.
+// Uno step di cui non si conosce la chiave non prende un nome inventato: resta
+// il numero, che e' l'unica cosa che si sa.
+function intestazioneDelloStep(numero, steps = []) {
+  const voce = steps.find((v) => v.numero === numero);
+  const nome = voce ? ETICHETTE[voce.chiave] : undefined;
+  const titolo = document.createElement("h3");
+  titolo.textContent = nome === undefined ? `Step ${numero}` : `Step ${numero} · ${nome}`;
+  const proposito = voce ? PROPOSITI[voce.chiave] : undefined;
+  if (proposito === undefined) return [titolo];
+  return [titolo, Object.assign(document.createElement("p"), {
+    className: "aiuto",
+    textContent: proposito,
+  })];
 }
 
 // Le due uscite d'errore di apriDettaglio, in un punto solo. Il pannello resta
@@ -1244,7 +1444,10 @@ async function apriDettaglio(numero, ordine = generazione) {
     // successivo ritenterebbe la richiesta.
     // == e non ===: lo schema non e' mai legittimamente null per intero.
     if (corpo == null) {
-      fallisciDettaglio(dettaglio, "il server ha risposto con uno schema che non si legge");
+      fallisciDettaglio(
+        dettaglio,
+        "il server ha risposto con uno schema che non si legge. Ricarica la pagina; se il messaggio torna, riavvia «meshrec serve» dal terminale.",
+      );
       return;
     }
     schemaParametri = corpo;
@@ -1278,7 +1481,10 @@ async function apriDettaglio(numero, ordine = generazione) {
   // == e non ===: ne' la configurazione ne' le metriche sono mai
   // legittimamente null per intero.
   if (corpoConfig == null || corpoMetriche == null) {
-    fallisciDettaglio(dettaglio, "il server ha risposto con un corpo che non si legge");
+    fallisciDettaglio(
+      dettaglio,
+      "il server ha risposto con un corpo che non si legge. Ricarica la pagina; se il messaggio torna, riavvia «meshrec serve» dal terminale.",
+    );
     return;
   }
   configurazione = corpoConfig;
@@ -1296,6 +1502,7 @@ async function apriDettaglio(numero, ordine = generazione) {
   // vive nel markup e non viene ricreata: si svuota, non si sostituisce.
   dichiaraErrore(null);
 
+  dettaglio.append(...intestazioneDelloStep(numero, ultimiSteps));
   dettaglio.append(azioniDelloStep(numero, ordine));
 
   for (const blocco of voce.blocchi) {
@@ -1313,12 +1520,19 @@ async function apriDettaglio(numero, ordine = generazione) {
     const tabella = document.createElement("dl");
     tabella.className = "metriche";
     for (const [nome, valore] of Object.entries(metriche[chiave])) {
-      tabella.append(
-        Object.assign(document.createElement("dt"), { textContent: nome }),
-        Object.assign(document.createElement("dd"), {
-          textContent: typeof valore === "object" ? JSON.stringify(valore) : String(valore),
-        }),
-      );
+      const cella = document.createElement("dd");
+      cella.append(document.createTextNode(resaMetrica(valore)));
+      // La glossa sta con il valore e non con la chiave: la colonna delle
+      // chiavi e' larga «auto», e una frase dentro la porterebbe a occupare
+      // tutto il pannello lasciando i numeri in un filo.
+      const glossa = GLOSSARIO_METRICHE[nome];
+      if (glossa !== undefined) {
+        cella.append(Object.assign(document.createElement("small"), {
+          className: "aiuto",
+          textContent: glossa,
+        }));
+      }
+      tabella.append(Object.assign(document.createElement("dt"), { textContent: nome }), cella);
     }
     dettaglio.append(titolo, tabella);
   }
@@ -1496,7 +1710,7 @@ async function mostraEsperimento(nome) {
   const corpo = await corpoLetto(risposta);
   if (superata(richiesta, ultimaGalleria)) return false;
   if (corpo == null || !Array.isArray(corpo.righe) || !Array.isArray(corpo.colonne) || !Array.isArray(corpo.celle)) {
-    dichiaraErrore("il server ha risposto con un registro che non si legge");
+    dichiaraErrore("il server ha risposto con un registro che non si legge. Ricarica la pagina; se il messaggio torna, riavvia «meshrec serve» dal terminale.");
     return true;
   }
   dichiaraErrore(null);

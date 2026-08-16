@@ -34,85 +34,191 @@ class _ModelloBase(BaseModel):
 class Material(_ModelloBase):
     """Materiale elastico isotropo. Valori indicativi per muratura."""
 
-    name: str = "MURATURA"
+    name: str = Field(default="MURATURA", description="nome del materiale scritto nel deck di analisi")
     young: float = Field(default=1500.0, gt=0.0, description="modulo elastico [MPa]")
     poisson: float = Field(default=0.2, ge=0.0, lt=0.5, description="coefficiente di Poisson")
-    density: float = Field(default=1.8e-9, gt=0.0, description="densita [t/mm^3]")
+    density: float = Field(default=1.8e-9, gt=0.0, description="densità [t/mm^3]")
 
 
 class InputConfig(_ModelloBase):
     """Step 1: ingresso e scala."""
 
-    path: Path
+    path: Path = Field(description="file della nuvola di punti da elaborare (.pcd o .ply)")
     scale: float = Field(default=1.0, gt=0.0, description="fattore verso i mm")
-    max_points: int = Field(default=20_000_000, gt=0)
+    max_points: int = Field(
+        default=20_000_000,
+        gt=0,
+        description=(
+            "tetto ai punti letti: oltre questo numero la lettura si ferma con un errore "
+            "invece di esaurire la memoria della macchina"
+        ),
+    )
     expected_size: tuple[float, float, float] | None = Field(
-        default=None, description="dimensioni reali misurate del muro [mm], per il controllo di scala"
+        default=None, description=(
+            "dimensioni reali misurate del muro [mm], per il controllo di scala; "
+            "si scrivono nel file di configurazione"
+        )
     )
     size_tolerance: float = Field(default=0.2, gt=0.0, description="scarto relativo ammesso")
     spacing_sample: int = Field(default=20_000, gt=1, description="punti campionati per la spaziatura")
-    seed: int = 0
+    seed: int = Field(
+        default=0,
+        description=(
+            "seme del campionamento con cui si misura la spaziatura media: fisso, così la "
+            "stessa nuvola dà sempre la stessa misura"
+        ),
+    )
 
 
 class SegmentConfig(_ModelloBase):
     """Step 2: segmentazione."""
 
-    method: Literal["crop", "auto"] = "crop"
-    outlier_neighbors: int = Field(default=20, gt=0)
-    outlier_std_ratio: float = Field(default=2.0, gt=0.0)
-    crop_min: tuple[float, float, float] | None = None
-    crop_max: tuple[float, float, float] | None = None
+    method: Literal["crop", "auto"] = Field(
+        default="crop",
+        description=(
+            "«crop» tiene solo i punti dentro il box di ritaglio; «auto» prosegue togliendo "
+            "i piani (pavimento, pareti) e tenendo poi un solo gruppo di punti"
+        ),
+    )
+    outlier_neighbors: int = Field(
+        default=20,
+        gt=0,
+        description="quanti punti vicini si guardano per decidere se un punto è isolato",
+    )
+    outlier_std_ratio: float = Field(
+        default=2.0,
+        gt=0.0,
+        description=(
+            "quanto un punto può stare più lontano della media dai suoi vicini prima di "
+            "essere scartato come rumore, in deviazioni standard: più alto, scarta meno"
+        ),
+    )
+    crop_min: tuple[float, float, float] | None = Field(
+        default=None,
+        description=(
+            "spigolo inferiore del box di ritaglio, in coordinate della nuvola [mm]: "
+            "si imposta dal riquadro «Ritaglio» in fondo a questo pannello"
+        ),
+    )
+    crop_max: tuple[float, float, float] | None = Field(
+        default=None,
+        description=(
+            "spigolo superiore del box di ritaglio, in coordinate della nuvola [mm]: "
+            "si imposta dal riquadro «Ritaglio» in fondo a questo pannello"
+        ),
+    )
     plane_distance_factor: float = Field(default=3.0, gt=0.0, description="x spaziatura media")
-    plane_max_count: int = Field(default=4, ge=0)
-    plane_min_points_ratio: float = Field(default=0.05, gt=0.0, le=1.0)
+    plane_max_count: int = Field(
+        default=4,
+        ge=0,
+        description=(
+            "quanti piani (pavimento, pareti) si tolgono al massimo prima di cercare "
+            "l'oggetto; 0 non ne toglie nessuno. Vale solo con method «auto»"
+        ),
+    )
+    plane_min_points_ratio: float = Field(
+        default=0.05,
+        gt=0.0,
+        le=1.0,
+        description=(
+            "frazione minima dei punti perché un piano conti come superficie vera: sotto "
+            "questa soglia è rumore adattato e la ricerca dei piani si ferma"
+        ),
+    )
     cluster_eps_factor: float = Field(default=4.0, gt=0.0, description="x spaziatura media")
-    cluster_min_points: int = Field(default=50, gt=0)
-    cluster_index: int = Field(default=0, ge=0, description="0 = cluster piu numeroso")
+    cluster_min_points: int = Field(
+        default=50,
+        gt=0,
+        description="punti minimi perché un gruppo esista: sotto questa soglia restano rumore",
+    )
+    cluster_index: int = Field(default=0, ge=0, description="quale gruppo tenere; 0 = il più numeroso")
 
 
 class DownsampleConfig(_ModelloBase):
     """Step 3: riduzione a voxel."""
 
-    voxel_size: float | None = Field(default=None, description="None = 2 x spaziatura media")
-    voxel_factor: float = Field(default=2.0, gt=0.0)
+    voxel_size: float | None = Field(
+        default=None,
+        description=(
+            "lato del cubo di riduzione [mm]: i punti che cadono nello stesso cubo "
+            "diventano uno solo. Vuoto = voxel_factor x la spaziatura media misurata"
+        ),
+    )
+    voxel_factor: float = Field(
+        default=2.0,
+        gt=0.0,
+        description="moltiplica la spaziatura media e dà il lato del cubo quando voxel_size è vuoto",
+    )
 
 
 class NormalsConfig(_ModelloBase):
     """Step 4: normali."""
 
-    knn: int = Field(default=30, gt=2)
-    orient_knn: int = Field(default=30, gt=2)
+    knn: int = Field(
+        default=30,
+        gt=2,
+        description="punti vicini con cui si stima come è orientata la superficie in ogni punto",
+    )
+    orient_knn: int = Field(
+        default=30,
+        gt=2,
+        description="vicini usati per far puntare tutte le normali dallo stesso lato della superficie",
+    )
 
 
 class SurfaceConfig(_ModelloBase):
     """Step 5: ricostruzione della superficie."""
 
-    method: Literal["poisson", "bpa", "alpha"] = "poisson"
+    method: Literal["poisson", "bpa", "alpha"] = Field(
+        default="poisson",
+        description=(
+            "come si costruisce la superficie: «poisson» la ricava dalle normali e "
+            "restituisce un guscio chiuso; «bpa» e «alpha» la costruiscono attaccando "
+            "fra loro i punti vicini"
+        ),
+    )
     poisson_depth: int = Field(
         default=9,
         ge=4,
         le=14,
         description=(
-            "profondita' dell'ottree del solutore Poisson: piu' alta, superficie piu' "
+            "profondità dell'ottree del solutore Poisson: più alta, superficie più "
             "fitta; su muro, 9 -> 8 porta i triangoli da 908.118 a 221.369"
         ),
     )
-    poisson_width: float = Field(default=0.0, ge=0.0)
-    poisson_scale: float = Field(default=1.1, gt=0.0)
+    poisson_width: float = Field(
+        default=0.0,
+        ge=0.0,
+        description="lato della cella più fine dell'ottree [mm]; 0 = decide poisson_depth",
+    )
+    poisson_scale: float = Field(
+        default=1.1,
+        gt=0.0,
+        description="quanto il cubo di ricostruzione è più grande dell'ingombro della nuvola",
+    )
     density_quantile: float = Field(
-        default=0.05, ge=0.0, lt=1.0, description="quantile di densita sotto il quale i vertici sono scartati"
+        default=0.05, ge=0.0, lt=1.0, description="quantile di densità sotto il quale i vertici sono scartati"
     )
     poisson_n_threads: int = Field(
         default=1, description="thread per il solutore Poisson; 1 = riproducibile, -1 = automatico"
     )
-    bpa_radius_factors: tuple[float, ...] = (1.0, 2.0, 4.0)
+    bpa_radius_factors: tuple[float, ...] = Field(
+        default=(1.0, 2.0, 4.0),
+        description=(
+            "raggi della sfera che rotola sui punti, in multipli della spaziatura media "
+            "(solo method «bpa»); si scrivono nel file di configurazione"
+        ),
+    )
     alpha_factor: float = Field(default=5.0, gt=0.0, description="x spaziatura media")
 
 
 class RepairConfig(_ModelloBase):
     """Step 6: riparazione."""
 
-    largest_component_only: bool = True
+    largest_component_only: bool = Field(
+        default=True,
+        description="tiene solo il pezzo di superficie più grande e scarta i frammenti staccati",
+    )
     max_hole_area: float | None = Field(
         default=None,
         description=(
@@ -120,17 +226,40 @@ class RepairConfig(_ModelloBase):
             "di bordo chiuso o un cammino aperto"
         ),
     )
-    join_components: bool = False
+    join_components: bool = Field(
+        default=False,
+        description="chiede a MeshFix di ricucire fra loro i pezzi staccati invece di lasciarli separati",
+    )
 
 
 class SimplifyConfig(_ModelloBase):
     """Step 8: semplificazione, opzionale."""
 
-    enabled: bool = False
-    mode: Literal["decimate", "remesh"] = "remesh"
-    target_faces: int | None = Field(default=None, gt=0)
-    remesh_target_len_pct: float = Field(default=1.0, gt=0.0, description="percentuale della diagonale")
-    taubin_iterations: int = Field(default=0, ge=0)
+    enabled: bool = Field(
+        default=False,
+        description="senza questo, lo step 8 non tocca la superficie e la passa allo step 9 com'è",
+    )
+    mode: Literal["decimate", "remesh"] = Field(
+        default="remesh",
+        description=(
+            "«remesh» rifà i triangoli tutti della stessa taglia; «decimate» ne riduce "
+            "il numero fino a target_faces"
+        ),
+    )
+    target_faces: int | None = Field(
+        default=None, gt=0, description="triangoli voluti alla fine; serve solo con mode «decimate»"
+    )
+    remesh_target_len_pct: float = Field(
+        default=1.0,
+        gt=0.0,
+        description=(
+            "lato voluto dei triangoli, in percentuale della diagonale dell'ingombro "
+            "(solo mode «remesh»)"
+        ),
+    )
+    taubin_iterations: int = Field(
+        default=0, ge=0, description="passate di lisciatura Taubin dopo la semplificazione; 0 non liscia"
+    )
 
 
 class TetConfig(_ModelloBase):
@@ -140,11 +269,11 @@ class TetConfig(_ModelloBase):
         default=1.8,
         gt=0.0,
         description=(
-            "rapporto raggio-spigolo massimo: valori piu bassi danno elementi piu "
-            "regolari, ma il raffinamento puo' non convergere su geometrie difficili. "
+            "rapporto raggio-spigolo massimo: valori più bassi danno elementi più "
+            "regolari, ma il raffinamento può non convergere su geometrie difficili. "
             "Sul muro di riferimento 1.6 e valori inferiori interrompono TetGen con un "
-            "errore interno mentre 1.7 converge: il predefinito 1.8 non e' quindi il "
-            "valore piu severo che porta a termine il lavoro, ma quello che tiene un "
+            "errore interno mentre 1.7 converge: il predefinito 1.8 non è quindi il "
+            "valore più severo che porta a termine il lavoro, ma quello che tiene un "
             "decimo di margine sopra di esso. Misura completa da 1.4 a 2.5 in "
             "docs/fase-1-min-ratio.md"
         ),
@@ -154,9 +283,9 @@ class TetConfig(_ModelloBase):
         default=-1,
         ge=-1,
         description=(
-            "punti che TetGen puo' aggiungere per raffinare; -1 = nessun limite. "
-            "Il predefinito della libreria tetgen e' 100000: su geometrie a scala "
-            "reale quel tetto viene raggiunto e il raffinamento si ferma li, "
+            "punti che TetGen può aggiungere per raffinare; -1 = nessun limite. "
+            "Il predefinito della libreria tetgen è 100000: su geometrie a scala "
+            "reale quel tetto viene raggiunto e il raffinamento si ferma lì, "
             "restituendo una mesh troncata che nessuna metrica segnalava"
         ),
     )
@@ -164,13 +293,13 @@ class TetConfig(_ModelloBase):
         default=False,
         description=(
             "vieta a TetGen di suddividere le facce della superficie di ingresso. "
-            "Serve dove la scala locale della superficie e' minuscola: la "
+            "Serve dove la scala locale della superficie è minuscola: la "
             "suddivisione per invasione ricorre fino alla distanza fra lembi "
             "opposti, e su lab_frame.pcd, che ha strozzature sotto il millimetro, "
-            "il raffinamento non converge a nessun min_ratio finche' resta "
+            "il raffinamento non converge a nessun min_ratio finché resta "
             "consentita. Attenzione: con nobisect attivo TetGen non aggiunge punti "
             "sul bordo, quindi su una superficie di ingresso grossolana max_volume "
-            "puo' restare disatteso; il caso e' segnalato con "
+            "può restare disatteso; il caso è segnalato con "
             "IneffectiveVolumeLimitWarning. Vedi docs/fase-1-min-ratio.md"
         ),
     )
@@ -183,27 +312,49 @@ class TetConfig(_ModelloBase):
             "motore di sweep min_ratio e' una variabile della griglia, e una "
             "frazione contata contro il proprio min_ratio confronterebbe "
             "candidati contro vincoli diversi. Il valore 1.8 coincide con il "
-            "predefinito di min_ratio perche' e' il metro con cui sono state "
+            "predefinito di min_ratio perché è il metro con cui sono state "
             "misurate le due corse di riferimento (8,10% e 9,55%)"
         ),
     )
-    element: Literal["C3D4", "C3D10"] = "C3D4"
+    element: Literal["C3D4", "C3D10"] = Field(
+        default="C3D4",
+        description=(
+            "tipo di elemento finito scritto nel deck: C3D4 è il tetraedro a 4 nodi, "
+            "C3D10 quello a 10 nodi, più pesante da risolvere e più accurato a flessione"
+        ),
+    )
 
 
 class AnalysisConfig(_ModelloBase):
     """Materiale e analisi."""
 
-    material: Material = Field(default_factory=Material)
-    gravity: float = Field(default=GRAVITY_MM_S2, gt=0.0)
-    fixed_nset: str = "BASE"
-    step_name: str = "GRAVITA"
+    material: Material = Field(
+        default_factory=Material,
+        description=(
+            "materiale elastico isotropo: modulo di Young [MPa], coefficiente di Poisson "
+            "e densità [t/mm^3]; si cambia nel file di configurazione"
+        ),
+    )
+    gravity: float = Field(
+        default=GRAVITY_MM_S2,
+        gt=0.0,
+        description="accelerazione di gravità applicata al modello [mm/s^2]",
+    )
+    fixed_nset: str = Field(
+        default="BASE",
+        description="set di nodi bloccati nell'analisi; BASE è l'appoggio a terra del modello",
+    )
+    step_name: str = Field(
+        default="GRAVITA",
+        description="nome dello step di analisi scritto nel deck",
+    )
     set_tolerance_factor: float = Field(
         default=6.0,
         gt=0.0,
         description=(
             "moltiplica la spaziatura dei nodi sul bordo del maglio di volume e "
-            "da' la tolleranza con cui i set di faccia sono estratti. Il "
-            "predefinito 6 e' misurato: e' il piu piccolo intero che copre almeno "
+            "dà la tolleranza con cui i set di faccia sono estratti. Il "
+            "predefinito 6 e' misurato: e' il più piccolo intero che copre almeno "
             "il 95% della superficie d'appoggio su entrambe le corse di "
             "riferimento e per i quattro set utilizzabili. Il margine ha la "
             "stessa struttura di quello di tet.min_ratio: 5 e' il primo valore "
