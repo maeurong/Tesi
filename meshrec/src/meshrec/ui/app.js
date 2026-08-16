@@ -3,8 +3,8 @@
 const ETICHETTE = {
   "01_load": "Lettura", "02_segment": "Segmentazione", "03_downsample": "Riduzione",
   "04_normals": "Normali", "05_reconstruct": "Superficie", "06_repair": "Riparazione",
-  "07_surface_quality": "Qualita superficie", "08_simplify": "Semplificazione",
-  "09_tetrahedralize": "Tetraedri", "10_volume_quality": "Qualita volume",
+  "07_surface_quality": "Qualità superficie", "08_simplify": "Semplificazione",
+  "09_tetrahedralize": "Tetraedri", "10_volume_quality": "Qualità volume",
   "11_export": "Esportazione",
 };
 
@@ -164,6 +164,10 @@ flusso.addEventListener("stato", (evento) => {
   // Spento, la domanda non si pone piu' — ed e' il ritorno che il clic non
   // dava, perche' il bottone si spegne quando la corsa finisce.
   document.getElementById("annulla").disabled = !stato.in_corso;
+  // I due «Esegui» seguono la stessa corsa, dallo stesso carico: vivi durante
+  // una corsa altrui si affiderebbero al 400 del worker per dire di no.
+  corsaInCorso = stato.in_corso;
+  spegniLeEsecuzioni(stato.in_corso);
   // Solo sul fronte di discesa: la colonna degli step si aggiorna da questo
   // stesso flusso, e senza questa riga uno step diventerebbe "valido" a
   // sinistra mentre a destra restano le metriche di prima, o nessuna. Non a
@@ -973,6 +977,80 @@ function fallisciDettaglio(dettaglio, ragione) {
   segnaStepAperto(null);
 }
 
+// Vera mentre una corsa gira. La sa lo scorrere degli eventi, e serve ai due
+// «Esegui»: un pannello aperto in mezzo a una corsa nasceva con i bottoni vivi.
+let corsaInCorso = false;
+
+// I due «Esegui» seguono la corsa come Annulla, e dallo stesso carico. Restare
+// vivi e affidarsi al 400 del worker e' un rifiuto che si poteva evitare, e un
+// bottone che risponde «no» non si distingue da uno che non ha fatto niente.
+function spegniLeEsecuzioni(inCorso) {
+  for (const bottone of document.querySelectorAll(".esecuzione")) {
+    bottone.disabled = inCorso;
+  }
+}
+
+// I due comandi d'esecuzione del pannello. Estratti da apriDettaglio per la
+// stessa ragione di campoParametro e scriviParametro: dentro una funzione di
+// centocinquanta righe non li esegue nessun banco, e qui c'e' una conferma da
+// provare.
+function azioniDelloStep(numero, ordine) {
+  const azioni = document.createElement("div");
+  azioni.className = "azioni";
+  // I due bottoni condividono `ordine` (la generazione del pannello) e la
+  // stessa rigaErrore: due clic — sullo stesso bottone o su quello diverso —
+  // condividono `ordine` senza distinguersi fra loro. Un contatore per clic,
+  // condiviso dai due perche' condividono il canale d'errore che protegge.
+  let ultimaAzione = 0;
+  function apriAzione() {
+    ultimaAzione += 1;
+    return ultimaAzione;
+  }
+  const comandi = [
+    { etichetta: "Esegui questo step", percorso: `/api/step/${numero}`, primario: true },
+    {
+      // La portata sta nell'etichetta: «da qui in giu'» non dice quanti step
+      // riscrive, e sono tutti quelli dallo step aperto all'undicesimo.
+      etichetta: `Esegui dallo step ${numero} all'11`,
+      percorso: `/api/step/${numero}/from`,
+      primario: false,
+    },
+  ];
+  for (const { etichetta, percorso, primario } of comandi) {
+    const bottone = document.createElement("button");
+    bottone.type = "button";
+    bottone.className = primario ? "bottone bottone-primario esecuzione" : "bottone esecuzione";
+    bottone.textContent = etichetta;
+    bottone.disabled = corsaInCorso;
+    // Conferma in linea e non una finestra modale: la modale e' la risposta
+    // pigra, e questa azione non e' distruttiva in astratto — riscrive
+    // artefatti che si possono rifare — e' cara. Una seconda pressione basta a
+    // separare il clic voluto da quello sbagliato di mira.
+    let chiesta = false;
+    bottone.addEventListener("click", async () => {
+      if (!primario && !chiesta) {
+        chiesta = true;
+        bottone.textContent = `Confermi? riscrive dallo step ${numero} all'11`;
+        return;
+      }
+      chiesta = false;
+      bottone.textContent = etichetta;
+      dichiaraErrore(null);
+      const azione = apriAzione();
+      const risposta = await fetch(percorso, { method: "POST" }).catch(serverMuto);
+      if (risposta.ok) return;
+      const ragione = await ragioneDelRifiuto(risposta);
+      // rigaErrore e' quella del pannello aperto adesso: se nel frattempo ne e'
+      // stato aperto un altro, o e' partito un secondo clic, questo rifiuto
+      // finirebbe scritto sotto lo step o il clic sbagliato.
+      if (superata(ordine) || superata(azione, ultimaAzione)) return;
+      dichiaraErrore(ragione);
+    });
+    azioni.append(bottone);
+  }
+  return azioni;
+}
+
 // ordine: la generazione del clic che ha chiesto questo pannello. Il
 // ricaricamento dallo scorrere degli eventi non ne apre una: prende quella in
 // corso, cosi' un clic dell'utente arrivato nel frattempo lo batte.
@@ -1049,44 +1127,7 @@ async function apriDettaglio(numero, ordine = generazione) {
   // vive nel markup e non viene ricreata: si svuota, non si sostituisce.
   dichiaraErrore(null);
 
-  const azioni = document.createElement("div");
-  azioni.className = "azioni";
-  // I due bottoni condividono `ordine` (la generazione del pannello) e la
-  // stessa rigaErrore: due clic — sullo stesso bottone o su quello diverso —
-  // condividono `ordine` senza distinguersi fra loro, la stessa famiglia di
-  // Rilievo 1. Un contatore per clic, condiviso dai due bottoni perche'
-  // condividono il canale d'errore che proteggono.
-  let ultimaAzione = 0;
-  function apriAzione() {
-    ultimaAzione += 1;
-    return ultimaAzione;
-  }
-  for (const [etichetta, percorso] of [
-    ["Esegui questo step", `/api/step/${numero}`],
-    ["Esegui da qui in giu'", `/api/step/${numero}/from`],
-  ]) {
-    const bottone = document.createElement("button");
-    bottone.type = "button";
-    bottone.className = "bottone";
-    bottone.textContent = etichetta;
-    bottone.addEventListener("click", async () => {
-      dichiaraErrore(null);
-      const azione = apriAzione();
-      const risposta = await fetch(percorso, { method: "POST" }).catch(serverMuto);
-      if (risposta.ok) return;
-      const ragione = await ragioneDelRifiuto(risposta);
-      // rigaErrore e' quella del pannello aperto adesso: se nel frattempo ne e'
-      // stato aperto un altro, o e' partito un secondo clic su uno dei due
-      // bottoni, questo rifiuto finirebbe scritto sotto lo step o il clic
-      // sbagliato.
-      if (superata(ordine) || superata(azione, ultimaAzione)) return;
-      // Un click rifiutato in silenzio non e' distinguibile da uno andato a
-      // buon fine: il server ha gia' scritto il perche', e va mostrato.
-      dichiaraErrore(ragione);
-    });
-    azioni.append(bottone);
-  }
-  dettaglio.append(azioni);
+  dettaglio.append(azioniDelloStep(numero, ordine));
 
   for (const blocco of voce.blocchi) {
     const gruppo = document.createElement("fieldset");

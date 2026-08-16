@@ -1687,10 +1687,14 @@ def _banco_di_apriDettaglio() -> str:
     return _DOM + _funzioni(
         "segnaStepAperto", "nuovaRiga", "disegnaStep", "dichiaraErrore", "fallisciDettaglio",
         "ragioneDelRifiuto", "serverMuto", "superata", "corpoLetto", "valoreScritto",
-        "segnalaCampo", "apriBattuta", "scriviParametro", "campoParametro", "apriDettaglio",
+        "segnalaCampo", "apriBattuta", "scriviParametro", "campoParametro", "azioniDelloStep",
+        "apriDettaglio",
     ) + """
 let ultimaBattutaDelCampo = new Map();
 let schemaParametri = null;
+// apriDettaglio ora costruisce le sue azioni con azioniDelloStep, che legge
+// questa variabile di modulo: nessun banco qui fa girare una corsa, resta ferma.
+let corsaInCorso = false;
 const richieste = [];
 let risponde = {};
 globalThis.fetch = async (percorso) => {
@@ -1940,6 +1944,11 @@ risponde = {
 await apriDettaglio(1);
 const azioni = document.getElementById("dettaglio").figli[0];
 const [questo, daQui] = azioni.figli;
+
+// "da qui in giu'" chiede conferma al primo clic e non spara nessuna fetch:
+// lo si arma qui, fuori dalla corsa cronometrata sotto, cosi' il clic che
+// partecipa alla gara e' quello che davvero manda la richiesta.
+await daQui.scatena("click");
 
 let risolvi1, risolvi2;
 const risposte = [
@@ -2558,6 +2567,103 @@ assert.equal(
 const nascosta = cellaImpronta.figli.find((f) => f.className === "fuori-vista");
 assert.ok(nascosta, "l'impronta intera non e' raggiungibile da un lettore di schermo");
 assert.equal(nascosta.textContent, "a".repeat(64), "il nodo fuori-vista non porta il valore pieno");
+console.log("ok");
+"""
+    assert _esegui(tmp_path, sorgente).strip() == "ok"
+
+
+# --------------------------------------------------------------------------
+# I due «Esegui»: un ceto, una portata dichiarata, e la corsa che li spegne.
+# --------------------------------------------------------------------------
+
+
+def test_un_solo_ceto_primario_e_la_portata_e_scritta_nell_etichetta(tmp_path):
+    """«Esegui da qui in giu'» riscrive gli artefatti dallo step aperto
+    all'undicesimo — minuti di calcolo e centinaia di MB — e aveva lo stesso
+    aspetto e la stessa etichetta generica del bottone che carica una tabella
+    di sola lettura. La portata non era scritta da nessuna parte."""
+    sorgente = _DOM + """
+function dichiaraErrore() {}
+let corsaInCorso = false;
+""" + _funzioni("azioniDelloStep") + """
+const azioni = azioniDelloStep(9, 0);
+const bottoni = azioni.figli;
+assert.equal(bottoni.length, 2, `due azioni, non ${bottoni.length}`);
+const primari = bottoni.filter((b) => b.className.split(" ").includes("bottone-primario"));
+assert.equal(primari.length, 1, "il ceto primario si e' moltiplicato o e' sparito");
+assert.match(bottoni[1].textContent, /9/, "la portata non nomina lo step di partenza");
+assert.match(bottoni[1].textContent, /11/, "ne' quello d'arrivo");
+assert.ok(
+  bottoni.every((b) => b.className.split(" ").includes("esecuzione")),
+  "un'esecuzione senza la classe che la fa spegnere durante la corsa",
+);
+console.log("ok");
+"""
+    assert _esegui(tmp_path, sorgente).strip() == "ok"
+
+
+def test_le_esecuzioni_si_spengono_mentre_la_corsa_gira(tmp_path):
+    """Restavano vive e si affidavano al 400 del worker: un rifiuto che si
+    poteva evitare, e un bottone che risponde «no» non si distingue da uno che
+    non ha fatto niente. Annulla lo faceva gia', dallo stesso carico."""
+    sorgente = _DOM + """
+function dichiaraErrore() {}
+let corsaInCorso = false;
+""" + _funzioni("azioniDelloStep", "spegniLeEsecuzioni") + """
+const azioni = azioniDelloStep(9, 0);
+radice.append(azioni);
+spegniLeEsecuzioni(true);
+assert.ok(azioni.figli.every((b) => b.disabled === true), "un Esegui e' rimasto vivo a corsa viva");
+spegniLeEsecuzioni(false);
+assert.ok(azioni.figli.every((b) => b.disabled === false), "restano spenti a corsa finita");
+console.log("ok");
+"""
+    assert _esegui(tmp_path, sorgente).strip() == "ok"
+
+
+def test_le_etichette_mostrate_portano_gli_accenti_italiani():
+    """I sorgenti in ASCII sono una convenzione del repository; le stringhe
+    proiettate davanti a una commissione non la ereditano. Il registro che
+    PRODUCT.md dichiara — asciutto e accademico — non regge «Qualita»."""
+    modulo = _modulo()
+    assert '"Qualità superficie"' in modulo, "l'etichetta dello step 7 e' senza accento"
+    assert '"Qualità volume"' in modulo, "l'etichetta dello step 10 e' senza accento"
+    # Senza i commenti: «riscrive gli artefatti dall'N in giu'» e' una
+    # spiegazione, non un'etichetta, e vietare la stringa nei commenti
+    # vieterebbe la spiegazione. E' la stessa ragione per cui
+    # _senza_commenti_js esiste.
+    assert "in giu'" not in _senza_commenti_js(modulo), (
+        "un'etichetta mostrata dice ancora «da qui in giu'» invece della portata"
+    )
+
+
+def test_il_bottone_non_primario_chiede_conferma_e_poi_si_resetta(tmp_path):
+    """La conferma in linea ha almeno due stati e un ripristino: il primo clic
+    non deve mandare niente, solo cambiare l'etichetta in una domanda; il
+    secondo la manda e riporta l'etichetta a quella di partenza. Un bottone che
+    non chiede mai conferma, o che la chiede sempre, supererebbe un controllo
+    che guardasse solo l'esito finale."""
+    sorgente = _DOM + """
+function dichiaraErrore() {}
+let corsaInCorso = false;
+""" + _funzioni("azioniDelloStep", "serverMuto", "superata") + """
+let chiamate = 0;
+globalThis.fetch = async () => { chiamate += 1; return { ok: true, status: 200 }; };
+const azioni = azioniDelloStep(9, 0);
+const [questo, daQui] = azioni.figli;
+const etichettaIniziale = daQui.textContent;
+
+await daQui.scatena("click");
+assert.equal(chiamate, 0, "il primo clic sul bottone non primario ha gia' mandato la richiesta");
+assert.notEqual(daQui.textContent, etichettaIniziale, "il primo clic non cambia l'etichetta in una domanda");
+
+await daQui.scatena("click");
+assert.equal(chiamate, 1, "il secondo clic non ha mandato la richiesta");
+assert.equal(daQui.textContent, etichettaIniziale, "l'etichetta non torna quella di partenza dopo la conferma");
+
+// Il ceto primario non chiede mai conferma: un solo clic basta.
+await questo.scatena("click");
+assert.equal(chiamate, 2, "il bottone primario chiede conferma, e non dovrebbe");
 console.log("ok");
 """
     assert _esegui(tmp_path, sorgente).strip() == "ok"

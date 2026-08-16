@@ -137,6 +137,17 @@ body {
    contorno resta pieno perche' l'elemento c'e' ancora e non deve sparire. */
 .bottone:disabled { color: var(--tenue); cursor: default; }
 .bottone:disabled:hover { background: var(--superficie); }
+/* Un solo ceto primario in tutta l'interfaccia: l'esecuzione dello step aperto.
+   Il contorno da solo non distingue un'azione che costa minuti e riscrive
+   centinaia di MB da una che carica una tabella di sola lettura, e i tre
+   bottoni piu' cari del prodotto avevano esattamente lo stesso aspetto del
+   filtro della galleria. Testo su --accento: 7,49:1 misurato. */
+.bottone-primario { background: var(--accento); border-color: var(--accento); color: var(--superficie); }
+.bottone-primario:hover { background: color-mix(in srgb, var(--accento) 88%, black); }
+.bottone-primario:active { background: color-mix(in srgb, var(--accento) 78%, black); }
+/* Spento torna al ceto comune: un riempimento pieno su un comando che non si
+   puo' premere e' un invito che mente. */
+.bottone-primario:disabled { background: var(--spento); border-color: var(--bordo-comando); color: var(--tenue); }
 /* I secondi trascorsi cambiano una volta al secondo: senza cifre tabulari la
    riga si allarga e si stringe sotto gli occhi a ogni passaggio da 9 a 10. */
 .in-corso { margin: 0; color: var(--accento); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); font-variant-numeric: tabular-nums; }
