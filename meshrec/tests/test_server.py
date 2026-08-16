@@ -1347,6 +1347,11 @@ _BANCO_ORDINE = """import assert from 'node:assert/strict';
 
 let generazione = 1;
 let ultimaGeometria = 0;
+// dichiaraCaricamento/chiudiCaricamento leggono e scrivono queste due: senza
+// di loro il modulo estratto si ferma prima di aprire la prima fetch, ed e'
+// esattamente il buco che questo banco copriva prima di questa correzione.
+let ultimiSteps = [];
+const ETICHETTE = {};
 const STEP_CON_MESH = new Set([9]);
 const scritture = [];
 const vista = {
@@ -1354,7 +1359,9 @@ const vista = {
   mostraNuvola(vertici) { scritture.push(`nuvola:${vertici.length / 3}`); },
   mostraMesh(vertici) { scritture.push(`mesh:${vertici.length / 3}`); },
 };
-const document = { getElementById: () => ({ textContent: '' }) };
+const document = {
+  getElementById: () => ({ textContent: '', setAttribute() {}, removeAttribute() {} }),
+};
 function riallineaTaglio(numero) { scritture.push(`riallinea:${numero}`); }
 
 // Ogni richiesta resta sospesa finche' il banco non la sblocca: l'ordine di
@@ -1443,6 +1450,15 @@ def test_fra_due_geometrie_della_stessa_generazione_vince_chi_e_partita_dopo(num
         for nome in (
             "superata",
             "apriGeometria",
+            "nomeDelloStep",
+            "dichiaraCaricamento",
+            "chiudiCaricamento",
+            "serverMuto",
+            "ragioneDelRifiuto",
+            "corpoBinarioLetto",
+            "messaggioArtefattoMancante",
+            "messaggioDownloadInterrotto",
+            "segnalaArtefattoMancante",
             "mostraNuvolaDelloStep",
             "mostraStep",
             "ricaricaVista",
