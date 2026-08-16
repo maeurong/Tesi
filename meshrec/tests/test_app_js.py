@@ -123,6 +123,12 @@ class Elemento {
     this.attributi = {};
     this.testo = "";
     this.scrollTop = 0;
+    // Non legata a figli.length: in un browser vero e' l'altezza visibile in
+    // pixel del contenitore, indipendente da quanto contenuto ci sta dentro.
+    // Se il banco la lega al conteggio dei figli, scrollHeight e clientHeight
+    // coincidono sempre e "in fondo" e' vero per costruzione — niente prova
+    // piu' nulla sul ramo che condiziona lo scorrimento.
+    this.clientHeight = 0;
     this.padre = null;
     this.gestori = {};
     this.classList = {
@@ -143,7 +149,6 @@ class Elemento {
   get firstElementChild() { return this.figli[0] ?? null; }
   get lastElementChild() { return this.figli[this.figli.length - 1] ?? null; }
   get scrollHeight() { return this.figli.length; }
-  get clientHeight() { return this.figli.length; }
   get textContent() { return this.testo; }
   set textContent(valore) { this.testo = String(valore); }
   append(...nodi) { for (const nodo of nodi) { nodo.padre = this; this.figli.push(nodo); } }
@@ -2916,14 +2921,28 @@ def _corpo_riga_come_funzione() -> str:
     return "function aggiungiRiga(evento) {" + corpo + "}\n"
 
 
-def test_il_registro_segue_la_coda_per_chi_era_gia_in_fondo(tmp_path):
-    """Il lato affermativo del ramo: scrollTop e' quello che lascia
-    `scrollTop + clientHeight >= scrollHeight - 2`, cioe' il lettore era gia'
-    in fondo, e la riga nuova deve restare visibile senza scorrere a mano."""
-    sorgente = _DOM + "const RIGHE_DEL_REGISTRO = 500;\n" + _corpo_riga_come_funzione() + """
+# Geometria vera, non un valore che nessun browser produce: 20 righe gia' nel
+# registro (scrollHeight = 20, il banco lo lega al numero di figli), un
+# clientHeight fisso e indipendente da quel conteggio (5, come una finestra che
+# mostra 5 righe su 20), quindi uno scrollTop massimo reale di 15. 13 e 12
+# stanno da parti opposte della soglia di 2 unita' (13+5=18 >= 20-2; 12+5=17 <
+# 20-2): non estremi artificiali, il confine vero della disequazione.
+_SETUP_REGISTRO_CON_SCORRIMENTO_VERO = """
 const registro = document.getElementById("registro");
-registro.scrollTop = 0;
-aggiungiRiga({ data: JSON.stringify("riga 1") });
+for (let n = 0; n < 20; n += 1) registro.append(document.createElement("div"));
+registro.clientHeight = 5;
+"""
+
+
+def test_il_registro_segue_la_coda_per_chi_era_gia_in_fondo(tmp_path):
+    """Il lato affermativo del ramo: scrollTop al bordo che soddisfa
+    `scrollTop + clientHeight >= scrollHeight - 2` (13 su un massimo reale di
+    15), cioe' il lettore era gia' in fondo, e la riga nuova deve restare
+    visibile senza scorrere a mano."""
+    sorgente = _DOM + "const RIGHE_DEL_REGISTRO = 500;\n" + _corpo_riga_come_funzione() + \
+        _SETUP_REGISTRO_CON_SCORRIMENTO_VERO + """
+registro.scrollTop = 13;
+aggiungiRiga({ data: JSON.stringify("riga nuova") });
 assert.equal(registro.scrollTop, registro.scrollHeight, "in fondo, ma il registro non segue la coda");
 console.log("ok");
 """
@@ -2931,14 +2950,14 @@ console.log("ok");
 
 
 def test_il_registro_resta_fermo_per_chi_non_era_in_fondo(tmp_path):
-    """Il lato opposto dello stesso ramo: scrollTop scostato dal fondo
-    (`scrollTop + clientHeight < scrollHeight - 2`) e' chi sta leggendo a
-    meta'. Quella riga non deve muovere scrollTop di una virgola."""
-    sorgente = _DOM + "const RIGHE_DEL_REGISTRO = 500;\n" + _corpo_riga_come_funzione() + """
-const registro = document.getElementById("registro");
-registro.scrollTop = -100;
-aggiungiRiga({ data: JSON.stringify("riga 1") });
-assert.equal(registro.scrollTop, -100, "chi leggeva a meta' e' stato riportato in fondo");
+    """Il lato opposto dello stesso ramo: scrollTop appena sotto la stessa
+    soglia (12, non 13), cioe' chi sta leggendo a meta'. Quella riga non deve
+    muovere scrollTop di una virgola."""
+    sorgente = _DOM + "const RIGHE_DEL_REGISTRO = 500;\n" + _corpo_riga_come_funzione() + \
+        _SETUP_REGISTRO_CON_SCORRIMENTO_VERO + """
+registro.scrollTop = 12;
+aggiungiRiga({ data: JSON.stringify("riga nuova") });
+assert.equal(registro.scrollTop, 12, "chi leggeva a meta' e' stato riportato in fondo");
 console.log("ok");
 """
     assert _esegui(tmp_path, sorgente).strip() == "ok"
