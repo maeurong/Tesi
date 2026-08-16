@@ -210,6 +210,65 @@ def test_un_popen_che_solleva_non_lascia_il_worker_impiccato(tmp_path, monkeypat
     assert lavoratore.exit_code is not None
 
 
+def test_due_start_sovrapposte_avviano_un_solo_processo(tmp_path, monkeypatch):
+    """La prenotazione del worker sta nell'abbassare `_concluso`, e deve stare
+    prima della Popen: dentro il fork+exec la guardia rispondeva ancora «libero»
+    e due clic sovrapposti avviavano due `meshrec run` sulla stessa cartella di
+    corsa. La finestra e' piccola ma vera — uvicorn serve le tratte sincrone su
+    un pool di thread — ed e' la stessa riga su cui il registro fonda il Minor
+    lasciato dei bottoni Esegui: «un secondo clic prende un 400 dal worker».
+    Dentro quella finestra il 400 non arrivava.
+    """
+    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "assente.ply"))
+    cfg.run.out_dir = tmp_path / "corsa"
+    percorso = tmp_path / "config.yaml"
+    save_config(cfg, percorso)
+
+    # Come sopra: un worker che ha gia' concluso una corsa. E' li' che la
+    # prenotazione conta, perche' poll() da solo non dice piu' «ferma».
+    lavoratore = Worker()
+    fatto, subito = threading.Event(), threading.Event()
+    subito.set()
+    lavoratore._processo = _ProcessoUscitoCollettoStdout(0, fatto, subito)
+    lavoratore._concluso.clear()
+    lavoratore._leggi()
+    assert lavoratore.is_running() is False
+
+    creati = []
+    dentro_la_popen, prosegui = threading.Event(), threading.Event()
+
+    def popen_lenta(*_args, **_chiavi):
+        creati.append(1)
+        # Solo la prima si ferma: se si fermassero tutte, un secondo clic che
+        # passa (cioe' il difetto) bloccherebbe la prova invece di mostrarla, e
+        # il rosso arriverebbe da un'attesa scaduta invece che dal fatto.
+        if len(creati) == 1:
+            dentro_la_popen.set()
+            assert prosegui.wait(timeout=10), "la prova non ha sbloccato la Popen"
+        finito, gia = threading.Event(), threading.Event()
+        gia.set()
+        return _ProcessoUscitoCollettoStdout(0, finito, gia)
+
+    monkeypatch.setattr("meshrec.app.worker.subprocess.Popen", popen_lenta)
+
+    primo = threading.Thread(target=lavoratore.start, args=(percorso, 1, 1), daemon=True)
+    primo.start()
+    assert dentro_la_popen.wait(timeout=10), "la prima start() non e' entrata nella Popen"
+
+    # Il secondo clic cade esattamente dentro il fork+exec del primo.
+    esiti = []
+    try:
+        lavoratore.start(percorso, 1, 1)
+        esiti.append("avviata")
+    except RuntimeError:
+        esiti.append("rifiutata")
+
+    prosegui.set()
+    primo.join(timeout=10)
+    assert creati == [1], f"sono stati avviati {len(creati)} processi sulla stessa corsa"
+    assert esiti == ["rifiutata"], f"il secondo clic non e' stato rifiutato: {esiti}"
+
+
 def test_un_annullamento_che_arriva_a_esito_gia_scritto_non_marca(tmp_path):
     """Il fratello visto da `cancel()`, che e' la strada vera: il banco qui
     sotto chiama `_leggi()` diretto e non prova mai l'ordinamento fra i due.

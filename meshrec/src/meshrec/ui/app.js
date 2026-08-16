@@ -1386,11 +1386,15 @@ function disegnaTabellaGalleria(corpo) {
   const contenitore = document.getElementById("galleria-tabella");
   const didascalia = document.getElementById("galleria-didascalia");
   contenitore.replaceChildren();
-  // Il nome della region insieme allo svuotamento, e prima del ritorno
-  // anticipato: scritto piu' in basso, un esperimento senza righe lasciava
-  // annunciato il nome di quello di prima — un nome fermo e generico era
-  // meglio di uno attivamente sbagliato.
-  contenitore.setAttribute("aria-label", `Registro dell'esperimento ${corpo.nome}`);
+  // Un nome solo per la region e per la didascalia della tabella: scritto due
+  // volte, cambiare la dicitura in un posto farebbe divergere in silenzio il
+  // nome annunciato da quello visto. E' il rispecchiamento a mano che la
+  // colonna della galleria ha gia' pagato una volta.
+  const nomeDelRegistro = `Registro dell'esperimento ${corpo.nome}`;
+  // Insieme allo svuotamento, e prima del ritorno anticipato: scritto piu' in
+  // basso, un esperimento senza righe lasciava annunciato il nome di quello di
+  // prima — un nome fermo e generico e' meglio di uno attivamente sbagliato.
+  contenitore.setAttribute("aria-label", nomeDelRegistro);
   if (corpo.righe.length === 0) {
     didascalia.textContent = `${corpo.nome}: registro vuoto.`;
     return;
@@ -1452,7 +1456,7 @@ function disegnaTabellaGalleria(corpo) {
   });
   const tabella = document.createElement("table");
   const nome = document.createElement("caption");
-  nome.textContent = `Registro dell'esperimento ${corpo.nome}`;
+  nome.textContent = nomeDelRegistro;
   tabella.append(nome, testa, corpoTabella);
   contenitore.append(tabella);
 }

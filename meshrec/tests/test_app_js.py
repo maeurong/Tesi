@@ -2460,6 +2460,27 @@ assert.ok(
   !riga.className.split(" ").includes("esito-fallito"),
   `una corsa riuscita porta il segno del fallimento: "${riga.className}"`,
 );
+
+// E anche quando il pannello che si riapre fallisce. fallisciDettaglio e' il
+// fratello di apriDettaglio e svuota la stessa riga d'errore: e' la seconda
+// strada per lo stesso difetto, e il ramo buono da solo non la percorre. Il
+// 500 su /api/config e' il caso che questo stesso ramo ha aggiunto — la
+// configurazione sparita mentre il server gira.
+risponde["/api/config"] = async () => ({
+  ok: false,
+  status: 500,
+  text: async () => JSON.stringify({ messaggio: "la configurazione non c'e' piu'" }),
+});
+aggiornaDaStato({ in_corso: true, step: 1, da_secondi: 1, exit_code: null, annullato: false, steps });
+stepAperto = 1;
+aggiornaDaStato({ in_corso: false, step: 1, da_secondi: null, exit_code: 1, annullato: false, steps });
+await finoInFondo();
+assert.match(rigaErrore.textContent, /configurazione/, "il pannello non e' fallito: il ramo non e' stato percorso");
+assert.match(
+  riga.textContent,
+  /codice 1/,
+  `l'annuncio e' stato cancellato dal fallimento del pannello: "${riga.textContent}"`,
+);
 """)
 
 

@@ -76,32 +76,42 @@ class Worker:
         del chiamante, non un esito dell'elaborazione."""
         if self.is_running():
             raise RuntimeError("uno step sta gia' girando: annullalo prima di avviarne un altro")
-        # Prima il processo, poi lo stato della corsa nuova. Scritto nell'ordine
-        # opposto, un Popen che solleva (risorse esaurite, interprete sparito)
-        # lascerebbe dietro di se' proprio la coppia proibita che is_running()
-        # esiste per impedire: exit_code azzerato su una corsa che nessuno sta
-        # piu' eseguendo, e _concluso abbassato senza un lettore che lo rialzi —
-        # cioe' un worker impiccato, con ogni start() successiva rifiutata e
-        # niente da annullare. Da questa riga in giu' non si solleva piu'.
-        processo = subprocess.Popen(
-            [
-                sys.executable, "-m", "meshrec.cli", "run", str(config_path),
-                "--from-step", str(from_step), "--to-step", str(to_step),
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-        )
-        with self._lucchetto:
-            self._righe.clear()
-            self.exit_code = None
-            self.annullato = False
-        self.step = from_step
-        self.avviato = time.monotonic()
+        # Abbassare _concluso e' anche la prenotazione del worker: da qui la
+        # guardia qui sopra risponde «occupato», e due start() sovrapposte non
+        # avviano due `meshrec run` sulla stessa cartella di corsa. Va quindi
+        # prima della Popen, che dura un fork+exec — una finestra piccola ma
+        # vera, perche' uvicorn serve le tratte sincrone su un pool di thread.
+        # E va rilasciata se qualcosa sotto solleva: un _concluso abbassato
+        # senza un lettore che lo rialzi e' un worker impiccato, con ogni
+        # start() successiva rifiutata e niente da annullare. Il try copre
+        # anche Thread.start(), che puo' fallire quanto la Popen.
         self._concluso.clear()
-        self._processo = processo
-        threading.Thread(target=self._leggi, daemon=True).start()
+        try:
+            processo = subprocess.Popen(
+                [
+                    sys.executable, "-m", "meshrec.cli", "run", str(config_path),
+                    "--from-step", str(from_step), "--to-step", str(to_step),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+            )
+            # Lo stato della corsa nuova solo ora che il processo esiste:
+            # azzerato prima, una Popen che solleva lascerebbe exit_code a None
+            # su una corsa gia' conclusa, cioe' la coppia proibita che
+            # is_running() esiste per impedire.
+            with self._lucchetto:
+                self._righe.clear()
+                self.exit_code = None
+                self.annullato = False
+            self.step = from_step
+            self.avviato = time.monotonic()
+            self._processo = processo
+            threading.Thread(target=self._leggi, daemon=True).start()
+        except BaseException:
+            self._concluso.set()
+            raise
 
     def _leggi(self) -> None:
         processo = self._processo
