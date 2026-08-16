@@ -3050,6 +3050,67 @@ console.log("ok");
     assert _esegui(tmp_path, sorgente).strip() == "ok"
 
 
+def test_un_campo_obbligatorio_non_si_dichiara_cambiato(tmp_path):
+    """`input.path` non ha un predefinito da cui scostarsi: il confronto lo
+    trovava diverso da null e ogni corsa lo dichiarava «cambiato — predefinito:
+    nessuno», su un campo che nessuno ha spostato da niente. E' il primo campo
+    del primo step, quindi la frase falsa era anche la prima che si legge.
+
+    «Dove il dato manca, si dichiara che manca»: qui manca il predefinito, non
+    e' cambiato il valore.
+    """
+    sorgente = _DOM + """
+configurazione = { input: { path: "lab_frame.pcd" }, segment: { knn: 20 } };
+""" + _funzioni("reso", "cambiatoDalPredefinito", "campoParametro", "gruppoDelBlocco") + """
+const riga = campoParametro("input", "path",
+  { description: "la nuvola", default: null, obbligatorio: true }, 0);
+const testo = riga.figli.map((f) => f.textContent).join(" ");
+assert.doesNotMatch(testo, /cambiato/, `un obbligatorio si dichiara cambiato: ${testo}`);
+assert.match(testo, /obbligatorio/, `non dice che il predefinito manca: ${testo}`);
+assert.ok(
+  !riga.className.split(" ").includes("campo-cambiato"),
+  "un obbligatorio porta il canale visivo del cambiamento",
+);
+
+// E non finisce nella piega: quel titolo dice «al valore predefinito», e un
+// predefinito questo campo non ce l'ha.
+const gruppo = gruppoDelBlocco("input", {
+  path: { description: "la nuvola", default: null, obbligatorio: true },
+}, 0);
+assert.equal(
+  gruppo.figli.filter((f) => f.tag === "details").length, 0,
+  "l'obbligatorio e' stato richiuso fra i parametri al valore predefinito",
+);
+console.log("ok");
+"""
+    assert _esegui(tmp_path, sorgente).strip() == "ok"
+
+
+def test_il_riquadro_della_galleria_prende_il_nome_dell_esperimento(tmp_path):
+    """Il riquadro che scorre e' una region, e il suo nome era scritto fermo nel
+    markup: cambiando esperimento, chi naviga da tastiera ci entrava e sentiva
+    annunciare sempre lo stesso nome, cioe' nessuno dei due."""
+    sorgente = _DOM + """
+const ORDINE_GALLERIA = ["outcome"];
+""" + _funzioni("colonneOrdinate", "disegnaTabellaGalleria") + """
+const contenitore = document.getElementById("galleria-tabella");
+contenitore.setAttribute("aria-label", "Registro dell'esperimento");
+disegnaTabellaGalleria({
+  nome: "lab_crop",
+  fronte: 1,
+  righe: [{ on_front: true }],
+  colonne: [{ chiave: "outcome", etichetta: "esito" }],
+  celle: [["ok"]],
+});
+assert.match(
+  contenitore.getAttribute("aria-label"), /lab_crop/,
+  `il nome annunciato non segue l'esperimento: ${contenitore.getAttribute("aria-label")}`,
+);
+console.log("ok");
+"""
+    assert _esegui(tmp_path, sorgente).strip() == "ok"
+
+
 def test_l_ordine_della_galleria_nomina_le_stesse_colonne_del_registro():
     """`ORDINE_GALLERIA` e' un rispecchiamento scritto a mano delle chiavi di
     `report._COLUMNS`, e i tre banchi dell'interfaccia iniettano ciascuno la

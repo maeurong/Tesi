@@ -282,6 +282,22 @@ def create_app(config_path: Path) -> FastAPI:
         #
         # La forma del corpo resta la stessa del gestore generico, cosi'
         # ragioneDelRifiuto la legge senza sapere che e' successo.
+        #
+        # Ma la configurazione non e' un artefatto. Se sparisce mentre il
+        # server gira, load_config solleva la stessa eccezione da ogni tratta,
+        # il browser vede 404 dappertutto e racconta «nessun artefatto per
+        # questo step»: una configurazione mancante riportata come uno step mai
+        # eseguito, cioe' un guasto del server travestito da esito normale.
+        # 404 vuol dire «quel file non e' ancora stato prodotto»; questo e'
+        # l'opposto, e va detto con il proprio nome.
+        if errore.filename is not None and Path(errore.filename) == Path(config_path):
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "errore": type(errore).__name__,
+                    "messaggio": f"la configurazione {config_path} non c'e' piu'",
+                },
+            )
         return JSONResponse(
             status_code=404,
             content={"errore": type(errore).__name__, "messaggio": str(errore)},
@@ -359,6 +375,13 @@ def create_app(config_path: Path) -> FastAPI:
                             if campo.is_required()
                             else campo.get_default(call_default_factory=True)
                         ),
+                        # E il null va distinto da un predefinito che vale
+                        # davvero None: senza questo campo l'interfaccia
+                        # confrontava il valore vivo con null, lo trovava
+                        # diverso e dichiarava «cambiato — predefinito:
+                        # nessuno» per ogni corsa, su un campo che nessuno ha
+                        # cambiato perche' non c'era niente da cui scostarsi.
+                        "obbligatorio": campo.is_required(),
                     }
                     for nome, campo in annidato.model_fields.items()
                 }

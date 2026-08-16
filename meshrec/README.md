@@ -51,8 +51,8 @@ uv run pytest tests/feasibility/test_calculix.py -v -m feasibility
 uv run meshrec serve lab.yaml
 ```
 
-Il percorso della configurazione e' obbligatorio: e' la corsa su cui
-l'interfaccia lavora, e senza non c'e' niente da mostrare. `--port` sceglie la
+Il percorso della configurazione è obbligatorio: è la corsa su cui
+l'interfaccia lavora, e senza non c'è niente da mostrare. `--port` sceglie la
 porta, `--no-browser` non apre il browser.
 
 Le configurazioni gia' pronte nel repository sono `lab.yaml` (il caso studio),

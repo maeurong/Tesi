@@ -1768,6 +1768,12 @@ def test_lo_schema_dice_quali_parametri_appartengono_a_ogni_step(cliente):
     # Un campo obbligatorio non ha un predefinito: deve uscire null e non la
     # stringa "PydanticUndefined", che somiglia a un valore (M-5).
     assert corpo["1"]["campi"]["input"]["path"]["default"] is None
+    # E quel null va distinto da un predefinito che vale davvero None: senza la
+    # distinzione il browser confronta il valore vivo con null, lo trova
+    # diverso e dichiara «cambiato — predefinito: nessuno» su un campo che
+    # nessuno ha spostato da niente.
+    assert corpo["1"]["campi"]["input"]["path"]["obbligatorio"] is True
+    assert corpo["5"]["campi"]["surface"]["poisson_depth"]["obbligatorio"] is False
 
 
 def test_il_predefinito_di_un_modello_annidato_e_json_non_un_repr(cliente):
@@ -1791,6 +1797,39 @@ def test_il_predefinito_di_un_modello_annidato_e_json_non_un_repr(cliente):
     assert list(predefinito) == list(vivo), (
         "il predefinito non ha le stesse chiavi, nello stesso ordine, del valore vivo"
     )
+
+
+def test_una_configurazione_sparita_non_si_racconta_come_artefatto_mancante(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Il gestore su FileNotFoundError vale per tutta l'app. Se la
+    configurazione sparisce mentre il server gira, load_config solleva la
+    stessa eccezione da ogni tratta e il browser vedeva 404 dappertutto: quel
+    codice, per l'interfaccia, vuol dire «nessun artefatto per questo step»,
+    cioe' lo stato normale di uno step mai eseguito. Un guasto del server
+    travestito da esito normale — la confusione che la voce del progetto
+    vieta.
+    """
+    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"))
+    cfg.run.out_dir = tmp_path / "corsa"
+    percorso = tmp_path / "config.yaml"
+    save_config(cfg, percorso)
+    monkeypatch.setattr(server, "CACHE_DIR", tmp_path / "cache")
+    cliente = TestClient(create_app(percorso), raise_server_exceptions=False)
+    assert cliente.get("/api/config").status_code == 200
+    # Con la configurazione al suo posto, un artefatto mai prodotto e' un 404:
+    # e' il ramo che il gestore esiste per servire, e il ramo nuovo non deve
+    # promuoverlo a guasto.
+    assert cliente.get("/api/cloud/1").status_code == 404
+
+    percorso.unlink()
+
+    risposta = cliente.get("/api/config")
+    assert risposta.status_code != 404, (
+        "la configurazione sparita viene raccontata come un artefatto mai prodotto"
+    )
+    assert risposta.status_code == 500
+    assert "configurazione" in risposta.json()["messaggio"]
 
 
 def test_il_tempo_dello_step_viene_dal_server_e_non_dal_browser(cliente):

@@ -1028,11 +1028,22 @@ function campoParametro(blocco, nome, campo, ordine) {
     : [campo.description, "si modifica dal file di configurazione"]
         .filter(Boolean).join(" — ");
   riga.append(aiuto, messaggio);
-  // Due canali: la classe per chi guarda, il predefinito scritto per chi legge.
-  // Il colore da solo lascerebbe fuori chi non distingue le tinte, e il valore
-  // di partenza e' l'informazione vera — sapere che «e' cambiato» senza sapere
-  // «da che cosa» non chiude nessuna domanda.
-  if (cambiatoDalPredefinito(valore, campo.default)) {
+  // Un campo obbligatorio non ha un predefinito da cui scostarsi, quindi non
+  // puo' essere «cambiato»: il confronto trovava il valore vivo diverso da
+  // null e ogni corsa dichiarava «cambiato — predefinito: nessuno» su
+  // input.path, che e' il primo campo del primo step e che nessuno ha mai
+  // spostato da niente. Dove il dato manca si dichiara che manca, e questo e'
+  // il caso: manca il predefinito, non e' cambiato il valore.
+  if (campo.obbligatorio) {
+    const segno = document.createElement("small");
+    segno.className = "aiuto";
+    segno.textContent = "obbligatorio: non ha un valore predefinito";
+    riga.append(segno);
+  } else if (cambiatoDalPredefinito(valore, campo.default)) {
+    // Due canali: la classe per chi guarda, il predefinito scritto per chi
+    // legge. Il colore da solo lascerebbe fuori chi non distingue le tinte, e
+    // il valore di partenza e' l'informazione vera — sapere che «e' cambiato»
+    // senza sapere «da che cosa» non chiude nessuna domanda.
     riga.classList.toggle("campo-cambiato", true);
     const segno = document.createElement("small");
     segno.className = "aiuto segno-cambiato";
@@ -1064,7 +1075,12 @@ function gruppoDelBlocco(blocco, campi, ordine) {
   const fermi = [];
   for (const [nome, campo] of Object.entries(campi)) {
     const riga = campoParametro(blocco, nome, campo, ordine);
-    const spostato = cambiatoDalPredefinito(configurazione[blocco][nome], campo.default);
+    // Un obbligatorio resta in vista con i cambiati: nella piega finirebbe
+    // sotto un titolo che dice «al valore predefinito», e un predefinito non
+    // ce l'ha. E' anche il campo che di solito conta di piu' — input.path e'
+    // la nuvola su cui gira tutto il resto.
+    const spostato =
+      campo.obbligatorio || cambiatoDalPredefinito(configurazione[blocco][nome], campo.default);
     (spostato ? cambiati : fermi).push(riga);
   }
   gruppo.append(...cambiati);
@@ -1432,6 +1448,11 @@ function disegnaTabellaGalleria(corpo) {
   const tabella = document.createElement("table");
   const nome = document.createElement("caption");
   nome.textContent = `Registro dell'esperimento ${corpo.nome}`;
+  // Il riquadro che scorre e' una region con un nome suo, scritto nel markup e
+  // fermo a «Registro dell'esperimento»: cambiando esperimento il nome
+  // annunciato restava quello di prima, cioe' nessuno. Segue la didascalia,
+  // dalla stessa fonte.
+  contenitore.setAttribute("aria-label", nome.textContent);
   tabella.append(nome, testa, corpoTabella);
   contenitore.append(tabella);
 }

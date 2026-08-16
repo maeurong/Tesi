@@ -71,7 +71,7 @@ distanza di mesi.
 
 Applicazione **locale**, utente singolo, nessuna autenticazione, nessun server
 remoto. Si avvia da riga di comando con `uv run meshrec serve <configurazione>.yaml`
-e apre il browser. Il percorso della configurazione e' obbligatorio: e' la corsa
+e apre il browser. Il percorso della configurazione è obbligatorio: è la corsa
 su cui l'interfaccia lavora.
 
 Lo stato non vive in memoria ma su disco: ogni elaborazione è una cartella
