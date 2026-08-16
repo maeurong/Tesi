@@ -267,7 +267,7 @@ def test_l_elenco_degli_step_si_aggiorna_e_non_si_ricostruisce(tmp_path):
     lascia la sottostringa al suo posto, ricostruisce l'elenco a ogni evento, e
     un controllo testuale resta verde. Questo diventa rosso.
     """
-    _esegui(tmp_path, _DOM + _funzioni("segnaStepAperto", "nuovaRiga", "disegnaStep") + """
+    _esegui(tmp_path, _DOM + "let ultimiSteps = [];\n" + _funzioni("segnaStepAperto", "nuovaRiga", "disegnaStep") + """
 disegnaStep(STEPS);
 const prima = elenco.children.map((riga) => riga.firstElementChild);
 assert.equal(prima.length, 3, "l'elenco non viene piu' costruito");
@@ -298,7 +298,7 @@ def test_solo_lo_step_aperto_porta_il_marchio(tmp_path):
     (due «stai guardando questo» sono peggio di nessuno), e il marchio sparisce
     quando nessun pannello e' aperto.
     """
-    _esegui(tmp_path, _DOM + _funzioni("segnaStepAperto", "nuovaRiga", "disegnaStep") + """
+    _esegui(tmp_path, _DOM + "let ultimiSteps = [];\n" + _funzioni("segnaStepAperto", "nuovaRiga", "disegnaStep") + """
 disegnaStep(STEPS);
 segnaStepAperto(2);
 assert.deepEqual(marcati(), [2], "il marchio non e' sullo step aperto, o non e' solo suo");
@@ -323,7 +323,7 @@ def test_il_marchio_non_resta_su_uno_step_che_nessun_pannello_mostra(tmp_path):
     assert testo.count("fallisciDettaglio(dettaglio, ragione);") == 2, (
         "una delle due uscite d'errore di apriDettaglio non passa piu' di qui"
     )
-    _esegui(tmp_path, _DOM + _funzioni(
+    _esegui(tmp_path, _DOM + "let ultimiSteps = [];\n" + _funzioni(
         "segnaStepAperto", "nuovaRiga", "disegnaStep", "dichiaraErrore", "fallisciDettaglio",
     ) + """
 const dettaglio = document.getElementById("dettaglio");
@@ -734,8 +734,12 @@ def _banco_di_geometria() -> str:
     una risposta partita prima portando lo stesso `ordine`; solo
     `ultimaGeometria` li distingue.
     """
-    return _DOM + _funzioni("apriGeometria", "superata", "mostraNuvolaDelloStep", "mostraStep") + """
+    return _DOM + _funzioni(
+        "apriGeometria", "superata", "nomeDelloStep", "dichiaraCaricamento",
+        "mostraNuvolaDelloStep", "mostraStep",
+    ) + """
 let ultimaGeometria = 0;
+let ultimiSteps = [];
 const STEP_CON_MESH = new Set([5, 6, 8, 9]);
 const vista = {
   svuotate: 0,
@@ -1423,7 +1427,7 @@ def _banco_di_caricaStato() -> str:
     nello stesso ordine del file vero: se lo hoisting non reggesse, questo
     banco lo direbbe eseguendo, non ragionandoci sopra.
     """
-    return _DOM + _funzioni(
+    return _DOM + "let ultimiSteps = [];\n" + _funzioni(
         "caricaStato", "segnaStepAperto", "nuovaRiga", "disegnaStep", "dichiaraErrore", "corpoLetto",
     ) + """
 let risponde = null;
@@ -2129,3 +2133,58 @@ assert.match(senzaCampo.esito, /Tetraedri concluso/, "va detto concluso, non tac
 console.log("ok");
 """
     assert _esegui(tmp_path, sorgente).strip() == "ok"
+
+
+# --------------------------------------------------------------------------
+# L'attesa della geometria: mezzo minuto in cui la vista mentiva.
+# --------------------------------------------------------------------------
+
+
+def test_la_vista_si_svuota_e_si_dichiara_prima_di_aspettare(tmp_path):
+    """La finestra dei 27-34 secondi era l'unico punto in cui la vista e la sua
+    didascalia potevano descrivere due step diversi: tela e conteggi restavano
+    sullo step precedente mentre il pannello mostrava gia' il nuovo.
+
+    Non e' una percentuale fabbricata: e' il nome di cio' che si sta leggendo.
+    """
+    sorgente = _DOM + """
+ETICHETTE["09_tetrahedralize"] = "Tetraedri";
+let svuotate = 0;
+const vista = { svuota() { svuotate += 1; } };
+let ultimiSteps = [{ numero: 9, chiave: "09_tetrahedralize", stato: "valido" }];
+""" + _funzioni("nomeDelloStep", "dichiaraCaricamento") + """
+dichiaraCaricamento(9);
+assert.equal(svuotate, 1, "la geometria di prima e' rimasta a video");
+const didascalia = document.getElementById("conteggi").textContent;
+assert.match(didascalia, /Tetraedri/, `la didascalia non nomina lo step: ${didascalia}`);
+assert.equal(
+  document.getElementById("viewport").getAttribute("aria-busy"), "true",
+  "chi non vede la tela non sa che sta arrivando qualcosa",
+);
+console.log("ok");
+"""
+    assert _esegui(tmp_path, sorgente).strip() == "ok"
+
+
+def test_la_dichiarazione_precede_l_attesa_e_non_la_segue():
+    """Il controllo di comportamento qui sopra passerebbe anche con la
+    dichiarazione scritta dopo il `fetch`, che e' esattamente il difetto: una
+    didascalia d'attesa che compare quando l'attesa e' finita non ha aspettato
+    niente. Questo guarda l'ordine nel sorgente, come i controlli della regola
+    delle generazioni.
+    """
+    corpo = _sorgente_di("mostraStep", _modulo())
+    assert "dichiaraCaricamento(" in corpo, "mostraStep non dichiara piu' l'attesa"
+    assert corpo.index("dichiaraCaricamento(") < corpo.index("await fetch"), (
+        "la dichiarazione e' finita dopo l'attesa: comparirebbe quando non serve piu'"
+    )
+
+
+def test_la_configurazione_e_le_metriche_si_chiedono_insieme():
+    """Erano due andate e ritorni in fila per due letture indipendenti: il
+    pannello aspettava la somma di due latenze invece della maggiore."""
+    corpo = _sorgente_di("apriDettaglio", _modulo())
+    assert "Promise.all" in corpo, "le due letture sono tornate in fila"
+    assert corpo.count("await fetch(\"/api/config\")") == 0, (
+        "e' rimasta un'attesa separata su /api/config"
+    )

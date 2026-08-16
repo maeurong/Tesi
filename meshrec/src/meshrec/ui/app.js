@@ -46,6 +46,11 @@ function esitoDellaCorsa(stato) {
   return { errore: null, esito: `${nome} concluso in ${misura} s` };
 }
 
+// L'ultimo elenco di step arrivato dal server. Serve ai nomi: la didascalia
+// d'attesa nomina lo step che sta caricando, e il nome sta nella chiave che
+// run_state porta in ogni voce.
+let ultimiSteps = [];
+
 async function caricaStato() {
   const risposta = await fetch("/api/run");
   const corpo = await corpoLetto(risposta);
@@ -103,6 +108,7 @@ function nuovaRiga() {
 }
 
 function disegnaStep(steps) {
+  ultimiSteps = steps;
   const elenco = document.getElementById("elenco-step");
   // Le righe si costruiscono una volta sola e poi si aggiornano sul posto.
   // Ricostruirle a ogni evento — due volte al secondo mentre la pipeline gira —
@@ -263,11 +269,29 @@ function apriGeometria() {
   return ultimaGeometria;
 }
 
+// Prima dell'attesa, non dopo. La lettura di un artefatto costa 27-34 secondi a
+// freddo sulla scansione vera, e in quella finestra la tela mostrava la
+// geometria dello step precedente, i conteggi i suoi numeri, e il pannello con
+// aria-current gia' il nuovo: lo schermo affermava che i parametri di uno step
+// vanno con la mesh di un altro. E' la stessa «vista che contraddice la sua
+// didascalia» contro cui esistono le due generazioni, vista dall'altro capo: le
+// generazioni difendono dalle scritture vecchie, questa dalle letture vecchie
+// ancora a video.
+// Nessuna percentuale: le librerie non ne danno una. Si dice che cosa si sta
+// leggendo, che e' un fatto e non una stima.
+function dichiaraCaricamento(numero) {
+  vista.svuota();
+  document.getElementById("conteggi").textContent =
+    `caricamento di ${nomeDelloStep(numero, ultimiSteps)}...`;
+  document.getElementById("viewport").setAttribute("aria-busy", "true");
+}
+
 async function mostraNuvolaDelloStep(numero, ordine) {
   const emissione = apriGeometria();
   const risposta = await fetch(`/api/cloud/${numero}`);
   if (!risposta.ok) {
     if (superata(ordine) || superata(emissione, ultimaGeometria)) return false;
+    document.getElementById("viewport").removeAttribute("aria-busy");
     // Svuotare e' obbligatorio: senza, la scena resta quella dello step
     // precedente mentre il testo dice che non c'e' nulla. Una vista che
     // contraddice la sua didascalia e' peggio di una vista vuota.
@@ -282,6 +306,7 @@ async function mostraNuvolaDelloStep(numero, ordine) {
   // in alto lascerebbe passare cio' che e' stato superato mentre il corpo
   // arrivava.
   if (superata(ordine) || superata(emissione, ultimaGeometria)) return false;
+  document.getElementById("viewport").removeAttribute("aria-busy");
   vista.svuota();
   vista.mostraNuvola(new Float32Array(grezzi));
   // Sempre entrambi: una nuvola decimata che non lo dichiara e' un dato falso.
@@ -299,6 +324,10 @@ async function mostraNuvolaDelloStep(numero, ordine) {
 const STEP_CON_MESH = new Set([5, 6, 8, 9]);
 
 async function mostraStep(numero, ordine) {
+  // In testa e sopra la delega: ogni strada passa di qui una volta sola, e
+  // metterla anche dentro mostraNuvolaDelloStep la eseguirebbe due volte sugli
+  // step senza mesh.
+  dichiaraCaricamento(numero);
   // La delega sta prima del contatore: incrementarlo qui e di nuovo la' sotto
   // farebbe battere questa richiesta da se stessa, e nessuna nuvola verrebbe
   // piu' disegnata. Ogni strada apre esattamente una richiesta.
@@ -307,6 +336,7 @@ async function mostraStep(numero, ordine) {
   const risposta = await fetch(`/api/mesh/${numero}`);
   if (!risposta.ok) {
     if (superata(ordine) || superata(emissione, ultimaGeometria)) return false;
+    document.getElementById("viewport").removeAttribute("aria-busy");
     // Come per la nuvola: svuotare e' obbligatorio, una vista che contraddice
     // la sua didascalia e' peggio di una vista vuota.
     vista.svuota();
@@ -319,6 +349,7 @@ async function mostraStep(numero, ordine) {
   // Qui la latenza e' quella vera: e' la mesh dello step 9 che arriva tardi a
   // posarsi sulla nuvola di un altro step.
   if (superata(ordine) || superata(emissione, ultimaGeometria)) return false;
+  document.getElementById("viewport").removeAttribute("aria-busy");
   vista.svuota();
   vista.mostraMesh(
     new Float32Array(grezzi, 0, vertici * 3),
@@ -880,8 +911,13 @@ async function apriDettaglio(numero, ordine = generazione) {
   // Come il ramo dello schema qui sopra: senza guardare risposta.ok, .json()
   // solleva un SyntaxError sul corpo d'errore e il pannello resta bianco senza
   // dire perche'.
-  const rispostaConfig = await fetch("/api/config").catch(serverMuto);
-  const rispostaMetriche = await fetch("/api/metrics").catch(serverMuto);
+  // Insieme e non in fila: sono due letture indipendenti, e in fila il pannello
+  // aspettava la somma delle due latenze invece della maggiore. `.catch` resta
+  // su ciascuna, cosi' un server muto prende la forma del rifiuto su entrambe.
+  const [rispostaConfig, rispostaMetriche] = await Promise.all([
+    fetch("/api/config").catch(serverMuto),
+    fetch("/api/metrics").catch(serverMuto),
+  ]);
   if (!rispostaConfig.ok || !rispostaMetriche.ok) {
     const ragione = await ragioneDelRifiuto(rispostaConfig.ok ? rispostaMetriche : rispostaConfig);
     if (superata(ordine)) return;
