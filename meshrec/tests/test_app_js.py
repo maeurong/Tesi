@@ -2542,12 +2542,21 @@ const testi = righe.map((r) => r.figli.map((c) => c.textContent));
 assert.notEqual(testi[0][0], testi[1][0], "le due righe non si distinguono per testo");
 assert.ok(testi[0].join(" ").includes("fronte"), `nessun canale testuale: ${testi[0]}`);
 const impronta = testi[0][testi[0].length - 1];
+// c.textContent legge solo il testo assegnato direttamente alla cella (il DOM
+// finto non lo ricalcola dai figli): il nodo .fuori-vista aggiunto dopo non
+// lo tocca, quindi questa resta la prova che il testo VISIBILE e' corto.
 assert.ok(impronta.length <= 12, `l'impronta piena sfonda ancora la colonna: ${impronta}`);
+const cellaImpronta = righe[0].figli[righe[0].figli.length - 1];
 assert.equal(
-  righe[0].figli[righe[0].figli.length - 1].getAttribute("title"), "a".repeat(64),
+  cellaImpronta.getAttribute("title"), "a".repeat(64),
   "l'impronta troncata ha perso il valore pieno",
 );
+// Il titolo raggiunge solo il mouse: senza un nodo .fuori-vista dentro la
+// stessa cella, chi usa un lettore di schermo non raggiunge mai il valore
+// intero.
+const nascosta = cellaImpronta.figli.find((f) => f.className === "fuori-vista");
+assert.ok(nascosta, "l'impronta intera non e' raggiungibile da un lettore di schermo");
+assert.equal(nascosta.textContent, "a".repeat(64), "il nodo fuori-vista non porta il valore pieno");
 console.log("ok");
 """
-    assert _esegui(tmp_path, sorgente).strip() == "ok"
     assert _esegui(tmp_path, sorgente).strip() == "ok"

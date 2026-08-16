@@ -238,6 +238,12 @@ body {
    va da nessuna parte. */
 .galleria-tabella tr.fronte { background: var(--evidenza); }
 .galleria-tabella tr.fronte td:first-child { font-weight: 600; color: var(--accento); }
+/* Nascosto alla vista e non al lettore di schermo: l'impronta intera vive qui
+   dentro la cella dell'impronta troncata, perche' title su una <td> raggiunge
+   solo chi usa il mouse. clip(0,0,0,0) e non display:none o
+   visibility:hidden, che toglierebbero il testo anche dall'albero di
+   accessibilita' invece di solo dalla vista. */
+.fuori-vista { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 
 /* --- Movimento ------------------------------------------------------------
    Tre soli momenti, e nessuno decorativo.

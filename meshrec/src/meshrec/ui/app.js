@@ -1232,10 +1232,17 @@ function disegnaTabellaGalleria(corpo) {
       const cella = document.createElement("td");
       // L'impronta troncata, con il valore pieno nel titolo: e' un
       // identificatore da riconoscere, non da leggere, e otto caratteri di
-      // SHA-256 bastano a distinguere undici candidati.
+      // SHA-256 bastano a distinguere undici candidati. Il titolo pero'
+      // raggiunge solo chi usa il mouse: il valore intero vive anche in un
+      // nodo .fuori-vista dentro la stessa cella, cosi' chi usa un lettore di
+      // schermo lo raggiunge quanto chi punta il cursore.
       if (colonna.chiave === "fingerprint") {
         cella.textContent = testo.slice(0, 8);
         cella.setAttribute("title", testo);
+        const completa = document.createElement("span");
+        completa.className = "fuori-vista";
+        completa.textContent = testo;
+        cella.append(completa);
       } else {
         cella.textContent = testo;
       }
