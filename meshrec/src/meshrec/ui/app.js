@@ -8,6 +8,44 @@ const ETICHETTE = {
   "11_export": "Esportazione",
 };
 
+// Il nome leggibile di uno step. La colonna di sinistra mostra i nomi, e la
+// riga di stato diceva «step 9»: due lingue per la stessa cosa, e la traduzione
+// a carico di chi guarda. La chiave sta in ogni voce di run_state, quindi il
+// nome non va indovinato dall'ordine.
+function nomeDelloStep(numero, steps = []) {
+  const voce = steps.find((v) => v.numero === numero);
+  const etichetta = voce ? ETICHETTE[voce.chiave] : undefined;
+  return etichetta ?? `step ${numero}`;
+}
+
+// Che cosa dire quando una corsa finisce. Pura e di primo livello come
+// superata() e valoreScritto(): e' la decisione che l'interfaccia non prendeva
+// affatto, e presa dentro un gestore anonimo non la esegue nessun banco.
+// I tre esiti sono distinti perche' sono tre fatti diversi, ed e' la voce del
+// progetto: un annullamento e' una scelta di chi guarda, non un guasto.
+// L'ordine dei rami conta: un annullamento arriva con un codice d'uscita non
+// nullo (il segnale che lo ha fermato), quindi va guardato per primo, altrimenti
+// ogni annullamento si annuncerebbe come un fallimento.
+function esitoDellaCorsa(stato) {
+  const nome = nomeDelloStep(stato.step, stato.steps ?? []);
+  if (stato.annullato) return { errore: null, esito: `${nome} annullato` };
+  if (stato.exit_code !== 0 && stato.exit_code !== null && stato.exit_code !== undefined) {
+    return {
+      errore: `${nome} e' fallito (codice ${stato.exit_code}). ` +
+        "Il motivo e' nelle ultime righe del registro, qui sotto.",
+      esito: null,
+    };
+  }
+  // La durata la misura il server e la scrive nel file di stato: run_state la
+  // rilegge da li'. Quando manca non si mette uno zero ne' un trattino formattato
+  // come un numero — sarebbe una misura fabbricata — si dice solo che e' finito.
+  const voce = (stato.steps ?? []).find((v) => v.numero === stato.step);
+  const secondi = voce ? voce.secondi : undefined;
+  if (typeof secondi !== "number") return { errore: null, esito: `${nome} concluso` };
+  const misura = secondi.toLocaleString("it", { maximumFractionDigits: 2 });
+  return { errore: null, esito: `${nome} concluso in ${misura} s` };
+}
+
 async function caricaStato() {
   const risposta = await fetch("/api/run");
   const corpo = await corpoLetto(risposta);
@@ -125,7 +163,16 @@ flusso.addEventListener("stato", (evento) => {
   // sinistra mentre a destra restano le metriche di prima, o nessuna. Non a
   // ogni evento, perche' lo stato arriva ogni mezzo secondo e il pannello si
   // riscriverebbe sotto le dita di chi sta compilando un campo.
+  const rigaEsito = document.getElementById("esito");
+  // Sul fronte di salita si pulisce: l'esito della corsa precedente, lasciato
+  // li', descriverebbe un lavoro diverso da quello che sta girando adesso.
+  if (!eraInCorso && stato.in_corso) rigaEsito.textContent = "";
   if (eraInCorso && !stato.in_corso) {
+    const { errore, esito } = esitoDellaCorsa(stato);
+    // dichiaraErrore(null) su un esito buono e' voluto: un errore di prima
+    // lasciato a video contraddirebbe la corsa che si e' appena conclusa bene.
+    dichiaraErrore(errore);
+    rigaEsito.textContent = esito ?? "";
     if (stepAperto !== null) apriDettaglio(stepAperto);
     // La vista quanto il pannello: senza questa riga lo step rieseguito mostra
     // a destra le metriche nuove e nel viewport il contorno vecchio, col

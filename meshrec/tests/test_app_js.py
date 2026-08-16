@@ -2047,3 +2047,63 @@ assert.match(
   "il rifiuto del server non arriva nella regione d'errore",
 );
 """)
+
+
+# --------------------------------------------------------------------------
+# La fine di una corsa: exit_code e secondi arrivano e vanno detti.
+# --------------------------------------------------------------------------
+
+
+def test_la_riga_dell_esito_esiste_nel_markup_ed_e_una_regione_viva():
+    """Come la regione role="alert": deve preesistere a cio' che annuncia.
+    Creata nell'istante in cui ci si scrive dentro, l'annuncio non e'
+    garantito."""
+    elemento = _elemento(_senza_commenti_html(_markup()), "esito")
+    assert 'aria-live="polite"' in elemento, f"la riga dell'esito non e' viva: {elemento}"
+    assert "hidden" not in elemento, f"hidden la toglie dall'albero: {elemento}"
+
+
+def test_la_fine_della_corsa_distingue_fallito_annullato_e_concluso(tmp_path):
+    """Il rilievo peggiore del giro 3. `exit_code` e `annullato` sono nel carico
+    SSE da quando esiste il worker, e il modulo leggeva solo `in_corso`: a uscita
+    non nulla la riga che pulsa spariva e basta, e chi guardava non poteva
+    distinguere «fallito» da «finito».
+
+    Tre esiti, tre frasi diverse, e nessuna delle tre inventa un numero.
+    """
+    sorgente = _DOM + """
+ETICHETTE["09_tetrahedralize"] = "Tetraedri";
+const steps = [{ numero: 9, chiave: "09_tetrahedralize", stato: "valido", secondi: 34.39 }];
+""" + _funzioni("nomeDelloStep", "esitoDellaCorsa") + """
+const rotto = esitoDellaCorsa({ step: 9, exit_code: 1, annullato: false, steps });
+assert.equal(rotto.esito, null, "un fallimento non e' un esito neutro");
+assert.match(rotto.errore, /Tetraedri/, "il nome dello step, non il suo numero");
+assert.match(rotto.errore, /codice 1/, "il codice d'uscita e' l'unico indizio che il server manda");
+assert.match(rotto.errore, /registro/, "senza un rimando, il motivo resta introvabile");
+
+const fermo = esitoDellaCorsa({ step: 9, exit_code: -15, annullato: true, steps });
+assert.equal(fermo.errore, null, "annullare e' una scelta dell'utente, non un guasto");
+assert.match(fermo.esito, /annullat/, "e va detto");
+
+const bene = esitoDellaCorsa({ step: 9, exit_code: 0, annullato: false, steps });
+assert.equal(bene.errore, null);
+assert.match(bene.esito, /34[.,]39/, "la durata misurata, che run_state gia' porta");
+
+console.log("ok");
+"""
+    assert _esegui(tmp_path, sorgente).strip() == "ok"
+
+
+def test_una_corsa_conclusa_senza_durata_non_ne_inventa_una(tmp_path):
+    """Principio 3. `secondi` viene dal file di stato e puo' mancare: una corsa
+    conclusa senza misura si dichiara conclusa e nient'altro. Uno zero, o un
+    trattino formattato come un numero, sarebbe una precisione fabbricata."""
+    sorgente = _DOM + """
+ETICHETTE["09_tetrahedralize"] = "Tetraedri";
+const steps = [{ numero: 9, chiave: "09_tetrahedralize", stato: "valido" }];
+""" + _funzioni("nomeDelloStep", "esitoDellaCorsa") + """
+const senza = esitoDellaCorsa({ step: 9, exit_code: 0, annullato: false, steps });
+assert.equal(senza.esito, "Tetraedri concluso", `ha inventato una durata: ${senza.esito}`);
+console.log("ok");
+"""
+    assert _esegui(tmp_path, sorgente).strip() == "ok"

@@ -11,6 +11,13 @@
   <h1>MeshRec</h1>
   <p class="corsa" id="corsa">nessuna corsa</p>
   <p class="in-corso" id="in-corso" hidden></p>
+  <!-- La riga dell'esito. Regione viva e senza hidden, per la stessa ragione
+       della riga d'errore: una regione creata nell'istante in cui ci si scrive
+       dentro non garantisce l'annuncio. Vuota non occupa spazio (.esito:empty
+       in stile.css). Separata da #in-corso e non la stessa riga riusata: quella
+       porta il pallino che pulsa, e un lavoro finito che continua a pulsare
+       direbbe il contrario di cio' che e' successo. -->
+  <p class="esito" id="esito" aria-live="polite"></p>
   <!-- Nasce spento: a corsa ferma non c'e' niente da annullare, e un bottone
        sempre acceso che risponde con un silenzio identico al successo non
        distingue «annullato» da «non c'era nulla da annullare». app.js lo
