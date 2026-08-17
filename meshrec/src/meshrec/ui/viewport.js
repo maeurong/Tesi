@@ -1,6 +1,38 @@
 // Scena tridimensionale. Disegna cio' che il server manda, non ricalcola nulla.
 import * as THREE from "/ui/vendor/three.module.js";
 
+// L'apertura dell'obiettivo, in gradi. Scritta qui e non dentro la costruzione
+// della camera perche' la guardia della camera la deve leggere: dalle due parti
+// e' lo stesso numero, e due letterali uguali si scollano al primo che cambia.
+const FOV_GRADI = 50;
+
+// Il centro del nuovo ingombro e' uscito da cio' che la camera sta mostrando?
+// La soglia e' la semialtezza visibile sul piano del centro, raggio * tan(fov/2)
+// — non il raggio dell'orbita, che e' la distanza fra camera e centro e con fov
+// 50 vale piu' del doppio di cio' che si vede: misurata su quello, la guardia
+// lasciava passare un centro fuori dallo schermo, e a video restava il vuoto.
+//
+// Resta un'euristica, e lo e' due volte: confronta un punto con una misura di
+// altezza, quindi verso i bordi decide per approssimazione, e non guarda quanto
+// e' grande l'ingombro nuovo, percio' una geometria concentrica ma molto piu'
+// larga passa e deborda. Sono errori che costano un clic: il comando
+// «Inquadra» rimette la vista sulla geometria quando la guardia sbaglia. Una
+// guardia esatta vorrebbe la proiezione degli otto vertici, cioe' la camera
+// dentro una funzione che esiste apposta per starne fuori.
+//
+// Pura e di primo livello: e' la sola decisione di questa camera, e cosi' si
+// prova da fuori senza costruire un three.js finto. Per la stessa ragione il
+// fov arriva come parametro invece che dalla camera.
+// centro e vecchioCentro sono terne in millimetri, raggio uno scalare.
+export function fuoriDallaVista(centro, vecchioCentro, raggio, fovGradi) {
+  const semialtezzaVisibile = raggio * Math.tan(((fovGradi / 2) * Math.PI) / 180);
+  return Math.hypot(
+    centro[0] - vecchioCentro[0],
+    centro[1] - vecchioCentro[1],
+    centro[2] - vecchioCentro[2],
+  ) > semialtezzaVisibile;
+}
+
 // I colori della scena stanno in stile.css con tutti gli altri. Erano quattro
 // esadecimali scritti qui, dove nessuno dei controlli di contrasto del progetto
 // li raggiungeva: il fondo restava uguale a --sfondo solo per la coincidenza di
@@ -25,7 +57,7 @@ export function creaViewport(contenitore) {
   const scena = new THREE.Scene();
   scena.background = tinta("--sfondo");
 
-  const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 1e6);
+  const camera = new THREE.PerspectiveCamera(FOV_GRADI, 1, 0.1, 1e6);
   camera.position.set(1, 1, 1);
 
   // preserveDrawingBuffer: senza, il canvas e' vuoto al momento della cattura
@@ -93,6 +125,12 @@ export function creaViewport(contenitore) {
   scena.add(direzionale);
 
   let orbita = { theta: 0.7, phi: 1.0, raggio: 1, centro: new THREE.Vector3() };
+
+  // Il primo disegno dopo l'avvio inquadra; dal secondo in poi la camera resta
+  // dove l'utente l'ha messa. Era il «di passaggio in passaggio si riparte da
+  // zero»: la stessa nuvola inquadrata da un altro punto sembra un'altra
+  // nuvola, e mostraNuvola/mostraMesh riscrivevano centro e raggio a ogni step.
+  let inquadrataAlmenoUnaVolta = false;
 
   function ridimensiona() {
     const larghezza = contenitore.clientWidth || 1;
@@ -188,7 +226,21 @@ export function creaViewport(contenitore) {
     if (scatola.isEmpty()) return;
     scatola.getCenter(orbita.centro);
     orbita.raggio = scatola.getSize(new THREE.Vector3()).length() * 1.2;
+    inquadrataAlmenoUnaVolta = true;
     aggiornaCamera();
+  }
+
+  function inquadraSeServe() {
+    if (!inquadrataAlmenoUnaVolta) {
+      inquadra();
+      return;
+    }
+    const scatola = scatolaDelGruppo();
+    if (scatola.isEmpty()) return;
+    const centro = scatola.getCenter(new THREE.Vector3());
+    if (fuoriDallaVista(centro.toArray(), orbita.centro.toArray(), orbita.raggio, FOV_GRADI)) {
+      inquadra();
+    }
   }
 
   // Libera davvero cio' che sta nel precedente. Togliere un oggetto dalla scena
@@ -267,7 +319,7 @@ export function creaViewport(contenitore) {
       });
       gruppo.add(new THREE.Points(geometria, materiale));
       descrivi(`nuvola di ${(punti.length / 3).toLocaleString("it")} punti`);
-      inquadra();
+      inquadraSeServe();
     },
     mostraMesh(vertici, facce) {
       const geometria = new THREE.BufferGeometry();
@@ -279,7 +331,7 @@ export function creaViewport(contenitore) {
         clippingPlanes: pianiTaglio,
       })));
       descrivi(`superficie di ${(facce.length / 3).toLocaleString("it")} facce`);
-      inquadra();
+      inquadraSeServe();
     },
     inquadra,
     // L'ingombro di cio' che e' disegnato ora, nelle stesse unita' della
