@@ -35,6 +35,40 @@ def test_il_worker_cattura_le_righe_del_processo(tmp_path):
     assert any("ValueError" in riga or "nessun punto" in riga for riga in lavoratore.righe())
 
 
+def test_le_righe_arrivano_senza_le_sequenze_di_colore_del_terminale():
+    """Open3D scrive i propri errori con i colori del terminale. Nel pannello
+    del registro non colorano niente: arrivano come testo, e «[Open3D Error]
+    Not enough points» si legge preceduto da «[1;31m» e seguito da una riga di
+    solo «[0;m» — misurato a video. E' la finestra a cui l'interfaccia manda
+    chi ha appena visto fallire uno step."""
+    from meshrec.app.worker import _senza_colori
+
+    sporca = "\x1b[1;31m[Open3D Error] Not enough points\x1b[0;m"
+    assert _senza_colori(sporca) == "[Open3D Error] Not enough points"
+    assert _senza_colori("nessun colore qui") == "nessun colore qui"
+
+
+def test_il_worker_dichiara_anche_la_coda_della_corsa(tmp_path):
+    """Un solo `meshrec run` copre from_step..to_step, e il worker ne teneva
+    solo il capo: il browser riceveva «step: 1» per una corsa da 1 a 11 e
+    annunciava «Lettura» per tutti gli undici, compresi i minuti dentro
+    Tetraedri. Senza la coda l'interfaccia non puo' nemmeno distinguere una
+    corsa di un solo step da una che ne copre undici."""
+    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "assente.ply"))
+    cfg.run.out_dir = tmp_path / "corsa"
+    percorso = tmp_path / "config.yaml"
+    save_config(cfg, percorso)
+
+    lavoratore = Worker()
+    assert lavoratore.a_step is None, "un worker che non ha mai girato non ha una coda"
+    lavoratore.start(percorso, 2, 7)
+    for _ in range(600):
+        if not lavoratore.is_running():
+            break
+        time.sleep(0.1)
+    assert (lavoratore.step, lavoratore.a_step) == (2, 7)
+
+
 def test_il_tempo_trascorso_lo_misura_il_worker_e_finisce_con_lo_step(tmp_path):
     """Il cronometro deve stare dove lo step parte davvero: misurato nel
     browser conterebbe da quando quella pagina ha visto lo stato 'in corso',

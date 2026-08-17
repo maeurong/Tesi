@@ -2318,7 +2318,7 @@ def test_la_fine_della_corsa_distingue_fallito_annullato_e_concluso(tmp_path):
     sorgente = _DOM + """
 ETICHETTE["09_tetrahedralize"] = "Tetraedri";
 const steps = [{ numero: 9, chiave: "09_tetrahedralize", stato: "valido", secondi: 34.39 }];
-""" + _funzioni("nomeDelloStep", "esitoDellaCorsa") + """
+""" + _funzioni("nomeDelloStep", "descrizioneDellaCorsa", "esitoDellaCorsa") + """
 const rotto = esitoDellaCorsa({ step: 9, exit_code: 1, annullato: false, steps });
 assert.equal(rotto.esito, null, "un fallimento non e' un esito neutro");
 assert.match(rotto.errore, /Tetraedri/, "il nome dello step, non il suo numero");
@@ -2333,6 +2333,53 @@ const bene = esitoDellaCorsa({ step: 9, exit_code: 0, annullato: false, steps })
 assert.equal(bene.errore, null);
 assert.match(bene.esito, /34[.,]39/, "la durata misurata, che run_state gia' porta");
 
+// L'accordo: nove degli undici nomi sono femminili, e il participio andava con
+// il nome. «Lettura concluso» era la frase piu' in vista dell'applicazione.
+// Il soggetto e' «esecuzione», fisso, quindi l'accordo non dipende dal nome.
+for (const [caso, frase] of [["rotto", rotto.errore], ["fermo", fermo.esito], ["bene", bene.esito]]) {
+  assert.doesNotMatch(frase, /\\b(concluso|annullato|fallito)\\b/, `accordo sbagliato in ${caso}: ${frase}`);
+}
+
+console.log("ok");
+"""
+    assert _esegui(tmp_path, sorgente).strip() == "ok"
+
+
+def test_una_corsa_su_piu_step_non_si_annuncia_col_nome_del_primo(tmp_path):
+    """Misurato nel browser: «Esegui dallo step 1 all'11» annunciava «Lettura
+    in corso» per l'intera pipeline — a quattro secondi dall'avvio diceva
+    ancora Lettura, che ne era durata 0,03 — e alla fine «Lettura concluso in
+    0,03 s» per una corsa che ne aveva impiegati dieci. Il numero piu' in vista
+    dell'applicazione era il tempo di un altro lavoro.
+
+    La durata dell'intervallo nessuno la misura: `secondi` e' quella del solo
+    step di partenza. Tacere e' l'unica alternativa che non inventa (principio
+    3), e vale finche' il worker non misura la corsa intera.
+    """
+    sorgente = _DOM + """
+ETICHETTE["01_load"] = "Lettura";
+ETICHETTE["11_export"] = "Esportazione";
+const steps = [
+  { numero: 1, chiave: "01_load", stato: "valido", secondi: 0.03 },
+  { numero: 11, chiave: "11_export", stato: "valido", secondi: 2.5 },
+];
+""" + _funzioni("nomeDelloStep", "descrizioneDellaCorsa", "esitoDellaCorsa") + """
+const intervallo = { step: 1, a_step: 11, exit_code: 0, annullato: false, steps };
+assert.match(
+  descrizioneDellaCorsa(intervallo).testo, /Lettura.*Esportazione/,
+  "l'intervallo si annuncia ancora col nome del solo primo step",
+);
+const esito = esitoDellaCorsa(intervallo).esito;
+assert.match(esito, /Esportazione/, `l'esito non nomina la coda della corsa: ${esito}`);
+assert.doesNotMatch(esito, /0[.,]03/, `il tempo del primo step spacciato per quello della corsa: ${esito}`);
+
+// Un solo step resta com'era: li' `secondi` misura davvero quella corsa.
+const singolo = { step: 1, a_step: 1, exit_code: 0, annullato: false, steps };
+assert.match(esitoDellaCorsa(singolo).esito, /0[.,]03/, "la durata di una corsa di un solo step e' sparita");
+
+// Un frame senza a_step — un server vecchio, o un carico incompleto — torna al
+// nome del capo invece di inventare un intervallo.
+assert.equal(descrizioneDellaCorsa({ step: 1, steps }).testo, "Lettura");
 console.log("ok");
 """
     assert _esegui(tmp_path, sorgente).strip() == "ok"
@@ -2345,9 +2392,11 @@ def test_una_corsa_conclusa_senza_durata_non_ne_inventa_una(tmp_path):
     sorgente = _DOM + """
 ETICHETTE["09_tetrahedralize"] = "Tetraedri";
 const steps = [{ numero: 9, chiave: "09_tetrahedralize", stato: "valido" }];
-""" + _funzioni("nomeDelloStep", "esitoDellaCorsa") + """
+""" + _funzioni("nomeDelloStep", "descrizioneDellaCorsa", "esitoDellaCorsa") + """
 const senza = esitoDellaCorsa({ step: 9, exit_code: 0, annullato: false, steps });
-assert.equal(senza.esito, "Tetraedri concluso", `ha inventato una durata: ${senza.esito}`);
+assert.equal(
+  senza.esito, "Tetraedri: esecuzione conclusa", `ha inventato una durata: ${senza.esito}`,
+);
 console.log("ok");
 """
     assert _esegui(tmp_path, sorgente).strip() == "ok"
@@ -2368,7 +2417,7 @@ def test_exit_code_null_o_assente_non_si_annuncia_affatto(tmp_path):
     sorgente = _DOM + """
 ETICHETTE["09_tetrahedralize"] = "Tetraedri";
 const steps = [{ numero: 9, chiave: "09_tetrahedralize", stato: "valido" }];
-""" + _funzioni("nomeDelloStep", "esitoDellaCorsa") + """
+""" + _funzioni("nomeDelloStep", "descrizioneDellaCorsa", "esitoDellaCorsa") + """
 const conNull = esitoDellaCorsa({ step: 9, exit_code: null, annullato: false, steps });
 assert.equal(conNull.errore, null, "exit_code null non e' un fallimento");
 assert.equal(conNull.esito, null, `una corsa mai partita si annuncia riuscita: ${conNull.esito}`);
@@ -2382,7 +2431,9 @@ assert.equal(
 // Un annullamento arriva con exit_code non nullo, ma la marcatura viene
 // guardata per prima: il silenzio non deve avergliela portata via.
 const annullata = esitoDellaCorsa({ step: 9, exit_code: null, annullato: true, steps });
-assert.match(annullata.esito, /Tetraedri annullato/, "il silenzio ha inghiottito l'annullamento");
+assert.match(
+  annullata.esito, /Tetraedri.*annullata/, "il silenzio ha inghiottito l'annullamento",
+);
 
 console.log("ok");
 """
@@ -2400,7 +2451,8 @@ def _banco_del_fronte_di_discesa() -> str:
     attese, sopra il banco che gia' esiste per lei.
     """
     return _banco_di_apriDettaglio() + _funzioni(
-        "nomeDelloStep", "esitoDellaCorsa", "mostraEsito", "spegniLeEsecuzioni", "aggiornaDaStato",
+        "nomeDelloStep", "descrizioneDellaCorsa", "esitoDellaCorsa", "mostraEsito",
+        "spegniLeEsecuzioni", "aggiornaDaStato",
     ) + """
 // disegnaStep vero e' gia' nel banco e scrive qui dentro; ultimiSteps e'
 // dichiarata la' dentro, perche' anche l'intestazione del pannello la legge.
@@ -2480,7 +2532,7 @@ aggiornaDaStato({ in_corso: true, step: 1, da_secondi: 2, exit_code: null, annul
 assert.equal(riga.textContent, "", "l'esito della corsa di prima descrive un lavoro diverso");
 aggiornaDaStato({ in_corso: false, step: 1, da_secondi: null, exit_code: 0, annullato: false, steps });
 await finoInFondo();
-assert.match(riga.textContent, /Lettura concluso/, "una corsa riuscita non e' annunciata");
+assert.match(riga.textContent, /Lettura.*conclusa/, "una corsa riuscita non e' annunciata");
 assert.ok(
   !riga.className.split(" ").includes("esito-fallito"),
   `una corsa riuscita porta il segno del fallimento: "${riga.className}"`,
@@ -2826,8 +2878,8 @@ def test_le_etichette_mostrate_portano_gli_accenti_italiani():
     # arrivavano davanti alla commissione scritte «e' fallito». Senza i
     # commenti per la stessa ragione di «in giu'» qui sotto: un commento che
     # discute la frase non e' la frase.
-    assert "è fallito (codice" in modulo, "l'annuncio del fallimento e' senza accento"
-    assert "e' fallito" not in _senza_commenti_js(modulo), (
+    assert "esecuzione fallita (codice" in modulo, "l'annuncio del fallimento e' cambiato di forma"
+    assert "e' fallit" not in _senza_commenti_js(modulo), (
         "l'annuncio del fallimento e' senza accento"
     )
     assert "Il motivo è nelle ultime righe" in modulo, "il rimando al registro e' senza accento"

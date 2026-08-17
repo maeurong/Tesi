@@ -9,6 +9,7 @@ l'avvio di un interprete costa pochi secondi contro i minuti di una corsa.
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 import threading
@@ -20,6 +21,20 @@ from pathlib import Path
 # perche' un processo prolisso non faccia crescere il server senza limite; il
 # log completo resta comunque sullo stderr del sottoprocesso.
 MAX_RIGHE = 2000
+
+# Le sequenze di colore del terminale. Open3D le scrive sui propri errori, e
+# nel pannello del registro non colorano niente: arrivano come testo, e
+# «[Open3D Error] Not enough points» si legge preceduto da «[1;31m» e seguito
+# da una riga di solo «[0;m». E' la finestra a cui l'interfaccia manda chi ha
+# appena visto fallire uno step — «il motivo è nelle ultime righe del
+# registro» — quindi e' esattamente il punto in cui il rumore costa di piu'.
+# Tolte alla cattura e non a video: cosi' valgono anche per righe() e per
+# qualunque altro lettore, invece che per il solo pannello.
+COLORI_DEL_TERMINALE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+
+def _senza_colori(riga: str) -> str:
+    return COLORI_DEL_TERMINALE.sub("", riga)
 
 
 class Worker:
@@ -35,6 +50,13 @@ class Worker:
         self._concluso.set()
         self.exit_code: int | None = None
         self.step: int | None = None
+        # Il capo della corsa e la sua coda. Un solo `meshrec run` copre l'intero
+        # intervallo from_step..to_step, e il worker ne teneva solo il capo: il
+        # browser riceveva «step: 1» per una corsa da 1 a 11 e annunciava
+        # «Lettura» per tutti gli undici, compresi i minuti passati dentro
+        # Tetraedri. Senza questo campo l'interfaccia non puo' nemmeno
+        # distinguere una corsa di un solo step da una che ne copre undici.
+        self.a_step: int | None = None
         self.annullato = False
         self.avviato: float | None = None
 
@@ -105,6 +127,7 @@ class Worker:
             # sostiene. Se la Popen solleva, l'except rialza _concluso e
             # da_secondi() torna None, quindi nessuno li legge.
             self.step = from_step
+            self.a_step = to_step
             self.avviato = time.monotonic()
             processo = subprocess.Popen(
                 [
@@ -154,7 +177,7 @@ class Worker:
                 return
             for riga in processo.stdout:
                 with self._lucchetto:
-                    self._righe.append(riga.rstrip("\n"))
+                    self._righe.append(_senza_colori(riga.rstrip("\n")))
             processo.wait()
             # L'esito e la marcatura si scrivono insieme, sotto il lucchetto che
             # cancel() prende a sua volta. Un annullamento chiesto a un processo

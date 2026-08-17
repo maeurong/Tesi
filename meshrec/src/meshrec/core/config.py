@@ -139,6 +139,12 @@ class DownsampleConfig(_ModelloBase):
 
     voxel_size: float | None = Field(
         default=None,
+        # gt: e' un lato in mm e non ne esiste uno nullo o negativo. Era l'unica
+        # lunghezza del file senza limite inferiore -- voxel_factor accanto ce
+        # l'ha, e cosi' scale, spacing_sample, cluster_min_points -- e un
+        # -5.0 scritto dall'interfaccia veniva accettato, salvato sul disco e
+        # dichiarava «non validi» tutti gli step a valle, senza un messaggio.
+        gt=0.0,
         description=(
             "lato del cubo di riduzione [mm]: i punti che cadono nello stesso cubo "
             "diventano uno solo. Vuoto = voxel_factor x la spaziatura media misurata"

@@ -24,7 +24,13 @@
   --guasto: #a02020;    /* stato fallito, errori, campo rifiutato */
   /* Superfici derivate: il velo sopra la vista, l'evidenza sotto il puntatore,
      il grigio di un campo che si legge e non si scrive. */
-  --velo: color-mix(in srgb, var(--superficie) 85%, transparent);
+  /* 92% e non 85%. Il velo sta sopra la scena, e sotto la scena c'e' la
+     geometria disegnata, non la carta: al 85% il fondo peggiore vale 217 e
+     --tenue sopra misura 3,93 — sotto 4,5:1 per un testo da 14 px (WCAG 1.4.3),
+     proprio sui conteggi, che sono l'unica cosa che dichiara se la nuvola e'
+     decimata. Al 92% misura 4,66 e resta un velo. Il calcolo e' sul nero
+     perche' e' il fondo peggiore possibile; il caso vero e' la mesh scura. */
+  --velo: color-mix(in srgb, var(--superficie) 92%, transparent);
   --evidenza: color-mix(in srgb, var(--accento) 8%, transparent);
   --spento: color-mix(in srgb, var(--tenue) 8%, transparent);
 

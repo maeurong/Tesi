@@ -38,17 +38,42 @@ function nomeDelloStep(numero, steps = []) {
   return etichetta ?? `step ${numero}`;
 }
 
+// Di che cosa parla una corsa: di uno step o di un intervallo. Un solo
+// `meshrec run` copre from_step..to_step, e finche' il carico portava il solo
+// capo l'interfaccia annunciava «Lettura in corso» per tutti gli undici step —
+// misurato: a quattro secondi dall'avvio diceva ancora Lettura, che ne era
+// durata 0,03. Una superficie sola perche' la riga che pulsa e quella
+// dell'esito devono nominare la stessa cosa: scritte due volte, una delle due
+// resterebbe indietro.
+function descrizioneDellaCorsa(stato) {
+  const steps = stato.steps ?? [];
+  const nome = nomeDelloStep(stato.step, steps);
+  // a_step assente e' una corsa vecchia o un frame che non lo porta: si torna
+  // al nome del capo, che e' cio' che si sapeva prima e non e' un'invenzione.
+  if (stato.a_step === null || stato.a_step === undefined || stato.a_step === stato.step) {
+    return { testo: nome, unoSolo: true };
+  }
+  return { testo: `da ${nome} a ${nomeDelloStep(stato.a_step, steps)}`, unoSolo: false };
+}
+
 // Che cosa dire quando una corsa finisce. Pura e di primo livello come
 // superata() e valoreScritto(): e' la decisione che l'interfaccia non prendeva
 // affatto, e presa dentro un gestore anonimo non la esegue nessun banco.
+// Il soggetto delle tre frasi e' «esecuzione» e non il nome dello step: nove
+// degli undici nomi sono femminili (Lettura, Segmentazione, Riduzione,
+// Superficie, Riparazione, Semplificazione, Esportazione, le due Qualita') e
+// due no (Normali, Tetraedri), quindi «Lettura concluso» era sbagliato in
+// nove casi su undici e nessun participio accorda con tutti. Con un soggetto
+// fisso e femminile l'accordo torna senza una tabella dei generi, e la parola
+// e' gia' quella del titolo «Registro dell'esecuzione».
 // I tre esiti sono distinti perche' sono tre fatti diversi, ed e' la voce del
 // progetto: un annullamento e' una scelta di chi guarda, non un guasto.
 // L'ordine dei rami conta: un annullamento arriva con un codice d'uscita non
 // nullo (il segnale che lo ha fermato), quindi va guardato per primo, altrimenti
 // ogni annullamento si annuncerebbe come un fallimento.
 function esitoDellaCorsa(stato) {
-  const nome = nomeDelloStep(stato.step, stato.steps ?? []);
-  if (stato.annullato) return { errore: null, esito: `${nome} annullato` };
+  const { testo: soggetto, unoSolo } = descrizioneDellaCorsa(stato);
+  if (stato.annullato) return { errore: null, esito: `${soggetto}: esecuzione annullata` };
   // Una corsa finita senza codice d'uscita non e' piu' uno stato possibile: il
   // worker fissa exit_code prima di dichiararsi fermo, quindi in_corso: false
   // implica un codice gia' scritto. Se arriva lo stesso — una start() che
@@ -60,7 +85,7 @@ function esitoDellaCorsa(stato) {
   }
   if (stato.exit_code !== 0) {
     return {
-      errore: `${nome} è fallito (codice ${stato.exit_code}). ` +
+      errore: `${soggetto}: esecuzione fallita (codice ${stato.exit_code}). ` +
         "Il motivo è nelle ultime righe del registro, qui sotto.",
       esito: null,
     };
@@ -68,11 +93,18 @@ function esitoDellaCorsa(stato) {
   // La durata la misura il server e la scrive nel file di stato: run_state la
   // rilegge da li'. Quando manca non si mette uno zero ne' un trattino formattato
   // come un numero — sarebbe una misura fabbricata — si dice solo che e' finito.
+  // Su un intervallo non si mette affatto: `secondi` e' il tempo del solo step
+  // di partenza, e appiccicarlo a una corsa di undici step lo dichiarerebbe
+  // durata di tutta la corsa. Era il numero piu' in vista dell'applicazione e
+  // diceva 0,03 s per una corsa che ne aveva impiegati dieci. La durata intera
+  // nessuno la misura oggi: tacere e' l'unica alternativa che non inventa.
   const voce = (stato.steps ?? []).find((v) => v.numero === stato.step);
   const secondi = voce ? voce.secondi : undefined;
-  if (typeof secondi !== "number") return { errore: null, esito: `${nome} concluso` };
+  if (!unoSolo || typeof secondi !== "number") {
+    return { errore: null, esito: `${soggetto}: esecuzione conclusa` };
+  }
   const misura = secondi.toLocaleString("it", { maximumFractionDigits: 2 });
-  return { errore: null, esito: `${nome} concluso in ${misura} s` };
+  return { errore: null, esito: `${soggetto}: esecuzione conclusa in ${misura} s` };
 }
 
 // Dove finisce l'esito di una corsa: una regione sola per tutti e tre gli
@@ -212,8 +244,11 @@ function aggiornaDaStato(stato) {
     // Il nome e non il numero: la colonna di sinistra mostra i nomi, e questa
     // riga diceva «step 9». Sono le due lingue per la stessa cosa che
     // nomeDelloStep esiste per togliere, e la riga di stato era rimasta indietro.
+    // I secondi restano quelli del server e valgono per l'intervallo intero:
+    // da_secondi conta dall'avvio dell'unico processo, che copre tutti gli step
+    // della corsa. E' il soggetto che era sbagliato, non la misura.
     barra.textContent =
-      `${nomeDelloStep(stato.step, stato.steps)} in corso, ${Math.round(stato.da_secondi)} s`;
+      `${descrizioneDellaCorsa(stato).testo} in corso, ${Math.round(stato.da_secondi)} s`;
     barra.hidden = false;
   } else {
     barra.hidden = true;

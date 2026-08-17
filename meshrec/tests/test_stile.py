@@ -132,6 +132,23 @@ def test_lelenco_vuoto_degli_esperimenti_non_lascia_il_salto_di_un_gruppo():
     assert ".azioni:empty" in _senza_commenti(), "l'elenco vuoto lascia ancora il suo salto"
 
 
+def test_il_velo_sopra_la_scena_regge_il_testo_che_ci_sta_sopra():
+    """Gli altri controlli di contrasto misurano su --superficie e --sfondo, che
+    sono carta. Il velo no: sta sopra la scena tridimensionale, e sotto c'e' la
+    geometria disegnata. Al 85% il fondo peggiore vale 217 e --tenue sopra
+    misurava 3,93 — sotto 4,5:1 per un testo da 14 px (WCAG 1.4.3) — proprio sui
+    conteggi, che sono l'unica cosa che dichiara se la nuvola e' decimata."""
+    testo = (UI_DIR / "stile.css").read_text(encoding="utf-8")
+    trovata = re.search(r"--velo:\s*color-mix\(in srgb, var\(--superficie\) (\d+)%", testo)
+    assert trovata is not None, "il velo non e' piu' una miscela leggibile da qui"
+    quota = int(trovata.group(1)) / 100
+    superficie = _token("--superficie")
+    # Il fondo peggiore possibile: nero sotto il velo.
+    peggiore = "#" + "".join(f"{round(int(superficie[i:i + 2], 16) * quota):02x}" for i in (1, 3, 5))
+    misura = _rapporto(_token("--tenue"), peggiore)
+    assert misura >= 4.5, f"il testo sul velo misura {misura:.2f} sul fondo peggiore, sotto 4,5:1"
+
+
 def test_la_pagina_non_scorre_di_lato_per_la_tabella_della_galleria():
     """La tabella dei candidati e' larga 1013 px dentro un riquadro da 467, e
     il riquadro scorre gia' per conto suo. La sua larghezza contava pero'

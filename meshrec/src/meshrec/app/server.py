@@ -731,6 +731,10 @@ def create_app(config_path: Path) -> FastAPI:
                 stato = {
                     "in_corso": lavoratore.is_running(),
                     "step": lavoratore.step,
+                    # La coda della corsa accanto al capo: senza, il browser non
+                    # distingue una corsa di un solo step da una che ne copre
+                    # undici, e le annuncia entrambe col nome del primo.
+                    "a_step": lavoratore.a_step,
                     "exit_code": lavoratore.exit_code,
                     "annullato": lavoratore.annullato,
                     "da_secondi": lavoratore.da_secondi(),

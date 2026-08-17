@@ -33,6 +33,19 @@ def test_invalid_values_are_rejected():
         config.SurfaceConfig(density_quantile=1.5)
 
 
+@pytest.mark.parametrize("lato", [0.0, -5.0])
+def test_un_lato_di_voxel_nullo_o_negativo_e_rifiutato(lato):
+    """voxel_size e' un lato in mm ed era l'unica lunghezza del file senza
+    limite inferiore: voxel_factor accanto ha gt=0, e cosi' scale e le altre.
+    Un -5.0 scritto dall'interfaccia veniva accettato e salvato sul disco, e da
+    li' in poi ogni step a valle risultava «non valido» contro un parametro che
+    nessuna geometria puo' soddisfare, senza un messaggio da nessuna parte.
+    Vuoto resta legittimo: vuol dire voxel_factor x la spaziatura misurata."""
+    with pytest.raises(ValueError):
+        config.DownsampleConfig(voxel_size=lato)
+    assert config.DownsampleConfig(voxel_size=None).voxel_size is None
+
+
 def test_experiment_round_trip_and_defaults(tmp_path):
     """L'esperimento sopravvive al round-trip e i suoi predefiniti vivono qui."""
     import yaml
