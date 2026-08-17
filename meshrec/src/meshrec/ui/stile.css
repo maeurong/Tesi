@@ -80,6 +80,21 @@
   --nuvola: #35332e;
   --ricostruzione: #7a7469;
   --attrezzo: #c4671b;
+  /* Il fantasma: la geometria del passaggio precedente, disegnata dietro quella
+     corrente a opacita' 0,15. Un grigio neutro e non una quarta tinta: deve
+     leggersi come «cio' che c'era prima» e non come una quinta categoria di
+     dato, e a quell'opacita' qualunque saturazione diventerebbe una velatura
+     colorata sopra la geometria vera.
+     Lo stesso valore di --bordo-comando, dichiarato a parte e non riusato: i
+     colori della scena hanno nomi propri perche' sono l'unica famiglia che vive
+     fuori dal foglio, e un quarto che si chiamasse come un contorno di comando
+     li slaccerebbe il giorno che uno dei due cambia.
+     Nessun rapporto di contrasto dichiarato, a differenza degli altri tre: a
+     opacita' 0,15 sopra un fondo che cambia con la geometria sotto, una misura
+     sarebbe un numero inventato. E' lecito qui e non su --attrezzo perche' il
+     fantasma non porta informazione di suo: quella sta nei due conteggi della
+     didascalia, che si leggono anche a fantasma spento. */
+  --fantasma: #8a8479;
 
   /* Spaziatura: un passo di 4px e i suoi multipli, nient'altro. Erano nove
      valori decisi uno alla volta (0,15 0,2 0,25 0,3 0,35 0,5 0,75 1 rem), e
@@ -213,6 +228,20 @@ body {
 .bottone:hover { background: var(--evidenza); }
 .bottone:active { background: color-mix(in srgb, var(--accento) 14%, transparent); }
 .bottone:focus-visible { outline: 2px solid var(--accento); outline-offset: 2px; }
+/* Un comando che non e' un <button>: l'interruttore del fantasma e' una casella
+   dentro la propria etichetta, e indossa la stessa scatola degli altri due
+   perche' nel gruppo della vista non c'e' velo (vedi .comandi-vista) e
+   un'etichetta nuda si leggerebbe direttamente sulla geometria.
+   inline-flex tiene la casella e il testo sulla stessa riga; la regola per
+   [hidden] serve perche' un display esplicito lo sovrascriverebbe, come per
+   .taglio. accent-color perche' altrimenti la spunta indossa il blu di sistema,
+   che e' l'unico colore dell'interfaccia a non venire da questo foglio. */
+.bottone-casella { display: inline-flex; align-items: center; gap: var(--passo-2); accent-color: var(--accento); }
+.bottone-casella[hidden] { display: none; }
+/* Il fuoco sta sulla casella, non sull'etichetta che la contiene: senza :has()
+   il contorno di .bottone:focus-visible non comparirebbe mai su questo comando,
+   e chi naviga da tastiera non saprebbe dov'e' (WCAG 2.4.7). */
+.bottone:has(:focus-visible) { outline: 2px solid var(--accento); outline-offset: 2px; }
 /* Un comando spento non e' un comando pallido: il testo scende a --tenue, che
    resta sopra 4,5:1, e il cursore dice che non c'e' niente da premere. Il
    contorno resta pieno perche' l'elemento c'e' ancora e non deve sparire. */

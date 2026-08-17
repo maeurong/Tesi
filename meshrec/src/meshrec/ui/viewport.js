@@ -129,6 +129,19 @@ export function creaViewport(contenitore) {
   // libera la geometria. Sta dentro il gruppo apposta: cosi' la stessa
   // traversata che libera nuvola e mesh libera anche lui.
   let box = null;
+
+  // Il fantasma: la geometria del passaggio precedente, disegnata insieme a
+  // quella corrente e quasi trasparente. E' il secondo canale accanto al
+  // confronto (mostraPrecedente): quello mette a video due geometrie una alla
+  // volta, questo le mette insieme, che e' l'unico modo di vedere che cosa un
+  // passaggio ha tolto mentre lo si guarda.
+  // In `scena` e non dentro `gruppo`: svuota() sposta i figli di `gruppo` nel
+  // precedente, e da li' il fantasma tornerebbe a video sotto «Confronta».
+  // Fuori da `gruppo` e' anche fuori da scatolaDelGruppo(), quindi l'ingombro
+  // resta quello della sola geometria corrente senza che quella funzione debba
+  // conoscerlo.
+  let fantasma = null;
+
   scena.add(new THREE.AmbientLight(0xffffff, 0.7));
   const direzionale = new THREE.DirectionalLight(0xffffff, 0.8);
   direzionale.position.set(1, 2, 3);
@@ -345,6 +358,19 @@ export function creaViewport(contenitore) {
     descrizionePrecedente = null;
   }
 
+  // Libera davvero, per la ragione scritta sopra liberaIlPrecedente(): togliere
+  // un oggetto dalla scena non cancella i suoi buffer, sono gli eventi di
+  // dispose a farlo. Senza, ogni clic su uno step lascerebbe sulla scheda gli
+  // attributi del fantasma di prima, e il riferimento azzerato e' cio' che
+  // impedisce di perderne uno in scena sostituendolo con il successivo.
+  function togliFantasma() {
+    if (fantasma === null) return;
+    fantasma.geometry.dispose();
+    fantasma.material.dispose();
+    scena.remove(fantasma);
+    fantasma = null;
+  }
+
   return {
     // Sposta la geometria a video nel precedente e restituisce se l'ha fatto.
     // NON la distrugge piu': e' cio' con cui il confronto confronta. Il valore
@@ -362,6 +388,11 @@ export function creaViewport(contenitore) {
     // confronto guarda le due geometrie tagliate alla stessa quota, che e' il
     // solo modo in cui un confronto e' un confronto.
     svuota() {
+      // Il fantasma e' del passaggio che si sta lasciando, e se ne va con lui.
+      // In testa e non in fondo: ogni strada che disegna chiama svuota() due
+      // volte, e cosi' la seconda lo trova gia' tolto invece di lasciarlo sotto
+      // la geometria nuova.
+      togliFantasma();
       // Il box di ritaglio non si sposta: e' un attrezzo, non un risultato, e
       // nel precedente sarebbe il rettangolo di una manovra finita. Si libera
       // qui come faceva la traversata di prima, e il riferimento si azzera
@@ -393,6 +424,12 @@ export function creaViewport(contenitore) {
     mostraPrecedente(attivo) {
       precedente.visible = attivo;
       gruppo.visible = !attivo;
+      // Il fantasma segue `gruppo`: e' il passaggio precedente di cio' che sta
+      // in `gruppo`, non di cio' che sta in `precedente`. Lasciato acceso sopra
+      // il confronto metterebbe a video tre geometrie mentre l'etichetta ne
+      // nomina una. Nascosto e non tolto: spegnendo il confronto la vista torna
+      // esattamente quella di prima, senza riscaricare niente.
+      if (fantasma !== null) fantasma.visible = !attivo;
       applicaEtichetta(attivo ? descrizionePrecedente ?? "vuota" : descrizione);
     },
     mostraNuvola(punti) {
@@ -417,6 +454,50 @@ export function creaViewport(contenitore) {
       descrivi(`superficie di ${(facce.length / 3).toLocaleString("it")} facce`);
       inquadraSeServe();
     },
+    // Il passaggio precedente, insieme a quello corrente. Grigio, quasi
+    // trasparente, e senza depthWrite: deve lasciarsi attraversare da cio' che
+    // sta davanti invece di occluderlo.
+    // Un metodo solo per nuvola e superficie: `facce` a null da' dei punti, e
+    // le tre coppie del fantasma sono due nuvole e una superficie.
+    // Il colore viene dal foglio come tutti gli altri della scena: un
+    // esadecimale qui e' un colore che nessun controllo raggiunge, ed e' il
+    // difetto che i token della scena sono nati per chiudere.
+    // Nasce sempre visibile e non si accorda col confronto. Le strade che
+    // arrivano qui sono tre: un disegno nuovo (che passa da svuota()),
+    // l'interruttore (che spegne il confronto per primo), e il fantasma partito
+    // prima che «Confronta» fosse premuto — la corsa che l'ordine dei clic non
+    // basta a dirimere. Le prime due arrivano col confronto gia' spento; la
+    // terza non arriva, perche' app.js la scarta insieme agli atterraggi
+    // superati (mostraFantasmaDelloStep). Accordare `visible` qui chiuderebbe
+    // la sola meta' visiva di quella corsa e lascerebbe la didascalia
+    // incoerente: la ragione per esteso sta li'.
+    // Costo: il commento a liberaIlPrecedente() misura 7,6 MB di attributi per
+    // geometria, e questo li aggiunge una terza volta nel caso peggiore
+    // (corrente + precedente + fantasma). Su un budget di disegno di 400.000
+    // punti resta trascurabile.
+    mostraFantasma(vertici, facce = null) {
+      togliFantasma();
+      const tinto = tinta("--fantasma");
+      const geometria = new THREE.BufferGeometry();
+      geometria.setAttribute("position", new THREE.BufferAttribute(vertici, 3));
+      if (facce === null) {
+        fantasma = new THREE.Points(geometria, new THREE.PointsMaterial({
+          size: 1.5, sizeAttenuation: false, color: tinto,
+          transparent: true, opacity: 0.15, depthWrite: false,
+          clippingPlanes: pianiTaglio,
+        }));
+      } else {
+        geometria.setIndex(new THREE.BufferAttribute(facce, 1));
+        geometria.computeVertexNormals();
+        fantasma = new THREE.Mesh(geometria, new THREE.MeshStandardMaterial({
+          color: tinto, roughness: 0.9, metalness: 0.0, side: THREE.DoubleSide,
+          transparent: true, opacity: 0.15, depthWrite: false,
+          clippingPlanes: pianiTaglio,
+        }));
+      }
+      scena.add(fantasma);
+    },
+    togliFantasma,
     inquadra,
     // L'ingombro di cio' che e' disegnato ora, nelle stesse unita' della
     // geometria (millimetri). Serve a chi comanda il taglio per fissare

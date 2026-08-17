@@ -443,6 +443,13 @@ function scriviConteggi(testo, conGeometria) {
 // si sta guardando, e sono la stessa verita' letta in due posti.
 let vistaMostrata = null;
 let vistaPrecedente = null;
+// Da quale step viene la geometria che e' a video adesso: quasi sempre lo step
+// mostrato, e sugli step senza artefatto proprio quello a monte che il server
+// ha risolto (X-Da-Step). null quando a video non c'e' nessuna geometria.
+// Serve al fantasma, che deve sapere se la geometria corrente sia gia' quella
+// di un altro passaggio: in quel caso sovrapporgliela di nuovo disegnerebbe due
+// volte la stessa cosa.
+let sorgenteMostrata = null;
 // La didascalia da rimettere quando il confronto si spegne. Fotografata
 // all'accensione e non ricostruita dallo stato: a video puo' esserci la ragione
 // di un rifiuto scritta dal server — «lo step 10 non ha ancora una geometria da
@@ -499,6 +506,7 @@ function registraVista(testo, da = stepMostrato) {
   // a video nominando questo step, e la meta' che dichiara la provenienza deve
   // viaggiare con l'altra.
   vistaMostrata = { numero: stepMostrato, testo: didascalia };
+  sorgenteMostrata = da;
   aggiornaConfronto();
 }
 
@@ -552,6 +560,152 @@ function alternaConfronto() {
 }
 
 bottoneConfronta.addEventListener("click", alternaConfronto);
+
+// --- Il fantasma del passaggio precedente -----------------------------------
+// La stessa domanda del confronto — «che cosa ha fatto questo step alla
+// geometria» — per sovrapposizione invece che per scambio: la geometria di
+// prima resta a video dietro quella corrente, e i due conteggi pieni si leggono
+// nello stesso istante invece che uno al posto dell'altro. E' cio' che lo
+// scambio per costruzione non puo' dare.
+
+// Da quale step viene il fantasma. Acceso solo dove il conteggio cala davvero:
+// il ritaglio dello step 2, lo sfoltimento del 3, la semplificazione dell'8.
+// Scritte a mano e non calcolate come «numero - 1»: sullo step 8 il precedente
+// con geometria propria e' il 6, perche' il 7 misura e non produce niente.
+// Fuori da queste tre coppie due geometrie sovrapposte — il 5 contro il 6, per
+// dire — fanno z-fighting e non informano nessuno.
+const FANTASMA_DI = { 2: 1, 3: 2, 8: 6 };
+let fantasmaAcceso = true;
+
+// Pura apposta, cosi' la regola si guarda da fuori invece di dedurla dai punti
+// in cui e' usata. `sorgente` e' lo step da cui viene la geometria corrente:
+// quando non e' lo step chiesto, la geometria corrente e' gia' quella di un
+// altro e il fantasma la ridisegnerebbe.
+function fantasmaHaSenso(chiesto, sorgente, acceso) {
+  return acceso && sorgente === chiesto && FANTASMA_DI[chiesto] !== undefined;
+}
+
+// Il passaggio precedente dietro quello corrente. E' la risposta al «di
+// passaggio in passaggio si riparte da zero»: i due conteggi stanno uno accanto
+// all'altro invece che uno al posto dell'altro, e cio' che il ritaglio ha tolto
+// si vede invece di sparire in silenzio.
+async function mostraFantasmaDelloStep(numero, ordine) {
+  const comando = document.getElementById("fantasma-comando");
+  comando.hidden = FANTASMA_DI[numero] === undefined;
+  if (!fantasmaHaSenso(numero, sorgenteMostrata, fantasmaAcceso)) return;
+  const da = FANTASMA_DI[numero];
+  // La frontiera fra nuvola e superficie e' STEP_CON_MESH, e si legge di la'.
+  // Scritta qui una seconda volta come `da <= 4` sarebbe la stessa frontiera
+  // detta due volte nello stesso file: il giorno che la pipeline guadagna uno
+  // step, una si sposta e l'altra no, e il fantasma dell'8 chiederebbe una
+  // nuvola dove c'e' una superficie.
+  const nuvola = !STEP_CON_MESH.has(da);
+  const emissione = apriGeometria();
+  const risposta = await fetch(nuvola ? `/api/cloud/${da}` : `/api/mesh/${da}`).catch(serverMuto);
+  // Un fantasma che non arriva non e' un errore da annunciare: lo step a monte
+  // puo' semplicemente non essere ancora girato, e la geometria corrente resta
+  // quella che e'. Il silenzio qui non nasconde niente che l'utente abbia
+  // chiesto — cio' che ha chiesto e' a video, con la sua didascalia.
+  if (!risposta.ok) return;
+  const pieni = Number(risposta.headers.get(nuvola ? "X-Points-Total" : "X-Vertices"));
+  const triangoli = Number(risposta.headers.get("X-Triangles"));
+  const grezzi = await corpoBinarioLetto(risposta);
+  if (grezzi === undefined) return;
+  // Dopo l'ultima attesa e prima della prima scrittura, come le due strade che
+  // disegnano: un fantasma partito per lo step 2 non deve posarsi sul 9.
+  //
+  // E nemmeno sopra il confronto. «Confronta» premuto mentre questa fetch e' in
+  // volo — sullo step 2 sono 6,3 milioni di punti, 27-34 secondi a freddo — non
+  // muove ne' `generazione` ne' `ultimaGeometria`, quindi le due guardie qui
+  // sopra non lo vedono, e mostraFantasma non tocca `visible`: il velo si
+  // poserebbe visibile SOPRA la geometria del confronto, cioe' due copie della
+  // stessa cosa, mentre la didascalia nomina lo stesso step due volte
+  // accostando due numeri che misurano cose diverse.
+  // Non posarlo affatto e non posarlo nascosto: nascosto chiuderebbe la sola
+  // meta' visiva, e la coda resterebbe appesa alla fotografia che
+  // spegniConfronto rimette — spento il confronto, la coda sparirebbe mentre il
+  // velo torna. Una condizione sola chiude tutti e due i versi, ed e' la regola
+  // che alternaFantasma gia' dichiara: comanda l'ultimo comando toccato.
+  if (superata(ordine) || superata(emissione, ultimaGeometria)
+    || bottoneConfronta.getAttribute("aria-pressed") === "true") return;
+  if (nuvola) {
+    vista.mostraFantasma(new Float32Array(grezzi));
+  } else {
+    vista.mostraFantasma(
+      new Float32Array(grezzi, 0, pieni * 3),
+      new Uint32Array(grezzi, pieni * 3 * 4, triangoli * 3),
+    );
+  }
+  // Il conteggio PIENO, non quello disegnato: anche il fantasma passa dal
+  // budget dei 400.000 punti, e mettere a confronto due decimazioni direbbe che
+  // due approssimazioni si somigliano, non che il dato e' quello che si
+  // dichiara. Su lab_crop sono i 6.329.096 punti dello step 1 contro i
+  // 4.229.538 dello step 2: e' li' che si vede che cosa il ritaglio ha tolto.
+  // Il nome dello step e l'unita' insieme al numero: da soli sono un numero in
+  // piu' accanto a due che ci sono gia', e non si saprebbe di che cosa parla.
+  const coda = ` — dietro ${nomeDelloStep(da, ultimiSteps)}: `
+    + `${pieni.toLocaleString("it")} ${nuvola ? "punti" : "vertici"}`;
+  // Solo a video, e non anche in vistaMostrata. Quella didascalia torna quando
+  // questo step diventa il precedente del confronto, cioe' mentre si guarda la
+  // sua geometria SENZA fantasma — svuota() se lo porta via insieme al
+  // passaggio che lo ha prodotto. Portandocela, il confronto dichiarerebbe un
+  // passaggio dietro una geometria che e' sola: la vista che contraddice la
+  // propria didascalia. Il ritorno dal confronto la coda non la perde lo
+  // stesso, perche' alternaConfronto fotografa la riga intera in
+  // conteggiDiPrima e spegniConfronto la rimette.
+  document.getElementById("conteggi").textContent += coda;
+}
+
+// L'interruttore. Di primo livello e non una freccia dentro addEventListener,
+// per la stessa ragione di alternaConfronto: dentro la freccia non lo esegue
+// nessun banco, e qui il fatto da provare e' proprio che i due canali non
+// restino accesi insieme.
+//
+// Accendendolo, il confronto si spegne. Le due macchine rispondono alla stessa
+// domanda sullo stesso pixel — il confronto mette la geometria di prima AL POSTO
+// di quella corrente, il fantasma la mette DIETRO — e accese insieme a video ci
+// sarebbero la geometria di uno step e il fantasma di un altro, mentre la
+// didascalia ne nomina una sola. La regola e' quella che non ha bisogno di
+// essere spiegata: comanda il comando che si e' appena toccato, e il cambio si
+// vede — il bottone torna non premuto e la didascalia torna quella dello step
+// corrente.
+// Spegnendolo no, e sta dentro il ramo per questo: li' i due non confliggono —
+// il velo se ne va e il confronto resta quello che era — e spegnerlo per
+// compagnia toglierebbe una vista che nessuno ha chiesto di lasciare.
+// Nell'altro verso non serve niente qui: accendendo il confronto il fantasma si
+// nasconde da se' (viewport.js, mostraPrecedente) e torna spegnendolo, percio'
+// l'interruttore continua a dire il vero senza essere toccato. E il fantasma
+// partito PRIMA che il confronto si accendesse non atterra affatto: la guardia
+// sta in mostraFantasmaDelloStep, dove la corsa si vede.
+function alternaFantasma(acceso) {
+  fantasmaAcceso = acceso;
+  if (!acceso) {
+    vista.togliFantasma();
+    // E la didascalia torna quella della sola geometria corrente: vistaMostrata
+    // tiene la meta' che non riguarda il fantasma, quindi non c'e' nessuna coda
+    // da ritagliare. Lasciata li', dichiarerebbe dietro la geometria un
+    // passaggio che l'interruttore ha appena tolto.
+    // Sotto il confronto la riga a video dice la geometria di prima e non si
+    // tocca — riscriverla nominerebbe quella corrente mentre a video c'e'
+    // l'altra. Si riscrive invece la fotografia che spegniConfronto rimettera',
+    // che porta ancora la coda del velo appena tolto: il difetto e' lo stesso,
+    // rimandato al ritorno dal confronto.
+    if (vistaMostrata === null) return undefined;
+    if (bottoneConfronta.getAttribute("aria-pressed") === "true") {
+      conteggiDiPrima = { testo: vistaMostrata.testo, conGeometria: true };
+    } else {
+      scriviConteggi(vistaMostrata.testo, true);
+    }
+    return undefined;
+  }
+  spegniConfronto();
+  if (stepMostrato === null) return undefined;
+  return mostraFantasmaDelloStep(stepMostrato, generazione);
+}
+
+document.getElementById("fantasma").addEventListener("change", (evento) => {
+  alternaFantasma(evento.target.checked);
+});
 
 // Nessuna percentuale: le librerie non ne danno una. Si dice che cosa si sta
 // leggendo, che e' un fatto e non una stima.
@@ -629,6 +783,11 @@ function segnalaArtefattoMancante(messaggio) {
   // non si confonde con un disegno riuscito perche' vistaMostrata resta null,
   // che e' anche cio' che tiene il nome del comando aderente al vero.
   spostaNelPrecedente();
+  // A video non c'e' piu' nessuna geometria, quindi non c'e' nemmeno uno step
+  // da cui venga: lasciata l'ultima provenienza, il fantasma dello stesso step
+  // riguardato dopo che l'artefatto e' sparito si poserebbe sulla scena vuota e
+  // appenderebbe il proprio conteggio al messaggio che dice che non c'e' nulla.
+  sorgenteMostrata = null;
   scriviConteggi(messaggio, false);
 }
 
@@ -847,7 +1006,13 @@ function ricaricaVista(numero, ordine = generazione) {
   // il cursore si rifarebbe sull'ingombro di una geometria che qualcun altro
   // ha disegnato, cioe' su una lettura che non appartiene a questo numero.
   mostraStep(numero, ordine).then((disegnato) => {
-    if (disegnato && !superata(ordine)) riallineaTaglio(numero);
+    if (disegnato && !superata(ordine)) {
+      riallineaTaglio(numero);
+      // Dopo, e non in parallelo: il fantasma appende alla didascalia che
+      // registraVista ha appena scritto, e partendo insieme potrebbe appendere
+      // a quella di prima.
+      mostraFantasmaDelloStep(numero, ordine);
+    }
   });
 }
 

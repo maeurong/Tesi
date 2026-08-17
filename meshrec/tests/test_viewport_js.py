@@ -327,3 +327,104 @@ def test_la_guardia_misura_dall_ultimo_ingombro_inquadrato_e_non_dal_centro_che_
         "la guardia misura da orbita.centro, che il pan sposta: zoomato su un "
         "dettaglio e traslato lungo il muro, il passaggio di step riazzera la vista"
     )
+
+
+# --------------------------------------------------------------------------
+# Il fantasma: il passaggio precedente disegnato insieme a quello corrente.
+# Vive tutto dentro la chiusura di creaViewport e tocca THREE a ogni riga,
+# quindi da qui non si esegue: le asserzioni sono sul testo, che e' il modo
+# debole, e ognuna e' stata provata contro la mutazione che deve prendere —
+# fantasma figlio di `gruppo`, togliFantasma che non toglie, la visibilita'
+# capovolta sotto il confronto, l'opacita' e il token cambiati.
+# --------------------------------------------------------------------------
+
+
+def _corpo_di(intestazione: str, chiusura: str = "\n  }") -> str:
+    """Il corpo di una funzione o di un metodo della chiusura, che non chiude
+    in prima colonna e quindi `_sorgente_di` non vede."""
+    testo = _senza_commenti(_modulo())
+    assert intestazione in testo, f"{intestazione} non e' piu' nel modulo"
+    return testo.split(intestazione, 1)[1].split(chiusura, 1)[0]
+
+
+def test_il_fantasma_nasce_fratello_del_gruppo_e_non_figlio():
+    """Da figlio di `gruppo` il fantasma finirebbe nel precedente, perche'
+    svuota() sposta i figli di `gruppo` invece di distruggerli: ricomparirebbe
+    premendo «Confronta», sovrapposto alla geometria di prima, cioe' tre
+    geometrie a video mentre la didascalia ne nomina una. E finirebbe anche
+    dentro scatolaDelGruppo(), che percorre i figli di `gruppo`: il cursore del
+    taglio si tarerebbe sull'unione di due step.
+    """
+    testo = _senza_commenti(_modulo())
+    assert "scena.add(fantasma);" in testo, (
+        "il fantasma non entra nella scena accanto a `gruppo`"
+    )
+    assert "gruppo.add(fantasma" not in testo, (
+        "il fantasma e' figlio di `gruppo`: svuota() lo sposta nel precedente e "
+        "«Confronta» lo rimette a video sopra la geometria di prima"
+    )
+
+
+def test_il_fantasma_se_ne_va_col_passaggio_che_lo_ha_prodotto():
+    """togliFantasma libera davvero, per la ragione scritta sopra
+    liberaIlPrecedente(): togliere un oggetto dalla scena non cancella i suoi
+    buffer, sono gli eventi di dispose a farlo. E si chiama in testa a svuota():
+    ogni strada che disegna chiama svuota() due volte, e in coda la seconda
+    lascerebbe il fantasma sotto la geometria nuova.
+    """
+    corpo = _corpo_di("function togliFantasma() {")
+    for pezzo in ("geometry.dispose()", "material.dispose()", "scena.remove(fantasma)"):
+        assert pezzo in corpo, f"togliFantasma non fa {pezzo}: {corpo}"
+    assert "fantasma = null" in corpo, (
+        f"togliFantasma non azzera il riferimento: il prossimo disegno lo perde "
+        f"sulla scheda invece di sostituirlo: {corpo}"
+    )
+    svuota = _corpo_di("svuota() {", "\n    }")
+    assert "togliFantasma();" in svuota, (
+        "svuota() lascia in scena il fantasma del passaggio che si sta lasciando"
+    )
+    mostra = _corpo_di("mostraFantasma(vertici, facce = null) {", "\n    }")
+    assert "togliFantasma();" in mostra, (
+        "mostraFantasma non toglie quello di prima: il vecchio resta in scena e "
+        "nessun riferimento lo raggiunge piu'"
+    )
+
+
+def test_il_fantasma_sparisce_sotto_il_confronto_e_torna_quando_si_spegne():
+    """Le due risposte alla stessa domanda occupano lo stesso pixel. Il
+    confronto scambia i due gruppi; il fantasma e' il precedente di cio' che sta
+    in `gruppo`, non di cio' che sta in `precedente`, quindi lasciato acceso
+    sopra il confronto metterebbe a video tre geometrie mentre l'etichetta ne
+    nomina una. Nascosto e non distrutto: spegnendo il confronto la vista torna
+    esattamente quella di prima, senza riscaricare niente."""
+    testo = _senza_commenti(_modulo())
+    assert "fantasma.visible = !attivo;" in testo, (
+        "il fantasma non segue il confronto: acceso sopra il precedente sono tre "
+        "geometrie a video e una sola nominata"
+    )
+    assert "fantasma.visible = attivo;" not in testo, (
+        "la visibilita' del fantasma e' capovolta: sparisce proprio quando serve "
+        "e compare solo sopra la geometria di prima"
+    )
+
+
+def test_il_fantasma_si_lascia_attraversare_e_prende_la_tinta_dal_foglio():
+    """Deve stare dietro senza occludere: `transparent` con `depthWrite: false`,
+    altrimenti il buffer di profondita' lo tratta come un solido e la geometria
+    corrente sparisce dietro un velo. L'opacita' e' quella della spec (§ 6) e non
+    un valore qualunque: piu' alta compete con cio' che sta davanti, piu' bassa
+    non si vede sulla carta del report.
+
+    Il colore dal foglio come tutti gli altri della scena: un esadecimale qui
+    sarebbe un colore che nessun controllo raggiunge (tests/test_stile.py).
+    """
+    corpo = _corpo_di("mostraFantasma(vertici, facce = null) {", "\n    }")
+    assert 'tinta("--fantasma")' in corpo, "il fantasma non prende il colore dal foglio"
+    assert corpo.count("opacity: 0.15") == 2, (
+        f"le due materie del fantasma — nuvola e superficie — non hanno "
+        f"entrambe l'opacita' della spec: {corpo}"
+    )
+    assert corpo.count("depthWrite: false") == 2, (
+        f"il fantasma occlude cio' che sta davanti invece di lasciarsi "
+        f"attraversare: {corpo}"
+    )

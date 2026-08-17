@@ -1366,6 +1366,16 @@ let vistaMostrata = null;
 let vistaPrecedente = null;
 let conteggiDiPrima = null;
 let stepMostrato = null;
+// registraVista scrive da quale step viene la geometria a video: e' una
+// variabile di modulo come le quattro qui sopra, e senza di lei ogni scrittura
+// del banco alzerebbe ReferenceError prima di arrivare all'assert.
+let sorgenteMostrata = null;
+// Il fantasma non c'entra con l'arbitraggio delle richieste, che e' cio' che
+// questo banco misura: stubbato e non estratto, perche' estrarlo tirerebbe
+// dentro FANTASMA_DI, fantasmaHaSenso e un secondo vista.mostraFantasma senza
+// provare niente di piu' — e con una fetch propria cambierebbe la grandezza
+// misurata, che e' il conteggio delle scritture.
+function mostraFantasmaDelloStep() {}
 const vista = {
   svuota() {},
   mostraNuvola(vertici) { scritture.push(`nuvola:${vertici.length / 3}`); },
@@ -2696,3 +2706,34 @@ def test_il_registro_elenca_i_campi_cambiati_e_non_tutti_i_blocchi(cliente, tmp_
     ultima = righe[-1]
     assert ultima["endpoint"] == "PUT /api/config"
     assert ultima["campi"] == ["surface.poisson_depth"]
+
+
+def test_il_conteggio_pieno_non_e_quello_disegnato(cliente, tmp_path):
+    """Il fantasma dichiara il conteggio PIENO dello step che l'ha prodotto, e
+    quel numero e' quello che metrics.json porta: su lab_crop 6.329.096 per lo
+    step 1 (points_kept) e 4.229.538 per il 2 (points_after).
+
+    Il disegnato no, ed e' giusto: anche il fantasma passa dal budget dei
+    400.000 punti, e confrontare due decimazioni fra loro sarebbe confrontare
+    due approssimazioni invece che il dato con la sua misura. Un fantasma che
+    disegna una nuvola diversa da quella che dichiara e' la forma esatta del
+    risultato plausibile contro cui e' costruito tutto il progetto.
+    """
+    import numpy as np
+
+    from meshrec.core import io, pipeline
+
+    corsa = tmp_path / "corsa"
+    punti = np.random.default_rng(0).random((5_000, 3)) * 1000.0
+    io.write_cloud(corsa / pipeline.ARTIFACTS[1], punti)
+
+    risposta = cliente.get("/api/cloud/1?max_points=200")
+    assert risposta.status_code == 200
+    assert int(risposta.headers["X-Points-Total"]) == 5_000, (
+        "il conteggio pieno non e' quello del dato: e' quello del disegno"
+    )
+    assert int(risposta.headers["X-Points-Drawn"]) <= 200
+    assert int(risposta.headers["X-Points-Drawn"]) < 5_000, (
+        "precondizione: la decimazione deve essere davvero avvenuta, "
+        "altrimenti i due conteggi coinciderebbero per caso"
+    )

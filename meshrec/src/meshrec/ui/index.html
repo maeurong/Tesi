@@ -94,6 +94,20 @@
          foglio ci si aggancia sopra con la regola che gia' usa per i bottoni
          della galleria. -->
       <button type="button" id="confronta" class="bottone" aria-pressed="false" hidden></button>
+      <!-- Il passaggio precedente disegnato dietro quello corrente, quasi
+           trasparente. E' l'altra risposta alla domanda a cui risponde
+           «Confronta»: quello mostra le due geometrie una alla volta, questo
+           insieme, e i due conteggi finiscono nella stessa didascalia.
+           Nasce nascosto e acceso: app.js lo mostra solo sugli step dove un
+           fantasma esiste, cioe' dove il conteggio cala. Un interruttore su uno
+           step senza fantasma sarebbe un comando che non fa nulla.
+           La casella sta dentro la propria etichetta: cosi' il nome accessibile
+           viene dall'etichetta senza un attributo che possa scollarsene, e il
+           comando si raggiunge col tabulatore senza tabindex. -->
+      <label id="fantasma-comando" class="bottone bottone-casella" hidden>
+        <input type="checkbox" id="fantasma" checked>
+        Passaggio precedente
+      </label>
       <!-- L'uscita di sicurezza del pan. Nasce visibile, a differenza del
            confronto e del taglio: non dipende da che cosa e' disegnato, e chi
            si e' perso spostando la vista deve trovarlo gia' li'. -->

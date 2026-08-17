@@ -91,6 +91,19 @@ def _funzioni(*nomi: str) -> str:
     return "\n".join(_sorgente_di(nome, testo) for nome in nomi)
 
 
+def _costante(nome: str) -> str:
+    """La riga vera di un `const` di modulo, presa dal modulo e non ricopiata
+    qui. `_sorgente_di` estrae solo funzioni di primo livello, e una funzione
+    estratta che legge una costante alzerebbe `ReferenceError` senza questa.
+
+    Ricopiare il valore nel banco lo farebbe divergere in silenzio dal modulo:
+    il test resterebbe verde su una frontiera che il codice vero non ha piu'.
+    """
+    trovato = re.search(rf"^const {nome} = .*;$", _modulo(), flags=re.MULTILINE)
+    assert trovato is not None, f"{nome} non e' un const di primo livello del modulo"
+    return trovato.group(0)
+
+
 def _node() -> str:
     percorso = shutil.which("node")
     if percorso is None:
@@ -797,14 +810,17 @@ def _banco_di_geometria() -> str:
         # quello delle due didascalie di una geometria riuscita.
         "spostaNelPrecedente", "registraVista", "aggiornaConfronto", "spegniConfronto",
         "alternaConfronto",
-    ) + """
+    ) + "\n" + _costante("STEP_CON_MESH") + """
 let ultimaGeometria = 0;
 let ultimiSteps = [];
-const STEP_CON_MESH = new Set([5, 6, 7, 8, 9, 10, 11]);
 let vistaMostrata = null;
 let vistaPrecedente = null;
 let conteggiDiPrima = null;
 let stepMostrato = null;
+// Da quale step viene la geometria a video: registraVista la scrive e
+// segnalaArtefattoMancante la azzera, quindi ogni strada di questo banco la
+// tocca anche quando il fantasma non c'entra.
+let sorgenteMostrata = null;
 const bottoneConfronta = document.getElementById("confronta");
 const vista = {
   svuotate: 0,
@@ -4139,3 +4155,551 @@ assert.match(conteggi.textContent, /esegui lo step 6/,
 assert.doesNotMatch(conteggi.textContent, /eseguilo/,
   `il browser rimanda a rieseguire lo step chiesto, che non produce geometria: ${conteggi.textContent}`);
 """)
+
+
+# --------------------------------------------------------------------------
+# Il fantasma del passaggio precedente. Il confronto (piu' su) risponde alla
+# stessa domanda per scambio — due geometrie una alla volta — e questo per
+# sovrapposizione: i due conteggi nello stesso istante, che e' l'unico modo di
+# vedere quanto un passaggio ha tolto mentre lo si guarda.
+# --------------------------------------------------------------------------
+
+
+def _fantasma_di() -> str:
+    """La riga vera di FANTASMA_DI: `fantasmaHaSenso` eseguita da sola
+    alzerebbe `ReferenceError: FANTASMA_DI is not defined`. La ragione per cui
+    si estrae invece di ricopiarla sta in `_costante`."""
+    return _costante("FANTASMA_DI")
+
+
+def _banco_del_fantasma() -> str:
+    """Il banco della geometria, piu' cio' che il fantasma tocca.
+
+    Le due variabili di modulo del solo fantasma — FANTASMA_DI e fantasmaAcceso
+    — stanno qui e non in `_banco_di_geometria` perche' quel banco lo usano
+    venti controlli che col fantasma non c'entrano. `sorgenteMostrata` sta
+    invece la': la scrivono registraVista e segnalaArtefattoMancante, cioe' ogni
+    strada che disegna.
+
+    `vista` riceve i due metodi nuovi: registrano che cosa il modulo ha chiesto
+    di disegnare, che e' l'unico modo di distinguere «fantasma disegnato» da
+    «fantasma tolto» senza un three.js vero. E tengono la visibilita' come la
+    tiene viewport.js — il fantasma nasce visibile e mostraPrecedente lo spegne
+    — perche' senza quel campo il banco non distingue «velo a video sopra il
+    confronto» da «velo nascosto», che e' esattamente il difetto da sorvegliare.
+    """
+    return _banco_di_geometria() + _fantasma_di() + "\n" + _funzioni(
+        "fantasmaHaSenso", "mostraFantasmaDelloStep", "alternaFantasma", "ricaricaVista",
+    ) + """
+let fantasmaAcceso = true;
+// Il cursore del taglio non c'entra col fantasma, ma sta nella stessa `then` di
+// ricaricaVista: stubbato per non tirarsi dietro i quattro elementi del comando.
+const riallineati = [];
+function riallineaTaglio(numero) { riallineati.push(numero); }
+// ricaricaVista non si aspetta: apre una catena di `then` e torna. Il banco fa
+// girare la coda dei microtask finche' la catena si e' esaurita, come fa gia'
+// il banco dell'arbitraggio in tests/test_server.py.
+const giro = async () => { for (let i = 0; i < 30; i += 1) await Promise.resolve(); };
+vista.fantasma = null;
+vista.mostraFantasma = function (vertici, facce = null) {
+  // Nasce visibile come quello vero: mostraFantasma non tocca `visible`, quindi
+  // posato mentre il confronto e' acceso il velo si vede sopra la geometria di
+  // prima. Il campo si chiama `visibile` perche' e' il modello del `visible` di
+  // three.js, non quella proprieta'.
+  this.fantasma = {
+    punti: vertici.length / 3,
+    facce: facce === null ? null : facce.length / 3,
+    visibile: true,
+  };
+};
+vista.togliFantasma = function () { this.fantasma = null; };
+// Come mostraPrecedente in viewport.js: il fantasma e' il passaggio precedente
+// di cio' che sta in `gruppo`, quindi si nasconde sotto il confronto e torna
+// spegnendolo.
+vista.mostraPrecedente = function (attivo) {
+  this.confronto = attivo;
+  if (this.fantasma !== null) this.fantasma.visibile = !attivo;
+};
+// L'indirizzo chiesto e' meta' della prova: la tabella invertita chiederebbe
+// lo step sbagliato, e un banco che guarda i soli conteggi non lo vedrebbe.
+const chiesti = [];
+globalThis.fetch = async (indirizzo) => { chiesti.push(indirizzo); return risponde[chiamata++](); };
+"""
+
+
+def test_il_fantasma_viene_dal_passaggio_precedente_con_geometria_propria():
+    """La tabella e' scritta a mano e non calcolata come «numero - 1»: sullo
+    step 8 il precedente con geometria propria e' il 6, perche' il 7 misura e
+    non produce niente. E' lo stesso errore che core/pipeline.py documenta, per
+    la stessa strada."""
+    trovato = re.search(r"const FANTASMA_DI = \{([^}]*)\}", _modulo())
+    assert trovato is not None, "FANTASMA_DI non e' nel modulo"
+    coppie = dict(
+        (int(chiave), int(valore))
+        for chiave, valore in re.findall(r"(\d+)\s*:\s*(\d+)", trovato.group(1))
+    )
+    assert coppie == {2: 1, 3: 2, 8: 6}, (
+        f"le coppie del fantasma sono {coppie}: acceso solo dove il conteggio "
+        "cala davvero — ritaglio, sfoltimento, semplificazione"
+    )
+
+
+def test_il_fantasma_dichiara_il_conteggio_pieno_e_non_quello_disegnato():
+    """Il disegnato e' una decimazione come quella della geometria corrente, e
+    metterli a confronto direbbe che due approssimazioni si somigliano, non che
+    il dato e' quello che si dichiara."""
+    modulo = _senza_commenti_js(_modulo())
+    trovato = re.search(
+        r"async function mostraFantasmaDelloStep\(.*?\n\}", modulo, flags=re.DOTALL
+    )
+    assert trovato is not None, "mostraFantasmaDelloStep non e' una funzione di primo livello"
+    corpo = trovato.group(0)
+    assert "X-Points-Total" in corpo
+    assert "X-Points-Drawn" not in corpo, (
+        "il fantasma dichiara il conteggio disegnato: e' il confronto sbagliato"
+    )
+
+
+def test_il_fantasma_non_si_disegna_dove_ripeterebbe_la_geometria_corrente(tmp_path):
+    """Sullo step 8 senza semplificazione il server serve gia' la superficie
+    dello step 6 (X-Da-Step = 6): sovrapporgli il fantasma dello step 6
+    disegnerebbe due volte la stessa cosa, con lo z-fighting e nessuna
+    informazione in piu'."""
+    _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
+        + _fantasma_di() + "\n" + _funzioni("fantasmaHaSenso") + """
+// step 8 con la semplificazione: la geometria corrente e' propria, il fantasma
+// dello step 6 dice quanto la semplificazione ha tolto.
+assert.equal(fantasmaHaSenso(8, 8, true), true);
+// step 8 senza: la geometria corrente E' gia' quella dello step 6.
+assert.equal(fantasmaHaSenso(8, 6, true), false);
+// step 7: nessuna coppia, e comunque mostra il 6.
+assert.equal(fantasmaHaSenso(7, 6, true), false);
+// Niente a video: non c'e' nessuna geometria di cui questo sia il precedente.
+assert.equal(fantasmaHaSenso(2, null, true), false);
+// interruttore spento.
+assert.equal(fantasmaHaSenso(2, 2, false), false);
+assert.equal(fantasmaHaSenso(2, 2, true), true);
+""")
+
+
+def test_il_fantasma_dichiara_il_conteggio_pieno_del_passaggio_da_cui_viene(tmp_path):
+    """Il criterio 5 della spec, eseguito: i due conteggi pieni nello stesso
+    istante — su lab_crop i 6.329.096 punti dello step 1 accanto ai 4.229.538
+    dello step 2 — che e' cio' che lo scambio del confronto per costruzione non
+    puo' dare.
+
+    La frase intera e non tre sottostringhe, per la ragione gia' pagata su
+    questo file: `mm` diventato `cm` passava tre `match` e la suite restava
+    verde. Qui la frase inchioda insieme il numero (pieno e non disegnato: col
+    disegnato direbbe 400.000), lo step da cui viene (la tabella invertita
+    direbbe «Ritaglio» invece di «Caricamento») e l'unita'.
+
+    E la coda finisce anche nella memoria del confronto: senza, tornando dal
+    confronto la didascalia perderebbe proprio il numero che dice che cosa il
+    passaggio ha tolto.
+    """
+    _esegui(tmp_path, _banco_del_fantasma() + """
+const conteggi = document.getElementById("conteggi");
+ETICHETTE["01_load"] = "Caricamento";
+ETICHETTE["02_segment"] = "Ritaglio";
+ultimiSteps = [
+  { numero: 1, chiave: "01_load", stato: "valido" },
+  { numero: 2, chiave: "02_segment", stato: "valido" },
+];
+stepMostrato = 2;
+chiamata = 0;
+risponde = [
+  () => ({
+    ok: true,
+    headers: { get: (n) => ({
+      "X-Points-Drawn": "116059", "X-Points-Total": "4229538", "X-Voxel": "0",
+    }[n]) },
+    arrayBuffer: async () => new ArrayBuffer(12),
+  }),
+  () => ({
+    ok: true,
+    headers: { get: (n) => ({
+      "X-Points-Total": "6329096", "X-Points-Drawn": "400000",
+    }[n]) },
+    arrayBuffer: async () => new ArrayBuffer(24),
+  }),
+];
+await mostraStep(2, generazione);
+await mostraFantasmaDelloStep(2, generazione);
+
+assert.equal(chiesti[1], "/api/cloud/1",
+  `il fantasma dello step 2 non chiede lo step 1: ${chiesti[1]}`);
+assert.equal(conteggi.textContent,
+  "116.059 punti disegnati su 4.229.538 — dietro Caricamento: 6.329.096 punti",
+  `la didascalia del fantasma non e' quella attesa: ${conteggi.textContent}`);
+// E la coda NON entra nella memoria del confronto. Quella didascalia torna a
+// video quando questo step diventa il precedente, cioe' mentre si guarda la sua
+// geometria SENZA fantasma — il fantasma se ne va con svuota() insieme al
+// passaggio che lo ha prodotto. Portandocela, il confronto dichiarerebbe dietro
+// la geometria un passaggio che a video non c'e': la vista che contraddice la
+// propria didascalia, che e' il difetto contro cui e' costruito questo file.
+// Il ritorno dal confronto la coda non la perde lo stesso: alternaConfronto
+// fotografa la riga intera in conteggiDiPrima e spegniConfronto la rimette.
+assert.equal(vistaMostrata.testo, "116.059 punti disegnati su 4.229.538",
+  `la coda del fantasma e' finita nella memoria del confronto: ${vistaMostrata.testo}`);
+assert.deepEqual(vista.fantasma, { punti: 2, facce: null, visibile: true },
+  `il fantasma non e' stato disegnato: ${JSON.stringify(vista.fantasma)}`);
+// Il comando compare dove il fantasma esiste, e non altrove: un interruttore
+// su uno step senza fantasma sarebbe un comando che non fa nulla.
+assert.equal(document.getElementById("fantasma-comando").hidden, false,
+  "il comando resta nascosto sullo step dove il fantasma esiste");
+
+// E il verso negativo, che e' l'altra meta' della stessa regola: sullo step 4
+// nessuna coppia esiste, e la casella deve sparire. Senza questa riga
+// `comando.hidden = false;` passa la suite intera — provato — e la casella
+// comparirebbe sullo step 5, dove toccarla spegne il confronto per non ottenere
+// nessun fantasma: un comando che non fa nulla se non spegnerne un altro.
+stepMostrato = 4;
+chiamata = 0;
+risponde = [() => ({
+  ok: true,
+  headers: { get: (n) => ({
+    "X-Points-Drawn": "9", "X-Points-Total": "9", "X-Voxel": "0",
+  }[n]) },
+  arrayBuffer: async () => new ArrayBuffer(12),
+})];
+await mostraStep(4, generazione);
+await mostraFantasmaDelloStep(4, generazione);
+assert.equal(document.getElementById("fantasma-comando").hidden, true,
+  "la casella resta a video sullo step senza fantasma");
+""")
+
+
+def test_la_strada_che_disegna_chiama_il_fantasma_dopo_la_geometria(tmp_path):
+    """La funzione corretta e la tratta muta: `mostraFantasmaDelloStep` puo'
+    essere giusta in ogni sua riga e non essere chiamata da nessuno, ed e' il
+    modo in cui la ricaduta del server era gia' finita per meta' in codice morto
+    su questo stesso file. Tolto l'invito dentro ricaricaVista, tutti gli altri
+    controlli del fantasma restano verdi: provato.
+
+    Dopo la geometria e non insieme: il fantasma appende alla didascalia che
+    registraVista ha appena scritto, e partendo in parallelo appenderebbe a
+    quella dello step di prima.
+    """
+    _esegui(tmp_path, _banco_del_fantasma() + """
+const conteggi = document.getElementById("conteggi");
+ETICHETTE["01_load"] = "Caricamento";
+ultimiSteps = [{ numero: 1, chiave: "01_load", stato: "valido" }];
+stepMostrato = 2;
+chiamata = 0;
+risponde = [
+  () => ({
+    ok: true,
+    headers: { get: (n) => ({
+      "X-Points-Drawn": "100", "X-Points-Total": "4229538", "X-Voxel": "0",
+    }[n]) },
+    arrayBuffer: async () => new ArrayBuffer(12),
+  }),
+  () => ({
+    ok: true,
+    headers: { get: () => "6329096" },
+    arrayBuffer: async () => new ArrayBuffer(24),
+  }),
+];
+ricaricaVista(2, generazione);
+await giro();
+assert.deepEqual(riallineati, [2], "la strada che disegna non ha rifatto il cursore del taglio");
+assert.equal(conteggi.textContent,
+  "100 punti disegnati su 4.229.538 — dietro Caricamento: 6.329.096 punti",
+  `la strada che disegna non arriva al fantasma: ${conteggi.textContent}`);
+""")
+
+
+def test_il_fantasma_non_si_posa_su_una_vista_che_non_ha_geometria(tmp_path):
+    """Lo stesso step guardato due volte, la seconda con l'artefatto sparito: la
+    vista dice «non c'e' nulla da mostrare» e il fantasma non deve aggiungerci
+    il conteggio di cio' che quello step mostrava prima. Sarebbe una didascalia
+    che dichiara una geometria dove a video non ce n'e' nessuna — e siccome lo
+    step chiesto e' lo stesso, senza azzerare la provenienza il fantasma ci si
+    posa davvero.
+    """
+    _esegui(tmp_path, _banco_del_fantasma() + _DISEGNA + """
+await disegna(2, 10);
+await fallisci(2);
+const prima = conteggi.textContent;
+chiamata = 0;
+risponde = [() => ({
+  ok: true,
+  headers: { get: () => "6329096" },
+  arrayBuffer: async () => new ArrayBuffer(24),
+})];
+await mostraFantasmaDelloStep(2, generazione);
+assert.equal(conteggi.textContent, prima,
+  `il fantasma appende a una vista senza geometria: ${conteggi.textContent}`);
+assert.equal(vista.fantasma, null,
+  "il fantasma e' stato disegnato sopra la scena che l'artefatto mancante ha svuotato");
+""")
+
+
+def test_il_fantasma_e_il_confronto_non_stanno_accesi_insieme(tmp_path):
+    """Le due risposte alla stessa domanda occupano lo stesso pixel: il
+    confronto mostra la geometria di prima *al posto* di quella corrente, il
+    fantasma la mette *dietro*. Accesi insieme, a video ci sarebbero la
+    geometria di prima e il fantasma di un'altra ancora, mentre la didascalia ne
+    nomina una sola.
+
+    La regola scelta e' «comanda l'ultimo comando toccato», e si vede: toccando
+    l'interruttore del fantasma il confronto si spegne — il bottone torna non
+    premuto e la didascalia torna quella dello step corrente — invece di
+    lasciare due strati sovrapposti che nessuna scritta spiega.
+    """
+    _esegui(tmp_path, _banco_del_fantasma() + _DISEGNA + """
+ETICHETTE["02_segment"] = "Ritaglio";
+ultimiSteps = [
+  { numero: 2, chiave: "02_segment", stato: "valido" },
+  { numero: 3, chiave: "03_downsample", stato: "valido" },
+];
+await disegna(2, 10);
+await disegna(3, 20);
+const didascalia = conteggi.textContent;
+alternaConfronto();
+assert.equal(bottoneConfronta.getAttribute("aria-pressed"), "true",
+  "il confronto non si e' acceso: il caso da provare non e' stato costruito");
+
+chiamata = 0;
+risponde = [() => ({
+  ok: true,
+  headers: { get: () => "4229538" },
+  arrayBuffer: async () => new ArrayBuffer(24),
+})];
+await alternaFantasma(true);
+assert.equal(bottoneConfronta.getAttribute("aria-pressed"), "false",
+  "il fantasma si accende sopra il confronto: due strati e una didascalia sola");
+assert.equal(vista.confronto, false,
+  "a video resta la geometria del confronto col fantasma di un altro step sopra");
+assert.equal(conteggi.textContent, `${didascalia} — dietro Ritaglio: 4.229.538 punti`,
+  `la didascalia non e' tornata quella dello step corrente: ${conteggi.textContent}`);
+
+// E spegnendo l'interruttore il fantasma se ne va davvero: un interruttore che
+// lascia a video cio' che dichiara di aver tolto e' la vista che contraddice il
+// proprio comando.
+await alternaFantasma(false);
+assert.equal(vista.fantasma, null, "l'interruttore spento lascia il fantasma a video");
+assert.equal(conteggi.textContent, didascalia,
+  `la didascalia dichiara un fantasma che non e' piu' a video: ${conteggi.textContent}`);
+""")
+
+
+def test_il_fantasma_dello_step_8_chiede_la_superficie_e_non_la_nuvola(tmp_path):
+    """La terza coppia della tabella e' l'unica che sta oltre la frontiera fra
+    nuvola e superficie, e finora nessun banco ci passava: la tratta della mesh
+    del fantasma — l'indirizzo, i vertici e le facce ritagliati dallo stesso
+    buffer, la parola «vertici» al posto di «punti» — era scritta e mai
+    eseguita.
+
+    La frontiera e' STEP_CON_MESH, e non un secondo `da <= 4` che dice la stessa
+    cosa in un altro punto dello stesso file: due scritture della stessa
+    frontiera si separano il giorno che la pipeline guadagna uno step, e a
+    separarsi qui il fantasma dell'8 chiederebbe /api/cloud/6, cioe' un
+    artefatto che non e' una nuvola.
+    """
+    _esegui(tmp_path, _banco_del_fantasma() + """
+const conteggi = document.getElementById("conteggi");
+ETICHETTE["06_surface"] = "Superficie";
+ETICHETTE["08_simplify"] = "Semplificazione";
+ultimiSteps = [
+  { numero: 6, chiave: "06_surface", stato: "valido" },
+  { numero: 8, chiave: "08_simplify", stato: "valido" },
+];
+stepMostrato = 8;
+chiamata = 0;
+risponde = [
+  // Lo step 8 con la semplificazione accesa: geometria propria, quindi il
+  // fantasma dello step 6 dice quanto la semplificazione ha tolto.
+  () => ({
+    ok: true,
+    headers: { get: (n) => ({
+      "X-Vertices": "4", "X-Triangles": "0", "X-Da-Step": "8",
+    }[n]) },
+    arrayBuffer: async () => new ArrayBuffer(48),
+  }),
+  () => ({
+    ok: true,
+    headers: { get: (n) => ({ "X-Vertices": "3", "X-Triangles": "1" }[n]) },
+    arrayBuffer: async () => new ArrayBuffer(48),
+  }),
+];
+await mostraStep(8, generazione);
+await mostraFantasmaDelloStep(8, generazione);
+
+assert.equal(chiesti[1], "/api/mesh/6",
+  `il fantasma dello step 8 non chiede la superficie dello step 6: ${chiesti[1]}`);
+assert.equal(conteggi.textContent,
+  "4 vertici, 0 triangoli — dietro Superficie: 3 vertici",
+  `la didascalia del fantasma non e' quella attesa: ${conteggi.textContent}`);
+assert.deepEqual(vista.fantasma, { punti: 3, facce: 1, visibile: true },
+  `il fantasma non e' stato disegnato come superficie: ${JSON.stringify(vista.fantasma)}`);
+""")
+
+
+def test_spegnere_il_fantasma_non_spegne_anche_il_confronto(tmp_path):
+    """La regola «comanda l'ultimo comando toccato» vale nel verso in cui i due
+    canali confliggono: accendendo il fantasma sopra un confronto acceso. Nel
+    verso opposto — il fantasma che si spegne — non c'e' nessun conflitto da
+    dirimere, e spegnere il confronto per compagnia toglie all'utente una vista
+    che non ha chiesto di lasciare.
+
+    Restano due cose da tenere in accordo, e sono la meta' scritta. Sotto il
+    confronto la riga dice la geometria di prima: riscriverla con quella
+    corrente farebbe dire alla didascalia una cosa e alla vista un'altra. E la
+    fotografia che spegniConfronto rimettera' porta ancora la coda del velo
+    appena tolto: lasciata com'e', tornando dal confronto la riga dichiarerebbe
+    dietro la geometria un passaggio che non c'e' piu' — la vista che
+    contraddice la propria didascalia, per la porta di servizio.
+    """
+    _esegui(tmp_path, _banco_del_fantasma() + _DISEGNA + """
+ETICHETTE["02_segment"] = "Ritaglio";
+ultimiSteps = [
+  { numero: 2, chiave: "02_segment", stato: "valido" },
+  { numero: 3, chiave: "03_downsample", stato: "valido" },
+];
+await disegna(2, 10);
+await disegna(3, 20);
+const didascalia = conteggi.textContent;
+
+chiamata = 0;
+risponde = [() => ({
+  ok: true,
+  headers: { get: () => "4229538" },
+  arrayBuffer: async () => new ArrayBuffer(24),
+})];
+await alternaFantasma(true);
+assert.equal(conteggi.textContent, `${didascalia} — dietro Ritaglio: 4.229.538 punti`,
+  `il velo non si e' posato: il caso da provare non e' stato costruito: ${conteggi.textContent}`);
+
+alternaConfronto();
+const durante = conteggi.textContent;
+assert.equal(vista.fantasma.visibile, false,
+  "il confronto non ha nascosto il velo: il caso da provare non e' stato costruito");
+
+await alternaFantasma(false);
+assert.equal(bottoneConfronta.getAttribute("aria-pressed"), "true",
+  "spegnere il fantasma spegne anche il confronto, che nessuno ha toccato");
+assert.equal(vista.confronto, true,
+  "a video e' tornata la geometria corrente: il confronto e' stato spento per compagnia");
+assert.equal(vista.fantasma, null, "l'interruttore spento lascia il velo sulla scheda");
+assert.equal(conteggi.textContent, durante,
+  `la riga non dice piu' la geometria del confronto che e' a video: ${conteggi.textContent}`);
+
+// E la fotografia del confronto ha perso la coda insieme al velo.
+spegniConfronto();
+assert.equal(conteggi.textContent, didascalia,
+  `tornando dal confronto la riga dichiara un velo che l'interruttore ha tolto: ${conteggi.textContent}`);
+""")
+
+
+def test_il_fantasma_non_si_posa_se_il_confronto_si_e_acceso_mentre_volava(tmp_path):
+    """La terza strada che arriva al fantasma, e la sola che nessuna guardia
+    vedeva: «Confronta» premuto mentre la fetch del fantasma e' ancora in volo.
+
+    Non e' una finestra teorica: il fantasma dello step 2 scarica 01_cloud.ply,
+    6.329.096 punti, e su quella tratta la lettura a freddo misura 27-34
+    secondi. In quella finestra alternaConfronto non muove ne' `generazione` ne'
+    `ultimaGeometria` — non e' un clic su uno step e non e' una richiesta di
+    geometria — quindi le due guardie d'ordine lasciano atterrare, e
+    mostraFantasma non tocca `visible`: l'oggetto nasce visibile.
+
+    Tre danni insieme, e questo banco li guarda tutti e tre. A video il velo si
+    posa sopra la geometria del **confronto**, cioe' due copie della stessa cosa
+    in z-fighting. La didascalia nomina lo stesso step due volte e accosta due
+    numeri che misurano cose diverse. E spegnendo il confronto la coda sparisce
+    con la fotografia mentre il velo resta: la vista e la didascalia si
+    contraddicono nei due versi.
+
+    La regola e' quella che alternaFantasma gia' dichiara — comanda l'ultimo
+    comando toccato — e qui l'ultimo toccato e' il confronto: il fantasma non si
+    posa affatto. Posarlo nascosto chiuderebbe la sola meta' visiva e lascerebbe
+    la coda appesa alla fotografia del confronto.
+    """
+    _esegui(tmp_path, _banco_del_fantasma() + _DISEGNA + """
+ETICHETTE["02_segment"] = "Ritaglio";
+ultimiSteps = [
+  { numero: 2, chiave: "02_segment", stato: "valido" },
+  { numero: 3, chiave: "03_downsample", stato: "valido" },
+];
+await disegna(2, 10);
+await disegna(3, 20);
+const didascalia = conteggi.textContent;
+
+// La fetch del fantasma resta in volo, come sulla scansione vera.
+let risolvi;
+chiamata = 0;
+risponde = [() => new Promise((r) => { risolvi = r; })];
+const inVolo = mostraFantasmaDelloStep(3, generazione);
+
+alternaConfronto();
+assert.equal(bottoneConfronta.getAttribute("aria-pressed"), "true",
+  "il confronto non si e' acceso: il caso da provare non e' stato costruito");
+const durante = conteggi.textContent;
+
+risolvi({
+  ok: true,
+  headers: { get: () => "4229538" },
+  arrayBuffer: async () => new ArrayBuffer(24),
+});
+await inVolo;
+
+assert.equal(vista.fantasma, null,
+  `il velo si e' posato sopra la geometria del confronto: ${JSON.stringify(vista.fantasma)}`);
+assert.equal(conteggi.textContent, durante,
+  `la didascalia del confronto ha preso la coda di un altro step: ${conteggi.textContent}`);
+
+// E i due versi restano d'accordo: spegnendo il confronto non torna nessun velo
+// e non manca nessuna coda.
+spegniConfronto();
+assert.equal(vista.fantasma, null,
+  "il velo torna a video quando il confronto si spegne");
+assert.equal(conteggi.textContent, didascalia,
+  `la didascalia non e' quella della sola geometria corrente: ${conteggi.textContent}`);
+""")
+
+
+def test_l_interruttore_del_fantasma_sta_coi_comandi_della_vista_e_si_annuncia():
+    """Terzo comando del gruppo, e l'unico che non e' un <button>: una casella
+    dentro la propria etichetta, cosi' il nome accessibile viene dall'etichetta
+    stessa e il comando si raggiunge col tabulatore senza tabindex.
+
+    Nasce nascosto perche' app.js lo mostra solo dove un fantasma esiste, e
+    indossa .bottone come gli altri due: nel gruppo non c'e' velo (lo dichiara
+    il commento di .comandi-vista), quindi un'etichetta nuda si leggerebbe
+    direttamente sulla geometria.
+    """
+    markup = _senza_commenti_html(_markup())
+    gruppo = re.search(r'<div class="comandi-vista"[^>]*>(.*?)</div>', markup, re.DOTALL)
+    assert gruppo is not None, "i comandi della vista non stanno in un gruppo solo"
+    assert 'id="fantasma"' in gruppo.group(1), "l'interruttore del fantasma e' fuori dal gruppo"
+    casella = _elemento(markup, "fantasma")
+    assert 'type="checkbox"' in casella, f"il fantasma non e' un interruttore: {casella}"
+    etichetta = re.search(
+        r'<label id="fantasma-comando"[^>]*>(.*?)</label>', markup, re.DOTALL,
+    )
+    assert etichetta is not None, "la casella non sta dentro un'etichetta: nessun nome accessibile"
+    assert 'id="fantasma"' in etichetta.group(1), "la casella e' fuori dalla propria etichetta"
+    assert re.search(r"\w", re.sub(r"<[^>]*>", "", etichetta.group(1))), (
+        "l'etichetta non ha testo: un interruttore muto"
+    )
+    contenitore = _elemento(markup, "fantasma-comando")
+    assert "hidden" in contenitore, (
+        f"il comando nasce visibile anche dove nessun fantasma esiste: {contenitore}"
+    )
+    assert "bottone" in contenitore, (
+        f"il comando non indossa la scatola degli altri due: {contenitore}"
+    )
+    modulo = _senza_commenti_js(_modulo())
+    assert 'getElementById("fantasma")' in modulo, "la casella non e' presa dal markup"
+
+    # Lo stato iniziale del fantasma e' dichiarato due volte, in due file: come
+    # `checked` nel markup e come valore iniziale di `fantasmaAcceso` nel
+    # modulo. Nessuno dei due legge l'altro, quindi separandoli la casella
+    # direbbe una cosa e il codice ne farebbe un'altra — un comando che mente
+    # sul proprio stato, che e' peggio di un comando che non funziona: chi lo
+    # vede spento e lo accende lo spegne.
+    assert "checked" in casella, f"la casella nasce spenta: {casella}"
+    assert "let fantasmaAcceso = true;" in modulo, (
+        "il modulo nasce col fantasma spento mentre la casella si dichiara spuntata"
+    )
