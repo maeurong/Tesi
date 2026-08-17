@@ -2248,3 +2248,105 @@ def test_un_artefatto_mai_prodotto_risponde_404_e_non_un_guasto(tmp_path):
     corpo = risposta.json()
     assert corpo["errore"] == "FileNotFoundError", f"la forma del rifiuto e' cambiata: {corpo}"
     assert "messaggio" in corpo, f"il rifiuto non dice piu' perche': {corpo}"
+
+
+@pytest.mark.parametrize("numero", range(1, 12))
+def test_ogni_step_ha_un_artefatto_da_mostrare(numero):
+    """La tabella risolve 1..11 senza KeyError, con entrambi i valori di
+    simplify.enabled. Era il «avanzando lungo la pipeline la geometria sparisce
+    del tutto»: gli step 7, 10 e 11 non hanno un artefatto proprio, e il
+    browser riceveva un errore e svuotava la scena."""
+    from meshrec.app.server import sorgente_geometria
+    from meshrec.core import pipeline
+
+    for abilitata in (False, True):
+        cfg = PipelineConfig(input=InputConfig(path=Path("nuvola.ply")))
+        cfg.simplify.enabled = abilitata
+        da = sorgente_geometria(numero, cfg)
+        assert da in pipeline.ARTIFACTS, f"lo step {numero} rimanda a un artefatto che non esiste"
+        # Le uniche righe che non valgono se stesse sono 7, 8, 10 e 11, pinnate
+        # una a una dai due test qui sotto. Senza questa riga un refuso come
+        # `5: 4` resterebbe verde e mostrerebbe la nuvola dello step 4 sotto lo
+        # step 5, dove nessuno guardando il disegno se ne accorgerebbe.
+        assert da == numero or numero in (7, 8, 10, 11), (
+            f"lo step {numero} ricade sullo step {da} senza essere uno step che ricade"
+        )
+
+
+def test_lo_step_8_senza_semplificazione_mostra_la_superficie_dello_step_6():
+    """08_simplified.ply esiste solo con la semplificazione abilitata, che nel
+    config di lavoro e' `false`: oggi lo step 8 mostra un viewport vuoto pur
+    essendo uno step riuscito. E' la stessa dipendenza che pipeline.run() ha
+    per from_step=9 (core/pipeline.py:57-58)."""
+    from meshrec.app.server import sorgente_geometria
+
+    cfg = PipelineConfig(input=InputConfig(path=Path("nuvola.ply")))
+    cfg.simplify.enabled = False
+    assert sorgente_geometria(8, cfg) == 6
+    cfg.simplify.enabled = True
+    assert sorgente_geometria(8, cfg) == 8
+
+
+def test_gli_step_che_solo_misurano_rimandano_a_chi_ha_prodotto():
+    """Lo step 7 misura la superficie del 6; il 10 e l'11 misurano ed esportano
+    il volume del 9. Scritti a mano e non calcolati: core/pipeline.py:42-48
+    documenta che un calcolo equivalente su ARTIFACTS era gia' sbagliato in due
+    punti, e uno di quei due era proprio ARTIFACTS[7], che non esiste."""
+    from meshrec.app.server import sorgente_geometria
+
+    cfg = PipelineConfig(input=InputConfig(path=Path("nuvola.ply")))
+    assert sorgente_geometria(7, cfg) == 6
+    assert sorgente_geometria(10, cfg) == 9
+    assert sorgente_geometria(11, cfg) == 9
+
+
+def test_la_mesh_di_uno_step_che_solo_misura_dichiara_da_dove_viene(cliente, tmp_path):
+    """Mostrare l'artefatto di un altro step senza dirlo sarebbe esattamente il
+    risultato plausibile che nessuna metrica smentisce. Il numero che
+    l'interfaccia dichiara e' questo, non uno che il browser deduce."""
+    import open3d as o3d
+
+    from meshrec.core import pipeline
+
+    corsa = tmp_path / "corsa"
+    corsa.mkdir()
+    cubo = o3d.geometry.TriangleMesh.create_box(1.0, 1.0, 1.0)
+    o3d.io.write_triangle_mesh(str(corsa / pipeline.ARTIFACTS[6]), cubo)
+
+    risposta = cliente.get("/api/mesh/7")
+    assert risposta.status_code == 200
+    assert risposta.headers["X-Da-Step"] == "6"
+
+    # Lo step 8 col config predefinito (simplify.enabled = False) passa dalla
+    # stessa strada, e va provato per la tratta e non solo per la funzione.
+    risposta = cliente.get("/api/mesh/8")
+    assert risposta.status_code == 200
+    assert risposta.headers["X-Da-Step"] == "6"
+
+    # Lo step che ha una geometria propria dichiara se stesso: senza questo, un
+    # X-Da-Step scritto a caso passerebbe i due controlli qui sopra.
+    risposta = cliente.get("/api/mesh/6")
+    assert risposta.status_code == 200
+    assert risposta.headers["X-Da-Step"] == "6"
+
+
+def test_uno_step_il_cui_artefatto_a_monte_manca_nomina_lo_step_da_eseguire(cliente):
+    """Resta distinto da «non c'e'»: lo step 7 senza il 6 eseguito non tace, e
+    non nomina se stesso — nomina lo step che deve girare per primo.
+
+    404 e non 400: l'artefatto a monte che manca e' lo stato normale di uno
+    step mai eseguito, e passa dal gestore registrato su FileNotFoundError
+    (`artefatto_mancante` in server.py — citato per nome e non per riga, che
+    scade a ogni inserimento sopra). Il 400 e' del gestore generico, cioe' del
+    rifiuto. L'interfaccia legge lo status per distinguere i due casi.
+    """
+    risposta = cliente.get("/api/mesh/7")
+    assert risposta.status_code == 404
+    messaggio = risposta.json()["messaggio"]
+    assert "6" in messaggio
+    assert "06_repaired.ply" in messaggio
+    # Lo step chiesto va nominato: senza, chi legge non sa se la risposta
+    # riguarda la richiesta che ha fatto.
+    assert "7" in messaggio
+    # E va nominata l'azione, non solo il guasto.
+    assert "esegui" in messaggio

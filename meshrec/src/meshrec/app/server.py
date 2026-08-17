@@ -258,6 +258,50 @@ def _ingresso_del_ritaglio(sorgente: Path, _mtime_ns: int, vicini: int, scarto: 
     return puliti
 
 
+# Da quale step viene la geometria che si mostra quando si chiede uno step.
+# Esplicita e non calcolata: core/pipeline.py:42-48 documenta che un calcolo
+# equivalente su ARTIFACTS era gia' sbagliato in due punti, uno dei quali era
+# ARTIFACTS[7], che non esiste. Stesso errore, stessa cura, stessa forma di
+# _RESUME_POINTS.
+# Gli step 7, 10 e 11 misurano ed esportano: non producono geometria propria.
+_SORGENTE_GEOMETRIA: dict[int, int] = {
+    1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 6, 8: 8, 9: 9, 10: 9, 11: 9,
+}
+
+
+def sorgente_geometria(numero: int, cfg: PipelineConfig) -> int:
+    """Lo step il cui artefatto si disegna quando si chiede `numero`.
+
+    Il numero che torna di qui finisce nell'intestazione X-Da-Step, e
+    l'interfaccia lo dichiara sotto il viewport. Mostrare l'artefatto di un
+    altro step senza dirlo sarebbe il risultato plausibile che nessuna metrica
+    smentisce, percio' la ricaduta a monte e la sua dichiarazione sono un punto
+    solo e non due.
+
+    Limite accettato: `cfg` e' la configurazione corrente, non quella con cui la
+    corsa e' girata (out_dir/config.yaml, che pipeline.run scrive a
+    pipeline.py:105). Se una corsa gira con simplify.enabled a `true` e poi la
+    casella viene spenta dal pannello, lo step 8 mostra 06_repaired.ply mentre
+    08_simplified.ply e' sul disco: non e' una bugia, X-Da-Step dichiara 6, ma
+    e' la figura sbagliata per uno step che una geometria propria ce l'ha.
+    Si accetta per la stessa fiducia nell'operatore che pipeline.run dichiara a
+    pipeline.py:87-96; leggere un secondo config aggiungerebbe una strada di
+    lettura per un caso che si produce solo cambiando idea a corsa fatta.
+    """
+    if numero not in _SORGENTE_GEOMETRIA:
+        raise ValueError(
+            f"lo step {numero} non esiste: la pipeline ha gli step "
+            f"{sorted(_SORGENTE_GEOMETRIA)}"
+        )
+    # 08_simplified.ply esiste solo con la semplificazione abilitata, che nel
+    # config di lavoro e' `false`: e' la stessa dipendenza che pipeline.run()
+    # ha per from_step=9 (core/pipeline.py:57-58). Senza questo ramo lo step 8
+    # mostra un viewport vuoto pur essendo uno step riuscito.
+    if numero == 8 and not cfg.simplify.enabled:
+        return 6
+    return _SORGENTE_GEOMETRIA[numero]
+
+
 def create_app(config_path: Path) -> FastAPI:
     """Applicazione legata a un file di configurazione, che e' la corsa corrente."""
     config_path = Path(config_path)
@@ -684,15 +728,25 @@ def create_app(config_path: Path) -> FastAPI:
         coordinate, poi gli Uint32 degli indici. I conteggi stanno nelle
         intestazioni, cosi' il browser sa dove tagliare.
         """
-        if numero not in pipeline.ARTIFACTS:
-            raise ValueError(
-                f"lo step {numero} non esiste: gli step con un artefatto sono {sorted(pipeline.ARTIFACTS)}"
-            )
         cfg = corrente()
-        percorso = Path(cfg.run.out_dir) / pipeline.ARTIFACTS[numero]
+        # /api/cloud non passa di qui apposta: toccarlo cambierebbe il
+        # messaggio di guardie che altri controlli sorvegliano.
+        #
+        # Oggi (17/08/2026) il browser manda qui solo gli step di
+        # STEP_CON_MESH, cioe' 5, 6, 8 e 9 (ui/app.js:647): lo step 8 e' quindi
+        # gia' servito da questa risoluzione e la ricaduta su 06_repaired.ply
+        # si vede subito. Gli step 7, 10 e 11 vanno invece a /api/cloud e si
+        # prendono il rifiuto di :573, percio' le loro ricadute 7->6 e 10/11->9
+        # restano senza effetto finche' il Task 4 non estende STEP_CON_MESH.
+        da = sorgente_geometria(numero, cfg)
+        percorso = Path(cfg.run.out_dir) / pipeline.ARTIFACTS[da]
         if not percorso.exists():
+            # Nomina lo step a monte, non quello chiesto: e' quello che deve
+            # girare per primo, e dirlo distingue «non c'e' ancora» da «questo
+            # step non produce geometria».
             raise FileNotFoundError(
-                f"lo step {numero} non ha ancora prodotto {pipeline.ARTIFACTS[numero]}"
+                f"lo step {numero} non ha ancora una geometria da mostrare: "
+                f"esegui lo step {da}, che produce {pipeline.ARTIFACTS[da]}"
             )
         if percorso.suffix == ".vtu":
             vertici, facce = _contorno_del_volume(percorso)
@@ -714,7 +768,11 @@ def create_app(config_path: Path) -> FastAPI:
         return Response(
             content=corpo,
             media_type="application/octet-stream",
-            headers={"X-Vertices": str(len(vertici)), "X-Triangles": str(len(facce))},
+            headers={
+                "X-Vertices": str(len(vertici)),
+                "X-Triangles": str(len(facce)),
+                "X-Da-Step": str(da),
+            },
         )
 
     @app.get("/api/events")
