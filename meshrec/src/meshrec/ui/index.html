@@ -67,6 +67,19 @@
          sta sopra, non a sinistra: era falso proprio sulla larghezza in cui
          serve di piu'. app.js rimette la riga nell'angolo appena disegna. -->
     <p class="conteggi conteggi-al-centro" id="conteggi" aria-live="polite">Scegli uno step per vederne la geometria.</p>
+    <!-- I comandi della vista, in gruppo e non sparsi per gli angoli. Comandano
+         la stessa cosa — che cosa la vista mostra e da dove la guarda — mentre
+         il taglio e' uno strumento sulla geometria e la didascalia si legge e
+         basta: stando vicini lo dicono senza scriverlo, e role="group" con il
+         nome lo dice anche a chi non vede lo schermo.
+         In alto a destra perche' e' l'unico angolo libero davvero: i conteggi
+         tengono il basso a sinistra, il taglio il basso a destra, e in alto a
+         sinistra i conteggi ci salgono da soli quando il taglio compare (la
+         regola :has in stile.css).
+         «Inquadra» ultimo e non primo: il gruppo e' ancorato a destra, quindi
+         il bottone che c'e' sempre resta fermo e «Confronta», che va e viene,
+         gli compare accanto invece di spostarlo sotto le dita. -->
+    <div class="comandi-vista" id="comandi-vista" role="group" aria-label="Comandi della vista">
     <!-- Il confronto con lo step guardato prima. Un bottone visibile e con il
          nome dentro, non una scorciatoia da tastiera: un gesto che nessuna
          etichetta annuncia esiste solo per chi lo sa gia', e l'utente successivo
@@ -80,7 +93,12 @@
          un'azione: dice a chi non vede se a video c'e' l'una o l'altra, e il
          foglio ci si aggancia sopra con la regola che gia' usa per i bottoni
          della galleria. -->
-    <button type="button" id="confronta" class="bottone confronto" aria-pressed="false" hidden></button>
+      <button type="button" id="confronta" class="bottone" aria-pressed="false" hidden></button>
+      <!-- L'uscita di sicurezza del pan. Nasce visibile, a differenza del
+           confronto e del taglio: non dipende da che cosa e' disegnato, e chi
+           si e' perso spostando la vista deve trovarlo gia' li'. -->
+      <button type="button" id="inquadra" class="bottone">Inquadra</button>
+    </div>
     <!-- Il comando del taglio. Nasce nascosto: app.js lo mostra solo dove c'e'
          un volume disegnato, e l'intervallo del cursore lo scrive da li'
          leggendo l'ingombro della geometria. min, max e step non stanno qui

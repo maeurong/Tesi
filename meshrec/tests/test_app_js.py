@@ -1035,6 +1035,160 @@ assert.equal(
 
 
 # --------------------------------------------------------------------------
+# I comandi della vista, e l'angolo in cui stanno.
+# --------------------------------------------------------------------------
+
+
+_DIDASCALIA_ALZATA = ".zona-vista:has(.taglio:not([hidden])) .conteggi:not(.conteggi-al-centro)"
+
+
+def _regola(selettore: str) -> str | None:
+    """Le dichiarazioni di una regola, cercata sul selettore intero e in prima
+    colonna: `.conteggi` non deve pescare `.conteggi-al-centro`."""
+    trovato = re.search(rf"(?m)^{re.escape(selettore)}\s*\{{([^}}]*)\}}", _foglio())
+    return None if trovato is None else trovato.group(1)
+
+
+def _regola_stretta(classe: str) -> str:
+    """Le dichiarazioni che la stessa classe riceve dentro
+    `@media (max-width: 60rem)`. La' i selettori sono indentati e portano i
+    propri filtri — `.conteggi:not(.conteggi-al-centro)` — quindi _regola non
+    li vede: cercate a parte, altrimenti lo stato stretto sarebbe fuori da
+    questo controllo proprio dove le due scatole stanno sulla stessa riga."""
+    dentro = _foglio().split("@media (max-width: 60rem) {", 1)
+    if len(dentro) == 1:
+        return ""
+    trovato = re.search(rf"(?m)^\s+\.{classe}(?::[^\s{{]*)?\s*\{{([^}}]*)\}}", dentro[1])
+    return "" if trovato is None else trovato.group(1)
+
+
+def _angolo(dichiarazioni: str) -> tuple[str, str]:
+    """A quale angolo della zona un elemento si ancora. `auto` vale come non
+    scritto, che e' come lo legge il browser."""
+    lati = dict(re.findall(r"(?<![-\w])(top|bottom|left|right):\s*([^;]+)", dichiarazioni))
+
+    def verso(primo: str, secondo: str, nomi: tuple[str, str]) -> str:
+        for lato, nome in zip((primo, secondo), nomi):
+            if lati.get(lato, "auto").strip() != "auto":
+                return nome
+        return "nessuno"
+
+    return verso("top", "bottom", ("alto", "basso")), verso("left", "right", ("sinistra", "destra"))
+
+
+def _inquilini_della_vista() -> dict[str, str]:
+    """Le classi che, dentro la zona della vista, si ancorano da sole a un
+    angolo. Lette dal markup e non da un elenco scritto qui: un comando nuovo
+    entra in questo controllo il giorno che entra nella vista, non il giorno in
+    cui qualcuno si ricorda di aggiungerlo a una lista."""
+    zona = _senza_commenti_html(_markup()).split('class="zona zona-vista"', 1)[1]
+    zona = zona.split("</section>", 1)[0]
+    classi = {c for attributo in re.findall(r'class="([^"]*)"', zona) for c in attributo.split()}
+    inquilini = {}
+    for classe in sorted(classi):
+        dichiarazioni = _regola(f".{classe}")
+        if dichiarazioni is None or "position: absolute" not in dichiarazioni:
+            continue
+        # L'invito centrato copre tutta la zona invece di un angolo, e lascia
+        # passare il puntatore: non contende niente a nessuno.
+        if "pointer-events: none" in dichiarazioni:
+            continue
+        inquilini[classe] = dichiarazioni
+    return inquilini
+
+
+def test_nessun_comando_della_vista_ne_copre_un_altro():
+    """La zona della vista ha quattro angoli e piu' inquilini di quanti se ne
+    ricordino a memoria: la didascalia in basso a sinistra, il taglio in basso a
+    destra, i comandi della vista in alto a destra — e la didascalia **sale in
+    alto a sinistra** in due casi, quando il comando del taglio c'e' (la regola
+    :has) e sotto i 60rem sempre (la media query in fondo al foglio). L'angolo in
+    alto a sinistra non e' quindi libero: su una vista stretta non lo e' mai, e
+    un comando messo li' finirebbe sotto la didascalia.
+
+    Nessun controllo sorvegliava la spartizione: gli angoli si assegnavano a
+    memoria, leggendo i commenti. Qui si leggono dal foglio, nei tre stati che la
+    zona ha davvero.
+
+    Il controllo e' sull'**angolo di ancoraggio**, non sulla sovrapposizione
+    delle scatole: due inquilini in angoli diversi possono comunque toccarsi se
+    crescono l'uno verso l'altro, e da quello difende il limite di larghezza di
+    ciascuno (`max-width` in stile.css), non questo controllo. Qui si prende il
+    caso piu' grosso e piu' silenzioso, cioe' due che partono dallo stesso punto.
+    """
+    inquilini = _inquilini_della_vista()
+    assert "comandi-vista" in inquilini, (
+        "i comandi della vista non si ancorano piu' a un angolo: se galleggiano "
+        "nel flusso, coprono la tela o escono dalla zona"
+    )
+    alzata = _regola(_DIDASCALIA_ALZATA)
+    assert alzata is not None, (
+        "la regola che alza la didascalia col taglio non c'e' piu': lo stato che "
+        "questo controllo sorveglia sarebbe inventato"
+    )
+    assert _regola_stretta("conteggi") != "", (
+        "la regola che alza la didascalia sotto i 60rem non c'e' piu': idem"
+    )
+    stati = (
+        ("larga, senza il taglio", False, False),
+        ("larga, col comando del taglio a video", True, False),
+        ("stretta, sotto i 60rem", False, True),
+    )
+    for stato, col_taglio, stretta in stati:
+        occupati: dict[tuple[str, str], str] = {}
+        for classe, dichiarazioni in inquilini.items():
+            if classe == "taglio" and not col_taglio:
+                continue
+            if classe == "conteggi" and col_taglio:
+                dichiarazioni = f"{dichiarazioni};{alzata}"
+            if stretta:
+                dichiarazioni = f"{dichiarazioni};{_regola_stretta(classe)}"
+            angolo = _angolo(dichiarazioni)
+            gia_li = occupati.get(angolo)
+            assert gia_li is None, (
+                f"vista {stato}, .{classe} e .{gia_li} stanno nello stesso angolo "
+                f"({angolo[0]} a {angolo[1]}): uno copre l'altro"
+            )
+            occupati[angolo] = classe
+
+
+def test_il_bottone_inquadra_esiste_nel_markup_ed_e_legato():
+    """L'uscita di sicurezza del pan: qualunque smarrimento si chiude con un
+    clic. Nel markup e non creato da codice, come ogni comando di questa
+    interfaccia, e legato davvero — un bottone senza gestore e' un comando che
+    non fa nulla e non lo dice."""
+    markup = _senza_commenti_html(_markup())
+    elemento = _elemento(markup, "inquadra")
+    assert "<button" in elemento, f"#inquadra non e' un bottone: {elemento}"
+    modulo = _senza_commenti_js(_modulo())
+    assert 'getElementById("inquadra")' in modulo, "il bottone non e' preso dal markup"
+    assert "vista.inquadra()" in modulo, "il bottone non chiama il comando della vista"
+
+
+def test_i_due_comandi_della_vista_stanno_insieme_e_si_dichiarano_tali():
+    """«Inquadra» e «Confronta» comandano la stessa cosa — che cosa la vista
+    mostra e da dove la guarda — mentre il taglio e' uno strumento sulla
+    geometria e la didascalia si legge e basta. Stanno percio' in un gruppo
+    solo, e il gruppo si nomina: due bottoni sciolti in un angolo sono due
+    comandi qualsiasi, e chi non vede lo schermo non ha nessun altro canale che
+    dica che appartengono alla vista.
+
+    «Confronta» resta nascosto e interruttore anche dentro il gruppo: sono le
+    due proprieta' su cui si regge il controllo del confronto qui sotto, e
+    spostare un elemento e' il modo classico di perderle per strada.
+    """
+    markup = _senza_commenti_html(_markup())
+    gruppo = re.search(r'<div class="comandi-vista"[^>]*>(.*?)</div>', markup, re.DOTALL)
+    assert gruppo is not None, "i comandi della vista non stanno in un gruppo solo"
+    assert 'id="inquadra"' in gruppo.group(1), "«Inquadra» e' fuori dal gruppo dei comandi"
+    assert 'id="confronta"' in gruppo.group(1), "«Confronta» e' fuori dal gruppo dei comandi"
+    contenitore = _elemento(markup, "comandi-vista")
+    assert 'role="group"' in contenitore and "aria-label=" in contenitore, (
+        f"il gruppo non si dichiara a chi non vede: {contenitore}"
+    )
+
+
+# --------------------------------------------------------------------------
 # Il confronto fra due step. La domanda per cui lo strumento esiste — «che cosa
 # ha fatto questo step alla geometria» — non aveva risposta a video: gli undici
 # artefatti si guardavano di fila e mai due insieme.

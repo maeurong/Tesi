@@ -262,7 +262,7 @@ body {
 .registro:empty { border: none; padding: 0; }
 .riga-log { white-space: pre-wrap; word-break: break-word; }
 .zona-vista { position: relative; padding: 0; }
-/* max-width: 50% e non una larghezza in pixel. La didascalia e il comando del
+/* Un limite in percentuale e non una larghezza in pixel. La didascalia e il comando del
    taglio dividono la riga in fondo alla vista, e da quando il confronto le fa
    portare anche il nome dello step — «Semplificazione: 118.394 vertici, 236.784
    triangoli» — arriva a sfiorare il comando: misurati 663 px di didascalia
@@ -275,7 +275,7 @@ body {
    e il velo diventerebbe una fascia dietro due parole invece di stringersi sul
    testo. Con max-width la larghezza resta quella del contenuto e il limite morde
    solo quando serve. */
-.conteggi { position: absolute; bottom: var(--passo-2); left: var(--passo-2); max-width: 50%; margin: 0; padding: var(--passo-1) var(--passo-2); background: var(--velo); border-radius: var(--raggio); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); font-variant-numeric: tabular-nums; color: var(--tenue); text-wrap: pretty; }
+.conteggi { position: absolute; bottom: var(--passo-2); left: var(--passo-2); max-width: calc(50% - var(--passo-2)); margin: 0; padding: var(--passo-1) var(--passo-2); background: var(--velo); border-radius: var(--raggio); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); font-variant-numeric: tabular-nums; color: var(--tenue); text-wrap: pretty; }
 /* Vuoti, i conteggi restavano un rettangolo bianco di 16x8 px sopra la vista,
    misurato a video. Non si tolgono dall'albero, per la stessa ragione della
    riga d'errore: aria-live="polite" vuole una regione viva prima che ci si
@@ -293,16 +293,33 @@ body {
    a meta' si appoggerebbe a sinistra invece di centrarsi, che e' esattamente il
    difetto che questa regola esiste per evitare. */
 .conteggi-al-centro { position: absolute; inset: 0; max-width: none; display: grid; place-content: center; text-align: center; padding: var(--passo-4); background: none; pointer-events: none; }
-/* Il confronto sta in alto a destra sulla vista, che e' l'ultimo angolo libero:
-   i conteggi tengono il basso a sinistra, il taglio il basso a destra, e a una
-   colonna sola i conteggi salgono in alto a sinistra (in fondo al foglio). Tre
-   comandi su quattro angoli, e nessuna coppia si tocca a nessuna larghezza —
-   che e' anche la ragione per cui non ha un velo suo: il fondo di .bottone e'
-   pieno, quindi si legge sulla scena senza aggiungere una superficie.
-   Nessuna regola per [hidden]: un <button> e' inline-block e hidden lo toglie
-   da se'. Il velo serviva a .taglio perche' quello e' un display: flex, che
-   hidden non sovrascrive. */
-.confronto { position: absolute; top: var(--passo-2); right: var(--passo-2); }
+/* I comandi della vista — «Inquadra» e il confronto — stanno insieme in alto a
+   destra, che e' l'unico angolo libero: i conteggi tengono il basso a sinistra,
+   il taglio il basso a destra, e in alto a sinistra i conteggi ci salgono da
+   soli: appena il taglio compare (la regola :has qui sotto) e, sotto i 60rem, a
+   ogni step (in fondo al foglio). La seconda e' la ragione forte: la' l'angolo
+   non e' libero mai, non su dieci step su undici. Un comando messo li' finirebbe
+   sotto la didascalia.
+   Insieme e non in due angoli diversi: comandano la stessa cosa — che cosa la
+   vista mostra e da dove la guarda — e la vicinanza lo dice senza scriverlo,
+   mentre il taglio e' uno strumento sulla geometria e la didascalia si legge.
+   Nessun velo e nessun contorno: dentro ci sono .bottone, che il proprio fondo
+   pieno ce l'hanno gia' (piu' su in questo foglio), quindi si leggono sulla
+   scena senza aggiungere una superficie. Il velo serve a .taglio perche' quello
+   e' un display: flex di controlli nudi.
+   max-width e wrap per la stessa ragione di .conteggi: il testo del confronto
+   nomina lo step — «Confronta con Semplificazione» — e cresce col nome. Oltre il
+   limite il gruppo va a capo e cresce verso il basso, dove non c'e' nessuno,
+   invece di raggiungere la didascalia.
+   Il limite e' meta' vista **meno lo scostamento dal bordo**, e lo e' anche per
+   la didascalia: sotto i 60rem le due scatole sono ancorate alla stessa riga in
+   alto, una a sinistra e una a destra, e a meta' esatta i loro bordi si
+   sovrapporrebbero dei due scostamenti — il gruppo ha fondo pieno, quindi
+   coprirebbe le ultime cifre del conteggio. Al massimo delle due larghezze
+   adesso si affiancano e non si toccano.
+   Nessuna regola per [hidden] sui figli: un <button> e' inline-block, hidden lo
+   toglie da se', e un elemento con display: none non prende il gap. */
+.comandi-vista { position: absolute; top: var(--passo-2); right: var(--passo-2); max-width: calc(50% - var(--passo-2)); display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--passo-2); }
 /* Il comando del taglio sta in basso a destra sulla vista: i conteggi occupano
    gia' l'angolo sinistro. hidden non basta su un elemento con display: flex,
    che lo sovrascriverebbe e lo lascerebbe a video. */

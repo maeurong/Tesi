@@ -33,6 +33,16 @@ export function fuoriDallaVista(centro, vecchioCentro, raggio, fovGradi) {
   ) > semialtezzaVisibile;
 }
 
+// Quanto vale un pixel di trascinamento, in unita' di scena, alla distanza a
+// cui la camera sta guardando. 2*raggio*tan(fov/2) e' l'altezza visibile a
+// quella distanza; divisa per l'altezza della tela da' i millimetri per pixel,
+// ed e' cio' che fa restare sotto il cursore il punto che ci stava.
+// fovGradi arriva come parametro per la stessa ragione di fuoriDallaVista: la
+// funzione si prova da fuori, e il numero vero e' uno solo, FOV_GRADI.
+export function scalaDelloSpostamento(raggio, altezzaTela, fovGradi) {
+  return (2 * raggio * Math.tan((fovGradi * Math.PI) / 360)) / altezzaTela;
+}
+
 // I colori della scena stanno in stile.css con tutti gli altri. Erano quattro
 // esadecimali scritti qui, dove nessuno dei controlli di contrasto del progetto
 // li raggiungeva: il fondo restava uguale a --sfondo solo per la coincidenza di
@@ -80,7 +90,7 @@ export function creaViewport(contenitore) {
   // tastiera. Il ruolo e' "application" e non "img" perche' la tela si comanda
   // davvero dalla tastiera: "img" la annuncerebbe come figura ferma e lo
   // screen reader intercetterebbe le frecce invece di passarle qui.
-  const COMANDI = "frecce per ruotare, piu' e meno per lo zoom";
+  const COMANDI = "frecce per ruotare, maiusc con le frecce o col trascinamento per spostare la vista, piu' e meno per lo zoom, f per inquadrare di nuovo la geometria";
   const tela = renderer.domElement;
   tela.setAttribute("role", "application");
   tela.setAttribute("tabindex", "0");
@@ -126,11 +136,22 @@ export function creaViewport(contenitore) {
 
   let orbita = { theta: 0.7, phi: 1.0, raggio: 1, centro: new THREE.Vector3() };
 
-  // Il primo disegno dopo l'avvio inquadra; dal secondo in poi la camera resta
-  // dove l'utente l'ha messa. Era il «di passaggio in passaggio si riparte da
-  // zero»: la stessa nuvola inquadrata da un altro punto sembra un'altra
-  // nuvola, e mostraNuvola/mostraMesh riscrivevano centro e raggio a ogni step.
-  let inquadrataAlmenoUnaVolta = false;
+  // Il centro dell'ingombro inquadrato l'ultima volta, e null finche' non si e'
+  // inquadrato niente. Il primo disegno dopo l'avvio inquadra; dal secondo in
+  // poi la camera resta dove l'utente l'ha messa. Era il «di passaggio in
+  // passaggio si riparte da zero»: la stessa nuvola inquadrata da un altro
+  // punto sembra un'altra nuvola, e mostraNuvola/mostraMesh riscrivevano centro
+  // e raggio a ogni step.
+  //
+  // Tenuto a parte e non letto da orbita.centro, che sarebbe la stessa cosa
+  // finche' inquadra() ne e' l'unico scrittore: da quando esiste il pan lo
+  // scrive anche trasla(), e la guardia misurerebbe la distanza dal punto in
+  // cui l'utente ha portato la vista invece che da cio' che ha inquadrato.
+  // Zoomato su un dettaglio e traslato lungo il muro, il passaggio di step
+  // riazzererebbe la vista: lo stesso difetto, rientrato per un'altra porta.
+  // Una copia e non un riferimento, per la stessa ragione: al riferimento il
+  // pan sposterebbe anche la memoria.
+  let centroInquadrato = null;
 
   function ridimensiona() {
     const larghezza = contenitore.clientWidth || 1;
@@ -158,6 +179,35 @@ export function creaViewport(contenitore) {
     camera.lookAt(centro);
   }
 
+  // Quaranta pixel per pressione: l'ordine di grandezza di un trascinamento
+  // corto, cosi' il comando da tastiera e quello col mouse spostano la vista
+  // dello stesso passo percepito.
+  const PASSO_TASTIERA = 40;
+
+  // I tre assi della camera, riusati invece di riallocarli a ogni movimento del
+  // puntatore: pointermove scatta a ogni fotogramma mentre si trascina.
+  const destra = new THREE.Vector3();
+  const alto = new THREE.Vector3();
+  const avanti = new THREE.Vector3();
+
+  // Sposta il centro dell'orbita nel piano della camera, di dx e dy pixel di
+  // trascinamento. Gli assi vengono dalla matrice della camera e non da un
+  // sistema fisso: ruotata l'orbita, «destra» non e' piu' l'asse x della scena,
+  // e traslare lungo quello farebbe scorrere la vista di traverso rispetto al
+  // gesto.
+  // I segni fanno seguire il contenuto al dito: trascinando a destra la
+  // geometria va a destra, quindi la camera va a sinistra.
+  // updateMatrixWorld prima di leggerla: lookAt scrive il quaternione, ma la
+  // matrice del mondo three.js la ricalcola al disegno, quindi senza questa
+  // riga si leggerebbero gli assi del fotogramma precedente.
+  function trasla(dx, dy) {
+    const scala = scalaDelloSpostamento(orbita.raggio, tela.clientHeight || 1, camera.fov);
+    camera.updateMatrixWorld();
+    camera.matrixWorld.extractBasis(destra, alto, avanti);
+    orbita.centro.addScaledVector(destra, -dx * scala);
+    orbita.centro.addScaledVector(alto, dy * scala);
+  }
+
   let premuto = false;
   let ultimo = { x: 0, y: 0 };
   tela.addEventListener("pointerdown", (evento) => {
@@ -168,9 +218,18 @@ export function creaViewport(contenitore) {
   tela.addEventListener("pointerup", () => { premuto = false; });
   tela.addEventListener("pointermove", (evento) => {
     if (!premuto) return;
-    orbita.theta -= (evento.clientX - ultimo.x) * 0.005;
-    orbita.phi = Math.min(Math.PI - 0.01, Math.max(0.01, orbita.phi - (evento.clientY - ultimo.y) * 0.005));
+    const dx = evento.clientX - ultimo.x;
+    const dy = evento.clientY - ultimo.y;
     ultimo = { x: evento.clientX, y: evento.clientY };
+    // Maiusc trasla, altrimenti ruota: sul telaio largo 2.759 mm senza pan non
+    // si raggiunge uno spigolo, perche' orbita.centro cambiava solo dentro
+    // inquadra().
+    if (evento.shiftKey) {
+      trasla(dx, dy);
+    } else {
+      orbita.theta -= dx * 0.005;
+      orbita.phi = Math.min(Math.PI - 0.01, Math.max(0.01, orbita.phi - dy * 0.005));
+    }
     aggiornaCamera();
   });
   tela.addEventListener("wheel", (evento) => {
@@ -179,21 +238,46 @@ export function creaViewport(contenitore) {
     aggiornaCamera();
   }, { passive: false });
 
-  // Orbita anche da tastiera, per chi non usa il mouse: frecce per ruotare,
-  // +/- per lo zoom. Stesso passo dei gesti col mouse, solo discretizzato.
+  // Orbita, zoom, traslazione e inquadratura da tastiera, per chi non usa il
+  // mouse: frecce per ruotare, maiusc con le frecce per spostare, +/- per lo
+  // zoom, f per riportare la vista sulla geometria. Stessi gesti del mouse,
+  // solo discretizzati.
+  //
+  // Una tabella sola, e maiusc arriva alla voce invece di scegliere fra due
+  // tabelle. Con due tabelle un tasto non-freccia premuto con maiusc non
+  // trovava nessuna voce e smetteva di funzionare: su una tastiera americana
+  // «+» **e'** maiusc piu' «=», quindi lo zoom sarebbe sparito proprio dove il
+  // segno lo richiede.
+  // Le frecce spostano il punto di vista e non il contenuto, come lo scorrere
+  // di una pagina: freccia sinistra porta la vista a sinistra, cioe' la
+  // geometria scorre a destra.
   tela.addEventListener("keydown", (evento) => {
-    const passi = {
-      ArrowLeft: () => { orbita.theta -= 0.1; },
-      ArrowRight: () => { orbita.theta += 0.1; },
-      ArrowUp: () => { orbita.phi = Math.max(0.01, orbita.phi - 0.1); },
-      ArrowDown: () => { orbita.phi = Math.min(Math.PI - 0.01, orbita.phi + 0.1); },
+    const comandi = {
+      ArrowLeft: (maiusc) => {
+        if (maiusc) trasla(PASSO_TASTIERA, 0);
+        else orbita.theta -= 0.1;
+      },
+      ArrowRight: (maiusc) => {
+        if (maiusc) trasla(-PASSO_TASTIERA, 0);
+        else orbita.theta += 0.1;
+      },
+      ArrowUp: (maiusc) => {
+        if (maiusc) trasla(0, PASSO_TASTIERA);
+        else orbita.phi = Math.max(0.01, orbita.phi - 0.1);
+      },
+      ArrowDown: (maiusc) => {
+        if (maiusc) trasla(0, -PASSO_TASTIERA);
+        else orbita.phi = Math.min(Math.PI - 0.01, orbita.phi + 0.1);
+      },
       "+": () => { orbita.raggio *= 0.9; },
       "-": () => { orbita.raggio *= 1.1; },
+      // L'uscita di sicurezza dalla tastiera, gemella del bottone «Inquadra».
+      f: () => { inquadra(); },
     };
-    const passo = passi[evento.key];
+    const passo = comandi[evento.key];
     if (!passo) return;
     evento.preventDefault();
-    passo();
+    passo(evento.shiftKey);
     aggiornaCamera();
   });
 
@@ -226,19 +310,19 @@ export function creaViewport(contenitore) {
     if (scatola.isEmpty()) return;
     scatola.getCenter(orbita.centro);
     orbita.raggio = scatola.getSize(new THREE.Vector3()).length() * 1.2;
-    inquadrataAlmenoUnaVolta = true;
+    centroInquadrato = orbita.centro.clone();
     aggiornaCamera();
   }
 
   function inquadraSeServe() {
-    if (!inquadrataAlmenoUnaVolta) {
+    if (centroInquadrato === null) {
       inquadra();
       return;
     }
     const scatola = scatolaDelGruppo();
     if (scatola.isEmpty()) return;
     const centro = scatola.getCenter(new THREE.Vector3());
-    if (fuoriDallaVista(centro.toArray(), orbita.centro.toArray(), orbita.raggio, FOV_GRADI)) {
+    if (fuoriDallaVista(centro.toArray(), centroInquadrato.toArray(), orbita.raggio, FOV_GRADI)) {
       inquadra();
     }
   }

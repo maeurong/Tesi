@@ -764,6 +764,11 @@ function riallineaTaglio(numero) {
 quotaTaglio.addEventListener("input", applicaTaglio);
 asseTaglio.addEventListener("change", () => riallineaTaglio(stepMostrato));
 
+// L'uscita di sicurezza del pan. La camera non si reinquadra piu' da sola a
+// ogni step (viewport.js, inquadraSeServe), quindi il ritorno all'ingombro
+// deve essere un comando che si vede.
+document.getElementById("inquadra").addEventListener("click", () => vista.inquadra());
+
 document.getElementById("elenco-step").addEventListener("click", (evento) => {
   const riga = evento.target.closest(".step");
   if (!riga) return;
