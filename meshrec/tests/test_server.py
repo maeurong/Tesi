@@ -1359,8 +1359,15 @@ const vista = {
   mostraNuvola(vertici) { scritture.push(`nuvola:${vertici.length / 3}`); },
   mostraMesh(vertici) { scritture.push(`mesh:${vertici.length / 3}`); },
 };
+// classList: scriviConteggi sposta la riga dei conteggi fra il centro della
+// zona (nessuna geometria) e l'angolo (geometria a video). Al banco la
+// posizione non interessa, ma un nodo finto senza classList fa sollevare la
+// funzione prima ancora della prima fetch, e il banco fallisce dicendo «le due
+// richieste non sono partite» invece del vero motivo.
 const document = {
-  getElementById: () => ({ textContent: '', setAttribute() {}, removeAttribute() {} }),
+  getElementById: () => ({
+    textContent: '', setAttribute() {}, removeAttribute() {}, classList: { toggle() {} },
+  }),
 };
 function riallineaTaglio(numero) { scritture.push(`riallinea:${numero}`); }
 
@@ -1451,6 +1458,7 @@ def test_fra_due_geometrie_della_stessa_generazione_vince_chi_e_partita_dopo(num
             "superata",
             "apriGeometria",
             "nomeDelloStep",
+            "scriviConteggi",
             "dichiaraCaricamento",
             "chiudiCaricamento",
             "serverMuto",

@@ -741,7 +741,8 @@ def _banco_di_geometria() -> str:
     `ultimaGeometria` li distingue.
     """
     return _DOM + _funzioni(
-        "apriGeometria", "superata", "nomeDelloStep", "dichiaraCaricamento", "chiudiCaricamento",
+        "apriGeometria", "superata", "nomeDelloStep", "scriviConteggi",
+        "dichiaraCaricamento", "chiudiCaricamento",
         "serverMuto", "ragioneDelRifiuto", "corpoBinarioLetto", "messaggioArtefattoMancante",
         "messaggioDownloadInterrotto", "segnalaArtefattoMancante",
         "mostraNuvolaDelloStep", "mostraStep",
@@ -2539,7 +2540,7 @@ ETICHETTE["09_tetrahedralize"] = "Tetraedri";
 let svuotate = 0;
 const vista = { svuota() { svuotate += 1; } };
 let ultimiSteps = [{ numero: 9, chiave: "09_tetrahedralize", stato: "valido" }];
-""" + _funzioni("nomeDelloStep", "dichiaraCaricamento") + """
+""" + _funzioni("nomeDelloStep", "scriviConteggi", "dichiaraCaricamento") + """
 dichiaraCaricamento(9);
 assert.equal(svuotate, 1, "la geometria di prima e' rimasta a video");
 const didascalia = document.getElementById("conteggi").textContent;
@@ -2728,6 +2729,15 @@ disegnaTabellaGalleria({
 });
 const tabella = document.getElementById("galleria-tabella").figli[0];
 // figli[0] e' <caption>, figli[1] <thead>, figli[2] <tbody>.
+// La <caption> resta — e' il nome accessibile della tabella — ma fuori vista:
+// e' centrata sulla larghezza della TABELLA e non del riquadro, misurati 1013
+// px dentro 319, cioe' un titolo che a riposo non e' a video affatto. E' lo
+// stesso difetto gia' corretto spostando #galleria-didascalia fuori dal
+// riquadro che scorre, rientrato da un'altra porta.
+assert.equal(
+  tabella.figli[0].className, "fuori-vista",
+  "la didascalia della tabella e' tornata a scorrere fuori dal riquadro",
+);
 const righe = tabella.figli[2].figli;
 const testi = righe.map((r) => r.figli.map((c) => c.textContent));
 assert.notEqual(testi[0][0], testi[1][0], "le due righe non si distinguono per testo");

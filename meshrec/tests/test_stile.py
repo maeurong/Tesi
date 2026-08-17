@@ -105,3 +105,71 @@ def test_il_registro_vuoto_non_e_una_striscia_bordata():
     legge come un campo di testo rotto. .conteggi:empty ha gia' lo stesso
     rimedio da un giro."""
     assert ".registro:empty" in _senza_commenti(), "il registro vuoto resta una striscia"
+
+
+def test_la_prosa_dichiara_il_proprio_margine():
+    """Un <p> senza margine proprio prende quello del browser, 1em, che su
+    --tipo-nota fa 13 px: un valore che non sta nella scala e che il foglio
+    dice di aver tolto. Misurato a video prima della correzione, e' il salto
+    fra un titolo e il suo aiuto in cinque punti del pannello: 13 px contro i
+    24 px che separano due gruppi, cioe' due intervalli quasi uguali dove il
+    disegno ne vuole due diversi. Il controllo guarda che il margine ci sia,
+    non quanto vale: e' l'assenza a lasciar rientrare il valore del browser."""
+    testo = _senza_commenti()
+    for regola in ("p.aiuto", ".vuoto"):
+        trovata = re.search(rf"{re.escape(regola)}\s*{{([^}}]*)}}", testo)
+        assert trovata is not None, f"la regola {regola} non si trova piu'"
+        assert "margin" in trovata.group(1), (
+            f"{regola} non dichiara un margine: torna quello del browser, fuori scala"
+        )
+
+
+def test_lelenco_vuoto_degli_esperimenti_non_lascia_il_salto_di_un_gruppo():
+    """.azioni porta 24 px sotto di se', che e' il salto fra due gruppi. Senza
+    una cartella experiments/ accanto alla corsa — il caso comune mentre si
+    lavora a uno step — l'elenco e' alto zero e quei 24 px separavano due cose
+    che non c'erano. Terzo caso della famiglia di .registro:empty."""
+    assert ".azioni:empty" in _senza_commenti(), "l'elenco vuoto lascia ancora il suo salto"
+
+
+def test_la_pagina_non_scorre_di_lato_per_la_tabella_della_galleria():
+    """La tabella dei candidati e' larga 1013 px dentro un riquadro da 467, e
+    il riquadro scorre gia' per conto suo. La sua larghezza contava pero'
+    ancora nel traboccamento della pagina: a 500 px di finestra si scorreva
+    l'intera pagina di 521 px verso destra, fino a un rettangolo vuoto, con
+    l'applicazione fuori dallo schermo. Misurato, e nessun antenato dichiarava
+    di traboccare: senza contenere la pittura, overflow-x da solo non basta."""
+    testo = _senza_commenti()
+    trovata = re.search(r"\.galleria-tabella\s*{([^}]*)}", testo)
+    assert trovata is not None, "la regola del riquadro della galleria non si trova piu'"
+    assert "contain" in trovata.group(1), (
+        "il riquadro non e' contenuto: la sua larghezza torna a far scorrere la pagina"
+    )
+
+
+def test_le_zone_possono_stringersi_sotto_il_loro_contenuto():
+    """Una casella di griglia parte da min-width: auto e non scende sotto il
+    contenuto piu' largo. La tela della vista e' larga quanto il contenitore e
+    il contenitore quanto la tela: stringendo la finestra dal vivo la colonna
+    restava alla misura di prima — misurata una tela da 800 px dentro una
+    finestra da 500 — e il ResizeObserver di viewport.js non vedeva mai il
+    restringimento, perche' a impedirlo era la tela stessa."""
+    trovata = re.search(r"\.zona\s*{([^}]*)}", _senza_commenti())
+    assert trovata is not None, "la regola delle zone non si trova piu'"
+    assert re.search(r"min-width:\s*0", trovata.group(1)), (
+        "le zone non si stringono sotto il contenuto: la vista resta larga come prima"
+    )
+
+
+def test_linvito_della_vista_non_viene_riancorato_a_una_colonna_sola():
+    """Senza geometria la riga dei conteggi non e' una didascalia: e' l'unico
+    contenuto della zona piu' grande dello schermo, distesa e centrata. La
+    regola a una colonna sposta i conteggi in cima per non farli scontrare col
+    comando del taglio, e scritta senza esclusione rimetterebbe in un angolo
+    proprio la frase che l'utente successivo legge per prima."""
+    testo = _senza_commenti()
+    assert ".conteggi-al-centro" in testo, "l'invito non ha piu' una posizione sua"
+    trovata = re.search(r"\.conteggi(:not\(\.conteggi-al-centro\))?\s*{[^}]*bottom:\s*auto", testo)
+    assert trovata is not None and trovata.group(1) is not None, (
+        "la regola a una colonna riancora anche l'invito, non solo la didascalia"
+    )

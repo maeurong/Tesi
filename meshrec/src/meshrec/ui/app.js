@@ -357,12 +357,25 @@ function apriGeometria() {
 // didascalia» contro cui esistono le due generazioni, vista dall'altro capo: le
 // generazioni difendono dalle scritture vecchie, questa dalle letture vecchie
 // ancora a video.
+// La riga sotto la vista ha due mestieri, e finora aveva un posto solo. Con una
+// geometria a video e' la didascalia di quella geometria, e sta nell'angolo in
+// basso a sinistra per non coprirla. Senza geometria — prima apertura, artefatto
+// mancante, caricamento in corso — non e' la didascalia di niente: e' l'unico
+// contenuto di un rettangolo che a 1440 px misura 800x541, e nell'angolo di un
+// rettangolo vuoto e' esattamente il punto in cui non si guarda. Una superficie
+// sola per tutte e quattro le scritture, cosi' la posizione non puo' divergere
+// dallo stato in un ramo solo.
+function scriviConteggi(testo, conGeometria) {
+  const riga = document.getElementById("conteggi");
+  riga.textContent = testo;
+  riga.classList.toggle("conteggi-al-centro", !conGeometria);
+}
+
 // Nessuna percentuale: le librerie non ne danno una. Si dice che cosa si sta
 // leggendo, che e' un fatto e non una stima.
 function dichiaraCaricamento(numero) {
   vista.svuota();
-  document.getElementById("conteggi").textContent =
-    `caricamento di ${nomeDelloStep(numero, ultimiSteps)}...`;
+  scriviConteggi(`caricamento di ${nomeDelloStep(numero, ultimiSteps)}...`, false);
   document.getElementById("viewport").setAttribute("aria-busy", "true");
 }
 
@@ -426,7 +439,7 @@ function segnalaArtefattoMancante(messaggio) {
   // precedente mentre il testo dice che non c'e' nulla. Una vista che
   // contraddice la sua didascalia e' peggio di una vista vuota.
   vista.svuota();
-  document.getElementById("conteggi").textContent = messaggio;
+  scriviConteggi(messaggio, false);
 }
 
 async function mostraNuvolaDelloStep(numero, ordine) {
@@ -457,8 +470,9 @@ async function mostraNuvolaDelloStep(numero, ordine) {
   vista.svuota();
   vista.mostraNuvola(new Float32Array(grezzi));
   // Sempre entrambi: una nuvola decimata che non lo dichiara e' un dato falso.
-  document.getElementById("conteggi").textContent =
-    `${disegnati.toLocaleString("it")} punti disegnati su ${pieni.toLocaleString("it")}`;
+  scriviConteggi(
+    `${disegnati.toLocaleString("it")} punti disegnati su ${pieni.toLocaleString("it")}`, true,
+  );
   // Vero solo se questa risposta ha davvero scritto: il cursore del taglio si
   // rifa' sull'ingombro di cio' che e' disegnato, e rifarlo dopo una risposta
   // scartata lo tarerebbe sulla geometria di qualcun altro.
@@ -509,8 +523,9 @@ async function mostraStep(numero, ordine) {
   );
   // I conteggi sono quelli che il server ha contato sull'artefatto: per lo
   // step 9 sono i vertici e i triangoli del contorno, non i nodi del volume.
-  document.getElementById("conteggi").textContent =
-    `${vertici.toLocaleString("it")} vertici, ${triangoli.toLocaleString("it")} triangoli`;
+  scriviConteggi(
+    `${vertici.toLocaleString("it")} vertici, ${triangoli.toLocaleString("it")} triangoli`, true,
+  );
   return true;
 }
 
@@ -1679,6 +1694,15 @@ function disegnaTabellaGalleria(corpo) {
   });
   const tabella = document.createElement("table");
   const nome = document.createElement("caption");
+  // Fuori vista e non tolta: e' il nome accessibile della tabella e deve
+  // restare nell'albero, ma a video era il difetto gia' corretto una volta per
+  // #galleria-didascalia, tornato da un'altra porta. Una <caption> e' centrata
+  // sulla larghezza della TABELLA, non del riquadro: misurata, 1013 px di
+  // tabella dentro 319 px di colonna, cioe' un titolo che al primo sguardo non
+  // e' a video affatto e compare solo scorrendo a meta'. Il nome dell'
+  // esperimento sta gia' scritto, fermo e leggibile, nella didascalia sopra il
+  // riquadro.
+  nome.className = "fuori-vista";
   nome.textContent = nomeDelRegistro;
   tabella.append(nome, testa, corpoTabella);
   contenitore.append(tabella);

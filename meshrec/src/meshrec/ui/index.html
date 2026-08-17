@@ -32,15 +32,27 @@
          concetto su cui l'intero strumento e' costruito e non era spiegato in
          nessun punto: chi arriva dopo lo legge come «rotto» e riesegue tutto
          invece di riprendere da dove serve. Statica nel markup perche' le
-         quattro parole vengono da steps.run_state e non cambiano con la corsa. -->
-    <p class="aiuto">
-      Undici step in fila: ognuno lavora sul risultato del precedente.
-      <strong>valido</strong> = l'artefatto sul disco è stato prodotto proprio
-      da questi parametri. <strong>non valido</strong> = i parametri sono
-      cambiati dopo: l'artefatto è vecchio, non guasto, e si riallinea
-      rieseguendo lo step. <strong>mai eseguito</strong> e
-      <strong>fallito</strong> si spiegano da sé.
-    </p>
+         quattro parole vengono da steps.run_state e non cambiano con la corsa.
+         Ripiegata dentro un <details>, e non piu' distesa: aperta misurava 160
+         px in cima al contenitore che scorre, e su una finestra alta 900 px la
+         colonna serviva 636 px in 541, cioe' l'undicesimo step — Esportazione,
+         l'uscita del prodotto — restava fuori vista senza che niente lo
+         dicesse. Fuori dalla piega resta la frase che dice la forma della
+         pipeline; dentro le quattro definizioni, che si leggono una volta.
+         E' il principio 5 applicato al posto giusto: chi arriva dopo trova
+         l'insegnamento a un clic e con la sua etichetta, chi la pipeline la sa
+         a memoria non ci ripassa ogni volta. -->
+    <p class="aiuto">Undici step in fila: ognuno lavora sul risultato del precedente.</p>
+    <details class="legenda">
+      <summary>Che cosa vogliono dire i quattro stati</summary>
+      <p class="aiuto">
+        <strong>valido</strong> = l'artefatto sul disco è stato prodotto proprio
+        da questi parametri. <strong>non valido</strong> = i parametri sono
+        cambiati dopo: l'artefatto è vecchio, non guasto, e si riallinea
+        rieseguendo lo step. <strong>mai eseguito</strong> e
+        <strong>fallito</strong> si spiegano da sé.
+      </p>
+    </details>
     <ol class="elenco-step" id="elenco-step"></ol>
   </nav>
   <section class="zona zona-vista" aria-label="Vista tridimensionale">
@@ -48,7 +60,13 @@
     <!-- Nasce con una frase e non vuota: alla prima apertura il 55% della
          finestra e' un rettangolo scuro senza didascalia, e niente dice che si
          comincia scegliendo uno step. app.js la sovrascrive al primo clic. -->
-    <p class="conteggi" id="conteggi" aria-live="polite">Scegli uno step a sinistra per vederne la geometria.</p>
+    <!-- Nasce al centro e non nell'angolo: finche' non c'e' geometria questa
+         riga non e' la didascalia di qualcosa, e' l'unico contenuto di 800x541
+         px vuoti, e in basso a sinistra e' il punto che non si guarda. Il
+         detto «a sinistra» e' caduto perche' a una colonna sola la pipeline
+         sta sopra, non a sinistra: era falso proprio sulla larghezza in cui
+         serve di piu'. app.js rimette la riga nell'angolo appena disegna. -->
+    <p class="conteggi conteggi-al-centro" id="conteggi" aria-live="polite">Scegli uno step per vederne la geometria.</p>
     <!-- Il comando del taglio. Nasce nascosto: app.js lo mostra solo dove c'e'
          un volume disegnato, e l'intervallo del cursore lo scrive da li'
          leggendo l'ingombro della geometria. min, max e step non stanno qui

@@ -115,7 +115,17 @@ body {
    Un punto di rottura in piu' avrebbe risolto una fascia sola; cedere le
    laterali risolve tutte le larghezze intermedie con una riga. */
 .tre-zone { display: grid; grid-template-columns: minmax(12rem, 18rem) 1fr minmax(16rem, 22rem); flex: 1; min-height: 0; }
-.zona { padding: var(--passo-4); overflow: auto; }
+/* min-width: 0 perche' una casella di griglia parte da min-width: auto, cioe'
+   non si stringe sotto il contenuto piu' largo che ha dentro. La tela della
+   vista e' larga quanto il contenitore, e il contenitore quanto la tela: a una
+   colonna sola, stringendo la finestra, la colonna restava ferma alla misura
+   di prima — misurata una tela da 800 px dentro una finestra da 500 — e il
+   ResizeObserver di viewport.js non vedeva mai il restringimento, perche' era
+   la tela stessa a impedirlo. Si vede solo ridimensionando dal vivo (una
+   finestra trascinata, uno zoom al 200%): ricaricando la pagina la tela nasce
+   della misura giusta e il difetto sparisce, che e' il modo in cui e' rimasto
+   nascosto. */
+.zona { padding: var(--passo-4); overflow: auto; min-width: 0; }
 .zona-step, .zona-dettaglio { background: var(--superficie); }
 .zona-step { border-right: 1px solid var(--bordo); }
 .zona-dettaglio { border-left: 1px solid var(--bordo); }
@@ -133,7 +143,9 @@ body {
 .viewport canvas:focus-visible { outline: 2px solid var(--accento); outline-offset: -2px; }
 /* Lo stato vuoto insegna a chi non conosce gli undici step: e' prosa, quindi
    prende la misura leggibile e non la larghezza del pannello. */
-.vuoto { color: var(--tenue); font-size: var(--tipo-corpo); line-height: var(--interlinea); max-width: var(--misura); text-wrap: pretty; }
+/* margin: 0 per la stessa ragione di p.aiuto: e' un <p>, e senza una regola
+   propria staccava 16 px dal titolo del pannello invece degli 8 del titolo. */
+.vuoto { margin: 0; color: var(--tenue); font-size: var(--tipo-corpo); line-height: var(--interlinea); max-width: var(--misura); text-wrap: pretty; }
 /* Il titolo delle metriche lo scrive app.js come h3: senza una regola
    prenderebbe la misura del browser, che non sta in nessuna scala. */
 .zona h3 { font-size: var(--tipo-dato); line-height: var(--interlinea-riga); font-weight: 600; margin: var(--passo-6) 0 var(--passo-2); }
@@ -146,6 +158,13 @@ body {
    contorno resta pieno perche' l'elemento c'e' ancora e non deve sparire. */
 .bottone:disabled { color: var(--tenue); cursor: default; }
 .bottone:disabled:hover { background: var(--superficie); }
+/* Il bottone premuto della galleria. app.js scrive gia' aria-pressed su tutti
+   e tre — lo dichiara a chi non vede — ma a video i due esperimenti restavano
+   identici: guardando una tabella di undici candidati non c'era modo di sapere
+   di quale esperimento fosse. Stessi due canali dello step aperto (fondo piu'
+   filetto), perche' e' la stessa domanda posta in un'altra colonna: quale di
+   questi sto guardando. */
+.bottone[aria-pressed="true"] { background: var(--evidenza); box-shadow: inset 2px 0 0 var(--accento); }
 /* Un solo ceto primario in tutta l'interfaccia: l'esecuzione dello step aperto.
    Il contorno da solo non distingue un'azione che costa minuti e riscrive
    centinaia di MB da una che carica una tabella di sola lettura, e i tre
@@ -189,6 +208,13 @@ body {
    riga d'errore: aria-live="polite" vuole una regione viva prima che ci si
    scriva dentro. Si toglie solo cio' che si vede. */
 .conteggi:empty { padding: 0; background: none; }
+/* Senza geometria la riga non e' una didascalia: e' l'unico contenuto della
+   zona piu' grande dello schermo, e la prima cosa che l'utente successivo
+   legge. Occupa tutta la zona e si centra da se': nessuna coordinata scritta a
+   mano, quindi nessun numero che smetta di tornare quando cambia la testata.
+   pointer-events: none perche' distesa sopra la tela coprirebbe la rotazione
+   della scena nell'istante in cui la geometria arriva. */
+.conteggi-al-centro { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; padding: var(--passo-4); background: none; pointer-events: none; }
 /* Il comando del taglio sta in basso a destra sulla vista: i conteggi occupano
    gia' l'angolo sinistro. hidden non basta su un elemento con display: flex,
    che lo sovrascriverebbe e lo lascerebbe a video. */
@@ -224,6 +250,12 @@ body {
 .stato-non-valido .step-stato { color: var(--avviso); font-weight: 600; }
 .stato-fallito .step-stato { color: var(--guasto); font-weight: 600; }
 .azioni { display: flex; gap: var(--passo-2); flex-wrap: wrap; margin-bottom: var(--passo-6); }
+/* Stesso rimedio di .registro:empty e .conteggi:empty, terzo caso della stessa
+   famiglia: l'elenco degli esperimenti e' vuoto finche' non c'e' una cartella
+   experiments/ accanto alla corsa — il caso comune mentre si lavora a uno step
+   — e alto zero lasciava comunque i suoi 24 px, cioe' un salto fra due gruppi
+   dove non c'e' nessun gruppo. */
+.azioni:empty { margin-bottom: 0; }
 .gruppo { border: 1px solid var(--bordo); border-radius: var(--raggio); padding: var(--passo-3); margin: 0 0 var(--passo-3); }
 .gruppo legend { font-size: var(--tipo-nota); line-height: var(--interlinea-riga); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--tenue); }
 .campo { display: grid; gap: var(--passo-1); margin-bottom: var(--passo-3); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); }
@@ -252,12 +284,30 @@ body {
 .segno-cambiato { color: var(--tenue); }
 /* La piega dei predefiniti. Il triangolo resta quello del browser: e' un
    affordance standard, e riscriverlo sarebbe reinventare un comando che tutti
-   riconoscono. */
+   riconoscono.
+   La legenda degli stati e' la seconda piega dell'interfaccia e prende le
+   stesse regole invece di regole sue: due pieghe che si aprono allo stesso
+   modo si riconoscono come un solo comando. */
 .gruppo details { margin-top: var(--passo-2); }
-.gruppo summary { font-size: var(--tipo-nota); line-height: var(--interlinea-riga); color: var(--tenue); cursor: pointer; padding: var(--passo-1) 0; }
-.gruppo summary:focus-visible { outline: 2px solid var(--accento); outline-offset: 2px; }
-.gruppo details[open] summary { margin-bottom: var(--passo-2); }
+.legenda { margin-bottom: var(--passo-3); }
+.gruppo summary, .legenda summary { font-size: var(--tipo-nota); line-height: var(--interlinea-riga); color: var(--tenue); cursor: pointer; padding: var(--passo-1) 0; }
+.gruppo summary:focus-visible, .legenda summary:focus-visible { outline: 2px solid var(--accento); outline-offset: 2px; }
+.gruppo details[open] summary, .legenda[open] summary { margin-bottom: var(--passo-2); }
+/* Dentro la piega il margine sotto e' gia' quello della piega stessa. */
+.legenda p.aiuto { margin-bottom: 0; }
 .aiuto { color: var(--tenue); font-size: var(--tipo-nota); line-height: var(--interlinea); max-width: var(--misura); text-wrap: pretty; }
+/* La scala di spaziatura dichiarata in :root non arrivava a video sulla prosa.
+   Un <p> senza margine proprio prende quello del browser, 1em, e su
+   --tipo-nota fa 13 px: misurato in cinque punti del pannello. E' esattamente
+   il genere di valore che il commento della scala dice di aver tolto dal
+   foglio, rientrato dalla porta di servizio. Con 13 px il salto DENTRO un
+   gruppo (titolo → aiuto) e quello FRA due gruppi (aiuto → titolo seguente,
+   24 px) stavano a 1,85 di distanza: due intervalli quasi uguali non fanno
+   ritmo, fanno una colonna piatta in cui i gruppi non si vedono. Azzerato
+   sopra — comanda il margine del titolo, 8 px — e portato a 12 px sotto, il
+   rapporto torna 3 a 1. Solo su <p>: .aiuto marca anche <small> dentro .campo
+   e .metriche, dove il ritmo e' quello stretto della griglia che li contiene. */
+p.aiuto { margin: 0 0 var(--passo-3); }
 .metriche { display: grid; grid-template-columns: auto 1fr; gap: var(--passo-1) var(--passo-3); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); }
 .metriche dt { color: var(--tenue); }
 /* Il valore e' un numero misurato: cifre tabulari, cosi' due metriche
@@ -271,7 +321,17 @@ body {
 /* La colonna della galleria e' stretta (22rem) e la tabella dei candidati ha
    otto colonne: scorre in orizzontale dentro il proprio contenitore, non la
    pagina. */
-.galleria-tabella { overflow-x: auto; }
+/* contain: paint e non il solo overflow-x. Il riquadro scorreva gia' per conto
+   suo — misurati 1013 px di tabella dentro 467 di riquadro — ma la sua
+   larghezza continuava a contare nel traboccamento della PAGINA: a 500 px di
+   finestra si scorreva la pagina intera di 521 px verso destra, fino a un
+   rettangolo vuoto, e l'applicazione usciva dallo schermo. Nessun antenato
+   dichiarava di traboccare (misurati tutti a 500 px), quindi non c'era niente
+   da correggere piu' in alto: e' la tabella che va contenuta dove sta.
+   Contenere la pittura da' anche un blocco contenitore alla <caption>
+   assoluta, che cosi' resta dentro il riquadro invece di misurarsi sulla
+   pagina. */
+.galleria-tabella { overflow-x: auto; contain: paint; }
 /* Raggiungibile da tastiera e senza contorno sarebbe una tappa cieca, cioe' un
    difetto al posto di una correzione. Stesso contorno del registro, non uno suo. */
 .galleria-tabella:focus-visible { outline: 2px solid var(--accento); outline-offset: 2px; }
@@ -357,8 +417,19 @@ body {
   body { height: auto; min-height: 100vh; }
   .tre-zone { grid-template-columns: 1fr; }
   .zona-vista { min-height: 60vh; }
+  /* La riga dello step e' nome a sinistra e stato a destra, e a una colonna
+     sola si prende tutta la finestra: al punto di rottura sono 960 px, con
+     circa 800 px di vuoto fra «Lettura» e «fallito». Lo stato e' l'annotazione
+     del nome — lo dice il commento di .step-stato — e un'annotazione a mezzo
+     schermo dal suo nome non annota piu' niente. Il limite e' la misura
+     leggibile che il foglio usa gia' per la prosa: taglia dove il vuoto
+     diventa grande e resta inerte sotto i ~600 px, dove la riga e' gia' piu'
+     stretta della misura e non c'e' niente da tagliare. */
+  .elenco-step { max-width: var(--misura); }
   /* Su una colonna sola i conteggi e il comando del taglio si sovrappongono
      (misurato: si toccano gia' a 700 px). I conteggi salgono in cima: sono
-     una didascalia della vista, e la' non coprono nulla. */
-  .conteggi { top: var(--passo-2); bottom: auto; }
+     una didascalia della vista, e la' non coprono nulla. Non quando sono
+     l'invito: quello e' disteso su tutta la zona e si centra da se', e
+     ancorarlo in cima lo riporterebbe a essere una didascalia di niente. */
+  .conteggi:not(.conteggi-al-centro) { top: var(--passo-2); bottom: auto; }
 }
