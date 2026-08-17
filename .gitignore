@@ -29,5 +29,13 @@ Cartella di lavoro Abaqus/
 /fonti bibliografiche.docx
 /muro_1.pdf
 
+# Cartelle di corsa prodotte dai test. `run.out_dir` e' relativo, quindi una
+# suite lanciata dalla radice del repository scrive qui una `runs/default/`
+# che non e' materiale del progetto: le corse vere stanno in `meshrec/runs/`,
+# e nemmeno quelle sono versionate. La barra iniziale limita la regola alla
+# radice, come per /node_modules/ qui sopra: `meshrec/runs/` resta libera di
+# essere versionata il giorno in cui servisse.
+/runs/
+
 # Rumore del Finder, dal passaggio a macOS del 16/08/2026.
 .DS_Store
