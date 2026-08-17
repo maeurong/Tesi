@@ -18,20 +18,22 @@
 - **Commit.** Conventional Commits in italiano, via la skill `caveman:caveman-commit`. Trailer `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>`.
 - **Sola lettura, mai toccare.** `meshrec/runs/muro/`, `meshrec/runs/lab_crop/`, `meshrec/experiments/muro/`, `meshrec/experiments/lab_crop/` sono corse di riferimento. `meshrec/runs/` non è nel repository (gitignored) e **non esiste dentro il worktree**: nessun test può leggerlo. I test costruiscono corse sintetiche in `tmp_path`, come già fa `tests/test_server.py`.
 - **Il contratto della tratta.** Nessun endpoint solleva verso il browser: il gestore generico di `app/server.py` risponde 400 con `{"errore", "messaggio"}`. Vale anche per i due endpoint nuovi.
-- **`core/` non si tocca.** In particolare `core/config.py:284` (`save_config`), che è chiamata anche da `pipeline` e `sweep`.
+- **`core/` non si tocca.** In particolare `core/config.py:441` (`save_config`), che è chiamata anche da `pipeline` e `sweep`.
 - **Nessun colore scritto a mano nel CSS.** `tests/test_stile.py` lo sorveglia: ogni colore passa da un token `var(--...)` già dichiarato.
 - **Comandi.** Test: `cd meshrec && uv run pytest`. Un solo file: `uv run pytest tests/test_viewport_js.py -v`. Server: `uv run meshrec serve`. Su macOS non esiste `timeout`: usare il parametro del proprio strumento.
-- **Base.** Il ramo parte da `59ab9c9` (punta di `fase-3-interfaccia`). Al commit `ade3658` la suite è **402 selezionati su 408 raccolti, 6 deselezionati**. Rileggere il numero all'inizio del lavoro: la critica del giro 3 ne aggiunge, e il piano non deve citare un conteggio invecchiato.
+- **Base.** Il ramo parte da `c044007` (punta di `fix/critica-giro-3`, che è dove la Fase 3 si è chiusa davvero). Misurata su quella base: **494 passed, 3 skipped, 6 deselected**. I 6 deselezionati restano 6.
+
+  > **Il piano è stato riletto contro `c044007` il 17/08/2026.** La prima stesura leggeva il codice a `59ab9c9`, punta di `fase-3-interfaccia`, e i due rami erano divergenti da `be758b2`: fra le due punte sono cambiati `app/server.py`, `app/worker.py`, `ui/app.js` (+1111 righe), `ui/index.html`, `ui/stile.css`, `ui/viewport.js` e cinque file di test. Numeri di riga, frammenti citati e conteggio dei test di questo piano sono stati riverificati uno per uno contro l'albero nuovo. Dove il codice nuovo smentiva un passo, il passo è stato riscritto e la ragione è annotata sul posto.
 
 ## Scostamenti dalla spec, dichiarati
 
 Tre punti in cui il piano non segue la spec alla lettera. Sono decisioni prese leggendo il codice vero, non semplificazioni silenziose.
 
-1. **La tabella step → artefatto sta nel server, non in `ui/app.js`.** La spec la assegna ad `app.js` (§ 3), ma la riga dello step 8 della sua stessa tabella (§ 5) sceglie fra due *nomi di file* in base a `cfg.simplify.enabled`. Oggi il browser non conosce nessun nome di artefatto e non ha la configurazione caricata all'avvio (`ui/app.js:391`, `configurazione` resta `null` finché non si apre un pannello). Metterla lì significherebbe insegnare al browser i nomi dei file e aggiungere una richiesta all'avvio. Nel server la decisione è a costo zero. Il browser riceve il risultato nell'intestazione `X-Da-Step` e lo dichiara: il contenuto della § 5 è rispettato per intero.
+1. **La tabella step → artefatto sta nel server, non in `ui/app.js`.** La spec la assegna ad `app.js` (§ 3), ma la riga dello step 8 della sua stessa tabella (§ 5) sceglie fra due *nomi di file* in base a `cfg.simplify.enabled`. Oggi il browser non conosce nessun nome di artefatto e non ha la configurazione caricata all'avvio (`ui/app.js:803`, `configurazione` nasce `null` e viene scritta solo dentro `apriDettaglio` a `:1667` e `scriviParametro` a `:1170`, cioè non prima che si apra un pannello). Metterla lì significherebbe insegnare al browser i nomi dei file e aggiungere una richiesta all'avvio. Nel server la decisione è a costo zero. Il browser riceve il risultato nell'intestazione `X-Da-Step` e lo dichiara: il contenuto della § 5 è rispettato per intero.
 
 2. **Il fantasma nasce solo dove serve, e l'interruttore con lui.** La spec (§ 6) accende il fantasma di default sugli step 2, 3 e 8 e lascia «un interruttore» altrove. Il piano ferma il fantasma a quei tre step e mostra l'interruttore solo lì. Sugli step 7, 10 e 11 la geometria corrente *è già* quella dello step precedente (dopo il Task 3), quindi il fantasma disegnerebbe la stessa cosa due volte; sul 5 contro il 6 è lo z-fighting che la spec stessa cita. L'interruttore su uno step dove il fantasma non esiste sarebbe un comando che non fa nulla. Se all'uso i tre step si rivelano pochi, la tabella `FANTASMA_DI` è una riga.
 
-3. **Il messaggio dell'undo esce dalla regione `role="alert"`.** L'interfaccia ne ha una sola (`#errore`), e non ha una regione neutra. Il precedente citato dalla spec — il bottone Annulla — fu chiuso spegnendo il bottone, non con un messaggio, quindi non c'è un posto già pronto. Riusare `#errore` è la strada corta e l'annuncio è garantito. Resta come debito nel Task 8.
+3. **Il messaggio dell'undo esce dalla regione `#esito`, non da `role="alert"`.** La prima stesura di questo piano diceva che l'interfaccia ha una sola regione viva, `#errore`, e che non esiste una regione neutra: alla rilettura contro `c044007` è falso. `#esito` è una regione viva neutra, `aria-live="polite"`, dichiarata nel markup a `ui/index.html:20` con scrittore unico `mostraEsito(errore, esito)` a `ui/app.js:120-124`. Il commento a `ui/app.js:110-116` dice anche perché è nata: *«Il fallimento andava in #errore, che vive nella colonna del dettaglio, e apriDettaglio la svuota a ogni apertura: l'annuncio spariva il tempo di due fetch dopo essere comparso»*. È esattamente il difetto in cui il Task 8 stava per ricadere — `chiediStorico` scrive il messaggio e due righe sotto chiama `apriDettaglio`, che fa `dichiaraErrore(null)` a `ui/app.js:1680`. Il messaggio dell'undo va quindi in `#esito`, che è il posto già pronto, e il debito «regione `role="alert"` usata anche per messaggi non d'errore» **non nasce**: è uscito dalla chiusura del ramo.
 
 ---
 
@@ -55,7 +57,7 @@ Tre punti in cui il piano non segue la spec alla lettera. Sono decisioni prese l
 ### Task 1: La camera non si azzera
 
 **Files:**
-- Modify: `meshrec/src/meshrec/ui/viewport.js` (aggiungere in cima al modulo; sostituire `inquadra()` a `:187` e `:199`)
+- Modify: `meshrec/src/meshrec/ui/viewport.js` (aggiungere in cima al modulo; sostituire `inquadra()` a `:270` e `:282`)
 - Create: `meshrec/tests/test_viewport_js.py`
 
 **Interfaces:**
@@ -82,9 +84,9 @@ sono quelle che sorvegliano *chi chiama chi*, che eseguendo non si vedrebbe.
 
 ponytail: il banco (_node, _esegui, _sorgente_di) e' ricopiato da
 tests/test_app_js.py invece di essere condiviso in un conftest. Condividerlo
-vorrebbe dire toccare le trenta chiamate di quel file, che e' lungo 2049 righe
-e non ne guadagna niente. Se nasce un terzo file di questa famiglia, allora
-conftest.
+vorrebbe dire toccare le settantanove chiamate al banco di quel file, che e'
+lungo 3719 righe e non ne guadagna niente. Se nasce un terzo file di questa
+famiglia, allora conftest.
 """
 
 from __future__ import annotations
@@ -217,7 +219,7 @@ export function fuoriDallaVista(centro, vecchioCentro, raggio) {
 }
 ```
 
-Dentro `creaViewport`, accanto alla dichiarazione di `orbita` (`viewport.js:54`):
+Dentro `creaViewport`, accanto alla dichiarazione di `orbita` (`viewport.js:95`):
 
 ```js
   // Il primo disegno dopo l'avvio inquadra; dal secondo in poi la camera resta
@@ -227,7 +229,7 @@ Dentro `creaViewport`, accanto alla dichiarazione di `orbita` (`viewport.js:54`)
   let inquadrataAlmenoUnaVolta = false;
 ```
 
-Sostituire `inquadra()` (`viewport.js:145-151`) con la coppia:
+Sostituire `inquadra()` (`viewport.js:186-192`) con la coppia:
 
 ```js
   function inquadra() {
@@ -253,7 +255,9 @@ Sostituire `inquadra()` (`viewport.js:145-151`) con la coppia:
   }
 ```
 
-In `mostraNuvola` (`viewport.js:187`) e `mostraMesh` (`viewport.js:199`) sostituire `inquadra();` con `inquadraSeServe();`.
+In `mostraNuvola` (`viewport.js:270`) e `mostraMesh` (`viewport.js:282`) sostituire `inquadra();` con `inquadraSeServe();`.
+
+**Verificato contro `c044007`:** oggi `viewport.js` contiene esattamente due occorrenze di `inquadra();`, quelle due, e zero di `inquadraSeServe();`. La soglia del terzo test è quindi corretta in partenza — la chiusura della Fase 3 non ne ha aggiunte — e il rosso atteso allo Step 2 è quello vero.
 
 - [ ] **Step 4: Eseguire i test e vederli passare**
 
@@ -277,7 +281,7 @@ git commit -m "feat(viewport): la camera non riparte da zero a ogni step"
 ### Task 2: Pan della camera e comando «Inquadra»
 
 **Files:**
-- Modify: `meshrec/src/meshrec/ui/viewport.js` (`pointermove` a `:90-96`, `keydown` a `:105-119`, costante `COMANDI` a `:31`)
+- Modify: `meshrec/src/meshrec/ui/viewport.js` (`pointermove` a `:131-137`, `keydown` a `:146-160`, costante `COMANDI` a `:51`)
 - Modify: `meshrec/src/meshrec/ui/index.html` (blocco nuovo dentro `.zona-vista`)
 - Modify: `meshrec/src/meshrec/ui/stile.css` (una regola)
 - Modify: `meshrec/src/meshrec/ui/app.js` (legare il bottone)
@@ -298,7 +302,7 @@ def test_lo_spostamento_segue_il_cursore(tmp_path):
     visibile a quella distanza: e' cio' che rende il gesto «il punto sotto il
     dito resta sotto il dito» invece di una velocita' scelta a caso.
 
-    Con fov 50 gradi (viewport.js:8) e raggio 1000, l'altezza visibile e'
+    Con fov 50 gradi (viewport.js:28) e raggio 1000, l'altezza visibile e'
     2 * 1000 * tan(25 gradi).
     """
     _esegui(tmp_path, _INTESTAZIONE + _funzioni("scalaDelloSpostamento") + """
@@ -327,7 +331,8 @@ def _comandi() -> str:
 def test_l_etichetta_della_tela_dichiara_i_comandi_nuovi():
     """L'aria-label e' il contenuto testuale equivalente della tela: se
     dichiara meno di quanto la tela fa, chi non vede la scena non sa che il
-    comando esiste (viewport.js:25-31)."""
+    comando esiste (viewport.js:45-51, l'etichetta la compone applicaEtichetta
+    a :61-63)."""
     comandi = _comandi()
     for parola in ("ruotare", "spostare", "zoom", "inquadrare"):
         assert parola in comandi, f"l'etichetta della tela non nomina «{parola}»"
@@ -382,7 +387,7 @@ export function scalaDelloSpostamento(raggio, altezzaTela, fovGradi) {
 
 - [ ] **Step 4: Traslare il centro nel piano della camera**
 
-Dentro `creaViewport`, dopo `aggiornaCamera()` (`viewport.js:72-80`):
+Dentro `creaViewport`, dopo `aggiornaCamera()` (`viewport.js:113-121`):
 
 ```js
   // Quaranta pixel per pressione: l'ordine di grandezza di un trascinamento
@@ -412,7 +417,7 @@ Dentro `creaViewport`, dopo `aggiornaCamera()` (`viewport.js:72-80`):
   }
 ```
 
-Sostituire il gestore `pointermove` (`viewport.js:90-96`):
+Sostituire il gestore `pointermove` (`viewport.js:131-137`):
 
 ```js
   tela.addEventListener("pointermove", (evento) => {
@@ -432,7 +437,7 @@ Sostituire il gestore `pointermove` (`viewport.js:90-96`):
   });
 ```
 
-Sostituire il gestore `keydown` (`viewport.js:105-119`):
+Sostituire il gestore `keydown` (`viewport.js:146-160`):
 
 ```js
   // Orbita, zoom, traslazione e inquadratura da tastiera, per chi non usa il
@@ -463,7 +468,7 @@ Sostituire il gestore `keydown` (`viewport.js:105-119`):
   });
 ```
 
-Estendere la costante `COMANDI` (`viewport.js:31`):
+Estendere la costante `COMANDI` (`viewport.js:51`):
 
 ```js
   const COMANDI = "frecce per ruotare, maiusc piu' frecce o maiusc piu' trascinamento per spostare, piu' e meno per lo zoom, f per inquadrare";
@@ -482,25 +487,35 @@ Alzarla è lecito solo perché il chiamante nuovo è un comando esplicito dell'u
 
 - [ ] **Step 5: Aggiungere il bottone al markup, allo stile e al modulo**
 
-In `meshrec/src/meshrec/ui/index.html`, dentro `<section class="zona zona-vista">`, subito dopo `<p class="conteggi" ...>`:
+**I quattro angoli della vista sono già occupati, e questo decide dove va il blocco.** Verificato su `c044007`: `.conteggi` sta in basso a sinistra (`stile.css:278`), `.taglio` in basso a destra (`:309`), `.conteggi-al-centro` copre l'intera zona con `inset: 0` ma `pointer-events: none` (`:295`), e **`.confronto` sta in alto a destra** con `position: absolute; top: var(--passo-2); right: var(--passo-2);` (`:305`) — cioè esattamente le coordinate che la prima stesura di questo piano dava a `.comandi-vista`. Sovrapporre i due comandi era un difetto che nessun test avrebbe colto: `test_stile.py` non asserisce la posizione di `.confronto`.
+
+Resta libero l'angolo in alto a sinistra, e il blocco va lì. È la strada più corta che regge: non tocca nessuna regola esistente, e i comandi della vista che nascono sempre visibili stanno dalla parte opposta del comando che nasce nascosto.
+
+**Se `impeccable` giudica meglio raggruppare** i tre comandi della vista — «Inquadra», l'interruttore del Task 5 e «Confronta» — in un contenitore solo, allora `.confronto` (`stile.css:305`) perde il proprio posizionamento assoluto ed entra in `.comandi-vista`, e `#confronta` (`index.html:83`) si sposta dentro il `div`. È l'unica regola esistente che questo task è autorizzato a muovere, e va mossa tutta, non a metà: `#confronta` deve restare `hidden` e con `aria-pressed`, che sono le due proprietà su cui `test_app_js.py:1090-1094` si aggancia.
+
+In `meshrec/src/meshrec/ui/index.html`, dentro `<section class="zona zona-vista">`, subito dopo `<p class="conteggi" ...>` (`index.html:69`) e **prima** di `<button ... id="confronta" ...>` (`:83`):
 
 ```html
-    <!-- I comandi della vista. Nascono visibili, a differenza del taglio: non
-         dipendono da che cosa e' disegnato, e «Inquadra» e' l'uscita di
-         sicurezza di chi si e' perso spostando la vista. -->
+    <!-- I comandi della vista. Nascono visibili, a differenza del taglio e del
+         confronto: non dipendono da che cosa e' disegnato, e «Inquadra» e'
+         l'uscita di sicurezza di chi si e' perso spostando la vista.
+         In alto a sinistra e non a destra: l'angolo a destra e' del comando del
+         confronto (.confronto in stile.css), e gli altri due sono dei conteggi
+         e del taglio. -->
     <div class="comandi-vista" id="comandi-vista">
       <button type="button" id="inquadra" class="bottone">Inquadra</button>
     </div>
 ```
 
-In `meshrec/src/meshrec/ui/stile.css`, accanto alla regola `.taglio` (`:160`):
+In `meshrec/src/meshrec/ui/stile.css`, accanto alla regola `.taglio` (`:309`):
 
 ```css
-.comandi-vista { position: absolute; top: var(--passo-2); right: var(--passo-2); display: flex; align-items: center; gap: var(--passo-2); padding: var(--passo-2); background: var(--velo); border: 1px solid var(--bordo-comando); border-radius: var(--raggio); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); }
-.comandi-vista :focus-visible { outline: 2px solid var(--accento); outline-offset: 2px; }
+.comandi-vista { position: absolute; top: var(--passo-2); left: var(--passo-2); display: flex; align-items: center; gap: var(--passo-2); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); }
 ```
 
-In `meshrec/src/meshrec/ui/app.js`, accanto agli altri gestori dei comandi della vista (dopo `asseTaglio.addEventListener(...)`, `app.js:353`):
+Niente `background`, `border` né `padding`: il velo e il contorno servono a `.taglio` perché quello è un `display: flex` di controlli nudi (la ragione sta scritta a `stile.css:303`), mentre qui dentro c'è un `.bottone`, che il proprio fondo e il proprio bordo ce li ha già (`:212`). Niente nemmeno una regola `:focus-visible` propria: `.bottone:focus-visible` (`:215`) copre il bottone. La riga per il fuoco arriva nel Task 5, insieme alla casella che ne ha bisogno.
+
+In `meshrec/src/meshrec/ui/app.js`, accanto agli altri gestori dei comandi della vista (dopo `asseTaglio.addEventListener(...)`, `app.js:765`):
 
 ```js
 // L'uscita di sicurezza del pan. La camera non si reinquadra piu' da sola a
@@ -528,14 +543,20 @@ git commit -m "feat(viewport): spostare la vista, e un comando per ritrovarla"
 ### Task 3: Ogni step ha una geometria da mostrare
 
 **Files:**
-- Modify: `meshrec/src/meshrec/app/server.py` (tabella nuova a livello di modulo, prima di `create_app` a `:261`; endpoint `/api/mesh/{numero}` a `:625`)
+- Modify: `meshrec/src/meshrec/app/server.py` (tabella nuova a livello di modulo, prima di `create_app` a `:261`; endpoint `/api/mesh/{numero}` a `:681`)
 - Modify: `meshrec/tests/test_server.py`
 
 **Interfaces:**
-- Consumes: `pipeline.ARTIFACTS` (`core/pipeline.py:31-40`), `PipelineConfig.simplify.enabled` (`core/config.py:129`).
+- Consumes: `pipeline.ARTIFACTS` (`core/pipeline.py:31-40`), `PipelineConfig.simplify.enabled` (`core/config.py:244`).
 - Produces: `sorgente_geometria(numero: int, cfg: PipelineConfig) -> int`, di modulo e importabile. Intestazione HTTP `X-Da-Step` sulla risposta di `GET /api/mesh/{numero}`, che il Task 4 legge.
 
-**Da non rompere.** Tre test esistenti dipendono dai messaggi di questo endpoint: `test_chiedere_la_mesh_di_uno_step_fuori_intervallo_spiega_quali_esistono` (`tests/test_server.py:210`) vuole `"99"` e `"8"` dentro il messaggio; `test_chiedere_la_mesh_di_uno_step_senza_artefatto_non_solleva` (`:204`) vuole 400; il test a `:1136` chiede `/api/mesh/1` e vuole `"0 triangoli"` nel messaggio. Il codice qui sotto li tiene tutti e tre verdi: `/api/cloud` **non si tocca**, e `/api/mesh` accetta 1..11 risolvendo 1..4 su sé stessi.
+**Da non rompere.** Tre test esistenti dipendono dai messaggi di questo endpoint, e sono ancora tutti e tre lì su `c044007`:
+
+- `test_chiedere_la_mesh_di_uno_step_fuori_intervallo_spiega_quali_esistono` (`tests/test_server.py:210-219`) vuole `"99"` e `"8"` dentro il messaggio. Regge: il messaggio nuovo porta `sorted(_SORGENTE_GEOMETRIA)`, cioè `[1, …, 11]`, che contiene «8».
+- `test_chiedere_la_mesh_di_uno_step_senza_artefatto_non_solleva` (`:204-207`) vuole **404**, non 400. Regge, ma per una ragione che va detta o qualcuno «correggerà» il codice nella direzione sbagliata: il `FileNotFoundError` sollevato qui sotto non finisce nel gestore generico, lo intercetta quello registrato sul tipo a `app/server.py:269-305`, che risponde 404. Il 400 è la risposta del gestore generico su `Exception` (`:307-315`), che è dove finisce il `ValueError` degli altri due casi. **Non sostituire il `FileNotFoundError` con un `ValueError`**: sarebbe un 400 dove il contratto dice 404, e l'interfaccia legge quello status per distinguere «non c'è ancora» da «rifiutato».
+- `test_una_nuvola_chiesta_come_mesh_e_rifiutata_invece_di_tornare_vuota` (`:1125-1140`) chiede `/api/mesh/1` e vuole `"0 triangoli"` nel messaggio. Regge: `sorgente_geometria(1, cfg)` torna 1, quindi si legge `01_cloud.ply`, che dà vertici e zero facce, e il `ValueError` di `app/server.py:709-712` resta quello di prima.
+
+Il codice qui sotto li tiene tutti e tre verdi: `/api/cloud` **non si tocca**, e `/api/mesh` accetta 1..11 risolvendo 1..4 su sé stessi.
 
 - [ ] **Step 1: Scrivere i test che falliscono**
 
@@ -673,7 +694,7 @@ def sorgente_geometria(numero: int, cfg: PipelineConfig) -> int:
 
 - [ ] **Step 4: Passare la risoluzione all'endpoint della mesh**
 
-In `meshrec/src/meshrec/app/server.py`, dentro `def mesh(numero: int) -> Response:` (`:626`), sostituire la guardia e le due righe che seguono:
+In `meshrec/src/meshrec/app/server.py`, dentro `def mesh(numero: int) -> Response:` (`:682`), sostituire la guardia `if numero not in pipeline.ARTIFACTS` (`:687-690`) e le due righe che seguono:
 
 ```python
         cfg = corrente()
@@ -722,12 +743,16 @@ git commit -m "feat(server): gli step che solo misurano mostrano la geometria di
 ### Task 4: La didascalia dichiara la provenienza e il passo del voxel
 
 **Files:**
-- Modify: `meshrec/src/meshrec/ui/app.js` (`mostraNuvolaDelloStep` a `:214-242`, `STEP_CON_MESH` a `:247`, `mostraStep` a `:249-280`)
-- Modify: `meshrec/tests/test_app_js.py`
+- Modify: `meshrec/src/meshrec/ui/app.js` (`mostraNuvolaDelloStep` a `:607-642`, `STEP_CON_MESH` a `:644-647`, `mostraStep` a `:649-692`, `registraVista` a `:474-478`)
+- Modify: `meshrec/tests/test_app_js.py` (test nuovi; **e la copia a mano di `STEP_CON_MESH` nel banco, a `:803`**)
 
 **Interfaces:**
-- Consumes: `X-Da-Step` dal Task 3; `X-Voxel` che `app/server.py:510` manda già.
-- Produces: `function scriviConteggi(testo, chiesto, da = chiesto)` di primo livello in `app.js`, che il Task 5 riusa; variabile di modulo `sorgenteMostrata`, che il Task 5 legge per decidere se il fantasma ha senso.
+- Consumes: `X-Da-Step` dal Task 3; `X-Voxel` che `app/server.py:566` manda già.
+- Produces: `function passoDiDisegno(voxel)` di primo livello in `app.js`; `registraVista(testo, da = stepMostrato)` esteso; variabile di modulo `sorgenteMostrata`, che il Task 5 legge per decidere se il fantasma ha senso.
+
+**Il punto unico per la didascalia esiste già, e non è `scriviConteggi`.** La prima stesura di questo piano prometteva di *creare* `scriviConteggi(testo, chiesto, da = chiesto)`. Su `c044007` quel nome è occupato da un'altra funzione con un altro mestiere: `scriviConteggi(testo, conGeometria)` (`app.js:427-431`), dove il secondo argomento è un booleano che sposta la riga fra l'angolo e il centro della vista (`riga.classList.toggle("conteggi-al-centro", !conGeometria)`). La chiamano in cinque: `registraVista` (`:475`), `spegniConfronto` (`:502`), `alternaConfronto` (`:524`), `dichiaraCaricamento` (`:535`), `segnalaArtefattoMancante` (`:604`). Ridefinirla farebbe perdere il toggle a tutti e cinque, e con lui andrebbero rossi `tests/test_stile.py:230` e `:309` (che pretendono `.conteggi-al-centro`) e `tests/test_app_js.py:1150` (la didascalia che deve tornare identica spegnendo il confronto).
+
+Il punto unico per la didascalia **di una geometria appena disegnata** è invece `registraVista(testo)` (`app.js:474-478`), scritto nella chiusura della Fase 3 esattamente per questa ragione: *«Una superficie sola per i due rami che disegnano — nuvola e mesh — perche' il confronto nomina cio' che e' a video»*. È lì che vanno la provenienza e il passo del voxel. `scriviConteggi` non si tocca.
 
 - [ ] **Step 1: Scrivere i test che falliscono**
 
@@ -738,24 +763,39 @@ def test_la_didascalia_dichiara_lo_step_da_cui_viene_la_geometria(tmp_path):
     """Criterio 3 della spec. Il viewport che mostra la superficie dello step 6
     mentre l'elenco a sinistra dice «step 7» e' una vista che contraddice la
     propria didascalia: peggio di una vista vuota, che almeno non afferma
-    niente."""
-    _esegui(tmp_path, _DOM + """
+    niente.
+
+    Su registraVista e non su scriviConteggi: la seconda ha gia' un mestiere
+    suo — il secondo argomento e' il booleano che sposta la riga fra l'angolo e
+    il centro della vista — e cinque chiamanti che se lo aspettano. registraVista
+    e' la superficie unica delle DUE strade che disegnano, che e' esattamente
+    dove la provenienza deve stare.
+    """
+    _esegui(tmp_path, _banco_di_geometria() + """
 const conteggi = document.getElementById("conteggi");
-""" + _funzioni("scriviConteggi") + """
-scriviConteggi("9.659 vertici, 19.314 triangoli", 7, 6);
+stepMostrato = 7;
+registraVista("9.659 vertici, 19.314 triangoli", 6);
 assert.match(conteggi.textContent, /9\\.659 vertici/);
 assert.match(conteggi.textContent, /step 7/);
 assert.match(conteggi.textContent, /step 6/);
 
 // Uno step con geometria propria non dichiara niente in piu': una didascalia
 // che dice «mostrata quella dello step 3» sullo step 3 e' rumore.
-scriviConteggi("116.059 punti disegnati su 4.229.538", 3, 3);
+stepMostrato = 3;
+registraVista("116.059 punti disegnati su 4.229.538", 3);
 assert.equal(conteggi.textContent, "116.059 punti disegnati su 4.229.538");
 
-// E il predefinito e' «propria»: /api/cloud non manda X-Da-Step, e il
-// chiamante passa due argomenti soli.
-scriviConteggi("100 punti disegnati su 100", 2);
+// E il predefinito e' «propria»: /api/cloud non manda X-Da-Step, e la strada
+// della nuvola passa un argomento solo.
+stepMostrato = 2;
+registraVista("100 punti disegnati su 100");
 assert.equal(conteggi.textContent, "100 punti disegnati su 100");
+
+// Il mestiere di prima non si perde: la riga resta nell'angolo, cioe'
+// scriviConteggi continua a ricevere il proprio booleano. Senza questo, una
+// riscrittura che gli cambia la firma passerebbe i tre controlli qui sopra e
+// rimetterebbe la didascalia al centro sopra la geometria.
+assert.equal(conteggi.className.includes("conteggi-al-centro"), false);
 """)
 
 
@@ -776,7 +816,7 @@ def test_gli_step_senza_geometria_propria_chiedono_la_mesh_e_non_la_nuvola():
 def test_il_passo_del_voxel_di_disegno_finisce_nella_didascalia(tmp_path):
     """La densita' disegnata salta fra lo step 2 (4.229.538 punti decimati di
     circa dieci volte) e lo step 3 (116.059 disegnati interi). Il passo che lo
-    spiega il server lo calcola gia' e lo manda in X-Voxel (app/server.py:510),
+    spiega il server lo calcola gia' e lo manda in X-Voxel (app/server.py:566),
     dove il modulo lo buttava senza leggerlo: un fatto misurato che si perdeva.
 
     Zero non e' un passo: viewport.decimate lo restituisce per dire «nessuna
@@ -794,24 +834,16 @@ assert.match(passoDiDisegno(10.5), /voxel/);
 - [ ] **Step 2: Eseguire i test e vederli fallire**
 
 Run: `cd meshrec && uv run pytest tests/test_app_js.py -k "didascalia or senza_geometria_propria or voxel_di_disegno" -v`
-Expected: FAIL. `IndexError` dentro `_sorgente_di` per `scriviConteggi` e `passoDiDisegno`; `assert {5, 6, 8, 9} == {5, 6, 7, 8, 9, 10, 11}`.
+Expected: FAIL, per tre ragioni diverse:
+- `test_la_didascalia_dichiara_lo_step_da_cui_viene_la_geometria` fallisce sul `assert.match(conteggi.textContent, /step 6/)`: `registraVista` oggi prende un argomento solo e il secondo viene ignorato in silenzio. **Non** un `IndexError`: la funzione esiste già.
+- `test_il_passo_del_voxel_di_disegno_finisce_nella_didascalia` fallisce con `IndexError` dentro `_sorgente_di`, perché `passoDiDisegno` non esiste.
+- `test_gli_step_senza_geometria_propria_chiedono_la_mesh_e_non_la_nuvola` fallisce con `assert {5, 6, 8, 9} == {5, 6, 7, 8, 9, 10, 11}`.
 
-- [ ] **Step 3: Scrivere le due funzioni e riscrivere le didascalie**
+- [ ] **Step 3: Scrivere `passoDiDisegno` ed estendere `registraVista`**
 
-In `meshrec/src/meshrec/ui/app.js`, subito prima di `async function mostraNuvolaDelloStep` (`:214`):
+In `meshrec/src/meshrec/ui/app.js`, subito prima di `async function mostraNuvolaDelloStep` (`:607`):
 
 ```js
-// Il testo sotto la vista, scritto in un punto solo: le due strade che
-// disegnano devono dichiarare le stesse cose nello stesso modo, e scriverlo
-// due volte lascerebbe che una delle due smetta di dichiararne una.
-// `da` diverso da `chiesto` vuol dire che questo step non produce geometria
-// propria e sta mostrando quella di un altro (app/server.py, X-Da-Step).
-function scriviConteggi(testo, chiesto, da = chiesto) {
-  document.getElementById("conteggi").textContent = da === chiesto
-    ? testo
-    : `${testo} — lo step ${chiesto} non produce geometria propria: mostrata quella dello step ${da}`;
-}
-
 // Il passo del voxel con cui il disegno e' stato decimato, per la didascalia.
 // Stringa vuota a zero: viewport.decimate restituisce 0 per dire «nessuna
 // decimazione applicata», e scrivere «voxel di disegno 0 mm» sarebbe una
@@ -821,7 +853,33 @@ function passoDiDisegno(voxel) {
 }
 ```
 
-Dentro `mostraNuvolaDelloStep`, sostituire la lettura delle intestazioni (`:226-227`) e la scrittura della didascalia (`:236-237`):
+Estendere `registraVista` (`:474-478`), che è già la superficie unica delle due strade che disegnano. **`scriviConteggi` (`:427-431`) non si tocca:** il suo secondo argomento è il booleano che sposta la riga fra l'angolo e il centro, lo leggono in cinque, e `tests/test_stile.py:230` e `:309` lo sorvegliano.
+
+```js
+// La didascalia di una geometria appena disegnata, e la memoria di che cos'e'.
+// Una superficie sola per i due rami che disegnano — nuvola e mesh — perche' il
+// confronto nomina cio' che e' a video: separate, il ramo che disegna senza
+// registrare fa nominare al comando la geometria di due step prima.
+// `da` diverso da stepMostrato vuol dire che questo step non produce geometria
+// propria e sta mostrando quella di un altro (app/server.py, X-Da-Step).
+// Mostrare l'artefatto di un altro step senza dirlo sarebbe il risultato
+// plausibile che nessuna metrica smentisce, percio' la ricaduta a monte e la
+// sua dichiarazione sono un punto solo e non due.
+function registraVista(testo, da = stepMostrato) {
+  const didascalia = da === stepMostrato
+    ? testo
+    : `${testo} — lo step ${stepMostrato} non produce geometria propria: mostrata quella dello step ${da}`;
+  scriviConteggi(didascalia, true);
+  // La didascalia intera, non il solo `testo`: e' cio' che il confronto rimette
+  // a video nominando questo step, e la meta' che dichiara la provenienza deve
+  // viaggiare con l'altra.
+  vistaMostrata = { numero: stepMostrato, testo: didascalia };
+  sorgenteMostrata = da;
+  aggiornaConfronto();
+}
+```
+
+Dentro `mostraNuvolaDelloStep`, aggiungere la lettura di `X-Voxel` accanto alle altre due (`:616-617`):
 
 ```js
   const disegnati = Number(risposta.headers.get("X-Points-Drawn"));
@@ -829,20 +887,20 @@ Dentro `mostraNuvolaDelloStep`, sostituire la lettura delle intestazioni (`:226-
   const voxel = Number(risposta.headers.get("X-Voxel"));
 ```
 
+e sostituire la chiamata a `registraVista` (`:635-637`):
+
 ```js
   // Sempre entrambi: una nuvola decimata che non lo dichiara e' un dato falso.
   // E accanto il passo che spiega di quanto: il salto di densita' fra uno step
   // e il successivo e' il salto della decimazione, non quello del dato.
-  scriviConteggi(
+  // Un argomento solo: gli step 1..4 hanno tutti un artefatto proprio,
+  // /api/cloud non risolve nessuna ricaduta e non manda X-Da-Step.
+  registraVista(
     `${disegnati.toLocaleString("it")} punti disegnati su ${pieni.toLocaleString("it")}${passoDiDisegno(voxel)}`,
-    numero,
   );
-  // Gli step 1..4 hanno tutti un artefatto proprio: /api/cloud non risolve
-  // nessuna ricaduta, quindi qui la sorgente e' sempre lo step chiesto.
-  sorgenteMostrata = numero;
 ```
 
-Sostituire `STEP_CON_MESH` (`:244-247`):
+Sostituire `STEP_CON_MESH` (`:644-647`):
 
 ```js
 // Gli step la cui geometria e' una superficie o un volume: dal 5 in poi
@@ -852,38 +910,65 @@ Sostituire `STEP_CON_MESH` (`:244-247`):
 // prodotta (app/server.py, sorgente_geometria), e chiederli a /api/cloud
 // lascerebbe la scena vuota.
 const STEP_CON_MESH = new Set([5, 6, 7, 8, 9, 10, 11]);
+```
 
+Dichiarare `sorgenteMostrata` accanto a `vistaMostrata` e `vistaPrecedente` (`:444-450`), dove stanno i suoi fratelli, e non più in basso: `registraVista` la scrive, e una `let` che si valuta dopo la funzione che la usa è una zona morta temporale che aspetta solo il primo ramo che chiami la funzione durante la valutazione del modulo.
+
+```js
 // Lo step da cui viene la geometria disegnata adesso. Diverso da stepMostrato
 // sugli step che solo misurano, ed e' cio' che dice se un fantasma del
 // passaggio precedente avrebbe senso o disegnerebbe due volte la stessa cosa.
 let sorgenteMostrata = null;
 ```
 
-Dentro `mostraStep`, dopo la lettura di `X-Triangles` (`:265`):
+Dentro `mostraStep`, dopo la lettura di `X-Triangles` (`:667`):
 
 ```js
   const da = Number(risposta.headers.get("X-Da-Step"));
 ```
 
-e sostituire la scrittura della didascalia (`:277-278`):
+e sostituire la chiamata a `registraVista` (`:688-690`):
 
 ```js
   // I conteggi sono quelli che il server ha contato sull'artefatto: per lo
   // step 9 sono i vertici e i triangoli del contorno, non i nodi del volume.
-  scriviConteggi(
+  // Il secondo argomento e' la provenienza: sugli step 7, 10 e 11, e sull'8
+  // senza semplificazione, il server ha risolto la ricaduta e X-Da-Step la
+  // dichiara.
+  registraVista(
     `${vertici.toLocaleString("it")} vertici, ${triangoli.toLocaleString("it")} triangoli`,
-    numero,
     da,
   );
-  sorgenteMostrata = da;
 ```
 
-- [ ] **Step 4: Eseguire i test e vederli passare**
+- [ ] **Step 4: Aggiornare le due copie a mano nel banco dei test**
 
-Run: `cd meshrec && uv run pytest tests/test_app_js.py -q`
-Expected: PASS.
+Due costanti del modulo sono ricopiate a mano dentro i banchi, e restano indietro in silenzio: i test continuano a passare provando la pipeline di prima.
 
-- [ ] **Step 5: Commit**
+In `meshrec/tests/test_app_js.py`, dentro `_banco_di_geometria()` (`:789-833`):
+
+```js
+const STEP_CON_MESH = new Set([5, 6, 7, 8, 9, 10, 11]);
+```
+
+al posto di `new Set([5, 6, 8, 9])` (`:803`). Senza, la tratta della mesh non viene mai esercitata per gli step 7, 10 e 11, che sono proprio quelli che questo task sposta.
+
+E, nello stesso banco, accanto a `let vistaMostrata = null;` (`:804`):
+
+```js
+let sorgenteMostrata = null;
+```
+
+Senza, `registraVista` alza `ReferenceError: sorgenteMostrata is not defined` appena il banco disegna qualcosa, e va rosso ogni test che passa da lì.
+
+**Non toccare** invece `const STEP_CON_MESH = new Set([9]);` in `tests/test_server.py:1355`: quella copia è ridotta apposta e parametrizzata, per esercitare un caso dentro l'insieme e uno fuori (la ragione sta scritta a `:1343-1346` e `:1452-1456`).
+
+- [ ] **Step 5: Eseguire i test e vederli passare**
+
+Run: `cd meshrec && uv run pytest tests/test_app_js.py tests/test_stile.py tests/test_server.py -q`
+Expected: PASS. `test_stile.py` è nell'elenco perché `.conteggi-al-centro` dipende da `scriviConteggi` lasciata intatta; `test_server.py` perché il banco `_BANCO_ORDINE` (`:1487`) estrae `registraVista` e la esegue.
+
+- [ ] **Step 6: Commit**
 
 ```bash
 git add meshrec/src/meshrec/ui/app.js meshrec/tests/test_app_js.py
@@ -895,15 +980,28 @@ git commit -m "feat(interfaccia): la didascalia dice da dove viene la geometria 
 ### Task 5: Il fantasma del passaggio precedente
 
 **Files:**
-- Modify: `meshrec/src/meshrec/ui/viewport.js` (`scatolaDelGruppo` a `:137-143`, `svuota` a `:154-178`, due metodi nuovi)
-- Modify: `meshrec/src/meshrec/ui/app.js` (tabella nuova, `ricaricaVista` a `:378-385`, gestore dell'interruttore)
+- Modify: `meshrec/src/meshrec/ui/viewport.js` (gruppo nuovo accanto a `precedente` a `:81-83`, `svuota` a `:228-250`, `mostraPrecedente` a `:257-261`, due metodi nuovi)
+- Modify: `meshrec/src/meshrec/ui/stile.css` (un token nuovo in `:root`, una regola per il fuoco)
+- Modify: `meshrec/src/meshrec/ui/app.js` (tabella nuova, `ricaricaVista` a `:790-797`, gestore dell'interruttore)
 - Modify: `meshrec/src/meshrec/ui/index.html` (interruttore dentro `.comandi-vista`)
 - Modify: `meshrec/tests/test_app_js.py`
-- Modify: `meshrec/tests/test_server.py`
+- Modify: `meshrec/tests/test_server.py` (test nuovo; **e lo stub nel banco `_BANCO_ORDINE` a `:1487`**)
 
 **Interfaces:**
-- Consumes: la variabile di modulo `sorgenteMostrata` dal Task 4 (non `scriviConteggi`: il fantasma appende alla didascalia già scritta, non la riscrive); il contenitore `.comandi-vista` dal Task 2; `X-Points-Total`, `X-Vertices` e `X-Triangles` dal server.
-- Produces: `vista.mostraFantasma(vertici, facce = null)` e `vista.togliFantasma()` in `viewport.js`; `async function mostraFantasmaDelloStep(numero, ordine)` in `app.js`.
+- Consumes: la variabile di modulo `sorgenteMostrata` dal Task 4 (non `registraVista`: il fantasma appende alla didascalia già scritta, non la riscrive); il contenitore `.comandi-vista` dal Task 2; `X-Points-Total`, `X-Vertices` e `X-Triangles` dal server.
+- Produces: `vista.mostraFantasma(vertici, facce = null)` e `vista.togliFantasma()` in `viewport.js`; `async function mostraFantasmaDelloStep(numero, ordine)` e `function fantasmaHaSenso(chiesto, sorgente, acceso)` in `app.js`; token `--fantasma` in `stile.css`.
+
+**Il confronto A/B esiste già, e questo task gli si mette accanto invece di sostituirlo.** Va detto perché chi implementa non riscriva una macchina che c'è, e perché chi rilegge il piano fra sei mesi trovi scritto che la sovrapposizione fu scelta sapendo che c'era l'alternativa. La chiusura della Fase 3 ha consegnato: il gruppo fratello `precedente` che tiene sulla scheda la geometria dello step guardato prima (`viewport.js:74-83`), un `svuota()` che **sposta invece di distruggere** e restituisce se ha spostato (`:228-250`), `liberaIlPrecedente()` (`:203-210`), `mostraPrecedente(attivo)` che scambia quale dei due gruppi è visibile portandosi dietro l'etichetta (`:257-261`), il bottone `#confronta` con `aria-pressed` (`index.html:83`) e l'orchestrazione in `app.js:433-529`. Risponde alla stessa domanda della § 6 della spec — «che cosa ha fatto questo step alla geometria» — per **scambio**: due geometrie nella stessa inquadratura, una alla volta.
+
+Il fantasma è il secondo canale, voluto: la § 6 chiede le due geometrie e i due conteggi **nello stesso istante** (criterio 5 della spec: 6.329.096 punti dichiarati dal fantasma contro i 4.229.538 della geometria corrente, uno accanto all'altro), che lo scambio per costruzione non può dare. Le due macchine convivono e non si toccano: il confronto vive su `precedente`, il fantasma su un gruppo suo, e la regola che li tiene separati è scritta nello Step 4.
+
+**Cinque punti in cui questo task incontra codice che la Fase 3 ha cambiato.** Sono la ragione per cui gli Step 4, 5, 6 e 8 sono scritti così e non come li avrebbe scritti la prima stesura di questo piano:
+
+1. `svuota()` non distrugge più: sposta i figli di `gruppo` dentro `precedente`. Un fantasma dentro `gruppo` finirebbe lì e ricomparirebbe sotto «Confronta», sovrapposto alla geometria di prima. → Step 4, il fantasma nasce fratello.
+2. `tests/test_stile.py:262-270` vieta ogni `0x……` in `viewport.js` fuori da `0xffffff`, e `:273-281` pretende che ogni token letto da `tinta()` sia dichiarato in `:root`. → Step 4, colore via `tinta("--fantasma")` **e** token dichiarato: le due cose insieme, una sola non basta.
+3. `tests/test_server.py:1529-1594` estrae ed esegue `scatolaDelGruppo` in `node` con un banco che dichiara `gruppo` e `box` e nient'altro. → risolto alla radice dallo Step 4: un fantasma fratello non è figlio di `gruppo`, quindi `scatolaDelGruppo` **non si tocca** e il banco resta com'è. Questa strada cancella il problema invece di rattopparlo.
+4. `tests/test_server.py:1336` asserisce la forma letterale della guardia di `ricaricaVista`: `if (disegnato && !superata(ordine))`. → Step 5, il corpo nuovo si innesta dentro quella forma e non la sostituisce.
+5. `tests/test_server.py:1487` estrae `ricaricaVista` nel banco `_BANCO_ORDINE` e la esegue; `_funzioni` estrae solo funzioni di primo livello, non i `const` di modulo. → Step 6 stubba `mostraFantasmaDelloStep` in quel banco, e il test di `fantasmaHaSenso` si porta dietro `FANTASMA_DI` invece di darlo per presente.
 
 - [ ] **Step 1: Scrivere il test del conteggio onesto, lato server**
 
@@ -981,13 +1079,27 @@ def test_il_fantasma_dichiara_il_conteggio_pieno_e_non_quello_disegnato():
     )
 
 
+def _fantasma_di() -> str:
+    """La riga vera di FANTASMA_DI, presa dal modulo e non ricopiata qui.
+
+    `_funzioni` estrae solo funzioni di primo livello, non i `const` di modulo:
+    `fantasmaHaSenso` eseguita da sola alzerebbe `ReferenceError: FANTASMA_DI
+    is not defined`. Ricopiare la tabella nel banco la farebbe divergere in
+    silenzio dal modulo — il test resterebbe verde su tre coppie che il codice
+    vero non ha piu'.
+    """
+    trovato = re.search(r"const FANTASMA_DI = \{[^}]*\};", _modulo())
+    assert trovato is not None, "FANTASMA_DI non e' nel modulo"
+    return trovato.group(0)
+
+
 def test_il_fantasma_non_si_disegna_dove_ripeterebbe_la_geometria_corrente(tmp_path):
     """Sullo step 8 senza semplificazione il server serve gia' la superficie
     dello step 6 (X-Da-Step = 6): sovrapporgli il fantasma dello step 6
     disegnerebbe due volte la stessa cosa, con lo z-fighting e nessuna
     informazione in piu'."""
     _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
-        + _funzioni("fantasmaHaSenso") + """
+        + _fantasma_di() + "\n" + _funzioni("fantasmaHaSenso") + """
 // step 8 con la semplificazione: la geometria corrente e' propria, il fantasma
 // dello step 6 dice quanto la semplificazione ha tolto.
 assert.equal(fantasmaHaSenso(8, 8, true), true);
@@ -1003,54 +1115,95 @@ assert.equal(fantasmaHaSenso(2, 2, true), true);
 
 - [ ] **Step 3: Eseguire i test e vederli fallire**
 
-Run: `cd meshrec && uv run pytest tests/test_server.py -k conteggio_pieno tests/test_app_js.py -k fantasma -v`
-Expected: FAIL. Il test del server passa già (l'intestazione esiste) — è una rete, non un rosso: annotarlo e proseguire. I tre del modulo falliscono con `FANTASMA_DI non e' nel modulo`, `mostraFantasmaDelloStep non e' una funzione di primo livello`, `il modulo non ha una funzione fantasmaHaSenso`.
+Run: `cd meshrec && uv run pytest tests/test_server.py tests/test_app_js.py -k "conteggio_pieno or fantasma" -v`
+Expected: FAIL. Il test del server passa già (l'intestazione esiste) — è una rete, non un rosso: annotarlo e proseguire. I tre del modulo falliscono con `FANTASMA_DI non e' nel modulo` (due volte: dal test della tabella e da `_fantasma_di`) e `mostraFantasmaDelloStep non e' una funzione di primo livello`.
 
-- [ ] **Step 4: Aggiungere il secondo gruppo al viewport**
+- [ ] **Step 4: Aggiungere il fantasma al viewport, e il suo colore al foglio**
 
-In `meshrec/src/meshrec/ui/viewport.js`, accanto a `let box = null;` (`:48`):
+**Fratello di `gruppo`, non figlio.** È la decisione che regge tutto il resto del task, e va motivata perché la prima stesura di questo piano diceva il contrario, poggiando su uno `svuota()` che non esiste più. Tre ragioni, tutte nella stessa direzione:
+
+- `svuota()` **sposta** i figli di `gruppo` dentro `precedente` (`viewport.js:240-244`). Da dentro, il fantasma finirebbe lì e ricomparirebbe premendo «Confronta», sovrapposto alla geometria di prima: tre geometrie a video mentre la didascalia ne nomina una.
+- `scatolaDelGruppo()` (`:178-184`) percorre i figli di `gruppo`. Da fuori, il fantasma resta escluso dall'ingombro **senza che quella funzione debba saperlo**: la guardia della camera del Task 1 e il cursore del taglio continuano a tararsi sulla sola geometria corrente. Il box di ritaglio ha bisogno di un'esclusione esplicita perché sta dentro; questo no. È anche la ragione per cui `tests/test_server.py:1529-1594`, che estrae ed esegue `scatolaDelGruppo` in `node` sopra un banco che dichiara solo `gruppo` e `box`, **resta verde senza essere toccato**.
+- È la stessa forma che `precedente` ha già (`:74-83`): una sola idea da tenere a mente invece di due.
+
+Nessun `Group` che lo contenga: è un oggetto solo, e un gruppo per un figlio è un contenitore che non contiene niente. Va direttamente in `scena`, come le due luci.
+
+In `meshrec/src/meshrec/ui/viewport.js`, accanto a `let box = null;` (`:89`):
 
 ```js
-  // Il fantasma: la geometria del passaggio precedente, dietro quella corrente.
-  // Dentro `gruppo` come il box di ritaglio, cosi' la stessa traversata di
-  // svuota() ne libera i buffer. Fuori da scatolaDelGruppo() per la stessa
-  // ragione del box: l'ingombro deve restare quello della geometria corrente,
-  // altrimenti la guardia della camera e il cursore del taglio si tarerebbero
-  // su una nuvola che non e' quella disegnata.
+  // Il fantasma: la geometria del passaggio precedente, disegnata insieme a
+  // quella corrente e quasi trasparente. E' il secondo canale accanto al
+  // confronto (mostraPrecedente): quello mette a video due geometrie una alla
+  // volta, questo le mette insieme, che e' l'unico modo di vedere che cosa un
+  // passaggio ha tolto mentre lo si guarda.
+  // In `scena` e non dentro `gruppo`: svuota() sposta i figli di `gruppo` nel
+  // precedente, e da li' il fantasma tornerebbe a video sotto «Confronta».
+  // Fuori da `gruppo` e' anche fuori da scatolaDelGruppo(), quindi l'ingombro
+  // resta quello della sola geometria corrente senza che quella funzione debba
+  // conoscerlo.
   let fantasma = null;
 ```
 
-In `scatolaDelGruppo` (`:137-143`):
+Accanto a `liberaIlPrecedente()` (`:203-210`), che fa lo stesso mestiere sull'altro gruppo:
 
 ```js
-    for (const figlio of gruppo.children) {
-      if (figlio !== box && figlio !== fantasma) scatola.expandByObject(figlio);
-    }
+  // Libera davvero, per la ragione scritta sopra liberaIlPrecedente(): togliere
+  // un oggetto dalla scena non cancella i suoi buffer, sono gli eventi di
+  // dispose a farlo. Senza, ogni clic su uno step lascerebbe sulla scheda gli
+  // attributi del fantasma di prima.
+  function togliFantasma() {
+    if (fantasma === null) return;
+    fantasma.geometry.dispose();
+    fantasma.material.dispose();
+    scena.remove(fantasma);
+    fantasma = null;
+  }
 ```
 
-In `svuota()`, accanto a `box = null;` (`:176`):
+In `svuota()`, come **prima** riga del corpo, sopra il ramo del box (`:228-239`):
 
 ```js
-      fantasma = null;
+      // Il fantasma e' del passaggio che si sta lasciando, e se ne va con lui.
+      // In testa e non in fondo: ogni strada che disegna chiama svuota() due
+      // volte, e cosi' la seconda lo trova gia' tolto invece di lasciarlo sotto
+      // la geometria nuova.
+      togliFantasma();
+```
+
+`liberaIlPrecedente()` e `precedente.add(...)` non si toccano, e restano nell'ordine che `tests/test_stile.py:361-366` asserisce.
+
+In `mostraPrecedente(attivo)` (`:257-261`), dopo lo scambio dei due gruppi:
+
+```js
+      // Il fantasma segue `gruppo`: e' il passaggio precedente di cio' che sta
+      // in `gruppo`, non di cio' che sta in `precedente`. Lasciato acceso sopra
+      // il confronto metterebbe a video tre geometrie mentre l'etichetta ne
+      // nomina una.
+      if (fantasma !== null) fantasma.visible = !attivo;
 ```
 
 Nell'oggetto restituito, dopo `mostraMesh`:
 
 ```js
-    // Il passaggio precedente, dietro quello corrente. Grigio, quasi
+    // Il passaggio precedente, insieme a quello corrente. Grigio, quasi
     // trasparente, e senza depthWrite: deve lasciarsi attraversare da cio' che
     // sta davanti invece di occluderlo.
     // Un metodo solo per nuvola e superficie: `facce` a null da' dei punti, e
     // le tre coppie del fantasma sono due nuvole e una superficie.
-    // Costo: il commento a svuota() misura 7,6 MB di attributi per geometria,
-    // e questo li raddoppia. Su un budget di disegno di 400.000 punti resta
-    // trascurabile.
+    // Il colore viene dal foglio come tutti gli altri della scena: un
+    // esadecimale qui e' un colore che nessun controllo raggiunge, ed e' il
+    // difetto che i quattro token della scena sono nati per chiudere.
+    // Costo: il commento a liberaIlPrecedente() misura 7,6 MB di attributi per
+    // geometria, e questo li aggiunge una terza volta nel caso peggiore
+    // (corrente + precedente + fantasma). Su un budget di disegno di 400.000
+    // punti resta trascurabile.
     mostraFantasma(vertici, facce = null) {
+      const tinto = tinta("--fantasma");
       const geometria = new THREE.BufferGeometry();
       geometria.setAttribute("position", new THREE.BufferAttribute(vertici, 3));
       if (facce === null) {
         fantasma = new THREE.Points(geometria, new THREE.PointsMaterial({
-          size: 1.5, sizeAttenuation: false, color: 0x8a8579,
+          size: 1.5, sizeAttenuation: false, color: tinto,
           transparent: true, opacity: 0.15, depthWrite: false,
           clippingPlanes: pianiTaglio,
         }));
@@ -1058,22 +1211,28 @@ Nell'oggetto restituito, dopo `mostraMesh`:
         geometria.setIndex(new THREE.BufferAttribute(facce, 1));
         geometria.computeVertexNormals();
         fantasma = new THREE.Mesh(geometria, new THREE.MeshStandardMaterial({
-          color: 0x8a8579, roughness: 0.9, metalness: 0.0, side: THREE.DoubleSide,
+          color: tinto, roughness: 0.9, metalness: 0.0, side: THREE.DoubleSide,
           transparent: true, opacity: 0.15, depthWrite: false,
           clippingPlanes: pianiTaglio,
         }));
       }
-      gruppo.add(fantasma);
+      scena.add(fantasma);
     },
-    // Spegnere l'interruttore libera davvero: togliere l'oggetto dalla scena
-    // non cancella i suoi buffer, e' dispose a farlo (vedi svuota()).
-    togliFantasma() {
-      if (fantasma === null) return;
-      fantasma.geometry.dispose();
-      fantasma.material.dispose();
-      gruppo.remove(fantasma);
-      fantasma = null;
-    },
+    togliFantasma,
+```
+
+**E il token, nello stesso passo.** Le due cose sono una sola: `tests/test_stile.py:262-270` vieta l'esadecimale in `viewport.js`, `:273-281` pretende che il nome letto sia dichiarato, e farne una senza l'altra lascia rosso l'altro test. In `meshrec/src/meshrec/ui/stile.css`, dentro `:root` accanto agli altri tre colori della scena (`:80-82`):
+
+```css
+  --fantasma: #8a8479;
+```
+
+Lo stesso grigio neutro di `--bordo-comando`, dichiarato a parte e non riusato: i colori della scena hanno nomi propri — `--nuvola`, `--ricostruzione`, `--attrezzo` — perché sono l'unica famiglia che vive fuori dal foglio, e un quarto che si chiamasse come un contorno di comando li slaccerebbe il giorno che uno dei due cambia. **Nessun rapporto di contrasto dichiarato**, a differenza degli altri tre: a opacità 0,15 sopra un fondo che cambia con la geometria sotto, una misura di contrasto sarebbe un numero inventato. Il fantasma non porta informazione di suo — quella sta nei due conteggi della didascalia — ed è la ragione per cui questa assenza è lecita qui e non lo sarebbe su `--attrezzo`.
+
+E la riga per il fuoco che il Task 2 aveva rimandato, accanto a `.comandi-vista` (che il Task 2 ha appena scritto): la casella dello Step 6 non è un `.bottone` e non eredita `.bottone:focus-visible` (`stile.css:215`).
+
+```css
+.comandi-vista label:focus-within { outline: 2px solid var(--accento); outline-offset: 2px; }
 ```
 
 - [ ] **Step 5: Chiedere e disegnare il fantasma dal modulo**
@@ -1133,12 +1292,17 @@ async function mostraFantasmaDelloStep(numero, ordine) {
   // che due approssimazioni si somigliano, non che il dato e' quello che si
   // dichiara. Su lab_crop sono i 6.329.096 punti dello step 1 contro i
   // 4.229.538 dello step 2: e' li' che si vede che cosa il ritaglio ha tolto.
-  document.getElementById("conteggi").textContent +=
-    ` — prima: ${pieni.toLocaleString("it")}`;
+  const coda = ` — prima: ${pieni.toLocaleString("it")}`;
+  document.getElementById("conteggi").textContent += coda;
+  // E anche nella memoria del confronto. registraVista tiene in vistaMostrata
+  // la didascalia intera, ed e' quella che alternaConfronto rimette a video
+  // nominando questo step: senza questa riga il ritorno dal confronto
+  // perderebbe proprio il numero che dice che cosa il passaggio ha tolto.
+  if (vistaMostrata !== null) vistaMostrata.testo += coda;
 }
 ```
 
-Sostituire `ricaricaVista` (`:378-385`):
+Sostituire il corpo di `ricaricaVista` (`:790-797`), **lasciando la guardia nella forma che ha adesso**:
 
 ```js
 function ricaricaVista(numero, ordine = generazione) {
@@ -1146,15 +1310,25 @@ function ricaricaVista(numero, ordine = generazione) {
   // il cursore si rifarebbe sull'ingombro di una geometria che qualcun altro
   // ha disegnato, cioe' su una lettura che non appartiene a questo numero.
   mostraStep(numero, ordine).then((disegnato) => {
-    if (!disegnato || superata(ordine)) return;
-    riallineaTaglio(numero);
-    // Dopo, e non in parallelo: il fantasma appende alla didascalia che
-    // mostraStep ha appena scritto, e partendo insieme potrebbe appendere a
-    // quella di prima.
-    mostraFantasmaDelloStep(numero, ordine);
+    if (disegnato && !superata(ordine)) {
+      riallineaTaglio(numero);
+      // Dopo, e non in parallelo: il fantasma appende alla didascalia che
+      // registraVista ha appena scritto, e partendo insieme potrebbe appendere
+      // a quella di prima.
+      mostraFantasmaDelloStep(numero, ordine);
+    }
   });
 }
 ```
+
+**La guardia resta scritta `if (disegnato && !superata(ordine))`, non capovolta in `if (!disegnato || superata(ordine)) return;`.** Le due forme sono equivalenti a runtime, ma `tests/test_server.py:1335-1336` cerca la prima alla lettera:
+
+```python
+    ricarica = _sorgente_di("ricaricaVista", testo)
+    assert re.search(r"if \(disegnato && !superata\(ordine\)\)", ricarica), ricarica
+```
+
+Non è pignoleria del test: quella riga è la sola cosa che tiene il cursore del taglio dal tararsi sull'ingombro di una geometria disegnata da qualcun altro, e il test la sorveglia per forma perché eseguendola non si distinguerebbe. Il corpo nuovo si innesta **dentro** quel ramo.
 
 Accanto al gestore del bottone «Inquadra» (Task 2):
 
@@ -1183,17 +1357,33 @@ In `meshrec/src/meshrec/ui/index.html`, dentro `<div class="comandi-vista" id="c
       </label>
 ```
 
-- [ ] **Step 7: Eseguire i test e vederli passare**
+- [ ] **Step 7: Stubbare il fantasma nel banco dell'arbitraggio**
 
-Run: `cd meshrec && uv run pytest tests/test_app_js.py tests/test_server.py tests/test_viewport_js.py -q`
-Expected: PASS.
+`tests/test_server.py:1487` estrae `ricaricaVista` dentro il banco `_BANCO_ORDINE` e la **esegue** in `node`, per provare che due richieste sovrapposte con lo stesso `ordine` non si scavalchino. Da questo task in poi quel corpo chiama `mostraFantasmaDelloStep`, che il banco non estrae: `ReferenceError: mostraFantasmaDelloStep is not defined` su tutti e due i casi parametrizzati.
 
-- [ ] **Step 8: Commit**
+Aggiungere lo stub dentro `_BANCO_ORDINE`, accanto agli altri già presenti:
+
+```js
+// Il fantasma non c'entra con l'arbitraggio delle richieste, che e' cio' che
+// questo banco misura: stubbato e non estratto, perche' estrarlo tirerebbe
+// dentro FANTASMA_DI, fantasmaHaSenso e un secondo vista.mostraFantasma senza
+// provare niente di piu'.
+function mostraFantasmaDelloStep() {}
+```
+
+Uno stub e non l'aggiunta alla tupla di `_sorgente_di`: quel banco conta le scritture, e un fantasma che facesse una `fetch` propria ne aggiungerebbe di sue, cambiando la grandezza misurata invece di lasciarla dov'è.
+
+- [ ] **Step 8: Eseguire i test e vederli passare**
+
+Run: `cd meshrec && uv run pytest tests/test_app_js.py tests/test_server.py tests/test_stile.py tests/test_viewport_js.py -q`
+Expected: PASS. `test_stile.py` è nell'elenco perché sorveglia entrambe le metà del colore: nessun esadecimale in `viewport.js` (`:262-270`) e ogni token letto dichiarato (`:273-281`).
+
+- [ ] **Step 9: Commit**
 
 ```bash
 git add meshrec/src/meshrec/ui/viewport.js meshrec/src/meshrec/ui/app.js \
-        meshrec/src/meshrec/ui/index.html meshrec/tests/test_app_js.py \
-        meshrec/tests/test_server.py
+        meshrec/src/meshrec/ui/index.html meshrec/src/meshrec/ui/stile.css \
+        meshrec/tests/test_app_js.py meshrec/tests/test_server.py
 git commit -m "feat(viewport): il passaggio precedente resta in vista dietro quello corrente"
 ```
 
@@ -1250,8 +1440,10 @@ def test_indietro_rimette_il_testo_di_prima_byte_per_byte(tmp_path: Path):
 def test_uno_storico_senza_niente_prima_risponde_none(tmp_path: Path):
     """Il difetto opposto — un silenzio identico fra riuscita e nulla-da-fare —
     e' gia' stato prodotto e corretto una volta su questo progetto, sul bottone
-    Annulla (ui/app.js:117-122). Qui l'assenza si distingue alla radice: None
-    non e' una stringa vuota."""
+    Annulla (ui/index.html:21-26: «un bottone sempre acceso che risponde con un
+    silenzio identico al successo non distingue annullato da non c'era nulla da
+    annullare»). Qui l'assenza si distingue alla radice: None non e' una stringa
+    vuota."""
     assert storico.indietro(tmp_path) is None
     storico.deposita(tmp_path, "sola: 1\n", "avvio", [])
     assert storico.indietro(tmp_path) is None
@@ -1312,7 +1504,7 @@ def test_il_registro_tiene_una_riga_per_versione(tmp_path: Path):
 
 def test_un_cursore_illeggibile_non_solleva(tmp_path: Path):
     """Uno stato illeggibile e' uno stato assente, come gia' fa
-    core/steps.py:85 per lo stato della corsa. Sollevare qui vorrebbe dire che
+    core/steps.py:83-87 per lo stato della corsa. Sollevare qui vorrebbe dire che
     un file di servizio corrotto impedisce di annullare, cioe' proprio quando
     si sta cercando di rimediare a qualcosa."""
     storico.deposita(tmp_path, "uno\n", "avvio", [])
@@ -1398,7 +1590,7 @@ def _cursore(out_dir: Path) -> int:
             json.loads((_cartella(out_dir) / "cursore.json").read_text(encoding="utf-8"))["versione"]
         )
     except (OSError, ValueError, KeyError, TypeError):
-        # Uno stato illeggibile e' uno stato assente, come core/steps.py:85 per
+        # Uno stato illeggibile e' uno stato assente, come core/steps.py:83-87 per
         # lo stato della corsa: si riparte dall'ultima versione, che e' quella
         # che config.yaml porta.
         return numeri[-1]
@@ -1505,8 +1697,8 @@ git commit -m "feat(storico): un deposito su disco per le versioni della configu
 ### Task 7: Lo storico innestato nel server
 
 **Files:**
-- Modify: `meshrec/src/meshrec/app/server.py` (import; `scrivi_config` nuova dentro `create_app`; le tre chiamate a `save_config` a `:307`, `:464`, `:616`; due endpoint nuovi)
-- Modify: `meshrec/tests/test_server.py` (test nuovi; estendere `test_nessun_endpoint_solleva_verso_il_browser` a `:1777`)
+- Modify: `meshrec/src/meshrec/app/server.py` (import; `scrivi_config` nuova dentro `create_app`; le tre chiamate a `save_config` a `:345`, `:520`, `:672`; due endpoint nuovi)
+- Modify: `meshrec/tests/test_server.py` (test nuovi; estendere `test_nessun_endpoint_solleva_verso_il_browser` a `:1893`)
 
 **Interfaces:**
 - Consumes: `storico.esiste/deposita/indietro/avanti` dal Task 6; `steps.run_state(out_dir, cfg)` (`core/steps.py:122`), che torna una lista di dizionari con `numero` e `stato` fra `"valido"`, `"non valido"`, `"mai eseguito"`, `"fallito"`.
@@ -1551,7 +1743,7 @@ def test_avanti_rifa_cio_che_indietro_aveva_disfatto(cliente, tmp_path):
 def test_uno_storico_vuoto_risponde_invece_di_tacere(cliente):
     """Criterio 9. Un silenzio identico fra riuscita e nulla-da-fare e' gia'
     stato prodotto e corretto una volta su questo progetto, sul bottone Annulla
-    (ui/index.html:14-19): non va rifatto per una seconda strada."""
+    (ui/index.html:21-26): non va rifatto per una seconda strada."""
     risposta = cliente.post("/api/storico/indietro")
     assert risposta.status_code == 200
     corpo = risposta.json()
@@ -1623,9 +1815,9 @@ def test_il_core_non_conosce_lo_storico():
 from meshrec.core.config import InputConfig, PipelineConfig, load_config, save_config
 ```
 
-La firma di `steps.write_state` è `(out_dir, numero, impronta, esito, artefatto, secondi)`, sei argomenti posizionali senza predefiniti (`core/steps.py:91-98`); `"riuscito"` è il valore che `pipeline.registra` scrive (`core/pipeline.py:115-118`), e `run_state` tratta come fallito soltanto `"fallito"`.
+La firma di `steps.write_state` è `(out_dir, numero, impronta, esito, artefatto, secondi)`, sei argomenti posizionali senza predefiniti (`core/steps.py:91-98`); `"riuscito"` è il valore che `pipeline.registra` scrive (`core/pipeline.py:116-119`), e `run_state` tratta come fallito soltanto `"fallito"`.
 
-Poi sostituire `test_nessun_endpoint_solleva_verso_il_browser` (`tests/test_server.py:1777`):
+Poi sostituire `test_nessun_endpoint_solleva_verso_il_browser` (`tests/test_server.py:1893-1907`). Il corpo attuale elenca i soli percorsi con metodo `GET`; quello nuovo elenca coppie `(metodo, percorso)`:
 
 ```python
 def test_nessun_endpoint_solleva_verso_il_browser(cliente):
@@ -1690,17 +1882,17 @@ Dentro `create_app`, subito dopo `def corrente() -> PipelineConfig:` (`:266-267`
 
 Sostituire le tre chiamate dirette:
 
-`:307` in `scrivi_configurazione`:
+`:345` in `scrivi_configurazione`:
 ```python
         scrivi_config(nuova, "PUT /api/config", sorted(nuova.model_dump(mode="json")))
 ```
 
-`:464` in `ritaglia` (dopo `_dentro, metriche = segment.crop_box(...)`):
+`:520` in `ritaglia` (dopo `_dentro, metriche = segment.crop_box(...)`):
 ```python
         scrivi_config(cfg, "POST /api/crop", ["segment.crop_min", "segment.crop_max"])
 ```
 
-`:616` in `scegli_cluster`:
+`:672` in `scegli_cluster`:
 ```python
         scrivi_config(cfg, "POST /api/cluster", ["segment.method", "segment.cluster_index"])
 ```
@@ -1758,7 +1950,7 @@ Dentro `create_app`, accanto agli altri endpoint della configurazione:
         )
 ```
 
-Verificare che `io` e `steps` siano già importati in `app/server.py` (lo sono: `steps.run_state` è usata a `:299`); aggiungere `from meshrec.core import io` se manca.
+`io` e `steps` sono già importati in `app/server.py`: arrivano entrambi dalla riga `from meshrec.core import io, pipeline, quality, report, segment, steps, sweep, viewport` (`:25`), e `steps.run_state` è già usata a `:334`. Non serve aggiungere niente.
 
 - [ ] **Step 5: Eseguire i test e vederli passare**
 
@@ -1786,8 +1978,15 @@ git commit -m "feat(server): indietro e avanti sulle modifiche di configurazione
 - Modify: `meshrec/tests/test_app_js.py`
 
 **Interfaces:**
-- Consumes: `POST /api/storico/indietro` e `/avanti` dal Task 7; `corpoLetto(risposta)` (`app.js:449`), `ragioneDelRifiuto(risposta)` (`:405`), `caricaStato()` (`:11`), `ricaricaVista`, `apriDettaglio`, `rigaErrore`.
+- Consumes: `POST /api/storico/indietro` e `/avanti` dal Task 7; `corpoLetto(risposta)` (`app.js:863`), `ragioneDelRifiuto(risposta)` (`:817`), `caricaStato()` (`:131`), `mostraEsito(errore, esito)` (`:120-124`), `apriGenerazione()` (`:381`), `superata(ordine)` (`:388`), `ricaricaVista` (`:790`), `apriDettaglio` (`:1603`), `dichiaraErrore` (`:875`).
 - Produces: niente per task successivi. È l'ultimo.
+
+**Il messaggio va in `#esito`, non nella regione `role="alert"`.** La prima stesura di questo piano lo mandava in `rigaErrore` e lo annotava come debito. Contro `c044007` quella scelta è sbagliata due volte:
+
+- **Verrebbe cancellato tre righe dopo.** `chiediStorico` chiama `apriDettaglio` in coda, e `apriDettaglio` fa `dichiaraErrore(null)` a ogni apertura (`app.js:1680`, col commento «Svuotata a ogni apertura e prima di ogni tentativo»). Il messaggio dell'undo comparirebbe e sparirebbe nel tempo di due fetch. Il difetto non si sarebbe visto in prova: il banco stubba `apriDettaglio` come funzione vuota, quindi il test sarebbe passato per il motivo sbagliato.
+- **Una regione neutra esiste già.** `#esito`, `aria-live="polite"`, dichiarata nel markup a `index.html:20`, con scrittore unico `mostraEsito(errore, esito)` (`app.js:120-124`). È nata nella chiusura della Fase 3 proprio per questo, e il commento a `app.js:110-116` lo dice: *«Il fallimento andava in #errore, che vive nella colonna del dettaglio, e apriDettaglio la svuota a ogni apertura … adesso l'esito ne ha una sua, dove nessun ricaricamento di pannello passa»*.
+
+Un ritorno indietro riuscito non è un errore, quindi passa da `mostraEsito(null, testo)`. Un rifiuto del server resta un errore e continua ad andare in `dichiaraErrore`. **Il debito «regione `role="alert"` usata anche per messaggi non d'errore» non nasce**, e va tolto dall'elenco della chiusura del ramo.
 
 - [ ] **Step 1: Scrivere i test**
 
@@ -1813,60 +2012,114 @@ def test_ctrl_z_e_legato_e_non_ruba_i_comandi_della_tela():
         assert tasto not in corpo, f"il gestore globale intercetta {tasto}, che e' della tela"
 
 
+_BANCO_STORICO = _DOM + """
+let ricaricata = false;
+async function caricaStato() {}
+function ricaricaVista() { ricaricata = true; }
+// Svuota la riga d'errore a ogni apertura, come quello vero (app.js:1680): e'
+// la ragione per cui il messaggio dell'undo NON puo' stare li'. Uno stub vuoto
+// avrebbe lasciato passare per verde proprio il difetto da chiudere.
+async function apriDettaglio() { dichiaraErrore(null); }
+let stepMostrato = 5;
+const esito = document.getElementById("esito");
+"""
+
+
+def _funzioni_dello_storico() -> str:
+    return _funzioni(
+        "apriGenerazione", "superata", "dichiaraErrore", "mostraEsito",
+        "corpoLetto", "ragioneDelRifiuto", "chiediStorico",
+    )
+
+
 def test_lo_storico_a_vuoto_mostra_il_perche_invece_di_tacere(tmp_path):
     """Il server risponde {"annullato": false, "perche": ...} e il modulo lo
     deve dire. Scartare quel corpo e' esattamente il difetto del bottone
     Annulla, per una seconda strada."""
-    _esegui(tmp_path, _DOM + """
+    _esegui(tmp_path, _BANCO_STORICO + """
 globalThis.fetch = async () => ({
   ok: true,
   status: 200,
   text: async () => JSON.stringify({ annullato: false, perche: "niente da annullare" }),
 });
-async function caricaStato() {}
-function ricaricaVista() {}
-async function apriDettaglio() {}
-function apriGenerazione() { return 1; }
-let stepMostrato = null;
-""" + _funzioni("corpoLetto", "ragioneDelRifiuto", "chiediStorico") + """
+""" + _funzioni_dello_storico() + """
 await chiediStorico("indietro");
-assert.equal(rigaErrore.textContent, "niente da annullare");
+assert.equal(esito.textContent, "niente da annullare");
+// Non e' un errore: «non c'era niente da annullare» e' un esito normale, e
+// scriverlo nella regione role="alert" direbbe a chi non vede che qualcosa e'
+// andato storto.
+assert.equal(rigaErrore.textContent, "");
 """)
 
 
 def test_dopo_un_ritorno_indietro_l_interfaccia_elenca_gli_step_invalidati(tmp_path):
     """Gli artefatti restano sul disco e la catena di impronte li marca «non
     valido»: e' il comportamento giusto, ma cambiare in silenzio lo stato di
-    sette step sarebbe una modifica invisibile."""
-    _esegui(tmp_path, _DOM + """
-let ricaricata = false;
+    sette step sarebbe una modifica invisibile.
+
+    Il messaggio sta in #esito e non in #errore, e il banco lo prova davvero:
+    apriDettaglio qui svuota la riga d'errore come quello vero, quindi un
+    messaggio scritto la' sarebbe gia' sparito quando questo controllo guarda.
+    """
+    _esegui(tmp_path, _BANCO_STORICO + """
 globalThis.fetch = async () => ({
   ok: true,
   status: 200,
   text: async () => JSON.stringify({ annullato: true, invalidati: [5, 6, 7], steps: [] }),
 });
-async function caricaStato() {}
-function ricaricaVista() { ricaricata = true; }
-async function apriDettaglio() {}
-function apriGenerazione() { return 1; }
-let stepMostrato = 5;
-""" + _funzioni("corpoLetto", "ragioneDelRifiuto", "chiediStorico") + """
+""" + _funzioni_dello_storico() + """
 await chiediStorico("indietro");
-assert.match(rigaErrore.textContent, /5, 6, 7/);
-assert.match(rigaErrore.textContent, /non valid/);
+assert.match(esito.textContent, /5, 6, 7/);
+assert.match(esito.textContent, /non valid/);
 // La vista si rifa': il config e' cambiato sotto, e lasciare a schermo la
 // geometria di prima con lo stato nuovo a sinistra e' la vista che contraddice
 // la propria didascalia, per la terza strada.
 assert.equal(ricaricata, true);
 """)
+
+
+def test_due_annullamenti_sovrapposti_non_fanno_vincere_il_piu_vecchio(tmp_path):
+    """Ctrl+Z tenuto premuto si ripete, e due chiamate finiscono in volo
+    insieme. Senza un ordine aperto PRIMA dell'attesa e guardato dopo, vince
+    chi arriva ultimo, che e' la risposta vecchia: a video l'elenco degli step
+    invalidati di un ripristino che non e' piu' quello corrente.
+
+    E' la stessa istanza che i due contatori di questo modulo chiudono sulle
+    strade che disegnano (app.js:392-409), per una terza strada. Provata
+    eseguendo e non per iscritto: lo scanner strutturale di questo file non la
+    vede — risolve un solo livello di delega, e il gestore globale e' un blocco
+    e non una delega nuda.
+    """
+    _esegui(tmp_path, _BANCO_STORICO + """
+let risolvi = [];
+globalThis.fetch = async () => new Promise((r) => { risolvi.push(r); });
+""" + _funzioni_dello_storico() + """
+const vecchia = chiediStorico("indietro");
+const nuova = chiediStorico("indietro");
+const risposta = (invalidati) => ({
+  ok: true, status: 200,
+  text: async () => JSON.stringify({ annullato: true, invalidati, steps: [] }),
+});
+// La piu' recente arriva per prima e scrive.
+risolvi[1](risposta([9]));
+await nuova;
+assert.match(esito.textContent, /9/, "la richiesta piu' recente non ha scritto");
+// La piu' vecchia rientra dopo e deve tacere.
+risolvi[0](risposta([1, 2, 3]));
+await vecchia;
+assert.doesNotMatch(esito.textContent, /1, 2, 3/,
+  "la risposta vecchia, arrivata per ultima, ha scritto sopra quella recente");
+""")
 ```
 
-Nota per chi esegue: `_DOM` (`tests/test_app_js.py:115-193`) dichiara già `rigaErrore`, `stepAperto`, `configurazione`, `generazione` ed `ETICHETTE`. Non dichiara `stepMostrato`, `apriGenerazione`, `caricaStato`, `ricaricaVista` né `apriDettaglio`: sono quelli che le prove qui sopra aggiungono, e non c'è ridichiarazione. `_sorgente_di` tiene il prefisso `async`, quindi `chiediStorico` esce eseguibile e il `await` di primo livello è lecito in un modulo `.mjs`.
+Nota per chi esegue, riverificata contro `c044007`: `_DOM` (`tests/test_app_js.py:115-204`) dichiara `rigaErrore`, `stepAperto`, `configurazione`, `generazione`, `ETICHETTE`, e anche `elenco`, `STEPS` e `marcati`. **Non** dichiara `stepMostrato`, `caricaStato`, `ricaricaVista`, `apriDettaglio` né `esito`: sono quelli che `_BANCO_STORICO` aggiunge, e non c'è ridichiarazione.
+
+`apriGenerazione`, `superata`, `dichiaraErrore` e `mostraEsito` si **estraggono** invece di stubbarli: girano contro il `generazione` e il `rigaErrore` che `_DOM` dichiara, e stubbare proprio le due funzioni che questo task deve provare (l'ordine e la regione giusta) le lascerebbe non provate. `_sorgente_di` tiene il prefisso `async`, quindi `chiediStorico` esce eseguibile e il `await` di primo livello è lecito in un modulo `.mjs`.
 
 - [ ] **Step 2: Eseguire i test e vederli fallire**
 
-Run: `cd meshrec && uv run pytest tests/test_app_js.py -k "ctrl_z or storico_a_vuoto or invalidati" -v`
-Expected: FAIL con `nessun tasto globale legato` e `il modulo non ha una funzione chiediStorico`.
+Run: `cd meshrec && uv run pytest tests/test_app_js.py -k "ctrl_z or storico_a_vuoto or invalidati or annullamenti_sovrapposti" -v`
+Expected: FAIL con `nessun tasto globale legato` sul primo e `IndexError` dentro `_sorgente_di` sugli altri tre, perché `chiediStorico` non esiste.
 
 - [ ] **Step 3: Scrivere la funzione e il gestore**
 
@@ -1878,31 +2131,44 @@ In `meshrec/src/meshrec/ui/app.js`, dopo `ricaricaVista`:
 // terminazione dello step che sta girando (il bottone #annulla): questa e'
 // un'altra cosa e sta apposta su un'altra strada.
 async function chiediStorico(verso) {
+  // L'ordine si apre PRIMA dell'attesa, non dopo. Ctrl+Z tenuto premuto si
+  // ripete, e due chiamate finiscono in volo insieme: aperto dopo, l'ordine
+  // sarebbe il numero di arrivo invece che quello di partenza, e vincerebbe la
+  // risposta vecchia. E' la stessa regola dei due contatori delle strade che
+  // disegnano (vedi il commento sopra apriGeometria).
+  const ordine = apriGenerazione();
   const risposta = await fetch(`/api/storico/${verso}`, { method: "POST" });
   if (!risposta.ok) {
-    rigaErrore.textContent = await ragioneDelRifiuto(risposta);
+    // Un rifiuto del server e' un errore, e resta nella regione degli errori.
+    dichiaraErrore(await ragioneDelRifiuto(risposta));
     return;
   }
   const corpo = await corpoLetto(risposta);
+  // Dopo l'ultima attesa e prima della prima scrittura, come le due strade che
+  // disegnano: un ripristino superato da uno piu' recente non scrive niente.
+  if (superata(ordine)) return;
   // Il corpo si legge anche quando la risposta e' riuscita: scartarlo qui
   // renderebbe il silenzio di «non c'era niente da annullare» identico a
   // quello di un annullamento riuscito, che e' il difetto gia' prodotto e
   // corretto una volta sul bottone Annulla.
   if (!corpo.annullato) {
-    rigaErrore.textContent = corpo.perche;
+    // In #esito e non in #errore: «non c'era niente da annullare» e' un esito
+    // normale, e nella regione role="alert" direbbe a chi non vede che
+    // qualcosa e' andato storto.
+    mostraEsito(null, corpo.perche);
     return;
   }
   // Gli artefatti restano sul disco: la catena di impronte li marca «non
   // valido» da se'. Dirlo e' il punto — un ritorno indietro che cambia in
   // silenzio lo stato di sette step sarebbe una modifica invisibile.
-  // ponytail: il messaggio esce dalla regione role="alert", che e' l'unica
-  // regione viva dell'interfaccia. Una regione neutra separata si aggiunge il
-  // giorno che ci sia un secondo messaggio non d'errore da dare.
-  rigaErrore.textContent = corpo.invalidati.length
+  // In #esito, che e' la regione viva neutra della testata: #errore vive nella
+  // colonna del dettaglio, e apriDettaglio la svuota a ogni apertura
+  // (dichiaraErrore(null)), cioe' proprio tre righe piu' sotto. Scritto la',
+  // questo messaggio sarebbe comparso e sparito nel tempo di due fetch.
+  mostraEsito(null, corpo.invalidati.length
     ? `configurazione ripristinata: gli step ${corpo.invalidati.join(", ")} sono ora «non validi»`
-    : "configurazione ripristinata: nessuno step cambia stato";
+    : "configurazione ripristinata: nessuno step cambia stato");
   await caricaStato();
-  const ordine = apriGenerazione();
   if (stepMostrato !== null) ricaricaVista(stepMostrato, ordine);
   if (stepAperto !== null) apriDettaglio(stepAperto, ordine);
 }
@@ -1954,12 +2220,13 @@ I test coprono la logica; nessuno di loro apre una finestra. Questi undici crite
 - [ ] **Verifica 8.** Una modifica di parametro seguita da Ctrl+Z rimette il `config.yaml` precedente, e l'interfaccia elenca gli step tornati «non validi».
 - [ ] **Verifica 9.** Ctrl+Z a storico vuoto dice che non c'è nulla da annullare.
 - [ ] **Verifica 10.** Uno sweep di Fase 2 non lascia nulla in `runs/<nome>/.storico/`. Da eseguire su una corsa di prova, **mai** su `lab_crop` o `muro`.
-- [ ] **Verifica 11.** La suite passa: i test attuali più quelli nuovi, con i 6 deselezionati che restano tali.
+- [ ] **Verifica 11.** La suite passa: i **494** di partenza più quelli nuovi, con i 6 deselezionati che restano tali e i 3 skipped che restano 3.
+- [ ] **Verifica 12.** Sullo step 2, con il fantasma acceso, premere «Confronta»: a video deve restare **una sola** geometria, quella dello step guardato prima, senza il fantasma sopra. È l'unico modo di cogliere il difetto che lo Step 4 del Task 5 chiude — un fantasma figlio di `gruppo` finirebbe nel `precedente` e ricomparirebbe lì — e nessun test automatico lo vede, perché è visibilità di three.js e non logica del modulo.
 
 ## Chiusura del ramo
 
 - [ ] Aprire la PR verso `main` (`git push -u origin worktree-fase-3-5-viewport` è già stato fatto per la spec).
 - [ ] Prima del merge, dispacciare in **parallelo** `security-reviewer`, `code-reviewer`, `test-writer` — sono di sola lettura e indipendenti fra loro.
 - [ ] Merge solo con review pulita, poi `superpowers:finishing-a-development-branch`.
-- [ ] Aggiungere al debito già aperto nella spec (§ 10.1) le voci nuove che questo piano lascia: la regione `role="alert"` usata anche per messaggi non d'errore (Task 8), e il banco `node` ricopiato in due file di test invece che in un `conftest.py` (Task 1).
+- [ ] Aggiungere al debito già aperto nella spec (§ 10.1) l'unica voce nuova che questo piano lascia: il banco `node` (`_node`, `_esegui`, `_sorgente_di`) ricopiato in due file di test invece che in un `conftest.py` (Task 1). La voce «regione `role="alert"` usata anche per messaggi non d'errore» che la prima stesura prevedeva **non va aggiunta**: il messaggio dell'undo esce da `#esito`, che è una regione neutra già esistente, e il debito non nasce.
 - [ ] `graphify update` **non** serve: `Tesi/` non è fra i cinque grafi vivi.
