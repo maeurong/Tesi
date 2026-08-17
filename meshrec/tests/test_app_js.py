@@ -800,7 +800,7 @@ def _banco_di_geometria() -> str:
     ) + """
 let ultimaGeometria = 0;
 let ultimiSteps = [];
-const STEP_CON_MESH = new Set([5, 6, 8, 9]);
+const STEP_CON_MESH = new Set([5, 6, 7, 8, 9, 10, 11]);
 let vistaMostrata = null;
 let vistaPrecedente = null;
 let conteggiDiPrima = null;
@@ -934,21 +934,35 @@ assert.equal(
 
 def test_nessun_artefatto_chiude_il_caricamento_e_non_lo_confonde_con_un_server_muto(tmp_path):
     """Un 404 vero (lo step non ha ancora un artefatto) e' un dato negativo
-    documentato, non un guasto: il testo resta quello di sempre e la tela
-    smette comunque di dirsi occupata."""
+    documentato, non un guasto: la tela smette comunque di dirsi occupata, e a
+    video finisce **la ragione che il server ha scritto**, non una frase fissa
+    del browser.
+
+    La frase fissa c'e' stata, e diceva «eseguilo per vederne il risultato»: sul
+    ramo del server muto restava fuori (status 0) e i due fatti si distinguevano
+    per un ramo di qui. Ora a distinguerli e' il testo che il server manda, che
+    e' l'unico che sa quale dei due e' successo.
+    """
     _esegui(tmp_path, _banco_di_geometria() + """
 document.getElementById("viewport").setAttribute("aria-busy", "true");
-risponde = [() => ({ ok: false, status: 404, text: async () => "" })];
+risponde = [() => ({
+  ok: false,
+  status: 404,
+  text: async () => JSON.stringify({
+    errore: "FileNotFoundError",
+    messaggio: "lo step 9 non ha ancora prodotto 09_volume.vtu",
+  }),
+})];
 await mostraNuvolaDelloStep(9, generazione);
 assert.equal(
   document.getElementById("viewport").getAttribute("aria-busy"), null,
-  "\\"nessun artefatto\\" lascia la tela marcata come occupata",
+  "il rifiuto documentato lascia la tela marcata come occupata",
 );
-assert.equal(
-  document.getElementById("conteggi").textContent,
-  "nessun artefatto per questo step: eseguilo per vederne il risultato.",
-  "il testo del rifiuto documentato e' cambiato",
-);
+const didascalia = document.getElementById("conteggi").textContent;
+assert.equal(didascalia, "lo step 9 non ha ancora prodotto 09_volume.vtu",
+  `la ragione scritta dal server non arriva a video: ${didascalia}`);
+assert.doesNotMatch(didascalia, /il server non ha risposto/,
+  `un rifiuto documentato si confonde con un server muto: ${didascalia}`);
 """)
 
 
@@ -1000,12 +1014,25 @@ assert.equal(
 def test_messaggioArtefattoMancante_distingue_server_muto_da_rifiuto_documentato(tmp_path):
     """La funzione estratta, chiamata da sola: e' l'unica superficie che
     decide il testo, e questo la sorveglia senza passare da mostraStep o
-    mostraNuvolaDelloStep."""
+    mostraNuvolaDelloStep.
+
+    I due fatti restano distinti, ma a distinguerli e' cio' che il server manda
+    e non un ramo del browser: il 404 porta la propria ragione, che sugli step
+    senza geometria propria nomina lo step **a monte** da eseguire. Scartare
+    quel corpo per sostituirlo con «eseguilo» rimandava allo step chiesto,
+    cioe' all'istruzione sbagliata.
+    """
     _esegui(tmp_path, _banco_di_geometria() + """
-const documentato = await messaggioArtefattoMancante({ status: 404 });
+const documentato = await messaggioArtefattoMancante({
+  status: 404,
+  text: async () => JSON.stringify({
+    errore: "FileNotFoundError",
+    messaggio: "lo step 7 non ha ancora una geometria da mostrare: esegui lo step 6",
+  }),
+});
 assert.equal(documentato,
-  "nessun artefatto per questo step: eseguilo per vederne il risultato.",
-  "il rifiuto documentato non deve cambiare testo");
+  "lo step 7 non ha ancora una geometria da mostrare: esegui lo step 6",
+  `il rifiuto documentato non porta la ragione del server: ${documentato}`);
 
 const muto = await messaggioArtefattoMancante({
   status: 0,
@@ -1215,10 +1242,19 @@ const disegna = async (numero, punti) => {
   })];
   return mostraStep(numero, generazione);
 };
+// Il rifiuto con la forma vera: {errore, messaggio} dal gestore di app/server.py,
+// che e' cio' che il browser legge per dire perche'.
 const fallisci = async (numero) => {
   stepMostrato = numero;
   chiamata = 0;
-  risponde = [() => ({ ok: false, status: 404 })];
+  risponde = [() => ({
+    ok: false,
+    status: 404,
+    text: async () => JSON.stringify({
+      errore: "FileNotFoundError",
+      messaggio: `lo step ${numero} non ha ancora prodotto il suo artefatto`,
+    }),
+  })];
   return mostraStep(numero, generazione);
 };
 """
@@ -3871,3 +3907,235 @@ assert.match(testo, /sola lettura/, "niente dice che la casella non si scrive");
 console.log("ok");
 """
     assert _esegui(tmp_path, sorgente).strip() == "ok"
+
+
+# --------------------------------------------------------------------------
+# Fase 3.5, Task 4. La didascalia dichiara due cose che finora taceva: da quale
+# step viene la geometria disegnata, e con che passo di voxel e' stata sfoltita
+# per il disegno. Sono le due meta' del reclamo «di passaggio in passaggio
+# spariscono pezzi di nuvola e non e' detto perche'».
+# --------------------------------------------------------------------------
+
+
+def test_la_didascalia_dichiara_lo_step_da_cui_viene_la_geometria(tmp_path):
+    """Criterio 3 della spec. Il viewport che mostra la superficie dello step 6
+    mentre l'elenco a sinistra dice «step 7» e' una vista che contraddice la
+    propria didascalia: peggio di una vista vuota, che almeno non afferma
+    niente.
+
+    Su registraVista e non su scriviConteggi: la seconda ha gia' un mestiere
+    suo — il secondo argomento e' il booleano che sposta la riga fra l'angolo e
+    il centro della vista — e cinque chiamanti che se lo aspettano.
+    registraVista e' la superficie unica delle DUE strade che disegnano, che e'
+    esattamente dove la provenienza deve stare.
+
+    **La frase intera e non tre sottostringhe.** Chiedere che «Semplificazione»
+    e «Riparazione» compaiano non dice in che RUOLO compaiono: con i due nomi
+    scambiati di posto la didascalia racconta la ricaduta al contrario — cioe'
+    la bugia esatta che questo task esiste per togliere — e tre `match`
+    restano verdi. Provato: 245 passed. L'uguaglianza della frase chiude anche
+    i nomi, l'ordine e la punteggiatura in una riga sola.
+    """
+    _esegui(tmp_path, _banco_di_geometria() + """
+const conteggi = document.getElementById("conteggi");
+// I nomi che la colonna di sinistra mostra: sono quelli che la didascalia deve
+// usare, non i numeri. Senza queste due righe nomeDelloStep ricade su «step N»
+// e il controllo non distinguerebbe la convenzione del file dal suo contrario.
+ETICHETTE["06_repair"] = "Riparazione";
+ETICHETTE["08_simplify"] = "Semplificazione";
+ultimiSteps = [
+  { numero: 6, chiave: "06_repair", stato: "valido" },
+  { numero: 8, chiave: "08_simplify", stato: "valido" },
+];
+
+stepMostrato = 8;
+registraVista("762 vertici, 1520 triangoli", 6);
+assert.equal(conteggi.textContent,
+  "762 vertici, 1520 triangoli — Semplificazione non ha una geometria propria "
+  + "da mostrare: mostrata quella di Riparazione",
+  `la didascalia della ricaduta non e' quella attesa: ${conteggi.textContent}`);
+
+// Uno step con geometria propria non dichiara niente in piu': una didascalia
+// che dice «mostrata quella dello step 3» sullo step 3 e' rumore, e il rumore
+// rende meno leggibile il caso in cui l'avviso conta davvero.
+stepMostrato = 3;
+registraVista("116.059 punti disegnati su 4.229.538", 3);
+assert.equal(conteggi.textContent, "116.059 punti disegnati su 4.229.538");
+
+// E il predefinito e' «propria»: /api/cloud non manda X-Da-Step, e la strada
+// della nuvola passa un argomento solo.
+stepMostrato = 2;
+registraVista("100 punti disegnati su 100");
+assert.equal(conteggi.textContent, "100 punti disegnati su 100");
+
+// Il mestiere di prima non si perde: la riga resta nell'angolo, cioe'
+// scriviConteggi continua a ricevere il proprio booleano. Senza questo, una
+// riscrittura che gli cambia la firma passerebbe i tre controlli qui sopra e
+// rimetterebbe la didascalia al centro sopra la geometria.
+assert.equal(conteggi.className.includes("conteggi-al-centro"), false);
+
+// La provenienza viaggia anche nella memoria del confronto, non solo a video:
+// il comando rimette questa didascalia nominando lo step guardato prima, e la
+// meta' che dichiara «viene dalla Riparazione» deve tornare insieme all'altra.
+stepMostrato = 8;
+registraVista("762 vertici, 1520 triangoli", 6);
+assert.equal(vistaMostrata.testo, conteggi.textContent,
+  `la memoria del confronto non porta la didascalia intera: ${vistaMostrata.testo}`);
+assert.match(vistaMostrata.testo, /Riparazione/,
+  `la provenienza non entra nella memoria del confronto: ${vistaMostrata.testo}`);
+
+// Uno step che l'elenco non conosce ancora ricade sul numero, che e' cio' che
+// nomeDelloStep fa gia' per ogni altra scrittura del file: la didascalia non
+// resta senza soggetto.
+ultimiSteps = [];
+stepMostrato = 8;
+registraVista("762 vertici, 1520 triangoli", 6);
+assert.equal(conteggi.textContent,
+  "762 vertici, 1520 triangoli — step 8 non ha una geometria propria "
+  + "da mostrare: mostrata quella di step 6",
+  `la ricaduta sul numero non e' quella di nomeDelloStep: ${conteggi.textContent}`);
+""")
+
+
+def test_la_provenienza_della_geometria_arriva_dall_intestazione_del_server(tmp_path):
+    """La provenienza per la strada vera, non chiamando registraVista a mano:
+    e' X-Da-Step che il server manda (app/server.py, sorgente_geometria), ed e'
+    mostraStep a doverla leggere. Senza la lettura la funzione resterebbe
+    corretta e la tratta muta — che e' il modo in cui la ricaduta del server era
+    gia' finita per meta' in codice morto.
+
+    E un'intestazione assente non e' una provenienza: nessuno step ha numero 0,
+    e «mostrata quella dello step NaN» sarebbe una misura inventata al posto di
+    un'assenza.
+    """
+    _esegui(tmp_path, _banco_di_geometria() + """
+const conteggi = document.getElementById("conteggi");
+ETICHETTE["06_repair"] = "Riparazione";
+ETICHETTE["08_simplify"] = "Semplificazione";
+ultimiSteps = [
+  { numero: 6, chiave: "06_repair", stato: "valido" },
+  { numero: 8, chiave: "08_simplify", stato: "valido" },
+];
+const rispondi = (intestazioni) => {
+  chiamata = 0;
+  risponde = [() => ({
+    ok: true,
+    headers: { get: (nome) => intestazioni[nome] },
+    arrayBuffer: async () => new ArrayBuffer(84),
+  })];
+};
+
+// Lo step 8 con la semplificazione spenta: il server serve 06_repaired.ply e lo
+// dichiara. La frase intera, coi due nomi al proprio posto — scambiati direbbe
+// che e' la Riparazione a non avere geometria propria, cioe' il contrario.
+stepMostrato = 8;
+rispondi({ "X-Vertices": "7", "X-Triangles": "0", "X-Da-Step": "6" });
+await mostraStep(8, generazione);
+assert.equal(conteggi.textContent,
+  "7 vertici, 0 triangoli — Semplificazione non ha una geometria propria "
+  + "da mostrare: mostrata quella di Riparazione",
+  `la didascalia della ricaduta non arriva dalla tratta: ${conteggi.textContent}`);
+
+stepMostrato = 9;
+rispondi({ "X-Vertices": "7", "X-Triangles": "0", "X-Da-Step": "9" });
+await mostraStep(9, generazione);
+assert.equal(conteggi.textContent, "7 vertici, 0 triangoli",
+  `uno step con geometria propria dichiara una provenienza che coincide: ${conteggi.textContent}`);
+
+stepMostrato = 9;
+rispondi({ "X-Vertices": "7", "X-Triangles": "0" });
+await mostraStep(9, generazione);
+assert.equal(conteggi.textContent, "7 vertici, 0 triangoli",
+  `un'intestazione assente diventa una provenienza: ${conteggi.textContent}`);
+""")
+
+
+def test_gli_step_senza_geometria_propria_chiedono_la_mesh_e_non_la_nuvola():
+    """Lo step 7 chiede /api/mesh/7, che il server risolve sulla superficie
+    dello step 6. Restasse fra gli step «nuvola» chiederebbe /api/cloud/7, che
+    non esiste, e la scena tornerebbe vuota: la ricaduta del server non
+    arriverebbe mai al viewport."""
+    trovato = re.search(r"const STEP_CON_MESH = new Set\(\[([^\]]*)\]\)", _modulo())
+    assert trovato is not None, "STEP_CON_MESH non e' piu' nel modulo"
+    numeri = {int(pezzo) for pezzo in trovato.group(1).split(",") if pezzo.strip()}
+    assert numeri == {5, 6, 7, 8, 9, 10, 11}, (
+        f"gli step che chiedono la mesh sono {numeri}: dal 5 in poi la geometria "
+        "e' sempre una superficie o un volume"
+    )
+
+
+def test_il_passo_del_voxel_di_disegno_finisce_nella_didascalia(tmp_path):
+    """La densita' disegnata salta fra lo step 2 (4.229.538 punti decimati di
+    circa dieci volte) e lo step 3 (116.059 disegnati interi). Il passo che lo
+    spiega il server lo calcola gia' e lo manda in X-Voxel, dove il modulo lo
+    buttava senza leggerlo: un fatto misurato che si perdeva.
+
+    Attraverso mostraNuvolaDelloStep e non su un formattatore a parte: cio' che
+    si perdeva non era la formattazione, era la lettura dell'intestazione, e un
+    controllo che non passa dalla tratta non la vede.
+
+    Zero non e' un passo: viewport.decimate lo restituisce per dire «nessuna
+    decimazione applicata» (tests/test_viewport.py), e scriverlo come «voxel di
+    disegno 0 mm» sarebbe una misura inventata.
+    """
+    _esegui(tmp_path, _banco_di_geometria() + """
+const conteggi = document.getElementById("conteggi");
+const rispondi = (voxel) => {
+  chiamata = 0;
+  risponde = [() => ({
+    ok: true,
+    headers: { get: (nome) => ({
+      "X-Points-Drawn": "116059", "X-Points-Total": "4229538", "X-Voxel": voxel,
+    }[nome]) },
+    arrayBuffer: async () => new ArrayBuffer(12),
+  })];
+};
+
+// La frase intera e non tre sottostringhe: `mm` sostituito con `cm` passava
+// tutti e tre i `match` di prima (provato: 245 passed), e questo progetto
+// misura millimetri. L'unita' di un numero mostrato fa parte del numero.
+stepMostrato = 2;
+rispondi("10.5");
+await mostraNuvolaDelloStep(2, generazione);
+assert.equal(conteggi.textContent,
+  "116.059 punti disegnati su 4.229.538, voxel di disegno 10,5 mm",
+  `la didascalia della nuvola decimata non e' quella attesa: ${conteggi.textContent}`);
+
+stepMostrato = 3;
+rispondi("0");
+await mostraNuvolaDelloStep(3, generazione);
+assert.equal(conteggi.textContent, "116.059 punti disegnati su 4.229.538",
+  `una nuvola non decimata dichiara un passo di decimazione: ${conteggi.textContent}`);
+""")
+
+
+def test_il_rifiuto_del_server_arriva_a_video_e_nomina_lo_step_da_eseguire(tmp_path):
+    """Uno step il cui artefatto a monte non esiste ancora dice che non c'e'
+    nulla da mostrare, **nominando lo step che deve girare per primo** (§ 5
+    della spec). Il server lo fa gia' — «lo step 7 non ha ancora una geometria
+    da mostrare: esegui lo step 6, che produce 06_repaired.ply» — e il browser
+    scartava quel corpo per ogni status diverso da 0, sostituendolo con una
+    frase fissa che diceva «eseguilo», cioe' rimandava allo step 7.
+
+    L'istruzione sbagliata: il criterio era soddisfatto sull'HTTP e smentito
+    sulla tratta, e il controllo lato server restava verde perche' legge il JSON
+    e non il DOM.
+    """
+    _esegui(tmp_path, _banco_di_geometria() + """
+const conteggi = document.getElementById("conteggi");
+stepMostrato = 7;
+risponde = [() => ({
+  ok: false,
+  status: 404,
+  text: async () => JSON.stringify({
+    errore: "FileNotFoundError",
+    messaggio: "lo step 7 non ha ancora una geometria da mostrare: "
+      + "esegui lo step 6, che produce 06_repaired.ply",
+  }),
+})];
+await mostraStep(7, generazione);
+assert.match(conteggi.textContent, /esegui lo step 6/,
+  `il browser non dice quale step eseguire: ${conteggi.textContent}`);
+assert.doesNotMatch(conteggi.textContent, /eseguilo/,
+  `il browser rimanda a rieseguire lo step chiesto, che non produce geometria: ${conteggi.textContent}`);
+""")

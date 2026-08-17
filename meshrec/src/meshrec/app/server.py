@@ -1002,12 +1002,12 @@ def create_app(config_path: Path) -> FastAPI:
         # /api/cloud non passa di qui apposta: toccarlo cambierebbe il
         # messaggio di guardie che altri controlli sorvegliano.
         #
-        # Oggi (17/08/2026) il browser manda qui solo gli step di
-        # STEP_CON_MESH, cioe' 5, 6, 8 e 9 (ui/app.js:647): lo step 8 e' quindi
-        # gia' servito da questa risoluzione e la ricaduta su 06_repaired.ply
-        # si vede subito. Gli step 7, 10 e 11 vanno invece a /api/cloud e si
-        # prendono il rifiuto di :573, percio' le loro ricadute 7->6 e 10/11->9
-        # restano senza effetto finche' il Task 4 non estende STEP_CON_MESH.
+        # Il browser manda qui STEP_CON_MESH (ui/app.js), che dalla Fase 3.5
+        # comprende anche 7, 10 e 11: le tre ricadute 7->6 e 10/11->9 hanno
+        # quindi effetto a video, e non solo su questa tratta. Chi restringesse
+        # quell'insieme non romperebbe niente qui - toglierebbe soltanto,
+        # in silenzio, la geometria a quegli step, che e' il difetto da cui
+        # questa risoluzione e' nata.
         da = sorgente_geometria(numero, cfg)
         percorso = Path(cfg.run.out_dir) / pipeline.ARTIFACTS[da]
         if not percorso.exists():

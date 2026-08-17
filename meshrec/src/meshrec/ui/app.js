@@ -444,9 +444,10 @@ function scriviConteggi(testo, conGeometria) {
 let vistaMostrata = null;
 let vistaPrecedente = null;
 // La didascalia da rimettere quando il confronto si spegne. Fotografata
-// all'accensione e non ricostruita dallo stato: a video puo' esserci un
-// messaggio d'errore — «nessun artefatto per questo step» — che non sta in
-// vistaMostrata, e ricostruirla lo perderebbe.
+// all'accensione e non ricostruita dallo stato: a video puo' esserci la ragione
+// di un rifiuto scritta dal server — «lo step 10 non ha ancora una geometria da
+// mostrare: esegui lo step 9, che produce 09_volume.vtu» — che non sta in
+// vistaMostrata, e ricostruirla la perderebbe.
 let conteggiDiPrima = null;
 const bottoneConfronta = document.getElementById("confronta");
 
@@ -471,9 +472,33 @@ function spostaNelPrecedente() {
 // Una superficie sola per i due rami che disegnano — nuvola e mesh — perche' il
 // confronto nomina cio' che e' a video: separate, il ramo che disegna senza
 // registrare fa nominare al comando la geometria di due step prima.
-function registraVista(testo) {
-  scriviConteggi(testo, true);
-  vistaMostrata = { numero: stepMostrato, testo };
+// `da` diverso da stepMostrato vuol dire che questo step non ha una geometria
+// propria da mostrare e sta mostrando quella di un altro (app/server.py,
+// sorgente_geometria, dichiarata nell'intestazione X-Da-Step). Mostrare
+// l'artefatto di un altro step senza dirlo sarebbe il risultato plausibile che
+// nessuna metrica smentisce, percio' la ricaduta a monte e la sua
+// dichiarazione sono un punto solo e non due. Quando i due coincidono la frase
+// non dice niente in piu': una didascalia che dichiara una provenienza uguale a
+// se stessa e' rumore, e il rumore rende meno leggibile il caso in cui l'avviso
+// conta davvero.
+// Il fatto su questa corsa e non una legge sullo step: «non PRODUCE geometria
+// propria» sarebbe falso dello step 8 con simplify.enabled acceso, che una
+// geometria propria la scrive, e chi legge concluderebbe che la Semplificazione
+// non serva a niente. Qui e ora quella geometria non c'e', ed e' tutto cio' che
+// la didascalia puo' affermare.
+// I nomi e non i numeri, per la stessa ragione per cui la riga dello stato ha
+// smesso di dire «step 9»: sono le due lingue per la stessa cosa che
+// nomeDelloStep esiste per togliere, e la colonna di sinistra parla la prima.
+function registraVista(testo, da = stepMostrato) {
+  const didascalia = da === stepMostrato
+    ? testo
+    : `${testo} — ${nomeDelloStep(stepMostrato, ultimiSteps)} non ha una geometria propria `
+      + `da mostrare: mostrata quella di ${nomeDelloStep(da, ultimiSteps)}`;
+  scriviConteggi(didascalia, true);
+  // La didascalia intera, non il solo `testo`: e' cio' che il confronto rimette
+  // a video nominando questo step, e la meta' che dichiara la provenienza deve
+  // viaggiare con l'altra.
+  vistaMostrata = { numero: stepMostrato, testo: didascalia };
   aggiornaConfronto();
 }
 
@@ -560,18 +585,21 @@ async function corpoBinarioLetto(risposta) {
   }
 }
 
-// Il testo di un artefatto che non e' arrivato. status 0 e' la firma di
-// serverMuto (vedi sopra): un server che non ha risposto — alla fetch
-// iniziale o a meta' del download, che e' lo stesso fatto letto piu' tardi —
-// non e' lo stesso fatto di un server che ha risposto "questo step non ha
-// ancora un artefatto". Confonderli direbbe un dato negativo documentato dove
-// invece il server non e' mai stato interrogato con successo. Duplicata fra
-// nuvola e mesh prima di questa correzione, e con lei il rischio di
-// modificarne una copia e dimenticare l'altra.
+// Il testo di un artefatto che non e' arrivato: sempre quello che il server ha
+// scritto, mai una frase fissa del browser. La frase fissa diceva «eseguilo per
+// vederne il risultato», cioe' rimandava allo step chiesto; ma il 404 di
+// /api/mesh nomina lo step A MONTE — «lo step 7 non ha ancora una geometria da
+// mostrare: esegui lo step 6» (app/server.py, sorgente_geometria) — e sugli
+// step che non producono geometria propria rieseguire quello chiesto non
+// produce niente. Era l'istruzione sbagliata, e il criterio della spec restava
+// soddisfatto sull'HTTP e smentito qui.
+// status 0 e' la firma di serverMuto (vedi sopra) e porta il proprio messaggio
+// nella stessa coppia {errore, messaggio} del gestore generico: una strada sola
+// racconta i due fatti senza confonderli, perche' a distinguerli e' il testo che
+// il server manda e non un ramo di qui.
+// Un alias, e se ne va il giorno in cui nessuno lo estrae piu' per nome.
 async function messaggioArtefattoMancante(risposta) {
-  return risposta.status === 0
-    ? await ragioneDelRifiuto(risposta)
-    : "nessun artefatto per questo step: eseguilo per vederne il risultato.";
+  return ragioneDelRifiuto(risposta);
 }
 
 // Il messaggio quando il download si ferma a meta', dopo che gli header erano
@@ -615,6 +643,14 @@ async function mostraNuvolaDelloStep(numero, ordine) {
   }
   const disegnati = Number(risposta.headers.get("X-Points-Drawn"));
   const pieni = Number(risposta.headers.get("X-Points-Total"));
+  // Il passo del voxel con cui il disegno e' stato sfoltito per stare nel
+  // budget: e' cio' che spiega il salto di densita' fra uno step e il
+  // successivo, che e' il salto della decimazione e non quello del dato.
+  // Vuoto a zero: viewport.decimate restituisce 0 per dire «nessuna
+  // decimazione applicata», e «voxel di disegno 0 mm» sarebbe una misura
+  // inventata al posto di un'assenza.
+  const voxel = Number(risposta.headers.get("X-Voxel"));
+  const passo = voxel > 0 ? `, voxel di disegno ${voxel.toLocaleString("it")} mm` : "";
   const grezzi = await corpoBinarioLetto(risposta);
   if (grezzi === undefined) {
     // Su una nuvola vera il download dura alcuni secondi, e la rete puo'
@@ -632,8 +668,10 @@ async function mostraNuvolaDelloStep(numero, ordine) {
   spostaNelPrecedente();
   vista.mostraNuvola(new Float32Array(grezzi));
   // Sempre entrambi: una nuvola decimata che non lo dichiara e' un dato falso.
+  // Un argomento solo: gli step 1..4 hanno tutti un artefatto proprio,
+  // /api/cloud non risolve nessuna ricaduta e non manda X-Da-Step.
   registraVista(
-    `${disegnati.toLocaleString("it")} punti disegnati su ${pieni.toLocaleString("it")}`,
+    `${disegnati.toLocaleString("it")} punti disegnati su ${pieni.toLocaleString("it")}${passo}`,
   );
   // Vero solo se questa risposta ha davvero scritto: il cursore del taglio si
   // rifa' sull'ingombro di cio' che e' disegnato, e rifarlo dopo una risposta
@@ -641,10 +679,13 @@ async function mostraNuvolaDelloStep(numero, ordine) {
   return true;
 }
 
-// Gli step che producono una superficie o un volume: dal 5 in poi l'artefatto
-// non e' piu' una nuvola, e disegnarne i soli vertici mostrerebbe punti dove
-// c'e' un solido.
-const STEP_CON_MESH = new Set([5, 6, 8, 9]);
+// Gli step la cui geometria e' una superficie o un volume: dal 5 in poi
+// l'artefatto non e' piu' una nuvola, e disegnarne i soli vertici mostrerebbe
+// punti dove c'e' un solido. Il 7, il 10 e l'11 ci stanno dentro pur non
+// producendo geometria propria: /api/mesh li risolve sullo step che l'ha
+// prodotta (app/server.py, sorgente_geometria), e chiederli a /api/cloud
+// lascerebbe la scena vuota.
+const STEP_CON_MESH = new Set([5, 6, 7, 8, 9, 10, 11]);
 
 async function mostraStep(numero, ordine) {
   // In testa e sopra la delega: ogni strada passa di qui una volta sola, e
@@ -665,6 +706,11 @@ async function mostraStep(numero, ordine) {
   }
   const vertici = Number(risposta.headers.get("X-Vertices"));
   const triangoli = Number(risposta.headers.get("X-Triangles"));
+  // Lo step da cui viene davvero la geometria servita. Ripiega sullo step
+  // chiesto se l'intestazione non c'e': nessuno step ha numero 0, e scrivere
+  // «mostrata quella dello step NaN» sarebbe una provenienza inventata al posto
+  // di una che non e' stata dichiarata.
+  const da = Number(risposta.headers.get("X-Da-Step")) || stepMostrato;
   const grezzi = await corpoBinarioLetto(risposta);
   if (grezzi === undefined) {
     // Come per la nuvola: la connessione caduta a meta' del download e' lo
@@ -685,8 +731,12 @@ async function mostraStep(numero, ordine) {
   );
   // I conteggi sono quelli che il server ha contato sull'artefatto: per lo
   // step 9 sono i vertici e i triangoli del contorno, non i nodi del volume.
+  // Il secondo argomento e' la provenienza: sugli step 7, 10 e 11, e sull'8
+  // senza semplificazione, il server ha risolto la ricaduta e X-Da-Step la
+  // dichiara.
   registraVista(
     `${vertici.toLocaleString("it")} vertici, ${triangoli.toLocaleString("it")} triangoli`,
+    da,
   );
   return true;
 }
