@@ -10,25 +10,30 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-13-meshrec-fase-3-interfaccia-design.md`
 
-## Stato, al 16/08/2026
+## Stato, al 17/08/2026 — Fase 3 chiusa
 
 **Le caselle `- [ ]` di questo documento non sono mai state usate come
 tracciamento e vanno lette come vuote, non come "da fare".** Il registro reale
-degli avanzamenti e' `meshrec/docs/fase-3-registro-decisioni.md`. Sono lasciate
-com'erano invece di spuntarle a posteriori: spuntarne 123 in blocco oggi
-fabbricherebbe una cronologia che non c'e' stata.
+degli avanzamenti e' `meshrec/docs/fase-3-registro-decisioni.md`, e l'esito della
+fase e' `meshrec/docs/fase-3-interfaccia.md`. Sono lasciate com'erano invece di
+spuntarle a posteriori: spuntarne 123 in blocco oggi fabbricherebbe una
+cronologia che non c'e' stata. **Fanno eccezione i soli Step dei Task 16 e 17**,
+spuntati sotto perche' sono gli unici la cui esecuzione e' avvenuta dopo che
+questa nota e' stata scritta, quindi la spunta e' contemporanea al fatto e non
+ricostruita.
 
 | | |
 |---|---|
 | Task 1-15 | consegnati e rivisti, ciascuno con la propria revisione indipendente |
-| Task 16 | in corso, condotto **a mano** dall'utente (vedi la nota nel task) |
-| Task 17 | non iniziato; aspetta dal 16 il punteggio per criterio |
-| Suite | 399 passed, 3 skipped, 6 deselected su macOS arm64 |
-| `meshrec/runs/` | **assente su questa macchina**, in trasferimento dal PC Windows. Nessun test ne dipende (usano tutti `tmp_path`); ne dipendono la scena d'uso reale del Task 16 e i numeri citati dal Task 17 |
+| Task 16 | **chiuso** il 17/08 su decisione dell'utente, condotto **a mano** (vedi la nota nel task). Il ciclo ralph si e' fermato al giro 2 di 10; il punteggio per criterio e' nella sezione 2 di `meshrec/docs/fase-3-interfaccia.md`. Chiuso **senza** una rilettura del codice riga per riga: le attribuzioni «chiuso da <commit>» vengono dalla Self-Review del piano della critica e dai messaggi di commit, e il documento lo dichiara |
+| Task 17 | **consegnato** il 17/08, commit `ec3db75`. Ha richiesto il riallineamento di `meshrec/docs/fase-3-rulings-inventario.md`, fermo al 14/08 e a R107, portato a 138 rulings |
+| Suite | **494 passed, 3 skipped, 6 deselected** su macOS arm64, 39.74s, al commit `e0b84e1` |
+| `meshrec/runs/` | le corse di riferimento restano **assenti su questa macchina**, in trasferimento dal PC Windows; c'e' la sola `runs/default/` prodotta dalle prove. Nessun test ne dipende (usano tutti `tmp_path`). Conseguenza dichiarata nel documento di esito: non c'e' geometria vera da servire senza rieseguire la pipeline, e i tempi citati vengono dalle misure archiviate |
+| Rilievi lasciati aperti | il piu' grosso e' «la pagina davanti a un server morto» (`EventSource` senza `onerror`, `caricaStato()` senza `.catch`), rinviato a una spec propria. Elenco completo con la ragione: sezione 4 del documento di esito |
 
 ## Global Constraints
 
-- Ramo di lavoro: `fase-3-interfaccia`. Nessun merge su `main`. Il divieto di push e' decaduto il 16/08/2026 su istruzione dell'utente: `main` e `fase-3-interfaccia` sono ora su `origin`, allineati in fast-forward senza perdere nulla di remoto.
+- Ramo di lavoro: `fase-3-interfaccia`. Il divieto di push e' decaduto il 16/08/2026 su istruzione dell'utente: `main` e `fase-3-interfaccia` sono ora su `origin`, allineati in fast-forward senza perdere nulla di remoto. **Aggiornato il 17/08/2026:** la chiusura dei rilievi della critica del giro 3 e' avvenuta sul ramo `fix/critica-giro-3`, e su istruzione dell'utente la Fase 3 si chiude con una PR su GitHub e un merge, ammesso solo con revisione pulita. Il «nessun merge su `main`» di questa riga e' quindi decaduto insieme al divieto di push.
 - Mai `git add -A`: la radice ha centinaia di MB non tracciati. Sempre percorsi espliciti.
 - `meshrec/runs/muro/`, `meshrec/runs/lab_crop/`, `meshrec/experiments/muro/`, `meshrec/experiments/lab_crop/` sono di **sola lettura**: si leggono e si copiano, mai si scrive al loro interno.
 - L'unico luogo dove un parametro di elaborazione ha un valore predefinito e' `meshrec/src/meshrec/core/config.py`. Le firme del core non portano predefiniti.
@@ -3349,25 +3354,35 @@ Questo task non ha passi TDD: e' il ciclo dichiarato nella § 13 della spec.
 >    e' arrivati e che cosa manca. E' l'unica parte del documento finale che oggi
 >    non esiste, e senza di essa il Task 17 non puo' chiudere.
 
-- [ ] **Step 1: Costruire il mondo visivo**
+- [x] **Step 1: Costruire il mondo visivo**
 
 Con `impeccable` gia' inizializzato (PRODUCT.md e' scritto), stabilire il sistema di design e applicarlo. La modalita' e' **Operate**: l'utente porta a termine un compito, quindi scansionabilita', coerenza e la scena d'uso reale contano piu' dell'espressione.
 
-- [ ] **Step 2: I comandi durante la costruzione, non alla fine**
+> **Fatto.** `impeccable init` ha prodotto PRODUCT.md (`dbc466f`, marcatore `impeccable:product-schema` alla riga 3). Il sistema visivo in token e' `aaa720e`.
+
+- [x] **Step 2: I comandi durante la costruzione, non alla fine**
 
 `typeset`, `colorize`, `layout`, `animate` sui file dell'interfaccia. `animate` deve rispettare `prefers-reduced-motion` con un'alternativa intenzionale, non con un azzeramento globale.
 
-- [ ] **Step 3: Il ciclo di chiusura**
+> **Fatto, tutti e quattro.** `aaa720e` dichiara i quattro passaggi sul foglio di stile; `animate` di nuovo in `e0b84e1`. Il requisito su `prefers-reduced-motion` e' onorato in entrambi: toglie cio' che si muove e lascia cio' che informa — il segnale di cambio stato resta intero perche' un anello che sfuma e' un colore che cambia, non uno spostamento. Ordine invertito rispetto ai Task 11/12b/14 per decisione registrata (R84).
+
+- [ ] **Step 3: Il ciclo di chiusura** — **non completato, e la ragione e' una decisione**
 
 `impeccable audit` e `impeccable critique`, con ralph loop, **tetto di dieci cicli**. Fra un ciclo e l'altro: `uv run pytest`. **Un ciclo che alza il punteggio e rompe un test si annulla** — `git restore` dei file di quel ciclo, non un secondo tentativo sopra il primo.
 
-- [ ] **Step 4: Fermarsi**
+> **Non spuntato apposta.** Il ciclo si e' fermato al **giro 2 su 10**, interrotto per decisione esplicita dell'utente, con la conduzione passata a mano (R128, che chiude la sequenza R102 → R103). **`impeccable audit` non e' mai stato eseguito**: `.impeccable/` contiene la sola sottocartella `critique/`. `critique` e' stato eseguito tre volte (14/08 x2, 16/08). Il giro 3 del 16/08 e' stato condotto a mano e i suoi rilievi sono stati chiusi da un piano scritto (`2026-08-16-meshrec-critica-giro-3.md`, R129) invece che dai comandi `harden`/`layout`/`clarify` che la critique suggeriva.
+
+- [x] **Step 4: Fermarsi**
 
 Al raggiungimento del massimo, o al decimo ciclo. Se il massimo non c'e': lasciare il **miglior stato raggiunto**, non l'ultimo, e scrivere per ciascun criterio che cosa manca e perche'.
 
-- [ ] **Step 5: Commit del ciclo**
+> **Fatto.** Il massimo non e' stato raggiunto e non e' stato inseguito. Il punteggio per criterio — dove si e' arrivati e che cosa manca, per tutti e dieci — e' la sezione 2 di `meshrec/docs/fase-3-interfaccia.md`. Il vincolo dichiarato in testa a questo task («il Task 17 aspetta il punteggio per criterio») e' quindi soddisfatto.
+
+- [ ] **Step 5: Commit del ciclo** — **decaduto**
 
 Un commit per ciclo, con il punteggio nel messaggio.
+
+> **Non spuntato apposta: la regola e' stata revocata.** R128 toglie esplicitamente sia il tetto di dieci cicli sia il commit per giro, quando la conduzione passa a mano. I 38 commit del 16-17/08 non sono giri di un ciclo e non portano un punteggio nel messaggio, perche' nessuna rimisurazione e' stata eseguita dopo il 16/08 alle 13:21 — e scriverne uno sarebbe stato fabbricarlo.
 
 ---
 
@@ -3376,18 +3391,26 @@ Un commit per ciclo, con il punteggio nel messaggio.
 **Files:**
 - Create: `meshrec/docs/fase-3-interfaccia.md`
 
-- [ ] **Step 1: Scrivere il documento**
+- [x] **Step 1: Scrivere il documento**
 
 Deve contenere, nell'ordine: che cosa gira e che cosa no; il punteggio `impeccable` con il dettaglio per criterio; l'elenco completo dei rulings presi, ciascuno nella forma `Ruling: <cosa ho deciso> — <perche'> — <cosa costa se sbagliato>`; i punti della lista di priorita' tagliati con la ragione; la riga di prova per ciascuno strumento — `superpowers:brainstorming`, `writing-plans`, `subagent-driven-development`, `test-driven-development`, `verification-before-completion`, `impeccable init`, `typeset`, `colorize`, `layout`, `animate`, `audit`, `critique`, ralph loop, i tre agenti `ruflo`, `caveman` e `ponytail` nei dispacci — con commit, file o task. Uno strumento non usato va dichiarato tale, con il motivo.
 
 Ogni numero del documento va ricavato da una lettura e citato con la propria fonte.
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add meshrec/docs/fase-3-interfaccia.md
 git commit -m "docs(fase-3): esiti della fase, rulings e prova d'uso degli strumenti"
 ```
+
+> **Fatto in `ec3db75`**, con un file in piu' di quelli previsti:
+> `meshrec/docs/fase-3-rulings-inventario.md`. L'inventario era stato letto il
+> 14/08 e si fermava a R107, mentre il registro arriva a R127 e il lavoro del
+> 16-17/08 non lo ha alimentato affatto. Citarlo com'era avrebbe dichiarato
+> completo un elenco che non lo era: riallineato a **138 rulings**, con la
+> provenienza delle tre tratte dichiarata e R128-R138 numerate li' per la prima
+> volta.
 
 ---
 
