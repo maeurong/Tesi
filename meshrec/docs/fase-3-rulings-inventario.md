@@ -1,7 +1,34 @@
 # Inventario rulings — Fase 3 interfaccia
 
-Totale decisioni trovate: **107** (R1–R107, nessun buco; R15 compare due volte nella numerazione).
-Registro letto il: **2026-08-14**.
+Totale decisioni: **138** (R1–R138, nessun buco; R15 compare due volte nella
+numerazione del registro).
+
+**Le tre tratte hanno provenienza diversa, e la differenza conta.**
+
+| Tratta | Fonte | Letta il |
+|---|---|---|
+| R1–R107 | `fase-3-registro-decisioni.md` | 2026-08-14 |
+| R108–R127 | `fase-3-registro-decisioni.md`, dopo il riallineamento `8e85f43` del 16/08 00:19 | 2026-08-17 |
+| R128–R138 | **non stanno nel registro**: derivate dal piano `docs/superpowers/plans/2026-08-16-meshrec-critica-giro-3.md` e dai messaggi di commit del 16–17/08 | 2026-08-17 |
+
+Il registro delle decisioni si ferma a **R127**, alla consegna del Task 16. Il
+lavoro del 16–17/08 — la chiusura dei rilievi della critica del giro 3 — e' stato
+condotto a mano e non ha alimentato il registro: le sue decisioni erano scritte
+nel piano e nei messaggi di commit, e da nessuna parte in forma di ruling
+numerato. R128–R138 le portano in questa forma, **numerandole qui per la prima
+volta**. Sono decisioni vere, con la loro fonte citata voce per voce; non sono
+voci del registro e questo documento non le spaccia per tali.
+
+**Sul «costo se sbagliato», una discrepanza dichiarata e non risolta.** R108
+registra che **30 decisioni su 107 non hanno il costo** nel registro, quasi tutte
+nel tratto continuo R27–R74, e decide di non riempirle a posteriori. Ma in
+*questo* documento la riga del costo c'e' su tutte e 138 le voci — verificato
+meccanicamente il 17/08, zero voci scoperte. Le due cose non possono essere
+entrambe vere di una stessa fonte: o il conteggio di R108 riguarda le sole voci
+grezze del registro e l'inventario le ha completate leggendo il contesto, o il
+conteggio e' invecchiato. **Questo passaggio non ha riderivato il numero** e non
+sceglie fra le due letture. Chi cita quelle trenta voci come «senza costo
+dichiarato» controlli prima quale dei due documenti sta guardando.
 
 ---
 
@@ -756,12 +783,264 @@ Registro letto il: **2026-08-14**.
 - **Costo se sbagliato:** «con questo metodo» e' meno esplicito per chi legge oggi con due soli metodi, ma la prudenza del server esiste per quando saranno tre.
 - **Stato:** in vigore (finche' non entra, il Task 10 non e' chiuso).
 
+### R108 — le trenta decisioni incomplete restano incomplete, e il numero si dichiara
+
+- **Deciso:** le 30 decisioni su 107 senza il «costo se sbagliato» non si riempiono a posteriori; il documento del mattino dichiara il numero e lascia le voci come sono.
+- **Perche':** ricostruire adesso il costo che si sarebbe dichiarato allora e' scriverne uno nuovo con la data sbagliata, e un elenco di decisioni serve a essere verificato riga per riga contro il registro.
+- **Costo se sbagliato:** trenta decisioni si leggono senza il rischio dichiarato e va ricostruito dal contesto per ribaltarne una. E' un costo di lettura, non di correttezza.
+- **Stato:** in vigore.
+
+### R109 — il limite del residuo va scritto per intero nel Task 17, non in un sesto giro
+
+- **Deciso:** nessun sesto giro; il buco del residuo va scritto per intero nel documento del mattino, col confronto `R-3`/`R-4` che lo misura.
+- **Perche':** fuori dalla sezione il residuo non vede niente — la stessa frase e' verde fuori e rossa dentro — ma il buco e' piu' piccolo di quello chiuso, e tutti e quattro i ritorni storici del difetto sono nati dentro la sezione.
+- **Costo se sbagliato:** una contraddizione fra una frase fissa fuori sezione e il corpo del documento passa la rete. Nessuno dei quattro ritorni storici aveva quella forma, ma la ragione e' storica, non strutturale.
+- **Stato:** in vigore.
+
+### R110 — `allow_inf_nan=False` in `core/config.py`, instradato invece che sconfinato
+
+- **Deciso:** la correzione dell'infinito accettato dai campi decimali e' `allow_inf_nan=False` in `core/config.py`, dispacciata a un implementatore separato invece che a chi l'ha trovata.
+- **Perche':** `config.py` non era nel perimetro di chi ha misurato il difetto, e sconfinare in un file core mentre altri ci lavorano e' il modo di perdere la suite verde. Misurato che pydantic scrive `.inf` sul disco e `/api/config` risponde poi `null`: dal browser quel residuo non e' rimediabile.
+- **Costo se sbagliato:** un giro in piu' e una finestra di poche ore in cui il decimale accetta ancora l'infinito.
+- **Stato:** in vigore.
+
+### R111 — la quarta istanza del difetto d'ordine apre un giro, e il giro chiude la serie
+
+- **Deciso:** `campoParametro` lega `ordine` alla generazione del clic che ha aperto il pannello, quindi due battute sullo stesso campo portano lo stesso numero; apre un giro che deve correggere l'istanza, **censire tutte le tratte** che attendono e poi scrivono, e dire che cosa impedisce la quinta.
+- **Perche':** e' la quarta volta che il difetto torna sul ramo, e il file lo racconta da solo — `generazione` per i clic, `ultimaGeometria` aggiunto dopo perche' non bastava. Le scritture di parametro sono il terzo requisito e non hanno alcun contatore.
+- **Costo se sbagliato:** un giro su un file che nessun altro sta toccando. Il rischio opposto e' che la quarta istanza diventi la quinta.
+- **Stato:** in vigore.
+
+### R112 — la revisione deve misurare il costo del clic, che la correzione ha moltiplicato
+
+- **Deciso:** chiesto al revisore il tempo di adesso e quello a `41edc6e` sullo stesso punto, piu' l'eventuale forma equivalente piu' economica — da dire, non da implementare.
+- **Perche':** la ricerca del cluster si faceva una volta sul primo punto del gruppo e adesso si fa per ogni punto — 136 chiamate su 4293 cluster — e la decisione fra accettare, accelerare e cambiare strada dipende da un numero che non c'era.
+- **Costo se sbagliato:** un giro di revisione che spende qualche minuto su una misura che poteva aspettare.
+- **Stato:** in vigore.
+
+### R113 — i brief chiudono con `hooks_task-completed`, ma il server MCP di ruflo non risponde
+
+- **Deciso:** ogni brief dispacciato termina con la chiamata che alimenta il ciclo di apprendimento di ruflo, scritta insieme alla dichiarazione che potrebbe non esserci e all'ordine di riportarlo invece di insistere.
+- **Perche':** verificato con tre prove concordi che oggi non e' eseguibile — nessun `mcp__ruflo__*` fra gli strumenti, ricerca per nome a vuoto, e `~/.claude/mcp-needs-auth-cache.json` che elenca `plugin:ruflo-core:ruflo` in attesa di autenticazione dal `2026-08-15T14:17:17Z`. Plugin abilitato e server connesso sono due cose diverse.
+- **Costo se sbagliato:** una riga in piu' nei brief che gli agenti riportano come non disponibile. Il rischio opposto e' un agente che perde tempo o si inventa una strada, ed e' il motivo per cui il divieto di `npx @claude-flow/cli` resta.
+- **Stato:** in vigore.
+
+### R114 — un giro corto solo per i due test, e nessuna ottimizzazione
+
+- **Deciso:** giro su due test soli, codice intatto; vietata l'ottimizzazione trovata dal revisore (`core.segment.cluster` calcola `labels` e lo butta via).
+- **Perche':** la revisione ha verificato il codice sul dato vero; e 7-8 secondi su 54-82 non sono il problema. L'ottimizzazione diventera' interessante solo quando la clusterizzazione avra' una cache e il DBSCAN sparira' dal conto.
+- **Costo se sbagliato:** un giro corto su due test. Il rischio opposto e' chiudere il Task 11 con due regole scritte solo nei commenti.
+- **Stato:** in vigore.
+
+### R115 — il buco del ritaglio e' reale, e non si corregge sopra codice non ancora rivisto
+
+- **Deciso:** il difetto di «Applica il ritaglio» (`valori` e' una chiusura mutata dal vivo, la POST costa ~26 s, due clic in volo fanno divergere schermo e disco) non si dispaccia subito; entra nel giro successivo alla revisione.
+- **Perche':** il meccanismo che lo correggerebbe e' appena atterrato in `5cd5c3a` e non e' ancora stato rivisto; costruirci sopra e' il modo di far crescere un errore invece di correggerlo.
+- **Costo se sbagliato:** il difetto resta aperto per il tempo di una revisione, in un'interfaccia che nessuno sta usando in produzione.
+- **Stato:** in vigore.
+
+### R116 — nessuna cache in questo giro, e la ragione non e' il costo
+
+- **Deciso:** nessuna cache insieme alla correzione; chiesta invece la misura del costo dopo, che decide da sola se il giro successivo serve.
+- **Perche':** una cache messa insieme alla correzione rende impossibile capire quale delle due ha rotto qualcosa. E la chiave di quella cache dovra' portare i parametri di `segment`, a differenza della cache del contorno che ha per chiave la sola coppia (sorgente, mtime).
+- **Costo se sbagliato:** un giro in piu' se la misura dira' che il costo non e' sostenibile.
+- **Stato:** in vigore.
+
+### R117 — un giro solo, e il test strutturale ne e' il cuore, non le correzioni
+
+- **Deciso:** dispacciato `fix-ordine-e-json-2.md`; la parte che conta e' portare lo scanner del revisore dentro `test_app_js.py` come test vero e renderlo piu' difficile da aggirare, con l'obbligo di scrivere nel rapporto che cosa lo scanner **non** vede.
+- **Perche':** un test strutturale che si presenta piu' forte di quello che e' da' una sicurezza falsa, ed e' peggio di non averlo.
+- **Costo se sbagliato:** un giro su un file che nessun altro sta toccando. Il rischio opposto e' chiudere la fase credendo chiusa una serie a sei istanze perche' qualcuno l'ha dichiarato.
+- **Stato:** in vigore.
+
+### R118 — il sospetto sul `== null` portato alla revisione, non corretto
+
+- **Deciso:** il passaggio dei cinque punti da `=== undefined` a `== null` non e' stato corretto ne' deciso: e' stato dato alla revisione come domanda.
+- **Perche':** `== null` e' vero sia per `null` sia per `undefined`, quindi fonde i due casi che `corpoLetto` distingueva. Puo' essere la scelta giusta, ma allora i commenti che celebrano quella distinzione sono falsi; distinguere «scelta consapevole con la prosa rimasta indietro» da «distinzione persa per sbaglio» richiede di leggere i commenti attorno.
+- **Costo se sbagliato:** un rilievo in piu' da valutare per il revisore.
+- **Stato:** chiuso — la revisione ha stabilito che il sospetto era infondato.
+
+### R119 — l'oracolo va legato alla corsa vera, non a una seconda scrittura della stessa sequenza
+
+- **Deciso:** la prova del clic deve far girare la pipeline vera con l'indice scelto e verificare che il gruppo segmentato sia quello indicato, controllando anche l'ordine delle chiamate contro `pipeline.run`.
+- **Perche':** un oracolo che riscrive a parte `remove_outliers -> crop_box -> extract_planes -> cluster` e' tautologico: dimostra che il codice fa quello che fa, non che coincida con la corsa. Un ordine diverso da' un residuo diverso e quindi cluster diversi.
+- **Costo se sbagliato:** una verifica costosa per confermare un risultato probabilmente giusto. Il rischio opposto e' chiudere il Task 11 con una prova circolare dopo tre giri sullo stesso indice.
+- **Stato:** in vigore.
+
+### R120 — il tetto per la decisione sulla cache e' 96 secondi, non 81
+
+- **Deciso:** la prossima decisione sulla cache si prende contro **96,27 s**, la prima lettura fredda, non contro gli 81,09 s della seconda.
+- **Perche':** e' cio' che l'utente aspetta davvero quando apre l'interfaccia la prima volta; la cache del filesystem e' fredda sui file da 150 e 101 MB. La conclusione «il costo non e' peggiorato» resta vera a caldo e non blocca niente.
+- **Costo se sbagliato:** si decide una cache guardando un numero ottimista, cioe' esattamente l'errore che questa misura esisteva per evitare.
+- **Stato:** in vigore.
+
+### R121 — la prova end-to-end non si perde: va promossa se quella tratta si ritocca
+
+- **Deciso:** se qualcuno ritocca la risoluzione del cluster o la segmentazione dello step 2, il test end-to-end va promosso a permanente fra i deselezionati **prima** di toccare il codice.
+- **Perche':** costa una `pipeline.run()` vera e non entra nella suite di ogni commit, ma e' l'unica prova non circolare che il Task 11 possieda, e oggi vive solo dentro `task-11b-review.md`.
+- **Costo se sbagliato:** «se serve lo riscriviamo» e' il modo in cui una prova costosa scompare.
+- **Stato:** in vigore, condizionale.
+
+### R122 — la prova che una tratta e' coperta e' la mutazione, non la guardia
+
+- **Deciso:** da qui in avanti nei brief — una tratta non e' coperta perche' ha una guardia; e' coperta se rendere quella guardia decorativa fa diventare rosso qualcosa. Chiesto di passare tutte e nove le tratte del censimento con quella prova.
+- **Perche':** e' la stessa distinzione fra dichiarare e misurare che questa fase applica al codice, applicata ai test.
+- **Costo se sbagliato:** qualche minuto per tratta. Il rischio opposto e' una copertura dichiarata e non misurata.
+- **Stato:** in vigore.
+
+### R123 — alla revisione la domanda e' se le tratte siano davvero nove
+
+- **Deciso:** chiesto al revisore di derivare l'elenco delle tratte dal codice con un criterio meccanico invece di rileggere la tabella del rapporto, e di rifare la prova su tutte e nove comprese le due dichiarate esenti.
+- **Perche':** l'elenco e' fatto a mano ed ereditato da due giri prima; un elenco incompleto nasconde difetti quanto uno stretto ne trova. «Non ne ha bisogno» e' un giudizio, non una misura.
+- **Costo se sbagliato:** una verifica in piu' su un elenco probabilmente completo. Il rischio opposto e' dichiarare chiusa una serie a sei istanze contando le tratte a mano.
+- **Stato:** in vigore.
+
+### R124 — il glob non ricorsivo e' la stessa svista al terzo livello, e va in coda
+
+- **Deciso:** il glob dello scanner diventa `base.rglob("*.js")` filtrato su `vendor/`; messo in coda e non dispacciato subito.
+- **Perche':** la docstring giustifica l'esclusione di `vendor/` e non dice niente su una sottocartella futura, quindi `ui/pannelli/qualcosa.js` resterebbe fuori **in silenzio**. E' la terza forma della stessa serie — guardia con la grana sbagliata, scanner su un file solo, insieme derivato con un glob che non scende — e ogni volta la difesa non fallisce: tace. In coda perche' il Task 14 e' vivo su `app.js` e due agenti sugli stessi file e' la situazione gia' pagata.
+- **Costo se sbagliato:** il difetto resta aperto per il tempo del Task 14.
+- **Stato:** in vigore.
+
+### R125 — il Task 17 non si anticipa
+
+- **Deciso:** l'ordine resta 14 → 16 → 17; la proposta di anticipare il Task 17 era sbagliata ed e' ritirata.
+- **Perche':** il Task 17 deve contenere «che cosa gira e che cosa no» e il punteggio per criterio, che li produce il Task 16. Scriverlo prima significa scrivere gli esiti prima che esistano. Il Task 14 sta prima perche' e' l'ultima funzione: finche' non c'e', il 16 non ha l'interfaccia completa da vestire.
+- **Costo se sbagliato:** due file di troppo nel repository, cancellabili con un commit.
+- **Stato:** in vigore.
+
+### R126 — `pytest -k` e' una fionda, e va detto nei brief
+
+- **Deciso:** nei brief, prima del commit, `git status --short` sulle cartelle di sola lettura, e attenzione ai filtri `-k` troppo larghi quando c'e' una mutazione applicata.
+- **Perche':** un filtro per sottostringa non sa quali test toccano il dato vero; il brief vieta di **scrivere**, non di **selezionare male**, e una mutazione innocua e' diventata una scrittura reale dentro la cartella che non si tocca.
+- **Costo se sbagliato:** una riga in piu' nei brief. Il rischio opposto e' una scrittura dentro la tabella della tesi che nessuno nota, ed e' mancato poco.
+- **Stato:** in vigore.
+
+### R127 — un POST con corpo obbligatorio evade la difesa della sola lettura
+
+- **Deciso:** il giorno in cui la galleria — o qualunque tratta sotto quella difesa — acquista un endpoint di scrittura reale, la sonda va rinforzata per interrogare anche con un corpo JSON minimo, **prima** che l'endpoint esista.
+- **Perche':** la sonda chiama senza corpo, FastAPI risponde 422 prima di eseguire il gestore, e la scrittura non parte mai — quindi il test non puo' vederla. Oggi nessun endpoint reale ci casca, ma la difesa e' piu' stretta di come si presenta, ed e' la quarta volta che questa forma compare nella fase.
+- **Costo se sbagliato:** una riga di sonda in piu' il giorno in cui serve.
+- **Stato:** in vigore, condizionale.
+
+---
+
+## R128–R138 — le decisioni del 16–17/08, numerate qui per la prima volta
+
+Il registro si ferma a R127. Queste undici vengono dal piano
+`docs/superpowers/plans/2026-08-16-meshrec-critica-giro-3.md` e dai messaggi di
+commit del 16–17/08, e la fonte e' citata voce per voce.
+
+### R128 — la conduzione del Task 16 passa a mano, il ciclo ralph non prosegue
+
+- **Deciso:** il ciclo automatico con ralph loop non prosegue oltre i due giri gia' fatti; da qui in avanti il lavoro sull'interfaccia lo conduce l'utente a mano, senza tetto di dieci cicli e senza un commit per giro. Restano vincolanti la suite verde e il punteggio per criterio.
+- **Perche':** decisione esplicita dell'utente del 16/08. Gli Step 1-5 del task restano come riferimento di merito, non come procedura.
+- **Costo se sbagliato:** gli Step 1-5 non hanno piu' un esecutore automatico che li spunti, quindi il merito va verificato a mano e dichiarato nel documento del mattino invece di essere dedotto dal registro dei giri.
+- **Fonte:** piano di Fase 3, Task 16, righe 3333-3350.
+- **Stato:** in vigore.
+
+### R129 — i due P0 e i tre P1 diventano un piano proprio
+
+- **Deciso:** i cinque Priority Issues della critica del giro 3 non si correggono alla spicciolata: entrano in un piano scritto di otto task, con la critique stessa come spec.
+- **Perche':** il filo conduttore e' uno solo — `exit_code`, `secondi` e `default` sono tre informazioni che il prodotto gia' possiede e gia' manda al browser, e non legge. La maggior parte delle task le legge invece di disegnare qualcosa di nuovo, e un piano rende visibile che sono la stessa correzione ripetuta.
+- **Costo se sbagliato:** un piano di 1936 righe per cinque rilievi. Il rischio opposto e' cinque correzioni scollegate che non chiudono la forma comune.
+- **Fonte:** `2026-08-16-meshrec-critica-giro-3.md`, Goal e Self-Review punto 1.
+- **Stato:** in vigore, eseguito.
+
+### R130 — `app.js` non si spezza
+
+- **Deciso:** `app.js` resta un file solo, a 1056 righe piu' ~150 aggiunte dal piano. Le funzioni nuove sono di primo livello.
+- **Perche':** spezzarlo significherebbe moduli ES aggiuntivi serviti da `/ui/`, altre tratte statiche e un ordine di caricamento nuovo, per un file che una persona sola legge per intero; il progetto non ha una convenzione di moduli multipli per l'interfaccia. Il vincolo che conta davvero e' un altro: la funzione di primo livello e' l'unica forma che `_sorgente_di()` sa estrarre e che il banco sa eseguire.
+- **Costo se sbagliato:** un file che continua a crescere. Il giorno in cui si spezza, la convenzione va inventata insieme al banco che la sa leggere.
+- **Fonte:** `2026-08-16-meshrec-critica-giro-3.md`, File Structure.
+- **Stato:** in vigore.
+
+### R131 — accenti italiani solo nelle stringhe mostrate
+
+- **Deciso:** i sorgenti restano ASCII con una sola eccezione dichiarata — le stringhe **mostrate all'utente** portano gli accenti italiani veri. Commenti, nomi e resto del codice invariati.
+- **Perche':** che i sorgenti siano ASCII e' una convenzione di repository difendibile; le stringhe proiettate davanti a una commissione non ereditano quel vincolo.
+- **Costo se sbagliato:** una convenzione a due regimi dentro lo stesso file, che va spiegata a chi arriva dopo.
+- **Fonte:** `2026-08-16-meshrec-critica-giro-3.md`, Global Constraints; rilievo minore della critique.
+- **Stato:** in vigore.
+
+### R132 — «la pagina davanti a un server morto» merita una spec propria
+
+- **Deciso:** `EventSource` senza `onerror` e `caricaStato()` senza `.catch(serverMuto)` non entrano nel piano di chiusura.
+- **Perche':** sono rilievi reali della persona Riley, ma appartengono a una famiglia sola — il comportamento della pagina quando il server muore — che merita un giro suo con una spec propria invece di una coda in fondo a un piano di chiusura.
+- **Costo se sbagliato:** l'interfaccia continua ad affermare un tempo trascorso che nessuno sta piu' misurando quando il server cade a corsa viva, e una pagina aperta a server spento resta vuota per sempre senza un messaggio. E' il difetto piu' grosso lasciato aperto da questa fase.
+- **Fonte:** `2026-08-16-meshrec-critica-giro-3.md`, Self-Review punto 1.
+- **Stato:** in vigore — rilievo aperto.
+
+### R133 — i rilievi della persona Alex sono funzionalita' nuova
+
+- **Deciso:** `/api/cluster` senza comando che lo raggiunga, le scorciatoie da tastiera, `inquadra` esportata e non legata, i 1000 scatti del cursore del taglio: fuori dal piano.
+- **Perche':** non sono difetti, sono funzionalita' che non c'e'. Vanno da `superpowers:brainstorming`, non da un piano di chiusura dei rilievi.
+- **Costo se sbagliato:** l'utente esperto resta senza scorciatoie e senza reinquadramento, e dopo un'orbita storta l'unico rimedio e' ricaricare la pagina — che ributta via la geometria appena caricata.
+- **Fonte:** `2026-08-16-meshrec-critica-giro-3.md`, Self-Review punto 1.
+- **Stato:** in vigore — rilievi aperti.
+
+### R134 — `analysis.material` e le descrizioni mancanti toccano il modello, non l'interfaccia
+
+- **Deciso:** `analysis.material` non modificabile dall'interfaccia e i campi di `SegmentConfig` senza `description` non sono difetti dell'interfaccia e non entrano nel piano come tali.
+- **Perche':** toccano il modello di configurazione, non la resa. L'interfaccia rende cio' che `/api/schema` le manda; se il campo non ha descrizione, il rimedio sta in `config.py`.
+- **Costo se sbagliato:** modulo di Young e densita' — le due cose che una tesista strutturale vorra' cambiare per prime — restano dietro un input in sola lettura che contiene il JSON del modello.
+- **Fonte:** `2026-08-16-meshrec-critica-giro-3.md`, Self-Review punto 1. Le descrizioni sono state poi aggiunte in `02a13b9`.
+- **Stato:** in vigore; la meta' sulle descrizioni e' stata chiusa comunque.
+
+### R135 — `.stato-mai-eseguito` e `preserveDrawingBuffer` restano come sono
+
+- **Deciso:** i due rilievi minori si escludono di proposito, e la ragione e' scritta in testa al Task 7 perche' non tornino a ogni giro.
+- **Perche':** `.step-stato` da' gia' `color: var(--tenue)` a tutti gli stati e «mai eseguito» ha per ruolo di colore proprio quello neutro — una regola in piu' direbbe la stessa cosa due volte. `preserveDrawingBuffer: true` costa una copia per fotogramma ma sostiene `cattura()`, che serve alle viste in appendice: va misurata prima, non tolta adesso.
+- **Costo se sbagliato:** una copia per fotogramma pagata per una funzione che oggi nessuno chiama.
+- **Fonte:** `2026-08-16-meshrec-critica-giro-3.md`, Task 7, testa.
+- **Stato:** in vigore.
+
+### R136 — nessuna dissolvenza incrociata fra le due geometrie
+
+- **Deciso:** il confronto fra due step e' un interruttore, non una dissolvenza incrociata.
+- **Perche':** l'attesa a cache fredda la fa la decimazione sul server, non il trasporto, e una geometria vecchia tenuta a video per quei secondi con la didascalia che dice «caricamento» e' la vista che contraddice la propria didascalia — il difetto che questo modulo ha gia' pagato. Il confronto esplicito da' lo stesso valore senza quel rischio.
+- **Costo se sbagliato:** il passaggio fra le due geometrie e' netto invece che graduale, che e' meno elegante e non meno vero.
+- **Fonte:** messaggio di `e0b84e1`, sezione «Non fatto, e non per dimenticanza».
+- **Stato:** in vigore.
+
+### R137 — il ciclo di disegno a 60 fps resta, perche' manca una guardia economica
+
+- **Deciso:** il ciclo di `viewport.js` continua a rendere 60 fps anche a scena ferma; non corretto in questo giro.
+- **Perche':** il rimedio e' un flag di quattro righe, ma il modo di fallire — un mutatore che dimentica di chiedere il fotogramma lascia a video un'immagine vecchia — non ha qui una guardia economica: `test_viewport.py` sorveglia la decimazione Python, non il JS. Una correzione senza il suo controllo e' esattamente cio' che questa fase non accetta.
+- **Costo se sbagliato:** sei milioni di punti ridisegnati a vuoto sulla stessa macchina che gira la pipeline con le librerie fissate a un thread.
+- **Fonte:** messaggio di `e0b84e1`, sezione «Non fatto, e non per dimenticanza».
+- **Stato:** in vigore — rilievo aperto.
+
+### R138 — `impeccable overdrive` entra fuori piano
+
+- **Deciso:** l'ultimo giro sull'interfaccia usa `impeccable overdrive`, comando che il piano di Fase 3 non prevedeva fra i sette, per costruire il confronto fra due step.
+- **Perche':** la domanda per cui lo strumento esiste — che cosa ha fatto questo step alla geometria — non aveva risposta a video: gli undici artefatti si guardavano di fila e mai due insieme. Non richiede nulla da scaricare, sono entrambe le geometrie gia' sulla scheda.
+- **Costo se sbagliato:** la prova d'uso degli strumenti del Task 17 deve dichiarare un comando in piu' di quelli pianificati, che e' una riga di documento; e il confronto e' superficie nuova, quindi porta con se' tre proprieta' che si rompono in silenzio — coperte da altrettanti banchi nello stesso commit.
+- **Fonte:** messaggio di `e0b84e1`.
+- **Stato:** in vigore.
+
 ---
 
 ## Numeri mancanti
 
-Nessuno. La numerazione va da R1 a R107 senza buchi.
+Nessuno. La numerazione va da R1 a R138 senza buchi.
 
 ## Numeri ripetuti
 
 **R15** — compare due volte nel registro (righe 108 e 110 del file sorgente): una voce senza alcun contenuto (`- **R15.**` seguito da riga vuota), immediatamente seguita da una seconda voce numerata R15 con il contenuto reale (la riscrittura del passo 4 del Task 4). Trattata sopra come una sola decisione.
+
+## Un difetto del registro, dichiarato e non corretto
+
+`fase-3-registro-decisioni.md` contiene **blocchi duplicati alla lettera**.
+Contati sulle intestazioni di sezione: **19 rulings compaiono piu' di una volta**
+— R80 e tutta la tratta continua **R110–R127**. Quasi tutti in coppie identiche
+(R122 alle righe 5569 e 5665, R127 alle righe 6217 e 6295); R118 compare
+**quattro** volte, perche' anche la sezione di seguito «R118 chiuso» e' a sua
+volta duplicata. E' l'impronta di un riallineamento che ha riaccodato intervalli
+sovrapposti — plausibilmente `8e85f43`, il cui messaggio dichiara appunto un
+riallineamento.
+
+Non corretto qui: questo documento e' un inventario e non ha titolo a riscrivere
+la sua fonte, e la deduplicazione va fatta guardando il diff del riallineamento,
+non a occhio sulle sezioni. **Conseguenza pratica per chi legge:** un conteggio di
+occorrenze sul registro sovrastima quelle quindici decisioni di un fattore due.
