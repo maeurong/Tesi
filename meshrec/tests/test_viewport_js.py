@@ -8,12 +8,22 @@ esattamente come tests/test_app_js.py fa con le funzioni di app.js.
 
 Un controllo che cerca una sottostringa nel sorgente passa anche quando la
 logica e' capovolta, e su questo ramo e' gia' successo (vedi il docstring di
-tests/test_app_js.py). Qui la logica pura si esegue. Sul testo restano le sole
-asserzioni su cio' che vive dentro la chiusura di creaViewport e che da fuori
-non si puo' eseguire: chi chiama chi, e la bandiera della prima inquadratura.
-Sono l'eccezione, e ognuna e' stata provata mutando il sorgente e rigirando il
-banco — un'asserzione sul testo scritta senza quella prova sorveglia una riga
-che potrebbe non esserci.
+tests/test_app_js.py). Qui la logica pura si esegue.
+
+E non solo quella: due pezzi che stanno dentro la chiusura — la tabella dei
+tasti e `trasla` — toccano di three.js quattro cose sole, e si estraggono e si
+eseguono con quattro finte (_ascoltatore, _corpo_di). Erano il caso peggiore
+della fase: `passo(evento.shiftKey)` scritto `passo()` uccide il pan da tastiera
+per intero e lascia intatti tutti i conteggi che se ne dichiaravano
+responsabili.
+
+Sul testo restano le sole asserzioni su cio' che nemmeno cosi' si esegue: chi
+chiama chi, la bandiera della prima inquadratura, e le materie del velo. Sono
+l'eccezione, e ognuna e' stata provata mutando il sorgente e rigirando il banco
+— un'asserzione sul testo scritta senza quella prova sorveglia una riga che
+potrebbe non esserci. Una negativa sussunta dalla positiva che la precede non
+e' un'asserzione provata: e' una riga che non salta mai, e qui non ce ne sono
+piu'.
 
 ponytail: il banco (_node, _esegui, _sorgente_di) e' ricopiato da
 tests/test_app_js.py invece di essere condiviso in un conftest. Condividerlo
@@ -71,6 +81,26 @@ def _sorgente_di(nome: str, testo: str) -> str:
 def _funzioni(*nomi: str) -> str:
     testo = _modulo()
     return "\n".join(_sorgente_di(nome, testo) for nome in nomi)
+
+
+def _costante(nome: str) -> str:
+    """La riga vera di un `const`, presa dal modulo e non ricopiata qui: il
+    valore ricopiato diverge in silenzio e lascia il banco verde su un numero
+    che il codice non ha piu'."""
+    trovato = re.search(rf"^\s*const {nome} = .*;$", _modulo(), flags=re.MULTILINE)
+    assert trovato is not None, f"{nome} non e' un const del modulo"
+    return trovato.group(0).strip()
+
+
+def _ascoltatore(tipo: str) -> str:
+    """Il gestore di un evento della tela, dalla chiamata ad addEventListener
+    alla sua chiusura. Vive dentro creaViewport e da fuori non si esegue senza
+    un three.js finto: quel che serve a eseguirlo e' una `tela` che raccolga il
+    gestore, ed e' il banco a darla."""
+    testo = _modulo()
+    apertura = f'tela.addEventListener("{tipo}", (evento) => {{'
+    assert apertura in testo, f"la tela non ascolta piu' {tipo}"
+    return apertura + testo.split(apertura, 1)[1].split("\n  });", 1)[0] + "\n  });"
 
 
 _INTESTAZIONE = "import assert from 'node:assert/strict';\n"
@@ -150,9 +180,14 @@ def test_la_guardia_e_la_memoria_dell_inquadratura_sono_scritte_come_decidono():
     guardia o capovolgendo la condizione della prima inquadratura — mutato il
     sorgente e rigirato il banco, non dedotto.
 
-    Le cinque asserzioni qui sono sul testo, che e' il modo debole: si
+    Le quattro asserzioni qui sono sul testo, che e' il modo debole: si
     accettano solo perche' ognuna e' stata provata contro la mutazione che deve
-    prendere. Una sesta scritta senza quella prova non varrebbe niente.
+    prendere. Una quinta scritta senza quella prova non varrebbe niente.
+
+    La negativa che stava qui — `if (!fuoriDallaVista(` assente — era una di
+    quelle: capovolta la guardia, la positiva qui sopra salta per prima, perche'
+    il punto di chiamata e' uno solo e la sua forma cambia. Costo zero tenerla,
+    valore zero, e faceva dire a questo docstring una cosa che non era vera.
     """
     testo = _senza_commenti(_modulo())
     assert "centroInquadrato = orbita.centro.clone();" in testo, (
@@ -167,10 +202,6 @@ def test_la_guardia_e_la_memoria_dell_inquadratura_sono_scritte_come_decidono():
     assert "if (fuoriDallaVista(" in testo, (
         "la guardia non interroga fuoriDallaVista: la funzione pura decide bene "
         "e nessuno la ascolta"
-    )
-    assert "if (!fuoriDallaVista(" not in testo, (
-        "la guardia e' capovolta: reinquadra quando la geometria e' gia' a video "
-        "e resta ferma quando non lo e'"
     )
     assert "PerspectiveCamera(FOV_GRADI," in testo, (
         "la camera nasce con un fov scritto a mano: la soglia della guardia si "
@@ -240,11 +271,184 @@ def test_la_traslazione_e_legata_a_maiusc_sia_col_mouse_sia_da_tastiera():
     )
 
 
+def test_il_viewport_restituisce_ogni_comando_che_l_interfaccia_gli_chiede():
+    """La cucitura fra le due meta', ed e' il punto che nessuno dei due banchi
+    guardava: qui si prova che una funzione esiste e che svuota() la nomina, di
+    la' `vista` e' una finta che quel metodo ce l'ha per costruzione. Tolto un
+    nome dal letterale di ritorno — `togliFantasma,` o `inquadra,` — tutti e due
+    i banchi restano verdi e spegnere la casella lancia TypeError al primo clic:
+    provato.
+
+    Derivato e non elencato a mano: un elenco scritto qui diventa la copia di un
+    fatto che sta in un altro file, e il giorno che l'interfaccia chiede un
+    comando nuovo la copia tace.
+    """
+    testo = _senza_commenti(_modulo())
+    assert "\n  return {\n" in testo, (
+        "creaViewport non restituisce piu' un oggetto letterale: la cucitura si "
+        "guarda altrove"
+    )
+    letterale = testo.split("\n  return {\n", 1)[1].split("\n  };", 1)[0]
+    offerti = set(re.findall(r"^    (\w+)[,(]", letterale, flags=re.MULTILINE))
+    app = "\n".join(
+        r for r in (UI_DIR / "app.js").read_text(encoding="utf-8").splitlines()
+        if not r.lstrip().startswith("//")
+    )
+    chiesti = set(re.findall(r"\bvista\.(\w+)\(", app))
+    assert chiesti, "nessuna chiamata a `vista` in app.js: il banco non guarda piu' niente"
+    assert chiesti <= offerti, (
+        f"l'interfaccia chiama comandi che il viewport non restituisce, e il "
+        f"primo clic che ci arriva lancia TypeError: {sorted(chiesti - offerti)}"
+    )
+
+
+def test_lo_spostamento_si_misura_sull_altezza_della_tela_e_sugli_assi_di_adesso(tmp_path):
+    """`trasla` vive nella chiusura, ma di three.js tocca quattro cose sole —
+    la matrice della camera, i tre assi e il centro dell'orbita — e con quattro
+    finte si esegue. Fuori dall'esecuzione restavano scoperte due righe che
+    nessun conteggio vede.
+
+    L'altezza della tela e non la larghezza: la scala e' millimetri per pixel
+    verticale, ed e' cio' che fa restare sotto il dito il punto che ci stava. Su
+    una tela larga il doppio, misurata sulla larghezza, il gesto varrebbe la
+    meta'.
+
+    E la matrice del mondo aggiornata prima di leggerla: `lookAt` scrive il
+    quaternione, ma la matrice three.js la ricalcola al disegno. Senza quella
+    riga si leggerebbero gli assi del fotogramma precedente — qui, al primo
+    gesto, tre vettori nulli, cioe' un pan che non sposta niente.
+    """
+    _esegui(tmp_path, _INTESTAZIONE + _funzioni("scalaDelloSpostamento") + """
+const tela = { clientHeight: 600, clientWidth: 1200 };
+class Vettore {
+  constructor() { this.x = 0; this.y = 0; this.z = 0; }
+  set(x, y, z) { this.x = x; this.y = y; this.z = z; return this; }
+  addScaledVector(v, s) {
+    this.x += v.x * s; this.y += v.y * s; this.z += v.z * s; return this;
+  }
+}
+const destra = new Vettore();
+const alto = new Vettore();
+const avanti = new Vettore();
+let matrici = 0;
+const camera = {
+  fov: 50,
+  updateMatrixWorld() { matrici += 1; },
+  matrixWorld: {
+    // Prima dell'aggiornamento la matrice e' quella del fotogramma precedente:
+    // qui, al primo gesto, non ha ancora nessun asse.
+    extractBasis(d, a, av) {
+      if (matrici === 0) { d.set(0, 0, 0); a.set(0, 0, 0); av.set(0, 0, 0); return; }
+      d.set(1, 0, 0); a.set(0, 1, 0); av.set(0, 0, 1);
+    },
+  },
+};
+const orbita = { raggio: 1000, centro: new Vettore() };
+""" + "function trasla(dx, dy) {" + _corpo_di(r"function trasla\(dx, dy\) \{") + "\n}\n" + """
+// Un trascinamento lungo tutta la tela sposta la vista di tutta l'altezza
+// visibile a quella distanza.
+const altezzaVisibile = 2 * 1000 * Math.tan((25 * Math.PI) / 180);
+
+trasla(tela.clientHeight, 0);
+assert.equal(matrici, 1,
+  "trasla legge gli assi senza aggiornare la matrice del mondo: sono quelli del fotogramma prima");
+assert.ok(Math.abs(orbita.centro.x + altezzaVisibile) < 1e-9,
+  `il trascinamento di tutta la tela non sposta di tutta l'altezza visibile, `
+  + `o la misura e' presa sulla larghezza: ${orbita.centro.x}, attesa ${-altezzaVisibile}`);
+assert.equal(orbita.centro.y, 0, "il trascinamento orizzontale ha spostato anche in verticale");
+
+orbita.centro.x = 0;
+trasla(0, tela.clientHeight);
+assert.ok(Math.abs(orbita.centro.y - altezzaVisibile) < 1e-9,
+  `il trascinamento verticale non segue il dito: ${orbita.centro.y}, attesa ${altezzaVisibile}`);
+assert.equal(orbita.centro.x, 0, "il trascinamento verticale ha spostato anche in orizzontale");
+""")
+
+
+def _banco_della_tastiera() -> str:
+    """La tabella dei tasti, eseguita. Il gestore tocca solo `orbita`, `trasla`,
+    `inquadra` e `aggiornaCamera`: nessuno dei quattro ha bisogno di three.js, e
+    con quattro finti la tabella si interroga davvero invece di leggerla."""
+    return _INTESTAZIONE + """
+const gestori = {};
+const tela = { addEventListener(tipo, gestore) { gestori[tipo] = gestore; } };
+const orbita = { theta: 0, phi: 1, raggio: 100 };
+const traslate = [];
+function trasla(dx, dy) { traslate.push([dx, dy]); }
+let inquadrature = 0;
+function inquadra() { inquadrature += 1; }
+let camere = 0;
+function aggiornaCamera() { camere += 1; }
+let impediti = 0;
+const premi = (key, shiftKey = false) =>
+  gestori.keydown({ key, shiftKey, preventDefault() { impediti += 1; } });
+""" + _costante("PASSO_TASTIERA") + "\n" + _ascoltatore("keydown")
+
+
+def test_le_frecce_con_maiusc_spostano_la_vista_e_senza_maiusc_la_ruotano(tmp_path):
+    """Il pan da tastiera, eseguito: e' la meta' del comando per chi non usa il
+    mouse, cioe' il difetto che questa fase dichiara di chiudere.
+
+    Contarlo non basta. Il gestore passa `evento.shiftKey` alla voce della
+    tabella, e togliendo quell'argomento le quattro voci restano scritte, le
+    cinque chiamate a `trasla(` restano cinque e `evento.shiftKey` resta nel
+    modulo per via del trascinamento: il pan da tastiera sparisce per intero e
+    ogni controllo testuale resta verde — provato. Qui la tabella si interroga.
+    """
+    _esegui(tmp_path, _banco_della_tastiera() + """
+premi("ArrowLeft", true);
+assert.deepEqual(traslate, [[PASSO_TASTIERA, 0]],
+  `maiusc con la freccia sinistra non sposta la vista: ${JSON.stringify(traslate)}`);
+assert.equal(orbita.theta, 0, "maiusc con la freccia sinistra ruota invece di spostare");
+
+premi("ArrowRight", true);
+premi("ArrowUp", true);
+premi("ArrowDown", true);
+assert.deepEqual(traslate, [
+  [PASSO_TASTIERA, 0], [-PASSO_TASTIERA, 0], [0, PASSO_TASTIERA], [0, -PASSO_TASTIERA],
+], `le quattro frecce con maiusc non spostano la vista: ${JSON.stringify(traslate)}`);
+assert.equal(orbita.theta, 0, "una freccia con maiusc ha ruotato");
+assert.equal(orbita.phi, 1, "una freccia con maiusc ha ruotato");
+
+// E senza maiusc le stesse frecce ruotano e non spostano: il verso opposto del
+// medesimo argomento, che una voce sempre in traslazione lascerebbe passare.
+traslate.length = 0;
+premi("ArrowLeft");
+assert.deepEqual(traslate, [], "la freccia sola sposta la vista invece di ruotare");
+assert.ok(orbita.theta < 0, "la freccia sinistra sola non ruota");
+premi("ArrowUp");
+assert.ok(orbita.phi < 1, "la freccia in su' sola non ruota");
+
+// Lo zoom e l'inquadratura non guardano maiusc, e con una tabella sola
+// continuano a funzionare quando lo si tiene premuto: su una tastiera americana
+// «+» E' maiusc piu' «=».
+const raggio = orbita.raggio;
+premi("+", true);
+assert.ok(orbita.raggio < raggio, "lo zoom smette di funzionare con maiusc premuto");
+premi("-");
+premi("f");
+assert.equal(inquadrature, 1, "il tasto f non riporta la vista sulla geometria");
+
+// Ogni tasto della tabella ha impedito lo scorrimento della pagina, e i tasti
+// che la tabella non conosce escono prima senza toccare la camera.
+assert.equal(impediti, 9, `un tasto della tabella non impedisce lo scorrimento: ${impediti}`);
+assert.equal(camere, 9, `un tasto della tabella non aggiorna la camera: ${camere}`);
+premi("q");
+assert.equal(camere, 9, "un tasto che la tabella non conosce muove la camera lo stesso");
+""")
+
+
 def _voce_da_tastiera(chiave: str) -> str:
     """Il corpo di una voce della tabella dei tasti. Dentro non ci sono graffe,
-    quindi la prima chiude la voce."""
+    quindi la prima chiude la voce.
+
+    Il nome del parametro non fa parte di cio' che si sorveglia: fissato a
+    `maiusc`, questo controllo saltava rinominandolo, cioe' su una
+    rifattorizzazione che non cambia niente di cio' che decide.
+    """
     trovato = re.search(
-        rf"{re.escape(chiave)}: \(maiusc\) => \{{([^}}]*)\}}", _senza_commenti(_modulo()),
+        rf"{re.escape(chiave)}:\s*\(\s*\w*\s*\)\s*=>\s*\{{([^}}]*)\}}",
+        _senza_commenti(_modulo()),
     )
     assert trovato is not None, f"la tabella dei tasti non ha piu' una voce {chiave}"
     return trovato.group(1)
@@ -311,8 +515,10 @@ def test_la_guardia_misura_dall_ultimo_ingombro_inquadrato_e_non_dal_centro_che_
     insieme e la memoria direbbe sempre «siamo li'».
 
     Sul testo per la stessa ragione del controllo qui sopra — la guardia vive
-    nella chiusura — e ognuna delle tre asserzioni e' stata provata contro la
-    mutazione che deve prendere.
+    nella chiusura — e ognuna delle due asserzioni e' stata provata contro la
+    mutazione che deve prendere. La terza che stava qui — la guardia che misura
+    da orbita.centro, dichiarata assente — non provava niente: quella mutazione
+    toglie la forma che la positiva qui sotto cerca, e la positiva salta prima.
     """
     testo = _senza_commenti(_modulo())
     assert testo.count("orbita.centro.addScaledVector(") == 2, (
@@ -321,11 +527,9 @@ def test_la_guardia_misura_dall_ultimo_ingombro_inquadrato_e_non_dal_centro_che_
         "toglie il caso che questa guardia sorveglia"
     )
     assert "fuoriDallaVista(centro.toArray(), centroInquadrato.toArray()" in testo, (
-        "la guardia non misura dall'ultimo ingombro inquadrato"
-    )
-    assert "fuoriDallaVista(centro.toArray(), orbita.centro.toArray()" not in testo, (
-        "la guardia misura da orbita.centro, che il pan sposta: zoomato su un "
-        "dettaglio e traslato lungo il muro, il passaggio di step riazzera la vista"
+        "la guardia non misura dall'ultimo ingombro inquadrato: misurata da "
+        "orbita.centro, che il pan sposta, zoomato su un dettaglio e traslato "
+        "lungo il muro il passaggio di step riazzera la vista"
     )
 
 
@@ -341,10 +545,22 @@ def test_la_guardia_misura_dall_ultimo_ingombro_inquadrato_e_non_dal_centro_che_
 
 def _corpo_di(intestazione: str, chiusura: str = "\n  }") -> str:
     """Il corpo di una funzione o di un metodo della chiusura, che non chiude
-    in prima colonna e quindi `_sorgente_di` non vede."""
+    in prima colonna e quindi `_sorgente_di` non vede.
+
+    L'intestazione e' un'espressione regolare e non un letterale: scritta a
+    lettere, fissava anche gli spazi intorno all'`=` di un valore predefinito, e
+    riscrivere `facce = null` come `facce=null` — che non cambia niente di cio'
+    che questi controlli sorvegliano — li faceva saltare tutti insieme.
+    """
     testo = _senza_commenti(_modulo())
-    assert intestazione in testo, f"{intestazione} non e' piu' nel modulo"
-    return testo.split(intestazione, 1)[1].split(chiusura, 1)[0]
+    trovato = re.search(intestazione, testo)
+    assert trovato is not None, f"{intestazione} non e' piu' nel modulo"
+    return testo[trovato.end():].split(chiusura, 1)[0]
+
+
+def _corpo_del_fantasma() -> str:
+    """Il corpo di mostraFantasma, dove stanno i due materiali del velo."""
+    return _corpo_di(r"mostraFantasma\(vertici, facce\s*=\s*null\) \{", "\n    }")
 
 
 def test_il_fantasma_nasce_fratello_del_gruppo_e_non_figlio():
@@ -357,11 +573,9 @@ def test_il_fantasma_nasce_fratello_del_gruppo_e_non_figlio():
     """
     testo = _senza_commenti(_modulo())
     assert "scena.add(fantasma);" in testo, (
-        "il fantasma non entra nella scena accanto a `gruppo`"
-    )
-    assert "gruppo.add(fantasma" not in testo, (
-        "il fantasma e' figlio di `gruppo`: svuota() lo sposta nel precedente e "
-        "«Confronta» lo rimette a video sopra la geometria di prima"
+        "il fantasma non entra nella scena accanto a `gruppo`: da figlio di "
+        "`gruppo` svuota() lo sposta nel precedente e «Confronta» lo rimette a "
+        "video sopra la geometria di prima"
     )
 
 
@@ -372,18 +586,18 @@ def test_il_fantasma_se_ne_va_col_passaggio_che_lo_ha_prodotto():
     ogni strada che disegna chiama svuota() due volte, e in coda la seconda
     lascerebbe il fantasma sotto la geometria nuova.
     """
-    corpo = _corpo_di("function togliFantasma() {")
+    corpo = _corpo_di(r"function togliFantasma\(\) \{")
     for pezzo in ("geometry.dispose()", "material.dispose()", "scena.remove(fantasma)"):
         assert pezzo in corpo, f"togliFantasma non fa {pezzo}: {corpo}"
     assert "fantasma = null" in corpo, (
         f"togliFantasma non azzera il riferimento: il prossimo disegno lo perde "
         f"sulla scheda invece di sostituirlo: {corpo}"
     )
-    svuota = _corpo_di("svuota() {", "\n    }")
+    svuota = _corpo_di(r"svuota\(\) \{", "\n    }")
     assert "togliFantasma();" in svuota, (
         "svuota() lascia in scena il fantasma del passaggio che si sta lasciando"
     )
-    mostra = _corpo_di("mostraFantasma(vertici, facce = null) {", "\n    }")
+    mostra = _corpo_del_fantasma()
     assert "togliFantasma();" in mostra, (
         "mostraFantasma non toglie quello di prima: il vecchio resta in scena e "
         "nessun riferimento lo raggiunge piu'"
@@ -400,11 +614,8 @@ def test_il_fantasma_sparisce_sotto_il_confronto_e_torna_quando_si_spegne():
     testo = _senza_commenti(_modulo())
     assert "fantasma.visible = !attivo;" in testo, (
         "il fantasma non segue il confronto: acceso sopra il precedente sono tre "
-        "geometrie a video e una sola nominata"
-    )
-    assert "fantasma.visible = attivo;" not in testo, (
-        "la visibilita' del fantasma e' capovolta: sparisce proprio quando serve "
-        "e compare solo sopra la geometria di prima"
+        "geometrie a video e una sola nominata, e capovolto sparisce proprio "
+        "quando serve"
     )
 
 
@@ -418,13 +629,48 @@ def test_il_fantasma_si_lascia_attraversare_e_prende_la_tinta_dal_foglio():
     Il colore dal foglio come tutti gli altri della scena: un esadecimale qui
     sarebbe un colore che nessun controllo raggiunge (tests/test_stile.py).
     """
-    corpo = _corpo_di("mostraFantasma(vertici, facce = null) {", "\n    }")
+    corpo = _corpo_del_fantasma()
     assert 'tinta("--fantasma")' in corpo, "il fantasma non prende il colore dal foglio"
-    assert corpo.count("opacity: 0.15") == 2, (
+    # Il valore intero e non il suo prefisso: `0.150` conteneva `0.15` e passava
+    # questo conteggio, cioe' il numero della spec si poteva cambiare restando
+    # verdi. Il confine dopo il 5 chiude quella strada.
+    assert len(re.findall(r"opacity: 0\.15\b", corpo)) == 2, (
         f"le due materie del fantasma — nuvola e superficie — non hanno "
         f"entrambe l'opacita' della spec: {corpo}"
     )
     assert corpo.count("depthWrite: false") == 2, (
         f"il fantasma occlude cio' che sta davanti invece di lasciarsi "
         f"attraversare: {corpo}"
+    )
+    # `opacity` senza `transparent` three.js la ignora: il velo tornerebbe
+    # opaco al 100% e coprirebbe la geometria che sta dietro, che e' cio' che
+    # queste due righe esistono per evitare. Il conteggio di `opacity` da solo
+    # non lo vede.
+    assert corpo.count("transparent: true") == 2, (
+        f"una delle due materie del fantasma non e' trasparente, e li' l'opacita' "
+        f"e' un numero che three.js non guarda: {corpo}"
+    )
+
+
+def test_il_velo_e_materia_della_stessa_scena_della_geometria():
+    """Due righe che nessun conteggio del velo guardava, e sono cio' che lo tiene
+    dentro la scena invece che sopra.
+
+    Il piano di taglio: l'elenco e' uno solo e condiviso, e una materia che non
+    lo riceve nasce senza taglio. Il velo mostrerebbe la geometria che il taglio
+    ha appena tolto, cioe' la vista che contraddice il proprio comando — sullo
+    step 9 il taglio serve proprio a guardare dentro.
+
+    E le normali: senza, `MeshStandardMaterial` non ha da che parte sta la
+    superficie e il velo esce piatto e nero, che dietro la geometria corrente
+    non e' un velo, e' una macchia.
+    """
+    corpo = _corpo_del_fantasma()
+    assert corpo.count("clippingPlanes: pianiTaglio,") == 2, (
+        f"una delle due materie del fantasma ignora il piano di taglio, e mostra "
+        f"la geometria che il taglio ha tolto: {corpo}"
+    )
+    assert "computeVertexNormals();" in corpo, (
+        f"il velo di una superficie non ha normali: esce piatto e nero invece che "
+        f"illuminato come la geometria che sta dietro: {corpo}"
     )

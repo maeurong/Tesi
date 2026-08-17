@@ -134,6 +134,31 @@ def test_un_cursore_fuori_intervallo_torna_dentro(tmp_path: Path):
     assert storico.indietro(tmp_path) == "due\n"
 
 
+def test_un_temporaneo_lasciato_da_una_scrittura_morta_non_uccide_il_deposito(tmp_path: Path):
+    """Il residuo esiste per davvero e nessuno lo raccoglie: scrivi_atomico
+    scrive «0003.tmp.yaml» e rinomina, quindi un processo ucciso a meta' lo
+    lascia li'; core/io.py:150 usa glob e non rglob, e l'unico che chiama
+    scarta_temporanei lo fa sulla cartella della corsa, non su .storico/.
+
+    La grandezza sorvegliata e' il deposito intero e non l'elenco: con un glob
+    largo quel nome arriva a int(), che solleva ValueError dentro _numeri, cioe'
+    dentro la lettura da cui passano esiste, deposita, indietro e avanti. Un
+    file che non e' una versione spegnerebbe l'undo, e lo spegnerebbe proprio
+    dopo un'interruzione, quando serve.
+    """
+    storico.deposita(tmp_path, "uno\n", "avvio", [])
+    storico.deposita(tmp_path, "due\n", "PUT /api/config", ["a"])
+    (tmp_path / ".storico" / "0003.tmp.yaml").write_text("meta' scrittura", encoding="utf-8")
+
+    assert storico.esiste(tmp_path) is True
+    assert storico.indietro(tmp_path) == "uno\n"
+    assert storico.avanti(tmp_path) == "due\n"
+    # E la scrittura successiva prende il numero della versione seguente, non
+    # quello del residuo: il temporaneo non conta come versione nemmeno per la
+    # numerazione.
+    assert storico.deposita(tmp_path, "tre\n", "PUT /api/config", ["b"]) == 3
+
+
 def test_esiste_dice_se_c_e_gia_una_versione(tmp_path: Path):
     assert storico.esiste(tmp_path) is False
     storico.deposita(tmp_path, "uno\n", "avvio", [])

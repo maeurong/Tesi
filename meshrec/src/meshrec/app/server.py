@@ -393,20 +393,26 @@ def create_app(config_path: Path) -> FastAPI:
         endpoint che oggi ne ha bisogno: crop e cluster partono da corrente() e
         la superano per costruzione.
         """
-        attuale = corrente()
-        if Path(nuova.run.out_dir) != Path(attuale.run.out_dir):
-            raise ValueError(
-                f"la corsa non si cambia dall'interfaccia: run.out_dir e' "
-                f"{attuale.run.out_dir} e la richiesta chiede {nuova.run.out_dir}. "
-                "Per lavorare su un'altra corsa riavvia meshrec serve con il suo "
-                "file di configurazione"
-            )
-        if campi is None:
-            campi = _campi_cambiati(
-                attuale.model_dump(mode="json"), nuova.model_dump(mode="json")
-            )
-        out_dir = Path(attuale.run.out_dir)
         with _LUCCHETTO_STORICO:
+            # La lettura sta dentro insieme alla scrittura: e' su questa che si
+            # decide che cosa registrare, e una decisione presa su uno stato che
+            # nel frattempo e' cambiato e' una decisione sbagliata. Due PUT
+            # sovrapposte scriverebbero il contenuto giusto — quello e' protetto
+            # — e una provenienza falsa, cioe' il difetto peggiore dei due:
+            # registro.jsonl non si pota mai, quindi quella riga resta.
+            attuale = corrente()
+            if Path(nuova.run.out_dir) != Path(attuale.run.out_dir):
+                raise ValueError(
+                    f"la corsa non si cambia dall'interfaccia: run.out_dir e' "
+                    f"{attuale.run.out_dir} e la richiesta chiede {nuova.run.out_dir}. "
+                    "Per lavorare su un'altra corsa riavvia meshrec serve con il suo "
+                    "file di configurazione"
+                )
+            if campi is None:
+                campi = _campi_cambiati(
+                    attuale.model_dump(mode="json"), nuova.model_dump(mode="json")
+                )
+            out_dir = Path(attuale.run.out_dir)
             # La versione di partenza, depositata pigramente alla prima
             # modifica: senza, il primo «indietro» non avrebbe niente a cui
             # tornare e la prima modifica sarebbe l'unica non annullabile.
@@ -509,8 +515,9 @@ def create_app(config_path: Path) -> FastAPI:
         percorso = storico._percorso(out_dir, storico._cursore(out_dir))
         return percorso.read_text(encoding="utf-8") if percorso.exists() else None
 
-    def _deposita_le_modifiche_fatte_a_mano(out_dir: Path) -> None:
+    def _deposita_le_modifiche_fatte_a_mano(out_dir: Path) -> bool:
         """Deposita il config che sta su disco, se non e' quello al cursore.
+        Torna vero quando il deposito ha tolto una coda del rifare.
 
         Il progetto e' nato CLI-first e le Fasi 1 e 2 si lavorano da editor: col
         server acceso, un parametro cambiato a mano in config.yaml non sta in
@@ -525,15 +532,25 @@ def create_app(config_path: Path) -> FastAPI:
         del rifare non e' un'eccezione: e' la regola che il deposito applica gia'
         a ogni versione, e una modifica a mano e' una scrittura come le altre.
 
+        Ma tolta va detta: senza, «avanti» risponde «niente da rifare» dopo aver
+        fatto sparire le versioni che c'erano da rifare, cioe' tace un fatto.
+        Chi chiama sa se sono le stesse che stava per chiedere.
+
         Il deposito non si crea qui: se non esiste non c'e' niente da annullare, e
         crearlo vorrebbe dire scrivere in una cartella che un config appena
         cambiato a mano puo' aver spostato altrove.
         """
         if not storico.esiste(out_dir):
-            return
+            return False
         attuale = config_path.read_text(encoding="utf-8")
-        if attuale != _versione_al_cursore(out_dir):
-            storico.deposita(out_dir, attuale, "modifica fuori dall'interfaccia", [])
+        if attuale == _versione_al_cursore(out_dir):
+            return False
+        # Contata prima del deposito: dopo, la versione appena scritta e' essa
+        # stessa oltre il cursore di prima.
+        cursore = storico._cursore(out_dir)
+        coda = any(numero > cursore for numero in storico._numeri(out_dir))
+        storico.deposita(out_dir, attuale, "modifica fuori dall'interfaccia", [])
+        return coda
 
     def _ripristina(testo: str | None, vuoto: str, rimetti) -> dict[str, object]:
         """`rimetti` riporta il cursore dove stava: indietro e avanti lo hanno
@@ -589,10 +606,6 @@ def create_app(config_path: Path) -> FastAPI:
                     "per lavorarci riavvia meshrec serve con il suo file di configurazione"
                 ),
             }
-        prima = {
-            int(voce["numero"]): voce["stato"]
-            for voce in steps.run_state(cfg_prima.run.out_dir, cfg_prima)
-        }
         # Il testo si riscrive tale e quale, senza ripassare dal modello: la
         # versione depositata e' gia' per costruzione rileggibile (l'ha scritta
         # save_config), e ripassarci la normalizzerebbe, cioe' l'undo
@@ -611,14 +624,15 @@ def create_app(config_path: Path) -> FastAPI:
         dopo = steps.run_state(cfg_dopo.run.out_dir, cfg_dopo)
         # Gli artefatti restano sul disco: la catena di impronte li marca «non
         # valido» da se', e questa fase eredita quel meccanismo invece di
-        # duplicarlo. Ma dirlo e' obbligatorio: un ritorno indietro che cambia
-        # in silenzio lo stato di sette step e' una modifica invisibile.
-        invalidati = [
-            int(voce["numero"])
-            for voce in dopo
-            if voce["stato"] == "non valido" and prima.get(int(voce["numero"])) != "non valido"
-        ]
-        return {"annullato": True, "invalidati": invalidati, "steps": dopo}
+        # duplicarlo. Ma dirlo e' obbligatorio — un ritorno indietro che cambia
+        # in silenzio lo stato di sette step e' una modifica invisibile — e lo
+        # dice `steps`, che porta lo stato nuovo per intero.
+        #
+        # Accanto c'era un elenco `invalidati` dei soli step passati a «non
+        # valido». Tolto: nessuno lo leggeva, e per una ragione che resta vera —
+        # tace gli step tornati validi, cioe' meta' di cio' che serve dopo un
+        # «avanti», quindi chi mostra la frase parte comunque dai due stati.
+        return {"annullato": True, "steps": dopo}
 
     @app.post("/api/storico/indietro")
     def storico_indietro() -> dict[str, object]:
@@ -652,11 +666,18 @@ def create_app(config_path: Path) -> FastAPI:
     def storico_avanti() -> dict[str, object]:
         with _LUCCHETTO_STORICO:
             out_dir = Path(corrente().run.out_dir)
-            _deposita_le_modifiche_fatte_a_mano(out_dir)
+            coda_tolta = _deposita_le_modifiche_fatte_a_mano(out_dir)
+            # Solo «avanti» ha bisogno di distinguere: dopo un deposito
+            # «indietro» ha sempre una versione a cui tornare, quindi non
+            # risponde mai a vuoto e non tace niente.
+            vuoto = (
+                "la modifica fatta a mano a config.yaml ha preso il posto delle "
+                "versioni da rifare: per tornare a quella di prima usa Annulla"
+                if coda_tolta
+                else "niente da rifare"
+            )
             return _ripristina(
-                storico.avanti(out_dir),
-                "niente da rifare",
-                lambda: storico.indietro(out_dir),
+                storico.avanti(out_dir), vuoto, lambda: storico.indietro(out_dir)
             )
 
     @app.get("/api/metrics")

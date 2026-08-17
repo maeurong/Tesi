@@ -2429,13 +2429,15 @@ def test_uno_storico_vuoto_risponde_invece_di_tacere(cliente):
     assert corpo["guasto"] is False
 
 
-def test_indietro_elenca_gli_step_tornati_non_validi(cliente, tmp_path):
+def test_indietro_riporta_lo_stato_degli_step_tornati_non_validi(cliente, tmp_path):
     """L'undo non cancella gli artefatti: la catena di impronte della Fase 3 li
     marca «non valido» da se', ed e' il comportamento giusto — restano sul
     disco, pronti a tornare validi se si preme «avanti».
 
     Ma un ritorno indietro che cambia in silenzio lo stato di sette step
-    sarebbe una modifica invisibile, e questo elenco e' cio' che lo dice.
+    sarebbe una modifica invisibile, e `steps` e' cio' che lo dice. Sorvegliato
+    li' e non su un elenco a parte: e' il campo che l'interfaccia legge davvero,
+    ed e' quello che deve reggere.
     """
     from meshrec.core import steps
 
@@ -2457,11 +2459,12 @@ def test_indietro_elenca_gli_step_tornati_non_validi(cliente, tmp_path):
     for voce in steps.run_state(corsa, cfg):
         steps.write_state(corsa, int(voce["numero"]), str(voce["impronta"]), "riuscito", None, 0.0)
 
-    invalidati = cliente.post("/api/storico/indietro").json()["invalidati"]
+    dopo = cliente.post("/api/storico/indietro").json()["steps"]
+    non_validi = [int(voce["numero"]) for voce in dopo if voce["stato"] == "non valido"]
     # L'elenco per intero e non «non vuoto»: poisson_depth entra nell'impronta
-    # dello step 5, e la catena la propaga fino all'11. Un `assert invalidati`
+    # dello step 5, e la catena la propaga fino all'11. Un `assert non_validi`
     # starebbe in piedi anche con [1], cioe' con la propagazione rotta.
-    assert invalidati == [5, 6, 7, 8, 9, 10, 11]
+    assert non_validi == [5, 6, 7, 8, 9, 10, 11]
     # Gli artefatti restano dove sono: l'undo non li cancella.
     assert corsa.exists()
 
@@ -2607,6 +2610,96 @@ def test_una_modifica_fatta_a_mano_non_si_perde_con_l_undo(cliente, tmp_path):
     assert percorso.read_bytes() == a_mano, "la modifica fatta a mano non e' recuperabile"
 
 
+def test_una_scrittura_fallita_non_fa_saltare_una_versione(cliente, tmp_path, monkeypatch):
+    """Il cursore si muove prima che config.yaml sia riscritto: se la scrittura
+    non riesce, il cursore e' avanzato e il file no, e i due non parlano piu'
+    dello stesso stato.
+
+    Il danno non e' il rifiuto, che e' onesto: e' quello dopo. Col cursore fermo
+    su una versione che il file non porta, la chiamata successiva scambia il
+    config su disco per una modifica fatta a mano, la deposita, e la deposita
+    tronca la coda del rifare. Un errore di scrittura fa sparire una versione
+    che nessuno aveva scartato.
+    """
+    percorso = tmp_path / "config.yaml"
+    for profondita in (7, 8, 9):
+        corpo = cliente.get("/api/config").json()
+        corpo["surface"]["poisson_depth"] = profondita
+        assert cliente.put("/api/config", json=corpo).status_code == 200
+    l_ultima = percorso.read_bytes()
+    assert cliente.post("/api/storico/indietro").json()["annullato"] is True
+    la_penultima = percorso.read_bytes()
+
+    def scrittura_che_non_riesce(destinazione, scrittore):
+        raise OSError("nessuno spazio sul dispositivo")
+
+    vero_scrivi_atomico = server.scrivi_atomico
+    monkeypatch.setattr(server, "scrivi_atomico", scrittura_che_non_riesce)
+    # 400 e non 404: la richiesta e' formata bene ed e' il disco a non
+    # collaborare, e questa e' la casella che la grammatica del progetto ha.
+    assert cliente.post("/api/storico/indietro").status_code == 400
+    assert percorso.read_bytes() == la_penultima, "il rifiuto ha comunque toccato il file"
+
+    monkeypatch.setattr(server, "scrivi_atomico", vero_scrivi_atomico)
+    assert cliente.post("/api/storico/avanti").json()["annullato"] is True
+    assert percorso.read_bytes() == l_ultima, (
+        "la versione da rifare e' sparita dopo una scrittura fallita"
+    )
+
+
+def test_avanti_dice_che_la_modifica_a_mano_ha_tolto_la_coda_del_rifare(cliente, tmp_path):
+    """Una modifica fatta a mano e' una scrittura come le altre, e una scrittura
+    tronca la coda del rifare: due configurazioni raggiungibili spariscono. Il
+    lavoro in corso e' salvo — config.yaml resta quello a mano — ma «niente da
+    rifare» racconta che non e' successo niente, e questo progetto pretende che
+    una frase mostrata abbia un controllo che possa smentirla.
+    """
+    percorso = tmp_path / "config.yaml"
+    for profondita in (7, 8, 9):
+        corpo = cliente.get("/api/config").json()
+        corpo["surface"]["poisson_depth"] = profondita
+        assert cliente.put("/api/config", json=corpo).status_code == 200
+    assert cliente.post("/api/storico/indietro").json()["annullato"] is True
+    assert cliente.post("/api/storico/indietro").json()["annullato"] is True
+    prima_della_modifica = percorso.read_bytes()
+
+    cfg = load_config(percorso)
+    cfg.surface.poisson_depth = 12
+    save_config(cfg, percorso)
+    a_mano = percorso.read_bytes()
+
+    corpo = cliente.post("/api/storico/avanti").json()
+    assert corpo["annullato"] is False
+    # Non e' un guasto: nessuno deve mettere le mani dentro .storico, e' andata
+    # com'era stabilito che andasse.
+    assert corpo["guasto"] is False
+    assert corpo["perche"] != "niente da rifare"
+    assert "a mano" in corpo["perche"]
+    # Dice cosa fare, e cio' che dice funziona davvero: la frase promette
+    # Annulla, e Annulla riporta alla configurazione di prima della modifica.
+    assert "Annulla" in corpo["perche"]
+    assert percorso.read_bytes() == a_mano
+    assert cliente.post("/api/storico/indietro").json()["annullato"] is True
+    assert percorso.read_bytes() == prima_della_modifica
+
+
+def test_una_modifica_a_mano_senza_coda_da_rifare_non_inventa_una_perdita(cliente, tmp_path):
+    """Il rovescio del controllo qui sopra. Col cursore gia' in punta la
+    modifica a mano si deposita e non toglie niente: annunciare una coda tolta
+    sarebbe la stessa frase senza il fatto sotto, cioe' lo stesso difetto girato
+    dall'altra parte."""
+    percorso = tmp_path / "config.yaml"
+    corpo = cliente.get("/api/config").json()
+    corpo["surface"]["poisson_depth"] = 7
+    assert cliente.put("/api/config", json=corpo).status_code == 200
+
+    cfg = load_config(percorso)
+    cfg.surface.poisson_depth = 12
+    save_config(cfg, percorso)
+
+    assert cliente.post("/api/storico/avanti").json()["perche"] == "niente da rifare"
+
+
 def test_una_versione_illeggibile_non_sostituisce_il_config(cliente, tmp_path):
     """Il testo di una versione arrivava fino a config.yaml senza che nessuno lo
     respingesse prima: load_config lo respinge dopo, quando il file e' gia'
@@ -2706,6 +2799,82 @@ def test_il_registro_elenca_i_campi_cambiati_e_non_tutti_i_blocchi(cliente, tmp_
     ultima = righe[-1]
     assert ultima["endpoint"] == "PUT /api/config"
     assert ultima["campi"] == ["surface.poisson_depth"]
+
+
+def test_due_put_insieme_non_registrano_i_campi_di_uno_stato_gia_superato(
+    cliente, tmp_path, monkeypatch
+):
+    """Il contenuto di config.yaml e' protetto dal lucchetto; la provenienza no,
+    finche' la lettura su cui si decide sta fuori. Due PUT sovrapposte leggono
+    entrambe lo stato di prima, la seconda a scrivere elenca cio' che e' cambiato
+    rispetto a una configurazione che non c'e' piu', e il registro non si pota
+    mai: quella riga sbagliata resta per sempre nel file che dovra' rispondere
+    «da dove viene questa versione».
+
+    La grandezza e' l'invariante e non una riga: i campi di ogni versione devono
+    essere il confronto fra la versione precedente e la sua, comunque le due
+    corse si siano ordinate. Un controllo su chi arriva primo direbbe verde per
+    il motivo sbagliato.
+    """
+    from meshrec.app import storico
+    from meshrec.core import sweep
+
+    partenza = cliente.get("/api/config").json()
+    partenza["surface"]["poisson_depth"] = 7
+    assert cliente.put("/api/config", json=partenza).status_code == 200
+
+    corpo_lento = cliente.get("/api/config").json()
+    corpo_lento["normals"]["knn"] += 1
+    corpo_veloce = cliente.get("/api/config").json()
+    corpo_veloce["surface"]["poisson_depth"] = 8
+
+    # La finestra vera e' di microsecondi: qui la prima lettura si ferma finche'
+    # l'altra PUT non ha finito. Con la lettura dentro il lucchetto l'attesa
+    # scade invece di aprirsi, ed e' proprio quello il punto.
+    #
+    # «La prima» e non «quella del thread lento»: gli endpoint dichiarati con
+    # `def` girano nel threadpool di FastAPI, quindi chi serve la richiesta non
+    # e' il thread che l'ha spedita e il nome non arriva fin qui. Fra lo start
+    # del thread e ha_letto il thread principale non chiede niente, quindi la
+    # prima lettura dopo il monkeypatch e' la sua.
+    ha_letto = threading.Event()
+    l_altra_ha_scritto = threading.Event()
+    vero_load_config = server.load_config
+
+    def load_config_in_gara(percorso):
+        cfg = vero_load_config(percorso)
+        if not ha_letto.is_set():
+            ha_letto.set()
+            l_altra_ha_scritto.wait(0.5)
+        return cfg
+
+    monkeypatch.setattr(server, "load_config", load_config_in_gara)
+
+    lenta = threading.Thread(
+        target=lambda: cliente.put("/api/config", json=corpo_lento), name="lenta"
+    )
+    lenta.start()
+    assert ha_letto.wait(2.0), "precondizione: la PUT lenta non ha letto la configurazione"
+    assert cliente.put("/api/config", json=corpo_veloce).status_code == 200
+    l_altra_ha_scritto.set()
+    lenta.join(5.0)
+    assert not lenta.is_alive(), "la PUT lenta non e' rientrata"
+
+    deposito = Path(vero_load_config(tmp_path / "config.yaml").run.out_dir) / storico.CARTELLA
+    righe = sweep.load_registry(deposito / "registro.jsonl")
+    versioni = sorted(deposito.glob("[0-9][0-9][0-9][0-9].yaml"))
+    assert len(versioni) == 4, "precondizione: avvio, la prima PUT e le due in gara"
+    for precedente, versione in zip(versioni, versioni[1:]):
+        numero = int(versione.stem)
+        riga = [voce for voce in righe if voce["versione"] == numero][-1]
+        atteso = server._campi_cambiati(
+            vero_load_config(precedente).model_dump(mode="json"),
+            vero_load_config(versione).model_dump(mode="json"),
+        )
+        assert riga["campi"] == atteso, (
+            f"la versione {numero} dichiara {riga['campi']} ma da quella prima "
+            f"e' cambiato {atteso}"
+        )
 
 
 def test_il_conteggio_pieno_non_e_quello_disegnato(cliente, tmp_path):

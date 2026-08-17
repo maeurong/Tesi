@@ -581,8 +581,14 @@ let fantasmaAcceso = true;
 // in cui e' usata. `sorgente` e' lo step da cui viene la geometria corrente:
 // quando non e' lo step chiesto, la geometria corrente e' gia' quella di un
 // altro e il fantasma la ridisegnerebbe.
-function fantasmaHaSenso(chiesto, sorgente, acceso) {
-  return acceso && sorgente === chiesto && FANTASMA_DI[chiesto] !== undefined;
+// L'interruttore non entra qui: e' un predicato solo, e decide sia se il velo si
+// disegna sia se la casella si mostra. Con due predicati — la tabella per
+// mostrare, questo per disegnare — sullo step 8 senza semplificazione la casella
+// compariva spuntata e toccarla nei due versi non faceva nulla, perche' li' la
+// geometria a video e' gia' quella dello step 6. E l'interruttore non puo'
+// entrarci: spento farebbe sparire la propria casella.
+function fantasmaHaSenso(chiesto, sorgente) {
+  return sorgente === chiesto && FANTASMA_DI[chiesto] !== undefined;
 }
 
 // Il passaggio precedente dietro quello corrente. E' la risposta al «di
@@ -591,8 +597,9 @@ function fantasmaHaSenso(chiesto, sorgente, acceso) {
 // si vede invece di sparire in silenzio.
 async function mostraFantasmaDelloStep(numero, ordine) {
   const comando = document.getElementById("fantasma-comando");
-  comando.hidden = FANTASMA_DI[numero] === undefined;
-  if (!fantasmaHaSenso(numero, sorgenteMostrata, fantasmaAcceso)) return;
+  const haSenso = fantasmaHaSenso(numero, sorgenteMostrata);
+  comando.hidden = !haSenso;
+  if (!haSenso || !fantasmaAcceso) return;
   const da = FANTASMA_DI[numero];
   // La frontiera fra nuvola e superficie e' STEP_CON_MESH, e si legge di la'.
   // Scritta qui una seconda volta come `da <= 4` sarebbe la stessa frontiera
@@ -711,6 +718,12 @@ document.getElementById("fantasma").addEventListener("change", (evento) => {
 // leggendo, che e' un fatto e non una stima.
 function dichiaraCaricamento(numero) {
   spostaNelPrecedente();
+  // A video non c'e' piu' nessuna geometria, quindi non c'e' nemmeno uno step da
+  // cui venga: e' l'invariante che sorgenteMostrata dichiara. Lasciata l'ultima
+  // provenienza, il velo riacceso mentre la nuvola chiesta e' ancora in volo la
+  // crede a video, apre una richiesta di geometria e con quella la scarta: il
+  // caricamento non si chiude piu' e a video resta il solo velo al 15%.
+  sorgenteMostrata = null;
   scriviConteggi(`caricamento di ${nomeDelloStep(numero, ultimiSteps)}...`, false);
   document.getElementById("viewport").setAttribute("aria-busy", "true");
 }
@@ -2167,13 +2180,14 @@ function gestoDelloStorico(evento) {
 
 // Che cosa e' cambiato davvero, nei due versi, dai due elenchi di stato.
 //
-// Non basta il campo `invalidati` che il server manda: quello conta i soli step
-// passati a «non valido», e nel flusso che si usa — cambio un parametro, poi
-// Ctrl+Z — quegli step erano gia' non validi per via della modifica, e l'undo
-// li fa tornare validi. `invalidati` sarebbe vuoto e la frase direbbe «nessuno
-// step cambia stato» mentre a sinistra le righe passano da rosso a verde: il
-// caso dominante, e falso. Il verso opposto il server non lo manda, e i due
-// elenchi bastano a calcolare entrambi senza una richiesta in piu'.
+// Il server manda lo stato intero, `steps`, e non un elenco di cambiamenti:
+// il calcolo sta qui perche' qui ci sono tutti e due i termini. Il server ne
+// aveva provato uno — un campo `invalidati` con i soli step passati a «non
+// valido» — ed e' stato tolto proprio per questo: nel flusso che si usa,
+// cambio un parametro e poi Ctrl+Z, quegli step erano gia' non validi per via
+// della modifica e l'undo li fa tornare validi. Sarebbe arrivato vuoto, e la
+// frase avrebbe detto «nessuno step cambia stato» mentre a sinistra le righe
+// passano da rosso a verde: il caso dominante, e falso.
 //
 // Pura e di primo livello come le altre decisioni di questo modulo. I nomi e
 // non i numeri: la colonna di sinistra mostra i nomi, e «step 2» sono le due

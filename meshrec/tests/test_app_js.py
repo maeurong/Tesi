@@ -3026,6 +3026,9 @@ let ultimiSteps = [{ numero: 9, chiave: "09_tetrahedralize", stato: "valido" }];
 let vistaMostrata = null;
 let vistaPrecedente = null;
 let conteggiDiPrima = null;
+// Dichiarare l'attesa azzera anche la provenienza: durante un caricamento a
+// video non c'e' nessuna geometria, quindi non c'e' nessuno step da cui venga.
+let sorgenteMostrata = null;
 const bottoneConfronta = document.getElementById("confronta");
 """ + _funzioni(
         "nomeDelloStep", "scriviConteggi", "dichiaraCaricamento",
@@ -4269,21 +4272,26 @@ def test_il_fantasma_non_si_disegna_dove_ripeterebbe_la_geometria_corrente(tmp_p
     """Sullo step 8 senza semplificazione il server serve gia' la superficie
     dello step 6 (X-Da-Step = 6): sovrapporgli il fantasma dello step 6
     disegnerebbe due volte la stessa cosa, con lo z-fighting e nessuna
-    informazione in piu'."""
+    informazione in piu'.
+
+    L'interruttore non e' un argomento di questo predicato: lo stesso valore
+    decide se il velo si disegna e se la casella si mostra, e la casella deve
+    restare a video anche col velo spento. Che spento non si disegni si prova
+    dove l'interruttore si legge davvero
+    (test_la_casella_compare_dove_il_velo_si_disegna...).
+    """
     _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
         + _fantasma_di() + "\n" + _funzioni("fantasmaHaSenso") + """
 // step 8 con la semplificazione: la geometria corrente e' propria, il fantasma
 // dello step 6 dice quanto la semplificazione ha tolto.
-assert.equal(fantasmaHaSenso(8, 8, true), true);
+assert.equal(fantasmaHaSenso(8, 8), true);
 // step 8 senza: la geometria corrente E' gia' quella dello step 6.
-assert.equal(fantasmaHaSenso(8, 6, true), false);
+assert.equal(fantasmaHaSenso(8, 6), false);
 // step 7: nessuna coppia, e comunque mostra il 6.
-assert.equal(fantasmaHaSenso(7, 6, true), false);
+assert.equal(fantasmaHaSenso(7, 6), false);
 // Niente a video: non c'e' nessuna geometria di cui questo sia il precedente.
-assert.equal(fantasmaHaSenso(2, null, true), false);
-// interruttore spento.
-assert.equal(fantasmaHaSenso(2, 2, false), false);
-assert.equal(fantasmaHaSenso(2, 2, true), true);
+assert.equal(fantasmaHaSenso(2, null), false);
+assert.equal(fantasmaHaSenso(2, 2), true);
 """)
 
 
@@ -4664,6 +4672,260 @@ assert.equal(conteggi.textContent, didascalia,
 """)
 
 
+def test_un_velo_che_non_arriva_non_si_posa_e_non_parla(tmp_path):
+    """Le due strade per cui il velo puo' non arrivare, e sono normali: il
+    passaggio a monte non e' ancora girato (il server risponde 404), oppure la
+    connessione cade a meta' del download — sullo step 2 sono 6,3 milioni di
+    punti, 27-34 secondi a freddo.
+
+    Nessuna delle due e' un errore da annunciare: cio' che l'utente ha chiesto e'
+    a video con la sua didascalia. Ma nessuna delle due deve disegnare: senza le
+    guardie il velo si posa su intestazioni assenti — zero punti — e la
+    didascalia dichiara dietro la geometria un passaggio che non e' arrivato.
+    """
+    _esegui(tmp_path, _banco_del_fantasma() + """
+const conteggi = document.getElementById("conteggi");
+ETICHETTE["01_load"] = "Caricamento";
+ETICHETTE["02_segment"] = "Ritaglio";
+ultimiSteps = [
+  { numero: 1, chiave: "01_load", stato: "valido" },
+  { numero: 2, chiave: "02_segment", stato: "valido" },
+];
+stepMostrato = 2;
+chiamata = 0;
+risponde = [() => ({
+  ok: true,
+  headers: { get: (n) => ({
+    "X-Points-Drawn": "100", "X-Points-Total": "4229538", "X-Voxel": "0",
+  }[n]) },
+  arrayBuffer: async () => new ArrayBuffer(12),
+})];
+await mostraStep(2, generazione);
+const didascalia = conteggi.textContent;
+
+// Il 404 col corpo che il server manda: intestazioni senza conteggi, e un corpo
+// che si lascia leggere come byte pur non essendo una nuvola.
+chiamata = 0;
+risponde = [() => ({
+  ok: false,
+  status: 404,
+  headers: { get: () => null },
+  arrayBuffer: async () => new ArrayBuffer(24),
+  text: async () => JSON.stringify({ errore: "FileNotFoundError", messaggio: "manca" }),
+})];
+await mostraFantasmaDelloStep(2, generazione);
+assert.equal(vista.fantasma, null,
+  `il velo si e' posato su una risposta non riuscita: ${JSON.stringify(vista.fantasma)}`);
+assert.equal(conteggi.textContent, didascalia,
+  `la didascalia dichiara un velo che non e' arrivato: ${conteggi.textContent}`);
+
+// E il download che si ferma dopo le intestazioni.
+chiamata = 0;
+risponde = [() => ({
+  ok: true,
+  headers: { get: () => "6329096" },
+  arrayBuffer: async () => { throw new Error("connessione interrotta"); },
+})];
+await mostraFantasmaDelloStep(2, generazione);
+assert.equal(vista.fantasma, null,
+  `il velo si e' posato su un download interrotto: ${JSON.stringify(vista.fantasma)}`);
+assert.equal(conteggi.textContent, didascalia,
+  `la didascalia dichiara un velo che non e' stato scaricato: ${conteggi.textContent}`);
+""")
+
+
+def test_il_velo_di_una_superficie_ritaglia_vertici_e_facce_dallo_stesso_buffer(tmp_path):
+    """Un buffer solo porta i vertici e poi le facce, e le facce cominciano dove
+    finiscono i vertici: `pieni * 3 * 4` byte, tre componenti da quattro byte per
+    vertice. Sbagliato lo scarto, `Uint32Array` non alza niente — rilegge come
+    interi i byte dei vertici — e il velo esce con le facce di un solido che non
+    esiste, mentre i conteggi restano quelli giusti perche' vengono dalle
+    intestazioni. Un banco che guarda i soli conteggi non lo vede.
+    """
+    _esegui(tmp_path, _banco_del_fantasma() + """
+ETICHETTE["06_surface"] = "Superficie";
+ETICHETTE["08_simplify"] = "Semplificazione";
+ultimiSteps = [
+  { numero: 6, chiave: "06_surface", stato: "valido" },
+  { numero: 8, chiave: "08_simplify", stato: "valido" },
+];
+// La fetta letta, e non solo la sua lunghezza: e' cio' che distingue lo scarto
+// giusto da uno che rilegge i vertici come facce.
+vista.mostraFantasma = function (vertici, facce = null) {
+  this.fantasma = { vertici: [...vertici], facce: facce === null ? null : [...facce] };
+};
+const grezzi = new ArrayBuffer(48);
+new Float32Array(grezzi, 0, 9).set([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+new Uint32Array(grezzi, 36, 3).set([11, 12, 13]);
+
+stepMostrato = 8;
+chiamata = 0;
+risponde = [
+  () => ({
+    ok: true,
+    headers: { get: (n) => ({
+      "X-Vertices": "3", "X-Triangles": "1", "X-Da-Step": "8",
+    }[n]) },
+    arrayBuffer: async () => new ArrayBuffer(48),
+  }),
+  () => ({
+    ok: true,
+    headers: { get: (n) => ({ "X-Vertices": "3", "X-Triangles": "1" }[n]) },
+    arrayBuffer: async () => grezzi,
+  }),
+];
+await mostraStep(8, generazione);
+await mostraFantasmaDelloStep(8, generazione);
+
+assert.deepEqual(vista.fantasma.vertici, [1, 2, 3, 4, 5, 6, 7, 8, 9],
+  `i vertici del velo non sono la testa del buffer: ${JSON.stringify(vista.fantasma)}`);
+assert.deepEqual(vista.fantasma.facce, [11, 12, 13],
+  `le facce del velo non cominciano dove finiscono i vertici: ${JSON.stringify(vista.fantasma)}`);
+""")
+
+
+def test_la_casella_compare_dove_il_velo_si_disegna_e_non_dove_non_si_disegnerebbe(tmp_path):
+    """La casella si mostrava con la sola tabella e il velo si disegnava con
+    `fantasmaHaSenso`, che pretende anche che la geometria a video sia quella
+    dello step chiesto. Sullo step 8 con `simplify.enabled` falso — il valore nei
+    config di lavoro, cioe' il caso normale — il server serve la superficie dello
+    step 6: la casella compariva spuntata e toccarla nei due versi non faceva
+    nulla. E' il comando che non fa niente che il commento di index.html dichiara
+    di evitare, arrivato per la porta dell'altro predicato.
+
+    Un predicato solo per mostrare e per disegnare, e l'interruttore fuori: la
+    casella deve restare a video anche spenta, altrimenti spegnendola sparirebbe
+    e non ci sarebbe piu' modo di riaccenderla.
+    """
+    _esegui(tmp_path, _banco_del_fantasma() + """
+const comando = document.getElementById("fantasma-comando");
+ETICHETTE["06_surface"] = "Superficie";
+ETICHETTE["08_simplify"] = "Semplificazione";
+ultimiSteps = [
+  { numero: 6, chiave: "06_surface", stato: "valido" },
+  { numero: 8, chiave: "08_simplify", stato: "valido" },
+];
+const mesh = (vertici, triangoli, daStep) => () => ({
+  ok: true,
+  headers: { get: (n) => ({
+    "X-Vertices": String(vertici), "X-Triangles": String(triangoli), "X-Da-Step": daStep,
+  }[n]) },
+  arrayBuffer: async () => new ArrayBuffer(48),
+});
+
+// Il caso normale: senza semplificazione il server serve gia' la superficie
+// dello step 6, e il velo dello step 6 ridisegnerebbe la stessa cosa.
+stepMostrato = 8;
+chiamata = 0;
+risponde = [mesh(3, 1, "6")];
+await mostraStep(8, generazione);
+await mostraFantasmaDelloStep(8, generazione);
+assert.equal(comando.hidden, true,
+  "la casella compare dove il velo non si disegnerebbe: toccarla non fa nulla nei due versi");
+assert.equal(vista.fantasma, null,
+  `il velo si e' posato sopra la geometria che ripeterebbe: ${JSON.stringify(vista.fantasma)}`);
+
+// Con la semplificazione accesa la geometria e' propria, e il velo dice quanto
+// ha tolto: li' la casella c'e'.
+chiamata = 0;
+risponde = [mesh(4, 0, "8"), mesh(3, 1, "6")];
+await mostraStep(8, generazione);
+await mostraFantasmaDelloStep(8, generazione);
+assert.equal(comando.hidden, false, "la casella manca dove il velo si disegna");
+assert.deepEqual(vista.fantasma, { punti: 3, facce: 1, visibile: true },
+  `il velo non e' stato disegnato: ${JSON.stringify(vista.fantasma)}`);
+
+// E spenta la casella resta a video: sparendo, non ci sarebbe piu' modo di
+// riaccenderla.
+await alternaFantasma(false);
+chiamata = 0;
+risponde = [mesh(4, 0, "8"), mesh(3, 1, "6")];
+await mostraStep(8, generazione);
+await mostraFantasmaDelloStep(8, generazione);
+assert.equal(comando.hidden, false, "spegnere il velo fa sparire il proprio interruttore");
+assert.equal(vista.fantasma, null, "il velo si disegna con l'interruttore spento");
+""")
+
+
+def test_il_velo_riacceso_durante_un_caricamento_non_uccide_la_geometria_chiesta(tmp_path):
+    """Il fantasma apre una richiesta di geometria come le due strade che
+    disegnano, e `ultimaGeometria` lascia scrivere solo l'ultima partita: partito
+    mentre la nuvola chiesta e' ancora in volo, il velo la scarta.
+
+    La causa non sta li'. `dichiaraCaricamento` azzera `vistaMostrata` ma non
+    `sorgenteMostrata`, il cui commento dichiara «null quando a video non c'e'
+    nessuna geometria» — falso proprio durante un caricamento. `fantasmaHaSenso`
+    legge quello stato stantio e dice si'.
+
+    Tutti gesti normali: velo spento, clic sul Ritaglio (mezzo minuto a freddo
+    sulla scansione vera), e la casella riaccesa mentre carica. Lo stato finale
+    misurato prima della correzione: aria-busy mai chiuso, geometria chiesta
+    scartata, a video il solo velo al 15%, e la didascalia che annuncia un
+    caricamento col conteggio di un passaggio dietro il nulla.
+    """
+    _esegui(tmp_path, _banco_del_fantasma() + """
+const conteggi = document.getElementById("conteggi");
+const viewport = document.getElementById("viewport");
+ETICHETTE["01_load"] = "Caricamento";
+ETICHETTE["02_segment"] = "Ritaglio";
+ultimiSteps = [
+  { numero: 1, chiave: "01_load", stato: "valido" },
+  { numero: 2, chiave: "02_segment", stato: "valido" },
+];
+
+// Il Ritaglio e' gia' a video con la sua geometria: e' cio' che lascia
+// `sorgenteMostrata` a 2.
+stepMostrato = 2;
+chiamata = 0;
+risponde = [() => ({
+  ok: true,
+  headers: { get: (n) => ({
+    "X-Points-Drawn": "100", "X-Points-Total": "4229538", "X-Voxel": "0",
+  }[n]) },
+  arrayBuffer: async () => new ArrayBuffer(12),
+})];
+await mostraStep(2, generazione);
+assert.equal(sorgenteMostrata, 2, "il caso da provare non e' stato costruito");
+
+// Velo spento, e lo stesso step ricliccato: la risposta resta in volo, come i
+// trenta secondi a freddo sulla scansione vera.
+await alternaFantasma(false);
+let risolvi;
+chiamata = 0;
+risponde = [
+  () => new Promise((r) => { risolvi = r; }),
+  () => ({
+    ok: true,
+    headers: { get: () => "6329096" },
+    arrayBuffer: async () => new ArrayBuffer(24),
+  }),
+];
+ricaricaVista(2, generazione);
+assert.equal(viewport.getAttribute("aria-busy"), "true",
+  "il caricamento non si e' dichiarato: il caso da provare non e' stato costruito");
+
+// E mentre carica, l'utente riaccende la casella.
+await alternaFantasma(true);
+
+risolvi({
+  ok: true,
+  headers: { get: (n) => ({
+    "X-Points-Drawn": "116059", "X-Points-Total": "4229538", "X-Voxel": "0",
+  }[n]) },
+  arrayBuffer: async () => new ArrayBuffer(12),
+});
+await giro();
+
+assert.equal(viewport.getAttribute("aria-busy"), null,
+  "il viewport resta occupato per sempre: il velo ha scartato la richiesta in volo");
+assert.deepEqual(vista.disegnato, { tipo: "nuvola", lunghezza: 3 },
+  `la geometria chiesta non e' a video: ${JSON.stringify(vista.disegnato)}`);
+assert.equal(conteggi.textContent,
+  "116.059 punti disegnati su 4.229.538 — dietro Caricamento: 6.329.096 punti",
+  `la didascalia non e' quella della geometria chiesta: ${conteggi.textContent}`);
+""")
+
+
 def test_l_interruttore_del_fantasma_sta_coi_comandi_della_vista_e_si_annuncia():
     """Terzo comando del gruppo, e l'unico che non e' un <button>: una casella
     dentro la propria etichetta, cosi' il nome accessibile viene dall'etichetta
@@ -4846,8 +5108,8 @@ const fallito = () => esito.className.includes("esito-fallito");
 
 # Lo stato dopo il ritorno: i due step che la modifica aveva invalidato tornano
 # validi. E' il flusso che Mario ha chiesto — cambio un parametro, poi Ctrl+Z —
-# e il server lo riporta con `invalidati` vuoto, perche' quel campo conta solo
-# il verso opposto.
+# ed e' il caso su cui un elenco di soli step invalidati sarebbe arrivato vuoto,
+# perche' conterebbe il solo verso opposto. Il server manda lo stato intero.
 _DOPO_RITORNO = """[
   { numero: 2, chiave: "02_segment", stato: "valido" },
   { numero: 3, chiave: "03_downsample", stato: "valido" },
@@ -4933,12 +5195,13 @@ assert.equal(fallito(), true, "il guasto si annuncia con lo stesso peso di «nie
 
 
 def test_la_frase_del_ritorno_dice_i_cambi_veri_nei_due_versi(tmp_path):
-    """Il messaggio si compone su cio' che e' cambiato davvero, e non sul solo
-    `invalidati` che il server manda: quel campo conta i soli step passati a «non
-    valido», e nel flusso che si usa — cambio un parametro, poi Ctrl+Z — quegli
-    step erano gia' non validi per via della modifica, e l'undo li fa tornare
-    validi. `invalidati` sarebbe vuoto e la frase direbbe «nessuno step cambia
-    stato» mentre a sinistra sette righe passano da rosso a verde.
+    """Il messaggio si compone su cio' che e' cambiato davvero, cioe' sui due
+    elenchi di stato, quello che era a video e quello che il server rimanda.
+    Un elenco dei soli step passati a «non valido» non basterebbe: nel flusso
+    che si usa — cambio un parametro, poi Ctrl+Z — quegli step erano gia' non
+    validi per via della modifica, e l'undo li fa tornare validi. Arriverebbe
+    vuoto, e la frase direbbe «nessuno step cambia stato» mentre a sinistra
+    sette righe passano da rosso a verde.
 
     I nomi e non i numeri: la colonna di sinistra mostra i nomi, e «step 2» sono
     le due lingue per la stessa cosa che nomeDelloStep esiste per togliere.
@@ -5001,7 +5264,7 @@ def test_dopo_un_ritorno_riuscito_l_interfaccia_dice_che_cosa_e_cambiato(tmp_pat
     messaggio scritto la' sarebbe gia' sparito quando questo controllo guarda.
     """
     _esegui(tmp_path, _BANCO_STORICO + _risposta_js(
-        "{ annullato: true, invalidati: [], steps: %s }" % _DOPO_RITORNO
+        "{ annullato: true, steps: %s }" % _DOPO_RITORNO
     ) + _funzioni_dello_storico() + """
 await chiediStorico("indietro");
 assert.equal(esito.textContent,
