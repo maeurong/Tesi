@@ -1,6 +1,7 @@
 :root {
-  /* Superfici. Il bianco caldo e' anche lo sfondo della scena tridimensionale
-     (0xfbfaf8 in viewport.js): l'interfaccia e la vista sono la stessa carta. */
+  /* Superfici. Il bianco caldo e' anche lo sfondo della scena tridimensionale:
+     viewport.js legge --sfondo da qui, quindi l'interfaccia e la vista sono la
+     stessa carta per costruzione e non per la coincidenza di due letterali. */
   --sfondo: #fbfaf8;
   --superficie: #ffffff;
   /* Testo. Rapporti misurati su --superficie: 17,21:1 e 5,55:1. */
@@ -33,6 +34,45 @@
   --velo: color-mix(in srgb, var(--superficie) 92%, transparent);
   --evidenza: color-mix(in srgb, var(--accento) 8%, transparent);
   --spento: color-mix(in srgb, var(--tenue) 8%, transparent);
+
+  /* La scena. Erano tre esadecimali nudi dentro viewport.js — 0x2f5d50,
+     0xb8b2a7, 0xc4671b — cioe' fuori dal solo posto che questo foglio dichiara
+     per il colore e fuori da test_stile.py, che vieta un esadecimale scritto a
+     mano proprio perche' «nessun controllo di contrasto lo raggiunge». Il
+     divieto valeva su un file solo, e i colori della zona piu' grande dello
+     schermo stavano nell'altro. Il fondo della scena resta --sfondo e non un
+     quarto valore: la carta e' una sola, e il commento in cima lo diceva gia'
+     mentre due letterali uguali per caso lo rendevano vero.
+
+     --nuvola e' il dato misurato, --ricostruzione cio' che la pipeline ne
+     ricava, --attrezzo il box di ritaglio, l'unica cosa che l'utente manovra
+     sulla vista.
+
+     La nuvola NON e' piu' --accento. Quel token vale «azione, fuoco, selezione»
+     e la sua forza sta nell'essere raro: indossato da sei milioni di punti sul
+     55% della finestra non distingue piu' niente, e per giunta e' l'unico
+     colore saturo che finisce in appendice accanto a un testo composto. Ora e'
+     inchiostro: 12,10:1 su --sfondo.
+
+     --ricostruzione e' piu' scura del 0xb8b2a7 di prima perche' la mesh e'
+     illuminata, non piatta. Le due luci sono dichiarate in viewport.js —
+     ambiente 0,7 e direzionale 0,8 — e una faccia rivolta alla luce rende
+     l'albedo per 1,5: a 0xb8b2a7 quella faccia misurava 1,39:1 sulla carta,
+     cioe' il bordo della superficie spariva proprio dove tocca lo sfondo.
+     A questo valore la faccia piena misura 3,20:1 (WCAG 1.4.11). Derivato
+     dalle due intensita' scritte nel codice, non misurato a video: il test
+     rilegge di la' i due numeri, cosi' alzare una luce fa rosso.
+
+     --attrezzo resta l'arancio di prima ed e' piu' chiaro di --avviso apposta:
+     --avviso si legge sulla carta, questo deve leggersi sulla nuvola. Il box
+     compare solo allo step 2, che disegna punti e non mesh, quindi i fondi
+     sono due e sono misurati: 3,80:1 su --sfondo e 3,19:1 su --nuvola. Ed e'
+     il secondo dei due a comandare: la nuvola e' scesa a questo inchiostro
+     perche' a #3a3833 il box misurava 2,96, sotto soglia proprio dove lo si
+     manovra. */
+  --nuvola: #35332e;
+  --ricostruzione: #7a7469;
+  --attrezzo: #c4671b;
 
   /* Spaziatura: un passo di 4px e i suoi multipli, nient'altro. Erano nove
      valori decisi uno alla volta (0,15 0,2 0,25 0,3 0,35 0,5 0,75 1 rem), e

@@ -50,17 +50,28 @@ def test_nessun_colore_scritto_a_mano_fuori_dai_token():
     assert not fuori, f"colori scritti a mano fuori da :root: {fuori}"
 
 
-def _luminanza(esadecimale: str) -> float:
-    """Luminanza relativa sRGB, WCAG 2.x."""
+def _lineari(esadecimale: str) -> list[float]:
+    """I tre canali sRGB portati in luce lineare, che e' dove si moltiplica."""
     canali = [int(esadecimale[i:i + 2], 16) / 255 for i in (1, 3, 5)]
-    lineari = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in canali]
+    return [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in canali]
+
+
+def _luminanza_lineare(lineari: list[float]) -> float:
     return 0.2126 * lineari[0] + 0.7152 * lineari[1] + 0.0722 * lineari[2]
 
 
-def _rapporto(primo: str, secondo: str) -> float:
-    a, b = _luminanza(primo), _luminanza(secondo)
-    chiaro, scuro = max(a, b), min(a, b)
+def _luminanza(esadecimale: str) -> float:
+    """Luminanza relativa sRGB, WCAG 2.x."""
+    return _luminanza_lineare(_lineari(esadecimale))
+
+
+def _rapporto_fra(prima: float, seconda: float) -> float:
+    chiaro, scuro = max(prima, seconda), min(prima, seconda)
     return (chiaro + 0.05) / (scuro + 0.05)
+
+
+def _rapporto(primo: str, secondo: str) -> float:
+    return _rapporto_fra(_luminanza(primo), _luminanza(secondo))
 
 
 def _token(nome: str) -> str:
@@ -190,3 +201,80 @@ def test_linvito_della_vista_non_viene_riancorato_a_una_colonna_sola():
     assert trovata is not None and trovata.group(1) is not None, (
         "la regola a una colonna riancora anche l'invito, non solo la didascalia"
     )
+
+
+# --- I colori della scena ----------------------------------------------------
+# La zona piu' grande dello schermo e' la vista tridimensionale, e i suoi colori
+# stavano in viewport.js come esadecimali nudi: fuori da :root, quindi fuori da
+# test_nessun_colore_scritto_a_mano_fuori_dai_token, che vieta esattamente
+# questo perche' «nessun controllo di contrasto lo raggiunge». Quel divieto
+# sorvegliava un file solo. Questi controlli chiudono l'altro.
+
+
+def _scena() -> str:
+    return (UI_DIR / "viewport.js").read_text(encoding="utf-8")
+
+
+def _intensita(luce: str) -> float:
+    trovata = re.search(rf"{luce}\(0x[0-9a-fA-F]+,\s*([\d.]+)\)", _scena())
+    assert trovata is not None, f"l'intensita' di {luce} non si legge piu' da viewport.js"
+    return float(trovata.group(1))
+
+
+def test_la_scena_non_scrive_piu_i_propri_colori_a_mano():
+    """Restano solo i bianchi delle due luci, che non sono una scelta di
+    tavolozza: 0xffffff e' l'assenza di tinta, cioe' una luce che non colora
+    cio' che illumina. Ogni altro esadecimale qui dentro e' un colore che
+    nessuna misura di contrasto raggiunge."""
+    letterali = set(re.findall(r"0x[0-9a-fA-F]{6}", _scena()))
+    assert letterali <= {"0xffffff"}, (
+        f"colori della scena scritti fuori da stile.css: {sorted(letterali - {'0xffffff'})}"
+    )
+
+
+def test_ogni_colore_letto_dalla_scena_e_dichiarato():
+    """tinta() si alza su un token vuoto invece di disegnare nero, ma si alza a
+    video e a corsa avviata. Qui il nome sbagliato si trova prima."""
+    testo = (UI_DIR / "stile.css").read_text(encoding="utf-8")
+    dichiarati = set(re.findall(r"^\s*(--[\w-]+)\s*:", testo, re.MULTILINE))
+    letti = set(re.findall(r'tinta\("(--[\w-]+)"\)', _scena()))
+    assert letti, "la scena non legge piu' nessun colore dal foglio"
+    assert letti <= dichiarati, f"colori letti e mai dichiarati: {sorted(letti - dichiarati)}"
+
+
+def test_la_nuvola_non_indossa_piu_il_colore_dell_azione():
+    """--accento vale «azione, fuoco, selezione» e la sua forza sta nell'essere
+    raro. Indossato da sei milioni di punti sul 55% della finestra non
+    distingueva piu' nulla: la stessa tinta del bottone primario e dello step
+    aperto era anche il fondale su cui quei due comandi si guardano. E' anche
+    l'unico colore saturo che finiva in appendice accanto a un testo composto."""
+    assert _token("--nuvola") != _token("--accento"), (
+        "la nuvola e' tornata a indossare il colore dell'azione"
+    )
+    misura = _rapporto(_token("--nuvola"), _token("--sfondo"))
+    assert misura >= 3.0, f"la nuvola misura {misura:.2f} sulla carta, sotto 3:1"
+
+
+def test_la_faccia_illuminata_della_superficie_non_sparisce_sulla_carta():
+    """La mesh non e' piatta: le due luci di viewport.js si sommano e una faccia
+    rivolta alla luce rende l'albedo per (ambiente + direzionale). A 0xb8b2a7 —
+    il valore di prima — quella faccia misurava 1,39:1 sulla carta, cioe' il
+    bordo della superficie spariva dove tocca lo sfondo, che e' proprio dove si
+    legge la forma. Le due intensita' si rileggono da viewport.js: alzare una
+    luce senza scurire l'albedo fa rosso qui invece che a video."""
+    fattore = _intensita("AmbientLight") + _intensita("DirectionalLight")
+    illuminata = [min(1.0, canale * fattore) for canale in _lineari(_token("--ricostruzione"))]
+    misura = _rapporto_fra(_luminanza_lineare(illuminata), _luminanza(_token("--sfondo")))
+    assert misura >= 3.0, f"la faccia piena misura {misura:.2f} sulla carta, sotto 3:1"
+
+
+def test_il_box_di_ritaglio_si_legge_sui_due_fondi_su_cui_e_disegnato():
+    """Il box compare al solo step 2, che disegna punti e non mesh: i fondi sono
+    la carta dove la nuvola e' rada e la nuvola dove e' fitta, e sono due perche'
+    un contorno leggibile su uno solo non e' leggibile (WCAG 1.4.11). E' anche
+    la ragione per cui --attrezzo e' piu' chiaro di --avviso invece di essere lo
+    stesso arancione: --avviso e' tarato per leggersi sulla carta, e sulla
+    nuvola misura 2,33:1."""
+    for fondo in ("--sfondo", "--nuvola"):
+        misura = _rapporto(_token("--attrezzo"), _token(fondo))
+        assert misura >= 3.0, f"il box misura {misura:.2f} su {fondo}, sotto 3:1"

@@ -1,9 +1,29 @@
 // Scena tridimensionale. Disegna cio' che il server manda, non ricalcola nulla.
 import * as THREE from "/ui/vendor/three.module.js";
 
+// I colori della scena stanno in stile.css con tutti gli altri. Erano quattro
+// esadecimali scritti qui, dove nessuno dei controlli di contrasto del progetto
+// li raggiungeva: il fondo restava uguale a --sfondo solo per la coincidenza di
+// due letterali identici, e cambiarne uno solo dei due non avrebbe fatto rosso
+// nulla.
+//
+// Letti a ogni uso e non una volta all'importazione: un modulo puo' valutarsi
+// prima che il foglio sia applicato, e li' ogni token tornerebbe vuoto. Nessuno
+// di questi usi sta su un cammino caldo — uno per geometria caricata, uno alla
+// nascita del box — quindi il ricalcolo di stile che getComputedStyle forza si
+// paga una volta per gesto.
+//
+// Vuoto si alza, non si disegna: THREE.Color di una stringa vuota rende nero
+// senza dire niente, cioe' una scena illeggibile che si presenta come una scena.
+function tinta(nome) {
+  const valore = getComputedStyle(document.documentElement).getPropertyValue(nome).trim();
+  if (valore === "") throw new Error(`il colore ${nome} non e' dichiarato in stile.css`);
+  return new THREE.Color(valore);
+}
+
 export function creaViewport(contenitore) {
   const scena = new THREE.Scene();
-  scena.background = new THREE.Color(0xfbfaf8);
+  scena.background = tinta("--sfondo");
 
   const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 1e6);
   camera.position.set(1, 1, 1);
@@ -180,7 +200,7 @@ export function creaViewport(contenitore) {
       const geometria = new THREE.BufferGeometry();
       geometria.setAttribute("position", new THREE.BufferAttribute(punti, 3));
       const materiale = new THREE.PointsMaterial({
-        size: 1.5, sizeAttenuation: false, color: 0x2f5d50, clippingPlanes: pianiTaglio,
+        size: 1.5, sizeAttenuation: false, color: tinta("--nuvola"), clippingPlanes: pianiTaglio,
       });
       gruppo.add(new THREE.Points(geometria, materiale));
       descrivi(`nuvola di ${(punti.length / 3).toLocaleString("it")} punti`);
@@ -192,7 +212,7 @@ export function creaViewport(contenitore) {
       geometria.setIndex(new THREE.BufferAttribute(facce, 1));
       geometria.computeVertexNormals();
       gruppo.add(new THREE.Mesh(geometria, new THREE.MeshStandardMaterial({
-        color: 0xb8b2a7, roughness: 0.9, metalness: 0.0, side: THREE.DoubleSide,
+        color: tinta("--ricostruzione"), roughness: 0.9, metalness: 0.0, side: THREE.DoubleSide,
         clippingPlanes: pianiTaglio,
       })));
       descrivi(`superficie di ${(facce.length / 3).toLocaleString("it")} facce`);
@@ -216,7 +236,10 @@ export function creaViewport(contenitore) {
     // gli estremi basta e non serve ricostruire nulla.
     mostraBox(basso, alto) {
       if (box === null) {
-        box = new THREE.Box3Helper(new THREE.Box3(), new THREE.Color(0xc4671b));
+        // La tinta si legge qui dentro e non fuori dal ramo: mostraBox e' anche
+        // il gestore dei sei campi del ritaglio, cioe' gira a ogni tasto
+        // premuto, e il box lo si costruisce una volta sola.
+        box = new THREE.Box3Helper(new THREE.Box3(), tinta("--attrezzo"));
         gruppo.add(box);
       }
       box.box.set(new THREE.Vector3(...basso), new THREE.Vector3(...alto));
