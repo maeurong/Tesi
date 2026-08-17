@@ -184,7 +184,12 @@ class Elemento {
 
 const radice = new Elemento("body");
 const perId = new Map();
+// I gestori legati al documento, raggiungibili dal banco: senza, il corpo di un
+// ascoltatore globale si puo' solo leggere, e leggerlo non distingue un
+// cablaggio giusto da uno che manda sempre lo stesso verso allo stesso URL.
+const gestoriDocumento = {};
 const document = {
+  addEventListener(tipo, gestore) { (gestoriDocumento[tipo] ??= []).push(gestore); },
   createElement: (tag) => new Elemento(tag),
   getElementById(id) {
     if (!perId.has(id)) {
@@ -4703,3 +4708,456 @@ def test_l_interruttore_del_fantasma_sta_coi_comandi_della_vista_e_si_annuncia()
     assert "let fantasmaAcceso = true;" in modulo, (
         "il modulo nasce col fantasma spento mentre la casella si dichiara spuntata"
     )
+
+
+# --------------------------------------------------------------------------
+# Ctrl+Z: il ritorno indietro sulle modifiche di configurazione. Non e'
+# l'annullamento del bottone #annulla, che termina lo step in corso: e'
+# un'altra cosa, su un'altra strada, e i due nomi non si mescolano.
+# --------------------------------------------------------------------------
+
+
+def test_il_gesto_dello_storico_distingue_indietro_da_avanti(tmp_path):
+    """I due versi, eseguiti. Scambiati, il sorgente resta identico a chi lo
+    guarda per sottostringhe: un controllo testuale li lascerebbe passare, e
+    «indietro» rimetterebbe la modifica appena tolta.
+
+    Con shift il browser riporta `key` maiuscola: legato alla sola "z" minuscola
+    il rifare non risponderebbe mai.
+    """
+    _esegui(tmp_path, _DOM + _funzioni("gestoDelloStorico") + _costante("CAMPI_SCRITTI") + """
+const tasto = (extra) => ({
+  ctrlKey: false, metaKey: false, shiftKey: false, key: "z",
+  target: { tagName: "DIV" }, ...extra,
+});
+assert.equal(gestoDelloStorico(tasto({ ctrlKey: true })), "indietro");
+assert.equal(gestoDelloStorico(tasto({ metaKey: true })), "indietro",
+  "su macOS il gesto e' cmd+z: legato al solo ctrlKey non risponde");
+assert.equal(gestoDelloStorico(tasto({ ctrlKey: true, shiftKey: true, key: "Z" })), "avanti");
+assert.equal(gestoDelloStorico(tasto({ metaKey: true, shiftKey: true, key: "Z" })), "avanti");
+assert.equal(gestoDelloStorico(tasto({})), null, "una z nuda non annulla niente");
+assert.equal(gestoDelloStorico(tasto({ ctrlKey: true, key: "y" })), null);
+""")
+
+
+def test_ctrl_z_dentro_un_campo_lascia_l_undo_al_campo(tmp_path):
+    """L'ascoltatore sta sul documento, e il pannello dei parametri e' fatto di
+    campi di testo e numerici: dentro un campo Ctrl+Z e' l'annullamento della
+    scrittura nel campo, che il browser fa di suo.
+
+    Scavalcarlo toglierebbe l'undo del testo per darne uno che ripristina
+    un'altra cosa, e proprio dove la cosa che si sta scrivendo e' la modifica
+    che quel ripristino butterebbe via. Un undo che scavalca l'undo nativo e'
+    peggio di nessun undo.
+    """
+    _esegui(tmp_path, _DOM + _funzioni("gestoDelloStorico") + _costante("CAMPI_SCRITTI") + """
+const dentro = (bersaglio) =>
+  gestoDelloStorico({ ctrlKey: true, metaKey: false, shiftKey: false, key: "z", target: bersaglio });
+assert.equal(dentro({ tagName: "INPUT", type: "text" }), null, "il campo di testo ha perso il proprio undo");
+assert.equal(dentro({ tagName: "INPUT", type: "number" }), null, "il campo numerico ha perso il proprio undo");
+assert.equal(dentro({ tagName: "INPUT" }), null, "un input senza type e' un campo di testo");
+assert.equal(dentro({ tagName: "TEXTAREA" }), null, "l'area di testo ha perso il proprio undo");
+assert.equal(dentro({ tagName: "DIV", isContentEditable: true }), null);
+// Non tutti gli input scrivono testo. Sulla casella del fantasma e sul cursore
+// del taglio l'undo nativo non esiste: lasciare li' il gesto lo renderebbe un
+// tasto morto proprio sui due comandi che si toccano di continuo.
+assert.equal(dentro({ tagName: "INPUT", type: "checkbox" }), "indietro", "la casella non ha un undo da difendere");
+assert.equal(dentro({ tagName: "INPUT", type: "range" }), "indietro", "il cursore non ha un undo da difendere");
+assert.equal(dentro({ tagName: "DIV" }), "indietro", "fuori dai campi il gesto e' nostro");
+assert.equal(dentro({ tagName: "BODY" }), "indietro");
+assert.equal(dentro({ tagName: "BUTTON" }), "indietro");
+""")
+
+
+def test_il_tasto_tenuto_premuto_non_riavvolge_lo_storico(tmp_path):
+    """La ripetizione automatica batte una trentina di eventi al secondo, e
+    ognuno e' un POST che riscrive config.yaml davvero: un secondo di tasto
+    premuto riavvolge lo storico fino all'avvio.
+
+    E la guardia d'ordine peggiora le cose invece di limitarle — lascia a video
+    un messaggio solo, quello dell'ultima risposta, cioe' rende il riavvolgimento
+    invisibile. La guardia va sull'evento, dove la ripetizione si dichiara.
+    """
+    _esegui(tmp_path, _DOM + _funzioni("gestoDelloStorico") + _costante("CAMPI_SCRITTI") + """
+const tenuto = { ctrlKey: true, metaKey: false, shiftKey: false, repeat: true, key: "z", target: { tagName: "DIV" } };
+assert.equal(gestoDelloStorico(tenuto), null, "il tasto tenuto premuto riavvolge lo storico");
+assert.equal(gestoDelloStorico({ ...tenuto, repeat: false }), "indietro", "la prima battuta e' il gesto");
+""")
+
+
+def test_il_solo_tasto_globale_e_z_e_non_ruba_i_comandi_della_tela(tmp_path):
+    """Criterio 11 della spec. I comandi della tela — frecce, +, -, f — restano
+    legati al canvas col fuoco sopra (viewport.js), e un gestore globale su
+    quelli li rubere'bbe a chi orbita da tastiera.
+
+    Eseguito e non solo letto: la lettura del sorgente non distingue un tasto
+    lasciato passare da uno intercettato e poi ignorato a meta'.
+    """
+    _esegui(tmp_path, _DOM + _funzioni("gestoDelloStorico") + _costante("CAMPI_SCRITTI") + """
+for (const key of ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "+", "-", "f", "Shift"]) {
+  assert.equal(
+    gestoDelloStorico({ ctrlKey: true, metaKey: false, shiftKey: false, key, target: { tagName: "DIV" } }),
+    null,
+    `il gesto globale intercetta ${key}, che e' della tela`,
+  );
+}
+""")
+    modulo = _senza_commenti_js(_modulo())
+    assert modulo.count('document.addEventListener("keydown"') == 1, (
+        "i tasti globali dell'interfaccia non sono piu' uno solo"
+    )
+    trovato = re.search(
+        r'document\.addEventListener\("keydown".*?\n\}\);', modulo, flags=re.DOTALL
+    )
+    assert trovato is not None
+    corpo = trovato.group(0)
+    assert "gestoDelloStorico(" in corpo, (
+        "il gestore globale decide da se' invece di passare dalla funzione provata qui sopra"
+    )
+    assert "chiediStorico(" in corpo
+
+
+_BANCO_STORICO = _DOM + """
+let ricaricata = null;
+let dettaglioAperto = null;
+let statoRicaricato = false;
+async function caricaStato() { statoRicaricato = true; }
+function ricaricaVista(numero) { ricaricata = numero; }
+// Svuota la riga d'errore a ogni apertura, come quello vero: e' la ragione per
+// cui il messaggio del ritorno NON puo' stare li'. Uno stub vuoto avrebbe
+// lasciato passare per verde proprio il difetto da chiudere.
+async function apriDettaglio(numero) { dettaglioAperto = numero; dichiaraErrore(null); }
+let stepMostrato = 5;
+stepAperto = 3;
+ETICHETTE["02_segment"] = "Segmentazione";
+ETICHETTE["03_downsample"] = "Riduzione";
+ETICHETTE["04_normals"] = "Normali";
+// Lo stato di prima, quello che disegnaStep ha appena mostrato: e' il termine
+// di confronto del messaggio, e nel flusso vero i due step toccati dalla
+// modifica sono gia' «non validi» quando si preme Ctrl+Z.
+let ultimiSteps = [
+  { numero: 2, chiave: "02_segment", stato: "non valido" },
+  { numero: 3, chiave: "03_downsample", stato: "non valido" },
+  { numero: 4, chiave: "04_normals", stato: "valido" },
+];
+const esito = document.getElementById("esito");
+const fallito = () => esito.className.includes("esito-fallito");
+"""
+
+# Lo stato dopo il ritorno: i due step che la modifica aveva invalidato tornano
+# validi. E' il flusso che Mario ha chiesto — cambio un parametro, poi Ctrl+Z —
+# e il server lo riporta con `invalidati` vuoto, perche' quel campo conta solo
+# il verso opposto.
+_DOPO_RITORNO = """[
+  { numero: 2, chiave: "02_segment", stato: "valido" },
+  { numero: 3, chiave: "03_downsample", stato: "valido" },
+  { numero: 4, chiave: "04_normals", stato: "valido" }
+]"""
+
+
+def _funzioni_dello_storico() -> str:
+    return _funzioni(
+        "apriRitorno", "superata", "dichiaraErrore", "mostraEsito", "nomeDelloStep",
+        "fraseDelRitorno", "serverMuto", "corpoLetto", "ragioneDelRifiuto", "chiediStorico",
+    ) + "\nlet ultimoRitorno = 0;\n"
+
+
+def _risposta_js(corpo: str) -> str:
+    """Un 200 con quel corpo. `json` e non `text`: e' quello che `corpoLetto`
+    chiama, ed e' anche il ramo dove un corpo illeggibile solleva."""
+    return (
+        "globalThis.fetch = async () => ({\n"
+        "  ok: true, status: 200, json: async () => (%s),\n"
+        "});\n" % corpo
+    )
+
+
+def test_lo_storico_a_vuoto_mostra_il_perche_invece_di_tacere(tmp_path):
+    """Il server risponde {"annullato": false, "perche": ...} e il modulo lo
+    deve dire, con la frase che il server manda e non con una sua. Scartare quel
+    corpo e' il difetto del bottone Annulla per una seconda strada.
+
+    E non e' un errore: «niente da annullare» e' l'esito normale di chi preme
+    Ctrl+Z una volta di troppo, e nella regione role="alert" direbbe a chi non
+    vede che qualcosa e' andato storto.
+    """
+    _esegui(tmp_path, _BANCO_STORICO + _risposta_js(
+        '{ annullato: false, guasto: false, perche: "niente da annullare" }'
+    ) + _funzioni_dello_storico() + """
+await chiediStorico("indietro");
+assert.equal(esito.textContent, "niente da annullare");
+assert.equal(rigaErrore.textContent, "");
+assert.equal(fallito(), false, "un gesto a vuoto si annuncia col peso di un guasto");
+assert.equal(ricaricata, null, "niente e' cambiato sul disco, e la vista si e' rifatta lo stesso");
+assert.equal(statoRicaricato, false, "niente e' cambiato sul disco, e lo stato si e' richiesto lo stesso");
+""")
+
+
+def test_un_ritorno_che_non_ripristina_niente_non_uccide_una_geometria_in_volo(tmp_path):
+    """Il caso piu' frequente di tutti: si clicca lo step 9, la mesh scende per
+    secondi, e nell'attesa parte un Ctrl+Z per abitudine.
+
+    `apriGenerazione()` e' il contatore condiviso, e bumparlo scarta ogni tratta
+    in volo. `mostraStep` sui rami superati torna senza chiudere il caricamento,
+    perche' conta su chi ha bumpato per ripartire con un caricamento nuovo:
+    questa e' la prima strada che puo' uscire senza ripartire — «niente da
+    annullare», guasto, corpo nullo, rifiuto — e la tela resterebbe con
+    aria-busy e la didascalia «caricamento di...» finche' non si clicca altrove.
+    Percio' un contatore suo, come apriGeometria fa per la geometria.
+    """
+    _esegui(tmp_path, _BANCO_STORICO + _risposta_js(
+        '{ annullato: false, guasto: false, perche: "niente da annullare" }'
+    ) + _funzioni_dello_storico() + """
+generazione = 7;
+await chiediStorico("indietro");
+assert.equal(generazione, 7,
+  "il ritorno ha bumpato la generazione condivisa: la geometria in volo e' morta senza chiudere il caricamento");
+assert.equal(ultimoRitorno, 1, "il ritorno non ha aperto un ordine suo");
+""")
+
+
+def test_un_deposito_rotto_non_si_annuncia_come_un_gesto_a_vuoto(tmp_path):
+    """Le due risposte si somigliano nella forma e non nelle conseguenze: una
+    dice che non c'era niente da annullare, l'altra che dentro .storico c'e' una
+    versione da correggere a mano. Il bit che le separa e' `guasto`, e si legge
+    quello: il nome dell'eccezione dentro il «perche'» cambia col guasto, il bit
+    no.
+    """
+    _esegui(tmp_path, _BANCO_STORICO + _risposta_js(
+        """{ annullato: false, guasto: true, perche: "una versione salvata non e' piu' leggibile" }"""
+    ) + _funzioni_dello_storico() + """
+await chiediStorico("indietro");
+assert.equal(esito.textContent, "una versione salvata non e' piu' leggibile");
+assert.equal(fallito(), true, "il guasto si annuncia con lo stesso peso di «niente da annullare»");
+""")
+
+
+def test_la_frase_del_ritorno_dice_i_cambi_veri_nei_due_versi(tmp_path):
+    """Il messaggio si compone su cio' che e' cambiato davvero, e non sul solo
+    `invalidati` che il server manda: quel campo conta i soli step passati a «non
+    valido», e nel flusso che si usa — cambio un parametro, poi Ctrl+Z — quegli
+    step erano gia' non validi per via della modifica, e l'undo li fa tornare
+    validi. `invalidati` sarebbe vuoto e la frase direbbe «nessuno step cambia
+    stato» mentre a sinistra sette righe passano da rosso a verde.
+
+    I nomi e non i numeri: la colonna di sinistra mostra i nomi, e «step 2» sono
+    le due lingue per la stessa cosa che nomeDelloStep esiste per togliere.
+    """
+    _esegui(tmp_path, _DOM + """
+ETICHETTE["02_segment"] = "Segmentazione";
+ETICHETTE["03_downsample"] = "Riduzione";
+ETICHETTE["04_normals"] = "Normali";
+const voce = (numero, chiave, stato) => ({ numero, chiave, stato });
+const prima = [
+  voce(2, "02_segment", "non valido"),
+  voce(3, "03_downsample", "non valido"),
+  voce(4, "04_normals", "valido"),
+];
+""" + _funzioni("nomeDelloStep", "fraseDelRitorno") + """
+assert.equal(
+  fraseDelRitorno(prima, [voce(2, "02_segment", "valido"), voce(3, "03_downsample", "valido"), voce(4, "04_normals", "valido")]),
+  "configurazione ripristinata: Segmentazione, Riduzione tornano «validi»",
+);
+assert.equal(
+  fraseDelRitorno(prima, [voce(2, "02_segment", "valido"), voce(3, "03_downsample", "non valido"), voce(4, "04_normals", "valido")]),
+  "configurazione ripristinata: Segmentazione torna «valido»",
+);
+assert.equal(
+  fraseDelRitorno(prima, [voce(2, "02_segment", "non valido"), voce(3, "03_downsample", "non valido"), voce(4, "04_normals", "non valido")]),
+  "configurazione ripristinata: Normali passa a «non valido»",
+);
+assert.equal(
+  fraseDelRitorno(
+    [voce(2, "02_segment", "valido"), voce(3, "03_downsample", "valido"), voce(4, "04_normals", "valido")],
+    [voce(2, "02_segment", "non valido"), voce(3, "03_downsample", "non valido"), voce(4, "04_normals", "valido")],
+  ),
+  "configurazione ripristinata: Segmentazione, Riduzione passano a «non validi»",
+);
+// I due versi insieme: e' cio' che succede quando l'undo tocca due modifiche di
+// step diversi, e dirne uno solo sarebbe meta' del fatto.
+assert.equal(
+  fraseDelRitorno(prima, [voce(2, "02_segment", "valido"), voce(3, "03_downsample", "non valido"), voce(4, "04_normals", "non valido")]),
+  "configurazione ripristinata: Segmentazione torna «valido»; Normali passa a «non valido»",
+);
+assert.equal(
+  fraseDelRitorno(prima, prima),
+  "configurazione ripristinata: nessuno step cambia stato",
+);
+// Uno step che passa da «mai eseguito» a «non valido» e' un cambio come gli
+// altri, e uno che resta com'era non entra nella frase da nessuna parte.
+const frase = fraseDelRitorno(prima, [voce(2, "02_segment", "valido"), voce(3, "03_downsample", "non valido"), voce(4, "04_normals", "valido")]);
+assert.doesNotMatch(frase, /step \\d/, `numeri al posto dei nomi: ${frase}`);
+assert.doesNotMatch(frase, /Riduzione|Normali/, `un nome che non e' cambiato e' finito nella frase: ${frase}`);
+""")
+
+
+def test_dopo_un_ritorno_riuscito_l_interfaccia_dice_che_cosa_e_cambiato(tmp_path):
+    """Gli artefatti restano sul disco e la catena di impronte li rimarca da se':
+    e' il comportamento giusto, ma cambiare in silenzio lo stato di sette step
+    sarebbe una modifica invisibile.
+
+    Il messaggio sta in #esito e non in #errore, e il banco lo prova davvero:
+    apriDettaglio qui svuota la riga d'errore come quello vero, quindi un
+    messaggio scritto la' sarebbe gia' sparito quando questo controllo guarda.
+    """
+    _esegui(tmp_path, _BANCO_STORICO + _risposta_js(
+        "{ annullato: true, invalidati: [], steps: %s }" % _DOPO_RITORNO
+    ) + _funzioni_dello_storico() + """
+await chiediStorico("indietro");
+assert.equal(esito.textContent,
+  "configurazione ripristinata: Segmentazione, Riduzione tornano «validi»");
+assert.equal(fallito(), false, "un ritorno riuscito non e' un fallimento");
+assert.equal(rigaErrore.textContent, "", "il messaggio e' passato dalla riga che si svuota");
+assert.equal(statoRicaricato, true, "la colonna di sinistra resta sullo stato di prima");
+assert.equal(dettaglioAperto, 3, "il pannello non si e' rifatto: mostra i parametri di prima");
+// La vista si rifa': il config e' cambiato sotto, e lasciare a schermo la
+// geometria di prima con lo stato nuovo a sinistra e' la vista che contraddice
+// la propria didascalia, per la terza strada.
+assert.equal(ricaricata, 5);
+""")
+
+
+def test_due_ritorni_sovrapposti_non_fanno_vincere_il_piu_vecchio(tmp_path):
+    """Ctrl+Z tenuto premuto si ripete, e due chiamate finiscono in volo
+    insieme. Senza un ordine aperto PRIMA dell'attesa e guardato dopo l'ultima,
+    vince chi arriva ultimo, che e' la risposta vecchia: a video l'elenco degli
+    step invalidati di un ripristino che non e' piu' quello corrente.
+
+    E' la stessa istanza che i due contatori di questo modulo chiudono sulle
+    strade che disegnano, per una terza strada. Provata eseguendo: lo scanner
+    strutturale di questo file non la vede — risolve un solo livello di delega,
+    e il gestore globale e' un blocco e non una delega nuda.
+    """
+    _esegui(tmp_path, _BANCO_STORICO + """
+const risolvi = [];
+globalThis.fetch = async () => new Promise((r) => { risolvi.push(r); });
+""" + _funzioni_dello_storico() + """
+const vecchia = chiediStorico("indietro");
+const nuova = chiediStorico("indietro");
+const risposta = (steps) => ({ ok: true, status: 200, json: async () => ({ annullato: true, steps }) });
+const soloIlDue = [{ numero: 2, chiave: "02_segment", stato: "valido" }];
+// La piu' recente arriva per prima e scrive.
+risolvi[1](risposta(soloIlDue));
+await nuova;
+assert.equal(esito.textContent, "configurazione ripristinata: Segmentazione torna «valido»",
+  "la richiesta piu' recente non ha scritto");
+// La piu' vecchia rientra dopo e deve tacere.
+risolvi[0](risposta([{ numero: 3, chiave: "03_downsample", stato: "valido" }]));
+await vecchia;
+assert.equal(esito.textContent, "configurazione ripristinata: Segmentazione torna «valido»",
+  "la risposta vecchia, arrivata per ultima, ha scritto sopra quella recente");
+""")
+
+
+def test_un_rifiuto_vecchio_non_scrive_sopra_un_ritorno_recente(tmp_path):
+    """La guardia d'ordine vale anche sul ramo del rifiuto: senza, un 400
+    rientrato in ritardo cancella a video l'esito del gesto che l'ha superato,
+    e chi guarda legge un errore che non appartiene a cio' che ha appena fatto.
+    """
+    _esegui(tmp_path, _BANCO_STORICO + """
+const risolvi = [];
+globalThis.fetch = async () => new Promise((r) => { risolvi.push(r); });
+""" + _funzioni_dello_storico() + """
+const vecchia = chiediStorico("indietro");
+const nuova = chiediStorico("indietro");
+risolvi[1]({ ok: true, status: 200, json: async () => ({ annullato: false, guasto: false, perche: "niente da annullare" }) });
+await nuova;
+risolvi[0]({ ok: false, status: 400, text: async () => JSON.stringify({ messaggio: "config.yaml non si legge" }) });
+await vecchia;
+assert.equal(esito.textContent, "niente da annullare",
+  "il rifiuto vecchio, arrivato per ultimo, ha scritto sopra l'esito recente");
+""")
+
+
+def test_tutto_l_esito_del_gesto_esce_dalla_stessa_riga(tmp_path):
+    """Un rifiuto e' un errore, ma resta l'esito dello stesso gesto: chi preme un
+    tasto guarda dove sono comparse le risposte a quel tasto, e non la
+    classificazione interna del guasto. Divisi fra #esito nella testata e #errore
+    nella colonna del dettaglio, due delle cinque risposte comparirebbero dove
+    l'occhio non torna — e da dove apriDettaglio le cancella.
+
+    Vale anche per il server muto: senza `.catch(serverMuto)` la fetch solleva
+    dentro un gestore che nessuno aspetta, e il gesto non lascia a video una
+    sola riga.
+    """
+    _esegui(tmp_path, _BANCO_STORICO + """
+globalThis.fetch = async () => ({
+  ok: false, status: 400,
+  text: async () => JSON.stringify({ errore: "ValueError", messaggio: "config.yaml non si legge" }),
+});
+""" + _funzioni_dello_storico() + """
+await chiediStorico("indietro");
+assert.equal(esito.textContent, "config.yaml non si legge");
+assert.equal(fallito(), true, "un rifiuto annunciato come un esito neutro");
+assert.equal(rigaErrore.textContent, "", "il rifiuto e' nella colonna che il pannello svuota");
+""")
+    _esegui(tmp_path, _BANCO_STORICO + """
+globalThis.fetch = async () => { throw new TypeError("Failed to fetch"); };
+""" + _funzioni_dello_storico() + """
+await chiediStorico("indietro");
+assert.match(esito.textContent, /il server non ha risposto/,
+  "un server fermo lascia il gesto senza una riga a video");
+assert.equal(fallito(), true);
+""")
+
+
+def test_un_200_che_non_si_legge_non_ammutolisce_il_gesto(tmp_path):
+    """`await risposta.json()` su spazzatura solleva fuori da qualunque catch, e
+    il gestore muore a meta': nessun messaggio, e chi ha premuto Ctrl+Z non sa
+    se e' successo qualcosa."""
+    _esegui(tmp_path, _BANCO_STORICO + """
+globalThis.fetch = async () => ({
+  ok: true, status: 200,
+  json: async () => { throw new SyntaxError("Unexpected token <"); },
+});
+""" + _funzioni_dello_storico() + """
+await chiediStorico("indietro");
+assert.match(esito.textContent, /non si legge/);
+assert.equal(fallito(), true);
+""")
+
+
+def _gestore_globale() -> str:
+    """Il corpo vero dell'ascoltatore, preso dal modulo e non ricopiato: e' il
+    cablaggio fra la decisione e la richiesta, e ispezionarlo per sottostringhe
+    lascia passare un URL fisso, un verso fisso e un metodo sbagliato."""
+    trovato = re.search(
+        r'document\.addEventListener\("keydown".*?\n\}\);', _modulo(), flags=re.DOTALL
+    )
+    assert trovato is not None, "nessun ascoltatore globale nel modulo"
+    return trovato.group(0)
+
+
+def test_il_gestore_globale_manda_al_server_il_verso_che_i_tasti_chiedono(tmp_path):
+    """Misurato prima di questo controllo: URL fisso su «indietro» verde,
+    `method: "GET"` verde, gestore che chiama sempre chiediStorico("indietro")
+    verde, preventDefault incondizionato e prima della decisione verde.
+    gestoDelloStorico restituisce «avanti», ma niente provava che «avanti»
+    arrivasse al server: Ctrl+Shift+Z poteva essere rotto per sempre con la
+    suite verde.
+    """
+    _esegui(tmp_path, _BANCO_STORICO + """
+const chiamate = [];
+let impedito = 0;
+globalThis.fetch = async (indirizzo, opzioni) => {
+  chiamate.push([indirizzo, opzioni]);
+  return { ok: true, status: 200, json: async () => ({ annullato: false, guasto: false, perche: "niente da annullare" }) };
+};
+const tasto = (extra) => ({
+  ctrlKey: true, metaKey: false, shiftKey: false, repeat: false, key: "z",
+  target: { tagName: "DIV" }, preventDefault: () => { impedito += 1; }, ...extra,
+});
+""" + _funzioni_dello_storico() + _funzioni("gestoDelloStorico") + _costante("CAMPI_SCRITTI") + _gestore_globale() + """
+const gestore = gestoriDocumento.keydown[0];
+// La fetch parte prima della prima attesa di chiediStorico, quindi la chiamata
+// e' gia' registrata quando il gestore torna: non serve aspettare un giro.
+gestore(tasto({}));
+assert.deepEqual(chiamate[0], ["/api/storico/indietro", { method: "POST" }]);
+gestore(tasto({ shiftKey: true, key: "Z" }));
+assert.deepEqual(chiamate[1], ["/api/storico/avanti", { method: "POST" }],
+  "il rifare non arriva al server: il gestore manda sempre lo stesso verso");
+assert.equal(impedito, 2, "il gesto nostro non toglie di mezzo quello del browser");
+gestore(tasto({ target: { tagName: "INPUT", type: "text" } }));
+assert.equal(chiamate.length, 2, "dentro un campo il gestore ha chiesto lo stesso");
+assert.equal(impedito, 2, "preventDefault dentro un campo: l'undo nativo e' saltato");
+""")
