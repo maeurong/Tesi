@@ -81,21 +81,59 @@ def _token(nome: str) -> str:
     return trovato.group(1)
 
 
+def _evidenza() -> str:
+    """--evidenza composta: --accento all'8% sopra --superficie. E' la terza
+    superficie del foglio — il fondo di un comando sotto il puntatore e quello
+    dello step aperto — e ogni contorno disegnato sui comandi la incontra."""
+    superficie, accento = _token("--superficie"), _token("--accento")
+    return "#" + "".join(
+        f"{round(int(superficie[i:i + 2], 16) * 0.92 + int(accento[i:i + 2], 16) * 0.08):02x}"
+        for i in (1, 3, 5)
+    )
+
+
 def test_il_contorno_dei_comandi_regge_anche_sulla_superficie_del_passaggio():
     """Il commento difende --bordo-comando sopra 3:1 su due superfici (WCAG
     1.4.11) e ne dimentica una terza: al passaggio del puntatore il fondo di un
     bottone diventa --evidenza, e li' lo stesso contorno misurava 2,88. E' il
     contorno che quel commento chiama «l'unico indizio del comando»: sotto
     soglia proprio nel momento in cui si sta per premere."""
-    bordo = _token("--bordo-comando")
-    # --evidenza e' --accento all'8% sopra la superficie, composto qui.
-    superficie, accento = _token("--superficie"), _token("--accento")
-    composto = "#" + "".join(
-        f"{round(int(superficie[i:i + 2], 16) * 0.92 + int(accento[i:i + 2], 16) * 0.08):02x}"
-        for i in (1, 3, 5)
-    )
-    misura = _rapporto(bordo, composto)
+    misura = _rapporto(_token("--bordo-comando"), _evidenza())
     assert misura >= 3.0, f"il contorno misura {misura:.2f} sul fondo del passaggio, sotto 3:1"
+
+
+def test_l_anello_del_cambio_si_legge_su_ogni_tinta_che_indossa():
+    """Il segnale del cambio di stato e' un anello di 1 px, e un anello e' un
+    contorno: sotto 3:1 non lo si vede (WCAG 1.4.11), e un segnale che non si
+    vede non e' un segnale, e' un'animazione. Ne indossa quattro tinte, una per
+    stato, e la piu' debole delle quattro comanda.
+
+    Le tinte si rileggono dal foglio invece di essere elencate qui: aggiungerne
+    una quinta accanto a uno stato nuovo non deve poter passare senza misura.
+    Due fondi e non uno, come per --bordo-comando: la riga sta su --superficie,
+    e quella dello step aperto su --evidenza, che e' piu' scura."""
+    tinte = set(re.findall(r"--tinta-stato:\s*var\((--[\w-]+)\)", _senza_commenti()))
+    assert len(tinte) >= 4, f"il segnale non indossa piu' le tinte degli stati: {sorted(tinte)}"
+    for tinta in sorted(tinte):
+        for fondo, nome in ((_token("--superficie"), "--superficie"), (_evidenza(), "--evidenza")):
+            misura = _rapporto(_token(tinta), fondo)
+            assert misura >= 3.0, f"l'anello in {tinta} misura {misura:.2f} su {nome}, sotto 3:1"
+
+
+def test_il_segnale_del_cambio_non_passa_sotto_il_testo_dello_stato():
+    """La versione col fondo velato e' stata misurata e scartata: «non valido» in
+    --avviso sopra un velo del proprio colore al 24% misura 3,85:1, sotto 4,5:1
+    (WCAG 1.4.3) per i 700 ms del segnale, e proprio sullo stato che chiede di
+    rieseguire; al 12% torna a 4,56 ed e' troppo pallido per essere colto con la
+    coda dell'occhio. Il fondo e' la forma comoda in cui il segnale ricasca — e'
+    una riga di CSS in meno — e questo controllo e' l'unica cosa che tiene quella
+    misura in piedi dopo che il commento che la racconta sara' stato riassunto."""
+    corpo = re.search(r"@keyframes segnale\s*{(.*?)}\s*}", _senza_commenti(), re.S)
+    assert corpo is not None, "il fotogramma chiave del segnale non si trova piu'"
+    assert "box-shadow" in corpo.group(1), "il segnale non e' piu' un anello"
+    assert "background" not in corpo.group(1), (
+        "il segnale e' tornato un fondo: 700 ms di testo dello stato sotto 4,5:1"
+    )
 
 
 def test_le_colonne_laterali_non_superano_la_vista():
@@ -266,6 +304,67 @@ def test_la_faccia_illuminata_della_superficie_non_sparisce_sulla_carta():
     illuminata = [min(1.0, canale * fattore) for canale in _lineari(_token("--ricostruzione"))]
     misura = _rapporto_fra(_luminanza_lineare(illuminata), _luminanza(_token("--sfondo")))
     assert misura >= 3.0, f"la faccia piena misura {misura:.2f} sulla carta, sotto 3:1"
+
+
+def test_la_riga_in_fondo_alla_vista_non_e_divisa_col_comando_del_taglio():
+    """La spartizione di prima — didascalia a sinistra, taglio a destra —
+    presupponeva due larghezze paragonabili, e non lo sono: misurato a 1180 px di
+    finestra, il comando del taglio occupa 458 px dei 540 della zona, l'85%. Non
+    c'e' meta' da dare alla didascalia, e col nome dello step che il confronto le
+    aggiunge la didascalia andava a capo *sotto* il comando, cioe' i conteggi —
+    l'unica cosa che dichiara se la nuvola e' decimata — finivano coperti.
+
+    Tre dichiarazioni, e la terza e' quella che si dimentica: il limite di meta'
+    vista protegge la didascalia dal bottone del confronto, ma applicato anche
+    all'invito centrato lo appoggerebbe a sinistra invece di centrarlo, che e'
+    esattamente il difetto che .conteggi-al-centro esiste per evitare.
+    """
+    testo = _senza_commenti()
+    assert ":has(.taglio:not([hidden]))" in testo, (
+        "la didascalia divide di nuovo la riga in fondo col comando del taglio"
+    )
+    conteggi = re.search(r"\.conteggi\s*{([^}]*)}", testo)
+    assert conteggi is not None, "la regola della didascalia non si trova piu'"
+    assert "max-width" in conteggi.group(1), (
+        "la didascalia non ha piu' un limite di larghezza: torna a raggiungere il confronto"
+    )
+    al_centro = re.search(r"\.conteggi-al-centro\s*{([^}]*)}", testo)
+    assert al_centro is not None, "la regola dell'invito non si trova piu'"
+    assert re.search(r"max-width:\s*none", al_centro.group(1)), (
+        "l'invito eredita il limite di meta' vista: si appoggia a sinistra invece di centrarsi"
+    )
+
+
+def test_il_precedente_del_confronto_e_una_geometria_sola_e_viene_liberata():
+    """Il confronto tiene sulla scheda grafica la geometria dello step guardato
+    prima. E' un caso solo, ed e' esattamente la forma del difetto che svuota()
+    era stato scritto per chiudere: togliere un oggetto dalla scena non libera i
+    suoi buffer, e senza una dispose il precedente diventa una pila che cresce di
+    7,6 MB di attributi a ogni clic su uno step — il ciclo fra il 5, il 6 e il 9
+    e' il gesto che si ripete di piu' in questo strumento.
+
+    Controllo di forma e non di esecuzione: viewport.js importa three.js da un
+    percorso servito dal server, quindi non gira da qui, ed e' lo stesso limite
+    per cui i colori della scena si controllano per iscritto poco sopra. Cio' che
+    coglie e' la regressione realistica — la chiamata che libera, cancellata — e
+    l'ordine, perche' liberare DOPO aver spostato butterebbe via la geometria
+    appena messa da parte invece di quella vecchia.
+    """
+    scena = _scena()
+    assert "function liberaIlPrecedente()" in scena, (
+        "il precedente non ha piu' una superficie che lo libera: la scheda cresce a ogni clic"
+    )
+    corpo = scena.split("function liberaIlPrecedente()", 1)[1].split("\n  }", 1)[0]
+    assert "dispose()" in corpo and "precedente.clear()" in corpo, (
+        f"liberaIlPrecedente non libera davvero i buffer: {corpo}"
+    )
+    svuota = scena.split("svuota() {", 1)[1].split("\n    }", 1)[0]
+    assert "liberaIlPrecedente()" in svuota, (
+        "svuota() sposta nel precedente senza liberare quello di prima: e' una pila, non un caso solo"
+    )
+    assert svuota.index("liberaIlPrecedente()") < svuota.index("precedente.add("), (
+        "svuota() libera dopo aver spostato: butta via la geometria appena messa da parte"
+    )
 
 
 def test_il_box_di_ritaglio_si_legge_sui_due_fondi_su_cui_e_disegnato():

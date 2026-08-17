@@ -137,6 +137,11 @@ class Elemento {
         if (attivo) classi.add(nome); else classi.delete(nome);
         this.className = [...classi].join(" ");
       },
+      // Il confronto la legge per sapere se la didascalia che sta fotografando
+      // era distesa al centro (nessuna geometria) o nell'angolo (didascalia di
+      // una geometria): senza, il banco non potrebbe provare che il ritorno
+      // rimette la riga dov'era.
+      contains: (nome) => this.className.split(" ").includes(nome),
     };
   }
   addEventListener(tipo, gestore) { (this.gestori[tipo] ??= []).push(gestore); }
@@ -291,6 +296,47 @@ assert.deepEqual(
 );
 disegnaStep([...STEPS, { numero: 4, chiave: "04_normals", stato: "valido" }]);
 assert.equal(elenco.childElementCount, 4, "cambiata la lunghezza, l'elenco non la segue");
+""")
+
+
+def test_solo_la_riga_che_ha_cambiato_stato_porta_il_segnale(tmp_path):
+    """L'elenco dice quale stato ogni riga porta e non quale riga sia appena
+    diventata quello: e' l'informazione che sta nella differenza fra due frame,
+    e sono undici righe. Serve a chi guarda altrove — la vista, il registro, o
+    la colonna dei parametri, dove una modifica manda «non valido» uno step
+    nell'altra colonna.
+
+    Le tre proprieta' si rompono tutte in silenzio, e ognuna trasforma il
+    segnale nel suo contrario:
+
+    1. la prima passata non segnala niente (a corsa aperta ultimiSteps e' vuoto,
+       e undici righe che si accendono insieme non indicano nessuna riga);
+    2. segnala **solo** la riga cambiata, non tutte quelle riscritte;
+    3. un elenco che si allunga non segnala le righe che c'erano gia', ne' quella
+       nuova, che non ha uno stato di prima da cui differire.
+    """
+    _esegui(tmp_path, _DOM + "let ultimiSteps = [];\n" + _funzioni("segnaStepAperto", "nuovaRiga", "disegnaStep") + """
+const segnalate = () =>
+  elenco.children
+    .map((riga, indice) => [indice, riga.getAttribute("data-cambiato")])
+    .filter(([, segno]) => segno !== null)
+    .map(([indice]) => indice);
+const fallito = (numero) =>
+  STEPS.map((voce) => (voce.numero === numero ? { ...voce, stato: "fallito" } : voce));
+
+disegnaStep(STEPS);
+assert.deepEqual(segnalate(), [],
+  "la prima passata segnala tutte le righe: undici segnali insieme non indicano nessuna riga");
+
+disegnaStep(fallito(2));
+assert.deepEqual(segnalate(), [1],
+  "il segnale non e' sulla sola riga cambiata: le altre due si sono riscritte, non cambiate");
+assert.equal(elenco.children[1].className, "stato-fallito",
+  "lo stato non arriva piu' alla riga, e il segnale ne indossa la tinta");
+
+disegnaStep([...fallito(2), { numero: 4, chiave: "04_normals", stato: "valido" }]);
+assert.deepEqual(segnalate(), [],
+  "un elenco che si allunga segnala righe che non sono cambiate");
 """)
 
 
@@ -746,16 +792,40 @@ def _banco_di_geometria() -> str:
         "serverMuto", "ragioneDelRifiuto", "corpoBinarioLetto", "messaggioArtefattoMancante",
         "messaggioDownloadInterrotto", "segnalaArtefattoMancante",
         "mostraNuvolaDelloStep", "mostraStep",
+        # Il confronto sta su ogni strada che svuota o disegna: spostaNelPrecedente
+        # ha preso il posto delle quattro chiamate a vista.svuota(), e registraVista
+        # quello delle due didascalie di una geometria riuscita.
+        "spostaNelPrecedente", "registraVista", "aggiornaConfronto", "spegniConfronto",
+        "alternaConfronto",
     ) + """
 let ultimaGeometria = 0;
 let ultimiSteps = [];
 const STEP_CON_MESH = new Set([5, 6, 8, 9]);
+let vistaMostrata = null;
+let vistaPrecedente = null;
+let conteggiDiPrima = null;
+let stepMostrato = null;
+const bottoneConfronta = document.getElementById("confronta");
 const vista = {
   svuotate: 0,
   disegnato: null,
-  svuota() { this.svuotate += 1; },
+  precedente: null,
+  confronto: false,
+  // Sposta e dichiara se ha spostato, come quella vera: e' il valore su cui
+  // spostaNelPrecedente decide se far scorrere anche il nome. Uno stub che
+  // torna sempre undefined renderebbe la guardia inerte e verde — la seconda
+  // svuota() di ogni strada butterebbe il precedente appena messo da parte, e
+  // nessun assert lo vedrebbe.
+  svuota() {
+    this.svuotate += 1;
+    if (this.disegnato === null) return false;
+    this.precedente = this.disegnato;
+    this.disegnato = null;
+    return true;
+  },
   mostraNuvola(dati) { this.disegnato = { tipo: "nuvola", lunghezza: dati.length }; },
   mostraMesh(vertici) { this.disegnato = { tipo: "mesh", lunghezza: vertici.length }; },
+  mostraPrecedente(attivo) { this.confronto = attivo; },
 };
 let risponde = [];
 let chiamata = 0;
@@ -961,6 +1031,154 @@ assert.equal(
   document.getElementById("conteggi").textContent, "un messaggio qualsiasi",
   "segnalaArtefattoMancante non scrive il messaggio ricevuto",
 );
+""")
+
+
+# --------------------------------------------------------------------------
+# Il confronto fra due step. La domanda per cui lo strumento esiste — «che cosa
+# ha fatto questo step alla geometria» — non aveva risposta a video: gli undici
+# artefatti si guardavano di fila e mai due insieme.
+# --------------------------------------------------------------------------
+
+
+_DISEGNA = """
+ETICHETTE["03_downsample"] = "Riduzione";
+ETICHETTE["04_normals"] = "Normali";
+ultimiSteps = [
+  { numero: 3, chiave: "03_downsample", stato: "valido" },
+  { numero: 4, chiave: "04_normals", stato: "valido" },
+];
+const conteggi = document.getElementById("conteggi");
+// Una nuvola disegnata per davvero, passando dalle strade vere: stepMostrato e'
+// cio' che registraVista legge per sapere di quale step e' la geometria.
+const disegna = async (numero, punti) => {
+  stepMostrato = numero;
+  chiamata = 0;
+  risponde = [() => ({
+    ok: true,
+    headers: { get: (n) => ({ "X-Points-Drawn": String(punti), "X-Points-Total": String(punti) }[n]) },
+    arrayBuffer: async () => new ArrayBuffer(punti * 12),
+  })];
+  return mostraStep(numero, generazione);
+};
+const fallisci = async (numero) => {
+  stepMostrato = numero;
+  chiamata = 0;
+  risponde = [() => ({ ok: false, status: 404 })];
+  return mostraStep(numero, generazione);
+};
+"""
+
+
+def test_il_confronto_si_annuncia_solo_quando_c_e_qualcosa_da_confrontare(tmp_path):
+    """Il requisito che rende la funzione una funzione: deve dirsi. Un gesto che
+    nessuna etichetta annuncia esiste solo per chi lo sa gia', e l'utente
+    successivo confermato non conosce nemmeno gli undici step.
+
+    Tre proprieta', e ognuna rotta trasforma il comando in una promessa falsa:
+
+    1. con un solo step guardato non c'e' nessun confronto possibile, e il
+       comando non deve esserci (un bottone che non puo' fare niente e' un
+       invito che mente);
+    2. quando c'e', **nomina** lo step che mostrerebbe, col nome che la colonna
+       di sinistra usa e non col numero;
+    3. rieseguendo lo stesso step nomina «di prima» — e' il confronto che conta
+       di piu', cioe' che cosa ha fatto alla geometria il parametro appena
+       cambiato, e senza quelle due parole il comando direbbe «Confronta con
+       Normali» stando sulle Normali, cioe' sembrerebbe non fare nulla.
+    """
+    elemento = _elemento(_senza_commenti_html(_markup()), "confronta")
+    assert "hidden" in elemento, f"il comando nasce visibile e non ha nulla da mostrare: {elemento}"
+    assert 'aria-pressed="false"' in elemento, (
+        f"il comando non nasce dichiarato come interruttore: {elemento}"
+    )
+
+    _esegui(tmp_path, _banco_di_geometria() + _DISEGNA + """
+aggiornaConfronto();
+assert.equal(bottoneConfronta.hidden, true,
+  "alla prima apertura il comando c'e' gia', e non ha nessuna geometria di prima da mostrare");
+
+await disegna(3, 10);
+assert.equal(bottoneConfronta.hidden, true,
+  "un solo step guardato e il comando promette un confronto che non esiste");
+
+await disegna(4, 20);
+assert.equal(bottoneConfronta.hidden, false, "due step guardati e il confronto non si annuncia");
+assert.equal(bottoneConfronta.textContent, "Confronta con Riduzione",
+  `il comando non nomina lo step che mostrerebbe: ${bottoneConfronta.textContent}`);
+
+await disegna(4, 30);
+assert.equal(bottoneConfronta.textContent, "Confronta con Normali di prima",
+  `lo stesso step rieseguito non e' distinto da un altro step: ${bottoneConfronta.textContent}`);
+""")
+
+
+def test_il_confronto_dice_sempre_quale_geometria_e_a_video(tmp_path):
+    """L'interruttore, nei due versi. Il difetto che questo chiude e' quello che
+    il modulo ha gia' pagato una volta sul ramo dell'artefatto mancante: una
+    vista che contraddice la propria didascalia. Acceso il confronto, a video c'e'
+    la geometria di prima e sotto si leggerebbero i conteggi di quella di adesso.
+
+    Quattro proprieta':
+
+    1. accendendo, la scena riceve il confronto e la didascalia nomina l'altro
+       step **con i suoi conteggi**, non con quelli della geometria coperta;
+    2. spegnendo, la didascalia torna identica a com'era, non ricostruita;
+    3. `aria-pressed` segue nei due versi, perche' e' l'unico canale per chi non
+       vede quale delle due geometrie sia a video;
+    4. una geometria nuova spegne il confronto: acceso, resterebbe a video il
+       gruppo che sta proprio diventando il precedente di se stesso.
+    """
+    _esegui(tmp_path, _banco_di_geometria() + _DISEGNA + """
+await disegna(3, 10);
+await disegna(4, 20);
+const didascalia = conteggi.textContent;
+assert.equal(didascalia, "20 punti disegnati su 20", `precondizione: ${didascalia}`);
+
+alternaConfronto();
+assert.equal(bottoneConfronta.getAttribute("aria-pressed"), "true",
+  "chi non vede non ha modo di sapere che a video c'e' l'altra geometria");
+assert.equal(vista.confronto, true, "il confronto non arriva alla scena");
+assert.match(conteggi.textContent, /Riduzione/,
+  `la didascalia non dice di quale step sia la geometria a video: ${conteggi.textContent}`);
+assert.match(conteggi.textContent, /10 punti/,
+  `la didascalia porta i conteggi della geometria coperta: ${conteggi.textContent}`);
+
+alternaConfronto();
+assert.equal(vista.confronto, false, "il confronto non si spegne");
+assert.equal(bottoneConfronta.getAttribute("aria-pressed"), "false", "l'interruttore resta premuto");
+assert.equal(conteggi.textContent, didascalia,
+  `la didascalia non torna quella di prima: ${conteggi.textContent}`);
+
+alternaConfronto();
+await disegna(3, 30);
+assert.equal(vista.confronto, false,
+  "una geometria nuova lascia il confronto acceso: a video resta il gruppo che sta diventando il precedente");
+assert.equal(bottoneConfronta.getAttribute("aria-pressed"), "false",
+  "il comando resta premuto su una geometria che non e' quella confrontata");
+""")
+
+
+def test_un_artefatto_mancante_lascia_a_tiro_l_ultima_geometria_riuscita(tmp_path):
+    """Il ramo dell'artefatto mancante svuota la vista apposta — una vista che
+    contraddice la sua didascalia e' peggio di una vista vuota — e per il
+    confronto e' esattamente il caso in cui serve: l'artefatto non c'e', e
+    l'ultima cosa che si e' vista con successo sta a un clic.
+
+    La proprieta' che si rompe in silenzio e' il **nome**: il fallimento non
+    registra nessuna geometria mostrata, quindi il comando deve continuare a
+    nominare l'ultimo step riuscito. Se il nome scorresse insieme alla scheda
+    grafica su questo ramo, nominerebbe lo step di due prima mostrando quello di
+    prima."""
+    _esegui(tmp_path, _banco_di_geometria() + _DISEGNA + """
+await disegna(3, 10);
+await disegna(4, 20);
+await fallisci(3);
+assert.equal(vista.disegnato, null, "precondizione: l'artefatto mancante lascia la vista vuota");
+assert.equal(bottoneConfronta.hidden, false,
+  "l'artefatto manca e l'ultima geometria riuscita non e' piu' raggiungibile");
+assert.equal(bottoneConfronta.textContent, "Confronta con Normali",
+  `il comando nomina uno step e ne mostrerebbe un altro: ${bottoneConfronta.textContent}`);
 """)
 
 
@@ -2590,9 +2808,18 @@ def test_la_vista_si_svuota_e_si_dichiara_prima_di_aspettare(tmp_path):
     sorgente = _DOM + """
 ETICHETTE["09_tetrahedralize"] = "Tetraedri";
 let svuotate = 0;
-const vista = { svuota() { svuotate += 1; } };
+// Torna false: qui non c'era niente a video, ed e' il valore su cui
+// spostaNelPrecedente decide se far scorrere anche il nome dello step.
+const vista = { svuota() { svuotate += 1; return false; }, mostraPrecedente() {} };
 let ultimiSteps = [{ numero: 9, chiave: "09_tetrahedralize", stato: "valido" }];
-""" + _funzioni("nomeDelloStep", "scriviConteggi", "dichiaraCaricamento") + """
+let vistaMostrata = null;
+let vistaPrecedente = null;
+let conteggiDiPrima = null;
+const bottoneConfronta = document.getElementById("confronta");
+""" + _funzioni(
+        "nomeDelloStep", "scriviConteggi", "dichiaraCaricamento",
+        "spostaNelPrecedente", "aggiornaConfronto", "spegniConfronto",
+    ) + """
 dichiaraCaricamento(9);
 assert.equal(svuotate, 1, "la geometria di prima e' rimasta a video");
 const didascalia = document.getElementById("conteggi").textContent;

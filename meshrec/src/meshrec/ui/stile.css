@@ -23,6 +23,13 @@
   --accento: #2f5d50;   /* azione, fuoco, selezione, stato valido */
   --avviso: #9a5b12;    /* stato non valido: lo step c'e' ma non e' aggiornato */
   --guasto: #a02020;    /* stato fallito, errori, campo rifiutato */
+  /* La tinta che il segnale del cambio indossa: quella dello stato che la riga
+     ha preso adesso, non un colore d'allarme solo per tutti e quattro. Un
+     segnale che dice «e' cambiato qualcosa» senza dire in che cosa costringe a
+     leggere la riga per sapere se ci sia da fare qualcosa. Il predefinito vale
+     «mai eseguito», l'unico dei quattro senza una tinta sua; le tre righe che lo
+     riscrivono stanno accanto ai loro stati, piu' in basso. */
+  --tinta-stato: var(--tenue);
   /* Superfici derivate: il velo sopra la vista, l'evidenza sotto il puntatore,
      il grigio di un campo che si legge e non si scrive. */
   /* 92% e non 85%. Il velo sta sopra la scena, e sotto la scena c'e' la
@@ -84,10 +91,17 @@
   --passo-6: 1.5rem;   /* 24px — sopra un titolo, cioe' fra due gruppi */
   --raggio: 0.25rem;   /* un solo raggio: erano due, 0,2 e 0,25 */
 
-  /* Movimento. Due durate: il ritorno di un comando toccato, e la comparsa di
-     qualcosa che prima non c'era. Oltre queste due non c'e' niente da dire. */
+  /* Movimento. Tre durate: il ritorno di un comando toccato, la comparsa di
+     qualcosa che prima non c'era, e il segnale di qualcosa che e' cambiato
+     mentre si guardava altrove. Oltre queste tre non c'e' niente da dire.
+     La terza e' lunga apposta e non e' un ritardo: le altre due rispondono a un
+     gesto, cioe' arrivano dove l'occhio sta gia'; il segnale deve invece essere
+     colto in una colonna che non si sta guardando, e a 200 ms non lo si coglie.
+     700 ms e non piu': oltre, un secondo cambio dello stesso step lo
+     raggiungerebbe ancora acceso, e due segnali sovrapposti non ne sono due. */
   --durata-tocco: 120ms;
   --durata-comparsa: 200ms;
+  --durata-segnale: 700ms;
   --curva: cubic-bezier(0.16, 1, 0.3, 1);
 
   /* Caratteri di sistema soltanto: il server e' locale e nessuna risorsa esce
@@ -248,7 +262,20 @@ body {
 .registro:empty { border: none; padding: 0; }
 .riga-log { white-space: pre-wrap; word-break: break-word; }
 .zona-vista { position: relative; padding: 0; }
-.conteggi { position: absolute; bottom: var(--passo-2); left: var(--passo-2); margin: 0; padding: var(--passo-1) var(--passo-2); background: var(--velo); border-radius: var(--raggio); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); font-variant-numeric: tabular-nums; color: var(--tenue); }
+/* max-width: 50% e non una larghezza in pixel. La didascalia e il comando del
+   taglio dividono la riga in fondo alla vista, e da quando il confronto le fa
+   portare anche il nome dello step — «Semplificazione: 118.394 vertici, 236.784
+   triangoli» — arriva a sfiorare il comando: misurati 663 px di didascalia
+   contro i 677 a cui comincia il taglio, su una finestra da 1568, e sotto i
+   ~1450 si sovrappongono. Meta' e' una regola, non una misura: nessun numero che
+   smetta di tornare quando cambia il testo o la scala dei caratteri. Cede la
+   didascalia e non il comando, perche' quello si preme e questa si legge: se non
+   ci sta va a capo, e crescendo verso l'alto non copre nulla.
+   max-width e non right: con right la scatola sarebbe SEMPRE larga meta' vista,
+   e il velo diventerebbe una fascia dietro due parole invece di stringersi sul
+   testo. Con max-width la larghezza resta quella del contenuto e il limite morde
+   solo quando serve. */
+.conteggi { position: absolute; bottom: var(--passo-2); left: var(--passo-2); max-width: 50%; margin: 0; padding: var(--passo-1) var(--passo-2); background: var(--velo); border-radius: var(--raggio); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); font-variant-numeric: tabular-nums; color: var(--tenue); text-wrap: pretty; }
 /* Vuoti, i conteggi restavano un rettangolo bianco di 16x8 px sopra la vista,
    misurato a video. Non si tolgono dall'albero, per la stessa ragione della
    riga d'errore: aria-live="polite" vuole una regione viva prima che ci si
@@ -260,12 +287,45 @@ body {
    mano, quindi nessun numero che smetta di tornare quando cambia la testata.
    pointer-events: none perche' distesa sopra la tela coprirebbe la rotazione
    della scena nell'istante in cui la geometria arriva. */
-.conteggi-al-centro { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; padding: var(--passo-4); background: none; pointer-events: none; }
+/* max-width: none disfa il limite di meta' vista, come le altre dichiarazioni di
+   questa regola disfanno l'ancoraggio all'angolo: l'invito non divide la riga con
+   nessuno — il comando del taglio non c'e' finche' non c'e' un volume — e capato
+   a meta' si appoggerebbe a sinistra invece di centrarsi, che e' esattamente il
+   difetto che questa regola esiste per evitare. */
+.conteggi-al-centro { position: absolute; inset: 0; max-width: none; display: grid; place-content: center; text-align: center; padding: var(--passo-4); background: none; pointer-events: none; }
+/* Il confronto sta in alto a destra sulla vista, che e' l'ultimo angolo libero:
+   i conteggi tengono il basso a sinistra, il taglio il basso a destra, e a una
+   colonna sola i conteggi salgono in alto a sinistra (in fondo al foglio). Tre
+   comandi su quattro angoli, e nessuna coppia si tocca a nessuna larghezza —
+   che e' anche la ragione per cui non ha un velo suo: il fondo di .bottone e'
+   pieno, quindi si legge sulla scena senza aggiungere una superficie.
+   Nessuna regola per [hidden]: un <button> e' inline-block e hidden lo toglie
+   da se'. Il velo serviva a .taglio perche' quello e' un display: flex, che
+   hidden non sovrascrive. */
+.confronto { position: absolute; top: var(--passo-2); right: var(--passo-2); }
 /* Il comando del taglio sta in basso a destra sulla vista: i conteggi occupano
    gia' l'angolo sinistro. hidden non basta su un elemento con display: flex,
    che lo sovrascriverebbe e lo lascerebbe a video. */
 .taglio { position: absolute; bottom: var(--passo-2); right: var(--passo-2); display: flex; align-items: center; flex-wrap: wrap; gap: var(--passo-2); padding: var(--passo-2); background: var(--velo); border: 1px solid var(--bordo-comando); border-radius: var(--raggio); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); }
 .taglio[hidden] { display: none; }
+/* La riga in fondo alla vista e' del solo comando del taglio, quando c'e'. La
+   spartizione di prima — didascalia a sinistra, taglio a destra — presupponeva
+   due larghezze paragonabili, e non lo sono: misurato a 1180 px di finestra, il
+   taglio occupa 458 px dei 540 della zona, cioe' l'85%. Non c'e' meta' da dare
+   alla didascalia, e il commento di .conteggi lo diceva gia' per quel che
+   sapeva («si toccano gia' a 700 px») rimediando alla sola colonna singola: il
+   difetto era di tutte le larghezze, e il nome dello step che il confronto
+   aggiunge alla didascalia lo ha solo reso visibile prima.
+   Cosi' la vista ha due righe e tre inquilini: in alto la didascalia a sinistra
+   e il confronto a destra, in basso il taglio da solo. La didascalia sale solo
+   quando il taglio c'e' davvero — :has() legge l'attributo hidden che app.js
+   scrive sul comando, cioe' la condizione vera e non una sua approssimazione —
+   e sugli altri dieci step resta dove il foglio l'ha sempre messa, sotto la
+   geometria, dove non la copre. */
+.zona-vista:has(.taglio:not([hidden])) .conteggi:not(.conteggi-al-centro) {
+  top: var(--passo-2);
+  bottom: auto;
+}
 .taglio select { font: inherit; padding: var(--passo-1); background: var(--superficie); color: var(--testo); border: 1px solid var(--bordo-comando); border-radius: var(--raggio); }
 .taglio input[type="range"] { width: 10rem; }
 .taglio :focus-visible { outline: 2px solid var(--accento); outline-offset: 2px; }
@@ -295,6 +355,14 @@ body {
 .stato-valido .step-stato { color: var(--accento); }
 .stato-non-valido .step-stato { color: var(--avviso); font-weight: 600; }
 .stato-fallito .step-stato { color: var(--guasto); font-weight: 600; }
+/* La tinta del segnale, per stato. Sulla riga e non sull'annotazione: e' la
+   riga che il segnale deve far trovare, e il segnale la circonda tutta. Lo
+   stato «mai eseguito» non compare qui perche' tiene il predefinito di :root:
+   e' il solo dei quattro che non ha una tinta sua, e dargliene una qui
+   inventerebbe un colore che nessun altro punto del foglio usa. */
+.stato-valido { --tinta-stato: var(--accento); }
+.stato-non-valido { --tinta-stato: var(--avviso); }
+.stato-fallito { --tinta-stato: var(--guasto); }
 .azioni { display: flex; gap: var(--passo-2); flex-wrap: wrap; margin-bottom: var(--passo-6); }
 /* Stesso rimedio di .registro:empty e .conteggi:empty, terzo caso della stessa
    famiglia: l'elenco degli esperimenti e' vuoto finche' non c'e' una cartella
@@ -399,7 +467,7 @@ p.aiuto { margin: 0 0 var(--passo-3); }
 .fuori-vista { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 
 /* --- Movimento ------------------------------------------------------------
-   Tre soli momenti, e nessuno decorativo.
+   Cinque momenti, e nessuno decorativo.
 
    1. Il respiro dello step in corso. Il progresso qui non e' una percentuale
       (le librerie non ne danno una, e fabbricarla sarebbe un numero che
@@ -409,13 +477,50 @@ p.aiuto { margin: 0 0 var(--passo-3); }
       mentre la riga esiste, perche' app.js la tiene hidden a corsa spenta.
    2. La comparsa della riga d'errore. E' l'unica cosa che nasce in mezzo a un
       pannello fermo, e chi ha appena premuto un bottone guarda il bottone.
-   3. Il ritorno dei comandi al passaggio e al rifiuto, qui sopra.
+   3. La comparsa dell'esito, che e' la fine di quell'attesa. Chi aspetta 34
+      secondi guarda la vista o il registro, non la testata: la riga che dice
+      com'e' finita nasceva senza che niente lo dicesse, a fianco della riga
+      d'errore che la sua comparsa invece l'aveva. Stessa animazione di quella e
+      non una sua: e' lo stesso fatto — qualcosa nasce dove non c'era niente —
+      detto in un'altra riga. Insieme al pallino che smette di pulsare fanno i
+      due lati dello stesso cambio, e nessuno dei due e' l'unico canale: il
+      testo lo dice per esteso.
+   4. Il segnale del cambio di stato, sulla riga che l'ha cambiato. Era l'ultima
+      cosa che la colonna sapeva e non diceva: QUALE dei quattro stati una riga
+      porta lo scrive, quale riga sia appena cambiata no, e sono undici. Serve a
+      tre gesti diversi: uno step che finisce durante una corsa — e allora il
+      segnale scende lungo la pipeline uno alla volta, che e' la forma della
+      pipeline stessa; uno step che fallisce mentre si guarda altrove; e, il
+      caso per cui conta di piu', un parametro modificato nella colonna di
+      destra che manda «non valido» uno step in quella di sinistra, cioe' una
+      causa e un effetto a due colonne di distanza.
+      Un contorno e non un fondo. Il velo si vedrebbe al 24%, ma il testo dello
+      stato ci sta sopra, e «non valido» in --avviso sopra un velo del proprio
+      colore misura 3,85:1 — sotto 4,5:1 (WCAG 1.4.3) per 700 ms, e proprio
+      sullo stato che chiede di rieseguire. Scendendo al 12% torna a 4,56 ma e'
+      troppo pallido per essere colto con la coda dell'occhio, che e' il solo
+      lavoro che ha. Il contorno non sta sotto nessun testo, quindi non c'e'
+      niente da barattare: 1 px della tinta dello stato, che su --superficie
+      misura fra 5,41:1 e 7,71:1 (WCAG 1.4.11). Un anello intero e non il
+      filetto di aria-current ne' il contorno del fuoco: quei due dicono «stai
+      guardando questo» e «il fuoco e' qui», e un terzo canale che ne riusasse
+      la forma direbbe una delle loro due cose.
+      Sulla riga aperta l'anello prende per 700 ms il posto del filetto, perche'
+      un'animazione su box-shadow riscrive l'intera proprieta' e non se ne
+      sommano due: misurato nel browser, non dedotto. Non e' una perdita —
+      l'anello passa anche dal bordo sinistro, dove il filetto stava, e il fondo
+      --evidenza dello step aperto non e' animato, quindi il secondo canale di
+      aria-current resta a video tutto il tempo — ma va detto qui, perche' e' il
+      genere di sovrapposizione che si scopre a video e non leggendo la regola.
+   5. Il ritorno dei comandi al passaggio e al rifiuto, qui sopra.
 
-   Non animato apposta: l'elenco degli step. app.js lo riscrive tutto a ogni
-   evento di stato, cioe' due volte al secondo mentre la pipeline gira, e
-   qualunque animazione di comparsa su .step ripartirebbe da capo a ogni
-   riscrittura: undici righe che lampeggiano due volte al secondo per mezzo
-   minuto. */
+   Non animata: la comparsa delle righe dell'elenco. Non ce n'e' una —
+   disegnaStep le costruisce una volta e poi le aggiorna sul posto — e il
+   commento che stava qui rinunciava ad animare l'elenco perche' app.js «lo
+   riscrive tutto a ogni evento di stato, cioe' due volte al secondo»: era vero,
+   e ha smesso di esserlo da quando ogni riga e' un comando che deve conservare
+   il fuoco. Cio' che restava da animare non era l'arrivo di una riga, era il
+   cambio di stato di una riga che c'e' gia'. */
 .in-corso::before {
   /* Disegnato, non un carattere: un glifo unicode al posto di un segno
      dipende dal font installato e non si puo' colorare in modo prevedibile. */
@@ -433,15 +538,38 @@ p.aiuto { margin: 0 0 var(--passo-3); }
   50% { opacity: 0.25; }
 }
 .errore:not(:empty) { animation: comparsa var(--durata-comparsa) var(--curva); }
+.esito:not(:empty) { animation: comparsa var(--durata-comparsa) var(--curva); }
 @keyframes comparsa {
   from { opacity: 0; transform: translateY(-0.25rem); }
   to { opacity: 1; transform: none; }
 }
+/* Il segnale sta sul <li> e non sul comando che ci sta dentro: la classe di
+   stato vive sul <li> — .stato-fallito e compagne — e con lei --tinta-stato, e
+   l'anello deve avere la tinta dello stato che sta segnalando. Un attributo e
+   non una classe: app.js riscrive className del <li> per intero a ogni frame di
+   stato, cioe' ogni mezzo secondo, e una classe verrebbe cancellata a 500 ms su
+   700. Il raggio e' quello del comando, che riempie il <li>: un anello a spigoli
+   attorno a un rettangolo arrotondato sarebbe il contorno di un'altra cosa. */
+.elenco-step li[data-cambiato] {
+  border-radius: var(--raggio);
+  animation: segnale var(--durata-segnale) var(--curva);
+}
+@keyframes segnale {
+  from { box-shadow: inset 0 0 0 1px var(--tinta-stato); }
+  to { box-shadow: inset 0 0 0 1px transparent; }
+}
 /* Chi ha chiesto meno movimento non chiede meno informazione. Sparisce cio'
    che si muove: il ciclo del pallino, che resta acceso e dichiara lo stesso
-   fatto, e lo spostamento della riga d'errore, che resta una comparsa. Restano
-   il velo dell'errore e i ritorni di colore al tocco: non sono spostamenti, e
-   sono la risposta a un gesto, non un effetto. */
+   fatto, e lo spostamento delle righe d'errore e d'esito, che restano due
+   comparse. Le due condividono il fotogramma chiave, quindi riscriverlo qui le
+   raggiunge entrambe: una riga d'esito con uno spostamento suo sarebbe rimasta
+   fuori proprio da questo blocco, ed e' la ragione per cui non ne ha uno.
+   Restano il velo dell'errore e i ritorni di colore al tocco: non sono
+   spostamenti, e sono la risposta a un gesto, non un effetto.
+   Resta intero anche il segnale del cambio di stato: un anello che sfuma e' un
+   colore che cambia, non qualcosa che si sposta, e togliere l'unico canale che
+   dice QUALE degli undici step e' cambiato sarebbe togliere informazione a chi
+   ha chiesto meno movimento. */
 @media (prefers-reduced-motion: reduce) {
   .in-corso::before { animation: none; opacity: 1; }
   @keyframes comparsa {

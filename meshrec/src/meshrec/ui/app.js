@@ -191,6 +191,11 @@ function nuovaRiga() {
 }
 
 function disegnaStep(steps) {
+  // Gli stati di prima, letti prima di sovrascriverli: il segnale del cambio
+  // vive nella differenza fra due frame, e ultimiSteps e' l'unico posto che la
+  // porta. Per numero e non per indice: l'elenco puo' cambiare lunghezza, e a
+  // quel punto la riga i-esima di prima non e' lo step i-esimo di adesso.
+  const prima = new Map(ultimiSteps.map((voce) => [voce.numero, voce.stato]));
   ultimiSteps = steps;
   const elenco = document.getElementById("elenco-step");
   // Le righe si costruiscono una volta sola e poi si aggiornano sul posto.
@@ -206,11 +211,30 @@ function disegnaStep(steps) {
     elenco.replaceChildren(...steps.map(() => nuovaRiga()));
   }
   steps.forEach((voce, indice) => {
-    const comando = elenco.children[indice].firstElementChild;
-    elenco.children[indice].className = `stato-${voce.stato.replace(" ", "-")}`;
+    const riga = elenco.children[indice];
+    const comando = riga.firstElementChild;
+    riga.className = `stato-${voce.stato.replace(" ", "-")}`;
     comando.dataset.numero = voce.numero;
     comando.firstElementChild.textContent = ETICHETTE[voce.chiave] ?? voce.chiave;
     comando.lastElementChild.textContent = voce.stato;
+    // Il segnale del cambio, sulla riga che e' cambiata. Undici righe che si
+    // aggiornano insieme dicono quale stato ognuna porta e non quale sia
+    // appena diventata quello: e' l'informazione che sta nella differenza fra
+    // due frame, e nessuno la mostrava.
+    // undefined e non un confronto qualunque: alla prima passata ultimiSteps e'
+    // vuoto, e undici righe che segnalano tutte insieme non segnalano niente.
+    const scorso = prima.get(voce.numero);
+    if (scorso !== undefined && scorso !== voce.stato) {
+      // Togli, rileggi una geometria, rimetti. Senza la rilettura il browser
+      // fonde le due scritture in un solo ricalcolo di stile e l'animazione non
+      // riparte: due cambi ravvicinati sullo stesso step — gli stati arrivano
+      // ogni mezzo secondo, il segnale dura 700 ms — ne segnalerebbero uno.
+      // L'attributo e non una classe: la riga qui sopra riscrive className per
+      // intero, e una classe messa qui verrebbe cancellata al frame dopo.
+      riga.removeAttribute("data-cambiato");
+      void riga.offsetWidth;
+      riga.setAttribute("data-cambiato", "");
+    }
   });
   // stepAperto e' gia' inizializzato: disegnaStep gira solo da caricaStato, che
   // si sospende sulla prima attesa, e dallo scorrere degli eventi, cioe' sempre
@@ -406,10 +430,108 @@ function scriviConteggi(testo, conGeometria) {
   riga.classList.toggle("conteggi-al-centro", !conGeometria);
 }
 
+// --- Il confronto fra due step ---------------------------------------------
+// La domanda che questo strumento esiste per rispondere e' «che cosa ha fatto
+// questo step alla geometria», e a video non aveva risposta: gli undici
+// artefatti si guardavano di fila e mai due insieme, ognuno in un'inquadratura
+// azzerata da inquadra(). Il confronto rimette a video quello di prima nella
+// stessa inquadratura, senza scaricare niente — le due geometrie sono gia'
+// entrambe sulla scheda grafica (vedi svuota() in viewport.js).
+
+// Lo step la cui geometria e' a video, e quello messo da parte. Il numero e la
+// didascalia insieme: il comando nomina uno step e la didascalia dice che cosa
+// si sta guardando, e sono la stessa verita' letta in due posti.
+let vistaMostrata = null;
+let vistaPrecedente = null;
+// La didascalia da rimettere quando il confronto si spegne. Fotografata
+// all'accensione e non ricostruita dallo stato: a video puo' esserci un
+// messaggio d'errore — «nessun artefatto per questo step» — che non sta in
+// vistaMostrata, e ricostruirla lo perderebbe.
+let conteggiDiPrima = null;
+const bottoneConfronta = document.getElementById("confronta");
+
+// La geometria a video passa nel precedente, col suo nome. Una superficie sola
+// per tutte le strade che svuotano la vista, e la guardia e' il valore che
+// svuota() restituisce: una condizione sola, valutata una volta. Scritte come
+// due chiamate separate — la scheda grafica qui, il nome la' — il ramo che ne
+// fa una e non l'altra fa dire al comando «Confronta con Superficie» mentre
+// mostra la Riparazione.
+function spostaNelPrecedente() {
+  // Il confronto si spegne prima dello spostamento: acceso, resterebbe a video
+  // il gruppo che sta per diventare il precedente di se stesso.
+  spegniConfronto();
+  if (vista.svuota()) {
+    vistaPrecedente = vistaMostrata;
+    vistaMostrata = null;
+  }
+  aggiornaConfronto();
+}
+
+// La didascalia di una geometria appena disegnata, e la memoria di che cos'e'.
+// Una superficie sola per i due rami che disegnano — nuvola e mesh — perche' il
+// confronto nomina cio' che e' a video: separate, il ramo che disegna senza
+// registrare fa nominare al comando la geometria di due step prima.
+function registraVista(testo) {
+  scriviConteggi(testo, true);
+  vistaMostrata = { numero: stepMostrato, testo };
+  aggiornaConfronto();
+}
+
+// Il comando c'e' solo se c'e' qualcosa con cui confrontare, e dice con che
+// cosa. Il nome e non il numero, per la stessa ragione per cui la riga dello
+// stato ha smesso di dire «step 9»: i nomi sono cio' che la colonna mostra.
+function aggiornaConfronto() {
+  bottoneConfronta.hidden = vistaPrecedente === null;
+  if (vistaPrecedente === null) return;
+  const nome = nomeDelloStep(vistaPrecedente.numero, ultimiSteps);
+  // «di prima» quando i due sono lo stesso step: succede rieseguendolo, ed e' il
+  // confronto che conta di piu' — che cosa ha fatto alla geometria il parametro
+  // appena cambiato. Senza queste due parole il comando direbbe «Confronta con
+  // Volume» stando sul Volume, cioe' sembrerebbe non fare nulla.
+  bottoneConfronta.textContent =
+    vistaMostrata !== null && vistaMostrata.numero === vistaPrecedente.numero
+      ? `Confronta con ${nome} di prima`
+      : `Confronta con ${nome}`;
+}
+
+function spegniConfronto() {
+  if (bottoneConfronta.getAttribute("aria-pressed") !== "true") return;
+  bottoneConfronta.setAttribute("aria-pressed", "false");
+  vista.mostraPrecedente(false);
+  if (conteggiDiPrima !== null) {
+    scriviConteggi(conteggiDiPrima.testo, conteggiDiPrima.conGeometria);
+  }
+  conteggiDiPrima = null;
+}
+
+// Di primo livello e non una freccia dentro addEventListener, per la stessa
+// ragione di aggiornaDaStato: dentro la freccia non lo esegue nessun banco, e
+// qui il fatto da provare e' proprio che la didascalia e cio' che e' a video si
+// muovano insieme in tutti e due i versi dell'interruttore.
+function alternaConfronto() {
+  if (bottoneConfronta.getAttribute("aria-pressed") === "true") return spegniConfronto();
+  const riga = document.getElementById("conteggi");
+  conteggiDiPrima = {
+    testo: riga.textContent,
+    conGeometria: !riga.classList.contains("conteggi-al-centro"),
+  };
+  bottoneConfronta.setAttribute("aria-pressed", "true");
+  vista.mostraPrecedente(true);
+  // La didascalia dice sempre che cosa c'e' a video. Senza questa riga la vista
+  // mostrerebbe la Superficie mentre sotto si legge il conteggio della
+  // Riparazione: una vista che contraddice la propria didascalia, che questo
+  // modulo ha gia' pagato una volta sul ramo dell'artefatto mancante.
+  scriviConteggi(
+    `${nomeDelloStep(vistaPrecedente.numero, ultimiSteps)}: ${vistaPrecedente.testo}`, true,
+  );
+}
+
+bottoneConfronta.addEventListener("click", alternaConfronto);
+
 // Nessuna percentuale: le librerie non ne danno una. Si dice che cosa si sta
 // leggendo, che e' un fatto e non una stima.
 function dichiaraCaricamento(numero) {
-  vista.svuota();
+  spostaNelPrecedente();
   scriviConteggi(`caricamento di ${nomeDelloStep(numero, ultimiSteps)}...`, false);
   document.getElementById("viewport").setAttribute("aria-busy", "true");
 }
@@ -473,7 +595,12 @@ function segnalaArtefattoMancante(messaggio) {
   // Svuotare e' obbligatorio: senza, la scena resta quella dello step
   // precedente mentre il testo dice che non c'e' nulla. Una vista che
   // contraddice la sua didascalia e' peggio di una vista vuota.
-  vista.svuota();
+  // La geometria di prima non viene distrutta ma messa da parte, e il comando
+  // del confronto resta acceso: qui e' esattamente cio' che serve — l'artefatto
+  // manca, e l'ultima cosa che si e' vista con successo e' a un clic. Il fatto
+  // non si confonde con un disegno riuscito perche' vistaMostrata resta null,
+  // che e' anche cio' che tiene il nome del comando aderente al vero.
+  spostaNelPrecedente();
   scriviConteggi(messaggio, false);
 }
 
@@ -502,11 +629,11 @@ async function mostraNuvolaDelloStep(numero, ordine) {
   // arrivava.
   if (superata(ordine) || superata(emissione, ultimaGeometria)) return false;
   chiudiCaricamento();
-  vista.svuota();
+  spostaNelPrecedente();
   vista.mostraNuvola(new Float32Array(grezzi));
   // Sempre entrambi: una nuvola decimata che non lo dichiara e' un dato falso.
-  scriviConteggi(
-    `${disegnati.toLocaleString("it")} punti disegnati su ${pieni.toLocaleString("it")}`, true,
+  registraVista(
+    `${disegnati.toLocaleString("it")} punti disegnati su ${pieni.toLocaleString("it")}`,
   );
   // Vero solo se questa risposta ha davvero scritto: il cursore del taglio si
   // rifa' sull'ingombro di cio' che e' disegnato, e rifarlo dopo una risposta
@@ -551,15 +678,15 @@ async function mostraStep(numero, ordine) {
   // posarsi sulla nuvola di un altro step.
   if (superata(ordine) || superata(emissione, ultimaGeometria)) return false;
   chiudiCaricamento();
-  vista.svuota();
+  spostaNelPrecedente();
   vista.mostraMesh(
     new Float32Array(grezzi, 0, vertici * 3),
     new Uint32Array(grezzi, vertici * 3 * 4, triangoli * 3),
   );
   // I conteggi sono quelli che il server ha contato sull'artefatto: per lo
   // step 9 sono i vertici e i triangoli del contorno, non i nodi del volume.
-  scriviConteggi(
-    `${vertici.toLocaleString("it")} vertici, ${triangoli.toLocaleString("it")} triangoli`, true,
+  registraVista(
+    `${vertici.toLocaleString("it")} vertici, ${triangoli.toLocaleString("it")} triangoli`,
   );
   return true;
 }

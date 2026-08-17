@@ -67,6 +67,20 @@
          sta sopra, non a sinistra: era falso proprio sulla larghezza in cui
          serve di piu'. app.js rimette la riga nell'angolo appena disegna. -->
     <p class="conteggi conteggi-al-centro" id="conteggi" aria-live="polite">Scegli uno step per vederne la geometria.</p>
+    <!-- Il confronto con lo step guardato prima. Un bottone visibile e con il
+         nome dentro, non una scorciatoia da tastiera: un gesto che nessuna
+         etichetta annuncia esiste solo per chi lo sa gia', e l'utente successivo
+         confermato non conosce nemmeno gli undici step. Il testo lo scrive
+         app.js perche' nomina lo step che mostrerebbe — «Confronta con
+         Superficie» — e quel nome cambia a ogni clic; scritto qui sarebbe una
+         promessa fissa su un contenuto che non lo e'.
+         Nasce nascosto e senza testo: alla prima apertura non c'e' ancora
+         nessuna geometria di prima, e un comando che non puo' fare niente e' un
+         invito che mente. aria-pressed perche' e' un interruttore e non
+         un'azione: dice a chi non vede se a video c'e' l'una o l'altra, e il
+         foglio ci si aggancia sopra con la regola che gia' usa per i bottoni
+         della galleria. -->
+    <button type="button" id="confronta" class="bottone confronto" aria-pressed="false" hidden></button>
     <!-- Il comando del taglio. Nasce nascosto: app.js lo mostra solo dove c'e'
          un volume disegnato, e l'intervallo del cursore lo scrive da li'
          leggendo l'ingombro della geometria. min, max e step non stanno qui

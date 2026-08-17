@@ -52,14 +52,35 @@ export function creaViewport(contenitore) {
   const tela = renderer.domElement;
   tela.setAttribute("role", "application");
   tela.setAttribute("tabindex", "0");
-  function descrivi(contenuto) {
+  // La descrizione viaggia con la geometria e non accanto: il confronto mette a
+  // video la geometria di prima, e l'etichetta deve dire quella, non quella che
+  // c'era un istante fa. Tenute separate — una variabile qui e una scrittura
+  // la' — si scollerebbero al primo ramo che sposta l'una e non l'altra.
+  let descrizione = "vuota";
+  let descrizionePrecedente = null;
+  function applicaEtichetta(contenuto) {
     tela.setAttribute("aria-label", `Vista tridimensionale: ${contenuto}. Comandi: ${COMANDI}.`);
+  }
+  function descrivi(contenuto) {
+    descrizione = contenuto;
+    applicaEtichetta(contenuto);
   }
   descrivi("vuota");
   contenitore.append(tela);
 
   const gruppo = new THREE.Group();
   scena.add(gruppo);
+
+  // La geometria dello step guardato prima di questo, tenuta sulla scheda per il
+  // confronto. Fratello di `gruppo` e non figlio: scatolaDelGruppo() percorre i
+  // figli di `gruppo`, e da dentro finirebbe nell'ingombro, cioe' il cursore del
+  // taglio si tarerebbe sull'unione di due geometrie di cui una non e' a video.
+  // Una sola, e non una pila: due geometrie sulla scheda sono 9,6 MB di
+  // attributi nel caso peggiore misurato dal commento di svuota(), una pila
+  // sarebbero 7,6 MB per ogni clic su uno step.
+  const precedente = new THREE.Group();
+  precedente.visible = false;
+  scena.add(precedente);
 
   // Il box di ritaglio: uno solo, tenuto in una variabile di chiusura come
   // pianoTaglio e non su this, perche' svuota() deve poterlo azzerare quando
@@ -170,31 +191,73 @@ export function creaViewport(contenitore) {
     aggiornaCamera();
   }
 
+  // Libera davvero cio' che sta nel precedente. Togliere un oggetto dalla scena
+  // non libera i suoi buffer: in three.js sono gli eventi di dispose a
+  // cancellarli (three.module.js:3821, onGeometryDispose, toglie l'indice e ogni
+  // attributo). Senza questa chiamata il precedente diventerebbe una pila e ogni
+  // clic su uno step lascerebbe sulla scheda i 7,6 MB di attributi del clic
+  // prima — lo stesso difetto che svuota() era stato scritto per chiudere, con
+  // l'aria di una funzione nuova.
+  // Ogni oggetto ha il materiale che gli ha creato mostraNuvola o mostraMesh, e
+  // nessun altro lo usa: liberarlo qui non lascia scoperto nessuno.
+  function liberaIlPrecedente() {
+    precedente.traverse((oggetto) => {
+      oggetto.geometry?.dispose();
+      oggetto.material?.dispose();
+    });
+    precedente.clear();
+    descrizionePrecedente = null;
+  }
+
   return {
+    // Sposta la geometria a video nel precedente e restituisce se l'ha fatto.
+    // NON la distrugge piu': e' cio' con cui il confronto confronta. Il valore
+    // di ritorno serve a chi tiene il nome dello step mostrato: la geometria e
+    // la sua etichetta devono passare al precedente nello stesso istante,
+    // altrimenti il comando del confronto nomina uno step e ne mostra un altro.
+    // Falso quando non c'era niente da spostare, ed e' il caso normale: ogni
+    // strada che disegna chiama svuota() due volte — una al caricamento e una
+    // prima di disegnare — e la seconda deve essere inerte, non deve buttare via
+    // il precedente appena messo da parte.
+    // pianiTaglio non si tocca: non e' una risorsa della scheda grafica ed e'
+    // condiviso apposta perche' sopravviva alla geometria. Azzerarlo qui farebbe
+    // nascere la geometria nuova senza taglio mentre il comando lo dichiara
+    // attivo. Vale anche per il precedente, che porta lo stesso elenco: il
+    // confronto guarda le due geometrie tagliate alla stessa quota, che e' il
+    // solo modo in cui un confronto e' un confronto.
     svuota() {
-      // Togliere un oggetto dalla scena non libera i suoi buffer: in three.js
-      // sono gli eventi di dispose a cancellarli davvero (three.module.js:3821,
-      // onGeometryDispose, toglie l'indice e ogni attributo). Senza, ogni
-      // passaggio fra lo step 5, il 6 e il 9 lasciava sul posto 7,6 MB di
-      // attributi piu' un materiale, e il ciclo fra gli step e' un gesto che
-      // si ripete.
-      // Ogni oggetto ha il materiale che gli ha creato mostraNuvola o
-      // mostraMesh, e nessun altro lo usa: liberarlo qui non lascia scoperto
-      // nessuno.
-      // pianiTaglio non si tocca: non e' una risorsa della scheda grafica ed
-      // e' condiviso apposta perche' sopravviva alla geometria. Azzerarlo qui
-      // farebbe nascere la geometria nuova senza taglio mentre il comando lo
-      // dichiara attivo.
-      gruppo.traverse((oggetto) => {
-        oggetto.geometry?.dispose();
-        oggetto.material?.dispose();
-      });
-      gruppo.clear();
-      // Il box e' appena stato liberato dalla traversata qui sopra: tenerne il
-      // riferimento lascerebbe mostraBox a riscrivere una geometria che non
+      // Il box di ritaglio non si sposta: e' un attrezzo, non un risultato, e
+      // nel precedente sarebbe il rettangolo di una manovra finita. Si libera
+      // qui come faceva la traversata di prima, e il riferimento si azzera
+      // perche' tenerlo lascerebbe mostraBox a riscrivere una geometria che non
       // esiste piu' sulla scheda.
-      box = null;
+      if (box !== null) {
+        box.geometry?.dispose();
+        box.material?.dispose();
+        gruppo.remove(box);
+        box = null;
+      }
+      const daSpostare = [...gruppo.children];
+      if (daSpostare.length === 0) return false;
+      liberaIlPrecedente();
+      // add() stacca da se' i nodi dal genitore di prima: nessun remove().
+      precedente.add(...daSpostare);
+      precedente.visible = false;
+      gruppo.visible = true;
+      descrizionePrecedente = descrizione;
       descrivi("vuota");
+      return true;
+    },
+    // Il confronto: si scambia quale dei due gruppi e' visibile, senza toccare
+    // ne' la camera ne' i buffer. E' cio' che rende il confronto un confronto —
+    // la stessa inquadratura sulle due geometrie — e cio' che lo rende
+    // istantaneo: le due sono gia' sulla scheda, non si scarica niente.
+    // L'etichetta segue la geometria, altrimenti chi non vede si sentirebbe
+    // descrivere quella che non e' a video.
+    mostraPrecedente(attivo) {
+      precedente.visible = attivo;
+      gruppo.visible = !attivo;
+      applicaEtichetta(attivo ? descrizionePrecedente ?? "vuota" : descrizione);
     },
     mostraNuvola(punti) {
       const geometria = new THREE.BufferGeometry();

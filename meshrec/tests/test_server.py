@@ -1354,21 +1354,36 @@ let ultimiSteps = [];
 const ETICHETTE = {};
 const STEP_CON_MESH = new Set([9]);
 const scritture = [];
+// Lo stato del confronto: spostaNelPrecedente ha preso il posto delle chiamate
+// a vista.svuota() su ogni strada che disegna, e registraVista quello delle
+// didascalie. Sono variabili di modulo e non funzioni, quindi il banco le rifa'
+// come fa gia' per generazione e ultimaGeometria. Qui il confronto non e' cio'
+// che si prova: svuota() torna undefined, cioe' «non ho spostato niente», e il
+// nome non scorre — al banco interessa l'ordine di arrivo delle due geometrie.
+let vistaMostrata = null;
+let vistaPrecedente = null;
+let conteggiDiPrima = null;
+let stepMostrato = null;
 const vista = {
   svuota() {},
   mostraNuvola(vertici) { scritture.push(`nuvola:${vertici.length / 3}`); },
   mostraMesh(vertici) { scritture.push(`mesh:${vertici.length / 3}`); },
+  mostraPrecedente() {},
 };
 // classList: scriviConteggi sposta la riga dei conteggi fra il centro della
 // zona (nessuna geometria) e l'angolo (geometria a video). Al banco la
 // posizione non interessa, ma un nodo finto senza classList fa sollevare la
 // funzione prima ancora della prima fetch, e il banco fallisce dicendo «le due
 // richieste non sono partite» invece del vero motivo.
+// getAttribute per la stessa ragione, un giro dopo: spegniConfronto legge
+// aria-pressed sul comando del confronto, e null significa «non premuto».
 const document = {
   getElementById: () => ({
-    textContent: '', setAttribute() {}, removeAttribute() {}, classList: { toggle() {} },
+    textContent: '', setAttribute() {}, removeAttribute() {}, getAttribute: () => null,
+    classList: { toggle() {}, contains: () => false },
   }),
 };
+const bottoneConfronta = document.getElementById('confronta');
 function riallineaTaglio(numero) { scritture.push(`riallinea:${numero}`); }
 
 // Ogni richiesta resta sospesa finche' il banco non la sblocca: l'ordine di
@@ -1470,6 +1485,13 @@ def test_fra_due_geometrie_della_stessa_generazione_vince_chi_e_partita_dopo(num
             "mostraNuvolaDelloStep",
             "mostraStep",
             "ricaricaVista",
+            # Sulle strade che disegnano ci sono passate anche queste: sono cio'
+            # che tiene il nome dello step allineato alla geometria messa da
+            # parte per il confronto.
+            "spostaNelPrecedente",
+            "registraVista",
+            "aggiornaConfronto",
+            "spegniConfronto",
         )
     )
     banco = (
