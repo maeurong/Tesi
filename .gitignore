@@ -37,5 +37,10 @@ Cartella di lavoro Abaqus/
 # essere versionata il giorno in cui servisse.
 /runs/
 
+# Ledger e referti di lavoro dei subagent (subagent-driven-development). Servono
+# mentre una fase e' aperta e diventano rumore appena e' chiusa: il commit e334a15
+# fu proprio la rimozione a mano di uno di questi report. Meglio non farli entrare.
+/.superpowers/
+
 # Rumore del Finder, dal passaggio a macOS del 16/08/2026.
 .DS_Store
