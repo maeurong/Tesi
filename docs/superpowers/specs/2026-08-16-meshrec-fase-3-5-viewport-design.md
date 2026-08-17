@@ -207,13 +207,21 @@ interruttore accanto ai conteggi lo accende. Su due superfici quasi coincidenti
 — step 5 contro 6, per dire — il fantasma produce z-fighting e nessuna
 informazione.
 
-**Il controllo che lo smentisce.** Il fantasma dichiara due conteggi come la
-geometria corrente, disegnato e pieno, e **il pieno** deve coincidere con il
-conteggio che `metrics.json` porta per lo step che l'ha prodotto: `points_after`
-per una nuvola, `vertices` per una superficie. Il disegnato no, ed è giusto:
-anche il fantasma passa dal budget dei 400.000 punti. Confrontare il disegnato
-sarebbe confrontare due decimazioni fra loro invece che il dato con la sua
-misura.
+**Il controllo che lo smentisce.** Il fantasma dichiara **un** conteggio, il
+pieno, che deve coincidere con quello che `metrics.json` porta per lo step che
+l'ha prodotto: `points_after` per una nuvola, `vertices` per una superficie.
+
+> **Corretto in esecuzione, il 17/08/2026.** Questa riga chiedeva *due* conteggi
+> per il fantasma, disegnato e pieno, come per la geometria corrente. È stata
+> ridotta a uno perché la riga della didascalia ne porterebbe altrimenti quattro,
+> e quattro numeri in un angolo non si leggono. Il confronto che questo paragrafo
+> esiste per rendere possibile è comunque pieno-contro-pieno: il disegnato del
+> fantasma non serviva a nessuno dei due lati, perché confrontare due decimazioni
+> fra loro non è confrontare il dato con la sua misura.
+
+Il disegnato del fantasma non si mostra, ed è giusto: anche il fantasma passa
+dal budget dei 400.000 punti, e quel numero direbbe quanto è stato sfoltito il
+velo, non che cosa lo step ha tolto alla geometria.
 
 Un fantasma che disegna una nuvola diversa da quella che dichiara è la forma
 esatta del risultato plausibile contro cui è costruito tutto il progetto. Il
@@ -390,6 +398,40 @@ qui perché nessuno dei tre problemi riportati passa da loro:
   l'ambiguità di quando compare.
 - **La dimensione dei punti è fissa a 1,5** senza attenuazione con la distanza
   (`ui/viewport.js:183`): da lontano 400.000 punti diventano una macchia piena.
+
+#### Aggiunte dall'esecuzione, il 17/08/2026
+
+Trovate costruendo questa fase, tutte fuori dal suo scopo:
+
+- **`core/io.scrivi_atomico` non regge due scritture concorrenti sullo stesso
+  file.** Il nome del temporaneo si costruisce dal solo nome della destinazione
+  (`config.yaml` → `config.tmp.yaml`, sempre lo stesso), quindi due scritture in
+  parallelo condividono quel file: la prima `replace()` lo consuma, la seconda
+  alza `FileNotFoundError`. Nell'undo si vedeva come *un annullamento che
+  risponde «artefatto mancante»*. Qui è chiuso da un lucchetto nel server;
+  **altrove nel progetto resta aperto**, e che sia noto lo conferma
+  `app/server.py`, dove `_scrivi_contorno` lo tampona già con un `except
+  OSError`. La correzione è piccola — un suffisso unico per processo e thread al
+  posto di uno deterministico — ma tocca `core/`, che questa fase non doveva
+  toccare.
+- **`tests/test_cli.py` scrive dentro `meshrec/runs/`.** Costruisce un config in
+  `tmp_path` ma gli lascia l'`out_dir` predefinito `runs/default`, che è relativo
+  alla cartella da cui gira pytest: da lì nasce `meshrec/runs/default/`. Non
+  tocca `muro` né `lab_crop` e la cartella è ignorata da git, quindi non c'è
+  danno, ma è la stessa classe che la guardia sull'`out_dir` del § 8 chiude lato
+  server: un percorso predefinito che scrive dentro l'albero dichiarato di sola
+  lettura.
+- **Il banco `node` è ricopiato in due file di test** (`_node`, `_esegui`,
+  `_sorgente_di` in `tests/test_app_js.py` e `tests/test_viewport_js.py`) invece
+  di stare in un `conftest.py`. Due copie che divergeranno.
+- **`mostraFantasma` non ha nessuna prova eseguita.** L'opacità, `depthWrite` e
+  la scelta fra nuvola e superficie sono stringhe cercate nel sorgente, perché il
+  banco `node` non ha un three.js finto. È onesto — il commento di sezione lo
+  dichiara — ma è sorveglianza più debole di quella del resto della fase.
+- **Il fantasma incrementa `ultimaGeometria`**, il contatore delle richieste di
+  geometria, pur non essendone una. Un contatore condiviso fra due mestieri: chi
+  rivede lo stesso step mentre la sua geometria è in volo e tocca la casella si
+  vede scartare la risposta come superata.
 
 ---
 
