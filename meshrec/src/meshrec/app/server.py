@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import threading
 import time
 import zipfile
 from collections import Counter
@@ -17,10 +18,12 @@ from pathlib import Path
 from typing import Annotated
 
 import numpy as np
+import yaml
 from fastapi import FastAPI, Response
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, BeforeValidator, ConfigDict
 
+from meshrec.app import storico
 from meshrec.app.worker import Worker
 from meshrec.core import io, pipeline, quality, report, segment, steps, sweep, viewport
 from meshrec.core.config import (
@@ -50,6 +53,54 @@ CACHE_DIR = Path(".cache/viewport")
 # nel contenuto, perche' _rimuovi_voci_vecchie sfratta per marchio e non guarda
 # che cosa segue: cambiare la versione basta a far ripulire le voci precedenti.
 VERSIONE_CONTORNO = 1
+
+# Il deposito dello storico non e' serializzato al proprio interno, e gli
+# endpoint dichiarati con `def` girano nel threadpool di FastAPI: Ctrl+Z si
+# tiene premuto e il tasto si ripete da solo, quindi piu' POST sono in volo
+# insieme per davvero. Due «indietro» concorrenti leggono lo stesso cursore,
+# tornano la stessa versione e riscrivono lo stesso cursore: due pressioni, un
+# passo solo.
+#
+# Due corse vere, misurate neutralizzando il lucchetto, e non quelle che si
+# immaginano. Il deposito che tronca la coda non puo' far mancare un file a un
+# «indietro», che legge sempre un numero minore del cursore: la troncatura
+# slega i maggiori, quindi la gara e' con «avanti». E la FileNotFoundError che
+# si vede davvero e' un'altra ancora: due _scrivi_cursore insieme condividono
+# il temporaneo di io.scrivi_atomico (cursore.tmp.json), e il secondo rinomina
+# un file che il primo ha gia' spostato.
+#
+# ponytail: un lucchetto solo per l'intero deposito, non una coda ne' un
+# lucchetto per corsa. L'applicazione e' locale e monoutente, e le sezioni
+# protette sono scritture di pochi kB; se un giorno servisse servire piu' corse
+# insieme, uno per out_dir.
+#
+# Rientrante: oggi nessuna strada lo prende due volte, perche' _ripristina non
+# passa da scrivi_config. Ma il giorno che i due punti di scrittura venissero
+# unificati, un Lock semplice si stamperebbe un blocco a vita invece di un
+# errore, e costa una parola evitarlo.
+_LUCCHETTO_STORICO = threading.RLock()
+
+
+def _campi_cambiati(
+    vecchio: dict[str, object], nuovo: dict[str, object], prefisso: str = ""
+) -> list[str]:
+    """I percorsi puntati dei campi diversi fra due model_dump.
+
+    Il registro dello storico non si pota mai, quindi cio' che vi si scrive resta
+    per sempre: elencare i dieci blocchi di primo livello a ogni scrittura
+    sarebbe precisione inventata proprio nel file che dovra' rispondere «da dove
+    viene questa versione». Il vocabolario e' quello che gia' registrano
+    POST /api/crop e POST /api/cluster: segment.crop_min, non segment.
+    """
+    cambiati: list[str] = []
+    for chiave, valore in nuovo.items():
+        percorso = f"{prefisso}{chiave}"
+        prima = vecchio.get(chiave)
+        if isinstance(prima, dict) and isinstance(valore, dict):
+            cambiati.extend(_campi_cambiati(prima, valore, f"{percorso}."))
+        elif prima != valore:
+            cambiati.append(percorso)
+    return cambiati
 
 
 def _percorso_contorno(sorgente: Path) -> Path:
@@ -310,6 +361,62 @@ def create_app(config_path: Path) -> FastAPI:
     def corrente() -> PipelineConfig:
         return load_config(config_path)
 
+    def scrivi_config(
+        nuova: PipelineConfig, endpoint: str, campi: list[str] | None = None
+    ) -> None:
+        """L'unico punto del server che scrive una modifica di parametro in
+        config.yaml, e l'unico che deposita. (`_ripristina` il file lo riscrive,
+        ma rimette un testo gia' depositato invece di produrne uno nuovo.)
+
+        `campi` sono i percorsi puntati di cio' che cambia. Chi li conosce li
+        passa; chi non li conosce lascia calcolare il confronto qui, perche' e'
+        qui che la configurazione di prima e' gia' in mano.
+
+        core.config.save_config non si tocca: la chiamano anche pipeline e
+        sweep, e agganciare lo storico li' depositerebbe una versione per ogni
+        candidato di uno sweep. Il punto condiviso giusto e' il server, non il
+        core: e' il server a servire i gesti di una persona, ed e' dei gesti di
+        una persona che si tiene lo storico.
+
+        run.out_dir non si sposta da qui. In `PUT /api/config` la
+        configurazione arriva dal corpo della richiesta, quindi senza questa
+        guardia il deposito nascerebbe dove dice il browser: runs/lab_crop e
+        runs/muro sono corse di riferimento in sola lettura, e una .storico/
+        dentro una di loro e' una scrittura che non si doveva fare. Peggio, la
+        versione «avvio» conterrebbe il config della corsa vecchia depositato nel
+        deposito della nuova, e il cursore della vecchia resterebbe indietro: da
+        li' due «indietro» consecutivi consultano due depositi diversi.
+
+        L'interfaccia il campo non lo cambia mai (ui/app.js lo mostra e non lo
+        scrive), e cambiare corsa e' un riavvio di `meshrec serve` con un altro
+        yaml. La guardia sta qui, nell'unico punto di scrittura, e non nel solo
+        endpoint che oggi ne ha bisogno: crop e cluster partono da corrente() e
+        la superano per costruzione.
+        """
+        attuale = corrente()
+        if Path(nuova.run.out_dir) != Path(attuale.run.out_dir):
+            raise ValueError(
+                f"la corsa non si cambia dall'interfaccia: run.out_dir e' "
+                f"{attuale.run.out_dir} e la richiesta chiede {nuova.run.out_dir}. "
+                "Per lavorare su un'altra corsa riavvia meshrec serve con il suo "
+                "file di configurazione"
+            )
+        if campi is None:
+            campi = _campi_cambiati(
+                attuale.model_dump(mode="json"), nuova.model_dump(mode="json")
+            )
+        out_dir = Path(attuale.run.out_dir)
+        with _LUCCHETTO_STORICO:
+            # La versione di partenza, depositata pigramente alla prima
+            # modifica: senza, il primo «indietro» non avrebbe niente a cui
+            # tornare e la prima modifica sarebbe l'unica non annullabile.
+            # Pigra e non all'avvio perche' aprire l'interfaccia senza toccare
+            # niente non e' un gesto da registrare.
+            if not storico.esiste(out_dir):
+                storico.deposita(out_dir, config_path.read_text(encoding="utf-8"), "avvio", [])
+            save_config(nuova, config_path)
+            storico.deposita(out_dir, config_path.read_text(encoding="utf-8"), endpoint, campi)
+
     @app.exception_handler(FileNotFoundError)
     async def artefatto_mancante(_richiesta, errore: FileNotFoundError):
         # Un artefatto che non c'e' non e' un guasto del server: e' lo stato
@@ -386,8 +493,171 @@ def create_app(config_path: Path) -> FastAPI:
     def scrivi_configurazione(nuova: PipelineConfig) -> dict[str, object]:
         # La validazione e' quella dei modelli: l'interfaccia non ne ha una
         # propria, e un valore fuori dominio non arriva mai alla pipeline.
-        save_config(nuova, config_path)
+        scrivi_config(nuova, "PUT /api/config")
         return nuova.model_dump(mode="json")
+
+    def _versione_al_cursore(out_dir: Path) -> str | None:
+        """Il testo della versione su cui il cursore sta adesso.
+
+        Entra nei nomi privati di app/storico.py, che non espone una lettura
+        senza spostamento. L'alternativa con la sola superficie pubblica sarebbe
+        indietro -> avanti per sbirciare e poi indietro per muovere davvero:
+        tre scritture del cursore al posto di una lettura, e ogni scrittura in
+        piu' e' un'occasione in piu' di lasciarlo disallineato. Il giorno che
+        storico.py esporta una versione_corrente(out_dir), questa sparisce.
+        """
+        percorso = storico._percorso(out_dir, storico._cursore(out_dir))
+        return percorso.read_text(encoding="utf-8") if percorso.exists() else None
+
+    def _deposita_le_modifiche_fatte_a_mano(out_dir: Path) -> None:
+        """Deposita il config che sta su disco, se non e' quello al cursore.
+
+        Il progetto e' nato CLI-first e le Fasi 1 e 2 si lavorano da editor: col
+        server acceso, un parametro cambiato a mano in config.yaml non sta in
+        nessuna versione, e un «indietro» lo sovrascriverebbe senza che ne
+        esista una copia da nessuna parte. E' l'unica perdita irrecuperabile di
+        questa superficie, e basta depositarlo per chiuderla.
+
+        Depositato, e' l'ultima scrittura: «indietro» la toglie e «avanti» la
+        rimette. E' cio' che chi preme Ctrl+Z si aspetta senza dover leggere
+        niente, mentre un rifiuto lo lascerebbe senza undo fino a un ricaricamento
+        che nessuno gli ha detto di fare. Che una scrittura nuova tronchi la coda
+        del rifare non e' un'eccezione: e' la regola che il deposito applica gia'
+        a ogni versione, e una modifica a mano e' una scrittura come le altre.
+
+        Il deposito non si crea qui: se non esiste non c'e' niente da annullare, e
+        crearlo vorrebbe dire scrivere in una cartella che un config appena
+        cambiato a mano puo' aver spostato altrove.
+        """
+        if not storico.esiste(out_dir):
+            return
+        attuale = config_path.read_text(encoding="utf-8")
+        if attuale != _versione_al_cursore(out_dir):
+            storico.deposita(out_dir, attuale, "modifica fuori dall'interfaccia", [])
+
+    def _ripristina(testo: str | None, vuoto: str, rimetti) -> dict[str, object]:
+        """`rimetti` riporta il cursore dove stava: indietro e avanti lo hanno
+        gia' spostato quando questa funzione riceve il testo, e ogni rifiuto da
+        qui in giu' deve annullare anche quello spostamento.
+
+        Ogni rifiuto porta `guasto`, che distingue i due che si somigliano solo
+        nella forma. «Niente da annullare» e' il caso normale di chi preme Ctrl+Z
+        una volta di troppo; «una versione non e' leggibile» chiede invece di
+        mettere le mani dentro .storico. Senza quel bit il browser li mostrerebbe
+        con lo stesso peso, che e' il difetto che la spec dichiara di evitare,
+        spostato di un gradino. Non e' un codice di stato perche' la richiesta e'
+        formata bene: e' lo stato sul disco a essere rotto, e ne' 400 (malformata)
+        ne' 404 (non c'e' ancora) hanno una casella per questo.
+        """
+        if testo is None:
+            return {"annullato": False, "guasto": False, "perche": vuoto}
+        cfg_prima = corrente()
+        deposito = Path(cfg_prima.run.out_dir) / storico.CARTELLA
+        # Si valida una COPIA in memoria: su disco va comunque il testo
+        # originale, quindi il criterio «byte per byte» della spec resta intero
+        # e nessun modello riserializzato tocca il file. Non e' una cautela di
+        # troppo da togliere alla prima rilettura: senza, quel testo arriva
+        # sempre fino a config.yaml e nessuno lo respinge prima: load_config lo
+        # respinge dopo, a file gia' riscritto, e da quel momento ogni tratta
+        # che chiama corrente() fallisce — compresi questi due endpoint, cioe'
+        # il deposito smette di essere raggiungibile via HTTP.
+        try:
+            candidata = PipelineConfig.model_validate(yaml.safe_load(testo))
+        except Exception as errore:
+            rimetti()
+            return {
+                "annullato": False,
+                "guasto": True,
+                "perche": (
+                    f"una versione salvata non e' piu' una configurazione leggibile "
+                    f"({type(errore).__name__}): correggi o cancella {deposito}, "
+                    "poi riprova"
+                ),
+            }
+        # Il caso peggiore e' quello che non solleva: una versione con un altro
+        # out_dir e' valida, e accettarla ripunterebbe l'applicazione su
+        # un'altra corsa in silenzio. Il prossimo «esegui step» scriverebbe i
+        # suoi artefatti la' dentro, che se e' una corsa di riferimento e' il
+        # danno che l'intero progetto vieta.
+        if Path(candidata.run.out_dir) != Path(cfg_prima.run.out_dir):
+            rimetti()
+            return {
+                "annullato": False,
+                "guasto": True,
+                "perche": (
+                    f"quella versione punta a un'altra corsa ({candidata.run.out_dir}): "
+                    "per lavorarci riavvia meshrec serve con il suo file di configurazione"
+                ),
+            }
+        prima = {
+            int(voce["numero"]): voce["stato"]
+            for voce in steps.run_state(cfg_prima.run.out_dir, cfg_prima)
+        }
+        # Il testo si riscrive tale e quale, senza ripassare dal modello: la
+        # versione depositata e' gia' per costruzione rileggibile (l'ha scritta
+        # save_config), e ripassarci la normalizzerebbe, cioe' l'undo
+        # restituirebbe un file diverso da quello che ha tolto.
+        try:
+            scrivi_atomico(
+                config_path,
+                lambda destinazione: destinazione.write_text(testo, encoding="utf-8"),
+            )
+        except OSError:
+            # Il cursore si e' mosso prima che la scrittura riuscisse: lasciarlo
+            # avanzato farebbe saltare una versione al tentativo successivo.
+            rimetti()
+            raise
+        cfg_dopo = corrente()
+        dopo = steps.run_state(cfg_dopo.run.out_dir, cfg_dopo)
+        # Gli artefatti restano sul disco: la catena di impronte li marca «non
+        # valido» da se', e questa fase eredita quel meccanismo invece di
+        # duplicarlo. Ma dirlo e' obbligatorio: un ritorno indietro che cambia
+        # in silenzio lo stato di sette step e' una modifica invisibile.
+        invalidati = [
+            int(voce["numero"])
+            for voce in dopo
+            if voce["stato"] == "non valido" and prima.get(int(voce["numero"])) != "non valido"
+        ]
+        return {"annullato": True, "invalidati": invalidati, "steps": dopo}
+
+    @app.post("/api/storico/indietro")
+    def storico_indietro() -> dict[str, object]:
+        """Rimette la versione precedente della configurazione.
+
+        Non tace mai: a storico vuoto risponde con il proprio «perche'», perche'
+        un silenzio identico fra riuscita e nulla-da-fare e' gia' stato prodotto
+        e corretto una volta su questo progetto (il bottone Annulla).
+
+        Limite dichiarato: dove sta il deposito lo dice corrente(), quindi se e'
+        config.yaml a non essere piu' leggibile questi due endpoint rispondono
+        400 come tutte le altre tratte, e lo strumento di recupero muore insieme
+        alla cosa da recuperare. Resta cosi' di proposito: quel file lo si e'
+        rotto dall'editor, e l'editor e' ancora aperto: il rimedio e' li'. La
+        rottura che una persona non puo' vedere e' quella dentro .storico, e
+        quella e' coperta. Chiuderlo anche qui vorrebbe dire ripiegare
+        sull'out_dir letto all'avvio e decidere, per ogni confronto di
+        _ripristina, contro quale configurazione confrontare quando la corrente
+        non esiste: sono decisioni, non una riga.
+        """
+        with _LUCCHETTO_STORICO:
+            out_dir = Path(corrente().run.out_dir)
+            _deposita_le_modifiche_fatte_a_mano(out_dir)
+            return _ripristina(
+                storico.indietro(out_dir),
+                "niente da annullare",
+                lambda: storico.avanti(out_dir),
+            )
+
+    @app.post("/api/storico/avanti")
+    def storico_avanti() -> dict[str, object]:
+        with _LUCCHETTO_STORICO:
+            out_dir = Path(corrente().run.out_dir)
+            _deposita_le_modifiche_fatte_a_mano(out_dir)
+            return _ripristina(
+                storico.avanti(out_dir),
+                "niente da rifare",
+                lambda: storico.indietro(out_dir),
+            )
 
     @app.get("/api/metrics")
     def metriche() -> dict[str, object]:
@@ -561,7 +831,7 @@ def create_app(config_path: Path) -> FastAPI:
             cfg.segment.outlier_std_ratio,
         )
         _dentro, metriche = segment.crop_box(puliti, cfg.segment)
-        save_config(cfg, config_path)
+        scrivi_config(cfg, "POST /api/crop", ["segment.crop_min", "segment.crop_max"])
         # Le metriche del core sono l'unica fonte: points_after c'e' gia'
         # dentro (core/segment.py:59), e riscriverlo qui sarebbe una riga che
         # sembra calcolare qualcosa e non lo fa.
@@ -713,7 +983,7 @@ def create_app(config_path: Path) -> FastAPI:
         metodo_precedente = cfg.segment.method
         cfg.segment.method = "auto"
         cfg.segment.cluster_index = scelto
-        save_config(cfg, config_path)
+        scrivi_config(cfg, "POST /api/cluster", ["segment.method", "segment.cluster_index"])
         return {
             "cluster_index": scelto,
             "cluster_points": int(len(insiemi[scelto])),

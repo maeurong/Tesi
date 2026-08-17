@@ -6,6 +6,8 @@ import json
 import re
 import shutil
 import subprocess
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -13,7 +15,7 @@ from fastapi.testclient import TestClient
 
 from meshrec.app import server
 from meshrec.app.server import create_app
-from meshrec.core.config import InputConfig, PipelineConfig, save_config
+from meshrec.core.config import InputConfig, PipelineConfig, load_config, save_config
 
 
 @pytest.fixture()
@@ -1893,18 +1895,31 @@ def test_il_cronometro_non_puo_tornare_nel_browser():
 def test_nessun_endpoint_solleva_verso_il_browser(cliente):
     """Il contratto vale sull'elenco intero, derivato dall'applicazione stessa:
     un endpoint aggiunto domani vi entra da solo e non puo' essere dimenticato.
+
+    Anche i POST, da quando lo storico ne ha aggiunti due che non hanno corpo:
+    limitato ai GET, l'elenco avrebbe smesso di essere «intero» proprio nel
+    momento in cui e' cresciuto. Un POST senza corpo dove il corpo serve
+    risponde 422, che e' un rifiuto spiegato e non un sollevamento.
+
+    Le tratte con un parametro non si saltano: al posto del segnaposto va un 1,
+    che e' uno step e un esperimento che possono non esserci ma non possono far
+    sollevare. Saltarle lasciava fuori dall'«elenco intero» sette tratte su
+    quindici, POST /api/step/{numero} compreso, cioe' la promessa della riga qui
+    sopra era piu' larga di quello che il controllo faceva.
     """
-    percorsi = [
-        rotta.path
+    chiamate = [
+        (metodo, rotta.path)
         for rotta in cliente.app.routes
-        if getattr(rotta, "methods", None) and "GET" in rotta.methods
+        for metodo in (getattr(rotta, "methods", None) or set())
+        if metodo in {"GET", "POST"}
     ]
-    assert len(percorsi) >= 3
-    for percorso in percorsi:
-        if "{" in percorso or percorso in STREAMING:
+    assert len(chiamate) >= 3
+    for metodo, percorso in chiamate:
+        if percorso in STREAMING:
             continue
-        risposta = cliente.get(percorso)
-        assert risposta.status_code < 500, f"{percorso} ha sollevato verso il browser"
+        richiesto = re.sub(r"\{[^}]+\}", "1", percorso)
+        risposta = cliente.request(metodo, richiesto)
+        assert risposta.status_code < 500, f"{metodo} {richiesto} ha sollevato verso il browser"
 
 
 def test_la_cache_del_contorno_non_sfratta_quella_della_nuvola(cliente, tmp_path):
@@ -2350,3 +2365,334 @@ def test_uno_step_il_cui_artefatto_a_monte_manca_nomina_lo_step_da_eseguire(clie
     assert "7" in messaggio
     # E va nominata l'azione, non solo il guasto.
     assert "esegui" in messaggio
+
+
+def test_indietro_rimette_il_config_di_prima_byte_per_byte(cliente, tmp_path):
+    """Criterio 8 della spec. Byte per byte e non «equivalente»: un ripristino
+    che ripassa dal modello normalizza ordine e predefiniti, e il confronto
+    direbbe «uguale» su un file diverso da quello che l'utente aveva."""
+    percorso = tmp_path / "config.yaml"
+    prima = percorso.read_bytes()
+
+    corpo = cliente.get("/api/config").json()
+    corpo["surface"]["poisson_depth"] = 7
+    assert cliente.put("/api/config", json=corpo).status_code == 200
+    assert percorso.read_bytes() != prima, "precondizione: la modifica deve essere avvenuta"
+
+    risposta = cliente.post("/api/storico/indietro")
+    assert risposta.status_code == 200
+    assert risposta.json()["annullato"] is True
+    assert percorso.read_bytes() == prima
+
+
+def test_avanti_rifa_cio_che_indietro_aveva_disfatto(cliente, tmp_path):
+    percorso = tmp_path / "config.yaml"
+    corpo = cliente.get("/api/config").json()
+    corpo["surface"]["poisson_depth"] = 7
+    cliente.put("/api/config", json=corpo)
+    dopo = percorso.read_bytes()
+
+    cliente.post("/api/storico/indietro")
+    risposta = cliente.post("/api/storico/avanti")
+    assert risposta.json()["annullato"] is True
+    assert percorso.read_bytes() == dopo
+
+
+def test_uno_storico_vuoto_risponde_invece_di_tacere(cliente):
+    """Criterio 9. Un silenzio identico fra riuscita e nulla-da-fare e' gia'
+    stato prodotto e corretto una volta su questo progetto, sul bottone Annulla
+    (ui/index.html:21-26): non va rifatto per una seconda strada."""
+    risposta = cliente.post("/api/storico/indietro")
+    assert risposta.status_code == 200
+    corpo = risposta.json()
+    assert corpo["annullato"] is False
+    assert corpo["perche"] == "niente da annullare"
+    # Non e' un guasto: e' il caso normale di chi preme Ctrl+Z una volta di
+    # troppo. Il browser sceglie su questo bit fra i due rami di mostraEsito, e
+    # senza di esso «non c'era niente da annullare» e «il deposito e' rotto»
+    # arriverebbero con lo stesso peso.
+    assert corpo["guasto"] is False
+
+    corpo = cliente.post("/api/storico/avanti").json()
+    assert corpo["annullato"] is False
+    assert corpo["perche"] == "niente da rifare"
+    assert corpo["guasto"] is False
+
+
+def test_indietro_elenca_gli_step_tornati_non_validi(cliente, tmp_path):
+    """L'undo non cancella gli artefatti: la catena di impronte della Fase 3 li
+    marca «non valido» da se', ed e' il comportamento giusto — restano sul
+    disco, pronti a tornare validi se si preme «avanti».
+
+    Ma un ritorno indietro che cambia in silenzio lo stato di sette step
+    sarebbe una modifica invisibile, e questo elenco e' cio' che lo dice.
+    """
+    from meshrec.core import steps
+
+    corpo = cliente.get("/api/config").json()
+    corpo["surface"]["poisson_depth"] = 7
+    cliente.put("/api/config", json=corpo)
+
+    # Uno stato salvato che dichiara validi tutti gli step con le impronte della
+    # configurazione MODIFICATA: e' quella con cui la corsa sarebbe stata
+    # eseguita, ed e' l'undo a doverli riportare a «non valido». Senza uno stato
+    # salvato sono tutti "mai eseguito" e nessuno puo' diventare "non valido";
+    # salvato prima della modifica sarebbe peggio che inutile, perche' la
+    # modifica li renderebbe non validi subito e l'undo li rimetterebbe validi:
+    # l'elenco sarebbe vuoto per costruzione e il controllo direbbe verde
+    # sorvegliando il verso opposto a quello che gli interessa.
+    cfg = load_config(tmp_path / "config.yaml")
+    corsa = Path(cfg.run.out_dir)
+    corsa.mkdir(parents=True, exist_ok=True)
+    for voce in steps.run_state(corsa, cfg):
+        steps.write_state(corsa, int(voce["numero"]), str(voce["impronta"]), "riuscito", None, 0.0)
+
+    invalidati = cliente.post("/api/storico/indietro").json()["invalidati"]
+    # L'elenco per intero e non «non vuoto»: poisson_depth entra nell'impronta
+    # dello step 5, e la catena la propaga fino all'11. Un `assert invalidati`
+    # starebbe in piedi anche con [1], cioe' con la propagazione rotta.
+    assert invalidati == [5, 6, 7, 8, 9, 10, 11]
+    # Gli artefatti restano dove sono: l'undo non li cancella.
+    assert corsa.exists()
+
+
+def test_uno_sweep_non_lascia_nulla_nello_storico(cliente, tmp_path):
+    """Lo storico e' dei gesti di una persona, e i gesti di una persona passano
+    dal server. core.config.save_config la chiamano anche pipeline e sweep:
+    agganciato li', uno sweep depositerebbe una versione per ogni candidato e
+    lo storico dell'utente affogherebbe nel proprio rumore.
+    """
+    cfg = load_config(tmp_path / "config.yaml")
+    for profondita in (6, 7, 8):
+        cfg.surface.poisson_depth = profondita
+        save_config(cfg, tmp_path / "config.yaml")
+    assert not (Path(cfg.run.out_dir) / ".storico").exists()
+
+
+def test_il_core_non_conosce_lo_storico():
+    """La stessa regola guardata dalla mossa e non dal sintomo: il giorno che
+    un import comparisse dentro core/, il test qui sopra resterebbe verde
+    finche' qualcuno non chiama proprio quella strada.
+
+    Tutti i moduli di core/, non il solo config.py: i due posti dove un aggancio
+    sbagliato finirebbe davvero sono core/pipeline.py e core/sweep.py, cioe'
+    proprio i due chiamanti di save_config che la docstring qui sopra cita.
+    """
+    from meshrec.core import config as modulo_config
+
+    radice = Path(modulo_config.__file__).parent
+    moduli = sorted(radice.glob("*.py"))
+    assert len(moduli) > 5, "la scansione di core/ non ha trovato i moduli"
+    for modulo in moduli:
+        assert "storico" not in modulo.read_text(encoding="utf-8"), (
+            f"core/{modulo.name} conosce lo storico"
+        )
+
+
+def test_due_indietro_insieme_arretrano_di_due_passi(cliente, tmp_path, monkeypatch):
+    """Ctrl+Z si tiene premuto, e il tasto si ripete da solo: piu' POST partono
+    insieme, e gli endpoint `def` di FastAPI girano nel threadpool. Senza
+    serializzazione due «indietro» leggono lo stesso cursore, tornano la stessa
+    versione e riscrivono lo stesso cursore: due pressioni, un passo solo.
+
+    La finestra vera e' di microsecondi e un rosso intermittente non e' un
+    controllo: il ritardo la allarga dentro _cursore, cioe' dentro la lettura
+    che la corsa perde. Non cambia nessuna decisione del deposito — con la
+    serializzazione i due passi restano due anche col ritardo.
+    """
+    from meshrec.app import storico
+
+    percorso = tmp_path / "config.yaml"
+    partenza = percorso.read_bytes()
+    for profondita in (7, 8):
+        corpo = cliente.get("/api/config").json()
+        corpo["surface"]["poisson_depth"] = profondita
+        assert cliente.put("/api/config", json=corpo).status_code == 200
+
+    letto = storico._cursore
+
+    def _cursore_lento(out_dir):
+        numero = letto(out_dir)
+        time.sleep(0.05)
+        return numero
+
+    monkeypatch.setattr(storico, "_cursore", _cursore_lento)
+
+    esiti: list[int] = []
+    fili = [
+        threading.Thread(
+            target=lambda: esiti.append(cliente.post("/api/storico/indietro").status_code)
+        )
+        for _ in range(2)
+    ]
+    for filo in fili:
+        filo.start()
+    for filo in fili:
+        filo.join()
+
+    assert esiti == [200, 200]
+    assert percorso.read_bytes() == partenza, (
+        "due «indietro» insieme sono arretrati di un passo solo"
+    )
+
+
+def test_una_put_non_puo_spostare_la_corsa(cliente, tmp_path):
+    """run.out_dir e' un campo del CORPO della richiesta, quindi senza guardia il
+    deposito nasce dove dice il browser: un PUT con out_dir su runs/lab_crop
+    farebbe nascere .storico/ dentro una corsa di riferimento in sola lettura,
+    frutto di ore di calcolo.
+
+    E il danno non finisce li'. La versione «avvio» conterrebbe il config della
+    corsa A depositato nel deposito di B, e il cursore di A resterebbe indietro:
+    due «indietro» consecutivi consulterebbero due depositi diversi, e la
+    modifica da rifare diventerebbe irraggiungibile via HTTP.
+
+    400 e non 404: e' una richiesta malformata, non un artefatto che manca.
+    """
+    altrove = tmp_path / "altra_corsa"
+    prima = (tmp_path / "config.yaml").read_bytes()
+
+    corpo = cliente.get("/api/config").json()
+    corpo["run"]["out_dir"] = str(altrove)
+    risposta = cliente.put("/api/config", json=corpo)
+
+    assert risposta.status_code == 400
+    # Il messaggio dice cosa fare, non solo cosa e' andato storto.
+    assert "riavvia" in risposta.json()["messaggio"]
+    # La grandezza vera: nessun file nasce nella corsa rifiutata. Un controllo
+    # sul solo codice di stato resterebbe verde anche con il deposito gia'
+    # scritto e il rifiuto arrivato dopo.
+    assert not altrove.exists(), "il deposito e' nato nella corsa rifiutata"
+    assert (tmp_path / "config.yaml").read_bytes() == prima
+
+
+def test_una_modifica_fatta_a_mano_non_si_perde_con_l_undo(cliente, tmp_path):
+    """Questo progetto e' nato CLI-first e le Fasi 1 e 2 si lavorano da editor:
+    col server su, si apre config.yaml e si cambia un parametro a mano. Quella
+    modifica non sta in nessun deposito, e un Ctrl+Z — magari partito per
+    sbaglio, perche' l'ascoltatore del browser e' globale — la sovrascriverebbe
+    per sempre.
+
+    Depositata prima di essere sostituita, «l'undo dell'undo» la ripesca.
+    """
+    percorso = tmp_path / "config.yaml"
+
+    corpo = cliente.get("/api/config").json()
+    corpo["surface"]["poisson_depth"] = 7
+    assert cliente.put("/api/config", json=corpo).status_code == 200
+    dopo_la_put = percorso.read_bytes()
+
+    # Il gesto da editor: save_config diretta, che e' quel che fa la riga di
+    # comando e non passa da nessun endpoint.
+    cfg = load_config(percorso)
+    cfg.surface.poisson_depth = 12
+    save_config(cfg, percorso)
+    a_mano = percorso.read_bytes()
+    assert a_mano != dopo_la_put, "precondizione: la modifica a mano deve cambiare il file"
+
+    assert cliente.post("/api/storico/indietro").json()["annullato"] is True
+    assert percorso.read_bytes() == dopo_la_put
+
+    assert cliente.post("/api/storico/avanti").json()["annullato"] is True
+    assert percorso.read_bytes() == a_mano, "la modifica fatta a mano non e' recuperabile"
+
+
+def test_una_versione_illeggibile_non_sostituisce_il_config(cliente, tmp_path):
+    """Il testo di una versione arrivava fino a config.yaml senza che nessuno lo
+    respingesse prima: load_config lo respinge dopo, quando il file e' gia'
+    riscritto. Da quel momento ogni tratta che chiama corrente() fallisce,
+    compresi i due endpoint dello storico, e il deposito non e' piu'
+    raggiungibile via HTTP: l'applicazione in ginocchio, che si ripara copiando
+    un file a mano.
+    """
+    from meshrec.app import storico
+
+    percorso = tmp_path / "config.yaml"
+    corpo = cliente.get("/api/config").json()
+    corpo["surface"]["poisson_depth"] = 7
+    cliente.put("/api/config", json=corpo)
+    intatto = percorso.read_bytes()
+
+    deposito = Path(load_config(percorso).run.out_dir) / storico.CARTELLA
+    (deposito / "0001.yaml").write_text("questo: non e': yaml [", encoding="utf-8")
+
+    risposta = cliente.post("/api/storico/indietro")
+    assert risposta.status_code == 200
+    corpo = risposta.json()
+    assert corpo["annullato"] is False
+    # Questo si', e' un guasto: chiede di mettere le mani dentro .storico, e non
+    # puo' arrivare all'utente con lo stesso peso di «niente da annullare».
+    assert corpo["guasto"] is True
+    # Dice dove intervenire: un «non e' leggibile» senza il percorso lascia
+    # cercare a mano dentro una cartella nascosta.
+    assert storico.CARTELLA in corpo["perche"]
+    assert percorso.read_bytes() == intatto
+
+    # Il cursore e' rimasto fermo, e la grandezza e' l'invariante e non un
+    # numero: il cursore deve puntare ancora alla versione che config.yaml
+    # porta. Chiesto invece al secondo «indietro» di rispondere come il primo,
+    # questo controllo resterebbe verde anche senza il ripristino del cursore —
+    # provato, e la ragione e' che un cursore lasciato su una versione corrotta
+    # fa apparire il config su disco come una modifica fatta a mano, che viene
+    # depositata e riporta il tentativo successivo allo stesso rifiuto.
+    cursore = json.loads((deposito / "cursore.json").read_text(encoding="utf-8"))["versione"]
+    assert (deposito / f"{cursore:04d}.yaml").read_bytes() == intatto, (
+        "il cursore non punta piu' alla versione che config.yaml porta"
+    )
+    assert cliente.post("/api/storico/indietro").json()["perche"] == corpo["perche"]
+    assert percorso.read_bytes() == intatto
+
+
+def test_una_versione_che_punta_a_un_altra_corsa_non_ripunta_l_applicazione(cliente, tmp_path):
+    """Il caso peggiore e' quello che non solleva niente: una versione con un
+    out_dir diverso e' YAML valido e configurazione valida, quindi la sola
+    validazione la lascerebbe passare. Da li' l'undo risponderebbe con gli steps
+    di un'altra corsa come se fossero quella corrente, e il prossimo «esegui
+    step» scriverebbe artefatti dentro la corsa di riferimento. Un solo Ctrl+Z,
+    in silenzio.
+    """
+    from meshrec.app import storico
+
+    percorso = tmp_path / "config.yaml"
+    corpo = cliente.get("/api/config").json()
+    corpo["surface"]["poisson_depth"] = 7
+    cliente.put("/api/config", json=corpo)
+    intatto = percorso.read_bytes()
+
+    altrove = tmp_path / "corsa_di_riferimento"
+    deposito = Path(load_config(percorso).run.out_dir) / storico.CARTELLA
+    dirottata = load_config(percorso)
+    dirottata.run.out_dir = altrove
+    save_config(dirottata, deposito / "0001.yaml")
+
+    corpo = cliente.post("/api/storico/indietro").json()
+    assert corpo["annullato"] is False
+    assert corpo["guasto"] is True
+    assert "corsa" in corpo["perche"]
+    assert percorso.read_bytes() == intatto
+    assert not altrove.exists(), "l'undo ha ripuntato l'applicazione su un'altra corsa"
+
+
+def test_il_registro_elenca_i_campi_cambiati_e_non_tutti_i_blocchi(cliente, tmp_path):
+    """Il registro non si pota mai: cio' che vi si scrive resta per sempre, e
+    un elenco che si chiama «campi cambiati» e ne porta dieci quando ne e'
+    cambiato uno e' precisione inventata nel posto peggiore, quello che dovra'
+    rispondere «da dove viene questa versione».
+
+    Il vocabolario e' quello che il banco dello storico fissa: percorsi puntati,
+    come segment.crop_min che POST /api/crop registra.
+    """
+    from meshrec.app import storico
+    from meshrec.core import sweep
+
+    corpo = cliente.get("/api/config").json()
+    corpo["surface"]["poisson_depth"] = 7
+    assert cliente.put("/api/config", json=corpo).status_code == 200
+
+    registro = Path(load_config(tmp_path / "config.yaml").run.out_dir) / storico.CARTELLA
+    righe = sweep.load_registry(registro / "registro.jsonl")
+    # Vale l'ultima riga: dopo un annullamento un numero di versione ricompare,
+    # e la prima riga che lo porta attribuisce al file l'endpoint di prima.
+    ultima = righe[-1]
+    assert ultima["endpoint"] == "PUT /api/config"
+    assert ultima["campi"] == ["surface.poisson_depth"]
