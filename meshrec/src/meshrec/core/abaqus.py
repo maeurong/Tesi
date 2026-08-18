@@ -38,6 +38,9 @@ def write_inp(
     gravity: float = GRAVITY_MM_S2,
     elset: str = "ALL_WALL",
     step_name: str = "GRAVITA",
+    element_surfaces: dict[str, list[tuple[int, int]]] | None = None,
+    ties: tuple[tuple[str, str, str], ...] = (),
+    pressure: tuple[str, float] | None = None,
 ) -> None:
     """Scrive un modello pronto all'analisi statica sotto peso proprio.
 
@@ -50,6 +53,12 @@ def write_inp(
     scelto: e' il comportamento che questa funzione aveva prima della Fase 4,
     tenuto perche' i chiamanti gia' scritti continuino a valere. Chi sceglie
     davvero il tipo lo prende da `tet.element` o da `model.element`.
+
+    `element_surfaces`, `ties` e `pressure` sono le tre aggiunte della Fase 4 e
+    sono tutte facoltative: senza di esse il deck e' identico a quello che
+    questa funzione scriveva prima, ed e' cosi' che le corse tetraedriche
+    restano confrontabili con quelle gia' fatte. Un carico assente non diventa
+    una pressione dichiarata a zero: le due cose non sono la stessa.
     """
     if fixed_nset not in node_sets:
         raise ValueError(f"il set vincolato '{fixed_nset}' non e fra i node_sets forniti")
@@ -60,6 +69,20 @@ def write_inp(
         raise ValueError(
             f"tipo di elemento '{element_type}' sconosciuto: "
             f"i tipi scrivibili sono {sorted(NODI_PER_ELEMENTO)}"
+        )
+    superfici = {} if element_surfaces is None else element_surfaces
+    for nome, dipendente, indipendente in ties:
+        mancanti = [s for s in (dipendente, indipendente) if s not in superfici]
+        if mancanti:
+            raise ValueError(
+                f"il vincolo *TIE '{nome}' nomina {mancanti}, che non e' fra le "
+                "superfici dichiarate: un deck cosi' viene rifiutato dal solutore "
+                "solo alla lettura, e questo errore arriva prima"
+            )
+    if pressure is not None and pressure[0] not in superfici:
+        raise ValueError(
+            f"il carico laterale agisce su '{pressure[0]}', che non e' fra le "
+            "superfici dichiarate: una pressione applicata a nulla non e' un carico"
         )
 
     nodes = np.asarray(nodes, dtype=np.float64)
@@ -87,6 +110,17 @@ def write_inp(
         lines.append(f"*NSET, NSET={name}")
         lines += _set_lines(indices)
 
+    for nome, coppie in superfici.items():
+        lines.append(f"*SURFACE, TYPE=ELEMENT, NAME={nome}")
+        lines += [f"{elemento + 1}, S{numero}" for elemento, numero in coppie]
+
+    for nome, dipendente, indipendente in ties:
+        # ADJUST=NO: spostare i nodi della superficie dipendente sulla
+        # indipendente cambierebbe la geometria dopo che il volume e' stato
+        # misurato, e il modello non sarebbe piu' quello di cui il report parla.
+        lines.append(f"*TIE, NAME={nome}, ADJUST=NO")
+        lines.append(f"{dipendente}, {indipendente}")
+
     lines += [
         f"*SOLID SECTION, ELSET={elset}, MATERIAL={material.name}",
         f"*MATERIAL, NAME={material.name}",
@@ -101,6 +135,8 @@ def write_inp(
         "*DLOAD",
         f"{elset}, GRAV, {gravity}, 0.0, 0.0, -1.0",
     ]
+    if pressure is not None:
+        lines += ["*DSLOAD", f"{pressure[0]}, P, {pressure[1]}"]
 
     for name in print_nsets:
         lines += [f"*NODE PRINT, NSET={name}", "U"]
@@ -160,6 +196,84 @@ FACCE_TOPOLOGICHE: dict[int, tuple[tuple[int, ...], ...]] = {
         (1, 2, 6, 5), (2, 3, 7, 6), (3, 0, 4, 7),
     ),
 }
+
+# Le facce di un elemento nell'ordine e con la numerazione del solutore: S1 e'
+# la prima riga, S2 la seconda, e cosi' via. E' la tabella che il debito
+# rinviato dalla Fase 1 chiedeva, ed e' la fonte d'errore silenzioso per cui
+# era stato rinviato: sbagliarla produce un deck che il solutore legge senza
+# protestare, applicando il carico a una faccia diversa da quella chiesta.
+#
+# C3D4, dal manuale: S1 = 1-2-3, S2 = 1-4-2, S3 = 2-4-3, S4 = 3-4-1.
+# C3D8, dal manuale: S1 = 1-2-3-4, S2 = 5-8-7-6, S3 = 1-5-6-2,
+#                    S4 = 2-6-7-3, S5 = 3-7-8-4, S6 = 4-8-5-1.
+# Qui gli indici sono 0-based, quindi ciascuno vale uno in meno.
+#
+# Non e' FACCE_TOPOLOGICHE con un altro nome: quella serve a trovare il bordo e
+# ordina gli indici prima di confrontarli, quindi puo' elencare le facce in
+# qualunque ordine. Questa non puo': l'ordine E' l'informazione.
+FACCE_DEL_SOLUTORE: dict[int, tuple[tuple[int, ...], ...]] = {
+    4: ((0, 1, 2), (0, 3, 1), (1, 3, 2), (2, 3, 0)),
+    8: (
+        (0, 1, 2, 3), (4, 7, 6, 5), (0, 4, 5, 1),
+        (1, 5, 6, 2), (2, 6, 7, 3), (3, 7, 4, 0),
+    ),
+}
+
+
+def element_surface(
+    elements: np.ndarray, indici_nodo: np.ndarray, element_type: str
+) -> list[tuple[int, int]]:
+    """Le coppie (elemento, numero di faccia) le cui facce cadono nell'insieme dato.
+
+    Una faccia entra nella superficie solo se **tutti** i suoi nodi stanno
+    nell'insieme: tre nodi su quattro non sono quella faccia, e nominarla
+    applicherebbe un carico dove l'utente non lo ha chiesto.
+
+    L'ordine delle coppie e' quello degli elementi e, dentro un elemento,
+    quello dei numeri di faccia: e' funzione del dato e non dell'iterazione,
+    quindi il deck scritto su due macchine e' lo stesso file.
+    """
+    if element_type not in NODI_PER_ELEMENTO:
+        raise ValueError(f"tipo di elemento '{element_type}' sconosciuto")
+    elementi = np.asarray(elements, dtype=np.int64)
+    angoli = 8 if NODI_PER_ELEMENTO[element_type] == 8 else 4
+    dentro = np.zeros(int(elementi.max()) + 1, dtype=bool)
+    dentro[np.asarray(indici_nodo, dtype=np.int64)] = True
+
+    coppie: list[tuple[int, int]] = []
+    for numero, combo in enumerate(FACCE_DEL_SOLUTORE[angoli], start=1):
+        tutte_dentro = dentro[elementi[:, list(combo)]].all(axis=1)
+        coppie += [(int(indice), numero) for indice in np.flatnonzero(tutte_dentro)]
+    coppie.sort()
+    return coppie
+
+
+def surface_area(
+    nodes: np.ndarray,
+    elements: np.ndarray,
+    superficie: list[tuple[int, int]],
+    element_type: str,
+) -> float:
+    """Area della superficie di elemento, sommata faccia per faccia.
+
+    E' il controllo che smentisce la superficie esportata: se l'area calcolata
+    qui non coincide con quella delle facce che il deck dichiara, la tabella
+    delle etichette nomina facce diverse da quelle volute. Una faccia di piu'
+    di tre nodi e' divisa a ventaglio dal primo, che e' esatto per una faccia
+    piana e sottostima di poco una faccia svergolata.
+    """
+    punti = np.asarray(nodes, dtype=np.float64)
+    elementi = np.asarray(elements, dtype=np.int64)
+    angoli = 8 if NODI_PER_ELEMENTO[element_type] == 8 else 4
+
+    totale = 0.0
+    for elemento, numero in superficie:
+        nodi = [elementi[elemento][indice] for indice in FACCE_DEL_SOLUTORE[angoli][numero - 1]]
+        for primo, secondo in zip(nodi[1:-1], nodi[2:], strict=True):
+            lato_a = punti[primo] - punti[nodi[0]]
+            lato_b = punti[secondo] - punti[nodi[0]]
+            totale += float(np.linalg.norm(np.cross(lato_a, lato_b)) / 2.0)
+    return totale
 
 # Nodi d'angolo per numero di colonne dell'array: un C3D10 ha dieci colonne
 # ma la topologia di faccia e' quella del tetraedro (le prime quattro sono i

@@ -660,3 +660,108 @@ def test_export_model_rifiuta_l_incoerenza_tipo_nodi_prima_di_qualunque_calcolo(
             config.TetConfig(),
             element_type="C3D8",
         )
+
+
+_CUBO = np.array([
+    [0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0],
+    [0.0, 0.0, 1.0], [1.0, 0.0, 1.0], [1.0, 1.0, 1.0], [0.0, 1.0, 1.0],
+])
+_ESAEDRO = np.array([[0, 1, 2, 3, 4, 5, 6, 7]], dtype=np.int64)
+
+
+def test_le_sei_etichette_di_faccia_di_un_esaedro_sono_le_sue_sei_facce():
+    """Il test non legge la tabella: costruisce l'insieme dei nodi che ogni
+    etichetta nomina e verifica che siano le sei facce distinte del cubo. Una
+    tabella sbagliata nominerebbe due volte la stessa faccia, o una diagonale."""
+    nominate = {
+        tuple(sorted(abaqus.FACCE_DEL_SOLUTORE[8][numero]))
+        for numero in range(6)
+    }
+    vere = {tuple(sorted(faccia)) for faccia in abaqus.boundary_faces(_ESAEDRO).tolist()}
+
+    assert len(nominate) == 6
+    assert nominate == vere
+
+
+def test_le_quattro_etichette_di_faccia_di_un_tetraedro_sono_le_sue_quattro_facce():
+    tetraedro = np.array([[0, 1, 2, 3]], dtype=np.int64)
+    nominate = {tuple(sorted(abaqus.FACCE_DEL_SOLUTORE[4][numero])) for numero in range(4)}
+    vere = {tuple(sorted(faccia)) for faccia in abaqus.boundary_faces(tetraedro).tolist()}
+
+    assert len(nominate) == 4
+    assert nominate == vere
+
+
+def test_la_superficie_di_elemento_di_una_faccia_nominata_ha_l_area_giusta():
+    """Il controllo della spec: area della superficie esportata contro area
+    calcolata sulle facce. Su un cubo unitario ogni faccia vale 1."""
+    superficie = abaqus.element_surface(_ESAEDRO, np.array([0, 1, 2, 3]), "C3D8I")
+
+    assert superficie == [(0, 1)], "la faccia z=0 di un C3D8 e' S1"
+    assert abaqus.surface_area(_CUBO, _ESAEDRO, superficie, "C3D8I") == pytest.approx(1.0)
+
+
+def test_la_superficie_di_elemento_non_nomina_una_faccia_solo_sfiorata():
+    """Il controllo che smentisce il precedente: tre nodi su quattro di una
+    faccia non sono quella faccia, e nominarla applicherebbe un carico dove
+    l'utente non lo ha chiesto."""
+    superficie = abaqus.element_surface(_ESAEDRO, np.array([0, 1, 2]), "C3D8I")
+
+    assert superficie == []
+
+
+def test_la_superficie_esportata_ha_l_area_delle_facce_che_dichiara(tmp_path):
+    """Il deck e' la fonte: si rilegge il file e si contano le coppie scritte,
+    invece di fidarsi di cio' che la funzione ha restituito."""
+    nodi_base = np.flatnonzero(_CUBO[:, 2] <= 1e-9)
+    superficie = abaqus.element_surface(_ESAEDRO, nodi_base, "C3D8I")
+    percorso = tmp_path / "carico.inp"
+
+    abaqus.write_inp(
+        percorso, _CUBO, _ESAEDRO,
+        node_sets={"BASE": nodi_base},
+        material=MATERIALE,
+        element_type="C3D8I",
+        element_surfaces={"FACCIA_BASSA": superficie},
+        pressure=("FACCIA_BASSA", 0.25),
+    )
+
+    testo = percorso.read_text(encoding="ascii")
+    assert "*SURFACE, TYPE=ELEMENT, NAME=FACCIA_BASSA" in testo
+    assert "1, S1" in testo
+    assert "*DSLOAD" in testo
+    assert "FACCIA_BASSA, P, 0.25" in testo
+
+
+def test_senza_carico_laterale_il_deck_non_ha_alcuna_card_di_pressione(tmp_path):
+    """Il carico laterale e' opzionale e assente se non richiesto: un deck che
+    lo portasse comunque a zero applicherebbe una pressione nulla dichiarata,
+    che e' un'altra cosa da nessuna pressione."""
+    percorso = tmp_path / "senza.inp"
+    abaqus.write_inp(
+        percorso, _CUBO, _ESAEDRO,
+        node_sets={"BASE": np.array([0, 1, 2, 3])},
+        material=MATERIALE,
+        element_type="C3D8I",
+    )
+
+    testo = percorso.read_text(encoding="ascii")
+    assert "*DSLOAD" not in testo
+    assert "*SURFACE" not in testo
+    assert "*TIE" not in testo
+
+
+def test_il_tie_nomina_due_superfici_gia_dichiarate(tmp_path):
+    """Un *TIE che punta a una superficie mai dichiarata e' un deck rotto che
+    il solutore rifiuta solo alla lettura: l'errore arriva prima."""
+    superficie = abaqus.element_surface(_ESAEDRO, np.array([0, 1, 2, 3]), "C3D8I")
+
+    with pytest.raises(ValueError, match="MAI_DICHIARATA"):
+        abaqus.write_inp(
+            tmp_path / "rotto.inp", _CUBO, _ESAEDRO,
+            node_sets={"BASE": np.array([0, 1, 2, 3])},
+            material=MATERIALE,
+            element_type="C3D8I",
+            element_surfaces={"UNA": superficie},
+            ties=(("GIUNZIONE_1", "UNA", "MAI_DICHIARATA"),),
+        )
