@@ -154,9 +154,11 @@ La grandezza giusta qui è lo **spessore locale**, e la regola è la sua
 5. Il pavimento non è una membratura: è un piano quasi orizzontale esteso oltre
    l'ingombro del pezzo, e viene scartato come tale.
 
-Nessun numero tarato su `lab_frame` entra nel codice. La stessa procedura, su
-`muro_generato.ply`, deve trovare **una** regione sola: è la prova che non
-inventa membrature dove non ce ne sono.
+Nessun numero tarato su `lab_frame` entra nel codice, e nemmeno il numero di
+membrature da cercare: la scomposizione trova quelle che ci sono. Su
+`muro_generato.ply` deve trovarne **una** sola — è la prova che non inventa
+membrature dove non ce ne sono — e su una geometria mai vista deve dire quante ne
+ha trovate senza aspettarsene alcuna.
 
 ### 4.2 Che cosa misura, per membratura
 
@@ -172,15 +174,34 @@ essere perfettamente piano e tutto storto, oppure a piombo e panciuto.
 
 ### 4.3 I controlli che possono smentire il prior
 
-Senza questi il prior è una macchina per fabbricare numeri.
+Senza questi il prior è una macchina per fabbricare numeri. Sono di due specie, e
+la distinzione è un requisito di prodotto, non un dettaglio d'attuazione.
+
+**Controlli intrinseci — sempre attivi, non sanno nulla del pezzo.**
 
 | controllo | criterio | esito se fallisce |
 |---|---|---|
-| numero di membrature | 6 su `lab_frame`, 1 su `muro_generato` | la corsa si ferma e dice quante ne ha trovate |
-| sezione | contro il nominale di tavola (172×172, 250×250, 140×175, 700×250) | scarto riportato, non nascosto |
-| volume | contro i 0,4777 m³ di tavola | scarto riportato |
 | parallelismo delle facce | angolo entro una soglia dichiarata | il prior si rifiuta invece di dare una sezione media priva di senso |
 | copertura per faccia | frazione di area vista dallo scanner sopra una soglia dichiarata | il prior si rifiuta: una faccia vista da pochi punti produce un piano finto. È la lezione già pagata su `FACE_FRONT`/`FACE_BACK` |
+| costanza della sezione | dispersione della sezione lungo l'asse entro una soglia dichiarata | la regione non è un prisma, e viene riportata come tale invece di essere spacciata per una membratura |
+| chiusura del volume | somma dei volumi delle membrature contro il volume dell'unione | doppio conteggio alle giunzioni |
+
+**Riscontri dichiarati — facoltativi, e assenti per definizione su un pezzo
+nuovo.** L'operatore *può* dichiarare in configurazione ciò che si aspetta:
+quante membrature, con quali sezioni nominali, per quale volume complessivo. Se
+lo dichiara, il prior riporta lo scarto; se non lo dichiara, il prior riporta ciò
+che ha trovato e **non inventa un'aspettativa**.
+
+Nel caso studio della tesi quei riscontri esistono e vengono dalla tavola
+`MURO 1`: sei membrature, sezioni 172×172, 250×250, 140×175, 700×250, volume
+0,4777 m³. Sono dati del *caso*, non del programma.
+
+**Vincolo di prodotto, vincolante sull'attuazione:** nessun numero del provino di
+laboratorio entra nel codice sorgente. Né il sei, né le quattro sezioni, né il
+volume, né una soglia di quota. Il programma deve girare su una geometria che non
+ha mai visto, senza disegno, senza sapere quante membrature aspettarsi e con un
+materiale qualunque. Il caso studio è un *caso*, e vive nei file di
+configurazione e nei test, dove è legittimo che i suoi numeri compaiano.
 
 ### 4.4 Il piede del modello è un taglio, non una faccia
 
@@ -301,9 +322,9 @@ l'impronta di una corsa che non è cambiata.
 
 | grandezza | ciò che la contraddice |
 |---|---|
-| scomposizione in membrature | 6 su `lab_frame`, 1 su `muro_generato`; un numero diverso ferma la corsa |
-| sezioni misurate | i nominali di tavola |
-| volume del prior | i 0,4777 m³ di tavola |
+| scomposizione in membrature | le geometrie sintetiche a verità nota: una scatola dà **una** membratura, un telaio generato dà quelle che ha. Il numero atteso viene dal banco di prova, mai dal codice |
+| sezioni misurate | la verità nota della geometria sintetica; e, se dichiarati, i nominali del caso in esame |
+| volume del prior | il volume analitico della geometria sintetica; e, se dichiarato, quello del caso in esame |
 | mesh esaedrica | volume della mesh contro volume analitico dei prismi; nessun Jacobiano negativo |
 | giunzioni | somma dei volumi delle membrature contro volume dell'unione: se differiscono, c'è doppio conteggio |
 | superfici di elemento | area della superficie esportata contro area calcolata sulle facce |
