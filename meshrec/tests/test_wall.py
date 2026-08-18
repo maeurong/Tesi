@@ -15,11 +15,26 @@ from meshrec.core.config import SegmentConfig, WallConfig
 
 # Un telaio sintetico: due montanti, un traverso in alto, uno in basso. Sei
 # numeri che stanno qui, nel banco, e in nessun file di src/.
+#
+# Le quattro sezioni (l'estensione in y di ciascun prisma, cioe' lo spessore
+# che scomponi() sorveglia) sono deliberatamente tutte diverse fra loro. La
+# scomposizione separa le membrature per costanza dello spessore locale: con
+# quattro sezioni uguali il banco non proverebbe nulla, perche' un algoritmo
+# che fonde tutto in una regione sola passerebbe la prova tanto quanto uno che
+# separa correttamente (e' proprio il caso limite verificato piu' sotto da
+# test_una_sezione_uniforme_smentisce_la_separazione_per_spessore). I valori
+# sono del banco, scelti per essere ben distanti oltre la tolleranza relativa
+# predefinita fra ogni coppia di membrature che si toccano a un nodo, non le
+# sezioni del provino di laboratorio: quelle vivono nella configurazione del
+# Task 15. Ogni sezione e' centrata sull'origine in y (invece che appoggiata a
+# y=0): mantiene la simmetria per riflessione attorno a y che il telaio a
+# sezione uniforme ha per costruzione, cosi' la terna stimata dalla SVD trova
+# ancora y come trasversale in modo esatto e non solo approssimato.
 TELAIO = [
-    ((0.0, 0.0, 0.0), (200.0, 200.0, 1600.0)),      # montante sinistro
-    ((1400.0, 0.0, 0.0), (200.0, 200.0, 1600.0)),   # montante destro
-    ((0.0, 0.0, 1600.0), (1600.0, 200.0, 300.0)),   # traverso superiore
-    ((0.0, 0.0, -300.0), (1600.0, 200.0, 300.0)),   # traverso inferiore
+    ((0.0, -90.0, 0.0), (200.0, 180.0, 1600.0)),        # montante sinistro
+    ((1400.0, -130.0, 0.0), (200.0, 260.0, 1600.0)),    # montante destro
+    ((0.0, -70.0, 1600.0), (1600.0, 140.0, 300.0)),     # traverso superiore
+    ((0.0, -170.0, -300.0), (1600.0, 340.0, 300.0)),    # traverso inferiore
 ]
 SPAZIATURA = 20.0
 
@@ -82,3 +97,110 @@ def test_lo_spessore_locale_di_una_scatola_e_la_sua_dimensione_sottile():
     assert len(celle) == len(spessori)
     # le celle interne alla faccia larga vedono le due facce a 180 mm di distanza
     assert np.median(spessori) == pytest.approx(180.0, abs=1.5 * SPAZIATURA)
+
+
+def test_il_pavimento_viene_scartato_come_piano_e_non_come_quota():
+    """Il pavimento e' un piano quasi orizzontale esteso oltre l'ingombro del
+    pezzo. Scartarlo con una soglia di quota sarebbe tarare una costante sulla
+    scansione di oggi; qui viene scartato per cio' che e'."""
+    telaio = synth.sample_frame_surface(TELAIO, SPAZIATURA)
+    pavimento = synth.sample_box_surface((4000.0, 3000.0, 10.0), SPAZIATURA * 2.0)
+    pavimento = pavimento + np.array([-1200.0, -1400.0, -320.0])
+    punti = np.vstack([telaio, pavimento])
+
+    tenuti, metriche = wall.scarta_pavimento(punti, SegmentConfig(), _cfg(), SPAZIATURA)
+
+    assert metriche["pavimento_trovato"] is True
+    assert len(tenuti) < len(punti)
+    # nessun punto sotto il piede del telaio sintetico resta in circolazione
+    assert tenuti[:, 2].min() > -320.0
+    assert tenuti[:, 2].min() == pytest.approx(-300.0, abs=3.0 * SPAZIATURA)
+
+
+def test_senza_pavimento_non_ne_viene_inventato_uno():
+    """Il controllo che smentisce il precedente: su una nuvola che pavimento
+    non ha, la funzione non deve togliere una faccia del pezzo scambiandola per
+    tale."""
+    punti = synth.sample_frame_surface(TELAIO, SPAZIATURA)
+
+    tenuti, metriche = wall.scarta_pavimento(punti, SegmentConfig(), _cfg(), SPAZIATURA)
+
+    assert metriche["pavimento_trovato"] is False
+    assert len(tenuti) == len(punti)
+
+
+def test_una_scatola_da_una_sola_membratura():
+    """La prova che la scomposizione non inventa membrature dove non ce ne
+    sono. Il numero atteso viene dal banco, non dal codice."""
+    punti = synth.sample_box_surface((400.0, 180.0, 1200.0), SPAZIATURA)
+
+    regioni, metriche = wall.scomponi(punti, SegmentConfig(), _cfg(), SPAZIATURA)
+
+    assert len(regioni) == 1
+    assert metriche["regioni_trovate"] == 1
+
+
+def test_un_telaio_sintetico_da_le_membrature_che_ha():
+    """Quattro prismi di tre sezioni diverse: la scomposizione deve separarli
+    per costanza dello spessore, e i due montanti identici, che sono disgiunti
+    nel piano, restano due regioni e non una."""
+    punti = synth.sample_frame_surface(TELAIO, SPAZIATURA)
+
+    regioni, metriche = wall.scomponi(punti, SegmentConfig(), _cfg(), SPAZIATURA)
+
+    assert metriche["regioni_trovate"] == len(regioni)
+    assert 2 <= len(regioni) <= 6, (
+        f"attese fra 2 e 6 regioni sui quattro prismi del banco, trovate {len(regioni)}: "
+        "sotto, la scomposizione fonde membrature diverse; sopra, le frammenta"
+    )
+    # ogni punto sta in al piu' una regione: una regione non ruba punti a un'altra
+    tutti = np.concatenate(regioni)
+    assert len(tutti) == len(np.unique(tutti))
+
+
+def test_l_ordine_delle_regioni_non_dipende_dall_ordine_dei_punti():
+    """Quinto vincolo di prodotto: un ordine e' un esito discreto e deve essere
+    funzione del dato. E' la stessa lezione gia' pagata sull'ordine dei voxel di
+    Open3D fra Windows x86-64 e macOS arm64."""
+    punti = synth.sample_frame_surface(TELAIO, SPAZIATURA)
+    rimescolati = punti[np.random.default_rng(1).permutation(len(punti))]
+
+    prima, _ = wall.scomponi(punti, SegmentConfig(), _cfg(), SPAZIATURA)
+    dopo, _ = wall.scomponi(rimescolati, SegmentConfig(), _cfg(), SPAZIATURA)
+
+    assert len(prima) == len(dopo)
+    # confronto per insieme di coordinate, non per indice: gli indici puntano a
+    # due ordinamenti diversi della stessa nuvola
+    for regione_prima, regione_dopo in zip(prima, dopo, strict=True):
+        a = np.unique(np.round(punti[regione_prima], 6), axis=0)
+        b = np.unique(np.round(rimescolati[regione_dopo], 6), axis=0)
+        assert a.shape == b.shape
+        assert a == pytest.approx(b)
+
+
+def test_una_sezione_uniforme_smentisce_la_separazione_per_spessore():
+    """Limite noto e voluto del metodo, non un difetto da correggere qui.
+
+    La scomposizione separa le membrature per costanza dello spessore locale:
+    se due membrature che si toccano a un nodo hanno la stessa sezione, non
+    c'e' alcuna discontinuita' di spessore da cui `regioni` possa tagliare, e
+    restano una regione sola anche se sono fisicamente due elementi diversi
+    (qui un piedritto e una trave, uniti a Π). Non e' un risultato falso in
+    silenzio: una regione a Π non e' un prisma, quindi il controllo di
+    costanza della sezione del Task 3 la scartera' con il proprio motivo.
+    Separare anche questo caso richiederebbe stimare l'orientamento locale
+    invece dello spessore, vedi il commento `ponytail:` su `regioni` in
+    `wall.py`. Se mai servisse, il segno che lo richiede e' questo test che
+    smette di passare."""
+    telaio_a_sezione_uniforme = [
+        ((0.0, 0.0, 0.0), (200.0, 200.0, 1600.0)),      # montante sinistro
+        ((1400.0, 0.0, 0.0), (200.0, 200.0, 1600.0)),   # montante destro
+        ((0.0, 0.0, 1600.0), (1600.0, 200.0, 300.0)),   # traverso superiore
+        ((0.0, 0.0, -300.0), (1600.0, 200.0, 300.0)),   # traverso inferiore
+    ]
+    punti = synth.sample_frame_surface(telaio_a_sezione_uniforme, SPAZIATURA)
+
+    regioni, metriche = wall.scomponi(punti, SegmentConfig(), _cfg(), SPAZIATURA)
+
+    assert len(regioni) == 1
+    assert metriche["regioni_trovate"] == 1

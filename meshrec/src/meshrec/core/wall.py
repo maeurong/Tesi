@@ -113,3 +113,173 @@ def spessore_per_cella(
     np.maximum.at(alto, inverso, valori)
     np.minimum.at(basso, inverso, valori)
     return uniche, alto - basso, inverso
+
+
+def scarta_pavimento(
+    points: np.ndarray, cfg_segment: SegmentConfig, cfg: WallConfig, spacing: float
+) -> tuple[np.ndarray, dict[str, object]]:
+    """Toglie il pavimento, se c'e'. Non e' una membratura ed e' scartato come piano.
+
+    Il pavimento e' riconosciuto da due condizioni che valgono insieme e non da
+    una soglia di quota: la normale del piano sta entro `floor_angle_deg`
+    dalla verticale, e il piano contiene almeno `floor_min_ratio` dei punti.
+    Una faccia superiore di membratura soddisfa la prima e non la seconda.
+
+    L'estrazione dei piani non viene riscritta: e' `segment.extract_planes`,
+    con la stessa configurazione con cui lo step 2 la usa gia'.
+
+    Se nessun piano soddisfa entrambe le condizioni la nuvola torna intatta e
+    le metriche lo dichiarano: non viene inventato un pavimento, per lo stesso
+    motivo per cui non viene inventata un'aspettativa quando non e' dichiarata.
+    """
+    punti = np.asarray(points, dtype=np.float64)
+    piani, _residuo, metriche_piani = segment.extract_planes(punti, cfg_segment, spacing)
+    coseno = np.cos(np.radians(cfg.floor_angle_deg))
+    minimo = cfg.floor_min_ratio * len(punti)
+
+    for piano in piani:
+        if len(piano) < minimo:
+            continue
+        centrati = piano - piano.mean(axis=0)
+        _, _, principali = np.linalg.svd(centrati, full_matrices=False)
+        if abs(principali[2][2]) < coseno:
+            continue
+        # Il pavimento e' questo: si toglie per appartenenza, confrontando le
+        # coordinate arrotondate. Un confronto per indice non e' disponibile,
+        # perche' extract_planes restituisce i punti e non le loro posizioni.
+        chiave_piano = {tuple(riga) for riga in np.round(piano, 6).tolist()}
+        tenuti = np.array(
+            [tuple(riga) not in chiave_piano for riga in np.round(punti, 6).tolist()],
+            dtype=bool,
+        )
+        return np.ascontiguousarray(punti[tenuti]), {
+            "pavimento_trovato": True,
+            "pavimento_punti": int(len(piano)),
+            "punti_dopo": int(tenuti.sum()),
+            **metriche_piani,
+        }
+
+    return punti, {
+        "pavimento_trovato": False,
+        "pavimento_punti": 0,
+        "punti_dopo": int(len(punti)),
+        **metriche_piani,
+    }
+
+
+def regioni(celle: np.ndarray, spessori: np.ndarray, cfg: WallConfig) -> list[np.ndarray]:
+    """Regioni connesse a spessore quasi costante, sulla griglia delle celle.
+
+    Due celle adiacenti sui quattro lati appartengono alla stessa membratura se
+    i loro spessori differiscono di meno di `thickness_tolerance` in relativo.
+    E' la forma numerica di «quasi costante», ed e' l'unica soglia della
+    scomposizione: non c'e' un istogramma da leggere ne' un numero di modi da
+    dichiarare, quindi non c'e' un numero di membrature da aspettarsi.
+
+    Le componenti connesse vengono da scipy.sparse.csgraph, gia' installata:
+    non c'e' motivo di scrivere una union-find a mano.
+
+    L'ordine delle regioni e' canonico -- per numero di celle decrescente, a
+    pari numero per la cella di indice minimo -- quindi funzione del dato e non
+    dell'ordine di visita: e' il quinto vincolo di prodotto.
+    """
+    # ponytail: il soffitto e' lo spessore costante. Due membrature adiacenti
+    # con la stessa sezione (per esempio un piedritto e una trave uniti a Π
+    # con lo stesso spessore) non hanno alcuna discontinuita' da cui tagliare
+    # e restano una regione sola -- vedi
+    # test_una_sezione_uniforme_smentisce_la_separazione_per_spessore in
+    # tests/test_wall.py. Non e' un risultato falso in silenzio: quella
+    # regione non e' un prisma e il controllo di costanza della sezione del
+    # Task 3 la scarta. Aggiornamento se servisse: direzione locale di
+    # allungamento per cella (PCA sull'intorno) invece del solo spessore.
+    from scipy.sparse import coo_array
+    from scipy.sparse.csgraph import connected_components
+
+    griglia = np.asarray(celle, dtype=np.int64)
+    valori = np.asarray(spessori, dtype=np.float64)
+    passo = int(griglia[:, 1].max() + 1)
+    chiave = griglia[:, 0] * passo + griglia[:, 1]
+    ordine = np.argsort(chiave, kind="stable")
+    ordinate = chiave[ordine]
+
+    archi_a: list[np.ndarray] = []
+    archi_b: list[np.ndarray] = []
+    for salto in (passo, 1):  # vicino lungo il primo asse, vicino lungo il secondo
+        posizione = np.searchsorted(ordinate, chiave + salto)
+        posizione = np.clip(posizione, 0, len(ordinate) - 1)
+        vicino = ordine[posizione]
+        esiste = ordinate[posizione] == chiave + salto
+        if salto == 1:
+            # il vicino lungo il secondo asse esiste solo se non ha scavalcato
+            # la riga: due celle contigue nella chiave possono stare su righe
+            # diverse della griglia
+            esiste &= griglia[vicino, 0] == griglia[:, 0]
+        vicini_validi = np.flatnonzero(esiste)
+        if len(vicini_validi) == 0:
+            continue
+        altro = vicino[vicini_validi]
+        massimo = np.maximum(valori[vicini_validi], valori[altro])
+        simili = np.abs(valori[vicini_validi] - valori[altro]) <= cfg.thickness_tolerance * massimo
+        archi_a.append(vicini_validi[simili])
+        archi_b.append(altro[simili])
+
+    da = np.concatenate(archi_a) if archi_a else np.empty(0, dtype=np.int64)
+    a = np.concatenate(archi_b) if archi_b else np.empty(0, dtype=np.int64)
+    grafo = coo_array(
+        (np.ones(len(da), dtype=np.int8), (da, a)), shape=(len(griglia), len(griglia))
+    )
+    _quante, etichette = connected_components(grafo, directed=False)
+
+    gruppi = []
+    for etichetta in np.unique(etichette):
+        indici = np.flatnonzero(etichette == etichetta)
+        if len(indici) < cfg.min_cells:
+            continue
+        gruppi.append(indici)
+    # ordine canonico: le regioni grandi per prime, i pari merito per la cella
+    # di indice minimo, che e' un numero della griglia e non dell'esecuzione
+    gruppi.sort(key=lambda indici: (-len(indici), int(chiave[indici].min())))
+    return gruppi
+
+
+def scomponi(
+    points: np.ndarray, cfg_segment: SegmentConfig, cfg: WallConfig, spacing: float
+) -> tuple[list[np.ndarray], dict[str, object]]:
+    """La scomposizione completa: dal pavimento scartato agli indici dei punti per regione.
+
+    Il numero di membrature non e' un parametro e non e' un'attesa: e' cio' che
+    la nuvola contiene. Su una scatola torna una regione sola.
+    """
+    puliti, metriche_pavimento = scarta_pavimento(points, cfg_segment, cfg, spacing)
+    if len(puliti) == 0:
+        raise ValueError(
+            "la rimozione del pavimento ha svuotato la nuvola: il piano scartato "
+            "conteneva tutti i punti, quindi non era un pavimento ma il pezzo. "
+            "Alza wall.floor_min_ratio o restringi wall.floor_angle_deg"
+        )
+
+    direzioni, centro = terna(puliti)
+    centrati = puliti - centro
+    piano = centrati @ direzioni[:2].T
+    trasversale = centrati @ direzioni[2]
+    lato = cfg.cell_factor * spacing
+
+    celle, spessori, inverso = spessore_per_cella(piano, trasversale, lato)
+    gruppi = regioni(celle, spessori, cfg)
+
+    per_regione = []
+    for indici_cella in gruppi:
+        appartiene = np.isin(inverso, indici_cella)
+        per_regione.append(np.flatnonzero(appartiene))
+
+    metriche: dict[str, object] = {
+        **metriche_pavimento,
+        "cell_side": float(lato),
+        "celle_occupate": int(len(celle)),
+        "regioni_trovate": len(per_regione),
+        "punti_per_regione": [int(len(indici)) for indici in per_regione],
+        "spessore_mediano": float(np.median(spessori)) if len(spessori) else None,
+        "terna": direzioni.tolist(),
+        "centro": centro.tolist(),
+    }
+    return per_regione, metriche
