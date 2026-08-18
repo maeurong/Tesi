@@ -250,16 +250,23 @@ class RunConfig(_ModelloBase):
         description=(
             "la ripresa arriva fino allo step 9 (tetraedrizzazione); gli step 10 e 11 "
             "sono metriche di volume ed esportazione, senza lavoro costoso da saltare, "
-            "e vengono comunque rieseguiti a ogni corsa"
+            "e vengono comunque rieseguiti a ogni corsa."
+            " Lo step 12 (prior geometrico) e' l'ultimo e non e' un punto di "
+            "ripresa: legge 02_segmented.ply, che e' gia' cio' che una ripresa "
+            "da 3 in poi ricarica. Chi vuole il solo prior usa `meshrec wall`, "
+            "che e' un'azione e non una ripresa."
         ),
     )
     to_step: int = Field(
-        default=11,
+        default=12,
         ge=1,
-        le=11,
+        le=12,
         description=(
             "ultimo step eseguito. Serve all'interfaccia, che esegue uno step "
             "alla volta: from_step e to_step uguali eseguono soltanto quello. "
+            "Il tetto e' 12 dalla Fase 4: lo step 12 e' il prior geometrico, e "
+            "chiude la corsa madre. from_step resta fermo a 9 e non lo segue, "
+            "per la ragione scritta la'. "
             "Con validate_assignment attivo il validatore incrociato rifiuta "
             "ogni stato intermedio incoerente, e nessun ordine di assegnazione "
             "e' sicuro: restringendo un intervallo verso l'alto rompe to_step "
@@ -277,6 +284,225 @@ class RunConfig(_ModelloBase):
         return self
 
 
+class WallConfig(_ModelloBase):
+    """Step 12: il prior geometrico. Il pezzo e' un telaio di membrature prismatiche.
+
+    Nessun valore qui dentro viene dal provino di laboratorio. Le soglie sono
+    angoli, frazioni e multipli della spaziatura media della nuvola: la
+    grandezza sorvegliata e' la costanza dello spessore, non il suo valore, e
+    una soglia di quota sarebbe una costante tarata sulla scansione di oggi
+    (secondo principio di prodotto).
+    """
+
+    cell_factor: float = Field(
+        default=4.0,
+        gt=0.0,
+        description=(
+            "lato della cella quadrata, in multipli della spaziatura media. E' il "
+            "«metodo delle colonne» di docs/fase-1-tolleranza-set.md, dove il "
+            "fattore 4 e' misurato e non scelto: con una cella larga quanto la "
+            "spaziatura la griglia diventa piu fine dei triangoli della faccia e "
+            "una colonna su dieci risulta vuota per puro artefatto di griglia"
+        ),
+    )
+    thickness_tolerance: float = Field(
+        default=0.15,
+        gt=0.0,
+        lt=1.0,
+        description=(
+            "scarto relativo entro cui due celle adiacenti contano come «stesso "
+            "spessore», e quindi come stessa membratura. E' la forma numerica di "
+            "«quasi costante»: le membrature sono le regioni connesse a spessore "
+            "quasi costante, e questa e' l'unica soglia della scomposizione"
+        ),
+    )
+    min_cells: int = Field(
+        default=12,
+        gt=0,
+        description=(
+            "celle minime perche' una regione connessa sia una membratura. Sotto "
+            "questo numero la regione e' rumore di griglia e non ha abbastanza "
+            "celle perche' una direzione principale sia stimabile"
+        ),
+    )
+    floor_angle_deg: float = Field(
+        default=15.0,
+        gt=0.0,
+        lt=90.0,
+        description=(
+            "un piano estratto con la normale entro questo angolo dalla verticale "
+            "e' candidato pavimento. Il pavimento non e' una membratura e va "
+            "scartato come piano, mai come quota"
+        ),
+    )
+    floor_min_ratio: float = Field(
+        default=0.10,
+        gt=0.0,
+        le=1.0,
+        description=(
+            "frazione minima dei punti perche' un piano quasi orizzontale sia il "
+            "pavimento e non la faccia superiore di una membratura. Le due "
+            "condizioni valgono insieme: orizzontale e esteso"
+        ),
+    )
+    contour_tolerance: float = Field(
+        default=5.0,
+        gt=0.0,
+        description=(
+            "tolleranza [mm] con cui il contorno di sezione misurato viene "
+            "semplificato. Un contorno con un vertice per punto rilevato porta "
+            "nella mesh il rumore dello scanner invece della forma della sezione"
+        ),
+    )
+    parallelism_deg: float = Field(
+        default=5.0,
+        gt=0.0,
+        lt=90.0,
+        description=(
+            "controllo intrinseco: angolo massimo fra le due facce opposte di una "
+            "regione. Oltre, la regione non ha una sezione e il prior si rifiuta "
+            "invece di darne una media priva di senso"
+        ),
+    )
+    face_coverage: float = Field(
+        default=0.5,
+        gt=0.0,
+        le=1.0,
+        description=(
+            "controllo intrinseco: frazione minima delle celle della regione che "
+            "vedono entrambe le facce. E' la lezione gia' pagata su FACE_FRONT e "
+            "FACE_BACK: una faccia vista da pochi punti produce un piano finto"
+        ),
+    )
+    section_dispersion: float = Field(
+        default=0.10,
+        gt=0.0,
+        description=(
+            "controllo intrinseco: dispersione relativa massima della sezione "
+            "lungo l'asse. Oltre, la regione non e' un prisma e viene riportata "
+            "come tale invece di essere spacciata per una membratura"
+        ),
+    )
+    union_tolerance: float = Field(
+        default=0.02,
+        gt=0.0,
+        description=(
+            "controllo intrinseco: scarto relativo ammesso fra la somma dei "
+            "volumi delle membrature e il volume della loro unione. Oltre c'e' "
+            "doppio conteggio alle giunzioni, che nessuna metrica di qualita' "
+            "vedrebbe"
+        ),
+    )
+    union_step_factor: float = Field(
+        default=2.0,
+        gt=0.0,
+        description=(
+            "passo del conteggio di celle con cui si misura il volume "
+            "dell'unione, in multipli della spaziatura media. Piu' fine, piu' "
+            "lento e piu' preciso: l'errore di discretizzazione viene riportato "
+            "accanto al risultato, non nascosto"
+        ),
+    )
+    membrature_attese: int | None = Field(
+        default=None,
+        gt=0,
+        description=(
+            "RISCONTRO DICHIARATO, facoltativo: quante membrature l'operatore si "
+            "aspetta. Assente per definizione su un pezzo nuovo. Se dichiarato il "
+            "prior riporta lo scarto; se assente riporta cio' che ha trovato e "
+            "non inventa un'aspettativa"
+        ),
+    )
+    sezioni_nominali: list[tuple[float, float]] | None = Field(
+        default=None,
+        description=(
+            "RISCONTRO DICHIARATO, facoltativo: le sezioni nominali attese [mm], "
+            "dal disegno se esiste. Non sono la fonte del modello: i modelli "
+            "parametrici misurano la sezione sulla nuvola, e il nominale serve "
+            "solo a contraddire la misura"
+        ),
+    )
+    volume_atteso: float | None = Field(
+        default=None,
+        gt=0.0,
+        description=(
+            "RISCONTRO DICHIARATO, facoltativo: il volume complessivo atteso "
+            "[mm^3], dal disegno se esiste"
+        ),
+    )
+
+
+class ModelConfig(_ModelloBase):
+    """I due modelli parametrici e il loro deck. Non e' letto da alcuno step di run().
+
+    La scelta di quali modelli generare non sta qui, ed e' deliberato: e'
+    un'azione, non un parametro di elaborazione. Se ci stesse, rigenerare un
+    modello in piu' cambierebbe l'impronta di una corsa che non e' cambiata.
+    """
+
+    element: Literal["C3D8I", "C3D8", "C3D8R"] = Field(
+        default="C3D8I",
+        description=(
+            "un telaio lavora a flessione. C3D8 a integrazione piena si "
+            "irrigidisce a taglio e restituisce spostamenti troppo piccoli, un "
+            "errore invisibile guardando la mesh; C3D8R ha il problema opposto, i "
+            "modi a clessidra. C3D8I e' supportato sia da Abaqus sia da CalculiX"
+        ),
+    )
+    min_layers: int = Field(
+        default=3,
+        ge=3,
+        description=(
+            "strati di elementi minimi nello spessore, imposti dal codice e non "
+            "suggeriti. Con uno o due la flessione nello spessore non e' "
+            "rappresentata e il risultato e' sbagliato senza alcun segnale. Il "
+            "vincolo ge=3 e' il vincolo stesso: non si scende sotto"
+        ),
+    )
+    target_size: float | None = Field(
+        default=None,
+        gt=0.0,
+        description=(
+            "passo caratteristico della mesh [mm]. None = la sezione minima "
+            "divisa per min_layers, cioe' il passo piu' grosso che rispetta il "
+            "vincolo degli strati"
+        ),
+    )
+    tie_name_prefix: str = Field(
+        default="GIUNZIONE",
+        pattern=r"^[A-Za-z0-9_.-]+$",
+        description=(
+            "prefisso dei nomi dei vincoli *TIE fra membrature adiacenti. Stesso "
+            "vincolo di caratteri del nome del materiale, e per la stessa "
+            "ragione: finisce interpolato in un deck scritto in ascii"
+        ),
+    )
+    lateral_nset: str | None = Field(
+        default=None,
+        pattern=r"^[A-Za-z0-9_.-]+$",
+        description=(
+            "CARICO LATERALE, facoltativo: nome della superficie di elemento su "
+            "cui agisce la pressione. Assente se non richiesto"
+        ),
+    )
+    lateral_pressure: float | None = Field(
+        default=None,
+        description="CARICO LATERALE, facoltativo: pressione [MPa] sulla superficie nominata",
+    )
+
+    @model_validator(mode="after")
+    def _carico_completo_o_assente(self) -> "ModelConfig":
+        if (self.lateral_nset is None) != (self.lateral_pressure is None):
+            raise ValueError(
+                "il carico laterale si dichiara per intero o non si dichiara: "
+                f"lateral_nset={self.lateral_nset!r} e "
+                f"lateral_pressure={self.lateral_pressure!r}. Meta' dichiarazione "
+                "produrrebbe un deck con una card muta o con una pressione "
+                "applicata a nulla"
+            )
+        return self
+
+
 class PipelineConfig(_ModelloBase):
     """Configurazione completa di un'elaborazione."""
 
@@ -289,6 +515,8 @@ class PipelineConfig(_ModelloBase):
     simplify: SimplifyConfig = Field(default_factory=SimplifyConfig)
     tet: TetConfig = Field(default_factory=TetConfig)
     analysis: AnalysisConfig
+    wall: WallConfig = Field(default_factory=WallConfig)
+    model: ModelConfig = Field(default_factory=ModelConfig)
     run: RunConfig = Field(default_factory=RunConfig)
 
 

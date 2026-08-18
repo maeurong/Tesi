@@ -15,15 +15,18 @@ dependencies = [
     "pyyaml>=6.0",
     "fastapi>=0.141.1",
     "uvicorn>=0.52.3",
+    # Generatore della mesh esaedrica dei modelli parametrici (core/hexa.py):
+    # serve a ogni corsa di un modello, non a una prova di fattibilita', quindi
+    # non e' piu' un extra. Era gia' dichiarato fra le dipendenze facoltative e
+    # gia' usato da core/gmsh_backend.py.
+    "gmsh>=4.15.2",
 ]
 
 [project.scripts]
 meshrec = "meshrec.cli:main"
 
 [project.optional-dependencies]
-feasibility = [
-    "gmsh>=4.15.2",
-]
+feasibility = []
 
 [dependency-groups]
 dev = [

@@ -43,7 +43,7 @@ def test_la_radice_serve_l_interfaccia(cliente):
 
 def test_lo_stato_della_corsa_elenca_gli_undici_step(cliente):
     corpo = cliente.get("/api/run").json()
-    assert len(corpo["steps"]) == 11
+    assert len(corpo["steps"]) == 12
     assert corpo["steps"][0]["chiave"] == "01_load"
     assert {voce["stato"] for voce in corpo["steps"]} == {"mai eseguito"}
 

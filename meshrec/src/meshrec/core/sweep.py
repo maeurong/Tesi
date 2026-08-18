@@ -24,16 +24,39 @@ import numpy as np
 from meshrec.core.config import ExperimentConfig, PipelineConfig
 
 
+# I blocchi di PipelineConfig che non entrano nell'impronta di sweep.
+# `run` non ci entra perche' out_dir e from_step non cambiano il risultato
+# dell'elaborazione. `wall` e `model` non ci entrano perche' sono nati con la
+# Fase 4, dopo che i registri della Fase 2 erano gia' scritti: includerli
+# cambierebbe l'impronta di ogni riga gia' registrata, cioe' la provenienza
+# della tabella sperimentale della tesi, e nessun asse di sweep li tocca --
+# tutti gli assi della griglia stanno a monte dello step 11. La falla che
+# l'esclusione apre e' chiusa da `expand`, che rifiuta un asse su un blocco
+# escluso invece di produrre candidati indistinguibili.
+BLOCCHI_FUORI_IMPRONTA: tuple[str, ...] = ("run", "wall", "model")
+
+
 def fingerprint(cfg: PipelineConfig) -> str:
-    """Sha256 della configurazione canonica, escluso il blocco `run`.
+    """Sha256 della configurazione canonica, esclusi i blocchi di BLOCCHI_FUORI_IMPRONTA.
 
     out_dir e from_step non cambiano il risultato dell'elaborazione, e
     includerli renderebbe diverse due corse identiche: e' precisamente cio'
     che l'impronta esiste per impedire. Stessa impronta significa stesso
     esperimento.
+
+    I blocchi di PipelineConfig che non entrano nell'impronta di sweep.
+    `run` non ci entra perche' out_dir e from_step non cambiano il risultato
+    dell'elaborazione. `wall` e `model` non ci entrano perche' sono nati con la
+    Fase 4, dopo che i registri della Fase 2 erano gia' scritti: includerli
+    cambierebbe l'impronta di ogni riga gia' registrata, cioe' la provenienza
+    della tabella sperimentale della tesi, e nessun asse di sweep li tocca --
+    tutti gli assi della griglia stanno a monte dello step 11. La falla che
+    l'esclusione apre e' chiusa da `expand`, che rifiuta un asse su un blocco
+    escluso invece di produrre candidati indistinguibili.
     """
     payload = cfg.model_dump(mode="json")
-    payload.pop("run", None)
+    for blocco in BLOCCHI_FUORI_IMPRONTA:
+        payload.pop(blocco, None)
     canonical = json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
@@ -68,6 +91,16 @@ def expand(
     I duplicati sono rimossi per impronta: un livello uguale al valore di
     base non produce un secondo candidato identico.
     """
+    for asse in experiment.axes:
+        blocco = asse.path.split(".")[0]
+        if blocco in BLOCCHI_FUORI_IMPRONTA:
+            raise ValueError(
+                f"l'asse '{asse.path}' punta al blocco '{blocco}', che non entra "
+                "nell'impronta: due candidati che differissero solo per quel "
+                "valore avrebbero la stessa impronta e il registro non potrebbe "
+                "distinguerli"
+            )
+
     levels = {axis.path: axis.values for axis in experiment.axes}
     combinations: list[dict[str, object]] = [{}]
 

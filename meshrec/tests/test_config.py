@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from meshrec.core import config
+from meshrec.core.config import PipelineConfig
 from materiale import ANALISI, MATERIALE
 
 
@@ -135,23 +136,43 @@ def test_un_inf_gia_scritto_su_disco_non_si_rilegge(tmp_path):
         config.load_config(path)
 
 
-def test_l_impronta_di_una_corsa_registrata_non_cambia(tmp_path):
-    """L'impronta della Fase 2 vive nei registri: allargare PipelineConfig la
-    cambierebbe, e con essa la provenienza di ogni riga della tabella della tesi.
+def test_l_impronta_di_una_corsa_registrata_non_cambia():
+    """Le impronte della Fase 2 vivono nei registri: allargare PipelineConfig
+    senza escludere il blocco nuovo cambierebbe la provenienza di ogni riga
+    della tabella sperimentale della tesi.
+
+    Il test non fissa un valore magico: rilegge i due registri veri, rivalida
+    la configurazione incorporata in ciascuna riga e ricalcola l'impronta. Se
+    coincide con quella registrata, la riga e' ancora derivabile dalla
+    configurazione che dichiara.
     """
+    import json
+
     from meshrec.core.sweep import fingerprint
 
-    cfg = config.PipelineConfig(
-        analysis=ANALISI,
-        input=config.InputConfig(path=Path("Nuvole di punti/lab_frame.pcd"), scale=1000.0),
-    )
-    prima = fingerprint(cfg)
-    assert len(prima) == 64
-    # Un campo nuovo in PipelineConfig cambierebbe questo valore: il test lo fissa
-    # sulla forma canonica corrente e non su un valore magico, cosi' fallisce
-    # anche se il campo nuovo ha un predefinito innocuo.
-    payload = cfg.model_dump(mode="json")
-    assert set(payload) == {
-        "input", "segment", "downsample", "normals", "surface",
-        "repair", "simplify", "tet", "analysis", "run",
-    }
+    radice = Path(__file__).resolve().parents[1] / "experiments"
+    righe = 0
+    for registro in sorted(radice.glob("*/registro.jsonl")):
+        for riga in registro.read_text(encoding="utf-8").splitlines():
+            if not riga.strip():
+                continue
+            voce = json.loads(riga)
+            cfg = PipelineConfig.model_validate(voce["config"])
+            assert fingerprint(cfg) == voce["fingerprint"], (
+                f"{registro}: la riga {righe + 1} non e' piu' derivabile dalla "
+                "propria configurazione"
+            )
+            righe += 1
+    assert righe == 22, f"attese 22 righe nei due registri, trovate {righe}"
+
+
+def test_i_blocchi_nuovi_stanno_in_pipelineconfig_e_fuori_dall_impronta():
+    """I due blocchi della Fase 4 viaggiano con la configurazione, perche' lo
+    step 12 li legge, e restano fuori dall'impronta di sweep, perche' nessun
+    asse della Fase 2 li tocca."""
+    from meshrec.core.sweep import BLOCCHI_FUORI_IMPRONTA
+
+    campi = set(PipelineConfig.model_fields)
+    assert {"wall", "model"} <= campi
+    assert set(BLOCCHI_FUORI_IMPRONTA) == {"run", "wall", "model"}
+    assert set(BLOCCHI_FUORI_IMPRONTA) <= campi

@@ -14,8 +14,10 @@ from pathlib import Path
 
 from meshrec.core.config import PipelineConfig
 
-# Le undici chiavi che una corsa completa scrive in metrics.json. Lo step 7 non
-# ha artefatto proprio ma ha metriche, quindi c'e' anche lui.
+# Le dodici chiavi che una corsa completa scrive in metrics.json. Lo step 7 non
+# ha artefatto proprio ma ha metriche, quindi c'e' anche lui. Lo step 12 e' il
+# prior geometrico della Fase 4: chiude la corsa madre e non e' un punto di
+# ripresa.
 STEP_KEYS: tuple[str, ...] = (
     "01_load",
     "02_segment",
@@ -28,6 +30,7 @@ STEP_KEYS: tuple[str, ...] = (
     "09_tetrahedralize",
     "10_volume_quality",
     "11_export",
+    "12_wall",
 )
 
 # I blocchi di PipelineConfig che ogni step legge davvero. E' la tabella da cui
@@ -45,6 +48,7 @@ STEP_BLOCKS: dict[int, tuple[str, ...]] = {
     9: ("tet",),
     10: ("tet",),
     11: ("tet", "analysis"),
+    12: ("wall",),
 }
 
 STATE_FILENAME = "steps.json"

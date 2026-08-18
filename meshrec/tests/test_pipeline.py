@@ -213,12 +213,19 @@ def test_resuming_from_tetrahedralize_still_works_when_simplify_is_enabled(tmp_p
 
 
 def test_una_corsa_completa_lascia_gli_undici_step_validi(tmp_path):
+    """Lo step 12 (prior geometrico) non e' ancora scritto da pipeline.run:
+    arriva in un task successivo della Fase 4. Finche' resta cosi', "mai
+    eseguito" e' il suo stato vero anche dopo una corsa che ha eseguito
+    tutto cio' che pipeline.run sa fare oggi, non un fallimento della corsa."""
     from meshrec.core import pipeline, steps
 
     cfg = _config_cubo(tmp_path)
     pipeline.run(cfg)
     stato = steps.run_state(cfg.run.out_dir, cfg)
-    assert {voce["stato"] for voce in stato} == {"valido"}
+    per_numero = {voce["numero"]: voce["stato"] for voce in stato}
+    assert set(per_numero.values()) == {"valido", "mai eseguito"}
+    assert per_numero[12] == "mai eseguito"
+    assert all(per_numero[n] == "valido" for n in range(1, 12))
 
 
 def test_cambiare_un_parametro_a_monte_invalida_gli_step_a_valle(tmp_path):

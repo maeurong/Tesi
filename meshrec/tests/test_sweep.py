@@ -210,7 +210,11 @@ def test_a_candidate_that_succeeds_records_its_artifacts(tmp_path):
     row = sweep.run_candidate({"tet.min_ratio": 1.8}, cfg, tmp_path / "candidato", timeout_s=600.0)
 
     assert row["outcome"] == "riuscito"
-    assert row["complete"] is True
+    # "complete" richiede tutte le dodici chiavi di STEP_KEYS, "12_wall"
+    # compresa: pipeline.run si ferma allo step 11 finche' lo step 12 non e'
+    # implementato in un task successivo della Fase 4, quindi una corsa
+    # riuscita oggi non e' ancora "completa" in questo senso piu' stretto.
+    assert row["complete"] is False
     assert row["axes"] == {"tet.min_ratio": 1.8}
     assert row["input_digest"] == sweep.file_digest(cloud)
     assert "09_volume.vtu" in row["artifacts"]
@@ -743,3 +747,20 @@ def test_run_experiment_writes_the_registry_even_when_a_candidate_cannot_create_
     rows = sweep.load_registry(Path(result["registry"]))
     assert len(rows) == 2
     assert {row["outcome"] for row in rows} == {"riuscito", "errore"}
+
+
+def test_un_asse_su_un_blocco_fuori_impronta_viene_rifiutato(tmp_path):
+    """Due candidati indistinguibili nel registro sarebbero peggio di nessuno
+    sweep: l'errore arriva prima di eseguire, non dopo aver scritto le righe."""
+    from meshrec.core.config import AxisSpec, ExperimentConfig, InputConfig
+
+    from materiale import crea_config
+
+    esperimento = ExperimentConfig(
+        name="prova",
+        base=tmp_path / "base.yaml",
+        axes=[AxisSpec(path="wall.min_cells", values=[8, 12])],
+    )
+    base = crea_config(input=InputConfig(path=tmp_path / "n.ply"))
+    with pytest.raises(ValueError, match="non entra nell'impronta"):
+        sweep.expand(esperimento, base)
