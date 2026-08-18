@@ -44,15 +44,7 @@ def fingerprint(cfg: PipelineConfig) -> str:
     che l'impronta esiste per impedire. Stessa impronta significa stesso
     esperimento.
 
-    I blocchi di PipelineConfig che non entrano nell'impronta di sweep.
-    `run` non ci entra perche' out_dir e from_step non cambiano il risultato
-    dell'elaborazione. `wall` e `model` non ci entrano perche' sono nati con la
-    Fase 4, dopo che i registri della Fase 2 erano gia' scritti: includerli
-    cambierebbe l'impronta di ogni riga gia' registrata, cioe' la provenienza
-    della tabella sperimentale della tesi, e nessun asse di sweep li tocca --
-    tutti gli assi della griglia stanno a monte dello step 11. La falla che
-    l'esclusione apre e' chiusa da `expand`, che rifiuta un asse su un blocco
-    escluso invece di produrre candidati indistinguibili.
+    Il motivo di ogni blocco escluso e' commentato sopra BLOCCHI_FUORI_IMPRONTA.
     """
     payload = cfg.model_dump(mode="json")
     for blocco in BLOCCHI_FUORI_IMPRONTA:

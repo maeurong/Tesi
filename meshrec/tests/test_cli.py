@@ -146,18 +146,16 @@ def test_the_sweep_command_runs_a_two_candidate_grid_on_the_synthetic_cube(tmp_p
         yaml.safe_dump(experiment.model_dump(mode="json"), sort_keys=False), encoding="utf-8"
     )
 
-    # objectives() richiede "complete", che richiede tutte le dodici chiavi
-    # di STEP_KEYS: lo step 12 non e' ancora scritto da pipeline.run (arriva
-    # in un task successivo della Fase 4), quindi nessuna riga e' confrontabile
-    # oggi. E' il caso gia' previsto da check_sweep, atteso qui.
-    with pytest.warns(sweep.SweepDiagnosticWarning, match="nessuno dei 2 candidati"):
+    # Con due soli candidati confrontabili il fronte li contiene entrambi:
+    # e' il caso "non discrimina" gia' previsto da check_sweep, atteso qui.
+    with pytest.warns(sweep.SweepDiagnosticWarning, match="non discrimina"):
         assert cli.main(["sweep", str(experiment_path)]) == 0
 
     registry = tmp_path / "experiments" / "cubo" / "registro.jsonl"
     rows = sweep.load_registry(registry)
     assert len(rows) == 2
     assert all(row["outcome"] == "riuscito" for row in rows)
-    assert not any(row["on_front"] for row in rows)
+    assert any(row["on_front"] for row in rows)
 
     assert cli.main(["sweep-verify", str(registry)]) == 0
     assert cli.main(["sweep-report", str(registry), "--out", str(tmp_path / "r.html")]) == 0

@@ -230,11 +230,7 @@ def test_a_candidate_that_succeeds_records_its_artifacts(tmp_path):
     row = sweep.run_candidate({"tet.min_ratio": 1.8}, cfg, tmp_path / "candidato", timeout_s=600.0)
 
     assert row["outcome"] == "riuscito"
-    # "complete" richiede tutte le dodici chiavi di STEP_KEYS, "12_wall"
-    # compresa: pipeline.run si ferma allo step 11 finche' lo step 12 non e'
-    # implementato in un task successivo della Fase 4, quindi una corsa
-    # riuscita oggi non e' ancora "completa" in questo senso piu' stretto.
-    assert row["complete"] is False
+    assert row["complete"] is True
     assert row["axes"] == {"tet.min_ratio": 1.8}
     assert row["input_digest"] == sweep.file_digest(cloud)
     assert "09_volume.vtu" in row["artifacts"]
