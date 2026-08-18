@@ -337,3 +337,102 @@ def test_il_rigonfiamento_e_una_mappa_e_trova_la_pancia_dove_c_e():
     assert len(membratura.rigonfiamento) > 10, "il rigonfiamento e' una mappa, non un numero"
     assert np.abs(membratura.rigonfiamento).max() > 10.0
     assert membratura.fuori_piombo_deg == pytest.approx(0.0, abs=1.5)
+
+
+def test_i_quattro_controlli_intrinseci_passano_su_un_prisma_pulito():
+    punti = synth.sample_box_surface((200.0, 140.0, 1500.0), 15.0)
+    direzioni, _ = wall.terna(punti)
+    membratura = wall.misura(punti, direzioni, _cfg())
+
+    esiti = wall.controlla(membratura, _cfg())
+
+    assert set(esiti) == {"parallelismo", "copertura_faccia", "costanza_sezione"}
+    for nome, esito in esiti.items():
+        assert esito["passato"] is True, f"{nome} non doveva fallire: {esito}"
+        assert "valore" in esito and "soglia" in esito, (
+            f"{nome} deve dire quale numero lo ha deciso, non solo se e' passato"
+        )
+
+
+def test_una_regione_a_sezione_variabile_non_e_un_prisma_e_lo_dice():
+    """Il controllo che smentisce il prior: un tronco di piramide non e' una
+    membratura, e viene riportato come tale invece di essere spacciato per una
+    con la sezione media."""
+    z = np.linspace(0.0, 1500.0, 120)
+    punti = []
+    for quota in z:
+        mezzo_lato = 100.0 * (1.0 - 0.6 * quota / 1500.0)
+        angoli = np.linspace(0.0, 2.0 * np.pi, 40, endpoint=False)
+        punti.append(np.column_stack([
+            mezzo_lato * np.cos(angoli),
+            mezzo_lato * np.sin(angoli),
+            np.full_like(angoli, quota),
+        ]))
+    cono = np.vstack(punti)
+    direzioni, _ = wall.terna(cono)
+    membratura = wall.misura(cono, direzioni, _cfg())
+
+    esiti = wall.controlla(membratura, _cfg())
+
+    assert esiti["costanza_sezione"]["passato"] is False
+    assert esiti["costanza_sezione"]["valore"] > esiti["costanza_sezione"]["soglia"]
+
+
+def test_senza_riscontri_dichiarati_il_prior_non_inventa_un_aspettativa():
+    """Su un pezzo nuovo i riscontri non esistono per definizione. Il prior
+    riporta cio' che ha trovato, e nel posto dell'atteso non mette un numero."""
+    punti = synth.sample_frame_surface(TELAIO, SPAZIATURA)
+
+    esito = wall.prior(punti, SegmentConfig(), _cfg(), SPAZIATURA)
+
+    riscontri = esito["riscontri"]
+    assert riscontri["membrature_attese"] is None
+    assert riscontri["volume_atteso"] is None
+    assert riscontri["scarto_membrature"] is None
+    assert riscontri["scarto_volume"] is None
+    assert esito["membrature"], "il prior deve comunque riportare cio' che ha trovato"
+
+
+def test_con_i_riscontri_dichiarati_il_prior_riporta_lo_scarto():
+    """I numeri dell'atteso stanno qui, nel test, dove e' legittimo che
+    compaiano: sono dati del caso, non del programma."""
+    punti = synth.sample_frame_surface(TELAIO, SPAZIATURA)
+    volume_vero = sum(dx * dy * dz for _origine, (dx, dy, dz) in TELAIO)
+    cfg = WallConfig(membrature_attese=4, volume_atteso=volume_vero)
+
+    esito = wall.prior(punti, SegmentConfig(), cfg, SPAZIATURA)
+
+    riscontri = esito["riscontri"]
+    assert riscontri["membrature_attese"] == 4
+    assert riscontri["scarto_membrature"] == len(esito["membrature"]) - 4
+    assert riscontri["volume_atteso"] == pytest.approx(volume_vero)
+    assert riscontri["scarto_volume"] is not None
+
+
+def test_l_esito_del_prior_e_serializzabile_in_json():
+    """Lo step 12 lo scrive su disco e il server lo manda al browser: un array
+    di numpy dentro il dizionario romperebbe entrambi dopo l'intera corsa."""
+    import json
+
+    punti = synth.sample_frame_surface(TELAIO, SPAZIATURA)
+    esito = wall.prior(punti, SegmentConfig(), _cfg(), SPAZIATURA)
+
+    testo = json.dumps(esito)
+    assert json.loads(testo)["regioni_trovate"] == esito["regioni_trovate"]
+
+
+def test_il_controllo_di_chiusura_del_volume_confronta_somma_e_unione():
+    """Le membrature si compenetrano alle giunzioni: se la somma dei volumi
+    supera quello dell'unione oltre la tolleranza, c'e' doppio conteggio, ed e'
+    un errore che nessuna metrica di qualita' della mesh vedrebbe."""
+    punti = synth.sample_frame_surface(TELAIO, SPAZIATURA)
+
+    esito = wall.prior(punti, SegmentConfig(), _cfg(), SPAZIATURA)
+
+    chiusura = esito["chiusura_volume"]
+    assert chiusura["somma"] > 0.0
+    assert chiusura["unione"] > 0.0
+    assert isinstance(chiusura["passato"], bool)
+    assert chiusura["scarto_relativo"] == pytest.approx(
+        (chiusura["somma"] - chiusura["unione"]) / chiusura["unione"]
+    )

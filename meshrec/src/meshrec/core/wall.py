@@ -477,3 +477,192 @@ def misura(punti_regione: np.ndarray, direzioni: np.ndarray, cfg: WallConfig) ->
         rigonfiamento=rigonfiamento,
         volume=volume,
     )
+
+
+def controlla(membratura: Membratura, cfg: WallConfig) -> dict[str, dict]:
+    """I controlli intrinseci di una membratura: sempre attivi, nulla sanno del pezzo.
+
+    Senza questi il prior e' una macchina per fabbricare numeri. Ogni esito
+    porta con se' il numero che lo ha deciso e la soglia con cui e' stato
+    confrontato: un «non passato» senza il proprio numero non dice a chi legge
+    che cosa cambiare.
+
+    Un controllo fallito **non solleva**. La regione non diventa una membratura
+    e il motivo resta scritto, perche' l'interfaccia deve poter mostrare quale
+    controllo ha detto no e quale numero glielo ha fatto dire: un'eccezione
+    ucciderebbe la corsa sulla prima regione difettosa e non lascerebbe nulla
+    da mostrare sulle altre.
+    """
+    # parallelismo delle facce: la mappa del rigonfiamento e' lo scostamento
+    # della faccia dal proprio piano medio, quindi l'angolo fra le due facce si
+    # legge dal gradiente di quella mappa lungo l'asse. Un valore grande
+    # significa facce che divergono, cioe' nessuna sezione da misurare.
+    pancia = np.asarray(membratura.rigonfiamento, dtype=np.float64)
+    divergenza = float(np.ptp(pancia)) if len(pancia) else 0.0
+    riferimento = max(membratura.lunghezza, 1e-9)
+    angolo_facce = float(np.degrees(np.arctan2(divergenza, riferimento)))
+
+    coperte = float(np.isfinite(pancia).mean()) if len(pancia) else 0.0
+    dispersione = float(max(membratura.sezione_dispersione))
+
+    return {
+        "parallelismo": {
+            "passato": angolo_facce <= cfg.parallelism_deg,
+            "valore": angolo_facce,
+            "soglia": float(cfg.parallelism_deg),
+            "unita": "gradi",
+            "spiegazione": (
+                "angolo fra le due facce opposte: oltre la soglia la regione non "
+                "ha una sezione, e una sezione media sarebbe priva di senso"
+            ),
+        },
+        "copertura_faccia": {
+            "passato": coperte >= cfg.face_coverage,
+            "valore": coperte,
+            "soglia": float(cfg.face_coverage),
+            "unita": "frazione",
+            "spiegazione": (
+                "frazione delle celle della faccia viste dallo scanner: una "
+                "faccia vista da pochi punti produce un piano finto, come gia' "
+                "misurato su FACE_FRONT e FACE_BACK"
+            ),
+        },
+        "costanza_sezione": {
+            "passato": dispersione <= cfg.section_dispersion,
+            "valore": dispersione,
+            "soglia": float(cfg.section_dispersion),
+            "unita": "frazione",
+            "spiegazione": (
+                "dispersione relativa della sezione lungo l'asse: oltre la "
+                "soglia la regione non e' un prisma"
+            ),
+        },
+    }
+
+
+def _volume_unione(membrature: list[Membratura], punti: np.ndarray, passo: float) -> float:
+    """Volume dell'unione delle membrature, per conteggio di celle occupate.
+
+    Nessuna libreria di solidi entra nel progetto per una misura di controllo:
+    una griglia regolare sull'ingombro, una cella contata una volta sola se
+    contiene punti di una qualunque membratura. L'errore e' quello della
+    discretizzazione, viene dal passo dichiarato e viene riportato accanto al
+    risultato invece di essere nascosto.
+    """
+    if not membrature:
+        return 0.0
+    tutti = np.vstack([punti[m.punti] for m in membrature])
+    celle = np.floor((tutti - tutti.min(axis=0)) / passo).astype(np.int64)
+    occupate = len(np.unique(celle, axis=0))
+    return float(occupate * passo**3)
+
+
+def prior(
+    points: np.ndarray, cfg_segment: SegmentConfig, cfg: WallConfig, spacing: float
+) -> dict[str, object]:
+    """Lo step 12 per intero: scomposizione, misure, controlli, riscontri.
+
+    Il risultato e' un dizionario di soli tipi JSON, perche' viene scritto su
+    disco e mandato al browser: un array di numpy dentro romperebbe entrambi
+    dopo che l'intera corsa e' gia' costata il suo tempo.
+
+    I riscontri dichiarati sono facoltativi e assenti per definizione su un
+    pezzo nuovo. Quando mancano, al posto dell'atteso c'e' `null` e non un
+    numero: il prior non inventa un'aspettativa.
+    """
+    puliti, metriche_pavimento = scarta_pavimento(points, cfg_segment, cfg, spacing)
+    regioni_punti, metriche = scomponi(points, cfg_segment, cfg, spacing)
+    direzioni, _centro = terna(puliti)
+
+    accettate: list[Membratura] = []
+    scartate: list[dict[str, object]] = []
+    for numero, indici in enumerate(regioni_punti):
+        membratura = misura(puliti[indici], direzioni, cfg)
+        membratura.punti = indici
+        membratura.esiti = controlla(membratura, cfg)
+        falliti = [nome for nome, esito in membratura.esiti.items() if not esito["passato"]]
+        if falliti:
+            scartate.append({
+                "regione": numero,
+                "punti": int(len(indici)),
+                "controlli_falliti": falliti,
+                "esiti": membratura.esiti,
+            })
+            continue
+        accettate.append(membratura)
+
+    passo_unione = cfg.union_step_factor * spacing
+    somma = float(sum(m.volume for m in accettate))
+    unione = _volume_unione(accettate, puliti, passo_unione)
+    scarto_relativo = (somma - unione) / unione if unione > 0.0 else 0.0
+
+    scarto_membrature = (
+        len(accettate) - cfg.membrature_attese if cfg.membrature_attese is not None else None
+    )
+    scarto_volume = (
+        (somma - cfg.volume_atteso) / cfg.volume_atteso
+        if cfg.volume_atteso is not None
+        else None
+    )
+
+    return {
+        **{chiave: valore for chiave, valore in metriche.items() if chiave != "terna"},
+        **metriche_pavimento,
+        "terna": direzioni.tolist(),
+        "membrature": [
+            {
+                "punti": int(len(m.punti)),
+                "asse": m.asse.tolist(),
+                "origine": m.origine.tolist(),
+                "lunghezza": m.lunghezza,
+                "sezione": list(m.sezione),
+                "sezione_dispersione": list(m.sezione_dispersione),
+                "contorno": m.contorno.tolist(),
+                "fuori_piombo_deg": m.fuori_piombo_deg,
+                "asse_ideale": m.asse_ideale.tolist(),
+                "scarto_asse_deg": m.scarto_asse_deg,
+                "rigonfiamento": {
+                    "celle": int(len(m.rigonfiamento)),
+                    "min": float(np.min(m.rigonfiamento)) if len(m.rigonfiamento) else None,
+                    "max": float(np.max(m.rigonfiamento)) if len(m.rigonfiamento) else None,
+                    "p95": float(np.percentile(np.abs(m.rigonfiamento), 95))
+                    if len(m.rigonfiamento)
+                    else None,
+                },
+                "volume": m.volume,
+                "esiti": m.esiti,
+            }
+            for m in accettate
+        ],
+        "scartate": scartate,
+        "chiusura_volume": {
+            "somma": somma,
+            "unione": unione,
+            "scarto_relativo": scarto_relativo,
+            "passo": float(passo_unione),
+            "passato": abs(scarto_relativo) <= cfg.union_tolerance,
+            "soglia": float(cfg.union_tolerance),
+            "spiegazione": (
+                "somma dei volumi delle membrature contro volume della loro "
+                "unione: se differiscono, alle giunzioni il volume e' contato "
+                "due volte, ed e' un errore che nessuna metrica di qualita' "
+                "della mesh vedrebbe"
+            ),
+        },
+        "riscontri": {
+            "membrature_attese": cfg.membrature_attese,
+            "scarto_membrature": scarto_membrature,
+            "sezioni_nominali": (
+                [list(sezione) for sezione in cfg.sezioni_nominali]
+                if cfg.sezioni_nominali is not None
+                else None
+            ),
+            "volume_atteso": cfg.volume_atteso,
+            "scarto_volume": scarto_volume,
+            "nota": (
+                "i riscontri sono dichiarati dall'operatore e assenti per "
+                "definizione su un pezzo mai visto: dove c'e' null, non c'e' "
+                "un'aspettativa, non c'e' un valore mancante"
+            ),
+        },
+    }
