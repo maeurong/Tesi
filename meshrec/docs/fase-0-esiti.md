@@ -22,7 +22,7 @@
 | wildmeshing (fTetWild) | non installabile su win_amd64 | SKIP | ripiego TetGen + PyMeshFix con guardia di superficie chiusa mantenuta in Fase 1 |
 | pymeshlab | 2025.7.post1 | PASS | adottato per remeshing isotropo ed errore geometrico (distanza di Hausdorff), nessun ripiego su decimazione Open3D + KD-tree SciPy |
 | gmsh | 4.15.2 | PASS | **generatore alternativo opzionale** a TetGen, con ottimizzatore proprio (`optimize("Netgen")`) che agisce sulla mesh generata da Gmsh stesso. Non è un ottimizzatore post-mesh di TetGen: non riceve né migliora una mesh di TetGen. Validato in Fase 1 sulla geometria sintetica, a parità di elementi (vedi [`fase-1-esiti.md`](fase-1-esiti.md)); resta fuori dal percorso principale della pipeline |
-| CalculiX | 2.22 | PASS | adottato per il batch libero di Fase 5 |
+| CalculiX | 2.22 | PASS | adottato per il batch libero di Fase 5. Il PASS originale e' di Windows x86-64. **Riverificato su macOS arm64 il 18/08/2026**, stessa versione 2.22 installata da conda-forge: la colonna incastrata sotto peso proprio rientra entro il 20% della soluzione in forma chiusa, quindi l'esito vale ora su entrambe le piattaforme |
 
 ## Nomi di API osservati
 

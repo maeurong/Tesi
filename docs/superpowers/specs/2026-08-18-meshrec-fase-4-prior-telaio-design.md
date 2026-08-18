@@ -143,13 +143,19 @@ quindi la Fase 4 **promuove gmsh a dipendenza vera** — non lo usa come se lo
 fosse già. Verificato che gmsh 4.15.2 si installa su arm64 e che l'estrusione
 ricombinata produce soli esaedri.
 
-**CalculiX non è installato su questa macchina.** `which ccx` non risponde. La
-verifica della Fase 0 è stata fatta su Windows, prima del trasloco del
-16/08/2026. Ne discende che il controllo di § 6.1 è **condizionato**: gira dove
-`ccx` esiste e viene saltato dove non esiste, e in quel caso il documento deve
-dire «il deck non è stato verificato da alcun solutore», mai «il deck è valido».
-Un deck non verificato dichiarato tale è un esito; un deck non verificato
-dichiarato valido è un'affermazione falsa.
+**CalculiX mancava, ed è stato installato.** Al momento della stesura `which ccx`
+non rispondeva: la verifica della Fase 0 era stata fatta su Windows, prima del
+trasloco del 16/08/2026. Il 18/08/2026 CalculiX **2.22** — la stessa versione
+adottata dalla Fase 0 — è stato installato da conda-forge in un ambiente isolato
+ed esposto sul PATH, e il test di fattibilità della Fase 0 è stato **rieseguito
+su macOS arm64**: la colonna incastrata sotto peso proprio rientra entro il 20%
+della soluzione in forma chiusa. Il PASS della Fase 0 vale ora su entrambe le
+piattaforme e non più solo su Windows.
+
+Il controllo di § 6.1 resta comunque **condizionato alla presenza di `ccx`**, e
+dove il solutore manca l'esito da scrivere è «il deck non è stato verificato da
+alcun solutore», mai «il deck è valido». Un deck non verificato dichiarato tale è
+un esito; un deck non verificato dichiarato valido è un'affermazione falsa.
 
 ---
 
@@ -306,9 +312,10 @@ Non leggendolo: dandolo da leggere a CalculiX. Il controllo è che il solutore
 è Fase 5. Un deck che nessun solutore ha mai aperto è un deck di cui non sappiamo
 se esiste.
 
-Con l'avvertenza di § 3.3: `ccx` **non è presente su questa macchina**, quindi il
-controllo è condizionato alla sua presenza e, dove manca, l'esito da scrivere è
-«non verificato da alcun solutore».
+Con l'avvertenza di § 3.3: `ccx` è ora presente su questa macchina (CalculiX
+2.22, verificato su arm64 il 18/08/2026), ma il controllo resta condizionato alla
+sua presenza, e dove manca l'esito da scrivere è «non verificato da alcun
+solutore».
 
 ---
 
