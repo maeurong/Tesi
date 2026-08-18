@@ -399,11 +399,14 @@ def misura(punti_regione: np.ndarray, direzioni: np.ndarray, cfg: WallConfig) ->
     riferimento comune a tutte le membrature.
 
     La spaziatura per la griglia del riempimento non e' quella del pezzo
-    intero: e' stimata qui su `punti_regione`, con `io.mean_spacing`, la
-    stessa funzione dello step 1. Una regione piu' lontana dallo scanner (o
+    intero: e' stimata qui su `punti_regione`, dalle distanze al vicino piu'
+    prossimo che restituisce `io.nn_distances` (la stessa base su cui lo step 1
+    calcola la spaziatura del pezzo). Una regione piu' lontana dallo scanner (o
     parzialmente occlusa) puo' essere campionata molto piu' rada del resto
     del pezzo: ereditare la spaziatura globale sposterebbe la soglia sulla
     grandezza sbagliata, come una prima versione di questo controllo faceva.
+    Dalle stesse distanze viene la dispersione della densita', che dice se
+    quella media descrive davvero la regione.
     """
     from scipy.ndimage import binary_fill_holes
 
@@ -489,6 +492,12 @@ def misura(punti_regione: np.ndarray, direzioni: np.ndarray, cfg: WallConfig) ->
     # uniforme che la sua media non e' piu' una scala e la griglia costruita su
     # di essa non risolve la parte rada. Una grandezza non misurata non e' ne'
     # piena ne' vuota, e dirlo e' l'unica cosa onesta che si possa fare qui.
+    #
+    # Non c'e' una seconda misura di affidabilita' per fetta, ed e' una
+    # decisione presa con i numeri in mano: una regione le cui fette vedono
+    # sezioni diverse fra loro e' gia' fermata da costanza_sezione, che sulla
+    # stessa grandezza e' molto piu' sensibile (vedi
+    # test_una_pi_meta_fitta_e_meta_rada_non_arriva_fra_le_membrature).
     if not riempimenti or densita_dispersione > cfg.density_dispersion_limit:
         riempimento_stato = "non_verificabile"
     elif riempimento_sezione >= cfg.section_fill_ratio:

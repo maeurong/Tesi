@@ -3127,7 +3127,7 @@ git commit -m "feat(fase-4): il prisma in esaedri, con tre strati nello spessore
 In coda a `tests/test_hexa.py`:
 
 ```python
-def _membratura_finta(contorno, origine, asse, lunghezza, asse_ideale):
+def _membratura_finta(contorno, origine, asse, lunghezza, asse_ideale, riempimento="pieno"):
     from meshrec.core.wall import Membratura
 
     return Membratura(
@@ -3143,10 +3143,38 @@ def _membratura_finta(contorno, origine, asse, lunghezza, asse_ideale):
         scarto_asse_deg=0.0,
         rigonfiamento=np.zeros(4),
         volume=0.0,
-        riempimento_sezione=1.0,
-        riempimento_stato="pieno",
+        riempimento_sezione=1.0 if riempimento == "pieno" else 0.3,
+        riempimento_stato=riempimento,
         densita_dispersione=0.0,
     )
+
+
+def test_una_membratura_a_sezione_vuota_non_diventa_un_modello():
+    """La guardia del Ruling J, che e' l'unica che ferma una Π: wall.py misura
+    e non scarta, quindi una regione il cui ingombro non e' la sezione arriva
+    fin qui. Costruirci sopra vorrebbe dire dare per pieno un vano vuoto."""
+    sezione = np.array([[0.0, 0.0], [200.0, 0.0], [200.0, 140.0], [0.0, 140.0]])
+    vuota = _membratura_finta(
+        sezione, [0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1500.0, [0.0, 0.0, 1.0], riempimento="vuoto"
+    )
+
+    with pytest.raises(ValueError, match="vuoto"):
+        hexa.costruisci([vuota], "estruso", ModelConfig())
+
+
+def test_una_membratura_non_verificabile_si_costruisce_lo_stesso():
+    """Il controllo che smentisce la guardia: «non verificabile» dice che la
+    misura non vale, non che il pezzo e' cavo. Su una nuvola rada e' l'esito
+    normale, e rifiutarlo fermerebbe il modello su meta' dei casi reali."""
+    sezione = np.array([[0.0, 0.0], [200.0, 0.0], [200.0, 140.0], [0.0, 140.0]])
+    incerta = _membratura_finta(
+        sezione, [0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1500.0, [0.0, 0.0, 1.0],
+        riempimento="non_verificabile",
+    )
+
+    esito = hexa.costruisci([incerta], "estruso", ModelConfig())
+
+    assert len(esito["blocchi"]) == 1
 
 
 def test_il_modello_primitive_raddrizza_l_asse_e_squadra_la_sezione():
@@ -3456,6 +3484,28 @@ def costruisci(membrature: list, tipo: str, cfg: ModelConfig) -> dict[str, objec
             "nessuna membratura da costruire: il prior non ne ha accettata alcuna. "
             "Guarda le regioni scartate e il controllo che le ha respinte, invece "
             "di generare un modello vuoto"
+        )
+
+    # la guardia del Ruling J: wall.py misura e non scarta, quindi il rifiuto
+    # di una regione non prismatica arriva qui. Riempimento «vuoto» con misura
+    # affidabile vuol dire che l'ingombro non e' la sezione ma il suo
+    # contenitore -- tipicamente due membrature unite a Π che la scomposizione
+    # non ha separato -- e un modello costruito su quella sezione sarebbe
+    # inventato. Lo stato «non_verificabile» non e' motivo di rifiuto: dice che
+    # la misura non vale, non che il pezzo e' cavo. Lo stato basta da solo:
+    # `wall.misura` mette «vuoto» solo su una misura affidabile, e degrada a
+    # «non_verificabile» appena non lo e'. Nessuna soglia da rileggere qui.
+    vuote = [
+        numero
+        for numero, membratura in enumerate(membrature)
+        if membratura.riempimento_stato == "vuoto"
+    ]
+    if vuote:
+        raise ValueError(
+            f"le membrature {vuote} hanno riempimento di sezione «vuoto» con "
+            "misura affidabile: la loro sezione e' un ingombro e non una "
+            "sezione, e su di essa non si costruisce. Guarda la scomposizione: "
+            "sono quasi sempre due membrature adiacenti fuse in una regione a Π"
         )
 
     prismi = [prisma_di(membratura, tipo) for membratura in membrature]

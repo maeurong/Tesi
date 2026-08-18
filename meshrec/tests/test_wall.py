@@ -641,3 +641,42 @@ def test_una_pi_molto_rada_non_esce_piena():
     assert membratura.riempimento_stato == "non_verificabile", (
         f"stato {membratura.riempimento_stato}, valore {membratura.riempimento_sezione}"
     )
+
+
+def test_una_pi_meta_fitta_e_meta_rada_non_arriva_fra_le_membrature():
+    """Il controesempio della terza re-review, e la ragione per cui il
+    riempimento non ha una seconda misura di affidabilita' per fetta.
+
+    Π vera, mai piena da nessuna parte, campionata a due densita': una meta'
+    a 15 mm, l'altra a 150 mm. Su questa regione `riempimento_stato` esce
+    davvero sbagliato -- «pieno» con misura affidabile su una meta', «vuoto»
+    sull'altra -- perche' la parte rada si allinea a caso con i confini delle
+    fette e alcune fette finiscono per contenere solo un pezzo della sezione,
+    che e' genuinamente pieno, e leggono 1.0.
+
+    Ma quello e' uno scostamento **della sezione fra fette**, non della
+    densita': e' esattamente la grandezza che `costanza_sezione` misura, con
+    una sensibilita' molto maggiore (qui 0.53 contro una soglia di 0.10). La
+    regione non arriva mai fra le membrature, quindi non arriva mai alla
+    guardia di chi costruisce, ed e' questa la proprieta' che conta e che
+    questo test sorveglia. Il giorno in cui qualcuno allentasse
+    `section_dispersion`, e' qui che si vedrebbe."""
+    fitta = synth.sample_frame_surface(TELAIO_A_SEZIONE_UNIFORME, 15.0)
+    rada = synth.sample_frame_surface(TELAIO_A_SEZIONE_UNIFORME, 150.0)
+    meta = (fitta[:, 2].min() + fitta[:, 2].max()) / 2.0
+    for sopra in (True, False):
+        dentro = fitta[:, 2] >= meta if sopra else fitta[:, 2] < meta
+        fuori = rada[:, 2] < meta if sopra else rada[:, 2] >= meta
+        punti = np.vstack([fitta[dentro], rada[fuori]])
+
+        esito = wall.prior(punti, SegmentConfig(), _cfg(), 15.0)
+
+        quale = "alta" if sopra else "bassa"
+        assert esito["membrature"] == [], (
+            f"meta' fitta {quale}: la Π non deve arrivare a chi costruisce, "
+            f"invece e' passata: {[m['riempimento'] for m in esito['membrature']]}"
+        )
+        assert "costanza_sezione" in esito["scartate"][0]["controlli_falliti"], (
+            f"meta' fitta {quale}: doveva fermarla la costanza della sezione, "
+            f"controlli falliti: {esito['scartate'][0]['controlli_falliti']}"
+        )
