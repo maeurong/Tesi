@@ -56,6 +56,29 @@ def test_una_corsa_interrotta_non_sostituisce_le_metriche_complete(tmp_path, mon
     assert (corsa / pipeline.METRICS_PARTIAL).exists(), "il parziale deve restare, per diagnosi"
 
 
+def test_una_corsa_piena_sostituisce_una_chiave_estranea_gia_sul_disco(tmp_path):
+    """completa non puo' restare legata a stop == 11 scritto a mano: con
+    RunConfig.to_step ora a 12 di default (Fase 4), una corsa piena dalla
+    configurazione predefinita deve continuare a sostituire, non fondere,
+    anche quando metrics.json porta gia' una chiave che questa corsa non
+    riscrive. Con la condizione vecchia stop vale 12, completa risulta
+    falso, e la chiave estranea sopravvive al posto di sparire.
+    """
+    from meshrec.core import pipeline
+
+    cfg = _config_cubo(tmp_path)
+    out = cfg.run.out_dir
+    out.mkdir(parents=True, exist_ok=True)
+    (out / pipeline.METRICS_FILENAME).write_text(
+        json.dumps({"99_estranea": {"ok": True}}), encoding="utf-8"
+    )
+
+    pipeline.run(cfg)
+
+    metriche = json.loads((out / pipeline.METRICS_FILENAME).read_text(encoding="utf-8"))
+    assert "99_estranea" not in metriche
+
+
 def test_from_step_beyond_tetrahedralize_is_rejected():
     """Gli step 10 e 11 non hanno lavoro costoso da saltare: from_step si ferma a 9."""
     with pytest.raises(ValidationError):

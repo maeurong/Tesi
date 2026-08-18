@@ -14,10 +14,11 @@ from pathlib import Path
 
 from meshrec.core.config import PipelineConfig
 
-# Le dodici chiavi che una corsa completa scrive in metrics.json. Lo step 7 non
-# ha artefatto proprio ma ha metriche, quindi c'e' anche lui. Lo step 12 e' il
-# prior geometrico della Fase 4: chiude la corsa madre e non e' un punto di
-# ripresa.
+# Le dodici chiavi del registro degli step. Lo step 7 non ha artefatto proprio
+# ma ha metriche, quindi c'e' anche lui. Lo step 12 e' il prior geometrico
+# della Fase 4: chiude la corsa madre e non e' un punto di ripresa. Fino al
+# Task 9, pipeline.run scrive solo le prime undici: is_complete() in sweep.py
+# lo sa e non richiede "12_wall" a un candidato.
 STEP_KEYS: tuple[str, ...] = (
     "01_load",
     "02_segment",

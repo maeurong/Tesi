@@ -112,6 +112,11 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
     # fallimento, che deve dire quale step si e' rotto e non che la corsa
     # e' finita male in un punto imprecisato.
     in_corso = start
+    # Vero solo se il flusso ha attraversato per intero l'ultimo step che
+    # questa versione di run() implementa (oggi 11_export, domani 12_wall):
+    # si aggiorna da solo spostandosi con la riga che lo mette a True, senza
+    # un numero da tenere sincronizzato a mano con cfg.run.to_step altrove.
+    pipeline_completa = False
 
     def registra(numero: int, avvio: float, artefatto: str | None) -> None:
         steps.write_state(
@@ -256,6 +261,7 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
             reference=vertices,
         )
         registra(11, avvio, "wall_model.inp")
+        pipeline_completa = True
     except _FermataRichiesta:
         # Fermata su richiesta: gli step chiesti sono stati eseguiti e il
         # risultato e' valido quanto quello di una corsa intera, per gli step
@@ -278,7 +284,7 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
 
     # Solo qui, cioe' solo se nessuna eccezione non gestita e' uscita dal try:
     # la corsa e' arrivata dove doveva arrivare.
-    completa = start == 1 and stop == 11
+    completa = start == 1 and pipeline_completa
     if completa:
         # Una corsa intera e' autoritativa: sostituisce, non fonde. E' il
         # percorso che lo sweep esegue, e la Fase 2 dipende dal fatto che una
