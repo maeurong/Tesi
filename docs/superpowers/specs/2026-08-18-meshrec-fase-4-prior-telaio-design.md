@@ -119,7 +119,7 @@ bugiardo il registro degli esperimenti, che è la tabella sperimentale della tes
 | modulo | responsabilità | dipende da |
 |---|---|---|
 | `core/wall.py` (nuovo) | il prior: scomposizione, sezioni, assi, fuori piombo, rigonfiamento. Nessuna mesh, nessun file: solo misura | `segment`, `numpy` |
-| `core/hexa.py` (nuovo) | i due modelli parametrici: sagoma, ricombinazione in quadrilateri, estrusione, esaedri | `gmsh` (già dipendenza), `wall` |
+| `core/hexa.py` (nuovo) | i due modelli parametrici: sagoma, ricombinazione in quadrilateri, estrusione, esaedri | `gmsh` (vedi § 3.3), `wall` |
 | `core/abaqus.py` (esteso) | esportazione per tipo di elemento, superfici di elemento, `*TIE`, carico laterale | — |
 | `core/quality.py` (esteso) | metriche di volume per esaedri (Jacobiano scalato) accanto a quelle per tetraedri | — |
 | `core/viewport.py` (esteso) | disegno della mesh esaedrica, colore per membratura, campo di rigonfiamento | — |
@@ -129,6 +129,27 @@ bugiardo il registro degli esperimenti, che è la tabella sperimentale della tes
 Il criterio di ripartizione: `wall.py` misura e non costruisce; `hexa.py`
 costruisce e non misura. Ognuno dei due è verificabile da solo contro una
 geometria di verità nota.
+
+### 3.3 Due premesse corrette dopo la stesura
+
+Erano scritte qui come fatti e sono state **misurate false** durante la scrittura
+del piano. Restano a verbale invece di essere cancellate.
+
+**gmsh non è una dipendenza del progetto.** Sta in
+`[project.optional-dependencies].feasibility` di `pyproject.toml`, non in
+`dependencies`, e non è installato: `import gmsh` fallisce, e i tre test di
+`test_gmsh_backend.py` sono fra quelli saltati. La mesh esaedrica lo richiede,
+quindi la Fase 4 **promuove gmsh a dipendenza vera** — non lo usa come se lo
+fosse già. Verificato che gmsh 4.15.2 si installa su arm64 e che l'estrusione
+ricombinata produce soli esaedri.
+
+**CalculiX non è installato su questa macchina.** `which ccx` non risponde. La
+verifica della Fase 0 è stata fatta su Windows, prima del trasloco del
+16/08/2026. Ne discende che il controllo di § 6.1 è **condizionato**: gira dove
+`ccx` esiste e viene saltato dove non esiste, e in quel caso il documento deve
+dire «il deck non è stato verificato da alcun solutore», mai «il deck è valido».
+Un deck non verificato dichiarato tale è un esito; un deck non verificato
+dichiarato valido è un'affermazione falsa.
 
 ---
 
@@ -280,10 +301,14 @@ materiale, gravità — con tre aggiunte:
 
 ### 6.1 Come si verifica un deck senza licenza Abaqus
 
-Non leggendolo: dandolo da leggere a CalculiX, che è installato e verificato
-dalla Fase 0. Il controllo è che il solutore **accetti** il deck su un modello
-piccolo, non che la risposta sia giusta — quello è Fase 5. Un deck che nessun
-solutore ha mai aperto è un deck di cui non sappiamo se esiste.
+Non leggendolo: dandolo da leggere a CalculiX. Il controllo è che il solutore
+**accetti** il deck su un modello piccolo, non che la risposta sia giusta — quello
+è Fase 5. Un deck che nessun solutore ha mai aperto è un deck di cui non sappiamo
+se esiste.
+
+Con l'avvertenza di § 3.3: `ccx` **non è presente su questa macchina**, quindi il
+controllo è condizionato alla sua presenza e, dove manca, l'esito da scrivere è
+«non verificato da alcun solutore».
 
 ---
 
