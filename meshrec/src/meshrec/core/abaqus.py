@@ -161,6 +161,12 @@ FACCE_TOPOLOGICHE: dict[int, tuple[tuple[int, ...], ...]] = {
     ),
 }
 
+# Nodi d'angolo per numero di colonne dell'array: un C3D10 ha dieci colonne
+# ma la topologia di faccia e' quella del tetraedro (le prime quattro sono i
+# vertici). Mappa esplicita e non un ternario: un conteggio non previsto deve
+# fermarsi con un errore, non essere trattato come tetraedro per default.
+_ANGOLI_PER_COLONNE: dict[int, int] = {4: 4, 8: 8, 10: 4}
+
 
 def boundary_faces(elements: np.ndarray) -> np.ndarray:
     """Facce sul bordo della mesh di volume, per qualunque tipo di elemento.
@@ -176,8 +182,12 @@ def boundary_faces(elements: np.ndarray) -> np.ndarray:
     che e' la convenzione di TetGen e di Abaqus.
     """
     elementi = np.asarray(elements, dtype=np.int64)
-    angoli = 8 if elementi.shape[1] == 8 else 4
-    combinazioni = FACCE_TOPOLOGICHE[angoli]
+    colonne = elementi.shape[1]
+    if colonne not in _ANGOLI_PER_COLONNE:
+        raise ValueError(
+            f"elemento con {colonne} nodi: nessuna topologia di faccia definita per questa forma"
+        )
+    combinazioni = FACCE_TOPOLOGICHE[_ANGOLI_PER_COLONNE[colonne]]
     facce = np.vstack([elementi[:, combo] for combo in combinazioni])
     facce = np.sort(facce, axis=1)
     uniche, conteggi = np.unique(facce, axis=0, return_counts=True)
@@ -472,13 +482,23 @@ def export_model(
         )
     if tipo not in NODI_PER_ELEMENTO:
         raise ValueError(f"tipo di elemento '{tipo}' sconosciuto")
+    attesi = NODI_PER_ELEMENTO[tipo]
+    elements = np.asarray(elements, dtype=np.int64)
+    if elements.shape[1] != attesi:
+        raise ValueError(
+            f"{tipo} vuole {attesi} nodi per elemento, ne sono arrivati "
+            f"{elements.shape[1]}: un deck scritto cosi' non e' leggibile da alcun solutore"
+        )
 
-    boundary_faces = _boundary_faces(elements)
-    boundary = np.unique(boundary_faces)
+    # Nome distinto dalla funzione pubblica boundary_faces: qui e' una
+    # variabile locale, non va confusa col contratto che questo task ha
+    # promosso (vedi Task 5, 7, 8).
+    bordo_facce = _boundary_faces(elements)
+    boundary = np.unique(bordo_facce)
     if reference is None:
         reference = np.asarray(nodes, dtype=np.float64)[boundary]
     aligned, transform, align_metrics = align_to_axes(nodes, reference=reference)
-    spacing = boundary_spacing(aligned, boundary_faces)
+    spacing = boundary_spacing(aligned, bordo_facce)
     tolerance = cfg.set_tolerance_factor * spacing
     node_sets = build_node_sets(aligned, tolerance)
     if len(node_sets[cfg.fixed_nset]) == 0:

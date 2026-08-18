@@ -618,3 +618,45 @@ def test_un_tipo_di_elemento_che_non_combacia_coi_nodi_viene_rifiutato(tmp_path)
             material=MATERIALE,
             element_type="C3D4",
         )
+
+
+def test_boundary_faces_rifiuta_un_numero_di_nodi_sconosciuto():
+    """Prima il dispatch era un ternario: qualunque conteggio diverso da 8
+    veniva trattato come tetraedro. Un conteggio non previsto deve fermarsi
+    con un errore, non produrre un bordo sbagliato in silenzio."""
+    elementi_a_sei_nodi = np.array([[0, 1, 2, 3, 4, 5]], dtype=np.int64)
+
+    with pytest.raises(ValueError, match="6"):
+        abaqus.boundary_faces(elementi_a_sei_nodi)
+
+
+def test_export_model_rifiuta_l_incoerenza_tipo_nodi_prima_di_qualunque_calcolo(
+    tmp_path, monkeypatch, cube_mesh
+):
+    """Il controllo su tipo e numero di nodi deve fermarsi prima di qualunque
+    calcolo geometrico: se arrivasse dopo, un tipo dichiarato non coerente coi
+    nodi potrebbe far girare l'allineamento e la copertura su una topologia
+    interpretata male prima di fallire.
+
+    `element_type="C3D8"` passa per il parametro esplicito e non per
+    `tet_cfg.element`, che accetta solo 'C3D4' o 'C3D10': e' l'unica via per
+    dichiarare un tipo esaedrico su un array di tetraedri senza che la
+    validazione di pydantic intercetti il caso prima ancora di arrivare a
+    `export_model`."""
+    nodes, tets = cube_mesh
+
+    def non_dovrebbe_arrivare_qui(*args, **kwargs):
+        raise AssertionError("align_to_axes chiamata prima della validazione del tipo")
+
+    monkeypatch.setattr(abaqus, "align_to_axes", non_dovrebbe_arrivare_qui)
+
+    with pytest.raises(ValueError, match="C3D8"):
+        abaqus.export_model(
+            tmp_path / "m.inp",
+            tmp_path / "m.vtu",
+            nodes,
+            tets,
+            config.AnalysisConfig(material=MATERIALE),
+            config.TetConfig(),
+            element_type="C3D8",
+        )
