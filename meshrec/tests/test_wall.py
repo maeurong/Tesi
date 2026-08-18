@@ -287,7 +287,7 @@ def test_la_misura_di_un_prisma_noto_ritrova_sezione_asse_e_lunghezza():
     punti = synth.sample_box_surface((200.0, 140.0, 1500.0), 15.0)
     direzioni, _ = wall.terna(punti)
 
-    membratura = wall.misura(punti, direzioni, _cfg())
+    membratura = wall.misura(punti, direzioni, _cfg(), 15.0)
 
     assert membratura.lunghezza == pytest.approx(1500.0, abs=30.0)
     lunga, corta = sorted(membratura.sezione, reverse=True)
@@ -312,7 +312,7 @@ def test_il_fuori_piombo_misura_l_inclinazione_e_il_rigonfiamento_no():
     inclinati = punti @ rotazione.T
     direzioni, _ = wall.terna(inclinati)
 
-    membratura = wall.misura(inclinati, direzioni, _cfg())
+    membratura = wall.misura(inclinati, direzioni, _cfg(), 15.0)
 
     assert membratura.fuori_piombo_deg == pytest.approx(4.0, abs=1.0)
     assert np.abs(membratura.rigonfiamento).max() < 20.0, (
@@ -331,7 +331,7 @@ def test_il_rigonfiamento_e_una_mappa_e_trova_la_pancia_dove_c_e():
     gonfiati[sulla_faccia, 1] += 25.0 * (1.0 - altezza_relativa[sulla_faccia] ** 2)
     direzioni, _ = wall.terna(gonfiati)
 
-    membratura = wall.misura(gonfiati, direzioni, _cfg())
+    membratura = wall.misura(gonfiati, direzioni, _cfg(), 15.0)
 
     assert membratura.rigonfiamento.ndim == 1
     assert len(membratura.rigonfiamento) > 10, "il rigonfiamento e' una mappa, non un numero"
@@ -342,7 +342,7 @@ def test_il_rigonfiamento_e_una_mappa_e_trova_la_pancia_dove_c_e():
 def test_i_quattro_controlli_intrinseci_passano_su_un_prisma_pulito():
     punti = synth.sample_box_surface((200.0, 140.0, 1500.0), 15.0)
     direzioni, _ = wall.terna(punti)
-    membratura = wall.misura(punti, direzioni, _cfg())
+    membratura = wall.misura(punti, direzioni, _cfg(), 15.0)
 
     esiti = wall.controlla(membratura, _cfg())
 
@@ -370,7 +370,7 @@ def test_una_regione_a_sezione_variabile_non_e_un_prisma_e_lo_dice():
         ]))
     cono = np.vstack(punti)
     direzioni, _ = wall.terna(cono)
-    membratura = wall.misura(cono, direzioni, _cfg())
+    membratura = wall.misura(cono, direzioni, _cfg(), SPAZIATURA)
 
     esiti = wall.controlla(membratura, _cfg())
 
@@ -478,3 +478,49 @@ def test_le_membrature_piene_del_telaio_non_sono_scartate_dal_riempimento():
 
     assert esito["scartate"] == [], f"nessuna membratura del telaio doveva essere scartata: {esito['scartate']}"
     assert len(esito["membrature"]) == esito["regioni_trovate"]
+
+
+def test_un_prisma_pieno_non_e_scartato_qualunque_sia_la_sua_forma():
+    """Ruling H: cinque prismi pieni, senza alcun vuoto -- tozzo, corto,
+    allungato, grande -- devono avere riempimento vicino a uno e non essere
+    scartati. Se il riempimento misura il bordo invece del vuoto, una colonna
+    tozza o un elemento corto vengono scartati come se fossero una Π."""
+    casi = [
+        (200.0, 140.0, 1500.0),
+        (300.0, 300.0, 1500.0),
+        (500.0, 500.0, 1500.0),
+        (200.0, 140.0, 500.0),
+        (500.0, 500.0, 500.0),
+    ]
+    for dimensioni in casi:
+        punti = synth.sample_box_surface(dimensioni, SPAZIATURA)
+        direzioni, _ = wall.terna(punti)
+        membratura = wall.misura(punti, direzioni, _cfg(), SPAZIATURA)
+        esiti = wall.controlla(membratura, _cfg())
+
+        assert esiti["riempimento_sezione"]["passato"] is True, (
+            f"{dimensioni}: riempimento {esiti['riempimento_sezione']['valore']} "
+            f"sotto soglia {esiti['riempimento_sezione']['soglia']}, ma e' un prisma pieno"
+        )
+        assert membratura.riempimento_sezione > 0.9, f"{dimensioni}: {membratura.riempimento_sezione}"
+
+
+def test_il_riempimento_non_misurabile_scarta_invece_di_promuovere():
+    """Terzo difetto del Ruling H: una grandezza non misurata non e' pari a
+    uno. Con troppo pochi punti perche' una sola fetta ne veda almeno quattro,
+    il controllo deve dichiararsi non misurabile e scartare, non promuovere la
+    regione perche' nessuno ha potuto smentirla."""
+    punti_pochi = np.array([
+        [0.0, 0.0, 0.0],
+        [10.0, 0.0, 0.0],
+        [0.0, 10.0, 0.0],
+        [0.0, 0.0, 10.0],
+        [10.0, 10.0, 10.0],
+    ])
+    direzioni, _ = wall.terna(punti_pochi)
+
+    membratura = wall.misura(punti_pochi, direzioni, _cfg(), SPAZIATURA)
+    esiti = wall.controlla(membratura, _cfg())
+
+    assert esiti["riempimento_sezione"]["misurabile"] is False
+    assert esiti["riempimento_sezione"]["passato"] is False

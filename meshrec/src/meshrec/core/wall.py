@@ -366,7 +366,9 @@ class Membratura:
     volume: float
     """Sezione media per lunghezza [mm^3]."""
     riempimento_sezione: float
-    """Mediana, sulle fette lungo l'asse, della frazione occupata del proprio ingombro locale."""
+    """Mediana, sulle fette lungo l'asse, della frazione occupata (bordo piu' interno racchiuso)."""
+    riempimento_misurabile: bool
+    """False se nessuna fetta aveva punti a sufficienza: il riempimento non e' stato misurato."""
     esiti: dict[str, dict] = field(default_factory=dict)
     """Gli esiti dei controlli intrinseci, riempiti da `controlla`."""
 
@@ -380,8 +382,10 @@ una decina di punti per fetta su qualunque membratura che superi min_cells.
 """
 
 
-def misura(punti_regione: np.ndarray, direzioni: np.ndarray, cfg: WallConfig) -> Membratura:
-    """Asse, lunghezza, sezione, contorno, fuori piombo e rigonfiamento di una regione.
+def misura(
+    punti_regione: np.ndarray, direzioni: np.ndarray, cfg: WallConfig, spacing: float
+) -> Membratura:
+    """Asse, lunghezza, sezione, contorno, fuori piombo, rigonfiamento e riempimento di una regione.
 
     Il fuori piombo e il rigonfiamento sono tenuti distinti perche' sono
     difetti diversi: un elemento puo' essere perfettamente piano e tutto
@@ -392,7 +396,15 @@ def misura(punti_regione: np.ndarray, direzioni: np.ndarray, cfg: WallConfig) ->
     `direzioni` e' la terna del pezzo intero, non della regione: le due
     grandezze «asse ideale» e «rigonfiamento» hanno senso solo rispetto a un
     riferimento comune a tutte le membrature.
+
+    `spacing` e' la spaziatura media della nuvola, la stessa passata a
+    `scomponi`: governa, insieme a `cfg.cell_factor`, la risoluzione della
+    griglia con cui il riempimento vede il perimetro. Una risoluzione presa
+    dalla lunghezza della membratura invece che dalla spaziatura dello
+    scanner misurerebbe il rapporto fra sezione e lunghezza, non il vuoto.
     """
+    from scipy.ndimage import binary_fill_holes
+
     punti = np.asarray(punti_regione, dtype=np.float64)
     centro = punti.mean(axis=0)
     centrati = punti - centro
@@ -417,13 +429,24 @@ def misura(punti_regione: np.ndarray, direzioni: np.ndarray, cfg: WallConfig) ->
     # dispersione della sezione lungo l'asse: la grandezza del controllo di
     # costanza. Fette a passo uguale, e non quantili, perche' una fetta vuota
     # deve restare vuota invece di essere riempita da punti di un'altra. Il
-    # lato di fetta e' anche la risoluzione della griglia di riempimento e di
-    # quella del rigonfiamento piu' sotto: la stessa risoluzione per le tre,
-    # niente moltiplicato per cell_factor perche' qui non c'e' una spaziatura
-    # di punti da scalare, solo una frazione di lunghezza.
+    # lato di fetta e' anche la risoluzione della griglia del rigonfiamento
+    # piu' sotto: niente moltiplicato per cell_factor perche' li' non c'e' una
+    # spaziatura di punti da scalare, solo una frazione di lunghezza.
     lato_fetta = max(1e-9, float(np.ptp(lungo)) / _FETTE_LUNGO_ASSE)
     bordi = np.linspace(lungo.min(), lungo.max(), _FETTE_LUNGO_ASSE + 1)
     fetta = np.clip(np.digitize(lungo, bordi[1:-1]), 0, _FETTE_LUNGO_ASSE - 1)
+    # riempimento: la risoluzione qui e' cell_factor * spacing, la stessa
+    # griglia gia' usata da scomponi e spessore_per_cella -- una spaziatura di
+    # punti da scalare, non una frazione di lunghezza. Su una nuvola di sola
+    # superficie i punti stanno solo sul perimetro della sezione: «cella
+    # occupata» misurerebbe il bordo, e una griglia piu' fine farebbe
+    # sembrare vuoto anche un prisma pieno. La cella piena e' invece «non
+    # raggiungibile dall'esterno»: si marcano le celle con punti (il
+    # perimetro), poi binary_fill_holes riempie cio' che quel perimetro
+    # racchiude. Un prisma pieno da' un perimetro chiuso -> quasi tutto
+    # riempito qualunque sia la sua forma; una Π ha un vano che l'esterno
+    # raggiunge -> quel vano resta vuoto.
+    lato_celle = cfg.cell_factor * spacing
     per_fetta = []
     riempimenti = []
     for indice in range(_FETTE_LUNGO_ASSE):
@@ -431,15 +454,10 @@ def misura(punti_regione: np.ndarray, direzioni: np.ndarray, cfg: WallConfig) ->
         if dentro.sum() < 4:
             continue
         per_fetta.append((np.ptp(sezione_2d[dentro, 0]), np.ptp(sezione_2d[dentro, 1])))
-        # riempimento: frazione delle celle del proprio ingombro locale che la
-        # fetta occupa davvero. Una sezione piena tocca (quasi) tutte le celle
-        # del proprio bounding box; una sezione con un vuoto in mezzo (per
-        # esempio due membrature uguali unite a Π) ne tocca solo una parte,
-        # perche' il centro dell'ingombro resta vuoto -- cosa che l'estensione
-        # e la dispersione qui sopra, entrambe di bounding box, non vedono.
-        celle_fetta = chiavi_di_cella(sezione_2d[dentro], lato_fetta)
-        totali = int((celle_fetta[:, 0].max() + 1) * (celle_fetta[:, 1].max() + 1))
-        riempimenti.append(len(np.unique(celle_fetta, axis=0)) / totali)
+        celle_fetta = chiavi_di_cella(sezione_2d[dentro], lato_celle)
+        griglia = np.zeros((int(celle_fetta[:, 0].max()) + 1, int(celle_fetta[:, 1].max()) + 1), dtype=bool)
+        griglia[celle_fetta[:, 0], celle_fetta[:, 1]] = True
+        riempimenti.append(float(binary_fill_holes(griglia).mean()))
     misure = np.asarray(per_fetta, dtype=np.float64) if per_fetta else np.zeros((1, 2))
     medie = misure.mean(axis=0)
     dispersione = tuple(
@@ -449,7 +467,12 @@ def misura(punti_regione: np.ndarray, direzioni: np.ndarray, cfg: WallConfig) ->
     # mediana e non media: una minoranza di fette piene (ai capi, dove nella
     # Π i traversi chiudono l'ingombro per davvero) non deve nascondere la
     # maggioranza di fette vuote in mezzo
-    riempimento_sezione = float(np.median(riempimenti)) if riempimenti else 1.0
+    riempimento_misurabile = bool(riempimenti)
+    # nessun ripiego a 1.0: una grandezza non misurata non e' una grandezza
+    # piena. 0.0 non lascia dubbi al controllo, che dichiara comunque
+    # esplicitamente riempimento_misurabile=False invece di far sembrare la
+    # regione vuota per davvero
+    riempimento_sezione = float(np.median(riempimenti)) if riempimenti else 0.0
 
     contorno = semplifica_contorno(sezione_2d, cfg.contour_tolerance)
 
@@ -495,6 +518,7 @@ def misura(punti_regione: np.ndarray, direzioni: np.ndarray, cfg: WallConfig) ->
         rigonfiamento=rigonfiamento,
         volume=volume,
         riempimento_sezione=riempimento_sezione,
+        riempimento_misurabile=riempimento_misurabile,
     )
 
 
@@ -557,16 +581,22 @@ def controlla(membratura: Membratura, cfg: WallConfig) -> dict[str, dict]:
             ),
         },
         "riempimento_sezione": {
-            "passato": membratura.riempimento_sezione >= cfg.section_fill_ratio,
+            "passato": membratura.riempimento_misurabile
+            and membratura.riempimento_sezione >= cfg.section_fill_ratio,
             "valore": float(membratura.riempimento_sezione),
             "soglia": float(cfg.section_fill_ratio),
+            "misurabile": membratura.riempimento_misurabile,
             "unita": "frazione",
             "spiegazione": (
-                "frazione mediana delle celle del proprio ingombro locale "
-                "occupata davvero: l'estensione e la dispersione sono "
-                "bounding box e non vedono un vuoto interno, per esempio due "
-                "membrature uguali unite a Π. Sotto la soglia, l'ingombro "
-                "non e' la sezione ma il suo contenitore. Confine dichiarato: "
+                "frazione mediana, sulle fette lungo l'asse, delle celle del "
+                "proprio ingombro locale non raggiungibili dall'esterno "
+                "(bordo piu' interno racchiuso): l'estensione e la "
+                "dispersione sono bounding box e non vedono un vuoto "
+                "interno, per esempio due membrature uguali unite a Π. Sotto "
+                "la soglia, l'ingombro non e' la sezione ma il suo "
+                "contenitore. Se nessuna fetta aveva punti a sufficienza il "
+                "controllo non e' misurabile e non passa: una grandezza non "
+                "misurata non e' una grandezza piena. Confine dichiarato: "
                 "una membratura legittimamente cava (un tubo) verrebbe "
                 "scartata da questo controllo. E' corretto in questo prior, "
                 "che costruisce prismi pieni: modellare un tubo come pieno "
@@ -613,7 +643,7 @@ def prior(
     accettate: list[Membratura] = []
     scartate: list[dict[str, object]] = []
     for numero, indici in enumerate(regioni_punti):
-        membratura = misura(puliti[indici], direzioni, cfg)
+        membratura = misura(puliti[indici], direzioni, cfg, spacing)
         membratura.punti = indici
         membratura.esiti = controlla(membratura, cfg)
         falliti = [nome for nome, esito in membratura.esiti.items() if not esito["passato"]]
