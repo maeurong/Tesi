@@ -37,8 +37,13 @@ def write_cloud(path: Path, points: np.ndarray, normals: np.ndarray | None = Non
     scrivi_atomico(Path(path), lambda destinazione: o3d.io.write_point_cloud(str(destinazione), cloud))
 
 
-def mean_spacing(points: np.ndarray, sample: int, seed: int) -> float:
-    """Distanza media al vicino piu prossimo, su un campione casuale."""
+def nn_distances(points: np.ndarray, sample: int, seed: int) -> np.ndarray:
+    """Distanze al vicino piu prossimo, su un campione casuale.
+
+    La media di queste distanze e' la spaziatura; la loro dispersione dice
+    quanto quella media descrive davvero la nuvola, e chi ne ha bisogno le
+    prende da qui invece di ricostruire un secondo albero.
+    """
     points = np.asarray(points, dtype=np.float64)
     if len(points) < 2:
         raise ValueError("servono almeno due punti per stimare la spaziatura")
@@ -46,7 +51,12 @@ def mean_spacing(points: np.ndarray, sample: int, seed: int) -> float:
     size = min(sample, len(points))
     chosen = points[rng.choice(len(points), size=size, replace=False)]
     distances, _ = cKDTree(points).query(chosen, k=2)
-    return float(distances[:, 1].mean())
+    return distances[:, 1]
+
+
+def mean_spacing(points: np.ndarray, sample: int, seed: int) -> float:
+    """Distanza media al vicino piu prossimo, su un campione casuale."""
+    return float(nn_distances(points, sample, seed).mean())
 
 
 def load_cloud(cfg: InputConfig) -> tuple[np.ndarray, dict[str, object]]:

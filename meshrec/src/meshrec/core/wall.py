@@ -191,8 +191,9 @@ def regioni(celle: np.ndarray, spessori: np.ndarray, cfg: WallConfig) -> list[np
     # e restano una regione sola -- vedi
     # test_una_sezione_uniforme_e_un_canarino_per_la_separazione_per_orientamento
     # in tests/test_wall.py. Non e' un risultato falso in silenzio: quella
-    # regione non e' un prisma e il controllo di costanza della sezione del
-    # Task 3 la scarta. Aggiornamento se servisse: direzione locale di
+    # regione non e' un prisma, e il riempimento di sezione la dichiara
+    # «vuoto» perche' chi costruisce possa rifiutarla -- vedi `riempimento`
+    # piu' sotto. Aggiornamento se servisse: direzione locale di
     # allungamento per cella (PCA sull'intorno) invece del solo spessore.
     from scipy.sparse import coo_array
     from scipy.sparse.csgraph import connected_components
@@ -367,8 +368,10 @@ class Membratura:
     """Sezione media per lunghezza [mm^3]."""
     riempimento_sezione: float
     """Mediana, sulle fette lungo l'asse, della frazione occupata (bordo piu' interno racchiuso)."""
-    riempimento_misurabile: bool
-    """False se nessuna fetta aveva punti a sufficienza: il riempimento non e' stato misurato."""
+    riempimento_stato: str
+    """«pieno», «vuoto» o «non_verificabile»: esito misurato, mai un motivo di scarto."""
+    densita_dispersione: float
+    """Dispersione relativa delle distanze al vicino piu' prossimo: quanto la densita' non e' uniforme."""
     esiti: dict[str, dict] = field(default_factory=dict)
     """Gli esiti dei controlli intrinseci, riempiti da `controlla`."""
 
@@ -405,7 +408,9 @@ def misura(punti_regione: np.ndarray, direzioni: np.ndarray, cfg: WallConfig) ->
     from scipy.ndimage import binary_fill_holes
 
     punti = np.asarray(punti_regione, dtype=np.float64)
-    spacing_locale = io.mean_spacing(punti, cfg.spacing_sample, cfg.seed)
+    distanze = io.nn_distances(punti, cfg.spacing_sample, cfg.seed)
+    spacing_locale = float(distanze.mean())
+    densita_dispersione = float(distanze.std() / spacing_locale) if spacing_locale > 0.0 else 0.0
     centro = punti.mean(axis=0)
     centrati = punti - centro
     _, _, principali = np.linalg.svd(centrati, full_matrices=False)
@@ -477,12 +482,19 @@ def misura(punti_regione: np.ndarray, direzioni: np.ndarray, cfg: WallConfig) ->
     # mediana e non media: una minoranza di fette piene (ai capi, dove nella
     # Π i traversi chiudono l'ingombro per davvero) non deve nascondere la
     # maggioranza di fette vuote in mezzo
-    riempimento_misurabile = bool(riempimenti)
-    # nessun ripiego a 1.0: una grandezza non misurata non e' una grandezza
-    # piena. 0.0 non lascia dubbi al controllo, che dichiara comunque
-    # esplicitamente riempimento_misurabile=False invece di far sembrare la
-    # regione vuota per davvero
     riempimento_sezione = float(np.median(riempimenti)) if riempimenti else 0.0
+    # tre stati e nessuno scarto. «non verificabile» copre i due modi in cui il
+    # numero che uscirebbe misurerebbe il campionamento invece della sezione:
+    # nessuna fetta con punti a sufficienza, oppure una densita' cosi' poco
+    # uniforme che la sua media non e' piu' una scala e la griglia costruita su
+    # di essa non risolve la parte rada. Una grandezza non misurata non e' ne'
+    # piena ne' vuota, e dirlo e' l'unica cosa onesta che si possa fare qui.
+    if not riempimenti or densita_dispersione > cfg.density_dispersion_limit:
+        riempimento_stato = "non_verificabile"
+    elif riempimento_sezione >= cfg.section_fill_ratio:
+        riempimento_stato = "pieno"
+    else:
+        riempimento_stato = "vuoto"
 
     contorno = semplifica_contorno(sezione_2d, cfg.contour_tolerance)
 
@@ -528,7 +540,8 @@ def misura(punti_regione: np.ndarray, direzioni: np.ndarray, cfg: WallConfig) ->
         rigonfiamento=rigonfiamento,
         volume=volume,
         riempimento_sezione=riempimento_sezione,
-        riempimento_misurabile=riempimento_misurabile,
+        riempimento_stato=riempimento_stato,
+        densita_dispersione=densita_dispersione,
     )
 
 
@@ -590,29 +603,54 @@ def controlla(membratura: Membratura, cfg: WallConfig) -> dict[str, dict]:
                 "soglia la regione non e' un prisma"
             ),
         },
-        "riempimento_sezione": {
-            "passato": membratura.riempimento_misurabile
-            and membratura.riempimento_sezione >= cfg.section_fill_ratio,
-            "valore": float(membratura.riempimento_sezione),
-            "soglia": float(cfg.section_fill_ratio),
-            "misurabile": membratura.riempimento_misurabile,
-            "unita": "frazione",
-            "spiegazione": (
-                "frazione mediana, sulle fette lungo l'asse, delle celle del "
-                "proprio ingombro locale non raggiungibili dall'esterno "
-                "(bordo piu' interno racchiuso): l'estensione e la "
-                "dispersione sono bounding box e non vedono un vuoto "
-                "interno, per esempio due membrature uguali unite a Π. Sotto "
-                "la soglia, l'ingombro non e' la sezione ma il suo "
-                "contenitore. Se nessuna fetta aveva punti a sufficienza il "
-                "controllo non e' misurabile e non passa: una grandezza non "
-                "misurata non e' una grandezza piena. Confine dichiarato: "
-                "una membratura legittimamente cava (un tubo) verrebbe "
-                "scartata da questo controllo. E' corretto in questo prior, "
-                "che costruisce prismi pieni: modellare un tubo come pieno "
-                "sarebbe un errore peggiore dello scarto"
-            ),
-        },
+    }
+
+
+def riempimento(membratura: Membratura, cfg: WallConfig) -> dict[str, object]:
+    """L'esito del riempimento di sezione: misurato e dichiarato, mai uno scarto.
+
+    Non e' un controllo intrinseco e non sta con gli altri tre: quelli dicono
+    se una regione ha una sezione da misurare, questo dice che cosa la sezione
+    misurata e' risultata essere. Tre stati, nessuno dei quali toglie la
+    regione dalle membrature:
+
+    - `pieno`: l'ingombro locale e' occupato davvero, la regione e' un prisma;
+    - `vuoto`: l'ingombro non e' la sezione ma il suo contenitore -- il caso di
+      due membrature uguali unite a Π, che l'estensione e la dispersione non
+      vedono perche' sono entrambe misure di bounding box;
+    - `non_verificabile`: la misura non ha le condizioni per valere.
+
+    Il rifiuto spetta a chi costruisce: una membratura `vuoto` con misura
+    affidabile non puo' diventare un modello parametrico, e chi lo costruisce
+    trova qui tutto cio' che gli serve per dirlo senza ricalcolare nulla.
+    Scartarla qui sarebbe una decisione di costruzione presa dentro uno
+    strumento di misura, e per scartare senza sbagliare servirebbe una
+    certezza che una nuvola reale non da'.
+    """
+    return {
+        "stato": membratura.riempimento_stato,
+        "valore": float(membratura.riempimento_sezione),
+        "soglia": float(cfg.section_fill_ratio),
+        "affidabile": membratura.densita_dispersione <= cfg.density_dispersion_limit,
+        "densita_dispersione": float(membratura.densita_dispersione),
+        "limite_densita_dispersione": float(cfg.density_dispersion_limit),
+        "unita": "frazione",
+        "spiegazione": (
+            "frazione mediana, sulle fette lungo l'asse, delle celle del "
+            "proprio ingombro locale non raggiungibili dall'esterno (bordo "
+            "piu' interno racchiuso). Sotto la soglia lo stato e' «vuoto» e la "
+            "regione non e' un prisma; sopra e' «pieno». Lo stato "
+            "«non_verificabile» dice che la misura non vale, non che il pezzo "
+            "e' cavo: nessuna fetta con punti a sufficienza, oppure una "
+            "densita' troppo poco uniforme (dispersione delle distanze al "
+            "vicino piu' prossimo oltre il limite) perche' una griglia "
+            "costruita sulla loro media risolva la parte rada -- il caso di un "
+            "pezzo scansionato da un lato solo. Nessuno dei tre stati scarta "
+            "la regione: il riempimento misura e dichiara, e il rifiuto spetta "
+            "a chi costruisce i modelli. Confine dichiarato: una membratura "
+            "legittimamente cava (un tubo) risulta «vuoto», ed e' corretto in "
+            "questo prior, che costruisce prismi pieni"
+        ),
     }
 
 
@@ -706,7 +744,7 @@ def prior(
                     else None,
                 },
                 "volume": m.volume,
-                "riempimento_sezione": m.riempimento_sezione,
+                "riempimento": riempimento(m, cfg),
                 "esiti": m.esiti,
             }
             for m in accettate

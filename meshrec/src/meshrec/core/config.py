@@ -402,14 +402,35 @@ class WallConfig(_ModelloBase):
         gt=0.0,
         le=1.0,
         description=(
-            "controllo intrinseco: frazione minima (mediana sulle fette lungo "
-            "l'asse) delle celle del proprio ingombro locale che la sezione deve "
-            "occupare davvero. L'estensione e la dispersione sono entrambe "
-            "misure di bounding box e non vedono un vuoto interno -- due "
-            "membrature identiche unite a Π restano piene di bounding box da un "
-            "capo all'altro. Stessa convenzione di meta' di face_coverage: sotto "
-            "meta' delle celle del proprio ingombro, l'ingombro non e' la "
-            "sezione ma il suo contenitore"
+            "confine fra i due esiti «pieno» e «vuoto» del riempimento di "
+            "sezione: frazione (mediana sulle fette lungo l'asse) delle celle "
+            "del proprio ingombro locale che la sezione occupa davvero. "
+            "L'estensione e la dispersione sono entrambe misure di bounding box "
+            "e non vedono un vuoto interno -- due membrature identiche unite a Π "
+            "restano piene di bounding box da un capo all'altro. Stessa "
+            "convenzione di meta' di face_coverage: sotto meta' delle celle del "
+            "proprio ingombro, l'ingombro non e' la sezione ma il suo "
+            "contenitore. Non scarta nulla: il riempimento e' un esito "
+            "dichiarato, e il rifiuto spetta a chi costruisce i modelli"
+        ),
+    )
+    density_dispersion_limit: float = Field(
+        default=1.0,
+        gt=0.0,
+        description=(
+            "condizione di validita' della misura di riempimento, non criterio "
+            "di qualita' del pezzo: dispersione massima delle distanze al vicino "
+            "piu' prossimo rispetto alla loro media. Sopra questo limite lo "
+            "scarto tipo eguaglia la media, la media smette di essere la scala "
+            "della nuvola, e la griglia costruita su di essa (cell_factor per la "
+            "spaziatura) non risolve piu' la parte rada: il riempimento si "
+            "dichiara «non verificabile» invece di dare un numero che misura il "
+            "campionamento e non la sezione. Il valore uno e' il confine fra "
+            "«descrivibile da una media» e no, non un numero tarato su un caso: "
+            "una nuvola a densita' unica sta ben sotto (una griglia regolare da' "
+            "zero, un campionamento casuale uniforme di superficie circa 0,52), "
+            "una nuvola con una parte rada oltre cell_factor volte la media "
+            "sta sopra"
         ),
     )
     union_tolerance: float = Field(

@@ -227,9 +227,10 @@ def test_una_sezione_uniforme_e_un_canarino_per_la_separazione_per_orientamento(
     `test_la_tolleranza_di_spessore_decide_fra_una_regione_e_due`): dichiara
     invece il confine del metodo attuale, che non separa membrature adiacenti
     a sezione uguale (qui un piedritto e una trave, uniti a Π). Non e' un
-    risultato falso in silenzio: una regione a Π non e' un prisma, quindi il
-    controllo di costanza della sezione del Task 3 la scartera' con il
-    proprio motivo. Il giorno in cui qualcuno implementasse la separazione per
+    risultato falso in silenzio: una regione a Π non e' un prisma, e il
+    riempimento di sezione del Task 3 la dichiara «vuoto» con la propria misura
+    (vedi `test_la_regione_a_pi_esce_vuota_e_affidabile_invece_di_essere_scartata`),
+    perche' chi costruisce possa rifiutarla. Il giorno in cui qualcuno implementasse la separazione per
     orientamento locale (vedi il commento `ponytail:` su `regioni` in
     `wall.py`), e' questo test che smettera' di passare, ed e' il segnale
     giusto per riscriverlo."""
@@ -339,14 +340,14 @@ def test_il_rigonfiamento_e_una_mappa_e_trova_la_pancia_dove_c_e():
     assert membratura.fuori_piombo_deg == pytest.approx(0.0, abs=1.5)
 
 
-def test_i_quattro_controlli_intrinseci_passano_su_un_prisma_pulito():
+def test_i_controlli_intrinseci_passano_su_un_prisma_pulito():
     punti = synth.sample_box_surface((200.0, 140.0, 1500.0), 15.0)
     direzioni, _ = wall.terna(punti)
     membratura = wall.misura(punti, direzioni, _cfg())
 
     esiti = wall.controlla(membratura, _cfg())
 
-    assert set(esiti) == {"parallelismo", "copertura_faccia", "costanza_sezione", "riempimento_sezione"}
+    assert set(esiti) == {"parallelismo", "copertura_faccia", "costanza_sezione"}
     for nome, esito in esiti.items():
         assert esito["passato"] is True, f"{nome} non doveva fallire: {esito}"
         assert "valore" in esito and "soglia" in esito, (
@@ -438,53 +439,103 @@ def test_il_controllo_di_chiusura_del_volume_confronta_somma_e_unione():
     )
 
 
-def test_la_regione_a_pi_di_sezione_uniforme_finisce_fra_le_scartate():
-    """Ruling G: la scomposizione fonde due membrature adiacenti a sezione
-    uguale in una regione sola a forma di Π (vedi
-    `test_una_sezione_uniforme_e_un_canarino_per_la_separazione_per_orientamento`).
-    Quella regione non e' un prisma, e deve smentirla il riempimento: la
-    dispersione e l'estensione, entrambe di bounding box, non vedono il vuoto
-    al centro perche' i due piedritti attraversano tutta l'altezza e tengono
-    l'ingombro pieno da un capo all'altro."""
-    telaio_a_sezione_uniforme = [
-        ((0.0, 0.0, 0.0), (200.0, 200.0, 1600.0)),      # montante sinistro
-        ((1400.0, 0.0, 0.0), (200.0, 200.0, 1600.0)),   # montante destro
-        ((0.0, 0.0, 1600.0), (1600.0, 200.0, 300.0)),   # traverso superiore
-        ((0.0, 0.0, -300.0), (1600.0, 200.0, 300.0)),   # traverso inferiore
+TELAIO_A_SEZIONE_UNIFORME = [
+    ((0.0, 0.0, 0.0), (200.0, 200.0, 1600.0)),      # montante sinistro
+    ((1400.0, 0.0, 0.0), (200.0, 200.0, 1600.0)),   # montante destro
+    ((0.0, 0.0, 1600.0), (1600.0, 200.0, 300.0)),   # traverso superiore
+    ((0.0, 0.0, -300.0), (1600.0, 200.0, 300.0)),   # traverso inferiore
+]
+
+# Il banco a densita' bimodale dei due controesempi della terza review: un
+# pezzo scansionato da un lato solo. La faccia che guarda lo scanner e' presa
+# alla risoluzione piena dello strumento, le pareti che scappano di taglio sono
+# sfiorate di striscio e vengono via venti volte piu' rade. Venti e' il
+# rapporto di un'incidenza radente attorno agli 87 gradi: non un numero scelto
+# per far cadere una soglia, ma il caso che una scansione da un lato solo
+# produce per forza.
+DENSITA_BIMODALE = (300.0, 300.0, 1500.0)
+PASSO_RADO = 100.0
+PASSO_FITTO = 5.0
+
+
+def _faccia_fitta(
+    dimensioni: tuple[float, float, float], asse_fisso: int, quota: float, passo: float
+) -> np.ndarray:
+    """Una faccia rettangolare del parallelepipedo, campionata al passo dato."""
+    resto = [indice for indice in range(3) if indice != asse_fisso]
+    lati = [dimensioni[indice] for indice in resto]
+    numeri = [max(2, int(round(lato / passo)) + 1) for lato in lati]
+    u, v = np.meshgrid(
+        np.linspace(0.0, lati[0], numeri[0]),
+        np.linspace(0.0, lati[1], numeri[1]),
+        indexing="ij",
+    )
+    punti = np.zeros((u.size, 3))
+    punti[:, resto[0]] = u.ravel()
+    punti[:, resto[1]] = v.ravel()
+    punti[:, asse_fisso] = quota
+    return punti
+
+
+def _prisma_a_densita_bimodale(facce_fitte: list[tuple[int, float]]) -> np.ndarray:
+    """Prisma pieno con alcune facce fitte e tutte le altre rade."""
+    rado = synth.sample_box_surface(DENSITA_BIMODALE, PASSO_RADO)
+    fitte = [
+        _faccia_fitta(DENSITA_BIMODALE, asse, quota, PASSO_FITTO) for asse, quota in facce_fitte
     ]
-    punti = synth.sample_frame_surface(telaio_a_sezione_uniforme, SPAZIATURA)
+    return np.unique(np.round(np.vstack([rado, *fitte]), 9), axis=0)
+
+
+def test_la_regione_a_pi_esce_vuota_e_affidabile_invece_di_essere_scartata():
+    """Ruling J: il riempimento misura e dichiara, non scarta.
+
+    La scomposizione fonde due membrature adiacenti a sezione uguale in una
+    regione sola a forma di Π (vedi
+    `test_una_sezione_uniforme_e_un_canarino_per_la_separazione_per_orientamento`).
+    Quella regione non e' un prisma, e il riempimento e' la sola grandezza che
+    lo vede: la dispersione e l'estensione, entrambe di bounding box, non
+    vedono il vuoto al centro perche' i due piedritti attraversano tutta
+    l'altezza e tengono l'ingombro pieno da un capo all'altro.
+
+    Ma vederlo non e' scartarlo. La regione resta fra le membrature con lo
+    stato «vuoto» e la misura dichiarata affidabile: e' esattamente
+    l'informazione con cui chi costruisce i modelli parametrici (Task 8) puo'
+    rifiutarla, senza ricalcolare nulla."""
+    punti = synth.sample_frame_surface(TELAIO_A_SEZIONE_UNIFORME, SPAZIATURA)
 
     esito = wall.prior(punti, SegmentConfig(), _cfg(), SPAZIATURA)
 
     assert esito["regioni_trovate"] == 1, "il banco deve restare il caso limite: una regione a Π sola"
-    assert esito["membrature"] == [], "la regione a Π non e' un prisma e non deve passare per membratura"
-    assert len(esito["scartate"]) == 1
-    scartata = esito["scartate"][0]
-    assert "riempimento_sezione" in scartata["controlli_falliti"], (
-        f"il riempimento doveva smentirla, controlli falliti: {scartata['controlli_falliti']}"
+    assert esito["scartate"] == [], (
+        f"il riempimento non scarta piu' nessuno: {esito['scartate']}"
     )
-    esito_riempimento = scartata["esiti"]["riempimento_sezione"]
-    assert esito_riempimento["valore"] < esito_riempimento["soglia"]
+    assert len(esito["membrature"]) == 1
+    riempimento = esito["membrature"][0]["riempimento"]
+    assert riempimento["stato"] == "vuoto", riempimento
+    assert riempimento["affidabile"] is True, riempimento
+    assert riempimento["valore"] < riempimento["soglia"]
 
 
-def test_le_membrature_piene_del_telaio_non_sono_scartate_dal_riempimento():
-    """Il controllo che smentisce il controllo: il riempimento non deve
-    scartare una membratura sana solo perche' e' sottile o piccola. Il banco
-    e' il telaio a sezioni diverse del Task 2, dove ogni regione e' un prisma
-    vero e nessuna e' cava."""
+def test_le_membrature_piene_del_telaio_escono_piene():
+    """Il controllo che smentisce il controllo: il telaio a sezioni diverse del
+    Task 2 e' fatto di prismi veri, nessuno cavo, e ogni regione deve uscire
+    «pieno» -- non basta che nessuna sia scartata, perche' ora il riempimento
+    non scarta piu' nessuno e un esito sbagliato passerebbe inosservato."""
     punti = synth.sample_frame_surface(TELAIO, SPAZIATURA)
 
     esito = wall.prior(punti, SegmentConfig(), _cfg(), SPAZIATURA)
 
     assert esito["scartate"] == [], f"nessuna membratura del telaio doveva essere scartata: {esito['scartate']}"
     assert len(esito["membrature"]) == esito["regioni_trovate"]
+    for membratura in esito["membrature"]:
+        assert membratura["riempimento"]["stato"] == "pieno", membratura["riempimento"]
 
 
-def test_un_prisma_pieno_non_e_scartato_qualunque_sia_la_sua_forma():
-    """Ruling H: cinque prismi pieni, senza alcun vuoto -- tozzo, corto,
-    allungato, grande -- devono avere riempimento vicino a uno e non essere
-    scartati. Se il riempimento misura il bordo invece del vuoto, una colonna
-    tozza o un elemento corto vengono scartati come se fossero una Π."""
+def test_i_prismi_pieni_escono_pieni_qualunque_sia_la_loro_forma():
+    """Ruling H, ripreso dal Ruling J: cinque prismi pieni, senza alcun vuoto
+    -- tozzo, corto, allungato, grande -- devono uscire «pieno». Se il
+    riempimento misurasse il bordo invece del vuoto, una colonna tozza o un
+    elemento corto uscirebbero «vuoto» come una Π."""
     casi = [
         (200.0, 140.0, 1500.0),
         (300.0, 300.0, 1500.0),
@@ -495,21 +546,57 @@ def test_un_prisma_pieno_non_e_scartato_qualunque_sia_la_sua_forma():
     for dimensioni in casi:
         punti = synth.sample_box_surface(dimensioni, SPAZIATURA)
         direzioni, _ = wall.terna(punti)
-        membratura = wall.misura(punti, direzioni, _cfg())
-        esiti = wall.controlla(membratura, _cfg())
 
-        assert esiti["riempimento_sezione"]["passato"] is True, (
-            f"{dimensioni}: riempimento {esiti['riempimento_sezione']['valore']} "
-            f"sotto soglia {esiti['riempimento_sezione']['soglia']}, ma e' un prisma pieno"
+        membratura = wall.misura(punti, direzioni, _cfg())
+
+        assert membratura.riempimento_stato == "pieno", (
+            f"{dimensioni}: stato {membratura.riempimento_stato}, "
+            f"valore {membratura.riempimento_sezione}, ma e' un prisma pieno"
         )
         assert membratura.riempimento_sezione > 0.9, f"{dimensioni}: {membratura.riempimento_sezione}"
 
 
-def test_il_riempimento_non_misurabile_scarta_invece_di_promuovere():
-    """Terzo difetto del Ruling H: una grandezza non misurata non e' pari a
-    uno. Con troppo pochi punti perche' una sola fetta ne veda almeno quattro,
-    il controllo deve dichiararsi non misurabile e scartare, non promuovere la
-    regione perche' nessuno ha potuto smentirla."""
+def test_una_faccia_frontale_fitta_con_pareti_rade_non_e_vuota_ma_non_verificabile():
+    """Primo controesempio della terza review, il punto centrale del Ruling J.
+
+    Un prisma **pieno** scansionato da un lato solo: la faccia frontale e' presa
+    fitta, le pareti laterali rade. La griglia del riempimento e' costruita su
+    una spaziatura media, e una media non descrive una densita' bimodale a
+    nessuna scala: il perimetro rado non si chiude, il riempimento crolla, e il
+    prisma pieno sembra vuoto. L'esito giusto non e' «vuoto» -- e' «non
+    verificabile», perche' e' la misura a non valere, non il pezzo a essere
+    cavo."""
+    punti = _prisma_a_densita_bimodale([(1, 0.0)])
+    direzioni, _ = wall.terna(punti)
+
+    membratura = wall.misura(punti, direzioni, _cfg())
+
+    assert membratura.riempimento_stato == "non_verificabile", (
+        f"stato {membratura.riempimento_stato}, valore {membratura.riempimento_sezione}, "
+        f"dispersione densita' {membratura.densita_dispersione}"
+    )
+
+
+def test_tappi_terminali_fitti_con_pareti_rade_non_sono_vuoti_ma_non_verificabili():
+    """Secondo controesempio della terza review: stessa densita' bimodale, ma
+    concentrata sui due tappi terminali invece che su una parete laterale. La
+    conclusione deve essere la stessa -- non verificabile, non vuoto -- perche'
+    il difetto sta nella densita' del campionamento e non in dove capita."""
+    punti = _prisma_a_densita_bimodale([(2, 0.0), (2, DENSITA_BIMODALE[2])])
+    direzioni, _ = wall.terna(punti)
+
+    membratura = wall.misura(punti, direzioni, _cfg())
+
+    assert membratura.riempimento_stato == "non_verificabile", (
+        f"stato {membratura.riempimento_stato}, valore {membratura.riempimento_sezione}, "
+        f"dispersione densita' {membratura.densita_dispersione}"
+    )
+
+
+def test_una_regione_senza_punti_a_sufficienza_resta_non_verificabile():
+    """Una grandezza non misurata non e' una grandezza piena, e non e' nemmeno
+    una grandezza vuota. Con troppo pochi punti perche' una sola fetta ne veda
+    almeno quattro, lo stato e' «non verificabile» e lo dice."""
     punti_pochi = np.array([
         [0.0, 0.0, 0.0],
         [10.0, 0.0, 0.0],
@@ -520,46 +607,37 @@ def test_il_riempimento_non_misurabile_scarta_invece_di_promuovere():
     direzioni, _ = wall.terna(punti_pochi)
 
     membratura = wall.misura(punti_pochi, direzioni, _cfg())
-    esiti = wall.controlla(membratura, _cfg())
 
-    assert esiti["riempimento_sezione"]["misurabile"] is False
-    assert esiti["riempimento_sezione"]["passato"] is False
+    assert membratura.riempimento_stato == "non_verificabile"
 
 
-def test_una_regione_rada_non_e_scartata_se_e_davvero_piena():
-    """Ruling I: una porzione di pezzo piu' lontana dallo scanner (o
-    parzialmente occlusa) ha densita' locale piu' rada del resto del pezzo.
-    Il riempimento deve seguire la spaziatura della regione stessa, misurata
-    su di essa, non una ereditata da altrove: un prisma pieno campionato rado
-    non e' un vuoto. Numeri del revisore: 300x300x1500 a 70mm di spaziatura
-    reale locale dava 0.444 con lo spacing globale del pezzo (15mm) usato al
-    posto di quello locale -- scartato, pur essendo pieno."""
+def test_una_regione_rada_ma_uniforme_esce_piena():
+    """Ruling I: una porzione di pezzo piu' lontana dallo scanner ha densita'
+    locale piu' rada del resto del pezzo. Finche' e' rada in modo uniforme, la
+    misura vale e un prisma pieno campionato rado esce «pieno»: e' la
+    controprova dei due controesempi qui sopra, dove a mancare non e' la
+    densita' ma la sua uniformita'."""
     punti = synth.sample_box_surface((300.0, 300.0, 1500.0), 70.0)
     direzioni, _ = wall.terna(punti)
 
     membratura = wall.misura(punti, direzioni, _cfg())
-    esiti = wall.controlla(membratura, _cfg())
 
-    assert esiti["riempimento_sezione"]["passato"] is True, esiti["riempimento_sezione"]
+    assert membratura.riempimento_stato == "pieno", (
+        f"stato {membratura.riempimento_stato}, dispersione densita' "
+        f"{membratura.densita_dispersione}"
+    )
 
 
-def test_una_pi_molto_rada_non_passa_come_piena():
+def test_una_pi_molto_rada_non_esce_piena():
     """Il controllo che smentisce il precedente: una Π vera, campionata cosi'
     rada che la griglia locale copre la sezione con troppo poche celle per
-    vedere il vuoto, non deve passare come piena -- deve dichiararsi non
-    misurabile e scartare. Numeri del revisore: con uno spacing dichiarato di
-    200 (molto piu' grossolano del vuoto reale, circa 1200mm) il riempimento
-    saliva a 1.00 e passava come pieno."""
-    telaio_a_sezione_uniforme = [
-        ((0.0, 0.0, 0.0), (200.0, 200.0, 1600.0)),
-        ((1400.0, 0.0, 0.0), (200.0, 200.0, 1600.0)),
-        ((0.0, 0.0, 1600.0), (1600.0, 200.0, 300.0)),
-        ((0.0, 0.0, -300.0), (1600.0, 200.0, 300.0)),
-    ]
-    punti = synth.sample_frame_surface(telaio_a_sezione_uniforme, 200.0)
+    vedere il vuoto, non deve uscire «pieno» -- deve dichiararsi non
+    verificabile."""
+    punti = synth.sample_frame_surface(TELAIO_A_SEZIONE_UNIFORME, 200.0)
     direzioni, _ = wall.terna(punti)
 
     membratura = wall.misura(punti, direzioni, _cfg())
-    esiti = wall.controlla(membratura, _cfg())
 
-    assert esiti["riempimento_sezione"]["passato"] is False, esiti["riempimento_sezione"]
+    assert membratura.riempimento_stato == "non_verificabile", (
+        f"stato {membratura.riempimento_stato}, valore {membratura.riempimento_sezione}"
+    )

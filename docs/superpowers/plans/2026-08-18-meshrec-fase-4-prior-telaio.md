@@ -92,7 +92,7 @@ Sei decisioni che valgono per l'intera fase. Vanno lette prima del Task 1, perch
 
 | File | Responsabilita' |
 |---|---|
-| `src/meshrec/core/wall.py` | Il prior: terna del pezzo, griglia delle celle, spessore locale, regioni connesse a spessore quasi costante, per ciascuna asse, lunghezza, sezione, contorno, fuori piombo, rigonfiamento; i quattro controlli intrinseci; i riscontri dichiarati. **Misura e non costruisce: nessuna mesh, nessun file** |
+| `src/meshrec/core/wall.py` | Il prior: terna del pezzo, griglia delle celle, spessore locale, regioni connesse a spessore quasi costante, per ciascuna asse, lunghezza, sezione, contorno, fuori piombo, rigonfiamento; i tre controlli intrinseci; il riempimento di sezione come esito a tre stati che non scarta (Ruling J); i riscontri dichiarati. **Misura e non costruisce: nessuna mesh, nessun file** |
 | `src/meshrec/core/hexa.py` | I due modelli parametrici: prisma singolo via gmsh (ricombinazione in quadrilateri ed estrusione), ordine canonico, taglio alle giunzioni, volume dell'unione, assemblaggio del telaio. **Costruisce e non misura** |
 | `tests/test_wall.py` | Verifiche del prior contro geometrie sintetiche a verita' nota |
 | `tests/test_hexa.py` | Verifiche dei modelli parametrici contro il volume analitico dei prismi |
@@ -3120,6 +3120,8 @@ git commit -m "feat(fase-4): il prisma in esaedri, con tre strati nello spessore
   - `hexa.taglia_giunzioni(prismi) -> tuple[list[Prisma], list[dict]]`.
   - `hexa.costruisci(membrature, tipo, cfg) -> dict[str, object]` con chiavi `nodi`, `elementi`, `blocchi`, `superfici`, `ties`, `metriche`.
 
+**Requisito del Ruling J, con un proprio test e non come nota:** `wall.py` misura e non scarta, quindi il rifiuto di una regione non prismatica arriva qui. `costruisci` **non puo' costruire** su una membratura con `riempimento_stato == "vuoto"` e `densita_dispersione <= cfg.density_dispersion_limit` (misura affidabile): quella regione e' un ingombro, non una sezione — tipicamente due membrature unite a Π che la scomposizione non ha separato — e un modello costruito su di essa sarebbe inventato. Lo stato `non_verificabile` **non** e' motivo di rifiuto: dice che la misura non vale, non che il pezzo e' cavo, e su una nuvola rada e' l'esito normale. Il rifiuto va riportato con lo stesso corredo che `wall.riempimento` gia' consegna (stato, valore, soglia, dispersione della densita'), senza ricalcolare nulla. Se questa guardia mancasse, una Π diventerebbe un modello parametrico: e' il costo dichiarato del Ruling J.
+
 - [ ] **Step 1: I test dei due prismi e del taglio**
 
 In coda a `tests/test_hexa.py`:
@@ -3141,6 +3143,9 @@ def _membratura_finta(contorno, origine, asse, lunghezza, asse_ideale):
         scarto_asse_deg=0.0,
         rigonfiamento=np.zeros(4),
         volume=0.0,
+        riempimento_sezione=1.0,
+        riempimento_stato="pieno",
+        densita_dispersione=0.0,
     )
 
 
@@ -5372,7 +5377,7 @@ Deve contenere, nell'ordine:
 1. **Che cosa gira e che cosa no.** Con i numeri veri della corsa del passo 5 e del confronto del passo 6.
 2. **Perche' la fase ha cambiato nome.** Il prior non e' «due piani paralleli e uno spessore» ma «telaio di membrature prismatiche», e la premessa vecchia e' stata misurata falsa, non ipotizzata tale.
 3. **Le membrature trovate contro la tavola.** Sezioni misurate accanto alle nominali, volume misurato accanto ai 0,4777 m³, con lo scarto. Se le membrature non sono sei, quale controllo ha respinto le altre e con quale numero.
-4. **I quattro controlli intrinseci, con il loro esito su questa corsa.** Compresa la chiusura del volume, che e' quella che cerca il doppio conteggio alle giunzioni.
+4. **I tre controlli intrinseci, con il loro esito su questa corsa, e accanto lo stato del riempimento di sezione di ciascuna membratura** (`pieno` / `vuoto` / `non_verificabile`, con la sua affidabilita': Ruling J, il riempimento misura e dichiara, non scarta). Compresa la chiusura del volume, che e' quella che cerca il doppio conteggio alle giunzioni.
 5. **L'elenco dei rulings**, ciascuno nella forma `Ruling: <cosa ho deciso> — <perche'> — <cosa costa se sbagliato>`. I sei di questo piano piu' quelli presi durante l'esecuzione.
 6. **Che cosa la fase non fa**, con la ragione: nessun solutore (e' Fase 5), nessuna armatura (scelta dell'autore, il dato resta nella tavola), nessun tamponamento, nessuna riscrittura delle corse di riferimento, nessuna mesh conforme alle giunzioni (`*TIE` ora, multiblocco come via d'aggiornamento dichiarata).
 7. **Lo stato del deck.** Se `ccx` non era installato: «il deck esaedrico non e' stato verificato da alcun solutore su questa macchina, perche' `ccx` non e' installato». **Mai** «il deck e' valido». Vale anche per Abaqus, per cui il progetto non ha licenza e su cui `PRODUCT.md` e' esplicito.
