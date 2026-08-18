@@ -178,20 +178,61 @@ def test_l_ordine_delle_regioni_non_dipende_dall_ordine_dei_punti():
         assert a == pytest.approx(b)
 
 
-def test_una_sezione_uniforme_smentisce_la_separazione_per_spessore():
-    """Limite noto e voluto del metodo, non un difetto da correggere qui.
+def test_la_tolleranza_di_spessore_decide_fra_una_regione_e_due():
+    """Il test che morde davvero la soglia, e non solo la connettivita'.
 
-    La scomposizione separa le membrature per costanza dello spessore locale:
-    se due membrature che si toccano a un nodo hanno la stessa sezione, non
-    c'e' alcuna discontinuita' di spessore da cui `regioni` possa tagliare, e
-    restano una regione sola anche se sono fisicamente due elementi diversi
-    (qui un piedritto e una trave, uniti a Π). Non e' un risultato falso in
-    silenzio: una regione a Π non e' un prisma, quindi il controllo di
-    costanza della sezione del Task 3 la scartera' con il proprio motivo.
-    Separare anche questo caso richiederebbe stimare l'orientamento locale
-    invece dello spessore, vedi il commento `ponytail:` su `regioni` in
-    `wall.py`. Se mai servisse, il segno che lo richiede e' questo test che
-    smette di passare."""
+    Due prismi identici a parte lo spessore, affiancati e a contatto (nessun
+    vuoto fra le celle): se la differenza di spessore sta sotto
+    `thickness_tolerance` in relativo, `regioni` li deve fondere in una
+    regione sola; se sta sopra, li deve separare in due. Le due differenze
+    sono derivate da `WallConfig.thickness_tolerance` invece che scritte come
+    numeri che «funzionano», cosi' il test segue il predefinito se cambia
+    invece di rompersi in silenzio. E' il confronto -- stesso confine
+    geometrico, tolleranza sotto contro sopra -- a dimostrare che e' la
+    tolleranza a decidere: un `regioni` che ignorasse `thickness_tolerance` e
+    facesse solo componenti connesse fonderebbe entrambi i casi in una regione
+    sola, e solo il secondo assert lo smentirebbe."""
+    tolleranza = _cfg().thickness_tolerance
+    base = 200.0
+
+    def scomponi_con_spessore(spessore_secondo_prisma: float) -> tuple[list[np.ndarray], dict]:
+        prismi = [
+            ((0.0, 0.0, 0.0), (600.0, base, 500.0)),
+            ((600.0, 0.0, 0.0), (600.0, spessore_secondo_prisma, 500.0)),
+        ]
+        punti = synth.sample_frame_surface(prismi, SPAZIATURA)
+        return wall.scomponi(punti, SegmentConfig(), _cfg(), SPAZIATURA)
+
+    sotto_soglia = base * (1.0 + tolleranza / 2.0)  # scarto relativo meta' della tolleranza
+    sopra_soglia = base * (1.0 + tolleranza * 3.0)  # scarto relativo tre volte la tolleranza
+
+    regioni_fuse, metriche_fuse = scomponi_con_spessore(sotto_soglia)
+    assert len(regioni_fuse) == 1
+    assert metriche_fuse["regioni_trovate"] == 1
+
+    regioni_separate, metriche_separate = scomponi_con_spessore(sopra_soglia)
+    assert len(regioni_separate) == 2
+    assert metriche_separate["regioni_trovate"] == 2
+
+
+def test_una_sezione_uniforme_e_un_canarino_per_la_separazione_per_orientamento():
+    """Non e' una prova di correttezza dell'algoritmo attuale: e' un canarino.
+
+    La scomposizione separa le membrature per costanza dello spessore locale.
+    Un telaio a sezione uniforme e' un anello fisicamente continuo con
+    spessore identico ovunque, quindi restituisce una regione sola per pura
+    geometria -- lo farebbe anche un `regioni` che ignorasse del tutto
+    `thickness_tolerance` e facesse solo componenti connesse. Questo test da
+    solo non dimostra che la tolleranza lavora (per quello vedi
+    `test_la_tolleranza_di_spessore_decide_fra_una_regione_e_due`): dichiara
+    invece il confine del metodo attuale, che non separa membrature adiacenti
+    a sezione uguale (qui un piedritto e una trave, uniti a Π). Non e' un
+    risultato falso in silenzio: una regione a Π non e' un prisma, quindi il
+    controllo di costanza della sezione del Task 3 la scartera' con il
+    proprio motivo. Il giorno in cui qualcuno implementasse la separazione per
+    orientamento locale (vedi il commento `ponytail:` su `regioni` in
+    `wall.py`), e' questo test che smettera' di passare, ed e' il segnale
+    giusto per riscriverlo."""
     telaio_a_sezione_uniforme = [
         ((0.0, 0.0, 0.0), (200.0, 200.0, 1600.0)),      # montante sinistro
         ((1400.0, 0.0, 0.0), (200.0, 200.0, 1600.0)),   # montante destro

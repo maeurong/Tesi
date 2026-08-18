@@ -109,7 +109,10 @@ def sample_frame_surface(
     alla scomposizione una geometria piu' pulita di quella che vedra' mai.
     """
     nuvole = []
-    for origine, dimensioni in prismi:
-        superficie = sample_box_surface(dimensioni, spacing, noise=noise, seed=seed)
+    for indice, (origine, dimensioni) in enumerate(prismi):
+        # seed distinto per prisma: con lo stesso seed per tutti, noise > 0
+        # darebbe a ogni membratura la stessa sequenza di rumore invece di
+        # sequenze indipendenti.
+        superficie = sample_box_surface(dimensioni, spacing, noise=noise, seed=seed + indice)
         nuvole.append(superficie + np.asarray(origine, dtype=np.float64))
     return np.ascontiguousarray(np.vstack(nuvole), dtype=np.float64)
