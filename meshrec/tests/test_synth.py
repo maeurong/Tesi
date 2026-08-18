@@ -61,3 +61,18 @@ def test_open3d_reads_and_downsamples_a_synthetic_cloud(tmp_path):
 
     reduced = reloaded.voxel_down_sample(voxel_size=10.0)
     assert 0 < len(reduced.points) < len(points)
+
+
+def test_il_telaio_sintetico_ha_i_prismi_che_gli_si_chiedono():
+    """Verita' nota del banco: due prismi disgiunti danno una nuvola il cui
+    ingombro e' l'unione dei due, e nessun punto fuori."""
+    prismi = [
+        ((0.0, 0.0, 0.0), (200.0, 200.0, 1000.0)),
+        ((800.0, 0.0, 0.0), (200.0, 200.0, 1000.0)),
+    ]
+    punti = synth.sample_frame_surface(prismi, spacing=25.0)
+
+    assert punti.min(axis=0) == pytest.approx([0.0, 0.0, 0.0])
+    assert punti.max(axis=0) == pytest.approx([1000.0, 200.0, 1000.0])
+    # nessun punto nella campata vuota fra i due prismi
+    assert not ((punti[:, 0] > 250.0) & (punti[:, 0] < 750.0)).any()

@@ -89,3 +89,27 @@ def punch_holes(faces: np.ndarray, remove: tuple[int, ...] = (0, 6)) -> np.ndarr
     keep = np.ones(len(faces), dtype=bool)
     keep[list(remove)] = False
     return np.ascontiguousarray(np.asarray(faces)[keep])
+
+
+def sample_frame_surface(
+    prismi: list[tuple[tuple[float, float, float], tuple[float, float, float]]],
+    spacing: float,
+    noise: float = 0.0,
+    seed: int = 0,
+) -> np.ndarray:
+    """Campiona le superfici di piu' parallelepipedi, ciascuno con la propria origine.
+
+    Serve alle verifiche del prior: un telaio di membrature prismatiche di cui
+    si conoscono sezione, asse, lunghezza e volume analitico, cosi' che la
+    scomposizione abbia qualcosa che la smentisca. I numeri dei prismi sono del
+    banco di prova, mai del codice: `wall` non sa quante membrature aspettarsi.
+
+    I punti che cadono dentro un altro prisma restano: sono le superfici che
+    nella realta' si compenetrano alle giunzioni, e toglierli farebbe misurare
+    alla scomposizione una geometria piu' pulita di quella che vedra' mai.
+    """
+    nuvole = []
+    for origine, dimensioni in prismi:
+        superficie = sample_box_surface(dimensioni, spacing, noise=noise, seed=seed)
+        nuvole.append(superficie + np.asarray(origine, dtype=np.float64))
+    return np.ascontiguousarray(np.vstack(nuvole), dtype=np.float64)

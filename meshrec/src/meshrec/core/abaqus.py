@@ -95,12 +95,17 @@ def write_inp(
     Path(path).write_text("\n".join(lines), encoding="ascii")
 
 
-def _fix_sign(direction: np.ndarray) -> np.ndarray:
+def fix_sign(direction: np.ndarray) -> np.ndarray:
     """Convenzione deterministica di segno: componente di modulo massimo positiva.
 
     Le direzioni principali restituite dalla SVD hanno segno arbitrario: senza
     una convenzione, due esecuzioni sulla stessa nuvola possono produrre assi
     opposti e quindi set di faccia scambiati.
+
+    Pubblica dalla Fase 4: `wall.terna` deve fissare il segno delle proprie
+    direzioni con la stessa convenzione con cui `align_to_axes` fissa le sue,
+    o due moduli dello stesso programma sceglierebbero versi opposti sulla
+    stessa geometria.
     """
     direction = np.asarray(direction, dtype=np.float64)
     return direction if direction[int(np.argmax(np.abs(direction)))] >= 0.0 else -direction
@@ -203,9 +208,9 @@ def align_to_axes(
     if abs(vertical[2]) > 1e-6:
         z_dir = vertical if vertical[2] > 0.0 else -vertical
     else:
-        z_dir = _fix_sign(vertical)
+        z_dir = fix_sign(vertical)
 
-    x_dir = _fix_sign(principal[thickness_axis])
+    x_dir = fix_sign(principal[thickness_axis])
     # y come prodotto vettoriale: la terna e' destrorsa per costruzione, quindi
     # il determinante vale +1 e non serve alcuna correzione a posteriori, che
     # cambierebbe il verso di un asse gia deciso.
@@ -317,7 +322,7 @@ def build_node_sets(nodes: np.ndarray, tolerance: float) -> dict[str, np.ndarray
     massimo di x e di y dopo l'allineamento, e nulla nella pipeline sa quale
     delle due grandi facce sia quella «anteriore» del muro reale, ne' quale sia
     il lato «sinistro»: il segno degli assi viene da una convenzione
-    deterministica (`_fix_sign`), scelta per la ripetibilita, non da un
+    deterministica (`fix_sign`), scelta per la ripetibilita, non da un
     riferimento sul campo. La coppia e' quindi affidabile come coppia (le due
     facce opposte sono quelle giuste), l'attribuzione del singolo nome no.
     Chiunque usi questi set per confrontare il modello con misure fatte sul muro
