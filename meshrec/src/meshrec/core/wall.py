@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from meshrec.core import segment
+from meshrec.core import io, segment
 from meshrec.core.abaqus import fix_sign
 from meshrec.core.config import SegmentConfig, WallConfig
 
@@ -382,9 +382,7 @@ una decina di punti per fetta su qualunque membratura che superi min_cells.
 """
 
 
-def misura(
-    punti_regione: np.ndarray, direzioni: np.ndarray, cfg: WallConfig, spacing: float
-) -> Membratura:
+def misura(punti_regione: np.ndarray, direzioni: np.ndarray, cfg: WallConfig) -> Membratura:
     """Asse, lunghezza, sezione, contorno, fuori piombo, rigonfiamento e riempimento di una regione.
 
     Il fuori piombo e il rigonfiamento sono tenuti distinti perche' sono
@@ -397,15 +395,17 @@ def misura(
     grandezze «asse ideale» e «rigonfiamento» hanno senso solo rispetto a un
     riferimento comune a tutte le membrature.
 
-    `spacing` e' la spaziatura media della nuvola, la stessa passata a
-    `scomponi`: governa, insieme a `cfg.cell_factor`, la risoluzione della
-    griglia con cui il riempimento vede il perimetro. Una risoluzione presa
-    dalla lunghezza della membratura invece che dalla spaziatura dello
-    scanner misurerebbe il rapporto fra sezione e lunghezza, non il vuoto.
+    La spaziatura per la griglia del riempimento non e' quella del pezzo
+    intero: e' stimata qui su `punti_regione`, con `io.mean_spacing`, la
+    stessa funzione dello step 1. Una regione piu' lontana dallo scanner (o
+    parzialmente occlusa) puo' essere campionata molto piu' rada del resto
+    del pezzo: ereditare la spaziatura globale sposterebbe la soglia sulla
+    grandezza sbagliata, come una prima versione di questo controllo faceva.
     """
     from scipy.ndimage import binary_fill_holes
 
     punti = np.asarray(punti_regione, dtype=np.float64)
+    spacing_locale = io.mean_spacing(punti, cfg.spacing_sample, cfg.seed)
     centro = punti.mean(axis=0)
     centrati = punti - centro
     _, _, principali = np.linalg.svd(centrati, full_matrices=False)
@@ -435,18 +435,18 @@ def misura(
     lato_fetta = max(1e-9, float(np.ptp(lungo)) / _FETTE_LUNGO_ASSE)
     bordi = np.linspace(lungo.min(), lungo.max(), _FETTE_LUNGO_ASSE + 1)
     fetta = np.clip(np.digitize(lungo, bordi[1:-1]), 0, _FETTE_LUNGO_ASSE - 1)
-    # riempimento: la risoluzione qui e' cell_factor * spacing, la stessa
-    # griglia gia' usata da scomponi e spessore_per_cella -- una spaziatura di
-    # punti da scalare, non una frazione di lunghezza. Su una nuvola di sola
-    # superficie i punti stanno solo sul perimetro della sezione: «cella
-    # occupata» misurerebbe il bordo, e una griglia piu' fine farebbe
-    # sembrare vuoto anche un prisma pieno. La cella piena e' invece «non
-    # raggiungibile dall'esterno»: si marcano le celle con punti (il
+    # riempimento: la risoluzione qui e' cell_factor * spacing_locale, la
+    # stessa griglia gia' usata da scomponi e spessore_per_cella -- una
+    # spaziatura di punti da scalare, non una frazione di lunghezza. Su una
+    # nuvola di sola superficie i punti stanno solo sul perimetro della
+    # sezione: «cella occupata» misurerebbe il bordo, e una griglia piu' fine
+    # farebbe sembrare vuoto anche un prisma pieno. La cella piena e' invece
+    # «non raggiungibile dall'esterno»: si marcano le celle con punti (il
     # perimetro), poi binary_fill_holes riempie cio' che quel perimetro
     # racchiude. Un prisma pieno da' un perimetro chiuso -> quasi tutto
     # riempito qualunque sia la sua forma; una Π ha un vano che l'esterno
     # raggiunge -> quel vano resta vuoto.
-    lato_celle = cfg.cell_factor * spacing
+    lato_celle = cfg.cell_factor * spacing_locale
     per_fetta = []
     riempimenti = []
     for indice in range(_FETTE_LUNGO_ASSE):
@@ -455,7 +455,17 @@ def misura(
             continue
         per_fetta.append((np.ptp(sezione_2d[dentro, 0]), np.ptp(sezione_2d[dentro, 1])))
         celle_fetta = chiavi_di_cella(sezione_2d[dentro], lato_celle)
-        griglia = np.zeros((int(celle_fetta[:, 0].max()) + 1, int(celle_fetta[:, 1].max()) + 1), dtype=bool)
+        nx, ny = int(celle_fetta[:, 0].max()) + 1, int(celle_fetta[:, 1].max()) + 1
+        # sotto le due celle per lato la griglia e' degenere in una riga o
+        # colonna sola: binary_fill_holes non puo' mai chiudere un vuoto al
+        # suo interno (servono celle su entrambi i lati per «racchiudere»
+        # qualcosa), quindi il numero che uscirebbe non misura piu' un
+        # riempimento ma la sola occupazione grezza del perimetro. Non e' un
+        # parametro di qualita' da tarare: e' il minimo perche' la
+        # definizione stessa (bordo piu' interno racchiuso) abbia senso.
+        if nx < 2 or ny < 2:
+            continue
+        griglia = np.zeros((nx, ny), dtype=bool)
         griglia[celle_fetta[:, 0], celle_fetta[:, 1]] = True
         riempimenti.append(float(binary_fill_holes(griglia).mean()))
     misure = np.asarray(per_fetta, dtype=np.float64) if per_fetta else np.zeros((1, 2))
@@ -643,7 +653,7 @@ def prior(
     accettate: list[Membratura] = []
     scartate: list[dict[str, object]] = []
     for numero, indici in enumerate(regioni_punti):
-        membratura = misura(puliti[indici], direzioni, cfg, spacing)
+        membratura = misura(puliti[indici], direzioni, cfg)
         membratura.punti = indici
         membratura.esiti = controlla(membratura, cfg)
         falliti = [nome for nome, esito in membratura.esiti.items() if not esito["passato"]]

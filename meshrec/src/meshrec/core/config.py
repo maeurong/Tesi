@@ -305,6 +305,20 @@ class WallConfig(_ModelloBase):
             "una colonna su dieci risulta vuota per puro artefatto di griglia"
         ),
     )
+    spacing_sample: int = Field(
+        default=20_000,
+        gt=1,
+        description=(
+            "punti campionati per stimare la spaziatura locale di ogni regione, "
+            "stessa semantica di input.spacing_sample ma per il riempimento della "
+            "sezione: la spaziatura del pezzo intero non descrive una regione "
+            "campionata piu' rada (piu' lontana dallo scanner, parzialmente "
+            "occlusa), e usarla al posto di quella locale sposta la soglia sulla "
+            "grandezza sbagliata"
+        ),
+    )
+    seed: int = 0
+    """Seme del campionamento di spacing_sample, stessa semantica di input.seed."""
     thickness_tolerance: float = Field(
         default=0.15,
         gt=0.0,

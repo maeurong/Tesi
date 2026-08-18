@@ -287,7 +287,7 @@ def test_la_misura_di_un_prisma_noto_ritrova_sezione_asse_e_lunghezza():
     punti = synth.sample_box_surface((200.0, 140.0, 1500.0), 15.0)
     direzioni, _ = wall.terna(punti)
 
-    membratura = wall.misura(punti, direzioni, _cfg(), 15.0)
+    membratura = wall.misura(punti, direzioni, _cfg())
 
     assert membratura.lunghezza == pytest.approx(1500.0, abs=30.0)
     lunga, corta = sorted(membratura.sezione, reverse=True)
@@ -312,7 +312,7 @@ def test_il_fuori_piombo_misura_l_inclinazione_e_il_rigonfiamento_no():
     inclinati = punti @ rotazione.T
     direzioni, _ = wall.terna(inclinati)
 
-    membratura = wall.misura(inclinati, direzioni, _cfg(), 15.0)
+    membratura = wall.misura(inclinati, direzioni, _cfg())
 
     assert membratura.fuori_piombo_deg == pytest.approx(4.0, abs=1.0)
     assert np.abs(membratura.rigonfiamento).max() < 20.0, (
@@ -331,7 +331,7 @@ def test_il_rigonfiamento_e_una_mappa_e_trova_la_pancia_dove_c_e():
     gonfiati[sulla_faccia, 1] += 25.0 * (1.0 - altezza_relativa[sulla_faccia] ** 2)
     direzioni, _ = wall.terna(gonfiati)
 
-    membratura = wall.misura(gonfiati, direzioni, _cfg(), 15.0)
+    membratura = wall.misura(gonfiati, direzioni, _cfg())
 
     assert membratura.rigonfiamento.ndim == 1
     assert len(membratura.rigonfiamento) > 10, "il rigonfiamento e' una mappa, non un numero"
@@ -342,7 +342,7 @@ def test_il_rigonfiamento_e_una_mappa_e_trova_la_pancia_dove_c_e():
 def test_i_quattro_controlli_intrinseci_passano_su_un_prisma_pulito():
     punti = synth.sample_box_surface((200.0, 140.0, 1500.0), 15.0)
     direzioni, _ = wall.terna(punti)
-    membratura = wall.misura(punti, direzioni, _cfg(), 15.0)
+    membratura = wall.misura(punti, direzioni, _cfg())
 
     esiti = wall.controlla(membratura, _cfg())
 
@@ -370,7 +370,7 @@ def test_una_regione_a_sezione_variabile_non_e_un_prisma_e_lo_dice():
         ]))
     cono = np.vstack(punti)
     direzioni, _ = wall.terna(cono)
-    membratura = wall.misura(cono, direzioni, _cfg(), SPAZIATURA)
+    membratura = wall.misura(cono, direzioni, _cfg())
 
     esiti = wall.controlla(membratura, _cfg())
 
@@ -495,7 +495,7 @@ def test_un_prisma_pieno_non_e_scartato_qualunque_sia_la_sua_forma():
     for dimensioni in casi:
         punti = synth.sample_box_surface(dimensioni, SPAZIATURA)
         direzioni, _ = wall.terna(punti)
-        membratura = wall.misura(punti, direzioni, _cfg(), SPAZIATURA)
+        membratura = wall.misura(punti, direzioni, _cfg())
         esiti = wall.controlla(membratura, _cfg())
 
         assert esiti["riempimento_sezione"]["passato"] is True, (
@@ -519,8 +519,47 @@ def test_il_riempimento_non_misurabile_scarta_invece_di_promuovere():
     ])
     direzioni, _ = wall.terna(punti_pochi)
 
-    membratura = wall.misura(punti_pochi, direzioni, _cfg(), SPAZIATURA)
+    membratura = wall.misura(punti_pochi, direzioni, _cfg())
     esiti = wall.controlla(membratura, _cfg())
 
     assert esiti["riempimento_sezione"]["misurabile"] is False
     assert esiti["riempimento_sezione"]["passato"] is False
+
+
+def test_una_regione_rada_non_e_scartata_se_e_davvero_piena():
+    """Ruling I: una porzione di pezzo piu' lontana dallo scanner (o
+    parzialmente occlusa) ha densita' locale piu' rada del resto del pezzo.
+    Il riempimento deve seguire la spaziatura della regione stessa, misurata
+    su di essa, non una ereditata da altrove: un prisma pieno campionato rado
+    non e' un vuoto. Numeri del revisore: 300x300x1500 a 70mm di spaziatura
+    reale locale dava 0.444 con lo spacing globale del pezzo (15mm) usato al
+    posto di quello locale -- scartato, pur essendo pieno."""
+    punti = synth.sample_box_surface((300.0, 300.0, 1500.0), 70.0)
+    direzioni, _ = wall.terna(punti)
+
+    membratura = wall.misura(punti, direzioni, _cfg())
+    esiti = wall.controlla(membratura, _cfg())
+
+    assert esiti["riempimento_sezione"]["passato"] is True, esiti["riempimento_sezione"]
+
+
+def test_una_pi_molto_rada_non_passa_come_piena():
+    """Il controllo che smentisce il precedente: una Π vera, campionata cosi'
+    rada che la griglia locale copre la sezione con troppo poche celle per
+    vedere il vuoto, non deve passare come piena -- deve dichiararsi non
+    misurabile e scartare. Numeri del revisore: con uno spacing dichiarato di
+    200 (molto piu' grossolano del vuoto reale, circa 1200mm) il riempimento
+    saliva a 1.00 e passava come pieno."""
+    telaio_a_sezione_uniforme = [
+        ((0.0, 0.0, 0.0), (200.0, 200.0, 1600.0)),
+        ((1400.0, 0.0, 0.0), (200.0, 200.0, 1600.0)),
+        ((0.0, 0.0, 1600.0), (1600.0, 200.0, 300.0)),
+        ((0.0, 0.0, -300.0), (1600.0, 200.0, 300.0)),
+    ]
+    punti = synth.sample_frame_surface(telaio_a_sezione_uniforme, 200.0)
+    direzioni, _ = wall.terna(punti)
+
+    membratura = wall.misura(punti, direzioni, _cfg())
+    esiti = wall.controlla(membratura, _cfg())
+
+    assert esiti["riempimento_sezione"]["passato"] is False, esiti["riempimento_sezione"]
