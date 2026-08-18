@@ -125,11 +125,17 @@ def expand(
     return candidates
 
 
-# Registro unico delle undici chiavi che una corsa completa scrive in
-# metrics.json (Task 1): importato invece di riscritto, per non avere due
-# elenchi da tenere allineati a mano.
+# Le chiavi che rendono completo un candidato di sweep: derivate da
+# STEP_KEYS (fonte unica) invece di riscritte a mano, ma non tutte -- "12_wall"
+# e' tagliata per chiave e non per posizione (un domani STEP_KEYS piu' lungo
+# non sbaglierebbe in silenzio con un indice numerico). Il prior non e' un
+# requisito di completezza dello sweep: nessun asse della griglia lo tocca
+# (vedi BLOCCHI_FUORI_IMPRONTA), tutti stanno a monte dello step 11, e un
+# candidato e' completo quando ha il proprio deck, non quando ha il prior.
 from meshrec.core.pipeline import METRICS_FILENAME, METRICS_PARTIAL
-from meshrec.core.steps import STEP_KEYS as REQUIRED_STEPS
+from meshrec.core.steps import STEP_KEYS
+
+REQUIRED_STEPS: tuple[str, ...] = tuple(chiave for chiave in STEP_KEYS if chiave != "12_wall")
 
 _TRACKED_PACKAGES: tuple[str, ...] = ("open3d", "tetgen", "pymeshfix", "pymeshlab", "numpy")
 

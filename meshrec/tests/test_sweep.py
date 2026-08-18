@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from meshrec.core import config, pipeline, sweep
+from meshrec.core import config, pipeline, steps, sweep
 from materiale import ANALISI, MATERIALE, crea_config
 
 
@@ -101,6 +101,26 @@ def test_a_declared_pair_is_crossed_in_full():
     # deduplicata per impronta e sopravvive con l'etichetta piu corta.
     assert atteso <= marks
     assert len(marks) == len(candidates)
+
+
+def test_uno_sweep_e_completo_senza_il_prior():
+    """Il prior (step 12) non e' un requisito di completezza per uno sweep:
+    nessun asse della griglia lo tocca (BLOCCHI_FUORI_IMPRONTA), e un
+    candidato e' completo quando ha il proprio deck, non quando ha il prior.
+    Le undici chiavi fino a 11_export bastano, "12_wall" assente compreso."""
+    senza_prior = {chiave: {} for chiave in steps.STEP_KEYS if chiave != "12_wall"}
+    assert "12_wall" not in senza_prior
+    assert sweep.is_complete(senza_prior) is True
+
+
+def test_uno_sweep_senza_un_vero_step_di_elaborazione_resta_incompleto():
+    """Il controllo che smentisce: senza di esso un REQUIRED_STEPS svuotato
+    per errore passerebbe il test sopra a vuoto. Qui manca 09_tetrahedralize,
+    uno step di elaborazione vero, e il candidato deve restare incompleto."""
+    senza_tet = {
+        chiave: {} for chiave in steps.STEP_KEYS if chiave not in ("12_wall", "09_tetrahedralize")
+    }
+    assert sweep.is_complete(senza_tet) is False
 
 
 def test_a_partial_metrics_file_is_not_complete():
