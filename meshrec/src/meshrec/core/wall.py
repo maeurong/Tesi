@@ -17,6 +17,8 @@ scomposizione trova le membrature che ci sono, e su una scatola ne trova una.
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+
 import numpy as np
 
 from meshrec.core import segment
@@ -187,8 +189,8 @@ def regioni(celle: np.ndarray, spessori: np.ndarray, cfg: WallConfig) -> list[np
     # con la stessa sezione (per esempio un piedritto e una trave uniti a Π
     # con lo stesso spessore) non hanno alcuna discontinuita' da cui tagliare
     # e restano una regione sola -- vedi
-    # test_una_sezione_uniforme_smentisce_la_separazione_per_spessore in
-    # tests/test_wall.py. Non e' un risultato falso in silenzio: quella
+    # test_una_sezione_uniforme_e_un_canarino_per_la_separazione_per_orientamento
+    # in tests/test_wall.py. Non e' un risultato falso in silenzio: quella
     # regione non e' un prisma e il controllo di costanza della sezione del
     # Task 3 la scarta. Aggiornamento se servisse: direzione locale di
     # allungamento per cella (PCA sull'intorno) invece del solo spessore.
@@ -283,3 +285,195 @@ def scomponi(
         "centro": centro.tolist(),
     }
     return per_regione, metriche
+
+
+def semplifica_contorno(contorno: np.ndarray, tolleranza: float) -> np.ndarray:
+    """Inviluppo convesso della sezione, ridotto ai vertici che contano.
+
+    Il contorno di sezione va misurato sulla nuvola e non preso dal disegno,
+    ma un contorno con un vertice per punto rilevato porterebbe nella mesh il
+    rumore dello scanner invece della forma della sezione. La riduzione toglie
+    a ripetizione il vertice la cui distanza dal segmento fra i due vicini e'
+    la piu' piccola, finche' tutte le distanze superano la tolleranza: e' la
+    stessa idea di Douglas-Peucker su un poligono chiuso, senza ricorsione.
+
+    L'inviluppo convesso e' di scipy, gia' installata. La convessita' non e'
+    una perdita: la sezione di una membratura prismatica e' convessa, e una
+    concavita' misurata sarebbe piu' probabilmente un'occlusione dello scanner
+    che una rientranza del calcestruzzo. E' anche cio' che rende immediato il
+    test di appartenenza usato dal taglio alle giunzioni.
+
+    I pari merito sono sciolti dall'indice, che e' un numero della geometria e
+    non dell'esecuzione: l'esito e' funzione del dato.
+    """
+    from scipy.spatial import ConvexHull
+
+    punti = np.asarray(contorno, dtype=np.float64)
+    inviluppo = punti[ConvexHull(punti).vertices]
+
+    while len(inviluppo) > 3:
+        precedente = np.roll(inviluppo, 1, axis=0)
+        successivo = np.roll(inviluppo, -1, axis=0)
+        corda = successivo - precedente
+        lunghezza = np.linalg.norm(corda, axis=1)
+        # distanza punto-retta come modulo del prodotto vettoriale in 2D,
+        # normalizzato sulla corda; corda nulla vuol dire vertice doppio, che
+        # va tolto per primo. np.cross rifiuta vettori 2D da numpy 2.0, quindi
+        # la componente z del prodotto vettoriale si scrive per esteso
+        scostamento = inviluppo - precedente
+        scarto = np.abs(corda[:, 0] * scostamento[:, 1] - corda[:, 1] * scostamento[:, 0])
+        altezza = np.divide(
+            scarto, lunghezza, out=np.zeros_like(scarto), where=lunghezza > 0.0
+        )
+        peggiore = int(np.argmin(altezza))
+        if altezza[peggiore] > tolleranza:
+            break
+        inviluppo = np.delete(inviluppo, peggiore, axis=0)
+
+    return np.ascontiguousarray(inviluppo)
+
+
+@dataclass(eq=False)
+class Membratura:
+    """Una membratura prismatica misurata. Nessun campo viene da un disegno.
+
+    `eq=False` perche' i campi sono array: il confronto per uguaglianza di un
+    dataclass con dentro numpy solleverebbe invece di rispondere, e non serve
+    a nessuno qui.
+    """
+
+    punti: np.ndarray
+    """Indici, dentro la nuvola passata a `misura`, dei punti della regione."""
+    asse: np.ndarray
+    """Direzione principale della regione, versore, con verso fissato da fix_sign."""
+    origine: np.ndarray
+    """Punto sull'asse da cui la lunghezza e' misurata."""
+    lunghezza: float
+    sezione: tuple[float, float]
+    """Le due estensioni trasversali all'asse [mm]."""
+    sezione_dispersione: tuple[float, float]
+    """Dispersione delle due estensioni lungo l'asse, in relativo."""
+    contorno: np.ndarray
+    """Contorno di sezione misurato e semplificato, K x 2, nel piano dell'asse."""
+    fuori_piombo_deg: float
+    """Angolo dell'asse rispetto alla verticale. Un numero solo."""
+    asse_ideale: np.ndarray
+    """Il versore della terna piu' vicino all'asse: e' l'asse del modello primitive."""
+    scarto_asse_deg: float
+    """Angolo fra l'asse misurato e l'asse ideale."""
+    rigonfiamento: np.ndarray
+    """Scostamento locale dalla faccia ideale, una mappa per cella e non un numero."""
+    volume: float
+    """Sezione media per lunghezza [mm^3]."""
+    esiti: dict[str, dict] = field(default_factory=dict)
+    """Gli esiti dei controlli intrinseci, riempiti da `controlla`."""
+
+
+_FETTE_LUNGO_ASSE = 20
+"""Fette in cui la regione e' divisa per misurare la dispersione della sezione.
+
+Non e' un parametro di elaborazione: e' la risoluzione con cui si guarda una
+grandezza gia' definita, come i bin di un istogramma. Venti fette danno almeno
+una decina di punti per fetta su qualunque membratura che superi min_cells.
+"""
+
+
+def misura(punti_regione: np.ndarray, direzioni: np.ndarray, cfg: WallConfig) -> Membratura:
+    """Asse, lunghezza, sezione, contorno, fuori piombo e rigonfiamento di una regione.
+
+    Il fuori piombo e il rigonfiamento sono tenuti distinti perche' sono
+    difetti diversi: un elemento puo' essere perfettamente piano e tutto
+    storto, oppure a piombo e panciuto. Il primo e' un numero, il secondo e'
+    una mappa, e sommarli darebbe un indice che non corrisponde a nulla di
+    fisico.
+
+    `direzioni` e' la terna del pezzo intero, non della regione: le due
+    grandezze «asse ideale» e «rigonfiamento» hanno senso solo rispetto a un
+    riferimento comune a tutte le membrature.
+    """
+    punti = np.asarray(punti_regione, dtype=np.float64)
+    centro = punti.mean(axis=0)
+    centrati = punti - centro
+    _, _, principali = np.linalg.svd(centrati, full_matrices=False)
+    asse = fix_sign(principali[0])
+
+    lungo = centrati @ asse
+    lunghezza = float(np.ptp(lungo))
+    origine = centro + asse * lungo.min()
+
+    # base ortonormale del piano di sezione, ancorata alla terna del pezzo e non
+    # alla SVD della regione: due membrature parallele devono avere lo stesso
+    # piano di sezione, o le loro sezioni non sono confrontabili
+    riferimento = direzioni[2] if abs(np.dot(direzioni[2], asse)) < 0.9 else direzioni[0]
+    e1 = riferimento - asse * np.dot(riferimento, asse)
+    e1 = fix_sign(e1 / np.linalg.norm(e1))
+    e2 = np.cross(asse, e1)
+    sezione_2d = np.column_stack([centrati @ e1, centrati @ e2])
+
+    estensioni = (float(np.ptp(sezione_2d[:, 0])), float(np.ptp(sezione_2d[:, 1])))
+
+    # dispersione della sezione lungo l'asse: la grandezza del controllo di
+    # costanza. Fette a passo uguale, e non quantili, perche' una fetta vuota
+    # deve restare vuota invece di essere riempita da punti di un'altra.
+    bordi = np.linspace(lungo.min(), lungo.max(), _FETTE_LUNGO_ASSE + 1)
+    fetta = np.clip(np.digitize(lungo, bordi[1:-1]), 0, _FETTE_LUNGO_ASSE - 1)
+    per_fetta = []
+    for indice in range(_FETTE_LUNGO_ASSE):
+        dentro = fetta == indice
+        if dentro.sum() < 4:
+            continue
+        per_fetta.append((np.ptp(sezione_2d[dentro, 0]), np.ptp(sezione_2d[dentro, 1])))
+    misure = np.asarray(per_fetta, dtype=np.float64) if per_fetta else np.zeros((1, 2))
+    medie = misure.mean(axis=0)
+    dispersione = tuple(
+        float(scarto / media) if media > 0.0 else 0.0
+        for scarto, media in zip(misure.std(axis=0), medie, strict=True)
+    )
+
+    contorno = semplifica_contorno(sezione_2d, cfg.contour_tolerance)
+
+    # fuori piombo: angolo dell'asse rispetto alla verticale del mondo. Per una
+    # colonna e' il fuori piombo nel senso del cantiere; per una trave e' 90
+    # gradi e non e' un difetto, ed e' per questo che accanto c'e' lo scarto
+    # dall'asse ideale, che e' la grandezza che il modello primitive raddrizza.
+    verticale = np.array([0.0, 0.0, 1.0])
+    fuori_piombo = float(np.degrees(np.arccos(min(1.0, abs(float(np.dot(asse, verticale)))))))
+
+    proiezioni = np.abs(direzioni @ asse)
+    asse_ideale = fix_sign(direzioni[int(np.argmax(proiezioni))])
+    scarto_asse = float(np.degrees(np.arccos(min(1.0, float(np.max(proiezioni))))))
+
+    # rigonfiamento: scostamento della faccia dalla propria faccia ideale, che
+    # e' il piano medio della faccia stessa. Una mappa per cella della griglia
+    # di sezione, non un numero. La griglia corre lungo l'asse ed e2, cosi' la
+    # quota che resta libera di variare e' e1 -- la direzione trasversale del
+    # pezzo intero -- ed e' quella su cui una faccia gonfiata si vede. Il lato
+    # non usa cell_factor: qui moltiplica una frazione di lunghezza e non una
+    # spaziatura di punti, ed e' la stessa risoluzione di _FETTE_LUNGO_ASSE
+    # gia' usata per la dispersione di sezione.
+    lato = max(1e-9, float(np.ptp(lungo)) / _FETTE_LUNGO_ASSE)
+    piano_faccia = np.column_stack([lungo, sezione_2d[:, 1]])
+    celle_faccia = chiavi_di_cella(piano_faccia, lato)
+    chiave = celle_faccia[:, 0] * (celle_faccia[:, 1].max() + 1) + celle_faccia[:, 1]
+    _, inverso = np.unique(chiave, return_inverse=True)
+    quota = sezione_2d[:, 0]
+    estremo = np.full(int(inverso.max()) + 1, -np.inf)
+    np.maximum.at(estremo, inverso, quota)
+    rigonfiamento = estremo - np.median(estremo)
+
+    volume = float(medie[0] * medie[1] * lunghezza)
+
+    return Membratura(
+        punti=np.arange(len(punti)),
+        asse=asse,
+        origine=origine,
+        lunghezza=lunghezza,
+        sezione=estensioni,
+        sezione_dispersione=dispersione,
+        contorno=contorno,
+        fuori_piombo_deg=fuori_piombo,
+        asse_ideale=asse_ideale,
+        scarto_asse_deg=scarto_asse,
+        rigonfiamento=rigonfiamento,
+        volume=volume,
+    )

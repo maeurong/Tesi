@@ -245,3 +245,95 @@ def test_una_sezione_uniforme_e_un_canarino_per_la_separazione_per_orientamento(
 
     assert len(regioni) == 1
     assert metriche["regioni_trovate"] == 1
+
+
+def test_il_contorno_di_un_rettangolo_ha_quattro_vertici():
+    """Il contorno misurato non deve portare nella mesh il rumore dello
+    scanner: un rettangolo campionato fitto resta un rettangolo."""
+    lato_u = np.linspace(0.0, 200.0, 60)
+    lato_v = np.linspace(0.0, 140.0, 40)
+    bordo = np.vstack([
+        np.column_stack([lato_u, np.zeros_like(lato_u)]),
+        np.column_stack([lato_u, np.full_like(lato_u, 140.0)]),
+        np.column_stack([np.zeros_like(lato_v), lato_v]),
+        np.column_stack([np.full_like(lato_v, 200.0), lato_v]),
+    ])
+
+    contorno = wall.semplifica_contorno(bordo, tolleranza=5.0)
+
+    assert len(contorno) == 4, f"attesi 4 vertici, trovati {len(contorno)}"
+    assert contorno.min(axis=0) == pytest.approx([0.0, 0.0], abs=1e-9)
+    assert contorno.max(axis=0) == pytest.approx([200.0, 140.0], abs=1e-9)
+
+
+def test_il_contorno_semplificato_non_perde_area_oltre_la_tolleranza():
+    """Il controllo che smentisce il precedente: semplificare e' lecito finche'
+    l'area della sezione non cambia piu' di quanto la tolleranza consenta."""
+    angoli = np.linspace(0.0, 2.0 * np.pi, 400, endpoint=False)
+    cerchio = np.column_stack([100.0 * np.cos(angoli), 100.0 * np.sin(angoli)])
+
+    contorno = wall.semplifica_contorno(cerchio, tolleranza=2.0)
+
+    def area(poligono):
+        x, y = poligono[:, 0], poligono[:, 1]
+        return 0.5 * abs(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1)))
+
+    assert len(contorno) < len(cerchio)
+    assert area(contorno) == pytest.approx(area(cerchio), rel=0.05)
+
+
+def test_la_misura_di_un_prisma_noto_ritrova_sezione_asse_e_lunghezza():
+    """Verita' nota del banco: un prisma 200 x 140 lungo 1500 lungo z."""
+    punti = synth.sample_box_surface((200.0, 140.0, 1500.0), 15.0)
+    direzioni, _ = wall.terna(punti)
+
+    membratura = wall.misura(punti, direzioni, _cfg())
+
+    assert membratura.lunghezza == pytest.approx(1500.0, abs=30.0)
+    lunga, corta = sorted(membratura.sezione, reverse=True)
+    assert lunga == pytest.approx(200.0, abs=15.0)
+    assert corta == pytest.approx(140.0, abs=15.0)
+    assert abs(abs(membratura.asse[2]) - 1.0) < 1e-3, "asse atteso verticale"
+    assert membratura.fuori_piombo_deg == pytest.approx(0.0, abs=1.0)
+    assert membratura.volume == pytest.approx(200.0 * 140.0 * 1500.0, rel=0.15)
+
+
+def test_il_fuori_piombo_misura_l_inclinazione_e_il_rigonfiamento_no():
+    """Le due grandezze restano distinte perche' sono difetti diversi: un
+    elemento puo' essere perfettamente piano e tutto storto, oppure a piombo e
+    panciuto. Un prisma inclinato di 4 gradi ha fuori piombo e non pancia."""
+    punti = synth.sample_box_surface((200.0, 140.0, 1500.0), 15.0)
+    angolo = np.radians(4.0)
+    rotazione = np.array([
+        [1.0, 0.0, 0.0],
+        [0.0, np.cos(angolo), -np.sin(angolo)],
+        [0.0, np.sin(angolo), np.cos(angolo)],
+    ])
+    inclinati = punti @ rotazione.T
+    direzioni, _ = wall.terna(inclinati)
+
+    membratura = wall.misura(inclinati, direzioni, _cfg())
+
+    assert membratura.fuori_piombo_deg == pytest.approx(4.0, abs=1.0)
+    assert np.abs(membratura.rigonfiamento).max() < 20.0, (
+        "un prisma inclinato ma dritto non deve risultare panciuto: se lo "
+        "risulta, il rigonfiamento sta misurando l'inclinazione"
+    )
+
+
+def test_il_rigonfiamento_e_una_mappa_e_trova_la_pancia_dove_c_e():
+    """Il controllo che smentisce il precedente: una faccia gonfiata di 25 mm
+    al centro deve comparire nella mappa, e nel fuori piombo no."""
+    punti = synth.sample_box_surface((200.0, 140.0, 1500.0), 15.0)
+    sulla_faccia = np.isclose(punti[:, 1], 140.0)
+    altezza_relativa = (punti[:, 2] - 750.0) / 750.0
+    gonfiati = punti.copy()
+    gonfiati[sulla_faccia, 1] += 25.0 * (1.0 - altezza_relativa[sulla_faccia] ** 2)
+    direzioni, _ = wall.terna(gonfiati)
+
+    membratura = wall.misura(gonfiati, direzioni, _cfg())
+
+    assert membratura.rigonfiamento.ndim == 1
+    assert len(membratura.rigonfiamento) > 10, "il rigonfiamento e' una mappa, non un numero"
+    assert np.abs(membratura.rigonfiamento).max() > 10.0
+    assert membratura.fuori_piombo_deg == pytest.approx(0.0, abs=1.5)
