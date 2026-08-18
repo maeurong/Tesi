@@ -383,6 +383,21 @@ class WallConfig(_ModelloBase):
             "come tale invece di essere spacciata per una membratura"
         ),
     )
+    section_fill_ratio: float = Field(
+        default=0.5,
+        gt=0.0,
+        le=1.0,
+        description=(
+            "controllo intrinseco: frazione minima (mediana sulle fette lungo "
+            "l'asse) delle celle del proprio ingombro locale che la sezione deve "
+            "occupare davvero. L'estensione e la dispersione sono entrambe "
+            "misure di bounding box e non vedono un vuoto interno -- due "
+            "membrature identiche unite a Π restano piene di bounding box da un "
+            "capo all'altro. Stessa convenzione di meta' di face_coverage: sotto "
+            "meta' delle celle del proprio ingombro, l'ingombro non e' la "
+            "sezione ma il suo contenitore"
+        ),
+    )
     union_tolerance: float = Field(
         default=0.02,
         gt=0.0,

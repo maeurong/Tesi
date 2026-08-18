@@ -365,6 +365,8 @@ class Membratura:
     """Scostamento locale dalla faccia ideale, una mappa per cella e non un numero."""
     volume: float
     """Sezione media per lunghezza [mm^3]."""
+    riempimento_sezione: float
+    """Mediana, sulle fette lungo l'asse, della frazione occupata del proprio ingombro locale."""
     esiti: dict[str, dict] = field(default_factory=dict)
     """Gli esiti dei controlli intrinseci, riempiti da `controlla`."""
 
@@ -414,21 +416,40 @@ def misura(punti_regione: np.ndarray, direzioni: np.ndarray, cfg: WallConfig) ->
 
     # dispersione della sezione lungo l'asse: la grandezza del controllo di
     # costanza. Fette a passo uguale, e non quantili, perche' una fetta vuota
-    # deve restare vuota invece di essere riempita da punti di un'altra.
+    # deve restare vuota invece di essere riempita da punti di un'altra. Il
+    # lato di fetta e' anche la risoluzione della griglia di riempimento e di
+    # quella del rigonfiamento piu' sotto: la stessa risoluzione per le tre,
+    # niente moltiplicato per cell_factor perche' qui non c'e' una spaziatura
+    # di punti da scalare, solo una frazione di lunghezza.
+    lato_fetta = max(1e-9, float(np.ptp(lungo)) / _FETTE_LUNGO_ASSE)
     bordi = np.linspace(lungo.min(), lungo.max(), _FETTE_LUNGO_ASSE + 1)
     fetta = np.clip(np.digitize(lungo, bordi[1:-1]), 0, _FETTE_LUNGO_ASSE - 1)
     per_fetta = []
+    riempimenti = []
     for indice in range(_FETTE_LUNGO_ASSE):
         dentro = fetta == indice
         if dentro.sum() < 4:
             continue
         per_fetta.append((np.ptp(sezione_2d[dentro, 0]), np.ptp(sezione_2d[dentro, 1])))
+        # riempimento: frazione delle celle del proprio ingombro locale che la
+        # fetta occupa davvero. Una sezione piena tocca (quasi) tutte le celle
+        # del proprio bounding box; una sezione con un vuoto in mezzo (per
+        # esempio due membrature uguali unite a Π) ne tocca solo una parte,
+        # perche' il centro dell'ingombro resta vuoto -- cosa che l'estensione
+        # e la dispersione qui sopra, entrambe di bounding box, non vedono.
+        celle_fetta = chiavi_di_cella(sezione_2d[dentro], lato_fetta)
+        totali = int((celle_fetta[:, 0].max() + 1) * (celle_fetta[:, 1].max() + 1))
+        riempimenti.append(len(np.unique(celle_fetta, axis=0)) / totali)
     misure = np.asarray(per_fetta, dtype=np.float64) if per_fetta else np.zeros((1, 2))
     medie = misure.mean(axis=0)
     dispersione = tuple(
         float(scarto / media) if media > 0.0 else 0.0
         for scarto, media in zip(misure.std(axis=0), medie, strict=True)
     )
+    # mediana e non media: una minoranza di fette piene (ai capi, dove nella
+    # Π i traversi chiudono l'ingombro per davvero) non deve nascondere la
+    # maggioranza di fette vuote in mezzo
+    riempimento_sezione = float(np.median(riempimenti)) if riempimenti else 1.0
 
     contorno = semplifica_contorno(sezione_2d, cfg.contour_tolerance)
 
@@ -447,13 +468,10 @@ def misura(punti_regione: np.ndarray, direzioni: np.ndarray, cfg: WallConfig) ->
     # e' il piano medio della faccia stessa. Una mappa per cella della griglia
     # di sezione, non un numero. La griglia corre lungo l'asse ed e2, cosi' la
     # quota che resta libera di variare e' e1 -- la direzione trasversale del
-    # pezzo intero -- ed e' quella su cui una faccia gonfiata si vede. Il lato
-    # non usa cell_factor: qui moltiplica una frazione di lunghezza e non una
-    # spaziatura di punti, ed e' la stessa risoluzione di _FETTE_LUNGO_ASSE
-    # gia' usata per la dispersione di sezione.
-    lato = max(1e-9, float(np.ptp(lungo)) / _FETTE_LUNGO_ASSE)
+    # pezzo intero -- ed e' quella su cui una faccia gonfiata si vede. Stesso
+    # lato_fetta gia' usato sopra per dispersione e riempimento.
     piano_faccia = np.column_stack([lungo, sezione_2d[:, 1]])
-    celle_faccia = chiavi_di_cella(piano_faccia, lato)
+    celle_faccia = chiavi_di_cella(piano_faccia, lato_fetta)
     chiave = celle_faccia[:, 0] * (celle_faccia[:, 1].max() + 1) + celle_faccia[:, 1]
     _, inverso = np.unique(chiave, return_inverse=True)
     quota = sezione_2d[:, 0]
@@ -476,6 +494,7 @@ def misura(punti_regione: np.ndarray, direzioni: np.ndarray, cfg: WallConfig) ->
         scarto_asse_deg=scarto_asse,
         rigonfiamento=rigonfiamento,
         volume=volume,
+        riempimento_sezione=riempimento_sezione,
     )
 
 
@@ -535,6 +554,23 @@ def controlla(membratura: Membratura, cfg: WallConfig) -> dict[str, dict]:
             "spiegazione": (
                 "dispersione relativa della sezione lungo l'asse: oltre la "
                 "soglia la regione non e' un prisma"
+            ),
+        },
+        "riempimento_sezione": {
+            "passato": membratura.riempimento_sezione >= cfg.section_fill_ratio,
+            "valore": float(membratura.riempimento_sezione),
+            "soglia": float(cfg.section_fill_ratio),
+            "unita": "frazione",
+            "spiegazione": (
+                "frazione mediana delle celle del proprio ingombro locale "
+                "occupata davvero: l'estensione e la dispersione sono "
+                "bounding box e non vedono un vuoto interno, per esempio due "
+                "membrature uguali unite a Π. Sotto la soglia, l'ingombro "
+                "non e' la sezione ma il suo contenitore. Confine dichiarato: "
+                "una membratura legittimamente cava (un tubo) verrebbe "
+                "scartata da questo controllo. E' corretto in questo prior, "
+                "che costruisce prismi pieni: modellare un tubo come pieno "
+                "sarebbe un errore peggiore dello scarto"
             ),
         },
     }
@@ -630,6 +666,7 @@ def prior(
                     else None,
                 },
                 "volume": m.volume,
+                "riempimento_sezione": m.riempimento_sezione,
                 "esiti": m.esiti,
             }
             for m in accettate

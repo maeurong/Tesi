@@ -346,7 +346,7 @@ def test_i_quattro_controlli_intrinseci_passano_su_un_prisma_pulito():
 
     esiti = wall.controlla(membratura, _cfg())
 
-    assert set(esiti) == {"parallelismo", "copertura_faccia", "costanza_sezione"}
+    assert set(esiti) == {"parallelismo", "copertura_faccia", "costanza_sezione", "riempimento_sezione"}
     for nome, esito in esiti.items():
         assert esito["passato"] is True, f"{nome} non doveva fallire: {esito}"
         assert "valore" in esito and "soglia" in esito, (
@@ -436,3 +436,45 @@ def test_il_controllo_di_chiusura_del_volume_confronta_somma_e_unione():
     assert chiusura["scarto_relativo"] == pytest.approx(
         (chiusura["somma"] - chiusura["unione"]) / chiusura["unione"]
     )
+
+
+def test_la_regione_a_pi_di_sezione_uniforme_finisce_fra_le_scartate():
+    """Ruling G: la scomposizione fonde due membrature adiacenti a sezione
+    uguale in una regione sola a forma di Π (vedi
+    `test_una_sezione_uniforme_e_un_canarino_per_la_separazione_per_orientamento`).
+    Quella regione non e' un prisma, e deve smentirla il riempimento: la
+    dispersione e l'estensione, entrambe di bounding box, non vedono il vuoto
+    al centro perche' i due piedritti attraversano tutta l'altezza e tengono
+    l'ingombro pieno da un capo all'altro."""
+    telaio_a_sezione_uniforme = [
+        ((0.0, 0.0, 0.0), (200.0, 200.0, 1600.0)),      # montante sinistro
+        ((1400.0, 0.0, 0.0), (200.0, 200.0, 1600.0)),   # montante destro
+        ((0.0, 0.0, 1600.0), (1600.0, 200.0, 300.0)),   # traverso superiore
+        ((0.0, 0.0, -300.0), (1600.0, 200.0, 300.0)),   # traverso inferiore
+    ]
+    punti = synth.sample_frame_surface(telaio_a_sezione_uniforme, SPAZIATURA)
+
+    esito = wall.prior(punti, SegmentConfig(), _cfg(), SPAZIATURA)
+
+    assert esito["regioni_trovate"] == 1, "il banco deve restare il caso limite: una regione a Π sola"
+    assert esito["membrature"] == [], "la regione a Π non e' un prisma e non deve passare per membratura"
+    assert len(esito["scartate"]) == 1
+    scartata = esito["scartate"][0]
+    assert "riempimento_sezione" in scartata["controlli_falliti"], (
+        f"il riempimento doveva smentirla, controlli falliti: {scartata['controlli_falliti']}"
+    )
+    esito_riempimento = scartata["esiti"]["riempimento_sezione"]
+    assert esito_riempimento["valore"] < esito_riempimento["soglia"]
+
+
+def test_le_membrature_piene_del_telaio_non_sono_scartate_dal_riempimento():
+    """Il controllo che smentisce il controllo: il riempimento non deve
+    scartare una membratura sana solo perche' e' sottile o piccola. Il banco
+    e' il telaio a sezioni diverse del Task 2, dove ogni regione e' un prisma
+    vero e nessuna e' cava."""
+    punti = synth.sample_frame_surface(TELAIO, SPAZIATURA)
+
+    esito = wall.prior(punti, SegmentConfig(), _cfg(), SPAZIATURA)
+
+    assert esito["scartate"] == [], f"nessuna membratura del telaio doveva essere scartata: {esito['scartate']}"
+    assert len(esito["membrature"]) == esito["regioni_trovate"]
