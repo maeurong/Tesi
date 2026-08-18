@@ -532,3 +532,89 @@ def test_export_reports_how_much_of_the_footprint_is_constrained(tmp_path, cube_
     assert metrics["fixed_nset_coverage"] == 1.0
     assert metrics["boundary_spacing"] > 0.0
     assert metrics["set_tolerance"] == pytest.approx(6.0 * metrics["boundary_spacing"])
+
+
+def test_le_facce_di_bordo_di_un_esaedro_solo_sono_sei_quadrilateri():
+    """_boundary_faces dava per scontati quattro nodi per elemento e tre per
+    faccia. Un esaedro ha sei facce, tutte quadrilatere, e tutte di bordo."""
+    esaedro = np.array([[0, 1, 2, 3, 4, 5, 6, 7]], dtype=np.int64)
+
+    facce = abaqus.boundary_faces(esaedro)
+
+    assert facce.shape == (6, 4)
+    assert len(np.unique(facce, axis=0)) == 6
+
+
+def test_due_esaedri_affiancati_non_hanno_la_faccia_condivisa_sul_bordo():
+    """Il controllo che smentisce il precedente: se la faccia interna comparisse
+    fra quelle di bordo, ogni set di faccia e ogni superficie esportata
+    conterrebbero nodi interni al solido."""
+    doppio = np.array(
+        [[0, 1, 2, 3, 4, 5, 6, 7], [4, 5, 6, 7, 8, 9, 10, 11]], dtype=np.int64
+    )
+
+    facce = abaqus.boundary_faces(doppio)
+
+    assert facce.shape == (10, 4), "sei piu' sei meno la faccia condivisa contata due volte"
+    condivisa = np.sort(np.array([4, 5, 6, 7]))
+    assert not (np.sort(facce, axis=1) == condivisa).all(axis=1).any()
+
+
+def test_le_facce_di_bordo_dei_tetraedri_restano_quelle_di_prima():
+    """La generalizzazione non deve cambiare il comportamento sui tetraedri: e'
+    la macchina con cui sono stati prodotti tutti i numeri delle Fasi 1 e 2."""
+    vertices, faces = synth.box_mesh((100.0, 40.0, 200.0))
+    nodes, tets = volume.tetrahedralize(
+        vertices, faces, max_volume=20_000.0, min_ratio=1.8,
+        max_steiner_points=-1, nobisect=False,
+    )
+
+    facce = abaqus.boundary_faces(tets)
+
+    assert facce.shape[1] == 3
+    assert len(np.unique(facce)) == len(np.unique(abaqus.boundary_faces(tets)))
+    # una superficie chiusa: ogni spigolo compare in esattamente due facce
+    spigoli = np.sort(
+        np.vstack([facce[:, [0, 1]], facce[:, [1, 2]], facce[:, [0, 2]]]), axis=1
+    )
+    _, conteggi = np.unique(spigoli, axis=0, return_counts=True)
+    assert (conteggi == 2).all()
+
+
+def test_il_deck_dichiara_il_tipo_di_elemento_che_gli_si_chiede(tmp_path):
+    """C3D8I non e' un dettaglio estetico: un telaio lavora a flessione, e C3D8
+    a integrazione piena si irrigidirebbe a taglio restituendo spostamenti
+    troppo piccoli senza alcun segnale sulla mesh."""
+    nodi = np.array([
+        [0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0], [1.0, 0.0, 1.0], [1.0, 1.0, 1.0], [0.0, 1.0, 1.0],
+    ])
+    esaedri = np.array([[0, 1, 2, 3, 4, 5, 6, 7]], dtype=np.int64)
+    percorso = tmp_path / "esaedro.inp"
+
+    abaqus.write_inp(
+        percorso, nodi, esaedri,
+        node_sets={"BASE": np.array([0, 1, 2, 3])},
+        material=MATERIALE,
+        element_type="C3D8I",
+    )
+
+    testo = percorso.read_text(encoding="ascii")
+    assert "*ELEMENT, TYPE=C3D8I, ELSET=ALL_WALL" in testo
+    assert "1, 1, 2, 3, 4, 5, 6, 7, 8" in testo
+    assert "*ELEMENT, TYPE=C3D4" not in testo
+
+
+def test_un_tipo_di_elemento_che_non_combacia_coi_nodi_viene_rifiutato(tmp_path):
+    """L'errore arriva prima di scrivere il file, non dopo che un solutore ha
+    letto un deck con otto nodi dichiarati C3D4."""
+    nodi = np.zeros((8, 3))
+    esaedri = np.array([[0, 1, 2, 3, 4, 5, 6, 7]], dtype=np.int64)
+
+    with pytest.raises(ValueError, match="C3D4"):
+        abaqus.write_inp(
+            tmp_path / "storto.inp", nodi, esaedri,
+            node_sets={"BASE": np.array([0])},
+            material=MATERIALE,
+            element_type="C3D4",
+        )

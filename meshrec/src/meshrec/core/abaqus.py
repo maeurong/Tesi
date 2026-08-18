@@ -28,25 +28,48 @@ def _set_lines(indices: np.ndarray) -> list[str]:
 def write_inp(
     path: Path,
     nodes: np.ndarray,
-    tets: np.ndarray,
+    elements: np.ndarray,
     *,
     node_sets: dict[str, np.ndarray],
     material: Material,
+    element_type: str = "C3D4",
     fixed_nset: str = "BASE",
     print_nsets: tuple[str, ...] = (),
     gravity: float = GRAVITY_MM_S2,
     elset: str = "ALL_WALL",
     step_name: str = "GRAVITA",
 ) -> None:
-    """Scrive un modello pronto all'analisi statica sotto peso proprio."""
+    """Scrive un modello pronto all'analisi statica sotto peso proprio.
+
+    `element_type` e' il nome che il solutore legge, e il numero di nodi per
+    elemento deve combaciare con esso: un array di otto colonne dichiarato
+    C3D4 produrrebbe un deck che nessun solutore puo' leggere, e l'errore
+    arriverebbe dopo l'intera pipeline invece che qui.
+
+    Il predefinito C3D4 non e' un parametro di elaborazione con un valore
+    scelto: e' il comportamento che questa funzione aveva prima della Fase 4,
+    tenuto perche' i chiamanti gia' scritti continuino a valere. Chi sceglie
+    davvero il tipo lo prende da `tet.element` o da `model.element`.
+    """
     if fixed_nset not in node_sets:
         raise ValueError(f"il set vincolato '{fixed_nset}' non e fra i node_sets forniti")
     for name in print_nsets:
         if name not in node_sets:
             raise ValueError(f"il set richiesto in stampa '{name}' non e fra i node_sets forniti")
+    if element_type not in NODI_PER_ELEMENTO:
+        raise ValueError(
+            f"tipo di elemento '{element_type}' sconosciuto: "
+            f"i tipi scrivibili sono {sorted(NODI_PER_ELEMENTO)}"
+        )
 
     nodes = np.asarray(nodes, dtype=np.float64)
-    tets = np.asarray(tets, dtype=np.int64)
+    elements = np.asarray(elements, dtype=np.int64)
+    attesi = NODI_PER_ELEMENTO[element_type]
+    if elements.shape[1] != attesi:
+        raise ValueError(
+            f"{element_type} vuole {attesi} nodi per elemento, ne sono arrivati "
+            f"{elements.shape[1]}: un deck scritto cosi' non e' leggibile da alcun solutore"
+        )
 
     lines: list[str] = ["*HEADING", "modello generato da meshrec (mm, N, MPa, t, s)", "*NODE"]
     lines += [
@@ -54,10 +77,10 @@ def write_inp(
         for index, (x, y, z) in enumerate(nodes)
     ]
 
-    lines.append(f"*ELEMENT, TYPE=C3D4, ELSET={elset}")
+    lines.append(f"*ELEMENT, TYPE={element_type}, ELSET={elset}")
     lines += [
-        f"{index + 1}, {a + 1}, {b + 1}, {c + 1}, {d + 1}"
-        for index, (a, b, c, d) in enumerate(tets)
+        ", ".join([str(index + 1)] + [str(nodo + 1) for nodo in elemento])
+        for index, elemento in enumerate(elements)
     ]
 
     for name, indices in node_sets.items():
@@ -111,22 +134,59 @@ def fix_sign(direction: np.ndarray) -> np.ndarray:
     return direction if direction[int(np.argmax(np.abs(direction)))] >= 0.0 else -direction
 
 
-_TET_FACE_COMBOS = ((0, 1, 2), (0, 1, 3), (0, 2, 3), (1, 2, 3))
+NODI_PER_ELEMENTO: dict[str, int] = {
+    "C3D4": 4,
+    "C3D10": 10,
+    "C3D8": 8,
+    "C3D8I": 8,
+    "C3D8R": 8,
+}
+"""Nodi per elemento di ciascun tipo scrivibile nel deck.
+
+C3D8, C3D8I e C3D8R hanno la stessa geometria e differiscono per la
+formulazione: la mesh e' la stessa, cambia cosa il solutore ne fa. Sono
+distinti qui perche' il nome finisce nel deck e il solutore lo legge.
+"""
+
+# Le facce di un elemento, come insiemi di nodi d'angolo, per il solo scopo di
+# trovare il bordo: qui l'ordine dentro la faccia non conta, perche' le facce
+# vengono ordinate prima di essere confrontate. La tabella che l'ordine ce
+# l'ha, e con esso il numero S della faccia, e' FACCE_DEL_SOLUTORE (Task 5):
+# le due non vanno confuse, ed e' per questo che portano nomi diversi.
+FACCE_TOPOLOGICHE: dict[int, tuple[tuple[int, ...], ...]] = {
+    4: ((0, 1, 2), (0, 1, 3), (0, 2, 3), (1, 2, 3)),
+    8: (
+        (0, 1, 2, 3), (4, 5, 6, 7), (0, 1, 5, 4),
+        (1, 2, 6, 5), (2, 3, 7, 6), (3, 0, 4, 7),
+    ),
+}
 
 
-def _boundary_faces(tets: np.ndarray) -> np.ndarray:
-    """Facce triangolari sul bordo della mesh tetraedrica.
+def boundary_faces(elements: np.ndarray) -> np.ndarray:
+    """Facce sul bordo della mesh di volume, per qualunque tipo di elemento.
 
-    Stesso ragionamento di quality.boundary_edges, esteso alle facce
-    triangolari dei tetraedri: si costruiscono le quattro facce di ogni
-    tetraedro, si ordinano gli indici al loro interno, si contano le
-    occorrenze e si tengono quelle con occorrenza singola.
+    Stesso ragionamento di quality.boundary_edges, esteso alle facce: si
+    costruiscono tutte le facce di ogni elemento, si ordinano gli indici al
+    loro interno, si contano le occorrenze e si tengono quelle con occorrenza
+    singola.
+
+    La generalizzazione e' sui **nodi d'angolo**: un C3D10 ha dieci nodi ma la
+    sua topologia e' quella del tetraedro, e i nodi di lato non definiscono
+    facce proprie. Le prime quattro colonne di un C3D10 sono i suoi vertici,
+    che e' la convenzione di TetGen e di Abaqus.
     """
-    t = np.asarray(tets, dtype=np.int64)
-    faces = np.vstack([t[:, combo] for combo in _TET_FACE_COMBOS])
-    faces = np.sort(faces, axis=1)
-    unique, counts = np.unique(faces, axis=0, return_counts=True)
-    return unique[counts == 1]
+    elementi = np.asarray(elements, dtype=np.int64)
+    angoli = 8 if elementi.shape[1] == 8 else 4
+    combinazioni = FACCE_TOPOLOGICHE[angoli]
+    facce = np.vstack([elementi[:, combo] for combo in combinazioni])
+    facce = np.sort(facce, axis=1)
+    uniche, conteggi = np.unique(facce, axis=0, return_counts=True)
+    return uniche[conteggi == 1]
+
+
+# Il nome privato resta come alias per non toccare i chiamanti interni gia'
+# scritti e verificati: e' la stessa funzione, non una seconda.
+_boundary_faces = boundary_faces
 
 
 def _boundary_nodes(tets: np.ndarray) -> np.ndarray:
@@ -146,10 +206,20 @@ def boundary_spacing(nodes: np.ndarray, faces: np.ndarray) -> float:
     `tet.nobisect` falso TetGen suddivide le facce di ingresso, e sul muro di
     riferimento il bordo del maglio di volume risulta 2,4 volte piu fitto
     della superficie (13,73 mm contro 33,55 mm).
+
+    Dalla Fase 4 vale anche sulle facce quadrilatere della mesh esaedrica: gli
+    spigoli sono le coppie consecutive lungo il perimetro, quale che sia il
+    numero di lati.
     """
     points = np.asarray(nodes, dtype=np.float64)
     f = np.asarray(faces, dtype=np.int64)
-    edges = np.sort(np.vstack([f[:, [0, 1]], f[:, [1, 2]], f[:, [0, 2]]]), axis=1)
+    # Gli spigoli di una faccia sono le coppie di nodi consecutivi lungo il suo
+    # perimetro: np.roll li da' per un triangolo come per un quadrilatero,
+    # senza una tabella per grado.
+    edges = np.sort(
+        np.vstack([np.stack([f[:, i], f[:, (i + 1) % f.shape[1]]], axis=1) for i in range(f.shape[1])]),
+        axis=1,
+    )
     edges = np.unique(edges, axis=0)
     return float(np.median(np.linalg.norm(points[edges[:, 0]] - points[edges[:, 1]], axis=1)))
 
@@ -341,15 +411,27 @@ def build_node_sets(nodes: np.ndarray, tolerance: float) -> dict[str, np.ndarray
     }
 
 
-def write_vtu(path: Path, nodes: np.ndarray, tets: np.ndarray) -> None:
-    """Esportazione per la visualizzazione, delegata a meshio."""
+def write_vtu(
+    path: Path, nodes: np.ndarray, elements: np.ndarray, element_type: str = "C3D4"
+) -> None:
+    """Esportazione per la visualizzazione, delegata a meshio.
+
+    meshio ha nomi propri per i tipi di cella, che non sono quelli del
+    solutore: la tabella traduce, e un tipo non tradotto solleva invece di
+    scrivere un file che nessun visualizzatore aprirebbe.
+    """
     import meshio
+
+    celle = {"C3D4": "tetra", "C3D10": "tetra10", "C3D8": "hexahedron",
+             "C3D8I": "hexahedron", "C3D8R": "hexahedron"}
+    if element_type not in celle:
+        raise ValueError(f"tipo di elemento '{element_type}' senza corrispondente in meshio")
 
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     meshio.write_points_cells(
         str(path),
         np.asarray(nodes, dtype=np.float64),
-        [("tetra", np.asarray(tets, dtype=np.int64))],
+        [(celle[element_type], np.asarray(elements, dtype=np.int64))],
     )
 
 
@@ -357,10 +439,11 @@ def export_model(
     path_inp: Path,
     path_vtu: Path,
     nodes: np.ndarray,
-    tets: np.ndarray,
+    elements: np.ndarray,
     cfg: AnalysisConfig,
     tet_cfg: TetConfig,
     reference: np.ndarray | None = None,
+    element_type: str | None = None,
 ) -> dict[str, object]:
     """Step 11: allinea, costruisce i set, scrive il deck e il file di visualizzazione.
 
@@ -378,16 +461,19 @@ def export_model(
     UnconstrainedModelWarning. Chi chiama questa funzione su una scansione deve
     passare `reference`.
     """
-    from meshrec.core.quality import tet_volumes
+    from meshrec.core.quality import element_volumes
 
-    if tet_cfg.element != "C3D4":
+    tipo = tet_cfg.element if element_type is None else element_type
+    if tipo == "C3D10":
         raise NotImplementedError(
-            f"elemento {tet_cfg.element} non supportato dal writer: TetGen produce i nodi "
-            "di lato con order=2, ma il deck scrive quattro nodi per elemento. "
-            "Usa C3D4 finche il writer non gestisce i dieci nodi."
+            "elemento C3D10 non supportato dal writer: TetGen produce i nodi di "
+            "lato con order=2, ma il deck scrive i soli vertici. Usa C3D4 finche' "
+            "il writer non gestisce i dieci nodi."
         )
+    if tipo not in NODI_PER_ELEMENTO:
+        raise ValueError(f"tipo di elemento '{tipo}' sconosciuto")
 
-    boundary_faces = _boundary_faces(tets)
+    boundary_faces = _boundary_faces(elements)
     boundary = np.unique(boundary_faces)
     if reference is None:
         reference = np.asarray(nodes, dtype=np.float64)[boundary]
@@ -421,16 +507,17 @@ def export_model(
     write_inp(
         path_inp,
         aligned,
-        tets,
+        elements,
         node_sets=node_sets,
         material=cfg.material,
+        element_type=tipo,
         fixed_nset=cfg.fixed_nset,
         gravity=cfg.gravity,
         step_name=cfg.step_name,
     )
-    write_vtu(path_vtu, aligned, tets)
+    write_vtu(path_vtu, aligned, elements, element_type=tipo)
 
-    volume = float(np.abs(tet_volumes(aligned, tets)).sum())
+    volume = float(np.abs(element_volumes(aligned, elements)).sum())
     return {
         "transform": transform.tolist(),
         "extent": align_metrics["extent"],
@@ -440,6 +527,7 @@ def export_model(
         "node_sets": {name: int(len(indices)) for name, indices in node_sets.items()},
         "volume": volume,
         "mass": volume * cfg.material.density,
+        "element_type": tipo,
         "inp": str(path_inp),
         "vtu": str(path_vtu),
     }

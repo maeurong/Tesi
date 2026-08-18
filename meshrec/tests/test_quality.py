@@ -4,7 +4,7 @@ import json
 import numpy as np
 import pytest
 
-from meshrec.core import quality, synth
+from meshrec.core import quality, synth, volume
 
 SIZE = (100.0, 40.0, 200.0)
 EXACT_VOLUME = 100.0 * 40.0 * 200.0
@@ -484,3 +484,39 @@ def test_the_reference_ratio_default_lives_in_config():
     assert config.TetConfig().reference_ratio == pytest.approx(1.8)
     parameters = inspect.signature(quality.volume_metrics).parameters
     assert parameters["reference_ratio"].default is inspect.Parameter.empty
+
+
+def test_il_volume_di_un_cubo_unitario_vale_uno():
+    """La decomposizione in sei tetraedri e' verificata a mano nel commento:
+    questo test la verifica di nuovo, e cade se qualcuno la riordina."""
+    nodi = np.array([
+        [0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0], [1.0, 0.0, 1.0], [1.0, 1.0, 1.0], [0.0, 1.0, 1.0],
+    ])
+    esaedri = np.array([[0, 1, 2, 3, 4, 5, 6, 7]], dtype=np.int64)
+
+    assert quality.hex_volumes(nodi, esaedri) == pytest.approx([1.0])
+    assert quality.element_volumes(nodi, esaedri) == pytest.approx([1.0])
+
+
+def test_il_volume_esaedrico_e_negativo_se_l_elemento_e_rovesciato():
+    """Il controllo che smentisce: scambiando la faccia inferiore con la
+    superiore il volume cambia segno, ed e' cosi' che un elemento invertito si
+    fa vedere invece di passare per buono."""
+    nodi = np.array([
+        [0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0], [1.0, 0.0, 1.0], [1.0, 1.0, 1.0], [0.0, 1.0, 1.0],
+    ])
+    rovesciato = np.array([[4, 5, 6, 7, 0, 1, 2, 3]], dtype=np.int64)
+
+    assert quality.hex_volumes(nodi, rovesciato)[0] < 0.0
+
+
+def test_element_volumes_sui_tetraedri_da_quello_che_dava_tet_volumes():
+    vertices, faces = synth.box_mesh((100.0, 40.0, 200.0))
+    nodes, tets = volume.tetrahedralize(
+        vertices, faces, max_volume=20_000.0, min_ratio=1.8,
+        max_steiner_points=-1, nobisect=False,
+    )
+
+    assert quality.element_volumes(nodes, tets) == pytest.approx(quality.tet_volumes(nodes, tets))

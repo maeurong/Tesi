@@ -48,6 +48,42 @@ def inverted_tets(nodes: np.ndarray, tets: np.ndarray) -> np.ndarray:
     return np.flatnonzero(tet_volumes(nodes, tets) <= 0.0)
 
 
+# Decomposizione di un esaedro in sei tetraedri, a ventaglio dal nodo 0 attorno
+# alla diagonale 0-6. Verificata a mano sul cubo unitario: i sei volumi valgono
+# 1/6 ciascuno, e la somma vale esattamente 1.
+_HEX_IN_TET = (
+    (0, 1, 2, 6), (0, 2, 3, 6), (0, 3, 7, 6),
+    (0, 7, 4, 6), (0, 4, 5, 6), (0, 5, 1, 6),
+)
+
+
+def hex_volumes(nodes: np.ndarray, hexes: np.ndarray) -> np.ndarray:
+    """Volume con segno di ogni esaedro, per decomposizione in sei tetraedri.
+
+    Non e' la quadratura di Gauss dell'elemento trilineare, e su un esaedro con
+    facce non piane le due differiscono: la decomposizione misura il volume del
+    solido a facce triangolate, che e' anche quello che la superficie di bordo
+    racchiude. E' la definizione coerente con `mesh_volume`, quindi le due
+    misure si possono confrontare invece di divergere in silenzio.
+    """
+    h = np.asarray(hexes, dtype=np.int64)
+    return sum(tet_volumes(nodes, h[:, list(combo)]) for combo in _HEX_IN_TET)
+
+
+def element_volumes(nodes: np.ndarray, elements: np.ndarray) -> np.ndarray:
+    """Volume con segno di ogni elemento, quale che sia il tipo.
+
+    E' l'unico punto in cui il resto del programma deve chiedersi quanti nodi
+    ha un elemento: chi la chiama non lo sa e non deve saperlo.
+    """
+    colonne = np.asarray(elements).shape[1]
+    if colonne == 8:
+        return hex_volumes(nodes, elements)
+    if colonne in (4, 10):
+        return tet_volumes(nodes, np.asarray(elements)[:, :4])
+    raise ValueError(f"elemento con {colonne} nodi: nessun volume definito per questa forma")
+
+
 _TET_FACES = ((1, 2, 3), (0, 3, 2), (0, 1, 3), (0, 2, 1))
 # Le sei combinazioni di due indici su quattro: valgono sia come coppie di facce
 # (angoli diedri) sia come spigoli del tetraedro (rapporto d'aspetto).
