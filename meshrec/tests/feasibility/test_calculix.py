@@ -24,7 +24,7 @@ def test_calculix_solves_a_column_under_self_weight(tmp_path):
     if executable is None:
         pytest.skip("eseguibile 'ccx' non presente nel PATH")
 
-    material = Material()
+    material = Material(name="MURATURA", young=1500.0, poisson=0.2, density=1.8e-9)
     vertices, faces = synth.box_mesh(SIZE)
     nodes, tets = volume.tetrahedralize(
         vertices, faces, max_volume=20_000.0, min_ratio=1.8, max_steiner_points=-1, nobisect=False

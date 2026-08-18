@@ -135,15 +135,25 @@ etichette e ai messaggi dell'interfaccia.
 Materiale reale, presente nel repository:
 
 - `Nuvole di punti/lab_frame.pcd` — scansione reale di laboratorio, 152 MB,
-  6.329.096 punti. È un telaio: due piedritti e un architrave, circa
-  2759 × 2000 mm, spesso 176 mm misurati sul posto.
+  6.329.096 punti. È un **telaio in cemento armato**, non una muratura: due
+  zapatas, la viga inferior che le collega, due columnas e la viga superior,
+  sei membrature prismatiche in tutto. Il tamponamento in blocchi previsto dalla
+  tavola non è presente nel provino scansionato, e non fa parte del modello.
+- `muro_1.pdf` — tavola esecutiva `MURO 1` del provino (obra 0021, novembre
+  2021, ing. José A. Barros Cabezas): sezioni, armature e volume di calcestruzzo
+  dichiarato, 0,4777 m³. È la verità di riferimento con cui le misure sulla
+  nuvola possono essere contraddette. **Non è versionato** — `.gitignore` lo
+  esclude esplicitamente — quindi vive solo nella copia di lavoro dell'autore:
+  chi clona il repository non ha la tavola su cui poggia la Fase 4. Non dichiara la classe del calcestruzzo:
+  i parametri meccanici restano un'assunzione dell'operatore. Vedi
+  `meshrec/docs/fase-4-materiale.md`.
 - `Nuvole di punti/muro_generato.ply` — muro sintetico con geometria nota, usato
   come verità di riferimento.
 - `meshrec/runs/muro/` e `meshrec/runs/lab_crop/` — corse di riferimento
   complete, **di sola lettura**.
 - `meshrec/experiments/muro/` e `meshrec/experiments/lab_crop/` — registri di
   sweep con il fronte di Pareto adottato, **di sola lettura**.
-- `meshrec/docs/` — sette documenti di esiti e debito, con i numeri misurati.
+- `meshrec/docs/` — i documenti di esiti e debito, con i numeri misurati.
 - `Articoli/` — 17 pubblicazioni sul dominio.
 
 **Assenze che il lavoro futuro non deve fabbricare.** Nessuna validazione con

@@ -36,6 +36,7 @@ from fastapi.testclient import TestClient
 
 from meshrec.app.server import UI_DIR, create_app
 from meshrec.core.config import InputConfig, PipelineConfig, save_config
+from materiale import ANALISI
 
 
 def _markup() -> str:
@@ -916,7 +917,7 @@ def test_il_fuori_scala_non_scrive_null_sul_disco(tmp_path):
     fronte non fabbrica piu' un `null` che nessuno ha battuto.
     """
     percorso = tmp_path / "config.yaml"
-    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"))
+    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"), analysis=ANALISI)
     cfg.run.out_dir = tmp_path / "corsa"
     cfg.downsample.voxel_size = 25.0
     cfg.simplify.target_faces = 200000
@@ -956,7 +957,7 @@ def test_una_battuta_illeggibile_non_cambia_la_configurazione_su_disco(tmp_path)
     rifiuta tutto passerebbe la prima meta' e lascerebbe l'interfaccia inutile.
     """
     percorso = tmp_path / "config.yaml"
-    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"))
+    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"), analysis=ANALISI)
     cfg.run.out_dir = tmp_path / "corsa"
     save_config(cfg, percorso)
     cliente = TestClient(create_app(percorso), raise_server_exceptions=False)

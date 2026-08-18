@@ -6,10 +6,12 @@ from pathlib import Path
 import pytest
 
 from meshrec.core import config, pipeline, sweep
+from materiale import ANALISI, MATERIALE, crea_config
+
 
 
 def _base() -> config.PipelineConfig:
-    return config.PipelineConfig(input=config.InputConfig(path="nuvola.ply", scale=1000.0))
+    return crea_config(input=config.InputConfig(path="nuvola.ply", scale=1000.0))
 
 
 def test_un_candidato_fallito_porta_ancora_le_sue_metriche_parziali(tmp_path):
@@ -182,7 +184,7 @@ def test_a_candidate_that_fails_becomes_a_row_and_not_an_exception(tmp_path):
     Qui il fallimento e' provocato con una nuvola inesistente, che e' il modo
     piu rapido di far uscire `meshrec run` con codice diverso da zero.
     """
-    cfg = config.PipelineConfig(input=config.InputConfig(path=str(tmp_path / "assente.ply")))
+    cfg = crea_config(input=config.InputConfig(path=str(tmp_path / "assente.ply")))
 
     row = sweep.run_candidate({}, cfg, tmp_path / "candidato", timeout_s=120.0)
 
@@ -200,7 +202,7 @@ def test_a_candidate_that_succeeds_records_its_artifacts(tmp_path):
 
     cloud = tmp_path / "cubo.ply"
     io.write_cloud(cloud, synth.sample_box_surface(size=(100.0, 40.0, 200.0), spacing=4.0))
-    cfg = config.PipelineConfig(
+    cfg = crea_config(
         input=config.InputConfig(path=str(cloud)),
         surface=config.SurfaceConfig(poisson_depth=6),
     )

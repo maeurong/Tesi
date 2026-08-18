@@ -9,6 +9,7 @@ import pytest
 
 from meshrec.app.worker import Worker
 from meshrec.core.config import InputConfig, PipelineConfig, save_config
+from materiale import ANALISI
 
 
 def test_un_worker_appena_creato_non_sta_girando():
@@ -16,7 +17,7 @@ def test_un_worker_appena_creato_non_sta_girando():
 
 
 def test_il_worker_cattura_le_righe_del_processo(tmp_path):
-    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "assente.ply"))
+    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "assente.ply"), analysis=ANALISI)
     cfg.run.out_dir = tmp_path / "corsa"
     percorso = tmp_path / "config.yaml"
     save_config(cfg, percorso)
@@ -38,7 +39,7 @@ def test_il_tempo_trascorso_lo_misura_il_worker_e_finisce_con_lo_step(tmp_path):
     """Il cronometro deve stare dove lo step parte davvero: misurato nel
     browser conterebbe da quando quella pagina ha visto lo stato 'in corso',
     e tornerebbe a zero a ogni ricarica mentre il calcolo prosegue."""
-    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "assente.ply"))
+    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "assente.ply"), analysis=ANALISI)
     cfg.run.out_dir = tmp_path / "corsa"
     percorso = tmp_path / "config.yaml"
     save_config(cfg, percorso)
@@ -72,7 +73,7 @@ def test_avviare_un_secondo_step_mentre_il_primo_gira_solleva(tmp_path):
     """E' un errore del chiamante, non un esito dell'elaborazione: la nuvola
     assente tiene comunque il processo in volo abbastanza a lungo (avvio
     dell'interprete) da coglierlo con is_running() subito dopo lo start."""
-    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "assente.ply"))
+    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "assente.ply"), analysis=ANALISI)
     cfg.run.out_dir = tmp_path / "corsa"
     percorso = tmp_path / "config.yaml"
     save_config(cfg, percorso)

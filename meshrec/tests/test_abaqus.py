@@ -4,6 +4,8 @@ import pytest
 
 from meshrec.core import abaqus, config, synth, volume
 from meshrec.core.config import Material
+from materiale import ANALISI, MATERIALE, crea_config
+
 
 SIZE = (100.0, 40.0, 200.0)
 
@@ -31,7 +33,7 @@ def test_inp_is_readable_by_meshio(tmp_path, cube_mesh):
     abaqus.write_inp(
         path, nodes, tets,
         node_sets=_base_and_top(nodes),
-        material=Material(),
+        material=MATERIALE,
     )
 
     mesh = meshio.read(path)
@@ -51,7 +53,7 @@ def test_inp_contains_sets_material_and_gravity_step(tmp_path, cube_mesh):
     abaqus.write_inp(
         path, nodes, tets,
         node_sets=sets,
-        material=Material(),
+        material=MATERIALE,
         print_nsets=("TOP",),
     )
     text = path.read_text(encoding="ascii")
@@ -74,7 +76,7 @@ def test_node_and_element_indices_are_one_based(tmp_path, cube_mesh):
     abaqus.write_inp(
         path, nodes, tets,
         node_sets=_base_and_top(nodes),
-        material=Material(),
+        material=MATERIALE,
     )
     lines = path.read_text(encoding="ascii").splitlines()
 
@@ -112,7 +114,7 @@ def test_base_set_written_matches_expected_and_holds_only_the_lowest_nodes(tmp_p
     abaqus.write_inp(
         path, nodes, tets,
         node_sets=sets,
-        material=Material(),
+        material=MATERIALE,
     )
     text = path.read_text(encoding="ascii")
 
@@ -209,7 +211,7 @@ def test_output_requests_are_in_the_modern_form(tmp_path):
         nodes,
         tets,
         node_sets=abaqus.build_node_sets(nodes, tolerance=1.0),
-        material=config.Material(),
+        material=MATERIALE,
     )
     text = path.read_text(encoding="ascii")
 
@@ -230,7 +232,7 @@ def test_export_model_writes_both_files_and_reports_mass(tmp_path):
         tmp_path / "wall_model.vtu",
         nodes,
         tets,
-        config.AnalysisConfig(),
+        config.AnalysisConfig(material=MATERIALE),
         config.TetConfig(),
     )
 
@@ -253,7 +255,7 @@ def test_c3d10_is_refused_until_the_writer_supports_it(tmp_path):
             tmp_path / "m.vtu",
             nodes,
             tets,
-            config.AnalysisConfig(),
+            config.AnalysisConfig(material=MATERIALE),
             config.TetConfig(element="C3D10"),
         )
 
@@ -412,7 +414,7 @@ def test_export_model_estimates_the_triad_on_the_reference_it_is_given(tmp_path)
         tmp_path / "m.vtu",
         nodes,
         tets,
-        config.AnalysisConfig(),
+        config.AnalysisConfig(material=MATERIALE),
         config.TetConfig(),
         reference=vertices,
     )
@@ -508,7 +510,7 @@ def test_export_warns_when_the_constrained_set_misses_the_footprint(tmp_path, cu
             tmp_path / "wall_model.vtu",
             nodes,
             tets,
-            config.AnalysisConfig(),
+            config.AnalysisConfig(material=MATERIALE),
             config.TetConfig(),
         )
 
@@ -523,7 +525,7 @@ def test_export_reports_how_much_of_the_footprint_is_constrained(tmp_path, cube_
         tmp_path / "wall_model.vtu",
         nodes,
         tets,
-        config.AnalysisConfig(),
+        config.AnalysisConfig(material=MATERIALE),
         config.TetConfig(),
     )
 

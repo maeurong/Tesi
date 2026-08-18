@@ -7,6 +7,8 @@ import pytest
 from pydantic import ValidationError
 
 from meshrec.core import config, io, pipeline, quality, synth
+from materiale import ANALISI, MATERIALE, crea_config
+
 
 SIZE = (120.0, 60.0, 240.0)
 SPACING = 4.0
@@ -19,6 +21,7 @@ def _config_cubo(tmp_path):
     cloud_path = tmp_path / "box.ply"
     io.write_cloud(cloud_path, synth.sample_box_surface(SIZE, SPACING))
     return config.PipelineConfig(
+        analysis=ANALISI,
         input=config.InputConfig(path=cloud_path, spacing_sample=5000),
         downsample=config.DownsampleConfig(voxel_size=SPACING),
         surface=config.SurfaceConfig(poisson_depth=8, density_quantile=0.02),
@@ -67,7 +70,7 @@ def run_dir(tmp_path_factory):
     cloud_path = base / "box.ply"
     io.write_cloud(cloud_path, synth.sample_box_surface(SIZE, SPACING))
 
-    cfg = config.PipelineConfig(
+    cfg = crea_config(
         input=config.InputConfig(path=cloud_path, spacing_sample=5000),
         downsample=config.DownsampleConfig(voxel_size=SPACING),
         surface=config.SurfaceConfig(poisson_depth=8, density_quantile=0.02),
@@ -133,7 +136,7 @@ def test_the_base_set_holds_only_the_nodes_at_the_lowest_level(run_dir):
 
 def test_the_mass_follows_from_density_and_volume(run_dir):
     _, metrics = run_dir
-    density = config.Material().density
+    density = MATERIALE.density
     assert metrics["11_export"]["mass"] == pytest.approx(
         metrics["11_export"]["volume"] * density, rel=1e-9
     )
@@ -160,7 +163,7 @@ def test_the_same_configuration_run_twice_gives_the_same_result(tmp_path):
     io.write_cloud(cloud_path, synth.sample_box_surface(SIZE, 8.0))
 
     def once(name):
-        cfg = config.PipelineConfig(
+        cfg = crea_config(
             input=config.InputConfig(path=cloud_path, spacing_sample=2000),
             downsample=config.DownsampleConfig(voxel_size=8.0),
             surface=config.SurfaceConfig(poisson_depth=7, density_quantile=0.02),
@@ -194,8 +197,8 @@ def test_resuming_from_tetrahedralize_still_works_when_simplify_is_enabled(tmp_p
     cloud_path = tmp_path / "box.ply"
     io.write_cloud(cloud_path, synth.sample_box_surface(SIZE, SPACING))
 
-    def make_cfg(from_step):
-        return config.PipelineConfig(
+    def makecfg(from_step):
+        return crea_config(
             input=config.InputConfig(path=cloud_path, spacing_sample=5000),
             downsample=config.DownsampleConfig(voxel_size=SPACING),
             surface=config.SurfaceConfig(poisson_depth=8, density_quantile=0.02),
@@ -203,8 +206,8 @@ def test_resuming_from_tetrahedralize_still_works_when_simplify_is_enabled(tmp_p
             run=config.RunConfig(out_dir=tmp_path / "out", from_step=from_step),
         )
 
-    pipeline.run(make_cfg(1))
-    resumed = pipeline.run(make_cfg(9))
+    pipeline.run(makecfg(1))
+    resumed = pipeline.run(makecfg(9))
     assert resumed["09_tetrahedralize"]["nodes"] > 0
     assert resumed["11_export"]["volume"] == pytest.approx(EXACT_VOLUME, rel=0.1)
 

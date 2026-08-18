@@ -9,10 +9,11 @@ import pytest
 
 from meshrec.core import steps
 from meshrec.core.config import InputConfig, PipelineConfig
+from materiale import ANALISI
 
 
 def _config(tmp_path: Path) -> PipelineConfig:
-    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"))
+    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"), analysis=ANALISI)
     cfg.run.out_dir = tmp_path / "corsa"
     return cfg
 

@@ -14,11 +14,12 @@ from fastapi.testclient import TestClient
 from meshrec.app import server
 from meshrec.app.server import create_app
 from meshrec.core.config import InputConfig, PipelineConfig, save_config
+from materiale import ANALISI
 
 
 @pytest.fixture()
 def cliente(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
-    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"))
+    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"), analysis=ANALISI)
     cfg.run.out_dir = tmp_path / "corsa"
     save_config(cfg, tmp_path / "config.yaml")
     # I-5 della revisione: CACHE_DIR e' una costante di modulo che punta a

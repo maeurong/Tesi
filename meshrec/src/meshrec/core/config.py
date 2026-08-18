@@ -32,12 +32,29 @@ class _ModelloBase(BaseModel):
 
 
 class Material(_ModelloBase):
-    """Materiale elastico isotropo. Valori indicativi per muratura."""
+    """Materiale elastico isotropo, dichiarato per intero dall'operatore.
 
-    name: str = "MURATURA"
-    young: float = Field(default=1500.0, gt=0.0, description="modulo elastico [MPa]")
-    poisson: float = Field(default=0.2, ge=0.0, lt=0.5, description="coefficiente di Poisson")
-    density: float = Field(default=1.8e-9, gt=0.0, description="densita [t/mm^3]")
+    Nessun campo ha un predefinito, e la mancanza e' deliberata. Il predefinito
+    precedente (muratura, 1500 MPa) e' finito in silenzio nella configurazione
+    del telaio in calcestruzzo di `lab_frame`, dove il modulo elastico giusto e'
+    piu di venti volte piu grande: nessuno aveva scelto quel materiale, era li'
+    perche' il modello lo metteva da solo. La classe e i parametri meccanici
+    sono una decisione di chi analizza, non un valore che il programma possa
+    dedurre dalla nuvola o supplire per conto suo.
+    """
+
+    name: str = Field(
+        pattern=r"^[A-Za-z0-9_.-]+$",
+        description=(
+            "nome del materiale. Il vincolo non e' cosmetico: il nome viene interpolato "
+            "in `*MATERIAL, NAME=...` e il deck e' scritto in ascii, quindi un carattere "
+            "fuori tabella romperebbe l'esportazione dopo l'intera pipeline, e un a capo "
+            "inietterebbe card nel deck senza che nulla se ne accorga"
+        ),
+    )
+    young: float = Field(gt=0.0, description="modulo elastico [MPa]")
+    poisson: float = Field(ge=0.0, lt=0.5, description="coefficiente di Poisson")
+    density: float = Field(gt=0.0, description="densita [t/mm^3]")
 
 
 class InputConfig(_ModelloBase):
@@ -193,7 +210,7 @@ class TetConfig(_ModelloBase):
 class AnalysisConfig(_ModelloBase):
     """Materiale e analisi."""
 
-    material: Material = Field(default_factory=Material)
+    material: Material
     gravity: float = Field(default=GRAVITY_MM_S2, gt=0.0)
     fixed_nset: str = "BASE"
     step_name: str = "GRAVITA"
@@ -271,7 +288,7 @@ class PipelineConfig(_ModelloBase):
     repair: RepairConfig = Field(default_factory=RepairConfig)
     simplify: SimplifyConfig = Field(default_factory=SimplifyConfig)
     tet: TetConfig = Field(default_factory=TetConfig)
-    analysis: AnalysisConfig = Field(default_factory=AnalysisConfig)
+    analysis: AnalysisConfig
     run: RunConfig = Field(default_factory=RunConfig)
 
 

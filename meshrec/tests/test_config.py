@@ -5,18 +5,46 @@ from pathlib import Path
 import pytest
 
 from meshrec.core import config
+from materiale import ANALISI, MATERIALE
 
 
 def test_defaults_are_in_working_units():
-    cfg = config.PipelineConfig(input=config.InputConfig(path="nuvola.ply"))
+    cfg = config.PipelineConfig(
+        analysis=ANALISI,
+        input=config.InputConfig(path="nuvola.ply"),
+    )
     assert cfg.analysis.gravity == pytest.approx(9810.0)
-    assert cfg.analysis.material.density == pytest.approx(1.8e-9)
-    assert cfg.analysis.material.young == pytest.approx(1500.0)
     assert cfg.input.scale == pytest.approx(1.0)
+
+
+def test_the_material_has_no_defaults_and_must_be_declared():
+    """Il materiale non si eredita in silenzio: senza dichiarazione la configurazione non nasce.
+
+    E' la regola che manca a `lab.yaml` prima della correzione, dove il
+    predefinito muratura a 1500 MPa era finito sul telaio in calcestruzzo
+    senza che nessuno lo scegliesse.
+
+    I quattro campi si provano uno per uno perche' il difetto reale era un
+    predefinito su un campo solo: un `young` che torna a 1500 MPa dentro un
+    materiale per il resto dichiarato passa inosservato a un controllo che ne
+    omette due insieme, ed e' proprio il parametro sbagliato di venti volte
+    sul telaio in calcestruzzo.
+    """
+    with pytest.raises(ValueError):
+        config.PipelineConfig(input=config.InputConfig(path="nuvola.ply"))
+    with pytest.raises(ValueError):
+        config.AnalysisConfig()
+
+    completo = {"name": "CALCESTRUZZO", "young": 31500.0, "poisson": 0.2, "density": 2.5e-9}
+    for mancante in completo:
+        parziale = {campo: valore for campo, valore in completo.items() if campo != mancante}
+        with pytest.raises(ValueError):
+            config.Material(**parziale)
 
 
 def test_yaml_round_trip_preserves_every_field(tmp_path):
     cfg = config.PipelineConfig(
+        analysis=ANALISI,
         input=config.InputConfig(path="nuvola.ply", scale=1000.0),
         surface=config.SurfaceConfig(poisson_depth=11, density_quantile=0.1),
         tet=config.TetConfig(min_ratio=1.4, max_volume=250.0),
@@ -73,10 +101,25 @@ def test_un_infinito_o_nan_su_tet_max_volume_e_rifiutato(grafia):
         config.TetConfig(max_volume=grafia)
 
 
+def test_il_nome_del_materiale_non_puo_iniettare_nel_deck():
+    """Il nome finisce interpolato in `*MATERIAL, NAME=...` di un file scritto in ascii.
+
+    Senza vincolo un accento romperebbe l'esportazione allo step 11, cioe' dopo
+    l'intera pipeline, e un a capo scriverebbe card in piu' nel deck senza che
+    nulla se ne accorga. Ora entrambi sono rifiutati alla nascita.
+    """
+    resto = {"young": 31500.0, "poisson": 0.2, "density": 2.5e-9}
+    for cattivo in ("Calcestruzzo C25/30 \u2013 armato", "X\n*BOUNDARY\nBASE, 1, 3", "con spazio"):
+        with pytest.raises(ValueError):
+            config.Material(name=cattivo, **resto)
+    assert config.Material(name="CALCESTRUZZO_C25_30", **resto).name == "CALCESTRUZZO_C25_30"
+
+
 def test_i_valori_decimali_normali_arrivano_ancora_a_destinazione():
     """Il controllo che smentisce: un vincolo che rifiuta tutto passerebbe il test sopra."""
-    assert config.Material(young="2.5").young == pytest.approx(2.5)
-    assert config.Material(young="1e3").young == pytest.approx(1000.0)
+    resto = {"name": "MURATURA", "poisson": 0.2, "density": 1.8e-9}
+    assert config.Material(young="2.5", **resto).young == pytest.approx(2.5)
+    assert config.Material(young="1e3", **resto).young == pytest.approx(1000.0)
     assert config.TetConfig(max_volume="2.5").max_volume == pytest.approx(2.5)
     assert config.TetConfig(max_volume="1e3").max_volume == pytest.approx(1000.0)
 
@@ -99,6 +142,7 @@ def test_l_impronta_di_una_corsa_registrata_non_cambia(tmp_path):
     from meshrec.core.sweep import fingerprint
 
     cfg = config.PipelineConfig(
+        analysis=ANALISI,
         input=config.InputConfig(path=Path("Nuvole di punti/lab_frame.pcd"), scale=1000.0),
     )
     prima = fingerprint(cfg)

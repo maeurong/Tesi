@@ -1,5 +1,5 @@
 input:
-  path: ..\Nuvole di punti\lab_frame.pcd
+  path: ../Nuvole di punti/lab_frame.pcd
   scale: 1000.0
   max_points: 20000000
   expected_size: null
@@ -60,14 +60,14 @@ tet:
   element: C3D4
 analysis:
   material:
-    name: MURATURA
-    young: 1500.0
+    name: CALCESTRUZZO_C25_30
+    young: 31500.0
     poisson: 0.2
-    density: 1.8e-09
+    density: 2.5e-09
   gravity: 9810.0
   fixed_nset: BASE
   step_name: GRAVITA
   set_tolerance_factor: 6.0
 run:
-  out_dir: runs\sweep\lab_crop\2e93bb805afe
+  out_dir: runs/lab_c25
   from_step: 1
