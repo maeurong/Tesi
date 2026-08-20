@@ -399,6 +399,47 @@ def _bordo_del_solido(
     return fuori
 
 
+def _distanza_punto_faccia(punto: np.ndarray, angoli: np.ndarray) -> float:
+    """Distanza dal punto al quadrilatero piano `angoli` (in ordine di perimetro).
+
+    Non e' la distanza dal nodo o dal baricentro piu' vicino: su una faccia
+    grande (mesh rada, come il lato indipendente di Ruling AH) il punto piu'
+    vicino puo' cadere lontano da ogni angolo e dal centro, e CalculiX
+    proietta ogni nodo dipendente sul punto piu' vicino della faccia intera,
+    non su uno dei suoi quattro vertici.
+
+    Si proietta sul piano della faccia; se la proiezione cade dentro il
+    perimetro, quella e' la distanza (il segmento punto-proiezione e'
+    perpendicolare al piano, quindi minimo). Se cade fuori, il punto piu'
+    vicino sta su uno dei quattro lati, e la distanza punto-segmento standard
+    (parametro clampato a [0, 1]) la trova.
+    """
+    normale = np.cross(angoli[1] - angoli[0], angoli[3] - angoli[0])
+    normale = normale / np.linalg.norm(normale)
+    scarto = float(np.dot(punto - angoli[0], normale))
+    proiezione = punto - scarto * normale
+
+    lati = np.roll(angoli, -1, axis=0) - angoli
+    scostamenti = proiezione - angoli
+    # Componente lungo la normale del prodotto vettoriale lato x scostamento,
+    # per esteso: e' la stessa cautela di `dentro` sui vettori 2D, qui non
+    # serve perche' i vettori sono gia' 3D, ma il segno interno/esterno del
+    # poligono convesso e' lo stesso test.
+    dentro_perimetro = all(
+        float(np.dot(np.cross(lato, scostamento), normale)) >= 0.0
+        for lato, scostamento in zip(lati, scostamenti, strict=True)
+    )
+    if dentro_perimetro:
+        return abs(scarto)
+
+    migliore = float("inf")
+    for primo, lato in zip(angoli, lati, strict=True):
+        t = float(np.clip(np.dot(punto - primo, lato) / np.dot(lato, lato), 0.0, 1.0))
+        vicino = primo + t * lato
+        migliore = min(migliore, float(np.linalg.norm(punto - vicino)))
+    return migliore
+
+
 def _asse_baricentrico_invaso(prisma: Prisma, altro: Prisma) -> np.ndarray:
     """Campioni lungo la retta baricentrica di `prisma`, dentro `altro`.
 
@@ -621,11 +662,25 @@ def taglia_giunzioni(prismi: list[Prisma]) -> tuple[list[Prisma], list[dict[str,
                 default=0.0,
             )
 
+            # Ruling AH: la POSITION TOLERANCE della card *TIE non e' una
+            # costante di modulo, e' lo scostamento da squadra sulla zona di
+            # contatto -- l'estensione del contorno di chi cede (la stessa
+            # scala usata sopra per il cuneo) per il seno dell'angolo fuori
+            # squadra fra i due assi. Il seno dell'angolo fra due versori che
+            # sarebbero perpendicolari se in squadra e' esattamente il modulo
+            # del loro prodotto scalare: nessuna approssimazione di piccolo
+            # angolo, nessun arcoseno da invertire.
+            versore_maggiore_eff = tagliati[maggiore_effettivo].asse
+            versore_maggiore_eff = versore_maggiore_eff / np.linalg.norm(versore_maggiore_eff)
+            seno_fuori_squadra = abs(float(np.dot(versore, versore_maggiore_eff)))
+            posizione_tolleranza = float(np.ptp(piccolo.contorno, axis=0).max()) * seno_fuori_squadra
+
             giunzioni.append({
                 "maggiore": int(maggiore_effettivo),
                 "minore": int(minore),
                 "accorciamento": float(piccolo.lunghezza - nuova_lunghezza),
                 "cuneo": float(cuneo),
+                "posizione_tolleranza": posizione_tolleranza,
             })
             tagliati[minore] = Prisma(
                 contorno=piccolo.contorno,
@@ -771,16 +826,25 @@ def costruisci(membrature: list, tipo: str, cfg: ModelConfig) -> dict[str, objec
     # toglierebbe il problema alla radice, condividendo i nodi sul contatto
     # invece di verificarne la posizione a posteriori.
     superfici: dict[str, list[tuple[int, int]]] = {}
-    ties: list[tuple[str, str, str]] = []
+    ties: list[tuple[str, str, str] | tuple[str, str, str, float]] = []
     connesse: set[int] = set()
     giunzioni_senza_tie: list[int] = []
+    nodi_dipendenti_legati = 0
+    nodi_dipendenti_totali = 0
     for numero, giunzione in enumerate(giunzioni, start=1):
         minore, maggiore = int(giunzione["minore"]), int(giunzione["maggiore"])
         tolleranza = max(_TOLLERANZA_CONTATTO, float(giunzione["cuneo"]))
         nomi = []
-        for ruolo, indice, altro in (
-            ("D", minore, maggiore),
-            ("I", maggiore, minore),
+        nodi_faccia_per_ruolo: dict[str, set[int]] = {}
+        baricentri_faccia_i: list[np.ndarray] = []
+        for ruolo, indice, altro, tocca in (
+            # Ruling AH: il dipendente resta per solo baricentro (gia' giusto
+            # sulla faccia di taglio piana); l'indipendente prende anche
+            # "tocca" -- baricentro o almeno un nodo dentro -- perche' la sua
+            # mesh e' piu' rada (la sezione dell'altra membratura) e una
+            # faccia grande puo' coprire solo in parte la zona di contatto.
+            ("D", minore, maggiore, False),
+            ("I", maggiore, minore, True),
         ):
             blocco = blocchi[indice]
             el_inizio = blocco["primo_elemento"]
@@ -789,12 +853,68 @@ def costruisci(membrature: list, tipo: str, cfg: ModelConfig) -> dict[str, objec
                 nodi, elementi[el_inizio:el_fine],
                 lambda punti: dentro(tagliati[altro], punti, tolleranza),
                 cfg.element,
+                tocca=tocca,
             )
             nome = f"{cfg.tie_name_prefix}_{numero}_{ruolo}"
             superfici[nome] = [(elemento + el_inizio, faccia) for elemento, faccia in grezze]
             nomi.append(nome)
+            nodi_faccia_per_ruolo[ruolo] = {
+                int(n)
+                for elemento_locale, faccia in grezze
+                for n in elementi[el_inizio + elemento_locale][
+                    list(abaqus.FACCE_DEL_SOLUTORE[8][faccia - 1])
+                ]
+            }
+            if ruolo == "D":
+                # Il totale e' il conteggio della superficie dipendente
+                # candidata (i nodi delle sue facce di bordo, Ruling AF/AH),
+                # non del blocco intero: la membratura ha centinaia di nodi
+                # lungo tutta la sua lunghezza, la giunzione solo alla quota
+                # del taglio -- il denominatore giusto e' quest'ultima scala.
+                nodi_dipendenti_totali += len(nodi_faccia_per_ruolo[ruolo])
+            else:
+                # I quadrilateri delle facce indipendenti, non solo i loro
+                # nodi d'angolo: CalculiX proietta un nodo dipendente sul
+                # punto piu' vicino della faccia opposta intera, che su una
+                # faccia grande (mesh rada, questo lato) puo' cadere lontano
+                # da ogni angolo -- vedi `_distanza_punto_faccia`.
+                facce_i = [
+                    nodi[elementi[el_inizio + elemento_locale][
+                        list(abaqus.FACCE_DEL_SOLUTORE[8][faccia - 1])
+                    ]]
+                    for elemento_locale, faccia in grezze
+                ]
         if superfici[nomi[0]] and superfici[nomi[1]]:
-            ties.append((f"{cfg.tie_name_prefix}_{numero}", nomi[0], nomi[1]))
+            # Nodi legati su nodi dipendenti: conteggio interno (non una
+            # lettura del solutore), quanti nodi della superficie dipendente
+            # hanno un punto della superficie indipendente -- non solo un suo
+            # nodo, la faccia intera, vedi `_distanza_punto_faccia` -- entro
+            # la stessa tolleranza di posizione data a CalculiX. E' il numero
+            # che rende leggibile, nel confronto fra i tre modelli, quanta
+            # della cedevolezza del parametrico viene dal vincolo e non dalla
+            # geometria (serve anche al Task 12). Non e' "quanti nodi stanno
+            # nella superficie dipendente": quello e' il totale, sempre vero
+            # per costruzione, e non direbbe nulla su quanti legano davvero.
+            tolleranza_posizione = float(giunzione["posizione_tolleranza"])
+            soglia_legame = max(_TOLLERANZA_CONTATTO, tolleranza_posizione)
+            posizioni_d = nodi[sorted(nodi_faccia_per_ruolo["D"])]
+            for punto_d in posizioni_d:
+                distanza_minima = min(
+                    _distanza_punto_faccia(punto_d, faccia_i) for faccia_i in facce_i
+                )
+                if distanza_minima <= soglia_legame:
+                    nodi_dipendenti_legati += 1
+
+            nome_tie = f"{cfg.tie_name_prefix}_{numero}"
+            # Zero (banco squadrato) non scrive il parametro affatto, non lo
+            # scrive a zero: POSITION TOLERANCE=0.0 non e' la stessa cosa di
+            # nessuna POSITION TOLERANCE per CalculiX, che senza il parametro
+            # usa una stima propria -- passare zero esplicito rischia di
+            # essere piu' severo del suo predefinito, non neutro.
+            if tolleranza_posizione > 0.0:
+                ties.append((nome_tie, nomi[0], nomi[1], tolleranza_posizione))
+            else:
+                ties.append((nome_tie, nomi[0], nomi[1]))
             connesse.add(minore)
             connesse.add(maggiore)
         else:
@@ -848,5 +968,7 @@ def costruisci(membrature: list, tipo: str, cfg: ModelConfig) -> dict[str, objec
             "membrature_non_legate": len(non_legate),
             "accorciamenti": [giunzione["accorciamento"] for giunzione in giunzioni],
             "element_type": cfg.element,
+            "nodi_dipendenti_legati": nodi_dipendenti_legati,
+            "nodi_dipendenti_totali": nodi_dipendenti_totali,
         },
     }

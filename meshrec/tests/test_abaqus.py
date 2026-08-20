@@ -767,6 +767,54 @@ def test_il_tie_nomina_due_superfici_gia_dichiarate(tmp_path):
         )
 
 
+def test_il_tie_con_tolleranza_scrive_position_tolerance(tmp_path):
+    """Ruling AH (giro di correzione 6): il quarto elemento facoltativo della
+    tupla di un *TIE e' la sua `POSITION TOLERANCE`, scritta sulla card. Un
+    *TIE a tre elementi (retrocompatibile) non la scrive affatto -- un deck
+    senza quel parametro non e' lo stesso di un deck con tolleranza zero.
+
+    Muore se: la card smette di scrivere `POSITION TOLERANCE=` quando il
+    quarto elemento e' dato."""
+    superficie = abaqus.element_surface(_ESAEDRO, np.array([0, 1, 2, 3]), "C3D8I")
+    percorso = tmp_path / "con_tolleranza.inp"
+
+    abaqus.write_inp(
+        percorso, _CUBO, _ESAEDRO,
+        node_sets={"BASE": np.array([0, 1, 2, 3])},
+        material=MATERIALE,
+        element_type="C3D8I",
+        element_surfaces={"UNA": superficie, "DUE": superficie},
+        ties=(("GIUNZIONE_1", "UNA", "DUE", 3.5),),
+    )
+
+    testo = percorso.read_text(encoding="ascii")
+    assert "POSITION TOLERANCE=3.5" in testo
+    assert "*TIE, NAME=GIUNZIONE_1, POSITION TOLERANCE=3.5, ADJUST=NO" in testo
+
+
+def test_il_tie_senza_tolleranza_non_scrive_position_tolerance(tmp_path):
+    """Il controllo che smentisce il precedente: un *TIE a tre elementi (la
+    forma di prima di questo giro) non deve scrivere alcuna
+    `POSITION TOLERANCE`, ne' a zero ne' a un valore predefinito -- un
+    parametro assente non e' la stessa cosa di un parametro dichiarato zero
+    (stessa regola gia' vera per `pressure` in questo modulo)."""
+    superficie = abaqus.element_surface(_ESAEDRO, np.array([0, 1, 2, 3]), "C3D8I")
+    percorso = tmp_path / "senza_tolleranza.inp"
+
+    abaqus.write_inp(
+        percorso, _CUBO, _ESAEDRO,
+        node_sets={"BASE": np.array([0, 1, 2, 3])},
+        material=MATERIALE,
+        element_type="C3D8I",
+        element_surfaces={"UNA": superficie, "DUE": superficie},
+        ties=(("GIUNZIONE_1", "UNA", "DUE"),),
+    )
+
+    testo = percorso.read_text(encoding="ascii")
+    assert "POSITION TOLERANCE" not in testo
+    assert "*TIE, NAME=GIUNZIONE_1, ADJUST=NO" in testo
+
+
 def test_la_superficie_di_elemento_non_include_una_faccia_interna_condivisa():
     """RULING N: una faccia condivisa da due elementi adiacenti non e' di
     bordo. Se comparisse comunque nella superficie (perche' tutti i suoi nodi
@@ -827,6 +875,28 @@ def test_la_superficie_del_tie_non_include_una_faccia_interna_condivisa():
     superficie = abaqus.tie_surface(coordinate, doppio, dentro_altro, "C3D8I")
 
     assert len(superficie) == 10, "sei piu' sei meno la faccia condivisa contata due volte"
+
+
+def test_la_superficie_del_tie_con_tocca_include_una_faccia_toccata_solo_a_un_nodo():
+    """Ruling AH (giro di correzione 6): il lato indipendente ha facce piu'
+    grandi (mesh piu' rada) che possono coprire solo in parte la zona di
+    contatto -- il baricentro cade fuori pur toccando davvero. `tocca=True`
+    include anche queste: la faccia S1 del cubo (nodi 0,1,2,3, baricentro
+    (0.5, 0.5, 0.0)) tocca l'origine solo nel nodo 0, a distanza 0 dal
+    predicato, ma il suo baricentro dista sqrt(0.5) ~= 0.707 -- ben oltre il
+    raggio 0.1 del predicato.
+
+    Muore se: `tocca=True` smette di aggiungere il criterio per nodo (torna
+    equivalente a `tocca=False`) -- la superficie con `tocca=True` uscirebbe
+    vuota come quella senza."""
+    def dentro_altro(punti):
+        return np.linalg.norm(punti - np.array([0.0, 0.0, 0.0]), axis=1) < 0.1
+
+    solo_baricentro = abaqus.tie_surface(_CUBO, _ESAEDRO, dentro_altro, "C3D8I")
+    assert solo_baricentro == [], "il baricentro di S1 e' troppo lontano dall'origine"
+
+    con_tocca = abaqus.tie_surface(_CUBO, _ESAEDRO, dentro_altro, "C3D8I", tocca=True)
+    assert (0, 1) in con_tocca, "S1 tocca l'origine nel nodo 0, e tocca=True deve vederlo"
 
 
 _SCATOLA = np.array([

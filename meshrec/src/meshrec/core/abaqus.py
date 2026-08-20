@@ -40,7 +40,7 @@ def write_inp(
     elset: str = "ALL_WALL",
     step_name: str = "GRAVITA",
     element_surfaces: dict[str, list[tuple[int, int]]] | None = None,
-    ties: tuple[tuple[str, str, str], ...] = (),
+    ties: tuple[tuple[str, str, str] | tuple[str, str, str, float], ...] = (),
     pressure: tuple[str, float] | None = None,
 ) -> None:
     """Scrive un modello pronto all'analisi statica sotto peso proprio.
@@ -60,6 +60,12 @@ def write_inp(
     questa funzione scriveva prima, ed e' cosi' che le corse tetraedriche
     restano confrontabili con quelle gia' fatte. Un carico assente non diventa
     una pressione dichiarata a zero: le due cose non sono la stessa.
+
+    Ogni tupla di `ties` e' `(nome, dipendente, indipendente)` o, con la
+    `POSITION TOLERANCE` di Ruling AH (giro di correzione 6),
+    `(nome, dipendente, indipendente, tolleranza)`. Un *TIE a tre elementi non
+    scrive affatto quel parametro: assente non e' la stessa cosa di zero,
+    stessa regola gia' vera per `pressure` qui sopra.
     """
     if fixed_nset not in node_sets:
         raise ValueError(f"il set vincolato '{fixed_nset}' non e fra i node_sets forniti")
@@ -72,7 +78,8 @@ def write_inp(
             f"i tipi scrivibili sono {sorted(NODI_PER_ELEMENTO)}"
         )
     superfici = {} if element_surfaces is None else element_surfaces
-    for nome, dipendente, indipendente in ties:
+    for tie in ties:
+        nome, dipendente, indipendente = tie[0], tie[1], tie[2]
         mancanti = [s for s in (dipendente, indipendente) if s not in superfici]
         if mancanti:
             raise ValueError(
@@ -115,11 +122,14 @@ def write_inp(
         lines.append(f"*SURFACE, TYPE=ELEMENT, NAME={nome}")
         lines += [f"{elemento + 1}, S{numero}" for elemento, numero in coppie]
 
-    for nome, dipendente, indipendente in ties:
+    for tie in ties:
+        nome, dipendente, indipendente = tie[0], tie[1], tie[2]
         # ADJUST=NO: spostare i nodi della superficie dipendente sulla
         # indipendente cambierebbe la geometria dopo che il volume e' stato
         # misurato, e il modello non sarebbe piu' quello di cui il report parla.
-        lines.append(f"*TIE, NAME={nome}, ADJUST=NO")
+        # POSITION TOLERANCE (Ruling AH), solo se data: assente non e' zero.
+        tolleranza_card = f", POSITION TOLERANCE={tie[3]}" if len(tie) > 3 else ""
+        lines.append(f"*TIE, NAME={nome}{tolleranza_card}, ADJUST=NO")
         lines.append(f"{dipendente}, {indipendente}")
 
     lines += [
@@ -268,6 +278,8 @@ def tie_surface(
     elements: np.ndarray,
     dentro_altro: Callable[[np.ndarray], np.ndarray],
     element_type: str,
+    *,
+    tocca: bool = False,
 ) -> list[tuple[int, int]]:
     """Le coppie (elemento, numero di faccia) di bordo il cui baricentro cade dentro l'altro solido.
 
@@ -281,6 +293,18 @@ def tie_surface(
     fuori. Un carico invece si applica dove l'utente lo ha nominato, e li'
     l'ambiguita' non e' ammessa: e' per questo che `element_surface` resta
     quella che e', non si tocca, e questa e' una funzione a parte.
+
+    `tocca=True` (Ruling AH, giro di correzione 6): una faccia entra anche se
+    il baricentro e' fuori ma **almeno uno dei suoi nodi** e' dentro. Misurato
+    sul telaio a quattro membrature: il lato indipendente ha facce piu'
+    grandi (la sua mesh e' piu' rada), e una faccia cosi' puo' coprire solo in
+    parte la zona di contatto -- il baricentro cade fuori pur toccando
+    davvero, e i nodi dipendenti sopra quella zona restano senza una faccia su
+    cui proiettarsi. Il lato dipendente resta a `tocca=False` (il predefinito):
+    sulla faccia di taglio, gia' piana per costruzione, il solo baricentro e'
+    gia' quello giusto -- misurato che allargarlo anche li' peggiora, non
+    migliora, il risultato (esperimento B3 del giro 6: scambiare i ruoli fa
+    salire gli avvisi del solutore da 20 a 58).
 
     `dentro_altro` e' la geometria iniettata come funzione (punti -> booleani)
     e non un import di `hexa.Prisma`/`hexa.dentro`: `abaqus.py` non dipende da
@@ -309,6 +333,11 @@ def tie_surface(
     baricentri = punti[facce].mean(axis=2)  # (n_elementi, n_facce, 3)
     forma = baricentri.shape[:2]
     dentro = dentro_altro(baricentri.reshape(-1, 3)).reshape(forma)
+    if tocca:
+        dentro_nodi = dentro_altro(punti[facce].reshape(-1, 3)).reshape(
+            facce.shape[0], facce.shape[1], nodi_per_faccia
+        )
+        dentro = dentro | dentro_nodi.any(axis=2)
 
     coppie: list[tuple[int, int]] = []
     for posizione in range(len(combinazioni)):

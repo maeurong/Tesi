@@ -687,13 +687,14 @@ def test_il_cuneo_e_calcolato_dalla_geometria_e_allarga_le_facce_a_contatto():
     quella distanza per la tangente dell'angolo fuori squadra --
     100 * tan(1 grado) = 1,7455 mm.
 
-    Le due facce attese (20 sul lato dipendente, 12 sul lato indipendente,
-    per baricentro -- Ruling AF del giro di correzione 5) sono lette da
-    `hexa.costruisci` in questa sessione, non assunte prima di eseguire.
+    Le due facce attese (20 sul lato dipendente per baricentro, 26 sul lato
+    indipendente per "tocca" -- Ruling AH del giro di correzione 6) sono
+    lette da `hexa.costruisci` in questa sessione, non assunte prima di
+    eseguire.
 
     Muore se: la tolleranza di contatto torna a essere solo
     `_TOLLERANZA_CONTATTO`, senza il cuneo per giunzione -- misurato in
-    questa sessione che le facce scendono da 20/12 a 10/6 (mutazione
+    questa sessione che le facce scendono da 20/26 a 10/16 (mutazione
     applicata: `tolleranza = max(_TOLLERANZA_CONTATTO, ...)` ->
     `tolleranza = _TOLLERANZA_CONTATTO`)."""
     angolo = np.radians(1.0)
@@ -713,4 +714,4 @@ def test_il_cuneo_e_calcolato_dalla_geometria_e_allarga_le_facce_a_contatto():
     assert modello["ties"], "la giunzione fuori squadra deve comunque legarsi"
     _nome, dipendente, indipendente = modello["ties"][0]
     assert len(modello["superfici"][dipendente]) == 20
-    assert len(modello["superfici"][indipendente]) == 12
+    assert len(modello["superfici"][indipendente]) == 26
