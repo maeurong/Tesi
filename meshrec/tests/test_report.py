@@ -7,6 +7,8 @@ import struct
 import zlib
 from pathlib import Path
 
+import pytest
+
 from meshrec.core import pipeline, report, steps, sweep
 from meshrec.core.config import InputConfig, PipelineConfig, load_config, save_config
 from materiale import ANALISI, _tre_cartelle_finte
@@ -1177,3 +1179,75 @@ def test_la_nota_delle_giunzioni_viene_letta_da_modello_json_non_riscritta(tmp_p
     assert confronto["note_non_geometriche"][0] == (
         "MARCATORE UNICO DEL TEST -- non deriva dalla geometria"
     )
+
+
+def test_una_cartella_senza_modello_json_ne_12_wall_json_non_diventa_un_as_built_fantasma(tmp_path):
+    """Rilievo del revisore: confronta distingueva l'as-built dal parametrico
+    solo per assenza di modello.json, un segnale negativo. Una cartella vuota
+    (percorso sbagliato, o corsa parametrica fallita a meta' che non ha mai
+    scritto modello.json) finiva classificata come l'as-built vero, con tutte
+    le celle 'non impostato' e nessun segnale. Serve un segno positivo: la
+    corsa madre ha 12_wall.json (pipeline.WALL_FILENAME) leggibile.
+    """
+    vuota = tmp_path / "vuota"
+    vuota.mkdir()
+
+    with pytest.raises(ValueError, match="vuota"):
+        report.confronta([vuota])
+
+
+def test_la_nota_delle_giunzioni_letta_da_un_json_esterno_si_scrive_con_l_escape_html(tmp_path):
+    """nota_giunzioni e' testo libero letto da modello.json -- il campo piu'
+    esposto del confronto, perche' viene da un file su disco e non da una
+    costante del codice -- e deve passare da html.escape come il resto del
+    modulo (vedi _tabella, report.py:323), altrimenti '<' e '&' scritti li'
+    dentro rompono la pagina.
+    """
+    cartelle = _tre_cartelle_finte(tmp_path)
+    percorso_modello = cartelle[1] / pipeline.MODEL_FILENAME
+    dati = json.loads(percorso_modello.read_text(encoding="utf-8"))
+    dati["nota_giunzioni"] = "giunto <b>critico</b> & non lineare"
+    percorso_modello.write_text(json.dumps(dati), encoding="utf-8")
+
+    testo = report.write_comparison_report(cartelle, tmp_path / "confronto.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert "<b>critico</b>" not in testo
+    assert "&lt;b&gt;critico&lt;/b&gt;" in testo
+
+
+def test_i_gradi_di_liberta_dichiarati_confrontabili_compaiono_nella_tabella(tmp_path):
+    """CONFRONTABILI['gradi_di_liberta'] e' True: se la tabella 'grandezze
+    confrontabili' non mostra la riga, la dichiarazione e la pagina sono in
+    disaccordo -- esattamente il tipo di bugia silenziosa che questo task
+    esiste per non fare.
+    """
+    cartelle = _tre_cartelle_finte(tmp_path)
+
+    testo = report.write_comparison_report(cartelle, tmp_path / "confronto.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert "<th>gradi_di_liberta</th>" in testo
+    assert "C3D8I" in testo  # element_type del ramo esaedri, dentro la riga
+
+
+def test_due_cartelle_dello_stesso_tipo_si_segnalano_invece_di_sovrascriversi(tmp_path):
+    """`presenti[chiave] = {...}` dentro un ciclo sovrascriveva in silenzio se
+    due cartelle dichiaravano lo stesso tipo (es. due 'estruso' per un
+    percorso sbagliato). Deve segnalare, non tenere solo l'ultima.
+    """
+    cartelle = _tre_cartelle_finte(tmp_path)
+    originale = cartelle[1]  # madre-estruso
+    duplicato = tmp_path / "duplicato-estruso"
+    duplicato.mkdir()
+    (duplicato / "modello.json").write_text(
+        (originale / pipeline.MODEL_FILENAME).read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    (duplicato / "metrics.json").write_text(
+        (originale / "metrics.json").read_text(encoding="utf-8"), encoding="utf-8"
+    )
+
+    with pytest.raises(ValueError, match="estruso"):
+        report.confronta([cartelle[0], originale, duplicato])

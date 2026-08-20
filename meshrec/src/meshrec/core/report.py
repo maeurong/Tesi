@@ -23,7 +23,7 @@ import yaml
 
 from meshrec.core import steps
 from meshrec.core.config import load_config
-from meshrec.core.pipeline import METRICS_FILENAME
+from meshrec.core.pipeline import METRICS_FILENAME, WALL_FILENAME
 from meshrec.core.sweep import load_registry
 
 CONFIG_FILENAME = "config.yaml"
@@ -654,11 +654,25 @@ def confronta(cartelle: list[Path]) -> dict[str, object]:
         modello = _legge_json(percorso / "modello.json")
         metriche = _legge_json(percorso / METRICS_FILENAME) or {}
         if modello is None:
-            presenti["as-built"] = {"cartella": percorso, "metriche": metriche, "modello": None}
+            # Assenza di modello.json non basta: e' un segnale negativo, e una
+            # cartella vuota (percorso sbagliato, o corsa parametrica fallita a
+            # meta') lo soddisfa allo stesso modo della vera corsa madre. Il
+            # segno positivo della corsa madre e' 12_wall.json leggibile.
+            if _legge_json(percorso / WALL_FILENAME) is None:
+                raise ValueError(
+                    f"{percorso} non e' una corsa valida: ne' modello.json ne' "
+                    f"{WALL_FILENAME} si leggono, e senza uno dei due non e' ne' "
+                    "un modello parametrico ne' la corsa madre"
+                )
+            chiave = "as-built"
         else:
-            presenti[str(modello.get("tipo"))] = {
-                "cartella": percorso, "metriche": metriche, "modello": modello
-            }
+            chiave = str(modello.get("tipo"))
+        if chiave in presenti:
+            raise ValueError(
+                f"due cartelle dichiarano lo stesso modello '{chiave}': "
+                f"{presenti[chiave]['cartella']} e {percorso}"
+            )
+        presenti[chiave] = {"cartella": percorso, "metriche": metriche, "modello": modello}
 
     mancanti = [nome for nome in MODELLI if nome not in presenti]
 
@@ -732,22 +746,22 @@ def write_comparison_report(cartelle: list[Path], out_path: Path) -> Path:
     """
     confronto = confronta(cartelle)
     righe = []
-    for grandezza in ("volume", "massa", "scostamento_nuvola"):
+    for grandezza in ("volume", "massa", "scostamento_nuvola", "gradi_di_liberta"):
         celle = "".join(
-            f"<td>{'non generato' if nome not in confronto[grandezza] else _testo(confronto[grandezza][nome])}</td>"
+            f"<td>{'non generato' if nome not in confronto[grandezza] else html.escape(_testo(confronto[grandezza][nome]))}</td>"
             for nome in MODELLI
         )
         righe.append(f"<tr><th>{grandezza}</th>{celle}</tr>")
 
     qualita_righe = "".join(
-        f"<tr><th>{nome}</th><td>{_testo(confronto['qualita'].get(nome, 'non generato'))}</td></tr>"
+        f"<tr><th>{nome}</th><td>{html.escape(_testo(confronto['qualita'].get(nome, 'non generato')))}</td></tr>"
         for nome in MODELLI
     )
     vincoli_righe = "".join(
-        f"<tr><th>{nome}</th><td>{_testo_vincoli(confronto['vincoli_giunzioni'].get(nome, 'non generato'))}</td></tr>"
+        f"<tr><th>{nome}</th><td>{html.escape(_testo_vincoli(confronto['vincoli_giunzioni'].get(nome, 'non generato')))}</td></tr>"
         for nome in MODELLI
     )
-    note = "".join(f"<li>{nota}</li>" for nota in confronto["note_non_geometriche"])
+    note = "".join(f"<li>{html.escape(nota)}</li>" for nota in confronto["note_non_geometriche"])
     intestazione = "".join(f"<th>{nome}</th>" for nome in MODELLI)
     avviso = (
         "<p class='avviso'>Un solo modello generato: questa non e' una tabella di "
