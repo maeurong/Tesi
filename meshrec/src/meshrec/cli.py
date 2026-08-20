@@ -73,6 +73,11 @@ def _build_parser() -> argparse.ArgumentParser:
     report_command.add_argument("registry", type=Path)
     report_command.add_argument("--out", type=Path, required=True)
 
+    wall_command = commands.add_parser(
+        "wall", help="ricalcola il solo prior geometrico sugli artefatti gia' presenti"
+    )
+    wall_command.add_argument("config", type=Path)
+
     serve_command = commands.add_parser("serve", help="avvia il server locale e apre il browser")
     serve_command.add_argument("config", type=Path)
     serve_command.add_argument("--port", type=int, default=None)
@@ -132,6 +137,28 @@ def main(argv: list[str] | None = None) -> int:
         from meshrec.core import report
 
         print(f"report in {report.write_report(args.registry, args.out)}")
+        return 0
+
+    if args.command == "wall":
+        from meshrec.core import io
+
+        try:
+            cfg = load_config(args.config)
+            out = Path(cfg.run.out_dir)
+            sorgente = out / pipeline.ARTIFACTS[2]
+            if not sorgente.exists():
+                raise FileNotFoundError(
+                    f"manca {sorgente}: il prior misura la nuvola segmentata, che e' "
+                    "l'artefatto dello step 2. Esegui almeno fino a quello "
+                    f"(`meshrec run {args.config} --to-step 2`) e riprova"
+                )
+            punti, _ = io.read_cloud(sorgente)
+            spaziatura = io.mean_spacing(punti, cfg.input.spacing_sample, cfg.input.seed)
+            esito = pipeline.calcola_prior(out, cfg, punti, spaziatura)
+        except Exception as error:
+            print(f"{type(error).__name__}: {error}", file=sys.stderr)
+            return 1
+        print(json.dumps(esito, indent=2, default=float, ensure_ascii=False))
         return 0
 
     if args.command == "serve":

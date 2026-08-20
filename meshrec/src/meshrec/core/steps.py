@@ -16,9 +16,10 @@ from meshrec.core.config import PipelineConfig
 
 # Le dodici chiavi del registro degli step. Lo step 7 non ha artefatto proprio
 # ma ha metriche, quindi c'e' anche lui. Lo step 12 e' il prior geometrico
-# della Fase 4: chiude la corsa madre e non e' un punto di ripresa. Fino al
-# Task 9, pipeline.run scrive solo le prime undici: is_complete() in sweep.py
-# lo sa e non richiede "12_wall" a un candidato.
+# della Fase 4: chiude la corsa madre e non e' un punto di ripresa. is_complete()
+# in sweep.py continua a non richiedere "12_wall" a un candidato perche' un
+# candidato di sweep si confronta sulle sole undici misure di elaborazione: e'
+# completo quando ha il proprio deck, non quando ha il prior.
 STEP_KEYS: tuple[str, ...] = (
     "01_load",
     "02_segment",
@@ -103,9 +104,9 @@ def write_state(
 ) -> None:
     """Registra l'esito di un solo step, senza toccare gli altri.
 
-    Rilegge e riscrive l'intero file a ogni step: sono undici voci, il costo e'
+    Rilegge e riscrive l'intero file a ogni step: sono dodici voci, il costo e'
     nullo, e cosi' lo stato su disco resta un solo documento coerente invece di
-    undici frammenti da ricomporre.
+    dodici frammenti da ricomporre.
     """
     from meshrec.core.io import scrivi_atomico
 
@@ -125,7 +126,7 @@ def write_state(
 
 
 def run_state(out_dir: Path, cfg: PipelineConfig) -> list[dict[str, object]]:
-    """Stato dei undici step per la corsa in `out_dir` con la configurazione `cfg`.
+    """Stato dei dodici step per la corsa in `out_dir` con la configurazione `cfg`.
 
     "valido" significa una cosa sola e verificabile: l'impronta salvata coincide
     con quella ricalcolata dalla configurazione corrente. Non e' un'etichetta

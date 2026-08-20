@@ -394,7 +394,11 @@ class WallConfig(_ModelloBase):
         description=(
             "controllo intrinseco: dispersione relativa massima della sezione "
             "lungo l'asse. Oltre, la regione non e' un prisma e viene riportata "
-            "come tale invece di essere spacciata per una membratura"
+            "come tale invece di essere spacciata per una membratura. E' l'unica "
+            "difesa contro una sezione a Π riportata come (pieno, affidabile): "
+            "riempimento e affidabilita' misurano l'ingombro locale per fetta e "
+            "non vedono due membrature uguali unite a Π, che restano piene di "
+            "bounding box da un capo all'altro"
         ),
     )
     section_fill_ratio: float = Field(

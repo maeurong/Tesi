@@ -12,11 +12,12 @@ from pathlib import Path
 
 import numpy as np
 
-from meshrec.core import abaqus, io, quality, repair, segment, steps, surface, volume
+from meshrec.core import abaqus, io, quality, repair, segment, steps, surface, volume, wall
 from meshrec.core.config import PipelineConfig, save_config
 
 METRICS_FILENAME = "metrics.json"
 METRICS_PARTIAL = "metrics.partial.json"
+WALL_FILENAME = "12_wall.json"
 
 
 class _FermataRichiesta(Exception):
@@ -79,8 +80,33 @@ def _read_mesh(path: Path) -> tuple[np.ndarray, np.ndarray]:
     )
 
 
+def calcola_prior(
+    out: Path, cfg: PipelineConfig, points: np.ndarray, spacing: float
+) -> dict[str, object]:
+    """Step 12: il prior geometrico, calcolato e scritto accanto agli altri artefatti.
+
+    Sta in una funzione propria e non dentro `run()` perche' ha due chiamanti:
+    la corsa intera e il comando `meshrec wall`, che ricalcola il solo prior
+    sugli artefatti gia' presenti. Una seconda copia del calcolo sarebbe una
+    seconda cosa da tenere allineata.
+    """
+    esito = wall.prior(points, cfg.segment, cfg.wall, spacing)
+    io.scrivi_atomico(
+        out / WALL_FILENAME,
+        lambda destinazione: destinazione.write_text(
+            json.dumps(esito, indent=2, default=float, ensure_ascii=False), encoding="utf-8"
+        ),
+    )
+    return esito
+
+
 def run(cfg: PipelineConfig) -> dict[str, object]:
     """Esegue la pipeline e restituisce le metriche di ogni step.
+
+    Dalla Fase 4 gli step sono dodici. Il dodicesimo e' il prior geometrico e
+    chiude la corsa madre; non e' un punto di ripresa e non e' un ramo: i due
+    modelli parametrici sono corse figlie con la propria cartella, non
+    biforcazioni di questa funzione.
 
     `cfg.run.from_step` salta gli step precedenti e ricarica dal disco
     l'artefatto numerato che precede quello di ripartenza, secondo le tabelle
@@ -113,9 +139,9 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
     # e' finita male in un punto imprecisato.
     in_corso = start
     # Vero solo se il flusso ha attraversato per intero l'ultimo step che
-    # questa versione di run() implementa (oggi 11_export, domani 12_wall):
-    # si aggiorna da solo spostandosi con la riga che lo mette a True, senza
-    # un numero da tenere sincronizzato a mano con cfg.run.to_step altrove.
+    # questa versione di run() implementa (oggi 12_wall): si aggiorna da solo
+    # spostandosi con la riga che lo mette a True, senza un numero da tenere
+    # sincronizzato a mano con cfg.run.to_step altrove.
     pipeline_completa = False
 
     def registra(numero: int, avvio: float, artefatto: str | None) -> None:
@@ -261,6 +287,18 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
             reference=vertices,
         )
         registra(11, avvio, "wall_model.inp")
+
+        if stop <= 11:
+            raise _FermataRichiesta
+
+        in_corso = 12
+        avvio = time.monotonic()
+        # Il prior misura la nuvola segmentata e non la superficie ricostruita:
+        # il rilievo e' il dato, e la ricostruzione di Poisson e' gia' una
+        # interpretazione del rilievo. `source_cloud` e' esattamente l'uscita
+        # dello step 2, che la ripresa ricarica quando riparte da piu' in la'.
+        metrics["12_wall"] = calcola_prior(out, cfg, source_cloud, spacing)
+        registra(12, avvio, WALL_FILENAME)
         pipeline_completa = True
     except _FermataRichiesta:
         # Fermata su richiesta: gli step chiesti sono stati eseguiti e il

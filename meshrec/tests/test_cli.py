@@ -264,3 +264,34 @@ def test_the_sweep_command_reports_the_thickness_gate_failure(tmp_path, capsys):
     err = capsys.readouterr().err
     assert result == 1
     assert "la misura di spessore non riproduce il valore noto" in err
+
+
+def test_il_comando_wall_ricalcola_il_solo_prior(tmp_path, capsys):
+    """Il prior e' un'azione e non una ripresa: legge l'artefatto dello step 2
+    gia' sul disco e non rifa' nulla di cio' che sta a monte."""
+    import json
+
+    from meshrec.core import pipeline
+
+    percorso = _config_cubo_su_disco(tmp_path)
+    cfg = config.load_config(percorso)
+    cfg.run.to_step = 2
+    config.save_config(cfg, percorso)
+    pipeline.run(cfg)
+
+    assert cli.main(["wall", str(percorso)]) == 0
+
+    scritto = json.loads(
+        (cfg.run.out_dir / pipeline.WALL_FILENAME).read_text(encoding="utf-8")
+    )
+    assert "membrature" in scritto
+    assert json.loads(capsys.readouterr().out)["regioni_trovate"] == scritto["regioni_trovate"]
+
+
+def test_il_comando_wall_senza_lo_step_due_dice_che_cosa_manca(tmp_path, capsys):
+    """Chi arriva dopo non conosce gli step: l'errore dice quale artefatto
+    manca e come ottenerlo, non solo che un file non c'e'."""
+    percorso = _config_cubo_su_disco(tmp_path)
+
+    assert cli.main(["wall", str(percorso)]) == 1
+    assert "02_segmented.ply" in capsys.readouterr().err

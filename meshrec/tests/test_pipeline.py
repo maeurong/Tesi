@@ -235,20 +235,17 @@ def test_resuming_from_tetrahedralize_still_works_when_simplify_is_enabled(tmp_p
     assert resumed["11_export"]["volume"] == pytest.approx(EXACT_VOLUME, rel=0.1)
 
 
-def test_una_corsa_completa_lascia_gli_undici_step_validi(tmp_path):
-    """Lo step 12 (prior geometrico) non e' ancora scritto da pipeline.run:
-    arriva in un task successivo della Fase 4. Finche' resta cosi', "mai
-    eseguito" e' il suo stato vero anche dopo una corsa che ha eseguito
-    tutto cio' che pipeline.run sa fare oggi, non un fallimento della corsa."""
+def test_una_corsa_completa_lascia_i_dodici_step_validi(tmp_path):
+    """Dal Task 9 lo step 12 (prior geometrico) e' parte della corsa madre:
+    una corsa intera non lascia piu' nulla di "mai eseguito"."""
     from meshrec.core import pipeline, steps
 
     cfg = _config_cubo(tmp_path)
     pipeline.run(cfg)
     stato = steps.run_state(cfg.run.out_dir, cfg)
     per_numero = {voce["numero"]: voce["stato"] for voce in stato}
-    assert set(per_numero.values()) == {"valido", "mai eseguito"}
-    assert per_numero[12] == "mai eseguito"
-    assert all(per_numero[n] == "valido" for n in range(1, 12))
+    assert set(per_numero.values()) == {"valido"}
+    assert all(per_numero[n] == "valido" for n in range(1, 13))
 
 
 def test_cambiare_un_parametro_a_monte_invalida_gli_step_a_valle(tmp_path):
@@ -324,3 +321,78 @@ def test_gli_step_eseguiti_uno_alla_volta_accumulano_le_metriche(tmp_path):
     assert set(unite) == {"01_load", "02_segment"}
     rilette = json.loads((cfg.run.out_dir / pipeline.METRICS_FILENAME).read_text(encoding="utf-8"))
     assert rilette == unite
+
+
+def test_una_corsa_completa_arriva_allo_step_dodici(tmp_path):
+    """Lo step 12 chiude la corsa madre: se non compare nelle metriche, il
+    prior non e' stato calcolato e i modelli parametrici non hanno da cosa
+    partire."""
+    from meshrec.core import pipeline, steps
+
+    cfg = _config_cubo(tmp_path)
+
+    metriche = pipeline.run(cfg)
+
+    assert "12_wall" in metriche
+    assert (cfg.run.out_dir / pipeline.WALL_FILENAME).exists()
+    stato = steps.read_state(cfg.run.out_dir)
+    assert stato["12_wall"]["esito"] == "riuscito"
+
+
+def test_lo_step_dodici_si_puo_fermare_prima_con_to_step(tmp_path):
+    """to_step=11 lascia la corsa dov'era prima della Fase 4: le corse gia'
+    fatte restano riproducibili senza calcolare un prior che nessuno ha
+    chiesto."""
+    from meshrec.core import pipeline
+
+    cfg = _config_cubo(tmp_path)
+    cfg.run.to_step = 11
+
+    metriche = pipeline.run(cfg)
+
+    assert "11_export" in metriche
+    assert "12_wall" not in metriche
+    assert not (cfg.run.out_dir / pipeline.WALL_FILENAME).exists()
+
+
+def test_una_corsa_fermata_all_undici_non_si_dichiara_completa(tmp_path):
+    """Il gemello di `test_una_corsa_piena_sostituisce_una_chiave_estranea...`,
+    dall'altro lato del confine: una corsa intera SOSTITUISCE metrics.json, una
+    corsa parziale ci si FONDE, ed e' la distinzione da cui dipende lo sweep
+    della Fase 2.
+
+    Serve perche' senza di lui spostare o non spostare `pipeline_completa =
+    True` lascia la suite verde in entrambi i casi. La chiave estranea
+    sopravvive solo se la corsa si e' considerata parziale: e' un controllo
+    indiretto ma non circolare, perche' non rilegge il valore che vuole
+    provare.
+    """
+    from meshrec.core import pipeline
+
+    cfg = _config_cubo(tmp_path)
+    cfg.run.to_step = 11
+    out = cfg.run.out_dir
+    out.mkdir(parents=True, exist_ok=True)
+    (out / pipeline.METRICS_FILENAME).write_text(
+        json.dumps({"99_estranea": {"ok": True}}), encoding="utf-8"
+    )
+
+    pipeline.run(cfg)
+
+    metriche = json.loads((out / pipeline.METRICS_FILENAME).read_text(encoding="utf-8"))
+    assert "99_estranea" in metriche
+
+
+def test_il_prior_scritto_su_disco_e_quello_che_le_metriche_dichiarano(tmp_path):
+    """La provenienza e' parte del risultato: il file e le metriche non possono
+    raccontare due storie diverse dello stesso calcolo."""
+    from meshrec.core import pipeline
+
+    cfg = _config_cubo(tmp_path)
+    metriche = pipeline.run(cfg)
+
+    scritto = json.loads(
+        (cfg.run.out_dir / pipeline.WALL_FILENAME).read_text(encoding="utf-8")
+    )
+    assert scritto["regioni_trovate"] == metriche["12_wall"]["regioni_trovate"]
+    assert len(scritto["membrature"]) == len(metriche["12_wall"]["membrature"])
