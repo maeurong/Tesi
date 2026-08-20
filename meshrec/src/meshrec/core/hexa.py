@@ -386,6 +386,21 @@ def _bordo_del_solido(
     return fuori
 
 
+def _asse_baricentrico_invaso(prisma: Prisma, altro: Prisma) -> np.ndarray:
+    """Campioni lungo la retta baricentrica di `prisma`, dentro `altro`.
+
+    Usata due volte per coppia, una per verso, per decidere chi cede in
+    `taglia_giunzioni` (Ruling AD): cede il prisma il cui asse entra
+    nell'altro, non quello di sezione minore.
+    """
+    versore = prisma.asse / np.linalg.norm(prisma.asse)
+    passo = np.linspace(0.0, prisma.lunghezza, _CAMPIONI_ASSE)
+    centro_sezione = prisma.contorno.mean(axis=0)
+    e1, e2 = _base_del_piano(versore)
+    base = prisma.origine + centro_sezione[0] * e1 + centro_sezione[1] * e2
+    return dentro(altro, base + np.outer(passo, versore))
+
+
 def taglia_giunzioni(prismi: list[Prisma]) -> tuple[list[Prisma], list[dict[str, object]]]:
     """Accorcia i prismi minori dove entrano in un prisma maggiore.
 
@@ -403,10 +418,19 @@ def taglia_giunzioni(prismi: list[Prisma]) -> tuple[list[Prisma], list[dict[str,
     a quella distanza non si legano. Legarle allargando il raggio di ricerca
     farebbe passare il controllo senza rendere giusto il modello.
 
-    Chi cede e' il prisma di sezione minore, che e' un criterio del dato e non
-    dell'ordine in cui i prismi arrivano: a pari sezione decide la lunghezza, e
-    a pari lunghezza l'indice, che e' l'ultima carta e serve solo a non
-    lasciare la scelta all'ordinamento.
+    Chi cede e' il prisma il cui asse baricentrico entra nell'altro (Ruling AD):
+    e' un criterio del dato, non dell'ordine in cui i prismi arrivano, e ha
+    anche il significato fisico giusto -- cede la membratura che finisce
+    dentro l'altra, come una trave appoggiata su un pilastro accorcia il
+    pilastro e non la trave. Il criterio precedente, «cede il prisma di
+    sezione minore», sceglieva il ruolo sbagliato proprio quando un montante
+    entra nel traverso da sotto: accorciare il traverso lungo il proprio asse
+    non toglie quella sovrapposizione. Se **entrambi** gli assi sono invasi
+    (attraversamento o contenimento, gia' gestiti dalle guardie sotto) o
+    **nessuno** dei due lo e' (la sola guardia d'angolo del Ruling Y puo'
+    ancora scattare), l'area resta lo spareggio deterministico -- a pari
+    area la lunghezza, a pari lunghezza l'indice, che e' l'ultima carta e
+    serve solo a non lasciare la scelta all'ordinamento.
 
     **Soffitto dichiarato:** il taglio e' un accorciamento lungo l'asse, quindi
     vale quando l'intersezione tocca un'estremita' del prisma minore -- il caso
@@ -429,14 +453,28 @@ def taglia_giunzioni(prismi: list[Prisma]) -> tuple[list[Prisma], list[dict[str,
     giunzioni: list[dict[str, object]] = []
 
     for posizione, maggiore in enumerate(ordine):
-        for minore in ordine[posizione + 1 :]:
+        for candidato in ordine[posizione + 1 :]:
+            # Ruling AD: cede chi ha l'asse baricentrico invaso nell'altro, non
+            # chi ha sezione minore -- vedi docstring. Un solo verso invaso e'
+            # il caso normale e decide da solo; entrambi o nessuno invaso
+            # ricadono sullo spareggio per area gia' incorporato in `ordine`
+            # (`maggiore`/`candidato` sono gia' ordinati per area decrescente).
+            invaso_candidato = _asse_baricentrico_invaso(tagliati[candidato], tagliati[maggiore])
+            invaso_maggiore = _asse_baricentrico_invaso(tagliati[maggiore], tagliati[candidato])
+            if invaso_maggiore.any() and not invaso_candidato.any():
+                minore, maggiore_effettivo, invaso = maggiore, candidato, invaso_maggiore
+            else:
+                minore, maggiore_effettivo, invaso = candidato, maggiore, invaso_candidato
+
             piccolo = tagliati[minore]
             versore = piccolo.asse / np.linalg.norm(piccolo.asse)
             passo = np.linspace(0.0, piccolo.lunghezza, _CAMPIONI_ASSE)
             centro_sezione = piccolo.contorno.mean(axis=0)
             e1, e2 = _base_del_piano(versore)
             base = piccolo.origine + centro_sezione[0] * e1 + centro_sezione[1] * e2
-            invaso = dentro(tagliati[maggiore], base + np.outer(passo, versore))
+            # `invaso` e' gia' il campionamento della baricentrica di `piccolo`
+            # dentro `maggiore_effettivo`, calcolato sopra per decidere i ruoli:
+            # nessun bisogno di ricampionare.
             if not invaso.any():
                 # La retta baricentrica puo' mancare il maggiore anche quando
                 # i due prismi si compenetrano davvero: un angolo del
@@ -448,7 +486,7 @@ def taglia_giunzioni(prismi: list[Prisma]) -> tuple[list[Prisma], list[dict[str,
                 # d'angolo, quindi qui si solleva invece di ignorarla.
                 vertice_invaso = any(
                     dentro(
-                        tagliati[maggiore],
+                        tagliati[maggiore_effettivo],
                         (piccolo.origine + vx * e1 + vy * e2) + np.outer(passo, versore),
                     ).any()
                     for vx, vy in piccolo.contorno
@@ -488,21 +526,21 @@ def taglia_giunzioni(prismi: list[Prisma]) -> tuple[list[Prisma], list[dict[str,
                 # invasa l'estremita' iniziale: il bordo sta fra il primo
                 # campione libero e quello invaso che lo precede
                 fine = _bordo_del_solido(
-                    tagliati[maggiore], base, versore,
+                    tagliati[maggiore_effettivo], base, versore,
                     passo[libero[0]], passo[libero[0] - 1],
                 )
                 nuova_origine = piccolo.origine + versore * fine
                 nuova_lunghezza = piccolo.lunghezza - fine
             else:
                 fine = _bordo_del_solido(
-                    tagliati[maggiore], base, versore,
+                    tagliati[maggiore_effettivo], base, versore,
                     passo[libero[-1]], passo[libero[-1] + 1],
                 )
                 nuova_origine = piccolo.origine
                 nuova_lunghezza = fine
 
             giunzioni.append({
-                "maggiore": int(maggiore),
+                "maggiore": int(maggiore_effettivo),
                 "minore": int(minore),
                 "accorciamento": float(piccolo.lunghezza - nuova_lunghezza),
             })
@@ -605,15 +643,32 @@ def costruisci(membrature: list, tipo: str, cfg: ModelConfig) -> dict[str, objec
     # il passo di mesh legherebbe anche superfici che non si toccano, e il
     # controllo passerebbe senza che il modello sia giusto.
     #
-    # Il dipendente e' il prisma di sezione minore. Non e' la regola «la
-    # superficie piu' fitta fa da dipendente»: l'ordine per area e quello per
-    # passo di mesh non coincidono -- una sezione 1000 x 10 ha area maggiore di
-    # una 90 x 90 (10000 contro 8100) e passo nove volte piu' fine (3,333 contro
-    # 30,0) -- quindi questa e' una scelta di
-    # determinismo, non di convergenza numerica. Verificato che su questa
-    # assegnazione CalculiX genera i vincoli senza un solo nodo fallito; la via
-    # d'aggiornamento, se una geometria reale mostrasse il contrario, e'
-    # ordinare i due ruoli per `blocco["passo"]`.
+    # Il dipendente e' il prisma che ha ceduto in `taglia_giunzioni` (Ruling
+    # AD: chi ha l'asse baricentrico invaso nell'altro), non "la superficie
+    # piu' fitta fa da dipendente": quando l'asse non basta a decidere
+    # (entrambi o nessuno invaso) il ruolo ricade sull'area, che resta una
+    # scelta di determinismo e non di convergenza numerica -- l'ordine per
+    # area e quello per passo di mesh non coincidono, una sezione 1000 x 10 ha
+    # area maggiore di una 90 x 90 (10000 contro 8100) e passo nove volte piu'
+    # fine (3,333 contro 30,0). Verificato che su questa assegnazione CalculiX
+    # genera i vincoli senza un solo nodo fallito; la via d'aggiornamento, se
+    # una geometria reale mostrasse il contrario, e' ordinare i due ruoli per
+    # `blocco["passo"]`.
+    #
+    # Non tutte le giunzioni tagliate diventano un `*TIE`, e non e' un difetto
+    # del taglio (indagato nel giro di correzione 3, con un telaio a quattro
+    # membrature): il taglio toglie sempre la doppia contabilita' del volume,
+    # che e' il suo solo compito, ma la rilevazione della superficie a
+    # contatto confronta due mesh generate **indipendentemente**, ciascuna con
+    # il proprio passo (funzione della propria sezione, non della giunzione),
+    # contro il contorno esatto dell'altro prisma. Se il contatto vero, sul
+    # contorno come misurato, cade in una zona piu' stretta del passo di uno
+    # dei due lati, quel lato puo' non avere alcun nodo dentro l'altro solido;
+    # se il lato opposto ha nodi ma troppo pochi o troppo sparsi per coprire
+    # tutti i vertici di una stessa faccia, la superficie esce vuota pur
+    # avendo nodi. La mesh conforme multiblocco, gia' citata sopra come via
+    # d'aggiornamento, risolverebbe anche questo: le due mesh condividerebbero
+    # i nodi sul contatto invece di ignorarsi a vicenda.
     superfici: dict[str, list[tuple[int, int]]] = {}
     ties: list[tuple[str, str, str]] = []
     connesse: set[int] = set()

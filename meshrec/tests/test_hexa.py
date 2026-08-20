@@ -596,3 +596,61 @@ def test_una_superficie_vuota_non_produce_un_tie(monkeypatch):
     assert modello["metriche"]["ties"] == 0
     assert modello["ties"] == ()
     assert modello["superfici"] == {}
+
+
+def test_il_telaio_a_quattro_membrature_si_costruisce_ruling_ad():
+    """Giro di correzione 3: `hexa.costruisci` sollevava su `TELAIO`
+    (`tests/test_wall.py:33-38`), la geometria piu' vicina al caso reale che
+    il progetto abbia -- non una geometria inventata per rompere. Con due
+    prismi il criterio per area e quello per asse invaso coincidono sempre
+    (RETTANGOLO/COLONNA/TRAVE dei test sopra non l'avrebbero mai visto): qui
+    servono le quattro membrature del telaio, e il dato di ingresso lo
+    produce la pipeline vera di wall.py (scarta_pavimento, scomponi, terna,
+    misura, controlla -- gli stessi passi di `wall.prior`, non la mia mano),
+    non una `Membratura` finta.
+
+    Sul telaio, uno dei quattro accoppiamenti sceglie il ruolo sbagliato con
+    «cede la sezione minore»: la sovrapposizione e' un montante che entra nel
+    traverso da sotto, e accorciare il traverso lungo il proprio asse non la
+    toglie -- e' il caso che la guardia d'angolo del Ruling Y intercetta e
+    trasforma in un `ValueError` invece di lasciarlo passare in silenzio.
+
+    Muore se: si ripristina il criterio «cede il prisma di sezione minore»
+    (`invaso = dentro(tagliati[maggiore], ...)` con `minore`/`maggiore` presi
+    direttamente dall'ordine per area, senza il confronto fra i due assi
+    baricentrici) -- verificato applicando davvero quella mutazione: solleva
+    `ValueError` con `"sovrapposizione d'angolo"` invece di costruire."""
+    from meshrec.core import synth, wall
+    from meshrec.core.config import SegmentConfig, WallConfig
+
+    telaio = [
+        ((0.0, -90.0, 0.0), (200.0, 180.0, 1600.0)),
+        ((1400.0, -130.0, 0.0), (200.0, 260.0, 1600.0)),
+        ((0.0, -70.0, 1600.0), (1600.0, 140.0, 300.0)),
+        ((0.0, -170.0, -300.0), (1600.0, 340.0, 300.0)),
+    ]
+    spaziatura = 20.0
+    punti = synth.sample_frame_surface(telaio, spaziatura)
+    cfg_segment = SegmentConfig()
+    cfg_wall = WallConfig()
+
+    # Gli stessi passi di wall.prior, senza la serializzazione JSON finale che
+    # prior fa per il disco/browser: hexa.costruisci vuole oggetti Membratura,
+    # non il dizionario di soli tipi JSON che prior restituisce.
+    puliti, _ = wall.scarta_pavimento(punti, cfg_segment, cfg_wall, spaziatura)
+    regioni_punti, _ = wall.scomponi(puliti, cfg_segment, cfg_wall, spaziatura)
+    direzioni, _ = wall.terna(puliti)
+    accettate = []
+    for indici in regioni_punti:
+        membratura = wall.misura(puliti[indici], direzioni, cfg_wall)
+        membratura.punti = indici
+        membratura.esiti = wall.controlla(membratura, cfg_wall)
+        if all(esito["passato"] for esito in membratura.esiti.values()):
+            accettate.append(membratura)
+    assert len(accettate) == 4, "il banco ha quattro membrature: se ne arrivano altre, non e' piu' questo test"
+
+    modello = hexa.costruisci(accettate, "estruso", ModelConfig())
+
+    assert len(modello["blocchi"]) == 4
+    assert modello["metriche"]["giunzioni"] == 4
+    assert modello["metriche"]["membrature_non_legate"] == 0
