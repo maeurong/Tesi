@@ -70,6 +70,85 @@ def hex_volumes(nodes: np.ndarray, hexes: np.ndarray) -> np.ndarray:
     return sum(tet_volumes(nodes, h[:, list(combo)]) for combo in _HEX_IN_TET)
 
 
+# Per ciascuno degli otto nodi di un esaedro, i tre nodi adiacenti nell'ordine
+# che da' determinante positivo su un cubo con la numerazione standard
+# (0-3 faccia inferiore in verso antiorario, 4-7 la superiore sopra di essi).
+# Verificata a mano, nodo per nodo, sul cubo unitario: tutti e otto danno +1.
+_ANGOLI_ESAEDRO = (
+    (1, 3, 4), (2, 0, 5), (3, 1, 6), (0, 2, 7),
+    (7, 5, 0), (4, 6, 1), (5, 7, 2), (6, 4, 3),
+)
+
+
+def scaled_jacobian(nodes: np.ndarray, hexes: np.ndarray) -> np.ndarray:
+    """Jacobiano scalato di ogni esaedro: il minimo sugli otto angoli.
+
+    E' la grandezza di qualita' degli esaedri, e non ha nulla a che vedere con
+    `min_ratio`, che e' il rapporto raggio-spigolo di un tetraedro. Su un
+    esaedro min_ratio non e' definito, quindi le due vivono in due colonne
+    separate e la loro differenza non e' una grandezza: sottrarle darebbe un
+    numero senza unita' e senza significato.
+
+    In ogni angolo si prendono i tre spigoli uscenti, se ne calcola il
+    determinante e lo si divide per il prodotto delle tre lunghezze. Vale 1 sul
+    cubo, scende man mano che gli angoli si allontanano da quelli retti, ed e'
+    non positivo dove l'elemento e' rovesciato o ripiegato. E' quindi anche il
+    controllo che cerca gli Jacobiani negativi chiesto dalla spec, senza una
+    seconda misura.
+
+    Non misura lo schiacciamento: normalizzando ogni spigolo per la propria
+    lunghezza e' invariante di scala per direzione, quindi un esaedro sottile
+    ma rettangolo vale 1 come il cubo. Gli elementi troppo sottili si trovano
+    con il numero di strati nello spessore e con la distribuzione dei volumi,
+    non di qui.
+    """
+    punti = np.asarray(nodes, dtype=np.float64)
+    h = np.asarray(hexes, dtype=np.int64)
+    minimi = np.full(len(h), np.inf)
+
+    for angolo, (a, b, c) in enumerate(_ANGOLI_ESAEDRO):
+        origine = punti[h[:, angolo]]
+        e1 = punti[h[:, a]] - origine
+        e2 = punti[h[:, b]] - origine
+        e3 = punti[h[:, c]] - origine
+        determinante = np.einsum("ij,ij->i", e1, np.cross(e2, e3))
+        prodotto = (
+            np.linalg.norm(e1, axis=1)
+            * np.linalg.norm(e2, axis=1)
+            * np.linalg.norm(e3, axis=1)
+        )
+        # prodotto nullo vuol dire spigolo degenere: l'elemento e' rotto, e il
+        # valore che lo dice e' zero, non un NaN che si propaga in silenzio
+        valore = np.divide(
+            determinante, prodotto, out=np.zeros_like(determinante), where=prodotto > 0.0
+        )
+        minimi = np.minimum(minimi, valore)
+
+    return np.ascontiguousarray(minimi)
+
+
+def hexa_metrics(nodes: np.ndarray, hexes: np.ndarray) -> dict[str, object]:
+    """Metriche di volume di una mesh esaedrica.
+
+    Deliberatamente **senza** min_ratio, rapporto raggio-spigolo e angolo
+    diedro: sono grandezze del tetraedro, e riportarle qui accanto a quelle
+    dell'esaedro inviterebbe a confrontare due colonne che non si confrontano.
+    Il confronto fra i modelli, in report.py, le tiene infatti separate e
+    dichiara che la qualita' degli elementi non e' una grandezza confrontabile
+    fra un modello tetraedrico e uno esaedrico.
+    """
+    volumi = hex_volumes(nodes, hexes)
+    jacobiani = scaled_jacobian(nodes, hexes)
+    return {
+        "nodes": int(len(np.asarray(nodes))),
+        "hexes": int(len(np.asarray(hexes))),
+        "inverted": int((jacobiani <= 0.0).sum()),
+        "total_volume": float(volumi.sum()),
+        "element_volume": _distribution(volumi),
+        "scaled_jacobian": _distribution(jacobiani),
+    }
+
+
 def element_volumes(nodes: np.ndarray, elements: np.ndarray) -> np.ndarray:
     """Volume con segno di ogni elemento, quale che sia il tipo.
 

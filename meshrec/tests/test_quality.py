@@ -1,5 +1,6 @@
 import inspect
 import json
+import math
 
 import numpy as np
 import pytest
@@ -520,3 +521,83 @@ def test_element_volumes_sui_tetraedri_da_quello_che_dava_tet_volumes():
     )
 
     assert quality.element_volumes(nodes, tets) == pytest.approx(quality.tet_volumes(nodes, tets))
+
+
+_CUBO_NODI = np.array([
+    [0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0],
+    [0.0, 0.0, 1.0], [1.0, 0.0, 1.0], [1.0, 1.0, 1.0], [0.0, 1.0, 1.0],
+])
+_CUBO_HEX = np.array([[0, 1, 2, 3, 4, 5, 6, 7]], dtype=np.int64)
+
+
+def test_lo_jacobiano_scalato_di_un_cubo_vale_uno():
+    """Il cubo e' l'elemento perfetto: se non vale 1, la metrica non e' quella
+    che dice di essere e ogni numero che ne discende e' senza scala."""
+    assert quality.scaled_jacobian(_CUBO_NODI, _CUBO_HEX) == pytest.approx([1.0])
+
+
+def test_lo_jacobiano_scalato_di_un_elemento_tagliato_vale_il_valore_atteso():
+    """Il caso degradato ancorato a un valore noto in forma chiusa.
+
+    Portare la faccia superiore avanti di `s` trasforma il cubo in un
+    parallelepipedo di spigoli (1,0,0), (0,1,0), (s,0,1). Il determinante vale
+    1 e il prodotto delle norme sqrt(1+s^2), a ogni angolo e per costruzione:
+    il valore atteso e' quindi 1/sqrt(1+s^2), calcolabile su carta prima di
+    eseguire il codice. Il numero non viene da questa implementazione, ed e'
+    per questo che il test puo' smentirla.
+    """
+    tagliato = _CUBO_NODI.copy()
+    tagliato[4:, 0] += 1.0
+
+    valore = quality.scaled_jacobian(tagliato, _CUBO_HEX)[0]
+
+    assert valore == pytest.approx(1.0 / math.sqrt(2.0))
+
+
+def test_lo_jacobiano_scalato_non_misura_lo_schiacciamento():
+    """Il limite della metrica, scritto come controllo e non come commento.
+
+    Un esaedro sottile quanto si vuole, finche' resta rettangolo, ha Jacobiano
+    scalato 1: la formula divide ogni spigolo per la propria lunghezza, quindi
+    non vede il rapporto di forma. Chi cerca gli elementi troppo sottili deve
+    guardare altrove — il vincolo sul numero di strati nello spessore e la
+    distribuzione dei volumi di elemento. Questo test esiste perche' qualcuno,
+    un giorno, credera' il contrario.
+    """
+    sottile = _CUBO_NODI.copy()
+    sottile[4:, 2] = 0.1
+
+    assert quality.scaled_jacobian(sottile, _CUBO_HEX) == pytest.approx([1.0])
+
+
+def test_lo_jacobiano_scalato_e_negativo_su_un_angolo_ripiegato():
+    """Un angolo ripiegato non e' un elemento rovesciato, ed e' peggio da
+    trovare: l'elemento e' orientato bene ovunque tranne che in un vertice,
+    quindi un controllo globale sull'orientamento non lo vedrebbe. Portando il
+    nodo 6 verso il centro oltre la diagonale, la faccia superiore diventa
+    concava e il minimo sugli otto angoli scende sotto zero.
+    """
+    ripiegato = _CUBO_NODI.copy()
+    ripiegato[6] = [0.35, 0.35, 1.0]
+
+    assert quality.scaled_jacobian(ripiegato, _CUBO_HEX)[0] < 0.0
+
+
+def test_lo_jacobiano_scalato_e_non_positivo_su_un_elemento_rovesciato():
+    rovesciato = np.array([[4, 5, 6, 7, 0, 1, 2, 3]], dtype=np.int64)
+
+    assert quality.scaled_jacobian(_CUBO_NODI, rovesciato)[0] <= 0.0
+
+
+def test_le_metriche_esaedriche_non_contengono_min_ratio():
+    """min_ratio e' il rapporto raggio-spigolo di un tetraedro e su un esaedro
+    non e' definito. Metterlo nella stessa colonna dello Jacobiano scalato
+    inviterebbe a sottrarre due grandezze diverse."""
+    metriche = quality.hexa_metrics(_CUBO_NODI, _CUBO_HEX)
+
+    assert "scaled_jacobian" in metriche
+    assert "min_ratio" not in metriche
+    assert "radius_edge_ratio" not in metriche
+    assert metriche["inverted"] == 0
+    assert metriche["hexes"] == 1
+    assert metriche["total_volume"] == pytest.approx(1.0)
