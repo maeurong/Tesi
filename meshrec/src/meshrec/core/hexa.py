@@ -355,7 +355,7 @@ gia' lo stesso punto.
 """
 
 _TOLLERANZA_CONTATTO = 1e-6
-"""Margine [mm] con cui due superfici tagliate a filo sono considerate a contatto.
+"""Margine minimo [mm] con cui due superfici tagliate a filo sono considerate a contatto.
 
 Un micrometro e' la stessa risoluzione di `_ARROTONDAMENTO`, dove due
 coordinate prodotte dalla stessa costruzione sono gia' lo stesso punto. Non e'
@@ -363,6 +363,19 @@ un raggio di ricerca e non deve diventarlo: dopo la bisezione le due superfici
 distano il solo residuo in virgola mobile, e questo margine copre quello.
 Verificato che serve: a tolleranza zero le superfici escono vuote per il solo
 residuo di bisezione.
+
+**Ruling AE:** e' un pavimento, non l'intera tolleranza. Il taglio produce una
+faccia piana e perpendicolare all'asse di chi cede; se l'asse di chi cede e
+quello di chi riceve non sono in squadra, la faccia di contatto di chi riceve
+e' inclinata rispetto a quella piana, e i due piani non coincidono mai: resta
+un cuneo. La tolleranza usata in `costruisci` e'
+`max(_TOLLERANZA_CONTATTO, giunzione["cuneo"])`, dove `cuneo` (vedi
+`_cuneo_vertice`) e' calcolato dalla geometria di ciascuna giunzione **prima**
+di cercare i nodi -- non e' un raggio di ricerca allargato finche' la ricerca
+trova qualcosa: e' la distanza che la geometria misurata impone fra due
+superfici che si toccano davvero, e sarebbe la stessa anche senza mai generare
+una mesh. E' questo a distinguerlo da un numero allargato a caso per far
+passare il controllo: uno e' verificabile prima di cercare, l'altro no.
 """
 
 
@@ -399,6 +412,49 @@ def _asse_baricentrico_invaso(prisma: Prisma, altro: Prisma) -> np.ndarray:
     e1, e2 = _base_del_piano(versore)
     base = prisma.origine + centro_sezione[0] * e1 + centro_sezione[1] * e2
     return dentro(altro, base + np.outer(passo, versore))
+
+
+def _cuneo_vertice(punto: np.ndarray, versore: np.ndarray, maggiore: Prisma, limite: float) -> float:
+    """Distanza, lungo `versore`, dal vertice sulla faccia di taglio al vero bordo di `maggiore`.
+
+    Il taglio produce una faccia piana e perpendicolare all'asse di chi cede,
+    trovata per bisezione **sulla sola retta baricentrica**. Se l'asse di chi
+    cede non e' in squadra con quello di chi riceve, quella faccia piana non
+    coincide con la superficie -- in generale inclinata -- di chi riceve in
+    ogni altro punto del contorno: e' un cuneo, e questa funzione lo misura
+    per un vertice, con la stessa bisezione che il taglio usa gia' (`dentro`,
+    `_bordo_del_solido`), partendo dal vertice invece che dal baricentro.
+
+    La ricerca dell'intervallo raddoppia il passo da `_ARROTONDAMENTO` in su
+    (fine vicino al vertice, largo lontano) e si ferma a `limite`: raddoppiare
+    senza un tetto rischierebbe di superare un cuneo vero ma sottile -- il
+    contorno di chi riceve, sul dato misurato, non e' detto sia pulito (puo'
+    avere vertici in piu' dalla compenetrazione residua) -- e agganciare
+    un'invasione lontana e indipendente, molto piu' grande e non pertinente a
+    questo vertice. Un campionamento uniforme fino a `limite` avrebbe lo stesso
+    problema al contrario: passo troppo largo vicino a zero per vedere un
+    cuneo sottile. Il raddoppio e' fine dove serve e limitato dove rischia.
+
+    Zero se il vertice e' gia' dentro `maggiore` (il taglio li' sovrappone,
+    non manca), zero se nessuna invasione cade entro `limite` (il vertice non
+    tocca affatto: un angolo scoperto, non un cuneo), zero se il bordo trovato
+    e' sotto la risoluzione di `_ARROTONDAMENTO` -- rumore della bisezione,
+    non un cuneo vero. La soglia di rumore e' fissa e non `_TOLLERANZA_CONTATTO`,
+    perche' il cuneo deve azzerarsi su un banco squadrato indipendentemente da
+    quale tolleranza di contatto sia configurata.
+    """
+    soglia_rumore = 10.0**-_ARROTONDAMENTO
+    if dentro(maggiore, punto)[0]:
+        return 0.0
+    fuori = 0.0
+    passo = soglia_rumore
+    while passo <= limite:
+        if dentro(maggiore, punto + passo * versore)[0]:
+            trovato = _bordo_del_solido(maggiore, punto, versore, fuori, passo)
+            return trovato if trovato > soglia_rumore else 0.0
+        fuori = passo
+        passo *= 2.0
+    return 0.0
 
 
 def taglia_giunzioni(prismi: list[Prisma]) -> tuple[list[Prisma], list[dict[str, object]]]:
@@ -539,10 +595,37 @@ def taglia_giunzioni(prismi: list[Prisma]) -> tuple[list[Prisma], list[dict[str,
                 nuova_origine = piccolo.origine
                 nuova_lunghezza = fine
 
+            # Ruling AE: il cuneo fra la faccia di taglio (piana, alla quota
+            # `fine` sulla baricentrica) e il vero bordo di `maggiore_effettivo`,
+            # misurato su ogni vertice del contorno di chi cede sulla stessa
+            # quota -- vedi `_cuneo_vertice`. Zero su un banco squadrato.
+            #
+            # Il limite di ricerca e' quattro volte il passo con cui
+            # `_CAMPIONI_ASSE` campiona l'asse di chi cede: quel passo e'
+            # gia' dichiarato altrove come la scala sotto cui sta qualunque
+            # giunzione, e un cuneo che nasce da un fuori squadra di pochi
+            # gradi e' un effetto locale, non un salto a un'altra invasione
+            # lontana e indipendente. Il fattore quattro e' un margine di
+            # sicurezza sopra quella scala, non una misura.
+            limite_ricerca = 4.0 * piccolo.lunghezza / (_CAMPIONI_ASSE - 1)
+            cuneo = max(
+                (
+                    _cuneo_vertice(
+                        piccolo.origine + fine * versore + vx * e1 + vy * e2,
+                        versore,
+                        tagliati[maggiore_effettivo],
+                        limite_ricerca,
+                    )
+                    for vx, vy in piccolo.contorno
+                ),
+                default=0.0,
+            )
+
             giunzioni.append({
                 "maggiore": int(maggiore_effettivo),
                 "minore": int(minore),
                 "accorciamento": float(piccolo.lunghezza - nuova_lunghezza),
+                "cuneo": float(cuneo),
             })
             tagliati[minore] = Prisma(
                 contorno=piccolo.contorno,
@@ -562,6 +645,16 @@ class MembratureNonLegateWarning(UserWarning):
     geometrie sotto la risoluzione dello scanner produce lo stesso `ties=()`
     di una scelta deliberata di modellazione -- le due situazioni vanno
     distinte da chi guarda il risultato, non nascoste dietro lo stesso zero.
+    """
+
+
+class GiunzioneSenzaTieWarning(UserWarning):
+    """Una giunzione tagliata non produce alcun `*TIE`.
+
+    Non e' un errore: il taglio ha comunque tolto la doppia contabilita' del
+    volume, che e' il suo solo compito. Ma senza questo avviso l'unico segnale
+    e' la differenza fra `giunzioni` e `ties` in `metriche`, un confronto fra
+    due numeri che nessuno guarda finche' non sa di doverlo fare.
     """
 
 
@@ -637,11 +730,11 @@ def costruisci(membrature: list, tipo: str, cfg: ModelConfig) -> dict[str, objec
     elementi = np.ascontiguousarray(np.vstack(elementi_totali))
 
     # Le superfici a contatto: per ogni giunzione, le facce del prisma minore
-    # che toccano il maggiore, e viceversa. Il margine e' `_TOLLERANZA_CONTATTO`
-    # e non il passo di mesh: dopo la bisezione le due superfici sono a filo, e
-    # quel che resta e' il residuo in virgola mobile. Un margine grande quanto
-    # il passo di mesh legherebbe anche superfici che non si toccano, e il
-    # controllo passerebbe senza che il modello sia giusto.
+    # che toccano il maggiore, e viceversa. La tolleranza e'
+    # `max(_TOLLERANZA_CONTATTO, giunzione["cuneo"])` (Ruling AE) e non il
+    # passo di mesh: un margine grande quanto il passo di mesh legherebbe
+    # anche superfici che non si toccano, e il controllo passerebbe senza che
+    # il modello sia giusto.
     #
     # Il dipendente e' il prisma che ha ceduto in `taglia_giunzioni` (Ruling
     # AD: chi ha l'asse baricentrico invaso nell'altro), non "la superficie
@@ -656,24 +749,28 @@ def costruisci(membrature: list, tipo: str, cfg: ModelConfig) -> dict[str, objec
     # `blocco["passo"]`.
     #
     # Non tutte le giunzioni tagliate diventano un `*TIE`, e non e' un difetto
-    # del taglio (indagato nel giro di correzione 3, con un telaio a quattro
-    # membrature): il taglio toglie sempre la doppia contabilita' del volume,
-    # che e' il suo solo compito, ma la rilevazione della superficie a
-    # contatto confronta due mesh generate **indipendentemente**, ciascuna con
-    # il proprio passo (funzione della propria sezione, non della giunzione),
-    # contro il contorno esatto dell'altro prisma. Se il contatto vero, sul
-    # contorno come misurato, cade in una zona piu' stretta del passo di uno
-    # dei due lati, quel lato puo' non avere alcun nodo dentro l'altro solido;
-    # se il lato opposto ha nodi ma troppo pochi o troppo sparsi per coprire
-    # tutti i vertici di una stessa faccia, la superficie esce vuota pur
-    # avendo nodi. La mesh conforme multiblocco, gia' citata sopra come via
-    # d'aggiornamento, risolverebbe anche questo: le due mesh condividerebbero
-    # i nodi sul contatto invece di ignorarsi a vicenda.
+    # del taglio: il taglio toglie sempre la doppia contabilita' del volume,
+    # che e' il suo solo compito. **La causa non e' il passo di mesh**
+    # (correzione del giro 4: qui c'era scritto che dipendeva dal confronto fra
+    # due mesh indipendenti con passi diversi, ed era sbagliato -- misurato
+    # vertice per vertice sul telaio del giro 3). E' geometria: il taglio
+    # produce una faccia piana e perpendicolare all'asse di chi cede, e se le
+    # due membrature non sono in squadra la faccia di contatto di chi riceve
+    # e' inclinata rispetto a quella. I due piani non coincidono mai, e il
+    # cuneo che resta fra loro (Ruling AE, sopra) e' proprio quella distanza.
+    # Con la tolleranza giusta la giunzione puo' restare comunque senza `*TIE`:
+    # il cuneo copre il vuoto fra i piani, non garantisce che i nodi trovati
+    # bastino a comporre una faccia esaedrica intera (ne servono quattro
+    # contigui sulla stessa faccia). La mesh conforme multiblocco resta la via
+    # d'aggiornamento che toglierebbe il problema alla radice, condividendo i
+    # nodi sul contatto invece di verificarne la vicinanza a posteriori.
     superfici: dict[str, list[tuple[int, int]]] = {}
     ties: list[tuple[str, str, str]] = []
     connesse: set[int] = set()
+    giunzioni_senza_tie: list[int] = []
     for numero, giunzione in enumerate(giunzioni, start=1):
         minore, maggiore = int(giunzione["minore"]), int(giunzione["maggiore"])
+        tolleranza = max(_TOLLERANZA_CONTATTO, float(giunzione["cuneo"]))
         nomi = []
         for ruolo, indice, altro in (
             ("D", minore, maggiore),
@@ -683,7 +780,7 @@ def costruisci(membrature: list, tipo: str, cfg: ModelConfig) -> dict[str, objec
             inizio = blocco["primo_nodo"]
             fine = inizio + blocco["nodi"]
             vicini = np.flatnonzero(
-                dentro(tagliati[altro], nodi[inizio:fine], _TOLLERANZA_CONTATTO)
+                dentro(tagliati[altro], nodi[inizio:fine], tolleranza)
             ) + inizio
             nome = f"{cfg.tie_name_prefix}_{numero}_{ruolo}"
             superfici[nome] = abaqus.element_surface(elementi, vicini, cfg.element)
@@ -698,6 +795,17 @@ def costruisci(membrature: list, tipo: str, cfg: ModelConfig) -> dict[str, objec
             # solutore accetterebbe e non vincolerebbe nulla.
             for nome in nomi:
                 superfici.pop(nome, None)
+            giunzioni_senza_tie.append(numero)
+
+    if giunzioni_senza_tie:
+        warnings.warn(
+            f"{len(giunzioni_senza_tie)} giunzioni tagliate su {len(giunzioni)} "
+            f"non producono un *TIE*: numeri {giunzioni_senza_tie}. Il taglio ha "
+            "tolto comunque la doppia contabilita' del volume; verifica se e' un "
+            "limite della rilevazione delle superfici o della geometria",
+            GiunzioneSenzaTieWarning,
+            stacklevel=2,
+        )
 
     # Ruling Z: un telaio con membrature scollegate e' un modello legittimo
     # -- non e' compito di questa funzione deciderlo -- ma l'operatore deve

@@ -588,9 +588,16 @@ def test_una_superficie_vuota_non_produce_un_tie(monkeypatch):
     subito dopo (vedi task-8-report.md).
 
     Muore se: la guardia sulla superficie vuota sparisce o diventa sempre
-    vera."""
+    vera.
+
+    Anche il test di `GiunzioneSenzaTieWarning` (giro di correzione 4, punto
+    3): questa giunzione e' tagliata (`giunzioni == 1`) ma non lega
+    (`ties == 0`), il caso esatto per cui l'avviso esiste. Muore se
+    l'avviso sparisce o smette di scattare quando una giunzione tagliata
+    non produce un `*TIE`."""
     monkeypatch.setattr(hexa, "_TOLLERANZA_CONTATTO", 0.0)
-    modello = hexa.costruisci(_telaio_di_prova(), "estruso", ModelConfig())
+    with pytest.warns(hexa.GiunzioneSenzaTieWarning):
+        modello = hexa.costruisci(_telaio_di_prova(), "estruso", ModelConfig())
 
     assert modello["metriche"]["giunzioni"] == 1
     assert modello["metriche"]["ties"] == 0
@@ -654,3 +661,55 @@ def test_il_telaio_a_quattro_membrature_si_costruisce_ruling_ad():
     assert len(modello["blocchi"]) == 4
     assert modello["metriche"]["giunzioni"] == 4
     assert modello["metriche"]["membrature_non_legate"] == 0
+    # Misurato in questa sessione (giro di correzione 4, dopo Ruling AE): 2 su
+    # 4, invariato rispetto al giro 3. Ruling AE non ne aggiunge su questo
+    # telaio -- il cuneo (misurato dai vertici del contorno di chi cede) esce
+    # zero o comunque insufficiente sulle due giunzioni che restano senza
+    # `*TIE`, che e' un risultato diverso dall'assumere che diventino quattro.
+    # Non forzato: e' il numero letto, non quello atteso prima di leggerlo.
+    assert modello["metriche"]["ties"] == 2
+
+
+def test_il_cuneo_e_calcolato_dalla_geometria_e_allarga_le_facce_a_contatto():
+    """Ruling AE (giro di correzione 4): il taglio produce una faccia piana e
+    perpendicolare all'asse di chi cede; se le due membrature non sono in
+    squadra, quella faccia non coincide con la superficie -- in generale
+    inclinata -- di chi riceve, e resta un cuneo. Colonna qui e' fuori piombo
+    di 1 grado, con un tilt in Y-Z e non in X-Z: un tilt in X-Z farebbe
+    scattare `_base_del_piano` su un'altra coppia di assi di riferimento
+    (verificato in questa sessione con `_asse_baricentrico_invaso` -- il
+    criterio di Ruling AD stesso cambierebbe chi cede), che non e' cio' che
+    questo test vuole isolare.
+
+    Provenienza del cuneo atteso: il centro della sezione 200x200 di colonna
+    dista 100 mm dal proprio bordo lungo la direzione del tilt; il cuneo e'
+    quella distanza per la tangente dell'angolo fuori squadra --
+    100 * tan(1 grado) = 1,7455 mm.
+
+    Le due facce attese (20 sul lato dipendente, 9 sul lato indipendente)
+    sono lette da `hexa.costruisci` in questa sessione, non assunte prima di
+    eseguire.
+
+    Muore se: la tolleranza di contatto torna a essere solo
+    `_TOLLERANZA_CONTATTO`, senza il cuneo per giunzione -- misurato in
+    questa sessione che le facce scendono da 20/9 a 9/3 (mutazione
+    applicata: `tolleranza = max(_TOLLERANZA_CONTATTO, ...)` ->
+    `tolleranza = _TOLLERANZA_CONTATTO`)."""
+    angolo = np.radians(1.0)
+    colonna = _membratura_finta(
+        COLONNA, [0.0, 0.0, 0.0], [0.0, np.sin(angolo), np.cos(angolo)],
+        ALTEZZA_COLONNA, [0.0, 0.0, 1.0],
+    )
+    trave = _membratura_finta(
+        TRAVE, [0.0, 0.0, QUOTA_TRAVE], [1.0, 0.0, 0.0], LUNGHEZZA_TRAVE, [1.0, 0.0, 0.0]
+    )
+
+    prismi = [hexa.prisma_di(colonna, "estruso"), hexa.prisma_di(trave, "estruso")]
+    _tagliati, giunzioni = hexa.taglia_giunzioni(prismi)
+    assert giunzioni[0]["cuneo"] == pytest.approx(100.0 * np.tan(angolo), rel=1e-6)
+
+    modello = hexa.costruisci([colonna, trave], "estruso", ModelConfig())
+    assert modello["ties"], "la giunzione fuori squadra deve comunque legarsi"
+    _nome, dipendente, indipendente = modello["ties"][0]
+    assert len(modello["superfici"][dipendente]) == 20
+    assert len(modello["superfici"][indipendente]) == 9
