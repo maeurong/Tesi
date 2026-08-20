@@ -319,3 +319,21 @@ def test_il_comando_model_scrive_la_cartella_col_suffisso_del_tipo(tmp_path):
     figlia = madre.with_name(f"{madre.name}-primitive")
     assert (figlia / "wall_model.inp").exists()
     assert not (madre / pipeline.MODEL_FILENAME).exists()
+
+
+def test_il_comando_model_senza_il_prior_dice_che_cosa_manca(tmp_path, capsys):
+    """Gemello di `test_il_comando_wall_senza_lo_step_due_dice_che_cosa_manca`:
+    il ramo d'errore del comando `model` non aveva copertura. `genera_modello`
+    solleva `FileNotFoundError` ed e' testata direttamente in
+    `test_pipeline.py`, ma nulla provava che `cli.main` la catturi ancora, con
+    lo stesso codice d'uscita e lo stesso testo su stderr.
+
+    Mutazione che deve morire: nel ramo `model` di `cli.main`, rimuovere il
+    `try/except` (o farlo rilanciare invece di stampare e restituire 1) --
+    `cli.main` solleverebbe l'eccezione invece di restituire 1, e la prima
+    asserzione fallirebbe.
+    """
+    percorso = _config_cubo_su_disco(tmp_path)
+
+    assert cli.main(["model", str(percorso), "--tipo", "estruso"]) == 1
+    assert "12_wall.json" in capsys.readouterr().err

@@ -421,14 +421,16 @@ def test_la_corsa_figlia_ha_cartella_configurazione_deck_e_metriche_proprie(tmp_
     assert esito["hexa"]["inverted"] == 0
 
 
-def test_lo_scostamento_dalla_nuvola_e_coerente_con_una_misura_indipendente(tmp_path):
-    """C3: non un'asserzione decorativa che rilegge `esito["scostamento_nuvola"]`.
-    Ricostruisce qui, dallo stesso `12_wall.json`/`02_segmented.ply` scritti su
-    disco dalla corsa madre, nodi e nuvola per conto proprio -- stessa
-    trasformazione di `genera_modello`, ma un secondo calcolo indipendente di
-    `quality.vertex_deviation` -- e confronta col numero che `genera_modello`
-    ha scritto in `esito`. Un `esito["scostamento_nuvola"]` mancante, rinominato
-    o stantio non supererebbe il confronto.
+def test_lo_scostamento_dalla_nuvola_prende_i_nodi_e_la_nuvola_giusti(tmp_path):
+    """Giro di correzione 2: questo test **non verifica l'aritmetica** di
+    `quality.vertex_deviation` -- e' gia' protetta altrove (mutare
+    `quality.py:469` uccide quattro test in `tests/test_quality.py`, fra cui
+    `test_su_una_calotta_il_campionamento_dei_soli_vertici_sottostima_l_errore`).
+    Verifica solo il **cablaggio**: che `esito["scostamento_nuvola"]` venga
+    davvero dai nodi del modello e dalla nuvola segmentata della madre, e non
+    da qualcos'altro o da nessuna parte. Ricostruisce qui, indipendentemente,
+    nodi e nuvola dagli stessi file su disco e ricalcola, invece di rileggere
+    il numero che `genera_modello` ha appena scritto.
 
     Mutazione che deve morire (quella del giro di correzione 1): rinominare la
     chiave `"scostamento_nuvola"` in `genera_modello`, per esempio in
@@ -436,7 +438,6 @@ def test_lo_scostamento_dalla_nuvola_e_coerente_con_una_misura_indipendente(tmp_
     `esito["scostamento_nuvola"]` solleva `KeyError`.
     """
     from meshrec.core import hexa
-    from meshrec.core.wall import Membratura
 
     cfg = _config_cubo(tmp_path)
     pipeline.run(cfg)
@@ -445,26 +446,7 @@ def test_lo_scostamento_dalla_nuvola_e_coerente_con_una_misura_indipendente(tmp_
 
     with (cfg.run.out_dir / pipeline.WALL_FILENAME).open(encoding="utf-8") as handle:
         prior = json.load(handle)
-    membrature = [
-        Membratura(
-            punti=np.arange(0),
-            asse=np.asarray(voce["asse"], dtype=np.float64),
-            origine=np.asarray(voce["origine"], dtype=np.float64),
-            lunghezza=float(voce["lunghezza"]),
-            sezione=tuple(voce["sezione"]),
-            sezione_dispersione=tuple(voce["sezione_dispersione"]),
-            contorno=np.asarray(voce["contorno"], dtype=np.float64),
-            fuori_piombo_deg=float(voce["fuori_piombo_deg"]),
-            asse_ideale=np.asarray(voce["asse_ideale"], dtype=np.float64),
-            scarto_asse_deg=float(voce["scarto_asse_deg"]),
-            rigonfiamento=np.zeros(0),
-            volume=float(voce["volume"]),
-            riempimento_sezione=float(voce["riempimento"]["valore"]),
-            riempimento_stato=str(voce["riempimento"]["stato"]),
-            densita_dispersione=float(voce["riempimento"]["densita_dispersione"]),
-        )
-        for voce in prior["membrature"]
-    ]
+    membrature = pipeline._ricostruisci_membrature(prior)
     modello_indipendente = hexa.costruisci(membrature, "estruso", cfg.model)
     nuvola, _ = io.read_cloud(cfg.run.out_dir / pipeline.ARTIFACTS[2])
     scarti = quality.vertex_deviation(modello_indipendente["nodi"], nuvola)
@@ -473,6 +455,41 @@ def test_lo_scostamento_dalla_nuvola_e_coerente_con_una_misura_indipendente(tmp_
     assert scostamento["rms"] == pytest.approx(float(np.sqrt(np.mean(scarti ** 2))))
     assert scostamento["max"] == pytest.approx(float(scarti.max()))
     assert scostamento["rms"] >= 0.0
+
+
+def test_lo_scostamento_dalla_nuvola_e_esatto_su_una_nuvola_spostata_di_una_distanza_nota(tmp_path):
+    """Geometria di risposta nota, calcolata su carta prima di eseguire il
+    codice: la nuvola sorgente e' i nodi del modello, gli stessi che
+    `genera_modello` ricostruira' internamente dallo stesso prior, spostati di
+    un offset costante lungo x. L'offset (0,001 mm) e' molto sotto il passo di
+    mesh del cubo di prova (~20 mm, vedi `hexa.passo_di_mesh`): nessun nodo
+    spostato puo' essere piu' vicino al proprio vicino del proprio gemello
+    spostato. Quindi ogni nodo ha distanza esatta `offset` dal punto piu'
+    vicino della nuvola, e per un campione a valore costante RMS = max =
+    offset, per definizione, senza bisogno di eseguire nulla per saperlo.
+
+    Mutazione che deve morire: `distanze * 2.0` in
+    `quality.vertex_deviation` (`quality.py:469`, quella del revisore) -- RMS
+    e max uscirebbero il doppio dell'offset atteso.
+    """
+    from meshrec.core import hexa
+
+    cfg = _config_cubo(tmp_path)
+    pipeline.run(cfg)
+
+    with (cfg.run.out_dir / pipeline.WALL_FILENAME).open(encoding="utf-8") as handle:
+        prior = json.load(handle)
+    membrature = pipeline._ricostruisci_membrature(prior)
+    nodi = hexa.costruisci(membrature, "estruso", cfg.model)["nodi"]
+
+    offset = 0.001
+    nuvola_nota = nodi + np.array([offset, 0.0, 0.0])
+    io.write_cloud(cfg.run.out_dir / pipeline.ARTIFACTS[2], nuvola_nota)
+
+    esito = pipeline.genera_modello(cfg, "estruso", tmp_path / "figlia-nota")
+
+    assert esito["scostamento_nuvola"]["rms"] == pytest.approx(offset, abs=1e-9)
+    assert esito["scostamento_nuvola"]["max"] == pytest.approx(offset, abs=1e-9)
 
 
 def test_il_deck_della_corsa_figlia_e_esaedrico(tmp_path):
@@ -561,20 +578,54 @@ def test_il_modello_json_porta_nota_giunzioni_e_conteggio_nodi_dipendenti(tmp_pa
     diversi da zero: sul cubo di `_config_cubo` questo controllo sarebbe
     vuoto per costruzione (zero giunzioni) e non proverebbe nulla.
 
-    Mutazione che deve morire: in `genera_modello`, svuotare `nota_giunzioni`
-    (`"nota_giunzioni": ""` invece della spiegazione) -- la prima asserzione
-    fallirebbe.
+    Mutazione che deve morire (giro di correzione 2): sostituire il testo
+    vero di `nota_giunzioni` con `"placeholder"` -- non vuoto, ma non dice
+    nulla sul `*TIE`, quindi un'asserzione di sola non-vuotezza non lo vede.
+    Cercare `"*TIE"` nel testo lo vede.
     """
     cfg = _config_cubo(tmp_path)
     _scrivi_prior_telaio(cfg, _TELAIO_QUATTRO_MEMBRATURE)
 
     esito = pipeline.genera_modello(cfg, "estruso", tmp_path / "figlia-telaio")
 
-    assert esito["nota_giunzioni"] != ""
+    assert "*TIE" in esito["nota_giunzioni"]
     legati = esito["modello"]["nodi_dipendenti_legati"]
     totali = esito["modello"]["nodi_dipendenti_totali"]
     assert totali > 0, "il telaio a quattro membrature ha giunzioni vere: il denominatore non puo' essere zero"
     assert 0 <= legati <= totali
+
+
+def test_la_ricostruzione_legge_riempimento_sezione_e_densita_dispersione_dalle_chiavi_giuste(tmp_path):
+    """Giro di correzione 2: dei quindici campi di `Membratura`, dodici sono
+    presi 1:1 dal JSON del prior e tre stanno annidati sotto `"riempimento"`.
+    `riempimento_stato` e' gia' protetto dalla guardia del Ruling J (vedi
+    sotto); `riempimento_sezione` e `densita_dispersione` no, perche' oggi
+    nessuna funzione a valle li legge da una `Membratura` -- solo lo stato
+    alimenta la guardia. Questo test chiude quel divario leggendo
+    direttamente il risultato di `pipeline._ricostruisci_membrature`, invece
+    di aspettare un consumatore a valle che oggi non esiste.
+
+    Mutazione che deve morire (quella del revisore): leggere
+    `riempimento_sezione` da `voce["riempimento"]["soglia"]` invece che da
+    `["valore"]` -- sul cubo di prova le due chiavi hanno valori diversi (la
+    soglia e' un parametro di configurazione, il valore e' la misura), quindi
+    la prima asserzione fallirebbe.
+    """
+    cfg = _config_cubo(tmp_path)
+    pipeline.run(cfg)
+    with (cfg.run.out_dir / pipeline.WALL_FILENAME).open(encoding="utf-8") as handle:
+        prior = json.load(handle)
+
+    membrature = pipeline._ricostruisci_membrature(prior)
+
+    voce = prior["membrature"][0]
+    membratura = membrature[0]
+    assert voce["riempimento"]["valore"] != voce["riempimento"]["soglia"], (
+        "il banco deve dare due chiavi con valori diversi, o la mutazione non e' rilevabile"
+    )
+    assert membratura.riempimento_sezione == pytest.approx(voce["riempimento"]["valore"])
+    assert membratura.densita_dispersione == pytest.approx(voce["riempimento"]["densita_dispersione"])
+    assert membratura.riempimento_stato == voce["riempimento"]["stato"]
 
 
 def test_la_guardia_del_ruling_j_rifiuta_una_membratura_vuota_dal_percorso_reale(tmp_path):
@@ -606,24 +657,36 @@ def test_la_corsa_madre_non_cambia_quando_si_genera_un_modello(tmp_path):
     configurazione della madre, rigenerare un modello in piu' cambierebbe
     l'impronta di una corsa che non e' cambiata.
 
-    Mutazione che deve morire: in `genera_modello`, mutare `cfg` in posto
-    (`cfg.model.tie_name_prefix = "MUTATO"`) e poi scrivere quel `cfg` mutato
-    su `sorgente / "config.yaml"` invece che su `out / "config.yaml"` -- le
-    due condizioni insieme sono cio' che il test dichiara vietato: toccare la
-    cartella della madre con una configurazione diversa da quella con cui e'
-    stata prodotta.
+    Il solo confronto testuale non basta: `save_config` e' deterministica,
+    quindi riscrivere `config.yaml` della madre con lo stesso `cfg` invariato
+    produrrebbe un testo bit-identico, e la mutazione piu' ovvia (scrivere su
+    `sorgente / "config.yaml"` invece che su `out / "config.yaml"`, senza
+    toccare `cfg`) passerebbe inosservata. Il tempo di modifica del file
+    cambia a ogni scrittura, che ne cambi o no il contenuto: e' il sensore
+    che il confronto testuale non e'.
+
+    Mutazione che deve morire (giro di correzione 2): `save_config(cfg, out /
+    "config.yaml")` -> `save_config(cfg, sorgente / "config.yaml")` in
+    `genera_modello`, senza mutare `cfg` -- il testo resta identico ma il
+    tempo di modifica del file della madre cambia, e la terza asserzione lo
+    nota.
     """
     from meshrec.core.sweep import fingerprint
 
     cfg = _config_cubo(tmp_path)
     pipeline.run(cfg)
-    prima = (cfg.run.out_dir / "config.yaml").read_text(encoding="utf-8")
+    percorso_madre = cfg.run.out_dir / "config.yaml"
+    prima = percorso_madre.read_text(encoding="utf-8")
+    mtime_prima = percorso_madre.stat().st_mtime_ns
     impronta = fingerprint(cfg)
 
-    pipeline.genera_modello(cfg, "estruso", tmp_path / "figlia")
+    figlia = tmp_path / "figlia"
+    pipeline.genera_modello(cfg, "estruso", figlia)
 
-    assert (cfg.run.out_dir / "config.yaml").read_text(encoding="utf-8") == prima
-    assert fingerprint(config.load_config(cfg.run.out_dir / "config.yaml")) == impronta
+    assert (figlia / "config.yaml").exists()
+    assert percorso_madre.read_text(encoding="utf-8") == prima
+    assert percorso_madre.stat().st_mtime_ns == mtime_prima, "config.yaml della madre e' stato riscritto"
+    assert fingerprint(config.load_config(percorso_madre)) == impronta
 
 
 def test_generare_un_modello_senza_prior_dice_che_cosa_manca(tmp_path):

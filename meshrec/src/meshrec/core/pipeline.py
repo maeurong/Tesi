@@ -103,6 +103,41 @@ def calcola_prior(
 MODEL_FILENAME = "modello.json"
 
 
+def _ricostruisci_membrature(prior: dict[str, object]) -> list:
+    """Le `Membratura` del prior, per costruire un modello parametrico.
+
+    Dodici dei quindici campi sono presi 1:1 da `wall.prior` (verificato
+    contro `wall.py:735-758`). Gli altri tre stanno annidati sotto
+    `voce["riempimento"]`, il dizionario che `wall.riempimento` scrive: e' da
+    li' che viene `riempimento_stato`, il campo su cui poggia la guardia del
+    Ruling J in `hexa.costruisci`, che rifiuta di costruire un modello da una
+    sezione dichiarata «vuota». Estratta come funzione propria perche' e'
+    l'unico punto di questa mappatura, ed e' testabile da sola.
+    """
+    from meshrec.core.wall import Membratura
+
+    return [
+        Membratura(
+            punti=np.arange(0),
+            asse=np.asarray(voce["asse"], dtype=np.float64),
+            origine=np.asarray(voce["origine"], dtype=np.float64),
+            lunghezza=float(voce["lunghezza"]),
+            sezione=tuple(voce["sezione"]),
+            sezione_dispersione=tuple(voce["sezione_dispersione"]),
+            contorno=np.asarray(voce["contorno"], dtype=np.float64),
+            fuori_piombo_deg=float(voce["fuori_piombo_deg"]),
+            asse_ideale=np.asarray(voce["asse_ideale"], dtype=np.float64),
+            scarto_asse_deg=float(voce["scarto_asse_deg"]),
+            rigonfiamento=np.zeros(0),
+            volume=float(voce["volume"]),
+            riempimento_sezione=float(voce["riempimento"]["valore"]),
+            riempimento_stato=str(voce["riempimento"]["stato"]),
+            densita_dispersione=float(voce["riempimento"]["densita_dispersione"]),
+        )
+        for voce in prior["membrature"]
+    ]
+
+
 def genera_modello(cfg: PipelineConfig, tipo: str, out_dir: Path) -> dict[str, object]:
     """Genera un modello parametrico come corsa figlia, nella propria cartella.
 
@@ -119,7 +154,6 @@ def genera_modello(cfg: PipelineConfig, tipo: str, out_dir: Path) -> dict[str, o
     parametro di elaborazione.
     """
     from meshrec.core import hexa
-    from meshrec.core.wall import Membratura
 
     sorgente = Path(cfg.run.out_dir)
     percorso_prior = sorgente / WALL_FILENAME
@@ -132,29 +166,7 @@ def genera_modello(cfg: PipelineConfig, tipo: str, out_dir: Path) -> dict[str, o
     with percorso_prior.open(encoding="utf-8") as handle:
         prior = json.load(handle)
 
-    membrature = [
-        Membratura(
-            punti=np.arange(0),
-            asse=np.asarray(voce["asse"], dtype=np.float64),
-            origine=np.asarray(voce["origine"], dtype=np.float64),
-            lunghezza=float(voce["lunghezza"]),
-            sezione=tuple(voce["sezione"]),
-            sezione_dispersione=tuple(voce["sezione_dispersione"]),
-            contorno=np.asarray(voce["contorno"], dtype=np.float64),
-            fuori_piombo_deg=float(voce["fuori_piombo_deg"]),
-            asse_ideale=np.asarray(voce["asse_ideale"], dtype=np.float64),
-            scarto_asse_deg=float(voce["scarto_asse_deg"]),
-            rigonfiamento=np.zeros(0),
-            volume=float(voce["volume"]),
-            # Il riempimento nel JSON e' il dizionario che `wall.riempimento`
-            # scrive, non tre campi piatti: e' da li' che viene lo stato su
-            # cui la guardia del Ruling J rifiuta una regione a Pi.
-            riempimento_sezione=float(voce["riempimento"]["valore"]),
-            riempimento_stato=str(voce["riempimento"]["stato"]),
-            densita_dispersione=float(voce["riempimento"]["densita_dispersione"]),
-        )
-        for voce in prior["membrature"]
-    ]
+    membrature = _ricostruisci_membrature(prior)
 
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
