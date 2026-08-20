@@ -18,6 +18,23 @@ pytestmark = pytest.mark.feasibility
 
 SIZE = (100.0, 100.0, 400.0)  # mm
 
+# Avvisi che CalculiX stampa su questi deck e che sono noti e accettati. Non
+# e' un elenco per farli tacere: e' il contrario. Ogni avviso fuori da qui e'
+# una card che il solutore ha scartato in silenzio, ed e' esattamente cio' che
+# «returncode 0 e nessun *ERROR» non sa vedere.
+AVVISI_NOTI = (
+    "reading *STEP",
+    "reading *OUTPUT",
+)
+
+
+def avvisi_inattesi(stdout: str, extra: tuple[str, ...] = ()) -> list[str]:
+    noti = AVVISI_NOTI + extra
+    return [
+        riga for riga in stdout.splitlines()
+        if "*WARNING" in riga and not any(n in riga for n in noti)
+    ]
+
 
 def test_calculix_solves_a_column_under_self_weight(tmp_path):
     executable = shutil.which("ccx")
@@ -48,6 +65,7 @@ def test_calculix_solves_a_column_under_self_weight(tmp_path):
         cwd=tmp_path, capture_output=True, text=True, timeout=600,
     )
     assert process.returncode == 0, process.stdout[-2000:] + process.stderr[-2000:]
+    assert not avvisi_inattesi(process.stdout), "\n".join(avvisi_inattesi(process.stdout))
 
     displacements = read_dat_displacements(tmp_path / "model.dat")
     assert displacements, "nessuno spostamento letto dal file .dat"
@@ -105,6 +123,7 @@ def test_la_pressione_su_s4_sposta_la_faccia_x_massimo_e_non_un_altra(tmp_path):
         cwd=tmp_path, capture_output=True, text=True, timeout=600,
     )
     assert process.returncode == 0, process.stdout[-2000:] + process.stderr[-2000:]
+    assert not avvisi_inattesi(process.stdout), "\n".join(avvisi_inattesi(process.stdout))
 
     spostamenti = read_dat_displacements(tmp_path / "model.dat")
 
@@ -206,6 +225,12 @@ def test_i_tie_del_telaio_a_quattro_membrature_legano_davvero(tmp_path):
     assert process.returncode == 0, process.stdout[-2000:] + process.stderr[-2000:]
     assert modello["metriche"]["ties"] == 4, "le quattro giunzioni devono registrare un *TIE ciascuna"
 
+    # "no tied MPC" e' l'avviso proprio di questo test, gia' governato dalla
+    # soglia qui sotto: va esteso solo qui, non in AVVISI_NOTI globale, o la
+    # soglia perde significato per gli altri due test.
+    inattesi = avvisi_inattesi(process.stdout, extra=("no tied MPC",))
+    assert not inattesi, "\n".join(inattesi)
+
     avvisi = process.stdout.count("no tied MPC")
     assert avvisi <= tetto_avvisi, (
         f"{avvisi} nodi della superficie dipendente non hanno generato il "
@@ -213,3 +238,48 @@ def test_i_tie_del_telaio_a_quattro_membrature_legano_davvero(tmp_path):
         f"dichiarato di {tetto_avvisi}: un *TIE parzialmente inefficace oltre "
         "il limite noto della mesh non conforme, non piu' un residuo atteso"
     )
+
+
+def test_un_prisma_solo_di_mesh_prisma_e_letto_dal_solutore(tmp_path):
+    """`hexa.mesh_prisma` arriva a CalculiX solo attraverso `hexa.costruisci`
+    nel test del telaio sopra: la sua uscita piu' semplice, un prisma singolo,
+    non era mai stata risolta da sola. `target_size` piccolo qui sotto forza
+    molti elementi e piu' strati nello spessore di quanto farebbe il default.
+    """
+    executable = shutil.which("ccx")
+    if executable is None:
+        pytest.skip("eseguibile 'ccx' non presente nel PATH")
+
+    from meshrec.core import hexa
+    from meshrec.core.config import ModelConfig
+
+    # Materiale del banco, tre numeri: non e' il provino di laboratorio,
+    # basta per un controllo di fattibilita' col solutore vero.
+    materiale = Material(name="PROVA", young=1500.0, poisson=0.2, density=1.8e-9)
+    contorno = np.array([[0.0, 0.0], [200.0, 0.0], [200.0, 140.0], [0.0, 140.0]])
+    lunghezza = 800.0
+    cfg = ModelConfig(target_size=40.0)  # passo fitto: piu' esaedri, piu' strati
+
+    nodi, esaedri, _ = hexa.mesh_prisma(
+        contorno, np.zeros(3), np.array([0.0, 0.0, 1.0]), lunghezza, cfg
+    )
+
+    z = nodi[:, 2]
+    node_sets = {"BASE": np.flatnonzero(z <= z.min() + 1e-6)}
+
+    abaqus.write_inp(
+        tmp_path / "model.inp", nodi, esaedri,
+        node_sets=node_sets,
+        material=materiale,
+        element_type=cfg.element,
+        print_nsets=("BASE",),
+    )
+
+    process = subprocess.run(
+        [executable, "-i", "model"],
+        cwd=tmp_path, capture_output=True, text=True, timeout=600,
+    )
+    assert process.returncode == 0, process.stdout[-2000:] + process.stderr[-2000:]
+    assert "*ERROR" not in process.stdout
+    assert not avvisi_inattesi(process.stdout), "\n".join(avvisi_inattesi(process.stdout))
+    assert (tmp_path / "model.dat").exists()
