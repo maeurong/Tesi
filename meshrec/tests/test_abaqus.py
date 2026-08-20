@@ -765,3 +765,76 @@ def test_il_tie_nomina_due_superfici_gia_dichiarate(tmp_path):
             element_surfaces={"UNA": superficie},
             ties=(("GIUNZIONE_1", "UNA", "MAI_DICHIARATA"),),
         )
+
+
+def test_la_superficie_di_elemento_non_include_una_faccia_interna_condivisa():
+    """RULING N: una faccia condivisa da due elementi adiacenti non e' di
+    bordo. Se comparisse comunque nella superficie (perche' tutti i suoi nodi
+    stanno nell'insieme dato, senza controllare l'occorrenza), un *TIE o un
+    carico laterale finirebbero applicati dentro il solido invece che sulla
+    sua pelle."""
+    doppio = np.array(
+        [[0, 1, 2, 3, 4, 5, 6, 7], [4, 5, 6, 7, 8, 9, 10, 11]], dtype=np.int64
+    )
+    tutti_i_nodi = np.arange(12)
+
+    superficie = abaqus.element_surface(doppio, tutti_i_nodi, "C3D8I")
+
+    assert len(superficie) == 10, "sei piu' sei meno la faccia condivisa contata due volte"
+    condivisa = {4, 5, 6, 7}
+    for elemento, numero in superficie:
+        combo = abaqus.FACCE_DEL_SOLUTORE[8][numero - 1]
+        nodi_faccia = set(doppio[elemento][list(combo)].tolist())
+        assert nodi_faccia != condivisa, "la faccia interna condivisa non deve comparire"
+
+
+_SCATOLA = np.array([
+    [0.0, 0.0, 0.0], [2.0, 0.0, 0.0], [2.0, 3.0, 0.0], [0.0, 3.0, 0.0],
+    [0.0, 0.0, 5.0], [2.0, 0.0, 5.0], [2.0, 3.0, 5.0], [0.0, 3.0, 5.0],
+])
+_UN_ESAEDRO = np.array([[0, 1, 2, 3, 4, 5, 6, 7]], dtype=np.int64)
+
+
+def test_ogni_etichetta_di_faccia_dell_esaedro_nomina_il_baricentro_giusto():
+    """RULING M(a): un confronto per insiemi non vede uno scambio fra due
+    etichette (i due insiemi di facce restano gli stessi). Il baricentro
+    invece e' diverso faccia per faccia: qui e' calcolato dalle coordinate del
+    parallelepipedo (facce z minimo/massimo, y minimo/massimo, x minimo/
+    massimo, dalla convenzione del manuale S1..S6), non dalla tabella.
+    Il parallelepipedo e' asimmetrico apposta: su un cubo due facce potrebbero
+    avere baricentri troppo simili per distinguere uno scambio."""
+    basso, alto = _SCATOLA.min(axis=0), _SCATOLA.max(axis=0)
+    cx, cy, cz = (basso + alto) / 2.0
+
+    attesi = [
+        np.array([cx, cy, basso[2]]),  # S1: faccia z minimo
+        np.array([cx, cy, alto[2]]),   # S2: faccia z massimo
+        np.array([cx, basso[1], cz]),  # S3: faccia y minimo
+        np.array([alto[0], cy, cz]),   # S4: faccia x massimo
+        np.array([cx, alto[1], cz]),   # S5: faccia y massimo
+        np.array([basso[0], cy, cz]),  # S6: faccia x minimo
+    ]
+
+    for numero, atteso in enumerate(attesi):
+        combo = abaqus.FACCE_DEL_SOLUTORE[8][numero]
+        baricentro = _SCATOLA[list(combo)].mean(axis=0)
+        assert baricentro == pytest.approx(atteso), f"S{numero + 1} non e' la faccia attesa"
+
+
+_TETRAEDRO_ASIMMETRICO = np.array([
+    [0.0, 0.0, 0.0], [4.0, 0.0, 0.0], [0.0, 3.0, 0.0], [0.0, 0.0, 5.0],
+])
+
+
+def test_ogni_etichetta_di_faccia_del_tetraedro_nomina_il_baricentro_giusto():
+    """Stesso controllo del test precedente, sul tetraedro: dalla convenzione
+    del manuale (S1=1-2-3, S2=1-4-2, S3=2-4-3, S4=3-4-1) ogni etichetta esclude
+    un vertice preciso — S1 il quarto, S2 il terzo, S3 il primo, S4 il secondo
+    — indipendente da come la tabella scrive la faccia."""
+    escluso_per_numero = [3, 2, 0, 1]
+
+    for numero, escluso in enumerate(escluso_per_numero):
+        atteso = _TETRAEDRO_ASIMMETRICO[[i for i in range(4) if i != escluso]].mean(axis=0)
+        combo = abaqus.FACCE_DEL_SOLUTORE[4][numero]
+        baricentro = _TETRAEDRO_ASIMMETRICO[list(combo)].mean(axis=0)
+        assert baricentro == pytest.approx(atteso), f"S{numero + 1} non e' la faccia attesa"

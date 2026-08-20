@@ -223,11 +223,17 @@ FACCE_DEL_SOLUTORE: dict[int, tuple[tuple[int, ...], ...]] = {
 def element_surface(
     elements: np.ndarray, indici_nodo: np.ndarray, element_type: str
 ) -> list[tuple[int, int]]:
-    """Le coppie (elemento, numero di faccia) le cui facce cadono nell'insieme dato.
+    """Le coppie (elemento, numero di faccia) di bordo le cui facce cadono nell'insieme dato.
 
     Una faccia entra nella superficie solo se **tutti** i suoi nodi stanno
     nell'insieme: tre nodi su quattro non sono quella faccia, e nominarla
     applicherebbe un carico dove l'utente non lo ha chiesto.
+
+    Una faccia interna, condivisa da due elementi adiacenti, non entra mai:
+    e' contata due volte nella tabella (una per elemento) e viene esclusa allo
+    stesso modo di `boundary_faces`, per occorrenza. Senza questo filtro un
+    *TIE o un carico laterale su una selezione di nodi larga finirebbero
+    applicati dentro il solido, non sulla sua pelle.
 
     L'ordine delle coppie e' quello degli elementi e, dentro un elemento,
     quello dei numeri di faccia: e' funzione del dato e non dell'iterazione,
@@ -240,10 +246,18 @@ def element_surface(
     dentro = np.zeros(int(elementi.max()) + 1, dtype=bool)
     dentro[np.asarray(indici_nodo, dtype=np.int64)] = True
 
+    combinazioni = FACCE_DEL_SOLUTORE[angoli]
+    nodi_per_faccia = len(combinazioni[0])
+    # (n_elementi, n_facce, nodi_per_faccia): ogni faccia di ogni elemento, coi suoi nodi.
+    facce = np.stack([elementi[:, list(combo)] for combo in combinazioni], axis=1)
+    ordinate = np.sort(facce, axis=2).reshape(-1, nodi_per_faccia)
+    _, inverso, conteggi = np.unique(ordinate, axis=0, return_inverse=True, return_counts=True)
+    di_bordo = (conteggi[inverso.reshape(-1)] == 1).reshape(facce.shape[0], facce.shape[1])
+
     coppie: list[tuple[int, int]] = []
-    for numero, combo in enumerate(FACCE_DEL_SOLUTORE[angoli], start=1):
-        tutte_dentro = dentro[elementi[:, list(combo)]].all(axis=1)
-        coppie += [(int(indice), numero) for indice in np.flatnonzero(tutte_dentro)]
+    for posizione in range(len(combinazioni)):
+        tutte_dentro = dentro[facce[:, posizione, :]].all(axis=1) & di_bordo[:, posizione]
+        coppie += [(int(indice), posizione + 1) for indice in np.flatnonzero(tutte_dentro)]
     coppie.sort()
     return coppie
 
