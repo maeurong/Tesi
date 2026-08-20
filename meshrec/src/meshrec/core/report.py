@@ -556,3 +556,229 @@ def write_run_report(out_dir: Path, viste: list[Path]) -> Path:
     percorso.parent.mkdir(parents=True, exist_ok=True)
     percorso.write_text(documento, encoding="utf-8")
     return percorso
+
+
+MODELLI = ("as-built", "estruso", "primitive")
+"""I tre modelli dello stesso pezzo, nell'ordine in cui il confronto li mostra.
+
+as-built e' la corsa madre e c'e' sempre: e' la superficie rilevata in mesh
+tetraedrica, che esiste dalla Fase 1. Gli altri due sono corse figlie e possono
+mancare.
+"""
+
+CONFRONTABILI: dict[str, bool] = {
+    "volume": True,
+    "massa": True,
+    "scostamento_nuvola": True,
+    "gradi_di_liberta": True,
+    "qualita_elementi": False,
+    "rigidezza": False,
+}
+"""Quali grandezze si confrontano fra i tre modelli senza mentire.
+
+- volume e massa: si', ed e' anche il confronto con il volume dichiarato dal
+  disegno, quando il disegno c'e';
+- scostamento dalla nuvola sorgente: si', ed e' il perno -- e' definito allo
+  stesso modo per tutti e tre e risponde alla domanda vera, quanto costa in
+  fedelta' al rilievo la regolarizzazione della forma;
+- numero di nodi e gradi di liberta': si', ma solo accanto al tipo di elemento,
+  perche' un C3D8I e un C3D4 non spendono lo stesso per nodo;
+- qualita' degli elementi: NO. Rapporto raggio-spigolo per i tetraedri
+  (radius_edge_ratio, la misura; tet.min_ratio e' invece il vincolo chiesto a
+  TetGen), Jacobiano scalato per gli esaedri: due colonne separate, mai una
+  differenza;
+- rigidezza e spostamenti: NO. Nessun solutore in questa fase.
+"""
+
+NOTE_STATICHE = (
+    "Nessuna armatura in alcun modello: calcestruzzo omogeneo. E' una scelta "
+    "dell'autore e non una dimenticanza, e il dato delle barre resta nel disegno. "
+    "Un telaio in cemento armato modellato senza armatura non e' il telaio vero.",
+    "Il set BASE non e' una faccia del pezzo: e' la quota di taglio scelta "
+    "dall'operatore. Quella superficie non esiste nel pezzo vero, e' dove abbiamo "
+    "tagliato.",
+)
+"""Le due dichiarazioni che non dipendono da quale modello e' presente.
+
+La terza -- il *TIE alle giunzioni -- non sta qui: modello.json la porta gia'
+come nota_giunzioni (Task 10), e riscriverla in questo modulo duplicherebbe una
+fonte che puo' divergere in silenzio. confronta() la legge e la mette in testa.
+"""
+
+
+def _legge_json(percorso: Path) -> dict | None:
+    try:
+        with percorso.open(encoding="utf-8") as handle:
+            letto = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return None
+    return letto if isinstance(letto, dict) else None
+
+
+def _testo_vincoli(voce: object) -> str:
+    """giunzioni e ties non si sommano mai; i nodi dipendenti restano legati/totali."""
+    if not isinstance(voce, dict):
+        return _testo(voce)
+    return (
+        f"giunzioni {_testo(voce.get('giunzioni'))}, ties {_testo(voce.get('ties'))}, "
+        f"nodi vincolati {_testo(voce.get('nodi_dipendenti_legati'))}/"
+        f"{_testo(voce.get('nodi_dipendenti_totali'))}"
+    )
+
+
+def confronta(cartelle: list[Path]) -> dict[str, object]:
+    """Il confronto fra i modelli **generati**, e la dichiarazione di quelli assenti.
+
+    Regge gli insiemi parziali perche' l'utente sceglie quali modelli generare:
+    con due su tre confronta due modelli e dice quale manca, con uno solo
+    diventa una scheda singola e lo dichiara. Nessuna colonna con un trattino
+    che somigli a un valore, nessuna differenza calcolata contro un modello
+    assente.
+
+    Non ricalcola nulla: legge cio' che ogni corsa ha scritto. Ricalcolare
+    darebbe numeri che nessun artefatto sostiene.
+
+    Lo scostamento dalla nuvola legge il verso mesh_to_cloud, non cloud_to_mesh:
+    quality.vertex_deviation, che pipeline.genera_modello usa per lo
+    scostamento_nuvola dei modelli parametrici, riproduce esattamente quel
+    verso e non l'altro (quality.py:458-464, "la misura che questa funzione
+    non replica e' cloud_to_mesh"). Leggere cloud_to_mesh per l'as-built
+    metterebbe in colonna, sotto lo stesso nome, una misura diversa da quella
+    dei parametrici -- l'errore esatto che questo task esiste per evitare. La
+    chiave del valore e' anche maiuscola, RMS, perche' e' quella che
+    PyMeshLab restituisce davvero (quality.py:428).
+    """
+    presenti: dict[str, dict] = {}
+    for cartella in cartelle:
+        percorso = Path(cartella)
+        modello = _legge_json(percorso / "modello.json")
+        metriche = _legge_json(percorso / METRICS_FILENAME) or {}
+        if modello is None:
+            presenti["as-built"] = {"cartella": percorso, "metriche": metriche, "modello": None}
+        else:
+            presenti[str(modello.get("tipo"))] = {
+                "cartella": percorso, "metriche": metriche, "modello": modello
+            }
+
+    mancanti = [nome for nome in MODELLI if nome not in presenti]
+
+    volume: dict[str, float] = {}
+    massa: dict[str, float] = {}
+    scostamento: dict[str, object] = {}
+    gradi: dict[str, object] = {}
+    qualita: dict[str, dict] = {}
+    vincoli: dict[str, object] = {}
+    nota_giunzioni: str | None = None
+    for nome, voce in presenti.items():
+        if voce["modello"] is None:
+            export = voce["metriche"].get("11_export", {})
+            volumi = voce["metriche"].get("10_volume_quality", {})
+            volume[nome] = export.get("volume")
+            massa[nome] = export.get("mass")
+            scostamento[nome] = (
+                voce["metriche"]
+                .get("07_surface_quality", {})
+                .get("geometric_error", {})
+                .get("mesh_to_cloud", {})
+                .get("RMS")
+            )
+            gradi[nome] = {"nodi": volumi.get("nodes"), "elemento": export.get("element_type", "C3D4")}
+            qualita[nome] = {"radius_edge_ratio": volumi.get("radius_edge_ratio")}
+            vincoli[nome] = "non applicabile"
+        else:
+            export = voce["modello"].get("export", {})
+            esaedri = voce["modello"].get("hexa", {})
+            metriche_modello = voce["modello"].get("modello", {})
+            volume[nome] = export.get("volume")
+            massa[nome] = export.get("mass")
+            scostamento[nome] = (voce["modello"].get("scostamento_nuvola") or {}).get("rms")
+            gradi[nome] = {"nodi": esaedri.get("nodes"), "elemento": export.get("element_type")}
+            qualita[nome] = {"scaled_jacobian": esaedri.get("scaled_jacobian")}
+            vincoli[nome] = {
+                "giunzioni": metriche_modello.get("giunzioni"),
+                "ties": metriche_modello.get("ties"),
+                "nodi_dipendenti_legati": metriche_modello.get("nodi_dipendenti_legati"),
+                "nodi_dipendenti_totali": metriche_modello.get("nodi_dipendenti_totali"),
+            }
+            if nota_giunzioni is None:
+                nota_giunzioni = voce["modello"].get("nota_giunzioni")
+
+    note = ([nota_giunzioni] if nota_giunzioni else []) + list(NOTE_STATICHE)
+
+    return {
+        "modelli": sorted(presenti),
+        "mancanti": mancanti,
+        "scheda_singola": len(presenti) == 1,
+        "confrontabili": dict(CONFRONTABILI),
+        "volume": volume,
+        "massa": massa,
+        "scostamento_nuvola": scostamento,
+        "gradi_di_liberta": gradi,
+        "qualita": qualita,
+        "vincoli_giunzioni": vincoli,
+        "note_non_geometriche": note,
+    }
+
+
+def write_comparison_report(cartelle: list[Path], out_path: Path) -> Path:
+    """Il confronto in una pagina, con lo stesso rivestimento del report di corsa.
+
+    I modelli assenti compaiono per nome e con la dicitura «non generato», mai
+    con un trattino in una colonna di numeri: un trattino in mezzo ai numeri
+    somiglia a un valore. Una chiave presente ma valorizzata None passa comunque
+    da _testo, che la scrive «non impostato»: un modello.json piu' vecchio o
+    generato da una versione precedente puo' non portare ancora una chiave, e
+    non e' lo stesso di «non generato».
+    """
+    confronto = confronta(cartelle)
+    righe = []
+    for grandezza in ("volume", "massa", "scostamento_nuvola"):
+        celle = "".join(
+            f"<td>{'non generato' if nome not in confronto[grandezza] else _testo(confronto[grandezza][nome])}</td>"
+            for nome in MODELLI
+        )
+        righe.append(f"<tr><th>{grandezza}</th>{celle}</tr>")
+
+    qualita_righe = "".join(
+        f"<tr><th>{nome}</th><td>{_testo(confronto['qualita'].get(nome, 'non generato'))}</td></tr>"
+        for nome in MODELLI
+    )
+    vincoli_righe = "".join(
+        f"<tr><th>{nome}</th><td>{_testo_vincoli(confronto['vincoli_giunzioni'].get(nome, 'non generato'))}</td></tr>"
+        for nome in MODELLI
+    )
+    note = "".join(f"<li>{nota}</li>" for nota in confronto["note_non_geometriche"])
+    intestazione = "".join(f"<th>{nome}</th>" for nome in MODELLI)
+    avviso = (
+        "<p class='avviso'>Un solo modello generato: questa non e' una tabella di "
+        "confronto ma una <strong>scheda singola</strong>.</p>"
+        if confronto["scheda_singola"]
+        else ""
+    )
+
+    pagina = f"""<!doctype html>
+<html lang="it"><head><meta charset="utf-8"><title>MeshRec -- confronto fra modelli</title>
+<style>{_STILE}</style></head><body>
+<h1>Confronto fra modelli</h1>
+{avviso}
+<h2>Grandezze confrontabili</h2>
+<table><thead><tr><th></th>{intestazione}</tr></thead><tbody>{''.join(righe)}</tbody></table>
+<h2>Qualita' degli elementi: due colonne, mai una differenza</h2>
+<p>radius_edge_ratio vale per i tetraedri, il Jacobiano scalato per gli esaedri. Non sono
+la stessa grandezza e la loro differenza non e' un numero.</p>
+<table><tbody>{qualita_righe}</tbody></table>
+<h2>Vincoli alle giunzioni: il limite che il vincolo aggiunge, non la geometria</h2>
+<p>Giunzioni tagliate e *TIE effettivamente scritti restano due numeri distinti;
+i nodi della superficie dipendente vincolati sul totale dicono quanto il
+solutore chiude davvero. as-built e' monolitico: non applicabile.</p>
+<table><tbody>{vincoli_righe}</tbody></table>
+<h2>Che cosa non deriva dalla geometria</h2>
+<ul>{note}</ul>
+<h2>Che cosa questa fase non dice</h2>
+<p>Nessun solutore e' stato eseguito: rigidezza e spostamenti non sono in questa
+pagina perche' non sono stati calcolati, non perche' siano stati omessi.</p>
+</body></html>
+"""
+    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+    Path(out_path).write_text(pagina, encoding="utf-8")
+    return Path(out_path)

@@ -9,7 +9,7 @@ from pathlib import Path
 
 from meshrec.core import pipeline, report, steps, sweep
 from meshrec.core.config import InputConfig, PipelineConfig, load_config, save_config
-from materiale import ANALISI
+from materiale import ANALISI, _tre_cartelle_finte
 
 
 def _png_minimo() -> bytes:
@@ -979,3 +979,201 @@ def test_i_valori_non_finiti_escono_in_italiano(tmp_path):
     assert f"<th>b</th><td>{report.INFINITO}</td>" in testo
     assert f"<th>c</th><td>-{report.INFINITO}</td>" in testo
     assert "<td>nan</td>" not in testo and "<td>inf</td>" not in testo
+
+
+def test_il_confronto_di_tre_modelli_dice_quali_grandezze_lo_sono(tmp_path):
+    """Quasi nessuna metrica e' confrontabile fra i tre modelli senza mentire.
+    La tabella deve dire quale lo e', invece di allineare colonne che non si
+    parlano.
+
+    Le quattro asserzioni sotto rileggono la costante `report.CONFRONTABILI`
+    che `confronta` copia cosi' com'e': sorvegliano la costante, non un
+    calcolo, e nessuna mutazione della logica di `confronta` le farebbe
+    fallire.
+    """
+    cartelle = _tre_cartelle_finte(tmp_path)
+
+    confronto = report.confronta(cartelle)
+
+    assert set(confronto["modelli"]) == {"as-built", "estruso", "primitive"}
+    assert confronto["confrontabili"]["volume"] is True
+    assert confronto["confrontabili"]["scostamento_nuvola"] is True
+    assert confronto["confrontabili"]["qualita_elementi"] is False
+    assert confronto["confrontabili"]["rigidezza"] is False
+
+
+def test_la_qualita_degli_elementi_sta_in_due_colonne_e_mai_in_una_differenza(tmp_path):
+    """radius_edge_ratio per i tetraedri, Jacobiano scalato per gli esaedri: due
+    colonne separate, mai una differenza fra le due. (Non min_ratio: nel
+    progetto quel nome e' il vincolo chiesto a TetGen, cfg.tet.min_ratio, non
+    la distribuzione misurata da quality.volume_metrics.)
+
+    Mutazione che deve morire: in `confronta`, rinominare la chiave del ramo
+    esaedri da `scaled_jacobian` a `differenza` -- verificata: muore
+    sull'asserzione `"scaled_jacobian" in qualita["estruso"]`, prima ancora
+    di arrivare al blocco che cerca la parola "differenza" fra le chiavi.
+    """
+    cartelle = _tre_cartelle_finte(tmp_path)
+
+    confronto = report.confronta(cartelle)
+
+    qualita = confronto["qualita"]
+    assert "radius_edge_ratio" in qualita["as-built"]
+    assert "scaled_jacobian" in qualita["estruso"]
+    assert "radius_edge_ratio" not in qualita["estruso"]
+    for colonna in qualita.values():
+        assert not (set(colonna) & {"differenza", "delta", "scarto"}), (
+            "il rapporto raggio-spigolo e il Jacobiano scalato non si sottraggono"
+        )
+    assert set(qualita["estruso"]) & set(qualita["as-built"]) == set()
+
+
+def test_con_due_modelli_su_tre_il_confronto_dice_quale_manca(tmp_path):
+    """Nessuna colonna con un trattino che somigli a un valore, nessuna
+    differenza calcolata contro un modello assente."""
+    cartelle = _tre_cartelle_finte(tmp_path)[:2]
+
+    confronto = report.confronta(cartelle)
+
+    assert confronto["mancanti"] == ["primitive"]
+    assert "primitive" not in confronto["volume"]
+    testo = report.write_comparison_report(cartelle, tmp_path / "confronto.html").read_text(
+        encoding="utf-8"
+    )
+    assert "primitive" in testo
+    assert "non generato" in testo
+
+
+def test_con_un_modello_solo_il_confronto_diventa_una_scheda_e_lo_dichiara(tmp_path):
+    cartelle = _tre_cartelle_finte(tmp_path)[:1]
+
+    confronto = report.confronta(cartelle)
+
+    assert confronto["scheda_singola"] is True
+    testo = report.write_comparison_report(cartelle, tmp_path / "solo.html").read_text(
+        encoding="utf-8"
+    )
+    assert "scheda singola" in testo
+
+
+def test_il_report_dichiara_le_tre_cose_che_non_derivano_dalla_geometria(tmp_path):
+    """Senza queste righe una differenza nata dal *TIE verrebbe letta come
+    effetto della forma, la base sembrerebbe una faccia del pezzo e il modello
+    passerebbe per un telaio in cemento armato completo."""
+    cartelle = _tre_cartelle_finte(tmp_path)
+
+    testo = report.write_comparison_report(cartelle, tmp_path / "confronto.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert "as-built monolitico" in testo
+    assert "vincolati alle giunzioni" in testo
+    assert "armatura" in testo
+    assert "dove abbiamo tagliato" in testo
+
+
+def test_lo_scostamento_dell_as_built_legge_mesh_to_cloud_non_cloud_to_mesh(tmp_path):
+    """quality.vertex_deviation, che pipeline.genera_modello usa per lo
+    scostamento_nuvola dei modelli parametrici (pipeline.py:202,211-216),
+    riproduce esattamente il verso mesh_to_cloud di geometric_error, non
+    cloud_to_mesh -- lo dice quality.py:458-464 ("la misura che questa
+    funzione non replica e' cloud_to_mesh"). La chiave e' anche maiuscola,
+    RMS, non rms (quality.py:428). Leggere il verso o la chiave sbagliata
+    metterebbe in colonna due misure diverse sotto lo stesso nome, l'errore
+    esatto che questo task esiste per evitare -- e la fixture li tiene
+    apposta a valori diversi (4.9 contro 3.1) perche' un errore cosi' non
+    passi inosservato.
+
+    Mutazione che deve morire: in `confronta`, tornare a
+    `.get("cloud_to_mesh", {}).get("rms")` per il ramo as-built -- questa
+    asserzione leggerebbe 4.9 (o None, con la chiave minuscola) invece di 3.1.
+    """
+    cartelle = _tre_cartelle_finte(tmp_path)
+
+    confronto = report.confronta(cartelle)
+
+    assert confronto["scostamento_nuvola"]["as-built"] == 3.1
+
+
+def test_un_modello_json_piu_vecchio_senza_scostamento_nuvola_non_fa_crashare_il_report(tmp_path):
+    """D1: una chiave presente ma valorizzata None passa la guardia
+    `nome in confronto[grandezza]` -- `_numero` comincia con `math.isnan(valore)`
+    e su None solleva `TypeError: must be real number, not NoneType`. Un
+    modello.json scritto da una versione precedente del Task 10, prima che
+    scostamento_nuvola esistesse, e' esattamente questo caso.
+
+    Mutazione che deve morire: in `write_comparison_report`, tornare a
+    `_numero(confronto[grandezza][nome])` al posto di
+    `_testo(confronto[grandezza][nome])` -- questa chiamata rilancerebbe il
+    TypeError invece di restituire la pagina.
+    """
+    import json
+
+    from meshrec.core import pipeline
+
+    cartelle = _tre_cartelle_finte(tmp_path)
+    percorso_modello = cartelle[1] / pipeline.MODEL_FILENAME
+    dati = json.loads(percorso_modello.read_text(encoding="utf-8"))
+    del dati["scostamento_nuvola"]
+    percorso_modello.write_text(json.dumps(dati), encoding="utf-8")
+
+    confronto = report.confronta(cartelle)
+    assert confronto["scostamento_nuvola"]["estruso"] is None
+
+    testo = report.write_comparison_report(cartelle, tmp_path / "confronto.html").read_text(
+        encoding="utf-8"
+    )
+    assert report.NON_IMPOSTATO in testo
+
+
+def test_i_vincoli_alle_giunzioni_sono_quattro_numeri_distinti_e_non_applicabili_per_l_as_built(
+    tmp_path,
+):
+    """Task 8: un modello parametrico con parte dei giunti non vincolati e'
+    piu' cedevole del vero, ed e' un limite noto della mesh non conforme fra
+    blocchi. Il confronto deve portarlo o attribuira' alla geometria una
+    differenza che viene dal vincolo. as-built e' monolitico: nessuna delle
+    quattro righe gli si applica, e "non applicabile" non e' zero ne' "non
+    generato".
+
+    Mutazione che deve morire: in `confronta`, sommare `giunzioni` e `ties`
+    in una sola chiave invece di tenerli distinti -- verificata: muore con
+    `KeyError: 'giunzioni'` sulla seconda asserzione.
+    """
+    cartelle = _tre_cartelle_finte(tmp_path)
+
+    confronto = report.confronta(cartelle)
+    vincoli = confronto["vincoli_giunzioni"]
+
+    assert vincoli["as-built"] == "non applicabile"
+    assert vincoli["estruso"]["giunzioni"] == 3
+    assert vincoli["estruso"]["ties"] == 2
+    assert vincoli["estruso"]["nodi_dipendenti_legati"] == 18
+    assert vincoli["estruso"]["nodi_dipendenti_totali"] == 24
+
+
+def test_la_nota_delle_giunzioni_viene_letta_da_modello_json_non_riscritta(tmp_path):
+    """D6: il testo dell'avvertenza lo scrive il Task 10 in modello.json
+    (nota_giunzioni), il confronto lo legge e basta -- riscriverlo qui
+    duplicherebbe una fonte che puo' divergere in silenzio.
+
+    Mutazione che deve morire: in `confronta`, sostituire la lettura di
+    `nota_giunzioni` con una stringa scritta in report.py -- questa
+    asserzione, che cerca un testo presente solo nella fixture di questo
+    test e in nessun altro posto del codice, non lo troverebbe piu'.
+    """
+    import json
+
+    from meshrec.core import pipeline
+
+    cartelle = _tre_cartelle_finte(tmp_path)
+    percorso_modello = cartelle[1] / pipeline.MODEL_FILENAME
+    dati = json.loads(percorso_modello.read_text(encoding="utf-8"))
+    dati["nota_giunzioni"] = "MARCATORE UNICO DEL TEST -- non deriva dalla geometria"
+    percorso_modello.write_text(json.dumps(dati), encoding="utf-8")
+
+    confronto = report.confronta(cartelle)
+
+    assert confronto["note_non_geometriche"][0] == (
+        "MARCATORE UNICO DEL TEST -- non deriva dalla geometria"
+    )

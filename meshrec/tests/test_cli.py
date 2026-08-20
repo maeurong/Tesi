@@ -7,7 +7,7 @@ import json
 
 from meshrec import cli
 from meshrec.core import config, io, synth
-from materiale import ANALISI, MATERIALE, crea_config
+from materiale import ANALISI, MATERIALE, _tre_cartelle_finte, crea_config
 
 
 SIZE = (120.0, 60.0, 240.0)
@@ -337,3 +337,15 @@ def test_il_comando_model_senza_il_prior_dice_che_cosa_manca(tmp_path, capsys):
 
     assert cli.main(["model", str(percorso), "--tipo", "estruso"]) == 1
     assert "12_wall.json" in capsys.readouterr().err
+
+
+def test_il_comando_compare_scrive_la_pagina_e_nomina_i_modelli_assenti(tmp_path, capsys):
+    """Stesso banco di test_report.py: una definizione sola in materiale.py,
+    perche' tests/ non e' un pacchetto e un import fra file di test per nome
+    puntato non risolverebbe."""
+    cartelle = _tre_cartelle_finte(tmp_path)[:2]
+    uscita = tmp_path / "confronto.html"
+
+    assert cli.main(["compare", *[str(c) for c in cartelle], "--out", str(uscita)]) == 0
+    assert "non generato" in uscita.read_text(encoding="utf-8")
+    assert str(uscita) in capsys.readouterr().out

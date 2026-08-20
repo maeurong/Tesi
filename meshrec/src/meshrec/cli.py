@@ -91,6 +91,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="cartella della corsa figlia; se omessa, quella della madre col suffisso del tipo",
     )
 
+    compare_command = commands.add_parser(
+        "compare", help="confronta le cartelle dei modelli generati dello stesso pezzo"
+    )
+    compare_command.add_argument("cartelle", type=Path, nargs="+")
+    compare_command.add_argument("--out", type=Path, required=True)
+
     serve_command = commands.add_parser("serve", help="avvia il server locale e apre il browser")
     serve_command.add_argument("config", type=Path)
     serve_command.add_argument("--port", type=int, default=None)
@@ -186,6 +192,17 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{type(error).__name__}: {error}", file=sys.stderr)
             return 1
         print(json.dumps(esito, indent=2, default=float, ensure_ascii=False))
+        return 0
+
+    if args.command == "compare":
+        from meshrec.core import report
+
+        try:
+            percorso = report.write_comparison_report(args.cartelle, args.out)
+        except Exception as error:
+            print(f"{type(error).__name__}: {error}", file=sys.stderr)
+            return 1
+        print(f"confronto in {percorso}")
         return 0
 
     if args.command == "serve":
