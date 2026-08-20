@@ -80,18 +80,35 @@ def test_il_prisma_parte_dall_origine_e_va_lungo_l_asse_che_gli_si_da():
 def test_l_ordine_di_nodi_ed_elementi_e_canonico_e_non_quello_dei_tag():
     """Quinto vincolo di prodotto. I tag di gmsh sono un ordine di generazione,
     non un dato della geometria, e il progetto ha gia' pagato una volta la
-    lezione dell'ordine di iterazione di una libreria fra due piattaforme."""
+    lezione dell'ordine di iterazione di una libreria fra due piattaforme.
+
+    Il cubo unitario non basta a provarlo: e' simmetrico per permutazione
+    degli assi, quindi non distingue la priorita' x -> y -> z dichiarata da
+    `ordine_canonico` da una qualunque altra priorita' fra gli stessi tre
+    assi (RULING S). Qui il parallelepipedo ha tre estensioni diverse fra
+    loro (1, 2, 3), e la sequenza ordinata attesa e' calcolata a mano
+    scorrendo prima tutti gli x=0, poi gli x=1, e dentro ciascuno prima gli
+    y piu' piccoli poi quelli piu' grandi, e infine gli z: e' l'unica
+    sequenza compatibile con la priorita' x, poi y, poi z."""
     nodi = np.array([
-        [1.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [1.0, 1.0, 0.0],
-        [1.0, 0.0, 1.0], [0.0, 0.0, 1.0], [0.0, 1.0, 1.0], [1.0, 1.0, 1.0],
+        [1.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 2.0, 0.0], [1.0, 2.0, 0.0],
+        [1.0, 0.0, 3.0], [0.0, 0.0, 3.0], [0.0, 2.0, 3.0], [1.0, 2.0, 3.0],
     ])
     esaedri = np.array([[1, 0, 3, 2, 5, 4, 7, 6]], dtype=np.int64)
 
     ordinati, rimappati = hexa.ordine_canonico(nodi, esaedri)
 
-    # i nodi escono ordinati per x, poi y, poi z
-    assert ordinati[0] == pytest.approx([0.0, 0.0, 0.0])
-    assert ordinati[-1] == pytest.approx([1.0, 1.0, 1.0])
+    # sequenza calcolata a mano: x=0 prima di x=1, dentro ciascuno y=0 prima
+    # di y=2, dentro ciascuno z=0 prima di z=3. Una priorita' diversa da
+    # x -> y -> z (per esempio z -> y -> x) produrrebbe un'altra sequenza,
+    # perche' le tre estensioni sono diverse fra loro e nessuna permutazione
+    # delle chiavi coincide con un'altra: verificato permutando le chiavi del
+    # lexsort e osservando la sequenza cambiare (vedi task-7-report.md).
+    attesi = np.array([
+        [0.0, 0.0, 0.0], [0.0, 0.0, 3.0], [0.0, 2.0, 0.0], [0.0, 2.0, 3.0],
+        [1.0, 0.0, 0.0], [1.0, 0.0, 3.0], [1.0, 2.0, 0.0], [1.0, 2.0, 3.0],
+    ])
+    assert ordinati == pytest.approx(attesi)
     # l'elemento punta agli stessi punti fisici di prima
     assert np.sort(ordinati[rimappati[0]], axis=0) == pytest.approx(
         np.sort(nodi[esaedri[0]], axis=0)
@@ -100,3 +117,36 @@ def test_l_ordine_di_nodi_ed_elementi_e_canonico_e_non_quello_dei_tag():
     assert quality.hex_volumes(ordinati, rimappati) == pytest.approx(
         quality.hex_volumes(nodi, esaedri)
     )
+
+
+def test_metriche_strati_conta_i_piani_di_nodi_lungo_l_asse():
+    """`metriche["strati"]` dichiara il vincolo portante del task (RULING U):
+    non puo' essere l'unico testimone di se stesso. N strati di elementi
+    vogliono N+1 piani di nodi distinti lungo l'asse di estrusione, ed e'
+    quello che si conta qui, indipendentemente da come il numero e' stato
+    calcolato."""
+    nodi, _esaedri, metriche = hexa.mesh_prisma(
+        RETTANGOLO, np.zeros(3), ASSE_Z, LUNGHEZZA, ModelConfig()
+    )
+
+    piani = np.unique(np.round(nodi[:, 2], 6))
+    assert len(piani) == metriche["strati"] + 1
+
+
+def test_mesh_prisma_rifiuta_una_lunghezza_non_positiva():
+    """RULING U: senza guardia, lunghezza=0 o negativa producono una mesh
+    valida in forma ma di volume nullo o negativo, senza alcun segnale."""
+    with pytest.raises(ValueError, match="lunghezza"):
+        hexa.mesh_prisma(RETTANGOLO, np.zeros(3), ASSE_Z, 0.0, ModelConfig())
+    with pytest.raises(ValueError, match="lunghezza"):
+        hexa.mesh_prisma(RETTANGOLO, np.zeros(3), ASSE_Z, -1500.0, ModelConfig())
+
+
+def test_passo_di_mesh_rifiuta_un_contorno_con_estensione_nulla_su_un_asse():
+    """RULING U: un contorno degenere (per esempio appiattito su un asse) fa
+    scendere la sezione minima a zero; senza guardia il passo si azzera e la
+    divisione successiva fallisce con un errore che non dice ne' il valore
+    ne' la ragione."""
+    degenere = np.array([[0.0, 0.0], [200.0, 0.0], [200.0, 0.0], [0.0, 0.0]])
+    with pytest.raises(ValueError, match="estensione"):
+        hexa.passo_di_mesh(degenere, ModelConfig())

@@ -38,6 +38,11 @@ def passo_di_mesh(contorno: np.ndarray, cfg: ModelConfig) -> float:
     """
     punti = np.asarray(contorno, dtype=np.float64)
     minima = float(np.min(np.ptp(punti, axis=0)))
+    if minima <= 0.0:
+        raise ValueError(
+            f"il contorno ha estensione nulla su un asse (minima={minima!r} mm): "
+            "non e' una sezione valida per un prisma"
+        )
     tetto = minima / cfg.min_layers
     if cfg.target_size is None:
         return tetto
@@ -116,6 +121,12 @@ def mesh_prisma(
     Restituisce nodi, esaedri e metriche, con nodi ed elementi gia' in ordine
     canonico.
     """
+    if float(lunghezza) <= 0.0:
+        raise ValueError(
+            f"lunghezza={lunghezza!r} non e' positiva: un prisma richiede "
+            "un'estrusione di lunghezza maggiore di zero"
+        )
+
     import gmsh
 
     sagoma = np.asarray(contorno, dtype=np.float64)
@@ -135,15 +146,20 @@ def mesh_prisma(
         ]
         anello = gmsh.model.geo.addCurveLoop(linee)
         superficie = gmsh.model.geo.addPlaneSurface([anello])
-        # setRecombine sulla superficie piu' RecombineAll: senza il primo la
-        # faccia resta triangolata e l'estrusione da' prismi a base triangolare
-        # invece di esaedri, cioe' un elemento che il deck non sa scrivere.
         gmsh.model.geo.mesh.setRecombine(2, superficie)
         gmsh.model.geo.extrude(
             [(2, superficie)], 0.0, 0.0, float(lunghezza),
             numElements=[strati], recombine=True,
         )
         gmsh.model.geo.synchronize()
+        # A impedire i prismi a base triangolare e' Mesh.RecombineAll=1 sotto,
+        # non setRecombine sulla superficie sopra: verificato per mutazione,
+        # togliendo setRecombine il risultato non cambia (832 esaedri, stesso
+        # numero), mentre senza RecombineAll=1 o senza recombine=True
+        # nell'estrusione gmsh non genera piu' esaedri puri, cioe' un elemento
+        # che il deck non sa scrivere. setRecombine resta comunque a fissare
+        # l'intento sulla faccia sorgente, che RecombineAll applica solo a
+        # valle sull'intero maglio.
         gmsh.option.setNumber("Mesh.RecombineAll", 1)
         gmsh.option.setNumber("Mesh.MeshSizeMax", passo)
         gmsh.option.setNumber("Mesh.MeshSizeMin", passo)
