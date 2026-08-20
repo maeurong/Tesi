@@ -309,6 +309,39 @@ def test_il_modello_primitive_squadra_sulla_sezione_misurata_non_sul_contorno():
     assert np.ptp(primitive.contorno, axis=0) == pytest.approx(sezione_grezza)
 
 
+def test_il_modello_primitive_ancora_il_rettangolo_al_centro_non_al_minimo():
+    """Emendamento al Ruling AB (giro di correzione 2): l'ancoraggio al minimo
+    del contorno gia' semplificato, combinato con le estensioni prese da
+    `membratura.sezione` (punti grezzi), e' la combinazione peggiore delle
+    due -- `semplifica_contorno` puo' togliere proprio il vertice che
+    realizza il minimo, e il rettangolo allora inventa materiale da un lato e
+    non copre quello vero dall'altro lato, spostando anche l'asse.
+
+    Contorno pulito 200x140 (minimo [0,0], centro [100,70]), sezione
+    deliberatamente diversa (210,150): le due grandezze vengono da fonti
+    diverse, come sul dato reale dopo `semplifica_contorno`. Se il minimo e
+    il centro coincidessero (fixture con `sezione = ptp(contorno)`) il test
+    non vedrebbe nulla, la stessa trappola di A4.
+
+    Provenienza: centro = (minimo + massimo) / 2 = ([0,0] + [200,140]) / 2 =
+    [100, 70]. Rettangolo atteso = centro +- sezione/2 =
+    [100 -+ 105, 70 -+ 75] = [-5, 205] x [-5, 145].
+
+    Muore se: l'ancoraggio torna al minimo del contorno invece che al centro
+    (produrrebbe [0, 210] x [0, 150], non [-5, 205] x [-5, 145])."""
+    contorno = np.array([[0.0, 0.0], [200.0, 0.0], [200.0, 140.0], [0.0, 140.0]])
+    sezione_grezza = (210.0, 150.0)
+    membratura = _membratura_finta(
+        contorno, [0.0, 0.0, 0.0], [0.0, 0.0, 1.0], LUNGHEZZA, ASSE_Z,
+        sezione=sezione_grezza,
+    )
+
+    primitive = hexa.prisma_di(membratura, "primitive")
+
+    assert np.min(primitive.contorno, axis=0) == pytest.approx([-5.0, -5.0])
+    assert np.max(primitive.contorno, axis=0) == pytest.approx([205.0, 145.0])
+
+
 def test_l_appartenenza_a_un_prisma_e_esatta_sul_contorno_convesso():
     """Muore se: la tolleranza viene applicata sempre invece che su richiesta
     (il punto «appena fuori» entrerebbe), o se non viene applicata affatto

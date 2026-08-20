@@ -263,10 +263,24 @@ def prisma_di(membratura, tipo: str) -> Prisma:
         # grezzi nella stessa base di piano. Squadrare sul contorno
         # pubblicherebbe come "misurato" un numero che la semplificazione ha
         # gia' alterato.
+        #
+        # L'ancoraggio e' il centro del contorno (`(minimo + massimo) / 2`),
+        # non il suo minimo: `Membratura` non porta il minimo dei punti
+        # grezzi, solo `sezione` (le estensioni) e `contorno` (gia'
+        # semplificato) -- e semplificare puo' togliere proprio il vertice
+        # che realizzava il minimo grezzo. Ancorare al minimo del contorno
+        # semplificato mentre le estensioni vengono dai punti grezzi e'
+        # la combinazione peggiore delle due: il rettangolo inventa
+        # materiale da un lato e non copre quello vero dall'altro,
+        # spostando anche l'asse. Il centro non elimina l'errore -- il
+        # minimo dei punti grezzi resta un dato che `Membratura` non porta
+        # -- ma lo dimezza e lo rende simmetrico, cosi' l'asse non trasla.
         larghezza, altezza = (float(valore) for valore in membratura.sezione)
-        minimo = np.min(np.asarray(membratura.contorno, dtype=np.float64), axis=0)
-        rettangolo = minimo + np.array(
-            [[0.0, 0.0], [larghezza, 0.0], [larghezza, altezza], [0.0, altezza]]
+        contorno_grezzo = np.asarray(membratura.contorno, dtype=np.float64)
+        centro = (contorno_grezzo.min(axis=0) + contorno_grezzo.max(axis=0)) / 2.0
+        mezza_estensione = np.array([larghezza, altezza]) / 2.0
+        rettangolo = centro + mezza_estensione * np.array(
+            [[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0], [-1.0, 1.0]]
         )
         return Prisma(
             contorno=rettangolo,
