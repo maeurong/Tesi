@@ -150,3 +150,254 @@ def test_passo_di_mesh_rifiuta_un_contorno_con_estensione_nulla_su_un_asse():
     degenere = np.array([[0.0, 0.0], [200.0, 0.0], [200.0, 0.0], [0.0, 0.0]])
     with pytest.raises(ValueError, match="estensione"):
         hexa.passo_di_mesh(degenere, ModelConfig())
+
+
+def _membratura_finta(contorno, origine, asse, lunghezza, asse_ideale, riempimento="pieno"):
+    from meshrec.core.wall import Membratura
+
+    return Membratura(
+        punti=np.arange(0),
+        asse=np.asarray(asse, dtype=np.float64),
+        origine=np.asarray(origine, dtype=np.float64),
+        lunghezza=float(lunghezza),
+        sezione=(float(np.ptp(contorno[:, 0])), float(np.ptp(contorno[:, 1]))),
+        sezione_dispersione=(0.0, 0.0),
+        contorno=np.asarray(contorno, dtype=np.float64),
+        fuori_piombo_deg=0.0,
+        asse_ideale=np.asarray(asse_ideale, dtype=np.float64),
+        scarto_asse_deg=0.0,
+        rigonfiamento=np.zeros(4),
+        volume=0.0,
+        riempimento_sezione=1.0 if riempimento == "pieno" else 0.3,
+        riempimento_stato=riempimento,
+        densita_dispersione=0.0,
+    )
+
+
+# Il telaio del banco: una colonna 200 x 200 alta 1400 e una trave 300 x 200
+# lunga 1400, la cui faccia inferiore sta a z = 1300. Sono numeri scelti perche'
+# ogni valore atteso qui sotto sia un prodotto di dimensioni o una differenza
+# fra due quote, mai una misura letta dal codice sotto prova.
+COLONNA = np.array([[0.0, 0.0], [200.0, 0.0], [200.0, 200.0], [0.0, 200.0]])
+TRAVE = np.array([[0.0, 0.0], [300.0, 0.0], [300.0, 200.0], [0.0, 200.0]])
+QUOTA_TRAVE = 1300.0
+ALTEZZA_COLONNA = 1400.0
+LUNGHEZZA_TRAVE = 1400.0
+# 1400 - 1300: la colonna arriva 100 mm dentro la trave e li' va tagliata.
+ACCORCIAMENTO_ATTESO = ALTEZZA_COLONNA - QUOTA_TRAVE
+
+
+def _telaio_di_prova():
+    """Le due membrature del banco, nell'ordine colonna, trave."""
+    return [
+        _membratura_finta(COLONNA, [0.0, 0.0, 0.0], [0.0, 0.0, 1.0],
+                          ALTEZZA_COLONNA, [0.0, 0.0, 1.0]),
+        _membratura_finta(TRAVE, [0.0, 0.0, QUOTA_TRAVE], [1.0, 0.0, 0.0],
+                          LUNGHEZZA_TRAVE, [1.0, 0.0, 0.0]),
+    ]
+
+
+def test_una_membratura_a_sezione_vuota_non_diventa_un_modello():
+    """La guardia del Ruling J, che e' l'unica che ferma una Π: wall.py misura
+    e non scarta, quindi una regione il cui ingombro non e' la sezione arriva
+    fin qui. Costruirci sopra vorrebbe dire dare per pieno un vano vuoto.
+
+    Muore se: si toglie la guardia, o se la si allarga a «non_verificabile»
+    (il test qui sotto e' la meta' che smentisce questa)."""
+    vuota = _membratura_finta(
+        RETTANGOLO, [0.0, 0.0, 0.0], [0.0, 0.0, 1.0], LUNGHEZZA, ASSE_Z, riempimento="vuoto"
+    )
+
+    with pytest.raises(ValueError, match="vuoto"):
+        hexa.costruisci([vuota], "estruso", ModelConfig())
+
+
+def test_una_membratura_non_verificabile_si_costruisce_lo_stesso():
+    """Il controllo che smentisce la guardia: «non verificabile» dice che la
+    misura non vale, non che il pezzo e' cavo. Su una nuvola rada e' l'esito
+    normale, e rifiutarlo fermerebbe il modello su meta' dei casi reali.
+
+    Muore se: la guardia rifiuta ogni stato diverso da «pieno»."""
+    incerta = _membratura_finta(
+        RETTANGOLO, [0.0, 0.0, 0.0], [0.0, 0.0, 1.0], LUNGHEZZA, ASSE_Z,
+        riempimento="non_verificabile",
+    )
+
+    esito = hexa.costruisci([incerta], "estruso", ModelConfig())
+
+    assert len(esito["blocchi"]) == 1
+
+
+def test_il_modello_primitive_raddrizza_l_asse_e_squadra_la_sezione():
+    """I due modelli separano due effetti diversi: l'irregolarita' della sezione
+    e il fuori piombo. Se primitive non raddrizzasse, il confronto li
+    sommerebbe in un unico salto invece di distinguerli.
+
+    Muore se: primitive restituisce `membratura.asse` invece di `asse_ideale`,
+    o il contorno rilevato invece del rettangolo."""
+    storto = np.array([0.0, np.sin(np.radians(6.0)), np.cos(np.radians(6.0))])
+    sezione_irregolare = np.array([[0.0, 0.0], [200.0, 4.0], [197.0, 140.0], [3.0, 136.0]])
+    membratura = _membratura_finta(
+        sezione_irregolare, [0.0, 0.0, 0.0], storto, LUNGHEZZA, [0.0, 0.0, 1.0]
+    )
+
+    estruso = hexa.prisma_di(membratura, "estruso")
+    primitive = hexa.prisma_di(membratura, "primitive")
+
+    assert estruso.asse == pytest.approx(storto)
+    assert primitive.asse == pytest.approx([0.0, 0.0, 1.0])
+    assert len(estruso.contorno) == 4
+    assert len(primitive.contorno) == 4
+    # primitive e' il rettangolo dei valori misurati: quattro angoli retti
+    lati = np.diff(np.vstack([primitive.contorno, primitive.contorno[:1]]), axis=0)
+    for primo, secondo in zip(lati, np.roll(lati, -1, axis=0), strict=True):
+        assert float(np.dot(primo, secondo)) == pytest.approx(0.0, abs=1e-9)
+
+
+def test_il_modello_primitive_conserva_le_dimensioni_misurate():
+    """Il controllo che smentisce il precedente: raddrizzare non vuol dire
+    inventare. Le due dimensioni del rettangolo sono quelle misurate.
+
+    La sezione del banco e' **irregolare** apposta: con un rettangolo gia'
+    squadrato, un primitive che restituisse il contorno tal quale supererebbe
+    il test senza fare nulla — verificato per mutazione.
+
+    Muore se: primitive copia il contorno rilevato; muore anche se lo squadra
+    su dimensioni che non sono le due estensioni misurate."""
+    # 250 x 175 sono le estensioni della sezione irregolare qui sotto:
+    # np.ptp sui vertici da' esattamente quei due numeri.
+    sezione = np.array([[0.0, 0.0], [250.0, 6.0], [246.0, 175.0], [4.0, 169.0]])
+    membratura = _membratura_finta(
+        sezione, [0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 900.0, [0.0, 0.0, 1.0]
+    )
+
+    primitive = hexa.prisma_di(membratura, "primitive")
+
+    assert np.ptp(primitive.contorno, axis=0) == pytest.approx([250.0, 175.0])
+    assert primitive.lunghezza == pytest.approx(900.0)
+    assert not np.allclose(primitive.contorno, sezione), "primitive squadra, non copia"
+
+
+def test_l_appartenenza_a_un_prisma_e_esatta_sul_contorno_convesso():
+    """Muore se: la tolleranza viene applicata sempre invece che su richiesta
+    (il punto «appena fuori» entrerebbe), o se non viene applicata affatto
+    (non entrerebbe nemmeno quando la si chiede)."""
+    prisma = hexa.Prisma(
+        contorno=RETTANGOLO, origine=np.zeros(3), asse=ASSE_Z, lunghezza=1000.0
+    )
+    dentro = np.array([[100.0, 70.0, 500.0], [1.0, 1.0, 1.0]])
+    fuori = np.array([[300.0, 70.0, 500.0], [100.0, 70.0, 1500.0], [100.0, -5.0, 500.0]])
+
+    assert hexa.dentro(prisma, dentro).all()
+    assert not hexa.dentro(prisma, fuori).any()
+
+    # la tolleranza e' un margine chiesto, non un predefinito: mezzo millimetro
+    # fuori dalla faccia y = 0 sta fuori, ed entra solo se la si concede.
+    appena_fuori = np.array([[100.0, -0.5, 500.0]])
+    assert not hexa.dentro(prisma, appena_fuori).any()
+    assert hexa.dentro(prisma, appena_fuori, tolleranza=1.0).all()
+
+
+def test_due_prismi_che_si_compenetrano_vengono_tagliati_sul_bordo_del_solido():
+    """Le membrature si compenetrano dove si incontrano, e senza taglio il
+    volume viene contato due volte: un errore che nessuna metrica di qualita'
+    vedrebbe, e per questo il controllo lo cerca esplicitamente.
+
+    Il taglio si ferma sul **bordo del solido**, trovato per bisezione, non
+    sull'ultimo campione libero: la differenza e' 5,5 mm su questo banco, ed e'
+    cio' che rende possibile il `*TIE` del test in fondo — due superfici
+    distanti mezzo centimetro non si legano.
+
+    Ogni numero atteso qui e' geometria dichiarata, non una lettura:
+    l'accorciamento e' 1400 - 1300 = 100 mm, cioe' quanto la colonna entrava
+    nella trave; il volume e' la somma di due prodotti di dimensioni, senza
+    sottrazioni, perche' dopo il taglio i due solidi non si sovrappongono piu'.
+
+    Muore se: si toglie il taglio (accorciamento 0, volume in eccesso dell'8,8%);
+    muore anche se si toglie la sola bisezione e ci si ferma sul campione
+    (accorciamento 94,5 invece di 100, volume in eccesso dello 0,16%) — entrambe
+    le mutazioni verificate."""
+    colonna = hexa.Prisma(
+        contorno=COLONNA, origine=np.array([0.0, 0.0, 0.0]),
+        asse=np.array([0.0, 0.0, 1.0]), lunghezza=ALTEZZA_COLONNA,
+    )
+    trave = hexa.Prisma(
+        contorno=TRAVE, origine=np.array([0.0, 0.0, QUOTA_TRAVE]),
+        asse=np.array([1.0, 0.0, 0.0]), lunghezza=LUNGHEZZA_TRAVE,
+    )
+
+    tagliati, giunzioni = hexa.taglia_giunzioni([colonna, trave])
+
+    assert len(tagliati) == 2
+    assert len(giunzioni) == 1
+    # per indice e mai con min(): la trave e' piu' corta della colonna intera,
+    # e un min() farebbe passare il test scegliendo il prisma mai tagliato.
+    assert (giunzioni[0]["minore"], giunzioni[0]["maggiore"]) == (0, 1)
+    assert giunzioni[0]["accorciamento"] == pytest.approx(ACCORCIAMENTO_ATTESO, abs=1e-6)
+    assert tagliati[0].lunghezza == pytest.approx(QUOTA_TRAVE, abs=1e-6)
+    assert tagliati[1].lunghezza == pytest.approx(LUNGHEZZA_TRAVE)
+
+    somma = sum(
+        abs(hexa._area_poligono(p.contorno)) * p.lunghezza for p in tagliati
+    )
+    # rel=1e-9 e non una tolleranza larga: dopo la bisezione l'errore misurato
+    # e' 1,3e-15, cioe' il solo residuo in virgola mobile. Una tolleranza che
+    # copre l'errore che dovrebbe scoprire e' un permesso, non una tolleranza.
+    assert somma == pytest.approx(
+        200.0 * 200.0 * QUOTA_TRAVE + 300.0 * 200.0 * LUNGHEZZA_TRAVE, rel=1e-9
+    )
+
+
+def test_un_prisma_che_attraversa_un_altro_da_parte_a_parte_e_rifiutato():
+    """Il soffitto dichiarato del taglio, con il proprio controllo invece che
+    come nota: l'accorciamento lungo l'asse non sa dividere un prisma in due.
+
+    Una colonna alta 1600 passa oltre la trave, che sta fra 1300 e 1500: le due
+    estremita' restano libere e l'invasione e' una banda centrale. Prima della
+    correzione del 20/08/2026 questo caso non sollevava — la guardia guardava
+    `invaso[0] and invaso[-1]`, che e' il contenimento, non l'attraversamento —
+    e produceva un accorciamento di zero in silenzio.
+
+    Muore se: la guardia torna a controllare il contenimento invece
+    dell'attraversamento, o sparisce."""
+    passante = hexa.Prisma(
+        contorno=COLONNA, origine=np.array([0.0, 0.0, 0.0]),
+        asse=np.array([0.0, 0.0, 1.0]), lunghezza=1600.0,
+    )
+    trave = hexa.Prisma(
+        contorno=TRAVE, origine=np.array([0.0, 0.0, QUOTA_TRAVE]),
+        asse=np.array([1.0, 0.0, 0.0]), lunghezza=LUNGHEZZA_TRAVE,
+    )
+
+    with pytest.raises(ValueError, match="parte a parte"):
+        hexa.taglia_giunzioni([passante, trave])
+
+
+def test_il_telaio_costruito_dichiara_le_superfici_del_tie():
+    """La mesh di due membrature adiacenti non combacia nodo a nodo: il legame
+    e' un *TIE fra superfici a contatto, e le superfici devono avere facce.
+
+    Non basta che i due nomi esistano nel dizionario: un *TIE su una superficie
+    senza facce e' accettato dal solutore e non vincola nulla — verificato con
+    CalculiX, che sulla geometria compenetrata esce con codice 0, senza alcun
+    `*ERROR`, e stampa `*WARNING in gentiedmpc: no tied MPC`. Le facce sono la
+    cosa da asserire.
+
+    Muore se: si toglie il taglio (le due mesh si compenetrano e le superfici
+    nominano facce sepolte dentro l'altro solido, che il solutore non lega);
+    muore se si toglie la bisezione (le superfici restano vuote, distanti 5,5 mm,
+    e `ties` esce vuota); muore se la tolleranza di contatto va a zero (le
+    superfici restano vuote per il solo residuo della bisezione)."""
+    modello = hexa.costruisci(_telaio_di_prova(), "estruso", ModelConfig())
+
+    assert modello["elementi"].shape[1] == 8
+    assert len(modello["blocchi"]) == 2
+    assert modello["ties"], "due membrature che si toccano devono avere un *TIE"
+    for _nome, dipendente, indipendente in modello["ties"]:
+        assert modello["superfici"][dipendente], "superficie dipendente senza facce"
+        assert modello["superfici"][indipendente], "superficie indipendente senza facce"
+    # una sola giunzione: le due membrature si incontrano in un punto solo
+    assert modello["metriche"]["giunzioni"] == 1
+    assert modello["metriche"]["accorciamenti"] == pytest.approx(
+        [ACCORCIAMENTO_ATTESO], abs=1e-6
+    )
