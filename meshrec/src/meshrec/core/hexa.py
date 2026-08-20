@@ -465,9 +465,10 @@ def taglia_giunzioni(prismi: list[Prisma]) -> tuple[list[Prisma], list[dict[str,
 def costruisci(membrature: list, tipo: str, cfg: ModelConfig) -> dict[str, object]:
     """Il telaio intero: prismi tagliati, mesh di ciascuno, superfici e vincoli.
 
-    Le mesh di membrature adiacenti non combaciano nodo a nodo -- una sezione
-    da 172 contro una da 700 -- quindi il legame e' un `*TIE` fra le superfici
-    a contatto e non una fusione di nodi. **La mesh conforme multiblocco resta
+    Le mesh di membrature adiacenti non combaciano nodo a nodo -- ciascuna ha
+    il passo della propria sezione, e due sezioni diverse danno due passi
+    diversi -- quindi il legame e' un `*TIE` fra le superfici a contatto e non
+    una fusione di nodi. **La mesh conforme multiblocco resta
     la via d'aggiornamento**, e non e' un dettaglio d'attuazione: e' una
     differenza fra i modelli che non deriva dalla geometria, ed e' per questo
     che il report la dichiara accanto al confronto. Senza quella riga, una
