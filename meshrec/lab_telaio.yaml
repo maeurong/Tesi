@@ -1,0 +1,120 @@
+input:
+  path: ../Nuvole di punti/lab_frame.pcd
+  scale: 1000.0
+  max_points: 20000000
+  expected_size: null
+  size_tolerance: 0.2
+  spacing_sample: 20000
+  seed: 0
+segment:
+  method: crop
+  outlier_neighbors: 20
+  outlier_std_ratio: 2.0
+  # Ritaglio misurato il 21/08/2026 su lab_frame.pcd (152 MB), non copiato da
+  # lab.yaml: quello scende solo fino a z=-480 (sopra le zapatas) ed e' largo
+  # 290 mm in y (il solo telaio). Qui z e y sono letti dalla nuvola stessa:
+  # - z: piano del pavimento trovato con RANSAC (o3d.segment_plane) sui punti
+  #   con z < -350 nella stessa fascia x, normale quasi verticale
+  #   (0.005, -0.006, 1.000), inlier fra z=-522.5 e z=-498.5. crop_min[2]
+  #   = -498, appena sopra il bordo alto del pavimento.
+  # - y: nella fascia z fra il pavimento e -467 (dove l'ampiezza in y crolla
+  #   da 441 a 217 mm, la transizione zapata -> colonna) i punti coprono
+  #   y da -675.5 a 63.5. crop_min/max[1] allargano quell'intervallo di
+  #   circa 5-7 mm per margine: -680 e 70, larghezza 750 mm contro i 700
+  #   nominali di tavola.
+  # x e crop_max[2] restano quelli di lab.yaml: la fascia x non taglia il
+  # telaio e z=1230 comprende gia' la sommita'.
+  crop_min:
+  - 1690.0
+  - -680.0
+  - -498.0
+  crop_max:
+  - 4460.0
+  - 70.0
+  - 1230.0
+  plane_distance_factor: 3.0
+  plane_max_count: 4
+  plane_min_points_ratio: 0.05
+  cluster_eps_factor: 4.0
+  cluster_min_points: 50
+  cluster_index: 0
+downsample:
+  voxel_size: 10.0
+  voxel_factor: 2.0
+normals:
+  knn: 30
+  orient_knn: 30
+surface:
+  method: poisson
+  poisson_depth: 7
+  poisson_width: 0.0
+  poisson_scale: 1.1
+  density_quantile: 0.05
+  poisson_n_threads: 1
+  bpa_radius_factors:
+  - 1.0
+  - 2.0
+  - 4.0
+  alpha_factor: 5.0
+repair:
+  largest_component_only: true
+  max_hole_area: null
+  join_components: false
+simplify:
+  enabled: false
+  mode: remesh
+  target_faces: null
+  remesh_target_len_pct: 1.0
+  taubin_iterations: 0
+tet:
+  min_ratio: 1.8
+  max_volume: null
+  max_steiner_points: -1
+  nobisect: true
+  element: C3D4
+analysis:
+  material:
+    # Il valore e' un'assunzione dell'operatore, scelta su C25/30: la tavola
+    # MURO 1 non dichiara la classe del calcestruzzo (stessa avvertenza di
+    # fase-4-materiale.md).
+    name: CALCESTRUZZO_C25_30
+    young: 31500.0
+    poisson: 0.2
+    density: 2.5e-09
+  gravity: 9810.0
+  fixed_nset: BASE
+  step_name: GRAVITA
+  set_tolerance_factor: 6.0
+wall:
+  cell_factor: 4.0
+  thickness_tolerance: 0.15
+  min_cells: 12
+  floor_angle_deg: 15.0
+  floor_min_ratio: 0.10
+  contour_tolerance: 5.0
+  parallelism_deg: 5.0
+  face_coverage: 0.5
+  section_dispersion: 0.10
+  union_tolerance: 0.02
+  union_step_factor: 2.0
+  # Riscontri dichiarati, dalla tavola MURO 1 (obra 0021, novembre 2021,
+  # ing. Jose A. Barros Cabezas). Sono dati del caso e non del programma: su
+  # una geometria mai vista queste tre voci restano null e il prior riporta
+  # cio' che ha trovato senza inventare un'aspettativa.
+  membrature_attese: 6
+  sezioni_nominali:
+    - [700.0, 250.0]   # zapata, x2
+    - [250.0, 250.0]   # viga inferior
+    - [172.0, 172.0]   # columna, x2
+    - [140.0, 175.0]   # viga superior
+  volume_atteso: 477700000.0   # 0,4777 m^3 in mm^3
+model:
+  element: C3D8I
+  min_layers: 3
+  target_size: null
+  tie_name_prefix: GIUNZIONE
+  lateral_nset: null
+  lateral_pressure: null
+run:
+  out_dir: runs/lab_telaio
+  from_step: 1

@@ -103,3 +103,6 @@ Finche' era un predefinito la cosa era innocua; ora arriva dalla riga di comando
 o dallo yaml, quindi `Material.name` accetta soltanto `[A-Za-z0-9_.-]+`. Senza
 quel vincolo un accento romperebbe l'esportazione **dopo** l'intera pipeline, e
 un a capo scriverebbe card in piu' nel deck senza che nulla se ne accorga.
+
+Il resto della Fase 4 — il prior geometrico del telaio, i due modelli
+parametrici e il confronto — sta in [`fase-4-prior-telaio.md`](fase-4-prior-telaio.md).
