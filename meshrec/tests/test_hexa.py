@@ -466,6 +466,25 @@ def test_un_telaio_senza_legami_avvisa_invece_di_uscire_muto():
     assert modello["ties"] == ()
 
 
+def test_una_membratura_sola_non_avvisa_di_non_essere_legata():
+    """Il rovescio del test qui sopra. Una membratura sola non ha niente a cui
+    legarsi: l'avviso direbbe il vero senza dire nulla, e un avviso che si
+    ripete su un caso normale insegna a ignorarlo proprio quando conta. Il
+    conteggio pero' resta, perche' e' un fatto e non un giudizio.
+
+    Muore se: la condizione dell'avviso torna a essere il solo `non_legate`
+    senza il vincolo sul numero di membrature."""
+    import warnings as modulo_avvisi
+
+    sola = _membratura_finta(RETTANGOLO, [0.0, 0.0, 0.0], [0.0, 0.0, 1.0], LUNGHEZZA, ASSE_Z)
+
+    with modulo_avvisi.catch_warnings():
+        modulo_avvisi.simplefilter("error", hexa.MembratureNonLegateWarning)
+        esito = hexa.costruisci([sola], "estruso", ModelConfig())
+
+    assert esito["metriche"]["membrature_non_legate"] == 1
+
+
 def test_una_sovrapposizione_d_angolo_che_la_baricentrica_non_vede_e_rifiutata():
     """A2 del giro di correzione 1. La retta baricentrica del prisma minore
     puo' mancare il maggiore anche quando i due prismi si compenetrano

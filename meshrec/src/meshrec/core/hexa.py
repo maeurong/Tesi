@@ -637,11 +637,14 @@ def costruisci(membrature: list, tipo: str, cfg: ModelConfig) -> dict[str, objec
     # producono lo stesso stato interno, e solo l'avviso le distingue da un
     # errore silenzioso.
     non_legate = [numero for numero in range(len(tagliati)) if numero not in connesse]
-    if non_legate:
+    # Una membratura sola non ha niente a cui legarsi: l'avviso direbbe il vero
+    # senza dire nulla, e un avviso che si ripete su un caso normale insegna a
+    # ignorarlo proprio quando conta.
+    if non_legate and len(tagliati) > 1:
         warnings.warn(
-            f"{len(non_legate)} membrature non compaiono in alcun *TIE*: "
-            f"indici {non_legate}. Se non e' la scelta di modellarle come "
-            "corpi separati, verifica il gioco fra le geometrie",
+            f"membrature non legate da alcun *TIE*: {len(non_legate)} su "
+            f"{len(tagliati)}, indici {non_legate}. Se non e' la scelta di "
+            "modellarle come corpi separati, verifica il gioco fra le geometrie",
             MembratureNonLegateWarning,
             stacklevel=2,
         )
