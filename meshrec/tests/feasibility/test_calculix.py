@@ -282,4 +282,9 @@ def test_un_prisma_solo_di_mesh_prisma_e_letto_dal_solutore(tmp_path):
     assert process.returncode == 0, process.stdout[-2000:] + process.stderr[-2000:]
     assert "*ERROR" not in process.stdout
     assert not avvisi_inattesi(process.stdout), "\n".join(avvisi_inattesi(process.stdout))
-    assert (tmp_path / "model.dat").exists()
+    # Non basta che `model.dat` esista: CalculiX lo scrive comunque, anche vuoto,
+    # se nessun *NODE PRINT gli ha chiesto dei risultati. Chiedere gli spostamenti
+    # e' cio' che rende il controllo sensibile -- e' la stessa forma gia' usata
+    # dagli altri due test di questo file.
+    spostamenti = read_dat_displacements(tmp_path / "model.dat")
+    assert spostamenti, "il .dat non contiene spostamenti: il deck e' stato risolto a vuoto"
