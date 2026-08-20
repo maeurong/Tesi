@@ -115,3 +115,90 @@ def test_la_pressione_su_s4_sposta_la_faccia_x_massimo_e_non_un_altra(tmp_path):
 
     assert ux_caricato < 0.0, "la pressione su S4 deve spingere verso -x, non gonfiare il lato"
     assert ux_caricato < ux_non_caricato, "il lato caricato deve muoversi piu' del lato opposto"
+
+
+def test_i_tie_del_telaio_a_quattro_membrature_legano_davvero(tmp_path):
+    """Task 8, giro di correzione 5 — il controllo non circolare.
+
+    Nessun controllo interno al progetto puo' dire se un `*TIE` lega
+    davvero: puo' solo dire che la superficie che gli passiamo ha facce.
+    CalculiX invece, per ciascun nodo della superficie dipendente, o lo lega
+    o stampa `*WARNING in gentiedmpc: no tied MPC` senza fallire il job -- un
+    deck accettato e un vincolo parzialmente assente allo stesso tempo, che
+    nessun controllo interno vedrebbe. E' per questo che resta l'unico
+    controllo qui elencato che non dipende dalla stessa geometria che genera
+    cio' che verifica.
+
+    **Misurato in questa sessione, e il test e' rosso**: `tie constraints: 4`
+    (i quattro *TIE sono tutti registrati) ma il solutore stampa comunque
+    `no tied MPC` -- decine di volte, per singoli nodi della superficie
+    dipendente che non si proiettano sull'indipendente entro la tolleranza
+    propria di CalculiX. Non e' una regressione di questo giro: con il
+    criterio per nodi del giro precedente (due sole giunzioni legate secondo
+    il controllo interno) il solutore stampava comunque `no tied MPC` decine
+    di volte sulle stesse due giunzioni -- confrontato in questa sessione,
+    codice non toccato dal commit. Il divario fra "la nostra superficie ha
+    facce" e "CalculiX lega ogni nodo" e' precedente a questo giro e a
+    Ruling AF, e resta aperto: la via d'aggiornamento e' probabilmente una
+    `POSITION TOLERANCE` sulla card `*TIE`, che oggi il deck non scrive e che
+    non e' stata toccata qui, essendo una decisione fuori dallo scopo di
+    questo giro.
+    """
+    executable = shutil.which("ccx")
+    if executable is None:
+        pytest.skip("eseguibile 'ccx' non presente nel PATH")
+
+    from meshrec.core import hexa, wall
+    from meshrec.core.config import ModelConfig, SegmentConfig, WallConfig
+
+    # Stesso telaio sintetico di tests/test_hexa.py e tests/test_wall.py: due
+    # montanti, due traversi. I numeri del banco stanno nei test, non in src/.
+    telaio = [
+        ((0.0, -90.0, 0.0), (200.0, 180.0, 1600.0)),
+        ((1400.0, -130.0, 0.0), (200.0, 260.0, 1600.0)),
+        ((0.0, -70.0, 1600.0), (1600.0, 140.0, 300.0)),
+        ((0.0, -170.0, -300.0), (1600.0, 340.0, 300.0)),
+    ]
+    spaziatura = 20.0
+    punti = synth.sample_frame_surface(telaio, spaziatura)
+    cfg_segment = SegmentConfig()
+    cfg_wall = WallConfig()
+
+    puliti, _ = wall.scarta_pavimento(punti, cfg_segment, cfg_wall, spaziatura)
+    regioni_punti, _ = wall.scomponi(puliti, cfg_segment, cfg_wall, spaziatura)
+    direzioni, _ = wall.terna(puliti)
+    accettate = []
+    for indici in regioni_punti:
+        membratura = wall.misura(puliti[indici], direzioni, cfg_wall)
+        membratura.punti = indici
+        membratura.esiti = wall.controlla(membratura, cfg_wall)
+        if all(esito["passato"] for esito in membratura.esiti.values()):
+            accettate.append(membratura)
+
+    cfg = ModelConfig()
+    modello = hexa.costruisci(accettate, "estruso", cfg)
+    assert modello["ties"], "il telaio deve avere almeno un *TIE da verificare col solutore"
+
+    z = modello["nodi"][:, 2]
+    node_sets = {"BASE": np.flatnonzero(z <= z.min() + 1e-6)}
+
+    abaqus.write_inp(
+        tmp_path / "model.inp", modello["nodi"], modello["elementi"],
+        node_sets=node_sets,
+        material=Material(name="MURATURA", young=1500.0, poisson=0.2, density=1.8e-9),
+        element_type=cfg.element,
+        element_surfaces=modello["superfici"],
+        ties=modello["ties"],
+    )
+
+    process = subprocess.run(
+        [executable, "-i", "model"],
+        cwd=tmp_path, capture_output=True, text=True, timeout=600,
+    )
+    assert process.returncode == 0, process.stdout[-2000:] + process.stderr[-2000:]
+    assert "no tied MPC" not in process.stdout, (
+        "il solutore ha accettato il deck ma per almeno un nodo della superficie "
+        "dipendente non ha generato il vincolo (`*WARNING in gentiedmpc: no tied "
+        "MPC`): un *TIE parzialmente inefficace che nessun controllo interno "
+        "vedrebbe, esattamente cio' che questo test esiste per cercare"
+    )

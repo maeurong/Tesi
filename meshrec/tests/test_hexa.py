@@ -661,13 +661,14 @@ def test_il_telaio_a_quattro_membrature_si_costruisce_ruling_ad():
     assert len(modello["blocchi"]) == 4
     assert modello["metriche"]["giunzioni"] == 4
     assert modello["metriche"]["membrature_non_legate"] == 0
-    # Misurato in questa sessione (giro di correzione 4, dopo Ruling AE): 2 su
-    # 4, invariato rispetto al giro 3. Ruling AE non ne aggiunge su questo
-    # telaio -- il cuneo (misurato dai vertici del contorno di chi cede) esce
-    # zero o comunque insufficiente sulle due giunzioni che restano senza
-    # `*TIE`, che e' un risultato diverso dall'assumere che diventino quattro.
-    # Non forzato: e' il numero letto, non quello atteso prima di leggerlo.
-    assert modello["metriche"]["ties"] == 2
+    # Misurato in questa sessione (giro di correzione 5, dopo Ruling AF): 4 su
+    # 4, non 2 come nel giro 4. Il criterio per baricentro (vedi
+    # `abaqus.tie_surface`) trova una superficie non vuota anche sulle due
+    # giunzioni dove il criterio per nodi uno dei due lati restava a zero
+    # (una faccia puo' avere il baricentro dentro l'altro solido pur non
+    # avendo tutti i nodi dentro). Misurato, non assunto: la previsione era
+    # quattro, e il numero letto e' quattro.
+    assert modello["metriche"]["ties"] == 4
 
 
 def test_il_cuneo_e_calcolato_dalla_geometria_e_allarga_le_facce_a_contatto():
@@ -686,13 +687,13 @@ def test_il_cuneo_e_calcolato_dalla_geometria_e_allarga_le_facce_a_contatto():
     quella distanza per la tangente dell'angolo fuori squadra --
     100 * tan(1 grado) = 1,7455 mm.
 
-    Le due facce attese (20 sul lato dipendente, 9 sul lato indipendente)
-    sono lette da `hexa.costruisci` in questa sessione, non assunte prima di
-    eseguire.
+    Le due facce attese (20 sul lato dipendente, 12 sul lato indipendente,
+    per baricentro -- Ruling AF del giro di correzione 5) sono lette da
+    `hexa.costruisci` in questa sessione, non assunte prima di eseguire.
 
     Muore se: la tolleranza di contatto torna a essere solo
     `_TOLLERANZA_CONTATTO`, senza il cuneo per giunzione -- misurato in
-    questa sessione che le facce scendono da 20/9 a 9/3 (mutazione
+    questa sessione che le facce scendono da 20/12 a 10/6 (mutazione
     applicata: `tolleranza = max(_TOLLERANZA_CONTATTO, ...)` ->
     `tolleranza = _TOLLERANZA_CONTATTO`)."""
     angolo = np.radians(1.0)
@@ -712,4 +713,4 @@ def test_il_cuneo_e_calcolato_dalla_geometria_e_allarga_le_facce_a_contatto():
     assert modello["ties"], "la giunzione fuori squadra deve comunque legarsi"
     _nome, dipendente, indipendente = modello["ties"][0]
     assert len(modello["superfici"][dipendente]) == 20
-    assert len(modello["superfici"][indipendente]) == 9
+    assert len(modello["superfici"][indipendente]) == 12

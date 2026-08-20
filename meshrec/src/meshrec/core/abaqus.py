@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import warnings
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
@@ -258,6 +259,61 @@ def element_surface(
     for posizione in range(len(combinazioni)):
         tutte_dentro = dentro[facce[:, posizione, :]].all(axis=1) & di_bordo[:, posizione]
         coppie += [(int(indice), posizione + 1) for indice in np.flatnonzero(tutte_dentro)]
+    coppie.sort()
+    return coppie
+
+
+def tie_surface(
+    nodes: np.ndarray,
+    elements: np.ndarray,
+    dentro_altro: Callable[[np.ndarray], np.ndarray],
+    element_type: str,
+) -> list[tuple[int, int]]:
+    """Le coppie (elemento, numero di faccia) di bordo il cui baricentro cade dentro l'altro solido.
+
+    Criterio diverso da `element_surface` apposta, per una ragione fisica e
+    non stilistica: un `*TIE` lega due superfici che si toccano, e il
+    contatto e' una questione di **area sovrapposta**, non di nodi
+    coincidenti -- le due mesh ai lati di una giunzione (Ruling AE) sono
+    generate indipendentemente e non condividono nodi, quindi pretendere che
+    tutti e quattro i nodi di una faccia cadano dentro l'altro solido
+    escluderebbe facce che si toccano davvero solo perche' un angolo e' appena
+    fuori. Un carico invece si applica dove l'utente lo ha nominato, e li'
+    l'ambiguita' non e' ammessa: e' per questo che `element_surface` resta
+    quella che e', non si tocca, e questa e' una funzione a parte.
+
+    `dentro_altro` e' la geometria iniettata come funzione (punti -> booleani)
+    e non un import di `hexa.Prisma`/`hexa.dentro`: `abaqus.py` non dipende da
+    `hexa.py`, che gia' importa `abaqus.py`, e importare nell'altro verso
+    creerebbe un ciclo.
+
+    Solo facce di bordo (`boundary_faces`, non toccata): una faccia interna,
+    condivisa da due elementi, non e' pelle e non puo' stare in una
+    superficie, qui come in `element_surface`.
+    """
+    if element_type not in NODI_PER_ELEMENTO:
+        raise ValueError(f"tipo di elemento '{element_type}' sconosciuto")
+    punti = np.asarray(nodes, dtype=np.float64)
+    elementi = np.asarray(elements, dtype=np.int64)
+    angoli = 8 if NODI_PER_ELEMENTO[element_type] == 8 else 4
+
+    combinazioni = FACCE_DEL_SOLUTORE[angoli]
+    nodi_per_faccia = len(combinazioni[0])
+    facce = np.stack([elementi[:, list(combo)] for combo in combinazioni], axis=1)
+    ordinate = np.sort(facce, axis=2).reshape(-1, nodi_per_faccia)
+    bordo_uniche = {tuple(riga) for riga in np.sort(boundary_faces(elementi), axis=1).tolist()}
+    di_bordo = np.array(
+        [tuple(riga) in bordo_uniche for riga in ordinate.tolist()], dtype=bool
+    ).reshape(facce.shape[0], facce.shape[1])
+
+    baricentri = punti[facce].mean(axis=2)  # (n_elementi, n_facce, 3)
+    forma = baricentri.shape[:2]
+    dentro = dentro_altro(baricentri.reshape(-1, 3)).reshape(forma)
+
+    coppie: list[tuple[int, int]] = []
+    for posizione in range(len(combinazioni)):
+        selezionate = dentro[:, posizione] & di_bordo[:, posizione]
+        coppie += [(int(indice), posizione + 1) for indice in np.flatnonzero(selezionate)]
     coppie.sort()
     return coppie
 

@@ -788,6 +788,47 @@ def test_la_superficie_di_elemento_non_include_una_faccia_interna_condivisa():
         assert nodi_faccia != condivisa, "la faccia interna condivisa non deve comparire"
 
 
+def test_la_superficie_del_tie_nomina_la_faccia_il_cui_baricentro_e_dentro():
+    """Ruling AF (giro di correzione 5): il criterio del `*TIE` e' diverso da
+    quello di `element_surface` apposta -- vedi il docstring di
+    `tie_surface`. Il cubo unitario ha la faccia S1 (z=0) con baricentro
+    esatto (0.5, 0.5, 0.0): nessun nodo del cubo sta li' (sono tutti agli
+    angoli), quindi un criterio per nodi non potrebbe mai nominare S1 da
+    questo predicato -- solo un criterio per baricentro puo'.
+
+    Muore se: `tie_surface` torna a un criterio per nodi (tipo
+    `element_surface`) invece che per baricentro -- il predicato dato non
+    coinciderebbe mai con un nodo reale e la superficie uscirebbe vuota."""
+    def dentro_altro(punti):
+        return np.linalg.norm(punti - np.array([0.5, 0.5, 0.0]), axis=1) < 0.1
+
+    superficie = abaqus.tie_surface(_CUBO, _ESAEDRO, dentro_altro, "C3D8I")
+
+    assert superficie == [(0, 1)], "S1 e' l'unica faccia col baricentro li' vicino"
+
+
+def test_la_superficie_del_tie_non_include_una_faccia_interna_condivisa():
+    """Stesso RULING N di `element_surface`, sulla nuova funzione: una faccia
+    interna condivisa da due elementi non e' pelle, qualunque cosa dica il
+    predicato del baricentro. Il predicato qui e' sempre vero apposta, cosi'
+    il test isola il filtro sul bordo (`boundary_faces`) dal criterio del
+    baricentro -- se il filtro sparisse, tutte e dodici le facce (sei per
+    elemento) comparirebbero, non dieci.
+
+    Muore se: il filtro sulle sole facce di bordo sparisce."""
+    doppio = np.array(
+        [[0, 1, 2, 3, 4, 5, 6, 7], [4, 5, 6, 7, 8, 9, 10, 11]], dtype=np.int64
+    )
+    coordinate = np.zeros((12, 3))  # il predicato ignora la geometria: e' sempre vero
+
+    def dentro_altro(punti):
+        return np.ones(len(punti), dtype=bool)
+
+    superficie = abaqus.tie_surface(coordinate, doppio, dentro_altro, "C3D8I")
+
+    assert len(superficie) == 10, "sei piu' sei meno la faccia condivisa contata due volte"
+
+
 _SCATOLA = np.array([
     [0.0, 0.0, 0.0], [2.0, 0.0, 0.0], [2.0, 3.0, 0.0], [0.0, 3.0, 0.0],
     [0.0, 0.0, 5.0], [2.0, 0.0, 5.0], [2.0, 3.0, 5.0], [0.0, 3.0, 5.0],

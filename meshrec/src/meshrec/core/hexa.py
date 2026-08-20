@@ -729,12 +729,25 @@ def costruisci(membrature: list, tipo: str, cfg: ModelConfig) -> dict[str, objec
     nodi = np.ascontiguousarray(np.vstack(nodi_totali))
     elementi = np.ascontiguousarray(np.vstack(elementi_totali))
 
-    # Le superfici a contatto: per ogni giunzione, le facce del prisma minore
-    # che toccano il maggiore, e viceversa. La tolleranza e'
+    # Le superfici a contatto: per ogni giunzione, le facce di bordo del
+    # prisma minore il cui **baricentro** cade dentro il maggiore, e
+    # viceversa (Ruling AF, giro di correzione 5: vedi `abaqus.tie_surface`
+    # per la ragione fisica del criterio, diverso apposta da
+    # `element_surface`). La tolleranza resta
     # `max(_TOLLERANZA_CONTATTO, giunzione["cuneo"])` (Ruling AE) e non il
     # passo di mesh: un margine grande quanto il passo di mesh legherebbe
     # anche superfici che non si toccano, e il controllo passerebbe senza che
     # il modello sia giusto.
+    #
+    # Il criterio per baricentro e' stato scelto al posto dell'altra leva
+    # aperta -- infittire la mesh alle giunzioni -- per una decisione
+    # dell'utente, non per semplicita' di codice: infittire proprio dove le
+    # sollecitazioni sono massime introdurrebbe una variazione di densita' di
+    # mesh in quella stessa zona, e una mesh disomogenea li' rende meno
+    # leggibile il confronto fra i tre modelli (as-built, estruso,
+    # primitive), che e' l'obiettivo del prior. Meglio una mesh omogenea
+    # ovunque, anche a costo di una superficie di contatto un poco piu'
+    # larga di quella nodo-per-nodo.
     #
     # Il dipendente e' il prisma che ha ceduto in `taglia_giunzioni` (Ruling
     # AD: chi ha l'asse baricentrico invaso nell'altro), non "la superficie
@@ -748,22 +761,15 @@ def costruisci(membrature: list, tipo: str, cfg: ModelConfig) -> dict[str, objec
     # una geometria reale mostrasse il contrario, e' ordinare i due ruoli per
     # `blocco["passo"]`.
     #
-    # Non tutte le giunzioni tagliate diventano un `*TIE`, e non e' un difetto
-    # del taglio: il taglio toglie sempre la doppia contabilita' del volume,
-    # che e' il suo solo compito. **La causa non e' il passo di mesh**
-    # (correzione del giro 4: qui c'era scritto che dipendeva dal confronto fra
-    # due mesh indipendenti con passi diversi, ed era sbagliato -- misurato
-    # vertice per vertice sul telaio del giro 3). E' geometria: il taglio
-    # produce una faccia piana e perpendicolare all'asse di chi cede, e se le
-    # due membrature non sono in squadra la faccia di contatto di chi riceve
-    # e' inclinata rispetto a quella. I due piani non coincidono mai, e il
-    # cuneo che resta fra loro (Ruling AE, sopra) e' proprio quella distanza.
-    # Con la tolleranza giusta la giunzione puo' restare comunque senza `*TIE`:
-    # il cuneo copre il vuoto fra i piani, non garantisce che i nodi trovati
-    # bastino a comporre una faccia esaedrica intera (ne servono quattro
-    # contigui sulla stessa faccia). La mesh conforme multiblocco resta la via
-    # d'aggiornamento che toglierebbe il problema alla radice, condividendo i
-    # nodi sul contatto invece di verificarne la vicinanza a posteriori.
+    # Non tutte le giunzioni tagliate diventano necessariamente un `*TIE`, e
+    # non sarebbe un difetto del taglio se succedesse: il taglio toglie
+    # sempre la doppia contabilita' del volume, che e' il suo solo compito.
+    # Un lato puo' restare senza facce di bordo il cui baricentro cade
+    # nell'altro solido se il cuneo (Ruling AE) non copre lo scarto fra il
+    # piano di taglio e la superficie -- in generale inclinata -- di chi
+    # riceve. La mesh conforme multiblocco resta la via d'aggiornamento che
+    # toglierebbe il problema alla radice, condividendo i nodi sul contatto
+    # invece di verificarne la posizione a posteriori.
     superfici: dict[str, list[tuple[int, int]]] = {}
     ties: list[tuple[str, str, str]] = []
     connesse: set[int] = set()
@@ -777,13 +783,15 @@ def costruisci(membrature: list, tipo: str, cfg: ModelConfig) -> dict[str, objec
             ("I", maggiore, minore),
         ):
             blocco = blocchi[indice]
-            inizio = blocco["primo_nodo"]
-            fine = inizio + blocco["nodi"]
-            vicini = np.flatnonzero(
-                dentro(tagliati[altro], nodi[inizio:fine], tolleranza)
-            ) + inizio
+            el_inizio = blocco["primo_elemento"]
+            el_fine = el_inizio + blocco["elementi"]
+            grezze = abaqus.tie_surface(
+                nodi, elementi[el_inizio:el_fine],
+                lambda punti: dentro(tagliati[altro], punti, tolleranza),
+                cfg.element,
+            )
             nome = f"{cfg.tie_name_prefix}_{numero}_{ruolo}"
-            superfici[nome] = abaqus.element_surface(elementi, vicini, cfg.element)
+            superfici[nome] = [(elemento + el_inizio, faccia) for elemento, faccia in grezze]
             nomi.append(nome)
         if superfici[nomi[0]] and superfici[nomi[1]]:
             ties.append((f"{cfg.tie_name_prefix}_{numero}", nomi[0], nomi[1]))
