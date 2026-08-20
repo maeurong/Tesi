@@ -421,6 +421,60 @@ def test_la_corsa_figlia_ha_cartella_configurazione_deck_e_metriche_proprie(tmp_
     assert esito["hexa"]["inverted"] == 0
 
 
+def test_lo_scostamento_dalla_nuvola_e_coerente_con_una_misura_indipendente(tmp_path):
+    """C3: non un'asserzione decorativa che rilegge `esito["scostamento_nuvola"]`.
+    Ricostruisce qui, dallo stesso `12_wall.json`/`02_segmented.ply` scritti su
+    disco dalla corsa madre, nodi e nuvola per conto proprio -- stessa
+    trasformazione di `genera_modello`, ma un secondo calcolo indipendente di
+    `quality.vertex_deviation` -- e confronta col numero che `genera_modello`
+    ha scritto in `esito`. Un `esito["scostamento_nuvola"]` mancante, rinominato
+    o stantio non supererebbe il confronto.
+
+    Mutazione che deve morire (quella del giro di correzione 1): rinominare la
+    chiave `"scostamento_nuvola"` in `genera_modello`, per esempio in
+    `"scostamento_nuvola_assente"` -- il primo accesso a
+    `esito["scostamento_nuvola"]` solleva `KeyError`.
+    """
+    from meshrec.core import hexa
+    from meshrec.core.wall import Membratura
+
+    cfg = _config_cubo(tmp_path)
+    pipeline.run(cfg)
+
+    esito = pipeline.genera_modello(cfg, "estruso", tmp_path / "figlia")
+
+    with (cfg.run.out_dir / pipeline.WALL_FILENAME).open(encoding="utf-8") as handle:
+        prior = json.load(handle)
+    membrature = [
+        Membratura(
+            punti=np.arange(0),
+            asse=np.asarray(voce["asse"], dtype=np.float64),
+            origine=np.asarray(voce["origine"], dtype=np.float64),
+            lunghezza=float(voce["lunghezza"]),
+            sezione=tuple(voce["sezione"]),
+            sezione_dispersione=tuple(voce["sezione_dispersione"]),
+            contorno=np.asarray(voce["contorno"], dtype=np.float64),
+            fuori_piombo_deg=float(voce["fuori_piombo_deg"]),
+            asse_ideale=np.asarray(voce["asse_ideale"], dtype=np.float64),
+            scarto_asse_deg=float(voce["scarto_asse_deg"]),
+            rigonfiamento=np.zeros(0),
+            volume=float(voce["volume"]),
+            riempimento_sezione=float(voce["riempimento"]["valore"]),
+            riempimento_stato=str(voce["riempimento"]["stato"]),
+            densita_dispersione=float(voce["riempimento"]["densita_dispersione"]),
+        )
+        for voce in prior["membrature"]
+    ]
+    modello_indipendente = hexa.costruisci(membrature, "estruso", cfg.model)
+    nuvola, _ = io.read_cloud(cfg.run.out_dir / pipeline.ARTIFACTS[2])
+    scarti = quality.vertex_deviation(modello_indipendente["nodi"], nuvola)
+
+    scostamento = esito["scostamento_nuvola"]
+    assert scostamento["rms"] == pytest.approx(float(np.sqrt(np.mean(scarti ** 2))))
+    assert scostamento["max"] == pytest.approx(float(scarti.max()))
+    assert scostamento["rms"] >= 0.0
+
+
 def test_il_deck_della_corsa_figlia_e_esaedrico(tmp_path):
     """Mutazione che deve morire: scambiare `cfg.model.element` con `cfg.tet.element`
     nella chiamata a `abaqus.export_model` dentro `genera_modello` -- il deck
@@ -436,29 +490,40 @@ def test_il_deck_della_corsa_figlia_e_esaedrico(tmp_path):
     assert "TYPE=C3D4" not in testo
 
 
-def test_il_deck_della_corsa_figlia_porta_le_superfici_e_i_tie(tmp_path):
-    """Il cubo di `_config_cubo` da' una sola membratura, quindi zero
-    giunzioni: le superfici e i `*TIE` si vedono solo su un telaio. Non passa
-    per `pipeline.run`, che su un telaio costerebbe Poisson piu' TetGen:
-    costruisce `12_wall.json` chiamando `wall.prior` direttamente sulla nuvola
-    di `synth.sample_frame_surface`, come il codice vero lo produrrebbe.
+_TELAIO_QUATTRO_MEMBRATURE = [
+    ((0.0, -90.0, 0.0), (200.0, 180.0, 1600.0)),
+    ((1400.0, -130.0, 0.0), (200.0, 260.0, 1600.0)),
+    ((0.0, -70.0, 1600.0), (1600.0, 140.0, 300.0)),
+    ((0.0, -170.0, -300.0), (1600.0, 340.0, 300.0)),
+]
+"""Stesso telaio sintetico di tests/test_wall.py:33-38 e tests/feasibility/test_calculix.py.
 
-    Mutazione che deve morire: rimuovere `element_surfaces=modello["superfici"]`
-    dalla chiamata a `abaqus.export_model` in `genera_modello` -- il deck non
-    scriverebbe piu' `*SURFACE` e la prima asserzione fallirebbe.
-    """
+I numeri del banco stanno qui, non in src/: e' la stessa convenzione gia'
+seguita da test_calculix.py, che li duplica invece di importarli da un altro
+file di test."""
+
+_TELAIO_A_SEZIONE_UNIFORME = [
+    ((0.0, 0.0, 0.0), (200.0, 200.0, 1600.0)),
+    ((1400.0, 0.0, 0.0), (200.0, 200.0, 1600.0)),
+    ((0.0, 0.0, 1600.0), (1600.0, 200.0, 300.0)),
+    ((0.0, 0.0, -300.0), (1600.0, 200.0, 300.0)),
+]
+"""Stesso telaio di tests/test_wall.py:442-445 (TELAIO_A_SEZIONE_UNIFORME): le
+quattro sezioni uguali fondono la scomposizione in un'unica regione a Π, che
+il riempimento dichiara «vuoto» e affidabile (vedi
+test_la_regione_a_pi_esce_vuota_e_affidabile_invece_di_essere_scartata in
+quel file) senza scartarla -- il rifiuto spetta a chi costruisce."""
+
+_SPAZIATURA_TELAIO = 20.0
+
+
+def _scrivi_prior_telaio(cfg, telaio, spaziatura=_SPAZIATURA_TELAIO):
+    """Scrive `02_segmented.ply` e `12_wall.json` per un telaio sintetico, senza
+    passare per `pipeline.run` (che su un telaio costerebbe Poisson piu'
+    TetGen): chiama `wall.prior` direttamente, come il codice vero lo produce."""
     from meshrec.core import wall
 
-    telaio = [
-        ((0.0, -90.0, 0.0), (200.0, 180.0, 1600.0)),
-        ((1400.0, -130.0, 0.0), (200.0, 260.0, 1600.0)),
-        ((0.0, -70.0, 1600.0), (1600.0, 140.0, 300.0)),
-        ((0.0, -170.0, -300.0), (1600.0, 340.0, 300.0)),
-    ]
-    spaziatura = 20.0
     punti = synth.sample_frame_surface(telaio, spaziatura)
-
-    cfg = _config_cubo(tmp_path)
     out = cfg.run.out_dir
     out.mkdir(parents=True, exist_ok=True)
     io.write_cloud(out / pipeline.ARTIFACTS[2], punti)
@@ -466,6 +531,19 @@ def test_il_deck_della_corsa_figlia_porta_le_superfici_e_i_tie(tmp_path):
     (out / pipeline.WALL_FILENAME).write_text(
         json.dumps(esito_prior, indent=2, default=float, ensure_ascii=False), encoding="utf-8"
     )
+    return esito_prior
+
+
+def test_il_deck_della_corsa_figlia_porta_le_superfici_e_i_tie(tmp_path):
+    """Il cubo di `_config_cubo` da' una sola membratura, quindi zero
+    giunzioni: le superfici e i `*TIE` si vedono solo su un telaio.
+
+    Mutazione che deve morire: rimuovere `element_surfaces=modello["superfici"]`
+    dalla chiamata a `abaqus.export_model` in `genera_modello` -- il deck non
+    scriverebbe piu' `*SURFACE` e la prima asserzione fallirebbe.
+    """
+    cfg = _config_cubo(tmp_path)
+    _scrivi_prior_telaio(cfg, _TELAIO_QUATTRO_MEMBRATURE)
     figlia = tmp_path / "figlia-telaio"
 
     pipeline.genera_modello(cfg, "estruso", figlia)
@@ -473,6 +551,54 @@ def test_il_deck_della_corsa_figlia_porta_le_superfici_e_i_tie(tmp_path):
     testo = (figlia / "wall_model.inp").read_text(encoding="ascii")
     assert "*SURFACE, TYPE=ELEMENT" in testo
     assert "*TIE" in testo
+
+
+def test_il_modello_json_porta_nota_giunzioni_e_conteggio_nodi_dipendenti(tmp_path):
+    """C2 e C7: la nota sul `*TIE` e i due conteggi dei nodi dipendenti sono
+    cio' che rende leggibile, nel confronto del Task 12, quanta della
+    cedevolezza del parametrico viene dal vincolo e non dalla geometria. Un
+    telaio a quattro membrature ha giunzioni vere, quindi nodi dipendenti
+    diversi da zero: sul cubo di `_config_cubo` questo controllo sarebbe
+    vuoto per costruzione (zero giunzioni) e non proverebbe nulla.
+
+    Mutazione che deve morire: in `genera_modello`, svuotare `nota_giunzioni`
+    (`"nota_giunzioni": ""` invece della spiegazione) -- la prima asserzione
+    fallirebbe.
+    """
+    cfg = _config_cubo(tmp_path)
+    _scrivi_prior_telaio(cfg, _TELAIO_QUATTRO_MEMBRATURE)
+
+    esito = pipeline.genera_modello(cfg, "estruso", tmp_path / "figlia-telaio")
+
+    assert esito["nota_giunzioni"] != ""
+    legati = esito["modello"]["nodi_dipendenti_legati"]
+    totali = esito["modello"]["nodi_dipendenti_totali"]
+    assert totali > 0, "il telaio a quattro membrature ha giunzioni vere: il denominatore non puo' essere zero"
+    assert 0 <= legati <= totali
+
+
+def test_la_guardia_del_ruling_j_rifiuta_una_membratura_vuota_dal_percorso_reale(tmp_path):
+    """C1: `riempimento_stato` letto male dalla ricostruzione della `Membratura`
+    lascerebbe muta la guardia di `hexa.costruisci` che rifiuta una sezione a
+    Π. Il telaio a sezioni uguali fonde la scomposizione in un'unica regione
+    che il riempimento dichiara «vuoto» e affidabile (vedi
+    `test_la_regione_a_pi_esce_vuota_e_affidabile_invece_di_essere_scartata`
+    in tests/test_wall.py): e' il percorso reale, non uno stato costruito a
+    mano nel test.
+
+    Mutazione che deve morire: in `genera_modello`, forzare
+    `riempimento_stato="pieno"` invece di leggerlo da
+    `voce["riempimento"]["stato"]` -- la guardia non scatterebbe piu' e
+    `pytest.raises` non troverebbe l'eccezione.
+    """
+    cfg = _config_cubo(tmp_path)
+    esito_prior = _scrivi_prior_telaio(cfg, _TELAIO_A_SEZIONE_UNIFORME)
+    assert esito_prior["regioni_trovate"] == 1, "il banco deve restare il caso limite: una regione a Π sola"
+    assert esito_prior["membrature"][0]["riempimento"]["stato"] == "vuoto"
+    assert esito_prior["membrature"][0]["riempimento"]["affidabile"] is True
+
+    with pytest.raises(ValueError, match="riempimento di sezione «vuoto»"):
+        pipeline.genera_modello(cfg, "estruso", tmp_path / "figlia-vuota")
 
 
 def test_la_corsa_madre_non_cambia_quando_si_genera_un_modello(tmp_path):
