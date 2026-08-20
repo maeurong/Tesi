@@ -116,6 +116,10 @@ body {
 .zona h2 { font-size: var(--tipo-nota); line-height: var(--interlinea-riga); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--tenue); margin: var(--passo-6) 0 var(--passo-2); }
 .zona h2:first-child { margin-top: 0; }
 .elenco-step { list-style: none; margin: 0; padding: 0; }
+/* Le caselle dei modelli e il bottone che li genera: una colonna stretta come
+   il resto della zona-step, non una griglia — sono tre righe, non una tabella. */
+.modelli { display: flex; flex-direction: column; align-items: flex-start; gap: var(--passo-2); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); }
+.modelli label { display: flex; align-items: baseline; gap: var(--passo-1); }
 .viewport { width: 100%; height: 100%; }
 /* display: block perche' una tela inline lascia sotto di se' lo spazio del
    tratto discendente della riga: alta quanto il contenitore, lo farebbe
@@ -226,6 +230,19 @@ body {
 /* Il candidato di fronte: stesso canale doppio dello step aperto (fondo piu'
    filetto), non il solo colore. */
 .galleria-tabella tr.fronte { background: var(--evidenza); box-shadow: inset 2px 0 0 var(--accento); }
+/* Il confronto e' un pannello, non una vista: righe di prosa con cifre
+   tabulari, la stessa misura leggibile degli altri stati e aiuti — non una
+   tabella HTML, perche' app.js lo scrive come <p> per riga (una grandezza,
+   tre modelli affiancati dal punto), non colonna per colonna. */
+.confronto-tabella p { margin: 0 0 var(--passo-1); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+/* Membrature e rifiuti del prior: stesse cifre tabulari delle altre misure. */
+#prior-membrature p { margin: 0 0 var(--passo-1); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); font-variant-numeric: tabular-nums; }
+/* Un rifiuto non e' un errore del modulo (quello e' .errore, role="alert"):
+   e' il verdetto di un controllo geometrico sulla regione, letto qui e non
+   annunciato. Il bordo a sinistra e' il secondo canale (WCAG 1.4.1): chi non
+   distingue --guasto da --testo lo vede comunque, com'e' gia' per lo step
+   aperto e il candidato di fronte qui sopra. */
+.rifiuto { margin: 0 0 var(--passo-1); padding-left: var(--passo-2); border-left: 2px solid var(--guasto); color: var(--guasto); font-size: var(--tipo-dato); line-height: var(--interlinea); max-width: var(--misura); text-wrap: pretty; }
 
 /* --- Movimento ------------------------------------------------------------
    Tre soli momenti, e nessuno decorativo.

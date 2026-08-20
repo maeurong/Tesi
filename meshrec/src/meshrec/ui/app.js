@@ -5,7 +5,7 @@ const ETICHETTE = {
   "04_normals": "Normali", "05_reconstruct": "Superficie", "06_repair": "Riparazione",
   "07_surface_quality": "Qualita superficie", "08_simplify": "Semplificazione",
   "09_tetrahedralize": "Tetraedri", "10_volume_quality": "Qualita volume",
-  "11_export": "Esportazione",
+  "11_export": "Esportazione", "12_wall": "Prior geometrico",
 };
 
 async function caricaStato() {
@@ -109,7 +109,13 @@ flusso.addEventListener("stato", (evento) => {
   disegnaStep(stato.steps);
   const barra = document.getElementById("in-corso");
   if (stato.in_corso && stato.da_secondi !== null) {
-    barra.textContent = `step ${stato.step} in corso, ${Math.round(stato.da_secondi)} s`;
+    // stato.step e' null per un comando che non e' uno step della pipeline
+    // (il prior, un modello parametrico: worker.start_comando, non
+    // worker.start): la colonna non ha una riga per un comando del genere,
+    // e "step null in corso" sarebbe il numero di un ramo che non esiste.
+    barra.textContent = stato.step !== null
+      ? `step ${stato.step} in corso, ${Math.round(stato.da_secondi)} s`
+      : `un comando e' in corso, ${Math.round(stato.da_secondi)} s`;
     barra.hidden = false;
   } else {
     barra.hidden = true;
@@ -383,6 +389,190 @@ function ricaricaVista(numero, ordine = generazione) {
     if (disegnato && !superata(ordine)) riallineaTaglio(numero);
   });
 }
+
+// Il worker esegue un solo sottoprocesso alla volta (worker.py), e il prior e
+// i modelli parametrici passano dallo stesso worker degli step della pipeline
+// (start_comando, non start): "in corso" e il suo fronte di discesa sono lo
+// stesso stato che il pannello degli step gia' guarda qui sopra. Un
+// ascoltatore in piu' sullo stesso flusso, non una fetch in piu': si toglie
+// da solo appena risolve, cosi' un secondo clic non ne lascia uno appeso.
+function attendiFineComando() {
+  return new Promise((risolvi) => {
+    flusso.addEventListener("stato", function ascolta(evento) {
+      const stato = JSON.parse(evento.data);
+      if (stato.in_corso) return;
+      flusso.removeEventListener("stato", ascolta);
+      risolvi();
+    });
+  });
+}
+
+// Lo step 12 e i modelli sono AZIONI e non parametri: nessuno di questi
+// gestori tocca la configurazione, e per questo nessuno chiama scriviParametro.
+async function caricaPrior(ordine = generazione) {
+  const risposta = await fetch("/api/wall");
+  if (superata(ordine)) return;
+  const corpo = await corpoLetto(risposta);
+  // == e non ===: un corpo intero non e' mai un null legittimo su questo
+  // endpoint, e corpoLetto marca con undefined cio' che non si e' letto.
+  if (superata(ordine) || corpo == null) return;
+
+  const vuoto = document.getElementById("prior-vuoto");
+  vuoto.hidden = corpo.calcolato;
+  if (!corpo.calcolato) {
+    vuoto.textContent = corpo.motivo;
+    document.getElementById("prior-membrature").replaceChildren();
+    document.getElementById("prior-scartate").replaceChildren();
+    return;
+  }
+  disegnaMembrature(corpo.prior.membrature);
+  disegnaScartate(corpo.prior.scartate);
+  await mostraMembratureNelViewport(ordine);
+}
+
+function disegnaMembrature(membrature) {
+  const contenitore = document.getElementById("prior-membrature");
+  contenitore.replaceChildren();
+  membrature.forEach((membratura, numero) => {
+    const riga = document.createElement("p");
+    const sezione = membratura.sezione.map((v) => v.toFixed(1)).join(" x ");
+    riga.textContent =
+      `Membratura ${numero + 1}: sezione ${sezione} mm, lunghezza ` +
+      `${membratura.lunghezza.toFixed(1)} mm, fuori piombo ` +
+      `${membratura.fuori_piombo_deg.toFixed(2)} gradi`;
+    contenitore.append(riga);
+  });
+}
+
+function disegnaScartate(scartate) {
+  // «quale controllo ha detto no, e quale numero glielo ha fatto dire»: un
+  // rifiuto senza il proprio numero non dice a chi legge che cosa cambiare.
+  const contenitore = document.getElementById("prior-scartate");
+  contenitore.replaceChildren();
+  for (const voce of scartate) {
+    for (const nome of voce.controlli_falliti) {
+      const esito = voce.esiti[nome];
+      const riga = document.createElement("p");
+      riga.className = "rifiuto";
+      riga.textContent =
+        `Regione ${voce.regione + 1} non e' una membratura: il controllo ` +
+        `«${nome}» ha misurato ${esito.valore.toFixed(3)} contro una soglia di ` +
+        `${esito.soglia.toFixed(3)}.`;
+      contenitore.append(riga);
+    }
+  }
+}
+
+// /api/membrature manda un'etichetta per punto, non le posizioni: sono quelle
+// gia' note allo step 2 (stessa decimazione, stessa cache di /api/cloud/2 —
+// vedi server.py, viewport.decimate_file con gli stessi argomenti). Le due
+// risposte condividono l'arbitro della geometria (apriGeometria/
+// ultimaGeometria) gia' provato su mostraStep: scrivono nello stesso
+// viewport, e un clic su uno step mentre questa e' in volo non deve perdere
+// ne' vincere per caso.
+async function mostraMembratureNelViewport(ordine) {
+  const emissione = apriGeometria();
+  const [rispostaPunti, rispostaEtichette] = await Promise.all([
+    fetch("/api/cloud/2"),
+    fetch("/api/membrature"),
+  ]);
+  if (!rispostaPunti.ok || !rispostaEtichette.ok) {
+    if (superata(ordine) || superata(emissione, ultimaGeometria)) return;
+    vista.svuota();
+    document.getElementById("conteggi").textContent = "nessuna mappa delle membrature da mostrare";
+    return;
+  }
+  const punti = new Float32Array(await rispostaPunti.arrayBuffer());
+  const membrature = Number(rispostaEtichette.headers.get("X-Membrature"));
+  const etichette = new Float32Array(await rispostaEtichette.arrayBuffer());
+  if (superata(ordine) || superata(emissione, ultimaGeometria)) return;
+  vista.svuota();
+  vista.mostraNuvolaPerMembratura(punti, etichette);
+  document.getElementById("conteggi").textContent =
+    `${(punti.length / 3).toLocaleString("it")} punti, ${membrature} membrature`;
+  // Il taglio si riferisce all'ultimo volume disegnato: la mappa delle
+  // membrature e' una nuvola, non lo step 9, quindi non ha un comando di
+  // taglio proprio. Senza questa riga il comando resterebbe a video puntato
+  // su un ingombro che non e' piu' quello disegnato -- la vista che
+  // contraddice il proprio comando, la stessa ragione per cui riallineaTaglio
+  // esiste.
+  riallineaTaglio(null);
+}
+
+async function caricaConfronto(ordine = generazione) {
+  const risposta = await fetch("/api/compare");
+  if (superata(ordine)) return;
+  if (!risposta.ok) {
+    // Prima che la corsa madre esista (ne' 12_wall.json ne' modello.json in
+    // nessuna cartella) /api/compare rifiuta: e' lo stato normale alla prima
+    // apertura della pagina, non un guasto da annunciare nella riga d'errore.
+    // Verificato nel browser: senza questo ramo `corpo[grandezza]` sotto e'
+    // undefined e il pannello del confronto solleva fuori da ogni catch.
+    document.getElementById("confronto-vuoto").hidden = false;
+    document.getElementById("confronto-tabella").replaceChildren();
+    return;
+  }
+  const corpo = await corpoLetto(risposta);
+  if (superata(ordine) || corpo == null) return;
+
+  document.getElementById("confronto-vuoto").hidden = !corpo.scheda_singola;
+  const tabella = document.getElementById("confronto-tabella");
+  tabella.replaceChildren();
+  for (const grandezza of ["volume", "massa", "scostamento_nuvola"]) {
+    const riga = document.createElement("p");
+    // Un modello assente si nomina, non si riempie con un trattino: un
+    // trattino in mezzo ai numeri somiglia a un valore.
+    const celle = ["as-built", "estruso", "primitive"].map((nome) =>
+      nome in corpo[grandezza] ? `${nome}: ${corpo[grandezza][nome]}` : `${nome}: non generato`,
+    );
+    riga.textContent = `${grandezza} — ${celle.join(" · ")}`;
+    tabella.append(riga);
+  }
+}
+
+caricaPrior();
+caricaConfronto();
+
+document.getElementById("calcola-prior").addEventListener("click", async () => {
+  const bottone = document.getElementById("calcola-prior");
+  const altro = document.getElementById("genera-modelli");
+  // Presa prima dell'attesa, non dopo: mostraMembratureNelViewport scrive nello
+  // stesso viewport di mostraStep. Se un clic su uno step arriva mentre il
+  // prior sta ancora calcolando, quello step e' cio' che l'utente guarda
+  // adesso, e la mappa delle membrature -- piu' vecchia di quel clic -- non
+  // deve scriverci sopra.
+  const ordine = generazione;
+  bottone.disabled = true;
+  altro.disabled = true;
+  try {
+    await fetch("/api/wall", { method: "POST" });
+    await attendiFineComando();
+    if (!superata(ordine)) caricaPrior(ordine);
+  } finally {
+    bottone.disabled = false;
+    altro.disabled = false;
+  }
+});
+
+document.getElementById("genera-modelli").addEventListener("click", async () => {
+  const bottone = document.getElementById("genera-modelli");
+  const altro = document.getElementById("calcola-prior");
+  const ordine = generazione;
+  bottone.disabled = true;
+  altro.disabled = true;
+  try {
+    for (const tipo of ["estruso", "primitive"]) {
+      if (!document.getElementById(`modello-${tipo}`).checked) continue;
+      // uno alla volta: il worker esegue un solo sottoprocesso, ed e' apposta
+      await fetch(`/api/model/${tipo}`, { method: "POST" });
+      await attendiFineComando();
+    }
+    if (!superata(ordine)) caricaConfronto(ordine);
+  } finally {
+    bottone.disabled = false;
+    altro.disabled = false;
+  }
+});
 
 // Lo schema e le descrizioni vengono dai modelli di config.py: l'interfaccia
 // non li riscrive, e la validazione di cio' che si scrive resta quella dei

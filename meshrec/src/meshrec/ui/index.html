@@ -22,6 +22,18 @@
   <nav class="zona zona-step" aria-label="Step della pipeline">
     <h2>Pipeline</h2>
     <ol class="elenco-step" id="elenco-step"></ol>
+    <h2>Modelli</h2>
+    <!-- as-built e' la corsa madre e c'e' gia': la casella e' spuntata e
+         disabilitata, perche' una casella che si puo' togliere ma non fa nulla
+         mente su cosa l'utente comanda. Le altre due sono azioni, non
+         parametri: spuntarle non scrive nulla in config.yaml, e' il bottone
+         che genera. -->
+    <div class="modelli">
+      <label><input type="checkbox" id="modello-as-built" checked disabled> as-built (corsa madre)</label>
+      <label><input type="checkbox" id="modello-estruso"> estruso — sezione e fuori piombo misurati</label>
+      <label><input type="checkbox" id="modello-primitive"> primitive — sezione squadrata, asse dritto</label>
+      <button type="button" id="genera-modelli" class="bottone">Genera i modelli spuntati</button>
+    </div>
   </nav>
   <section class="zona zona-vista" aria-label="Vista tridimensionale">
     <div id="viewport" class="viewport"></div>
@@ -56,6 +68,20 @@
          distruggerla, e test_app_js.py sorveglia che non ci si torni. -->
     <p class="errore" id="errore" role="alert"></p>
     <div id="dettaglio"><p class="vuoto">Scegli uno step per vederne parametri e metriche.</p></div>
+    <h2>Prior geometrico</h2>
+    <!-- Lo stato vuoto sta nel markup e non lo fabbrica il modulo: e' la stessa
+         lezione della regione d'errore, che tre volte era stata distrutta da un
+         replaceChildren(). Uno stato vuoto creato nell'istante in cui ci si
+         scrive dentro non preesiste a cio' che annuncia. -->
+    <p class="vuoto" id="prior-vuoto">Il prior geometrico non e' ancora stato calcolato: e' lo step 12.</p>
+    <button type="button" id="calcola-prior" class="bottone">Calcola il prior</button>
+    <div id="prior-membrature"></div>
+    <div id="prior-scartate"></div>
+    <h2>Confronto</h2>
+    <p class="vuoto" id="confronto-vuoto">Nessun modello parametrico generato: il confronto e' una scheda singola.</p>
+    <div class="confronto" id="confronto">
+      <div class="confronto-tabella" id="confronto-tabella"></div>
+    </div>
     <h2>Registro</h2>
     <!-- tabindex="0": il registro e' alto 14rem e scorre, e dentro non c'e'
          niente su cui il fuoco possa posarsi. Senza questo attributo Chrome non

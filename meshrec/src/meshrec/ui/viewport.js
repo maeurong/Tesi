@@ -186,6 +186,10 @@ export function creaViewport(contenitore) {
       descrivi(`nuvola di ${(punti.length / 3).toLocaleString("it")} punti`);
       inquadra();
     },
+    // Vale anche per la mesh esaedrica: la sua superficie di contorno e' fatta
+    // di quadrilateri, che il server ha gia' diviso in triangoli con
+    // core.viewport.triangoli_da_quadrilateri. Qui non arriva mai un
+    // quadrilatero.
     mostraMesh(vertici, facce) {
       const geometria = new THREE.BufferGeometry();
       geometria.setAttribute("position", new THREE.BufferAttribute(vertici, 3));
@@ -196,6 +200,29 @@ export function creaViewport(contenitore) {
         clippingPlanes: pianiTaglio,
       })));
       descrivi(`superficie di ${(facce.length / 3).toLocaleString("it")} facce`);
+      inquadra();
+    },
+    // Colore per membratura. E' la prova visiva che la scomposizione ha capito
+    // il pezzo, e si legge in un secondo dove nessuna metrica sarebbe cosi'
+    // rapida. -1 significa «nessuna membratura» e resta grigio: e'
+    // un'informazione, non un buco.
+    mostraNuvolaPerMembratura(punti, etichette) {
+      const geometria = new THREE.BufferGeometry();
+      geometria.setAttribute("position", new THREE.BufferAttribute(punti, 3));
+      const colori = new Float32Array(etichette.length * 3);
+      let massima = 0;
+      for (const valore of etichette) massima = Math.max(massima, valore);
+      for (let indice = 0; indice < etichette.length; indice += 1) {
+        const colore = new THREE.Color();
+        if (etichette[indice] < 0) colore.setRGB(0.68, 0.68, 0.65);
+        else colore.setHSL((etichette[indice] / (massima + 1)) * 0.8, 0.55, 0.45);
+        colore.toArray(colori, indice * 3);
+      }
+      geometria.setAttribute("color", new THREE.BufferAttribute(colori, 3));
+      gruppo.add(new THREE.Points(geometria, new THREE.PointsMaterial({
+        size: 1.5, sizeAttenuation: false, vertexColors: true, clippingPlanes: pianiTaglio,
+      })));
+      descrivi(`nuvola divisa in ${massima + 1} membrature`);
       inquadra();
     },
     inquadra,

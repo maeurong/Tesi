@@ -2048,3 +2048,351 @@ assert.match(
   "il rifiuto del server non arriva nella regione d'errore",
 );
 """)
+
+
+# --------------------------------------------------------------------------
+# Task 14: step 12, caselle dei modelli, prior geometrico e confronto.
+# --------------------------------------------------------------------------
+
+
+def test_le_caselle_dei_modelli_stanno_nel_markup_e_as_built_e_disabilitata():
+    """as-built esiste gia', e' la corsa madre: la casella e' spuntata e
+    disabilitata, perche' una casella che si puo' togliere ma non fa nulla
+    mente su cosa l'utente comanda."""
+    markup = _markup()
+
+    asbuilt = _elemento(markup, "modello-as-built")
+    assert "checked" in asbuilt
+    assert "disabled" in asbuilt
+    for tipo in ("estruso", "primitive"):
+        casella = _elemento(markup, f"modello-{tipo}")
+        assert "disabled" not in casella
+
+
+def test_lo_stato_vuoto_del_prior_e_nel_markup_e_non_lo_fabbrica_il_modulo():
+    """Stessa lezione della regione d'errore: uno stato vuoto creato
+    nell'istante in cui ci si scrive dentro non preesiste a cio' che annuncia.
+
+    A differenza della prima stesura di questo controllo — un'asserzione
+    `... or True` che non poteva fallire in nessuna condizione — qui si
+    guarda la proprieta' vera: `caricaPrior` trova l'elemento con
+    `getElementById`, non lo fabbrica con `createElement`.
+    """
+    markup = _senza_commenti_html(_markup())
+
+    assert 'id="prior-vuoto"' in markup
+    assert "non e' ancora stato calcolato" in markup
+    modulo = _senza_commenti_js(_modulo())
+    corpo = _sorgente_di("caricaPrior", modulo)
+    assert 'getElementById("prior-vuoto")' in corpo
+    assert "createElement" not in corpo, (
+        "caricaPrior deve trovare lo stato vuoto nel markup, non fabbricarlo"
+    )
+
+
+def test_il_pannello_del_confronto_e_un_pannello_e_non_una_vista():
+    markup = _senza_commenti_html(_markup())
+
+    assert 'id="confronto"' in markup
+    assert 'id="confronto-tabella"' in markup
+    # nessun secondo contenitore di viewport: il confronto non e' una scena nuova
+    assert markup.count('class="viewport"') == 1
+
+
+def test_il_motivo_del_rifiuto_di_una_regione_arriva_a_video_con_il_proprio_numero():
+    """«quale controllo ha detto no, e quale numero glielo ha fatto dire»: un
+    rifiuto senza il proprio numero non dice a chi legge che cosa cambiare."""
+    modulo = _senza_commenti_js(_modulo())
+    corpo = _sorgente_di("disegnaScartate", modulo)
+
+    assert "controlli_falliti" in corpo
+    assert "valore" in corpo
+    assert "soglia" in corpo
+
+
+def test_nessuna_lettura_di_illeggibile_nel_modulo():
+    """F1 del giro di correzione: `illeggibile` non e' mai stato un
+    identificatore di `app.js` — compariva una volta sola, dentro un
+    commento. `corpo === illeggibile` avrebbe sollevato un `ReferenceError`
+    alla prima risposta ricevuta da `caricaPrior` o `caricaConfronto`. Il
+    sentinella vero e' `corpo == null`, l'idioma gia' in uso nel resto del
+    file (`app.js:598`, `:822`)."""
+    modulo = _senza_commenti_js(_modulo())
+    assert "illeggibile" not in modulo
+
+
+_BANCO_PRIOR_CONFRONTO = """import assert from 'node:assert/strict';
+
+class Elemento {
+  constructor() { this.figli = []; this.testo = ""; this.hidden = false; }
+  get childElementCount() { return this.figli.length; }
+  set textContent(valore) { this.testo = String(valore); }
+  get textContent() { return this.testo; }
+  append(...nodi) { this.figli.push(...nodi); }
+  replaceChildren(...nodi) { this.figli = nodi; }
+}
+const perId = new Map();
+const document = {
+  createElement: () => new Elemento(),
+  getElementById(id) {
+    if (!perId.has(id)) perId.set(id, new Elemento());
+    return perId.get(id);
+  },
+};
+let generazione = 0;
+function superata(ordine, corrente = generazione) { return ordine !== corrente; }
+async function corpoLetto(risposta) {
+  try { return await risposta.json(); } catch { return undefined; }
+}
+let ultimaGeometria = 0;
+function apriGeometria() { ultimaGeometria += 1; return ultimaGeometria; }
+let taglioRiallineato = null;
+function riallineaTaglio(numero) { taglioRiallineato = numero; }
+const vista = {
+  svuotate: 0,
+  disegnato: null,
+  svuota() { this.svuotate += 1; },
+  mostraNuvolaPerMembratura(punti, etichette) { this.disegnato = { punti, etichette }; },
+};
+let risponde = {};
+globalThis.fetch = async (url) => risponde[url]();
+"""
+
+
+def _banco_di_caricaPrior() -> str:
+    """`caricaPrior` intero, con `mostraMembratureNelViewport`: le due
+    condividono `apriGeometria`/`ultimaGeometria`, lo stesso arbitro gia'
+    provato su `mostraStep` — non un contatore nuovo per la stessa domanda
+    (chi scrive per ultimo nel viewport)."""
+    return _BANCO_PRIOR_CONFRONTO + _funzioni(
+        "caricaPrior", "disegnaMembrature", "disegnaScartate", "mostraMembratureNelViewport",
+    )
+
+
+def test_caricaPrior_mostra_il_motivo_quando_non_e_calcolato(tmp_path):
+    _esegui(tmp_path, _banco_di_caricaPrior() + """
+risponde["/api/wall"] = async () => ({
+  ok: true,
+  json: async () => ({ calcolato: false, motivo: "e' lo step 12", prior: null }),
+});
+await caricaPrior();
+const vuoto = document.getElementById("prior-vuoto");
+assert.equal(vuoto.hidden, false, "il prior non calcolato deve mostrare lo stato vuoto");
+assert.equal(vuoto.textContent, "e' lo step 12");
+assert.equal(document.getElementById("prior-membrature").childElementCount, 0);
+""")
+
+
+def test_caricaPrior_disegna_membrature_e_mappa_il_viewport_quando_calcolato(tmp_path):
+    _esegui(tmp_path, _banco_di_caricaPrior() + """
+risponde["/api/wall"] = async () => ({
+  ok: true,
+  json: async () => ({
+    calcolato: true, motivo: "",
+    prior: {
+      membrature: [{ sezione: [100, 50], lunghezza: 1200, fuori_piombo_deg: 0.4 }],
+      scartate: [{ regione: 2, controlli_falliti: ["parallelismo"],
+        esiti: { parallelismo: { valore: 3.2, soglia: 2.0 } } }],
+    },
+  }),
+});
+risponde["/api/cloud/2"] = async () => ({
+  ok: true, arrayBuffer: async () => new ArrayBuffer(24), // 2 punti
+});
+risponde["/api/membrature"] = async () => ({
+  ok: true,
+  headers: { get: (nome) => ({ "X-Membrature": "1" }[nome]) },
+  arrayBuffer: async () => new ArrayBuffer(8), // 2 etichette
+});
+await caricaPrior();
+const vuoto = document.getElementById("prior-vuoto");
+assert.equal(vuoto.hidden, true, "un prior calcolato non deve mostrare lo stato vuoto");
+const membrature = document.getElementById("prior-membrature");
+assert.equal(membrature.childElementCount, 1);
+assert.match(membrature.figli[0].textContent, /100\\.0 x 50\\.0 mm/);
+const scartate = document.getElementById("prior-scartate");
+assert.equal(scartate.childElementCount, 1);
+assert.match(scartate.figli[0].textContent, /Regione 3/, "voce.regione + 1 non arriva a video");
+assert.match(scartate.figli[0].textContent, /parallelismo/);
+assert.equal(vista.svuotate, 1, "la mappa delle membrature non ha svuotato il viewport");
+assert.equal(vista.disegnato.punti.length, 6, "i punti disegnati non sono quelli di /api/cloud/2");
+assert.equal(vista.disegnato.etichette.length, 2, "le etichette disegnate non sono quelle di /api/membrature");
+""")
+
+
+def test_caricaPrior_scarta_una_risposta_superata(tmp_path):
+    """La stessa disciplina dell'ordine gia' provata su `caricaStato` e
+    `mostraStep`: un clic su uno step, mentre il prior e' ancora in volo, non
+    deve lasciare che la risposta vecchia scriva sopra il pannello nuovo."""
+    _esegui(tmp_path, _banco_di_caricaPrior() + """
+let risolvi;
+risponde["/api/wall"] = () => new Promise((r) => { risolvi = r; });
+const ordine = generazione;
+const promessa = caricaPrior(ordine);
+generazione += 1; // un clic arriva mentre la risposta e' in volo
+risolvi({ ok: true, json: async () => ({ calcolato: false, motivo: "superato", prior: null }) });
+await promessa;
+assert.equal(
+  document.getElementById("prior-vuoto").textContent, "",
+  "una risposta superata ha scritto comunque nel pannello",
+);
+""")
+
+
+def _banco_di_caricaConfronto() -> str:
+    return _BANCO_PRIOR_CONFRONTO + _funzioni("caricaConfronto")
+
+
+def test_caricaConfronto_nomina_i_modelli_non_generati(tmp_path):
+    _esegui(tmp_path, _banco_di_caricaConfronto() + """
+risponde["/api/compare"] = async () => ({
+  ok: true,
+  json: async () => ({
+    scheda_singola: false,
+    volume: { "as-built": 1.5, estruso: 1.4 },
+    massa: { "as-built": 12.0, estruso: 11.5 },
+    scostamento_nuvola: { "as-built": 0.0 },
+  }),
+});
+await caricaConfronto();
+const tabella = document.getElementById("confronto-tabella");
+assert.equal(tabella.childElementCount, 3);
+assert.match(tabella.figli[0].textContent, /primitive: non generato/,
+  "un modello mancante non e' nominato: la colonna resta un trattino muto");
+assert.doesNotMatch(tabella.figli[0].textContent, /estruso: non generato/,
+  "un modello presente e' stato dichiarato non generato");
+""")
+
+
+def test_caricaConfronto_non_crolla_prima_che_la_corsa_madre_esista(tmp_path):
+    """Trovato guardando nel browser, non da un test: alla primissima apertura
+    della pagina ne' 12_wall.json ne' modello.json esistono ancora in nessuna
+    cartella, e /api/compare rifiuta con un 400 (server.py, report.confronta).
+    Il corpo del rifiuto e' comunque JSON valido — {"errore", "messaggio"} —
+    quindi non e' `corpo == null` a fermarlo: senza il controllo su
+    `risposta.ok`, `corpo[grandezza]` sotto e' `undefined` e il pannello
+    solleva un TypeError fuori da ogni catch, esattamente quello che questo
+    file esiste per impedire sulle altre tratte."""
+    _esegui(tmp_path, _banco_di_caricaConfronto() + """
+risponde["/api/compare"] = async () => ({
+  ok: false, status: 400,
+  json: async () => ({ errore: "ValueError", messaggio: "nessuna corsa madre" }),
+});
+await caricaConfronto();
+assert.equal(document.getElementById("confronto-vuoto").hidden, false,
+  "prima che la corsa madre esista non c'e' nulla da confrontare");
+assert.equal(document.getElementById("confronto-tabella").childElementCount, 0);
+""")
+
+
+_BANCO_ATTENDI = """import assert from 'node:assert/strict';
+
+class FlussoFinto {
+  constructor() { this.gestori = {}; }
+  addEventListener(tipo, gestore) { (this.gestori[tipo] ??= []).push(gestore); }
+  removeEventListener(tipo, gestore) {
+    this.gestori[tipo] = (this.gestori[tipo] ?? []).filter((g) => g !== gestore);
+  }
+  emetti(tipo, dato) {
+    for (const gestore of [...(this.gestori[tipo] ?? [])]) gestore({ data: JSON.stringify(dato) });
+  }
+}
+const flusso = new FlussoFinto();
+"""
+
+
+def test_attendiFineComando_risolve_solo_al_fronte_di_discesa(tmp_path):
+    """F3 del giro di correzione: il ciclo dei due modelli scriveva
+    `while ((await (await fetch("/api/run")).json()) && false) break;` — un
+    corpo di ciclo che non esegue mai, con la `fetch` comunque emessa e
+    scartata. La mutazione che questo test uccide e' esattamente quella: una
+    `attendiFineComando` che risolve subito (o mai) invece di risolvere sul
+    primo evento SSE "stato" con `in_corso: false`, che e' lo stesso stato
+    che il pannello degli step gia' guarda per sapere che una corsa e' finita.
+    """
+    _esegui(tmp_path, _BANCO_ATTENDI + _funzioni("attendiFineComando") + """
+let risolta = false;
+attendiFineComando().then(() => { risolta = true; });
+
+flusso.emetti("stato", { in_corso: true, steps: [] });
+await Promise.resolve();
+assert.equal(risolta, false, "risolve mentre il comando gira ancora");
+
+flusso.emetti("stato", { in_corso: true, steps: [] });
+await Promise.resolve();
+assert.equal(risolta, false, "un secondo evento 'in corso' non deve risolvere");
+
+flusso.emetti("stato", { in_corso: false, steps: [] });
+await Promise.resolve();
+assert.equal(risolta, true, "il fronte di discesa non risolve l'attesa: e' di nuovo il ciclo inerte");
+assert.equal(
+  (flusso.gestori["stato"] ?? []).length, 0,
+  "l'ascoltatore non si toglie da solo: ogni clic futuro ne aggiungerebbe uno in piu'",
+);
+""")
+
+
+def test_genera_modelli_aspetta_il_primo_prima_di_lanciare_il_secondo(tmp_path):
+    """Il worker esegue un solo sottoprocesso alla volta (worker.py): una
+    seconda `POST /api/model` mentre la prima gira solleva `RuntimeError`. Il
+    gestore vero, estratto da `app.js`, con `attendiFineComando` sostituita da
+    una finta controllabile a mano: se il gestore lanciasse la seconda POST
+    prima che la prima finisca, `chiamate` conterebbe due voci prima che il
+    test faccia risolvere la prima attesa.
+    """
+    modulo = _modulo()
+    corpo = modulo.split(
+        'document.getElementById("genera-modelli").addEventListener("click", async () => {', 1,
+    )[1].split("\n});", 1)[0]
+    assert "attendiFineComando" in corpo, "il gestore non aspetta piu' fra un modello e l'altro"
+    _esegui(tmp_path, """import assert from 'node:assert/strict';
+const document = {
+  elementi: {
+    "modello-estruso": { checked: true },
+    "modello-primitive": { checked: true },
+    "genera-modelli": { disabled: false },
+    "calcola-prior": { disabled: false },
+  },
+  getElementById(id) { return this.elementi[id]; },
+};
+// Il numero di giri di microtask fra una `await fetch` e la successiva non e'
+// un dettaglio stabile (dipende da quante promesse annidate il motore deve
+// smaltire): si aspetta la condizione, non un conteggio di tick fissato a
+// mano, col tetto solo per non restare appesi se l'implementazione si rompe.
+async function aspetta(condizione, messaggio) {
+  for (let tentativi = 0; tentativi < 1000; tentativi += 1) {
+    if (condizione()) return;
+    await Promise.resolve();
+  }
+  throw new Error(messaggio);
+}
+const chiamate = [];
+const risposteFetch = [];
+globalThis.fetch = async (percorso) => {
+  chiamate.push(percorso);
+  return new Promise((r) => { risposteFetch.push(r); });
+};
+const risolutori = [];
+async function attendiFineComando() { return new Promise((r) => { risolutori.push(r); }); }
+let generazione = 0;
+function superata(ordine, corrente = generazione) { return ordine !== corrente; }
+let confrontoRicaricato = 0;
+function caricaConfronto() { confrontoRicaricato += 1; }
+async function gestore() {""" + corpo + """
+}
+const eseguito = gestore();
+await aspetta(() => risposteFetch.length >= 1, "la prima POST non e' mai partita");
+assert.deepEqual(chiamate, ["/api/model/estruso"],
+  "la seconda POST e' partita senza aspettare la fine della prima");
+risposteFetch[0]({ ok: true });
+await aspetta(() => risolutori.length >= 1, "nessuna attesa dopo la prima POST: il ciclo e' di nuovo inerte");
+risolutori[0]();
+await aspetta(() => risposteFetch.length >= 2, "il secondo modello non e' mai partito");
+assert.deepEqual(chiamate, ["/api/model/estruso", "/api/model/primitive"]);
+risposteFetch[1]({ ok: true });
+await aspetta(() => risolutori.length >= 2, "nessuna attesa dopo la seconda POST");
+risolutori[1]();
+await eseguito;
+assert.equal(confrontoRicaricato, 1,
+  "il confronto non si ricarica dopo aver generato i modelli: resterebbe con la colonna vecchia");
+""")
