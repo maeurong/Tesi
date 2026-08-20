@@ -396,3 +396,118 @@ def test_il_prior_scritto_su_disco_e_quello_che_le_metriche_dichiarano(tmp_path)
     )
     assert scritto["regioni_trovate"] == metriche["12_wall"]["regioni_trovate"]
     assert len(scritto["membrature"]) == len(metriche["12_wall"]["membrature"])
+
+
+def test_la_corsa_figlia_ha_cartella_configurazione_deck_e_metriche_proprie(tmp_path):
+    """Ogni modello e' la propria cartella: la provenienza e' parte del
+    risultato, e un modello senza la configurazione che lo ha prodotto non e'
+    ricostruibile a distanza di mesi.
+
+    Mutazione che deve morire: cancellare `save_config(cfg, out / "config.yaml")`
+    in `genera_modello` -- la prima asserzione non troverebbe piu' il file.
+    """
+    cfg = _config_cubo(tmp_path)
+    pipeline.run(cfg)
+    figlia = tmp_path / "figlia-estruso"
+
+    esito = pipeline.genera_modello(cfg, "estruso", figlia)
+
+    assert (figlia / "config.yaml").exists()
+    assert (figlia / "wall_model.inp").exists()
+    assert (figlia / pipeline.MODEL_FILENAME).exists()
+    assert esito["tipo"] == "estruso"
+    assert esito["sorgente"] == str(cfg.run.out_dir)
+    assert esito["hexa"]["hexes"] > 0
+    assert esito["hexa"]["inverted"] == 0
+
+
+def test_il_deck_della_corsa_figlia_e_esaedrico(tmp_path):
+    """Mutazione che deve morire: scambiare `cfg.model.element` con `cfg.tet.element`
+    nella chiamata a `abaqus.export_model` dentro `genera_modello` -- il deck
+    tornerebbe a scrivere C3D4, e la prima asserzione fallirebbe."""
+    cfg = _config_cubo(tmp_path)
+    pipeline.run(cfg)
+    figlia = tmp_path / "figlia-primitive"
+
+    pipeline.genera_modello(cfg, "primitive", figlia)
+
+    testo = (figlia / "wall_model.inp").read_text(encoding="ascii")
+    assert "*ELEMENT, TYPE=C3D8I" in testo
+    assert "TYPE=C3D4" not in testo
+
+
+def test_il_deck_della_corsa_figlia_porta_le_superfici_e_i_tie(tmp_path):
+    """Il cubo di `_config_cubo` da' una sola membratura, quindi zero
+    giunzioni: le superfici e i `*TIE` si vedono solo su un telaio. Non passa
+    per `pipeline.run`, che su un telaio costerebbe Poisson piu' TetGen:
+    costruisce `12_wall.json` chiamando `wall.prior` direttamente sulla nuvola
+    di `synth.sample_frame_surface`, come il codice vero lo produrrebbe.
+
+    Mutazione che deve morire: rimuovere `element_surfaces=modello["superfici"]`
+    dalla chiamata a `abaqus.export_model` in `genera_modello` -- il deck non
+    scriverebbe piu' `*SURFACE` e la prima asserzione fallirebbe.
+    """
+    from meshrec.core import wall
+
+    telaio = [
+        ((0.0, -90.0, 0.0), (200.0, 180.0, 1600.0)),
+        ((1400.0, -130.0, 0.0), (200.0, 260.0, 1600.0)),
+        ((0.0, -70.0, 1600.0), (1600.0, 140.0, 300.0)),
+        ((0.0, -170.0, -300.0), (1600.0, 340.0, 300.0)),
+    ]
+    spaziatura = 20.0
+    punti = synth.sample_frame_surface(telaio, spaziatura)
+
+    cfg = _config_cubo(tmp_path)
+    out = cfg.run.out_dir
+    out.mkdir(parents=True, exist_ok=True)
+    io.write_cloud(out / pipeline.ARTIFACTS[2], punti)
+    esito_prior = wall.prior(punti, cfg.segment, cfg.wall, spaziatura)
+    (out / pipeline.WALL_FILENAME).write_text(
+        json.dumps(esito_prior, indent=2, default=float, ensure_ascii=False), encoding="utf-8"
+    )
+    figlia = tmp_path / "figlia-telaio"
+
+    pipeline.genera_modello(cfg, "estruso", figlia)
+
+    testo = (figlia / "wall_model.inp").read_text(encoding="ascii")
+    assert "*SURFACE, TYPE=ELEMENT" in testo
+    assert "*TIE" in testo
+
+
+def test_la_corsa_madre_non_cambia_quando_si_genera_un_modello(tmp_path):
+    """La selezione e' un'azione e non un parametro: se toccasse la
+    configurazione della madre, rigenerare un modello in piu' cambierebbe
+    l'impronta di una corsa che non e' cambiata.
+
+    Mutazione che deve morire: in `genera_modello`, mutare `cfg` in posto
+    (`cfg.model.tie_name_prefix = "MUTATO"`) e poi scrivere quel `cfg` mutato
+    su `sorgente / "config.yaml"` invece che su `out / "config.yaml"` -- le
+    due condizioni insieme sono cio' che il test dichiara vietato: toccare la
+    cartella della madre con una configurazione diversa da quella con cui e'
+    stata prodotta.
+    """
+    from meshrec.core.sweep import fingerprint
+
+    cfg = _config_cubo(tmp_path)
+    pipeline.run(cfg)
+    prima = (cfg.run.out_dir / "config.yaml").read_text(encoding="utf-8")
+    impronta = fingerprint(cfg)
+
+    pipeline.genera_modello(cfg, "estruso", tmp_path / "figlia")
+
+    assert (cfg.run.out_dir / "config.yaml").read_text(encoding="utf-8") == prima
+    assert fingerprint(config.load_config(cfg.run.out_dir / "config.yaml")) == impronta
+
+
+def test_generare_un_modello_senza_prior_dice_che_cosa_manca(tmp_path):
+    """Mutazione che deve morire: in `genera_modello`, cambiare il messaggio
+    dell'eccezione sollevata quando manca `12_wall.json` togliendo il nome
+    del file dal testo (per esempio `"manca il prior geometrico"` invece di
+    citare `percorso_prior`) -- il `match` sotto smetterebbe di trovarlo."""
+    cfg = _config_cubo(tmp_path)
+    cfg.run.to_step = 11
+    pipeline.run(cfg)
+
+    with pytest.raises(FileNotFoundError, match="12_wall.json"):
+        pipeline.genera_modello(cfg, "estruso", tmp_path / "figlia")

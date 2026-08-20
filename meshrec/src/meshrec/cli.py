@@ -78,6 +78,19 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     wall_command.add_argument("config", type=Path)
 
+    model_command = commands.add_parser(
+        "model", help="genera un modello parametrico come corsa figlia"
+    )
+    model_command.add_argument("config", type=Path)
+    model_command.add_argument(
+        "--tipo", choices=("estruso", "primitive"), required=True,
+        help="estruso conserva sezione e fuori piombo misurati; primitive li raddrizza",
+    )
+    model_command.add_argument(
+        "--out-dir", type=Path, default=None,
+        help="cartella della corsa figlia; se omessa, quella della madre col suffisso del tipo",
+    )
+
     serve_command = commands.add_parser("serve", help="avvia il server locale e apre il browser")
     serve_command.add_argument("config", type=Path)
     serve_command.add_argument("--port", type=int, default=None)
@@ -155,6 +168,20 @@ def main(argv: list[str] | None = None) -> int:
             punti, _ = io.read_cloud(sorgente)
             spaziatura = io.mean_spacing(punti, cfg.input.spacing_sample, cfg.input.seed)
             esito = pipeline.calcola_prior(out, cfg, punti, spaziatura)
+        except Exception as error:
+            print(f"{type(error).__name__}: {error}", file=sys.stderr)
+            return 1
+        print(json.dumps(esito, indent=2, default=float, ensure_ascii=False))
+        return 0
+
+    if args.command == "model":
+        try:
+            cfg = load_config(args.config)
+            destinazione = args.out_dir
+            if destinazione is None:
+                madre = Path(cfg.run.out_dir)
+                destinazione = madre.with_name(f"{madre.name}-{args.tipo}")
+            esito = pipeline.genera_modello(cfg, args.tipo, destinazione)
         except Exception as error:
             print(f"{type(error).__name__}: {error}", file=sys.stderr)
             return 1

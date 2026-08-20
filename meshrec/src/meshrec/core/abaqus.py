@@ -667,6 +667,9 @@ def export_model(
     tet_cfg: TetConfig,
     reference: np.ndarray | None = None,
     element_type: str | None = None,
+    element_surfaces: dict[str, list[tuple[int, int]]] | None = None,
+    ties: tuple[tuple[str, str, str] | tuple[str, str, str, float], ...] = (),
+    pressure: tuple[str, float] | None = None,
 ) -> dict[str, object]:
     """Step 11: allinea, costruisce i set, scrive il deck e il file di visualizzazione.
 
@@ -747,6 +750,9 @@ def export_model(
         fixed_nset=cfg.fixed_nset,
         gravity=cfg.gravity,
         step_name=cfg.step_name,
+        element_surfaces=element_surfaces,
+        ties=ties,
+        pressure=pressure,
     )
     write_vtu(path_vtu, aligned, elements, element_type=tipo)
 
@@ -763,4 +769,13 @@ def export_model(
         "element_type": tipo,
         "inp": str(path_inp),
         "vtu": str(path_vtu),
+        "element_surfaces": {
+            nome: len(coppie) for nome, coppie in (element_surfaces or {}).items()
+        },
+        "surface_area": {
+            nome: surface_area(aligned, elements, coppie, tipo)
+            for nome, coppie in (element_surfaces or {}).items()
+        },
+        "ties": [nome for nome, _dipendente, _indipendente, *_tolleranza in ties],
+        "pressure": None if pressure is None else {"surface": pressure[0], "value": pressure[1]},
     }

@@ -100,6 +100,130 @@ def calcola_prior(
     return esito
 
 
+MODEL_FILENAME = "modello.json"
+
+
+def genera_modello(cfg: PipelineConfig, tipo: str, out_dir: Path) -> dict[str, object]:
+    """Genera un modello parametrico come corsa figlia, nella propria cartella.
+
+    I due modelli parametrici sono **generatori di mesh di volume alternativi a
+    TetGen**: producono nodi ed elementi e rientrano negli step esistenti di
+    metriche di volume ed esportazione. Non sono rami di `run()`, e la ragione
+    e' che biforcarla raddoppierebbe la complessita' della funzione piu'
+    delicata del progetto senza risparmiare nulla.
+
+    La cartella figlia porta la stessa `config.yaml` della madre -- e' lo
+    stesso esperimento, e la stessa impronta -- piu' un `modello.json` che dice
+    di quale tipo e' e da quale corsa viene. La provenienza sta li' e non nella
+    configurazione, perche' la scelta del modello e' un'azione e non un
+    parametro di elaborazione.
+    """
+    from meshrec.core import hexa
+    from meshrec.core.wall import Membratura
+
+    sorgente = Path(cfg.run.out_dir)
+    percorso_prior = sorgente / WALL_FILENAME
+    if not percorso_prior.exists():
+        raise FileNotFoundError(
+            f"manca {percorso_prior}: un modello parametrico si costruisce sul "
+            "prior, e il prior e' lo step 12. Esegui `meshrec wall` sulla stessa "
+            "configurazione e riprova"
+        )
+    with percorso_prior.open(encoding="utf-8") as handle:
+        prior = json.load(handle)
+
+    membrature = [
+        Membratura(
+            punti=np.arange(0),
+            asse=np.asarray(voce["asse"], dtype=np.float64),
+            origine=np.asarray(voce["origine"], dtype=np.float64),
+            lunghezza=float(voce["lunghezza"]),
+            sezione=tuple(voce["sezione"]),
+            sezione_dispersione=tuple(voce["sezione_dispersione"]),
+            contorno=np.asarray(voce["contorno"], dtype=np.float64),
+            fuori_piombo_deg=float(voce["fuori_piombo_deg"]),
+            asse_ideale=np.asarray(voce["asse_ideale"], dtype=np.float64),
+            scarto_asse_deg=float(voce["scarto_asse_deg"]),
+            rigonfiamento=np.zeros(0),
+            volume=float(voce["volume"]),
+            # Il riempimento nel JSON e' il dizionario che `wall.riempimento`
+            # scrive, non tre campi piatti: e' da li' che viene lo stato su
+            # cui la guardia del Ruling J rifiuta una regione a Pi.
+            riempimento_sezione=float(voce["riempimento"]["valore"]),
+            riempimento_stato=str(voce["riempimento"]["stato"]),
+            densita_dispersione=float(voce["riempimento"]["densita_dispersione"]),
+        )
+        for voce in prior["membrature"]
+    ]
+
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    save_config(cfg, out / "config.yaml")
+
+    modello = hexa.costruisci(membrature, tipo, cfg.model)
+    nodi = modello["nodi"]
+    elementi = modello["elementi"]
+
+    carico = None
+    if cfg.model.lateral_nset is not None and cfg.model.lateral_pressure is not None:
+        carico = (cfg.model.lateral_nset, float(cfg.model.lateral_pressure))
+
+    export = abaqus.export_model(
+        out / "wall_model.inp",
+        out / "wall_model.vtu",
+        nodi,
+        elementi,
+        cfg.analysis,
+        cfg.tet,
+        reference=nodi,
+        element_type=cfg.model.element,
+        element_surfaces=modello["superfici"],
+        ties=modello["ties"],
+        pressure=carico,
+    )
+
+    # Lo scostamento dalla nuvola sorgente e' il perno del confronto (Task 12):
+    # e' definito allo stesso modo per i tre modelli. Si misura qui, dove la
+    # nuvola segmentata della madre e i nodi del modello sono entrambi a
+    # portata; il confronto non ricalcola nulla.
+    sorgente_nuvola, _ = io.read_cloud(sorgente / ARTIFACTS[2])
+    scarti = quality.vertex_deviation(nodi, sorgente_nuvola)
+
+    esito: dict[str, object] = {
+        "tipo": tipo,
+        "sorgente": str(sorgente),
+        "modello": modello["metriche"],
+        "blocchi": modello["blocchi"],
+        "hexa": quality.hexa_metrics(nodi, elementi),
+        "export": export,
+        "scostamento_nuvola": {
+            "rms": float(np.sqrt(np.mean(scarti ** 2))),
+            "max": float(scarti.max()),
+            "nota": "distanza punto-nuvola nei soli nodi: sottostima dove gli "
+                    "elementi sono grandi, come dichiara quality.vertex_deviation",
+        },
+        "nota_giunzioni": (
+            "*TIE fra superfici a contatto: le mesh di membrature adiacenti "
+            "non combaciano nodo a nodo. E' una differenza fra i modelli che "
+            "non deriva dalla geometria -- as-built monolitico, parametrici "
+            "vincolati alle giunzioni -- e va letta accanto al confronto"
+        ),
+        "nota_armatura": (
+            "modello a calcestruzzo omogeneo: l'armatura e' fuori ambito per "
+            "decisione dell'autore, non per dimenticanza, e il dato resta nel "
+            "disegno. Un telaio in cemento armato modellato senza armatura non "
+            "e' il telaio vero"
+        ),
+    }
+    io.scrivi_atomico(
+        out / MODEL_FILENAME,
+        lambda destinazione: destinazione.write_text(
+            json.dumps(esito, indent=2, default=float, ensure_ascii=False), encoding="utf-8"
+        ),
+    )
+    return esito
+
+
 def run(cfg: PipelineConfig) -> dict[str, object]:
     """Esegue la pipeline e restituisce le metriche di ogni step.
 

@@ -136,9 +136,9 @@ def hexa_metrics(nodes: np.ndarray, hexes: np.ndarray) -> dict[str, object]:
     Chi mettera' queste metriche accanto a quelle tetraedriche — il confronto
     fra i modelli, al Task 12 — deve tenerle in due colonne separate e
     dichiarare che la qualita' degli elementi non e' confrontabile fra un
-    modello tetraedrico e uno esaedrico. Oggi la funzione non ha ancora
-    chiamanti: questa riga e' il vincolo che li aspetta, non il resoconto di
-    cio' che fanno.
+    modello tetraedrico e uno esaedrico. Il suo unico chiamante e'
+    `pipeline.genera_modello`; il confronto del Task 12 legge il risultato da
+    `modello.json`.
     """
     volumi = hex_volumes(nodes, hexes)
     jacobiani = scaled_jacobian(nodes, hexes)

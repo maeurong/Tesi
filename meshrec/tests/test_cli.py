@@ -295,3 +295,27 @@ def test_il_comando_wall_senza_lo_step_due_dice_che_cosa_manca(tmp_path, capsys)
 
     assert cli.main(["wall", str(percorso)]) == 1
     assert "02_segmented.ply" in capsys.readouterr().err
+
+
+def test_il_comando_model_scrive_la_cartella_col_suffisso_del_tipo(tmp_path):
+    """La cartella predefinita e' quella della madre col suffisso: nessuna
+    corsa figlia scrive dentro la cartella della madre, che e' il risultato di
+    un'altra elaborazione.
+
+    Mutazione che deve morire: in `cli.main`, cambiare
+    `madre.with_name(f"{madre.name}-{args.tipo}")` in `madre` (nessun
+    suffisso) -- la seconda asserzione noterebbe `modello.json` scritto nella
+    cartella della madre.
+    """
+    from meshrec.core import pipeline
+
+    percorso = _config_cubo_su_disco(tmp_path)
+    cfg = config.load_config(percorso)
+    pipeline.run(cfg)
+
+    assert cli.main(["model", str(percorso), "--tipo", "primitive"]) == 0
+
+    madre = cfg.run.out_dir
+    figlia = madre.with_name(f"{madre.name}-primitive")
+    assert (figlia / "wall_model.inp").exists()
+    assert not (madre / pipeline.MODEL_FILENAME).exists()
