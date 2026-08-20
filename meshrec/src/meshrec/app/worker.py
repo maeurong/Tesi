@@ -31,6 +31,7 @@ class Worker:
         self._lucchetto = threading.Lock()
         self.exit_code: int | None = None
         self.step: int | None = None
+        self.etichetta: str | None = None
         self.annullato = False
         self.avviato: float | None = None
 
@@ -64,6 +65,7 @@ class Worker:
         self.exit_code = None
         self.annullato = False
         self.step = from_step
+        self.etichetta = None
         self.avviato = time.monotonic()
         self._processo = subprocess.Popen(
             [
@@ -74,6 +76,31 @@ class Worker:
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
+        )
+        threading.Thread(target=self._leggi, daemon=True).start()
+
+    def start_comando(self, argomenti: list[str], etichetta: str) -> None:
+        """Avvia un comando di `meshrec` che non e' uno step della pipeline.
+
+        Il prior e i modelli parametrici sono azioni e non step: non hanno un
+        numero, non entrano nella colonna della pipeline e non invalidano nulla
+        a valle. Passano pero' dallo stesso sottoprocesso degli step, per le
+        stesse tre ragioni gia' misurate: un processo ucciso lascia un codice
+        di uscita, il percorso eseguito e' esattamente quello della riga di
+        comando, e l'avvio di un interprete costa pochi secondi.
+        """
+        if self.is_running():
+            raise RuntimeError("uno step sta gia' girando: annullalo prima di avviarne un altro")
+        with self._lucchetto:
+            self._righe.clear()
+        self.exit_code = None
+        self.annullato = False
+        self.step = None
+        self.etichetta = etichetta
+        self.avviato = time.monotonic()
+        self._processo = subprocess.Popen(
+            [sys.executable, "-m", "meshrec.cli", *argomenti],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
         )
         threading.Thread(target=self._leggi, daemon=True).start()
 

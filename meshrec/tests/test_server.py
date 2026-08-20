@@ -2113,3 +2113,139 @@ def test_la_galleria_mostra_il_candidato_di_fronte_su_lab_crop():
     assert celle[indice_colonne["tets"]] == "50630"
     assert celle[indice_colonne["over"]] == "0.06844"
     assert celle[indice_colonne["thickness_error"]] == "1.192"
+
+
+def _cartella_di_corsa(cliente) -> Path:
+    return Path(cliente.get("/api/run").json()["out_dir"])
+
+
+def test_il_prior_non_ancora_calcolato_lo_dice_invece_di_rispondere_vuoto(cliente, tmp_path):
+    """Quinto principio di prodotto: chi arriva dopo non conosce gli step. Uno
+    stato vuoto che insegna, non un 404 nudo."""
+    risposta = cliente.get("/api/wall")
+
+    assert risposta.status_code == 200
+    corpo = risposta.json()
+    assert corpo["calcolato"] is False
+    assert "step 12" in corpo["motivo"]
+
+
+def test_il_prior_calcolato_torna_membrature_e_regioni_scartate(cliente, tmp_path):
+    import json
+
+    from meshrec.core import pipeline
+
+    corsa = _cartella_di_corsa(cliente)
+    corsa.mkdir(parents=True, exist_ok=True)
+    (corsa / pipeline.WALL_FILENAME).write_text(
+        json.dumps({
+            "regioni_trovate": 2,
+            "membrature": [{"lunghezza": 1500.0, "sezione": [200.0, 140.0]}],
+            "scartate": [{"regione": 1, "controlli_falliti": ["costanza_sezione"],
+                           "esiti": {"costanza_sezione": {"passato": False, "valore": 0.4,
+                                                            "soglia": 0.1}}}],
+        }),
+        encoding="utf-8",
+    )
+
+    corpo = cliente.get("/api/wall").json()
+
+    assert corpo["calcolato"] is True
+    assert len(corpo["prior"]["membrature"]) == 1
+    assert corpo["prior"]["scartate"][0]["controlli_falliti"] == ["costanza_sezione"]
+
+
+def test_generare_un_modello_e_una_azione_e_non_tocca_la_configurazione(cliente, tmp_path):
+    """La selezione dei modelli non entra in config.yaml: rigenerare un modello
+    in piu' cambierebbe l'impronta di una corsa che non e' cambiata."""
+    prima = cliente.get("/api/config").json()
+
+    risposta = cliente.post("/api/model/estruso")
+
+    assert risposta.status_code == 200
+    assert risposta.json()["avviato"] == "estruso"
+    assert cliente.get("/api/config").json() == prima
+
+
+def test_un_tipo_di_modello_inventato_viene_rifiutato(cliente):
+    risposta = cliente.post("/api/model/asbuilt")
+
+    assert risposta.status_code == 400
+    corpo = risposta.json()
+    assert corpo["errore"] == "ValueError"
+    assert "estruso" in corpo["messaggio"]
+
+
+def test_il_confronto_dal_server_dice_quali_modelli_mancano(cliente, tmp_path):
+    """report.confronta rifiuta una cartella madre senza 12_wall.json leggibile
+    (task-12, il segno positivo della corsa madre): senza questo fixture
+    /api/compare risponderebbe 400 invece del confronto, perche' e' esattamente
+    lo stato di una corsa appena creata che il client 'cliente' costruisce."""
+    from meshrec.core import pipeline
+
+    corsa = _cartella_di_corsa(cliente)
+    corsa.mkdir(parents=True, exist_ok=True)
+    (corsa / pipeline.WALL_FILENAME).write_text("{}", encoding="utf-8")
+
+    corpo = cliente.get("/api/compare").json()
+
+    assert set(corpo["mancanti"]) <= {"estruso", "primitive"}
+    assert corpo["confrontabili"]["qualita_elementi"] is False
+
+
+def test_lo_step_12_e_il_tetto_di_esegui_da_qui_in_poi(cliente):
+    """RunConfig.to_step ha predefinito 12 dalla Fase 4 (config.py): lo step
+    12 e' il prior geometrico e chiude la corsa madre. Fermo a 11 la riga 12
+    resterebbe 'mai eseguita' dietro 'esegui da qui in poi', senza spiegazione."""
+    risposta = cliente.post("/api/step/9/from")
+
+    assert risposta.json()["fino_a"] == 12
+
+
+def test_le_membrature_etichettano_i_punti_anche_quando_il_pavimento_e_stato_tolto(cliente, tmp_path):
+    """wall.prior misura sulla nuvola con il pavimento tolto: gli indici che
+    'indici' scrive devono restare validi sulla nuvola segmentata intera
+    (quella che /api/membrature decima), non sulla sola nuvola ripulita.
+    Un pavimento messo PRIMA del telaio nell'ordine dei punti smaschera lo
+    sfasamento: senza la correzione, gli indici della membratura cadrebbero
+    sui punti del pavimento invece che su quelli del telaio."""
+    import numpy as np
+
+    from meshrec.core import io, pipeline, synth, wall
+    from meshrec.core.config import SegmentConfig, WallConfig
+
+    telaio_spec = [
+        ((0.0, -90.0, 0.0), (200.0, 180.0, 1600.0)),
+        ((1400.0, -130.0, 0.0), (200.0, 260.0, 1600.0)),
+        ((0.0, -70.0, 1600.0), (1600.0, 140.0, 300.0)),
+        ((0.0, -170.0, -300.0), (1600.0, 340.0, 300.0)),
+    ]
+    spaziatura = 20.0
+    telaio = synth.sample_frame_surface(telaio_spec, spaziatura)
+    pavimento = synth.sample_box_surface((4000.0, 3000.0, 10.0), spaziatura * 2.0)
+    pavimento = pavimento + np.array([-1200.0, -1400.0, -320.0])
+    punti = np.vstack([pavimento, telaio])  # pavimento prima: smaschera lo sfasamento
+
+    corsa = _cartella_di_corsa(cliente)
+    corsa.mkdir(parents=True, exist_ok=True)
+    io.write_cloud(corsa / pipeline.ARTIFACTS[2], punti)
+    esito = wall.prior(punti, SegmentConfig(), WallConfig(), spaziatura)
+    assert esito["pavimento_trovato"] is True, "precondizione: il banco deve avere un pavimento da togliere"
+    (corsa / pipeline.WALL_FILENAME).write_text(json.dumps(esito, default=float), encoding="utf-8")
+
+    risposta = cliente.get("/api/membrature")
+
+    assert risposta.status_code == 200
+    corpo = risposta.headers
+    etichette = np.frombuffer(risposta.content, dtype="<f4")
+    assert (etichette != -1.0).any(), "nessun punto etichettato: gli indici non hanno trovato posto nella nuvola disegnata"
+    # I punti che indici[0] designa devono cadere entro l'ingombro del telaio
+    # sintetico, non del pavimento (che sta tutto sotto z=-310 e fuori dagli
+    # assi x,y del telaio).
+    indici_prima_membratura = esito["membrature"][0]["indici"]
+    assert len(indici_prima_membratura) > 0
+    coordinate = punti[indici_prima_membratura]
+    assert coordinate[:, 2].max() > -300.0, (
+        "gli indici della membratura cadono nel pavimento: lo sfasamento fra la "
+        "nuvola ripulita e la nuvola segmentata non e' stato corretto"
+    )

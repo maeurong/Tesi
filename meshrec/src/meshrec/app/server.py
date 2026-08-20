@@ -312,6 +312,70 @@ def create_app(config_path: Path) -> FastAPI:
         """Le metriche cosi' come stanno sul disco. L'interfaccia non ne calcola."""
         return sweep.leggi_metriche(corrente().run.out_dir)
 
+    @app.get("/api/wall")
+    def prior_geometrico() -> dict[str, object]:
+        """Il prior come sta sul disco. Un prior non calcolato lo dichiara.
+
+        Uno stato vuoto che insegna e non un 404 nudo: l'utente successivo non
+        conosce gli step, e «non ancora calcolato, ecco come» e' l'unica
+        risposta che gli serve.
+        """
+        cfg = corrente()
+        percorso = Path(cfg.run.out_dir) / pipeline.WALL_FILENAME
+        if not percorso.exists():
+            return {
+                "calcolato": False,
+                "motivo": (
+                    "il prior geometrico non e' ancora stato calcolato: e' lo "
+                    "step 12, e si ottiene eseguendo la corsa fino in fondo "
+                    "oppure con il comando 'Calcola il prior' qui accanto"
+                ),
+                "prior": None,
+            }
+        with percorso.open(encoding="utf-8") as handle:
+            return {"calcolato": True, "motivo": "", "prior": json.load(handle)}
+
+    @app.post("/api/wall")
+    def calcola_prior() -> dict[str, object]:
+        lavoratore.start_comando(["wall", str(config_path)], etichetta="prior geometrico")
+        return {"avviato": "wall"}
+
+    @app.post("/api/model/{tipo}")
+    def genera_modello(tipo: str) -> dict[str, object]:
+        """Genera un modello parametrico. E' un'azione, non un parametro.
+
+        Non scrive nulla in config.yaml: se lo facesse, rigenerare un modello in
+        piu' cambierebbe l'impronta di una corsa che non e' cambiata.
+        """
+        if tipo not in ("estruso", "primitive"):
+            raise ValueError(
+                f"modello '{tipo}' sconosciuto: i modelli parametrici sono "
+                "'estruso' e 'primitive'. as-built e' la corsa madre e non si genera"
+            )
+        madre = Path(corrente().run.out_dir)
+        lavoratore.start_comando(
+            ["model", str(config_path), "--tipo", tipo,
+             "--out-dir", str(madre.with_name(f"{madre.name}-{tipo}"))],
+            etichetta=f"modello {tipo}",
+        )
+        return {"avviato": tipo}
+
+    @app.get("/api/compare")
+    def confronto() -> dict[str, object]:
+        """Il confronto sulle cartelle che esistono davvero.
+
+        Le cartelle mancanti non vengono create ne' finte: il confronto dice
+        quale modello manca invece di mettere un trattino in una colonna di
+        numeri.
+        """
+        madre = Path(corrente().run.out_dir)
+        cartelle = [madre] + [
+            madre.with_name(f"{madre.name}-{tipo}")
+            for tipo in ("estruso", "primitive")
+            if madre.with_name(f"{madre.name}-{tipo}").is_dir()
+        ]
+        return report.confronta(cartelle)
+
     @app.get("/api/schema")
     def schema() -> dict[str, object]:
         """Quali parametri appartengono a quale step, con descrizione e dominio.
@@ -406,8 +470,10 @@ def create_app(config_path: Path) -> FastAPI:
 
     @app.post("/api/step/{numero}/from")
     def esegui_da(numero: int) -> dict[str, object]:
-        lavoratore.start(config_path, numero, 11)
-        return {"avviato": numero, "fino_a": 11}
+        # 12 e non 11 dalla Fase 4: lo step 12 e' il prior geometrico e chiude
+        # la corsa madre. E' lo stesso numero del predefinito di RunConfig.to_step.
+        lavoratore.start(config_path, numero, 12)
+        return {"avviato": numero, "fino_a": 12}
 
     @app.post("/api/cancel")
     def annulla() -> dict[str, object]:
@@ -621,6 +687,81 @@ def create_app(config_path: Path) -> FastAPI:
             "method_after": cfg.segment.method,
             **metriche,
         }
+
+    @app.get("/api/membrature")
+    def membrature() -> Response:
+        """Un'etichetta di membratura per punto della nuvola disegnata.
+
+        E' la prova visiva che la scomposizione ha capito il pezzo, e si legge
+        in un secondo dove nessuna metrica sarebbe cosi' rapida. -1 significa
+        «nessuna membratura», che e' un'informazione e non un buco.
+        """
+        cfg = corrente()
+        percorso = Path(cfg.run.out_dir) / pipeline.WALL_FILENAME
+        if not percorso.exists():
+            raise FileNotFoundError(
+                "il prior geometrico non e' ancora stato calcolato: e' lo step 12"
+            )
+        with percorso.open(encoding="utf-8") as handle:
+            prior = json.load(handle)
+        punti, gruppi, _voxel = viewport.decimate_file(
+            Path(cfg.run.out_dir) / pipeline.ARTIFACTS[2],
+            ViewportConfig().max_points, cfg.input.spacing_sample, cfg.input.seed,
+            CACHE_DIR,
+        )
+        # Etichetta per punto PIENO, letta da "indici" (wall.prior, posizioni
+        # dentro ARTIFACTS[2] intera). Un gruppo di decimazione puo' contenere
+        # punti pieni di piu' membrature: vince la maggioranza del gruppo, non
+        # il primo punto -- lo stesso principio di /api/cluster (server.py),
+        # non la stessa implementazione (li' il voto e' geometrico, qui e' gia'
+        # un'etichetta per indice).
+        per_punto_pieno = np.full(sum(len(gruppo) for gruppo in gruppi), -1, dtype=np.int64)
+        for numero, voce in enumerate(prior["membrature"]):
+            per_punto_pieno[voce["indici"]] = numero
+        etichette = np.full(len(punti), -1.0)
+        for disegnato, gruppo in enumerate(gruppi):
+            # ponytail: fino a max_points (400.000) iterazioni con un Counter su
+            # gruppi piccoli -- rapido nella pratica su lab_crop/muro. Se un
+            # giorno diventasse un collo di bottiglia misurato, la stessa
+            # etichettatura si vettorizza con un bincount su (indice
+            # disegnato, etichetta+1).
+            migliore, _voti = Counter(per_punto_pieno[gruppo].tolist()).most_common(1)[0]
+            if migliore != -1:
+                etichette[disegnato] = float(migliore)
+        return Response(
+            content=viewport.campo_per_punto(etichette),
+            media_type="application/octet-stream",
+            headers={"X-Punti": str(len(punti)),
+                      "X-Membrature": str(len(prior["membrature"]))},
+        )
+
+    @app.get("/api/rigonfiamento")
+    def rigonfiamento(membratura: int) -> dict[str, object]:
+        """L'aggregato di rigonfiamento di una membratura: min, max, p95 [mm].
+
+        Non la mappa per cella: quella vive solo in memoria dentro
+        Membratura.rigonfiamento (wall.py) e non arriva su 12_wall.json, che
+        serializza il solo aggregato (wall.py, voce "rigonfiamento" di
+        wall.prior). Scriverla vorrebbe dire un artefatto nuovo (un .npy per
+        membratura accanto al JSON, con la propria provenienza da gestire) e
+        niente in questa fase la consuma: dichiarare qui dove sta e cosa
+        servirebbe evita a chi la cerchera' di ripartire da zero.
+        """
+        cfg = corrente()
+        percorso = Path(cfg.run.out_dir) / pipeline.WALL_FILENAME
+        if not percorso.exists():
+            raise FileNotFoundError(
+                "il prior geometrico non e' ancora stato calcolato: e' lo step 12"
+            )
+        with percorso.open(encoding="utf-8") as handle:
+            prior = json.load(handle)
+        if not 0 <= membratura < len(prior["membrature"]):
+            raise ValueError(
+                f"membratura {membratura} inesistente: il prior ne ha trovate "
+                f"{len(prior['membrature'])}"
+            )
+        mappa = prior["membrature"][membratura]["rigonfiamento"]
+        return {"min": mappa["min"], "max": mappa["max"], "p95": mappa["p95"], "celle": mappa["celle"]}
 
     @app.get("/api/mesh/{numero}")
     def mesh(numero: int) -> Response:

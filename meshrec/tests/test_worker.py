@@ -69,6 +69,23 @@ def test_annullare_un_worker_fermo_non_solleva():
     assert Worker().cancel() is False
 
 
+def test_il_worker_esegue_anche_un_comando_che_non_e_uno_step(tmp_path):
+    """Il prior e i modelli sono azioni, non step: passano dallo stesso
+    sottoprocesso -- perche' e' il percorso con cui sono stati prodotti tutti i
+    numeri delle Fasi 1 e 2 -- ma non hanno un numero di step."""
+    lavoratore = Worker()
+
+    lavoratore.start_comando(["--version"], etichetta="prova")
+    for _ in range(200):
+        if not lavoratore.is_running():
+            break
+        time.sleep(0.05)
+
+    assert lavoratore.step is None
+    assert lavoratore.etichetta == "prova"
+    assert lavoratore.exit_code is not None
+
+
 def test_avviare_un_secondo_step_mentre_il_primo_gira_solleva(tmp_path):
     """E' un errore del chiamante, non un esito dell'elaborazione: la nuvola
     assente tiene comunque il processo in volo abbastanza a lungo (avvio

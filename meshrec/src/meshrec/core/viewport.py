@@ -240,6 +240,33 @@ def _scrivi_cache(percorso: Path, punti: np.ndarray, gruppi: list[np.ndarray], v
         return
 
 
+def triangoli_da_quadrilateri(quadrilateri: np.ndarray) -> np.ndarray:
+    """Ogni quadrilatero in due triangoli, tagliato sulla diagonale 0-2.
+
+    La superficie di contorno di una mesh esaedrica e' fatta di quadrilateri, e
+    three.js disegna triangoli. La divisione sta qui e non nel browser perche'
+    nel browser nessun test la sorveglierebbe, ed e' la stessa ragione per cui
+    la decimazione della nuvola sta nel core.
+    """
+    quad = np.asarray(quadrilateri, dtype=np.int64)
+    # Stack sull'asse 1, non concatenazione seguita da un riordino: i due
+    # triangoli dello stesso quadrilatero restano adiacenti per costruzione,
+    # e l'ordine delle facce resta quello dei quadrilateri d'origine.
+    return np.ascontiguousarray(
+        np.stack([quad[:, [0, 1, 2]], quad[:, [0, 2, 3]]], axis=1).reshape(-1, 3)
+    )
+
+
+def campo_per_punto(valori: np.ndarray) -> bytes:
+    """Uno scalare per punto in Float32, per le mappe di colore.
+
+    E' `to_float32` applicata a un campo invece che a coordinate: il viewport
+    ha gia' le mappe di deviazione dalla Fase 3, e qui cambia il campo scalare
+    e non la macchina.
+    """
+    return to_float32(np.asarray(valori, dtype=np.float64).ravel())
+
+
 def _rimuovi_voci_vecchie(cache_dir: Path, corrente: Path) -> None:
     """Elimina ogni altra voce della stessa sorgente, qualunque budget o parametro di spaziatura.
 

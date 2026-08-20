@@ -180,6 +180,30 @@ def test_decimate_file_non_scrive_dentro_la_cartella_della_corsa(tmp_path):
     assert dopo == prima, "la cache ha scritto dentro la cartella della corsa"
 
 
+def test_i_quadrilateri_diventano_due_triangoli_ciascuno():
+    """La superficie di contorno di un esaedro e' fatta di quadrilateri, e
+    three.js disegna triangoli: la divisione va fatta qui e non nel browser,
+    dove nessun test la sorveglierebbe."""
+    quadrilateri = np.array([[0, 1, 2, 3], [4, 5, 6, 7]], dtype=np.int64)
+
+    triangoli = viewport.triangoli_da_quadrilateri(quadrilateri)
+
+    assert triangoli.shape == (4, 3)
+    assert triangoli[0].tolist() == [0, 1, 2]
+    assert triangoli[1].tolist() == [0, 2, 3]
+
+
+def test_il_campo_per_punto_esce_in_float32_come_le_coordinate():
+    """Stessa macchina delle mappe di deviazione della Fase 3: cambia il campo
+    scalare, non il trasporto."""
+    valori = np.array([0.0, 1.5, -2.25])
+
+    corpo = viewport.campo_per_punto(valori)
+
+    assert len(corpo) == 3 * 4
+    assert np.frombuffer(corpo, dtype="<f4") == pytest.approx(valori)
+
+
 def test_decimate_file_pulisce_la_voce_vecchia_anche_se_cambia_il_budget(tmp_path):
     """I-3/fix-1: la pulizia e' per sola sorgente, non per sorgente+budget, cosi'
     la cache resta a una voce per file anche quando max_points cambia fra una

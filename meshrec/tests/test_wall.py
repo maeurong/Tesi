@@ -108,13 +108,20 @@ def test_il_pavimento_viene_scartato_come_piano_e_non_come_quota():
     pavimento = pavimento + np.array([-1200.0, -1400.0, -320.0])
     punti = np.vstack([telaio, pavimento])
 
-    tenuti, metriche = wall.scarta_pavimento(punti, SegmentConfig(), _cfg(), SPAZIATURA)
+    puliti, maschera, metriche = wall.scarta_pavimento(punti, SegmentConfig(), _cfg(), SPAZIATURA)
 
     assert metriche["pavimento_trovato"] is True
-    assert len(tenuti) < len(punti)
+    assert len(puliti) < len(punti)
     # nessun punto sotto il piede del telaio sintetico resta in circolazione
-    assert tenuti[:, 2].min() > -320.0
-    assert tenuti[:, 2].min() == pytest.approx(-300.0, abs=3.0 * SPAZIATURA)
+    assert puliti[:, 2].min() > -320.0
+    assert puliti[:, 2].min() == pytest.approx(-300.0, abs=3.0 * SPAZIATURA)
+    # la maschera e' il contratto che permette di tradurre un indice dentro
+    # `puliti` in un indice dentro `punti`: deve avere una spunta per ogni
+    # punto tenuto e nessuna per quelli tolti col pavimento.
+    assert maschera.shape == (len(punti),)
+    assert maschera.dtype == bool
+    assert maschera.sum() == len(puliti)
+    np.testing.assert_array_equal(punti[maschera], puliti)
 
 
 def test_senza_pavimento_non_ne_viene_inventato_uno():
@@ -123,10 +130,11 @@ def test_senza_pavimento_non_ne_viene_inventato_uno():
     tale."""
     punti = synth.sample_frame_surface(TELAIO, SPAZIATURA)
 
-    tenuti, metriche = wall.scarta_pavimento(punti, SegmentConfig(), _cfg(), SPAZIATURA)
+    puliti, maschera, metriche = wall.scarta_pavimento(punti, SegmentConfig(), _cfg(), SPAZIATURA)
 
     assert metriche["pavimento_trovato"] is False
-    assert len(tenuti) == len(punti)
+    assert len(puliti) == len(punti)
+    assert maschera.all(), "senza pavimento nessun punto va tolto"
 
 
 def test_una_scatola_da_una_sola_membratura():

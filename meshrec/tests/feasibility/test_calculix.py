@@ -191,7 +191,7 @@ def test_i_tie_del_telaio_a_quattro_membrature_legano_davvero(tmp_path):
     cfg_segment = SegmentConfig()
     cfg_wall = WallConfig()
 
-    puliti, _ = wall.scarta_pavimento(punti, cfg_segment, cfg_wall, spaziatura)
+    puliti, _maschera, _ = wall.scarta_pavimento(punti, cfg_segment, cfg_wall, spaziatura)
     regioni_punti, _ = wall.scomponi(puliti, cfg_segment, cfg_wall, spaziatura)
     direzioni, _ = wall.terna(puliti)
     accettate = []

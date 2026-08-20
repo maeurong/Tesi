@@ -119,7 +119,7 @@ def spessore_per_cella(
 
 def scarta_pavimento(
     points: np.ndarray, cfg_segment: SegmentConfig, cfg: WallConfig, spacing: float
-) -> tuple[np.ndarray, dict[str, object]]:
+) -> tuple[np.ndarray, np.ndarray, dict[str, object]]:
     """Toglie il pavimento, se c'e'. Non e' una membratura ed e' scartato come piano.
 
     Il pavimento e' riconosciuto da due condizioni che valgono insieme e non da
@@ -133,6 +133,12 @@ def scarta_pavimento(
     Se nessun piano soddisfa entrambe le condizioni la nuvola torna intatta e
     le metriche lo dichiarano: non viene inventato un pavimento, per lo stesso
     motivo per cui non viene inventata un'aspettativa quando non e' dichiarata.
+
+    Il secondo valore restituito e' la maschera booleana, lunga come `points`,
+    dei punti tenuti: senza, un indice calcolato sulla nuvola ripulita non ha
+    modo di tornare a un indice della nuvola d'origine, che e' esattamente cio'
+    che serve a `prior` per dichiarare a quali punti della nuvola segmentata
+    appartiene ciascuna membratura.
     """
     punti = np.asarray(points, dtype=np.float64)
     piani, _residuo, metriche_piani = segment.extract_planes(punti, cfg_segment, spacing)
@@ -154,14 +160,14 @@ def scarta_pavimento(
             [tuple(riga) not in chiave_piano for riga in np.round(punti, 6).tolist()],
             dtype=bool,
         )
-        return np.ascontiguousarray(punti[tenuti]), {
+        return np.ascontiguousarray(punti[tenuti]), tenuti, {
             "pavimento_trovato": True,
             "pavimento_punti": int(len(piano)),
             "punti_dopo": int(tenuti.sum()),
             **metriche_piani,
         }
 
-    return punti, {
+    return punti, np.ones(len(punti), dtype=bool), {
         "pavimento_trovato": False,
         "pavimento_punti": 0,
         "punti_dopo": int(len(punti)),
@@ -253,7 +259,7 @@ def scomponi(
     Il numero di membrature non e' un parametro e non e' un'attesa: e' cio' che
     la nuvola contiene. Su una scatola torna una regione sola.
     """
-    puliti, metriche_pavimento = scarta_pavimento(points, cfg_segment, cfg, spacing)
+    puliti, _tenuti, metriche_pavimento = scarta_pavimento(points, cfg_segment, cfg, spacing)
     if len(puliti) == 0:
         raise ValueError(
             "la rimozione del pavimento ha svuotato la nuvola: il piano scartato "
@@ -693,7 +699,12 @@ def prior(
     pezzo nuovo. Quando mancano, al posto dell'atteso c'e' `null` e non un
     numero: il prior non inventa un'aspettativa.
     """
-    puliti, metriche_pavimento = scarta_pavimento(points, cfg_segment, cfg, spacing)
+    puliti, tenuti, metriche_pavimento = scarta_pavimento(points, cfg_segment, cfg, spacing)
+    # scarta_pavimento e' deterministica su (points, cfg_segment, cfg, spacing):
+    # la stessa chiamata dentro scomponi produce lo stesso `puliti`, quindi gli
+    # indici di regioni_punti (posizioni dentro `puliti`) e questa `tenuti`
+    # restano coerenti fra loro.
+    indici_pieni = np.flatnonzero(tenuti)
     regioni_punti, metriche = scomponi(points, cfg_segment, cfg, spacing)
     direzioni, _centro = terna(puliti)
 
@@ -735,6 +746,11 @@ def prior(
         "membrature": [
             {
                 "punti": int(len(m.punti)),
+                # Indici dentro la nuvola segmentata (ARTIFACTS[2]) intera, non
+                # dentro `puliti`: e' quella che /api/membrature decima, e un
+                # indice relativo al solo `puliti` cadrebbe su un punto diverso
+                # ogni volta che il pavimento viene tolto.
+                "indici": indici_pieni[m.punti].tolist(),
                 "asse": m.asse.tolist(),
                 "origine": m.origine.tolist(),
                 "lunghezza": m.lunghezza,
