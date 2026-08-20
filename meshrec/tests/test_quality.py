@@ -589,6 +589,25 @@ def test_lo_jacobiano_scalato_e_non_positivo_su_un_elemento_rovesciato():
     assert quality.scaled_jacobian(_CUBO_NODI, rovesciato)[0] <= 0.0
 
 
+def test_le_metriche_esaedriche_contano_gli_elementi_rovesciati():
+    """Un solo elemento non basterebbe a provarlo: con `hexes == 1` anche un
+    difetto che restituisse il numero di elementi invece del numero di
+    rovesciati darebbe `inverted == 1`. Con due elementi di cui uno solo
+    rovesciato i due numeri divergono, e il conteggio e' costretto a essere
+    quello vero. Il volume e' con segno, quindi i due si annullano.
+    """
+    nodi = np.vstack([_CUBO_NODI, _CUBO_NODI + [2.0, 0.0, 0.0]])
+    esaedri = np.array(
+        [[0, 1, 2, 3, 4, 5, 6, 7], [12, 13, 14, 15, 8, 9, 10, 11]], dtype=np.int64
+    )
+
+    metriche = quality.hexa_metrics(nodi, esaedri)
+
+    assert metriche["hexes"] == 2
+    assert metriche["inverted"] == 1
+    assert metriche["total_volume"] == pytest.approx(0.0, abs=1e-9)
+
+
 def test_le_metriche_esaedriche_non_contengono_min_ratio():
     """min_ratio e' il rapporto raggio-spigolo di un tetraedro e su un esaedro
     non e' definito. Metterlo nella stessa colonna dello Jacobiano scalato
