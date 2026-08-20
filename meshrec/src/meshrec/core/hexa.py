@@ -15,10 +15,12 @@ di array, e l'inizializzazione per tentativo con il `finalize` in un `finally`.
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 
 import numpy as np
 
+from meshrec.core import abaqus
 from meshrec.core.config import ModelConfig
 
 _ARROTONDAMENTO = 6
@@ -122,6 +124,10 @@ def mesh_prisma(
 
     Restituisce nodi, esaedri e metriche, con nodi ed elementi gia' in ordine
     canonico.
+
+    Va chiamata serialmente: `gmsh.initialize()`/`gmsh.finalize()` operano su
+    stato globale di modulo, non per istanza, e due chiamate concorrenti (thread
+    o processi che condividono lo stato) si pesterebbero i piedi.
     """
     if float(lunghezza) <= 0.0:
         raise ValueError(
@@ -250,7 +256,14 @@ def prisma_di(membratura, tipo: str) -> Prisma:
             lunghezza=float(membratura.lunghezza),
         )
     if tipo == "primitive":
-        larghezza, altezza = (float(valore) for valore in np.ptp(membratura.contorno, axis=0))
+        # Le due estensioni vengono da `membratura.sezione`, non da
+        # `np.ptp(membratura.contorno, axis=0)`: il contorno e' gia' passato
+        # da `semplifica_contorno`, che lo riduce a pochi vertici e ne
+        # sposta l'inviluppo, mentre `sezione` e' l'estensione dei punti
+        # grezzi nella stessa base di piano. Squadrare sul contorno
+        # pubblicherebbe come "misurato" un numero che la semplificazione ha
+        # gia' alterato.
+        larghezza, altezza = (float(valore) for valore in membratura.sezione)
         minimo = np.min(np.asarray(membratura.contorno, dtype=np.float64), axis=0)
         rettangolo = minimo + np.array(
             [[0.0, 0.0], [larghezza, 0.0], [larghezza, altezza], [0.0, altezza]]
@@ -321,9 +334,10 @@ sono un centimetro, cioe' sotto la scala di qualunque giunzione.
 _PASSI_BISEZIONE = 40
 """Dimezzamenti con cui si trova il bordo del solido dentro l'intervallo trovato.
 
-Quaranta dimezzamenti portano un intervallo di sette millimetri sotto 1e-11 mm,
-cioe' sotto la risoluzione di `_ARROTONDAMENTO` con cui due coordinate sono lo
-stesso punto. Sul banco del telaio il residuo misurato e' 3,4e-12 mm.
+Quaranta dimezzamenti dividono per 2^40 (~1,1e12): un intervallo di partenza
+fino al centimetro scende sotto 1e-11 mm, cioe' sotto la risoluzione di
+`_ARROTONDAMENTO` con cui due coordinate prodotte dalla stessa costruzione sono
+gia' lo stesso punto.
 """
 
 _TOLLERANZA_CONTATTO = 1e-6
@@ -334,7 +348,7 @@ coordinate prodotte dalla stessa costruzione sono gia' lo stesso punto. Non e'
 un raggio di ricerca e non deve diventarlo: dopo la bisezione le due superfici
 distano il solo residuo in virgola mobile, e questo margine copre quello.
 Verificato che serve: a tolleranza zero le superfici escono vuote per il solo
-residuo, e con esso portano 20 e 12 facce.
+residuo di bisezione.
 """
 
 
@@ -371,8 +385,8 @@ def taglia_giunzioni(prismi: list[Prisma]) -> tuple[list[Prisma], list[dict[str,
     bordo, e la bisezione lo stringe fin sotto il rumore in virgola mobile.
     **E' la precisione del taglio a rendere possibile il `*TIE`**: fermarsi sul
     campione lascia fra le due membrature un vuoto grande quanto il passo di
-    campionamento -- 5,5 mm sul banco del telaio -- e due superfici distanti
-    mezzo centimetro non si legano. Legarle allargando il raggio di ricerca
+    campionamento, cioe' `lunghezza / (_CAMPIONI_ASSE - 1)` -- e due superfici
+    a quella distanza non si legano. Legarle allargando il raggio di ricerca
     farebbe passare il controllo senza rendere giusto il modello.
 
     Chi cede e' il prisma di sezione minore, che e' un criterio del dato e non
@@ -410,11 +424,37 @@ def taglia_giunzioni(prismi: list[Prisma]) -> tuple[list[Prisma], list[dict[str,
             base = piccolo.origine + centro_sezione[0] * e1 + centro_sezione[1] * e2
             invaso = dentro(tagliati[maggiore], base + np.outer(passo, versore))
             if not invaso.any():
+                # La retta baricentrica puo' mancare il maggiore anche quando
+                # i due prismi si compenetrano davvero: un angolo del
+                # contorno minore puo' entrare senza che il suo baricentro lo
+                # faccia. Le quattro rette dei vertici sono la guardia
+                # additiva -- non cambiano l'esito quando la baricentrica gia'
+                # vede l'invasione, la trovano solo quando lei sola non basta.
+                # Il taglio assiale non sa togliere una sovrapposizione
+                # d'angolo, quindi qui si solleva invece di ignorarla.
+                vertice_invaso = any(
+                    dentro(
+                        tagliati[maggiore],
+                        (piccolo.origine + vx * e1 + vy * e2) + np.outer(passo, versore),
+                    ).any()
+                    for vx, vy in piccolo.contorno
+                )
+                if vertice_invaso:
+                    raise ValueError(
+                        "un vertice del contorno del prisma minore entra nel "
+                        "prisma maggiore ma la retta baricentrica no: e' una "
+                        "sovrapposizione d'angolo che il taglio lungo l'asse "
+                        "non sa togliere. Verifica la scomposizione"
+                    )
                 continue
 
             # I due casi che l'accorciamento lungo l'asse non sa fare, ciascuno
-            # con la propria diagnosi. Sono guardie e non note: senza,
-            # l'attraversamento produceva un accorciamento di zero in silenzio.
+            # con la propria diagnosi. Sono guardie e non note: senza la guardia
+            # dell'attraversamento, `libero[-1] + 1` esce dall'array dei campioni
+            # (indice 200 su un array di 200) e il codice si schianta con un
+            # IndexError che non dice all'operatore che la scomposizione e'
+            # sbagliata -- non un accorciamento silenzioso, ma non e' comunque
+            # una diagnosi utile.
             if invaso[0] and invaso[-1]:
                 raise ValueError(
                     "un prisma e' interamente dentro un altro: non c'e' un "
@@ -460,6 +500,17 @@ def taglia_giunzioni(prismi: list[Prisma]) -> tuple[list[Prisma], list[dict[str,
             )
 
     return tagliati, giunzioni
+
+
+class MembratureNonLegateWarning(UserWarning):
+    """Una o piu' membrature non compaiono in alcun `*TIE`.
+
+    Non e' un errore: un modello con parti scollegate e' legittimo. Ma senza
+    questo avviso lo stato non arriva all'operatore, e un gioco fra due
+    geometrie sotto la risoluzione dello scanner produce lo stesso `ties=()`
+    di una scelta deliberata di modellazione -- le due situazioni vanno
+    distinte da chi guarda il risultato, non nascoste dietro lo stesso zero.
+    """
 
 
 def costruisci(membrature: list, tipo: str, cfg: ModelConfig) -> dict[str, object]:
@@ -512,6 +563,7 @@ def costruisci(membrature: list, tipo: str, cfg: ModelConfig) -> dict[str, objec
     elementi_totali: list[np.ndarray] = []
     blocchi: list[dict[str, object]] = []
     scorrimento = 0
+    primo_elemento = 0
     for numero, prisma in enumerate(tagliati):
         nodi, esaedri, metriche = mesh_prisma(
             prisma.contorno, prisma.origine, prisma.asse, prisma.lunghezza, cfg
@@ -522,11 +574,12 @@ def costruisci(membrature: list, tipo: str, cfg: ModelConfig) -> dict[str, objec
             "membratura": numero,
             "primo_nodo": scorrimento,
             "nodi": int(len(nodi)),
-            "primo_elemento": int(sum(len(e) for e in elementi_totali[:-1])),
+            "primo_elemento": primo_elemento,
             "elementi": int(len(esaedri)),
             **metriche,
         })
         scorrimento += len(nodi)
+        primo_elemento += len(esaedri)
 
     nodi = np.ascontiguousarray(np.vstack(nodi_totali))
     elementi = np.ascontiguousarray(np.vstack(elementi_totali))
@@ -541,15 +594,15 @@ def costruisci(membrature: list, tipo: str, cfg: ModelConfig) -> dict[str, objec
     # Il dipendente e' il prisma di sezione minore. Non e' la regola «la
     # superficie piu' fitta fa da dipendente»: l'ordine per area e quello per
     # passo di mesh non coincidono -- una sezione 1000 x 10 ha area maggiore di
-    # una 90 x 90 e passo sei volte piu' fine -- quindi questa e' una scelta di
+    # una 90 x 90 (10000 contro 8100) e passo nove volte piu' fine (3,333 contro
+    # 30,0) -- quindi questa e' una scelta di
     # determinismo, non di convergenza numerica. Verificato che su questa
     # assegnazione CalculiX genera i vincoli senza un solo nodo fallito; la via
     # d'aggiornamento, se una geometria reale mostrasse il contrario, e'
     # ordinare i due ruoli per `blocco["passo"]`.
-    from meshrec.core import abaqus
-
     superfici: dict[str, list[tuple[int, int]]] = {}
     ties: list[tuple[str, str, str]] = []
+    connesse: set[int] = set()
     for numero, giunzione in enumerate(giunzioni, start=1):
         minore, maggiore = int(giunzione["minore"]), int(giunzione["maggiore"])
         nomi = []
@@ -568,12 +621,30 @@ def costruisci(membrature: list, tipo: str, cfg: ModelConfig) -> dict[str, objec
             nomi.append(nome)
         if superfici[nomi[0]] and superfici[nomi[1]]:
             ties.append((f"{cfg.tie_name_prefix}_{numero}", nomi[0], nomi[1]))
+            connesse.add(minore)
+            connesse.add(maggiore)
         else:
             # superficie vuota: le due mesh non si toccano davvero. Meglio
             # nessun vincolo che un *TIE su una superficie senza facce, che il
             # solutore accetterebbe e non vincolerebbe nulla.
             for nome in nomi:
                 superfici.pop(nome, None)
+
+    # Ruling Z: un telaio con membrature scollegate e' un modello legittimo
+    # -- non e' compito di questa funzione deciderlo -- ma l'operatore deve
+    # saperlo invece di dedurlo contando `ties`. Un gioco sotto la
+    # risoluzione dello scanner e la scelta di modellare due parti separate
+    # producono lo stesso stato interno, e solo l'avviso le distingue da un
+    # errore silenzioso.
+    non_legate = [numero for numero in range(len(tagliati)) if numero not in connesse]
+    if non_legate:
+        warnings.warn(
+            f"{len(non_legate)} membrature non compaiono in alcun *TIE*: "
+            f"indici {non_legate}. Se non e' la scelta di modellarle come "
+            "corpi separati, verifica il gioco fra le geometrie",
+            MembratureNonLegateWarning,
+            stacklevel=2,
+        )
 
     return {
         "nodi": nodi,
@@ -584,15 +655,10 @@ def costruisci(membrature: list, tipo: str, cfg: ModelConfig) -> dict[str, objec
         "metriche": {
             "tipo": tipo,
             "membrature": len(tagliati),
-            "giunzioni": len(ties),
+            "giunzioni": len(giunzioni),
+            "ties": len(ties),
+            "membrature_non_legate": len(non_legate),
             "accorciamenti": [giunzione["accorciamento"] for giunzione in giunzioni],
             "element_type": cfg.element,
-            "vincolo_giunzioni": (
-                "*TIE fra superfici a contatto: le mesh di membrature adiacenti "
-                "non combaciano nodo a nodo. E' una differenza fra i modelli che "
-                "non deriva dalla geometria -- as-built monolitico, parametrici "
-                "vincolati alle giunzioni -- e va letta accanto al confronto. La "
-                "mesh conforme multiblocco e' la via d'aggiornamento"
-            ),
         },
     }

@@ -152,15 +152,23 @@ def test_passo_di_mesh_rifiuta_un_contorno_con_estensione_nulla_su_un_asse():
         hexa.passo_di_mesh(degenere, ModelConfig())
 
 
-def _membratura_finta(contorno, origine, asse, lunghezza, asse_ideale, riempimento="pieno"):
+def _membratura_finta(
+    contorno, origine, asse, lunghezza, asse_ideale, riempimento="pieno", sezione=None
+):
     from meshrec.core.wall import Membratura
 
+    # Default = ptp(contorno), come sul dato reale quando la semplificazione
+    # non ha spostato l'inviluppo. `sezione` e' un parametro perche' A4 ha
+    # bisogno di rendere le due grandezze diverse, cosa che il default non
+    # puo' mai fare per costruzione.
+    if sezione is None:
+        sezione = (float(np.ptp(contorno[:, 0])), float(np.ptp(contorno[:, 1])))
     return Membratura(
         punti=np.arange(0),
         asse=np.asarray(asse, dtype=np.float64),
         origine=np.asarray(origine, dtype=np.float64),
         lunghezza=float(lunghezza),
-        sezione=(float(np.ptp(contorno[:, 0])), float(np.ptp(contorno[:, 1]))),
+        sezione=sezione,
         sezione_dispersione=(0.0, 0.0),
         contorno=np.asarray(contorno, dtype=np.float64),
         fuori_piombo_deg=0.0,
@@ -278,6 +286,29 @@ def test_il_modello_primitive_conserva_le_dimensioni_misurate():
     assert not np.allclose(primitive.contorno, sezione), "primitive squadra, non copia"
 
 
+def test_il_modello_primitive_squadra_sulla_sezione_misurata_non_sul_contorno():
+    """A4 del giro di correzione 1: `membratura.contorno` e' gia' passato da
+    `semplifica_contorno`, che sposta l'inviluppo; `membratura.sezione` e'
+    l'estensione dei punti grezzi nella stessa base di piano. Le due grandezze
+    divergono sul dato reale (differenza misurata di 5 mm alla tolleranza di
+    contorno predefinita), e qui la fixture le rende diverse per costruzione:
+    senza una `sezione` esplicita e diversa da `ptp(contorno)`, questo test
+    non potrebbe distinguerle.
+
+    Muore se: `prisma_di("primitive")` torna a usare
+    `np.ptp(membratura.contorno, axis=0)` invece di `membratura.sezione`."""
+    contorno_semplificato = np.array([[0.0, 0.0], [200.0, 0.0], [200.0, 140.0], [0.0, 140.0]])
+    sezione_grezza = (210.0, 150.0)  # deliberatamente diversa da ptp(contorno) = (200, 140)
+    membratura = _membratura_finta(
+        contorno_semplificato, [0.0, 0.0, 0.0], [0.0, 0.0, 1.0], LUNGHEZZA, ASSE_Z,
+        sezione=sezione_grezza,
+    )
+
+    primitive = hexa.prisma_di(membratura, "primitive")
+
+    assert np.ptp(primitive.contorno, axis=0) == pytest.approx(sezione_grezza)
+
+
 def test_l_appartenenza_a_un_prisma_e_esatta_sul_contorno_convesso():
     """Muore se: la tolleranza viene applicata sempre invece che su richiesta
     (il punto «appena fuori» entrerebbe), o se non viene applicata affatto
@@ -313,10 +344,11 @@ def test_due_prismi_che_si_compenetrano_vengono_tagliati_sul_bordo_del_solido():
     nella trave; il volume e' la somma di due prodotti di dimensioni, senza
     sottrazioni, perche' dopo il taglio i due solidi non si sovrappongono piu'.
 
-    Muore se: si toglie il taglio (accorciamento 0, volume in eccesso dell'8,8%);
+    Muore se: si toglie il taglio (accorciamento 0, volume in eccesso del 2,941%);
     muore anche se si toglie la sola bisezione e ci si ferma sul campione
-    (accorciamento 94,5 invece di 100, volume in eccesso dello 0,16%) — entrambe
-    le mutazioni verificate."""
+    (accorciamento 105,528 invece di 100 -- si taglia di piu', non di meno --
+    volume in difetto dello 0,163%) — entrambe le mutazioni applicate e
+    verificate in questa sessione (vedi task-8-report.md)."""
     colonna = hexa.Prisma(
         contorno=COLONNA, origine=np.array([0.0, 0.0, 0.0]),
         asse=np.array([0.0, 0.0, 1.0]), lunghezza=ALTEZZA_COLONNA,
@@ -355,8 +387,10 @@ def test_un_prisma_che_attraversa_un_altro_da_parte_a_parte_e_rifiutato():
     Una colonna alta 1600 passa oltre la trave, che sta fra 1300 e 1500: le due
     estremita' restano libere e l'invasione e' una banda centrale. Prima della
     correzione del 20/08/2026 questo caso non sollevava — la guardia guardava
-    `invaso[0] and invaso[-1]`, che e' il contenimento, non l'attraversamento —
-    e produceva un accorciamento di zero in silenzio.
+    `invaso[0] and invaso[-1]`, che e' il contenimento, non l'attraversamento.
+    Non produceva un accorciamento di zero in silenzio: `libero[-1] + 1` usciva
+    dall'array dei campioni e il codice si schiantava con un `IndexError` che
+    non diceva all'operatore che la scomposizione era sbagliata.
 
     Muore se: la guardia torna a controllare il contenimento invece
     dell'attraversamento, o sparisce."""
@@ -396,8 +430,117 @@ def test_il_telaio_costruito_dichiara_le_superfici_del_tie():
     for _nome, dipendente, indipendente in modello["ties"]:
         assert modello["superfici"][dipendente], "superficie dipendente senza facce"
         assert modello["superfici"][indipendente], "superficie indipendente senza facce"
-    # una sola giunzione: le due membrature si incontrano in un punto solo
+    # una sola giunzione, e legata: nel caso buono i due numeri coincidono
+    # (Ruling AA). Muore se "giunzioni" torna a rileggere len(ties) invece di
+    # len(giunzioni): con _TOLLERANZA_CONTATTO = 0 (vedi test dedicato sotto)
+    # i due numeri divergono, e solo l'assert su "giunzioni" lo vedrebbe.
     assert modello["metriche"]["giunzioni"] == 1
+    assert modello["metriche"]["ties"] == 1
     assert modello["metriche"]["accorciamenti"] == pytest.approx(
         [ACCORCIAMENTO_ATTESO], abs=1e-6
     )
+
+
+def test_un_telaio_senza_legami_avvisa_invece_di_uscire_muto():
+    """A1 del giro di correzione 1. Un gioco di 0,1 mm fra colonna e trave --
+    sotto la risoluzione di qualunque scanner -- e' geometricamente identico,
+    nello stato interno, alla scelta deliberata di modellare due membrature
+    come corpi separati (Ruling Z): in nessuno dei due casi c'e' un errore da
+    sollevare. Ma senza avviso l'operatore riceve `ties=()` e
+    `accorciamenti=[]` senza un fiato, e non puo' distinguere un modello
+    voluto da uno rotto.
+
+    Muore se: si toglie il conteggio `metriche["membrature_non_legate"]`, o
+    si toglie il `warnings.warn` quando e' maggiore di zero."""
+    colonna = _membratura_finta(
+        COLONNA, [0.0, 0.0, 0.0], [0.0, 0.0, 1.0], QUOTA_TRAVE - 0.1, [0.0, 0.0, 1.0]
+    )
+    trave = _membratura_finta(
+        TRAVE, [0.0, 0.0, QUOTA_TRAVE], [1.0, 0.0, 0.0], LUNGHEZZA_TRAVE, [1.0, 0.0, 0.0]
+    )
+
+    with pytest.warns(hexa.MembratureNonLegateWarning):
+        modello = hexa.costruisci([colonna, trave], "estruso", ModelConfig())
+
+    assert modello["metriche"]["membrature_non_legate"] == 2
+    assert modello["ties"] == ()
+
+
+def test_una_sovrapposizione_d_angolo_che_la_baricentrica_non_vede_e_rifiutata():
+    """A2 del giro di correzione 1. La retta baricentrica del prisma minore
+    puo' mancare il maggiore anche quando i due prismi si compenetrano
+    davvero: qui il 4% del volume della trave (200.000 mm^3) e' dentro la
+    colonna, ma la loro sovrapposizione e' tutta in un angolo che la
+    baricentrica non attraversa. Senza la guardia sulle rette dei vertici il
+    volume verrebbe contato due volte senza alcun segnale -- l'errore esatto
+    che il docstring di `taglia_giunzioni` dice di cercare.
+
+    Geometria e percentuale riprodotte in proprio (non lette da un rapporto):
+    colonna 400x400 lungo z per 1000, trave 100x100 lungo x per 500 con
+    origine [-400, -80, 500] -- la trave attraversa l'angolo della colonna fra
+    x=0 e x=20 circa, fuori dall'asse baricentrico della trave (y=-30, fuori
+    dai suoi stessi limiti di sezione).
+
+    Muore se: la guardia additiva sulle rette dei vertici viene tolta, o si
+    allarga a scattare anche quando la baricentrica gia' vede l'invasione
+    (cambierebbe l'esito di test gia' verdi)."""
+    colonna = hexa.Prisma(
+        contorno=np.array([[0.0, 0.0], [400.0, 0.0], [400.0, 400.0], [0.0, 400.0]]),
+        origine=np.array([0.0, 0.0, 0.0]), asse=np.array([0.0, 0.0, 1.0]), lunghezza=1000.0,
+    )
+    trave = hexa.Prisma(
+        contorno=np.array([[0.0, 0.0], [100.0, 0.0], [100.0, 100.0], [0.0, 100.0]]),
+        origine=np.array([-400.0, -80.0, 500.0]), asse=np.array([1.0, 0.0, 0.0]), lunghezza=500.0,
+    )
+
+    with pytest.raises(ValueError, match="sovrapposizione d'angolo"):
+        hexa.taglia_giunzioni([colonna, trave])
+
+
+def test_un_prisma_interamente_contenuto_in_un_altro_e_rifiutato():
+    """B1 del giro di correzione 1: meta' del soffitto dichiarato del taglio
+    (il contenimento) non aveva un proprio test -- il revisore ha mutato la
+    guardia in `if False` e la suite e' rimasta verde 16/16.
+
+    Mutazione applicata e verificata in questa sessione: `if invaso[0] and
+    invaso[-1]:` -> `if False:` fa morire questo test (nessun ValueError
+    sollevato); ripristinata subito dopo (vedi task-8-report.md).
+
+    Muore se: la guardia del contenimento sparisce o e' resa inattiva."""
+    grande = hexa.Prisma(
+        contorno=np.array([[0.0, 0.0], [400.0, 0.0], [400.0, 400.0], [0.0, 400.0]]),
+        origine=np.array([0.0, 0.0, 0.0]), asse=np.array([0.0, 0.0, 1.0]), lunghezza=1000.0,
+    )
+    piccolo = hexa.Prisma(
+        contorno=np.array([[50.0, 50.0], [150.0, 50.0], [150.0, 150.0], [50.0, 150.0]]),
+        origine=np.array([0.0, 0.0, 300.0]), asse=np.array([0.0, 0.0, 1.0]), lunghezza=200.0,
+    )
+
+    with pytest.raises(ValueError, match="interamente dentro"):
+        hexa.taglia_giunzioni([grande, piccolo])
+
+
+def test_una_superficie_vuota_non_produce_un_tie(monkeypatch):
+    """B2 del giro di correzione 1, e la stessa geometria mostra anche A3
+    (Ruling AA): a `_TOLLERANZA_CONTATTO = 0.0` il taglio avviene comunque
+    (`giunzioni == 1`, il taglio e' indipendente dalla tolleranza di
+    contatto) ma il residuo della bisezione lascia i nodi appena fuori dal
+    margine nullo, le superfici tagliate escono vuote, e senza un vincolo su
+    quello nessun `*TIE` si forma (`ties == 0`): i due numeri divergono
+    apposta, ed e' il caso in cui la distinzione introdotta da A3 conta.
+
+    Mutazione applicata e verificata in questa sessione: `if
+    superfici[nomi[0]] and superfici[nomi[1]]:` -> `if True:` fa morire questo
+    test (produce un `*TIE` su una superficie senza facce, cioe' esattamente
+    il modo di fallire con `no tied MPC` che da' il nome al task); ripristinata
+    subito dopo (vedi task-8-report.md).
+
+    Muore se: la guardia sulla superficie vuota sparisce o diventa sempre
+    vera."""
+    monkeypatch.setattr(hexa, "_TOLLERANZA_CONTATTO", 0.0)
+    modello = hexa.costruisci(_telaio_di_prova(), "estruso", ModelConfig())
+
+    assert modello["metriche"]["giunzioni"] == 1
+    assert modello["metriche"]["ties"] == 0
+    assert modello["ties"] == ()
+    assert modello["superfici"] == {}
