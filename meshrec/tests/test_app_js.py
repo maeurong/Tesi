@@ -2109,6 +2109,65 @@ def test_lo_stato_vuoto_del_prior_e_nel_markup_e_non_lo_fabbrica_il_modulo():
     )
 
 
+def test_la_didascalia_della_vista_sta_dentro_la_vista_e_non_nella_terza_colonna():
+    """C14 del giro finale, guardato nel browser il 22/08/2026 su
+    runs/lab_telaio_v2.
+
+    `legenda` e `didascalia` erano due `<p class="aiuto">` appesi al fieldset
+    di `pannelloCampo`, cioe' dentro `#dettaglio`, cioe' nella terza colonna —
+    e sotto i gruppi TET e ANALYSIS: ventidue tacche di rotella per portarle in
+    vista. Fotografata o proiettata, l'immagine non portava ne' il caso di
+    carico, ne' la grandezza, ne' il massimo; l'unica cosa sovrapposta alla
+    vista era il conteggio dei triangoli.
+
+    Mutazione che uccide: rimettere il `<p>` dentro `#dettaglio`, oppure
+    ridargli `class="aiuto"` (--tipo-nota, 13 px, --tenue).
+    """
+    markup = _senza_commenti_html(_markup())
+    vista = markup[markup.index('class="zona zona-vista"'):markup.index("</section>")]
+    assert 'id="didascalia-vista"' in vista, (
+        "la didascalia della vista non sta dentro la zona della vista"
+    )
+    dettaglio = markup[markup.index('id="dettaglio"'):]
+    assert 'id="didascalia-vista"' not in dettaglio
+
+    # Il foglio dichiara 13px come pavimento «perche' questa interfaccia viene
+    # proiettata in discussione e va letta dal fondo della stanza». La frase che
+    # dice che cosa si sta guardando non puo' stare su quel pavimento, e non
+    # puo' essere grigio tenue: e' il titolo della figura, non un aiuto.
+    foglio = _foglio()
+    regola = foglio[foglio.index(".didascalia-vista {"):]
+    regola = regola[:regola.index("}")]
+    assert "var(--tipo-nota)" not in regola, f"la didascalia sta al pavimento della scala: {regola}"
+    assert "var(--tipo-corpo)" in regola, regola
+    assert "var(--tenue)" not in regola, f"la didascalia della figura in grigio tenue: {regola}"
+
+    # E non la fabbrica il modulo: sta nel markup, come la riga d'errore e lo
+    # stato vuoto del prior, cosi' nessun replaceChildren() la puo' distruggere.
+    corpo = _sorgente_di("didascaliaDellaVista", _senza_commenti_js(_modulo()))
+    assert 'getElementById("didascalia-vista")' in corpo
+    assert "createElement" not in corpo
+
+
+def test_la_didascalia_della_vista_si_svuota_lasciando_lo_step_del_campo(tmp_path):
+    """Nel markup la didascalia sopravvive al cambio di step: senza pulirla,
+    lasciato lo step 13 resterebbe «GRAVITA — tensione equivalente ...» scritta
+    sotto la nuvola dello step 2. E' la stessa classe di «la vista contraddice
+    la sua didascalia» che questo ramo ha gia' pagato tre volte.
+
+    Mutazione che uccide: togliere la riga che la svuota in `ricaricaVista`.
+    """
+    _esegui(tmp_path, _DOM + _funzioni("didascaliaDellaVista", "superata", "ricaricaVista") + """
+async function mostraStep() { return true; }
+function riallineaTaglio() {}
+document.getElementById("didascalia-vista").textContent =
+  "GRAVITA — tensione equivalente: scala tagliata a 0,2321 MPa (p99), 109 nodi sopra";
+ricaricaVista(2, generazione);
+assert.equal(document.getElementById("didascalia-vista").textContent, "",
+  "la didascalia del campo e' rimasta sotto la vista di un altro step");
+""")
+
+
 def test_il_pannello_del_confronto_e_un_pannello_e_non_una_vista():
     markup = _senza_commenti_html(_markup())
 
@@ -2118,15 +2177,40 @@ def test_il_pannello_del_confronto_e_un_pannello_e_non_una_vista():
     assert markup.count('class="viewport"') == 1
 
 
-def test_il_motivo_del_rifiuto_di_una_regione_arriva_a_video_con_il_proprio_numero():
+def test_il_motivo_del_rifiuto_di_una_regione_arriva_a_video_con_il_proprio_numero(tmp_path):
     """«quale controllo ha detto no, e quale numero glielo ha fatto dire»: un
-    rifiuto senza il proprio numero non dice a chi legge che cosa cambiare."""
-    modulo = _senza_commenti_js(_modulo())
-    corpo = _sorgente_di("disegnaScartate", modulo)
+    rifiuto senza il proprio numero non dice a chi legge che cosa cambiare.
 
-    assert "controlli_falliti" in corpo
-    assert "valore" in corpo
-    assert "soglia" in corpo
+    T2 del giro finale: questo controllo cercava `"valore" in corpo` e
+    `"soglia" in corpo` nel sorgente — l'anti-pattern che il docstring di
+    questo file dichiara bandito. Mutazione che sopravviveva: togliere le due
+    interpolazioni `${esito.valore.toFixed(3)}` e `${esito.soglia.toFixed(3)}`
+    lasciando due variabili morte. Il controllo a sottostringa vedeva ancora
+    gli identificatori e il gemello che esegue asseriva solo `/Regione 3/` e
+    `/parallelismo/`: i due numeri sparivano dallo schermo in silenzio.
+    Applicata davvero, adesso questo controllo cade.
+    """
+    _esegui(tmp_path, _banco_di_caricaPrior() + """
+disegnaScartate([{
+  regione: 2,
+  controlli_falliti: ["parallelismo", "costanza_sezione"],
+  esiti: {
+    parallelismo: { valore: 10.4912, soglia: 5.0 },
+    costanza_sezione: { valore: 0.7821, soglia: 0.1 },
+  },
+}]);
+const righe = document.getElementById("prior-scartate").figli.map((r) => r.textContent);
+assert.equal(righe.length, 2, `una riga per controllo fallito: ${righe.length}`);
+// Tre decimali, il valore misurato e la soglia contro cui e' stato misurato.
+// Senza i numeri la riga dice che il controllo ha detto no e non dice di
+// quanto: chi legge non sa se allargare la soglia o buttare la regione.
+assert.match(righe[0], /Regione 3/, "voce.regione + 1 non arriva a video");
+assert.match(righe[0], /parallelismo/);
+assert.ok(righe[0].includes("10.491"), `il valore misurato non e' a video: ${righe[0]}`);
+assert.ok(righe[0].includes("5.000"), `la soglia non e' a video: ${righe[0]}`);
+assert.ok(righe[1].includes("0.782"), `il valore misurato non e' a video: ${righe[1]}`);
+assert.ok(righe[1].includes("0.100"), `la soglia non e' a video: ${righe[1]}`);
+""")
 
 
 def test_nessuna_lettura_di_illeggibile_nel_modulo():
@@ -2482,11 +2566,12 @@ assert.equal(confrontoRicaricato, 1,
 def test_la_scala_del_campo_si_taglia_al_p99_e_non_al_massimo(tmp_path):
     """Un nodo non decide la scala di tutti gli altri.
 
-    Misurato il 21/08/2026 sull'as-built sotto peso proprio: il rapporto fra il
-    massimo della von Mises e il suo p99 vale 2,16. Una scala lineare fino al
-    massimo schiaccia quattordicimila nodi in fondo perche' uno solo sta in
-    cima. Chi supera il taglio prende un colore dichiarato e la legenda lo dice:
-    e' un'informazione, non un buco.
+    Misurato il 22/08/2026 su runs/lab_telaio_v2 sotto peso proprio: il rapporto
+    fra il massimo della von Mises e il suo p99 vale 2,18. Una scala lineare
+    fino al massimo schiaccia in fondo i 10.968 nodi del contorno perche' uno
+    solo sta in cima — non quattordicimila: 14.103 sono i nodi dell'intero
+    volume, e alla scala colore non arrivano mai. Chi supera il taglio prende un
+    colore dichiarato e la didascalia lo dice: e' un'informazione, non un buco.
     """
     uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
         + _funzioni_viewport("scalaDelCampo") + """
@@ -2507,10 +2592,11 @@ def test_i_nodi_sopra_il_taglio_si_contano_per_valore_e_non_per_rango(tmp_path):
     """Giro 1: `n - 1 - indice` e' una quota fissa, non un conteggio.
 
     Su un campo costante e su un campo tutto a zero nessun nodo supera il
-    taglio, eppure la legenda (e l'aria-label che porta lo stesso testo)
+    taglio, eppure la didascalia (e l'aria-label che porta lo stesso testo)
     dichiarava cinque nodi sopra una soglia che nessuno supera. Sotto, la
-    definizione e' quella che il server usa gia' quando conta
-    (`np.count_nonzero(valori > p99)`): `valori > taglio`, contati.
+    definizione e' `valori > taglio`, contati. Il server non ne ha una propria
+    da tenere allineata: `X-Sopra-P99` e' stato tolto in f7190bb, e questo e'
+    l'unico posto in cui il conteggio esiste.
     """
     uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
         + _funzioni_viewport("scalaDelCampo") + """
@@ -2523,6 +2609,53 @@ for (const [nome, valori, atteso] of casi) {
   const { sopraTaglio } = scalaDelCampo(valori);
   assert.equal(sopraTaglio, atteso, `${nome}: ${sopraTaglio} invece di ${atteso}`);
 }
+console.log("ok");
+""")
+    assert uscita.strip() == "ok"
+
+
+def test_la_frazione_del_campo_non_si_lascia_corrompere_da_un_residuo_non_finito(tmp_path):
+    """T1 del giro finale: `mostraMeshPerCampo` non era eseguita da nessun
+    test — dovunque la si esercitasse, `vista.mostraMeshPerCampo` era un finto
+    che registrava gli argomenti. Le due guardie del colore vivevano dentro
+    quella funzione, cioe' dentro three.js, e restavano provate a sottostringa.
+
+    Mutazione che sopravviveva: togliere `Number.isFinite(valore) ? ... : 0` e
+    lasciare `Math.min(1, Math.max(0, valore / soglia))`. Applicata davvero
+    dopo la separazione, questo controllo cade: il nodo con NaN esce NaN invece
+    di 0.
+    """
+    uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
+        + _funzioni_viewport("frazioneDelCampo") + """
+// Un residuo non finito resta al fondo della scala, dichiarato zero.
+for (const anomalo of [NaN, Infinity, -Infinity, undefined]) {
+  const frazione = frazioneDelCampo(anomalo, 2.0);
+  assert.equal(frazione, 0, `${anomalo} non e' finito al fondo della scala: ${frazione}`);
+}
+// E non tocca il nodo prima ne' quello dopo: la rampa e' senza memoria.
+const riga = [1.0, NaN, 2.0].map((v) => frazioneDelCampo(v, 2.0));
+assert.deepEqual(riga, [0.5, 0, 1.0], `un NaN ha corrotto i vicini: ${riga}`);
+console.log("ok");
+""")
+    assert uscita.strip() == "ok"
+
+
+def test_la_frazione_del_campo_non_divide_per_un_taglio_nullo(tmp_path):
+    """Ingresso degenere: campo costante a zero, quindi taglio zero. Senza la
+    guardia `taglio > 0 ? taglio : 1` la divisione da' NaN (0/0) o Infinity, e
+    la rampa esce fuori dai due estremi invece di restare un colore solo.
+
+    Mutazione che uccide: sostituire la guardia con `taglio`. Il primo
+    `assert.equal` cade con NaN.
+    """
+    uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
+        + _funzioni_viewport("frazioneDelCampo") + """
+assert.equal(frazioneDelCampo(0, 0), 0, "0/0 e' passato");
+assert.equal(frazioneDelCampo(3.5, 0), 1, "un valore su un taglio nullo deve saturare, non esplodere");
+// Chi sta al taglio o oltre satura all'estremo scuro, chi sta sotto no.
+assert.equal(frazioneDelCampo(2.0, 2.0), 1);
+assert.equal(frazioneDelCampo(50.0, 2.0), 1, "la frazione e' uscita oltre 1");
+assert.equal(frazioneDelCampo(-3.0, 2.0), 0, "un valore negativo e' uscito sotto 0");
 console.log("ok");
 """)
     assert uscita.strip() == "ok"
@@ -2541,10 +2674,16 @@ def test_la_didascalia_di_una_forma_modale_non_porta_millimetri(tmp_path):
     """
     uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
         + _funzioni_viewport("numeroDelCampo", "didascaliaDelCampo") + """
-const testo = didascaliaDelCampo({ caso: "MODO_1", modale: true, frequenza: 12.34 });
+const testo = didascaliaDelCampo({ caso: "Modo 1", modale: true, frequenza: 12.34 });
 assert.ok(!/\\b(mm|MPa)\\b/.test(testo), `una forma modale non ha unita' fisiche: ${testo}`);
-assert.ok(testo.includes("ampiezza arbitraria"), testo);
 assert.ok(testo.includes("12,34"), testo);
+// C13 del giro finale: la vista di un modo e' mostraStep(13), cioe' il modello
+// grigio e indeformato. La didascalia deve dirlo, e non deve annunciare
+// un'ampiezza che non e' a schermo.
+assert.ok(!/ampiezza/i.test(testo),
+  `annuncia un'ampiezza che la vista non disegna: ${testo}`);
+assert.ok(/non e' disegnata/.test(testo) && /indeformato/.test(testo),
+  `non dichiara che la forma non e' a schermo: ${testo}`);
 console.log("ok");
 """)
     assert uscita.strip() == "ok"
@@ -2559,7 +2698,9 @@ def test_la_didascalia_dello_spostamento_non_promette_un_amplificazione(tmp_path
     """
     uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
         + _funzioni_viewport("numeroDelCampo", "didascaliaDelCampo") + """
-const testo = didascaliaDelCampo({ caso: "GRAVITA", grandezza: "U", massimo: 0.0367 });
+const testo = didascaliaDelCampo({
+  caso: "GRAVITA", grandezza: "U", massimo: 0.0367, taglio: 0.0365, sopraTaglio: 109,
+});
 assert.ok(!/amplific/i.test(testo), `la vista non deforma nulla: ${testo}`);
 assert.ok(testo.includes("0,0367"), testo);
 assert.ok(testo.includes("mm"), testo);
@@ -2583,21 +2724,25 @@ console.log("ok");
 
 _TESTI_CHE_FINISCONO_A_VIDEO = [
     ("didascalia/massimo/U",
-     'didascaliaDelCampo({ caso: "GRAVITA", grandezza: "U", massimo: VALORE })', "0.0367"),
+     'didascaliaDelCampo({ caso: "GRAVITA", grandezza: "U", massimo: VALORE, taglio: 1.5, sopraTaglio: 7 })',
+     "0.0367"),
     ("didascalia/massimo/VM",
-     'didascaliaDelCampo({ caso: "GRAVITA", grandezza: "VM", massimo: VALORE })', "6279.5"),
+     'didascaliaDelCampo({ caso: "GRAVITA", grandezza: "VM", massimo: VALORE, taglio: 1.5, sopraTaglio: 7 })',
+     "6279.5"),
     ("didascalia/frequenza",
-     'didascaliaDelCampo({ caso: "MODO_1", modale: true, frequenza: VALORE })', "12.34"),
-    ("legenda/taglio", 'testoLegendaDelCampo(VALORE, 7, "mm")', "0.0367"),
-    ("legenda/sopraTaglio", 'testoLegendaDelCampo(1.5, VALORE, "mm")', "7"),
+     'didascaliaDelCampo({ caso: "Modo 1", modale: true, frequenza: VALORE })', "12.34"),
+    ("didascalia/taglio",
+     'didascaliaDelCampo({ caso: "GRAVITA", grandezza: "U", massimo: 1.0, taglio: VALORE, sopraTaglio: 7 })',
+     "0.0367"),
+    ("didascalia/sopraTaglio",
+     'didascaliaDelCampo({ caso: "GRAVITA", grandezza: "U", massimo: 1.0, taglio: 1.5, sopraTaglio: VALORE })',
+     "7"),
 ]
 
 def _banco_dei_testi() -> str:
     return (
         "import assert from 'node:assert/strict';\n"
         + _funzioni_viewport("numeroDelCampo", "didascaliaDelCampo")
-        + "\n"
-        + _funzioni("testoLegendaDelCampo")
         + "\n"
     )
 
@@ -2670,15 +2815,19 @@ def test_la_scala_del_campo_su_tutti_zero_non_e_una_barra_vuota(tmp_path):
     """Tutti i valori a zero: la scala resta un numero leggibile (0), non NaN
     ne' un buco silenzioso nella legenda, e nessun nodo e' sopra il taglio."""
     uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
-        + _funzioni_viewport("scalaDelCampo") + _funzioni_viewport("numeroDelCampo")
-        + _funzioni("testoLegendaDelCampo") + """
+        + _funzioni_viewport("scalaDelCampo", "numeroDelCampo", "didascaliaDelCampo") + """
 const zeri = new Float32Array(500);
 const { taglio, sopraTaglio } = scalaDelCampo(zeri);
 assert.equal(taglio, 0);
 assert.equal(sopraTaglio, 0);
-const legenda = testoLegendaDelCampo(taglio, sopraTaglio, "mm");
+const legenda = didascaliaDelCampo({
+  caso: "GRAVITA", grandezza: "U", massimo: 0, taglio, sopraTaglio,
+});
 assert.ok(!/NaN|Infinity|∞/.test(legenda), legenda);
 assert.ok(legenda.includes("0"), legenda);
+// Il massimo coincide col taglio: nulla e' fuori dalla scala, e dirlo sarebbe
+// falso.
+assert.ok(!/fuori scala/.test(legenda), legenda);
 console.log("ok");
 """)
     assert uscita.strip() == "ok"
@@ -2689,12 +2838,13 @@ def test_la_scala_del_campo_su_un_campo_vuoto_non_incanta_la_legenda(tmp_path):
     il contorno non ha nodi). Nessun crash, nessun taglio NaN, legenda che si
     legge."""
     uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
-        + _funzioni_viewport("scalaDelCampo") + _funzioni_viewport("numeroDelCampo")
-        + _funzioni("testoLegendaDelCampo") + """
+        + _funzioni_viewport("scalaDelCampo", "numeroDelCampo", "didascaliaDelCampo") + """
 const { taglio, sopraTaglio } = scalaDelCampo(new Float32Array(0));
 assert.equal(taglio, 0);
 assert.equal(sopraTaglio, 0);
-const legenda = testoLegendaDelCampo(taglio, sopraTaglio, "mm");
+const legenda = didascaliaDelCampo({
+  caso: "GRAVITA", grandezza: "U", massimo: NaN, taglio, sopraTaglio,
+});
 assert.ok(!/NaN|Infinity|∞/.test(legenda) && legenda.length > 0, legenda);
 console.log("ok");
 """)
@@ -2726,9 +2876,10 @@ def test_la_didascalia_di_un_modo_oltre_quelli_calcolati_non_scrive_nan(tmp_path
     ingressi che il campo non puo' onorare, un messaggio dichiarato."""
     uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
         + _funzioni_viewport("numeroDelCampo", "didascaliaDelCampo") + """
-const testo = didascaliaDelCampo({ caso: "MODO_9", modale: true, frequenza: NaN });
+const testo = didascaliaDelCampo({ caso: "Modo 9", modale: true, frequenza: NaN });
 assert.ok(!testo.includes("NaN"), testo);
-assert.ok(testo.includes("modale"));
+assert.ok(testo.includes("frequenza non disponibile"), testo);
+assert.ok(testo.includes("indeformato"), testo);
 console.log("ok");
 """)
     assert uscita.strip() == "ok"
@@ -2739,13 +2890,19 @@ def test_la_legenda_del_campo_resta_leggibile_su_costante_e_su_zero(tmp_path):
     massimo, nessun picco da isolare) e un campo tutto a zero non producono una
     legenda muta o con "NaN" scritto dentro."""
     uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
-        + _funzioni_viewport("numeroDelCampo") + _funzioni("testoLegendaDelCampo") + """
-const costante = testoLegendaDelCampo(5.0, 10, "MPa");
+        + _funzioni_viewport("numeroDelCampo", "didascaliaDelCampo") + """
+const costante = didascaliaDelCampo({
+  caso: "GRAVITA", grandezza: "VM", massimo: 5.0, taglio: 5.0, sopraTaglio: 0,
+});
 assert.ok(!costante.includes("NaN"), costante);
-assert.ok(costante.length > 0, "la legenda e' vuota su un campo costante");
-const zero = testoLegendaDelCampo(0, 0, "mm");
+assert.ok(costante.includes("5") && costante.includes("MPa"), costante);
+assert.ok(!/fuori scala/.test(costante),
+  `su un campo costante il massimo e' rappresentabile: ${costante}`);
+const zero = didascaliaDelCampo({
+  caso: "GRAVITA", grandezza: "U", massimo: 0, taglio: 0, sopraTaglio: 0,
+});
 assert.ok(!zero.includes("NaN"), zero);
-assert.ok(zero.length > 0, "la legenda e' vuota su un campo tutto a zero");
+assert.ok(zero.length > 0, "la didascalia e' vuota su un campo tutto a zero");
 console.log("ok");
 """)
     assert uscita.strip() == "ok"
@@ -2762,17 +2919,58 @@ def test_la_legenda_di_uno_spostamento_submillimetrico_non_arrotonda_a_zero(tmp_
     passano dallo stesso formato.
     """
     uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
-        + _funzioni_viewport("numeroDelCampo") + _funzioni("testoLegendaDelCampo") + """
-const spostamento = testoLegendaDelCampo(0.0367, 3, "mm");
+        + _funzioni_viewport("numeroDelCampo", "didascaliaDelCampo") + """
+const conScala = (taglio, nodi, grandezza) => didascaliaDelCampo({
+  caso: "GRAVITA", grandezza, massimo: taglio, taglio, sopraTaglio: nodi,
+});
+const spostamento = conScala(0.0367, 3, "U");
 assert.ok(spostamento.includes("0,0367"), spostamento);
-const estremo = testoLegendaDelCampo(0.00002, 3, "mm");
+const estremo = conScala(0.00002, 3, "U");
 assert.ok(estremo.includes("0,00002"), `2e-5 mm si legge ancora zero: ${estremo}`);
 // Il conteggio dei nodi non e' una misura: 13 957 nodi non diventano 13 960.
-const molti = testoLegendaDelCampo(1.5, 13957, "MPa");
+const molti = conScala(1.5, 13957, "VM");
 assert.ok(molti.includes("13.957"), `il conteggio e' stato arrotondato: ${molti}`);
 console.log("ok");
 """)
     assert uscita.strip() == "ok"
+
+
+def test_un_campo_che_rigetta_in_costruzione_lo_dice_in_didascalia(tmp_path):
+    """M15 del giro finale: `pannelloCampo` chiamava `aggiorna()` in
+    costruzione senza `await` ne' `.catch()`. Un rigetto — la rete che cade, il
+    server che muore mentre il pannello nasce — diventava un unhandled
+    rejection: pannello muto, vista di prima ancora a schermo, e l'unico
+    segnale nella console del browser, che in discussione nessuno guarda.
+
+    Mutazione che uccide: togliere il `.catch()` e lasciare `aggiorna();`. Node
+    esce con codice diverso da zero per l'unhandled rejection, e `_esegui`
+    cade sul `returncode`.
+    """
+    _esegui(tmp_path, _DOM
+        + _funzioni_viewport("numeroDelCampo")
+        + _funzioni("didascaliaDellaVista", "pannelloCampo") + """
+// Option non sta nel DOM finto: e' il solo costruttore globale che
+// pannelloCampo usa, e qui basta che porti testo e valore.
+class Option { constructor(testo, valore) { this.testo = testo; this.valore = valore; } }
+globalThis.Option = Option;
+// Il valore di un <select> nel DOM finto: la prima opzione appesa, come fa il
+// browser quando nessuna e' selezionata a mano.
+Object.defineProperty(Elemento.prototype, "value", {
+  get() { return this.figli[0]?.valore ?? ""; }, configurable: true,
+});
+async function mostraCampoDelloStep() { throw new Error("il server e' caduto"); }
+async function mostraModoDelloStep() { throw new Error("il server e' caduto"); }
+
+const pannello = pannelloCampo(1, { casi: { GRAVITA: {} }, modi: 0, frequenze_hz: [] });
+assert.ok(pannello !== null, "il pannello non e' stato costruito");
+// Il <select> compare comunque: la costruzione non aspetta la vista.
+assert.equal(pannello.figli.length, 3, "il pannello ha perso una riga di comando");
+// L'unico posto in cui il rigetto puo' arrivare a chi guarda.
+await new Promise((r) => setTimeout(r, 0));
+const testo = document.getElementById("didascalia-vista").textContent;
+assert.ok(testo.includes("il server e' caduto"),
+  `il rigetto non e' arrivato in didascalia: ${JSON.stringify(testo)}`);
+""")
 
 
 def _banco_del_campo_dello_step() -> str:
@@ -2785,7 +2983,7 @@ def _banco_del_campo_dello_step() -> str:
         _DOM
         + _funzioni_viewport("scalaDelCampo", "numeroDelCampo", "didascaliaDelCampo")
         + _funzioni(
-            "testoLegendaDelCampo", "ragioneDelRifiuto", "serverMuto", "apriGeometria", "superata",
+            "didascaliaDellaVista", "ragioneDelRifiuto", "serverMuto", "apriGeometria", "superata",
             "mostraCampoDelloStep",
         )
         + """
@@ -2799,8 +2997,9 @@ const vista = {
     this.disegnato = { vertici: vertici.length, facce: facce.length, valori: valori.length, scala };
   },
 };
-const legenda = document.createElement("p");
-const didascalia = document.createElement("p");
+// La didascalia non e' piu' un argomento: sta nel markup, dentro la zona della
+// vista, e il modulo la trova per id come fa con #conteggi.
+const didascalia = document.getElementById("didascalia-vista");
 let risponde = [];
 let chiamata = 0;
 globalThis.fetch = async () => risponde[chiamata++]();
@@ -2821,7 +3020,7 @@ risponde = [
   async () => ({ ok: false, status: 400,
     text: async () => JSON.stringify({ messaggio: "nessun campo 'VM_CARICO_TOP' in 13_solution.vtu" }) }),
 ];
-const disegnato = await mostraCampoDelloStep("CARICO_TOP", "VM", generazione, legenda, didascalia);
+const disegnato = await mostraCampoDelloStep("CARICO_TOP", "VM", generazione);
 assert.equal(disegnato, true, "il rifiuto non e' stato gestito: il gestore non ha scritto nulla");
 assert.equal(vista.disegnato, null, "un rifiuto non deve disegnare comunque una mesh colorata");
 assert.equal(
@@ -2847,14 +3046,26 @@ risponde = [
     headers: { get: (n) => ({ "X-Max": "50.0" }[n] ?? null) },
     arrayBuffer: async () => valoriCampo.buffer }),
 ];
-const disegnato = await mostraCampoDelloStep("CARICO_TOP", "VM", generazione, legenda, didascalia);
+const disegnato = await mostraCampoDelloStep("CARICO_TOP", "VM", generazione);
 assert.equal(disegnato, true);
 assert.ok(vista.disegnato !== null, "la mesh colorata non e' mai stata disegnata");
 assert.ok(vista.disegnato.scala.taglio < 2.0,
   `la scala ha seguito il massimo (50) invece del p99: ${vista.disegnato.scala.taglio}`);
-assert.equal(vista.disegnato.scala.sopraTaglio, 1);
 assert.ok(didascalia.textContent.includes("MPa"), didascalia.textContent);
 assert.ok(didascalia.textContent.includes("50"), didascalia.textContent);
+// C13 del giro finale: il massimo (50) e il taglio (1) stavano in due
+// paragrafi separati, a mezzo schermo dalla vista, e la macchia piu' scura si
+// leggeva come il massimo. Una frase sola, con entrambi, e il massimo marcato
+// per quello che e'.
+assert.ok(didascalia.textContent.includes("fuori scala"),
+  `il massimo non e' rappresentabile sulla scala e la didascalia non lo dice: ${didascalia.textContent}`);
+assert.ok(/scala tagliata a 1 MPa/.test(didascalia.textContent),
+  `il taglio non e' nella stessa frase del massimo: ${didascalia.textContent}`);
+assert.ok(/\\b1 nodi sopra/.test(didascalia.textContent), didascalia.textContent);
+// C15: l'aria-label della tela portava «campo su N facce, M nodi sopra il
+// taglio» — ne' caso di carico, ne' grandezza, ne' unita', ne' massimo.
+assert.equal(vista.disegnato.scala.descrizione, didascalia.textContent,
+  "la tela annuncia qualcosa di diverso da cio' che c'e' scritto sotto la vista");
 // Giro 1, M3: gli altri due rami scrivono #conteggi, questo lo lasciava a
 // quello della vista di prima — un conteggio di un altro artefatto.
 // "1000" senza puntino: in italiano Intl raggruppa da cinque cifre in su
@@ -2891,7 +3102,7 @@ risponde = [
     headers: {{ get: (n) => ({{ "X-Max": {intestazione} }}[n] ?? null) }},
     arrayBuffer: async () => valoriCampo.buffer }}),
 ];
-await mostraCampoDelloStep("GRAVITA", "U", generazione, legenda, didascalia);
+await mostraCampoDelloStep("GRAVITA", "U", generazione);
 const testo = didascalia.textContent;
 assert.ok(!/NaN|Infinity|∞|undefined|null/.test(testo), testo);
 assert.ok(testo.includes("non disponibile"), `il massimo mancante non e' dichiarato: ${{testo}}`);
@@ -2916,11 +3127,10 @@ risponde = [
     headers: { get: (n) => ({ "X-Max": "3.0" }[n] ?? null) },
     arrayBuffer: async () => new Float32Array(1000).buffer }),
 ];
-const scritto = await mostraCampoDelloStep("GRAVITA", "U", generazione, legenda, didascalia);
+const scritto = await mostraCampoDelloStep("GRAVITA", "U", generazione);
 assert.equal(scritto, true, "il disallineamento non e' stato dichiarato da nessuna parte");
 assert.equal(vista.disegnato, null, "colori sfalsati disegnati su una mesh che non e' la loro");
 assert.ok(didascalia.textContent.length > 0, "rifiuto muto");
 assert.ok(/1000/.test(didascalia.textContent) && /\\b4\\b/.test(didascalia.textContent),
   `il rifiuto non dice quanto sono disallineati: ${didascalia.textContent}`);
-assert.equal(legenda.textContent, "", "una legenda di un campo che non e' stato disegnato");
 """)

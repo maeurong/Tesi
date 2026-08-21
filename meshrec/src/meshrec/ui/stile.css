@@ -120,7 +120,12 @@ body {
    il resto della zona-step, non una griglia — sono tre righe, non una tabella. */
 .modelli { display: flex; flex-direction: column; align-items: flex-start; gap: var(--passo-2); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); }
 .modelli label { display: flex; align-items: baseline; gap: var(--passo-1); }
-.viewport { width: 100%; height: 100%; }
+/* L'inquadratura: prende tutta l'altezza che la didascalia sotto di lei non
+   usa. position: relative perche' i conteggi e il comando del taglio le stanno
+   dentro e si ancorano a lei, cioe' all'immagine, non alla zona. min-height: 0
+   perche' un elemento flex non scende sotto il proprio contenuto senza, e la
+   tela di three.js non si rimpicciolisce piu' una volta cresciuta. */
+.viewport { position: relative; flex: 1; min-height: 0; }
 /* display: block perche' una tela inline lascia sotto di se' lo spazio del
    tratto discendente della riga: alta quanto il contenitore, lo farebbe
    comunque scorrere di qualche pixel. */
@@ -151,7 +156,24 @@ body {
    correzione. Stesso contorno degli altri comandi, non uno suo. */
 .registro:focus-visible { outline: 2px solid var(--accento); outline-offset: 2px; }
 .riga-log { white-space: pre-wrap; word-break: break-word; }
-.zona-vista { position: relative; padding: 0; }
+/* Una colonna: l'immagine, e sotto la sua didascalia. Non piu' un contenitore
+   di soli sovrapposti — la didascalia sta nel flusso apposta, cosi' non copre
+   mai il pezzo e non ha bisogno di sapere quanto e' alta. */
+.zona-vista { display: flex; flex-direction: column; padding: 0; }
+/* La frase che descrive cio' che si vede, sotto l'immagine e dentro
+   l'inquadratura di chi fotografa o proietta. --tipo-corpo e non --tipo-nota:
+   il foglio dichiara 13px come pavimento perche' questa interfaccia si legge
+   dal fondo della stanza, e la riga che porta il caso di carico, la grandezza
+   e i due numeri della scala non e' un aiuto a pie' di pagina, e' il titolo
+   della figura. --testo e non --tenue, per la stessa ragione: 17,21:1 contro
+   5,55:1. Cifre tabulari perche' cambiando caso i numeri si sostituiscono
+   sotto gli occhi. */
+.didascalia-vista { margin: 0; padding: var(--passo-2) var(--passo-3); border-top: 1px solid var(--bordo); background: var(--superficie); color: var(--testo); font-size: var(--tipo-corpo); line-height: var(--interlinea); font-variant-numeric: tabular-nums; text-wrap: pretty; }
+/* Vuota non lascia una fascia bianca sotto la vista: fuori dallo step 13 non
+   c'e' nessuna didascalia, e l'immagine si riprende quei pixel. Toglierla dal
+   flusso e' lecito qui, a differenza di #conteggi e della riga d'errore: non
+   e' una regione viva e non annuncia niente. */
+.didascalia-vista:empty { display: none; }
 .conteggi { position: absolute; bottom: var(--passo-2); left: var(--passo-2); margin: 0; padding: var(--passo-1) var(--passo-2); background: var(--velo); border-radius: var(--raggio); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); font-variant-numeric: tabular-nums; color: var(--tenue); }
 /* Vuoti, i conteggi restavano un rettangolo bianco di 16x8 px sopra la vista,
    misurato a video. Non si tolgono dall'albero, per la stessa ragione della
@@ -305,8 +327,10 @@ body {
    regola larga che modifica perde a parita' di peso, e la perdeva davvero
    (i conteggi restavano ancorati in basso, misurato). */
 /* A una colonna la vista perde il contenitore alto quanto lo schermo, e
-   .viewport { height: 100% } di un genitore alto quanto il suo contenuto
-   vale zero: la scena sparirebbe. L'altezza gliela da' la finestra. */
+   .viewport { flex: 1 } di un genitore alto quanto il suo contenuto vale
+   zero: la scena sparirebbe. L'altezza gliela da' la finestra, col min-height
+   sulla zona; la didascalia si prende la propria riga sotto, e cio' che resta
+   e' l'immagine. */
 @media (max-width: 60rem) {
   /* Impilate, le tre zone sono piu' alte dello schermo: qui a scorrere e' la
      pagina, e l'altezza fissa la taglierebbe. */

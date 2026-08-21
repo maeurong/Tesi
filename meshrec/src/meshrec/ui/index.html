@@ -36,24 +36,40 @@
     </div>
   </nav>
   <section class="zona zona-vista" aria-label="Vista tridimensionale">
-    <div id="viewport" class="viewport"></div>
-    <p class="conteggi" id="conteggi" aria-live="polite"></p>
-    <!-- Il comando del taglio. Nasce nascosto: app.js lo mostra solo dove c'e'
-         un volume disegnato, e l'intervallo del cursore lo scrive da li'
-         leggendo l'ingombro della geometria. min, max e step non stanno qui
-         apposta: scritti nel markup sarebbero numeri che nessuna misura
-         sostiene. -->
-    <div class="taglio" id="taglio" hidden>
-      <label for="taglio-asse">Taglio lungo</label>
-      <select id="taglio-asse">
-        <option value="0" selected>X</option>
-        <option value="1">Y</option>
-        <option value="2">Z</option>
-      </select>
-      <label for="taglio-quota">Quota</label>
-      <input type="range" id="taglio-quota">
-      <output id="taglio-valore" for="taglio-quota"></output>
+    <!-- #viewport e' l'inquadratura: la tela, e sopra di lei i conteggi e il
+         comando del taglio. Sono dentro e non fratelli apposta, cosi' si
+         posizionano sull'immagine e non sulla zona, che adesso porta sotto
+         l'immagine anche la didascalia. -->
+    <div id="viewport" class="viewport">
+      <p class="conteggi" id="conteggi" aria-live="polite"></p>
+      <!-- Il comando del taglio. Nasce nascosto: app.js lo mostra solo dove c'e'
+           un volume disegnato, e l'intervallo del cursore lo scrive da li'
+           leggendo l'ingombro della geometria. min, max e step non stanno qui
+           apposta: scritti nel markup sarebbero numeri che nessuna misura
+           sostiene. -->
+      <div class="taglio" id="taglio" hidden>
+        <label for="taglio-asse">Taglio lungo</label>
+        <select id="taglio-asse">
+          <option value="0" selected>X</option>
+          <option value="1">Y</option>
+          <option value="2">Z</option>
+        </select>
+        <label for="taglio-quota">Quota</label>
+        <input type="range" id="taglio-quota">
+        <output id="taglio-valore" for="taglio-quota"></output>
+      </div>
     </div>
+    <!-- La didascalia della vista, e sta QUI: sotto la tela e dentro
+         l'inquadratura, non nella terza colonna. Fotografata o proiettata in
+         discussione, l'immagine deve portare da se' il caso di carico, la
+         grandezza, l'unita' e i due numeri della scala; nella terza colonna
+         finiva sotto la piega, al corpo piu' piccolo del foglio e in grigio
+         tenue. Nel markup e non fabbricata da app.js, per la stessa ragione
+         della riga d'errore e dello stato vuoto del prior: nessun ramo del
+         modulo la puo' distruggere. Nessun aria-live: il testo arriva anche
+         nell'aria-label della tela, e due regioni vive lo direbbero due
+         volte. -->
+    <p class="didascalia-vista" id="didascalia-vista"></p>
   </section>
   <aside class="zona zona-dettaglio" aria-label="Parametri e metriche">
     <h2>Dettaglio</h2>

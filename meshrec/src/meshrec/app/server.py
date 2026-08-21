@@ -92,6 +92,18 @@ def _leggi_contorno(voce: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray] | N
             # voce valida e max() su un array vuoto solleverebbe: il len() a
             # sinistra la lascia passare.
             raise ValueError("facce incoerenti con i vertici")
+        if len(indici) != len(vertici):
+            # L'argomento di sopra vale di piu' per indici, non di meno: e'
+            # l'unico dei tre che indicizza un array diverso
+            # (griglia.point_data, non vertici), e /api/campo lo usa per
+            # ritagliare il campo sui nodi del contorno. Lungo o corto con
+            # valori tutti in dominio, numpy non solleva: il campo esce di una
+            # lunghezza che non e' quella dei vertici, e il colore si posa
+            # sfalsato di un nodo senza che nessuno lo dica. Il client se ne
+            # accorge solo quando le due lunghezze differiscono; se il ritaglio
+            # sfalsato ne restituisse una giusta, non se ne accorgerebbe
+            # nessuno.
+            raise ValueError("indici incoerenti con i vertici")
     except (OSError, ValueError, KeyError, EOFError, zipfile.BadZipFile):
         return None
     return vertici, facce, indici
@@ -113,9 +125,21 @@ def _scrivi_contorno(voce: Path, vertici: np.ndarray, facce: np.ndarray, indici:
     return True
 
 
-def _contorno_del_volume(percorso: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def _contorno_del_volume(
+    percorso: Path, griglia=None
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Vertici, triangoli e indici dei nodi originali del contorno di una mesh
     di volume, con cache su disco.
+
+    `griglia`: la stessa mesh gia' letta dal chiamante, quando ce l'ha. A cache
+    fredda il .vtu si leggeva due volte per richiesta — una in `campo()` per i
+    campi di soluzione, una qui per il contorno — su un file da 8,58 MB
+    (13_solution.vtu di runs/lab_telaio_v2, misurato il 22/08/2026) e con un
+    picco che su lab_crop il commento a VERSIONE_CONTORNO dichiara oltre il
+    gigabyte. Due letture intere sul primo clic del pannello Campo, che e'
+    quello della dimostrazione. Il ramo a cache calda non tocca la griglia e
+    non la legge affatto: passarla non costa niente a chi ce l'ha gia' e non
+    obbliga chi non ce l'ha.
 
     Su lab_crop l'estrazione costa circa 15 s e oltre un gigabyte di picco, e
     senza cache ogni clic sullo step 9 la rifa' identica. La chiave e' la sola
@@ -134,7 +158,8 @@ def _contorno_del_volume(percorso: Path) -> tuple[np.ndarray, np.ndarray, np.nda
     if trovato is not None:
         return trovato
 
-    griglia = meshio.read(percorso)
+    if griglia is None:
+        griglia = meshio.read(percorso)
     if "tetra" not in griglia.cells_dict:
         raise ValueError(
             f"{percorso.name} non contiene tetraedri: le celle sono {sorted(griglia.cells_dict)}"
@@ -832,7 +857,7 @@ def create_app(config_path: Path) -> FastAPI:
         """Un campo dello step 13 (`solve.risolvi`), ristretto ai vertici del
         contorno con la stessa corrispondenza di /api/mesh.
 
-        La chiave e' `f"{grandezza}_{caso}"` (contratto di solve.py:183-190,
+        La chiave e' `f"{grandezza}_{caso}"` (contratto di `solve.risolvi`,
         es. "VM_GRAVITA"): non c'e' un elenco di casi/grandezze validi da
         tenere allineato altrove, la validita' e' la presenza della chiave in
         `point_data`. Ne' `caso` ne' `grandezza` toccano mai il filesystem
@@ -845,9 +870,9 @@ def create_app(config_path: Path) -> FastAPI:
 
         L'unica intestazione e' `X-Max`, il massimo del campo, che finisce
         nella didascalia della vista. Il p99 su cui si taglia la scala colore
-        (il picco isolato di una singolarita' del maglio - misurato,
-        CARICO_TOP: 0,9811 MPa contro un p99 di 0,3923 - stirerebbe la scala
-        su un solo vertice) lo calcola il browser in `viewport.scalaDelCampo`:
+        (il picco isolato di una singolarita' del maglio - misurato il
+        22/08/2026 su runs/lab_telaio_v2, CARICO_TOP: 0,9811 MPa contro un p99
+        di 0,3962 - stirerebbe la scala su un solo vertice) lo calcola il browser in `viewport.scalaDelCampo`:
         e' una
         decisione numerica, e questo progetto le prova eseguendole in node.
         Le intestazioni `X-Min`, `X-P99` e `X-Sopra-P99` c'erano e nessuno le
@@ -875,7 +900,7 @@ def create_app(config_path: Path) -> FastAPI:
                 f"nessun campo '{chiave}' in {percorso.name}: i campi disponibili "
                 f"sono {sorted(griglia.point_data)}"
             )
-        _vertici, _facce, indici = _contorno_del_volume(percorso)
+        _vertici, _facce, indici = _contorno_del_volume(percorso, griglia)
         valori = np.asarray(griglia.point_data[chiave], dtype=np.float64)[indici]
         if valori.ndim > 1:
             valori = np.linalg.norm(valori, axis=1)

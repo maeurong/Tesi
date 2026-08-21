@@ -978,6 +978,81 @@ def test_il_contorno_restituisce_gli_indici_dei_nodi_originali(tmp_path):
     assert vertici == pytest.approx(punti[indici])
 
 
+def test_una_voce_di_contorno_con_indici_di_lunghezza_sbagliata_e_rifiutata(tmp_path):
+    """M10 del giro finale: `_leggi_contorno` negava `facce.max() >= len(vertici)`
+    ma non `len(indici) != len(vertici)`.
+
+    `indici` e' l'unico dei tre che indicizza un array **diverso**
+    (`griglia.point_data`, non `vertici`), quindi l'argomento del commento
+    accanto vale di piu' per lui, non di meno: `/api/campo` lo usa per
+    ritagliare il campo sui nodi del contorno. Lungo o corto con valori tutti
+    in dominio, numpy non solleva; il colore si posa sfalsato di un nodo e
+    nessuno lo dice.
+
+    Mutazione che uccide: togliere la guardia `len(indici) != len(vertici)`.
+    Senza, `_leggi_contorno` restituisce la voce e l'assert cade.
+    """
+    import numpy as np
+
+    vertici = np.zeros((4, 3), dtype="<f4")
+    facce = np.array([[0, 1, 2]], dtype="<u4")
+    voce = tmp_path / "voce.npz"
+
+    # Corta: tre indici per quattro vertici. Tutti in dominio su point_data.
+    np.savez(voce, vertici=vertici, facce=facce, indici=np.array([0, 1, 2], dtype="<u4"))
+    assert server._leggi_contorno(voce) is None
+
+    # Lunga: cinque indici per quattro vertici.
+    np.savez(voce, vertici=vertici, facce=facce, indici=np.arange(5, dtype="<u4"))
+    assert server._leggi_contorno(voce) is None
+
+    # Giusta: la voce sana continua a passare, altrimenti la guardia avrebbe
+    # solo spento la cache.
+    np.savez(voce, vertici=vertici, facce=facce, indici=np.arange(4, dtype="<u4"))
+    assert server._leggi_contorno(voce) is not None
+
+
+def test_il_campo_legge_il_vtu_una_volta_sola(cliente, tmp_path, monkeypatch):
+    """I3 del giro finale, differito due volte.
+
+    `campo()` faceva `meshio.read(percorso)` per i campi di soluzione e poi
+    chiamava `_contorno_del_volume(percorso)`, che a cache fredda rileggeva lo
+    stesso file. Due letture intere per richiesta: su 13_solution.vtu di
+    runs/lab_telaio_v2, 8,58 MB misurati il 22/08/2026, e su lab_crop il
+    commento a VERSIONE_CONTORNO dichiara «circa 15 s e oltre un gigabyte di
+    picco». Tutto sul primo clic del pannello Campo, che e' quello della
+    dimostrazione.
+
+    Mutazione che uccide: rimettere `_contorno_del_volume(percorso)` senza la
+    griglia. Il contatore arriva a 2 e l'assert cade.
+    """
+    import meshio
+    import numpy as np
+
+    punti = np.array(
+        [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [9.0, 9.0, 9.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+    )
+    _scrivi_soluzione(
+        tmp_path / "corsa", punti, [[0, 1, 3, 4]], {"VM_GRAVITA": np.arange(5.0)}
+    )
+
+    letture = []
+    vera = meshio.read
+
+    def contata(percorso, *resto, **chiavi):
+        letture.append(Path(percorso).name)
+        return vera(percorso, *resto, **chiavi)
+
+    monkeypatch.setattr(meshio, "read", contata)
+
+    risposta = cliente.get("/api/campo/GRAVITA/VM")
+
+    assert risposta.status_code == 200
+    assert letture.count("13_solution.vtu") == 1, (
+        f"il .vtu e' stato letto {letture.count('13_solution.vtu')} volte: {letture}"
+    )
+
+
 def test_il_contorno_del_volume_porta_solo_i_vertici_che_disegna(cliente, tmp_path):
     """X-Vertices deve contare i vertici che il browser disegna davvero.
 
@@ -1657,6 +1732,7 @@ def test_fra_due_geometrie_della_stessa_generazione_vince_chi_e_partita_dopo(num
         for nome in (
             "superata",
             "apriGeometria",
+            "didascaliaDellaVista",
             "mostraNuvolaDelloStep",
             "mostraStep",
             "ricaricaVista",

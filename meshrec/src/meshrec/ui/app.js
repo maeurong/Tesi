@@ -292,18 +292,15 @@ async function mostraStep(numero, ordine) {
 // nodo, non un artefatto di step) che condividono solo il numero di step.
 const STEP_CON_CAMPO = 13;
 
-// Il testo della legenda: dichiara sempre dove sta il taglio e quanti nodi lo
-// superano, anche su un campo costante (taglio == massimo, nessun picco da
-// isolare) o tutto a zero. Entrambi i numeri passano da numeroDelCampo, che
-// dichiara quello che non si puo' scrivere invece di stamparlo: `sopraTaglio`
-// esce finito da scalaDelCampo, ma la guardia sta sulla funzione e non sul
-// chiamante di oggi. Il conteggio ha il proprio formato: e' un numero di nodi,
-// non una misura, e non va arrotondato a cifre significative.
-function testoLegendaDelCampo(taglio, sopraTaglio, unita) {
-  const numero = numeroDelCampo(taglio);
-  const nodi = numeroDelCampo(sopraTaglio, { maximumFractionDigits: 0 });
-  if (numero === null || nodi === null) return "scala non disponibile: il campo non ha valori leggibili";
-  return `scala tagliata a ${numero} ${unita} — ${nodi} nodi sopra il taglio`;
+// La didascalia della vista sta nel markup, dentro la zona della vista e sotto
+// la tela, non nel pannello della terza colonna: proiettata in discussione,
+// quella frase e' l'unica cosa che dice quale caso di carico e quale grandezza
+// si sta guardando, e nella terza colonna finiva sotto la piega (ventidue
+// tacche di rotella per portarla in vista, misurato nel browser il
+// 22/08/2026). Come #conteggi: sta nel markup e nessun ramo del modulo la puo'
+// distruggere.
+function didascaliaDellaVista() {
+  return document.getElementById("didascalia-vista");
 }
 
 // Mesh e campo arrivano insieme, con la stessa arbitrazione di
@@ -311,11 +308,8 @@ function testoLegendaDelCampo(taglio, sopraTaglio, unita) {
 // selezioni del menu a cascata di seguito non devono far vincere la piu'
 // vecchia. Vero se questa chiamata ha scritto (disegno o rifiuto dichiarato),
 // falso se e' stata scartata perche' superata.
-// legenda/didascalia arrivano come argomenti e non da document.getElementById:
-// pannelloCampo li crea e li appende al proprio fieldset nello stesso istante
-// in cui costruisce il pannello, prima che quel fieldset sia agganciato al
-// documento — getElementById non troverebbe un nodo ancora staccato.
-async function mostraCampoDelloStep(caso, grandezza, ordine, legenda, didascalia) {
+async function mostraCampoDelloStep(caso, grandezza, ordine) {
+  const didascalia = didascaliaDellaVista();
   const emissione = apriGeometria();
   const [rispostaMesh, rispostaCampo] = await Promise.all([
     fetch(`/api/mesh/${STEP_CON_CAMPO}`).catch(serverMuto),
@@ -327,7 +321,6 @@ async function mostraCampoDelloStep(caso, grandezza, ordine, legenda, didascalia
     // o il .vtu assente perche' la corsa si e' fermata allo step 12, sono lo
     // stesso rifiuto dichiarato, non una pagina bianca ne' uno stack.
     const ragione = await ragioneDelRifiuto(rispostaMesh.ok ? rispostaCampo : rispostaMesh);
-    legenda.textContent = "";
     didascalia.textContent = ragione;
     return true;
   }
@@ -350,27 +343,28 @@ async function mostraCampoDelloStep(caso, grandezza, ordine, legenda, didascalia
   // uscirebbe colorato sfalsato senza nessun errore. Rifiuto dichiarato, come
   // il ramo 400: la vista di prima resta, e la didascalia dice perche'.
   if (valori.length !== vertici) {
-    legenda.textContent = "";
     didascalia.textContent =
       `campo e superficie non corrispondono (${valori.length} valori su ${vertici} vertici): `
       + "la corsa e' cambiata mentre la vista arrivava, riprova";
     return true;
   }
   const { taglio, sopraTaglio } = scalaDelCampo(valori);
-  const unita = grandezza === "U" ? "mm" : "MPa";
+  // Una frase sola, e la stessa in tre posti: sotto la vista, nell'aria-label
+  // della tela e in nessun altro. Scritta due volte, un giorno una delle due
+  // resterebbe indietro.
+  const testo = didascaliaDelCampo({ caso, grandezza, massimo, taglio, sopraTaglio });
   vista.svuota();
   vista.mostraMeshPerCampo(
     new Float32Array(grezziMesh, 0, vertici * 3),
     new Uint32Array(grezziMesh, vertici * 3 * 4, triangoli * 3),
     valori,
-    { taglio, sopraTaglio },
+    { taglio, descrizione: testo },
   );
   // Come gli altri due rami che disegnano: senza, #conteggi resta quello della
   // vista di prima e descrive un artefatto che non e' piu' sullo schermo.
   document.getElementById("conteggi").textContent =
     `${vertici.toLocaleString("it")} vertici, ${triangoli.toLocaleString("it")} triangoli`;
-  legenda.textContent = testoLegendaDelCampo(taglio, sopraTaglio, unita);
-  didascalia.textContent = didascaliaDelCampo({ caso, grandezza, massimo });
+  didascalia.textContent = testo;
   return true;
 }
 
@@ -379,11 +373,15 @@ async function mostraCampoDelloStep(caso, grandezza, ordine, legenda, didascalia
 // fisico), quindi non c'e' nessun campo da colorare. Delega interamente a
 // mostraStep, che disegna gia' la mesh grigia dello step 13 con la propria
 // arbitrazione: le didascalie seguono solo se quella chiamata ha vinto.
-async function mostraModoDelloStep(numero, frequenza, ordine, legenda, didascalia) {
+async function mostraModoDelloStep(numero, frequenza, ordine) {
   const disegnato = await mostraStep(STEP_CON_CAMPO, ordine);
   if (!disegnato) return false;
-  legenda.textContent = "";
-  didascalia.textContent = didascaliaDelCampo({ caso: `MODO_${numero}`, modale: true, frequenza });
+  // `Modo 1` e non `MODO_1`: e' il nome che il <select> mostra nella stessa
+  // schermata, e due nomi per la stessa cosa a mezzo palmo di distanza si
+  // leggono come due cose. `MODO_1` resta la chiave del .vtu, che a video non
+  // compare.
+  didascaliaDellaVista().textContent =
+    didascaliaDelCampo({ caso: `Modo ${numero}`, modale: true, frequenza });
   return true;
 }
 
@@ -423,9 +421,6 @@ function pannelloCampo(ordine, metriche13) {
   rigaGrandezza.className = "campo";
   rigaGrandezza.append(Object.assign(document.createElement("span"), { textContent: "grandezza" }), selGrandezza);
 
-  const legenda = Object.assign(document.createElement("p"), { className: "aiuto" });
-  const didascalia = Object.assign(document.createElement("p"), { className: "aiuto" });
-
   async function aggiorna() {
     const caso = selCaso.value;
     const modale = caso.startsWith("MODO_");
@@ -433,15 +428,23 @@ function pannelloCampo(ordine, metriche13) {
     rigaGrandezza.hidden = modale;
     if (modale) {
       const numero = Number(caso.slice("MODO_".length));
-      await mostraModoDelloStep(numero, metriche13.frequenze_hz?.[numero - 1], ordine, legenda, didascalia);
+      await mostraModoDelloStep(numero, metriche13.frequenze_hz?.[numero - 1], ordine);
     } else {
-      await mostraCampoDelloStep(caso, selGrandezza.value, ordine, legenda, didascalia);
+      await mostraCampoDelloStep(caso, selGrandezza.value, ordine);
     }
   }
   selCaso.addEventListener("change", aggiorna);
   selGrandezza.addEventListener("change", aggiorna);
-  contenitore.append(rigaCaso, rigaGrandezza, legenda, didascalia);
-  aggiorna();
+  contenitore.append(rigaCaso, rigaGrandezza);
+  // Il rigetto finisce in didascalia, come i due rami di rifiuto dentro
+  // mostraCampoDelloStep. Senza, un errore in costruzione diventa un unhandled
+  // rejection: pannello muto, vista di prima ancora a schermo, e l'unico
+  // segnale nella console del browser, che in discussione nessuno guarda. La
+  // costruzione del pannello non aspetta la vista, quindi il .catch() e non
+  // l'await: il <select> deve comparire anche se il campo non arriva.
+  aggiorna().catch((errore) => {
+    didascaliaDellaVista().textContent = `il campo non e' arrivato: ${errore.message}`;
+  });
   return contenitore;
 }
 
@@ -542,6 +545,12 @@ document.getElementById("elenco-step").addEventListener("click", (evento) => {
 // eventi quella in corso, cosi' il ricaricamento non annulla una geometria in
 // volo ma viene battuto da un clic dell'utente.
 function ricaricaVista(numero, ordine = generazione) {
+  // La didascalia della vista sta nel markup e sopravvive al cambio di step:
+  // senza questa riga, lasciato lo step 13 resterebbe «GRAVITA — tensione
+  // equivalente ...» sotto la nuvola dello step 2. Qui e non altrove perche'
+  // questo e' l'unico imbuto per cui la vista cambia, dal clic e dal fronte di
+  // discesa; chi disegna un campo la riscrive subito dopo.
+  didascaliaDellaVista().textContent = "";
   // `disegnato` e' falso quando la risposta e' stata scartata: senza guardarlo,
   // il cursore si rifarebbe sull'ingombro di una geometria che qualcun altro
   // ha disegnato, cioe' su una lettura che non appartiene a questo numero.

@@ -3,9 +3,10 @@ import * as THREE from "/ui/vendor/three.module.js";
 
 // Il taglio della scala colore di un campo per nodo: al p99, non al massimo.
 // Il maglio dell'as-built ha una singolarita' di geometria che tiene il
-// massimo su un solo nodo, non su un plateau: misurato sui tre casi, max/p99
-// vale 2,16 / 2,54 / 2,50 e il picco resta sempre lo stesso nodo. Una scala
-// tirata su quel massimo
+// massimo su un solo nodo, non su un plateau: misurato il 22/08/2026 sui tre
+// casi di runs/lab_telaio_v2, max/p99 vale 2,18 (GRAVITA) / 2,50
+// (SPINTA_ORIZZONTALE) / 2,48 (CARICO_TOP) e il picco resta sempre lo stesso
+// nodo, il 7132 del contorno. Una scala tirata su quel massimo
 // schiaccerebbe tutto il resto del pezzo in un solo colore, mostrando
 // l'artefatto come se fosse il risultato. Pura e fuori da mostraMeshPerCampo
 // apposta: e' una decisione numerica, e questo progetto la prova eseguendola
@@ -14,9 +15,9 @@ import * as THREE from "/ui/vendor/three.module.js";
 // sopraTaglio conta per valore (`v > taglio`), non per rango: `n - 1 - indice`
 // e' una quota fissa, e su un campo costante o tutto a zero dichiarava cinque
 // nodi sopra una soglia che nessuno supera - lo stesso testo che finisce
-// nell'aria-label. E' anche la definizione che il server usa gia' per contare
-// (np.count_nonzero(valori > p99)): due definizioni della stessa grandezza
-// nello stesso sistema sono un difetto per conto proprio.
+// nell'aria-label. Il server non conta piu' niente di suo: X-Sopra-P99 e le
+// altre due intestazioni sono state tolte in f7190bb, e questo e' l'unico
+// posto in cui il conteggio esiste.
 export function scalaDelCampo(valori) {
   const finiti = [];
   for (let indice = 0; indice < valori.length; indice += 1) {
@@ -30,6 +31,20 @@ export function scalaDelCampo(valori) {
   const indice = Math.max(0, Math.ceil(n * 0.99) - 1);
   const taglio = finiti[indice];
   return { taglio, sopraTaglio: finiti.filter((v) => v > taglio).length };
+}
+
+// Dove sta un valore sulla rampa, fra 0 (chiaro) e 1 (scuro). Fuori da
+// mostraMeshPerCampo per la stessa ragione di scalaDelCampo: sono le due
+// guardie del colore, e dentro una funzione che costruisce materiali three.js
+// nessun test le esegue - restavano provate a sottostringa, cioe' non provate.
+// Un campo costante o tutto a zero non deve dividere per zero: la scala resta
+// un solo colore, non un crash ne' un taglio NaN che la renderebbe
+// silenziosamente uniforme. Un residuo NaN/Infinity fra i valori resta al
+// fondo della scala, dichiarato zero, e non tocca il colore di nessun altro
+// nodo.
+export function frazioneDelCampo(valore, taglio) {
+  const soglia = taglio > 0 ? taglio : 1;
+  return Number.isFinite(valore) ? Math.min(1, Math.max(0, valore / soglia)) : 0;
 }
 
 // Ogni numero che finisce a video passa di qui, e null e' «non si puo'
@@ -48,14 +63,28 @@ export function numeroDelCampo(valore, formato = { maximumSignificantDigits: 4 }
 // gia' pagato l'errore di una von Mises calcolata su una forma modale (fino a
 // 88,5 MPa, privi di senso: una forma e' normalizzata sulla massa, non uno
 // spostamento fisico).
-export function didascaliaDelCampo({ caso, grandezza, modale, frequenza, massimo }) {
+// Una frase sola, e non due paragrafi: il taglio della scala e il massimo
+// erano su due righe separate a mezzo schermo di distanza dalla vista, e
+// l'occhio mappava la macchia piu' scura sul massimo. Sotto peso proprio quel
+// massimo vale 0,5056 MPa contro un taglio di 0,2321 (misurato il 22/08/2026
+// su runs/lab_telaio_v2): una sovrastima di 2,18 volte, e proprio sul
+// nodo-scheggia che il documento spende una sezione a rinnegare. Accostati
+// nella stessa frase, e col massimo marcato quando sta oltre il taglio, i due
+// numeri si leggono per quello che sono.
+export function didascaliaDelCampo({ caso, grandezza, modale, frequenza, massimo, taglio, sopraTaglio }) {
   if (modale) {
     // Un modo oltre quelli calcolati non ha una frequenza nota: NaN.toFixed()
     // scriverebbe "NaN Hz" in silenzio, lo stesso guasto di un taglio muto.
     const hz = numeroDelCampo(frequenza, { maximumFractionDigits: 2 });
+    // La vista di un modo e' il modello grigio e indeformato: mostraStep(13),
+    // nessuna forma applicata alle posizioni. «Ampiezza arbitraria» annunciava
+    // un'ampiezza che non e' a schermo, ed e' la stessa classe dell'«amplificato
+    // ×1779» che questo ramo ha gia' pagato: la didascalia dice solo cio' che
+    // la vista fa davvero.
+    const coda = "la forma modale non e' disegnata, la vista mostra il modello indeformato";
     return hz === null
-      ? `${caso}: forma modale, ampiezza arbitraria (normalizzata sulla massa); frequenza non disponibile`
-      : `${caso}: forma modale, ampiezza arbitraria (normalizzata sulla massa), ${hz} Hz`;
+      ? `${caso}: frequenza non disponibile; ${coda}`
+      : `${caso} — ${hz} Hz: ${coda}`;
   }
   // «massimo reale» e non «massimo amplificato»: la vista non deforma nulla.
   // Il campo che arriva dal server e' una magnitudine per nodo, senza
@@ -64,13 +93,25 @@ export function didascaliaDelCampo({ caso, grandezza, modale, frequenza, massimo
   // falso sopra un pezzo fermo.
   const spostamento = grandezza === "U";
   const nome = spostamento ? "spostamento" : "tensione equivalente";
+  const unita = spostamento ? "mm" : "MPa";
+  // Entrambi i numeri passano da numeroDelCampo, che dichiara quello che non
+  // si puo' scrivere invece di stamparlo. Il conteggio ha il proprio formato:
+  // e' un numero di nodi, non una misura, e non va arrotondato a cifre
+  // significative.
+  const tagliato = numeroDelCampo(taglio);
+  const nodi = numeroDelCampo(sopraTaglio, { maximumFractionDigits: 0 });
+  const scala = tagliato === null || nodi === null
+    ? "scala non disponibile, il campo non ha valori leggibili"
+    : `scala tagliata a ${tagliato} ${unita} (p99), ${nodi} nodi sopra`;
   const scritto = numeroDelCampo(massimo);
-  if (scritto === null) return `${caso} — ${nome}: massimo non disponibile`;
+  if (scritto === null) return `${caso} — ${nome}: ${scala}; massimo non disponibile`;
   // «reale» resta solo sullo spostamento: e' la grandezza che si guarda su una
   // vista, ed e' li' che qualcuno potrebbe leggere il colore come una misura.
-  return spostamento
-    ? `${caso} — ${nome}: massimo reale ${scritto} mm`
-    : `${caso} — ${nome}: massimo ${scritto} MPa`;
+  // «fuori scala» solo quando lo e' davvero: su un campo costante il massimo
+  // coincide col taglio, ed e' rappresentabile.
+  const fuori = Number.isFinite(massimo) && Number.isFinite(taglio) && massimo > taglio;
+  return `${caso} — ${nome}: ${scala}; massimo ${spostamento ? "reale " : ""}${scritto} ${unita}`
+    + (fuori ? ", fuori scala" : "");
 }
 
 export function creaViewport(contenitore) {
@@ -80,8 +121,15 @@ export function creaViewport(contenitore) {
   const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 1e6);
   camera.position.set(1, 1, 1);
 
-  // preserveDrawingBuffer: senza, il canvas e' vuoto al momento della cattura
-  // per il report, perche' il browser lo azzera dopo la presentazione.
+  // preserveDrawingBuffer: senza, il canvas e' vuoto al momento in cui lo si
+  // legge, perche' il browser lo azzera dopo la presentazione.
+  // ponytail: il flag e cattura() qui sotto sono meta' di una funzione. Il
+  // consumatore esiste gia' — report._sezione_viste incorpora i PNG delle
+  // viste e _conteggio_viste ne dichiara «0 attese» — ma nessuno collega le
+  // due meta': non c'e' un comando che chiami cattura() ne' un endpoint che
+  // riceva il PNG. Restano perche' sono il solo produttore possibile di
+  // quell'artefatto; il giorno che il report resta senza viste, il chiamante
+  // va scritto qui e non altrove.
   const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.localClippingEnabled = true;
@@ -276,22 +324,24 @@ export function creaViewport(contenitore) {
     },
     // Il campo per nodo (spostamento o tensione equivalente) sopra la
     // superficie di contorno. La scala si taglia al p99 e non al massimo: su
-    // un campo di tensione il rapporto fra i due vale 2,16 sotto peso proprio
-    // e arriva a 2,54 sotto spinta orizzontale (misurato sull'as-built), e una
-    // scala fino al massimo schiaccerebbe quattordicimila nodi in fondo perche'
-    // uno solo sta in cima. Chi supera il taglio prende un colore dichiarato,
-    // e la legenda dice dov'e' il taglio e quanti nodi sono sopra: e'
-    // un'informazione, non un buco.
-    mostraMeshPerCampo(vertici, facce, valori, { taglio, sopraTaglio }) {
+    // un campo di tensione il rapporto fra i due vale 2,18 sotto peso proprio
+    // e arriva a 2,50 sotto spinta orizzontale (misurato il 22/08/2026 su
+    // runs/lab_telaio_v2), e una scala fino al massimo schiaccerebbe in fondo
+    // i 10.968 nodi del contorno perche' uno solo sta in cima. Non
+    // quattordicimila: 14.103 sono i nodi dell'intero volume, e qui arrivano
+    // solo quelli che il contorno tocca. Chi supera il taglio prende un colore
+    // dichiarato, e la didascalia dice dov'e' il taglio e quanti nodi sono
+    // sopra: e' un'informazione, non un buco.
+    //
+    // descrizione: la stessa frase che finisce sotto la vista, cosi' chi
+    // ascolta lo screen reader riceve il caso di carico, la grandezza, l'unita'
+    // e i due numeri della scala invece di un conteggio di facce.
+    mostraMeshPerCampo(vertici, facce, valori, { taglio, descrizione }) {
       const geometria = new THREE.BufferGeometry();
       geometria.setAttribute("position", new THREE.BufferAttribute(vertici, 3));
       geometria.setIndex(new THREE.BufferAttribute(facce, 1));
       geometria.computeVertexNormals();
       const colori = new Float32Array(valori.length * 3);
-      // Un campo costante o tutto a zero non deve dividere per zero: la scala
-      // resta un solo colore, non un crash ne' un taglio NaN che la renderebbe
-      // silenziosamente uniforme.
-      const soglia = taglio > 0 ? taglio : 1;
       // Sequenziale: una tinta sola, chiara verso scura al crescere del
       // valore. Non un arcobaleno che attraversa piu' tinte: una scala di
       // grandezza vuole un ordine che l'occhio legga come "quanto", non un
@@ -306,11 +356,7 @@ export function creaViewport(contenitore) {
       const SCURO = new THREE.Color(0x2f5d50); // --accento, come la nuvola
       const colore = new THREE.Color();
       for (let indice = 0; indice < valori.length; indice += 1) {
-        const valore = valori[indice];
-        // Un residuo NaN/Infinity nel campo non deve corrompere il resto della
-        // riga di colore: resta al fondo della scala, dichiarato zero.
-        const frazione = Number.isFinite(valore) ? Math.min(1, Math.max(0, valore / soglia)) : 0;
-        colore.lerpColors(CHIARO, SCURO, frazione);
+        colore.lerpColors(CHIARO, SCURO, frazioneDelCampo(valori[indice], taglio));
         colore.toArray(colori, indice * 3);
       }
       geometria.setAttribute("color", new THREE.BufferAttribute(colori, 3));
@@ -318,10 +364,7 @@ export function creaViewport(contenitore) {
         vertexColors: true, roughness: 0.9, metalness: 0.0, side: THREE.DoubleSide,
         clippingPlanes: pianiTaglio,
       })));
-      descrivi(
-        `campo su ${(facce.length / 3).toLocaleString("it")} facce, ` +
-        `${sopraTaglio.toLocaleString("it")} nodi sopra il taglio`,
-      );
+      descrivi(descrizione);
       inquadra();
     },
     // Colore per membratura. E' la prova visiva che la scomposizione ha capito
