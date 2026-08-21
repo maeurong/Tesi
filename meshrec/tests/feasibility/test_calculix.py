@@ -25,21 +25,17 @@ pytestmark = pytest.mark.feasibility
 
 SIZE = (100.0, 100.0, 400.0)  # mm
 
-# Avvisi che CalculiX stampa su questi deck e che sono noti e accettati. Non
-# e' un elenco per farli tacere: e' il contrario. Ogni avviso fuori da qui e'
-# una card che il solutore ha scartato in silenzio, ed e' esattamente cio' che
-# «returncode 0 e nessun *ERROR» non sa vedere.
-AVVISI_NOTI = (
-    "reading *STEP",
-    "reading *OUTPUT",
-)
-
-
+# `extra` tollera avvisi noti e specifici del singolo test (es. "no tied MPC"
+# sul telaio): dalla Fase 5 `write_inp` scrive sempre attraverso
+# `_passo_statico`, e nessun percorso puo' piu' produrre "reading *STEP" o
+# "reading *OUTPUT" -- l'elenco fisso che li tollerava e' stato tolto perche'
+# tollerava avvisi che non possono piu' esistere, con un confronto per
+# sottostringa che avrebbe inghiottito anche un avviso futuro diverso che
+# contenesse per caso lo stesso testo.
 def avvisi_inattesi(stdout: str, extra: tuple[str, ...] = ()) -> list[str]:
-    noti = AVVISI_NOTI + extra
     return [
         riga for riga in stdout.splitlines()
-        if "*WARNING" in riga and not any(n in riga for n in noti)
+        if "*WARNING" in riga and not any(n in riga for n in extra)
     ]
 
 

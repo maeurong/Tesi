@@ -105,6 +105,15 @@ def write_inp(
     FILE` invece di `*OUTPUT, FIELD`. Misurato il 21/08/2026: la forma
     precedente faceva emettere a `ccx` 2.22 due avvisi ("parameter not
     recognized: NAME=..." e "...FIELD"), questa zero.
+
+    `pressure`, quando dato insieme a `carichi`, si ripete identico in ogni
+    passo statico aggiunto (peso proprio, spinta, carico in sommita'): non e'
+    un caso di carico fra gli altri, e' una condizione permanente del modello
+    -- la stessa natura del peso proprio, che infatti e' gia' ripetuto in
+    ognuno di quei passi per la stessa ragione (senza di esso ogni passo
+    diverso dal primo descriverebbe una struttura che non pesa). Una spinta
+    del terreno dichiarata in Fase 4 non smette di agire perche' il passo
+    successivo aggiunge anche un carico in sommita'.
     """
     if fixed_nset not in node_sets:
         raise ValueError(f"il set vincolato '{fixed_nset}' non e fra i node_sets forniti")
@@ -201,11 +210,11 @@ def write_inp(
 
     if carichi is not None and carichi.carico_sommita is not None:
         sommita = carichi.carico_sommita
-        if sommita.nset not in node_sets:
+        if sommita.nset not in node_sets or len(node_sets[sommita.nset]) == 0:
             raise ValueError(
                 f"il carico in sommita nomina l'insieme '{sommita.nset}', che non e' "
-                f"fra quelli scritti nel deck ({sorted(node_sets)}): il solutore "
-                f"leggerebbe un carico applicato a nulla"
+                f"fra quelli scritti nel deck ({sorted(node_sets)}) o e' vuoto: il "
+                f"solutore leggerebbe un carico applicato a nulla"
             )
         nodi_carico = node_sets[sommita.nset]
         per_nodo = sommita.risultante / len(nodi_carico)

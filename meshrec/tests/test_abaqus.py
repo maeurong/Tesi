@@ -290,7 +290,11 @@ def test_i_tre_casi_statici_e_la_modale_diventano_quattro_passi(tmp_path):
     testo = "\n".join(righe)
     assert righe.count("*STEP") == 4
     assert righe.count("*END STEP") == 4
-    assert "*FREQUENCY" in testo and "\n6\n" in testo
+    # la riga subito dopo *FREQUENCY, non una sottostringa nell'intero deck:
+    # "\n6\n" nel testo intero passerebbe anche se il 6 fosse dentro un *NSET,
+    # e sarebbe verde per coincidenza (RULING M, stessa famiglia del difetto
+    # sopra sulle righe intere).
+    assert righe[righe.index("*FREQUENCY") + 1] == "6"
     assert "*CLOAD" in testo
     # la spinta e' una seconda GRAV nello stesso passo, non un passo a se':
     # senza il peso proprio accanto, la spinta descriverebbe una struttura che
@@ -324,6 +328,48 @@ def test_le_forme_modali_non_chiedono_tensioni(tmp_path):
     passo_modale = percorso.read_text(encoding="ascii").split("** NOME PASSO: MODALE")[1]
     assert "*EL FILE" not in passo_modale
     assert "*NODE FILE" in passo_modale
+
+
+def test_la_pressione_si_ripete_in_ogni_passo_statico_con_carichi(tmp_path):
+    """`pressure` e' una condizione permanente del modello, non un caso di
+    carico fra gli altri: si ripete in ogni passo statico esattamente come il
+    peso proprio (vedi il docstring di `write_inp`, Important A del giro di
+    revisione). Qui i passi statici sono due (peso proprio + spinta): la
+    `*DSLOAD` deve comparire in entrambi, non solo nel primo."""
+    superficie = abaqus.element_surface(_ESAEDRO, np.array([0, 1, 2, 3]), "C3D8I")
+    carichi = config.CarichiConfig(spinta=config.SpintaOrizzontale(coefficiente=0.1, asse="x"))
+    percorso = tmp_path / "con_pressione.inp"
+
+    abaqus.write_inp(
+        percorso, _CUBO, _ESAEDRO,
+        node_sets={"BASE": np.array([0, 1, 2, 3])},
+        material=MATERIALE,
+        element_type="C3D8I",
+        element_surfaces={"FACCIA_BASSA": superficie},
+        pressure=("FACCIA_BASSA", 0.25),
+        carichi=carichi,
+    )
+
+    righe = percorso.read_text(encoding="ascii").splitlines()
+    assert righe.count("*STEP") == 2
+    assert righe.count("*DSLOAD") == 2
+    assert righe.count("FACCIA_BASSA, P, 0.25") == 2
+
+
+def test_il_carico_in_sommita_rifiuta_un_insieme_vuoto(tmp_path):
+    """Zero nodi nell'insieme e' lo stesso problema silenzioso della chiave
+    mancante appena sopra nel codice (un carico applicato a nulla), non un
+    `ZeroDivisionError` grezzo: stessa guardia, stesso registro di errore."""
+    carichi = config.CarichiConfig(carico_sommita=config.CaricoSommita(risultante=1000.0, nset="TOP"))
+
+    with pytest.raises(ValueError, match="TOP"):
+        abaqus.write_inp(
+            tmp_path / "vuoto.inp", _CUBO, _ESAEDRO,
+            node_sets={"BASE": np.array([0, 1, 2, 3]), "TOP": np.array([], dtype=np.int64)},
+            material=MATERIALE,
+            element_type="C3D8I",
+            carichi=carichi,
+        )
 
 
 def test_export_model_writes_both_files_and_reports_mass(tmp_path):
