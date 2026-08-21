@@ -865,9 +865,14 @@ class Blocco(NamedTuple):
 # Colonne del record 100CL, contate sul file scritto da ccx 2.22. Sono fisse
 # perche' il formato e' a colonne: nel record modale il numero di passo e la
 # parola MODAL non hanno spazio in mezzo.
+# ATTENZIONE (correzione del 21/08/2026, dall'esecuzione del Task 5): i tre
+# valori qui sotto erano **sbagliati** nella prima stesura di questo piano —
+# 57:62 e 62:67 non combaciavano nemmeno con la fixture che il piano stesso
+# fornisce. I valori giusti, misurati su un `.frd` vero di ccx 2.22, sono
+# 62:63 e 63:68. Il codice consegnato porta quelli.
 _COL_VALORE = slice(12, 24)
-_COL_PASSO = slice(57, 62)
-_COL_TIPO = slice(62, 67)
+_COL_PASSO = slice(62, 63)
+_COL_TIPO = slice(63, 68)
 
 
 def leggi_frd(percorso: Path) -> list[Blocco]:
