@@ -471,9 +471,14 @@ def align_to_axes(
     e' l'unico modo per riportare i risultati nel sistema originale dello scanner.
 
     Assunzione: lo scanner e' livellato, cioe' la z della nuvola in ingresso
-    e' gia' il verticale reale e l'unica ambiguita' e' l'imbardata. Se la
-    nuvola e' inclinata fuori dal piano orizzontale (beccheggio o rollio),
-    l'assegnazione dell'asse altezza non e' garantita.
+    e' gia' il verticale reale e l'unica ambiguita' e' l'imbardata. Dalla
+    Fase 5 questa non e' piu' una premessa che il codice dichiara e poi
+    disattende: z e' imposto uguale a [0, 0, 1] per costruzione, e la sola
+    direzione stimata (via PCA sulla proiezione orizzontale) e' lo spessore.
+    Se la nuvola in ingresso e' fuori piombo (beccheggio o rollio), `BASE`
+    diventa un taglio orizzontale a quota minima e non la base fisica del
+    pezzo: la correzione sposta il difetto da "asse sbagliato" a "assunzione
+    dichiarata e verificabile da chi fornisce la nuvola".
 
     `reference`, se fornito, e' l'insieme di punti su cui stimare centro e
     direzioni principali; in sua assenza si usano i nodi stessi. Il
@@ -497,31 +502,27 @@ def align_to_axes(
     centred = points - centre
     centred_reference = reference - centre
 
-    _, _, principal = np.linalg.svd(centred_reference, full_matrices=False)
-    extents = np.ptp(centred_reference @ principal.T, axis=0)
+    # z e' il verticale del sistema in ingresso, non una direzione stimata. Il
+    # docstring di questa funzione ha sempre dichiarato che lo scanner e'
+    # livellato e che l'unica ambiguita' e' l'imbardata; fino alla Fase 5 il
+    # codice lo dichiarava e poi lasciava scegliere l'altezza a una PCA a tre
+    # dimensioni. Su `lab_frame.pcd` quella scelta cadeva a 22,43 gradi dal
+    # verticale, perche' le zapatas larghe e basse tirano la direzione
+    # principale, e da li' il set BASE prendeva un piede su due.
+    z_dir = np.array([0.0, 0.0, 1.0])
 
-    thickness_axis = int(np.argmin(extents))
-    remaining = [index for index in range(3) if index != thickness_axis]
-    # fra le due direzioni restanti, l'altezza e' quella piu vicina al verticale
-    # originale: la gravita agisce lungo il verticale reale, non lungo l'asse
-    # con l'estensione maggiore.
-    verticality = [abs(principal[index][2]) for index in remaining]
-    height_axis = remaining[int(np.argmax(verticality))]
+    # Lo spessore si sceglie fra le sole direzioni orizzontali: PCA a due
+    # dimensioni sulla proiezione. Cosi' l'imbardata resta l'unica grandezza
+    # stimata, e l'assegnazione dell'altezza non dipende piu' da come la massa
+    # e' distribuita in quota.
+    piano = centred_reference[:, :2]
+    _, _, principali = np.linalg.svd(piano, full_matrices=False)
+    estensioni = np.ptp(piano @ principali.T, axis=0)
+    stretta = principali[int(np.argmin(estensioni))]
+    x_dir = fix_sign(np.array([stretta[0], stretta[1], 0.0]))
 
-    vertical = principal[height_axis]
-    # L'altezza punta verso l'alto del sistema originale: la gravita agisce
-    # lungo il verticale reale, e BASE deve restare l'estremita fisicamente
-    # piu bassa. Se la nuvola e' quasi coricata il prodotto scalare non decide,
-    # e si ricade sulla convenzione di segno deterministica.
-    if abs(vertical[2]) > 1e-6:
-        z_dir = vertical if vertical[2] > 0.0 else -vertical
-    else:
-        z_dir = fix_sign(vertical)
-
-    x_dir = fix_sign(principal[thickness_axis])
     # y come prodotto vettoriale: la terna e' destrorsa per costruzione, quindi
-    # il determinante vale +1 e non serve alcuna correzione a posteriori, che
-    # cambierebbe il verso di un asse gia deciso.
+    # il determinante vale +1 e non serve alcuna correzione a posteriori.
     y_dir = np.cross(z_dir, x_dir)
 
     rotation = np.stack([x_dir, y_dir, z_dir])
@@ -622,8 +623,11 @@ def footprint_coverage(
 def build_node_sets(nodes: np.ndarray, tolerance: float) -> dict[str, np.ndarray]:
     """I sei set di faccia, sul modello gia allineato agli assi.
 
-    `BASE` e `TOP` sono verificati: l'asse z e' il verticale reale (vedi
-    `align_to_axes`), quindi il minimo e' davvero la base del solido.
+    `BASE` e `TOP` sono verificati **per costruzione dalla Fase 5**: `align_to_axes`
+    impone l'asse z uguale al verticale della nuvola in ingresso invece di
+    stimarlo con una PCA, quindi il minimo e' davvero la base del solido (fino
+    alla Fase 5 l'affermazione era falsa su una geometria con appoggi larghi e
+    bassi, dove la PCA sceglieva un asse a 22,43 gradi dal verticale).
 
     `FACE_FRONT`, `FACE_BACK`, `SIDE_LEFT` e `SIDE_RIGHT` sono invece **nomi di
     convenzione**, non identificazioni fisiche. Sono assegnati al minimo e al

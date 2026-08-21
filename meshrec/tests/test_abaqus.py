@@ -11,6 +11,22 @@ from materiale import ANALISI, MATERIALE, crea_config
 
 SIZE = (100.0, 40.0, 200.0)
 
+TELAIO_PIEDI_ASIMMETRICI = [
+    ((0.0,    0.0,    0.0), (200.0,  800.0,  200.0)),   # piede largo
+    ((0.0, 2200.0,    0.0), (200.0,  300.0,  200.0)),   # piede stretto
+    ((0.0,  300.0,  200.0), (200.0,  200.0, 1600.0)),   # montante sinistro
+    ((0.0, 2300.0,  200.0), (200.0,  200.0, 1600.0)),   # montante destro
+    ((0.0,  300.0, 1800.0), (200.0, 2200.0,  200.0)),   # traverso
+]
+"""Portale con i due piedi di larghezza diversa.
+
+L'asimmetria in basso inclina la direzione principale senza che la nuvola sia
+inclinata: e' la forma esatta del difetto misurato su `lab_frame.pcd`, dove le
+zapatas larghe e basse portano l'asse altezza a 22,43 gradi dal verticale.
+La struttura poggia su tutta la luce, quindi un vincolo corretto deve coprirla
+tutta: e' cio' che distingue "appoggio mancante" da "vuoto in mezzo".
+"""
+
 
 @pytest.fixture
 def cube_mesh():
@@ -402,6 +418,42 @@ def test_the_triad_follows_the_surface_not_the_distribution_of_nodes():
     # Lo scostamento al primo ottante si calcola sui nodi trasformati, non sul
     # riferimento: senza questo, BASE non corrisponderebbe alla base del solido.
     assert allineati.min(axis=0) == pytest.approx([0.0, 0.0, 0.0], abs=1e-9)
+
+
+def test_l_asse_altezza_e_il_verticale_anche_se_la_pca_pende():
+    """La terna non lascia decidere l'altezza alla PCA.
+
+    Sul banco a piedi asimmetrici la direzione principale piu' vicina al
+    verticale sta 13,58 gradi fuori (misurato prima della correzione), e da li'
+    discende il set BASE su un piede solo. Dopo la correzione l'asse altezza e'
+    il verticale in ingresso per costruzione, e l'unica cosa ancora stimata e'
+    l'imbardata, che e' quanto il docstring ha sempre dichiarato.
+    """
+    punti = synth.sample_frame_surface(TELAIO_PIEDI_ASIMMETRICI, spacing=25.0)
+
+    _allineati, transform, _metriche = abaqus.align_to_axes(punti, reference=punti)
+
+    assert transform[2, :3] == pytest.approx([0.0, 0.0, 1.0], abs=1e-12)
+    # terna destrorsa e ortonormale: il determinante non e' un dettaglio, un -1
+    # scambierebbe SIDE_LEFT con SIDE_RIGHT senza che nulla se ne accorga
+    assert np.linalg.det(transform[:3, :3]) == pytest.approx(1.0, abs=1e-12)
+    assert transform[:3, :3] @ transform[:3, :3].T == pytest.approx(np.eye(3), abs=1e-12)
+
+
+def test_i_nodi_bassi_dopo_l_allineamento_coprono_tutta_la_luce():
+    """Il vincolo prende entrambi i piedi, non uno.
+
+    Misurato sul banco: prima della correzione i nodi entro 60 mm dal minimo di
+    z-modello sono 131 e coprono lo 0,088 della lunghezza; dopo sono 654 e la
+    coprono per intero.
+    """
+    punti = synth.sample_frame_surface(TELAIO_PIEDI_ASIMMETRICI, spacing=25.0)
+
+    allineati, _transform, _metriche = abaqus.align_to_axes(punti, reference=punti)
+
+    bassi = allineati[allineati[:, 2] <= allineati[:, 2].min() + 60.0]
+    rapporto = float(np.ptp(bassi[:, 1]) / np.ptp(allineati[:, 1]))
+    assert rapporto > 0.95, f"il vincolo copre solo {rapporto:.3f} della luce"
 
 
 def test_export_model_estimates_the_triad_on_the_reference_it_is_given(tmp_path):
