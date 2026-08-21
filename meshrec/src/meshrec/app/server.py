@@ -49,7 +49,7 @@ CACHE_DIR = Path(".cache/viewport")
 # «restituisce in silenzio il risultato di qualcun altro». Entra nel nome, non
 # nel contenuto, perche' _rimuovi_voci_vecchie sfratta per marchio e non guarda
 # che cosa segue: cambiare la versione basta a far ripulire le voci precedenti.
-VERSIONE_CONTORNO = 1
+VERSIONE_CONTORNO = 2
 
 
 def _percorso_contorno(sorgente: Path) -> Path:
@@ -77,13 +77,13 @@ def _percorso_contorno(sorgente: Path) -> Path:
     )
 
 
-def _leggi_contorno(voce: Path) -> tuple[np.ndarray, np.ndarray] | None:
+def _leggi_contorno(voce: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
     """Una voce assente o corrotta non e' un errore: si ricalcola, come _leggi_cache."""
     if not voce.exists():
         return None
     try:
         with np.load(voce, allow_pickle=False) as dati:
-            vertici, facce = dati["vertici"], dati["facce"]
+            vertici, facce, indici = dati["vertici"], dati["facce"], dati["indici"]
         if len(facce) and facce.max() >= len(vertici):
             # Come _leggi_cache col suo offsets: un indice fuori misura non
             # solleva mai in numpy, quindi va negato qui. Senza, la voce arriva
@@ -94,14 +94,14 @@ def _leggi_contorno(voce: Path) -> tuple[np.ndarray, np.ndarray] | None:
             raise ValueError("facce incoerenti con i vertici")
     except (OSError, ValueError, KeyError, EOFError, zipfile.BadZipFile):
         return None
-    return vertici, facce
+    return vertici, facce, indici
 
 
-def _scrivi_contorno(voce: Path, vertici: np.ndarray, facce: np.ndarray) -> bool:
+def _scrivi_contorno(voce: Path, vertici: np.ndarray, facce: np.ndarray, indici: np.ndarray) -> bool:
     """Vero se la voce e' finita su disco. Il chiamante ci lega la pulizia (MI-2)."""
 
     def scrittore(destinazione: Path) -> None:
-        np.savez(str(destinazione), vertici=vertici, facce=facce)
+        np.savez(str(destinazione), vertici=vertici, facce=facce, indici=indici)
 
     try:
         scrivi_atomico(voce, scrittore)
@@ -113,13 +113,19 @@ def _scrivi_contorno(voce: Path, vertici: np.ndarray, facce: np.ndarray) -> bool
     return True
 
 
-def _contorno_del_volume(percorso: Path) -> tuple[np.ndarray, np.ndarray]:
-    """Vertici e triangoli del contorno di una mesh di volume, con cache su disco.
+def _contorno_del_volume(percorso: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Vertici, triangoli e indici dei nodi originali del contorno di una mesh
+    di volume, con cache su disco.
 
     Su lab_crop l'estrazione costa circa 15 s e oltre un gigabyte di picco, e
     senza cache ogni clic sullo step 9 la rifa' identica. La chiave e' la sola
     coppia (sorgente, mtime) perche' l'estrazione non ha altri ingressi: non
     legge la configurazione e non ha parametri.
+
+    Il terzo elemento (indici) e' cio' che serve alla Fase 5 per portare un
+    campo per nodo (spostamenti, tensioni) fino ai vertici del contorno senza
+    ricalcolarlo altrove: `vertici[i]` e' sempre `griglia.points[indici[i]]`,
+    quindi un campo scritto su `griglia.points` si legge con `campo[indici]`.
     """
     import meshio
 
@@ -157,13 +163,14 @@ def _contorno_del_volume(percorso: Path) -> tuple[np.ndarray, np.ndarray]:
     # dipendere la precisione da quale delle due strade ha risposto.
     vertici = np.ascontiguousarray(griglia.points[usati], dtype="<f4")
     facce = np.ascontiguousarray(rimappate.reshape(contorno.shape), dtype="<u4")
+    indici = np.ascontiguousarray(usati, dtype="<u4")
     # MI-2: la pulizia solo se la scrittura e' riuscita. Sfrattare la voce
     # vecchia quando la nuova non esiste lascia la cache vuota e costa un
     # ricalcolo da quindici secondi, mai un dato sbagliato. viewport ha lo
     # stesso schema e non e' modificabile da qui: i due divergono apposta.
-    if _scrivi_contorno(voce, vertici, facce):
+    if _scrivi_contorno(voce, vertici, facce, indici):
         viewport._rimuovi_voci_vecchie(voce.parent, voce)
-    return vertici, facce
+    return vertici, facce, indici
 
 
 def _non_booleano(valore: object) -> object:
@@ -798,7 +805,7 @@ def create_app(config_path: Path) -> FastAPI:
                 f"lo step {numero} non ha ancora prodotto {pipeline.ARTIFACTS[numero]}"
             )
         if percorso.suffix == ".vtu":
-            vertici, facce = _contorno_del_volume(percorso)
+            vertici, facce, _indici = _contorno_del_volume(percorso)
         else:
             import open3d as o3d
 
@@ -818,6 +825,71 @@ def create_app(config_path: Path) -> FastAPI:
             content=corpo,
             media_type="application/octet-stream",
             headers={"X-Vertices": str(len(vertici)), "X-Triangles": str(len(facce))},
+        )
+
+    @app.get("/api/campo/{caso}/{grandezza}")
+    def campo(caso: str, grandezza: str) -> Response:
+        """Un campo dello step 13 (`solve.risolvi`), ristretto ai vertici del
+        contorno con la stessa corrispondenza di /api/mesh.
+
+        La chiave e' `f"{grandezza}_{caso}"` (contratto di solve.py:183-190,
+        es. "VM_GRAVITA"): non c'e' un elenco di casi/grandezze validi da
+        tenere allineato altrove, la validita' e' la presenza della chiave in
+        `point_data`. Ne' `caso` ne' `grandezza` toccano mai il filesystem
+        (il percorso e' fisso, 13_solution.vtu della corsa corrente): un
+        valore come '..' fallisce lo stesso controllo di appartenenza di uno
+        inventato, non serve una guardia sui caratteri.
+
+        U_<caso> e' un vettore (spostamento nodale): la magnitudine e' lo
+        scalare che risponde, uno per vertice, come VM_<caso> gia' e' scalare.
+
+        Le intestazioni portano gli estremi e il p99 che il browser usa per
+        la legenda senza ricalcolare nulla (Task 9): il picco isolato di un
+        carico nodale puntuale (misurato, CARICO_TOP: 31 977,6 MPa contro un
+        p99 di 6 279,5) stirerebbe la scala colore su un solo vertice.
+        """
+        import meshio
+
+        cfg = corrente()
+        percorso = Path(cfg.run.out_dir) / pipeline.ARTIFACTS[13]
+        if not percorso.exists():
+            raise FileNotFoundError(
+                f"lo step 13 non ha ancora prodotto {pipeline.ARTIFACTS[13]}"
+            )
+        griglia = meshio.read(percorso)
+        if not griglia.point_data:
+            raise ValueError(f"{percorso.name} non contiene campi di soluzione")
+        chiave = f"{grandezza}_{caso}"
+        if chiave not in griglia.point_data:
+            if caso in griglia.point_data:
+                raise ValueError(
+                    f"'{caso}' e' un modo, non un caso di carico: la sua forma e' "
+                    "normalizzata sulla massa e non ha ne' millimetri ne' MPa"
+                )
+            raise ValueError(
+                f"nessun campo '{chiave}' in {percorso.name}: i campi disponibili "
+                f"sono {sorted(griglia.point_data)}"
+            )
+        _vertici, _facce, indici = _contorno_del_volume(percorso)
+        valori = np.asarray(griglia.point_data[chiave], dtype=np.float64)[indici]
+        if valori.ndim > 1:
+            valori = np.linalg.norm(valori, axis=1)
+        if len(valori) == 0:
+            return Response(
+                content=b"",
+                media_type="application/octet-stream",
+                headers={"X-Min": "0.0", "X-Max": "0.0", "X-P99": "0.0", "X-Sopra-P99": "0"},
+            )
+        p99 = float(np.percentile(valori, 99))
+        return Response(
+            content=viewport.campo_per_punto(valori),
+            media_type="application/octet-stream",
+            headers={
+                "X-Min": str(float(valori.min())),
+                "X-Max": str(float(valori.max())),
+                "X-P99": str(p99),
+                "X-Sopra-P99": str(int(np.count_nonzero(valori > p99))),
+            },
         )
 
     @app.get("/api/events")
