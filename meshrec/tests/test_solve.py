@@ -594,6 +594,25 @@ def test_controlla_picco_con_nan_a_monte_non_passa():
     assert math.isnan(esito["max"])
 
 
+def test_controlla_picco_con_banda_nan_su_valori_sani_non_passa():
+    """Giro di correzione 4: `banda` raggiunge un confronto (`q <= q.min() +
+    banda`) tanto quanto `valori`/`quote`, e non era nel cancello di
+    finitezza -- il revisore l'ha trovato con valori e quote perfettamente
+    sani: `banda` NaN da' `in_banda` tutto `False` (stesso schema del giro
+    3), `frazione_in_banda` esce 0.0, il verdetto passa. E' un percorso
+    reale: `banda_vincolo` in `risolvi()` e' una frazione dell'altezza di
+    *tutti* i nodi del modello, non del sottoinsieme (`quote`) del caso di
+    carico corrente -- un nodo NaN altrove nel modello corrompe `banda`
+    senza toccare `valori`/`quote` di questo caso.
+    """
+    valori = np.array([1.0, 2.0, 3.0, 4.0])
+    quote = np.array([0.0, 10.0, 20.0, 30.0])
+
+    esito = solve.controlla_picco(valori, quote, banda=float("nan"))
+
+    assert esito["passato"] is False
+
+
 
 # ---------------------------------------------------------------------------
 # Indagine 21/08/2026 (giro di correzione del Task 7): da dove viene lo

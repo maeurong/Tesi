@@ -217,6 +217,18 @@ def leggi_reazioni(
     return reazioni
 
 
+# Regola, dopo tre giri di revisione sulla stessa classe di difetto (Task 7):
+# ogni ingresso che raggiunge un confronto (<, <=, >, >=, o un valore derivato
+# da uno di questi) entra nel "cancello di finitezza" della funzione, non solo
+# gli array o il parametro "principale". Un NaN in un confronto e' sempre
+# falso: se il verdetto e' una combinazione booleana (AND/OR) il NaN puo'
+# nascondersi dietro un False che sembra "in regola" (controlla_picco, prima
+# di questo giro: p99 NaN -> sopra_p99 tutto False -> frazione 0.0 -> passa,
+# poi banda NaN sullo stesso schema); se il verdetto e' un unico confronto di
+# grandezza (controlla_reazioni: scarto <= tolleranza) il NaN cade dalla
+# parte giusta da solo. Per ogni nuovo controllo: elencare i parametri che
+# raggiungono un confronto e verificare, per ciascuno, se la sua non
+# finitezza fa passare il verdetto -- non fidarsi della forma del codice.
 def controlla_reazioni(
     reazioni: dict[int, tuple[float, float, float]],
     peso_atteso: tuple[float, float, float],
@@ -235,13 +247,16 @@ def controlla_reazioni(
     configurazione senza massa non sono casi da normalizzare, sono casi da
     dichiarare non verificati.
 
-    Verificato (revisione Task 7, terzo giro, regola "ingressi non finiti
-    -> non passato"): qui non serve una guardia esplicita. Un NaN o un
-    infinito in `reazioni`/`peso_atteso` propaga in `scarto` (via `norm`),
-    e `scarto <= tolleranza` e' gia' falso per costruzione quando `scarto`
-    e' NaN o `inf` -- a differenza di `controlla_picco`, qui il verdetto
-    finale e' un confronto di grandezza (`<=`), non una combinazione
-    booleana che un confronto-con-NaN puo' mascherare da esito buono.
+    Verificato (revisione Task 7, cancello di finitezza, tre giri): ogni
+    parametro che raggiunge il confronto finale e' coperto senza guardia
+    esplicita, perche' il verdetto e' un unico confronto di grandezza
+    (`<=`), non una combinazione booleana che un confronto-con-NaN possa
+    mascherare da esito buono. `reazioni`/`peso_atteso` propagano in
+    `scarto` (via `norm`): NaN o `inf` li' rendono gia' `scarto <=
+    tolleranza` falso. `tolleranza` stesso, se NaN, rende falso lo stesso
+    confronto dal lato destro (verificato dal revisore col caso
+    avversariale `inf - inf = nan`: sempre `passato: False`). Confermato,
+    non toccato.
     """
     peso = np.asarray(peso_atteso, dtype=np.float64)
     norma_attesa = float(np.linalg.norm(peso))
@@ -278,12 +293,14 @@ def controlla_autovalori(frequenze_hz: list[float], soglia_relativa: float = 0.2
     presente; il meccanismo vero, prima frequenza praticamente nulla, e' un
     altro ordine di grandezza).
 
-    Regola dopo il rilievo Important della revisione (Task 7, terzo giro):
-    un controllo i cui ingressi non sono finiti fallisce chiuso, non passa.
-    Senza questa guardia una prima frequenza infinita passerebbe (`inf > 0.0`
-    e' vero, `inf / seconda >= soglia_relativa` pure): il valore resta
-    riportato in `prima_frequenza_hz`, ma `passato` e' sempre `False` se
-    una qualunque frequenza non e' finita.
+    Cancello di finitezza (Task 7): senza la guardia su `frequenze_hz`, una
+    prima frequenza infinita passerebbe (`inf > 0.0` e' vero, `inf /
+    seconda >= soglia_relativa` pure) -- il valore resta riportato in
+    `prima_frequenza_hz`, ma `passato` e' sempre `False` se una qualunque
+    frequenza non e' finita. `soglia_relativa` raggiunge lo stesso confronto
+    (`rapporto >= soglia_relativa`) ma non serve guardia: un NaN li' rende
+    il confronto falso dal lato destro, e cade dalla parte giusta del
+    verdetto (confermato dal revisore). Confermato, non toccato.
     """
     if not frequenze_hz:
         return {"passato": False, "prima_frequenza_hz": None}
@@ -317,20 +334,24 @@ def controlla_picco(valori: np.ndarray, quote: np.ndarray, banda: float) -> dict
     `nan` silenzioso da una divisione 0/0. Un solo nodo: il percentile e'
     quel nodo stesso, nessun `IndexError`.
 
-    Rilievo Important della revisione (Task 7, terzo giro), sul Minor M3
-    del giro precedente: guardare `np.isnan(p99)` copriva solo
-    `rapporto_max_p99` e lasciava `passato` vero su un NaN a monte --
-    `sopra_p99 = v >= p99` con `p99` NaN da' tutto `False` (ogni confronto
-    con NaN e' falso), quindi `frazione_in_banda` usciva 0.0 e il verdetto
-    diceva "va bene" esattamente sul dato corrotto. La regola giusta non e'
-    un `if` sul sintomo, e' generale: un controllo i cui ingressi non sono
-    finiti fallisce chiuso. `max`/`p99` restano riportati anche se NaN o
-    infiniti (si marca, non si nasconde), ma `passato` e' sempre `False` in
-    quel caso, indipendentemente da `frazione_in_banda`.
+    Cancello di finitezza (Task 7, tre giri sulla stessa classe): il
+    verdetto e' una combinazione booleana (`finito and frazione_in_banda ==
+    0.0`), non un unico confronto di grandezza -- ogni NaN che finisce in un
+    confronto sotto puo' quindi mascherarsi da esito buono, ed e' successo
+    due volte. Prima su `passato` stesso (`p99` NaN -> `sopra_p99 = v >=
+    p99` tutto `False` -> `frazione_in_banda` 0.0 -> "va bene" sul dato
+    corrotto). Poi su `banda`: derivato a monte da `np.ptp(nodes[:, 2])` su
+    *tutti* i nodi del modello, non sul sottoinsieme del caso di carico
+    corrente (`quote`) -- un nodo NaN altrove nel modello corrompe `banda`
+    senza toccare `v`/`q`, e `q <= q.min() + banda` con `banda` NaN da'
+    tutto `False` con lo stesso schema. La guardia quindi copre tutti e tre
+    i parametri che raggiungono un confronto (`v`, `q`, `banda`), non solo
+    gli array. `max`/`p99` restano riportati anche se NaN o infiniti (si
+    marca, non si nasconde), ma `passato` e' sempre `False` in quel caso.
     """
     v = np.asarray(valori, dtype=np.float64)
     q = np.asarray(quote, dtype=np.float64)
-    finito = bool(np.isfinite(v).all() and np.isfinite(q).all())
+    finito = bool(np.isfinite(v).all() and np.isfinite(q).all() and np.isfinite(banda))
     massimo = float(v.max())
     p99 = float(np.percentile(v, 99))
     rapporto = None if p99 == 0.0 or np.isnan(p99) else massimo / p99
@@ -571,12 +592,16 @@ def risolvi(
     )
     peso_atteso = (0.0, 0.0, (massa - quota_tributaria) * cfg.gravity)
     # I due verdetti inline sotto non hanno una guardia esplicita su
-    # NaN/infinito (revisione Task 7, terzo giro, stessa domanda posta a
-    # tutti e cinque i controlli): `vincolo_in_pianta["minimo"]` viene da
+    # NaN/infinito (cancello di finitezza, Task 7, verificato su tutti e
+    # cinque i controlli): `vincolo_in_pianta["minimo"]` viene da
     # `abaqus.constraint_plan_extent`, che divide per l'estensione del pezzo
     # solo dopo averla guardata contro lo zero (ritorna 1.0 altrimenti) --
-    # non puo' restituire NaN o inf per costruzione. `avvisi` e' un conteggio
-    # (`str.count`), sempre un intero naturale, mai NaN o inf.
+    # non puo' restituire NaN o inf per costruzione, A MENO che le
+    # coordinate dei nodi in ingresso siano gia' corrotte (NaN): quel caso
+    # e' un fallimento a monte, di mesh corrotta, fuori dal perimetro di
+    # questo commit -- limite dichiarato, non una guardia aggiunta qui.
+    # `avvisi` e' un conteggio (`str.count`), sempre un intero naturale, mai
+    # NaN o inf, indipendentemente dallo stato della mesh.
     controlli = {
         "reazioni": controlla_reazioni(reazioni_peso_proprio, peso_atteso, tolleranza=_TOLLERANZA_REAZIONI),
         "vincolo_in_pianta": {
