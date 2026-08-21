@@ -49,7 +49,7 @@ STEP_BLOCKS: dict[int, tuple[str, ...]] = {
     8: ("simplify",),
     9: ("tet",),
     10: ("tet",),
-    11: ("tet", "analysis"),
+    11: ("tet", "analysis", "carichi"),
     12: ("wall",),
 }
 

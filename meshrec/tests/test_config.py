@@ -168,14 +168,14 @@ def test_l_impronta_di_una_corsa_registrata_non_cambia():
 
 
 def test_i_blocchi_nuovi_stanno_in_pipelineconfig_e_fuori_dall_impronta():
-    """I due blocchi della Fase 4 viaggiano con la configurazione, perche' lo
-    step 12 li legge, e restano fuori dall'impronta di sweep, perche' nessun
-    asse della Fase 2 li tocca."""
+    """I tre blocchi della Fase 4 e 5 viaggiano con la configurazione, perche'
+    gli step 12 e 13 li leggono, e restano fuori dall'impronta di sweep,
+    perche' nessun asse della Fase 2 li tocca."""
     from meshrec.core.sweep import BLOCCHI_FUORI_IMPRONTA
 
     campi = set(PipelineConfig.model_fields)
-    assert {"wall", "model"} <= campi
-    assert set(BLOCCHI_FUORI_IMPRONTA) == {"run", "wall", "model"}
+    assert {"wall", "model", "carichi"} <= campi
+    assert set(BLOCCHI_FUORI_IMPRONTA) == {"run", "wall", "model", "carichi"}
     assert set(BLOCCHI_FUORI_IMPRONTA) <= campi
 
 
@@ -200,12 +200,13 @@ def test_un_analisi_senza_casi_dichiarati_ha_il_solo_peso_proprio():
 
     Densita' e gravita' sono gia' nella configurazione, quindi il peso proprio
     non e' un predefinito indovinato: e' l'unica cosa che il programma sa gia'.
+    I tre casi di carico sono nullabili e restano None se non dichiarati.
     """
-    analisi = config.AnalysisConfig(material=MATERIALE)
+    carichi = config.CarichiConfig()
 
-    assert analisi.spinta is None
-    assert analisi.carico_sommita is None
-    assert analisi.modale is None
+    assert carichi.spinta is None
+    assert carichi.carico_sommita is None
+    assert carichi.modale is None
 
 
 def test_il_coefficiente_di_spinta_rifiuta_lo_zero_e_il_negativo():

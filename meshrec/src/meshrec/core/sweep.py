@@ -30,10 +30,12 @@ from meshrec.core.config import ExperimentConfig, PipelineConfig
 # Fase 4, dopo che i registri della Fase 2 erano gia' scritti: includerli
 # cambierebbe l'impronta di ogni riga gia' registrata, cioe' la provenienza
 # della tabella sperimentale della tesi, e nessun asse di sweep li tocca --
-# tutti gli assi della griglia stanno a monte dello step 11. La falla che
-# l'esclusione apre e' chiusa da `expand`, che rifiuta un asse su un blocco
+# tutti gli assi della griglia stanno a monte dello step 11. `carichi` non ci
+# entra per la stessa ragione: nato dopo la Fase 2 con la Fase 5, agisce sullo
+# step 13 (scrittura del deck), e nessun asse della griglia lo tocca. La falla
+# che l'esclusione apre e' chiusa da `expand`, che rifiuta un asse su un blocco
 # escluso invece di produrre candidati indistinguibili.
-BLOCCHI_FUORI_IMPRONTA: tuple[str, ...] = ("run", "wall", "model")
+BLOCCHI_FUORI_IMPRONTA: tuple[str, ...] = ("run", "wall", "model", "carichi")
 
 
 def fingerprint(cfg: PipelineConfig) -> str:

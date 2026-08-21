@@ -126,3 +126,21 @@ def test_lo_step_dodici_non_cambia_le_impronte_degli_undici_precedenti(tmp_path)
     for numero in range(1, 12):
         assert diverse[numero] == impronte[numero], f"lo step {numero} non doveva cambiare"
     assert diverse[12] != impronte[12]
+
+
+def test_cambiare_i_carichi_invalida_dall_undici_in_giu(tmp_path):
+    """I carichi entrano nella catena di impronte allo step 11, quindi cambi a
+    carichi invalidano lo step 11 e i successivi."""
+    from meshrec.core.config import CarichiConfig, SpintaOrizzontale
+
+    prima = _config(tmp_path)
+    dopo = _config(tmp_path)
+    dopo.carichi.spinta = SpintaOrizzontale(coefficiente=0.1, asse="x")
+
+    marchi_prima = steps.step_fingerprints(prima)
+    marchi_dopo = steps.step_fingerprints(dopo)
+
+    for numero in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10):
+        assert marchi_prima[numero] == marchi_dopo[numero], f"step {numero} non doveva cambiare"
+    for numero in (11, 12):
+        assert marchi_prima[numero] != marchi_dopo[numero], f"step {numero} doveva cambiare"

@@ -280,9 +280,6 @@ class AnalysisConfig(_ModelloBase):
             "34,76% su lab_crop. Vedi docs/fase-1-tolleranza-set.md"
         ),
     )
-    spinta: SpintaOrizzontale | None = None
-    carico_sommita: CaricoSommita | None = None
-    modale: Modale | None = None
 
 
 class RunConfig(_ModelloBase):
@@ -608,6 +605,23 @@ class ModelConfig(_ModelloBase):
         return self
 
 
+class CarichiConfig(_ModelloBase):
+    """Casi di carico applicati al modello, oltre al peso proprio.
+
+    I tre campi sono nullabili perché la dichiarazione e' opzionale: chi non
+    dichiara nulla ottiene il solo peso proprio, l'unico caso che il programma
+    puo' derivare dai dati (densita' e gravita' sono gia' nella configurazione).
+
+    Nessun campo ha un predefinito numerico, per la stessa ragione del materiale:
+    un carico non e' una congettura che il programma fa, e' una decisione di chi
+    analizza.
+    """
+
+    spinta: SpintaOrizzontale | None = None
+    carico_sommita: CaricoSommita | None = None
+    modale: Modale | None = None
+
+
 class PipelineConfig(_ModelloBase):
     """Configurazione completa di un'elaborazione."""
 
@@ -620,6 +634,7 @@ class PipelineConfig(_ModelloBase):
     simplify: SimplifyConfig = Field(default_factory=SimplifyConfig)
     tet: TetConfig = Field(default_factory=TetConfig)
     analysis: AnalysisConfig
+    carichi: CarichiConfig = Field(default_factory=CarichiConfig)
     wall: WallConfig = Field(default_factory=WallConfig)
     model: ModelConfig = Field(default_factory=ModelConfig)
     run: RunConfig = Field(default_factory=RunConfig)
