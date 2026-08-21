@@ -645,7 +645,7 @@ def test_il_telaio_a_quattro_membrature_si_costruisce_ruling_ad():
     # prior fa per il disco/browser: hexa.costruisci vuole oggetti Membratura,
     # non il dizionario di soli tipi JSON che prior restituisce.
     puliti, _maschera, _ = wall.scarta_pavimento(punti, cfg_segment, cfg_wall, spaziatura)
-    regioni_punti, _ = wall.scomponi(puliti, cfg_segment, cfg_wall, spaziatura)
+    regioni_punti, *_ = wall.scomponi(puliti, cfg_segment, cfg_wall, spaziatura)
     direzioni, _ = wall.terna(puliti)
     accettate = []
     for indici in regioni_punti:

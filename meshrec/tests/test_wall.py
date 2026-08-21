@@ -142,7 +142,7 @@ def test_una_scatola_da_una_sola_membratura():
     sono. Il numero atteso viene dal banco, non dal codice."""
     punti = synth.sample_box_surface((400.0, 180.0, 1200.0), SPAZIATURA)
 
-    regioni, metriche = wall.scomponi(punti, SegmentConfig(), _cfg(), SPAZIATURA)
+    regioni, metriche, *_ = wall.scomponi(punti, SegmentConfig(), _cfg(), SPAZIATURA)
 
     assert len(regioni) == 1
     assert metriche["regioni_trovate"] == 1
@@ -154,7 +154,7 @@ def test_un_telaio_sintetico_da_le_membrature_che_ha():
     nel piano, restano due regioni e non una."""
     punti = synth.sample_frame_surface(TELAIO, SPAZIATURA)
 
-    regioni, metriche = wall.scomponi(punti, SegmentConfig(), _cfg(), SPAZIATURA)
+    regioni, metriche, *_ = wall.scomponi(punti, SegmentConfig(), _cfg(), SPAZIATURA)
 
     assert metriche["regioni_trovate"] == len(regioni)
     assert 2 <= len(regioni) <= 6, (
@@ -173,8 +173,8 @@ def test_l_ordine_delle_regioni_non_dipende_dall_ordine_dei_punti():
     punti = synth.sample_frame_surface(TELAIO, SPAZIATURA)
     rimescolati = punti[np.random.default_rng(1).permutation(len(punti))]
 
-    prima, _ = wall.scomponi(punti, SegmentConfig(), _cfg(), SPAZIATURA)
-    dopo, _ = wall.scomponi(rimescolati, SegmentConfig(), _cfg(), SPAZIATURA)
+    prima, *_ = wall.scomponi(punti, SegmentConfig(), _cfg(), SPAZIATURA)
+    dopo, *_ = wall.scomponi(rimescolati, SegmentConfig(), _cfg(), SPAZIATURA)
 
     assert len(prima) == len(dopo)
     # confronto per insieme di coordinate, non per indice: gli indici puntano a
@@ -209,7 +209,8 @@ def test_la_tolleranza_di_spessore_decide_fra_una_regione_e_due():
             ((600.0, 0.0, 0.0), (600.0, spessore_secondo_prisma, 500.0)),
         ]
         punti = synth.sample_frame_surface(prismi, SPAZIATURA)
-        return wall.scomponi(punti, SegmentConfig(), _cfg(), SPAZIATURA)
+        regioni, metriche, *_ = wall.scomponi(punti, SegmentConfig(), _cfg(), SPAZIATURA)
+        return regioni, metriche
 
     sotto_soglia = base * (1.0 + tolleranza / 2.0)  # scarto relativo meta' della tolleranza
     sopra_soglia = base * (1.0 + tolleranza * 3.0)  # scarto relativo tre volte la tolleranza
@@ -250,7 +251,7 @@ def test_una_sezione_uniforme_e_un_canarino_per_la_separazione_per_orientamento(
     ]
     punti = synth.sample_frame_surface(telaio_a_sezione_uniforme, SPAZIATURA)
 
-    regioni, metriche = wall.scomponi(punti, SegmentConfig(), _cfg(), SPAZIATURA)
+    regioni, metriche, *_ = wall.scomponi(punti, SegmentConfig(), _cfg(), SPAZIATURA)
 
     assert len(regioni) == 1
     assert metriche["regioni_trovate"] == 1
@@ -428,6 +429,41 @@ def test_l_esito_del_prior_e_serializzabile_in_json():
 
     testo = json.dumps(esito)
     assert json.loads(testo)["regioni_trovate"] == esito["regioni_trovate"]
+
+
+def test_prior_non_scarta_il_pavimento_due_volte(monkeypatch):
+    """F11 del giro di correzione finale: wall.prior chiamava scarta_pavimento
+    direttamente, e scomponi lo richiamava una seconda volta con gli stessi
+    argomenti -- extract_planes pagato due volte sulla stessa nuvola. Stessa
+    storia per terna(puliti): calcolata da scomponi, scartata da prior e
+    rifatta -- due SVD sull'intera nuvola ripulita. scomponi ora restituisce
+    anche puliti/tenuti/direzioni, e prior li riusa invece di ricalcolarli.
+
+    Mutazione che deve morire: in `prior`, richiamare `scarta_pavimento` o
+    `terna` invece di leggerli dal risultato di `scomponi` -- il conteggio
+    sotto tornerebbe a 2.
+    """
+    punti = synth.sample_frame_surface(TELAIO, SPAZIATURA)
+
+    chiamate = {"scarta_pavimento": 0, "terna": 0}
+    originale_scarta = wall.scarta_pavimento
+    originale_terna = wall.terna
+
+    def spia_scarta(*args, **kwargs):
+        chiamate["scarta_pavimento"] += 1
+        return originale_scarta(*args, **kwargs)
+
+    def spia_terna(*args, **kwargs):
+        chiamate["terna"] += 1
+        return originale_terna(*args, **kwargs)
+
+    monkeypatch.setattr(wall, "scarta_pavimento", spia_scarta)
+    monkeypatch.setattr(wall, "terna", spia_terna)
+
+    wall.prior(punti, SegmentConfig(), _cfg(), SPAZIATURA)
+
+    assert chiamate["scarta_pavimento"] == 1, "scarta_pavimento pagato piu' di una volta"
+    assert chiamate["terna"] == 1, "terna (SVD) pagata piu' di una volta"
 
 
 def test_il_controllo_di_chiusura_del_volume_confronta_somma_e_unione():

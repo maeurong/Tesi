@@ -86,6 +86,13 @@ def chiavi_di_cella(coordinate: np.ndarray, lato: float) -> np.ndarray:
     return np.floor((piano - piano.min(axis=0)) / float(lato)).astype(np.int64)
 
 
+def _chiave_di_cella(celle: np.ndarray) -> np.ndarray:
+    """Chiave intera che appiattisce (riga, colonna) in un solo numero: stesso
+    risultato di `np.unique(..., axis=0)`, un terzo del costo (vedi il
+    commento dov'era duplicata, in `spessore_per_cella`)."""
+    return celle[:, 0] * (celle[:, 1].max() + 1) + celle[:, 1]
+
+
 def spessore_per_cella(
     piano: np.ndarray, trasversale: np.ndarray, lato: float
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -105,7 +112,7 @@ def spessore_per_cella(
     # Chiave intera invece di np.unique(..., axis=0): stesso risultato, e su un
     # maglio a scala reale costa un terzo. Stessa scelta gia' fatta in
     # abaqus.footprint_coverage, e per la stessa ragione.
-    chiave = celle[:, 0] * (celle[:, 1].max() + 1) + celle[:, 1]
+    chiave = _chiave_di_cella(celle)
     _, prima, inverso = np.unique(chiave, return_index=True, return_inverse=True)
     uniche = celle[prima]
 
@@ -207,7 +214,7 @@ def regioni(celle: np.ndarray, spessori: np.ndarray, cfg: WallConfig) -> list[np
     griglia = np.asarray(celle, dtype=np.int64)
     valori = np.asarray(spessori, dtype=np.float64)
     passo = int(griglia[:, 1].max() + 1)
-    chiave = griglia[:, 0] * passo + griglia[:, 1]
+    chiave = _chiave_di_cella(griglia)
     ordine = np.argsort(chiave, kind="stable")
     ordinate = chiave[ordine]
 
@@ -253,13 +260,19 @@ def regioni(celle: np.ndarray, spessori: np.ndarray, cfg: WallConfig) -> list[np
 
 def scomponi(
     points: np.ndarray, cfg_segment: SegmentConfig, cfg: WallConfig, spacing: float
-) -> tuple[list[np.ndarray], dict[str, object]]:
+) -> tuple[list[np.ndarray], dict[str, object], np.ndarray, np.ndarray, np.ndarray]:
     """La scomposizione completa: dal pavimento scartato agli indici dei punti per regione.
 
     Il numero di membrature non e' un parametro e non e' un'attesa: e' cio' che
     la nuvola contiene. Su una scatola torna una regione sola.
+
+    Restituisce anche `puliti` (la nuvola senza pavimento), `tenuti` (la
+    maschera su `points`) e `direzioni` (la terna principale): `prior()` li
+    deve alla stessa `scarta_pavimento`/`terna` che questa funzione ha gia'
+    pagato, e ricalcolarli vuol dire un secondo `extract_planes` e una seconda
+    SVD sull'intera nuvola ripulita.
     """
-    puliti, _tenuti, metriche_pavimento = scarta_pavimento(points, cfg_segment, cfg, spacing)
+    puliti, tenuti, metriche_pavimento = scarta_pavimento(points, cfg_segment, cfg, spacing)
     if len(puliti) == 0:
         raise ValueError(
             "la rimozione del pavimento ha svuotato la nuvola: il piano scartato "
@@ -291,7 +304,7 @@ def scomponi(
         "terna": direzioni.tolist(),
         "centro": centro.tolist(),
     }
-    return per_regione, metriche
+    return per_regione, metriche, puliti, tenuti, direzioni
 
 
 def semplifica_contorno(contorno: np.ndarray, tolleranza: float) -> np.ndarray:
@@ -532,7 +545,7 @@ def misura(punti_regione: np.ndarray, direzioni: np.ndarray, cfg: WallConfig) ->
     # lato_fetta gia' usato sopra per dispersione e riempimento.
     piano_faccia = np.column_stack([lungo, sezione_2d[:, 1]])
     celle_faccia = chiavi_di_cella(piano_faccia, lato_fetta)
-    chiave = celle_faccia[:, 0] * (celle_faccia[:, 1].max() + 1) + celle_faccia[:, 1]
+    chiave = _chiave_di_cella(celle_faccia)
     _, inverso = np.unique(chiave, return_inverse=True)
     quota = sezione_2d[:, 0]
     estremo = np.full(int(inverso.max()) + 1, -np.inf)
@@ -681,7 +694,7 @@ def _volume_unione(membrature: list[Membratura], punti: np.ndarray, passo: float
     if not membrature:
         return 0.0
     tutti = np.vstack([punti[m.punti] for m in membrature])
-    celle = np.floor((tutti - tutti.min(axis=0)) / passo).astype(np.int64)
+    celle = chiavi_di_cella(tutti, passo)
     occupate = len(np.unique(celle, axis=0))
     return float(occupate * passo**3)
 
@@ -699,14 +712,14 @@ def prior(
     pezzo nuovo. Quando mancano, al posto dell'atteso c'e' `null` e non un
     numero: il prior non inventa un'aspettativa.
     """
-    puliti, tenuti, metriche_pavimento = scarta_pavimento(points, cfg_segment, cfg, spacing)
-    # scarta_pavimento e' deterministica su (points, cfg_segment, cfg, spacing):
-    # la stessa chiamata dentro scomponi produce lo stesso `puliti`, quindi gli
-    # indici di regioni_punti (posizioni dentro `puliti`) e questa `tenuti`
-    # restano coerenti fra loro.
+    regioni_punti, metriche, puliti, tenuti, direzioni = scomponi(
+        points, cfg_segment, cfg, spacing
+    )
+    # puliti/tenuti/direzioni vengono da scomponi, che ha gia' pagato
+    # scarta_pavimento e terna: ricalcolarli qui sarebbe la stessa
+    # scarta_pavimento (quindi extract_planes) e la stessa SVD una seconda
+    # volta sulla nuvola intera.
     indici_pieni = np.flatnonzero(tenuti)
-    regioni_punti, metriche = scomponi(points, cfg_segment, cfg, spacing)
-    direzioni, _centro = terna(puliti)
 
     accettate: list[Membratura] = []
     scartate: list[dict[str, object]] = []
@@ -740,8 +753,10 @@ def prior(
     )
 
     return {
+        # metriche (da scomponi) porta gia' tutte le chiavi di
+        # metriche_pavimento -- scomponi le ha spalmate dentro (vedi la sua
+        # `return`) -- quindi non c'e' un secondo spread da fare qui.
         **{chiave: valore for chiave, valore in metriche.items() if chiave != "terna"},
-        **metriche_pavimento,
         "terna": direzioni.tolist(),
         "membrature": [
             {
