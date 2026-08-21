@@ -31,8 +31,13 @@ from meshrec.core.config import ExperimentConfig, PipelineConfig
 # cambierebbe l'impronta di ogni riga gia' registrata, cioe' la provenienza
 # della tabella sperimentale della tesi, e nessun asse di sweep li tocca --
 # tutti gli assi della griglia stanno a monte dello step 11. `carichi` non ci
-# entra per la stessa ragione: nato dopo la Fase 2 con la Fase 5, agisce sullo
-# step 13 (scrittura del deck), e nessun asse della griglia lo tocca. La falla
+# entra per la stessa ragione: nato dopo la Fase 2 con la Fase 5, e' letto dallo
+# step 11 (scrittura del deck) e consumato dagli step successivi (simulazione e
+# risoluzione), e nessun asse di sweep lo tocca. Nota: due corse di sweep separate
+# con lo stesso root e un carichi di base diverso calcolano la stessa impronta e
+# scrivono nella stessa cartella. verify_registry lo scopre a posteriori, ma nel
+# frattempo pareto_front le tratterebbe come un unico esperimento. Non riusare il
+# root fra corse con carichi diversi senza rieseguire verify_registry. La falla
 # che l'esclusione apre e' chiusa da `expand`, che rifiuta un asse su un blocco
 # escluso invece di produrre candidati indistinguibili.
 BLOCCHI_FUORI_IMPRONTA: tuple[str, ...] = ("run", "wall", "model", "carichi")

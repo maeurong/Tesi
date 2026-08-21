@@ -186,13 +186,28 @@ def test_i_casi_di_carico_non_hanno_valori_predefiniti():
     era finito in silenzio nella configurazione di un telaio in calcestruzzo, e
     nessuno l'aveva scelto. Un coefficiente di spinta predefinito sarebbe lo
     stesso errore su una grandezza che nessun dato puo' suggerire.
+
+    Il test verifica che ogni campo di ogni modello e' obbligatorio campo per
+    campo, non solo che l'istanziazione a vuoto fallisce (il quale potrebbe
+    fallire per il motivo sbagliato, e.g. se solo asse restasse obbligatorio).
     """
-    with pytest.raises(ValidationError):
-        config.SpintaOrizzontale()
-    with pytest.raises(ValidationError):
-        config.CaricoSommita()
-    with pytest.raises(ValidationError):
-        config.Modale()
+    for modello, campi_attesi in (
+        (config.SpintaOrizzontale, {"coefficiente", "asse"}),
+        (config.CaricoSommita, {"risultante", "nset"}),
+        (config.Modale, {"modi"}),
+    ):
+        for nome_campo, info_campo in modello.model_fields.items():
+            assert nome_campo in campi_attesi, (
+                f"{modello.__name__}.{nome_campo} non era nel set atteso"
+            )
+            assert info_campo.is_required(), (
+                f"{modello.__name__}.{nome_campo} ha un predefinito, "
+                "dovrebbe essere obbligatorio"
+            )
+        assert set(modello.model_fields) == campi_attesi, (
+            f"{modello.__name__} ha campi extra: "
+            f"{set(modello.model_fields) - campi_attesi}"
+        )
 
 
 def test_un_analisi_senza_casi_dichiarati_ha_il_solo_peso_proprio():
