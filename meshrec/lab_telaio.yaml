@@ -85,6 +85,17 @@ analysis:
   fixed_nset: BASE
   step_name: GRAVITA
   set_tolerance_factor: 6.0
+# Valori dichiarati dall'operatore per questo caso (21/08/2026), non predefiniti
+# del programma: nessuno dei tre campi ha un default numerico in config.py.
+carichi:
+  spinta:
+    coefficiente: 0.10
+    asse: y
+  carico_sommita:
+    risultante: 1200.0
+    nset: TOP
+  modale:
+    modi: 20
 wall:
   cell_factor: 4.0
   thickness_tolerance: 0.15
