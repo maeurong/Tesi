@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from meshrec.core import config
 from meshrec.core.config import PipelineConfig
@@ -176,3 +177,39 @@ def test_i_blocchi_nuovi_stanno_in_pipelineconfig_e_fuori_dall_impronta():
     assert {"wall", "model"} <= campi
     assert set(BLOCCHI_FUORI_IMPRONTA) == {"run", "wall", "model"}
     assert set(BLOCCHI_FUORI_IMPRONTA) <= campi
+
+
+def test_i_casi_di_carico_non_hanno_valori_predefiniti():
+    """La spinta e il carico si dichiarano, come il materiale.
+
+    Stessa ragione di config.Material: un predefinito di muratura a 1500 MPa
+    era finito in silenzio nella configurazione di un telaio in calcestruzzo, e
+    nessuno l'aveva scelto. Un coefficiente di spinta predefinito sarebbe lo
+    stesso errore su una grandezza che nessun dato puo' suggerire.
+    """
+    with pytest.raises(ValidationError):
+        config.SpintaOrizzontale()
+    with pytest.raises(ValidationError):
+        config.CaricoSommita()
+    with pytest.raises(ValidationError):
+        config.Modale()
+
+
+def test_un_analisi_senza_casi_dichiarati_ha_il_solo_peso_proprio():
+    """Chi non dichiara nulla ottiene l'unico caso derivabile dai dati.
+
+    Densita' e gravita' sono gia' nella configurazione, quindi il peso proprio
+    non e' un predefinito indovinato: e' l'unica cosa che il programma sa gia'.
+    """
+    analisi = config.AnalysisConfig(material=MATERIALE)
+
+    assert analisi.spinta is None
+    assert analisi.carico_sommita is None
+    assert analisi.modale is None
+
+
+def test_il_coefficiente_di_spinta_rifiuta_lo_zero_e_il_negativo():
+    with pytest.raises(ValidationError):
+        config.SpintaOrizzontale(coefficiente=0.0, asse="y")
+    with pytest.raises(ValidationError):
+        config.SpintaOrizzontale(coefficiente=-0.1, asse="y")

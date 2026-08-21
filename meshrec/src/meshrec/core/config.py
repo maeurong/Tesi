@@ -207,6 +207,54 @@ class TetConfig(_ModelloBase):
     element: Literal["C3D4", "C3D10"] = "C3D4"
 
 
+class SpintaOrizzontale(_ModelloBase):
+    """Forza di massa orizzontale, come frazione dell'accelerazione di gravita.
+
+    E' la stessa card `*DLOAD, GRAV` del peso proprio, diretta di lato: non
+    tocca nessun set di faccia, quindi non pretende di sapere quale faccia sia
+    quale. `FACE_FRONT` e `FACE_BACK` sono misurati inutilizzabili su una
+    scansione reale, e i nomi dei set di faccia sono convenzioni e non
+    identificazioni fisiche (PRODUCT.md): un carico applicato a una faccia
+    nominata sarebbe applicato dove crediamo, non dove sappiamo.
+
+    Nessun predefinito: il coefficiente e' una decisione di chi analizza.
+    """
+
+    coefficiente: float = Field(
+        gt=0.0, description="frazione dell'accelerazione di gravita, adimensionale"
+    )
+    asse: Literal["x", "y"] = Field(
+        description="asse orizzontale del modello lungo cui la spinta agisce"
+    )
+
+
+class CaricoSommita(_ModelloBase):
+    """Risultante verticale ripartita sui nodi di un insieme.
+
+    La ripartizione e' uniforme per nodo, quindi il carico si concentra dove i
+    nodi sono piu' fitti, e l'insieme e' costruito per tolleranza e non e' la
+    faccia superiore certificata del pezzo. Sono due cose da dichiarare accanto
+    ai risultati di questo caso, non da correggere qui.
+    """
+
+    risultante: float = Field(gt=0.0, description="risultante in N, ripartita sui nodi")
+    nset: str = Field(
+        pattern=r"^[A-Za-z0-9_.-]+$",
+        description="insieme di nodi su cui ripartire, di norma TOP",
+    )
+
+
+class Modale(_ModelloBase):
+    """Analisi in frequenza.
+
+    Costa poco e smentisce molto: un modello mal vincolato ha una prima
+    frequenza fuori scala. Misurato il 21/08/2026 sull'as-built del telaio:
+    21,19 Hz col vincolo corretto, 4,03 Hz col vincolo su un piede solo.
+    """
+
+    modi: int = Field(gt=0, description="numero di modi da estrarre")
+
+
 class AnalysisConfig(_ModelloBase):
     """Materiale e analisi."""
 
@@ -232,6 +280,9 @@ class AnalysisConfig(_ModelloBase):
             "34,76% su lab_crop. Vedi docs/fase-1-tolleranza-set.md"
         ),
     )
+    spinta: SpintaOrizzontale | None = None
+    carico_sommita: CaricoSommita | None = None
+    modale: Modale | None = None
 
 
 class RunConfig(_ModelloBase):
