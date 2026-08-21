@@ -644,12 +644,12 @@ def confronta(cartelle: list[Path]) -> dict[str, object]:
     Lo scostamento dalla nuvola legge il verso mesh_to_cloud, non cloud_to_mesh:
     quality.vertex_deviation, che pipeline.genera_modello usa per lo
     scostamento_nuvola dei modelli parametrici, riproduce esattamente quel
-    verso e non l'altro (quality.py:458-464, "la misura che questa funzione
-    non replica e' cloud_to_mesh"). Leggere cloud_to_mesh per l'as-built
-    metterebbe in colonna, sotto lo stesso nome, una misura diversa da quella
-    dei parametrici -- l'errore esatto che questo task esiste per evitare. La
-    chiave del valore e' anche maiuscola, RMS, perche' e' quella che
-    PyMeshLab restituisce davvero (quality.py:428).
+    verso e non l'altro (`quality.vertex_deviation`, "la misura che questa
+    funzione non replica e' cloud_to_mesh"). Leggere cloud_to_mesh per
+    l'as-built metterebbe in colonna, sotto lo stesso nome, una misura
+    diversa da quella dei parametrici -- l'errore esatto che questo task
+    esiste per evitare. La chiave del valore e' anche maiuscola, RMS, perche'
+    e' quella che PyMeshLab restituisce davvero (`quality.geometric_error`).
     """
     presenti: dict[str, dict] = {}
     for cartella in cartelle:

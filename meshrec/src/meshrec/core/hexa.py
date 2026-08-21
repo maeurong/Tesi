@@ -536,7 +536,12 @@ def taglia_giunzioni(prismi: list[Prisma]) -> tuple[list[Prisma], list[dict[str,
     che attraversa l'altro da parte a parte (estremita' entrambe libere,
     invasione al centro) e un prisma interamente contenuto in un altro
     (estremita' entrambe invase). La via d'aggiornamento e' una vera operazione
-    booleana fra solidi, che oggi non ha in casa nessuna libreria del progetto.
+    booleana fra solidi: `gmsh.model.occ.cut/fuse/intersect` la offrono gia' --
+    gmsh e' dipendenza vera da questo ramo (pyproject.toml). Non manca la
+    libreria: manca la frammentazione dei volumi che quell'operazione
+    richiederebbe, e che rischia di perdere gli esaedri e ripiegare sul
+    tetraedrico -- un compromesso che il documento della fase valuta e scarta
+    (docs/fase-4-prior-telaio.md).
     """
     ordine = sorted(
         range(len(prismi)),
@@ -740,9 +745,8 @@ def costruisci(membrature: list, tipo: str, cfg: ModelConfig) -> dict[str, objec
     # costruito su quella sezione sarebbe inventato. Lo stato «non_verificabile»
     # non e' motivo di rifiuto: dice che la misura non vale, non che il pezzo e'
     # cavo. Lo stato basta da solo: `wall.misura` mette «vuoto» solo su una
-    # misura affidabile e degrada a «non_verificabile» appena non lo e'
-    # (wall.py:501-506). Nessuna soglia da rileggere qui, e ModelConfig non ne
-    # ha una.
+    # misura affidabile e degrada a «non_verificabile» appena non lo e'.
+    # Nessuna soglia da rileggere qui, e ModelConfig non ne ha una.
     vuote = [
         numero
         for numero, membratura in enumerate(membrature)
@@ -836,7 +840,12 @@ def costruisci(membrature: list, tipo: str, cfg: ModelConfig) -> dict[str, objec
         tolleranza = max(_TOLLERANZA_CONTATTO, float(giunzione["cuneo"]))
         nomi = []
         nodi_faccia_per_ruolo: dict[str, set[int]] = {}
-        baricentri_faccia_i: list[np.ndarray] = []
+        # Dichiarata qui e non nel ramo "I" sotto: il ciclo esterno sulle
+        # giunzioni non azzera le variabili locali fra un'iterazione e
+        # l'altra, quindi se un giorno il ruolo "I" saltasse per una
+        # giunzione, `facce_i` misurerebbe ancora contro le facce della
+        # giunzione precedente invece di sollevare un NameError (F6).
+        facce_i: list[np.ndarray] = []
         for ruolo, indice, altro, tocca in (
             # Ruling AH: il dipendente resta per solo baricentro (gia' giusto
             # sulla faccia di taglio piana); l'indipendente prende anche

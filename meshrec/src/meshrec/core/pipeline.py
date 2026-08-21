@@ -106,8 +106,8 @@ MODEL_FILENAME = "modello.json"
 def _ricostruisci_membrature(prior: dict[str, object]) -> list:
     """Le `Membratura` del prior, per costruire un modello parametrico.
 
-    Dodici dei quindici campi sono presi 1:1 da `wall.prior` (verificato
-    contro `wall.py:735-758`). Gli altri tre stanno annidati sotto
+    Dodici dei quindici campi sono presi 1:1 dal dizionario per membratura che
+    `wall.prior` scrive. Gli altri tre stanno annidati sotto
     `voce["riempimento"]`, il dizionario che `wall.riempimento` scrive: e' da
     li' che viene `riempimento_stato`, il campo su cui poggia la guardia del
     Ruling J in `hexa.costruisci`, che rifiuta di costruire un modello da una

@@ -133,12 +133,12 @@ def hexa_metrics(nodes: np.ndarray, hexes: np.ndarray) -> dict[str, object]:
     Deliberatamente **senza** min_ratio, rapporto raggio-spigolo e angolo
     diedro: sono grandezze del tetraedro, e riportarle qui accanto a quelle
     dell'esaedro inviterebbe a confrontare due colonne che non si confrontano.
-    Chi mettera' queste metriche accanto a quelle tetraedriche — il confronto
-    fra i modelli, al Task 12 — deve tenerle in due colonne separate e
-    dichiarare che la qualita' degli elementi non e' confrontabile fra un
-    modello tetraedrico e uno esaedrico. Il suo unico chiamante e'
-    `pipeline.genera_modello`; il confronto del Task 12 legge il risultato da
-    `modello.json`.
+    `report.confronta` mette queste metriche accanto a quelle tetraedriche in
+    due colonne separate (`qualita[nome]` prende `scaled_jacobian` qui,
+    `radius_edge_ratio` per l'as-built) e dichiara che la qualita' degli
+    elementi non e' confrontabile fra un modello tetraedrico e uno esaedrico.
+    Il suo unico chiamante e' `pipeline.genera_modello`; il confronto legge il
+    risultato da `modello.json`.
     """
     volumi = hex_volumes(nodes, hexes)
     jacobiani = scaled_jacobian(nodes, hexes)

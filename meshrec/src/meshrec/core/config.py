@@ -650,7 +650,7 @@ class ExperimentConfig(_ModelloBase):
         description=(
             "spessore reale misurato [mm], contro cui si controlla la misura "
             "letta sulla nuvola sorgente. E' il controllo che smentisce l'asse "
-            "di fedelta: 176 su lab_frame, 1245.7 su muro_generato"
+            "di fedelta'"
         ),
     )
     sweep: SweepConfig = Field(default_factory=SweepConfig)

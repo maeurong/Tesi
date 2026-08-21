@@ -135,8 +135,8 @@ def _contorno_del_volume(percorso: Path) -> tuple[np.ndarray, np.ndarray]:
         )
     tetraedri = griglia.cells_dict["tetra"]
     # quality._TET_FACES: la stessa convenzione, non una copia. E' privata, ma
-    # da lei dipende il verso uscente delle facce (core/quality.py:51) e due
-    # copie di una convenzione che decide un segno prima o poi divergono.
+    # da lei dipende il verso uscente delle facce e due copie di una
+    # convenzione che decide un segno prima o poi divergono.
     facce_tutte = np.vstack([tetraedri[:, list(schema)] for schema in quality._TET_FACES])
     # L'ordinamento serve solo a confrontare le facce e perde il verso.
     # return_index riporta la faccia originale, quindi l'orientamento
@@ -229,9 +229,9 @@ def _estremi_finiti(box: BoxRitaglio) -> None:
 def _ingresso_del_ritaglio(sorgente: Path, _mtime_ns: int, vicini: int, scarto: float) -> np.ndarray:
     """La nuvola come lo step 2 la vede un istante prima di ritagliarla.
 
-    Riproduce la tratta, non la funzione: segment_cloud legge l'artefatto dello
-    step 1 e fa remove_outliers e poi crop_box, in quest'ordine
-    (core/segment.py:142-143). Un'anteprima che ritagliasse 02_segmented.ply
+    Riproduce la tratta, non la funzione: `segment.segment_cloud` legge
+    l'artefatto dello step 1 e fa remove_outliers e poi crop_box, in
+    quest'ordine. Un'anteprima che ritagliasse 02_segmented.ply
     lavorerebbe su un file gia' ripulito e gia' ritagliato, e allargando il box
     non potrebbe far tornare indietro nessun punto; una che ritagliasse
     01_cloud.ply e basta sovrastimerebbe, perche' terrebbe gli outlier che lo
@@ -491,7 +491,8 @@ def create_app(config_path: Path) -> FastAPI:
         `completo` dice fin dove l'anteprima arriva, e non e' un ornamento: con
         `method: auto` lo step 2 non finisce col ritaglio, prosegue con
         extract_planes e cluster e riscrive points_after col numero del cluster
-        scelto (core/segment.py:146-159). Su una nuvola di 5 050 punti sono 5 000
+        scelto (`segment.segment_cloud`, ramo `method == "auto"`). Su una
+        nuvola di 5 050 punti sono 5 000
         contro 82. L'anteprima si ferma comunque al ritaglio, e lo dichiara
         invece di affermare il falso: il resto della tratta, misurato su
         runs/lab_crop, costa 57,76 s di extract_planes piu' 26,35 s di cluster,
@@ -529,7 +530,7 @@ def create_app(config_path: Path) -> FastAPI:
         _dentro, metriche = segment.crop_box(puliti, cfg.segment)
         save_config(cfg, config_path)
         # Le metriche del core sono l'unica fonte: points_after c'e' gia'
-        # dentro (core/segment.py:59), e riscriverlo qui sarebbe una riga che
+        # dentro (`segment.crop_box`), e riscriverlo qui sarebbe una riga che
         # sembra calcolare qualcosa e non lo fa.
         #
         # `== "crop"` e non `!= "auto"`: il giorno che segment.method prendesse
@@ -609,11 +610,11 @@ def create_app(config_path: Path) -> FastAPI:
         punti, _normali = io.read_cloud(Path(cfg.run.out_dir) / pipeline.ARTIFACTS[2])
 
         # Ma la CLUSTERIZZAZIONE deve essere quella che la corsa 'auto' esegue
-        # davvero (core/segment.py:146-150, segment_cloud), non quella di
-        # 02_segmented.ply preso a se': quel file e' l'uscita del metodo
-        # 'crop' (nessun piano tolto), mentre la corsa parte sempre
-        # dall'ingresso grezzo dello step 2 (ARTIFACTS[1], vedi
-        # pipeline.py:132-148) per la spaziatura e per
+        # davvero (`segment.segment_cloud`), non quella di 02_segmented.ply
+        # preso a se': quel file e' l'uscita del metodo 'crop' (nessun piano
+        # tolto), mentre la corsa parte sempre dall'ingresso grezzo dello
+        # step 2 (ARTIFACTS[1], vedi lo step 2 di `pipeline.run`) per la
+        # spaziatura e per
         # remove_outliers -> crop_box -> extract_planes -> cluster, in
         # quest'ordine. Saltare extract_planes clusterizzava un insieme
         # diverso: sul dato vero, 4293 gruppi (il clic, sbagliato) contro
