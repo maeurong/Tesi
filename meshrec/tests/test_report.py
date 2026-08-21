@@ -1254,6 +1254,23 @@ def test_confronta_espone_la_chiusura_volume_del_prior(tmp_path):
     assert confronto["chiusura_volume"]["scarto_relativo"] == 0.0
 
 
+def test_testo_di_un_dizionario_non_vuoto_non_e_il_repr_python(tmp_path):
+    """F15 del giro di correzione finale: `_testo` non aveva un ramo per un
+    dizionario non vuoto e cadeva su `str(valore)`, che per un dict e' il
+    repr Python -- apici singoli e le cifre intere del float, in una pagina
+    dove ogni altra riga passa da `_numero`. E' la sezione 'qualita' degli
+    elementi, quella che il vincolo 3 mette in evidenza.
+
+    Mutazione che deve morire: in `_testo`, togliere il ramo per il
+    dizionario non vuoto -- questa asserzione troverebbe apici singoli e
+    Python invece di una coppia chiave/valore leggibile.
+    """
+    testo = report._testo({"radius_edge_ratio": {"min": 0.6243550092909288}})
+
+    assert "'" not in testo
+    assert "radius_edge_ratio" in testo
+
+
 def test_i_gradi_di_liberta_dichiarati_confrontabili_compaiono_nella_tabella(tmp_path):
     """CONFRONTABILI['gradi_di_liberta'] e' True: se la tabella 'grandezze
     confrontabili' non mostra la riga, la dichiarazione e la pagina sono in

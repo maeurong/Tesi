@@ -10,7 +10,7 @@ Articoli/
 # Dati di scansione (nuvole di punti, ~175 MB) e file di lavoro Abaqus: non
 # prodotto del progetto. Toglierla dall'elenco e' tutto cio' che serve per
 # versionarla.
-Nuvole di punti/
+Nuvole di punti
 Cartella di lavoro Abaqus/
 
 # Residui di un npm install finito nella radice per sbaglio (installazione di

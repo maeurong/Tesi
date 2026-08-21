@@ -294,8 +294,10 @@ def _testo(valore: object) -> str:
         return NON_IMPOSTATO
     if isinstance(valore, float):
         return _numero(valore)
-    if isinstance(valore, dict) and not valore:
-        return MAPPA_VUOTA
+    if isinstance(valore, dict):
+        if not valore:
+            return MAPPA_VUOTA
+        return ", ".join(f"{k} {_testo(v)}" for k, v in valore.items())
     scritto = str(valore)
     if scritto.strip():
         return scritto
