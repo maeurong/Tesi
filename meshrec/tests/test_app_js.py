@@ -92,6 +92,21 @@ def _funzioni(*nomi: str) -> str:
     return "\n".join(_sorgente_di(nome, testo) for nome in nomi)
 
 
+def _modulo_viewport() -> str:
+    """Il sorgente di `viewport.js`. Gemella di `_modulo()`, che legge `app.js`.
+
+    Serve da quando le decisioni numeriche del campo di colore vivono li': la
+    scala e l'amplificazione sono logica, e la logica di questo progetto si
+    prova eseguendola.
+    """
+    return (UI_DIR / "viewport.js").read_text(encoding="utf-8")
+
+
+def _funzioni_viewport(*nomi: str) -> str:
+    testo = _modulo_viewport()
+    return "\n".join(_sorgente_di(nome, testo) for nome in nomi)
+
+
 def _node() -> str:
     percorso = shutil.which("node")
     if percorso is None:
@@ -1499,8 +1514,12 @@ globalThis.fetch = async (percorso) => {
   return risponde[percorso]();
 };
 // Letto e non chiamato in questi banchi (numero e' sempre 1): apriDettaglio
-// lo confronta comunque a ogni apertura, quindi deve esistere.
+// li confronta comunque a ogni apertura, quindi devono esistere. pannelloCampo
+// e' provato per conto suo (Task 9): qui basta uno stub, questi banchi non
+// aprono mai lo step 13.
 const STEP_CON_RITAGLIO = 2;
+const STEP_CON_CAMPO = 13;
+function pannelloCampo() { return document.createElement("fieldset"); }
 const SCHEMA_BUONO = { "1": { blocchi: ["input"], campi: { input: { path: { description: "percorso" } } } } };
 const CONFIG_BUONA = { input: { path: "nuvola.ply" } };
 const METRICHE_BUONE = {};
@@ -2090,6 +2109,65 @@ def test_lo_stato_vuoto_del_prior_e_nel_markup_e_non_lo_fabbrica_il_modulo():
     )
 
 
+def test_la_didascalia_della_vista_sta_dentro_la_vista_e_non_nella_terza_colonna():
+    """C14 del giro finale, guardato nel browser il 22/08/2026 su
+    runs/lab_telaio_v2.
+
+    `legenda` e `didascalia` erano due `<p class="aiuto">` appesi al fieldset
+    di `pannelloCampo`, cioe' dentro `#dettaglio`, cioe' nella terza colonna —
+    e sotto i gruppi TET e ANALYSIS: ventidue tacche di rotella per portarle in
+    vista. Fotografata o proiettata, l'immagine non portava ne' il caso di
+    carico, ne' la grandezza, ne' il massimo; l'unica cosa sovrapposta alla
+    vista era il conteggio dei triangoli.
+
+    Mutazione che uccide: rimettere il `<p>` dentro `#dettaglio`, oppure
+    ridargli `class="aiuto"` (--tipo-nota, 13 px, --tenue).
+    """
+    markup = _senza_commenti_html(_markup())
+    vista = markup[markup.index('class="zona zona-vista"'):markup.index("</section>")]
+    assert 'id="didascalia-vista"' in vista, (
+        "la didascalia della vista non sta dentro la zona della vista"
+    )
+    dettaglio = markup[markup.index('id="dettaglio"'):]
+    assert 'id="didascalia-vista"' not in dettaglio
+
+    # Il foglio dichiara 13px come pavimento «perche' questa interfaccia viene
+    # proiettata in discussione e va letta dal fondo della stanza». La frase che
+    # dice che cosa si sta guardando non puo' stare su quel pavimento, e non
+    # puo' essere grigio tenue: e' il titolo della figura, non un aiuto.
+    foglio = _foglio()
+    regola = foglio[foglio.index(".didascalia-vista {"):]
+    regola = regola[:regola.index("}")]
+    assert "var(--tipo-nota)" not in regola, f"la didascalia sta al pavimento della scala: {regola}"
+    assert "var(--tipo-corpo)" in regola, regola
+    assert "var(--tenue)" not in regola, f"la didascalia della figura in grigio tenue: {regola}"
+
+    # E non la fabbrica il modulo: sta nel markup, come la riga d'errore e lo
+    # stato vuoto del prior, cosi' nessun replaceChildren() la puo' distruggere.
+    corpo = _sorgente_di("didascaliaDellaVista", _senza_commenti_js(_modulo()))
+    assert 'getElementById("didascalia-vista")' in corpo
+    assert "createElement" not in corpo
+
+
+def test_la_didascalia_della_vista_si_svuota_lasciando_lo_step_del_campo(tmp_path):
+    """Nel markup la didascalia sopravvive al cambio di step: senza pulirla,
+    lasciato lo step 13 resterebbe «GRAVITA — tensione equivalente ...» scritta
+    sotto la nuvola dello step 2. E' la stessa classe di «la vista contraddice
+    la sua didascalia» che questo ramo ha gia' pagato tre volte.
+
+    Mutazione che uccide: togliere la riga che la svuota in `ricaricaVista`.
+    """
+    _esegui(tmp_path, _DOM + _funzioni("didascaliaDellaVista", "superata", "ricaricaVista") + """
+async function mostraStep() { return true; }
+function riallineaTaglio() {}
+document.getElementById("didascalia-vista").textContent =
+  "GRAVITA — tensione equivalente: scala tagliata a 0,2321 MPa (p99), 109 nodi sopra";
+ricaricaVista(2, generazione);
+assert.equal(document.getElementById("didascalia-vista").textContent, "",
+  "la didascalia del campo e' rimasta sotto la vista di un altro step");
+""")
+
+
 def test_il_pannello_del_confronto_e_un_pannello_e_non_una_vista():
     markup = _senza_commenti_html(_markup())
 
@@ -2099,15 +2177,40 @@ def test_il_pannello_del_confronto_e_un_pannello_e_non_una_vista():
     assert markup.count('class="viewport"') == 1
 
 
-def test_il_motivo_del_rifiuto_di_una_regione_arriva_a_video_con_il_proprio_numero():
+def test_il_motivo_del_rifiuto_di_una_regione_arriva_a_video_con_il_proprio_numero(tmp_path):
     """«quale controllo ha detto no, e quale numero glielo ha fatto dire»: un
-    rifiuto senza il proprio numero non dice a chi legge che cosa cambiare."""
-    modulo = _senza_commenti_js(_modulo())
-    corpo = _sorgente_di("disegnaScartate", modulo)
+    rifiuto senza il proprio numero non dice a chi legge che cosa cambiare.
 
-    assert "controlli_falliti" in corpo
-    assert "valore" in corpo
-    assert "soglia" in corpo
+    T2 del giro finale: questo controllo cercava `"valore" in corpo` e
+    `"soglia" in corpo` nel sorgente — l'anti-pattern che il docstring di
+    questo file dichiara bandito. Mutazione che sopravviveva: togliere le due
+    interpolazioni `${esito.valore.toFixed(3)}` e `${esito.soglia.toFixed(3)}`
+    lasciando due variabili morte. Il controllo a sottostringa vedeva ancora
+    gli identificatori e il gemello che esegue asseriva solo `/Regione 3/` e
+    `/parallelismo/`: i due numeri sparivano dallo schermo in silenzio.
+    Applicata davvero, adesso questo controllo cade.
+    """
+    _esegui(tmp_path, _banco_di_caricaPrior() + """
+disegnaScartate([{
+  regione: 2,
+  controlli_falliti: ["parallelismo", "costanza_sezione"],
+  esiti: {
+    parallelismo: { valore: 10.4912, soglia: 5.0 },
+    costanza_sezione: { valore: 0.7821, soglia: 0.1 },
+  },
+}]);
+const righe = document.getElementById("prior-scartate").figli.map((r) => r.textContent);
+assert.equal(righe.length, 2, `una riga per controllo fallito: ${righe.length}`);
+// Tre decimali, il valore misurato e la soglia contro cui e' stato misurato.
+// Senza i numeri la riga dice che il controllo ha detto no e non dice di
+// quanto: chi legge non sa se allargare la soglia o buttare la regione.
+assert.match(righe[0], /Regione 3/, "voce.regione + 1 non arriva a video");
+assert.match(righe[0], /parallelismo/);
+assert.ok(righe[0].includes("10.491"), `il valore misurato non e' a video: ${righe[0]}`);
+assert.ok(righe[0].includes("5.000"), `la soglia non e' a video: ${righe[0]}`);
+assert.ok(righe[1].includes("0.782"), `il valore misurato non e' a video: ${righe[1]}`);
+assert.ok(righe[1].includes("0.100"), `la soglia non e' a video: ${righe[1]}`);
+""")
 
 
 def test_nessuna_lettura_di_illeggibile_nel_modulo():
@@ -2449,4 +2552,585 @@ risolutori[1]();
 await eseguito;
 assert.equal(confrontoRicaricato, 1,
   "il confronto non si ricarica dopo aver generato i modelli: resterebbe con la colonna vecchia");
+""")
+
+
+# --------------------------------------------------------------------------
+# Task 9: il campo si vede. Le due decisioni numeriche vivono in viewport.js,
+# pure e fuori da mostraMeshPerCampo apposta: una decisione sepolta dentro una
+# funzione che tocca three.js non si esegue in node, e finirebbe verificata
+# cercando una sottostringa.
+# --------------------------------------------------------------------------
+
+
+def test_la_scala_del_campo_si_taglia_al_p99_e_non_al_massimo(tmp_path):
+    """Un nodo non decide la scala di tutti gli altri.
+
+    Misurato il 22/08/2026 su runs/lab_telaio_v2 sotto peso proprio: il rapporto
+    fra il massimo della von Mises e il suo p99 vale 2,18. Una scala lineare
+    fino al massimo schiaccia in fondo i 10.968 nodi del contorno perche' uno
+    solo sta in cima — non quattordicimila: 14.103 sono i nodi dell'intero
+    volume, e alla scala colore non arrivano mai. Chi supera il taglio prende un
+    colore dichiarato e la didascalia lo dice: e' un'informazione, non un buco.
+    """
+    uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
+        + _funzioni_viewport("scalaDelCampo") + """
+const valori = new Float32Array(1000);
+for (let i = 0; i < 1000; i += 1) valori[i] = 1.0;
+valori[999] = 50.0;                       // il nodo isolato in cima
+const { taglio, sopraTaglio } = scalaDelCampo(valori);
+assert.ok(taglio < 2.0, `il taglio ha seguito il massimo: ${taglio}`);
+// Uno solo supera davvero il taglio: gli altri 999 sono legati a 1,0, cioe'
+// al taglio stesso. Il rango direbbe 10 (l'1% di mille) e mentirebbe.
+assert.equal(sopraTaglio, 1);
+console.log("ok");
+""")
+    assert uscita.strip() == "ok"
+
+
+def test_i_nodi_sopra_il_taglio_si_contano_per_valore_e_non_per_rango(tmp_path):
+    """Giro 1: `n - 1 - indice` e' una quota fissa, non un conteggio.
+
+    Su un campo costante e su un campo tutto a zero nessun nodo supera il
+    taglio, eppure la didascalia (e l'aria-label che porta lo stesso testo)
+    dichiarava cinque nodi sopra una soglia che nessuno supera. Sotto, la
+    definizione e' `valori > taglio`, contati. Il server non ne ha una propria
+    da tenere allineata: `X-Sopra-P99` e' stato tolto in f7190bb, e questo e'
+    l'unico posto in cui il conteggio esiste.
+    """
+    uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
+        + _funzioni_viewport("scalaDelCampo") + """
+const casi = [
+  ["costante", new Float32Array(500).fill(3.5), 0],
+  ["zeri", new Float32Array(500), 0],
+  ["cinque picchi", Float32Array.from({ length: 500 }, (_v, i) => (i < 495 ? 1 : 50)), 5],
+];
+for (const [nome, valori, atteso] of casi) {
+  const { sopraTaglio } = scalaDelCampo(valori);
+  assert.equal(sopraTaglio, atteso, `${nome}: ${sopraTaglio} invece di ${atteso}`);
+}
+console.log("ok");
+""")
+    assert uscita.strip() == "ok"
+
+
+def test_la_frazione_del_campo_non_si_lascia_corrompere_da_un_residuo_non_finito(tmp_path):
+    """T1 del giro finale: `mostraMeshPerCampo` non era eseguita da nessun
+    test — dovunque la si esercitasse, `vista.mostraMeshPerCampo` era un finto
+    che registrava gli argomenti. Le due guardie del colore vivevano dentro
+    quella funzione, cioe' dentro three.js, e restavano provate a sottostringa.
+
+    Mutazione che sopravviveva: togliere `Number.isFinite(valore) ? ... : 0` e
+    lasciare `Math.min(1, Math.max(0, valore / soglia))`. Applicata davvero
+    dopo la separazione, questo controllo cade: il nodo con NaN esce NaN invece
+    di 0.
+    """
+    uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
+        + _funzioni_viewport("frazioneDelCampo") + """
+// Un residuo non finito resta al fondo della scala, dichiarato zero.
+for (const anomalo of [NaN, Infinity, -Infinity, undefined]) {
+  const frazione = frazioneDelCampo(anomalo, 2.0);
+  assert.equal(frazione, 0, `${anomalo} non e' finito al fondo della scala: ${frazione}`);
+}
+// E non tocca il nodo prima ne' quello dopo: la rampa e' senza memoria.
+const riga = [1.0, NaN, 2.0].map((v) => frazioneDelCampo(v, 2.0));
+assert.deepEqual(riga, [0.5, 0, 1.0], `un NaN ha corrotto i vicini: ${riga}`);
+console.log("ok");
+""")
+    assert uscita.strip() == "ok"
+
+
+def test_la_frazione_del_campo_non_divide_per_un_taglio_nullo(tmp_path):
+    """Ingresso degenere: campo costante a zero, quindi taglio zero. Senza la
+    guardia `taglio > 0 ? taglio : 1` la divisione da' NaN (0/0) o Infinity, e
+    la rampa esce fuori dai due estremi invece di restare un colore solo.
+
+    Mutazione che uccide: sostituire la guardia con `taglio`. Il primo
+    `assert.equal` cade con NaN.
+    """
+    uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
+        + _funzioni_viewport("frazioneDelCampo") + """
+assert.equal(frazioneDelCampo(0, 0), 0, "0/0 e' passato");
+assert.equal(frazioneDelCampo(3.5, 0), 1, "un valore su un taglio nullo deve saturare, non esplodere");
+// Chi sta al taglio o oltre satura all'estremo scuro, chi sta sotto no.
+assert.equal(frazioneDelCampo(2.0, 2.0), 1);
+assert.equal(frazioneDelCampo(50.0, 2.0), 1, "la frazione e' uscita oltre 1");
+assert.equal(frazioneDelCampo(-3.0, 2.0), 0, "un valore negativo e' uscito sotto 0");
+console.log("ok");
+""")
+    assert uscita.strip() == "ok"
+
+
+def test_la_didascalia_di_una_forma_modale_non_porta_millimetri(tmp_path):
+    """Da un passo *FREQUENCY non escono ne' mm ne' MPa.
+
+    Nel viewport e' piu' facile cadere che altrove, perche' la vista di una
+    forma modale e' identica a quella di un caso di carico vero.
+
+    Giro 1: prima questo controllo cercava due sottostringhe nel sorgente della
+    funzione — l'anti-pattern che il docstring di questo file dichiara bandito.
+    Con la coda `, 0.0367 mm` appesa al ramo modale restava verde. Ora la
+    funzione viene eseguita e il controllo guarda il testo che esce.
+    """
+    uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
+        + _funzioni_viewport("numeroDelCampo", "didascaliaDelCampo") + """
+const testo = didascaliaDelCampo({ caso: "Modo 1", modale: true, frequenza: 12.34 });
+assert.ok(!/\\b(mm|MPa)\\b/.test(testo), `una forma modale non ha unita' fisiche: ${testo}`);
+assert.ok(testo.includes("12,34"), testo);
+// C13 del giro finale: la vista di un modo e' mostraStep(13), cioe' il modello
+// grigio e indeformato. La didascalia deve dirlo, e non deve annunciare
+// un'ampiezza che non e' a schermo.
+assert.ok(!/ampiezza/i.test(testo),
+  `annuncia un'ampiezza che la vista non disegna: ${testo}`);
+assert.ok(/non e' disegnata/.test(testo) && /indeformato/.test(testo),
+  `non dichiara che la forma non e' a schermo: ${testo}`);
+console.log("ok");
+""")
+    assert uscita.strip() == "ok"
+
+
+def test_la_didascalia_dello_spostamento_non_promette_un_amplificazione(tmp_path):
+    """Giro 1, C0: la didascalia dichiarava «amplificato ×1779 nella vista»
+    sopra un pezzo che non si muove di un pixel — il fattore non arrivava mai
+    al viewport, e non e' nemmeno derivabile da un campo di magnitudini
+    scalari, che non porta direzioni. Un numero falso proiettato in sede di
+    discussione: la didascalia dice solo cio' che la vista fa davvero.
+    """
+    uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
+        + _funzioni_viewport("numeroDelCampo", "didascaliaDelCampo") + """
+const testo = didascaliaDelCampo({
+  caso: "GRAVITA", grandezza: "U", massimo: 0.0367, taglio: 0.0365, sopraTaglio: 109,
+});
+assert.ok(!/amplific/i.test(testo), `la vista non deforma nulla: ${testo}`);
+assert.ok(testo.includes("0,0367"), testo);
+assert.ok(testo.includes("mm"), testo);
+console.log("ok");
+""")
+    assert uscita.strip() == "ok"
+
+
+# --------------------------------------------------------------------------
+# Ingressi degeneri della scala e dei testi.
+#
+# Giro 1: la tabella, non un elenco tenuto a mente. Questa fase ha gia' pagato
+# sei giri sulla stessa classe di guasto in `solve.py` — un valore non finito
+# che attraversa un controllo — chiusa quattro volte un caso alla volta prima
+# che qualcuno enumerasse. Qui l'elenco e' esplicito: chi aggiunge un sesto
+# testo a video lo aggiunge in questa tabella, non lo tiene a mente.
+# `undefined` sta fra i valori anomali perche' e' cio' che arriva davvero da
+# un'intestazione assente o da un modo oltre quelli calcolati.
+# --------------------------------------------------------------------------
+
+
+_TESTI_CHE_FINISCONO_A_VIDEO = [
+    ("didascalia/massimo/U",
+     'didascaliaDelCampo({ caso: "GRAVITA", grandezza: "U", massimo: VALORE, taglio: 1.5, sopraTaglio: 7 })',
+     "0.0367"),
+    ("didascalia/massimo/VM",
+     'didascaliaDelCampo({ caso: "GRAVITA", grandezza: "VM", massimo: VALORE, taglio: 1.5, sopraTaglio: 7 })',
+     "6279.5"),
+    ("didascalia/frequenza",
+     'didascaliaDelCampo({ caso: "Modo 1", modale: true, frequenza: VALORE })', "12.34"),
+    ("didascalia/taglio",
+     'didascaliaDelCampo({ caso: "GRAVITA", grandezza: "U", massimo: 1.0, taglio: VALORE, sopraTaglio: 7 })',
+     "0.0367"),
+    ("didascalia/sopraTaglio",
+     'didascaliaDelCampo({ caso: "GRAVITA", grandezza: "U", massimo: 1.0, taglio: 1.5, sopraTaglio: VALORE })',
+     "7"),
+]
+
+def _banco_dei_testi() -> str:
+    return (
+        "import assert from 'node:assert/strict';\n"
+        + _funzioni_viewport("numeroDelCampo", "didascaliaDelCampo")
+        + "\n"
+    )
+
+
+@pytest.mark.parametrize(
+    "nome,espressione,_sano", _TESTI_CHE_FINISCONO_A_VIDEO,
+    ids=[nome for nome, _e, _s in _TESTI_CHE_FINISCONO_A_VIDEO],
+)
+@pytest.mark.parametrize(
+    "anomalo", ["NaN", "Infinity", "-Infinity", "undefined"],
+    ids=["nan", "+inf", "-inf", "assente"],
+)
+def test_ogni_numero_che_finisce_a_video_dichiara_invece_di_scrivere_nan(
+    tmp_path, nome, espressione, _sano, anomalo,
+):
+    """20 combinazioni (5 numeri a video x 4 valori che non si possono scrivere).
+
+    L'oracolo e' lo stesso per tutte: un testo non vuoto, e dentro nessun
+    "NaN", "Infinity", "undefined", "null" o "∞" -- l'ultimo perche'
+    `(Infinity).toLocaleString("it")` non scrive "Infinity", scrive "∞"
+    (misurato in node): un oracolo che cercasse solo la parola lascerebbe
+    passare meta' dei valori anomali della tabella. Prima di questo giro ne
+    sopravvivevano otto: `massimo` non era guardato affatto (a video usciva
+    «massimo reale NaN mm» e «massimo Infinity MPa», riprodotto eseguendo), e
+    `sopraTaglio` nemmeno — il commento diceva che esce sempre finito da
+    `scalaDelCampo`, che e' vero per quel chiamante e non per la funzione.
+    """
+    uscita = _esegui(tmp_path, _banco_dei_testi() + f"""
+const testo = {espressione.replace("VALORE", anomalo)};
+assert.ok(typeof testo === "string" && testo.length > 0, `testo vuoto o non stringa: ${{testo}}`);
+assert.ok(!/NaN|Infinity|∞|undefined|null/.test(testo), testo);
+console.log("ok");
+""")
+    assert uscita.strip() == "ok"
+
+
+@pytest.mark.parametrize(
+    "nome,espressione,sano", _TESTI_CHE_FINISCONO_A_VIDEO,
+    ids=[nome for nome, _e, _s in _TESTI_CHE_FINISCONO_A_VIDEO],
+)
+def test_lo_stesso_numero_con_un_valore_scrivibile_si_legge(tmp_path, nome, espressione, sano):
+    """Controprova della tabella sopra: un valore finito nello stesso posto
+    deve arrivare a video davvero, altrimenti la guardia sarebbe cosi' larga da
+    dichiarare "non disponibile" anche cio' che si puo' scrivere."""
+    uscita = _esegui(tmp_path, _banco_dei_testi() + f"""
+const testo = {espressione.replace("VALORE", sano)};
+assert.ok(/\\d/.test(testo), `nessun numero nel testo: ${{testo}}`);
+assert.ok(!/NaN|Infinity|∞|undefined|null|non disponibile/.test(testo), testo);
+console.log("ok");
+""")
+    assert uscita.strip() == "ok"
+
+
+def test_la_scala_del_campo_su_un_campo_costante_non_degenera(tmp_path):
+    """max == min: nessuna divisione per zero, nessun taglio NaN. La legenda
+    resta leggibile anche quando non c'e' nessun picco da isolare."""
+    uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
+        + _funzioni_viewport("scalaDelCampo") + """
+const costante = new Float32Array(500).fill(3.5);
+const { taglio, sopraTaglio } = scalaDelCampo(costante);
+assert.ok(Number.isFinite(taglio), `il taglio non e' finito su un campo costante: ${taglio}`);
+assert.equal(taglio, 3.5);
+assert.equal(sopraTaglio, 0, "nessun nodo supera un taglio pari al valore di tutti");
+console.log("ok");
+""")
+    assert uscita.strip() == "ok"
+
+
+def test_la_scala_del_campo_su_tutti_zero_non_e_una_barra_vuota(tmp_path):
+    """Tutti i valori a zero: la scala resta un numero leggibile (0), non NaN
+    ne' un buco silenzioso nella legenda, e nessun nodo e' sopra il taglio."""
+    uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
+        + _funzioni_viewport("scalaDelCampo", "numeroDelCampo", "didascaliaDelCampo") + """
+const zeri = new Float32Array(500);
+const { taglio, sopraTaglio } = scalaDelCampo(zeri);
+assert.equal(taglio, 0);
+assert.equal(sopraTaglio, 0);
+const legenda = didascaliaDelCampo({
+  caso: "GRAVITA", grandezza: "U", massimo: 0, taglio, sopraTaglio,
+});
+assert.ok(!/NaN|Infinity|∞/.test(legenda), legenda);
+assert.ok(legenda.includes("0"), legenda);
+// Il massimo coincide col taglio: nulla e' fuori dalla scala, e dirlo sarebbe
+// falso.
+assert.ok(!/fuori scala/.test(legenda), legenda);
+console.log("ok");
+""")
+    assert uscita.strip() == "ok"
+
+
+def test_la_scala_del_campo_su_un_campo_vuoto_non_incanta_la_legenda(tmp_path):
+    """Ingresso degenere: zero valori (il server risponde un corpo vuoto quando
+    il contorno non ha nodi). Nessun crash, nessun taglio NaN, legenda che si
+    legge."""
+    uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
+        + _funzioni_viewport("scalaDelCampo", "numeroDelCampo", "didascaliaDelCampo") + """
+const { taglio, sopraTaglio } = scalaDelCampo(new Float32Array(0));
+assert.equal(taglio, 0);
+assert.equal(sopraTaglio, 0);
+const legenda = didascaliaDelCampo({
+  caso: "GRAVITA", grandezza: "U", massimo: NaN, taglio, sopraTaglio,
+});
+assert.ok(!/NaN|Infinity|∞/.test(legenda) && legenda.length > 0, legenda);
+console.log("ok");
+""")
+    assert uscita.strip() == "ok"
+
+
+def test_la_scala_del_campo_ignora_nan_e_infinito_senza_incantarsi(tmp_path):
+    """NaN e Infinity in mezzo ai valori non devono decidere la scala in
+    silenzio: filtrati, il taglio resta quello dei valori finiti."""
+    uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
+        + _funzioni_viewport("scalaDelCampo") + """
+const valori = new Float64Array(100).fill(1.0);
+valori[0] = NaN;
+valori[1] = Infinity;
+valori[2] = -Infinity;
+const { taglio, sopraTaglio } = scalaDelCampo(valori);
+assert.ok(Number.isFinite(taglio), `NaN/Infinity hanno prodotto un taglio non finito: ${taglio}`);
+assert.equal(taglio, 1.0, "i tre valori non finiti non dovevano contribuire al taglio");
+assert.equal(sopraTaglio, 0, "nessun valore finito supera 1,0");
+console.log("ok");
+""")
+    assert uscita.strip() == "ok"
+
+
+def test_la_didascalia_di_un_modo_oltre_quelli_calcolati_non_scrive_nan(tmp_path):
+    """Ingresso degenere: un modo richiesto oltre quelli calcolati non ha una
+    frequenza nota (undefined/NaN dal lato che la richiede). NaN.toFixed(2)
+    scriverebbe silenziosamente "NaN Hz": stesso trattamento degli altri
+    ingressi che il campo non puo' onorare, un messaggio dichiarato."""
+    uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
+        + _funzioni_viewport("numeroDelCampo", "didascaliaDelCampo") + """
+const testo = didascaliaDelCampo({ caso: "Modo 9", modale: true, frequenza: NaN });
+assert.ok(!testo.includes("NaN"), testo);
+assert.ok(testo.includes("frequenza non disponibile"), testo);
+assert.ok(testo.includes("indeformato"), testo);
+console.log("ok");
+""")
+    assert uscita.strip() == "ok"
+
+
+def test_la_legenda_del_campo_resta_leggibile_su_costante_e_su_zero(tmp_path):
+    """Ingressi degeneri visti dal lato di app.js: un campo costante (taglio ==
+    massimo, nessun picco da isolare) e un campo tutto a zero non producono una
+    legenda muta o con "NaN" scritto dentro."""
+    uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
+        + _funzioni_viewport("numeroDelCampo", "didascaliaDelCampo") + """
+const costante = didascaliaDelCampo({
+  caso: "GRAVITA", grandezza: "VM", massimo: 5.0, taglio: 5.0, sopraTaglio: 0,
+});
+assert.ok(!costante.includes("NaN"), costante);
+assert.ok(costante.includes("5") && costante.includes("MPa"), costante);
+assert.ok(!/fuori scala/.test(costante),
+  `su un campo costante il massimo e' rappresentabile: ${costante}`);
+const zero = didascaliaDelCampo({
+  caso: "GRAVITA", grandezza: "U", massimo: 0, taglio: 0, sopraTaglio: 0,
+});
+assert.ok(!zero.includes("NaN"), zero);
+assert.ok(zero.length > 0, "la didascalia e' vuota su un campo tutto a zero");
+console.log("ok");
+""")
+    assert uscita.strip() == "ok"
+
+
+def test_la_legenda_di_uno_spostamento_submillimetrico_non_arrotonda_a_zero(tmp_path):
+    """Trovato verificando nel browser (Task 9, corsa sintetica): con un solo
+    decimale uno spostamento vero come 0,0367 mm si legge "0 mm", la stessa
+    scala muta che il taglio esiste per evitare.
+
+    Giro 1: quattro decimali fissi spostavano la soglia di tre ordini invece di
+    toglierla — 2e-5 mm si legge ancora "0". Cifre significative, non decimali:
+    la soglia sparisce, e i conteggi di nodi restano interi esatti perche' non
+    passano dallo stesso formato.
+    """
+    uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
+        + _funzioni_viewport("numeroDelCampo", "didascaliaDelCampo") + """
+const conScala = (taglio, nodi, grandezza) => didascaliaDelCampo({
+  caso: "GRAVITA", grandezza, massimo: taglio, taglio, sopraTaglio: nodi,
+});
+const spostamento = conScala(0.0367, 3, "U");
+assert.ok(spostamento.includes("0,0367"), spostamento);
+const estremo = conScala(0.00002, 3, "U");
+assert.ok(estremo.includes("0,00002"), `2e-5 mm si legge ancora zero: ${estremo}`);
+// Il conteggio dei nodi non e' una misura: 13 957 nodi non diventano 13 960.
+const molti = conScala(1.5, 13957, "VM");
+assert.ok(molti.includes("13.957"), `il conteggio e' stato arrotondato: ${molti}`);
+console.log("ok");
+""")
+    assert uscita.strip() == "ok"
+
+
+def test_un_campo_che_rigetta_in_costruzione_lo_dice_in_didascalia(tmp_path):
+    """M15 del giro finale: `pannelloCampo` chiamava `aggiorna()` in
+    costruzione senza `await` ne' `.catch()`. Un rigetto — la rete che cade, il
+    server che muore mentre il pannello nasce — diventava un unhandled
+    rejection: pannello muto, vista di prima ancora a schermo, e l'unico
+    segnale nella console del browser, che in discussione nessuno guarda.
+
+    Mutazione che uccide: togliere il `.catch()` e lasciare `aggiorna();`. Node
+    esce con codice diverso da zero per l'unhandled rejection, e `_esegui`
+    cade sul `returncode`.
+    """
+    _esegui(tmp_path, _DOM
+        + _funzioni_viewport("numeroDelCampo")
+        + _funzioni("didascaliaDellaVista", "pannelloCampo") + """
+// Option non sta nel DOM finto: e' il solo costruttore globale che
+// pannelloCampo usa, e qui basta che porti testo e valore.
+class Option { constructor(testo, valore) { this.testo = testo; this.valore = valore; } }
+globalThis.Option = Option;
+// Il valore di un <select> nel DOM finto: la prima opzione appesa, come fa il
+// browser quando nessuna e' selezionata a mano.
+Object.defineProperty(Elemento.prototype, "value", {
+  get() { return this.figli[0]?.valore ?? ""; }, configurable: true,
+});
+async function mostraCampoDelloStep() { throw new Error("il server e' caduto"); }
+async function mostraModoDelloStep() { throw new Error("il server e' caduto"); }
+
+const pannello = pannelloCampo(1, { casi: { GRAVITA: {} }, modi: 0, frequenze_hz: [] });
+assert.ok(pannello !== null, "il pannello non e' stato costruito");
+// Il <select> compare comunque: la costruzione non aspetta la vista.
+assert.equal(pannello.figli.length, 3, "il pannello ha perso una riga di comando");
+// L'unico posto in cui il rigetto puo' arrivare a chi guarda.
+await new Promise((r) => setTimeout(r, 0));
+const testo = document.getElementById("didascalia-vista").textContent;
+assert.ok(testo.includes("il server e' caduto"),
+  `il rigetto non e' arrivato in didascalia: ${JSON.stringify(testo)}`);
+""")
+
+
+def _banco_del_campo_dello_step() -> str:
+    """`mostraCampoDelloStep`, con `vista` finta e le sue dipendenze vere: la
+    stessa arbitrazione (`apriGeometria`/`ultimaGeometria`) gia' provata su
+    `mostraNuvolaDelloStep`, applicata alla coppia mesh+campo che questa
+    funzione richiede insieme con `Promise.all`.
+    """
+    return (
+        _DOM
+        + _funzioni_viewport("scalaDelCampo", "numeroDelCampo", "didascaliaDelCampo")
+        + _funzioni(
+            "didascaliaDellaVista", "ragioneDelRifiuto", "serverMuto", "apriGeometria", "superata",
+            "mostraCampoDelloStep",
+        )
+        + """
+const STEP_CON_CAMPO = 13;
+let ultimaGeometria = 0;
+const vista = {
+  svuotate: 0,
+  disegnato: null,
+  svuota() { this.svuotate += 1; },
+  mostraMeshPerCampo(vertici, facce, valori, scala) {
+    this.disegnato = { vertici: vertici.length, facce: facce.length, valori: valori.length, scala };
+  },
+};
+// La didascalia non e' piu' un argomento: sta nel markup, dentro la zona della
+// vista, e il modulo la trova per id come fa con #conteggi.
+const didascalia = document.getElementById("didascalia-vista");
+let risponde = [];
+let chiamata = 0;
+globalThis.fetch = async () => risponde[chiamata++]();
+"""
+    )
+
+
+def test_il_campo_mostra_il_messaggio_del_server_su_un_400_e_non_una_pagina_bianca(tmp_path):
+    """Ingresso degenere: il server risponde 400 (caso o grandezza inesistenti,
+    o il .vtu assente perche' la corsa si e' fermata allo step 12). La
+    didascalia deve portare il messaggio del server, non restare quella di
+    prima e non sollevare fuori dal gestore."""
+    _esegui(tmp_path, _banco_del_campo_dello_step() + """
+risponde = [
+  async () => ({ ok: true, status: 200,
+    headers: { get: (n) => ({ "X-Vertices": "1", "X-Triangles": "0" }[n] ?? null) },
+    arrayBuffer: async () => new ArrayBuffer(12) }),
+  async () => ({ ok: false, status: 400,
+    text: async () => JSON.stringify({ messaggio: "nessun campo 'VM_CARICO_TOP' in 13_solution.vtu" }) }),
+];
+const disegnato = await mostraCampoDelloStep("CARICO_TOP", "VM", generazione);
+assert.equal(disegnato, true, "il rifiuto non e' stato gestito: il gestore non ha scritto nulla");
+assert.equal(vista.disegnato, null, "un rifiuto non deve disegnare comunque una mesh colorata");
+assert.equal(
+  didascalia.textContent,
+  "nessun campo 'VM_CARICO_TOP' in 13_solution.vtu",
+  "la didascalia non porta il messaggio del server",
+);
+""")
+
+
+def test_il_campo_colora_la_mesh_con_la_scala_tagliata_al_p99(tmp_path):
+    """Il percorso buono: mesh e campo arrivano insieme, la scala si taglia al
+    p99 (non al massimo che il server manda in X-Max), la didascalia porta il
+    massimo vero e i conteggi dicono su che cosa e' posato il campo."""
+    _esegui(tmp_path, _banco_del_campo_dello_step() + """
+const valoriCampo = new Float32Array(1000).fill(1.0);
+valoriCampo[999] = 50.0;
+risponde = [
+  async () => ({ ok: true, status: 200,
+    headers: { get: (n) => ({ "X-Vertices": "1000", "X-Triangles": "0" }[n] ?? null) },
+    arrayBuffer: async () => new Float32Array(3000).buffer }),
+  async () => ({ ok: true, status: 200,
+    headers: { get: (n) => ({ "X-Max": "50.0" }[n] ?? null) },
+    arrayBuffer: async () => valoriCampo.buffer }),
+];
+const disegnato = await mostraCampoDelloStep("CARICO_TOP", "VM", generazione);
+assert.equal(disegnato, true);
+assert.ok(vista.disegnato !== null, "la mesh colorata non e' mai stata disegnata");
+assert.ok(vista.disegnato.scala.taglio < 2.0,
+  `la scala ha seguito il massimo (50) invece del p99: ${vista.disegnato.scala.taglio}`);
+assert.ok(didascalia.textContent.includes("MPa"), didascalia.textContent);
+assert.ok(didascalia.textContent.includes("50"), didascalia.textContent);
+// C13 del giro finale: il massimo (50) e il taglio (1) stavano in due
+// paragrafi separati, a mezzo schermo dalla vista, e la macchia piu' scura si
+// leggeva come il massimo. Una frase sola, con entrambi, e il massimo marcato
+// per quello che e'.
+assert.ok(didascalia.textContent.includes("fuori scala"),
+  `il massimo non e' rappresentabile sulla scala e la didascalia non lo dice: ${didascalia.textContent}`);
+assert.ok(/scala tagliata a 1 MPa/.test(didascalia.textContent),
+  `il taglio non e' nella stessa frase del massimo: ${didascalia.textContent}`);
+assert.ok(/\\b1 nodi sopra/.test(didascalia.textContent), didascalia.textContent);
+// C15: l'aria-label della tela portava «campo su N facce, M nodi sopra il
+// taglio» — ne' caso di carico, ne' grandezza, ne' unita', ne' massimo.
+assert.equal(vista.disegnato.scala.descrizione, didascalia.textContent,
+  "la tela annuncia qualcosa di diverso da cio' che c'e' scritto sotto la vista");
+// Giro 1, M3: gli altri due rami scrivono #conteggi, questo lo lasciava a
+// quello della vista di prima — un conteggio di un altro artefatto.
+// "1000" senza puntino: in italiano Intl raggruppa da cinque cifre in su
+// (misurato in node), e 13 957 nodi invece si scrivono "13.957".
+assert.ok(document.getElementById("conteggi").textContent.includes("1000 vertici"),
+  `#conteggi non descrive il campo appena disegnato: ${document.getElementById("conteggi").textContent}`);
+""")
+
+
+@pytest.mark.parametrize(
+    "intestazione", ['"nan"', '"inf"', '"-inf"', "undefined"],
+    ids=["nan", "inf", "-inf", "assente"],
+)
+def test_un_x_max_che_non_si_puo_scrivere_lo_dichiara(tmp_path, intestazione):
+    """Ingresso degenere sul percorso vero, non sulla sola funzione pura.
+
+    `server.py` emette `str(float(valori.max()))` senza guardia: da un campo
+    con un residuo non finito escono le stringhe "nan", "inf", "-inf". E
+    un'intestazione assente vale `null`, che `Number` porta a 0 — «massimo
+    reale 0 mm» e' peggio di un buco, perche' si legge come una misura.
+
+    Il finto `headers.get` risponde `null` sulla chiave che non c'e', come
+    quello vero: con `undefined` il mutante che toglie la guardia
+    sopravviveva, perche' `Number(undefined)` e' NaN e la didascalia si
+    salvava da sola per la ragione sbagliata.
+    """
+    _esegui(tmp_path, _banco_del_campo_dello_step() + f"""
+const valoriCampo = new Float32Array(4).fill(1.0);
+risponde = [
+  async () => ({{ ok: true, status: 200,
+    headers: {{ get: (n) => ({{ "X-Vertices": "4", "X-Triangles": "0" }}[n] ?? null) }},
+    arrayBuffer: async () => new Float32Array(12).buffer }}),
+  async () => ({{ ok: true, status: 200,
+    headers: {{ get: (n) => ({{ "X-Max": {intestazione} }}[n] ?? null) }},
+    arrayBuffer: async () => valoriCampo.buffer }}),
+];
+await mostraCampoDelloStep("GRAVITA", "U", generazione);
+const testo = didascalia.textContent;
+assert.ok(!/NaN|Infinity|∞|undefined|null/.test(testo), testo);
+assert.ok(testo.includes("non disponibile"), `il massimo mancante non e' dichiarato: ${{testo}}`);
+assert.ok(!/\\breale 0 /.test(testo), `un dato assente si legge come una misura: ${{testo}}`);
+""")
+
+
+def test_un_campo_che_non_combacia_con_la_mesh_e_un_rifiuto_e_non_un_disegno(tmp_path):
+    """Giro 1, I4: mesh e campo arrivano da due risposte separate, e nessuno
+    controllava che si corrispondessero. Che oggi coincidano e' garanzia di due
+    handler del server che condividono `_contorno_del_volume`, non del client:
+    se `13_solution.vtu` viene riscritto fra le due fetch — l'interfaccia
+    permette di rieseguire col campo aperto — l'attributo `color` si posa su
+    posizioni di un'altra mesh e il pezzo esce colorato sfalsato, senza errori.
+    """
+    _esegui(tmp_path, _banco_del_campo_dello_step() + """
+risponde = [
+  async () => ({ ok: true, status: 200,
+    headers: { get: (n) => ({ "X-Vertices": "4", "X-Triangles": "0" }[n] ?? null) },
+    arrayBuffer: async () => new Float32Array(12).buffer }),
+  async () => ({ ok: true, status: 200,
+    headers: { get: (n) => ({ "X-Max": "3.0" }[n] ?? null) },
+    arrayBuffer: async () => new Float32Array(1000).buffer }),
+];
+const scritto = await mostraCampoDelloStep("GRAVITA", "U", generazione);
+assert.equal(scritto, true, "il disallineamento non e' stato dichiarato da nessuna parte");
+assert.equal(vista.disegnato, null, "colori sfalsati disegnati su una mesh che non e' la loro");
+assert.ok(didascalia.textContent.length > 0, "rifiuto muto");
+assert.ok(/1000/.test(didascalia.textContent) && /\\b4\\b/.test(didascalia.textContent),
+  `il rifiuto non dice quanto sono disallineati: ${didascalia.textContent}`);
 """)

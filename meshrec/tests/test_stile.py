@@ -12,7 +12,7 @@ import re
 from meshrec.app.server import UI_DIR
 
 # I commenti del foglio contengono regole citate per iscritto, graffe comprese
-# (per esempio «.viewport { height: 100% } di un genitore alto quanto il suo
+# (per esempio «.viewport { flex: 1 } di un genitore alto quanto il suo
 # contenuto vale zero»): contarle sarebbe contare due volte.
 COMMENTO = re.compile(r"/\*.*?\*/", re.S)
 

@@ -10,29 +10,33 @@ import subprocess
 import numpy as np
 import pytest
 
-from meshrec.core import abaqus, synth, volume
-from meshrec.core.config import GRAVITY_MM_S2, Material
+from meshrec.core import abaqus, solve, synth, volume
+from meshrec.core.config import (
+    GRAVITY_MM_S2,
+    AnalysisConfig,
+    CaricoSommita,
+    CarichiConfig,
+    Material,
+    Modale,
+    SpintaOrizzontale,
+)
 from ccx_utils import read_dat_displacements
 
 pytestmark = pytest.mark.feasibility
 
 SIZE = (100.0, 100.0, 400.0)  # mm
 
-# Avvisi che CalculiX stampa su questi deck e che sono noti e accettati. Non
-# e' un elenco per farli tacere: e' il contrario. Ogni avviso fuori da qui e'
-# una card che il solutore ha scartato in silenzio, ed e' esattamente cio' che
-# «returncode 0 e nessun *ERROR» non sa vedere.
-AVVISI_NOTI = (
-    "reading *STEP",
-    "reading *OUTPUT",
-)
-
-
+# `extra` tollera avvisi noti e specifici del singolo test (es. "no tied MPC"
+# sul telaio): dalla Fase 5 `write_inp` scrive sempre attraverso
+# `_passo_statico`, e nessun percorso puo' piu' produrre "reading *STEP" o
+# "reading *OUTPUT" -- l'elenco fisso che li tollerava e' stato tolto perche'
+# tollerava avvisi che non possono piu' esistere, con un confronto per
+# sottostringa che avrebbe inghiottito anche un avviso futuro diverso che
+# contenesse per caso lo stesso testo.
 def avvisi_inattesi(stdout: str, extra: tuple[str, ...] = ()) -> list[str]:
-    noti = AVVISI_NOTI + extra
     return [
         riga for riga in stdout.splitlines()
-        if "*WARNING" in riga and not any(n in riga for n in noti)
+        if "*WARNING" in riga and not any(n in riga for n in extra)
     ]
 
 
@@ -69,12 +73,66 @@ def test_calculix_solves_a_column_under_self_weight(tmp_path):
 
     displacements = read_dat_displacements(tmp_path / "model.dat")
     assert displacements, "nessuno spostamento letto dal file .dat"
+    # `print_nsets=("TOP",)` mette nel .dat un blocco `displacements` per TOP
+    # e uno `forces` per BASE, righe identiche in forma: solo i primi sono
+    # spostamenti. I due set sono disgiunti, quindi prima del filtro il
+    # dizionario portava le reazioni in newton sotto i nodi di BASE senza che
+    # nulla lo dicesse.
+    assert not set(displacements) & {int(n) + 1 for n in node_sets["BASE"]}, (
+        "i nodi di BASE compaiono con le loro RF, non con uno spostamento"
+    )
 
     top_uz = np.array([displacements[node + 1][2] for node in node_sets["TOP"]])
     expected = material.density * GRAVITY_MM_S2 * SIZE[2] ** 2 / (2.0 * material.young)
 
     assert (top_uz < 0.0).all()  # la colonna si accorcia
     assert abs(top_uz.mean()) == pytest.approx(expected, rel=0.20)
+
+
+def test_il_deck_a_quattro_passi_gira_a_zero_avvisi(tmp_path):
+    """Che le card siano giuste lo dice il solutore, non una lettura del testo.
+
+    Un controllo interno partirebbe dalla stessa trascrizione che vorrebbe
+    verificare (stesso principio del Ruling M della Fase 4). Misurato il
+    21/08/2026 sul deck as-built del telaio: quattro passi, "Job finished",
+    zero avvisi e zero errori, sei autovalori con U^T*M*U = 1.
+    """
+    executable = shutil.which("ccx")
+    if executable is None:
+        pytest.skip("eseguibile 'ccx' non presente nel PATH")
+
+    material = Material(name="MURATURA", young=1500.0, poisson=0.2, density=1.8e-9)
+    vertices, faces = synth.box_mesh(SIZE)
+    nodes, tets = volume.tetrahedralize(
+        vertices, faces, max_volume=20_000.0, min_ratio=1.8, max_steiner_points=-1, nobisect=False
+    )
+
+    z = nodes[:, 2]
+    node_sets = {
+        "BASE": np.flatnonzero(z <= z.min() + 1e-6),
+        "TOP": np.flatnonzero(z >= z.max() - 1e-6),
+    }
+    carichi = CarichiConfig(
+        spinta=SpintaOrizzontale(coefficiente=0.1, asse="x"),
+        carico_sommita=CaricoSommita(risultante=1000.0, nset="TOP"),
+        modale=Modale(modi=6),
+    )
+
+    abaqus.write_inp(
+        tmp_path / "model.inp", nodes, tets,
+        node_sets=node_sets,
+        material=material,
+        carichi=carichi,
+    )
+
+    processo = subprocess.run(
+        [executable, "-i", "model"],
+        cwd=tmp_path, capture_output=True, text=True, timeout=600,
+    )
+    uscita = processo.stdout
+    assert "Job finished" in uscita, uscita[-2000:] + processo.stderr[-2000:]
+    assert uscita.upper().count("*WARNING") == 0, uscita
+    assert uscita.upper().count("*ERROR") == 0, uscita
 
 
 def test_la_pressione_su_s4_sposta_la_faccia_x_massimo_e_non_un_altra(tmp_path):
@@ -288,3 +346,152 @@ def test_un_prisma_solo_di_mesh_prisma_e_letto_dal_solutore(tmp_path):
     # dagli altri due test di questo file.
     spostamenti = read_dat_displacements(tmp_path / "model.dat")
     assert spostamenti, "il .dat non contiene spostamenti: il deck e' stato risolto a vuoto"
+
+
+# Stesso caso misurato nel modulo `solve.py`: un passo statico con U richiesta
+# su un insieme, seguito da un passo modale che non la richiede ne' la
+# cancella. Non serve `ccx` per riprodurlo: e' testo scritto a mano, come
+# DAT_REAZIONI_CONTAMINATO in tests/test_solve.py.
+DAT_SPOSTAMENTI_CONTAMINATO = """\
+
+                        S T E P       1
+
+
+                                INCREMENT     1
+
+
+ displacements (vx,vy,vz) for set TOP and time  0.1000000E+01
+
+         1 -1.000000E-03  2.000000E-04  3.000000E-04
+         2 -1.100000E-03  2.100000E-04  3.100000E-04
+
+                        S T E P       2
+
+
+     E I G E N V A L U E   O U T P U T
+
+ MODE NO    EIGENVALUE                       FREQUENCY
+                                     REAL PART            IMAGINARY PART
+                           (RAD/TIME)      (CYCLES/TIME     (RAD/TIME)
+
+      1   0.7589826E+09   0.2754964E+05   0.4384661E+04   0.0000000E+00
+
+                    E I G E N V A L U E    N U M B E R     1
+
+
+ displacements (vx,vy,vz) for set TOP and time  0.2000000E+01
+
+         1  2.145000E+02 -3.301000E+02  1.987000E+02
+         2 -1.876000E+02  4.012000E+02 -2.204000E+02
+"""
+
+
+def test_read_dat_displacements_non_prende_una_forma_modale(tmp_path):
+    """Riparazione assegnata al Task 6: stessa falla di `solve.leggi_reazioni`,
+    mai chiusa qui perche' nessun test di questo file aveva finora un passo
+    modale nel deck. Senza il confine a `E I G E N V A L U E   O U T P U T`,
+    "l'ultimo blocco a quattro campi vince" prenderebbe la forma modale
+    (~10^2 mm) al posto dello spostamento fisico (~10^-3 mm)."""
+    percorso = tmp_path / "prova.dat"
+    percorso.write_text(DAT_SPOSTAMENTI_CONTAMINATO, encoding="ascii")
+
+    spostamenti = read_dat_displacements(percorso)
+
+    assert spostamenti[1] == pytest.approx((-1.000e-03, 2.000e-04, 3.000e-04))
+    assert spostamenti.keys() == {1, 2}
+
+
+def test_lo_step_13_risolve_il_deck_e_scrive_i_campi_nel_vtu(tmp_path):
+    """Verifica di fattibilita' del Task 6: `solve.risolvi` chiama `ccx` vero,
+    legge le sue uscite e scrive `13_solution.vtu` coi nomi di point_data che
+    i Task 8/9 consumano -- `U_<CASO>`, `VM_<CASO>` per passo statico,
+    `MODO_<n>` per il modale, quest'ultimo senza `U_`/`VM_` propri.
+    """
+    meshio = pytest.importorskip("meshio")
+    executable = shutil.which("ccx")
+    if executable is None:
+        pytest.skip("eseguibile 'ccx' non presente nel PATH")
+
+    material = Material(name="MURATURA", young=1500.0, poisson=0.2, density=1.8e-9)
+    vertices, faces = synth.box_mesh(SIZE)
+    nodes, tets = volume.tetrahedralize(
+        vertices, faces, max_volume=20_000.0, min_ratio=1.8, max_steiner_points=-1, nobisect=False
+    )
+
+    z = nodes[:, 2]
+    node_sets = {
+        "BASE": np.flatnonzero(z <= z.min() + 1e-6),
+        "TOP": np.flatnonzero(z >= z.max() - 1e-6),
+    }
+    carichi = CarichiConfig(
+        spinta=SpintaOrizzontale(coefficiente=0.1, asse="x"),
+        carico_sommita=CaricoSommita(risultante=1000.0, nset="TOP"),
+        modale=Modale(modi=3),
+    )
+    analysis = AnalysisConfig(material=material)
+
+    abaqus.write_inp(
+        tmp_path / "wall_model.inp", nodes, tets,
+        node_sets=node_sets,
+        material=material,
+        carichi=carichi,
+    )
+
+    # casi_di_carico esplicito, nello stesso ordine in cui i tre carichi sono
+    # dichiarati sopra: dal giro di correzione della revisione, risolvi() non
+    # deriva piu' l'ordine in proprio (era solve._casi_statici) -- lo riceve
+    # gia' fatto, come fa pipeline.run leggendolo da
+    # metrics["11_export"]["casi_di_carico"]. Qui non c'e' un export_model da
+    # cui leggerlo (il deck e' scritto con write_inp direttamente), quindi e'
+    # scritto a mano: la corrispondenza col deck vero e' verificata altrove
+    # (tests/test_solve.py::test_casi_di_carico_segue_l_ordine_vero_scritto_da_write_inp),
+    # non e' lo scopo di questo test, che verifica ccx vero.
+    esito = solve.risolvi(
+        tmp_path, tmp_path / "wall_model.inp", analysis, nodes, tets, "C3D4",
+        casi_di_carico=["GRAVITA", "SPINTA_ORIZZONTALE", "CARICO_TOP", "MODALE"],
+        vincolo_in_pianta={"x": 1.0, "y": 1.0, "minimo": 1.0},
+        # Identita': qui il deck e' scritto con write_inp sugli stessi nodi
+        # che risolvi riceve, senza passare da export_model, quindi campi e
+        # punti sono gia' nello stesso telaio e non c'e' nulla da riportare.
+        # Il caso con una rotazione vera e' in tests/test_solve.py (C1).
+        trasformata=np.eye(4),
+    )
+
+    assert esito["eseguito"] is True
+    assert esito["returncode"] == 0
+    assert esito["errori"] == 0
+    assert esito["modi"] == 3
+    assert (tmp_path / "13_solution.vtu").exists()
+    assert (tmp_path / "13_solver.log").exists()
+
+    mesh = meshio.read(tmp_path / "13_solution.vtu")
+    chiavi = set(mesh.point_data)
+    # L'uguaglianza di insieme sotto fissa gia' l'assenza di U_MODO_n/VM_MODO_n
+    # (non stanno nell'insieme atteso): un ciclo separato che lo riasserisse
+    # sarebbe implicato da qui, non un controllo in piu' (rilievo Minor della
+    # revisione).
+    assert chiavi == {
+        "U_GRAVITA", "VM_GRAVITA",
+        "U_SPINTA_ORIZZONTALE", "VM_SPINTA_ORIZZONTALE",
+        "U_CARICO_TOP", "VM_CARICO_TOP",
+        "MODO_1", "MODO_2", "MODO_3",
+    }
+
+    # Solo l'insieme delle chiavi non basta: un'etichettatura scambiata fra
+    # passi (SPINTA_ORIZZONTALE <-> CARICO_TOP) lascerebbe l'insieme identico.
+    # Due controlli fisici ancorano ogni nome al passo giusto.
+    top = node_sets["TOP"]
+    ux_gravita = np.abs(mesh.point_data["U_GRAVITA"][top, 0]).mean()
+    ux_spinta = np.abs(mesh.point_data["U_SPINTA_ORIZZONTALE"][top, 0]).mean()
+    assert ux_spinta > 10.0 * ux_gravita, (
+        "la spinta orizzontale su x deve muovere la sommita' molto piu' del "
+        "solo peso proprio, simmetrico: se le etichette fossero scambiate con "
+        "CARICO_TOP (verticale) questo non sarebbe vero"
+    )
+
+    uz_gravita = mesh.point_data["U_GRAVITA"][top, 2].mean()
+    uz_carico = mesh.point_data["U_CARICO_TOP"][top, 2].mean()
+    assert uz_carico < uz_gravita, (
+        "il carico aggiuntivo in sommita' (peso proprio + risultante verticale) "
+        "deve accorciare la colonna piu' del solo peso proprio"
+    )

@@ -30,10 +30,17 @@ from meshrec.core.config import ExperimentConfig, PipelineConfig
 # Fase 4, dopo che i registri della Fase 2 erano gia' scritti: includerli
 # cambierebbe l'impronta di ogni riga gia' registrata, cioe' la provenienza
 # della tabella sperimentale della tesi, e nessun asse di sweep li tocca --
-# tutti gli assi della griglia stanno a monte dello step 11. La falla che
-# l'esclusione apre e' chiusa da `expand`, che rifiuta un asse su un blocco
+# tutti gli assi della griglia stanno a monte dello step 11. `carichi` non ci
+# entra per la stessa ragione: nato dopo la Fase 2 con la Fase 5, e' letto dallo
+# step 11 (scrittura del deck) e consumato dagli step successivi (simulazione e
+# risoluzione), e nessun asse di sweep lo tocca. Nota: due corse di sweep separate
+# con lo stesso root e un carichi di base diverso calcolano la stessa impronta e
+# scrivono nella stessa cartella. verify_registry lo scopre a posteriori, ma nel
+# frattempo pareto_front le tratterebbe come un unico esperimento. Non riusare il
+# root fra corse con carichi diversi senza rieseguire verify_registry. La falla
+# che l'esclusione apre e' chiusa da `expand`, che rifiuta un asse su un blocco
 # escluso invece di produrre candidati indistinguibili.
-BLOCCHI_FUORI_IMPRONTA: tuple[str, ...] = ("run", "wall", "model")
+BLOCCHI_FUORI_IMPRONTA: tuple[str, ...] = ("run", "wall", "model", "carichi")
 
 
 def fingerprint(cfg: PipelineConfig) -> str:
@@ -119,15 +126,21 @@ def expand(
 
 # Le chiavi che rendono completo un candidato di sweep: derivate da
 # STEP_KEYS (fonte unica) invece di riscritte a mano, ma non tutte -- "12_wall"
-# e' tagliata per chiave e non per posizione (un domani STEP_KEYS piu' lungo
-# non sbaglierebbe in silenzio con un indice numerico). Il prior non e' un
-# requisito di completezza dello sweep: nessun asse della griglia lo tocca
-# (vedi BLOCCHI_FUORI_IMPRONTA), tutti stanno a monte dello step 11, e un
-# candidato e' completo quando ha il proprio deck, non quando ha il prior.
+# e "13_solve" sono tagliate per chiave e non per posizione (un domani
+# STEP_KEYS piu' lungo non sbaglierebbe in silenzio con un indice numerico).
+# Ne' il prior ne' la soluzione sono un requisito di completezza dello sweep:
+# nessun asse della griglia li tocca (vedi BLOCCHI_FUORI_IMPRONTA), tutti
+# stanno a monte dello step 11, e un candidato e' completo quando ha il
+# proprio deck, non quando ha il prior o l'ha vista risolvere un solutore.
+# Stessa ragione per cui `run_candidate` chiede `--to-step 12` esplicito al
+# sottoprocesso invece di ereditare il predefinito di RunConfig.to_step (13
+# dalla Fase 5): le due esclusioni -- qui e li' -- si spiegano a vicenda.
 from meshrec.core.pipeline import METRICS_FILENAME, METRICS_PARTIAL
 from meshrec.core.steps import STEP_KEYS
 
-REQUIRED_STEPS: tuple[str, ...] = tuple(chiave for chiave in STEP_KEYS if chiave != "12_wall")
+REQUIRED_STEPS: tuple[str, ...] = tuple(
+    chiave for chiave in STEP_KEYS if chiave not in ("12_wall", "13_solve")
+)
 
 _TRACKED_PACKAGES: tuple[str, ...] = ("open3d", "tetgen", "pymeshfix", "pymeshlab", "numpy")
 
@@ -297,7 +310,14 @@ def run_candidate(
     started = time.monotonic()
     try:
         completed = subprocess.run(
-            [sys.executable, "-m", "meshrec.cli", "run", str(config_path)],
+            # --to-step 12 esplicito: RunConfig.to_step e' predefinito a 13
+            # dalla Fase 5 (il solutore fa parte di ogni corsa, per scelta
+            # dell'utente), ma uno sweep valuta candidati di *elaborazione* e
+            # la selezione di Pareto non legge ne' il prior ne' la
+            # soluzione -- stessa ragione per cui REQUIRED_STEPS qui sotto
+            # non li richiede. Pagare ccx e i suoi artefatti (.frd/.vtu, MB
+            # per candidato) per ognuno sarebbe costo puro.
+            [sys.executable, "-m", "meshrec.cli", "run", str(config_path), "--to-step", "12"],
             capture_output=True,
             text=True,
             timeout=timeout_s,
@@ -349,7 +369,7 @@ def run_candidate(
         "artifacts": artifacts,
         "artifacts_kept": True,
         "out_dir": str(out_dir),
-        "rerun": f"uv run meshrec run {config_path}",
+        "rerun": f"uv run meshrec run {config_path} --to-step 12",
         "metrics": metrics,
         "provenance": provenance(),
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),

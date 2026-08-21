@@ -31,3 +31,8 @@ Cartella di lavoro Abaqus/
 
 # Rumore del Finder, dal passaggio a macOS del 16/08/2026.
 .DS_Store
+
+# Registro di lavoro di subagent-driven-development: scratch per una fase,
+# non prodotto del progetto. La storia di git e il documento di esiti sono il
+# record; questo e la mappa di recupero del controllore mentre la fase gira.
+.superpowers/

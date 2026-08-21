@@ -207,6 +207,60 @@ class TetConfig(_ModelloBase):
     element: Literal["C3D4", "C3D10"] = "C3D4"
 
 
+class SpintaOrizzontale(_ModelloBase):
+    """Forza di massa orizzontale, come frazione dell'accelerazione di gravita.
+
+    E' la stessa card `*DLOAD, GRAV` del peso proprio, diretta di lato: non
+    tocca nessun set di faccia, quindi non pretende di sapere quale faccia sia
+    quale. `FACE_FRONT` e `FACE_BACK` sono misurati inutilizzabili su una
+    scansione reale, e i nomi dei set di faccia sono convenzioni e non
+    identificazioni fisiche (PRODUCT.md): un carico applicato a una faccia
+    nominata sarebbe applicato dove crediamo, non dove sappiamo.
+
+    Nessun predefinito: il coefficiente e' una decisione di chi analizza.
+    """
+
+    coefficiente: float = Field(
+        gt=0.0, description="frazione dell'accelerazione di gravita, adimensionale"
+    )
+    asse: Literal["x", "y"] = Field(
+        description="asse orizzontale del modello lungo cui la spinta agisce"
+    )
+
+
+class CaricoSommita(_ModelloBase):
+    """Risultante verticale ripartita sui nodi di un insieme.
+
+    La ripartizione e' uniforme per nodo, quindi il carico si concentra dove i
+    nodi sono piu' fitti, e l'insieme e' costruito per tolleranza e non e' la
+    faccia superiore certificata del pezzo. Sono due cose da dichiarare accanto
+    ai risultati di questo caso, non da correggere qui.
+    """
+
+    risultante: float = Field(gt=0.0, description="risultante in N, ripartita sui nodi")
+    nset: str = Field(
+        pattern=r"^[A-Za-z0-9_.-]+$",
+        description="insieme di nodi su cui ripartire, di norma TOP",
+    )
+
+
+class Modale(_ModelloBase):
+    """Analisi in frequenza.
+
+    Costa poco e smentisce molto: un modello mal vincolato ha una prima
+    frequenza fuori scala. Misurato il 21/08/2026 sull'as-built del telaio:
+    21,19 Hz col vincolo corretto, 4,03 Hz col vincolo su un piede solo.
+    """
+
+    modi: int = Field(gt=0, description="numero di modi da estrarre")
+
+
+# Le etichette che `abaqus.export_model` assegna da se' agli altri casi di
+# carico (il suo `casi_di_carico`), e che `solve.risolvi` usa come chiavi di
+# `point_data`: non sono disponibili per il nome del passo di peso proprio.
+NOMI_PASSO_RISERVATI = ("SPINTA_ORIZZONTALE", "CARICO_TOP", "MODALE")
+
+
 class AnalysisConfig(_ModelloBase):
     """Materiale e analisi."""
 
@@ -233,6 +287,25 @@ class AnalysisConfig(_ModelloBase):
         ),
     )
 
+    @model_validator(mode="after")
+    def _il_nome_del_passo_non_e_riservato(self) -> "AnalysisConfig":
+        """Due passi con la stessa etichetta non sono due casi di carico.
+
+        `solve.risolvi` indicizza `point_data` col nome del caso: `U_<CASO>`,
+        `VM_<CASO>`. Se `step_name` ripete uno dei nomi che `export_model`
+        assegna agli altri carichi, il secondo passo sovrascrive il primo e
+        un caso sparisce dal `.vtu` -- nessuna eccezione, nessun avviso, un
+        file con una chiave in meno di quanti passi il deck contiene.
+        """
+        if self.step_name.upper() in NOMI_PASSO_RISERVATI:
+            raise ValueError(
+                f"step_name={self.step_name!r} e' un nome riservato: "
+                f"{', '.join(NOMI_PASSO_RISERVATI)} sono le etichette che la "
+                "pipeline assegna da se' agli altri casi di carico, e due passi "
+                "sulla stessa etichetta si sovrascriverebbero a vicenda nel .vtu"
+            )
+        return self
+
 
 class RunConfig(_ModelloBase):
     """Esecuzione: percorsi e ripresa."""
@@ -258,15 +331,30 @@ class RunConfig(_ModelloBase):
         ),
     )
     to_step: int = Field(
-        default=12,
+        default=13,
         ge=1,
-        le=12,
+        le=13,
         description=(
             "ultimo step eseguito. Serve all'interfaccia, che esegue uno step "
             "alla volta: from_step e to_step uguali eseguono soltanto quello. "
-            "Il tetto e' 12 dalla Fase 4: lo step 12 e' il prior geometrico, e "
-            "chiude la corsa madre. from_step resta fermo a 9 e non lo segue, "
-            "per la ragione scritta la'. "
+            "Il tetto e' 13 dalla Fase 5 e il predefinito coincide con esso: "
+            "l'utente ha scelto esplicitamente che ogni corsa risolva e "
+            "scriva spostamenti e tensioni accanto alle altre metriche, non "
+            "che il solutore sia un extra da chiedere (scartata l'opzione "
+            "'step opzionale acceso dalla configurazione'). "
+            "Lo step 13 resta pero' diverso dagli altri: e' l'unico che paga "
+            "un processo esterno vero (ccx) invece di lavoro in-process, e "
+            "chi lo invoca su molti candidati -- uno sweep -- paga quel "
+            "processo e i suoi artefatti per ciascuno, senza che la "
+            "selezione se ne serva: misurati sull'unica corsa vera "
+            "(runs/lab_telaio_v2), .frd 81 MiB, .vtu 8,2 MiB e .dat 4,3 MiB, "
+            "cioe' 93,6 MiB per candidato. Questa e' la "
+            "ragione per cui sweep.py chiede esplicitamente to_step=12 al "
+            "sottoprocesso invece di ereditare questo predefinito, e per cui "
+            "REQUIRED_STEPS in sweep.py non lo richiede: e' una decisione del "
+            "chiamante, non del predefinito del prodotto. "
+            "from_step resta fermo a 9 e non segue questo tetto, per la "
+            "ragione scritta la'. "
             "Con validate_assignment attivo il validatore incrociato rifiuta "
             "ogni stato intermedio incoerente, e nessun ordine di assegnazione "
             "e' sicuro: restringendo un intervallo verso l'alto rompe to_step "
@@ -557,6 +645,23 @@ class ModelConfig(_ModelloBase):
         return self
 
 
+class CarichiConfig(_ModelloBase):
+    """Casi di carico applicati al modello, oltre al peso proprio.
+
+    I tre campi sono nullabili perché la dichiarazione e' opzionale: chi non
+    dichiara nulla ottiene il solo peso proprio, l'unico caso che il programma
+    puo' derivare dai dati (densita' e gravita' sono gia' nella configurazione).
+
+    Nessun campo ha un predefinito numerico, per la stessa ragione del materiale:
+    un carico non e' una congettura che il programma fa, e' una decisione di chi
+    analizza.
+    """
+
+    spinta: SpintaOrizzontale | None = None
+    carico_sommita: CaricoSommita | None = None
+    modale: Modale | None = None
+
+
 class PipelineConfig(_ModelloBase):
     """Configurazione completa di un'elaborazione."""
 
@@ -569,6 +674,7 @@ class PipelineConfig(_ModelloBase):
     simplify: SimplifyConfig = Field(default_factory=SimplifyConfig)
     tet: TetConfig = Field(default_factory=TetConfig)
     analysis: AnalysisConfig
+    carichi: CarichiConfig = Field(default_factory=CarichiConfig)
     wall: WallConfig = Field(default_factory=WallConfig)
     model: ModelConfig = Field(default_factory=ModelConfig)
     run: RunConfig = Field(default_factory=RunConfig)

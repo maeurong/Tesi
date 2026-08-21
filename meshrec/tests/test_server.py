@@ -41,9 +41,11 @@ def test_la_radice_serve_l_interfaccia(cliente):
     assert "text/html" in risposta.headers["content-type"]
 
 
-def test_lo_stato_della_corsa_elenca_gli_undici_step(cliente):
+def test_lo_stato_della_corsa_elenca_i_tredici_step(cliente):
+    """Variante scaduta dalla Fase 5 (Task 6): lo step 13 (solutore) allunga
+    STEP_KEYS a tredici voci, e /api/run le elenca tutte."""
     corpo = cliente.get("/api/run").json()
-    assert len(corpo["steps"]) == 12
+    assert len(corpo["steps"]) == 13
     assert corpo["steps"][0]["chiave"] == "01_load"
     assert {voce["stato"] for voce in corpo["steps"]} == {"mai eseguito"}
 
@@ -949,6 +951,108 @@ def _mesh_dalla_risposta(risposta):
     )
 
 
+def test_il_contorno_restituisce_gli_indici_dei_nodi_originali(tmp_path):
+    """Senza la corrispondenza, un campo per nodo non sa dove va.
+
+    `np.unique(..., return_inverse)` la calcola gia' dentro `_contorno_del_volume`
+    e fino alla Fase 5 la buttava via. Riallinearla a valle, in ogni consumatore,
+    sarebbe la forma d'errore che la Fase 5 esiste per non commettere: un indice
+    che scivola e nessuna metrica che lo smentisce.
+
+    Il nodo isolato (indice 2) resta fuori dal contorno: senza di lui `indici`
+    coinciderebbe con `np.arange`, e la mutazione dello step 6 non morderebbe.
+    """
+    import numpy as np
+
+    punti = np.array(
+        [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [9.0, 9.0, 9.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+    )
+    corsa = tmp_path / "corsa"
+    _scrivi_volume(corsa, punti, [[0, 1, 3, 4]])
+
+    from meshrec.core import pipeline
+
+    vertici, _facce, indici = server._contorno_del_volume(corsa / pipeline.ARTIFACTS[9])
+
+    assert len(indici) == len(vertici)
+    assert vertici == pytest.approx(punti[indici])
+
+
+def test_una_voce_di_contorno_con_indici_di_lunghezza_sbagliata_e_rifiutata(tmp_path):
+    """M10 del giro finale: `_leggi_contorno` negava `facce.max() >= len(vertici)`
+    ma non `len(indici) != len(vertici)`.
+
+    `indici` e' l'unico dei tre che indicizza un array **diverso**
+    (`griglia.point_data`, non `vertici`), quindi l'argomento del commento
+    accanto vale di piu' per lui, non di meno: `/api/campo` lo usa per
+    ritagliare il campo sui nodi del contorno. Lungo o corto con valori tutti
+    in dominio, numpy non solleva; il colore si posa sfalsato di un nodo e
+    nessuno lo dice.
+
+    Mutazione che uccide: togliere la guardia `len(indici) != len(vertici)`.
+    Senza, `_leggi_contorno` restituisce la voce e l'assert cade.
+    """
+    import numpy as np
+
+    vertici = np.zeros((4, 3), dtype="<f4")
+    facce = np.array([[0, 1, 2]], dtype="<u4")
+    voce = tmp_path / "voce.npz"
+
+    # Corta: tre indici per quattro vertici. Tutti in dominio su point_data.
+    np.savez(voce, vertici=vertici, facce=facce, indici=np.array([0, 1, 2], dtype="<u4"))
+    assert server._leggi_contorno(voce) is None
+
+    # Lunga: cinque indici per quattro vertici.
+    np.savez(voce, vertici=vertici, facce=facce, indici=np.arange(5, dtype="<u4"))
+    assert server._leggi_contorno(voce) is None
+
+    # Giusta: la voce sana continua a passare, altrimenti la guardia avrebbe
+    # solo spento la cache.
+    np.savez(voce, vertici=vertici, facce=facce, indici=np.arange(4, dtype="<u4"))
+    assert server._leggi_contorno(voce) is not None
+
+
+def test_il_campo_legge_il_vtu_una_volta_sola(cliente, tmp_path, monkeypatch):
+    """I3 del giro finale, differito due volte.
+
+    `campo()` faceva `meshio.read(percorso)` per i campi di soluzione e poi
+    chiamava `_contorno_del_volume(percorso)`, che a cache fredda rileggeva lo
+    stesso file. Due letture intere per richiesta: su 13_solution.vtu di
+    runs/lab_telaio_v2, 8,58 MB misurati il 22/08/2026, e su lab_crop il
+    commento a VERSIONE_CONTORNO dichiara «circa 15 s e oltre un gigabyte di
+    picco». Tutto sul primo clic del pannello Campo, che e' quello della
+    dimostrazione.
+
+    Mutazione che uccide: rimettere `_contorno_del_volume(percorso)` senza la
+    griglia. Il contatore arriva a 2 e l'assert cade.
+    """
+    import meshio
+    import numpy as np
+
+    punti = np.array(
+        [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [9.0, 9.0, 9.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+    )
+    _scrivi_soluzione(
+        tmp_path / "corsa", punti, [[0, 1, 3, 4]], {"VM_GRAVITA": np.arange(5.0)}
+    )
+
+    letture = []
+    vera = meshio.read
+
+    def contata(percorso, *resto, **chiavi):
+        letture.append(Path(percorso).name)
+        return vera(percorso, *resto, **chiavi)
+
+    monkeypatch.setattr(meshio, "read", contata)
+
+    risposta = cliente.get("/api/campo/GRAVITA/VM")
+
+    assert risposta.status_code == 200
+    assert letture.count("13_solution.vtu") == 1, (
+        f"il .vtu e' stato letto {letture.count('13_solution.vtu')} volte: {letture}"
+    )
+
+
 def test_il_contorno_del_volume_porta_solo_i_vertici_che_disegna(cliente, tmp_path):
     """X-Vertices deve contare i vertici che il browser disegna davvero.
 
@@ -1139,6 +1243,190 @@ def test_una_nuvola_chiesta_come_mesh_e_rifiutata_invece_di_tornare_vuota(client
     corpo = risposta.json()
     assert "triangoli" in corpo["messaggio"]
     assert "0 triangoli" in corpo["messaggio"]
+
+
+def _scrivi_soluzione(corsa: Path, punti, tetraedri, point_data: dict) -> None:
+    """13_solution.vtu come lo scriverebbe solve.risolvi (Task 6): stesso
+    schema di _scrivi_volume, con i campi per nodo del contratto di solve.py."""
+    from meshrec.core import abaqus, pipeline
+
+    corsa.mkdir(exist_ok=True)
+    abaqus.write_vtu(corsa / pipeline.ARTIFACTS[13], punti, tetraedri, point_data=point_data)
+
+
+def test_il_campo_risponde_i_valori_del_contorno_col_proprio_massimo(cliente, tmp_path):
+    """Il nodo isolato (indice 2) non e' un vertice del contorno: se il campo
+    filtrato dagli indici sbagliasse, o la lunghezza del corpo non tornerebbe
+    (4 vertici, non 5) o il massimo dichiarato includerebbe il suo valore (99),
+    che qui e' fuori scala apposta."""
+    import numpy as np
+
+    punti = np.array(
+        [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [9.0, 9.0, 9.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+    )
+    vm_gravita = np.array([1.0, 2.0, 99.0, 3.0, 4.0])
+    _scrivi_soluzione(
+        tmp_path / "corsa", punti, [[0, 1, 3, 4]], {"VM_GRAVITA": vm_gravita}
+    )
+
+    risposta = cliente.get("/api/campo/GRAVITA/VM")
+
+    assert risposta.status_code == 200
+    valori = np.frombuffer(risposta.content, dtype="<f4")
+    # Nodi 0, 1, 3, 4 nell'ordine dei vertici del contorno (non 0..3): il
+    # nodo isolato (indice 2, valore 99) resta fuori.
+    assert valori == pytest.approx([1.0, 2.0, 3.0, 4.0])
+    # 4.0 e non 99: il nodo isolato non e' un vertice del contorno e non
+    # partecipa al massimo.
+    assert float(risposta.headers["X-Max"]) == pytest.approx(4.0)
+    # Il taglio della scala (p99) lo calcola il browser sui valori che riceve,
+    # in viewport.scalaDelCampo: X-Min, X-P99 e X-Sopra-P99 c'erano e nessuno
+    # le leggeva. Un dato che il client ignora invecchia in silenzio.
+    assert "X-Min" not in risposta.headers
+    assert "X-P99" not in risposta.headers
+    assert "X-Sopra-P99" not in risposta.headers
+
+
+def test_il_campo_u_e_la_magnitudine_dello_spostamento(cliente, tmp_path):
+    """U_<caso> e' un vettore (spostamento nodale): un corpo con tre float per
+    vertice romperebbe la corrispondenza 1-a-1 coi vertici del contorno che
+    l'intestazione X-Vertices di /api/mesh promette. La magnitudine e' l'unica
+    riduzione a scalare che non butta via nessuna direzione piu' delle altre."""
+    import numpy as np
+
+    punti = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+    u_gravita = np.array([[3.0, 4.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]])
+    _scrivi_soluzione(tmp_path / "corsa", punti, [[0, 1, 2, 3]], {"U_GRAVITA": u_gravita})
+
+    risposta = cliente.get("/api/campo/GRAVITA/U")
+
+    assert risposta.status_code == 200
+    valori = np.frombuffer(risposta.content, dtype="<f4")
+    assert valori == pytest.approx([5.0, 0.0, 0.0, 0.0])
+
+
+@pytest.mark.parametrize("caso, grandezza", [
+    ("PIPPO", "VM"),
+    ("GRAVITA", "PIPPO"),
+    ("%2e%2e", "VM"),
+])
+def test_caso_o_grandezza_inesistenti_tornano_quattrocento_non_keyerror(
+    cliente, tmp_path, caso, grandezza
+):
+    """Ingressi degeneri: nessuno di questi valori esiste in point_data, e
+    nessuno di essi costruisce un percorso sul filesystem (la chiave e' solo
+    una voce di un dict gia' in memoria) -- '%2e%2e' (".." con caratteri
+    percent-encoded, che arriva decodificato al parametro di rotta) non fa
+    quindi leggere nulla fuori dalla cartella della corsa.
+
+    Un ".." letterale non arriva nemmeno qui: la normalizzazione dell'URL lato
+    client collassa il segmento prima ancora di spedire la richiesta, e
+    FastAPI risponde 404 di suo perche' nessuna rotta corrisponde -- una
+    protezione precedente alla mia, non verificabile da questo test.
+    """
+    import numpy as np
+
+    punti = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+    _scrivi_soluzione(
+        tmp_path / "corsa", punti, [[0, 1, 2, 3]], {"VM_GRAVITA": np.ones(4)}
+    )
+
+    risposta = cliente.get(f"/api/campo/{caso}/{grandezza}")
+
+    assert risposta.status_code == 400
+    corpo = risposta.json()
+    assert corpo["errore"] != "KeyError"
+
+
+def test_un_modo_chiesto_come_u_o_vm_e_rifiutato_con_un_messaggio(cliente, tmp_path):
+    """MODO_<n> non ha ne' U_ ne' VM_: e' una forma normalizzata sulla massa,
+    non uno spostamento fisico (solve.py:185-190). Il messaggio deve dirlo,
+    non limitarsi a "non trovato"."""
+    import numpy as np
+
+    punti = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+    _scrivi_soluzione(
+        tmp_path / "corsa", punti, [[0, 1, 2, 3]], {"MODO_1": np.ones((4, 3))}
+    )
+
+    risposta = cliente.get("/api/campo/MODO_1/VM")
+
+    assert risposta.status_code == 400
+    corpo = risposta.json()
+    assert "massa" in corpo["messaggio"]
+
+
+def test_soluzione_assente_torna_quattrocento_dichiarato(cliente):
+    """Una corsa fermata allo step 12 (normale in uno sweep) non ha
+    13_solution.vtu: deve dirlo, non tornare una traccia di stack."""
+    risposta = cliente.get("/api/campo/GRAVITA/VM")
+
+    assert risposta.status_code == 400
+    corpo = risposta.json()
+    assert set(corpo) == {"errore", "messaggio"}
+    assert corpo["errore"] == "FileNotFoundError"
+
+
+def test_vtu_senza_point_data_torna_quattrocento_non_attributeerror(cliente, tmp_path):
+    """Un .vtu scritto senza campi (point_data=None) non deve far esplodere
+    la lettura di point_data con un AttributeError."""
+    import numpy as np
+
+    punti = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+    _scrivi_soluzione(tmp_path / "corsa", punti, [[0, 1, 2, 3]], {})
+
+    risposta = cliente.get("/api/campo/GRAVITA/VM")
+
+    assert risposta.status_code == 400
+    assert risposta.json()["errore"] != "AttributeError"
+
+
+def test_contorno_con_zero_vertici_risponde_vuoto_senza_indexerror(cliente, tmp_path, monkeypatch):
+    """Un volume senza tetraedri (sweep interrotto a meta' scrittura, o un
+    caso limite geometrico) da' un contorno vuoto: _contorno_del_volume non
+    solleva (verificato con numpy direttamente), ma il campo endpoint deve
+    anche lui restare in piedi invece di sollevare da np.percentile su un
+    array vuoto."""
+    import meshio
+    import numpy as np
+
+    from meshrec.core import pipeline
+
+    corsa = tmp_path / "corsa"
+    corsa.mkdir()
+    percorso = corsa / pipeline.ARTIFACTS[13]
+    percorso.write_bytes(b"non importa: meshio.read e' rimpiazzata")
+
+    class _MeshVuota:
+        cells_dict = {"tetra": np.zeros((0, 4), dtype=np.int64)}
+        points = np.zeros((4, 3))
+        point_data = {"VM_GRAVITA": np.zeros((4,))}
+
+    monkeypatch.setattr(meshio, "read", lambda _percorso: _MeshVuota())
+
+    risposta = cliente.get("/api/campo/GRAVITA/VM")
+
+    assert risposta.status_code == 200
+    assert risposta.content == b""
+    assert risposta.headers["X-Max"] == "0.0"
+
+
+def test_campo_costante_risponde_il_proprio_massimo_senza_divisione(cliente, tmp_path):
+    """max == min: se l'intestazione nascesse da una normalizzazione
+    (valore - min) / (max - min), qui dividerebbe per zero. Qui non c'e' alcuna
+    divisione, e questo test lo pin-na: il massimo di un campo costante e' la
+    costante stessa."""
+    import numpy as np
+
+    punti = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+    _scrivi_soluzione(
+        tmp_path / "corsa", punti, [[0, 1, 2, 3]], {"VM_GRAVITA": np.full(4, 7.0)}
+    )
+
+    risposta = cliente.get("/api/campo/GRAVITA/VM")
+
+    assert risposta.status_code == 200
+    assert float(risposta.headers["X-Max"]) == pytest.approx(7.0)
 
 
 def test_il_clic_sullo_step_sceglie_fra_nuvola_e_mesh_senza_perdere_il_pannello():
@@ -1444,6 +1732,7 @@ def test_fra_due_geometrie_della_stessa_generazione_vince_chi_e_partita_dopo(num
         for nome in (
             "superata",
             "apriGeometria",
+            "didascaliaDellaVista",
             "mostraNuvolaDelloStep",
             "mostraStep",
             "ricaricaVista",
@@ -1817,7 +2106,10 @@ def test_la_cache_del_contorno_non_sfratta_quella_della_nuvola(cliente, tmp_path
 
     voce_contorno = server._percorso_contorno(sorgente)
     server._scrivi_contorno(
-        voce_contorno, np.zeros((1, 3), dtype="<f4"), np.zeros((1, 3), dtype="<u4")
+        voce_contorno,
+        np.zeros((1, 3), dtype="<f4"),
+        np.zeros((1, 3), dtype="<u4"),
+        np.zeros((1,), dtype="<u4"),
     )
     viewport._rimuovi_voci_vecchie(voce_contorno.parent, voce_contorno)
 
@@ -2194,9 +2486,11 @@ def test_il_confronto_dal_server_dice_quali_modelli_mancano(cliente, tmp_path):
 
 
 def test_lo_step_12_e_il_tetto_di_esegui_da_qui_in_poi(cliente):
-    """RunConfig.to_step ha predefinito 12 dalla Fase 4 (config.py): lo step
-    12 e' il prior geometrico e chiude la corsa madre. Fermo a 11 la riga 12
-    resterebbe 'mai eseguita' dietro 'esegui da qui in poi', senza spiegazione."""
+    """Il tetto e' una scelta dell'interfaccia (server.py), non un'eredita' dal
+    predefinito di RunConfig.to_step (13 dalla Fase 5: il solutore fa parte di
+    ogni corsa). 'Riprendi da qui' nel pannello non deve far partire un
+    processo esterno da solo. Fermo a 11 la riga 12 resterebbe 'mai eseguita'
+    dietro 'esegui da qui in poi', senza spiegazione."""
     risposta = cliente.post("/api/step/9/from")
 
     assert risposta.json()["fino_a"] == 12

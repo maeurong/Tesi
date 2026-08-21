@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import functools
 import warnings
 from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
 
-from meshrec.core.config import GRAVITY_MM_S2, AnalysisConfig, Material, TetConfig
+from meshrec.core.config import GRAVITY_MM_S2, AnalysisConfig, CarichiConfig, Material, TetConfig
 
 _SET_ITEMS_PER_LINE = 8
 
@@ -24,6 +25,33 @@ def _set_lines(indices: np.ndarray) -> list[str]:
         ", ".join(str(value) for value in one_based[start : start + _SET_ITEMS_PER_LINE])
         for start in range(0, len(one_based), _SET_ITEMS_PER_LINE)
     ]
+
+
+def _passo_statico(
+    nome: str, carichi: list[str], *, elset: str, fixed_nset: str,
+    print_nsets: tuple[str, ...], pressure: tuple[str, float] | None,
+) -> list[str]:
+    """Un passo statico completo: nome a commento, carichi, uscite.
+
+    Il nome sta in un commento e non in `*STEP, NAME=` perche' CalculiX
+    rifiuta quel parametro e ne emette un avviso; un avviso benigno
+    tollerato nasconde quello vero. `*NODE FILE`/`*EL FILE` invece di
+    `*OUTPUT, FIELD`: sono keyword Abaqus legacy valide, e sono quelle che
+    CalculiX vuole per l'uscita ascii.
+
+    `RF` su `fixed_nset` non e' un'uscita in piu': e' il controllo di
+    conservazione, e sta nel deck perche' e' li' che il solutore lo puo'
+    dare.
+    """
+    righe = [f"** NOME PASSO: {nome}", "*STEP", "*STATIC", "*DLOAD"]
+    righe += carichi
+    if pressure is not None:
+        righe += ["*DSLOAD", f"{pressure[0]}, P, {pressure[1]}"]
+    for name in print_nsets:
+        righe += [f"*NODE PRINT, NSET={name}", "U"]
+    righe += [f"*NODE PRINT, NSET={fixed_nset}", "RF"]
+    righe += ["*NODE FILE", "U", "*EL FILE", "S, E", "*END STEP"]
+    return righe
 
 
 def write_inp(
@@ -42,6 +70,7 @@ def write_inp(
     element_surfaces: dict[str, list[tuple[int, int]]] | None = None,
     ties: tuple[tuple[str, str, str] | tuple[str, str, str, float], ...] = (),
     pressure: tuple[str, float] | None = None,
+    carichi: CarichiConfig | None = None,
 ) -> None:
     """Scrive un modello pronto all'analisi statica sotto peso proprio.
 
@@ -66,6 +95,25 @@ def write_inp(
     `(nome, dipendente, indipendente, tolleranza)`. Un *TIE a tre elementi non
     scrive affatto quel parametro: assente non e' la stessa cosa di zero,
     stessa regola gia' vera per `pressure` qui sopra.
+
+    `carichi` e' la quarta aggiunta, della Fase 5: senza di esso il deck ha un
+    solo passo statico sotto peso proprio, come prima. Con esso si aggiungono
+    fino a tre passi in piu' -- spinta orizzontale, carico in sommita',
+    modale -- ciascuno scritto da `_passo_statico`, tranne il modale che non
+    chiede tensioni. Ogni passo e' scritto in dialetto CalculiX: il nome sta
+    in un commento e non in `*STEP, NAME=`, e l'uscita e' `*NODE FILE`/`*EL
+    FILE` invece di `*OUTPUT, FIELD`. Misurato il 21/08/2026: la forma
+    precedente faceva emettere a `ccx` 2.22 due avvisi ("parameter not
+    recognized: NAME=..." e "...FIELD"), questa zero.
+
+    `pressure`, quando dato insieme a `carichi`, si ripete identico in ogni
+    passo statico aggiunto (peso proprio, spinta, carico in sommita'): non e'
+    un caso di carico fra gli altri, e' una condizione permanente del modello
+    -- la stessa natura del peso proprio, che infatti e' gia' ripetuto in
+    ognuno di quei passi per la stessa ragione (senza di esso ogni passo
+    diverso dal primo descriverebbe una struttura che non pesa). Una spinta
+    del terreno dichiarata in Fase 4 non smette di agire perche' il passo
+    successivo aggiunge anche un carico in sommita'.
     """
     if fixed_nset not in node_sets:
         raise ValueError(f"il set vincolato '{fixed_nset}' non e fra i node_sets forniti")
@@ -141,26 +189,47 @@ def write_inp(
         f"{material.density:.9g}",
         "*BOUNDARY",
         f"{fixed_nset}, 1, 3",
-        f"*STEP, NAME={step_name}",
-        "*STATIC",
-        "*DLOAD",
-        f"{elset}, GRAV, {gravity}, 0.0, 0.0, -1.0",
     ]
-    if pressure is not None:
-        lines += ["*DSLOAD", f"{pressure[0]}, P, {pressure[1]}"]
 
-    for name in print_nsets:
-        lines += [f"*NODE PRINT, NSET={name}", "U"]
+    passo_statico = functools.partial(
+        _passo_statico, elset=elset, fixed_nset=fixed_nset,
+        print_nsets=print_nsets, pressure=pressure,
+    )
 
-    lines += [
-        "*OUTPUT, FIELD",
-        "*NODE OUTPUT",
-        "U",
-        "*ELEMENT OUTPUT",
-        "S, E",
-        "*END STEP",
-        "",
-    ]
+    peso = f"{elset}, GRAV, {gravity}, 0.0, 0.0, -1.0"
+    lines += passo_statico(step_name, [peso])
+
+    if carichi is not None and carichi.spinta is not None:
+        # La spinta accompagna il peso proprio nello stesso passo: da sola
+        # descriverebbe una struttura che non pesa. La direzione e' un asse
+        # orizzontale del modello, che dopo la correzione della terna e'
+        # davvero orizzontale.
+        versore = {"x": "1.0, 0.0, 0.0", "y": "0.0, 1.0, 0.0"}[carichi.spinta.asse]
+        spinta = f"{elset}, GRAV, {gravity * carichi.spinta.coefficiente}, {versore}"
+        lines += passo_statico("SPINTA_ORIZZONTALE", [peso, spinta])
+
+    if carichi is not None and carichi.carico_sommita is not None:
+        sommita = carichi.carico_sommita
+        if sommita.nset not in node_sets or len(node_sets[sommita.nset]) == 0:
+            raise ValueError(
+                f"il carico in sommita nomina l'insieme '{sommita.nset}', che non e' "
+                f"fra quelli scritti nel deck ({sorted(node_sets)}) o e' vuoto: il "
+                f"solutore leggerebbe un carico applicato a nulla"
+            )
+        nodi_carico = node_sets[sommita.nset]
+        per_nodo = sommita.risultante / len(nodi_carico)
+        righe_cload = ["*CLOAD"] + [f"{int(n) + 1}, 3, {-per_nodo:.9e}" for n in nodi_carico]
+        lines += passo_statico("CARICO_TOP", [peso] + righe_cload)
+
+    if carichi is not None and carichi.modale is not None:
+        # Nessun `*EL FILE`: le forme sono normalizzate sulla massa e una
+        # tensione calcolata su di esse non significa nulla. Non si chiede.
+        lines += [
+            "** NOME PASSO: MODALE", "*STEP", "*FREQUENCY", str(carichi.modale.modi),
+            "*NODE FILE", "U", "*END STEP",
+        ]
+
+    lines.append("")
 
     Path(path).write_text("\n".join(lines), encoding="ascii")
 
@@ -471,20 +540,34 @@ def align_to_axes(
     e' l'unico modo per riportare i risultati nel sistema originale dello scanner.
 
     Assunzione: lo scanner e' livellato, cioe' la z della nuvola in ingresso
-    e' gia' il verticale reale e l'unica ambiguita' e' l'imbardata. Se la
-    nuvola e' inclinata fuori dal piano orizzontale (beccheggio o rollio),
-    l'assegnazione dell'asse altezza non e' garantita.
+    e' gia' il verticale reale e l'unica ambiguita' e' l'imbardata. Dalla
+    Fase 5 questa non e' piu' una premessa che il codice dichiara e poi
+    disattende: z e' imposto uguale a [0, 0, 1] per costruzione, e la sola
+    direzione stimata (via PCA sulla proiezione orizzontale) e' lo spessore.
+    Se la nuvola in ingresso e' fuori piombo (beccheggio o rollio), `BASE`
+    diventa un taglio orizzontale a quota minima e non la base fisica del
+    pezzo: la correzione sposta il difetto da "asse sbagliato" a "assunzione
+    dichiarata e verificabile da chi fornisce la nuvola".
 
     `reference`, se fornito, e' l'insieme di punti su cui stimare centro e
-    direzioni principali; in sua assenza si usano i nodi stessi. Il
-    riferimento e' una proprieta della geometria e non del maglio, e la
-    distinzione non e' teorica: la stima e' una PCA che pesa ogni punto allo
-    stesso modo, mentre la densita dei nodi dipende da dove il raffinamento
-    ha infittito, cioe' da un artefatto. Misurato sul muro reale: stimando
-    sui nodi del volume la prima direzione principale si scosta di 21,44
-    gradi dal verticale, e di 15,33 anche restringendosi ai soli nodi di
-    bordo, mentre sui vertici della superficie ricostruita lo scarto e' di
-    0,45 gradi.
+    direzione dello spessore; in sua assenza si usano i nodi stessi. Il
+    riferimento resta una proprieta della geometria e non del maglio: la PCA
+    a due dimensioni pesa ogni punto della proiezione orizzontale allo stesso
+    modo, mentre la densita dei nodi di volume dipende da dove TetGen ha
+    infittito, cioe' da un artefatto del raffinamento e non dalla forma.
+
+    Con z fisso l'effetto e' molto piu piccolo di quanto fosse con la PCA a
+    tre dimensioni (quella dava, sugli stessi dati, 21,44 gradi sui nodi di
+    volume e 15,33 sui soli nodi di bordo contro 0,45 sulla superficie).
+    Misurato ora, con l'algoritmo attuale, su `muro` e `lab_crop`: la
+    direzione dello spessore stimata sui nodi di bordo del volume coincide
+    con quella sui vertici della superficie ricostruita (scarto nullo entro
+    la precisione macchina su entrambi), e anche includendo i nodi interni lo
+    scarto resta sotto 0,12 gradi (0,02 su `muro`, 0,11 su `lab_crop`). La
+    misura vale sulle due geometrie disponibili e non e' una garanzia
+    generale — resta un parametro esposto, non un dettaglio interno, perche'
+    una nuvola con uno sbilanciamento di densita' piu marcato di questi due
+    banchi potrebbe spostare la stima oltre quanto misurato qui.
 
     La trasformazione si applica comunque a tutti i nodi passati, e lo
     scostamento al primo ottante si calcola sui nodi trasformati, non sul
@@ -497,31 +580,27 @@ def align_to_axes(
     centred = points - centre
     centred_reference = reference - centre
 
-    _, _, principal = np.linalg.svd(centred_reference, full_matrices=False)
-    extents = np.ptp(centred_reference @ principal.T, axis=0)
+    # z e' il verticale del sistema in ingresso, non una direzione stimata. Il
+    # docstring di questa funzione ha sempre dichiarato che lo scanner e'
+    # livellato e che l'unica ambiguita' e' l'imbardata; fino alla Fase 5 il
+    # codice lo dichiarava e poi lasciava scegliere l'altezza a una PCA a tre
+    # dimensioni. Su `lab_frame.pcd` quella scelta cadeva a 22,43 gradi dal
+    # verticale, perche' le zapatas larghe e basse tirano la direzione
+    # principale, e da li' il set BASE prendeva un piede su due.
+    z_dir = np.array([0.0, 0.0, 1.0])
 
-    thickness_axis = int(np.argmin(extents))
-    remaining = [index for index in range(3) if index != thickness_axis]
-    # fra le due direzioni restanti, l'altezza e' quella piu vicina al verticale
-    # originale: la gravita agisce lungo il verticale reale, non lungo l'asse
-    # con l'estensione maggiore.
-    verticality = [abs(principal[index][2]) for index in remaining]
-    height_axis = remaining[int(np.argmax(verticality))]
+    # Lo spessore si sceglie fra le sole direzioni orizzontali: PCA a due
+    # dimensioni sulla proiezione. Cosi' l'imbardata resta l'unica grandezza
+    # stimata, e l'assegnazione dell'altezza non dipende piu' da come la massa
+    # e' distribuita in quota.
+    plane = centred_reference[:, :2]
+    _, _, principal = np.linalg.svd(plane, full_matrices=False)
+    extents = np.ptp(plane @ principal.T, axis=0)
+    narrow = principal[int(np.argmin(extents))]
+    x_dir = fix_sign(np.array([narrow[0], narrow[1], 0.0]))
 
-    vertical = principal[height_axis]
-    # L'altezza punta verso l'alto del sistema originale: la gravita agisce
-    # lungo il verticale reale, e BASE deve restare l'estremita fisicamente
-    # piu bassa. Se la nuvola e' quasi coricata il prodotto scalare non decide,
-    # e si ricade sulla convenzione di segno deterministica.
-    if abs(vertical[2]) > 1e-6:
-        z_dir = vertical if vertical[2] > 0.0 else -vertical
-    else:
-        z_dir = fix_sign(vertical)
-
-    x_dir = fix_sign(principal[thickness_axis])
     # y come prodotto vettoriale: la terna e' destrorsa per costruzione, quindi
-    # il determinante vale +1 e non serve alcuna correzione a posteriori, che
-    # cambierebbe il verso di un asse gia deciso.
+    # il determinante vale +1 e non serve alcuna correzione a posteriori.
     y_dir = np.cross(z_dir, x_dir)
 
     rotation = np.stack([x_dir, y_dir, z_dir])
@@ -619,11 +698,54 @@ def footprint_coverage(
     return float(reached[in_contact].mean())
 
 
+def constraint_plan_extent(nodes: np.ndarray, indices: np.ndarray) -> dict[str, float]:
+    """Quanto dell'impronta del pezzo l'insieme vincolato attraversa, per asse.
+
+    Nasce da un difetto misurato il 21/08/2026: su `lab_frame.pcd` il set BASE
+    teneva 278 nodi ammucchiati in una toppa larga 233 mm su un pezzo lungo
+    3144, il telaio penzolava da un piede solo, lo spostamento sotto peso
+    proprio usciva a 15,25 mm invece di 0,0367 — e `footprint_coverage`
+    dichiarava 1,0. Non per un bug: quella misura risponde a "quanta parte
+    dell'appoggio che vedo e' vincolata", e vedeva un piede solo.
+
+    Questa grandezza risponde all'altra domanda. Vale 1 per un muro, e vale 1
+    **anche per un telaio a due piedi**, perche' i due piedi attraversano
+    l'intera luce pur essendo vuoti in mezzo: non confonde "vuoto in mezzo" con
+    "manca un appoggio". Crolla quando l'insieme tiene un angolo di una cosa
+    larga.
+
+    Non ha parametri impliciti — nessun lato di cella, nessuna banda di
+    contatto, nessun asse da scegliere — ed e' per questo che puo' fare da
+    regola dove `footprint_coverage` resta una diagnosi. La soglia e' larga
+    perche' la grandezza e' quella giusta: sul caso misurato il divario e' fra
+    0,074 e 1.
+
+    `footprint_coverage` resta accanto: insieme dicono piu' di ciascuna da sola
+    — "l'insieme copre tutto l'appoggio che vede, e vede il 7% del pezzo".
+    """
+    points = np.asarray(nodes, dtype=np.float64)
+    scelti = points[np.asarray(indices, dtype=np.int64)]
+    if len(scelti) == 0:
+        return {"x": 0.0, "y": 0.0, "minimo": 0.0}
+    rapporti: dict[str, float] = {}
+    for asse, nome in ((0, "x"), (1, "y")):
+        pezzo = float(np.ptp(points[:, asse]))
+        # Un pezzo senza estensione su un asse non ha nulla da coprire su
+        # quell'asse: 1.0, non una divisione per zero e non uno 0.0 che
+        # sembrerebbe un vincolo mancante.
+        rapporti[nome] = 1.0 if pezzo == 0.0 else float(np.ptp(scelti[:, asse]) / pezzo)
+    rapporti["minimo"] = min(rapporti["x"], rapporti["y"])
+    return rapporti
+
+
 def build_node_sets(nodes: np.ndarray, tolerance: float) -> dict[str, np.ndarray]:
     """I sei set di faccia, sul modello gia allineato agli assi.
 
-    `BASE` e `TOP` sono verificati: l'asse z e' il verticale reale (vedi
-    `align_to_axes`), quindi il minimo e' davvero la base del solido.
+    `BASE` e `TOP` sono verificati **per costruzione dalla Fase 5**: `align_to_axes`
+    impone l'asse z uguale al verticale della nuvola in ingresso invece di
+    stimarlo con una PCA, quindi il minimo e' davvero la base del solido (fino
+    alla Fase 5 l'affermazione era falsa su una geometria con appoggi larghi e
+    bassi, dove la PCA sceglieva un asse a 22,43 gradi dal verticale).
 
     `FACE_FRONT`, `FACE_BACK`, `SIDE_LEFT` e `SIDE_RIGHT` sono invece **nomi di
     convenzione**, non identificazioni fisiche. Sono assegnati al minimo e al
@@ -650,13 +772,22 @@ def build_node_sets(nodes: np.ndarray, tolerance: float) -> dict[str, np.ndarray
 
 
 def write_vtu(
-    path: Path, nodes: np.ndarray, elements: np.ndarray, element_type: str = "C3D4"
+    path: Path,
+    nodes: np.ndarray,
+    elements: np.ndarray,
+    element_type: str = "C3D4",
+    point_data: dict[str, np.ndarray] | None = None,
 ) -> None:
     """Esportazione per la visualizzazione, delegata a meshio.
 
     meshio ha nomi propri per i tipi di cella, che non sono quelli del
     solutore: la tabella traduce, e un tipo non tradotto solleva invece di
     scrivere un file che nessun visualizzatore aprirebbe.
+
+    `point_data`, dalla Fase 5, sono i campi per nodo che lo step 13 scrive
+    (spostamenti e tensione equivalente per caso di carico, forme modali):
+    assente lascia il file identico a prima, e i chiamanti gia' scritti (lo
+    step 9 e `export_model`) non cambiano comportamento.
     """
     import meshio
 
@@ -666,10 +797,13 @@ def write_vtu(
         raise ValueError(f"tipo di elemento '{element_type}' senza corrispondente in meshio")
 
     Path(path).parent.mkdir(parents=True, exist_ok=True)
-    meshio.write_points_cells(
+    meshio.write(
         str(path),
-        np.asarray(nodes, dtype=np.float64),
-        [(celle[element_type], np.asarray(elements, dtype=np.int64))],
+        meshio.Mesh(
+            np.asarray(nodes, dtype=np.float64),
+            [(celle[element_type], np.asarray(elements, dtype=np.int64))],
+            point_data=point_data or {},
+        ),
     )
 
 
@@ -685,8 +819,16 @@ def export_model(
     element_surfaces: dict[str, list[tuple[int, int]]] | None = None,
     ties: tuple[tuple[str, str, str] | tuple[str, str, str, float], ...] = (),
     pressure: tuple[str, float] | None = None,
+    carichi: CarichiConfig | None = None,
 ) -> dict[str, object]:
     """Step 11: allinea, costruisce i set, scrive il deck e il file di visualizzazione.
+
+    `carichi` e' un parametro a se', non un campo di `cfg`: dalla Fase 5 i tre
+    casi di carico oltre al peso proprio (spinta orizzontale, carico in
+    sommita', modale) stanno nel blocco di primo livello `PipelineConfig.
+    carichi`, separato da `analysis` perche' altrimenti cambiavano l'impronta
+    di sweep e i 22 record dei registri smettevano di derivare dalla propria
+    configurazione. E' lo stesso ruolo che `tet_cfg` gia' ha accanto a `cfg`.
 
     `reference` sono i punti su cui stimare la terna: la pipeline passa i
     vertici della superficie da cui la mesh e' stata generata, perche' il
@@ -695,12 +837,23 @@ def export_model(
     e' il comportamento precedente e resta valido sulle geometrie di prova,
     dove i nodi coincidono con la superficie.
 
-    Su dati reali quel ripiego non e' valido, ed e' ora misurato: sul muro di
-    riferimento la terna stimata sui nodi di bordo si scosta di 15,33 gradi dal
-    verticale, `BASE` scende da 18.020 nodi a 874 e la copertura della
-    superficie d'appoggio dal 100,00% al 44,23% — abbastanza da far scattare
-    UnconstrainedModelWarning. Chi chiama questa funzione su una scansione deve
-    passare `reference`.
+    Su dati reali il ripiego resta un compromesso, ma non piu' per il motivo
+    di prima: con z fisso (vedi `align_to_axes`) un riferimento povero non
+    puo' piu' scambiare l'asse altezza, quindi la caduta di `BASE` da 18.020
+    nodi a 874 misurata prima della Fase 5 non e' piu' possibile per
+    costruzione. Il motivo per passare `reference` ora e' piu' piccolo ma
+    resta reale: la PCA a due dimensioni che sceglie lo spessore pesa ogni
+    punto della proiezione orizzontale allo stesso modo, e i nodi di bordo
+    della mesh di volume sono piu' fitti dei vertici della superficie dove
+    TetGen ha suddiviso le facce di ingresso. Misurato su `muro` e
+    `lab_crop` (dettaglio in `align_to_axes`), l'effetto oggi e' sotto 0,12
+    gradi, insufficiente a spostare l'assegnazione degli assi su queste due
+    geometrie, dove le due estensioni orizzontali differiscono di un fattore
+    4,8 e 12,6. Su un'impronta piu' vicina al quadrato il margine e' minore e
+    lo stesso scarto potrebbe pesare di piu': passare `reference` non costa
+    nulla, perche' la pipeline ha gia' i vertici della superficie pronti, ed
+    elimina questa fonte di deriva invece di scommettere che resti sempre
+    piccola.
     """
     from meshrec.core.quality import element_volumes
 
@@ -768,6 +921,7 @@ def export_model(
         element_surfaces=element_surfaces,
         ties=ties,
         pressure=pressure,
+        carichi=carichi,
     )
     write_vtu(path_vtu, aligned, elements, element_type=tipo)
 
@@ -778,6 +932,7 @@ def export_model(
         "boundary_spacing": float(spacing),
         "set_tolerance": float(tolerance),
         "fixed_nset_coverage": float(coverage),
+        "constraint_plan_extent": constraint_plan_extent(aligned, node_sets[cfg.fixed_nset]),
         "node_sets": {name: int(len(indices)) for name, indices in node_sets.items()},
         "volume": volume,
         "mass": volume * cfg.material.density,
@@ -793,4 +948,10 @@ def export_model(
         },
         "ties": [nome for nome, _dipendente, _indipendente, *_tolleranza in ties],
         "pressure": None if pressure is None else {"surface": pressure[0], "value": pressure[1]},
+        "casi_di_carico": [nome for nome in (
+            cfg.step_name,
+            None if carichi is None or carichi.spinta is None else "SPINTA_ORIZZONTALE",
+            None if carichi is None or carichi.carico_sommita is None else "CARICO_TOP",
+            None if carichi is None or carichi.modale is None else "MODALE",
+        ) if nome is not None],
     }

@@ -1,0 +1,1137 @@
+"""Test di `meshrec.core.solve`: lettura del `.frd` e del `.dat`.
+
+Le fixture `.frd` sotto sono quelle del brief del Task 5 (Fase 5), scritte a
+mano dall'architect per riprodurre le due trappole di formato. Le fixture
+`.dat` invece sono misurate da questa sessione (21/08/2026), eseguendo `ccx`
+2.22 su un deck di prova ad hoc in `/tmp/ccx_probe` -- non `lab_telaio_v2`,
+che nessun task fino al 6 ha ancora prodotto: un cubo di otto nodi, un passo
+statico con carico e un passo modale successivo, proprio per catturare la
+contaminazione delle reazioni descritta nel modulo.
+"""
+
+from __future__ import annotations
+
+import math
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+from meshrec.core import abaqus, quality, solve, synth, volume
+from meshrec.core.config import CaricoSommita, CarichiConfig, Modale, SpintaOrizzontale
+from materiale import ANALISI, MATERIALE
+
+# Tre blocchi apposta, non due: il brief ne dava due monotoni (passo 1, poi
+# passo 2), e un contatore incrementale per record `100CL` ci azzecca lo
+# stesso per puro caso di ordine. Qui il passo 1 porta DUE blocchi (DISP e
+# STRESS, come succede davvero quando un passo statico chiede sia
+# spostamenti che tensioni): un contatore darebbe [1, 2, 3], la lettura dal
+# file da [1, 1, 2]. Misurato oggi che ccx ripete il record 100CL una volta
+# per blocco di uscita, anche entro lo stesso passo fisico (`ccx` 2.22,
+# `/tmp/ccx_probe/probe2.frd`).
+FRD_TRE_BLOCCHI = """\
+    1PSTEP                         1           1           1
+  100CL  101 1.000000000           2                     0    1           1
+ -4  DISP        4    1
+ -1         1 1.00000E+00 2.00000E+00 3.00000E+00
+ -1         2 4.00000E+00 5.00000E+00 6.00000E+00
+ -3
+    1PSTEP                         1           1           1
+  100CL  101 1.000000000           2                     0    1           1
+ -4  STRESS      6    1
+ -1         1 1.00000E+01 2.00000E+01 3.00000E+01 4.00000E+01 5.00000E+01 6.00000E+01
+ -3
+    1PSTEP                         2           1           2
+  100CL  102 21.19324067           2                     2    2MODAL      1
+ -4  DISP        4    1
+ -1         1 7.00000E+00 8.00000E+00 9.00000E+00
+ -1         2 1.00000E+01 1.10000E+01 1.20000E+01
+ -3
+"""
+
+
+def test_il_passo_si_legge_dal_file_e_non_dalla_posizione(tmp_path):
+    """Contare i blocchi in ordine cade appena due blocchi condividono un passo.
+
+    Il record 100CL porta il numero di passo, e nei blocchi modali porta la
+    frequenza al posto del tempo. Sul deck del telaio i blocchi DISP sono nove
+    per quattro passi: tre statici piu' sei modi (misurato 21/08/2026).
+    """
+    percorso = tmp_path / "prova.frd"
+    percorso.write_text(FRD_TRE_BLOCCHI, encoding="ascii")
+
+    blocchi = solve.leggi_frd(percorso)
+
+    assert [b.passo for b in blocchi] == [1, 1, 2]
+    assert [b.modale for b in blocchi] == [False, False, True]
+    assert blocchi[2].valore == pytest.approx(21.19324067)
+
+
+def test_il_marchio_modale_sopravvive_all_incollamento(tmp_path):
+    """Nel record modale il passo e il tipo escono incollati: `2MODAL`.
+
+    Un `split()` legge un token solo e l'attribuzione salta in silenzio. La
+    lettura e' a colonne fisse.
+    """
+    percorso = tmp_path / "prova.frd"
+    percorso.write_text(FRD_TRE_BLOCCHI, encoding="ascii")
+
+    blocchi = solve.leggi_frd(percorso)
+
+    assert blocchi[2].passo == 2, "il passo e' stato letto insieme alla parola MODAL"
+
+
+def test_i_blocchi_modali_portano_forme_e_non_spostamenti(tmp_path):
+    """Un blocco modale non e' un caso di carico e non deve poter fingere di esserlo."""
+    percorso = tmp_path / "prova.frd"
+    percorso.write_text(FRD_TRE_BLOCCHI, encoding="ascii")
+
+    blocchi = solve.leggi_frd(percorso)
+
+    assert not blocchi[0].modale
+    assert not blocchi[1].modale
+    assert blocchi[2].modale
+
+
+def test_von_mises_di_uno_stato_di_taglio_puro():
+    """Taglio puro tau: la von Mises vale tau*sqrt(3), forma chiusa."""
+    tensioni = np.array([[0.0, 0.0, 0.0, 5.0, 0.0, 0.0]])
+
+    assert solve.von_mises(tensioni)[0] == pytest.approx(5.0 * math.sqrt(3.0))
+
+
+def test_von_mises_di_una_trazione_monoassiale():
+    """Trazione sigma su un asse solo: la von Mises vale sigma."""
+    tensioni = np.array([[7.0, 0.0, 0.0, 0.0, 0.0, 0.0]])
+
+    assert solve.von_mises(tensioni)[0] == pytest.approx(7.0)
+
+
+# Misurato oggi (vedi docstring del modulo): un passo statico con RF
+# richiesta su BASE, seguito da un passo modale che non la richiede ne' la
+# cancella. ccx la ristampa comunque per ciascun modo, con numeri all'ordine
+# dei milioni di N.
+DAT_REAZIONI_CONTAMINATO = """\
+
+                        S T E P       1
+
+
+                                INCREMENT     1
+
+
+ forces (fx,fy,fz) for set BASE and time  0.1000000E+01
+
+         1 -1.000000E+03 -1.108911E+02 -2.000000E+03
+         2 -1.000000E+03  1.108911E+02  2.000000E+03
+         3 -1.000000E+03 -1.108911E+02  2.000000E+03
+         4 -1.000000E+03  1.108911E+02 -2.000000E+03
+
+                        S T E P       2
+
+
+     E I G E N V A L U E   O U T P U T
+
+ MODE NO    EIGENVALUE                       FREQUENCY
+                                     REAL PART            IMAGINARY PART
+                           (RAD/TIME)      (CYCLES/TIME     (RAD/TIME)
+
+      1   0.7589826E+09   0.2754964E+05   0.4384661E+04   0.0000000E+00
+
+                    E I G E N V A L U E    N U M B E R     1
+
+
+ forces (fx,fy,fz) for set BASE and time  0.2000000E+01
+
+         1  3.606172E+06  4.669528E+06  1.590494E+07
+         2  2.524231E+06  3.895093E+06  2.634639E+06
+         3  3.606172E+06  4.669528E+06 -1.590494E+07
+         4  2.524231E+06  3.895093E+06 -2.634639E+06
+"""
+
+
+def test_le_reazioni_si_fermano_al_passo_statico_e_non_prendono_il_modo(tmp_path):
+    """Il passo modale non cancella la richiesta RF del passo statico: ccx la
+    ristampa per ciascun modo, con numeri all'ordine dei milioni di N che non
+    sono reazioni. Un lettore che scorra tutto il file e tenga l'ultimo
+    blocco a quattro campi (come fa `ccx_utils` per gli spostamenti) li
+    prenderebbe per buoni.
+    """
+    percorso = tmp_path / "prova.dat"
+    percorso.write_text(DAT_REAZIONI_CONTAMINATO, encoding="ascii")
+
+    reazioni = solve.leggi_reazioni(percorso)
+
+    assert reazioni[1] == pytest.approx((-1000.0, -110.8911, -2000.0))
+    assert reazioni.keys() == {1, 2, 3, 4}
+
+
+DAT_FREQUENZE = """\
+     E I G E N V A L U E   O U T P U T
+
+ MODE NO    EIGENVALUE                       FREQUENCY
+                                     REAL PART            IMAGINARY PART
+                           (RAD/TIME)      (CYCLES/TIME     (RAD/TIME)
+
+      1   0.7589826E+09   0.2754964E+05   0.4384661E+04   0.0000000E+00
+      2   0.7589826E+09   0.2754964E+05   0.4384661E+04   0.0000000E+00
+      3   0.1500000E+10   0.3872983E+05   0.6164044E+04   0.0000000E+00
+      4   0.3663609E+10   0.6052775E+05   0.9633291E+04   0.0000000E+00
+
+     P A R T I C I P A T I O N   F A C T O R S
+"""
+
+
+def test_le_frequenze_sono_la_colonna_cycles_time_non_la_prima_dopo_il_modo(tmp_path):
+    """La colonna CYCLES/TIME e' la terza dopo il numero di modo, non la
+    prima: l'autovalore e la componente RAD/TIME la precedono.
+    """
+    percorso = tmp_path / "prova.dat"
+    percorso.write_text(DAT_FREQUENZE, encoding="ascii")
+
+    frequenze = solve.leggi_frequenze(percorso)
+
+    assert frequenze == pytest.approx([4384.661, 4384.661, 6164.044, 9633.291])
+
+
+def test_senza_ccx_lo_step_dichiara_l_assenza_e_non_fallisce(tmp_path, monkeypatch):
+    """Un esito negativo documentato non e' un fallimento.
+
+    PRODUCT.md dichiara utenti successivi confermati, che non avranno
+    necessariamente CalculiX. Senza solutore non c'e' analisi, e il programma lo
+    dice invece di rompersi o di inventare un ripiego.
+    """
+    monkeypatch.setattr(solve.shutil, "which", lambda _nome: None)
+    nodi, elementi = synth.box_mesh((100.0, 100.0, 100.0))
+
+    esito = solve.risolvi(
+        tmp_path, tmp_path / "assente.inp", ANALISI, nodi, elementi, "C3D4",
+        casi_di_carico=["GRAVITA"], vincolo_in_pianta={"x": 1.0, "y": 1.0, "minimo": 1.0},
+        trasformata=np.eye(4),
+    )
+
+    assert esito == {"eseguito": False, "solutore": "assente"}
+    assert not (tmp_path / "13_solution.vtu").exists()
+
+
+def test_risolvi_rifiuta_casi_di_carico_vuoto(tmp_path, monkeypatch):
+    """Un deck senza casi non e' uno stato da rappresentare con `None`
+    (giro di correzione della revisione): e' un errore del chiamante, e
+    `risolvi` lo dice esplicitamente invece di eseguire a vuoto -- prima
+    della correzione, `[nome for nome in (None or ()) if nome != "MODALE"]`
+    dava `[]` in silenzio e scartava ogni blocco statico letto dal `.frd`.
+    """
+    monkeypatch.setattr(solve.shutil, "which", lambda _nome: "/usr/bin/ccx")
+    nodi, elementi = synth.box_mesh((100.0, 100.0, 100.0))
+
+    with pytest.raises(ValueError, match="casi_di_carico"):
+        solve.risolvi(
+            tmp_path, tmp_path / "assente.inp", ANALISI, nodi, elementi, "C3D4",
+            casi_di_carico=[], vincolo_in_pianta={"x": 1.0, "y": 1.0, "minimo": 1.0},
+            trasformata=np.eye(4),
+        )
+
+
+# Deck sintetico a quattro nodi, tre passi statici (GRAVITA, SPINTA_ORIZZONTALE,
+# CARICO_TOP) e un passo modale a due modi: costruito a mano con lo stesso
+# schema di FRD_TRE_BLOCCHI, non misurato su ccx vero. Le tensioni sono
+# trazione monoassiale pura (sigma, 0,0,0,0,0): la von Mises esce esattamente
+# sigma (stessa forma di test_von_mises_di_una_trazione_monoassiale), quindi
+# ogni passo ha un vm_max esatto e distinto (1, 5, 90) da cui riconoscere se
+# un'etichetta e' finita sul passo sbagliato.
+FRD_QUATTRO_PASSI = """  100CL  101 1.000000000           2                     0    1           1
+ -4  DISP        4    1
+ -1         1 1.00000E-02 0.00000E+00-1.00000E-02
+ -1         2 2.00000E-02 0.00000E+00-2.00000E-02
+ -1         3 3.00000E-02 0.00000E+00-3.00000E-02
+ -1         4 4.00000E-02 0.00000E+00-4.00000E-02
+ -3
+  100CL  101 1.000000000           2                     0    1           1
+ -4  STRESS      6    1
+ -1         1 1.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00
+ -1         2 1.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00
+ -1         3 1.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00
+ -1         4 1.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00
+ -3
+  100CL  101 1.000000000           2                     0    2           1
+ -4  DISP        4    1
+ -1         1 5.00000E-02 0.00000E+00-5.00000E-02
+ -1         2 1.00000E-01 0.00000E+00-1.00000E-01
+ -1         3 1.50000E-01 0.00000E+00-1.50000E-01
+ -1         4 2.00000E-01 0.00000E+00-2.00000E-01
+ -3
+  100CL  101 1.000000000           2                     0    2           1
+ -4  STRESS      6    1
+ -1         1 5.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00
+ -1         2 5.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00
+ -1         3 5.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00
+ -1         4 5.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00
+ -3
+  100CL  101 1.000000000           2                     0    3           1
+ -4  DISP        4    1
+ -1         1 9.00000E-01 0.00000E+00-9.00000E-01
+ -1         2 1.80000E+00 0.00000E+00-1.80000E+00
+ -1         3 2.70000E+00 0.00000E+00-2.70000E+00
+ -1         4 3.60000E+00 0.00000E+00-3.60000E+00
+ -3
+  100CL  101 1.000000000           2                     0    3           1
+ -4  STRESS      6    1
+ -1         1 9.00000E+01 0.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00
+ -1         2 9.00000E+01 0.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00
+ -1         3 9.00000E+01 0.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00
+ -1         4 9.00000E+01 0.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00
+ -3
+  100CL  101 21.19324067           2                     0    4MODAL      1
+ -4  DISP        4    1
+ -1         1 1.00000E-02 0.00000E+00-1.00000E-02
+ -1         2 2.00000E-02 0.00000E+00-2.00000E-02
+ -1         3 3.00000E-02 0.00000E+00-3.00000E-02
+ -1         4 4.00000E-02 0.00000E+00-4.00000E-02
+ -3
+  100CL  101 33.00000000           2                     0    4MODAL      1
+ -4  DISP        4    1
+ -1         1 2.00000E-02 0.00000E+00-2.00000E-02
+ -1         2 4.00000E-02 0.00000E+00-4.00000E-02
+ -1         3 6.00000E-02 0.00000E+00-6.00000E-02
+ -1         4 8.00000E-02 0.00000E+00-8.00000E-02
+ -3
+"""
+
+DAT_DUE_MODI = """     E I G E N V A L U E   O U T P U T
+
+ MODE NO    EIGENVALUE                       FREQUENCY
+                                     REAL PART            IMAGINARY PART
+                           (RAD/TIME)      (CYCLES/TIME     (RAD/TIME)
+
+      1   0.7589826E+09   0.2754964E+05   0.4384661E+04   0.0000000E+00
+      2   0.1500000E+10   0.3872983E+05   0.6164044E+04   0.0000000E+00
+
+     P A R T I C I P A T I O N   F A C T O R S
+"""
+
+
+def test_risolvi_con_ccx_simulato_assembla_i_campi_e_conta_gli_avvisi(tmp_path, monkeypatch):
+    """Important 1 della revisione: prima di questo test, tutto `risolvi()`
+    oltre al ramo "solutore assente" -- la chiamata, la copia degli
+    artefatti, l'assemblaggio di point_data, il conteggio di avvisi ed
+    errori -- girava solo nel test di fattibilita' gated su `ccx` vero, quindi
+    zero volte su una macchina senza CalculiX (esattamente il caso che
+    PRODUCT.md dichiara).
+
+    `ccx` e' sostituito da un `subprocess.run` finto: nessun processo parte
+    davvero, e il `.frd`/`.dat` che il finto processo "avrebbe scritto" sono
+    gia' su disco quando `risolvi()` li legge -- stesso principio del
+    `_fake_run` di test_sweep.py.
+
+    Dal giro di correzione seguente, `risolvi()` non deriva piu' l'ordine dei
+    casi in proprio (era `solve._casi_statici`, una seconda copia della stessa
+    logica di `abaqus.export_model`): lo riceve gia' fatto in
+    `casi_di_carico`, cosi' come `pipeline.run` lo legge da
+    `metrics["11_export"]["casi_di_carico"]`. Qui e' passato a mano, nello
+    stesso ordine che quella lista avrebbe per questi carichi -- il confronto
+    con l'ordine *vero* scritto da `write_inp` e' l'altro test qui sotto.
+    """
+    casi_di_carico = ["GRAVITA", "SPINTA_ORIZZONTALE", "CARICO_TOP", "MODALE"]
+    deck = tmp_path / "wall_model.inp"
+    deck.write_text("*HEADING\n", encoding="ascii")
+    deck.with_suffix(".frd").write_text(FRD_QUATTRO_PASSI, encoding="ascii")
+    deck.with_suffix(".dat").write_text(DAT_DUE_MODI, encoding="ascii")
+
+    import subprocess
+
+    def ccx_finto(comando, **kwargs):
+        return subprocess.CompletedProcess(
+            comando, returncode=0,
+            stdout=(
+                "CalculiX finto per il test\n"
+                "*WARNING in nmatrix: nodo isolato\n"
+                "*WARNING in nmatrix: un altro nodo isolato\n"
+                "Job finished\n"
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr(solve.shutil, "which", lambda _nome: "/usr/bin/ccx")
+    monkeypatch.setattr(solve.subprocess, "run", ccx_finto)
+
+    nodi = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+    elementi = np.array([[0, 1, 2, 3]])
+
+    esito = solve.risolvi(
+        tmp_path, deck, ANALISI, nodi, elementi, "C3D4", casi_di_carico=casi_di_carico,
+        vincolo_in_pianta={"x": 1.0, "y": 1.0, "minimo": 1.0}, trasformata=np.eye(4),
+    )
+
+    assert esito["eseguito"] is True
+    assert esito["returncode"] == 0
+    assert esito["avvisi"] == 2
+    assert esito["errori"] == 0
+    assert esito["modi"] == 2
+    assert esito["frequenze_hz"] == pytest.approx([4384.661, 6164.044])
+    assert esito["casi"]["GRAVITA"]["vm_max"] == pytest.approx(1.0)
+    assert esito["casi"]["SPINTA_ORIZZONTALE"]["vm_max"] == pytest.approx(5.0)
+    assert esito["casi"]["CARICO_TOP"]["vm_max"] == pytest.approx(90.0)
+    assert (tmp_path / "13_solver.log").exists()
+
+    meshio = pytest.importorskip("meshio")
+    mesh = meshio.read(tmp_path / "13_solution.vtu")
+    assert set(mesh.point_data) == {
+        "U_GRAVITA", "VM_GRAVITA",
+        "U_SPINTA_ORIZZONTALE", "VM_SPINTA_ORIZZONTALE",
+        "U_CARICO_TOP", "VM_CARICO_TOP",
+        "MODO_1", "MODO_2",
+    }
+
+
+def test_il_controllo_sul_vincolo_in_pianta_usa_la_soglia_di_produzione(tmp_path, monkeypatch):
+    """Aggancio del controllo `vincolo_in_pianta` a `risolvi()`: il caso
+    sintetico a un piede (misurato 0,32 allo Step 7 del Task 2) deve fallire
+    contro la soglia di produzione `_SOGLIA_VINCOLO_IN_PIANTA` (0,5); il caso
+    lab_crop (0,987) deve passare. Nessun test esistente asserisce sul
+    verdetto di questo controllo -- solo sulla sua presenza nel dizionario --
+    quindi la mutazione dello Step 3 del giro di correzione non aveva nulla
+    da uccidere prima di questo test.
+    """
+    casi_di_carico = ["GRAVITA", "SPINTA_ORIZZONTALE", "CARICO_TOP", "MODALE"]
+    deck = tmp_path / "wall_model.inp"
+    deck.write_text("*HEADING\n", encoding="ascii")
+
+    import subprocess
+
+    def ccx_finto(comando, **kwargs):
+        # Le uscite le scrive il processo finto e non il preambolo del test,
+        # perche' `risolvi` le **rinomina** invece di copiarle (I4 della
+        # revisione finale): la seconda corsa qui sotto le ritrova solo se
+        # `ccx` le riscrive, che e' esattamente cio' che fa quello vero.
+        deck.with_suffix(".frd").write_text(FRD_QUATTRO_PASSI, encoding="ascii")
+        deck.with_suffix(".dat").write_text(DAT_DUE_MODI, encoding="ascii")
+        return subprocess.CompletedProcess(comando, returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(solve.shutil, "which", lambda _nome: "/usr/bin/ccx")
+    monkeypatch.setattr(solve.subprocess, "run", ccx_finto)
+
+    nodi = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+    elementi = np.array([[0, 1, 2, 3]])
+
+    un_piede = solve.risolvi(
+        tmp_path, deck, ANALISI, nodi, elementi, "C3D4", casi_di_carico=casi_di_carico,
+        vincolo_in_pianta={"x": 1.0, "y": 0.32, "minimo": 0.32}, trasformata=np.eye(4),
+    )
+    assert not un_piede["controlli"]["vincolo_in_pianta"]["passato"], "0,32 e' sotto 0,5: non citabile"
+
+    lab_crop = solve.risolvi(
+        tmp_path, deck, ANALISI, nodi, elementi, "C3D4", casi_di_carico=casi_di_carico,
+        vincolo_in_pianta={"x": 1.0, "y": 0.987, "minimo": 0.987}, trasformata=np.eye(4),
+    )
+    assert lab_crop["controlli"]["vincolo_in_pianta"]["passato"]
+
+
+def test_casi_di_carico_segue_l_ordine_vero_scritto_da_write_inp(tmp_path):
+    """L'origine e' una sola: `casi_di_carico`, il campo che `export_model`
+    restituisce e che `solve.risolvi` legge senza ri-derivarlo (giro di
+    correzione della revisione, sostituisce `solve._casi_statici`). Ma
+    `export_model` lo costruisce con una propria lista letterale, separata
+    dai rami `if carichi.spinta is not None: ...` che `write_inp` esegue
+    davvero -- due punti nello stesso file che devono restare d'accordo.
+
+    Qui l'ordine vero non e' assunto: e' letto dal testo che `write_inp`
+    scrive davvero (le righe `** NOME PASSO: ...`, comprese nello stesso
+    deck che `export_model` produce), e quello e' l'oracolo contro cui si
+    confronta `casi_di_carico`. Nessun `ccx` necessario: e' solo testo.
+    """
+    from meshrec.core.config import TetConfig
+
+    vertices, faces = synth.box_mesh((100.0, 100.0, 100.0))
+    nodi, elementi = volume.tetrahedralize(
+        vertices, faces, max_volume=20_000.0, min_ratio=1.8, max_steiner_points=-1, nobisect=False
+    )
+    carichi = CarichiConfig(
+        spinta=SpintaOrizzontale(coefficiente=0.1, asse="x"),
+        carico_sommita=CaricoSommita(risultante=1000.0, nset="TOP"),
+        modale=Modale(modi=2),
+    )
+    esito = abaqus.export_model(
+        tmp_path / "prova.inp", tmp_path / "prova.vtu", nodi, elementi,
+        ANALISI, TetConfig(), carichi=carichi,
+    )
+
+    testo = (tmp_path / "prova.inp").read_text(encoding="ascii")
+    ordine_reale = [
+        riga.split(": ", 1)[1]
+        for riga in testo.splitlines()
+        if riga.startswith("** NOME PASSO: ")
+    ]
+
+    assert esito["casi_di_carico"] == ordine_reale
+
+
+# ---------------------------------------------------------------------------
+# Task 7: i controlli che smentiscono. I tre test sotto sono quelli del
+# brief, Step 1, verbatim -- l'oracolo e' l'esempio dato, non una misura di
+# questa sessione.
+# ---------------------------------------------------------------------------
+
+
+def test_la_somma_delle_reazioni_smentisce_una_densita_sbagliata():
+    """Somma delle reazioni contro rho*V*g, come vettore e non come modulo.
+
+    Un modulo giusto con una direzione sbagliata passerebbe: e' esattamente il
+    caso di un vincolo che tiene la struttura di sbieco.
+    """
+    reazioni = {1: (0.0, 0.0, 500.0), 2: (0.0, 0.0, 500.0)}
+
+    esito = solve.controlla_reazioni(reazioni, peso_atteso=(0.0, 0.0, 1000.0), tolleranza=0.02)
+    assert esito["passato"]
+
+    storta = solve.controlla_reazioni(reazioni, peso_atteso=(0.0, 600.0, 800.0), tolleranza=0.02)
+    assert not storta["passato"], "il modulo coincide, la direzione no"
+
+
+def test_un_autovalore_vicino_a_zero_e_un_meccanismo():
+    """Una frequenza quasi nulla significa che la struttura si muove libera."""
+    assert solve.controlla_autovalori([21.19, 34.34, 43.14])["passato"]
+    assert not solve.controlla_autovalori([0.0004, 21.19])["passato"]
+    assert not solve.controlla_autovalori([])["passato"]
+
+
+def test_il_picco_di_tensione_dentro_la_banda_di_vincolo_e_un_artefatto():
+    """Il numero piu' citabile e' il piu' facile da fraintendere.
+
+    Misurato il 21/08/2026 sull'as-built col vincolo corretto: sotto peso
+    proprio il rapporto max/p99 vale 2,16 e nessuno dei 142 nodi sopra il p99
+    cade entro la banda di vincolo -- il picco sta all'89% dell'altezza, non
+    sull'incastro, e resta sullo stesso nodo in tutti e tre i casi di carico.
+    Il controllo non e' che il picco sia basso: e' che si sappia dove sta.
+    """
+    quote = np.array([0.0, 10.0, 2000.0, 2100.0])
+    valori = np.array([9.0, 1.0, 1.0, 1.0])
+
+    esito = solve.controlla_picco(valori, quote, banda=100.0)
+
+    assert esito["frazione_in_banda"] == pytest.approx(1.0)
+    assert not esito["passato"]
+
+
+# ---------------------------------------------------------------------------
+# Ingressi degeneri (brief Task 7): ognuno con il proprio oracolo. Le righe
+# gia' coperte dai test sopra (autovalori vuoto) non si ripetono.
+# ---------------------------------------------------------------------------
+
+
+def test_controlla_reazioni_con_dizionario_vuoto_non_solleva():
+    """Nessuna reazione letta (es. `.dat` senza il passo richiesto): fallisce
+    senza dividere per zero e senza sollevare."""
+    esito = solve.controlla_reazioni({}, peso_atteso=(0.0, 0.0, 1000.0), tolleranza=0.02)
+    assert esito["passato"] is False
+
+
+def test_controlla_reazioni_rifiuta_peso_atteso_nullo():
+    """Un peso atteso nullo (tutte le componenti a zero) non e' un caso da
+    dividere: il modulo attero varrebbe zero e la frazione di scarto sarebbe
+    indefinita."""
+    reazioni = {1: (0.0, 0.0, 500.0)}
+    esito = solve.controlla_reazioni(reazioni, peso_atteso=(0.0, 0.0, 0.0), tolleranza=0.02)
+    assert esito["passato"] is False
+
+
+def test_controlla_picco_su_tensioni_tutte_zero_non_produce_nan():
+    """p99 nullo: il rapporto max/p99 non si calcola (0/0), si dichiara
+    indefinito -- mai un nan silenzioso nel dizionario."""
+    valori = np.zeros(4)
+    quote = np.array([0.0, 10.0, 20.0, 30.0])
+
+    esito = solve.controlla_picco(valori, quote, banda=100.0)
+
+    assert esito["rapporto_max_p99"] is None
+    assert not math.isnan(esito["frazione_in_banda"])
+
+
+def test_controlla_picco_su_un_solo_nodo_non_solleva():
+    """Un solo nodo: il percentile 99 e' quel nodo stesso, non un IndexError."""
+    esito = solve.controlla_picco(np.array([5.0]), np.array([100.0]), banda=50.0)
+
+    assert esito["max"] == pytest.approx(5.0)
+    assert esito["rapporto_max_p99"] == pytest.approx(1.0)
+
+
+def test_controlla_picco_con_nan_a_monte_riporta_il_valore_invece_di_nasconderlo():
+    """Il cancello di finitezza (sotto, enumerato) forza `passato: False` su
+    un NaN a monte in `valori`, ma non nasconde il dato: `max`/`p99` restano
+    NaN nel dizionario -- si marca, non si nasconde, come per il resto della
+    fase. Questo test copre solo la trasparenza; il verdetto e' verificato
+    dall'enumerazione sotto.
+    """
+    valori = np.array([1.0, np.nan, 3.0, 4.0])
+    quote = np.array([0.0, 10.0, 20.0, 30.0])
+
+    esito = solve.controlla_picco(valori, quote, banda=100.0)
+
+    assert esito["rapporto_max_p99"] is None
+    assert math.isnan(esito["max"])
+
+
+
+
+# ---------------------------------------------------------------------------
+# Indagine 21/08/2026 (giro di correzione del Task 7): da dove viene lo
+# scarto reazioni/peso di `_TOLLERANZA_REAZIONI`. Non era rumore di mesh:
+# vedi il commento sopra `_TOLLERANZA_REAZIONI` in solve.py e il docstring
+# di `_quota_tributaria_gravita`. Le prime due fixture/test sono presi cosi'
+# come sono dal worktree del debugger (non riscritti); il terzo e' adattato
+# per essere l'oracolo giusto dopo il fix, non restare rosso.
+# ---------------------------------------------------------------------------
+
+
+def test_leggi_reazioni_su_dat_senza_blocco_forze_non_solleva(tmp_path):
+    """Ingresso degenere 1: `.dat` senza alcun blocco di reazioni -> dizionario
+    vuoto, non un'eccezione. Codice gia' corretto (nessun ramo puo' sollevare
+    qui), nessun test esistente lo copriva per `leggi_reazioni` in isolamento
+    (solo `controlla_reazioni({})` era testato) -- verificato in questa
+    sessione, aggiunto per chiudere la mappa ingressi degeneri del brief."""
+    percorso = tmp_path / "senza_reazioni.dat"
+    percorso.write_text("qualche riga di testo\nche non ha reazioni\n", encoding="ascii")
+
+    assert solve.leggi_reazioni(percorso) == {}
+
+
+DAT_SOLO_MODALE = """\
+     E I G E N V A L U E   O U T P U T
+
+ MODE NO    EIGENVALUE                       FREQUENCY
+                                     REAL PART            IMAGINARY PART
+                           (RAD/TIME)      (CYCLES/TIME     (RAD/TIME)
+
+      1   0.7589826E+09   0.2754964E+05   0.4384661E+04   0.0000000E+00
+
+                    E I G E N V A L U E    N U M B E R     1
+
+
+ forces (fx,fy,fz) for set BASE and time  0.2000000E+01
+
+         1  3.606172E+06  4.669528E+06  1.590494E+07
+"""
+
+
+def test_leggi_reazioni_su_dat_con_solo_blocco_modale_non_prende_le_righe_modali(tmp_path):
+    """Ingresso degenere 2: `.dat` con il solo blocco modale (nessun passo
+    statico prima) -> nessuna reazione statica, e le righe modali (milioni di
+    N) non vengono scambiate per reazioni vere. La guardia su
+    `E I G E N V A L U E   O U T P U T` scatta subito, prima di incontrare
+    qualunque `S T E P`: stesso meccanismo gia' testato per il caso
+    contaminato sopra, qui verificato per il caso limite senza alcun passo
+    statico davanti."""
+    percorso = tmp_path / "solo_modale.dat"
+    percorso.write_text(DAT_SOLO_MODALE, encoding="ascii")
+
+    assert solve.leggi_reazioni(percorso) == {}
+
+
+# ccx 2.22 reale, deck ad hoc: un tetraedro solo, base (nodi 1,2,3) a z=0
+# fissata su tutti e tre gli assi, apice (nodo 4) libero, `*DLOAD, GRAV`
+# verticale. Catturato eseguendo `ccx -i model` su questo identico deck nel
+# worktree del debugger. Nessun errore, zero avvisi, returncode 0, "Job
+# finished".
+DAT_UN_TETRAEDRO = """\
+
+                        S T E P       1
+
+
+                                INCREMENT     1
+
+
+ forces (fx,fy,fz) for set BASE and time  0.1000000E+01
+
+         1  1.839375E-01  1.839375E-01  7.357500E-01
+         2 -1.839375E-01  0.000000E+00  0.000000E+00
+         3  0.000000E+00 -1.839375E-01  0.000000E+00
+"""
+
+
+def test_somma_reazioni_su_un_tetraedro_piu_la_quota_tributaria_eguaglia_il_peso():
+    """Oracolo corretto dopo il fix (giro di correzione del Task 7).
+
+    Stesso deck e stessa prova in forma chiusa dell'indagine: con l'apice
+    libero e i tre nodi di base fissati, `ccx` stampa solo 0,73575 N di
+    reazione totale (1/4 di 2,943 N attesi) perche' la `RF` di un nodo
+    vincolato non include la quota di `*DLOAD, GRAV` applicata a quel nodo
+    dagli elementi che lo toccano -- riporta solo la trasmissione elastica
+    interna. L'invariante fisico vero non e' `somma(RF) == rho*V*g`, e'
+    `somma(RF) + quota_tributaria(BASE) == rho*V*g`: e' esattamente cio' che
+    `_quota_tributaria_gravita` calcola e che `risolvi()` somma prima del
+    confronto in `controlla_reazioni`.
+    """
+    nodes = np.array(
+        [[0.0, 0.0, 0.0], [100.0, 0.0, 0.0], [0.0, 100.0, 0.0], [0.0, 0.0, 100.0]]
+    )
+    tets = np.array([[0, 1, 2, 3]], dtype=np.int64)
+    densita, gravita = 1.8e-9, 9810.0
+    massa = densita * float(np.abs(quality.tet_volumes(nodes, tets)).sum())
+    peso_atteso_z = massa * gravita  # 2.943 N
+
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        percorso = Path(d) / "model.dat"
+        percorso.write_text(DAT_UN_TETRAEDRO, encoding="ascii")
+        reazioni = solve.leggi_reazioni(percorso, passo=1)
+
+    somma_z = sum(v[2] for v in reazioni.values())
+    quota_tributaria_massa = solve._quota_tributaria_gravita(nodes, tets, reazioni.keys(), densita)
+
+    assert somma_z + quota_tributaria_massa * gravita == pytest.approx(peso_atteso_z, rel=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# Giro di correzione 5: enumerazione esplicita del cancello di finitezza,
+# non un elenco tenuto a mente. Tre giri di seguito abbiamo chiuso un caso
+# alla volta -- rapporto_max_p99, poi passato, poi banda -- perche' ogni
+# volta l'elenco dei parametri che raggiungono un confronto lo compilava
+# una persona ragionando. Ragionare su NaN aveva nascosto ±inf: due
+# combinazioni passavano ancora (`controlla_reazioni(..., tolleranza=inf)`,
+# `controlla_autovalori(..., soglia_relativa=-inf)`) perche' "NaN in un
+# confronto e' sempre falso" e' vero solo per NaN, non per un infinito con
+# segno dalla parte permissiva del confronto. Questa tabella e' l'elenco:
+# chi aggiunge un sesto controllo lo aggiunge qui, non lo tiene a mente.
+# ---------------------------------------------------------------------------
+
+_PICCO_VALORI_SANI = np.array([1.0, 2.0, 3.0, 4.0])
+_PICCO_QUOTE_SANE = np.array([0.0, 10.0, 20.0, 30.0])
+_REAZIONI_SANE = {1: (0.0, 0.0, 500.0), 2: (0.0, 0.0, 500.0)}
+_PESO_ATTESO_SANO = (0.0, 0.0, 1000.0)
+
+# (nome, costruttore che inietta il valore anomalo in un ingresso, valore
+# sano nello stesso slot -- deve restare `passato: True`).
+_INGRESSI_CHE_RAGGIUNGONO_UN_CONFRONTO = [
+    ("picco/valori", lambda b: solve.controlla_picco(
+        np.array([1.0, b, 3.0, 4.0]), _PICCO_QUOTE_SANE, banda=5.0), 2.0),
+    ("picco/quote", lambda b: solve.controlla_picco(
+        _PICCO_VALORI_SANI, np.array([0.0, b, 20.0, 30.0]), banda=5.0), 10.0),
+    ("picco/banda", lambda b: solve.controlla_picco(
+        _PICCO_VALORI_SANI, _PICCO_QUOTE_SANE, banda=b), 5.0),
+    ("autovalori/prima_frequenza", lambda b: solve.controlla_autovalori(
+        [b, 21.19]), 25.0),
+    ("autovalori/frequenza_unica", lambda b: solve.controlla_autovalori(
+        [b]), 25.0),
+    ("autovalori/soglia_relativa", lambda b: solve.controlla_autovalori(
+        [21.19, 34.3], soglia_relativa=b), 0.2),
+    ("reazioni/reazione", lambda b: solve.controlla_reazioni(
+        {1: (0.0, 0.0, b), 2: (0.0, 0.0, 500.0)}, _PESO_ATTESO_SANO, tolleranza=0.02), 500.0),
+    ("reazioni/peso_atteso", lambda b: solve.controlla_reazioni(
+        _REAZIONI_SANE, (0.0, 0.0, b), tolleranza=0.02), 1000.0),
+    ("reazioni/tolleranza", lambda b: solve.controlla_reazioni(
+        _REAZIONI_SANE, _PESO_ATTESO_SANO, tolleranza=b), 0.02),
+    # Le due righe che mancavano (M11 della revisione finale): l'elenco
+    # copriva tre verdetti su cinque, perche' gli altri due erano scritti
+    # inline dentro `risolvi()` e non c'era una funzione da chiamare qui.
+    ("vincolo_in_pianta/minimo", lambda b: solve.controlla_vincolo_in_pianta(b), 0.99),
+    ("avvisi/conteggio", lambda b: solve.controlla_avvisi(b), 0),
+]
+
+
+@pytest.mark.parametrize(
+    "nome,costruisci,_sano", _INGRESSI_CHE_RAGGIUNGONO_UN_CONFRONTO,
+    ids=[nome for nome, _, _sano in _INGRESSI_CHE_RAGGIUNGONO_UN_CONFRONTO],
+)
+@pytest.mark.parametrize("anomalo", [float("nan"), float("inf"), float("-inf")], ids=["nan", "+inf", "-inf"])
+def test_ogni_ingresso_che_raggiunge_un_confronto_fallisce_chiuso(nome, costruisci, _sano, anomalo):
+    """27 combinazioni (9 ingressi x 3 valori anomali): tutte `passato: False`.
+
+    Prima di questo giro ne passavano due: `tolleranza=inf` in
+    `controlla_reazioni` (`scarto <= inf` e' vero per qualunque scarto
+    finito) e `soglia_relativa=-inf` in `controlla_autovalori` (nessuna
+    frequenza supera mai una soglia `-inf`). Entrambi erano stati
+    "verificati" nel giro precedente ragionando solo sul caso NaN.
+    """
+    assert costruisci(anomalo)["passato"] is False
+
+
+@pytest.mark.parametrize(
+    "nome,costruisci,sano", _INGRESSI_CHE_RAGGIUNGONO_UN_CONFRONTO,
+    ids=[nome for nome, _, _sano in _INGRESSI_CHE_RAGGIUNGONO_UN_CONFRONTO],
+)
+def test_lo_stesso_ingresso_con_un_valore_sano_passa(nome, costruisci, sano):
+    """Controprova della tabella sopra: un valore finito e coerente nello
+    stesso slot deve restare `passato: True` -- altrimenti la guardia di
+    finitezza sarebbe troppo larga, non solo troppo stretta."""
+    assert costruisci(sano)["passato"] is True
+
+
+def test_il_ramo_a_una_frequenza_non_consulta_la_soglia_relativa():
+    """Con una sola frequenza non esiste rapporto da confrontare: il verdetto e'
+    `prima > 0.0` e nient'altro. Una `soglia_relativa` non finita non deve
+    quindi bocciarlo -- il cancello di finitezza copre gli ingressi che
+    raggiungono un confronto, e su questo ramo la soglia non ne raggiunge
+    nessuno. Una prima frequenza nulla resta un meccanismo, soglia a parte.
+    """
+    for soglia in (float("nan"), float("inf"), float("-inf")):
+        assert solve.controlla_autovalori([25.0], soglia_relativa=soglia)["passato"] is True
+    assert solve.controlla_autovalori([0.0])["passato"] is False
+
+
+# ---------------------------------------------------------------------------
+# Revisione finale, C1: nel `.vtu` i vettori devono stare nello stesso telaio
+# dei punti. `export_model` allinea il deck agli assi e non restituisce i nodi
+# allineati; `pipeline.run` passa a `risolvi` i nodi NON allineati insieme al
+# `point_data` che viene dal `.frd`, cioe' dal deck allineato. Fino a questo
+# giro il `.vtu` mescolava i due telai, e ogni consumatore odierno era
+# invariante per rotazione (norma, scalari, sola z) quindi nessuno se ne
+# accorgeva -- ma un *Warp By Vector* in ParaView deforma a 90 gradi dalla
+# direzione vera, senza un avviso.
+#
+# I blocchi `.frd` qui sotto sono costruiti a colonne fisse dallo stesso
+# generatore, invece che a mano: le tre trappole di formato che
+# `FRD_TRE_BLOCCHI` e `FRD_QUATTRO_PASSI` verificano sono gia' coperte da
+# quelle fixture, e ricopiarle a mano per ogni nuovo caso e' solo occasione
+# di sbagliare una colonna.
+# ---------------------------------------------------------------------------
+
+# Il tratto fisso del record 100CL fra il valore e la cifra del passo,
+# misurato sui due record veri gia' in questo file (colonne 24-61).
+_100CL_MEZZO = "           2                     0    "
+
+
+def _record_100cl(passo: int, valore: float, modale: bool) -> str:
+    return f"  100CL  101{valore:12.9f}{_100CL_MEZZO}{passo}{'MODAL' if modale else '     '}      1"
+
+
+def _frd(blocchi) -> str:
+    """`.frd` ascii da una lista di `(passo, grandezza, modale, valore, righe)`.
+
+    `righe` e' `{nodo: (componenti...)}`. Le colonne sono quelle che
+    `solve.leggi_frd` legge: nodo a dieci caratteri dopo ` -1`, componenti a
+    dodici.
+    """
+    testo: list[str] = []
+    for passo, grandezza, modale, valore, righe in blocchi:
+        testo.append(_record_100cl(passo, valore, modale))
+        testo.append(f" -4  {grandezza:<12}{len(next(iter(righe.values())))}    1")
+        for nodo, componenti in righe.items():
+            testo.append(f" -1{nodo:10d}" + "".join(f"{v:12.5E}" for v in componenti))
+        testo.append(" -3")
+    return "\n".join(testo) + "\n"
+
+
+# Quattro nodi, un tetraedro: la geometria non conta per il telaio dei
+# vettori, conta solo che i punti scritti nel `.vtu` siano questi.
+_NODI_TET = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+_ELEMENTI_TET = np.array([[0, 1, 2, 3]])
+
+# Rotazione di 90 gradi attorno a z nella forma che `align_to_axes` produce
+# davvero: `rotation = [x_dir, y_dir, z_dir]` con `y_dir = z x x`, quindi
+# determinante +1 per costruzione. Con lo spessore del pezzo su y del telaio
+# dei punti si ottiene x_dir = (0,1,0) e y_dir = (-1,0,0). E' la stessa forma
+# della trasformata misurata su `runs/lab_telaio_v2`
+# (`metrics["11_export"]["transform"]`), dove l'imbardata stimata vale
+# 0,0054 rad e la traslazione (730,6; 4328,9; 595,4) mm.
+_ROTAZIONE_90_Z = [
+    [0.0, 1.0, 0.0, 730.6],
+    [-1.0, 0.0, 0.0, 4328.9],
+    [0.0, 0.0, 1.0, 595.4],
+    [0.0, 0.0, 0.0, 1.0],
+]
+
+# GRAVITA scende, SPINTA_ORIZZONTALE scende e spinge su +y **del modello** --
+# la differenza vale esattamente (0, 1, 0), l'asse dichiarato in
+# `lab_telaio.yaml`. Il modo e' anch'esso su +y del modello.
+_FRD_SPINTA_SU_Y = _frd([
+    (1, "DISP", False, 1.0, {n: (0.0, 0.0, -1.0) for n in (1, 2, 3, 4)}),
+    (1, "STRESS", False, 1.0, {n: (1.0, 0.0, 0.0, 0.0, 0.0, 0.0) for n in (1, 2, 3, 4)}),
+    (2, "DISP", False, 1.0, {n: (0.0, 1.0, -1.0) for n in (1, 2, 3, 4)}),
+    (2, "STRESS", False, 1.0, {n: (5.0, 0.0, 0.0, 0.0, 0.0, 0.0) for n in (1, 2, 3, 4)}),
+    (3, "DISP", True, 21.19, {n: (0.0, 1.0, 0.0) for n in (1, 2, 3, 4)}),
+])
+
+
+def _risolvi_finto(
+    tmp_path, monkeypatch, frd, *, casi, trasformata, dat=DAT_DUE_MODI,
+    nodi=_NODI_TET, elementi=_ELEMENTI_TET, uscita="Job finished\n",
+):
+    """`risolvi()` con `ccx` sostituito da un `subprocess.run` finto.
+
+    Stesso principio di `test_risolvi_con_ccx_simulato_...`: il `.frd`/`.dat`
+    che il processo finto "avrebbe scritto" sono gia' su disco quando
+    `risolvi()` li legge.
+    """
+    import subprocess
+
+    deck = tmp_path / "wall_model.inp"
+    deck.write_text("*HEADING\n", encoding="ascii")
+    deck.with_suffix(".frd").write_text(frd, encoding="ascii")
+    deck.with_suffix(".dat").write_text(dat, encoding="ascii")
+
+    monkeypatch.setattr(solve.shutil, "which", lambda _nome: "/usr/bin/ccx")
+    monkeypatch.setattr(
+        solve.subprocess, "run",
+        lambda comando, **kwargs: subprocess.CompletedProcess(
+            comando, returncode=0, stdout=uscita, stderr=""),
+    )
+    return solve.risolvi(
+        tmp_path, deck, ANALISI, nodi, elementi, "C3D4",
+        casi_di_carico=casi, vincolo_in_pianta={"x": 1.0, "y": 1.0, "minimo": 1.0},
+        trasformata=trasformata,
+    )
+
+
+def test_i_vettori_del_vtu_stanno_nel_telaio_dei_punti_e_non_del_modello(tmp_path, monkeypatch):
+    """C1: la direzione della spinta, riletta dal `.vtu`, deve stare nello
+    stesso telaio dei punti che il `.vtu` contiene.
+
+    Il campo esce dal `.frd`, cioe' dal deck allineato: `U_SPINTA_ORIZZONTALE
+    - U_GRAVITA` vale (0, 1, 0), l'asse +y **del modello**. I punti del
+    `.vtu` sono quelli non allineati. Con questa rotazione +y del modello e'
+    -x nel telaio dei punti: e' quello che il file deve contenere, altrimenti
+    un *Warp By Vector* deforma a 90 gradi dalla direzione vera.
+
+    L'oracolo e' il campo riletto, non la matrice.
+    """
+    meshio = pytest.importorskip("meshio")
+
+    _risolvi_finto(
+        tmp_path, monkeypatch, _FRD_SPINTA_SU_Y,
+        casi=["GRAVITA", "SPINTA_ORIZZONTALE", "MODALE"], trasformata=_ROTAZIONE_90_Z,
+    )
+
+    mesh = meshio.read(tmp_path / "13_solution.vtu")
+    differenza = mesh.point_data["U_SPINTA_ORIZZONTALE"] - mesh.point_data["U_GRAVITA"]
+    direzione = differenza.mean(axis=0)
+    direzione = direzione / np.linalg.norm(direzione)
+
+    assert direzione == pytest.approx([-1.0, 0.0, 0.0], abs=1e-9), (
+        "+y del modello, riportato nel telaio dei punti da questa rotazione, "
+        f"e' -x: il file contiene invece {direzione}"
+    )
+    # Controprova nell'altro verso: riportata nel telaio del modello (u @ R.T,
+    # l'inversa di u @ R), la direzione deve tornare +y, l'asse dichiarato.
+    rotazione = np.asarray(_ROTAZIONE_90_Z)[:3, :3]
+    assert direzione @ rotazione.T == pytest.approx([0.0, 1.0, 0.0], abs=1e-9)
+
+
+def test_anche_le_forme_modali_si_riportano_nel_telaio_dei_punti(tmp_path, monkeypatch):
+    """Ingresso degenere: `MODO_*` presenti e `U_*` assenti -- i modi vanno
+    ruotati lo stesso. Un modo e' un vettore come uno spostamento: quello che
+    non e' un vettore, e non si tocca, e' la von Mises."""
+    meshio = pytest.importorskip("meshio")
+
+    solo_modale = _frd([(1, "DISP", True, 21.19, {n: (0.0, 1.0, 0.0) for n in (1, 2, 3, 4)})])
+    esito = _risolvi_finto(
+        tmp_path, monkeypatch, solo_modale, casi=["GRAVITA", "MODALE"],
+        trasformata=_ROTAZIONE_90_Z,
+    )
+
+    assert esito["modi"] == 1
+    mesh = meshio.read(tmp_path / "13_solution.vtu")
+    assert set(mesh.point_data) == {"MODO_1"}
+    assert mesh.point_data["MODO_1"][0] == pytest.approx([-1.0, 0.0, 0.0], abs=1e-9)
+
+
+def test_un_vtu_di_sole_tensioni_non_ha_nulla_da_ruotare(tmp_path, monkeypatch):
+    """Ingresso degenere: nessuna chiave `U_*` ne' `MODO_*` (solo von Mises,
+    che e' uno scalare) -- nessun errore, e lo scalare resta quello che
+    `von_mises` ha calcolato."""
+    meshio = pytest.importorskip("meshio")
+
+    solo_tensioni = _frd([
+        (1, "STRESS", False, 1.0, {n: (3.0, 0.0, 0.0, 0.0, 0.0, 0.0) for n in (1, 2, 3, 4)}),
+    ])
+    esito = _risolvi_finto(
+        tmp_path, monkeypatch, solo_tensioni, casi=["GRAVITA"], trasformata=_ROTAZIONE_90_Z,
+    )
+
+    assert esito["eseguito"] is True
+    mesh = meshio.read(tmp_path / "13_solution.vtu")
+    assert set(mesh.point_data) == {"VM_GRAVITA"}
+    assert mesh.point_data["VM_GRAVITA"] == pytest.approx([3.0, 3.0, 3.0, 3.0])
+
+
+@pytest.mark.parametrize(
+    "trasformata,motivo",
+    [
+        (None, "assente"),
+        ([[0.0, 1.0, 0.0], [-1.0, 0.0, 0.0], [0.0, 0.0, 1.0]], "3x3"),
+    ],
+    ids=["assente", "3x3"],
+)
+def test_una_trasformata_che_non_e_4x4_e_un_errore_dichiarato(tmp_path, monkeypatch, trasformata, motivo):
+    """Ingresso degenere: senza la trasformata il campo non e' riportabile nel
+    telaio dei punti. Un `.vtu` scritto lo stesso, con il campo non ruotato,
+    sarebbe di nuovo il difetto C1 -- in silenzio."""
+    with pytest.raises(ValueError, match="4x4"):
+        _risolvi_finto(
+            tmp_path, monkeypatch, _FRD_SPINTA_SU_Y,
+            casi=["GRAVITA", "SPINTA_ORIZZONTALE", "MODALE"], trasformata=trasformata,
+        )
+    assert not (tmp_path / "13_solution.vtu").exists(), f"trasformata {motivo}: nessun artefatto"
+
+
+def test_una_rotazione_con_determinante_diverso_da_uno_non_si_applica(tmp_path, monkeypatch):
+    """Ingresso degenere: `align_to_axes` costruisce la terna col prodotto
+    vettoriale, quindi il determinante vale +1 per costruzione. Se quello che
+    arriva qui non e' una rotazione (riflessione, scala, matrice corrotta),
+    applicarlo comunque specchierebbe il campo senza dirlo."""
+    specchiata = [
+        [0.0, 1.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ]
+    with pytest.raises(ValueError, match="determinante"):
+        _risolvi_finto(
+            tmp_path, monkeypatch, _FRD_SPINTA_SU_Y,
+            casi=["GRAVITA", "SPINTA_ORIZZONTALE", "MODALE"], trasformata=specchiata,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Revisione finale, I2: `leggi_reazioni` prometteva nel docstring un filtro
+# sull'intestazione delle forze che il corpo non aveva -- accettava qualunque
+# riga a quattro campi col primo intero. Un blocco `*NODE PRINT, U` produce
+# righe identiche in forma, e `_passo_statico` (abaqus.py) scrive gli `U`
+# **prima** dell'`RF`. Oggi la produzione non passa mai `print_nsets`, ma
+# `print_nsets=("TOP",)` e' gia' usato in tests/feasibility/test_calculix.py
+# e tests/test_abaqus.py: bastava esporlo per sommare millimetri e newton
+# dentro `controlla_reazioni` senza alcuna eccezione.
+#
+# Blocco misurato in forma su un `.dat` vero (runs/lab_telaio_v2/13_solution.dat,
+# riga 8: ` forces (fx,fy,fz) for set BASE and time  0.1000000E+01`); il blocco
+# `displacements` ha la stessa forma, ed e' quello di
+# tests/feasibility/test_calculix.py::DAT_SPOSTAMENTI_CONTAMINATO.
+# ---------------------------------------------------------------------------
+
+DAT_SPOSTAMENTI_PRIMA_DELLE_REAZIONI = """\
+
+                        S T E P       1
+
+
+                                INCREMENT     1
+
+
+ displacements (vx,vy,vz) for set TOP and time  0.1000000E+01
+
+       101 -1.000000E-03  2.000000E-04  3.000000E-04
+       102 -1.100000E-03  2.100000E-04  3.100000E-04
+
+ forces (fx,fy,fz) for set BASE and time  0.1000000E+01
+
+         1 -1.000000E+03 -1.108911E+02 -2.000000E+03
+         2 -1.000000E+03  1.108911E+02  2.000000E+03
+"""
+
+
+def test_leggi_reazioni_scarta_gli_spostamenti_stampati_prima_delle_forze(tmp_path):
+    """I2: con `print_nsets` non vuoto il `.dat` porta un blocco `U` prima
+    dell'`RF`, nello stesso passo. Solo le forze devono finire in `reazioni`:
+    i due nodi del set TOP sono millimetri, e sommati alle reazioni in newton
+    darebbero un verdetto di equilibrio calcolato su unita' diverse -- senza
+    eccezione, senza avviso.
+    """
+    percorso = tmp_path / "con_spostamenti.dat"
+    percorso.write_text(DAT_SPOSTAMENTI_PRIMA_DELLE_REAZIONI, encoding="ascii")
+
+    reazioni = solve.leggi_reazioni(percorso)
+
+    assert reazioni.keys() == {1, 2}, "101 e 102 sono spostamenti del set TOP, non reazioni"
+    assert reazioni[1] == pytest.approx((-1000.0, -110.8911, -2000.0))
+
+
+def test_gli_artefatti_del_solutore_si_rinominano_invece_di_duplicarsi(tmp_path, monkeypatch):
+    """I4: `deck.parent` **e'** `out_dir`, quindi la copia era
+    `wall_model.frd` -> `13_solution.frd` nella stessa cartella. Misurato su
+    `runs/lab_telaio_v2`: 84.997.257 byte di `.frd` e 4.542.878 di `.dat`,
+    materializzati in un `bytes` Python e lasciati sul disco in doppia copia
+    (169.994.514 byte dove ne bastavano 84.997.257). `ccx` riscrive
+    `wall_model.frd` a ogni corsa: rinominare non perde nulla.
+    """
+    esito = _risolvi_finto(
+        tmp_path, monkeypatch, _FRD_SPINTA_SU_Y,
+        casi=["GRAVITA", "SPINTA_ORIZZONTALE", "MODALE"], trasformata=np.eye(4),
+    )
+
+    assert (tmp_path / "13_solution.frd").read_text(encoding="ascii") == _FRD_SPINTA_SU_Y
+    assert (tmp_path / "13_solution.dat").read_text(encoding="ascii") == DAT_DUE_MODI
+    assert not (tmp_path / "wall_model.frd").exists(), "il .frd resta in una copia sola"
+    assert not (tmp_path / "wall_model.dat").exists(), "il .dat resta in una copia sola"
+    assert esito["frd"] == str(tmp_path / "13_solution.frd")
+
+
+# ---------------------------------------------------------------------------
+# Revisione finale, Critical di copertura: `controlli["picco"]` non era
+# toccato da nessun test. La funzione pura `controlla_picco` e' ben coperta
+# (tabella di finitezza e tre casi diretti), la **fiatura dentro `risolvi()`**
+# no: quali quote arrivano alla funzione, come si calcola la banda, come i
+# verdetti per caso si aggregano in uno solo.
+# ---------------------------------------------------------------------------
+
+# Otto nodi in colonna, altezza 100 -> banda di vincolo 5 (5% di
+# _FRAZIONE_BANDA_VINCOLO). Il `.frd` sotto stampa i soli nodi 3..8, cioe' le
+# quote 40..100: e' il caso che distingue le quote del **sottoinsieme del
+# caso** (`nodes[blocco.nodi - 1, 2]`, minimo 40, banda fino a 45) da quelle
+# di tutti i nodi del modello (minimo 0, banda fino a 5).
+_NODI_COLONNA = np.array([
+    [0.0, 0.0, 0.0], [10.0, 0.0, 10.0], [0.0, 10.0, 40.0], [10.0, 10.0, 50.0],
+    [0.0, 0.0, 60.0], [10.0, 0.0, 80.0], [0.0, 10.0, 90.0], [10.0, 10.0, 100.0],
+])
+_ELEMENTI_COLONNA = np.array([[0, 1, 2, 3], [4, 5, 6, 7]])
+_NODI_STAMPATI = (3, 4, 5, 6, 7, 8)
+
+
+def _blocco_stress(passo: int, sigma_per_nodo: dict[int, float]):
+    """Trazione monoassiale pura: la von Mises esce esattamente sigma."""
+    return (passo, "STRESS", False, 1.0,
+            {n: (s, 0.0, 0.0, 0.0, 0.0, 0.0) for n, s in sigma_per_nodo.items()})
+
+
+# GRAVITA: il picco (100) cade sul nodo 3, quota 40, cioe' dentro la banda di
+# vincolo del proprio sottoinsieme -- artefatto, non citabile.
+# SPINTA_ORIZZONTALE: il picco cade sul nodo 8, quota 100, fuori banda.
+_FRD_PICCO_DENTRO_E_FUORI_BANDA = _frd([
+    (1, "DISP", False, 1.0, {n: (0.0, 0.0, -1.0) for n in _NODI_STAMPATI}),
+    _blocco_stress(1, {3: 100.0, 4: 1.0, 5: 1.0, 6: 1.0, 7: 1.0, 8: 1.0}),
+    (2, "DISP", False, 1.0, {n: (0.0, 1.0, -1.0) for n in _NODI_STAMPATI}),
+    _blocco_stress(2, {3: 1.0, 4: 1.0, 5: 1.0, 6: 1.0, 7: 1.0, 8: 100.0}),
+])
+
+
+def test_il_controllo_sul_picco_usa_le_quote_del_caso_e_aggrega_i_verdetti(tmp_path, monkeypatch):
+    """Il picco si giudica sulle quote dei nodi che il blocco stampa, non su
+    quelle di tutto il modello, e un solo caso bocciato basta a bocciare il
+    verdetto d'insieme.
+
+    Mutazione che questo test uccide (applicata davvero, `risolvi()`:
+    `nodes[blocco.nodi - 1, 2]` -> `nodes[:, 2]`): reintroduce il difetto che
+    il docstring di `controlla_picco` documenta come gia' pagato una volta.
+    Con le quote di tutti i nodi la banda parte da 0 invece che da 40 e il
+    confronto non e' nemmeno piu' allineato al vettore delle tensioni.
+    Seconda mutazione uccisa: `all(...)` -> `any(...)`, qui un caso passa e
+    l'altro no.
+    """
+    esito = _risolvi_finto(
+        tmp_path, monkeypatch, _FRD_PICCO_DENTRO_E_FUORI_BANDA,
+        casi=["GRAVITA", "SPINTA_ORIZZONTALE"], trasformata=np.eye(4),
+        nodi=_NODI_COLONNA, elementi=_ELEMENTI_COLONNA,
+    )
+
+    per_caso = esito["controlli"]["picco"]["per_caso"]
+    assert per_caso.keys() == {"GRAVITA", "SPINTA_ORIZZONTALE"}
+    assert per_caso["GRAVITA"]["frazione_in_banda"] == 1.0
+    assert per_caso["GRAVITA"]["passato"] is False, "quota 40 e' il minimo del caso: dentro banda"
+    assert per_caso["SPINTA_ORIZZONTALE"]["frazione_in_banda"] == 0.0
+    assert per_caso["SPINTA_ORIZZONTALE"]["passato"] is True, "quota 100: fuori banda"
+    assert esito["controlli"]["picco"]["passato"] is False
+
+
+def test_senza_tensioni_il_verdetto_sul_picco_e_falso_e_non_vero_per_vuoto(tmp_path, monkeypatch):
+    """Ingresso degenere: `picco_per_caso` vuoto -> verdetto `False`, mai
+    `True` per vacuita'. `all(())` vale `True` in Python, ed e' esattamente
+    il modo in cui un controllo assente si traveste da controllo superato.
+
+    Mutazione uccisa: `if picco_per_caso else False` -> `else True`.
+    """
+    solo_spostamenti = _frd([
+        (1, "DISP", False, 1.0, {n: (0.0, 0.0, -1.0) for n in _NODI_STAMPATI}),
+    ])
+
+    esito = _risolvi_finto(
+        tmp_path, monkeypatch, solo_spostamenti, casi=["GRAVITA"], trasformata=np.eye(4),
+        nodi=_NODI_COLONNA, elementi=_ELEMENTI_COLONNA,
+    )
+
+    assert esito["controlli"]["picco"]["per_caso"] == {}
+    assert esito["controlli"]["picco"]["passato"] is False

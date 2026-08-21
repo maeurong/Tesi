@@ -235,6 +235,13 @@ def test_a_candidate_that_succeeds_records_its_artifacts(tmp_path):
     assert row["input_digest"] == sweep.file_digest(cloud)
     assert "09_volume.vtu" in row["artifacts"]
     assert row["duration_s"] > 0.0
+    # RunConfig.to_step e' predefinito a 13 dalla Fase 5 (il solutore fa parte
+    # di ogni corsa): se run_candidate non chiedesse esplicitamente
+    # --to-step 12 al sottoprocesso, questo candidato risolverebbe davvero
+    # (ccx e' spesso installato dove gira lo sweep) e pagherebbe un processo
+    # esterno e i suoi artefatti (.frd/.vtu) senza che la selezione di Pareto
+    # li legga mai -- vedi il commento su REQUIRED_STEPS in sweep.py.
+    assert "13_solve" not in row["metrics"]
 
 
 def test_a_truncated_metrics_file_does_not_raise_and_becomes_incomplete(tmp_path, monkeypatch):

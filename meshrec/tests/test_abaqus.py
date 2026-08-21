@@ -11,6 +11,22 @@ from materiale import ANALISI, MATERIALE, crea_config
 
 SIZE = (100.0, 40.0, 200.0)
 
+TELAIO_PIEDI_ASIMMETRICI = [
+    ((0.0,    0.0,    0.0), (200.0,  800.0,  200.0)),   # piede largo
+    ((0.0, 2200.0,    0.0), (200.0,  300.0,  200.0)),   # piede stretto
+    ((0.0,  300.0,  200.0), (200.0,  200.0, 1600.0)),   # montante sinistro
+    ((0.0, 2300.0,  200.0), (200.0,  200.0, 1600.0)),   # montante destro
+    ((0.0,  300.0, 1800.0), (200.0, 2200.0,  200.0)),   # traverso
+]
+"""Portale con i due piedi di larghezza diversa.
+
+L'asimmetria in basso inclina la direzione principale senza che la nuvola sia
+inclinata: e' la forma esatta del difetto misurato su `lab_frame.pcd`, dove le
+zapatas larghe e basse portano l'asse altezza a 22,43 gradi dal verticale.
+La struttura poggia su tutta la luce, quindi un vincolo corretto deve coprirla
+tutta: e' cio' che distingue "appoggio mancante" da "vuoto in mezzo".
+"""
+
 
 @pytest.fixture
 def cube_mesh():
@@ -202,26 +218,158 @@ def test_node_sets_cover_the_six_faces_of_a_box():
     assert nodes[sets["FACE_BACK"]][:, 0] == pytest.approx(50.0)
 
 
-def test_output_requests_are_in_the_modern_form(tmp_path):
-    """*NODE FILE produce .fil in Abaqus, non .odb: la Fase 1 usa *OUTPUT, FIELD."""
-    vertices, faces = synth.box_mesh((100.0, 40.0, 200.0))
-    nodes, tets, _ = volume.tetrahedralize_with_metrics(vertices, faces, config.TetConfig())
-    path = tmp_path / "modello.inp"
+def test_il_deck_non_contiene_piu_card_che_calculix_scavalca(tmp_path):
+    """Zero avvisi non e' cosmesi: e' cio' che rende leggibile un avviso vero.
+
+    Misurato il 21/08/2026 sul deck as-built: `ccx` 2.22 emette due avvisi,
+    "parameter not recognized: NAME=GRAVITA" e "parameter not recognized:
+    FIELD". Sono card Abaqus che CalculiX non conosce, e nessuno le leggeva.
+    Un avviso benigno tollerato e' un avviso che nasconde quello vero.
+
+    `*NODE FILE` e `*EL FILE` sono keyword Abaqus legacy, valide, e sono quelle
+    che CalculiX vuole per l'uscita ascii: il cambio non perde la validita' del
+    lato Abaqus. Il nome del passo scende a commento.
+
+    Sostituisce `test_output_requests_are_in_the_modern_form`, che asseriva il
+    contrario: la forma «moderna» *OUTPUT, FIELD e' proprio quella che
+    CalculiX scarta con un avviso.
+
+    `synth.box_mesh` da' la sola superficie triangolare (il brief la passava
+    diretta a `write_inp`, che pero' vuole C3D4 a quattro nodi): qui si
+    tetraedrizza prima, come fa il resto del file.
+    """
+    vertices, faces = synth.box_mesh((100.0, 100.0, 100.0))
+    nodi, elementi = volume.tetrahedralize(
+        vertices, faces, max_volume=100_000.0, min_ratio=1.8, max_steiner_points=-1, nobisect=False
+    )
+    percorso = tmp_path / "deck.inp"
 
     abaqus.write_inp(
-        path,
-        nodes,
-        tets,
-        node_sets=abaqus.build_node_sets(nodes, tolerance=1.0),
-        material=MATERIALE,
+        percorso, nodi, elementi,
+        node_sets={"BASE": np.array([0])}, material=MATERIALE, step_name="GRAVITA",
     )
-    text = path.read_text(encoding="ascii")
 
-    assert "*OUTPUT, FIELD" in text
-    assert "*NODE OUTPUT" in text
-    assert "*ELEMENT OUTPUT" in text
-    assert "*NODE FILE" not in text
-    assert "*EL FILE" not in text
+    testo = percorso.read_text(encoding="ascii")
+    assert "*OUTPUT" not in testo
+    assert "*NODE OUTPUT" not in testo
+    assert "*ELEMENT OUTPUT" not in testo
+    assert "*STEP, NAME=" not in testo
+    assert "** NOME PASSO: GRAVITA" in testo
+    assert "*NODE FILE" in testo
+    assert "*EL FILE" in testo
+
+
+def test_i_tre_casi_statici_e_la_modale_diventano_quattro_passi(tmp_path):
+    """Un deck, quattro passi, un'esecuzione.
+
+    Misurato il 21/08/2026: `ccx` accetta i quattro in fila e chiude con
+    "Job finished", zero avvisi e zero errori.
+    """
+    vertices, faces = synth.box_mesh((100.0, 100.0, 100.0))
+    nodi, elementi = volume.tetrahedralize(
+        vertices, faces, max_volume=100_000.0, min_ratio=1.8, max_steiner_points=-1, nobisect=False
+    )
+    carichi = config.CarichiConfig(
+        spinta=config.SpintaOrizzontale(coefficiente=0.1, asse="y"),
+        carico_sommita=config.CaricoSommita(risultante=1000.0, nset="TOP"),
+        modale=config.Modale(modi=6),
+    )
+    percorso = tmp_path / "deck.inp"
+
+    abaqus.write_inp(
+        percorso, nodi, elementi,
+        node_sets=_base_and_top(nodi),
+        material=MATERIALE, carichi=carichi,
+    )
+
+    # Le asserzioni contano RIGHE INTERE, non sottostringhe: `GRAV` compare
+    # anche dentro il commento `** NOME PASSO: GRAVITA` che questo stesso task
+    # introduce, e un conteggio per sottostringa direbbe 5 dove il deck ha 4
+    # carichi. Un test che conta la cosa sbagliata e' verde per caso.
+    righe = percorso.read_text(encoding="ascii").splitlines()
+    testo = "\n".join(righe)
+    assert righe.count("*STEP") == 4
+    assert righe.count("*END STEP") == 4
+    # la riga subito dopo *FREQUENCY, non una sottostringa nell'intero deck:
+    # "\n6\n" nel testo intero passerebbe anche se il 6 fosse dentro un *NSET,
+    # e sarebbe verde per coincidenza (RULING M, stessa famiglia del difetto
+    # sopra sulle righe intere).
+    assert righe[righe.index("*FREQUENCY") + 1] == "6"
+    assert "*CLOAD" in testo
+    # la spinta e' una seconda GRAV nello stesso passo, non un passo a se':
+    # senza il peso proprio accanto, la spinta descriverebbe una struttura che
+    # non pesa
+    carichi_grav = [riga for riga in righe if riga.startswith("ALL_WALL, GRAV,")]
+    assert len(carichi_grav) == 4, carichi_grav  # peso proprio nei 3 passi statici + spinta
+    # ogni passo statico stampa le reazioni: e' il controllo di conservazione
+    assert righe.count("*NODE PRINT, NSET=BASE") == 3
+    assert righe.count("RF") == 3
+
+
+def test_le_forme_modali_non_chiedono_tensioni(tmp_path):
+    """Da un passo *FREQUENCY non escono MPa.
+
+    Le forme sono normalizzate sulla massa, e una von Mises calcolata su una
+    forma da' numeri plausibili e privi di significato: fino a 88,5 MPa,
+    misurati il 21/08/2026. Il deck non le chiede nemmeno.
+    """
+    vertices, faces = synth.box_mesh((100.0, 100.0, 100.0))
+    nodi, elementi = volume.tetrahedralize(
+        vertices, faces, max_volume=100_000.0, min_ratio=1.8, max_steiner_points=-1, nobisect=False
+    )
+    carichi = config.CarichiConfig(modale=config.Modale(modi=4))
+    percorso = tmp_path / "deck.inp"
+
+    abaqus.write_inp(
+        percorso, nodi, elementi,
+        node_sets=_base_and_top(nodi), material=MATERIALE, carichi=carichi,
+    )
+
+    passo_modale = percorso.read_text(encoding="ascii").split("** NOME PASSO: MODALE")[1]
+    assert "*EL FILE" not in passo_modale
+    assert "*NODE FILE" in passo_modale
+
+
+def test_la_pressione_si_ripete_in_ogni_passo_statico_con_carichi(tmp_path):
+    """`pressure` e' una condizione permanente del modello, non un caso di
+    carico fra gli altri: si ripete in ogni passo statico esattamente come il
+    peso proprio (vedi il docstring di `write_inp`, Important A del giro di
+    revisione). Qui i passi statici sono due (peso proprio + spinta): la
+    `*DSLOAD` deve comparire in entrambi, non solo nel primo."""
+    superficie = abaqus.element_surface(_ESAEDRO, np.array([0, 1, 2, 3]), "C3D8I")
+    carichi = config.CarichiConfig(spinta=config.SpintaOrizzontale(coefficiente=0.1, asse="x"))
+    percorso = tmp_path / "con_pressione.inp"
+
+    abaqus.write_inp(
+        percorso, _CUBO, _ESAEDRO,
+        node_sets={"BASE": np.array([0, 1, 2, 3])},
+        material=MATERIALE,
+        element_type="C3D8I",
+        element_surfaces={"FACCIA_BASSA": superficie},
+        pressure=("FACCIA_BASSA", 0.25),
+        carichi=carichi,
+    )
+
+    righe = percorso.read_text(encoding="ascii").splitlines()
+    assert righe.count("*STEP") == 2
+    assert righe.count("*DSLOAD") == 2
+    assert righe.count("FACCIA_BASSA, P, 0.25") == 2
+
+
+def test_il_carico_in_sommita_rifiuta_un_insieme_vuoto(tmp_path):
+    """Zero nodi nell'insieme e' lo stesso problema silenzioso della chiave
+    mancante appena sopra nel codice (un carico applicato a nulla), non un
+    `ZeroDivisionError` grezzo: stessa guardia, stesso registro di errore."""
+    carichi = config.CarichiConfig(carico_sommita=config.CaricoSommita(risultante=1000.0, nset="TOP"))
+
+    with pytest.raises(ValueError, match="TOP"):
+        abaqus.write_inp(
+            tmp_path / "vuoto.inp", _CUBO, _ESAEDRO,
+            node_sets={"BASE": np.array([0, 1, 2, 3]), "TOP": np.array([], dtype=np.int64)},
+            material=MATERIALE,
+            element_type="C3D8I",
+            carichi=carichi,
+        )
 
 
 def test_export_model_writes_both_files_and_reports_mass(tmp_path):
@@ -247,6 +395,43 @@ def test_export_model_writes_both_files_and_reports_mass(tmp_path):
     assert len(read_back.points) == len(nodes)
 
 
+def test_export_model_elenca_i_casi_di_carico_dichiarati(tmp_path):
+    """`casi_di_carico` e' derivato da `carichi`, non da `cfg` (Task 3 li ha
+    separati in blocchi di primo livello distinti): un elenco che leggesse i
+    tre campi da `cfg` solleverebbe un `AttributeError`, non un elenco corto."""
+    vertices, faces = synth.box_mesh((100.0, 40.0, 200.0))
+    nodes, tets, _ = volume.tetrahedralize_with_metrics(vertices, faces, config.TetConfig())
+    carichi = config.CarichiConfig(spinta=config.SpintaOrizzontale(coefficiente=0.1, asse="x"))
+
+    metrics = abaqus.export_model(
+        tmp_path / "wall_model.inp",
+        tmp_path / "wall_model.vtu",
+        nodes,
+        tets,
+        config.AnalysisConfig(material=MATERIALE),
+        config.TetConfig(),
+        carichi=carichi,
+    )
+
+    assert metrics["casi_di_carico"] == ["GRAVITA", "SPINTA_ORIZZONTALE"]
+
+
+def test_export_model_senza_carichi_elenca_il_solo_peso_proprio(tmp_path):
+    vertices, faces = synth.box_mesh((100.0, 40.0, 200.0))
+    nodes, tets, _ = volume.tetrahedralize_with_metrics(vertices, faces, config.TetConfig())
+
+    metrics = abaqus.export_model(
+        tmp_path / "wall_model.inp",
+        tmp_path / "wall_model.vtu",
+        nodes,
+        tets,
+        config.AnalysisConfig(material=MATERIALE),
+        config.TetConfig(),
+    )
+
+    assert metrics["casi_di_carico"] == ["GRAVITA"]
+
+
 def test_c3d10_is_refused_until_the_writer_supports_it(tmp_path):
     vertices, faces = synth.box_mesh((100.0, 40.0, 200.0))
     nodes, tets, _ = volume.tetrahedralize_with_metrics(vertices, faces, config.TetConfig())
@@ -268,28 +453,6 @@ def _yaw(angle_deg: float) -> np.ndarray:
     return np.array(
         [[np.cos(angle), -np.sin(angle), 0.0], [np.sin(angle), np.cos(angle), 0.0], [0.0, 0.0, 1.0]]
     )
-
-
-def test_height_axis_points_up_regardless_of_svd_sign():
-    """Il verso di z deve seguire il verticale reale, non il segno arbitrario della SVD.
-
-    Un punto isolato oltre la quota massima marca l'estremita fisicamente
-    superiore del muro: dopo l'allineamento deve trovarsi sempre alla quota
-    massima, mai alla minima, qualunque sia la rotazione (attorno a z) applicata
-    in ingresso.
-    """
-    rng = np.random.default_rng(2)
-    base = rng.uniform([0.0, 0.0, 0.0], [1000.0, 50.0, 300.0], size=(1500, 3))
-    marker = np.array([[500.0, 25.0, 305.0]])  # oltre la quota massima del muro
-
-    for angle_deg in (0.0, 47.0, 137.0, 200.0, 311.0):
-        cloud = np.vstack([base, marker]) @ _yaw(angle_deg).T + np.array([100.0, -300.0, 50.0])
-
-        aligned, _, _ = abaqus.align_to_axes(cloud)
-        marker_z = aligned[-1, 2]
-
-        assert marker_z == pytest.approx(aligned[:, 2].max())
-        assert marker_z != pytest.approx(aligned[:, 2].min())
 
 
 def test_rotation_matrix_is_always_right_handed():
@@ -402,6 +565,42 @@ def test_the_triad_follows_the_surface_not_the_distribution_of_nodes():
     # Lo scostamento al primo ottante si calcola sui nodi trasformati, non sul
     # riferimento: senza questo, BASE non corrisponderebbe alla base del solido.
     assert allineati.min(axis=0) == pytest.approx([0.0, 0.0, 0.0], abs=1e-9)
+
+
+def test_l_asse_altezza_e_il_verticale_anche_se_la_pca_pende():
+    """La terna non lascia decidere l'altezza alla PCA.
+
+    Sul banco a piedi asimmetrici la direzione principale piu' vicina al
+    verticale sta 13,58 gradi fuori (misurato prima della correzione), e da li'
+    discende il set BASE su un piede solo. Dopo la correzione l'asse altezza e'
+    il verticale in ingresso per costruzione, e l'unica cosa ancora stimata e'
+    l'imbardata, che e' quanto il docstring ha sempre dichiarato.
+    """
+    punti = synth.sample_frame_surface(TELAIO_PIEDI_ASIMMETRICI, spacing=25.0)
+
+    _allineati, transform, _metriche = abaqus.align_to_axes(punti, reference=punti)
+
+    assert transform[2, :3] == pytest.approx([0.0, 0.0, 1.0], abs=1e-12)
+    # terna destrorsa e ortonormale: il determinante non e' un dettaglio, un -1
+    # scambierebbe SIDE_LEFT con SIDE_RIGHT senza che nulla se ne accorga
+    assert np.linalg.det(transform[:3, :3]) == pytest.approx(1.0, abs=1e-12)
+    assert transform[:3, :3] @ transform[:3, :3].T == pytest.approx(np.eye(3), abs=1e-12)
+
+
+def test_i_nodi_bassi_dopo_l_allineamento_coprono_tutta_la_luce():
+    """Il vincolo prende entrambi i piedi, non uno.
+
+    Misurato sul banco: prima della correzione i nodi entro 60 mm dal minimo di
+    z-modello sono 131 e coprono lo 0,088 della lunghezza; dopo sono 654 e la
+    coprono per intero.
+    """
+    punti = synth.sample_frame_surface(TELAIO_PIEDI_ASIMMETRICI, spacing=25.0)
+
+    allineati, _transform, _metriche = abaqus.align_to_axes(punti, reference=punti)
+
+    bassi = allineati[allineati[:, 2] <= allineati[:, 2].min() + 60.0]
+    rapporto = float(np.ptp(bassi[:, 1]) / np.ptp(allineati[:, 1]))
+    assert rapporto > 0.95, f"il vincolo copre solo {rapporto:.3f} della luce"
 
 
 def test_export_model_estimates_the_triad_on_the_reference_it_is_given(tmp_path):
@@ -534,6 +733,75 @@ def test_export_reports_how_much_of_the_footprint_is_constrained(tmp_path, cube_
     assert metrics["fixed_nset_coverage"] == 1.0
     assert metrics["boundary_spacing"] > 0.0
     assert metrics["set_tolerance"] == pytest.approx(6.0 * metrics["boundary_spacing"])
+
+
+def test_l_estensione_in_pianta_del_vincolo_vale_uno_su_due_piedi():
+    """Un telaio a due piedi e' ben vincolato anche se e' vuoto in mezzo.
+
+    E' la proprieta' che distingue questa grandezza da footprint_coverage: i due
+    piedi coprono l'intera luce, quindi il rapporto vale 1 pur essendoci un
+    vuoto fra loro. Se valesse meno di 1, la grandezza confonderebbe "vuoto in
+    mezzo" con "manca un appoggio" e sarebbe inutilizzabile su un portale.
+    """
+    punti = synth.sample_frame_surface(TELAIO_PIEDI_ASIMMETRICI, spacing=25.0)
+    allineati, _t, _m = abaqus.align_to_axes(punti, reference=punti)
+    bassi = np.flatnonzero(allineati[:, 2] <= allineati[:, 2].min() + 60.0)
+
+    esteso = abaqus.constraint_plan_extent(allineati, bassi)
+
+    # Tre asserzioni indipendenti, ciascuna contro un oracolo esterno.
+    # `minimo == min(x, y)` sarebbe tautologica: ricalcola la formula sui
+    # valori appena restituiti invece di confrontarli con cio' che ci si
+    # aspetta, e un errore che sbagliasse `x` passerebbe inosservato
+    # (dimostrato per iniezione: `x` sbagliato di un fattore 0,3 fa scendere
+    # `minimo` a 0,3 e il test resta verde).
+    assert esteso["x"] == pytest.approx(1.0, abs=0.05)
+    assert esteso["y"] == pytest.approx(1.0, abs=0.05)
+    assert esteso["minimo"] == pytest.approx(1.0, abs=0.05)
+
+
+def test_l_estensione_in_pianta_crolla_se_il_vincolo_tiene_un_angolo():
+    """Un insieme ammucchiato in un angolo si vede, e footprint_coverage no.
+
+    Misurato sul deck as-built del 21/08/2026: BASE aveva 278 nodi in una toppa
+    y 574-808 su un pezzo lungo 3144, cioe' un rapporto di 0,074, mentre
+    fixed_nset_coverage dichiarava 1,0. E' il caso che questa grandezza esiste
+    per cogliere.
+    """
+    punti = synth.sample_frame_surface(TELAIO_PIEDI_ASIMMETRICI, spacing=25.0)
+    allineati, _t, _m = abaqus.align_to_axes(punti, reference=punti)
+    # un solo piede: i nodi bassi con y sotto il primo quarto della luce
+    limite = allineati[:, 1].min() + 0.25 * np.ptp(allineati[:, 1])
+    un_piede = np.flatnonzero(
+        (allineati[:, 2] <= allineati[:, 2].min() + 60.0) & (allineati[:, 1] <= limite)
+    )
+
+    esteso = abaqus.constraint_plan_extent(allineati, un_piede)
+
+    assert esteso["minimo"] < 0.5
+
+
+def test_l_estensione_in_pianta_crolla_anche_quando_e_x_l_asse_stretto():
+    """Il buco lasciato dal Task 2: sui due banchi esistenti y e' sempre
+    l'asse piu' stretto, quindi `minimo = min(x, y)` e un'implementazione
+    sbagliata `minimo := y` sono indistinguibili -- un vincolo stretto sul
+    solo asse x passerebbe inosservato. Qui x e' l'asse stretto: se
+    `minimo` seguisse `y` invece che il minimo vero, uscirebbe 1.0 invece di
+    seguire x.
+
+    Muore se: il corpo di `constraint_plan_extent` diventa
+    `rapporti["minimo"] = rapporti["y"]`.
+    """
+    nodi = np.array(
+        [[x, y, 0.0] for x in (0.0, 10.0, 100.0) for y in (0.0, 100.0)]
+    )
+    stretto_su_x = np.flatnonzero(nodi[:, 0] <= 10.0)  # x in [0, 10], y intera
+
+    esteso = abaqus.constraint_plan_extent(nodi, stretto_su_x)
+
+    assert esteso["x"] == pytest.approx(0.1)
+    assert esteso["y"] == pytest.approx(1.0)
+    assert esteso["minimo"] == pytest.approx(0.1)
 
 
 def test_le_facce_di_bordo_di_un_esaedro_solo_sono_sei_quadrilateri():

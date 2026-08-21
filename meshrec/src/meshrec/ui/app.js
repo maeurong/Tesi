@@ -5,7 +5,7 @@ const ETICHETTE = {
   "04_normals": "Normali", "05_reconstruct": "Superficie", "06_repair": "Riparazione",
   "07_surface_quality": "Qualita superficie", "08_simplify": "Semplificazione",
   "09_tetrahedralize": "Tetraedri", "10_volume_quality": "Qualita volume",
-  "11_export": "Esportazione", "12_wall": "Prior geometrico",
+  "11_export": "Esportazione", "12_wall": "Prior geometrico", "13_solve": "Analisi strutturale",
 };
 
 async function caricaStato() {
@@ -174,7 +174,7 @@ async function annullaLaCorsa() {
 
 document.getElementById("annulla").addEventListener("click", annullaLaCorsa);
 
-import { creaViewport } from "/ui/viewport.js";
+import { creaViewport, scalaDelCampo, numeroDelCampo, didascaliaDelCampo } from "/ui/viewport.js";
 
 const vista = creaViewport(document.getElementById("viewport"));
 
@@ -249,8 +249,10 @@ async function mostraNuvolaDelloStep(numero, ordine) {
 
 // Gli step che producono una superficie o un volume: dal 5 in poi l'artefatto
 // non e' piu' una nuvola, e disegnarne i soli vertici mostrerebbe punti dove
-// c'e' un solido.
-const STEP_CON_MESH = new Set([5, 6, 8, 9]);
+// c'e' un solido. Lo step 13 e' anche lui un volume (13_solution.vtu, lo
+// stesso contorno di /api/campo): senza di lui in questo insieme un clic sullo
+// step 13 chiederebbe /api/cloud/13, che non esiste.
+const STEP_CON_MESH = new Set([5, 6, 8, 9, 13]);
 
 async function mostraStep(numero, ordine) {
   // La delega sta prima del contatore: incrementarlo qui e di nuovo la' sotto
@@ -283,6 +285,167 @@ async function mostraStep(numero, ordine) {
   document.getElementById("conteggi").textContent =
     `${vertici.toLocaleString("it")} vertici, ${triangoli.toLocaleString("it")} triangoli`;
   return true;
+}
+
+// Lo step che risolve: /api/campo/{caso}/{grandezza} vive fuori da
+// STEP_CON_MESH/STEP_CON_TAGLIO apposta, sono comandi diversi (un campo per
+// nodo, non un artefatto di step) che condividono solo il numero di step.
+const STEP_CON_CAMPO = 13;
+
+// La didascalia della vista sta nel markup, dentro la zona della vista e sotto
+// la tela, non nel pannello della terza colonna: proiettata in discussione,
+// quella frase e' l'unica cosa che dice quale caso di carico e quale grandezza
+// si sta guardando, e nella terza colonna finiva sotto la piega (ventidue
+// tacche di rotella per portarla in vista, misurato nel browser il
+// 22/08/2026). Come #conteggi: sta nel markup e nessun ramo del modulo la puo'
+// distruggere.
+function didascaliaDellaVista() {
+  return document.getElementById("didascalia-vista");
+}
+
+// Mesh e campo arrivano insieme, con la stessa arbitrazione di
+// mostraNuvolaDelloStep/mostraStep (apriGeometria/ultimaGeometria): due
+// selezioni del menu a cascata di seguito non devono far vincere la piu'
+// vecchia. Vero se questa chiamata ha scritto (disegno o rifiuto dichiarato),
+// falso se e' stata scartata perche' superata.
+async function mostraCampoDelloStep(caso, grandezza, ordine) {
+  const didascalia = didascaliaDellaVista();
+  const emissione = apriGeometria();
+  const [rispostaMesh, rispostaCampo] = await Promise.all([
+    fetch(`/api/mesh/${STEP_CON_CAMPO}`).catch(serverMuto),
+    fetch(`/api/campo/${caso}/${grandezza}`).catch(serverMuto),
+  ]);
+  if (!rispostaMesh.ok || !rispostaCampo.ok) {
+    if (superata(ordine) || superata(emissione, ultimaGeometria)) return false;
+    // Il server risponde sempre 400 (mai 404): un caso/grandezza inesistenti,
+    // o il .vtu assente perche' la corsa si e' fermata allo step 12, sono lo
+    // stesso rifiuto dichiarato, non una pagina bianca ne' uno stack.
+    const ragione = await ragioneDelRifiuto(rispostaMesh.ok ? rispostaCampo : rispostaMesh);
+    didascalia.textContent = ragione;
+    return true;
+  }
+  // L'intestazione assente vale null, e Number(null) e' 0: scriverebbe
+  // «massimo reale 0 mm», che si legge come una misura invece che come un dato
+  // che manca. NaN attraversa la stessa strada dei valori non finiti che il
+  // server emette senza guardia ("nan", "inf") e che la didascalia dichiara.
+  const grezzoMassimo = rispostaCampo.headers.get("X-Max");
+  const massimo = grezzoMassimo ? Number(grezzoMassimo) : NaN;
+  const vertici = Number(rispostaMesh.headers.get("X-Vertices"));
+  const triangoli = Number(rispostaMesh.headers.get("X-Triangles"));
+  const grezziMesh = await rispostaMesh.arrayBuffer();
+  const grezziCampo = await rispostaCampo.arrayBuffer();
+  if (superata(ordine) || superata(emissione, ultimaGeometria)) return false;
+  const valori = new Float32Array(grezziCampo);
+  // Mesh e campo arrivano da due risposte separate: che si corrispondano e'
+  // garanzia di due handler del server che condividono _contorno_del_volume,
+  // non del client. Se la corsa viene rieseguita mentre il campo e' aperto,
+  // l'attributo color si poserebbe su posizioni di un'altra mesh e il pezzo
+  // uscirebbe colorato sfalsato senza nessun errore. Rifiuto dichiarato, come
+  // il ramo 400: la vista di prima resta, e la didascalia dice perche'.
+  if (valori.length !== vertici) {
+    didascalia.textContent =
+      `campo e superficie non corrispondono (${valori.length} valori su ${vertici} vertici): `
+      + "la corsa e' cambiata mentre la vista arrivava, riprova";
+    return true;
+  }
+  const { taglio, sopraTaglio } = scalaDelCampo(valori);
+  // Una frase sola, e la stessa in tre posti: sotto la vista, nell'aria-label
+  // della tela e in nessun altro. Scritta due volte, un giorno una delle due
+  // resterebbe indietro.
+  const testo = didascaliaDelCampo({ caso, grandezza, massimo, taglio, sopraTaglio });
+  vista.svuota();
+  vista.mostraMeshPerCampo(
+    new Float32Array(grezziMesh, 0, vertici * 3),
+    new Uint32Array(grezziMesh, vertici * 3 * 4, triangoli * 3),
+    valori,
+    { taglio, descrizione: testo },
+  );
+  // Come gli altri due rami che disegnano: senza, #conteggi resta quello della
+  // vista di prima e descrive un artefatto che non e' piu' sullo schermo.
+  document.getElementById("conteggi").textContent =
+    `${vertici.toLocaleString("it")} vertici, ${triangoli.toLocaleString("it")} triangoli`;
+  didascalia.textContent = testo;
+  return true;
+}
+
+// Una forma modale non ha ne' U ne' VM (/api/campo la rifiuta sempre, per
+// costruzione: la sua forma e' normalizzata sulla massa, non uno spostamento
+// fisico), quindi non c'e' nessun campo da colorare. Delega interamente a
+// mostraStep, che disegna gia' la mesh grigia dello step 13 con la propria
+// arbitrazione: le didascalie seguono solo se quella chiamata ha vinto.
+async function mostraModoDelloStep(numero, frequenza, ordine) {
+  const disegnato = await mostraStep(STEP_CON_CAMPO, ordine);
+  if (!disegnato) return false;
+  // `Modo 1` e non `MODO_1`: e' il nome che il <select> mostra nella stessa
+  // schermata, e due nomi per la stessa cosa a mezzo palmo di distanza si
+  // leggono come due cose. `MODO_1` resta la chiave del .vtu, che a video non
+  // compare.
+  didascaliaDellaVista().textContent =
+    didascaliaDelCampo({ caso: `Modo ${numero}`, modale: true, frequenza });
+  return true;
+}
+
+// Il pannello dello step 13: due <select> (caso, grandezza), non un parametro
+// del modello — a differenza dei campi di campoParametro non scrivono nulla
+// in config.yaml, quindi non passano da scriviParametro. I nomi dei casi e i
+// modi vengono da metriche["13_solve"] (casi, modi, frequenze_hz), non da un
+// elenco tenuto qui a mano: un deck futuro con un quarto caso statico non
+// richiederebbe di toccare questo file.
+function pannelloCampo(ordine, metriche13) {
+  const contenitore = document.createElement("fieldset");
+  contenitore.className = "gruppo";
+  contenitore.append(Object.assign(document.createElement("legend"), { textContent: "Campo" }));
+  const casi = Object.keys(metriche13?.casi ?? {});
+  const modi = metriche13?.modi ?? 0;
+  if (casi.length === 0 && modi === 0) {
+    contenitore.append(Object.assign(document.createElement("p"), {
+      className: "aiuto",
+      textContent: "Lo step 13 non ha ancora prodotto casi di carico ne' modi da mostrare.",
+    }));
+    return contenitore;
+  }
+  const selCaso = document.createElement("select");
+  for (const nome of casi) selCaso.append(new Option(nome, nome));
+  for (let n = 1; n <= modi; n += 1) {
+    const hz = metriche13.frequenze_hz?.[n - 1];
+    const scritta = numeroDelCampo(hz, { maximumFractionDigits: 2 });
+    selCaso.append(new Option(`Modo ${n}${scritta === null ? "" : ` (${scritta} Hz)`}`, `MODO_${n}`));
+  }
+  const rigaCaso = document.createElement("label");
+  rigaCaso.className = "campo";
+  rigaCaso.append(Object.assign(document.createElement("span"), { textContent: "caso" }), selCaso);
+
+  const selGrandezza = document.createElement("select");
+  selGrandezza.append(new Option("spostamento (U)", "U"), new Option("tensione equivalente (VM)", "VM"));
+  const rigaGrandezza = document.createElement("label");
+  rigaGrandezza.className = "campo";
+  rigaGrandezza.append(Object.assign(document.createElement("span"), { textContent: "grandezza" }), selGrandezza);
+
+  async function aggiorna() {
+    const caso = selCaso.value;
+    const modale = caso.startsWith("MODO_");
+    // hidden e non disabled: un modo non ha grandezza, non e' un comando spento.
+    rigaGrandezza.hidden = modale;
+    if (modale) {
+      const numero = Number(caso.slice("MODO_".length));
+      await mostraModoDelloStep(numero, metriche13.frequenze_hz?.[numero - 1], ordine);
+    } else {
+      await mostraCampoDelloStep(caso, selGrandezza.value, ordine);
+    }
+  }
+  selCaso.addEventListener("change", aggiorna);
+  selGrandezza.addEventListener("change", aggiorna);
+  contenitore.append(rigaCaso, rigaGrandezza);
+  // Il rigetto finisce in didascalia, come i due rami di rifiuto dentro
+  // mostraCampoDelloStep. Senza, un errore in costruzione diventa un unhandled
+  // rejection: pannello muto, vista di prima ancora a schermo, e l'unico
+  // segnale nella console del browser, che in discussione nessuno guarda. La
+  // costruzione del pannello non aspetta la vista, quindi il .catch() e non
+  // l'await: il <select> deve comparire anche se il campo non arriva.
+  aggiorna().catch((errore) => {
+    didascaliaDellaVista().textContent = `il campo non e' arrivato: ${errore.message}`;
+  });
+  return contenitore;
 }
 
 // Il piano di taglio serve a guardare dentro il volume, percio' il comando
@@ -382,6 +545,12 @@ document.getElementById("elenco-step").addEventListener("click", (evento) => {
 // eventi quella in corso, cosi' il ricaricamento non annulla una geometria in
 // volo ma viene battuto da un clic dell'utente.
 function ricaricaVista(numero, ordine = generazione) {
+  // La didascalia della vista sta nel markup e sopravvive al cambio di step:
+  // senza questa riga, lasciato lo step 13 resterebbe «GRAVITA — tensione
+  // equivalente ...» sotto la nuvola dello step 2. Qui e non altrove perche'
+  // questo e' l'unico imbuto per cui la vista cambia, dal clic e dal fronte di
+  // discesa; chi disegna un campo la riscrive subito dopo.
+  didascaliaDellaVista().textContent = "";
   // `disegnato` e' falso quando la risposta e' stata scartata: senza guardarlo,
   // il cursore si rifarebbe sull'ingombro di una geometria che qualcun altro
   // ha disegnato, cioe' su una lettura che non appartiene a questo numero.
@@ -1140,11 +1309,16 @@ async function apriDettaglio(numero, ordine = generazione) {
     dettaglio.append(gruppo);
   }
 
+  // Presa qui, prima dei due pannelli sotto: pannelloCampo la legge per
+  // costruire i propri <select> dai casi e dai modi gia' risolti, la sezione
+  // Metriche piu' sotto la legge per il resto.
+  const chiave = Object.keys(metriche).find((k) => k.startsWith(String(numero).padStart(2, "0")));
+
   // Dentro dettaglio, che replaceChildren() svuota a ogni apertura: cosi' il
   // pannello non puo' sopravvivere a uno step che non e' il suo.
   if (numero === STEP_CON_RITAGLIO) dettaglio.append(pannelloRitaglio(ordine));
+  if (numero === STEP_CON_CAMPO) dettaglio.append(pannelloCampo(ordine, metriche[chiave]));
 
-  const chiave = Object.keys(metriche).find((k) => k.startsWith(String(numero).padStart(2, "0")));
   if (chiave) {
     const titolo = document.createElement("h3");
     titolo.textContent = "Metriche";

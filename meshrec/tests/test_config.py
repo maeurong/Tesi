@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from meshrec.core import config
 from meshrec.core.config import PipelineConfig
@@ -167,12 +168,82 @@ def test_l_impronta_di_una_corsa_registrata_non_cambia():
 
 
 def test_i_blocchi_nuovi_stanno_in_pipelineconfig_e_fuori_dall_impronta():
-    """I due blocchi della Fase 4 viaggiano con la configurazione, perche' lo
-    step 12 li legge, e restano fuori dall'impronta di sweep, perche' nessun
-    asse della Fase 2 li tocca."""
+    """I tre blocchi della Fase 4 e 5 viaggiano con la configurazione, perche'
+    gli step 12 e 13 li leggono, e restano fuori dall'impronta di sweep,
+    perche' nessun asse della Fase 2 li tocca."""
     from meshrec.core.sweep import BLOCCHI_FUORI_IMPRONTA
 
     campi = set(PipelineConfig.model_fields)
-    assert {"wall", "model"} <= campi
-    assert set(BLOCCHI_FUORI_IMPRONTA) == {"run", "wall", "model"}
+    assert {"wall", "model", "carichi"} <= campi
+    assert set(BLOCCHI_FUORI_IMPRONTA) == {"run", "wall", "model", "carichi"}
     assert set(BLOCCHI_FUORI_IMPRONTA) <= campi
+
+
+def test_i_casi_di_carico_non_hanno_valori_predefiniti():
+    """La spinta e il carico si dichiarano, come il materiale.
+
+    Stessa ragione di config.Material: un predefinito di muratura a 1500 MPa
+    era finito in silenzio nella configurazione di un telaio in calcestruzzo, e
+    nessuno l'aveva scelto. Un coefficiente di spinta predefinito sarebbe lo
+    stesso errore su una grandezza che nessun dato puo' suggerire.
+
+    Il test verifica che ogni campo di ogni modello e' obbligatorio campo per
+    campo, non solo che l'istanziazione a vuoto fallisce (il quale potrebbe
+    fallire per il motivo sbagliato, e.g. se solo asse restasse obbligatorio).
+    """
+    for modello, campi_attesi in (
+        (config.SpintaOrizzontale, {"coefficiente", "asse"}),
+        (config.CaricoSommita, {"risultante", "nset"}),
+        (config.Modale, {"modi"}),
+    ):
+        for nome_campo, info_campo in modello.model_fields.items():
+            assert nome_campo in campi_attesi, (
+                f"{modello.__name__}.{nome_campo} non era nel set atteso"
+            )
+            assert info_campo.is_required(), (
+                f"{modello.__name__}.{nome_campo} ha un predefinito, "
+                "dovrebbe essere obbligatorio"
+            )
+        assert set(modello.model_fields) == campi_attesi, (
+            f"{modello.__name__} ha campi extra: "
+            f"{set(modello.model_fields) - campi_attesi}"
+        )
+
+
+def test_un_analisi_senza_casi_dichiarati_ha_il_solo_peso_proprio():
+    """Chi non dichiara nulla ottiene l'unico caso derivabile dai dati.
+
+    Densita' e gravita' sono gia' nella configurazione, quindi il peso proprio
+    non e' un predefinito indovinato: e' l'unica cosa che il programma sa gia'.
+    I tre casi di carico sono nullabili e restano None se non dichiarati.
+    """
+    carichi = config.CarichiConfig()
+
+    assert carichi.spinta is None
+    assert carichi.carico_sommita is None
+    assert carichi.modale is None
+
+
+def test_il_coefficiente_di_spinta_rifiuta_lo_zero_e_il_negativo():
+    with pytest.raises(ValidationError):
+        config.SpintaOrizzontale(coefficiente=0.0, asse="y")
+    with pytest.raises(ValidationError):
+        config.SpintaOrizzontale(coefficiente=-0.1, asse="y")
+
+
+@pytest.mark.parametrize("riservato", ["SPINTA_ORIZZONTALE", "CARICO_TOP", "MODALE"])
+def test_step_name_non_puo_ripetere_un_nome_di_caso_di_carico(riservato):
+    """M13 della revisione finale: `abaqus.export_model` assegna da se' i nomi
+    degli altri casi di carico, e `solve.risolvi` usa quel nome come chiave di
+    `point_data`. Con `analysis.step_name: SPINTA_ORIZZONTALE` due passi
+    finiscono sulla stessa etichetta, il secondo sovrascrive il primo e un
+    caso di carico sparisce dal `.vtu` senza errore.
+    """
+    with pytest.raises(ValidationError, match="riservato"):
+        config.AnalysisConfig(material=MATERIALE, step_name=riservato)
+
+
+def test_lo_step_name_predefinito_e_i_nomi_liberi_restano_accettati():
+    """Controprova: la guardia sopra vieta tre nomi, non i nomi."""
+    assert config.AnalysisConfig(material=MATERIALE).step_name == "GRAVITA"
+    assert config.AnalysisConfig(material=MATERIALE, step_name="PESO_PROPRIO").step_name == "PESO_PROPRIO"

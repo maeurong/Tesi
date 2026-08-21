@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 from pydantic import ValidationError
 
-from meshrec.core import config, io, pipeline, quality, synth
+from meshrec.core import config, io, pipeline, quality, solve, steps, synth
 from materiale import ANALISI, MATERIALE, crea_config
 
 
@@ -16,7 +16,15 @@ EXACT_VOLUME = 120.0 * 60.0 * 240.0
 
 
 def _config_cubo(tmp_path):
-    """Configurazione del cubo di prova, la stessa della fixture run_dir."""
+    """Configurazione del cubo di prova, la stessa della fixture run_dir.
+
+    `to_step=12` esplicito: dalla Fase 5 il predefinito di RunConfig e' 13
+    (il solutore fa parte di ogni corsa, decisione dell'utente), ma questo
+    banco serve gran parte della suite per esercitare l'elaborazione
+    geometrica (1-12), non il solutore -- e su una macchina con `ccx`
+    installato lasciarlo al predefinito farebbe girare un processo esterno
+    vero a ogni singola chiamata. Stessa ragione, stesso numero, di
+    `sweep.run_candidate`."""
     pytest.importorskip("pymeshfix")
     cloud_path = tmp_path / "box.ply"
     io.write_cloud(cloud_path, synth.sample_box_surface(SIZE, SPACING))
@@ -26,7 +34,7 @@ def _config_cubo(tmp_path):
         downsample=config.DownsampleConfig(voxel_size=SPACING),
         surface=config.SurfaceConfig(poisson_depth=8, density_quantile=0.02),
         tet=config.TetConfig(min_ratio=1.2),
-        run=config.RunConfig(out_dir=tmp_path / "out"),
+        run=config.RunConfig(out_dir=tmp_path / "out", to_step=12),
     )
 
 
@@ -87,7 +95,10 @@ def test_from_step_beyond_tetrahedralize_is_rejected():
 
 @pytest.fixture(scope="module")
 def run_dir(tmp_path_factory):
-    """Esegue la pipeline una volta sola: e' il test piu lento della suite."""
+    """Esegue la pipeline una volta sola: e' il test piu lento della suite.
+
+    `to_step=12`: questa fixture serve i test sui passi 1-11 (superficie,
+    volume, deck), non il solutore -- stessa ragione di `_config_cubo`."""
     pytest.importorskip("pymeshfix")
     base = tmp_path_factory.mktemp("run")
     cloud_path = base / "box.ply"
@@ -98,7 +109,7 @@ def run_dir(tmp_path_factory):
         downsample=config.DownsampleConfig(voxel_size=SPACING),
         surface=config.SurfaceConfig(poisson_depth=8, density_quantile=0.02),
         tet=config.TetConfig(min_ratio=1.2),
-        run=config.RunConfig(out_dir=base / "out"),
+        run=config.RunConfig(out_dir=base / "out", to_step=12),
     )
     metrics = pipeline.run(cfg)
     return base / "out", metrics
@@ -190,7 +201,7 @@ def test_the_same_configuration_run_twice_gives_the_same_result(tmp_path):
             input=config.InputConfig(path=cloud_path, spacing_sample=2000),
             downsample=config.DownsampleConfig(voxel_size=8.0),
             surface=config.SurfaceConfig(poisson_depth=7, density_quantile=0.02),
-            run=config.RunConfig(out_dir=tmp_path / name),
+            run=config.RunConfig(out_dir=tmp_path / name, to_step=12),
         )
         return pipeline.run(cfg)
 
@@ -226,7 +237,7 @@ def test_resuming_from_tetrahedralize_still_works_when_simplify_is_enabled(tmp_p
             downsample=config.DownsampleConfig(voxel_size=SPACING),
             surface=config.SurfaceConfig(poisson_depth=8, density_quantile=0.02),
             simplify=config.SimplifyConfig(enabled=True, mode="decimate", target_faces=500),
-            run=config.RunConfig(out_dir=tmp_path / "out", from_step=from_step),
+            run=config.RunConfig(out_dir=tmp_path / "out", from_step=from_step, to_step=12),
         )
 
     pipeline.run(makecfg(1))
@@ -235,17 +246,21 @@ def test_resuming_from_tetrahedralize_still_works_when_simplify_is_enabled(tmp_p
     assert resumed["11_export"]["volume"] == pytest.approx(EXACT_VOLUME, rel=0.1)
 
 
-def test_una_corsa_completa_lascia_i_dodici_step_validi(tmp_path):
-    """Dal Task 9 lo step 12 (prior geometrico) e' parte della corsa madre:
-    una corsa intera non lascia piu' nulla di "mai eseguito"."""
+def test_una_corsa_completa_lascia_i_dodici_step_di_elaborazione_validi(tmp_path):
+    """Dal Task 9 (Fase 4) lo step 12 (prior geometrico) e' parte della corsa
+    madre: una corsa intera non lascia piu' nulla di "mai eseguito" nel nucleo
+    di elaborazione. Lo step 13 (solutore, Fase 5) qui resta "mai eseguito"
+    perche' `_config_cubo` fissa `to_step=12` (vedi il suo docstring): il
+    predefinito vero di RunConfig e' 13, provato altrove
+    (test_lo_step_13_gira_per_difetto_in_una_corsa_intera)."""
     from meshrec.core import pipeline, steps
 
     cfg = _config_cubo(tmp_path)
     pipeline.run(cfg)
     stato = steps.run_state(cfg.run.out_dir, cfg)
     per_numero = {voce["numero"]: voce["stato"] for voce in stato}
-    assert set(per_numero.values()) == {"valido"}
     assert all(per_numero[n] == "valido" for n in range(1, 13))
+    assert per_numero[13] == "mai eseguito"
 
 
 def test_cambiare_un_parametro_a_monte_invalida_gli_step_a_valle(tmp_path):
@@ -353,6 +368,54 @@ def test_lo_step_dodici_si_puo_fermare_prima_con_to_step(tmp_path):
     assert "11_export" in metriche
     assert "12_wall" not in metriche
     assert not (cfg.run.out_dir / pipeline.WALL_FILENAME).exists()
+
+
+def test_lo_step_13_gira_per_difetto_in_una_corsa_intera(tmp_path, monkeypatch):
+    """Decisione dell'utente all'apertura della Fase 5 (scelta 2 fra le tre
+    proposte, scartata la 3 -- step opzionale acceso dalla configurazione):
+    ogni corsa risolve e scrive spostamenti e tensioni accanto alle altre
+    metriche, non e' un'azione a parte da chiedere. `RunConfig.to_step` e'
+    quindi predefinito a 13, non 12.
+
+    Qui il predefinito *bare*: `_config_cubo` lo fissa esplicitamente a 12
+    per il resto della suite (vedi il suo docstring), quindi questo test
+    ricostruisce `cfg.run` senza quella fissazione, sugli stessi artefatti
+    geometrici. Senza `ccx` (simulato, cosi' la suite principale non dipende
+    da un solutore installato sulla macchina) l'esito resta negativo e
+    documentato, ma la chiave `13_solve` compare comunque -- e' questo il
+    punto: nessuno l'ha chiesta esplicitamente."""
+    from meshrec.core import pipeline
+
+    monkeypatch.setattr(solve.shutil, "which", lambda _nome: None)
+    cfg = _config_cubo(tmp_path)
+    cfg.run = config.RunConfig(out_dir=cfg.run.out_dir)
+    assert cfg.run.to_step == 13, "il predefinito bare di RunConfig deve restare 13"
+
+    metriche = pipeline.run(cfg)
+
+    assert metriche["13_solve"] == {"eseguito": False, "solutore": "assente"}
+
+
+def test_lo_step_13_con_to_step_esplicito_non_dichiara_un_artefatto_assente(
+    tmp_path, monkeypatch
+):
+    """Stesso esito del test sopra, ma chiesto esplicitamente con
+    `to_step=13` invece di ereditarlo dal predefinito -- e' la via che
+    l'interfaccia userebbe per rieseguire il solo step 13 su una corsa gia'
+    fatta fino all'undici. Senza `ccx` (simulato) l'esito e' negativo e
+    `registra()` non deve dichiarare un artefatto che non esiste."""
+    from meshrec.core import pipeline
+
+    monkeypatch.setattr(solve.shutil, "which", lambda _nome: None)
+    cfg = _config_cubo(tmp_path)
+    cfg.run.to_step = 13
+
+    metriche = pipeline.run(cfg)
+
+    assert metriche["13_solve"] == {"eseguito": False, "solutore": "assente"}
+    stato = {voce["chiave"]: voce for voce in steps.run_state(cfg.run.out_dir, cfg)}
+    assert stato["13_solve"]["stato"] == "valido"
+    assert stato["13_solve"]["artefatto"] is None
 
 
 def test_una_corsa_fermata_all_undici_non_si_dichiara_completa(tmp_path):
