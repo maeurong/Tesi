@@ -1,3 +1,5 @@
+import itertools
+
 import meshio
 import numpy as np
 import pytest
@@ -681,6 +683,36 @@ def test_le_sei_etichette_di_faccia_di_un_esaedro_sono_le_sue_sei_facce():
 
     assert len(nominate) == 6
     assert nominate == vere
+
+
+def test_facce_del_solutore_c3d8_sono_cicli_di_perimetro_non_diagonali():
+    """F3 del giro di correzione finale: FACCE_DEL_SOLUTORE porta l'ordine dei
+    nodi, e l'ordine E' l'informazione (vedi il commento sopra la tabella) --
+    ne' `test_le_sei_etichette_...` (sorted()) ne' `test_ogni_etichetta_di_
+    faccia_dell_esaedro_nomina_il_baricentro_giusto` (baricentro) lo vedono:
+    entrambi buttano via l'ordine. Su faccia svergolata questo pesa su
+    `nodi_dipendenti_legati`, il numero che il confronto pubblica.
+
+    Deriva gli spigoli veri dell'esaedro da FACCE_TOPOLOGICHE senza copiare il
+    manuale del solutore: una coppia di nodi e' uno spigolo se compare insieme
+    in esattamente due delle sei facce topologiche (un spigolo separa due
+    facce; una diagonale ne attraversa una sola).
+
+    Mutazione che deve morire: S2 da (4, 7, 6, 5) a (4, 7, 5, 6) -- non piu'
+    un perimetro ma una farfalla, con 7-5 e 6-4 diagonali della faccia.
+    """
+    facce_topologiche = abaqus.FACCE_TOPOLOGICHE[8]
+    spigoli = {
+        frozenset((a, b))
+        for faccia in facce_topologiche
+        for a, b in itertools.combinations(faccia, 2)
+        if sum(a in f and b in f for f in facce_topologiche) == 2
+    }
+
+    for faccia in abaqus.FACCE_DEL_SOLUTORE[8]:
+        for i in range(len(faccia)):
+            lato = frozenset((faccia[i], faccia[(i + 1) % len(faccia)]))
+            assert lato in spigoli, f"{faccia}: {tuple(lato)} non e' uno spigolo, e' una diagonale"
 
 
 def test_le_quattro_etichette_di_faccia_di_un_tetraedro_sono_le_sue_quattro_facce():
