@@ -336,8 +336,10 @@ def controlla_picco(valori: np.ndarray, quote: np.ndarray, banda: float) -> dict
     Misurato il 21/08/2026 sulla corsa dell'as-built, sui tre casi: max/p99
     vale 2,16 sotto peso proprio, 2,54 sotto spinta orizzontale e 2,50 sotto
     il carico in sommita'. In tutti e tre il massimo cade sullo **stesso**
-    nodo (7132, circa a meta' altezza del pezzo), fuori dalla banda di
-    vincolo e fuori dal set TOP dove il carico e' applicato: e' una
+    nodo -- indice 7132 nel `.vtu`, che e' il nodo 7133 del deck perche'
+    `write_vtu` scrive gli indici a base zero -- all'89% dell'altezza del
+    pezzo, nella membratura di sommita': fuori dalla banda di vincolo e
+    fuori dal set TOP dove il carico e' applicato. E' una
     singolarita' della geometria del maglio, non un artefatto del carico --
     se lo fosse, il picco si sposterebbe coi carichi. Dei 142 nodi sopra il
     p99 nessuno cade entro la banda di vincolo, in nessuno dei tre casi.

@@ -492,7 +492,7 @@ def test_il_picco_di_tensione_dentro_la_banda_di_vincolo_e_un_artefatto():
 
     Misurato il 21/08/2026 sull'as-built col vincolo corretto: sotto peso
     proprio il rapporto max/p99 vale 2,16 e nessuno dei 142 nodi sopra il p99
-    cade entro la banda di vincolo -- il picco sta circa a meta' altezza, non
+    cade entro la banda di vincolo -- il picco sta all'89% dell'altezza, non
     sull'incastro, e resta sullo stesso nodo in tutti e tre i casi di carico.
     Il controllo non e' che il picco sia basso: e' che si sappia dove sta.
     """
