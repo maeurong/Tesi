@@ -253,16 +253,13 @@ def controlla_reazioni(
     configurazione senza massa non sono casi da normalizzare, sono casi da
     dichiarare non verificati.
 
-    Verificato (revisione Task 7, cancello di finitezza, tre giri): ogni
-    parametro che raggiunge il confronto finale e' coperto senza guardia
-    esplicita, perche' il verdetto e' un unico confronto di grandezza
-    (`<=`), non una combinazione booleana che un confronto-con-NaN possa
-    mascherare da esito buono. `reazioni`/`peso_atteso` propagano in
-    `scarto` (via `norm`): NaN o `inf` li' rendono gia' `scarto <=
-    tolleranza` falso. `tolleranza` stesso, se NaN, rende falso lo stesso
-    confronto dal lato destro (verificato dal revisore col caso
-    avversariale `inf - inf = nan`: sempre `passato: False`). Confermato,
-    non toccato.
+    Cancello di finitezza (Task 7): `passato` chiede `tolleranza` finita
+    oltre a `scarto <= tolleranza`. `reazioni`/`peso_atteso` non hanno
+    bisogno di guardia propria, perche' propagano in `scarto` (via `norm`):
+    NaN o `inf` li' rendono gia' falso quel confronto. `tolleranza` invece
+    si', ed e' il lato opposto dello stesso confronto: NaN cade dalla parte
+    giusta da solo, ma `tolleranza = +inf` e' soddisfatta da qualunque
+    scarto finito -- senza guardia farebbe passare qualunque squilibrio.
     """
     peso = np.asarray(peso_atteso, dtype=np.float64)
     norma_attesa = float(np.linalg.norm(peso))
@@ -303,21 +300,30 @@ def controlla_autovalori(frequenze_hz: list[float], soglia_relativa: float = 0.2
     prima frequenza infinita passerebbe (`inf > 0.0` e' vero, `inf /
     seconda >= soglia_relativa` pure) -- il valore resta riportato in
     `prima_frequenza_hz`, ma `passato` e' sempre `False` se una qualunque
-    frequenza non e' finita. `soglia_relativa` raggiunge lo stesso confronto
-    (`rapporto >= soglia_relativa`) ma non serve guardia: un NaN li' rende
-    il confronto falso dal lato destro, e cade dalla parte giusta del
-    verdetto (confermato dal revisore). Confermato, non toccato.
+    frequenza non e' finita. `soglia_relativa` ha una guardia propria, ma
+    solo sul ramo a due o piu' frequenze: li' la consulta il confronto
+    `rapporto >= soglia_relativa`, e `soglia_relativa = -inf` sarebbe
+    superata da qualunque rapporto, cioe' non filtrerebbe piu' niente (NaN
+    e `+inf` cadrebbero invece dalla parte giusta da soli). Sul ramo a una
+    sola frequenza il verdetto e' `prima > 0.0` e nessun confronto legge la
+    soglia: li' la guardia non si applica, altrimenti un parametro inerte
+    boccerebbe dati buoni.
     """
     if not frequenze_hz:
         return {"passato": False, "prima_frequenza_hz": None}
-    finito = bool(np.isfinite(frequenze_hz).all()) and bool(np.isfinite(soglia_relativa))
+    finito = bool(np.isfinite(frequenze_hz).all())
     prima = float(frequenze_hz[0])
     if len(frequenze_hz) == 1:
         return {"passato": finito and prima > 0.0, "prima_frequenza_hz": prima}
     seconda = float(frequenze_hz[1])
     rapporto = prima / seconda if seconda != 0.0 else 0.0
     return {
-        "passato": finito and prima > 0.0 and rapporto >= soglia_relativa,
+        "passato": (
+            finito
+            and bool(np.isfinite(soglia_relativa))
+            and prima > 0.0
+            and rapporto >= soglia_relativa
+        ),
         "prima_frequenza_hz": prima,
         "rapporto_prima_seconda": rapporto,
     }

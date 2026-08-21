@@ -702,6 +702,8 @@ _INGRESSI_CHE_RAGGIUNGONO_UN_CONFRONTO = [
         _PICCO_VALORI_SANI, _PICCO_QUOTE_SANE, banda=b), 5.0),
     ("autovalori/prima_frequenza", lambda b: solve.controlla_autovalori(
         [b, 21.19]), 25.0),
+    ("autovalori/frequenza_unica", lambda b: solve.controlla_autovalori(
+        [b]), 25.0),
     ("autovalori/soglia_relativa", lambda b: solve.controlla_autovalori(
         [21.19, 34.3], soglia_relativa=b), 0.2),
     ("reazioni/reazione", lambda b: solve.controlla_reazioni(
@@ -719,7 +721,7 @@ _INGRESSI_CHE_RAGGIUNGONO_UN_CONFRONTO = [
 )
 @pytest.mark.parametrize("anomalo", [float("nan"), float("inf"), float("-inf")], ids=["nan", "+inf", "-inf"])
 def test_ogni_ingresso_che_raggiunge_un_confronto_fallisce_chiuso(nome, costruisci, _sano, anomalo):
-    """24 combinazioni (8 ingressi x 3 valori anomali): tutte `passato: False`.
+    """27 combinazioni (9 ingressi x 3 valori anomali): tutte `passato: False`.
 
     Prima di questo giro ne passavano due: `tolleranza=inf` in
     `controlla_reazioni` (`scarto <= inf` e' vero per qualunque scarto
@@ -739,3 +741,15 @@ def test_lo_stesso_ingresso_con_un_valore_sano_passa(nome, costruisci, sano):
     stesso slot deve restare `passato: True` -- altrimenti la guardia di
     finitezza sarebbe troppo larga, non solo troppo stretta."""
     assert costruisci(sano)["passato"] is True
+
+
+def test_il_ramo_a_una_frequenza_non_consulta_la_soglia_relativa():
+    """Con una sola frequenza non esiste rapporto da confrontare: il verdetto e'
+    `prima > 0.0` e nient'altro. Una `soglia_relativa` non finita non deve
+    quindi bocciarlo -- il cancello di finitezza copre gli ingressi che
+    raggiungono un confronto, e su questo ramo la soglia non ne raggiunge
+    nessuno. Una prima frequenza nulla resta un meccanismo, soglia a parte.
+    """
+    for soglia in (float("nan"), float("inf"), float("-inf")):
+        assert solve.controlla_autovalori([25.0], soglia_relativa=soglia)["passato"] is True
+    assert solve.controlla_autovalori([0.0])["passato"] is False
