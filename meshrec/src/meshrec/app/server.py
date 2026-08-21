@@ -872,7 +872,8 @@ def create_app(config_path: Path) -> FastAPI:
         nella didascalia della vista. Il p99 su cui si taglia la scala colore
         (il picco isolato di una singolarita' del maglio - misurato il
         22/08/2026 su runs/lab_telaio_v2, CARICO_TOP: 0,9811 MPa contro un p99
-        di 0,3923 - stirerebbe la scala su un solo vertice) lo calcola il browser in `viewport.scalaDelCampo`:
+        di 0,3962, al rango piu' vicino sui nodi del contorno come fa il browser -
+        stirerebbe la scala su un solo vertice) lo calcola il browser in `viewport.scalaDelCampo`:
         e' una
         decisione numerica, e questo progetto le prova eseguendole in node.
         Le intestazioni `X-Min`, `X-P99` e `X-Sopra-P99` c'erano e nessuno le

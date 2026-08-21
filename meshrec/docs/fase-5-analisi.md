@@ -275,7 +275,7 @@ i 477.700.000 mm³ dichiarati in tavola, che darebbero 0,4558.
 Prima una precisazione che serve a non sbagliare il numero: i **4.162,39 N** che
 la corsa riporta in `13_solve.controlli.reazioni` **non sono il peso**. Sono la
 reazione trasmessa attraverso la struttura al set `BASE`, al netto della quota
-tributaria caricata direttamente sui nodi vincolati, che `solve.py:610`
+tributaria caricata direttamente sui nodi vincolati, che `solve.risolvi`
 sottrae apposta da `peso_atteso`. Quella quota vale 5.339,79 - 4.162,39 =
 **1.177,40 N**, il 22,05% del peso — alta proprio perche' la soletta inventata
 del § 4 appoggia molti nodi su `BASE`.
@@ -471,7 +471,7 @@ leggendo.** I **4162,39 N** delle reazioni **non sono il peso del modello**. Il
 peso e' 217.728.361,2 mm³ × 2,5e-9 t/mm³ × 9810 mm/s² = **5.339,79 N**; ccx
 stampa sul set `BASE` solo la parte **trasmessa attraverso la struttura**, al
 netto della quota tributaria caricata direttamente sui nodi gia' vincolati.
-`solve.py:610` sottrae apposta quella quota da `peso_atteso`, ed e' per questo
+`solve.risolvi` sottrae apposta quella quota da `peso_atteso`, ed e' per questo
 che i due valori — 4162,392140 letto e 4162,392149 atteso — coincidono a nove
 cifre. La quota tributaria vale **1.177,40 N**, il **22,05%** del peso, alta
 perche' molti nodi della soletta ricostruita (§ «Il deficit di volume», punto 4)
