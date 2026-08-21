@@ -487,6 +487,19 @@ def test_un_autovalore_vicino_a_zero_e_un_meccanismo():
     assert not solve.controlla_autovalori([])["passato"]
 
 
+def test_controlla_autovalori_con_una_frequenza_infinita_non_passa():
+    """Bug reale trovato nella revisione (Task 7, terzo giro), applicando la
+    stessa domanda posta a `controlla_picco` agli altri controlli: prima del
+    fix, `inf` come prima frequenza passava (`inf > 0.0` e' vero, e
+    `inf / seconda >= soglia_relativa` pure, essendo `inf` maggiore di
+    qualunque soglia finita). La regola generale (ingressi non finiti ->
+    `passato` sempre `False`) chiude anche questo caso, non solo quello di
+    `controlla_picco` dove il revisore l'ha trovato.
+    """
+    assert not solve.controlla_autovalori([float("inf"), 21.19])["passato"]
+    assert not solve.controlla_autovalori([float("inf")])["passato"]
+
+
 def test_il_picco_di_tensione_dentro_la_banda_di_vincolo_e_un_artefatto():
     """Il numero piu' citabile e' il piu' facile da fraintendere.
 
@@ -527,6 +540,19 @@ def test_controlla_reazioni_rifiuta_peso_atteso_nullo():
     assert esito["passato"] is False
 
 
+def test_controlla_reazioni_con_reazione_nan_non_passa():
+    """Verifica (Task 7, terzo giro, stessa domanda posta a tutti i
+    controlli): qui non serve una guardia in piu'. Un NaN in `reazioni`
+    propaga in `scarto` (via `norm`), e `scarto <= tolleranza` e' gia' falso
+    per costruzione con `scarto` NaN -- a differenza di `controlla_picco`,
+    il verdetto finale e' un confronto di grandezza, non una combinazione
+    booleana che un confronto-con-NaN puo' mascherare da esito buono.
+    """
+    reazioni = {1: (0.0, 0.0, float("nan")), 2: (0.0, 0.0, 500.0)}
+    esito = solve.controlla_reazioni(reazioni, peso_atteso=(0.0, 0.0, 1000.0), tolleranza=0.02)
+    assert esito["passato"] is False
+
+
 def test_controlla_picco_su_tensioni_tutte_zero_non_produce_nan():
     """p99 nullo: il rapporto max/p99 non si calcola (0/0), si dichiara
     indefinito -- mai un nan silenzioso nel dizionario."""
@@ -547,19 +573,25 @@ def test_controlla_picco_su_un_solo_nodo_non_solleva():
     assert esito["rapporto_max_p99"] == pytest.approx(1.0)
 
 
-def test_controlla_picco_con_nan_a_monte_non_produce_nan_nel_rapporto():
-    """Minor M3 della revisione del Task 7: la sola guardia su `p99 == 0.0`
-    non intercetta un NaN a monte in `valori` (es. una divisione per zero
-    altrove che sfugge fino a qui). `np.percentile` lo propaga: senza la
-    guardia su `np.isnan(p99)`, `rapporto_max_p99` sarebbe NaN in silenzio --
-    esattamente cio' che il docstring della funzione dice di evitare.
+def test_controlla_picco_con_nan_a_monte_non_passa():
+    """Rilievo Important della revisione (Task 7, terzo giro): il Minor M3
+    del giro precedente guardava solo `np.isnan(p99)` per proteggere
+    `rapporto_max_p99`, e sembrava chiudere il buco -- ma non toccava
+    `passato`. Con `p99` NaN, `sopra_p99 = v >= p99` da' tutto `False` (ogni
+    confronto con NaN e' falso), `frazione_in_banda` esce 0.0, e il verdetto
+    diceva "va bene" esattamente sul dato corrotto (dimostrato dal
+    revisore: `{'passato': True, 'max': nan, ...}`). La regola giusta e'
+    generale: ingressi non finiti -> `passato` sempre `False`. Il valore
+    resta comunque riportato (si marca, non si nasconde).
     """
     valori = np.array([1.0, np.nan, 3.0, 4.0])
     quote = np.array([0.0, 10.0, 20.0, 30.0])
 
     esito = solve.controlla_picco(valori, quote, banda=100.0)
 
+    assert esito["passato"] is False
     assert esito["rapporto_max_p99"] is None
+    assert math.isnan(esito["max"])
 
 
 

@@ -234,6 +234,14 @@ def controlla_reazioni(
     zero, non un'eccezione -- un `.dat` senza il passo richiesto o una
     configurazione senza massa non sono casi da normalizzare, sono casi da
     dichiarare non verificati.
+
+    Verificato (revisione Task 7, terzo giro, regola "ingressi non finiti
+    -> non passato"): qui non serve una guardia esplicita. Un NaN o un
+    infinito in `reazioni`/`peso_atteso` propaga in `scarto` (via `norm`),
+    e `scarto <= tolleranza` e' gia' falso per costruzione quando `scarto`
+    e' NaN o `inf` -- a differenza di `controlla_picco`, qui il verdetto
+    finale e' un confronto di grandezza (`<=`), non una combinazione
+    booleana che un confronto-con-NaN puo' mascherare da esito buono.
     """
     peso = np.asarray(peso_atteso, dtype=np.float64)
     norma_attesa = float(np.linalg.norm(peso))
@@ -269,16 +277,24 @@ def controlla_autovalori(frequenze_hz: list[float], soglia_relativa: float = 0.2
     seconda frequenza comunque sopra soglia in entrambi i casi con vincolo
     presente; il meccanismo vero, prima frequenza praticamente nulla, e' un
     altro ordine di grandezza).
+
+    Regola dopo il rilievo Important della revisione (Task 7, terzo giro):
+    un controllo i cui ingressi non sono finiti fallisce chiuso, non passa.
+    Senza questa guardia una prima frequenza infinita passerebbe (`inf > 0.0`
+    e' vero, `inf / seconda >= soglia_relativa` pure): il valore resta
+    riportato in `prima_frequenza_hz`, ma `passato` e' sempre `False` se
+    una qualunque frequenza non e' finita.
     """
     if not frequenze_hz:
         return {"passato": False, "prima_frequenza_hz": None}
+    finito = bool(np.isfinite(frequenze_hz).all())
     prima = float(frequenze_hz[0])
     if len(frequenze_hz) == 1:
-        return {"passato": prima > 0.0, "prima_frequenza_hz": prima}
+        return {"passato": finito and prima > 0.0, "prima_frequenza_hz": prima}
     seconda = float(frequenze_hz[1])
     rapporto = prima / seconda if seconda != 0.0 else 0.0
     return {
-        "passato": prima > 0.0 and rapporto >= soglia_relativa,
+        "passato": finito and prima > 0.0 and rapporto >= soglia_relativa,
         "prima_frequenza_hz": prima,
         "rapporto_prima_seconda": rapporto,
     }
@@ -299,13 +315,22 @@ def controlla_picco(valori: np.ndarray, quote: np.ndarray, banda: float) -> dict
 
     p99 nullo (tensioni tutte a zero): `rapporto_max_p99` e' `None`, mai un
     `nan` silenzioso da una divisione 0/0. Un solo nodo: il percentile e'
-    quel nodo stesso, nessun `IndexError`. Un NaN a monte in `valori`
-    (Minor M3 della revisione del Task 7): `np.percentile` lo propaga, e la
-    sola guardia su `p99 == 0.0` non lo intercetta -- `rapporto_max_p99` e'
-    `None` anche qui, non un NaN silenzioso.
+    quel nodo stesso, nessun `IndexError`.
+
+    Rilievo Important della revisione (Task 7, terzo giro), sul Minor M3
+    del giro precedente: guardare `np.isnan(p99)` copriva solo
+    `rapporto_max_p99` e lasciava `passato` vero su un NaN a monte --
+    `sopra_p99 = v >= p99` con `p99` NaN da' tutto `False` (ogni confronto
+    con NaN e' falso), quindi `frazione_in_banda` usciva 0.0 e il verdetto
+    diceva "va bene" esattamente sul dato corrotto. La regola giusta non e'
+    un `if` sul sintomo, e' generale: un controllo i cui ingressi non sono
+    finiti fallisce chiuso. `max`/`p99` restano riportati anche se NaN o
+    infiniti (si marca, non si nasconde), ma `passato` e' sempre `False` in
+    quel caso, indipendentemente da `frazione_in_banda`.
     """
     v = np.asarray(valori, dtype=np.float64)
     q = np.asarray(quote, dtype=np.float64)
+    finito = bool(np.isfinite(v).all() and np.isfinite(q).all())
     massimo = float(v.max())
     p99 = float(np.percentile(v, 99))
     rapporto = None if p99 == 0.0 or np.isnan(p99) else massimo / p99
@@ -314,7 +339,7 @@ def controlla_picco(valori: np.ndarray, quote: np.ndarray, banda: float) -> dict
     n_sopra = int(sopra_p99.sum())
     frazione_in_banda = float((sopra_p99 & in_banda).sum() / n_sopra) if n_sopra else 0.0
     return {
-        "passato": frazione_in_banda == 0.0,
+        "passato": finito and frazione_in_banda == 0.0,
         "max": massimo,
         "p99": p99,
         "rapporto_max_p99": rapporto,
@@ -387,11 +412,15 @@ def _quota_tributaria_gravita(
     mesh (quanti nodi vincolati toccano il carico), non un errore fisico.
 
     `rho*V/4` per nodo e' esatto per un tetraedro lineare a densita'
-    costante (`*DLOAD GRAV` ripartisce in parti uguali sui quattro nodi),
-    quindi si somma sui tetraedri che toccano ciascun nodo di `nodi_1based`,
-    senza bisogno dei `node_sets`: quei nodi sono gia' esattamente quelli
-    che `ccx` ha stampato in `leggi_reazioni` (`*NODE PRINT, NSET=BASE, RF`
-    stampa solo il set vincolato).
+    costante (`*DLOAD GRAV` ripartisce in parti uguali sui quattro nodi):
+    la somma corre per ogni coppia (tetraedro, nodo di `nodi_1based`) che
+    quel tetraedro incide -- un tetraedro con due dei suoi quattro nodi in
+    `nodi_1based` contribuisce due volte, una per ciascuna coppia, non una
+    sola volta per l'elemento (`in_set[elements[:, :4]]` da' una matrice
+    `(n_tet, 4)`, non un vettore per tetraedro). Nessun bisogno dei
+    `node_sets`: `nodi_1based` sono gia' esattamente i nodi che `ccx` ha
+    stampato in `leggi_reazioni` (`*NODE PRINT, NSET=BASE, RF` stampa solo
+    il set vincolato).
     """
     nodi_1based = list(nodi_1based)
     if not nodi_1based:
@@ -541,6 +570,13 @@ def risolvi(
         nodes, elements, reazioni_peso_proprio, cfg.material.density
     )
     peso_atteso = (0.0, 0.0, (massa - quota_tributaria) * cfg.gravity)
+    # I due verdetti inline sotto non hanno una guardia esplicita su
+    # NaN/infinito (revisione Task 7, terzo giro, stessa domanda posta a
+    # tutti e cinque i controlli): `vincolo_in_pianta["minimo"]` viene da
+    # `abaqus.constraint_plan_extent`, che divide per l'estensione del pezzo
+    # solo dopo averla guardata contro lo zero (ritorna 1.0 altrimenti) --
+    # non puo' restituire NaN o inf per costruzione. `avvisi` e' un conteggio
+    # (`str.count`), sempre un intero naturale, mai NaN o inf.
     controlli = {
         "reazioni": controlla_reazioni(reazioni_peso_proprio, peso_atteso, tolleranza=_TOLLERANZA_REAZIONI),
         "vincolo_in_pianta": {
