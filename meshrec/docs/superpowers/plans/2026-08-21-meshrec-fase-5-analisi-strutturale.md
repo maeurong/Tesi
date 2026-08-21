@@ -50,6 +50,10 @@ tutta: e' cio' che distingue "appoggio mancante" da "vuoto in mezzo".
 
 ### Task 1: l'asse altezza è il verticale, non una direzione stimata
 
+> **Annotazione (architect, 21/08/2026).** Subagent: **`backend-engineer`**. Gruppo **A**, in parallelo ai Task 3 e 5. Skill-gate: **true**.
+> Apre la catena: precede i Task 2, 4 e 6, che con questo condividono `src/meshrec/core/abaqus.py` e `tests/test_abaqus.py` e sono quindi sequenziali fra loro.
+> Resta nell'albero principale: lo Step 7 legge `runs/muro/metrics.json` e `runs/lab_crop/metrics.json`, e in un worktree quelle cartelle non esistono (`runs/` e' in `.gitignore`).
+
 **Files:**
 - Modify: `src/meshrec/core/abaqus.py:465-544` (`align_to_axes`)
 - Modify: `src/meshrec/core/abaqus.py:622-626` (docstring di `build_node_sets`)
@@ -174,6 +178,9 @@ git commit -m "fix(abaqus): l'asse altezza e' il verticale, non la direzione pri
 ---
 
 ### Task 2: la grandezza che sorveglia il vincolo
+
+> **Annotazione (architect, 21/08/2026).** Subagent: **`backend-engineer`**. **Sequenziale**: dopo il Task 1 (ne consuma la terna corretta) e prima del Task 4, che riscrive lo stesso `export_model` (righe 676-796). Skill-gate: **true**.
+> Lo Step 7 rigenera `muro` e `lab_crop` con `--out-dir` fuori dalle cartelle di sola lettura. Verificato: `export_model` e' chiamata due volte in `pipeline.py` (righe 189 e 422), quindi la chiave nuova compare anche sul percorso `genera_modello`.
 
 **Files:**
 - Modify: `src/meshrec/core/abaqus.py` (nuova funzione accanto a `footprint_coverage:572`, e chiamata in `export_model:770-800`)
@@ -319,6 +326,9 @@ git commit -m "feat(abaqus): l'estensione in pianta del vincolo, accanto alla co
 
 ### Task 3: i casi di carico entrano nella configurazione, senza predefiniti
 
+> **Annotazione (architect, 21/08/2026).** Subagent: **`backend-engineer`**. Gruppo **A**, in parallelo ai Task 1 e 5: file disgiunti (`src/meshrec/core/config.py`, `tests/test_config.py`). Skill-gate: **false**.
+> Motivo del false: il piano consegna il codice finito. Sono tre modelli pydantic dichiarativi, nessun algoritmo, nessuna misura da produrre, e la verifica e' eseguire due file di test che esistono gia'. E' la soglia «task banale, un file, ovvio» di `~/CLAUDE.md`. Precede il Task 4.
+
 **Files:**
 - Modify: `src/meshrec/core/config.py:210-234` (`AnalysisConfig`)
 - Test: `tests/test_config.py`
@@ -453,6 +463,9 @@ git commit -m "feat(config): spinta, carico in sommita e modale, dichiarati e se
 
 ### Task 4: il deck a più casi di carico, a zero avvisi
 
+> **Annotazione (architect, 21/08/2026).** Subagent: **`backend-engineer`**. **Sequenziale**: dopo il Task 3 (classi di configurazione) e dopo il Task 2 (stesso `export_model`). Skill-gate: **true**.
+> Unico task che tocca `tests/feasibility/test_calculix.py`, dove `write_inp` e' chiamata in quattro punti (righe 56, 111, 212, 270): tutti e quattro cambiano dialetto.
+
 **Files:**
 - Modify: `src/meshrec/core/abaqus.py:29-166` (`write_inp`), `:676-800` (`export_model`)
 - Test: `tests/test_abaqus.py`
@@ -465,7 +478,7 @@ git commit -m "feat(config): spinta, carico in sommita e modale, dichiarati e se
 - [ ] **Step 1: scrivi i test che falliscono**
 
 ```python
-def test_il_deck_non_contiene_piu_card_che_calculix_scavalca():
+def test_il_deck_non_contiene_piu_card_che_calculix_scavalca(tmp_path):
     """Zero avvisi non e' cosmesi: e' cio' che rende leggibile un avviso vero.
 
     Misurato il 21/08/2026 sul deck as-built: `ccx` 2.22 emette due avvisi,
@@ -495,7 +508,7 @@ def test_il_deck_non_contiene_piu_card_che_calculix_scavalca():
     assert "*EL FILE" in testo
 
 
-def test_i_tre_casi_statici_e_la_modale_diventano_quattro_passi():
+def test_i_tre_casi_statici_e_la_modale_diventano_quattro_passi(tmp_path):
     """Un deck, quattro passi, un'esecuzione.
 
     Misurato il 21/08/2026: `ccx` accetta i quattro in fila e chiude con
@@ -516,21 +529,27 @@ def test_i_tre_casi_statici_e_la_modale_diventano_quattro_passi():
         material=MATERIALE, analysis=analisi,
     )
 
-    testo = percorso.read_text(encoding="ascii")
-    assert testo.count("*STEP") == 4
-    assert testo.count("*END STEP") == 4
+    # Le asserzioni contano RIGHE INTERE, non sottostringhe: `GRAV` compare
+    # anche dentro il commento `** NOME PASSO: GRAVITA` che questo stesso task
+    # introduce, e un conteggio per sottostringa direbbe 5 dove il deck ha 4
+    # carichi. Un test che conta la cosa sbagliata e' verde per caso.
+    righe = percorso.read_text(encoding="ascii").splitlines()
+    testo = "\n".join(righe)
+    assert righe.count("*STEP") == 4
+    assert righe.count("*END STEP") == 4
     assert "*FREQUENCY" in testo and "\n6\n" in testo
     assert "*CLOAD" in testo
     # la spinta e' una seconda GRAV nello stesso passo, non un passo a se':
     # senza il peso proprio accanto, la spinta descriverebbe una struttura che
     # non pesa
-    assert testo.count("GRAV") == 4  # gravita in 3 passi statici + spinta
+    carichi = [riga for riga in righe if riga.startswith("ALL_WALL, GRAV,")]
+    assert len(carichi) == 4, carichi  # peso proprio nei 3 passi statici + spinta
     # ogni passo statico stampa le reazioni: e' il controllo di conservazione
-    assert testo.count("*NODE PRINT, NSET=BASE") == 3
-    assert testo.count("RF") >= 3
+    assert righe.count("*NODE PRINT, NSET=BASE") == 3
+    assert righe.count("RF") == 3
 
 
-def test_le_forme_modali_non_chiedono_tensioni():
+def test_le_forme_modali_non_chiedono_tensioni(tmp_path):
     """Da un passo *FREQUENCY non escono MPa.
 
     Le forme sono normalizzate sulla massa, e una von Mises calcolata su una
@@ -561,28 +580,43 @@ Expected: FAIL — il primo su `"*OUTPUT" not in testo`, gli altri su `TypeError
 Sostituisci il blocco che va da `f"*STEP, NAME={step_name}"` (riga 144) fino a `""` (riga 162) con la costruzione dei passi. Il passo statico è una funzione locale, così i tre casi non sono tre copie:
 
 ```python
-    def passo_statico(nome: str, carichi: list[str]) -> list[str]:
-        """Un passo statico completo: nome a commento, carichi, uscite.
+Scrivi `passo_statico` **a livello di modulo**, non annidata dentro `write_inp`. Misurato dall'architect il 21/08/2026: `write_inp` e' gia' 137 righe con complessita' ciclomatica 15, e annidarla la porterebbe a circa 176 righe e sette punti di decisione in piu', rendendola la funzione piu' lunga e piu' ramificata di `abaqus.py` (796 righe). A livello di modulo non costa un file nuovo ne' un'astrazione: costa un parametro in piu' nella firma.
 
-        Il nome sta in un commento e non in `*STEP, NAME=` perche' CalculiX
-        rifiuta quel parametro e ne emette un avviso; un avviso benigno
-        tollerato nasconde quello vero. `*NODE FILE`/`*EL FILE` invece di
-        `*OUTPUT, FIELD`: sono keyword Abaqus legacy valide, e sono quelle che
-        CalculiX vuole per l'uscita ascii.
+```python
+def _passo_statico(
+    nome: str, carichi: list[str], *, elset: str, fixed_nset: str,
+    print_nsets: tuple[str, ...], pressure: tuple[str, float] | None,
+) -> list[str]:
+    """Un passo statico completo: nome a commento, carichi, uscite.
 
-        `RF` su `fixed_nset` non e' un'uscita in piu': e' il controllo di
-        conservazione, e sta nel deck perche' e' li' che il solutore lo puo'
-        dare.
-        """
-        righe = [f"** NOME PASSO: {nome}", "*STEP", "*STATIC", "*DLOAD"]
-        righe += carichi
-        if pressure is not None:
-            righe += ["*DSLOAD", f"{pressure[0]}, P, {pressure[1]}"]
-        for name in print_nsets:
-            righe += [f"*NODE PRINT, NSET={name}", "U"]
-        righe += [f"*NODE PRINT, NSET={fixed_nset}", "RF"]
-        righe += ["*NODE FILE", "U", "*EL FILE", "S, E", "*END STEP"]
-        return righe
+    Il nome sta in un commento e non in `*STEP, NAME=` perche' CalculiX
+    rifiuta quel parametro e ne emette un avviso; un avviso benigno
+    tollerato nasconde quello vero. `*NODE FILE`/`*EL FILE` invece di
+    `*OUTPUT, FIELD`: sono keyword Abaqus legacy valide, e sono quelle che
+    CalculiX vuole per l'uscita ascii.
+
+    `RF` su `fixed_nset` non e' un'uscita in piu': e' il controllo di
+    conservazione, e sta nel deck perche' e' li' che il solutore lo puo'
+    dare.
+    """
+    righe = [f"** NOME PASSO: {nome}", "*STEP", "*STATIC", "*DLOAD"]
+    righe += carichi
+    if pressure is not None:
+        righe += ["*DSLOAD", f"{pressure[0]}, P, {pressure[1]}"]
+    for name in print_nsets:
+        righe += [f"*NODE PRINT, NSET={name}", "U"]
+    righe += [f"*NODE PRINT, NSET={fixed_nset}", "RF"]
+    righe += ["*NODE FILE", "U", "*EL FILE", "S, E", "*END STEP"]
+    return righe
+```
+
+E dentro `write_inp`, una chiamata parziale tiene i quattro argomenti fissi in un posto solo:
+
+```python
+    passo_statico = functools.partial(
+        _passo_statico, elset=elset, fixed_nset=fixed_nset,
+        print_nsets=print_nsets, pressure=pressure,
+    )
 
     peso = f"{elset}, GRAV, {gravity}, 0.0, 0.0, -1.0"
     lines += passo_statico(step_name, [peso])
@@ -685,6 +719,9 @@ git commit -m "feat(abaqus): deck a quattro passi, dialetto che CalculiX legge p
 ---
 
 ### Task 5: leggere il `.frd` e il `.dat`
+
+> **Annotazione (architect, 21/08/2026).** Subagent: **`backend-engineer`**. Gruppo **A**, in parallelo ai Task 1 e 3 — ed e' l'unico task del piano che vale un worktree: crea `src/meshrec/core/solve.py` e `tests/test_solve.py`, non tocca nessun file esistente e non legge `runs/`. Skill-gate: **true**.
+> Precede il Task 6.
 
 **Files:**
 - Create: `src/meshrec/core/solve.py`
@@ -900,6 +937,9 @@ git commit -m "feat(solve): lettura di frd e dat, col passo letto dal file e le 
 
 ### Task 6: lo step 13 nella pipeline
 
+> **Annotazione (architect, 21/08/2026).** Subagent: **`backend-engineer`**. **Sequenziale, collo di bottiglia del piano**: consuma il Task 4 (deck a quattro passi) e il Task 5 (lettore), e fissa i nomi delle chiavi in `point_data` che i Task 8 e 9 consumano. Skill-gate: **true**.
+> Tocca cinque file di `src/` e tre di `tests/`, piu' la ricaduta misurata su `tests/test_steps.py` (righe 22-25 e 110-112 asseriscono `len(STEP_KEYS) == 12` e `STEP_KEYS[-1] == "12_wall"`) e su `tests/test_server.py:1738`, perche' `STEP_BLOCKS[13]` compare in `/api/schema`. Nulla gli gira accanto.
+
 **Files:**
 - Modify: `src/meshrec/core/steps.py:23-36` (`STEP_KEYS`), `:41-53` (`STEP_BLOCKS`)
 - Modify: `src/meshrec/core/pipeline.py:32-41` (`ARTIFACTS`), `:432-442` (coda di `run`)
@@ -1032,6 +1072,9 @@ git commit -m "feat(pipeline): step 13, il solutore gira nella corsa e lascia i 
 
 ### Task 7: i controlli che smentiscono
 
+> **Annotazione (architect, 21/08/2026).** Subagent: **`backend-engineer`**. Gruppo **C**, in parallelo al Task 8: file disgiunti (`solve.py` e `config.py` contro `server.py`). Skill-gate: **true**.
+> Consuma la tabella dei margini dello Step 7 del Task 2 e `solve.risolvi` del Task 6.
+
 **Files:**
 - Modify: `src/meshrec/core/solve.py`
 - Modify: `src/meshrec/core/config.py` (la soglia sul vincolo, con il suo docstring di taratura)
@@ -1139,6 +1182,9 @@ git commit -m "feat(solve): i cinque controlli che smentiscono i risultati, con 
 
 ### Task 8: il campo arriva al server con la corrispondenza intatta
 
+> **Annotazione (architect, 21/08/2026).** Subagent: **`backend-engineer`** (endpoint FastAPI). Gruppo **C**, in parallelo al Task 7. Skill-gate: **true**.
+> Da avviare solo quando il Task 6 ha chiuso anche la propria ricaduta su `tests/test_server.py`, altrimenti i due si contendono quel file. Precede il Task 9. Verificato: `_contorno_del_volume` ha un solo chiamante interno (`server.py:797`); i due test del contorno passano dalla risposta HTTP e non dallo spacchettamento, quindi non cadono per la firma.
+
 **Files:**
 - Modify: `src/meshrec/app/server.py:52` (`VERSIONE_CONTORNO`), `:116-123` (`_contorno_del_volume`), `:786-817` (endpoint dell'artefatto)
 - Test: `tests/test_server.py`
@@ -1204,6 +1250,9 @@ git commit -m "feat(server): il contorno porta con se' la corrispondenza ai nodi
 ---
 
 ### Task 9: il campo si vede
+
+> **Annotazione (architect, 21/08/2026).** Subagent: **`frontend-engineer`** — unico ruolo del roster con gli strumenti del browser, e lo Step 5 chiede la verifica nel browser vero. **Sequenziale** dopo il Task 8. Skill-gate: **true**.
+> Puo' girare in parallelo alla coda del Task 7 se quello e' ancora aperto: `src/meshrec/ui/`, `tests/test_app_js.py`, `tests/test_viewport.py` e `tests/test_stile.py` non incontrano `solve.py` ne' `config.py`.
 
 **Files:**
 - Modify: `src/meshrec/ui/viewport.js` (nuova `mostraMeshPerCampo`, accanto a `mostraMesh:193` e `mostraNuvolaPerMembratura:208`)
@@ -1345,6 +1394,10 @@ git commit -m "feat(ui): spostamenti e tensioni sul modello, con la scala e l'am
 
 ### Task 10: dove va il volume mancante
 
+> **Annotazione (architect, 21/08/2026).** Subagent: **`architect`** (proprietario della documentazione nel roster). Skill-gate: **true**.
+> **Sequenziale, e non dove il numero lo mette:** va eseguito **dopo** lo Step 2 del Task 11, perche' consuma `runs/lab_telaio_v2/metrics.json` e `runs/lab_telaio_v2/12_wall.json`, che in questo albero non esistono (verificato: `runs/` contiene `default`, `lab_crop`, `muro`) e li produce solo quella corsa.
+> Condivide `docs/fase-5-analisi.md` con il Task 11: **mai in parallelo con esso**.
+
 **Files:**
 - Create: `meshrec/docs/fase-5-analisi.md` se il Task 11 non l'ha ancora creato; altrimenti Modify, aggiungendo la sezione sul deficit
 - Nessun file di `src/` cambia, a meno che la misura non serva anche al report: in quel caso va in `solve.py` e porta il suo test in `tests/test_solve.py`. Se resta una misura una tantum, è uno script del task e non entra nel repository.
@@ -1385,6 +1438,13 @@ git commit -m "docs(fase-5): dove va il volume che manca, e quanto ne resta non 
 ---
 
 ### Task 11: la corsa vera e il documento di esiti
+
+> **Annotazione (architect, 21/08/2026).** **Da spezzare in tre: nessun ruolo del roster copre un task che e' insieme cancello umano, esecuzione e scrittura di un documento di esiti** (vedi «Gap di roster» in coda al piano). La logica degli step non cambia, cambia chi li prende:
+> - **11a — Step 1**, cancello umano: i tre valori li dichiara Mario. Nessun subagente, nessun skill-gate.
+> - **11b — Step 2-5**, **`backend-engineer`**, skill-gate **true**: rigenera la corsa madre, confronta con la Fase 4, legge i cinque controlli, esegue le due suite e riporta i conteggi esatti.
+> - **11c — Step 6-7**, **`architect`**, skill-gate **true**: scrive `docs/fase-5-analisi.md` con i numeri misurati da 11b e dal Task 10.
+>
+> Ordine reale: **11a → 11b → Task 10 → 11c**.
 
 **Files:**
 - Create: `meshrec/docs/fase-5-analisi.md`
@@ -1436,8 +1496,144 @@ gh pr create --base main --title "Fase 5 — l'analisi strutturale" --body "..."
 
 ---
 
+## Sequenziamento (annotazione architect, 21/08/2026)
+
+Ricavato dai file che ogni task dichiara di toccare, verificati contro l'albero
+di lavoro, non dall'ordine dei numeri.
+
+### I gruppi
+
+| gruppo | task | perche' possono girare insieme | albero |
+|---|---|---|---|
+| **A** | 1, 3, 5 | tre insiemi di file disgiunti: `abaqus.py`+`test_abaqus.py`, `config.py`+`test_config.py`, `solve.py`+`test_solve.py` (nuovi) | stesso albero per 1 e 3; **un worktree per il solo Task 5** |
+| **B** | 2 → 4 | non e' un gruppo: entrambi riscrivono `export_model`. **In fila.** | stesso albero |
+| — | 6 | collo di bottiglia: consuma 4 e 5, e fissa le chiavi di `point_data` per 8 e 9 | stesso albero |
+| **C** | 7 ∥ 8 | `solve.py`+`config.py` contro `server.py`: nessun file in comune | stesso albero |
+| — | 9 | dopo 8; puo' sovrapporsi alla coda di 7 (`ui/` non incontra `solve.py`) | stesso albero |
+| **D** | 11a → 11b → 10 → 11c | uno alla volta: tutti convergono su `docs/fase-5-analisi.md` e sulla stessa corsa | stesso albero |
+
+### Il costo dei worktree, contato
+
+Un worktree qui non serve a evitare conflitti di file — dentro un solo albero i
+Task 1, 3 e 5 toccano file disgiunti e ogni commit del piano elenca i propri
+file. Serve a una cosa sola: **isolare l'esecuzione della suite**. Tre agenti
+che lanciano `uv run pytest tests -q` su un albero mezzo modificato leggono il
+rosso di qualcun altro, e sotto la regola «verifica eseguendo» quello e' un
+numero falso.
+
+Da qui la scelta: **un worktree solo, per il Task 5**, che e' l'unico a creare
+soltanto file nuovi e a non leggere `runs/`. I Task 1 e 3 restano nell'albero
+principale in fila — il Task 1 legge `runs/muro/` e `runs/lab_crop/` allo
+Step 7, e in un worktree quelle cartelle sono vuote perche' `runs/` sta in
+`.gitignore`: isolarlo costerebbe una rigenerazione completa per leggere due
+numeri.
+
+Nel gruppo **C** due worktree sarebbero cerimonia: i Task 7 e 8 chiudono
+ciascuno con una suite ristretta (`test_solve.py`/`test_config.py` e
+`test_server.py`), non con quella intera, e la verifica completa arriva una
+volta sola allo Step 5 del Task 11.
+
+### I falsi paralleli
+
+Coppie che sembrano indipendenti e non lo sono. Il legame e' misurato, non
+supposto.
+
+| coppia | cosa le lega |
+|---|---|
+| **1 ∥ 2 ∥ 4** | tutti e tre `src/meshrec/core/abaqus.py` e `tests/test_abaqus.py`; **e anche il Task 6**, che ne riscrive `write_vtu` (righe 652-675). Quattro task su un file solo, non tre. |
+| **2 ∥ 4** | oltre al file: entrambi aggiungono una chiave al dizionario di ritorno di `export_model`, nello stesso blocco. |
+| **3 ∥ 8** | il Task 3 non tocca `server.py`, ma i tre blocchi nullabili nuovi attraversano `/api/schema` (`server.py:379-406`, che itera `model_fields`) e possono chiedere una modifica a `tests/test_server.py:1738` — file del Task 8. |
+| **6 ∥ 8** | stesso motivo, piu' forte: `STEP_BLOCKS[13]` fa comparire un blocco «13» in `/api/schema`. Il Task 6 non dichiara `tests/test_server.py` fra i propri file, ma probabilmente lo deve toccare. |
+| **6 ∥ 9** | `app.js` costruisce il pannello dei parametri da `/api/schema`: uno step 13 nello schema e' una colonna nuova a video. Il Task 6 la crea, il Task 9 lavora sullo stesso `app.js`. |
+| **7 ∥ 9** | nessun file in comune, ma il Task 7 decide `constraint_extent_min` e il verdetto del vincolo, che il Task 9 deve mostrare sopra il modello (§ 5.4 della spec). Interfaccia condivisa, non file. |
+| **10 ∥ 11** | stesso file `docs/fase-5-analisi.md`, e il Task 10 consuma la corsa che il Task 11 rigenera. |
+| **5 ∥ 6 ∥ 7** | `solve.py` e `test_solve.py` sono di tre task. Il 5 li crea, il 6 e il 7 li estendono. |
+
+### Il rischio d'ordine
+
+L'ordine dichiarato regge, con tre aggiunte che il piano non scrive.
+
+1. **1 e 2 per primi: confermato.** Non solo per il fattore 415 (spostamento
+   massimo da 15,2544 a 0,0367 mm sul deck as-built, misurato il 21/08/2026,
+   § 3.3 della spec). Anche per i file: il Task 2 misura la propria grandezza su
+   nodi allineati, e con la terna vecchia produrrebbe la tabella dei margini
+   sbagliata — che e' il numero da cui il Task 7 ricava una soglia che finisce
+   in `config.py`. Un ordine invertito qui non da' un errore: da' una soglia
+   plausibile e falsa.
+2. **Il Task 10 va dopo lo Step 2 del Task 11**, non prima. Le sue misure
+   partono da `runs/lab_telaio_v2/metrics.json` e `12_wall.json`, e in questo
+   albero `runs/` contiene solo `default`, `lab_crop` e `muro` (verificato). Il
+   piano lo dichiara nelle Interfaces del Task 10 e poi lo numera al contrario.
+3. **Il Task 6 chiude prima che l'8 apra.** Non per la logica — quella e' gia'
+   nel piano — ma perche' la ricaduta di `STEP_BLOCKS[13]` su
+   `tests/test_server.py` cade addosso al Task 6 e quel file e' del Task 8.
+4. **Il Task 3 prima del 4: confermato**, e con un vincolo in piu' che il piano
+   non dice — il Task 3 va chiuso anche prima che il Task 8 apra
+   `tests/test_server.py`, per la stessa ragione del punto 3.
+
+### Debito tecnico che questo piano sposta
+
+La colonna «oggi» e' misurata il 21/08/2026 con
+`tech-debt-tracker/debt_scanner.py` su `src/meshrec/core` e con un conteggio
+AST sui file toccati. La colonna «dopo» **non e' misurata**: e' il conteggio
+delle righe dei blocchi di codice che questo piano scrive, meno quelle che
+dichiara di sostituire. Vale come ordine di grandezza, non come misura.
+
+| oggetto | oggi | dopo il piano | chi lo muove |
+|---|---:|---:|---|
+| `abaqus.py` | 796 righe | ~872 (+9,5%) | Task 1 (−10), 2 (+39), 4 (+39), 6 (+8) |
+| `write_inp` | 137 righe, complessita' 15 | ~176 righe, +7 punti di decisione | Task 4 |
+| `export_model` | 121 righe, 11 parametri | +2 chiavi, parametri invariati | Task 2, 4 |
+| `pipeline.run` | 249 righe, complessita' 29 | +~10 righe, +1 ramo | Task 6 |
+| `config.py` | 691 righe | +~50 | Task 3, 7 |
+
+Il piano fa gia' la cosa giusta piu' grande: mette il **lettore** in `solve.py`
+invece che in `abaqus.py`. Resta un punto solo, e costa una riga di scelta:
+nel Task 4, `passo_statico` e' una funzione **locale** dentro `write_inp`, che
+diventa cosi' la funzione piu' lunga e piu' ramificata del file. Portarla a
+livello di modulo (`_passi_di_analisi(...) -> list[str]`) tiene `write_inp`
+intorno alle 140 righe e la complessita' ferma, senza un file nuovo e senza
+un'astrazione in piu'.
+
+### Un difetto nel Task 4, trovato leggendo
+
+Nel test `test_i_tre_casi_statici_e_la_modale_diventano_quattro_passi`
+l'asserzione `testo.count("GRAV") == 4` non regge: il commento
+`** NOME PASSO: GRAVITA` che lo stesso task introduce contiene la
+sottostringa `GRAV`, quindi il conteggio vale 5. Stessa famiglia il
+`testo.count("*NODE PRINT, NSET=BASE") == 3`, che sale se `print_nsets`
+contiene gia' `BASE`. E i tre test dello Step 1 usano `tmp_path` senza averlo
+fra i parametri. Sono da sistemare quando il task si apre, non un cambio di
+progetto.
+
+### Gap di roster
+
+Il **Task 11** e' l'unico del piano che nessun ruolo copre intero: e' un
+cancello umano (Step 1, i tre valori che solo Mario dichiara), piu'
+un'esecuzione (Step 2-5), piu' la scrittura di un documento di esiti
+(Step 6-7). Nel roster l'esecuzione e' di `backend-engineer` e la
+documentazione e' di `architect`, che pero' non esegue. Da qui la spezzatura
+in 11a/11b/11c annotata sul task.
+
+Il **Task 9** invece **non** e' un gap: `frontend-engineer` e' l'unico ruolo con
+gli strumenti del browser, che lo Step 5 richiede esplicitamente.
+
+Nota di metodo, non un'azione: il ruolo mancante e' «chi esegue e poi scrive
+gli esiti misurati». E' la seconda fase di fila che lo incontra —
+`docs/fase-4-materiale.md` e `docs/fase-4-prior-telaio.md` hanno la stessa
+forma. Se ricapita, vale la pena guardarlo con `self-improving-agent`. Nulla
+da installare adesso.
+
 ## Note per chi esegue
 
-- **Ordine.** I Task 1 e 2 vengono per primi: senza di essi ogni risultato strutturale è falso di due ordini di grandezza, e misurarlo sarebbe fabbricare un esito. Il Task 3 precede il 4 perché il deck legge le classi di configurazione. Il 5 precede il 6. Gli 8 e 9 possono girare in parallelo ai 6 e 7 solo dopo che il Task 6 ha fissato i nomi delle chiavi in `point_data`.
-- **Revisione fra un task e l'altro**, con `security-reviewer`, `code-reviewer` e `test-writer` dispacciati **in parallelo** e non in sequenza.
+- **Ordine.** I Task 1 e 2 vengono per primi: senza di essi ogni risultato strutturale è falso di due ordini di grandezza, e misurarlo sarebbe fabbricare un esito. Il Task 2 in più misura la propria grandezza su nodi allineati: con la terna vecchia produrrebbe una tabella dei margini sbagliata, da cui il Task 7 ricaverebbe una soglia plausibile e falsa. Il Task 3 precede il 4 perché il deck legge le classi di configurazione. Il 5 precede il 6.
+
+- **Ordine, tre correzioni all'elenco sopra** (rilievi dell'architect, 21/08/2026, verificati contro i file):
+  1. su `abaqus.py` insistono **quattro** task e non tre — il Task 6 ne riscrive `write_vtu` (righe 652-675). Task 1, 2, 4 e 6 sono quindi sequenziali fra loro;
+  2. **il Task 10 va eseguito dopo lo Step 2 del Task 11**, non prima. Consuma `runs/lab_telaio_v2/metrics.json` e `12_wall.json`, che in questo albero **non esistono** — `meshrec/runs/` contiene oggi solo `default`, `lab_crop` e `muro`, verificato. La numerazione dei task resta questa; l'ordine di esecuzione è 11 (passi 1-5) → 10 → 11 (passi 6-7);
+  3. i Task 3 e 6 toccano lo schema che `/api/schema` espone (`server.py:379-406`, che itera `STEP_BLOCKS` e i `model_fields` annidati): la ricaduta cade su `tests/test_server.py`, che è file del Task 8. Entrambi chiudono **prima** che l'8 apra.
+
+- **Dispatch sequenziale, un implementatore alla volta.** I gruppi paralleli annotati dall'architect (A: 1 ∥ 3 ∥ 5; C: 7 ∥ 8) restano informazione utile — dicono quali task sono davvero indipendenti — ma non si dispacciano in parallelo. La ragione è la suite: tre agenti che lanciano `pytest tests -q` su un albero mezzo modificato leggono il rosso di qualcun altro, e sotto la regola «verifica eseguendo» quello è un numero falso prodotto dal metodo che dovrebbe impedirlo.
+
+- **Revisione dopo ogni task**, prima di passare al successivo. Le correzioni tornano all'implementatore, non le fa chi coordina.
 - **La regola sopra tutte:** ogni numero o l'hai misurato tu, adesso, sulla cosa di cui stai parlando, oppure non lo scrivi. Verifica eseguendo, non leggendo. La Fase 4 l'ha pagata undici volte; l'apertura di questa fase ne ha trovata una dodicesima in un docstring e una tredicesima in una memoria di progetto.
