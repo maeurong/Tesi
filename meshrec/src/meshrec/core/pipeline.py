@@ -474,6 +474,9 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
             out, out / "wall_model.inp", cfg.analysis, nodes, tets,
             metrics["11_export"]["element_type"],
             casi_di_carico=metrics["11_export"]["casi_di_carico"],
+            # Gia' calcolato allo step 11 (abaqus.constraint_plan_extent):
+            # risolvi non ha i node_sets per ricalcolarlo, una sola origine.
+            vincolo_in_pianta=metrics["11_export"]["constraint_plan_extent"],
         )
         registra(13, avvio, ARTIFACTS[13] if metrics["13_solve"]["eseguito"] else None)
     except _FermataRichiesta:

@@ -38,12 +38,33 @@ from typing import NamedTuple
 
 import numpy as np
 
-from meshrec.core import abaqus
+from meshrec.core import abaqus, quality
 from meshrec.core.config import AnalysisConfig
 
 # Tempo massimo concesso a ccx: stesso valore usato in tutta la suite di
 # fattibilita' (tests/feasibility/test_calculix.py), non un numero nuovo.
 _TIMEOUT_S = 600.0
+
+# Tolleranza di equilibrio per `controlla_reazioni`, misurata in questa
+# sessione (21/08/2026, ccx 2.22) su un cubo omogeneo sotto peso proprio:
+# scarto fra reazioni e rho*V*g dell'8,5% con 35 nodi vincolati alla base,
+# sceso al 5,7% raffinando a 85; su una mesh piu' rada (13 nodi vincolati,
+# 43 nodi totali) lo scarto e' salito al 19,5%, accompagnato da una MPC
+# spuria che ccx riporta da solo ("multiple point constraints: 1") -- indizio
+# di un artefatto di TetGen su quella mesh specifica, non della fisica.
+# Nessuna di queste corse e' la mesh reale della pipeline (min_ratio
+# vincolato, molto piu' fitta): 0,25 sta sopra il rumore misurato oggi e
+# sotto qualunque errore di un ordine di grandezza (densita' sbagliata,
+# direzione di vincolo sbagliata). Da rivedere se una corsa reale la
+# attraversa: vedi il rapporto del Task 7.
+_TOLLERANZA_REAZIONI = 0.25
+
+# ponytail: banda di vincolo come frazione dell'altezza totale del modello,
+# non una quota assoluta in mm (sarebbe un numero del provino dentro src/).
+# 0,05 non e' misurato -- e' una scelta conservativa non tarata su un caso
+# difettoso reale, segnalata nel report del Task 7. Se il Task 11 porta un
+# caso reale con un picco vicino al confine, tarare qui.
+_FRAZIONE_BANDA_VINCOLO = 0.05
 
 
 class Blocco(NamedTuple):
@@ -100,7 +121,9 @@ def leggi_frd(percorso: Path) -> list[Blocco]:
     return blocchi
 
 
-def leggi_reazioni(percorso: Path) -> dict[int, tuple[float, float, float]]:
+def leggi_reazioni(
+    percorso: Path, passo: int | None = None
+) -> dict[int, tuple[float, float, float]]:
     """Reazioni nodali dall'ultimo blocco statico "forces" del `.dat`.
 
     Stessa logica di `tests/feasibility/ccx_utils.read_dat_displacements`:
@@ -110,11 +133,31 @@ def leggi_reazioni(percorso: Path) -> dict[int, tuple[float, float, float]]:
     precedenti. La lettura si ferma pero' a `E I G E N V A L U E   O U T P U T`:
     oltre quel punto i blocchi "forces" appartengono ai modi, non ai passi
     statici (vedi il docstring del modulo).
+
+    `passo`, se dato, isola le reazioni di un singolo passo statico invece
+    dell'ultimo: ccx scrive una riga `S T E P n` prima di ogni blocco, e
+    questa e' la stessa numerazione ordinale del record `100CL` del `.frd`
+    (verificato il 21/08/2026 eseguendo `ccx` 2.22 su un deck di prova a
+    quattro passi: `S T E P 1..4` per GRAVITA, SPINTA_ORIZZONTALE,
+    CARICO_TOP, MODALE, nello stesso ordine). Serve al controllo di
+    equilibrio: il passo 1 e' sempre il solo peso proprio, per costruzione di
+    `abaqus.write_inp` (la card `peso` e' scritta prima di ogni ramo
+    condizionale su `carichi`), quindi confrontabile con `rho*V*g` senza
+    conoscere gli altri carichi eventualmente cumulati nei passi successivi.
     """
     reazioni: dict[int, tuple[float, float, float]] = {}
+    passo_corrente = 0
     for linea in Path(percorso).read_text(encoding="ascii", errors="ignore").splitlines():
         if "E I G E N V A L U E   O U T P U T" in linea:
             break
+        pulita = linea.strip()
+        if pulita.startswith("S T E P"):
+            cifre = pulita.replace("S T E P", "").split()
+            if cifre:
+                passo_corrente = int(cifre[0])
+            continue
+        if passo is not None and passo_corrente != passo:
+            continue
         campi = linea.split()
         if len(campi) != 4:
             continue
@@ -125,6 +168,108 @@ def leggi_reazioni(percorso: Path) -> dict[int, tuple[float, float, float]]:
             continue
         reazioni[nodo] = valori
     return reazioni
+
+
+def controlla_reazioni(
+    reazioni: dict[int, tuple[float, float, float]],
+    peso_atteso: tuple[float, float, float],
+    tolleranza: float,
+) -> dict[str, object]:
+    """Confronta la somma delle reazioni con `rho*V*g` come vettore, non come modulo.
+
+    Un modulo giusto con una direzione sbagliata passerebbe un confronto
+    scalare: e' esattamente il caso di un vincolo che tiene la struttura di
+    sbieco (`*BOUNDARY` su assi sbagliati, o una spinta applicata dove non
+    dovrebbe). Il confronto e' quindi sulla norma del vettore differenza,
+    relativa alla norma del peso atteso.
+
+    Dizionario vuoto o peso atteso nullo: `passato: False` senza dividere per
+    zero, non un'eccezione -- un `.dat` senza il passo richiesto o una
+    configurazione senza massa non sono casi da normalizzare, sono casi da
+    dichiarare non verificati.
+    """
+    peso = np.asarray(peso_atteso, dtype=np.float64)
+    norma_attesa = float(np.linalg.norm(peso))
+    if not reazioni or norma_attesa == 0.0:
+        return {
+            "passato": False,
+            "somma": (0.0, 0.0, 0.0),
+            "peso_atteso": tuple(float(v) for v in peso_atteso),
+            "scarto_relativo": None,
+        }
+    somma = np.sum(np.array(list(reazioni.values()), dtype=np.float64), axis=0)
+    scarto = float(np.linalg.norm(somma - peso) / norma_attesa)
+    return {
+        "passato": scarto <= tolleranza,
+        "somma": tuple(float(v) for v in somma),
+        "peso_atteso": tuple(float(v) for v in peso_atteso),
+        "scarto_relativo": scarto,
+    }
+
+
+def controlla_autovalori(frequenze_hz: list[float], soglia_relativa: float = 0.2) -> dict[str, object]:
+    """Una frequenza (quasi) nulla e' un meccanismo: il vincolo non tiene la
+    struttura, la lascia libera di muoversi.
+
+    L'elenco vuoto rifiuta. Altrimenti la prima frequenza (la piu' bassa,
+    ccx le estrae in ordine crescente) deve valere almeno `soglia_relativa`
+    volte la seconda: un vero meccanismo esce ordini di grandezza sotto le
+    altre, non una frazione confrontabile. La soglia e' relativa e non in Hz
+    assoluti perche' l'Hz e' scala del pezzo (massa, rigidezza), non del
+    prodotto -- un numero assoluto qui sarebbe un numero del provino dentro
+    `src/`. Misurato il 21/08/2026 sull'as-built del telaio: 21,19 Hz col
+    vincolo corretto, 4,03 Hz col vincolo su un piede solo (rapporto a
+    seconda frequenza comunque sopra soglia in entrambi i casi con vincolo
+    presente; il meccanismo vero, prima frequenza praticamente nulla, e' un
+    altro ordine di grandezza).
+    """
+    if not frequenze_hz:
+        return {"passato": False, "prima_frequenza_hz": None}
+    prima = float(frequenze_hz[0])
+    if len(frequenze_hz) == 1:
+        return {"passato": prima > 0.0, "prima_frequenza_hz": prima}
+    seconda = float(frequenze_hz[1])
+    rapporto = prima / seconda if seconda != 0.0 else 0.0
+    return {
+        "passato": prima > 0.0 and rapporto >= soglia_relativa,
+        "prima_frequenza_hz": prima,
+        "rapporto_prima_seconda": rapporto,
+    }
+
+
+def controlla_picco(valori: np.ndarray, quote: np.ndarray, banda: float) -> dict[str, object]:
+    """max/p99 e dove vive il picco: non basta che sia alto, conta se cade
+    dentro la banda di vincolo.
+
+    Misurato il 21/08/2026 sull'as-built, caso CARICO_TOP: `vm_max` 31.977,6
+    MPa a quota 239,62 su 240,90 mm, dentro il set TOP dove il carico e'
+    applicato -- max/p99 = 5,09, un picco stretto e non un plateau. Sotto
+    peso proprio invece max/p99 = 2,16 e nessuno dei 142 nodi sopra il p99
+    cade entro la banda di vincolo (il picco sta a z 2286 mm, non
+    sull'incastro). Il controllo non dice se il picco e' alto: dice se vive
+    dentro la banda vicino alla base, dove un vincolo o un carico
+    concentrato produce numeri grandi e non rappresentativi del pezzo.
+
+    p99 nullo (tensioni tutte a zero): `rapporto_max_p99` e' `None`, mai un
+    `nan` silenzioso da una divisione 0/0. Un solo nodo: il percentile e'
+    quel nodo stesso, nessun `IndexError`.
+    """
+    v = np.asarray(valori, dtype=np.float64)
+    q = np.asarray(quote, dtype=np.float64)
+    massimo = float(v.max())
+    p99 = float(np.percentile(v, 99))
+    rapporto = None if p99 == 0.0 else massimo / p99
+    sopra_p99 = v >= p99
+    in_banda = q <= float(q.min()) + banda
+    n_sopra = int(sopra_p99.sum())
+    frazione_in_banda = float((sopra_p99 & in_banda).sum() / n_sopra) if n_sopra else 0.0
+    return {
+        "passato": frazione_in_banda == 0.0,
+        "max": massimo,
+        "p99": p99,
+        "rapporto_max_p99": rapporto,
+        "frazione_in_banda": frazione_in_banda,
+    }
 
 
 def leggi_frequenze(percorso: Path) -> list[float]:
@@ -164,6 +309,19 @@ def von_mises(tensioni: np.ndarray) -> np.ndarray:
     return np.sqrt(normali + taglianti)
 
 
+def _volume_totale(nodes: np.ndarray, elements: np.ndarray) -> float:
+    """Volume della mesh di volume, tetraedri o esaedri secondo i nodi per elemento.
+
+    Riusa `quality.tet_volumes`/`quality.hex_volumes`, gia' misurate e testate
+    allo step 10: nessuna seconda formula di volume nel programma.
+    """
+    if elements.shape[1] == 8:
+        volumi = quality.hex_volumes(nodes, elements)
+    else:
+        volumi = quality.tet_volumes(nodes, elements[:, :4])
+    return float(np.abs(volumi).sum())
+
+
 def risolvi(
     out_dir: Path,
     deck: Path,
@@ -172,7 +330,8 @@ def risolvi(
     elements: np.ndarray,
     element_type: str,
     *,
-    casi_di_carico: list[str] | None = None,
+    casi_di_carico: list[str],
+    vincolo_in_pianta: dict[str, float],
 ) -> dict[str, object]:
     """Step 13: esegue `ccx` sul deck e scrive i campi in `13_solution.vtu`.
 
@@ -200,8 +359,30 @@ def risolvi(
     silenzio. Una sola origine chiude l'esposizione per costruzione, non per
     promessa. Il modale, se presente, e' l'ultima voce della lista e viene
     scartato qui: i suoi blocchi si riconoscono da `Blocco.modale`, non da
-    un'etichetta di passo.
+    un'etichetta di passo. Nessun predefinito (giro di correzione del Task 7):
+    un deck senza casi non e' uno stato rappresentabile con `None` -- con
+    quel predefinito, `ccx` presente eseguiva davvero e scartava in silenzio
+    ogni blocco statico letto (`[nome for nome in (None or ()) if nome !=
+    "MODALE"]` da' `[]`). E' un errore del chiamante, e si dichiara come tale.
+
+    `vincolo_in_pianta` e' `metrics["11_export"]["constraint_plan_extent"]`,
+    gia' calcolato allo step 11 su `abaqus.constraint_plan_extent`: non si
+    ricalcola qui, dove non arrivano i `node_sets` per farlo.
+
+    Aggiunge `metrics["13_solve"]["controlli"]` (Task 7): cinque verdetti
+    che dicono quando i numeri qui sopra non sono citabili -- `reazioni`
+    (equilibrio del solo peso proprio, passo 1, sempre isolabile per
+    costruzione di `abaqus.write_inp`), `vincolo_in_pianta` (soglia
+    `cfg.constraint_extent_min`), `autovalori`, `avvisi` (zero per essere
+    citabili), `picco` (per caso di carico, dove vive il picco di tensione,
+    non se e' alto). Sotto soglia i risultati restano scritti: si marcano,
+    non si nascondono.
     """
+    if not casi_di_carico:
+        raise ValueError(
+            "casi_di_carico e' vuoto: nessun caso da risolvere. Un deck senza "
+            "casi e' un errore del chiamante, non uno stato da eseguire a vuoto"
+        )
     out_dir = Path(out_dir)
     eseguibile = shutil.which("ccx")
     if eseguibile is None:
@@ -228,13 +409,16 @@ def risolvi(
     percorso_frd.write_bytes(deck.with_suffix(".frd").read_bytes())
     percorso_dat.write_bytes(deck.with_suffix(".dat").read_bytes())
 
-    casi_statici = [nome for nome in (casi_di_carico or ()) if nome != "MODALE"]
+    casi_statici = [nome for nome in casi_di_carico if nome != "MODALE"]
     etichetta_passo = dict(enumerate(casi_statici, start=1))
     blocchi = leggi_frd(percorso_frd)
 
     n_nodi = len(nodes)
     point_data: dict[str, np.ndarray] = {}
     casi: dict[str, dict[str, float]] = {}
+    picco_per_caso: dict[str, dict[str, object]] = {}
+    altezza = float(np.ptp(nodes[:, 2])) if n_nodi else 0.0
+    banda_vincolo = _FRAZIONE_BANDA_VINCOLO * altezza
     n_modi = 0
     for blocco in blocchi:
         if blocco.modale:
@@ -259,18 +443,42 @@ def risolvi(
             campo[blocco.nodi - 1] = equivalente
             point_data[f"VM_{caso}"] = campo
             casi.setdefault(caso, {})["vm_max"] = float(equivalente.max())
+            picco_per_caso[caso] = controlla_picco(
+                equivalente, nodes[blocco.nodi - 1, 2], banda=banda_vincolo
+            )
 
     percorso_vtu = out_dir / "13_solution.vtu"
     abaqus.write_vtu(percorso_vtu, nodes, elements, element_type=element_type, point_data=point_data)
 
+    avvisi = uscita.upper().count("*WARNING")
+    frequenze_hz = leggi_frequenze(percorso_dat)
+    massa = float(cfg.material.density) * _volume_totale(nodes, elements)
+    peso_atteso = (0.0, 0.0, massa * cfg.gravity)
+    reazioni_peso_proprio = leggi_reazioni(percorso_dat, passo=1)
+    controlli = {
+        "reazioni": controlla_reazioni(reazioni_peso_proprio, peso_atteso, tolleranza=_TOLLERANZA_REAZIONI),
+        "vincolo_in_pianta": {
+            "passato": vincolo_in_pianta["minimo"] >= cfg.constraint_extent_min,
+            "minimo": vincolo_in_pianta["minimo"],
+            "soglia": cfg.constraint_extent_min,
+        },
+        "autovalori": controlla_autovalori(frequenze_hz),
+        "avvisi": {"passato": avvisi == 0, "conteggio": avvisi},
+        "picco": {
+            "passato": all(v["passato"] for v in picco_per_caso.values()) if picco_per_caso else False,
+            **picco_per_caso,
+        },
+    }
+
     return {
         "eseguito": True,
         "returncode": processo.returncode,
-        "avvisi": uscita.upper().count("*WARNING"),
+        "avvisi": avvisi,
         "errori": uscita.upper().count("*ERROR"),
         "casi": casi,
+        "controlli": controlli,
         "modi": n_modi,
-        "frequenze_hz": leggi_frequenze(percorso_dat),
+        "frequenze_hz": frequenze_hz,
         "vtu": str(percorso_vtu),
         "frd": str(percorso_frd),
         "dat": str(percorso_dat),

@@ -441,6 +441,7 @@ def test_lo_step_13_risolve_il_deck_e_scrive_i_campi_nel_vtu(tmp_path):
     esito = solve.risolvi(
         tmp_path, tmp_path / "wall_model.inp", analysis, nodes, tets, "C3D4",
         casi_di_carico=["GRAVITA", "SPINTA_ORIZZONTALE", "CARICO_TOP", "MODALE"],
+        vincolo_in_pianta={"x": 1.0, "y": 1.0, "minimo": 1.0},
     )
 
     assert esito["eseguito"] is True

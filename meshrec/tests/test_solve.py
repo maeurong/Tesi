@@ -204,11 +204,29 @@ def test_senza_ccx_lo_step_dichiara_l_assenza_e_non_fallisce(tmp_path, monkeypat
     nodi, elementi = synth.box_mesh((100.0, 100.0, 100.0))
 
     esito = solve.risolvi(
-        tmp_path, tmp_path / "assente.inp", ANALISI, nodi, elementi, "C3D4"
+        tmp_path, tmp_path / "assente.inp", ANALISI, nodi, elementi, "C3D4",
+        casi_di_carico=["GRAVITA"], vincolo_in_pianta={"x": 1.0, "y": 1.0, "minimo": 1.0},
     )
 
     assert esito == {"eseguito": False, "solutore": "assente"}
     assert not (tmp_path / "13_solution.vtu").exists()
+
+
+def test_risolvi_rifiuta_casi_di_carico_vuoto(tmp_path, monkeypatch):
+    """Un deck senza casi non e' uno stato da rappresentare con `None`
+    (giro di correzione della revisione): e' un errore del chiamante, e
+    `risolvi` lo dice esplicitamente invece di eseguire a vuoto -- prima
+    della correzione, `[nome for nome in (None or ()) if nome != "MODALE"]`
+    dava `[]` in silenzio e scartava ogni blocco statico letto dal `.frd`.
+    """
+    monkeypatch.setattr(solve.shutil, "which", lambda _nome: "/usr/bin/ccx")
+    nodi, elementi = synth.box_mesh((100.0, 100.0, 100.0))
+
+    with pytest.raises(ValueError, match="casi_di_carico"):
+        solve.risolvi(
+            tmp_path, tmp_path / "assente.inp", ANALISI, nodi, elementi, "C3D4",
+            casi_di_carico=[], vincolo_in_pianta={"x": 1.0, "y": 1.0, "minimo": 1.0},
+        )
 
 
 # Deck sintetico a quattro nodi, tre passi statici (GRAVITA, SPINTA_ORIZZONTALE,
@@ -337,7 +355,8 @@ def test_risolvi_con_ccx_simulato_assembla_i_campi_e_conta_gli_avvisi(tmp_path, 
     elementi = np.array([[0, 1, 2, 3]])
 
     esito = solve.risolvi(
-        tmp_path, deck, ANALISI, nodi, elementi, "C3D4", casi_di_carico=casi_di_carico
+        tmp_path, deck, ANALISI, nodi, elementi, "C3D4", casi_di_carico=casi_di_carico,
+        vincolo_in_pianta={"x": 1.0, "y": 1.0, "minimo": 1.0},
     )
 
     assert esito["eseguito"] is True
@@ -398,3 +417,92 @@ def test_casi_di_carico_segue_l_ordine_vero_scritto_da_write_inp(tmp_path):
     ]
 
     assert esito["casi_di_carico"] == ordine_reale
+
+
+# ---------------------------------------------------------------------------
+# Task 7: i controlli che smentiscono. I tre test sotto sono quelli del
+# brief, Step 1, verbatim -- l'oracolo e' l'esempio dato, non una misura di
+# questa sessione.
+# ---------------------------------------------------------------------------
+
+
+def test_la_somma_delle_reazioni_smentisce_una_densita_sbagliata():
+    """Somma delle reazioni contro rho*V*g, come vettore e non come modulo.
+
+    Un modulo giusto con una direzione sbagliata passerebbe: e' esattamente il
+    caso di un vincolo che tiene la struttura di sbieco.
+    """
+    reazioni = {1: (0.0, 0.0, 500.0), 2: (0.0, 0.0, 500.0)}
+
+    esito = solve.controlla_reazioni(reazioni, peso_atteso=(0.0, 0.0, 1000.0), tolleranza=0.02)
+    assert esito["passato"]
+
+    storta = solve.controlla_reazioni(reazioni, peso_atteso=(0.0, 600.0, 800.0), tolleranza=0.02)
+    assert not storta["passato"], "il modulo coincide, la direzione no"
+
+
+def test_un_autovalore_vicino_a_zero_e_un_meccanismo():
+    """Una frequenza quasi nulla significa che la struttura si muove libera."""
+    assert solve.controlla_autovalori([21.19, 34.34, 43.14])["passato"]
+    assert not solve.controlla_autovalori([0.0004, 21.19])["passato"]
+    assert not solve.controlla_autovalori([])["passato"]
+
+
+def test_il_picco_di_tensione_dentro_la_banda_di_vincolo_e_un_artefatto():
+    """Il numero piu' citabile e' il piu' facile da fraintendere.
+
+    Misurato il 21/08/2026 sull'as-built col vincolo corretto: sotto peso
+    proprio il rapporto max/p99 vale 2,16 e nessuno dei 142 nodi sopra il p99
+    cade entro la banda di vincolo -- il picco sta a z 2286 mm, non
+    sull'incastro. Il controllo non e' che il picco sia basso: e' che si sappia
+    dove sta.
+    """
+    quote = np.array([0.0, 10.0, 2000.0, 2100.0])
+    valori = np.array([9.0, 1.0, 1.0, 1.0])
+
+    esito = solve.controlla_picco(valori, quote, banda=100.0)
+
+    assert esito["frazione_in_banda"] == pytest.approx(1.0)
+    assert not esito["passato"]
+
+
+# ---------------------------------------------------------------------------
+# Ingressi degeneri (brief Task 7): ognuno con il proprio oracolo. Le righe
+# gia' coperte dai test sopra (autovalori vuoto) non si ripetono.
+# ---------------------------------------------------------------------------
+
+
+def test_controlla_reazioni_con_dizionario_vuoto_non_solleva():
+    """Nessuna reazione letta (es. `.dat` senza il passo richiesto): fallisce
+    senza dividere per zero e senza sollevare."""
+    esito = solve.controlla_reazioni({}, peso_atteso=(0.0, 0.0, 1000.0), tolleranza=0.02)
+    assert esito["passato"] is False
+
+
+def test_controlla_reazioni_rifiuta_peso_atteso_nullo():
+    """Un peso atteso nullo (tutte le componenti a zero) non e' un caso da
+    dividere: il modulo attero varrebbe zero e la frazione di scarto sarebbe
+    indefinita."""
+    reazioni = {1: (0.0, 0.0, 500.0)}
+    esito = solve.controlla_reazioni(reazioni, peso_atteso=(0.0, 0.0, 0.0), tolleranza=0.02)
+    assert esito["passato"] is False
+
+
+def test_controlla_picco_su_tensioni_tutte_zero_non_produce_nan():
+    """p99 nullo: il rapporto max/p99 non si calcola (0/0), si dichiara
+    indefinito -- mai un nan silenzioso nel dizionario."""
+    valori = np.zeros(4)
+    quote = np.array([0.0, 10.0, 20.0, 30.0])
+
+    esito = solve.controlla_picco(valori, quote, banda=100.0)
+
+    assert esito["rapporto_max_p99"] is None
+    assert not math.isnan(esito["frazione_in_banda"])
+
+
+def test_controlla_picco_su_un_solo_nodo_non_solleva():
+    """Un solo nodo: il percentile 99 e' quel nodo stesso, non un IndexError."""
+    esito = solve.controlla_picco(np.array([5.0]), np.array([100.0]), banda=50.0)
+
+    assert esito["max"] == pytest.approx(5.0)
+    assert esito["rapporto_max_p99"] == pytest.approx(1.0)

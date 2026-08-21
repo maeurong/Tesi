@@ -280,6 +280,24 @@ class AnalysisConfig(_ModelloBase):
             "34,76% su lab_crop. Vedi docs/fase-1-tolleranza-set.md"
         ),
     )
+    constraint_extent_min: float = Field(
+        default=0.5,
+        gt=0.0, le=1.0,
+        description=(
+            "estensione in pianta minima dell'insieme vincolato "
+            "(abaqus.constraint_plan_extent), come frazione dell'impronta del "
+            "pezzo. Sotto questa soglia i risultati restano scritti ma sono "
+            "marcati non citabili. Misurato il 21/08/2026 allo Step 7 del "
+            "Task 2 su quattro geometrie: muro 0,999, lab_crop 0,987, "
+            "sintetico a due piedi 1,000, sintetico a un piede solo 0,32 -- "
+            "un dirupo netto fra 0,32 e 0,987, nessun punto di misura in "
+            "mezzo. 0,5 sta in quel dirupo: sopra il solo caso patologico "
+            "misurato, sotto ogni caso vincolato correttamente. Debito: la "
+            "tabella non contiene il caso difettoso reale, solo il banco "
+            "sintetico a un piede come sostituto; il Task 11 porta il punto "
+            "vero, e questa soglia va riverificata allora"
+        ),
+    )
 
 
 class RunConfig(_ModelloBase):
