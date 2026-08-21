@@ -471,7 +471,11 @@ def create_app(config_path: Path) -> FastAPI:
     @app.post("/api/step/{numero}/from")
     def esegui_da(numero: int) -> dict[str, object]:
         # 12 e non 11 dalla Fase 4: lo step 12 e' il prior geometrico e chiude
-        # la corsa madre. E' lo stesso numero del predefinito di RunConfig.to_step.
+        # la corsa madre. Il tetto qui e' una scelta dell'interfaccia, non
+        # un'eredita' dal predefinito di RunConfig.to_step (13 dalla Fase 5,
+        # il solutore fa parte di ogni corsa): "riprendi da qui" nel pannello
+        # non deve far partire un processo esterno da solo, per lo stesso
+        # motivo per cui sweep.run_candidate chiede --to-step 12 esplicito.
         lavoratore.start(config_path, numero, 12)
         return {"avviato": numero, "fino_a": 12}
 

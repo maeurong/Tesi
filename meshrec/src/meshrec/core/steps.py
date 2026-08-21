@@ -18,11 +18,12 @@ from meshrec.core.config import PipelineConfig
 # ma ha metriche, quindi c'e' anche lui. Lo step 12 e' il prior geometrico
 # della Fase 4: chiude la corsa madre di elaborazione e non e' un punto di
 # ripresa. Lo step 13 e' il solutore della Fase 5: legge il deck che lo step 11
-# ha scritto, e nemmeno lui e' un punto di ripresa. E' anche l'unico step
-# opzionale per costruzione (RunConfig.to_step si ferma a 12 per difetto):
-# paga un processo esterno vero, non lavoro in-process come tutti gli altri,
-# e nessuno vuole pagarlo senza chiederlo esplicitamente. is_complete() in
-# sweep.py continua a non richiedere ne' "12_wall" ne' "13_solve" a un
+# ha scritto, e nemmeno lui e' un punto di ripresa. E' anche l'unico step che
+# paga un processo esterno vero, non lavoro in-process come tutti gli altri:
+# RunConfig.to_step lo include nel predefinito (decisione dell'utente, ogni
+# corsa risolve), ma chi elabora molti candidati -- lo sweep -- lo esclude
+# esplicitamente con --to-step 12, per non pagarlo per ciascuno. is_complete()
+# in sweep.py continua a non richiedere ne' "12_wall" ne' "13_solve" a un
 # candidato perche' un candidato di sweep si confronta sulle sole undici
 # misure di elaborazione: e' completo quando ha il proprio deck, non quando
 # ha il prior o la soluzione.

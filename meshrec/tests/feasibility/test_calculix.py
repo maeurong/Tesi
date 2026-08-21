@@ -443,14 +443,16 @@ def test_lo_step_13_risolve_il_deck_e_scrive_i_campi_nel_vtu(tmp_path):
 
     mesh = meshio.read(tmp_path / "13_solution.vtu")
     chiavi = set(mesh.point_data)
+    # L'uguaglianza di insieme sotto fissa gia' l'assenza di U_MODO_n/VM_MODO_n
+    # (non stanno nell'insieme atteso): un ciclo separato che lo riasserisse
+    # sarebbe implicato da qui, non un controllo in piu' (rilievo Minor della
+    # revisione).
     assert chiavi == {
         "U_GRAVITA", "VM_GRAVITA",
         "U_SPINTA_ORIZZONTALE", "VM_SPINTA_ORIZZONTALE",
         "U_CARICO_TOP", "VM_CARICO_TOP",
         "MODO_1", "MODO_2", "MODO_3",
     }
-    for nome in ("MODO_1", "MODO_2", "MODO_3"):
-        assert f"U_{nome}" not in chiavi and f"VM_{nome}" not in chiavi
 
     # Solo l'insieme delle chiavi non basta: un'etichettatura scambiata fra
     # passi (SPINTA_ORIZZONTALE <-> CARICO_TOP) lascerebbe l'insieme identico.

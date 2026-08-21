@@ -17,8 +17,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from meshrec.core import solve, synth
-from materiale import ANALISI
+from meshrec.core import abaqus, solve, synth, volume
+from meshrec.core.config import CaricoSommita, CarichiConfig, Modale, SpintaOrizzontale
+from materiale import ANALISI, MATERIALE
 
 # Tre blocchi apposta, non due: il brief ne dava due monotoni (passo 1, poi
 # passo 2), e un contatore incrementale per record `100CL` ci azzecca lo
@@ -208,3 +209,193 @@ def test_senza_ccx_lo_step_dichiara_l_assenza_e_non_fallisce(tmp_path, monkeypat
 
     assert esito == {"eseguito": False, "solutore": "assente"}
     assert not (tmp_path / "13_solution.vtu").exists()
+
+
+# Deck sintetico a quattro nodi, tre passi statici (GRAVITA, SPINTA_ORIZZONTALE,
+# CARICO_TOP) e un passo modale a due modi: costruito a mano con lo stesso
+# schema di FRD_TRE_BLOCCHI, non misurato su ccx vero. Le tensioni sono
+# trazione monoassiale pura (sigma, 0,0,0,0,0): la von Mises esce esattamente
+# sigma (stessa forma di test_von_mises_di_una_trazione_monoassiale), quindi
+# ogni passo ha un vm_max esatto e distinto (1, 5, 90) da cui riconoscere se
+# un'etichetta e' finita sul passo sbagliato.
+FRD_QUATTRO_PASSI = """  100CL  101 1.000000000           2                     0    1           1
+ -4  DISP        4    1
+ -1         1 1.00000E-02 0.00000E+00-1.00000E-02
+ -1         2 2.00000E-02 0.00000E+00-2.00000E-02
+ -1         3 3.00000E-02 0.00000E+00-3.00000E-02
+ -1         4 4.00000E-02 0.00000E+00-4.00000E-02
+ -3
+  100CL  101 1.000000000           2                     0    1           1
+ -4  STRESS      6    1
+ -1         1 1.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00
+ -1         2 1.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00
+ -1         3 1.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00
+ -1         4 1.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00
+ -3
+  100CL  101 1.000000000           2                     0    2           1
+ -4  DISP        4    1
+ -1         1 5.00000E-02 0.00000E+00-5.00000E-02
+ -1         2 1.00000E-01 0.00000E+00-1.00000E-01
+ -1         3 1.50000E-01 0.00000E+00-1.50000E-01
+ -1         4 2.00000E-01 0.00000E+00-2.00000E-01
+ -3
+  100CL  101 1.000000000           2                     0    2           1
+ -4  STRESS      6    1
+ -1         1 5.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00
+ -1         2 5.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00
+ -1         3 5.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00
+ -1         4 5.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00
+ -3
+  100CL  101 1.000000000           2                     0    3           1
+ -4  DISP        4    1
+ -1         1 9.00000E-01 0.00000E+00-9.00000E-01
+ -1         2 1.80000E+00 0.00000E+00-1.80000E+00
+ -1         3 2.70000E+00 0.00000E+00-2.70000E+00
+ -1         4 3.60000E+00 0.00000E+00-3.60000E+00
+ -3
+  100CL  101 1.000000000           2                     0    3           1
+ -4  STRESS      6    1
+ -1         1 9.00000E+01 0.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00
+ -1         2 9.00000E+01 0.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00
+ -1         3 9.00000E+01 0.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00
+ -1         4 9.00000E+01 0.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00 0.00000E+00
+ -3
+  100CL  101 21.19324067           2                     0    4MODAL      1
+ -4  DISP        4    1
+ -1         1 1.00000E-02 0.00000E+00-1.00000E-02
+ -1         2 2.00000E-02 0.00000E+00-2.00000E-02
+ -1         3 3.00000E-02 0.00000E+00-3.00000E-02
+ -1         4 4.00000E-02 0.00000E+00-4.00000E-02
+ -3
+  100CL  101 33.00000000           2                     0    4MODAL      1
+ -4  DISP        4    1
+ -1         1 2.00000E-02 0.00000E+00-2.00000E-02
+ -1         2 4.00000E-02 0.00000E+00-4.00000E-02
+ -1         3 6.00000E-02 0.00000E+00-6.00000E-02
+ -1         4 8.00000E-02 0.00000E+00-8.00000E-02
+ -3
+"""
+
+DAT_DUE_MODI = """     E I G E N V A L U E   O U T P U T
+
+ MODE NO    EIGENVALUE                       FREQUENCY
+                                     REAL PART            IMAGINARY PART
+                           (RAD/TIME)      (CYCLES/TIME     (RAD/TIME)
+
+      1   0.7589826E+09   0.2754964E+05   0.4384661E+04   0.0000000E+00
+      2   0.1500000E+10   0.3872983E+05   0.6164044E+04   0.0000000E+00
+
+     P A R T I C I P A T I O N   F A C T O R S
+"""
+
+
+def test_risolvi_con_ccx_simulato_assembla_i_campi_e_conta_gli_avvisi(tmp_path, monkeypatch):
+    """Important 1 della revisione: prima di questo test, tutto `risolvi()`
+    oltre al ramo "solutore assente" -- la chiamata, la copia degli
+    artefatti, l'assemblaggio di point_data, il conteggio di avvisi ed
+    errori -- girava solo nel test di fattibilita' gated su `ccx` vero, quindi
+    zero volte su una macchina senza CalculiX (esattamente il caso che
+    PRODUCT.md dichiara).
+
+    `ccx` e' sostituito da un `subprocess.run` finto: nessun processo parte
+    davvero, e il `.frd`/`.dat` che il finto processo "avrebbe scritto" sono
+    gia' su disco quando `risolvi()` li legge -- stesso principio del
+    `_fake_run` di test_sweep.py.
+
+    Chiude anche il Minor della revisione (duplicazione fra
+    `solve._casi_statici` e `abaqus.export_model`): le chiavi di `point_data`
+    qui sotto sono l'etichetta che *questo* modulo assegna a ogni passo, e un
+    ordine sbagliato in `_casi_statici` le sposterebbe sul caso vicino --
+    visibile qui, non solo nel test gated su `ccx`.
+    """
+    carichi = CarichiConfig(
+        spinta=SpintaOrizzontale(coefficiente=0.1, asse="x"),
+        carico_sommita=CaricoSommita(risultante=1000.0, nset="TOP"),
+        modale=Modale(modi=2),
+    )
+    deck = tmp_path / "wall_model.inp"
+    deck.write_text("*HEADING\n", encoding="ascii")
+    deck.with_suffix(".frd").write_text(FRD_QUATTRO_PASSI, encoding="ascii")
+    deck.with_suffix(".dat").write_text(DAT_DUE_MODI, encoding="ascii")
+
+    import subprocess
+
+    def ccx_finto(comando, **kwargs):
+        return subprocess.CompletedProcess(
+            comando, returncode=0,
+            stdout=(
+                "CalculiX finto per il test\n"
+                "*WARNING in nmatrix: nodo isolato\n"
+                "*WARNING in nmatrix: un altro nodo isolato\n"
+                "Job finished\n"
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr(solve.shutil, "which", lambda _nome: "/usr/bin/ccx")
+    monkeypatch.setattr(solve.subprocess, "run", ccx_finto)
+
+    nodi = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+    elementi = np.array([[0, 1, 2, 3]])
+
+    esito = solve.risolvi(tmp_path, deck, ANALISI, nodi, elementi, "C3D4", carichi=carichi)
+
+    assert esito["eseguito"] is True
+    assert esito["returncode"] == 0
+    assert esito["avvisi"] == 2
+    assert esito["errori"] == 0
+    assert esito["modi"] == 2
+    assert esito["frequenze_hz"] == pytest.approx([4384.661, 6164.044])
+    assert esito["casi"]["GRAVITA"]["vm_max"] == pytest.approx(1.0)
+    assert esito["casi"]["SPINTA_ORIZZONTALE"]["vm_max"] == pytest.approx(5.0)
+    assert esito["casi"]["CARICO_TOP"]["vm_max"] == pytest.approx(90.0)
+    assert (tmp_path / "13_solver.log").exists()
+
+    meshio = pytest.importorskip("meshio")
+    mesh = meshio.read(tmp_path / "13_solution.vtu")
+    assert set(mesh.point_data) == {
+        "U_GRAVITA", "VM_GRAVITA",
+        "U_SPINTA_ORIZZONTALE", "VM_SPINTA_ORIZZONTALE",
+        "U_CARICO_TOP", "VM_CARICO_TOP",
+        "MODO_1", "MODO_2",
+    }
+
+
+def test_le_etichette_dei_casi_statici_seguono_l_ordine_vero_di_write_inp(tmp_path):
+    """Minor della revisione: `solve._casi_statici` e `abaqus.export_model`
+    derivano l'ordine dei passi statici due volte, in due moduli, accoppiate
+    solo da un commento. Riordinare i passi in `write_inp` senza toccare
+    `solve.py` etichetterebbe un caso col nome sbagliato in silenzio.
+
+    Qui l'ordine vero non e' assunto: e' letto dal testo che `write_inp`
+    scrive davvero (le righe `** NOME PASSO: ...`), e quello e' l'oracolo
+    contro cui si confronta `_casi_statici`. Nessun `ccx` necessario: e' solo
+    testo.
+    """
+    vertices, faces = synth.box_mesh((100.0, 100.0, 100.0))
+    nodi, elementi = volume.tetrahedralize(
+        vertices, faces, max_volume=20_000.0, min_ratio=1.8, max_steiner_points=-1, nobisect=False
+    )
+    z = nodi[:, 2]
+    node_sets = {
+        "BASE": np.flatnonzero(z <= z.min() + 1e-6),
+        "TOP": np.flatnonzero(z >= z.max() - 1e-6),
+    }
+    carichi = CarichiConfig(
+        spinta=SpintaOrizzontale(coefficiente=0.1, asse="x"),
+        carico_sommita=CaricoSommita(risultante=1000.0, nset="TOP"),
+        modale=Modale(modi=2),
+    )
+    percorso = tmp_path / "prova.inp"
+    abaqus.write_inp(
+        percorso, nodi, elementi, node_sets=node_sets, material=MATERIALE, carichi=carichi,
+    )
+
+    testo = percorso.read_text(encoding="ascii")
+    ordine_reale = [
+        riga.split(": ", 1)[1]
+        for riga in testo.splitlines()
+        if riga.startswith("** NOME PASSO: ")
+    ]
+
+    assert solve._casi_statici(ANALISI, carichi) == [n for n in ordine_reale if n != "MODALE"]
