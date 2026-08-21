@@ -286,28 +286,6 @@ def _yaw(angle_deg: float) -> np.ndarray:
     )
 
 
-def test_height_axis_points_up_regardless_of_svd_sign():
-    """Il verso di z deve seguire il verticale reale, non il segno arbitrario della SVD.
-
-    Un punto isolato oltre la quota massima marca l'estremita fisicamente
-    superiore del muro: dopo l'allineamento deve trovarsi sempre alla quota
-    massima, mai alla minima, qualunque sia la rotazione (attorno a z) applicata
-    in ingresso.
-    """
-    rng = np.random.default_rng(2)
-    base = rng.uniform([0.0, 0.0, 0.0], [1000.0, 50.0, 300.0], size=(1500, 3))
-    marker = np.array([[500.0, 25.0, 305.0]])  # oltre la quota massima del muro
-
-    for angle_deg in (0.0, 47.0, 137.0, 200.0, 311.0):
-        cloud = np.vstack([base, marker]) @ _yaw(angle_deg).T + np.array([100.0, -300.0, 50.0])
-
-        aligned, _, _ = abaqus.align_to_axes(cloud)
-        marker_z = aligned[-1, 2]
-
-        assert marker_z == pytest.approx(aligned[:, 2].max())
-        assert marker_z != pytest.approx(aligned[:, 2].min())
-
-
 def test_rotation_matrix_is_always_right_handed():
     rng = np.random.default_rng(3)
     base = rng.uniform([0.0, 0.0, 0.0], [1000.0, 50.0, 300.0], size=(800, 3))

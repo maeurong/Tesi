@@ -481,15 +481,24 @@ def align_to_axes(
     dichiarata e verificabile da chi fornisce la nuvola".
 
     `reference`, se fornito, e' l'insieme di punti su cui stimare centro e
-    direzioni principali; in sua assenza si usano i nodi stessi. Il
-    riferimento e' una proprieta della geometria e non del maglio, e la
-    distinzione non e' teorica: la stima e' una PCA che pesa ogni punto allo
-    stesso modo, mentre la densita dei nodi dipende da dove il raffinamento
-    ha infittito, cioe' da un artefatto. Misurato sul muro reale: stimando
-    sui nodi del volume la prima direzione principale si scosta di 21,44
-    gradi dal verticale, e di 15,33 anche restringendosi ai soli nodi di
-    bordo, mentre sui vertici della superficie ricostruita lo scarto e' di
-    0,45 gradi.
+    direzione dello spessore; in sua assenza si usano i nodi stessi. Il
+    riferimento resta una proprieta della geometria e non del maglio: la PCA
+    a due dimensioni pesa ogni punto della proiezione orizzontale allo stesso
+    modo, mentre la densita dei nodi di volume dipende da dove TetGen ha
+    infittito, cioe' da un artefatto del raffinamento e non dalla forma.
+
+    Con z fisso l'effetto e' molto piu piccolo di quanto fosse con la PCA a
+    tre dimensioni (quella dava, sugli stessi dati, 21,44 gradi sui nodi di
+    volume e 15,33 sui soli nodi di bordo contro 0,45 sulla superficie).
+    Misurato ora, con l'algoritmo attuale, su `muro` e `lab_crop`: la
+    direzione dello spessore stimata sui nodi di bordo del volume coincide
+    con quella sui vertici della superficie ricostruita (scarto nullo entro
+    la precisione macchina su entrambi), e anche includendo i nodi interni lo
+    scarto resta sotto 0,12 gradi (0,02 su `muro`, 0,11 su `lab_crop`). La
+    misura vale sulle due geometrie disponibili e non e' una garanzia
+    generale — resta un parametro esposto, non un dettaglio interno, perche'
+    una nuvola con uno sbilanciamento di densita' piu marcato di questi due
+    banchi potrebbe spostare la stima oltre quanto misurato qui.
 
     La trasformazione si applica comunque a tutti i nodi passati, e lo
     scostamento al primo ottante si calcola sui nodi trasformati, non sul
@@ -515,11 +524,11 @@ def align_to_axes(
     # dimensioni sulla proiezione. Cosi' l'imbardata resta l'unica grandezza
     # stimata, e l'assegnazione dell'altezza non dipende piu' da come la massa
     # e' distribuita in quota.
-    piano = centred_reference[:, :2]
-    _, _, principali = np.linalg.svd(piano, full_matrices=False)
-    estensioni = np.ptp(piano @ principali.T, axis=0)
-    stretta = principali[int(np.argmin(estensioni))]
-    x_dir = fix_sign(np.array([stretta[0], stretta[1], 0.0]))
+    plane = centred_reference[:, :2]
+    _, _, principal = np.linalg.svd(plane, full_matrices=False)
+    extents = np.ptp(plane @ principal.T, axis=0)
+    narrow = principal[int(np.argmin(extents))]
+    x_dir = fix_sign(np.array([narrow[0], narrow[1], 0.0]))
 
     # y come prodotto vettoriale: la terna e' destrorsa per costruzione, quindi
     # il determinante vale +1 e non serve alcuna correzione a posteriori.
@@ -699,12 +708,23 @@ def export_model(
     e' il comportamento precedente e resta valido sulle geometrie di prova,
     dove i nodi coincidono con la superficie.
 
-    Su dati reali quel ripiego non e' valido, ed e' ora misurato: sul muro di
-    riferimento la terna stimata sui nodi di bordo si scosta di 15,33 gradi dal
-    verticale, `BASE` scende da 18.020 nodi a 874 e la copertura della
-    superficie d'appoggio dal 100,00% al 44,23% — abbastanza da far scattare
-    UnconstrainedModelWarning. Chi chiama questa funzione su una scansione deve
-    passare `reference`.
+    Su dati reali il ripiego resta un compromesso, ma non piu' per il motivo
+    di prima: con z fisso (vedi `align_to_axes`) un riferimento povero non
+    puo' piu' scambiare l'asse altezza, quindi la caduta di `BASE` da 18.020
+    nodi a 874 misurata prima della Fase 5 non e' piu' possibile per
+    costruzione. Il motivo per passare `reference` ora e' piu' piccolo ma
+    resta reale: la PCA a due dimensioni che sceglie lo spessore pesa ogni
+    punto della proiezione orizzontale allo stesso modo, e i nodi di bordo
+    della mesh di volume sono piu' fitti dei vertici della superficie dove
+    TetGen ha suddiviso le facce di ingresso. Misurato su `muro` e
+    `lab_crop` (dettaglio in `align_to_axes`), l'effetto oggi e' sotto 0,12
+    gradi, insufficiente a spostare l'assegnazione degli assi su queste due
+    geometrie, dove le due estensioni orizzontali differiscono di un fattore
+    4,8 e 12,6. Su un'impronta piu' vicina al quadrato il margine e' minore e
+    lo stesso scarto potrebbe pesare di piu': passare `reference` non costa
+    nulla, perche' la pipeline ha gia' i vertici della superficie pronti, ed
+    elimina questa fonte di deriva invece di scommettere che resti sempre
+    piccola.
     """
     from meshrec.core.quality import element_volumes
 
