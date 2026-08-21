@@ -11,7 +11,14 @@ import numpy as np
 import pytest
 
 from meshrec.core import abaqus, synth, volume
-from meshrec.core.config import GRAVITY_MM_S2, Material
+from meshrec.core.config import (
+    GRAVITY_MM_S2,
+    CaricoSommita,
+    CarichiConfig,
+    Material,
+    Modale,
+    SpintaOrizzontale,
+)
 from ccx_utils import read_dat_displacements
 
 pytestmark = pytest.mark.feasibility
@@ -75,6 +82,52 @@ def test_calculix_solves_a_column_under_self_weight(tmp_path):
 
     assert (top_uz < 0.0).all()  # la colonna si accorcia
     assert abs(top_uz.mean()) == pytest.approx(expected, rel=0.20)
+
+
+def test_il_deck_a_quattro_passi_gira_a_zero_avvisi(tmp_path):
+    """Che le card siano giuste lo dice il solutore, non una lettura del testo.
+
+    Un controllo interno partirebbe dalla stessa trascrizione che vorrebbe
+    verificare (stesso principio del Ruling M della Fase 4). Misurato il
+    21/08/2026 sul deck as-built del telaio: quattro passi, "Job finished",
+    zero avvisi e zero errori, sei autovalori con U^T*M*U = 1.
+    """
+    executable = shutil.which("ccx")
+    if executable is None:
+        pytest.skip("eseguibile 'ccx' non presente nel PATH")
+
+    material = Material(name="MURATURA", young=1500.0, poisson=0.2, density=1.8e-9)
+    vertices, faces = synth.box_mesh(SIZE)
+    nodes, tets = volume.tetrahedralize(
+        vertices, faces, max_volume=20_000.0, min_ratio=1.8, max_steiner_points=-1, nobisect=False
+    )
+
+    z = nodes[:, 2]
+    node_sets = {
+        "BASE": np.flatnonzero(z <= z.min() + 1e-6),
+        "TOP": np.flatnonzero(z >= z.max() - 1e-6),
+    }
+    carichi = CarichiConfig(
+        spinta=SpintaOrizzontale(coefficiente=0.1, asse="x"),
+        carico_sommita=CaricoSommita(risultante=1000.0, nset="TOP"),
+        modale=Modale(modi=6),
+    )
+
+    abaqus.write_inp(
+        tmp_path / "model.inp", nodes, tets,
+        node_sets=node_sets,
+        material=material,
+        carichi=carichi,
+    )
+
+    processo = subprocess.run(
+        [executable, "-i", "model"],
+        cwd=tmp_path, capture_output=True, text=True, timeout=600,
+    )
+    uscita = processo.stdout
+    assert "Job finished" in uscita, uscita[-2000:] + processo.stderr[-2000:]
+    assert uscita.upper().count("*WARNING") == 0, uscita
+    assert uscita.upper().count("*ERROR") == 0, uscita
 
 
 def test_la_pressione_su_s4_sposta_la_faccia_x_massimo_e_non_un_altra(tmp_path):

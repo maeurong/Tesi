@@ -218,26 +218,112 @@ def test_node_sets_cover_the_six_faces_of_a_box():
     assert nodes[sets["FACE_BACK"]][:, 0] == pytest.approx(50.0)
 
 
-def test_output_requests_are_in_the_modern_form(tmp_path):
-    """*NODE FILE produce .fil in Abaqus, non .odb: la Fase 1 usa *OUTPUT, FIELD."""
-    vertices, faces = synth.box_mesh((100.0, 40.0, 200.0))
-    nodes, tets, _ = volume.tetrahedralize_with_metrics(vertices, faces, config.TetConfig())
-    path = tmp_path / "modello.inp"
+def test_il_deck_non_contiene_piu_card_che_calculix_scavalca(tmp_path):
+    """Zero avvisi non e' cosmesi: e' cio' che rende leggibile un avviso vero.
+
+    Misurato il 21/08/2026 sul deck as-built: `ccx` 2.22 emette due avvisi,
+    "parameter not recognized: NAME=GRAVITA" e "parameter not recognized:
+    FIELD". Sono card Abaqus che CalculiX non conosce, e nessuno le leggeva.
+    Un avviso benigno tollerato e' un avviso che nasconde quello vero.
+
+    `*NODE FILE` e `*EL FILE` sono keyword Abaqus legacy, valide, e sono quelle
+    che CalculiX vuole per l'uscita ascii: il cambio non perde la validita' del
+    lato Abaqus. Il nome del passo scende a commento.
+
+    Sostituisce `test_output_requests_are_in_the_modern_form`, che asseriva il
+    contrario: la forma «moderna» *OUTPUT, FIELD e' proprio quella che
+    CalculiX scarta con un avviso.
+
+    `synth.box_mesh` da' la sola superficie triangolare (il brief la passava
+    diretta a `write_inp`, che pero' vuole C3D4 a quattro nodi): qui si
+    tetraedrizza prima, come fa il resto del file.
+    """
+    vertices, faces = synth.box_mesh((100.0, 100.0, 100.0))
+    nodi, elementi = volume.tetrahedralize(
+        vertices, faces, max_volume=100_000.0, min_ratio=1.8, max_steiner_points=-1, nobisect=False
+    )
+    percorso = tmp_path / "deck.inp"
 
     abaqus.write_inp(
-        path,
-        nodes,
-        tets,
-        node_sets=abaqus.build_node_sets(nodes, tolerance=1.0),
-        material=MATERIALE,
+        percorso, nodi, elementi,
+        node_sets={"BASE": np.array([0])}, material=MATERIALE, step_name="GRAVITA",
     )
-    text = path.read_text(encoding="ascii")
 
-    assert "*OUTPUT, FIELD" in text
-    assert "*NODE OUTPUT" in text
-    assert "*ELEMENT OUTPUT" in text
-    assert "*NODE FILE" not in text
-    assert "*EL FILE" not in text
+    testo = percorso.read_text(encoding="ascii")
+    assert "*OUTPUT" not in testo
+    assert "*NODE OUTPUT" not in testo
+    assert "*ELEMENT OUTPUT" not in testo
+    assert "*STEP, NAME=" not in testo
+    assert "** NOME PASSO: GRAVITA" in testo
+    assert "*NODE FILE" in testo
+    assert "*EL FILE" in testo
+
+
+def test_i_tre_casi_statici_e_la_modale_diventano_quattro_passi(tmp_path):
+    """Un deck, quattro passi, un'esecuzione.
+
+    Misurato il 21/08/2026: `ccx` accetta i quattro in fila e chiude con
+    "Job finished", zero avvisi e zero errori.
+    """
+    vertices, faces = synth.box_mesh((100.0, 100.0, 100.0))
+    nodi, elementi = volume.tetrahedralize(
+        vertices, faces, max_volume=100_000.0, min_ratio=1.8, max_steiner_points=-1, nobisect=False
+    )
+    carichi = config.CarichiConfig(
+        spinta=config.SpintaOrizzontale(coefficiente=0.1, asse="y"),
+        carico_sommita=config.CaricoSommita(risultante=1000.0, nset="TOP"),
+        modale=config.Modale(modi=6),
+    )
+    percorso = tmp_path / "deck.inp"
+
+    abaqus.write_inp(
+        percorso, nodi, elementi,
+        node_sets=_base_and_top(nodi),
+        material=MATERIALE, carichi=carichi,
+    )
+
+    # Le asserzioni contano RIGHE INTERE, non sottostringhe: `GRAV` compare
+    # anche dentro il commento `** NOME PASSO: GRAVITA` che questo stesso task
+    # introduce, e un conteggio per sottostringa direbbe 5 dove il deck ha 4
+    # carichi. Un test che conta la cosa sbagliata e' verde per caso.
+    righe = percorso.read_text(encoding="ascii").splitlines()
+    testo = "\n".join(righe)
+    assert righe.count("*STEP") == 4
+    assert righe.count("*END STEP") == 4
+    assert "*FREQUENCY" in testo and "\n6\n" in testo
+    assert "*CLOAD" in testo
+    # la spinta e' una seconda GRAV nello stesso passo, non un passo a se':
+    # senza il peso proprio accanto, la spinta descriverebbe una struttura che
+    # non pesa
+    carichi_grav = [riga for riga in righe if riga.startswith("ALL_WALL, GRAV,")]
+    assert len(carichi_grav) == 4, carichi_grav  # peso proprio nei 3 passi statici + spinta
+    # ogni passo statico stampa le reazioni: e' il controllo di conservazione
+    assert righe.count("*NODE PRINT, NSET=BASE") == 3
+    assert righe.count("RF") == 3
+
+
+def test_le_forme_modali_non_chiedono_tensioni(tmp_path):
+    """Da un passo *FREQUENCY non escono MPa.
+
+    Le forme sono normalizzate sulla massa, e una von Mises calcolata su una
+    forma da' numeri plausibili e privi di significato: fino a 88,5 MPa,
+    misurati il 21/08/2026. Il deck non le chiede nemmeno.
+    """
+    vertices, faces = synth.box_mesh((100.0, 100.0, 100.0))
+    nodi, elementi = volume.tetrahedralize(
+        vertices, faces, max_volume=100_000.0, min_ratio=1.8, max_steiner_points=-1, nobisect=False
+    )
+    carichi = config.CarichiConfig(modale=config.Modale(modi=4))
+    percorso = tmp_path / "deck.inp"
+
+    abaqus.write_inp(
+        percorso, nodi, elementi,
+        node_sets=_base_and_top(nodi), material=MATERIALE, carichi=carichi,
+    )
+
+    passo_modale = percorso.read_text(encoding="ascii").split("** NOME PASSO: MODALE")[1]
+    assert "*EL FILE" not in passo_modale
+    assert "*NODE FILE" in passo_modale
 
 
 def test_export_model_writes_both_files_and_reports_mass(tmp_path):
@@ -261,6 +347,43 @@ def test_export_model_writes_both_files_and_reports_mass(tmp_path):
     assert metrics["node_sets"]["BASE"] > 0
     read_back = meshio.read(tmp_path / "wall_model.vtu")
     assert len(read_back.points) == len(nodes)
+
+
+def test_export_model_elenca_i_casi_di_carico_dichiarati(tmp_path):
+    """`casi_di_carico` e' derivato da `carichi`, non da `cfg` (Task 3 li ha
+    separati in blocchi di primo livello distinti): un elenco che leggesse i
+    tre campi da `cfg` solleverebbe un `AttributeError`, non un elenco corto."""
+    vertices, faces = synth.box_mesh((100.0, 40.0, 200.0))
+    nodes, tets, _ = volume.tetrahedralize_with_metrics(vertices, faces, config.TetConfig())
+    carichi = config.CarichiConfig(spinta=config.SpintaOrizzontale(coefficiente=0.1, asse="x"))
+
+    metrics = abaqus.export_model(
+        tmp_path / "wall_model.inp",
+        tmp_path / "wall_model.vtu",
+        nodes,
+        tets,
+        config.AnalysisConfig(material=MATERIALE),
+        config.TetConfig(),
+        carichi=carichi,
+    )
+
+    assert metrics["casi_di_carico"] == ["GRAVITA", "SPINTA_ORIZZONTALE"]
+
+
+def test_export_model_senza_carichi_elenca_il_solo_peso_proprio(tmp_path):
+    vertices, faces = synth.box_mesh((100.0, 40.0, 200.0))
+    nodes, tets, _ = volume.tetrahedralize_with_metrics(vertices, faces, config.TetConfig())
+
+    metrics = abaqus.export_model(
+        tmp_path / "wall_model.inp",
+        tmp_path / "wall_model.vtu",
+        nodes,
+        tets,
+        config.AnalysisConfig(material=MATERIALE),
+        config.TetConfig(),
+    )
+
+    assert metrics["casi_di_carico"] == ["GRAVITA"]
 
 
 def test_c3d10_is_refused_until_the_writer_supports_it(tmp_path):
@@ -610,6 +733,29 @@ def test_l_estensione_in_pianta_crolla_se_il_vincolo_tiene_un_angolo():
     esteso = abaqus.constraint_plan_extent(allineati, un_piede)
 
     assert esteso["minimo"] < 0.5
+
+
+def test_l_estensione_in_pianta_crolla_anche_quando_e_x_l_asse_stretto():
+    """Il buco lasciato dal Task 2: sui due banchi esistenti y e' sempre
+    l'asse piu' stretto, quindi `minimo = min(x, y)` e un'implementazione
+    sbagliata `minimo := y` sono indistinguibili -- un vincolo stretto sul
+    solo asse x passerebbe inosservato. Qui x e' l'asse stretto: se
+    `minimo` seguisse `y` invece che il minimo vero, uscirebbe 1.0 invece di
+    seguire x.
+
+    Muore se: il corpo di `constraint_plan_extent` diventa
+    `rapporti["minimo"] = rapporti["y"]`.
+    """
+    nodi = np.array(
+        [[x, y, 0.0] for x in (0.0, 10.0, 100.0) for y in (0.0, 100.0)]
+    )
+    stretto_su_x = np.flatnonzero(nodi[:, 0] <= 10.0)  # x in [0, 10], y intera
+
+    esteso = abaqus.constraint_plan_extent(nodi, stretto_su_x)
+
+    assert esteso["x"] == pytest.approx(0.1)
+    assert esteso["y"] == pytest.approx(1.0)
+    assert esteso["minimo"] == pytest.approx(0.1)
 
 
 def test_le_facce_di_bordo_di_un_esaedro_solo_sono_sei_quadrilateri():

@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import functools
 import warnings
 from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
 
-from meshrec.core.config import GRAVITY_MM_S2, AnalysisConfig, Material, TetConfig
+from meshrec.core.config import GRAVITY_MM_S2, AnalysisConfig, CarichiConfig, Material, TetConfig
 
 _SET_ITEMS_PER_LINE = 8
 
@@ -24,6 +25,33 @@ def _set_lines(indices: np.ndarray) -> list[str]:
         ", ".join(str(value) for value in one_based[start : start + _SET_ITEMS_PER_LINE])
         for start in range(0, len(one_based), _SET_ITEMS_PER_LINE)
     ]
+
+
+def _passo_statico(
+    nome: str, carichi: list[str], *, elset: str, fixed_nset: str,
+    print_nsets: tuple[str, ...], pressure: tuple[str, float] | None,
+) -> list[str]:
+    """Un passo statico completo: nome a commento, carichi, uscite.
+
+    Il nome sta in un commento e non in `*STEP, NAME=` perche' CalculiX
+    rifiuta quel parametro e ne emette un avviso; un avviso benigno
+    tollerato nasconde quello vero. `*NODE FILE`/`*EL FILE` invece di
+    `*OUTPUT, FIELD`: sono keyword Abaqus legacy valide, e sono quelle che
+    CalculiX vuole per l'uscita ascii.
+
+    `RF` su `fixed_nset` non e' un'uscita in piu': e' il controllo di
+    conservazione, e sta nel deck perche' e' li' che il solutore lo puo'
+    dare.
+    """
+    righe = [f"** NOME PASSO: {nome}", "*STEP", "*STATIC", "*DLOAD"]
+    righe += carichi
+    if pressure is not None:
+        righe += ["*DSLOAD", f"{pressure[0]}, P, {pressure[1]}"]
+    for name in print_nsets:
+        righe += [f"*NODE PRINT, NSET={name}", "U"]
+    righe += [f"*NODE PRINT, NSET={fixed_nset}", "RF"]
+    righe += ["*NODE FILE", "U", "*EL FILE", "S, E", "*END STEP"]
+    return righe
 
 
 def write_inp(
@@ -42,6 +70,7 @@ def write_inp(
     element_surfaces: dict[str, list[tuple[int, int]]] | None = None,
     ties: tuple[tuple[str, str, str] | tuple[str, str, str, float], ...] = (),
     pressure: tuple[str, float] | None = None,
+    carichi: CarichiConfig | None = None,
 ) -> None:
     """Scrive un modello pronto all'analisi statica sotto peso proprio.
 
@@ -66,6 +95,16 @@ def write_inp(
     `(nome, dipendente, indipendente, tolleranza)`. Un *TIE a tre elementi non
     scrive affatto quel parametro: assente non e' la stessa cosa di zero,
     stessa regola gia' vera per `pressure` qui sopra.
+
+    `carichi` e' la quarta aggiunta, della Fase 5: senza di esso il deck ha un
+    solo passo statico sotto peso proprio, come prima. Con esso si aggiungono
+    fino a tre passi in piu' -- spinta orizzontale, carico in sommita',
+    modale -- ciascuno scritto da `_passo_statico`, tranne il modale che non
+    chiede tensioni. Ogni passo e' scritto in dialetto CalculiX: il nome sta
+    in un commento e non in `*STEP, NAME=`, e l'uscita e' `*NODE FILE`/`*EL
+    FILE` invece di `*OUTPUT, FIELD`. Misurato il 21/08/2026: la forma
+    precedente faceva emettere a `ccx` 2.22 due avvisi ("parameter not
+    recognized: NAME=..." e "...FIELD"), questa zero.
     """
     if fixed_nset not in node_sets:
         raise ValueError(f"il set vincolato '{fixed_nset}' non e fra i node_sets forniti")
@@ -141,26 +180,47 @@ def write_inp(
         f"{material.density:.9g}",
         "*BOUNDARY",
         f"{fixed_nset}, 1, 3",
-        f"*STEP, NAME={step_name}",
-        "*STATIC",
-        "*DLOAD",
-        f"{elset}, GRAV, {gravity}, 0.0, 0.0, -1.0",
     ]
-    if pressure is not None:
-        lines += ["*DSLOAD", f"{pressure[0]}, P, {pressure[1]}"]
 
-    for name in print_nsets:
-        lines += [f"*NODE PRINT, NSET={name}", "U"]
+    passo_statico = functools.partial(
+        _passo_statico, elset=elset, fixed_nset=fixed_nset,
+        print_nsets=print_nsets, pressure=pressure,
+    )
 
-    lines += [
-        "*OUTPUT, FIELD",
-        "*NODE OUTPUT",
-        "U",
-        "*ELEMENT OUTPUT",
-        "S, E",
-        "*END STEP",
-        "",
-    ]
+    peso = f"{elset}, GRAV, {gravity}, 0.0, 0.0, -1.0"
+    lines += passo_statico(step_name, [peso])
+
+    if carichi is not None and carichi.spinta is not None:
+        # La spinta accompagna il peso proprio nello stesso passo: da sola
+        # descriverebbe una struttura che non pesa. La direzione e' un asse
+        # orizzontale del modello, che dopo la correzione della terna e'
+        # davvero orizzontale.
+        versore = {"x": "1.0, 0.0, 0.0", "y": "0.0, 1.0, 0.0"}[carichi.spinta.asse]
+        spinta = f"{elset}, GRAV, {gravity * carichi.spinta.coefficiente}, {versore}"
+        lines += passo_statico("SPINTA_ORIZZONTALE", [peso, spinta])
+
+    if carichi is not None and carichi.carico_sommita is not None:
+        sommita = carichi.carico_sommita
+        if sommita.nset not in node_sets:
+            raise ValueError(
+                f"il carico in sommita nomina l'insieme '{sommita.nset}', che non e' "
+                f"fra quelli scritti nel deck ({sorted(node_sets)}): il solutore "
+                f"leggerebbe un carico applicato a nulla"
+            )
+        nodi_carico = node_sets[sommita.nset]
+        per_nodo = sommita.risultante / len(nodi_carico)
+        righe_cload = ["*CLOAD"] + [f"{int(n) + 1}, 3, {-per_nodo:.9e}" for n in nodi_carico]
+        lines += passo_statico("CARICO_TOP", [peso] + righe_cload)
+
+    if carichi is not None and carichi.modale is not None:
+        # Nessun `*EL FILE`: le forme sono normalizzate sulla massa e una
+        # tensione calcolata su di esse non significa nulla. Non si chiede.
+        lines += [
+            "** NOME PASSO: MODALE", "*STEP", "*FREQUENCY", str(carichi.modale.modi),
+            "*NODE FILE", "U", "*END STEP",
+        ]
+
+    lines.append("")
 
     Path(path).write_text("\n".join(lines), encoding="ascii")
 
@@ -738,8 +798,16 @@ def export_model(
     element_surfaces: dict[str, list[tuple[int, int]]] | None = None,
     ties: tuple[tuple[str, str, str] | tuple[str, str, str, float], ...] = (),
     pressure: tuple[str, float] | None = None,
+    carichi: CarichiConfig | None = None,
 ) -> dict[str, object]:
     """Step 11: allinea, costruisce i set, scrive il deck e il file di visualizzazione.
+
+    `carichi` e' un parametro a se', non un campo di `cfg`: dalla Fase 5 i tre
+    casi di carico oltre al peso proprio (spinta orizzontale, carico in
+    sommita', modale) stanno nel blocco di primo livello `PipelineConfig.
+    carichi`, separato da `analysis` perche' altrimenti cambiavano l'impronta
+    di sweep e i 22 record dei registri smettevano di derivare dalla propria
+    configurazione. E' lo stesso ruolo che `tet_cfg` gia' ha accanto a `cfg`.
 
     `reference` sono i punti su cui stimare la terna: la pipeline passa i
     vertici della superficie da cui la mesh e' stata generata, perche' il
@@ -832,6 +900,7 @@ def export_model(
         element_surfaces=element_surfaces,
         ties=ties,
         pressure=pressure,
+        carichi=carichi,
     )
     write_vtu(path_vtu, aligned, elements, element_type=tipo)
 
@@ -858,4 +927,10 @@ def export_model(
         },
         "ties": [nome for nome, _dipendente, _indipendente, *_tolleranza in ties],
         "pressure": None if pressure is None else {"surface": pressure[0], "value": pressure[1]},
+        "casi_di_carico": [nome for nome in (
+            cfg.step_name,
+            None if carichi is None or carichi.spinta is None else "SPINTA_ORIZZONTALE",
+            None if carichi is None or carichi.carico_sommita is None else "CARICO_TOP",
+            None if carichi is None or carichi.modale is None else "MODALE",
+        ) if nome is not None],
     }
