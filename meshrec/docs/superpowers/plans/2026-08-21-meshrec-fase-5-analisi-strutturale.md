@@ -207,8 +207,15 @@ def test_l_estensione_in_pianta_del_vincolo_vale_uno_su_due_piedi():
 
     esteso = abaqus.constraint_plan_extent(allineati, bassi)
 
+    # Tre asserzioni indipendenti, ciascuna contro un oracolo esterno.
+    # `minimo == min(x, y)` sarebbe tautologica: ricalcola la formula sui
+    # valori appena restituiti invece di confrontarli con cio' che ci si
+    # aspetta, e un errore che sbagliasse `x` passerebbe inosservato
+    # (dimostrato per iniezione: `x` sbagliato di un fattore 0,3 fa scendere
+    # `minimo` a 0,3 e il test resta verde).
+    assert esteso["x"] == pytest.approx(1.0, abs=0.05)
     assert esteso["y"] == pytest.approx(1.0, abs=0.05)
-    assert esteso["minimo"] == pytest.approx(min(esteso["x"], esteso["y"]))
+    assert esteso["minimo"] == pytest.approx(1.0, abs=0.05)
 
 
 def test_l_estensione_in_pianta_crolla_se_il_vincolo_tiene_un_angolo():
