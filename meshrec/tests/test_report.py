@@ -1196,6 +1196,23 @@ def test_una_cartella_senza_modello_json_ne_12_wall_json_non_diventa_un_as_built
         report.confronta([vuota])
 
 
+def test_legge_json_non_crolla_su_un_file_mal_codificato(tmp_path):
+    """F4 del giro di correzione finale: `UnicodeDecodeError` e' sottoclasse
+    di `ValueError`, non di `json.JSONDecodeError` -- `except (OSError,
+    json.JSONDecodeError)` non la copre. Un `modello.json` con un byte 0xff
+    (non UTF-8 valido) la solleva durante la lettura, non durante il parse,
+    e senza questo test esce non gestita, portando giu' /api/compare.
+
+    Mutazione che deve morire: tornare a `except (OSError,
+    json.JSONDecodeError)` in `_legge_json` -- questa asserzione
+    solleverebbe `UnicodeDecodeError` invece di ricevere `None`.
+    """
+    percorso = tmp_path / "modello.json"
+    percorso.write_bytes(b'{"tipo": "estruso", "nota": "\xff"}')
+
+    assert report._legge_json(percorso) is None
+
+
 def test_la_nota_delle_giunzioni_letta_da_un_json_esterno_si_scrive_con_l_escape_html(tmp_path):
     """nota_giunzioni e' testo libero letto da modello.json -- il campo piu'
     esposto del confronto, perche' viene da un file su disco e non da una

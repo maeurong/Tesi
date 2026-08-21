@@ -610,7 +610,10 @@ def _legge_json(percorso: Path) -> dict | None:
     try:
         with percorso.open(encoding="utf-8") as handle:
             letto = json.load(handle)
-    except (OSError, json.JSONDecodeError):
+    except (OSError, ValueError):
+        # ValueError copre json.JSONDecodeError (ne e' sottoclasse) e
+        # UnicodeDecodeError, che la lettura del file solleva prima ancora
+        # del parse su un byte non UTF-8 (F4).
         return None
     return letto if isinstance(letto, dict) else None
 

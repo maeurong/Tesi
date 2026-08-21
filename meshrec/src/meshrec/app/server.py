@@ -702,6 +702,19 @@ def create_app(config_path: Path) -> FastAPI:
             raise FileNotFoundError(
                 "il prior geometrico non e' ancora stato calcolato: e' lo step 12"
             )
+        # Gli indici di 12_wall.json valgono per la nuvola di ARTIFACTS[2] con
+        # cui il prior e' stato calcolato: se lo step 2 e' stato rifatto (un
+        # ritaglio diverso) senza rifare il 12, l'impronta salvata per lo
+        # step 12 non combacia piu' con quella che la configurazione corrente
+        # produce, e disegnare dipingerebbe le etichette sui punti sbagliati
+        # in silenzio invece di fermarsi (F5).
+        stato_prior = next(v for v in steps.run_state(cfg.run.out_dir, cfg) if v["chiave"] == "12_wall")
+        if stato_prior["stato"] == "non valido":
+            raise ValueError(
+                "il prior geometrico (step 12) e' piu' vecchio della "
+                "configurazione corrente: rilancia `meshrec wall` prima di "
+                "vedere la mappa delle membrature"
+            )
         with percorso.open(encoding="utf-8") as handle:
             prior = json.load(handle)
         punti, gruppi, _voxel = viewport.decimate_file(

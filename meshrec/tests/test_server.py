@@ -2202,6 +2202,53 @@ def test_lo_step_12_e_il_tetto_di_esegui_da_qui_in_poi(cliente):
     assert risposta.json()["fino_a"] == 12
 
 
+def test_membrature_rifiuta_un_prior_piu_vecchio_dello_step_2(cliente, tmp_path):
+    """F5 del giro di correzione finale: /api/membrature legge gli indici da
+    12_wall.json e la nuvola da 02_segmented.ply senza verificare che vengano
+    dalla stessa configurazione. Se lo step 2 e' stato rifatto (un ritaglio
+    diverso) senza rifare il 12, gli indici della membratura restano quelli
+    della nuvola vecchia -- se la nuvola nuova e' piu' grande, restano dentro
+    l'array e dipingono le etichette sui punti sbagliati in silenzio.
+    `steps.step_fingerprints` esiste esattamente per vedere questo: qui lo
+    steps.json della corsa dichiara per lo step 12 un'impronta che nessuna
+    configurazione puo' produrre (non e' un digest sha256 vero), quindi non
+    puo' combaciare con quella che il server ricalcola dalla configurazione
+    corrente -- lo stesso segnale di un ritaglio diverso.
+
+    Mutazione che deve morire: in /api/membrature, non controllare lo stato
+    dello step 12 prima di disegnare -- la richiesta sotto risponderebbe 200
+    invece di 400.
+    """
+    import numpy as np
+
+    from meshrec.core import io, pipeline
+
+    corsa = _cartella_di_corsa(cliente)
+    corsa.mkdir(parents=True, exist_ok=True)
+    punti = np.random.default_rng(0).normal(size=(200, 3)).astype(np.float64) * 100.0
+    io.write_cloud(corsa / pipeline.ARTIFACTS[2], punti)
+    (corsa / pipeline.WALL_FILENAME).write_text(
+        json.dumps({
+            "regioni_trovate": 1,
+            "membrature": [{"lunghezza": 1.0, "sezione": [1.0, 1.0], "indici": [0, 1]}],
+            "scartate": [],
+        }),
+        encoding="utf-8",
+    )
+    (corsa / "steps.json").write_text(
+        json.dumps({
+            "12_wall": {"impronta": "impronta-di-una-configurazione-diversa",
+                        "esito": "riuscito", "artefatto": pipeline.WALL_FILENAME, "secondi": 0.1},
+        }),
+        encoding="utf-8",
+    )
+
+    risposta = cliente.get("/api/membrature")
+
+    assert risposta.status_code == 400
+    assert "12" in risposta.json()["messaggio"]
+
+
 def test_le_membrature_etichettano_i_punti_anche_quando_il_pavimento_e_stato_tolto(cliente, tmp_path):
     """wall.prior misura sulla nuvola con il pavimento tolto: gli indici che
     'indici' scrive devono restare validi sulla nuvola segmentata intera
