@@ -116,5 +116,10 @@ model:
   lateral_nset: null
   lateral_pressure: null
 run:
-  out_dir: runs/lab_telaio
+  # runs/lab_telaio/ resta occupata dal primo tentativo di questa sessione,
+  # eseguito per errore col ritaglio di lab.yaml (largo 290 mm, non arriva
+  # alle zapatas): la corsa vera con questa configurazione e' in
+  # runs/lab_telaio_v2/ (config.yaml confrontato e identico a questo file,
+  # a parte i campi con valore predefinito).
+  out_dir: runs/lab_telaio_v2
   from_step: 1

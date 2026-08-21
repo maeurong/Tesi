@@ -5,7 +5,18 @@ il 18/08/2026.
 
 ## 1. Che cosa gira e che cosa no
 
-Quello che questa sessione ha eseguito e verificato davvero:
+La corsa madre e' stata eseguita per intero su `lab_frame.pcd` (152 MB), con
+`lab_telaio.yaml` cosi' come questo documento lo definisce, in
+`runs/lab_telaio_v2/` (config.yaml confrontato campo per campo con
+`lab_telaio.yaml`: identico a parte i pochi campi a valore predefinito che il
+file scritto a mano non elenca — `input.path` risolto ad assoluto,
+`tet.reference_ratio`, e quattro campi di `wall` gia' ai loro default).
+**Dodici step su dodici riusciti** (`runs/lab_telaio_v2/steps.json`), in
+circa 85 secondi di calcolo totale (somma dei tempi per step nello stesso
+file), il piu' lento il 12 (`wall`, 53,25 s) seguito dal 02 (`segment`,
+16,62 s).
+
+Verificato anche in questa sessione:
 
 - la suite principale, `uv run pytest tests -q --ignore=tests/feasibility`:
   **555 passati**, 2 avvisi (nessun test rosso, nessun test saltato);
@@ -14,67 +25,46 @@ Quello che questa sessione ha eseguito e verificato davvero:
   (`wildmeshing`), non un test di CalculiX;
 - i quattro controlli col solutore vero (`ccx`, versione 2.22, installato in
   `/Users/mario/.local/bin/ccx` — Ruling C), compreso quello sul telaio a
-  quattro membrature (§ 7);
-- `lab_telaio.yaml` e' stato scritto e si carica senza errori con
-  `meshrec.core.config.load_config`, col ritaglio misurato al § 8 e i
-  riscontri della tavola MURO 1.
+  quattro membrature (§ 7).
 
-Quello che questa sessione **non** ha eseguito: la corsa madre
-`uv run meshrec run lab_telaio.yaml` su `lab_frame.pcd` con il ritaglio
-corretto, i due modelli parametrici che ne dipendono e il confronto a tre. Il
-motivo e il dettaglio sono nella sezione seguente.
+**Il modello as-built esiste e passa i controlli di qualita' del volume**
+(`runs/lab_telaio_v2/metrics.json`, step `10_volume_quality`/`11_export`):
+14.103 nodi, 51.913 tetraedri, **0 invertiti**, volume 217.728.361 mm³
+(0,2177 m³), deck `wall_model.inp` da 2,45 MB. L'errore geometrico fra la
+superficie ricostruita e la nuvola sorgente (`07_surface_quality.geometric_error`,
+direzione mesh-nuvola, quella con cui il confronto legge la fedelta'): RMS
+27,54 mm, massimo 135,69 mm, su 10.968 campioni (un vertice per campione della
+mesh, non un sottocampionamento).
 
-## Cosa manca a questo documento
+**Il prior sul telaio vero misura otto regioni e non ne accetta nessuna** —
+non un'esecuzione mancata, un esito misurato e negativo. Il dettaglio e' al
+§ 3-4. Come conseguenza diretta e verificata di questo esito, i due modelli
+parametrici **non possono essere generati**: `uv run meshrec model
+lab_telaio.yaml --tipo estruso`, eseguito in questa sessione contro un prior
+a zero membrature accettate, solleva
 
-La corsa end-to-end sulla scansione di riferimento, con `lab_telaio.yaml` cosi'
-come questo documento lo definisce, **non e' stata completata** in questa
-sessione. Due cose distinte sono successe, ed e' importante non confonderle:
-
-**Un tentativo e' stato avviato**, in background, durante la stesura di questo
-documento, su `/Users/mario/GitHub/Tesi/Nuvole di punti/lab_frame.pcd`, con la
-configurazione materiale dell'utente (C25/30, `young=31500`, `poisson=0.2`,
-`density=2.5e-9`), uscita in `runs/lab_telaio/`. Verificato leggendo
-`runs/lab_telaio/config.yaml`: il ritaglio usato e' pero' quello di `lab.yaml`
-(`crop_min=[1690,-470,-480]`, `crop_max=[4460,-180,1230]`, largo 290 mm in y),
-**non** quello misurato al § 8 di questo documento (largo 750 mm, esteso fino
-al pavimento). Il tentativo ha completato gli step 1-12 in circa 80 secondi di
-calcolo totale (somma dei tempi in `runs/lab_telaio/steps.json`, non ore come
-inizialmente previsto) e il suo `12_wall.json` riporta **0 membrature
-accettate su 3 regioni trovate** — un esito coerente con un ritaglio che non
-comprende le zapatas, non con il prior descritto in questo documento. Un
-secondo tentativo, `meshrec model lab_telaio.yaml --tipo estruso`, ha scritto
-solo `runs/lab_telaio-estruso/config.yaml` e nient'altro, compatibile con un
-arresto immediato per assenza di membrature accettate a monte.
-
-**Questi due tentativi non sono il risultato che questo documento descrive** e
-i loro numeri non compaiono da nessun'altra parte in questo testo, per la
-stessa regola che vale per il solutore: un controllo saltato non e' un
-controllo passato, e una corsa con la configurazione sbagliata non e' la corsa
-giusta arrivata tardi. Restano su disco in `runs/lab_telaio/` e
-`runs/lab_telaio-estruso/` finche' qualcuno non decide se sovrascriverli.
-
-Il comando esatto per la corsa vera, da eseguire da `meshrec/` con il
-collegamento simbolico creato al passo 1 del piano (`ln -s
-"/Users/mario/GitHub/Tesi/Nuvole di punti" "../Nuvole di punti"`, dalla radice
-del worktree) gia' presente:
-
-```bash
-uv run meshrec run lab_telaio.yaml
-uv run meshrec model lab_telaio.yaml --tipo estruso
-uv run meshrec model lab_telaio.yaml --tipo primitive
-uv run meshrec compare runs/lab_telaio runs/lab_telaio-estruso runs/lab_telaio-primitive --out runs/lab_telaio/confronto.html
+```
+ValueError: nessuna membratura da costruire: il prior non ne ha accettata
+alcuna. Guarda le regioni scartate e il controllo che le ha respinte, invece
+di generare un modello vuoto
 ```
 
-Sono ore di calcolo su 152 MB di nuvola: la spesa la decide l'utente. Prima di
-lanciarlo, chi lo fa deve decidere cosa fare di `runs/lab_telaio/` e
-`runs/lab_telaio-estruso/`, che oggi contengono l'esito del ritaglio
-sbagliato.
+— l'esatto testo di `hexa.costruisci` (`hexa.py:730-734`), non un errore di
+esecuzione: la guardia esiste apposta per non costruire un modello vuoto (§ 9).
+Di conseguenza il confronto a tre modelli non esiste: non c'e' un secondo e un
+terzo modello con cui confrontare l'as-built. Quello che questo documento
+consegna e' un as-built verificato e un prior che, su questa geometria,
+dichiara correttamente il proprio limite invece di inventare sei membrature.
 
-Quando la corsa vera esistera', le sezioni 1, 3 e 4 di questo documento vanno
-riscritte con i numeri veri al posto di questa nota, e la sezione 9 va
-riletta: i limiti li' descritti sono strutturali (dal codice e dai banchi
-sintetici), ma la loro entita' su questa geometria specifica resta da
-verificare.
+Un primo tentativo di corsa, eseguito nella stessa sessione prima di questo,
+aveva usato per errore il ritaglio di `lab.yaml` (largo 290 mm, non arriva
+alle zapatas) invece di quello misurato al § 8: e' rimasto in `runs/lab_telaio/`
+e nel suo seguito `runs/lab_telaio-estruso/`, entrambi con 0 membrature
+accettate ma per una ragione diversa (ritaglio che esclude la geometria, non
+il soffitto della scomposizione per spessore del § 9). Non sono la corsa che
+questo documento descrive e i loro numeri non compaiono altrove in questo
+testo. `lab_telaio.yaml` punta ora a `runs/lab_telaio_v2/`, dove il ritaglio
+del file e i dati su disco coincidono.
 
 ## 2. Perche' la fase ha cambiato nome
 
@@ -93,11 +83,8 @@ di blocchi esaedrici legati da `*TIE` alle giunzioni (Task 7-8).
 
 ## 3. Le membrature trovate contro la tavola
 
-Questa sezione non puo' essere scritta con numeri misurati: la corsa vera non
-e' stata eseguita (§ "Cosa manca a questo documento"). I dati della tavola,
-dati del caso e non del programma, sono quelli gia' riportati in
-[`fase-4-materiale.md`](fase-4-materiale.md) e ripetuti in `lab_telaio.yaml`
-come riscontri dichiarati:
+La tavola dichiara sei membrature, dati del caso e ripetuti in
+`lab_telaio.yaml` come riscontri:
 
 | membratura | sezione nominale [mm] | n. |
 |---|---|---|
@@ -108,13 +95,41 @@ come riscontri dichiarati:
 
 Volume nominale totale: 0,4777 m³ (477.700.000 mm³).
 
-Quando la corsa vera produce `runs/lab_telaio/12_wall.json`, questa sezione va
-riscritta con: `esito['membrature_accettate']` contro le sei attese
-(`esito['riscontri']['scarto_membrature']`), le sezioni misurate di ciascuna
-contro la tabella sopra, il volume misurato contro 0,4777 m³
-(`esito['riscontri']['scarto_volume']`) e — se le membrature accettate non
-sono sei — quale controllo ha respinto ciascuna regione scartata, con il
-proprio numero (`esito['scartate']`).
+**Il prior misura otto regioni candidate e non ne accetta nessuna**
+(`runs/lab_telaio_v2/12_wall.json`, `regioni_trovate: 8`,
+`membrature: []`). I riscontri dichiarati lo dicono da soli, senza bisogno di
+commento: `scarto_membrature: -6` (zero accettate contro sei attese),
+`scarto_volume: -1.0` (zero volume costruito contro 0,4777 m³ attesi, perche'
+nessuna membratura e' stata accettata e quindi nessun volume e' stato
+sommato).
+
+Le otto regioni, con i tre controlli intrinseci che le hanno tutte respinte
+(§ 4) e il numero di punti di ciascuna:
+
+| regione | punti | parallelismo [°] | copertura | costanza sezione | controlli falliti |
+|---|---:|---:|---:|---:|---|
+| 0 | 4.215.879 | 2,29 | 1,00 | 1,187 | costanza_sezione |
+| 1 | 14.811 | 10,29 | 1,00 | 0,572 | parallelismo, costanza_sezione |
+| 2 | 8.059 | 10,49 | 1,00 | 0,782 | parallelismo, costanza_sezione |
+| 3 | 3.772 | 5,07 | 1,00 | 0,608 | parallelismo, costanza_sezione |
+| 4 | 3.267 | 31,95 | 1,00 | 0,241 | parallelismo, costanza_sezione |
+| 5 | 1.351 | 36,14 | 1,00 | 0,197 | parallelismo, costanza_sezione |
+| 6 | 2.513 | 1,11 | 1,00 | 0,572 | costanza_sezione |
+| 7 | 380 | 6,17 | 1,00 | 0,173 | parallelismo, costanza_sezione |
+
+(soglie: parallelismo 5,0°, copertura_faccia 0,5, costanza_sezione 0,10 —
+`lab_telaio.yaml`, blocco `wall`)
+
+La regione 0 tiene 4.215.879 punti — il 98,74% dei `punti_dopo: 4.269.608`
+di `runs/lab_telaio_v2/12_wall.json` (il pavimento non viene trovato in
+questo step, `pavimento_trovato: false`: e' gia' fuori dal ritaglio scelto al
+§ 8, non c'e' piu' nulla da togliere qui) — **con un parallelismo ottimo**
+(2,29° contro una soglia di 5°): non e' una
+regione mal misurata, e' il telaio intero preso per un unico prisma. Lo
+spessore mediano che `wall.regioni` misura su questa geometria e' 192,03 mm
+(`spessore_mediano` nello stesso file), sostanzialmente lo stesso su tutte le
+membrature del pezzo — la ragione per cui la regione 0 non si separa e' al
+§ 9.
 
 ## 4. I tre controlli intrinseci e il riempimento di sezione
 
@@ -151,9 +166,27 @@ delle membrature accettate contro il volume della loro unione geometrica. Se
 differiscono, alle giunzioni un volume viene contato due volte — un errore che
 nessuna metrica di qualita' della mesh vedrebbe da sola.
 
-I quattro esiti concreti su questa geometria (`esito['membrature'][i]`,
-`esito['scartate']`, `esito['chiusura_volume']`) non sono disponibili: la
-corsa vera non e' stata eseguita (§ "Cosa manca a questo documento").
+**Sulla geometria vera, i tre controlli intrinseci hanno respinto tutte e
+otto le regioni** (tabella al § 3): sempre `costanza_sezione` (valori da
+0,173 a 1,187 contro una soglia di 0,10 — nessuna delle otto la rispetta),
+`parallelismo` in aggiunta su sei delle otto (le regioni 0 e 6 lo passano),
+`copertura_faccia` mai determinante (1,00 su tutte e otto, ben sopra 0,5).
+Nessuna regione ha raggiunto la lista delle accettate, quindi **il
+riempimento di sezione non e' stato esercitato da questa corsa**:
+`wall.misura` lo calcola per ogni regione, ma il suo stato non viene
+serializzato in `12_wall.json` per le regioni scartate — solo per le
+membrature accettate — e qui non ce ne sono. La guardia del Ruling J (Task 8)
+non ha avuto occasione di intervenire: il rifiuto e' avvenuto tutto a monte,
+nei tre controlli intrinseci del Task 3.
+
+La chiusura del volume **passa**, ma in modo degenere: `somma: 0.0`,
+`unione: 0.0`, `scarto_relativo: 0.0`, `passato: true` — zero membrature
+accettate hanno zero volume da sommare e zero volume in unione, e zero
+diviso per un denominatore non nullo non e' mai raggiunto perche' il codice
+tratta l'unione nulla come caso limite (`scarto_relativo` resta 0,0 anziche'
+dividere per zero — `wall.prior`, `unione > 0.0` come guardia). Non e' un
+segnale di qualita' su questa geometria: e' l'assenza di qualcosa da
+controllare, e va letto come tale, non come "chiusura del volume verificata".
 
 ## 5. I rulings
 
@@ -197,7 +230,7 @@ ha riprodotto i quattro punti della tesi contraria in modo indipendente
 leggono 1.0 sono corte non rade; il limite romperebbe il caso obbligatorio
 della "Π" uniforme; il caso e' gia' fermato da `costanza_sezione`) — esito
 finale: Ruling K respinto con evidenza, Task 3 chiuso con il limite dichiarato
-invece che corretto ulteriormente (§ 9).
+invece che corretto ulteriormente.
 
 **Ruling M** — la corrispondenza fra i numeri di faccia del solutore e le
 facce fisiche non puo' essere verificata da un controllo interno, perche' un
@@ -287,6 +320,32 @@ memoria dentro `Membratura.rigonfiamento` e non arriva su disco — costo se
 sbagliato: se servisse una mappa di colore del rigonfiamento nel viewport,
 serve un task che la faccia scrivere da `wall.prior`, oggi non c'e'.
 
+**Ruling AN (Task 15, la fase si chiude con il limite dichiarato invece che
+inseguito)** — sulla geometria vera `wall.regioni` non separa il telaio in
+sei membrature: le otto regioni misurate collassano nella regione 0 (il
+telaio quasi per intero) piu' sette frammenti di bordo, perche' `regioni()`
+raggruppa le celle per **spessore quasi costante** (`wall.py:178-203`) e le
+sei membrature della tavola condividono uno spessore mediano di 192 mm — non
+c'e' discontinuita' di spessore da cui tagliare. Il commento gia' nel codice
+da prima di questa corsa (`wall.py:194-203`) proponeva come via
+d'aggiornamento la direzione locale di allungamento per cella (PCA
+sull'intorno) al posto del solo spessore; e' stata prototipata fuori da
+questa sessione documentale (numeri riportati dal coordinatore del task, non
+riprodotti in modo indipendente da me in questa sessione) — anisotropia
+locale isotropa nell'interno di una sagoma piena a qualunque raggio piccolo,
+fino a quando il raggio supera la larghezza della striscia; invertendo la
+regola sulle giunzioni si arrivava a poche regioni accettate ma con sezioni
+sui 45-50 mm, incompatibili con le sezioni vere (172-250 mm) — cioe' lamine
+di superficie, non membrature. La via che regge davvero e' l'**asse mediale
+della sagoma** (trasformata di distanza piu' assottigliamento), non prototipata,
+un lavoro con un proprio progetto. — Perche' si chiude qui: l'utente ha
+scelto di chiudere la fase con il limite dichiarato piuttosto che rincorrere
+un secondo tentativo di scomposizione dentro questo task. — Costo se
+sbagliato: nessuno per il codice consegnato, che rifiuta correttamente
+invece di costruire un modello inventato (§ 9); il costo e' per chi
+riprendera' la scomposizione, che ora sa contro cosa confrontarsi invece di
+ripetere i due tentativi gia' fatti (spessore, PCA locale).
+
 ## 6. Cosa la fase non fa
 
 - **Nessun solutore strutturale** su un modello completo: i controlli col
@@ -336,10 +395,15 @@ Riproducendo lo scenario del terzo test — quattro membrature, quattro `*TIE`
 — in questa sessione (`/tmp/ccx_repro`, stesso banco sintetico di
 `tests/test_hexa.py`/`tests/test_wall.py`), `ccx` riporta `tie constraints: 4`
 (tutti e quattro registrati), **32.637 equazioni** nel sistema fattorizzato
-(riga "number of equations" dello stdout di `ccx`, non 31.674: quel numero,
-proposto in una correzione precedente di questo stesso task come "misurato",
-non corrisponde a quanto questa riproduzione produce e non viene riportato),
-**79 nodi dipendenti totali sulle quattro superfici `*_D`** (contati sommando
+(riga "number of equations" dello stdout di `ccx`; un numero precedente,
+31.674, proposto durante la stesura di questo documento come "misurato" dal
+coordinatore del task, non corrispondeva a questa riproduzione — verificato
+qui, poi confermato dal coordinatore stesso: quel numero veniva da una misura
+del revisore del Task 12, presa **prima** che i giri di correzione 3-6 del
+Task 8 cambiassero il criterio di taglio alle giunzioni e le superfici del
+`*TIE`, che cambiano la mesh. Era vero allora, falso ora; 32.637 e' il numero
+di questa sessione, sullo stesso codice che genera il resto di questo
+documento), **79 nodi dipendenti totali sulle quattro superfici `*_D`** (contati sommando
 i nodi unici per faccia delle quattro superfici, dai `superfici`/`elementi`
 di `hexa.costruisci`) di cui **24 non legati** (`model_WarnNodeMissTiedContact.nam`,
 24 righe; conteggio delle righe `*WARNING in gentiedmpc: no tied MPC`
@@ -401,6 +465,23 @@ misurato, non una faccia fisica delle zapatas.
 
 ## 9. I limiti misurati
 
+**Il soffitto della scomposizione per spessore — il limite che questa corsa
+ha trovato, non ipotizzato.** `wall.regioni` raggruppa le celle in membrature
+per spessore quasi costante (§ 5, Ruling AN): su un telaio dove le sei
+membrature nominali condividono uno spessore mediano di 192 mm, non c'e'
+discontinuita' da cui tagliare, e otto regioni misurate collassano in
+un'unica regione da 4,2 milioni di punti (99% del pezzo) piu' sette frammenti
+di bordo (§ 3). **Il sistema non ha mentito**: ha misurato una dispersione di
+sezione di 1,187 contro una soglia di 0,10, ha respinto la regione, e si e'
+rifiutato di costruire un modello su un prisma inventato (§ 1, l'errore di
+`hexa.costruisci` a fronte di zero membrature accettate). Un programma scritto
+con meno cura avrebbe potuto consegnare sei membrature plausibili e
+sbagliate; questo dichiara di non averne trovata nessuna, col controllo e il
+numero che l'ha respinta. La via d'aggiornamento e' l'asse mediale della
+sagoma (trasformata di distanza piu' assottigliamento): la scomposizione per
+spessore e la PCA locale sono gia' state provate e scartate (Ruling AN), chi
+riprende non deve ripeterle.
+
 **Il soffitto del taglio alle giunzioni.** L'assemblaggio del telaio taglia
 (accorcia lungo l'asse) il prisma il cui asse e' invaso dall'altro alla
 giunzione (Ruling AD); non e' un'operazione booleana sui solidi. Le mesh delle
@@ -409,7 +490,10 @@ propria sezione) e non condividono nodi sull'interfaccia: il `*TIE` lega
 quello che riesce, e sul telaio sintetico a quattro membrature 24 nodi
 dipendenti su 79 restano non legati anche dopo la correzione geometrica della
 tolleranza di contatto (Ruling AE) e la regola "tocca" (Ruling AH — § 5, § 7).
-**Conseguenza da leggere insieme al confronto fra i tre modelli**: un modello
+Sulla geometria vera questo limite non e' stato esercitato in questa sessione:
+zero membrature accettate (§ 3) significa che `hexa.costruisci` non e' mai
+stato invocato su di essa, e non c'e' un `*TIE` reale da misurare finche' la
+scomposizione non supera il limite del paragrafo precedente. **Conseguenza da leggere insieme al confronto fra i tre modelli**: un modello
 parametrico con giunti parzialmente liberi e' piu' cedevole del vero, e quella
 differenza non viene dalla geometria — viene dal vincolo. Per questo il
 rapporto di confronto porta `giunzioni`/`ties` e
@@ -447,5 +531,7 @@ usa lo stesso `lato_fetta = ptp(asse) / 20` (venti fette lungo l'asse,
 rigonfiamento — il massimo scostamento dalla faccia ideale dentro ciascuna
 cella — puo' nascondere un rigonfiamento locale piu' piccolo della cella
 stessa. E' un limite strutturale della griglia scelta, dichiarato nel codice
-che la calcola; la sua entita' su `lab_frame.pcd` non e' stata misurata in
-questa sessione (§ "Cosa manca a questo documento").
+che la calcola; la sua entita' su `lab_frame.pcd` resta non misurabile finche'
+il § precedente non e' chiuso — il rigonfiamento si calcola per regione
+(`wall.misura`), e sulla geometria vera nessuna regione e' diventata una
+membratura accettata (§ 3-4).
