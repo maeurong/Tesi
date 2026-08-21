@@ -229,3 +229,21 @@ def test_il_coefficiente_di_spinta_rifiuta_lo_zero_e_il_negativo():
         config.SpintaOrizzontale(coefficiente=0.0, asse="y")
     with pytest.raises(ValidationError):
         config.SpintaOrizzontale(coefficiente=-0.1, asse="y")
+
+
+@pytest.mark.parametrize("riservato", ["SPINTA_ORIZZONTALE", "CARICO_TOP", "MODALE"])
+def test_step_name_non_puo_ripetere_un_nome_di_caso_di_carico(riservato):
+    """M13 della revisione finale: `abaqus.export_model` assegna da se' i nomi
+    degli altri casi di carico, e `solve.risolvi` usa quel nome come chiave di
+    `point_data`. Con `analysis.step_name: SPINTA_ORIZZONTALE` due passi
+    finiscono sulla stessa etichetta, il secondo sovrascrive il primo e un
+    caso di carico sparisce dal `.vtu` senza errore.
+    """
+    with pytest.raises(ValidationError, match="riservato"):
+        config.AnalysisConfig(material=MATERIALE, step_name=riservato)
+
+
+def test_lo_step_name_predefinito_e_i_nomi_liberi_restano_accettati():
+    """Controprova: la guardia sopra vieta tre nomi, non i nomi."""
+    assert config.AnalysisConfig(material=MATERIALE).step_name == "GRAVITA"
+    assert config.AnalysisConfig(material=MATERIALE, step_name="PESO_PROPRIO").step_name == "PESO_PROPRIO"

@@ -73,6 +73,14 @@ def test_calculix_solves_a_column_under_self_weight(tmp_path):
 
     displacements = read_dat_displacements(tmp_path / "model.dat")
     assert displacements, "nessuno spostamento letto dal file .dat"
+    # `print_nsets=("TOP",)` mette nel .dat un blocco `displacements` per TOP
+    # e uno `forces` per BASE, righe identiche in forma: solo i primi sono
+    # spostamenti. I due set sono disgiunti, quindi prima del filtro il
+    # dizionario portava le reazioni in newton sotto i nodi di BASE senza che
+    # nulla lo dicesse.
+    assert not set(displacements) & {int(n) + 1 for n in node_sets["BASE"]}, (
+        "i nodi di BASE compaiono con le loro RF, non con uno spostamento"
+    )
 
     top_uz = np.array([displacements[node + 1][2] for node in node_sets["TOP"]])
     expected = material.density * GRAVITY_MM_S2 * SIZE[2] ** 2 / (2.0 * material.young)
@@ -442,6 +450,11 @@ def test_lo_step_13_risolve_il_deck_e_scrive_i_campi_nel_vtu(tmp_path):
         tmp_path, tmp_path / "wall_model.inp", analysis, nodes, tets, "C3D4",
         casi_di_carico=["GRAVITA", "SPINTA_ORIZZONTALE", "CARICO_TOP", "MODALE"],
         vincolo_in_pianta={"x": 1.0, "y": 1.0, "minimo": 1.0},
+        # Identita': qui il deck e' scritto con write_inp sugli stessi nodi
+        # che risolvi riceve, senza passare da export_model, quindi campi e
+        # punti sono gia' nello stesso telaio e non c'e' nulla da riportare.
+        # Il caso con una rotazione vera e' in tests/test_solve.py (C1).
+        trasformata=np.eye(4),
     )
 
     assert esito["eseguito"] is True

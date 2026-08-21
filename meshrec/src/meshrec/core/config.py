@@ -255,6 +255,12 @@ class Modale(_ModelloBase):
     modi: int = Field(gt=0, description="numero di modi da estrarre")
 
 
+# Le etichette che `abaqus.export_model` assegna da se' agli altri casi di
+# carico (il suo `casi_di_carico`), e che `solve.risolvi` usa come chiavi di
+# `point_data`: non sono disponibili per il nome del passo di peso proprio.
+NOMI_PASSO_RISERVATI = ("SPINTA_ORIZZONTALE", "CARICO_TOP", "MODALE")
+
+
 class AnalysisConfig(_ModelloBase):
     """Materiale e analisi."""
 
@@ -280,6 +286,25 @@ class AnalysisConfig(_ModelloBase):
             "34,76% su lab_crop. Vedi docs/fase-1-tolleranza-set.md"
         ),
     )
+
+    @model_validator(mode="after")
+    def _il_nome_del_passo_non_e_riservato(self) -> "AnalysisConfig":
+        """Due passi con la stessa etichetta non sono due casi di carico.
+
+        `solve.risolvi` indicizza `point_data` col nome del caso: `U_<CASO>`,
+        `VM_<CASO>`. Se `step_name` ripete uno dei nomi che `export_model`
+        assegna agli altri carichi, il secondo passo sovrascrive il primo e
+        un caso sparisce dal `.vtu` -- nessuna eccezione, nessun avviso, un
+        file con una chiave in meno di quanti passi il deck contiene.
+        """
+        if self.step_name.upper() in NOMI_PASSO_RISERVATI:
+            raise ValueError(
+                f"step_name={self.step_name!r} e' un nome riservato: "
+                f"{', '.join(NOMI_PASSO_RISERVATI)} sono le etichette che la "
+                "pipeline assegna da se' agli altri casi di carico, e due passi "
+                "sulla stessa etichetta si sovrascriverebbero a vicenda nel .vtu"
+            )
+        return self
 
 
 class RunConfig(_ModelloBase):
@@ -320,8 +345,10 @@ class RunConfig(_ModelloBase):
             "Lo step 13 resta pero' diverso dagli altri: e' l'unico che paga "
             "un processo esterno vero (ccx) invece di lavoro in-process, e "
             "chi lo invoca su molti candidati -- uno sweep -- paga quel "
-            "processo e i suoi artefatti (.frd/.vtu, alcuni MB l'uno) per "
-            "ciascuno, senza che la selezione se ne serva. Questa e' la "
+            "processo e i suoi artefatti per ciascuno, senza che la "
+            "selezione se ne serva: misurati sull'unica corsa vera "
+            "(runs/lab_telaio_v2), .frd 81 MiB, .vtu 7,8 MiB e .dat 4,3 MiB, "
+            "cioe' 93 MiB per candidato. Questa e' la "
             "ragione per cui sweep.py chiede esplicitamente to_step=12 al "
             "sottoprocesso invece di ereditare questo predefinito, e per cui "
             "REQUIRED_STEPS in sweep.py non lo richiede: e' una decisione del "

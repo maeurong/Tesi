@@ -206,6 +206,7 @@ def test_senza_ccx_lo_step_dichiara_l_assenza_e_non_fallisce(tmp_path, monkeypat
     esito = solve.risolvi(
         tmp_path, tmp_path / "assente.inp", ANALISI, nodi, elementi, "C3D4",
         casi_di_carico=["GRAVITA"], vincolo_in_pianta={"x": 1.0, "y": 1.0, "minimo": 1.0},
+        trasformata=np.eye(4),
     )
 
     assert esito == {"eseguito": False, "solutore": "assente"}
@@ -226,6 +227,7 @@ def test_risolvi_rifiuta_casi_di_carico_vuoto(tmp_path, monkeypatch):
         solve.risolvi(
             tmp_path, tmp_path / "assente.inp", ANALISI, nodi, elementi, "C3D4",
             casi_di_carico=[], vincolo_in_pianta={"x": 1.0, "y": 1.0, "minimo": 1.0},
+            trasformata=np.eye(4),
         )
 
 
@@ -356,7 +358,7 @@ def test_risolvi_con_ccx_simulato_assembla_i_campi_e_conta_gli_avvisi(tmp_path, 
 
     esito = solve.risolvi(
         tmp_path, deck, ANALISI, nodi, elementi, "C3D4", casi_di_carico=casi_di_carico,
-        vincolo_in_pianta={"x": 1.0, "y": 1.0, "minimo": 1.0},
+        vincolo_in_pianta={"x": 1.0, "y": 1.0, "minimo": 1.0}, trasformata=np.eye(4),
     )
 
     assert esito["eseguito"] is True
@@ -392,29 +394,33 @@ def test_il_controllo_sul_vincolo_in_pianta_usa_la_soglia_di_produzione(tmp_path
     casi_di_carico = ["GRAVITA", "SPINTA_ORIZZONTALE", "CARICO_TOP", "MODALE"]
     deck = tmp_path / "wall_model.inp"
     deck.write_text("*HEADING\n", encoding="ascii")
-    deck.with_suffix(".frd").write_text(FRD_QUATTRO_PASSI, encoding="ascii")
-    deck.with_suffix(".dat").write_text(DAT_DUE_MODI, encoding="ascii")
 
     import subprocess
 
+    def ccx_finto(comando, **kwargs):
+        # Le uscite le scrive il processo finto e non il preambolo del test,
+        # perche' `risolvi` le **rinomina** invece di copiarle (I4 della
+        # revisione finale): la seconda corsa qui sotto le ritrova solo se
+        # `ccx` le riscrive, che e' esattamente cio' che fa quello vero.
+        deck.with_suffix(".frd").write_text(FRD_QUATTRO_PASSI, encoding="ascii")
+        deck.with_suffix(".dat").write_text(DAT_DUE_MODI, encoding="ascii")
+        return subprocess.CompletedProcess(comando, returncode=0, stdout="", stderr="")
+
     monkeypatch.setattr(solve.shutil, "which", lambda _nome: "/usr/bin/ccx")
-    monkeypatch.setattr(
-        solve.subprocess, "run",
-        lambda comando, **kwargs: subprocess.CompletedProcess(comando, returncode=0, stdout="", stderr=""),
-    )
+    monkeypatch.setattr(solve.subprocess, "run", ccx_finto)
 
     nodi = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
     elementi = np.array([[0, 1, 2, 3]])
 
     un_piede = solve.risolvi(
         tmp_path, deck, ANALISI, nodi, elementi, "C3D4", casi_di_carico=casi_di_carico,
-        vincolo_in_pianta={"x": 1.0, "y": 0.32, "minimo": 0.32},
+        vincolo_in_pianta={"x": 1.0, "y": 0.32, "minimo": 0.32}, trasformata=np.eye(4),
     )
     assert not un_piede["controlli"]["vincolo_in_pianta"]["passato"], "0,32 e' sotto 0,5: non citabile"
 
     lab_crop = solve.risolvi(
         tmp_path, deck, ANALISI, nodi, elementi, "C3D4", casi_di_carico=casi_di_carico,
-        vincolo_in_pianta={"x": 1.0, "y": 0.987, "minimo": 0.987},
+        vincolo_in_pianta={"x": 1.0, "y": 0.987, "minimo": 0.987}, trasformata=np.eye(4),
     )
     assert lab_crop["controlli"]["vincolo_in_pianta"]["passato"]
 
@@ -668,7 +674,7 @@ def test_somma_reazioni_su_un_tetraedro_piu_la_quota_tributaria_eguaglia_il_peso
         reazioni = solve.leggi_reazioni(percorso, passo=1)
 
     somma_z = sum(v[2] for v in reazioni.values())
-    quota_tributaria_massa = solve._quota_tributaria_gravita(nodes, tets, reazioni, densita)
+    quota_tributaria_massa = solve._quota_tributaria_gravita(nodes, tets, reazioni.keys(), densita)
 
     assert somma_z + quota_tributaria_massa * gravita == pytest.approx(peso_atteso_z, rel=1e-6)
 
@@ -712,6 +718,11 @@ _INGRESSI_CHE_RAGGIUNGONO_UN_CONFRONTO = [
         _REAZIONI_SANE, (0.0, 0.0, b), tolleranza=0.02), 1000.0),
     ("reazioni/tolleranza", lambda b: solve.controlla_reazioni(
         _REAZIONI_SANE, _PESO_ATTESO_SANO, tolleranza=b), 0.02),
+    # Le due righe che mancavano (M11 della revisione finale): l'elenco
+    # copriva tre verdetti su cinque, perche' gli altri due erano scritti
+    # inline dentro `risolvi()` e non c'era una funzione da chiamare qui.
+    ("vincolo_in_pianta/minimo", lambda b: solve.controlla_vincolo_in_pianta(b), 0.99),
+    ("avvisi/conteggio", lambda b: solve.controlla_avvisi(b), 0),
 ]
 
 
@@ -753,3 +764,374 @@ def test_il_ramo_a_una_frequenza_non_consulta_la_soglia_relativa():
     for soglia in (float("nan"), float("inf"), float("-inf")):
         assert solve.controlla_autovalori([25.0], soglia_relativa=soglia)["passato"] is True
     assert solve.controlla_autovalori([0.0])["passato"] is False
+
+
+# ---------------------------------------------------------------------------
+# Revisione finale, C1: nel `.vtu` i vettori devono stare nello stesso telaio
+# dei punti. `export_model` allinea il deck agli assi e non restituisce i nodi
+# allineati; `pipeline.run` passa a `risolvi` i nodi NON allineati insieme al
+# `point_data` che viene dal `.frd`, cioe' dal deck allineato. Fino a questo
+# giro il `.vtu` mescolava i due telai, e ogni consumatore odierno era
+# invariante per rotazione (norma, scalari, sola z) quindi nessuno se ne
+# accorgeva -- ma un *Warp By Vector* in ParaView deforma a 90 gradi dalla
+# direzione vera, senza un avviso.
+#
+# I blocchi `.frd` qui sotto sono costruiti a colonne fisse dallo stesso
+# generatore, invece che a mano: le tre trappole di formato che
+# `FRD_TRE_BLOCCHI` e `FRD_QUATTRO_PASSI` verificano sono gia' coperte da
+# quelle fixture, e ricopiarle a mano per ogni nuovo caso e' solo occasione
+# di sbagliare una colonna.
+# ---------------------------------------------------------------------------
+
+# Il tratto fisso del record 100CL fra il valore e la cifra del passo,
+# misurato sui due record veri gia' in questo file (colonne 24-61).
+_100CL_MEZZO = "           2                     0    "
+
+
+def _record_100cl(passo: int, valore: float, modale: bool) -> str:
+    return f"  100CL  101{valore:12.9f}{_100CL_MEZZO}{passo}{'MODAL' if modale else '     '}      1"
+
+
+def _frd(blocchi) -> str:
+    """`.frd` ascii da una lista di `(passo, grandezza, modale, valore, righe)`.
+
+    `righe` e' `{nodo: (componenti...)}`. Le colonne sono quelle che
+    `solve.leggi_frd` legge: nodo a dieci caratteri dopo ` -1`, componenti a
+    dodici.
+    """
+    testo: list[str] = []
+    for passo, grandezza, modale, valore, righe in blocchi:
+        testo.append(_record_100cl(passo, valore, modale))
+        testo.append(f" -4  {grandezza:<12}{len(next(iter(righe.values())))}    1")
+        for nodo, componenti in righe.items():
+            testo.append(f" -1{nodo:10d}" + "".join(f"{v:12.5E}" for v in componenti))
+        testo.append(" -3")
+    return "\n".join(testo) + "\n"
+
+
+# Quattro nodi, un tetraedro: la geometria non conta per il telaio dei
+# vettori, conta solo che i punti scritti nel `.vtu` siano questi.
+_NODI_TET = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+_ELEMENTI_TET = np.array([[0, 1, 2, 3]])
+
+# Rotazione di 90 gradi attorno a z nella forma che `align_to_axes` produce
+# davvero: `rotation = [x_dir, y_dir, z_dir]` con `y_dir = z x x`, quindi
+# determinante +1 per costruzione. Con lo spessore del pezzo su y del telaio
+# dei punti si ottiene x_dir = (0,1,0) e y_dir = (-1,0,0). E' la stessa forma
+# della trasformata misurata su `runs/lab_telaio_v2`
+# (`metrics["11_export"]["transform"]`), dove l'imbardata stimata vale
+# 0,0054 rad e la traslazione (730,6; 4328,9; 595,4) mm.
+_ROTAZIONE_90_Z = [
+    [0.0, 1.0, 0.0, 730.6],
+    [-1.0, 0.0, 0.0, 4328.9],
+    [0.0, 0.0, 1.0, 595.4],
+    [0.0, 0.0, 0.0, 1.0],
+]
+
+# GRAVITA scende, SPINTA_ORIZZONTALE scende e spinge su +y **del modello** --
+# la differenza vale esattamente (0, 1, 0), l'asse dichiarato in
+# `lab_telaio.yaml`. Il modo e' anch'esso su +y del modello.
+_FRD_SPINTA_SU_Y = _frd([
+    (1, "DISP", False, 1.0, {n: (0.0, 0.0, -1.0) for n in (1, 2, 3, 4)}),
+    (1, "STRESS", False, 1.0, {n: (1.0, 0.0, 0.0, 0.0, 0.0, 0.0) for n in (1, 2, 3, 4)}),
+    (2, "DISP", False, 1.0, {n: (0.0, 1.0, -1.0) for n in (1, 2, 3, 4)}),
+    (2, "STRESS", False, 1.0, {n: (5.0, 0.0, 0.0, 0.0, 0.0, 0.0) for n in (1, 2, 3, 4)}),
+    (3, "DISP", True, 21.19, {n: (0.0, 1.0, 0.0) for n in (1, 2, 3, 4)}),
+])
+
+
+def _risolvi_finto(
+    tmp_path, monkeypatch, frd, *, casi, trasformata, dat=DAT_DUE_MODI,
+    nodi=_NODI_TET, elementi=_ELEMENTI_TET, uscita="Job finished\n",
+):
+    """`risolvi()` con `ccx` sostituito da un `subprocess.run` finto.
+
+    Stesso principio di `test_risolvi_con_ccx_simulato_...`: il `.frd`/`.dat`
+    che il processo finto "avrebbe scritto" sono gia' su disco quando
+    `risolvi()` li legge.
+    """
+    import subprocess
+
+    deck = tmp_path / "wall_model.inp"
+    deck.write_text("*HEADING\n", encoding="ascii")
+    deck.with_suffix(".frd").write_text(frd, encoding="ascii")
+    deck.with_suffix(".dat").write_text(dat, encoding="ascii")
+
+    monkeypatch.setattr(solve.shutil, "which", lambda _nome: "/usr/bin/ccx")
+    monkeypatch.setattr(
+        solve.subprocess, "run",
+        lambda comando, **kwargs: subprocess.CompletedProcess(
+            comando, returncode=0, stdout=uscita, stderr=""),
+    )
+    return solve.risolvi(
+        tmp_path, deck, ANALISI, nodi, elementi, "C3D4",
+        casi_di_carico=casi, vincolo_in_pianta={"x": 1.0, "y": 1.0, "minimo": 1.0},
+        trasformata=trasformata,
+    )
+
+
+def test_i_vettori_del_vtu_stanno_nel_telaio_dei_punti_e_non_del_modello(tmp_path, monkeypatch):
+    """C1: la direzione della spinta, riletta dal `.vtu`, deve stare nello
+    stesso telaio dei punti che il `.vtu` contiene.
+
+    Il campo esce dal `.frd`, cioe' dal deck allineato: `U_SPINTA_ORIZZONTALE
+    - U_GRAVITA` vale (0, 1, 0), l'asse +y **del modello**. I punti del
+    `.vtu` sono quelli non allineati. Con questa rotazione +y del modello e'
+    -x nel telaio dei punti: e' quello che il file deve contenere, altrimenti
+    un *Warp By Vector* deforma a 90 gradi dalla direzione vera.
+
+    L'oracolo e' il campo riletto, non la matrice.
+    """
+    meshio = pytest.importorskip("meshio")
+
+    _risolvi_finto(
+        tmp_path, monkeypatch, _FRD_SPINTA_SU_Y,
+        casi=["GRAVITA", "SPINTA_ORIZZONTALE", "MODALE"], trasformata=_ROTAZIONE_90_Z,
+    )
+
+    mesh = meshio.read(tmp_path / "13_solution.vtu")
+    differenza = mesh.point_data["U_SPINTA_ORIZZONTALE"] - mesh.point_data["U_GRAVITA"]
+    direzione = differenza.mean(axis=0)
+    direzione = direzione / np.linalg.norm(direzione)
+
+    assert direzione == pytest.approx([-1.0, 0.0, 0.0], abs=1e-9), (
+        "+y del modello, riportato nel telaio dei punti da questa rotazione, "
+        f"e' -x: il file contiene invece {direzione}"
+    )
+    # Controprova nell'altro verso: riportata nel telaio del modello (u @ R.T,
+    # l'inversa di u @ R), la direzione deve tornare +y, l'asse dichiarato.
+    rotazione = np.asarray(_ROTAZIONE_90_Z)[:3, :3]
+    assert direzione @ rotazione.T == pytest.approx([0.0, 1.0, 0.0], abs=1e-9)
+
+
+def test_anche_le_forme_modali_si_riportano_nel_telaio_dei_punti(tmp_path, monkeypatch):
+    """Ingresso degenere: `MODO_*` presenti e `U_*` assenti -- i modi vanno
+    ruotati lo stesso. Un modo e' un vettore come uno spostamento: quello che
+    non e' un vettore, e non si tocca, e' la von Mises."""
+    meshio = pytest.importorskip("meshio")
+
+    solo_modale = _frd([(1, "DISP", True, 21.19, {n: (0.0, 1.0, 0.0) for n in (1, 2, 3, 4)})])
+    esito = _risolvi_finto(
+        tmp_path, monkeypatch, solo_modale, casi=["GRAVITA", "MODALE"],
+        trasformata=_ROTAZIONE_90_Z,
+    )
+
+    assert esito["modi"] == 1
+    mesh = meshio.read(tmp_path / "13_solution.vtu")
+    assert set(mesh.point_data) == {"MODO_1"}
+    assert mesh.point_data["MODO_1"][0] == pytest.approx([-1.0, 0.0, 0.0], abs=1e-9)
+
+
+def test_un_vtu_di_sole_tensioni_non_ha_nulla_da_ruotare(tmp_path, monkeypatch):
+    """Ingresso degenere: nessuna chiave `U_*` ne' `MODO_*` (solo von Mises,
+    che e' uno scalare) -- nessun errore, e lo scalare resta quello che
+    `von_mises` ha calcolato."""
+    meshio = pytest.importorskip("meshio")
+
+    solo_tensioni = _frd([
+        (1, "STRESS", False, 1.0, {n: (3.0, 0.0, 0.0, 0.0, 0.0, 0.0) for n in (1, 2, 3, 4)}),
+    ])
+    esito = _risolvi_finto(
+        tmp_path, monkeypatch, solo_tensioni, casi=["GRAVITA"], trasformata=_ROTAZIONE_90_Z,
+    )
+
+    assert esito["eseguito"] is True
+    mesh = meshio.read(tmp_path / "13_solution.vtu")
+    assert set(mesh.point_data) == {"VM_GRAVITA"}
+    assert mesh.point_data["VM_GRAVITA"] == pytest.approx([3.0, 3.0, 3.0, 3.0])
+
+
+@pytest.mark.parametrize(
+    "trasformata,motivo",
+    [
+        (None, "assente"),
+        ([[0.0, 1.0, 0.0], [-1.0, 0.0, 0.0], [0.0, 0.0, 1.0]], "3x3"),
+    ],
+    ids=["assente", "3x3"],
+)
+def test_una_trasformata_che_non_e_4x4_e_un_errore_dichiarato(tmp_path, monkeypatch, trasformata, motivo):
+    """Ingresso degenere: senza la trasformata il campo non e' riportabile nel
+    telaio dei punti. Un `.vtu` scritto lo stesso, con il campo non ruotato,
+    sarebbe di nuovo il difetto C1 -- in silenzio."""
+    with pytest.raises(ValueError, match="4x4"):
+        _risolvi_finto(
+            tmp_path, monkeypatch, _FRD_SPINTA_SU_Y,
+            casi=["GRAVITA", "SPINTA_ORIZZONTALE", "MODALE"], trasformata=trasformata,
+        )
+    assert not (tmp_path / "13_solution.vtu").exists(), f"trasformata {motivo}: nessun artefatto"
+
+
+def test_una_rotazione_con_determinante_diverso_da_uno_non_si_applica(tmp_path, monkeypatch):
+    """Ingresso degenere: `align_to_axes` costruisce la terna col prodotto
+    vettoriale, quindi il determinante vale +1 per costruzione. Se quello che
+    arriva qui non e' una rotazione (riflessione, scala, matrice corrotta),
+    applicarlo comunque specchierebbe il campo senza dirlo."""
+    specchiata = [
+        [0.0, 1.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ]
+    with pytest.raises(ValueError, match="determinante"):
+        _risolvi_finto(
+            tmp_path, monkeypatch, _FRD_SPINTA_SU_Y,
+            casi=["GRAVITA", "SPINTA_ORIZZONTALE", "MODALE"], trasformata=specchiata,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Revisione finale, I2: `leggi_reazioni` prometteva nel docstring un filtro
+# sull'intestazione delle forze che il corpo non aveva -- accettava qualunque
+# riga a quattro campi col primo intero. Un blocco `*NODE PRINT, U` produce
+# righe identiche in forma, e `_passo_statico` (abaqus.py) scrive gli `U`
+# **prima** dell'`RF`. Oggi la produzione non passa mai `print_nsets`, ma
+# `print_nsets=("TOP",)` e' gia' usato in tests/feasibility/test_calculix.py
+# e tests/test_abaqus.py: bastava esporlo per sommare millimetri e newton
+# dentro `controlla_reazioni` senza alcuna eccezione.
+#
+# Blocco misurato in forma su un `.dat` vero (runs/lab_telaio_v2/13_solution.dat,
+# riga 8: ` forces (fx,fy,fz) for set BASE and time  0.1000000E+01`); il blocco
+# `displacements` ha la stessa forma, ed e' quello di
+# tests/feasibility/test_calculix.py::DAT_SPOSTAMENTI_CONTAMINATO.
+# ---------------------------------------------------------------------------
+
+DAT_SPOSTAMENTI_PRIMA_DELLE_REAZIONI = """\
+
+                        S T E P       1
+
+
+                                INCREMENT     1
+
+
+ displacements (vx,vy,vz) for set TOP and time  0.1000000E+01
+
+       101 -1.000000E-03  2.000000E-04  3.000000E-04
+       102 -1.100000E-03  2.100000E-04  3.100000E-04
+
+ forces (fx,fy,fz) for set BASE and time  0.1000000E+01
+
+         1 -1.000000E+03 -1.108911E+02 -2.000000E+03
+         2 -1.000000E+03  1.108911E+02  2.000000E+03
+"""
+
+
+def test_leggi_reazioni_scarta_gli_spostamenti_stampati_prima_delle_forze(tmp_path):
+    """I2: con `print_nsets` non vuoto il `.dat` porta un blocco `U` prima
+    dell'`RF`, nello stesso passo. Solo le forze devono finire in `reazioni`:
+    i due nodi del set TOP sono millimetri, e sommati alle reazioni in newton
+    darebbero un verdetto di equilibrio calcolato su unita' diverse -- senza
+    eccezione, senza avviso.
+    """
+    percorso = tmp_path / "con_spostamenti.dat"
+    percorso.write_text(DAT_SPOSTAMENTI_PRIMA_DELLE_REAZIONI, encoding="ascii")
+
+    reazioni = solve.leggi_reazioni(percorso)
+
+    assert reazioni.keys() == {1, 2}, "101 e 102 sono spostamenti del set TOP, non reazioni"
+    assert reazioni[1] == pytest.approx((-1000.0, -110.8911, -2000.0))
+
+
+def test_gli_artefatti_del_solutore_si_rinominano_invece_di_duplicarsi(tmp_path, monkeypatch):
+    """I4: `deck.parent` **e'** `out_dir`, quindi la copia era
+    `wall_model.frd` -> `13_solution.frd` nella stessa cartella. Misurato su
+    `runs/lab_telaio_v2`: 84.997.257 byte di `.frd` e 4.542.878 di `.dat`,
+    materializzati in un `bytes` Python e lasciati sul disco in doppia copia
+    (169.994.514 byte dove ne bastavano 84.997.257). `ccx` riscrive
+    `wall_model.frd` a ogni corsa: rinominare non perde nulla.
+    """
+    esito = _risolvi_finto(
+        tmp_path, monkeypatch, _FRD_SPINTA_SU_Y,
+        casi=["GRAVITA", "SPINTA_ORIZZONTALE", "MODALE"], trasformata=np.eye(4),
+    )
+
+    assert (tmp_path / "13_solution.frd").read_text(encoding="ascii") == _FRD_SPINTA_SU_Y
+    assert (tmp_path / "13_solution.dat").read_text(encoding="ascii") == DAT_DUE_MODI
+    assert not (tmp_path / "wall_model.frd").exists(), "il .frd resta in una copia sola"
+    assert not (tmp_path / "wall_model.dat").exists(), "il .dat resta in una copia sola"
+    assert esito["frd"] == str(tmp_path / "13_solution.frd")
+
+
+# ---------------------------------------------------------------------------
+# Revisione finale, Critical di copertura: `controlli["picco"]` non era
+# toccato da nessun test. La funzione pura `controlla_picco` e' ben coperta
+# (tabella di finitezza e tre casi diretti), la **fiatura dentro `risolvi()`**
+# no: quali quote arrivano alla funzione, come si calcola la banda, come i
+# verdetti per caso si aggregano in uno solo.
+# ---------------------------------------------------------------------------
+
+# Otto nodi in colonna, altezza 100 -> banda di vincolo 5 (5% di
+# _FRAZIONE_BANDA_VINCOLO). Il `.frd` sotto stampa i soli nodi 3..8, cioe' le
+# quote 40..100: e' il caso che distingue le quote del **sottoinsieme del
+# caso** (`nodes[blocco.nodi - 1, 2]`, minimo 40, banda fino a 45) da quelle
+# di tutti i nodi del modello (minimo 0, banda fino a 5).
+_NODI_COLONNA = np.array([
+    [0.0, 0.0, 0.0], [10.0, 0.0, 10.0], [0.0, 10.0, 40.0], [10.0, 10.0, 50.0],
+    [0.0, 0.0, 60.0], [10.0, 0.0, 80.0], [0.0, 10.0, 90.0], [10.0, 10.0, 100.0],
+])
+_ELEMENTI_COLONNA = np.array([[0, 1, 2, 3], [4, 5, 6, 7]])
+_NODI_STAMPATI = (3, 4, 5, 6, 7, 8)
+
+
+def _blocco_stress(passo: int, sigma_per_nodo: dict[int, float]):
+    """Trazione monoassiale pura: la von Mises esce esattamente sigma."""
+    return (passo, "STRESS", False, 1.0,
+            {n: (s, 0.0, 0.0, 0.0, 0.0, 0.0) for n, s in sigma_per_nodo.items()})
+
+
+# GRAVITA: il picco (100) cade sul nodo 3, quota 40, cioe' dentro la banda di
+# vincolo del proprio sottoinsieme -- artefatto, non citabile.
+# SPINTA_ORIZZONTALE: il picco cade sul nodo 8, quota 100, fuori banda.
+_FRD_PICCO_DENTRO_E_FUORI_BANDA = _frd([
+    (1, "DISP", False, 1.0, {n: (0.0, 0.0, -1.0) for n in _NODI_STAMPATI}),
+    _blocco_stress(1, {3: 100.0, 4: 1.0, 5: 1.0, 6: 1.0, 7: 1.0, 8: 1.0}),
+    (2, "DISP", False, 1.0, {n: (0.0, 1.0, -1.0) for n in _NODI_STAMPATI}),
+    _blocco_stress(2, {3: 1.0, 4: 1.0, 5: 1.0, 6: 1.0, 7: 1.0, 8: 100.0}),
+])
+
+
+def test_il_controllo_sul_picco_usa_le_quote_del_caso_e_aggrega_i_verdetti(tmp_path, monkeypatch):
+    """Il picco si giudica sulle quote dei nodi che il blocco stampa, non su
+    quelle di tutto il modello, e un solo caso bocciato basta a bocciare il
+    verdetto d'insieme.
+
+    Mutazione che questo test uccide (applicata davvero, `risolvi()`:
+    `nodes[blocco.nodi - 1, 2]` -> `nodes[:, 2]`): reintroduce il difetto che
+    il docstring di `controlla_picco` documenta come gia' pagato una volta.
+    Con le quote di tutti i nodi la banda parte da 0 invece che da 40 e il
+    confronto non e' nemmeno piu' allineato al vettore delle tensioni.
+    Seconda mutazione uccisa: `all(...)` -> `any(...)`, qui un caso passa e
+    l'altro no.
+    """
+    esito = _risolvi_finto(
+        tmp_path, monkeypatch, _FRD_PICCO_DENTRO_E_FUORI_BANDA,
+        casi=["GRAVITA", "SPINTA_ORIZZONTALE"], trasformata=np.eye(4),
+        nodi=_NODI_COLONNA, elementi=_ELEMENTI_COLONNA,
+    )
+
+    per_caso = esito["controlli"]["picco"]["per_caso"]
+    assert per_caso.keys() == {"GRAVITA", "SPINTA_ORIZZONTALE"}
+    assert per_caso["GRAVITA"]["frazione_in_banda"] == 1.0
+    assert per_caso["GRAVITA"]["passato"] is False, "quota 40 e' il minimo del caso: dentro banda"
+    assert per_caso["SPINTA_ORIZZONTALE"]["frazione_in_banda"] == 0.0
+    assert per_caso["SPINTA_ORIZZONTALE"]["passato"] is True, "quota 100: fuori banda"
+    assert esito["controlli"]["picco"]["passato"] is False
+
+
+def test_senza_tensioni_il_verdetto_sul_picco_e_falso_e_non_vero_per_vuoto(tmp_path, monkeypatch):
+    """Ingresso degenere: `picco_per_caso` vuoto -> verdetto `False`, mai
+    `True` per vacuita'. `all(())` vale `True` in Python, ed e' esattamente
+    il modo in cui un controllo assente si traveste da controllo superato.
+
+    Mutazione uccisa: `if picco_per_caso else False` -> `else True`.
+    """
+    solo_spostamenti = _frd([
+        (1, "DISP", False, 1.0, {n: (0.0, 0.0, -1.0) for n in _NODI_STAMPATI}),
+    ])
+
+    esito = _risolvi_finto(
+        tmp_path, monkeypatch, solo_spostamenti, casi=["GRAVITA"], trasformata=np.eye(4),
+        nodi=_NODI_COLONNA, elementi=_ELEMENTI_COLONNA,
+    )
+
+    assert esito["controlli"]["picco"]["per_caso"] == {}
+    assert esito["controlli"]["picco"]["passato"] is False

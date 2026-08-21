@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+from collections.abc import Iterable
 from pathlib import Path
 from typing import NamedTuple
 
@@ -52,10 +53,17 @@ _TIMEOUT_S = 600.0
 # geometrie: muro 0,999, lab_crop 0,987, sintetico a due piedi 1,000,
 # sintetico a un piede solo 0,32 -- un dirupo netto fra 0,32 e 0,987, nessun
 # punto di misura in mezzo. 0,5 sta in quel dirupo: sopra il solo caso
-# patologico misurato, sotto ogni caso vincolato correttamente. Debito: la
-# tabella non contiene il caso difettoso reale, solo il banco sintetico a un
-# piede come sostituto; il Task 11 porta il punto vero, e questa soglia va
-# riverificata allora.
+# patologico misurato, sotto ogni caso vincolato correttamente.
+#
+# Il caso difettoso **reale** e' arrivato col Task 11 e chiude il debito che
+# questa nota dichiarava: sull'as-built del telaio, col BASE che teneva un
+# piede solo, l'insieme vincolato attraversava 233 mm di un pezzo lungo 3144,
+# cioe' 0,074 (il difetto e la sua misura stanno in
+# `abaqus.constraint_plan_extent`); la stessa corsa col vincolo corretto vale
+# 0,9943 (misurato su `runs/lab_telaio_v2/metrics.json`,
+# `11_export.constraint_plan_extent.minimo`). La soglia regge quindi su un
+# difetto reale piu' netto del sostituto sintetico -- 0,074 contro 0,32 --
+# non piu' solo su un banco.
 #
 # Costante di modulo e non campo di `AnalysisConfig` (ruling della revisione
 # del Task 7): non cambia cosa viene calcolato, solo l'etichetta di un
@@ -173,9 +181,12 @@ def leggi_reazioni(
 ) -> dict[int, tuple[float, float, float]]:
     """Reazioni nodali dall'ultimo blocco statico "forces" del `.dat`.
 
-    Stessa logica di `tests/feasibility/ccx_utils.read_dat_displacements`:
-    righe a quattro campi (nodo piu' tre componenti) dopo l'intestazione
-    delle forze, ultimo blocco vince -- coerente coi passi statici cumulativi
+    Righe a quattro campi (nodo piu' tre componenti) dopo l'intestazione delle
+    forze -- e solo quelle: un blocco `*NODE PRINT, U` ha righe identiche in
+    forma, e `abaqus._passo_statico` scrive gli `U` di `print_nsets` **prima**
+    dell'`RF` sul set vincolato. Senza il filtro sull'intestazione, millimetri
+    e newton finivano nello stesso dizionario e `controlla_reazioni` li
+    sommava. Ultimo blocco vince -- coerente coi passi statici cumulativi
     di `abaqus.write_inp`, dove ogni passo ripete i carichi permanenti dei
     precedenti. La lettura si ferma pero' a `E I G E N V A L U E   O U T P U T`:
     oltre quel punto i blocchi "forces" appartengono ai modi, non ai passi
@@ -194,14 +205,24 @@ def leggi_reazioni(
     """
     reazioni: dict[int, tuple[float, float, float]] = {}
     passo_corrente = 0
+    dentro_le_forze = False
     for linea in Path(percorso).read_text(encoding="ascii", errors="ignore").splitlines():
         if "E I G E N V A L U E   O U T P U T" in linea:
             break
+        # Ogni blocco di `*NODE PRINT` si apre con "<grandezza> (...) for set
+        # NOME and time ...": l'intestazione accende il filtro sulle forze e
+        # qualunque altra lo spegne.
+        if " for set " in linea:
+            dentro_le_forze = linea.strip().startswith("forces")
+            continue
         pulita = linea.strip()
         if pulita.startswith("S T E P"):
             cifre = pulita.replace("S T E P", "").split()
             if cifre:
                 passo_corrente = int(cifre[0])
+            dentro_le_forze = False
+            continue
+        if not dentro_le_forze:
             continue
         if passo is not None and passo_corrente != passo:
             continue
@@ -385,6 +406,46 @@ def controlla_picco(valori: np.ndarray, quote: np.ndarray, banda: float) -> dict
     }
 
 
+def controlla_vincolo_in_pianta(minimo: float) -> dict[str, object]:
+    """L'insieme vincolato attraversa abbastanza dell'impronta del pezzo?
+
+    `minimo` e' `abaqus.constraint_plan_extent(...)["minimo"]`, gia' calcolato
+    allo step 11 e passato a `risolvi` invece di essere ricalcolato qui, dove
+    i `node_sets` non arrivano.
+
+    Cancello di finitezza (Task 7, riga aggiunta nel giro della revisione
+    finale): il verdetto e' un confronto di grandezza, dove NaN cade dalla
+    parte giusta da solo ma `+inf >= soglia` no. Un `minimo` non finito non
+    puo' arrivare da `constraint_plan_extent`, e non per il motivo scritto
+    prima qui (un limite dichiarato fuori perimetro): per **contenimento**.
+    Quella funzione divide l'estensione dei nodi *scelti* per quella di tutti
+    i nodi, e i primi sono un sottoinsieme dei secondi -- il rapporto sta fra
+    0 e 1 per costruzione, e l'unica via per un NaN e' che le coordinate in
+    ingresso lo siano gia'. La guardia c'e' lo stesso perche' la regola del
+    modulo e' enumerare gli ingressi che raggiungono un confronto, non
+    ragionare caso per caso su quali possano davvero degenerare: e' lo stesso
+    motivo per cui `_TOLLERANZA_REAZIONI`, che e' una costante di modulo,
+    passa comunque per `np.isfinite`.
+    """
+    return {
+        "passato": bool(np.isfinite(minimo)) and minimo >= _SOGLIA_VINCOLO_IN_PIANTA,
+        "minimo": minimo,
+        "soglia": _SOGLIA_VINCOLO_IN_PIANTA,
+    }
+
+
+def controlla_avvisi(conteggio: int) -> dict[str, object]:
+    """Zero `*WARNING` da `ccx`, o i numeri non sono citabili.
+
+    Il conteggio viene da `str.count` e resta un intero naturale qualunque
+    cosa faccia la mesh: l'uguaglianza a zero e' gia' chiusa su NaN e sugli
+    infiniti senza bisogno di guardia. Sta comunque nella tabella
+    `_INGRESSI_CHE_RAGGIUNGONO_UN_CONFRONTO` -- enumerare tutti e cinque i
+    verdetti costa meno che ricordarsi quale dei cinque non serviva.
+    """
+    return {"passato": conteggio == 0, "conteggio": conteggio}
+
+
 def leggi_frequenze(percorso: Path) -> list[float]:
     """Le frequenze proprie [Hz]: colonna CYCLES/TIME del blocco MODE NO del `.dat`.
 
@@ -435,7 +496,7 @@ def _volume_totale(nodes: np.ndarray, elements: np.ndarray) -> float:
 
 
 def _quota_tributaria_gravita(
-    nodes: np.ndarray, elements: np.ndarray, nodi_1based, density: float
+    nodes: np.ndarray, elements: np.ndarray, nodi_1based: Iterable[int], density: float
 ) -> float:
     """Massa che il carico distribuito assegna direttamente ai nodi dati.
 
@@ -471,6 +532,39 @@ def _quota_tributaria_gravita(
     return float((incidenze * massa_per_incidenza[:, None]).sum())
 
 
+def _rotazione_ai_punti(trasformata: np.ndarray | list[list[float]]) -> np.ndarray:
+    """La parte rotatoria di `metrics["11_export"]["transform"]`, verificata.
+
+    `abaqus.align_to_axes` scrive `aligned = (punti - centro) @ R.T - shift`:
+    la stessa `R` porta un vettore dal telaio dei punti a quello del modello
+    (`v_modello = R @ v_punti`), e la sua inversa -- che per una rotazione e'
+    la trasposta -- lo riporta indietro (`v_punti = v_modello @ R`).
+
+    Verifica il determinante e non solo la forma: se quello che arriva qui non
+    e' una rotazione (una riflessione, una scala, una matrice corrotta),
+    applicarlo specchierebbe o allungherebbe il campo senza dirlo, che e' la
+    stessa classe di difetto silenzioso del C1. `align_to_axes` costruisce la
+    terna col prodotto vettoriale, quindi +1 e' garantito alla sorgente: qui
+    si controlla che sia ancora quella la sorgente.
+    """
+    matrice = np.asarray(trasformata, dtype=np.float64)
+    if matrice.shape != (4, 4):
+        raise ValueError(
+            "trasformata deve essere la matrice 4x4 di "
+            "metrics['11_export']['transform'], che riporta i vettori del "
+            f"modello nel telaio dei punti del .vtu: arrivata {matrice.shape}"
+        )
+    rotazione = matrice[:3, :3]
+    determinante = float(np.linalg.det(rotazione))
+    if not np.isclose(determinante, 1.0, atol=1e-6):
+        raise ValueError(
+            f"la parte rotatoria della trasformata ha determinante {determinante}, "
+            "non +1: non e' una rotazione, e applicarla al campo lo specchierebbe "
+            "o lo scalerebbe in silenzio"
+        )
+    return rotazione
+
+
 def risolvi(
     out_dir: Path,
     deck: Path,
@@ -481,6 +575,7 @@ def risolvi(
     *,
     casi_di_carico: list[str],
     vincolo_in_pianta: dict[str, float],
+    trasformata: np.ndarray | list[list[float]],
 ) -> dict[str, object]:
     """Step 13: esegue `ccx` sul deck e scrive i campi in `13_solution.vtu`.
 
@@ -514,6 +609,15 @@ def risolvi(
     ogni blocco statico letto (`[nome for nome in (None or ()) if nome !=
     "MODALE"]` da' `[]`). E' un errore del chiamante, e si dichiara come tale.
 
+    `trasformata` e' `metrics["11_export"]["transform"]`, la 4x4 con cui
+    `abaqus.align_to_axes` ha portato i nodi nel telaio del deck. Serve perche'
+    i due ingressi di `write_vtu` arrivano da telai diversi: `nodes` non e'
+    allineato (`export_model` allinea internamente e non restituisce i nodi
+    allineati), mentre il `point_data` viene dal `.frd`, cioe' dal deck
+    allineato. I vettori (`U_*`, `MODO_*`) si riportano quindi nel telaio dei
+    punti prima della scrittura -- stessa strada che `constraint_plan_extent`
+    percorre gia'. La von Mises e' scalare e non si tocca.
+
     `vincolo_in_pianta` e' `metrics["11_export"]["constraint_plan_extent"]`,
     gia' calcolato allo step 11 su `abaqus.constraint_plan_extent`: non si
     ricalcola qui, dove non arrivano i `node_sets` per farlo.
@@ -533,6 +637,7 @@ def risolvi(
             "casi_di_carico e' vuoto: nessun caso da risolvere. Un deck senza "
             "casi e' un errore del chiamante, non uno stato da eseguire a vuoto"
         )
+    rotazione = _rotazione_ai_punti(trasformata)
     out_dir = Path(out_dir)
     eseguibile = shutil.which("ccx")
     if eseguibile is None:
@@ -556,8 +661,14 @@ def risolvi(
 
     percorso_frd = out_dir / "13_solution.frd"
     percorso_dat = out_dir / "13_solution.dat"
-    percorso_frd.write_bytes(deck.with_suffix(".frd").read_bytes())
-    percorso_dat.write_bytes(deck.with_suffix(".dat").read_bytes())
+    # Rinomina e non copia: `deck.parent` **e'** `out_dir`, quindi copiare
+    # significava materializzare l'intero `.frd` in un `bytes` Python (81 MiB
+    # sulla corsa dell'as-built) e lasciarne due esemplari identici nella
+    # stessa cartella. `ccx` riscrive `wall_model.frd` a ogni corsa, quindi
+    # l'originale non serve a nessuno: nessun altro punto del progetto lo
+    # nomina.
+    deck.with_suffix(".frd").replace(percorso_frd)
+    deck.with_suffix(".dat").replace(percorso_dat)
 
     casi_statici = [nome for nome in casi_di_carico if nome != "MODALE"]
     etichetta_passo = dict(enumerate(casi_statici, start=1))
@@ -597,6 +708,19 @@ def risolvi(
                 equivalente, nodes[blocco.nodi - 1, 2], banda=banda_vincolo
             )
 
+    # I campi vengono dal `.frd`, cioe' dal deck allineato agli assi; i nodi
+    # scritti nel `.vtu` sono quelli non allineati che il chiamante passa.
+    # Senza questa riga il file mescolerebbe due telai: un *Warp By Vector*
+    # deformerebbe il pezzo a 90 gradi dalla direzione vera, senza errore e
+    # senza avviso, perche' ogni consumatore odierno e' invariante per
+    # rotazione (il viewport prende la norma, i controlli usano scalari o la
+    # sola z). Si riporta il campo nel telaio dei punti e non viceversa,
+    # cosi' il `.vtu` dello step 13 resta nello stesso telaio di quello dello
+    # step 9. Gli scalari (`VM_*`) non si toccano.
+    for nome, campo in point_data.items():
+        if campo.ndim == 2:
+            point_data[nome] = campo @ rotazione
+
     percorso_vtu = out_dir / "13_solution.vtu"
     abaqus.write_vtu(percorso_vtu, nodes, elements, element_type=element_type, point_data=point_data)
 
@@ -605,29 +729,25 @@ def risolvi(
     reazioni_peso_proprio = leggi_reazioni(percorso_dat, passo=1)
     massa = float(cfg.material.density) * _volume_totale(nodes, elements)
     quota_tributaria = _quota_tributaria_gravita(
-        nodes, elements, reazioni_peso_proprio, cfg.material.density
+        # `.keys()` esplicito: la funzione vuole i numeri di nodo a base uno,
+        # e `list(dict)` darebbe le chiavi comunque -- ma dalla firma non si
+        # vede, e chi legge passa indici a base zero e prende un off-by-one
+        # silenzioso che boccia una corsa buona.
+        nodes, elements, reazioni_peso_proprio.keys(), cfg.material.density
     )
     peso_atteso = (0.0, 0.0, (massa - quota_tributaria) * cfg.gravity)
-    # I due verdetti inline sotto non hanno una guardia esplicita su
-    # NaN/infinito (cancello di finitezza, Task 7, verificato su tutti e
-    # cinque i controlli): `vincolo_in_pianta["minimo"]` viene da
-    # `abaqus.constraint_plan_extent`, che divide per l'estensione del pezzo
-    # solo dopo averla guardata contro lo zero (ritorna 1.0 altrimenti) --
-    # non puo' restituire NaN o inf per costruzione, A MENO che le
-    # coordinate dei nodi in ingresso siano gia' corrotte (NaN): quel caso
-    # e' un fallimento a monte, di mesh corrotta, fuori dal perimetro di
-    # questo commit -- limite dichiarato, non una guardia aggiunta qui.
-    # `avvisi` e' un conteggio (`str.count`), sempre un intero naturale, mai
-    # NaN o inf, indipendentemente dallo stato della mesh.
+    # Cinque verdetti, cinque funzioni: `vincolo_in_pianta` e `avvisi` erano
+    # scritti inline qui, e per questo restavano fuori dalla tabella
+    # `_INGRESSI_CHE_RAGGIUNGONO_UN_CONFRONTO` di tests/test_solve.py, che il
+    # commento sopra `controlla_reazioni` dichiara completa (M11 della
+    # revisione finale: copriva tre verdetti su cinque). Non c'e' altro da
+    # sapere qui sotto: il perche' di ciascuna guardia sta nel docstring della
+    # funzione che la porta.
     controlli = {
         "reazioni": controlla_reazioni(reazioni_peso_proprio, peso_atteso, tolleranza=_TOLLERANZA_REAZIONI),
-        "vincolo_in_pianta": {
-            "passato": vincolo_in_pianta["minimo"] >= _SOGLIA_VINCOLO_IN_PIANTA,
-            "minimo": vincolo_in_pianta["minimo"],
-            "soglia": _SOGLIA_VINCOLO_IN_PIANTA,
-        },
+        "vincolo_in_pianta": controlla_vincolo_in_pianta(vincolo_in_pianta["minimo"]),
         "autovalori": controlla_autovalori(frequenze_hz),
-        "avvisi": {"passato": avvisi == 0, "conteggio": avvisi},
+        "avvisi": controlla_avvisi(avvisi),
         "picco": {
             "passato": all(v["passato"] for v in picco_per_caso.values()) if picco_per_caso else False,
             "per_caso": picco_per_caso,

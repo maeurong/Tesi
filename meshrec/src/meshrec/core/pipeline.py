@@ -477,6 +477,12 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
             # Gia' calcolato allo step 11 (abaqus.constraint_plan_extent):
             # risolvi non ha i node_sets per ricalcolarlo, una sola origine.
             vincolo_in_pianta=metrics["11_export"]["constraint_plan_extent"],
+            # `nodes` qui non e' allineato agli assi (export_model allinea
+            # internamente e non restituisce i nodi allineati), mentre i campi
+            # che risolvi legge dal .frd vengono dal deck allineato: la 4x4
+            # dello step 11 e' cio' che permette di scriverli nello stesso
+            # telaio dei punti del .vtu.
+            trasformata=metrics["11_export"]["transform"],
         )
         registra(13, avvio, ARTIFACTS[13] if metrics["13_solve"]["eseguito"] else None)
     except _FermataRichiesta:
