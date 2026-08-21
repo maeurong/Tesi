@@ -652,6 +652,28 @@ def test_la_guardia_del_ruling_j_rifiuta_una_membratura_vuota_dal_percorso_reale
         pipeline.genera_modello(cfg, "estruso", tmp_path / "figlia-vuota")
 
 
+def test_una_corsa_figlia_fallita_non_lascia_una_cartella_orfana(tmp_path):
+    """F1: se `hexa.costruisci` solleva, la cartella figlia non deve restare
+    con dentro il solo `config.yaml` -- /api/compare la includerebbe (e' una
+    directory), non ci troverebbe ne' `modello.json` ne' `12_wall.json`, e la
+    rifiuterebbe con lo stesso errore che oggi si legge alla prima apertura
+    della pagina (vedi `report.confronta`).
+
+    Mutazione che deve morire: in `genera_modello`, richiamare `save_config`
+    prima di `hexa.costruisci` invece che dopo -- la cartella figlia
+    conterrebbe `config.yaml` anche quando la generazione fallisce.
+    """
+    cfg = _config_cubo(tmp_path)
+    esito_prior = _scrivi_prior_telaio(cfg, _TELAIO_A_SEZIONE_UNIFORME)
+    assert esito_prior["membrature"][0]["riempimento"]["stato"] == "vuoto"
+
+    figlia = tmp_path / "figlia-fallita"
+    with pytest.raises(ValueError, match="riempimento di sezione «vuoto»"):
+        pipeline.genera_modello(cfg, "estruso", figlia)
+
+    assert not (figlia / "config.yaml").exists()
+
+
 def test_la_corsa_madre_non_cambia_quando_si_genera_un_modello(tmp_path):
     """La selezione e' un'azione e non un parametro: se toccasse la
     configurazione della madre, rigenerare un modello in piu' cambierebbe

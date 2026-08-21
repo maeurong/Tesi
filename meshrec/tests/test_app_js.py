@@ -2124,7 +2124,7 @@ def test_nessuna_lettura_di_illeggibile_nel_modulo():
 _BANCO_PRIOR_CONFRONTO = """import assert from 'node:assert/strict';
 
 class Elemento {
-  constructor() { this.figli = []; this.testo = ""; this.hidden = false; }
+  constructor() { this.figli = []; this.testo = ""; this.hidden = false; this.dataset = {}; }
   get childElementCount() { return this.figli.length; }
   set textContent(valore) { this.testo = String(valore); }
   get textContent() { return this.testo; }
@@ -2240,7 +2240,10 @@ assert.equal(
 
 
 def _banco_di_caricaConfronto() -> str:
-    return _BANCO_PRIOR_CONFRONTO + _funzioni("caricaConfronto")
+    return _BANCO_PRIOR_CONFRONTO + _funzioni("ragioneDelRifiuto", "caricaConfronto") + """
+document.getElementById("confronto-vuoto").dataset.testoVuoto =
+  "Nessun modello parametrico generato: il confronto e' una scheda singola.";
+"""
 
 
 def test_caricaConfronto_nomina_i_modelli_non_generati(tmp_path):
@@ -2252,15 +2255,56 @@ risponde["/api/compare"] = async () => ({
     volume: { "as-built": 1.5, estruso: 1.4 },
     massa: { "as-built": 12.0, estruso: 11.5 },
     scostamento_nuvola: { "as-built": 0.0 },
+    note_non_geometriche: [],
+    vincoli_giunzioni: {},
+    chiusura_volume: null,
   }),
 });
 await caricaConfronto();
 const tabella = document.getElementById("confronto-tabella");
-assert.equal(tabella.childElementCount, 3);
+assert.equal(tabella.childElementCount, 5, "3 grandezze + note + vincoli; chiusura_volume nullo non aggiunge riga");
 assert.match(tabella.figli[0].textContent, /primitive: non generato/,
   "un modello mancante non e' nominato: la colonna resta un trattino muto");
 assert.doesNotMatch(tabella.figli[0].textContent, /estruso: non generato/,
   "un modello presente e' stato dichiarato non generato");
+""")
+
+
+def test_caricaConfronto_mostra_le_note_e_i_vincoli_alle_giunzioni(tmp_path):
+    """F2 del giro di correzione finale: il pannello rendeva solo volume,
+    massa, scostamento -- niente diceva a chi confronta i modelli che parte
+    dei nodi dipendenti non e' vincolata (`*TIE`), che e' esattamente il
+    limite dichiarato della fase e il quinto vincolo di prodotto. Il dato era
+    gia' nel payload di /api/compare (note_non_geometriche, vincoli_giunzioni,
+    chiusura_volume); mancava solo che il browser lo rendesse.
+
+    Mutazione che deve morire: in `caricaConfronto`, non appendere le righe
+    di note_non_geometriche/vincoli_giunzioni/chiusura_volume alla tabella --
+    le asserzioni sotto non troverebbero i loro contenuti.
+    """
+    _esegui(tmp_path, _banco_di_caricaConfronto() + """
+risponde["/api/compare"] = async () => ({
+  ok: true,
+  json: async () => ({
+    scheda_singola: false,
+    volume: { "as-built": 1.5, estruso: 1.4 },
+    massa: { "as-built": 12.0, estruso: 11.5 },
+    scostamento_nuvola: { "as-built": 0.0, estruso: 0.1 },
+    note_non_geometriche: ["MARCATORE nota statica"],
+    vincoli_giunzioni: {
+      "as-built": "non applicabile",
+      estruso: { giunzioni: 3, ties: 2, nodi_dipendenti_legati: 18, nodi_dipendenti_totali: 24 },
+    },
+    chiusura_volume: { passato: false, scarto_relativo: 0.05 },
+  }),
+});
+await caricaConfronto();
+const tabella = document.getElementById("confronto-tabella");
+const testo = [...tabella.figli].map((el) => el.textContent).join("\\n");
+assert.match(testo, /MARCATORE nota statica/, "note_non_geometriche non arriva a video");
+assert.match(testo, /18\\/24/, "nodi_dipendenti_legati\\/totali di vincoli_giunzioni non arriva a video");
+assert.match(testo, /non applicabile/, "as-built vincoli_giunzioni non e' nominato");
+assert.match(testo, /NON passato/, "chiusura_volume.passato=false non arriva a video");
 """)
 
 
@@ -2272,15 +2316,25 @@ def test_caricaConfronto_non_crolla_prima_che_la_corsa_madre_esista(tmp_path):
     quindi non e' `corpo == null` a fermarlo: senza il controllo su
     `risposta.ok`, `corpo[grandezza]` sotto e' `undefined` e il pannello
     solleva un TypeError fuori da ogni catch, esattamente quello che questo
-    file esiste per impedire sulle altre tratte."""
+    file esiste per impedire sulle altre tratte.
+
+    F1 del giro di correzione finale: lo stesso 400 arriva anche quando una
+    corsa figlia e' fallita a meta' (cartella orfana), e in quel caso il
+    testo statico "nessun modello generato" mente a chi ha appena visto un
+    fallimento. Da qui in poi il pannello mostra `corpo.messaggio`, che il
+    gestore globale del server scrive apposta (`server.py`,
+    `nessuna_eccezione_verso_il_browser`)."""
     _esegui(tmp_path, _banco_di_caricaConfronto() + """
 risponde["/api/compare"] = async () => ({
   ok: false, status: 400,
   json: async () => ({ errore: "ValueError", messaggio: "nessuna corsa madre" }),
+  text: async () => JSON.stringify({ errore: "ValueError", messaggio: "nessuna corsa madre" }),
 });
 await caricaConfronto();
 assert.equal(document.getElementById("confronto-vuoto").hidden, false,
   "prima che la corsa madre esista non c'e' nulla da confrontare");
+assert.equal(document.getElementById("confronto-vuoto").textContent, "nessuna corsa madre",
+  "il messaggio del gestore globale non e' arrivato a video: e' rimasto il testo statico");
 assert.equal(document.getElementById("confronto-tabella").childElementCount, 0);
 """)
 

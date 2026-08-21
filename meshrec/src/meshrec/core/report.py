@@ -653,12 +653,14 @@ def confronta(cartelle: list[Path]) -> dict[str, object]:
         percorso = Path(cartella)
         modello = _legge_json(percorso / "modello.json")
         metriche = _legge_json(percorso / METRICS_FILENAME) or {}
+        wall = None
         if modello is None:
             # Assenza di modello.json non basta: e' un segnale negativo, e una
             # cartella vuota (percorso sbagliato, o corsa parametrica fallita a
             # meta') lo soddisfa allo stesso modo della vera corsa madre. Il
             # segno positivo della corsa madre e' 12_wall.json leggibile.
-            if _legge_json(percorso / WALL_FILENAME) is None:
+            wall = _legge_json(percorso / WALL_FILENAME)
+            if wall is None:
                 raise ValueError(
                     f"{percorso} non e' una corsa valida: ne' modello.json ne' "
                     f"{WALL_FILENAME} si leggono, e senza uno dei due non e' ne' "
@@ -672,7 +674,7 @@ def confronta(cartelle: list[Path]) -> dict[str, object]:
                 f"due cartelle dichiarano lo stesso modello '{chiave}': "
                 f"{presenti[chiave]['cartella']} e {percorso}"
             )
-        presenti[chiave] = {"cartella": percorso, "metriche": metriche, "modello": modello}
+        presenti[chiave] = {"cartella": percorso, "metriche": metriche, "modello": modello, "wall": wall}
 
     mancanti = [nome for nome in MODELLI if nome not in presenti]
 
@@ -683,8 +685,11 @@ def confronta(cartelle: list[Path]) -> dict[str, object]:
     qualita: dict[str, dict] = {}
     vincoli: dict[str, object] = {}
     nota_giunzioni: str | None = None
+    chiusura_volume: dict | None = None
     for nome, voce in presenti.items():
         if voce["modello"] is None:
+            if voce["wall"] is not None:
+                chiusura_volume = voce["wall"].get("chiusura_volume")
             export = voce["metriche"].get("11_export", {})
             volumi = voce["metriche"].get("10_volume_quality", {})
             volume[nome] = export.get("volume")
@@ -730,6 +735,7 @@ def confronta(cartelle: list[Path]) -> dict[str, object]:
         "gradi_di_liberta": gradi,
         "qualita": qualita,
         "vincoli_giunzioni": vincoli,
+        "chiusura_volume": chiusura_volume,
         "note_non_geometriche": note,
     }
 

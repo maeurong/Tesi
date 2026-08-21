@@ -1217,6 +1217,26 @@ def test_la_nota_delle_giunzioni_letta_da_un_json_esterno_si_scrive_con_l_escape
     assert "&lt;b&gt;critico&lt;/b&gt;" in testo
 
 
+def test_confronta_espone_la_chiusura_volume_del_prior(tmp_path):
+    """F2 del giro di correzione finale: chiusura_volume e' il controllo che
+    wall.py dichiara vedere "un errore che nessuna metrica di qualita' della
+    mesh vedrebbe" (somma dei volumi delle membrature contro il volume della
+    loro unione, alle giunzioni). Oggi non compariva fuori da 12_wall.json:
+    ne' nel confronto ne' nel pannello del browser. `confronta` la legge
+    dalla corsa madre e la espone, cosi' l'interfaccia puo' mostrarla.
+
+    Mutazione che deve morire: in `confronta`, non leggere `chiusura_volume`
+    dal wall.json della madre -- la chiave sparirebbe dal payload e questa
+    asserzione fallirebbe.
+    """
+    cartelle = _tre_cartelle_finte(tmp_path)
+
+    confronto = report.confronta(cartelle)
+
+    assert confronto["chiusura_volume"]["passato"] is True
+    assert confronto["chiusura_volume"]["scarto_relativo"] == 0.0
+
+
 def test_i_gradi_di_liberta_dichiarati_confrontabili_compaiono_nella_tabella(tmp_path):
     """CONFRONTABILI['gradi_di_liberta'] e' True: se la tabella 'grandezze
     confrontabili' non mostra la riga, la dichiarazione e la pagina sono in

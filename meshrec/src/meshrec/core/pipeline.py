@@ -169,12 +169,18 @@ def genera_modello(cfg: PipelineConfig, tipo: str, out_dir: Path) -> dict[str, o
     membrature = _ricostruisci_membrature(prior)
 
     out = Path(out_dir)
-    out.mkdir(parents=True, exist_ok=True)
-    save_config(cfg, out / "config.yaml")
 
+    # save_config solo dopo costruisci: se la generazione fallisce (sulla
+    # nuvola vera fallisce, perche' il prior non accetta membrature), la
+    # cartella figlia non deve nascere con dentro il solo config.yaml --
+    # /api/compare la troverebbe (e' una directory) e la rifiuterebbe senza
+    # ne' modello ne' corsa madre da leggere (vedi report.confronta).
     modello = hexa.costruisci(membrature, tipo, cfg.model)
     nodi = modello["nodi"]
     elementi = modello["elementi"]
+
+    out.mkdir(parents=True, exist_ok=True)
+    save_config(cfg, out / "config.yaml")
 
     carico = None
     if cfg.model.lateral_nset is not None and cfg.model.lateral_pressure is not None:

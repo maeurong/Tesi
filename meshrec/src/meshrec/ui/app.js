@@ -503,19 +503,25 @@ async function caricaConfronto(ordine = generazione) {
   const risposta = await fetch("/api/compare");
   if (superata(ordine)) return;
   if (!risposta.ok) {
-    // Prima che la corsa madre esista (ne' 12_wall.json ne' modello.json in
-    // nessuna cartella) /api/compare rifiuta: e' lo stato normale alla prima
-    // apertura della pagina, non un guasto da annunciare nella riga d'errore.
-    // Verificato nel browser: senza questo ramo `corpo[grandezza]` sotto e'
-    // undefined e il pannello del confronto solleva fuori da ogni catch.
-    document.getElementById("confronto-vuoto").hidden = false;
+    // /api/compare rifiuta sia alla prima apertura (ne' 12_wall.json ne'
+    // modello.json in nessuna cartella) sia quando una corsa figlia e'
+    // fallita a meta' (cartella orfana, ne' modello ne' corsa madre). I due
+    // casi non sono lo stesso stato: il messaggio del gestore globale li
+    // distingue gia', quindi lo si legge invece di mostrare sempre lo stesso
+    // testo statico. Verificato nel browser: senza questo ramo `corpo[grandezza]`
+    // sotto e' undefined e il pannello del confronto solleva fuori da ogni catch.
+    const vuoto = document.getElementById("confronto-vuoto");
+    vuoto.textContent = await ragioneDelRifiuto(risposta);
+    vuoto.hidden = false;
     document.getElementById("confronto-tabella").replaceChildren();
     return;
   }
   const corpo = await corpoLetto(risposta);
   if (superata(ordine) || corpo == null) return;
 
-  document.getElementById("confronto-vuoto").hidden = !corpo.scheda_singola;
+  const vuoto = document.getElementById("confronto-vuoto");
+  vuoto.textContent = vuoto.dataset.testoVuoto;
+  vuoto.hidden = !corpo.scheda_singola;
   const tabella = document.getElementById("confronto-tabella");
   tabella.replaceChildren();
   for (const grandezza of ["volume", "massa", "scostamento_nuvola"]) {
@@ -527,6 +533,32 @@ async function caricaConfronto(ordine = generazione) {
     );
     riga.textContent = `${grandezza} — ${celle.join(" · ")}`;
     tabella.append(riga);
+  }
+
+  // Il limite dichiarato della fase (F2): parte dei nodi dipendenti non e'
+  // vincolata, quindi una differenza di cedevolezza fra i modelli puo' venire
+  // dal *TIE e non dalla forma. Il report HTML lo dice gia' (write_comparison_report);
+  // qui e' lo stesso dato, gia' nel payload, solo mai reso finora.
+  const note = document.createElement("p");
+  note.textContent = `note — ${corpo.note_non_geometriche.join(" ")}`;
+  tabella.append(note);
+
+  const vincoliRiga = document.createElement("p");
+  const celleVincoli = ["as-built", "estruso", "primitive"].map((nome) => {
+    if (!(nome in corpo.vincoli_giunzioni)) return `${nome}: non generato`;
+    const v = corpo.vincoli_giunzioni[nome];
+    return v === "non applicabile"
+      ? `${nome}: non applicabile`
+      : `${nome}: ${v.nodi_dipendenti_legati}/${v.nodi_dipendenti_totali} nodi dipendenti legati`;
+  });
+  vincoliRiga.textContent = `vincoli alle giunzioni — ${celleVincoli.join(" · ")}`;
+  tabella.append(vincoliRiga);
+
+  if (corpo.chiusura_volume) {
+    const chiusura = document.createElement("p");
+    chiusura.textContent =
+      `chiusura del volume alle giunzioni — ${corpo.chiusura_volume.passato ? "passato" : "NON passato"}`;
+    tabella.append(chiusura);
   }
 }
 
