@@ -2567,7 +2567,7 @@ def test_la_scala_del_campo_si_taglia_al_p99_e_non_al_massimo(tmp_path):
     """Un nodo non decide la scala di tutti gli altri.
 
     Misurato il 22/08/2026 su runs/lab_telaio_v2 sotto peso proprio: il rapporto
-    fra il massimo della von Mises e il suo p99 vale 2,18. Una scala lineare
+    fra il massimo della von Mises e il suo p99 vale 2,16. Una scala lineare
     fino al massimo schiaccia in fondo i 10.968 nodi del contorno perche' uno
     solo sta in cima — non quattordicimila: 14.103 sono i nodi dell'intero
     volume, e alla scala colore non arrivano mai. Chi supera il taglio prende un

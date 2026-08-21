@@ -4,8 +4,8 @@ import * as THREE from "/ui/vendor/three.module.js";
 // Il taglio della scala colore di un campo per nodo: al p99, non al massimo.
 // Il maglio dell'as-built ha una singolarita' di geometria che tiene il
 // massimo su un solo nodo, non su un plateau: misurato il 22/08/2026 sui tre
-// casi di runs/lab_telaio_v2, max/p99 vale 2,18 (GRAVITA) / 2,50
-// (SPINTA_ORIZZONTALE) / 2,48 (CARICO_TOP) e il picco resta sempre lo stesso
+// casi di runs/lab_telaio_v2, max/p99 vale 2,16 (GRAVITA) / 2,54
+// (SPINTA_ORIZZONTALE) / 2,50 (CARICO_TOP) e il picco resta sempre lo stesso
 // nodo, il 7132 del contorno. Una scala tirata su quel massimo
 // schiaccerebbe tutto il resto del pezzo in un solo colore, mostrando
 // l'artefatto come se fosse il risultato. Pura e fuori da mostraMeshPerCampo
@@ -66,8 +66,8 @@ export function numeroDelCampo(valore, formato = { maximumSignificantDigits: 4 }
 // Una frase sola, e non due paragrafi: il taglio della scala e il massimo
 // erano su due righe separate a mezzo schermo di distanza dalla vista, e
 // l'occhio mappava la macchia piu' scura sul massimo. Sotto peso proprio quel
-// massimo vale 0,5056 MPa contro un taglio di 0,2321 (misurato il 22/08/2026
-// su runs/lab_telaio_v2): una sovrastima di 2,18 volte, e proprio sul
+// massimo vale 0,5056 MPa contro un taglio di 0,2336 (misurato il 22/08/2026
+// su runs/lab_telaio_v2): una sovrastima di 2,16 volte, e proprio sul
 // nodo-scheggia che il documento spende una sezione a rinnegare. Accostati
 // nella stessa frase, e col massimo marcato quando sta oltre il taglio, i due
 // numeri si leggono per quello che sono.
@@ -324,8 +324,8 @@ export function creaViewport(contenitore) {
     },
     // Il campo per nodo (spostamento o tensione equivalente) sopra la
     // superficie di contorno. La scala si taglia al p99 e non al massimo: su
-    // un campo di tensione il rapporto fra i due vale 2,18 sotto peso proprio
-    // e arriva a 2,50 sotto spinta orizzontale (misurato il 22/08/2026 su
+    // un campo di tensione il rapporto fra i due vale 2,16 sotto peso proprio
+    // e arriva a 2,54 sotto spinta orizzontale (misurato il 22/08/2026 su
     // runs/lab_telaio_v2), e una scala fino al massimo schiaccerebbe in fondo
     // i 10.968 nodi del contorno perche' uno solo sta in cima. Non
     // quattordicimila: 14.103 sono i nodi dell'intero volume, e qui arrivano
