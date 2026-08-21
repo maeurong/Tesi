@@ -487,19 +487,6 @@ def test_un_autovalore_vicino_a_zero_e_un_meccanismo():
     assert not solve.controlla_autovalori([])["passato"]
 
 
-def test_controlla_autovalori_con_una_frequenza_infinita_non_passa():
-    """Bug reale trovato nella revisione (Task 7, terzo giro), applicando la
-    stessa domanda posta a `controlla_picco` agli altri controlli: prima del
-    fix, `inf` come prima frequenza passava (`inf > 0.0` e' vero, e
-    `inf / seconda >= soglia_relativa` pure, essendo `inf` maggiore di
-    qualunque soglia finita). La regola generale (ingressi non finiti ->
-    `passato` sempre `False`) chiude anche questo caso, non solo quello di
-    `controlla_picco` dove il revisore l'ha trovato.
-    """
-    assert not solve.controlla_autovalori([float("inf"), 21.19])["passato"]
-    assert not solve.controlla_autovalori([float("inf")])["passato"]
-
-
 def test_il_picco_di_tensione_dentro_la_banda_di_vincolo_e_un_artefatto():
     """Il numero piu' citabile e' il piu' facile da fraintendere.
 
@@ -540,19 +527,6 @@ def test_controlla_reazioni_rifiuta_peso_atteso_nullo():
     assert esito["passato"] is False
 
 
-def test_controlla_reazioni_con_reazione_nan_non_passa():
-    """Verifica (Task 7, terzo giro, stessa domanda posta a tutti i
-    controlli): qui non serve una guardia in piu'. Un NaN in `reazioni`
-    propaga in `scarto` (via `norm`), e `scarto <= tolleranza` e' gia' falso
-    per costruzione con `scarto` NaN -- a differenza di `controlla_picco`,
-    il verdetto finale e' un confronto di grandezza, non una combinazione
-    booleana che un confronto-con-NaN puo' mascherare da esito buono.
-    """
-    reazioni = {1: (0.0, 0.0, float("nan")), 2: (0.0, 0.0, 500.0)}
-    esito = solve.controlla_reazioni(reazioni, peso_atteso=(0.0, 0.0, 1000.0), tolleranza=0.02)
-    assert esito["passato"] is False
-
-
 def test_controlla_picco_su_tensioni_tutte_zero_non_produce_nan():
     """p99 nullo: il rapporto max/p99 non si calcola (0/0), si dichiara
     indefinito -- mai un nan silenzioso nel dizionario."""
@@ -573,44 +547,21 @@ def test_controlla_picco_su_un_solo_nodo_non_solleva():
     assert esito["rapporto_max_p99"] == pytest.approx(1.0)
 
 
-def test_controlla_picco_con_nan_a_monte_non_passa():
-    """Rilievo Important della revisione (Task 7, terzo giro): il Minor M3
-    del giro precedente guardava solo `np.isnan(p99)` per proteggere
-    `rapporto_max_p99`, e sembrava chiudere il buco -- ma non toccava
-    `passato`. Con `p99` NaN, `sopra_p99 = v >= p99` da' tutto `False` (ogni
-    confronto con NaN e' falso), `frazione_in_banda` esce 0.0, e il verdetto
-    diceva "va bene" esattamente sul dato corrotto (dimostrato dal
-    revisore: `{'passato': True, 'max': nan, ...}`). La regola giusta e'
-    generale: ingressi non finiti -> `passato` sempre `False`. Il valore
-    resta comunque riportato (si marca, non si nasconde).
+def test_controlla_picco_con_nan_a_monte_riporta_il_valore_invece_di_nasconderlo():
+    """Il cancello di finitezza (sotto, enumerato) forza `passato: False` su
+    un NaN a monte in `valori`, ma non nasconde il dato: `max`/`p99` restano
+    NaN nel dizionario -- si marca, non si nasconde, come per il resto della
+    fase. Questo test copre solo la trasparenza; il verdetto e' verificato
+    dall'enumerazione sotto.
     """
     valori = np.array([1.0, np.nan, 3.0, 4.0])
     quote = np.array([0.0, 10.0, 20.0, 30.0])
 
     esito = solve.controlla_picco(valori, quote, banda=100.0)
 
-    assert esito["passato"] is False
     assert esito["rapporto_max_p99"] is None
     assert math.isnan(esito["max"])
 
-
-def test_controlla_picco_con_banda_nan_su_valori_sani_non_passa():
-    """Giro di correzione 4: `banda` raggiunge un confronto (`q <= q.min() +
-    banda`) tanto quanto `valori`/`quote`, e non era nel cancello di
-    finitezza -- il revisore l'ha trovato con valori e quote perfettamente
-    sani: `banda` NaN da' `in_banda` tutto `False` (stesso schema del giro
-    3), `frazione_in_banda` esce 0.0, il verdetto passa. E' un percorso
-    reale: `banda_vincolo` in `risolvi()` e' una frazione dell'altezza di
-    *tutti* i nodi del modello, non del sottoinsieme (`quote`) del caso di
-    carico corrente -- un nodo NaN altrove nel modello corrompe `banda`
-    senza toccare `valori`/`quote` di questo caso.
-    """
-    valori = np.array([1.0, 2.0, 3.0, 4.0])
-    quote = np.array([0.0, 10.0, 20.0, 30.0])
-
-    esito = solve.controlla_picco(valori, quote, banda=float("nan"))
-
-    assert esito["passato"] is False
 
 
 
@@ -720,3 +671,71 @@ def test_somma_reazioni_su_un_tetraedro_piu_la_quota_tributaria_eguaglia_il_peso
     quota_tributaria_massa = solve._quota_tributaria_gravita(nodes, tets, reazioni, densita)
 
     assert somma_z + quota_tributaria_massa * gravita == pytest.approx(peso_atteso_z, rel=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# Giro di correzione 5: enumerazione esplicita del cancello di finitezza,
+# non un elenco tenuto a mente. Tre giri di seguito abbiamo chiuso un caso
+# alla volta -- rapporto_max_p99, poi passato, poi banda -- perche' ogni
+# volta l'elenco dei parametri che raggiungono un confronto lo compilava
+# una persona ragionando. Ragionare su NaN aveva nascosto ±inf: due
+# combinazioni passavano ancora (`controlla_reazioni(..., tolleranza=inf)`,
+# `controlla_autovalori(..., soglia_relativa=-inf)`) perche' "NaN in un
+# confronto e' sempre falso" e' vero solo per NaN, non per un infinito con
+# segno dalla parte permissiva del confronto. Questa tabella e' l'elenco:
+# chi aggiunge un sesto controllo lo aggiunge qui, non lo tiene a mente.
+# ---------------------------------------------------------------------------
+
+_PICCO_VALORI_SANI = np.array([1.0, 2.0, 3.0, 4.0])
+_PICCO_QUOTE_SANE = np.array([0.0, 10.0, 20.0, 30.0])
+_REAZIONI_SANE = {1: (0.0, 0.0, 500.0), 2: (0.0, 0.0, 500.0)}
+_PESO_ATTESO_SANO = (0.0, 0.0, 1000.0)
+
+# (nome, costruttore che inietta il valore anomalo in un ingresso, valore
+# sano nello stesso slot -- deve restare `passato: True`).
+_INGRESSI_CHE_RAGGIUNGONO_UN_CONFRONTO = [
+    ("picco/valori", lambda b: solve.controlla_picco(
+        np.array([1.0, b, 3.0, 4.0]), _PICCO_QUOTE_SANE, banda=5.0), 2.0),
+    ("picco/quote", lambda b: solve.controlla_picco(
+        _PICCO_VALORI_SANI, np.array([0.0, b, 20.0, 30.0]), banda=5.0), 10.0),
+    ("picco/banda", lambda b: solve.controlla_picco(
+        _PICCO_VALORI_SANI, _PICCO_QUOTE_SANE, banda=b), 5.0),
+    ("autovalori/prima_frequenza", lambda b: solve.controlla_autovalori(
+        [b, 21.19]), 25.0),
+    ("autovalori/soglia_relativa", lambda b: solve.controlla_autovalori(
+        [21.19, 34.3], soglia_relativa=b), 0.2),
+    ("reazioni/reazione", lambda b: solve.controlla_reazioni(
+        {1: (0.0, 0.0, b), 2: (0.0, 0.0, 500.0)}, _PESO_ATTESO_SANO, tolleranza=0.02), 500.0),
+    ("reazioni/peso_atteso", lambda b: solve.controlla_reazioni(
+        _REAZIONI_SANE, (0.0, 0.0, b), tolleranza=0.02), 1000.0),
+    ("reazioni/tolleranza", lambda b: solve.controlla_reazioni(
+        _REAZIONI_SANE, _PESO_ATTESO_SANO, tolleranza=b), 0.02),
+]
+
+
+@pytest.mark.parametrize(
+    "nome,costruisci,_sano", _INGRESSI_CHE_RAGGIUNGONO_UN_CONFRONTO,
+    ids=[nome for nome, _, _sano in _INGRESSI_CHE_RAGGIUNGONO_UN_CONFRONTO],
+)
+@pytest.mark.parametrize("anomalo", [float("nan"), float("inf"), float("-inf")], ids=["nan", "+inf", "-inf"])
+def test_ogni_ingresso_che_raggiunge_un_confronto_fallisce_chiuso(nome, costruisci, _sano, anomalo):
+    """24 combinazioni (8 ingressi x 3 valori anomali): tutte `passato: False`.
+
+    Prima di questo giro ne passavano due: `tolleranza=inf` in
+    `controlla_reazioni` (`scarto <= inf` e' vero per qualunque scarto
+    finito) e `soglia_relativa=-inf` in `controlla_autovalori` (nessuna
+    frequenza supera mai una soglia `-inf`). Entrambi erano stati
+    "verificati" nel giro precedente ragionando solo sul caso NaN.
+    """
+    assert costruisci(anomalo)["passato"] is False
+
+
+@pytest.mark.parametrize(
+    "nome,costruisci,sano", _INGRESSI_CHE_RAGGIUNGONO_UN_CONFRONTO,
+    ids=[nome for nome, _, _sano in _INGRESSI_CHE_RAGGIUNGONO_UN_CONFRONTO],
+)
+def test_lo_stesso_ingresso_con_un_valore_sano_passa(nome, costruisci, sano):
+    """Controprova della tabella sopra: un valore finito e coerente nello
+    stesso slot deve restare `passato: True` -- altrimenti la guardia di
+    finitezza sarebbe troppo larga, non solo troppo stretta."""
+    assert costruisci(sano)["passato"] is True

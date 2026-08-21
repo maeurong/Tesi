@@ -217,18 +217,24 @@ def leggi_reazioni(
     return reazioni
 
 
-# Regola, dopo tre giri di revisione sulla stessa classe di difetto (Task 7):
-# ogni ingresso che raggiunge un confronto (<, <=, >, >=, o un valore derivato
-# da uno di questi) entra nel "cancello di finitezza" della funzione, non solo
-# gli array o il parametro "principale". Un NaN in un confronto e' sempre
-# falso: se il verdetto e' una combinazione booleana (AND/OR) il NaN puo'
-# nascondersi dietro un False che sembra "in regola" (controlla_picco, prima
-# di questo giro: p99 NaN -> sopra_p99 tutto False -> frazione 0.0 -> passa,
-# poi banda NaN sullo stesso schema); se il verdetto e' un unico confronto di
-# grandezza (controlla_reazioni: scarto <= tolleranza) il NaN cade dalla
-# parte giusta da solo. Per ogni nuovo controllo: elencare i parametri che
-# raggiungono un confronto e verificare, per ciascuno, se la sua non
-# finitezza fa passare il verdetto -- non fidarsi della forma del codice.
+# Regola, dopo cinque giri di revisione sulla stessa classe di difetto
+# (Task 7): ogni ingresso che raggiunge un confronto (<, <=, >, >=, o un
+# valore derivato da uno di questi) entra nel "cancello di finitezza" della
+# funzione -- non solo gli array, non solo il parametro "principale", anche
+# gli scalari come una tolleranza o una soglia. La regola era gia' giusta
+# cosi' formulata; l'errore nei giri precedenti e' stato applicarla a mente
+# invece che enumerando: controlla_picco (p99 NaN -> sopra_p99 tutto False
+# -> frazione 0.0 -> passa; poi lo stesso schema su banda) e' un verdetto a
+# combinazione booleana (AND/OR), dove un NaN puo' nascondersi dietro un
+# False che sembra "in regola". controlla_reazioni/controlla_autovalori
+# sono un confronto di grandezza (scarto <= tolleranza, rapporto >=
+# soglia_relativa): un NaN li' cade dalla parte giusta da solo, ma un
+# infinito con segno dalla parte permissiva del confronto no
+# (tolleranza=+inf, soglia_relativa=-inf) -- ragionare solo sul caso NaN lo
+# aveva nascosto. L'elenco completo dei parametri e dei tre valori anomali
+# (nan, +inf, -inf) vive in `tests/test_solve.py`, tabella
+# `_INGRESSI_CHE_RAGGIUNGONO_UN_CONFRONTO`: chi aggiunge un sesto controllo
+# lo aggiunge li', non lo tiene a mente.
 def controlla_reazioni(
     reazioni: dict[int, tuple[float, float, float]],
     peso_atteso: tuple[float, float, float],
@@ -270,7 +276,7 @@ def controlla_reazioni(
     somma = np.sum(np.array(list(reazioni.values()), dtype=np.float64), axis=0)
     scarto = float(np.linalg.norm(somma - peso) / norma_attesa)
     return {
-        "passato": scarto <= tolleranza,
+        "passato": bool(np.isfinite(tolleranza)) and scarto <= tolleranza,
         "somma": tuple(float(v) for v in somma),
         "peso_atteso": tuple(float(v) for v in peso_atteso),
         "scarto_relativo": scarto,
@@ -304,7 +310,7 @@ def controlla_autovalori(frequenze_hz: list[float], soglia_relativa: float = 0.2
     """
     if not frequenze_hz:
         return {"passato": False, "prima_frequenza_hz": None}
-    finito = bool(np.isfinite(frequenze_hz).all())
+    finito = bool(np.isfinite(frequenze_hz).all()) and bool(np.isfinite(soglia_relativa))
     prima = float(frequenze_hz[0])
     if len(frequenze_hz) == 1:
         return {"passato": finito and prima > 0.0, "prima_frequenza_hz": prima}
