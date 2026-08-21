@@ -2495,44 +2495,160 @@ for (let i = 0; i < 1000; i += 1) valori[i] = 1.0;
 valori[999] = 50.0;                       // il nodo isolato in cima
 const { taglio, sopraTaglio } = scalaDelCampo(valori);
 assert.ok(taglio < 2.0, `il taglio ha seguito il massimo: ${taglio}`);
-assert.equal(sopraTaglio, 10);            // l'1% di mille
+// Uno solo supera davvero il taglio: gli altri 999 sono legati a 1,0, cioe'
+// al taglio stesso. Il rango direbbe 10 (l'1% di mille) e mentirebbe.
+assert.equal(sopraTaglio, 1);
 console.log("ok");
 """)
     assert uscita.strip() == "ok"
 
 
-def test_il_fattore_di_amplificazione_viene_dal_dato_e_non_da_un_gusto(tmp_path):
-    """0,0367 mm su un telaio di 2,5 m non si vede a 1:1.
+def test_i_nodi_sopra_il_taglio_si_contano_per_valore_e_non_per_rango(tmp_path):
+    """Giro 1: `n - 1 - indice` e' una quota fissa, non un conteggio.
 
-    Qualunque amplificazione fa sembrare vera una deformazione inventata, quindi
-    il fattore non si sceglie perche' "viene bene": e' quello per cui lo
-    spostamento massimo vale il 2% della diagonale, e si scrive sempre accanto
-    alla vista insieme allo spostamento vero in millimetri.
+    Su un campo costante e su un campo tutto a zero nessun nodo supera il
+    taglio, eppure la legenda (e l'aria-label che porta lo stesso testo)
+    dichiarava cinque nodi sopra una soglia che nessuno supera. Sotto, la
+    definizione e' quella che il server usa gia' quando conta
+    (`np.count_nonzero(valori > p99)`): `valori > taglio`, contati.
     """
     uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
-        + _funzioni_viewport("fattoreAmplificazione") + """
-const fattore = fattoreAmplificazione(0.0367, 4000.0);
-assert.ok(Math.abs(fattore * 0.0367 - 0.02 * 4000.0) < 1e-6, `${fattore}`);
+        + _funzioni_viewport("scalaDelCampo") + """
+const casi = [
+  ["costante", new Float32Array(500).fill(3.5), 0],
+  ["zeri", new Float32Array(500), 0],
+  ["cinque picchi", Float32Array.from({ length: 500 }, (_v, i) => (i < 495 ? 1 : 50)), 5],
+];
+for (const [nome, valori, atteso] of casi) {
+  const { sopraTaglio } = scalaDelCampo(valori);
+  assert.equal(sopraTaglio, atteso, `${nome}: ${sopraTaglio} invece di ${atteso}`);
+}
 console.log("ok");
 """)
     assert uscita.strip() == "ok"
 
 
-def test_la_didascalia_di_una_forma_modale_non_porta_millimetri():
+def test_la_didascalia_di_una_forma_modale_non_porta_millimetri(tmp_path):
     """Da un passo *FREQUENCY non escono ne' mm ne' MPa.
 
     Nel viewport e' piu' facile cadere che altrove, perche' la vista di una
     forma modale e' identica a quella di un caso di carico vero.
+
+    Giro 1: prima questo controllo cercava due sottostringhe nel sorgente della
+    funzione — l'anti-pattern che il docstring di questo file dichiara bandito.
+    Con la coda `, 0.0367 mm` appesa al ramo modale restava verde. Ora la
+    funzione viene eseguita e il controllo guarda il testo che esce.
     """
-    sorgente = _modulo_viewport()
-    didascalia = _sorgente_di("didascaliaDelCampo", sorgente)
-    assert "ampiezza arbitraria" in didascalia
-    assert "modale" in didascalia, "la didascalia non distingue una forma da un caso"
+    uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
+        + _funzioni_viewport("numeroDelCampo", "didascaliaDelCampo") + """
+const testo = didascaliaDelCampo({ caso: "MODO_1", modale: true, frequenza: 12.34 });
+assert.ok(!/\\b(mm|MPa)\\b/.test(testo), `una forma modale non ha unita' fisiche: ${testo}`);
+assert.ok(testo.includes("ampiezza arbitraria"), testo);
+assert.ok(testo.includes("12,34"), testo);
+console.log("ok");
+""")
+    assert uscita.strip() == "ok"
+
+
+def test_la_didascalia_dello_spostamento_non_promette_un_amplificazione(tmp_path):
+    """Giro 1, C0: la didascalia dichiarava «amplificato ×1779 nella vista»
+    sopra un pezzo che non si muove di un pixel — il fattore non arrivava mai
+    al viewport, e non e' nemmeno derivabile da un campo di magnitudini
+    scalari, che non porta direzioni. Un numero falso proiettato in sede di
+    discussione: la didascalia dice solo cio' che la vista fa davvero.
+    """
+    uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
+        + _funzioni_viewport("numeroDelCampo", "didascaliaDelCampo") + """
+const testo = didascaliaDelCampo({ caso: "GRAVITA", grandezza: "U", massimo: 0.0367 });
+assert.ok(!/amplific/i.test(testo), `la vista non deforma nulla: ${testo}`);
+assert.ok(testo.includes("0,0367"), testo);
+assert.ok(testo.includes("mm"), testo);
+console.log("ok");
+""")
+    assert uscita.strip() == "ok"
 
 
 # --------------------------------------------------------------------------
-# Ingressi degeneri della scala e del fattore.
+# Ingressi degeneri della scala e dei testi.
+#
+# Giro 1: la tabella, non un elenco tenuto a mente. Questa fase ha gia' pagato
+# sei giri sulla stessa classe di guasto in `solve.py` — un valore non finito
+# che attraversa un controllo — chiusa quattro volte un caso alla volta prima
+# che qualcuno enumerasse. Qui l'elenco e' esplicito: chi aggiunge un sesto
+# testo a video lo aggiunge in questa tabella, non lo tiene a mente.
+# `undefined` sta fra i valori anomali perche' e' cio' che arriva davvero da
+# un'intestazione assente o da un modo oltre quelli calcolati.
 # --------------------------------------------------------------------------
+
+
+_TESTI_CHE_FINISCONO_A_VIDEO = [
+    ("didascalia/massimo/U",
+     'didascaliaDelCampo({ caso: "GRAVITA", grandezza: "U", massimo: VALORE })', "0.0367"),
+    ("didascalia/massimo/VM",
+     'didascaliaDelCampo({ caso: "GRAVITA", grandezza: "VM", massimo: VALORE })', "6279.5"),
+    ("didascalia/frequenza",
+     'didascaliaDelCampo({ caso: "MODO_1", modale: true, frequenza: VALORE })', "12.34"),
+    ("legenda/taglio", 'testoLegendaDelCampo(VALORE, 7, "mm")', "0.0367"),
+    ("legenda/sopraTaglio", 'testoLegendaDelCampo(1.5, VALORE, "mm")', "7"),
+]
+
+def _banco_dei_testi() -> str:
+    return (
+        "import assert from 'node:assert/strict';\n"
+        + _funzioni_viewport("numeroDelCampo", "didascaliaDelCampo")
+        + "\n"
+        + _funzioni("testoLegendaDelCampo")
+        + "\n"
+    )
+
+
+@pytest.mark.parametrize(
+    "nome,espressione,_sano", _TESTI_CHE_FINISCONO_A_VIDEO,
+    ids=[nome for nome, _e, _s in _TESTI_CHE_FINISCONO_A_VIDEO],
+)
+@pytest.mark.parametrize(
+    "anomalo", ["NaN", "Infinity", "-Infinity", "undefined"],
+    ids=["nan", "+inf", "-inf", "assente"],
+)
+def test_ogni_numero_che_finisce_a_video_dichiara_invece_di_scrivere_nan(
+    tmp_path, nome, espressione, _sano, anomalo,
+):
+    """20 combinazioni (5 numeri a video x 4 valori che non si possono scrivere).
+
+    L'oracolo e' lo stesso per tutte: un testo non vuoto, e dentro nessun
+    "NaN", "Infinity", "undefined", "null" o "∞" -- l'ultimo perche'
+    `(Infinity).toLocaleString("it")` non scrive "Infinity", scrive "∞"
+    (misurato in node): un oracolo che cercasse solo la parola lascerebbe
+    passare meta' dei valori anomali della tabella. Prima di questo giro ne
+    sopravvivevano otto: `massimo` non era guardato affatto (a video usciva
+    «massimo reale NaN mm» e «massimo Infinity MPa», riprodotto eseguendo), e
+    `sopraTaglio` nemmeno — il commento diceva che esce sempre finito da
+    `scalaDelCampo`, che e' vero per quel chiamante e non per la funzione.
+    """
+    uscita = _esegui(tmp_path, _banco_dei_testi() + f"""
+const testo = {espressione.replace("VALORE", anomalo)};
+assert.ok(typeof testo === "string" && testo.length > 0, `testo vuoto o non stringa: ${{testo}}`);
+assert.ok(!/NaN|Infinity|∞|undefined|null/.test(testo), testo);
+console.log("ok");
+""")
+    assert uscita.strip() == "ok"
+
+
+@pytest.mark.parametrize(
+    "nome,espressione,sano", _TESTI_CHE_FINISCONO_A_VIDEO,
+    ids=[nome for nome, _e, _s in _TESTI_CHE_FINISCONO_A_VIDEO],
+)
+def test_lo_stesso_numero_con_un_valore_scrivibile_si_legge(tmp_path, nome, espressione, sano):
+    """Controprova della tabella sopra: un valore finito nello stesso posto
+    deve arrivare a video davvero, altrimenti la guardia sarebbe cosi' larga da
+    dichiarare "non disponibile" anche cio' che si puo' scrivere."""
+    uscita = _esegui(tmp_path, _banco_dei_testi() + f"""
+const testo = {espressione.replace("VALORE", sano)};
+assert.ok(/\\d/.test(testo), `nessun numero nel testo: ${{testo}}`);
+assert.ok(!/NaN|Infinity|∞|undefined|null|non disponibile/.test(testo), testo);
+console.log("ok");
+""")
+    assert uscita.strip() == "ok"
 
 
 def test_la_scala_del_campo_su_un_campo_costante_non_degenera(tmp_path):
@@ -2544,7 +2660,7 @@ const costante = new Float32Array(500).fill(3.5);
 const { taglio, sopraTaglio } = scalaDelCampo(costante);
 assert.ok(Number.isFinite(taglio), `il taglio non e' finito su un campo costante: ${taglio}`);
 assert.equal(taglio, 3.5);
-assert.ok(Number.isFinite(sopraTaglio));
+assert.equal(sopraTaglio, 0, "nessun nodo supera un taglio pari al valore di tutti");
 console.log("ok");
 """)
     assert uscita.strip() == "ok"
@@ -2552,13 +2668,34 @@ console.log("ok");
 
 def test_la_scala_del_campo_su_tutti_zero_non_e_una_barra_vuota(tmp_path):
     """Tutti i valori a zero: la scala resta un numero leggibile (0), non NaN
-    ne' un buco silenzioso nella legenda."""
+    ne' un buco silenzioso nella legenda, e nessun nodo e' sopra il taglio."""
     uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
-        + _funzioni_viewport("scalaDelCampo") + """
+        + _funzioni_viewport("scalaDelCampo") + _funzioni_viewport("numeroDelCampo")
+        + _funzioni("testoLegendaDelCampo") + """
 const zeri = new Float32Array(500);
 const { taglio, sopraTaglio } = scalaDelCampo(zeri);
 assert.equal(taglio, 0);
-assert.ok(Number.isFinite(sopraTaglio));
+assert.equal(sopraTaglio, 0);
+const legenda = testoLegendaDelCampo(taglio, sopraTaglio, "mm");
+assert.ok(!/NaN|Infinity|∞/.test(legenda), legenda);
+assert.ok(legenda.includes("0"), legenda);
+console.log("ok");
+""")
+    assert uscita.strip() == "ok"
+
+
+def test_la_scala_del_campo_su_un_campo_vuoto_non_incanta_la_legenda(tmp_path):
+    """Ingresso degenere: zero valori (il server risponde un corpo vuoto quando
+    il contorno non ha nodi). Nessun crash, nessun taglio NaN, legenda che si
+    legge."""
+    uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
+        + _funzioni_viewport("scalaDelCampo") + _funzioni_viewport("numeroDelCampo")
+        + _funzioni("testoLegendaDelCampo") + """
+const { taglio, sopraTaglio } = scalaDelCampo(new Float32Array(0));
+assert.equal(taglio, 0);
+assert.equal(sopraTaglio, 0);
+const legenda = testoLegendaDelCampo(taglio, sopraTaglio, "mm");
+assert.ok(!/NaN|Infinity|∞/.test(legenda) && legenda.length > 0, legenda);
 console.log("ok");
 """)
     assert uscita.strip() == "ok"
@@ -2576,24 +2713,7 @@ valori[2] = -Infinity;
 const { taglio, sopraTaglio } = scalaDelCampo(valori);
 assert.ok(Number.isFinite(taglio), `NaN/Infinity hanno prodotto un taglio non finito: ${taglio}`);
 assert.equal(taglio, 1.0, "i tre valori non finiti non dovevano contribuire al taglio");
-console.log("ok");
-""")
-    assert uscita.strip() == "ok"
-
-
-def test_il_fattore_di_amplificazione_su_una_diagonale_invalida_non_esplode(tmp_path):
-    """diagonale nulla, NaN, infinita o negativa: il fattore resta un numero
-    usabile (dichiarato qui: nessuna amplificazione, x1), mai Infinity ne' NaN."""
-    uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
-        + _funzioni_viewport("fattoreAmplificazione") + """
-for (const diagonale of [0, NaN, Infinity, -1]) {
-  const fattore = fattoreAmplificazione(0.05, diagonale);
-  assert.ok(Number.isFinite(fattore), `diagonale ${diagonale} ha prodotto un fattore non finito: ${fattore}`);
-}
-// Un massimo a zero (campo costante a zero) e' la stessa famiglia di guasto:
-// la stessa divisione per zero, sull'altro operando.
-const fattoreMassimoZero = fattoreAmplificazione(0, 4000.0);
-assert.ok(Number.isFinite(fattoreMassimoZero), `massimo zero ha prodotto: ${fattoreMassimoZero}`);
+assert.equal(sopraTaglio, 0, "nessun valore finito supera 1,0");
 console.log("ok");
 """)
     assert uscita.strip() == "ok"
@@ -2605,7 +2725,7 @@ def test_la_didascalia_di_un_modo_oltre_quelli_calcolati_non_scrive_nan(tmp_path
     scriverebbe silenziosamente "NaN Hz": stesso trattamento degli altri
     ingressi che il campo non puo' onorare, un messaggio dichiarato."""
     uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
-        + _funzioni_viewport("didascaliaDelCampo") + """
+        + _funzioni_viewport("numeroDelCampo", "didascaliaDelCampo") + """
 const testo = didascaliaDelCampo({ caso: "MODO_9", modale: true, frequenza: NaN });
 assert.ok(!testo.includes("NaN"), testo);
 assert.ok(testo.includes("modale"));
@@ -2619,7 +2739,7 @@ def test_la_legenda_del_campo_resta_leggibile_su_costante_e_su_zero(tmp_path):
     massimo, nessun picco da isolare) e un campo tutto a zero non producono una
     legenda muta o con "NaN" scritto dentro."""
     uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
-        + _funzioni("testoLegendaDelCampo") + """
+        + _funzioni_viewport("numeroDelCampo") + _funzioni("testoLegendaDelCampo") + """
 const costante = testoLegendaDelCampo(5.0, 10, "MPa");
 assert.ok(!costante.includes("NaN"), costante);
 assert.ok(costante.length > 0, "la legenda e' vuota su un campo costante");
@@ -2634,12 +2754,22 @@ console.log("ok");
 def test_la_legenda_di_uno_spostamento_submillimetrico_non_arrotonda_a_zero(tmp_path):
     """Trovato verificando nel browser (Task 9, corsa sintetica): con un solo
     decimale uno spostamento vero come 0,0367 mm si legge "0 mm", la stessa
-    scala muta che il taglio esiste per evitare. Le tensioni (MPa) restano a
-    un decimale: sono gia' ordini di grandezza sopra 1."""
+    scala muta che il taglio esiste per evitare.
+
+    Giro 1: quattro decimali fissi spostavano la soglia di tre ordini invece di
+    toglierla — 2e-5 mm si legge ancora "0". Cifre significative, non decimali:
+    la soglia sparisce, e i conteggi di nodi restano interi esatti perche' non
+    passano dallo stesso formato.
+    """
     uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
-        + _funzioni("testoLegendaDelCampo") + """
+        + _funzioni_viewport("numeroDelCampo") + _funzioni("testoLegendaDelCampo") + """
 const spostamento = testoLegendaDelCampo(0.0367, 3, "mm");
-assert.ok(!spostamento.includes("0 mm"), spostamento);
+assert.ok(spostamento.includes("0,0367"), spostamento);
+const estremo = testoLegendaDelCampo(0.00002, 3, "mm");
+assert.ok(estremo.includes("0,00002"), `2e-5 mm si legge ancora zero: ${estremo}`);
+// Il conteggio dei nodi non e' una misura: 13 957 nodi non diventano 13 960.
+const molti = testoLegendaDelCampo(1.5, 13957, "MPa");
+assert.ok(molti.includes("13.957"), `il conteggio e' stato arrotondato: ${molti}`);
 console.log("ok");
 """)
     assert uscita.strip() == "ok"
@@ -2653,7 +2783,7 @@ def _banco_del_campo_dello_step() -> str:
     """
     return (
         _DOM
-        + _funzioni_viewport("scalaDelCampo", "fattoreAmplificazione", "didascaliaDelCampo")
+        + _funzioni_viewport("scalaDelCampo", "numeroDelCampo", "didascaliaDelCampo")
         + _funzioni(
             "testoLegendaDelCampo", "ragioneDelRifiuto", "serverMuto", "apriGeometria", "superata",
             "mostraCampoDelloStep",
@@ -2668,7 +2798,6 @@ const vista = {
   mostraMeshPerCampo(vertici, facce, valori, scala) {
     this.disegnato = { vertici: vertici.length, facce: facce.length, valori: valori.length, scala };
   },
-  ingombro() { return { min: [0, 0, 0], max: [3000, 0, 0] }; },
 };
 const legenda = document.createElement("p");
 const didascalia = document.createElement("p");
@@ -2687,7 +2816,7 @@ def test_il_campo_mostra_il_messaggio_del_server_su_un_400_e_non_una_pagina_bian
     _esegui(tmp_path, _banco_del_campo_dello_step() + """
 risponde = [
   async () => ({ ok: true, status: 200,
-    headers: { get: (n) => ({ "X-Vertices": "1", "X-Triangles": "0" }[n]) },
+    headers: { get: (n) => ({ "X-Vertices": "1", "X-Triangles": "0" }[n] ?? null) },
     arrayBuffer: async () => new ArrayBuffer(12) }),
   async () => ({ ok: false, status: 400,
     text: async () => JSON.stringify({ messaggio: "nessun campo 'VM_CARICO_TOP' in 13_solution.vtu" }) }),
@@ -2705,17 +2834,17 @@ assert.equal(
 
 def test_il_campo_colora_la_mesh_con_la_scala_tagliata_al_p99(tmp_path):
     """Il percorso buono: mesh e campo arrivano insieme, la scala si taglia al
-    p99 (non al massimo che il server manda in X-Max), e la didascalia porta
-    il fattore di amplificazione derivato dal dato."""
+    p99 (non al massimo che il server manda in X-Max), la didascalia porta il
+    massimo vero e i conteggi dicono su che cosa e' posato il campo."""
     _esegui(tmp_path, _banco_del_campo_dello_step() + """
 const valoriCampo = new Float32Array(1000).fill(1.0);
 valoriCampo[999] = 50.0;
 risponde = [
   async () => ({ ok: true, status: 200,
-    headers: { get: (n) => ({ "X-Vertices": "1000", "X-Triangles": "0" }[n]) },
+    headers: { get: (n) => ({ "X-Vertices": "1000", "X-Triangles": "0" }[n] ?? null) },
     arrayBuffer: async () => new Float32Array(3000).buffer }),
   async () => ({ ok: true, status: 200,
-    headers: { get: (n) => ({ "X-Max": "50.0" }[n]) },
+    headers: { get: (n) => ({ "X-Max": "50.0" }[n] ?? null) },
     arrayBuffer: async () => valoriCampo.buffer }),
 ];
 const disegnato = await mostraCampoDelloStep("CARICO_TOP", "VM", generazione, legenda, didascalia);
@@ -2723,6 +2852,75 @@ assert.equal(disegnato, true);
 assert.ok(vista.disegnato !== null, "la mesh colorata non e' mai stata disegnata");
 assert.ok(vista.disegnato.scala.taglio < 2.0,
   `la scala ha seguito il massimo (50) invece del p99: ${vista.disegnato.scala.taglio}`);
-assert.equal(vista.disegnato.scala.sopraTaglio, 10);
+assert.equal(vista.disegnato.scala.sopraTaglio, 1);
 assert.ok(didascalia.textContent.includes("MPa"), didascalia.textContent);
+assert.ok(didascalia.textContent.includes("50"), didascalia.textContent);
+// Giro 1, M3: gli altri due rami scrivono #conteggi, questo lo lasciava a
+// quello della vista di prima — un conteggio di un altro artefatto.
+// "1000" senza puntino: in italiano Intl raggruppa da cinque cifre in su
+// (misurato in node), e 13 957 nodi invece si scrivono "13.957".
+assert.ok(document.getElementById("conteggi").textContent.includes("1000 vertici"),
+  `#conteggi non descrive il campo appena disegnato: ${document.getElementById("conteggi").textContent}`);
+""")
+
+
+@pytest.mark.parametrize(
+    "intestazione", ['"nan"', '"inf"', '"-inf"', "undefined"],
+    ids=["nan", "inf", "-inf", "assente"],
+)
+def test_un_x_max_che_non_si_puo_scrivere_lo_dichiara(tmp_path, intestazione):
+    """Ingresso degenere sul percorso vero, non sulla sola funzione pura.
+
+    `server.py` emette `str(float(valori.max()))` senza guardia: da un campo
+    con un residuo non finito escono le stringhe "nan", "inf", "-inf". E
+    un'intestazione assente vale `null`, che `Number` porta a 0 — «massimo
+    reale 0 mm» e' peggio di un buco, perche' si legge come una misura.
+
+    Il finto `headers.get` risponde `null` sulla chiave che non c'e', come
+    quello vero: con `undefined` il mutante che toglie la guardia
+    sopravviveva, perche' `Number(undefined)` e' NaN e la didascalia si
+    salvava da sola per la ragione sbagliata.
+    """
+    _esegui(tmp_path, _banco_del_campo_dello_step() + f"""
+const valoriCampo = new Float32Array(4).fill(1.0);
+risponde = [
+  async () => ({{ ok: true, status: 200,
+    headers: {{ get: (n) => ({{ "X-Vertices": "4", "X-Triangles": "0" }}[n] ?? null) }},
+    arrayBuffer: async () => new Float32Array(12).buffer }}),
+  async () => ({{ ok: true, status: 200,
+    headers: {{ get: (n) => ({{ "X-Max": {intestazione} }}[n] ?? null) }},
+    arrayBuffer: async () => valoriCampo.buffer }}),
+];
+await mostraCampoDelloStep("GRAVITA", "U", generazione, legenda, didascalia);
+const testo = didascalia.textContent;
+assert.ok(!/NaN|Infinity|∞|undefined|null/.test(testo), testo);
+assert.ok(testo.includes("non disponibile"), `il massimo mancante non e' dichiarato: ${{testo}}`);
+assert.ok(!/\\breale 0 /.test(testo), `un dato assente si legge come una misura: ${{testo}}`);
+""")
+
+
+def test_un_campo_che_non_combacia_con_la_mesh_e_un_rifiuto_e_non_un_disegno(tmp_path):
+    """Giro 1, I4: mesh e campo arrivano da due risposte separate, e nessuno
+    controllava che si corrispondessero. Che oggi coincidano e' garanzia di due
+    handler del server che condividono `_contorno_del_volume`, non del client:
+    se `13_solution.vtu` viene riscritto fra le due fetch — l'interfaccia
+    permette di rieseguire col campo aperto — l'attributo `color` si posa su
+    posizioni di un'altra mesh e il pezzo esce colorato sfalsato, senza errori.
+    """
+    _esegui(tmp_path, _banco_del_campo_dello_step() + """
+risponde = [
+  async () => ({ ok: true, status: 200,
+    headers: { get: (n) => ({ "X-Vertices": "4", "X-Triangles": "0" }[n] ?? null) },
+    arrayBuffer: async () => new Float32Array(12).buffer }),
+  async () => ({ ok: true, status: 200,
+    headers: { get: (n) => ({ "X-Max": "3.0" }[n] ?? null) },
+    arrayBuffer: async () => new Float32Array(1000).buffer }),
+];
+const scritto = await mostraCampoDelloStep("GRAVITA", "U", generazione, legenda, didascalia);
+assert.equal(scritto, true, "il disallineamento non e' stato dichiarato da nessuna parte");
+assert.equal(vista.disegnato, null, "colori sfalsati disegnati su una mesh che non e' la loro");
+assert.ok(didascalia.textContent.length > 0, "rifiuto muto");
+assert.ok(/1000/.test(didascalia.textContent) && /\\b4\\b/.test(didascalia.textContent),
+  `il rifiuto non dice quanto sono disallineati: ${didascalia.textContent}`);
+assert.equal(legenda.textContent, "", "una legenda di un campo che non e' stato disegnato");
 """)

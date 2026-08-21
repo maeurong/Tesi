@@ -174,7 +174,7 @@ async function annullaLaCorsa() {
 
 document.getElementById("annulla").addEventListener("click", annullaLaCorsa);
 
-import { creaViewport, scalaDelCampo, fattoreAmplificazione, didascaliaDelCampo } from "/ui/viewport.js";
+import { creaViewport, scalaDelCampo, numeroDelCampo, didascaliaDelCampo } from "/ui/viewport.js";
 
 const vista = creaViewport(document.getElementById("viewport"));
 
@@ -294,17 +294,16 @@ const STEP_CON_CAMPO = 13;
 
 // Il testo della legenda: dichiara sempre dove sta il taglio e quanti nodi lo
 // superano, anche su un campo costante (taglio == massimo, nessun picco da
-// isolare) o tutto a zero. Number.isFinite guarda solo `taglio`: sopraTaglio
-// esce gia' finito da scalaDelCampo, che conta per rango e non per valore.
+// isolare) o tutto a zero. Entrambi i numeri passano da numeroDelCampo, che
+// dichiara quello che non si puo' scrivere invece di stamparlo: `sopraTaglio`
+// esce finito da scalaDelCampo, ma la guardia sta sulla funzione e non sul
+// chiamante di oggi. Il conteggio ha il proprio formato: e' un numero di nodi,
+// non una misura, e non va arrotondato a cifre significative.
 function testoLegendaDelCampo(taglio, sopraTaglio, unita) {
-  // Gli spostamenti veri sono submillimetrici (0,0367 mm, misurato): un solo
-  // decimale li arrotonderebbe tutti a "0 mm", la stessa scala muta che il
-  // taglio esiste per evitare.
-  const cifre = unita === "mm" ? 4 : 1;
-  const numero = Number.isFinite(taglio)
-    ? taglio.toLocaleString("it", { maximumFractionDigits: cifre })
-    : "n/d";
-  return `scala tagliata a ${numero} ${unita} — ${sopraTaglio.toLocaleString("it")} nodi sopra il taglio`;
+  const numero = numeroDelCampo(taglio);
+  const nodi = numeroDelCampo(sopraTaglio, { maximumFractionDigits: 0 });
+  if (numero === null || nodi === null) return "scala non disponibile: il campo non ha valori leggibili";
+  return `scala tagliata a ${numero} ${unita} — ${nodi} nodi sopra il taglio`;
 }
 
 // Mesh e campo arrivano insieme, con la stessa arbitrazione di
@@ -332,19 +331,32 @@ async function mostraCampoDelloStep(caso, grandezza, ordine, legenda, didascalia
     didascalia.textContent = ragione;
     return true;
   }
-  const massimo = Number(rispostaCampo.headers.get("X-Max"));
+  // L'intestazione assente vale null, e Number(null) e' 0: scriverebbe
+  // «massimo reale 0 mm», che si legge come una misura invece che come un dato
+  // che manca. NaN attraversa la stessa strada dei valori non finiti che il
+  // server emette senza guardia ("nan", "inf") e che la didascalia dichiara.
+  const grezzoMassimo = rispostaCampo.headers.get("X-Max");
+  const massimo = grezzoMassimo ? Number(grezzoMassimo) : NaN;
   const vertici = Number(rispostaMesh.headers.get("X-Vertices"));
   const triangoli = Number(rispostaMesh.headers.get("X-Triangles"));
   const grezziMesh = await rispostaMesh.arrayBuffer();
   const grezziCampo = await rispostaCampo.arrayBuffer();
   if (superata(ordine) || superata(emissione, ultimaGeometria)) return false;
   const valori = new Float32Array(grezziCampo);
+  // Mesh e campo arrivano da due risposte separate: che si corrispondano e'
+  // garanzia di due handler del server che condividono _contorno_del_volume,
+  // non del client. Se la corsa viene rieseguita mentre il campo e' aperto,
+  // l'attributo color si poserebbe su posizioni di un'altra mesh e il pezzo
+  // uscirebbe colorato sfalsato senza nessun errore. Rifiuto dichiarato, come
+  // il ramo 400: la vista di prima resta, e la didascalia dice perche'.
+  if (valori.length !== vertici) {
+    legenda.textContent = "";
+    didascalia.textContent =
+      `campo e superficie non corrispondono (${valori.length} valori su ${vertici} vertici): `
+      + "la corsa e' cambiata mentre la vista arrivava, riprova";
+    return true;
+  }
   const { taglio, sopraTaglio } = scalaDelCampo(valori);
-  const ingombro = vista.ingombro();
-  const diagonale = ingombro
-    ? Math.hypot(...ingombro.max.map((v, indice) => v - ingombro.min[indice]))
-    : NaN;
-  const fattore = fattoreAmplificazione(massimo, diagonale);
   const unita = grandezza === "U" ? "mm" : "MPa";
   vista.svuota();
   vista.mostraMeshPerCampo(
@@ -353,8 +365,12 @@ async function mostraCampoDelloStep(caso, grandezza, ordine, legenda, didascalia
     valori,
     { taglio, sopraTaglio },
   );
+  // Come gli altri due rami che disegnano: senza, #conteggi resta quello della
+  // vista di prima e descrive un artefatto che non e' piu' sullo schermo.
+  document.getElementById("conteggi").textContent =
+    `${vertici.toLocaleString("it")} vertici, ${triangoli.toLocaleString("it")} triangoli`;
   legenda.textContent = testoLegendaDelCampo(taglio, sopraTaglio, unita);
-  didascalia.textContent = didascaliaDelCampo({ caso, grandezza, massimo, fattore });
+  didascalia.textContent = didascaliaDelCampo({ caso, grandezza, massimo });
   return true;
 }
 
@@ -394,7 +410,8 @@ function pannelloCampo(ordine, metriche13) {
   for (const nome of casi) selCaso.append(new Option(nome, nome));
   for (let n = 1; n <= modi; n += 1) {
     const hz = metriche13.frequenze_hz?.[n - 1];
-    selCaso.append(new Option(`Modo ${n}${Number.isFinite(hz) ? ` (${hz.toFixed(2)} Hz)` : ""}`, `MODO_${n}`));
+    const scritta = numeroDelCampo(hz, { maximumFractionDigits: 2 });
+    selCaso.append(new Option(`Modo ${n}${scritta === null ? "" : ` (${scritta} Hz)`}`, `MODO_${n}`));
   }
   const rigaCaso = document.createElement("label");
   rigaCaso.className = "campo";
@@ -406,8 +423,8 @@ function pannelloCampo(ordine, metriche13) {
   rigaGrandezza.className = "campo";
   rigaGrandezza.append(Object.assign(document.createElement("span"), { textContent: "grandezza" }), selGrandezza);
 
-  const legenda = Object.assign(document.createElement("p"), { className: "aiuto", id: "campo-legenda" });
-  const didascalia = Object.assign(document.createElement("p"), { className: "aiuto", id: "campo-didascalia" });
+  const legenda = Object.assign(document.createElement("p"), { className: "aiuto" });
+  const didascalia = Object.assign(document.createElement("p"), { className: "aiuto" });
 
   async function aggiorna() {
     const caso = selCaso.value;

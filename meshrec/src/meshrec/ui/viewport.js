@@ -10,9 +10,12 @@ import * as THREE from "/ui/vendor/three.module.js";
 // apposta: e' una decisione numerica, e questo progetto la prova eseguendola
 // in node, non cercandola come sottostringa in una funzione che tocca three.js.
 //
-// sopraTaglio conta per rango (l'1% piu' alto), non per valore: cosi' la
-// legenda dichiara sempre una quota fissa e leggibile del campo, anche
-// quando molti nodi sono legati allo stesso valore di cima.
+// sopraTaglio conta per valore (`v > taglio`), non per rango: `n - 1 - indice`
+// e' una quota fissa, e su un campo costante o tutto a zero dichiarava cinque
+// nodi sopra una soglia che nessuno supera - lo stesso testo che finisce
+// nell'aria-label. E' anche la definizione che il server usa gia' per contare
+// (np.count_nonzero(valori > p99)): due definizioni della stessa grandezza
+// nello stesso sistema sono un difetto per conto proprio.
 export function scalaDelCampo(valori) {
   const finiti = [];
   for (let indice = 0; indice < valori.length; indice += 1) {
@@ -24,36 +27,49 @@ export function scalaDelCampo(valori) {
   finiti.sort((a, b) => a - b);
   const n = finiti.length;
   const indice = Math.max(0, Math.ceil(n * 0.99) - 1);
-  return { taglio: finiti[indice], sopraTaglio: n - 1 - indice };
+  const taglio = finiti[indice];
+  return { taglio, sopraTaglio: finiti.filter((v) => v > taglio).length };
 }
 
-// Il fattore per cui lo spostamento massimo vale il 2% della diagonale del
-// modello: submillimetrico su un pezzo di tre metri, invisibile a 1:1. Un
-// massimo o una diagonale non finiti (o nulli) non hanno un'amplificazione
-// sensata da derivare: 1 (nessuna amplificazione) e' il fattore dichiarato,
-// non Infinity ne' NaN scritti in una didascalia.
-export function fattoreAmplificazione(massimo, diagonale) {
-  if (!Number.isFinite(massimo) || massimo <= 0) return 1;
-  if (!Number.isFinite(diagonale) || diagonale <= 0) return 1;
-  return (0.02 * diagonale) / massimo;
+// Ogni numero che finisce a video passa di qui, e null e' «non si puo'
+// scrivere»: chi chiama sceglie la frase, non stampa NaN. Cifre significative
+// e non decimali fissi perche' gli spostamenti veri sono submillimetrici
+// (0,0367 mm, misurato) e quattro decimali spostano la soglia di tre ordini
+// invece di toglierla: 2e-5 mm si legge ancora "0". I conteggi di nodi non
+// sono misure e passano di qui con il proprio formato, altrimenti 13 957 nodi
+// diventerebbero 13 960.
+export function numeroDelCampo(valore, formato = { maximumSignificantDigits: 4 }) {
+  return Number.isFinite(valore) ? valore.toLocaleString("it", formato) : null;
 }
 
 // Che cosa si sta guardando, sempre accanto alla vista: un'immagine di
-// spostamento senza il suo fattore o una forma modale senza dirlo si
-// confondono a colpo d'occhio - la Fase 5 ha gia' pagato l'errore di una von
-// Mises calcolata su una forma modale (fino a 88,5 MPa, privi di senso: una
-// forma e' normalizzata sulla massa, non uno spostamento fisico).
-export function didascaliaDelCampo({ caso, grandezza, modale, frequenza, massimo, fattore }) {
+// spostamento e una forma modale si confondono a colpo d'occhio - la Fase 5 ha
+// gia' pagato l'errore di una von Mises calcolata su una forma modale (fino a
+// 88,5 MPa, privi di senso: una forma e' normalizzata sulla massa, non uno
+// spostamento fisico).
+export function didascaliaDelCampo({ caso, grandezza, modale, frequenza, massimo }) {
   if (modale) {
     // Un modo oltre quelli calcolati non ha una frequenza nota: NaN.toFixed()
     // scriverebbe "NaN Hz" in silenzio, lo stesso guasto di un taglio muto.
-    return Number.isFinite(frequenza)
-      ? `${caso}: forma modale, ampiezza arbitraria (normalizzata sulla massa), ${frequenza.toFixed(2)} Hz`
-      : `${caso}: forma modale, ampiezza arbitraria (normalizzata sulla massa); frequenza non disponibile`;
+    const hz = numeroDelCampo(frequenza, { maximumFractionDigits: 2 });
+    return hz === null
+      ? `${caso}: forma modale, ampiezza arbitraria (normalizzata sulla massa); frequenza non disponibile`
+      : `${caso}: forma modale, ampiezza arbitraria (normalizzata sulla massa), ${hz} Hz`;
   }
-  return grandezza === "U"
-    ? `${caso} — spostamento: massimo reale ${massimo.toFixed(4)} mm, amplificato ×${fattore.toFixed(0)} nella vista`
-    : `${caso} — tensione equivalente: massimo ${massimo.toFixed(1)} MPa`;
+  // «massimo reale» e non «massimo amplificato»: la vista non deforma nulla.
+  // Il campo che arriva dal server e' una magnitudine per nodo, senza
+  // direzione, e le posizioni restano quelle del contorno indeformato: una
+  // didascalia che dichiarasse un'amplificazione starebbe scrivendo un numero
+  // falso sopra un pezzo fermo.
+  const spostamento = grandezza === "U";
+  const nome = spostamento ? "spostamento" : "tensione equivalente";
+  const scritto = numeroDelCampo(massimo);
+  if (scritto === null) return `${caso} — ${nome}: massimo non disponibile`;
+  // «reale» resta solo sullo spostamento: e' la grandezza che si guarda su una
+  // vista, ed e' li' che qualcuno potrebbe leggere il colore come una misura.
+  return spostamento
+    ? `${caso} — ${nome}: massimo reale ${scritto} mm`
+    : `${caso} — ${nome}: massimo ${scritto} MPa`;
 }
 
 export function creaViewport(contenitore) {
@@ -275,21 +291,25 @@ export function creaViewport(contenitore) {
       // resta un solo colore, non un crash ne' un taglio NaN che la renderebbe
       // silenziosamente uniforme.
       const soglia = taglio > 0 ? taglio : 1;
-      // Sequenziale: una tinta sola (0x2f5d50, la stessa di --accento e della
-      // nuvola in mostraNuvola), chiara verso scura al crescere del valore.
-      // Non un arcobaleno che attraversa piu' tinte: una scala di grandezza
-      // vuole un ordine che l'occhio legga come "quanto", non un ciclo di
-      // colori che si legge come identita'. Chi e' al taglio o oltre satura
-      // alla tinta piu' scura della rampa: e' il colore dichiarato di cui
-      // parla il commento sopra, non una tinta in piu' da inventare.
-      const TINTA = new THREE.Color(0x2f5d50).getHSL({ h: 0, s: 0, l: 0 }).h;
+      // Sequenziale: una tinta sola, chiara verso scura al crescere del
+      // valore. Non un arcobaleno che attraversa piu' tinte: una scala di
+      // grandezza vuole un ordine che l'occhio legga come "quanto", non un
+      // ciclo di colori che si legge come identita'. Chi e' al taglio o oltre
+      // satura all'estremo scuro: e' il colore dichiarato di cui parla il
+      // commento sopra, non una tinta in piu' da inventare.
+      // I due estremi sono costanti e la rampa e' l'interpolazione fra loro:
+      // il giro precedente ricostruiva la rampa da tinta+saturazione+chiarezza
+      // con quattro costanti, e il suo estremo scuro finiva a 0x178264, che
+      // non e' --accento (misurato in node, non dedotto).
+      const CHIARO = new THREE.Color(0xd9e8e4);
+      const SCURO = new THREE.Color(0x2f5d50); // --accento, come la nuvola
       const colore = new THREE.Color();
       for (let indice = 0; indice < valori.length; indice += 1) {
         const valore = valori[indice];
         // Un residuo NaN/Infinity nel campo non deve corrompere il resto della
         // riga di colore: resta al fondo della scala, dichiarato zero.
         const frazione = Number.isFinite(valore) ? Math.min(1, Math.max(0, valore / soglia)) : 0;
-        colore.setHSL(TINTA, 0.25 + frazione * 0.45, 0.88 - frazione * 0.58);
+        colore.lerpColors(CHIARO, SCURO, frazione);
         colore.toArray(colori, indice * 3);
       }
       geometria.setAttribute("color", new THREE.BufferAttribute(colori, 3));
