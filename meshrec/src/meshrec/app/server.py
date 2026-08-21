@@ -843,10 +843,14 @@ def create_app(config_path: Path) -> FastAPI:
         U_<caso> e' un vettore (spostamento nodale): la magnitudine e' lo
         scalare che risponde, uno per vertice, come VM_<caso> gia' e' scalare.
 
-        Le intestazioni portano gli estremi e il p99 che il browser usa per
-        la legenda senza ricalcolare nulla (Task 9): il picco isolato di un
-        carico nodale puntuale (misurato, CARICO_TOP: 31 977,6 MPa contro un
-        p99 di 6 279,5) stirerebbe la scala colore su un solo vertice.
+        L'unica intestazione e' `X-Max`, il massimo del campo, che finisce
+        nella didascalia della vista. Il p99 su cui si taglia la scala colore
+        (il picco isolato di un carico nodale puntuale - misurato, CARICO_TOP:
+        31 977,6 MPa contro un p99 di 6 279,5 - stirerebbe la scala su un solo
+        vertice) lo calcola il browser in `viewport.scalaDelCampo`: e' una
+        decisione numerica, e questo progetto le prova eseguendole in node.
+        Le intestazioni `X-Min`, `X-P99` e `X-Sopra-P99` c'erano e nessuno le
+        leggeva: un dato che il client ignora invecchia in silenzio.
         """
         import meshio
 
@@ -878,18 +882,12 @@ def create_app(config_path: Path) -> FastAPI:
             return Response(
                 content=b"",
                 media_type="application/octet-stream",
-                headers={"X-Min": "0.0", "X-Max": "0.0", "X-P99": "0.0", "X-Sopra-P99": "0"},
+                headers={"X-Max": "0.0"},
             )
-        p99 = float(np.percentile(valori, 99))
         return Response(
             content=viewport.campo_per_punto(valori),
             media_type="application/octet-stream",
-            headers={
-                "X-Min": str(float(valori.min())),
-                "X-Max": str(float(valori.max())),
-                "X-P99": str(p99),
-                "X-Sopra-P99": str(int(np.count_nonzero(valori > p99))),
-            },
+            headers={"X-Max": str(float(valori.max()))},
         )
 
     @app.get("/api/events")

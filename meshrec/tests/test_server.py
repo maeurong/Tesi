@@ -1179,10 +1179,10 @@ def _scrivi_soluzione(corsa: Path, punti, tetraedri, point_data: dict) -> None:
     abaqus.write_vtu(corsa / pipeline.ARTIFACTS[13], punti, tetraedri, point_data=point_data)
 
 
-def test_il_campo_risponde_i_valori_del_contorno_con_le_intestazioni_di_scala(cliente, tmp_path):
+def test_il_campo_risponde_i_valori_del_contorno_col_proprio_massimo(cliente, tmp_path):
     """Il nodo isolato (indice 2) non e' un vertice del contorno: se il campo
     filtrato dagli indici sbagliasse, o la lunghezza del corpo non tornerebbe
-    (4 vertici, non 5) o i numeri di scala includerebbero il suo valore (99),
+    (4 vertici, non 5) o il massimo dichiarato includerebbe il suo valore (99),
     che qui e' fuori scala apposta."""
     import numpy as np
 
@@ -1201,14 +1201,15 @@ def test_il_campo_risponde_i_valori_del_contorno_con_le_intestazioni_di_scala(cl
     # Nodi 0, 1, 3, 4 nell'ordine dei vertici del contorno (non 0..3): il
     # nodo isolato (indice 2, valore 99) resta fuori.
     assert valori == pytest.approx([1.0, 2.0, 3.0, 4.0])
-    assert float(risposta.headers["X-Min"]) == pytest.approx(1.0)
+    # 4.0 e non 99: il nodo isolato non e' un vertice del contorno e non
+    # partecipa al massimo.
     assert float(risposta.headers["X-Max"]) == pytest.approx(4.0)
-    # p99 di [1,2,3,4] e' 3,97 (interpolazione lineare di numpy): un solo
-    # valore (4.0) lo supera. 99 (il nodo isolato) non partecipa al calcolo
-    # perche' non e' un vertice del contorno.
-    p99_atteso = np.percentile([1.0, 2.0, 3.0, 4.0], 99)
-    assert float(risposta.headers["X-P99"]) == pytest.approx(p99_atteso)
-    assert risposta.headers["X-Sopra-P99"] == str(int(np.count_nonzero(valori > p99_atteso)))
+    # Il taglio della scala (p99) lo calcola il browser sui valori che riceve,
+    # in viewport.scalaDelCampo: X-Min, X-P99 e X-Sopra-P99 c'erano e nessuno
+    # le leggeva. Un dato che il client ignora invecchia in silenzio.
+    assert "X-Min" not in risposta.headers
+    assert "X-P99" not in risposta.headers
+    assert "X-Sopra-P99" not in risposta.headers
 
 
 def test_il_campo_u_e_la_magnitudine_dello_spostamento(cliente, tmp_path):
@@ -1332,13 +1333,14 @@ def test_contorno_con_zero_vertici_risponde_vuoto_senza_indexerror(cliente, tmp_
 
     assert risposta.status_code == 200
     assert risposta.content == b""
-    assert risposta.headers["X-Sopra-P99"] == "0"
+    assert risposta.headers["X-Max"] == "0.0"
 
 
-def test_campo_costante_definisce_p99_senza_divisione(cliente, tmp_path):
-    """max == min: se X-P99 nascesse da una normalizzazione (valore - min) /
-    (max - min), qui dividerebbe per zero. Qui non c'e' alcuna divisione, e
-    questo test lo pin-na: p99 di un campo costante e' la costante stessa."""
+def test_campo_costante_risponde_il_proprio_massimo_senza_divisione(cliente, tmp_path):
+    """max == min: se l'intestazione nascesse da una normalizzazione
+    (valore - min) / (max - min), qui dividerebbe per zero. Qui non c'e' alcuna
+    divisione, e questo test lo pin-na: il massimo di un campo costante e' la
+    costante stessa."""
     import numpy as np
 
     punti = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
@@ -1349,9 +1351,7 @@ def test_campo_costante_definisce_p99_senza_divisione(cliente, tmp_path):
     risposta = cliente.get("/api/campo/GRAVITA/VM")
 
     assert risposta.status_code == 200
-    assert risposta.headers["X-Min"] == risposta.headers["X-Max"] == risposta.headers["X-P99"]
-    assert float(risposta.headers["X-P99"]) == pytest.approx(7.0)
-    assert risposta.headers["X-Sopra-P99"] == "0"
+    assert float(risposta.headers["X-Max"]) == pytest.approx(7.0)
 
 
 def test_il_clic_sullo_step_sceglie_fra_nuvola_e_mesh_senza_perdere_il_pannello():
