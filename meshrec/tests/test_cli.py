@@ -14,7 +14,12 @@ SIZE = (120.0, 60.0, 240.0)
 
 
 def _config_cubo_su_disco(tmp_path):
-    """Configurazione del cubo scritta su disco, come negli altri test di questo file."""
+    """Configurazione del cubo scritta su disco, come negli altri test di questo file.
+
+    `to_step=12`: dalla Fase 5 il predefinito di RunConfig e' 13 (il solutore
+    fa parte di ogni corsa), ma questi test esercitano il comando `run` e la
+    ripresa, non il solutore -- stessa ragione di `_config_cubo` in
+    test_pipeline.py."""
     cloud_path = tmp_path / "box.ply"
     io.write_cloud(cloud_path, synth.sample_box_surface(SIZE, 8.0))
     cfg = config.PipelineConfig(
@@ -22,7 +27,7 @@ def _config_cubo_su_disco(tmp_path):
         input=config.InputConfig(path=cloud_path, spacing_sample=2000),
         downsample=config.DownsampleConfig(voxel_size=8.0),
         surface=config.SurfaceConfig(poisson_depth=7, density_quantile=0.02),
-        run=config.RunConfig(out_dir=tmp_path / "out"),
+        run=config.RunConfig(out_dir=tmp_path / "out", to_step=12),
     )
     config.save_config(cfg, tmp_path / "config.yaml")
     return tmp_path / "config.yaml"
@@ -64,7 +69,9 @@ def test_run_executes_the_pipeline_and_writes_the_deck(tmp_path):
         input=config.InputConfig(path=cloud_path, spacing_sample=2000),
         downsample=config.DownsampleConfig(voxel_size=8.0),
         surface=config.SurfaceConfig(poisson_depth=7, density_quantile=0.02),
-        run=config.RunConfig(out_dir=tmp_path / "out"),
+        # to_step=12: il test verifica che il comando run scriva il deck
+        # (step 11), non che risolva -- stessa ragione di _config_cubo_su_disco.
+        run=config.RunConfig(out_dir=tmp_path / "out", to_step=12),
     )
     config.save_config(cfg, tmp_path / "config.yaml")
 

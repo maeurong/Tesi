@@ -306,20 +306,26 @@ class RunConfig(_ModelloBase):
         ),
     )
     to_step: int = Field(
-        default=12,
+        default=13,
         ge=1,
         le=13,
         description=(
             "ultimo step eseguito. Serve all'interfaccia, che esegue uno step "
             "alla volta: from_step e to_step uguali eseguono soltanto quello. "
-            "Il tetto e' 13 dalla Fase 5, ma il predefinito resta 12: lo step "
-            "12 e' il prior geometrico e chiude la corsa madre di "
-            "elaborazione, lo step 13 e' il solutore e va chiesto "
-            "esplicitamente. E' l'unico step che paga un processo esterno "
-            "vero invece di lavoro in-process, e uno sweep che valutasse "
-            "candidati di elaborazione pagherebbe quel processo per ciascuno "
-            "senza che la selezione se ne serva: restare fuori dal "
-            "predefinito e' quanto basta a evitarlo, senza toccare sweep.py. "
+            "Il tetto e' 13 dalla Fase 5 e il predefinito coincide con esso: "
+            "l'utente ha scelto esplicitamente che ogni corsa risolva e "
+            "scriva spostamenti e tensioni accanto alle altre metriche, non "
+            "che il solutore sia un extra da chiedere (scartata l'opzione "
+            "'step opzionale acceso dalla configurazione'). "
+            "Lo step 13 resta pero' diverso dagli altri: e' l'unico che paga "
+            "un processo esterno vero (ccx) invece di lavoro in-process, e "
+            "chi lo invoca su molti candidati -- uno sweep -- paga quel "
+            "processo e i suoi artefatti (.frd/.vtu, alcuni MB l'uno) per "
+            "ciascuno, senza che la selezione se ne serva. Questa e' la "
+            "ragione per cui sweep.py chiede esplicitamente to_step=12 al "
+            "sottoprocesso invece di ereditare questo predefinito, e per cui "
+            "REQUIRED_STEPS in sweep.py non lo richiede: e' una decisione del "
+            "chiamante, non del predefinito del prodotto. "
             "from_step resta fermo a 9 e non segue questo tetto, per la "
             "ragione scritta la'. "
             "Con validate_assignment attivo il validatore incrociato rifiuta "
