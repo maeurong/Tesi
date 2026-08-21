@@ -629,6 +629,46 @@ def footprint_coverage(
     return float(reached[in_contact].mean())
 
 
+def constraint_plan_extent(nodes: np.ndarray, indices: np.ndarray) -> dict[str, float]:
+    """Quanto dell'impronta del pezzo l'insieme vincolato attraversa, per asse.
+
+    Nasce da un difetto misurato il 21/08/2026: su `lab_frame.pcd` il set BASE
+    teneva 278 nodi ammucchiati in una toppa larga 233 mm su un pezzo lungo
+    3144, il telaio penzolava da un piede solo, lo spostamento sotto peso
+    proprio usciva a 15,25 mm invece di 0,0367 — e `footprint_coverage`
+    dichiarava 1,0. Non per un bug: quella misura risponde a "quanta parte
+    dell'appoggio che vedo e' vincolata", e vedeva un piede solo.
+
+    Questa grandezza risponde all'altra domanda. Vale 1 per un muro, e vale 1
+    **anche per un telaio a due piedi**, perche' i due piedi attraversano
+    l'intera luce pur essendo vuoti in mezzo: non confonde "vuoto in mezzo" con
+    "manca un appoggio". Crolla quando l'insieme tiene un angolo di una cosa
+    larga.
+
+    Non ha parametri impliciti — nessun lato di cella, nessuna banda di
+    contatto, nessun asse da scegliere — ed e' per questo che puo' fare da
+    regola dove `footprint_coverage` resta una diagnosi. La soglia e' larga
+    perche' la grandezza e' quella giusta: sul caso misurato il divario e' fra
+    0,074 e 1.
+
+    `footprint_coverage` resta accanto: insieme dicono piu' di ciascuna da sola
+    — "l'insieme copre tutto l'appoggio che vede, e vede il 7% del pezzo".
+    """
+    points = np.asarray(nodes, dtype=np.float64)
+    scelti = points[np.asarray(indices, dtype=np.int64)]
+    if len(scelti) == 0:
+        return {"x": 0.0, "y": 0.0, "minimo": 0.0}
+    rapporti: dict[str, float] = {}
+    for asse, nome in ((0, "x"), (1, "y")):
+        pezzo = float(np.ptp(points[:, asse]))
+        # Un pezzo senza estensione su un asse non ha nulla da coprire su
+        # quell'asse: 1.0, non una divisione per zero e non uno 0.0 che
+        # sembrerebbe un vincolo mancante.
+        rapporti[nome] = 1.0 if pezzo == 0.0 else float(np.ptp(scelti[:, asse]) / pezzo)
+    rapporti["minimo"] = min(rapporti["x"], rapporti["y"])
+    return rapporti
+
+
 def build_node_sets(nodes: np.ndarray, tolerance: float) -> dict[str, np.ndarray]:
     """I sei set di faccia, sul modello gia allineato agli assi.
 
@@ -802,6 +842,7 @@ def export_model(
         "boundary_spacing": float(spacing),
         "set_tolerance": float(tolerance),
         "fixed_nset_coverage": float(coverage),
+        "constraint_plan_extent": constraint_plan_extent(aligned, node_sets[cfg.fixed_nset]),
         "node_sets": {name: int(len(indices)) for name, indices in node_sets.items()},
         "volume": volume,
         "mass": volume * cfg.material.density,

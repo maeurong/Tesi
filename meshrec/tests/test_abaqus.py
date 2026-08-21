@@ -566,6 +566,45 @@ def test_export_reports_how_much_of_the_footprint_is_constrained(tmp_path, cube_
     assert metrics["set_tolerance"] == pytest.approx(6.0 * metrics["boundary_spacing"])
 
 
+def test_l_estensione_in_pianta_del_vincolo_vale_uno_su_due_piedi():
+    """Un telaio a due piedi e' ben vincolato anche se e' vuoto in mezzo.
+
+    E' la proprieta' che distingue questa grandezza da footprint_coverage: i due
+    piedi coprono l'intera luce, quindi il rapporto vale 1 pur essendoci un
+    vuoto fra loro. Se valesse meno di 1, la grandezza confonderebbe "vuoto in
+    mezzo" con "manca un appoggio" e sarebbe inutilizzabile su un portale.
+    """
+    punti = synth.sample_frame_surface(TELAIO_PIEDI_ASIMMETRICI, spacing=25.0)
+    allineati, _t, _m = abaqus.align_to_axes(punti, reference=punti)
+    bassi = np.flatnonzero(allineati[:, 2] <= allineati[:, 2].min() + 60.0)
+
+    esteso = abaqus.constraint_plan_extent(allineati, bassi)
+
+    assert esteso["y"] == pytest.approx(1.0, abs=0.05)
+    assert esteso["minimo"] == pytest.approx(min(esteso["x"], esteso["y"]))
+
+
+def test_l_estensione_in_pianta_crolla_se_il_vincolo_tiene_un_angolo():
+    """Un insieme ammucchiato in un angolo si vede, e footprint_coverage no.
+
+    Misurato sul deck as-built del 21/08/2026: BASE aveva 278 nodi in una toppa
+    y 574-808 su un pezzo lungo 3144, cioe' un rapporto di 0,074, mentre
+    fixed_nset_coverage dichiarava 1,0. E' il caso che questa grandezza esiste
+    per cogliere.
+    """
+    punti = synth.sample_frame_surface(TELAIO_PIEDI_ASIMMETRICI, spacing=25.0)
+    allineati, _t, _m = abaqus.align_to_axes(punti, reference=punti)
+    # un solo piede: i nodi bassi con y sotto il primo quarto della luce
+    limite = allineati[:, 1].min() + 0.25 * np.ptp(allineati[:, 1])
+    un_piede = np.flatnonzero(
+        (allineati[:, 2] <= allineati[:, 2].min() + 60.0) & (allineati[:, 1] <= limite)
+    )
+
+    esteso = abaqus.constraint_plan_extent(allineati, un_piede)
+
+    assert esteso["minimo"] < 0.5
+
+
 def test_le_facce_di_bordo_di_un_esaedro_solo_sono_sei_quadrilateri():
     """_boundary_faces dava per scontati quattro nodi per elemento e tre per
     faccia. Un esaedro ha sei facce, tutte quadrilatere, e tutte di bordo."""
