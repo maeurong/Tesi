@@ -5,7 +5,7 @@ const ETICHETTE = {
   "04_normals": "Normali", "05_reconstruct": "Superficie", "06_repair": "Riparazione",
   "07_surface_quality": "Qualita superficie", "08_simplify": "Semplificazione",
   "09_tetrahedralize": "Tetraedri", "10_volume_quality": "Qualita volume",
-  "11_export": "Esportazione", "12_wall": "Prior geometrico",
+  "11_export": "Esportazione", "12_wall": "Prior geometrico", "13_solve": "Analisi strutturale",
 };
 
 async function caricaStato() {
@@ -174,7 +174,7 @@ async function annullaLaCorsa() {
 
 document.getElementById("annulla").addEventListener("click", annullaLaCorsa);
 
-import { creaViewport } from "/ui/viewport.js";
+import { creaViewport, scalaDelCampo, fattoreAmplificazione, didascaliaDelCampo } from "/ui/viewport.js";
 
 const vista = creaViewport(document.getElementById("viewport"));
 
@@ -249,8 +249,10 @@ async function mostraNuvolaDelloStep(numero, ordine) {
 
 // Gli step che producono una superficie o un volume: dal 5 in poi l'artefatto
 // non e' piu' una nuvola, e disegnarne i soli vertici mostrerebbe punti dove
-// c'e' un solido.
-const STEP_CON_MESH = new Set([5, 6, 8, 9]);
+// c'e' un solido. Lo step 13 e' anche lui un volume (13_solution.vtu, lo
+// stesso contorno di /api/campo): senza di lui in questo insieme un clic sullo
+// step 13 chiederebbe /api/cloud/13, che non esiste.
+const STEP_CON_MESH = new Set([5, 6, 8, 9, 13]);
 
 async function mostraStep(numero, ordine) {
   // La delega sta prima del contatore: incrementarlo qui e di nuovo la' sotto
@@ -283,6 +285,147 @@ async function mostraStep(numero, ordine) {
   document.getElementById("conteggi").textContent =
     `${vertici.toLocaleString("it")} vertici, ${triangoli.toLocaleString("it")} triangoli`;
   return true;
+}
+
+// Lo step che risolve: /api/campo/{caso}/{grandezza} vive fuori da
+// STEP_CON_MESH/STEP_CON_TAGLIO apposta, sono comandi diversi (un campo per
+// nodo, non un artefatto di step) che condividono solo il numero di step.
+const STEP_CON_CAMPO = 13;
+
+// Il testo della legenda: dichiara sempre dove sta il taglio e quanti nodi lo
+// superano, anche su un campo costante (taglio == massimo, nessun picco da
+// isolare) o tutto a zero. Number.isFinite guarda solo `taglio`: sopraTaglio
+// esce gia' finito da scalaDelCampo, che conta per rango e non per valore.
+function testoLegendaDelCampo(taglio, sopraTaglio, unita) {
+  // Gli spostamenti veri sono submillimetrici (0,0367 mm, misurato): un solo
+  // decimale li arrotonderebbe tutti a "0 mm", la stessa scala muta che il
+  // taglio esiste per evitare.
+  const cifre = unita === "mm" ? 4 : 1;
+  const numero = Number.isFinite(taglio)
+    ? taglio.toLocaleString("it", { maximumFractionDigits: cifre })
+    : "n/d";
+  return `scala tagliata a ${numero} ${unita} — ${sopraTaglio.toLocaleString("it")} nodi sopra il taglio`;
+}
+
+// Mesh e campo arrivano insieme, con la stessa arbitrazione di
+// mostraNuvolaDelloStep/mostraStep (apriGeometria/ultimaGeometria): due
+// selezioni del menu a cascata di seguito non devono far vincere la piu'
+// vecchia. Vero se questa chiamata ha scritto (disegno o rifiuto dichiarato),
+// falso se e' stata scartata perche' superata.
+// legenda/didascalia arrivano come argomenti e non da document.getElementById:
+// pannelloCampo li crea e li appende al proprio fieldset nello stesso istante
+// in cui costruisce il pannello, prima che quel fieldset sia agganciato al
+// documento — getElementById non troverebbe un nodo ancora staccato.
+async function mostraCampoDelloStep(caso, grandezza, ordine, legenda, didascalia) {
+  const emissione = apriGeometria();
+  const [rispostaMesh, rispostaCampo] = await Promise.all([
+    fetch(`/api/mesh/${STEP_CON_CAMPO}`).catch(serverMuto),
+    fetch(`/api/campo/${caso}/${grandezza}`).catch(serverMuto),
+  ]);
+  if (!rispostaMesh.ok || !rispostaCampo.ok) {
+    if (superata(ordine) || superata(emissione, ultimaGeometria)) return false;
+    // Il server risponde sempre 400 (mai 404): un caso/grandezza inesistenti,
+    // o il .vtu assente perche' la corsa si e' fermata allo step 12, sono lo
+    // stesso rifiuto dichiarato, non una pagina bianca ne' uno stack.
+    const ragione = await ragioneDelRifiuto(rispostaMesh.ok ? rispostaCampo : rispostaMesh);
+    legenda.textContent = "";
+    didascalia.textContent = ragione;
+    return true;
+  }
+  const massimo = Number(rispostaCampo.headers.get("X-Max"));
+  const vertici = Number(rispostaMesh.headers.get("X-Vertices"));
+  const triangoli = Number(rispostaMesh.headers.get("X-Triangles"));
+  const grezziMesh = await rispostaMesh.arrayBuffer();
+  const grezziCampo = await rispostaCampo.arrayBuffer();
+  if (superata(ordine) || superata(emissione, ultimaGeometria)) return false;
+  const valori = new Float32Array(grezziCampo);
+  const { taglio, sopraTaglio } = scalaDelCampo(valori);
+  const ingombro = vista.ingombro();
+  const diagonale = ingombro
+    ? Math.hypot(...ingombro.max.map((v, indice) => v - ingombro.min[indice]))
+    : NaN;
+  const fattore = fattoreAmplificazione(massimo, diagonale);
+  const unita = grandezza === "U" ? "mm" : "MPa";
+  vista.svuota();
+  vista.mostraMeshPerCampo(
+    new Float32Array(grezziMesh, 0, vertici * 3),
+    new Uint32Array(grezziMesh, vertici * 3 * 4, triangoli * 3),
+    valori,
+    { taglio, sopraTaglio },
+  );
+  legenda.textContent = testoLegendaDelCampo(taglio, sopraTaglio, unita);
+  didascalia.textContent = didascaliaDelCampo({ caso, grandezza, massimo, fattore });
+  return true;
+}
+
+// Una forma modale non ha ne' U ne' VM (/api/campo la rifiuta sempre, per
+// costruzione: la sua forma e' normalizzata sulla massa, non uno spostamento
+// fisico), quindi non c'e' nessun campo da colorare. Delega interamente a
+// mostraStep, che disegna gia' la mesh grigia dello step 13 con la propria
+// arbitrazione: le didascalie seguono solo se quella chiamata ha vinto.
+async function mostraModoDelloStep(numero, frequenza, ordine, legenda, didascalia) {
+  const disegnato = await mostraStep(STEP_CON_CAMPO, ordine);
+  if (!disegnato) return false;
+  legenda.textContent = "";
+  didascalia.textContent = didascaliaDelCampo({ caso: `MODO_${numero}`, modale: true, frequenza });
+  return true;
+}
+
+// Il pannello dello step 13: due <select> (caso, grandezza), non un parametro
+// del modello — a differenza dei campi di campoParametro non scrivono nulla
+// in config.yaml, quindi non passano da scriviParametro. I nomi dei casi e i
+// modi vengono da metriche["13_solve"] (casi, modi, frequenze_hz), non da un
+// elenco tenuto qui a mano: un deck futuro con un quarto caso statico non
+// richiederebbe di toccare questo file.
+function pannelloCampo(ordine, metriche13) {
+  const contenitore = document.createElement("fieldset");
+  contenitore.className = "gruppo";
+  contenitore.append(Object.assign(document.createElement("legend"), { textContent: "Campo" }));
+  const casi = Object.keys(metriche13?.casi ?? {});
+  const modi = metriche13?.modi ?? 0;
+  if (casi.length === 0 && modi === 0) {
+    contenitore.append(Object.assign(document.createElement("p"), {
+      className: "aiuto",
+      textContent: "Lo step 13 non ha ancora prodotto casi di carico ne' modi da mostrare.",
+    }));
+    return contenitore;
+  }
+  const selCaso = document.createElement("select");
+  for (const nome of casi) selCaso.append(new Option(nome, nome));
+  for (let n = 1; n <= modi; n += 1) {
+    const hz = metriche13.frequenze_hz?.[n - 1];
+    selCaso.append(new Option(`Modo ${n}${Number.isFinite(hz) ? ` (${hz.toFixed(2)} Hz)` : ""}`, `MODO_${n}`));
+  }
+  const rigaCaso = document.createElement("label");
+  rigaCaso.className = "campo";
+  rigaCaso.append(Object.assign(document.createElement("span"), { textContent: "caso" }), selCaso);
+
+  const selGrandezza = document.createElement("select");
+  selGrandezza.append(new Option("spostamento (U)", "U"), new Option("tensione equivalente (VM)", "VM"));
+  const rigaGrandezza = document.createElement("label");
+  rigaGrandezza.className = "campo";
+  rigaGrandezza.append(Object.assign(document.createElement("span"), { textContent: "grandezza" }), selGrandezza);
+
+  const legenda = Object.assign(document.createElement("p"), { className: "aiuto", id: "campo-legenda" });
+  const didascalia = Object.assign(document.createElement("p"), { className: "aiuto", id: "campo-didascalia" });
+
+  async function aggiorna() {
+    const caso = selCaso.value;
+    const modale = caso.startsWith("MODO_");
+    // hidden e non disabled: un modo non ha grandezza, non e' un comando spento.
+    rigaGrandezza.hidden = modale;
+    if (modale) {
+      const numero = Number(caso.slice("MODO_".length));
+      await mostraModoDelloStep(numero, metriche13.frequenze_hz?.[numero - 1], ordine, legenda, didascalia);
+    } else {
+      await mostraCampoDelloStep(caso, selGrandezza.value, ordine, legenda, didascalia);
+    }
+  }
+  selCaso.addEventListener("change", aggiorna);
+  selGrandezza.addEventListener("change", aggiorna);
+  contenitore.append(rigaCaso, rigaGrandezza, legenda, didascalia);
+  aggiorna();
+  return contenitore;
 }
 
 // Il piano di taglio serve a guardare dentro il volume, percio' il comando
@@ -1140,11 +1283,16 @@ async function apriDettaglio(numero, ordine = generazione) {
     dettaglio.append(gruppo);
   }
 
+  // Presa qui, prima dei due pannelli sotto: pannelloCampo la legge per
+  // costruire i propri <select> dai casi e dai modi gia' risolti, la sezione
+  // Metriche piu' sotto la legge per il resto.
+  const chiave = Object.keys(metriche).find((k) => k.startsWith(String(numero).padStart(2, "0")));
+
   // Dentro dettaglio, che replaceChildren() svuota a ogni apertura: cosi' il
   // pannello non puo' sopravvivere a uno step che non e' il suo.
   if (numero === STEP_CON_RITAGLIO) dettaglio.append(pannelloRitaglio(ordine));
+  if (numero === STEP_CON_CAMPO) dettaglio.append(pannelloCampo(ordine, metriche[chiave]));
 
-  const chiave = Object.keys(metriche).find((k) => k.startsWith(String(numero).padStart(2, "0")));
   if (chiave) {
     const titolo = document.createElement("h3");
     titolo.textContent = "Metriche";

@@ -92,6 +92,21 @@ def _funzioni(*nomi: str) -> str:
     return "\n".join(_sorgente_di(nome, testo) for nome in nomi)
 
 
+def _modulo_viewport() -> str:
+    """Il sorgente di `viewport.js`. Gemella di `_modulo()`, che legge `app.js`.
+
+    Serve da quando le decisioni numeriche del campo di colore vivono li': la
+    scala e l'amplificazione sono logica, e la logica di questo progetto si
+    prova eseguendola.
+    """
+    return (UI_DIR / "viewport.js").read_text(encoding="utf-8")
+
+
+def _funzioni_viewport(*nomi: str) -> str:
+    testo = _modulo_viewport()
+    return "\n".join(_sorgente_di(nome, testo) for nome in nomi)
+
+
 def _node() -> str:
     percorso = shutil.which("node")
     if percorso is None:
@@ -1499,8 +1514,12 @@ globalThis.fetch = async (percorso) => {
   return risponde[percorso]();
 };
 // Letto e non chiamato in questi banchi (numero e' sempre 1): apriDettaglio
-// lo confronta comunque a ogni apertura, quindi deve esistere.
+// li confronta comunque a ogni apertura, quindi devono esistere. pannelloCampo
+// e' provato per conto suo (Task 9): qui basta uno stub, questi banchi non
+// aprono mai lo step 13.
 const STEP_CON_RITAGLIO = 2;
+const STEP_CON_CAMPO = 13;
+function pannelloCampo() { return document.createElement("fieldset"); }
 const SCHEMA_BUONO = { "1": { blocchi: ["input"], campi: { input: { path: { description: "percorso" } } } } };
 const CONFIG_BUONA = { input: { path: "nuvola.ply" } };
 const METRICHE_BUONE = {};
@@ -2449,4 +2468,261 @@ risolutori[1]();
 await eseguito;
 assert.equal(confrontoRicaricato, 1,
   "il confronto non si ricarica dopo aver generato i modelli: resterebbe con la colonna vecchia");
+""")
+
+
+# --------------------------------------------------------------------------
+# Task 9: il campo si vede. Le due decisioni numeriche vivono in viewport.js,
+# pure e fuori da mostraMeshPerCampo apposta: una decisione sepolta dentro una
+# funzione che tocca three.js non si esegue in node, e finirebbe verificata
+# cercando una sottostringa.
+# --------------------------------------------------------------------------
+
+
+def test_la_scala_del_campo_si_taglia_al_p99_e_non_al_massimo(tmp_path):
+    """Un nodo non decide la scala di tutti gli altri.
+
+    Misurato il 21/08/2026 sull'as-built sotto peso proprio: il rapporto fra il
+    massimo della von Mises e il suo p99 vale 2,16. Una scala lineare fino al
+    massimo schiaccia quattordicimila nodi in fondo perche' uno solo sta in
+    cima. Chi supera il taglio prende un colore dichiarato e la legenda lo dice:
+    e' un'informazione, non un buco.
+    """
+    uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
+        + _funzioni_viewport("scalaDelCampo") + """
+const valori = new Float32Array(1000);
+for (let i = 0; i < 1000; i += 1) valori[i] = 1.0;
+valori[999] = 50.0;                       // il nodo isolato in cima
+const { taglio, sopraTaglio } = scalaDelCampo(valori);
+assert.ok(taglio < 2.0, `il taglio ha seguito il massimo: ${taglio}`);
+assert.equal(sopraTaglio, 10);            // l'1% di mille
+console.log("ok");
+""")
+    assert uscita.strip() == "ok"
+
+
+def test_il_fattore_di_amplificazione_viene_dal_dato_e_non_da_un_gusto(tmp_path):
+    """0,0367 mm su un telaio di 2,5 m non si vede a 1:1.
+
+    Qualunque amplificazione fa sembrare vera una deformazione inventata, quindi
+    il fattore non si sceglie perche' "viene bene": e' quello per cui lo
+    spostamento massimo vale il 2% della diagonale, e si scrive sempre accanto
+    alla vista insieme allo spostamento vero in millimetri.
+    """
+    uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
+        + _funzioni_viewport("fattoreAmplificazione") + """
+const fattore = fattoreAmplificazione(0.0367, 4000.0);
+assert.ok(Math.abs(fattore * 0.0367 - 0.02 * 4000.0) < 1e-6, `${fattore}`);
+console.log("ok");
+""")
+    assert uscita.strip() == "ok"
+
+
+def test_la_didascalia_di_una_forma_modale_non_porta_millimetri():
+    """Da un passo *FREQUENCY non escono ne' mm ne' MPa.
+
+    Nel viewport e' piu' facile cadere che altrove, perche' la vista di una
+    forma modale e' identica a quella di un caso di carico vero.
+    """
+    sorgente = _modulo_viewport()
+    didascalia = _sorgente_di("didascaliaDelCampo", sorgente)
+    assert "ampiezza arbitraria" in didascalia
+    assert "modale" in didascalia, "la didascalia non distingue una forma da un caso"
+
+
+# --------------------------------------------------------------------------
+# Ingressi degeneri della scala e del fattore.
+# --------------------------------------------------------------------------
+
+
+def test_la_scala_del_campo_su_un_campo_costante_non_degenera(tmp_path):
+    """max == min: nessuna divisione per zero, nessun taglio NaN. La legenda
+    resta leggibile anche quando non c'e' nessun picco da isolare."""
+    uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
+        + _funzioni_viewport("scalaDelCampo") + """
+const costante = new Float32Array(500).fill(3.5);
+const { taglio, sopraTaglio } = scalaDelCampo(costante);
+assert.ok(Number.isFinite(taglio), `il taglio non e' finito su un campo costante: ${taglio}`);
+assert.equal(taglio, 3.5);
+assert.ok(Number.isFinite(sopraTaglio));
+console.log("ok");
+""")
+    assert uscita.strip() == "ok"
+
+
+def test_la_scala_del_campo_su_tutti_zero_non_e_una_barra_vuota(tmp_path):
+    """Tutti i valori a zero: la scala resta un numero leggibile (0), non NaN
+    ne' un buco silenzioso nella legenda."""
+    uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
+        + _funzioni_viewport("scalaDelCampo") + """
+const zeri = new Float32Array(500);
+const { taglio, sopraTaglio } = scalaDelCampo(zeri);
+assert.equal(taglio, 0);
+assert.ok(Number.isFinite(sopraTaglio));
+console.log("ok");
+""")
+    assert uscita.strip() == "ok"
+
+
+def test_la_scala_del_campo_ignora_nan_e_infinito_senza_incantarsi(tmp_path):
+    """NaN e Infinity in mezzo ai valori non devono decidere la scala in
+    silenzio: filtrati, il taglio resta quello dei valori finiti."""
+    uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
+        + _funzioni_viewport("scalaDelCampo") + """
+const valori = new Float64Array(100).fill(1.0);
+valori[0] = NaN;
+valori[1] = Infinity;
+valori[2] = -Infinity;
+const { taglio, sopraTaglio } = scalaDelCampo(valori);
+assert.ok(Number.isFinite(taglio), `NaN/Infinity hanno prodotto un taglio non finito: ${taglio}`);
+assert.equal(taglio, 1.0, "i tre valori non finiti non dovevano contribuire al taglio");
+console.log("ok");
+""")
+    assert uscita.strip() == "ok"
+
+
+def test_il_fattore_di_amplificazione_su_una_diagonale_invalida_non_esplode(tmp_path):
+    """diagonale nulla, NaN, infinita o negativa: il fattore resta un numero
+    usabile (dichiarato qui: nessuna amplificazione, x1), mai Infinity ne' NaN."""
+    uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
+        + _funzioni_viewport("fattoreAmplificazione") + """
+for (const diagonale of [0, NaN, Infinity, -1]) {
+  const fattore = fattoreAmplificazione(0.05, diagonale);
+  assert.ok(Number.isFinite(fattore), `diagonale ${diagonale} ha prodotto un fattore non finito: ${fattore}`);
+}
+// Un massimo a zero (campo costante a zero) e' la stessa famiglia di guasto:
+// la stessa divisione per zero, sull'altro operando.
+const fattoreMassimoZero = fattoreAmplificazione(0, 4000.0);
+assert.ok(Number.isFinite(fattoreMassimoZero), `massimo zero ha prodotto: ${fattoreMassimoZero}`);
+console.log("ok");
+""")
+    assert uscita.strip() == "ok"
+
+
+def test_la_didascalia_di_un_modo_oltre_quelli_calcolati_non_scrive_nan(tmp_path):
+    """Ingresso degenere: un modo richiesto oltre quelli calcolati non ha una
+    frequenza nota (undefined/NaN dal lato che la richiede). NaN.toFixed(2)
+    scriverebbe silenziosamente "NaN Hz": stesso trattamento degli altri
+    ingressi che il campo non puo' onorare, un messaggio dichiarato."""
+    uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
+        + _funzioni_viewport("didascaliaDelCampo") + """
+const testo = didascaliaDelCampo({ caso: "MODO_9", modale: true, frequenza: NaN });
+assert.ok(!testo.includes("NaN"), testo);
+assert.ok(testo.includes("modale"));
+console.log("ok");
+""")
+    assert uscita.strip() == "ok"
+
+
+def test_la_legenda_del_campo_resta_leggibile_su_costante_e_su_zero(tmp_path):
+    """Ingressi degeneri visti dal lato di app.js: un campo costante (taglio ==
+    massimo, nessun picco da isolare) e un campo tutto a zero non producono una
+    legenda muta o con "NaN" scritto dentro."""
+    uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
+        + _funzioni("testoLegendaDelCampo") + """
+const costante = testoLegendaDelCampo(5.0, 10, "MPa");
+assert.ok(!costante.includes("NaN"), costante);
+assert.ok(costante.length > 0, "la legenda e' vuota su un campo costante");
+const zero = testoLegendaDelCampo(0, 0, "mm");
+assert.ok(!zero.includes("NaN"), zero);
+assert.ok(zero.length > 0, "la legenda e' vuota su un campo tutto a zero");
+console.log("ok");
+""")
+    assert uscita.strip() == "ok"
+
+
+def test_la_legenda_di_uno_spostamento_submillimetrico_non_arrotonda_a_zero(tmp_path):
+    """Trovato verificando nel browser (Task 9, corsa sintetica): con un solo
+    decimale uno spostamento vero come 0,0367 mm si legge "0 mm", la stessa
+    scala muta che il taglio esiste per evitare. Le tensioni (MPa) restano a
+    un decimale: sono gia' ordini di grandezza sopra 1."""
+    uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
+        + _funzioni("testoLegendaDelCampo") + """
+const spostamento = testoLegendaDelCampo(0.0367, 3, "mm");
+assert.ok(!spostamento.includes("0 mm"), spostamento);
+console.log("ok");
+""")
+    assert uscita.strip() == "ok"
+
+
+def _banco_del_campo_dello_step() -> str:
+    """`mostraCampoDelloStep`, con `vista` finta e le sue dipendenze vere: la
+    stessa arbitrazione (`apriGeometria`/`ultimaGeometria`) gia' provata su
+    `mostraNuvolaDelloStep`, applicata alla coppia mesh+campo che questa
+    funzione richiede insieme con `Promise.all`.
+    """
+    return (
+        _DOM
+        + _funzioni_viewport("scalaDelCampo", "fattoreAmplificazione", "didascaliaDelCampo")
+        + _funzioni(
+            "testoLegendaDelCampo", "ragioneDelRifiuto", "serverMuto", "apriGeometria", "superata",
+            "mostraCampoDelloStep",
+        )
+        + """
+const STEP_CON_CAMPO = 13;
+let ultimaGeometria = 0;
+const vista = {
+  svuotate: 0,
+  disegnato: null,
+  svuota() { this.svuotate += 1; },
+  mostraMeshPerCampo(vertici, facce, valori, scala) {
+    this.disegnato = { vertici: vertici.length, facce: facce.length, valori: valori.length, scala };
+  },
+  ingombro() { return { min: [0, 0, 0], max: [3000, 0, 0] }; },
+};
+const legenda = document.createElement("p");
+const didascalia = document.createElement("p");
+let risponde = [];
+let chiamata = 0;
+globalThis.fetch = async () => risponde[chiamata++]();
+"""
+    )
+
+
+def test_il_campo_mostra_il_messaggio_del_server_su_un_400_e_non_una_pagina_bianca(tmp_path):
+    """Ingresso degenere: il server risponde 400 (caso o grandezza inesistenti,
+    o il .vtu assente perche' la corsa si e' fermata allo step 12). La
+    didascalia deve portare il messaggio del server, non restare quella di
+    prima e non sollevare fuori dal gestore."""
+    _esegui(tmp_path, _banco_del_campo_dello_step() + """
+risponde = [
+  async () => ({ ok: true, status: 200,
+    headers: { get: (n) => ({ "X-Vertices": "1", "X-Triangles": "0" }[n]) },
+    arrayBuffer: async () => new ArrayBuffer(12) }),
+  async () => ({ ok: false, status: 400,
+    text: async () => JSON.stringify({ messaggio: "nessun campo 'VM_CARICO_TOP' in 13_solution.vtu" }) }),
+];
+const disegnato = await mostraCampoDelloStep("CARICO_TOP", "VM", generazione, legenda, didascalia);
+assert.equal(disegnato, true, "il rifiuto non e' stato gestito: il gestore non ha scritto nulla");
+assert.equal(vista.disegnato, null, "un rifiuto non deve disegnare comunque una mesh colorata");
+assert.equal(
+  didascalia.textContent,
+  "nessun campo 'VM_CARICO_TOP' in 13_solution.vtu",
+  "la didascalia non porta il messaggio del server",
+);
+""")
+
+
+def test_il_campo_colora_la_mesh_con_la_scala_tagliata_al_p99(tmp_path):
+    """Il percorso buono: mesh e campo arrivano insieme, la scala si taglia al
+    p99 (non al massimo che il server manda in X-Max), e la didascalia porta
+    il fattore di amplificazione derivato dal dato."""
+    _esegui(tmp_path, _banco_del_campo_dello_step() + """
+const valoriCampo = new Float32Array(1000).fill(1.0);
+valoriCampo[999] = 50.0;
+risponde = [
+  async () => ({ ok: true, status: 200,
+    headers: { get: (n) => ({ "X-Vertices": "1000", "X-Triangles": "0" }[n]) },
+    arrayBuffer: async () => new Float32Array(3000).buffer }),
+  async () => ({ ok: true, status: 200,
+    headers: { get: (n) => ({ "X-Max": "50.0" }[n]) },
+    arrayBuffer: async () => valoriCampo.buffer }),
+];
+const disegnato = await mostraCampoDelloStep("CARICO_TOP", "VM", generazione, legenda, didascalia);
+assert.equal(disegnato, true);
+assert.ok(vista.disegnato !== null, "la mesh colorata non e' mai stata disegnata");
+assert.ok(vista.disegnato.scala.taglio < 2.0,
+  `la scala ha seguito il massimo (50) invece del p99: ${vista.disegnato.scala.taglio}`);
+assert.equal(vista.disegnato.scala.sopraTaglio, 10);
+assert.ok(didascalia.textContent.includes("MPa"), didascalia.textContent);
 """)

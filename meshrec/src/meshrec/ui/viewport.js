@@ -1,6 +1,61 @@
 // Scena tridimensionale. Disegna cio' che il server manda, non ricalcola nulla.
 import * as THREE from "/ui/vendor/three.module.js";
 
+// Il taglio della scala colore di un campo per nodo: al p99, non al massimo.
+// Un carico nodale concentrato su mesh grossolana produce una singolarita' -
+// un picco stretto su un solo nodo, non un plateau (misurato sull'as-built,
+// caso CARICO_TOP: max/p99 = 5,09) - e una scala tirata su quel massimo
+// schiaccerebbe tutto il resto del pezzo in un solo colore, mostrando
+// l'artefatto come se fosse il risultato. Pura e fuori da mostraMeshPerCampo
+// apposta: e' una decisione numerica, e questo progetto la prova eseguendola
+// in node, non cercandola come sottostringa in una funzione che tocca three.js.
+//
+// sopraTaglio conta per rango (l'1% piu' alto), non per valore: cosi' la
+// legenda dichiara sempre una quota fissa e leggibile del campo, anche
+// quando molti nodi sono legati allo stesso valore di cima.
+export function scalaDelCampo(valori) {
+  const finiti = [];
+  for (let indice = 0; indice < valori.length; indice += 1) {
+    if (Number.isFinite(valori[indice])) finiti.push(valori[indice]);
+  }
+  // NaN/Infinity ovunque: nessun valore su cui tagliare. 0 e' leggibile,
+  // un taglio NaN in silenzio no.
+  if (finiti.length === 0) return { taglio: 0, sopraTaglio: 0 };
+  finiti.sort((a, b) => a - b);
+  const n = finiti.length;
+  const indice = Math.max(0, Math.ceil(n * 0.99) - 1);
+  return { taglio: finiti[indice], sopraTaglio: n - 1 - indice };
+}
+
+// Il fattore per cui lo spostamento massimo vale il 2% della diagonale del
+// modello: submillimetrico su un pezzo di tre metri, invisibile a 1:1. Un
+// massimo o una diagonale non finiti (o nulli) non hanno un'amplificazione
+// sensata da derivare: 1 (nessuna amplificazione) e' il fattore dichiarato,
+// non Infinity ne' NaN scritti in una didascalia.
+export function fattoreAmplificazione(massimo, diagonale) {
+  if (!Number.isFinite(massimo) || massimo <= 0) return 1;
+  if (!Number.isFinite(diagonale) || diagonale <= 0) return 1;
+  return (0.02 * diagonale) / massimo;
+}
+
+// Che cosa si sta guardando, sempre accanto alla vista: un'immagine di
+// spostamento senza il suo fattore o una forma modale senza dirlo si
+// confondono a colpo d'occhio - la Fase 5 ha gia' pagato l'errore di una von
+// Mises calcolata su una forma modale (fino a 88,5 MPa, privi di senso: una
+// forma e' normalizzata sulla massa, non uno spostamento fisico).
+export function didascaliaDelCampo({ caso, grandezza, modale, frequenza, massimo, fattore }) {
+  if (modale) {
+    // Un modo oltre quelli calcolati non ha una frequenza nota: NaN.toFixed()
+    // scriverebbe "NaN Hz" in silenzio, lo stesso guasto di un taglio muto.
+    return Number.isFinite(frequenza)
+      ? `${caso}: forma modale, ampiezza arbitraria (normalizzata sulla massa), ${frequenza.toFixed(2)} Hz`
+      : `${caso}: forma modale, ampiezza arbitraria (normalizzata sulla massa); frequenza non disponibile`;
+  }
+  return grandezza === "U"
+    ? `${caso} — spostamento: massimo reale ${massimo.toFixed(4)} mm, amplificato ×${fattore.toFixed(0)} nella vista`
+    : `${caso} — tensione equivalente: massimo ${massimo.toFixed(1)} MPa`;
+}
+
 export function creaViewport(contenitore) {
   const scena = new THREE.Scene();
   scena.background = new THREE.Color(0xfbfaf8);
@@ -200,6 +255,46 @@ export function creaViewport(contenitore) {
         clippingPlanes: pianiTaglio,
       })));
       descrivi(`superficie di ${(facce.length / 3).toLocaleString("it")} facce`);
+      inquadra();
+    },
+    // Il campo per nodo (spostamento o tensione equivalente) sopra la
+    // superficie di contorno. La scala si taglia al p99 e non al massimo: su
+    // un campo di tensione il rapporto fra i due vale 2,16 sotto peso proprio
+    // e arriva a 5,09 su un carico concentrato (misurato sull'as-built), e una
+    // scala fino al massimo schiaccerebbe quattordicimila nodi in fondo perche'
+    // uno solo sta in cima. Chi supera il taglio prende un colore dichiarato,
+    // e la legenda dice dov'e' il taglio e quanti nodi sono sopra: e'
+    // un'informazione, non un buco.
+    mostraMeshPerCampo(vertici, facce, valori, { taglio, sopraTaglio }) {
+      const geometria = new THREE.BufferGeometry();
+      geometria.setAttribute("position", new THREE.BufferAttribute(vertici, 3));
+      geometria.setIndex(new THREE.BufferAttribute(facce, 1));
+      geometria.computeVertexNormals();
+      const colori = new Float32Array(valori.length * 3);
+      // Un campo costante o tutto a zero non deve dividere per zero: la scala
+      // resta un solo colore, non un crash ne' un taglio NaN che la renderebbe
+      // silenziosamente uniforme.
+      const soglia = taglio > 0 ? taglio : 1;
+      const colore = new THREE.Color();
+      for (let indice = 0; indice < valori.length; indice += 1) {
+        const valore = valori[indice];
+        // Un residuo NaN/Infinity nel campo non deve corrompere il resto della
+        // riga di colore: resta al fondo della scala, dichiarato zero.
+        const frazione = Number.isFinite(valore) ? Math.min(1, Math.max(0, valore / soglia)) : 0;
+        // Blu (basso) verso rosso (al taglio e oltre): stessa famiglia HSL di
+        // mostraNuvolaPerMembratura, letta nel verso opposto.
+        colore.setHSL((1 - frazione) * 0.6, 0.75, 0.5);
+        colore.toArray(colori, indice * 3);
+      }
+      geometria.setAttribute("color", new THREE.BufferAttribute(colori, 3));
+      gruppo.add(new THREE.Mesh(geometria, new THREE.MeshStandardMaterial({
+        vertexColors: true, roughness: 0.9, metalness: 0.0, side: THREE.DoubleSide,
+        clippingPlanes: pianiTaglio,
+      })));
+      descrivi(
+        `campo su ${(facce.length / 3).toLocaleString("it")} facce, ` +
+        `${sopraTaglio.toLocaleString("it")} nodi sopra il taglio`,
+      );
       inquadra();
     },
     // Colore per membratura. E' la prova visiva che la scomposizione ha capito

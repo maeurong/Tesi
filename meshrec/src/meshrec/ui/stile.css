@@ -196,6 +196,10 @@ body {
 .gruppo { border: 1px solid var(--bordo); border-radius: var(--raggio); padding: var(--passo-3); margin: 0 0 var(--passo-3); }
 .gruppo legend { font-size: var(--tipo-nota); line-height: var(--interlinea-riga); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--tenue); }
 .campo { display: grid; gap: var(--passo-1); margin-bottom: var(--passo-3); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); }
+/* Come .taglio[hidden]: display: grid pesa quanto l'attributo hidden, e senza
+   questa regola un campo nascosto (la grandezza di un modo, che non ne ha una)
+   resterebbe a video. */
+.campo[hidden] { display: none; }
 /* Cifre tabulari nei campi: sei caselle di coordinate incolonnate una sotto
    l'altra si confrontano a colpo d'occhio solo se le cifre hanno la stessa
    larghezza. */
