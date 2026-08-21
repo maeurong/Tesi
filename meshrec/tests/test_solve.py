@@ -380,6 +380,45 @@ def test_risolvi_con_ccx_simulato_assembla_i_campi_e_conta_gli_avvisi(tmp_path, 
     }
 
 
+def test_il_controllo_sul_vincolo_in_pianta_usa_la_soglia_di_produzione(tmp_path, monkeypatch):
+    """Aggancio del controllo `vincolo_in_pianta` a `risolvi()`: il caso
+    sintetico a un piede (misurato 0,32 allo Step 7 del Task 2) deve fallire
+    contro la soglia di produzione `_SOGLIA_VINCOLO_IN_PIANTA` (0,5); il caso
+    lab_crop (0,987) deve passare. Nessun test esistente asserisce sul
+    verdetto di questo controllo -- solo sulla sua presenza nel dizionario --
+    quindi la mutazione dello Step 3 del giro di correzione non aveva nulla
+    da uccidere prima di questo test.
+    """
+    casi_di_carico = ["GRAVITA", "SPINTA_ORIZZONTALE", "CARICO_TOP", "MODALE"]
+    deck = tmp_path / "wall_model.inp"
+    deck.write_text("*HEADING\n", encoding="ascii")
+    deck.with_suffix(".frd").write_text(FRD_QUATTRO_PASSI, encoding="ascii")
+    deck.with_suffix(".dat").write_text(DAT_DUE_MODI, encoding="ascii")
+
+    import subprocess
+
+    monkeypatch.setattr(solve.shutil, "which", lambda _nome: "/usr/bin/ccx")
+    monkeypatch.setattr(
+        solve.subprocess, "run",
+        lambda comando, **kwargs: subprocess.CompletedProcess(comando, returncode=0, stdout="", stderr=""),
+    )
+
+    nodi = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+    elementi = np.array([[0, 1, 2, 3]])
+
+    un_piede = solve.risolvi(
+        tmp_path, deck, ANALISI, nodi, elementi, "C3D4", casi_di_carico=casi_di_carico,
+        vincolo_in_pianta={"x": 1.0, "y": 0.32, "minimo": 0.32},
+    )
+    assert not un_piede["controlli"]["vincolo_in_pianta"]["passato"], "0,32 e' sotto 0,5: non citabile"
+
+    lab_crop = solve.risolvi(
+        tmp_path, deck, ANALISI, nodi, elementi, "C3D4", casi_di_carico=casi_di_carico,
+        vincolo_in_pianta={"x": 1.0, "y": 0.987, "minimo": 0.987},
+    )
+    assert lab_crop["controlli"]["vincolo_in_pianta"]["passato"]
+
+
 def test_casi_di_carico_segue_l_ordine_vero_scritto_da_write_inp(tmp_path):
     """L'origine e' una sola: `casi_di_carico`, il campo che `export_model`
     restituisce e che `solve.risolvi` legge senza ri-derivarlo (giro di

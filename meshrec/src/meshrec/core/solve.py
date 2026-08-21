@@ -45,6 +45,30 @@ from meshrec.core.config import AnalysisConfig
 # fattibilita' (tests/feasibility/test_calculix.py), non un numero nuovo.
 _TIMEOUT_S = 600.0
 
+# Estensione in pianta minima dell'insieme vincolato
+# (abaqus.constraint_plan_extent), come frazione dell'impronta del pezzo.
+# Sotto questa soglia i risultati restano scritti ma sono marcati non
+# citabili. Misurato il 21/08/2026 allo Step 7 del Task 2 su quattro
+# geometrie: muro 0,999, lab_crop 0,987, sintetico a due piedi 1,000,
+# sintetico a un piede solo 0,32 -- un dirupo netto fra 0,32 e 0,987, nessun
+# punto di misura in mezzo. 0,5 sta in quel dirupo: sopra il solo caso
+# patologico misurato, sotto ogni caso vincolato correttamente. Debito: la
+# tabella non contiene il caso difettoso reale, solo il banco sintetico a un
+# piede come sostituto; il Task 11 porta il punto vero, e questa soglia va
+# riverificata allora.
+#
+# Costante di modulo e non campo di `AnalysisConfig` (ruling della revisione
+# del Task 7): non cambia cosa viene calcolato, solo l'etichetta di un
+# verdetto, quindi non appartiene all'impronta di `sweep.fingerprint` (che
+# include `analysis` per intero, sweep.py:43) -- un campo qui romperebbe
+# `experiments/*/registro.jsonl`, sola lettura. E una soglia di controllo che
+# l'utente puo' allentare da YAML e' un controllo che l'utente puo' zittire:
+# questa fase esiste per avere controlli che smentiscono, non per renderli
+# opzionali. Confine con `AnalysisConfig.set_tolerance_factor`, che resta in
+# configurazione: quello cambia quali nodi finiscono nei set, cioe'
+# l'elaborazione stessa, non solo il verdetto su un suo risultato.
+_SOGLIA_VINCOLO_IN_PIANTA = 0.5
+
 # Tolleranza di equilibrio per `controlla_reazioni`, misurata in questa
 # sessione (21/08/2026, ccx 2.22) su un cubo omogeneo sotto peso proprio:
 # scarto fra reazioni e rho*V*g dell'8,5% con 35 nodi vincolati alla base,
@@ -373,7 +397,8 @@ def risolvi(
     che dicono quando i numeri qui sopra non sono citabili -- `reazioni`
     (equilibrio del solo peso proprio, passo 1, sempre isolabile per
     costruzione di `abaqus.write_inp`), `vincolo_in_pianta` (soglia
-    `cfg.constraint_extent_min`), `autovalori`, `avvisi` (zero per essere
+    `_SOGLIA_VINCOLO_IN_PIANTA`, costante di modulo -- vedi il commento sopra la
+    sua definizione), `autovalori`, `avvisi` (zero per essere
     citabili), `picco` (per caso di carico, dove vive il picco di tensione,
     non se e' alto). Sotto soglia i risultati restano scritti: si marcano,
     non si nascondono.
@@ -458,9 +483,9 @@ def risolvi(
     controlli = {
         "reazioni": controlla_reazioni(reazioni_peso_proprio, peso_atteso, tolleranza=_TOLLERANZA_REAZIONI),
         "vincolo_in_pianta": {
-            "passato": vincolo_in_pianta["minimo"] >= cfg.constraint_extent_min,
+            "passato": vincolo_in_pianta["minimo"] >= _SOGLIA_VINCOLO_IN_PIANTA,
             "minimo": vincolo_in_pianta["minimo"],
-            "soglia": cfg.constraint_extent_min,
+            "soglia": _SOGLIA_VINCOLO_IN_PIANTA,
         },
         "autovalori": controlla_autovalori(frequenze_hz),
         "avvisi": {"passato": avvisi == 0, "conteggio": avvisi},
