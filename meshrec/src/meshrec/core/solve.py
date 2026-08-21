@@ -31,10 +31,19 @@ quella intestazione per lo stesso motivo per cui `leggi_frd` marca `modale`.
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 from pathlib import Path
 from typing import NamedTuple
 
 import numpy as np
+
+from meshrec.core import abaqus
+from meshrec.core.config import AnalysisConfig, CarichiConfig
+
+# Tempo massimo concesso a ccx: stesso valore usato in tutta la suite di
+# fattibilita' (tests/feasibility/test_calculix.py), non un numero nuovo.
+_TIMEOUT_S = 600.0
 
 
 class Blocco(NamedTuple):
@@ -153,3 +162,124 @@ def von_mises(tensioni: np.ndarray) -> np.ndarray:
     normali = 0.5 * ((s[:, 0] - s[:, 1]) ** 2 + (s[:, 1] - s[:, 2]) ** 2 + (s[:, 2] - s[:, 0]) ** 2)
     taglianti = 3.0 * (s[:, 3] ** 2 + s[:, 4] ** 2 + s[:, 5] ** 2)
     return np.sqrt(normali + taglianti)
+
+
+def _casi_statici(cfg: AnalysisConfig, carichi: CarichiConfig | None) -> list[str]:
+    """Nomi dei passi statici, nello stesso ordine in cui `abaqus.write_inp` li scrive.
+
+    Deve restare la stessa derivazione di `export_model`'s `casi_di_carico`
+    (senza il modale, che non e' un passo statico): il passo N del `.frd` non
+    porta un nome, solo un numero, e questa e' la tabella che lo traduce.
+    """
+    return [nome for nome in (
+        cfg.step_name,
+        None if carichi is None or carichi.spinta is None else "SPINTA_ORIZZONTALE",
+        None if carichi is None or carichi.carico_sommita is None else "CARICO_TOP",
+    ) if nome is not None]
+
+
+def risolvi(
+    out_dir: Path,
+    deck: Path,
+    cfg: AnalysisConfig,
+    nodes: np.ndarray,
+    elements: np.ndarray,
+    element_type: str,
+    *,
+    carichi: CarichiConfig | None = None,
+) -> dict[str, object]:
+    """Step 13: esegue `ccx` sul deck e scrive i campi in `13_solution.vtu`.
+
+    Un solutore assente non e' un fallimento (PRODUCT.md dichiara utenti
+    successivi confermati senza CalculiX): la funzione lo dice e esce, senza
+    scrivere alcun artefatto numerato.
+
+    Contratto delle chiavi di `point_data`, letto da `pipeline.run` per
+    decidere se registrare l'artefatto e dai Task 8/9 per portare il campo al
+    viewport: `U_<CASO>` (vettore, spostamento nodale) e `VM_<CASO>` (scalare,
+    tensione equivalente) per ciascun passo statico -- `<CASO>` e' il nome che
+    `abaqus.write_inp` da' al passo (`cfg.step_name`, "SPINTA_ORIZZONTALE",
+    "CARICO_TOP"); `MODO_<n>` (vettore, forma non dimensionale) per l'n-esimo
+    modo, se `carichi.modale` e' dichiarato. Un blocco modale non produce mai
+    `U_`/`VM_`: la forma e' normalizzata sulla massa, non uno spostamento
+    fisico (vedi il docstring del modulo).
+
+    `carichi` e' facoltativo e non nel deck stesso: serve solo a tradurre il
+    numero di passo del `.frd` nel nome del caso, con la stessa derivazione di
+    `abaqus.export_model`. Senza di esso l'unico passo e' quello di
+    `cfg.step_name` (di norma "GRAVITA"), coerente con un deck scritto senza
+    `carichi`.
+    """
+    out_dir = Path(out_dir)
+    eseguibile = shutil.which("ccx")
+    if eseguibile is None:
+        return {"eseguito": False, "solutore": "assente"}
+
+    deck = Path(deck)
+    processo = subprocess.run(
+        [eseguibile, "-i", deck.stem],
+        cwd=deck.parent,
+        capture_output=True,
+        text=True,
+        timeout=_TIMEOUT_S,
+    )
+    uscita = processo.stdout + processo.stderr
+    percorso_log = out_dir / "13_solver.log"
+    percorso_log.write_text(uscita, encoding="utf-8")
+    if processo.returncode != 0:
+        raise RuntimeError(
+            f"ccx e' terminato con codice {processo.returncode} su {deck.name}:\n{uscita[-2000:]}"
+        )
+
+    percorso_frd = out_dir / "13_solution.frd"
+    percorso_dat = out_dir / "13_solution.dat"
+    percorso_frd.write_bytes(deck.with_suffix(".frd").read_bytes())
+    percorso_dat.write_bytes(deck.with_suffix(".dat").read_bytes())
+
+    etichetta_passo = dict(enumerate(_casi_statici(cfg, carichi), start=1))
+    blocchi = leggi_frd(percorso_frd)
+
+    n_nodi = len(nodes)
+    point_data: dict[str, np.ndarray] = {}
+    casi: dict[str, dict[str, float]] = {}
+    n_modi = 0
+    for blocco in blocchi:
+        if blocco.modale:
+            if blocco.grandezza != "DISP":
+                continue
+            n_modi += 1
+            campo = np.zeros((n_nodi, 3))
+            campo[blocco.nodi - 1] = blocco.dati
+            point_data[f"MODO_{n_modi}"] = campo
+            continue
+        caso = etichetta_passo.get(blocco.passo)
+        if caso is None:
+            continue
+        if blocco.grandezza == "DISP":
+            campo = np.zeros((n_nodi, 3))
+            campo[blocco.nodi - 1] = blocco.dati
+            point_data[f"U_{caso}"] = campo
+            casi.setdefault(caso, {})["u_max"] = float(np.linalg.norm(blocco.dati, axis=1).max())
+        elif blocco.grandezza == "STRESS":
+            equivalente = von_mises(blocco.dati)
+            campo = np.zeros(n_nodi)
+            campo[blocco.nodi - 1] = equivalente
+            point_data[f"VM_{caso}"] = campo
+            casi.setdefault(caso, {})["vm_max"] = float(equivalente.max())
+
+    percorso_vtu = out_dir / "13_solution.vtu"
+    abaqus.write_vtu(percorso_vtu, nodes, elements, element_type=element_type, point_data=point_data)
+
+    return {
+        "eseguito": True,
+        "returncode": processo.returncode,
+        "avvisi": uscita.upper().count("*WARNING"),
+        "errori": uscita.upper().count("*ERROR"),
+        "casi": casi,
+        "modi": n_modi,
+        "frequenze_hz": leggi_frequenze(percorso_dat),
+        "vtu": str(percorso_vtu),
+        "frd": str(percorso_frd),
+        "dat": str(percorso_dat),
+        "log": str(percorso_log),
+    }

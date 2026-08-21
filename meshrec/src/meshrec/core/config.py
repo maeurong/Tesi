@@ -308,13 +308,20 @@ class RunConfig(_ModelloBase):
     to_step: int = Field(
         default=12,
         ge=1,
-        le=12,
+        le=13,
         description=(
             "ultimo step eseguito. Serve all'interfaccia, che esegue uno step "
             "alla volta: from_step e to_step uguali eseguono soltanto quello. "
-            "Il tetto e' 12 dalla Fase 4: lo step 12 e' il prior geometrico, e "
-            "chiude la corsa madre. from_step resta fermo a 9 e non lo segue, "
-            "per la ragione scritta la'. "
+            "Il tetto e' 13 dalla Fase 5, ma il predefinito resta 12: lo step "
+            "12 e' il prior geometrico e chiude la corsa madre di "
+            "elaborazione, lo step 13 e' il solutore e va chiesto "
+            "esplicitamente. E' l'unico step che paga un processo esterno "
+            "vero invece di lavoro in-process, e uno sweep che valutasse "
+            "candidati di elaborazione pagherebbe quel processo per ciascuno "
+            "senza che la selezione se ne serva: restare fuori dal "
+            "predefinito e' quanto basta a evitarlo, senza toccare sweep.py. "
+            "from_step resta fermo a 9 e non segue questo tetto, per la "
+            "ragione scritta la'. "
             "Con validate_assignment attivo il validatore incrociato rifiuta "
             "ogni stato intermedio incoerente, e nessun ordine di assegnazione "
             "e' sicuro: restringendo un intervallo verso l'alto rompe to_step "

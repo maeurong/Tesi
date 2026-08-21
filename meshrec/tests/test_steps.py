@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from meshrec.core import steps
+from meshrec.core import steps, sweep
 from meshrec.core.config import InputConfig, PipelineConfig
 from materiale import ANALISI
 
@@ -18,16 +18,16 @@ def _config(tmp_path: Path) -> PipelineConfig:
     return cfg
 
 
-def test_i_dodici_step_sono_quelli_che_la_pipeline_scrive():
+def test_i_tredici_step_sono_quelli_che_la_pipeline_scrive():
     assert steps.STEP_KEYS[0] == "01_load"
-    assert steps.STEP_KEYS[-1] == "12_wall"
-    assert len(steps.STEP_KEYS) == 12
-    assert set(steps.STEP_BLOCKS) == set(range(1, 13))
+    assert steps.STEP_KEYS[-1] == "13_solve"
+    assert len(steps.STEP_KEYS) == 13
+    assert set(steps.STEP_BLOCKS) == set(range(1, 14))
 
 
 def test_una_corsa_mai_eseguita_ha_tutti_gli_step_mai_eseguiti(tmp_path):
     stato = steps.run_state(tmp_path / "vuota", _config(tmp_path))
-    assert len(stato) == 12
+    assert len(stato) == 13
     assert {voce["stato"] for voce in stato} == {"mai eseguito"}
 
 
@@ -106,18 +106,21 @@ def test_una_voce_di_stato_non_dizionario_non_solleva(tmp_path):
     assert per_chiave["05_reconstruct"] == "mai eseguito"
 
 
-def test_gli_step_sono_dodici_e_l_ultimo_e_il_prior():
-    assert len(steps.STEP_KEYS) == 12
-    assert steps.STEP_KEYS[-1] == "12_wall"
-    assert steps.STEP_BLOCKS[12] == ("wall",)
+def test_gli_step_sono_tredici_e_l_ultimo_e_il_solutore():
+    assert len(steps.STEP_KEYS) == 13
+    assert steps.STEP_KEYS[-1] == "13_solve"
+    assert steps.STEP_BLOCKS[13] == ("tet", "analysis")
 
 
 def test_lo_step_dodici_non_cambia_le_impronte_degli_undici_precedenti(tmp_path):
     """La catena di impronte si allunga in coda: aggiungere lo step 12 non puo'
-    invalidare un artefatto gia' scritto dagli step precedenti."""
+    invalidare un artefatto gia' scritto dagli step precedenti. Lo step 13
+    invece la eredita: la catena e' cumulativa, quindi un cambio al blocco
+    `wall` (che non e' fra i suoi STEP_BLOCKS dichiarati) lo raggiunge comunque
+    attraverso l'impronta dello step 12."""
     cfg = _config(tmp_path)
     impronte = steps.step_fingerprints(cfg)
-    assert set(impronte) == set(range(1, 13))
+    assert set(impronte) == set(range(1, 14))
 
     cfg_diverso = _config(tmp_path)
     cfg_diverso.wall.min_cells = cfg.wall.min_cells + 1
@@ -126,11 +129,13 @@ def test_lo_step_dodici_non_cambia_le_impronte_degli_undici_precedenti(tmp_path)
     for numero in range(1, 12):
         assert diverse[numero] == impronte[numero], f"lo step {numero} non doveva cambiare"
     assert diverse[12] != impronte[12]
+    assert diverse[13] != impronte[13]
 
 
 def test_cambiare_i_carichi_invalida_dall_undici_in_giu(tmp_path):
     """I carichi entrano nella catena di impronte allo step 11, quindi cambi a
-    carichi invalidano lo step 11 e i successivi."""
+    carichi invalidano lo step 11 e i successivi -- 12 e 13 compresi, per la
+    stessa catena cumulativa."""
     from meshrec.core.config import CarichiConfig, SpintaOrizzontale
 
     prima = _config(tmp_path)
@@ -142,5 +147,17 @@ def test_cambiare_i_carichi_invalida_dall_undici_in_giu(tmp_path):
 
     for numero in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10):
         assert marchi_prima[numero] == marchi_dopo[numero], f"step {numero} non doveva cambiare"
-    for numero in (11, 12):
+    for numero in (11, 12, 13):
         assert marchi_prima[numero] != marchi_dopo[numero], f"step {numero} doveva cambiare"
+
+
+def test_lo_step_13_e_l_ultimo_e_non_entra_nella_completezza_di_uno_sweep():
+    """Stesso principio del Ruling D della Fase 4 su 12_wall.
+
+    Uno sweep varia parametri di elaborazione e confronta geometrie: farlo
+    risolvere per ogni candidato pagherebbe un solutore per ognuno di essi
+    senza che la selezione di Pareto ne guardi il risultato.
+    """
+    assert steps.STEP_KEYS[-1] == "13_solve"
+    assert "13_solve" not in sweep.REQUIRED_STEPS
+    assert "12_wall" not in sweep.REQUIRED_STEPS

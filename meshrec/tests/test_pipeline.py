@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 from pydantic import ValidationError
 
-from meshrec.core import config, io, pipeline, quality, synth
+from meshrec.core import config, io, pipeline, quality, solve, steps, synth
 from materiale import ANALISI, MATERIALE, crea_config
 
 
@@ -235,17 +235,21 @@ def test_resuming_from_tetrahedralize_still_works_when_simplify_is_enabled(tmp_p
     assert resumed["11_export"]["volume"] == pytest.approx(EXACT_VOLUME, rel=0.1)
 
 
-def test_una_corsa_completa_lascia_i_dodici_step_validi(tmp_path):
-    """Dal Task 9 lo step 12 (prior geometrico) e' parte della corsa madre:
-    una corsa intera non lascia piu' nulla di "mai eseguito"."""
+def test_una_corsa_completa_lascia_i_dodici_step_di_elaborazione_validi(tmp_path):
+    """Dal Task 9 (Fase 4) lo step 12 (prior geometrico) e' parte della corsa
+    madre: una corsa intera non lascia piu' nulla di "mai eseguito" nel nucleo
+    di elaborazione. Lo step 13 (solutore, Fase 5) resta "mai eseguito" per
+    difetto: paga un processo esterno vero, e una corsa piena non lo chiama
+    senza to_step=13 esplicito (vedi test_lo_step_13_resta_fuori_dalla_corsa_
+    per_difetto)."""
     from meshrec.core import pipeline, steps
 
     cfg = _config_cubo(tmp_path)
     pipeline.run(cfg)
     stato = steps.run_state(cfg.run.out_dir, cfg)
     per_numero = {voce["numero"]: voce["stato"] for voce in stato}
-    assert set(per_numero.values()) == {"valido"}
     assert all(per_numero[n] == "valido" for n in range(1, 13))
+    assert per_numero[13] == "mai eseguito"
 
 
 def test_cambiare_un_parametro_a_monte_invalida_gli_step_a_valle(tmp_path):
@@ -353,6 +357,43 @@ def test_lo_step_dodici_si_puo_fermare_prima_con_to_step(tmp_path):
     assert "11_export" in metriche
     assert "12_wall" not in metriche
     assert not (cfg.run.out_dir / pipeline.WALL_FILENAME).exists()
+
+
+def test_lo_step_13_resta_fuori_dalla_corsa_per_difetto(tmp_path):
+    """RunConfig.to_step si ferma a 12: il solutore e' l'unico step che paga
+    un processo esterno vero, e una corsa piena non lo chiama senza che
+    qualcuno lo chieda esplicitamente con to_step=13."""
+    from meshrec.core import pipeline
+
+    cfg = _config_cubo(tmp_path)
+
+    metriche = pipeline.run(cfg)
+
+    assert "13_solve" not in metriche
+    assert not (cfg.run.out_dir / "13_solution.vtu").exists()
+    stato = {voce["chiave"]: voce for voce in steps.run_state(cfg.run.out_dir, cfg)}
+    assert stato["13_solve"]["stato"] == "mai eseguito"
+
+
+def test_lo_step_13_gira_solo_se_richiesto_con_to_step_e_non_dichiara_un_artefatto_assente(
+    tmp_path, monkeypatch
+):
+    """to_step=13 attiva lo step; senza `ccx` (simulato qui, cosi' la suite
+    principale non dipende da un solutore installato sulla macchina) l'esito
+    e' negativo e `registra()` non deve dichiarare un artefatto che non
+    esiste."""
+    from meshrec.core import pipeline
+
+    monkeypatch.setattr(solve.shutil, "which", lambda _nome: None)
+    cfg = _config_cubo(tmp_path)
+    cfg.run.to_step = 13
+
+    metriche = pipeline.run(cfg)
+
+    assert metriche["13_solve"] == {"eseguito": False, "solutore": "assente"}
+    stato = {voce["chiave"]: voce for voce in steps.run_state(cfg.run.out_dir, cfg)}
+    assert stato["13_solve"]["stato"] == "valido"
+    assert stato["13_solve"]["artefatto"] is None
 
 
 def test_una_corsa_fermata_all_undici_non_si_dichiara_completa(tmp_path):

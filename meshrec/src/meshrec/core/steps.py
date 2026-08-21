@@ -14,12 +14,18 @@ from pathlib import Path
 
 from meshrec.core.config import PipelineConfig
 
-# Le dodici chiavi del registro degli step. Lo step 7 non ha artefatto proprio
+# Le tredici chiavi del registro degli step. Lo step 7 non ha artefatto proprio
 # ma ha metriche, quindi c'e' anche lui. Lo step 12 e' il prior geometrico
-# della Fase 4: chiude la corsa madre e non e' un punto di ripresa. is_complete()
-# in sweep.py continua a non richiedere "12_wall" a un candidato perche' un
-# candidato di sweep si confronta sulle sole undici misure di elaborazione: e'
-# completo quando ha il proprio deck, non quando ha il prior.
+# della Fase 4: chiude la corsa madre di elaborazione e non e' un punto di
+# ripresa. Lo step 13 e' il solutore della Fase 5: legge il deck che lo step 11
+# ha scritto, e nemmeno lui e' un punto di ripresa. E' anche l'unico step
+# opzionale per costruzione (RunConfig.to_step si ferma a 12 per difetto):
+# paga un processo esterno vero, non lavoro in-process come tutti gli altri,
+# e nessuno vuole pagarlo senza chiederlo esplicitamente. is_complete() in
+# sweep.py continua a non richiedere ne' "12_wall" ne' "13_solve" a un
+# candidato perche' un candidato di sweep si confronta sulle sole undici
+# misure di elaborazione: e' completo quando ha il proprio deck, non quando
+# ha il prior o la soluzione.
 STEP_KEYS: tuple[str, ...] = (
     "01_load",
     "02_segment",
@@ -33,11 +39,17 @@ STEP_KEYS: tuple[str, ...] = (
     "10_volume_quality",
     "11_export",
     "12_wall",
+    "13_solve",
 )
 
 # I blocchi di PipelineConfig che ogni step legge davvero. E' la tabella da cui
 # discende l'invalidazione a valle: cambiare surface.poisson_depth non puo'
 # invalidare lo step 3, e deve invalidare tutto da 5 in giu'.
+#
+# Lo step 13 non ripete "carichi": la catena di `step_fingerprints` e'
+# cumulativa (l'impronta di ogni step incorpora quella del precedente), quindi
+# un cambio ai carichi -- gia' entrato in catena allo step 11 -- invalida 12 e
+# 13 comunque, senza bisogno di dichiararlo una seconda volta qui.
 STEP_BLOCKS: dict[int, tuple[str, ...]] = {
     1: ("input",),
     2: ("segment",),
@@ -51,6 +63,7 @@ STEP_BLOCKS: dict[int, tuple[str, ...]] = {
     10: ("tet",),
     11: ("tet", "analysis", "carichi"),
     12: ("wall",),
+    13: ("tet", "analysis"),
 }
 
 STATE_FILENAME = "steps.json"
@@ -104,9 +117,9 @@ def write_state(
 ) -> None:
     """Registra l'esito di un solo step, senza toccare gli altri.
 
-    Rilegge e riscrive l'intero file a ogni step: sono dodici voci, il costo e'
-    nullo, e cosi' lo stato su disco resta un solo documento coerente invece di
-    dodici frammenti da ricomporre.
+    Rilegge e riscrive l'intero file a ogni step: sono tredici voci, il costo
+    e' nullo, e cosi' lo stato su disco resta un solo documento coerente
+    invece di tredici frammenti da ricomporre.
     """
     from meshrec.core.io import scrivi_atomico
 
@@ -126,7 +139,7 @@ def write_state(
 
 
 def run_state(out_dir: Path, cfg: PipelineConfig) -> list[dict[str, object]]:
-    """Stato dei dodici step per la corsa in `out_dir` con la configurazione `cfg`.
+    """Stato dei tredici step per la corsa in `out_dir` con la configurazione `cfg`.
 
     "valido" significa una cosa sola e verificabile: l'impronta salvata coincide
     con quella ricalcolata dalla configurazione corrente. Non e' un'etichetta

@@ -17,7 +17,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from meshrec.core import solve
+from meshrec.core import solve, synth
+from materiale import ANALISI
 
 # Tre blocchi apposta, non due: il brief ne dava due monotoni (passo 1, poi
 # passo 2), e un contatore incrementale per record `100CL` ci azzecca lo
@@ -189,3 +190,21 @@ def test_le_frequenze_sono_la_colonna_cycles_time_non_la_prima_dopo_il_modo(tmp_
     frequenze = solve.leggi_frequenze(percorso)
 
     assert frequenze == pytest.approx([4384.661, 4384.661, 6164.044, 9633.291])
+
+
+def test_senza_ccx_lo_step_dichiara_l_assenza_e_non_fallisce(tmp_path, monkeypatch):
+    """Un esito negativo documentato non e' un fallimento.
+
+    PRODUCT.md dichiara utenti successivi confermati, che non avranno
+    necessariamente CalculiX. Senza solutore non c'e' analisi, e il programma lo
+    dice invece di rompersi o di inventare un ripiego.
+    """
+    monkeypatch.setattr(solve.shutil, "which", lambda _nome: None)
+    nodi, elementi = synth.box_mesh((100.0, 100.0, 100.0))
+
+    esito = solve.risolvi(
+        tmp_path, tmp_path / "assente.inp", ANALISI, nodi, elementi, "C3D4"
+    )
+
+    assert esito == {"eseguito": False, "solutore": "assente"}
+    assert not (tmp_path / "13_solution.vtu").exists()

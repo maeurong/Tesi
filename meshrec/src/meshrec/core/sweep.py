@@ -126,15 +126,18 @@ def expand(
 
 # Le chiavi che rendono completo un candidato di sweep: derivate da
 # STEP_KEYS (fonte unica) invece di riscritte a mano, ma non tutte -- "12_wall"
-# e' tagliata per chiave e non per posizione (un domani STEP_KEYS piu' lungo
-# non sbaglierebbe in silenzio con un indice numerico). Il prior non e' un
-# requisito di completezza dello sweep: nessun asse della griglia lo tocca
-# (vedi BLOCCHI_FUORI_IMPRONTA), tutti stanno a monte dello step 11, e un
-# candidato e' completo quando ha il proprio deck, non quando ha il prior.
+# e "13_solve" sono tagliate per chiave e non per posizione (un domani
+# STEP_KEYS piu' lungo non sbaglierebbe in silenzio con un indice numerico).
+# Ne' il prior ne' la soluzione sono un requisito di completezza dello sweep:
+# nessun asse della griglia li tocca (vedi BLOCCHI_FUORI_IMPRONTA), tutti
+# stanno a monte dello step 11, e un candidato e' completo quando ha il
+# proprio deck, non quando ha il prior o l'ha vista risolvere un solutore.
 from meshrec.core.pipeline import METRICS_FILENAME, METRICS_PARTIAL
 from meshrec.core.steps import STEP_KEYS
 
-REQUIRED_STEPS: tuple[str, ...] = tuple(chiave for chiave in STEP_KEYS if chiave != "12_wall")
+REQUIRED_STEPS: tuple[str, ...] = tuple(
+    chiave for chiave in STEP_KEYS if chiave not in ("12_wall", "13_solve")
+)
 
 _TRACKED_PACKAGES: tuple[str, ...] = ("open3d", "tetgen", "pymeshfix", "pymeshlab", "numpy")
 

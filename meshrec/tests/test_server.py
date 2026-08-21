@@ -41,9 +41,11 @@ def test_la_radice_serve_l_interfaccia(cliente):
     assert "text/html" in risposta.headers["content-type"]
 
 
-def test_lo_stato_della_corsa_elenca_gli_undici_step(cliente):
+def test_lo_stato_della_corsa_elenca_i_tredici_step(cliente):
+    """Variante scaduta dalla Fase 5 (Task 6): lo step 13 (solutore) allunga
+    STEP_KEYS a tredici voci, e /api/run le elenca tutte."""
     corpo = cliente.get("/api/run").json()
-    assert len(corpo["steps"]) == 12
+    assert len(corpo["steps"]) == 13
     assert corpo["steps"][0]["chiave"] == "01_load"
     assert {voce["stato"] for voce in corpo["steps"]} == {"mai eseguito"}
 

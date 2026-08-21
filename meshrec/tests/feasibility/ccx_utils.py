@@ -9,9 +9,19 @@ def read_dat_displacements(path: Path) -> dict[int, tuple[float, float, float]]:
     """Spostamenti nodali dell'ultimo blocco 'displacements' del file .dat.
 
     Le righe utili hanno quattro campi: numero di nodo e tre componenti.
+
+    Si ferma a `E I G E N V A L U E   O U T P U T`, stesso pattern di
+    `solve.leggi_reazioni`: la richiesta di stampa di un passo statico
+    (`*NODE PRINT, U`) resta attiva anche in un passo modale successivo, che
+    non la cancella. `ccx` ristampa quindi un blocco a quattro campi anche
+    sotto quell'intestazione, con valori tre o quattro ordini di grandezza
+    sopra lo spostamento fisico -- una forma modale, non uno spostamento.
+    Senza questo confine, "l'ultimo blocco vince" prenderebbe quello.
     """
     displacements: dict[int, tuple[float, float, float]] = {}
     for line in Path(path).read_text(encoding="ascii", errors="ignore").splitlines():
+        if "E I G E N V A L U E   O U T P U T" in line:
+            break
         fields = line.split()
         if len(fields) != 4:
             continue

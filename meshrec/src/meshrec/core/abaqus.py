@@ -772,13 +772,22 @@ def build_node_sets(nodes: np.ndarray, tolerance: float) -> dict[str, np.ndarray
 
 
 def write_vtu(
-    path: Path, nodes: np.ndarray, elements: np.ndarray, element_type: str = "C3D4"
+    path: Path,
+    nodes: np.ndarray,
+    elements: np.ndarray,
+    element_type: str = "C3D4",
+    point_data: dict[str, np.ndarray] | None = None,
 ) -> None:
     """Esportazione per la visualizzazione, delegata a meshio.
 
     meshio ha nomi propri per i tipi di cella, che non sono quelli del
     solutore: la tabella traduce, e un tipo non tradotto solleva invece di
     scrivere un file che nessun visualizzatore aprirebbe.
+
+    `point_data`, dalla Fase 5, sono i campi per nodo che lo step 13 scrive
+    (spostamenti e tensione equivalente per caso di carico, forme modali):
+    assente lascia il file identico a prima, e i chiamanti gia' scritti (lo
+    step 9 e `export_model`) non cambiano comportamento.
     """
     import meshio
 
@@ -788,10 +797,13 @@ def write_vtu(
         raise ValueError(f"tipo di elemento '{element_type}' senza corrispondente in meshio")
 
     Path(path).parent.mkdir(parents=True, exist_ok=True)
-    meshio.write_points_cells(
+    meshio.write(
         str(path),
-        np.asarray(nodes, dtype=np.float64),
-        [(celle[element_type], np.asarray(elements, dtype=np.int64))],
+        meshio.Mesh(
+            np.asarray(nodes, dtype=np.float64),
+            [(celle[element_type], np.asarray(elements, dtype=np.int64))],
+            point_data=point_data or {},
+        ),
     )
 
 

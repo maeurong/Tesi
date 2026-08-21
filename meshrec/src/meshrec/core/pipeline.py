@@ -12,7 +12,7 @@ from pathlib import Path
 
 import numpy as np
 
-from meshrec.core import abaqus, io, quality, repair, segment, steps, surface, volume, wall
+from meshrec.core import abaqus, io, quality, repair, segment, solve, steps, surface, volume, wall
 from meshrec.core.config import PipelineConfig, save_config
 
 METRICS_FILENAME = "metrics.json"
@@ -38,6 +38,7 @@ ARTIFACTS: dict[int, str] = {
     6: "06_repaired.ply",
     8: "08_simplified.ply",
     9: "09_volume.vtu",
+    13: "13_solution.vtu",
 }
 
 # Tabelle esplicite da from_step all'artefatto da ricaricare, verificate a mano
@@ -245,10 +246,17 @@ def genera_modello(cfg: PipelineConfig, tipo: str, out_dir: Path) -> dict[str, o
 def run(cfg: PipelineConfig) -> dict[str, object]:
     """Esegue la pipeline e restituisce le metriche di ogni step.
 
-    Dalla Fase 4 gli step sono dodici. Il dodicesimo e' il prior geometrico e
-    chiude la corsa madre; non e' un punto di ripresa e non e' un ramo: i due
-    modelli parametrici sono corse figlie con la propria cartella, non
-    biforcazioni di questa funzione.
+    Dalla Fase 4 gli step di elaborazione sono dodici. Il dodicesimo e' il
+    prior geometrico e chiude la corsa madre; non e' un punto di ripresa e non
+    e' un ramo: i due modelli parametrici sono corse figlie con la propria
+    cartella, non biforcazioni di questa funzione.
+
+    Dalla Fase 5 c'e' un tredicesimo step, il solutore: legge il deck che lo
+    step 11 ha scritto e vi applica `ccx`. Non fa parte del nucleo che questa
+    funzione esegue per difetto -- `RunConfig.to_step` si ferma a 12 -- perche'
+    e' l'unico step che paga un processo esterno vero anziche' lavoro
+    in-process, e chi elabora candidati (lo sweep) non deve pagarlo per
+    ciascuno. Chi lo vuole lo chiede esplicitamente con `to_step=13`.
 
     `cfg.run.from_step` salta gli step precedenti e ricarica dal disco
     l'artefatto numerato che precede quello di ripartenza, secondo le tabelle
@@ -280,10 +288,13 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
     # fallimento, che deve dire quale step si e' rotto e non che la corsa
     # e' finita male in un punto imprecisato.
     in_corso = start
-    # Vero solo se il flusso ha attraversato per intero l'ultimo step che
-    # questa versione di run() implementa (oggi 12_wall): si aggiorna da solo
-    # spostandosi con la riga che lo mette a True, senza un numero da tenere
-    # sincronizzato a mano con cfg.run.to_step altrove.
+    # Vero solo se il flusso ha attraversato per intero il nucleo di
+    # elaborazione che questa versione di run() esegue per difetto (oggi
+    # 12_wall): si aggiorna da solo spostandosi con la riga che lo mette a
+    # True, senza un numero da tenere sincronizzato a mano con cfg.run.to_step
+    # altrove. Lo step 13 (solutore) e' un'azione ulteriore, opzionale, che
+    # non ridefinisce questa completezza: una corsa fermata a 12 e una
+    # arrivata a 13 sono ugualmente complete per questo flag.
     pipeline_completa = False
 
     def registra(numero: int, avvio: float, artefatto: str | None) -> None:
@@ -427,6 +438,7 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
             cfg.analysis,
             cfg.tet,
             reference=vertices,
+            carichi=cfg.carichi,
         )
         registra(11, avvio, "wall_model.inp")
 
@@ -442,6 +454,19 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
         metrics["12_wall"] = calcola_prior(out, cfg, source_cloud, spacing)
         registra(12, avvio, WALL_FILENAME)
         pipeline_completa = True
+        if stop <= 12:
+            raise _FermataRichiesta
+
+        in_corso = 13
+        avvio = time.monotonic()
+        # Il solutore legge il deck dello step 11, non una sua copia: se il
+        # deck e' quello che l'analisi risolve, allora e' quello che il report
+        # descrive e quello di cui il registro porta l'impronta.
+        metrics["13_solve"] = solve.risolvi(
+            out, out / "wall_model.inp", cfg.analysis, nodes, tets,
+            metrics["11_export"]["element_type"], carichi=cfg.carichi,
+        )
+        registra(13, avvio, ARTIFACTS[13] if metrics["13_solve"]["eseguito"] else None)
     except _FermataRichiesta:
         # Fermata su richiesta: gli step chiesti sono stati eseguiti e il
         # risultato e' valido quanto quello di una corsa intera, per gli step
