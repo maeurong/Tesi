@@ -467,10 +467,13 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
         avvio = time.monotonic()
         # Il solutore legge il deck dello step 11, non una sua copia: se il
         # deck e' quello che l'analisi risolve, allora e' quello che il report
-        # descrive e quello di cui il registro porta l'impronta.
+        # descrive e quello di cui il registro porta l'impronta. Le etichette
+        # dei casi (casi_di_carico) vengono dalla stessa riga: e' l'ordine che
+        # export_model ha scritto davvero nel deck, non una sua ricostruzione.
         metrics["13_solve"] = solve.risolvi(
             out, out / "wall_model.inp", cfg.analysis, nodes, tets,
-            metrics["11_export"]["element_type"], carichi=cfg.carichi,
+            metrics["11_export"]["element_type"],
+            casi_di_carico=metrics["11_export"]["casi_di_carico"],
         )
         registra(13, avvio, ARTIFACTS[13] if metrics["13_solve"]["eseguito"] else None)
     except _FermataRichiesta:

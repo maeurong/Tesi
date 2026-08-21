@@ -429,9 +429,18 @@ def test_lo_step_13_risolve_il_deck_e_scrive_i_campi_nel_vtu(tmp_path):
         carichi=carichi,
     )
 
+    # casi_di_carico esplicito, nello stesso ordine in cui i tre carichi sono
+    # dichiarati sopra: dal giro di correzione della revisione, risolvi() non
+    # deriva piu' l'ordine in proprio (era solve._casi_statici) -- lo riceve
+    # gia' fatto, come fa pipeline.run leggendolo da
+    # metrics["11_export"]["casi_di_carico"]. Qui non c'e' un export_model da
+    # cui leggerlo (il deck e' scritto con write_inp direttamente), quindi e'
+    # scritto a mano: la corrispondenza col deck vero e' verificata altrove
+    # (tests/test_solve.py::test_casi_di_carico_segue_l_ordine_vero_scritto_da_write_inp),
+    # non e' lo scopo di questo test, che verifica ccx vero.
     esito = solve.risolvi(
         tmp_path, tmp_path / "wall_model.inp", analysis, nodes, tets, "C3D4",
-        carichi=carichi,
+        casi_di_carico=["GRAVITA", "SPINTA_ORIZZONTALE", "CARICO_TOP", "MODALE"],
     )
 
     assert esito["eseguito"] is True

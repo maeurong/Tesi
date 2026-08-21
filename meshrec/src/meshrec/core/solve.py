@@ -39,7 +39,7 @@ from typing import NamedTuple
 import numpy as np
 
 from meshrec.core import abaqus
-from meshrec.core.config import AnalysisConfig, CarichiConfig
+from meshrec.core.config import AnalysisConfig
 
 # Tempo massimo concesso a ccx: stesso valore usato in tutta la suite di
 # fattibilita' (tests/feasibility/test_calculix.py), non un numero nuovo.
@@ -164,20 +164,6 @@ def von_mises(tensioni: np.ndarray) -> np.ndarray:
     return np.sqrt(normali + taglianti)
 
 
-def _casi_statici(cfg: AnalysisConfig, carichi: CarichiConfig | None) -> list[str]:
-    """Nomi dei passi statici, nello stesso ordine in cui `abaqus.write_inp` li scrive.
-
-    Deve restare la stessa derivazione di `export_model`'s `casi_di_carico`
-    (senza il modale, che non e' un passo statico): il passo N del `.frd` non
-    porta un nome, solo un numero, e questa e' la tabella che lo traduce.
-    """
-    return [nome for nome in (
-        cfg.step_name,
-        None if carichi is None or carichi.spinta is None else "SPINTA_ORIZZONTALE",
-        None if carichi is None or carichi.carico_sommita is None else "CARICO_TOP",
-    ) if nome is not None]
-
-
 def risolvi(
     out_dir: Path,
     deck: Path,
@@ -186,7 +172,7 @@ def risolvi(
     elements: np.ndarray,
     element_type: str,
     *,
-    carichi: CarichiConfig | None = None,
+    casi_di_carico: list[str] | None = None,
 ) -> dict[str, object]:
     """Step 13: esegue `ccx` sul deck e scrive i campi in `13_solution.vtu`.
 
@@ -198,17 +184,23 @@ def risolvi(
     decidere se registrare l'artefatto e dai Task 8/9 per portare il campo al
     viewport: `U_<CASO>` (vettore, spostamento nodale) e `VM_<CASO>` (scalare,
     tensione equivalente) per ciascun passo statico -- `<CASO>` e' il nome che
-    `abaqus.write_inp` da' al passo (`cfg.step_name`, "SPINTA_ORIZZONTALE",
+    `abaqus.write_inp` da' al passo ("GRAVITA" di norma, "SPINTA_ORIZZONTALE",
     "CARICO_TOP"); `MODO_<n>` (vettore, forma non dimensionale) per l'n-esimo
-    modo, se `carichi.modale` e' dichiarato. Un blocco modale non produce mai
-    `U_`/`VM_`: la forma e' normalizzata sulla massa, non uno spostamento
-    fisico (vedi il docstring del modulo).
+    modo. Un blocco modale non produce mai `U_`/`VM_`: la forma e' normalizzata
+    sulla massa, non uno spostamento fisico (vedi il docstring del modulo).
 
-    `carichi` e' facoltativo e non nel deck stesso: serve solo a tradurre il
-    numero di passo del `.frd` nel nome del caso, con la stessa derivazione di
-    `abaqus.export_model`. Senza di esso l'unico passo e' quello di
-    `cfg.step_name` (di norma "GRAVITA"), coerente con un deck scritto senza
-    `carichi`.
+    `casi_di_carico` traduce il numero di passo del `.frd` (che non porta un
+    nome, solo un numero) nell'etichetta del caso: e' `metrics["11_export"]
+    ["casi_di_carico"]`, cioe' l'ordine che `abaqus.export_model` ha scritto
+    *davvero* nel deck, letto qui e non ri-derivato. Prima di questo modulo
+    aveva una propria `_casi_statici` che rifaceva lo stesso calcolo in
+    proprio, accoppiata a `export_model` solo da un commento («deve restare
+    la stessa derivazione»): un riordino dei passi in `write_inp` senza
+    toccare questo file avrebbe etichettato un caso col nome sbagliato in
+    silenzio. Una sola origine chiude l'esposizione per costruzione, non per
+    promessa. Il modale, se presente, e' l'ultima voce della lista e viene
+    scartato qui: i suoi blocchi si riconoscono da `Blocco.modale`, non da
+    un'etichetta di passo.
     """
     out_dir = Path(out_dir)
     eseguibile = shutil.which("ccx")
@@ -236,7 +228,8 @@ def risolvi(
     percorso_frd.write_bytes(deck.with_suffix(".frd").read_bytes())
     percorso_dat.write_bytes(deck.with_suffix(".dat").read_bytes())
 
-    etichetta_passo = dict(enumerate(_casi_statici(cfg, carichi), start=1))
+    casi_statici = [nome for nome in (casi_di_carico or ()) if nome != "MODALE"]
+    etichetta_passo = dict(enumerate(casi_statici, start=1))
     blocchi = leggi_frd(percorso_frd)
 
     n_nodi = len(nodes)

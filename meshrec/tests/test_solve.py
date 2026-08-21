@@ -302,17 +302,15 @@ def test_risolvi_con_ccx_simulato_assembla_i_campi_e_conta_gli_avvisi(tmp_path, 
     gia' su disco quando `risolvi()` li legge -- stesso principio del
     `_fake_run` di test_sweep.py.
 
-    Chiude anche il Minor della revisione (duplicazione fra
-    `solve._casi_statici` e `abaqus.export_model`): le chiavi di `point_data`
-    qui sotto sono l'etichetta che *questo* modulo assegna a ogni passo, e un
-    ordine sbagliato in `_casi_statici` le sposterebbe sul caso vicino --
-    visibile qui, non solo nel test gated su `ccx`.
+    Dal giro di correzione seguente, `risolvi()` non deriva piu' l'ordine dei
+    casi in proprio (era `solve._casi_statici`, una seconda copia della stessa
+    logica di `abaqus.export_model`): lo riceve gia' fatto in
+    `casi_di_carico`, cosi' come `pipeline.run` lo legge da
+    `metrics["11_export"]["casi_di_carico"]`. Qui e' passato a mano, nello
+    stesso ordine che quella lista avrebbe per questi carichi -- il confronto
+    con l'ordine *vero* scritto da `write_inp` e' l'altro test qui sotto.
     """
-    carichi = CarichiConfig(
-        spinta=SpintaOrizzontale(coefficiente=0.1, asse="x"),
-        carico_sommita=CaricoSommita(risultante=1000.0, nset="TOP"),
-        modale=Modale(modi=2),
-    )
+    casi_di_carico = ["GRAVITA", "SPINTA_ORIZZONTALE", "CARICO_TOP", "MODALE"]
     deck = tmp_path / "wall_model.inp"
     deck.write_text("*HEADING\n", encoding="ascii")
     deck.with_suffix(".frd").write_text(FRD_QUATTRO_PASSI, encoding="ascii")
@@ -338,7 +336,9 @@ def test_risolvi_con_ccx_simulato_assembla_i_campi_e_conta_gli_avvisi(tmp_path, 
     nodi = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
     elementi = np.array([[0, 1, 2, 3]])
 
-    esito = solve.risolvi(tmp_path, deck, ANALISI, nodi, elementi, "C3D4", carichi=carichi)
+    esito = solve.risolvi(
+        tmp_path, deck, ANALISI, nodi, elementi, "C3D4", casi_di_carico=casi_di_carico
+    )
 
     assert esito["eseguito"] is True
     assert esito["returncode"] == 0
@@ -361,41 +361,40 @@ def test_risolvi_con_ccx_simulato_assembla_i_campi_e_conta_gli_avvisi(tmp_path, 
     }
 
 
-def test_le_etichette_dei_casi_statici_seguono_l_ordine_vero_di_write_inp(tmp_path):
-    """Minor della revisione: `solve._casi_statici` e `abaqus.export_model`
-    derivano l'ordine dei passi statici due volte, in due moduli, accoppiate
-    solo da un commento. Riordinare i passi in `write_inp` senza toccare
-    `solve.py` etichetterebbe un caso col nome sbagliato in silenzio.
+def test_casi_di_carico_segue_l_ordine_vero_scritto_da_write_inp(tmp_path):
+    """L'origine e' una sola: `casi_di_carico`, il campo che `export_model`
+    restituisce e che `solve.risolvi` legge senza ri-derivarlo (giro di
+    correzione della revisione, sostituisce `solve._casi_statici`). Ma
+    `export_model` lo costruisce con una propria lista letterale, separata
+    dai rami `if carichi.spinta is not None: ...` che `write_inp` esegue
+    davvero -- due punti nello stesso file che devono restare d'accordo.
 
     Qui l'ordine vero non e' assunto: e' letto dal testo che `write_inp`
-    scrive davvero (le righe `** NOME PASSO: ...`), e quello e' l'oracolo
-    contro cui si confronta `_casi_statici`. Nessun `ccx` necessario: e' solo
-    testo.
+    scrive davvero (le righe `** NOME PASSO: ...`, comprese nello stesso
+    deck che `export_model` produce), e quello e' l'oracolo contro cui si
+    confronta `casi_di_carico`. Nessun `ccx` necessario: e' solo testo.
     """
+    from meshrec.core.config import TetConfig
+
     vertices, faces = synth.box_mesh((100.0, 100.0, 100.0))
     nodi, elementi = volume.tetrahedralize(
         vertices, faces, max_volume=20_000.0, min_ratio=1.8, max_steiner_points=-1, nobisect=False
     )
-    z = nodi[:, 2]
-    node_sets = {
-        "BASE": np.flatnonzero(z <= z.min() + 1e-6),
-        "TOP": np.flatnonzero(z >= z.max() - 1e-6),
-    }
     carichi = CarichiConfig(
         spinta=SpintaOrizzontale(coefficiente=0.1, asse="x"),
         carico_sommita=CaricoSommita(risultante=1000.0, nset="TOP"),
         modale=Modale(modi=2),
     )
-    percorso = tmp_path / "prova.inp"
-    abaqus.write_inp(
-        percorso, nodi, elementi, node_sets=node_sets, material=MATERIALE, carichi=carichi,
+    esito = abaqus.export_model(
+        tmp_path / "prova.inp", tmp_path / "prova.vtu", nodi, elementi,
+        ANALISI, TetConfig(), carichi=carichi,
     )
 
-    testo = percorso.read_text(encoding="ascii")
+    testo = (tmp_path / "prova.inp").read_text(encoding="ascii")
     ordine_reale = [
         riga.split(": ", 1)[1]
         for riga in testo.splitlines()
         if riga.startswith("** NOME PASSO: ")
     ]
 
-    assert solve._casi_statici(ANALISI, carichi) == [n for n in ordine_reale if n != "MODALE"]
+    assert esito["casi_di_carico"] == ordine_reale
