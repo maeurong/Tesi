@@ -483,8 +483,22 @@ fase:
    477.700.000 mm³ nominali dalla tavola `MURO 1`: **45,6%**. Massa 0,5443 t
    contro 1,194 t. Sotto peso proprio le tensioni scalano con la massa. Il
    § 8, task D7, misura e scompone questo deficit.
+
+   > **Smentito il 21/08/2026 dal task D7.** L'ultima frase è falsa su questa
+   > geometria: il volume mancante sta tutto sotto il piano di taglio, cioè
+   > fuori dal percorso del carico. Sopra il taglio il modello porta il
+   > 92,5-105,2% del carico del telaio nominale, non il 45,6%. La misura e la
+   > correzione stanno in `docs/fase-5-analisi.md`, punto 5 di «Cosa questi
+   > risultati NON hanno il diritto di affermare».
 6. **`TOP` è un set per tolleranza.** Il carico in sommità si ripartisce sui 397
    nodi in modo uniforme e si concentra dove i nodi sono più fitti.
+
+   > **Corretto il 21/08/2026 sulla corsa vera.** I nodi di `TOP` sono **3036**,
+   > non 397: la correzione della terna ha rifatto i sei set. L'avvertenza ne
+   > esce rafforzata — 3036 nodi sono il 21,5% del modello, con una tolleranza
+   > di set di 134,97 mm, quindi `TOP` è una fascia spessa e non una faccia.
+   > Il numero misurato sta in `docs/fase-5-analisi.md`, punto 6 della stessa
+   > sezione.
 7. **Abaqus non entra.** Nessuna licenza. Nulla si afferma su Abaqus, e si dice
    in più che i nomi dei passi sono scesi a commento per tenere CalculiX a zero
    avvisi.

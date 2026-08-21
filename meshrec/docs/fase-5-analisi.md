@@ -2,8 +2,15 @@
 
 Data di apertura: 21/08/2026. Corsa di riferimento: `runs/lab_telaio_v2`,
 rigenerata il 21/08/2026 alle 22:14 sul ramo `feat/fase-5-analisi-strutturale`.
-Ogni numero di questo documento e' stato misurato su quella corsa, con il
-comando riportato accanto.
+Ogni numero di questo documento e' stato misurato su quella corsa, e porta
+accanto **il file e il campo da cui viene**. I numeri della sezione sul deficit
+di volume — che non stanno in nessun campo, perche' vanno calcolati — li
+riproduce uno script committato,
+[`docs/fase-5-cantiere/misura-deficit.py`](fase-5-cantiere/misura-deficit.py):
+`uv run python docs/fase-5-cantiere/misura-deficit.py`. Ogni valore che quello
+script stampa porta il proprio `assert` contro il valore pubblicato qui, quindi
+se la corsa cambia lo script cade invece di stampare in silenzio numeri diversi
+dal documento.
 
 ---
 
@@ -69,13 +76,18 @@ rototraslazione, quindi i 217.728.361,2 mm³ sono gli stessi nei due sistemi.
 
 Il pavimento, rimisurato qui con RANSAC (`segment_plane`, soglia 3x la
 spaziatura di 1,1923 mm, sui punti con z < -350 nella fascia x 1690-4460):
-normale (0,0043, -0,0039, 1,0000), **549.792 punti interni, z fra -520,5 e
--499,5**. Il § 8 di `docs/fase-4-prior-telaio.md` aveva misurato -522,5 / -498,5
-sulla stessa nuvola: le due letture concordano entro 1 mm, la differenza e'
-l'estrazione casuale di RANSAC.
+normale (0,0043, -0,0039, 1,0000), circa 520-550 mila punti interni con il
+bordo alto fra **-502,5 e -497,5** secondo l'estrazione. Il § 8 di
+`docs/fase-4-prior-telaio.md` aveva misurato -498,5 sulla stessa nuvola, e cade
+dentro quella banda. **RANSAC e' stocastico e qui la dispersione fra estrazioni
+vale 5 mm**: e' quella, non il singolo valore, la misura utile. Lo script di
+cantiere fissa il seme a 0 per riproducibilita' — 519.660 punti interni, bordo
+alto -497,5 — e dichiara la banda accanto, perche' il seme rende ripetibile il
+numero, non piu' preciso.
 
 **Conseguenza, e va letta al contrario di come suona:** il piano di taglio a
--498 sta **0,5-1,5 mm sopra il punto piu' alto del pavimento**. Il ritaglio non
+-498 cade **entro 4,5 mm dal bordo alto del pavimento**, cioe' dentro la
+dispersione della misura stessa: taglio e pavimento **coincidono**. Il ritaglio non
 taglia via le zapatas — le zapatas non ci sono perche' **lo scanner non le ha
 mai viste**: sotto quella quota c'e' il pavimento, e sotto il pavimento non
 c'e' informazione. Il piano di taglio e' il posto dove finisce il dato, non il
@@ -216,7 +228,7 @@ loro nome invece di essere scelti:
   determinabile: il modello legge quella fascia ~24% piu' larga del nominale.
   Sta interamente sopra il piano di taglio, quindi **non** entra nel conto.
 
-### 6. Verifica con lo spessore: l'assottigliamento non e' uniforme
+### 6. Verifica con lo spessore: sulle colonne libere non c'e' assottigliamento
 
 Lo spessore mediano misurato da `wall.regioni` vale **192,0267 mm**
 (`12_wall.json`, `spessore_mediano`). Le dimensioni di sezione nominali sono
@@ -236,21 +248,34 @@ passo 20 mm:
 | +900 | 60.592 | 59.168 | +2,4% |
 
 Su tutta l'altezza libera delle colonne il modello e' **piu' grosso** del
-nominale, dal 2,4% al 7,5%, mai piu' sottile. **Sopra il piano di taglio
-l'assottigliamento di Poisson non e' misurabile su questa geometria.** Cio'
-che manca al modello non e' spalmato sulle pareti: e' un pezzo intero che sta
-sotto il taglio.
+nominale, dal 2,4% al 7,5%, mai piu' sottile: qui l'assottigliamento di Poisson
+non c'e', e il segno e' misurato, positivo e monotono.
+
+**Questo non chiude il residuo del § 5, e i due non si contraddicono.** Questa
+tabella confronta le **sole colonne libere**, la fascia di quota dove la
+sezione nominale e' fatta di due soli prismi. Il residuo del § 5 sta invece
+sull'**intero nominale sopra il piano di taglio**, che comprende anche i
+tronconi emersi di zapata e viga inferior (da 10 a 31 mm di zapata e da 8 a 14
+di viga, § 3) e la fascia della viga superior, dove il modello legge il 24% in
+piu' del nominale ma la profondita' della trave non e' determinabile (§ 5). Su
+quelle fasce nessuna misura di sezione e' stata fatta. Quindi: **sulle colonne
+il segno e' noto e positivo; sul totale sopra il taglio resta indeterminato**,
+e resta tale.
+
+Cio' che manca al modello, comunque, non e' spalmato sulle pareti: e' un pezzo
+intero che sta sotto il taglio.
 
 ### 7. Conseguenza strutturale
 
 **Il peso proprio del modello e' 5.339,79 N**, da 217.728.361,2 mm³ x
 2,5e-9 t/mm³ x 9810 mm/s². Il telaio nominale pesa **11.716,69 N**. Il rapporto
-delle masse e' 0,4558.
+delle masse e' **0,4557** — lo stesso denominatore ricalcolato del § 1, non
+i 477.700.000 mm³ dichiarati in tavola, che darebbero 0,4558.
 
 Prima una precisazione che serve a non sbagliare il numero: i **4.162,39 N** che
 la corsa riporta in `13_solve.controlli.reazioni` **non sono il peso**. Sono la
 reazione trasmessa attraverso la struttura al set `BASE`, al netto della quota
-tributaria caricata direttamente sui nodi vincolati, che `solve.py:608`
+tributaria caricata direttamente sui nodi vincolati, che `solve.py:610`
 sottrae apposta da `peso_atteso`. Quella quota vale 5.339,79 - 4.162,39 =
 **1.177,40 N**, il 22,05% del peso — alta proprio perche' la soletta inventata
 del § 4 appoggia molti nodi su `BASE`.
@@ -267,14 +292,17 @@ pesa su nulla.
 | telaio nominale | 4.019,52 .. 4.572,07 |
 
 Il modello porta quindi dal **92,5% al 105,2%** del carico che il telaio vero
-manda nelle colonne, non il 45,6%. Sulla tensione assiale media nelle colonne
-l'errore e' dell'ordine del ±8%, non di un fattore 2,2.
+manda nelle colonne, non il 45,6%: **±8% sul carico**, non su un fattore 2,2.
+Il ±8% e' l'errore del **solo numeratore** di σ = F/A. Il denominatore ha
+un'incertezza propria e piu' grande — l'errore geometrico vale il 14,3% dello
+spessore in RMS (§ 6) e le colonne del modello escono dal 2,4% al 7,5% piu'
+grosse del nominale — e **qui le due non sono composte**.
 
 Lo conferma la posizione del picco. Il massimo di von Mises sotto gravita' vale
-**0,5056 MPa** e cade a z = **+1010,3 mm**, cioe' nella viga superior, 1.606 mm
+**0,51 MPa** e cade a z = **+1010 mm**, cioe' nella viga superior, 1.606 mm
 sopra il punto piu' basso del modello — **non alla base**. Il volume mancante
 sta 1,5 m piu' in basso e non lo tocca. Le tensioni delle altre due condizioni:
-SPINTA_ORIZZONTALE **0,6763 MPa**, CARICO_TOP **0,9811 MPa**
+SPINTA_ORIZZONTALE **0,68 MPa**, CARICO_TOP **0,98 MPa**
 (`13_solve.casi`).
 
 Quel che il volume mancante toglia davvero e' un'altra cosa, e va detta come
@@ -283,20 +311,32 @@ inferiore di una zapata, e' la sezione di taglio a filo pavimento.** Il modello
 e' incastrato dove finisce il dato. Manca quindi ogni effetto della fondazione
 — diffusione della tensione nel plinto, cedevolezza rotazionale dell'appoggio —
 e il modello e' alla base piu' rigido del telaio vero. Sulla prima frequenza
-(21,193 Hz, `13_solve.frequenze_hz`) l'effetto e' presumibilmente piccolo,
+(21,2 Hz, `13_solve.frequenze_hz`) l'effetto e' presumibilmente piccolo,
 perche' la massa che manca sta al vincolo e non partecipa al primo modo, ma
 **questa e' un'attesa, non una misura**: non e' stata verificata.
 
 ### 8. Come rimisurare tutto questo
 
 Le misure di questa sezione non stanno nel programma: `src/` non contiene, e non
-deve contenere, alcun numero del provino. Sono state prodotte da uno script una
-tantum, fuori dal repository, che rilegge `runs/lab_telaio_v2/01_cloud.ply`,
-`02_segmented.ply`, `09_volume.vtu`, `13_solution.vtu`, `wall_model.inp`,
-`metrics.json` e `12_wall.json` con `open3d`, `meshio` e `scipy.spatial`.
-Chi rifa' il conto rifa' lo script: tre righe di prodotto misto per il volume,
-un clipping contro il piano per la ripartizione, un istogramma in z per le
-quote.
+deve contenere, alcun numero del provino. Stanno in
+[`docs/fase-5-cantiere/misura-deficit.py`](fase-5-cantiere/misura-deficit.py),
+committato apposta perche' «riscriviti lo script» non e' riproducibilita':
+
+```
+uv run python docs/fase-5-cantiere/misura-deficit.py
+```
+
+Rilegge `runs/lab_telaio_v2/01_cloud.ply`, `09_volume.vtu` e `13_solution.vtu`
+con `open3d`, `meshio` e `scipy.spatial`, e rifa' da capo il nominale di tavola,
+il volume del solido, il pavimento, la ripartizione del deficit, il profilo
+delle aree, i pesi e l'elemento del picco. **Ogni valore stampato porta il
+proprio `assert` contro il numero pubblicato qui**: se la corsa cambia lo script
+cade e nomina la grandezza che si e' mossa, invece di stampare in silenzio
+numeri diversi dal documento. Serve la corsa in `runs/lab_telaio_v2/` — se manca,
+lo script lo dice e si ferma invece di misurare la cartella sbagliata.
+
+Le sole grandezze che **non** rifa' sono quelle gia' scritte in un campo di
+`metrics.json` o di `12_wall.json`, che il documento cita nominando il campo.
 
 ---
 
@@ -401,6 +441,14 @@ predefiniti del programma.
 sessione sui 14.103 valori nodali di `13_solution.vtu` (`VM_GRAVITA`,
 `VM_SPINTA_ORIZZONTALE`, `VM_CARICO_TOP`).
 
+**Le cifre di questa tabella, e di quella dei controlli e dei modi, sono i
+valori come li scrive il solutore — non la precisione che il dato sostiene.**
+Quella e' di **due cifre significative**, e il motivo sta nel punto 4 di
+«Cosa questi risultati NON hanno il diritto di affermare»: l'errore geometrico
+vale il 14,3% dello spessore in RMS, e σ = F/A. Nel resto del documento, dove
+questi numeri sono citati come esiti e non come letture, sono arrotondati a due
+cifre.
+
 **Modale**: 20 modi estratti, prima frequenza **21,19324 Hz**, poi 34,34059 /
 43,13673 / 91,06687 / 108,4334, fino a 681,9477 Hz
 (`13_solve.frequenze_hz`, 20 valori).
@@ -423,7 +471,7 @@ leggendo.** I **4162,39 N** delle reazioni **non sono il peso del modello**. Il
 peso e' 217.728.361,2 mm³ × 2,5e-9 t/mm³ × 9810 mm/s² = **5.339,79 N**; ccx
 stampa sul set `BASE` solo la parte **trasmessa attraverso la struttura**, al
 netto della quota tributaria caricata direttamente sui nodi gia' vincolati.
-`solve.py:608` sottrae apposta quella quota da `peso_atteso`, ed e' per questo
+`solve.py:610` sottrae apposta quella quota da `peso_atteso`, ed e' per questo
 che i due valori — 4162,392140 letto e 4162,392149 atteso — coincidono a nove
 cifre. La quota tributaria vale **1.177,40 N**, il **22,05%** del peso, alta
 perche' molti nodi della soletta ricostruita (§ «Il deficit di volume», punto 4)
@@ -440,17 +488,23 @@ sposterebbe.
 
 Qualificato in questa sessione con la grandezza che la pipeline gia' calcola: degli **8** tetraedri incidenti a quel nodo, il piu' piccolo vale **17,66 mm³** contro
 una mediana di **2151,06 mm³** — sotto l'**1%** della distribuzione dei volumi
-elementari. E' una scheggia del maglio. **La qualificazione con `aspect_ratio` e
-`min_dihedral_deg` prevista dal § 6e della spec non e' nella corsa**: la
-sostituzione fatta qui usa il volume elementare, non quelle due, e va scritta
-come tale.
+elementari. E' una scheggia del maglio.
 
-Un dettaglio di lettura, perche' altrimenti due numeri veri sembrano
-contraddirsi: il docstring di `controlla_picco` (`solve.py:339`) chiama quel
-nodo **7132** e lo colloca «circa a meta' altezza del pezzo». **7132** e'
-l'indice nell'array (base zero); nel deck quel nodo e' il **7133**. E la quota
-non e' la meta': e' l'89,2%, misurato qui su `13_solution.vtu` e riscontrato sul
-deck (`wall_model.inp`, nodo 7133, z locale 1605,70 su 1799,73).
+Il § 6e della spec prevedeva di qualificare quell'elemento con `aspect_ratio` e
+`min_dihedral_deg`. **La corsa le calcola** — stanno in `metrics.json`,
+`10_volume_quality` — ma solo come statistiche d'insieme: il valore **per
+elemento** al nodo del picco non c'e'. Usare il volume elementare al loro posto
+e' quindi una **scelta**, non un ripiego per indisponibilita': e' l'unica delle
+tre grandezze che si ricalcola dal `.vtu` con la stessa definizione della
+pipeline, verificata (mediana 2151,06 mm³ qui e in `metrics.json`).
+
+Sul numero del nodo si fa presto a inciampare, ed e' gia' successo: **7132** e'
+l'indice base zero nel `.vtu`, **7133** e' il nodo nel deck, e `write_vtu`
+scrive i primi. Il docstring di `controlla_picco` chiamava quel nodo 7132 e lo
+collocava «circa a meta' altezza del pezzo»; il commit **`eac6366`** l'ha
+corretto e oggi il file dice l'89%. La quota misurata qui e' l'**89,2%**, su
+`13_solution.vtu` e riscontrata sul deck (`wall_model.inp`, nodo 7133, z locale
+1605,70 su 1799,73).
 
 ## Cosa questi risultati NON hanno il diritto di affermare
 
@@ -464,7 +518,7 @@ metterlo accanto non sarebbe una validazione.
 
 **2. Nessuna armatura.** Calcestruzzo omogeneo, scelta dichiarata. Nessuna
 verifica normativa, nessun confronto con `f_ck`. Le tensioni sotto peso proprio
-(mediana **0,0544** MPa, massimo **0,5056** MPa, rimisurate qui) sono piccole
+(mediana **0,054** MPa, massimo **0,51** MPa, rimisurate qui) sono piccole
 rispetto a qualunque resistenza: dire «verifica soddisfatta» sarebbe promuovere
 a esito un carico che non sollecita.
 
@@ -481,9 +535,26 @@ massimo contro uno spessore mediano di 192,0267 mm: **14,3%** e **70,7%**. La
 sezione locale e' incerta a quella scala, e σ = F/A. **Nessuna tensione con tre
 decimali va letta come tale.**
 
+Il numero e' `mesh_to_cloud`, e la direzione va detta perche' in `metrics.json`
+ce n'e' una seconda piu' grande: `cloud_to_mesh` ha RMS **9,4710** e massimo
+**737,6946** mm, e `hausdorff` vale lo stesso 737,6946. Non e' il tetto
+rilevante qui, per come sono definite le due. `cloud_to_mesh` misura, per
+ciascuno dei 4.269.608 punti della nuvola, quanto dista dalla superficie:
+penalizza cioe' i punti che la ricostruzione **non copre**, e questa
+ricostruzione scarta per costruzione il 5% a densita' piu' bassa
+(`density_quantile: 0.05`, 549 vertici tolti) e tiene solo la componente
+maggiore (`largest_component_only: true`). `mesh_to_cloud` misura il contrario:
+quanto la superficie che il modello **afferma** si scosta dal dato. E' quella
+superficie che viene tetraedrizzata e risolta, quindi e' quella il tetto sulle
+tensioni. I 737,69 mm restano un numero vero su una domanda diversa —
+«quanto della nuvola e' rimasto fuori» — e vanno letti li'.
+
 **5. Il modello pesa meno della meta' del pezzo — ma non e' quel rapporto a
-contare.** Volume 217.728.361,2 mm³ contro 477.700.000 mm³ nominali di tavola:
-**45,58%**. Massa **0,5443 t** contro **1,1944 t**.
+contare.** Volume 217.728.361,2 mm³ contro 477.744.760 mm³ nominali:
+**45,57%** (denominatore ricalcolato dalla tavola, 477.744.760 mm³, come
+dichiarato in copertina della sezione sul deficit; sui 477.700.000 mm³
+dichiarati in tavola verrebbe 45,58%, e la spec cita quest'ultimo). Massa
+**0,5443 t** contro **1,1944 t**.
 
 Qui la spec deduceva: «sotto peso proprio le tensioni scalano con la massa»,
 e quindi anche le tensioni starebbero al 45,6%. **La deduzione e' falsa su
@@ -491,9 +562,9 @@ questa geometria, ed e' la correzione piu' importante della fase.** Il volume
 mancante sta **tutto sotto il piano di taglio** — zapatas e viga inferior
 interrate — cioe' **fuori dal percorso del carico**: non pesa su nulla. Sopra il
 piano di taglio il modello porta **4.229,21 N** contro i **4.019,52-4.572,07 N**
-del telaio nominale, cioe' dal **92,5% al 105,2%**, non il 45,6%. Sulla tensione
-assiale media nelle colonne l'errore e' dell'ordine del ±8%, non di un fattore
-2,2. Lo conferma la posizione del picco: all'89,2% dell'altezza, nella viga
+del telaio nominale, cioe' dal **92,5% al 105,2%**, non il 45,6%: **±8% sul
+carico**, non un fattore 2,2. Il ±8% riguarda il solo numeratore di σ = F/A;
+l'incertezza della sezione (punto 4) e' separata e non e' composta con questa. Lo conferma la posizione del picco: all'89,2% dell'altezza, nella viga
 superior, 1,6 m sopra il volume che manca. La scomposizione del deficit sta
 nella prima sezione di questo documento.
 
@@ -527,13 +598,15 @@ riprende non li rifaccia.
 
 Non ipotesi: cose che questa corsa ha trovato.
 
-1. **Zero membrature su sei** (§ 8 sopra). Nessun modello parametrico, nessun
+1. **Zero membrature su sei** (§ «Cosa questi risultati NON hanno il diritto di
+   affermare», punto 8). Nessun modello parametrico, nessun
    `*TIE` reale da misurare su questa geometria.
 2. **Il pavimento non e' stato trovato** (`pavimento_trovato: false`,
    `pavimento_punti: 0`): il ritaglio comincia sopra di esso, e la ricerca del
    piano non ha piu' punti su cui lavorare.
 3. **Il vincolo e' una fascia, non una faccia** — 132 mm di spessore — e sotto
-   di essa il solido e' ricostruzione cieca (§ 3 sopra).
+   di essa il solido e' ricostruzione cieca (§ «Cosa questi risultati NON hanno
+   il diritto di affermare», punto 3).
 4. **Il picco vive su una scheggia del maglio**: il piu' piccolo degli 8 tetraedri
    incidenti vale 17,66 mm³ contro 2151,06 di mediana. Il numero e' del maglio,
    non del pezzo.
@@ -543,14 +616,15 @@ Non ipotesi: cose che questa corsa ha trovato.
    non chiede `ERR` in `*EL FILE` (chiede `S, E`): il blocco esce comunque, e
    comunque a zero. Misurato lo zero; la causa e' un'ipotesi, sotto.
 6. **L'errore geometrico vale il 14,3% dello spessore in RMS e il 70,7% al
-   massimo** (§ 4 sopra). E' il tetto sulla precisione di ogni tensione.
+   massimo** (§ «Cosa questi risultati NON hanno il diritto di affermare»,
+   punto 4). E' il tetto sulla precisione di ogni tensione.
 
 ## Le ipotesi non verificate, elencate come tali
 
 1. **Che i 324.369 zeri del blocco `ERROR` vengano dai tetraedri lineari.**
    Misurato lo zero, non la causa. Se il modello passasse un giorno a C3D10, e'
    la prima cosa da riprovare.
-2. **Che il deficit di volume incida poco sulla prima frequenza** (21,19324 Hz).
+2. **Che il deficit di volume incida poco sulla prima frequenza** (21,2 Hz).
    L'attesa e' che incida poco, perche' la massa che manca sta al vincolo e non
    partecipa al primo modo. **Non e' stata misurata**: servirebbe una modale su
    un modello col volume interrato, che non esiste.
@@ -561,8 +635,9 @@ Non ipotesi: cose che questa corsa ha trovato.
 4. **Che il picco sia una singolarita' del maglio e non del carico.** L'indizio
    e' forte — stesso nodo sui tre casi, fuori banda e fuori `TOP`, su una
    scheggia da 17,66 mm³ — ma la qualificazione con `aspect_ratio` e
-   `min_dihedral_deg` prevista dal § 6e della spec non e' nella corsa (§ «I
-   cinque controlli»).
+   `min_dihedral_deg` prevista dal § 6e della spec non e' stata fatta: la corsa
+   calcola quelle due solo come statistiche d'insieme, non per l'elemento del
+   picco (§ «I cinque controlli, e i loro esiti»).
 5. **Che il nominale di tavola sia il riferimento giusto per il deficit.** La
    scansione legge le colonne ~205 x 200 mm contro 172 x 172 di tavola. Se
    l'as-built e' davvero piu' grosso del disegno, la ripartizione del deficit si
