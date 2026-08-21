@@ -584,10 +584,9 @@ Expected: FAIL — il primo su `"*OUTPUT" not in testo`, gli altri su `TypeError
 
 - [ ] **Step 3: riscrivi la coda di `write_inp`**
 
-Sostituisci il blocco che va da `f"*STEP, NAME={step_name}"` (riga 144) fino a `""` (riga 162) con la costruzione dei passi. Il passo statico è una funzione locale, così i tre casi non sono tre copie:
+Sostituisci il blocco che va da `f"*STEP, NAME={step_name}"` (riga 144) fino a `""` (riga 162) con la costruzione dei passi, così i tre casi statici non sono tre copie.
 
-```python
-Scrivi `passo_statico` **a livello di modulo**, non annidata dentro `write_inp`. Misurato dall'architect il 21/08/2026: `write_inp` e' gia' 137 righe con complessita' ciclomatica 15, e annidarla la porterebbe a circa 176 righe e sette punti di decisione in piu', rendendola la funzione piu' lunga e piu' ramificata di `abaqus.py` (796 righe). A livello di modulo non costa un file nuovo ne' un'astrazione: costa un parametro in piu' nella firma.
+Scrivi `_passo_statico` **a livello di modulo**, non annidata dentro `write_inp`. Misurato dall'architect il 21/08/2026: `write_inp` e' gia' 137 righe con complessita' ciclomatica 15, e annidarla la porterebbe a circa 176 righe e sette punti di decisione in piu', rendendola la funzione piu' lunga e piu' ramificata di `abaqus.py` (796 righe). A livello di modulo non costa un file nuovo ne' un'astrazione: costa un parametro in piu' nella firma.
 
 ```python
 def _passo_statico(
