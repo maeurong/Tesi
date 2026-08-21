@@ -297,3 +297,273 @@ tantum, fuori dal repository, che rilegge `runs/lab_telaio_v2/01_cloud.ply`,
 Chi rifa' il conto rifa' lo script: tre righe di prodotto misto per il volume,
 un clipping contro il piano per la ripartizione, un istogramma in z per le
 quote.
+
+---
+
+## Che cosa gira, e che cosa no
+
+**Gira.** `uv run meshrec run lab_telaio.yaml` porta a termine tredici step,
+uscita 0. Lo step 13 esegue CalculiX 2.22 (`/Users/mario/.local/bin/ccx`) sul
+deck della corsa e lascia `13_solution.frd/.vtu/.dat`, `13_solver.log` e la
+provenienza in `metrics.json`. Il deck ha quattro passi —
+`GRAVITA`, `SPINTA_ORIZZONTALE`, `CARICO_TOP`, `MODALE`
+(`11_export.casi_di_carico`) — e il solutore li legge a **zero avvisi e zero
+errori** (`13_solve.avvisi`, `13_solve.errori`).
+
+**Non gira, ed e' un esito dichiarato, non un ostacolo.** Il modello
+parametrico non esiste su questa geometria: `12_wall.json` porta
+`regioni_trovate: 8` e `membrature: []`, zero accettate su sei attese. Il
+confronto strutturale ha quindi **una colonna sola**, l'as-built. Il pavimento
+non e' stato trovato (`pavimento_trovato: false`), coerente con un ritaglio che
+comincia sopra di esso.
+
+**Le due suite**, eseguite in questa sessione da
+`/Users/mario/GitHub/Tesi/meshrec` sul ramo `feat/fase-5-analisi-strutturale`:
+
+- `uv run pytest tests -q --ignore=tests/feasibility` → **694 passati**, 5
+  avvisi, 101,42 s;
+- `uv run pytest tests -q -m feasibility` → **11 passati, 1 saltato**, 694
+  deselezionati, 4,49 s.
+
+## Il difetto, e la sua correzione
+
+La Fase 4 si era fermata al deck: i controlli verificavano che fosse leggibile e
+risolvibile, non che fosse **giusto**. Solo un solutore poteva rendere visibile
+quello che segue.
+
+### Il prima
+
+Questi numeri vengono dalla spec di progetto
+(`docs/superpowers/specs/2026-08-21-meshrec-fase-5-analisi-strutturale-design.md`,
+§§ 3.1-3.4, misurati il 21/08/2026) e **non sono rimisurabili oggi**: il codice
+che li produceva non esiste piu'. Sono citati come stato di partenza, non come
+misura di questa corsa.
+
+| grandezza | prima |
+|---|---|
+| scostamento dell'asse altezza dal verticale vero | 22,43° |
+| nodi nel set `BASE` | 278 su 14.103, un piede solo, toppa x 337,6-527,1 |
+| max \|U\| sotto peso proprio | 15,2544 mm (mediana 9,8556) |
+| somma delle reazioni | (34,476; −2004,943; 4858,062) N contro 5.339,8 N di peso |
+| `fixed_nset_coverage` | 1,0 — mentre meta' degli appoggi non era vincolata |
+
+La catena: `align_to_axes` sceglieva l'asse altezza con la PCA, e sul ritaglio
+completo le zapatas — larghe 700 mm e tutte in basso — la spostavano di 22°.
+`build_node_sets` costruiva poi `BASE` come i nodi entro tolleranza dal minimo
+di z-**modello**: con il piano inclinato e i due piedi distanti 2,4 m, il
+secondo piede finiva un metro piu' in alto e la tolleranza non lo raggiungeva.
+Il telaio era incastrato in un angolo. Il docstring di `build_node_sets`
+affermava il contrario, e non era mai stato eseguito.
+
+### Il dopo, misurato su questa corsa
+
+| grandezza | dopo | fonte |
+|---|---|---|
+| asse altezza del modello nel sistema originale | (0, 0, 1) esatto, **0,0000°** | `11_export.transform`, riga 3 della rotazione |
+| nodi nel set `BASE` | **3.719**, mondo x da 1630,8 a 4312,3 — **entrambi i piedi** | `11_export.node_sets`, coordinate da `13_solution.vtu` |
+| max \|U\| sotto peso proprio | **0,036730 mm** | `13_solve.casi.GRAVITA.u_max` |
+| somma delle reazioni | (−1,836e-5; −2,454e-5; **4162,392140**) N | `13_solve.controlli.reazioni.somma` |
+| estensione in pianta del vincolo | **0,9943** (x 1,0, y 0,9943) | `11_export.constraint_plan_extent` |
+
+**Fattore 415,3 sullo spostamento massimo** (15,2544 / 0,036730), esattamente
+quello che la prova della diagnosi aveva previsto. I 3.719 nodi coincidono con
+i 3.719 che la spec aveva ottenuto ricostruendo `BASE` dal verticale vero: la
+correzione ha prodotto il set che la diagnosi si aspettava, non uno simile.
+
+**Controprova sulle altre due geometrie**, rimisurata qui dai rispettivi
+`metrics.json`: `lab_crop` **0,3912°**, `muro` **0,4513°**. Il calcolo
+funzionava li' e cedeva sul ritaglio completo, come la diagnosi affermava.
+
+**Quel che la correzione non ha toccato**, e va detto: `fixed_nset_coverage`
+vale ancora **1,0**. Non e' un residuo del difetto — e' la grandezza sbagliata,
+come il suo stesso docstring dichiara, e per questo la fase ne ha aggiunta una
+nuova (`constraint_plan_extent`) invece di ripararla.
+
+Le quattro invarianti che la correzione **non** doveva muovere, e non ha mosso:
+14.103 nodi, 51.913 tetraedri, 0 invertiti, volume 217.728.361,2 mm³, errore
+mesh→nuvola 27,5379 mm RMS e 135,6937 di massimo su 10.968 campioni.
+
+## I risultati, per caso di carico
+
+I tre carichi non hanno predefiniti e nessun dato li suggerisce: **li ha
+dichiarati l'operatore** e stanno in `lab_telaio.yaml`, blocco `carichi`.
+Coefficiente di spinta orizzontale **0,10** sull'asse y; risultante in sommita'
+**1200 N** sul set `TOP`; **20 modi**. Non sono valori di norma e non sono
+predefiniti del programma.
+
+| caso | u_max [mm] | vm mediana [MPa] | vm p99 [MPa] | vm max [MPa] | max/p99 |
+|---|---:|---:|---:|---:|---:|
+| GRAVITA | 0,036730 | 0,0544 | 0,2336 | 0,5056 | 2,164 |
+| SPINTA_ORIZZONTALE | 0,044611 | 0,0537 | 0,2661 | 0,6763 | 2,542 |
+| CARICO_TOP | 0,064273 | 0,0827 | 0,3923 | 0,9811 | 2,501 |
+
+`u_max` e `vm_max` da `13_solve.casi`; mediana e p99 ricalcolati in questa
+sessione sui 14.103 valori nodali di `13_solution.vtu` (`VM_GRAVITA`,
+`VM_SPINTA_ORIZZONTALE`, `VM_CARICO_TOP`).
+
+**Modale**: 20 modi estratti, prima frequenza **21,19324 Hz**, poi 34,34059 /
+43,13673 / 91,06687 / 108,4334, fino a 681,9477 Hz
+(`13_solve.frequenze_hz`, 20 valori).
+
+## I cinque controlli, e i loro esiti
+
+Tutti e cinque presenti nel dizionario, **tutti e cinque passati**
+(`13_solve.controlli`).
+
+| controllo | esito | numero | soglia |
+|---|---|---|---|
+| **reazioni** — somma = ρVg come vettore | passato | scarto relativo **7,730e-9** | 1e-4 |
+| **vincolo_in_pianta** — estensione dell'impronta vincolata | passato | minimo **0,9943** | 0,5 |
+| **autovalori** — reali, positivi, nessuno vicino a zero | passato | 1ª **21,19324 Hz**, rapporto 1ª/2ª **0,6171** | — |
+| **avvisi** — zero avvisi, zero errori | passato | **0** | 0 |
+| **picco** — dove vive il massimo e quanto e' appuntito | passato sui tre casi | **0,0** dei nodi sopra il p99 in banda | 0 |
+
+**Una precisazione sul primo, perche' e' il numero piu' facile da sbagliare
+leggendo.** I **4162,39 N** delle reazioni **non sono il peso del modello**. Il
+peso e' 217.728.361,2 mm³ × 2,5e-9 t/mm³ × 9810 mm/s² = **5.339,79 N**; ccx
+stampa sul set `BASE` solo la parte **trasmessa attraverso la struttura**, al
+netto della quota tributaria caricata direttamente sui nodi gia' vincolati.
+`solve.py:608` sottrae apposta quella quota da `peso_atteso`, ed e' per questo
+che i due valori — 4162,392140 letto e 4162,392149 atteso — coincidono a nove
+cifre. La quota tributaria vale **1.177,40 N**, il **22,05%** del peso, alta
+perche' molti nodi della soletta ricostruita (§ «Il deficit di volume», punto 4)
+appoggiano su `BASE`.
+
+**Sul quinto, dove sta il picco.** In tutti e tre i casi statici il massimo di
+von Mises cade sullo **stesso nodo**, a coordinate mondo
+(2055,0; −348,3; +1010,3), cioe' al **89,2% dell'altezza** del modello, nella
+viga superior — **fuori** dalla banda di vincolo (89,99 mm, il 5% dei 1799,73 mm
+di altezza) e **fuori** dal set `TOP` dove il carico e' applicato. Sopra il p99
+stanno 142 nodi per caso, e **zero** di essi cade in banda, in nessuno dei tre.
+Il picco non si sposta coi carichi: se fosse un artefatto del carico, si
+sposterebbe.
+
+Qualificato in questa sessione con la grandezza che la pipeline gia' calcola: degli **8** tetraedri incidenti a quel nodo, il piu' piccolo vale **17,66 mm³** contro
+una mediana di **2151,06 mm³** — sotto l'**1%** della distribuzione dei volumi
+elementari. E' una scheggia del maglio. **La qualificazione con `aspect_ratio` e
+`min_dihedral_deg` prevista dal § 6e della spec non e' nella corsa**: la
+sostituzione fatta qui usa il volume elementare, non quelle due, e va scritta
+come tale.
+
+Un dettaglio di lettura, perche' altrimenti due numeri veri sembrano
+contraddirsi: il docstring di `controlla_picco` (`solve.py:339`) chiama quel
+nodo **7132** e lo colloca «circa a meta' altezza del pezzo». **7132** e'
+l'indice nell'array (base zero); nel deck quel nodo e' il **7133**. E la quota
+non e' la meta': e' l'89,2%, misurato qui su `13_solution.vtu` e riscontrato sul
+deck (`wall_model.inp`, nodo 7133, z locale 1605,70 su 1799,73).
+
+## Cosa questi risultati NON hanno il diritto di affermare
+
+Otto punti, dal § 7 della spec. **Due erano falsi e sono corretti qui col numero
+misurato.**
+
+**1. Il confronto ha una colonna sola.** Zero membrature accettate significa
+nessun modello parametrico su questa geometria: esiste solo l'as-built. Il
+telaio sintetico a quattro membrature e' un banco di prova, non il pezzo, e
+metterlo accanto non sarebbe una validazione.
+
+**2. Nessuna armatura.** Calcestruzzo omogeneo, scelta dichiarata. Nessuna
+verifica normativa, nessun confronto con `f_ck`. Le tensioni sotto peso proprio
+(mediana **0,0544** MPa, massimo **0,5056** MPa, rimisurate qui) sono piccole
+rispetto a qualunque resistenza: dire «verifica soddisfatta» sarebbe promuovere
+a esito un carico che non sollecita.
+
+**3. La base e' dove abbiamo tagliato.** `crop_min[2] = -498` sta appena sopra
+il pavimento. Dopo la correzione l'incastro prende entrambi i piedi, il che e'
+meglio, ma resta un **incastro perfetto su una superficie di taglio** — e ora si
+sa in piu' che sotto quel taglio il modello si inventa 45,3 milioni di mm³ di
+soletta. `BASE` per giunta non e' una faccia: sono 3.719 nodi distribuiti in z
+da −595,4 a −463,4, una **fascia spessa 132 mm**, coerente con la tolleranza di
+set di 134,97 mm. Vale la formula di `report.NOTE_NON_GEOMETRICHE`, identica.
+
+**4. L'errore geometrico impedisce i decimali.** 27,5379 mm RMS e 135,6937 mm di
+massimo contro uno spessore mediano di 192,0267 mm: **14,3%** e **70,7%**. La
+sezione locale e' incerta a quella scala, e σ = F/A. **Nessuna tensione con tre
+decimali va letta come tale.**
+
+**5. Il modello pesa meno della meta' del pezzo — ma non e' quel rapporto a
+contare.** Volume 217.728.361,2 mm³ contro 477.700.000 mm³ nominali di tavola:
+**45,58%**. Massa **0,5443 t** contro **1,1944 t**.
+
+Qui la spec deduceva: «sotto peso proprio le tensioni scalano con la massa»,
+e quindi anche le tensioni starebbero al 45,6%. **La deduzione e' falsa su
+questa geometria, ed e' la correzione piu' importante della fase.** Il volume
+mancante sta **tutto sotto il piano di taglio** — zapatas e viga inferior
+interrate — cioe' **fuori dal percorso del carico**: non pesa su nulla. Sopra il
+piano di taglio il modello porta **4.229,21 N** contro i **4.019,52-4.572,07 N**
+del telaio nominale, cioe' dal **92,5% al 105,2%**, non il 45,6%. Sulla tensione
+assiale media nelle colonne l'errore e' dell'ordine del ±8%, non di un fattore
+2,2. Lo conferma la posizione del picco: all'89,2% dell'altezza, nella viga
+superior, 1,6 m sopra il volume che manca. La scomposizione del deficit sta
+nella prima sezione di questo documento.
+
+**6. `TOP` e' un set per tolleranza, e i nodi sono 3.036, non 397.** Il numero
+della spec e' falso sulla corsa vera: dopo la correzione della terna i sei set
+sono stati rifatti, e `11_export.node_sets` da' `TOP` **3036**, `BASE` 3719,
+`FACE_FRONT` 403, `FACE_BACK` 444, `SIDE_LEFT` 1912, `SIDE_RIGHT` 454. Il numero
+vero **rafforza** l'avvertenza invece di indebolirla: 3.036 nodi sono il
+**21,5%** dei 14.103 del modello, con una tolleranza di set di **134,97 mm**.
+`TOP` non e' una faccia, e' una **fascia spessa**. Verificato nel deck: il
+`*CLOAD` del passo `CARICO_TOP` ha **3.036 righe**, ciascuna −0,395257 N, somma
+esatta −1200,0 N. Il carico si ripartisce **uniformemente per nodo**, quindi si
+concentra dove i nodi sono piu' fitti, e su una fascia di 135 mm non e' un
+carico in sommita': e' un carico su una calotta.
+
+**7. Abaqus non entra.** Nessuna licenza, nessuna prova. Nulla si afferma su
+Abaqus. In piu': i nomi dei passi sono scesi a **commento** (`** NOME PASSO:
+GRAVITA`) proprio per tenere CalculiX a zero avvisi — il parametro `NAME=` e le
+card `*NODE OUTPUT`/`*ELEMENT OUTPUT` sono dialetto Abaqus che ccx scavalcava in
+silenzio.
+
+**8. La scomposizione resta al suo soffitto.** Otto regioni, zero membrature: la
+regione da 4,2 milioni di punti e' stata respinta con una dispersione di sezione
+di **1,187** contro una soglia di **0,10**. Il sistema non ha consegnato sei
+membrature plausibili e sbagliate — ha dichiarato di non averne trovata nessuna,
+col numero che l'ha respinta. L'asse mediale e' la via d'aggiornamento
+dichiarata; spessore e PCA locale sono gia' stati provati e misurati, chi
+riprende non li rifaccia.
+
+## I limiti misurati
+
+Non ipotesi: cose che questa corsa ha trovato.
+
+1. **Zero membrature su sei** (§ 8 sopra). Nessun modello parametrico, nessun
+   `*TIE` reale da misurare su questa geometria.
+2. **Il pavimento non e' stato trovato** (`pavimento_trovato: false`,
+   `pavimento_punti: 0`): il ritaglio comincia sopra di esso, e la ricerca del
+   piano non ha piu' punti su cui lavorare.
+3. **Il vincolo e' una fascia, non una faccia** — 132 mm di spessore — e sotto
+   di essa il solido e' ricostruzione cieca (§ 3 sopra).
+4. **Il picco vive su una scheggia del maglio**: il piu' piccolo degli 8 tetraedri
+   incidenti vale 17,66 mm³ contro 2151,06 di mediana. Il numero e' del maglio,
+   non del pezzo.
+5. **Lo stimatore d'errore di CalculiX esce a zero, e non e' utilizzabile
+   qui.** Misurato in questa sessione su `13_solution.frd`: **23 blocchi
+   `ERROR`**, **324.369 valori**, minimo e massimo entrambi **0,0**. Il deck
+   non chiede `ERR` in `*EL FILE` (chiede `S, E`): il blocco esce comunque, e
+   comunque a zero. Misurato lo zero; la causa e' un'ipotesi, sotto.
+6. **L'errore geometrico vale il 14,3% dello spessore in RMS e il 70,7% al
+   massimo** (§ 4 sopra). E' il tetto sulla precisione di ogni tensione.
+
+## Le ipotesi non verificate, elencate come tali
+
+1. **Che i 324.369 zeri del blocco `ERROR` vengano dai tetraedri lineari.**
+   Misurato lo zero, non la causa. Se il modello passasse un giorno a C3D10, e'
+   la prima cosa da riprovare.
+2. **Che il deficit di volume incida poco sulla prima frequenza** (21,19324 Hz).
+   L'attesa e' che incida poco, perche' la massa che manca sta al vincolo e non
+   partecipa al primo modo. **Non e' stata misurata**: servirebbe una modale su
+   un modello col volume interrato, che non esiste.
+3. **Che l'assegnazione x/y resti stabile su tutte e tre le geometrie.** Su
+   `lab_telaio_v2` e' misurata (0,0000°). Su `lab_crop` (0,3912°) e `muro`
+   (0,4513°) i valori vengono da corse **non rigenerate dopo la correzione**: la
+   verifica sulle tre geometrie non e' chiusa.
+4. **Che il picco sia una singolarita' del maglio e non del carico.** L'indizio
+   e' forte — stesso nodo sui tre casi, fuori banda e fuori `TOP`, su una
+   scheggia da 17,66 mm³ — ma la qualificazione con `aspect_ratio` e
+   `min_dihedral_deg` prevista dal § 6e della spec non e' nella corsa (§ «I
+   cinque controlli»).
+5. **Che il nominale di tavola sia il riferimento giusto per il deficit.** La
+   scansione legge le colonne ~205 x 200 mm contro 172 x 172 di tavola. Se
+   l'as-built e' davvero piu' grosso del disegno, la ripartizione del deficit si
+   sposta. Serve un rilievo calibrato, che non esiste.
