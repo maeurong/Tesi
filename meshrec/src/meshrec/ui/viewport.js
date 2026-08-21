@@ -275,15 +275,21 @@ export function creaViewport(contenitore) {
       // resta un solo colore, non un crash ne' un taglio NaN che la renderebbe
       // silenziosamente uniforme.
       const soglia = taglio > 0 ? taglio : 1;
+      // Sequenziale: una tinta sola (0x2f5d50, la stessa di --accento e della
+      // nuvola in mostraNuvola), chiara verso scura al crescere del valore.
+      // Non un arcobaleno che attraversa piu' tinte: una scala di grandezza
+      // vuole un ordine che l'occhio legga come "quanto", non un ciclo di
+      // colori che si legge come identita'. Chi e' al taglio o oltre satura
+      // alla tinta piu' scura della rampa: e' il colore dichiarato di cui
+      // parla il commento sopra, non una tinta in piu' da inventare.
+      const TINTA = new THREE.Color(0x2f5d50).getHSL({ h: 0, s: 0, l: 0 }).h;
       const colore = new THREE.Color();
       for (let indice = 0; indice < valori.length; indice += 1) {
         const valore = valori[indice];
         // Un residuo NaN/Infinity nel campo non deve corrompere il resto della
         // riga di colore: resta al fondo della scala, dichiarato zero.
         const frazione = Number.isFinite(valore) ? Math.min(1, Math.max(0, valore / soglia)) : 0;
-        // Blu (basso) verso rosso (al taglio e oltre): stessa famiglia HSL di
-        // mostraNuvolaPerMembratura, letta nel verso opposto.
-        colore.setHSL((1 - frazione) * 0.6, 0.75, 0.5);
+        colore.setHSL(TINTA, 0.25 + frazione * 0.45, 0.88 - frazione * 0.58);
         colore.toArray(colori, indice * 3);
       }
       geometria.setAttribute("color", new THREE.BufferAttribute(colori, 3));
