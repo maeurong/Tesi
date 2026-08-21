@@ -492,9 +492,9 @@ def test_il_picco_di_tensione_dentro_la_banda_di_vincolo_e_un_artefatto():
 
     Misurato il 21/08/2026 sull'as-built col vincolo corretto: sotto peso
     proprio il rapporto max/p99 vale 2,16 e nessuno dei 142 nodi sopra il p99
-    cade entro la banda di vincolo -- il picco sta a z 2286 mm, non
-    sull'incastro. Il controllo non e' che il picco sia basso: e' che si sappia
-    dove sta.
+    cade entro la banda di vincolo -- il picco sta circa a meta' altezza, non
+    sull'incastro, e resta sullo stesso nodo in tutti e tre i casi di carico.
+    Il controllo non e' che il picco sia basso: e' che si sappia dove sta.
     """
     quote = np.array([0.0, 10.0, 2000.0, 2100.0])
     valori = np.array([9.0, 1.0, 1.0, 1.0])

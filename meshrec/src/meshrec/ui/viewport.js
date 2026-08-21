@@ -2,9 +2,10 @@
 import * as THREE from "/ui/vendor/three.module.js";
 
 // Il taglio della scala colore di un campo per nodo: al p99, non al massimo.
-// Un carico nodale concentrato su mesh grossolana produce una singolarita' -
-// un picco stretto su un solo nodo, non un plateau (misurato sull'as-built,
-// caso CARICO_TOP: max/p99 = 5,09) - e una scala tirata su quel massimo
+// Il maglio dell'as-built ha una singolarita' di geometria che tiene il
+// massimo su un solo nodo, non su un plateau: misurato sui tre casi, max/p99
+// vale 2,16 / 2,54 / 2,50 e il picco resta sempre lo stesso nodo. Una scala
+// tirata su quel massimo
 // schiaccerebbe tutto il resto del pezzo in un solo colore, mostrando
 // l'artefatto come se fosse il risultato. Pura e fuori da mostraMeshPerCampo
 // apposta: e' una decisione numerica, e questo progetto la prova eseguendola
@@ -276,7 +277,7 @@ export function creaViewport(contenitore) {
     // Il campo per nodo (spostamento o tensione equivalente) sopra la
     // superficie di contorno. La scala si taglia al p99 e non al massimo: su
     // un campo di tensione il rapporto fra i due vale 2,16 sotto peso proprio
-    // e arriva a 5,09 su un carico concentrato (misurato sull'as-built), e una
+    // e arriva a 2,54 sotto spinta orizzontale (misurato sull'as-built), e una
     // scala fino al massimo schiaccerebbe quattordicimila nodi in fondo perche'
     // uno solo sta in cima. Chi supera il taglio prende un colore dichiarato,
     // e la legenda dice dov'e' il taglio e quanti nodi sono sopra: e'

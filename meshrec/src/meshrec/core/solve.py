@@ -333,14 +333,17 @@ def controlla_picco(valori: np.ndarray, quote: np.ndarray, banda: float) -> dict
     """max/p99 e dove vive il picco: non basta che sia alto, conta se cade
     dentro la banda di vincolo.
 
-    Misurato il 21/08/2026 sull'as-built, caso CARICO_TOP: `vm_max` 31.977,6
-    MPa a quota 239,62 su 240,90 mm, dentro il set TOP dove il carico e'
-    applicato -- max/p99 = 5,09, un picco stretto e non un plateau. Sotto
-    peso proprio invece max/p99 = 2,16 e nessuno dei 142 nodi sopra il p99
-    cade entro la banda di vincolo (il picco sta a z 2286 mm, non
-    sull'incastro). Il controllo non dice se il picco e' alto: dice se vive
-    dentro la banda vicino alla base, dove un vincolo o un carico
-    concentrato produce numeri grandi e non rappresentativi del pezzo.
+    Misurato il 21/08/2026 sulla corsa dell'as-built, sui tre casi: max/p99
+    vale 2,16 sotto peso proprio, 2,54 sotto spinta orizzontale e 2,50 sotto
+    il carico in sommita'. In tutti e tre il massimo cade sullo **stesso**
+    nodo (7132, circa a meta' altezza del pezzo), fuori dalla banda di
+    vincolo e fuori dal set TOP dove il carico e' applicato: e' una
+    singolarita' della geometria del maglio, non un artefatto del carico --
+    se lo fosse, il picco si sposterebbe coi carichi. Dei 142 nodi sopra il
+    p99 nessuno cade entro la banda di vincolo, in nessuno dei tre casi.
+    Il controllo non dice se il picco e' alto: dice se vive dentro la banda
+    vicino alla base, dove un vincolo o un carico concentrato produce numeri
+    grandi e non rappresentativi del pezzo.
 
     p99 nullo (tensioni tutte a zero): `rapporto_max_p99` e' `None`, mai un
     `nan` silenzioso da una divisione 0/0. Un solo nodo: il percentile e'

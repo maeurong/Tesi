@@ -845,9 +845,10 @@ def create_app(config_path: Path) -> FastAPI:
 
         L'unica intestazione e' `X-Max`, il massimo del campo, che finisce
         nella didascalia della vista. Il p99 su cui si taglia la scala colore
-        (il picco isolato di un carico nodale puntuale - misurato, CARICO_TOP:
-        31 977,6 MPa contro un p99 di 6 279,5 - stirerebbe la scala su un solo
-        vertice) lo calcola il browser in `viewport.scalaDelCampo`: e' una
+        (il picco isolato di una singolarita' del maglio - misurato,
+        CARICO_TOP: 0,9811 MPa contro un p99 di 0,3923 - stirerebbe la scala
+        su un solo vertice) lo calcola il browser in `viewport.scalaDelCampo`:
+        e' una
         decisione numerica, e questo progetto le prova eseguendole in node.
         Le intestazioni `X-Min`, `X-P99` e `X-Sopra-P99` c'erano e nessuno le
         leggeva: un dato che il client ignora invecchia in silenzio.
