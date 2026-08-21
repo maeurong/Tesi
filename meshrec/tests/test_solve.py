@@ -17,7 +17,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from meshrec.core import abaqus, solve, synth, volume
+from meshrec.core import abaqus, quality, solve, synth, volume
 from meshrec.core.config import CaricoSommita, CarichiConfig, Modale, SpintaOrizzontale
 from materiale import ANALISI, MATERIALE
 
@@ -545,3 +545,127 @@ def test_controlla_picco_su_un_solo_nodo_non_solleva():
 
     assert esito["max"] == pytest.approx(5.0)
     assert esito["rapporto_max_p99"] == pytest.approx(1.0)
+
+
+def test_controlla_picco_con_nan_a_monte_non_produce_nan_nel_rapporto():
+    """Minor M3 della revisione del Task 7: la sola guardia su `p99 == 0.0`
+    non intercetta un NaN a monte in `valori` (es. una divisione per zero
+    altrove che sfugge fino a qui). `np.percentile` lo propaga: senza la
+    guardia su `np.isnan(p99)`, `rapporto_max_p99` sarebbe NaN in silenzio --
+    esattamente cio' che il docstring della funzione dice di evitare.
+    """
+    valori = np.array([1.0, np.nan, 3.0, 4.0])
+    quote = np.array([0.0, 10.0, 20.0, 30.0])
+
+    esito = solve.controlla_picco(valori, quote, banda=100.0)
+
+    assert esito["rapporto_max_p99"] is None
+
+
+
+# ---------------------------------------------------------------------------
+# Indagine 21/08/2026 (giro di correzione del Task 7): da dove viene lo
+# scarto reazioni/peso di `_TOLLERANZA_REAZIONI`. Non era rumore di mesh:
+# vedi il commento sopra `_TOLLERANZA_REAZIONI` in solve.py e il docstring
+# di `_quota_tributaria_gravita`. Le prime due fixture/test sono presi cosi'
+# come sono dal worktree del debugger (non riscritti); il terzo e' adattato
+# per essere l'oracolo giusto dopo il fix, non restare rosso.
+# ---------------------------------------------------------------------------
+
+
+def test_leggi_reazioni_su_dat_senza_blocco_forze_non_solleva(tmp_path):
+    """Ingresso degenere 1: `.dat` senza alcun blocco di reazioni -> dizionario
+    vuoto, non un'eccezione. Codice gia' corretto (nessun ramo puo' sollevare
+    qui), nessun test esistente lo copriva per `leggi_reazioni` in isolamento
+    (solo `controlla_reazioni({})` era testato) -- verificato in questa
+    sessione, aggiunto per chiudere la mappa ingressi degeneri del brief."""
+    percorso = tmp_path / "senza_reazioni.dat"
+    percorso.write_text("qualche riga di testo\nche non ha reazioni\n", encoding="ascii")
+
+    assert solve.leggi_reazioni(percorso) == {}
+
+
+DAT_SOLO_MODALE = """\
+     E I G E N V A L U E   O U T P U T
+
+ MODE NO    EIGENVALUE                       FREQUENCY
+                                     REAL PART            IMAGINARY PART
+                           (RAD/TIME)      (CYCLES/TIME     (RAD/TIME)
+
+      1   0.7589826E+09   0.2754964E+05   0.4384661E+04   0.0000000E+00
+
+                    E I G E N V A L U E    N U M B E R     1
+
+
+ forces (fx,fy,fz) for set BASE and time  0.2000000E+01
+
+         1  3.606172E+06  4.669528E+06  1.590494E+07
+"""
+
+
+def test_leggi_reazioni_su_dat_con_solo_blocco_modale_non_prende_le_righe_modali(tmp_path):
+    """Ingresso degenere 2: `.dat` con il solo blocco modale (nessun passo
+    statico prima) -> nessuna reazione statica, e le righe modali (milioni di
+    N) non vengono scambiate per reazioni vere. La guardia su
+    `E I G E N V A L U E   O U T P U T` scatta subito, prima di incontrare
+    qualunque `S T E P`: stesso meccanismo gia' testato per il caso
+    contaminato sopra, qui verificato per il caso limite senza alcun passo
+    statico davanti."""
+    percorso = tmp_path / "solo_modale.dat"
+    percorso.write_text(DAT_SOLO_MODALE, encoding="ascii")
+
+    assert solve.leggi_reazioni(percorso) == {}
+
+
+# ccx 2.22 reale, deck ad hoc: un tetraedro solo, base (nodi 1,2,3) a z=0
+# fissata su tutti e tre gli assi, apice (nodo 4) libero, `*DLOAD, GRAV`
+# verticale. Catturato eseguendo `ccx -i model` su questo identico deck nel
+# worktree del debugger. Nessun errore, zero avvisi, returncode 0, "Job
+# finished".
+DAT_UN_TETRAEDRO = """\
+
+                        S T E P       1
+
+
+                                INCREMENT     1
+
+
+ forces (fx,fy,fz) for set BASE and time  0.1000000E+01
+
+         1  1.839375E-01  1.839375E-01  7.357500E-01
+         2 -1.839375E-01  0.000000E+00  0.000000E+00
+         3  0.000000E+00 -1.839375E-01  0.000000E+00
+"""
+
+
+def test_somma_reazioni_su_un_tetraedro_piu_la_quota_tributaria_eguaglia_il_peso():
+    """Oracolo corretto dopo il fix (giro di correzione del Task 7).
+
+    Stesso deck e stessa prova in forma chiusa dell'indagine: con l'apice
+    libero e i tre nodi di base fissati, `ccx` stampa solo 0,73575 N di
+    reazione totale (1/4 di 2,943 N attesi) perche' la `RF` di un nodo
+    vincolato non include la quota di `*DLOAD, GRAV` applicata a quel nodo
+    dagli elementi che lo toccano -- riporta solo la trasmissione elastica
+    interna. L'invariante fisico vero non e' `somma(RF) == rho*V*g`, e'
+    `somma(RF) + quota_tributaria(BASE) == rho*V*g`: e' esattamente cio' che
+    `_quota_tributaria_gravita` calcola e che `risolvi()` somma prima del
+    confronto in `controlla_reazioni`.
+    """
+    nodes = np.array(
+        [[0.0, 0.0, 0.0], [100.0, 0.0, 0.0], [0.0, 100.0, 0.0], [0.0, 0.0, 100.0]]
+    )
+    tets = np.array([[0, 1, 2, 3]], dtype=np.int64)
+    densita, gravita = 1.8e-9, 9810.0
+    massa = densita * float(np.abs(quality.tet_volumes(nodes, tets)).sum())
+    peso_atteso_z = massa * gravita  # 2.943 N
+
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        percorso = Path(d) / "model.dat"
+        percorso.write_text(DAT_UN_TETRAEDRO, encoding="ascii")
+        reazioni = solve.leggi_reazioni(percorso, passo=1)
+
+    somma_z = sum(v[2] for v in reazioni.values())
+    quota_tributaria_massa = solve._quota_tributaria_gravita(nodes, tets, reazioni, densita)
+
+    assert somma_z + quota_tributaria_massa * gravita == pytest.approx(peso_atteso_z, rel=1e-6)

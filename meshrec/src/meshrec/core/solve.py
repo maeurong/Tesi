@@ -69,19 +69,42 @@ _TIMEOUT_S = 600.0
 # l'elaborazione stessa, non solo il verdetto su un suo risultato.
 _SOGLIA_VINCOLO_IN_PIANTA = 0.5
 
-# Tolleranza di equilibrio per `controlla_reazioni`, misurata in questa
-# sessione (21/08/2026, ccx 2.22) su un cubo omogeneo sotto peso proprio:
-# scarto fra reazioni e rho*V*g dell'8,5% con 35 nodi vincolati alla base,
-# sceso al 5,7% raffinando a 85; su una mesh piu' rada (13 nodi vincolati,
-# 43 nodi totali) lo scarto e' salito al 19,5%, accompagnato da una MPC
-# spuria che ccx riporta da solo ("multiple point constraints: 1") -- indizio
-# di un artefatto di TetGen su quella mesh specifica, non della fisica.
-# Nessuna di queste corse e' la mesh reale della pipeline (min_ratio
-# vincolato, molto piu' fitta): 0,25 sta sopra il rumore misurato oggi e
-# sotto qualunque errore di un ordine di grandezza (densita' sbagliata,
-# direzione di vincolo sbagliata). Da rivedere se una corsa reale la
-# attraversa: vedi il rapporto del Task 7.
-_TOLLERANZA_REAZIONI = 0.25
+# Tolleranza di equilibrio per `controlla_reazioni`.
+#
+# Lo scarto misurato nel giro originale del Task 7 (8,5% con 35 nodi
+# vincolati, 5,7% con 85, 19,5% su una mesh rada) non era rumore di mesh: era
+# indagato come tale e la lettura era sbagliata. Causa radice trovata da
+# un'indagine dedicata (21/08/2026, worktree separato): `ccx` non riporta,
+# nella `RF` di un nodo vincolato che porta anche `*DLOAD, GRAV`, la quota di
+# gravita' applicata a quel nodo dagli elementi che lo toccano -- stampa solo
+# la forza trasmessa elasticamente attraverso la struttura. Prova in forma
+# chiusa, zero errore di discretizzazione: un tetraedro solo, base fissa,
+# apice libero -- rho*V*g = 2,943 N, ccx stampa 0,73575 N (esattamente 1/4,
+# la sola quota del nodo libero). Lo scarto era quindi un rapporto
+# bordo/volume della mesh (quanti nodi vincolati toccano il carico, che cala
+# raffinando), non un errore fisico: coincideva a sei decimali con la quota
+# tributaria di BASE su tutte le mesh misurate. Anche l'indizio dell'MPC
+# spuria era falso: "multiple point constraints: 1" e' un conteggio di limite
+# superiore che ccx stampa identico su ogni corsa, incluso il tetraedro
+# singolo senza alcun *TIE.
+#
+# `risolvi()` ora toglie quella quota da `peso_atteso` prima del confronto
+# (`_quota_tributaria_gravita`): con l'oracolo corretto lo scarto residuo,
+# misurato oggi su tre mesh a cubo (13/35/85 nodi vincolati, carichi
+# cumulativi peso+spinta+carico in sommita'), e' 1,3e-7 nel caso peggiore --
+# precisione del solutore, non fisica mancante. 1e-4 sta sotto l'uno per
+# mille chiesto dalla revisione e circa tre ordini di grandezza sopra quel
+# residuo: margine per la mesh reale della pipeline, mai eseguita in questa
+# indagine (non e' fine quanto il residuo misurato, ma resta un errore di
+# solutore, non di modello).
+#
+# Cosa intercetta davvero, ora che il rumore di stampa e' tolto: NON un
+# errore di densita' (entra sia nel carico che ccx integra sia in
+# `peso_atteso`, si cancella con qualunque tolleranza) -- la *direzione*
+# (un vincolo che tiene la struttura di sbieco, il confronto e' vettoriale
+# apposta), una deriva fra cio' che il deck dichiara e cio' che la
+# configurazione crede, o una lettura parziale delle reazioni.
+_TOLLERANZA_REAZIONI = 1e-4
 
 # ponytail: banda di vincolo come frazione dell'altezza totale del modello,
 # non una quota assoluta in mm (sarebbe un numero del provino dentro src/).
@@ -276,13 +299,16 @@ def controlla_picco(valori: np.ndarray, quote: np.ndarray, banda: float) -> dict
 
     p99 nullo (tensioni tutte a zero): `rapporto_max_p99` e' `None`, mai un
     `nan` silenzioso da una divisione 0/0. Un solo nodo: il percentile e'
-    quel nodo stesso, nessun `IndexError`.
+    quel nodo stesso, nessun `IndexError`. Un NaN a monte in `valori`
+    (Minor M3 della revisione del Task 7): `np.percentile` lo propaga, e la
+    sola guardia su `p99 == 0.0` non lo intercetta -- `rapporto_max_p99` e'
+    `None` anche qui, non un NaN silenzioso.
     """
     v = np.asarray(valori, dtype=np.float64)
     q = np.asarray(quote, dtype=np.float64)
     massimo = float(v.max())
     p99 = float(np.percentile(v, 99))
-    rapporto = None if p99 == 0.0 else massimo / p99
+    rapporto = None if p99 == 0.0 or np.isnan(p99) else massimo / p99
     sopra_p99 = v >= p99
     in_banda = q <= float(q.min()) + banda
     n_sopra = int(sopra_p99.sum())
@@ -334,16 +360,48 @@ def von_mises(tensioni: np.ndarray) -> np.ndarray:
 
 
 def _volume_totale(nodes: np.ndarray, elements: np.ndarray) -> float:
-    """Volume della mesh di volume, tetraedri o esaedri secondo i nodi per elemento.
-
-    Riusa `quality.tet_volumes`/`quality.hex_volumes`, gia' misurate e testate
-    allo step 10: nessuna seconda formula di volume nel programma.
+    """Volume della mesh di volume. Solo tetraedri (Minor M1 della revisione
+    del Task 7): `risolvi()` gira su output di `TetConfig` o di `ModelConfig`
+    C3D8*, ma nessun chiamante in produzione passa mai una mesh esaedrica
+    qui -- zero copertura sul ramo, generalita' non richiesta. Il ramo
+    esaedrico si riaggiunge (`quality.hex_volumes`) quando un chiamante hex
+    esiste davvero.
     """
-    if elements.shape[1] == 8:
-        volumi = quality.hex_volumes(nodes, elements)
-    else:
-        volumi = quality.tet_volumes(nodes, elements[:, :4])
+    volumi = quality.tet_volumes(nodes, elements[:, :4])
     return float(np.abs(volumi).sum())
+
+
+def _quota_tributaria_gravita(
+    nodes: np.ndarray, elements: np.ndarray, nodi_1based, density: float
+) -> float:
+    """Massa che il carico distribuito assegna direttamente ai nodi dati.
+
+    Causa radice trovata da un'indagine dedicata (21/08/2026): la `RF` che
+    `ccx` stampa per un nodo vincolato che porta anche `*DLOAD, GRAV` non
+    include la quota di gravita' applicata a quel nodo dagli elementi che lo
+    toccano -- riporta solo la forza trasmessa elasticamente attraverso la
+    struttura. Prova in forma chiusa: un tetraedro solo, base fissa, apice
+    libero -- `rho*V*g` = 2,943 N, `ccx` stampa 0,73575 N (esattamente 1/4,
+    la sola quota del nodo libero, l'unica che attraversa un elemento).
+    Senza questa correzione lo scarto misura un rapporto bordo/volume della
+    mesh (quanti nodi vincolati toccano il carico), non un errore fisico.
+
+    `rho*V/4` per nodo e' esatto per un tetraedro lineare a densita'
+    costante (`*DLOAD GRAV` ripartisce in parti uguali sui quattro nodi),
+    quindi si somma sui tetraedri che toccano ciascun nodo di `nodi_1based`,
+    senza bisogno dei `node_sets`: quei nodi sono gia' esattamente quelli
+    che `ccx` ha stampato in `leggi_reazioni` (`*NODE PRINT, NSET=BASE, RF`
+    stampa solo il set vincolato).
+    """
+    nodi_1based = list(nodi_1based)
+    if not nodi_1based:
+        return 0.0
+    volumi = np.abs(quality.tet_volumes(nodes, elements[:, :4]))
+    massa_per_incidenza = volumi / 4.0 * density
+    in_set = np.zeros(len(nodes), dtype=bool)
+    in_set[np.array(nodi_1based, dtype=np.int64) - 1] = True
+    incidenze = in_set[elements[:, :4]]
+    return float((incidenze * massa_per_incidenza[:, None]).sum())
 
 
 def risolvi(
@@ -477,9 +535,12 @@ def risolvi(
 
     avvisi = uscita.upper().count("*WARNING")
     frequenze_hz = leggi_frequenze(percorso_dat)
-    massa = float(cfg.material.density) * _volume_totale(nodes, elements)
-    peso_atteso = (0.0, 0.0, massa * cfg.gravity)
     reazioni_peso_proprio = leggi_reazioni(percorso_dat, passo=1)
+    massa = float(cfg.material.density) * _volume_totale(nodes, elements)
+    quota_tributaria = _quota_tributaria_gravita(
+        nodes, elements, reazioni_peso_proprio, cfg.material.density
+    )
+    peso_atteso = (0.0, 0.0, (massa - quota_tributaria) * cfg.gravity)
     controlli = {
         "reazioni": controlla_reazioni(reazioni_peso_proprio, peso_atteso, tolleranza=_TOLLERANZA_REAZIONI),
         "vincolo_in_pianta": {
@@ -491,7 +552,7 @@ def risolvi(
         "avvisi": {"passato": avvisi == 0, "conteggio": avvisi},
         "picco": {
             "passato": all(v["passato"] for v in picco_per_caso.values()) if picco_per_caso else False,
-            **picco_per_caso,
+            "per_caso": picco_per_caso,
         },
     }
 
