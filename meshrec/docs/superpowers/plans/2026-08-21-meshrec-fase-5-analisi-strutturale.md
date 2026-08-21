@@ -21,7 +21,7 @@
 - **Nessun numero del provino di laboratorio in `src/`.** I numeri dei banchi stanno nei test.
 - **Ogni numero scritto in un brief, in un docstring o in un documento è misurato da chi lo scrive, adesso, sulla cosa di cui parla.** Verifica eseguendo, non leggendo.
 - **Ogni test nuovo dichiara la mutazione che lo uccide e la applica davvero**, riportando l'esito nel rapporto di task.
-- Suite: `uv run pytest tests -q --ignore=tests/feasibility` deve restare verde (555 passati al momento della stesura). I test che dipendono da `ccx` vanno in `tests/feasibility` con il marcatore `feasibility`.
+- Suite: `uv run pytest tests -q --ignore=tests/feasibility` deve restare verde. **Misura il conteggio tu, all'inizio del tuo task, e riportalo:** su questo ramo valeva 563 prima del Task 1 e 565 dopo (misurato 21/08/2026, dopo il commit 3a8dd86). Il piano riportava 555, numero preso da `docs/fase-4-prior-telaio.md` e mai rimisurato su questo ramo — vero là, falso qui, quattordicesima istanza del difetto che questa fase esiste per non ripetere. I test che dipendono da `ccx` vanno in `tests/feasibility` con il marcatore `feasibility`.
 
 ## Il banco sintetico condiviso
 
