@@ -690,6 +690,38 @@ def test_un_carico_non_puo_chiamarsi_come_un_passo_riservato(riservato):
         _config_con_posizionato(nome=riservato)
 
 
+@pytest.mark.parametrize("variante", ["carico_top", "Modale", "Spinta_Orizzontale", "gravita"])
+def test_il_nome_riservato_e_preso_anche_cambiando_le_maiuscole(variante):
+    """Stessa regola dei selettori: il confronto sui nomi ignora il caso.
+
+    `gravita` e' il predefinito di `analysis.step_name`, che non sta fra i
+    riservati ma e' preso lo stesso.
+
+    Mutazione che lo uccide: togliere `.casefold()` dal confronto coi
+    riservati. Tutte e quattro le varianti passano la validazione.
+    """
+    with pytest.raises(ValidationError, match="gia' preso"):
+        _config_con_posizionato(nome=variante)
+
+
+def test_due_posizionati_che_differiscono_solo_per_caso_collidono():
+    """Due passi omonimi a meno del caso sono indistinguibili nel rapporto.
+
+    Mutazione che lo uccide: togliere `.casefold()` dalla chiave di
+    `visti`. I due carichi passano e il deck esce con due passi che
+    solo una lettura attenta distingue.
+    """
+    with pytest.raises(ValidationError, match="PRESSA"):
+        crea_config(
+            input=config.InputConfig(path="nuvola.ply"),
+            selettori={"piastra": {"tipo": "nset", "nome": "TOP"}},
+            carichi=config.CarichiConfig(posizionati=[
+                {"nome": "PRESSA", "selettore": "piastra", "forza": [0.0, 0.0, -1.0]},
+                {"nome": "pressa", "selettore": "piastra", "forza": [0.0, 0.0, -2.0]},
+            ]),
+        )
+
+
 def test_due_posizionati_non_possono_avere_lo_stesso_nome():
     """Due passi omonimi nel deck: i due risultati diventano indistinguibili.
 
@@ -793,7 +825,17 @@ Su `PipelineConfig`, accanto al validatore del Task 1:
 ```python
     @model_validator(mode="after")
     def _i_posizionati_citano_selettori_dichiarati(self) -> "PipelineConfig":
-        visti: set[str] = set()
+        # Il confronto sui nomi ignora il caso, come gia' fa
+        # `_i_nomi_dei_selettori_non_collidono_coi_sei`. Una sola regola nel
+        # modulo, non due: la ragione la' era misurata (ccx risolve gli *NSET
+        # senza distinguere le maiuscole, vedi
+        # docs/fase-6-cantiere/sonda-caso-nomi/), qui e' che due passi che
+        # differiscono solo per caso sono indistinguibili per chi legge il
+        # rapporto, e un nome che l'operatore crede nuovo ne sovrascrive uno
+        # riservato nella sua testa se non nel deck.
+        riservati = {nome.casefold(): nome for nome in NOMI_PASSO_RISERVATI}
+        riservati[self.analysis.step_name.casefold()] = self.analysis.step_name
+        visti: dict[str, str] = {}
         for carico in self.carichi.posizionati:
             if carico.selettore not in self.selettori:
                 raise ValueError(
@@ -801,19 +843,23 @@ Su `PipelineConfig`, accanto al validatore del Task 1:
                     f"'{carico.selettore}', che non e' dichiarato. Dichiarati: "
                     f"{sorted(self.selettori)}"
                 )
-            if carico.nome in NOMI_PASSO_RISERVATI or carico.nome == self.analysis.step_name:
+            chiave = carico.nome.casefold()
+            if chiave in riservati:
                 raise ValueError(
-                    f"il carico '{carico.nome}' porta il nome di un passo gia' preso: "
-                    f"i riservati sono {list(NOMI_PASSO_RISERVATI)} e il passo di peso "
-                    f"proprio si chiama '{self.analysis.step_name}'"
+                    f"il carico '{carico.nome}' porta il nome del passo "
+                    f"'{riservati[chiave]}', gia' preso. I riservati sono "
+                    f"{list(NOMI_PASSO_RISERVATI)} e il passo di peso proprio si "
+                    f"chiama '{self.analysis.step_name}'. Il confronto ignora il "
+                    "caso: due passi che differiscono solo per maiuscole sono "
+                    "indistinguibili per chi legge il rapporto"
                 )
-            if carico.nome in visti:
+            if chiave in visti:
                 raise ValueError(
-                    f"due carichi posizionati si chiamano '{carico.nome}': il deck "
-                    "scriverebbe due passi omonimi e i due risultati sarebbero "
-                    "indistinguibili nel file risolto"
+                    f"due carichi posizionati si chiamano '{visti[chiave]}' e "
+                    f"'{carico.nome}': il deck scriverebbe due passi omonimi e i "
+                    "due risultati sarebbero indistinguibili nel file risolto"
                 )
-            visti.add(carico.nome)
+            visti[chiave] = carico.nome
         return self
 ```
 
@@ -825,9 +871,16 @@ uv run pytest tests/test_config.py -q
 
 - [ ] **Step 5: Applica la mutazione e verifica che il test muoia**
 
-Cambia `(self.forza is None) == (self.momento is None)` in
-`self.forza is None and self.momento is None`, rilancia
-`uv run pytest tests/test_config.py -k o_forza_o_momento -q`: deve fallire il test "mai entrambi" e passare quello "senza forza ne momento". Ripristina.
+**Due**, una per ciascuna delle due regole nuove:
+
+1. Cambia `(self.forza is None) == (self.momento is None)` in
+   `self.forza is None and self.momento is None`, rilancia
+   `uv run pytest tests/test_config.py -k o_forza_o_momento -q`: deve fallire il test
+   "mai entrambi" e passare quello "senza forza ne momento". Ripristina.
+2. Togli i due `.casefold()` dal validatore incrociato (quello sui riservati e quello
+   sulla chiave di `visti`), rilancia
+   `uv run pytest tests/test_config.py -k "maiuscole or solo_per_caso" -q`: devono
+   fallire entrambi i test. Ripristina.
 
 - [ ] **Step 6: Commit**
 
