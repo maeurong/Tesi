@@ -289,7 +289,7 @@ scrive entrambi i bracci accanto al momento, perché la differenza fra i due
 Sulla corsa dimostrativa, il carico `TORSIONE` (momento sull'asse z, modulo
 500.000 N·mm, braccio dichiarato 800 mm, sul selettore `appoggio` = `BASE`,
 3.719 nodi): **559 nodi** nel gruppo positivo, **218** nel negativo, braccio
-effettivo **2.116,40 mm** — quasi triplo del dichiarato, perché `BASE` si
+effettivo **2.116,40 mm** — 2,6 volte il dichiarato, perché `BASE` si
 estende su tutta la larghezza del telaio e i due gruppi, presi oltre ±400 mm
 dal centro, arrivano quasi ai due estremi (`runs/lab_telaio_v4_posizionati/metrics.json`,
 `11_export.carichi_posizionati.TORSIONE`).
