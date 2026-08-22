@@ -814,3 +814,37 @@ def test_lo_step_11_passa_i_selettori(monkeypatch, tmp_path):
     pipeline.run(cfg)
 
     assert visti.get("selettori")
+
+
+def test_il_percorso_esaedrico_non_riceve_selettori(monkeypatch, tmp_path):
+    """`selezione.spigolo_medio` media tutte le coppie di nodi dentro un
+    elemento, che coincide con gli spigoli solo per un tetraedro: su un
+    esaedro conterebbe anche le diagonali, allentando in silenzio la soglia
+    dei tre spigoli. Il percorso esaedrico (`genera_modello`) non deve
+    passare `selettori` a `export_model`, altrimenti quel limite diventa
+    raggiungibile.
+
+    Mutazione che lo uccide: aggiungere `selettori=cfg.selettori` alla
+    chiamata di `abaqus.export_model` dentro `genera_modello`
+    (core/pipeline.py:190-202). La cattura vedrebbe la chiave e l'assert
+    cadrebbe.
+    """
+    visti: dict[str, object] = {}
+    originale = abaqus.export_model
+
+    def spia(*args, **kwargs):
+        visti.update(kwargs)
+        return originale(*args, **kwargs)
+
+    monkeypatch.setattr(abaqus, "export_model", spia)
+
+    cfg = _config_cubo(tmp_path)
+    cfg.selettori = {"piastra": config.SelettoreSfera(
+        tipo="sfera", centro=(0.0, 0.0, 0.0), raggio=5.0
+    )}
+    pipeline.run(cfg)
+    visti.clear()  # pipeline.run chiama gia' export_model (step 11, as-built): isola la sola chiamata di genera_modello
+
+    pipeline.genera_modello(cfg, "estruso", tmp_path / "figlia")
+
+    assert "selettori" not in visti
