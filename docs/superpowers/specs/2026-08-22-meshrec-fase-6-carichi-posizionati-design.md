@@ -297,10 +297,18 @@ si riportano entrambi i numeri — dichiarato e misurato — perché l'operatore
 correggere il dato giusto.
 
 La coppia si costruisce su due sottoinsiemi del nset, quello oltre `+braccio/2` e
-quello oltre `−braccio/2` lungo la direzione scelta, e ciascun sottoinsieme
-riceve la propria metà della forza ripartita per area come al § 4. Il resoconto
-scrive braccio dichiarato, braccio effettivo fra i baricentri dei due
-sottoinsiemi, e momento effettivo — che è quello che il deck realizza davvero.
+quello oltre `−braccio/2` lungo la direzione scelta, e dentro ciascuno la forza
+si ripartisce per area come al § 4. Se un lato resta senza nodi si solleva: una
+coppia con una forza sola è una forza.
+
+**Il momento realizzato è esattamente quello dichiarato.** I due sottoinsiemi
+raccolgono nodi *oltre* `±braccio/2`, quindi i loro baricentri pesati distano fra
+loro più del braccio dichiarato. È il **braccio effettivo**, e la forza si calibra
+su di esso — `modulo / braccio_effettivo` — invece di restare `modulo / braccio`.
+Così il `braccio` dichiarato conserva il solo ruolo che gli compete, scegliere i
+due gruppi, e il `modulo` dichiarato non si scosta di nascosto da quello che il
+deck applica. Il resoconto scrive entrambi i bracci accanto al momento, perché
+la differenza fra i due è una cosa da guardare, non da nascondere.
 
 ---
 
@@ -359,9 +367,10 @@ più:
   warning e produce spostamenti non nulli — la sonda che la Fase 5 ha imparato a
   chiedere.
 
-Baseline da non far scendere: **723 passed in 77,70 s**
-(`uv run pytest tests -q --ignore=tests/feasibility`), più 11 passed e 1 skipped
-con `-m feasibility`.
+Baseline da non far scendere: **726 passed in 103,89 s**, misurata su questo
+branch a `a4fefc7` con `uv run pytest tests -q --ignore=tests/feasibility`,
+uscita 0. (Il 723 della mappa è il numero su `main`, prima dei tre test che
+`911f15f` ha aggiunto.) Più 11 passed e 1 skipped con `-m feasibility`.
 
 ---
 
