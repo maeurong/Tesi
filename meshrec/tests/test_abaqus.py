@@ -1998,11 +1998,17 @@ def test_i_posizionati_entrano_nei_casi_di_carico(cube_mesh, tmp_path):
     Mutazione che lo uccide: lasciare `casi_di_carico` alla lista fissa
     dei tre della Fase 5. `solve.risolvi` cercherebbe le chiavi di
     point_data per nomi che l'elenco non dichiara.
+
+    `set_tolerance_factor` ridotto: col predefinito, su questo cubo di sole
+    16 nodi, `BASE` copre l'intera altezza (tolleranza 424 mm su 200 mm di
+    modello) e "piastra" -- la faccia superiore -- ne sarebbe un sottoinsieme,
+    il caso che la guardia sul carico-sul-vincolo rifiuta.
     """
     nodi, tetraedri = cube_mesh
     alto = float(nodi[:, 2].max())
+    analisi = config.AnalysisConfig(material=MATERIALE, set_tolerance_factor=0.5)
     metriche = abaqus.export_model(
-        tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tetraedri, ANALISI, config.TetConfig(),
+        tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tetraedri, analisi, config.TetConfig(),
         selettori={"piastra": config.SelettoreBox(
             tipo="box", min=(-1e9, -1e9, alto - 1.0), max=(1e9, 1e9, 1e9)
         )},
@@ -2038,11 +2044,16 @@ def test_i_posizionati_stanno_fra_carico_top_e_modale(cube_mesh, tmp_path):
     Mutazione che lo uccide: mettere i posizionati prima di CARICO_TOP (o
     dopo MODALE) nella tupla di `casi_di_carico`. L'ordine degli indici
     smette di rispettare la doppia disuguaglianza.
+
+    `set_tolerance_factor` ridotto per lo stesso motivo del test sopra: col
+    predefinito "piastra" sarebbe un sottoinsieme di `BASE` su questo cubo
+    di sole 16 nodi.
     """
     nodi, tetraedri = cube_mesh
     alto = float(nodi[:, 2].max())
+    analisi = config.AnalysisConfig(material=MATERIALE, set_tolerance_factor=0.5)
     metriche = abaqus.export_model(
-        tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tetraedri, ANALISI, config.TetConfig(),
+        tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tetraedri, analisi, config.TetConfig(),
         selettori={"piastra": config.SelettoreBox(
             tipo="box", min=(-1e9, -1e9, alto - 1.0), max=(1e9, 1e9, 1e9)
         )},
@@ -2056,6 +2067,124 @@ def test_i_posizionati_stanno_fra_carico_top_e_modale(cube_mesh, tmp_path):
     )
     casi = metriche["casi_di_carico"]
     assert casi.index("CARICO_TOP") < casi.index("PRESSA") < casi.index("MODALE")
+
+
+def test_un_carico_su_tutto_il_vincolo_solleva(cube_mesh, tmp_path):
+    """Un carico i cui nodi sono tutti dentro il set vincolato non sposta nulla.
+
+    La corsa dimostrativa della Fase 6 aveva il momento su BASE per errore
+    di configurazione, e nulla se ne accorgeva: la forza finiva tutta in
+    reazione, spostamenti e tensioni plausibili, zero avvisi da `ccx`.
+
+    Col predefinito di `set_tolerance_factor` su questo cubo di sole 16
+    nodi, `BASE` copre l'intera altezza (vedi i due test sopra): qualunque
+    selettore non vuoto ne e' un sottoinsieme, ed e' esattamente il caso
+    da rifiutare.
+
+    Mutazione che lo uccide: confrontare `indici_carico` con `vincolati`
+    usando `==` invece di `<=`, o non sollevare affatto quando l'insieme
+    coincide.
+    """
+    nodi, tetraedri = cube_mesh
+    alto = float(nodi[:, 2].max())
+    with pytest.raises(ValueError, match="BASE"):
+        abaqus.export_model(
+            tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tetraedri, ANALISI, config.TetConfig(),
+            selettori={"piastra": config.SelettoreBox(
+                tipo="box", min=(-1e9, -1e9, alto - 1.0), max=(1e9, 1e9, 1e9)
+            )},
+            carichi=config.CarichiConfig(posizionati=[
+                config.CaricoPosizionato(nome="PRESSA", selettore="piastra", forza=(0.0, 0.0, -1200.0)),
+            ]),
+        )
+
+
+def test_un_carico_che_interseca_in_parte_il_vincolo_avvisa(cube_mesh, tmp_path):
+    """Un carico che include solo alcuni nodi del vincolo non e' rifiutato,
+    ma l'operatore deve saperlo: quella quota finisce in reazione lo stesso.
+
+    Il selettore prende i due strati piu' bassi (z <= 60 mm): le quattro
+    basse coincidono col vincolo, le due a 50 mm no. E' l'unico dei due
+    controlli dove il carico resta valido -- il conteggio nell'avviso e'
+    quello che permette all'operatore di giudicare se e' voluto.
+
+    Mutazione che lo uccide: alzare l'avviso anche a intersezione vuota (il
+    caso normale, che rumorerebbe ogni corsa), o non emetterlo affatto
+    quando l'intersezione e' parziale.
+    """
+    nodi, tetraedri = cube_mesh
+    analisi = config.AnalysisConfig(material=MATERIALE, set_tolerance_factor=0.5)
+    with pytest.warns(abaqus.CaricoSulVincoloWarning, match="4 dei suoi 6"):
+        abaqus.export_model(
+            tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tetraedri, analisi, config.TetConfig(),
+            selettori={"bordo_basso": config.SelettoreBox(
+                tipo="box", min=(-1e9, -1e9, -1e9), max=(1e9, 1e9, 60.0)
+            )},
+            carichi=config.CarichiConfig(posizionati=[
+                config.CaricoPosizionato(nome="PRESSA", selettore="bordo_basso", forza=(0.0, 0.0, -1200.0)),
+            ]),
+        )
+
+
+def test_un_caso_misto_di_selettore_arriva_al_deck_scritto(cube_mesh, tmp_path):
+    """Il selettore dichiarato 'piastra' e citato 'Piastra' arrivano fino al
+    deck, non solo alla validazione della configurazione.
+
+    Riproduce il difetto misurato in produzione: `PipelineConfig` accettava
+    gia' il caso misto, ma `write_inp` sollevava comunque con un messaggio
+    che negava una dichiarazione vera ("non e' stato risolto"). Passa per
+    la `PipelineConfig` completa apposta, perche' e' li' che la
+    normalizzazione al nome canonico avviene (`core/config.py`).
+
+    Mutazione che lo uccide: normalizzare `carico.selettore` dentro
+    `abaqus.write_inp` invece che nel validatore di `PipelineConfig`. Il
+    selettore arriverebbe qui gia' 'Piastra' e la scrittura del deck
+    solleverebbe di nuovo.
+    """
+    nodi, tetraedri = cube_mesh
+    analisi = config.AnalysisConfig(material=MATERIALE, set_tolerance_factor=0.5)
+    cfg = config.PipelineConfig(
+        input=config.InputConfig(path="nuvola.ply"),
+        analysis=analisi,
+        selettori={"piastra": config.SelettoreBox(
+            tipo="box", min=(-1e9, -1e9, float(nodi[:, 2].max()) - 1.0), max=(1e9, 1e9, 1e9)
+        )},
+        carichi=config.CarichiConfig(posizionati=[
+            config.CaricoPosizionato(nome="PRESSA", selettore="Piastra", forza=(0.0, 0.0, -1.0)),
+        ]),
+    )
+    metriche = abaqus.export_model(
+        tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tetraedri,
+        cfg.analysis, config.TetConfig(), carichi=cfg.carichi, selettori=cfg.selettori,
+    )
+    testo = (tmp_path / "m.inp").read_text(encoding="ascii")
+    assert "*NSET, NSET=piastra" in testo.splitlines()
+    assert metriche["carichi_posizionati"]["PRESSA"]["nodi"] > 0
+
+
+def test_il_carico_in_sommita_da_solo_riporta_i_nodi_ad_area_nulla(cube_mesh, tmp_path):
+    """Il resoconto di CARICO_TOP non e' buttato: entra in `metrics.json`
+    anche quando e' l'unico carico dichiarato, senza alcun posizionato.
+
+    Prima della correzione, `write_inp` scartava il resoconto di
+    `ripartisci` per CARICO_TOP (`quote, _ = ripartisci(...)`):
+    `nodi_ad_area_nulla` -- il numero attorno a cui ruota meta' del
+    documento della Fase 5 -- non arrivava mai in `metrics.json`.
+
+    Mutazione che lo uccide: continuare a scartare il resoconto di
+    CARICO_TOP invece di aggiungerlo al dizionario che la funzione rende.
+    La chiave 'CARICO_TOP' sparirebbe da `metriche["carichi_posizionati"]`.
+    """
+    nodi, tetraedri = cube_mesh
+    metriche = abaqus.export_model(
+        tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tetraedri, ANALISI, config.TetConfig(),
+        carichi=config.CarichiConfig(
+            carico_sommita=config.CaricoSommita(risultante=1000.0, nset="TOP"),
+        ),
+    )
+    top = metriche["carichi_posizionati"]["CARICO_TOP"]
+    assert "nodi_ad_area_nulla" in top
+    assert top["nodi"] > 0
 
 
 def test_un_selettore_degenere_non_viene_inghiottito(cube_mesh, tmp_path):

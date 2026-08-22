@@ -50,6 +50,10 @@ class UnconstrainedModelWarning(UserWarning):
     """L'insieme vincolato raggiunge meno della meta' della superficie d'appoggio."""
 
 
+class CaricoSulVincoloWarning(UserWarning):
+    """Un carico posizionato include, in parte, nodi dell'insieme vincolato."""
+
+
 def _set_lines(indices: np.ndarray) -> list[str]:
     """Indici 0-based in righe di numeri 1-based, otto per riga."""
     one_based = np.asarray(indices, dtype=np.int64) + 1
@@ -105,7 +109,7 @@ def write_inp(
     carichi: CarichiConfig | None = None,
     nset_selettori: dict[str, np.ndarray] | None = None,
     resoconto_carichi: dict[str, object] | None = None,
-) -> None:
+) -> dict[str, object]:
     """Scrive un modello pronto all'analisi statica sotto peso proprio.
 
     `element_type` e' il nome che il solutore legge, e il numero di nodi per
@@ -155,9 +159,14 @@ def write_inp(
     deck scrive un `*NSET` per selettore (non per carico: due carichi sullo
     stesso selettore citano lo stesso nome) e un passo statico per carico, col
     peso proprio ripetuto per la stessa ragione degli altri passi.
-    `resoconto_carichi`, se dato, e' riempito in loco con la forza effettiva e
-    il numero di nodi di ciascun carico posizionato; `write_inp` continua a
-    rendere `None`, il resoconto viaggia per riferimento fino a `export_model`.
+
+    Il resoconto (forza effettiva, nodi, e per CARICO_TOP anche
+    `nodi_ad_area_nulla`) e' il valore di ritorno di questa funzione, chiave
+    per nome di passo: un dizionario riempito e reso, non un parametro
+    d'uscita silenzioso in cui un ramo puo' dimenticare di scrivere senza che
+    nulla se ne accorga (era esattamente cosi' che CARICO_TOP restava fuori
+    da `metrics.json`). `resoconto_carichi`, se dato, resta riempito anche in
+    loco per compatibilita' con chi lo passa gia'.
     """
     if fixed_nset not in node_sets:
         raise ValueError(f"il set vincolato '{fixed_nset}' non e fra i node_sets forniti")
@@ -260,6 +269,13 @@ def write_inp(
         spinta = f"{elset}, GRAV, {gravity * carichi.spinta.coefficiente}, {versore}"
         lines += passo_statico("SPINTA_ORIZZONTALE", [peso, spinta])
 
+    # Il resoconto di ogni carico che passa da `ripartisci`/`coppia_equivalente`,
+    # CARICO_TOP compreso: costruito qui e reso al chiamante (vedi il `return`
+    # in fondo), non riempito in loco in un parametro d'uscita. Il ramo che
+    # dimenticava di aggiungere CARICO_TOP non faceva rumore proprio perche'
+    # nulla obbligava a farlo confluire da qualche parte.
+    resoconto: dict[str, object] = {}
+
     if carichi is not None and carichi.carico_sommita is not None:
         sommita = carichi.carico_sommita
         if sommita.nset not in node_sets or len(node_sets[sommita.nset]) == 0:
@@ -273,7 +289,7 @@ def write_inp(
         # Fase 5: e' lo stesso carico dei posizionati e non puo' ripartire in
         # un altro modo. I numeri di CARICO_TOP pubblicati in
         # docs/fase-5-analisi.md sono cambiati per questo, ed e' scritto li'.
-        quote, _ = ripartisci(
+        quote, resoconto_top = ripartisci(
             sommita.risultante, nodes, elements, nodi_carico, element_type, nome="CARICO_TOP",
         )
         # OP=NEW: senza, ccx tiene attivo il *CLOAD del passo statico
@@ -285,11 +301,11 @@ def write_inp(
             for n, quota in zip(nodi_carico, quote, strict=True)
         ]
         lines += passo_statico("CARICO_TOP", [peso] + righe_cload)
+        resoconto["CARICO_TOP"] = resoconto_top
 
     # Un passo statico per carico posizionato, col peso proprio ripetuto per
     # la stessa ragione degli altri passi: senza di esso il passo
     # descriverebbe una struttura che non pesa.
-    posizionati_risolti: dict[str, object] = {}
     for carico in () if carichi is None else carichi.posizionati:
         if carico.selettore not in (nset_selettori or {}):
             raise ValueError(
@@ -299,14 +315,14 @@ def write_inp(
             )
         indici = np.asarray(nset_selettori[carico.selettore], dtype=np.int64)
         if carico.forza is None:
-            righe_cload, resoconto = coppia_equivalente(
+            righe_cload, resoconto_carico = coppia_equivalente(
                 carico.momento, nodes, elements, indici, element_type, nome=carico.nome
             )
             lines += passo_statico(carico.nome, [peso] + righe_cload)
-            posizionati_risolti[carico.nome] = resoconto
+            resoconto[carico.nome] = resoconto_carico
             continue
         modulo = float(np.linalg.norm(carico.forza))
-        quote, resoconto = ripartisci(
+        quote, resoconto_carico = ripartisci(
             modulo, nodes, elements, indici, element_type, nome=carico.nome
         )
         versore = np.asarray(carico.forza, dtype=np.float64) / modulo
@@ -318,11 +334,11 @@ def write_inp(
                 if componente != 0.0:
                     righe_cload.append(f"{int(nodo) + 1}, {grado}, {quota * componente:.9e}")
         lines += passo_statico(carico.nome, [peso] + righe_cload)
-        resoconto["forza_dichiarata"] = list(carico.forza)
-        resoconto["forza_effettiva"] = np.outer(quote, versore).sum(axis=0).tolist()
-        posizionati_risolti[carico.nome] = resoconto
+        resoconto_carico["forza_dichiarata"] = list(carico.forza)
+        resoconto_carico["forza_effettiva"] = np.outer(quote, versore).sum(axis=0).tolist()
+        resoconto[carico.nome] = resoconto_carico
     if resoconto_carichi is not None:
-        resoconto_carichi.update(posizionati_risolti)
+        resoconto_carichi.update(resoconto)
 
     if carichi is not None and carichi.modale is not None:
         # Nessun `*EL FILE`: le forme sono normalizzate sulla massa e una
@@ -335,6 +351,7 @@ def write_inp(
     lines.append("")
 
     Path(path).write_text("\n".join(lines), encoding="ascii")
+    return resoconto
 
 
 def fix_sign(direction: np.ndarray) -> np.ndarray:
@@ -1242,7 +1259,37 @@ def export_model(
     # `selezione.risolvi_tutti`: non si intercetta qui, un `try` lo
     # trasformerebbe in un deck silenziosamente sbagliato.
     nset_selettori = selezione.risolvi_tutti(selettori or {}, aligned, elements, node_sets)
-    resoconto_carichi: dict[str, object] = {}
+
+    # Un carico sul selettore che coincide, in tutto o in parte, col set
+    # vincolato non sposta nulla: la sua quota finisce in reazione, non in
+    # spostamento, e ne' `ccx` ne' la guardia sul set vuoto se ne accorgono
+    # (misurato sulla corsa dimostrativa: il momento era su BASE ed e' stato
+    # spostato senza che nulla lo segnalasse). Tutto dentro e' un errore di
+    # modellazione dichiarato come tale; in parte e' un avviso col conteggio,
+    # perche' potrebbe essere voluto (un selettore che tocca il bordo).
+    vincolati = set(np.asarray(node_sets[cfg.fixed_nset], dtype=np.int64).tolist())
+    for carico in () if carichi is None else carichi.posizionati:
+        if carico.selettore not in nset_selettori:
+            continue  # write_inp lo rifiuta con un messaggio piu' completo
+        indici_carico = set(np.asarray(nset_selettori[carico.selettore], dtype=np.int64).tolist())
+        bloccati = indici_carico & vincolati
+        if not bloccati:
+            continue
+        if indici_carico <= vincolati:
+            raise ValueError(
+                f"il carico '{carico.nome}' agisce sul selettore '{carico.selettore}', che "
+                f"coincide per intero con l'insieme vincolato '{cfg.fixed_nset}': tutti i "
+                f"{len(indici_carico)} nodi presi sono bloccati dal vincolo, il carico "
+                "finirebbe tutto in reazione senza spostare nulla"
+            )
+        warnings.warn(
+            f"il carico '{carico.nome}' sul selettore '{carico.selettore}' include "
+            f"{len(bloccati)} dei suoi {len(indici_carico)} nodi anche nell'insieme "
+            f"vincolato '{cfg.fixed_nset}': quella quota finisce in reazione, non in "
+            "spostamento",
+            CaricoSulVincoloWarning,
+            stacklevel=2,
+        )
 
     # La guardia sul set vuoto era cieca su tutto il resto: un `BASE` da 9 nodi
     # produce un deck formalmente valido per un modello di fatto non vincolato,
@@ -1264,7 +1311,7 @@ def export_model(
             stacklevel=2,
         )
 
-    write_inp(
+    resoconto_carichi = write_inp(
         path_inp,
         aligned,
         elements,
@@ -1279,7 +1326,6 @@ def export_model(
         pressure=pressure,
         carichi=carichi,
         nset_selettori=nset_selettori,
-        resoconto_carichi=resoconto_carichi,
     )
     write_vtu(path_vtu, aligned, elements, element_type=tipo)
 
