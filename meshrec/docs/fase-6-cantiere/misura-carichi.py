@@ -3,9 +3,9 @@
 
 Non fa parte del programma: sta sotto `docs/` apposta, sul modello di
 `docs/fase-5-cantiere/misura-deficit.py`. Legge gli artefatti gia' scritti
-(la corsa dimostrativa corretta in `runs/lab_telaio_v4_posizionati_corretto/`,
-quella "prima" in `runs/lab_telaio_v4_posizionati/` tenuta come prova del
-difetto del § 5.4, e la corsa della Fase 5 in `runs/lab_telaio_v2/` e
+(la corsa dimostrativa in `runs/lab_telaio_v4_posizionati_top/`, quella
+"prima" in `runs/lab_telaio_v4_posizionati/` tenuta come prova del difetto
+del § 5.4, e la corsa della Fase 5 in `runs/lab_telaio_v2/` e
 `runs/lab_telaio_v3_pesata/`, tutte in sola lettura) e rifa' da capo le due
 sonde su `ccx` vero. Ogni valore che il documento pubblica porta qui il
 proprio `assert`: se qualcosa si muove, questo script cade invece di
@@ -32,7 +32,7 @@ from meshrec.core import abaqus, config, selezione, solve, synth, volume
 RADICE = Path(__file__).resolve().parents[2]
 CORSA_V2 = RADICE / "runs" / "lab_telaio_v2"
 CORSA_PESATA = RADICE / "runs" / "lab_telaio_v3_pesata"
-CORSA_DIMOSTRATIVA = RADICE / "runs" / "lab_telaio_v4_posizionati_corretto"
+CORSA_DIMOSTRATIVA = RADICE / "runs" / "lab_telaio_v4_posizionati_top"
 # La corsa "prima" del commit 2fc0ae5 (*CLOAD, OP=NEW): stessa configurazione,
 # tenuta apposta come prova del difetto che il § 5.4 racconta.
 CORSA_DIMOSTRATIVA_PRIMA = RADICE / "runs" / "lab_telaio_v4_posizionati"
@@ -86,7 +86,7 @@ def main() -> int:
     if not CORSA_DIMOSTRATIVA.is_dir():
         print(
             f"manca {CORSA_DIMOSTRATIVA}: rigenera con "
-            "`uv run meshrec run lab_telaio_v4_posizionati_corretto.yaml`"
+            "`uv run meshrec run lab_telaio_v4_posizionati_top.yaml`"
         )
         return 1
     if not CORSA_DIMOSTRATIVA_PRIMA.is_dir():
@@ -102,6 +102,7 @@ def main() -> int:
     uguale(158, esporta["selettori"]["angolo"]["nodi"], "angolo (sfera): nodi presi")
     uguale(1, esporta["selettori"]["punta"]["nodi"], "punta (nodo): nodi presi")
     uguale(3719, esporta["selettori"]["appoggio"]["nodi"], "appoggio (nset=BASE): nodi presi")
+    uguale(3036, esporta["selettori"]["sommita"]["nodi"], "sommita (nset=TOP): nodi presi")
     uguale(
         ["GRAVITA", "PRESSA", "TORSIONE"], esporta["casi_di_carico"], "casi di carico scritti nel deck"
     )
@@ -113,13 +114,19 @@ def main() -> int:
     vicino(-1000.0, pressa["forza_effettiva"][2], 1e-6, "PRESSA: forza effettiva lungo z [N]")
 
     torsione = esporta["carichi_posizionati"]["TORSIONE"]
-    uguale(3719, torsione["nodi"], "TORSIONE: nodi (l'intero set BASE)")
-    uguale(800.0, torsione["braccio_dichiarato"], "TORSIONE: braccio dichiarato [mm]")
-    vicino(2116.398, torsione["braccio_effettivo"], 0.01, "TORSIONE: braccio effettivo [mm]")
+    uguale(3036, torsione["nodi"], "TORSIONE: nodi (l'intero set TOP)")
+    uguale(490.7, torsione["braccio_dichiarato"], "TORSIONE: braccio dichiarato [mm]")
+    vicino(1491.161, torsione["braccio_effettivo"], 0.01, "TORSIONE: braccio effettivo [mm]")
     vicino(500000.0, torsione["momento_dichiarato"][2], 1e-6, "TORSIONE: momento dichiarato, asse z [N*mm]")
     vicino(500000.0, torsione["momento_effettivo"][2], 0.01, "TORSIONE: momento effettivo, asse z [N*mm]")
-    uguale(559, torsione["nodi_positivi"], "TORSIONE: nodi del gruppo positivo")
-    uguale(218, torsione["nodi_negativi"], "TORSIONE: nodi del gruppo negativo")
+    uguale(1197, torsione["nodi_positivi"], "TORSIONE: nodi del gruppo positivo")
+    uguale(1285, torsione["nodi_negativi"], "TORSIONE: nodi del gruppo negativo")
+    uguale(2453.2664114565505, torsione["estensione_disponibile"], "TORSIONE: estensione disponibile [mm]")
+
+    rapporto_torsione = float(
+        (torsione["momento_effettivo"][0] ** 2 + torsione["momento_effettivo"][1] ** 2) ** 0.5
+    ) / 500000.0
+    vicino(0.003552, rapporto_torsione, 5e-6, "TORSIONE: rapporto fuori asse nel deck vero (§ 6.2)")
 
     print("\nprima del fix: PRESSA e TORSIONE condividevano la stessa reazione (§ 5.4, tabella 'prima')")
     fz_pressa_prima = sum(
@@ -146,6 +153,19 @@ def main() -> int:
     )
     vicino(4162.392140, fz_pressa - 1000.0, 0.01, "dopo: reazione fz di PRESSA meno i 1000 N dichiarati")
     vicino(fz_gravita, fz_torsione, 1e-3, "dopo: TORSIONE torna esattamente alla reazione di GRAVITA")
+
+    print("\ndopo il fix: TORSIONE sposta davvero qualcosa di proprio (sommita non e' vincolata)")
+    casi = metriche["13_solve"]["casi"]
+    vicino(0.036730, casi["GRAVITA"]["u_max"], 1e-6, "GRAVITA: u_max [mm]")
+    vicino(0.5055793774495465, casi["GRAVITA"]["vm_max"], 1e-6, "GRAVITA: vm_max [MPa]")
+    vicino(0.070417, casi["PRESSA"]["u_max"], 1e-6, "PRESSA: u_max [mm]")
+    vicino(0.9332259648842575, casi["PRESSA"]["vm_max"], 1e-6, "PRESSA: vm_max [MPa]")
+    vicino(0.057308, casi["TORSIONE"]["u_max"], 1e-6, "TORSIONE: u_max [mm]")
+    vicino(0.5695047580291122, casi["TORSIONE"]["vm_max"], 1e-6, "TORSIONE: vm_max [MPa]")
+    assert casi["TORSIONE"]["u_max"] not in (casi["GRAVITA"]["u_max"], casi["PRESSA"]["u_max"]), (
+        "TORSIONE ha lo stesso u_max di GRAVITA o PRESSA: il selettore sommita "
+        "e' tornato degenere, il documento va rivisto"
+    )
 
     print("\nsonda: un *CLOAD resta attivo nel passo statico successivo se non e' azzerato")
     eseguibile = shutil.which("ccx")

@@ -68,10 +68,15 @@ analysis:
   fixed_nset: BASE
   step_name: GRAVITA
   set_tolerance_factor: 6.0
-# Fase 6: stessa corsa dimostrativa di lab_telaio_v4_posizionati.yaml (stessi
-# quattro selettori, stessi due carichi posizionati), rigenerata dopo il
-# commit 2fc0ae5 (*CLOAD, OP=NEW). runs/lab_telaio_v4_posizionati/ resta
-# la corsa "prima": prova del difetto trovato in sessione e poi corretto.
+# Fase 6: stessa corsa dimostrativa di lab_telaio_v4_posizionati_corretto.yaml,
+# con TORSIONE spostata dal selettore appoggio (= BASE, l'insieme vincolato:
+# una coppia li' non sposta nulla, finisce tutta in reazione) al selettore
+# nuovo sommita (= TOP), che non e' vincolato e regge davvero un braccio.
+# appoggio resta dichiarato e non citato: lecito per contratto, e mostra
+# comunque la quarta forma di selettore nel resoconto del § 7.
+# Braccio 490.7 mm: lo stesso della riga "TOP as-built peggiore" gia'
+# pubblicata al § 6.2 (nodi 1197/1285, rapporto fuori asse 0,003552) -- la
+# stessa identica misura, questa volta usata a scrivere un deck vero.
 selettori:
   piastra:
     tipo: box
@@ -87,17 +92,20 @@ selettori:
   appoggio:
     tipo: nset
     nome: BASE
+  sommita:
+    tipo: nset
+    nome: TOP
 carichi:
   posizionati:
     - nome: PRESSA
       selettore: piastra
       forza: [0.0, 0.0, -1000.0]
     - nome: TORSIONE
-      selettore: appoggio
+      selettore: sommita
       momento:
         asse: [0.0, 0.0, 1.0]
         modulo: 500000.0
-        braccio: 800.0
+        braccio: 490.7
 model:
   element: C3D8I
   min_layers: 3
@@ -106,5 +114,5 @@ model:
   lateral_nset: null
   lateral_pressure: null
 run:
-  out_dir: runs/lab_telaio_v4_posizionati_corretto
+  out_dir: runs/lab_telaio_v4_posizionati_top
   from_step: 9

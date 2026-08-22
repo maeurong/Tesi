@@ -1,6 +1,6 @@
 # Fase 6 — carichi posizionati su una mesh senza topologia
 
-Data di chiusura: 22 agosto 2026. Corsa dimostrativa: `runs/lab_telaio_v4_posizionati_corretto`,
+Data di chiusura: 22 agosto 2026. Corsa dimostrativa: `runs/lab_telaio_v4_posizionati_top`,
 generata in questa sessione sul ramo `feat/impronta-carichi` a partire dagli
 stessi artefatti geometrici di `runs/lab_telaio_v2` — stessa nuvola, stesso
 ritaglio, stessa superficie riparata, stessa tetraedrizzazione — con in più il
@@ -19,11 +19,12 @@ valore pubblicato qui, sul modello di
 se la corsa cambia, lo script cade invece di stampare in silenzio un numero
 diverso da quello scritto.
 
-Una seconda cartella, `runs/lab_telaio_v4_posizionati` (senza `_corretto`), è
-tenuta apposta accanto alla prima: è la stessa configurazione risolta
-**prima** che il § 5.4 correggesse un difetto trovato durante la scrittura di
-questo stesso documento. Ogni numero fuori dal § 5.4 viene dalla corsa
-corretta.
+Una seconda cartella, `runs/lab_telaio_v4_posizionati` (senza suffisso), è
+tenuta apposta accanto alla prima: è una configurazione quasi identica,
+risolta **prima** che il § 5.4 correggesse un difetto trovato durante la
+scrittura di questo stesso documento — vi manca solo lo spostamento del
+selettore del momento, dal set vincolato alla sommità, che il § 5.4 stesso
+racconta. Ogni numero fuori dal § 5.4 viene dalla corsa corretta.
 
 ---
 
@@ -80,9 +81,10 @@ a indici di nodo — vive in un modulo a sé, `core/selezione.py`, che non sa
 nulla di deck: prende array di nodi ed elementi e rende indici (`risolvi`,
 `core/selezione.py:67`; `risolvi_tutti`, `core/selezione.py:132`).
 
-La corsa dimostrativa dichiara un selettore per ciascuna delle quattro forme,
-su `lab_telaio_v4_posizionati_corretto.yaml`. I nodi risolti e la bbox reale, dal
-campo `11_export.selettori` di `runs/lab_telaio_v4_posizionati_corretto/metrics.json`:
+La corsa dimostrativa dichiara un selettore per ciascuna delle quattro forme
+— più un secondo esempio di `nset`, per la ragione che il § 5 spiega — su
+`lab_telaio_v4_posizionati_top.yaml`. I nodi risolti e la bbox reale, dal
+campo `11_export.selettori` di `runs/lab_telaio_v4_posizionati_top/metrics.json`:
 
 | selettore | tipo | regola dichiarata | nodi presi | bbox reale dei nodi presi [mm] |
 |---|---|---|---:|---|
@@ -90,6 +92,7 @@ campo `11_export.selettori` di `runs/lab_telaio_v4_posizionati_corretto/metrics.
 | `angolo` | sfera | centro `[700,2400,1750]`, raggio 250 mm | **158** | x 459,6–521,5 · y 2225,3–2456,0 · z 1583,3–1797,6 |
 | `punta` | nodo | punto `[418,46; 1956,82; 1798,73]` | **1** | il nodo a 1,73 mm dal punto dichiarato |
 | `appoggio` | nset | `nome: BASE` | **3719** | x 0,0–875,2 · y 15,3–2698,2 · z 0,0–132,0 |
+| `sommita` | nset | `nome: TOP` | **3036** | x 336,2–529,8 · y 2,4–2456,0 · z 1664,9–1799,7 |
 
 Il selettore `punta` merita una parola: per costruzione non può mai risolvere
 zero nodi — un `argmin` un vincitore ce l'ha sempre, fosse anche a chilometri
@@ -102,7 +105,12 @@ stessa mesh — `core/selezione.py:36`, `SPIGOLI_DI_TOLLERANZA = 3`).
 
 Il selettore `appoggio` mostra la quarta forma nel modo più diretto: cita
 semplicemente `BASE`, e riceve gli stessi 3.719 nodi che `build_node_sets` ha
-già costruito per il vincolo — nessun ricalcolo, nessuna duplicazione.
+già costruito per il vincolo — nessun ricalcolo, nessuna duplicazione. Non è
+citato da alcun carico in questa corsa: è il caso «selettore dichiarato e mai
+citato», legittimo per contratto (§ 3), non un residuo dimenticato. Il
+selettore `sommita` cita `TOP` allo stesso modo, ed è quello che il § 5
+sceglie per il momento — la ragione per cui il momento non poteva stare su
+`appoggio` è la stessa ragione per cui `appoggio` resta senza carico.
 
 ---
 
@@ -292,12 +300,22 @@ scegliere i due gruppi, non fissare la leva della forza. Il resoconto (§ 7)
 scrive entrambi i bracci accanto al momento, perché la differenza fra i due
 è una cosa da guardare, non da nascondere.
 
-Sulla corsa dimostrativa, il carico `TORSIONE` (momento sull'asse z, modulo
-500.000 N·mm, braccio dichiarato 800 mm, sul selettore `appoggio` = `BASE`,
-3.719 nodi): **559 nodi** nel gruppo positivo, **218** nel negativo, braccio
-effettivo **2.116,40 mm** — 2,6 volte il dichiarato, perché `BASE` si
-estende su tutta la larghezza del telaio e i due gruppi, presi oltre ±400 mm
-dal centro, arrivano quasi ai due estremi (`runs/lab_telaio_v4_posizionati_corretto/metrics.json`,
+Il selettore giusto per un momento deve estendersi abbastanza, nella direzione
+della coppia, da sostenere il braccio voluto: una box di 300×300 mm o una
+sfera di raggio 250 mm — `piastra` e `angolo` di questa stessa corsa, § 2 —
+non arrivano a qualche centinaio di millimetri di estensione, e un braccio
+importante su uno dei due sarebbe stato rifiutato, giustamente. `TOP`, il set
+di faccia, si estende invece per oltre due metri.
+
+Sulla corsa dimostrativa, il carico `TORSIONE` agisce sul selettore `sommita`
+— `{tipo: nset, nome: TOP}`, gli stessi 3.036 nodi del set di faccia — con
+asse z, modulo 500.000 N·mm e braccio dichiarato **490,7 mm**: lo stesso
+braccio della riga «`TOP` as-built, braccio 490,7» già misurata al § 6.2, qui
+scritto per la prima volta in un deck vero invece che in una sonda. L'estensione
+disponibile è **2.453,27 mm** (§ 6.2), ampiamente sopra il braccio dichiarato:
+la funzione non solleva, e divide i 3.036 nodi in **1.197** nel gruppo
+positivo e **1.285** nel negativo, con braccio effettivo **1.491,16 mm**
+(`runs/lab_telaio_v4_posizionati_top/metrics.json`,
 `11_export.carichi_posizionati.TORSIONE`).
 
 ### 5.3 La prova su `ccx` vero: la coppia sposta, la card sul grado 4 no
@@ -396,8 +414,8 @@ ridichiara identico a ogni passo e **sostituisce**, non somma — non ha mai
 sofferto del difetto, ed è per questo che `GRAVITA` è sempre stato corretto.
 
 Rigenerata la corsa dimostrativa con il codice corretto
-(`runs/lab_telaio_v4_posizionati_corretto/`, stessi selettori, stessi due
-carichi posizionati), le stesse reazioni tornano quelle attese:
+(`runs/lab_telaio_v4_posizionati_top/`, stessi due carichi posizionati), le
+reazioni tornano quelle attese:
 
 | passo | Σfz misurata (dopo) |
 |---|---:|
@@ -405,30 +423,34 @@ carichi posizionati), le stesse reazioni tornano quelle attese:
 | `PRESSA` (peso + forza da −1.000 N) | **5.162,39 N** |
 | `TORSIONE` (peso + coppia, risultante netta nulla) | **4.162,39 N** |
 
-`TORSIONE` torna **esattamente** alla reazione di `GRAVITA`, com'è fisicamente
-dovuto per una coppia a risultante nulla; `PRESSA`, il primo passo a
-dichiarare un `*CLOAD`, non cambia di una cifra rispetto a prima — non aveva
-nulla da ereditare. Lo stesso vale per ogni numero del § 2 e del § 7 che
-descrive *come il deck viene scritto* (nodi dei selettori, area tributaria,
-braccio effettivo, momento effettivo): sono fatti decisi in fase di scrittura
-del deck, prima che `ccx` lo risolva, e la card `OP=NEW` non li tocca — solo
-la **soluzione** del passo `TORSIONE` cambia, perché prima portava anche il
-carico di `PRESSA` e ora porta solo il proprio.
+`TORSIONE` torna **esattamente** alla reazione di `GRAVITA` (a meno del
+residuo numerico del solutore, sotto 4e-4 N su un carico di migliaia di
+newton), com'è fisicamente dovuto per una coppia a risultante nulla;
+`PRESSA`, il primo passo a dichiarare un `*CLOAD`, non cambia di una cifra
+rispetto a prima — non aveva nulla da ereditare. Lo stesso vale per ogni
+numero del § 2 e del § 7 che descrive *come il deck viene scritto* (nodi dei
+selettori, area tributaria, braccio effettivo, momento effettivo): sono
+fatti decisi in fase di scrittura del deck, prima che `ccx` lo risolva, e la
+card `OP=NEW` non li tocca — solo la **soluzione** del passo `TORSIONE`
+cambia, perché prima portava anche il carico di `PRESSA` e ora porta solo il
+proprio. Sotto il codice corretto, `TORSIONE` sposta davvero qualcosa di
+proprio: `u_max` **0,057308 mm** e `vm_max` **0,5695 MPa**
+(`13_solve.casi.TORSIONE`), diversi sia da `GRAVITA` (0,036730 mm, 0,5056
+MPa) sia da `PRESSA` (0,070417 mm, 0,9332 MPa) — una risposta strutturale
+distinguibile, non un residuo del peso proprio.
 
-Una nota onesta su quella soluzione: sotto il codice corretto, gli spostamenti
-e le tensioni di `TORSIONE` risultano **identici** a quelli di `GRAVITA`, non
-solo le reazioni. Non è un residuo del difetto — è una proprietà di questa
-particolare scelta di selettore: `TORSIONE` agisce sul selettore `appoggio`
-(l'insieme `BASE`), che è **lo stesso insieme** vincolato da `*BOUNDARY,
-BASE, 1, 3`. Una forza concentrata su un grado di libertà già fissato a zero
-per condizione al contorno non produce alcuno spostamento in nessun punto del
-modello: l'intero suo effetto finisce nella reazione di quel nodo, mai nel
-campo di spostamento altrove. È una dimostrazione corretta del braccio e del
-momento effettivo (§ 5.2, § 7) — quei numeri si leggono dal deck scritto, non
-dalla soluzione — ma non è la scelta giusta per mostrare uno spostamento
-indotto dal momento: per quello serve un selettore che non coincida col
-vincolo, ed è la ragione per cui il § 5.3 usa la sonda su un banco a sé
-invece dei numeri risolti di questa corsa.
+**Un'osservazione da tenere, non solo un difetto da correggere**: un carico
+applicato su un insieme di nodi **interamente vincolato** non sposta nulla,
+in nessun punto del modello — l'intero suo effetto finisce nella reazione di
+quei nodi, per costruzione dell'eliminazione dei gradi di libertà fissati.
+Il selettore `appoggio` (l'insieme `BASE`, vincolato da `*BOUNDARY, BASE, 1,
+3`) è esattamente un caso così, ed è per questo che il momento di questa
+dimostrazione **non** agisce su di lui: agisce su `sommita` (`TOP`), che non
+è vincolato. È un'informazione che vale per chiunque dichiari un momento, non
+solo per questa corsa — un selettore coincidente, anche solo in parte, con
+`fixed_nset` realizza sulla carta lo stesso braccio e lo stesso momento
+effettivo (§ 5.2, § 7 li leggono dal deck scritto, prima che `ccx` risolva
+nulla), ma non sposta la struttura di un millimetro.
 
 Verificato che la correzione non tocchi nulla di già pubblicato: lo script
 della Fase 5 (`docs/fase-5-cantiere/misura-deficit.py`) esce ancora a 0 sui
@@ -492,6 +514,14 @@ di `TOP`, a tre bracci diversi:
 Il peggiore dei tre è **0,003552**: piccolo, ma non zero, ed è la banda a
 renderlo tale — non un errore, una proprietà di ogni superficie as-built
 scansionata.
+
+Questa non è rimasta una sonda a parte: è la stessa combinazione — selettore
+`TOP`, braccio 490,7 mm — che il carico `TORSIONE` della corsa dimostrativa
+scrive in un deck vero (§ 5.2). Il controllo del momento fuori asse vi passa
+in silenzio (nessun `ValueError`, il deck si scrive), e il rapporto letto dal
+resoconto reale coincide con la riga qui sopra: **0,003552**. La soglia non è
+tarata solo su un caso costruito per la misura, è verificata sul caso reale
+che la userà.
 
 **Un selettore volumetrico che si estende sull'intera altezza del modello**
 mostra l'altro estremo. Un box che prende un montante intero — x pieno, una
@@ -585,7 +615,7 @@ Fase 5 aveva pubblicato: `selettori` e `carichi_posizionati`, entrambe scritte
 perché fra un nodo solo e tutti i nodi della mesh nessuna soglia può
 giudicare da sola, e mostrare è l'unica risposta onesta (§ 3).
 
-Un estratto reale, da `runs/lab_telaio_v4_posizionati_corretto/metrics.json`:
+Un estratto reale, da `runs/lab_telaio_v4_posizionati_top/metrics.json`:
 
 ```json
 "selettori": {
@@ -598,6 +628,11 @@ Un estratto reale, da `runs/lab_telaio_v4_posizionati_corretto/metrics.json`:
     "tipo": "nset",
     "nodi": 3719,
     "bbox": [[0.0, 15.27, 0.0], [875.24, 2698.16, 132.01]]
+  },
+  "sommita": {
+    "tipo": "nset",
+    "nodi": 3036,
+    "bbox": [[336.19, 2.40, 1664.91], [529.77, 2455.95, 1799.73]]
   }
 },
 "carichi_posizionati": {
@@ -609,18 +644,23 @@ Un estratto reale, da `runs/lab_telaio_v4_posizionati_corretto/metrics.json`:
     "forza_effettiva": [0.0, 0.0, -999.9999999999992]
   },
   "TORSIONE": {
-    "nodi": 3719,
-    "braccio_dichiarato": 800.0,
-    "braccio_effettivo": 2116.397907135251,
+    "nodi": 3036,
+    "braccio_dichiarato": 490.7,
+    "braccio_effettivo": 1491.1611523542952,
     "momento_dichiarato": [0.0, 0.0, 500000.0],
-    "momento_effettivo": [65.24, 6580.13, 499999.99999999994],
-    "forza_di_ciascun_lato": 236.25046987350228,
-    "nodi_positivi": 559,
-    "nodi_negativi": 218,
-    "estensione_disponibile": 2685.28
+    "momento_effettivo": [8.51, -1776.06, 500000.00000000023],
+    "forza_di_ciascun_lato": 335.30916441229925,
+    "nodi_positivi": 1197,
+    "nodi_negativi": 1285,
+    "estensione_disponibile": 2453.2664114565505
   }
 }
 ```
+
+`appoggio` compare nel resoconto con i suoi 3.719 nodi anche se **nessun
+carico lo cita**: è il caso «selettore dichiarato e mai citato», legittimo
+per contratto (§ 3), e questa stessa corsa lo esercita davvero invece di
+lasciarlo solo a un test.
 
 Ogni selettore riporta il proprio tipo, quanti nodi ha preso e la bbox reale
 di quei nodi — non la regola dichiarata, ma dove i nodi presi *stanno
