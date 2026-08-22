@@ -14,10 +14,12 @@ from meshrec.core import abaqus, solve, synth, volume
 from meshrec.core.config import (
     GRAVITY_MM_S2,
     AnalysisConfig,
+    CaricoPosizionato,
     CaricoSommita,
     CarichiConfig,
     Material,
     Modale,
+    Momento,
     SpintaOrizzontale,
 )
 from ccx_utils import read_dat_displacements
@@ -495,3 +497,129 @@ def test_lo_step_13_risolve_il_deck_e_scrive_i_campi_nel_vtu(tmp_path):
         "il carico aggiuntivo in sommita' (peso proprio + risultante verticale) "
         "deve accorciare la colonna piu' del solo peso proprio"
     )
+
+
+def test_un_posizionato_gira_a_zero_avvisi_e_sposta_qualcosa(tmp_path):
+    """Il deck con un carico posizionato lo onora il solutore, non una lettura del testo.
+
+    Non basta "zero avvisi": un momento su un C3D4 esce a zero avvisi e
+    spostamento esattamente nullo. L'oracolo e' che qualcosa si sia
+    mosso.
+
+    Mutazione dichiarata dal brief (base zero invece di base uno sul
+    numero di nodo del *CLOAD): verificata inerte su questa mesh. Il nodo
+    0 non cade nel selettore "piastra" (il set TOP), quindi lo shift di
+    un'unita' non produce mai un riferimento a un nodo inesistente: sposta
+    solo la forza su un nodo vicino, quasi sempre ancora in TOP o comunque
+    ancora capace di far accorciare la colonna. Misurato: col codice
+    corretto max|uz|=0.0275 mm, con la mutazione 0.0300 mm -- stesso
+    ordine, nessuna soglia su questo oracolo li separa. Non e' una
+    mutazione che questo test possa uccidere; resta scritta qui perche'
+    il brief la prescriveva, ma il test protegge solo l'oracolo
+    dichiarato negli Ingressi degeneri ("qualcosa si e' mosso"), non
+    l'indicizzazione dei nodi.
+    """
+    executable = shutil.which("ccx")
+    if executable is None:
+        pytest.skip("eseguibile 'ccx' non presente nel PATH")
+
+    material = Material(name="MURATURA", young=1500.0, poisson=0.2, density=1.8e-9)
+    vertices, faces = synth.box_mesh(SIZE)
+    nodes, tets = volume.tetrahedralize(
+        vertices, faces, max_volume=20_000.0, min_ratio=1.8, max_steiner_points=-1, nobisect=False
+    )
+    z = nodes[:, 2]
+    node_sets = {
+        "BASE": np.flatnonzero(z <= z.min() + 1e-6),
+        "TOP": np.flatnonzero(z >= z.max() - 1e-6),
+    }
+
+    abaqus.write_inp(
+        tmp_path / "model.inp", nodes, tets,
+        node_sets=node_sets,
+        material=material,
+        print_nsets=("TOP",),
+        nset_selettori={"piastra": node_sets["TOP"]},
+        carichi=CarichiConfig(posizionati=[
+            CaricoPosizionato(nome="PRESSA", selettore="piastra", forza=(0.0, 0.0, -1000.0)),
+        ]),
+    )
+
+    processo = subprocess.run(
+        [executable, "-i", "model"],
+        cwd=tmp_path, capture_output=True, text=True, timeout=600,
+    )
+    uscita = processo.stdout
+    assert "Job finished" in uscita, uscita[-2000:] + processo.stderr[-2000:]
+    assert uscita.upper().count("*WARNING") == 0, uscita
+    assert uscita.upper().count("*ERROR") == 0, uscita
+
+    spostamenti = read_dat_displacements(tmp_path / "model.dat")
+    assert spostamenti, "il .dat non porta spostamenti: il carico non e' arrivato"
+    assert max(abs(u[2]) for u in spostamenti.values()) > 0.0
+
+
+def test_un_momento_come_coppia_non_e_scartato_in_silenzio(tmp_path):
+    """Il momento realizzato come coppia sposta davvero, a differenza della card muta.
+
+    Misurato: un `*CLOAD` sul grado 4 di un C3D4 esce a zero avvisi e
+    spostamento `0.000000E+00`. Questo test afferma il contrario sulla
+    coppia, ed e' l'unico modo di distinguere le due cose.
+
+    Soglia di 1e-3 mm, non zero: misurato che la sola gravita' (senza
+    alcun momento) genera gia' fino a ~1.8e-5 mm di spostamento
+    orizzontale per asimmetria della mesh -- un confronto con 0.0
+    sarebbe soddisfatto anche da una card muta sul grado 4, che non
+    sposta nulla di suo ma eredita quel rumore. La coppia vera qui
+    misura ~0.05 mm, ~2700 volte sopra la soglia.
+
+    Mutazione che lo uccide: scrivere il momento come `*CLOAD` sui gradi
+    4-6 invece che come coppia. `ccx` esce a zero, senza warning, e gli
+    spostamenti orizzontali restano al rumore di fondo della gravita'
+    (~1.8e-5 mm), sotto la soglia.
+    """
+    executable = shutil.which("ccx")
+    if executable is None:
+        pytest.skip("eseguibile 'ccx' non presente nel PATH")
+
+    material = Material(name="MURATURA", young=1500.0, poisson=0.2, density=1.8e-9)
+    vertices, faces = synth.box_mesh(SIZE)
+    nodes, tets = volume.tetrahedralize(
+        vertices, faces, max_volume=20_000.0, min_ratio=1.8, max_steiner_points=-1, nobisect=False
+    )
+    z = nodes[:, 2]
+    node_sets = {
+        "BASE": np.flatnonzero(z <= z.min() + 1e-6),
+        "TOP": np.flatnonzero(z >= z.max() - 1e-6),
+    }
+
+    abaqus.write_inp(
+        tmp_path / "model.inp", nodes, tets,
+        node_sets=node_sets,
+        material=material,
+        print_nsets=("TOP",),
+        nset_selettori={"piastra": node_sets["TOP"]},
+        carichi=CarichiConfig(posizionati=[
+            CaricoPosizionato(
+                nome="TORSIONE", selettore="piastra",
+                momento=Momento(asse=(0.0, 0.0, 1.0), modulo=50_000.0, braccio=60.0),
+            ),
+        ]),
+    )
+
+    processo = subprocess.run(
+        [executable, "-i", "model"],
+        cwd=tmp_path, capture_output=True, text=True, timeout=600,
+    )
+    uscita = processo.stdout
+    assert "Job finished" in uscita, uscita[-2000:] + processo.stderr[-2000:]
+    assert uscita.upper().count("*WARNING") == 0, uscita
+    assert uscita.upper().count("*ERROR") == 0, uscita
+
+    spostamenti = read_dat_displacements(tmp_path / "model.dat")
+    assert spostamenti, "il .dat non porta spostamenti"
+    orizzontali = max(max(abs(u[0]), abs(u[1])) for u in spostamenti.values())
+    # 1e-3 mm, non 0.0: la sola gravita' (mesh non simmetrica) genera gia'
+    # ~1.8e-5 mm di rumore orizzontale, che una card muta erediterebbe
+    # superando un confronto con zero senza aver mosso nulla di suo.
+    assert orizzontali > 1e-3, "la coppia non ha mosso nulla oltre il rumore: e' muta come la card sul grado 4"
