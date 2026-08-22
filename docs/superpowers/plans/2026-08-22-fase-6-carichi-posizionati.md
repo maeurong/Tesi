@@ -1686,10 +1686,16 @@ def test_ogni_posizionato_e_un_passo_a_se_col_peso_proprio(cube_mesh, tmp_path):
 def test_il_resoconto_riporta_la_forza_effettiva(cube_mesh, tmp_path):
     """Il programma dice con quali numeri ha fatto quello che ha fatto.
 
-    Mutazione che lo uccide: riportare la forza dichiarata al posto di
-    quella effettiva. Le due coincidono qui, ma la chiave diventa una
-    copia dell'ingresso e smette di poter contraddire alcunche': cambia
-    l'assert in uno che confronta il resoconto con il deck letto.
+    Mutazione che lo uccide: scrivere le righe `*CLOAD` su un grado di
+    liberta' fisso invece che sui tre della forza. Il resoconto continua a
+    dire la cosa giusta -- lo ricava dalle quote, non dal file -- mentre il
+    deck ne dice un'altra, e il confronto fra i due cade.
+
+    **Non** lo uccide riportare `forza_dichiarata` al posto di
+    `forza_effettiva`: `ripartisci` garantisce per costruzione che le quote
+    sommino alla risultante, quindi le due sono lo stesso numero. E' il
+    confronto col deck a dare a questo test un oracolo, non il resoconto
+    da solo.
     """
     nodi, _ = cube_mesh
     resoconto: dict[str, object] = {}
@@ -1699,6 +1705,29 @@ def test_il_resoconto_riporta_la_forza_effettiva(cube_mesh, tmp_path):
     dal_deck = _forze_del_passo(testo, "PRESSA", len(nodi)).sum(axis=0)
     assert resoconto["PRESSA"]["forza_effettiva"] == pytest.approx(dal_deck)
     assert resoconto["PRESSA"]["nodi"] > 0
+
+
+def test_senza_posizionati_il_deck_e_identico_a_prima(cube_mesh, tmp_path):
+    """Chi non dichiara posizionati non paga nulla: nemmeno un *NSET in piu'.
+
+    L'invarianza della suite prova che nulla si e' rotto, non che *questa*
+    condizione regge: sono due cose diverse, e la seconda merita il proprio
+    oracolo.
+
+    Mutazione che lo uccide: scrivere comunque un `*NSET` quando
+    `nset_selettori` e' vuoto. I due file smettono di combaciare.
+    """
+    nodi, tetraedri = cube_mesh
+    sets = _base_and_top(nodi)
+    senza = tmp_path / "senza.inp"
+    vuoto = tmp_path / "vuoto.inp"
+    abaqus.write_inp(senza, nodi, tetraedri, node_sets=sets, material=MATERIALE)
+    abaqus.write_inp(
+        vuoto, nodi, tetraedri, node_sets=sets, material=MATERIALE,
+        nset_selettori={},
+        carichi=config.CarichiConfig(posizionati=()),
+    )
+    assert senza.read_text(encoding="ascii") == vuoto.read_text(encoding="ascii")
 
 
 def test_un_posizionato_che_cita_un_selettore_non_risolto_solleva(cube_mesh, tmp_path):
