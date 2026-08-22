@@ -1278,7 +1278,16 @@ def test_solo_i_nodi_della_superficie_hanno_area(cube_mesh):
     aree = abaqus.aree_tributarie(nodi, tetraedri, superficie, "C3D4")
     con_area = set(np.flatnonzero(aree > 0).tolist())
     assert con_area, "nessun nodo ha area: la superficie e' vuota"
-    assert con_area <= set(sets["TOP"].tolist())
+    # I nodi che le facce della superficie toccano davvero. L'uguaglianza, e
+    # non la sola inclusione: con `<=` una mutazione che azzera un vertice
+    # per triangolo passerebbe, perche' toglierebbe nodi da un insieme che
+    # deve solo restare dentro l'altro.
+    toccati = {
+        int(tetraedri[elemento][indice])
+        for elemento, numero in superficie
+        for indice in abaqus.FACCE_DEL_SOLUTORE[4][numero - 1]
+    }
+    assert con_area == toccati
 
 
 def test_una_superficie_vuota_da_aree_tutte_nulle(cube_mesh):
