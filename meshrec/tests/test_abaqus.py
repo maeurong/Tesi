@@ -1658,8 +1658,14 @@ def test_un_braccio_piu_largo_dell_estensione_e_rifiutato(cube_mesh, tmp_path):
     Mutazione che lo uccide: misurare il braccio dall'estensione invece
     di verificarlo. Nessuna eccezione, e un numero che nessuno puo'
     smentire.
+
+    Il `match` cerca il messaggio **specifico** del controllo sull'estensione
+    ("si estendono"), non solo "400": con braccio=400 anche il controllo sui
+    gruppi vuoti solleva un `ValueError` che nomina "400" per caso (e' il
+    braccio nel suo stesso messaggio), e un `match="400"` da solo passerebbe
+    pure disattivando il controllo giusto e lasciando scattare quello sbagliato.
     """
-    with pytest.raises(ValueError, match="400"):
+    with pytest.raises(ValueError, match=r"braccio di 400 mm.*si estendono"):
         _con_posizionati(tmp_path / "deck.inp", cube_mesh, [
             config.CaricoPosizionato(
                 nome="TORSIONE", selettore="piastra",
@@ -1700,8 +1706,17 @@ def test_il_resoconto_del_momento_dice_dichiarato_ed_effettivo(cube_mesh, tmp_pa
     pesati distano piu' del braccio dichiarato: e' lecito, ed e'
     esattamente la cosa che il resoconto esiste per far vedere.
 
-    Mutazione che lo uccide: scrivere `braccio_effettivo` uguale a
-    `braccio_dichiarato`. L'assert di disuguaglianza cade.
+    Mutazione che lo uccide: invertire l'ordine dei due baricentri nel
+    calcolo del braccio effettivo (`bracci[1] - bracci[0]` invece di
+    `bracci[0] - bracci[1]`). Il braccio effettivo diventa negativo e
+    l'assert `>= braccio_dichiarato` cade: e' un errore di segno reale, non
+    inventato.
+
+    Non "scrivere braccio_effettivo uguale a braccio_dichiarato": il
+    contratto vuole `>=`, non `>`, e l'uguaglianza e' legittima quando i due
+    gruppi cadono esattamente su `+-braccio/2` -- quella mutazione non e'
+    distinguibile dal comportamento corretto sotto questo oracolo, e non
+    uccide il test.
     """
     resoconto: dict[str, object] = {}
     _con_posizionati(tmp_path / "deck.inp", cube_mesh, [
