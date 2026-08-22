@@ -77,7 +77,20 @@
 **Files:**
 - Modify: `src/meshrec/core/config.py` (import in testa; modelli nuovi prima di `class CarichiConfig`, riga 648; campo su `PipelineConfig`, riga 664)
 - Modify: `src/meshrec/core/abaqus.py:761-771` (`build_node_sets`)
+- Modify: `src/meshrec/core/sweep.py:64` (`BLOCCHI_VUOTI_FUORI_IMPRONTA`) — vedi il riquadro qui sotto
 - Test: `tests/test_config.py`
+
+> **Perché una riga di `sweep.py` sta in questo task e non nel Task 11.** Misurato
+> eseguendo: aggiungere `selettori` a `PipelineConfig` fa fallire subito
+> `tests/test_config.py::test_l_impronta_di_una_corsa_registrata_non_cambia`.
+> `sweep.fingerprint` fa `model_dump` sull'intera configurazione
+> (`core/sweep.py:79`), quindi il campo nuovo compare anche nelle righe dei
+> registri già scritte e ne cambia l'hash — cioè la provenienza della tabella
+> sperimentale della tesi. La riga che lo impedisce è **una**, ed è la stessa
+> regola che `carichi` usa già. Va qui perché senza di lei questo task non può
+> lasciare la suite verde, e un task che committa una suite rossa non è finito.
+> Il Task 11 conserva tutto il resto: `STEP_BLOCKS[11]`, il commento, e i test
+> che provano entrambe le metà.
 
 **Interfaces:**
 - Consumes: `_ModelloBase` (`core/config.py:17`), `Field` e `model_validator`, già importati.
@@ -334,13 +347,24 @@ In `core/abaqus.py`, sostituisci il dizionario letterale di `build_node_sets` (r
 
 e aggiungi `NOMI_SET_DI_FACCIA` all'import da `meshrec.core.config` in testa a `core/abaqus.py`.
 
+Infine, in `core/sweep.py:64`, la riga che tiene ferma la provenienza dei registri:
+
+```python
+BLOCCHI_VUOTI_FUORI_IMPRONTA: tuple[str, ...] = ("carichi", "selettori")
+```
+
+`fingerprint` (`core/sweep.py:82-84`) fa già `if not any((payload.get(blocco) or {}).values())`: su un `selettori` vuoto (`{}`) `any` è falso e il blocco esce dall'impronta. **Nessuna modifica alla funzione**, e nessun commento nuovo — il commento lo scrive il Task 11, che possiede il resto del cambiamento.
+
 - [ ] **Step 4: Esegui i test e verifica che passino**
 
 ```
-uv run pytest tests/test_config.py tests/test_abaqus.py -q
+uv run pytest tests/test_config.py tests/test_abaqus.py tests/test_sweep.py -q
 ```
 
-Atteso: PASS. `build_node_sets` deve rendere le stesse sei chiavi **nello stesso ordine** di prima.
+Atteso: PASS. Tre cose da guardare in particolare:
+1. `build_node_sets` rende le stesse sei chiavi **nello stesso ordine** di prima.
+2. `tests/test_config.py::test_l_impronta_di_una_corsa_registrata_non_cambia` passa. Se fallisce, la riga di `sweep.py` non è stata scritta, o è stata scritta male.
+3. Poi la suite intera, comando separato: `uv run pytest tests -q --ignore=tests/feasibility`, che deve stare **sopra 726**.
 
 - [ ] **Step 5: Applica la mutazione e verifica che il test muoia**
 
@@ -350,9 +374,11 @@ Togli `discriminator="tipo"` dall'alias `Selettore`, rilancia
 - [ ] **Step 6: Commit**
 
 ```bash
-git add meshrec/src/meshrec/core/config.py meshrec/src/meshrec/core/abaqus.py meshrec/tests/test_config.py
+git add meshrec/src/meshrec/core/config.py meshrec/src/meshrec/core/abaqus.py meshrec/src/meshrec/core/sweep.py meshrec/tests/test_config.py
 git commit -m "feat(fase-6): i quattro selettori nella configurazione"
 ```
+
+Il corpo del messaggio dice **perché** la riga di `sweep.py` viaggia con questo commit: senza di lei il campo nuovo cambia l'impronta di ogni riga già registrata.
 
 ---
 
@@ -2222,12 +2248,22 @@ git commit -m "test(fase-6): il deck coi posizionati gira su ccx vero"
 ### Task 11: `selettori` nell'impronta e nell'invalidazione dello step 11
 
 **Files:**
-- Modify: `src/meshrec/core/steps.py:65`, `src/meshrec/core/sweep.py:64` (e il commento a `:38-63`)
+- Modify: `src/meshrec/core/steps.py:65` e il commento di `src/meshrec/core/sweep.py:38-63`
 - Test: `tests/test_sweep.py`, `tests/test_steps.py`
 
 **Interfaces:**
 - Consumes: `STEP_BLOCKS` (`core/steps.py:55-68`), `BLOCCHI_VUOTI_FUORI_IMPRONTA` (`core/sweep.py:64`), `fingerprint` (`core/sweep.py:67`).
-- Produces: nessuna interfaccia nuova. `STEP_BLOCKS[11]` diventa `("tet", "analysis", "carichi", "selettori")`; `BLOCCHI_VUOTI_FUORI_IMPRONTA` diventa `("carichi", "selettori")`.
+- Produces: nessuna interfaccia nuova. `STEP_BLOCKS[11]` diventa `("tet", "analysis", "carichi", "selettori")`.
+
+> **Metà di questo task è già fatta, e non va rifatta.** Il **Task 1** ha già
+> scritto `BLOCCHI_VUOTI_FUORI_IMPRONTA = ("carichi", "selettori")` in
+> `core/sweep.py:64`, perché senza quella riga l'aggiunta del campo
+> `selettori` faceva fallire subito `test_l_impronta_di_una_corsa_registrata_non_cambia`
+> e la suite non poteva restare verde. **Apri `core/sweep.py:64` e verificalo
+> prima di scrivere**: se `"selettori"` c'è già, non toccare la riga. Restano
+> tuoi `STEP_BLOCKS[11]`, il commento, e **tutti e tre** i test qui sotto —
+> compreso quello sull'impronta, che finora nessuno ha scritto: la riga esiste
+> ma la prova che serva davvero no.
 
 **Indipendente dagli altri task**: basta il Task 1.
 
@@ -2243,8 +2279,10 @@ def test_due_selettori_diversi_danno_impronte_diverse():
     (core/sweep.py:677), e lo sweep arriva a --to-step 12: il deck
     11_export e' artefatto richiesto di ogni candidato.
 
-    Mutazione che lo uccide: lasciare `selettori` fuori dall'impronta.
-    Le due impronte tornano uguali.
+    Mutazione che lo uccide: togliere "selettori" da
+    BLOCCHI_VUOTI_FUORI_IMPRONTA (core/sweep.py:64) **e** dalla lista dei
+    blocchi che l'impronta considera -- cioe' rimettere il blocco fuori
+    da entrambe. Le due impronte tornano uguali.
     """
     base = crea_config(input=config.InputConfig(path="nuvola.ply"))
     uno = base.model_copy(update={"selettori": {
@@ -2306,13 +2344,13 @@ Atteso: FAIL — le impronte tornano uguali.
     11: ("tet", "analysis", "carichi", "selettori"),
 ```
 
-`core/sweep.py:64`:
+`core/sweep.py:64` **è già così** dal Task 1 — verificalo e non riscriverlo:
 
 ```python
 BLOCCHI_VUOTI_FUORI_IMPRONTA: tuple[str, ...] = ("carichi", "selettori")
 ```
 
-e allunga il commento sopra (`core/sweep.py:38-63`):
+Allunga invece il commento sopra (`core/sweep.py:38-63`), che il Task 1 non ha toccato:
 
 ```python
 # `selettori` segue `carichi` e per la stessa ragione: e' letto dallo step 11,
@@ -2340,7 +2378,7 @@ Rimetti `11: ("tet", "analysis", "carichi")` in `core/steps.py`, rilancia
 
 ```bash
 git add meshrec/src/meshrec/core/steps.py meshrec/src/meshrec/core/sweep.py meshrec/tests/test_sweep.py meshrec/tests/test_steps.py
-git commit -m "fix(sweep): selettori nell'impronta e fra i blocchi dello step 11"
+git commit -m "fix(steps): un selettore cambiato invalida lo step 11"
 ```
 
 ---
