@@ -2576,18 +2576,28 @@ Aggiungi una nota, non un rimpiazzo silenzioso:
 > `*CLOAD` di 3.036 righe da −0,395257 N ciascuna.
 ```
 
-- [ ] **Step 5: Verifica che lo script della Fase 5 regga ancora**
+- [ ] **Step 5: Aggiungi allo script della Fase 5 le asserzioni che non ha mai avuto**
 
 ```
 uv run python docs/fase-5-cantiere/misura-deficit.py
 ```
 
-Se ha `assert` sui valori di `CARICO_TOP`, falliranno: **aggiornali ai nuovi, non toglierli.** Uno script che non afferma più nulla non è uno script.
+**Verificato in sessione: `docs/fase-5-cantiere/misura-deficit.py` non nomina `CARICO_TOP` da nessuna parte, e nessun test della suite asseriva il valore uniforme.** I tre numeri pubblicati — picco, riga della tabella, forma del `*CLOAD` — vivevano solo nel testo del documento, senza alcuna guardia automatica. È precisamente il motivo per cui hanno potuto smettere di descrivere il programma senza che nessuno se ne accorgesse.
 
-- [ ] **Step 6: Commit**
+Quindi qui non c'è nulla da «aggiornare»: c'è da **aggiungere**. Lo script deve leggere `runs/lab_telaio_v3_pesata/metrics.json` e affermare con `assert` i tre valori nuovi che il documento pubblica, ciascuno col campo da cui viene. Ripubblicare i numeri senza la loro guardia li lascerebbe fragili esattamente come prima, e il principio 1 di `PRODUCT.md` dice che un numero mostrato senza un controllo che lo smentisca non vale più di un numero assente.
+
+Lo script deve uscire 0 e non stampare nulla di allarmante. Se un `assert` fallisce, il numero nel documento è sbagliato: correggi il documento, non l'asserzione.
+
+- [ ] **Step 6: Rendi vero un commento che oggi mente**
+
+`core/abaqus.py`, nel ramo del carico in sommità, il commento dice che i numeri di `CARICO_TOP` pubblicati in `docs/fase-5-analisi.md` «sono cambiati per questo, **ed è scritto lì**». Quando il Task 6 l'ha scritto non era vero — il documento diceva ancora l'opposto — ed è per questo che il tuo task esiste.
+
+Dopo lo Step 4 diventa vero. **Riaprilo e verificalo**: se il documento adesso spiega il cambiamento, il commento va bene com'è; se hai scritto la nota da un'altra parte o con altre parole, aggiorna il commento perché punti dove la spiegazione sta davvero. Un commento che rimanda a una pagina che dice il contrario è peggio di nessun commento.
+
+- [ ] **Step 7: Commit**
 
 ```bash
-git add meshrec/docs/fase-5-analisi.md meshrec/docs/fase-5-cantiere/misura-deficit.py
+git add meshrec/docs/fase-5-analisi.md meshrec/docs/fase-5-cantiere/misura-deficit.py meshrec/src/meshrec/core/abaqus.py
 git commit -m "docs(fase-5): CARICO_TOP rimisurato con la ripartizione pesata"
 ```
 
