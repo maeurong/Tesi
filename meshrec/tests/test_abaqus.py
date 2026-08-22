@@ -1249,3 +1249,70 @@ def test_ogni_etichetta_di_faccia_del_tetraedro_nomina_il_baricentro_giusto():
         combo = abaqus.FACCE_DEL_SOLUTORE[4][numero]
         baricentro = _TETRAEDRO_ASIMMETRICO[list(combo)].mean(axis=0)
         assert baricentro == pytest.approx(atteso), f"S{numero + 1} non e' la faccia attesa"
+
+
+def test_le_aree_tributarie_sommano_all_area_della_superficie(cube_mesh):
+    """La ripartizione non crea ne' perde area: la somma e' quella di surface_area.
+
+    Mutazione che lo uccide: dare a ogni nodo l'area intera del triangolo
+    invece di un terzo. La somma diventa tripla.
+    """
+    nodi, tetraedri = cube_mesh
+    sets = _base_and_top(nodi)
+    superficie = abaqus.element_surface(tetraedri, sets["TOP"], "C3D4")
+    assert superficie, "la faccia superiore del banco e' vuota: banco inadatto"
+    aree = abaqus.aree_tributarie(nodi, tetraedri, superficie, "C3D4")
+    assert aree.shape == (len(nodi),)
+    assert aree.sum() == pytest.approx(abaqus.surface_area(nodi, tetraedri, superficie, "C3D4"))
+
+
+def test_solo_i_nodi_della_superficie_hanno_area(cube_mesh):
+    """Chi non tocca alcuna faccia della superficie prende zero, non una quota.
+
+    Mutazione che lo uccide: inizializzare l'array a un valore diverso da
+    zero, o ripartire il totale su tutti i nodi della mesh.
+    """
+    nodi, tetraedri = cube_mesh
+    sets = _base_and_top(nodi)
+    superficie = abaqus.element_surface(tetraedri, sets["TOP"], "C3D4")
+    aree = abaqus.aree_tributarie(nodi, tetraedri, superficie, "C3D4")
+    con_area = set(np.flatnonzero(aree > 0).tolist())
+    assert con_area, "nessun nodo ha area: la superficie e' vuota"
+    assert con_area <= set(sets["TOP"].tolist())
+
+
+def test_una_superficie_vuota_da_aree_tutte_nulle(cube_mesh):
+    """Ingresso degenere: nessuna faccia, nessuna area, e nessuna eccezione qui.
+
+    L'oracolo del totale nullo sta in `ripartisci`, dove c'e' un carico da
+    applicare e un nome da mettere nel messaggio: questa funzione misura e
+    basta.
+
+    Mutazione che lo uccide: sollevare qui invece di rendere zeri. Il
+    chiamante perderebbe la possibilita' di dire quale carico ha fallito.
+    """
+    nodi, tetraedri = cube_mesh
+    aree = abaqus.aree_tributarie(nodi, tetraedri, [], "C3D4")
+    assert aree.shape == (len(nodi),)
+    assert not aree.any()
+
+
+def test_una_faccia_a_quattro_nodi_si_divide_a_ventaglio_dal_primo():
+    """Ingresso degenere non coperto dal banco tetraedrico del brief: qui la
+    faccia ha quattro nodi (un C3D8), e il ventaglio parte dal primo come in
+    `surface_area`.
+
+    Sul quadrato unitario S1=(0,1,2,3) il ventaglio dal nodo 0 taglia lungo la
+    diagonale 0-2: due triangoli rettangoli di area 0.5 ciascuno. I nodi 0 e 2
+    stanno in entrambi (2 * 0.5/3 = 1/3), i nodi 1 e 3 in uno solo (0.5/3 =
+    1/6).
+
+    Mutazione che lo uccide: tagliare lungo l'altra diagonale (1-3) invece che
+    dal primo nodo. La somma resterebbe 1.0 ma la distribuzione si scambia:
+    [1/6, 1/3, 1/6, 1/3] invece di [1/3, 1/6, 1/3, 1/6].
+    """
+    superficie = abaqus.element_surface(_ESAEDRO, np.array([0, 1, 2, 3]), "C3D8I")
+    aree = abaqus.aree_tributarie(_CUBO, _ESAEDRO, superficie, "C3D8I")
+    assert aree.shape == (len(_CUBO),)
+    assert aree[:4] == pytest.approx([1 / 3, 1 / 6, 1 / 3, 1 / 6])
+    assert aree[4:] == pytest.approx([0.0, 0.0, 0.0, 0.0])

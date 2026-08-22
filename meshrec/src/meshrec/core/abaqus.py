@@ -472,6 +472,44 @@ def surface_area(
     return totale
 
 
+def aree_tributarie(
+    nodes: np.ndarray,
+    elements: np.ndarray,
+    superficie: list[tuple[int, int]],
+    element_type: str,
+) -> np.ndarray:
+    """L'area della superficie ripartita sui suoi nodi, un terzo per triangolo.
+
+    Gemella di `surface_area`: stesso ciclo, stesse tabelle, stesso ventaglio
+    dal primo nodo per una faccia di piu' di tre nodi. Cambia solo dove
+    l'area finisce -- in un array indicizzato per nodo invece che in uno
+    scalare -- e la somma dell'array e' per costruzione il valore che
+    `surface_area` rende sulla stessa superficie.
+
+    Serve alla ripartizione di una risultante: uniforme per nodo il carico
+    si concentra dove i nodi sono piu' fitti, che e' una proprieta' del
+    maglio e non della struttura.
+
+    Un nodo che non appartiene ad alcuna faccia della superficie resta a
+    zero. Non e' un errore qui: e' un fatto che il chiamante deve poter
+    riportare.
+    """
+    punti = np.asarray(nodes, dtype=np.float64)
+    elementi = np.asarray(elements, dtype=np.int64)
+    angoli = _ANGOLI_PER_COLONNE[NODI_PER_ELEMENTO[element_type]]
+
+    aree = np.zeros(punti.shape[0], dtype=np.float64)
+    for elemento, numero in superficie:
+        nodi = [elementi[elemento][indice] for indice in FACCE_DEL_SOLUTORE[angoli][numero - 1]]
+        for primo, secondo in zip(nodi[1:-1], nodi[2:], strict=True):
+            lato_a = punti[primo] - punti[nodi[0]]
+            lato_b = punti[secondo] - punti[nodi[0]]
+            area = float(np.linalg.norm(np.cross(lato_a, lato_b)) / 2.0)
+            for nodo in (nodi[0], primo, secondo):
+                aree[nodo] += area / 3.0
+    return aree
+
+
 def boundary_faces(elements: np.ndarray) -> np.ndarray:
     """Facce sul bordo della mesh di volume, per qualunque tipo di elemento.
 
