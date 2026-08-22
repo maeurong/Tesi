@@ -670,6 +670,14 @@ def coppia_equivalente(
     la quale la funzione rifiuta. Il `braccio` dichiarato resta il criterio
     con cui i due gruppi sono stati scelti, e il resoconto mostra il momento
     in asse dichiarato e quello effettivo, fuori asse compreso.
+
+    Una coppia ha risultante netta nulla: le sue reazioni vincolari sono
+    indistinguibili da quelle della sola gravita', e un oracolo di equilibrio
+    che le confronti non puo' passare da li'. E' la ragione per cui i test di
+    fattibilita' su una coppia verificano lo spostamento orizzontale e non le
+    reazioni, mentre quelli su una forza fanno l'opposto (vedi
+    tests/feasibility/test_calculix.py): l'asimmetria e' voluta, non da
+    "uniformare" aggiungendo l'oracolo delle reazioni anche qui.
     """
     punti = np.asarray(nodes, dtype=np.float64)
     indici = np.asarray(indici, dtype=np.int64)
