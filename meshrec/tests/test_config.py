@@ -369,6 +369,59 @@ def test_un_selettore_non_puo_chiamarsi_come_uno_dei_sei(nome):
         )
 
 
+@pytest.mark.parametrize("nome", ["base", "Top", "Face_Front"])
+def test_un_selettore_non_puo_chiamarsi_come_uno_dei_sei_ignorando_il_caso(nome):
+    """Il deck e' case-insensitive sui *NSET (misurato,
+    docs/fase-6-cantiere/sonda-caso-nomi/README.md): un selettore che
+    differisce solo per maiuscole da uno dei sei collide comunque nel deck.
+
+    Mutazione che lo uccide: tornare al confronto diretto
+    `set(self.selettori) & set(NOMI_SET_DI_FACCIA)`, senza casefold. Il
+    test sui sei nomi esatti (uppercase) continuerebbe a passare, questi
+    tre cadrebbero.
+    """
+    atteso = next(s for s in config.NOMI_SET_DI_FACCIA if s.casefold() == nome.casefold())
+    with pytest.raises(ValidationError, match=atteso):
+        crea_config(
+            input=config.InputConfig(path="nuvola.ply"),
+            selettori={nome: {"tipo": "nset", "nome": "TOP"}},
+        )
+
+
+def test_due_selettori_che_differiscono_solo_per_caso_collidono():
+    """Due chiavi distinte nel dizionario Python sono lo stesso nome nel deck
+    (stessa misura di docs/fase-6-cantiere/sonda-caso-nomi/README.md).
+
+    Mutazione che lo uccide: controllare solo la collisione coi sei nomi
+    di faccia, senza confrontare i selettori dell'operatore fra loro.
+    """
+    with pytest.raises(ValidationError) as scoppio:
+        crea_config(
+            input=config.InputConfig(path="nuvola.ply"),
+            selettori={
+                "piastra": {"tipo": "sfera", "centro": [0.0, 0.0, 0.0], "raggio": 1.0},
+                "PIASTRA": {"tipo": "sfera", "centro": [1.0, 1.0, 1.0], "raggio": 2.0},
+            },
+        )
+    messaggio = str(scoppio.value)
+    assert "piastra" in messaggio
+    assert "PIASTRA" in messaggio
+
+
+@pytest.mark.parametrize("nome", ["nome invalido", "piastra!"])
+def test_un_nome_di_selettore_con_spazio_o_simbolo_e_rifiutato(nome):
+    """`NomeSet` finisce interpolato in un deck ascii: spazi e simboli non ci stanno.
+
+    Mutazione che lo uccide: allargare il pattern di `NomeSet` (per
+    esempio a `.+` invece di `^[A-Za-z0-9_.-]+$`).
+    """
+    with pytest.raises(ValidationError):
+        crea_config(
+            input=config.InputConfig(path="nuvola.ply"),
+            selettori={nome: {"tipo": "sfera", "centro": [0.0, 0.0, 0.0], "raggio": 1.0}},
+        )
+
+
 def test_un_selettore_dichiarato_e_mai_citato_non_e_un_errore():
     """Dichiarare e non usare e' lecito: e' un appunto, non un difetto.
 
@@ -385,11 +438,33 @@ def test_un_selettore_dichiarato_e_mai_citato_non_e_un_errore():
 def test_i_sei_nomi_dichiarati_sono_quelli_che_il_deck_fabbrica():
     """La costante e build_node_sets non possono divergere in silenzio.
 
-    Mutazione che lo uccide: aggiungere un settimo nome alla costante
-    senza il criterio corrispondente. `strict=True` nello zip solleva, e
-    se anche non lo facesse le chiavi non combacerebbero piu'.
+    Verifica la corrispondenza semantica, non solo l'insieme e l'ordine
+    delle chiavi: ogni nodo di controllo sta all'estremo giusto su un solo
+    asse, quindi finisce in un solo set atteso. Un controllo che guardasse
+    solo `set(insiemi) == set(NOMI_SET_DI_FACCIA)` non lo scoprirebbe.
+
+    Mutazione che lo uccide: scambiare due nomi adiacenti in
+    NOMI_SET_DI_FACCIA senza toccare `criteri` in build_node_sets. Le
+    chiavi restano le stesse sei nello stesso ordine, ma ciascuna riceve
+    il criterio del vicino: BASE prenderebbe i nodi a z massima invece
+    che minima, e solo un controllo per contenuto lo nota.
     """
     from meshrec.core import abaqus
 
-    nodi = np.array([[0.0, 0.0, 0.0], [1.0, 1.0, 1.0], [0.5, 0.2, 0.8]])
-    assert tuple(abaqus.build_node_sets(nodi, 0.01)) == config.NOMI_SET_DI_FACCIA
+    nodi = np.array([
+        [5.0, 5.0, 0.0],  # z minima, altrove al centro -> solo BASE
+        [5.0, 5.0, 10.0],  # z massima, altrove al centro -> solo TOP
+        [0.0, 5.0, 5.0],  # x minima, altrove al centro -> solo FACE_FRONT
+        [10.0, 5.0, 5.0],  # x massima, altrove al centro -> solo FACE_BACK
+        [5.0, 0.0, 5.0],  # y minima, altrove al centro -> solo SIDE_LEFT
+        [5.0, 10.0, 5.0],  # y massima, altrove al centro -> solo SIDE_RIGHT
+        [5.0, 5.0, 5.0],  # centro su tutti e tre gli assi: in nessun set
+    ])
+    atteso = {
+        "BASE": [0], "TOP": [1], "FACE_FRONT": [2], "FACE_BACK": [3],
+        "SIDE_LEFT": [4], "SIDE_RIGHT": [5],
+    }
+    insiemi = abaqus.build_node_sets(nodi, 0.01)
+    assert tuple(insiemi) == config.NOMI_SET_DI_FACCIA
+    for nome, indici in atteso.items():
+        assert sorted(insiemi[nome].tolist()) == indici, nome

@@ -763,14 +763,34 @@ class PipelineConfig(_ModelloBase):
 
     @model_validator(mode="after")
     def _i_nomi_dei_selettori_non_collidono_coi_sei(self) -> "PipelineConfig":
-        collisi = sorted(set(self.selettori) & set(NOMI_SET_DI_FACCIA))
-        if collisi:
-            raise ValueError(
-                f"questi selettori portano il nome di un insieme che il deck "
-                f"fabbrica da se': {collisi}. I sei sono {list(NOMI_SET_DI_FACCIA)}, "
-                "e nel deck c'e' un solo spazio di nomi: il *NSET dell'operatore "
-                "sovrascriverebbe quello di faccia"
-            )
+        """Il confronto normalizza il caso su entrambi i lati.
+
+        Misurato in `docs/fase-6-cantiere/sonda-caso-nomi/README.md`: `ccx`
+        risolve un `*NSET` senza distinguere le maiuscole, quindi un
+        selettore `base` collide con `BASE` nel deck anche se le stringhe
+        Python sono diverse. Per lo stesso motivo due selettori
+        dell'operatore che differiscono solo per caso (`piastra`/`PIASTRA`)
+        sono due chiavi distinte nel dizionario ma un solo nome nel deck.
+        """
+        casi_di_faccia = {nome.casefold(): nome for nome in NOMI_SET_DI_FACCIA}
+        visti: dict[str, str] = {}
+        for nome in self.selettori:
+            chiave = nome.casefold()
+            if chiave in casi_di_faccia:
+                raise ValueError(
+                    f"il selettore {nome!r} collide, ignorando le maiuscole, con il "
+                    f"set di faccia {casi_di_faccia[chiave]!r} che il deck fabbrica da "
+                    "se': nel deck c'e' un solo spazio di nomi, case-insensitive "
+                    "(vedi docs/fase-6-cantiere/sonda-caso-nomi/README.md), e il "
+                    "*NSET dell'operatore lo sovrascriverebbe"
+                )
+            if chiave in visti:
+                raise ValueError(
+                    f"i selettori {visti[chiave]!r} e {nome!r} differiscono solo per "
+                    "maiuscole: nel deck sono lo stesso nome, case-insensitive "
+                    "(vedi docs/fase-6-cantiere/sonda-caso-nomi/README.md)"
+                )
+            visti[chiave] = nome
         return self
 
     run: RunConfig = Field(default_factory=RunConfig)
