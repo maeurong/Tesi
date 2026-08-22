@@ -223,9 +223,18 @@ def write_inp(
                 f"fra quelli scritti nel deck ({sorted(node_sets)}) o e' vuoto: il "
                 f"solutore leggerebbe un carico applicato a nulla"
             )
-        nodi_carico = node_sets[sommita.nset]
-        per_nodo = sommita.risultante / len(nodi_carico)
-        righe_cload = ["*CLOAD"] + [f"{int(n) + 1}, 3, {-per_nodo:.9e}" for n in nodi_carico]
+        nodi_carico = np.asarray(node_sets[sommita.nset], dtype=np.int64)
+        # Pesata per area tributaria dalla Fase 6, uniforme per nodo fino alla
+        # Fase 5: e' lo stesso carico dei posizionati e non puo' ripartire in
+        # un altro modo. I numeri di CARICO_TOP pubblicati in
+        # docs/fase-5-analisi.md sono cambiati per questo, ed e' scritto li'.
+        quote, _ = ripartisci(
+            sommita.risultante, nodes, elements, nodi_carico, element_type, nome="CARICO_TOP",
+        )
+        righe_cload = ["*CLOAD"] + [
+            f"{int(n) + 1}, 3, {-quota:.9e}"
+            for n, quota in zip(nodi_carico, quote, strict=True)
+        ]
         lines += passo_statico("CARICO_TOP", [peso] + righe_cload)
 
     if carichi is not None and carichi.modale is not None:
@@ -508,6 +517,47 @@ def aree_tributarie(
             for nodo in (nodi[0], primo, secondo):
                 aree[nodo] += area / 3.0
     return aree
+
+
+def ripartisci(
+    risultante: float,
+    nodes: np.ndarray,
+    elements: np.ndarray,
+    indici: np.ndarray,
+    element_type: str,
+    *,
+    nome: str,
+) -> tuple[np.ndarray, dict[str, object]]:
+    """La risultante divisa fra i nodi dell'insieme, in proporzione all'area tributaria.
+
+    La superficie su cui si pesa e' quella che `element_surface` gia'
+    costruisce: le facce **di bordo** con **tutti** i nodi nell'insieme. Una
+    faccia interna non entra -- il carico finirebbe applicato dentro il
+    solido -- e nemmeno una con tre nodi su quattro nell'insieme, perche'
+    non e' quella faccia.
+
+    Le quote sono normalizzate sul totale, quindi la loro somma e'
+    esattamente `risultante` anche quando qualche nodo dell'insieme non
+    tocca alcuna faccia e resta a zero.
+    """
+    indici = np.asarray(indici, dtype=np.int64)
+    superficie = element_surface(elements, indici, element_type)
+    aree = aree_tributarie(nodes, elements, superficie, element_type)[indici]
+    totale = float(aree.sum())
+    if totale <= 0.0:
+        raise ValueError(
+            f"il carico '{nome}' agisce su {indici.size} nodi che non formano alcuna "
+            "faccia di bordo: nessuna area su cui ripartire la risultante. Un "
+            "selettore tutto interno al solido produce questo, e un carico applicato "
+            "a nulla non e' un carico"
+        )
+    quote = risultante * aree / totale
+    resoconto: dict[str, object] = {
+        "nodi": int(indici.size),
+        "area_totale": totale,
+        "nodi_ad_area_nulla": int((aree == 0.0).sum()),
+    }
+    return quote, resoconto
 
 
 def boundary_faces(elements: np.ndarray) -> np.ndarray:

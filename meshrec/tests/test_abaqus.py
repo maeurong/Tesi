@@ -1325,3 +1325,112 @@ def test_una_faccia_a_quattro_nodi_si_divide_a_ventaglio_dal_primo():
     assert aree.shape == (len(_CUBO),)
     assert aree[:4] == pytest.approx([1 / 3, 1 / 6, 1 / 3, 1 / 6])
     assert aree[4:] == pytest.approx([0.0, 0.0, 0.0, 0.0])
+
+
+def test_la_ripartizione_pesata_conserva_la_risultante(cube_mesh):
+    """Le quote sommano esattamente alla risultante dichiarata.
+
+    Mutazione che lo uccide: togliere la normalizzazione sul totale e
+    usare `risultante * area`. La somma smette di chiudere.
+    """
+    nodi, tetraedri = cube_mesh
+    indici = _base_and_top(nodi)["TOP"]
+    quote, _ = abaqus.ripartisci(1200.0, nodi, tetraedri, indici, "C3D4", nome="PROVA")
+    assert quote.shape == indici.shape
+    assert quote.sum() == pytest.approx(1200.0)
+
+
+def test_la_ripartizione_pesata_non_e_uniforme(cube_mesh):
+    """E' il punto della pesatura: un nodo interno alla faccia prende piu' di uno d'angolo.
+
+    Il banco e' il parallelepipedo tetraedrizzato, dove la faccia
+    superiore ha nodi di grado diverso: e' la condizione reale, non una
+    costruita per l'occasione.
+
+    Mutazione che lo uccide: rendere `risultante / len(indici)`, cioe' la
+    ripartizione uniforme di prima. Le quote diventano tutte uguali e lo
+    scarto fra massimo e minimo si annulla.
+    """
+    nodi, tetraedri = cube_mesh
+    indici = _base_and_top(nodi)["TOP"]
+    quote, _ = abaqus.ripartisci(1200.0, nodi, tetraedri, indici, "C3D4", nome="PROVA")
+    assert quote.max() > quote.min() * 1.05
+
+
+def test_i_nodi_ad_area_nulla_prendono_zero_e_sono_contati(cube_mesh):
+    """La quota nulla e' un fatto da riportare, non da nascondere.
+
+    Al set TOP si aggiunge un nodo di BASE, che nessuna faccia di bordo
+    interamente contenuta in TOP+quel nodo tocca: prende zero, e il
+    resoconto lo conta.
+
+    Non un "nodo interno" scelto per vicinanza al baricentro come nel brief:
+    verificato su questo banco (`cube_mesh`, `max_volume=100_000.0`) che
+    TetGen non aggiunge alcun punto di Steiner strettamente interno al
+    parallelepipedo -- i 16 nodi sono tutti sul bordo (vertici e punti medi
+    di spigolo/faccia) -- quindi il nodo piu' vicino al baricentro cade
+    comunque su uno spigolo del solido e forma li' una faccia triangolare
+    con tre nodi di TOP, con area non nulla. Un corner di BASE, sulla
+    faccia opposta, non puo' condividere una faccia triangolare di bordo con
+    tre nodi di TOP per costruzione geometrica (nessuna faccia piana del
+    parallelepipedo tocca contemporaneamente z=0 e z=max), quindi da' area
+    zero per certo e non per verifica sui dati di una singola corsa.
+
+    Mutazione che lo uccide: contare i nodi ad area nulla con `>= 0`
+    invece che `== 0`. Il resoconto direbbe che sono tutti a zero.
+    """
+    nodi, tetraedri = cube_mesh
+    top = _base_and_top(nodi)["TOP"]
+    base = _base_and_top(nodi)["BASE"]
+    estraneo = int(base[0])
+    assert estraneo not in top.tolist(), "BASE e TOP si sovrappongono: banco inadatto"
+    indici = np.append(top, estraneo)
+    quote, resoconto = abaqus.ripartisci(900.0, nodi, tetraedri, indici, "C3D4", nome="PROVA")
+    assert quote.sum() == pytest.approx(900.0)
+    assert resoconto["nodi"] == indici.size
+    assert resoconto["nodi_ad_area_nulla"] == 1
+    assert quote[-1] == pytest.approx(0.0)
+
+
+def test_area_tributaria_totale_nulla_solleva_e_nomina_il_carico(cube_mesh):
+    """Nessuna faccia di bordo contenuta: la pesatura non ha su cosa pesare.
+
+    Un selettore tutto interno al solido e' il caso reale. Scrivere zero
+    ovunque produrrebbe un passo statico che non carica nulla, con un nome
+    che promette altro.
+
+    Mutazione che lo uccide: rendere quote nulle invece di sollevare.
+    """
+    nodi, tetraedri = cube_mesh
+    interno = int(np.argmin(np.linalg.norm(nodi - nodi.mean(axis=0), axis=1)))
+    with pytest.raises(ValueError, match="INTERNO"):
+        abaqus.ripartisci(10.0, nodi, tetraedri, np.array([interno]), "C3D4", nome="INTERNO")
+
+
+def test_il_carico_in_sommita_ora_e_pesato(cube_mesh, tmp_path):
+    """CARICO_TOP passa alla stessa ripartizione dei posizionati.
+
+    Una sola ripartizione nel programma: due carichi che fanno la stessa
+    cosa non possono farla in due modi diversi.
+
+    Mutazione che lo uccide: lasciare `per_nodo = risultante / len(nodi)`
+    nel ramo del carico in sommita'. I valori distinti del *CLOAD tornano
+    a uno solo.
+    """
+    nodi, tetraedri = cube_mesh
+    percorso = tmp_path / "deck.inp"
+    abaqus.write_inp(
+        percorso, nodi, tetraedri,
+        node_sets=_base_and_top(nodi),
+        material=MATERIALE,
+        carichi=config.CarichiConfig(
+            carico_sommita=config.CaricoSommita(risultante=1200.0, nset="TOP")
+        ),
+    )
+    valori = [
+        float(riga.split(", ")[2])
+        for riga in percorso.read_text(encoding="ascii").splitlines()
+        if riga.count(", ") == 2 and riga.split(", ")[1] == "3" and not riga.startswith("*")
+    ]
+    assert len(set(valori)) > 1, "la ripartizione e' tornata uniforme"
+    assert sum(valori) == pytest.approx(-1200.0)
