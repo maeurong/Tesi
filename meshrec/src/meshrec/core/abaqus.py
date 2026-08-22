@@ -9,6 +9,7 @@ from pathlib import Path
 
 import numpy as np
 
+from meshrec.core import selezione
 from meshrec.core.config import (
     GRAVITY_MM_S2,
     NOMI_SET_DI_FACCIA,
@@ -16,6 +17,7 @@ from meshrec.core.config import (
     CarichiConfig,
     Material,
     Momento,
+    Selettore,
     TetConfig,
 )
 
@@ -660,10 +662,14 @@ def coppia_equivalente(
     nodi presi non lo sostengono. La via opposta -- misurarlo sull'estensione
     reale -- non chiede nulla ma decide da se', e nessuno la puo' smentire.
 
-    Il momento realizzato e' **esattamente** quello dichiarato: la forza si
-    calibra sul braccio effettivo fra i due baricentri pesati, che i nodi
-    offrono davvero. Il `braccio` dichiarato resta il criterio con cui i due
-    gruppi sono stati scelti, e il resoconto mostra entrambi i numeri.
+    Il momento realizzato e' **esattamente** quello dichiarato solo nella
+    componente in asse: la forza si calibra sul braccio effettivo fra i due
+    baricentri pesati, che i nodi offrono davvero. Una componente fuori asse
+    e' possibile quando i due gruppi non stanno alla stessa quota lungo
+    `asse`, ed e' tollerata solo entro `TOLLERANZA_MOMENTO_FUORI_ASSE`, oltre
+    la quale la funzione rifiuta. Il `braccio` dichiarato resta il criterio
+    con cui i due gruppi sono stati scelti, e il resoconto mostra il momento
+    in asse dichiarato e quello effettivo, fuori asse compreso.
     """
     punti = np.asarray(nodes, dtype=np.float64)
     indici = np.asarray(indici, dtype=np.int64)
@@ -1147,6 +1153,7 @@ def export_model(
     ties: tuple[tuple[str, str, str] | tuple[str, str, str, float], ...] = (),
     pressure: tuple[str, float] | None = None,
     carichi: CarichiConfig | None = None,
+    selettori: dict[str, Selettore] | None = None,
 ) -> dict[str, object]:
     """Step 11: allinea, costruisce i set, scrive il deck e il file di visualizzazione.
 
@@ -1215,6 +1222,16 @@ def export_model(
     if len(node_sets[cfg.fixed_nset]) == 0:
         raise ValueError(f"il set vincolato '{cfg.fixed_nset}' e vuoto: tolleranza {tolerance:.3f} mm troppo stretta")
 
+    # Risolti sui nodi **allineati**: e' il sistema di riferimento del deck e
+    # di wall_model.vtu. L'estensione in quel sistema esce qui sotto in
+    # "extent", e la bbox dei nodi presi in "selettori", perche' l'operatore
+    # possa collocare un selettore senza indovinare. Un selettore degenere
+    # (zero nodi, tutti i nodi, nodo troppo lontano) solleva da dentro
+    # `selezione.risolvi_tutti`: non si intercetta qui, un `try` lo
+    # trasformerebbe in un deck silenziosamente sbagliato.
+    nset_selettori = selezione.risolvi_tutti(selettori or {}, aligned, elements, node_sets)
+    resoconto_carichi: dict[str, object] = {}
+
     # La guardia sul set vuoto era cieca su tutto il resto: un `BASE` da 9 nodi
     # produce un deck formalmente valido per un modello di fatto non vincolato,
     # e nessuna metrica confrontava la taglia dell'insieme con la faccia che
@@ -1249,6 +1266,8 @@ def export_model(
         ties=ties,
         pressure=pressure,
         carichi=carichi,
+        nset_selettori=nset_selettori,
+        resoconto_carichi=resoconto_carichi,
     )
     write_vtu(path_vtu, aligned, elements, element_type=tipo)
 
@@ -1261,6 +1280,18 @@ def export_model(
         "fixed_nset_coverage": float(coverage),
         "constraint_plan_extent": constraint_plan_extent(aligned, node_sets[cfg.fixed_nset]),
         "node_sets": {name: int(len(indices)) for name, indices in node_sets.items()},
+        "selettori": {
+            nome: {
+                "tipo": (selettori or {})[nome].tipo,
+                "nodi": int(indici.size),
+                "bbox": [
+                    aligned[indici].min(axis=0).tolist(),
+                    aligned[indici].max(axis=0).tolist(),
+                ],
+            }
+            for nome, indici in nset_selettori.items()
+        },
+        "carichi_posizionati": resoconto_carichi,
         "volume": volume,
         "mass": volume * cfg.material.density,
         "element_type": tipo,
@@ -1279,6 +1310,7 @@ def export_model(
             cfg.step_name,
             None if carichi is None or carichi.spinta is None else "SPINTA_ORIZZONTALE",
             None if carichi is None or carichi.carico_sommita is None else "CARICO_TOP",
+            *(() if carichi is None else tuple(c.nome for c in carichi.posizionati)),
             None if carichi is None or carichi.modale is None else "MODALE",
         ) if nome is not None],
     }

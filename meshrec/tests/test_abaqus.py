@@ -1926,3 +1926,110 @@ def test_una_superficie_leggermente_irregolare_non_solleva(cube_mesh):
     assert abs(eff[0]) < 3000.0 * abaqus.TOLLERANZA_MOMENTO_FUORI_ASSE
     assert abs(eff[1]) < 3000.0 * abaqus.TOLLERANZA_MOMENTO_FUORI_ASSE
     assert eff[2] == pytest.approx(3000.0, rel=1e-3)
+
+
+def test_il_resoconto_dei_selettori_si_scrive_sempre(cube_mesh, tmp_path):
+    """Fra 1 e tutti i nodi nessuna soglia puo' giudicare: si mostra.
+
+    Mutazione che lo uccide: scrivere il resoconto solo quando un
+    selettore prende pochi nodi. La chiave sparisce sul caso normale,
+    che e' proprio quello in cui serve guardarla.
+    """
+    nodi, tetraedri = cube_mesh
+    alto = float(nodi[:, 2].max())
+    metriche = abaqus.export_model(
+        tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tetraedri, ANALISI, config.TetConfig(),
+        selettori={"piastra": config.SelettoreBox(
+            tipo="box", min=(-1e9, -1e9, alto - 1.0), max=(1e9, 1e9, 1e9)
+        )},
+    )
+    voce = metriche["selettori"]["piastra"]
+    assert voce["tipo"] == "box"
+    assert 0 < voce["nodi"] < len(nodi)
+    assert len(voce["bbox"]) == 2
+
+
+def test_i_posizionati_entrano_nei_casi_di_carico(cube_mesh, tmp_path):
+    """Il nome del passo e' l'indirizzo del risultato: deve comparire nell'elenco.
+
+    Mutazione che lo uccide: lasciare `casi_di_carico` alla lista fissa
+    dei tre della Fase 5. `solve.risolvi` cercherebbe le chiavi di
+    point_data per nomi che l'elenco non dichiara.
+    """
+    nodi, tetraedri = cube_mesh
+    alto = float(nodi[:, 2].max())
+    metriche = abaqus.export_model(
+        tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tetraedri, ANALISI, config.TetConfig(),
+        selettori={"piastra": config.SelettoreBox(
+            tipo="box", min=(-1e9, -1e9, alto - 1.0), max=(1e9, 1e9, 1e9)
+        )},
+        carichi=config.CarichiConfig(posizionati=[
+            config.CaricoPosizionato(nome="PRESSA", selettore="piastra", forza=(0.0, 0.0, -1200.0)),
+        ]),
+    )
+    assert "PRESSA" in metriche["casi_di_carico"]
+    assert metriche["carichi_posizionati"]["PRESSA"]["nodi"] > 0
+    assert metriche["carichi_posizionati"]["PRESSA"]["forza_effettiva"][2] == pytest.approx(-1200.0)
+
+
+def test_senza_selettori_il_resoconto_e_vuoto(cube_mesh, tmp_path):
+    """Riga del contratto non coperta dai due test sopra: nessun selettore
+    dichiarato non e' un errore, ed e' la corsa piu' comune di tutte.
+
+    Mutazione che lo uccide: far sollevare o restituire `None` invece di un
+    dizionario vuoto quando `selettori` e' `None`.
+    """
+    nodi, tetraedri = cube_mesh
+    metriche = abaqus.export_model(
+        tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tetraedri, ANALISI, config.TetConfig(),
+    )
+    assert metriche["selettori"] == {}
+    assert metriche["carichi_posizionati"] == {}
+
+
+def test_i_posizionati_stanno_fra_carico_top_e_modale(cube_mesh, tmp_path):
+    """L'ordine e' un contratto con `solve.risolvi`, che mappa i risultati per
+    posizione: i posizionati vanno dopo CARICO_TOP e prima di MODALE, non solo
+    "da qualche parte" nell'elenco.
+
+    Mutazione che lo uccide: mettere i posizionati prima di CARICO_TOP (o
+    dopo MODALE) nella tupla di `casi_di_carico`. L'ordine degli indici
+    smette di rispettare la doppia disuguaglianza.
+    """
+    nodi, tetraedri = cube_mesh
+    alto = float(nodi[:, 2].max())
+    metriche = abaqus.export_model(
+        tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tetraedri, ANALISI, config.TetConfig(),
+        selettori={"piastra": config.SelettoreBox(
+            tipo="box", min=(-1e9, -1e9, alto - 1.0), max=(1e9, 1e9, 1e9)
+        )},
+        carichi=config.CarichiConfig(
+            carico_sommita=config.CaricoSommita(risultante=1000.0, nset="TOP"),
+            posizionati=[
+                config.CaricoPosizionato(nome="PRESSA", selettore="piastra", forza=(0.0, 0.0, -1200.0)),
+            ],
+            modale=config.Modale(modi=3),
+        ),
+    )
+    casi = metriche["casi_di_carico"]
+    assert casi.index("CARICO_TOP") < casi.index("PRESSA") < casi.index("MODALE")
+
+
+def test_un_selettore_degenere_non_viene_inghiottito(cube_mesh, tmp_path):
+    """L'eccezione di `core/selezione.py` deve arrivare intatta fino al
+    chiamante: un `try` qui la trasformerebbe in un deck silenziosamente
+    sbagliato. Una sfera lontanissima dalla mesh non prende nessun nodo, in
+    qualunque sistema di riferimento la mesh venga allineata.
+
+    Mutazione che lo uccide: avvolgere `selezione.risolvi_tutti` in un
+    `try/except` che assorbe l'errore. La chiamata tornerebbe metriche
+    invece di sollevare.
+    """
+    nodi, tetraedri = cube_mesh
+    with pytest.raises(ValueError, match="zero nodi"):
+        abaqus.export_model(
+            tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tetraedri, ANALISI, config.TetConfig(),
+            selettori={"vuoto": config.SelettoreSfera(
+                tipo="sfera", centro=(1e6, 1e6, 1e6), raggio=1.0
+            )},
+        )

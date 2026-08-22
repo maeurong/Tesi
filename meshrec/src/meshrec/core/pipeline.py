@@ -445,6 +445,7 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
             cfg.tet,
             reference=vertices,
             carichi=cfg.carichi,
+            selettori=cfg.selettori,
         )
         registra(11, avvio, "wall_model.inp")
 
