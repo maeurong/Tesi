@@ -1889,11 +1889,15 @@ def test_un_braccio_piu_largo_dell_estensione_e_rifiutato(cube_mesh, tmp_path):
     La faccia superiore si estende 100 mm: un braccio di 400 non lo
     sostiene, e il rifiuto riporta entrambi i numeri.
 
-    Mutazione che lo uccide: misurare il braccio dall'estensione invece
-    di verificarlo. Nessuna eccezione, e un numero che nessuno puo'
-    smentire.
+    Mutazione che lo uccide: togliere il controllo `braccio > estensione`.
+
+    Il `match` cita il messaggio **specifico** di quel controllo e non il
+    solo numero: misurato, con `match="400"` la mutazione **non** uccideva,
+    perche' senza quel controllo scatta quello sui gruppi vuoti, che
+    solleva un errore diverso il cui messaggio contiene «400» per caso. Il
+    test passava per il motivo sbagliato.
     """
-    with pytest.raises(ValueError, match="400"):
+    with pytest.raises(ValueError, match=r"si estendono .* mm nella"):
         _con_posizionati(tmp_path / "deck.inp", cube_mesh, [
             config.CaricoPosizionato(
                 nome="TORSIONE", selettore="piastra",
@@ -1909,8 +1913,15 @@ def test_il_resoconto_del_momento_dice_dichiarato_ed_effettivo(cube_mesh, tmp_pa
     pesati distano piu' del braccio dichiarato: e' lecito, ed e'
     esattamente la cosa che il resoconto esiste per far vedere.
 
-    Mutazione che lo uccide: scrivere `braccio_effettivo` uguale a
-    `braccio_dichiarato`. L'assert di disuguaglianza cade.
+    Mutazione che lo uccide: invertire l'ordine dei due baricentri nel
+    calcolo del braccio effettivo, `bracci[1] - bracci[0]` invece di
+    `bracci[0] - bracci[1]`. Il braccio diventa negativo e l'asserzione
+    `>= braccio_dichiarato` cade. E' una classe d'errore reale: il segno
+    del braccio.
+
+    **Non** lo uccide scrivere `braccio_effettivo` uguale a
+    `braccio_dichiarato`: il contratto vuole `>=`, e l'uguaglianza e'
+    legittima quando i due gruppi cadono esattamente a `±braccio/2`.
     """
     resoconto: dict[str, object] = {}
     _con_posizionati(tmp_path / "deck.inp", cube_mesh, [
@@ -2004,14 +2015,34 @@ def coppia_equivalente(
             "una coppia con una sola forza e' una forza"
         )
 
+    # Una ripartizione sola sull'**intero** selettore, poi divisa fra i due
+    # gruppi e rinormalizzata dentro ciascuno.
+    #
+    # Non due ripartizioni separate, una per gruppo: misurato sulla mesh del
+    # caso studio, un lato della coppia puo' avere due nodi soli, e due nodi
+    # non formano alcuna faccia -- `element_surface` renderebbe l'insieme
+    # vuoto e `ripartisci` solleverebbe su una geometria perfettamente
+    # legittima. Pesare sulla superficie intera e poi dividere e' anche piu'
+    # corretto: l'area che compete a un nodo non dipende da quale meta' della
+    # coppia lo contiene.
+    tutte, _ = ripartisci(1.0, nodes, elements, indici, element_type, nome=nome)
+    per_indice = dict(zip(indici.tolist(), tutte.tolist(), strict=True))
+
     quote_per_gruppo = []
     bracci = []
     for gruppo in (positivi, negativi):
-        quote, _ = ripartisci(1.0, nodes, elements, gruppo, element_type, nome=nome)
+        grezze = np.array([per_indice[int(n)] for n in gruppo], dtype=np.float64)
+        totale = float(grezze.sum())
+        if totale <= 0.0:
+            raise ValueError(
+                f"il momento '{nome}' ha un lato i cui {gruppo.size} nodi non "
+                "portano area tributaria: la coppia non avrebbe su cosa appoggiarsi"
+            )
+        quote = grezze / totale
         quote_per_gruppo.append(quote)
         # Baricentro del gruppo pesato dalle quote, proiettato sulla direzione
-        # di separazione. `ripartisci(1.0, ...)` rende quote che sommano a 1,
-        # quindi il prodotto scalare e' gia' la media pesata.
+        # di separazione. Le quote sommano a 1 dentro il gruppo, quindi il
+        # prodotto scalare e' gia' la media pesata.
         bracci.append(float(((punti[gruppo] - baricentro) @ separazione) @ quote))
 
     braccio_effettivo = bracci[0] - bracci[1]
