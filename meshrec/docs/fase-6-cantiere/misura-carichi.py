@@ -134,11 +134,14 @@ def main() -> int:
         sonda_dir = Path(__file__).parent / "sonda-cload-persiste"
         processo = subprocess.run([eseguibile, "-i", "sonda"], cwd=sonda_dir, capture_output=True, text=True, timeout=120)
         assert "Job finished" in processo.stdout
-        reazioni = _reazioni_per_passo(sonda_dir / "sonda.dat")
-        uguale(3, len(reazioni), "sonda: numero di passi con un blocco di reazioni")
-        vicino(100.0, reazioni[1][2], 1e-6, "sonda passo 1 (*CLOAD dichiarato): fz")
-        vicino(100.0, reazioni[2][2], 1e-6, "sonda passo 2 (nessun *CLOAD dichiarato): fz eredita il passo 1")
-        vicino(0.0, reazioni[3][2], 1e-6, "sonda passo 3 (*CLOAD, OP=NEW): fz torna a zero")
+        for passo, atteso, etichetta in (
+            (1, 100.0, "sonda passo 1 (*CLOAD dichiarato): fz"),
+            (2, 100.0, "sonda passo 2 (nessun *CLOAD dichiarato): fz eredita il passo 1"),
+            (3, 0.0, "sonda passo 3 (*CLOAD, OP=NEW): fz torna a zero"),
+        ):
+            reazioni = solve.leggi_reazioni(sonda_dir / "sonda.dat", passo=passo)
+            fz = sum(v[2] for v in reazioni.values())
+            vicino(atteso, fz, 1e-6, etichetta)
 
     print("\nil momento fuori asse: TOP as-built, il caso peggiore misurato")
     mesh_v2 = meshio.read(CORSA_V2 / "wall_model.vtu")
@@ -354,28 +357,6 @@ def _banco_sonda() -> tuple[np.ndarray, np.ndarray, dict[str, np.ndarray]]:
     z = nodes[:, 2]
     node_sets = {"BASE": np.flatnonzero(z <= z.min() + 1e-6), "TOP": np.flatnonzero(z >= z.max() - 1e-6)}
     return nodes, tets, node_sets
-
-
-def _reazioni_per_passo(percorso_dat: Path) -> dict[int, tuple[float, float, float]]:
-    """Somma delle reazioni di ciascun blocco 'forces' del `.dat`, per passo (1, 2, 3, ...)."""
-    testo = Path(percorso_dat).read_text(encoding="ascii", errors="ignore").splitlines()
-    inizi = [i for i, riga in enumerate(testo) if riga.strip().startswith("forces")]
-    inizi.append(len(testo))
-    risultato: dict[int, tuple[float, float, float]] = {}
-    for indice, (inizio, fine) in enumerate(zip(inizi[:-1], inizi[1:]), start=1):
-        somma = [0.0, 0.0, 0.0]
-        for riga in testo[inizio + 1 : fine]:
-            campi = riga.split()
-            if len(campi) != 4:
-                continue
-            try:
-                valori = [float(v) for v in campi[1:]]
-            except ValueError:
-                continue
-            for componente in range(3):
-                somma[componente] += valori[componente]
-        risultato[indice] = (somma[0], somma[1], somma[2])
-    return risultato
 
 
 if __name__ == "__main__":
