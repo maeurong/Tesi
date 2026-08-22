@@ -1607,6 +1607,15 @@ Dopo il ramo `carico_sommita`, prima del ramo `modale`:
             resoconto["forza_dichiarata"] = list(carico.forza)
             resoconto["forza_effettiva"] = np.outer(quote, versore).sum(axis=0).tolist()
             posizionati_risolti[carico.nome] = resoconto
+        else:
+            # Il momento arriva col Task 8. Fino ad allora si solleva invece di
+            # saltare: il validatore garantisce che uno dei due campi ci sia, e
+            # un carico che non produce ne' un passo ne' un errore e' esattamente
+            # lo scarto silenzioso che questa fase esiste per togliere di mezzo.
+            raise NotImplementedError(
+                f"il carico '{carico.nome}' dichiara un momento, e il momento come "
+                "coppia di forze non e' ancora scritto"
+            )
     if resoconto_carichi is not None:
         resoconto_carichi.update(posizionati_risolti)
 ```
@@ -1835,7 +1844,7 @@ def coppia_equivalente(
     return righe, resoconto
 ```
 
-Nel ciclo del Task 7, il ramo che manca:
+Nel ciclo del Task 7, **sostituisci** il ramo `else` che solleva `NotImplementedError`:
 
 ```python
         else:
