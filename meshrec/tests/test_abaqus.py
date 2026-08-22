@@ -1539,10 +1539,16 @@ def test_due_carichi_sullo_stesso_selettore_scrivono_un_solo_nset(cube_mesh, tmp
 def test_il_resoconto_riporta_la_forza_effettiva(cube_mesh, tmp_path):
     """Il programma dice con quali numeri ha fatto quello che ha fatto.
 
-    Mutazione che lo uccide: riportare la forza dichiarata al posto di
-    quella effettiva. Le due coincidono qui, ma la chiave diventa una
-    copia dell'ingresso e smette di poter contraddire alcunche': cambia
-    l'assert in uno che confronta il resoconto con il deck letto.
+    Mutazione che lo uccide: scrivere le righe `*CLOAD` su un grado di
+    liberta' fisso invece che sui tre della forza. Il resoconto continua a
+    dire la cosa giusta -- lo ricava dalle quote, non dal file -- mentre il
+    deck ne dice un'altra, e il confronto fra i due cade.
+
+    **Non** lo uccide riportare `forza_dichiarata` al posto di
+    `forza_effettiva`: `ripartisci` garantisce per costruzione che le quote
+    sommino alla risultante, quindi le due sono lo stesso numero. E' il
+    confronto col deck a dare a questo test un oracolo, non il resoconto
+    da solo.
     """
     nodi, _ = cube_mesh
     resoconto: dict[str, object] = {}
@@ -1642,3 +1648,28 @@ def test_carico_con_momento_solleva_notimplementederror(cube_mesh, tmp_path):
                 ),
             ]),
         )
+
+
+def test_posizionati_vuoto_o_assente_lascia_il_deck_identico(cube_mesh, tmp_path):
+    """Blocco `posizionati` assente o vuoto: il deck non cambia di una riga.
+
+    Riga del contratto scoperta dal brief: l'invarianza della suite
+    preesistente prova che nulla si e' rotto aggiungendo i due parametri, non
+    che *questa* condizione regge -- sono due cose diverse, e la seconda non
+    aveva una guardia sua.
+
+    Mutazione che lo uccide: scrivere comunque un *NSET (anche vuoto) quando
+    `nset_selettori` e' un dizionario vuoto, invece di trattarlo come
+    l'assenza del parametro. La corsa con `nset_selettori={}` guadagnerebbe
+    una riga che quella senza il parametro non ha.
+    """
+    nodi, tetraedri = cube_mesh
+    sets = _base_and_top(nodi)
+    percorso_assente = tmp_path / "assente.inp"
+    abaqus.write_inp(percorso_assente, nodi, tetraedri, node_sets=sets, material=MATERIALE)
+    percorso_vuoto = tmp_path / "vuoto.inp"
+    abaqus.write_inp(
+        percorso_vuoto, nodi, tetraedri, node_sets=sets, material=MATERIALE,
+        nset_selettori={}, carichi=config.CarichiConfig(posizionati=()),
+    )
+    assert percorso_assente.read_text(encoding="ascii") == percorso_vuoto.read_text(encoding="ascii")
