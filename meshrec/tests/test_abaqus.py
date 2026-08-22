@@ -1395,9 +1395,11 @@ def test_i_nodi_ad_area_nulla_prendono_zero_e_sono_contati(cube_mesh):
 def test_area_tributaria_totale_nulla_solleva_e_nomina_il_carico(cube_mesh):
     """Nessuna faccia di bordo contenuta: la pesatura non ha su cosa pesare.
 
-    Un selettore tutto interno al solido e' il caso reale. Scrivere zero
-    ovunque produrrebbe un passo statico che non carica nulla, con un nome
-    che promette altro.
+    Il banco e' un solo nodo: con un nodo solo nessuna faccia triangolare puo'
+    avere tutti e tre i suoi vertici dentro l'insieme, per combinatoria e non
+    per posizione -- vale per qualunque nodo, interno o di bordo. Scrivere
+    zero ovunque produrrebbe un passo statico che non carica nulla, con un
+    nome che promette altro.
 
     Mutazione che lo uccide: rendere quote nulle invece di sollevare.
     """
@@ -1434,3 +1436,209 @@ def test_il_carico_in_sommita_ora_e_pesato(cube_mesh, tmp_path):
     ]
     assert len(set(valori)) > 1, "la ripartizione e' tornata uniforme"
     assert sum(valori) == pytest.approx(-1200.0)
+
+
+def _con_posizionati(percorso, cube_mesh, posizionati, resoconto=None):
+    """Scrive un deck col set TOP offerto come selettore 'piastra'."""
+    nodi, tetraedri = cube_mesh
+    sets = _base_and_top(nodi)
+    abaqus.write_inp(
+        percorso, nodi, tetraedri, node_sets=sets, material=MATERIALE,
+        nset_selettori={"piastra": sets["TOP"]},
+        carichi=config.CarichiConfig(posizionati=posizionati),
+        resoconto_carichi=resoconto,
+    )
+    return percorso.read_text(encoding="ascii")
+
+
+def _forze_del_passo(testo: str, passo: str, quanti_nodi: int) -> np.ndarray:
+    """Le forze nodali scritte dentro un passo, per nodo e componente."""
+    forze = np.zeros((quanti_nodi, 3))
+    dentro = False
+    for riga in testo.splitlines():
+        if riga.startswith(f"** NOME PASSO: {passo}"):
+            dentro = True
+        elif riga == "*END STEP":
+            dentro = False
+        elif dentro and not riga.startswith("*") and riga.count(", ") == 2:
+            nodo, grado, valore = riga.split(", ")
+            forze[int(nodo) - 1, int(grado) - 1] += float(valore)
+    return forze
+
+
+def test_un_posizionato_scrive_il_nset_del_selettore_e_il_passo_del_carico(cube_mesh, tmp_path):
+    """Il selettore diventa un *NSET col suo nome, il carico un passo col suo.
+
+    Mutazione che lo uccide: scrivere il *NSET col nome del carico invece
+    che con quello del selettore. Due carichi sullo stesso selettore
+    scriverebbero due set identici, che e' il nome fabbricato che la
+    forma nominata esiste per togliere di mezzo.
+    """
+    testo = _con_posizionati(tmp_path / "deck.inp", cube_mesh, [
+        config.CaricoPosizionato(nome="PRESSA", selettore="piastra", forza=(0.0, 0.0, -1200.0)),
+    ])
+    # Riga intera, non sottostringa: "*NSET, NSET=piastra_SEL" contiene
+    # "*NSET, NSET=piastra" come prefisso, e un `in` sulla stringa intera
+    # lascerebbe passare un nome fabbricato che aggiunge un suffisso.
+    assert "*NSET, NSET=piastra" in testo.splitlines()
+    assert "** NOME PASSO: PRESSA" in testo
+
+
+def test_le_forze_di_un_posizionato_sommano_alla_risultante(cube_mesh, tmp_path):
+    """Il deck realizza la forza dichiarata, componente per componente.
+
+    Mutazione che lo uccide: scrivere la quota su un grado fisso invece
+    che sui tre della forza. La somma sulla x resta a zero.
+    """
+    nodi, _ = cube_mesh
+    testo = _con_posizionati(tmp_path / "deck.inp", cube_mesh, [
+        config.CaricoPosizionato(nome="PRESSA", selettore="piastra", forza=(300.0, 0.0, -1200.0)),
+    ])
+    somma = _forze_del_passo(testo, "PRESSA", len(nodi)).sum(axis=0)
+    assert somma == pytest.approx([300.0, 0.0, -1200.0])
+
+
+def test_ogni_posizionato_e_un_passo_a_se_col_peso_proprio(cube_mesh, tmp_path):
+    """Due carichi, due passi, e il peso proprio in entrambi.
+
+    Un passo senza peso proprio descriverebbe una struttura che non pesa:
+    e' la stessa ragione per cui SPINTA_ORIZZONTALE e CARICO_TOP lo
+    ripetono gia'.
+
+    Mutazione che lo uccide: sommare i due carichi in un passo solo.
+    Il conteggio dei passi scende a due.
+    """
+    testo = _con_posizionati(tmp_path / "deck.inp", cube_mesh, [
+        config.CaricoPosizionato(nome="PRESSA", selettore="piastra", forza=(0.0, 0.0, -1200.0)),
+        config.CaricoPosizionato(nome="TIRO", selettore="piastra", forza=(0.0, 0.0, 800.0)),
+    ])
+    assert testo.count("** NOME PASSO: ") == 3  # GRAVITA, PRESSA, TIRO
+    assert testo.count("ALL_WALL, GRAV, ") == 3
+
+
+def test_due_carichi_sullo_stesso_selettore_scrivono_un_solo_nset(cube_mesh, tmp_path):
+    """Due carichi che citano lo stesso selettore citano lo stesso nome: un solo *NSET.
+
+    Riga del contratto non coperta dai test del brief: la parte "due passi"
+    di quella riga la copre gia' il test sopra, questa copre la parte "un
+    solo *NSET".
+
+    Mutazione che lo uccide: scrivere il *NSET dentro il ciclo dei carichi
+    invece che una volta per selettore in `nset_selettori`. Il conteggio
+    salirebbe a due.
+    """
+    testo = _con_posizionati(tmp_path / "deck.inp", cube_mesh, [
+        config.CaricoPosizionato(nome="PRESSA", selettore="piastra", forza=(0.0, 0.0, -1200.0)),
+        config.CaricoPosizionato(nome="TIRO", selettore="piastra", forza=(0.0, 0.0, 800.0)),
+    ])
+    # Righe intere: contare la sottostringa non distinguerebbe "piastra" da
+    # un nome fabbricato tipo "piastra_PRESSA" e "piastra_TIRO".
+    assert testo.splitlines().count("*NSET, NSET=piastra") == 1
+
+
+def test_il_resoconto_riporta_la_forza_effettiva(cube_mesh, tmp_path):
+    """Il programma dice con quali numeri ha fatto quello che ha fatto.
+
+    Mutazione che lo uccide: riportare la forza dichiarata al posto di
+    quella effettiva. Le due coincidono qui, ma la chiave diventa una
+    copia dell'ingresso e smette di poter contraddire alcunche': cambia
+    l'assert in uno che confronta il resoconto con il deck letto.
+    """
+    nodi, _ = cube_mesh
+    resoconto: dict[str, object] = {}
+    testo = _con_posizionati(tmp_path / "deck.inp", cube_mesh, [
+        config.CaricoPosizionato(nome="PRESSA", selettore="piastra", forza=(0.0, 0.0, -1200.0)),
+    ], resoconto=resoconto)
+    dal_deck = _forze_del_passo(testo, "PRESSA", len(nodi)).sum(axis=0)
+    assert resoconto["PRESSA"]["forza_effettiva"] == pytest.approx(dal_deck)
+    assert resoconto["PRESSA"]["nodi"] > 0
+
+
+def test_un_posizionato_che_cita_un_selettore_non_risolto_solleva(cube_mesh, tmp_path):
+    """Il deck non si scrive a meta': se il selettore non e' arrivato, si ferma qui.
+
+    Mutazione che lo uccide: `nset_selettori.get(nome, np.array([]))`, che
+    scriverebbe un *NSET vuoto e un carico applicato a nulla.
+    """
+    nodi, tetraedri = cube_mesh
+    with pytest.raises(ValueError, match="piastra"):
+        abaqus.write_inp(
+            tmp_path / "deck.inp", nodi, tetraedri,
+            node_sets=_base_and_top(nodi), material=MATERIALE,
+            nset_selettori={},
+            carichi=config.CarichiConfig(posizionati=[
+                config.CaricoPosizionato(nome="PRESSA", selettore="piastra", forza=(0.0, 0.0, -1.0)),
+            ]),
+        )
+
+
+def test_selettore_non_risolto_nomina_anche_i_selettori_arrivati(cube_mesh, tmp_path):
+    """Il messaggio non tace cosa e' arrivato: nomina anche i selettori risolti.
+
+    Riga del contratto non coperta dai test del brief: quello sopra verifica
+    solo che il nome del selettore mancante compaia, non che il messaggio
+    elenchi anche gli arrivati.
+
+    Mutazione che lo uccide: un messaggio generico ("selettore non
+    risolto") che tace il contenuto di `nset_selettori`.
+    """
+    nodi, tetraedri = cube_mesh
+    with pytest.raises(ValueError, match="altro"):
+        abaqus.write_inp(
+            tmp_path / "deck.inp", nodi, tetraedri,
+            node_sets=_base_and_top(nodi), material=MATERIALE,
+            nset_selettori={"altro": np.array([0])},
+            carichi=config.CarichiConfig(posizionati=[
+                config.CaricoPosizionato(nome="PRESSA", selettore="piastra", forza=(0.0, 0.0, -1.0)),
+            ]),
+        )
+
+
+def test_componente_nulla_non_scrive_riga_cload(cube_mesh, tmp_path):
+    """Una riga a zero il solutore la legge e la ignora: non si scrive.
+
+    Riga del contratto non coperta dai test del brief: quelli dati
+    verificano la somma delle forze, che non cambia se righe a zero
+    vengono scritte in piu'.
+
+    Mutazione che lo uccide: togliere il controllo `componente != 0.0` e
+    scrivere comunque la riga per la componente x, qui nulla.
+    """
+    testo = _con_posizionati(tmp_path / "deck.inp", cube_mesh, [
+        config.CaricoPosizionato(nome="PRESSA", selettore="piastra", forza=(0.0, 5.0, -1200.0)),
+    ])
+    dentro = False
+    for riga in testo.splitlines():
+        if riga.startswith("** NOME PASSO: PRESSA"):
+            dentro = True
+        elif riga == "*END STEP":
+            dentro = False
+        elif dentro and not riga.startswith("*") and riga.count(", ") == 2:
+            _, grado, _ = riga.split(", ")
+            assert grado != "1", "componente x nulla ha scritto comunque una riga *CLOAD"
+
+
+def test_carico_con_momento_solleva_notimplementederror(cube_mesh, tmp_path):
+    """Il momento arriva col task successivo: fino ad allora si ferma con un errore esplicito.
+
+    Riga del contratto non coperta dai test del brief: nessuno dei test dati
+    dichiara un `momento`.
+
+    Mutazione che lo uccide: saltare il carico in silenzio (`continue`)
+    invece di sollevare. Il deck si scriverebbe senza quel carico e senza
+    dirlo, esattamente lo scarto silenzioso che questa fase toglie di mezzo.
+    """
+    nodi, tetraedri = cube_mesh
+    sets = _base_and_top(nodi)
+    with pytest.raises(NotImplementedError, match="momento"):
+        abaqus.write_inp(
+            tmp_path / "deck.inp", nodi, tetraedri,
+            node_sets=sets, material=MATERIALE,
+            nset_selettori={"piastra": sets["TOP"]},
+            carichi=config.CarichiConfig(posizionati=[
+                config.CaricoPosizionato(
+                    nome="TORCI", selettore="piastra",
+                    momento=config.Momento(asse=(0.0, 0.0, 1.0), modulo=100.0, braccio=10.0),
+                ),
+            ]),
+        )

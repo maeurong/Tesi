@@ -78,6 +78,8 @@ def write_inp(
     ties: tuple[tuple[str, str, str] | tuple[str, str, str, float], ...] = (),
     pressure: tuple[str, float] | None = None,
     carichi: CarichiConfig | None = None,
+    nset_selettori: dict[str, np.ndarray] | None = None,
+    resoconto_carichi: dict[str, object] | None = None,
 ) -> None:
     """Scrive un modello pronto all'analisi statica sotto peso proprio.
 
@@ -121,6 +123,16 @@ def write_inp(
     diverso dal primo descriverebbe una struttura che non pesa). Una spinta
     del terreno dichiarata in Fase 4 non smette di agire perche' il passo
     successivo aggiunge anche un carico in sommita'.
+
+    `nset_selettori` e `resoconto_carichi` sono la quinta aggiunta, di questa
+    fase: ogni voce di `carichi.posizionati` cita un selettore per nome, e
+    `nset_selettori` e' la mappa da quel nome agli indici gia' risolti -- il
+    deck scrive un `*NSET` per selettore (non per carico: due carichi sullo
+    stesso selettore citano lo stesso nome) e un passo statico per carico, col
+    peso proprio ripetuto per la stessa ragione degli altri passi.
+    `resoconto_carichi`, se dato, e' riempito in loco con la forza effettiva e
+    il numero di nodi di ciascun carico posizionato; `write_inp` continua a
+    rendere `None`, il resoconto viaggia per riferimento fino a `export_model`.
     """
     if fixed_nset not in node_sets:
         raise ValueError(f"il set vincolato '{fixed_nset}' non e fra i node_sets forniti")
@@ -172,6 +184,14 @@ def write_inp(
     for name, indices in node_sets.items():
         lines.append(f"*NSET, NSET={name}")
         lines += _set_lines(indices)
+
+    # Un *NSET per selettore (non per carico): due carichi sullo stesso
+    # selettore citano lo stesso nome, ed e' tutto il senso della forma
+    # nominata. Ogni selettore compare qui una volta sola perche' e' una
+    # chiave di dizionario, non una voce per carico che lo cita.
+    for name, indices in (nset_selettori or {}).items():
+        lines.append(f"*NSET, NSET={name}")
+        lines += _set_lines(np.asarray(indices, dtype=np.int64))
 
     for nome, coppie in superfici.items():
         lines.append(f"*SURFACE, TYPE=ELEMENT, NAME={nome}")
@@ -236,6 +256,47 @@ def write_inp(
             for n, quota in zip(nodi_carico, quote, strict=True)
         ]
         lines += passo_statico("CARICO_TOP", [peso] + righe_cload)
+
+    # Un passo statico per carico posizionato, col peso proprio ripetuto per
+    # la stessa ragione degli altri passi: senza di esso il passo
+    # descriverebbe una struttura che non pesa.
+    posizionati_risolti: dict[str, object] = {}
+    for carico in () if carichi is None else carichi.posizionati:
+        if carico.selettore not in (nset_selettori or {}):
+            raise ValueError(
+                f"il carico '{carico.nome}' cita il selettore '{carico.selettore}', "
+                f"che non e' stato risolto: arrivati {sorted(nset_selettori or {})}. "
+                "Il deck non si scrive a meta'"
+            )
+        indici = np.asarray(nset_selettori[carico.selettore], dtype=np.int64)
+        if carico.forza is None:
+            # Il momento arriva col task successivo. Non saltarlo in
+            # silenzio: il validatore garantisce che uno dei due campi ci
+            # sia, e un carico che non produce ne' un passo ne' un errore e'
+            # esattamente lo scarto silenzioso che questa fase toglie di
+            # mezzo.
+            raise NotImplementedError(
+                f"il carico '{carico.nome}' dichiara un momento, e il momento come "
+                "coppia di forze non e' ancora scritto"
+            )
+        modulo = float(np.linalg.norm(carico.forza))
+        quote, resoconto = ripartisci(
+            modulo, nodes, elements, indici, element_type, nome=carico.nome
+        )
+        versore = np.asarray(carico.forza, dtype=np.float64) / modulo
+        righe_cload = ["*CLOAD"]
+        for nodo, quota in zip(indici, quote, strict=True):
+            for grado, componente in enumerate(versore, start=1):
+                # Una riga a zero il solutore la legge e la ignora: non
+                # scriverla tiene il deck leggibile e il conteggio onesto.
+                if componente != 0.0:
+                    righe_cload.append(f"{int(nodo) + 1}, {grado}, {quota * componente:.9e}")
+        lines += passo_statico(carico.nome, [peso] + righe_cload)
+        resoconto["forza_dichiarata"] = list(carico.forza)
+        resoconto["forza_effettiva"] = np.outer(quote, versore).sum(axis=0).tolist()
+        posizionati_risolti[carico.nome] = resoconto
+    if resoconto_carichi is not None:
+        resoconto_carichi.update(posizionati_risolti)
 
     if carichi is not None and carichi.modale is not None:
         # Nessun `*EL FILE`: le forme sono normalizzate sulla massa e una
