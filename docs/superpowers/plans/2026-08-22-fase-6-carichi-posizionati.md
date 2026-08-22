@@ -24,6 +24,7 @@
 - **Sola lettura:** `runs/muro/`, `runs/lab_crop/`, `experiments/muro/`, `experiments/lab_crop/`. Mai `git add -A`: ogni commit elenca i file.
 - **Niente numeri del provino di laboratorio in `src/`.** I valori di `lab_frame` stanno nelle configurazioni e nei documenti, non nel codice.
 - **Ogni test nuovo dichiara nel docstring la mutazione che lo uccide**, e lo step successivo la applica davvero per vedere il test fallire nel modo giusto. Un test che passa anche mutato non è un test.
+- **Il contratto degli ingressi degeneri vive nel piano, non nel prompt di dispatch.** Misurato su tre task di fila: la sezione «Ingressi degeneri» del dispatch elencava condizioni che il codice dei test del piano non copriva — «documento YAML vuoto o file assente» nel Task 2, «`momento` con modulo o braccio ≤ 0» nel Task 3. Un contratto che vive solo nel prompt non ha né test né guardia di regressione: il revisore lo declassa perché non è vincolante, e ha ragione. **Quando trovi una riga del contratto che i test del brief non coprono, scrivi tu il test mancante col suo ciclo RED→GREEN e dichiaralo nel report** — è successo due volte e le due volte era la cosa giusta.
 - **Il server riscrive `config.yaml`** (`save_config`, `core/config.py:785-789`, `safe_dump` del modello alla riga 789): dopo averlo avviato, `git diff` dello YAML prima di misurare qualunque cosa.
 - **I numeri di riga di questo piano scadono man mano che i task atterrano.** Il Task 1 ha aggiunto ~76 righe a `core/config.py`, e i successivi ne aggiungeranno altre. Ogni `file:riga` citato qui va **riaperto e confermato** prima di agirci: se il conteggio è cambiato, vale quello che leggi tu, non quello che c'è scritto qui.
 - **Unità:** mm, N, MPa, t, s. Forze in N, momenti in N·mm, lunghezze in mm.
@@ -1907,11 +1908,13 @@ def coppia_equivalente(
     """
     punti = np.asarray(nodes, dtype=np.float64)
     indici = np.asarray(indici, dtype=np.int64)
+    # L'asse nullo non arriva fin qui: `Momento` lo rifiuta a validazione
+    # della configurazione (Task 3), che e' dove vanno i rifiuti che non
+    # hanno bisogno di una mesh. Un secondo controllo qui sarebbe codice
+    # morto, e il codice morto e' peggio dell'assenza: promette una guardia
+    # che nessuno esercita.
     asse = np.asarray(momento.asse, dtype=np.float64)
-    norma = float(np.linalg.norm(asse))
-    if norma == 0.0:
-        raise ValueError(f"il momento '{nome}' ha asse di modulo nullo: non e' una direzione")
-    asse = asse / norma
+    asse = asse / float(np.linalg.norm(asse))
 
     presi = punti[indici]
     baricentro = presi.mean(axis=0)
