@@ -513,11 +513,20 @@ def test_un_posizionato_gira_a_zero_avvisi_e_sposta_qualcosa(tmp_path):
     solo la forza su un nodo vicino, quasi sempre ancora in TOP o comunque
     ancora capace di far accorciare la colonna. Misurato: col codice
     corretto max|uz|=0.0275 mm, con la mutazione 0.0300 mm -- stesso
-    ordine, nessuna soglia su questo oracolo li separa. Non e' una
-    mutazione che questo test possa uccidere; resta scritta qui perche'
-    il brief la prescriveva, ma il test protegge solo l'oracolo
-    dichiarato negli Ingressi degeneri ("qualcosa si e' mosso"), non
-    l'indicizzazione dei nodi.
+    ordine, nessuna soglia su questo oracolo li separa.
+
+    Seconda mutazione tentata (grado 1 invece di 3 sul *CLOAD, forza
+    dichiarata verticale scritta come orizzontale): non collassa al
+    rumore di gravita' come atteso. Misurato: corretto max|uz|=0.0274568
+    mm, mutato max|uz|=0.223764 mm -- l'ipotesi che la forza orizzontale
+    lasci la colonna a subire solo il peso proprio e' falsa su questo
+    banco: la colonna e' snella (100x100x400 mm), e una forza applicata
+    fuori asse in sommita' la inflette, e la flessione su una sezione
+    cosi' snella sposta la sommita' in z (per rotazione della sezione)
+    piu' di quanto faccia il carico assiale corretto -- un rapporto di
+    ~8.1x, sotto l'ordine di grandezza che separerebbe pulito senza una
+    soglia stretta. Nessuna soglia scelta per questo motivo: nessuna
+    delle due mutazioni tentate uccide questo test in modo netto.
     """
     executable = shutil.which("ccx")
     if executable is None:
