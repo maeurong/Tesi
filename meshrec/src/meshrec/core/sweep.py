@@ -61,6 +61,11 @@ BLOCCHI_FUORI_IMPRONTA: tuple[str, ...] = ("run", "wall", "model")
 # dentro l'impronta sopravvivono gia' cinque valori nulli (segment.crop_min,
 # segment.crop_max, repair.max_hole_area, simplify.target_faces,
 # tet.max_volume) che nessuno omette.
+#
+# `selettori` segue `carichi` e per la stessa ragione: e' letto dallo step 11,
+# cambia il deck, e due candidati con selettori diversi sono esperimenti
+# diversi. La regola dell'omissione quando vuoto tiene ferma la provenienza
+# delle righe gia' registrate, che il blocco non ce l'hanno.
 BLOCCHI_VUOTI_FUORI_IMPRONTA: tuple[str, ...] = ("carichi", "selettori")
 
 

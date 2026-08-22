@@ -121,6 +121,27 @@ def test_un_asse_sui_carichi_non_e_piu_rifiutato():
     assert len({sweep.fingerprint(cfg) for _, cfg in candidati}) == len(candidati) == 2
 
 
+def _selettore_sfera(raggio: float) -> config.SelettoreSfera:
+    return config.SelettoreSfera(tipo="sfera", centro=(0.0, 0.0, 0.0), raggio=raggio)
+
+
+def test_due_selettori_diversi_danno_impronte_diverse():
+    """Senza questo, due candidati scrivono nella stessa cartella e il secondo vince.
+
+    La cartella di un candidato e' `fingerprint(cfg)[:12]` (core/sweep.py:677),
+    e lo sweep arriva a --to-step 12: il deck 11_export e' artefatto richiesto
+    di ogni candidato.
+
+    Mutazione che lo uccide: togliere "selettori" da BLOCCHI_VUOTI_FUORI_IMPRONTA
+    (core/sweep.py:64) e dalla lista dei blocchi che l'impronta considera --
+    cioe' rimettere il blocco fuori da entrambe. Le due impronte tornano uguali.
+    """
+    uno = _base().model_copy(update={"selettori": {"piastra": _selettore_sfera(5.0)}})
+    altro = _base().model_copy(update={"selettori": {"piastra": _selettore_sfera(9.0)}})
+
+    assert sweep.fingerprint(uno) != sweep.fingerprint(altro)
+
+
 def test_one_axis_at_a_time_does_not_multiply_the_levels():
     """Tre livelli su due assi sono cinque candidati, non nove: uno per livello piu la base."""
     experiment = config.ExperimentConfig(
