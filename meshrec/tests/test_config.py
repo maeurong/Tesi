@@ -566,6 +566,16 @@ def test_il_momento_rifiuta_modulo_o_braccio_non_positivi():
         config.Momento(asse=[0.0, 0.0, 1.0], modulo=1.0, braccio=-1.0)
 
 
+def test_il_momento_rifiuta_lasse_nullo():
+    """Un asse [0, 0, 0] non e' una direzione: si vede dalla configurazione, senza mesh.
+
+    Mutazione che lo uccide: togliere il validatore sul modulo di `asse`.
+    Il momento entra con una direzione che non esiste.
+    """
+    with pytest.raises(ValidationError, match="asse"):
+        config.Momento(asse=[0.0, 0.0, 0.0], modulo=1.0, braccio=1.0)
+
+
 def test_un_carico_dichiara_o_forza_o_momento_mai_entrambi():
     """Forza e momento insieme sono due carichi: due voci, non una.
 
@@ -611,6 +621,27 @@ def test_un_carico_che_cita_un_selettore_non_dichiarato_e_rifiutato():
                 posizionati=[{"nome": "PRESSA", "selettore": "fantasma", "forza": [0.0, 0.0, -1.0]}]
             ),
         )
+
+
+def test_un_carico_puo_citare_il_selettore_cambiando_le_maiuscole():
+    """Il selettore dichiarato 'piastra' e citato 'Piastra' sono lo stesso *NSET nel deck.
+
+    Stessa regola del confronto sui riservati e sulla chiave di `visti`:
+    ignora il caso, come misurato in docs/fase-6-cantiere/sonda-caso-nomi/.
+
+    Mutazione che lo uccide: togliere `.casefold()` dal confronto fra
+    `carico.selettore` e le chiavi di `self.selettori`. Il carico verrebbe
+    rifiutato con "non e' dichiarato", messaggio falso perche' dichiarato
+    lo e' davvero.
+    """
+    cfg = crea_config(
+        input=config.InputConfig(path="nuvola.ply"),
+        selettori={"piastra": {"tipo": "nset", "nome": "TOP"}},
+        carichi=config.CarichiConfig(
+            posizionati=[{"nome": "PRESSA", "selettore": "Piastra", "forza": [0.0, 0.0, -1.0]}]
+        ),
+    )
+    assert cfg.carichi.posizionati[0].selettore == "Piastra"
 
 
 @pytest.mark.parametrize("riservato", config.NOMI_PASSO_RISERVATI)

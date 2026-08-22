@@ -742,6 +742,15 @@ class Momento(_ModelloBase):
     modulo: float = Field(gt=0.0, description="modulo del momento [N*mm]")
     braccio: float = Field(gt=0.0, description="distanza fra le due forze della coppia [mm]")
 
+    @model_validator(mode="after")
+    def _lasse_non_e_nullo(self) -> "Momento":
+        if not any(self.asse):
+            raise ValueError(
+                "l'asse del momento e' [0, 0, 0]: non e' una direzione, si vede "
+                "dalla configurazione senza aver letto la mesh"
+            )
+        return self
+
 
 class CaricoPosizionato(_ModelloBase):
     """Un carico che porta con se' il proprio indirizzo.
@@ -868,9 +877,10 @@ class PipelineConfig(_ModelloBase):
         # riservato nella sua testa se non nel deck.
         riservati = {nome.casefold(): nome for nome in NOMI_PASSO_RISERVATI}
         riservati[self.analysis.step_name.casefold()] = self.analysis.step_name
+        selettori_per_caso = {nome.casefold(): nome for nome in self.selettori}
         visti: dict[str, str] = {}
         for carico in self.carichi.posizionati:
-            if carico.selettore not in self.selettori:
+            if carico.selettore.casefold() not in selettori_per_caso:
                 raise ValueError(
                     f"il carico '{carico.nome}' cita il selettore "
                     f"'{carico.selettore}', che non e' dichiarato. Dichiarati: "
