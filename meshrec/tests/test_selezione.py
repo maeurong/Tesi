@@ -130,6 +130,21 @@ def test_lo_spigolo_medio_si_misura_sugli_spigoli_degli_elementi():
     assert selezione.spigolo_medio(nodi, elementi) == pytest.approx(10.0, abs=0.05)
 
 
+def test_gli_indici_resi_sono_ordinati_senza_ripetizioni_e_int64():
+    """Ordine, unicita' e dtype non sono un dettaglio di implementazione, sono l'oracolo.
+
+    Mutazione che lo uccide: togliere `np.unique`. Un *NSET dichiarato con
+    indici ripetuti e fuori ordine (capita quando lo si scrive a mano)
+    passerebbe cosi' com'e' invece di uscire pulito.
+    """
+    nodi, _, _ = _banco()
+    node_sets = {"SPARSO": np.array([3, 1, 3, 0])}
+    selettore = config.SelettoreNset(tipo="nset", nome="SPARSO")
+    presi = selezione.risolvi(selettore, nodi, node_sets, nome="sparso", spigolo=10.0)
+    assert presi.tolist() == [0, 1, 3]
+    assert presi.dtype == np.int64
+
+
 def test_risolvi_tutti_senza_selettori_rende_un_dizionario_vuoto():
     """Ingresso degenere del caso normale: chi non dichiara nulla non paga nulla.
 
