@@ -173,17 +173,22 @@ def main() -> int:
     if eseguibile is None:
         print("  ccx non e' nel PATH: sonda saltata (il documento la riporta come gia' eseguita)")
     else:
-        sonda_dir = Path(__file__).parent / "sonda-cload-persiste"
-        processo = subprocess.run([eseguibile, "-i", "sonda"], cwd=sonda_dir, capture_output=True, text=True, timeout=120)
-        assert "Job finished" in processo.stdout
-        for passo, atteso, etichetta in (
-            (1, 100.0, "sonda passo 1 (*CLOAD dichiarato): fz"),
-            (2, 100.0, "sonda passo 2 (nessun *CLOAD dichiarato): fz eredita il passo 1"),
-            (3, 0.0, "sonda passo 3 (*CLOAD, OP=NEW): fz torna a zero"),
-        ):
-            reazioni = solve.leggi_reazioni(sonda_dir / "sonda.dat", passo=passo)
-            fz = sum(v[2] for v in reazioni.values())
-            vicino(atteso, fz, 1e-6, etichetta)
+        sonda_inp = Path(__file__).parent / "sonda-cload-persiste" / "sonda.inp"
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            (tmp_path / "sonda.inp").write_text(sonda_inp.read_text(encoding="utf-8"), encoding="utf-8")
+            processo = subprocess.run(
+                [eseguibile, "-i", "sonda"], cwd=tmp_path, capture_output=True, text=True, timeout=120
+            )
+            assert "Job finished" in processo.stdout
+            for passo, atteso, etichetta in (
+                (1, 100.0, "sonda passo 1 (*CLOAD dichiarato): fz"),
+                (2, 100.0, "sonda passo 2 (nessun *CLOAD dichiarato): fz eredita il passo 1"),
+                (3, 0.0, "sonda passo 3 (*CLOAD, OP=NEW): fz torna a zero"),
+            ):
+                reazioni = solve.leggi_reazioni(tmp_path / "sonda.dat", passo=passo)
+                fz = sum(v[2] for v in reazioni.values())
+                vicino(atteso, fz, 1e-6, etichetta)
 
     print("\nil momento fuori asse: TOP as-built, il caso peggiore misurato")
     mesh_v2 = meshio.read(CORSA_V2 / "wall_model.vtu")
