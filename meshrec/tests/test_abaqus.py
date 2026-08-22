@@ -1894,3 +1894,33 @@ def test_il_momento_effettivo_del_resoconto_e_coerente_con_le_forze_scritte(cube
     for nodo, forza_nodo in forze.items():
         ricostruito += np.cross(nodi[nodo] - baricentro, forza_nodo)
     assert ricostruito == pytest.approx(resoconto["momento_effettivo"], abs=1e-6)
+
+
+def test_una_superficie_leggermente_irregolare_non_solleva(cube_mesh):
+    """Un piccolo sbilanciamento lungo l'asse, come su una superficie as-built vera, non si rifiuta.
+
+    TOP e' un piano perfetto per costruzione in questo banco sintetico
+    (rapporto fuori-asse 0.0 esatto, verificato in Round 3): nessun test lo
+    copriva per una superficie leggermente irregolare come quella reale, ed
+    e' esattamente il caso che la prima soglia di questo task (1e-6) avrebbe
+    rifiutato. Si sposta di 0.3 mm lungo z un solo nodo del gruppo positivo
+    su un braccio di 60 mm: rapporto fuori-asse ~1e-3, lo stesso ordine di
+    grandezza misurato sulla mesh reale (`runs/lab_telaio_v2`, vedi report),
+    comodamente sotto `TOLLERANZA_MOMENTO_FUORI_ASSE`.
+
+    Mutazione che lo uccide: abbassare `TOLLERANZA_MOMENTO_FUORI_ASSE` a
+    1e-6 (il valore scartato in questa stessa revisione). Il rapporto ~1e-3
+    supera quella soglia e la chiamata solleva a torto.
+    """
+    nodi, tetraedri = cube_mesh
+    indici = np.flatnonzero(nodi[:, 2] >= nodi[:, 2].max() - 1e-6)
+    nodi_irregolari = nodi.copy()
+    nodi_irregolari[indici[1], 2] += 0.3  # una superficie as-built non e' mai perfettamente piana
+    momento = config.Momento(asse=(0.0, 0.0, 1.0), modulo=3000.0, braccio=60.0)
+    _, resoconto = abaqus.coppia_equivalente(
+        momento, nodi_irregolari, tetraedri, indici, "C3D4", nome="TEST"
+    )
+    eff = np.array(resoconto["momento_effettivo"])
+    assert abs(eff[0]) < 3000.0 * abaqus.TOLLERANZA_MOMENTO_FUORI_ASSE
+    assert abs(eff[1]) < 3000.0 * abaqus.TOLLERANZA_MOMENTO_FUORI_ASSE
+    assert eff[2] == pytest.approx(3000.0, rel=1e-3)

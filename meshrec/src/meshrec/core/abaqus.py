@@ -27,13 +27,18 @@ _SET_ITEMS_PER_LINE = 8
 # gruppi stanno alla stessa quota lungo l'asse (vedi `coppia_equivalente`);
 # su un selettore volumetrico con estensione lungo l'asse non e' cosi', e il
 # deck scriverebbe in silenzio un momento anche perpendicolare a quello
-# chiesto. La soglia sta sopra il rumore di un selettore che giace in un
-# piano perpendicolare all'asse (rapporto nullo per costruzione) e sotto
-# quello di un selettore volumetrico che sconfina lungo l'asse (misurato
-# **ordini di grandezza** sopra questa soglia): i due numeri sono nel
-# report del task, non qui -- un numero di laboratorio dentro `src/`
-# legherebbe questa soglia a una geometria sola.
-TOLLERANZA_MOMENTO_FUORI_ASSE: float = 1e-6
+# chiesto.
+#
+# La soglia non puo' stare a ridosso di zero: un `TOP` risolto su una
+# superficie **as-built** vera non e' un piano, e' una banda di nodi entro
+# la tolleranza dei set -- porta gia' da se' un rapporto fuori-asse non
+# nullo, dell'ordine di qualche millesimo. La soglia sta sopra quel rumore
+# geometrico legittimo e sotto quello di un selettore davvero volumetrico
+# che sconfina lungo l'asse (misurato **due ordini di grandezza** sopra la
+# soglia): i numeri delle due misure sono nel report del task, non qui --
+# un numero di laboratorio dentro `src/` legherebbe questa soglia a una
+# geometria sola.
+TOLLERANZA_MOMENTO_FUORI_ASSE: float = 1e-2
 
 
 class UnconstrainedModelWarning(UserWarning):
