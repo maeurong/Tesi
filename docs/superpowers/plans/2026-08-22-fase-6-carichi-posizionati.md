@@ -1855,6 +1855,47 @@ git commit -m "feat(fase-6): un passo statico per carico posizionato"
 6. Ogni gruppo riceve la propria quota ripartita per area (Task 6), e si misura il **braccio effettivo** come distanza fra i due baricentri pesati dalle quote, proiettati su `s`.
 7. La forza vale `modulo / braccio_effettivo`. È qui che si calibra: il momento realizzato dal deck è **esattamente** il `modulo` dichiarato, e il `braccio` resta il criterio con cui si sono scelti i due gruppi.
 8. La direzione della forza è `a × s`, verso `+` sul gruppo positivo. Con `s ⟂ a` e `|s| = 1` vale `s × (a × s) = a`, quindi il momento risultante è `modulo · a`.
+9. Si **misura** il momento che le forze scritte realizzano davvero, `Σ (p_i − rif) × F_i`, e lo si mette nel resoconto. Se la sua componente **perpendicolare all'asse** supera `TOLLERANZA_MOMENTO_FUORI_ASSE` in rapporto al modulo, si **solleva** riportando entrambi i numeri.
+
+> **Perché il passo 9 esiste, e perché la sua soglia è misurata.**
+>
+> La costruzione non è esatta su un selettore qualunque. Con base ortonormale
+> `{a, s, t = a×s}` e `r̄_g` il baricentro pesato del gruppo *g*, vale
+> `r̄ × t = −α·s + β·a`, quindi il momento realizzato è
+> `forza · [(β₀−β₁)·a + (α₁−α₀)·s]`. Il primo termine è `modulo·a` ed è quello
+> voluto; il secondo si annulla **solo se `α₀ = α₁`**, cioè solo se i nodi presi
+> giacciono in un piano perpendicolare all'asse.
+>
+> `TOP` e `BASE` lo sono quasi; `SelettoreBox` e `SelettoreSfera` sono
+> **volumetrici** e non lo sono affatto. Su quelli il deck scriveva un momento
+> con componenti fuori asse **senza errore né warning** — il guasto silenzioso
+> che questa fase esiste per togliere di mezzo, riaperto su un ingresso che
+> nessun test esercitava. Non si risolve cambiando riferimento: traslando il
+> baricentro, `α₀` e `α₁` traslano insieme e la differenza resta. Lo
+> sbilanciamento è fisico.
+>
+> Perciò il resoconto **misura** invece di riecheggiare — `resoconto["momento"]`
+> era `float(momento.modulo)`, una copia dell'ingresso incapace di contraddire
+> alcunché, lo stesso difetto di `forza_effettiva` nel Task 7 — e il programma
+> si contraddice quando non può fare ciò che gli è chiesto.
+>
+> **La soglia è tarata su misure, e la prima taratura era sbagliata.** Presa sul
+> banco sintetico `cube_mesh`, la cui faccia superiore è un piano perfetto, dava
+> rapporto 0,0 e una soglia di `1e-6`. Ma `TOP` sull'as-built non è un piano: è
+> la banda di nodi entro `set_tolerance`, che su `runs/lab_telaio_v2` vale
+> **134,97 mm**, e il rapporto reale sta fra **0,0013 e 0,0036**. Con `1e-6` il
+> caso studio della tesi veniva **rifiutato**. I numeri e il ragionamento
+> completo stanno nel documento di fase.
+
+> **Sui due lati della soglia, che non sono simmetrici.** Sotto si accettano
+> deck che scrivono un momento storto **in silenzio**; sopra si rifiuta un caso
+> legittimo con un messaggio che dice cosa fare. Il margine da difendere è
+> quello sopra. Da qui la scelta della **media geometrica** fra i due estremi
+> misurati, `sqrt(0,003552 × 0,914334) ≈ 0,057` → **`5e-2`**, con margini
+> ~14,1× e ~18,3×: un valore che si motiva in una riga invece che «un numero
+> preso in mezzo». Ragione concreta: `analysis.set_tolerance_factor` è
+> configurabile e decide lo spessore della banda, e il rapporto cresce con lo
+> spessore.
 
 - [ ] **Step 1: Scrivi i test che falliscono**
 
@@ -2688,9 +2729,11 @@ Sezioni obbligate:
 3. **La validazione**: la tabella dei due gruppi, con gli errori veri dello Step 2.
 4. **La ripartizione**: perché per area, e il confronto misurato prima/dopo su `CARICO_TOP` (Task 12).
 5. **Il momento**: la coppia, il braccio dichiarato, il braccio effettivo, il rifiuto quando i nodi non lo sostengono, e la prova su `ccx` vero (Task 10) che la coppia sposta mentre la card sul grado 4 non lo fa.
-6. **Il resoconto**: cosa `metrics["11_export"]` contiene ora, con un estratto reale.
-7. **Cosa la Fase 6 dichiara di non fare**: il § 2.3 della spec, per intero e alla lettera — comprese le due righe che il piano ha aggiunto (nessuna combinazione di due posizionati in un passo solo).
-8. **La coda**: i cinque cantieri fuori e il loro ordine di ritorno.
+6. **Il momento fuori asse, e perché la sua soglia è quel numero.** Sezione obbligatoria, con la derivazione per intero: `forza · [(β₀−β₁)·a + (α₁−α₀)·s]`, il termine che si annulla solo su un selettore perpendicolare all'asse, e il fatto che non si risolva cambiando riferimento. Poi la tabella delle misure — `TOP` as-built peggiore **0,003552**, volumetrico reale **0,914334**, banco sintetico **0,0** — la media geometrica, la soglia `5e-2`, i due margini, e perché il margine sopra è quello da difendere.
+   E la nota che conta più di tutte: la **prima** taratura, fatta sul banco sintetico, valeva `1e-6` e **avrebbe rifiutato il caso studio della tesi**. È l'esempio più netto che questa fase abbia prodotto del perché un numero misurato su geometria sintetica non descrive il programma, e va scritto per esteso invece che riassunto.
+7. **Il resoconto**: cosa `metrics["11_export"]` contiene ora, con un estratto reale.
+8. **Cosa la Fase 6 dichiara di non fare**: il § 2.3 della spec, per intero e alla lettera — comprese le due righe che il piano ha aggiunto (nessuna combinazione di due posizionati in un passo solo).
+9. **La coda**: i cinque cantieri fuori e il loro ordine di ritorno.
 
 Ogni numero porta **il file e il campo** da cui viene.
 
