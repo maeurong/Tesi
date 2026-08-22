@@ -21,6 +21,20 @@ from meshrec.core.config import (
 
 _SET_ITEMS_PER_LINE = 8
 
+# Rapporto massimo ammesso fra la componente del momento effettivo che cade
+# fuori dall'asse dichiarato e il modulo dichiarato. Adimensionale: una
+# coppia di forze realizza esattamente il momento voluto solo se i due
+# gruppi stanno alla stessa quota lungo l'asse (vedi `coppia_equivalente`);
+# su un selettore volumetrico con estensione lungo l'asse non e' cosi', e il
+# deck scriverebbe in silenzio un momento anche perpendicolare a quello
+# chiesto. La soglia sta sopra il rumore di un selettore che giace in un
+# piano perpendicolare all'asse (rapporto nullo per costruzione) e sotto
+# quello di un selettore volumetrico che sconfina lungo l'asse (misurato
+# **ordini di grandezza** sopra questa soglia): i due numeri sono nel
+# report del task, non qui -- un numero di laboratorio dentro `src/`
+# legherebbe questa soglia a una geometria sola.
+TOLLERANZA_MOMENTO_FUORI_ASSE: float = 1e-6
+
 
 class UnconstrainedModelWarning(UserWarning):
     """L'insieme vincolato raggiunge meno della meta' della superficie d'appoggio."""
@@ -717,6 +731,31 @@ def coppia_equivalente(
     forza = float(momento.modulo) / braccio_effettivo
     direzione = np.cross(asse, separazione)
 
+    # Il momento che il deck scrive davvero, non quello dichiarato: se i due
+    # gruppi non stanno alla stessa quota lungo `asse`, la coppia realizza
+    # anche una componente perpendicolare all'asse, silenziosa finche'
+    # nessuno la misura. Si calcola dalle stesse forze per nodo che finiscono
+    # nelle righe *CLOAD, non dal `modulo` dichiarato -- e' cosi' che il
+    # resoconto puo' smentire il programma invece di limitarsi a ripeterlo.
+    momento_effettivo = np.zeros(3)
+    for gruppo, quote, segno in (
+        (positivi, quote_per_gruppo[0], 1.0), (negativi, quote_per_gruppo[1], -1.0)
+    ):
+        forze_nodo = (segno * forza) * np.outer(quote, direzione)
+        momento_effettivo += np.cross(punti[gruppo] - baricentro, forze_nodo).sum(axis=0)
+
+    fuori_asse = momento_effettivo - (momento_effettivo @ asse) * asse
+    rapporto_fuori_asse = float(np.linalg.norm(fuori_asse)) / float(momento.modulo)
+    if rapporto_fuori_asse > TOLLERANZA_MOMENTO_FUORI_ASSE:
+        raise ValueError(
+            f"il momento '{nome}' scriverebbe nel deck un momento effettivo di "
+            f"{momento_effettivo.tolist()} N*mm: la componente fuori dall'asse "
+            f"dichiarato vale {rapporto_fuori_asse:.3e} volte il modulo, oltre "
+            f"la tolleranza di {TOLLERANZA_MOMENTO_FUORI_ASSE:.0e}. I due gruppi "
+            "presi non stanno alla stessa quota lungo l'asse del momento: usa "
+            "un selettore che giaccia in un piano perpendicolare all'asse"
+        )
+
     righe = ["*CLOAD"]
     for gruppo, quote, segno in (
         (positivi, quote_per_gruppo[0], 1.0), (negativi, quote_per_gruppo[1], -1.0)
@@ -731,7 +770,8 @@ def coppia_equivalente(
         "nodi": int(indici.size),
         "braccio_dichiarato": float(momento.braccio),
         "braccio_effettivo": braccio_effettivo,
-        "momento": float(momento.modulo),
+        "momento_dichiarato": (float(momento.modulo) * asse).tolist(),
+        "momento_effettivo": momento_effettivo.tolist(),
         "forza_di_ciascun_lato": forza,
         "nodi_positivi": int(positivi.size),
         "nodi_negativi": int(negativi.size),

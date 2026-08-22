@@ -1728,7 +1728,7 @@ def test_il_resoconto_del_momento_dice_dichiarato_ed_effettivo(cube_mesh, tmp_pa
     voce = resoconto["TORSIONE"]
     assert voce["braccio_dichiarato"] == pytest.approx(60.0)
     assert voce["braccio_effettivo"] >= 60.0
-    assert voce["momento"] == pytest.approx(3000.0)
+    assert voce["momento_dichiarato"] == pytest.approx([0.0, 0.0, 3000.0])
     assert voce["nodi_positivi"] > 0 and voce["nodi_negativi"] > 0
 
 
@@ -1824,3 +1824,73 @@ def test_posizionati_vuoto_o_assente_lascia_il_deck_identico(cube_mesh, tmp_path
         nset_selettori={}, carichi=config.CarichiConfig(posizionati=()),
     )
     assert percorso_assente.read_text(encoding="ascii") == percorso_vuoto.read_text(encoding="ascii")
+
+
+def test_un_selettore_volumetrico_con_estensione_sull_asse_e_rifiutato(cube_mesh):
+    """Un pezzo di solido che sconfina lungo l'asse scrive un momento anche fuori asse: si rifiuta.
+
+    Riga del contratto segnalata dal coordinatore dopo la review: i due
+    gruppi di uno spigolo del banco (x<=20, z<=100) non stanno alla stessa
+    quota lungo l'asse z del momento, quindi la coppia realizzerebbe una
+    componente y spuria di 2500 N*mm su un momento z dichiarato di 3000 --
+    misurato a mano prima di scrivere il test: rapporto fuori-asse 0.833,
+    tre ordini di grandezza sopra `TOLLERANZA_MOMENTO_FUORI_ASSE`.
+
+    Mutazione che lo uccide: togliere il controllo sul rapporto fuori asse.
+    Verificato che senza il controllo la chiamata **non solleva affatto**
+    (ritorna righe e resoconto), non che sollevi un errore diverso per
+    caso -- e' la stessa classe di difetto gia' trovata su questo task.
+    """
+    nodi, tetraedri = cube_mesh
+    indici = np.flatnonzero((nodi[:, 0] <= 20.0) & (nodi[:, 2] <= 100.0))
+    momento = config.Momento(asse=(0.0, 0.0, 1.0), modulo=3000.0, braccio=30.0)
+    with pytest.raises(ValueError, match="componente fuori dall'asse"):
+        abaqus.coppia_equivalente(momento, nodi, tetraedri, indici, "C3D4", nome="TEST")
+
+
+def test_un_selettore_planare_non_solleva_e_realizza_il_momento_in_asse(cube_mesh):
+    """Un selettore che giace nel piano perpendicolare all'asse passa il controllo nuovo.
+
+    TOP e' perpendicolare all'asse z del momento per costruzione: il
+    rapporto fuori asse e' zero, ben sotto la tolleranza, e
+    `momento_effettivo` combacia con `modulo * asse`.
+
+    Mutazione che lo uccide: capovolgere il verso del controllo
+    (`rapporto_fuori_asse < TOLLERANZA_MOMENTO_FUORI_ASSE` invece di `>`).
+    Un controllo capovolto solleva proprio sul caso planare, che e' quello
+    che deve passare.
+    """
+    nodi, tetraedri = cube_mesh
+    indici = np.flatnonzero(nodi[:, 2] >= nodi[:, 2].max() - 1e-6)
+    momento = config.Momento(asse=(0.0, 0.0, 1.0), modulo=3000.0, braccio=60.0)
+    _, resoconto = abaqus.coppia_equivalente(momento, nodi, tetraedri, indici, "C3D4", nome="TEST")
+    assert resoconto["momento_effettivo"] == pytest.approx([0.0, 0.0, 3000.0], abs=1e-6)
+
+
+def test_il_momento_effettivo_del_resoconto_e_coerente_con_le_forze_scritte(cube_mesh):
+    """`momento_effettivo` non e' un secondo calcolo scollegato dalle righe *CLOAD.
+
+    Si ricostruisce il momento dalle forze nodali effettivamente scritte in
+    `righe` (non da `forza`/`quote` intermedi) e si confronta col valore nel
+    resoconto: devono coincidere, perche' sono la stessa fisica letta in due
+    punti diversi del programma.
+
+    Mutazione che lo uccide: nel calcolo di `momento_effettivo`, dimenticare
+    `segno *` sulle forze del lato negativo. Il resoconto continuerebbe a
+    dichiarare un momento che le righe *CLOAD non realizzano davvero.
+    """
+    nodi, tetraedri = cube_mesh
+    indici = np.flatnonzero(nodi[:, 2] >= nodi[:, 2].max() - 1e-6)
+    momento = config.Momento(asse=(0.0, 0.0, 1.0), modulo=3000.0, braccio=60.0)
+    righe, resoconto = abaqus.coppia_equivalente(
+        momento, nodi, tetraedri, indici, "C3D4", nome="TEST"
+    )
+    forze = {}
+    for riga in righe[1:]:
+        nodo, grado, valore = riga.split(", ")
+        forze.setdefault(int(nodo) - 1, [0.0, 0.0, 0.0])[int(grado) - 1] = float(valore)
+    baricentro = nodi[indici].mean(axis=0)
+    ricostruito = np.zeros(3)
+    for nodo, forza_nodo in forze.items():
+        ricostruito += np.cross(nodi[nodo] - baricentro, forza_nodo)
+    assert ricostruito == pytest.approx(resoconto["momento_effettivo"], abs=1e-6)
