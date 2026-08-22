@@ -13,7 +13,14 @@
 ## Global Constraints
 
 - **Comandi.** Tutti da `meshrec/`. La suite si lancia con `uv run pytest tests -q --ignore=tests/feasibility`. In una sessione isolata in un worktree: percorsi assoluti, **un comando per chiamata**, `git -C <percorso assoluto>` invece di `cd` prima di git.
-- **Baseline da non far scendere:** **726 passed in 103,89 s**, misurata il 22/08/2026 su `feat/impronta-carichi` a `a4fefc7` con `uv run pytest tests -q --ignore=tests/feasibility`, uscita 0. (La spec e la mappa citano 723: era il numero su `main`, prima dei tre test che il commit `911f15f` ha aggiunto a `test_sweep.py` e `test_config.py`. Il numero da usare è **726**.) Più 11 passed / 1 skipped con `-m feasibility`.
+- **Baseline da non far scendere.** Sale a ogni task che atterra, e va **rimisurata**, non ricordata. Storia finora, tutte con `uv run pytest tests -q --ignore=tests/feasibility` da `meshrec/` e uscita 0:
+  | dopo | baseline | note |
+  |---|---|---|
+  | `a4fefc7` (prima del Task 1) | **726** in 103,89 s | la spec e la mappa citano 723: era il numero su `main`, prima dei tre test di `911f15f` |
+  | Task 1 (`8f1161d`) | **746** | +20 |
+  | Task 2 (`c8911d5`) | **748** in 232,45 s | +2 |
+  Più 11 passed / 1 skipped con `-m feasibility`.
+- **Un fallimento sotto carico non è automaticamente una regressione, ma non è nemmeno automaticamente un flake.** `tests/test_worker.py::test_il_worker_esegue_anche_un_comando_che_non_e_uno_step` aspetta un sottoprocesso con un poll fino a 10 s e sotto carico può cadere con `assert None is not None`. È successo una volta durante il Task 2 ed era davvero un flake — **rimisurato**, non creduto. Se ricapita: rilancia la suite a macchina scarica prima di chiamarlo flake, e riporta il numero della seconda corsa.
 - **Sola lettura:** `runs/muro/`, `runs/lab_crop/`, `experiments/muro/`, `experiments/lab_crop/`. Mai `git add -A`: ogni commit elenca i file.
 - **Niente numeri del provino di laboratorio in `src/`.** I valori di `lab_frame` stanno nelle configurazioni e nei documenti, non nel codice.
 - **Ogni test nuovo dichiara nel docstring la mutazione che lo uccide**, e lo step successivo la applica davvero per vedere il test fallire nel modo giusto. Un test che passa anche mutato non è un test.
@@ -2120,7 +2127,7 @@ In `core/pipeline.py:439-448`, aggiungi alla chiamata:
 uv run pytest tests -q --ignore=tests/feasibility
 ```
 
-Atteso: PASS, con il conteggio **sopra 726** — i test nuovi si aggiungono, nessuno sparisce.
+Atteso: PASS, col conteggio **sopra la baseline corrente** (vedi la tabella nei vincoli globali: 748 dopo il Task 2) — i test nuovi si aggiungono, nessuno sparisce.
 
 - [ ] **Step 5: Applica la mutazione e verifica che il test muoia**
 
@@ -2553,7 +2560,7 @@ uv run pytest tests -q --ignore=tests/feasibility
 uv run pytest tests -q -m feasibility
 ```
 
-Atteso: nessuna regressione rispetto a 726 passed / 11 passed / 1 skipped, e i test nuovi in più.
+Atteso: nessuna regressione rispetto alla baseline corrente (tabella nei vincoli globali) né rispetto a 11 passed / 1 skipped in feasibility, e i test nuovi in più.
 
 - [ ] **Step 6: Commit**
 
