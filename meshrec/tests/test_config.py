@@ -629,6 +629,12 @@ def test_un_carico_puo_citare_il_selettore_cambiando_le_maiuscole():
     Stessa regola del confronto sui riservati e sulla chiave di `visti`:
     ignora il caso, come misurato in docs/fase-6-cantiere/sonda-caso-nomi/.
 
+    Il carico e' normalizzato al nome canonico dichiarato ('piastra', non
+    'Piastra'): a valle (`core/abaqus.py`) il confronto con `nset_selettori`
+    e' un'uguaglianza esatta, e senza questa normalizzazione un carico
+    validato qui sollevava comunque in `write_inp` con un messaggio che
+    negava una dichiarazione vera.
+
     Mutazione che lo uccide: togliere `.casefold()` dal confronto fra
     `carico.selettore` e le chiavi di `self.selettori`. Il carico verrebbe
     rifiutato con "non e' dichiarato", messaggio falso perche' dichiarato
@@ -641,7 +647,7 @@ def test_un_carico_puo_citare_il_selettore_cambiando_le_maiuscole():
             posizionati=[{"nome": "PRESSA", "selettore": "Piastra", "forza": [0.0, 0.0, -1.0]}]
         ),
     )
-    assert cfg.carichi.posizionati[0].selettore == "Piastra"
+    assert cfg.carichi.posizionati[0].selettore == "piastra"
 
 
 @pytest.mark.parametrize("riservato", config.NOMI_PASSO_RISERVATI)

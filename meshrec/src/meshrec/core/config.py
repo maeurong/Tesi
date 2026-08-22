@@ -5,6 +5,7 @@ Sistema di unita di lavoro: mm, N, MPa, tonnellata, secondo.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -12,6 +13,23 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 GRAVITY_MM_S2: float = 9810.0
+
+NomeSet = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_.-]+$")]
+
+
+def _mappa_casefold(nomi: Iterable[str]) -> dict[str, str]:
+    """`nome.casefold()` -> nome canonico: un solo spazio di nomi nel deck.
+
+    `ccx` risolve gli `*NSET` senza distinguere le maiuscole (misurato in
+    `docs/fase-6-cantiere/sonda-caso-nomi/README.md`): ogni punto che
+    confronta un nome di set con un altro deve normalizzare il caso allo
+    stesso modo, o due nomi che per `ccx` sono lo stesso `*NSET` passerebbero
+    controlli diversi. Estratta qui perche' e' la quarta volta che il
+    confronto ricorre (i sei nomi di faccia, i passi riservati, i selettori
+    dichiarati, e ora `SelettoreNset.nome`): la soglia per estrarla era il
+    terzo punto, e questo modulo l'ha gia' superata.
+    """
+    return {nome.casefold(): nome for nome in nomi}
 
 
 class _ModelloBase(BaseModel):
@@ -229,19 +247,19 @@ class SpintaOrizzontale(_ModelloBase):
 
 
 class CaricoSommita(_ModelloBase):
-    """Risultante verticale ripartita sui nodi di un insieme.
+    """Risultante verticale ripartita sui nodi di un insieme, per area tributaria.
 
-    La ripartizione e' uniforme per nodo, quindi il carico si concentra dove i
-    nodi sono piu' fitti, e l'insieme e' costruito per tolleranza e non e' la
-    faccia superiore certificata del pezzo. Sono due cose da dichiarare accanto
-    ai risultati di questo caso, non da correggere qui.
+    Pesata per area tributaria dalla Fase 6 (la stessa `ripartisci` dei
+    carichi posizionati): un nodo non riceve piu' carico solo perche' la
+    mesh e' piu' fitta li'. L'insieme e' comunque costruito per tolleranza e
+    non e' la faccia superiore certificata del pezzo: quello resta da
+    dichiarare accanto ai risultati di questo caso.
     """
 
-    risultante: float = Field(gt=0.0, description="risultante in N, ripartita sui nodi")
-    nset: str = Field(
-        pattern=r"^[A-Za-z0-9_.-]+$",
-        description="insieme di nodi su cui ripartire, di norma TOP",
+    risultante: float = Field(
+        gt=0.0, description="risultante in N, ripartita per area tributaria sui nodi"
     )
+    nset: NomeSet = Field(description="insieme di nodi su cui ripartire, di norma TOP")
 
 
 class Modale(_ModelloBase):
@@ -654,8 +672,6 @@ NOMI_SET_DI_FACCIA: tuple[str, ...] = (
     "BASE", "TOP", "FACE_FRONT", "FACE_BACK", "SIDE_LEFT", "SIDE_RIGHT",
 )
 
-NomeSet = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_.-]+$")]
-
 
 class SelettoreBox(_ModelloBase):
     """Tutti i nodi dentro un parallelepipedo allineato agli assi del modello.
@@ -712,6 +728,18 @@ class SelettoreNset(_ModelloBase):
         description="nome di un *NSET gia' scritto, di norma uno dei sei di faccia"
     )
 
+    @model_validator(mode="after")
+    def _il_nome_usa_il_caso_canonico_dei_sei(self) -> "SelettoreNset":
+        """`node_sets` porta i sei nomi di faccia nel caso canonico (`TOP`, non
+        `top`): un confronto esatto a valle (`core/selezione.py`) fallirebbe
+        su un nome che collide solo ignorando le maiuscole, lo stesso guasto
+        gia' misurato per i selettori posizionati (vedi
+        `_i_posizionati_citano_selettori_dichiarati`)."""
+        canonico = _mappa_casefold(NOMI_SET_DI_FACCIA).get(self.nome.casefold())
+        if canonico is not None:
+            self.nome = canonico
+        return self
+
 
 Selettore = Annotated[
     SelettoreBox | SelettoreSfera | SelettoreNodo | SelettoreNset,
@@ -729,18 +757,24 @@ class Momento(_ModelloBase):
     La guardia di `core/solve.py:438` non lo intercetta perche' non c'e'
     nessun warning da intercettare.
 
-    `braccio` dichiara quanto distano fra loro le due forze della coppia, e
-    il programma lo contraddice se i nodi presi non lo sostengono. Il
-    momento realizzato resta `modulo`: e' la forza a calibrarsi sul braccio
-    che i nodi offrono davvero, non il momento a scostarsi da quello
-    dichiarato.
+    `braccio` fissa la soglia di separazione fra i due gruppi di nodi, e il
+    programma la contraddice se i nodi presi non la sostengono. Il momento
+    realizzato resta `modulo`: e' la forza a calibrarsi sul braccio
+    effettivo che i nodi offrono davvero -- maggiore di quello dichiarato,
+    ed e' nel resoconto -- non il momento a scostarsi da quello dichiarato.
     """
 
     asse: tuple[float, float, float] = Field(
         description="asse del momento, versore non normalizzato"
     )
     modulo: float = Field(gt=0.0, description="modulo del momento [N*mm]")
-    braccio: float = Field(gt=0.0, description="distanza fra le due forze della coppia [mm]")
+    braccio: float = Field(
+        gt=0.0,
+        description=(
+            "soglia di separazione dei due gruppi di nodi [mm]; il braccio "
+            "effettivo fra i baricentri pesati risulta maggiore ed e' nel resoconto"
+        ),
+    )
 
     @model_validator(mode="after")
     def _lasse_non_e_nullo(self) -> "Momento":
@@ -844,7 +878,7 @@ class PipelineConfig(_ModelloBase):
         dell'operatore che differiscono solo per caso (`piastra`/`PIASTRA`)
         sono due chiavi distinte nel dizionario ma un solo nome nel deck.
         """
-        casi_di_faccia = {nome.casefold(): nome for nome in NOMI_SET_DI_FACCIA}
+        casi_di_faccia = _mappa_casefold(NOMI_SET_DI_FACCIA)
         visti: dict[str, str] = {}
         for nome in self.selettori:
             chiave = nome.casefold()
@@ -875,17 +909,24 @@ class PipelineConfig(_ModelloBase):
         # differiscono solo per caso sono indistinguibili per chi legge il
         # rapporto, e un nome che l'operatore crede nuovo ne sovrascrive uno
         # riservato nella sua testa se non nel deck.
-        riservati = {nome.casefold(): nome for nome in NOMI_PASSO_RISERVATI}
+        riservati = _mappa_casefold(NOMI_PASSO_RISERVATI)
         riservati[self.analysis.step_name.casefold()] = self.analysis.step_name
-        selettori_per_caso = {nome.casefold(): nome for nome in self.selettori}
+        selettori_per_caso = _mappa_casefold(self.selettori)
         visti: dict[str, str] = {}
         for carico in self.carichi.posizionati:
-            if carico.selettore.casefold() not in selettori_per_caso:
+            chiave_selettore = carico.selettore.casefold()
+            if chiave_selettore not in selettori_per_caso:
                 raise ValueError(
                     f"il carico '{carico.nome}' cita il selettore "
                     f"'{carico.selettore}', che non e' dichiarato. Dichiarati: "
                     f"{sorted(self.selettori)}"
                 )
+            # Normalizzato al nome canonico qui, a monte: a valle
+            # (`core/abaqus.py`, che costruisce `nset_selettori` dalle chiavi
+            # di `self.selettori`) il confronto e' un'uguaglianza esatta, e
+            # deve trovare sempre lo stesso nome che il selettore ha
+            # dichiarato, non la grafia con cui il carico lo ha citato.
+            carico.selettore = selettori_per_caso[chiave_selettore]
             chiave = carico.nome.casefold()
             if chiave in riservati:
                 raise ValueError(
