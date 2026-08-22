@@ -602,6 +602,110 @@ def test_un_posizionato_gira_a_zero_avvisi_e_sposta_qualcosa(tmp_path):
     )
 
 
+def test_il_secondo_posizionato_non_eredita_il_cload_del_primo(tmp_path):
+    """Un *CLOAD dichiarato in un passo statico resta attivo nel passo dopo, se nessuno lo azzera.
+
+    Misurato con la sonda in `docs/fase-6-cantiere/sonda-cload-persiste/`:
+    un `*CLOAD` di un passo statico si legge ancora nelle reazioni del
+    passo successivo, a meno che quel passo non apra con `*CLOAD, OP=NEW`.
+    Fino a questa fase nessun deck aveva mai due passi statici consecutivi
+    che dichiarano entrambi un `*CLOAD` (`SPINTA_ORIZZONTALE` usa `*DLOAD`,
+    `CARICO_TOP` era sempre l'ultimo passo statico prima di `MODALE`, che
+    e' `*FREQUENCY`): due carichi posizionati sono la prima configurazione
+    che li mette in sequenza, ed e' per questo che nessun test lo aveva
+    ancora colto -- incluso quello sopra
+    (`test_un_posizionato_gira_a_zero_avvisi_e_sposta_qualcosa`), che ha un
+    solo posizionato e non puo' vedere il difetto.
+
+    I due carichi stanno su **selettori disgiunti** (`piastra`=TOP verticale,
+    `lato`=una faccia laterale) e su **gradi diversi** (z e x): un primo
+    tentativo con lo stesso selettore per entrambi risultava verde anche col
+    difetto presente, perche' il default Abaqus/CalculiX per `*CLOAD` senza
+    `OP=NEW` e' `OP=MOD` -- il valore nuovo *sovrascrive* quello vecchio sullo
+    stesso nodo/grado, e due carichi sullo stesso nodo/grado si sovrascrivono
+    a vicenda anche senza `OP=NEW`. Il difetto e' visibile solo quando il
+    secondo passo non ridichiara affatto il nodo/grado del primo: e' esattamente
+    il caso di `carico_sommita` seguito da un posizionato su un altro selettore,
+    o due posizionati su selettori diversi.
+
+    Mutazione che lo uccide: togliere ``OP=NEW`` dal `*CLOAD` che
+    `write_inp` scrive per ogni carico posizionato con `forza`. Misurato
+    applicando davvero la mutazione: la reazione fz del passo TIRO sale da
+    ~67,5 N (il solo peso proprio misurato al passo 1: TIRO e' tutto
+    orizzontale) a ~1067,5 N (1000 N verticali di PRESSA, mai azzerati, +
+    peso proprio) -- il *CLOAD di PRESSA su TOP resta applicato nel passo
+    di TIRO, che non lo tocca.
+    """
+    executable = shutil.which("ccx")
+    if executable is None:
+        pytest.skip("eseguibile 'ccx' non presente nel PATH")
+
+    material = Material(name="MURATURA", young=1500.0, poisson=0.2, density=1.8e-9)
+    vertices, faces = synth.box_mesh(SIZE)
+    nodes, tets = volume.tetrahedralize(
+        vertices, faces, max_volume=20_000.0, min_ratio=1.8, max_steiner_points=-1, nobisect=False
+    )
+    x, z = nodes[:, 0], nodes[:, 2]
+    node_sets = {
+        "BASE": np.flatnonzero(z <= z.min() + 1e-6),
+        "TOP": np.flatnonzero(z >= z.max() - 1e-6),
+    }
+    # Faccia laterale a x minimo, esclusa la sommita' e la base: disgiunta da
+    # TOP per costruzione, cosi' il *CLOAD di PRESSA (su TOP) non viene mai
+    # ridichiarato -- ne' quindi sovrascritto -- dal *CLOAD di TIRO (su LATO).
+    lato = np.flatnonzero((x <= x.min() + 1e-6) & (z < z.max() - 1e-6) & (z > z.min() + 1e-6))
+    assert not set(node_sets["TOP"].tolist()) & set(lato.tolist()), "TOP e LATO devono essere disgiunti"
+
+    abaqus.write_inp(
+        tmp_path / "model.inp", nodes, tets,
+        node_sets=node_sets,
+        material=material,
+        print_nsets=("TOP",),
+        nset_selettori={"piastra": node_sets["TOP"], "lato": lato},
+        carichi=CarichiConfig(posizionati=[
+            CaricoPosizionato(nome="PRESSA", selettore="piastra", forza=(0.0, 0.0, -1000.0)),
+            CaricoPosizionato(nome="TIRO", selettore="lato", forza=(300.0, 0.0, 0.0)),
+        ]),
+    )
+
+    processo = subprocess.run(
+        [executable, "-i", "model"],
+        cwd=tmp_path, capture_output=True, text=True, timeout=600,
+    )
+    uscita = processo.stdout
+    assert "Job finished" in uscita, uscita[-2000:] + processo.stderr[-2000:]
+    assert uscita.upper().count("*WARNING") == 0, uscita
+    assert uscita.upper().count("*ERROR") == 0, uscita
+
+    # Il peso proprio si misura dal passo 1 (GRAVITA, il solo peso, scritto
+    # sempre per primo da write_inp) invece che da rho*V*g sul volume
+    # nominale del box: la tetraedrizzazione approssima quel volume (misurato
+    # qui: scarto ~4,4%), e un oracolo tarato sul valore nominale avrebbe una
+    # soglia falsamente larga proprio dove serve stretta (passo 3, dove il
+    # solo peso proprio e' l'intera reazione attesa).
+    reazioni_gravita = solve.leggi_reazioni(tmp_path / "model.dat", passo=1)
+    peso_misurato = float(np.array(list(reazioni_gravita.values())).sum(axis=0)[2])
+
+    # Passo 2 (PRESSA): peso proprio + PRESSA (verticale), nessun TIRO ancora.
+    reazioni_pressa = solve.leggi_reazioni(tmp_path / "model.dat", passo=2)
+    fx, fy, fz = np.array(list(reazioni_pressa.values())).sum(axis=0)
+    assert fz == pytest.approx(1000.0 + peso_misurato, rel=0.02)
+    assert abs(fx) < 1.0 and abs(fy) < 1.0
+
+    # Passo 3 (TIRO): l'oracolo vero. TIRO e' tutto orizzontale (x): la
+    # reazione verticale deve tornare al solo peso proprio, non portare
+    # ancora i -1000 N verticali di PRESSA.
+    reazioni_tiro = solve.leggi_reazioni(tmp_path / "model.dat", passo=3)
+    fx, fy, fz = np.array(list(reazioni_tiro.values())).sum(axis=0)
+    assert fz == pytest.approx(peso_misurato, rel=0.02), (
+        f"fz={fz:.3f} N: il passo TIRO porta ancora il *CLOAD verticale di "
+        f"PRESSA (atteso ~{1000.0 + peso_misurato:.1f} N se non azzerato, "
+        f"contro il solo peso proprio {peso_misurato:.1f} N misurato al passo 1)"
+    )
+    assert fx == pytest.approx(-300.0, rel=0.02), "la reazione orizzontale deve bilanciare TIRO"
+    assert abs(fy) < 1.0
+
+
 def test_un_momento_come_coppia_non_e_scartato_in_silenzio(tmp_path):
     """Il momento realizzato come coppia sposta davvero, a differenza della card muta.
 

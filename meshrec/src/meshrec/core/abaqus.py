@@ -276,7 +276,11 @@ def write_inp(
         quote, _ = ripartisci(
             sommita.risultante, nodes, elements, nodi_carico, element_type, nome="CARICO_TOP",
         )
-        righe_cload = ["*CLOAD"] + [
+        # OP=NEW: senza, ccx tiene attivo il *CLOAD del passo statico
+        # precedente (misurato in docs/fase-6-cantiere/sonda-cload-persiste/),
+        # e un carico in sommita' seguito da un posizionato applicherebbe
+        # entrambi nel secondo passo invece del solo suo.
+        righe_cload = ["*CLOAD, OP=NEW"] + [
             f"{int(n) + 1}, 3, {-quota:.9e}"
             for n, quota in zip(nodi_carico, quote, strict=True)
         ]
@@ -306,7 +310,7 @@ def write_inp(
             modulo, nodes, elements, indici, element_type, nome=carico.nome
         )
         versore = np.asarray(carico.forza, dtype=np.float64) / modulo
-        righe_cload = ["*CLOAD"]
+        righe_cload = ["*CLOAD, OP=NEW"]
         for nodo, quota in zip(indici, quote, strict=True):
             for grado, componente in enumerate(versore, start=1):
                 # Una riga a zero il solutore la legge e la ignora: non
@@ -778,7 +782,7 @@ def coppia_equivalente(
             "un selettore che giaccia in un piano perpendicolare all'asse"
         )
 
-    righe = ["*CLOAD"]
+    righe = ["*CLOAD, OP=NEW"]
     for gruppo, quote, segno in (
         (positivi, quote_per_gruppo[0], 1.0), (negativi, quote_per_gruppo[1], -1.0)
     ):

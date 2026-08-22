@@ -1649,6 +1649,49 @@ def test_la_coppia_realizza_il_momento_dichiarato(cube_mesh, tmp_path):
     assert momento[:2] == pytest.approx([0.0, 0.0], abs=1e-6)
 
 
+def test_ogni_cload_apre_il_passo_con_op_new(cube_mesh, tmp_path):
+    """Un *CLOAD senza OP=NEW resta attivo nel passo successivo per ccx.
+
+    Misurato eseguendo `ccx` su `docs/fase-6-cantiere/sonda-cload-persiste/`:
+    un *CLOAD dichiarato in un passo statico eredita nel passo seguente se
+    nessuno lo azzera, e il deck non ha mai scritto ``OP=NEW``. Con due
+    posizionati in sequenza (o un carico in sommita' seguito da uno
+    posizionato) il secondo passo applicherebbe anche il primo -- il
+    contrario di quanto il docstring di `write_inp` dichiara ("ogni carico
+    dichiarato e' un passo statico a se'").
+
+    E' piu' debole della verifica di fattibilita' con `ccx` vero
+    (`tests/feasibility/test_calculix.py`): guarda solo il testo del deck,
+    non cosa il solutore applica davvero, ma gira nella suite ordinaria.
+
+    Mutazione che lo uccide: togliere ``, OP=NEW`` da una qualunque delle
+    tre righe ``*CLOAD`` che `write_inp`/`coppia_equivalente` scrivono (il
+    ramo del carico in sommita', quello dei posizionati per forza, e
+    `coppia_equivalente` per il momento) -- questo deck esercita tutti e tre.
+    """
+    nodi, tetraedri = cube_mesh
+    sets = _base_and_top(nodi)
+    abaqus.write_inp(
+        tmp_path / "deck.inp", nodi, tetraedri,
+        node_sets=sets, material=MATERIALE,
+        nset_selettori={"piastra": sets["TOP"]},
+        carichi=config.CarichiConfig(
+            carico_sommita=config.CaricoSommita(risultante=500.0, nset="TOP"),
+            posizionati=[
+                config.CaricoPosizionato(nome="PRESSA", selettore="piastra", forza=(0.0, 0.0, -1200.0)),
+                config.CaricoPosizionato(
+                    nome="TORSIONE", selettore="piastra",
+                    momento=config.Momento(asse=(0.0, 0.0, 1.0), modulo=3000.0, braccio=60.0),
+                ),
+            ],
+        ),
+    )
+    testo = (tmp_path / "deck.inp").read_text(encoding="ascii")
+    righe_cload = [riga for riga in testo.splitlines() if riga.startswith("*CLOAD")]
+    assert righe_cload, "nessuna riga *CLOAD trovata: il deck non esercita il codice da coprire"
+    assert all(riga == "*CLOAD, OP=NEW" for riga in righe_cload), righe_cload
+
+
 def test_un_braccio_piu_largo_dell_estensione_e_rifiutato(cube_mesh, tmp_path):
     """Il programma contraddice il braccio dichiarato invece di misurarlo da se'.
 
