@@ -6,10 +6,10 @@ Sistema di unita di lavoro: mm, N, MPa, tonnellata, secondo.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 GRAVITY_MM_S2: float = 9810.0
 
@@ -645,6 +645,80 @@ class ModelConfig(_ModelloBase):
         return self
 
 
+# I sei nomi che `abaqus.build_node_sets` fabbrica a ogni esportazione.
+# Stanno qui e non in `core/abaqus.py` perche' la validazione della
+# configurazione deve conoscerli e `abaqus` importa gia' `config`: l'altro
+# verso sarebbe un ciclo. `build_node_sets` li importa da qui, cosi' le due
+# liste non possono divergere in silenzio.
+NOMI_SET_DI_FACCIA: tuple[str, ...] = (
+    "BASE", "TOP", "FACE_FRONT", "FACE_BACK", "SIDE_LEFT", "SIDE_RIGHT",
+)
+
+NomeSet = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_.-]+$")]
+
+
+class SelettoreBox(_ModelloBase):
+    """Tutti i nodi dentro un parallelepipedo allineato agli assi del modello.
+
+    Le coordinate sono nel sistema di riferimento **dopo** `align_to_axes`,
+    lo stesso di `wall_model.vtu`: e' il maglio che il deck contiene.
+    L'estensione in quel sistema e' pubblicata in
+    `metrics["11_export"]["extent"]`, e la bbox dei nodi presi in
+    `metrics["11_export"]["selettori"]`, perche' l'operatore possa
+    collocare una box senza indovinare.
+    """
+
+    tipo: Literal["box"]
+    min: tuple[float, float, float] = Field(description="angolo minimo [mm]")
+    max: tuple[float, float, float] = Field(description="angolo massimo [mm]")
+
+    @model_validator(mode="after")
+    def _la_box_non_e_rovesciata(self) -> "SelettoreBox":
+        for asse, minimo, massimo in zip("xyz", self.min, self.max, strict=True):
+            if minimo > massimo:
+                raise ValueError(
+                    f"la box ha min > max sulla componente {asse}: {minimo} > {massimo}. "
+                    "Risolverebbe zero nodi, con lo stesso sintomo di altre quattro "
+                    "condizioni diverse, e nessuno saprebbe quale sia successa"
+                )
+        return self
+
+
+class SelettoreSfera(_ModelloBase):
+    """Tutti i nodi entro un raggio da un centro. Coordinate come in SelettoreBox."""
+
+    tipo: Literal["sfera"]
+    centro: tuple[float, float, float] = Field(description="centro [mm]")
+    raggio: float = Field(gt=0.0, description="raggio [mm]. Zero non e' una sfera piccola")
+
+
+class SelettoreNodo(_ModelloBase):
+    """Il singolo nodo piu' vicino a un punto. Coordinate come in SelettoreBox.
+
+    Per costruzione non puo' rendere zero nodi: `argmin` un vincitore ce l'ha
+    sempre, anche a chilometri di distanza. L'oracolo sta a valle, sulla
+    distanza, e non qui.
+    """
+
+    tipo: Literal["nodo"]
+    punto: tuple[float, float, float] = Field(description="punto di riferimento [mm]")
+
+
+class SelettoreNset(_ModelloBase):
+    """Un insieme di nodi gia' esistente nel deck, per nome."""
+
+    tipo: Literal["nset"]
+    nome: NomeSet = Field(
+        description="nome di un *NSET gia' scritto, di norma uno dei sei di faccia"
+    )
+
+
+Selettore = Annotated[
+    SelettoreBox | SelettoreSfera | SelettoreNodo | SelettoreNset,
+    Field(discriminator="tipo"),
+]
+
+
 class CarichiConfig(_ModelloBase):
     """Casi di carico applicati al modello, oltre al peso proprio.
 
@@ -675,8 +749,30 @@ class PipelineConfig(_ModelloBase):
     tet: TetConfig = Field(default_factory=TetConfig)
     analysis: AnalysisConfig
     carichi: CarichiConfig = Field(default_factory=CarichiConfig)
+    selettori: dict[NomeSet, Selettore] = Field(
+        default_factory=dict,
+        description=(
+            "regole geometriche nominate che indirizzano i nodi di una mesh senza "
+            "topologia. Nominate e non annidate nei carichi: due carichi sullo "
+            "stesso posto citano lo stesso nome, e una correzione fatta in un "
+            "punto solo li muove entrambi"
+        ),
+    )
     wall: WallConfig = Field(default_factory=WallConfig)
     model: ModelConfig = Field(default_factory=ModelConfig)
+
+    @model_validator(mode="after")
+    def _i_nomi_dei_selettori_non_collidono_coi_sei(self) -> "PipelineConfig":
+        collisi = sorted(set(self.selettori) & set(NOMI_SET_DI_FACCIA))
+        if collisi:
+            raise ValueError(
+                f"questi selettori portano il nome di un insieme che il deck "
+                f"fabbrica da se': {collisi}. I sei sono {list(NOMI_SET_DI_FACCIA)}, "
+                "e nel deck c'e' un solo spazio di nomi: il *NSET dell'operatore "
+                "sovrascriverebbe quello di faccia"
+            )
+        return self
+
     run: RunConfig = Field(default_factory=RunConfig)
 
 

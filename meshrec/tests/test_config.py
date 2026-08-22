@@ -2,12 +2,13 @@
 
 from pathlib import Path
 
+import numpy as np
 import pytest
 from pydantic import ValidationError
 
 from meshrec.core import config
 from meshrec.core.config import PipelineConfig
-from materiale import ANALISI, MATERIALE
+from materiale import ANALISI, MATERIALE, crea_config
 
 
 def test_defaults_are_in_working_units():
@@ -187,7 +188,7 @@ def test_i_blocchi_nuovi_stanno_in_pipelineconfig_e_nella_lista_di_esclusione_gi
     campi = set(PipelineConfig.model_fields)
     assert {"wall", "model", "carichi"} <= campi
     assert set(BLOCCHI_FUORI_IMPRONTA) == {"run", "wall", "model"}
-    assert set(BLOCCHI_VUOTI_FUORI_IMPRONTA) == {"carichi"}
+    assert set(BLOCCHI_VUOTI_FUORI_IMPRONTA) == {"carichi", "selettori"}
     assert set(BLOCCHI_FUORI_IMPRONTA) <= campi
     assert set(BLOCCHI_VUOTI_FUORI_IMPRONTA) <= campi
     assert not set(BLOCCHI_FUORI_IMPRONTA) & set(BLOCCHI_VUOTI_FUORI_IMPRONTA)
@@ -261,3 +262,106 @@ def test_lo_step_name_predefinito_e_i_nomi_liberi_restano_accettati():
     """Controprova: la guardia sopra vieta tre nomi, non i nomi."""
     assert config.AnalysisConfig(material=MATERIALE).step_name == "GRAVITA"
     assert config.AnalysisConfig(material=MATERIALE, step_name="PESO_PROPRIO").step_name == "PESO_PROPRIO"
+
+
+def test_i_quattro_selettori_si_dichiarano_per_nome():
+    """Il blocco `selettori` accetta le quattro forme e le tiene per nome.
+
+    Mutazione che lo uccide: togliere `discriminator="tipo"` dall'unione.
+    Senza discriminante pydantic prova i modelli in ordine e una sfera
+    entra come altro o viene rifiutata per il campo sbagliato, quindi
+    l'isinstance sul tipo atteso cade.
+    """
+    cfg = crea_config(
+        input=config.InputConfig(path="nuvola.ply"),
+        selettori={
+            "piastra": {"tipo": "box", "min": [0.0, 0.0, 0.0], "max": [10.0, 10.0, 10.0]},
+            "angolo": {"tipo": "sfera", "centro": [1.0, 2.0, 3.0], "raggio": 5.0},
+            "punta": {"tipo": "nodo", "punto": [1.0, 2.0, 3.0]},
+            "appoggio": {"tipo": "nset", "nome": "BASE"},
+        },
+    )
+    assert isinstance(cfg.selettori["piastra"], config.SelettoreBox)
+    assert isinstance(cfg.selettori["angolo"], config.SelettoreSfera)
+    assert isinstance(cfg.selettori["punta"], config.SelettoreNodo)
+    assert isinstance(cfg.selettori["appoggio"], config.SelettoreNset)
+    assert cfg.selettori["angolo"].raggio == pytest.approx(5.0)
+
+
+def test_senza_selettori_il_blocco_e_vuoto_non_assente():
+    """Chi non dichiara nulla ottiene un dizionario vuoto, non None.
+
+    Mutazione che lo uccide: predefinito `None` invece di
+    `default_factory=dict`. Il codice a valle itera sul blocco, e un None
+    esplode con un TypeError invece di non fare nulla.
+    """
+    cfg = crea_config(input=config.InputConfig(path="nuvola.ply"))
+    assert cfg.selettori == {}
+
+
+def test_la_box_rovesciata_e_rifiutata_e_nomina_la_componente():
+    """`min > max` non arriva alla mesh: risolverebbe zero nodi come altri quattro.
+
+    Mutazione che lo uccide: togliere il validatore. La box rovesciata
+    viene accettata e da' lo stesso sintomo di quattro condizioni
+    diverse, che e' precisamente cio' che la spec vieta.
+    """
+    with pytest.raises(ValidationError, match=r"\by\b"):
+        crea_config(
+            input=config.InputConfig(path="nuvola.ply"),
+            selettori={"rotta": {"tipo": "box", "min": [0.0, 9.0, 0.0], "max": [10.0, 1.0, 10.0]}},
+        )
+
+
+@pytest.mark.parametrize("raggio", [0.0, -5.0])
+def test_la_sfera_senza_raggio_positivo_e_rifiutata(raggio):
+    """Raggio nullo o negativo non e' una sfera piccola, e' una sfera che non c'e'.
+
+    Mutazione che lo uccide: `ge=0.0` al posto di `gt=0.0`, che lascia
+    passare il raggio zero.
+    """
+    with pytest.raises(ValidationError):
+        crea_config(
+            input=config.InputConfig(path="nuvola.ply"),
+            selettori={"vuota": {"tipo": "sfera", "centro": [0.0, 0.0, 0.0], "raggio": raggio}},
+        )
+
+
+@pytest.mark.parametrize("nome", config.NOMI_SET_DI_FACCIA)
+def test_un_selettore_non_puo_chiamarsi_come_uno_dei_sei(nome):
+    """I nomi dell'operatore e i sei di build_node_sets condividono lo spazio del deck.
+
+    Mutazione che lo uccide: controllare la collisione solo su BASE.
+    Il test passa su BASE e cade sugli altri cinque.
+    """
+    with pytest.raises(ValidationError, match=nome):
+        crea_config(
+            input=config.InputConfig(path="nuvola.ply"),
+            selettori={nome: {"tipo": "nset", "nome": "TOP"}},
+        )
+
+
+def test_un_selettore_dichiarato_e_mai_citato_non_e_un_errore():
+    """Dichiarare e non usare e' lecito: e' un appunto, non un difetto.
+
+    Mutazione che lo uccide: un validatore che pretende che ogni
+    selettore sia citato da almeno un carico.
+    """
+    cfg = crea_config(
+        input=config.InputConfig(path="nuvola.ply"),
+        selettori={"mai_usato": {"tipo": "sfera", "centro": [0.0, 0.0, 0.0], "raggio": 1.0}},
+    )
+    assert "mai_usato" in cfg.selettori
+
+
+def test_i_sei_nomi_dichiarati_sono_quelli_che_il_deck_fabbrica():
+    """La costante e build_node_sets non possono divergere in silenzio.
+
+    Mutazione che lo uccide: aggiungere un settimo nome alla costante
+    senza il criterio corrispondente. `strict=True` nello zip solleva, e
+    se anche non lo facesse le chiavi non combacerebbero piu'.
+    """
+    from meshrec.core import abaqus
+
+    nodi = np.array([[0.0, 0.0, 0.0], [1.0, 1.0, 1.0], [0.5, 0.2, 0.8]])
+    assert tuple(abaqus.build_node_sets(nodi, 0.01)) == config.NOMI_SET_DI_FACCIA

@@ -9,7 +9,14 @@ from pathlib import Path
 
 import numpy as np
 
-from meshrec.core.config import GRAVITY_MM_S2, AnalysisConfig, CarichiConfig, Material, TetConfig
+from meshrec.core.config import (
+    GRAVITY_MM_S2,
+    NOMI_SET_DI_FACCIA,
+    AnalysisConfig,
+    CarichiConfig,
+    Material,
+    TetConfig,
+)
 
 _SET_ITEMS_PER_LINE = 8
 
@@ -761,13 +768,17 @@ def build_node_sets(nodes: np.ndarray, tolerance: float) -> dict[str, np.ndarray
     points = np.asarray(nodes, dtype=np.float64)
     low = points.min(axis=0)
     high = points.max(axis=0)
+    criteri = (
+        points[:, 2] <= low[2] + tolerance,
+        points[:, 2] >= high[2] - tolerance,
+        points[:, 0] <= low[0] + tolerance,
+        points[:, 0] >= high[0] - tolerance,
+        points[:, 1] <= low[1] + tolerance,
+        points[:, 1] >= high[1] - tolerance,
+    )
     return {
-        "BASE": np.flatnonzero(points[:, 2] <= low[2] + tolerance),
-        "TOP": np.flatnonzero(points[:, 2] >= high[2] - tolerance),
-        "FACE_FRONT": np.flatnonzero(points[:, 0] <= low[0] + tolerance),
-        "FACE_BACK": np.flatnonzero(points[:, 0] >= high[0] - tolerance),
-        "SIDE_LEFT": np.flatnonzero(points[:, 1] <= low[1] + tolerance),
-        "SIDE_RIGHT": np.flatnonzero(points[:, 1] >= high[1] - tolerance),
+        nome: np.flatnonzero(criterio)
+        for nome, criterio in zip(NOMI_SET_DI_FACCIA, criteri, strict=True)
     }
 
 

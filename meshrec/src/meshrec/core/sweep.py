@@ -61,7 +61,7 @@ BLOCCHI_FUORI_IMPRONTA: tuple[str, ...] = ("run", "wall", "model")
 # dentro l'impronta sopravvivono gia' cinque valori nulli (segment.crop_min,
 # segment.crop_max, repair.max_hole_area, simplify.target_faces,
 # tet.max_volume) che nessuno omette.
-BLOCCHI_VUOTI_FUORI_IMPRONTA: tuple[str, ...] = ("carichi",)
+BLOCCHI_VUOTI_FUORI_IMPRONTA: tuple[str, ...] = ("carichi", "selettori")
 
 
 def fingerprint(cfg: PipelineConfig) -> str:
