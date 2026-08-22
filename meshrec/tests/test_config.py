@@ -167,16 +167,30 @@ def test_l_impronta_di_una_corsa_registrata_non_cambia():
     assert righe == 22, f"attese 22 righe nei due registri, trovate {righe}"
 
 
-def test_i_blocchi_nuovi_stanno_in_pipelineconfig_e_fuori_dall_impronta():
+def test_i_blocchi_nuovi_stanno_in_pipelineconfig_e_nella_lista_di_esclusione_giusta():
     """I tre blocchi della Fase 4 e 5 viaggiano con la configurazione, perche'
-    gli step 12 e 13 li leggono, e restano fuori dall'impronta di sweep,
-    perche' nessun asse della Fase 2 li tocca."""
-    from meshrec.core.sweep import BLOCCHI_FUORI_IMPRONTA
+    gli step 12 e 13 li leggono, ma non sono esclusi dall'impronta allo stesso
+    modo.
+
+    `wall` e `model` ne restano sempre fuori: nessun asse della Fase 2 li tocca
+    e non cambiano il deck. `carichi` ne esce solo quando e' vuoto, perche'
+    STEP_BLOCKS[11] lo legge e cambia il deck, che e' artefatto richiesto di
+    ogni candidato. Misurato il 22/08/2026 sulle 22 righe di experiments/muro e
+    experiments/lab_crop: l'esclusione condizionata ne cambia 0 su 22,
+    l'inclusione secca 22 su 22.
+
+    L'ultima asserzione e' quella che smentisce: un blocco nelle due liste
+    insieme sarebbe una contraddizione, "sempre fuori" e "fuori solo se vuoto".
+    """
+    from meshrec.core.sweep import BLOCCHI_FUORI_IMPRONTA, BLOCCHI_VUOTI_FUORI_IMPRONTA
 
     campi = set(PipelineConfig.model_fields)
     assert {"wall", "model", "carichi"} <= campi
-    assert set(BLOCCHI_FUORI_IMPRONTA) == {"run", "wall", "model", "carichi"}
+    assert set(BLOCCHI_FUORI_IMPRONTA) == {"run", "wall", "model"}
+    assert set(BLOCCHI_VUOTI_FUORI_IMPRONTA) == {"carichi"}
     assert set(BLOCCHI_FUORI_IMPRONTA) <= campi
+    assert set(BLOCCHI_VUOTI_FUORI_IMPRONTA) <= campi
+    assert not set(BLOCCHI_FUORI_IMPRONTA) & set(BLOCCHI_VUOTI_FUORI_IMPRONTA)
 
 
 def test_i_casi_di_carico_non_hanno_valori_predefiniti():
