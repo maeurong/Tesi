@@ -796,10 +796,47 @@ class PipelineConfig(_ModelloBase):
     run: RunConfig = Field(default_factory=RunConfig)
 
 
+class _LoaderChiaviUniche(yaml.SafeLoader):
+    """`SafeLoader` che rifiuta due chiavi omonime invece di tenere l'ultima.
+
+    Misurato: con il loader di serie la prima delle due sparisce senza alcun
+    segnale. E' l'unico ingresso degenere che non ha un sintomo -- gli altri
+    almeno risolvono zero nodi -- e per questo si rifiuta alla lettura invece
+    che a valle.
+
+    Deriva da `yaml.SafeLoader` e ne eredita i costruttori: nessun tag
+    `!!python/object`, nessuna costruzione di tipi arbitrari. Aggiunge un
+    controllo, non toglie un divieto.
+    """
+
+    def construct_mapping(self, node, deep=False):  # type: ignore[override]
+        viste: set[object] = set()
+        for chiave_node, _ in node.value:
+            chiave = self.construct_object(chiave_node, deep=deep)
+            if chiave in viste:
+                raise ValueError(
+                    f"la chiave '{chiave}' compare due volte nello stesso blocco "
+                    f"({chiave_node.start_mark}): il lettore terrebbe l'ultima e la "
+                    "prima sparirebbe senza un segnale"
+                )
+            viste.add(chiave)
+        return super().construct_mapping(node, deep=deep)
+
+
+def carica_yaml(path: Path) -> object:
+    """L'unica lettura YAML del modulo, con il rifiuto delle chiavi omonime.
+
+    `yaml.load` con un loader che **eredita da SafeLoader** ha esattamente i
+    costruttori di `safe_load`. Non sostituire il loader con `yaml.Loader` o
+    `yaml.UnsafeLoader`, che i tag `!!python/object` li eseguono davvero.
+    """
+    with Path(path).open(encoding="utf-8") as handle:
+        return yaml.load(handle, Loader=_LoaderChiaviUniche)  # noqa: S506
+
+
 def load_config(path: Path) -> PipelineConfig:
     """Legge un config.yaml senza perdita rispetto a quanto scritto da `save_config`."""
-    with Path(path).open(encoding="utf-8") as handle:
-        return PipelineConfig.model_validate(yaml.safe_load(handle))
+    return PipelineConfig.model_validate(carica_yaml(path))
 
 
 def save_config(cfg: PipelineConfig, path: Path) -> None:
@@ -880,8 +917,7 @@ class ExperimentConfig(_ModelloBase):
 
 def load_experiment(path: Path) -> ExperimentConfig:
     """Legge la dichiarazione di un esperimento."""
-    with Path(path).open(encoding="utf-8") as handle:
-        return ExperimentConfig.model_validate(yaml.safe_load(handle))
+    return ExperimentConfig.model_validate(carica_yaml(path))
 
 
 class ViewportConfig(_ModelloBase):

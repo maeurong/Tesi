@@ -90,6 +90,52 @@ def test_an_axis_with_no_values_is_rejected():
         config.AxisSpec(path="tet.min_ratio", values=[])
 
 
+def test_due_chiavi_omonime_nello_yaml_sono_rifiutate(tmp_path):
+    """`safe_load` tiene l'ultima e la prima sparisce senza un segnale.
+
+    E' l'unico ingresso degenere senza sintomo: gli altri almeno
+    risolvono zero nodi. Un selettore corretto e riscritto sotto lo
+    stesso nome verrebbe applicato nella versione che l'operatore
+    credeva di aver sostituito.
+
+    Mutazione che lo uccide: tornare a `yaml.safe_load`. Il file viene
+    letto, `raggio` vale 9.0 e nessuno sa che il 5.0 c'era.
+    """
+    percorso = tmp_path / "config.yaml"
+    percorso.write_text(
+        "input:\n  path: nuvola.ply\n"
+        "analysis:\n  material:\n    name: MURATURA\n    young: 1500.0\n"
+        "    poisson: 0.2\n    density: 1.8e-9\n"
+        "selettori:\n"
+        "  angolo:\n    tipo: sfera\n    centro: [0.0, 0.0, 0.0]\n    raggio: 5.0\n"
+        "  angolo:\n    tipo: sfera\n    centro: [0.0, 0.0, 0.0]\n    raggio: 9.0\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="angolo"):
+        config.load_config(percorso)
+
+
+def test_anche_il_registro_degli_esperimenti_rifiuta_le_chiavi_omonime(tmp_path):
+    """La stessa falla sta su due safe_load: si chiude in un punto e si usa in due.
+
+    Il `name` duplicato e' la forma minima: `axes` e' una lista, e le
+    chiavi omonime esistono solo dentro una mappa.
+
+    Mutazione che lo uccide: passare il loader solo a `load_config`.
+    Questo test cade, l'altro passa.
+    """
+    percorso = tmp_path / "experiment.yaml"
+    percorso.write_text(
+        "name: primo\n"
+        "name: secondo\n"
+        "base: base.yaml\n"
+        "axes:\n  - path: tet.min_ratio\n    values: [1.6, 1.8]\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="name"):
+        config.load_experiment(percorso)
+
+
 # Due modelli distinti, non uno solo: la difesa deve stare sulla base comune
 # e non su un singolo model_config scritto a mano dove il difetto e' stato visto.
 @pytest.mark.parametrize("grafia", ["1e999", "Infinity", "inf", "nan", "NaN"])
