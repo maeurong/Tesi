@@ -41,8 +41,8 @@ _SET_ITEMS_PER_LINE = 8
 # legittimo, ma con un messaggio che l'operatore vede subito. E' il margine
 # sopra quello da difendere, non quello sotto: la media geometrica lo rende
 # esplicito invece di sceglierlo a occhio. I numeri delle due misure e i
-# margini risultanti sono nel report del task, non qui -- un numero di
-# laboratorio dentro `src/` legherebbe questa soglia a una geometria sola.
+# margini risultanti sono in `docs/fase-6-carichi.md`, non qui -- un numero
+# di laboratorio dentro `src/` legherebbe questa soglia a una geometria sola.
 TOLLERANZA_MOMENTO_FUORI_ASSE: float = 5e-2
 
 

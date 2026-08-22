@@ -244,7 +244,7 @@ ridistribuzione tutt'altro che piccola dei singoli valori nodali. Non è
 un'omissione, è un risultato coerente con dove vive il picco: sullo stesso
 nodo delle altre due condizioni di carico, nella trave superiore, fuori dalla
 fascia `TOP` che la ripartizione ridisegna (`docs/fase-5-analisi.md`, §
-«I cinque controlli»). `GRAVITA`, `SPINTA_ORIZZONTALE` e `MODALE` non usano
+«I cinque controlli, e i loro esiti»). `GRAVITA`, `SPINTA_ORIZZONTALE` e `MODALE` non usano
 questa ripartizione e non cambiano.
 
 ---
@@ -310,9 +310,11 @@ di faccia, si estende invece per oltre due metri.
 Sulla corsa dimostrativa, il carico `TORSIONE` agisce sul selettore `sommita`
 — `{tipo: nset, nome: TOP}`, gli stessi 3.036 nodi del set di faccia — con
 asse z, modulo 500.000 N·mm e braccio dichiarato **490,7 mm**: lo stesso
-braccio della riga «`TOP` as-built, braccio 490,7» già misurata al § 6.2, qui
-scritto per la prima volta in un deck vero invece che in una sonda. L'estensione
-disponibile è **2.453,27 mm** (§ 6.2), ampiamente sopra il braccio dichiarato:
+braccio della riga «`TOP` as-built, braccio 490,7» che il § 6.2 misura per
+tarare la soglia del momento fuori asse — si veda lì per la derivazione —
+scritto qui per la prima volta in un deck vero invece che in una sonda.
+L'estensione disponibile è **2.453,27 mm** (§ 6.2), ampiamente sopra il
+braccio dichiarato:
 la funzione non solleva, e divide i 3.036 nodi in **1.197** nel gruppo
 positivo e **1.285** nel negativo, con braccio effettivo **1.491,16 mm**
 (`runs/lab_telaio_v4_posizionati_top/metrics.json`,
@@ -455,10 +457,13 @@ nulla), ma non sposta la struttura di un millimetro.
 Verificato che la correzione non tocchi nulla di già pubblicato: lo script
 della Fase 5 (`docs/fase-5-cantiere/misura-deficit.py`) esce ancora a 0 sui
 numeri di `runs/lab_telaio_v3_pesata`, che dichiara un solo carico basato su
-`*CLOAD` (`CARICO_TOP`) e non aveva nulla da cui ereditare. Le due suite
-crescono di un test (`816` invece di `815` sulla suite ordinaria, `14`
-invece di `13` sulla fattibilità — la sonda misurata qui in codice,
-committata come test di regressione).
+`*CLOAD` (`CARICO_TOP`) e non aveva nulla da cui ereditare. La sonda del
+difetto è committata anche come test di regressione (`tests/test_abaqus.py`,
+`tests/feasibility/test_calculix.py`); il conteggio delle due suite alla
+chiusura di questa fase — misurato in questa sessione, una fotografia e non
+un invariante, perché cresce a ogni test che il progetto aggiunge altrove —
+è **816 passed** sulla suite ordinaria e **14 passed, 1 skipped** sulla
+fattibilità.
 
 ---
 

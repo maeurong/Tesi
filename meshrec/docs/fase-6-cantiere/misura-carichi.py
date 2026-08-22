@@ -6,8 +6,10 @@ Non fa parte del programma: sta sotto `docs/` apposta, sul modello di
 (la corsa dimostrativa in `runs/lab_telaio_v4_posizionati_top/`, quella
 "prima" in `runs/lab_telaio_v4_posizionati/` tenuta come prova del difetto
 del § 5.4, e la corsa della Fase 5 in `runs/lab_telaio_v2/` e
-`runs/lab_telaio_v3_pesata/`, tutte in sola lettura) e rifa' da capo le due
-sonde su `ccx` vero. Ogni valore che il documento pubblica porta qui il
+`runs/lab_telaio_v3_pesata/`, tutte in sola lettura) e rifa' da capo le sonde
+su `ccx` vero -- il posizionato, il momento, il rumore di fondo a sola
+gravita', e i due banchi sintetici della prima taratura. Ogni valore che il
+documento pubblica porta qui il
 proprio `assert`: se qualcosa si muove, questo script cade invece di
 stampare in silenzio un numero diverso da quello scritto.
 
@@ -17,6 +19,7 @@ stampare in silenzio un numero diverso da quello scritto.
 from __future__ import annotations
 
 import itertools
+import json
 import shutil
 import subprocess
 import sys
@@ -94,8 +97,6 @@ def main() -> int:
         return 1
 
     print("selettori della corsa dimostrativa (metrics.json, campo 11_export.selettori)")
-    import json
-
     metriche = json.loads((CORSA_DIMOSTRATIVA / "metrics.json").read_text(encoding="utf-8"))
     esporta = metriche["11_export"]
     uguale(365, esporta["selettori"]["piastra"]["nodi"], "piastra (box): nodi presi")
@@ -233,6 +234,33 @@ def main() -> int:
     vicino(14.08, 5e-2 / 0.003552, 0.01, "margine sopra il peggiore dei casi as-built")
     vicino(16.36, 0.8180 / 5e-2, 0.01, "margine sotto il selettore volumetrico")
 
+    print("\nil momento fuori asse: i due banchi sintetici della prima taratura (§ 6.4)")
+    vertici_cubo, facce_cubo = synth.box_mesh((100.0, 40.0, 200.0))
+    nodi_cubo, tets_cubo = volume.tetrahedralize(
+        vertici_cubo, facce_cubo, max_volume=100_000.0, min_ratio=1.8, max_steiner_points=-1, nobisect=False
+    )
+
+    top_cubo = np.flatnonzero(nodi_cubo[:, 2] >= nodi_cubo[:, 2].max() - 1e-6)
+    _, res_planare = abaqus.coppia_equivalente(
+        config.Momento(asse=(0.0, 0.0, 1.0), modulo=3000.0, braccio=60.0),
+        nodi_cubo, tets_cubo, top_cubo, "C3D4", nome="TEST",
+    )
+    eff_planare = np.array(res_planare["momento_effettivo"])
+    rapporto_planare = float(np.linalg.norm(eff_planare - eff_planare[2] * np.array([0.0, 0.0, 1.0]))) / 3000.0
+    print(f"  banco planare (TOP del cubo sintetico): rapporto fuori asse {rapporto_planare:.6f}")
+    vicino(0.0, rapporto_planare, 1e-9, "banco planare sintetico: rapporto fuori asse esatto")
+
+    spigolo_cubo = np.flatnonzero((nodi_cubo[:, 0] <= 20.0) & (nodi_cubo[:, 2] <= 100.0))
+    try:
+        abaqus.coppia_equivalente(
+            config.Momento(asse=(0.0, 0.0, 1.0), modulo=3000.0, braccio=30.0),
+            nodi_cubo, tets_cubo, spigolo_cubo, "C3D4", nome="TEST",
+        )
+        raise AssertionError("lo spigolo del banco sintetico avrebbe dovuto essere rifiutato")
+    except ValueError as errore:
+        print(f"  banco volumetrico sintetico (spigolo): {errore}")
+        contiene("8.333e-01", str(errore), "banco volumetrico sintetico: rapporto fuori asse")
+
     print("\nCARICO_TOP ripartito per area tributaria (gia' pubblicato in docs/fase-5-analisi.md)")
     deck = (CORSA_PESATA / "wall_model.inp").read_text().splitlines()
     inizio = deck.index("*CLOAD", deck.index("** NOME PASSO: CARICO_TOP")) + 1
@@ -242,6 +270,12 @@ def main() -> int:
     vicino(-1200.0, float(valori.sum()), 1e-3, "CARICO_TOP: somma [N]")
     vicino(-0.8678660701, float(valori.min()), 1e-6, "CARICO_TOP: valore piu' negativo [N]")
     uguale(703, int((valori == 0.0).sum()), "CARICO_TOP: nodi ad area tributaria nulla")
+    uguale(2334, len(np.unique(valori)), "CARICO_TOP: valori distinti nel *CLOAD pesato")
+
+    vm_top_v2 = meshio.read(CORSA_V2 / "13_solution.vtu").point_data["VM_CARICO_TOP"]
+    vicino(0.9811407754536536, float(vm_top_v2.max()), 1e-6, "CARICO_TOP: picco vm prima della pesatura [MPa]")
+    vm_top_pesata = meshio.read(CORSA_PESATA / "13_solution.vtu").point_data["VM_CARICO_TOP"]
+    vicino(0.9808637022569636, float(vm_top_pesata.max()), 1e-6, "CARICO_TOP: picco vm dopo la pesatura [MPa]")
 
     print("\nle due sonde su ccx vero (tests/feasibility/test_calculix.py, rigiocate qui)")
     eseguibile = shutil.which("ccx")
@@ -269,6 +303,7 @@ def main() -> int:
             print(f"  forza posizionata: reazioni ({fx:.3g}, {fy:.3g}, {fz:.6f}) N")
             vicino(1067.53, fz, 0.01, "forza posizionata: reazione fz [N]")
             vicino(0.0, fx, 1e-5, "forza posizionata: reazione fx [N]")
+            vicino(2.2e-6, fy, 1e-5, "forza posizionata: reazione fy [N]")
 
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -293,6 +328,28 @@ def main() -> int:
             orizzontali = max(max(abs(u[0]), abs(u[1])) for u in spostamenti.values())
             print(f"  momento come coppia: spostamento orizzontale massimo {orizzontali:.6f} mm")
             vicino(0.056761, orizzontali, 1e-4, "momento come coppia: spostamento orizzontale massimo [mm]")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            nodes, tets, node_sets = _banco_sonda()
+            abaqus.write_inp(
+                tmp_path / "model.inp", nodes, tets,
+                node_sets=node_sets, material=MATERIALE_SONDA, print_nsets=("TOP",),
+            )
+            processo = subprocess.run(
+                [eseguibile, "-i", "model"], cwd=tmp_path, capture_output=True, text=True, timeout=600
+            )
+            assert "Job finished" in processo.stdout
+            spostamenti = read_dat_displacements(tmp_path / "model.dat")
+            rumore = max(max(abs(u[0]), abs(u[1])) for u in spostamenti.values())
+            print(f"  sola gravita', stesso banco: rumore orizzontale massimo {rumore:.6e} mm")
+            vicino(1.765108e-05, rumore, 1e-9, "sola gravita': rumore orizzontale massimo [mm]")
+            vicino(3215.0, orizzontali / rumore, 5.0, "momento come coppia: volte il rumore di fondo")
+
+    print("\nlo spigolo medio e la soglia dei tre spigoli (§ 3)")
+    spigolo_v2 = json.loads((CORSA_V2 / "metrics.json").read_text(encoding="utf-8"))["11_export"]["boundary_spacing"]
+    vicino(22.49432114917425, spigolo_v2, 1e-9, "spigolo medio (boundary_spacing) [mm]")
+    vicino(67.48296344752275, selezione.SPIGOLI_DI_TOLLERANZA * spigolo_v2, 1e-6, "soglia dei tre spigoli [mm]")
 
     print("\ngli errori veri sugli ingressi degeneri (§ 3, tabelle)")
     contiene(
