@@ -29,16 +29,19 @@ _SET_ITEMS_PER_LINE = 8
 # deck scriverebbe in silenzio un momento anche perpendicolare a quello
 # chiesto.
 #
-# La soglia non puo' stare a ridosso di zero: un `TOP` risolto su una
-# superficie **as-built** vera non e' un piano, e' una banda di nodi entro
-# la tolleranza dei set -- porta gia' da se' un rapporto fuori-asse non
-# nullo, dell'ordine di qualche millesimo. La soglia sta sopra quel rumore
-# geometrico legittimo e sotto quello di un selettore davvero volumetrico
-# che sconfina lungo l'asse (misurato **due ordini di grandezza** sopra la
-# soglia): i numeri delle due misure sono nel report del task, non qui --
-# un numero di laboratorio dentro `src/` legherebbe questa soglia a una
-# geometria sola.
-TOLLERANZA_MOMENTO_FUORI_ASSE: float = 1e-2
+# La soglia e' la media geometrica fra il peggiore dei casi as-built
+# legittimi misurati (un `TOP` reale non e' un piano, e' una banda di nodi
+# entro la tolleranza dei set, e porta gia' da se' un rapporto fuori-asse
+# non nullo) e il caso volumetrico degenere (un selettore che sconfina
+# lungo l'asse). I due margini che ne risultano non sono equivalenti: sotto
+# soglia il deck scrive un momento storto **in silenzio** -- il guasto che
+# questo controllo esiste per chiudere -- sopra soglia si rifiuta un caso
+# legittimo, ma con un messaggio che l'operatore vede subito. E' il margine
+# sopra quello da difendere, non quello sotto: la media geometrica lo rende
+# esplicito invece di sceglierlo a occhio. I numeri delle due misure e i
+# margini risultanti sono nel report del task, non qui -- un numero di
+# laboratorio dentro `src/` legherebbe questa soglia a una geometria sola.
+TOLLERANZA_MOMENTO_FUORI_ASSE: float = 5e-2
 
 
 class UnconstrainedModelWarning(UserWarning):

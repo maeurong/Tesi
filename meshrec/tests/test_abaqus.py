@@ -1834,7 +1834,7 @@ def test_un_selettore_volumetrico_con_estensione_sull_asse_e_rifiutato(cube_mesh
     quota lungo l'asse z del momento, quindi la coppia realizzerebbe una
     componente y spuria di 2500 N*mm su un momento z dichiarato di 3000 --
     misurato a mano prima di scrivere il test: rapporto fuori-asse 0.833,
-    tre ordini di grandezza sopra `TOLLERANZA_MOMENTO_FUORI_ASSE`.
+    oltre 16 volte sopra `TOLLERANZA_MOMENTO_FUORI_ASSE`.
 
     Mutazione che lo uccide: togliere il controllo sul rapporto fuori asse.
     Verificato che senza il controllo la chiamata **non solleva affatto**
@@ -1906,11 +1906,13 @@ def test_una_superficie_leggermente_irregolare_non_solleva(cube_mesh):
     rifiutato. Si sposta di 0.3 mm lungo z un solo nodo del gruppo positivo
     su un braccio di 60 mm: rapporto fuori-asse ~1e-3, lo stesso ordine di
     grandezza misurato sulla mesh reale (`runs/lab_telaio_v2`, vedi report),
-    comodamente sotto `TOLLERANZA_MOMENTO_FUORI_ASSE`.
+    comodamente sotto `TOLLERANZA_MOMENTO_FUORI_ASSE` (5e-2, media geometrica
+    dei due estremi misurati -- Round 5).
 
     Mutazione che lo uccide: abbassare `TOLLERANZA_MOMENTO_FUORI_ASSE` a
-    1e-6 (il valore scartato in questa stessa revisione). Il rapporto ~1e-3
-    supera quella soglia e la chiamata solleva a torto.
+    1e-6 (il primo valore scelto per questa soglia, gia' scartato in Round 4
+    perche' rifiutava il caso studio vero). Il rapporto ~1e-3 supera quella
+    soglia e la chiamata solleva a torto.
     """
     nodi, tetraedri = cube_mesh
     indici = np.flatnonzero(nodi[:, 2] >= nodi[:, 2].max() - 1e-6)
