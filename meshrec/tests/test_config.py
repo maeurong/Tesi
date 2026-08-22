@@ -547,6 +547,25 @@ def test_senza_posizionati_la_tupla_e_vuota():
     assert cfg.carichi.posizionati == ()
 
 
+def test_il_momento_rifiuta_modulo_o_braccio_non_positivi():
+    """Un momento a modulo o braccio nullo o negativo non descrive una coppia.
+
+    Stessa convenzione di `test_il_coefficiente_di_spinta_rifiuta_lo_zero_e_il_negativo`
+    per `Field(gt=0.0)`.
+
+    Mutazione che lo uccide: togliere `gt=0.0` da `Momento.modulo` o
+    `Momento.braccio`. Entrambe le chiamate smettono di sollevare.
+    """
+    with pytest.raises(ValidationError):
+        config.Momento(asse=[0.0, 0.0, 1.0], modulo=0.0, braccio=1.0)
+    with pytest.raises(ValidationError):
+        config.Momento(asse=[0.0, 0.0, 1.0], modulo=-1.0, braccio=1.0)
+    with pytest.raises(ValidationError):
+        config.Momento(asse=[0.0, 0.0, 1.0], modulo=1.0, braccio=0.0)
+    with pytest.raises(ValidationError):
+        config.Momento(asse=[0.0, 0.0, 1.0], modulo=1.0, braccio=-1.0)
+
+
 def test_un_carico_dichiara_o_forza_o_momento_mai_entrambi():
     """Forza e momento insieme sono due carichi: due voci, non una.
 
