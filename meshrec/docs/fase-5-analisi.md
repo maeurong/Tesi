@@ -302,8 +302,9 @@ Lo conferma la posizione del picco. Il massimo di von Mises sotto gravita' vale
 **0,51 MPa** e cade a z = **+1010 mm**, cioe' nella viga superior, 1.606 mm
 sopra il punto piu' basso del modello — **non alla base**. Il volume mancante
 sta 1,5 m piu' in basso e non lo tocca. Le tensioni delle altre due condizioni:
-SPINTA_ORIZZONTALE **0,68 MPa**, CARICO_TOP **0,98 MPa**
-(`13_solve.casi`).
+SPINTA_ORIZZONTALE **0,68 MPa** (`13_solve.casi`, `runs/lab_telaio_v2`),
+CARICO_TOP **0,98 MPa** (`13_solve.casi`, `runs/lab_telaio_v3_pesata` — vedi la
+nota sulla Fase 6 dopo la tabella dei risultati).
 
 Quel che il volume mancante toglia davvero e' un'altra cosa, e va detta come
 limite, non come numero: **il set `BASE` di questo modello non e' la faccia
@@ -435,11 +436,22 @@ predefiniti del programma.
 |---|---:|---:|---:|---:|---:|
 | GRAVITA | 0,036730 | 0,0544 | 0,2336 | 0,5056 | 2,164 |
 | SPINTA_ORIZZONTALE | 0,044611 | 0,0537 | 0,2661 | 0,6763 | 2,542 |
-| CARICO_TOP | 0,064273 | 0,0827 | 0,3923 | 0,9811 | 2,501 |
+| CARICO_TOP | 0,063802 | 0,0822 | 0,3905 | 0,9809 | 2,512 |
 
 `u_max` e `vm_max` da `13_solve.casi`; mediana e p99 ricalcolati in questa
 sessione sui 14.103 valori nodali di `13_solution.vtu` (`VM_GRAVITA`,
-`VM_SPINTA_ORIZZONTALE`, `VM_CARICO_TOP`).
+`VM_SPINTA_ORIZZONTALE`, `VM_CARICO_TOP`). GRAVITA e SPINTA_ORIZZONTALE vengono
+da `runs/lab_telaio_v2`; la riga `CARICO_TOP` viene da `runs/lab_telaio_v3_pesata`.
+
+> **Aggiornato con la Fase 6.** I numeri di `CARICO_TOP` sono cambiati perche'
+> la ripartizione di una risultante e' passata da uniforme per nodo ad **area
+> tributaria**: la forma precedente concentrava il carico dove i nodi sono piu'
+> fitti, che e' una proprieta' del maglio e non della struttura. La modifica non
+> riguarda solo i carichi nuovi -- un programma non puo' ripartire in due modi
+> diversi due carichi che fanno la stessa cosa. `GRAVITA`, `SPINTA_ORIZZONTALE`
+> e `MODALE` non sono toccati.
+> I valori precedenti, dalla corsa `runs/lab_telaio_v2`: picco 0,98 MPa,
+> `*CLOAD` di 3.036 righe da −0,395257 N ciascuna.
 
 **Le cifre di questa tabella, e di quella dei controlli e dei modi, sono i
 valori come li scrive il solutore — non la precisione che il dato sostiene.**
@@ -574,11 +586,14 @@ sono stati rifatti, e `11_export.node_sets` da' `TOP` **3036**, `BASE` 3719,
 `FACE_FRONT` 403, `FACE_BACK` 444, `SIDE_LEFT` 1912, `SIDE_RIGHT` 454. Il numero
 vero **rafforza** l'avvertenza invece di indebolirla: 3.036 nodi sono il
 **21,5%** dei 14.103 del modello, con una tolleranza di set di **134,97 mm**.
-`TOP` non e' una faccia, e' una **fascia spessa**. Verificato nel deck: il
-`*CLOAD` del passo `CARICO_TOP` ha **3.036 righe**, ciascuna −0,395257 N, somma
-esatta −1200,0 N. Il carico si ripartisce **uniformemente per nodo**, quindi si
-concentra dove i nodi sono piu' fitti, e su una fascia di 135 mm non e' un
-carico in sommita': e' un carico su una calotta.
+`TOP` non e' una faccia, e' una **fascia spessa**. Verificato nel deck (Fase 6,
+corsa `runs/lab_telaio_v3_pesata`): il `*CLOAD` del passo `CARICO_TOP` ha
+**3.036 righe**, da **0 N** a **−0,867866 N**, somma esatta −1200,0 N. Il
+carico si ripartisce **per area tributaria**, non piu' uniformemente per nodo
+(nota alla Fase 6, sezione «I risultati, per caso di carico»): 703 dei 3.036
+nodi non toccano alcuna faccia di bordo della fascia e restano a quota zero,
+riprova che una fascia di 135 mm non e' un carico in sommita': e' un carico su
+una calotta, e in parte nemmeno su quella.
 
 **7. Abaqus non entra.** Nessuna licenza, nessuna prova. Nulla si afferma su
 Abaqus. In piu': i nomi dei passi sono scesi a **commento** (`** NOME PASSO:

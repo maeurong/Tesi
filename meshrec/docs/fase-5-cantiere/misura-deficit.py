@@ -24,6 +24,10 @@ import open3d as o3d
 from scipy.spatial import ConvexHull
 
 CORSA = Path(__file__).resolve().parents[2] / "runs" / "lab_telaio_v2"
+# Fase 6: la ripartizione di CARICO_TOP e' passata da uniforme per nodo ad area
+# tributaria. Stessa configurazione, stessa geometria, corsa diversa: solo il
+# passo CARICO_TOP di `13_solve` e il suo *CLOAD cambiano rispetto a CORSA.
+CORSA_PESATA = Path(__file__).resolve().parents[2] / "runs" / "lab_telaio_v3_pesata"
 PIANO_DI_TAGLIO = -498.0  # crop_min[2] di config.yaml, nel sistema della scansione
 DENSITA = 2.5e-9  # t/mm3, CALCESTRUZZO_C25_30
 GRAVITA = 9810.0  # mm/s2
@@ -73,6 +77,12 @@ def vicino(atteso: float, ottenuto: float, tolleranza: float, etichetta: str) ->
 def main() -> int:
     if not CORSA.is_dir():
         print(f"manca {CORSA}: rigenera la corsa con `uv run meshrec run lab_telaio.yaml`")
+        return 1
+    if not CORSA_PESATA.is_dir():
+        print(
+            f"manca {CORSA_PESATA}: rigenera con `uv run meshrec run lab_telaio.yaml "
+            "--out-dir runs/lab_telaio_v3_pesata`"
+        )
         return 1
 
     print("nominale di tavola")
@@ -153,6 +163,28 @@ def main() -> int:
         f" contro una mediana di {np.median(vol_el):,.2f}"
     )
     assert abs(vol_el[incidenti].min() - 17.66) < 0.01
+
+    print("\nCARICO_TOP ripartito per area tributaria (Fase 6)")
+    top = meshio.read(CORSA_PESATA / "13_solution.vtu")
+    u_top = np.linalg.norm(top.point_data["U_CARICO_TOP"], axis=1)
+    vm_top = top.point_data["VM_CARICO_TOP"]
+    p99_top = float(np.percentile(vm_top, 99))
+    vicino(0.06380234902819489, float(u_top.max()), 1e-6, "CARICO_TOP u_max [mm]")
+    vicino(0.9808637022569636, float(vm_top.max()), 1e-6, "CARICO_TOP vm max [MPa]")
+    vicino(0.39047237848065863, p99_top, 1e-6, "CARICO_TOP vm p99 [MPa]")
+    vicino(0.08221494775778948, float(np.median(vm_top)), 1e-6, "CARICO_TOP vm mediana [MPa]")
+    vicino(2.511992541120419, float(vm_top.max()) / p99_top, 1e-4, "CARICO_TOP max/p99")
+
+    deck = (CORSA_PESATA / "wall_model.inp").read_text().splitlines()
+    inizio = deck.index("*CLOAD", deck.index("** NOME PASSO: CARICO_TOP")) + 1
+    righe_cload = list(itertools.takewhile(lambda r: r and not r.startswith("*"), deck[inizio:]))
+    quote = np.array([float(r.split(",")[2]) for r in righe_cload])
+    print(f"  {len(quote)} righe, somma {quote.sum():.6f} N, da {quote.min():.6f} a {quote.max():.6f} N")
+    assert len(quote) == 3036, f"righe *CLOAD di CARICO_TOP: {len(quote)} contro 3036 pubblicato"
+    vicino(-1200.0, float(quote.sum()), 1e-3, "CARICO_TOP *CLOAD somma [N]")
+    vicino(-0.8678660701, float(quote.min()), 1e-6, "CARICO_TOP *CLOAD valore piu' negativo [N]")
+    nodi_a_zero = int((quote == 0.0).sum())
+    assert nodi_a_zero == 703, f"nodi *CLOAD a area tributaria nulla: {nodi_a_zero} contro 703 pubblicato"
 
     print("\ntutti i valori pubblicati sono stati riprodotti.")
     return 0
