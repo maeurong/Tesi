@@ -17,7 +17,8 @@
 - **Sola lettura:** `runs/muro/`, `runs/lab_crop/`, `experiments/muro/`, `experiments/lab_crop/`. Mai `git add -A`: ogni commit elenca i file.
 - **Niente numeri del provino di laboratorio in `src/`.** I valori di `lab_frame` stanno nelle configurazioni e nei documenti, non nel codice.
 - **Ogni test nuovo dichiara nel docstring la mutazione che lo uccide**, e lo step successivo la applica davvero per vedere il test fallire nel modo giusto. Un test che passa anche mutato non è un test.
-- **Il server riscrive `config.yaml`** (`core/config.py:689-693`, `safe_dump` del modello alla riga 693): dopo averlo avviato, `git diff` dello YAML prima di misurare qualunque cosa.
+- **Il server riscrive `config.yaml`** (`save_config`, `core/config.py:785-789`, `safe_dump` del modello alla riga 789): dopo averlo avviato, `git diff` dello YAML prima di misurare qualunque cosa.
+- **I numeri di riga di questo piano scadono man mano che i task atterrano.** Il Task 1 ha aggiunto ~76 righe a `core/config.py`, e i successivi ne aggiungeranno altre. Ogni `file:riga` citato qui va **riaperto e confermato** prima di agirci: se il conteggio è cambiato, vale quello che leggi tu, non quello che c'è scritto qui.
 - **Unità:** mm, N, MPa, t, s. Forze in N, momenti in N·mm, lunghezze in mm.
 - **Nomi ammessi** per set, selettori e carichi: `^[A-Za-z0-9_.-]+$`. Finiscono interpolati in un deck ascii.
 - **Commit:** Conventional Commits, corpo che dice il perché quando non è ovvio.
@@ -423,13 +424,15 @@ Il corpo del messaggio dice **perché** la riga di `sweep.py` viaggia con questo
 ### Task 2: Il loader rifiuta le chiavi YAML omonime
 
 **Files:**
-- Modify: `src/meshrec/core/config.py:683-686` (`load_config`) e `:768` (lettura di `ExperimentConfig`)
+- Modify: `src/meshrec/core/config.py:779-782` (`load_config`) e `:861-864` (`load_experiment`)
 - Test: `tests/test_config.py`
 
 **Interfaces:**
 - Produces: `_LoaderChiaviUniche(yaml.SafeLoader)` e `carica_yaml(path: Path) -> object`, usata da **entrambe** le letture del modulo.
 
-**Perché entrambe.** `core/config.py:686` legge la configurazione della pipeline, `core/config.py:768` legge `ExperimentConfig`. È la stessa falla in due punti: patchare solo il primo lascia il secondo a perdere una chiave in silenzio.
+**Perché entrambe.** `core/config.py:782` legge la configurazione della pipeline, `core/config.py:864` legge `ExperimentConfig`. È la stessa falla in due punti: patchare solo il primo lascia il secondo a perdere una chiave in silenzio.
+
+> `save_config` (`:785-789`) **non** si tocca: scrive, non legge, e il suo `safe_dump` non ha nulla a che vedere con le chiavi omonime.
 
 - [ ] **Step 1: Scrivi i test che falliscono**
 
@@ -462,20 +465,28 @@ def test_due_chiavi_omonime_nello_yaml_sono_rifiutate(tmp_path):
 def test_anche_il_registro_degli_esperimenti_rifiuta_le_chiavi_omonime(tmp_path):
     """La stessa falla sta su due safe_load: si chiude in un punto e si usa in due.
 
+    Il `name` duplicato e' la forma minima: `axes` e' una lista, e le
+    chiavi omonime esistono solo dentro una mappa.
+
     Mutazione che lo uccide: passare il loader solo a `load_config`.
     Questo test cade, l'altro passa.
     """
     percorso = tmp_path / "experiment.yaml"
     percorso.write_text(
-        "base: base.yaml\nout_dir: fuori\n"
-        "assi:\n  tet.min_ratio: [1.6]\n  tet.min_ratio: [1.8]\n",
+        "name: primo\n"
+        "name: secondo\n"
+        "base: base.yaml\n"
+        "axes:\n  - path: tet.min_ratio\n    values: [1.6, 1.8]\n",
         encoding="utf-8",
     )
-    with pytest.raises(ValueError, match="tet.min_ratio"):
+    with pytest.raises(ValueError, match="name"):
         config.load_experiment(percorso)
 ```
 
-> Il nome della funzione che legge `ExperimentConfig` va **letto** a `core/config.py:766-769` e usato quello vero: il test cita il lettore, non un nome inventato. Stessa cosa per i campi obbligatori di `ExperimentConfig`, che il file YAML di prova deve soddisfare — leggi il modello prima di scriverlo.
+> **Letto in sessione, dopo il Task 1** (che ha aggiunto ~76 righe a `config.py`, quindi i numeri della prima stesura sono scaduti):
+> `load_config` sta a `core/config.py:779` con la sua `yaml.safe_load` a `:782`;
+> `load_experiment` sta a `:861` con la sua `yaml.safe_load` a `:864`.
+> `ExperimentConfig` (`:835`) richiede `name: str`, `base: Path` e `axes: list[AxisSpec]` con `min_length=1`; `AxisSpec` (`:828`) richiede `path: str` e `values` con `min_length=1`. Non esistono campi `out_dir` né `assi`. **Riapri quelle righe e confermale prima di scrivere**: se il conteggio è cambiato ancora, vale quello che leggi tu.
 
 - [ ] **Step 2: Esegui i test e verifica che falliscano**
 
@@ -528,7 +539,7 @@ def carica_yaml(path: Path) -> object:
         return yaml.load(handle, Loader=_LoaderChiaviUniche)  # noqa: S506
 ```
 
-Poi il corpo di `load_config` (`core/config.py:683-686`):
+Poi il corpo di `load_config` (`core/config.py:779-782`):
 
 ```python
 def load_config(path: Path) -> PipelineConfig:
@@ -536,9 +547,11 @@ def load_config(path: Path) -> PipelineConfig:
     return PipelineConfig.model_validate(carica_yaml(path))
 ```
 
-e allo stesso modo la lettura di `ExperimentConfig` a `core/config.py:768`:
+e allo stesso modo `load_experiment` (`core/config.py:861-864`):
 
 ```python
+def load_experiment(path: Path) -> ExperimentConfig:
+    """Legge la dichiarazione di un esperimento."""
     return ExperimentConfig.model_validate(carica_yaml(path))
 ```
 
