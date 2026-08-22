@@ -303,8 +303,8 @@ Lo conferma la posizione del picco. Il massimo di von Mises sotto gravita' vale
 sopra il punto piu' basso del modello — **non alla base**. Il volume mancante
 sta 1,5 m piu' in basso e non lo tocca. Le tensioni delle altre due condizioni:
 SPINTA_ORIZZONTALE **0,68 MPa** (`13_solve.casi`, `runs/lab_telaio_v2`),
-CARICO_TOP **0,98 MPa** (`13_solve.casi`, `runs/lab_telaio_v3_pesata` — vedi la
-nota sulla Fase 6 dopo la tabella dei risultati).
+CARICO_TOP **0,98 MPa** (`13_solve.casi`, `runs/lab_telaio_v3_pesata` — vedi
+sotto, § «I risultati, per caso di carico», per la nota sulla Fase 6).
 
 Quel che il volume mancante toglia davvero e' un'altra cosa, e va detta come
 limite, non come numero: **il set `BASE` di questo modello non e' la faccia
@@ -452,6 +452,12 @@ da `runs/lab_telaio_v2`; la riga `CARICO_TOP` viene da `runs/lab_telaio_v3_pesat
 > e `MODALE` non sono toccati.
 > I valori precedenti, dalla corsa `runs/lab_telaio_v2`: picco 0,98 MPa,
 > `*CLOAD` di 3.036 righe da −0,395257 N ciascuna.
+> Il picco non si sposta quasi per niente (0,9811 → 0,9809 MPa, **0,03%**),
+> a fronte di una ridistribuzione sostanziale -- 703 nodi che passano da
+> 0,395257 N a zero, e il carico massimo per nodo che piu' che raddoppia
+> (0,395257 → 0,867866 N). E' un risultato, non un'omissione: il picco sta
+> nella viga superior (§ 1), lontano dalla fascia `TOP` che la ripartizione
+> ridisegna, quindi non doveva muoversi molto.
 
 **Le cifre di questa tabella, e di quella dei controlli e dei modi, sono i
 valori come li scrive il solutore — non la precisione che il dato sostiene.**
@@ -590,10 +596,13 @@ vero **rafforza** l'avvertenza invece di indebolirla: 3.036 nodi sono il
 corsa `runs/lab_telaio_v3_pesata`): il `*CLOAD` del passo `CARICO_TOP` ha
 **3.036 righe**, da **0 N** a **−0,867866 N**, somma esatta −1200,0 N. Il
 carico si ripartisce **per area tributaria**, non piu' uniformemente per nodo
-(nota alla Fase 6, sezione «I risultati, per caso di carico»): 703 dei 3.036
+(vedi sopra, § «I risultati, per caso di carico»): 703 dei 3.036
 nodi non toccano alcuna faccia di bordo della fascia e restano a quota zero,
 riprova che una fascia di 135 mm non e' un carico in sommita': e' un carico su
-una calotta, e in parte nemmeno su quella.
+una calotta, e in parte nemmeno su quella. Prima, ripartendo uniformemente,
+questi 703 nodi portavano comunque 0,395257 N ciascuno: circa **278 N**
+(703 × 0,395257) di risultante assegnati a nodi che non hanno superficie su cui
+reggerli — il **23%** dei 1200 N dichiarati.
 
 **7. Abaqus non entra.** Nessuna licenza, nessuna prova. Nulla si afferma su
 Abaqus. In piu': i nomi dei passi sono scesi a **commento** (`** NOME PASSO:
