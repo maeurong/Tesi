@@ -503,30 +503,47 @@ def test_un_posizionato_gira_a_zero_avvisi_e_sposta_qualcosa(tmp_path):
     """Il deck con un carico posizionato lo onora il solutore, non una lettura del testo.
 
     Non basta "zero avvisi": un momento su un C3D4 esce a zero avvisi e
-    spostamento esattamente nullo. L'oracolo e' che qualcosa si sia
-    mosso.
+    spostamento esattamente nullo. L'oracolo sullo spostamento verifica
+    solo che qualcosa si sia mosso.
 
-    Mutazione dichiarata dal brief (base zero invece di base uno sul
-    numero di nodo del *CLOAD): verificata inerte su questa mesh. Il nodo
-    0 non cade nel selettore "piastra" (il set TOP), quindi lo shift di
-    un'unita' non produce mai un riferimento a un nodo inesistente: sposta
-    solo la forza su un nodo vicino, quasi sempre ancora in TOP o comunque
-    ancora capace di far accorciare la colonna. Misurato: col codice
-    corretto max|uz|=0.0275 mm, con la mutazione 0.0300 mm -- stesso
-    ordine, nessuna soglia su questo oracolo li separa.
+    L'oracolo che uccide davvero e' sulle **reazioni**, non sullo
+    spostamento: `max|uz|` risponde sia a un carico verticale che a uno
+    orizzontale (una colonna snella si inflette, e la flessione sposta
+    la sommita' in z quanto o piu' del carico assiale corretto -- vedi
+    sotto), quindi non puo' distinguere "la forza e' andata dove
+    dichiarato" da "e' andata altrove". Le reazioni sono equilibrio, non
+    inflessione: non dipendono dalla snellezza, e la loro somma sul set
+    vincolato dice esattamente quale vettore il solutore ha applicato.
 
-    Seconda mutazione tentata (grado 1 invece di 3 sul *CLOAD, forza
-    dichiarata verticale scritta come orizzontale): non collassa al
-    rumore di gravita' come atteso. Misurato: corretto max|uz|=0.0274568
-    mm, mutato max|uz|=0.223764 mm -- l'ipotesi che la forza orizzontale
-    lasci la colonna a subire solo il peso proprio e' falsa su questo
-    banco: la colonna e' snella (100x100x400 mm), e una forza applicata
-    fuori asse in sommita' la inflette, e la flessione su una sezione
-    cosi' snella sposta la sommita' in z (per rotazione della sezione)
-    piu' di quanto faccia il carico assiale corretto -- un rapporto di
-    ~8.1x, sotto l'ordine di grandezza che separerebbe pulito senza una
-    soglia stretta. Nessuna soglia scelta per questo motivo: nessuna
-    delle due mutazioni tentate uccide questo test in modo netto.
+    Il passo letto e' il secondo (`passo=2`): il deck ha due passi
+    statici, GRAVITA (il solo peso proprio, scritto sempre per primo da
+    `write_inp`) e PRESSA (peso proprio piu' il carico posizionato,
+    cumulativo come ogni passo di questa funzione). Il peso proprio
+    atteso e' calcolato da massa e gravita' (`material.density * volume
+    * GRAVITY_MM_S2`), non misurato da una corsa a parte: la colonna e'
+    un box, il suo volume e' noto in forma chiusa senza bisogno della
+    mesh.
+
+    Mutazione che lo uccide: scrivere il grado del *CLOAD a 1 invece del
+    grado vero (3, verticale). Misurato: somma reazioni corretto
+    (fx,fy,fz)=(-9e-6, 2.2e-6, 1067.5) N, mutato (1000.0, -1.7e-5, 67.5)
+    N -- la firma si ribalta netta, x prende il carico e z resta col
+    solo peso, senza soglie da negoziare.
+
+    Due mutazioni tentate prima, contro l'oracolo sullo spostamento, non
+    uccidono e restano documentate perche' qualcuno non le riprovi:
+    (1) nodo base zero invece di base uno -- il nodo 0 non cade nel
+    selettore "piastra" (set TOP), lo shift di un'unita' sposta la forza
+    su un nodo vicino ancora quasi sempre in TOP: max|uz| corretto
+    0.0275 mm, mutato 0.0300 mm, stesso ordine, nessuna soglia separa.
+    (2) grado 1 invece di 3 contro max|uz| (invece che contro le
+    reazioni): la colonna e' snella (100x100x400 mm) e la forza fuori
+    asse la inflette, spostando la sommita' in z per rotazione della
+    sezione piu' del carico assiale corretto -- max|uz| corretto
+    0.0274568 mm, mutato 0.223764 mm, rapporto ~8.1x, sotto l'ordine di
+    grandezza per una soglia onesta. Stessa mutazione, oracolo sbagliato:
+    la sostituzione dell'oracolo (reazioni al posto dello spostamento),
+    non della mutazione, e' quello che l'ha resa netta.
     """
     executable = shutil.which("ccx")
     if executable is None:
@@ -567,6 +584,23 @@ def test_un_posizionato_gira_a_zero_avvisi_e_sposta_qualcosa(tmp_path):
     assert spostamenti, "il .dat non porta spostamenti: il carico non e' arrivato"
     assert max(abs(u[2]) for u in spostamenti.values()) > 0.0
 
+    # Oracolo vero: la somma delle reazioni sul passo PRESSA (il secondo,
+    # peso proprio incluso) e' esattamente il vettore applicato, in
+    # equilibrio -- non dipende dalla snellezza della colonna come lo
+    # spostamento sopra.
+    reazioni = solve.leggi_reazioni(tmp_path / "model.dat", passo=2)
+    assert reazioni, "il passo 2 (PRESSA) non porta reazioni"
+    fx, fy, fz = np.array(list(reazioni.values())).sum(axis=0)
+    peso_atteso = material.density * SIZE[0] * SIZE[1] * SIZE[2] * GRAVITY_MM_S2
+    assert fz == pytest.approx(1000.0 + peso_atteso, rel=0.02), (
+        "la reazione verticale non bilancia forza dichiarata + peso proprio: "
+        "il carico non e' arrivato sul grado giusto"
+    )
+    assert abs(fx) < 1.0 and abs(fy) < 1.0, (
+        "reazione orizzontale non trascurabile: il carico verticale dichiarato "
+        "sta spingendo la struttura di lato, non e' sul grado 3"
+    )
+
 
 def test_un_momento_come_coppia_non_e_scartato_in_silenzio(tmp_path):
     """Il momento realizzato come coppia sposta davvero, a differenza della card muta.
@@ -586,6 +620,14 @@ def test_un_momento_come_coppia_non_e_scartato_in_silenzio(tmp_path):
     4-6 invece che come coppia. `ccx` esce a zero, senza warning, e gli
     spostamenti orizzontali restano al rumore di fondo della gravita'
     (~1.8e-5 mm), sotto la soglia.
+
+    Perche' questo test guarda lo spostamento e il test del posizionato
+    guarda le reazioni: una coppia ha forza netta nulla per costruzione,
+    quindi le sue reazioni sono indistinguibili da quelle della sola
+    gravita' -- l'oracolo sulle reazioni non direbbe nulla qui. La firma
+    di una coppia e' lo spostamento orizzontale, non l'equilibrio delle
+    forze. Non e' un'incoerenza da uniformare: sono due carichi diversi
+    con due firme diverse.
     """
     executable = shutil.which("ccx")
     if executable is None:
