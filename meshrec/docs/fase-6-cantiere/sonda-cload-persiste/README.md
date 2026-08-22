@@ -92,3 +92,78 @@ reazioni `fz` sommate sul passo `TORSIONE` (`runs/lab_telaio_v4_posizionati/`)
 coincidono, a sette cifre, con quelle del passo `PRESSA` precedente — la
 coppia (a risultante netta nulla) non le sposta di un newton, perché la
 reazione che si legge è ancora quella della forza di `PRESSA`, mai rimossa.
+
+## Il fratello non sondato: `*DLOAD`
+
+**Sì, persiste anche lui.** Misurato il 23 agosto 2026 con `ccx` 2.22 su
+questa macchina arm64, in `sonda-dload.inp`, stesso tetraedro e stesso
+incastro di `sonda.inp`.
+
+`core/abaqus.py` apre **ogni** passo statico con `*DLOAD` e ripete al suo
+interno la riga `ELSET, GRAV, ...` del peso proprio (vedi `_passo_statico`,
+`write_inp`): questa non è una card che un passo dichiara una volta sola,
+come il `*CLOAD` di un carico posizionato — è ripetuta apposta in ognuno.
+`carichi.spinta` (`SPINTA_ORIZZONTALE`), però, aggiunge una **seconda** riga
+`GRAV` nel **solo** passo in cui è dichiarata: nessun passo successivo la
+ripete, e nessuna riga scrive mai `*DLOAD, OP=NEW`.
+
+`sonda-dload.inp` ha tre passi statici sullo stesso tetraedro:
+
+```
+** PASSO 1: *DLOAD con GRAV verticale (100) e GRAV orizzontale (20).
+*STEP
+*STATIC
+*DLOAD
+TUTTO, GRAV, 100.0, 0.0, 0.0, -1.0
+TUTTO, GRAV, 20.0, 1.0, 0.0, 0.0
+...
+** PASSO 2: *DLOAD con la sola GRAV verticale (100), nessun OP=NEW.
+*STEP
+*STATIC
+*DLOAD
+TUTTO, GRAV, 100.0, 0.0, 0.0, -1.0
+...
+** PASSO 3: *DLOAD, OP=NEW con la sola GRAV verticale (100): isola per contrasto.
+*STEP
+*STATIC
+*DLOAD, OP=NEW
+TUTTO, GRAV, 100.0, 0.0, 0.0, -1.0
+...
+```
+
+Le reazioni sul set vincolato `BASSO`, per passo (`sonda.dat`, righe
+`forces (fx,fy,fz) for set BASSO`, valori sui nodi 1, 2, 3):
+
+| passo | `*DLOAD` dichiarato in quel passo | reazioni |
+|---|---|---|
+| 1 | verticale (100) + orizzontale (20) | `(7.476190E-06, 1.401786E-05, 2.616667E-05)` / `(-1.401786E-05, 0, 6.541667E-06)` / `(0, -1.401786E-05, 0)` |
+| 2 | verticale (100) soltanto | **identiche, bit per bit**, a quelle del passo 1 |
+| 3 | `*DLOAD, OP=NEW`, verticale (100) soltanto | diverse: `(1.401786E-05, 1.401786E-05, 3.270833E-05)` / `(-1.401786E-05, 0, 0)` / `(0, -1.401786E-05, 0)` |
+
+Il passo 2 ridichiara la **stessa** riga verticale del passo 1 (stesso
+`ELSET`, stessa direzione, stesso modulo) e non la raddoppia: la reazione
+resta quella del passo 1, non il doppio. Ma la riga orizzontale, **mai
+ripetuta** nel passo 2, resta comunque attiva: le reazioni del passo 2 sono
+identiche a quelle del passo 1, non a quelle "sola verticale" che il passo 3
+mostra per contrasto (dove `OP=NEW` azzera tutto e lascia solo ciò che quel
+passo dichiara).
+
+## Conseguenza
+
+Una configurazione che dichiara `carichi.spinta` **insieme a** un
+`carico_sommita` o a uno o più `carichi.posizionati` — la combinazione che
+questa stessa fase rende possibile per la prima volta — scrive un deck dove
+la spinta orizzontale, dichiarata una volta sola nel passo
+`SPINTA_ORIZZONTALE`, resta attiva in **ogni** passo statico successivo:
+`CARICO_TOP` e ciascun posizionato includerebbero silenziosamente anche la
+spinta, sommata al proprio carico, senza che il nome del passo lo prometta e
+senza che `ccx` emetta alcun avviso. È lo stesso guasto di `*CLOAD` misurato
+sopra, sullo stesso meccanismo (`OP=NEW` assente), su una card diversa.
+
+La corsa dimostrativa citata in questo documento (`lab_telaio_v4_posizionati_top`)
+non dichiara `carichi.spinta` (`casi_di_carico` è `["GRAVITA", "PRESSA",
+"TORSIONE"]`): i numeri già pubblicati in `docs/fase-5-analisi.md` e
+`docs/fase-6-carichi.md` non sono toccati da questa misura. Il guasto è
+nella combinazione `spinta` + (`carico_sommita` o `posizionati`), non ancora
+corretto: **la scelta di come e dove chiuderlo resta aperta**, non è presa
+in questo documento.
