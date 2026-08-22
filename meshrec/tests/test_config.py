@@ -514,3 +514,140 @@ def test_i_sei_nomi_dichiarati_sono_quelli_che_il_deck_fabbrica():
     assert tuple(insiemi) == config.NOMI_SET_DI_FACCIA
     for nome, indici in atteso.items():
         assert sorted(insiemi[nome].tolist()) == indici, nome
+
+
+def _config_con_posizionato(**campi_carico):
+    base = {"nome": "PRESSA", "selettore": "piastra", "forza": [0.0, 0.0, -12000.0]}
+    base.update(campi_carico)
+    return crea_config(
+        input=config.InputConfig(path="nuvola.ply"),
+        selettori={"piastra": {"tipo": "box", "min": [0.0, 0.0, 0.0], "max": [1.0, 1.0, 1.0]}},
+        carichi=config.CarichiConfig(posizionati=[base]),
+    )
+
+
+def test_un_posizionato_porta_nome_selettore_e_forza():
+    """La forma minima di un carico posizionato entra e si rilegge.
+
+    Mutazione che lo uccide: predefinito `None` su `posizionati` invece
+    della tupla vuota. `cfg.carichi.posizionati[0]` diventa un TypeError.
+    """
+    cfg = _config_con_posizionato()
+    assert cfg.carichi.posizionati[0].nome == "PRESSA"
+    assert cfg.carichi.posizionati[0].forza == (0.0, 0.0, -12000.0)
+    assert cfg.carichi.posizionati[0].momento is None
+
+
+def test_senza_posizionati_la_tupla_e_vuota():
+    """Chi non dichiara carichi posizionati ottiene (), non None.
+
+    Mutazione che lo uccide: `default=None`. Il codice a valle itera.
+    """
+    cfg = crea_config(input=config.InputConfig(path="nuvola.ply"))
+    assert cfg.carichi.posizionati == ()
+
+
+def test_un_carico_dichiara_o_forza_o_momento_mai_entrambi():
+    """Forza e momento insieme sono due carichi: due voci, non una.
+
+    Mutazione che lo uccide: un validatore che controlla solo il caso
+    "nessuno dei due". Questo test cade, l'altro passa.
+    """
+    with pytest.raises(ValidationError, match="uno solo"):
+        _config_con_posizionato(momento={"asse": [0.0, 0.0, 1.0], "modulo": 1.0, "braccio": 1.0})
+
+
+def test_un_carico_senza_forza_ne_momento_e_rifiutato():
+    """Un carico che non dice quanto vale non e' un carico.
+
+    Mutazione che lo uccide: un validatore che controlla solo il caso
+    "entrambi". Questo test cade, l'altro passa.
+    """
+    with pytest.raises(ValidationError, match="uno solo"):
+        _config_con_posizionato(forza=None)
+
+
+def test_la_forza_nulla_e_rifiutata():
+    """Un vettore forza di modulo zero scriverebbe un passo che non carica nulla.
+
+    Mutazione che lo uccide: togliere il controllo sul modulo. Il carico
+    entra e produce un passo statico identico al peso proprio, con un
+    nome che promette altro.
+    """
+    with pytest.raises(ValidationError, match="modulo"):
+        _config_con_posizionato(forza=[0.0, 0.0, 0.0])
+
+
+def test_un_carico_che_cita_un_selettore_non_dichiarato_e_rifiutato():
+    """Il riferimento si controlla senza mesh: e' un rifiuto a validazione.
+
+    Mutazione che lo uccide: spostare il controllo a valle, dove il
+    sintomo sarebbe "zero nodi" e si confonderebbe con altri quattro.
+    """
+    with pytest.raises(ValidationError, match="fantasma"):
+        crea_config(
+            input=config.InputConfig(path="nuvola.ply"),
+            selettori={"piastra": {"tipo": "nset", "nome": "TOP"}},
+            carichi=config.CarichiConfig(
+                posizionati=[{"nome": "PRESSA", "selettore": "fantasma", "forza": [0.0, 0.0, -1.0]}]
+            ),
+        )
+
+
+@pytest.mark.parametrize("riservato", config.NOMI_PASSO_RISERVATI)
+def test_un_carico_non_puo_chiamarsi_come_un_passo_riservato(riservato):
+    """Il nome del carico diventa il nome del passo, e tre nomi sono gia' presi.
+
+    Mutazione che lo uccide: controllare solo CARICO_TOP.
+    """
+    with pytest.raises(ValidationError, match=riservato):
+        _config_con_posizionato(nome=riservato)
+
+
+@pytest.mark.parametrize("variante", ["carico_top", "Modale", "Spinta_Orizzontale", "gravita"])
+def test_il_nome_riservato_e_preso_anche_cambiando_le_maiuscole(variante):
+    """Stessa regola dei selettori: il confronto sui nomi ignora il caso.
+
+    `gravita` e' il predefinito di `analysis.step_name`, che non sta fra i
+    riservati ma e' preso lo stesso.
+
+    Mutazione che lo uccide: togliere `.casefold()` dal confronto coi
+    riservati. Tutte e quattro le varianti passano la validazione.
+    """
+    with pytest.raises(ValidationError, match="gia' preso"):
+        _config_con_posizionato(nome=variante)
+
+
+def test_due_posizionati_che_differiscono_solo_per_caso_collidono():
+    """Due passi omonimi a meno del caso sono indistinguibili nel rapporto.
+
+    Mutazione che lo uccide: togliere `.casefold()` dalla chiave di
+    `visti`. I due carichi passano e il deck esce con due passi che
+    solo una lettura attenta distingue.
+    """
+    with pytest.raises(ValidationError, match="PRESSA"):
+        crea_config(
+            input=config.InputConfig(path="nuvola.ply"),
+            selettori={"piastra": {"tipo": "nset", "nome": "TOP"}},
+            carichi=config.CarichiConfig(posizionati=[
+                {"nome": "PRESSA", "selettore": "piastra", "forza": [0.0, 0.0, -1.0]},
+                {"nome": "pressa", "selettore": "piastra", "forza": [0.0, 0.0, -2.0]},
+            ]),
+        )
+
+
+def test_due_posizionati_non_possono_avere_lo_stesso_nome():
+    """Due passi omonimi nel deck: i due risultati diventano indistinguibili.
+
+    Mutazione che lo uccide: togliere il controllo di unicita'. Il deck
+    esce con due `** NOME PASSO: PRESSA`.
+    """
+    with pytest.raises(ValidationError, match="PRESSA"):
+        crea_config(
+            input=config.InputConfig(path="nuvola.ply"),
+            selettori={"piastra": {"tipo": "nset", "nome": "TOP"}},
+            carichi=config.CarichiConfig(posizionati=[
+                {"nome": "PRESSA", "selettore": "piastra", "forza": [0.0, 0.0, -1.0]},
+                {"nome": "PRESSA", "selettore": "piastra", "forza": [0.0, 0.0, -2.0]},
+            ]),
+        )

@@ -719,10 +719,64 @@ Selettore = Annotated[
 ]
 
 
+class Momento(_ModelloBase):
+    """Momento realizzato come coppia di forze staticamente equivalente.
+
+    Non come `*CLOAD` sui gradi 4-6: misurato su un deck di sonda dato a
+    `ccx` 2.22, un momento concentrato su un C3D4 e' scartato **in
+    silenzio** -- zero occorrenze di `warning` o `error`, `number of
+    equations 3`, spostamento `0.000000E+00` su tutte e tre le componenti.
+    La guardia di `core/solve.py:438` non lo intercetta perche' non c'e'
+    nessun warning da intercettare.
+
+    `braccio` dichiara quanto distano fra loro le due forze della coppia, e
+    il programma lo contraddice se i nodi presi non lo sostengono. Il
+    momento realizzato resta `modulo`: e' la forza a calibrarsi sul braccio
+    che i nodi offrono davvero, non il momento a scostarsi da quello
+    dichiarato.
+    """
+
+    asse: tuple[float, float, float] = Field(
+        description="asse del momento, versore non normalizzato"
+    )
+    modulo: float = Field(gt=0.0, description="modulo del momento [N*mm]")
+    braccio: float = Field(gt=0.0, description="distanza fra le due forze della coppia [mm]")
+
+
+class CaricoPosizionato(_ModelloBase):
+    """Un carico che porta con se' il proprio indirizzo.
+
+    E' la differenza vera dagli altri tre casi di `CarichiConfig`, che sono
+    dichiarati a mano anche loro ma citano un insieme che il deck fabbrica.
+    """
+
+    nome: NomeSet = Field(description="nome del passo statico nel deck")
+    selettore: NomeSet = Field(description="nome di un selettore dichiarato in `selettori`")
+    forza: tuple[float, float, float] | None = Field(
+        default=None, description="risultante [N], ripartita per area sui nodi presi"
+    )
+    momento: Momento | None = None
+
+    @model_validator(mode="after")
+    def _o_forza_o_momento(self) -> "CaricoPosizionato":
+        if (self.forza is None) == (self.momento is None):
+            raise ValueError(
+                f"il carico '{self.nome}' deve dichiarare uno solo fra `forza` e "
+                "`momento`: entrambi sono due carichi e vanno scritti come due voci, "
+                "nessuno dei due non e' un carico"
+            )
+        if self.forza is not None and not any(self.forza):
+            raise ValueError(
+                f"il carico '{self.nome}' ha forza di modulo nullo: scriverebbe un "
+                "passo statico identico al peso proprio, con un nome che promette altro"
+            )
+        return self
+
+
 class CarichiConfig(_ModelloBase):
     """Casi di carico applicati al modello, oltre al peso proprio.
 
-    I tre campi sono nullabili perché la dichiarazione e' opzionale: chi non
+    I tre campi nullabili lo sono perché la dichiarazione e' opzionale: chi non
     dichiara nulla ottiene il solo peso proprio, l'unico caso che il programma
     puo' derivare dai dati (densita' e gravita' sono gia' nella configurazione).
 
@@ -734,6 +788,15 @@ class CarichiConfig(_ModelloBase):
     spinta: SpintaOrizzontale | None = None
     carico_sommita: CaricoSommita | None = None
     modale: Modale | None = None
+    posizionati: tuple[CaricoPosizionato, ...] = Field(
+        default=(),
+        description=(
+            "carichi che portano con se' il proprio selettore. Tupla vuota e non "
+            "None: il codice a valle itera, e una corsa senza posizionati e una "
+            "con la lista vuota sono lo stesso esperimento -- e' la regola che "
+            "l'impronta di sweep gia' applica al blocco intero"
+        ),
+    )
 
 
 class PipelineConfig(_ModelloBase):
@@ -791,6 +854,45 @@ class PipelineConfig(_ModelloBase):
                     "(vedi docs/fase-6-cantiere/sonda-caso-nomi/README.md)"
                 )
             visti[chiave] = nome
+        return self
+
+    @model_validator(mode="after")
+    def _i_posizionati_citano_selettori_dichiarati(self) -> "PipelineConfig":
+        # Il confronto sui nomi ignora il caso, come gia' fa
+        # `_i_nomi_dei_selettori_non_collidono_coi_sei`. Una sola regola nel
+        # modulo, non due: la ragione la' era misurata (ccx risolve gli *NSET
+        # senza distinguere le maiuscole, vedi
+        # docs/fase-6-cantiere/sonda-caso-nomi/), qui e' che due passi che
+        # differiscono solo per caso sono indistinguibili per chi legge il
+        # rapporto, e un nome che l'operatore crede nuovo ne sovrascrive uno
+        # riservato nella sua testa se non nel deck.
+        riservati = {nome.casefold(): nome for nome in NOMI_PASSO_RISERVATI}
+        riservati[self.analysis.step_name.casefold()] = self.analysis.step_name
+        visti: dict[str, str] = {}
+        for carico in self.carichi.posizionati:
+            if carico.selettore not in self.selettori:
+                raise ValueError(
+                    f"il carico '{carico.nome}' cita il selettore "
+                    f"'{carico.selettore}', che non e' dichiarato. Dichiarati: "
+                    f"{sorted(self.selettori)}"
+                )
+            chiave = carico.nome.casefold()
+            if chiave in riservati:
+                raise ValueError(
+                    f"il carico '{carico.nome}' porta il nome del passo "
+                    f"'{riservati[chiave]}', gia' preso. I riservati sono "
+                    f"{list(NOMI_PASSO_RISERVATI)} e il passo di peso proprio si "
+                    f"chiama '{self.analysis.step_name}'. Il confronto ignora il "
+                    "caso: due passi che differiscono solo per maiuscole sono "
+                    "indistinguibili per chi legge il rapporto"
+                )
+            if chiave in visti:
+                raise ValueError(
+                    f"due carichi posizionati si chiamano '{visti[chiave]}' e "
+                    f"'{carico.nome}': il deck scriverebbe due passi omonimi e i "
+                    "due risultati sarebbero indistinguibili nel file risolto"
+                )
+            visti[chiave] = carico.nome
         return self
 
     run: RunConfig = Field(default_factory=RunConfig)
