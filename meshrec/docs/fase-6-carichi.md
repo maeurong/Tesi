@@ -1,12 +1,12 @@
 # Fase 6 — carichi posizionati su una mesh senza topologia
 
-Data di chiusura: 22 agosto 2026. Corsa dimostrativa: `runs/lab_telaio_v4_posizionati`,
-generata in questa sessione sul ramo `feat/impronta-carichi` (HEAD `7d31c1d`)
-a partire dagli stessi artefatti geometrici di `runs/lab_telaio_v2` — stessa
-nuvola, stesso ritaglio, stessa superficie riparata, stessa tetraedrizzazione —
-con in più il blocco `selettori` e due `carichi.posizionati` che questa fase
-introduce. Ogni numero di questo documento porta accanto **il file e il campo
-da cui viene**. Lo script che li riproduce tutti è
+Data di chiusura: 22 agosto 2026. Corsa dimostrativa: `runs/lab_telaio_v4_posizionati_corretto`,
+generata in questa sessione sul ramo `feat/impronta-carichi` a partire dagli
+stessi artefatti geometrici di `runs/lab_telaio_v2` — stessa nuvola, stesso
+ritaglio, stessa superficie riparata, stessa tetraedrizzazione — con in più il
+blocco `selettori` e due `carichi.posizionati` che questa fase introduce. Ogni
+numero di questo documento porta accanto **il file e il campo da cui viene**.
+Lo script che li riproduce tutti è
 [`docs/fase-6-cantiere/misura-carichi.py`](fase-6-cantiere/misura-carichi.py):
 
 ```
@@ -18,6 +18,12 @@ valore pubblicato qui, sul modello di
 [`docs/fase-5-cantiere/misura-deficit.py`](fase-5-cantiere/misura-deficit.py):
 se la corsa cambia, lo script cade invece di stampare in silenzio un numero
 diverso da quello scritto.
+
+Una seconda cartella, `runs/lab_telaio_v4_posizionati` (senza `_corretto`), è
+tenuta apposta accanto alla prima: è la stessa configurazione risolta
+**prima** che il § 5.4 correggesse un difetto trovato durante la scrittura di
+questo stesso documento. Ogni numero fuori dal § 5.4 viene dalla corsa
+corretta.
 
 ---
 
@@ -75,8 +81,8 @@ nulla di deck: prende array di nodi ed elementi e rende indici (`risolvi`,
 `core/selezione.py:67`; `risolvi_tutti`, `core/selezione.py:132`).
 
 La corsa dimostrativa dichiara un selettore per ciascuna delle quattro forme,
-su `lab_telaio_v4_posizionati.yaml`. I nodi risolti e la bbox reale, dal campo
-`11_export.selettori` di `runs/lab_telaio_v4_posizionati/metrics.json`:
+su `lab_telaio_v4_posizionati_corretto.yaml`. I nodi risolti e la bbox reale, dal
+campo `11_export.selettori` di `runs/lab_telaio_v4_posizionati_corretto/metrics.json`:
 
 | selettore | tipo | regola dichiarata | nodi presi | bbox reale dei nodi presi [mm] |
 |---|---|---|---:|---|
@@ -291,7 +297,7 @@ Sulla corsa dimostrativa, il carico `TORSIONE` (momento sull'asse z, modulo
 3.719 nodi): **559 nodi** nel gruppo positivo, **218** nel negativo, braccio
 effettivo **2.116,40 mm** — 2,6 volte il dichiarato, perché `BASE` si
 estende su tutta la larghezza del telaio e i due gruppi, presi oltre ±400 mm
-dal centro, arrivano quasi ai due estremi (`runs/lab_telaio_v4_posizionati/metrics.json`,
+dal centro, arrivano quasi ai due estremi (`runs/lab_telaio_v4_posizionati_corretto/metrics.json`,
 `11_export.carichi_posizionati.TORSIONE`).
 
 ### 5.3 La prova su `ccx` vero: la coppia sposta, la card sul grado 4 no
@@ -321,7 +327,7 @@ il solutore l'ha letta, l'ha accettata, e non ha fatto nulla. È la prova che
 questo documento doveva portare per intero: due deck ugualmente validi
 agli occhi di `ccx`, uno dei quali non applica il carico che promette.
 
-### 5.4 Un difetto trovato: il `*CLOAD` di un passo resta attivo nel successivo
+### 5.4 Un difetto trovato e corretto: il `*CLOAD` di un passo restava attivo nel successivo
 
 La corsa dimostrativa di questo documento è la prima, in tutto il progetto, a
 scrivere **due passi statici consecutivi che portano entrambi un `*CLOAD`**:
@@ -330,25 +336,25 @@ coppia). Fino a questa fase non era mai successo: `SPINTA_ORIZZONTALE` usa
 `*DLOAD`, non `*CLOAD`, e `CARICO_TOP` è sempre stato l'ultimo passo statico
 del deck, senza nulla dopo di sé che potesse risentirne.
 
-Le reazioni misurate sul deck della corsa dimostrativa
-(`runs/lab_telaio_v4_posizionati/13_solution.dat`) mostrano una cosa che il
-progetto non si aspettava:
+**Prima della correzione**, le reazioni misurate sul deck della prima corsa
+(`runs/lab_telaio_v4_posizionati/13_solution.dat`, tenuta apposta come prova)
+mostravano una cosa che il progetto non si aspettava:
 
-| passo | Σfz misurata |
+| passo | Σfz misurata (prima) |
 |---|---:|
-| `GRAVITA` | 4.162,392140 N |
-| `PRESSA` (peso + forza da −1.000 N) | **5.162,392212 N** |
-| `TORSIONE` (peso + coppia, risultante netta nulla) | **5.162,392212 N** |
+| `GRAVITA` | 4.162,39 N |
+| `PRESSA` (peso + forza da −1.000 N) | **5.162,39 N** |
+| `TORSIONE` (peso + coppia, risultante netta nulla) | **5.162,39 N** |
 
 Una coppia ha risultante netta nulla per costruzione: se il passo `TORSIONE`
-portasse solo il proprio carico più il peso proprio, la sua reazione dovrebbe
-tornare a **4.162,39 N**, uguale a `GRAVITA`. Invece coincide, a sette cifre,
-con quella del passo `PRESSA` precedente: il `*CLOAD` da −1.000 N scritto per
-`PRESSA` **è ancora attivo** durante la soluzione di `TORSIONE`, sommato al
-carico che quel passo dichiara davvero.
+portasse solo il proprio carico più il peso proprio, la sua reazione doveva
+tornare a **4.162,39 N**, uguale a `GRAVITA`. Invece coincideva, a sette
+cifre, con quella del passo `PRESSA` precedente: il `*CLOAD` da −1.000 N
+scritto per `PRESSA` **restava attivo** durante la soluzione di `TORSIONE`,
+sommato al carico che quel passo dichiarava davvero.
 
 Una sonda minima, isolata e committata
-(`docs/fase-6-cantiere/sonda-cload-persiste/`), conferma la causa: un
+(`docs/fase-6-cantiere/sonda-cload-persiste/`), ha isolato la causa: un
 tetraedro solo, tre passi statici identici a parte i carichi. Il primo
 dichiara un `*CLOAD` di −100 N; il secondo **non dichiara alcun `*CLOAD`**; il
 terzo dichiara `*CLOAD, OP=NEW` senza righe. Le reazioni misurate sul set
@@ -363,30 +369,74 @@ vincolato:
 Il passo 2 eredita i 100 N del passo 1 pur non dichiarando nulla di suo: un
 `*CLOAD` scritto in un passo statico **resta attivo in ogni passo successivo**
 finché qualcosa non lo sostituisce o non lo azzera esplicitamente con
-`*CLOAD, OP=NEW`. `write_inp` (`core/abaqus.py`) non scrive mai quella card
-fra un passo e il successivo.
+`*CLOAD, OP=NEW`. `write_inp` non scriveva mai quella card fra un passo e il
+successivo.
 
-**Questo è un difetto del programma, non un limite dichiarato.** Il § 8 di
-questo documento riporta, come lo riporta la configurazione approvata di
-questa fase, che «ogni carico dichiarato è un passo statico a sé, col solo
-peso proprio accanto» — ed è vero per come lo **schema** della configurazione
-è fatto: non esiste un modo di chiedere che due carichi si sommino in un
-passo solo. Ma il deck che `write_inp` scrive **non realizza** quella
-promessa quando più di un carico basato su `*CLOAD` compare in sequenza — due
+**Era un difetto del programma, non un limite dichiarato.** Il § 8 di questo
+documento riporta, come la riportava la configurazione approvata di questa
+fase, che «ogni carico dichiarato è un passo statico a sé, col solo peso
+proprio accanto» — vero per come lo **schema** della configurazione è fatto
+(non esiste un modo di chiedere che due carichi si sommino in un passo solo),
+ma il deck che `write_inp` scriveva **non realizzava** quella promessa quando
+più di un carico basato su `*CLOAD` compariva in sequenza — due
 `carichi.posizionati`, oppure un `carico_sommita` seguito da un posizionato.
-Ogni passo dopo il primo che porta un `*CLOAD` include, senza che nulla lo
-segnali, anche il carico di ogni passo precedente che ne aveva scritto uno.
-Zero avvisi, zero errori, spostamenti e reazioni tutti finiti e plausibili —
-esattamente la forma di errore silenzioso che questa fase esiste per stanare,
-questa volta prodotta dal programma stesso invece che da `ccx`.
+Ogni passo dopo il primo che portava un `*CLOAD` includeva, senza che nulla
+lo segnalasse, anche il carico di ogni passo precedente che ne aveva scritto
+uno. Zero avvisi, zero errori, spostamenti e reazioni tutti finiti e
+plausibili — esattamente la forma di errore silenzioso che questa fase esiste
+per stanare, questa volta prodotta dal programma stesso invece che da `ccx`.
 
-Non è stato corretto in questa sessione: la correzione (una card
-`*CLOAD, OP=NEW` prima di ogni passo che dichiara un carico posizionato o
-`carico_sommita`, quando esiste un passo precedente con un `*CLOAD` proprio)
-tocca `core/abaqus.py` ed è un cambio di codice, fuori dal perimetro di questo
-compito. È il primo elemento della coda al § 9, e va risolto prima che una
-configurazione con più di un carico basato su `*CLOAD` in sequenza sia
-considerata affidabile.
+**La correzione**, commit `2fc0ae5`: ogni `*CLOAD` che `write_inp` scrive per
+`carico_sommita`, per un posizionato a forza, o per la coppia di un momento
+(`coppia_equivalente`) diventa `*CLOAD, OP=NEW` — la card che dichiara
+esplicitamente «questi sono gli **unici** carichi concentrati attivi da qui in
+poi», azzerando quelli dei passi precedenti invece di lasciarli attivi per
+omissione. Il `*DLOAD` del peso proprio non tocca questa correzione: si
+ridichiara identico a ogni passo e **sostituisce**, non somma — non ha mai
+sofferto del difetto, ed è per questo che `GRAVITA` è sempre stato corretto.
+
+Rigenerata la corsa dimostrativa con il codice corretto
+(`runs/lab_telaio_v4_posizionati_corretto/`, stessi selettori, stessi due
+carichi posizionati), le stesse reazioni tornano quelle attese:
+
+| passo | Σfz misurata (dopo) |
+|---|---:|
+| `GRAVITA` | 4.162,39 N |
+| `PRESSA` (peso + forza da −1.000 N) | **5.162,39 N** |
+| `TORSIONE` (peso + coppia, risultante netta nulla) | **4.162,39 N** |
+
+`TORSIONE` torna **esattamente** alla reazione di `GRAVITA`, com'è fisicamente
+dovuto per una coppia a risultante nulla; `PRESSA`, il primo passo a
+dichiarare un `*CLOAD`, non cambia di una cifra rispetto a prima — non aveva
+nulla da ereditare. Lo stesso vale per ogni numero del § 2 e del § 7 che
+descrive *come il deck viene scritto* (nodi dei selettori, area tributaria,
+braccio effettivo, momento effettivo): sono fatti decisi in fase di scrittura
+del deck, prima che `ccx` lo risolva, e la card `OP=NEW` non li tocca — solo
+la **soluzione** del passo `TORSIONE` cambia, perché prima portava anche il
+carico di `PRESSA` e ora porta solo il proprio.
+
+Una nota onesta su quella soluzione: sotto il codice corretto, gli spostamenti
+e le tensioni di `TORSIONE` risultano **identici** a quelli di `GRAVITA`, non
+solo le reazioni. Non è un residuo del difetto — è una proprietà di questa
+particolare scelta di selettore: `TORSIONE` agisce sul selettore `appoggio`
+(l'insieme `BASE`), che è **lo stesso insieme** vincolato da `*BOUNDARY,
+BASE, 1, 3`. Una forza concentrata su un grado di libertà già fissato a zero
+per condizione al contorno non produce alcuno spostamento in nessun punto del
+modello: l'intero suo effetto finisce nella reazione di quel nodo, mai nel
+campo di spostamento altrove. È una dimostrazione corretta del braccio e del
+momento effettivo (§ 5.2, § 7) — quei numeri si leggono dal deck scritto, non
+dalla soluzione — ma non è la scelta giusta per mostrare uno spostamento
+indotto dal momento: per quello serve un selettore che non coincida col
+vincolo, ed è la ragione per cui il § 5.3 usa la sonda su un banco a sé
+invece dei numeri risolti di questa corsa.
+
+Verificato che la correzione non tocchi nulla di già pubblicato: lo script
+della Fase 5 (`docs/fase-5-cantiere/misura-deficit.py`) esce ancora a 0 sui
+numeri di `runs/lab_telaio_v3_pesata`, che dichiara un solo carico basato su
+`*CLOAD` (`CARICO_TOP`) e non aveva nulla da cui ereditare. Le due suite
+crescono di un test (`816` invece di `815` sulla suite ordinaria, `14`
+invece di `13` sulla fattibilità — la sonda misurata qui in codice,
+committata come test di regressione).
 
 ---
 
@@ -535,7 +585,7 @@ Fase 5 aveva pubblicato: `selettori` e `carichi_posizionati`, entrambe scritte
 perché fra un nodo solo e tutti i nodi della mesh nessuna soglia può
 giudicare da sola, e mostrare è l'unica risposta onesta (§ 3).
 
-Un estratto reale, da `runs/lab_telaio_v4_posizionati/metrics.json`:
+Un estratto reale, da `runs/lab_telaio_v4_posizionati_corretto/metrics.json`:
 
 ```json
 "selettori": {
@@ -605,13 +655,12 @@ Riportato per intero e alla lettera, come approvato in fase di progetto:
 - **non scrive momenti concentrati.** Un `*CLOAD` sui gradi 4-6 su un
   elemento solido è scartato in silenzio: si veda il § 5.
 - **non combina due posizionati in un passo solo.** Ogni carico dichiarato è
-  **pensato** come un passo statico a sé, col solo peso proprio accanto. Lo
-  schema della configurazione non ha modo di chiedere una combinazione, e
-  questa fase non gliene aggiunge uno — **ma**, come il § 5.4 documenta con
-  le prove, il deck che il programma scrive oggi non realizza questa
-  isolamento quando più di un carico basato su `*CLOAD` compare in sequenza:
-  è un difetto trovato, non un limite scelto, e resta il primo elemento
-  urgente della coda al § 9.
+  un passo statico a sé, col solo peso proprio accanto. Lo schema della
+  configurazione non ha modo di chiedere una combinazione, e questa fase non
+  gliene aggiunge uno. Questa promessa non era mantenuta dal deck fino a
+  questa stessa sessione — il § 5.4 racconta il difetto trovato scrivendo
+  questo documento e la correzione (`2fc0ae5`) che lo ha chiuso: oggi l'isolamento fra passi è
+  garantito sia dallo schema sia dal deck che `write_inp` scrive.
 
 ---
 
@@ -637,15 +686,14 @@ in ordine di priorità dichiarata:
    passa per un dumper che non li conserva, e la libreria che li
    preserverebbe non è fra le dipendenze dichiarate.
 
-A questi cinque si aggiunge, con priorità sopra tutti, il difetto trovato in
-questa stessa sessione:
-
-0. **Il `*CLOAD` di un passo statico resta attivo in quello successivo**
-   (§ 5.4), e nulla nel programma lo azzera fra un carico basato su `*CLOAD`
-   e il successivo. Va corretto — verosimilmente con una card
-   `*CLOAD, OP=NEW` scritta prima di ogni passo che introduce un nuovo
-   carico posizionato o `carico_sommita`, quando un passo precedente ne ha
-   già scritto uno — prima che una configurazione con più di un carico
-   `*CLOAD` in sequenza possa dirsi affidabile. La sonda che lo dimostra è
-   committata in `docs/fase-6-cantiere/sonda-cload-persiste/`, ed è la prima
-   cosa da rileggere per chi riprende questo lavoro.
+Nessuno di questi cinque è più urgente di prima. Il sesto elemento che questa
+sessione avrebbe potuto lasciare in coda — il `*CLOAD` che restava attivo da
+un passo al successivo (§ 5.4) — non ci sta: è stato trovato e **corretto**
+mentre questo stesso documento veniva scritto, con la sonda che lo dimostra
+committata (`docs/fase-6-cantiere/sonda-cload-persiste/`) e la corsa
+dimostrativa rigenerata col codice giusto. È il risultato più concreto che
+questa fase lascia, oltre ai quattro selettori e alla coppia di forze: uno
+strumento pensato per dare a un operatore un indirizzo durevole su una mesh
+senza topologia ha trovato, nel produrre il proprio esempio, un modo in cui
+tradiva silenziosamente quello stesso indirizzo — e la correzione è stata
+misurata, non presunta, prima di essere dichiarata chiusa.

@@ -1,0 +1,110 @@
+input:
+  path: ../Nuvole di punti/lab_frame.pcd
+  scale: 1000.0
+  max_points: 20000000
+  expected_size: null
+  size_tolerance: 0.2
+  spacing_sample: 20000
+  seed: 0
+segment:
+  method: crop
+  outlier_neighbors: 20
+  outlier_std_ratio: 2.0
+  crop_min:
+  - 1690.0
+  - -680.0
+  - -498.0
+  crop_max:
+  - 4460.0
+  - 70.0
+  - 1230.0
+  plane_distance_factor: 3.0
+  plane_max_count: 4
+  plane_min_points_ratio: 0.05
+  cluster_eps_factor: 4.0
+  cluster_min_points: 50
+  cluster_index: 0
+downsample:
+  voxel_size: 10.0
+  voxel_factor: 2.0
+normals:
+  knn: 30
+  orient_knn: 30
+surface:
+  method: poisson
+  poisson_depth: 7
+  poisson_width: 0.0
+  poisson_scale: 1.1
+  density_quantile: 0.05
+  poisson_n_threads: 1
+  bpa_radius_factors:
+  - 1.0
+  - 2.0
+  - 4.0
+  alpha_factor: 5.0
+repair:
+  largest_component_only: true
+  max_hole_area: null
+  join_components: false
+simplify:
+  enabled: false
+  mode: remesh
+  target_faces: null
+  remesh_target_len_pct: 1.0
+  taubin_iterations: 0
+tet:
+  min_ratio: 1.8
+  max_volume: null
+  max_steiner_points: -1
+  nobisect: true
+  element: C3D4
+analysis:
+  material:
+    name: CALCESTRUZZO_C25_30
+    young: 31500.0
+    poisson: 0.2
+    density: 2.5e-09
+  gravity: 9810.0
+  fixed_nset: BASE
+  step_name: GRAVITA
+  set_tolerance_factor: 6.0
+# Fase 6: stessa corsa dimostrativa di lab_telaio_v4_posizionati.yaml (stessi
+# quattro selettori, stessi due carichi posizionati), rigenerata dopo il
+# commit 2fc0ae5 (*CLOAD, OP=NEW). runs/lab_telaio_v4_posizionati/ resta
+# la corsa "prima": prova del difetto trovato in sessione e poi corretto.
+selettori:
+  piastra:
+    tipo: box
+    min: [300.0, 1200.0, 1650.0]
+    max: [600.0, 1500.0, 1799.73]
+  angolo:
+    tipo: sfera
+    centro: [700.0, 2400.0, 1750.0]
+    raggio: 250.0
+  punta:
+    tipo: nodo
+    punto: [418.4551136091061, 1956.815102939099, 1798.7276611328125]
+  appoggio:
+    tipo: nset
+    nome: BASE
+carichi:
+  posizionati:
+    - nome: PRESSA
+      selettore: piastra
+      forza: [0.0, 0.0, -1000.0]
+    - nome: TORSIONE
+      selettore: appoggio
+      momento:
+        asse: [0.0, 0.0, 1.0]
+        modulo: 500000.0
+        braccio: 800.0
+model:
+  element: C3D8I
+  min_layers: 3
+  target_size: null
+  tie_name_prefix: GIUNZIONE
+  lateral_nset: null
+  lateral_pressure: null
+run:
+  out_dir: runs/lab_telaio_v4_posizionati_corretto
+  from_step: 9

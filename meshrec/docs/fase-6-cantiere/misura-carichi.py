@@ -3,11 +3,13 @@
 
 Non fa parte del programma: sta sotto `docs/` apposta, sul modello di
 `docs/fase-5-cantiere/misura-deficit.py`. Legge gli artefatti gia' scritti
-(la corsa dimostrativa in `runs/lab_telaio_v4_posizionati/` e la corsa della
-Fase 5 in `runs/lab_telaio_v2/` e `runs/lab_telaio_v3_pesata/`, entrambe in
-sola lettura) e rifa' da capo le due sonde su `ccx` vero. Ogni valore che il
-documento pubblica porta qui il proprio `assert`: se qualcosa si muove, questo
-script cade invece di stampare in silenzio un numero diverso da quello scritto.
+(la corsa dimostrativa corretta in `runs/lab_telaio_v4_posizionati_corretto/`,
+quella "prima" in `runs/lab_telaio_v4_posizionati/` tenuta come prova del
+difetto del § 5.4, e la corsa della Fase 5 in `runs/lab_telaio_v2/` e
+`runs/lab_telaio_v3_pesata/`, tutte in sola lettura) e rifa' da capo le due
+sonde su `ccx` vero. Ogni valore che il documento pubblica porta qui il
+proprio `assert`: se qualcosa si muove, questo script cade invece di
+stampare in silenzio un numero diverso da quello scritto.
 
     uv run python docs/fase-6-cantiere/misura-carichi.py
 """
@@ -30,7 +32,10 @@ from meshrec.core import abaqus, config, selezione, solve, synth, volume
 RADICE = Path(__file__).resolve().parents[2]
 CORSA_V2 = RADICE / "runs" / "lab_telaio_v2"
 CORSA_PESATA = RADICE / "runs" / "lab_telaio_v3_pesata"
-CORSA_DIMOSTRATIVA = RADICE / "runs" / "lab_telaio_v4_posizionati"
+CORSA_DIMOSTRATIVA = RADICE / "runs" / "lab_telaio_v4_posizionati_corretto"
+# La corsa "prima" del commit 2fc0ae5 (*CLOAD, OP=NEW): stessa configurazione,
+# tenuta apposta come prova del difetto che il § 5.4 racconta.
+CORSA_DIMOSTRATIVA_PRIMA = RADICE / "runs" / "lab_telaio_v4_posizionati"
 
 sys.path.insert(0, str(RADICE / "tests" / "feasibility"))
 from ccx_utils import read_dat_displacements  # noqa: E402
@@ -81,8 +86,11 @@ def main() -> int:
     if not CORSA_DIMOSTRATIVA.is_dir():
         print(
             f"manca {CORSA_DIMOSTRATIVA}: rigenera con "
-            "`uv run meshrec run lab_telaio_v4_posizionati.yaml`"
+            "`uv run meshrec run lab_telaio_v4_posizionati_corretto.yaml`"
         )
+        return 1
+    if not CORSA_DIMOSTRATIVA_PRIMA.is_dir():
+        print(f"manca {CORSA_DIMOSTRATIVA_PRIMA}: era la corsa 'prima' del fix, non si rigenera piu'")
         return 1
 
     print("selettori della corsa dimostrativa (metrics.json, campo 11_export.selettori)")
@@ -113,18 +121,31 @@ def main() -> int:
     uguale(559, torsione["nodi_positivi"], "TORSIONE: nodi del gruppo positivo")
     uguale(218, torsione["nodi_negativi"], "TORSIONE: nodi del gruppo negativo")
 
-    print("\nla contaminazione fra passi statici consecutivi con *CLOAD")
-    reazioni_v4 = solve.leggi_reazioni(CORSA_DIMOSTRATIVA / "13_solution.dat", passo=2)
-    fz_pressa = sum(v[2] for v in reazioni_v4.values())
-    reazioni_v4_t = solve.leggi_reazioni(CORSA_DIMOSTRATIVA / "13_solution.dat", passo=3)
-    fz_torsione = sum(v[2] for v in reazioni_v4_t.values())
-    print(f"  reazione fz sul passo PRESSA:   {fz_pressa:,.6f} N")
-    print(f"  reazione fz sul passo TORSIONE: {fz_torsione:,.6f} N (dovrebbe essere ~4162.39, il solo peso)")
-    assert abs(fz_pressa - fz_torsione) < 1.0, (
-        "le reazioni di PRESSA e TORSIONE sono tornate diverse: la contaminazione "
-        "fra passi non e' piu' riproducibile, il documento va rivisto"
+    print("\nprima del fix: PRESSA e TORSIONE condividevano la stessa reazione (§ 5.4, tabella 'prima')")
+    fz_pressa_prima = sum(
+        v[2] for v in solve.leggi_reazioni(CORSA_DIMOSTRATIVA_PRIMA / "13_solution.dat", passo=2).values()
     )
-    vicino(4162.392140, fz_pressa - 1000.0, 0.01, "reazione fz di PRESSA meno i 1000 N dichiarati")
+    fz_torsione_prima = sum(
+        v[2] for v in solve.leggi_reazioni(CORSA_DIMOSTRATIVA_PRIMA / "13_solution.dat", passo=3).values()
+    )
+    print(f"  reazione fz sul passo PRESSA:   {fz_pressa_prima:,.6f} N")
+    print(f"  reazione fz sul passo TORSIONE: {fz_torsione_prima:,.6f} N")
+    vicino(0.0, fz_pressa_prima - fz_torsione_prima, 1e-3, "prima: PRESSA e TORSIONE coincidevano")
+    vicino(4162.392140, fz_pressa_prima - 1000.0, 0.01, "prima: reazione fz di PRESSA meno i 1000 N dichiarati")
+
+    print("\ndopo il fix (2fc0ae5): PRESSA e TORSIONE hanno reazioni diverse, TORSIONE torna al solo peso")
+    fz_pressa = sum(v[2] for v in solve.leggi_reazioni(CORSA_DIMOSTRATIVA / "13_solution.dat", passo=2).values())
+    fz_gravita = sum(v[2] for v in solve.leggi_reazioni(CORSA_DIMOSTRATIVA / "13_solution.dat", passo=1).values())
+    fz_torsione = sum(v[2] for v in solve.leggi_reazioni(CORSA_DIMOSTRATIVA / "13_solution.dat", passo=3).values())
+    print(f"  reazione fz sul passo GRAVITA:  {fz_gravita:,.6f} N")
+    print(f"  reazione fz sul passo PRESSA:   {fz_pressa:,.6f} N")
+    print(f"  reazione fz sul passo TORSIONE: {fz_torsione:,.6f} N")
+    assert abs(fz_pressa - fz_torsione) > 1.0, (
+        "le reazioni di PRESSA e TORSIONE sono tornate uguali: la correzione "
+        "non e' piu' in vigore, il documento e' sbagliato"
+    )
+    vicino(4162.392140, fz_pressa - 1000.0, 0.01, "dopo: reazione fz di PRESSA meno i 1000 N dichiarati")
+    vicino(fz_gravita, fz_torsione, 1e-3, "dopo: TORSIONE torna esattamente alla reazione di GRAVITA")
 
     print("\nsonda: un *CLOAD resta attivo nel passo statico successivo se non e' azzerato")
     eseguibile = shutil.which("ccx")
