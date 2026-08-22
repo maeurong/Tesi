@@ -1,0 +1,13 @@
+** A: riferimento. Pressione P=1.0 sulla faccia 2 (area 0.5).
+*INCLUDE, INPUT=base.inc
+*BOUNDARY
+FISSI, 1, 3
+*STEP
+*STATIC
+*DSLOAD
+SFACCIA2, P, 1.0
+*NODE PRINT, NSET=NALL
+U
+*NODE PRINT, NSET=FISSI
+RF
+*END STEP

@@ -1,0 +1,13 @@
+** A2: taratura dello strumento. Forza nodale nota 0.5 in +y sul nodo 4.
+*INCLUDE, INPUT=base.inc
+*BOUNDARY
+FISSI, 1, 3
+*STEP
+*STATIC
+*CLOAD
+4, 2, 0.5
+*NODE PRINT, NSET=FISSI, TOTALS=ONLY
+RF
+*NODE PRINT, NSET=FISSI
+RF
+*END STEP

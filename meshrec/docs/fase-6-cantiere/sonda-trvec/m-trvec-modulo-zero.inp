@@ -1,0 +1,13 @@
+** M: ingresso degenere. TRVEC modulo 0.0, direzione (0,0,1) non nulla.
+** Stessa verifica di L dall'altro lato: zero perche' ignorata o zero perche'
+** applicata e nulla?
+*INCLUDE, INPUT=cubo.inc
+*BOUNDARY
+FISSI, 1, 3
+*STEP
+*STATIC
+*DSLOAD
+SOPRA, TRVEC, 0.0, 0.0, 0.0, 1.0
+*NODE PRINT, NSET=LIBERI
+U
+*END STEP

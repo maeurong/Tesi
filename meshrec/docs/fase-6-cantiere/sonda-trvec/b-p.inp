@@ -1,0 +1,13 @@
+** B: riferimento. P=1.0 sulla faccia SOPRA (area 1.0). Risultante attesa 1.0.
+*INCLUDE, INPUT=cubo.inc
+*BOUNDARY
+FISSI, 1, 3
+*STEP
+*STATIC
+*DSLOAD
+SOPRA, P, 1.0
+*NODE PRINT, NSET=LIBERI
+U
+*NODE PRINT, NSET=FISSI, TOTALS=ONLY
+RF
+*END STEP

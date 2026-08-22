@@ -1,0 +1,11 @@
+** K: ingresso degenere. Corpo libero, nessun *BOUNDARY, carico P valido.
+** Oracolo: ccx deve fallire per singolarita', non stampare zeri.
+** Controllo per il caso TRVEC senza vincolo (deck L).
+*INCLUDE, INPUT=cubo.inc
+*STEP
+*STATIC
+*DSLOAD
+SOPRA, P, 1.0
+*NODE PRINT, NSET=LIBERI
+U
+*END STEP

@@ -1,0 +1,12 @@
+** P: trvec in minuscolo. ccx normalizza le keyword; controlla se normalizza
+** anche l'etichetta di carico, cosi' il rifiuto non e' un caso di maiuscole.
+*INCLUDE, INPUT=cubo.inc
+*BOUNDARY
+FISSI, 1, 3
+*STEP
+*STATIC
+*DSLOAD
+SOPRA, trvec, 1.0, 0.0, 0.0, 1.0
+*NODE PRINT, NSET=LIBERI
+U
+*END STEP

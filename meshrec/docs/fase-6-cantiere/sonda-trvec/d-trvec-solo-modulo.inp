@@ -1,0 +1,14 @@
+** D: TRVEC con la sola etichetta e un valore, senza le tre componenti.
+** Separa "etichetta ignota" da "campi in eccesso".
+*INCLUDE, INPUT=cubo.inc
+*BOUNDARY
+FISSI, 1, 3
+*STEP
+*STATIC
+*DSLOAD
+SOPRA, TRVEC, 1.0
+*NODE PRINT, NSET=LIBERI
+U
+*NODE PRINT, NSET=FISSI, TOTALS=ONLY
+RF
+*END STEP

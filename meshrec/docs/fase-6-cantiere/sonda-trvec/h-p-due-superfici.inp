@@ -1,0 +1,13 @@
+** H: due P nello stesso passo su SOPRA (area 1.0) e LATO (area 1.0).
+** Riferimento di coesistenza: se due P convivono, il confronto con I e' pulito.
+*INCLUDE, INPUT=cubo.inc
+*BOUNDARY
+FISSI, 1, 3
+*STEP
+*STATIC
+*DSLOAD
+SOPRA, P, 1.0
+LATO, P, 2.0
+*NODE PRINT, NSET=FISSI, TOTALS=ONLY
+RF
+*END STEP
