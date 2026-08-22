@@ -311,8 +311,9 @@ def test_un_tipo_di_selettore_ignoto_da_un_errore_solo():
             selettori={"strana": {"tipo": "palla", "centro": [0.0, 0.0, 0.0], "raggio": 5.0}},
         )
     errori = scoppio.value.errors()
-    assert len(errori) == 1, [e["loc"] for e in errori]
-    assert "tipo" in errori[0]["msg"]
+    assert len(errori) == 1, [e["type"] for e in errori]
+    assert errori[0]["type"] == "union_tag_invalid"
+    assert errori[0]["ctx"]["discriminator"] == "'tipo'"
 
 
 def test_senza_selettori_il_blocco_e_vuoto_non_assente():
