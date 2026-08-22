@@ -267,10 +267,15 @@ def test_lo_step_name_predefinito_e_i_nomi_liberi_restano_accettati():
 def test_i_quattro_selettori_si_dichiarano_per_nome():
     """Il blocco `selettori` accetta le quattro forme e le tiene per nome.
 
-    Mutazione che lo uccide: togliere `discriminator="tipo"` dall'unione.
-    Senza discriminante pydantic prova i modelli in ordine e una sfera
-    entra come altro o viene rifiutata per il campo sbagliato, quindi
-    l'isinstance sul tipo atteso cade.
+    Mutazione che lo uccide: dare a `SelettoreSfera.tipo` un letterale
+    diverso da `"sfera"`. La dichiarazione della sfera non trova piu'
+    alcun membro dell'unione che la accetti e la configurazione non nasce.
+
+    **Non** lo uccide togliere `discriminator="tipo"`: misurato su
+    pydantic 2.13.4, l'unione in modalita' smart sceglie comunque il
+    modello giusto, perche' i quattro `Literal` sono valori esatti e
+    distinti. Cio' che il discriminatore compra davvero e' la qualita'
+    dell'errore, e ha il proprio test qui sotto.
     """
     cfg = crea_config(
         input=config.InputConfig(path="nuvola.ply"),
@@ -286,6 +291,28 @@ def test_i_quattro_selettori_si_dichiarano_per_nome():
     assert isinstance(cfg.selettori["punta"], config.SelettoreNodo)
     assert isinstance(cfg.selettori["appoggio"], config.SelettoreNset)
     assert cfg.selettori["angolo"].raggio == pytest.approx(5.0)
+
+
+def test_un_tipo_di_selettore_ignoto_da_un_errore_solo():
+    """Cio' che il discriminatore compra: un errore che nomina il campo giusto.
+
+    Misurato su pydantic 2.13.4: con `discriminator="tipo"` un `tipo`
+    sconosciuto produce **un** errore, che dice qual e' il campo
+    sbagliato e quali valori accetta. Senza, l'unione in modalita' smart
+    prova tutti e quattro i membri e ne riporta **quattro**, uno per
+    membro, e chi legge deve capire da se' quale volesse.
+
+    Mutazione che lo uccide: togliere `discriminator="tipo"` dall'alias
+    `Selettore`. Il conteggio degli errori passa da 1 a 4.
+    """
+    with pytest.raises(ValidationError) as scoppio:
+        crea_config(
+            input=config.InputConfig(path="nuvola.ply"),
+            selettori={"strana": {"tipo": "palla", "centro": [0.0, 0.0, 0.0], "raggio": 5.0}},
+        )
+    errori = scoppio.value.errors()
+    assert len(errori) == 1, [e["loc"] for e in errori]
+    assert "tipo" in errori[0]["msg"]
 
 
 def test_senza_selettori_il_blocco_e_vuoto_non_assente():
