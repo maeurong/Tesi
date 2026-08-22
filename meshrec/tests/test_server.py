@@ -2041,15 +2041,21 @@ def test_lo_schema_non_esplode_sul_blocco_selettori(cliente):
     modello: non ha `model_fields` come `carichi` (un `BaseModel`), e prima
     della guardia lo endpoint lo tratta comunque cosi' e va in 400.
 
-    Mutazione che lo uccide: togliere la guardia su `hasattr(annidato,
-    "model_fields")` in `schema()` (core/app/server.py) e tornare a chiamare
-    `annidato.model_fields` incondizionatamente -- l'AttributeError torna e
-    la richiesta a `/api/schema` torna a rispondere 400.
+    Due mutazioni, due modi di fallire:
+
+    1. togliere la guardia su `hasattr(annidato, "model_fields")` in
+       `schema()` (core/app/server.py) e tornare a chiamare
+       `annidato.model_fields` incondizionatamente -- l'AttributeError torna
+       e la richiesta a `/api/schema` torna a rispondere 400.
+    2. far rendere alla guardia un valore diverso da `{}` (per esempio
+       `campi[blocco] = None`) -- resterebbe 200, e senza l'asserzione sul
+       valore il test non se ne accorgerebbe.
     """
     risposta = cliente.get("/api/schema")
     assert risposta.status_code == 200
     corpo = risposta.json()
     assert corpo["11"]["blocchi"] == ["tet", "analysis", "carichi", "selettori"]
+    assert corpo["11"]["campi"]["selettori"] == {}
 
 
 def test_il_tempo_dello_step_viene_dal_server_e_non_dal_browser(cliente):

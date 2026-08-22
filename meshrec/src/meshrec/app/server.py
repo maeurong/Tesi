@@ -426,6 +426,13 @@ def create_app(config_path: Path) -> FastAPI:
                 # `BaseModel`: le sue voci sono nominate dall'operatore, non
                 # campi fissi da descrivere uno per uno. Niente `model_fields`
                 # da leggere, quindi nessun campo da elencare per questo blocco.
+                #
+                # ponytail: la guardia copre solo le annotazioni non-modello
+                # piatte come questa. Un blocco futuro con un campo
+                # `Optional[QualcheModel]` o `list[QualcheModel]` fallirebbe
+                # lo stesso `hasattr` e uscirebbe con `{}` in silenzio, 200
+                # incluso: se succede, va gestito a parte (unwrap del tipo
+                # annidato), non allargando questa condizione.
                 if not hasattr(annidato, "model_fields"):
                     campi[blocco] = {}
                     continue
