@@ -1091,9 +1091,17 @@ from meshrec.core.config import (
 )
 
 # Quanto lontano puo' cadere il nodo piu' vicino prima che la selezione sia un
-# errore di battitura invece di un indirizzo. Tre spigoli e' misurato: sul
-# telaio (spigolo medio 32,82 mm) il punto legittimo di prova cadeva a
-# 32,17 mm -- un solo spigolo -- e quello degenere a 9 979,9 mm.
+# errore di battitura invece di un indirizzo.
+#
+# Tre spigoli non e' un numero scelto a occhio: e' la soglia piu' stretta che
+# separa il punto legittimo di prova dal caso degenere sulla mesh del caso
+# studio, con un margine di due ordini di grandezza fra i due. Le misure che
+# la fissano stanno nel documento di fase (`docs/fase-6-carichi.md`), non qui:
+# un numero di laboratorio dentro `src/` lega il programma a una geometria
+# sola, ed e' precisamente cio' che questo progetto non fa.
+#
+# La soglia e' adimensionale apposta. Si scala con la mesh, quindi vale anche
+# su una geometria con spigoli dieci volte piu' grandi.
 SPIGOLI_DI_TOLLERANZA: int = 3
 
 
@@ -1103,6 +1111,17 @@ def spigolo_medio(nodi: np.ndarray, elementi: np.ndarray) -> float:
     Sugli spigoli e non su tutte le coppie di nodi della mesh: due nodi in
     capo opposto al solido non sono uno spigolo, e la loro distanza non
     corrisponde a nulla che la mesh sappia risolvere.
+
+    ponytail: media su tutte le coppie di nodi **dentro un elemento**, che
+    coincide con gli spigoli solo per un simplex -- il tetraedro a quattro
+    nodi, l'unico tipo che arriva qui. Su un esaedro conterebbe anche le
+    diagonali di faccia e di corpo, alzando la media e allentando la soglia
+    dei tre spigoli senza che nulla lo segnali. Non e' un caso raggiungibile
+    oggi: l'unico chiamante e' `risolvi_tutti`, e i selettori arrivano solo
+    dal percorso as-built (`core/pipeline.py:439`), che e' tetraedrico; il
+    percorso esaedrico (`:190`) non li passa. Se un giorno li passasse, la
+    via d'uscita e' la tabella delle facce che `core/abaqus.py` gia' tiene,
+    da cui ricavare gli spigoli veri per tipo di elemento.
     """
     punti = np.asarray(nodi, dtype=np.float64)
     celle = np.asarray(elementi, dtype=np.int64)
