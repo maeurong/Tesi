@@ -1,4 +1,5 @@
 import itertools
+import re
 
 import meshio
 import numpy as np
@@ -1624,30 +1625,165 @@ def test_componente_nulla_non_scrive_riga_cload(cube_mesh, tmp_path):
             assert grado != "1", "componente x nulla ha scritto comunque una riga *CLOAD"
 
 
-def test_carico_con_momento_solleva_notimplementederror(cube_mesh, tmp_path):
-    """Il momento arriva col task successivo: fino ad allora si ferma con un errore esplicito.
+def test_la_coppia_realizza_il_momento_dichiarato(cube_mesh, tmp_path):
+    """Somma delle forze nulla, momento risultante pari al modulo dichiarato.
 
-    Riga del contratto non coperta dai test del brief: nessuno dei test dati
-    dichiara un `momento`.
+    La faccia superiore del banco misura 100 x 40 mm: un braccio di 60 mm
+    ci sta, e i due gruppi sono non vuoti.
 
-    Mutazione che lo uccide: saltare il carico in silenzio (`continue`)
-    invece di sollevare. Il deck si scriverebbe senza quel carico e senza
-    dirlo, esattamente lo scarto silenzioso che questa fase toglie di mezzo.
+    Mutazione che lo uccide: dare a entrambi i gruppi lo stesso verso.
+    La somma delle forze smette di essere nulla e il momento si annulla.
+    """
+    nodi, _ = cube_mesh
+    testo = _con_posizionati(tmp_path / "deck.inp", cube_mesh, [
+        config.CaricoPosizionato(
+            nome="TORSIONE", selettore="piastra",
+            momento=config.Momento(asse=(0.0, 0.0, 1.0), modulo=3000.0, braccio=60.0),
+        ),
+    ])
+    forze = _forze_del_passo(testo, "TORSIONE", len(nodi))
+    # Il peso proprio e' una *DLOAD e non compare fra le forze nodali.
+    assert forze.sum(axis=0) == pytest.approx([0.0, 0.0, 0.0], abs=1e-6)
+    momento = np.cross(nodi - nodi.mean(axis=0), forze).sum(axis=0)
+    assert momento[2] == pytest.approx(3000.0, rel=1e-6)
+    assert momento[:2] == pytest.approx([0.0, 0.0], abs=1e-6)
+
+
+def test_un_braccio_piu_largo_dell_estensione_e_rifiutato(cube_mesh, tmp_path):
+    """Il programma contraddice il braccio dichiarato invece di misurarlo da se'.
+
+    La faccia superiore si estende 100 mm: un braccio di 400 non lo
+    sostiene, e il rifiuto riporta entrambi i numeri.
+
+    Mutazione che lo uccide: misurare il braccio dall'estensione invece
+    di verificarlo. Nessuna eccezione, e un numero che nessuno puo'
+    smentire.
+    """
+    with pytest.raises(ValueError, match="400"):
+        _con_posizionati(tmp_path / "deck.inp", cube_mesh, [
+            config.CaricoPosizionato(
+                nome="TORSIONE", selettore="piastra",
+                momento=config.Momento(asse=(0.0, 0.0, 1.0), modulo=100.0, braccio=400.0),
+            ),
+        ])
+
+
+def test_il_rifiuto_del_braccio_riporta_anche_la_misura(cube_mesh, tmp_path):
+    """Il rifiuto porta due numeri, non uno: dichiarato *e* misurato.
+
+    Riga del contratto scoperta durante il task, non coperta dal test dato
+    dal brief (che cerca solo "400" nel messaggio): un messaggio che
+    tacesse il numero misurato lascerebbe l'operatore a indovinare quanto i
+    nodi presi si estendono davvero.
+
+    Mutazione che lo uccide: comporre il messaggio senza il valore di
+    `estensione`. Il pattern sul numero misurato smette di trovare riscontro.
+    """
+    with pytest.raises(ValueError) as errore:
+        _con_posizionati(tmp_path / "deck.inp", cube_mesh, [
+            config.CaricoPosizionato(
+                nome="TORSIONE", selettore="piastra",
+                momento=config.Momento(asse=(0.0, 0.0, 1.0), modulo=100.0, braccio=400.0),
+            ),
+        ])
+    messaggio = str(errore.value)
+    assert "400" in messaggio
+    misurato = re.search(r"estendono ([\d.]+) mm", messaggio)
+    assert misurato is not None, f"nessun numero misurato nel messaggio: {messaggio!r}"
+    assert float(misurato.group(1)) < 400.0
+
+
+def test_il_resoconto_del_momento_dice_dichiarato_ed_effettivo(cube_mesh, tmp_path):
+    """Braccio dichiarato e braccio effettivo sono due numeri diversi, ed entrambi si mostrano.
+
+    I gruppi si formano oltre +-braccio/2, quindi i loro baricentri
+    pesati distano piu' del braccio dichiarato: e' lecito, ed e'
+    esattamente la cosa che il resoconto esiste per far vedere.
+
+    Mutazione che lo uccide: scrivere `braccio_effettivo` uguale a
+    `braccio_dichiarato`. L'assert di disuguaglianza cade.
+    """
+    resoconto: dict[str, object] = {}
+    _con_posizionati(tmp_path / "deck.inp", cube_mesh, [
+        config.CaricoPosizionato(
+            nome="TORSIONE", selettore="piastra",
+            momento=config.Momento(asse=(0.0, 0.0, 1.0), modulo=3000.0, braccio=60.0),
+        ),
+    ], resoconto=resoconto)
+    voce = resoconto["TORSIONE"]
+    assert voce["braccio_dichiarato"] == pytest.approx(60.0)
+    assert voce["braccio_effettivo"] >= 60.0
+    assert voce["momento"] == pytest.approx(3000.0)
+    assert voce["nodi_positivi"] > 0 and voce["nodi_negativi"] > 0
+
+
+def test_un_braccio_che_lascia_un_lato_senza_nodi_e_rifiutato():
+    """Una coppia con una forza sola e' una forza: il lato vuoto si rifiuta.
+
+    Riga del contratto non coperta da alcun test del brief. Punti disposti
+    in modo asimmetrico attorno al proprio baricentro: un braccio che sta
+    dentro l'estensione totale (15 mm) puo' comunque lasciare vuoto un
+    lato, perche' l'estensione e' definita dagli estremi e non dalla loro
+    distribuzione.
+
+    Mutazione che lo uccide: togliere il controllo sui gruppi vuoti, o
+    confondere `>=`/`<=` con `>`/`<` nelle soglie. Il ValueError smette di
+    sollevarsi.
+    """
+    nodi = np.array([
+        [-10.0, 0.0, 0.0],
+        [-9.0, 0.0, 0.0],
+        [-8.0, 0.0, 0.0],
+        [5.0, 0.0, 0.0],
+    ])
+    indici = np.arange(4)
+    momento = config.Momento(asse=(0.0, 0.0, 1.0), modulo=100.0, braccio=14.0)
+    with pytest.raises(ValueError, match="lato"):
+        abaqus.coppia_equivalente(
+            momento, nodi, np.zeros((0, 4), dtype=np.int64), indici, "C3D4", nome="TEST",
+        )
+
+
+def test_la_direzione_di_separazione_usa_fix_sign_non_il_segno_grezzo_della_svd(cube_mesh):
+    """Il segno di `s` viene da `fix_sign`, non da quello arbitrario della SVD.
+
+    Riga del contratto non coperta da alcun test del brief. Si forza la SVD
+    a rendere il primo versore col segno capovolto rispetto a quello
+    "vero": se il codice applica `fix_sign`, il risultato non cambia,
+    perche' la convenzione lo riporta allo stesso segno; se usasse il segno
+    grezzo, gruppo positivo e negativo si scambierebbero e il deck sarebbe
+    diverso.
+
+    Mutazione che lo uccide: togliere la chiamata a `fix_sign` sul
+    risultato della SVD.
     """
     nodi, tetraedri = cube_mesh
     sets = _base_and_top(nodi)
-    with pytest.raises(NotImplementedError, match="momento"):
-        abaqus.write_inp(
-            tmp_path / "deck.inp", nodi, tetraedri,
-            node_sets=sets, material=MATERIALE,
-            nset_selettori={"piastra": sets["TOP"]},
-            carichi=config.CarichiConfig(posizionati=[
-                config.CaricoPosizionato(
-                    nome="TORCI", selettore="piastra",
-                    momento=config.Momento(asse=(0.0, 0.0, 1.0), modulo=100.0, braccio=10.0),
-                ),
-            ]),
+    indici = sets["TOP"]
+    momento = config.Momento(asse=(0.0, 0.0, 1.0), modulo=3000.0, braccio=60.0)
+
+    righe_normali, resoconto_normale = abaqus.coppia_equivalente(
+        momento, nodi, tetraedri, indici, "C3D4", nome="TORSIONE"
+    )
+
+    svd_reale = np.linalg.svd
+
+    def svd_col_segno_capovolto(matrice, full_matrices=False):
+        u, s, vh = svd_reale(matrice, full_matrices=full_matrices)
+        vh = vh.copy()
+        vh[0] = -vh[0]
+        return u, s, vh
+
+    abaqus.np.linalg.svd = svd_col_segno_capovolto
+    try:
+        righe_capovolte, resoconto_capovolto = abaqus.coppia_equivalente(
+            momento, nodi, tetraedri, indici, "C3D4", nome="TORSIONE"
         )
+    finally:
+        abaqus.np.linalg.svd = svd_reale
+
+    assert righe_capovolte == righe_normali
+    assert resoconto_capovolto == resoconto_normale
 
 
 def test_posizionati_vuoto_o_assente_lascia_il_deck_identico(cube_mesh, tmp_path):

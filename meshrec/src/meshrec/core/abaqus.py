@@ -15,6 +15,7 @@ from meshrec.core.config import (
     AnalysisConfig,
     CarichiConfig,
     Material,
+    Momento,
     TetConfig,
 )
 
@@ -270,15 +271,12 @@ def write_inp(
             )
         indici = np.asarray(nset_selettori[carico.selettore], dtype=np.int64)
         if carico.forza is None:
-            # Il momento arriva col task successivo. Non saltarlo in
-            # silenzio: il validatore garantisce che uno dei due campi ci
-            # sia, e un carico che non produce ne' un passo ne' un errore e'
-            # esattamente lo scarto silenzioso che questa fase toglie di
-            # mezzo.
-            raise NotImplementedError(
-                f"il carico '{carico.nome}' dichiara un momento, e il momento come "
-                "coppia di forze non e' ancora scritto"
+            righe_cload, resoconto = coppia_equivalente(
+                carico.momento, nodes, elements, indici, element_type, nome=carico.nome
             )
+            lines += passo_statico(carico.nome, [peso] + righe_cload)
+            posizionati_risolti[carico.nome] = resoconto
+            continue
         modulo = float(np.linalg.norm(carico.forza))
         quote, resoconto = ripartisci(
             modulo, nodes, elements, indici, element_type, nome=carico.nome
@@ -619,6 +617,127 @@ def ripartisci(
         "nodi_ad_area_nulla": int((aree == 0.0).sum()),
     }
     return quote, resoconto
+
+
+def coppia_equivalente(
+    momento: Momento,
+    nodes: np.ndarray,
+    elements: np.ndarray,
+    indici: np.ndarray,
+    element_type: str,
+    *,
+    nome: str,
+) -> tuple[list[str], dict[str, object]]:
+    """Le righe *CLOAD di una coppia di forze staticamente equivalente al momento.
+
+    Non un `*CLOAD` sui gradi 4-6: su un C3D4 `ccx` 2.22 lo scarta senza un
+    warning e con spostamento esattamente zero, e la guardia di
+    `core/solve.py:438` non ha nulla da intercettare.
+
+    Il braccio lo dichiara l'operatore e questa funzione lo contraddice se i
+    nodi presi non lo sostengono. La via opposta -- misurarlo sull'estensione
+    reale -- non chiede nulla ma decide da se', e nessuno la puo' smentire.
+
+    Il momento realizzato e' **esattamente** quello dichiarato: la forza si
+    calibra sul braccio effettivo fra i due baricentri pesati, che i nodi
+    offrono davvero. Il `braccio` dichiarato resta il criterio con cui i due
+    gruppi sono stati scelti, e il resoconto mostra entrambi i numeri.
+    """
+    punti = np.asarray(nodes, dtype=np.float64)
+    indici = np.asarray(indici, dtype=np.int64)
+    # L'asse nullo non arriva fin qui: `Momento` lo rifiuta a validazione
+    # della configurazione, che e' dove vanno i rifiuti che non hanno
+    # bisogno di una mesh. Un secondo controllo qui sarebbe codice morto, e
+    # il codice morto e' peggio dell'assenza: promette una guardia che
+    # nessuno esercita.
+    asse = np.asarray(momento.asse, dtype=np.float64)
+    asse = asse / float(np.linalg.norm(asse))
+
+    presi = punti[indici]
+    baricentro = presi.mean(axis=0)
+    relativi = presi - baricentro
+    piano = relativi - np.outer(relativi @ asse, asse)
+
+    # Direzione di separazione: quella di massima estensione nel piano
+    # perpendicolare all'asse, cioe' dove i nodi offrono il braccio piu'
+    # lungo. `fix_sign` la rende deterministica, altrimenti il segno
+    # arbitrario della SVD scriverebbe due deck diversi dallo stesso dato.
+    _, _, versori = np.linalg.svd(piano, full_matrices=False)
+    separazione = fix_sign(versori[0])
+    proiezione = piano @ separazione
+    estensione = float(proiezione.max() - proiezione.min())
+    if momento.braccio > estensione:
+        raise ValueError(
+            f"il momento '{nome}' dichiara un braccio di {momento.braccio:g} mm, e i "
+            f"{indici.size} nodi presi si estendono {estensione:.3f} mm nella "
+            "direzione della coppia: i nodi non lo sostengono. Accorcia il braccio "
+            "o allarga il selettore"
+        )
+
+    meta = momento.braccio / 2.0
+    positivi = indici[proiezione >= meta]
+    negativi = indici[proiezione <= -meta]
+    if positivi.size == 0 or negativi.size == 0:
+        raise ValueError(
+            f"il momento '{nome}' con braccio {momento.braccio:g} mm lascia un lato "
+            f"senza nodi ({positivi.size} da una parte, {negativi.size} dall'altra): "
+            "una coppia con una sola forza e' una forza"
+        )
+
+    # L'area tributaria si ripartisce una volta sola sull'intero selettore
+    # (Task 6): e' la superficie che ha davvero facce di bordo intere. Un
+    # lato preso da solo puo' non averne -- due nodi soli di una faccia
+    # tagliata a meta' non formano una faccia -- e ripartire su di lui
+    # solleverebbe l'errore di "nessuna faccia di bordo" per un lato che una
+    # faccia ce l'ha, solo condivisa con l'altro lato.
+    quote_totale, _ = ripartisci(1.0, nodes, elements, indici, element_type, nome=nome)
+    maschera_positivi = proiezione >= meta
+    maschera_negativi = proiezione <= -meta
+
+    quote_per_gruppo = []
+    bracci = []
+    for gruppo, maschera in ((positivi, maschera_positivi), (negativi, maschera_negativi)):
+        pesi = quote_totale[maschera]
+        peso_totale = float(pesi.sum())
+        if peso_totale <= 0.0:
+            raise ValueError(
+                f"il momento '{nome}' con braccio {momento.braccio:g} mm lascia un lato "
+                f"({gruppo.size} nodi) senza alcuna area tributaria: nessuna quota da "
+                "ripartire su quel lato"
+            )
+        # Quote normalizzate sul lato: la loro somma e' 1, quindi la forza
+        # del lato (Step 7) si distribuisce per intero fra i suoi nodi.
+        quote = pesi / peso_totale
+        quote_per_gruppo.append(quote)
+        # Baricentro del gruppo pesato dalle quote, proiettato sulla direzione
+        # di separazione.
+        bracci.append(float(((punti[gruppo] - baricentro) @ separazione) @ quote))
+
+    braccio_effettivo = bracci[0] - bracci[1]
+    forza = float(momento.modulo) / braccio_effettivo
+    direzione = np.cross(asse, separazione)
+
+    righe = ["*CLOAD"]
+    for gruppo, quote, segno in (
+        (positivi, quote_per_gruppo[0], 1.0), (negativi, quote_per_gruppo[1], -1.0)
+    ):
+        for nodo, quota in zip(gruppo, quote, strict=True):
+            for grado, componente in enumerate(direzione, start=1):
+                if componente != 0.0:
+                    valore = segno * forza * quota * componente
+                    righe.append(f"{int(nodo) + 1}, {grado}, {valore:.9e}")
+
+    resoconto: dict[str, object] = {
+        "nodi": int(indici.size),
+        "braccio_dichiarato": float(momento.braccio),
+        "braccio_effettivo": braccio_effettivo,
+        "momento": float(momento.modulo),
+        "forza_di_ciascun_lato": forza,
+        "nodi_positivi": int(positivi.size),
+        "nodi_negativi": int(negativi.size),
+        "estensione_disponibile": estensione,
+    }
+    return righe, resoconto
 
 
 def boundary_faces(elements: np.ndarray) -> np.ndarray:
