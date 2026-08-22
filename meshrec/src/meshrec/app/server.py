@@ -422,6 +422,13 @@ def create_app(config_path: Path) -> FastAPI:
             campi: dict[str, object] = {}
             for blocco in blocchi:
                 annidato = modelli[blocco].annotation
+                # `selettori` e' un `dict[NomeSet, Selettore]`, non un
+                # `BaseModel`: le sue voci sono nominate dall'operatore, non
+                # campi fissi da descrivere uno per uno. Niente `model_fields`
+                # da leggere, quindi nessun campo da elencare per questo blocco.
+                if not hasattr(annidato, "model_fields"):
+                    campi[blocco] = {}
+                    continue
                 campi[blocco] = {
                     nome: {
                         "description": campo.description or "",
