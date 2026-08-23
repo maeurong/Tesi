@@ -1495,6 +1495,20 @@ def _forze_del_passo(testo: str, passo: str, quanti_nodi: int) -> np.ndarray:
     return forze
 
 
+def _gradi_del_passo(testo: str, passo: str) -> set[str]:
+    """I gradi di liberta per cui il passo scrive almeno una riga *CLOAD."""
+    gradi: set[str] = set()
+    dentro = False
+    for riga in testo.splitlines():
+        if riga.startswith(f"** NOME PASSO: {passo}"):
+            dentro = True
+        elif riga == "*END STEP":
+            dentro = False
+        elif dentro and not riga.startswith("*") and riga.count(", ") == 2:
+            gradi.add(riga.split(", ")[1])
+    return gradi
+
+
 def test_un_posizionato_scrive_il_nset_del_selettore_e_il_passo_del_carico(cube_mesh, tmp_path):
     """Il selettore diventa un *NSET col suo nome, il carico un passo col suo.
 
@@ -1629,34 +1643,33 @@ def test_selettore_non_risolto_nomina_anche_i_selettori_arrivati(cube_mesh, tmp_
 
 
 def test_componente_nulla_non_scrive_riga_cload(cube_mesh, tmp_path):
-    """Una riga a zero il solutore la legge e la ignora: non si scrive.
+    """Una componente che non conta rispetto alle sorelle non scrive la sua riga.
 
-    Riga del contratto non coperta dai test del brief: quelli dati
-    verificano la somma delle forze, che non cambia se righe a zero
-    vengono scritte in piu'. Tre asserzioni, non una: l'assenza del grado
-    nullo da sola non basta a dire che il filtro `componente != 0.0` fa il
-    suo lavoro sui gradi non nulli -- un filtro che scartasse *tutte* le
-    righe passerebbe comunque il solo controllo di assenza.
+    Due percorsi, un contratto solo. Sulla **forza** la componente nulla
+    arriva esatta dalla configurazione e il confronto con lo zero basta.
+    Sul **momento** no: `np.cross(asse, separazione)` non produce mai uno
+    zero esatto, e con un filtro assoluto meta' delle righe di una coppia
+    erano rumore (misurato: `6, 1, -1.409807015e-16` accanto a
+    `6, 2, 1.000000000e+01`, un grado che l'operatore non ha chiesto).
 
-    Mutazione che lo uccide: togliere il controllo `componente != 0.0` e
-    scrivere comunque la riga per la componente x, qui nulla.
+    L'uguaglianza fra insiemi, non tre `in` separati: l'assenza del grado
+    trascurabile da sola non basta a dire che il filtro fa il suo lavoro
+    sui gradi che contano -- un filtro che scartasse *tutte* le righe
+    passerebbe il solo controllo di assenza.
+
+    Mutazione che lo uccide: rimettere `componente != 0.0` al posto del
+    confronto con `SOGLIA_COMPONENTE_RELATIVA`. Il passo TORSIONE torna a
+    scrivere il grado 1 a 1e-16.
     """
     testo, _ = _con_posizionati(tmp_path / "deck.inp", cube_mesh, [
         config.CaricoPosizionato(nome="PRESSA", selettore="piastra", forza=(0.0, 5.0, -1200.0)),
+        config.CaricoPosizionato(
+            nome="TORSIONE", selettore="piastra",
+            momento=config.Momento(asse=(0.0, 0.0, 1.0), modulo=3000.0, braccio=60.0),
+        ),
     ])
-    gradi_visti: set[str] = set()
-    dentro = False
-    for riga in testo.splitlines():
-        if riga.startswith("** NOME PASSO: PRESSA"):
-            dentro = True
-        elif riga == "*END STEP":
-            dentro = False
-        elif dentro and not riga.startswith("*") and riga.count(", ") == 2:
-            _, grado, _ = riga.split(", ")
-            gradi_visti.add(grado)
-    assert "1" not in gradi_visti, "componente x nulla ha scritto comunque una riga *CLOAD"
-    assert "2" in gradi_visti, "componente y non nulla non ha scritto la sua riga *CLOAD"
-    assert "3" in gradi_visti, "componente z non nulla non ha scritto la sua riga *CLOAD"
+    assert _gradi_del_passo(testo, "PRESSA") == {"2", "3"}
+    assert _gradi_del_passo(testo, "TORSIONE") == {"2"}
 
 
 def test_la_coppia_realizza_il_momento_dichiarato(cube_mesh, tmp_path):

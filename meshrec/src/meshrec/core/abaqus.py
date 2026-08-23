@@ -44,6 +44,17 @@ _SET_ITEMS_PER_LINE = 8
 # di laboratorio dentro `src/` legherebbe questa soglia a una geometria sola.
 TOLLERANZA_MOMENTO_FUORI_ASSE: float = 5e-2
 
+# Una componente di direzione che vale meno di questa frazione della piu'
+# grande dello stesso vettore non scrive la sua riga *CLOAD. Il confronto
+# con lo zero esatto bastava alla forza, che prende le componenti dalla
+# configurazione, e non al momento: `np.cross(asse, separazione)` scrive
+# 1e-16 dove la geometria vuole zero, e meta' delle righe di una coppia
+# erano quel rumore. La soglia sta quattro ordini di grandezza sopra
+# l'arrotondamento del prodotto vettoriale (~1e-16 relativo) e otto sotto
+# qualunque componente che sposti un risultato: risultante e momento
+# realizzati non cambiano in modo misurabile.
+SOGLIA_COMPONENTE_RELATIVA: float = 1e-12
+
 
 class UnconstrainedModelWarning(UserWarning):
     """L'insieme vincolato raggiunge meno della meta' della superficie d'appoggio."""
@@ -51,6 +62,19 @@ class UnconstrainedModelWarning(UserWarning):
 
 class CaricoSulVincoloWarning(UserWarning):
     """Un carico posizionato include, in parte, nodi dell'insieme vincolato."""
+
+
+def _gradi_da_scrivere(direzione: np.ndarray) -> list[tuple[int, float]]:
+    """I gradi di liberta con una componente che conta, e la componente stessa.
+
+    Una riga a zero il solutore la legge e la ignora, e una riga a 1e-16
+    pure: non scriverle tiene il deck leggibile e il conteggio onesto. Il
+    confronto e' relativo alla componente piu' grande dello stesso vettore
+    (vedi `SOGLIA_COMPONENTE_RELATIVA`), perche' su uno dei due percorsi
+    che la chiamano lo zero non arriva mai esatto.
+    """
+    soglia = SOGLIA_COMPONENTE_RELATIVA * float(np.abs(direzione).max())
+    return [(g, c) for g, c in enumerate(direzione, start=1) if abs(c) > soglia]
 
 
 def _set_lines(indices: np.ndarray) -> list[str]:
@@ -323,13 +347,13 @@ def write_inp(
             modulo, nodes, elements, indici, element_type, nome=carico.nome
         )
         versore = np.asarray(carico.forza, dtype=np.float64) / modulo
+        gradi = _gradi_da_scrivere(versore)
         righe_cload = ["*CLOAD, OP=NEW"]
         for nodo, quota in zip(indici, quote, strict=True):
-            for grado, componente in enumerate(versore, start=1):
-                # Una riga a zero il solutore la legge e la ignora: non
-                # scriverla tiene il deck leggibile e il conteggio onesto.
-                if componente != 0.0:
-                    righe_cload.append(f"{int(nodo) + 1}, {grado}, {quota * componente:.9e}")
+            righe_cload += [
+                f"{int(nodo) + 1}, {grado}, {quota * componente:.9e}"
+                for grado, componente in gradi
+            ]
         lines += passo_statico(carico.nome, [peso] + righe_cload)
         resoconto_carico["forza_dichiarata"] = list(carico.forza)
         resoconto_carico["forza_effettiva"] = np.outer(quote, versore).sum(axis=0).tolist()
@@ -786,15 +810,16 @@ def coppia_equivalente(
             "un selettore che giaccia in un piano perpendicolare all'asse"
         )
 
+    gradi = _gradi_da_scrivere(direzione)
     righe = ["*CLOAD, OP=NEW"]
     for gruppo, quote, segno in (
         (positivi, quote_per_gruppo[0], 1.0), (negativi, quote_per_gruppo[1], -1.0)
     ):
         for nodo, quota in zip(gruppo, quote, strict=True):
-            for grado, componente in enumerate(direzione, start=1):
-                if componente != 0.0:
-                    valore = segno * forza * quota * componente
-                    righe.append(f"{int(nodo) + 1}, {grado}, {valore:.9e}")
+            righe += [
+                f"{int(nodo) + 1}, {grado}, {segno * forza * quota * componente:.9e}"
+                for grado, componente in gradi
+            ]
 
     resoconto: dict[str, object] = {
         "nodi": int(indici.size),
