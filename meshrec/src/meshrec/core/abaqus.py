@@ -563,26 +563,20 @@ def surface_area(
     superficie: list[tuple[int, int]],
     element_type: str,
 ) -> float:
-    """Area della superficie di elemento, sommata faccia per faccia.
+    """Area della superficie di elemento, somma delle aree tributarie dei suoi nodi.
 
     E' il controllo che smentisce la superficie esportata: se l'area calcolata
     qui non coincide con quella delle facce che il deck dichiara, la tabella
-    delle etichette nomina facce diverse da quelle volute. Una faccia di piu'
-    di tre nodi e' divisa a ventaglio dal primo, che e' esatto per una faccia
-    piana e sottostima di poco una faccia svergolata.
-    """
-    punti = np.asarray(nodes, dtype=np.float64)
-    elementi = np.asarray(elements, dtype=np.int64)
-    angoli = _ANGOLI_PER_COLONNE[NODI_PER_ELEMENTO[element_type]]
+    delle etichette nomina facce diverse da quelle volute.
 
-    totale = 0.0
-    for elemento, numero in superficie:
-        nodi = [elementi[elemento][indice] for indice in FACCE_DEL_SOLUTORE[angoli][numero - 1]]
-        for primo, secondo in zip(nodi[1:-1], nodi[2:], strict=True):
-            lato_a = punti[primo] - punti[nodi[0]]
-            lato_b = punti[secondo] - punti[nodi[0]]
-            totale += float(np.linalg.norm(np.cross(lato_a, lato_b)) / 2.0)
-    return totale
+    Delega ad `aree_tributarie` invece di ripetere lo stesso ciclo sulle
+    facce: le due erano gemelle a mano, stesso ciclo e stesse tabelle
+    duplicati, e la somma di un array per nodo e' per costruzione lo stesso
+    numero della somma diretta per faccia -- a meno dell'ordine in cui i
+    numeri in virgola mobile si sommano, che qui e' per nodo invece che per
+    faccia.
+    """
+    return float(aree_tributarie(nodes, elements, superficie, element_type).sum())
 
 
 def aree_tributarie(
@@ -593,11 +587,9 @@ def aree_tributarie(
 ) -> np.ndarray:
     """L'area della superficie ripartita sui suoi nodi, un terzo per triangolo.
 
-    Gemella di `surface_area`: stesso ciclo, stesse tabelle, stesso ventaglio
-    dal primo nodo per una faccia di piu' di tre nodi. Cambia solo dove
-    l'area finisce -- in un array indicizzato per nodo invece che in uno
-    scalare -- e la somma dell'array e' per costruzione il valore che
-    `surface_area` rende sulla stessa superficie.
+    `surface_area` e' `.sum()` di questo array: stesso ciclo, stesse tabelle,
+    stesso ventaglio dal primo nodo per una faccia di piu' di tre nodi, una
+    sola volta invece che duplicati in due funzioni gemelle a mano.
 
     Serve alla ripartizione di una risultante: uniforme per nodo il carico
     si concentra dove i nodi sono piu' fitti, che e' una proprieta' del
