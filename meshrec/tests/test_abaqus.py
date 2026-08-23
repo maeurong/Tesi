@@ -2047,6 +2047,52 @@ def test_una_superficie_leggermente_irregolare_non_solleva(cube_mesh):
     assert eff[2] == pytest.approx(3000.0, rel=1e-3)
 
 
+def test_il_momento_riporta_i_nodi_ad_area_nulla(cube_mesh):
+    """Il resoconto di `ripartisci` non si butta: il momento lo rende come CARICO_TOP.
+
+    `coppia_equivalente` scartava il secondo valore di `ripartisci`
+    (`quote_totale, _ =`), e un momento su un selettore con nodi ad area
+    tributaria nulla non li contava ne' li riportava. Per CARICO_TOP quel
+    campo esiste dalla Fase 5: e' la stessa correzione, regredita su un
+    secondo percorso.
+
+    Su questo banco nessun nodo di TOP ha area nulla, e **zero e' un
+    valore, non un'assenza**: la chiave c'e' comunque.
+
+    Mutazione che lo uccide: tornare a `quote_totale, _ = ripartisci(...)`
+    e non scrivere la chiave. `KeyError` al posto dello 0.
+    """
+    nodi, tetraedri = cube_mesh
+    indici = np.flatnonzero(nodi[:, 2] >= nodi[:, 2].max() - 1e-6)
+    momento = config.Momento(asse=(0.0, 0.0, 1.0), modulo=3000.0, braccio=60.0)
+    _, resoconto = abaqus.coppia_equivalente(momento, nodi, tetraedri, indici, "C3D4", nome="TEST")
+    assert resoconto["nodi_ad_area_nulla"] == 0
+
+
+def test_il_momento_riporta_il_rapporto_dei_valori_singolari(cube_mesh):
+    """Quanto la direzione della coppia sia determinata si legge nel resoconto.
+
+    `separazione` e' il primo vettore singolare di `piano`: ben definito
+    quando il primo valore singolare domina il secondo, arbitrario quando i
+    due pareggiano. Il rapporto fra i due e' la misura di quel margine, e
+    finora stava solo in una nota di `docs/fase-6-carichi.md`: adesso esce
+    accanto a `momento_effettivo`, cosi' il numero si vede su ogni corsa.
+
+    La faccia superiore del banco misura 100 x 40 mm e i nodi presi sono i
+    suoi quattro vertici: i due semiassi stanno come 40 sta a 100, quindi
+    il rapporto vale 0,4 esatto -- oracolo geometrico, non un numero
+    ricopiato dal programma.
+
+    Mutazione che lo uccide: rendere `valori[0] / valori[1]` invece di
+    `valori[1] / valori[0]`. Il rapporto diventa 2,5.
+    """
+    nodi, tetraedri = cube_mesh
+    indici = np.flatnonzero(nodi[:, 2] >= nodi[:, 2].max() - 1e-6)
+    momento = config.Momento(asse=(0.0, 0.0, 1.0), modulo=3000.0, braccio=60.0)
+    _, resoconto = abaqus.coppia_equivalente(momento, nodi, tetraedri, indici, "C3D4", nome="TEST")
+    assert resoconto["rapporto_valori_singolari"] == pytest.approx(SIZE[1] / SIZE[0], abs=1e-9)
+
+
 def test_il_resoconto_dei_selettori_si_scrive_sempre(cube_mesh, tmp_path):
     """Fra 1 e tutti i nodi nessuna soglia puo' giudicare: si mostra.
 

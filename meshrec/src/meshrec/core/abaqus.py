@@ -728,9 +728,13 @@ def coppia_equivalente(
 
     # Direzione di separazione: quella di massima estensione nel piano
     # perpendicolare all'asse, cioe' dove i nodi offrono il braccio piu'
-    # lungo. `fix_sign` la rende deterministica, altrimenti il segno
-    # arbitrario della SVD scriverebbe due deck diversi dallo stesso dato.
-    _, _, versori = np.linalg.svd(piano, full_matrices=False)
+    # lungo. `fix_sign` ne fissa il **segno**, non l'asse: quale dei due
+    # vettori esca dalla SVD lo decide il rapporto fra i due valori
+    # singolari, e quando quei due pareggiano lo decide il rumore
+    # numerico. Il rapporto finisce nel resoconto
+    # (`rapporto_valori_singolari`) perche' si veda anche quando passa; la
+    # condizione d'uso e' in docs/fase-6-carichi.md, sezione 5.2.
+    _, valori_singolari, versori = np.linalg.svd(piano, full_matrices=False)
     separazione = fix_sign(versori[0])
     proiezione = piano @ separazione
     estensione = float(proiezione.max() - proiezione.min())
@@ -758,7 +762,9 @@ def coppia_equivalente(
     # tagliata a meta' non formano una faccia -- e ripartire su di lui
     # solleverebbe l'errore di "nessuna faccia di bordo" per un lato che una
     # faccia ce l'ha, solo condivisa con l'altro lato.
-    quote_totale, _ = ripartisci(1.0, nodes, elements, indici, element_type, nome=nome)
+    quote_totale, resoconto_aree = ripartisci(
+        1.0, nodes, elements, indici, element_type, nome=nome
+    )
     maschera_positivi = proiezione >= meta
     maschera_negativi = proiezione <= -meta
 
@@ -827,6 +833,8 @@ def coppia_equivalente(
         "braccio_effettivo": braccio_effettivo,
         "momento_dichiarato": (float(momento.modulo) * asse).tolist(),
         "momento_effettivo": momento_effettivo.tolist(),
+        "rapporto_valori_singolari": float(valori_singolari[1] / valori_singolari[0]),
+        "nodi_ad_area_nulla": resoconto_aree["nodi_ad_area_nulla"],
         "forza_di_ciascun_lato": forza,
         "nodi_positivi": int(positivi.size),
         "nodi_negativi": int(negativi.size),
