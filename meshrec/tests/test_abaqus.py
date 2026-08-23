@@ -1692,6 +1692,36 @@ def test_ogni_cload_apre_il_passo_con_op_new(cube_mesh, tmp_path):
     assert all(riga == "*CLOAD, OP=NEW" for riga in righe_cload), righe_cload
 
 
+def test_ogni_dload_apre_il_passo_con_op_new(cube_mesh, tmp_path):
+    """Un *DLOAD senza OP=NEW resta attivo nel passo successivo per ccx, come il *CLOAD.
+
+    Misurato in `docs/fase-6-cantiere/sonda-cload-persiste/sonda-dload-ridichiarato.inp`:
+    un `*DLOAD` ridichiarato identico (il peso proprio, ripetuto a ogni passo)
+    non raddoppia, ma una riga `GRAV` diversa (la spinta orizzontale) dichiarata
+    in un passo e mai ripetuta resta attiva in ogni passo statico successivo.
+    Con `spinta` e `carico_sommita` insieme -- la combinazione che questa fase
+    rende possibile -- il passo `CARICO_TOP` includerebbe silenziosamente anche
+    la spinta, senza che il nome del passo lo prometta.
+
+    Mutazione che lo uccide: togliere ``, OP=NEW`` dalla riga ``*DLOAD`` che
+    `_passo_statico` apre a ogni passo.
+    """
+    nodi, tetraedri = cube_mesh
+    sets = _base_and_top(nodi)
+    abaqus.write_inp(
+        tmp_path / "deck.inp", nodi, tetraedri,
+        node_sets=sets, material=MATERIALE,
+        carichi=config.CarichiConfig(
+            spinta=config.SpintaOrizzontale(coefficiente=0.1, asse="x"),
+            carico_sommita=config.CaricoSommita(risultante=500.0, nset="TOP"),
+        ),
+    )
+    testo = (tmp_path / "deck.inp").read_text(encoding="ascii")
+    righe_dload = [riga for riga in testo.splitlines() if riga.startswith("*DLOAD")]
+    assert righe_dload, "nessuna riga *DLOAD trovata: il deck non esercita il codice da coprire"
+    assert all(riga == "*DLOAD, OP=NEW" for riga in righe_dload), righe_dload
+
+
 def test_un_braccio_piu_largo_dell_estensione_e_rifiutato(cube_mesh, tmp_path):
     """Il programma contraddice il braccio dichiarato invece di misurarlo da se'.
 

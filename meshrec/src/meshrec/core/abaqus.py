@@ -79,7 +79,7 @@ def _passo_statico(
     conservazione, e sta nel deck perche' e' li' che il solutore lo puo'
     dare.
     """
-    righe = [f"** NOME PASSO: {nome}", "*STEP", "*STATIC", "*DLOAD"]
+    righe = [f"** NOME PASSO: {nome}", "*STEP", "*STATIC", "*DLOAD, OP=NEW"]
     righe += carichi
     if pressure is not None:
         righe += ["*DSLOAD", f"{pressure[0]}, P, {pressure[1]}"]

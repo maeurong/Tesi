@@ -706,6 +706,81 @@ def test_il_secondo_posizionato_non_eredita_il_cload_del_primo(tmp_path):
     assert abs(fy) < 1.0
 
 
+def test_carico_top_non_eredita_la_spinta_del_dload(tmp_path):
+    """Un *DLOAD (GRAV) dichiarato in un passo statico resta attivo nel passo dopo, come il *CLOAD.
+
+    Misurato con la sonda in
+    `docs/fase-6-cantiere/sonda-cload-persiste/sonda-dload-ridichiarato.inp`:
+    il peso proprio si ridichiara identico a ogni passo e non raddoppia, ma
+    la spinta orizzontale (`SPINTA_ORIZZONTALE`), dichiarata una volta sola
+    nel suo passo, restava attiva in ogni passo statico successivo prima
+    che `_passo_statico` aprisse `*DLOAD` con `OP=NEW`. `CARICO_TOP` e' il
+    primo passo dove la combinazione `spinta` + `carico_sommita` e'
+    verificabile: senza il fix la sua reazione orizzontale sarebbe quella
+    di `SPINTA_ORIZZONTALE`, non quella del solo peso.
+
+    L'oracolo e' sulle reazioni orizzontali, non sul testo del deck: un
+    `*DLOAD, OP=NEW` scritto ma letto male da `ccx` non lo smentirebbe un
+    controllo sulla sola stringa.
+
+    Mutazione che lo uccide: togliere ``, OP=NEW`` dalla riga ``*DLOAD`` di
+    `_passo_statico`. Misurato applicando davvero la mutazione: la reazione
+    fx del passo CARICO_TOP resta quella di SPINTA_ORIZZONTALE (~-98 N)
+    invece di tornare a quella del solo peso proprio (~0 N).
+    """
+    executable = shutil.which("ccx")
+    if executable is None:
+        pytest.skip("eseguibile 'ccx' non presente nel PATH")
+
+    material = Material(name="MURATURA", young=1500.0, poisson=0.2, density=1.8e-9)
+    vertices, faces = synth.box_mesh(SIZE)
+    nodes, tets = volume.tetrahedralize(
+        vertices, faces, max_volume=20_000.0, min_ratio=1.8, max_steiner_points=-1, nobisect=False
+    )
+    z = nodes[:, 2]
+    node_sets = {
+        "BASE": np.flatnonzero(z <= z.min() + 1e-6),
+        "TOP": np.flatnonzero(z >= z.max() - 1e-6),
+    }
+
+    abaqus.write_inp(
+        tmp_path / "model.inp", nodes, tets,
+        node_sets=node_sets,
+        material=material,
+        carichi=CarichiConfig(
+            spinta=SpintaOrizzontale(coefficiente=0.1, asse="x"),
+            carico_sommita=CaricoSommita(risultante=500.0, nset="TOP"),
+        ),
+    )
+
+    processo = subprocess.run(
+        [executable, "-i", "model"],
+        cwd=tmp_path, capture_output=True, text=True, timeout=600,
+    )
+    uscita = processo.stdout
+    assert "Job finished" in uscita, uscita[-2000:] + processo.stderr[-2000:]
+    assert uscita.upper().count("*WARNING") == 0, uscita
+    assert uscita.upper().count("*ERROR") == 0, uscita
+
+    # Passo 1: GRAVITA (solo peso). Passo 2: SPINTA_ORIZZONTALE (peso + spinta
+    # orizzontale). Passo 3: CARICO_TOP (peso + *CLOAD in sommita').
+    reazioni_gravita = solve.leggi_reazioni(tmp_path / "model.dat", passo=1)
+    fx_peso, fy_peso, _ = np.array(list(reazioni_gravita.values())).sum(axis=0)
+
+    reazioni_spinta = solve.leggi_reazioni(tmp_path / "model.dat", passo=2)
+    fx_spinta, _, _ = np.array(list(reazioni_spinta.values())).sum(axis=0)
+    assert abs(fx_spinta - fx_peso) > 1.0, "la spinta non ha spostato la reazione orizzontale: il deck non esercita il codice da coprire"
+
+    reazioni_top = solve.leggi_reazioni(tmp_path / "model.dat", passo=3)
+    fx_top, fy_top, _ = np.array(list(reazioni_top.values())).sum(axis=0)
+    assert fx_top == pytest.approx(fx_peso, abs=1.0), (
+        f"fx={fx_top:.3f} N: il passo CARICO_TOP porta ancora la spinta orizzontale "
+        f"del passo precedente (atteso ~{fx_spinta:.1f} N se non azzerata, contro "
+        f"il solo peso proprio ~{fx_peso:.1f} N misurato al passo 1)"
+    )
+    assert fy_top == pytest.approx(fy_peso, abs=1.0)
+
+
 def test_un_momento_come_coppia_non_e_scartato_in_silenzio(tmp_path):
     """Il momento realizzato come coppia sposta davvero, a differenza della card muta.
 
