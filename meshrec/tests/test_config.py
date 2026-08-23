@@ -457,6 +457,32 @@ def test_un_selettore_non_puo_chiamarsi_come_uno_dei_sei_ignorando_il_caso(nome)
         )
 
 
+@pytest.mark.parametrize("nome", config.NOMI_SET_DI_FACCIA)
+def test_selettore_nset_canonicalizza_il_nome_dei_sei(nome):
+    """`SelettoreNset.nome` in caso non canonico (`top`) diventa il caso
+    canonico dei sei (`TOP`): un confronto esatto a valle
+    (`core/selezione.py`) fallirebbe altrimenti su un nome che collide
+    solo ignorando le maiuscole.
+
+    Mutazione che lo uccide: cancellare il `model_validator`
+    `_il_nome_usa_il_caso_canonico_dei_sei`. Nessun test in questo file
+    lo copriva prima: la cancellazione non faceva cadere nulla.
+    """
+    selettore = config.SelettoreNset(tipo="nset", nome=nome.casefold())
+    assert selettore.nome == nome
+
+
+def test_selettore_nset_gia_canonico_non_solleva_e_resta_intatto():
+    """Ingresso degenere: un nome gia' nel caso canonico non e' toccato.
+
+    Mutazione che lo uccide: far sollevare il validatore su un nome gia'
+    canonico, o riscriverlo comunque (nessun effetto visibile qui, ma la
+    riga `if canonico is not None` esiste apposta per non farlo).
+    """
+    selettore = config.SelettoreNset(tipo="nset", nome="TOP")
+    assert selettore.nome == "TOP"
+
+
 def test_due_selettori_che_differiscono_solo_per_caso_collidono():
     """Due chiavi distinte nel dizionario Python sono lo stesso nome nel deck
     (stessa misura di docs/fase-6-cantiere/sonda-caso-nomi/README.md).
