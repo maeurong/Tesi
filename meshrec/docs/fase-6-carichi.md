@@ -301,6 +301,26 @@ dentro ciascun gruppo la forza si ripartisce per area come al § 4. Se un lato
 resta senza nodi, o senza area tributaria, la funzione solleva: una coppia con
 una sola forza è una forza, non un momento.
 
+**Condizione d'uso: la direzione scelta dalla SVD è instabile su un selettore
+quasi isotropo.** `separazione` è il primo vettore singolare di `piano`
+(`coppia_equivalente`, `core/abaqus.py`): ben definito quando il primo valore
+singolare domina il secondo, ma quando i due sono vicini — un selettore la
+cui estensione nel piano perpendicolare all'asse non ha una direzione
+prevalente, per esempio quasi circolare o quadrata — la SVD non ha più un
+vettore dominante da scegliere: un rumore numerico minimo (un nodo in più o
+in meno, un arrotondamento di coordinate) può far scambiare quale dei due
+vettori vince, e la direzione di separazione — quindi i due gruppi di nodi,
+la forza per nodo, il deck scritto — cambia con esso. Non è un'ipotesi:
+misurato sul selettore `TOP` reale usato in questo documento (§ 6.2), il
+rapporto fra i due valori singolari vale **0,096** — un ordine di grandezza
+di margine, il caso studio è al sicuro. Su un selettore vicino alla simmetria
+(rapporto vicino a 1) lo stesso file, alla stessa versione, può scrivere deck
+diversi da una corsa all'altra senza che nulla lo segnali: nessun avviso,
+nessun errore, un `braccio_effettivo` e un `momento_effettivo` diversi nel
+resoconto. Chi dichiara un momento su un selettore quasi simmetrico deve
+verificare il rapporto fra i due valori singolari, non solo il rapporto fuori
+asse del § 6.
+
 **Il momento realizzato è esattamente quello dichiarato, ma il braccio no.**
 I due gruppi raccolgono nodi *oltre* metà del braccio dichiarato in ciascuna
 direzione, quindi i loro baricentri pesati distano fra loro **più** del
