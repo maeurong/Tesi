@@ -303,8 +303,9 @@ Lo conferma la posizione del picco. Il massimo di von Mises sotto gravita' vale
 sopra il punto piu' basso del modello — **non alla base**. Il volume mancante
 sta 1,5 m piu' in basso e non lo tocca. Le tensioni delle altre due condizioni:
 SPINTA_ORIZZONTALE **0,68 MPa** (`13_solve.casi`, `runs/lab_telaio_v2`),
-CARICO_TOP **0,98 MPa** (`13_solve.casi`, `runs/lab_telaio_v3_pesata` — vedi
-sotto, § «I risultati, per caso di carico», per la nota sulla Fase 6).
+CARICO_TOP **0,81 MPa** (`13_solve.casi`, `runs/lab_telaio_v3_pesata_dload_fix`
+— vedi sotto, § «I risultati, per caso di carico», per le due correzioni,
+Fase 6 e la contaminazione da `*DLOAD`).
 
 Quel che il volume mancante toglia davvero e' un'altra cosa, e va detta come
 limite, non come numero: **il set `BASE` di questo modello non e' la faccia
@@ -436,20 +437,22 @@ predefiniti del programma.
 |---|---:|---:|---:|---:|---:|
 | GRAVITA | 0,036730 | 0,0544 | 0,2336 | 0,5056 | 2,164 |
 | SPINTA_ORIZZONTALE | 0,044611 | 0,0537 | 0,2661 | 0,6763 | 2,542 |
-| CARICO_TOP | 0,063802 | 0,0822 | 0,3905 | 0,9809 | 2,512 |
+| CARICO_TOP | 0,058281 | 0,0814 | 0,3736 | 0,8101 | 2,169 |
 
 `u_max` e `vm_max` da `13_solve.casi`; mediana e p99 ricalcolati in questa
 sessione sui 14.103 valori nodali di `13_solution.vtu` (`VM_GRAVITA`,
 `VM_SPINTA_ORIZZONTALE`, `VM_CARICO_TOP`). GRAVITA e SPINTA_ORIZZONTALE vengono
-da `runs/lab_telaio_v2`; la riga `CARICO_TOP` viene da `runs/lab_telaio_v3_pesata`.
+da `runs/lab_telaio_v2`; la riga `CARICO_TOP` viene da
+`runs/lab_telaio_v3_pesata_dload_fix` (§ nota sotto: e' la seconda correzione,
+non la corsa `runs/lab_telaio_v3_pesata` citata altrove in questo documento).
 
-> **Aggiornato con la Fase 6.** I numeri di `CARICO_TOP` sono cambiati perche'
-> la ripartizione di una risultante e' passata da uniforme per nodo ad **area
-> tributaria**: la forma precedente concentrava il carico dove i nodi sono piu'
-> fitti, che e' una proprieta' del maglio e non della struttura. La modifica non
-> riguarda solo i carichi nuovi -- un programma non puo' ripartire in due modi
-> diversi due carichi che fanno la stessa cosa. `GRAVITA`, `SPINTA_ORIZZONTALE`
-> e `MODALE` non sono toccati.
+> **Aggiornato con la Fase 6 (prima correzione).** I numeri di `CARICO_TOP`
+> sono cambiati perche' la ripartizione di una risultante e' passata da
+> uniforme per nodo ad **area tributaria**: la forma precedente concentrava
+> il carico dove i nodi sono piu' fitti, che e' una proprieta' del maglio e
+> non della struttura. La modifica non riguarda solo i carichi nuovi -- un
+> programma non puo' ripartire in due modi diversi due carichi che fanno la
+> stessa cosa. `GRAVITA`, `SPINTA_ORIZZONTALE` e `MODALE` non sono toccati.
 > I valori precedenti, dalla corsa `runs/lab_telaio_v2`: picco 0,98 MPa,
 > `*CLOAD` di 3.036 righe da −0,395257 N ciascuna.
 > Il picco non si sposta quasi per niente (0,9811 → 0,9809 MPa, **0,03%**),
@@ -458,6 +461,54 @@ da `runs/lab_telaio_v2`; la riga `CARICO_TOP` viene da `runs/lab_telaio_v3_pesat
 > (0,395257 → 0,867866 N). E' un risultato, non un'omissione: il picco sta
 > nella viga superior (§ 1), lontano dalla fascia `TOP` che la ripartizione
 > ridisegna, quindi non doveva muoversi molto.
+>
+> **Seconda correzione, sul `*DLOAD`.** I numeri appena sopra -- 0,9808637 MPa,
+> dalla corsa `runs/lab_telaio_v3_pesata` -- descrivevano un caso di carico
+> diverso da quello che il nome `CARICO_TOP` promette. Misurato con
+> `docs/fase-6-cantiere/sonda-cload-persiste/sonda-dload-ridichiarato.inp`:
+> `_passo_statico` apriva ogni passo statico con `*DLOAD` senza `OP=NEW`, e
+> mentre il peso proprio si ridichiara identico a ogni passo (e non
+> raddoppia), la `GRAV` orizzontale della spinta (`SPINTA_ORIZZONTALE`),
+> dichiarata una volta sola nel suo passo, restava attiva in ogni passo
+> statico successivo. La configurazione di `runs/lab_telaio_v3_pesata`
+> dichiara `spinta` **insieme a** `carico_sommita`
+> (`config.yaml`: `spinta: {coefficiente: 0.1, asse: y}`): il suo passo
+> `CARICO_TOP` conteneva quindi peso + spinta + carico in sommita', non
+> peso + carico in sommita' come il nome promette.
+>
+> Corretto in `_passo_statico`: ogni passo statico apre ora con
+> `*DLOAD, OP=NEW`, non solo il `*CLOAD` dei carichi posizionati (che gia'
+> lo scriveva). La corsa e' stata rifatta col codice corretto in
+> `runs/lab_telaio_v3_pesata_dload_fix`, senza toccare
+> `runs/lab_telaio_v3_pesata`, che resta la prova della contaminazione.
+>
+> | grandezza | contaminata (`v3_pesata`) | corretta (`v3_pesata_dload_fix`) |
+> |---|---:|---:|
+> | u_max [mm] | 0,063802 | 0,058281 |
+> | vm mediana [MPa] | 0,0822 | 0,0814 |
+> | vm p99 [MPa] | 0,3905 | 0,3736 |
+> | vm max [MPa] | 0,9809 | 0,8101 |
+> | max/p99 | 2,512 | 2,169 |
+>
+> Il picco scende del **17,4%** (0,9809 → 0,8101 MPa): la spinta orizzontale
+> non e' un contributo trascurabile su questo caso. Il nodo del picco **non
+> si sposta** (indice 7132 del `.vtu`, nodo 7133 del deck, gia' misurato in
+> § «I cinque controlli...»): resta nella viga superior, lontano dalla fascia
+> `TOP`, sui tre casi statici. Le righe `*CLOAD` di `CARICO_TOP` non sono
+> toccate da questa correzione -- il `*DLOAD` e il `*CLOAD` sono card
+> distinte, e la ripartizione per area tributaria (prima correzione, sopra)
+> non dipende da cosa succede al peso proprio o alla spinta: 3.036 righe,
+> somma −1.200,0 N, da 0 a −0,867866 N, 703 nodi a area tributaria nulla,
+> identiche bit per bit su entrambe le corse.
+>
+> **`GRAVITA` e `SPINTA_ORIZZONTALE` non sono toccati da questa seconda
+> correzione**: sono il primo e il secondo passo statico del deck, e non
+> hanno nulla da cui ereditare. Il confronto fra ripartizione uniforme e
+> pesata (prima correzione, sopra) resta valido: entrambi i lati di quel
+> confronto portavano la stessa contaminazione, e il valore assoluto del
+> picco -- non il confronto -- e' cio' che questa correzione cambia. Vedi
+> `docs/fase-6-cantiere/sonda-cload-persiste/README.md`, sezione
+> «Il fratello: `*DLOAD`», per la misura completa.
 
 **Le cifre di questa tabella, e di quella dei controlli e dei modi, sono i
 valori come li scrive il solutore — non la precisione che il dato sostiene.**
@@ -593,7 +644,9 @@ sono stati rifatti, e `11_export.node_sets` da' `TOP` **3036**, `BASE` 3719,
 vero **rafforza** l'avvertenza invece di indebolirla: 3.036 nodi sono il
 **21,5%** dei 14.103 del modello, con una tolleranza di set di **134,97 mm**.
 `TOP` non e' una faccia, e' una **fascia spessa**. Verificato nel deck (Fase 6,
-corsa `runs/lab_telaio_v3_pesata`): il `*CLOAD` del passo `CARICO_TOP` ha
+corsa `runs/lab_telaio_v3_pesata_dload_fix` -- le righe `*CLOAD` non sono
+toccate dalla correzione sul `*DLOAD`, e sono identiche a quelle gia'
+verificate su `runs/lab_telaio_v3_pesata`): il `*CLOAD` del passo `CARICO_TOP` ha
 **3.036 righe**, da **0 N** a **−0,867866 N**, somma esatta −1200,0 N. Il
 carico si ripartisce **per area tributaria**, non piu' uniformemente per nodo
 (vedi sopra, § «I risultati, per caso di carico»): 703 dei 3.036

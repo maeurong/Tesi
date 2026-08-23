@@ -247,6 +247,18 @@ fascia `TOP` che la ripartizione ridisegna (`docs/fase-5-analisi.md`, §
 «I cinque controlli, e i loro esiti»). `GRAVITA`, `SPINTA_ORIZZONTALE` e `MODALE` non usano
 questa ripartizione e non cambiano.
 
+> **Nota successiva.** Il valore «dopo» qui sopra (0,9809 MPa) descriveva un
+> caso di carico diverso da quello che `CARICO_TOP` promette: `runs/lab_telaio_v3_pesata`
+> dichiara `spinta` insieme a `carico_sommita`, e un secondo difetto — il
+> `*DLOAD` che non azzerava mai la spinta fra un passo statico e il
+> successivo, § 5.4 qui sotto tratta il difetto gemello sul `*CLOAD` — la
+> lasciava attiva anche in `CARICO_TOP`. Corretto: il picco vero, senza la
+> spinta ereditata, è **0,8101 MPa** (`runs/lab_telaio_v3_pesata_dload_fix`).
+> Le righe `*CLOAD` e la tabella qui sopra non cambiano: la correzione tocca
+> il `*DLOAD`, non il `*CLOAD`. Dettagli in `docs/fase-5-analisi.md`, § «I
+> risultati, per caso di carico», e in
+> `docs/fase-6-cantiere/sonda-cload-persiste/README.md`.
+
 ---
 
 ## 5. Il momento
@@ -454,11 +466,15 @@ solo per questa corsa — un selettore coincidente, anche solo in parte, con
 effettivo (§ 5.2, § 7 li leggono dal deck scritto, prima che `ccx` risolva
 nulla), ma non sposta la struttura di un millimetro.
 
-Verificato che la correzione non tocchi nulla di già pubblicato: lo script
-della Fase 5 (`docs/fase-5-cantiere/misura-deficit.py`) esce ancora a 0 sui
-numeri di `runs/lab_telaio_v3_pesata`, che dichiara un solo carico basato su
-`*CLOAD` (`CARICO_TOP`) e non aveva nulla da cui ereditare. La sonda del
-difetto è committata anche come test di regressione (`tests/test_abaqus.py`,
+Verificato che questa correzione (il `*CLOAD`, commit `2fc0ae5`) non tocchi
+nulla di già pubblicato: allo stato di questa sezione lo script della Fase 5
+(`docs/fase-5-cantiere/misura-deficit.py`) usciva a 0 sui numeri di
+`runs/lab_telaio_v3_pesata`, che dichiara un solo carico basato su `*CLOAD`
+(`CARICO_TOP`) e non aveva nulla da cui ereditare **per il `*CLOAD`** — il
+`*DLOAD` di quella stessa corsa aveva invece un difetto gemello, corretto
+dopo (vedi la nota al § 4 sopra): lo script punta oggi a
+`runs/lab_telaio_v3_pesata_dload_fix`, non più a `runs/lab_telaio_v3_pesata`.
+La sonda del difetto è committata anche come test di regressione (`tests/test_abaqus.py`,
 `tests/feasibility/test_calculix.py`); il conteggio delle due suite alla
 chiusura di questa fase — misurato in questa sessione, una fotografia e non
 un invariante, perché cresce a ogni test che il progetto aggiunge altrove —

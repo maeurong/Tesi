@@ -27,7 +27,14 @@ CORSA = Path(__file__).resolve().parents[2] / "runs" / "lab_telaio_v2"
 # Fase 6: la ripartizione di CARICO_TOP e' passata da uniforme per nodo ad area
 # tributaria. Stessa configurazione, stessa geometria, corsa diversa: solo il
 # passo CARICO_TOP di `13_solve` e il suo *CLOAD cambiano rispetto a CORSA.
-CORSA_PESATA = Path(__file__).resolve().parents[2] / "runs" / "lab_telaio_v3_pesata"
+#
+# `_dload_fix`: seconda correzione. `_passo_statico` apriva ogni passo statico
+# con `*DLOAD` senza `OP=NEW`, e la spinta orizzontale (dichiarata una volta
+# sola nel passo SPINTA_ORIZZONTALE) restava attiva anche in CARICO_TOP -- la
+# stessa configurazione dichiara `spinta` insieme a `carico_sommita`. La
+# corsa senza suffisso resta la prova della contaminazione, non si sovrascrive
+# (vedi docs/fase-6-cantiere/sonda-cload-persiste/README.md).
+CORSA_PESATA = Path(__file__).resolve().parents[2] / "runs" / "lab_telaio_v3_pesata_dload_fix"
 PIANO_DI_TAGLIO = -498.0  # crop_min[2] di config.yaml, nel sistema della scansione
 DENSITA = 2.5e-9  # t/mm3, CALCESTRUZZO_C25_30
 GRAVITA = 9810.0  # mm/s2
@@ -81,7 +88,7 @@ def main() -> int:
     if not CORSA_PESATA.is_dir():
         print(
             f"manca {CORSA_PESATA}: rigenera con `uv run meshrec run lab_telaio.yaml "
-            "--out-dir runs/lab_telaio_v3_pesata`"
+            "--out-dir runs/lab_telaio_v3_pesata_dload_fix`"
         )
         return 1
 
@@ -164,19 +171,24 @@ def main() -> int:
     )
     assert abs(vol_el[incidenti].min() - 17.66) < 0.01
 
-    print("\nCARICO_TOP ripartito per area tributaria (Fase 6)")
+    print("\nCARICO_TOP ripartito per area tributaria (Fase 6) e senza la spinta ereditata (dload_fix)")
     top = meshio.read(CORSA_PESATA / "13_solution.vtu")
     u_top = np.linalg.norm(top.point_data["U_CARICO_TOP"], axis=1)
     vm_top = top.point_data["VM_CARICO_TOP"]
     p99_top = float(np.percentile(vm_top, 99))
-    vicino(0.06380234902819489, float(u_top.max()), 1e-6, "CARICO_TOP u_max [mm]")
-    vicino(0.9808637022569636, float(vm_top.max()), 1e-6, "CARICO_TOP vm max [MPa]")
-    vicino(0.39047237848065863, p99_top, 1e-6, "CARICO_TOP vm p99 [MPa]")
-    vicino(0.08221494775778948, float(np.median(vm_top)), 1e-6, "CARICO_TOP vm mediana [MPa]")
-    vicino(2.511992541120419, float(vm_top.max()) / p99_top, 1e-4, "CARICO_TOP max/p99")
+    vicino(0.058280504767754024, float(u_top.max()), 1e-6, "CARICO_TOP u_max [mm]")
+    vicino(0.8101475038401819, float(vm_top.max()), 1e-6, "CARICO_TOP vm max [MPa]")
+    vicino(0.37356652064926726, p99_top, 1e-6, "CARICO_TOP vm p99 [MPa]")
+    vicino(0.08144335915512604, float(np.median(vm_top)), 1e-6, "CARICO_TOP vm mediana [MPa]")
+    vicino(2.168683377814818, float(vm_top.max()) / p99_top, 1e-4, "CARICO_TOP max/p99")
 
+    # Le righe *CLOAD non cambiano fra le due corse (`v3_pesata` e
+    # `v3_pesata_dload_fix`): la correzione tocca solo il *DLOAD (peso e
+    # spinta), non il *CLOAD del carico in sommita'. La riga apre ora con
+    # "*CLOAD, OP=NEW", non piu' "*CLOAD" da solo.
     deck = (CORSA_PESATA / "wall_model.inp").read_text().splitlines()
-    inizio = deck.index("*CLOAD", deck.index("** NOME PASSO: CARICO_TOP")) + 1
+    passo = deck.index("** NOME PASSO: CARICO_TOP")
+    inizio = next(i for i in range(passo, len(deck)) if deck[i].startswith("*CLOAD")) + 1
     righe_cload = list(itertools.takewhile(lambda r: r and not r.startswith("*"), deck[inizio:]))
     quote = np.array([float(r.split(",")[2]) for r in righe_cload])
     print(f"  {len(quote)} righe, somma {quote.sum():.6f} N, da {quote.min():.6f} a {quote.max():.6f} N")

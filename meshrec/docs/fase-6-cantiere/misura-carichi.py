@@ -6,7 +6,7 @@ Non fa parte del programma: sta sotto `docs/` apposta, sul modello di
 (la corsa dimostrativa in `runs/lab_telaio_v4_posizionati_top/`, quella
 "prima" in `runs/lab_telaio_v4_posizionati/` tenuta come prova del difetto
 del § 5.4, e la corsa della Fase 5 in `runs/lab_telaio_v2/` e
-`runs/lab_telaio_v3_pesata/`, tutte in sola lettura) e rifa' da capo le sonde
+`runs/lab_telaio_v3_pesata_dload_fix/`, tutte in sola lettura) e rifa' da capo le sonde
 su `ccx` vero -- il posizionato, il momento, il rumore di fondo a sola
 gravita', e i due banchi sintetici della prima taratura. Ogni valore che il
 documento pubblica porta qui il
@@ -34,7 +34,11 @@ from meshrec.core import abaqus, config, selezione, solve, synth, volume
 
 RADICE = Path(__file__).resolve().parents[2]
 CORSA_V2 = RADICE / "runs" / "lab_telaio_v2"
-CORSA_PESATA = RADICE / "runs" / "lab_telaio_v3_pesata"
+# `_dload_fix`: `runs/lab_telaio_v3_pesata` (senza suffisso) dichiara `spinta`
+# insieme a `carico_sommita` ed era contaminata dal difetto gemello sul
+# *DLOAD (vedi docs/fase-6-cantiere/sonda-cload-persiste/README.md); tenuta
+# come prova, non riletta qui.
+CORSA_PESATA = RADICE / "runs" / "lab_telaio_v3_pesata_dload_fix"
 CORSA_DIMOSTRATIVA = RADICE / "runs" / "lab_telaio_v4_posizionati_top"
 # La corsa "prima" del commit 2fc0ae5 (*CLOAD, OP=NEW): stessa configurazione,
 # tenuta apposta come prova del difetto che il § 5.4 racconta.
@@ -267,8 +271,12 @@ def main() -> int:
         contiene("8.333e-01", str(errore), "banco volumetrico sintetico: rapporto fuori asse")
 
     print("\nCARICO_TOP ripartito per area tributaria (gia' pubblicato in docs/fase-5-analisi.md)")
+    # Le righe *CLOAD non cambiano fra `v3_pesata` e `v3_pesata_dload_fix`: la
+    # correzione sul *DLOAD (spinta ereditata) non tocca il *CLOAD del carico
+    # in sommita'. La riga apre ora con "*CLOAD, OP=NEW", non piu' "*CLOAD".
     deck = (CORSA_PESATA / "wall_model.inp").read_text().splitlines()
-    inizio = deck.index("*CLOAD", deck.index("** NOME PASSO: CARICO_TOP")) + 1
+    passo = deck.index("** NOME PASSO: CARICO_TOP")
+    inizio = next(i for i in range(passo, len(deck)) if deck[i].startswith("*CLOAD")) + 1
     righe = list(itertools.takewhile(lambda r: r and not r.startswith("*"), deck[inizio:]))
     valori = np.array([float(r.split(",")[2]) for r in righe])
     uguale(3036, len(valori), "CARICO_TOP: righe *CLOAD")
@@ -279,8 +287,12 @@ def main() -> int:
 
     vm_top_v2 = meshio.read(CORSA_V2 / "13_solution.vtu").point_data["VM_CARICO_TOP"]
     vicino(0.9811407754536536, float(vm_top_v2.max()), 1e-6, "CARICO_TOP: picco vm prima della pesatura [MPa]")
+    # Corso il fix sul *DLOAD (v3_pesata_dload_fix): il picco scende da
+    # 0,9808637 a 0,8101475 MPa perche' la spinta orizzontale, dichiarata in
+    # SPINTA_ORIZZONTALE, non e' piu' ereditata da CARICO_TOP (§ 4 nota,
+    # docs/fase-6-carichi.md).
     vm_top_pesata = meshio.read(CORSA_PESATA / "13_solution.vtu").point_data["VM_CARICO_TOP"]
-    vicino(0.9808637022569636, float(vm_top_pesata.max()), 1e-6, "CARICO_TOP: picco vm dopo la pesatura [MPa]")
+    vicino(0.8101475038401819, float(vm_top_pesata.max()), 1e-6, "CARICO_TOP: picco vm dopo la pesatura e senza la spinta ereditata [MPa]")
 
     print("\nle due sonde su ccx vero (tests/feasibility/test_calculix.py, rigiocate qui)")
     eseguibile = shutil.which("ccx")
