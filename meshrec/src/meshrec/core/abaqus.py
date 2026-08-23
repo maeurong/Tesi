@@ -1303,9 +1303,18 @@ def export_model(
         for carico in carichi.posizionati:
             if carico.selettore in nset_selettori:  # altrimenti write_inp rifiuta con messaggio piu' completo
                 carichi_da_controllare.append((carico.nome, carico.selettore, nset_selettori[carico.selettore]))
+    # Il conteggio nasce qui, dove compone la stringa dell'avviso, e va reso
+    # anche in `metrics.json`: un avviso su stderr si perde con la finestra
+    # del terminale, mentre `forza_effettiva` e `momento_effettivo` restano
+    # nel file a dichiarare per intero una risultante di cui il modello
+    # applica solo una frazione.
+    bloccati_per_carico: dict[str, int] = {}
     for nome, origine, indici in carichi_da_controllare:
         indici_carico = set(np.asarray(indici, dtype=np.int64).tolist())
         bloccati = indici_carico & vincolati
+        # Prima del ritorno anticipato: zero e' un valore, e una chiave
+        # assente non si distingue da una versione che non contava.
+        bloccati_per_carico[nome] = len(bloccati)
         if not bloccati:
             continue
         if indici_carico <= vincolati:
@@ -1360,6 +1369,8 @@ def export_model(
         carichi=carichi,
         nset_selettori=nset_selettori,
     )
+    for nome, quanti in bloccati_per_carico.items():
+        resoconto_carichi[nome]["nodi_sul_vincolo"] = quanti
     write_vtu(path_vtu, aligned, elements, element_type=tipo)
 
     volume = float(np.abs(element_volumes(aligned, elements)).sum())

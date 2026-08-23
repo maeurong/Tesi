@@ -2380,3 +2380,61 @@ def test_un_selettore_degenere_non_viene_inghiottito(cube_mesh, tmp_path):
                 tipo="sfera", centro=(1e6, 1e6, 1e6), raggio=1.0
             )},
         )
+
+
+def _con_box(tmp_path, cube_mesh, minimo, massimo, nome="PIEDE"):
+    """Un deck col solo carico posizionato su una box in coordinate allineate.
+
+    Il banco allineato sta in x [0, 40], y [0, 100], z [0, 200] e ha nodi
+    solo alle quote 0, 50, 100, 150 e 200: le box dei due test qui sotto
+    sono scelte su quelle quote. `set_tolerance_factor` ridotto perche' col
+    predefinito BASE inghiotte l'intero cubo di 16 nodi.
+    """
+    nodi, tetraedri = cube_mesh
+    analisi = config.AnalysisConfig(material=MATERIALE, set_tolerance_factor=0.5)
+    return abaqus.export_model(
+        tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tetraedri, analisi, config.TetConfig(),
+        selettori={"fascia": config.SelettoreBox(tipo="box", min=minimo, max=massimo)},
+        carichi=config.CarichiConfig(posizionati=[
+            config.CaricoPosizionato(nome=nome, selettore="fascia", forza=(0.0, 0.0, -1200.0)),
+        ]),
+    )
+
+
+def test_i_nodi_bloccati_dal_vincolo_arrivano_nel_resoconto(cube_mesh, tmp_path):
+    """L'avviso va su stderr, il numero deve andare in `metrics.json`.
+
+    Un selettore a cavallo del vincolo non fa sollevare la guardia
+    (l'inclusione totale e' falsa), stampa un avviso e la corsa prosegue:
+    il terminale si chiude, il file resta, e `forza_effettiva` dichiara la
+    risultante intera mentre il modello ne applica una frazione. Il
+    conteggio era gia' calcolato per comporre la stringa dell'avviso: qui
+    si pretende che finisca anche nel resoconto.
+
+    La box prende le tre quote basse (10 nodi), di cui i 4 a z = 0 sono
+    l'insieme vincolato.
+
+    Mutazione che lo uccide: lasciare il conteggio dentro il solo
+    `warnings.warn`. La chiave sparisce e resta l'avviso.
+    """
+    with pytest.warns(abaqus.CaricoSulVincoloWarning):
+        metriche = _con_box(tmp_path, cube_mesh, (-1.0, -1.0, -1.0), (1e9, 1e9, 100.0))
+    piede = metriche["carichi_posizionati"]["PIEDE"]
+    assert piede["nodi"] == 10
+    assert piede["nodi_sul_vincolo"] == 4
+
+
+def test_un_carico_lontano_dal_vincolo_conta_zero_nodi_bloccati(cube_mesh, tmp_path):
+    """Zero nodi bloccati e' un numero da scrivere, non una chiave da omettere.
+
+    Chi legge `metrics.json` non puo' distinguere "nessun nodo sul
+    vincolo" da "questa versione non lo contava" se la chiave compare solo
+    quando l'intersezione non e' vuota.
+
+    Mutazione che lo uccide: scrivere la chiave solo per i carichi che
+    hanno almeno un nodo bloccato, cioe' calcolarla dopo il `continue`.
+    """
+    metriche = _con_box(tmp_path, cube_mesh, (-1.0, -1.0, 150.0), (1e9, 1e9, 1e9), nome="TESTA")
+    testa = metriche["carichi_posizionati"]["TESTA"]
+    assert testa["nodi"] == 6
+    assert testa["nodi_sul_vincolo"] == 0
