@@ -4,6 +4,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+import yaml
 from pydantic import ValidationError
 
 from meshrec.core import config
@@ -113,6 +114,28 @@ def test_due_chiavi_omonime_nello_yaml_sono_rifiutate(tmp_path):
     )
     with pytest.raises(ValueError, match="angolo"):
         config.load_config(percorso)
+
+
+def test_un_tag_python_object_nello_yaml_solleva(tmp_path):
+    """Il loader e' sicuro per costruzione (`_LoaderChiaviUniche` eredita da
+    `yaml.SafeLoader`), ma nessun test lo asserisce ancora: questo lo fa.
+
+    Un `!!python/object/apply:...` con `yaml.Loader`/`yaml.UnsafeLoader`
+    esegue la chiamata alla lettura del file; con un loader derivato da
+    `SafeLoader` non c'e' alcun costruttore per quel tag, e `yaml.load`
+    solleva prima di costruire nulla.
+
+    Mutazione che lo uccide: sostituire `_LoaderChiaviUniche(yaml.SafeLoader)`
+    con `_LoaderChiaviUniche(yaml.UnsafeLoader)` in `carica_yaml` -- il tag
+    verrebbe costruito (ed eseguito) invece di sollevare.
+    """
+    percorso = tmp_path / "config.yaml"
+    percorso.write_text(
+        'input:\n  path: !!python/object/apply:os.system ["echo pwned"]\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(yaml.YAMLError):
+        config.carica_yaml(percorso)
 
 
 def test_anche_il_registro_degli_esperimenti_rifiuta_le_chiavi_omonime(tmp_path):
