@@ -220,6 +220,14 @@ def main() -> int:
         rapporto = float(np.linalg.norm(eff - eff[2] * np.array([0.0, 0.0, 1.0]))) / 3000.0
         print(f"  braccio={braccio} mm -> rapporto fuori asse {rapporto:.6f}")
         peggiore = max(peggiore, rapporto)
+        # Le due chiavi che il resoconto del momento non portava (§ 7): non
+        # dipendono dal braccio, perche' la ripartizione e il piano si
+        # calcolano una volta sola sull'intero selettore.
+        vicino(
+            0.0961010, resoconto["rapporto_valori_singolari"], 1e-6,
+            f"TOP braccio={braccio}: rapporto SVD reso dal resoconto",
+        )
+        uguale(703, resoconto["nodi_ad_area_nulla"], f"TOP braccio={braccio}: nodi ad area nulla")
     vicino(0.003552, peggiore, 5e-6, "TOP as-built: rapporto fuori asse peggiore dei tre bracci")
 
     print("\nil momento fuori asse: selettore volumetrico con estensione piena lungo l'asse")
@@ -470,8 +478,52 @@ def main() -> int:
         "area tributaria totale nulla",
     )
 
+    print("\nil pareggio dei valori singolari: la tabella del § 9.1")
+    _, res_banco = abaqus.coppia_equivalente(
+        config.Momento(asse=(0.0, 0.0, 1.0), modulo=3000.0, braccio=60.0),
+        nodi_cubo, tets_cubo, top_cubo, "C3D4", nome="TEST",
+    )
+    vicino(0.4, res_banco["rapporto_valori_singolari"], 1e-9, "banco dei test (TOP 100 x 40): rapporto")
+    for larghezza, atteso in ((100.0, None), (99.0, 35.12), (90.0, 1.44), (40.0, 0.13), (9.61, 0.027)):
+        rapporto, rotazione = _piastra_perturbata(larghezza)
+        print(f"  100 x {larghezza} -> rapporto {rapporto:.4f}, rotazione {rotazione:.4f} gradi")
+        vicino(larghezza / 100.0, rapporto, 1e-9, f"piastra 100 x {larghezza}: rapporto")
+        if atteso is None:
+            # Su un pareggio esatto la SVD non ha un vettore da scegliere: il
+            # valore preciso non e' riproducibile fra versioni di LAPACK, il
+            # salto si'.
+            assert rotazione > 45.0, f"piastra isotropa: rotazione {rotazione}, attesa oltre 45 gradi"
+            print("  [ok] piastra isotropa: rotazione oltre 45 gradi")
+        else:
+            vicino(atteso, rotazione, 0.01, f"piastra 100 x {larghezza}: rotazione [gradi]")
+    vicino(0.3100, (0.0961010 * 1.0) ** 0.5, 1e-4, "media geometrica dei due estremi del § 9.1")
+
     print("\ntutti i valori pubblicati sono stati riprodotti.")
     return 0
+
+
+def _piastra_perturbata(larghezza: float) -> tuple[float, float]:
+    """Rapporto dei valori singolari e rotazione della direzione tolto un nodo.
+
+    Una griglia 12 x 12 su una piastra lunga 100 mm: e' il banco del § 9.1,
+    scelto perche' il rapporto lo fissa la sola larghezza. Si toglie un nodo
+    (la perturbazione che un rimaglio produce davvero) e si misura di quanto
+    ruota la direzione di separazione che `coppia_equivalente` sceglierebbe.
+    """
+    asse = np.array([0.0, 0.0, 1.0])
+
+    def direzione(punti: np.ndarray) -> tuple[np.ndarray, float]:
+        relativi = punti - punti.mean(axis=0)
+        piano = relativi - np.outer(relativi @ asse, asse)
+        _, valori, versori = np.linalg.svd(piano, full_matrices=False)
+        return abaqus.fix_sign(versori[0]), float(valori[1] / valori[0])
+
+    x, y = np.meshgrid(np.linspace(0.0, 100.0, 12), np.linspace(0.0, larghezza, 12))
+    punti = np.column_stack([x.ravel(), y.ravel(), np.zeros(x.size)])
+    intera, rapporto = direzione(punti)
+    ridotta, _ = direzione(np.delete(punti, len(punti) // 3, axis=0))
+    coseno = float(np.clip(abs(intera @ ridotta), -1.0, 1.0))
+    return rapporto, float(np.degrees(np.arccos(coseno)))
 
 
 def _banco_sonda() -> tuple[np.ndarray, np.ndarray, dict[str, np.ndarray]]:

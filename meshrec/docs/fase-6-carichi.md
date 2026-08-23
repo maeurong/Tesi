@@ -322,6 +322,12 @@ resoconto. Chi dichiara un momento su un selettore quasi simmetrico deve
 verificare il rapporto fra i due valori singolari, non solo il rapporto fuori
 asse del § 6.
 
+Quel rapporto non è più un numero da rimisurare a mano: `coppia_equivalente`
+lo scrive nel resoconto di ogni momento, come `rapporto_valori_singolari`
+(§ 7), così si vede anche quando passa. **Resta una nota, non una guardia**:
+il programma non rifiuta un selettore isotropo, e il perché — misurato, non
+scelto — sta nel § 9.1.
+
 **Il momento realizzato è esattamente quello dichiarato, ma il braccio no.**
 I due gruppi raccolgono nodi *oltre* metà del braccio dichiarato in ciascuna
 direzione, quindi i loro baricentri pesati distano fra loro **più** del
@@ -706,6 +712,15 @@ Un estratto reale, da `runs/lab_telaio_v4_posizionati_top/metrics.json`:
 }
 ```
 
+L'estratto è la corsa congelata e **precede tre chiavi** aggiunte dopo:
+`rapporto_valori_singolari` e `nodi_ad_area_nulla` su ogni momento (il
+secondo esisteva già per le forze e per `CARICO_TOP`, e sul momento veniva
+buttato), e `nodi_sul_vincolo` su ogni carico, forze e momenti insieme.
+Rilette sulla stessa mesh, `TORSIONE` porta un rapporto di **0,0961010** e
+**703** nodi ad area nulla sui 3.036 presi: quasi un quarto del selettore non
+tocca alcuna faccia di bordo e non riceve quota, un numero che il resoconto
+del momento fino a ieri non mostrava affatto.
+
 `appoggio` compare nel resoconto con i suoi 3.719 nodi anche se **nessun
 carico lo cita**: è il caso «selettore dichiarato e mai citato», legittimo
 per contratto (§ 3), e questa stessa corsa lo esercita davvero invece di
@@ -717,8 +732,15 @@ davvero*, perché l'operatore possa collocare un selettore senza indovinare
 alla cieca. Ogni carico posizionato riporta, per una forza, i nodi coinvolti,
 l'area tributaria totale, quanti nodi non hanno toccato alcuna faccia di
 bordo, e la forza effettivamente scritta contro quella dichiarata (§ 4); per
-un momento, entrambi i bracci, entrambi i momenti (dichiarato ed effettivo), e
-i due gruppi della coppia (§ 5-6). Il precedente comportamentale, già nel
+un momento, entrambi i bracci, entrambi i momenti (dichiarato ed effettivo),
+i due gruppi della coppia (§ 5-6) e il rapporto fra i due valori singolari che
+dice quanto la direzione della coppia sia determinata (§ 5.2). Per ogni
+carico, forza o momento, anche `nodi_sul_vincolo`: quanti dei nodi presi
+cadono pure nell'insieme vincolato, cioè quale frazione della risultante
+finisce in reazione invece che in spostamento. Era già calcolato, ma viveva
+solo nella stringa di un avviso su stderr — e un avviso si perde con la
+finestra del terminale, mentre `forza_effettiva` resta nel file a dichiarare
+la risultante intera. Il precedente comportamentale, già nel
 progetto, è `app/server.py:617` — l'endpoint `/api/cluster`: il server
 calcola, scrive, e risponde dicendo **cosa ha scelto e con quali numeri**,
 mai un semplice «fatto».
@@ -786,3 +808,40 @@ strumento pensato per dare a un operatore un indirizzo durevole su una mesh
 senza topologia ha trovato, nel produrre il proprio esempio, un modo in cui
 tradiva silenziosamente quello stesso indirizzo — e la correzione è stata
 misurata, non presunta, prima di essere dichiarata chiusa.
+
+### 9.1 La guardia sul pareggio dei valori singolari, aperta
+
+Il § 5.2 dice che su un selettore isotropo la direzione della coppia la sceglie
+il rumore numerico. Il rimedio ovvio è una guardia come quella del § 6.3:
+rifiutare quando `rapporto_valori_singolari` supera una soglia. La soglia però,
+con la ricetta del § 6.3 — media geometrica dei due estremi misurati — **non si
+lascia derivare**, e la ragione è misurata. Su una piastra sintetica di 12 × 12
+nodi lunga 100 mm, larga quanto serve a fissare il rapporto, si toglie **un
+solo nodo** e si guarda di quanto ruota la direzione di separazione:
+
+| piastra | rapporto | rotazione della direzione |
+| --- | --- | --- |
+| 100 × 100 | 1,0000 | oltre 45° (misurato 83,3°, ma su un pareggio il valore esatto non è riproducibile: non c'è un vettore da scegliere) |
+| 100 × 99 | 0,9900 | 35,12° |
+| 100 × 90 | 0,9000 | 1,44° |
+| 100 × 40 | 0,4000 | 0,13° |
+| 100 × 9,61 | 0,0961 | 0,027° |
+
+Le due geometrie che contano cadono nelle ultime due righe: il banco sintetico
+su cui girano i test di questa fase ha `TOP` di 100 × 40 mm, rapporto **0,400**,
+e il `TOP` as-built del caso studio sta a **0,0961**.
+
+La media geometrica dei due estremi che il § 6.3 userebbe — 0,0961 del caso
+studio e 1,0 dell'isotropo — vale `sqrt(0,0961010 · 1,0) ≈ 0,3100`: **sotto** lo
+0,400 del banco dei test, che la tabella misura stabile entro 0,13°. Una soglia
+lì rifiuterebbe una piastra 2,5 : 1, cioè una geometria con un asse maggiore
+perfettamente determinato. La ricetta non si trasferisce perché qui l'estremo
+cattivo **non è una misura**: è il massimo che il rapporto può assumere per
+definizione, e una media geometrica con un estremo di frontiera cade dove
+capita. Né la colonna di destra offre un ginocchio da leggere come soglia: la
+sensibilità cresce come `1/(1 − r²)`, liscia, fino al salto dell'ultima riga.
+
+Resta quindi aperto: il numero si pubblica (§ 7), il rifiuto no. Chi lo
+chiuderà deve prima dichiarare **quanta rotazione della direzione è
+tollerabile**, perché è quella la scelta che la soglia nasconde — non un
+secondo banco da misurare.
