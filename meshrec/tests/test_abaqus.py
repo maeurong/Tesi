@@ -219,6 +219,23 @@ def test_node_sets_cover_the_six_faces_of_a_box():
     assert nodes[sets["FACE_BACK"]][:, 0] == pytest.approx(50.0)
 
 
+def test_build_node_sets_ha_le_chiavi_della_costante():
+    """Le chiavi di `build_node_sets` sono quelle di `NOMI_SET_DI_FACCIA`, non una lista a parte.
+
+    `build_node_sets` e' scritta come dizionario letterale, non come uno
+    `zip` posizionale con `NOMI_SET_DI_FACCIA`: un test contro una lista di
+    stringhe copiate a mano (come sopra) non si accorgerebbe se qualcuno
+    rinominasse una voce della costante altrove nel modulo. Confrontare
+    contro la costante stessa lega il test alla fonte, non a una sua copia.
+
+    Mutazione che lo uccide: rinominare una voce di `NOMI_SET_DI_FACCIA`
+    senza rinominarla anche qui.
+    """
+    nodes = np.array([[x, y, z] for x in (0.0, 50.0) for y in (0.0, 1000.0) for z in (0.0, 300.0)])
+    sets = abaqus.build_node_sets(nodes, tolerance=1.0)
+    assert set(sets) == set(config.NOMI_SET_DI_FACCIA)
+
+
 def test_il_deck_non_contiene_piu_card_che_calculix_scavalca(tmp_path):
     """Zero avvisi non e' cosmesi: e' cio' che rende leggibile un avviso vero.
 

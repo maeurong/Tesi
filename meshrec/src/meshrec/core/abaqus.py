@@ -12,7 +12,6 @@ import numpy as np
 from meshrec.core import selezione
 from meshrec.core.config import (
     GRAVITY_MM_S2,
-    NOMI_SET_DI_FACCIA,
     AnalysisConfig,
     CarichiConfig,
     Material,
@@ -643,8 +642,8 @@ def ripartisci(
     if totale <= 0.0:
         raise ValueError(
             f"il carico '{nome}' agisce su {indici.size} nodi che non formano alcuna "
-            "faccia di bordo: nessuna area su cui ripartire la risultante. Un "
-            "selettore tutto interno al solido produce questo, e un carico applicato "
+            "faccia di bordo: nessuna area su cui ripartire la risultante. Un insieme "
+            "di nodi tutto interno al solido produce questo, e un carico applicato "
             "a nulla non e' un carico"
         )
     quote = risultante * aree / totale
@@ -1111,17 +1110,18 @@ def build_node_sets(nodes: np.ndarray, tolerance: float) -> dict[str, np.ndarray
     points = np.asarray(nodes, dtype=np.float64)
     low = points.min(axis=0)
     high = points.max(axis=0)
-    criteri = (
-        points[:, 2] <= low[2] + tolerance,
-        points[:, 2] >= high[2] - tolerance,
-        points[:, 0] <= low[0] + tolerance,
-        points[:, 0] >= high[0] - tolerance,
-        points[:, 1] <= low[1] + tolerance,
-        points[:, 1] >= high[1] - tolerance,
-    )
+    # Dizionario letterale, non un accoppiamento per posizione con
+    # NOMI_SET_DI_FACCIA: uno zip fra costante e tupla di criteri lega ogni
+    # nome al criterio nella stessa posizione, e riordinare la costante
+    # rilegherebbe silenziosamente un nome al criterio sbagliato -- qui il
+    # nome sta nella stessa riga del suo criterio, non puo' scollegarsene.
     return {
-        nome: np.flatnonzero(criterio)
-        for nome, criterio in zip(NOMI_SET_DI_FACCIA, criteri, strict=True)
+        "BASE": np.flatnonzero(points[:, 2] <= low[2] + tolerance),
+        "TOP": np.flatnonzero(points[:, 2] >= high[2] - tolerance),
+        "FACE_FRONT": np.flatnonzero(points[:, 0] <= low[0] + tolerance),
+        "FACE_BACK": np.flatnonzero(points[:, 0] >= high[0] - tolerance),
+        "SIDE_LEFT": np.flatnonzero(points[:, 1] <= low[1] + tolerance),
+        "SIDE_RIGHT": np.flatnonzero(points[:, 1] >= high[1] - tolerance),
     }
 
 
