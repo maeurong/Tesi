@@ -2438,3 +2438,23 @@ def test_un_carico_lontano_dal_vincolo_conta_zero_nodi_bloccati(cube_mesh, tmp_p
     testa = metriche["carichi_posizionati"]["TESTA"]
     assert testa["nodi"] == 6
     assert testa["nodi_sul_vincolo"] == 0
+
+
+def test_un_fixed_nset_sconosciuto_nomina_gli_insiemi_disponibili(cube_mesh, tmp_path):
+    """Un vincolo scritto male si rifiuta dicendo quali insiemi esistono.
+
+    `export_model` indicizzava `node_sets[cfg.fixed_nset]` direttamente, e
+    il controllo con messaggio civile di `write_inp` non veniva mai
+    raggiunto: `fixed_nset: base` (minuscolo) produceva un `KeyError:
+    'base'` nudo dopo che tutta la mesh era stata costruita.
+
+    Mutazione che lo uccide: togliere il controllo e tornare a indicizzare.
+    L'errore torna a essere un `KeyError`, che `pytest.raises(ValueError)`
+    non cattura.
+    """
+    nodi, tetraedri = cube_mesh
+    analisi = config.AnalysisConfig(material=MATERIALE, fixed_nset="base")
+    with pytest.raises(ValueError, match="SIDE_RIGHT"):
+        abaqus.export_model(
+            tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tetraedri, analisi, config.TetConfig(),
+        )

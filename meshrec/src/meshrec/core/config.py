@@ -284,8 +284,8 @@ class AnalysisConfig(_ModelloBase):
 
     material: Material
     gravity: float = Field(default=GRAVITY_MM_S2, gt=0.0)
-    fixed_nset: str = "BASE"
-    step_name: str = "GRAVITA"
+    fixed_nset: NomeSet = "BASE"
+    step_name: NomeSet = "GRAVITA"
     set_tolerance_factor: float = Field(
         default=6.0,
         gt=0.0,

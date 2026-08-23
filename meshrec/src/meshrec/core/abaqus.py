@@ -1269,6 +1269,16 @@ def export_model(
     spacing = boundary_spacing(aligned, bordo_facce)
     tolerance = cfg.set_tolerance_factor * spacing
     node_sets = build_node_sets(aligned, tolerance)
+    # Prima dell'indicizzazione, non dopo: il controllo con messaggio civile
+    # di `write_inp` non veniva mai raggiunto, perche' qui sotto `KeyError`
+    # arrivava per primo -- e arrivava dopo che tutta la mesh era stata
+    # costruita.
+    if cfg.fixed_nset not in node_sets:
+        raise ValueError(
+            f"il set vincolato '{cfg.fixed_nset}' non e fra gli insiemi che il modello "
+            f"offre ({sorted(node_sets)}): il confronto distingue le maiuscole, mentre "
+            "gli *NSET che il solutore legge no"
+        )
     if len(node_sets[cfg.fixed_nset]) == 0:
         raise ValueError(f"il set vincolato '{cfg.fixed_nset}' e vuoto: tolleranza {tolerance:.3f} mm troppo stretta")
 

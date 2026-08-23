@@ -756,3 +756,21 @@ def test_due_posizionati_non_possono_avere_lo_stesso_nome():
                 {"nome": "PRESSA", "selettore": "piastra", "forza": [0.0, 0.0, -2.0]},
             ]),
         )
+
+
+@pytest.mark.parametrize("cattivo", ["con spazio", "BASE\n*BOUNDARY\nTOP, 1, 3", "base!"])
+def test_fixed_nset_e_step_name_rifiutano_i_nomi_non_scrivibili(cattivo):
+    """I due campi rimasti `str` nudi quando la fase ha introdotto `NomeSet`.
+
+    `fixed_nset` finisce interpolato in `*BOUNDARY` e confrontato con i sei
+    nomi di faccia; `step_name` finisce dopo `** NOME PASSO:` e in una
+    chiave del `.vtu`, dove uno spazio o un a capo scrivono una riga
+    vagante nel deck.
+
+    Mutazione che lo uccide: riportare i due campi a `str`. Ogni nome
+    passa e il rifiuto sparisce.
+    """
+    with pytest.raises(ValidationError):
+        config.AnalysisConfig(material=MATERIALE, fixed_nset=cattivo)
+    with pytest.raises(ValidationError):
+        config.AnalysisConfig(material=MATERIALE, step_name=cattivo)
