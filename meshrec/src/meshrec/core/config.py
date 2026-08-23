@@ -666,8 +666,11 @@ class ModelConfig(_ModelloBase):
 # I sei nomi che `abaqus.build_node_sets` fabbrica a ogni esportazione.
 # Stanno qui e non in `core/abaqus.py` perche' la validazione della
 # configurazione deve conoscerli e `abaqus` importa gia' `config`: l'altro
-# verso sarebbe un ciclo. `build_node_sets` li importa da qui, cosi' le due
-# liste non possono divergere in silenzio.
+# verso sarebbe un ciclo. `build_node_sets` **non** li importa da qui: e' un
+# dizionario letterale che li riscrive, per tenere ogni nome sulla riga del
+# proprio criterio geometrico (il perche' e' scritto li'). L'accordo fra le
+# due liste lo tengono due test, non il tipo: se questa costante cambia e
+# quel dizionario no, sono loro a dirlo.
 NOMI_SET_DI_FACCIA: tuple[str, ...] = (
     "BASE", "TOP", "FACE_FRONT", "FACE_BACK", "SIDE_LEFT", "SIDE_RIGHT",
 )

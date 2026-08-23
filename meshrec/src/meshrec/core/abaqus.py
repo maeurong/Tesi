@@ -791,12 +791,15 @@ def coppia_equivalente(
     forza = float(momento.modulo) / braccio_effettivo
     direzione = np.cross(asse, separazione)
 
-    # Il momento che il deck scrive davvero, non quello dichiarato: se i due
-    # gruppi non stanno alla stessa quota lungo `asse`, la coppia realizza
-    # anche una componente perpendicolare all'asse, silenziosa finche'
-    # nessuno la misura. Si calcola dalle stesse forze per nodo che finiscono
-    # nelle righe *CLOAD, non dal `modulo` dichiarato -- e' cosi' che il
-    # resoconto puo' smentire il programma invece di limitarsi a ripeterlo.
+    # Il momento che il deck scrive davvero, calcolato dalle stesse forze per
+    # nodo che finiscono nelle righe *CLOAD e non dal `modulo` dichiarato.
+    # Non e' una smentita del programma, e non puo' esserlo: la componente
+    # in asse vale il modulo **per costruzione**, perche' la forza si
+    # calibra sul braccio effettivo, e `forza_effettiva` esce dalle stesse
+    # quote gia' normalizzate sulla risultante. Questi campi documentano
+    # cio' che il deck scrive; la sola componente informativa e' quella
+    # fuori asse, che nasce quando i due gruppi non stanno alla stessa
+    # quota lungo `asse` ed e' silenziosa finche' nessuno la misura.
     momento_effettivo = np.zeros(3)
     for gruppo, quote, segno in (
         (positivi, quote_per_gruppo[0], 1.0), (negativi, quote_per_gruppo[1], -1.0)
@@ -1144,6 +1147,12 @@ def build_node_sets(nodes: np.ndarray, tolerance: float) -> dict[str, np.ndarray
     # nome al criterio nella stessa posizione, e riordinare la costante
     # rilegherebbe silenziosamente un nome al criterio sbagliato -- qui il
     # nome sta nella stessa riga del suo criterio, non puo' scollegarsene.
+    # Il prezzo e' che i sei nomi sono scritti due volte, qui e in
+    # `config.NOMI_SET_DI_FACCIA`: l'accordo fra le due liste lo tengono due
+    # test (`test_build_node_sets_ha_le_chiavi_della_costante` in
+    # tests/test_abaqus.py e
+    # `test_i_sei_nomi_dichiarati_sono_quelli_che_il_deck_fabbrica` in
+    # tests/test_config.py), non il tipo.
     return {
         "BASE": np.flatnonzero(points[:, 2] <= low[2] + tolerance),
         "TOP": np.flatnonzero(points[:, 2] >= high[2] - tolerance),
