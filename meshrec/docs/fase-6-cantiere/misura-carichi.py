@@ -112,6 +112,16 @@ def main() -> int:
         ["GRAVITA", "PRESSA", "TORSIONE"], esporta["casi_di_carico"], "casi di carico scritti nel deck"
     )
 
+    print("\nil rapporto dei due valori singolari della SVD su 'sommita' (§ 5.2)")
+    deck_dimostrativa = meshio.read(CORSA_DIMOSTRATIVA / "wall_model.inp")
+    presi_sommita = deck_dimostrativa.points[deck_dimostrativa.point_sets["sommita"]]
+    relativi_sommita = presi_sommita - presi_sommita.mean(axis=0)
+    asse_z = np.array([0.0, 0.0, 1.0])
+    piano_sommita = relativi_sommita - np.outer(relativi_sommita @ asse_z, asse_z)
+    valori_singolari = np.linalg.svd(piano_sommita, full_matrices=False)[1]
+    rapporto_svd = float(valori_singolari[1] / valori_singolari[0])
+    vicino(0.0961010, rapporto_svd, 1e-6, "SVD instabile: rapporto valore singolare 2/1 su TOP reale (§ 5.2)")
+
     print("\ncarichi posizionati risolti (metrics.json, campo 11_export.carichi_posizionati)")
     pressa = esporta["carichi_posizionati"]["PRESSA"]
     uguale(365, pressa["nodi"], "PRESSA: nodi")
