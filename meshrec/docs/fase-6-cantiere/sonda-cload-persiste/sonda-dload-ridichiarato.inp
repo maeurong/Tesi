@@ -1,0 +1,47 @@
+*HEADING
+un *DLOAD GRAV ridichiarato sullo stesso ELSET sostituisce, o si somma?
+*NODE
+1, 0.0, 0.0, 0.0
+2, 100.0, 0.0, 0.0
+3, 0.0, 100.0, 0.0
+4, 0.0, 0.0, 100.0
+*ELEMENT, TYPE=C3D4, ELSET=TUTTO
+1, 1, 2, 3, 4
+*NSET, NSET=BASSO
+1, 2, 3
+*SOLID SECTION, ELSET=TUTTO, MATERIAL=ACCIAIO
+*MATERIAL, NAME=ACCIAIO
+*ELASTIC
+210000.0, 0.3
+*DENSITY
+7.85e-9
+*BOUNDARY
+BASSO, 1, 3
+** PASSO 1 - GRAVITA: solo peso proprio, verso -z.
+*STEP
+*STATIC
+*DLOAD
+TUTTO, GRAV, 9810.0, 0.0, 0.0, -1.0
+*NODE PRINT, NSET=BASSO
+RF
+*END STEP
+** PASSO 2 - SPINTA: peso proprio piu' una GRAV laterale sullo stesso ELSET,
+** esattamente come abaqus.write_inp scrive il passo SPINTA_ORIZZONTALE.
+*STEP
+*STATIC
+*DLOAD
+TUTTO, GRAV, 9810.0, 0.0, 0.0, -1.0
+TUTTO, GRAV, 981.0, 0.0, 1.0, 0.0
+*NODE PRINT, NSET=BASSO
+RF
+*END STEP
+** PASSO 3 - CARICO_TOP: ridichiara SOLO il peso proprio, come fa il deck vero.
+** Se la ridichiarazione sostituisce, fy torna a zero. Se si somma, la spinta
+** del passo 2 e' ancora li' e i numeri pubblicati sono contaminati.
+*STEP
+*STATIC
+*DLOAD
+TUTTO, GRAV, 9810.0, 0.0, 0.0, -1.0
+*NODE PRINT, NSET=BASSO
+RF
+*END STEP

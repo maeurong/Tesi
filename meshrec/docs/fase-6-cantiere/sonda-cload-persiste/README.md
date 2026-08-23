@@ -55,6 +55,8 @@ azzera esplicitamente i concentrati ereditati.
 ```
 cd docs/fase-6-cantiere/sonda-cload-persiste
 ccx -i sonda
+ccx -i sonda-dload
+ccx -i sonda-dload-ridichiarato
 ```
 
 ## Cosa esce
@@ -93,11 +95,13 @@ coincidono, a sette cifre, con quelle del passo `PRESSA` precedente — la
 coppia (a risultante netta nulla) non le sposta di un newton, perché la
 reazione che si legge è ancora quella della forza di `PRESSA`, mai rimossa.
 
-## Il fratello non sondato: `*DLOAD`
+## Il fratello: `*DLOAD` — due misure, la seconda più forte
 
-**Sì, persiste anche lui.** Misurato il 23 agosto 2026 con `ccx` 2.22 su
-questa macchina arm64, in `sonda-dload.inp`, stesso tetraedro e stesso
-incastro di `sonda.inp`.
+**Sì, persiste anche lui.** Misurate il 23 agosto 2026 con `ccx` 2.22 su
+questa macchina arm64, due sonde sullo stesso tetraedro e lo stesso incastro
+di `sonda.inp`: `sonda-dload.inp` (prima) e `sonda-dload-ridichiarato.inp`
+(seconda, più forte perché riproduce la forma esatta del deck vero, non solo
+un passo che non dichiara nulla — vedi sotto).
 
 `core/abaqus.py` apre **ogni** passo statico con `*DLOAD` e ripete al suo
 interno la riga `ELSET, GRAV, ...` del peso proprio (vedi `_passo_statico`,
@@ -148,22 +152,56 @@ identiche a quelle del passo 1, non a quelle "sola verticale" che il passo 3
 mostra per contrasto (dove `OP=NEW` azzera tutto e lascia solo ciò che quel
 passo dichiara).
 
+### La seconda misura, più forte: `sonda-dload-ridichiarato.inp`
+
+`sonda-dload.inp` (sopra) isola il meccanismo con un passo che **non
+dichiara nulla**: comodo per vedere l'eredità, ma non è la forma che
+`core/abaqus.py` scrive davvero — ogni passo statico reale ridichiara sempre
+il peso proprio (`_passo_statico`, `write_inp`). `sonda-dload-ridichiarato.inp`
+riproduce la struttura esatta del deck vero: un passo col solo peso, un passo
+con peso **più** una `GRAV` laterale sullo stesso `ELSET` (come
+`SPINTA_ORIZZONTALE`), e un terzo passo che **ridichiara solo il peso** —
+esattamente come fa il passo del carico in sommità o di un posizionato dopo
+`SPINTA_ORIZZONTALE`.
+
+Le reazioni sul set vincolato `BASSO`, sommate per passo:
+
+| passo | cosa dichiara | Σfy, la spinta |
+|---|---|---:|
+| 1 | solo peso | **0,000000 N** |
+| 2 | peso + spinta laterale (GRAV, asse y) | **−0,320869 N** |
+| 3 | ridichiara **solo** il peso | **−0,320869 N** |
+
+Le reazioni per nodo del passo 3 sono identiche, bit per bit, a quelle del
+passo 2. **La ridichiarazione del peso non sostituisce la spinta**: sostituisce
+la sola voce identica a sé stessa — il peso, stesso `ELSET` stessa direzione
+stesso modulo — mentre la `GRAV` laterale è una voce distinta e sopravvive.
+È la stessa conclusione della prima sonda, ma misurata sulla forma che il
+deck vero produce davvero, non su un passo che non dichiara nulla: la prima
+misura mostra che il meccanismo esiste, questa mostra che il deck reale lo
+esercita.
+
 ## Conseguenza
 
 Una configurazione che dichiara `carichi.spinta` **insieme a** un
 `carico_sommita` o a uno o più `carichi.posizionati` — la combinazione che
-questa stessa fase rende possibile per la prima volta — scrive un deck dove
+questa stessa fase rende possibile per la prima volta — scriveva un deck dove
 la spinta orizzontale, dichiarata una volta sola nel passo
-`SPINTA_ORIZZONTALE`, resta attiva in **ogni** passo statico successivo:
-`CARICO_TOP` e ciascun posizionato includerebbero silenziosamente anche la
-spinta, sommata al proprio carico, senza che il nome del passo lo prometta e
-senza che `ccx` emetta alcun avviso. È lo stesso guasto di `*CLOAD` misurato
+`SPINTA_ORIZZONTALE`, restava attiva in **ogni** passo statico successivo:
+`CARICO_TOP` e ciascun posizionato includevano silenziosamente anche la
+spinta, sommata al proprio carico, senza che il nome del passo lo promettesse e
+senza che `ccx` emettesse alcun avviso. È lo stesso guasto di `*CLOAD` misurato
 sopra, sullo stesso meccanismo (`OP=NEW` assente), su una card diversa.
 
-La corsa dimostrativa citata in questo documento (`lab_telaio_v4_posizionati_top`)
+**Chiuso**: `_passo_statico` apre ora ogni passo statico con `*DLOAD, OP=NEW`,
+non solo il `*CLOAD` dei carichi posizionati. La corsa `runs/lab_telaio_v3_pesata`
+(config `spinta` + `carico_sommita` insieme) era contaminata da questo guasto:
+il suo passo `CARICO_TOP`, e con esso il picco di 0,98 MPa pubblicato in
+`docs/fase-5-analisi.md`, includeva anche la spinta orizzontale. La corsa è
+stata rifatta col codice corretto in una cartella nuova; i numeri prima/dopo
+sono in `docs/fase-5-analisi.md`, sezione «I risultati, per caso di carico».
+
+La corsa dimostrativa citata altrove in questo documento (`lab_telaio_v4_posizionati_top`)
 non dichiara `carichi.spinta` (`casi_di_carico` è `["GRAVITA", "PRESSA",
-"TORSIONE"]`): i numeri già pubblicati in `docs/fase-5-analisi.md` e
-`docs/fase-6-carichi.md` non sono toccati da questa misura. Il guasto è
-nella combinazione `spinta` + (`carico_sommita` o `posizionati`), non ancora
-corretto: **la scelta di come e dove chiuderlo resta aperta**, non è presa
-in questo documento.
+"TORSIONE"]`): i numeri di `docs/fase-6-carichi.md` non sono toccati da questa
+misura, ne' dal fix.
