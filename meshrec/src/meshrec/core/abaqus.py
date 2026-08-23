@@ -1260,22 +1260,34 @@ def export_model(
     # modellazione dichiarato come tale; in parte e' un avviso col conteggio,
     # perche' potrebbe essere voluto (un selettore che tocca il bordo).
     vincolati = set(np.asarray(node_sets[cfg.fixed_nset], dtype=np.int64).tolist())
-    for carico in () if carichi is None else carichi.posizionati:
-        if carico.selettore not in nset_selettori:
-            continue  # write_inp lo rifiuta con un messaggio piu' completo
-        indici_carico = set(np.asarray(nset_selettori[carico.selettore], dtype=np.int64).tolist())
+    # Coppie (nome_del_carico, origine, indici) da controllare: CARICO_TOP in
+    # piu' rispetto a prima, perche' cita un *NSET esistente per nome invece
+    # di un selettore risolto e non passava da questo stesso ciclo (misurato:
+    # un carico_sommita su BASE anziche' TOP finiva in reazione senza un solo
+    # avviso).
+    carichi_da_controllare: list[tuple[str, str, np.ndarray]] = []
+    if carichi is not None:
+        if carichi.carico_sommita is not None and carichi.carico_sommita.nset in node_sets:
+            carichi_da_controllare.append((
+                "CARICO_TOP", carichi.carico_sommita.nset, node_sets[carichi.carico_sommita.nset],
+            ))
+        for carico in carichi.posizionati:
+            if carico.selettore in nset_selettori:  # altrimenti write_inp rifiuta con messaggio piu' completo
+                carichi_da_controllare.append((carico.nome, carico.selettore, nset_selettori[carico.selettore]))
+    for nome, origine, indici in carichi_da_controllare:
+        indici_carico = set(np.asarray(indici, dtype=np.int64).tolist())
         bloccati = indici_carico & vincolati
         if not bloccati:
             continue
         if indici_carico <= vincolati:
             raise ValueError(
-                f"il carico '{carico.nome}' agisce sul selettore '{carico.selettore}', che "
-                f"coincide per intero con l'insieme vincolato '{cfg.fixed_nset}': tutti i "
+                f"il carico '{nome}' agisce sull'insieme '{origine}', che coincide "
+                f"per intero con l'insieme vincolato '{cfg.fixed_nset}': tutti i "
                 f"{len(indici_carico)} nodi presi sono bloccati dal vincolo, il carico "
                 "finirebbe tutto in reazione senza spostare nulla"
             )
         warnings.warn(
-            f"il carico '{carico.nome}' sul selettore '{carico.selettore}' include "
+            f"il carico '{nome}' sull'insieme '{origine}' include "
             f"{len(bloccati)} dei suoi {len(indici_carico)} nodi anche nell'insieme "
             f"vincolato '{cfg.fixed_nset}': quella quota finisce in reazione, non in "
             "spostamento",

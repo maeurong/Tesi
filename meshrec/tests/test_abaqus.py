@@ -2180,6 +2180,48 @@ def test_un_carico_che_interseca_in_parte_il_vincolo_avvisa(cube_mesh, tmp_path)
         )
 
 
+def test_carico_sommita_su_tutto_il_vincolo_solleva(cube_mesh, tmp_path):
+    """La guardia scorreva solo `carichi.posizionati`: `carico_sommita` non
+    passava mai dal confronto col set vincolato.
+
+    Col predefinito di `set_tolerance_factor` (vedi il test gemello sui
+    posizionati) `BASE` copre l'intera altezza di questo cubo di 16 nodi:
+    qualunque `carico_sommita.nset`, `BASE` compreso, ne e' un sottoinsieme
+    completo.
+
+    Mutazione che lo uccide: costruire l'elenco da controllare dal solo
+    `carichi.posizionati`, senza includere `carico_sommita`.
+    """
+    nodi, tetraedri = cube_mesh
+    with pytest.raises(ValueError, match=r"CARICO_TOP.*'BASE'"):
+        abaqus.export_model(
+            tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tetraedri, ANALISI, config.TetConfig(),
+            carichi=config.CarichiConfig(
+                carico_sommita=config.CaricoSommita(risultante=1000.0, nset="BASE"),
+            ),
+        )
+
+
+def test_carico_sommita_che_interseca_in_parte_il_vincolo_avvisa(cube_mesh, tmp_path):
+    """Stesso controllo del test gemello sui posizionati, applicato a
+    `carico_sommita`: a `set_tolerance_factor=0.5` `SIDE_LEFT` e `BASE`
+    condividono solo l'angolo basso (2 nodi su 6), ne' l'uno sottoinsieme
+    dell'altro.
+
+    Mutazione che lo uccide: come sopra, escludere `carico_sommita`
+    dall'elenco controllato.
+    """
+    nodi, tetraedri = cube_mesh
+    analisi = config.AnalysisConfig(material=MATERIALE, set_tolerance_factor=0.5)
+    with pytest.warns(abaqus.CaricoSulVincoloWarning, match=r"CARICO_TOP.*2 dei suoi 6.*'BASE'"):
+        abaqus.export_model(
+            tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tetraedri, analisi, config.TetConfig(),
+            carichi=config.CarichiConfig(
+                carico_sommita=config.CaricoSommita(risultante=1000.0, nset="SIDE_LEFT"),
+            ),
+        )
+
+
 def test_un_caso_misto_di_selettore_arriva_al_deck_scritto(cube_mesh, tmp_path):
     """Il selettore dichiarato 'piastra' e citato 'Piastra' arrivano fino al
     deck, non solo alla validazione della configurazione.
@@ -2228,10 +2270,16 @@ def test_il_carico_in_sommita_da_solo_riporta_i_nodi_ad_area_nulla(cube_mesh, tm
     Mutazione che lo uccide: continuare a scartare il resoconto di
     CARICO_TOP invece di aggiungerlo al dizionario che la funzione rende.
     La chiave 'CARICO_TOP' sparirebbe da `metriche["carichi_posizionati"]`.
+
+    `set_tolerance_factor` ridotto per lo stesso motivo degli altri test
+    di questo file: col predefinito `TOP` e `BASE` collassano nello stesso
+    insieme su questo cubo di 16 nodi, e la guardia carico-sul-vincolo
+    (punto 1) rifiuterebbe un CARICO_TOP che qui non c'entra.
     """
     nodi, tetraedri = cube_mesh
+    analisi = config.AnalysisConfig(material=MATERIALE, set_tolerance_factor=0.5)
     metriche = abaqus.export_model(
-        tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tetraedri, ANALISI, config.TetConfig(),
+        tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tetraedri, analisi, config.TetConfig(),
         carichi=config.CarichiConfig(
             carico_sommita=config.CaricoSommita(risultante=1000.0, nset="TOP"),
         ),
