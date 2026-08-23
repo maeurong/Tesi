@@ -1623,7 +1623,10 @@ def test_componente_nulla_non_scrive_riga_cload(cube_mesh, tmp_path):
 
     Riga del contratto non coperta dai test del brief: quelli dati
     verificano la somma delle forze, che non cambia se righe a zero
-    vengono scritte in piu'.
+    vengono scritte in piu'. Tre asserzioni, non una: l'assenza del grado
+    nullo da sola non basta a dire che il filtro `componente != 0.0` fa il
+    suo lavoro sui gradi non nulli -- un filtro che scartasse *tutte* le
+    righe passerebbe comunque il solo controllo di assenza.
 
     Mutazione che lo uccide: togliere il controllo `componente != 0.0` e
     scrivere comunque la riga per la componente x, qui nulla.
@@ -1631,6 +1634,7 @@ def test_componente_nulla_non_scrive_riga_cload(cube_mesh, tmp_path):
     testo = _con_posizionati(tmp_path / "deck.inp", cube_mesh, [
         config.CaricoPosizionato(nome="PRESSA", selettore="piastra", forza=(0.0, 5.0, -1200.0)),
     ])
+    gradi_visti: set[str] = set()
     dentro = False
     for riga in testo.splitlines():
         if riga.startswith("** NOME PASSO: PRESSA"):
@@ -1639,7 +1643,10 @@ def test_componente_nulla_non_scrive_riga_cload(cube_mesh, tmp_path):
             dentro = False
         elif dentro and not riga.startswith("*") and riga.count(", ") == 2:
             _, grado, _ = riga.split(", ")
-            assert grado != "1", "componente x nulla ha scritto comunque una riga *CLOAD"
+            gradi_visti.add(grado)
+    assert "1" not in gradi_visti, "componente x nulla ha scritto comunque una riga *CLOAD"
+    assert "2" in gradi_visti, "componente y non nulla non ha scritto la sua riga *CLOAD"
+    assert "3" in gradi_visti, "componente z non nulla non ha scritto la sua riga *CLOAD"
 
 
 def test_la_coppia_realizza_il_momento_dichiarato(cube_mesh, tmp_path):
