@@ -135,7 +135,7 @@ TUTTO, GRAV, 100.0, 0.0, 0.0, -1.0
 ...
 ```
 
-Le reazioni sul set vincolato `BASSO`, per passo (`sonda.dat`, righe
+Le reazioni sul set vincolato `BASSO`, per passo (`sonda-dload.dat`, righe
 `forces (fx,fy,fz) for set BASSO`, valori sui nodi 1, 2, 3):
 
 | passo | `*DLOAD` dichiarato in quel passo | reazioni |

@@ -38,7 +38,7 @@ programma non ha, e non può avere su questa geometria, un vocabolario di parti
 nominate.
 
 Gli unici indirizzi che il deck contiene oggi sono i sei insiemi di nodi che
-`build_node_sets` (`core/abaqus.py:1078`) **ricalcola dalle coordinate a ogni
+`build_node_sets` (`core/abaqus.py:1090`) **ricalcola dalle coordinate a ogni
 esportazione** — `BASE`, `TOP`, `FACE_FRONT`, `FACE_BACK`, `SIDE_LEFT`,
 `SIDE_RIGHT`. Non sono memorizzati da nessuna parte fra un'esportazione e
 l'altra: sono il risultato di un criterio geometrico (minimo e massimo di ogni
@@ -193,17 +193,18 @@ ricevuto quote diverse pur essendo fisicamente equivalenti.
 La Fase 6 passa alla **pesatura per area tributaria**, e la applica sia ai
 nuovi `carichi.posizionati` sia a `carico_sommita`: un programma non può
 ripartire in due modi diversi due carichi che fanno la stessa cosa. Il calcolo
-(`aree_tributarie`, `core/abaqus.py:567`) è gemello di `surface_area`
-(`core/abaqus.py:539`, già esistente dalla Fase 4): stesso ciclo sulle facce
-di bordo, stesse tabelle di elemento, stesso ventaglio triangolare dal primo
-nodo di ogni faccia — ma l'accumulo va in un array indicizzato per nodo invece
-che in uno scalare, un terzo dell'area di ogni triangolo a ciascuno dei suoi
-tre nodi. Le facce su cui si somma sono quelle di bordo **interamente
-contenute** nell'insieme del selettore (`element_surface`, già esistente): una
-faccia con tre nodi su quattro nell'insieme non entra, perché non è quella
-faccia. `ripartisci` (`core/abaqus.py:605`) normalizza le quote sul totale,
-così la somma delle forze scritte nel deck è sempre esattamente la risultante
-dichiarata — verificato con un `assert` sul deck scritto, non per fede.
+(`aree_tributarie`, `core/abaqus.py:581`) ripartisce l'area di ogni triangolo,
+un terzo a ciascuno dei suoi tre nodi, in un array indicizzato per nodo.
+`surface_area` (`core/abaqus.py:559`, già esistente dalla Fase 4) non ha più
+un ciclo proprio: dopo la fusione dei due, è la somma di quell'array
+(`aree_tributarie(...).sum()`), non più una funzione gemella che ripete lo
+stesso ciclo a mano. Le facce su cui si somma sono quelle di bordo
+**interamente contenute** nell'insieme del selettore (`element_surface`, già
+esistente): una faccia con tre nodi su quattro nell'insieme non entra, perché
+non è quella faccia. `ripartisci` (`core/abaqus.py:617`) normalizza le quote
+sul totale, così la somma delle forze scritte nel deck è sempre esattamente
+la risultante dichiarata — verificato con un `assert` sul deck scritto, non
+per fede.
 
 Un nodo dentro l'insieme ma non toccato da alcuna faccia di bordo intera
 prende zero, e il resoconto lo conta (§ 7); se **nessun** nodo tocca una
@@ -277,7 +278,7 @@ alcun avviso da intercettare: il deck è valido, gira, e non fa nulla.
 
 Il momento si realizza perciò come **coppia di forze staticamente
 equivalente**, scritta con le stesse card `*CLOAD` di un carico concentrato
-(`coppia_equivalente`, `core/abaqus.py:646`), non come un momento vero e
+(`coppia_equivalente`, `core/abaqus.py:658`), non come un momento vero e
 proprio.
 
 ### 5.2 Il braccio dichiarato, il braccio effettivo
@@ -587,7 +588,7 @@ trascurabile.
 
 ### 6.3 La soglia, e perché è quel numero
 
-La soglia in codice — `TOLLERANZA_MOMENTO_FUORI_ASSE`, `core/abaqus.py:46` —
+La soglia in codice — `TOLLERANZA_MOMENTO_FUORI_ASSE`, `core/abaqus.py:45` —
 vale **5e-2**. Non è un numero scelto a occhio: è la **media geometrica** dei
 due estremi appena misurati,
 
@@ -655,6 +656,13 @@ Fase 5 aveva pubblicato: `selettori` e `carichi_posizionati`, entrambe scritte
 **sempre**, indipendentemente da quanti nodi ciascun selettore abbia preso —
 perché fra un nodo solo e tutti i nodi della mesh nessuna soglia può
 giudicare da sola, e mostrare è l'unica risposta onesta (§ 3).
+
+Il nome `carichi_posizionati` non è più preciso alla lettera: la chiave porta
+anche la voce `CARICO_TOP`, quando `carico_sommita` è dichiarato, benché
+`CARICO_TOP` non sia un elemento di `carichi.posizionati` (§ 4). È lo stesso
+resoconto — nodi, area tributaria, forza dichiarata ed effettiva — e prima
+della Fase 6 andava perso: farlo confluire qui, invece di in una chiave a
+parte, ha tenuto il contratto a una sola voce di ritorno invece di due.
 
 Un estratto reale, da `runs/lab_telaio_v4_posizionati_top/metrics.json`:
 
@@ -731,7 +739,7 @@ Riportato per intero e alla lettera, come approvato in fase di progetto:
   as-built, che oggi non li passa: è il primo cantiere della coda.
 - **non identifica fisicamente le facce.** I nomi `FACE_FRONT`, `SIDE_LEFT` e
   compagni restano nomi di convenzione, come il docstring di `build_node_sets`
-  già dichiara (`core/abaqus.py:1078`): la coppia di facce opposte è
+  già dichiara (`core/abaqus.py:1090`): la coppia di facce opposte è
   affidabile come coppia, l'attribuzione del singolo nome no.
 - **non scrive momenti concentrati.** Un `*CLOAD` sui gradi 4-6 su un
   elemento solido è scartato in silenzio: si veda il § 5.
