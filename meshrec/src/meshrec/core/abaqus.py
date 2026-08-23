@@ -107,7 +107,6 @@ def write_inp(
     pressure: tuple[str, float] | None = None,
     carichi: CarichiConfig | None = None,
     nset_selettori: dict[str, np.ndarray] | None = None,
-    resoconto_carichi: dict[str, object] | None = None,
 ) -> dict[str, object]:
     """Scrive un modello pronto all'analisi statica sotto peso proprio.
 
@@ -152,20 +151,19 @@ def write_inp(
     del terreno dichiarata in Fase 4 non smette di agire perche' il passo
     successivo aggiunge anche un carico in sommita'.
 
-    `nset_selettori` e `resoconto_carichi` sono la quinta aggiunta, di questa
-    fase: ogni voce di `carichi.posizionati` cita un selettore per nome, e
-    `nset_selettori` e' la mappa da quel nome agli indici gia' risolti -- il
-    deck scrive un `*NSET` per selettore (non per carico: due carichi sullo
-    stesso selettore citano lo stesso nome) e un passo statico per carico, col
-    peso proprio ripetuto per la stessa ragione degli altri passi.
+    `nset_selettori` e' la quinta aggiunta, di questa fase: ogni voce di
+    `carichi.posizionati` cita un selettore per nome, ed e' la mappa da quel
+    nome agli indici gia' risolti -- il deck scrive un `*NSET` per selettore
+    (non per carico: due carichi sullo stesso selettore citano lo stesso
+    nome) e un passo statico per carico, col peso proprio ripetuto per la
+    stessa ragione degli altri passi.
 
     Il resoconto (forza effettiva, nodi, e per CARICO_TOP anche
     `nodi_ad_area_nulla`) e' il valore di ritorno di questa funzione, chiave
     per nome di passo: un dizionario riempito e reso, non un parametro
     d'uscita silenzioso in cui un ramo puo' dimenticare di scrivere senza che
     nulla se ne accorga (era esattamente cosi' che CARICO_TOP restava fuori
-    da `metrics.json`). `resoconto_carichi`, se dato, resta riempito anche in
-    loco per compatibilita' con chi lo passa gia'.
+    da `metrics.json`).
     """
     if fixed_nset not in node_sets:
         raise ValueError(f"il set vincolato '{fixed_nset}' non e fra i node_sets forniti")
@@ -336,8 +334,6 @@ def write_inp(
         resoconto_carico["forza_dichiarata"] = list(carico.forza)
         resoconto_carico["forza_effettiva"] = np.outer(quote, versore).sum(axis=0).tolist()
         resoconto[carico.nome] = resoconto_carico
-    if resoconto_carichi is not None:
-        resoconto_carichi.update(resoconto)
 
     if carichi is not None and carichi.modale is not None:
         # Nessun `*EL FILE`: le forme sono normalizzate sulla massa e una

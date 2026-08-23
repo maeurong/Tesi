@@ -1456,17 +1456,22 @@ def test_il_carico_in_sommita_ora_e_pesato(cube_mesh, tmp_path):
     assert sum(valori) == pytest.approx(-1200.0)
 
 
-def _con_posizionati(percorso, cube_mesh, posizionati, resoconto=None):
-    """Scrive un deck col set TOP offerto come selettore 'piastra'."""
+def _con_posizionati(percorso, cube_mesh, posizionati):
+    """Scrive un deck col set TOP offerto come selettore 'piastra'.
+
+    Ritorna il testo del deck e il resoconto: quello che `write_inp` rende,
+    non un parametro d'uscita a parte (`resoconto_carichi`, tolto -- unico
+    chiamante di produzione era gia' il valore di ritorno, il solo canale
+    verificato era questo helper).
+    """
     nodi, tetraedri = cube_mesh
     sets = _base_and_top(nodi)
-    abaqus.write_inp(
+    resoconto = abaqus.write_inp(
         percorso, nodi, tetraedri, node_sets=sets, material=MATERIALE,
         nset_selettori={"piastra": sets["TOP"]},
         carichi=config.CarichiConfig(posizionati=posizionati),
-        resoconto_carichi=resoconto,
     )
-    return percorso.read_text(encoding="ascii")
+    return percorso.read_text(encoding="ascii"), resoconto
 
 
 def _forze_del_passo(testo: str, passo: str, quanti_nodi: int) -> np.ndarray:
@@ -1492,7 +1497,7 @@ def test_un_posizionato_scrive_il_nset_del_selettore_e_il_passo_del_carico(cube_
     scriverebbero due set identici, che e' il nome fabbricato che la
     forma nominata esiste per togliere di mezzo.
     """
-    testo = _con_posizionati(tmp_path / "deck.inp", cube_mesh, [
+    testo, _ = _con_posizionati(tmp_path / "deck.inp", cube_mesh, [
         config.CaricoPosizionato(nome="PRESSA", selettore="piastra", forza=(0.0, 0.0, -1200.0)),
     ])
     # Riga intera, non sottostringa: "*NSET, NSET=piastra_SEL" contiene
@@ -1509,7 +1514,7 @@ def test_le_forze_di_un_posizionato_sommano_alla_risultante(cube_mesh, tmp_path)
     che sui tre della forza. La somma sulla x resta a zero.
     """
     nodi, _ = cube_mesh
-    testo = _con_posizionati(tmp_path / "deck.inp", cube_mesh, [
+    testo, _ = _con_posizionati(tmp_path / "deck.inp", cube_mesh, [
         config.CaricoPosizionato(nome="PRESSA", selettore="piastra", forza=(300.0, 0.0, -1200.0)),
     ])
     somma = _forze_del_passo(testo, "PRESSA", len(nodi)).sum(axis=0)
@@ -1526,7 +1531,7 @@ def test_ogni_posizionato_e_un_passo_a_se_col_peso_proprio(cube_mesh, tmp_path):
     Mutazione che lo uccide: sommare i due carichi in un passo solo.
     Il conteggio dei passi scende a due.
     """
-    testo = _con_posizionati(tmp_path / "deck.inp", cube_mesh, [
+    testo, _ = _con_posizionati(tmp_path / "deck.inp", cube_mesh, [
         config.CaricoPosizionato(nome="PRESSA", selettore="piastra", forza=(0.0, 0.0, -1200.0)),
         config.CaricoPosizionato(nome="TIRO", selettore="piastra", forza=(0.0, 0.0, 800.0)),
     ])
@@ -1545,7 +1550,7 @@ def test_due_carichi_sullo_stesso_selettore_scrivono_un_solo_nset(cube_mesh, tmp
     invece che una volta per selettore in `nset_selettori`. Il conteggio
     salirebbe a due.
     """
-    testo = _con_posizionati(tmp_path / "deck.inp", cube_mesh, [
+    testo, _ = _con_posizionati(tmp_path / "deck.inp", cube_mesh, [
         config.CaricoPosizionato(nome="PRESSA", selettore="piastra", forza=(0.0, 0.0, -1200.0)),
         config.CaricoPosizionato(nome="TIRO", selettore="piastra", forza=(0.0, 0.0, 800.0)),
     ])
@@ -1569,10 +1574,9 @@ def test_il_resoconto_riporta_la_forza_effettiva(cube_mesh, tmp_path):
     da solo.
     """
     nodi, _ = cube_mesh
-    resoconto: dict[str, object] = {}
-    testo = _con_posizionati(tmp_path / "deck.inp", cube_mesh, [
+    testo, resoconto = _con_posizionati(tmp_path / "deck.inp", cube_mesh, [
         config.CaricoPosizionato(nome="PRESSA", selettore="piastra", forza=(0.0, 0.0, -1200.0)),
-    ], resoconto=resoconto)
+    ])
     dal_deck = _forze_del_passo(testo, "PRESSA", len(nodi)).sum(axis=0)
     assert resoconto["PRESSA"]["forza_effettiva"] == pytest.approx(dal_deck)
     assert resoconto["PRESSA"]["nodi"] > 0
@@ -1631,7 +1635,7 @@ def test_componente_nulla_non_scrive_riga_cload(cube_mesh, tmp_path):
     Mutazione che lo uccide: togliere il controllo `componente != 0.0` e
     scrivere comunque la riga per la componente x, qui nulla.
     """
-    testo = _con_posizionati(tmp_path / "deck.inp", cube_mesh, [
+    testo, _ = _con_posizionati(tmp_path / "deck.inp", cube_mesh, [
         config.CaricoPosizionato(nome="PRESSA", selettore="piastra", forza=(0.0, 5.0, -1200.0)),
     ])
     gradi_visti: set[str] = set()
@@ -1659,7 +1663,7 @@ def test_la_coppia_realizza_il_momento_dichiarato(cube_mesh, tmp_path):
     La somma delle forze smette di essere nulla e il momento si annulla.
     """
     nodi, _ = cube_mesh
-    testo = _con_posizionati(tmp_path / "deck.inp", cube_mesh, [
+    testo, _ = _con_posizionati(tmp_path / "deck.inp", cube_mesh, [
         config.CaricoPosizionato(
             nome="TORSIONE", selettore="piastra",
             momento=config.Momento(asse=(0.0, 0.0, 1.0), modulo=3000.0, braccio=60.0),
@@ -1815,13 +1819,12 @@ def test_il_resoconto_del_momento_dice_dichiarato_ed_effettivo(cube_mesh, tmp_pa
     distinguibile dal comportamento corretto sotto questo oracolo, e non
     uccide il test.
     """
-    resoconto: dict[str, object] = {}
-    _con_posizionati(tmp_path / "deck.inp", cube_mesh, [
+    _, resoconto = _con_posizionati(tmp_path / "deck.inp", cube_mesh, [
         config.CaricoPosizionato(
             nome="TORSIONE", selettore="piastra",
             momento=config.Momento(asse=(0.0, 0.0, 1.0), modulo=3000.0, braccio=60.0),
         ),
-    ], resoconto=resoconto)
+    ])
     voce = resoconto["TORSIONE"]
     assert voce["braccio_dichiarato"] == pytest.approx(60.0)
     assert voce["braccio_effettivo"] >= 60.0
