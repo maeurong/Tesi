@@ -1270,10 +1270,16 @@ def test_ogni_etichetta_di_faccia_del_tetraedro_nomina_il_baricentro_giusto():
 
 
 def test_le_aree_tributarie_sommano_all_area_della_superficie(cube_mesh):
-    """La ripartizione non crea ne' perde area: la somma e' quella di surface_area.
+    """La ripartizione non crea ne' perde area: la somma e' quella geometrica.
+
+    L'oracolo e' l'area calcolata a mano sulla faccia nota, non
+    `surface_area`: quella funzione **e'** `aree_tributarie(...).sum()`, e
+    confrontare i due lati era una tautologia -- dare a ogni nodo l'area
+    intera del triangolo invece di un terzo lasciava il test verde. La
+    faccia superiore del banco misura 100 x 40 mm, e nessun altro numero.
 
     Mutazione che lo uccide: dare a ogni nodo l'area intera del triangolo
-    invece di un terzo. La somma diventa tripla.
+    invece di un terzo. La somma diventa tripla, 12000 mm2 invece di 4000.
     """
     nodi, tetraedri = cube_mesh
     sets = _base_and_top(nodi)
@@ -1281,7 +1287,7 @@ def test_le_aree_tributarie_sommano_all_area_della_superficie(cube_mesh):
     assert superficie, "la faccia superiore del banco e' vuota: banco inadatto"
     aree = abaqus.aree_tributarie(nodi, tetraedri, superficie, "C3D4")
     assert aree.shape == (len(nodi),)
-    assert aree.sum() == pytest.approx(abaqus.surface_area(nodi, tetraedri, superficie, "C3D4"))
+    assert aree.sum() == pytest.approx(SIZE[0] * SIZE[1])
 
 
 def test_solo_i_nodi_della_superficie_hanno_area(cube_mesh):
@@ -2141,10 +2147,15 @@ def test_un_carico_su_tutto_il_vincolo_solleva(cube_mesh, tmp_path):
     Mutazione che lo uccide: confrontare `indici_carico` con `vincolati`
     usando `==` invece di `<=`, o non sollevare affatto quando l'insieme
     coincide.
+
+    Il `match` e' sulla frase che identifica **questo** controllo, non sul
+    solo nome 'BASE': col nome soltanto passava anche l'errore del set
+    vincolato vuoto (bastava una tolleranza negativa a produrlo), cioe' un
+    guasto diverso da quello che il test dichiara di coprire.
     """
     nodi, tetraedri = cube_mesh
     alto = float(nodi[:, 2].max())
-    with pytest.raises(ValueError, match="BASE"):
+    with pytest.raises(ValueError, match="coincide per intero con l'insieme vincolato"):
         abaqus.export_model(
             tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tetraedri, ANALISI, config.TetConfig(),
             selettori={"piastra": config.SelettoreBox(

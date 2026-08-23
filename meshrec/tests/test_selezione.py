@@ -26,13 +26,22 @@ def _banco():
 def test_la_box_prende_i_nodi_dentro_e_solo_quelli():
     """Il criterio e' inclusivo sugli estremi e non prende nulla oltre.
 
-    Mutazione che lo uccide: `<` al posto di `<=` sul massimo. Il nodo 4,
-    che sta esattamente a z = 10, esce dalla selezione.
+    Gli estremi della box cadono **esattamente** su coordinate di nodo, su
+    entrambi i lati: minimo (0, 0, 0) sul vertice 0, massimo (10, 10, 5)
+    sulle coordinate alte di x e di y. Senza questo il test non prova
+    nulla -- la versione precedente usava una box piu' larga del cubo, dove
+    nessun nodo tocca l'estremo e la mutazione dichiarata lasciava 11
+    passed.
+
+    Mutazioni che lo uccidono: `<` al posto di `<=` sul massimo (escono i
+    nodi a x = 10 e y = 10, resta il solo nodo 0) e `>` al posto di `>=`
+    sul minimo (esce ogni nodo che tocca un estremo basso, la lista si
+    svuota).
     """
     nodi, _, node_sets = _banco()
-    selettore = config.SelettoreBox(tipo="box", min=(-1.0, -1.0, 9.0), max=(11.0, 11.0, 11.0))
-    presi = selezione.risolvi(selettore, nodi, node_sets, nome="alto", spigolo=10.0)
-    assert presi.tolist() == [4, 5, 6, 7]
+    selettore = config.SelettoreBox(tipo="box", min=(0.0, 0.0, 0.0), max=(10.0, 10.0, 5.0))
+    presi = selezione.risolvi(selettore, nodi, node_sets, nome="basso", spigolo=10.0)
+    assert presi.tolist() == [0, 1, 2, 3]
 
 
 def test_la_sfera_prende_per_distanza_dal_centro():
