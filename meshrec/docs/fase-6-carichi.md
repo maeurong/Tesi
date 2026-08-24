@@ -38,7 +38,7 @@ programma non ha, e non può avere su questa geometria, un vocabolario di parti
 nominate.
 
 Gli unici indirizzi che il deck contiene oggi sono i sei insiemi di nodi che
-`build_node_sets` (`core/abaqus.py:1090`) **ricalcola dalle coordinate a ogni
+`build_node_sets` (`core/abaqus.py`) **ricalcola dalle coordinate a ogni
 esportazione** — `BASE`, `TOP`, `FACE_FRONT`, `FACE_BACK`, `SIDE_LEFT`,
 `SIDE_RIGHT`. Non sono memorizzati da nessuna parte fra un'esportazione e
 l'altra: sono il risultato di un criterio geometrico (minimo e massimo di ogni
@@ -64,8 +64,8 @@ cosa che lo ha reso necessario, cioè l'assenza di topologia.
 ## 2. Il selettore
 
 Il blocco `selettori:` vive alla radice della configurazione
-(`PipelineConfig.selettori`, `core/config.py:824`), come un dizionario da nome
-a regola. Quattro forme sono ammesse, tutte definite in `core/config.py:660-719`:
+(`PipelineConfig.selettori`, `core/config.py`), come un dizionario da nome
+a regola. Quattro forme sono ammesse, tutte definite in `core/config.py`:
 
 - **`box`** (`SelettoreBox`) — tutti i nodi dentro un parallelepipedo allineato
   agli assi del modello, dati `min` e `max`.
@@ -79,7 +79,7 @@ Le coordinate delle prime tre forme sono nel sistema di riferimento **dopo**
 solutore vede, non la nuvola grezza. La risoluzione vera e propria — da regola
 a indici di nodo — vive in un modulo a sé, `core/selezione.py`, che non sa
 nulla di deck: prende array di nodi ed elementi e rende indici (`risolvi`,
-`core/selezione.py:67`; `risolvi_tutti`, `core/selezione.py:132`).
+`core/selezione.py`; `risolvi_tutti`, `core/selezione.py`).
 
 La corsa dimostrativa dichiara un selettore per ciascuna delle quattro forme
 — più un secondo esempio di `nset`, per la ragione che il § 5 spiega — su
@@ -96,12 +96,12 @@ campo `11_export.selettori` di `runs/lab_telaio_v4_posizionati_top/metrics.json`
 
 Il selettore `punta` merita una parola: per costruzione non può mai risolvere
 zero nodi — un `argmin` un vincitore ce l'ha sempre, fosse anche a chilometri
-di distanza (`core/selezione.py:89-102`) — quindi il suo oracolo non è «zero
-nodi» ma «il vincitore è troppo lontano perché il punto dichiarato sia un
+di distanza (`risolvi`, ramo `nodo`, `core/selezione.py`) — quindi il suo
+oracolo non è «zero nodi» ma «il vincitore è troppo lontano perché il punto dichiarato sia un
 indirizzo e non un errore di battitura» (si veda la tabella del § 3). Nella
 corsa dimostrativa il punto dichiarato è a 1,73 mm dal nodo più vicino, ben
 dentro la soglia di 67,48 mm (tre spigoli medi da 22,49 mm, misurati sulla
-stessa mesh — `core/selezione.py:36`, `SPIGOLI_DI_TOLLERANZA = 3`).
+stessa mesh — `core/selezione.py`, `SPIGOLI_DI_TOLLERANZA = 3`).
 
 Il selettore `appoggio` mostra la quarta forma nel modo più diretto: cita
 semplicemente `BASE`, e riceve gli stessi 3.719 nodi che `build_node_sets` ha
@@ -143,8 +143,10 @@ un'eleganza gratuita: è misurata. `docs/fase-6-cantiere/sonda-caso-nomi/README.
 documenta che `ccx` 2.22 risolve un `*NSET` **senza distinguere le
 maiuscole**: un selettore chiamato `base` collide comunque con `BASE` nel
 deck, anche se le due stringhe Python sono diverse. Il validatore normalizza
-perciò il confronto su entrambi i lati (`core/config.py:836-866` per i
-selettori, `:868-906` per i nomi di carico), altrimenti rifiuterebbe un errore
+perciò il confronto su entrambi i lati
+(`PipelineConfig._i_nomi_dei_selettori_non_collidono_coi_sei` per i selettori,
+`._i_posizionati_citano_selettori_dichiarati` per i nomi di carico, entrambi
+in `core/config.py`), altrimenti rifiuterebbe un errore
 di battitura in un caso e ne lascerebbe passare uno identico nell'altro.
 
 Il rifiuto delle chiavi YAML omonime ha un posto a sé perché è, fra tutti
@@ -152,11 +154,11 @@ questi, l'unico ingresso degenere **senza un sintomo a valle**: gli altri
 cinque almeno risolvono zero nodi, un fatto che si può controllare. Due chiavi
 omonime, lette con `yaml.safe_load` di serie, si risolvono in silenzio — la
 prima sparisce e nessuno se ne accorge finché il carico non si comporta in
-modo inatteso. `core/config.py:911-935` sostituisce il lettore con
+modo inatteso. `core/config.py` sostituisce il lettore con
 `_LoaderChiaviUniche`, una sottoclasse di `yaml.SafeLoader` — non di
 `yaml.Loader` — che aggiunge il controllo senza aprire l'esecuzione di codice
 arbitrario che il loader non sicuro permetterebbe. La stessa lettura
-(`carica_yaml`, `core/config.py:938`) serve sia `load_config` sia
+(`carica_yaml`, `core/config.py`) serve sia `load_config` sia
 `load_experiment`: due funzioni, una sola porta d'ingresso.
 
 **A valle, con la mesh già risolta.** Fra 1 e 14.103 nodi nessuna soglia può
@@ -193,15 +195,15 @@ ricevuto quote diverse pur essendo fisicamente equivalenti.
 La Fase 6 passa alla **pesatura per area tributaria**, e la applica sia ai
 nuovi `carichi.posizionati` sia a `carico_sommita`: un programma non può
 ripartire in due modi diversi due carichi che fanno la stessa cosa. Il calcolo
-(`aree_tributarie`, `core/abaqus.py:581`) ripartisce l'area di ogni triangolo,
+(`aree_tributarie`, `core/abaqus.py`) ripartisce l'area di ogni triangolo,
 un terzo a ciascuno dei suoi tre nodi, in un array indicizzato per nodo.
-`surface_area` (`core/abaqus.py:559`, già esistente dalla Fase 4) non ha più
+`surface_area` (`core/abaqus.py`, già esistente dalla Fase 4) non ha più
 un ciclo proprio: dopo la fusione dei due, è la somma di quell'array
 (`aree_tributarie(...).sum()`), non più una funzione gemella che ripete lo
 stesso ciclo a mano. Le facce su cui si somma sono quelle di bordo
 **interamente contenute** nell'insieme del selettore (`element_surface`, già
 esistente): una faccia con tre nodi su quattro nell'insieme non entra, perché
-non è quella faccia. `ripartisci` (`core/abaqus.py:617`) normalizza le quote
+non è quella faccia. `ripartisci` (`core/abaqus.py`) normalizza le quote
 sul totale, così la somma delle forze scritte nel deck è sempre esattamente
 la risultante dichiarata — verificato con un `assert` sul deck scritto, non
 per fede.
@@ -273,12 +275,12 @@ silenzio**: zero occorrenze di `warning` o `error`, `number of equations 3`
 (le sole traslazioni sono viste come incognite), spostamento
 `0.000000E+00` su tutte e tre le componenti. La guardia del progetto contro i
 deck sospetti — zero `*WARNING` da `ccx` o i numeri non sono citabili
-(`core/solve.py:438`) — non può intercettare questo caso, perché non c'è
+(`controlla_avvisi`, `core/solve.py`) — non può intercettare questo caso, perché non c'è
 alcun avviso da intercettare: il deck è valido, gira, e non fa nulla.
 
 Il momento si realizza perciò come **coppia di forze staticamente
 equivalente**, scritta con le stesse card `*CLOAD` di un carico concentrato
-(`coppia_equivalente`, `core/abaqus.py:658`), non come un momento vero e
+(`coppia_equivalente`, `core/abaqus.py`), non come un momento vero e
 proprio.
 
 ### 5.2 Il braccio dichiarato, il braccio effettivo
@@ -671,7 +673,7 @@ trascurabile.
 
 ### 6.3 La soglia, e perché è quel numero
 
-La soglia in codice — `TOLLERANZA_MOMENTO_FUORI_ASSE`, `core/abaqus.py:45` —
+La soglia in codice — `TOLLERANZA_MOMENTO_FUORI_ASSE`, `core/abaqus.py` —
 vale **5e-2**. Non è un numero scelto a occhio: è la **media geometrica** dei
 due estremi appena misurati,
 
@@ -826,7 +828,7 @@ per la risultante. Era già calcolato, ma viveva
 solo nella stringa di un avviso su stderr — e un avviso si perde con la
 finestra del terminale, mentre `forza_effettiva` resta nel file a dichiarare
 la risultante intera. Il precedente comportamentale, già nel
-progetto, è `app/server.py:617` — l'endpoint `/api/cluster`: il server
+progetto, è `app/server.py` — l'endpoint `/api/cluster`: il server
 calcola, scrive, e risponde dicendo **cosa ha scelto e con quali numeri**,
 mai un semplice «fatto».
 
@@ -846,7 +848,7 @@ Riportato per intero e alla lettera, come approvato in fase di progetto:
   as-built, che oggi non li passa: è il primo cantiere della coda.
 - **non identifica fisicamente le facce.** I nomi `FACE_FRONT`, `SIDE_LEFT` e
   compagni restano nomi di convenzione, come il docstring di `build_node_sets`
-  già dichiara (`core/abaqus.py:1090`): la coppia di facce opposte è
+  già dichiara (`core/abaqus.py`): la coppia di facce opposte è
   affidabile come coppia, l'attribuzione del singolo nome no.
 - **non scrive momenti concentrati.** Un `*CLOAD` sui gradi 4-6 su un
   elemento solido è scartato in silenzio: si veda il § 5.
