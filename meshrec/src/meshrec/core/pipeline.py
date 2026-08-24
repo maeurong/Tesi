@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
@@ -75,10 +76,58 @@ def _read_mesh(path: Path) -> tuple[np.ndarray, np.ndarray]:
     import open3d as o3d
 
     mesh = o3d.io.read_triangle_mesh(str(path))
-    return (
-        np.ascontiguousarray(np.asarray(mesh.vertices), dtype=np.float64),
-        np.ascontiguousarray(np.asarray(mesh.triangles), dtype=np.int64),
-    )
+    vertices = np.ascontiguousarray(np.asarray(mesh.vertices), dtype=np.float64)
+    faces = np.ascontiguousarray(np.asarray(mesh.triangles), dtype=np.int64)
+    # open3d NON solleva su file assente: scrive un avviso su stderr e torna una
+    # mesh vuota (misurato il 24/08/2026: "Read PLY failed: unable to open
+    # file", zero vertici, nessuna eccezione). Senza questa guardia uno step
+    # ripreso a monte inesistente girava su zero vertici, scriveva un artefatto
+    # vuoto e lo registrava "riuscito": un successo falso, che e' peggio di un
+    # errore perche' nessuno lo va a cercare. Simmetrica a io.read_cloud, che
+    # la guardia ce l'ha gia'.
+    #
+    # Anche zero facce e non solo zero vertici: un .ply di soli punti si apre
+    # senza errore e passerebbe la prima meta' del controllo, per poi far
+    # girare la riparazione su una superficie che facce non ne ha.
+    if len(vertices) == 0 or len(faces) == 0:
+        raise ValueError(
+            f"nessuna superficie letta da '{path}': file assente, vuoto o formato non riconosciuto"
+        )
+    return vertices, faces
+
+
+def _ingresso_di_ripresa(
+    chiede: int, da: int, out: Path, leggi: Callable[[Path], tuple[np.ndarray, np.ndarray]]
+) -> tuple[np.ndarray, np.ndarray]:
+    """Ricarica l'artefatto dello step `da` come ingresso dello step `chiede`.
+
+    Esiste per il messaggio, non per la lettura: `read_cloud` e `_read_mesh`
+    nominano il FILE che manca, e chi guarda l'interfaccia ragiona per STEP.
+    "nessun punto letto da '04_normals.ply'" non dice a nessuno che deve
+    eseguire lo step 4 prima del 5.
+
+    La sequenza resta consigliata e non imposta: qui si rifiuta e si dice cosa
+    manca, mentre i bottoni dell'interfaccia restano cliccabili sempre.
+
+    File assente e file illeggibile sono due messaggi diversi apposta. Dire
+    "lo step 4 non ha ancora scritto" davanti a un artefatto che esiste ma e'
+    troncato manderebbe a rieseguire uno step che e' gia' stato eseguito,
+    senza spiegare perche' la prima volta non e' bastata.
+    """
+    percorso = out / ARTIFACTS[da]
+    if not percorso.exists():
+        raise ValueError(
+            f"lo step {chiede} pretende {ARTIFACTS[da]}, che lo step {da} non ha ancora "
+            f"scritto. Esegui prima lo step {da}, oppure «Esegui da qui in giu'» "
+            f"dallo step {da}"
+        )
+    try:
+        return leggi(percorso)
+    except (ValueError, OSError) as errore:
+        raise ValueError(
+            f"lo step {chiede} pretende {ARTIFACTS[da]}, che esiste ma non si legge "
+            f"({errore}). Riesegui lo step {da}"
+        ) from errore
 
 
 def calcola_prior(
@@ -272,16 +321,18 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
 
     `cfg.run.from_step` salta gli step precedenti e ricarica dal disco
     l'artefatto numerato che precede quello di ripartenza, secondo le tabelle
-    `_RESUME_POINTS` e `_RESUME_MESH`. La ripresa si fida dell'operatore: non
-    verifica che quegli artefatti siano stati prodotti con la configurazione
-    corrente, e nemmeno che esistano. Unica eccezione governata da `cfg`
+    `_RESUME_POINTS` e `_RESUME_MESH`. La ripresa si fida dell'operatore su un
+    punto solo: non verifica che quegli artefatti siano stati prodotti con la
+    configurazione corrente. Che esistano invece lo verifica, e se mancano
+    rifiuta nominando lo step da eseguire prima (`_ingresso_di_ripresa`).
+    Unica eccezione governata da `cfg`
     invece che dalla tabella: `from_step=9` ricarica `08_simplified.ply` se
     `cfg.simplify.enabled` e' vero, altrimenti `06_repaired.ply`, perche' lo
     step 8 scrive il proprio artefatto solo quando la semplificazione e'
     abilitata (predefinito: disabilitata). Se l'operatore riparte da 9 con
     `simplify.enabled=True` ma la corsa precedente non aveva scritto
     `08_simplified.ply` (per esempio perche' era disabilitata in quella
-    corsa), la ripresa fallisce con `FileNotFoundError` invece di indovinare.
+    corsa), la ripresa rifiuta invece di indovinare.
 
     La ripresa arriva fino allo step 9 (tetraedrizzazione): `RunConfig.from_step`
     e' vincolato a 9 (vedi `config.py`). Gli step 10 e 11 sono il calcolo delle
@@ -326,7 +377,7 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
             if stop <= 1:
                 raise _FermataRichiesta
         else:
-            points, _ = io.read_cloud(out / ARTIFACTS[_RESUME_POINTS[start]])
+            points, _ = _ingresso_di_ripresa(start, _RESUME_POINTS[start], out, io.read_cloud)
 
         spacing = float(
             metrics.get("01_load", {}).get("spacing")
@@ -347,7 +398,7 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
             # nuvola segmentata (uscita dello step 2), sempre ricaricata da qui
             # indipendentemente da cosa serva a `points` piu sotto: e' il
             # riferimento fisso per l'errore geometrico dello step 7.
-            source_cloud, _ = io.read_cloud(out / ARTIFACTS[2])
+            source_cloud, _ = _ingresso_di_ripresa(start, 2, out, io.read_cloud)
 
         if start <= 3:
             in_corso = 3
@@ -369,7 +420,7 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
             if stop <= 4:
                 raise _FermataRichiesta
         else:
-            points, normals = io.read_cloud(out / ARTIFACTS[4])
+            points, normals = _ingresso_di_ripresa(start, 4, out, io.read_cloud)
 
         if start <= 5:
             in_corso = 5
@@ -387,9 +438,9 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
             # step 6 (predefinito), mai un ripiego generico sull'ultimo file
             # esistente.
             resume_from = 8 if cfg.simplify.enabled else 6
-            vertices, faces = _read_mesh(out / ARTIFACTS[resume_from])
+            vertices, faces = _ingresso_di_ripresa(start, resume_from, out, _read_mesh)
         else:
-            vertices, faces = _read_mesh(out / ARTIFACTS[_RESUME_MESH[start]])
+            vertices, faces = _ingresso_di_ripresa(start, _RESUME_MESH[start], out, _read_mesh)
 
         if start <= 6:
             in_corso = 6

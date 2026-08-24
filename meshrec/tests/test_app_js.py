@@ -99,6 +99,18 @@ def _funzioni(*nomi: str) -> str:
     return "\n".join(_sorgente_di(nome, testo) for nome in nomi)
 
 
+def _costante(nome: str) -> str:
+    """La riga di una costante di modulo, presa dal sorgente vero.
+
+    Le costanti non sono funzioni e `_sorgente_di` non le vede. Dichiararne una
+    copia nel banco lascerebbe che banco e modulo divergano in silenzio, che e'
+    la famiglia di difetti per cui questo file esegue invece di leggere.
+    """
+    trovato = re.search(rf"^const {nome} = .*;$", _modulo(), flags=re.MULTILINE)
+    assert trovato is not None, f"nessuna costante {nome} in app.js"
+    return trovato.group(0)
+
+
 def _modulo_viewport() -> str:
     """Il sorgente di `viewport.js`. Gemella di `_modulo()`, che legge `app.js`.
 
@@ -203,6 +215,9 @@ let stepAperto = null;
 // senza, il banco proverebbe una copia che non e' quella del modulo.
 let configurazione = null;
 let generazione = 0;
+// Lo stato degli step che `disegnaStep` scrive e `passoDaMostrare` legge: senza,
+// il banco proverebbe una copia che non e' quella del modulo.
+let ultimoStato = [];
 const elenco = document.getElementById("elenco-step");
 const STEPS = [
   { numero: 1, chiave: "01_load", stato: "valido" },
@@ -2348,7 +2363,13 @@ def test_la_didascalia_della_vista_si_svuota_lasciando_lo_step_del_campo(tmp_pat
 
     Mutazione che uccide: togliere la riga che la svuota in `ricaricaVista`.
     """
-    _esegui(tmp_path, _DOM + _funzioni("didascaliaDellaVista", "superata", "ricaricaVista") + """
+    _esegui(tmp_path, _DOM + _costante("STEP_CON_GEOMETRIA") + _funzioni(
+        "didascaliaDellaVista", "superata", "passoDaMostrare", "nomeDelloStep", "ricaricaVista"
+    ) + """
+// Lo step 2 il proprio artefatto ce l'ha: cosi' ricaricaVista prende la strada
+// normale e non il ramo «nessuno step ha ancora prodotto un artefatto», che
+// non e' cio' che questo controllo guarda.
+ultimoStato = [{ numero: 2, chiave: "02_segment", artefatto: "02_segmented.ply" }];
 async function mostraStep() { return true; }
 function riallineaTaglio() {}
 document.getElementById("didascalia-vista").textContent =
@@ -2356,6 +2377,267 @@ document.getElementById("didascalia-vista").textContent =
 ricaricaVista(2, generazione);
 assert.equal(document.getElementById("didascalia-vista").textContent, "",
   "la didascalia del campo e' rimasta sotto la vista di un altro step");
+""")
+
+
+_RIPIEGO = """
+// Il registro di una corsa arrivata allo step 9 con la semplificazione SPENTA:
+// e' il caso predefinito del programma, e i suoi buchi sono quelli veri.
+// Lo step 7 e il 10 misurano, l'8 non scrive perche' e' disabilitato, l'11 e il
+// 12 non hanno ancora girato.
+ultimoStato = [
+  { numero: 1, chiave: "01_load", artefatto: "01_cloud.ply" },
+  { numero: 2, chiave: "02_segment", artefatto: "02_segmented.ply" },
+  { numero: 3, chiave: "03_downsample", artefatto: "03_downsampled.ply" },
+  { numero: 4, chiave: "04_normals", artefatto: "04_normals.ply" },
+  { numero: 5, chiave: "05_reconstruct", artefatto: "05_surface.ply" },
+  { numero: 6, chiave: "06_repair", artefatto: "06_repaired.ply" },
+  { numero: 7, chiave: "07_surface_quality", artefatto: null },
+  { numero: 8, chiave: "08_simplify", artefatto: null },
+  { numero: 9, chiave: "09_tetrahedralize", artefatto: "09_volume.vtu" },
+  { numero: 10, chiave: "10_volume_quality", artefatto: null },
+  // NON nullo, e non e' un dettaglio: e' cio' che `runs/lab_crop/steps.json`
+  // contiene davvero. Lo step 11 un artefatto ce l'ha -- un deck di calcolo --
+  // e non e' geometria che il viewport sappia disegnare.
+  { numero: 11, chiave: "11_export", artefatto: "wall_model.inp" },
+  { numero: 12, chiave: "12_wall", artefatto: null },
+  { numero: 13, chiave: "13_solve", artefatto: null },
+];
+"""
+
+
+def test_uno_step_che_non_scolpisce_ripiega_sull_ultimo_artefatto_a_monte(tmp_path):
+    """Il difetto che Mario ha riportato: cambiando step compariva «nessun
+    artefatto per questo step» e la nuvola lavorata negli step precedenti
+    spariva dallo schermo.
+
+    Quattro step su tredici non scrivono geometria per costruzione (il 7 e il
+    10 misurano, l'11 scrive un deck, il 12 un prior), piu' l'8 quando la
+    semplificazione e' spenta, che e' il predefinito. Cinque righe su tredici
+    svuotavano il viewport.
+
+    Il ripiego si prova sui numeri veri del registro, non sulla riga per
+    iscritto: e' una funzione pura e va eseguita.
+    """
+    _esegui(tmp_path, _DOM + _costante("STEP_CON_GEOMETRIA") + _funzioni("passoDaMostrare") + _RIPIEGO + """
+assert.equal(passoDaMostrare(7), 6, "lo step 7 misura: deve mostrare la superficie del 6");
+assert.equal(passoDaMostrare(10), 9, "lo step 10 misura: deve mostrare il volume del 9");
+assert.equal(passoDaMostrare(11), 9, "lo step 11 scrive un deck, non geometria");
+assert.equal(passoDaMostrare(12), 9, "lo step 12 scrive un prior, non geometria");
+assert.equal(passoDaMostrare(13), 9, "lo step 13 non ha ancora risolto");
+// Chi l'artefatto ce l'ha resta se stesso: il ripiego non deve spostare nulla
+// quando non c'e' niente da ripiegare.
+assert.equal(passoDaMostrare(9), 9);
+assert.equal(passoDaMostrare(1), 1);
+""")
+
+
+def test_gli_step_disegnabili_del_modulo_sono_quelli_del_server():
+    """L'unica tabella che il modulo rispecchia dal server, e il controllo che
+    ne impedisce la deriva.
+
+    `STEP_CON_GEOMETRIA` deve coincidere con `pipeline.ARTIFACTS`, che e' cio'
+    contro cui /api/cloud e /api/mesh validano il numero chiesto: uno step in
+    piu' qui e la vista chiede una geometria che il server rifiuta, uno in meno
+    e ripiega piu' indietro del necessario. Letta dalla tabella vera, non
+    ricopiata: una copia in questo file avrebbe la stessa deriva del modulo.
+    """
+    from meshrec.core import pipeline
+
+    dichiarati = re.search(
+        r"^const STEP_CON_GEOMETRIA = new Set\(\[([^\]]*)\]\);$", _modulo(), flags=re.MULTILINE
+    )
+    assert dichiarati is not None, "STEP_CON_GEOMETRIA non e' piu' una costante di modulo"
+    assert [int(n) for n in dichiarati.group(1).split(",")] == sorted(pipeline.ARTIFACTS)
+
+    # E la tratta della mesh e' un sottoinsieme: uno step che disegna una mesh
+    # senza essere disegnabile sarebbe una richiesta che il server rifiuta.
+    mesh = re.search(r"^const STEP_CON_MESH = new Set\(\[([^\]]*)\]\);$", _modulo(), flags=re.MULTILINE)
+    assert mesh is not None
+    assert set(int(n) for n in mesh.group(1).split(",")) <= set(pipeline.ARTIFACTS)
+
+
+def test_uno_step_con_un_artefatto_che_non_si_disegna_non_ferma_il_ripiego(tmp_path):
+    """Il difetto trovato leggendo un registro vero, non ragionando.
+
+    In `runs/lab_crop/steps.json` lo step 11 ha `artefatto: wall_model.inp`:
+    NON nullo. Un ripiego che si fermasse al solo campo `artefatto` lo
+    prenderebbe per buono e chiederebbe /api/cloud/11, che il server rifiuta
+    perche' l'11 non e' fra le chiavi di pipeline.ARTIFACTS -- cioe' di nuovo
+    lo schermo vuoto, per una strada nuova.
+
+    Servono due condizioni: aver scritto, e aver scritto qualcosa di
+    disegnabile.
+    """
+    _esegui(tmp_path, _DOM + _costante("STEP_CON_GEOMETRIA") + _funzioni("passoDaMostrare") + _RIPIEGO + """
+assert.equal(
+  ultimoStato[10].artefatto, "wall_model.inp",
+  "il registro di prova non riproduce piu' il caso vero dello step 11",
+);
+assert.equal(passoDaMostrare(11), 9, "il deck dello step 11 e' stato preso per geometria");
+assert.equal(passoDaMostrare(12), 9, "il prior dello step 12 e' stato preso per geometria");
+""")
+
+
+def test_il_ripiego_legge_il_registro_e_non_una_tabella_scritta_a_mano(tmp_path):
+    """Lo step 8 scrive `08_simplified.ply` SOLO a semplificazione abilitata
+    (`registra(8, ..., None)` altrimenti, pipeline.py), che e' il predefinito.
+
+    Una tabella step -> artefatto scritta nel modulo direbbe che l'8 un
+    artefatto ce l'ha e manderebbe a chiedere un file che non esiste. Il campo
+    `artefatto` del registro dice cio' che quello step ha SCRITTO, e distingue
+    i due casi da solo.
+    """
+    _esegui(tmp_path, _DOM + _costante("STEP_CON_GEOMETRIA") + _funzioni("passoDaMostrare") + _RIPIEGO + """
+assert.equal(passoDaMostrare(8), 6, "semplificazione spenta: l'8 non ha scritto niente");
+// Accesa, lo stesso numero risponde se stesso. Nessuna riga del modulo cambia:
+// cambia il registro.
+ultimoStato[7].artefatto = "08_simplified.ply";
+assert.equal(passoDaMostrare(8), 8, "semplificazione accesa: l'artefatto dell'8 esiste");
+""")
+
+
+def test_senza_niente_a_monte_la_vista_non_incolpa_lo_step_scelto(tmp_path):
+    """L'unico caso in cui svuotare resta onesto: la corsa non e' mai partita.
+
+    Ma il testo non deve dire «nessun artefatto per QUESTO step», che da' la
+    colpa allo step cliccato: non e' lui che manca, e' che non e' stato
+    eseguito ancora niente. E deve dire cosa fare.
+    """
+    _esegui(tmp_path, _DOM + _costante("STEP_CON_GEOMETRIA") + _funzioni(
+        "didascaliaDellaVista", "superata", "passoDaMostrare", "nomeDelloStep", "ricaricaVista"
+    ) + """
+ultimoStato = [
+  { numero: 1, chiave: "01_load", artefatto: null },
+  { numero: 2, chiave: "02_segment", artefatto: null },
+];
+let svuotata = 0;
+let allineato = "mai";
+const vista = { svuota: () => { svuotata += 1; } };
+function riallineaTaglio(n) { allineato = n; }
+async function mostraStep() { throw new Error("non si deve chiedere nessuna geometria"); }
+
+ricaricaVista(2, generazione);
+assert.equal(svuotata, 1, "la vista non e' stata svuotata quando non c'e' proprio niente");
+assert.equal(
+  document.getElementById("conteggi").textContent,
+  "nessuno step ha ancora prodotto un artefatto: esegui lo step 1",
+);
+assert.equal(allineato, null, "il cursore del taglio resta appeso a una geometria che non c'e'");
+""")
+
+
+def test_la_vista_che_ripiega_dichiara_a_quale_step_appartiene(tmp_path):
+    """Senza la coda si torna al difetto che `vista.svuota()` voleva evitare:
+    una geometria sullo schermo che la didascalia attribuisce a chi non l'ha
+    prodotta. Cliccato l'11 si vede il volume del 9, e lo schermo lo dice.
+
+    Mutazione che uccide: togliere la coda, o metterla senza la guardia
+    `mostrato !== numero` (che la scriverebbe anche sullo step giusto).
+    """
+    _esegui(tmp_path, _DOM + _costante("STEP_CON_GEOMETRIA") + _funzioni(
+        "didascaliaDellaVista", "superata", "passoDaMostrare", "nomeDelloStep", "ricaricaVista"
+    ) + _RIPIEGO + """
+ETICHETTE["09_tetrahedralize"] = "Tetraedri";
+let chiesto = null;
+let allineato = "mai";
+const vista = { svuota: () => {} };
+function riallineaTaglio(n) { allineato = n; }
+async function mostraStep(numero) {
+  chiesto = numero;
+  document.getElementById("conteggi").textContent = "94.663 vertici, 189.322 triangoli";
+  return true;
+}
+
+await ricaricaVista(11, generazione);
+await new Promise((r) => setTimeout(r, 0));
+assert.equal(chiesto, 9, "cliccato l'11, la geometria chiesta non e' quella del 9");
+assert.equal(
+  document.getElementById("conteggi").textContent,
+  "94.663 vertici, 189.322 triangoli \u2014 artefatto dello step 9 (Tetraedri)",
+  "la vista non dichiara a quale step appartiene cio' che mostra",
+);
+// Lo step MOSTRATO e non quello scelto: il cursore del taglio si rifa'
+// sull'ingombro di cio' che e' disegnato.
+assert.equal(allineato, 9, "il cursore del taglio segue lo step scelto invece della geometria");
+
+// Sullo step che l'artefatto ce l'ha, nessuna coda: sarebbe rumore che ripete
+// il numero gia' evidenziato nella colonna.
+document.getElementById("conteggi").textContent = "94.663 vertici, 189.322 triangoli";
+await ricaricaVista(9, generazione);
+await new Promise((r) => setTimeout(r, 0));
+assert.equal(
+  document.getElementById("conteggi").textContent, "94.663 vertici, 189.322 triangoli",
+  "la coda compare anche quando lo step mostrato e' quello scelto",
+);
+""")
+
+
+def test_una_generazione_superata_non_scrive_la_coda_del_ripiego(tmp_path):
+    """La coda e' una scrittura dopo un'attesa, quindi risponde alla regola
+    dell'ordine come ogni altra: due clic di seguito e la risposta del primo
+    non deve posarsi sulla didascalia del secondo.
+    """
+    _esegui(tmp_path, _DOM + _costante("STEP_CON_GEOMETRIA") + _funzioni(
+        "didascaliaDellaVista", "superata", "passoDaMostrare", "nomeDelloStep", "ricaricaVista"
+    ) + _RIPIEGO + """
+const vista = { svuota: () => {} };
+let allineato = "mai";
+function riallineaTaglio(n) { allineato = n; }
+async function mostraStep() {
+  document.getElementById("conteggi").textContent = "94.663 vertici, 189.322 triangoli";
+  return true;
+}
+
+const vecchia = generazione;
+generazione += 1;   // un secondo clic e' partito mentre la prima risposta arrivava
+await ricaricaVista(11, vecchia);
+await new Promise((r) => setTimeout(r, 0));
+assert.equal(
+  document.getElementById("conteggi").textContent, "94.663 vertici, 189.322 triangoli",
+  "una risposta superata ha scritto la propria coda sulla vista di un altro step",
+);
+assert.equal(allineato, "mai", "una risposta superata ha rifatto il cursore del taglio");
+""")
+
+
+def test_una_metrica_annidata_diventa_una_riga_per_foglia(tmp_path):
+    """`geometric_error` e' annidato DUE livelli (`cloud_to_mesh` -> `mean`,
+    `max`, ...): e' il collaudo per cui lo step 7 esiste, e finiva a video come
+    una riga di JSON crudo.
+
+    Provato sulla forma vera che `quality.geometric_error` restituisce.
+    """
+    _esegui(tmp_path, _DOM + _funzioni("righeDellaMetrica") + """
+const righe = righeDellaMetrica("geometric_error", {
+  cloud_to_mesh: { mean: 4.41, max: 72.2, non_finite: 0 },
+  mesh_to_cloud: { mean: 3.02, max: 55.1, non_finite: 0 },
+  hausdorff: 72.2,
+});
+const coppie = [];
+for (let i = 0; i < righe.length; i += 2) coppie.push([righe[i].textContent, righe[i + 1].textContent]);
+
+assert.deepEqual(coppie, [
+  ["geometric_error \u00b7 cloud_to_mesh \u00b7 mean", "4.41"],
+  ["geometric_error \u00b7 cloud_to_mesh \u00b7 max", "72.2"],
+  ["geometric_error \u00b7 cloud_to_mesh \u00b7 non_finite", "0"],
+  ["geometric_error \u00b7 mesh_to_cloud \u00b7 mean", "3.02"],
+  ["geometric_error \u00b7 mesh_to_cloud \u00b7 max", "55.1"],
+  ["geometric_error \u00b7 mesh_to_cloud \u00b7 non_finite", "0"],
+  ["geometric_error \u00b7 hausdorff", "72.2"],
+]);
+// Nessuna graffa a video: era il difetto.
+assert.ok(!coppie.some(([, v]) => v.includes("{")), "una metrica e' rimasta in JSON");
+
+// Uno scalare resta una riga sola, e un dizionario vuoto non ne lascia
+// nessuna: «{}» a video non e' una misura.
+assert.equal(righeDellaMetrica("watertight", true).length, 2);
+assert.deepEqual(righeDellaMetrica("niente", {}), []);
+// `null` e' un valore, non un dizionario: _distribution lo restituisce quando
+// nessun valore finito resta, e va letto come tale.
+assert.deepEqual(
+  righeDellaMetrica("min", null).map((n) => n.textContent), ["min", "null"],
+);
 """)
 
 

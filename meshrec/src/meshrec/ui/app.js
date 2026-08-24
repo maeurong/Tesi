@@ -231,7 +231,58 @@ function nuovaRiga() {
   return riga;
 }
 
+// Lo stato degli step come il server l'ha mandato l'ultima volta, tenuto per
+// una domanda sola: quale artefatto esiste DAVVERO. `disegnaStep` e' l'unico
+// imbuto per cui arriva (dal caricamento e dallo scorrere degli eventi, che
+// mandano entrambi run_state), quindi una riga qui lo tiene fresco da tutte e
+// due le strade.
+let ultimoStato = [];
+
+// Lo step la cui geometria si puo' mostrare al posto di quella di `numero`.
+//
+// Quattro step su tredici non scrivono un artefatto proprio, per costruzione e
+// non per guasto: il 7 e il 10 misurano, l'11 scrive un deck e il 12 un prior,
+// e nessuno dei quattro produce geometria (pipeline.ARTIFACTS ha nove chiavi).
+// Cliccarli svuotava il viewport: la statua spariva perche' lo scultore aveva
+// preso in mano un metro invece di uno scalpello.
+//
+// Servono DUE condizioni, e la seconda l'ha insegnata il registro di una corsa
+// vera (runs/lab_crop/steps.json): lo step 11 vi compare con
+// `artefatto: wall_model.inp`, cioe' NON nullo. Un artefatto ce l'ha davvero --
+// e' un deck di calcolo -- ma non e' geometria che il viewport sappia disegnare,
+// e chiederla porta dritti a /api/cloud/11, che il server rifiuta perche' l'11
+// non e' fra le chiavi di pipeline.ARTIFACTS. Cioe' di nuovo lo schermo vuoto,
+// per una strada nuova.
+//
+// 1. lo step deve avere SCRITTO qualcosa (`artefatto` non nullo). Non basta la
+//    tabella: lo step 8 scrive solo a semplificazione abilitata
+//    (`registra(8, ..., None)` altrimenti, che e' il predefinito), e una corsa
+//    non ancora eseguita non ha scritto niente.
+// 2. cio' che ha scritto dev'essere DISEGNABILE. Non basta il registro: vedi
+//    lo step 11 qui sopra.
+//
+// `null` quando a monte non c'e' niente che soddisfi entrambe: e' l'unico caso
+// in cui svuotare la vista e' onesto.
+const STEP_CON_GEOMETRIA = new Set([1, 2, 3, 4, 5, 6, 8, 9, 13]);
+
+function passoDaMostrare(numero) {
+  for (let n = numero; n >= 1; n -= 1) {
+    const voce = ultimoStato.find((v) => v.numero === n);
+    if (voce?.artefatto && STEP_CON_GEOMETRIA.has(n)) return n;
+  }
+  return null;
+}
+
+// Il nome che l'utente vede nella colonna, per la coda della didascalia: dire
+// «artefatto dello step 6» accanto a una riga che si chiama «Riparazione»
+// costringe a contare le righe per capire di quale si parla.
+function nomeDelloStep(numero) {
+  const voce = ultimoStato.find((v) => v.numero === numero);
+  return ETICHETTE[voce?.chiave] ?? `step ${numero}`;
+}
+
 function disegnaStep(steps) {
+  ultimoStato = steps;
   const elenco = document.getElementById("elenco-step");
   // Le righe si costruiscono una volta sola e poi si aggiornano sul posto.
   // Ricostruirle a ogni evento — due volte al secondo mentre la pipeline gira —
@@ -395,8 +446,14 @@ async function mostraNuvolaDelloStep(numero, ordine) {
     // Svuotare e' obbligatorio: senza, la scena resta quella dello step
     // precedente mentre il testo dice che non c'e' nulla. Una vista che
     // contraddice la sua didascalia e' peggio di una vista vuota.
+    //
+    // Qui ci si arriva molto piu' di rado da quando ricaricaVista chiede solo
+    // step che il registro dichiara scritti: resta per il caso in cui registro
+    // e disco non concordano (cartella della corsa svuotata sotto i piedi). Il
+    // testo lo dice, invece di dare la colpa allo step.
     vista.svuota();
-    document.getElementById("conteggi").textContent = "nessun artefatto per questo step";
+    document.getElementById("conteggi").textContent =
+      `l'artefatto dello step ${numero} risulta scritto ma il server non lo trova`;
     return true;
   }
   const disegnati = Number(risposta.headers.get("X-Points-Drawn"));
@@ -434,9 +491,11 @@ async function mostraStep(numero, ordine) {
   if (!risposta.ok) {
     if (superata(ordine) || superata(emissione, ultimaGeometria)) return false;
     // Come per la nuvola: svuotare e' obbligatorio, una vista che contraddice
-    // la sua didascalia e' peggio di una vista vuota.
+    // la sua didascalia e' peggio di una vista vuota. E come li', ci si arriva
+    // solo se registro e disco non concordano.
     vista.svuota();
-    document.getElementById("conteggi").textContent = "nessun artefatto per questo step";
+    document.getElementById("conteggi").textContent =
+      `l'artefatto dello step ${numero} risulta scritto ma il server non lo trova`;
     return true;
   }
   const vertici = Number(risposta.headers.get("X-Vertices"));
@@ -689,7 +748,10 @@ function riallineaTaglio(numero) {
 }
 
 quotaTaglio.addEventListener("input", applicaTaglio);
-asseTaglio.addEventListener("change", () => riallineaTaglio(stepMostrato));
+// Lo step mostrato e non quello scelto, per la stessa ragione di ricaricaVista:
+// scelto lo step 11 il viewport porta il volume dello step 9, e passare qui 11
+// spegnerebbe il comando del taglio sotto una geometria che si puo' tagliare.
+asseTaglio.addEventListener("change", () => riallineaTaglio(passoDaMostrare(stepMostrato)));
 
 document.getElementById("elenco-step").addEventListener("click", (evento) => {
   const riga = evento.target.closest(".step");
@@ -721,11 +783,38 @@ function ricaricaVista(numero, ordine = generazione) {
   // questo e' l'unico imbuto per cui la vista cambia, dal clic e dal fronte di
   // discesa; chi disegna un campo la riscrive subito dopo.
   didascaliaDellaVista().textContent = "";
+  // Il ripiego sta QUI e non dentro mostraStep, che ha un secondo chiamante:
+  // mostraModoDelloStep pretende la mesh dello step 13 e nient'altro, perche'
+  // ci scrive sopra la didascalia di un modo. Un ripiego dentro mostraStep gli
+  // farebbe posare «Modo 1» sul volume dello step 9.
+  const mostrato = passoDaMostrare(numero);
+  if (mostrato === null) {
+    // L'unico caso in cui svuotare e' onesto: non c'e' proprio niente a monte.
+    // Il testo non da' la colpa allo step scelto -- non e' lui che manca, e'
+    // che la corsa non e' mai partita.
+    vista.svuota();
+    document.getElementById("conteggi").textContent =
+      "nessuno step ha ancora prodotto un artefatto: esegui lo step 1";
+    riallineaTaglio(null);
+    return;
+  }
   // `disegnato` e' falso quando la risposta e' stata scartata: senza guardarlo,
   // il cursore si rifarebbe sull'ingombro di una geometria che qualcun altro
   // ha disegnato, cioe' su una lettura che non appartiene a questo numero.
-  mostraStep(numero, ordine).then((disegnato) => {
-    if (disegnato && !superata(ordine)) riallineaTaglio(numero);
+  mostraStep(mostrato, ordine).then((disegnato) => {
+    if (disegnato && !superata(ordine)) {
+      // Senza questa coda si torna esattamente al difetto che vista.svuota()
+      // voleva evitare: una geometria sullo schermo che la didascalia
+      // attribuisce a uno step che non l'ha prodotta.
+      if (mostrato !== numero) {
+        const conteggi = document.getElementById("conteggi");
+        conteggi.textContent +=
+          ` — artefatto dello step ${mostrato} (${nomeDelloStep(mostrato)})`;
+      }
+      // Lo step MOSTRATO e non quello scelto: il cursore del taglio si rifa'
+      // sull'ingombro di cio' che e' disegnato, e la sua stessa nota lo dice.
+      riallineaTaglio(mostrato);
+    }
   });
 }
 
@@ -1596,12 +1685,7 @@ async function apriDettaglio(numero, ordine = generazione) {
     const tabella = document.createElement("dl");
     tabella.className = "metriche";
     for (const [nome, valore] of Object.entries(metriche[chiave])) {
-      tabella.append(
-        Object.assign(document.createElement("dt"), { textContent: nome }),
-        Object.assign(document.createElement("dd"), {
-          textContent: typeof valore === "object" ? JSON.stringify(valore) : String(valore),
-        }),
-      );
+      tabella.append(...righeDellaMetrica(nome, valore));
     }
     dettaglio.append(titolo, tabella);
   }
@@ -1615,6 +1699,36 @@ async function apriDettaglio(numero, ordine = generazione) {
       textContent: "Questo step non ha parametri propri e non ha ancora prodotto metriche.",
     }));
   }
+}
+
+// Una metrica annidata diventa una riga per foglia, non una riga di JSON.
+//
+// E' il collaudo dello step 7 a pagarne il prezzo piu' alto: `geometric_error`
+// e' annidato DUE livelli (`cloud_to_mesh` -> `mean`, `max`, ...), quindi lo
+// scarto fra la superficie ricostruita e la nuvola da cui e' nata -- il numero
+// per cui quello step esiste -- finiva a video dentro una graffa. Anche
+// `aspect_ratio` (step 7) e la distribuzione dello step 10 sono annidati.
+//
+// Ricorsiva perche' i due livelli sono misurati, non ipotizzati: appiattirne
+// uno solo lascerebbe `geometric_error . cloud_to_mesh` ancora in JSON.
+// Le liste restano in JSON: nessuna metrica di questo programma ne ha, e
+// numerarne gli elementi sarebbe struttura scritta per un caso che non esiste.
+function righeDellaMetrica(nome, valore, righe = []) {
+  const annidata = valore !== null && typeof valore === "object" && !Array.isArray(valore);
+  if (annidata) {
+    // Un dizionario vuoto non lascia righe: «{}» a video non e' una misura.
+    for (const [interno, dentro] of Object.entries(valore)) {
+      righeDellaMetrica(`${nome} · ${interno}`, dentro, righe);
+    }
+    return righe;
+  }
+  righe.push(
+    Object.assign(document.createElement("dt"), { textContent: nome }),
+    Object.assign(document.createElement("dd"), {
+      textContent: typeof valore === "object" ? JSON.stringify(valore) : String(valore),
+    }),
+  );
+  return righe;
 }
 
 // Galleria di curazione: i registri della Fase 2 (/api/experiments*), in

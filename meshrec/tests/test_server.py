@@ -1658,6 +1658,11 @@ _BANCO_ORDINE = """import assert from 'node:assert/strict';
 let generazione = 1;
 let ultimaGeometria = 0;
 const STEP_CON_MESH = new Set([9]);
+// Come STEP_CON_MESH qui sopra: uno stub deliberato coi soli due step che
+// questo banco esercita. Qui si prova l'arbitraggio, non il ripiego -- che la
+// tabella vera coincida con pipeline.ARTIFACTS lo verifica
+// test_app_js.py::test_gli_step_disegnabili_del_modulo_sono_quelli_del_server.
+const STEP_CON_GEOMETRIA = new Set([2, 9]);
 const scritture = [];
 const vista = {
   svuota() {},
@@ -1666,6 +1671,13 @@ const vista = {
 };
 const document = { getElementById: () => ({ textContent: '' }) };
 function riallineaTaglio(numero) { scritture.push(`riallinea:${numero}`); }
+
+// Ogni step col proprio artefatto: qui si prova l'ARBITRAGGIO fra due risposte,
+// non il ripiego della vista, e `passoDaMostrare` deve restituire lo step
+// chiesto perche' il caso da riprodurre resti quello di prima.
+const ultimoStato = Array.from({ length: 13 }, (_, i) => ({
+  numero: i + 1, chiave: `0${i + 1}`, artefatto: 'scritto',
+}));
 
 // Ogni richiesta resta sospesa finche' il banco non la sblocca: l'ordine di
 // arrivo e' l'ingresso della prova, non un caso.
@@ -1756,6 +1768,9 @@ def test_fra_due_geometrie_della_stessa_generazione_vince_chi_e_partita_dopo(num
             "didascaliaDellaVista",
             "mostraNuvolaDelloStep",
             "mostraStep",
+            # `ricaricaVista` risolve il ripiego prima di chiedere la geometria:
+            # senza questa, il banco cade su un riferimento che non esiste.
+            "passoDaMostrare",
             "ricaricaVista",
         )
     )
