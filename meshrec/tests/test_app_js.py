@@ -3929,6 +3929,145 @@ console.log("ok");
     assert uscita.strip() == "ok"
 
 
+def test_l_elevazione_scavalca_il_polo_invece_di_fermarsi_prima(tmp_path):
+    """Il giro verticale si fermava un soffio prima dei due poli.
+
+    `phi` era stretto fra 0,01 e pi greco meno 0,01 da due `Math.min`/`Math.max`,
+    uno nel trascinamento e uno nelle frecce. Ogni lato del pezzo restava
+    raggiungibile -- l'azimut non ha fermi -- ma il gesto si bloccava senza dire
+    perche', e un gesto che si blocca in silenzio si legge come un guasto.
+
+    Le tre cose che questo controllo tiene ferme, e che la correzione poteva
+    rompere una per una:
+
+    - il giro si chiude, in avanti e all'indietro. Senza la normalizzazione
+      `phi` cresce senza fine, e dopo qualche giro la precisione dei
+      trigonometrici si mangia il passo del trascinamento;
+    - i due poli si scavalcano, e la misura e' la distanza dall'asse e non
+      l'uguaglianza a zero: `Math.sin(Math.PI)` vale 1,22e-16, quindi un
+      confronto con zero non vedrebbe il polo non scavalcato. La' `up` e'
+      parallelo allo sguardo, il prodotto vettoriale e' lungo 1e-32 e
+      normalizzarlo amplifica il solo arrotondamento: l'inquadratura esce a
+      caso, o NaN, e la scena sparisce senza un errore. Non e' un caso di
+      scuola --
+      `phi` nasce a 1,0 e la freccia in su lo scala di 0,1, quindi dieci battute
+      ci arrivano esatte, ed e' la strada che il banco percorre davvero;
+    - oltre il polo il seno cambia segno. E' cio' che `aggiornaCamera` legge per
+      capovolgere `up`, e senza quel cambio di segno il giro resta possibile ma
+      l'immagine si ribalta di scatto nel punto in cui dovrebbe essere piu'
+      continua.
+    """
+    uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
+        + _funzioni_viewport("oltreIlPolo") + """
+const GIRO = Math.PI * 2;
+const vicino = (a, b) => Math.abs(a - b) < 1e-9;
+
+// Lontano dai poli il passo arriva dove deve, nei due versi.
+assert.ok(vicino(oltreIlPolo(1.0, 0.2), 1.2), "il passo in avanti non arriva dove chiede");
+assert.ok(vicino(oltreIlPolo(1.0, -0.2), 0.8), "il passo all'indietro non arriva dove chiede");
+
+// Il giro si chiude nei due versi. Senza, l'elevazione cresce senza fine e dopo
+// qualche giro la precisione dei trigonometrici si mangia il passo del gesto.
+assert.ok(vicino(oltreIlPolo(GIRO - 0.1, 0.2), 0.1), "il giro non si chiude in avanti");
+assert.ok(vicino(oltreIlPolo(0.1, -0.2), GIRO - 0.1), "il giro non si chiude all'indietro");
+
+// I poli. La misura e' la distanza dall'asse e non l'uguaglianza a zero:
+// `Math.sin(Math.PI)` vale 1,22e-16 e il modulo non restituisce mai pi greco
+// esatto, quindi un confronto con zero passerebbe anche col polo non
+// scavalcato. E non serve l'esattezza per fare danno: a 1e-16 dall'asse il
+// prodotto vettoriale con `up` e' lungo 1e-32, e normalizzarlo amplifica il
+// solo arrotondamento. La soglia sta mille volte sotto lo scavalcamento vero
+// (1e-3) e dieci ordini sopra il rumore.
+const LONTANO_DALL_ASSE = 1e-6;
+const dallAsse = (phi, passo) => Math.abs(Math.sin(oltreIlPolo(phi, passo)));
+assert.ok(dallAsse(0.1, -0.1) > LONTANO_DALL_ASSE, "il polo nord lascia la camera sull'asse");
+assert.ok(dallAsse(Math.PI - 0.1, 0.1) > LONTANO_DALL_ASSE, "il polo sud lascia la camera sull'asse");
+assert.ok(dallAsse(GIRO - 0.1, 0.1) > LONTANO_DALL_ASSE, "il polo raggiunto girando non viene scavalcato");
+// La fascia appena SOTTO il giro intero, che e' lo stesso polo visto dall'altra
+// parte: un passo negativo minuscolo da un'elevazione quasi nulla ci finisce
+// dentro, e da 0 quel valore dista un giro intero. Guardando solo 0 e pi greco
+// non lo vedrebbe nessuno, e la camera resterebbe a un ulp dall'asse.
+assert.ok(dallAsse(1e-15, -2e-15) > LONTANO_DALL_ASSE, "il polo appena sotto il giro intero non viene visto");
+
+// La strada vera, e non un caso di scuola: l'elevazione nasce a 1,0 e la freccia
+// in su la scala di 0,1, quindi dieci battute ci arrivano sopra.
+let phi = 1.0;
+for (let i = 0; i < 10; i += 1) phi = oltreIlPolo(phi, -0.1);
+assert.ok(Math.abs(Math.sin(phi)) > LONTANO_DALL_ASSE, "dieci frecce in su portano la camera sull'asse");
+
+// Il gesto non si ferma MAI: e' il difetto che questa funzione esiste per
+// chiudere. Duecento battute nello stesso verso sono piu' di tre giri interi, e
+// nessuna deve lasciare l'elevazione dov'era -- ne' fermandosi contro un fermo,
+// ne' uscendo dalla fascia del polo dalla parte da cui si sta arrivando.
+let corrente = 1.0;
+for (let i = 0; i < 200; i += 1) {
+  const dopo = oltreIlPolo(corrente, -0.1);
+  assert.notEqual(dopo, corrente, `il gesto si e' fermato alla battuta ${i}, a phi ${corrente}`);
+  assert.ok(Math.abs(Math.sin(dopo)) > LONTANO_DALL_ASSE, `la camera finisce sull'asse alla battuta ${i}`);
+  corrente = dopo;
+}
+
+// Di la' dal polo l'alto del mondo e' dall'altra parte, ed e' il segno del seno
+// che aggiornaCamera legge per capovolgere `up`. Senza il cambio di segno il
+// giro resta possibile ma l'immagine si ribalta di scatto.
+assert.ok(Math.sin(oltreIlPolo(Math.PI - 0.05, 0.1)) < 0, "scavalcato il polo il seno non cambia segno");
+assert.ok(Math.sin(oltreIlPolo(Math.PI - 0.05, -0.1)) > 0, "prima del polo il seno non e' positivo");
+
+// E all'incontrario: SFIORARE un polo senza volerlo scavalcare non deve
+// capovolgere niente. Chi si ferma dentro la fascia ne esce dalla parte da cui
+// stava andando, non da quella opposta -- uscire sempre in avanti farebbe
+// ribaltare l'immagine per un movimento che non si vede. Il passo qui e' piu'
+// piccolo di un pixel di trascinamento, quindi la difesa e' preventiva: il
+// gesto vero non ci arriva, ma la funzione non deve dipendere da questo.
+assert.ok(Math.sin(oltreIlPolo(Math.PI - 0.0005, -0.0001)) > 0, "sfiorare il polo da sotto capovolge l'immagine");
+assert.ok(Math.sin(oltreIlPolo(Math.PI + 0.0005, 0.0001)) < 0, "sfiorare il polo da sopra capovolge l'immagine");
+
+// E lo scavalcamento non si vede: nessuna battuta sposta l'elevazione piu' di un
+// millesimo di radiante -- sei centesimi di grado -- oltre cio' che il gesto ha
+// chiesto.
+for (const [da, passo] of [[0.1, -0.1], [Math.PI - 0.1, 0.1], [GIRO - 0.05, 0.05], [1.0, 0.3]]) {
+  const chiesto = (((da + passo) % GIRO) + GIRO) % GIRO;
+  const avuto = oltreIlPolo(da, passo);
+  const salto = Math.min(Math.abs(avuto - chiesto), GIRO - Math.abs(avuto - chiesto));
+  assert.ok(salto <= 1e-3 + 1e-12, `lo scavalcamento sposta di ${salto} rad, e si vede`);
+}
+console.log("ok");
+""")
+    assert uscita.strip() == "ok"
+
+
+def test_i_due_gesti_dell_elevazione_passano_dalla_stessa_funzione():
+    """Il fermo stava in DUE posti, il trascinamento e le frecce, e toglierlo da
+    uno solo lo lascia raggiungibile dall'altro. Qui non si esegue niente: le
+    due righe vivono dentro gestori annidati in `creaViewport`, che tocca
+    three.js e non si monta in un banco. Il controllo guarda che nessuna delle
+    due riscriva `orbita.phi` per conto proprio.
+    """
+    sorgente = _modulo_viewport()
+    scritture = re.findall(r"orbita\.phi = ([^;\n]+)", sorgente)
+    assert len(scritture) >= 3, f"solo {len(scritture)} scritture di orbita.phi: il regex non morde piu'"
+    fuori = [s for s in scritture if "oltreIlPolo(" not in s]
+    assert not fuori, f"l'elevazione viene scritta senza scavalcare il polo: {fuori}"
+
+
+def test_l_alto_del_mondo_segue_il_polo_scavalcato():
+    """Meta' della correzione sta dove nessun banco arriva.
+
+    `aggiornaCamera` vive dentro `creaViewport`, che tocca three.js e non si
+    monta: qui non si esegue niente, si guarda l'ordine di due righe. Ed e'
+    l'ordine il punto -- `lookAt` legge `camera.up` nell'istante in cui viene
+    chiamata, quindi scriverlo dopo non ha alcun effetto e non lascia nessun
+    sintomo: la scena resta, e si capovolge di scatto solo scavalcando un polo.
+    Senza il segno del seno il giro completo resta possibile ma illeggibile.
+    """
+    corpo = _sorgente_di("aggiornaCamera", _modulo_viewport())
+    assert "camera.up.set(" in corpo, "`up` non viene piu' scritto: oltre il polo l'immagine si ribalta"
+    alto = corpo.index("camera.up.set(")
+    guarda = corpo.index("camera.lookAt(")
+    assert alto < guarda, "`up` viene scritto dopo lookAt, che l'aveva gia' letto"
+    assert "Math.sin(phi)" in corpo[alto:guarda], "`up` non segue piu' il segno del seno dell'elevazione"
+
+
 def test_il_marchio_del_cambio_sta_solo_sulle_righe_che_sono_cambiate(tmp_path):
     """Il marchio e' un evento, e un evento dichiarato dove non e' successo
     niente e' un numero mostrato senza un controllo che lo smentisca.

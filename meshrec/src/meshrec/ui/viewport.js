@@ -165,6 +165,57 @@ export function frazioneDellArrivo(trascorso, durata = DURATA_ARRIVO) {
   return 1 - (1 - quota) ** 5;
 }
 
+// --- Il giro completo -------------------------------------------------------
+//
+// L'elevazione correva fra 0,01 e pi greco meno 0,01: un fermo appena prima dei
+// due poli, e arrivati li' il trascinamento non muoveva piu' niente. Ogni lato
+// del pezzo restava raggiungibile -- l'azimut non ha fermi -- ma il gesto si
+// bloccava senza dire perche', e un gesto che si blocca in silenzio si legge
+// come un guasto, non come un limite.
+//
+// Adesso phi corre come theta e si continua oltre il polo. Il prezzo e' che di
+// la' dal polo il mondo e' capovolto: passato pi greco il seno di phi diventa
+// negativo, la posizione si specchia sull'azimut opposto, e con `up` fermo a
+// +Y l'immagine si ribalterebbe di scatto. `up` segue il segno del seno (vedi
+// aggiornaCamera), che e' esattamente cio' che scavalcare un polo fa
+// all'orizzonte: per chi guarda il movimento resta continuo.
+//
+// I due poli esatti si scavalcano e non si toccano. La' la camera sta
+// sull'asse e `up` le e' parallelo: `lookAt` produce NaN, la camera esce dal
+// mondo e la scena sparisce senza un errore in console. Non e' un caso di
+// scuola -- phi nasce a 1,0 e la freccia in su lo scala di 0,1, quindi dieci
+// battute arrivano esattamente a zero. Il salto e' un millesimo di radiante,
+// cioe' sei centesimi di grado: non si vede.
+//
+// Prende l'elevazione di adesso e il passo, non il risultato gia' sommato: il
+// segno del passo e' il verso del gesto, ed e' l'unica cosa che dice da che
+// parte uscire quando si finisce sopra un polo. Uscire «dal lato piu' vicino»
+// senza saperlo rimanderebbe indietro chi sta arrivando, cioe' fermerebbe il
+// gesto proprio dove questa correzione esiste per non fermarlo.
+//
+// La fascia si misura per distanza e non per uguaglianza, e la differenza non e'
+// formale: il modulo non restituisce mai pi greco esatto -- 3*pi greco meno
+// 2*pi greco vale pi greco piu' 4e-16 -- quindi un `=== Math.PI` non
+// riconoscerebbe il polo raggiunto girando. E non serve che sia esatto per fare
+// danno: a 4e-16 dall'asse il prodotto vettoriale con `up` e' lungo 1e-31, e
+// normalizzarlo amplifica il solo errore di arrotondamento.
+//
+// Pura e di primo livello come frazioneDellArrivo, e senza costanti di modulo:
+// dentro la chiusura che tocca three.js nessun banco la eseguirebbe, e con le
+// costanti qui dentro il banco non deve ricostruire niente.
+function oltreIlPolo(phi, passo) {
+  const giro = Math.PI * 2;
+  const scarto = 1e-3;
+  const chiudi = (valore) => ((valore % giro) + giro) % giro;
+  const grezzo = chiudi(phi + passo);
+  // Tre poli e non due: 0 e il giro intero sono lo stesso punto, e la fascia
+  // attorno a ciascuno va guardata dalla propria parte.
+  for (const polo of [0, Math.PI, giro]) {
+    if (Math.abs(grezzo - polo) < scarto) return chiudi(polo + (passo >= 0 ? scarto : -scarto));
+  }
+  return grezzo;
+}
+
 export function creaViewport(contenitore) {
   const scena = new THREE.Scene();
   scena.background = new THREE.Color(0xfbfaf8);
@@ -298,6 +349,11 @@ export function creaViewport(contenitore) {
       centro.y + raggio * Math.cos(phi),
       centro.z + raggio * Math.sin(phi) * Math.sin(theta),
     );
+    // Scritto prima di lookAt, che lo legge. Vedi oltreIlPolo: oltre il polo il
+    // seno di phi e' negativo e l'alto del mondo e' dall'altra parte. Senza
+    // questa riga il giro resta possibile ma l'immagine si capovolge di scatto
+    // nel punto esatto in cui il gesto dovrebbe essere piu' continuo.
+    camera.up.set(0, Math.sin(phi) >= 0 ? 1 : -1, 0);
     camera.lookAt(centro);
 
     // La luce segue la camera, e non e' una rifinitura. Ferma nel mondo
@@ -337,7 +393,7 @@ export function creaViewport(contenitore) {
     if (!premuto) return;
     laCameraPassaAlGesto();
     orbita.theta -= (evento.clientX - ultimo.x) * 0.005;
-    orbita.phi = Math.min(Math.PI - 0.01, Math.max(0.01, orbita.phi - (evento.clientY - ultimo.y) * 0.005));
+    orbita.phi = oltreIlPolo(orbita.phi, -(evento.clientY - ultimo.y) * 0.005);
     ultimo = { x: evento.clientX, y: evento.clientY };
     aggiornaCamera();
   });
@@ -354,8 +410,8 @@ export function creaViewport(contenitore) {
     const passi = {
       ArrowLeft: () => { orbita.theta -= 0.1; },
       ArrowRight: () => { orbita.theta += 0.1; },
-      ArrowUp: () => { orbita.phi = Math.max(0.01, orbita.phi - 0.1); },
-      ArrowDown: () => { orbita.phi = Math.min(Math.PI - 0.01, orbita.phi + 0.1); },
+      ArrowUp: () => { orbita.phi = oltreIlPolo(orbita.phi, -0.1); },
+      ArrowDown: () => { orbita.phi = oltreIlPolo(orbita.phi, 0.1); },
       "+": () => { orbita.raggio *= 0.9; },
       "-": () => { orbita.raggio *= 1.1; },
     };
