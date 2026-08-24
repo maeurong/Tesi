@@ -805,7 +805,25 @@ def _banco_di_geometria() -> str:
     una risposta partita prima portando lo stesso `ordine`; solo
     `ultimaGeometria` li distingue.
     """
-    return _DOM + _funzioni("apriGeometria", "superata", "mostraNuvolaDelloStep", "mostraStep") + """
+    return _DOM + _funzioni(
+        "apriGeometria",
+        "superata",
+        # L'attesa dichiarata e la strada dell'artefatto che non arriva, VERE e
+        # non stubbate: sono dentro le due tratte che questo banco esercita, e
+        # stubbarle toglierebbe di mezzo proprio cio' che puo' rompersi -- un
+        # caricamento che non si chiude, o che si chiude mentre un'altra lettura
+        # e' ancora in volo.
+        "nomeDelloStep",
+        "dichiaraCaricamento",
+        "chiudiCaricamento",
+        "corpoBinarioLetto",
+        "serverMuto",
+        "ragioneDelRifiuto",
+        "messaggioDownloadInterrotto",
+        "segnalaArtefattoMancante",
+        "mostraNuvolaDelloStep",
+        "mostraStep",
+    ) + """
 let ultimaGeometria = 0;
 const STEP_CON_MESH = new Set([5, 6, 8, 9]);
 const vista = {
@@ -1871,7 +1889,7 @@ def test_lo_stato_vuoto_della_vista_compare_solo_dove_non_c_e_niente(tmp_path):
     niente a monte. Lasciata accesa, la frase resterebbe stampata sopra il pezzo.
     """
     _esegui(tmp_path, _DOM + _costante("STEP_CON_GEOMETRIA") + _funzioni(
-        "didascaliaDellaVista", "superata", "passoDaMostrare", "nomeDelloStep", "comandoDelFantasma", "ricaricaVista"
+        "didascaliaDellaVista", "superata", "passoDaMostrare", "nomeDelloStep", "comandoDelFantasma", "chiudiCaricamento", "ricaricaVista"
     ) + """
 // Il velo del passaggio a monte fa una fetch e questo banco prova altro:
 // stub, come riallineaTaglio e mostraStep qui accanto. Che il velo taccia
@@ -2626,7 +2644,7 @@ def test_la_didascalia_della_vista_si_svuota_lasciando_lo_step_del_campo(tmp_pat
     Mutazione che uccide: togliere la riga che la svuota in `ricaricaVista`.
     """
     _esegui(tmp_path, _DOM + _costante("STEP_CON_GEOMETRIA") + _funzioni(
-        "didascaliaDellaVista", "superata", "passoDaMostrare", "nomeDelloStep", "comandoDelFantasma", "ricaricaVista"
+        "didascaliaDellaVista", "superata", "passoDaMostrare", "nomeDelloStep", "comandoDelFantasma", "chiudiCaricamento", "ricaricaVista"
     ) + """
 // Il velo del passaggio a monte fa una fetch e questo banco prova altro:
 // stub, come riallineaTaglio e mostraStep qui accanto. Che il velo taccia
@@ -2793,7 +2811,7 @@ def test_senza_niente_a_monte_la_vista_non_incolpa_lo_step_scelto(tmp_path):
     eseguito ancora niente. E deve dire cosa fare.
     """
     _esegui(tmp_path, _DOM + _costante("STEP_CON_GEOMETRIA") + _funzioni(
-        "didascaliaDellaVista", "superata", "passoDaMostrare", "nomeDelloStep", "comandoDelFantasma", "ricaricaVista"
+        "didascaliaDellaVista", "superata", "passoDaMostrare", "nomeDelloStep", "comandoDelFantasma", "chiudiCaricamento", "ricaricaVista"
     ) + """
 // Il velo del passaggio a monte fa una fetch e questo banco prova altro:
 // stub, come riallineaTaglio e mostraStep qui accanto. Che il velo taccia
@@ -2829,7 +2847,7 @@ def test_la_vista_che_ripiega_dichiara_a_quale_step_appartiene(tmp_path):
     `mostrato !== numero` (che la scriverebbe anche sullo step giusto).
     """
     _esegui(tmp_path, _DOM + _costante("STEP_CON_GEOMETRIA") + _funzioni(
-        "didascaliaDellaVista", "superata", "passoDaMostrare", "nomeDelloStep", "comandoDelFantasma", "ricaricaVista"
+        "didascaliaDellaVista", "superata", "passoDaMostrare", "nomeDelloStep", "comandoDelFantasma", "chiudiCaricamento", "ricaricaVista"
     ) + _RIPIEGO + """
 ETICHETTE["09_tetrahedralize"] = "Tetraedri";
 let chiesto = null;
@@ -2883,7 +2901,7 @@ def test_la_coda_del_ripiego_non_si_attacca_a_un_rifiuto(tmp_path):
     vuota vuol dire nascondersi -- ma non e' `true`.
     """
     _esegui(tmp_path, _DOM + _costante("STEP_CON_GEOMETRIA") + _funzioni(
-        "didascaliaDellaVista", "superata", "passoDaMostrare", "nomeDelloStep", "comandoDelFantasma", "ricaricaVista"
+        "didascaliaDellaVista", "superata", "passoDaMostrare", "nomeDelloStep", "comandoDelFantasma", "chiudiCaricamento", "ricaricaVista"
     ) + _RIPIEGO + """
 const rifiuto = "l'artefatto dello step 9 non c'e' piu' sul disco: riesegui lo step 9";
 let allineato = "mai";
@@ -2912,7 +2930,7 @@ def test_una_generazione_superata_non_scrive_la_coda_del_ripiego(tmp_path):
     non deve posarsi sulla didascalia del secondo.
     """
     _esegui(tmp_path, _DOM + _costante("STEP_CON_GEOMETRIA") + _funzioni(
-        "didascaliaDellaVista", "superata", "passoDaMostrare", "nomeDelloStep", "comandoDelFantasma", "ricaricaVista"
+        "didascaliaDellaVista", "superata", "passoDaMostrare", "nomeDelloStep", "comandoDelFantasma", "chiudiCaricamento", "ricaricaVista"
     ) + _RIPIEGO + """
 const vista = { svuota: () => {} };
 let allineato = "mai";
@@ -4509,3 +4527,118 @@ def test_il_fantasma_dello_step_8_viene_dal_6_e_non_dal_7():
     assert "8: 7" not in coppie
     # Il velo esiste solo dove il conteggio cala: tre coppie, non undici.
     assert re.findall(r"(\d+): (\d+)", coppie) == [("2", "1"), ("3", "2"), ("8", "6")]
+
+
+def test_un_download_caduto_a_meta_lo_dice_invece_di_restare_in_caricamento(tmp_path):
+    """Il buco che il modulo aveva su tutte e due le tratte della geometria.
+
+    `await risposta.arrayBuffer()` era nudo. Su una nuvola vera il corpo dura
+    secondi -- 6,3 milioni di punti sulla scansione di riferimento -- e la rete
+    puo' cadere in quella finestra tanto quanto prima della prima risposta. Il
+    rigetto usciva da una funzione asincrona il cui esito `ricaricaVista`
+    consuma con `.then` e nessuno con `.catch`: nessun messaggio, l'attesa mai
+    chiusa, e a video la geometria dello step di prima sotto la scritta
+    «caricamento di ...». Indistinguibile da una lettura lenta, per sempre.
+
+    `undefined` e non un buffer vuoto: un ArrayBuffer di zero byte e' un dato
+    legittimo, e confonderli tratterebbe una mesh vuota come un guasto di rete.
+
+    Mutazione che lo uccide: rimettere `await risposta.arrayBuffer()` al posto
+    di `corpoBinarioLetto(risposta)`.
+    """
+    _esegui(tmp_path, _banco_di_geometria() + """
+const viewport = document.getElementById("viewport");
+const conteggi = document.getElementById("conteggi");
+risponde = [() => ({
+  ok: true,
+  headers: { get: (nome) => ({ "X-Points-Drawn": "20", "X-Points-Total": "20" }[nome]) },
+  arrayBuffer: async () => { throw new TypeError("Failed to fetch"); },
+})];
+
+const esito = await mostraNuvolaDelloStep(2, generazione);
+
+assert.equal(esito, "vuoto", "un download caduto non e' ne' un disegno ne' una risposta scartata");
+assert.equal(viewport.getAttribute("aria-busy"), null, "l'attesa e' rimasta aperta per sempre");
+assert.match(
+  conteggi.textContent, /il server non ha risposto/,
+  "il download caduto non dice niente: " + conteggi.textContent,
+);
+assert.ok(vista.svuotate > 0, "la geometria di prima e' rimasta sotto un testo che la smentisce");
+""")
+
+
+def test_una_lettura_superata_non_spegne_l_attesa_di_quella_che_l_ha_superata(tmp_path):
+    """Chi e' stato superato NON chiude il caricamento: a chiuderlo e' chi lo ha
+    superato, che ne ha aperto uno suo.
+
+    Le due richieste della stessa generazione sono il caso normale, non un caso
+    limite: il fronte di discesa ricarica la vista senza aprire una generazione,
+    quindi puo' gareggiare con una risposta partita prima. Se la piu' vecchia,
+    rientrando, spegnesse aria-busy, la tela smetterebbe di dichiararsi occupata
+    mentre la lettura buona e' ancora in volo -- e su una scansione vera quella
+    finestra dura decine di secondi.
+
+    Mutazione che lo uccide: spostare `chiudiCaricamento()` sopra la guardia
+    `if (superata(...)) return false`.
+    """
+    _esegui(tmp_path, _banco_di_geometria() + """
+const viewport = document.getElementById("viewport");
+let risolvi1, risolvi2;
+risponde = [
+  () => new Promise((r) => { risolvi1 = r; }),
+  () => new Promise((r) => { risolvi2 = r; }),
+];
+const corpo = (n) => ({
+  ok: true,
+  headers: { get: (nome) => ({ "X-Points-Drawn": String(n), "X-Points-Total": String(n) }[nome]) },
+  arrayBuffer: async () => new ArrayBuffer(n * 12),
+});
+
+const vecchia = mostraNuvolaDelloStep(2, generazione);
+const nuova = mostraNuvolaDelloStep(2, generazione);
+assert.equal(viewport.getAttribute("aria-busy"), "true", "l'attesa non e' stata dichiarata");
+
+// La VECCHIA rientra per prima: e' superata, e la nuova e' ancora in volo.
+risolvi1(corpo(1));
+assert.equal(await vecchia, false, "la richiesta vecchia ha scritto");
+assert.equal(
+  viewport.getAttribute("aria-busy"), "true",
+  "la richiesta superata ha spento l'attesa di quella che l'ha superata",
+);
+
+risolvi2(corpo(2));
+assert.equal(await nuova, true);
+assert.equal(viewport.getAttribute("aria-busy"), null, "chi ha disegnato non ha chiuso l'attesa");
+""")
+
+
+def test_l_attesa_dice_quale_step_sta_leggendo_e_non_inventa_una_percentuale(tmp_path):
+    """Che cosa si sta leggendo e' un fatto; quanto manca sarebbe una stima.
+
+    Le librerie non danno un avanzamento, e PRODUCT.md vieta di fabbricare
+    precisione che non esiste: una percentuale scritta qui sarebbe un numero che
+    nessuna misura sostiene. Si dichiara il nome dello step, che il modulo
+    conosce gia'.
+
+    E il nome, non il numero: la colonna mostra «Segmentazione», e «caricamento
+    dello step 2» costringerebbe a contare le righe per capire di quale si
+    parla -- la stessa ragione per cui la coda della didascalia porta il nome.
+
+    Mutazione che lo uccide: togliere la chiamata a `dichiaraCaricamento` da
+    `mostraNuvolaDelloStep`.
+    """
+    _esegui(tmp_path, _banco_di_geometria() + """
+const viewport = document.getElementById("viewport");
+const conteggi = document.getElementById("conteggi");
+ETICHETTE["02_segment"] = "Segmentazione";
+ultimoStato = [{ numero: 2, chiave: "02_segment" }];
+// Mai risolta: qui si guarda la finestra dell'attesa, non il suo esito.
+risponde = [() => new Promise(() => {})];
+
+mostraNuvolaDelloStep(2, generazione);
+await Promise.resolve();
+
+assert.equal(conteggi.textContent, "caricamento di Segmentazione...");
+assert.equal(viewport.getAttribute("aria-busy"), "true");
+assert.ok(!conteggi.textContent.includes("%"), "l'attesa ha inventato un avanzamento");
+""")

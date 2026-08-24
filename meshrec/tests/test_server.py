@@ -1679,13 +1679,27 @@ const vista = {
   mostraFantasma() { scritture.push('fantasma'); },
   togliFantasma() {},
 };
-const document = { getElementById: () => ({ textContent: '', hidden: false }) };
+// setAttribute/removeAttribute perche' dichiaraCaricamento accende aria-busy
+// sul viewport: senza, la funzione vera cade su un elemento che non sa
+// rispondere, e il banco misurerebbe quella caduta invece dell'arbitraggio.
+const attributi = {};
+const document = {
+  getElementById: () => ({
+    textContent: '',
+    hidden: false,
+    setAttribute(nome, valore) { attributi[nome] = valore; },
+    removeAttribute(nome) { delete attributi[nome]; },
+  }),
+};
 function riallineaTaglio(numero) { scritture.push(`riallinea:${numero}`); }
 function serverMuto() { return undefined; }
 
 // Ogni step col proprio artefatto: qui si prova l'ARBITRAGGIO fra due risposte,
 // non il ripiego della vista, e `passoDaMostrare` deve restituire lo step
 // chiesto perche' il caso da riprodurre resti quello di prima.
+// Vuoto apposta: nomeDelloStep ripiega su `step N`, che a questo banco basta.
+// Qui si prova l'ordine delle risposte, non come si chiamano gli step.
+const ETICHETTE = {};
 const ultimoStato = Array.from({ length: 13 }, (_, i) => ({
   numero: i + 1, chiave: `0${i + 1}`, artefatto: 'scritto',
 }));
@@ -1777,6 +1791,13 @@ def test_fra_due_geometrie_della_stessa_generazione_vince_chi_e_partita_dopo(num
             "superata",
             "apriGeometria",
             "didascaliaDellaVista",
+            "nomeDelloStep",
+            "dichiaraCaricamento",
+            "chiudiCaricamento",
+            "corpoBinarioLetto",
+            "ragioneDelRifiuto",
+            "messaggioDownloadInterrotto",
+            "segnalaArtefattoMancante",
             "mostraNuvolaDelloStep",
             "mostraStep",
             # `ricaricaVista` risolve il ripiego prima di chiedere la geometria:
@@ -2750,11 +2771,25 @@ const vista = {
   mostraFantasma() { scritture.push('velo'); },
   togliFantasma() {},
 };
-const document = { getElementById: () => ({ textContent: '', hidden: false }) };
+// setAttribute/removeAttribute perche' dichiaraCaricamento accende aria-busy
+// sul viewport: senza, la funzione vera cade su un elemento che non sa
+// rispondere, e il banco misurerebbe quella caduta invece dell'arbitraggio.
+const attributi = {};
+const document = {
+  getElementById: () => ({
+    textContent: '',
+    hidden: false,
+    setAttribute(nome, valore) { attributi[nome] = valore; },
+    removeAttribute(nome) { delete attributi[nome]; },
+  }),
+};
 function riallineaTaglio(numero) { scritture.push(`riallinea:${numero}`); }
 function serverMuto() { return undefined; }
 function didascaliaDellaVista() { return { textContent: '' }; }
 
+// Vuoto apposta: nomeDelloStep ripiega su `step N`, che a questo banco basta.
+// Qui si prova l'ordine delle risposte, non come si chiamano gli step.
+const ETICHETTE = {};
 const ultimoStato = Array.from({ length: 13 }, (_, i) => ({
   numero: i + 1, chiave: `0${i + 1}`, artefatto: 'scritto',
 }));
@@ -2837,6 +2872,13 @@ def test_il_velo_non_arbitra_al_posto_delle_geometrie():
             "superata",
             "apriGeometria",
             "apriFantasma",
+            "nomeDelloStep",
+            "dichiaraCaricamento",
+            "chiudiCaricamento",
+            "corpoBinarioLetto",
+            "ragioneDelRifiuto",
+            "messaggioDownloadInterrotto",
+            "segnalaArtefattoMancante",
             "mostraNuvolaDelloStep",
             "mostraStep",
             "passoDaMostrare",

@@ -588,22 +588,98 @@ function apriGeometria() {
   return ultimaGeometria;
 }
 
+// --- L'attesa dichiarata, e l'artefatto che non arriva ----------------------
+
+// Nessuna percentuale: le librerie non ne danno una, e inventarne una sarebbe
+// il principio 3 del prodotto rovesciato. Si dice CHE COSA si sta leggendo,
+// che e' un fatto.
+//
+// La geometria di prima NON si svuota qui, ed e' deliberato. Su una scansione
+// vera la lettura costa 27-34 secondi a freddo, e svuotare in testa
+// scambierebbe mezzo minuto di geometria vecchia con mezzo minuto di tela
+// bianca -- peggio, non meglio. Cio' che non deve restare non e' l'immagine ma
+// l'AFFERMAZIONE: in quella finestra i conteggi portavano i numeri dello step
+// precedente mentre la colonna aveva gia' aria-current sul nuovo, cioe' lo
+// schermo diceva che i parametri di uno step vanno con la mesh di un altro.
+// E' la «vista che contraddice la propria didascalia» vista dall'altro capo:
+// le due generazioni difendono dalle scritture vecchie, questa riga dalle
+// letture vecchie ancora a video.
+function dichiaraCaricamento(numero) {
+  document.getElementById("conteggi").textContent =
+    `caricamento di ${nomeDelloStep(numero)}...`;
+  document.getElementById("viewport").setAttribute("aria-busy", "true");
+}
+
+// Chiude cio' che dichiaraCaricamento ha aperto. Una superficie sola e non
+// tante copie letterali della stessa riga: una superficie sola e' anche
+// l'unica che un test puo' sorvegliare per tutti i punti che la chiamano.
+function chiudiCaricamento() {
+  document.getElementById("viewport").removeAttribute("aria-busy");
+}
+
+// Il corpo binario di una risposta ok, letto senza lasciare uscire un rigetto
+// a meta' del download. Stesso principio di corpoLetto per il JSON, duplicato
+// apposta per non far dipendere le due tratte binarie da quella che legge
+// testo.
+//
+// `undefined` marca «il download non e' arrivato». Un ArrayBuffer vuoto
+// (byteLength 0) e' un dato legittimo, non un errore: confonderli tratterebbe
+// una mesh vuota come un guasto di rete.
+async function corpoBinarioLetto(risposta) {
+  try {
+    return await risposta.arrayBuffer();
+  } catch {
+    return undefined;
+  }
+}
+
+// Il download si e' fermato a meta', dopo che gli header erano gia' arrivati:
+// e' lo stesso fatto di un server muto, letto piu' tardi. Riusa serverMuto
+// invece di un testo proprio, cosi' la formula «il server non ha risposto: ...»
+// resta una sola in tutto il file e non due copie fra nuvola e mesh che
+// potrebbero divergere.
+function messaggioDownloadInterrotto() {
+  return ragioneDelRifiuto(
+    serverMuto(new Error("connessione interrotta durante il download")),
+  );
+}
+
+// Porta la vista nello stato «niente da mostrare», con un messaggio gia'
+// calcolato. Sincrona apposta: il chiamante calcola il messaggio (che puo'
+// aspettare ragioneDelRifiuto) e controlla la guardia dell'ordine PRIMA di
+// chiamare questa, cosi' una risposta scartata non arriva mai qui. Spostare la
+// guardia dentro sposterebbe la scrittura dopo un'altra attesa invece di
+// tenerla subito dopo l'ultima, riaprendo la corsa che le generazioni esistono
+// per chiudere.
+//
+// Il messaggio arriva dal server e non e' una frase fissa di qui: `server.py`
+// nomina l'artefatto che manca -- «lo step 9 non ha ancora prodotto
+// 09_volume.vtu» -- e il nome del file e' la cosa concreta, mentre «riesegui lo
+// step 9» era un'istruzione che il browser inventava.
+function segnalaArtefattoMancante(messaggio) {
+  chiudiCaricamento();
+  // Svuotare e' obbligatorio: senza, la scena resta quella dello step
+  // precedente mentre il testo dice che non c'e' nulla. Una vista che
+  // contraddice la sua didascalia e' peggio di una vista vuota.
+  vista.svuota();
+  document.getElementById("conteggi").textContent = messaggio;
+}
+
 async function mostraNuvolaDelloStep(numero, ordine) {
   const emissione = apriGeometria();
-  const risposta = await fetch(`/api/cloud/${numero}`);
+  dichiaraCaricamento(numero);
+  // `.catch(serverMuto)`: senza, un server fermo o una rete caduta faceva
+  // uscire il rigetto da questa funzione asincrona, cioe' dentro una promessa
+  // che nessuno guarda (ricaricaVista la consuma con .then). Il caricamento non
+  // si chiudeva piu', aria-busy restava acceso e a video restava la geometria
+  // di prima sotto la scritta «caricamento di ...», per sempre. Il resto del
+  // modulo la guardia ce l'aveva gia' (caricaConfronto, caricaGalleria): le due
+  // tratte della geometria erano le sole scoperte.
+  const risposta = await fetch(`/api/cloud/${numero}`).catch(serverMuto);
   if (!risposta.ok) {
+    const messaggio = await ragioneDelRifiuto(risposta);
     if (superata(ordine) || superata(emissione, ultimaGeometria)) return false;
-    // Svuotare e' obbligatorio: senza, la scena resta quella dello step
-    // precedente mentre il testo dice che non c'e' nulla. Una vista che
-    // contraddice la sua didascalia e' peggio di una vista vuota.
-    //
-    // Qui ci si arriva molto piu' di rado da quando ricaricaVista chiede solo
-    // step che il registro dichiara scritti: resta per il caso in cui registro
-    // e disco non concordano (cartella della corsa svuotata sotto i piedi). Il
-    // testo lo dice, invece di dare la colpa allo step.
-    vista.svuota();
-    document.getElementById("conteggi").textContent =
-      `l'artefatto dello step ${numero} non c'è più sul disco: riesegui lo step ${numero}`;
+    segnalaArtefattoMancante(messaggio);
     // "vuoto" e non true: ha SCRITTO (quindi non e' una risposta scartata, e
     // chi guarda l'ordine deve saperlo) ma non ha DISEGNATO. Chi ci scrive
     // sopra una didascalia deve poter distinguere i due casi.
@@ -611,11 +687,24 @@ async function mostraNuvolaDelloStep(numero, ordine) {
   }
   const disegnati = Number(risposta.headers.get("X-Points-Drawn"));
   const pieni = Number(risposta.headers.get("X-Points-Total"));
-  const grezzi = await risposta.arrayBuffer();
+  const grezzi = await corpoBinarioLetto(risposta);
+  if (grezzi === undefined) {
+    // Su una nuvola vera il download dura secondi, e la rete puo' cadere in
+    // quella finestra tanto quanto prima della prima risposta.
+    const messaggio = await messaggioDownloadInterrotto();
+    if (superata(ordine) || superata(emissione, ultimaGeometria)) return false;
+    segnalaArtefattoMancante(messaggio);
+    return "vuoto";
+  }
   // Il controllo sta dopo l'ultima attesa e prima della prima scrittura: piu'
   // in alto lascerebbe passare cio' che e' stato superato mentre il corpo
   // arrivava.
+  //
+  // Chi esce di qui NON chiude il caricamento: e' stato superato, e a chiuderlo
+  // sarebbe la richiesta che l'ha superato, che ne ha aperto uno suo. Chiuderlo
+  // qui spegnerebbe aria-busy mentre un'altra lettura e' ancora in corso.
   if (superata(ordine) || superata(emissione, ultimaGeometria)) return false;
+  chiudiCaricamento();
   vista.svuota();
   vista.mostraNuvola(new Float32Array(grezzi));
   // Sempre entrambi: una nuvola decimata che non lo dichiara e' un dato falso.
@@ -640,24 +729,30 @@ async function mostraStep(numero, ordine) {
   // piu' disegnata. Ogni strada apre esattamente una richiesta.
   if (!STEP_CON_MESH.has(numero)) return mostraNuvolaDelloStep(numero, ordine);
   const emissione = apriGeometria();
-  const risposta = await fetch(`/api/mesh/${numero}`);
+  dichiaraCaricamento(numero);
+  // Come nella tratta della nuvola, e per la stessa ragione: senza la guardia
+  // il rigetto usciva dentro una promessa che nessuno guarda.
+  const risposta = await fetch(`/api/mesh/${numero}`).catch(serverMuto);
   if (!risposta.ok) {
+    const messaggio = await ragioneDelRifiuto(risposta);
     if (superata(ordine) || superata(emissione, ultimaGeometria)) return false;
-    // Come per la nuvola: svuotare e' obbligatorio, una vista che contraddice
-    // la sua didascalia e' peggio di una vista vuota. E come li', ci si arriva
-    // solo se registro e disco non concordano.
-    vista.svuota();
-    document.getElementById("conteggi").textContent =
-      `l'artefatto dello step ${numero} non c'è più sul disco: riesegui lo step ${numero}`;
+    segnalaArtefattoMancante(messaggio);
     // Come nella tratta della nuvola: ha scritto, non ha disegnato.
     return "vuoto";
   }
   const vertici = Number(risposta.headers.get("X-Vertices"));
   const triangoli = Number(risposta.headers.get("X-Triangles"));
-  const grezzi = await risposta.arrayBuffer();
+  const grezzi = await corpoBinarioLetto(risposta);
+  if (grezzi === undefined) {
+    const messaggio = await messaggioDownloadInterrotto();
+    if (superata(ordine) || superata(emissione, ultimaGeometria)) return false;
+    segnalaArtefattoMancante(messaggio);
+    return "vuoto";
+  }
   // Qui la latenza e' quella vera: e' la mesh dello step 9 che arriva tardi a
   // posarsi sulla nuvola di un altro step.
   if (superata(ordine) || superata(emissione, ultimaGeometria)) return false;
+  chiudiCaricamento();
   vista.svuota();
   vista.mostraMesh(
     new Float32Array(grezzi, 0, vertici * 3),
@@ -750,7 +845,14 @@ async function mostraFantasmaDelloStep(numero, ordine) {
   if (risposta === undefined || !risposta.ok) return;
   const pieni = Number(risposta.headers.get(nuvola ? "X-Points-Total" : "X-Vertices"));
   const triangoli = Number(risposta.headers.get("X-Triangles"));
-  const grezzi = await risposta.arrayBuffer();
+  const grezzi = await corpoBinarioLetto(risposta);
+  // Il velo aveva lo stesso `arrayBuffer()` nudo delle due tratte grandi, e
+  // qui il corpo e' il piu' pesante di tutti: il fantasma dello step 2 e' la
+  // nuvola piena dello step 1. Un download caduto a meta' non si annuncia --
+  // vale la stessa ragione della riga qui sopra, cio' che l'utente ha chiesto
+  // e' a video con la sua didascalia -- ma senza questa riga uscirebbe comunque
+  // rumoroso, perche' `new Float32Array(undefined)` solleva.
+  if (grezzi === undefined) return;
   // Dopo l'ultima attesa e prima della prima scrittura, come le due strade che
   // disegnano: un fantasma partito per lo step 2 non deve posarsi sul 9. Sullo
   // step 2 sono 6,3 milioni di punti, decine di secondi a freddo, e in quel
@@ -1076,6 +1178,12 @@ function ricaricaVista(numero, ordine = generazione) {
     // L'unico caso in cui svuotare e' onesto: non c'e' proprio niente a monte.
     // Il testo non da' la colpa allo step scelto -- non e' lui che manca, e'
     // che la corsa non e' mai partita.
+    // Chiude un'attesa che questa strada non ha aperto, e serve proprio per
+    // questo: una lettura ancora in volo viene superata da questo clic e per
+    // contratto NON chiude il caricamento (a chiuderlo e' chi l'ha superata).
+    // Qui chi supera non ne apre uno suo, quindi se non lo chiude questa riga
+    // aria-busy resta acceso sulla vista vuota, e non lo spegne piu' nessuno.
+    chiudiCaricamento();
     vista.svuota();
     document.getElementById("conteggi").textContent =
       "nessuno step ha ancora prodotto un artefatto: esegui lo step 1";
