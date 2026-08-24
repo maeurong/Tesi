@@ -3891,3 +3891,28 @@ assert.deepEqual(marchiati(), [1], "il secondo cambio sulla stessa riga non si v
     assert ".elenco-step [data-cambiato]" in _foglio(), (
         "il foglio non si aggancia piu' a data-cambiato: il marchio resta senza animazione"
     )
+
+
+def test_ogni_elemento_che_il_modulo_cerca_esiste_nel_markup():
+    """`getElementById` non solleva: restituisce `null`.
+
+    Il difetto sta tutto qui. Rinominato o tolto un `id` da `index.html`, il
+    modulo non si accorge di niente finche' qualcuno non tocca quel `null` — e
+    il `TypeError` arriva dentro una funzione asincrona, cioe' in una promessa
+    che nessuno guarda: la sezione resta vuota e la pagina non dice nulla. E'
+    esattamente la forma di guasto che questa interfaccia non deve avere,
+    perche' «vuoto» qui e' anche un esito legittimo.
+
+    Solo le chiamate con una stringa letterale: quelle costruite con un
+    template (`errore-${blocco}-${nome}`, app.js:1466) puntano a elementi che
+    il modulo stesso fabbrica, e non hanno un `id` da trovare nel markup.
+    """
+    modulo = _modulo()
+    chiesti = set(re.findall(r'getElementById\("([^"]+)"\)', modulo))
+    # Se il regex smette di trovare qualcosa il controllo diventa cieco invece
+    # che rosso: il modulo ne cerca decine, zero significa che e' cambiata la
+    # forma della chiamata, non che il difetto e' sparito.
+    assert len(chiesti) > 20, f"solo {len(chiesti)} getElementById letterali: il regex non morde piu'"
+    presenti = set(re.findall(r'id="([^"]+)"', _markup()))
+    mancanti = sorted(chiesti - presenti)
+    assert not mancanti, f"il modulo cerca elementi che il markup non ha: {mancanti}"

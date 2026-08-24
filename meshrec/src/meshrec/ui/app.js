@@ -209,7 +209,7 @@ function segnaStepAperto(numero) {
 }
 
 // La riga vuota, senza contenuto: il contenuto lo scrive disegnaStep, che la
-// riusa. Un <button> e non il <li> con un gestore sopra — undici voci d'elenco
+// riusa. Un <button> e non il <li> con un gestore sopra — tredici voci d'elenco
 // con cursor: pointer erano l'intera interfaccia pilotabile col solo mouse
 // (WCAG 2.1.1, livello A) e annunciate come righe inerti (WCAG 4.1.2). Il
 // gestore delegato piu' sotto non cambia: il clic sale dal bottone e
@@ -1813,9 +1813,17 @@ async function caricaGalleria() {
   // Silenzioso e non un errore a video: una corsa senza cartella experiments/
   // accanto (la comune, durante lo sviluppo di uno step) non e' un guasto
   // della galleria, e' solo che non c'e' niente da elencare.
-  if (corpo == null || !Array.isArray(corpo.esperimenti)) return;
+  //
+  // Silenzioso non vuol dire muto, e questa era la differenza mancante: la
+  // sezione restava un titolo e una riga d'aiuto sopra il nulla, l'unica della
+  // colonna senza uno stato vuoto che dicesse perche'. Le due strade che
+  // portano a zero — server che non risponde o registro che non c'e', ed
+  // elenco vuoto — finiscono nella stessa riga invece che in un `return` che
+  // lascia a video quello di prima.
+  const nomi = Array.isArray(corpo?.esperimenti) ? corpo.esperimenti : [];
+  document.getElementById("galleria-vuoto").hidden = nomi.length > 0;
   const elenco = document.getElementById("galleria-elenco");
-  elenco.replaceChildren(...corpo.esperimenti.map((nome) => {
+  elenco.replaceChildren(...nomi.map((nome) => {
     const bottone = document.createElement("button");
     bottone.type = "button";
     bottone.className = "bottone";

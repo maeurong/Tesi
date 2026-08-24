@@ -142,8 +142,15 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
    cresce con l'uso. */
 .ingresso { padding: var(--passo-4); overflow: auto; background: var(--superficie); flex: 1; min-height: 0; }
 .ingresso > * { max-width: var(--misura); }
-.ingresso .campo { max-width: 40rem; }
-.corse { display: flex; flex-direction: column; gap: var(--passo-2); margin-bottom: var(--passo-6); }
+/* I campi non hanno piu' una larghezza propria: erano 40rem contro le 66ch di
+   tutto il resto della colonna, cioe' due bordi destri diversi a un centinaio
+   di pixel l'uno dall'altro nella stessa schermata, ed e' la prima cosa che
+   vede chi non ha mai aperto il programma. Ereditano la misura leggibile come
+   le schede delle corse e la prosa. */
+/* Nessun margine in fondo: il fratello successivo e' sempre <h3>Nuova corsa</h3>
+   e porta gia' il suo --passo-6 sopra. Due margini adiacenti collassano nel
+   piu' grande, quindi il secondo non produceva un pixel di spazio in piu'. */
+.corse { display: flex; flex-direction: column; gap: var(--passo-2); }
 /* Una voce e' un bottone alto due righe: il nome e cio' da cui la corsa e'
    nata. text-align: left perche' un bottone centra di suo, e qui il contenuto
    e' una scheda, non un'etichetta. */
@@ -171,7 +178,23 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
    scala dichiarata sopra e fuori dal passo di 4 px, proprio sulla schermata
    che viene proiettata per prima. */
 .zona h2, .ingresso h2 { font-size: var(--tipo-nota); line-height: var(--interlinea-riga); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--tenue); margin: var(--passo-6) 0 var(--passo-2); }
-.zona h2:first-child, .ingresso h2:first-child { margin-top: 0; }
+/* Il filetto sopra un titolo di sezione, e solo nelle due colonne che scorrono.
+   La zona di destra impila sei sezioni — Dettaglio, Prior, Confronto,
+   Registro, Galleria e la loro tabella — dentro un contenitore che scorre, e
+   il loro titolo e' il carattere piu' piccolo e piu' tenue del foglio.
+   Strizzando gli occhi sparivano tutti e sei, mentre i bordi dei .gruppo che
+   stanno DENTRO una sezione restavano: i sottogruppi leggevano piu' forte dei
+   gruppi, cioe' la gerarchia era rovesciata. Il filetto e' lo stesso --bordo
+   che separa le zone fra loro, un pixel, gia' il vocabolario della
+   separazione in questo foglio: non aggiunge un segno nuovo, mette quello che
+   c'e' dove serviva.
+   E' anche cio' che distingue un h2 da un h3, che finora portavano lo stesso
+   margine: adesso la sezione ha un filetto e la sottosezione no, e lo spazio
+   non deve piu' dire da solo una cosa che non riusciva a dire.
+   Il primo titolo della zona non lo porta: non c'e' niente sopra da cui
+   staccarsi, e il filetto disegnerebbe una riga sul bordo alto della colonna. */
+.zona h2 { border-top: 1px solid var(--bordo); padding-top: var(--passo-3); }
+.zona h2:first-child, .ingresso h2:first-child { margin-top: 0; border-top: none; padding-top: 0; }
 .elenco-step { list-style: none; margin: 0; padding: 0; }
 /* Le caselle dei modelli e il bottone che li genera: una colonna stretta come
    il resto della zona-step, non una griglia — sono tre righe, non una tabella. */
@@ -188,7 +211,7 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
    comunque scorrere di qualche pixel. */
 .viewport canvas { display: block; }
 .viewport canvas:focus-visible { outline: 2px solid var(--accento); outline-offset: -2px; }
-/* Lo stato vuoto insegna a chi non conosce gli undici step: e' prosa, quindi
+/* Lo stato vuoto insegna a chi non conosce i tredici step: e' prosa, quindi
    prende la misura leggibile e non la larghezza del pannello. */
 .vuoto { color: var(--tenue); font-size: var(--tipo-corpo); line-height: var(--interlinea); max-width: var(--misura); text-wrap: pretty; }
 /* Il titolo delle metriche lo scrive app.js come h3: senza una regola
@@ -252,7 +275,19 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
    flusso e' lecito qui, a differenza di #conteggi e della riga d'errore: non
    e' una regione viva e non annuncia niente. */
 .didascalia-vista:empty { display: none; }
-.conteggi { position: absolute; bottom: var(--passo-2); left: var(--passo-2); margin: 0; padding: var(--passo-1) var(--passo-2); background: var(--velo); border-radius: var(--raggio); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); font-variant-numeric: tabular-nums; color: var(--tenue); }
+/* In alto a sinistra, e sempre, non solo a una colonna. Stavano in basso, cioe'
+   sul bordo che il comando del taglio occupa gia' dall'altra parte, e i due si
+   incontravano: il taglio viene dopo nel markup, quindi copriva il conteggio
+   dei punti. Un numero misurato che sparisce senza dirlo.
+   La collisione era gia' nota e riparata, ma sotto @media (max-width: 60rem),
+   cioe' agganciata alla larghezza della FINESTRA quando dipende da quella della
+   COLONNA. A tre colonne la vista non e' larga quanto la finestra: e' la
+   finestra meno i 18rem e i 22rem delle due fiancate fisse. Appena sopra il
+   breakpoint le restavano 321 px, meno della meta' dei 700 px che il commento
+   dichiarava misurati come soglia di contatto — e la media query non scattava.
+   Ancorarli in cima toglie la condizione invece di inseguirla, e l'override
+   nel blocco a una colonna sparisce con lei. */
+.conteggi { position: absolute; top: var(--passo-2); left: var(--passo-2); margin: 0; padding: var(--passo-1) var(--passo-2); background: var(--velo); border-radius: var(--raggio); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); font-variant-numeric: tabular-nums; color: var(--tenue); }
 /* Vuoti, i conteggi restavano un rettangolo bianco di 16x8 px sopra la vista,
    misurato a video. Non si tolgono dall'albero, per la stessa ragione della
    riga d'errore: aria-live="polite" vuole una regione viva prima che ci si
@@ -267,7 +302,7 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .taglio input[type="range"] { width: 10rem; }
 .taglio :focus-visible { outline: 2px solid var(--accento); outline-offset: 2px; }
 .taglio output { min-width: 5.5rem; text-align: right; font-variant-numeric: tabular-nums; color: var(--tenue); }
-/* .step e' un <button> dentro il <li>, non piu' il <li> stesso: undici righe
+/* .step e' un <button> dentro il <li>, non piu' il <li> stesso: tredici righe
    cliccabili senza ruolo erano l'intera interfaccia irraggiungibile da tastiera.
    Le prime cinque dichiarazioni disfano cio' che il browser mette di suo su un
    bottone (carattere proprio, bordo, sfondo, testo centrato, larghezza al
@@ -330,7 +365,17 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .stato-non-valido .step-nome::before { border-color: var(--avviso); background: var(--avviso); }
 .stato-fallito .step-nome::before { border-color: var(--guasto); background: var(--guasto); }
 .azioni { display: flex; gap: var(--passo-2); flex-wrap: wrap; margin-bottom: var(--passo-6); }
-.gruppo { border: 1px solid var(--bordo); border-radius: var(--raggio); padding: var(--passo-3); margin: 0 0 var(--passo-3); }
+/* Fra due gruppi di parametri passa il doppio che fra due parametri dello
+   stesso gruppo. Erano lo stesso valore, --passo-3 tutti e due, e con la
+   distanza uguale il raggruppamento lo reggeva il solo bordo del fieldset:
+   un contenitore che compensa una prossimita' che non c'era. Adesso lo dice
+   lo spazio, e il bordo lo conferma.
+   L'ultimo campo azzera il proprio margine: il suo --passo-3 si sommava al
+   padding del gruppo, e ogni riquadro aveva 24 px sotto contro i 12 sopra la
+   prima riga. Non e' una simmetria da amare in astratto, e' che quel fondo in
+   piu' faceva sembrare l'ultimo campo staccato dal gruppo che lo contiene. */
+.gruppo { border: 1px solid var(--bordo); border-radius: var(--raggio); padding: var(--passo-3); margin: 0 0 var(--passo-6); }
+.gruppo .campo:last-child { margin-bottom: 0; }
 .gruppo legend { font-size: var(--tipo-nota); line-height: var(--interlinea-riga); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--tenue); }
 .campo { display: grid; gap: var(--passo-1); margin-bottom: var(--passo-3); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); }
 /* Come .taglio[hidden]: display: grid pesa quanto l'attributo hidden, e senza
@@ -365,6 +410,13 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
    otto colonne: scorre in orizzontale dentro il proprio contenitore, non la
    pagina. */
 .galleria-tabella { overflow-x: auto; }
+/* Stessa tappa di tabulazione del registro, e per la stessa ragione: scorre e
+   non contiene niente su cui il fuoco possa posarsi (sono <th> e <td>), quindi
+   senza tabindex le colonne di destra non si raggiungono da tastiera. Otto
+   colonne dentro una zona da 22rem: quelle fuori vista sono la maggioranza.
+   Il registro aveva gia' chiuso questo difetto; questa e' la stessa forma
+   rimasta scoperta, e il contorno e' quello degli altri comandi. */
+.galleria-tabella:focus-visible { outline: 2px solid var(--accento); outline-offset: 2px; }
 .galleria-tabella table { border-collapse: collapse; width: 100%; font-size: var(--tipo-dato); line-height: var(--interlinea-riga); font-variant-numeric: tabular-nums; }
 .galleria-tabella th, .galleria-tabella td { padding: var(--passo-1) var(--passo-2); border-bottom: 1px solid var(--bordo); text-align: left; white-space: nowrap; }
 .galleria-tabella th { color: var(--tenue); font-weight: 600; }
@@ -378,6 +430,11 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .confronto-tabella p { margin: 0 0 var(--passo-1); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 /* Membrature e rifiuti del prior: stesse cifre tabulari delle altre misure. */
 #prior-membrature p { margin: 0 0 var(--passo-1); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); font-variant-numeric: tabular-nums; }
+/* I due elenchi sono due cose diverse — cio' che il prior ha trovato e cio' che
+   ha scartato — e stavano attaccati: le righe portano lo stesso margine da
+   4 px, quindi l'ultima membratura e il primo rifiuto distavano quanto due
+   membrature fra loro. Il confine lo faceva il solo colore del .rifiuto. */
+#prior-scartate { margin-top: var(--passo-3); }
 /* Un rifiuto non e' un errore del modulo (quello e' .errore, role="alert"):
    e' il verdetto di un controllo geometrico sulla regione, letto qui e non
    annunciato. Il bordo a sinistra e' il secondo canale (WCAG 1.4.1): chi non
@@ -476,21 +533,25 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 
 /* --- Una colonna sola ------------------------------------------------------
    In fondo al foglio apposta: una regola stretta scritta piu' in alto della
-   regola larga che modifica perde a parita' di peso, e la perdeva davvero
-   (i conteggi restavano ancorati in basso, misurato). */
+   regola larga che modifica perde a parita' di peso.
+   La soglia non e' un numero scelto: e' la somma delle tre tracce dichiarate a
+   .tre-zone, 18rem + 22rem + 22rem. Sotto di essa la colonna centrale — la
+   vista, cioe' l'unica cosa che questa schermata esiste per mostrare — sarebbe
+   piu' stretta del pannello che la commenta: a 60rem le restavano 321 px
+   contro i 352 della zona di destra. Un artefatto primario piu' piccolo di
+   entrambi i suoi margini non e' piu' primario, e a quel punto la colonna
+   unica, dove la vista prende la larghezza intera della finestra, e' la
+   composizione migliore. Cambiando una larghezza di traccia va cambiata anche
+   questa somma. */
 /* A una colonna la vista perde il contenitore alto quanto lo schermo, e
    .viewport { flex: 1 } di un genitore alto quanto il suo contenuto vale
    zero: la scena sparirebbe. L'altezza gliela da' la finestra, col min-height
    sulla zona; la didascalia si prende la propria riga sotto, e cio' che resta
    e' l'immagine. */
-@media (max-width: 60rem) {
+@media (max-width: 62rem) {
   /* Impilate, le tre zone sono piu' alte dello schermo: qui a scorrere e' la
      pagina, e l'altezza fissa la taglierebbe. */
   body { height: auto; min-height: 100vh; }
   .tre-zone { grid-template-columns: 1fr; }
   .zona-vista { min-height: 60vh; }
-  /* Su una colonna sola i conteggi e il comando del taglio si sovrappongono
-     (misurato: si toccano gia' a 700 px). I conteggi salgono in cima: sono
-     una didascalia della vista, e la' non coprono nulla. */
-  .conteggi { top: var(--passo-2); bottom: auto; }
 }

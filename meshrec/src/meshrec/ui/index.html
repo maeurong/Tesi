@@ -145,7 +145,11 @@
     <div id="prior-scartate"></div>
     <h2>Confronto</h2>
     <p class="vuoto" id="confronto-vuoto" data-testo-vuoto="Nessun modello parametrico generato: il confronto e' una scheda singola.">Nessun modello parametrico generato: il confronto e' una scheda singola.</p>
-    <div class="confronto" id="confronto">
+    <!-- Senza `class="confronto"`: nel foglio non esiste nessuna regola con
+         quel nome, e una classe che non veste niente fa cercare un
+         raggruppamento che non c'e'. Il `div` resta, l'`id` pure: e' l'ancora
+         del pannello. -->
+    <div id="confronto">
       <div class="confronto-tabella" id="confronto-tabella"></div>
     </div>
     <h2>Registro</h2>
@@ -168,8 +172,17 @@
          quelli della Fase 2 (experiments/), la tabella sperimentale della
          tesi. -->
     <p class="aiuto">Registri della Fase 2. La riga di fronte e' evidenziata.</p>
+    <!-- Lo stato vuoto che mancava, e vive nel markup come gli altri quattro:
+         senza cartella experiments/ accanto, il titolo e la riga qui sopra
+         promettevano una tabella sopra il nulla. Era l'unica delle sezioni di
+         questa colonna a non dire perche' non mostrava niente. -->
+    <p class="vuoto" id="galleria-vuoto" hidden>Nessun registro di sweep in <code>experiments/</code>: la galleria resta vuota finche' non ne esiste uno.</p>
     <div class="azioni" id="galleria-elenco"></div>
-    <div class="galleria-tabella" id="galleria-tabella"></div>
+    <!-- tabindex="0" per la stessa ragione del registro: la tabella e' a otto
+         colonne dentro una zona da 22rem, scorre in orizzontale e non contiene
+         niente su cui il fuoco possa posarsi, quindi senza questo attributo le
+         colonne fuori vista non si raggiungono da tastiera (WCAG 2.1.1). -->
+    <div class="galleria-tabella" id="galleria-tabella" tabindex="0"></div>
   </aside>
 </div>
 </main>
