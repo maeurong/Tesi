@@ -119,3 +119,41 @@ def test_il_valore_di_una_metrica_ha_una_colonna_sua_e_non_quella_che_avanza():
     assert "grid-column" in corpo, (
         "la classe non porta piu' il valore fuori dalla colonna del numero"
     )
+
+
+def test_la_misura_leggibile_e_una_lunghezza_e_raggiunge_la_prosa():
+    """Due difetti che si tenevano per mano, misurati nel browser.
+
+    `--misura` valeva `66ch`. `ch` e' l'avanzamento della cifra `0`, che in
+    questo stack di sistema e' 1,44 volte il carattere medio della prosa
+    italiana -- rapporto misurato su 496 caratteri presi dalla pagina, identico
+    sui tre corpi. `66ch` non sono 66 caratteri ma 95: venti oltre il tetto che
+    il commento accanto dichiarava di rispettare. E `ch` si risolve sul corpo E
+    sul peso di chi lo usa, quindi lo stesso token dava otto larghezze diverse
+    ai figli della schermata d'ingresso (misurate: 459, 556, 588, 598, 632, 681,
+    849, 964). Una lunghezza assoluta chiude entrambi, e in `rem` segue ancora
+    l'ingrandimento del testo.
+
+    L'altra meta': `.aiuto` veste anche i `<small>` dell'ingresso, che sono
+    figli diretti di `<section>` e restano inline. `max-width` non si applica a
+    una scatola inline non rimpiazzata, quindi la' la misura non agiva affatto
+    -- 145 caratteri su una riga, misurati. Senza `display: block` il tetto
+    torna inerte e non se ne accorge nessuno, perche' la regola resta scritta.
+    """
+    foglio = _senza_commenti()
+    misura = re.search(r"--misura:\s*([^;]+);", foglio)
+    assert misura is not None, "il foglio non dichiara piu' --misura"
+    valore = misura.group(1).strip()
+    assert not valore.endswith("ch"), (
+        f"--misura e' tornata in `ch` ({valore}): non sono caratteri, e cambia con il "
+        "corpo e il peso di ogni ruolo che la usa"
+    )
+    assert re.fullmatch(r"[\d.]+(rem|px)", valore), (
+        f"--misura non e' piu' una lunghezza assoluta: {valore}"
+    )
+
+    regola = foglio.split(".aiuto {", 1)[1].split("}", 1)[0]
+    assert "display: block" in regola, (
+        "`.aiuto` senza `display: block`: sui <small> dell'ingresso resta inline, "
+        "e su una scatola inline il max-width qui accanto non fa nulla"
+    )

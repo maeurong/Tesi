@@ -85,7 +85,7 @@ export function didascaliaDelCampo({ caso, grandezza, modale, frequenza, massimo
     // un'ampiezza che non e' a schermo, ed e' la stessa classe dell'«amplificato
     // ×1779» che questo ramo ha gia' pagato: la didascalia dice solo cio' che
     // la vista fa davvero.
-    const coda = "la forma modale non e' disegnata, la vista mostra il modello indeformato";
+    const coda = "la forma modale non è disegnata, la vista mostra il modello indeformato";
     return hz === null
       ? `${caso}: frequenza non disponibile; ${coda}`
       : `${caso} — ${hz} Hz: ${coda}`;
@@ -250,7 +250,7 @@ export function creaViewport(contenitore) {
   // tastiera. Il ruolo e' "application" e non "img" perche' la tela si comanda
   // davvero dalla tastiera: "img" la annuncerebbe come figura ferma e lo
   // screen reader intercetterebbe le frecce invece di passarle qui.
-  const COMANDI = "frecce per ruotare, piu' e meno per lo zoom";
+  const COMANDI = "frecce per ruotare, più e meno per lo zoom";
   const tela = renderer.domElement;
   tela.setAttribute("role", "application");
   tela.setAttribute("tabindex", "0");

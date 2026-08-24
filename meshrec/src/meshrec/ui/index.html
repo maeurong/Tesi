@@ -35,11 +35,11 @@
 <section class="ingresso" id="ingresso" aria-label="Scelta della corsa" hidden>
   <h2>Da dove si comincia</h2>
   <p class="aiuto">
-    Una corsa e' una cartella con la configurazione, gli artefatti di ogni step
+    Una corsa è una cartella con la configurazione, gli artefatti di ogni step
     e le metriche. Nasce da un file di punti: <code>.pcd</code>,
     <code>.ply</code> o <code>.xyz</code>.
   </p>
-  <h3 id="corse-titolo">Corse gia' sul disco</h3>
+  <h3 id="corse-titolo">Corse già sul disco</h3>
   <p class="vuoto" id="corse-vuoto" hidden>Nessuna corsa: la prima si crea qui sotto.</p>
   <div class="corse" id="corse-elenco"></div>
   <h3>Nuova corsa</h3>
@@ -85,7 +85,7 @@
   <p class="errore" id="ingresso-errore" role="alert"></p>
   <p class="aiuto">
     Il materiale non viene chiesto adesso e non viene indovinato: lo si dichiara
-    allo step 11, che e' il primo a pretenderlo.
+    allo step 11, che è il primo a pretenderlo.
   </p>
 </section>
 <div class="tre-zone" id="lavoro" hidden>
@@ -159,12 +159,12 @@
          lezione della regione d'errore, che tre volte era stata distrutta da un
          replaceChildren(). Uno stato vuoto creato nell'istante in cui ci si
          scrive dentro non preesiste a cio' che annuncia. -->
-    <p class="vuoto" id="prior-vuoto">Il prior geometrico non e' ancora stato calcolato: e' lo step 12.</p>
+    <p class="vuoto" id="prior-vuoto">Il prior geometrico non è ancora stato calcolato: è lo step 12.</p>
     <button type="button" id="calcola-prior" class="bottone">Calcola il prior</button>
     <div id="prior-membrature"></div>
     <div id="prior-scartate"></div>
     <h2>Confronto</h2>
-    <p class="vuoto" id="confronto-vuoto" data-testo-vuoto="Nessun modello parametrico generato: il confronto e' una scheda singola.">Nessun modello parametrico generato: il confronto e' una scheda singola.</p>
+    <p class="vuoto" id="confronto-vuoto" data-testo-vuoto="Nessun modello parametrico generato: il confronto è una scheda singola.">Nessun modello parametrico generato: il confronto è una scheda singola.</p>
     <!-- Senza `class="confronto"`: nel foglio non esiste nessuna regola con
          quel nome, e una classe che non veste niente fa cercare un
          raggruppamento che non c'e'. Il `div` resta, l'`id` pure: e' l'ancora
@@ -191,12 +191,12 @@
     <!-- Sola lettura: nessun clic qui scrive sul disco. I registri sono
          quelli della Fase 2 (experiments/), la tabella sperimentale della
          tesi. -->
-    <p class="aiuto">Registri della Fase 2. La riga di fronte e' evidenziata.</p>
+    <p class="aiuto">Registri della Fase 2. La riga di fronte è evidenziata.</p>
     <!-- Lo stato vuoto che mancava, e vive nel markup come gli altri quattro:
          senza cartella experiments/ accanto, il titolo e la riga qui sopra
          promettevano una tabella sopra il nulla. Era l'unica delle sezioni di
          questa colonna a non dire perche' non mostrava niente. -->
-    <p class="vuoto" id="galleria-vuoto" hidden>Nessun registro di sweep in <code>experiments/</code>: la galleria resta vuota finche' non ne esiste uno.</p>
+    <p class="vuoto" id="galleria-vuoto" hidden>Nessun registro di sweep in <code>experiments/</code>: la galleria resta vuota finché non ne esiste uno.</p>
     <div class="azioni" id="galleria-elenco"></div>
     <!-- tabindex="0" per la stessa ragione del registro: la tabella e' a otto
          colonne dentro una zona da 22rem, scorre in orizzontale e non contiene

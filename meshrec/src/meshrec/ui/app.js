@@ -3,8 +3,8 @@
 const ETICHETTE = {
   "01_load": "Lettura", "02_segment": "Segmentazione", "03_downsample": "Riduzione",
   "04_normals": "Normali", "05_reconstruct": "Superficie", "06_repair": "Riparazione",
-  "07_surface_quality": "Qualita' superficie", "08_simplify": "Semplificazione",
-  "09_tetrahedralize": "Tetraedri", "10_volume_quality": "Qualita' volume",
+  "07_surface_quality": "Qualità superficie", "08_simplify": "Semplificazione",
+  "09_tetrahedralize": "Tetraedri", "10_volume_quality": "Qualità volume",
   "11_export": "Esportazione", "12_wall": "Prior geometrico", "13_solve": "Analisi strutturale",
 };
 
@@ -95,7 +95,7 @@ async function disegnaIngresso() {
   const elenco = document.getElementById("corse-elenco");
   elenco.replaceChildren();
   document.getElementById("corse-vuoto").hidden = corpo.corse.length > 0;
-  document.getElementById("corse-titolo").textContent = `Corse gia' in ${corpo.radice}`;
+  document.getElementById("corse-titolo").textContent = `Corse già in ${corpo.radice}`;
   // Dalla piu' recente: la domanda che si fa chi riapre il programma e' «quale
   // stavo usando», e l'ordine alfabetico non le risponde. Le corse che non
   // portano una data (config sparito fra la lettura e lo stat) vanno in fondo
@@ -406,7 +406,7 @@ flusso.addEventListener("stato", (evento) => {
     // e "step null in corso" sarebbe il numero di un ramo che non esiste.
     barra.textContent = stato.step !== null
       ? `step ${stato.step} in corso, ${Math.round(stato.da_secondi)} s`
-      : `un comando e' in corso, ${Math.round(stato.da_secondi)} s`;
+      : `un comando è in corso, ${Math.round(stato.da_secondi)} s`;
     barra.hidden = false;
   } else {
     barra.hidden = true;
@@ -523,7 +523,7 @@ async function mostraNuvolaDelloStep(numero, ordine) {
     // testo lo dice, invece di dare la colpa allo step.
     vista.svuota();
     document.getElementById("conteggi").textContent =
-      `l'artefatto dello step ${numero} non c'e' piu' sul disco: riesegui lo step ${numero}`;
+      `l'artefatto dello step ${numero} non c'è più sul disco: riesegui lo step ${numero}`;
     // "vuoto" e non true: ha SCRITTO (quindi non e' una risposta scartata, e
     // chi guarda l'ordine deve saperlo) ma non ha DISEGNATO. Chi ci scrive
     // sopra una didascalia deve poter distinguere i due casi.
@@ -568,7 +568,7 @@ async function mostraStep(numero, ordine) {
     // solo se registro e disco non concordano.
     vista.svuota();
     document.getElementById("conteggi").textContent =
-      `l'artefatto dello step ${numero} non c'e' piu' sul disco: riesegui lo step ${numero}`;
+      `l'artefatto dello step ${numero} non c'è più sul disco: riesegui lo step ${numero}`;
     // Come nella tratta della nuvola: ha scritto, non ha disegnato.
     return "vuoto";
   }
@@ -648,7 +648,7 @@ async function mostraCampoDelloStep(caso, grandezza, ordine) {
   if (valori.length !== vertici) {
     didascalia.textContent =
       `campo e superficie non corrispondono (${valori.length} valori su ${vertici} vertici): `
-      + "la corsa e' cambiata mentre la vista arrivava, riprova";
+      + "la corsa è cambiata mentre la vista arrivava, riprova";
     return true;
   }
   const { taglio, sopraTaglio } = scalaDelCampo(valori);
@@ -706,7 +706,7 @@ function pannelloCampo(ordine, metriche13) {
   if (casi.length === 0 && modi === 0) {
     contenitore.append(Object.assign(document.createElement("p"), {
       className: "aiuto",
-      textContent: "Lo step 13 non ha ancora prodotto casi di carico ne' modi da mostrare.",
+      textContent: "Lo step 13 non ha ancora prodotto casi di carico né modi da mostrare.",
     }));
     return contenitore;
   }
@@ -749,7 +749,7 @@ function pannelloCampo(ordine, metriche13) {
   // costruzione del pannello non aspetta la vista, quindi il .catch() e non
   // l'await: il <select> deve comparire anche se il campo non arriva.
   aggiorna().catch((errore) => {
-    didascaliaDellaVista().textContent = `il campo non e' arrivato: ${errore.message}`;
+    didascaliaDellaVista().textContent = `il campo non è arrivato: ${errore.message}`;
   });
   return contenitore;
 }
@@ -974,7 +974,7 @@ function disegnaScartate(scartate) {
       const riga = document.createElement("p");
       riga.className = "rifiuto";
       riga.textContent =
-        `Regione ${voce.regione + 1} non e' una membratura: il controllo ` +
+        `Regione ${voce.regione + 1} non è una membratura: il controllo ` +
         `«${nome}» ha misurato ${esito.valore.toFixed(3)} contro una soglia di ` +
         `${esito.soglia.toFixed(3)}.`;
       contenitore.append(riga);
@@ -1374,10 +1374,10 @@ function pannelloRitaglio(ordine) {
     // trovato, un cluster solo, nessun rumore — i due numeri coincidono.
     esito.textContent =
       (corpo.completo
-        ? `${corpo.points_after.toLocaleString("it")} punti: e' quanti ne terrebbe lo step 2 ` +
+        ? `${corpo.points_after.toLocaleString("it")} punti: è quanti ne terrebbe lo step 2 ` +
           "rieseguito con questo box."
         : `${corpo.points_after.toLocaleString("it")} punti dopo il ritaglio: con ` +
-          "questo metodo lo step 2 prosegue con i piani e i cluster, e non ne terra' di piu'.") +
+          "questo metodo lo step 2 prosegue con i piani e i cluster, e non ne terrà di più.") +
       " crop_min e crop_max sono stati scritti nella configurazione della corsa.";
   });
   contenitore.append(applica, esito);
@@ -1582,7 +1582,7 @@ function pannelloMateriale(numero, ordine) {
     className: "aiuto",
     textContent: dichiarato
       ? "Dichiarato da chi analizza. Il programma non lo deduce dalla nuvola."
-      : `Non dichiarato: lo step ${numero} si ferma finche' questi quattro valori non ci sono. `
+      : `Non dichiarato: lo step ${numero} si ferma finché questi quattro valori non ci sono. `
         + "Il programma non ne mette uno per conto suo.",
   }));
   const caselle = {};
@@ -1590,7 +1590,7 @@ function pannelloMateriale(numero, ordine) {
     ["name", "nome"],
     ["young", "modulo elastico E [MPa]"],
     ["poisson", "coefficiente di Poisson"],
-    ["density", "densita' [t/mm^3]"],
+    ["density", "densità [t/mm^3]"],
   ]) {
     const riga = document.createElement("label");
     riga.className = "campo";
@@ -1640,7 +1640,7 @@ function pannelloMateriale(numero, ordine) {
       // dirlo salvato sarebbe vero. Quello che non si puo' fare e' cachear in
       // `configurazione` un corpo che non descrive cio' che si e' scritto.
       dichiaraErrore(
-        "il materiale e' stato scritto, ma il server ha risposto con una configurazione che non si legge",
+        "il materiale è stato scritto, ma il server ha risposto con una configurazione che non si legge",
       );
       bottone.disabled = false;
       return;
@@ -1758,7 +1758,7 @@ async function apriDettaglio(numero, ordine = generazione) {
   // quel colore. Dall'indice e non dall'etichetta, che e' testo da leggere.
   for (const [indice, [etichetta, percorso]] of [
     ["Esegui questo step", `/api/step/${numero}`],
-    ["Esegui da qui in giu'", `/api/step/${numero}/from`],
+    ["Esegui da qui in giù", `/api/step/${numero}/from`],
   ].entries()) {
     const bottone = document.createElement("button");
     bottone.type = "button";

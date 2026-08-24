@@ -71,8 +71,13 @@
   --stack-cifre: ui-monospace, "Cascadia Mono", "Consolas", "SF Mono", monospace;
 
   /* Scala dichiarata, quattro ruoli e nient'altro, arrotondata al pixel intero
-     su una radice di 16px: 13, 14, 16, 18. Il gradino e' circa 1,125; sotto i
-     13px non si scende perche' questa interfaccia viene proiettata in
+     su una radice di 16px: 13, 14, 16, 18. Il gradino NON e' costante e non
+     deve sembrarlo: 16->18 e 14->16 valgono 1,125, ma 13->14 vale 1,077. Fra
+     quei due ruoli il pixel non porta gerarchia da solo, e infatti non gliela
+     si chiede mai: dove convivono, a distinguerli sono il colore (--tenue
+     contro --testo, --guasto sui rifiuti) o il maiuscoletto crenato delle
+     legende. Sono un gradino di densita', non di rango.
+     Sotto i 13px non si scende perche' questa interfaccia viene proiettata in
      discussione e va letta dal fondo della stanza. */
   --tipo-titolo: 1.125rem;   /* il nome del programma */
   --tipo-corpo: 1rem;        /* step, campi, bottoni, stati vuoti */
@@ -81,7 +86,22 @@
 
   --interlinea: 1.5;         /* prosa: aiuti, errori, stati vuoti */
   --interlinea-riga: 1.3;    /* righe che non vanno a capo: titoli, dati */
-  --misura: 66ch;            /* la prosa non passa la misura leggibile */
+  /* La misura, e adesso e' una lunghezza e non `ch`. Due difetti in un token
+     solo, misurati nel browser il 24/08/2026 sulla prosa italiana della pagina
+     (496 caratteri di campione, non un pangramma):
+     - `ch` e' l'avanzamento della cifra `0`, che in questo stack e' 1,44 volte
+       il carattere medio della prosa -- rapporto identico sui tre corpi: 1,45 a
+       16px, 1,44 a 14, 1,44 a 13. `66ch` non sono 66 caratteri ma 95, cioe'
+       venti oltre il tetto che questa riga dichiarava di rispettare;
+     - `ch` si risolve sul corpo E sul peso di ogni elemento, quindi lo stesso
+       token dava larghezze diverse a ogni ruolo. Misurati i bordi destri dei
+       figli della schermata d'ingresso: 459, 556, 588, 598, 632, 681, 849, 964.
+       Otto destre sulla prima schermata che si vede.
+     25rem = 400px: 69 caratteri sulla prosa a 13px, 60 su quella a 16px, e una
+     destra sola. Resta in rem, quindi segue l'ingrandimento del testo come
+     tutto il resto della scala. Nella colonna di destra (22rem) il tetto e'
+     piu' largo della zona e non morde: la' non cambia niente. */
+  --misura: 25rem;
 
   /* Nessun tema scuro, e questa riga lo dichiara al browser: senza, chi ha il
      sistema scuro riceve caselle, menu a tendina e barre di scorrimento
@@ -122,7 +142,10 @@ body {
 /* Annulla e' l'unica azione della testata e agisce su tutta la corsa: sta
    all'estremo opposto di cio' che descrive lo stato, non accanto. */
 .testata .bottone { margin-left: auto; }
-.testata h1 { font-size: var(--tipo-titolo); line-height: var(--interlinea-riga); font-weight: 600; letter-spacing: -0.01em; margin: 0; }
+/* Senza `letter-spacing: -0.01em`: a 18px vale 0,18px per coppia, cioe' meno
+   di un pixel su sette caratteri. Non stringeva niente, e una dichiarazione che
+   non fa nulla fa cercare un effetto che non c'e'. */
+.testata h1 { font-size: var(--tipo-titolo); line-height: var(--interlinea-riga); font-weight: 600; margin: 0; }
 /* Il nome della corsa e' un identificatore di cartella, non prosa: le cifre
    tabulari e lo stack a larghezza fissa lo tengono leggibile carattere per
    carattere accanto al titolo. */
@@ -169,7 +192,6 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
    entrambi. Il gestore si ferma da se'. */
 .corsa-voce[aria-disabled="true"] { color: var(--tenue); cursor: default; }
 .corsa-voce[aria-disabled="true"]:hover { background: var(--superficie); }
-.corsa-riferimento { color: var(--avviso); }
 .zona { padding: var(--passo-4); overflow: auto; }
 .zona-step, .zona-dettaglio { background: var(--superficie); }
 .zona-step { border-right: 1px solid var(--bordo); }
@@ -182,7 +204,15 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
    predefiniti del browser -- 24 px e 18,7 px con margini in em -- fuori dalla
    scala dichiarata sopra e fuori dal passo di 4 px, proprio sulla schermata
    che viene proiettata per prima. */
-.zona h2, .ingresso h2 { font-size: var(--tipo-nota); line-height: var(--interlinea-riga); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--tenue); margin: var(--passo-6) 0 var(--passo-2); }
+/* Il colore e' --testo e non piu' --tenue. Il titolo di sezione restava il
+   piu' debole di tutta la colonna e il proprio SOTTOtitolo lo superava:
+   <h2>Dettaglio</h2> misura 5,55:1 sul bianco, <h3>Metriche</h3> che gli sta
+   dentro ne misura 17,21:1 -- il figlio legge tre volte piu' forte del padre.
+   Il corpo resta 13px e il maiuscoletto crenato pure: sono quelli a dire «sono
+   un'etichetta di sezione, non un titolo», e il filetto sopra li separa. A
+   cambiare e' il solo canale che sopravvive alla distanza di una proiezione, che
+   e' il contrasto: era gia' questa colonna a sparire strizzando gli occhi. */
+.zona h2, .ingresso h2 { font-size: var(--tipo-nota); line-height: var(--interlinea-riga); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--testo); margin: var(--passo-6) 0 var(--passo-2); }
 /* Il filetto sopra un titolo di sezione, e solo nelle due colonne che scorrono.
    La zona di destra impila sei sezioni — Dettaglio, Prior, Confronto,
    Registro, Galleria e la loro tabella — dentro un contenitore che scorre, e
@@ -218,6 +248,11 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .viewport canvas:focus-visible { outline: 2px solid var(--accento); outline-offset: -2px; }
 /* Lo stato vuoto insegna a chi non conosce i tredici step: e' prosa, quindi
    prende la misura leggibile e non la larghezza del pannello. */
+/* Gli identificatori nella prosa -- `.pcd`, `.ply`, `experiments/` -- cadevano
+   sul monospace generico del browser (Menlo qui, Courier New su Windows) mentre
+   il nome della corsa a due centimetri di distanza usa --stack-cifre. Due facce
+   a larghezza fissa per lo stesso lavoro sulla stessa schermata. */
+code { font-family: var(--stack-cifre); }
 .vuoto { color: var(--tenue); font-size: var(--tipo-corpo); line-height: var(--interlinea); max-width: var(--misura); text-wrap: pretty; }
 /* Il titolo delle metriche lo scrive app.js come h3: senza una regola
    prenderebbe la misura del browser, che non sta in nessuna scala. */
@@ -274,7 +309,11 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
    della figura. --testo e non --tenue, per la stessa ragione: 17,21:1 contro
    5,55:1. Cifre tabulari perche' cambiando caso i numeri si sostituiscono
    sotto gli occhi. */
-.didascalia-vista { margin: 0; padding: var(--passo-2) var(--passo-3); border-top: 1px solid var(--bordo); background: var(--superficie); color: var(--testo); font-size: var(--tipo-corpo); line-height: var(--interlinea); font-variant-numeric: tabular-nums; text-wrap: pretty; }
+/* La misura vale anche qui, ed era l'unica prosa del foglio senza. Le
+   didascalie vere (viewport.js, didascaliaDelCampo) stanno fra 91 e 115
+   caratteri, e la colonna centrale su uno schermo largo ne tiene 160: la riga
+   che finisce fotografata nell'appendice usciva tutta d'un fiato. */
+.didascalia-vista { margin: 0; padding: var(--passo-2) var(--passo-3); border-top: 1px solid var(--bordo); background: var(--superficie); color: var(--testo); font-size: var(--tipo-corpo); line-height: var(--interlinea); max-width: var(--misura); font-variant-numeric: tabular-nums; text-wrap: pretty; }
 /* Vuota non lascia una fascia bianca sotto la vista: fuori dallo step 13 non
    c'e' nessuna didascalia, e l'immagine si riprende quei pixel. Toglierla dal
    flusso e' lecito qui, a differenza di #conteggi e della riga d'errore: non
@@ -401,7 +440,13 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 /* Cifre tabulari nei campi: sei caselle di coordinate incolonnate una sotto
    l'altra si confrontano a colpo d'occhio solo se le cifre hanno la stessa
    larghezza. */
-.campo input { font: inherit; font-variant-numeric: tabular-nums; padding: var(--passo-1) var(--passo-2); border: 1px solid var(--bordo-comando); border-radius: var(--raggio); background: var(--sfondo); color: var(--testo); transition: border-color var(--durata-tocco) var(--curva); }
+/* `select` accanto a `input`: il carattere non si eredita nei controlli di
+   modulo, e i due menu del pannello Campo -- caso di carico e grandezza, cioe'
+   i comandi con cui in discussione si cambia cio' che si guarda -- vivono
+   dentro una .campo e nessuna regola li raggiungeva. Misurati: Arial 13,33px
+   accanto alla propria etichetta in system-ui 14px. Lo stesso controllo dentro
+   .taglio era gia' vestito (vedi .taglio select). */
+.campo input, .campo select { font: inherit; font-variant-numeric: tabular-nums; padding: var(--passo-1) var(--passo-2); border: 1px solid var(--bordo-comando); border-radius: var(--raggio); background: var(--sfondo); color: var(--testo); transition: border-color var(--durata-tocco) var(--curva); }
 .campo input:focus-visible { outline: 2px solid var(--accento); outline-offset: 1px; }
 /* Con il solo .campo-rifiutato il contorno rosso non compariva mai, misurato
    a video: .campo input pesa una classe e un elemento, .campo-rifiutato una
@@ -416,7 +461,25 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .errore:empty { margin: 0; }
 .errore-campo { color: var(--guasto); font-size: var(--tipo-nota); line-height: var(--interlinea); max-width: var(--misura); overflow-wrap: anywhere; text-wrap: pretty; }
 .campo input[readonly] { background: var(--spento); color: var(--tenue); }
-.aiuto { color: var(--tenue); font-size: var(--tipo-nota); line-height: var(--interlinea); max-width: var(--misura); text-wrap: pretty; }
+/* display: block, e non e' una rifinitura: `.aiuto` veste anche i <small>
+   dell'ingresso, che sono figli diretti di <section> e quindi restano inline.
+   `max-width` non si applica a una scatola inline non rimpiazzata: su quelle
+   due righe la misura non ha MAI agito. Misurata la peggiore, 145 caratteri su
+   una riga sola. Ed e' la stessa ragione per cui «Crea la corsa» si affiancava
+   alla frase d'aiuto invece di stare sotto: un fratello inline lascia fluire
+   accanto a se' il bottone che segue. */
+/* overflow-wrap: anywhere, e serve proprio quello che nella tabella delle
+   metriche era il difetto. `.aiuto` porta anche i percorsi delle corse, che
+   non hanno spazi: dentro `.corsa-voce`, che e' una griglia, la traccia si
+   dimensiona sul contenuto minimo dei propri figli. Con `break-word` quel
+   minimo resta la stringa intera -- misurato: traccia 400px dentro una scatola
+   da 374, tredici pixel di testo fuori dal bordo della scheda -- perche'
+   break-word manda a capo ma NON abbassa il minimo. Solo `anywhere` lo abbassa,
+   e qui non c'e' nessuna seconda colonna che possa restarne affamata: e' una
+   colonna sola. (Nella tabella delle metriche la seconda colonna c'era, ed e'
+   per questo che la' il valore troppo lungo esce dalla griglia invece di
+   stringersi.) */
+.aiuto { display: block; color: var(--tenue); font-size: var(--tipo-nota); line-height: var(--interlinea); max-width: var(--misura); overflow-wrap: anywhere; text-wrap: pretty; }
 /* Le due colonne erano `auto 1fr`, e in una zona da 22rem non ci stavano.
    Lo step 7 annida due dizionari dentro `geometric_error`, e righeDellaMetrica
    appiattisce il percorso in un'etichetta sola: «geometric_error ·

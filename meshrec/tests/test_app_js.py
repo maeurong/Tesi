@@ -1484,7 +1484,7 @@ def test_la_didascalia_del_ritaglio_dice_di_quale_numero_si_tratta(tmp_path):
                      "function didascalia(corpo) { return (" + espressione + "); }\n" + """
 const parziale = didascalia({ points_after: 5602, completo: false });
 const intero = didascalia({ points_after: 84, completo: true });
-const COINCIDENZA = /e' quanti ne terrebbe lo step 2/;
+const COINCIDENZA = /\u00e8 quanti ne terrebbe lo step 2/;
 const SEGUITO = /prosegue/;
 assert.match(parziale, SEGUITO,
   "l'anteprima non e' tutto lo step 2 e la didascalia non dice che lo step prosegue");
@@ -2387,7 +2387,7 @@ def test_lo_stato_vuoto_del_prior_e_nel_markup_e_non_lo_fabbrica_il_modulo():
     markup = _senza_commenti_html(_markup())
 
     assert 'id="prior-vuoto"' in markup
-    assert "non e' ancora stato calcolato" in markup
+    assert "non è ancora stato calcolato" in markup
     modulo = _senza_commenti_js(_modulo())
     corpo = _sorgente_di("caricaPrior", modulo)
     assert 'getElementById("prior-vuoto")' in corpo
@@ -3413,7 +3413,7 @@ assert.ok(testo.includes("12,34"), testo);
 // un'ampiezza che non e' a schermo.
 assert.ok(!/ampiezza/i.test(testo),
   `annuncia un'ampiezza che la vista non disegna: ${testo}`);
-assert.ok(/non e' disegnata/.test(testo) && /indeformato/.test(testo),
+assert.ok(/non \u00e8 disegnata/.test(testo) && /indeformato/.test(testo),
   `non dichiara che la forma non e' a schermo: ${testo}`);
 console.log("ok");
 """)
@@ -4126,6 +4126,65 @@ assert.equal(
   "il percorso non e' piu' appiattito nell'etichetta",
 );
 """)
+
+
+def test_le_stringhe_mostrate_portano_gli_accenti_italiani():
+    """La regola sta scritta nel piano del giro 3 e non era mai stata eseguita.
+
+    «Sorgenti in ASCII, con una sola eccezione dichiarata: le stringhe mostrate
+    all'utente portano gli accenti italiani veri.» I commenti, i nomi e il resto
+    del codice restano ASCII; cio' che finisce a video no. Il motivo non e'
+    ortografico ma di prodotto: PRODUCT.md dichiara che questa interfaccia viene
+    proiettata durante la discussione e che le viste finiscono in un'appendice
+    cartacea, e «Qualita'» su un muro davanti alla commissione si legge come un
+    refuso di tesi, non come una convenzione di sorgente. Nella stessa frase
+    convivevano gia' le virgolette caporali e la lineetta lunga: l'apostrofo al
+    posto dell'accento era l'unico segno rimasto indietro.
+
+    Questo controllo esiste perche' la deriva e' gia' successa in questa
+    direzione: una passata sul testo ha «corretto» `Qualita` in `Qualita'`
+    allineandolo ai commenti, che la regola esclude. Guarda le sole regioni
+    mostrate -- il testo fra i tag, gli attributi che portano testo, e i
+    letterali sulle righe di codice -- e lascia in pace tutto il resto.
+
+    **Confine dichiarato:** questo controllo copre i tre file dell'interfaccia,
+    non le stringhe che arrivano dal server. Quelle sono un'altra superficie e
+    sono molte -- 275 parole tronche in quindici moduli Python, fra cui le
+    descrizioni dei parametri di `core/config.py`, che il pannello mostra, e
+    `core/report.py`, che finisce nell'appendice cartacea. Finche' non vengono
+    fatte anche quelle, nella colonna di destra convivono le due grafie.
+    """
+    tronca = re.compile(r"\b[A-Za-z]*[aeiou]'(?![A-Za-z\u00e0\u00e8\u00e9\u00ec\u00f2\u00f9])")
+    # `po'` e' un troncamento corretto, non un accento mancante: se comparira'
+    # non e' un difetto. Nessun'altra parola tronca lo e'.
+    lecite = {"po'"}
+
+    def tronche(testo):
+        return {p for p in tronca.findall(testo) if p not in lecite}
+
+    markup = _markup()
+    senza_commenti = re.sub(r"<!--.*?-->", "", markup, flags=re.S)
+    mostrate = re.findall(r">([^<>]+)<", senza_commenti)
+    # Il testo che vive in un attributo si vede quanto quello fra i tag:
+    # `data-testo-vuoto` e' cio' da cui app.js RIPRISTINA lo stato vuoto, e
+    # lasciarlo indietro fa ricomparire la vecchia grafia dopo un ripristino.
+    mostrate += re.findall(r'(?:placeholder|aria-label|title|data-testo-vuoto)="([^"]*)"', senza_commenti)
+
+    letterale = re.compile(r"`[^`]*`|\"[^\"\\]*\"|'[^'\\]*'")
+    for sorgente in (_modulo(), _modulo_viewport()):
+        for riga in sorgente.split("\n"):
+            if riga.strip().startswith(("//", "*", "/*")):
+                continue
+            taglio = riga.find(" // ")
+            codice = riga[:taglio] if taglio >= 0 else riga
+            mostrate += [m[1:-1] for m in letterale.findall(codice)]
+
+    assert len(mostrate) > 100, f"solo {len(mostrate)} regioni mostrate: l'estrazione non morde piu'"
+    guasti = {p for testo in mostrate for p in tronche(testo)}
+    assert not guasti, (
+        "stringhe mostrate con l'apostrofo al posto dell'accento: "
+        + ", ".join(sorted(guasti))
+    )
 
 
 def test_il_marchio_del_cambio_sta_solo_sulle_righe_che_sono_cambiate(tmp_path):
