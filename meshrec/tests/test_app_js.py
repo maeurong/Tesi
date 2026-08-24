@@ -1871,8 +1871,13 @@ def test_lo_stato_vuoto_della_vista_compare_solo_dove_non_c_e_niente(tmp_path):
     niente a monte. Lasciata accesa, la frase resterebbe stampata sopra il pezzo.
     """
     _esegui(tmp_path, _DOM + _costante("STEP_CON_GEOMETRIA") + _funzioni(
-        "didascaliaDellaVista", "superata", "passoDaMostrare", "nomeDelloStep", "ricaricaVista"
+        "didascaliaDellaVista", "superata", "passoDaMostrare", "nomeDelloStep", "comandoDelFantasma", "ricaricaVista"
     ) + """
+// Il velo del passaggio a monte fa una fetch e questo banco prova altro:
+// stub, come riallineaTaglio e mostraStep qui accanto. Che il velo taccia
+// dove la geometria a video e' gia' di un altro passaggio lo provano
+// test_il_fantasma_tace_... e test_il_fantasma_dello_step_8_..., eseguendo.
+function mostraFantasmaDelloStep() {}
 const vuoto = document.getElementById("vista-vuota");
 let allineato = "mai";
 const vista = { svuota: () => {} };
@@ -2621,8 +2626,13 @@ def test_la_didascalia_della_vista_si_svuota_lasciando_lo_step_del_campo(tmp_pat
     Mutazione che uccide: togliere la riga che la svuota in `ricaricaVista`.
     """
     _esegui(tmp_path, _DOM + _costante("STEP_CON_GEOMETRIA") + _funzioni(
-        "didascaliaDellaVista", "superata", "passoDaMostrare", "nomeDelloStep", "ricaricaVista"
+        "didascaliaDellaVista", "superata", "passoDaMostrare", "nomeDelloStep", "comandoDelFantasma", "ricaricaVista"
     ) + """
+// Il velo del passaggio a monte fa una fetch e questo banco prova altro:
+// stub, come riallineaTaglio e mostraStep qui accanto. Che il velo taccia
+// dove la geometria a video e' gia' di un altro passaggio lo provano
+// test_il_fantasma_tace_... e test_il_fantasma_dello_step_8_..., eseguendo.
+function mostraFantasmaDelloStep() {}
 // Lo step 2 il proprio artefatto ce l'ha: cosi' ricaricaVista prende la strada
 // normale e non il ramo «nessuno step ha ancora prodotto un artefatto», che
 // non e' cio' che questo controllo guarda.
@@ -2638,6 +2648,12 @@ assert.equal(document.getElementById("didascalia-vista").textContent, "",
 
 
 _RIPIEGO = """
+// Il velo del passaggio a monte fa una fetch e questo banco prova altro:
+// stub, come riallineaTaglio e mostraStep qui accanto. Che il velo taccia
+// dove la geometria a video e' gia' di un altro passaggio lo provano
+// test_il_fantasma_tace_... e test_il_fantasma_dello_step_8_..., eseguendo.
+function mostraFantasmaDelloStep() {}
+
 // Il registro di una corsa arrivata allo step 9 con la semplificazione SPENTA:
 // e' il caso predefinito del programma, e i suoi buchi sono quelli veri.
 // Lo step 7 e il 10 misurano, l'8 non scrive perche' e' disabilitato, l'11 e il
@@ -2777,8 +2793,13 @@ def test_senza_niente_a_monte_la_vista_non_incolpa_lo_step_scelto(tmp_path):
     eseguito ancora niente. E deve dire cosa fare.
     """
     _esegui(tmp_path, _DOM + _costante("STEP_CON_GEOMETRIA") + _funzioni(
-        "didascaliaDellaVista", "superata", "passoDaMostrare", "nomeDelloStep", "ricaricaVista"
+        "didascaliaDellaVista", "superata", "passoDaMostrare", "nomeDelloStep", "comandoDelFantasma", "ricaricaVista"
     ) + """
+// Il velo del passaggio a monte fa una fetch e questo banco prova altro:
+// stub, come riallineaTaglio e mostraStep qui accanto. Che il velo taccia
+// dove la geometria a video e' gia' di un altro passaggio lo provano
+// test_il_fantasma_tace_... e test_il_fantasma_dello_step_8_..., eseguendo.
+function mostraFantasmaDelloStep() {}
 ultimoStato = [
   { numero: 1, chiave: "01_load", artefatto: null },
   { numero: 2, chiave: "02_segment", artefatto: null },
@@ -2808,7 +2829,7 @@ def test_la_vista_che_ripiega_dichiara_a_quale_step_appartiene(tmp_path):
     `mostrato !== numero` (che la scriverebbe anche sullo step giusto).
     """
     _esegui(tmp_path, _DOM + _costante("STEP_CON_GEOMETRIA") + _funzioni(
-        "didascaliaDellaVista", "superata", "passoDaMostrare", "nomeDelloStep", "ricaricaVista"
+        "didascaliaDellaVista", "superata", "passoDaMostrare", "nomeDelloStep", "comandoDelFantasma", "ricaricaVista"
     ) + _RIPIEGO + """
 ETICHETTE["09_tetrahedralize"] = "Tetraedri";
 let chiesto = null;
@@ -2862,7 +2883,7 @@ def test_la_coda_del_ripiego_non_si_attacca_a_un_rifiuto(tmp_path):
     vuota vuol dire nascondersi -- ma non e' `true`.
     """
     _esegui(tmp_path, _DOM + _costante("STEP_CON_GEOMETRIA") + _funzioni(
-        "didascaliaDellaVista", "superata", "passoDaMostrare", "nomeDelloStep", "ricaricaVista"
+        "didascaliaDellaVista", "superata", "passoDaMostrare", "nomeDelloStep", "comandoDelFantasma", "ricaricaVista"
     ) + _RIPIEGO + """
 const rifiuto = "l'artefatto dello step 9 non c'e' piu' sul disco: riesegui lo step 9";
 let allineato = "mai";
@@ -2891,7 +2912,7 @@ def test_una_generazione_superata_non_scrive_la_coda_del_ripiego(tmp_path):
     non deve posarsi sulla didascalia del secondo.
     """
     _esegui(tmp_path, _DOM + _costante("STEP_CON_GEOMETRIA") + _funzioni(
-        "didascaliaDellaVista", "superata", "passoDaMostrare", "nomeDelloStep", "ricaricaVista"
+        "didascaliaDellaVista", "superata", "passoDaMostrare", "nomeDelloStep", "comandoDelFantasma", "ricaricaVista"
     ) + _RIPIEGO + """
 const vista = { svuota: () => {} };
 let allineato = "mai";
@@ -4431,3 +4452,60 @@ def test_ogni_elemento_che_il_modulo_cerca_esiste_nel_markup():
     presenti = set(re.findall(r'id="([^"]+)"', _markup()))
     mancanti = sorted(chiesti - presenti)
     assert not mancanti, f"il modulo cerca elementi che il markup non ha: {mancanti}"
+
+
+def test_il_fantasma_tace_dove_la_geometria_a_video_e_gia_di_un_altro_passaggio(tmp_path):
+    """La regola del velo, eseguita: non basta che lo step abbia un passaggio a
+    monte, deve anche essere lui quello a video.
+
+    Scelto lo step 8 su una corsa senza semplificazione, `passoDaMostrare`
+    ripiega sul 6 e a video c'e' gia' la geometria del 6. Sovrapporgliela di
+    nuovo disegnerebbe due volte la stessa cosa, e il conteggio del velo
+    ripeterebbe quello sotto: due numeri identici accostati come se misurassero
+    un prima e un dopo.
+
+    Il predicato e' uno solo apposta e decide sia se il velo si disegna sia se
+    la casella si mostra. Con due -- una tabella per mostrare, questo per
+    disegnare -- la casella comparirebbe spuntata su quello step e toccarla nei
+    due versi non farebbe nulla.
+
+    Mutazione che lo uccide: togliere `sorgente === chiesto` da
+    `fantasmaHaSenso` e lasciare la sola tabella.
+    """
+    banco = _DOM + _costante("FANTASMA_DI") + "\n" + _funzioni("fantasmaHaSenso") + """
+// Lo step chiesto e' anche quello a video: il velo ha senso.
+assert.equal(fantasmaHaSenso(2, 2), true);
+assert.equal(fantasmaHaSenso(3, 3), true);
+assert.equal(fantasmaHaSenso(8, 8), true);
+// A video c'e' gia' la geometria di un altro passaggio: tace.
+assert.equal(fantasmaHaSenso(8, 6), false);
+assert.equal(fantasmaHaSenso(3, 2), false);
+// Step senza un passaggio a monte da cui il conteggio cali: tace comunque.
+for (const numero of [1, 4, 5, 6, 7, 9, 10, 11, 12, 13]) {
+  assert.equal(fantasmaHaSenso(numero, numero), false, `lo step ${numero} non ha un fantasma`);
+}
+console.log("ok");
+"""
+    assert _esegui(tmp_path, banco).strip() == "ok"
+
+
+def test_il_fantasma_dello_step_8_viene_dal_6_e_non_dal_7():
+    """Le coppie sono scritte a mano perche' `numero - 1` sarebbe sbagliato.
+
+    Lo step 7 misura la superficie e non produce geometria propria: il
+    passaggio con cui l'8 va confrontato e' il 6. Calcolata, la coppia dell'8
+    chiederebbe `/api/mesh/7`, che non esiste -- e il velo sparirebbe in
+    silenzio, perche' un fantasma che non arriva non e' un errore da
+    annunciare.
+
+    Le tre coppie sono anche le sole in cui il conteggio cala davvero: il
+    ritaglio, lo sfoltimento, la semplificazione. Fuori di li' due geometrie
+    sovrapposte fanno z-fighting e non informano nessuno.
+
+    Mutazione che lo uccide: scrivere `{ 2: 1, 3: 2, 8: 7 }`.
+    """
+    coppie = _costante("FANTASMA_DI")
+    assert "8: 6" in coppie, f"la coppia dello step 8 non viene piu' dal 6: {coppie}"
+    assert "8: 7" not in coppie
+    # Il velo esiste solo dove il conteggio cala: tre coppie, non undici.
+    assert re.findall(r"(\d+): (\d+)", coppie) == [("2", "1"), ("3", "2"), ("8", "6")]

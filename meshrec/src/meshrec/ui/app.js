@@ -670,6 +670,119 @@ async function mostraStep(numero, ordine) {
   return true;
 }
 
+// --- Il fantasma del passaggio a monte --------------------------------------
+// «Che cosa ha fatto questo step alla geometria» a video non aveva risposta:
+// gli undici artefatti si guardano di fila, mai due insieme, e di cio' che un
+// passaggio ha TOLTO restano due numeri letti in due momenti diversi. Il
+// fantasma mette la geometria di prima dietro quella corrente: i due conteggi
+// pieni si leggono nello stesso istante invece che uno al posto dell'altro.
+
+// Da quale step viene il fantasma. Acceso solo dove il conteggio cala davvero:
+// il ritaglio dello step 2, lo sfoltimento del 3, la semplificazione dell'8.
+// Scritte a mano e non calcolate come `numero - 1`: sullo step 8 il precedente
+// con geometria propria e' il 6, perche' il 7 misura e non produce niente.
+// Fuori da queste tre coppie due geometrie sovrapposte -- il 5 contro il 6, per
+// dire -- fanno z-fighting e non informano nessuno.
+const FANTASMA_DI = { 2: 1, 3: 2, 8: 6 };
+let fantasmaAcceso = true;
+
+// Pura apposta, cosi' la regola si guarda da fuori invece di dedurla dai punti
+// in cui e' usata. `sorgente` e' lo step da cui viene la geometria a video:
+// quando non e' quello chiesto, la geometria corrente e' gia' quella di un
+// altro passaggio e il fantasma la ridisegnerebbe sopra se stessa.
+// L'interruttore non entra qui: e' un predicato solo, e decide sia se il velo
+// si disegna sia se la casella si mostra. Con due predicati -- la tabella per
+// mostrare, questo per disegnare -- sullo step 8 di una corsa senza
+// semplificazione la casella comparirebbe spuntata e toccarla nei due versi non
+// farebbe nulla, perche' li' la geometria a video e' gia' quella dello step 6.
+// E l'interruttore non puo' entrarci: spento farebbe sparire la propria casella.
+function fantasmaHaSenso(chiesto, sorgente) {
+  return sorgente === chiesto && FANTASMA_DI[chiesto] !== undefined;
+}
+
+function comandoDelFantasma() {
+  return document.getElementById("fantasma-comando");
+}
+
+// Un contatore suo, e NON apriGeometria(). `ultimaGeometria` e' l'arbitro fra
+// due geometrie della stessa generazione -- vince quella partita dopo -- e il
+// velo si posa dentro il `then` di mostraStep, cioe' proprio in mezzo a due
+// richieste che possono essere ancora tutt'e due in volo (il clic e il fronte
+// di discesa condividono la generazione).
+// L'ordine in cui morde e' questo: arriva per prima la richiesta VECCHIA, che
+// disegna e fa partire il suo velo; il velo bumpa `ultimaGeometria`; arriva la
+// richiesta nuova e si trova superata da un numero che non e' di nessuna
+// geometria. A video resta la geometria vecchia, e nessuno lo dice.
+// Provato eseguendo, in tutte e due i versi:
+// test_server.py::test_il_velo_non_arbitra_al_posto_delle_geometrie.
+// Col contatore suo il velo arbitra solo contro altri veli, che e' l'unica
+// corsa che gli appartiene.
+let ultimoFantasma = 0;
+
+function apriFantasma() {
+  ultimoFantasma += 1;
+  return ultimoFantasma;
+}
+
+async function mostraFantasmaDelloStep(numero, ordine) {
+  // Prima di toccare la casella e non solo prima di disegnare: chi e' stato
+  // superato non deve nemmeno decidere se il comando si vede. Un clic sullo
+  // step 2 che arriva tardi, dopo un clic sul 9, riaccenderebbe la casella su
+  // una vista che non e' piu' la sua.
+  if (superata(ordine)) return;
+  const haSenso = fantasmaHaSenso(numero, passoDaMostrare(numero));
+  comandoDelFantasma().hidden = !haSenso;
+  if (!haSenso || !fantasmaAcceso) return;
+  const da = FANTASMA_DI[numero];
+  // La frontiera fra nuvola e superficie e' STEP_CON_MESH, e si legge di la'.
+  // Scritta qui una seconda volta come `da <= 4` sarebbe la stessa frontiera
+  // detta due volte nello stesso file: il giorno che la pipeline guadagna uno
+  // step, una si sposta e l'altra no, e il fantasma dell'8 chiederebbe una
+  // nuvola dove c'e' una superficie.
+  const nuvola = !STEP_CON_MESH.has(da);
+  const emissione = apriFantasma();
+  const risposta = await fetch(nuvola ? `/api/cloud/${da}` : `/api/mesh/${da}`)
+    .catch(serverMuto);
+  // Un fantasma che non arriva non e' un errore da annunciare: lo step a monte
+  // puo' semplicemente non essere ancora girato, e la geometria corrente resta
+  // quella che e'. Il silenzio qui non nasconde niente che l'utente abbia
+  // chiesto -- cio' che ha chiesto e' a video, con la sua didascalia.
+  if (risposta === undefined || !risposta.ok) return;
+  const pieni = Number(risposta.headers.get(nuvola ? "X-Points-Total" : "X-Vertices"));
+  const triangoli = Number(risposta.headers.get("X-Triangles"));
+  const grezzi = await risposta.arrayBuffer();
+  // Dopo l'ultima attesa e prima della prima scrittura, come le due strade che
+  // disegnano: un fantasma partito per lo step 2 non deve posarsi sul 9. Sullo
+  // step 2 sono 6,3 milioni di punti, decine di secondi a freddo, e in quel
+  // tempo si fa in tempo a cliccare altrove piu' di una volta.
+  if (superata(ordine) || superata(emissione, ultimoFantasma)) return;
+  if (nuvola) {
+    vista.mostraFantasma(new Float32Array(grezzi));
+  } else {
+    vista.mostraFantasma(
+      new Float32Array(grezzi, 0, pieni * 3),
+      new Uint32Array(grezzi, pieni * 3 * 4, triangoli * 3),
+    );
+  }
+}
+
+function alternaFantasma(acceso) {
+  fantasmaAcceso = acceso;
+  if (!acceso) {
+    vista.togliFantasma();
+    return undefined;
+  }
+  // Lo step MOSTRATO e non quello scelto: e' la stessa distinzione che
+  // ricaricaVista fa, e passare qui lo scelto accenderebbe il velo su un numero
+  // che a video non c'e'.
+  if (stepScelto === null) return undefined;
+  return mostraFantasmaDelloStep(stepScelto, generazione);
+}
+
+comandoDelFantasma().addEventListener("change", (evento) => {
+  alternaFantasma(evento.target.checked);
+});
+
 // Lo step che risolve: /api/campo/{caso}/{grandezza} vive fuori da
 // STEP_CON_MESH/STEP_CON_TAGLIO apposta, sono comandi diversi (un campo per
 // nodo, non un artefatto di step) che condividono solo il numero di step.
@@ -970,6 +1083,10 @@ function ricaricaVista(numero, ordine = generazione) {
     // manca adesso, lo stato vuoto dice cosa e' questa superficie e che la
     // colonna a sinistra e' fatta di comandi.
     vuotoDellaVista.hidden = false;
+    // Niente geometria, niente passaggio a monte da sovrapporre: la casella se
+    // ne va con la vista. Lasciata li' offrirebbe di confrontare due cose che
+    // non ci sono.
+    comandoDelFantasma().hidden = true;
     riallineaTaglio(null);
     return;
   }
@@ -997,6 +1114,13 @@ function ricaricaVista(numero, ordine = generazione) {
       // sull'ingombro di cio' che e' disegnato, e la sua stessa nota lo dice.
       riallineaTaglio(mostrato);
     }
+    // Dopo mostraStep e dentro il then, non accanto alla chiamata: ogni strada
+    // che disegna passa da vista.svuota(), che il velo lo toglie. Posato prima,
+    // sparirebbe sotto la geometria che lo doveva accompagnare.
+    // Fuori dal `disegnato &&` qui sopra apposta: quando la risposta e' stata
+    // scartata o l'artefatto non c'e' piu', mostraFantasmaDelloStep serve
+    // comunque a NASCONDERE la casella, che e' cio' che deve succedere.
+    mostraFantasmaDelloStep(numero, ordine);
   });
 }
 
@@ -1354,6 +1478,21 @@ function pannelloRitaglio(ordine) {
   const valori = persistito
     ? { min: [...persistito.crop_min], max: [...persistito.crop_max] }
     : { min: [...ingombro.min], max: [...ingombro.max] };
+  // Che cosa sono i sei numeri, in che unita', e che cosa fa il bottone --
+  // detto PRIMA di premerlo. Finora l'unica frase del pannello arrivava dopo
+  // l'applicazione, e diceva che crop_min e crop_max erano gia' stati scritti:
+  // chi esplorava lo scopriva a scrittura avvenuta. La sorgente dei numeri
+  // cambia con `persistito` ed e' la stessa distinzione che il commento qui
+  // sopra difende: l'ingombro disegnato e cio' che sta sul disco non sono la
+  // stessa domanda, e la frase non deve confonderli.
+  contenitore.append(Object.assign(document.createElement("p"), {
+    className: "aiuto",
+    textContent: (persistito
+      ? "Gli estremi del box in mm, come sono scritti nella configurazione della corsa. "
+      : "Gli estremi del box in mm, presi dall'ingombro della nuvola disegnata. ")
+      + "«Applica il ritaglio» li scrive nella configurazione, su crop_min e crop_max, "
+      + "e conta i punti che resterebbero.",
+  }));
   // Che cosa sono i sei numeri, in che unita', e che cosa fa il bottone --
   // detto PRIMA di premerlo. Finora l'unica frase del pannello arrivava dopo
   // l'applicazione, e diceva che crop_min e crop_max erano gia' stati scritti:

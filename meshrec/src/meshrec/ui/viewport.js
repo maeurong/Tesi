@@ -268,6 +268,21 @@ export function creaViewport(contenitore) {
   // libera la geometria. Sta dentro il gruppo apposta: cosi' la stessa
   // traversata che libera nuvola e mesh libera anche lui.
   let box = null;
+
+  // Il fantasma: la geometria del passaggio a monte, disegnata insieme a quella
+  // corrente e quasi trasparente. Passando da uno step al successivo si riparte
+  // da zero — la vista si riassesta, i conteggi si riscrivono — e cio' che il
+  // passaggio ha TOLTO non si vede da nessuna parte: si legge un numero prima e
+  // un numero dopo, mai le due geometrie insieme. Sovrapporle e' l'unico modo
+  // di vedere che cosa un passaggio ha tolto mentre lo si guarda.
+  //
+  // In `scena` e non dentro `gruppo`: `gruppo` e' cio' che scatolaDelGruppo()
+  // misura, e da li' il fantasma allargherebbe l'ingombro su cui si fissano
+  // l'inquadratura e l'intervallo del cursore del taglio. Fuori da `gruppo`
+  // l'ingombro resta quello della sola geometria corrente senza che quella
+  // funzione debba sapere che il fantasma esiste.
+  let fantasma = null;
+
   scena.add(new THREE.AmbientLight(0xffffff, 0.7));
   const direzionale = new THREE.DirectionalLight(0xffffff, 0.8);
   scena.add(direzionale);
@@ -456,6 +471,19 @@ export function creaViewport(contenitore) {
     return scatola;
   }
 
+  // Libera davvero, per la ragione scritta dentro svuota(): togliere un oggetto
+  // dalla scena non cancella i suoi buffer, sono gli eventi di dispose a farlo.
+  // Senza, ogni clic su uno step lascerebbe sulla scheda gli attributi del
+  // fantasma di prima. Il riferimento azzerato e' cio' che impedisce di
+  // perderne uno in scena sostituendolo col successivo.
+  function togliFantasma() {
+    if (fantasma === null) return;
+    fantasma.geometry.dispose();
+    fantasma.material.dispose();
+    scena.remove(fantasma);
+    fantasma = null;
+  }
+
   function inquadra() {
     const scatola = scatolaDelGruppo();
     if (scatola.isEmpty()) return;
@@ -485,6 +513,12 @@ export function creaViewport(contenitore) {
 
   return {
     svuota() {
+      // Il fantasma e' del passaggio che si sta lasciando, e se ne va con lui.
+      // In testa e non in fondo: ogni strada che disegna chiama svuota() due
+      // volte -- una al caricamento e una prima di disegnare -- e cosi' la
+      // seconda lo trova gia' tolto invece di lasciarlo sotto la geometria
+      // nuova.
+      togliFantasma();
       // Togliere un oggetto dalla scena non libera i suoi buffer: in three.js
       // sono gli eventi di dispose a cancellarli davvero (three.module.js:3821,
       // onGeometryDispose, toglie l'indice e ogni attributo). Senza, ogni
@@ -604,6 +638,45 @@ export function creaViewport(contenitore) {
       descrivi(`nuvola divisa in ${massima + 1} membrature`);
       inquadra();
     },
+    // Un metodo solo per nuvola e superficie: `facce` a null da' dei punti, e
+    // le tre coppie del fantasma sono due nuvole e una superficie.
+    //
+    // NON chiama inquadra(): il fantasma sta a monte della geometria corrente e
+    // per costruzione la contiene, quindi inquadrarlo allontanerebbe la camera
+    // da cio' che si e' chiesto di vedere. E' anche il motivo per cui non entra
+    // in `gruppo` (vedi dove `fantasma` e' dichiarato).
+    //
+    // depthWrite falso e non solo transparent: scrivendo nel buffer di
+    // profondita' il velo nasconderebbe la geometria corrente nei punti in cui
+    // le sta davanti, cioe' proprio dove serve leggere le due insieme.
+    //
+    // ponytail: il colore e' un esadecimale come gli altri di questo file
+    // (mostraNuvola usa 0x2f5d50, mostraMesh 0xb8b2a7), quindi nessun controllo
+    // sul foglio di stile lo raggiunge. Se i colori della scena passeranno ai
+    // token CSS, questo passa con loro: non vale aprire quel cantiere per un
+    // colore solo.
+    mostraFantasma(vertici, facce = null) {
+      togliFantasma();
+      const geometria = new THREE.BufferGeometry();
+      geometria.setAttribute("position", new THREE.BufferAttribute(vertici, 3));
+      if (facce === null) {
+        fantasma = new THREE.Points(geometria, new THREE.PointsMaterial({
+          size: 1.5, sizeAttenuation: false, color: 0x9a5f4a,
+          transparent: true, opacity: 0.15, depthWrite: false,
+          clippingPlanes: pianiTaglio,
+        }));
+      } else {
+        geometria.setIndex(new THREE.BufferAttribute(facce, 1));
+        geometria.computeVertexNormals();
+        fantasma = new THREE.Mesh(geometria, new THREE.MeshStandardMaterial({
+          color: 0x9a5f4a, roughness: 0.9, metalness: 0.0, side: THREE.DoubleSide,
+          transparent: true, opacity: 0.15, depthWrite: false,
+          clippingPlanes: pianiTaglio,
+        }));
+      }
+      scena.add(fantasma);
+    },
+    togliFantasma,
     inquadra,
     // L'ingombro di cio' che e' disegnato ora, nelle stesse unita' della
     // geometria (millimetri). Serve a chi comanda il taglio per fissare

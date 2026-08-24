@@ -358,6 +358,17 @@ code { font-family: var(--stack-cifre); }
    titoli di sezione -- e' l'unico canale che sopravvive alla distanza di una
    proiezione. */
 .vista-vuota p:first-child { color: var(--testo); }
+/* Il velo del passaggio a monte sta in ALTO a destra: i conteggi tengono
+   l'angolo sinistro e il taglio quello in basso a destra, e questo e' l'unico
+   angolo libero. Sopra il taglio e non sotto anche per ordine di lettura: dice
+   che cosa si sta guardando, mentre il taglio e' un attrezzo per guardarci
+   dentro.
+   `[hidden]` esplicito per la stessa ragione del comando del taglio qui sotto:
+   su un elemento con `display` dichiarato l'attributo da solo non basta, e la
+   casella resterebbe a video su ogni step dove un fantasma non esiste. */
+.fantasma-comando { position: absolute; top: var(--passo-2); right: var(--passo-2); display: flex; align-items: center; gap: var(--passo-2); padding: var(--passo-1) var(--passo-2); background: var(--velo); border: 1px solid var(--bordo-comando); border-radius: var(--raggio); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); color: var(--tenue); cursor: pointer; }
+.fantasma-comando[hidden] { display: none; }
+.fantasma-comando :focus-visible { outline: 2px solid var(--accento); outline-offset: 2px; }
 /* Il comando del taglio sta in basso a destra sulla vista: i conteggi occupano
    gia' l'angolo sinistro. hidden non basta su un elemento con display: flex,
    che lo sovrascriverebbe e lo lascerebbe a video. */

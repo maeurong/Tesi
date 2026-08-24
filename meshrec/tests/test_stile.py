@@ -174,7 +174,7 @@ def test_ogni_sovrapposto_della_vista_sa_ancora_nascondersi():
     a corsa finita.
     """
     foglio = _senza_commenti()
-    for classe in ["taglio", "vista-vuota"]:
+    for classe in ["taglio", "vista-vuota", "fantasma-comando"]:
         dichiarazione = re.search(rf"^\.{re.escape(classe)} \{{([^}}]*)\}}", foglio, flags=re.MULTILINE)
         assert dichiarazione is not None, f".{classe} non e' piu' dichiarata"
         if "display:" not in dichiarazione.group(1):

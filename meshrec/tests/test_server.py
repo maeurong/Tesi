@@ -1664,14 +1664,24 @@ const STEP_CON_MESH = new Set([9]);
 // tabella vera coincida con pipeline.ARTIFACTS lo verifica
 // test_app_js.py::test_gli_step_disegnabili_del_modulo_sono_quelli_del_server.
 const STEP_CON_GEOMETRIA = new Set([2, 9]);
+// Come i due insiemi qui sopra: uno stub deliberato con la sola coppia che
+// questo banco esercita. Che la tabella vera abbia tre coppie e che quella
+// dello step 8 venga dal 6 lo verifica
+// test_app_js.py::test_il_fantasma_dello_step_8_viene_dal_6_e_non_dal_7.
+const FANTASMA_DI = { 2: 1 };
+let fantasmaAcceso = true;
+let ultimoFantasma = 0;
 const scritture = [];
 const vista = {
   svuota() {},
   mostraNuvola(vertici) { scritture.push(`nuvola:${vertici.length / 3}`); },
   mostraMesh(vertici) { scritture.push(`mesh:${vertici.length / 3}`); },
+  mostraFantasma() { scritture.push('fantasma'); },
+  togliFantasma() {},
 };
-const document = { getElementById: () => ({ textContent: '' }) };
+const document = { getElementById: () => ({ textContent: '', hidden: false }) };
 function riallineaTaglio(numero) { scritture.push(`riallinea:${numero}`); }
+function serverMuto() { return undefined; }
 
 // Ogni step col proprio artefatto: qui si prova l'ARBITRAGGIO fra due risposte,
 // non il ripiego della vista, e `passoDaMostrare` deve restituire lo step
@@ -1772,6 +1782,20 @@ def test_fra_due_geometrie_della_stessa_generazione_vince_chi_e_partita_dopo(num
             # `ricaricaVista` risolve il ripiego prima di chiedere la geometria:
             # senza questa, il banco cade su un riferimento che non esiste.
             "passoDaMostrare",
+            # Il velo del passaggio a monte, VERO e non stubbato: si posa dentro
+            # il `then` di mostraStep, cioe' proprio in mezzo alle due richieste
+            # che questo banco tiene sospese, e sullo step 2 un fantasma esiste.
+            # Qui l'ordine di rilascio e' «arriva prima la nuova», e in
+            # quell'ordine un velo che bumpasse `ultimaGeometria` non
+            # cambierebbe l'esito: scarterebbe la vecchia, che era gia' da
+            # scartare. E' l'ordine opposto che morde, e lo prova
+            # test_il_velo_non_arbitra_al_posto_delle_geometrie qui sotto.
+            # Vero e non stubbato lo stesso: se un domani il velo aprisse una
+            # geometria PRIMA del `then`, e' questo banco a vederlo.
+            "apriFantasma",
+            "fantasmaHaSenso",
+            "comandoDelFantasma",
+            "mostraFantasmaDelloStep",
             "ricaricaVista",
         )
     )
@@ -2701,3 +2725,131 @@ def test_le_membrature_etichettano_i_punti_anche_quando_il_pavimento_e_stato_tol
         "gli indici della membratura cadono nel pavimento: lo sfasamento fra la "
         "nuvola ripulita e la nuvola segmentata non e' stato corretto"
     )
+
+
+# Il banco del velo. Gemello di _BANCO_ORDINE, con una differenza sola e
+# deliberata: le due risposte si rilasciano nell'ordine OPPOSTO, prima la
+# vecchia. E' l'ordine in cui un velo che arbitrasse al posto delle geometrie
+# farebbe vincere la piu' vecchia, e quello che _BANCO_ORDINE non esercita.
+_BANCO_VELO = """import assert from 'node:assert/strict';
+
+let generazione = 1;
+let ultimaGeometria = 0;
+let ultimoFantasma = 0;
+const STEP_CON_MESH = new Set([9]);
+const STEP_CON_GEOMETRIA = new Set([1, 2]);
+// Lo step 2 ha un fantasma e viene dall'1: e' la coppia vera, non uno stub di
+// comodo. Le altre due della tabella non servono a questo caso.
+const FANTASMA_DI = { 2: 1 };
+let fantasmaAcceso = true;
+const scritture = [];
+const vista = {
+  svuota() {},
+  mostraNuvola(vertici) { scritture.push(`nuvola:${vertici.length / 3}`); },
+  mostraMesh(vertici) { scritture.push(`mesh:${vertici.length / 3}`); },
+  mostraFantasma() { scritture.push('velo'); },
+  togliFantasma() {},
+};
+const document = { getElementById: () => ({ textContent: '', hidden: false }) };
+function riallineaTaglio(numero) { scritture.push(`riallinea:${numero}`); }
+function serverMuto() { return undefined; }
+function didascaliaDellaVista() { return { textContent: '' }; }
+
+const ultimoStato = Array.from({ length: 13 }, (_, i) => ({
+  numero: i + 1, chiave: `0${i + 1}`, artefatto: 'scritto',
+}));
+
+// Le richieste della GEOMETRIA restano sospese; quella del VELO no. Il velo
+// parte da solo dentro il `then` e qui non e' cio' che si sta arbitrando: se
+// restasse sospeso anche lui, il banco misurerebbe l'ordine di rilascio invece
+// del contatore.
+const sospese = [];
+let partite = 0;
+globalThis.fetch = (indirizzo) => {
+  if (indirizzo.startsWith('/api/cloud/1')) {
+    return Promise.resolve({
+      ok: true,
+      headers: { get: () => 0 },
+      arrayBuffer: async () => new ArrayBuffer(12),
+    });
+  }
+  const marcatore = ++partite;
+  return new Promise((risolvi) => sospese.push(() => risolvi({
+    ok: true,
+    headers: { get: (nome) => (nome === 'X-Vertices' ? marcatore : 0) },
+    arrayBuffer: async () => new ArrayBuffer(marcatore * 12),
+  })));
+};
+const giro = async () => { for (let i = 0; i < 12; i += 1) await Promise.resolve(); };
+
+__FUNZIONI__
+
+ricaricaVista(2, generazione);   // il clic: apre la richiesta 1
+await giro();
+ricaricaVista(2);                // il fronte di discesa: apre la richiesta 2
+await giro();
+assert.equal(sospese.length, 2, 'le due richieste della geometria non sono partite');
+sospese[0]();                    // la VECCHIA arriva per prima: disegna, e fa partire il suo velo
+await giro();
+sospese[1]();                    // la nuova arriva dopo, e deve vincere lei
+await giro();
+
+// La nuova ha disegnato: e' l'ultima nuvola scritta, e porta il marcatore 2.
+const nuvole = scritture.filter((riga) => riga.startsWith('nuvola:'));
+assert.equal(
+  nuvole[nuvole.length - 1], 'nuvola:2',
+  'a video e\\' rimasta la geometria vecchia: il velo ha arbitrato al posto delle '
+  + 'geometrie. Scritture: ' + JSON.stringify(scritture),
+);
+"""
+
+
+def test_il_velo_non_arbitra_al_posto_delle_geometrie():
+    """Il velo ha un contatore suo, e questo lo esegue invece di leggerlo.
+
+    `ultimaGeometria` decide quale di due geometrie della stessa generazione
+    resta a video: vince quella partita dopo. Il velo del passaggio a monte si
+    posa dentro il `then` di `mostraStep`, cioe' proprio in mezzo a due
+    richieste che possono essere ancora tutt'e due in volo -- il clic e il
+    fronte di discesa condividono la generazione, ed e' il caso che
+    `test_fra_due_geometrie_della_stessa_generazione_vince_chi_e_partita_dopo`
+    tiene sospeso.
+
+    Quel banco pero' rilascia prima la richiesta NUOVA, e in quell'ordine un
+    velo che bumpasse `ultimaGeometria` non cambierebbe l'esito: scarterebbe la
+    vecchia, che era gia' da scartare. Verificato, resta verde con la
+    mutazione. Qui l'ordine e' rovesciato -- arriva prima la vecchia, disegna,
+    e il suo velo parte -- ed e' li' che il bump scarta la richiesta nuova e a
+    video resta la geometria di prima, senza che niente lo dica.
+
+    Mutazione che lo uccide: in `mostraFantasmaDelloStep`, rimettere
+    `const emissione = apriGeometria();` al posto di `apriFantasma()`.
+    """
+    from meshrec.app.server import UI_DIR
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node non installato: il contatore del velo resta verificato a mano")
+    testo = (UI_DIR / "app.js").read_text(encoding="utf-8")
+    funzioni = "\n".join(
+        _sorgente_di(nome, testo)
+        for nome in (
+            "superata",
+            "apriGeometria",
+            "apriFantasma",
+            "mostraNuvolaDelloStep",
+            "mostraStep",
+            "passoDaMostrare",
+            "fantasmaHaSenso",
+            "comandoDelFantasma",
+            "mostraFantasmaDelloStep",
+            "ricaricaVista",
+        )
+    )
+    prova = Path(__file__).parent / "_prova_velo.mjs"
+    prova.write_text(_BANCO_VELO.replace("__FUNZIONI__", funzioni), encoding="utf-8")
+    try:
+        esito = subprocess.run([node, str(prova)], capture_output=True, text=True)
+        assert esito.returncode == 0, esito.stderr
+    finally:
+        prova.unlink()

@@ -140,6 +140,22 @@
              ogni larghezza. -->
         <p class="vuoto">Ogni step dell'elenco «Pipeline» si clicca per vederne l'artefatto.</p>
       </div>
+      <!-- Il velo del passaggio a monte, dietro la geometria corrente e quasi
+           trasparente: e' l'unico modo di vedere che cosa un passaggio ha
+           TOLTO mentre lo si guarda, invece di leggere due conteggi in due
+           momenti diversi.
+           Nasce nascosto e acceso: app.js lo mostra solo sugli step dove un
+           fantasma esiste, cioe' dove il conteggio cala davvero (il 2, il 3,
+           l'8). Un interruttore su uno step senza fantasma sarebbe un comando
+           che non fa nulla.
+           La casella sta dentro la propria etichetta: cosi' il nome
+           accessibile viene dall'etichetta senza un attributo che possa
+           scollarsene, e il comando si raggiunge col tabulatore senza
+           tabindex. -->
+      <label id="fantasma-comando" class="fantasma-comando" hidden>
+        <input type="checkbox" id="fantasma" checked>
+        Passaggio a monte
+      </label>
       <!-- Il comando del taglio. Nasce nascosto: app.js lo mostra solo dove c'e'
            un volume disegnato, e l'intervallo del cursore lo scrive da li'
            leggendo l'ingombro della geometria. min, max e step non stanno qui
