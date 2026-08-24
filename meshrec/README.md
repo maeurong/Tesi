@@ -11,10 +11,19 @@ Python 3.12 e [uv](https://docs.astral.sh/uv/).
 
 ## Avvio
 
+Doppio clic su `MeshRec.command` (macOS) o `MeshRec.bat` (Windows), dentro
+questa cartella. Oppure da riga di comando:
+
 ```bash
 uv sync
 uv run meshrec serve                   # apre il browser sulla schermata d'ingresso
 ```
+
+I due launcher non chiedono nulla e non nominano nessun file: si spostano nella
+propria cartella — i percorsi relativi del programma (`runs/`, `experiments/`,
+`.cache/viewport`) sono risolti da lì — e avviano `meshrec serve` senza
+argomenti. Un percorso passato a mano continua a valere:
+`./MeshRec.command casi/lab_telaio.yaml` apre quel caso direttamente.
 
 Senza argomenti l'interfaccia si apre su una schermata che elenca le corse già
 presenti in `runs/` e permette di crearne una nuova da un file di punti

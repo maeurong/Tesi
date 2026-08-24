@@ -8,6 +8,8 @@ finisce su una corsa in `runs/`.
 
 from __future__ import annotations
 
+import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -380,6 +382,61 @@ def test_il_cambio_di_corsa_sposta_anche_le_metriche(slegato, nuvola, tmp_path):
     slegato.put("/api/corrente", json={"nome": "prima"})
 
     assert slegato.get("/api/metrics").json()["01_load"]["points"] == 1
+
+
+def test_i_launcher_non_chiedono_una_configurazione():
+    """Il doppio clic deve arrivare alla schermata d'ingresso, non a un dialogo.
+
+    Chi riceve una scansione non ha uno yaml da scegliere: `meshrec serve`
+    senza argomenti apre l'elenco delle corse e la creazione da un file di
+    punti. I due launcher passano solo quello che ricevono (`"$@"` e `%*`, che
+    al doppio clic sono vuoti) e non nominano nessun file di configurazione.
+
+    La riga sul `.bat` non e' cosmetica: `>/dev/null` e' sintassi Unix, e
+    `cmd.exe` la legge come il percorso `.\\dev\\null`. La cartella non esiste,
+    la redirezione fallisce, `errorlevel` va a 1 e il controllo su `uv`
+    scattava sempre -- il launcher dichiarava uv assente anche quando c'era.
+    """
+    radice = Path(__file__).resolve().parents[1]
+    command = (radice / "MeshRec.command").read_text(encoding="utf-8")
+    bat = (radice / "MeshRec.bat").read_text(encoding="utf-8")
+
+    assert 'uv run meshrec serve "$@"' in command
+    assert "uv run meshrec serve %*" in bat
+
+    # Sulle sole righe eseguibili: un commento che cita `casi/lab_telaio.yaml`
+    # come esempio spiega, non passa niente al programma.
+    def istruzioni(testo, prefissi):
+        return [
+            riga for riga in testo.splitlines()
+            if riga.strip() and not riga.strip().lower().startswith(prefissi)
+        ]
+
+    corpo_bat = "\n".join(istruzioni(bat, ("rem", "@rem")))
+    for corpo, nome in (
+        ("\n".join(istruzioni(command, ("#",))), "MeshRec.command"),
+        (corpo_bat, "MeshRec.bat"),
+    ):
+        assert ".yaml" not in corpo, f"{nome} passa una configurazione al programma"
+        assert "askopenfilename" not in corpo, f"{nome} apre un selettore file"
+    # Solo sul .bat: `>/dev/null` nel .command e' legittimo e c'e'.
+    assert "/dev/null" not in corpo_bat, "redirezione Unix in un file .bat"
+    # Un .command senza bit di esecuzione non si apre col doppio clic: il
+    # Finder lo mostra come documento di testo.
+    assert os.access(radice / "MeshRec.command", os.X_OK), "MeshRec.command non e' eseguibile"
+    # E il bit deve stare *nell'indice di git*, non solo su questo disco:
+    # `core.fileMode` qui e' false, quindi il permesso locale non viene
+    # registrato da solo e un clone fresco riceverebbe un 100644 inerte. Il
+    # difetto e' esattamente di quelli che passano inosservati: il file gira
+    # sulla macchina di chi lo scrive e non su quella di chi lo riceve.
+    modo = subprocess.run(
+        ["git", "ls-files", "-s", "MeshRec.command"],
+        cwd=radice, capture_output=True, text=True, check=True,
+    ).stdout.split()
+    assert modo and modo[0] == "100755", (
+        f"MeshRec.command e' {modo[0] if modo else 'assente'} nell'indice di git, "
+        "non 100755: su un clone fresco il doppio clic non lo apre"
+    )
 
 
 def test_la_riga_di_comando_accetta_serve_senza_configurazione():
