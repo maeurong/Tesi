@@ -2,7 +2,7 @@
 # Stessa forma di experiments/muro/esperimento.yaml; i livelli di downsample.voxel_size
 # sono l'intorno del valore che rende praticabile lo step 4 su questa nuvola (brief Task 12, Step 1).
 name: lab_crop
-base: lab.yaml
+base: casi/lab.yaml
 known_thickness: 176.0
 axes:
   - path: downsample.voxel_size

@@ -19,13 +19,180 @@ async function caricaStato() {
   // cui la distinzione undefined/null di corpoLetto esiste). Un null vero
   // qui passava la guardia e faceva sollevare la riga sotto fuori da ogni
   // catch, esattamente cio' che questa guardia doveva impedire.
+  // Nessuna corsa aperta non e' un errore: e' lo stato in cui il programma si
+  // apre la prima volta, quando nessuno gli ha passato una configurazione.
+  // `=== false` e non `!corpo?.legata`: un corpo illeggibile deve continuare a
+  // cadere nella guardia qui sotto, non a mostrare la schermata d'ingresso come
+  // se il server avesse detto qualcosa di sensato.
+  if (corpo?.legata === false) {
+    mostraIngresso();
+    return;
+  }
   if (corpo == null || !Array.isArray(corpo.steps)) {
     dichiaraErrore("il server ha risposto con uno stato della corsa che non si legge");
     return;
   }
+  document.getElementById("ingresso").hidden = true;
+  document.getElementById("lavoro").hidden = false;
+  document.getElementById("cambia-corsa").hidden = false;
   document.getElementById("corsa").textContent = corpo.out_dir;
   disegnaStep(corpo.steps);
 }
+
+// --- Schermata d'ingresso --------------------------------------------------
+//
+// Una corsa nasce da un file di punti, non da uno yaml scritto a mano: e' la
+// sola strada che chi riceve una scansione e apre il programma puo' davvero
+// percorrere. Legata una corsa la pagina si ricarica invece di ricucire lo
+// stato a mano: l'avvio e' gia' la sequenza giusta (stato, step, flusso degli
+// eventi, galleria), e riscriverne una seconda copia qui sarebbe due strade
+// per lo stesso risultato, con una che invecchia.
+
+const rigaErroreIngresso = document.getElementById("ingresso-errore");
+
+// Un contatore fresco per richiesta, come apriGeometria/apriBattuta/apriAzione:
+// numera le quattro strade che scrivono nella stessa riga d'errore e nello
+// stesso elenco. Due voci cliccate a breve distanza sono due PUT in volo, e il
+// bottone disabilitato ferma il doppio clic sulla stessa voce ma non il clic
+// sull'altra. Ogni gestore qui sotto lo apre prima della propria attesa; il
+// perche' e' questo, e non viene ripetuto a ognuno.
+let ultimoIngresso = 0;
+
+function apriIngresso() {
+  ultimoIngresso += 1;
+  return ultimoIngresso;
+}
+
+// Le due schermate si escludono: chi ne scopre una nasconde l'altra, da un
+// punto solo, cosi' non esiste uno stato in cui si vedono entrambe o nessuna.
+function mostraIngresso() {
+  document.getElementById("lavoro").hidden = true;
+  document.getElementById("cambia-corsa").hidden = true;
+  document.getElementById("ingresso").hidden = false;
+  disegnaIngresso();
+}
+
+// Torna alla scelta della corsa senza riavviare `serve`. Non slega niente sul
+// server: la corsa aperta resta tale finche' non se ne sceglie un'altra, e
+// l'elenco la marca.
+document.getElementById("cambia-corsa").addEventListener("click", mostraIngresso);
+
+async function disegnaIngresso() {
+  const richiesta = apriIngresso();
+  const risposta = await fetch("/api/corse").catch(serverMuto);
+  const rifiuto = risposta.ok ? null : await ragioneDelRifiuto(risposta);
+  const corpo = risposta.ok ? await corpoLetto(risposta) : null;
+  // Dopo l'ultima attesa e prima della prima scrittura, come le altre tratte.
+  if (superata(richiesta, ultimoIngresso)) return;
+  if (rifiuto !== null) {
+    rigaErroreIngresso.textContent = rifiuto;
+    return;
+  }
+  if (corpo == null || !Array.isArray(corpo.corse)) {
+    rigaErroreIngresso.textContent = "il server ha risposto con un elenco di corse che non si legge";
+    return;
+  }
+  const elenco = document.getElementById("corse-elenco");
+  elenco.replaceChildren();
+  document.getElementById("corse-vuoto").hidden = corpo.corse.length > 0;
+  document.getElementById("corse-titolo").textContent = `Corse gia' in ${corpo.radice}`;
+  // Dalla piu' recente: la domanda che si fa chi riapre il programma e' «quale
+  // stavo usando», e l'ordine alfabetico non le risponde. Le corse che non
+  // portano una data (config sparito fra la lettura e lo stat) vanno in fondo
+  // invece di vincere con un undefined.
+  const corse = [...corpo.corse].sort((a, b) => (b.modificata ?? 0) - (a.modificata ?? 0));
+  for (const corsa of corse) {
+    const bottone = document.createElement("button");
+    bottone.type = "button";
+    bottone.className = "bottone corsa-voce";
+    bottone.dataset.nome = corsa.nome;
+    if (corsa.nome === corpo.corrente) bottone.setAttribute("aria-current", "true");
+    const stato = corsa.errore
+      ? `la configurazione non si legge — ${corsa.errore}`
+      : `${corsa.nuvola}${corsa.materiale ? ` — ${corsa.materiale}` : " — materiale non dichiarato"}`;
+    bottone.append(
+      Object.assign(document.createElement("span"), {
+        className: "corsa-nome", textContent: corsa.nome,
+      }),
+      // Cio' che il server ha letto, non una descrizione inventata: una corsa
+      // rotta lo dice qui invece di sparire dall'elenco.
+      Object.assign(document.createElement("small"), {
+        className: "aiuto",
+        textContent: corsa.riferimento ? `${stato} — di riferimento, sola lettura` : stato,
+      }),
+    );
+    // aria-disabled e non disabled: una corsa che non si legge e' l'unica voce
+    // che porta una spiegazione, e `disabled` la toglierebbe dalla navigazione
+    // da tastiera e dal lettore di schermo — proprio a chi quella spiegazione
+    // serve di piu'. Il gestore si ferma da se'.
+    if (corsa.errore) bottone.setAttribute("aria-disabled", "true");
+    bottone.addEventListener("click", async () => {
+      if (bottone.getAttribute("aria-disabled") === "true") return;
+      const richiesta = apriIngresso();
+      bottone.disabled = true;
+      rigaErroreIngresso.textContent = "";
+      const esito = await fetch("/api/corrente", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nome: corsa.nome }),
+      }).catch(serverMuto);
+      const rifiuto = esito.ok ? null : await ragioneDelRifiuto(esito);
+      if (superata(richiesta, ultimoIngresso)) return;
+      if (rifiuto === null) {
+        location.reload();
+        return;
+      }
+      rigaErroreIngresso.textContent = rifiuto;
+      bottone.disabled = false;
+    });
+    elenco.append(bottone);
+  }
+}
+
+// Le due condizioni che il modello rifiuterebbe in inglese, dette in italiano
+// prima di partire. Non e' una seconda validazione: il dominio lo decide il
+// modello e basta, e tutto il resto arriva ancora dal server. Sono le due
+// grafie che chiunque sbaglia al primo tentativo, e i rifiuti di pydantic
+// ("String should match pattern '^[A-Za-z0-9_.-]+$'") sarebbero la prima cosa
+// che si legge di un'interfaccia dichiarata italiana. Pura e di primo livello,
+// come valoreScritto: si prova senza un motore di DOM.
+function ragioneLocale(nome, nuvola) {
+  if (!nome) return "dai un nome alla corsa: diventa il nome della cartella in runs/";
+  if (!/^[A-Za-z0-9_.-]+$/.test(nome)) {
+    return "il nome della corsa accetta lettere, cifre, punto, trattino e trattino "
+      + "basso: niente spazi, niente barre, niente accenti";
+  }
+  if (!nuvola) return "indica il percorso del file di punti da cui far nascere la corsa";
+  return null;
+}
+
+document.getElementById("crea-corsa").addEventListener("click", async (evento) => {
+  const bottone = evento.currentTarget;
+  const richiesta = apriIngresso();
+  bottone.disabled = true;
+  rigaErroreIngresso.textContent = "";
+  const nome = document.getElementById("nuova-nome").value.trim();
+  const nuvola = document.getElementById("nuova-nuvola").value.trim();
+  const locale = ragioneLocale(nome, nuvola);
+  if (locale !== null) {
+    rigaErroreIngresso.textContent = locale;
+    bottone.disabled = false;
+    return;
+  }
+  const risposta = await fetch("/api/corse", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ nome, nuvola }),
+  }).catch(serverMuto);
+  const rifiuto = risposta.ok ? null : await ragioneDelRifiuto(risposta);
+  if (superata(richiesta, ultimoIngresso)) return;
+  if (rifiuto === null) {
+    location.reload();
+    return;
+  }
+  rigaErroreIngresso.textContent = rifiuto;
+  bottone.disabled = false;
+});
 
 // Quale step e' aperto lo sapeva solo una variabile di modulo, e a video non lo
 // diceva niente. Marcarlo sta in un punto solo perche' due strade lo chiedono —
@@ -106,7 +273,10 @@ let eraInCorso = false;
 
 flusso.addEventListener("stato", (evento) => {
   const stato = JSON.parse(evento.data);
-  disegnaStep(stato.steps);
+  // A nessuna corsa aperta il flusso manda comunque lo stato del lavoratore,
+  // con `steps` vuoto: la colonna degli step non esiste ancora e disegnarla
+  // sarebbe disegnare tredici righe di una corsa che nessuno ha scelto.
+  if (Array.isArray(stato.steps) && stato.steps.length > 0) disegnaStep(stato.steps);
   const barra = document.getElementById("in-corso");
   if (stato.in_corso && stato.da_secondi !== null) {
     // stato.step e' null per un comando che non e' uno step della pipeline
@@ -1142,11 +1312,17 @@ function campoParametro(blocco, nome, campo, ordine) {
   const riga = document.createElement("label");
   riga.className = "campo";
   riga.append(Object.assign(document.createElement("span"), { textContent: nome }));
-  const valore = configurazione[blocco][nome];
+  const valore = (configurazione[blocco] ?? {})[nome] ?? null;
   // Una lista o un modello annidato non sono scritti in una casella di testo:
   // String() li renderebbe come "1,2,4" o "[object Object]", cioe' un testo che
   // nessuna lettura produce, e ogni modifica tornerebbe comunque rifiutata dal
   // modello.
+  // Il blocco intero puo' mancare, non solo il singolo valore: `analysis` non
+  // esiste finche' il materiale non e' dichiarato. Un campo di un blocco
+  // assente non si scrive uno alla volta -- la PUT manderebbe un blocco a
+  // meta' -- e va dichiarato tutto insieme dal pannello piu' sotto, che dice
+  // gia' che il blocco non c'e': qui basta il campo in sola lettura.
+  const bloccoAssente = configurazione[blocco] == null;
   const scalare = valore === null || ["string", "number", "boolean"].includes(typeof valore);
   const input = document.createElement("input");
   input.value = scalare ? String(valore ?? "") : JSON.stringify(valore);
@@ -1155,7 +1331,7 @@ function campoParametro(blocco, nome, campo, ordine) {
   messaggio.className = "errore-campo";
   messaggio.id = `errore-${blocco}-${nome}`;
   messaggio.hidden = true;
-  if (!scalare) {
+  if (!scalare || bloccoAssente) {
     // readOnly e non disabled: disabled lo toglierebbe anche dalla navigazione
     // da tastiera e dal lettore di schermo.
     input.readOnly = true;
@@ -1165,12 +1341,102 @@ function campoParametro(blocco, nome, campo, ordine) {
   riga.append(input);
   const aiuto = document.createElement("small");
   aiuto.className = "aiuto";
-  aiuto.textContent = scalare
-    ? campo.description
-    : [campo.description, "si modifica dal file di configurazione"]
-        .filter(Boolean).join(" — ");
+  aiuto.textContent = [
+    campo.description,
+    !scalare && !bloccoAssente ? "si modifica dal file di configurazione" : null,
+  ].filter(Boolean).join(" — ");
   riga.append(aiuto, messaggio);
   return riga;
+}
+
+// Il materiale, dichiarato dagli step che lo pretendono e non prima.
+//
+// `campoParametro` scrive un campo scalare per volta, e il materiale e' un
+// modello annidato: senza questo pannello restava modificabile solo dal file
+// di configurazione, cioe' da nessuna parte per chi il programma lo apre e
+// basta. I quattro campi partono insieme perche' un materiale a meta' non e'
+// un materiale, e le caselle vuote non portano suggerimenti (vedi il docstring
+// di `config.Material` per il difetto misurato da cui discende la regola).
+function pannelloMateriale(numero, ordine) {
+  const gruppo = document.createElement("fieldset");
+  gruppo.className = "gruppo";
+  gruppo.append(Object.assign(document.createElement("legend"), { textContent: "materiale" }));
+  const dichiarato = configurazione.analysis?.material ?? null;
+  gruppo.append(Object.assign(document.createElement("p"), {
+    className: "aiuto",
+    textContent: dichiarato
+      ? "Dichiarato da chi analizza. Il programma non lo deduce dalla nuvola."
+      : `Non dichiarato: lo step ${numero} si ferma finche' questi quattro valori non ci sono. `
+        + "Il programma non ne mette uno per conto suo.",
+  }));
+  const caselle = {};
+  for (const [nome, etichetta] of [
+    ["name", "nome"],
+    ["young", "modulo elastico E [MPa]"],
+    ["poisson", "coefficiente di Poisson"],
+    ["density", "densita [t/mm^3]"],
+  ]) {
+    const riga = document.createElement("label");
+    riga.className = "campo";
+    riga.append(Object.assign(document.createElement("span"), { textContent: etichetta }));
+    const casella = document.createElement("input");
+    casella.value = dichiarato ? String(dichiarato[nome]) : "";
+    riga.append(casella);
+    caselle[nome] = casella;
+    gruppo.append(riga);
+  }
+  const bottone = document.createElement("button");
+  bottone.type = "button";
+  bottone.className = "bottone";
+  bottone.textContent = dichiarato ? "Aggiorna il materiale" : "Dichiara il materiale";
+  bottone.addEventListener("click", async () => {
+    bottone.disabled = true;
+    dichiaraErrore(null);
+    const nuova = {
+      ...configurazione,
+      analysis: {
+        ...(configurazione.analysis ?? {}),
+        material: {
+          name: caselle.name.value.trim(),
+          young: valoreScritto(caselle.young.value),
+          poisson: valoreScritto(caselle.poisson.value),
+          density: valoreScritto(caselle.density.value),
+        },
+      },
+    };
+    const risposta = await fetch("/api/config", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(nuova),
+    }).catch(serverMuto);
+    const rifiuto = risposta.ok ? null : await ragioneDelRifiuto(risposta);
+    const salvata = risposta.ok ? await corpoLetto(risposta) : null;
+    // Dopo l'ultima attesa e prima della prima scrittura, come scriviParametro:
+    // `configurazione` e' di modulo e la riapre ogni pannello.
+    if (superata(ordine)) return;
+    if (rifiuto !== null) {
+      dichiaraErrore(rifiuto);
+      bottone.disabled = false;
+      return;
+    }
+    if (salvata == null || salvata.analysis == null) {
+      // La PUT e' passata (risposta.ok): il materiale e' gia' sul disco, e
+      // dirlo salvato sarebbe vero. Quello che non si puo' fare e' cachear in
+      // `configurazione` un corpo che non descrive cio' che si e' scritto.
+      dichiaraErrore(
+        "il materiale e' stato scritto, ma il server ha risposto con una configurazione che non si legge",
+      );
+      bottone.disabled = false;
+      return;
+    }
+    configurazione = salvata;
+    // Ridisegnato dalla stessa strada che lo disegna sempre: il pannello deve
+    // mostrare cio' che il server ha accettato, e una seconda copia della
+    // logica di disegno invecchierebbe alla prima modifica dell'altra.
+    apriDettaglio(numero);
+  });
+  gruppo.append(bottone);
+  return gruppo;
 }
 
 // Le due uscite d'errore di apriDettaglio, in un punto solo. Il pannello resta
@@ -1316,6 +1582,11 @@ async function apriDettaglio(numero, ordine = generazione) {
 
   // Dentro dettaglio, che replaceChildren() svuota a ogni apertura: cosi' il
   // pannello non puo' sopravvivere a uno step che non e' il suo.
+  // Dallo schema e non da un numero scritto qui: gli step che pretendono il
+  // materiale sono quelli che dichiarano il blocco `analysis` in
+  // steps.STEP_BLOCKS, e un elenco a mano resterebbe indietro al primo step
+  // nuovo che lo legge.
+  if (voce.blocchi.includes("analysis")) dettaglio.append(pannelloMateriale(numero, ordine));
   if (numero === STEP_CON_RITAGLIO) dettaglio.append(pannelloRitaglio(ordine));
   if (numero === STEP_CON_CAMPO) dettaglio.append(pannelloCampo(ordine, metriche[chiave]));
 

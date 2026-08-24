@@ -785,3 +785,87 @@ def test_generare_un_modello_senza_prior_dice_che_cosa_manca(tmp_path):
 
     with pytest.raises(FileNotFoundError, match="12_wall.json"):
         pipeline.genera_modello(cfg, "estruso", tmp_path / "figlia")
+
+
+def test_senza_materiale_la_corsa_arriva_alle_metriche_di_volume(tmp_path):
+    """Una nuvola appena caricata deve poter attraversare la geometria.
+
+    Gli step 1-10 non leggono `analysis` (`steps.STEP_BLOCKS`): chiedere il
+    materiale prima di loro sarebbe chiederlo per nulla.
+    """
+    cfg = _config_cubo(tmp_path)
+    cfg.analysis = None
+    cfg.run = config.RunConfig(out_dir=tmp_path / "out", to_step=10)
+
+    metriche = pipeline.run(cfg)
+
+    assert "10_volume_quality" in metriche
+    assert "11_export" not in metriche
+
+
+def test_lo_step_11_senza_materiale_si_ferma_dicendo_che_cosa_manca(tmp_path):
+    cfg = _config_cubo(tmp_path)
+    cfg.analysis = None
+    cfg.run = config.RunConfig(out_dir=tmp_path / "out", to_step=11)
+
+    with pytest.raises(ValueError, match="analysis.material"):
+        pipeline.run(cfg)
+
+    stato = steps.read_state(tmp_path / "out")
+    assert stato["11_export"]["esito"] == "fallito"
+
+
+def test_una_corsa_fino_al_solutore_senza_materiale_non_lo_avvia(tmp_path, monkeypatch):
+    """Lo step 13 chiede il materiale (`steps.STEP_BLOCKS`), e senza deve
+    fermarsi prima di far partire `ccx`: un solutore avviato su un deck che
+    non e' stato scritto brucia minuti e finisce su un errore che parla di
+    file mancanti invece che di materiale mancante.
+
+    `solve.risolvi` sostituito e non `ccx`: se il flusso ci arrivasse, il
+    controllo lo direbbe qui e non su una macchina dove il solutore non e'
+    installato.
+    """
+    from meshrec.core import solve
+
+    def non_deve_partire(*_argomenti, **_chiavi):
+        raise AssertionError("il solutore e' partito su una corsa senza materiale")
+
+    monkeypatch.setattr(solve, "risolvi", non_deve_partire)
+    cfg = _config_cubo(tmp_path)
+    cfg.analysis = None
+    cfg.run = config.RunConfig(out_dir=tmp_path / "out", to_step=13)
+
+    with pytest.raises(ValueError, match="analysis.material"):
+        pipeline.run(cfg)
+
+
+def test_generare_un_modello_senza_materiale_dice_che_cosa_manca(tmp_path):
+    """La corsa figlia esporta lo stesso deck dello step 11: stesso rifiuto.
+
+    Il difetto che il rifiuto impedisce e' `AttributeError: 'NoneType' object
+    has no attribute 'material'` dentro `abaqus.export_model`, che non dice a
+    chi legge quale sia la decisione che manca.
+    """
+    cfg = _config_cubo(tmp_path)
+    _scrivi_prior_telaio(cfg, _TELAIO_QUATTRO_MEMBRATURE)
+    cfg.analysis = None
+
+    with pytest.raises(ValueError, match="analysis.material"):
+        pipeline.genera_modello(cfg, "estruso", tmp_path / "figlia-senza-materiale")
+
+
+def test_generare_un_modello_senza_materiale_non_lascia_una_cartella_a_meta(tmp_path):
+    """Stessa invariante di `test_una_corsa_figlia_fallita_non_lascia_una_cartella_orfana`,
+    sull'altra strada che puo' fallire: una figlia con dentro il solo
+    `config.yaml` viene inclusa da /api/compare (e' una directory) e rifiutata
+    senza ne' `modello.json` ne' corsa madre da leggere.
+    """
+    cfg = _config_cubo(tmp_path)
+    _scrivi_prior_telaio(cfg, _TELAIO_QUATTRO_MEMBRATURE)
+    cfg.analysis = None
+    figlia = tmp_path / "figlia-senza-materiale"
+
+    with pytest.raises(ValueError, match="analysis.material"):
+        pipeline.genera_modello(cfg, "estruso", figlia)
+
+    assert not (figlia / "config.yaml").exists()

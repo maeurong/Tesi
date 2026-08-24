@@ -673,11 +673,47 @@ class PipelineConfig(_ModelloBase):
     repair: RepairConfig = Field(default_factory=RepairConfig)
     simplify: SimplifyConfig = Field(default_factory=SimplifyConfig)
     tet: TetConfig = Field(default_factory=TetConfig)
-    analysis: AnalysisConfig
+    analysis: AnalysisConfig | None = Field(
+        default=None,
+        description=(
+            "materiale e analisi. Assente finche' non viene dichiarato: `analysis` "
+            "e' letto dai soli step 11 e 13 (vedi `steps.STEP_BLOCKS`), e pretenderlo "
+            "alla nascita di una corsa costringeva a scegliere la classe del "
+            "calcestruzzo prima di aver guardato un punto della nuvola. Il materiale "
+            "resta obbligatorio *dentro* `AnalysisConfig`: quell'invariante nasce da "
+            "un difetto misurato e non e' allentata qui"
+        ),
+    )
     carichi: CarichiConfig = Field(default_factory=CarichiConfig)
     wall: WallConfig = Field(default_factory=WallConfig)
     model: ModelConfig = Field(default_factory=ModelConfig)
     run: RunConfig = Field(default_factory=RunConfig)
+
+    def analisi_dichiarata(self, chiede: str) -> AnalysisConfig:
+        """L'analisi, oppure un rifiuto che dice chi la pretende e dove darla.
+
+        Unico varco verso `self.analysis` per chi ne pretende uno: cosi' la
+        guardia sta in un posto solo e nessun chiamante puo' leggere `None`
+        scambiandolo per un materiale.
+
+        `chiede` e' l'etichetta del chiamante e non un numero: `meshrec model`
+        esporta lo stesso deck dello step 11 ma step non e', e chi lo lancia
+        veniva mandato a guardare uno step che nel pannello poteva gia' essere
+        verde. Il messaggio nomina il pannello e non i campi YAML per la stessa
+        ragione: `young` e `density` nell'interfaccia non esistono, si chiamano
+        «modulo elastico E [MPa]» e «densita [t/mm^3]». Il nome del campo resta
+        pero' nella coda, perche' chi arriva qui da `meshrec run` un pannello
+        non ce l'ha e deve sapere dove scrivere.
+        """
+        if self.analysis is None:
+            raise ValueError(
+                f"{chiede} pretende il materiale, e questa corsa non lo dichiara. "
+                "Dichiaralo nel pannello dello step 11, riquadro «materiale»: nome, "
+                "modulo elastico, coefficiente di Poisson, densita -- da riga di "
+                "comando e' analysis.material nel config.yaml della corsa. Il "
+                "programma non lo deduce dalla nuvola e non ne mette uno per conto suo"
+            )
+        return self.analysis
 
 
 def load_config(path: Path) -> PipelineConfig:
@@ -740,7 +776,12 @@ class ExperimentConfig(_ModelloBase):
     """Dichiarazione di un esperimento. Tracciata da git accanto al proprio registro."""
 
     name: str
-    base: Path = Field(description="configurazione di partenza, es. muro.yaml")
+    base: Path = Field(
+        description=(
+            "configurazione di partenza, es. casi/muro.yaml. Risolta rispetto alla "
+            "cartella da cui gira il programma, non rispetto a questo file"
+        )
+    )
     axes: list[AxisSpec] = Field(min_length=1)
     pairs: list[tuple[str, str]] = Field(
         default_factory=list,

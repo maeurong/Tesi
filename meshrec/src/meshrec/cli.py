@@ -98,7 +98,17 @@ def _build_parser() -> argparse.ArgumentParser:
     compare_command.add_argument("--out", type=Path, required=True)
 
     serve_command = commands.add_parser("serve", help="avvia il server locale e apre il browser")
-    serve_command.add_argument("config", type=Path)
+    serve_command.add_argument(
+        "config",
+        type=Path,
+        nargs="?",
+        default=None,
+        help=(
+            "configurazione da aprire. Se omessa, l'interfaccia si apre sulla "
+            "schermata d'ingresso: le corse gia' in runs/ e una corsa nuova da "
+            "un file di punti"
+        ),
+    )
     serve_command.add_argument("--port", type=int, default=None)
     serve_command.add_argument("--no-browser", action="store_true")
     return parser

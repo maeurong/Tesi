@@ -105,7 +105,37 @@ body {
    tabulari e lo stack a larghezza fissa lo tengono leggibile carattere per
    carattere accanto al titolo. */
 .corsa { margin: 0; color: var(--tenue); font-family: var(--stack-cifre); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); overflow-wrap: anywhere; }
+/* Il landmark unico, che contiene le due schermate: l'ingresso e il lavoro si
+   escludono a vicenda, ma una pagina che ne nasconde una non deve restare
+   senza <main> -- «vai al contenuto principale» non troverebbe piu' nulla. */
+main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .tre-zone { display: grid; grid-template-columns: 18rem 1fr 22rem; flex: 1; min-height: 0; }
+/* Serve perche' .tre-zone dichiara display: grid, che batte la regola [hidden]
+   del browser. .ingresso non dichiara display e non ne ha bisogno. */
+.tre-zone[hidden] { display: none; }
+
+/* Schermata d'ingresso. Una colonna sola e larga la misura leggibile: e' la
+   prima cosa che vede chi non ha mai aperto il programma, e non ha niente da
+   confrontare affiancato. Scorre per conto suo perche' l'elenco delle corse
+   cresce con l'uso. */
+.ingresso { padding: var(--passo-4); overflow: auto; background: var(--superficie); flex: 1; min-height: 0; }
+.ingresso > * { max-width: var(--misura); }
+.ingresso .campo { max-width: 40rem; }
+.corse { display: flex; flex-direction: column; gap: var(--passo-2); margin-bottom: var(--passo-6); }
+/* Una voce e' un bottone alto due righe: il nome e cio' da cui la corsa e'
+   nata. text-align: left perche' un bottone centra di suo, e qui il contenuto
+   e' una scheda, non un'etichetta. */
+.corsa-voce { display: grid; gap: var(--passo-1); text-align: left; }
+.corsa-nome { font-family: var(--stack-cifre); font-size: var(--tipo-corpo); line-height: var(--interlinea-riga); overflow-wrap: anywhere; }
+/* La riga della corsa aperta adesso. aria-current porta il significato, il
+   foglio ci si aggancia sopra: stessa regola del marchio sullo step aperto. */
+.corsa-voce[aria-current="true"] { border-color: var(--accento); background: var(--evidenza); }
+/* Una corsa che non si apre resta raggiungibile da tastiera e annunciata --
+   e' l'unica voce che porta una spiegazione, e disabled la toglierebbe da
+   entrambi. Il gestore si ferma da se'. */
+.corsa-voce[aria-disabled="true"] { color: var(--tenue); cursor: default; }
+.corsa-voce[aria-disabled="true"]:hover { background: var(--superficie); }
+.corsa-riferimento { color: var(--avviso); }
 .zona { padding: var(--passo-4); overflow: auto; }
 .zona-step, .zona-dettaglio { background: var(--superficie); }
 .zona-step { border-right: 1px solid var(--bordo); }
@@ -113,8 +143,13 @@ body {
 /* Sopra un titolo va piu' spazio che sotto: e' il salto fra due gruppi, non
    una riga in piu' del gruppo precedente. Il primo titolo della zona non ha
    niente sopra da cui staccarsi. */
-.zona h2 { font-size: var(--tipo-nota); line-height: var(--interlinea-riga); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--tenue); margin: var(--passo-6) 0 var(--passo-2); }
-.zona h2:first-child { margin-top: 0; }
+/* `.ingresso` accanto a `.zona`: i due ruoli valgono per i titoli di entrambe
+   le schermate. Scoped alla sola `.zona`, i titoli dell'ingresso cadevano sui
+   predefiniti del browser -- 24 px e 18,7 px con margini in em -- fuori dalla
+   scala dichiarata sopra e fuori dal passo di 4 px, proprio sulla schermata
+   che viene proiettata per prima. */
+.zona h2, .ingresso h2 { font-size: var(--tipo-nota); line-height: var(--interlinea-riga); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--tenue); margin: var(--passo-6) 0 var(--passo-2); }
+.zona h2:first-child, .ingresso h2:first-child { margin-top: 0; }
 .elenco-step { list-style: none; margin: 0; padding: 0; }
 /* Le caselle dei modelli e il bottone che li genera: una colonna stretta come
    il resto della zona-step, non una griglia — sono tre righe, non una tabella. */
@@ -136,7 +171,7 @@ body {
 .vuoto { color: var(--tenue); font-size: var(--tipo-corpo); line-height: var(--interlinea); max-width: var(--misura); text-wrap: pretty; }
 /* Il titolo delle metriche lo scrive app.js come h3: senza una regola
    prenderebbe la misura del browser, che non sta in nessuna scala. */
-.zona h3 { font-size: var(--tipo-dato); line-height: var(--interlinea-riga); font-weight: 600; margin: var(--passo-6) 0 var(--passo-2); }
+.zona h3, .ingresso h3 { font-size: var(--tipo-dato); line-height: var(--interlinea-riga); font-weight: 600; margin: var(--passo-6) 0 var(--passo-2); }
 .bottone { font: inherit; font-size: var(--tipo-dato); line-height: var(--interlinea-riga); padding: var(--passo-2) var(--passo-3); border: 1px solid var(--bordo-comando); border-radius: var(--raggio); background: var(--superficie); color: var(--testo); cursor: pointer; transition: background-color var(--durata-tocco) var(--curva), border-color var(--durata-tocco) var(--curva); }
 .bottone:hover { background: var(--evidenza); }
 .bottone:active { background: color-mix(in srgb, var(--accento) 14%, transparent); }

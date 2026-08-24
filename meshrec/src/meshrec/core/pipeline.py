@@ -169,6 +169,13 @@ def genera_modello(cfg: PipelineConfig, tipo: str, out_dir: Path) -> dict[str, o
 
     membrature = _ricostruisci_membrature(prior)
 
+    # Letta qui e non al punto d'uso, per la stessa ragione per cui il
+    # save_config sta dopo `costruisci`: e' una lettura pura, e lasciata a valle
+    # di `out.mkdir` faceva nascere la cartella figlia con dentro il solo
+    # config.yaml ogni volta che il materiale non era dichiarato -- esattamente
+    # lo stato che il commento qui sotto esiste per impedire.
+    analisi = cfg.analisi_dichiarata(f"il modello parametrico «{tipo}»")
+
     out = Path(out_dir)
 
     # save_config solo dopo costruisci: se la generazione fallisce (sulla
@@ -192,7 +199,7 @@ def genera_modello(cfg: PipelineConfig, tipo: str, out_dir: Path) -> dict[str, o
         out / "wall_model.vtu",
         nodi,
         elementi,
-        cfg.analysis,
+        analisi,
         cfg.tet,
         reference=nodi,
         element_type=cfg.model.element,
@@ -441,7 +448,7 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
             out / "wall_model.vtu",
             nodes,
             tets,
-            cfg.analysis,
+            cfg.analisi_dichiarata("lo step 11"),
             cfg.tet,
             reference=vertices,
             carichi=cfg.carichi,
@@ -471,7 +478,7 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
         # dei casi (casi_di_carico) vengono dalla stessa riga: e' l'ordine che
         # export_model ha scritto davvero nel deck, non una sua ricostruzione.
         metrics["13_solve"] = solve.risolvi(
-            out, out / "wall_model.inp", cfg.analysis, nodes, tets,
+            out, out / "wall_model.inp", cfg.analisi_dichiarata("lo step 13"), nodes, tets,
             metrics["11_export"]["element_type"],
             casi_di_carico=metrics["11_export"]["casi_di_carico"],
             # Gia' calcolato allo step 11 (abaqus.constraint_plan_extent):

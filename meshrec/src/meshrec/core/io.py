@@ -19,6 +19,13 @@ class ScaleError(ValueError):
     """L'ingombro della nuvola non corrisponde alle dimensioni reali dichiarate."""
 
 
+# I formati che `read_cloud` legge davvero. Sta qui, accanto alla funzione che
+# li legge, perche' l'interfaccia deve poter rifiutare un file prima di creare
+# una corsa attorno a esso: senza questo elenco, un `.e57` verrebbe scoperto
+# solo allo step 1, con una cartella gia' scritta sul disco.
+ESTENSIONI_NUVOLA = (".pcd", ".ply", ".xyz")
+
+
 def read_cloud(path: Path) -> tuple[np.ndarray, np.ndarray | None]:
     """Legge .pcd/.ply/.xyz. Le normali sono restituite solo se presenti nel file."""
     cloud = o3d.io.read_point_cloud(str(path))

@@ -31,9 +31,15 @@ def test_the_material_has_no_defaults_and_must_be_declared():
     materiale per il resto dichiarato passa inosservato a un controllo che ne
     omette due insieme, ed e' proprio il parametro sbagliato di venti volte
     sul telaio in calcestruzzo.
+
+    Dalla correzione dell'ingresso una configurazione puo' *nascere* senza
+    analisi -- una corsa comincia dalla sola nuvola -- ma non puo' arrivare
+    allo step che il materiale lo pretende: la guardia si e' spostata da
+    `PipelineConfig` a `analisi_dichiarata`, non e' stata tolta.
     """
+    senza_analisi = config.PipelineConfig(input=config.InputConfig(path="nuvola.ply"))
     with pytest.raises(ValueError):
-        config.PipelineConfig(input=config.InputConfig(path="nuvola.ply"))
+        senza_analisi.analisi_dichiarata(11)
     with pytest.raises(ValueError):
         config.AnalysisConfig()
 
@@ -167,6 +173,31 @@ def test_l_impronta_di_una_corsa_registrata_non_cambia():
     assert righe == 22, f"attese 22 righe nei due registri, trovate {righe}"
 
 
+@pytest.mark.parametrize(
+    ("caso", "impronta"),
+    [
+        ("lab.yaml", "327f3f1f8ec9eef26b0a1fc575f122d9d1028461152a443d698a97848ca8afb1"),
+        ("muro.yaml", "83bbe93f7ce6e0d4f70b6f077d1705158a37bd7083b55b09b4d57fa32b38100b"),
+    ],
+)
+def test_l_impronta_delle_configurazioni_del_caso_studio_e_quella_misurata(caso, impronta):
+    """Le due configurazioni da cui partono gli sweep di tesi, fissate al valore
+    misurato sul commit che le ha spostate in `casi/` (identico a quello che
+    avevano alla radice: lo spostamento non le ha toccate).
+
+    Il test sopra rilegge i registri e non se ne accorgerebbe: ogni riga porta
+    dentro di se' la configurazione con cui e' stata calcolata, quindi resta
+    derivabile anche se la base da cui e' nata cambia. Una modifica a
+    `casi/lab.yaml` o a `casi/muro.yaml` sposterebbe in silenzio le corse
+    future fuori dalle cartelle di quelle gia' registrate: qui lo dice.
+    """
+    from meshrec.core.sweep import fingerprint
+
+    percorso = Path(__file__).resolve().parents[1] / "casi" / caso
+
+    assert fingerprint(config.load_config(percorso)) == impronta
+
+
 def test_i_blocchi_nuovi_stanno_in_pipelineconfig_e_fuori_dall_impronta():
     """I tre blocchi della Fase 4 e 5 viaggiano con la configurazione, perche'
     gli step 12 e 13 li leggono, e restano fuori dall'impronta di sweep,
@@ -247,3 +278,45 @@ def test_lo_step_name_predefinito_e_i_nomi_liberi_restano_accettati():
     """Controprova: la guardia sopra vieta tre nomi, non i nomi."""
     assert config.AnalysisConfig(material=MATERIALE).step_name == "GRAVITA"
     assert config.AnalysisConfig(material=MATERIALE, step_name="PESO_PROPRIO").step_name == "PESO_PROPRIO"
+
+
+def test_una_configurazione_nasce_senza_analisi():
+    """Una corsa deve poter nascere dalla sola nuvola.
+
+    `analysis` e' letto dai soli step 11 e 13 (`steps.STEP_BLOCKS`), quindi
+    esigerlo alla nascita costringeva a dichiarare la classe del calcestruzzo
+    prima di aver guardato un punto. Il materiale resta obbligatorio *dentro*
+    `AnalysisConfig`: quell'invariante nasce da un difetto misurato e non si
+    tocca.
+    """
+    cfg = config.PipelineConfig(input=config.InputConfig(path="nuvola.ply"))
+
+    assert cfg.analysis is None
+
+
+def test_una_configurazione_senza_analisi_sopravvive_al_giro_su_disco(tmp_path):
+    cfg = config.PipelineConfig(input=config.InputConfig(path="nuvola.ply"))
+    config.save_config(cfg, tmp_path / "config.yaml")
+
+    assert config.load_config(tmp_path / "config.yaml").analysis is None
+
+
+def test_chiedere_l_analisi_mancante_nomina_il_campo_e_lo_step():
+    """Il rifiuto deve insegnare: quale campo manca e quale step lo pretende."""
+    cfg = config.PipelineConfig(input=config.InputConfig(path="nuvola.ply"))
+
+    with pytest.raises(ValueError, match="analysis.material") as errore:
+        cfg.analisi_dichiarata(11)
+    assert "11" in str(errore.value)
+
+
+def test_chiedere_l_analisi_dichiarata_la_restituisce():
+    """Controprova: la guardia vieta l'assenza, non l'uso."""
+    cfg = config.PipelineConfig(input=config.InputConfig(path="nuvola.ply"), analysis=ANALISI)
+
+    assert cfg.analisi_dichiarata(11) is ANALISI
+
+
+def test_il_materiale_resta_obbligatorio_dentro_l_analisi():
+    with pytest.raises(ValidationError):
+        config.AnalysisConfig()
