@@ -581,9 +581,10 @@ liscio della colonna.
 nasconde è *quanta rotazione della direzione si accetta nel caso peggiore*, e
 la scelta è **2,30°**, cioè `SOGLIA_PAREGGIO_VALORI_SINGOLARI = 0,80`. Sopra quel rapporto
 `coppia_equivalente` avvisa (`SelettoreIsotropoWarning`) nominando il rapporto
-misurato; il deck si scrive lo stesso. I margini che ne restano: il banco dei
-test passa con un fattore 2 (0,400 contro 0,800), il caso studio con un
-fattore 8 (0,0961). La tabella è riprodotta a ogni corsa da
+misurato; il deck si scrive lo stesso. I margini che ne restano, entrambi
+letti contro la soglia e non contro l'isotropo (§ 5.2): il banco dei test
+passa con un fattore 2 (0,800 / 0,400), il caso studio con un fattore 8,3
+(0,800 / 0,0961). La tabella è riprodotta a ogni corsa da
 `docs/fase-6-cantiere/misura-carichi.py`, soglia compresa: se qualcuno la
 sposta senza rimisurare, lo script cade.
 
