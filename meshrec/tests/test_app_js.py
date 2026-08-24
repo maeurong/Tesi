@@ -209,6 +209,10 @@ const document = {
 };
 
 const ETICHETTE = {};
+// Vuoti apposta, come ETICHETTE: chi prova i nomi se li scrive dentro. Una
+// chiave assente non prende una frase inventata, ed e' proprio la regola che
+// intestazioneDelloStep deve rispettare.
+const PROPOSITI = {};
 const rigaErrore = document.getElementById("errore");
 let stepAperto = null;
 // Le due variabili di modulo che le funzioni estratte leggono e scrivono:
@@ -1985,7 +1989,13 @@ def _banco_di_apriDettaglio() -> str:
         "ragioneDelRifiuto", "serverMuto", "superata", "corpoLetto", "valoreScritto",
         "segnalaCampo", "apriBattuta", "scriviParametro", "campoParametro", "apriDettaglio",
         "durataMisurata", "ultimaDurata",
+        # L'intestazione e il gruppo che richiude i predefiniti: il pannello li
+        # costruisce a ogni apertura, quindi il banco li incontra comunque.
+        "intestazioneDelloStep", "reso", "cambiatoDalPredefinito", "gruppoDelBlocco",
     ) + """
+// Vera mentre una corsa gira: i due «Esegui» nascono spenti se lo e'. Falsa
+// qui, che e' lo stato in cui un pannello si apre normalmente.
+let corsaInCorso = false;
 let ultimaBattutaDelCampo = new Map();
 let schemaParametri = null;
 const richieste = [];
@@ -2239,7 +2249,11 @@ risponde = {
   "/api/metrics": async () => ({ ok: true, status: 200, json: async () => METRICHE_BUONE }),
 };
 await apriDettaglio(1);
-const azioni = document.getElementById("dettaglio").figli[0];
+// Per classe e non per posizione: `figli[0]` era il contenitore dei bottoni
+// finche' il pannello si apriva su di loro, e adesso davanti c'e'
+// l'intestazione dello step. Un indice qui lega il controllo all'ORDINE del
+// pannello, che non e' cio' che sta provando.
+const [azioni] = document.getElementById("dettaglio").querySelectorAll(".azioni");
 const [questo, daQui] = azioni.figli;
 
 let risolvi1, risolvi2;
@@ -4659,8 +4673,12 @@ def _banco_di_esito() -> str:
         "descrizioneDellaCorsa",
         "esitoDellaCorsa",
         "mostraEsito",
+        # I due «Esegui» seguono la corsa dallo stesso carico di «Annulla»:
+        # aggiornaDaStato la chiama, quindi il banco la incontra.
+        "spegniLeEsecuzioni",
         "aggiornaDaStato",
     ) + """
+let corsaInCorso = false;
 let eraInCorso = false;
 // `stepAperto` no: lo dichiara gia' _DOM, ed e' proprio la variabile di modulo
 // che il banco deve condividere invece di copiarne una sua.
@@ -4816,4 +4834,240 @@ assert.deepEqual(ricaricate, [1], "la vista e' rimasta indietro");
 aggiornaDaStato({ in_corso: true, step: 1, a_step: 1, steps, da_secondi: 0.1, annullato: false, exit_code: null });
 assert.equal(esito.textContent, "", "l'esito vecchio e' rimasto sopra la corsa nuova");
 assert.ok(!esito.className.includes("esito-fallito"), "la classe del fallimento e' sopravvissuta");
+""")
+
+
+def test_il_pannello_dice_quale_step_si_sta_guardando(tmp_path):
+    """Il pannello si apriva su «Esegui questo step» senza dire quale.
+
+    Il solo canale che lo nominava era il marchio nella colonna a sinistra, a
+    1100 px di distanza su uno schermo largo: per sapere che cosa si stava per
+    eseguire bisognava riattraversare lo schermo. Adesso il titolo sta in testa,
+    prima dei due bottoni, che e' l'ordine in cui la domanda si pone.
+
+    Il numero E il nome, non uno dei due: il numero e' come lo step si chiama
+    negli artefatti sul disco e nei messaggi del server, il nome e' come si
+    chiama nella colonna. Chi legge il pannello ha bisogno di tutti e due per
+    collegare le due lingue.
+
+    Uno step di cui non si conosce la chiave non prende un nome inventato --
+    resta il numero, che e' l'unica cosa che si sa -- e uno senza proposito non
+    prende una frase: e' la stessa regola di nomeDelloStep.
+
+    Mutazione che lo uccide: far cadere `intestazioneDelloStep` sul solo nome
+    (`textContent = nome`), che perde il numero.
+    """
+    _esegui(tmp_path, _DOM + _funzioni("intestazioneDelloStep") + """
+ETICHETTE["09_tetrahedralize"] = "Tetraedri";
+PROPOSITI["09_tetrahedralize"] = "Riempie il volume di tetraedri.";
+ultimoStato = [
+  { numero: 9, chiave: "09_tetrahedralize" },
+  { numero: 12, chiave: "12_ignota" },
+];
+
+const [titolo, proposito] = intestazioneDelloStep(9);
+assert.equal(titolo.tag, "h3");
+assert.equal(titolo.textContent, "Step 9 · Tetraedri");
+assert.equal(proposito.textContent, "Riempie il volume di tetraedri.");
+assert.equal(proposito.className, "aiuto");
+
+// Chiave che nessuna tabella nomina: niente nome inventato, niente frase.
+const soloTitolo = intestazioneDelloStep(12);
+assert.equal(soloTitolo.length, 1, "una chiave sconosciuta ha preso una frase inventata");
+assert.equal(soloTitolo[0].textContent, "Step 12");
+
+// Step che lo stato non conosce affatto.
+assert.deepEqual(intestazioneDelloStep(99).map((n) => n.textContent), ["Step 99"]);
+""")
+
+
+def test_i_parametri_al_predefinito_si_richiudono_e_gli_altri_no(tmp_path):
+    """`segment` rende undici campi e `surface` nove: molto oltre i quattro che
+    si tengono in mente insieme, e senza nessun ordine dentro.
+
+    Il taglio fra cio' che resta aperto e cio' che si richiude non lo decide il
+    gusto: e' cio' che QUESTA corsa ha spostato dal predefinito. Un elenco
+    base/avanzato scritto nel modulo sarebbe una classificazione che nessun dato
+    sostiene, e i nomi dei parametri non ne portano una.
+
+    Un obbligatorio resta in vista anche se il suo valore coincide col
+    predefinito nullo: nella piega finirebbe sotto un titolo che dice «al valore
+    predefinito», e un predefinito non ce l'ha. E' anche il campo che di solito
+    conta di piu' -- `input.path` e' la nuvola su cui gira tutto il resto.
+
+    Il predefinito da solo non basta a riconoscerlo: un campo obbligatorio
+    arriva `default: null`, ma anche un nullabile il cui predefinito e' None.
+    Per questo lo schema manda `obbligatorio`.
+
+    Mutazione che lo uccide: togliere `campo.obbligatorio ||` dalla condizione,
+    cosi' il campo che chiede una risposta finisce nella piega.
+    """
+    _esegui(tmp_path, _DOM + _funzioni(
+        "nuovaRiga", "segnalaCampo", "valoreScritto", "apriBattuta", "scriviParametro",
+        "campoParametro", "reso", "cambiatoDalPredefinito", "gruppoDelBlocco",
+    ) + """
+let ultimaBattutaDelCampo = new Map();
+// `configurazione` la dichiara gia' _DOM: e' la variabile di modulo che il
+// banco deve CONDIVIDERE, non una copia sua.
+configurazione = {
+  segment: { method: "crop", outlier_neighbors: 40, crop_min: null, path: null },
+};
+const campi = {
+  method: { description: "", default: "crop", obbligatorio: false },
+  outlier_neighbors: { description: "", default: 20, obbligatorio: false },
+  crop_min: { description: "", default: null, obbligatorio: false },
+  path: { description: "", default: null, obbligatorio: true },
+};
+
+const gruppo = gruppoDelBlocco("segment", campi, generazione);
+const pieghe = gruppo.figli.filter((n) => n.tag === "details");
+assert.equal(pieghe.length, 1, "la piega non e' stata costruita");
+const [piega] = pieghe;
+
+// In vista: quello spostato (outlier_neighbors) e l'obbligatorio (path).
+const inVista = gruppo.figli.filter((n) => n.className === "campo").length;
+assert.equal(inVista, 2, "in vista non ci sono i due che contano: " + inVista);
+// Richiusi: quelli fermi al predefinito, method e crop_min.
+const richiusi = piega.figli.filter((n) => n.className === "campo").length;
+assert.equal(richiusi, 2, "nella piega non ci sono i due fermi: " + richiusi);
+assert.equal(piega.figli[0].textContent, "2 parametri al valore predefinito");
+assert.ok(!piega.open, "la piega e' nata aperta con dei campi in vista sopra");
+""")
+
+
+def test_con_tutto_al_predefinito_la_piega_nasce_aperta(tmp_path):
+    """Alla prima corsa nessun parametro e' stato spostato.
+
+    Un pannello che mostra solo una riga da cliccare non insegna niente a chi
+    apre lo step per la prima volta: e' il caso in cui la piega serve meno, ed
+    e' esattamente quello in cui la si troverebbe chiusa se la regola guardasse
+    solo il numero dei fermi.
+
+    Mutazione che lo uccide: togliere `if (cambiati.length === 0) piega.open = true`.
+    """
+    _esegui(tmp_path, _DOM + _funzioni(
+        "nuovaRiga", "segnalaCampo", "valoreScritto", "apriBattuta", "scriviParametro",
+        "campoParametro", "reso", "cambiatoDalPredefinito", "gruppoDelBlocco",
+    ) + """
+let ultimaBattutaDelCampo = new Map();
+configurazione = { tet: { min_ratio: 1.8, nobisect: false } };
+const campi = {
+  min_ratio: { description: "", default: 1.8, obbligatorio: false },
+  nobisect: { description: "", default: false, obbligatorio: false },
+};
+
+const gruppo = gruppoDelBlocco("tet", campi, generazione);
+const [piega] = gruppo.figli.filter((n) => n.tag === "details");
+assert.ok(piega.open, "tutto al predefinito e il pannello e' solo una riga da cliccare");
+assert.equal(gruppo.figli.filter((n) => n.className === "campo").length, 0);
+""")
+
+
+def test_una_tupla_e_una_lista_con_gli_stessi_numeri_non_sono_un_cambiamento(tmp_path):
+    """Il predefinito e il valore corrente arrivano da due strade diverse.
+
+    Lo schema li rende con `default=str` per i tipi che JSON non porta (un
+    `Path`, una tupla), la configurazione della corsa arriva dal suo yaml: la
+    stessa cosa puo' presentarsi in due forme. Un `!==` diretto le direbbe
+    diverse e terrebbe in vista un campo che nessuno ha toccato -- cioe' la
+    piega si svuoterebbe da sola e smetterebbe di servire.
+
+    Mutazione che lo uccide: confrontare `valore !== predefinito` invece di
+    passare da `reso`.
+    """
+    _esegui(tmp_path, _DOM + _funzioni("reso", "cambiatoDalPredefinito") + """
+// La stessa terna, in due forme che JSON.stringify riporta alla stessa.
+assert.equal(cambiatoDalPredefinito([1, 2, 3], [1, 2, 3]), false);
+// null e undefined sono la stessa assenza: un campo mai scritto contro un
+// predefinito nullo non e' uno spostamento.
+assert.equal(cambiatoDalPredefinito(undefined, null), false);
+assert.equal(cambiatoDalPredefinito(null, null), false);
+// Il numero e la stringa che lo rende: lo schema manda i Path come stringhe.
+assert.equal(cambiatoDalPredefinito("2", 2), false);
+// E i cambiamenti veri restano cambiamenti.
+assert.equal(cambiatoDalPredefinito(40, 20), true);
+assert.equal(cambiatoDalPredefinito([1, 2, 3], [1, 2, 4]), true);
+assert.equal(cambiatoDalPredefinito("nuvola.ply", null), true);
+""")
+
+
+def test_i_due_esegui_seguono_la_corsa_come_annulla(tmp_path):
+    """Un bottone che risponde «no» non si distingue da uno che non ha fatto
+    niente.
+
+    I due «Esegui» restavano vivi durante una corsa e si affidavano al 400 del
+    worker: un rifiuto che si poteva evitare, ed e' lo stesso difetto per cui
+    «Annulla» era gia' stato legato allo stato. Dallo stesso carico e nel verso
+    opposto -- «Annulla» vive mentre la corsa gira, loro mentre e' ferma.
+
+    E un pannello aperto IN MEZZO a una corsa nasce coi bottoni spenti: il
+    fronte di salita che li spegne e' gia' passato, e quell'apertura non lo
+    saprebbe.
+
+    Mutazione che lo uccide: togliere `bottone.disabled = corsaInCorso` dalla
+    costruzione dei due bottoni.
+    """
+    _esegui(tmp_path, _banco_di_esito() + """
+const finti = ["a", "b"].map(() => {
+  const b = document.createElement("button");
+  b.className = "bottone esecuzione";
+  return b;
+});
+document.getElementById("dettaglio").append(...finti);
+const steps = [{ numero: 1, chiave: "01_load", stato: "valido" }];
+
+aggiornaDaStato({ in_corso: true, step: 1, a_step: 1, steps, da_secondi: 1, annullato: false, exit_code: null });
+assert.ok(finti.every((b) => b.disabled), "i due «Esegui» sono vivi mentre la corsa gira");
+assert.ok(corsaInCorso, "un pannello aperto adesso nascerebbe coi bottoni vivi");
+
+aggiornaDaStato({ in_corso: false, step: 1, a_step: 1, steps, da_secondi: null, annullato: false, exit_code: 0 });
+assert.ok(finti.every((b) => !b.disabled), "i due «Esegui» sono rimasti spenti a corsa ferma");
+assert.ok(!corsaInCorso);
+""")
+
+
+def test_un_pannello_aperto_in_mezzo_a_una_corsa_nasce_coi_bottoni_spenti(tmp_path):
+    """`spegniLeEsecuzioni` spegne cio' che TROVA, e questo pannello non c'era.
+
+    Il fronte di salita passa una volta sola, all'avvio della corsa. Un pannello
+    aperto dopo -- si clicca un altro step mentre gira -- costruisce due bottoni
+    nuovi, che quella passata non ha mai visto: nascevano vivi, e un clic
+    sarebbe finito sul 400 del worker. Un bottone che risponde «no» non si
+    distingue da uno che non ha fatto niente, ed e' esattamente il difetto per
+    cui «Annulla» era gia' stato legato allo stato.
+
+    Si chiede allo stesso stato che lo scorrere degli eventi tiene, invece di
+    dedurlo: `corsaInCorso` e' l'unica cosa che sa se una corsa gira, e questo
+    e' l'unico punto in cui un bottone nasce.
+
+    Mutazione che lo uccide: togliere `bottone.disabled = corsaInCorso` dalla
+    costruzione dei due bottoni.
+    """
+    _esegui(tmp_path, _banco_di_apriDettaglio() + """
+risponde = {
+  "/api/schema": async () => ({ ok: true, status: 200, json: async () => SCHEMA_BUONO }),
+  "/api/config": async () => ({ ok: true, status: 200, json: async () => CONFIG_BUONA }),
+  "/api/metrics": async () => ({ ok: true, status: 200, json: async () => METRICHE_BUONE }),
+};
+
+// A corsa ferma nascono vivi: e' la controprova, senza la quale il controllo
+// passerebbe anche con due bottoni spenti per sempre.
+corsaInCorso = false;
+await apriDettaglio(1);
+const aFermo = document.getElementById("dettaglio").discendenti()
+  .filter((n) => n.className.includes("esecuzione"));
+assert.equal(aFermo.length, 2, "i due «Esegui» non si trovano piu' per classe");
+assert.ok(aFermo.every((b) => !b.disabled), "a corsa ferma i due «Esegui» nascono spenti");
+
+// Aperto mentre una corsa gia' gira: il fronte di salita e' passato prima che
+// questi due bottoni esistessero.
+corsaInCorso = true;
+await apriDettaglio(1);
+const inCorsa = document.getElementById("dettaglio").discendenti()
+  .filter((n) => n.className.includes("esecuzione"));
+assert.equal(inCorsa.length, 2);
+assert.ok(
+  inCorsa.every((b) => b.disabled),
+  "un pannello aperto in mezzo a una corsa nasce coi bottoni vivi: il clic finira' sul 400",
+);
 """)

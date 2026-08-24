@@ -8,6 +8,34 @@ const ETICHETTE = {
   "11_export": "Esportazione", "12_wall": "Prior geometrico", "13_solve": "Analisi strutturale",
 };
 
+// Che cosa fa uno step, in una riga. Il nome da solo e' un'etichetta:
+// «Riduzione» non dice che dirada i punti a passo costante, e chi apre il
+// pannello per la prima volta deve decidere se premere «Esegui» senza sapere
+// che cosa sta per succedere alla propria nuvola.
+//
+// Per CHIAVE e non per numero: la chiave sta in ogni voce di run_state, quindi
+// il proposito non va indovinato dall'ordine -- e uno step aggiunto in mezzo
+// alla catena non fa scivolare tutte le descrizioni di uno.
+//
+// Uno step senza una voce qui non prende una frase inventata: l'intestazione
+// resta il solo titolo. E' la stessa regola di nomeDelloStep, che su una
+// chiave sconosciuta ripiega sul numero invece di fabbricare un nome.
+const PROPOSITI = {
+  "01_load": "Legge la nuvola dal file, la porta in millimetri e ne misura ingombro e spaziatura.",
+  "02_segment": "Tiene i soli punti dell'oggetto: toglie il rumore e ritaglia via il resto della stanza.",
+  "03_downsample": "Dirada i punti a passo costante: meno punti, stessa forma, calcolo più leggero.",
+  "04_normals": "Stima in ogni punto da che parte guarda la superficie: serve alla ricostruzione.",
+  "05_reconstruct": "Costruisce dai punti una superficie fatta di triangoli.",
+  "06_repair": "Chiude i buchi, toglie i pezzi staccati e rigira le facce finché la superficie racchiude un volume.",
+  "07_surface_quality": "Misura la superficie: se è chiusa, quanto sono regolari i triangoli, quanto si scosta dalla nuvola di partenza.",
+  "08_simplify": "Rifà o dirada i triangoli. È opzionale: senza «enabled» la superficie passa avanti com'è.",
+  "09_tetrahedralize": "Riempie il volume di tetraedri: è il maglio su cui si calcola.",
+  "10_volume_quality": "Misura il maglio: elementi rovesciati, volumi, angoli, allungamento.",
+  "11_export": "Scrive il file .inp per Abaqus o CalculiX, con materiale, gravità e set di nodi.",
+  "12_wall": "Cerca nella geometria le regioni che sembrano membrature, e le propone come prior.",
+  "13_solve": "Manda il deck a CalculiX e rilegge spostamenti e tensioni sul maglio.",
+};
+
 async function caricaStato() {
   const risposta = await fetch("/api/run");
   const corpo = await corpoLetto(risposta);
@@ -545,6 +573,23 @@ function mostraEsito(errore, esito) {
   riga.classList.toggle("esito-fallito", errore !== null && errore !== undefined);
 }
 
+// Vera mentre una corsa gira. La sa lo scorrere degli eventi, e serve ai due
+// «Esegui»: un pannello aperto in mezzo a una corsa nasceva con i bottoni vivi,
+// perche' il fronte di salita che li spegne era gia' passato.
+let corsaInCorso = false;
+
+// I due «Esegui» seguono la corsa come «Annulla», e dallo stesso carico.
+// Restare vivi e affidarsi al 400 del worker e' un rifiuto che si poteva
+// evitare, e un bottone che risponde «no» non si distingue da uno che non ha
+// fatto niente -- che e' esattamente il difetto per cui «Annulla» era stato
+// legato allo stato.
+function spegniLeEsecuzioni(inCorso) {
+  corsaInCorso = inCorso;
+  for (const bottone of document.querySelectorAll(".esecuzione")) {
+    bottone.disabled = inCorso;
+  }
+}
+
 const flusso = new EventSource("/api/events");
 
 let eraInCorso = false;
@@ -603,6 +648,9 @@ function aggiornaDaStato(stato) {
   // Spento, la domanda non si pone piu' — ed e' il ritorno che il clic non
   // dava, perche' il bottone si spegne quando la corsa finisce.
   document.getElementById("annulla").disabled = !stato.in_corso;
+  // I due «Esegui» dallo stesso carico, e nel verso opposto: «Annulla» vive
+  // mentre la corsa gira, loro mentre e' ferma.
+  spegniLeEsecuzioni(stato.in_corso);
   // Solo sul fronte di discesa: la colonna degli step si aggiorna da questo
   // stesso flusso, e senza questa riga uno step diventerebbe "valido" a
   // sinistra mentre a destra restano le metriche di prima, o nessuna. Non a
@@ -1661,6 +1709,27 @@ function dichiaraErrore(testo) {
 // di alzare il tetto se lo vedeva tolto, con un 200 e lo schermo muto. Fuori
 // scala si comporta come illeggibile — resta la stringa battuta, e la decide il
 // modello. (Sul residuo che il modello oggi non ferma, vedi il rapporto.)
+// Un valore reso come testo, per CONFRONTARLO e non per mostrarlo. Gemella nel
+// verso opposto di valoreScritto, che legge cio' che l'utente ha battuto.
+//
+// Serve perche' un predefinito e il valore corrente arrivano da due strade
+// diverse -- lo schema e la configurazione della corsa -- e la stessa cosa puo'
+// portare due forme: una tupla contro una lista, un Path contro la stringa in
+// cui il server lo ha reso (`default=str` nel carico di /api/schema). Un `!==`
+// diretto le direbbe diverse e mostrerebbe come «spostato» un campo che nessuno
+// ha toccato.
+//
+// Niente toLocaleString qui: questo testo non si mostra, e una virgola decimale
+// al posto del punto renderebbe diversi due numeri uguali.
+function reso(v) {
+  if (v === null || v === undefined) return "";
+  return ["string", "number", "boolean"].includes(typeof v) ? String(v) : JSON.stringify(v);
+}
+
+function cambiatoDalPredefinito(valore, predefinito) {
+  return reso(valore) !== reso(predefinito);
+}
+
 function valoreScritto(grezzo) {
   const testo = grezzo.trim();
   const numerico = Number(testo);
@@ -2129,6 +2198,78 @@ function fallisciDettaglio(dettaglio, ragione) {
 // ordine: la generazione del clic che ha chiesto questo pannello. Il
 // ricaricamento dallo scorrere degli eventi non ne apre una: prende quella in
 // corso, cosi' un clic dell'utente arrivato nel frattempo lo batte.
+// Il fieldset di un blocco, con i campi rimasti al predefinito richiusi.
+//
+// `segment` rende undici campi e `surface` nove: molto oltre i quattro che si
+// tengono in mente insieme, e senza nessun ordine dentro. Il taglio fra cio'
+// che si apre e cio' che si richiude non lo decide il gusto -- e' cio' che
+// QUESTA corsa ha spostato dal predefinito. Un elenco base/avanzato scritto qui
+// sarebbe una classificazione che nessun dato sostiene, e i nomi dei parametri
+// non ne portano una.
+//
+// `<details>` nativo e non un pannello richiudibile scritto a mano: porta con
+// se' il gesto da tastiera, il ruolo e lo stato annunciato, e non c'e' niente
+// da mantenere.
+function gruppoDelBlocco(blocco, campi, ordine) {
+  const gruppo = document.createElement("fieldset");
+  gruppo.className = "gruppo";
+  gruppo.append(Object.assign(document.createElement("legend"), { textContent: blocco }));
+  const cambiati = [];
+  const fermi = [];
+  for (const [nome, campo] of Object.entries(campi)) {
+    const riga = campoParametro(blocco, nome, campo, ordine);
+    // Un obbligatorio resta in vista con i cambiati: nella piega finirebbe
+    // sotto un titolo che dice «al valore predefinito», e un predefinito non
+    // ce l'ha. E' anche il campo che di solito conta di piu' -- `input.path` e'
+    // la nuvola su cui gira tutto il resto.
+    const spostato = campo.obbligatorio
+      || cambiatoDalPredefinito(configurazione?.[blocco]?.[nome], campo.default);
+    (spostato ? cambiati : fermi).push(riga);
+  }
+  gruppo.append(...cambiati);
+  if (fermi.length > 0) {
+    const piega = document.createElement("details");
+    const titolo = Object.assign(document.createElement("summary"), {
+      textContent: fermi.length === 1
+        ? "1 parametro al valore predefinito"
+        : `${fermi.length} parametri al valore predefinito`,
+    });
+    piega.append(titolo, ...fermi);
+    // Aperta quando non c'e' nient'altro: alla prima corsa nessun parametro e'
+    // stato spostato, e un pannello che mostra solo una riga da cliccare non
+    // insegna niente a chi apre lo step per la prima volta.
+    if (cambiati.length === 0) piega.open = true;
+    gruppo.append(piega);
+  }
+  return gruppo;
+}
+
+// L'intestazione del pannello: quale step si sta guardando, e che cosa fa.
+// Di primo livello come le altre funzioni del modulo, cosi' un banco la esegue
+// senza aprire un pannello intero.
+//
+// Il numero E il nome, non uno dei due: il numero e' come lo step si chiama
+// negli artefatti sul disco (`09_volume.vtu`) e nei messaggi del server, il
+// nome e' come si chiama nella colonna a sinistra. Chi legge il pannello ha
+// bisogno di tutti e due per collegare le due lingue.
+//
+// Uno step di cui non si conosce la chiave non prende un nome inventato: resta
+// il numero, che e' l'unica cosa che si sa. Stessa regola di nomeDelloStep.
+function intestazioneDelloStep(numero) {
+  const voce = ultimoStato.find((v) => v.numero === numero);
+  const nome = voce ? ETICHETTE[voce.chiave] : undefined;
+  const titolo = Object.assign(document.createElement("h3"), {
+    className: "titolo-step",
+    textContent: nome === undefined ? `Step ${numero}` : `Step ${numero} · ${nome}`,
+  });
+  const proposito = voce ? PROPOSITI[voce.chiave] : undefined;
+  if (proposito === undefined) return [titolo];
+  return [titolo, Object.assign(document.createElement("p"), {
+    className: "aiuto",
+    textContent: proposito,
+  })];
+}
+
 async function apriDettaglio(numero, ordine = generazione) {
   const dettaglio = document.getElementById("dettaglio");
   if (schemaParametri === null) {
@@ -2197,6 +2338,13 @@ async function apriDettaglio(numero, ordine = generazione) {
   // vive nel markup e non viene ricreata: si svuota, non si sostituisce.
   dichiaraErrore(null);
 
+  // In TESTA, prima dei due bottoni: il pannello si apriva su «Esegui questo
+  // step» senza dire quale, e il solo canale che lo nominava era il marchio
+  // nella colonna a sinistra, a 1100 px di distanza su uno schermo largo. Chi
+  // guarda la terza colonna deve sapere che cosa sta per eseguire senza
+  // riattraversare lo schermo.
+  dettaglio.append(...intestazioneDelloStep(numero));
+
   const azioni = document.createElement("div");
   azioni.className = "azioni";
   // I due bottoni condividono `ordine` (la generazione del pannello) e la
@@ -2219,7 +2367,16 @@ async function apriDettaglio(numero, ordine = generazione) {
   ].entries()) {
     const bottone = document.createElement("button");
     bottone.type = "button";
-    bottone.className = indice === 0 ? "bottone bottone-primario" : "bottone";
+    // `esecuzione` e' come spegniLeEsecuzioni li trova: il pannello si
+    // ricostruisce a ogni apertura, quindi non esiste un riferimento da
+    // conservare -- solo una classe da interrogare quando serve.
+    bottone.className = indice === 0
+      ? "bottone bottone-primario esecuzione"
+      : "bottone esecuzione";
+    // Un pannello aperto in mezzo a una corsa nasceva coi bottoni vivi: il
+    // fronte di salita che li spegne e' gia' passato, e questa apertura non lo
+    // sa. Si chiede allo stesso stato che lo scorrere degli eventi tiene.
+    bottone.disabled = corsaInCorso;
     bottone.textContent = etichetta;
     bottone.addEventListener("click", async () => {
       dichiaraErrore(null);
@@ -2259,15 +2416,7 @@ async function apriDettaglio(numero, ordine = generazione) {
   }
 
   for (const blocco of voce.blocchi) {
-    const gruppo = document.createElement("fieldset");
-    gruppo.className = "gruppo";
-    const titolo = document.createElement("legend");
-    titolo.textContent = blocco;
-    gruppo.append(titolo);
-    for (const [nome, campo] of Object.entries(voce.campi[blocco])) {
-      gruppo.append(campoParametro(blocco, nome, campo, ordine));
-    }
-    dettaglio.append(gruppo);
+    dettaglio.append(gruppoDelBlocco(blocco, voce.campi[blocco], ordine));
   }
 
   // Presa qui, prima dei due pannelli sotto: pannelloCampo la legge per

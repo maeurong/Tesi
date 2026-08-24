@@ -853,6 +853,15 @@ def create_app(
                             if campo.is_required()
                             else campo.get_default(call_default_factory=True)
                         ),
+                        # Il predefinito da solo non basta a distinguerli: un
+                        # campo obbligatorio arriva `null`, ma anche uno
+                        # nullabile il cui predefinito e' None (`voxel_size`).
+                        # Il pannello richiude i campi rimasti al predefinito e
+                        # tiene in vista gli altri: senza questo bit
+                        # richiuderebbe un obbligatorio non ancora compilato --
+                        # cioe' nasconderebbe l'unico campo che chiede una
+                        # risposta.
+                        "obbligatorio": campo.is_required(),
                     }
                     for nome, campo in annidato.model_fields.items()
                 }

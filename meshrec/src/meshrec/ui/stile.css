@@ -475,6 +475,18 @@ code { font-family: var(--stack-cifre); }
    padding del gruppo, e ogni riquadro aveva 24 px sotto contro i 12 sopra la
    prima riga. Non e' una simmetria da amare in astratto, e' che quel fondo in
    piu' faceva sembrare l'ultimo campo staccato dal gruppo che lo contiene. */
+/* Il titolo del pannello: quale step si sta guardando. Primo di tutto, prima
+   dei due «Esegui», perche' e' la risposta alla domanda che chi apre la terza
+   colonna si pone per prima. Il margine sotto e' zero: la riga del proposito
+   gli sta attaccata e le due sono una cosa sola. */
+.titolo-step { margin: 0 0 var(--passo-1); font-size: var(--tipo-corpo); line-height: var(--interlinea-riga); }
+/* La piega dei parametri rimasti al predefinito. Il riepilogo si legge come una
+   riga di comando e non come un titolo: e' un gesto, non una sezione. */
+.gruppo details > summary { cursor: pointer; font-size: var(--tipo-nota); line-height: var(--interlinea-riga); color: var(--tenue); padding: var(--passo-1) 0; }
+.gruppo details > summary:focus-visible { outline: 2px solid var(--accento); outline-offset: 2px; }
+/* Aperta, i campi rientrano sotto il proprio riepilogo: senza, si allineano ai
+   campi in vista sopra e la piega smette di leggersi come un contenitore. */
+.gruppo details[open] > summary { margin-bottom: var(--passo-2); }
 .gruppo { border: 1px solid var(--bordo); border-radius: var(--raggio); padding: var(--passo-3); margin: 0 0 var(--passo-6); }
 .gruppo .campo:last-child { margin-bottom: 0; }
 .gruppo legend { font-size: var(--tipo-nota); line-height: var(--interlinea-riga); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--tenue); }
@@ -526,6 +538,11 @@ code { font-family: var(--stack-cifre); }
    per questo che la' il valore troppo lungo esce dalla griglia invece di
    stringersi.) */
 .aiuto { display: block; color: var(--tenue); font-size: var(--tipo-nota); line-height: var(--interlinea); max-width: var(--misura); overflow-wrap: anywhere; text-wrap: pretty; }
+/* Il proposito dello step sta attaccato al titolo: sono una cosa sola, e lo
+   spazio sotto separa la coppia dai due «Esegui». DOPO la regola base e non
+   prima, che e' anche l'ordine giusto in cascata: qui si sovrascrivono i soli
+   margini, e scritta sopra sarebbe la base a vincerli. */
+.titolo-step + .aiuto { margin-top: 0; margin-bottom: var(--passo-4); }
 /* Le due colonne erano `auto 1fr`, e in una zona da 22rem non ci stavano.
    Lo step 7 annida due dizionari dentro `geometric_error`, e righeDellaMetrica
    appiattisce il percorso in un'etichetta sola: «geometric_error ·
