@@ -559,7 +559,7 @@ def _rotazione_ai_punti(trasformata: np.ndarray | list[list[float]]) -> np.ndarr
     if not np.isclose(determinante, 1.0, atol=1e-6):
         raise ValueError(
             f"la parte rotatoria della trasformata ha determinante {determinante}, "
-            "non +1: non e' una rotazione, e applicarla al campo lo specchierebbe "
+            "non +1: non è una rotazione, e applicarla al campo lo specchierebbe "
             "o lo scalerebbe in silenzio"
         )
     return rotazione
@@ -634,8 +634,8 @@ def risolvi(
     """
     if not casi_di_carico:
         raise ValueError(
-            "casi_di_carico e' vuoto: nessun caso da risolvere. Un deck senza "
-            "casi e' un errore del chiamante, non uno stato da eseguire a vuoto"
+            "casi_di_carico è vuoto: nessun caso da risolvere. Un deck senza "
+            "casi è un errore del chiamante, non uno stato da eseguire a vuoto"
         )
     rotazione = _rotazione_ai_punti(trasformata)
     out_dir = Path(out_dir)
@@ -656,7 +656,7 @@ def risolvi(
     percorso_log.write_text(uscita, encoding="utf-8")
     if processo.returncode != 0:
         raise RuntimeError(
-            f"ccx e' terminato con codice {processo.returncode} su {deck.name}:\n{uscita[-2000:]}"
+            f"ccx è terminato con codice {processo.returncode} su {deck.name}:\n{uscita[-2000:]}"
         )
 
     percorso_frd = out_dir / "13_solution.frd"

@@ -502,14 +502,14 @@ def check_sweep(
     if failed_fraction > 0.5:
         warnings.warn(
             f"il {failed_fraction:.0%} dei candidati non arriva in fondo: "
-            "e' la griglia a stare nel posto sbagliato, non i candidati",
+            "è la griglia a stare nel posto sbagliato, non i candidati",
             SweepDiagnosticWarning,
             stacklevel=2,
         )
     if no_comparable_candidates:
         warnings.warn(
-            f"nessuno dei {len(rows)} candidati e' confrontabile: nessuna riga "
-            "porta un errore di spessore misurabile, il fronte e' vuoto",
+            f"nessuno dei {len(rows)} candidati è confrontabile: nessuna riga "
+            "porta un errore di spessore misurabile, il fronte è vuoto",
             SweepDiagnosticWarning,
             stacklevel=2,
         )
@@ -636,7 +636,7 @@ def run_experiment(
         # esistente, a maggior ragione se e' runs/muro o runs/lab_crop,
         # dichiarate di sola lettura.
         raise ValueError(
-            f"{root} esiste gia' e contiene metrics.json: e' la cartella di "
+            f"{root} esiste già e contiene metrics.json: è la cartella di "
             "una corsa della pipeline, non una cartella d'esperimento vuota. "
             "Mi rifiuto di scrivere sopra una corsa esistente"
         )
@@ -649,7 +649,7 @@ def run_experiment(
         # raddoppia in silenzio, e verify_registry non se ne accorge perche'
         # le impronte restano le stesse.
         raise ValueError(
-            f"{registry} esiste gia': un secondo sweep dello stesso esperimento "
+            f"{registry} esiste già: un secondo sweep dello stesso esperimento "
             "appenderebbe altre righe allo stesso registro invece di "
             "sostituirlo. Cancella il registro per rifare questo esperimento, "
             "o cambia experiment.name per farne uno nuovo"
@@ -681,7 +681,7 @@ def run_experiment(
                 "la misura di spessore non riproduce il valore noto sulla nuvola "
                 f"sorgente: letto {letto} contro "
                 f"{experiment.known_thickness:.1f} mm noti, bimodale="
-                f"{source_thickness['bimodal']}. L'asse di fedelta non e' "
+                f"{source_thickness['bimodal']}. L'asse di fedelta non è "
                 "utilizzabile e lo sweep non parte"
             )
 

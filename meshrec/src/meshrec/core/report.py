@@ -55,7 +55,7 @@ MAI_ESEGUITO = "mai eseguito"
 FALLITO = "fallito"
 NON_VALIDO = "non valido"
 NON_ESEGUITI = "non ancora eseguiti restano fuori dal conteggio"
-NESSUNO_ESEGUITO = "nessuno step di questa corsa e' stato eseguito"
+NESSUNO_ESEGUITO = "nessuno step di questa corsa è stato eseguito"
 
 # Il quinto caso non e' uno stato di run_state: senza steps.json non c'e'
 # niente da leggere. Scrivere qui uno dei quattro sarebbe affermare una lettura
@@ -77,10 +77,10 @@ STATO_IGNOTO = "stato ignoto"
 # lettura. Cosi' l'elenco degli step non ha altra prosa che questa.
 GLOSSA = {
     VALIDO: "prodotto con i parametri mostrati, e di misure non ne ha lasciate",
-    MAI_ESEGUITO: "lo step non e' mai partito",
-    FALLITO: "lo step e' partito e non e' arrivato in fondo",
+    MAI_ESEGUITO: "lo step non è mai partito",
+    FALLITO: "lo step è partito e non è arrivato in fondo",
     NON_VALIDO: "prodotto con parametri che questo report non mostra",
-    STATO_IGNOTO: "steps.json non si e' letto, e di questo step non si sa niente",
+    STATO_IGNOTO: "steps.json non si è letto, e di questo step non si sa niente",
 }
 
 # Un file che manca e un file che c'e' ma non si legge sono due fatti diversi
@@ -109,7 +109,7 @@ NON_UN_NUMERO = "non un numero"
 INFINITO = "infinito"
 
 ESCLUSE_CORTE = "liste troppo corte per un istogramma"
-PNG_NON_LEGGIBILE = "il file c'e' ma non e' un PNG leggibile, non incorporata."
+PNG_NON_LEGGIBILE = "il file c'è ma non è un PNG leggibile, non incorporata."
 # Contare le viste con exists() e incorporarle con _e_png sono due criteri
 # diversi sullo stesso insieme: due file rotti danno "2 presenti" e zero
 # immagini, e chi conta le figure in appendice non ritrova il conteggio.
@@ -258,9 +258,9 @@ def _mappa(percorso: Path, caricatore, assente: str) -> tuple[dict | None, str]:
         with percorso.open(encoding="utf-8") as maniglia:
             contenuto = caricatore(maniglia)
     except (OSError, ValueError, yaml.YAMLError):
-        return None, f"{percorso.name} {ILLEGGIBILE}: il file c'e' sul disco e non si rilegge."
+        return None, f"{percorso.name} {ILLEGGIBILE}: il file c'è sul disco e non si rilegge."
     if not isinstance(contenuto, dict):
-        return None, f"{percorso.name} {FORMA_INATTESA}: il file c'e' sul disco ma non ha la forma attesa."
+        return None, f"{percorso.name} {FORMA_INATTESA}: il file c'è sul disco ma non ha la forma attesa."
     return contenuto, ""
 
 
@@ -344,7 +344,7 @@ def _stato_degli_step(out_dir: Path) -> tuple[dict[str, str] | None, str]:
     try:
         stato = steps.run_state(out_dir, load_config(out_dir / CONFIG_FILENAME))
     except (OSError, ValueError, yaml.YAMLError):
-        return None, f"{CONFIG_FILENAME} non e' una configurazione valida"
+        return None, f"{CONFIG_FILENAME} non è una configurazione valida"
     return {str(voce["chiave"]): str(voce["stato"]) for voce in stato}, ""
 
 
@@ -595,9 +595,9 @@ CONFRONTABILI: dict[str, bool] = {
 NOTE_STATICHE = (
     "Nessuna armatura in alcun modello: calcestruzzo omogeneo. E' una scelta "
     "dell'autore e non una dimenticanza, e il dato delle barre resta nel disegno. "
-    "Un telaio in cemento armato modellato senza armatura non e' il telaio vero.",
-    "Il set BASE non e' una faccia del pezzo: e' la quota di taglio scelta "
-    "dall'operatore. Quella superficie non esiste nel pezzo vero, e' dove abbiamo "
+    "Un telaio in cemento armato modellato senza armatura non è il telaio vero.",
+    "Il set BASE non è una faccia del pezzo: è la quota di taglio scelta "
+    "dall'operatore. Quella superficie non esiste nel pezzo vero, è dove abbiamo "
     "tagliato.",
 )
 """Le due dichiarazioni che non dipendono da quale modello e' presente.
@@ -667,9 +667,9 @@ def confronta(cartelle: list[Path]) -> dict[str, object]:
             wall = _legge_json(percorso / WALL_FILENAME)
             if wall is None:
                 raise ValueError(
-                    f"{percorso} non e' una corsa valida: ne' modello.json ne' "
-                    f"{WALL_FILENAME} si leggono, e senza uno dei due non e' ne' "
-                    "un modello parametrico ne' la corsa madre"
+                    f"{percorso} non è una corsa valida: né modello.json né "
+                    f"{WALL_FILENAME} si leggono, e senza uno dei due non è né "
+                    "un modello parametrico né la corsa madre"
                 )
             chiave = "as-built"
         else:
@@ -775,7 +775,7 @@ def write_comparison_report(cartelle: list[Path], out_path: Path) -> Path:
     note = "".join(f"<li>{html.escape(nota)}</li>" for nota in confronto["note_non_geometriche"])
     intestazione = "".join(f"<th>{nome}</th>" for nome in MODELLI)
     avviso = (
-        "<p class='avviso'>Un solo modello generato: questa non e' una tabella di "
+        "<p class='avviso'>Un solo modello generato: questa non è una tabella di "
         "confronto ma una <strong>scheda singola</strong>.</p>"
         if confronto["scheda_singola"]
         else ""
@@ -788,20 +788,20 @@ def write_comparison_report(cartelle: list[Path], out_path: Path) -> Path:
 {avviso}
 <h2>Grandezze confrontabili</h2>
 <table><thead><tr><th></th>{intestazione}</tr></thead><tbody>{''.join(righe)}</tbody></table>
-<h2>Qualita' degli elementi: due colonne, mai una differenza</h2>
+<h2>Qualità degli elementi: due colonne, mai una differenza</h2>
 <p>radius_edge_ratio vale per i tetraedri, il Jacobiano scalato per gli esaedri. Non sono
-la stessa grandezza e la loro differenza non e' un numero.</p>
+la stessa grandezza e la loro differenza non è un numero.</p>
 <table><tbody>{qualita_righe}</tbody></table>
 <h2>Vincoli alle giunzioni: il limite che il vincolo aggiunge, non la geometria</h2>
 <p>Giunzioni tagliate e *TIE effettivamente scritti restano due numeri distinti;
 i nodi della superficie dipendente vincolati sul totale dicono quanto il
-solutore chiude davvero. as-built e' monolitico: non applicabile.</p>
+solutore chiude davvero. as-built è monolitico: non applicabile.</p>
 <table><tbody>{vincoli_righe}</tbody></table>
 <h2>Che cosa non deriva dalla geometria</h2>
 <ul>{note}</ul>
 <h2>Che cosa questa fase non dice</h2>
-<p>Nessun solutore e' stato eseguito: rigidezza e spostamenti non sono in questa
-pagina perche' non sono stati calcolati, non perche' siano stati omessi.</p>
+<p>Nessun solutore è stato eseguito: rigidezza e spostamenti non sono in questa
+pagina perché non sono stati calcolati, non perché siano stati omessi.</p>
 </body></html>
 """
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)

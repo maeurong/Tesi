@@ -59,7 +59,7 @@ class Worker:
         """Avvia lo step. Solleva se un altro sta gia' girando: e' un errore
         del chiamante, non un esito dell'elaborazione."""
         if self.is_running():
-            raise RuntimeError("uno step sta gia' girando: annullalo prima di avviarne un altro")
+            raise RuntimeError("uno step sta già girando: annullalo prima di avviarne un altro")
         with self._lucchetto:
             self._righe.clear()
         self.exit_code = None
@@ -90,7 +90,7 @@ class Worker:
         comando, e l'avvio di un interprete costa pochi secondi.
         """
         if self.is_running():
-            raise RuntimeError("uno step sta gia' girando: annullalo prima di avviarne un altro")
+            raise RuntimeError("uno step sta già girando: annullalo prima di avviarne un altro")
         with self._lucchetto:
             self._righe.clear()
         self.exit_code = None

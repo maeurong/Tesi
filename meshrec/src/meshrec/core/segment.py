@@ -52,7 +52,7 @@ def crop_box(points: np.ndarray, cfg: SegmentConfig) -> tuple[np.ndarray, dict[s
     if not inside.any():
         raise ValueError(
             f"nessun punto dentro il box {cfg.crop_min}-{cfg.crop_max}: "
-            "controlla che le coordinate siano nelle unita di lavoro (mm) e nel sistema della nuvola"
+            "controlla che le coordinate siano nelle unità di lavoro (mm) e nel sistema della nuvola"
         )
     return np.ascontiguousarray(points[inside]), {
         "cropped": True,

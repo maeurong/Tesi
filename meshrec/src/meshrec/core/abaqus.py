@@ -236,14 +236,14 @@ def write_inp(
         mancanti = [s for s in (dipendente, indipendente) if s not in superfici]
         if mancanti:
             raise ValueError(
-                f"il vincolo *TIE '{nome}' nomina {mancanti}, che non e' fra le "
-                "superfici dichiarate: un deck cosi' viene rifiutato dal solutore "
+                f"il vincolo *TIE '{nome}' nomina {mancanti}, che non è fra le "
+                "superfici dichiarate: un deck così viene rifiutato dal solutore "
                 "solo alla lettura, e questo errore arriva prima"
             )
     if pressure is not None and pressure[0] not in superfici:
         raise ValueError(
-            f"il carico laterale agisce su '{pressure[0]}', che non e' fra le "
-            "superfici dichiarate: una pressione applicata a nulla non e' un carico"
+            f"il carico laterale agisce su '{pressure[0]}', che non è fra le "
+            "superfici dichiarate: una pressione applicata a nulla non è un carico"
         )
 
     nodes = np.asarray(nodes, dtype=np.float64)
@@ -252,7 +252,7 @@ def write_inp(
     if elements.shape[1] != attesi:
         raise ValueError(
             f"{element_type} vuole {attesi} nodi per elemento, ne sono arrivati "
-            f"{elements.shape[1]}: un deck scritto cosi' non e' leggibile da alcun solutore"
+            f"{elements.shape[1]}: un deck scritto così non è leggibile da alcun solutore"
         )
 
     lines: list[str] = ["*HEADING", "modello generato da meshrec (mm, N, MPa, t, s)", "*NODE"]
@@ -332,8 +332,8 @@ def write_inp(
         sommita = carichi.carico_sommita
         if sommita.nset not in node_sets or len(node_sets[sommita.nset]) == 0:
             raise ValueError(
-                f"il carico in sommita nomina l'insieme '{sommita.nset}', che non e' "
-                f"fra quelli scritti nel deck ({sorted(node_sets)}) o e' vuoto: il "
+                f"il carico in sommita nomina l'insieme '{sommita.nset}', che non è "
+                f"fra quelli scritti nel deck ({sorted(node_sets)}) o è vuoto: il "
                 f"solutore leggerebbe un carico applicato a nulla"
             )
         nodi_carico = np.asarray(node_sets[sommita.nset], dtype=np.int64)
@@ -362,8 +362,8 @@ def write_inp(
         if carico.selettore not in (nset_selettori or {}):
             raise ValueError(
                 f"il carico '{carico.nome}' cita il selettore '{carico.selettore}', "
-                f"che non e' stato risolto: arrivati {sorted(nset_selettori or {})}. "
-                "Il deck non si scrive a meta'"
+                f"che non è stato risolto: arrivati {sorted(nset_selettori or {})}. "
+                "Il deck non si scrive a metà"
             )
         indici = np.asarray(nset_selettori[carico.selettore], dtype=np.int64)
         if carico.forza is None:
@@ -695,7 +695,7 @@ def ripartisci(
             f"il carico '{nome}' agisce su {indici.size} nodi che non formano alcuna "
             "faccia di bordo: nessuna area su cui ripartire la risultante. Un insieme "
             "di nodi tutto interno al solido produce questo, e un carico applicato "
-            "a nulla non e' un carico"
+            "a nulla non è un carico"
         )
     quote = risultante * aree / totale
     resoconto: dict[str, object] = {
@@ -784,7 +784,7 @@ def coppia_equivalente(
         raise ValueError(
             f"il momento '{nome}' con braccio {momento.braccio:g} mm lascia un lato "
             f"senza nodi ({positivi.size} da una parte, {negativi.size} dall'altra): "
-            "una coppia con una sola forza e' una forza"
+            "una coppia con una sola forza è una forza"
         )
 
     # L'area tributaria si ripartisce una volta sola sull'intero selettore
@@ -873,11 +873,11 @@ def coppia_equivalente(
             f"coppia: il rapporto dei valori singolari vale {rapporto_singolari:.3f}, "
             f"oltre {SOGLIA_PAREGGIO_VALORI_SINGOLARI:g}. Il momento attorno "
             "all'asse resta quello dichiarato, ma su quale diametro cade la coppia "
-            "lo decide il rumore numerico, e un rimaglio puo' spostarlo. Allunga il "
-            "selettore per fissare la direzione, oppure accetta: il deck e' valido e "
-            "il momento attorno all'asse e' quello dichiarato. Su una piastra "
+            "lo decide il rumore numerico, e un rimaglio può spostarlo. Allunga il "
+            "selettore per fissare la direzione, oppure accetta: il deck è valido e "
+            "il momento attorno all'asse è quello dichiarato. Su una piastra "
             "davvero quadrata allungare il selettore cambierebbe la fisica "
-            "dichiarata, e accettare e' la scelta giusta",
+            "dichiarata, e accettare è la scelta giusta",
             SelettoreIsotropoWarning,
             stacklevel=2,
         )
@@ -1307,7 +1307,7 @@ def export_model(
     if tipo == "C3D10":
         raise NotImplementedError(
             "elemento C3D10 non supportato dal writer: TetGen produce i nodi di "
-            "lato con order=2, ma il deck scrive i soli vertici. Usa C3D4 finche' "
+            "lato con order=2, ma il deck scrive i soli vertici. Usa C3D4 finché "
             "il writer non gestisce i dieci nodi."
         )
     if tipo not in NODI_PER_ELEMENTO:
@@ -1317,7 +1317,7 @@ def export_model(
     if elements.shape[1] != attesi:
         raise ValueError(
             f"{tipo} vuole {attesi} nodi per elemento, ne sono arrivati "
-            f"{elements.shape[1]}: un deck scritto cosi' non e' leggibile da alcun solutore"
+            f"{elements.shape[1]}: un deck scritto così non è leggibile da alcun solutore"
         )
 
     # Nome distinto dalla funzione pubblica boundary_faces: qui e' una
@@ -1339,8 +1339,8 @@ def export_model(
         raise ValueError(
             f"il set vincolato '{cfg.fixed_nset}' non e fra gli insiemi che il modello "
             f"offre ({sorted(node_sets)}). Il caso non c'entra: `AnalysisConfig.fixed_nset` "
-            "e' un NomeSetDiFaccia e riscrive da se' i sei nomi nel proprio caso "
-            "canonico, quindi cio' che arriva qui e' un nome diverso, non un 'base' "
+            "è un NomeSetDiFaccia e riscrive da sé i sei nomi nel proprio caso "
+            "canonico, quindi ciò che arriva qui è un nome diverso, non un 'base' "
             "scritto minuscolo"
         )
     if len(node_sets[cfg.fixed_nset]) == 0:
@@ -1421,7 +1421,7 @@ def export_model(
         warnings.warn(
             f"l'insieme vincolato '{cfg.fixed_nset}' raggiunge il {coverage:.2%} della "
             f"superficie d'appoggio con una tolleranza di {tolerance:.3f} mm: il modello "
-            "e' vincolato su una chiazza, non sulla base. Alza "
+            "è vincolato su una chiazza, non sulla base. Alza "
             "analysis.set_tolerance_factor o verifica la geometria.",
             UnconstrainedModelWarning,
             stacklevel=2,

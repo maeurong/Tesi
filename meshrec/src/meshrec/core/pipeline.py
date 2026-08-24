@@ -122,7 +122,7 @@ def _ingresso_di_ripresa(
     if not percorso.exists():
         raise ValueError(
             f"lo step {chiede} pretende {ARTIFACTS[da]}, che lo step {da} non ha ancora "
-            f"scritto. Esegui prima lo step {da}, oppure «Esegui da qui in giu'» "
+            f"scritto. Esegui prima lo step {da}, oppure «Esegui da qui in giù» "
             f"dallo step {da}"
         )
     try:
@@ -214,7 +214,7 @@ def genera_modello(cfg: PipelineConfig, tipo: str, out_dir: Path) -> dict[str, o
     if not percorso_prior.exists():
         raise FileNotFoundError(
             f"manca {percorso_prior}: un modello parametrico si costruisce sul "
-            "prior, e il prior e' lo step 12. Esegui `meshrec wall` sulla stessa "
+            "prior, e il prior è lo step 12. Esegui `meshrec wall` sulla stessa "
             "configurazione e riprova"
         )
     with percorso_prior.open(encoding="utf-8") as handle:
@@ -288,10 +288,10 @@ def genera_modello(cfg: PipelineConfig, tipo: str, out_dir: Path) -> dict[str, o
             "vincolati alle giunzioni -- e va letta accanto al confronto"
         ),
         "nota_armatura": (
-            "modello a calcestruzzo omogeneo: l'armatura e' fuori ambito per "
+            "modello a calcestruzzo omogeneo: l'armatura è fuori ambito per "
             "decisione dell'autore, non per dimenticanza, e il dato resta nel "
             "disegno. Un telaio in cemento armato modellato senza armatura non "
-            "e' il telaio vero"
+            "è il telaio vero"
         ),
     }
     io.scrivi_atomico(

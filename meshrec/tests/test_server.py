@@ -2366,7 +2366,7 @@ def test_un_box_vuoto_non_solleva_ma_lo_dice(cliente, tmp_path):
     assert risposta.status_code == 400
     corpo = risposta.json()
     assert "errore" in corpo
-    assert "nelle unita di lavoro (mm)" in corpo["messaggio"]
+    assert "nelle unità di lavoro (mm)" in corpo["messaggio"]
 
 
 # Arita' sbagliata, valore non numerico, NaN e chiave mancante: le forme che

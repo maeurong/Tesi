@@ -839,7 +839,7 @@ def test_il_nome_riservato_e_preso_anche_cambiando_le_maiuscole(variante):
     Mutazione che lo uccide: togliere `.casefold()` dal confronto coi
     riservati. Tutte e quattro le varianti passano la validazione.
     """
-    with pytest.raises(ValidationError, match="gia' preso"):
+    with pytest.raises(ValidationError, match="già preso"):
         _config_con_posizionato(nome=variante)
 
 

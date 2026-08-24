@@ -220,7 +220,7 @@ def _non_booleano(valore: object) -> object:
     numero espresso male, `true` non e' un numero.
     """
     if isinstance(valore, bool):
-        raise ValueError("un booleano non e' una coordinata: attesa una misura in mm")
+        raise ValueError("un booleano non è una coordinata: attesa una misura in mm")
     return valore
 
 
@@ -264,7 +264,7 @@ def _estremi_finiti(box: BoxRitaglio) -> None:
             if not math.isfinite(coordinata):
                 raise ValueError(
                     f"la coordinata {asse} di '{nome}' vale {coordinata} e non un numero finito: "
-                    "il box va dato in coordinate della nuvola, nelle unita di lavoro (mm)"
+                    "il box va dato in coordinate della nuvola, nelle unità di lavoro (mm)"
                 )
 
 
@@ -385,7 +385,7 @@ def _non_e_un_passo_dell_albero(nome: str) -> str:
     """
     if not nome.strip("."):
         raise ValueError(
-            f"'{nome}' non e' un nome di corsa: e' un passo dell'albero delle cartelle"
+            f"'{nome}' non è un nome di corsa: è un passo dell'albero delle cartelle"
         )
     return nome
 
@@ -501,7 +501,7 @@ def create_app(
     def non_in_sola_lettura(azione: str) -> None:
         if sola_lettura():
             raise ValueError(
-                f"'{nome_corrente() or config_path.parent}' e' una corsa di riferimento, "
+                f"'{nome_corrente() or config_path.parent}' è una corsa di riferimento, "
                 f"aperta in sola lettura: {azione} la modificherebbe. Toglile il file "
                 f"{SENTINELLA_SOLA_LETTURA} se vuoi davvero riscriverla, oppure creane una nuova"
             )
@@ -639,7 +639,7 @@ def create_app(
         if not nuvola.exists():
             raise ValueError(f"nessun file di punti in '{nuvola}'")
         if not nuvola.is_file():
-            raise ValueError(f"'{nuvola}' non e' un file: serve una nuvola di punti")
+            raise ValueError(f"'{nuvola}' non è un file: serve una nuvola di punti")
         if not nuvola.suffix:
             raise ValueError(
                 f"'{nuvola.name}' non ha estensione: servono "
@@ -647,13 +647,13 @@ def create_app(
             )
         if nuvola.suffix.lower() not in io.ESTENSIONI_NUVOLA:
             raise ValueError(
-                f"'{nuvola.suffix}' non e' un formato che il programma legge: "
+                f"'{nuvola.suffix}' non è un formato che il programma legge: "
                 f"servono {', '.join(io.ESTENSIONI_NUVOLA)}"
             )
         cartella = radice_corse / richiesta.nome
         if cartella.exists():
             raise ValueError(
-                f"'{richiesta.nome}' esiste gia' in '{radice_corse}': scegli un altro "
+                f"'{richiesta.nome}' esiste già in '{radice_corse}': scegli un altro "
                 "nome. Una corsa non viene mai sovrascritta"
             )
         cfg = PipelineConfig(
@@ -705,8 +705,8 @@ def create_app(
             )
         except subprocess.TimeoutExpired:
             raise ValueError(
-                f"il selettore file e' rimasto aperto piu' di {SECONDI_SELETTORE} secondi "
-                "ed e' stato chiuso: riprova, oppure scrivi il percorso nel campo"
+                f"il selettore file è rimasto aperto più di {SECONDI_SELETTORE} secondi "
+                "ed è stato chiuso: riprova, oppure scrivi il percorso nel campo"
             ) from None
         if esito.returncode != 0:
             # Succede senza tkinter (alcune build di Python ridotte) e senza
@@ -714,7 +714,7 @@ def create_app(
             # due e' un motivo per non lavorare: il campo resta scrivibile, e
             # il messaggio lo dice invece di lasciare il bottone muto.
             raise ValueError(
-                "il selettore file non si e' aperto su questa macchina "
+                "il selettore file non si è aperto su questa macchina "
                 f"({_riga_decisiva(esito.stderr)}): scrivi il percorso nel campo"
             )
         scelto = esito.stdout.strip()
@@ -755,7 +755,7 @@ def create_app(
             return {
                 "calcolato": False,
                 "motivo": (
-                    "il prior geometrico non e' ancora stato calcolato: e' lo "
+                    "il prior geometrico non è ancora stato calcolato: è lo "
                     "step 12, e si ottiene eseguendo la corsa fino in fondo "
                     "oppure con il comando 'Calcola il prior' qui accanto"
                 ),
@@ -781,7 +781,7 @@ def create_app(
         if tipo not in ("estruso", "primitive"):
             raise ValueError(
                 f"modello '{tipo}' sconosciuto: i modelli parametrici sono "
-                "'estruso' e 'primitive'. as-built e' la corsa madre e non si genera"
+                "'estruso' e 'primitive'. as-built è la corsa madre e non si genera"
             )
         madre = Path(corrente().run.out_dir)
         non_in_sola_lettura(f"generare il modello {tipo}")
@@ -933,7 +933,7 @@ def create_app(
         # non deve far partire un processo esterno da solo, per lo stesso
         # motivo per cui sweep.run_candidate chiede --to-step 12 esplicito.
         corrente()
-        non_in_sola_lettura(f"eseguire dallo step {numero} in giu'")
+        non_in_sola_lettura(f"eseguire dallo step {numero} in giù")
         lavoratore.start(config_path, numero, 12)
         return {"avviato": numero, "fino_a": 12}
 
@@ -981,7 +981,7 @@ def create_app(
         if not sorgente.exists():
             raise FileNotFoundError(
                 f"lo step 1 non ha ancora prodotto {pipeline.ARTIFACTS[1]}: "
-                "il ritaglio si misura sulla nuvola letta, che e' l'ingresso dello step 2"
+                "il ritaglio si misura sulla nuvola letta, che è l'ingresso dello step 2"
             )
         puliti = _ingresso_del_ritaglio(
             sorgente,
@@ -1136,7 +1136,7 @@ def create_app(
         )
         if scelto is None or voti_rumore > voti_vincitore:
             raise ValueError(
-                "il punto cliccato ricade per lo piu' nel rumore: "
+                "il punto cliccato ricade per lo più nel rumore: "
                 "DBSCAN non assegna il gruppo a nessun cluster"
             )
 
@@ -1165,7 +1165,7 @@ def create_app(
         percorso = Path(cfg.run.out_dir) / pipeline.WALL_FILENAME
         if not percorso.exists():
             raise FileNotFoundError(
-                "il prior geometrico non e' ancora stato calcolato: e' lo step 12"
+                "il prior geometrico non è ancora stato calcolato: è lo step 12"
             )
         # Gli indici di 12_wall.json valgono per la nuvola di ARTIFACTS[2] con
         # cui il prior e' stato calcolato: se lo step 2 e' stato rifatto (un
@@ -1176,7 +1176,7 @@ def create_app(
         stato_prior = next(v for v in steps.run_state(cfg.run.out_dir, cfg) if v["chiave"] == "12_wall")
         if stato_prior["stato"] == "non valido":
             raise ValueError(
-                "il prior geometrico (step 12) e' piu' vecchio della "
+                "il prior geometrico (step 12) è più vecchio della "
                 "configurazione corrente: rilancia `meshrec wall` prima di "
                 "vedere la mappa delle membrature"
             )
@@ -1229,7 +1229,7 @@ def create_app(
         percorso = Path(cfg.run.out_dir) / pipeline.WALL_FILENAME
         if not percorso.exists():
             raise FileNotFoundError(
-                "il prior geometrico non e' ancora stato calcolato: e' lo step 12"
+                "il prior geometrico non è ancora stato calcolato: è lo step 12"
             )
         with percorso.open(encoding="utf-8") as handle:
             prior = json.load(handle)
@@ -1270,7 +1270,7 @@ def create_app(
         # vuoto invece di dire che quell'artefatto e' una nuvola.
         if len(vertici) == 0 or len(facce) == 0:
             raise ValueError(
-                f"{percorso.name} non e' una mesh disegnabile: "
+                f"{percorso.name} non è una mesh disegnabile: "
                 f"{len(vertici)} vertici e {len(facce)} triangoli"
             )
         corpo = viewport.to_float32(vertici) + np.ascontiguousarray(facce, dtype="<u4").tobytes()
@@ -1322,8 +1322,8 @@ def create_app(
         if chiave not in griglia.point_data:
             if caso in griglia.point_data:
                 raise ValueError(
-                    f"'{caso}' e' un modo, non un caso di carico: la sua forma e' "
-                    "normalizzata sulla massa e non ha ne' millimetri ne' MPa"
+                    f"'{caso}' è un modo, non un caso di carico: la sua forma è "
+                    "normalizzata sulla massa e non ha né millimetri né MPa"
                 )
             raise ValueError(
                 f"nessun campo '{chiave}' in {percorso.name}: i campi disponibili "

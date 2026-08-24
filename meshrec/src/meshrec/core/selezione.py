@@ -93,19 +93,19 @@ def risolvi(
         limite = SPIGOLI_DI_TOLLERANZA * spigolo
         if distanze[vincitore] > limite:
             raise ValueError(
-                f"il selettore '{nome}' chiede il nodo piu' vicino a "
-                f"{tuple(selettore.punto)}, e il piu' vicino sta a "
+                f"il selettore '{nome}' chiede il nodo più vicino a "
+                f"{tuple(selettore.punto)}, e il più vicino sta a "
                 f"{distanze[vincitore]:.1f} mm, oltre i {limite:.1f} mm di "
                 f"{SPIGOLI_DI_TOLLERANZA} spigoli medi ({spigolo:.2f} mm). "
                 "Un argmin un vincitore ce l'ha sempre, anche a chilometri: "
-                "questo non e' un indirizzo, e' un punto scritto male"
+                "questo non è un indirizzo, è un punto scritto male"
             )
         presi = np.array([vincitore], dtype=np.int64)
     elif isinstance(selettore, SelettoreNset):
         if selettore.nome not in node_sets:
             raise ValueError(
                 f"il selettore '{nome}' cita l'insieme '{selettore.nome}', che non "
-                f"e' fra quelli del deck: {sorted(node_sets)}"
+                f"è fra quelli del deck: {sorted(node_sets)}"
             )
         presi = np.asarray(node_sets[selettore.nome], dtype=np.int64)
     else:  # pragma: no cover - l'unione discriminata non lascia altri casi
@@ -118,13 +118,13 @@ def risolvi(
             f"il selettore '{nome}' risolve zero nodi. Estensione della mesh: "
             f"min {punti.min(axis=0).round(1).tolist()}, "
             f"max {punti.max(axis=0).round(1).tolist()}. "
-            "Un carico applicato a nulla non e' un carico"
+            "Un carico applicato a nulla non è un carico"
         )
     if presi.size == punti.shape[0]:
         raise ValueError(
             f"il selettore '{nome}' prende tutti i {presi.size} nodi della mesh. "
-            "Una risultante spalmata sull'intero solido non e' un carico "
-            "posizionato, e' un peso proprio storto"
+            "Una risultante spalmata sull'intero solido non è un carico "
+            "posizionato, è un peso proprio storto"
         )
     return presi
 

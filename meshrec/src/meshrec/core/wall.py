@@ -617,7 +617,7 @@ def controlla(membratura: Membratura, cfg: WallConfig) -> dict[str, dict]:
             "unita": "frazione",
             "spiegazione": (
                 "frazione delle celle della faccia viste dallo scanner: una "
-                "faccia vista da pochi punti produce un piano finto, come gia' "
+                "faccia vista da pochi punti produce un piano finto, come già "
                 "misurato su FACE_FRONT e FACE_BACK"
             ),
         },
@@ -628,7 +628,7 @@ def controlla(membratura: Membratura, cfg: WallConfig) -> dict[str, dict]:
             "unita": "frazione",
             "spiegazione": (
                 "dispersione relativa della sezione lungo l'asse: oltre la "
-                "soglia la regione non e' un prisma"
+                "soglia la regione non è un prisma"
             ),
         },
     }
@@ -666,17 +666,17 @@ def riempimento(membratura: Membratura, cfg: WallConfig) -> dict[str, object]:
         "spiegazione": (
             "frazione mediana, sulle fette lungo l'asse, delle celle del "
             "proprio ingombro locale non raggiungibili dall'esterno (bordo "
-            "piu' interno racchiuso). Sotto la soglia lo stato e' «vuoto» e la "
-            "regione non e' un prisma; sopra e' «pieno». Lo stato "
+            "più interno racchiuso). Sotto la soglia lo stato è «vuoto» e la "
+            "regione non è un prisma; sopra è «pieno». Lo stato "
             "«non_verificabile» dice che la misura non vale, non che il pezzo "
-            "e' cavo: nessuna fetta con punti a sufficienza, oppure una "
-            "densita' troppo poco uniforme (dispersione delle distanze al "
-            "vicino piu' prossimo oltre il limite) perche' una griglia "
+            "è cavo: nessuna fetta con punti a sufficienza, oppure una "
+            "densità troppo poco uniforme (dispersione delle distanze al "
+            "vicino più prossimo oltre il limite) perché una griglia "
             "costruita sulla loro media risolva la parte rada -- il caso di un "
             "pezzo scansionato da un lato solo. Nessuno dei tre stati scarta "
             "la regione: il riempimento misura e dichiara, e il rifiuto spetta "
             "a chi costruisce i modelli. Confine dichiarato: una membratura "
-            "legittimamente cava (un tubo) risulta «vuoto», ed e' corretto in "
+            "legittimamente cava (un tubo) risulta «vuoto», ed è corretto in "
             "questo prior, che costruisce prismi pieni"
         ),
     }
@@ -799,8 +799,8 @@ def prior(
             "soglia": float(cfg.union_tolerance),
             "spiegazione": (
                 "somma dei volumi delle membrature contro volume della loro "
-                "unione: se differiscono, alle giunzioni il volume e' contato "
-                "due volte, ed e' un errore che nessuna metrica di qualita' "
+                "unione: se differiscono, alle giunzioni il volume è contato "
+                "due volte, ed è un errore che nessuna metrica di qualità "
                 "della mesh vedrebbe"
             ),
         },
@@ -816,8 +816,8 @@ def prior(
             "scarto_volume": scarto_volume,
             "nota": (
                 "i riscontri sono dichiarati dall'operatore e assenti per "
-                "definizione su un pezzo mai visto: dove c'e' null, non c'e' "
-                "un'aspettativa, non c'e' un valore mancante"
+                "definizione su un pezzo mai visto: dove c'è null, non c'è "
+                "un'aspettativa, non c'è un valore mancante"
             ),
         },
     }
