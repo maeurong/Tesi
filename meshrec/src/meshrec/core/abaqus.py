@@ -9,13 +9,103 @@ from pathlib import Path
 
 import numpy as np
 
-from meshrec.core.config import GRAVITY_MM_S2, AnalysisConfig, CarichiConfig, Material, TetConfig
+from meshrec.core import selezione
+from meshrec.core.config import (
+    GRAVITY_MM_S2,
+    AnalysisConfig,
+    CarichiConfig,
+    Material,
+    Momento,
+    Selettore,
+    TetConfig,
+)
 
 _SET_ITEMS_PER_LINE = 8
+
+# Rapporto massimo ammesso fra la componente del momento effettivo che cade
+# fuori dall'asse dichiarato e il modulo dichiarato. Adimensionale: una
+# coppia di forze realizza esattamente il momento voluto solo se i due
+# gruppi stanno alla stessa quota lungo l'asse (vedi `coppia_equivalente`);
+# su un selettore volumetrico con estensione lungo l'asse non e' cosi', e il
+# deck scriverebbe in silenzio un momento anche perpendicolare a quello
+# chiesto.
+#
+# La soglia e' la media geometrica fra il peggiore dei casi as-built
+# legittimi misurati (un `TOP` reale non e' un piano, e' una banda di nodi
+# entro la tolleranza dei set, e porta gia' da se' un rapporto fuori-asse
+# non nullo) e il caso volumetrico degenere (un selettore che sconfina
+# lungo l'asse). I due margini che ne risultano non sono equivalenti: sotto
+# soglia il deck scrive un momento storto **in silenzio** -- il guasto che
+# questo controllo esiste per chiudere -- sopra soglia si rifiuta un caso
+# legittimo, ma con un messaggio che l'operatore vede subito. E' il margine
+# sopra quello da difendere, non quello sotto: la media geometrica lo rende
+# esplicito invece di sceglierlo a occhio. I numeri delle due misure e i
+# margini risultanti sono in `docs/fase-6-carichi.md`, non qui -- un numero
+# di laboratorio dentro `src/` legherebbe questa soglia a una geometria sola.
+TOLLERANZA_MOMENTO_FUORI_ASSE: float = 5e-2
+
+# Una componente di direzione che vale meno di questa frazione della piu'
+# grande dello stesso vettore non scrive la sua riga *CLOAD. Il confronto
+# con lo zero esatto bastava alla forza, che prende le componenti dalla
+# configurazione, e non al momento: `np.cross(asse, separazione)` scrive
+# 1e-16 dove la geometria vuole zero, e meta' delle righe di una coppia
+# erano quel rumore. La soglia sta quattro ordini di grandezza sopra
+# l'arrotondamento del prodotto vettoriale (~1e-16 relativo) e otto sotto
+# qualunque componente che sposti un risultato: risultante e momento
+# realizzati non cambiano in modo misurabile.
+SOGLIA_COMPONENTE_RELATIVA: float = 1e-12
+
+# Sopra questo rapporto fra i due valori singolari nel piano della coppia, il
+# selettore e' troppo vicino all'isotropo perche' la geometria determini su
+# quale diametro la coppia cade. Il momento attorno all'asse resta quello
+# dichiarato per costruzione: arbitraria e' la direzione, che puo' cambiare
+# in silenzio fra un rimaglio e l'altro. La curva non offre un ginocchio da
+# leggere come soglia -- la sensibilita' cresce come r/(1 - r^2), liscia --
+# quindi questo numero dichiara quanta rotazione si accetta: 2,30 gradi nel
+# caso peggiore su una piastra sintetica cui si toglie un nodo, provate tutte
+# le rimozioni. Tabella misurata e margini delle due geometrie reali in
+# `docs/fase-6-carichi.md`, sezione 5.5.
+SOGLIA_PAREGGIO_VALORI_SINGOLARI: float = 8e-1
 
 
 class UnconstrainedModelWarning(UserWarning):
     """L'insieme vincolato raggiunge meno della meta' della superficie d'appoggio."""
+
+
+class CaricoSulVincoloWarning(UserWarning):
+    """Un carico posizionato include, in parte, nodi dell'insieme vincolato."""
+
+
+class SelettoreIsotropoWarning(UserWarning):
+    """Il selettore di un momento non determina la direzione della coppia."""
+
+
+def _gradi_da_scrivere(direzione: np.ndarray) -> list[tuple[int, float]]:
+    """I gradi di liberta con una componente che conta, e la componente stessa.
+
+    Il filtro vive sulla **direzione**, non sul valore che finisce nel deck.
+    La direzione e' un versore, la stessa per tutti i nodi del carico: qui si
+    decide *quali gradi di liberta* ricevono una riga, non *quali nodi*. Una
+    componente a 1e-16 e' rumore di `np.cross(asse, separazione)`, dove la
+    geometria vuole zero, e meta' delle righe di una coppia erano quel
+    rumore; il confronto e' relativo alla componente piu' grande dello stesso
+    vettore (vedi `SOGLIA_COMPONENTE_RELATIVA`) perche' su uno dei due
+    percorsi che la chiamano lo zero non arriva mai esatto.
+
+    **Un nodo a quota nulla scrive comunque la sua riga, a zero.** Il valore
+    scritto e' `quota * componente`, e la quota non passa di qui: un nodo ad
+    area tributaria nulla porta nel deck una riga a `-0.000000000e+00`.
+    Non e' una svista da correggere filtrando a valle. `docs/fase-6-carichi.md`
+    § 4 pubblica per `CARICO_TOP` una tabella con 3.036 righe `*CLOAD`, di cui
+    703 a zero, e spiega li' che cosa sono quei 703 nodi: togliere le righe
+    mute porterebbe il conteggio a 2.333 e smentirebbe una tabella gia'
+    pubblicata. Il comportamento e' fissato da un test apposta.
+
+    Una direzione con tutte le componenti nulle rende una lista vuota: la
+    soglia vale zero e nessun `abs(c) > 0.0` passa. Non solleva e non divide.
+    """
+    soglia = SOGLIA_COMPONENTE_RELATIVA * float(np.abs(direzione).max())
+    return [(g, c) for g, c in enumerate(direzione, start=1) if abs(c) > soglia]
 
 
 def _set_lines(indices: np.ndarray) -> list[str]:
@@ -43,7 +133,7 @@ def _passo_statico(
     conservazione, e sta nel deck perche' e' li' che il solutore lo puo'
     dare.
     """
-    righe = [f"** NOME PASSO: {nome}", "*STEP", "*STATIC", "*DLOAD"]
+    righe = [f"** NOME PASSO: {nome}", "*STEP", "*STATIC", "*DLOAD, OP=NEW"]
     righe += carichi
     if pressure is not None:
         righe += ["*DSLOAD", f"{pressure[0]}, P, {pressure[1]}"]
@@ -71,7 +161,8 @@ def write_inp(
     ties: tuple[tuple[str, str, str] | tuple[str, str, str, float], ...] = (),
     pressure: tuple[str, float] | None = None,
     carichi: CarichiConfig | None = None,
-) -> None:
+    nset_selettori: dict[str, np.ndarray] | None = None,
+) -> dict[str, object]:
     """Scrive un modello pronto all'analisi statica sotto peso proprio.
 
     `element_type` e' il nome che il solutore legge, e il numero di nodi per
@@ -114,6 +205,20 @@ def write_inp(
     diverso dal primo descriverebbe una struttura che non pesa). Una spinta
     del terreno dichiarata in Fase 4 non smette di agire perche' il passo
     successivo aggiunge anche un carico in sommita'.
+
+    `nset_selettori` e' la quinta aggiunta, di questa fase: ogni voce di
+    `carichi.posizionati` cita un selettore per nome, ed e' la mappa da quel
+    nome agli indici gia' risolti -- il deck scrive un `*NSET` per selettore
+    (non per carico: due carichi sullo stesso selettore citano lo stesso
+    nome) e un passo statico per carico, col peso proprio ripetuto per la
+    stessa ragione degli altri passi.
+
+    Il resoconto (forza effettiva, nodi, e per CARICO_TOP anche
+    `nodi_ad_area_nulla`) e' il valore di ritorno di questa funzione, chiave
+    per nome di passo: un dizionario riempito e reso, non un parametro
+    d'uscita silenzioso in cui un ramo puo' dimenticare di scrivere senza che
+    nulla se ne accorga (era esattamente cosi' che CARICO_TOP restava fuori
+    da `metrics.json`).
     """
     if fixed_nset not in node_sets:
         raise ValueError(f"il set vincolato '{fixed_nset}' non e fra i node_sets forniti")
@@ -131,14 +236,14 @@ def write_inp(
         mancanti = [s for s in (dipendente, indipendente) if s not in superfici]
         if mancanti:
             raise ValueError(
-                f"il vincolo *TIE '{nome}' nomina {mancanti}, che non e' fra le "
-                "superfici dichiarate: un deck cosi' viene rifiutato dal solutore "
+                f"il vincolo *TIE '{nome}' nomina {mancanti}, che non è fra le "
+                "superfici dichiarate: un deck così viene rifiutato dal solutore "
                 "solo alla lettura, e questo errore arriva prima"
             )
     if pressure is not None and pressure[0] not in superfici:
         raise ValueError(
-            f"il carico laterale agisce su '{pressure[0]}', che non e' fra le "
-            "superfici dichiarate: una pressione applicata a nulla non e' un carico"
+            f"il carico laterale agisce su '{pressure[0]}', che non è fra le "
+            "superfici dichiarate: una pressione applicata a nulla non è un carico"
         )
 
     nodes = np.asarray(nodes, dtype=np.float64)
@@ -147,7 +252,7 @@ def write_inp(
     if elements.shape[1] != attesi:
         raise ValueError(
             f"{element_type} vuole {attesi} nodi per elemento, ne sono arrivati "
-            f"{elements.shape[1]}: un deck scritto cosi' non e' leggibile da alcun solutore"
+            f"{elements.shape[1]}: un deck scritto così non è leggibile da alcun solutore"
         )
 
     lines: list[str] = ["*HEADING", "modello generato da meshrec (mm, N, MPa, t, s)", "*NODE"]
@@ -165,6 +270,14 @@ def write_inp(
     for name, indices in node_sets.items():
         lines.append(f"*NSET, NSET={name}")
         lines += _set_lines(indices)
+
+    # Un *NSET per selettore (non per carico): due carichi sullo stesso
+    # selettore citano lo stesso nome, ed e' tutto il senso della forma
+    # nominata. Ogni selettore compare qui una volta sola perche' e' una
+    # chiave di dizionario, non una voce per carico che lo cita.
+    for name, indices in (nset_selettori or {}).items():
+        lines.append(f"*NSET, NSET={name}")
+        lines += _set_lines(np.asarray(indices, dtype=np.int64))
 
     for nome, coppie in superfici.items():
         lines.append(f"*SURFACE, TYPE=ELEMENT, NAME={nome}")
@@ -208,18 +321,74 @@ def write_inp(
         spinta = f"{elset}, GRAV, {gravity * carichi.spinta.coefficiente}, {versore}"
         lines += passo_statico("SPINTA_ORIZZONTALE", [peso, spinta])
 
+    # Il resoconto di ogni carico che passa da `ripartisci`/`coppia_equivalente`,
+    # CARICO_TOP compreso: costruito qui e reso al chiamante (vedi il `return`
+    # in fondo), non riempito in loco in un parametro d'uscita. Il ramo che
+    # dimenticava di aggiungere CARICO_TOP non faceva rumore proprio perche'
+    # nulla obbligava a farlo confluire da qualche parte.
+    resoconto: dict[str, object] = {}
+
     if carichi is not None and carichi.carico_sommita is not None:
         sommita = carichi.carico_sommita
         if sommita.nset not in node_sets or len(node_sets[sommita.nset]) == 0:
             raise ValueError(
-                f"il carico in sommita nomina l'insieme '{sommita.nset}', che non e' "
-                f"fra quelli scritti nel deck ({sorted(node_sets)}) o e' vuoto: il "
+                f"il carico in sommita nomina l'insieme '{sommita.nset}', che non è "
+                f"fra quelli scritti nel deck ({sorted(node_sets)}) o è vuoto: il "
                 f"solutore leggerebbe un carico applicato a nulla"
             )
-        nodi_carico = node_sets[sommita.nset]
-        per_nodo = sommita.risultante / len(nodi_carico)
-        righe_cload = ["*CLOAD"] + [f"{int(n) + 1}, 3, {-per_nodo:.9e}" for n in nodi_carico]
+        nodi_carico = np.asarray(node_sets[sommita.nset], dtype=np.int64)
+        # Pesata per area tributaria dalla Fase 6, uniforme per nodo fino alla
+        # Fase 5: e' lo stesso carico dei posizionati e non puo' ripartire in
+        # un altro modo. I numeri di CARICO_TOP pubblicati in
+        # docs/fase-5-analisi.md sono cambiati per questo, ed e' scritto li'.
+        quote, resoconto_top = ripartisci(
+            sommita.risultante, nodes, elements, nodi_carico, element_type, nome="CARICO_TOP",
+        )
+        # OP=NEW: senza, ccx tiene attivo il *CLOAD del passo statico
+        # precedente (misurato in docs/fase-6-cantiere/sonda-cload-persiste/),
+        # e un carico in sommita' seguito da un posizionato applicherebbe
+        # entrambi nel secondo passo invece del solo suo.
+        righe_cload = ["*CLOAD, OP=NEW"] + [
+            f"{int(n) + 1}, 3, {-quota:.9e}"
+            for n, quota in zip(nodi_carico, quote, strict=True)
+        ]
         lines += passo_statico("CARICO_TOP", [peso] + righe_cload)
+        resoconto["CARICO_TOP"] = resoconto_top
+
+    # Un passo statico per carico posizionato, col peso proprio ripetuto per
+    # la stessa ragione degli altri passi: senza di esso il passo
+    # descriverebbe una struttura che non pesa.
+    for carico in () if carichi is None else carichi.posizionati:
+        if carico.selettore not in (nset_selettori or {}):
+            raise ValueError(
+                f"il carico '{carico.nome}' cita il selettore '{carico.selettore}', "
+                f"che non è stato risolto: arrivati {sorted(nset_selettori or {})}. "
+                "Il deck non si scrive a metà"
+            )
+        indici = np.asarray(nset_selettori[carico.selettore], dtype=np.int64)
+        if carico.forza is None:
+            righe_cload, resoconto_carico = coppia_equivalente(
+                carico.momento, nodes, elements, indici, element_type, nome=carico.nome
+            )
+            lines += passo_statico(carico.nome, [peso] + righe_cload)
+            resoconto[carico.nome] = resoconto_carico
+            continue
+        modulo = float(np.linalg.norm(carico.forza))
+        quote, resoconto_carico = ripartisci(
+            modulo, nodes, elements, indici, element_type, nome=carico.nome
+        )
+        versore = np.asarray(carico.forza, dtype=np.float64) / modulo
+        gradi = _gradi_da_scrivere(versore)
+        righe_cload = ["*CLOAD, OP=NEW"]
+        for nodo, quota in zip(indici, quote, strict=True):
+            righe_cload += [
+                f"{int(nodo) + 1}, {grado}, {quota * componente:.9e}"
+                for grado, componente in gradi
+            ]
+        lines += passo_statico(carico.nome, [peso] + righe_cload)
+        resoconto_carico["forza_dichiarata"] = list(carico.forza)
+        resoconto_carico["forza_effettiva"] = np.outer(quote, versore).sum(axis=0).tolist()
+        resoconto[carico.nome] = resoconto_carico
 
     if carichi is not None and carichi.modale is not None:
         # Nessun `*EL FILE`: le forme sono normalizzate sulla massa e una
@@ -232,6 +401,7 @@ def write_inp(
     lines.append("")
 
     Path(path).write_text("\n".join(lines), encoding="ascii")
+    return resoconto
 
 
 def fix_sign(direction: np.ndarray) -> np.ndarray:
@@ -443,26 +613,290 @@ def surface_area(
     superficie: list[tuple[int, int]],
     element_type: str,
 ) -> float:
-    """Area della superficie di elemento, sommata faccia per faccia.
+    """Area della superficie di elemento, somma delle aree tributarie dei suoi nodi.
 
     E' il controllo che smentisce la superficie esportata: se l'area calcolata
     qui non coincide con quella delle facce che il deck dichiara, la tabella
-    delle etichette nomina facce diverse da quelle volute. Una faccia di piu'
-    di tre nodi e' divisa a ventaglio dal primo, che e' esatto per una faccia
-    piana e sottostima di poco una faccia svergolata.
+    delle etichette nomina facce diverse da quelle volute.
+
+    Delega ad `aree_tributarie` invece di ripetere lo stesso ciclo sulle
+    facce: le due erano gemelle a mano, stesso ciclo e stesse tabelle
+    duplicati, e la somma di un array per nodo e' per costruzione lo stesso
+    numero della somma diretta per faccia -- a meno dell'ordine in cui i
+    numeri in virgola mobile si sommano, che qui e' per nodo invece che per
+    faccia.
+    """
+    return float(aree_tributarie(nodes, elements, superficie, element_type).sum())
+
+
+def aree_tributarie(
+    nodes: np.ndarray,
+    elements: np.ndarray,
+    superficie: list[tuple[int, int]],
+    element_type: str,
+) -> np.ndarray:
+    """L'area della superficie ripartita sui suoi nodi, un terzo per triangolo.
+
+    `surface_area` e' `.sum()` di questo array: stesso ciclo, stesse tabelle,
+    stesso ventaglio dal primo nodo per una faccia di piu' di tre nodi, una
+    sola volta invece che duplicati in due funzioni gemelle a mano.
+
+    Serve alla ripartizione di una risultante: uniforme per nodo il carico
+    si concentra dove i nodi sono piu' fitti, che e' una proprieta' del
+    maglio e non della struttura.
+
+    Un nodo che non appartiene ad alcuna faccia della superficie resta a
+    zero. Non e' un errore qui: e' un fatto che il chiamante deve poter
+    riportare.
     """
     punti = np.asarray(nodes, dtype=np.float64)
     elementi = np.asarray(elements, dtype=np.int64)
     angoli = _ANGOLI_PER_COLONNE[NODI_PER_ELEMENTO[element_type]]
 
-    totale = 0.0
+    aree = np.zeros(punti.shape[0], dtype=np.float64)
     for elemento, numero in superficie:
         nodi = [elementi[elemento][indice] for indice in FACCE_DEL_SOLUTORE[angoli][numero - 1]]
         for primo, secondo in zip(nodi[1:-1], nodi[2:], strict=True):
             lato_a = punti[primo] - punti[nodi[0]]
             lato_b = punti[secondo] - punti[nodi[0]]
-            totale += float(np.linalg.norm(np.cross(lato_a, lato_b)) / 2.0)
-    return totale
+            area = float(np.linalg.norm(np.cross(lato_a, lato_b)) / 2.0)
+            for nodo in (nodi[0], primo, secondo):
+                aree[nodo] += area / 3.0
+    return aree
+
+
+def ripartisci(
+    risultante: float,
+    nodes: np.ndarray,
+    elements: np.ndarray,
+    indici: np.ndarray,
+    element_type: str,
+    *,
+    nome: str,
+) -> tuple[np.ndarray, dict[str, object]]:
+    """La risultante divisa fra i nodi dell'insieme, in proporzione all'area tributaria.
+
+    La superficie su cui si pesa e' quella che `element_surface` gia'
+    costruisce: le facce **di bordo** con **tutti** i nodi nell'insieme. Una
+    faccia interna non entra -- il carico finirebbe applicato dentro il
+    solido -- e nemmeno una con tre nodi su quattro nell'insieme, perche'
+    non e' quella faccia.
+
+    Le quote sono normalizzate sul totale, quindi la loro somma e'
+    esattamente `risultante` anche quando qualche nodo dell'insieme non
+    tocca alcuna faccia e resta a zero.
+    """
+    indici = np.asarray(indici, dtype=np.int64)
+    superficie = element_surface(elements, indici, element_type)
+    aree = aree_tributarie(nodes, elements, superficie, element_type)[indici]
+    totale = float(aree.sum())
+    if totale <= 0.0:
+        raise ValueError(
+            f"il carico '{nome}' agisce su {indici.size} nodi che non formano alcuna "
+            "faccia di bordo: nessuna area su cui ripartire la risultante. Un insieme "
+            "di nodi tutto interno al solido produce questo, e un carico applicato "
+            "a nulla non è un carico"
+        )
+    quote = risultante * aree / totale
+    resoconto: dict[str, object] = {
+        "nodi": int(indici.size),
+        "area_totale": totale,
+        "nodi_ad_area_nulla": int((aree == 0.0).sum()),
+    }
+    return quote, resoconto
+
+
+def coppia_equivalente(
+    momento: Momento,
+    nodes: np.ndarray,
+    elements: np.ndarray,
+    indici: np.ndarray,
+    element_type: str,
+    *,
+    nome: str,
+) -> tuple[list[str], dict[str, object]]:
+    """Le righe *CLOAD di una coppia di forze staticamente equivalente al momento.
+
+    Non un `*CLOAD` sui gradi 4-6: su un C3D4 `ccx` 2.22 lo scarta senza un
+    warning e con spostamento esattamente zero, e `controlla_avvisi`
+    (`core/solve.py`) non ha nulla da intercettare.
+
+    Il braccio lo dichiara l'operatore e questa funzione lo contraddice se i
+    nodi presi non lo sostengono. La via opposta -- misurarlo sull'estensione
+    reale -- non chiede nulla ma decide da se', e nessuno la puo' smentire.
+
+    Il momento realizzato e' **esattamente** quello dichiarato solo nella
+    componente in asse: la forza si calibra sul braccio effettivo fra i due
+    baricentri pesati, che i nodi offrono davvero. Una componente fuori asse
+    e' possibile quando i due gruppi non stanno alla stessa quota lungo
+    `asse`, ed e' tollerata solo entro `TOLLERANZA_MOMENTO_FUORI_ASSE`, oltre
+    la quale la funzione rifiuta. Il `braccio` dichiarato resta il criterio
+    con cui i due gruppi sono stati scelti, e il resoconto mostra il momento
+    in asse dichiarato e quello effettivo, fuori asse compreso.
+
+    Una coppia ha risultante netta nulla: le sue reazioni vincolari sono
+    indistinguibili da quelle della sola gravita', e un oracolo di equilibrio
+    che le confronti non puo' passare da li'. E' la ragione per cui i test di
+    fattibilita' su una coppia verificano lo spostamento orizzontale e non le
+    reazioni, mentre quelli su una forza fanno l'opposto (vedi
+    tests/feasibility/test_calculix.py): l'asimmetria e' voluta, non da
+    "uniformare" aggiungendo l'oracolo delle reazioni anche qui.
+    """
+    punti = np.asarray(nodes, dtype=np.float64)
+    indici = np.asarray(indici, dtype=np.int64)
+    # L'asse nullo non arriva fin qui: `Momento` lo rifiuta a validazione
+    # della configurazione, che e' dove vanno i rifiuti che non hanno
+    # bisogno di una mesh. Un secondo controllo qui sarebbe codice morto, e
+    # il codice morto e' peggio dell'assenza: promette una guardia che
+    # nessuno esercita.
+    asse = np.asarray(momento.asse, dtype=np.float64)
+    asse = asse / float(np.linalg.norm(asse))
+
+    presi = punti[indici]
+    baricentro = presi.mean(axis=0)
+    relativi = presi - baricentro
+    piano = relativi - np.outer(relativi @ asse, asse)
+
+    # Direzione di separazione: quella di massima estensione nel piano
+    # perpendicolare all'asse, cioe' dove i nodi offrono il braccio piu'
+    # lungo. `fix_sign` ne fissa il **segno**, non l'asse: quale dei due
+    # vettori esca dalla SVD lo decide il rapporto fra i due valori
+    # singolari, e quando quei due pareggiano lo decide il rumore
+    # numerico. Il rapporto finisce nel resoconto
+    # (`rapporto_valori_singolari`) perche' si veda anche quando passa; la
+    # condizione d'uso e' in docs/fase-6-carichi.md, sezione 5.2.
+    _, valori_singolari, versori = np.linalg.svd(piano, full_matrices=False)
+    separazione = fix_sign(versori[0])
+    proiezione = piano @ separazione
+    estensione = float(proiezione.max() - proiezione.min())
+    if momento.braccio > estensione:
+        raise ValueError(
+            f"il momento '{nome}' dichiara un braccio di {momento.braccio:g} mm, e i "
+            f"{indici.size} nodi presi si estendono {estensione:.3f} mm nella "
+            "direzione della coppia: i nodi non lo sostengono. Accorcia il braccio "
+            "o allarga il selettore"
+        )
+
+    meta = momento.braccio / 2.0
+    positivi = indici[proiezione >= meta]
+    negativi = indici[proiezione <= -meta]
+    if positivi.size == 0 or negativi.size == 0:
+        raise ValueError(
+            f"il momento '{nome}' con braccio {momento.braccio:g} mm lascia un lato "
+            f"senza nodi ({positivi.size} da una parte, {negativi.size} dall'altra): "
+            "una coppia con una sola forza è una forza"
+        )
+
+    # L'area tributaria si ripartisce una volta sola sull'intero selettore
+    # (Task 6): e' la superficie che ha davvero facce di bordo intere. Un
+    # lato preso da solo puo' non averne -- due nodi soli di una faccia
+    # tagliata a meta' non formano una faccia -- e ripartire su di lui
+    # solleverebbe l'errore di "nessuna faccia di bordo" per un lato che una
+    # faccia ce l'ha, solo condivisa con l'altro lato.
+    quote_totale, resoconto_aree = ripartisci(
+        1.0, nodes, elements, indici, element_type, nome=nome
+    )
+    maschera_positivi = proiezione >= meta
+    maschera_negativi = proiezione <= -meta
+
+    quote_per_gruppo = []
+    bracci = []
+    for gruppo, maschera in ((positivi, maschera_positivi), (negativi, maschera_negativi)):
+        pesi = quote_totale[maschera]
+        peso_totale = float(pesi.sum())
+        if peso_totale <= 0.0:
+            raise ValueError(
+                f"il momento '{nome}' con braccio {momento.braccio:g} mm lascia un lato "
+                f"({gruppo.size} nodi) senza alcuna area tributaria: nessuna quota da "
+                "ripartire su quel lato"
+            )
+        # Quote normalizzate sul lato: la loro somma e' 1, quindi la forza
+        # del lato (Step 7) si distribuisce per intero fra i suoi nodi.
+        quote = pesi / peso_totale
+        quote_per_gruppo.append(quote)
+        # Baricentro del gruppo pesato dalle quote, proiettato sulla direzione
+        # di separazione.
+        bracci.append(float(((punti[gruppo] - baricentro) @ separazione) @ quote))
+
+    braccio_effettivo = bracci[0] - bracci[1]
+    forza = float(momento.modulo) / braccio_effettivo
+    direzione = np.cross(asse, separazione)
+
+    # Il momento che il deck scrive davvero, calcolato dalle stesse forze per
+    # nodo che finiscono nelle righe *CLOAD e non dal `modulo` dichiarato.
+    # Non e' una smentita del programma, e non puo' esserlo: la componente
+    # in asse vale il modulo **per costruzione**, perche' la forza si
+    # calibra sul braccio effettivo, e `forza_effettiva` esce dalle stesse
+    # quote gia' normalizzate sulla risultante. Questi campi documentano
+    # cio' che il deck scrive; la sola componente informativa e' quella
+    # fuori asse, che nasce quando i due gruppi non stanno alla stessa
+    # quota lungo `asse` ed e' silenziosa finche' nessuno la misura.
+    momento_effettivo = np.zeros(3)
+    for gruppo, quote, segno in (
+        (positivi, quote_per_gruppo[0], 1.0), (negativi, quote_per_gruppo[1], -1.0)
+    ):
+        forze_nodo = (segno * forza) * np.outer(quote, direzione)
+        momento_effettivo += np.cross(punti[gruppo] - baricentro, forze_nodo).sum(axis=0)
+
+    fuori_asse = momento_effettivo - (momento_effettivo @ asse) * asse
+    rapporto_fuori_asse = float(np.linalg.norm(fuori_asse)) / float(momento.modulo)
+    if rapporto_fuori_asse > TOLLERANZA_MOMENTO_FUORI_ASSE:
+        raise ValueError(
+            f"il momento '{nome}' scriverebbe nel deck un momento effettivo di "
+            f"{momento_effettivo.tolist()} N*mm: la componente fuori dall'asse "
+            f"dichiarato vale {rapporto_fuori_asse:.3e} volte il modulo, oltre "
+            f"la tolleranza di {TOLLERANZA_MOMENTO_FUORI_ASSE:.0e}. I due gruppi "
+            "presi non stanno alla stessa quota lungo l'asse del momento: usa "
+            "un selettore che giaccia in un piano perpendicolare all'asse"
+        )
+
+    gradi = _gradi_da_scrivere(direzione)
+    righe = ["*CLOAD, OP=NEW"]
+    for gruppo, quote, segno in (
+        (positivi, quote_per_gruppo[0], 1.0), (negativi, quote_per_gruppo[1], -1.0)
+    ):
+        for nodo, quota in zip(gruppo, quote, strict=True):
+            righe += [
+                f"{int(nodo) + 1}, {grado}, {segno * forza * quota * componente:.9e}"
+                for grado, componente in gradi
+            ]
+
+    # Il rapporto sta gia' nel resoconto: qui diventa anche un avviso, perche'
+    # un numero in un file lo legge chi lo cerca, e chi sceglie un selettore
+    # quadrato non sa di doverlo cercare. Avviso e non rifiuto: il deck che
+    # esce e' valido, e applicare un momento a una piastra quadrata resta
+    # legittimo -- e' la direzione a non essere piu' un dato della geometria.
+    rapporto_singolari = float(valori_singolari[1] / valori_singolari[0])
+    if rapporto_singolari > SOGLIA_PAREGGIO_VALORI_SINGOLARI:
+        warnings.warn(
+            f"il momento '{nome}' ha un selettore quasi isotropo nel piano della "
+            f"coppia: il rapporto dei valori singolari vale {rapporto_singolari:.3f}, "
+            f"oltre {SOGLIA_PAREGGIO_VALORI_SINGOLARI:g}. Il momento attorno "
+            "all'asse resta quello dichiarato, ma su quale diametro cade la coppia "
+            "lo decide il rumore numerico, e un rimaglio può spostarlo. Allunga il "
+            "selettore per fissare la direzione, oppure accetta: il deck è valido e "
+            "il momento attorno all'asse è quello dichiarato. Su una piastra "
+            "davvero quadrata allungare il selettore cambierebbe la fisica "
+            "dichiarata, e accettare è la scelta giusta",
+            SelettoreIsotropoWarning,
+            stacklevel=2,
+        )
+
+    resoconto: dict[str, object] = {
+        "nodi": int(indici.size),
+        "braccio_dichiarato": float(momento.braccio),
+        "braccio_effettivo": braccio_effettivo,
+        "momento_dichiarato": (float(momento.modulo) * asse).tolist(),
+        "momento_effettivo": momento_effettivo.tolist(),
+        "rapporto_valori_singolari": rapporto_singolari,
+        "area_totale": resoconto_aree["area_totale"],
+        "nodi_ad_area_nulla": resoconto_aree["nodi_ad_area_nulla"],
+        "forza_di_ciascun_lato": forza,
+        "nodi_positivi": int(positivi.size),
+        "nodi_negativi": int(negativi.size),
+        "estensione_disponibile": estensione,
+    }
+    return righe, resoconto
 
 
 def boundary_faces(elements: np.ndarray) -> np.ndarray:
@@ -761,6 +1195,17 @@ def build_node_sets(nodes: np.ndarray, tolerance: float) -> dict[str, np.ndarray
     points = np.asarray(nodes, dtype=np.float64)
     low = points.min(axis=0)
     high = points.max(axis=0)
+    # Dizionario letterale, non un accoppiamento per posizione con
+    # NOMI_SET_DI_FACCIA: uno zip fra costante e tupla di criteri lega ogni
+    # nome al criterio nella stessa posizione, e riordinare la costante
+    # rilegherebbe silenziosamente un nome al criterio sbagliato -- qui il
+    # nome sta nella stessa riga del suo criterio, non puo' scollegarsene.
+    # Il prezzo e' che i sei nomi sono scritti due volte, qui e in
+    # `config.NOMI_SET_DI_FACCIA`: l'accordo fra le due liste lo tengono due
+    # test (`test_build_node_sets_ha_le_chiavi_della_costante` in
+    # tests/test_abaqus.py e
+    # `test_i_sei_nomi_dichiarati_sono_quelli_che_il_deck_fabbrica` in
+    # tests/test_config.py), non il tipo.
     return {
         "BASE": np.flatnonzero(points[:, 2] <= low[2] + tolerance),
         "TOP": np.flatnonzero(points[:, 2] >= high[2] - tolerance),
@@ -820,6 +1265,7 @@ def export_model(
     ties: tuple[tuple[str, str, str] | tuple[str, str, str, float], ...] = (),
     pressure: tuple[str, float] | None = None,
     carichi: CarichiConfig | None = None,
+    selettori: dict[str, Selettore] | None = None,
 ) -> dict[str, object]:
     """Step 11: allinea, costruisce i set, scrive il deck e il file di visualizzazione.
 
@@ -861,7 +1307,7 @@ def export_model(
     if tipo == "C3D10":
         raise NotImplementedError(
             "elemento C3D10 non supportato dal writer: TetGen produce i nodi di "
-            "lato con order=2, ma il deck scrive i soli vertici. Usa C3D4 finche' "
+            "lato con order=2, ma il deck scrive i soli vertici. Usa C3D4 finché "
             "il writer non gestisce i dieci nodi."
         )
     if tipo not in NODI_PER_ELEMENTO:
@@ -871,7 +1317,7 @@ def export_model(
     if elements.shape[1] != attesi:
         raise ValueError(
             f"{tipo} vuole {attesi} nodi per elemento, ne sono arrivati "
-            f"{elements.shape[1]}: un deck scritto cosi' non e' leggibile da alcun solutore"
+            f"{elements.shape[1]}: un deck scritto così non è leggibile da alcun solutore"
         )
 
     # Nome distinto dalla funzione pubblica boundary_faces: qui e' una
@@ -885,8 +1331,81 @@ def export_model(
     spacing = boundary_spacing(aligned, bordo_facce)
     tolerance = cfg.set_tolerance_factor * spacing
     node_sets = build_node_sets(aligned, tolerance)
+    # Prima dell'indicizzazione, non dopo: il controllo con messaggio civile
+    # di `write_inp` non veniva mai raggiunto, perche' qui sotto `KeyError`
+    # arrivava per primo -- e arrivava dopo che tutta la mesh era stata
+    # costruita.
+    if cfg.fixed_nset not in node_sets:
+        raise ValueError(
+            f"il set vincolato '{cfg.fixed_nset}' non e fra gli insiemi che il modello "
+            f"offre ({sorted(node_sets)}). Il caso non c'entra: `AnalysisConfig.fixed_nset` "
+            "è un NomeSetDiFaccia e riscrive da sé i sei nomi nel proprio caso "
+            "canonico, quindi ciò che arriva qui è un nome diverso, non un 'base' "
+            "scritto minuscolo"
+        )
     if len(node_sets[cfg.fixed_nset]) == 0:
         raise ValueError(f"il set vincolato '{cfg.fixed_nset}' e vuoto: tolleranza {tolerance:.3f} mm troppo stretta")
+
+    # Risolti sui nodi **allineati**: e' il sistema di riferimento del deck e
+    # di wall_model.vtu. L'estensione in quel sistema esce qui sotto in
+    # "extent", e la bbox dei nodi presi in "selettori", perche' l'operatore
+    # possa collocare un selettore senza indovinare. Un selettore degenere
+    # (zero nodi, tutti i nodi, nodo troppo lontano) solleva da dentro
+    # `selezione.risolvi_tutti`: non si intercetta qui, un `try` lo
+    # trasformerebbe in un deck silenziosamente sbagliato.
+    nset_selettori = selezione.risolvi_tutti(selettori or {}, aligned, elements, node_sets)
+
+    # Un carico sul selettore che coincide, in tutto o in parte, col set
+    # vincolato non sposta nulla: la sua quota finisce in reazione, non in
+    # spostamento, e ne' `ccx` ne' la guardia sul set vuoto se ne accorgono
+    # (misurato sulla corsa dimostrativa: il momento era su BASE ed e' stato
+    # spostato senza che nulla lo segnalasse). Tutto dentro e' un errore di
+    # modellazione dichiarato come tale; in parte e' un avviso col conteggio,
+    # perche' potrebbe essere voluto (un selettore che tocca il bordo).
+    vincolati = set(np.asarray(node_sets[cfg.fixed_nset], dtype=np.int64).tolist())
+    # Coppie (nome_del_carico, origine, indici) da controllare: CARICO_TOP in
+    # piu' rispetto a prima, perche' cita un *NSET esistente per nome invece
+    # di un selettore risolto e non passava da questo stesso ciclo (misurato:
+    # un carico_sommita su BASE anziche' TOP finiva in reazione senza un solo
+    # avviso).
+    carichi_da_controllare: list[tuple[str, str, np.ndarray]] = []
+    if carichi is not None:
+        if carichi.carico_sommita is not None and carichi.carico_sommita.nset in node_sets:
+            carichi_da_controllare.append((
+                "CARICO_TOP", carichi.carico_sommita.nset, node_sets[carichi.carico_sommita.nset],
+            ))
+        for carico in carichi.posizionati:
+            if carico.selettore in nset_selettori:  # altrimenti write_inp rifiuta con messaggio piu' completo
+                carichi_da_controllare.append((carico.nome, carico.selettore, nset_selettori[carico.selettore]))
+    # Il conteggio nasce qui, dove compone la stringa dell'avviso, e va reso
+    # anche in `metrics.json`: un avviso su stderr si perde con la finestra
+    # del terminale, mentre `forza_effettiva` e `momento_effettivo` restano
+    # nel file a dichiarare per intero una risultante di cui il modello
+    # applica solo una frazione.
+    bloccati_per_carico: dict[str, int] = {}
+    for nome, origine, indici in carichi_da_controllare:
+        indici_carico = set(np.asarray(indici, dtype=np.int64).tolist())
+        bloccati = indici_carico & vincolati
+        # Prima del ritorno anticipato: zero e' un valore, e una chiave
+        # assente non si distingue da una versione che non contava.
+        bloccati_per_carico[nome] = len(bloccati)
+        if not bloccati:
+            continue
+        if indici_carico <= vincolati:
+            raise ValueError(
+                f"il carico '{nome}' agisce sull'insieme '{origine}', che coincide "
+                f"per intero con l'insieme vincolato '{cfg.fixed_nset}': tutti i "
+                f"{len(indici_carico)} nodi presi sono bloccati dal vincolo, il carico "
+                "finirebbe tutto in reazione senza spostare nulla"
+            )
+        warnings.warn(
+            f"il carico '{nome}' sull'insieme '{origine}' include "
+            f"{len(bloccati)} dei suoi {len(indici_carico)} nodi anche nell'insieme "
+            f"vincolato '{cfg.fixed_nset}': quella quota finisce in reazione, non in "
+            "spostamento",
+            CaricoSulVincoloWarning,
+            stacklevel=2,
+        )
 
     # La guardia sul set vuoto era cieca su tutto il resto: un `BASE` da 9 nodi
     # produce un deck formalmente valido per un modello di fatto non vincolato,
@@ -902,13 +1421,13 @@ def export_model(
         warnings.warn(
             f"l'insieme vincolato '{cfg.fixed_nset}' raggiunge il {coverage:.2%} della "
             f"superficie d'appoggio con una tolleranza di {tolerance:.3f} mm: il modello "
-            "e' vincolato su una chiazza, non sulla base. Alza "
+            "è vincolato su una chiazza, non sulla base. Alza "
             "analysis.set_tolerance_factor o verifica la geometria.",
             UnconstrainedModelWarning,
             stacklevel=2,
         )
 
-    write_inp(
+    resoconto_carichi = write_inp(
         path_inp,
         aligned,
         elements,
@@ -922,7 +1441,10 @@ def export_model(
         ties=ties,
         pressure=pressure,
         carichi=carichi,
+        nset_selettori=nset_selettori,
     )
+    for nome, quanti in bloccati_per_carico.items():
+        resoconto_carichi[nome]["nodi_sul_vincolo"] = quanti
     write_vtu(path_vtu, aligned, elements, element_type=tipo)
 
     volume = float(np.abs(element_volumes(aligned, elements)).sum())
@@ -934,6 +1456,18 @@ def export_model(
         "fixed_nset_coverage": float(coverage),
         "constraint_plan_extent": constraint_plan_extent(aligned, node_sets[cfg.fixed_nset]),
         "node_sets": {name: int(len(indices)) for name, indices in node_sets.items()},
+        "selettori": {
+            nome: {
+                "tipo": (selettori or {})[nome].tipo,
+                "nodi": int(indici.size),
+                "bbox": [
+                    aligned[indici].min(axis=0).tolist(),
+                    aligned[indici].max(axis=0).tolist(),
+                ],
+            }
+            for nome, indici in nset_selettori.items()
+        },
+        "carichi_posizionati": resoconto_carichi,
         "volume": volume,
         "mass": volume * cfg.material.density,
         "element_type": tipo,
@@ -952,6 +1486,7 @@ def export_model(
             cfg.step_name,
             None if carichi is None or carichi.spinta is None else "SPINTA_ORIZZONTALE",
             None if carichi is None or carichi.carico_sommita is None else "CARICO_TOP",
+            *(() if carichi is None else tuple(c.nome for c in carichi.posizionati)),
             None if carichi is None or carichi.modale is None else "MODALE",
         ) if nome is not None],
     }

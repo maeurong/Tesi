@@ -56,6 +56,92 @@ def test_the_fingerprint_changes_with_any_processing_parameter():
     assert _base().tet.min_ratio == pytest.approx(1.8)
 
 
+def _carico_sommita() -> config.CaricoSommita:
+    return config.CaricoSommita(risultante=1000.0, nset="TOP")
+
+
+def test_un_carico_dichiarato_cambia_l_impronta():
+    """Il controllo che smentisce quello sopra.
+
+    Senza di esso `carichi` potrebbe essere ancora escluso sempre e il test
+    della provenienza passerebbe a vuoto. Due candidati che differiscono solo
+    nei carichi scrivono deck diversi -- STEP_BLOCKS[11] legge `carichi` -- e
+    la cartella di un candidato e' fingerprint(cfg)[:12], quindi con la stessa
+    impronta la seconda corsa sovrascriverebbe la prima.
+
+    Mutazione che lo uccide: rimettere "carichi" in BLOCCHI_FUORI_IMPRONTA.
+    Applicata: fallisce.
+    """
+    con_carico = _base().model_copy(deep=True)
+    con_carico.carichi.carico_sommita = _carico_sommita()
+
+    assert sweep.fingerprint(con_carico) != sweep.fingerprint(_base())
+
+
+def test_due_carichi_diversi_finiscono_in_due_cartelle_diverse():
+    """La falla nominata, alla grandezza con cui la falla si manifesta.
+
+    Non basta che le impronte differiscano: la cartella e' il prefisso di 12
+    caratteri, ed e' quello a decidere se due corse si sovrascrivono.
+
+    Mutazione che lo uccide: rimettere "carichi" in BLOCCHI_FUORI_IMPRONTA.
+    Applicata: fallisce.
+    """
+    mille = _base().model_copy(deep=True)
+    mille.carichi.carico_sommita = _carico_sommita()
+    duemila = _base().model_copy(deep=True)
+    duemila.carichi.carico_sommita = config.CaricoSommita(risultante=2000.0, nset="TOP")
+
+    assert sweep.fingerprint(mille)[:12] != sweep.fingerprint(duemila)[:12]
+
+
+def test_un_asse_sui_carichi_non_e_piu_rifiutato():
+    """Il rifiuto d'asse esisteva perche' due candidati che differissero solo
+    nei carichi avevano la stessa impronta e il registro non poteva
+    distinguerli. Ora la ragione e' caduta, e sweepare un carico -- lo stesso
+    carico con due risultanti -- e' un esperimento legittimo.
+
+    Mutazione che lo uccide: rimettere "carichi" in BLOCCHI_FUORI_IMPRONTA.
+    Applicata: expand solleva ValueError e il test fallisce.
+
+    La controprova -- che il rifiuto non sia sparito per tutti i blocchi invece
+    che per il solo `carichi` -- e' gia' scritta piu' sotto in
+    test_un_asse_su_un_blocco_fuori_impronta_viene_rifiutato.
+    """
+    base = _base().model_copy(deep=True)
+    base.carichi.carico_sommita = _carico_sommita()
+    esperimento = config.ExperimentConfig(
+        name="prova",
+        base=Path("base.yaml"),
+        axes=[config.AxisSpec(path="carichi.carico_sommita.risultante", values=[1000.0, 2000.0])],
+    )
+
+    candidati = sweep.expand(esperimento, base)
+
+    assert len({sweep.fingerprint(cfg) for _, cfg in candidati}) == len(candidati) == 2
+
+
+def _selettore_sfera(raggio: float) -> config.SelettoreSfera:
+    return config.SelettoreSfera(tipo="sfera", centro=(0.0, 0.0, 0.0), raggio=raggio)
+
+
+def test_due_selettori_diversi_danno_impronte_diverse():
+    """Senza questo, due candidati scrivono nella stessa cartella e il secondo vince.
+
+    La cartella di un candidato e' `fingerprint(cfg)[:12]` (core/sweep.py:677),
+    e lo sweep arriva a --to-step 12: il deck 11_export e' artefatto richiesto
+    di ogni candidato.
+
+    Mutazione che lo uccide: togliere "selettori" da BLOCCHI_VUOTI_FUORI_IMPRONTA
+    (core/sweep.py:64) e dalla lista dei blocchi che l'impronta considera --
+    cioe' rimettere il blocco fuori da entrambe. Le due impronte tornano uguali.
+    """
+    uno = _base().model_copy(update={"selettori": {"piastra": _selettore_sfera(5.0)}})
+    altro = _base().model_copy(update={"selettori": {"piastra": _selettore_sfera(9.0)}})
+
+    assert sweep.fingerprint(uno) != sweep.fingerprint(altro)
+
+
 def test_one_axis_at_a_time_does_not_multiply_the_levels():
     """Tre livelli su due assi sono cinque candidati, non nove: uno per livello piu la base."""
     experiment = config.ExperimentConfig(

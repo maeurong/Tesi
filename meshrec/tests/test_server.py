@@ -1607,8 +1607,9 @@ def test_ogni_tratta_che_interroga_il_server_si_scarta_se_e_stata_superata():
     #
     # Dalla schermata d'ingresso sono 11: 6 nominate (le 5 di prima piu'
     # disegnaIngresso) e 5 freccia (le 2 di prima, il clic su una corsa, il clic
-    # che ne crea una, il clic che dichiara il materiale).
-    assert interrogano >= 11, "le tratte attese sono sparite dal modulo"
+    # che ne crea una, il clic che dichiara il materiale). Col bottone
+    # «Sfoglia», che chiede al server di aprire il selettore file, 12.
+    assert interrogano >= 12, "le tratte attese sono sparite dal modulo"
 
 
 def test_due_geometrie_in_volo_nella_stessa_generazione_non_si_arbitrano_per_arrivo():
@@ -1658,14 +1659,36 @@ _BANCO_ORDINE = """import assert from 'node:assert/strict';
 let generazione = 1;
 let ultimaGeometria = 0;
 const STEP_CON_MESH = new Set([9]);
+// Come STEP_CON_MESH qui sopra: uno stub deliberato coi soli due step che
+// questo banco esercita. Qui si prova l'arbitraggio, non il ripiego -- che la
+// tabella vera coincida con pipeline.ARTIFACTS lo verifica
+// test_app_js.py::test_gli_step_disegnabili_del_modulo_sono_quelli_del_server.
+const STEP_CON_GEOMETRIA = new Set([2, 9]);
+// Come i due insiemi qui sopra: uno stub deliberato con la sola coppia che
+// questo banco esercita. Che la tabella vera abbia tre coppie e che quella
+// dello step 8 venga dal 6 lo verifica
+// test_app_js.py::test_il_fantasma_dello_step_8_viene_dal_6_e_non_dal_7.
+const FANTASMA_DI = { 2: 1 };
+let fantasmaAcceso = true;
+let ultimoFantasma = 0;
 const scritture = [];
 const vista = {
   svuota() {},
   mostraNuvola(vertici) { scritture.push(`nuvola:${vertici.length / 3}`); },
   mostraMesh(vertici) { scritture.push(`mesh:${vertici.length / 3}`); },
+  mostraFantasma() { scritture.push('fantasma'); },
+  togliFantasma() {},
 };
-const document = { getElementById: () => ({ textContent: '' }) };
+const document = { getElementById: () => ({ textContent: '', hidden: false }) };
 function riallineaTaglio(numero) { scritture.push(`riallinea:${numero}`); }
+function serverMuto() { return undefined; }
+
+// Ogni step col proprio artefatto: qui si prova l'ARBITRAGGIO fra due risposte,
+// non il ripiego della vista, e `passoDaMostrare` deve restituire lo step
+// chiesto perche' il caso da riprodurre resti quello di prima.
+const ultimoStato = Array.from({ length: 13 }, (_, i) => ({
+  numero: i + 1, chiave: `0${i + 1}`, artefatto: 'scritto',
+}));
 
 // Ogni richiesta resta sospesa finche' il banco non la sblocca: l'ordine di
 // arrivo e' l'ingresso della prova, non un caso.
@@ -1756,6 +1779,23 @@ def test_fra_due_geometrie_della_stessa_generazione_vince_chi_e_partita_dopo(num
             "didascaliaDellaVista",
             "mostraNuvolaDelloStep",
             "mostraStep",
+            # `ricaricaVista` risolve il ripiego prima di chiedere la geometria:
+            # senza questa, il banco cade su un riferimento che non esiste.
+            "passoDaMostrare",
+            # Il velo del passaggio a monte, VERO e non stubbato: si posa dentro
+            # il `then` di mostraStep, cioe' proprio in mezzo alle due richieste
+            # che questo banco tiene sospese, e sullo step 2 un fantasma esiste.
+            # Qui l'ordine di rilascio e' «arriva prima la nuova», e in
+            # quell'ordine un velo che bumpasse `ultimaGeometria` non
+            # cambierebbe l'esito: scarterebbe la vecchia, che era gia' da
+            # scartare. E' l'ordine opposto che morde, e lo prova
+            # test_il_velo_non_arbitra_al_posto_delle_geometrie qui sotto.
+            # Vero e non stubbato lo stesso: se un domani il velo aprisse una
+            # geometria PRIMA del `then`, e' questo banco a vederlo.
+            "apriFantasma",
+            "fantasmaHaSenso",
+            "comandoDelFantasma",
+            "mostraFantasmaDelloStep",
             "ricaricaVista",
         )
     )
@@ -1773,6 +1813,51 @@ def test_fra_due_geometrie_della_stessa_generazione_vince_chi_e_partita_dopo(num
         assert esito.returncode == 0, esito.stderr
     finally:
         prova.unlink()
+
+
+def test_la_luce_segue_la_camera_e_non_sta_ferma_nel_mondo():
+    """Il difetto che Mario ha visto girando la figura: mezzo giro e il pezzo
+    diventa una sagoma grigia uniforme, senza un'ombra, in cui la forma non si
+    legge. La luce direzionale stava ferma a `(1, 2, 3)` mentre la camera
+    girava, quindi dal lato opposto restava solo l'ambiente.
+
+    Misurato nel browser il 24/08/2026 sul telaio di lab_crop, non dedotto.
+
+    Strutturale e non eseguito: `aggiornaCamera` e' annidata dentro
+    `creaViewport`, e il banco di test_app_js.py sa ritagliare solo funzioni di
+    primo livello. La prova che conta resta quella a schermo -- questa
+    sorveglia la mossa, cioe' che la luce non torni a essere una costante.
+    """
+    from meshrec.app.server import UI_DIR
+
+    testo = (UI_DIR / "viewport.js").read_text(encoding="utf-8")
+
+    # 1. Nessuna posizione costante: e' esattamente cio' che rendeva buio un lato.
+    assert "direzionale.position.set(" not in testo, (
+        "la luce e' tornata a una posizione fissa nel mondo"
+    )
+
+    # 2. La riposiziona chi muove la camera, non qualcun altro.
+    corpo = testo.split("function aggiornaCamera() {", 1)[1].split("\n  }\n", 1)[0]
+    assert "direzionale.position.copy(camera.position)" in corpo, (
+        "la luce non segue piu' la camera"
+    )
+    assert "direzionale.target.position.copy(centro)" in corpo, (
+        "la luce non punta piu' al centro dell'orbita: sul modello, che sta a "
+        "qualche metro dall'origine, lo illuminerebbe di taglio"
+    )
+
+    # 3. Scostata dall'asse dello sguardo: una luce sull'occhio non fa ombre,
+    #    che e' lo stesso difetto per un'altra strada.
+    assert "_destra" in corpo and "_alto" in corpo, (
+        "la luce e' finita esattamente sull'occhio: illumina di fronte e non da' rilievo"
+    )
+
+    # 4. Il bersaglio dev'essere nel grafo, altrimenti il suo matrixWorld resta
+    #    quello con cui e' nato e spostarlo non cambia dove la luce punta.
+    assert "scena.add(direzionale.target)" in testo, (
+        "il bersaglio della luce non e' nella scena: spostarlo non ha effetto"
+    )
 
 
 def test_svuota_libera_i_buffer_e_non_tocca_i_piani_di_taglio():
@@ -1974,8 +2059,8 @@ def test_il_fronte_di_discesa_ricarica_anche_la_vista_e_non_solo_il_pannello():
     testo = (UI_DIR / "app.js").read_text(encoding="utf-8")
     corpo = testo.split('addEventListener("stato"', 1)[1].split("\n});", 1)[0]
     assert "apriDettaglio(stepAperto)" in corpo
-    assert "ricaricaVista(stepMostrato)" in corpo, "la vista resta indietro sul fronte di discesa"
-    assert "stepMostrato >= stato.step" in corpo, "chiede anche cio' che nessuna corsa ha toccato"
+    assert "ricaricaVista(stepScelto)" in corpo, "la vista resta indietro sul fronte di discesa"
+    assert "stepScelto >= stato.step" in corpo, "chiede anche cio' che nessuna corsa ha toccato"
     assert "apriGenerazione" not in corpo, "il fronte di discesa annulla una geometria in volo"
     # Lo stesso punto serve il clic: se il clic smettesse di passarci, il
     # riallineamento del cursore resterebbe scritto per un solo chiamante.
@@ -2055,6 +2140,28 @@ def test_lo_schema_dice_quali_parametri_appartengono_a_ogni_step(cliente):
     # Un campo obbligatorio non ha un predefinito: deve uscire null e non la
     # stringa "PydanticUndefined", che somiglia a un valore (M-5).
     assert corpo["1"]["campi"]["input"]["path"]["default"] is None
+
+
+def test_lo_schema_non_esplode_sul_blocco_selettori(cliente):
+    """`selettori` (STEP_BLOCKS[11]) e' un `dict[NomeSet, Selettore]`, non un
+    modello: non ha `model_fields` come `carichi` (un `BaseModel`), e prima
+    della guardia lo endpoint lo tratta comunque cosi' e va in 400.
+
+    Due mutazioni, due modi di fallire:
+
+    1. togliere la guardia su `hasattr(annidato, "model_fields")` in
+       `schema()` (core/app/server.py) e tornare a chiamare
+       `annidato.model_fields` incondizionatamente -- l'AttributeError torna
+       e la richiesta a `/api/schema` torna a rispondere 400.
+    2. far rendere alla guardia un valore diverso da `{}` (per esempio
+       `campi[blocco] = None`) -- resterebbe 200, e senza l'asserzione sul
+       valore il test non se ne accorgerebbe.
+    """
+    risposta = cliente.get("/api/schema")
+    assert risposta.status_code == 200
+    corpo = risposta.json()
+    assert corpo["11"]["blocchi"] == ["tet", "analysis", "carichi", "selettori"]
+    assert corpo["11"]["campi"]["selettori"] == {}
 
 
 def test_il_tempo_dello_step_viene_dal_server_e_non_dal_browser(cliente):
@@ -2259,7 +2366,7 @@ def test_un_box_vuoto_non_solleva_ma_lo_dice(cliente, tmp_path):
     assert risposta.status_code == 400
     corpo = risposta.json()
     assert "errore" in corpo
-    assert "nelle unita di lavoro (mm)" in corpo["messaggio"]
+    assert "nelle unità di lavoro (mm)" in corpo["messaggio"]
 
 
 # Arita' sbagliata, valore non numerico, NaN e chiave mancante: le forme che
@@ -2618,3 +2725,131 @@ def test_le_membrature_etichettano_i_punti_anche_quando_il_pavimento_e_stato_tol
         "gli indici della membratura cadono nel pavimento: lo sfasamento fra la "
         "nuvola ripulita e la nuvola segmentata non e' stato corretto"
     )
+
+
+# Il banco del velo. Gemello di _BANCO_ORDINE, con una differenza sola e
+# deliberata: le due risposte si rilasciano nell'ordine OPPOSTO, prima la
+# vecchia. E' l'ordine in cui un velo che arbitrasse al posto delle geometrie
+# farebbe vincere la piu' vecchia, e quello che _BANCO_ORDINE non esercita.
+_BANCO_VELO = """import assert from 'node:assert/strict';
+
+let generazione = 1;
+let ultimaGeometria = 0;
+let ultimoFantasma = 0;
+const STEP_CON_MESH = new Set([9]);
+const STEP_CON_GEOMETRIA = new Set([1, 2]);
+// Lo step 2 ha un fantasma e viene dall'1: e' la coppia vera, non uno stub di
+// comodo. Le altre due della tabella non servono a questo caso.
+const FANTASMA_DI = { 2: 1 };
+let fantasmaAcceso = true;
+const scritture = [];
+const vista = {
+  svuota() {},
+  mostraNuvola(vertici) { scritture.push(`nuvola:${vertici.length / 3}`); },
+  mostraMesh(vertici) { scritture.push(`mesh:${vertici.length / 3}`); },
+  mostraFantasma() { scritture.push('velo'); },
+  togliFantasma() {},
+};
+const document = { getElementById: () => ({ textContent: '', hidden: false }) };
+function riallineaTaglio(numero) { scritture.push(`riallinea:${numero}`); }
+function serverMuto() { return undefined; }
+function didascaliaDellaVista() { return { textContent: '' }; }
+
+const ultimoStato = Array.from({ length: 13 }, (_, i) => ({
+  numero: i + 1, chiave: `0${i + 1}`, artefatto: 'scritto',
+}));
+
+// Le richieste della GEOMETRIA restano sospese; quella del VELO no. Il velo
+// parte da solo dentro il `then` e qui non e' cio' che si sta arbitrando: se
+// restasse sospeso anche lui, il banco misurerebbe l'ordine di rilascio invece
+// del contatore.
+const sospese = [];
+let partite = 0;
+globalThis.fetch = (indirizzo) => {
+  if (indirizzo.startsWith('/api/cloud/1')) {
+    return Promise.resolve({
+      ok: true,
+      headers: { get: () => 0 },
+      arrayBuffer: async () => new ArrayBuffer(12),
+    });
+  }
+  const marcatore = ++partite;
+  return new Promise((risolvi) => sospese.push(() => risolvi({
+    ok: true,
+    headers: { get: (nome) => (nome === 'X-Vertices' ? marcatore : 0) },
+    arrayBuffer: async () => new ArrayBuffer(marcatore * 12),
+  })));
+};
+const giro = async () => { for (let i = 0; i < 12; i += 1) await Promise.resolve(); };
+
+__FUNZIONI__
+
+ricaricaVista(2, generazione);   // il clic: apre la richiesta 1
+await giro();
+ricaricaVista(2);                // il fronte di discesa: apre la richiesta 2
+await giro();
+assert.equal(sospese.length, 2, 'le due richieste della geometria non sono partite');
+sospese[0]();                    // la VECCHIA arriva per prima: disegna, e fa partire il suo velo
+await giro();
+sospese[1]();                    // la nuova arriva dopo, e deve vincere lei
+await giro();
+
+// La nuova ha disegnato: e' l'ultima nuvola scritta, e porta il marcatore 2.
+const nuvole = scritture.filter((riga) => riga.startsWith('nuvola:'));
+assert.equal(
+  nuvole[nuvole.length - 1], 'nuvola:2',
+  'a video e\\' rimasta la geometria vecchia: il velo ha arbitrato al posto delle '
+  + 'geometrie. Scritture: ' + JSON.stringify(scritture),
+);
+"""
+
+
+def test_il_velo_non_arbitra_al_posto_delle_geometrie():
+    """Il velo ha un contatore suo, e questo lo esegue invece di leggerlo.
+
+    `ultimaGeometria` decide quale di due geometrie della stessa generazione
+    resta a video: vince quella partita dopo. Il velo del passaggio a monte si
+    posa dentro il `then` di `mostraStep`, cioe' proprio in mezzo a due
+    richieste che possono essere ancora tutt'e due in volo -- il clic e il
+    fronte di discesa condividono la generazione, ed e' il caso che
+    `test_fra_due_geometrie_della_stessa_generazione_vince_chi_e_partita_dopo`
+    tiene sospeso.
+
+    Quel banco pero' rilascia prima la richiesta NUOVA, e in quell'ordine un
+    velo che bumpasse `ultimaGeometria` non cambierebbe l'esito: scarterebbe la
+    vecchia, che era gia' da scartare. Verificato, resta verde con la
+    mutazione. Qui l'ordine e' rovesciato -- arriva prima la vecchia, disegna,
+    e il suo velo parte -- ed e' li' che il bump scarta la richiesta nuova e a
+    video resta la geometria di prima, senza che niente lo dica.
+
+    Mutazione che lo uccide: in `mostraFantasmaDelloStep`, rimettere
+    `const emissione = apriGeometria();` al posto di `apriFantasma()`.
+    """
+    from meshrec.app.server import UI_DIR
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node non installato: il contatore del velo resta verificato a mano")
+    testo = (UI_DIR / "app.js").read_text(encoding="utf-8")
+    funzioni = "\n".join(
+        _sorgente_di(nome, testo)
+        for nome in (
+            "superata",
+            "apriGeometria",
+            "apriFantasma",
+            "mostraNuvolaDelloStep",
+            "mostraStep",
+            "passoDaMostrare",
+            "fantasmaHaSenso",
+            "comandoDelFantasma",
+            "mostraFantasmaDelloStep",
+            "ricaricaVista",
+        )
+    )
+    prova = Path(__file__).parent / "_prova_velo.mjs"
+    prova.write_text(_BANCO_VELO.replace("__FUNZIONI__", funzioni), encoding="utf-8")
+    try:
+        esito = subprocess.run([node, str(prova)], capture_output=True, text=True)
+        assert esito.returncode == 0, esito.stderr
+    finally:
+        prova.unlink()

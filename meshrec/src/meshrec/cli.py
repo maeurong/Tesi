@@ -35,7 +35,7 @@ def _build_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
         help=(
-            "riparte dagli artefatti gia presenti nella cartella di elaborazione. "
+            "riparte dagli artefatti già presenti nella cartella di elaborazione. "
             "Non verifica che siano stati prodotti con questa configurazione."
         ),
     )
@@ -59,7 +59,7 @@ def _build_parser() -> argparse.ArgumentParser:
     init_command.add_argument(
         "--poisson", type=float, required=True, help="coefficiente di Poisson"
     )
-    init_command.add_argument("--densita", type=float, required=True, help="densita [t/mm^3]")
+    init_command.add_argument("--densita", type=float, required=True, help="densità [t/mm^3]")
 
     sweep_command = commands.add_parser("sweep", help="esegue una griglia di candidati")
     sweep_command.add_argument("experiment", type=Path)
@@ -74,7 +74,7 @@ def _build_parser() -> argparse.ArgumentParser:
     report_command.add_argument("--out", type=Path, required=True)
 
     wall_command = commands.add_parser(
-        "wall", help="ricalcola il solo prior geometrico sugli artefatti gia' presenti"
+        "wall", help="ricalcola il solo prior geometrico sugli artefatti già presenti"
     )
     wall_command.add_argument("config", type=Path)
 
@@ -105,7 +105,7 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "configurazione da aprire. Se omessa, l'interfaccia si apre sulla "
-            "schermata d'ingresso: le corse gia' in runs/ e una corsa nuova da "
+            "schermata d'ingresso: le corse già in runs/ e una corsa nuova da "
             "un file di punti"
         ),
     )
@@ -177,7 +177,7 @@ def main(argv: list[str] | None = None) -> int:
             sorgente = out / pipeline.ARTIFACTS[2]
             if not sorgente.exists():
                 raise FileNotFoundError(
-                    f"manca {sorgente}: il prior misura la nuvola segmentata, che e' "
+                    f"manca {sorgente}: il prior misura la nuvola segmentata, che è "
                     "l'artefatto dello step 2. Esegui almeno fino a quello "
                     f"(`meshrec run {args.config} --to-step 2`) e riprova"
                 )

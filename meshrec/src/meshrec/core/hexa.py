@@ -45,7 +45,7 @@ def passo_di_mesh(contorno: np.ndarray, cfg: ModelConfig) -> float:
     if minima <= 0.0:
         raise ValueError(
             f"il contorno ha estensione nulla su un asse (minima={minima!r} mm): "
-            "non e' una sezione valida per un prisma"
+            "non è una sezione valida per un prisma"
         )
     tetto = minima / cfg.min_layers
     if cfg.target_size is None:
@@ -131,7 +131,7 @@ def mesh_prisma(
     """
     if float(lunghezza) <= 0.0:
         raise ValueError(
-            f"lunghezza={lunghezza!r} non e' positiva: un prisma richiede "
+            f"lunghezza={lunghezza!r} non è positiva: un prisma richiede "
             "un'estrusione di lunghezza maggiore di zero"
         )
 
@@ -180,7 +180,7 @@ def mesh_prisma(
         if 5 not in list(tipi):
             raise RuntimeError(
                 "gmsh non ha prodotto esaedri (tipo 5): la ricombinazione della "
-                "sagoma non e' riuscita, e un modello a prismi triangolari non e' "
+                "sagoma non è riuscita, e un modello a prismi triangolari non è "
                 "quello che il deck dichiara"
             )
         tag_esaedri = np.asarray(
@@ -596,7 +596,7 @@ def taglia_giunzioni(prismi: list[Prisma]) -> tuple[list[Prisma], list[dict[str,
                 if vertice_invaso:
                     raise ValueError(
                         "un vertice del contorno del prisma minore entra nel "
-                        "prisma maggiore ma la retta baricentrica no: e' una "
+                        "prisma maggiore ma la retta baricentrica no: è una "
                         "sovrapposizione d'angolo che il taglio lungo l'asse "
                         "non sa togliere. Verifica la scomposizione"
                     )
@@ -611,7 +611,7 @@ def taglia_giunzioni(prismi: list[Prisma]) -> tuple[list[Prisma], list[dict[str,
             # una diagnosi utile.
             if invaso[0] and invaso[-1]:
                 raise ValueError(
-                    "un prisma e' interamente dentro un altro: non c'e' un "
+                    "un prisma è interamente dentro un altro: non c'è un "
                     "estremo da accorciare. Verifica la scomposizione: due "
                     "regioni sovrapposte non sono due membrature"
                 )
@@ -755,7 +755,7 @@ def costruisci(membrature: list, tipo: str, cfg: ModelConfig) -> dict[str, objec
     if vuote:
         raise ValueError(
             f"le membrature {vuote} hanno riempimento di sezione «vuoto» con "
-            "misura affidabile: la loro sezione e' un ingombro e non una "
+            "misura affidabile: la loro sezione è un ingombro e non una "
             "sezione, e su di essa non si costruisce. Guarda la scomposizione: "
             "sono quasi sempre due membrature adiacenti fuse in una regione a Π"
         )
@@ -938,7 +938,7 @@ def costruisci(membrature: list, tipo: str, cfg: ModelConfig) -> dict[str, objec
         warnings.warn(
             f"{len(giunzioni_senza_tie)} giunzioni tagliate su {len(giunzioni)} "
             f"non producono un *TIE*: numeri {giunzioni_senza_tie}. Il taglio ha "
-            "tolto comunque la doppia contabilita' del volume; verifica se e' un "
+            "tolto comunque la doppia contabilità del volume; verifica se è un "
             "limite della rilevazione delle superfici o della geometria",
             GiunzioneSenzaTieWarning,
             stacklevel=2,
@@ -957,7 +957,7 @@ def costruisci(membrature: list, tipo: str, cfg: ModelConfig) -> dict[str, objec
     if non_legate and len(tagliati) > 1:
         warnings.warn(
             f"membrature non legate da alcun *TIE*: {len(non_legate)} su "
-            f"{len(tagliati)}, indici {non_legate}. Se non e' la scelta di "
+            f"{len(tagliati)}, indici {non_legate}. Se non è la scelta di "
             "modellarle come corpi separati, verifica il gioco fra le geometrie",
             MembratureNonLegateWarning,
             stacklevel=2,

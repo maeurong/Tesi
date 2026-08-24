@@ -531,8 +531,27 @@ def test_senza_config_yaml_la_coerenza_non_lo_chiama_invalido(tmp_path):
     assert detti == {"assente"}
 
 
-def test_il_report_di_corsa_non_usa_lettere_accentate(tmp_path):
-    """Vincolo del core, qui verificato sul documento prodotto."""
+def test_il_report_di_corsa_porta_gli_accenti_italiani_veri(tmp_path):
+    """Il rovescio del controllo che stava qui, e il rovescio e' la regola.
+
+    Questo test pretendeva `testo.isascii()`. La regola del giro 3 dice l'una
+    cosa e l'altra, e la distinzione e' proprio questa: «Sorgenti in ASCII, con
+    una sola eccezione dichiarata: le stringhe **mostrate all'utente** portano
+    gli accenti italiani veri. I commenti, i nomi e il resto del codice restano
+    ASCII». Il report e' l'unica superficie dove il difetto diventa
+    **permanente**: PRODUCT.md lo manda in un'appendice cartacea, e «qualita'»
+    stampato in una tesi si legge come un refuso, non come una convenzione di
+    sorgente.
+
+    Non e' un vincolo tecnico che si allenta: il documento dichiara
+    `<meta charset="utf-8">` e passa da `html.escape`, che le lettere accentate
+    non le tocca. Verificato qui sotto, perche' un accento scritto in un
+    documento che non dichiara la propria codifica e' peggio dell'accento
+    mancante -- diventa un mojibake che nessuno sa piu' da dove viene.
+
+    Mutazione che lo uccide: rimettere `assert testo.isascii()`, che adesso e'
+    falso; oppure togliere il `<meta charset>` dal generatore.
+    """
     corsa = _corsa(
         tmp_path,
         metriche={"01_load": {"points_kept": 10}},
@@ -543,7 +562,15 @@ def test_il_report_di_corsa_non_usa_lettere_accentate(tmp_path):
         encoding="utf-8"
     )
 
-    assert testo.isascii()
+    assert 'charset="utf-8"' in testo, "il documento non dichiara piu' la propria codifica"
+    assert not testo.isascii(), "il report e' tornato in ASCII: le parole hanno perso l'accento"
+    # E non restano parole tronche NELLA PROSA. I valori degli attributi sono
+    # esclusi: `class='assente'` ha l'aspetto esatto di una parola tronca, e
+    # sono undici casi nel solo generatore -- una passata meccanica li avrebbe
+    # accentati, scrivendo `class='assentè'` dentro l'HTML.
+    prosa = re.sub(r"<[^<>]*>", "", testo)
+    tronche = {p for p in re.findall(r"\b[A-Za-z]*[aeiou]'(?![A-Za-zàèéìòù])", prosa) if p != "po'"}
+    assert not tronche, f"parole tronche nel documento stampato: {sorted(tronche)}"
 
 
 # --- tre categorie, non due -----------------------------------------------

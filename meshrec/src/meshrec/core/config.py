@@ -5,13 +5,54 @@ Sistema di unita di lavoro: mm, N, MPa, tonnellata, secondo.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    model_validator,
+)
 
 GRAVITY_MM_S2: float = 9810.0
+
+NomeSet = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_.-]+$")]
+
+
+def _caso_canonico_dei_sei(nome: str) -> str:
+    """Uno dei sei nomi di faccia riscritto nel proprio caso canonico, gli altri intatti.
+
+    `node_sets` porta i sei nomi di faccia nel caso canonico (`TOP`, non
+    `top`): un confronto esatto a valle (`core/selezione.py`,
+    `abaqus.write_inp`) fallirebbe su un nome che collide solo ignorando le
+    maiuscole, ed e' un errore che arriva dopo la tetraedralizzazione invece
+    che a validazione. Un nome fuori dai sei passa intatto: chi lo rifiuta e'
+    la guardia a valle, che sa quali insiemi il deck contiene davvero.
+    """
+    return _mappa_casefold(NOMI_SET_DI_FACCIA).get(nome.casefold(), nome)
+
+
+NomeSetDiFaccia = Annotated[NomeSet, AfterValidator(_caso_canonico_dei_sei)]
+
+
+def _mappa_casefold(nomi: Iterable[str]) -> dict[str, str]:
+    """`nome.casefold()` -> nome canonico: un solo spazio di nomi nel deck.
+
+    `ccx` risolve gli `*NSET` senza distinguere le maiuscole (misurato in
+    `docs/fase-6-cantiere/sonda-caso-nomi/README.md`): ogni punto che
+    confronta un nome di set con un altro deve normalizzare il caso allo
+    stesso modo, o due nomi che per `ccx` sono lo stesso `*NSET` passerebbero
+    controlli diversi. Estratta qui perche' e' la quarta volta che il
+    confronto ricorre (i sei nomi di faccia, i passi riservati, i selettori
+    dichiarati, e ora `SelettoreNset.nome`): la soglia per estrarla era il
+    terzo punto, e questo modulo l'ha gia' superata.
+    """
+    return {nome.casefold(): nome for nome in nomi}
 
 
 class _ModelloBase(BaseModel):
@@ -43,18 +84,17 @@ class Material(_ModelloBase):
     dedurre dalla nuvola o supplire per conto suo.
     """
 
-    name: str = Field(
-        pattern=r"^[A-Za-z0-9_.-]+$",
+    name: NomeSet = Field(
         description=(
-            "nome del materiale. Il vincolo non e' cosmetico: il nome viene interpolato "
-            "in `*MATERIAL, NAME=...` e il deck e' scritto in ascii, quindi un carattere "
+            "nome del materiale. Il vincolo non è cosmetico: il nome viene interpolato "
+            "in `*MATERIAL, NAME=...` e il deck è scritto in ascii, quindi un carattere "
             "fuori tabella romperebbe l'esportazione dopo l'intera pipeline, e un a capo "
             "inietterebbe card nel deck senza che nulla se ne accorga"
         ),
     )
     young: float = Field(gt=0.0, description="modulo elastico [MPa]")
     poisson: float = Field(ge=0.0, lt=0.5, description="coefficiente di Poisson")
-    density: float = Field(gt=0.0, description="densita [t/mm^3]")
+    density: float = Field(gt=0.0, description="densità [t/mm^3]")
 
 
 class InputConfig(_ModelloBase):
@@ -84,7 +124,7 @@ class SegmentConfig(_ModelloBase):
     plane_min_points_ratio: float = Field(default=0.05, gt=0.0, le=1.0)
     cluster_eps_factor: float = Field(default=4.0, gt=0.0, description="x spaziatura media")
     cluster_min_points: int = Field(default=50, gt=0)
-    cluster_index: int = Field(default=0, ge=0, description="0 = cluster piu numeroso")
+    cluster_index: int = Field(default=0, ge=0, description="0 = cluster più numeroso")
 
 
 class DownsampleConfig(_ModelloBase):
@@ -110,14 +150,14 @@ class SurfaceConfig(_ModelloBase):
         ge=4,
         le=14,
         description=(
-            "profondita' dell'ottree del solutore Poisson: piu' alta, superficie piu' "
+            "profondità dell'ottree del solutore Poisson: più alta, superficie più "
             "fitta; su muro, 9 -> 8 porta i triangoli da 908.118 a 221.369"
         ),
     )
     poisson_width: float = Field(default=0.0, ge=0.0)
     poisson_scale: float = Field(default=1.1, gt=0.0)
     density_quantile: float = Field(
-        default=0.05, ge=0.0, lt=1.0, description="quantile di densita sotto il quale i vertici sono scartati"
+        default=0.05, ge=0.0, lt=1.0, description="quantile di densità sotto il quale i vertici sono scartati"
     )
     poisson_n_threads: int = Field(
         default=1, description="thread per il solutore Poisson; 1 = riproducibile, -1 = automatico"
@@ -157,11 +197,11 @@ class TetConfig(_ModelloBase):
         default=1.8,
         gt=0.0,
         description=(
-            "rapporto raggio-spigolo massimo: valori piu bassi danno elementi piu "
-            "regolari, ma il raffinamento puo' non convergere su geometrie difficili. "
+            "rapporto raggio-spigolo massimo: valori più bassi danno elementi più "
+            "regolari, ma il raffinamento può non convergere su geometrie difficili. "
             "Sul muro di riferimento 1.6 e valori inferiori interrompono TetGen con un "
-            "errore interno mentre 1.7 converge: il predefinito 1.8 non e' quindi il "
-            "valore piu severo che porta a termine il lavoro, ma quello che tiene un "
+            "errore interno mentre 1.7 converge: il predefinito 1.8 non è quindi il "
+            "valore più severo che porta a termine il lavoro, ma quello che tiene un "
             "decimo di margine sopra di esso. Misura completa da 1.4 a 2.5 in "
             "docs/fase-1-min-ratio.md"
         ),
@@ -171,8 +211,8 @@ class TetConfig(_ModelloBase):
         default=-1,
         ge=-1,
         description=(
-            "punti che TetGen puo' aggiungere per raffinare; -1 = nessun limite. "
-            "Il predefinito della libreria tetgen e' 100000: su geometrie a scala "
+            "punti che TetGen può aggiungere per raffinare; -1 = nessun limite. "
+            "Il predefinito della libreria tetgen è 100000: su geometrie a scala "
             "reale quel tetto viene raggiunto e il raffinamento si ferma li, "
             "restituendo una mesh troncata che nessuna metrica segnalava"
         ),
@@ -181,13 +221,13 @@ class TetConfig(_ModelloBase):
         default=False,
         description=(
             "vieta a TetGen di suddividere le facce della superficie di ingresso. "
-            "Serve dove la scala locale della superficie e' minuscola: la "
+            "Serve dove la scala locale della superficie è minuscola: la "
             "suddivisione per invasione ricorre fino alla distanza fra lembi "
             "opposti, e su lab_frame.pcd, che ha strozzature sotto il millimetro, "
-            "il raffinamento non converge a nessun min_ratio finche' resta "
+            "il raffinamento non converge a nessun min_ratio finché resta "
             "consentita. Attenzione: con nobisect attivo TetGen non aggiunge punti "
             "sul bordo, quindi su una superficie di ingresso grossolana max_volume "
-            "puo' restare disatteso; il caso e' segnalato con "
+            "può restare disatteso; il caso è segnalato con "
             "IneffectiveVolumeLimitWarning. Vedi docs/fase-1-min-ratio.md"
         ),
     )
@@ -196,11 +236,11 @@ class TetConfig(_ModelloBase):
         gt=0.0,
         description=(
             "metro fisso con cui lo step 10 conta la frazione di elementi fuori "
-            "vincolo raggio-spigolo. Non e' il vincolo chiesto a TetGen: nel "
-            "motore di sweep min_ratio e' una variabile della griglia, e una "
+            "vincolo raggio-spigolo. Non è il vincolo chiesto a TetGen: nel "
+            "motore di sweep min_ratio è una variabile della griglia, e una "
             "frazione contata contro il proprio min_ratio confronterebbe "
             "candidati contro vincoli diversi. Il valore 1.8 coincide con il "
-            "predefinito di min_ratio perche' e' il metro con cui sono state "
+            "predefinito di min_ratio perché è il metro con cui sono state "
             "misurate le due corse di riferimento (8,10% e 9,55%)"
         ),
     )
@@ -229,19 +269,19 @@ class SpintaOrizzontale(_ModelloBase):
 
 
 class CaricoSommita(_ModelloBase):
-    """Risultante verticale ripartita sui nodi di un insieme.
+    """Risultante verticale ripartita sui nodi di un insieme, per area tributaria.
 
-    La ripartizione e' uniforme per nodo, quindi il carico si concentra dove i
-    nodi sono piu' fitti, e l'insieme e' costruito per tolleranza e non e' la
-    faccia superiore certificata del pezzo. Sono due cose da dichiarare accanto
-    ai risultati di questo caso, non da correggere qui.
+    Pesata per area tributaria dalla Fase 6 (la stessa `ripartisci` dei
+    carichi posizionati): un nodo non riceve piu' carico solo perche' la
+    mesh e' piu' fitta li'. L'insieme e' comunque costruito per tolleranza e
+    non e' la faccia superiore certificata del pezzo: quello resta da
+    dichiarare accanto ai risultati di questo caso.
     """
 
-    risultante: float = Field(gt=0.0, description="risultante in N, ripartita sui nodi")
-    nset: str = Field(
-        pattern=r"^[A-Za-z0-9_.-]+$",
-        description="insieme di nodi su cui ripartire, di norma TOP",
+    risultante: float = Field(
+        gt=0.0, description="risultante in N, ripartita per area tributaria sui nodi"
     )
+    nset: NomeSetDiFaccia = Field(description="insieme di nodi su cui ripartire, di norma TOP")
 
 
 class Modale(_ModelloBase):
@@ -266,18 +306,18 @@ class AnalysisConfig(_ModelloBase):
 
     material: Material
     gravity: float = Field(default=GRAVITY_MM_S2, gt=0.0)
-    fixed_nset: str = "BASE"
-    step_name: str = "GRAVITA"
+    fixed_nset: NomeSetDiFaccia = "BASE"
+    step_name: NomeSet = "GRAVITA"
     set_tolerance_factor: float = Field(
         default=6.0,
         gt=0.0,
         description=(
             "moltiplica la spaziatura dei nodi sul bordo del maglio di volume e "
-            "da' la tolleranza con cui i set di faccia sono estratti. Il "
-            "predefinito 6 e' misurato: e' il piu piccolo intero che copre almeno "
+            "dà la tolleranza con cui i set di faccia sono estratti. Il "
+            "predefinito 6 è misurato: è il più piccolo intero che copre almeno "
             "il 95% della superficie d'appoggio su entrambe le corse di "
             "riferimento e per i quattro set utilizzabili. Il margine ha la "
-            "stessa struttura di quello di tet.min_ratio: 5 e' il primo valore "
+            "stessa struttura di quello di tet.min_ratio: 5 è il primo valore "
             "che non regge (SIDE_LEFT di lab_crop si ferma al 94,37%), 4 il primo "
             "che crolla (77,89%), e sopra 6 si compra copertura marginale a "
             "prezzo pieno (a 8 il BASE del muro cresce del 41% per l'1,58% di "
@@ -299,9 +339,9 @@ class AnalysisConfig(_ModelloBase):
         """
         if self.step_name.upper() in NOMI_PASSO_RISERVATI:
             raise ValueError(
-                f"step_name={self.step_name!r} e' un nome riservato: "
+                f"step_name={self.step_name!r} è un nome riservato: "
                 f"{', '.join(NOMI_PASSO_RISERVATI)} sono le etichette che la "
-                "pipeline assegna da se' agli altri casi di carico, e due passi "
+                "pipeline assegna da sé agli altri casi di carico, e due passi "
                 "sulla stessa etichetta si sovrascriverebbero a vicenda nel .vtu"
             )
         return self
@@ -324,10 +364,10 @@ class RunConfig(_ModelloBase):
             "la ripresa arriva fino allo step 9 (tetraedrizzazione); gli step 10 e 11 "
             "sono metriche di volume ed esportazione, senza lavoro costoso da saltare, "
             "e vengono comunque rieseguiti a ogni corsa."
-            " Lo step 12 (prior geometrico) e' l'ultimo e non e' un punto di "
-            "ripresa: legge 02_segmented.ply, che e' gia' cio' che una ripresa "
+            " Lo step 12 (prior geometrico) è l'ultimo e non è un punto di "
+            "ripresa: legge 02_segmented.ply, che è già ciò che una ripresa "
             "da 3 in poi ricarica. Chi vuole il solo prior usa `meshrec wall`, "
-            "che e' un'azione e non una ripresa."
+            "che è un'azione e non una ripresa."
         ),
     )
     to_step: int = Field(
@@ -337,27 +377,27 @@ class RunConfig(_ModelloBase):
         description=(
             "ultimo step eseguito. Serve all'interfaccia, che esegue uno step "
             "alla volta: from_step e to_step uguali eseguono soltanto quello. "
-            "Il tetto e' 13 dalla Fase 5 e il predefinito coincide con esso: "
+            "Il tetto è 13 dalla Fase 5 e il predefinito coincide con esso: "
             "l'utente ha scelto esplicitamente che ogni corsa risolva e "
             "scriva spostamenti e tensioni accanto alle altre metriche, non "
             "che il solutore sia un extra da chiedere (scartata l'opzione "
-            "'step opzionale acceso dalla configurazione'). "
-            "Lo step 13 resta pero' diverso dagli altri: e' l'unico che paga "
+            "«step opzionale acceso dalla configurazione»). "
+            "Lo step 13 resta però diverso dagli altri: è l'unico che paga "
             "un processo esterno vero (ccx) invece di lavoro in-process, e "
             "chi lo invoca su molti candidati -- uno sweep -- paga quel "
             "processo e i suoi artefatti per ciascuno, senza che la "
             "selezione se ne serva: misurati sull'unica corsa vera "
             "(runs/lab_telaio_v2), .frd 81 MiB, .vtu 8,2 MiB e .dat 4,3 MiB, "
-            "cioe' 93,6 MiB per candidato. Questa e' la "
+            "cioè 93,6 MiB per candidato. Questa è la "
             "ragione per cui sweep.py chiede esplicitamente to_step=12 al "
             "sottoprocesso invece di ereditare questo predefinito, e per cui "
-            "REQUIRED_STEPS in sweep.py non lo richiede: e' una decisione del "
+            "REQUIRED_STEPS in sweep.py non lo richiede: è una decisione del "
             "chiamante, non del predefinito del prodotto. "
             "from_step resta fermo a 9 e non segue questo tetto, per la "
-            "ragione scritta la'. "
+            "ragione scritta là. "
             "Con validate_assignment attivo il validatore incrociato rifiuta "
             "ogni stato intermedio incoerente, e nessun ordine di assegnazione "
-            "e' sicuro: restringendo un intervallo verso l'alto rompe to_step "
+            "è sicuro: restringendo un intervallo verso l'alto rompe to_step "
             "per primo, verso il basso rompe from_step. I due campi si "
             "assegnano quindi insieme, con una sola validazione dell'oggetto "
             "intero (RunConfig.model_validate su model_dump aggiornato), mai "
@@ -388,8 +428,8 @@ class WallConfig(_ModelloBase):
         description=(
             "lato della cella quadrata, in multipli della spaziatura media. E' il "
             "«metodo delle colonne» di docs/fase-1-tolleranza-set.md, dove il "
-            "fattore 4 e' misurato e non scelto: con una cella larga quanto la "
-            "spaziatura la griglia diventa piu fine dei triangoli della faccia e "
+            "fattore 4 è misurato e non scelto: con una cella larga quanto la "
+            "spaziatura la griglia diventa più fine dei triangoli della faccia e "
             "una colonna su dieci risulta vuota per puro artefatto di griglia"
         ),
     )
@@ -400,7 +440,7 @@ class WallConfig(_ModelloBase):
             "punti campionati per stimare la spaziatura locale di ogni regione, "
             "stessa semantica di input.spacing_sample ma per il riempimento della "
             "sezione: la spaziatura del pezzo intero non descrive una regione "
-            "campionata piu' rada (piu' lontana dallo scanner, parzialmente "
+            "campionata più rada (più lontana dallo scanner, parzialmente "
             "occlusa), e usarla al posto di quella locale sposta la soglia sulla "
             "grandezza sbagliata"
         ),
@@ -415,16 +455,16 @@ class WallConfig(_ModelloBase):
             "scarto relativo entro cui due celle adiacenti contano come «stesso "
             "spessore», e quindi come stessa membratura. E' la forma numerica di "
             "«quasi costante»: le membrature sono le regioni connesse a spessore "
-            "quasi costante, e questa e' l'unica soglia della scomposizione"
+            "quasi costante, e questa è l'unica soglia della scomposizione"
         ),
     )
     min_cells: int = Field(
         default=12,
         gt=0,
         description=(
-            "celle minime perche' una regione connessa sia una membratura. Sotto "
-            "questo numero la regione e' rumore di griglia e non ha abbastanza "
-            "celle perche' una direzione principale sia stimabile"
+            "celle minime perché una regione connessa sia una membratura. Sotto "
+            "questo numero la regione è rumore di griglia e non ha abbastanza "
+            "celle perché una direzione principale sia stimabile"
         ),
     )
     floor_angle_deg: float = Field(
@@ -433,7 +473,7 @@ class WallConfig(_ModelloBase):
         lt=90.0,
         description=(
             "un piano estratto con la normale entro questo angolo dalla verticale "
-            "e' candidato pavimento. Il pavimento non e' una membratura e va "
+            "è candidato pavimento. Il pavimento non è una membratura e va "
             "scartato come piano, mai come quota"
         ),
     )
@@ -442,7 +482,7 @@ class WallConfig(_ModelloBase):
         gt=0.0,
         le=1.0,
         description=(
-            "frazione minima dei punti perche' un piano quasi orizzontale sia il "
+            "frazione minima dei punti perché un piano quasi orizzontale sia il "
             "pavimento e non la faccia superiore di una membratura. Le due "
             "condizioni valgono insieme: orizzontale e esteso"
         ),
@@ -472,7 +512,7 @@ class WallConfig(_ModelloBase):
         le=1.0,
         description=(
             "controllo intrinseco: frazione minima delle celle della regione che "
-            "vedono entrambe le facce. E' la lezione gia' pagata su FACE_FRONT e "
+            "vedono entrambe le facce. E' la lezione già pagata su FACE_FRONT e "
             "FACE_BACK: una faccia vista da pochi punti produce un piano finto"
         ),
     )
@@ -481,10 +521,10 @@ class WallConfig(_ModelloBase):
         gt=0.0,
         description=(
             "controllo intrinseco: dispersione relativa massima della sezione "
-            "lungo l'asse. Oltre, la regione non e' un prisma e viene riportata "
+            "lungo l'asse. Oltre, la regione non è un prisma e viene riportata "
             "come tale invece di essere spacciata per una membratura. E' l'unica "
             "difesa contro una sezione a Π riportata come (pieno, affidabile): "
-            "riempimento e affidabilita' misurano l'ingombro locale per fetta e "
+            "riempimento e affidabilità misurano l'ingombro locale per fetta e "
             "non vedono due membrature uguali unite a Π, che restano piene di "
             "bounding box da un capo all'altro"
         ),
@@ -500,9 +540,9 @@ class WallConfig(_ModelloBase):
             "L'estensione e la dispersione sono entrambe misure di bounding box "
             "e non vedono un vuoto interno -- due membrature identiche unite a Π "
             "restano piene di bounding box da un capo all'altro. Stessa "
-            "convenzione di meta' di face_coverage: sotto meta' delle celle del "
-            "proprio ingombro, l'ingombro non e' la sezione ma il suo "
-            "contenitore. Non scarta nulla: il riempimento e' un esito "
+            "convenzione di metà di face_coverage: sotto metà delle celle del "
+            "proprio ingombro, l'ingombro non è la sezione ma il suo "
+            "contenitore. Non scarta nulla: il riempimento è un esito "
             "dichiarato, e il rifiuto spetta a chi costruisce i modelli"
         ),
     )
@@ -510,16 +550,16 @@ class WallConfig(_ModelloBase):
         default=1.0,
         gt=0.0,
         description=(
-            "condizione di validita' della misura di riempimento, non criterio "
-            "di qualita' del pezzo: dispersione massima delle distanze al vicino "
-            "piu' prossimo rispetto alla loro media. Sopra questo limite lo "
+            "condizione di validità della misura di riempimento, non criterio "
+            "di qualità del pezzo: dispersione massima delle distanze al vicino "
+            "più prossimo rispetto alla loro media. Sopra questo limite lo "
             "scarto tipo eguaglia la media, la media smette di essere la scala "
             "della nuvola, e la griglia costruita su di essa (cell_factor per la "
-            "spaziatura) non risolve piu' la parte rada: il riempimento si "
+            "spaziatura) non risolve più la parte rada: il riempimento si "
             "dichiara «non verificabile» invece di dare un numero che misura il "
-            "campionamento e non la sezione. Il valore uno e' il confine fra "
+            "campionamento e non la sezione. Il valore uno è il confine fra "
             "«descrivibile da una media» e no, non un numero tarato su un caso: "
-            "una nuvola a densita' unica sta ben sotto (una griglia regolare da' "
+            "una nuvola a densità unica sta ben sotto (una griglia regolare dà "
             "zero, un campionamento casuale uniforme di superficie circa 0,52), "
             "una nuvola con una parte rada oltre cell_factor volte la media "
             "sta sopra"
@@ -530,8 +570,8 @@ class WallConfig(_ModelloBase):
         gt=0.0,
         description=(
             "controllo intrinseco: scarto relativo ammesso fra la somma dei "
-            "volumi delle membrature e il volume della loro unione. Oltre c'e' "
-            "doppio conteggio alle giunzioni, che nessuna metrica di qualita' "
+            "volumi delle membrature e il volume della loro unione. Oltre c'è "
+            "doppio conteggio alle giunzioni, che nessuna metrica di qualità "
             "vedrebbe"
         ),
     )
@@ -540,8 +580,8 @@ class WallConfig(_ModelloBase):
         gt=0.0,
         description=(
             "passo del conteggio di celle con cui si misura il volume "
-            "dell'unione, in multipli della spaziatura media. Piu' fine, piu' "
-            "lento e piu' preciso: l'errore di discretizzazione viene riportato "
+            "dell'unione, in multipli della spaziatura media. Più fine, più "
+            "lento e più preciso: l'errore di discretizzazione viene riportato "
             "accanto al risultato, non nascosto"
         ),
     )
@@ -551,7 +591,7 @@ class WallConfig(_ModelloBase):
         description=(
             "RISCONTRO DICHIARATO, facoltativo: quante membrature l'operatore si "
             "aspetta. Assente per definizione su un pezzo nuovo. Se dichiarato il "
-            "prior riporta lo scarto; se assente riporta cio' che ha trovato e "
+            "prior riporta lo scarto; se assente riporta ciò che ha trovato e "
             "non inventa un'aspettativa"
         ),
     )
@@ -588,7 +628,7 @@ class ModelConfig(_ModelloBase):
             "un telaio lavora a flessione. C3D8 a integrazione piena si "
             "irrigidisce a taglio e restituisce spostamenti troppo piccoli, un "
             "errore invisibile guardando la mesh; C3D8R ha il problema opposto, i "
-            "modi a clessidra. C3D8I e' supportato sia da Abaqus sia da CalculiX"
+            "modi a clessidra. C3D8I è supportato sia da Abaqus sia da CalculiX"
         ),
     )
     min_layers: int = Field(
@@ -596,9 +636,9 @@ class ModelConfig(_ModelloBase):
         ge=3,
         description=(
             "strati di elementi minimi nello spessore, imposti dal codice e non "
-            "suggeriti. Con uno o due la flessione nello spessore non e' "
-            "rappresentata e il risultato e' sbagliato senza alcun segnale. Il "
-            "vincolo ge=3 e' il vincolo stesso: non si scende sotto"
+            "suggeriti. Con uno o due la flessione nello spessore non è "
+            "rappresentata e il risultato è sbagliato senza alcun segnale. Il "
+            "vincolo ge=3 è il vincolo stesso: non si scende sotto"
         ),
     )
     target_size: float | None = Field(
@@ -606,22 +646,20 @@ class ModelConfig(_ModelloBase):
         gt=0.0,
         description=(
             "passo caratteristico della mesh [mm]. None = la sezione minima "
-            "divisa per min_layers, cioe' il passo piu' grosso che rispetta il "
+            "divisa per min_layers, cioè il passo più grosso che rispetta il "
             "vincolo degli strati"
         ),
     )
-    tie_name_prefix: str = Field(
+    tie_name_prefix: NomeSet = Field(
         default="GIUNZIONE",
-        pattern=r"^[A-Za-z0-9_.-]+$",
         description=(
             "prefisso dei nomi dei vincoli *TIE fra membrature adiacenti. Stesso "
             "vincolo di caratteri del nome del materiale, e per la stessa "
             "ragione: finisce interpolato in un deck scritto in ascii"
         ),
     )
-    lateral_nset: str | None = Field(
+    lateral_nset: NomeSet | None = Field(
         default=None,
-        pattern=r"^[A-Za-z0-9_.-]+$",
         description=(
             "CARICO LATERALE, facoltativo: nome della superficie di elemento su "
             "cui agisce la pressione. Assente se non richiesto"
@@ -638,9 +676,153 @@ class ModelConfig(_ModelloBase):
             raise ValueError(
                 "il carico laterale si dichiara per intero o non si dichiara: "
                 f"lateral_nset={self.lateral_nset!r} e "
-                f"lateral_pressure={self.lateral_pressure!r}. Meta' dichiarazione "
+                f"lateral_pressure={self.lateral_pressure!r}. Metà dichiarazione "
                 "produrrebbe un deck con una card muta o con una pressione "
                 "applicata a nulla"
+            )
+        return self
+
+
+# I sei nomi che `abaqus.build_node_sets` fabbrica a ogni esportazione.
+# Stanno qui e non in `core/abaqus.py` perche' la validazione della
+# configurazione deve conoscerli e `abaqus` importa gia' `config`: l'altro
+# verso sarebbe un ciclo. `build_node_sets` **non** li importa da qui: e' un
+# dizionario letterale che li riscrive, per tenere ogni nome sulla riga del
+# proprio criterio geometrico (il perche' e' scritto li'). L'accordo fra le
+# due liste lo tengono due test, non il tipo: se questa costante cambia e
+# quel dizionario no, sono loro a dirlo.
+NOMI_SET_DI_FACCIA: tuple[str, ...] = (
+    "BASE", "TOP", "FACE_FRONT", "FACE_BACK", "SIDE_LEFT", "SIDE_RIGHT",
+)
+
+
+class SelettoreBox(_ModelloBase):
+    """Tutti i nodi dentro un parallelepipedo allineato agli assi del modello.
+
+    Le coordinate sono nel sistema di riferimento **dopo** `align_to_axes`,
+    lo stesso di `wall_model.vtu`: e' il maglio che il deck contiene.
+    L'estensione in quel sistema e' pubblicata in
+    `metrics["11_export"]["extent"]`, e la bbox dei nodi presi in
+    `metrics["11_export"]["selettori"]`, perche' l'operatore possa
+    collocare una box senza indovinare.
+    """
+
+    tipo: Literal["box"]
+    min: tuple[float, float, float] = Field(description="angolo minimo [mm]")
+    max: tuple[float, float, float] = Field(description="angolo massimo [mm]")
+
+    @model_validator(mode="after")
+    def _la_box_non_e_rovesciata(self) -> "SelettoreBox":
+        for asse, minimo, massimo in zip("xyz", self.min, self.max, strict=True):
+            if minimo > massimo:
+                raise ValueError(
+                    f"la box ha min > max sulla componente {asse}: {minimo} > {massimo}. "
+                    "Risolverebbe zero nodi, con lo stesso sintomo di altre quattro "
+                    "condizioni diverse, e nessuno saprebbe quale sia successa"
+                )
+        return self
+
+
+class SelettoreSfera(_ModelloBase):
+    """Tutti i nodi entro un raggio da un centro. Coordinate come in SelettoreBox."""
+
+    tipo: Literal["sfera"]
+    centro: tuple[float, float, float] = Field(description="centro [mm]")
+    raggio: float = Field(gt=0.0, description="raggio [mm]. Zero non è una sfera piccola")
+
+
+class SelettoreNodo(_ModelloBase):
+    """Il singolo nodo piu' vicino a un punto. Coordinate come in SelettoreBox.
+
+    Per costruzione non puo' rendere zero nodi: `argmin` un vincitore ce l'ha
+    sempre, anche a chilometri di distanza. L'oracolo sta a valle, sulla
+    distanza, e non qui.
+    """
+
+    tipo: Literal["nodo"]
+    punto: tuple[float, float, float] = Field(description="punto di riferimento [mm]")
+
+
+class SelettoreNset(_ModelloBase):
+    """Un insieme di nodi gia' esistente nel deck, per nome."""
+
+    tipo: Literal["nset"]
+    nome: NomeSetDiFaccia = Field(
+        description="nome di un *NSET già scritto, di norma uno dei sei di faccia"
+    )
+
+
+Selettore = Annotated[
+    SelettoreBox | SelettoreSfera | SelettoreNodo | SelettoreNset,
+    Field(discriminator="tipo"),
+]
+
+
+class Momento(_ModelloBase):
+    """Momento realizzato come coppia di forze staticamente equivalente.
+
+    Non come `*CLOAD` sui gradi 4-6: misurato su un deck di sonda dato a
+    `ccx` 2.22, un momento concentrato su un C3D4 e' scartato **in
+    silenzio** -- zero occorrenze di `warning` o `error`, `number of
+    equations 3`, spostamento `0.000000E+00` su tutte e tre le componenti.
+    La guardia di `core/solve.py:438` non lo intercetta perche' non c'e'
+    nessun warning da intercettare.
+
+    `braccio` fissa la soglia di separazione fra i due gruppi di nodi, e il
+    programma la contraddice se i nodi presi non la sostengono. Il momento
+    realizzato resta `modulo`: e' la forza a calibrarsi sul braccio
+    effettivo che i nodi offrono davvero -- maggiore di quello dichiarato,
+    ed e' nel resoconto -- non il momento a scostarsi da quello dichiarato.
+    """
+
+    asse: tuple[float, float, float] = Field(
+        description="asse del momento, versore non normalizzato"
+    )
+    modulo: float = Field(gt=0.0, description="modulo del momento [N*mm]")
+    braccio: float = Field(
+        gt=0.0,
+        description=(
+            "soglia di separazione dei due gruppi di nodi [mm]; il braccio "
+            "effettivo fra i baricentri pesati risulta maggiore ed è nel resoconto"
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _lasse_non_e_nullo(self) -> "Momento":
+        if not any(self.asse):
+            raise ValueError(
+                "l'asse del momento è [0, 0, 0]: non è una direzione, si vede "
+                "dalla configurazione senza aver letto la mesh"
+            )
+        return self
+
+
+class CaricoPosizionato(_ModelloBase):
+    """Un carico che porta con se' il proprio indirizzo.
+
+    E' la differenza vera dagli altri tre casi di `CarichiConfig`, che sono
+    dichiarati a mano anche loro ma citano un insieme che il deck fabbrica.
+    """
+
+    nome: NomeSet = Field(description="nome del passo statico nel deck")
+    selettore: NomeSet = Field(description="nome di un selettore dichiarato in `selettori`")
+    forza: tuple[float, float, float] | None = Field(
+        default=None, description="risultante [N], ripartita per area sui nodi presi"
+    )
+    momento: Momento | None = None
+
+    @model_validator(mode="after")
+    def _o_forza_o_momento(self) -> "CaricoPosizionato":
+        if (self.forza is None) == (self.momento is None):
+            raise ValueError(
+                f"il carico '{self.nome}' deve dichiarare uno solo fra `forza` e "
+                "`momento`: entrambi sono due carichi e vanno scritti come due voci, "
+                "nessuno dei due non è un carico"
+            )
+        if self.forza is not None and not any(self.forza):
+            raise ValueError(
+                f"il carico '{self.nome}' ha forza di modulo nullo: scriverebbe un "
+                "passo statico identico al peso proprio, con un nome che promette altro"
             )
         return self
 
@@ -648,7 +830,7 @@ class ModelConfig(_ModelloBase):
 class CarichiConfig(_ModelloBase):
     """Casi di carico applicati al modello, oltre al peso proprio.
 
-    I tre campi sono nullabili perché la dichiarazione e' opzionale: chi non
+    I tre campi nullabili lo sono perché la dichiarazione e' opzionale: chi non
     dichiara nulla ottiene il solo peso proprio, l'unico caso che il programma
     puo' derivare dai dati (densita' e gravita' sono gia' nella configurazione).
 
@@ -660,6 +842,15 @@ class CarichiConfig(_ModelloBase):
     spinta: SpintaOrizzontale | None = None
     carico_sommita: CaricoSommita | None = None
     modale: Modale | None = None
+    posizionati: tuple[CaricoPosizionato, ...] = Field(
+        default=(),
+        description=(
+            "carichi che portano con sé il proprio selettore. Tupla vuota e non "
+            "None: il codice a valle itera, e una corsa senza posizionati e una "
+            "con la lista vuota sono lo stesso esperimento -- è la regola che "
+            "l'impronta di sweep già applica al blocco intero"
+        ),
+    )
 
 
 class PipelineConfig(_ModelloBase):
@@ -676,17 +867,123 @@ class PipelineConfig(_ModelloBase):
     analysis: AnalysisConfig | None = Field(
         default=None,
         description=(
-            "materiale e analisi. Assente finche' non viene dichiarato: `analysis` "
-            "e' letto dai soli step 11 e 13 (vedi `steps.STEP_BLOCKS`), e pretenderlo "
+            "materiale e analisi. Assente finché non viene dichiarato: `analysis` "
+            "è letto dai soli step 11 e 13 (vedi `steps.STEP_BLOCKS`), e pretenderlo "
             "alla nascita di una corsa costringeva a scegliere la classe del "
             "calcestruzzo prima di aver guardato un punto della nuvola. Il materiale "
             "resta obbligatorio *dentro* `AnalysisConfig`: quell'invariante nasce da "
-            "un difetto misurato e non e' allentata qui"
+            "un difetto misurato e non è allentata qui"
         ),
     )
     carichi: CarichiConfig = Field(default_factory=CarichiConfig)
+    selettori: dict[NomeSet, Selettore] = Field(
+        default_factory=dict,
+        description=(
+            "regole geometriche nominate che indirizzano i nodi di una mesh senza "
+            "topologia. Nominate e non annidate nei carichi: due carichi sullo "
+            "stesso posto citano lo stesso nome, e una correzione fatta in un "
+            "punto solo li muove entrambi"
+        ),
+    )
     wall: WallConfig = Field(default_factory=WallConfig)
     model: ModelConfig = Field(default_factory=ModelConfig)
+
+    @model_validator(mode="after")
+    def _i_nomi_dei_selettori_non_collidono_coi_sei(self) -> "PipelineConfig":
+        """Il confronto normalizza il caso su entrambi i lati.
+
+        Misurato in `docs/fase-6-cantiere/sonda-caso-nomi/README.md`: `ccx`
+        risolve un `*NSET` senza distinguere le maiuscole, quindi un
+        selettore `base` collide con `BASE` nel deck anche se le stringhe
+        Python sono diverse. Per lo stesso motivo due selettori
+        dell'operatore che differiscono solo per caso (`piastra`/`PIASTRA`)
+        sono due chiavi distinte nel dizionario ma un solo nome nel deck.
+        """
+        casi_di_faccia = _mappa_casefold(NOMI_SET_DI_FACCIA)
+        visti: dict[str, str] = {}
+        for nome in self.selettori:
+            chiave = nome.casefold()
+            if chiave in casi_di_faccia:
+                raise ValueError(
+                    f"il selettore {nome!r} collide, ignorando le maiuscole, con il "
+                    f"set di faccia {casi_di_faccia[chiave]!r} che il deck fabbrica da "
+                    "sé: nel deck c'è un solo spazio di nomi, case-insensitive "
+                    "(vedi docs/fase-6-cantiere/sonda-caso-nomi/README.md), e il "
+                    "*NSET dell'operatore lo sovrascriverebbe"
+                )
+            if chiave in visti:
+                raise ValueError(
+                    f"i selettori {visti[chiave]!r} e {nome!r} differiscono solo per "
+                    "maiuscole: nel deck sono lo stesso nome, case-insensitive "
+                    "(vedi docs/fase-6-cantiere/sonda-caso-nomi/README.md)"
+                )
+            visti[chiave] = nome
+        return self
+
+    @model_validator(mode="after")
+    def _i_posizionati_citano_selettori_dichiarati(self) -> "PipelineConfig":
+        # Il confronto sui nomi ignora il caso, come gia' fa
+        # `_i_nomi_dei_selettori_non_collidono_coi_sei`. Una sola regola nel
+        # modulo, non due: la ragione la' era misurata (ccx risolve gli *NSET
+        # senza distinguere le maiuscole, vedi
+        # docs/fase-6-cantiere/sonda-caso-nomi/), qui e' che due passi che
+        # differiscono solo per caso sono indistinguibili per chi legge il
+        # rapporto, e un nome che l'operatore crede nuovo ne sovrascrive uno
+        # riservato nella sua testa se non nel deck.
+        riservati = _mappa_casefold(NOMI_PASSO_RISERVATI)
+        # `analysis` puo' mancare: una corsa nasce dalla sola nuvola e il
+        # materiale si dichiara piu' tardi (lo pretendono gli step 11 e 13, non
+        # gli altri). Questo validatore gira a OGNI costruzione, comprese le
+        # configurazioni che un'analisi non ce l'hanno ancora, quindi leggere
+        # `self.analysis.step_name` diritto la faceva cadere sulla nuvola appena
+        # caricata. Senza analisi non c'e' nessun passo di peso proprio da
+        # riservare, e il nome resta libero fino a quando l'analisi lo prende.
+        passo_del_peso = self.analysis.step_name if self.analysis else None
+        if passo_del_peso is not None:
+            riservati[passo_del_peso.casefold()] = passo_del_peso
+        selettori_per_caso = _mappa_casefold(self.selettori)
+        visti: dict[str, str] = {}
+        for carico in self.carichi.posizionati:
+            chiave_selettore = carico.selettore.casefold()
+            if chiave_selettore not in selettori_per_caso:
+                raise ValueError(
+                    f"il carico '{carico.nome}' cita il selettore "
+                    f"'{carico.selettore}', che non è dichiarato. Dichiarati: "
+                    f"{sorted(self.selettori)}"
+                )
+            # Normalizzato al nome canonico qui, a monte: a valle
+            # (`core/abaqus.py`, che costruisce `nset_selettori` dalle chiavi
+            # di `self.selettori`) il confronto e' un'uguaglianza esatta, e
+            # deve trovare sempre lo stesso nome che il selettore ha
+            # dichiarato, non la grafia con cui il carico lo ha citato.
+            carico.selettore = selettori_per_caso[chiave_selettore]
+            chiave = carico.nome.casefold()
+            if chiave in riservati:
+                raise ValueError(
+                    f"il carico '{carico.nome}' porta il nome del passo "
+                    f"'{riservati[chiave]}', già preso. I riservati sono "
+                    f"{list(NOMI_PASSO_RISERVATI)}"
+                    # Nominato solo quando c'e': senza analisi la frase
+                    # direbbe che il passo di peso proprio si chiama 'None',
+                    # cioe' inventerebbe un nome che nessuno ha dichiarato.
+                    + (
+                        f" e il passo di peso proprio si chiama '{passo_del_peso}'"
+                        if passo_del_peso is not None
+                        else ""
+                    )
+                    + ". Il confronto ignora il caso: due passi che "
+                    "differiscono solo per maiuscole sono indistinguibili "
+                    "per chi legge il rapporto"
+                )
+            if chiave in visti:
+                raise ValueError(
+                    f"due carichi posizionati si chiamano '{visti[chiave]}' e "
+                    f"'{carico.nome}': il deck scriverebbe due passi omonimi e i "
+                    "due risultati sarebbero indistinguibili nel file risolto"
+                )
+            visti[chiave] = carico.nome
+        return self
+
     run: RunConfig = Field(default_factory=RunConfig)
 
     def analisi_dichiarata(self, chiede: str) -> AnalysisConfig:
@@ -709,17 +1006,54 @@ class PipelineConfig(_ModelloBase):
             raise ValueError(
                 f"{chiede} pretende il materiale, e questa corsa non lo dichiara. "
                 "Dichiaralo nel pannello dello step 11, riquadro «materiale»: nome, "
-                "modulo elastico, coefficiente di Poisson, densita -- da riga di "
-                "comando e' analysis.material nel config.yaml della corsa. Il "
+                "modulo elastico, coefficiente di Poisson, densità -- da riga di "
+                "comando è analysis.material nel config.yaml della corsa. Il "
                 "programma non lo deduce dalla nuvola e non ne mette uno per conto suo"
             )
         return self.analysis
 
 
+class _LoaderChiaviUniche(yaml.SafeLoader):
+    """`SafeLoader` che rifiuta due chiavi omonime invece di tenere l'ultima.
+
+    Misurato: con il loader di serie la prima delle due sparisce senza alcun
+    segnale. E' l'unico ingresso degenere che non ha un sintomo -- gli altri
+    almeno risolvono zero nodi -- e per questo si rifiuta alla lettura invece
+    che a valle.
+
+    Deriva da `yaml.SafeLoader` e ne eredita i costruttori: nessun tag
+    `!!python/object`, nessuna costruzione di tipi arbitrari. Aggiunge un
+    controllo, non toglie un divieto.
+    """
+
+    def construct_mapping(self, node, deep=False):  # type: ignore[override]
+        viste: set[object] = set()
+        for chiave_node, _ in node.value:
+            chiave = self.construct_object(chiave_node, deep=deep)
+            if chiave in viste:
+                raise ValueError(
+                    f"la chiave '{chiave}' compare due volte nello stesso blocco "
+                    f"({chiave_node.start_mark}): il lettore terrebbe l'ultima e la "
+                    "prima sparirebbe senza un segnale"
+                )
+            viste.add(chiave)
+        return super().construct_mapping(node, deep=deep)
+
+
+def carica_yaml(path: Path) -> object:
+    """L'unica lettura YAML del modulo, con il rifiuto delle chiavi omonime.
+
+    `yaml.load` con un loader che **eredita da SafeLoader** ha esattamente i
+    costruttori di `safe_load`. Non sostituire il loader con `yaml.Loader` o
+    `yaml.UnsafeLoader`, che i tag `!!python/object` li eseguono davvero.
+    """
+    with Path(path).open(encoding="utf-8") as handle:
+        return yaml.load(handle, Loader=_LoaderChiaviUniche)  # noqa: S506
+
+
 def load_config(path: Path) -> PipelineConfig:
     """Legge un config.yaml senza perdita rispetto a quanto scritto da `save_config`."""
-    with Path(path).open(encoding="utf-8") as handle:
-        return PipelineConfig.model_validate(yaml.safe_load(handle))
+    return PipelineConfig.model_validate(carica_yaml(path))
 
 
 def save_config(cfg: PipelineConfig, path: Path) -> None:
@@ -736,20 +1070,20 @@ class SweepConfig(_ModelloBase):
         default=4,
         gt=0,
         description=(
-            "candidati in volo insieme, come processi separati. Non e' il numero "
+            "candidati in volo insieme, come processi separati. Non è il numero "
             "di processori: TetGen ha un picco misurato di 1,35 GB sulla corsa "
             "del muro e la macchina di sviluppo ha 7 GB liberi, quindi quattro "
             "candidati sono circa 5,4 GB di picco. Va tarato sulla macchina che "
-            "esegue: nessun valore dedotto dai processori logici e' corretto qui"
+            "esegue: nessun valore dedotto dai processori logici è corretto qui"
         ),
     )
     timeout_s: float = Field(
         default=1800.0,
         gt=0.0,
         description=(
-            "tetto al tempo di un singolo candidato, perche' uno patologico non "
-            "blocchi lo sweep. La corsa completa piu lenta documentata vale 134 s "
-            "e il singolo step piu lento 186 s: e' un tetto contro il patologico, "
+            "tetto al tempo di un singolo candidato, perché uno patologico non "
+            "blocchi lo sweep. La corsa completa più lenta documentata vale 134 s "
+            "e il singolo step più lento 186 s: è un tetto contro il patologico, "
             "non contro il lento"
         ),
     )
@@ -797,7 +1131,7 @@ class ExperimentConfig(_ModelloBase):
         description=(
             "spessore reale misurato [mm], contro cui si controlla la misura "
             "letta sulla nuvola sorgente. E' il controllo che smentisce l'asse "
-            "di fedelta'"
+            "di fedeltà"
         ),
     )
     sweep: SweepConfig = Field(default_factory=SweepConfig)
@@ -805,8 +1139,7 @@ class ExperimentConfig(_ModelloBase):
 
 def load_experiment(path: Path) -> ExperimentConfig:
     """Legge la dichiarazione di un esperimento."""
-    with Path(path).open(encoding="utf-8") as handle:
-        return ExperimentConfig.model_validate(yaml.safe_load(handle))
+    return ExperimentConfig.model_validate(carica_yaml(path))
 
 
 class ViewportConfig(_ModelloBase):
@@ -825,7 +1158,7 @@ class ViewportConfig(_ModelloBase):
             "punti al massimo inviati al browser per il disegno. 400.000 punti "
             "sono 4,8 MB in Float32, dell'ordine di 04_normals.ply di lab_crop "
             "(5.571.038 byte), un artefatto che la pipeline scrive e rilegge a "
-            "ogni corsa. Non e' un limite grafico ma di trasporto"
+            "ogni corsa. Non è un limite grafico ma di trasporto"
         ),
     )
 

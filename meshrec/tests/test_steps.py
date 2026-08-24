@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from meshrec.core import steps, sweep
-from meshrec.core.config import InputConfig, PipelineConfig
+from meshrec.core.config import InputConfig, PipelineConfig, SelettoreSfera
 from materiale import ANALISI
 
 
@@ -149,6 +149,20 @@ def test_cambiare_i_carichi_invalida_dall_undici_in_giu(tmp_path):
         assert marchi_prima[numero] == marchi_dopo[numero], f"step {numero} non doveva cambiare"
     for numero in (11, 12, 13):
         assert marchi_prima[numero] != marchi_dopo[numero], f"step {numero} doveva cambiare"
+
+
+def test_cambiare_un_selettore_invalida_lo_step_11(tmp_path):
+    """Un selettore cambiato e uno step 11 non rifatto = deck vecchio, in silenzio.
+
+    Mutazione che lo uccide: non aggiungere "selettori" a STEP_BLOCKS[11].
+    Le due impronte di step restano uguali e la corsa riusa il deck.
+    """
+    uno = _config(tmp_path)
+    uno.selettori = {"piastra": SelettoreSfera(tipo="sfera", centro=(0.0, 0.0, 0.0), raggio=5.0)}
+    altro = _config(tmp_path)
+    altro.selettori = {"piastra": SelettoreSfera(tipo="sfera", centro=(0.0, 0.0, 0.0), raggio=9.0)}
+
+    assert steps.step_fingerprints(uno)[11] != steps.step_fingerprints(altro)[11]
 
 
 def test_lo_step_13_e_l_ultimo_e_non_entra_nella_completezza_di_uno_sweep():

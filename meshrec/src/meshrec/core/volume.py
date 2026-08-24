@@ -108,9 +108,9 @@ def tetrahedralize(
         # con 1.8, quindi il margine e' sottile e su un'altra geometria puo' non
         # bastare.
         raise RefinementFailedError(
-            f"TetGen si e' interrotto con min_ratio={min_ratio}: "
-            "il vincolo raggio-spigolo puo' essere troppo severo per questa "
-            "geometria, il raffinamento non converge. Alza min_ratio (valori piu "
+            f"TetGen si è interrotto con min_ratio={min_ratio}: "
+            "il vincolo raggio-spigolo può essere troppo severo per questa "
+            "geometria, il raffinamento non converge. Alza min_ratio (valori più "
             "alti = elementi meno regolari ma raffinamento che termina) e riprova. "
             f"Errore originale di TetGen: {errore}"
         ) from errore
@@ -153,8 +153,8 @@ def tetrahedralize_with_metrics(
     if saturated:
         warnings.warn(
             f"TetGen ha esaurito i {cfg.max_steiner_points} punti di Steiner concessi: "
-            "il raffinamento e' stato troncato e la mesh non rispetta i vincoli di "
-            "qualita richiesti. Alza max_steiner_points o portalo a -1.",
+            "il raffinamento è stato troncato e la mesh non rispetta i vincoli di "
+            "qualità richiesti. Alza max_steiner_points o portalo a -1.",
             TruncatedRefinementWarning,
             stacklevel=2,
         )
@@ -174,13 +174,13 @@ def tetrahedralize_with_metrics(
     largest = float(np.abs(tet_volumes(nodes, tets)).max()) if len(tets) else 0.0
     if cfg.max_volume is not None and largest > 2.0 * cfg.max_volume:
         warnings.warn(
-            f"il tetraedro piu grande misura {largest:.6g} contro il max_volume "
-            f"di {cfg.max_volume:.6g} richiesto: il limite non e' stato applicato. "
+            f"il tetraedro più grande misura {largest:.6g} contro il max_volume "
+            f"di {cfg.max_volume:.6g} richiesto: il limite non è stato applicato. "
             + (
                 "Con nobisect attivo TetGen non aggiunge punti sul bordo: "
                 "infittisci la superficie di ingresso o disattiva nobisect."
                 if cfg.nobisect
-                else "Verifica i vincoli di qualita richiesti."
+                else "Verifica i vincoli di qualità richiesti."
             ),
             IneffectiveVolumeLimitWarning,
             stacklevel=2,
@@ -232,7 +232,7 @@ def tetrahedralize_with_metrics(
         p99_testo = f"{p99:.4g}" if p99 is not None else "non calcolabile (nessun rapporto finito)"
         warnings.warn(
             f"il {over_limit:.2%} degli elementi supera il min_ratio di "
-            f"{cfg.min_ratio:.4g} richiesto: il vincolo di qualita non governa "
+            f"{cfg.min_ratio:.4g} richiesto: il vincolo di qualità non governa "
             "questo maglio. Il novantanovesimo percentile del rapporto "
             f"raggio-spigolo vale {p99_testo}.",
             UnmetQualityConstraintWarning,

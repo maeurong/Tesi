@@ -1,0 +1,48 @@
+*HEADING
+sonda: un *CLOAD di un passo statico resta attivo nel passo successivo?
+*NODE
+1, 0.0, 0.0, 0.0
+2, 10.0, 0.0, 0.0
+3, 0.0, 10.0, 0.0
+4, 0.0, 0.0, 10.0
+*ELEMENT, TYPE=C3D4, ELSET=TUTTO
+1, 1, 2, 3, 4
+*NSET, NSET=BASSO
+1, 2, 3
+*NSET, NSET=ALTO
+4
+*SOLID SECTION, ELSET=TUTTO, MATERIAL=ACCIAIO
+*MATERIAL, NAME=ACCIAIO
+*ELASTIC
+210000.0, 0.3
+*DENSITY
+7.85e-9
+*BOUNDARY
+BASSO, 1, 3
+** PASSO 1: un *CLOAD di -100 N sul grado 3 di ALTO.
+*STEP
+*STATIC
+*CLOAD
+ALTO, 3, -100.0
+*NODE PRINT, NSET=BASSO
+RF
+*NODE FILE
+U
+*END STEP
+** PASSO 2: nessun *CLOAD dichiarato qui dentro.
+*STEP
+*STATIC
+*NODE PRINT, NSET=BASSO
+RF
+*NODE FILE
+U
+*END STEP
+** PASSO 3: *CLOAD, OP=NEW senza dati: azzera i concentrati dei passi precedenti.
+*STEP
+*STATIC
+*CLOAD, OP=NEW
+*NODE PRINT, NSET=BASSO
+RF
+*NODE FILE
+U
+*END STEP

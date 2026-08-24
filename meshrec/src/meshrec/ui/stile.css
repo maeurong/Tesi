@@ -20,10 +20,26 @@
   --avviso: #9a5b12;    /* stato non valido: lo step c'e' ma non e' aggiornato */
   --guasto: #a02020;    /* stato fallito, errori, campo rifiutato */
   /* Superfici derivate: il velo sopra la vista, l'evidenza sotto il puntatore,
-     il grigio di un campo che si legge e non si scrive. */
+     la selezione sotto cio' che e' aperto adesso, il grigio di un campo che si
+     legge e non si scrive.
+     Evidenza e selezione sono la stessa tinta a due forze, e che siano due e'
+     il punto: erano lo stesso 8%, cioe' la riga sotto il puntatore e la riga
+     aperta si distinguevano per il solo filetto di 2 px. Un passaggio e' un
+     velo, una scelta e' un fondo. Testo su selezione: 13,06:1. */
   --velo: color-mix(in srgb, var(--superficie) 85%, transparent);
   --evidenza: color-mix(in srgb, var(--accento) 8%, transparent);
+  --selezione: color-mix(in srgb, var(--accento) 18%, transparent);
   --spento: color-mix(in srgb, var(--tenue) 8%, transparent);
+  /* Non colorato apposta, due volte.
+     La superficie ricostruita nella vista resta il grigio caldo dichiarato in
+     viewport.js. Li' dentro il colore e' gia' una misura — la scala del campo
+     per nodo e le membrature del prior lo usano per dire un numero — e una
+     tinta scelta per il piacere di guardarla si leggerebbe come un dato. E'
+     la prima regola del prodotto: mostrare una grandezza e' gia' sembrare di
+     averla verificata.
+     Le tre zone restano la stessa carta. Tingerle una per una darebbe un
+     orientamento che i tre titoli e i due filetti danno gia', al prezzo di
+     tre fondi da rimisurare sotto ogni testo che ci finisce sopra. */
 
   /* Spaziatura: un passo di 4px e i suoi multipli, nient'altro. Erano nove
      valori decisi uno alla volta (0,15 0,2 0,25 0,3 0,35 0,5 0,75 1 rem), e
@@ -35,10 +51,16 @@
   --passo-6: 1.5rem;   /* 24px — sopra un titolo, cioe' fra due gruppi */
   --raggio: 0.25rem;   /* un solo raggio: erano due, 0,2 e 0,25 */
 
-  /* Movimento. Due durate: il ritorno di un comando toccato, e la comparsa di
-     qualcosa che prima non c'era. Oltre queste due non c'e' niente da dire. */
+  /* Movimento. Tre durate: il ritorno di un comando toccato, la comparsa di
+     qualcosa che prima non c'era, e il marchio su una riga che ha appena
+     cambiato stato. La terza e' la piu' lunga perche' e' l'unica che non
+     risponde a un gesto: uno step dura secondi, e chi lo ha lanciato non sta
+     guardando la colonna nell'istante in cui finisce. Oltre queste tre, in
+     questo foglio non c'e' niente da dire; la quarta e' l'arrivo di una
+     geometria nella vista e vive in viewport.js, dove la legge la camera. */
   --durata-tocco: 120ms;
   --durata-comparsa: 200ms;
+  --durata-cambio: 500ms;
   --curva: cubic-bezier(0.16, 1, 0.3, 1);
 
   /* Caratteri di sistema soltanto: il server e' locale e nessuna risorsa esce
@@ -49,8 +71,13 @@
   --stack-cifre: ui-monospace, "Cascadia Mono", "Consolas", "SF Mono", monospace;
 
   /* Scala dichiarata, quattro ruoli e nient'altro, arrotondata al pixel intero
-     su una radice di 16px: 13, 14, 16, 18. Il gradino e' circa 1,125; sotto i
-     13px non si scende perche' questa interfaccia viene proiettata in
+     su una radice di 16px: 13, 14, 16, 18. Il gradino NON e' costante e non
+     deve sembrarlo: 16->18 e 14->16 valgono 1,125, ma 13->14 vale 1,077. Fra
+     quei due ruoli il pixel non porta gerarchia da solo, e infatti non gliela
+     si chiede mai: dove convivono, a distinguerli sono il colore (--tenue
+     contro --testo, --guasto sui rifiuti) o il maiuscoletto crenato delle
+     legende. Sono un gradino di densita', non di rango.
+     Sotto i 13px non si scende perche' questa interfaccia viene proiettata in
      discussione e va letta dal fondo della stanza. */
   --tipo-titolo: 1.125rem;   /* il nome del programma */
   --tipo-corpo: 1rem;        /* step, campi, bottoni, stati vuoti */
@@ -59,7 +86,22 @@
 
   --interlinea: 1.5;         /* prosa: aiuti, errori, stati vuoti */
   --interlinea-riga: 1.3;    /* righe che non vanno a capo: titoli, dati */
-  --misura: 66ch;            /* la prosa non passa la misura leggibile */
+  /* La misura, e adesso e' una lunghezza e non `ch`. Due difetti in un token
+     solo, misurati nel browser il 24/08/2026 sulla prosa italiana della pagina
+     (496 caratteri di campione, non un pangramma):
+     - `ch` e' l'avanzamento della cifra `0`, che in questo stack e' 1,44 volte
+       il carattere medio della prosa -- rapporto identico sui tre corpi: 1,45 a
+       16px, 1,44 a 14, 1,44 a 13. `66ch` non sono 66 caratteri ma 95, cioe'
+       venti oltre il tetto che questa riga dichiarava di rispettare;
+     - `ch` si risolve sul corpo E sul peso di ogni elemento, quindi lo stesso
+       token dava larghezze diverse a ogni ruolo. Misurati i bordi destri dei
+       figli della schermata d'ingresso: 459, 556, 588, 598, 632, 681, 849, 964.
+       Otto destre sulla prima schermata che si vede.
+     25rem = 400px: 69 caratteri sulla prosa a 13px, 60 su quella a 16px, e una
+     destra sola. Resta in rem, quindi segue l'ingrandimento del testo come
+     tutto il resto della scala. Nella colonna di destra (22rem) il tetto e'
+     piu' largo della zona e non morde: la' non cambia niente. */
+  --misura: 25rem;
 
   /* Nessun tema scuro, e questa riga lo dichiara al browser: senza, chi ha il
      sistema scuro riceve caselle, menu a tendina e barre di scorrimento
@@ -100,7 +142,10 @@ body {
 /* Annulla e' l'unica azione della testata e agisce su tutta la corsa: sta
    all'estremo opposto di cio' che descrive lo stato, non accanto. */
 .testata .bottone { margin-left: auto; }
-.testata h1 { font-size: var(--tipo-titolo); line-height: var(--interlinea-riga); font-weight: 600; letter-spacing: -0.01em; margin: 0; }
+/* Senza `letter-spacing: -0.01em`: a 18px vale 0,18px per coppia, cioe' meno
+   di un pixel su sette caratteri. Non stringeva niente, e una dichiarazione che
+   non fa nulla fa cercare un effetto che non c'e'. */
+.testata h1 { font-size: var(--tipo-titolo); line-height: var(--interlinea-riga); font-weight: 600; margin: 0; }
 /* Il nome della corsa e' un identificatore di cartella, non prosa: le cifre
    tabulari e lo stack a larghezza fissa lo tengono leggibile carattere per
    carattere accanto al titolo. */
@@ -120,8 +165,20 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
    cresce con l'uso. */
 .ingresso { padding: var(--passo-4); overflow: auto; background: var(--superficie); flex: 1; min-height: 0; }
 .ingresso > * { max-width: var(--misura); }
-.ingresso .campo { max-width: 40rem; }
-.corse { display: flex; flex-direction: column; gap: var(--passo-2); margin-bottom: var(--passo-6); }
+/* I campi non hanno piu' una larghezza propria: erano 40rem contro le 66ch di
+   tutto il resto della colonna, cioe' due bordi destri diversi a un centinaio
+   di pixel l'uno dall'altro nella stessa schermata, ed e' la prima cosa che
+   vede chi non ha mai aperto il programma. Ereditano la misura leggibile come
+   le schede delle corse e la prosa. */
+/* Campo e bottone sulla stessa riga: il campo prende lo spazio, il bottone la
+   propria larghezza. align-items: stretch perche' i due si allineino in
+   altezza senza numeri scritti a mano. */
+.campo-riga { display: flex; gap: var(--passo-2); align-items: stretch; }
+.campo-riga input { flex: 1; min-width: 0; }
+/* Nessun margine in fondo: il fratello successivo e' sempre <h3>Nuova corsa</h3>
+   e porta gia' il suo --passo-6 sopra. Due margini adiacenti collassano nel
+   piu' grande, quindi il secondo non produceva un pixel di spazio in piu'. */
+.corse { display: flex; flex-direction: column; gap: var(--passo-2); }
 /* Una voce e' un bottone alto due righe: il nome e cio' da cui la corsa e'
    nata. text-align: left perche' un bottone centra di suo, e qui il contenuto
    e' una scheda, non un'etichetta. */
@@ -129,13 +186,12 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .corsa-nome { font-family: var(--stack-cifre); font-size: var(--tipo-corpo); line-height: var(--interlinea-riga); overflow-wrap: anywhere; }
 /* La riga della corsa aperta adesso. aria-current porta il significato, il
    foglio ci si aggancia sopra: stessa regola del marchio sullo step aperto. */
-.corsa-voce[aria-current="true"] { border-color: var(--accento); background: var(--evidenza); }
+.corsa-voce[aria-current="true"] { border-color: var(--accento); background: var(--selezione); }
 /* Una corsa che non si apre resta raggiungibile da tastiera e annunciata --
    e' l'unica voce che porta una spiegazione, e disabled la toglierebbe da
    entrambi. Il gestore si ferma da se'. */
 .corsa-voce[aria-disabled="true"] { color: var(--tenue); cursor: default; }
 .corsa-voce[aria-disabled="true"]:hover { background: var(--superficie); }
-.corsa-riferimento { color: var(--avviso); }
 .zona { padding: var(--passo-4); overflow: auto; }
 .zona-step, .zona-dettaglio { background: var(--superficie); }
 .zona-step { border-right: 1px solid var(--bordo); }
@@ -148,8 +204,32 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
    predefiniti del browser -- 24 px e 18,7 px con margini in em -- fuori dalla
    scala dichiarata sopra e fuori dal passo di 4 px, proprio sulla schermata
    che viene proiettata per prima. */
-.zona h2, .ingresso h2 { font-size: var(--tipo-nota); line-height: var(--interlinea-riga); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--tenue); margin: var(--passo-6) 0 var(--passo-2); }
-.zona h2:first-child, .ingresso h2:first-child { margin-top: 0; }
+/* Il colore e' --testo e non piu' --tenue. Il titolo di sezione restava il
+   piu' debole di tutta la colonna e il proprio SOTTOtitolo lo superava:
+   <h2>Dettaglio</h2> misura 5,55:1 sul bianco, <h3>Metriche</h3> che gli sta
+   dentro ne misura 17,21:1 -- il figlio legge tre volte piu' forte del padre.
+   Il corpo resta 13px e il maiuscoletto crenato pure: sono quelli a dire «sono
+   un'etichetta di sezione, non un titolo», e il filetto sopra li separa. A
+   cambiare e' il solo canale che sopravvive alla distanza di una proiezione, che
+   e' il contrasto: era gia' questa colonna a sparire strizzando gli occhi. */
+.zona h2, .ingresso h2 { font-size: var(--tipo-nota); line-height: var(--interlinea-riga); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--testo); margin: var(--passo-6) 0 var(--passo-2); }
+/* Il filetto sopra un titolo di sezione, e solo nelle due colonne che scorrono.
+   La zona di destra impila sei sezioni — Dettaglio, Prior, Confronto,
+   Registro, Galleria e la loro tabella — dentro un contenitore che scorre, e
+   il loro titolo e' il carattere piu' piccolo e piu' tenue del foglio.
+   Strizzando gli occhi sparivano tutti e sei, mentre i bordi dei .gruppo che
+   stanno DENTRO una sezione restavano: i sottogruppi leggevano piu' forte dei
+   gruppi, cioe' la gerarchia era rovesciata. Il filetto e' lo stesso --bordo
+   che separa le zone fra loro, un pixel, gia' il vocabolario della
+   separazione in questo foglio: non aggiunge un segno nuovo, mette quello che
+   c'e' dove serviva.
+   E' anche cio' che distingue un h2 da un h3, che finora portavano lo stesso
+   margine: adesso la sezione ha un filetto e la sottosezione no, e lo spazio
+   non deve piu' dire da solo una cosa che non riusciva a dire.
+   Il primo titolo della zona non lo porta: non c'e' niente sopra da cui
+   staccarsi, e il filetto disegnerebbe una riga sul bordo alto della colonna. */
+.zona h2 { border-top: 1px solid var(--bordo); padding-top: var(--passo-3); }
+.zona h2:first-child, .ingresso h2:first-child { margin-top: 0; border-top: none; padding-top: 0; }
 .elenco-step { list-style: none; margin: 0; padding: 0; }
 /* Le caselle dei modelli e il bottone che li genera: una colonna stretta come
    il resto della zona-step, non una griglia — sono tre righe, non una tabella. */
@@ -166,21 +246,47 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
    comunque scorrere di qualche pixel. */
 .viewport canvas { display: block; }
 .viewport canvas:focus-visible { outline: 2px solid var(--accento); outline-offset: -2px; }
-/* Lo stato vuoto insegna a chi non conosce gli undici step: e' prosa, quindi
+/* Lo stato vuoto insegna a chi non conosce i tredici step: e' prosa, quindi
    prende la misura leggibile e non la larghezza del pannello. */
+/* Gli identificatori nella prosa -- `.pcd`, `.ply`, `experiments/` -- cadevano
+   sul monospace generico del browser (Menlo qui, Courier New su Windows) mentre
+   il nome della corsa a due centimetri di distanza usa --stack-cifre. Due facce
+   a larghezza fissa per lo stesso lavoro sulla stessa schermata. */
+code { font-family: var(--stack-cifre); }
 .vuoto { color: var(--tenue); font-size: var(--tipo-corpo); line-height: var(--interlinea); max-width: var(--misura); text-wrap: pretty; }
 /* Il titolo delle metriche lo scrive app.js come h3: senza una regola
    prenderebbe la misura del browser, che non sta in nessuna scala. */
 .zona h3, .ingresso h3 { font-size: var(--tipo-dato); line-height: var(--interlinea-riga); font-weight: 600; margin: var(--passo-6) 0 var(--passo-2); }
 .bottone { font: inherit; font-size: var(--tipo-dato); line-height: var(--interlinea-riga); padding: var(--passo-2) var(--passo-3); border: 1px solid var(--bordo-comando); border-radius: var(--raggio); background: var(--superficie); color: var(--testo); cursor: pointer; transition: background-color var(--durata-tocco) var(--curva), border-color var(--durata-tocco) var(--curva); }
 .bottone:hover { background: var(--evidenza); }
-.bottone:active { background: color-mix(in srgb, var(--accento) 14%, transparent); }
+/* La pressione e' la selezione che dura un istante: stesso fondo, non un
+   quarto valore della stessa tinta deciso a mano dentro la regola. */
+.bottone:active { background: var(--selezione); }
 .bottone:focus-visible { outline: 2px solid var(--accento); outline-offset: 2px; }
 /* Un comando spento non e' un comando pallido: il testo scende a --tenue, che
    resta sopra 4,5:1, e il cursore dice che non c'e' niente da premere. Il
    contorno resta pieno perche' l'elemento c'e' ancora e non deve sparire. */
 .bottone:disabled { color: var(--tenue); cursor: default; }
 .bottone:disabled:hover { background: var(--superficie); }
+/* Il comando che e' lo scopo del pannello, e uno solo per zona. L'accento si
+   chiama «azione» dal primo giorno e su un'azione non era mai stato speso:
+   tutti i bottoni erano il contorno grigio su fondo bianco, e il pannello
+   dello step ne mette due identici sopra sei gruppi di campi. Uno per zona,
+   perche' la forza di questo colore sta nella rarita': due fondi pieni nella
+   stessa colonna smettono di dire quale sia il primo. Nel lavoro e' «Esegui
+   questo step», all'ingresso «Crea la corsa».
+   Le due tinte del tocco si ricavano da --testo e non dal nero: il nero non
+   esiste in questo foglio, e il grigio caldo della carta scurisce l'accento
+   restando nella stessa famiglia. Testo su fondo: 7,49:1 fermo, 8,38:1 al
+   passaggio, 9,23:1 alla pressione.
+   Spento perde il fondo e non solo il testo: --tenue sopra l'accento pieno
+   sarebbe 1,7:1, cioe' un bottone illeggibile invece di un bottone inerte.
+   Cosi' scende a --spento come gli altri, dove il testo tiene 5,00:1. */
+.bottone-primario { background: var(--accento); border-color: var(--accento); color: var(--superficie); }
+.bottone-primario:hover { background: color-mix(in srgb, var(--accento) 88%, var(--testo)); }
+.bottone-primario:active { background: color-mix(in srgb, var(--accento) 78%, var(--testo)); }
+.bottone-primario:disabled,
+.bottone-primario:disabled:hover { background: var(--spento); border-color: var(--bordo-comando); }
 /* I secondi trascorsi cambiano una volta al secondo: senza cifre tabulari la
    riga si allarga e si stringe sotto gli occhi a ogni passaggio da 9 a 10. */
 .in-corso { margin: 0; color: var(--accento); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); font-variant-numeric: tabular-nums; }
@@ -203,18 +309,66 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
    della figura. --testo e non --tenue, per la stessa ragione: 17,21:1 contro
    5,55:1. Cifre tabulari perche' cambiando caso i numeri si sostituiscono
    sotto gli occhi. */
-.didascalia-vista { margin: 0; padding: var(--passo-2) var(--passo-3); border-top: 1px solid var(--bordo); background: var(--superficie); color: var(--testo); font-size: var(--tipo-corpo); line-height: var(--interlinea); font-variant-numeric: tabular-nums; text-wrap: pretty; }
+/* La misura vale anche qui, ed era l'unica prosa del foglio senza. Le
+   didascalie vere (viewport.js, didascaliaDelCampo) stanno fra 91 e 115
+   caratteri, e la colonna centrale su uno schermo largo ne tiene 160: la riga
+   che finisce fotografata nell'appendice usciva tutta d'un fiato. */
+.didascalia-vista { margin: 0; padding: var(--passo-2) var(--passo-3); border-top: 1px solid var(--bordo); background: var(--superficie); color: var(--testo); font-size: var(--tipo-corpo); line-height: var(--interlinea); max-width: var(--misura); font-variant-numeric: tabular-nums; text-wrap: pretty; }
 /* Vuota non lascia una fascia bianca sotto la vista: fuori dallo step 13 non
    c'e' nessuna didascalia, e l'immagine si riprende quei pixel. Toglierla dal
    flusso e' lecito qui, a differenza di #conteggi e della riga d'errore: non
    e' una regione viva e non annuncia niente. */
 .didascalia-vista:empty { display: none; }
-.conteggi { position: absolute; bottom: var(--passo-2); left: var(--passo-2); margin: 0; padding: var(--passo-1) var(--passo-2); background: var(--velo); border-radius: var(--raggio); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); font-variant-numeric: tabular-nums; color: var(--tenue); }
+/* In alto a sinistra, e sempre, non solo a una colonna. Stavano in basso, cioe'
+   sul bordo che il comando del taglio occupa gia' dall'altra parte, e i due si
+   incontravano: il taglio viene dopo nel markup, quindi copriva il conteggio
+   dei punti. Un numero misurato che sparisce senza dirlo.
+   La collisione era gia' nota e riparata, ma sotto @media (max-width: 60rem),
+   cioe' agganciata alla larghezza della FINESTRA quando dipende da quella della
+   COLONNA. A tre colonne la vista non e' larga quanto la finestra: e' la
+   finestra meno i 18rem e i 22rem delle due fiancate fisse. Appena sopra il
+   breakpoint le restavano 321 px, meno della meta' dei 700 px che il commento
+   dichiarava misurati come soglia di contatto — e la media query non scattava.
+   Ancorarli in cima toglie la condizione invece di inseguirla, e l'override
+   nel blocco a una colonna sparisce con lei. */
+.conteggi { position: absolute; top: var(--passo-2); left: var(--passo-2); margin: 0; padding: var(--passo-1) var(--passo-2); background: var(--velo); border-radius: var(--raggio); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); font-variant-numeric: tabular-nums; color: var(--tenue); }
 /* Vuoti, i conteggi restavano un rettangolo bianco di 16x8 px sopra la vista,
    misurato a video. Non si tolgono dall'albero, per la stessa ragione della
    riga d'errore: aria-live="polite" vuole una regione viva prima che ci si
    scriva dentro. Si toglie solo cio' che si vede. */
 .conteggi:empty { padding: 0; background: none; }
+/* Lo stato vuoto della vista sta al CENTRO della tela, non in un angolo: e' il
+   vuoto piu' grande dell'interfaccia, e una riga in alto a sinistra dentro
+   856x640 px bianchi si legge come una didascalia di cio' che manca, non come
+   la cosa da leggere. I conteggi restano dove sono e continuano a portare il
+   fatto; questo porta il modello d'interazione.
+   `align-content: center` su una griglia, non un translate: la scatola si
+   centra da se' e le due righe restano una sotto l'altra senza che nessuna
+   misura vada scritta a mano.
+   `pointer-events: none` perche' copre l'intera tela: senza, il primo gesto di
+   rotazione su una vista che si e' appena riempita cadrebbe su di lui invece
+   che sul canvas. Non e' un comando e non deve intercettare niente.
+   `[hidden]` esplicito per la stessa ragione del comando del taglio poco piu'
+   sotto: su un elemento con `display` dichiarato l'attributo non basta. */
+.vista-vuota { position: absolute; inset: 0; display: grid; align-content: center; justify-items: center; gap: var(--passo-2); padding: var(--passo-6); text-align: center; pointer-events: none; }
+.vista-vuota[hidden] { display: none; }
+.vista-vuota p { margin: 0; }
+/* La prima riga dice cosa e' questa superficie, la seconda cosa fare: il rango
+   lo porta il colore e non il corpo, che e' la stessa scelta gia' fatta sui
+   titoli di sezione -- e' l'unico canale che sopravvive alla distanza di una
+   proiezione. */
+.vista-vuota p:first-child { color: var(--testo); }
+/* Il velo del passaggio a monte sta in ALTO a destra: i conteggi tengono
+   l'angolo sinistro e il taglio quello in basso a destra, e questo e' l'unico
+   angolo libero. Sopra il taglio e non sotto anche per ordine di lettura: dice
+   che cosa si sta guardando, mentre il taglio e' un attrezzo per guardarci
+   dentro.
+   `[hidden]` esplicito per la stessa ragione del comando del taglio qui sotto:
+   su un elemento con `display` dichiarato l'attributo da solo non basta, e la
+   casella resterebbe a video su ogni step dove un fantasma non esiste. */
+.fantasma-comando { position: absolute; top: var(--passo-2); right: var(--passo-2); display: flex; align-items: center; gap: var(--passo-2); padding: var(--passo-1) var(--passo-2); background: var(--velo); border: 1px solid var(--bordo-comando); border-radius: var(--raggio); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); color: var(--tenue); cursor: pointer; }
+.fantasma-comando[hidden] { display: none; }
+.fantasma-comando :focus-visible { outline: 2px solid var(--accento); outline-offset: 2px; }
 /* Il comando del taglio sta in basso a destra sulla vista: i conteggi occupano
    gia' l'angolo sinistro. hidden non basta su un elemento con display: flex,
    che lo sovrascriverebbe e lo lascerebbe a video. */
@@ -224,14 +378,14 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .taglio input[type="range"] { width: 10rem; }
 .taglio :focus-visible { outline: 2px solid var(--accento); outline-offset: 2px; }
 .taglio output { min-width: 5.5rem; text-align: right; font-variant-numeric: tabular-nums; color: var(--tenue); }
-/* .step e' un <button> dentro il <li>, non piu' il <li> stesso: undici righe
+/* .step e' un <button> dentro il <li>, non piu' il <li> stesso: tredici righe
    cliccabili senza ruolo erano l'intera interfaccia irraggiungibile da tastiera.
    Le prime cinque dichiarazioni disfano cio' che il browser mette di suo su un
    bottone (carattere proprio, bordo, sfondo, testo centrato, larghezza al
    contenuto): senza, la riga cambierebbe aspetto pur restando la stessa riga.
    Il nome della classe non cambia, perche' app.js lo scrive da codice e il
    foglio non si lamenterebbe di un selettore che non trova piu' nulla. */
-.step { font: inherit; border: none; background: none; color: inherit; text-align: left; width: 100%; display: flex; justify-content: space-between; align-items: baseline; gap: var(--passo-3); padding: var(--passo-2); border-radius: var(--raggio); cursor: pointer; font-size: var(--tipo-corpo); line-height: var(--interlinea-riga); transition: background-color var(--durata-tocco) var(--curva); }
+.step { font: inherit; border: none; background: none; color: inherit; text-align: left; width: 100%; display: flex; align-items: baseline; gap: var(--passo-2); padding: var(--passo-2); border-radius: var(--raggio); cursor: pointer; font-size: var(--tipo-corpo); line-height: var(--interlinea-riga); transition: background-color var(--durata-tocco) var(--curva); }
 .step:hover { background: var(--evidenza); }
 /* Il contorno e' interno: la riga tocca il bordo della colonna, e uno esterno
    verrebbe tagliato dallo scorrimento della zona. */
@@ -242,15 +396,73 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
    diceva: su nomi che si somigliano — Superficie, Semplificazione,
    Riparazione — si modifica il parametro di uno credendo di essere su un
    altro, e la scrittura sul disco e' immediata. */
-.step[aria-current="true"] { background: var(--evidenza); box-shadow: inset 2px 0 0 var(--accento); }
+.step[aria-current="true"] { background: var(--selezione); box-shadow: inset 2px 0 0 var(--accento); }
+/* Il numero e la parola stanno insieme a sinistra e lo stato all'estremo
+   destro: era `justify-content: space-between`, che con tre figli invece di due
+   distribuisce lo spazio anche FRA il numero e il nome, e li allontanerebbe di
+   mezza colonna. Un margine automatico sul nome spinge il solo stato.
+   Larghezza fissa al numero e allineato a destra: gli step vanno da 1 a 13, e
+   senza una colonna propria le quattro righe a due cifre sposterebbero il nome
+   -- e con lui il pallino di stato, che vive sul nome -- della larghezza di una
+   cifra. Le cifre tabulari servono alla stessa cosa dentro la colonna. Corpo e
+   colore della nota: il numero e' la coordinata della riga, non il suo titolo. */
+.step-nome { margin-right: auto; }
+.step-numero { flex: none; width: 2ch; text-align: right; font-variant-numeric: tabular-nums; color: var(--tenue); font-size: var(--tipo-nota); }
 /* Lo stato e' l'annotazione del nome, non il nome: sta un gradino sotto e
    pesa meno, cosi' la colonna si scorre leggendo gli step e non gli stati. */
 .step-stato { color: var(--tenue); font-size: var(--tipo-nota); line-height: var(--interlinea-riga); white-space: nowrap; }
 .stato-valido .step-stato { color: var(--accento); }
 .stato-non-valido .step-stato { color: var(--avviso); font-weight: 600; }
 .stato-fallito .step-stato { color: var(--guasto); font-weight: 600; }
+/* Il pallino di stato, in testa al nome. La colonna degli step e' l'unica cosa
+   che dica a che punto sta la corsa, e finora lo diceva con il solo colore
+   della parola in fondo alla riga: tredici parole di lunghezza diversa,
+   allineate a destra, al corpo piu' piccolo del foglio. Per sapere dov'e'
+   arrivata la pipeline si leggeva riga per riga.
+   Il pallino non aggiunge un ruolo di colore: porta lo stesso della parola,
+   ma in tredici punti incolonnati alla stessa ascissa, cioe' una figura che
+   si legge in un colpo d'occhio e dal fondo della stanza in cui si proietta.
+   E il colore non e' l'unico canale, ne' qui ne' prima: la parola resta al
+   suo posto, ed e' lei che lo dice a chi usa un lettore di schermo.
+   Vuoto e pieno sono il secondo canale del pallino stesso: uno step mai
+   eseguito e' una casella ancora da riempire, e l'avanzamento si legge anche
+   senza distinguere le tinte.
+   box-sizing dichiarato: la regola `*` non raggiunge gli pseudo-elementi, e
+   senza questa riga il bordo si somma agli 0,5em invece di starci dentro,
+   cioe' il pieno e il vuoto avrebbero due diametri diversi. */
+.step-nome::before {
+  content: "";
+  box-sizing: border-box;
+  display: inline-block;
+  width: 0.5em;
+  height: 0.5em;
+  margin-right: var(--passo-2);
+  border: 1px solid var(--tenue);
+  border-radius: 50%;
+}
+/* Rapporti nel caso peggiore, cioe' sul fondo della riga aperta, che di tutti
+   e' il piu' scuro: 4,21:1 l'anello, 5,69:1 il pieno dell'accento, 4,11:1
+   quello dell'avviso, 5,85:1 quello del guasto. Tutti sopra il 3:1 che WCAG
+   1.4.11 chiede a cio' che porta uno stato. L'anello e' --tenue e non
+   --bordo-comando, che pure e' il grigio dei contorni: quello disegna cio'
+   che si tocca, e su quel fondo sarebbe sceso a 2,46:1. Qui il grigio e'
+   quello della parola «mai eseguito», che e' esattamente cio' che il pallino
+   sta ripetendo. */
+.stato-valido .step-nome::before { border-color: var(--accento); background: var(--accento); }
+.stato-non-valido .step-nome::before { border-color: var(--avviso); background: var(--avviso); }
+.stato-fallito .step-nome::before { border-color: var(--guasto); background: var(--guasto); }
 .azioni { display: flex; gap: var(--passo-2); flex-wrap: wrap; margin-bottom: var(--passo-6); }
-.gruppo { border: 1px solid var(--bordo); border-radius: var(--raggio); padding: var(--passo-3); margin: 0 0 var(--passo-3); }
+/* Fra due gruppi di parametri passa il doppio che fra due parametri dello
+   stesso gruppo. Erano lo stesso valore, --passo-3 tutti e due, e con la
+   distanza uguale il raggruppamento lo reggeva il solo bordo del fieldset:
+   un contenitore che compensa una prossimita' che non c'era. Adesso lo dice
+   lo spazio, e il bordo lo conferma.
+   L'ultimo campo azzera il proprio margine: il suo --passo-3 si sommava al
+   padding del gruppo, e ogni riquadro aveva 24 px sotto contro i 12 sopra la
+   prima riga. Non e' una simmetria da amare in astratto, e' che quel fondo in
+   piu' faceva sembrare l'ultimo campo staccato dal gruppo che lo contiene. */
+.gruppo { border: 1px solid var(--bordo); border-radius: var(--raggio); padding: var(--passo-3); margin: 0 0 var(--passo-6); }
+.gruppo .campo:last-child { margin-bottom: 0; }
 .gruppo legend { font-size: var(--tipo-nota); line-height: var(--interlinea-riga); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--tenue); }
 .campo { display: grid; gap: var(--passo-1); margin-bottom: var(--passo-3); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); }
 /* Come .taglio[hidden]: display: grid pesa quanto l'attributo hidden, e senza
@@ -260,7 +472,13 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 /* Cifre tabulari nei campi: sei caselle di coordinate incolonnate una sotto
    l'altra si confrontano a colpo d'occhio solo se le cifre hanno la stessa
    larghezza. */
-.campo input { font: inherit; font-variant-numeric: tabular-nums; padding: var(--passo-1) var(--passo-2); border: 1px solid var(--bordo-comando); border-radius: var(--raggio); background: var(--sfondo); color: var(--testo); transition: border-color var(--durata-tocco) var(--curva); }
+/* `select` accanto a `input`: il carattere non si eredita nei controlli di
+   modulo, e i due menu del pannello Campo -- caso di carico e grandezza, cioe'
+   i comandi con cui in discussione si cambia cio' che si guarda -- vivono
+   dentro una .campo e nessuna regola li raggiungeva. Misurati: Arial 13,33px
+   accanto alla propria etichetta in system-ui 14px. Lo stesso controllo dentro
+   .taglio era gia' vestito (vedi .taglio select). */
+.campo input, .campo select { font: inherit; font-variant-numeric: tabular-nums; padding: var(--passo-1) var(--passo-2); border: 1px solid var(--bordo-comando); border-radius: var(--raggio); background: var(--sfondo); color: var(--testo); transition: border-color var(--durata-tocco) var(--curva); }
 .campo input:focus-visible { outline: 2px solid var(--accento); outline-offset: 1px; }
 /* Con il solo .campo-rifiutato il contorno rosso non compariva mai, misurato
    a video: .campo input pesa una classe e un elemento, .campo-rifiutato una
@@ -275,22 +493,74 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .errore:empty { margin: 0; }
 .errore-campo { color: var(--guasto); font-size: var(--tipo-nota); line-height: var(--interlinea); max-width: var(--misura); overflow-wrap: anywhere; text-wrap: pretty; }
 .campo input[readonly] { background: var(--spento); color: var(--tenue); }
-.aiuto { color: var(--tenue); font-size: var(--tipo-nota); line-height: var(--interlinea); max-width: var(--misura); text-wrap: pretty; }
-.metriche { display: grid; grid-template-columns: auto 1fr; gap: var(--passo-1) var(--passo-3); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); }
-.metriche dt { color: var(--tenue); }
+/* display: block, e non e' una rifinitura: `.aiuto` veste anche i <small>
+   dell'ingresso, che sono figli diretti di <section> e quindi restano inline.
+   `max-width` non si applica a una scatola inline non rimpiazzata: su quelle
+   due righe la misura non ha MAI agito. Misurata la peggiore, 145 caratteri su
+   una riga sola. Ed e' la stessa ragione per cui «Crea la corsa» si affiancava
+   alla frase d'aiuto invece di stare sotto: un fratello inline lascia fluire
+   accanto a se' il bottone che segue. */
+/* overflow-wrap: anywhere, e serve proprio quello che nella tabella delle
+   metriche era il difetto. `.aiuto` porta anche i percorsi delle corse, che
+   non hanno spazi: dentro `.corsa-voce`, che e' una griglia, la traccia si
+   dimensiona sul contenuto minimo dei propri figli. Con `break-word` quel
+   minimo resta la stringa intera -- misurato: traccia 400px dentro una scatola
+   da 374, tredici pixel di testo fuori dal bordo della scheda -- perche'
+   break-word manda a capo ma NON abbassa il minimo. Solo `anywhere` lo abbassa,
+   e qui non c'e' nessuna seconda colonna che possa restarne affamata: e' una
+   colonna sola. (Nella tabella delle metriche la seconda colonna c'era, ed e'
+   per questo che la' il valore troppo lungo esce dalla griglia invece di
+   stringersi.) */
+.aiuto { display: block; color: var(--tenue); font-size: var(--tipo-nota); line-height: var(--interlinea); max-width: var(--misura); overflow-wrap: anywhere; text-wrap: pretty; }
+/* Le due colonne erano `auto 1fr`, e in una zona da 22rem non ci stavano.
+   Lo step 7 annida due dizionari dentro `geometric_error`, e righeDellaMetrica
+   appiattisce il percorso in un'etichetta sola: «geometric_error ·
+   cloud_to_mesh · diag_mesh_1» sono 44 caratteri. La colonna `auto` si prendeva
+   la loro larghezza intera -- 298px dei 319 disponibili, misurati -- e alla
+   colonna del valore ne restavano 8,98: con `overflow-wrap: anywhere` il numero
+   ha il permesso di spezzarsi ovunque, quindi invece di reclamare spazio
+   scendeva a UNA CIFRA PER RIGA. «339.710» diventava sette righe.
+   Adesso la colonna del valore e' dichiarata e l'etichetta prende il resto:
+   e' il numero il motivo per cui si guarda questa tabella, ed e' lui che non
+   deve mai spezzarsi. 14ch tengono su una riga sola il piu' lungo che questa
+   pipeline produce (un volume in mm cubi, tredici caratteri col separatore
+   delle migliaia); 6ch sono il minimo sotto cui la colonna non scende nemmeno
+   quando tutte le etichette sono corte. Le cifre tabulari finalmente pagano:
+   allineate a destra in una colonna di larghezza fissa, i valori si confrontano
+   incolonnati. */
+.metriche { display: grid; grid-template-columns: minmax(0, 1fr) minmax(6ch, 14ch); gap: var(--passo-1) var(--passo-3); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); }
+/* L'etichetta e' quella che puo' spezzarsi ovunque, e non piu' il valore: un
+   percorso di chiavi non ha spazi su cui andare a capo, e senza questa riga
+   sborderebbe invece di mandare a capo. */
+.metriche dt { color: var(--tenue); overflow-wrap: anywhere; }
 /* Il valore e' un numero misurato: cifre tabulari, cosi' due metriche
    incolonnate si confrontano senza rileggerle. */
-.metriche dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.metriche dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+/* Il valore che in 14ch non ci sta comunque -- una lista chiusa da
+   JSON.stringify: `06_repair · hole_areas` sono 540 caratteri -- non si stringe
+   nella colonna del numero: passa sotto la propria etichetta e prende tutta la
+   larghezza del pannello. In colonna sarebbero trentanove righe, qui sono
+   dodici, e la scelta di tenere le liste chiuse (vedi righeDellaMetrica) resta
+   quella che era. Allineato a sinistra: e' testo, non una misura da
+   incolonnare. */
+.metriche dd.metrica-larga { grid-column: 1 / -1; text-align: left; }
 /* La colonna della galleria e' stretta (22rem) e la tabella dei candidati ha
    otto colonne: scorre in orizzontale dentro il proprio contenitore, non la
    pagina. */
 .galleria-tabella { overflow-x: auto; }
+/* Stessa tappa di tabulazione del registro, e per la stessa ragione: scorre e
+   non contiene niente su cui il fuoco possa posarsi (sono <th> e <td>), quindi
+   senza tabindex le colonne di destra non si raggiungono da tastiera. Otto
+   colonne dentro una zona da 22rem: quelle fuori vista sono la maggioranza.
+   Il registro aveva gia' chiuso questo difetto; questa e' la stessa forma
+   rimasta scoperta, e il contorno e' quello degli altri comandi. */
+.galleria-tabella:focus-visible { outline: 2px solid var(--accento); outline-offset: 2px; }
 .galleria-tabella table { border-collapse: collapse; width: 100%; font-size: var(--tipo-dato); line-height: var(--interlinea-riga); font-variant-numeric: tabular-nums; }
 .galleria-tabella th, .galleria-tabella td { padding: var(--passo-1) var(--passo-2); border-bottom: 1px solid var(--bordo); text-align: left; white-space: nowrap; }
 .galleria-tabella th { color: var(--tenue); font-weight: 600; }
 /* Il candidato di fronte: stesso canale doppio dello step aperto (fondo piu'
    filetto), non il solo colore. */
-.galleria-tabella tr.fronte { background: var(--evidenza); box-shadow: inset 2px 0 0 var(--accento); }
+.galleria-tabella tr.fronte { background: var(--selezione); box-shadow: inset 2px 0 0 var(--accento); }
 /* Il confronto e' un pannello, non una vista: righe di prosa con cifre
    tabulari, la stessa misura leggibile degli altri stati e aiuti — non una
    tabella HTML, perche' app.js lo scrive come <p> per riga (una grandezza,
@@ -298,6 +568,11 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .confronto-tabella p { margin: 0 0 var(--passo-1); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 /* Membrature e rifiuti del prior: stesse cifre tabulari delle altre misure. */
 #prior-membrature p { margin: 0 0 var(--passo-1); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); font-variant-numeric: tabular-nums; }
+/* I due elenchi sono due cose diverse — cio' che il prior ha trovato e cio' che
+   ha scartato — e stavano attaccati: le righe portano lo stesso margine da
+   4 px, quindi l'ultima membratura e il primo rifiuto distavano quanto due
+   membrature fra loro. Il confine lo faceva il solo colore del .rifiuto. */
+#prior-scartate { margin-top: var(--passo-3); }
 /* Un rifiuto non e' un errore del modulo (quello e' .errore, role="alert"):
    e' il verdetto di un controllo geometrico sulla regione, letto qui e non
    annunciato. Il bordo a sinistra e' il secondo canale (WCAG 1.4.1): chi non
@@ -306,7 +581,9 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .rifiuto { margin: 0 0 var(--passo-1); padding-left: var(--passo-2); border-left: 2px solid var(--guasto); color: var(--guasto); font-size: var(--tipo-dato); line-height: var(--interlinea); max-width: var(--misura); text-wrap: pretty; }
 
 /* --- Movimento ------------------------------------------------------------
-   Tre soli momenti, e nessuno decorativo.
+   Cinque momenti, e nessuno decorativo. Il quinto non e' qui: e' l'arrivo di
+   una geometria nella vista, e sta in viewport.js perche' meta' di lui e' uno
+   spostamento di camera (DURATA_ARRIVO, frazioneDellArrivo).
 
    1. Il respiro dello step in corso. Il progresso qui non e' una percentuale
       (le librerie non ne danno una, e fabbricarla sarebbe un numero che
@@ -317,12 +594,32 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
    2. La comparsa della riga d'errore. E' l'unica cosa che nasce in mezzo a un
       pannello fermo, e chi ha appena premuto un bottone guarda il bottone.
    3. Il ritorno dei comandi al passaggio e al rifiuto, qui sopra.
+   4. Il marchio su una riga che ha appena cambiato stato. E' l'unico movimento
+      di questo foglio che non risponde a un gesto, e porta un'informazione che
+      prima non arrivava a nessuno: uno step che finisce dopo trentaquattro
+      secondi cambiava una parola in una colonna di tredici righe, e chi lo ha
+      lanciato nel frattempo guarda altrove. Vale anche al contrario, ed e' il
+      caso piu' utile: modificato un parametro, gli step a valle diventano «non
+      valido» tutti insieme, e finora quel fatto — che il lavoro fatto e'
+      scaduto — si vedeva solo rileggendo la colonna riga per riga.
 
-   Non animato apposta: l'elenco degli step. app.js lo riscrive tutto a ogni
-   evento di stato, cioe' due volte al secondo mentre la pipeline gira, e
-   qualunque animazione di comparsa su .step ripartirebbe da capo a ogni
-   riscrittura: undici righe che lampeggiano due volte al secondo per mezzo
-   minuto. */
+      Il marchio e' `data-cambiato` e non una classe di stato: lo stato e' cio'
+      che la riga E', il marchio e' cio' che le e' appena successo, e tenerli
+      su due canali significa che nessuno dei due va riscritto per esprimere
+      l'altro. app.js lo mette nel giro in cui lo stato cambia e lo toglie nel
+      giro dopo, cioe' entro mezzo secondo: e' cosi' che l'animazione riparte
+      la volta seguente senza che nessuno la riavvii a mano.
+
+   Non animato apposta: la comparsa delle righe dell'elenco. Le righe non
+   compaiono — `disegnaStep` le costruisce una volta e poi le aggiorna sul
+   posto, per non distruggere l'elemento che ha il fuoco — e animare una
+   comparsa che non avviene vorrebbe dire ricostruirle apposta, riaprendo il
+   difetto di tastiera che quella scelta ha chiuso.
+
+   Non animato apposta: la sostituzione fra la schermata d'ingresso e le tre
+   zone. E' la risposta immediata a un clic su una corsa, e la pagina si
+   ricarica: non c'e' nessuna continuita' da preservare fra due schermate che
+   non condividono niente. */
 .in-corso::before {
   /* Disegnato, non un carattere: un glifo unicode al posto di un segno
      dipende dal font installato e non si puo' colorare in modo prevedibile. */
@@ -344,11 +641,26 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
   from { opacity: 0; transform: translateY(-0.25rem); }
   to { opacity: 1; transform: none; }
 }
+/* Il marchio del cambio di stato. Sul <li> e non sul <button>: il bottone ha
+   gia' tre fondi propri (passaggio, pressione, step aperto), e un quarto
+   scritto sopra di loro sarebbe un colore che dipende da dove sta il puntatore.
+   Nessuna coda: a fine ciclo il fondo torna quello che era, e la riga non
+   conserva niente da pulire. */
+.elenco-step [data-cambiato] { animation: cambio-di-stato var(--durata-cambio) var(--curva); }
+@keyframes cambio-di-stato {
+  from { background: var(--evidenza); }
+  to { background: transparent; }
+}
 /* Chi ha chiesto meno movimento non chiede meno informazione. Sparisce cio'
    che si muove: il ciclo del pallino, che resta acceso e dichiara lo stesso
    fatto, e lo spostamento della riga d'errore, che resta una comparsa. Restano
    il velo dell'errore e i ritorni di colore al tocco: non sono spostamenti, e
-   sono la risposta a un gesto, non un effetto. */
+   sono la risposta a un gesto, non un effetto. Resta anche il marchio del
+   cambio di stato, per la stessa regola e per una ragione in piu': e' un fondo
+   che si spegne, non una riga che si sposta, ed e' l'unico canale con cui la
+   colonna dice che qualcosa e' appena successo. viewport.js applica la stessa
+   regola dalla sua parte: la camera salta invece di assestarsi, la tela
+   compare lo stesso. */
 @media (prefers-reduced-motion: reduce) {
   .in-corso::before { animation: none; opacity: 1; }
   @keyframes comparsa {
@@ -359,21 +671,25 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 
 /* --- Una colonna sola ------------------------------------------------------
    In fondo al foglio apposta: una regola stretta scritta piu' in alto della
-   regola larga che modifica perde a parita' di peso, e la perdeva davvero
-   (i conteggi restavano ancorati in basso, misurato). */
+   regola larga che modifica perde a parita' di peso.
+   La soglia non e' un numero scelto: e' la somma delle tre tracce dichiarate a
+   .tre-zone, 18rem + 22rem + 22rem. Sotto di essa la colonna centrale — la
+   vista, cioe' l'unica cosa che questa schermata esiste per mostrare — sarebbe
+   piu' stretta del pannello che la commenta: a 60rem le restavano 321 px
+   contro i 352 della zona di destra. Un artefatto primario piu' piccolo di
+   entrambi i suoi margini non e' piu' primario, e a quel punto la colonna
+   unica, dove la vista prende la larghezza intera della finestra, e' la
+   composizione migliore. Cambiando una larghezza di traccia va cambiata anche
+   questa somma. */
 /* A una colonna la vista perde il contenitore alto quanto lo schermo, e
    .viewport { flex: 1 } di un genitore alto quanto il suo contenuto vale
    zero: la scena sparirebbe. L'altezza gliela da' la finestra, col min-height
    sulla zona; la didascalia si prende la propria riga sotto, e cio' che resta
    e' l'immagine. */
-@media (max-width: 60rem) {
+@media (max-width: 62rem) {
   /* Impilate, le tre zone sono piu' alte dello schermo: qui a scorrere e' la
      pagina, e l'altezza fissa la taglierebbe. */
   body { height: auto; min-height: 100vh; }
   .tre-zone { grid-template-columns: 1fr; }
   .zona-vista { min-height: 60vh; }
-  /* Su una colonna sola i conteggi e il comando del taglio si sovrappongono
-     (misurato: si toccano gia' a 700 px). I conteggi salgono in cima: sono
-     una didascalia della vista, e la' non coprono nulla. */
-  .conteggi { top: var(--passo-2); bottom: auto; }
 }

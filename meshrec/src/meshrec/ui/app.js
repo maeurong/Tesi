@@ -3,8 +3,8 @@
 const ETICHETTE = {
   "01_load": "Lettura", "02_segment": "Segmentazione", "03_downsample": "Riduzione",
   "04_normals": "Normali", "05_reconstruct": "Superficie", "06_repair": "Riparazione",
-  "07_surface_quality": "Qualita superficie", "08_simplify": "Semplificazione",
-  "09_tetrahedralize": "Tetraedri", "10_volume_quality": "Qualita volume",
+  "07_surface_quality": "Qualità superficie", "08_simplify": "Semplificazione",
+  "09_tetrahedralize": "Tetraedri", "10_volume_quality": "Qualità volume",
   "11_export": "Esportazione", "12_wall": "Prior geometrico", "13_solve": "Analisi strutturale",
 };
 
@@ -37,6 +37,30 @@ async function caricaStato() {
   document.getElementById("cambia-corsa").hidden = false;
   document.getElementById("corsa").textContent = corpo.out_dir;
   disegnaStep(corpo.steps);
+  // Aprire una corsa e trovare il centro bianco. La corsa ha gia' i propri
+  // artefatti sul disco: si mostra il piu' avanzato che possiede, invece di
+  // aspettare un clic per far vedere che il programma funziona. E' la sola
+  // cosa che questa schermata puo' fare, all'apertura, per chi la pipeline non
+  // l'ha mai vista girare.
+  //
+  // La coda della pipeline e non uno step scelto a mano: `passoDaMostrare`
+  // cammina a monte da li' e si ferma sul primo disegnabile. Se non ne trova
+  // nessuno cade nel ramo che scrive «esegui lo step 1» e scopre lo stato
+  // vuoto, che sono due strade gia' scritte: qui non se ne aggiunge nessuna.
+  // Da `corpo.steps.length` e non da un 13 battuto qui: quanti step ci sono lo
+  // dichiara il server, ed e' lo stesso elenco appena disegnato.
+  //
+  // `stepScelto` va scritto e non lasciato a null: il cambio d'asse del taglio
+  // chiama `passoDaMostrare(stepScelto)`, e con null il comando del taglio
+  // sparirebbe sotto le dita di chi lo sta usando su una geometria che si vede.
+  // Un clic dell'utente lo sovrascrive subito, e la generazione che apre butta
+  // via questa geometria se arriva dopo.
+  //
+  // La zona morta di `let stepScelto` non morde: questa riga sta dopo la prima
+  // attesa, e li' il modulo e' gia' stato valutato per intero -- la stessa
+  // ragione per cui `disegnaStep` puo' leggere `stepAperto`.
+  stepScelto = corpo.steps.length;
+  ricaricaVista(stepScelto);
 }
 
 // --- Schermata d'ingresso --------------------------------------------------
@@ -95,7 +119,7 @@ async function disegnaIngresso() {
   const elenco = document.getElementById("corse-elenco");
   elenco.replaceChildren();
   document.getElementById("corse-vuoto").hidden = corpo.corse.length > 0;
-  document.getElementById("corse-titolo").textContent = `Corse gia' in ${corpo.radice}`;
+  document.getElementById("corse-titolo").textContent = `Corse già in ${corpo.radice}`;
   // Dalla piu' recente: la domanda che si fa chi riapre il programma e' «quale
   // stavo usando», e l'ordine alfabetico non le risponde. Le corse che non
   // portano una data (config sparito fra la lettura e lo stat) vanno in fondo
@@ -166,6 +190,41 @@ function ragioneLocale(nome, nuvola) {
   return null;
 }
 
+// Il selettore file lo apre il server, non la pagina: `<input type="file">`
+// restituisce un oggetto File e nasconde la via reale (`C:\fakepath\...`), che
+// e' proprio il dato che serve. Il programma gira sulla stessa macchina del
+// file, quindi la finestra la puo' aprire lui.
+document.getElementById("sfoglia-nuvola").addEventListener("click", async (evento) => {
+  const bottone = evento.currentTarget;
+  const campo = document.getElementById("nuova-nuvola");
+  const richiesta = apriIngresso();
+  bottone.disabled = true;
+  rigaErroreIngresso.textContent = "";
+  const risposta = await fetch("/api/sfoglia", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    // Da dove era rimasto: riaprire il selettore deve tornare nella cartella
+    // di prima, non alla radice ogni volta.
+    body: JSON.stringify({ iniziale: campo.value.trim() }),
+  }).catch(serverMuto);
+  const rifiuto = risposta.ok ? null : await ragioneDelRifiuto(risposta);
+  const corpo = risposta.ok ? await corpoLetto(risposta) : null;
+  if (superata(richiesta, ultimoIngresso)) return;
+  bottone.disabled = false;
+  if (rifiuto !== null) {
+    rigaErroreIngresso.textContent = rifiuto;
+    return;
+  }
+  if (corpo === undefined) {
+    rigaErroreIngresso.textContent = "il server ha risposto con un percorso che non si legge";
+    return;
+  }
+  // Annullare non e' un errore e non cancella quello che c'era: `percorso` e'
+  // null per contratto, e sovrascrivere il campo con una stringa vuota
+  // punirebbe chi apre la finestra per sbaglio.
+  if (corpo?.percorso) campo.value = corpo.percorso;
+});
+
 document.getElementById("crea-corsa").addEventListener("click", async (evento) => {
   const bottone = evento.currentTarget;
   const richiesta = apriIngresso();
@@ -209,7 +268,7 @@ function segnaStepAperto(numero) {
 }
 
 // La riga vuota, senza contenuto: il contenuto lo scrive disegnaStep, che la
-// riusa. Un <button> e non il <li> con un gestore sopra — undici voci d'elenco
+// riusa. Un <button> e non il <li> con un gestore sopra — tredici voci d'elenco
 // con cursor: pointer erano l'intera interfaccia pilotabile col solo mouse
 // (WCAG 2.1.1, livello A) e annunciate come righe inerti (WCAG 4.1.2). Il
 // gestore delegato piu' sotto non cambia: il clic sale dal bottone e
@@ -222,16 +281,89 @@ function nuovaRiga() {
   const comando = document.createElement("button");
   comando.type = "button";
   comando.className = "step";
+  // Il numero dello step, e sta a video perche' l'interfaccia parla per numeri:
+  // «esegui lo step 1», «e' lo step 12», «lo step 11 si ferma finche'...», «step
+  // 5 in corso». Tutte istruzioni che indicavano una coordinata che la colonna
+  // non mostrava da nessuna parte -- l'<ol> ha list-style: none -- e chi apre il
+  // programma per la prima volta aveva tredici nomi e nessun modo di contarli.
+  // Scritto da `voce.numero` e non dalla posizione nell'elenco: il numero e' un
+  // dato del server, e un contatore CSS lo indovinerebbe dalla riga.
+  const numero = document.createElement("span");
+  numero.className = "step-numero";
   const nome = document.createElement("span");
   nome.className = "step-nome";
   const stato = document.createElement("span");
   stato.className = "step-stato";
-  comando.append(nome, stato);
+  comando.append(numero, nome, stato);
   riga.append(comando);
   return riga;
 }
 
+// Lo stato degli step per come il server l'ha DICHIARATO l'ultima volta. Non
+// e' cio' che sta sul disco, e la differenza conta: i due rami di rifiuto piu'
+// sotto esistono proprio per quando divergono. `disegnaStep` e' l'unico imbuto
+// per cui arriva (dal caricamento e dallo scorrere degli eventi, che mandano
+// entrambi run_state), quindi una riga la' lo tiene fresco da tutte e due le
+// strade.
+let ultimoStato = [];
+
+// Lo step la cui geometria si puo' mostrare al posto di quella di `numero`.
+//
+// Quattro step su tredici non scrivono GEOMETRIA, per costruzione e non per
+// guasto: il 7 e il 10 misurano, l'11 scrive un deck e il 12 un prior
+// (pipeline.ARTIFACTS ha nove chiavi su tredici). Cliccarli svuotava il
+// viewport.
+//
+// Servono DUE condizioni:
+//
+// 1. lo step deve avere SCRITTO qualcosa (`artefatto` non nullo). Non basta la
+//    tabella: lo step 8 scrive solo a semplificazione abilitata
+//    (`registra(8, ..., None)` altrimenti, che e' il predefinito), e una corsa
+//    non ancora eseguita non ha scritto niente.
+// 2. cio' che ha scritto dev'essere DISEGNABILE. Non basta il registro, e la
+//    seconda condizione l'ha insegnata una corsa vera: in
+//    runs/lab_crop/steps.json lo step 11 compare con
+//    `artefatto: wall_model.inp`, cioe' NON nullo. Un artefatto ce l'ha
+//    davvero, ma e' un deck di calcolo; chiederlo porta a /api/cloud/11, che
+//    il server rifiuta perche' l'11 non e' fra le chiavi di ARTIFACTS. Lo
+//    schermo vuoto di nuovo, per una strada nuova.
+//
+// `null` quando a monte non c'e' niente che soddisfi entrambe: e' l'unico caso
+// in cui svuotare la vista e' onesto.
+const STEP_CON_GEOMETRIA = new Set([1, 2, 3, 4, 5, 6, 8, 9, 13]);
+
+function passoDaMostrare(numero) {
+  for (let n = numero; n >= 1; n -= 1) {
+    const voce = ultimoStato.find((v) => v.numero === n);
+    if (voce?.artefatto && STEP_CON_GEOMETRIA.has(n)) return n;
+  }
+  return null;
+}
+
+// Il nome che l'utente vede nella colonna, per la coda della didascalia: dire
+// «artefatto dello step 6» accanto a una riga che si chiama «Riparazione»
+// costringe a contare le righe per capire di quale si parla.
+function nomeDelloStep(numero) {
+  const voce = ultimoStato.find((v) => v.numero === numero);
+  return ETICHETTE[voce?.chiave] ?? `step ${numero}`;
+}
+
 function disegnaStep(steps) {
+  // Lo stato di prima, letto prima di sovrascriverlo: e' l'unica cosa che
+  // distingue «lo step 6 e' appena diventato valido» da «lo step 6 e' valido»,
+  // e la colonna diceva il secondo anche nell'istante in cui accadeva il primo.
+  // Da qui e non dal DOM: `className` sulla riga e' cio' che il foglio legge, e
+  // farlo portare anche la memoria di cio' che c'era prima significherebbe
+  // riscrivere lo stato per esprimere un evento.
+  //
+  // Vuoto alla prima passata, e non e' un caso limite da tollerare ma il
+  // comportamento voluto: al primo disegno tutti e tredici gli step sarebbero
+  // «cambiati» rispetto a niente, e la colonna si accenderebbe tutta all'avvio
+  // dicendo che e' appena successo qualcosa che invece era gia' cosi'. Legare
+  // una corsa ricarica la pagina, quindi non esiste una seconda strada per cui
+  // questa mappa arrivi popolata da una corsa diversa.
+  const precedente = new Map(ultimoStato.map((voce) => [voce.numero, voce.stato]));
+  ultimoStato = steps;
   const elenco = document.getElementById("elenco-step");
   // Le righe si costruiscono una volta sola e poi si aggiornano sul posto.
   // Ricostruirle a ogni evento — due volte al secondo mentre la pipeline gira —
@@ -246,11 +378,24 @@ function disegnaStep(steps) {
     elenco.replaceChildren(...steps.map(() => nuovaRiga()));
   }
   steps.forEach((voce, indice) => {
-    const comando = elenco.children[indice].firstElementChild;
-    elenco.children[indice].className = `stato-${voce.stato.replace(" ", "-")}`;
+    const riga = elenco.children[indice];
+    const comando = riga.firstElementChild;
+    riga.className = `stato-${voce.stato.replace(" ", "-")}`;
+    // Il marchio del cambio, che il foglio anima per mezzo secondo. Messo nel
+    // giro in cui lo stato cambia e tolto in quello dopo -- gli eventi di stato
+    // arrivano ogni mezzo secondo -- cosi' la volta seguente l'attributo torna
+    // ad apparire e l'animazione riparte da se': un attributo che restasse
+    // attaccato la lascerebbe girare una volta sola e mai piu'.
+    if (precedente.has(voce.numero) && precedente.get(voce.numero) !== voce.stato) {
+      riga.dataset.cambiato = "";
+    } else {
+      delete riga.dataset.cambiato;
+    }
     comando.dataset.numero = voce.numero;
-    comando.firstElementChild.textContent = ETICHETTE[voce.chiave] ?? voce.chiave;
-    comando.lastElementChild.textContent = voce.stato;
+    const [numero, nome, stato] = comando.children;
+    numero.textContent = voce.numero;
+    nome.textContent = ETICHETTE[voce.chiave] ?? voce.chiave;
+    stato.textContent = voce.stato;
   });
   // stepAperto e' gia' inizializzato: disegnaStep gira solo da caricaStato, che
   // si sospende sulla prima attesa, e dallo scorrere degli eventi, cioe' sempre
@@ -267,6 +412,42 @@ caricaStato();
 // Il tempo trascorso lo misura il server, dove lo step parte davvero: contato
 // qui conterebbe da quando questa pagina ha visto lo stato "in corso", e
 // tornerebbe a zero a ogni ricarica mentre il calcolo prosegue.
+// Una durata misurata, letta come la direbbe una persona. Sotto il minuto e
+// mezzo i secondi bastano; sopra, «312 s» smette di essere una durata e torna
+// a essere un numero -- e in questa riga adesso ce ne stanno due accanto, il
+// tempo di adesso e quello dell'ultima volta.
+//
+// Sotto il secondo NON si arrotonda a «0 s». Lo step 8 a semplificazione
+// disabilitata dura 1,3e-05 s (misurato, runs/prova/steps.json), e uno zero li'
+// si legge «non e' partito» invece di «e' finito prima che si potesse
+// misurare»: sarebbe il difetto che PRODUCT.md nomina, uno zero che significa
+// «sotto la risoluzione della misura» presentato come «esatto».
+//
+// Arrotonda PRIMA di dividere: 119,6 s diviso e poi arrotondato dava
+// «1 min 60 s».
+function durataMisurata(secondi) {
+  if (secondi < 1) return "meno di 1 s";
+  const tondo = Math.round(secondi);
+  if (tondo < 90) return `${tondo} s`;
+  return `${Math.floor(tondo / 60)} min ${tondo % 60} s`;
+}
+
+// Il tempo che questo stesso step ha impiegato l'ultima volta, se il disco lo
+// sa e se e' una misura.
+//
+// La guardia sul fallito non e' prudenza generica: pipeline.py:574 registra
+// `0.0` fisso quando uno step fallisce, che e' un segnaposto e non un
+// cronometro. Uno step che e' morto dopo venti secondi di lavoro ha su disco
+// «secondi: 0.0», e mostrarlo scriverebbe «0 s» accanto a un numero vero --
+// esattamente il numero senza controllo che il primo principio di prodotto
+// vieta. "mai eseguito" non ha `secondi` affatto e cade sul typeof.
+function ultimaDurata(voce) {
+  if (voce === undefined || voce === null) return null;
+  if (voce.stato === "fallito") return null;
+  if (typeof voce.secondi !== "number") return null;
+  return durataMisurata(voce.secondi);
+}
+
 const flusso = new EventSource("/api/events");
 
 let eraInCorso = false;
@@ -283,9 +464,29 @@ flusso.addEventListener("stato", (evento) => {
     // (il prior, un modello parametrico: worker.start_comando, non
     // worker.start): la colonna non ha una riga per un comando del genere,
     // e "step null in corso" sarebbe il numero di un ramo che non esiste.
+    // Quanto duro' l'ultima volta questo stesso step. E' l'unico numero che
+    // questo programma possiede davvero sull'attesa che sta facendo fare: una
+    // percentuale non gliela fornisce nessuna libreria, e fabbricarla e' vietato
+    // per nome. Non promette niente su questa esecuzione -- i parametri possono
+    // essere cambiati -- e infatti la riga non dice «mancano», dice «l'ultima
+    // volta». Quando il tempo di adesso lo supera, il ritardo si legge da se',
+    // che e' informazione e non allarme.
+    //
+    // Da `stato.steps` e non da `ultimoStato`: e' lo stesso evento, quindi non
+    // dipende dall'ordine in cui disegnaStep lo ha gia' assorbito. Il file di
+    // stato si riscrive solo a step finito (steps.write_state, un solo punto),
+    // quindi mentre lo step gira quel numero e' ancora quello di prima.
+    //
+    // Solo per uno step: un comando fuori pipeline (il prior, un modello
+    // parametrico) non ha una riga nel file di stato, e non c'e' nessuna ultima
+    // volta da leggere.
+    const prima = stato.step !== null
+      ? ultimaDurata(stato.steps.find((voce) => voce.numero === stato.step))
+      : null;
+    const scorso = durataMisurata(stato.da_secondi);
     barra.textContent = stato.step !== null
-      ? `step ${stato.step} in corso, ${Math.round(stato.da_secondi)} s`
-      : `un comando e' in corso, ${Math.round(stato.da_secondi)} s`;
+      ? `step ${stato.step} in corso, ${scorso}${prima !== null ? ` · l'ultima volta ${prima}` : ""}`
+      : `un comando è in corso, ${scorso}`;
     barra.hidden = false;
   } else {
     barra.hidden = true;
@@ -309,8 +510,8 @@ flusso.addEventListener("stato", (evento) => {
     // Una corsa partita dallo step N riscrive gli artefatti dall'N in giu',
     // quindi solo un numero >= N puo' essere scaduto: sotto non c'e' niente da
     // ricaricare, e ogni ricaricamento e' una richiesta in piu'.
-    if (stepMostrato !== null && stato.step !== null && stepMostrato >= stato.step) {
-      ricaricaVista(stepMostrato);
+    if (stepScelto !== null && stato.step !== null && stepScelto >= stato.step) {
+      ricaricaVista(stepScelto);
     }
   }
   eraInCorso = stato.in_corso;
@@ -395,9 +596,18 @@ async function mostraNuvolaDelloStep(numero, ordine) {
     // Svuotare e' obbligatorio: senza, la scena resta quella dello step
     // precedente mentre il testo dice che non c'e' nulla. Una vista che
     // contraddice la sua didascalia e' peggio di una vista vuota.
+    //
+    // Qui ci si arriva molto piu' di rado da quando ricaricaVista chiede solo
+    // step che il registro dichiara scritti: resta per il caso in cui registro
+    // e disco non concordano (cartella della corsa svuotata sotto i piedi). Il
+    // testo lo dice, invece di dare la colpa allo step.
     vista.svuota();
-    document.getElementById("conteggi").textContent = "nessun artefatto per questo step";
-    return true;
+    document.getElementById("conteggi").textContent =
+      `l'artefatto dello step ${numero} non c'è più sul disco: riesegui lo step ${numero}`;
+    // "vuoto" e non true: ha SCRITTO (quindi non e' una risposta scartata, e
+    // chi guarda l'ordine deve saperlo) ma non ha DISEGNATO. Chi ci scrive
+    // sopra una didascalia deve poter distinguere i due casi.
+    return "vuoto";
   }
   const disegnati = Number(risposta.headers.get("X-Points-Drawn"));
   const pieni = Number(risposta.headers.get("X-Points-Total"));
@@ -434,10 +644,13 @@ async function mostraStep(numero, ordine) {
   if (!risposta.ok) {
     if (superata(ordine) || superata(emissione, ultimaGeometria)) return false;
     // Come per la nuvola: svuotare e' obbligatorio, una vista che contraddice
-    // la sua didascalia e' peggio di una vista vuota.
+    // la sua didascalia e' peggio di una vista vuota. E come li', ci si arriva
+    // solo se registro e disco non concordano.
     vista.svuota();
-    document.getElementById("conteggi").textContent = "nessun artefatto per questo step";
-    return true;
+    document.getElementById("conteggi").textContent =
+      `l'artefatto dello step ${numero} non c'è più sul disco: riesegui lo step ${numero}`;
+    // Come nella tratta della nuvola: ha scritto, non ha disegnato.
+    return "vuoto";
   }
   const vertici = Number(risposta.headers.get("X-Vertices"));
   const triangoli = Number(risposta.headers.get("X-Triangles"));
@@ -456,6 +669,119 @@ async function mostraStep(numero, ordine) {
     `${vertici.toLocaleString("it")} vertici, ${triangoli.toLocaleString("it")} triangoli`;
   return true;
 }
+
+// --- Il fantasma del passaggio a monte --------------------------------------
+// «Che cosa ha fatto questo step alla geometria» a video non aveva risposta:
+// gli undici artefatti si guardano di fila, mai due insieme, e di cio' che un
+// passaggio ha TOLTO restano due numeri letti in due momenti diversi. Il
+// fantasma mette la geometria di prima dietro quella corrente: i due conteggi
+// pieni si leggono nello stesso istante invece che uno al posto dell'altro.
+
+// Da quale step viene il fantasma. Acceso solo dove il conteggio cala davvero:
+// il ritaglio dello step 2, lo sfoltimento del 3, la semplificazione dell'8.
+// Scritte a mano e non calcolate come `numero - 1`: sullo step 8 il precedente
+// con geometria propria e' il 6, perche' il 7 misura e non produce niente.
+// Fuori da queste tre coppie due geometrie sovrapposte -- il 5 contro il 6, per
+// dire -- fanno z-fighting e non informano nessuno.
+const FANTASMA_DI = { 2: 1, 3: 2, 8: 6 };
+let fantasmaAcceso = true;
+
+// Pura apposta, cosi' la regola si guarda da fuori invece di dedurla dai punti
+// in cui e' usata. `sorgente` e' lo step da cui viene la geometria a video:
+// quando non e' quello chiesto, la geometria corrente e' gia' quella di un
+// altro passaggio e il fantasma la ridisegnerebbe sopra se stessa.
+// L'interruttore non entra qui: e' un predicato solo, e decide sia se il velo
+// si disegna sia se la casella si mostra. Con due predicati -- la tabella per
+// mostrare, questo per disegnare -- sullo step 8 di una corsa senza
+// semplificazione la casella comparirebbe spuntata e toccarla nei due versi non
+// farebbe nulla, perche' li' la geometria a video e' gia' quella dello step 6.
+// E l'interruttore non puo' entrarci: spento farebbe sparire la propria casella.
+function fantasmaHaSenso(chiesto, sorgente) {
+  return sorgente === chiesto && FANTASMA_DI[chiesto] !== undefined;
+}
+
+function comandoDelFantasma() {
+  return document.getElementById("fantasma-comando");
+}
+
+// Un contatore suo, e NON apriGeometria(). `ultimaGeometria` e' l'arbitro fra
+// due geometrie della stessa generazione -- vince quella partita dopo -- e il
+// velo si posa dentro il `then` di mostraStep, cioe' proprio in mezzo a due
+// richieste che possono essere ancora tutt'e due in volo (il clic e il fronte
+// di discesa condividono la generazione).
+// L'ordine in cui morde e' questo: arriva per prima la richiesta VECCHIA, che
+// disegna e fa partire il suo velo; il velo bumpa `ultimaGeometria`; arriva la
+// richiesta nuova e si trova superata da un numero che non e' di nessuna
+// geometria. A video resta la geometria vecchia, e nessuno lo dice.
+// Provato eseguendo, in tutte e due i versi:
+// test_server.py::test_il_velo_non_arbitra_al_posto_delle_geometrie.
+// Col contatore suo il velo arbitra solo contro altri veli, che e' l'unica
+// corsa che gli appartiene.
+let ultimoFantasma = 0;
+
+function apriFantasma() {
+  ultimoFantasma += 1;
+  return ultimoFantasma;
+}
+
+async function mostraFantasmaDelloStep(numero, ordine) {
+  // Prima di toccare la casella e non solo prima di disegnare: chi e' stato
+  // superato non deve nemmeno decidere se il comando si vede. Un clic sullo
+  // step 2 che arriva tardi, dopo un clic sul 9, riaccenderebbe la casella su
+  // una vista che non e' piu' la sua.
+  if (superata(ordine)) return;
+  const haSenso = fantasmaHaSenso(numero, passoDaMostrare(numero));
+  comandoDelFantasma().hidden = !haSenso;
+  if (!haSenso || !fantasmaAcceso) return;
+  const da = FANTASMA_DI[numero];
+  // La frontiera fra nuvola e superficie e' STEP_CON_MESH, e si legge di la'.
+  // Scritta qui una seconda volta come `da <= 4` sarebbe la stessa frontiera
+  // detta due volte nello stesso file: il giorno che la pipeline guadagna uno
+  // step, una si sposta e l'altra no, e il fantasma dell'8 chiederebbe una
+  // nuvola dove c'e' una superficie.
+  const nuvola = !STEP_CON_MESH.has(da);
+  const emissione = apriFantasma();
+  const risposta = await fetch(nuvola ? `/api/cloud/${da}` : `/api/mesh/${da}`)
+    .catch(serverMuto);
+  // Un fantasma che non arriva non e' un errore da annunciare: lo step a monte
+  // puo' semplicemente non essere ancora girato, e la geometria corrente resta
+  // quella che e'. Il silenzio qui non nasconde niente che l'utente abbia
+  // chiesto -- cio' che ha chiesto e' a video, con la sua didascalia.
+  if (risposta === undefined || !risposta.ok) return;
+  const pieni = Number(risposta.headers.get(nuvola ? "X-Points-Total" : "X-Vertices"));
+  const triangoli = Number(risposta.headers.get("X-Triangles"));
+  const grezzi = await risposta.arrayBuffer();
+  // Dopo l'ultima attesa e prima della prima scrittura, come le due strade che
+  // disegnano: un fantasma partito per lo step 2 non deve posarsi sul 9. Sullo
+  // step 2 sono 6,3 milioni di punti, decine di secondi a freddo, e in quel
+  // tempo si fa in tempo a cliccare altrove piu' di una volta.
+  if (superata(ordine) || superata(emissione, ultimoFantasma)) return;
+  if (nuvola) {
+    vista.mostraFantasma(new Float32Array(grezzi));
+  } else {
+    vista.mostraFantasma(
+      new Float32Array(grezzi, 0, pieni * 3),
+      new Uint32Array(grezzi, pieni * 3 * 4, triangoli * 3),
+    );
+  }
+}
+
+function alternaFantasma(acceso) {
+  fantasmaAcceso = acceso;
+  if (!acceso) {
+    vista.togliFantasma();
+    return undefined;
+  }
+  // Lo step MOSTRATO e non quello scelto: e' la stessa distinzione che
+  // ricaricaVista fa, e passare qui lo scelto accenderebbe il velo su un numero
+  // che a video non c'e'.
+  if (stepScelto === null) return undefined;
+  return mostraFantasmaDelloStep(stepScelto, generazione);
+}
+
+comandoDelFantasma().addEventListener("change", (evento) => {
+  alternaFantasma(evento.target.checked);
+});
 
 // Lo step che risolve: /api/campo/{caso}/{grandezza} vive fuori da
 // STEP_CON_MESH/STEP_CON_TAGLIO apposta, sono comandi diversi (un campo per
@@ -515,7 +841,7 @@ async function mostraCampoDelloStep(caso, grandezza, ordine) {
   if (valori.length !== vertici) {
     didascalia.textContent =
       `campo e superficie non corrispondono (${valori.length} valori su ${vertici} vertici): `
-      + "la corsa e' cambiata mentre la vista arrivava, riprova";
+      + "la corsa è cambiata mentre la vista arrivava, riprova";
     return true;
   }
   const { taglio, sopraTaglio } = scalaDelCampo(valori);
@@ -545,7 +871,10 @@ async function mostraCampoDelloStep(caso, grandezza, ordine) {
 // arbitrazione: le didascalie seguono solo se quella chiamata ha vinto.
 async function mostraModoDelloStep(numero, frequenza, ordine) {
   const disegnato = await mostraStep(STEP_CON_CAMPO, ordine);
-  if (!disegnato) return false;
+  // `!== true` e non `!`: col solo `!` il ramo "vuoto" passava e la didascalia
+  // del modo finiva sotto un viewport svuotato, sopra il messaggio che dice
+  // che l'artefatto non c'e'.
+  if (disegnato !== true) return false;
   // `Modo 1` e non `MODO_1`: e' il nome che il <select> mostra nella stessa
   // schermata, e due nomi per la stessa cosa a mezzo palmo di distanza si
   // leggono come due cose. `MODO_1` resta la chiave del .vtu, che a video non
@@ -570,7 +899,7 @@ function pannelloCampo(ordine, metriche13) {
   if (casi.length === 0 && modi === 0) {
     contenitore.append(Object.assign(document.createElement("p"), {
       className: "aiuto",
-      textContent: "Lo step 13 non ha ancora prodotto casi di carico ne' modi da mostrare.",
+      textContent: "Lo step 13 non ha ancora prodotto casi di carico né modi da mostrare.",
     }));
     return contenitore;
   }
@@ -613,18 +942,25 @@ function pannelloCampo(ordine, metriche13) {
   // costruzione del pannello non aspetta la vista, quindi il .catch() e non
   // l'await: il <select> deve comparire anche se il campo non arriva.
   aggiorna().catch((errore) => {
-    didascaliaDellaVista().textContent = `il campo non e' arrivato: ${errore.message}`;
+    didascaliaDellaVista().textContent = `il campo non è arrivato: ${errore.message}`;
   });
   return contenitore;
 }
 
 // Il piano di taglio serve a guardare dentro il volume, percio' il comando
-// compare solo sullo step che il volume lo produce, e solo se qualcosa e'
-// stato davvero disegnato.
+// compare solo quando nel viewport C'E' il volume, e solo se qualcosa e' stato
+// davvero disegnato. Da quando la vista ripiega, «c'e' il volume» non coincide
+// piu' con «e' selezionato lo step 9»: scelto il 10, l'11 o il 12 il ripiego
+// atterra sul 9 e il comando compare anche li'. E' voluto -- il volume e'
+// davvero sullo schermo e si puo' davvero tagliare -- e i chiamanti passano
+// per questo lo step MOSTRATO, non quello scelto.
 const STEP_CON_TAGLIO = 9;
-// Lo step la cui geometria e' nel viewport: non e' sempre quello del pannello,
-// che resta aperto anche mentre la geometria nuova sta arrivando.
-let stepMostrato = null;
+// Lo step che l'utente ha SCELTO, non quello la cui geometria e' a schermo:
+// quella e' `passoDaMostrare(stepScelto)`, che puo' essere piu' a monte. Il
+// nome vecchio (`stepMostrato`) diceva l'una cosa mentre il codice faceva
+// l'altra. Non e' sempre quello del pannello, che resta aperto anche mentre la
+// geometria nuova sta arrivando.
+let stepScelto = null;
 const comandoTaglio = document.getElementById("taglio");
 const asseTaglio = document.getElementById("taglio-asse");
 const quotaTaglio = document.getElementById("taglio-quota");
@@ -689,13 +1025,16 @@ function riallineaTaglio(numero) {
 }
 
 quotaTaglio.addEventListener("input", applicaTaglio);
-asseTaglio.addEventListener("change", () => riallineaTaglio(stepMostrato));
+// Lo step mostrato e non quello scelto, per la stessa ragione di ricaricaVista:
+// scelto lo step 11 il viewport porta il volume dello step 9, e passare qui 11
+// spegnerebbe il comando del taglio sotto una geometria che si puo' tagliare.
+asseTaglio.addEventListener("change", () => riallineaTaglio(passoDaMostrare(stepScelto)));
 
 document.getElementById("elenco-step").addEventListener("click", (evento) => {
   const riga = evento.target.closest(".step");
   if (!riga) return;
   const numero = Number(riga.dataset.numero);
-  stepMostrato = numero;
+  stepScelto = numero;
   // Una sola generazione per il clic, passata a tutte e due le tratte: se la
   // guardia stesse su mostraStep e non su apriDettaglio, meta' del difetto
   // resterebbe con l'aria di essere risolta.
@@ -721,11 +1060,67 @@ function ricaricaVista(numero, ordine = generazione) {
   // questo e' l'unico imbuto per cui la vista cambia, dal clic e dal fronte di
   // discesa; chi disegna un campo la riscrive subito dopo.
   didascaliaDellaVista().textContent = "";
+  // Lo stato vuoto se ne va appena si chiede una geometria, e torna solo dal
+  // ramo qui sotto. Basta questo punto perche' questo e' l'unico imbuto per cui
+  // la vista cambia (lo dice il commento qui sopra): scriverlo in ognuno dei
+  // rami che disegnano sarebbe la stessa riga in quattro posti, con uno che
+  // prima o poi resta indietro e lascia la frase sopra il pezzo.
+  const vuotoDellaVista = document.getElementById("vista-vuota");
+  vuotoDellaVista.hidden = true;
+  // Il ripiego sta QUI e non dentro mostraStep, che ha un secondo chiamante:
+  // mostraModoDelloStep pretende la mesh dello step 13 e nient'altro, perche'
+  // ci scrive sopra la didascalia di un modo. Un ripiego dentro mostraStep gli
+  // farebbe posare «Modo 1» sul volume dello step 9.
+  const mostrato = passoDaMostrare(numero);
+  if (mostrato === null) {
+    // L'unico caso in cui svuotare e' onesto: non c'e' proprio niente a monte.
+    // Il testo non da' la colpa allo step scelto -- non e' lui che manca, e'
+    // che la corsa non e' mai partita.
+    vista.svuota();
+    document.getElementById("conteggi").textContent =
+      "nessuno step ha ancora prodotto un artefatto: esegui lo step 1";
+    // I due si dividono il lavoro e non si ripetono: i conteggi dicono cosa
+    // manca adesso, lo stato vuoto dice cosa e' questa superficie e che la
+    // colonna a sinistra e' fatta di comandi.
+    vuotoDellaVista.hidden = false;
+    // Niente geometria, niente passaggio a monte da sovrapporre: la casella se
+    // ne va con la vista. Lasciata li' offrirebbe di confrontare due cose che
+    // non ci sono.
+    comandoDelFantasma().hidden = true;
+    riallineaTaglio(null);
+    return;
+  }
   // `disegnato` e' falso quando la risposta e' stata scartata: senza guardarlo,
   // il cursore si rifarebbe sull'ingombro di una geometria che qualcun altro
   // ha disegnato, cioe' su una lettura che non appartiene a questo numero.
-  mostraStep(numero, ordine).then((disegnato) => {
-    if (disegnato && !superata(ordine)) riallineaTaglio(numero);
+  mostraStep(mostrato, ordine).then((disegnato) => {
+    if (disegnato && !superata(ordine)) {
+      // `=== true` e non solo truthy: mostraStep torna "vuoto" dal ramo del
+      // rifiuto dichiarato, dove ha svuotato la vista e scritto perche'.
+      // Attaccarci la coda direbbe «artefatto dello step 9 (Tetraedri)» in fondo
+      // a «non c'e' piu' sul disco», cioe' attribuirebbe a uno step una
+      // geometria che sullo schermo non c'e'. E' il difetto che vista.svuota()
+      // esisteva per chiudere, riaperto dalla correzione che lo chiudeva.
+      //
+      // riallineaTaglio resta fuori dal `=== true` apposta: sulla vista vuota
+      // ingombro() torna null (viewport.js:405) e il comando del taglio si
+      // nasconde, che e' cio' che deve succedere.
+      if (disegnato === true && mostrato !== numero) {
+        const conteggi = document.getElementById("conteggi");
+        conteggi.textContent +=
+          ` — artefatto dello step ${mostrato} (${nomeDelloStep(mostrato)})`;
+      }
+      // Lo step MOSTRATO e non quello scelto: il cursore del taglio si rifa'
+      // sull'ingombro di cio' che e' disegnato, e la sua stessa nota lo dice.
+      riallineaTaglio(mostrato);
+    }
+    // Dopo mostraStep e dentro il then, non accanto alla chiamata: ogni strada
+    // che disegna passa da vista.svuota(), che il velo lo toglie. Posato prima,
+    // sparirebbe sotto la geometria che lo doveva accompagnare.
+    // Fuori dal `disegnato &&` qui sopra apposta: quando la risposta e' stata
+    // scartata o l'artefatto non c'e' piu', mostraFantasmaDelloStep serve
+    // comunque a NASCONDERE la casella, che e' cio' che deve succedere.
+    mostraFantasmaDelloStep(numero, ordine);
   });
 }
 
@@ -794,7 +1189,7 @@ function disegnaScartate(scartate) {
       const riga = document.createElement("p");
       riga.className = "rifiuto";
       riga.textContent =
-        `Regione ${voce.regione + 1} non e' una membratura: il controllo ` +
+        `Regione ${voce.regione + 1} non è una membratura: il controllo ` +
         `«${nome}» ha misurato ${esito.valore.toFixed(3)} contro una soglia di ` +
         `${esito.soglia.toFixed(3)}.`;
       contenitore.append(riga);
@@ -1083,6 +1478,36 @@ function pannelloRitaglio(ordine) {
   const valori = persistito
     ? { min: [...persistito.crop_min], max: [...persistito.crop_max] }
     : { min: [...ingombro.min], max: [...ingombro.max] };
+  // Che cosa sono i sei numeri, in che unita', e che cosa fa il bottone --
+  // detto PRIMA di premerlo. Finora l'unica frase del pannello arrivava dopo
+  // l'applicazione, e diceva che crop_min e crop_max erano gia' stati scritti:
+  // chi esplorava lo scopriva a scrittura avvenuta. La sorgente dei numeri
+  // cambia con `persistito` ed e' la stessa distinzione che il commento qui
+  // sopra difende: l'ingombro disegnato e cio' che sta sul disco non sono la
+  // stessa domanda, e la frase non deve confonderli.
+  contenitore.append(Object.assign(document.createElement("p"), {
+    className: "aiuto",
+    textContent: (persistito
+      ? "Gli estremi del box in mm, come sono scritti nella configurazione della corsa. "
+      : "Gli estremi del box in mm, presi dall'ingombro della nuvola disegnata. ")
+      + "«Applica il ritaglio» li scrive nella configurazione, su crop_min e crop_max, "
+      + "e conta i punti che resterebbero.",
+  }));
+  // Che cosa sono i sei numeri, in che unita', e che cosa fa il bottone --
+  // detto PRIMA di premerlo. Finora l'unica frase del pannello arrivava dopo
+  // l'applicazione, e diceva che crop_min e crop_max erano gia' stati scritti:
+  // chi esplorava lo scopriva a scrittura avvenuta. La sorgente dei numeri
+  // cambia con `persistito` ed e' la stessa distinzione che il commento qui
+  // sopra difende: l'ingombro disegnato e cio' che sta sul disco non sono la
+  // stessa domanda, e la frase non deve confonderli.
+  contenitore.append(Object.assign(document.createElement("p"), {
+    className: "aiuto",
+    textContent: (persistito
+      ? "Gli estremi del box in mm, come sono scritti nella configurazione della corsa. "
+      : "Gli estremi del box in mm, presi dall'ingombro della nuvola disegnata. ")
+      + "«Applica il ritaglio» li scrive nella configurazione, su crop_min e crop_max, "
+      + "e conta i punti che resterebbero.",
+  }));
   for (const estremo of ["min", "max"]) {
     for (const asse of [0, 1, 2]) {
       const riga = document.createElement("label");
@@ -1179,10 +1604,10 @@ function pannelloRitaglio(ordine) {
     // trovato, un cluster solo, nessun rumore — i due numeri coincidono.
     esito.textContent =
       (corpo.completo
-        ? `${corpo.points_after.toLocaleString("it")} punti: e' quanti ne terrebbe lo step 2 ` +
+        ? `${corpo.points_after.toLocaleString("it")} punti: è quanti ne terrebbe lo step 2 ` +
           "rieseguito con questo box."
         : `${corpo.points_after.toLocaleString("it")} punti dopo il ritaglio: con ` +
-          "questo metodo lo step 2 prosegue con i piani e i cluster, e non ne terra' di piu'.") +
+          "questo metodo lo step 2 prosegue con i piani e i cluster, e non ne terrà di più.") +
       " crop_min e crop_max sono stati scritti nella configurazione della corsa.";
   });
   contenitore.append(applica, esito);
@@ -1309,9 +1734,21 @@ async function scriviParametro(blocco, nome, input, messaggio, ordine) {
 // /api/schema oggi non lo manda: finche' non lo manda, la casella lascia
 // passare cio' che e' stato battuto e il rifiuto torna visibile come 422.
 function campoParametro(blocco, nome, campo, ordine) {
-  const riga = document.createElement("label");
+  // La riga e' un <div> e l'etichetta nomina per `for`. Era una <label> che
+  // avvolgeva tutto, e dentro la <label> stavano anche l'aiuto e il messaggio
+  // di rifiuto: il nome accessibile della casella non era «voxel_size» ma
+  // «voxel_size» seguito dalla descrizione intera, ripetuta a ogni fuoco e a
+  // ogni tabulazione, e col rifiuto attaccato in coda quando ce n'era uno.
+  // E' la stessa lezione gia' scritta nell'ingresso -- il commento sopra
+  // #nuova-nome in index.html, dove il <small> e' uscito dalla <label> per
+  // questo: descritto e' cio' che serve, nominato no.
+  const identita = `${blocco}-${nome}`;
+  const riga = document.createElement("div");
   riga.className = "campo";
-  riga.append(Object.assign(document.createElement("span"), { textContent: nome }));
+  const etichetta = document.createElement("label");
+  etichetta.setAttribute("for", `campo-${identita}`);
+  etichetta.textContent = nome;
+  riga.append(etichetta);
   const valore = (configurazione[blocco] ?? {})[nome] ?? null;
   // Una lista o un modello annidato non sono scritti in una casella di testo:
   // String() li renderebbe come "1,2,4" o "[object Object]", cioe' un testo che
@@ -1325,11 +1762,15 @@ function campoParametro(blocco, nome, campo, ordine) {
   const bloccoAssente = configurazione[blocco] == null;
   const scalare = valore === null || ["string", "number", "boolean"].includes(typeof valore);
   const input = document.createElement("input");
+  input.id = `campo-${identita}`;
   input.value = scalare ? String(valore ?? "") : JSON.stringify(valore);
-  input.title = campo.description;
+  // Niente `input.title`: era la stessa frase dell'aiuto qui sotto, detta una
+  // seconda volta in un fumetto che non si apre da tastiera ne' col dito, e che
+  // il lettore di schermo accoda al nome. Detta una volta sola, sotto la
+  // casella, dove si legge senza doverla chiedere.
   const messaggio = document.createElement("small");
   messaggio.className = "errore-campo";
-  messaggio.id = `errore-${blocco}-${nome}`;
+  messaggio.id = `errore-${identita}`;
   messaggio.hidden = true;
   if (!scalare || bloccoAssente) {
     // readOnly e non disabled: disabled lo toglierebbe anche dalla navigazione
@@ -1341,10 +1782,15 @@ function campoParametro(blocco, nome, campo, ordine) {
   riga.append(input);
   const aiuto = document.createElement("small");
   aiuto.className = "aiuto";
+  aiuto.id = `aiuto-${identita}`;
   aiuto.textContent = [
     campo.description,
     !scalare && !bloccoAssente ? "si modifica dal file di configurazione" : null,
   ].filter(Boolean).join(" — ");
+  // Legato solo se c'e' qualcosa da leggere: uno schema che non descrive il
+  // campo lascia l'aiuto vuoto, e un aria-describedby che punta a una riga muta
+  // e' una descrizione promessa e non mantenuta.
+  if (aiuto.textContent !== "") input.setAttribute("aria-describedby", aiuto.id);
   riga.append(aiuto, messaggio);
   return riga;
 }
@@ -1366,7 +1812,7 @@ function pannelloMateriale(numero, ordine) {
     className: "aiuto",
     textContent: dichiarato
       ? "Dichiarato da chi analizza. Il programma non lo deduce dalla nuvola."
-      : `Non dichiarato: lo step ${numero} si ferma finche' questi quattro valori non ci sono. `
+      : `Non dichiarato: lo step ${numero} si ferma finché questi quattro valori non ci sono. `
         + "Il programma non ne mette uno per conto suo.",
   }));
   const caselle = {};
@@ -1374,7 +1820,7 @@ function pannelloMateriale(numero, ordine) {
     ["name", "nome"],
     ["young", "modulo elastico E [MPa]"],
     ["poisson", "coefficiente di Poisson"],
-    ["density", "densita [t/mm^3]"],
+    ["density", "densità [t/mm^3]"],
   ]) {
     const riga = document.createElement("label");
     riga.className = "campo";
@@ -1424,7 +1870,7 @@ function pannelloMateriale(numero, ordine) {
       // dirlo salvato sarebbe vero. Quello che non si puo' fare e' cachear in
       // `configurazione` un corpo che non descrive cio' che si e' scritto.
       dichiaraErrore(
-        "il materiale e' stato scritto, ma il server ha risposto con una configurazione che non si legge",
+        "il materiale è stato scritto, ma il server ha risposto con una configurazione che non si legge",
       );
       bottone.disabled = false;
       return;
@@ -1536,13 +1982,17 @@ async function apriDettaglio(numero, ordine = generazione) {
     ultimaAzione += 1;
     return ultimaAzione;
   }
-  for (const [etichetta, percorso] of [
+  // Il primo dei due porta il fondo pieno: e' lo scopo del pannello, e sopra
+  // sei gruppi di campi due bottoni identici non dicono da quale si comincia.
+  // Uno solo, e per zona: il foglio spiega perche' la rarita' e' la forza di
+  // quel colore. Dall'indice e non dall'etichetta, che e' testo da leggere.
+  for (const [indice, [etichetta, percorso]] of [
     ["Esegui questo step", `/api/step/${numero}`],
-    ["Esegui da qui in giu'", `/api/step/${numero}/from`],
-  ]) {
+    ["Esegui da qui in giù", `/api/step/${numero}/from`],
+  ].entries()) {
     const bottone = document.createElement("button");
     bottone.type = "button";
-    bottone.className = "bottone";
+    bottone.className = indice === 0 ? "bottone bottone-primario" : "bottone";
     bottone.textContent = etichetta;
     bottone.addEventListener("click", async () => {
       dichiaraErrore(null);
@@ -1562,6 +2012,24 @@ async function apriDettaglio(numero, ordine = generazione) {
     azioni.append(bottone);
   }
   dettaglio.append(azioni);
+
+  // Quanto costa il bottone qui sopra, detto prima di premerlo. E' la stessa
+  // misura che la riga dell'attesa mostra mentre lo step gira, letta nel
+  // momento in cui serve per decidere: lo step 7 dura 33 secondi sulla
+  // scansione di riferimento, e finora l'unico modo di saperlo era averlo gia'
+  // aspettato una volta. Vale doppio per l'utente successivo confermato, che
+  // gli undici step non li ha mai visti girare.
+  //
+  // Da `ultimoStato`, che e' lo stato piu' recente arrivato dal flusso. Vuoto
+  // finche' la prima risposta non e' tornata: in quel caso la riga non c'e', e
+  // una riga assente e' l'unica alternativa onesta a un numero che non si ha.
+  const misurato = ultimaDurata(ultimoStato.find((v) => v.numero === numero));
+  if (misurato !== null) {
+    dettaglio.append(Object.assign(document.createElement("p"), {
+      className: "aiuto",
+      textContent: `L'ultima esecuzione di questo step è durata ${misurato}.`,
+    }));
+  }
 
   for (const blocco of voce.blocchi) {
     const gruppo = document.createElement("fieldset");
@@ -1596,12 +2064,7 @@ async function apriDettaglio(numero, ordine = generazione) {
     const tabella = document.createElement("dl");
     tabella.className = "metriche";
     for (const [nome, valore] of Object.entries(metriche[chiave])) {
-      tabella.append(
-        Object.assign(document.createElement("dt"), { textContent: nome }),
-        Object.assign(document.createElement("dd"), {
-          textContent: typeof valore === "object" ? JSON.stringify(valore) : String(valore),
-        }),
-      );
+      tabella.append(...righeDellaMetrica(nome, valore));
     }
     dettaglio.append(titolo, tabella);
   }
@@ -1617,6 +2080,70 @@ async function apriDettaglio(numero, ordine = generazione) {
   }
 }
 
+// Una metrica annidata diventa una riga per foglia, non una riga di JSON.
+//
+// E' il collaudo dello step 7 a pagarne il prezzo piu' alto: `geometric_error`
+// e' annidato DUE livelli (`cloud_to_mesh` -> `mean`, `max`, ...), quindi lo
+// scarto fra la superficie ricostruita e la nuvola da cui e' nata -- il numero
+// per cui quello step esiste -- finiva a video dentro una graffa. Anche
+// `aspect_ratio` (step 7) e la distribuzione dello step 10 sono annidati.
+//
+// Ricorsiva perche' i due livelli sono misurati, non ipotizzati: appiattirne
+// uno solo lascerebbe `geometric_error . cloud_to_mesh` ancora in JSON.
+//
+// Le liste invece restano in JSON, e la guardia che le tiene chiuse e'
+// portante: le metriche di liste ne hanno eccome -- misurate su
+// runs/lab_crop/metrics.json, otto, fra cui `01_load.extent` (tre numeri),
+// `06_repair.hole_areas` (sei) e `11_export.transform`, che e' una matrice
+// quattro per quattro. Aperte darebbero una riga per elemento, e per la
+// matrice una riga per riga di matrice: rumore al posto di una misura.
+//
+// I numeri passano da toLocaleString come i conteggi sotto la vista: senza,
+// sullo stesso schermo convivevano `19.314 triangoli` e
+// `4.442869663238525`. Sei cifre significative perche' sedici non si leggono e
+// non aggiungono niente -- metrics.json conserva la precisione piena, ed e' da
+// li' che si citano i numeri, non dallo schermo.
+// Oltre questa lunghezza un valore non entra nella colonna del numero e passa
+// sotto la propria etichetta, a tutta larghezza (vedi .metrica-larga nel
+// foglio). 14 e' la larghezza dichiarata di quella colonna, non un numero
+// scelto: sopra, il valore si spezzerebbe comunque.
+// La classe sta in una costante perche' la cerca il banco: scritta a mano in
+// due file, il nome puo' divergere e il foglio smette di vestire cio' che il
+// modulo scrive, senza che niente diventi rosso.
+const VALORE_LARGO = 14;
+const CLASSE_VALORE_LARGO = "metrica-larga";
+
+function righeDellaMetrica(nome, valore) {
+  const annidata = valore !== null && typeof valore === "object" && !Array.isArray(valore);
+  // Un dizionario vuoto non lascia righe: «{}» a video non e' una misura.
+  if (annidata) {
+    return Object.entries(valore).flatMap(
+      ([interno, dentro]) => righeDellaMetrica(`${nome} · ${interno}`, dentro),
+    );
+  }
+  const testo = valoreDellaMetrica(valore);
+  const dd = Object.assign(document.createElement("dd"), { textContent: testo });
+  if (testo.length > VALORE_LARGO) dd.className = CLASSE_VALORE_LARGO;
+  return [Object.assign(document.createElement("dt"), { textContent: nome }), dd];
+}
+
+// Solo qui dentro l'`Array.isArray`: dopo la guardia di `annidata`, `typeof
+// valore === "object"` e' vero per le sole liste e per null -- e `String(null)`
+// e `JSON.stringify(null)` danno la stessa cosa. Nominare le liste dice cosa si
+// intende; il typeof lasciava credere che coprisse anche i dizionari.
+function valoreDellaMetrica(valore) {
+  if (Array.isArray(valore)) return JSON.stringify(valore);
+  if (typeof valore !== "number") return String(valore);
+  // Gli interi NON si arrotondano: sono conteggi, e un conteggio arrotondato e'
+  // un conteggio sbagliato. Misurato a schermo il 24/08/2026 sulla corsa
+  // lab_crop: con le sole sei cifre significative `points_read` usciva
+  // 6.329.100 mentre il valore e' 6.329.096 -- e due centimetri sotto la vista
+  // #conteggi scriveva «su 6.329.096», cioe' due numeri diversi per la stessa
+  // quantita' sullo stesso schermo.
+  if (Number.isInteger(valore)) return valore.toLocaleString("it");
+  return valore.toLocaleString("it", { maximumSignificantDigits: 6 });
+}
+
 // Galleria di curazione: i registri della Fase 2 (/api/experiments*), in
 // sola lettura. Nessun clic da qui scrive mai sul disco.
 
@@ -1626,9 +2153,17 @@ async function caricaGalleria() {
   // Silenzioso e non un errore a video: una corsa senza cartella experiments/
   // accanto (la comune, durante lo sviluppo di uno step) non e' un guasto
   // della galleria, e' solo che non c'e' niente da elencare.
-  if (corpo == null || !Array.isArray(corpo.esperimenti)) return;
+  //
+  // Silenzioso non vuol dire muto, e questa era la differenza mancante: la
+  // sezione restava un titolo e una riga d'aiuto sopra il nulla, l'unica della
+  // colonna senza uno stato vuoto che dicesse perche'. Le due strade che
+  // portano a zero — server che non risponde o registro che non c'e', ed
+  // elenco vuoto — finiscono nella stessa riga invece che in un `return` che
+  // lascia a video quello di prima.
+  const nomi = Array.isArray(corpo?.esperimenti) ? corpo.esperimenti : [];
+  document.getElementById("galleria-vuoto").hidden = nomi.length > 0;
   const elenco = document.getElementById("galleria-elenco");
-  elenco.replaceChildren(...corpo.esperimenti.map((nome) => {
+  elenco.replaceChildren(...nomi.map((nome) => {
     const bottone = document.createElement("button");
     bottone.type = "button";
     bottone.className = "bottone";

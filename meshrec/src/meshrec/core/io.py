@@ -97,7 +97,7 @@ def load_cloud(cfg: InputConfig) -> tuple[np.ndarray, dict[str, object]]:
                 f"ingombro misurato {np.round(measured, 1).tolist()} mm contro "
                 f"{np.round(expected, 1).tolist()} mm attesi, scarto relativo "
                 f"{np.round(relative, 3).tolist()} oltre la tolleranza {cfg.size_tolerance}: "
-                "il fattore di scala e' probabilmente sbagliato"
+                "il fattore di scala è probabilmente sbagliato"
             )
         size_check = "ok"
 
