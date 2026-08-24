@@ -8,8 +8,10 @@ vedeva nulla. Questi tre controlli sono l'unica sorveglianza che quel file ha.
 """
 
 import re
+from pathlib import Path
 
 from meshrec.app.server import UI_DIR
+from meshrec.core import steps
 
 # I commenti del foglio contengono regole citate per iscritto, graffe comprese
 # (per esempio «.viewport { flex: 1 } di un genitore alto quanto il suo
@@ -48,3 +50,33 @@ def test_nessun_colore_scritto_a_mano_fuori_dai_token():
     fine_root = testo.index("\n}", testo.index(":root"))
     fuori = re.findall(r"#[0-9a-fA-F]{3,8}\b", testo[fine_root:])
     assert not fuori, f"colori scritti a mano fuori da :root: {fuori}"
+
+
+def test_ogni_stato_del_server_ha_il_suo_pallino_nella_colonna():
+    """Il pallino in testa a ogni riga della colonna e' un ruolo di colore per
+    stato, e il vocabolario degli stati non vive qui: lo decide `run_state`.
+
+    Uno stato nuovo la' dentro che nessuna regola raccoglie non rompe niente e
+    non fa rosso niente. Disegna l'anello vuoto del «mai eseguito» sopra uno
+    step che magari e' fallito: la colonna direbbe con sicurezza il contrario
+    di cio' che e' successo, che e' il modo peggiore di sbagliare per una
+    figura fatta per essere letta in un colpo d'occhio.
+    """
+    foglio = _senza_commenti()
+    sorgente = Path(steps.__file__).read_text(encoding="utf-8")
+    stati = set(re.findall(r'corrente = "([^"]+)"', sorgente))
+    # Senza questa riga il controllo diventa cieco invece di rosso: cambiato il
+    # nome della variabile in run_state, l'insieme resta vuoto, il ciclo non
+    # gira e il test passa senza aver guardato nulla. Un superinsieme e non un
+    # conteggio: uno stato in piu' lo deve raccogliere il ciclo qui sotto, non
+    # fermare questa riga.
+    predefinito = "mai eseguito"
+    noti = {predefinito, "fallito", "non valido", "valido"}
+    assert stati >= noti, f"run_state non dichiara piu' gli stati noti: {sorted(stati)}"
+    for stato in sorted(stati - {predefinito}):
+        # `replace(..., 1)` come lo scrive app.js, che usa la String.replace di
+        # JavaScript e sostituisce solo la prima occorrenza: se un giorno uno
+        # stato avra' due spazi, il test chiedera' al foglio la stessa classe
+        # che il modulo scrive davvero, non quella che sarebbe corretta.
+        regola = f".stato-{stato.replace(' ', '-', 1)} .step-nome::before"
+        assert regola in foglio, f"stato senza pallino nella colonna: «{stato}» ({regola})"

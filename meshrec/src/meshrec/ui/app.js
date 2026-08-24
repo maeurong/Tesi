@@ -1670,13 +1670,17 @@ async function apriDettaglio(numero, ordine = generazione) {
     ultimaAzione += 1;
     return ultimaAzione;
   }
-  for (const [etichetta, percorso] of [
+  // Il primo dei due porta il fondo pieno: e' lo scopo del pannello, e sopra
+  // sei gruppi di campi due bottoni identici non dicono da quale si comincia.
+  // Uno solo, e per zona: il foglio spiega perche' la rarita' e' la forza di
+  // quel colore. Dall'indice e non dall'etichetta, che e' testo da leggere.
+  for (const [indice, [etichetta, percorso]] of [
     ["Esegui questo step", `/api/step/${numero}`],
     ["Esegui da qui in giu'", `/api/step/${numero}/from`],
-  ]) {
+  ].entries()) {
     const bottone = document.createElement("button");
     bottone.type = "button";
-    bottone.className = "bottone";
+    bottone.className = indice === 0 ? "bottone bottone-primario" : "bottone";
     bottone.textContent = etichetta;
     bottone.addEventListener("click", async () => {
       dichiaraErrore(null);

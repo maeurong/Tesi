@@ -20,10 +20,26 @@
   --avviso: #9a5b12;    /* stato non valido: lo step c'e' ma non e' aggiornato */
   --guasto: #a02020;    /* stato fallito, errori, campo rifiutato */
   /* Superfici derivate: il velo sopra la vista, l'evidenza sotto il puntatore,
-     il grigio di un campo che si legge e non si scrive. */
+     la selezione sotto cio' che e' aperto adesso, il grigio di un campo che si
+     legge e non si scrive.
+     Evidenza e selezione sono la stessa tinta a due forze, e che siano due e'
+     il punto: erano lo stesso 8%, cioe' la riga sotto il puntatore e la riga
+     aperta si distinguevano per il solo filetto di 2 px. Un passaggio e' un
+     velo, una scelta e' un fondo. Testo su selezione: 13,06:1. */
   --velo: color-mix(in srgb, var(--superficie) 85%, transparent);
   --evidenza: color-mix(in srgb, var(--accento) 8%, transparent);
+  --selezione: color-mix(in srgb, var(--accento) 18%, transparent);
   --spento: color-mix(in srgb, var(--tenue) 8%, transparent);
+  /* Non colorato apposta, due volte.
+     La superficie ricostruita nella vista resta il grigio caldo dichiarato in
+     viewport.js. Li' dentro il colore e' gia' una misura — la scala del campo
+     per nodo e le membrature del prior lo usano per dire un numero — e una
+     tinta scelta per il piacere di guardarla si leggerebbe come un dato. E'
+     la prima regola del prodotto: mostrare una grandezza e' gia' sembrare di
+     averla verificata.
+     Le tre zone restano la stessa carta. Tingerle una per una darebbe un
+     orientamento che i tre titoli e i due filetti danno gia', al prezzo di
+     tre fondi da rimisurare sotto ogni testo che ci finisce sopra. */
 
   /* Spaziatura: un passo di 4px e i suoi multipli, nient'altro. Erano nove
      valori decisi uno alla volta (0,15 0,2 0,25 0,3 0,35 0,5 0,75 1 rem), e
@@ -135,7 +151,7 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .corsa-nome { font-family: var(--stack-cifre); font-size: var(--tipo-corpo); line-height: var(--interlinea-riga); overflow-wrap: anywhere; }
 /* La riga della corsa aperta adesso. aria-current porta il significato, il
    foglio ci si aggancia sopra: stessa regola del marchio sullo step aperto. */
-.corsa-voce[aria-current="true"] { border-color: var(--accento); background: var(--evidenza); }
+.corsa-voce[aria-current="true"] { border-color: var(--accento); background: var(--selezione); }
 /* Una corsa che non si apre resta raggiungibile da tastiera e annunciata --
    e' l'unica voce che porta una spiegazione, e disabled la toglierebbe da
    entrambi. Il gestore si ferma da se'. */
@@ -180,13 +196,34 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .zona h3, .ingresso h3 { font-size: var(--tipo-dato); line-height: var(--interlinea-riga); font-weight: 600; margin: var(--passo-6) 0 var(--passo-2); }
 .bottone { font: inherit; font-size: var(--tipo-dato); line-height: var(--interlinea-riga); padding: var(--passo-2) var(--passo-3); border: 1px solid var(--bordo-comando); border-radius: var(--raggio); background: var(--superficie); color: var(--testo); cursor: pointer; transition: background-color var(--durata-tocco) var(--curva), border-color var(--durata-tocco) var(--curva); }
 .bottone:hover { background: var(--evidenza); }
-.bottone:active { background: color-mix(in srgb, var(--accento) 14%, transparent); }
+/* La pressione e' la selezione che dura un istante: stesso fondo, non un
+   quarto valore della stessa tinta deciso a mano dentro la regola. */
+.bottone:active { background: var(--selezione); }
 .bottone:focus-visible { outline: 2px solid var(--accento); outline-offset: 2px; }
 /* Un comando spento non e' un comando pallido: il testo scende a --tenue, che
    resta sopra 4,5:1, e il cursore dice che non c'e' niente da premere. Il
    contorno resta pieno perche' l'elemento c'e' ancora e non deve sparire. */
 .bottone:disabled { color: var(--tenue); cursor: default; }
 .bottone:disabled:hover { background: var(--superficie); }
+/* Il comando che e' lo scopo del pannello, e uno solo per zona. L'accento si
+   chiama «azione» dal primo giorno e su un'azione non era mai stato speso:
+   tutti i bottoni erano il contorno grigio su fondo bianco, e il pannello
+   dello step ne mette due identici sopra sei gruppi di campi. Uno per zona,
+   perche' la forza di questo colore sta nella rarita': due fondi pieni nella
+   stessa colonna smettono di dire quale sia il primo. Nel lavoro e' «Esegui
+   questo step», all'ingresso «Crea la corsa».
+   Le due tinte del tocco si ricavano da --testo e non dal nero: il nero non
+   esiste in questo foglio, e il grigio caldo della carta scurisce l'accento
+   restando nella stessa famiglia. Testo su fondo: 7,49:1 fermo, 8,38:1 al
+   passaggio, 9,23:1 alla pressione.
+   Spento perde il fondo e non solo il testo: --tenue sopra l'accento pieno
+   sarebbe 1,7:1, cioe' un bottone illeggibile invece di un bottone inerte.
+   Cosi' scende a --spento come gli altri, dove il testo tiene 5,00:1. */
+.bottone-primario { background: var(--accento); border-color: var(--accento); color: var(--superficie); }
+.bottone-primario:hover { background: color-mix(in srgb, var(--accento) 88%, var(--testo)); }
+.bottone-primario:active { background: color-mix(in srgb, var(--accento) 78%, var(--testo)); }
+.bottone-primario:disabled,
+.bottone-primario:disabled:hover { background: var(--spento); border-color: var(--bordo-comando); }
 /* I secondi trascorsi cambiano una volta al secondo: senza cifre tabulari la
    riga si allarga e si stringe sotto gli occhi a ogni passaggio da 9 a 10. */
 .in-corso { margin: 0; color: var(--accento); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); font-variant-numeric: tabular-nums; }
@@ -248,13 +285,50 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
    diceva: su nomi che si somigliano — Superficie, Semplificazione,
    Riparazione — si modifica il parametro di uno credendo di essere su un
    altro, e la scrittura sul disco e' immediata. */
-.step[aria-current="true"] { background: var(--evidenza); box-shadow: inset 2px 0 0 var(--accento); }
+.step[aria-current="true"] { background: var(--selezione); box-shadow: inset 2px 0 0 var(--accento); }
 /* Lo stato e' l'annotazione del nome, non il nome: sta un gradino sotto e
    pesa meno, cosi' la colonna si scorre leggendo gli step e non gli stati. */
 .step-stato { color: var(--tenue); font-size: var(--tipo-nota); line-height: var(--interlinea-riga); white-space: nowrap; }
 .stato-valido .step-stato { color: var(--accento); }
 .stato-non-valido .step-stato { color: var(--avviso); font-weight: 600; }
 .stato-fallito .step-stato { color: var(--guasto); font-weight: 600; }
+/* Il pallino di stato, in testa al nome. La colonna degli step e' l'unica cosa
+   che dica a che punto sta la corsa, e finora lo diceva con il solo colore
+   della parola in fondo alla riga: tredici parole di lunghezza diversa,
+   allineate a destra, al corpo piu' piccolo del foglio. Per sapere dov'e'
+   arrivata la pipeline si leggeva riga per riga.
+   Il pallino non aggiunge un ruolo di colore: porta lo stesso della parola,
+   ma in tredici punti incolonnati alla stessa ascissa, cioe' una figura che
+   si legge in un colpo d'occhio e dal fondo della stanza in cui si proietta.
+   E il colore non e' l'unico canale, ne' qui ne' prima: la parola resta al
+   suo posto, ed e' lei che lo dice a chi usa un lettore di schermo.
+   Vuoto e pieno sono il secondo canale del pallino stesso: uno step mai
+   eseguito e' una casella ancora da riempire, e l'avanzamento si legge anche
+   senza distinguere le tinte.
+   box-sizing dichiarato: la regola `*` non raggiunge gli pseudo-elementi, e
+   senza questa riga il bordo si somma agli 0,5em invece di starci dentro,
+   cioe' il pieno e il vuoto avrebbero due diametri diversi. */
+.step-nome::before {
+  content: "";
+  box-sizing: border-box;
+  display: inline-block;
+  width: 0.5em;
+  height: 0.5em;
+  margin-right: var(--passo-2);
+  border: 1px solid var(--tenue);
+  border-radius: 50%;
+}
+/* Rapporti nel caso peggiore, cioe' sul fondo della riga aperta, che di tutti
+   e' il piu' scuro: 4,21:1 l'anello, 5,69:1 il pieno dell'accento, 4,11:1
+   quello dell'avviso, 5,85:1 quello del guasto. Tutti sopra il 3:1 che WCAG
+   1.4.11 chiede a cio' che porta uno stato. L'anello e' --tenue e non
+   --bordo-comando, che pure e' il grigio dei contorni: quello disegna cio'
+   che si tocca, e su quel fondo sarebbe sceso a 2,46:1. Qui il grigio e'
+   quello della parola «mai eseguito», che e' esattamente cio' che il pallino
+   sta ripetendo. */
+.stato-valido .step-nome::before { border-color: var(--accento); background: var(--accento); }
+.stato-non-valido .step-nome::before { border-color: var(--avviso); background: var(--avviso); }
+.stato-fallito .step-nome::before { border-color: var(--guasto); background: var(--guasto); }
 .azioni { display: flex; gap: var(--passo-2); flex-wrap: wrap; margin-bottom: var(--passo-6); }
 .gruppo { border: 1px solid var(--bordo); border-radius: var(--raggio); padding: var(--passo-3); margin: 0 0 var(--passo-3); }
 .gruppo legend { font-size: var(--tipo-nota); line-height: var(--interlinea-riga); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--tenue); }
@@ -296,7 +370,7 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .galleria-tabella th { color: var(--tenue); font-weight: 600; }
 /* Il candidato di fronte: stesso canale doppio dello step aperto (fondo piu'
    filetto), non il solo colore. */
-.galleria-tabella tr.fronte { background: var(--evidenza); box-shadow: inset 2px 0 0 var(--accento); }
+.galleria-tabella tr.fronte { background: var(--selezione); box-shadow: inset 2px 0 0 var(--accento); }
 /* Il confronto e' un pannello, non una vista: righe di prosa con cifre
    tabulari, la stessa misura leggibile degli altri stati e aiuti — non una
    tabella HTML, perche' app.js lo scrive come <p> per riga (una grandezza,
