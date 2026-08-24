@@ -166,6 +166,41 @@ function ragioneLocale(nome, nuvola) {
   return null;
 }
 
+// Il selettore file lo apre il server, non la pagina: `<input type="file">`
+// restituisce un oggetto File e nasconde la via reale (`C:\fakepath\...`), che
+// e' proprio il dato che serve. Il programma gira sulla stessa macchina del
+// file, quindi la finestra la puo' aprire lui.
+document.getElementById("sfoglia-nuvola").addEventListener("click", async (evento) => {
+  const bottone = evento.currentTarget;
+  const campo = document.getElementById("nuova-nuvola");
+  const richiesta = apriIngresso();
+  bottone.disabled = true;
+  rigaErroreIngresso.textContent = "";
+  const risposta = await fetch("/api/sfoglia", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    // Da dove era rimasto: riaprire il selettore deve tornare nella cartella
+    // di prima, non alla radice ogni volta.
+    body: JSON.stringify({ iniziale: campo.value.trim() }),
+  }).catch(serverMuto);
+  const rifiuto = risposta.ok ? null : await ragioneDelRifiuto(risposta);
+  const corpo = risposta.ok ? await corpoLetto(risposta) : null;
+  if (superata(richiesta, ultimoIngresso)) return;
+  bottone.disabled = false;
+  if (rifiuto !== null) {
+    rigaErroreIngresso.textContent = rifiuto;
+    return;
+  }
+  if (corpo === undefined) {
+    rigaErroreIngresso.textContent = "il server ha risposto con un percorso che non si legge";
+    return;
+  }
+  // Annullare non e' un errore e non cancella quello che c'era: `percorso` e'
+  // null per contratto, e sovrascrivere il campo con una stringa vuota
+  // punirebbe chi apre la finestra per sbaglio.
+  if (corpo?.percorso) campo.value = corpo.percorso;
+});
+
 document.getElementById("crea-corsa").addEventListener("click", async (evento) => {
   const bottone = evento.currentTarget;
   const richiesta = apriIngresso();

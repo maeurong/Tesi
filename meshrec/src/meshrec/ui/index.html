@@ -54,16 +54,31 @@
            aria-describedby="aiuto-nuova-nome">
   </label>
   <small class="aiuto" id="aiuto-nuova-nome">Diventa il nome della cartella: lettere, cifre, punto, trattino, trattino basso.</small>
-  <label class="campo" for="nuova-nuvola">
-    <span>percorso del file di punti</span>
-    <input type="text" id="nuova-nuvola" autocomplete="off" spellcheck="false"
-           placeholder="../Nuvole di punti/scansione.pcd"
-           aria-describedby="aiuto-nuova-nuvola">
-  </label>
-  <small class="aiuto" id="aiuto-nuova-nuvola">Percorso sul disco di questa macchina, assoluto o relativo alla cartella da cui gira il programma.</small>
-  <!-- Il comando pieno dell'ingresso: sotto due caselle e una lista di corse,
-       e' l'unica cosa che questa schermata chiede di fare a chi non ne ha
-       ancora nessuna. -->
+  <!-- Un <div> e non una <label>, e la <label> nomina per `for`. Avvolgendo
+       tutto, si portava dentro anche il tasto: una <label> nomina con tutto il
+       proprio sottoalbero, e il campo si annunciava «percorso del file di punti
+       Sfoglia...». Ed e' markup invalido: dentro una <label> non ci va un
+       secondo elemento etichettabile, e il <button> lo e'. Stessa forma e
+       stessa ragione dei campi dei parametri in app.js.
+       `campo-con-bottone` sparisce con l'occasione: nel foglio non esiste
+       nessuna regola con quel nome. -->
+  <div class="campo">
+    <label for="nuova-nuvola">percorso del file di punti</label>
+    <!-- Il campo e il bottone, non il bottone al posto del campo: sfogliare e'
+         una comodita', ma un percorso si incolla, e da una sessione remota la
+         finestra non si apre affatto. -->
+    <span class="campo-riga">
+      <input type="text" id="nuova-nuvola" autocomplete="off" spellcheck="false"
+             placeholder="../Nuvole di punti/scansione.pcd"
+             aria-describedby="aiuto-nuova-nuvola">
+      <button type="button" id="sfoglia-nuvola" class="bottone">Sfoglia&hellip;</button>
+    </span>
+  </div>
+  <small class="aiuto" id="aiuto-nuova-nuvola">Percorso sul disco di questa macchina, assoluto o relativo alla cartella da cui gira il programma. «Sfoglia» apre il selettore file del sistema.</small>
+  <!-- Il comando pieno dell'ingresso: sotto due caselle, un tasto che sfoglia e
+       una lista di corse, e' l'unica cosa che questa schermata chiede di fare a
+       chi non ne ha ancora nessuna. «Sfoglia» resta il contorno grigio: due
+       fondi pieni nella stessa colonna smettono di dire quale sia il primo. -->
   <button type="button" id="crea-corsa" class="bottone bottone-primario">Crea la corsa</button>
   <!-- Stessa regola della riga d'errore del pannello: vive nel markup, non
        viene fabbricata, e a vuota non occupa spazio. -->

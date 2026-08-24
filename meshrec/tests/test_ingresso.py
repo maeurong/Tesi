@@ -384,6 +384,126 @@ def test_il_cambio_di_corsa_sposta_anche_le_metriche(slegato, nuvola, tmp_path):
     assert slegato.get("/api/metrics").json()["01_load"]["points"] == 1
 
 
+# --- Sfoglia: il selettore file di sistema --------------------------------
+#
+# Il selettore vero apre una finestra e aspetta un essere umano, quindi nessun
+# test lo lancia davvero: si sostituisce `subprocess.run`, che e' il confine
+# fra il programma e il sistema. Cio' che resta sotto prova e' tutto quello che
+# sta da questa parte del confine -- la cartella iniziale scelta, il contratto
+# della risposta, i tre modi in cui puo' non aprirsi.
+
+
+def _selettore_finto(uscita="", codice=0, stderr="", solleva=None):
+    """Rimpiazza il sottoprocesso e registra con che argomenti e' stato chiamato."""
+    chiamate = []
+
+    def finto(comando, **kwargs):
+        chiamate.append((comando, kwargs))
+        if solleva is not None:
+            raise solleva
+        return subprocess.CompletedProcess(comando, codice, uscita, stderr)
+
+    finto.chiamate = chiamate
+    return finto
+
+
+def test_sfogliare_restituisce_il_percorso_scelto(slegato, monkeypatch, tmp_path):
+    scelta = tmp_path / "scansione.ply"
+    monkeypatch.setattr(server.subprocess, "run", _selettore_finto(uscita=f"{scelta}\n"))
+
+    corpo = slegato.post("/api/sfoglia", json={"iniziale": ""}).json()
+
+    assert corpo["percorso"] == str(scelta)
+
+
+def test_annullare_il_selettore_non_e_un_errore(slegato, monkeypatch):
+    """Chiudere la finestra deve lasciare il campo com'era, non svuotarlo ne'
+    far comparire un rifiuto: e' l'esito piu' comune di un clic per sbaglio."""
+    monkeypatch.setattr(server.subprocess, "run", _selettore_finto(uscita=""))
+
+    risposta = slegato.post("/api/sfoglia", json={"iniziale": ""})
+
+    assert risposta.status_code == 200
+    assert risposta.json()["percorso"] is None
+
+
+def test_il_selettore_riapre_nella_cartella_del_percorso_gia_battuto(
+    slegato, monkeypatch, nuvola
+):
+    finto = _selettore_finto(uscita="")
+    monkeypatch.setattr(server.subprocess, "run", finto)
+
+    slegato.post("/api/sfoglia", json={"iniziale": str(nuvola)})
+
+    # L'ultimo argomento del comando e' `initialdir`: la cartella del file, non
+    # il file, e non la radice da cui gira il server.
+    assert finto.chiamate[0][0][-1] == str(nuvola.parent)
+
+
+def test_una_cartella_iniziale_inesistente_ripiega_invece_di_rompere(slegato, monkeypatch):
+    """Ingresso degenere: il campo porta un percorso battuto a meta'."""
+    finto = _selettore_finto(uscita="")
+    monkeypatch.setattr(server.subprocess, "run", finto)
+
+    risposta = slegato.post("/api/sfoglia", json={"iniziale": "/questo/non/esiste/x.ply"})
+
+    assert risposta.status_code == 200
+    assert Path(finto.chiamate[0][0][-1]).is_dir()
+
+
+def test_senza_tkinter_lo_dice_e_manda_a_scrivere_il_percorso(slegato, monkeypatch):
+    """Alcune build di Python non hanno Tk, e una sessione remota non ha uno
+    schermo a cui attaccarsi. Nessuno dei due impedisce di lavorare: il campo
+    resta scrivibile e il messaggio lo dice, invece di lasciare il bottone muto.
+    """
+    monkeypatch.setattr(
+        server.subprocess,
+        "run",
+        _selettore_finto(
+            codice=1,
+            stderr="Traceback (most recent call last):\n  ...\nModuleNotFoundError: No module named 'tkinter'\n",
+        ),
+    )
+
+    risposta = slegato.post("/api/sfoglia", json={"iniziale": ""})
+
+    assert risposta.status_code == 400
+    messaggio = risposta.json()["messaggio"]
+    assert "ModuleNotFoundError: No module named 'tkinter'" in messaggio
+    assert "scrivi il percorso" in messaggio
+    # La riga decisiva, non le venti che dicono da dove.
+    assert "Traceback" not in messaggio
+
+
+def test_un_dialogo_lasciato_aperto_non_blocca_il_server(slegato, monkeypatch):
+    monkeypatch.setattr(
+        server.subprocess,
+        "run",
+        _selettore_finto(solleva=subprocess.TimeoutExpired(cmd="python", timeout=120)),
+    )
+
+    risposta = slegato.post("/api/sfoglia", json={"iniziale": ""})
+
+    assert risposta.status_code == 400
+    assert "120" in risposta.json()["messaggio"]
+    # Il server risponde ancora: il timeout ha ucciso il sottoprocesso, non lui.
+    assert slegato.get("/api/run").status_code == 200
+
+
+def test_il_selettore_gira_fuori_dal_processo_del_server():
+    """Non e' un dettaglio di stile: su macOS Tk pretende il thread principale
+    del processo, e FastAPI esegue gli endpoint sincroni in un threadpool.
+    `tkinter` chiamato li' dentro non fa cadere la richiesta, fa cadere il
+    processo. Il giorno che qualcuno lo «semplifichi» in una chiamata diretta,
+    questo test lo dice prima dell'utente.
+    """
+    sorgente = Path(server.__file__).read_text(encoding="utf-8")
+
+    assert "import tkinter" not in sorgente.replace(server._SELETTORE, "")
+    assert "askopenfilename" not in sorgente.replace(server._SELETTORE, "")
+    assert "timeout=SECONDI_SELETTORE" in sorgente
+
+
 def test_i_launcher_non_chiedono_una_configurazione():
     """Il doppio clic deve arrivare alla schermata d'ingresso, non a un dialogo.
 
