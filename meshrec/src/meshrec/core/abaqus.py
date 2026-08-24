@@ -55,6 +55,17 @@ TOLLERANZA_MOMENTO_FUORI_ASSE: float = 5e-2
 # realizzati non cambiano in modo misurabile.
 SOGLIA_COMPONENTE_RELATIVA: float = 1e-12
 
+# Sopra questo rapporto fra i due valori singolari nel piano della coppia, il
+# selettore e' troppo vicino all'isotropo perche' la geometria determini su
+# quale diametro la coppia cade. Il momento attorno all'asse resta quello
+# dichiarato per costruzione: arbitraria e' la direzione, che puo' cambiare
+# in silenzio fra un rimaglio e l'altro. La curva non offre un ginocchio da
+# leggere come soglia -- la sensibilita' cresce liscia -- quindi questo
+# numero dichiara quanta rotazione si accetta: 0,65 gradi su una piastra
+# sintetica cui si toglie un nodo. Tabella misurata e margini delle due
+# geometrie reali in `docs/fase-6-carichi.md`, sezione 9.1.
+SOGLIA_PAREGGIO_VALORI_SINGOLARI: float = 8e-1
+
 
 class UnconstrainedModelWarning(UserWarning):
     """L'insieme vincolato raggiunge meno della meta' della superficie d'appoggio."""
@@ -62,6 +73,10 @@ class UnconstrainedModelWarning(UserWarning):
 
 class CaricoSulVincoloWarning(UserWarning):
     """Un carico posizionato include, in parte, nodi dell'insieme vincolato."""
+
+
+class SelettoreIsotropoWarning(UserWarning):
+    """Il selettore di un momento non determina la direzione della coppia."""
 
 
 def _gradi_da_scrivere(direzione: np.ndarray) -> list[tuple[int, float]]:
@@ -830,13 +845,31 @@ def coppia_equivalente(
                 for grado, componente in gradi
             ]
 
+    # Il rapporto sta gia' nel resoconto: qui diventa anche un avviso, perche'
+    # un numero in un file lo legge chi lo cerca, e chi sceglie un selettore
+    # quadrato non sa di doverlo cercare. Avviso e non rifiuto: il deck che
+    # esce e' valido, e applicare un momento a una piastra quadrata resta
+    # legittimo -- e' la direzione a non essere piu' un dato della geometria.
+    rapporto_singolari = float(valori_singolari[1] / valori_singolari[0])
+    if rapporto_singolari > SOGLIA_PAREGGIO_VALORI_SINGOLARI:
+        warnings.warn(
+            f"il momento '{nome}' ha un selettore quasi isotropo nel piano della "
+            f"coppia: il rapporto dei valori singolari vale {rapporto_singolari:.3f}, "
+            f"oltre {SOGLIA_PAREGGIO_VALORI_SINGOLARI:g}. Il momento attorno "
+            "all'asse resta quello dichiarato, ma su quale diametro cade la coppia "
+            "lo decide il rumore numerico, e un rimaglio puo' spostarlo. Allunga il "
+            "selettore per fissare la direzione",
+            SelettoreIsotropoWarning,
+            stacklevel=2,
+        )
+
     resoconto: dict[str, object] = {
         "nodi": int(indici.size),
         "braccio_dichiarato": float(momento.braccio),
         "braccio_effettivo": braccio_effettivo,
         "momento_dichiarato": (float(momento.modulo) * asse).tolist(),
         "momento_effettivo": momento_effettivo.tolist(),
-        "rapporto_valori_singolari": float(valori_singolari[1] / valori_singolari[0]),
+        "rapporto_valori_singolari": rapporto_singolari,
         "nodi_ad_area_nulla": resoconto_aree["nodi_ad_area_nulla"],
         "forza_di_ciascun_lato": forza,
         "nodi_positivi": int(positivi.size),

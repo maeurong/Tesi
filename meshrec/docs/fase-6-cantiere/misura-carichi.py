@@ -484,7 +484,9 @@ def main() -> int:
         nodi_cubo, tets_cubo, top_cubo, "C3D4", nome="TEST",
     )
     vicino(0.4, res_banco["rapporto_valori_singolari"], 1e-9, "banco dei test (TOP 100 x 40): rapporto")
-    for larghezza, atteso in ((100.0, None), (99.0, 35.12), (90.0, 1.44), (40.0, 0.13), (9.61, 0.027)):
+    tabella = ((100.0, None), (99.0, 35.12), (90.0, 1.44), (80.0, 0.65),
+               (40.0, 0.13), (9.61, 0.027))
+    for larghezza, atteso in tabella:
         rapporto, rotazione = _piastra_perturbata(larghezza)
         print(f"  100 x {larghezza} -> rapporto {rapporto:.4f}, rotazione {rotazione:.4f} gradi")
         vicino(larghezza / 100.0, rapporto, 1e-9, f"piastra 100 x {larghezza}: rapporto")
@@ -497,6 +499,16 @@ def main() -> int:
         else:
             vicino(atteso, rotazione, 0.01, f"piastra 100 x {larghezza}: rotazione [gradi]")
     vicino(0.3100, (0.0961010 * 1.0) ** 0.5, 1e-4, "media geometrica dei due estremi del § 9.1")
+    # La soglia scelta, e i due margini che il § 9.1 dichiara. Non e' una
+    # misura: e' 0,65 gradi di rotazione tollerata, letti sulla tabella qui
+    # sopra. Spostarla senza rimisurare fa cadere queste tre righe.
+    vicino(0.80, abaqus.SOGLIA_PAREGGIO_VALORI_SINGOLARI, 1e-9, "soglia del pareggio")
+    assert res_banco["rapporto_valori_singolari"] < abaqus.SOGLIA_PAREGGIO_VALORI_SINGOLARI, (
+        "il banco dei test finisce sopra la soglia: l'avviso partirebbe su una piastra 2,5 : 1"
+    )
+    assert 0.0961010 < abaqus.SOGLIA_PAREGGIO_VALORI_SINGOLARI, (
+        "il caso studio finisce sopra la soglia"
+    )
 
     print("\ntutti i valori pubblicati sono stati riprodotti.")
     return 0

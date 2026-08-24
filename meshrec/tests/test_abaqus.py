@@ -2093,6 +2093,64 @@ def test_il_momento_riporta_il_rapporto_dei_valori_singolari(cube_mesh):
     assert resoconto["rapporto_valori_singolari"] == pytest.approx(SIZE[1] / SIZE[0], abs=1e-9)
 
 
+def test_un_selettore_quadrato_avvisa_che_la_direzione_non_e_determinata():
+    """Su una faccia quadrata la coppia cade su un diametro qualsiasi.
+
+    `separazione` e' il primo vettore singolare del piano: quando i due
+    valori singolari pareggiano non c'e' un primo, e a scegliere resta il
+    rumore dell'algoritmo. Il momento attorno all'asse non ne risente --
+    la forza si calibra sul braccio effettivo, qualunque diametro esca --
+    ma su quale diametro cada puo' cambiare fra un rimaglio e l'altro, e
+    fra due macchine. Il deck si scrive lo stesso: e' un avviso, perche'
+    applicare un momento a una piastra quadrata resta legittimo.
+
+    La faccia superiore misura 100 x 100 mm: i due semiassi pareggiano e
+    il rapporto vale 1 esatto -- oracolo geometrico, non un numero
+    ricopiato dal programma.
+
+    Mutazione che lo uccide: alzare `SOGLIA_PAREGGIO_VALORI_SINGOLARI`
+    sopra 1. Nessun selettore la supera piu', l'avviso non parte mai.
+    """
+    vertici, facce = synth.box_mesh((100.0, 100.0, 200.0))
+    nodi, tetraedri = volume.tetrahedralize(
+        vertici, facce, max_volume=100_000.0, min_ratio=1.8,
+        max_steiner_points=-1, nobisect=False,
+    )
+    indici = np.flatnonzero(nodi[:, 2] >= nodi[:, 2].max() - 1e-6)
+    momento = config.Momento(asse=(0.0, 0.0, 1.0), modulo=3000.0, braccio=60.0)
+    with pytest.warns(abaqus.SelettoreIsotropoWarning, match="1.000"):
+        _, resoconto = abaqus.coppia_equivalente(
+            momento, nodi, tetraedri, indici, "C3D4", nome="TEST"
+        )
+    assert resoconto["rapporto_valori_singolari"] == pytest.approx(1.0, abs=1e-9)
+
+
+def test_il_banco_dei_test_resta_sotto_la_soglia_del_pareggio(cube_mesh, recwarn):
+    """La soglia non deve rifiutare una piastra con un asse maggiore vero.
+
+    E' il vincolo che ha tenuto aperta questa guardia per una tornata: la
+    ricetta della media geometrica dei due estremi la piazzava a 0,310, e
+    la faccia superiore del banco -- 100 x 40 mm, rapporto 0,400 -- ci
+    finiva sopra. Quella piastra sta 2,5 : 1 e la sua direzione e'
+    stabile: tolto un nodo ruota di 0,13 gradi. Una soglia che la segnala
+    segnalerebbe geometrie sane, e un avviso che parte sempre non lo
+    legge piu' nessuno.
+
+    Mutazione che lo uccide: portare `SOGLIA_PAREGGIO_VALORI_SINGOLARI` a
+    0,31, la media geometrica. L'avviso parte sul banco.
+    """
+    nodi, tetraedri = cube_mesh
+    indici = np.flatnonzero(nodi[:, 2] >= nodi[:, 2].max() - 1e-6)
+    momento = config.Momento(asse=(0.0, 0.0, 1.0), modulo=3000.0, braccio=60.0)
+    _, resoconto = abaqus.coppia_equivalente(
+        momento, nodi, tetraedri, indici, "C3D4", nome="TEST"
+    )
+    assert resoconto["rapporto_valori_singolari"] == pytest.approx(
+        SIZE[1] / SIZE[0], abs=1e-9
+    )
+    assert [w for w in recwarn if issubclass(w.category, abaqus.SelettoreIsotropoWarning)] == []
+
+
 def test_il_resoconto_dei_selettori_si_scrive_sempre(cube_mesh, tmp_path):
     """Fra 1 e tutti i nodi nessuna soglia puo' giudicare: si mostra.
 

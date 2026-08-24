@@ -324,9 +324,13 @@ asse del § 6.
 
 Quel rapporto non è più un numero da rimisurare a mano: `coppia_equivalente`
 lo scrive nel resoconto di ogni momento, come `rapporto_valori_singolari`
-(§ 7), così si vede anche quando passa. **Resta una nota, non una guardia**:
-il programma non rifiuta un selettore isotropo, e il perché — misurato, non
-scelto — sta nel § 9.1.
+(§ 7), così si vede anche quando passa — e sopra
+`SOGLIA_PAREGGIO_VALORI_SINGOLARI` **avvisa**, nominando il rapporto che ha
+misurato. Avviso e non rifiuto: il deck che esce è valido, il momento attorno
+all'asse è quello dichiarato, e applicare un momento a una piastra quadrata
+resta legittimo — è la *direzione* a non essere più un dato della geometria.
+Come la soglia è stata scelta, e perché non si lascia derivare con la ricetta
+del § 6.3, sta nel § 9.1.
 
 **Il momento realizzato è esattamente quello dichiarato, ma il braccio no.**
 I due gruppi raccolgono nodi *oltre* metà del braccio dichiarato in ciascuna
@@ -809,21 +813,26 @@ senza topologia ha trovato, nel produrre il proprio esempio, un modo in cui
 tradiva silenziosamente quello stesso indirizzo — e la correzione è stata
 misurata, non presunta, prima di essere dichiarata chiusa.
 
-### 9.1 La guardia sul pareggio dei valori singolari, aperta
+### 9.1 La guardia sul pareggio dei valori singolari, e la soglia scelta
 
-Il § 5.2 dice che su un selettore isotropo la direzione della coppia la sceglie
-il rumore numerico. Il rimedio ovvio è una guardia come quella del § 6.3:
-rifiutare quando `rapporto_valori_singolari` supera una soglia. La soglia però,
-con la ricetta del § 6.3 — media geometrica dei due estremi misurati — **non si
-lascia derivare**, e la ragione è misurata. Su una piastra sintetica di 12 × 12
-nodi lunga 100 mm, larga quanto serve a fissare il rapporto, si toglie **un
-solo nodo** e si guarda di quanto ruota la direzione di separazione:
+Come il `*CLOAD` persistente del § 5.4, anche questo è un elemento che la coda
+non si tiene. Il § 5.2 dice che su un selettore isotropo la direzione della
+coppia la sceglie il rumore numerico. Il rimedio ovvio è una guardia come
+quella del § 6.3: segnalare quando `rapporto_valori_singolari` supera una
+soglia. La soglia però, con la ricetta del § 6.3 — media geometrica dei due
+estremi misurati — **non si lascia derivare**, e la ragione è misurata.
+
+Su una piastra sintetica di 12 × 12 nodi lunga 100 mm, larga quanto serve a
+fissare il rapporto, si toglie **un solo nodo** — la perturbazione che un
+rimaglio produce davvero — e si guarda di quanto ruota la direzione di
+separazione:
 
 | piastra | rapporto | rotazione della direzione |
 | --- | --- | --- |
 | 100 × 100 | 1,0000 | oltre 45° (misurato 83,3°, ma su un pareggio il valore esatto non è riproducibile: non c'è un vettore da scegliere) |
 | 100 × 99 | 0,9900 | 35,12° |
 | 100 × 90 | 0,9000 | 1,44° |
+| **100 × 80** | **0,8000** | **0,65°** |
 | 100 × 40 | 0,4000 | 0,13° |
 | 100 × 9,61 | 0,0961 | 0,027° |
 
@@ -831,17 +840,25 @@ Le due geometrie che contano cadono nelle ultime due righe: il banco sintetico
 su cui girano i test di questa fase ha `TOP` di 100 × 40 mm, rapporto **0,400**,
 e il `TOP` as-built del caso studio sta a **0,0961**.
 
-La media geometrica dei due estremi che il § 6.3 userebbe — 0,0961 del caso
-studio e 1,0 dell'isotropo — vale `sqrt(0,0961010 · 1,0) ≈ 0,3100`: **sotto** lo
-0,400 del banco dei test, che la tabella misura stabile entro 0,13°. Una soglia
-lì rifiuterebbe una piastra 2,5 : 1, cioè una geometria con un asse maggiore
-perfettamente determinato. La ricetta non si trasferisce perché qui l'estremo
-cattivo **non è una misura**: è il massimo che il rapporto può assumere per
-definizione, e una media geometrica con un estremo di frontiera cade dove
-capita. Né la colonna di destra offre un ginocchio da leggere come soglia: la
-sensibilità cresce come `1/(1 − r²)`, liscia, fino al salto dell'ultima riga.
+**Perché la ricetta del § 6.3 non si trasferisce.** La media geometrica dei due
+estremi che quel paragrafo userebbe — 0,0961 del caso studio e 1,0
+dell'isotropo — vale `sqrt(0,0961010 · 1,0) ≈ 0,3100`: **sotto** lo 0,400 del
+banco dei test, che la tabella misura stabile entro 0,13°. Una soglia lì
+segnalerebbe una piastra 2,5 : 1, cioè una geometria con un asse maggiore
+perfettamente determinato — e un avviso che parte anche sulle geometrie sane
+non lo legge più nessuno. Là gli estremi erano due misure (0,003552 e 0,818) su
+una scala aperta; qui l'estremo cattivo **non è una misura**: è il massimo che
+il rapporto può assumere per definizione, e una media geometrica con un estremo
+di frontiera cade dove capita. Né la colonna di destra offre un ginocchio da
+leggere come soglia: la sensibilità cresce come `1/(1 − r²)`, liscia, fino al
+salto dell'ultima riga.
 
-Resta quindi aperto: il numero si pubblica (§ 7), il rifiuto no. Chi lo
-chiuderà deve prima dichiarare **quanta rotazione della direzione è
-tollerabile**, perché è quella la scelta che la soglia nasconde — non un
-secondo banco da misurare.
+**La soglia è quindi una scelta dichiarata, non una misura.** Il numero che
+nasconde è *quanta rotazione della direzione si accetta*, e la scelta è
+**0,65°**, cioè `SOGLIA_PAREGGIO_VALORI_SINGOLARI = 0,80`. Sopra quel rapporto
+`coppia_equivalente` avvisa (`SelettoreIsotropoWarning`) nominando il rapporto
+misurato; il deck si scrive lo stesso. I margini che ne restano: il banco dei
+test passa con un fattore 2 (0,400 contro 0,800), il caso studio con un
+fattore 8 (0,0961). La tabella è riprodotta a ogni corsa da
+`docs/fase-6-cantiere/misura-carichi.py`, soglia compresa: se qualcuno la
+sposta senza rimisurare, lo script cade.
