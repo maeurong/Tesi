@@ -24,6 +24,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import warnings
 from pathlib import Path
 
 import meshio
@@ -288,6 +289,47 @@ def main() -> int:
         print(f"  banco volumetrico sintetico (spigolo): {errore}")
         contiene("8.333e-01", str(errore), "banco volumetrico sintetico: rapporto fuori asse")
 
+    print("\nil resoconto: nodi_sul_vincolo su un selettore a cavallo del vincolo (§ 7)")
+    # Il § 7 promette la chiave su **ogni** carico, forza o momento, e la
+    # corsa congelata e' anteriore alla chiave: la sonda e' viva. Un rename
+    # della chiave lascerebbe verde ogni altra riga di questo script.
+    # `set_tolerance_factor` ridotto perche' col predefinito BASE inghiotte
+    # l'intero cubo di 16 nodi.
+    with tempfile.TemporaryDirectory() as tmp:
+        analisi_vincolo = config.AnalysisConfig(material=MATERIALE_SONDA, set_tolerance_factor=0.5)
+        with warnings.catch_warnings(record=True) as avvisi:
+            warnings.simplefilter("always")
+            metriche_vincolo = abaqus.export_model(
+                Path(tmp) / "m.inp", Path(tmp) / "m.vtu", nodi_cubo, tets_cubo,
+                analisi_vincolo, config.TetConfig(),
+                selettori={"fascia": config.SelettoreBox(
+                    tipo="box", min=(-1.0, -1.0, -1.0), max=(1e9, 1e9, 100.0)
+                )},
+                carichi=config.CarichiConfig(posizionati=[
+                    config.CaricoPosizionato(nome="PIEDE", selettore="fascia", forza=(0.0, 0.0, -1200.0)),
+                ]),
+            )
+        piede = metriche_vincolo["carichi_posizionati"]["PIEDE"]
+        uguale(10, piede["nodi"], "PIEDE: nodi presi dalla fascia bassa")
+        uguale(4, piede["nodi_sul_vincolo"], "PIEDE: nodi che cadono anche nel vincolo (§ 7)")
+        assert any(issubclass(a.category, abaqus.CaricoSulVincoloWarning) for a in avvisi), (
+            "il carico a cavallo del vincolo non ha piu' avvisato: il § 7 lo dichiara"
+        )
+        # Le due frazioni che il § 7 dichiara **diverse**: quella per numero
+        # di nodi (il conteggio qui sopra) e quella per area tributaria, cioe'
+        # la quota di risultante che finisce davvero in reazione. Chi
+        # moltiplica la prima per la risultante scrive un numero sbagliato, ed
+        # e' quello che il documento diceva di fare.
+        allineati = meshio.read(Path(tmp) / "m.vtu")
+        nodi_al, tets_al = allineati.points, allineati.cells_dict["tetra"]
+        fascia = np.flatnonzero(nodi_al[:, 2] <= 100.0)
+        quote_fascia, _ = abaqus.ripartisci(1200.0, nodi_al, tets_al, fascia, "C3D4", nome="PIEDE")
+        sul_vincolo = np.isin(fascia, np.flatnonzero(nodi_al[:, 2] <= nodi_al[:, 2].min() + 1e-6))
+        vicino(0.400, float(sul_vincolo.sum()) / fascia.size, 1e-9, "PIEDE: frazione per numero di nodi")
+        vicino(
+            0.4583333333, float(quote_fascia[sul_vincolo].sum() / quote_fascia.sum()), 1e-9,
+            "PIEDE: frazione di risultante, pesata per area tributaria (§ 7)",
+        )
     print("\nCARICO_TOP ripartito per area tributaria (gia' pubblicato in docs/fase-5-analisi.md)")
     # Le righe *CLOAD non cambiano fra `v3_pesata` e `v3_pesata_dload_fix`: la
     # correzione sul *DLOAD (spinta ereditata) non tocca il *CLOAD del carico
@@ -478,17 +520,21 @@ def main() -> int:
         "area tributaria totale nulla",
     )
 
-    print("\nil pareggio dei valori singolari: la tabella del § 9.1")
+    print("\nil pareggio dei valori singolari: la tabella del § 5.5")
     _, res_banco = abaqus.coppia_equivalente(
         config.Momento(asse=(0.0, 0.0, 1.0), modulo=3000.0, braccio=60.0),
         nodi_cubo, tets_cubo, top_cubo, "C3D4", nome="TEST",
     )
     vicino(0.4, res_banco["rapporto_valori_singolari"], 1e-9, "banco dei test (TOP 100 x 40): rapporto")
-    tabella = ((100.0, None), (99.0, 35.12), (90.0, 1.44), (80.0, 0.65),
-               (40.0, 0.13), (9.61, 0.027))
+    # Ogni riga e' il **caso peggiore** su tutte e 144 le rimozioni di un
+    # nodo, non la rimozione di un indice scelto: una sola grandezza per
+    # colonna, e un limite superiore invece di un sorteggio.
+    tabella = ((100.0, None), (99.0, 35.12), (90.0, 4.86), (80.0, 2.30),
+               (40.0, 0.49), (9.61, 0.10))
+    misure: list[tuple[float, float]] = []
     for larghezza, atteso in tabella:
         rapporto, rotazione = _piastra_perturbata(larghezza)
-        print(f"  100 x {larghezza} -> rapporto {rapporto:.4f}, rotazione {rotazione:.4f} gradi")
+        print(f"  100 x {larghezza} -> rapporto {rapporto:.4f}, rotazione peggiore {rotazione:.4f} gradi")
         vicino(larghezza / 100.0, rapporto, 1e-9, f"piastra 100 x {larghezza}: rapporto")
         if atteso is None:
             # Su un pareggio esatto la SVD non ha un vettore da scegliere: il
@@ -497,11 +543,39 @@ def main() -> int:
             assert rotazione > 45.0, f"piastra isotropa: rotazione {rotazione}, attesa oltre 45 gradi"
             print("  [ok] piastra isotropa: rotazione oltre 45 gradi")
         else:
-            vicino(atteso, rotazione, 0.01, f"piastra 100 x {larghezza}: rotazione [gradi]")
-    vicino(0.3100, (0.0961010 * 1.0) ** 0.5, 1e-4, "media geometrica dei due estremi del § 9.1")
-    # La soglia scelta, e i due margini che il § 9.1 dichiara. Non e' una
-    # misura: e' 0,65 gradi di rotazione tollerata, letti sulla tabella qui
-    # sopra. Spostarla senza rimisurare fa cadere queste tre righe.
+            vicino(atteso, rotazione, 0.01, f"piastra 100 x {larghezza}: rotazione peggiore [gradi]")
+            misure.append((rapporto, rotazione))
+
+    # La legge di sensibilita' del § 5.5. E' `r/(1 - r^2)`, non `1/(1 - r^2)`:
+    # la prima e' costante entro l'1% fino a r = 0,90, la seconda sbaglia di
+    # un fattore 9 fra gli estremi della stessa tabella.
+    lisce = [(r, rot * (1.0 - r * r) / r) for r, rot in misure if r <= 0.90]
+    for rapporto, costante in lisce:
+        print(f"  r = {rapporto:.4f} -> rotazione * (1 - r^2) / r = {costante:.4f}")
+    dispersione = max(c for _, c in lisce) / min(c for _, c in lisce) - 1.0
+    print(f"  dispersione della costante fino a r = 0,90: {dispersione:.2%}")
+    assert dispersione < 0.011, (
+        f"la legge r/(1 - r^2) non e' piu' costante entro l'1% ({dispersione:.2%}): "
+        "il § 5.5 la pubblica come tale"
+    )
+    saturo = [rot * (1.0 - r * r) / r for r, rot in misure if r > 0.95]
+    assert saturo and max(saturo) < 0.75 * min(c for _, c in lisce), (
+        "la riga a r = 0,99 non satura piu': il § 5.5 spiega la piega della "
+        "legge con la rotazione che va contro i 90 gradi"
+    )
+    sbagliate = [rot * (1.0 - r * r) for r, rot in misure]
+    fattore = max(sbagliate) / min(sbagliate)
+    print(f"  la legge 1/(1 - r^2), quella che il documento pubblicava: sbaglia di {fattore:.1f} volte")
+    assert fattore > 5.0, (
+        f"1/(1 - r^2) e' tornata costante entro {fattore:.1f} volte: era falsa, "
+        "e il § 5.5 dice perche'"
+    )
+
+    vicino(0.3100, (0.0961010 * 1.0) ** 0.5, 1e-4, "media geometrica dei due estremi del § 5.5")
+    # La soglia scelta, e i due margini che il § 5.5 dichiara. Non e' una
+    # misura: e' 2,30 gradi di rotazione tollerata nel caso peggiore, letti
+    # sulla tabella qui sopra. Spostarla senza rimisurare fa cadere queste
+    # tre righe.
     vicino(0.80, abaqus.SOGLIA_PAREGGIO_VALORI_SINGOLARI, 1e-9, "soglia del pareggio")
     assert res_banco["rapporto_valori_singolari"] < abaqus.SOGLIA_PAREGGIO_VALORI_SINGOLARI, (
         "il banco dei test finisce sopra la soglia: l'avviso partirebbe su una piastra 2,5 : 1"
@@ -515,12 +589,21 @@ def main() -> int:
 
 
 def _piastra_perturbata(larghezza: float) -> tuple[float, float]:
-    """Rapporto dei valori singolari e rotazione della direzione tolto un nodo.
+    """Rapporto dei valori singolari e rotazione **peggiore** su 144 rimozioni.
 
-    Una griglia 12 x 12 su una piastra lunga 100 mm: e' il banco del § 9.1,
+    Una griglia 12 x 12 su una piastra lunga 100 mm: e' il banco del § 5.5,
     scelto perche' il rapporto lo fissa la sola larghezza. Si toglie un nodo
-    (la perturbazione che un rimaglio produce davvero) e si misura di quanto
-    ruota la direzione di separazione che `coppia_equivalente` sceglierebbe.
+    -- la perturbazione che un rimaglio produce davvero -- e si misura di
+    quanto ruota la direzione di separazione che `coppia_equivalente`
+    sceglierebbe.
+
+    **Tutte e 144 le rimozioni, non una sola.** La versione precedente
+    toglieva sempre il nodo di indice `len(punti) // 3`, cioe' il 48esimo, e
+    la rotazione dipende pesantemente da quale nodo si toglie: sulla piastra
+    100 x 80 quell'indice rende 0,65 gradi mentre il peggiore ne rende 2,30,
+    e il 48esimo cadeva al 56esimo percentile su cinque righe della tabella e
+    sul massimo esatto in una. Un limite superiore e' difendibile e non
+    dipende da un indice; un sorteggio no. Costo: 144 SVD di una 143 x 3.
     """
     asse = np.array([0.0, 0.0, 1.0])
 
@@ -533,9 +616,12 @@ def _piastra_perturbata(larghezza: float) -> tuple[float, float]:
     x, y = np.meshgrid(np.linspace(0.0, 100.0, 12), np.linspace(0.0, larghezza, 12))
     punti = np.column_stack([x.ravel(), y.ravel(), np.zeros(x.size)])
     intera, rapporto = direzione(punti)
-    ridotta, _ = direzione(np.delete(punti, len(punti) // 3, axis=0))
-    coseno = float(np.clip(abs(intera @ ridotta), -1.0, 1.0))
-    return rapporto, float(np.degrees(np.arccos(coseno)))
+    rotazioni = []
+    for tolto in range(len(punti)):
+        ridotta, _ = direzione(np.delete(punti, tolto, axis=0))
+        coseno = float(np.clip(abs(intera @ ridotta), -1.0, 1.0))
+        rotazioni.append(float(np.degrees(np.arccos(coseno))))
+    return rapporto, max(rotazioni)
 
 
 def _banco_sonda() -> tuple[np.ndarray, np.ndarray, dict[str, np.ndarray]]:
