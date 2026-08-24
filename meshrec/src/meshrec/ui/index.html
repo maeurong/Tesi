@@ -19,7 +19,12 @@
   <!-- Riporta alla scelta della corsa senza riavviare il programma. Nasce
        nascosto: a nessuna corsa aperta l'ingresso e' gia' a video. -->
   <button type="button" id="cambia-corsa" class="bottone" hidden>Cambia corsa</button>
-  <button type="button" id="annulla" class="bottone" disabled>Annulla</button>
+  <!-- «Interrompi il calcolo» e non «Annulla»: annullare, accanto a una corsa
+       che sta girando, si legge anche come «disfa quello che hai fatto», e il
+       bottone non disfa niente -- ferma il sottoprocesso in corso, che sia uno
+       step o un comando. Il verbo dice l'azione e il complemento dice su che
+       cosa cade. -->
+  <button type="button" id="annulla" class="bottone" disabled>Interrompi il calcolo</button>
 </header>
 <!-- Le due schermate si escludono a vicenda e nascono entrambe nascoste:
      app.js ne scopre una quando /api/run ha risposto. Nascondere solo

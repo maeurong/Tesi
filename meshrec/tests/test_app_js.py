@@ -292,6 +292,39 @@ def test_ogni_step_e_un_comando_e_non_una_riga_cliccabile():
     assert 'className = "step"' in riga, "il foglio si aggancia a .step: il nome non cambia"
 
 
+def test_ogni_riga_porta_il_numero_dello_step_che_le_istruzioni_nominano(tmp_path):
+    """L'interfaccia parla per numeri e la colonna non ne mostrava nessuno.
+
+    «esegui lo step 1», «e' lo step 12», «lo step 11 si ferma finche' questi
+    quattro valori non ci sono», «step 5 in corso»: tutte istruzioni che
+    indicano una coordinata che a video non c'era: l'elenco ha
+    `list-style: none` e la riga portava il solo nome. Chi apre il programma
+    per la prima volta -- il lettore dichiarato in PRODUCT.md -- leggeva
+    «esegui lo step 1» davanti a tredici parole e nessun modo di contarle.
+
+    Il numero viene da `voce.numero`, cioe' dal server, e non dalla posizione
+    nell'elenco: un contatore CSS lo indovinerebbe dalla riga e stamperebbe
+    comunque un numero -- quello sbagliato -- il giorno in cui l'elenco non
+    partisse da uno. Il banco chiede 4 e 13 alle posizioni 0 e 1 apposta: un
+    numero letto dalla posizione direbbe 1 e 2 e cadrebbe qui.
+    """
+    _esegui(tmp_path, _DOM + _funzioni("segnaStepAperto", "nuovaRiga", "disegnaStep") + """
+disegnaStep([
+  { numero: 4, chiave: "04_normals", stato: "valido" },
+  { numero: 13, chiave: "13_solve", stato: "mai eseguito" },
+]);
+const primi = elenco.children.map((riga) => riga.firstElementChild.firstElementChild);
+assert.deepEqual(
+  primi.map((e) => e.textContent), ["4", "13"],
+  "la riga non porta il numero dello step, o lo legge dalla posizione nell'elenco",
+);
+assert.deepEqual(
+  primi.map((e) => e.className), ["step-numero", "step-numero"],
+  "il numero non e' piu' il primo figlio della riga: il foglio gli da' la colonna per nome",
+);
+""")
+
+
 def test_l_elenco_degli_step_si_aggiorna_e_non_si_ricostruisce(tmp_path):
     """Il difetto e' nato dalla correzione che lo precede.
 
@@ -1260,6 +1293,59 @@ function apriCampo(blocco, nome) {
   return { input, messaggio };
 }
 """
+
+
+def test_il_nome_della_casella_e_il_nome_del_parametro_e_nient_altro(tmp_path):
+    """L'aiuto stava dentro la <label> che avvolgeva la casella.
+
+    Una <label> che avvolge nomina con tutto il proprio sottoalbero: il campo
+    si annunciava «voxel_size la spaziatura del voxel» a ogni fuoco e a ogni
+    tabulazione, e col rifiuto a video si accodava anche quello. La lezione era
+    gia' scritta nell'ingresso -- il <small> di #nuova-nome sta fuori dalla
+    <label> apposta, e il commento nel markup dice perche' -- e non aveva mai
+    raggiunto i campi che il modulo costruisce da se'.
+
+    Il banco calcola il nome come lo calcola il browser: dall'etichetta che
+    punta alla casella per `for` se c'e', altrimenti da tutto il sottoalbero
+    della <label> che la contiene. Cosi' il controllo non guarda che forma ha
+    la riga -- puo' cambiare -- ma cio' che verrebbe letto ad alta voce.
+    """
+    _esegui(tmp_path, _banco_del_campo() + """
+configurazione = { downsample: { voxel_size: 25 } };
+const riga = campoParametro("downsample", "voxel_size", CAMPO, generazione);
+const [, input, aiuto, messaggio] = riga.children;
+
+const testoProfondo = (e) => [e.textContent, ...e.figli.map(testoProfondo)].join(" ").trim();
+// Tutte le etichette associate, non la prima: una casella e' nominata sia da
+// una <label for> sia da ogni <label> che la contiene, e il browser le
+// concatena. Prendere solo la prima farebbe passare per corretta una riga che
+// le ha entrambe -- cioe' esattamente la ricaduta da sorvegliare.
+function nomeAccessibile(radice, casella) {
+  const candidati = [radice, ...radice.discendenti()];
+  return candidati
+    .filter((e) => e.tag === "label"
+      && (e.getAttribute("for") === casella.id || e.discendenti().includes(casella)))
+    .map(testoProfondo)
+    .join(" ")
+    .trim();
+}
+
+assert.equal(
+  nomeAccessibile(riga, input), "voxel_size",
+  "il nome accessibile della casella si porta dietro l'aiuto: descritto e' cio' che serve, nominato no",
+);
+assert.equal(
+  input.getAttribute("aria-describedby"), aiuto.id,
+  "l'aiuto e' uscito dalla label e nessun describedby lo lega: adesso non lo annuncia piu' nessuno",
+);
+// Il rifiuto e' la seconda meta' dello stesso difetto: compare dentro la riga
+// mentre la casella ha il fuoco, ed e' il momento in cui il nome viene riletto.
+segnalaCampo(input, messaggio, "e' troppo grande");
+assert.equal(
+  nomeAccessibile(riga, input), "voxel_size",
+  "il messaggio di rifiuto entra nel nome della casella invece di restarne la descrizione",
+);
+""")
 
 
 def test_un_campo_nullabile_vuoto_non_mostra_la_stringa_null(tmp_path):

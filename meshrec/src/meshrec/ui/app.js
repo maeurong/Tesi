@@ -3,8 +3,8 @@
 const ETICHETTE = {
   "01_load": "Lettura", "02_segment": "Segmentazione", "03_downsample": "Riduzione",
   "04_normals": "Normali", "05_reconstruct": "Superficie", "06_repair": "Riparazione",
-  "07_surface_quality": "Qualita superficie", "08_simplify": "Semplificazione",
-  "09_tetrahedralize": "Tetraedri", "10_volume_quality": "Qualita volume",
+  "07_surface_quality": "Qualita' superficie", "08_simplify": "Semplificazione",
+  "09_tetrahedralize": "Tetraedri", "10_volume_quality": "Qualita' volume",
   "11_export": "Esportazione", "12_wall": "Prior geometrico", "13_solve": "Analisi strutturale",
 };
 
@@ -222,11 +222,20 @@ function nuovaRiga() {
   const comando = document.createElement("button");
   comando.type = "button";
   comando.className = "step";
+  // Il numero dello step, e sta a video perche' l'interfaccia parla per numeri:
+  // «esegui lo step 1», «e' lo step 12», «lo step 11 si ferma finche'...», «step
+  // 5 in corso». Tutte istruzioni che indicavano una coordinata che la colonna
+  // non mostrava da nessuna parte -- l'<ol> ha list-style: none -- e chi apre il
+  // programma per la prima volta aveva tredici nomi e nessun modo di contarli.
+  // Scritto da `voce.numero` e non dalla posizione nell'elenco: il numero e' un
+  // dato del server, e un contatore CSS lo indovinerebbe dalla riga.
+  const numero = document.createElement("span");
+  numero.className = "step-numero";
   const nome = document.createElement("span");
   nome.className = "step-nome";
   const stato = document.createElement("span");
   stato.className = "step-stato";
-  comando.append(nome, stato);
+  comando.append(numero, nome, stato);
   riga.append(comando);
   return riga;
 }
@@ -324,8 +333,10 @@ function disegnaStep(steps) {
       delete riga.dataset.cambiato;
     }
     comando.dataset.numero = voce.numero;
-    comando.firstElementChild.textContent = ETICHETTE[voce.chiave] ?? voce.chiave;
-    comando.lastElementChild.textContent = voce.stato;
+    const [numero, nome, stato] = comando.children;
+    numero.textContent = voce.numero;
+    nome.textContent = ETICHETTE[voce.chiave] ?? voce.chiave;
+    stato.textContent = voce.stato;
   });
   // stepAperto e' gia' inizializzato: disegnaStep gira solo da caricaStato, che
   // si sospende sulla prima attesa, e dallo scorrere degli eventi, cioe' sempre
@@ -1217,6 +1228,21 @@ function pannelloRitaglio(ordine) {
   const valori = persistito
     ? { min: [...persistito.crop_min], max: [...persistito.crop_max] }
     : { min: [...ingombro.min], max: [...ingombro.max] };
+  // Che cosa sono i sei numeri, in che unita', e che cosa fa il bottone --
+  // detto PRIMA di premerlo. Finora l'unica frase del pannello arrivava dopo
+  // l'applicazione, e diceva che crop_min e crop_max erano gia' stati scritti:
+  // chi esplorava lo scopriva a scrittura avvenuta. La sorgente dei numeri
+  // cambia con `persistito` ed e' la stessa distinzione che il commento qui
+  // sopra difende: l'ingombro disegnato e cio' che sta sul disco non sono la
+  // stessa domanda, e la frase non deve confonderli.
+  contenitore.append(Object.assign(document.createElement("p"), {
+    className: "aiuto",
+    textContent: (persistito
+      ? "Gli estremi del box in mm, come sono scritti nella configurazione della corsa. "
+      : "Gli estremi del box in mm, presi dall'ingombro della nuvola disegnata. ")
+      + "«Applica il ritaglio» li scrive nella configurazione, su crop_min e crop_max, "
+      + "e conta i punti che resterebbero.",
+  }));
   for (const estremo of ["min", "max"]) {
     for (const asse of [0, 1, 2]) {
       const riga = document.createElement("label");
@@ -1443,9 +1469,21 @@ async function scriviParametro(blocco, nome, input, messaggio, ordine) {
 // /api/schema oggi non lo manda: finche' non lo manda, la casella lascia
 // passare cio' che e' stato battuto e il rifiuto torna visibile come 422.
 function campoParametro(blocco, nome, campo, ordine) {
-  const riga = document.createElement("label");
+  // La riga e' un <div> e l'etichetta nomina per `for`. Era una <label> che
+  // avvolgeva tutto, e dentro la <label> stavano anche l'aiuto e il messaggio
+  // di rifiuto: il nome accessibile della casella non era «voxel_size» ma
+  // «voxel_size» seguito dalla descrizione intera, ripetuta a ogni fuoco e a
+  // ogni tabulazione, e col rifiuto attaccato in coda quando ce n'era uno.
+  // E' la stessa lezione gia' scritta nell'ingresso -- il commento sopra
+  // #nuova-nome in index.html, dove il <small> e' uscito dalla <label> per
+  // questo: descritto e' cio' che serve, nominato no.
+  const identita = `${blocco}-${nome}`;
+  const riga = document.createElement("div");
   riga.className = "campo";
-  riga.append(Object.assign(document.createElement("span"), { textContent: nome }));
+  const etichetta = document.createElement("label");
+  etichetta.setAttribute("for", `campo-${identita}`);
+  etichetta.textContent = nome;
+  riga.append(etichetta);
   const valore = (configurazione[blocco] ?? {})[nome] ?? null;
   // Una lista o un modello annidato non sono scritti in una casella di testo:
   // String() li renderebbe come "1,2,4" o "[object Object]", cioe' un testo che
@@ -1459,11 +1497,15 @@ function campoParametro(blocco, nome, campo, ordine) {
   const bloccoAssente = configurazione[blocco] == null;
   const scalare = valore === null || ["string", "number", "boolean"].includes(typeof valore);
   const input = document.createElement("input");
+  input.id = `campo-${identita}`;
   input.value = scalare ? String(valore ?? "") : JSON.stringify(valore);
-  input.title = campo.description;
+  // Niente `input.title`: era la stessa frase dell'aiuto qui sotto, detta una
+  // seconda volta in un fumetto che non si apre da tastiera ne' col dito, e che
+  // il lettore di schermo accoda al nome. Detta una volta sola, sotto la
+  // casella, dove si legge senza doverla chiedere.
   const messaggio = document.createElement("small");
   messaggio.className = "errore-campo";
-  messaggio.id = `errore-${blocco}-${nome}`;
+  messaggio.id = `errore-${identita}`;
   messaggio.hidden = true;
   if (!scalare || bloccoAssente) {
     // readOnly e non disabled: disabled lo toglierebbe anche dalla navigazione
@@ -1475,10 +1517,15 @@ function campoParametro(blocco, nome, campo, ordine) {
   riga.append(input);
   const aiuto = document.createElement("small");
   aiuto.className = "aiuto";
+  aiuto.id = `aiuto-${identita}`;
   aiuto.textContent = [
     campo.description,
     !scalare && !bloccoAssente ? "si modifica dal file di configurazione" : null,
   ].filter(Boolean).join(" — ");
+  // Legato solo se c'e' qualcosa da leggere: uno schema che non descrive il
+  // campo lascia l'aiuto vuoto, e un aria-describedby che punta a una riga muta
+  // e' una descrizione promessa e non mantenuta.
+  if (aiuto.textContent !== "") input.setAttribute("aria-describedby", aiuto.id);
   riga.append(aiuto, messaggio);
   return riga;
 }
@@ -1508,7 +1555,7 @@ function pannelloMateriale(numero, ordine) {
     ["name", "nome"],
     ["young", "modulo elastico E [MPa]"],
     ["poisson", "coefficiente di Poisson"],
-    ["density", "densita [t/mm^3]"],
+    ["density", "densita' [t/mm^3]"],
   ]) {
     const riga = document.createElement("label");
     riga.className = "campo";

@@ -309,7 +309,7 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
    contenuto): senza, la riga cambierebbe aspetto pur restando la stessa riga.
    Il nome della classe non cambia, perche' app.js lo scrive da codice e il
    foglio non si lamenterebbe di un selettore che non trova piu' nulla. */
-.step { font: inherit; border: none; background: none; color: inherit; text-align: left; width: 100%; display: flex; justify-content: space-between; align-items: baseline; gap: var(--passo-3); padding: var(--passo-2); border-radius: var(--raggio); cursor: pointer; font-size: var(--tipo-corpo); line-height: var(--interlinea-riga); transition: background-color var(--durata-tocco) var(--curva); }
+.step { font: inherit; border: none; background: none; color: inherit; text-align: left; width: 100%; display: flex; align-items: baseline; gap: var(--passo-2); padding: var(--passo-2); border-radius: var(--raggio); cursor: pointer; font-size: var(--tipo-corpo); line-height: var(--interlinea-riga); transition: background-color var(--durata-tocco) var(--curva); }
 .step:hover { background: var(--evidenza); }
 /* Il contorno e' interno: la riga tocca il bordo della colonna, e uno esterno
    verrebbe tagliato dallo scorrimento della zona. */
@@ -321,6 +321,17 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
    Riparazione — si modifica il parametro di uno credendo di essere su un
    altro, e la scrittura sul disco e' immediata. */
 .step[aria-current="true"] { background: var(--selezione); box-shadow: inset 2px 0 0 var(--accento); }
+/* Il numero e la parola stanno insieme a sinistra e lo stato all'estremo
+   destro: era `justify-content: space-between`, che con tre figli invece di due
+   distribuisce lo spazio anche FRA il numero e il nome, e li allontanerebbe di
+   mezza colonna. Un margine automatico sul nome spinge il solo stato.
+   Larghezza fissa al numero e allineato a destra: gli step vanno da 1 a 13, e
+   senza una colonna propria le quattro righe a due cifre sposterebbero il nome
+   -- e con lui il pallino di stato, che vive sul nome -- della larghezza di una
+   cifra. Le cifre tabulari servono alla stessa cosa dentro la colonna. Corpo e
+   colore della nota: il numero e' la coordinata della riga, non il suo titolo. */
+.step-nome { margin-right: auto; }
+.step-numero { flex: none; width: 2ch; text-align: right; font-variant-numeric: tabular-nums; color: var(--tenue); font-size: var(--tipo-nota); }
 /* Lo stato e' l'annotazione del nome, non il nome: sta un gradino sotto e
    pesa meno, cosi' la colonna si scorre leggendo gli step e non gli stati. */
 .step-stato { color: var(--tenue); font-size: var(--tipo-nota); line-height: var(--interlinea-riga); white-space: nowrap; }
