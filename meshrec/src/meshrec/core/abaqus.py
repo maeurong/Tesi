@@ -60,10 +60,11 @@ SOGLIA_COMPONENTE_RELATIVA: float = 1e-12
 # quale diametro la coppia cade. Il momento attorno all'asse resta quello
 # dichiarato per costruzione: arbitraria e' la direzione, che puo' cambiare
 # in silenzio fra un rimaglio e l'altro. La curva non offre un ginocchio da
-# leggere come soglia -- la sensibilita' cresce liscia -- quindi questo
-# numero dichiara quanta rotazione si accetta: 0,65 gradi su una piastra
-# sintetica cui si toglie un nodo. Tabella misurata e margini delle due
-# geometrie reali in `docs/fase-6-carichi.md`, sezione 9.1.
+# leggere come soglia -- la sensibilita' cresce come r/(1 - r^2), liscia --
+# quindi questo numero dichiara quanta rotazione si accetta: 2,30 gradi nel
+# caso peggiore su una piastra sintetica cui si toglie un nodo, provate tutte
+# le rimozioni. Tabella misurata e margini delle due geometrie reali in
+# `docs/fase-6-carichi.md`, sezione 5.5.
 SOGLIA_PAREGGIO_VALORI_SINGOLARI: float = 8e-1
 
 
@@ -82,11 +83,26 @@ class SelettoreIsotropoWarning(UserWarning):
 def _gradi_da_scrivere(direzione: np.ndarray) -> list[tuple[int, float]]:
     """I gradi di liberta con una componente che conta, e la componente stessa.
 
-    Una riga a zero il solutore la legge e la ignora, e una riga a 1e-16
-    pure: non scriverle tiene il deck leggibile e il conteggio onesto. Il
-    confronto e' relativo alla componente piu' grande dello stesso vettore
-    (vedi `SOGLIA_COMPONENTE_RELATIVA`), perche' su uno dei due percorsi
-    che la chiamano lo zero non arriva mai esatto.
+    Il filtro vive sulla **direzione**, non sul valore che finisce nel deck.
+    La direzione e' un versore, la stessa per tutti i nodi del carico: qui si
+    decide *quali gradi di liberta* ricevono una riga, non *quali nodi*. Una
+    componente a 1e-16 e' rumore di `np.cross(asse, separazione)`, dove la
+    geometria vuole zero, e meta' delle righe di una coppia erano quel
+    rumore; il confronto e' relativo alla componente piu' grande dello stesso
+    vettore (vedi `SOGLIA_COMPONENTE_RELATIVA`) perche' su uno dei due
+    percorsi che la chiamano lo zero non arriva mai esatto.
+
+    **Un nodo a quota nulla scrive comunque la sua riga, a zero.** Il valore
+    scritto e' `quota * componente`, e la quota non passa di qui: un nodo ad
+    area tributaria nulla porta nel deck una riga a `-0.000000000e+00`.
+    Non e' una svista da correggere filtrando a valle. `docs/fase-6-carichi.md`
+    § 4 pubblica per `CARICO_TOP` una tabella con 3.036 righe `*CLOAD`, di cui
+    703 a zero, e spiega li' che cosa sono quei 703 nodi: togliere le righe
+    mute porterebbe il conteggio a 2.333 e smentirebbe una tabella gia'
+    pubblicata. Il comportamento e' fissato da un test apposta.
+
+    Una direzione con tutte le componenti nulle rende una lista vuota: la
+    soglia vale zero e nessun `abs(c) > 0.0` passa. Non solleva e non divide.
     """
     soglia = SOGLIA_COMPONENTE_RELATIVA * float(np.abs(direzione).max())
     return [(g, c) for g, c in enumerate(direzione, start=1) if abs(c) > soglia]
@@ -702,8 +718,8 @@ def coppia_equivalente(
     """Le righe *CLOAD di una coppia di forze staticamente equivalente al momento.
 
     Non un `*CLOAD` sui gradi 4-6: su un C3D4 `ccx` 2.22 lo scarta senza un
-    warning e con spostamento esattamente zero, e la guardia di
-    `core/solve.py:438` non ha nulla da intercettare.
+    warning e con spostamento esattamente zero, e `controlla_avvisi`
+    (`core/solve.py`) non ha nulla da intercettare.
 
     Il braccio lo dichiara l'operatore e questa funzione lo contraddice se i
     nodi presi non lo sostengono. La via opposta -- misurarlo sull'estensione
@@ -858,7 +874,10 @@ def coppia_equivalente(
             f"oltre {SOGLIA_PAREGGIO_VALORI_SINGOLARI:g}. Il momento attorno "
             "all'asse resta quello dichiarato, ma su quale diametro cade la coppia "
             "lo decide il rumore numerico, e un rimaglio puo' spostarlo. Allunga il "
-            "selettore per fissare la direzione",
+            "selettore per fissare la direzione, oppure accetta: il deck e' valido e "
+            "il momento attorno all'asse e' quello dichiarato. Su una piastra "
+            "davvero quadrata allungare il selettore cambierebbe la fisica "
+            "dichiarata, e accettare e' la scelta giusta",
             SelettoreIsotropoWarning,
             stacklevel=2,
         )
@@ -870,6 +889,7 @@ def coppia_equivalente(
         "momento_dichiarato": (float(momento.modulo) * asse).tolist(),
         "momento_effettivo": momento_effettivo.tolist(),
         "rapporto_valori_singolari": rapporto_singolari,
+        "area_totale": resoconto_aree["area_totale"],
         "nodi_ad_area_nulla": resoconto_aree["nodi_ad_area_nulla"],
         "forza_di_ciascun_lato": forza,
         "nodi_positivi": int(positivi.size),

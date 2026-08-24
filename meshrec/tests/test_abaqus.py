@@ -37,6 +37,34 @@ def cube_mesh():
     )
 
 
+@pytest.fixture(scope="module")
+def cube_mesh_fine():
+    """Lo stesso banco di `cube_mesh`, con il doppio dei nodi.
+
+    Serve un selettore in cui **un** nodo preso non tocchi alcuna faccia di
+    bordo intera: sui 16 nodi di `cube_mesh` la faccia superiore ha i soli
+    quattro vertici, e ogni sottoinsieme che ne tolga uno perde tutta l'area
+    invece di lasciarne un nodo a secco.
+    """
+    vertices, faces = synth.box_mesh(SIZE)
+    return volume.tetrahedralize(
+        vertices, faces, max_volume=20_000.0, min_ratio=1.8, max_steiner_points=-1, nobisect=False
+    )
+
+
+def _sommita_piu_il_nodo(nodi: np.ndarray, punto: tuple[float, float, float]) -> np.ndarray:
+    """I nodi della faccia superiore, piu' quello che sta esattamente in `punto`.
+
+    Il nodo in piu' sta sotto la faccia superiore, quindi nessuna faccia di
+    bordo che lo tocchi ha tutti i propri nodi nell'insieme: la sua area
+    tributaria e' zero, e il selettore ne ha esattamente uno.
+    """
+    alti = np.flatnonzero(nodi[:, 2] >= nodi[:, 2].max() - 1e-6)
+    fuori = np.flatnonzero(np.linalg.norm(nodi - np.array(punto), axis=1) < 1e-6)
+    assert fuori.size == 1, f"il banco non ha un solo nodo in {punto}: ne ha {fuori.size}"
+    return np.sort(np.concatenate([alti, fuori]))
+
+
 def _base_and_top(nodes: np.ndarray, tolerance: float = 1e-6) -> dict[str, np.ndarray]:
     z = nodes[:, 2]
     return {
@@ -2047,7 +2075,7 @@ def test_una_superficie_leggermente_irregolare_non_solleva(cube_mesh):
     assert eff[2] == pytest.approx(3000.0, rel=1e-3)
 
 
-def test_il_momento_riporta_i_nodi_ad_area_nulla(cube_mesh):
+def test_il_momento_riporta_i_nodi_ad_area_nulla(cube_mesh_fine):
     """Il resoconto di `ripartisci` non si butta: il momento lo rende come CARICO_TOP.
 
     `coppia_equivalente` scartava il secondo valore di `ripartisci`
@@ -2056,21 +2084,83 @@ def test_il_momento_riporta_i_nodi_ad_area_nulla(cube_mesh):
     campo esiste dalla Fase 5: e' la stessa correzione, regredita su un
     secondo percorso.
 
-    Su questo banco nessun nodo di TOP ha area nulla, e **zero e' un
-    valore, non un'assenza**: la chiave c'e' comunque.
+    L'oracolo e' **uno, non zero**. La prima stesura di questo test prendeva
+    la sola faccia superiore, dove nessun nodo ha area nulla, e la sua
+    docstring lo ammetteva: un `"nodi_ad_area_nulla": 0` costante lo lasciava
+    verde. Qui il selettore e' la faccia superiore piu' un nodo che sta sotto
+    di essa: quel nodo non ha alcuna faccia di bordo con tutti i propri nodi
+    nell'insieme, quindi la sua area tributaria e' zero e il conteggio vale 1
+    mentre gli altri sei stanno sulla faccia.
 
-    Mutazione che lo uccide: tornare a `quote_totale, _ = ripartisci(...)`
-    e non scrivere la chiave. `KeyError` al posto dello 0.
+    Mutazione che lo uccide: scrivere `"nodi_ad_area_nulla": 0` invece di
+    prenderlo da `resoconto_aree`.
     """
-    nodi, tetraedri = cube_mesh
-    indici = np.flatnonzero(nodi[:, 2] >= nodi[:, 2].max() - 1e-6)
+    nodi, tetraedri = cube_mesh_fine
+    indici = _sommita_piu_il_nodo(nodi, (0.0, SIZE[1], SIZE[2] / 2.0))
     momento = config.Momento(asse=(0.0, 0.0, 1.0), modulo=3000.0, braccio=60.0)
     _, resoconto = abaqus.coppia_equivalente(momento, nodi, tetraedri, indici, "C3D4", nome="TEST")
-    assert resoconto["nodi_ad_area_nulla"] == 0
+    assert resoconto["nodi"] == 7
+    assert resoconto["nodi_ad_area_nulla"] == 1
 
 
-def test_il_momento_riporta_il_rapporto_dei_valori_singolari(cube_mesh):
-    """Quanto la direzione della coppia sia determinata si legge nel resoconto.
+def test_il_momento_riporta_l_area_su_cui_ha_ripartito(cube_mesh_fine):
+    """`area_totale` esce dal momento come esce dalla forza, o i due non si confrontano.
+
+    Il commit `4d37579` ha recuperato `nodi_ad_area_nulla` dal resoconto di
+    `ripartisci` e ha lasciato cadere `area_totale`, che il percorso della
+    forza pubblica: nella corsa dimostrativa PRESSA porta l'area caricata e
+    TORSIONE no, e chi legge lo stesso `metrics.json` non ha l'area del
+    momento accanto a quella della forza.
+
+    L'oracolo e' geometrico: l'unica faccia di bordo con tutti i nodi
+    nell'insieme e' la faccia superiore del banco, 100 x 40 mm. Il nodo in
+    piu' non ne aggiunge, ed e' proprio perche' non ne aggiunge che ha area
+    nulla.
+
+    Mutazione che lo uccide: togliere la chiave `area_totale` dal resoconto
+    di `coppia_equivalente`. `KeyError` al posto del numero.
+    """
+    nodi, tetraedri = cube_mesh_fine
+    indici = _sommita_piu_il_nodo(nodi, (0.0, SIZE[1], SIZE[2] / 2.0))
+    momento = config.Momento(asse=(0.0, 0.0, 1.0), modulo=3000.0, braccio=60.0)
+    _, resoconto = abaqus.coppia_equivalente(momento, nodi, tetraedri, indici, "C3D4", nome="TEST")
+    assert resoconto["area_totale"] == pytest.approx(SIZE[0] * SIZE[1], rel=1e-12)
+
+
+def test_il_momento_scrive_anche_le_righe_dei_nodi_ad_area_nulla(cube_mesh_fine):
+    """Un nodo a quota nulla porta la sua riga `*CLOAD` a zero, e ci resta.
+
+    `_gradi_da_scrivere` filtra le componenti della **direzione**, uguali per
+    tutti i nodi, non il valore scritto `quota * componente`: un nodo ad area
+    tributaria nulla ha quota zero e la sua riga finisce nel deck a
+    `-0.000000000e+00`. Non e' un difetto da correggere qui.
+    `docs/fase-6-carichi.md` § 4 pubblica una tabella con 3.036 righe
+    `*CLOAD` per `CARICO_TOP`, di cui 703 a zero, e la corsa che la sostiene
+    sta in `runs/`, in sola lettura: filtrare le righe mute porterebbe quel
+    conteggio a 2.333 e invaliderebbe una tabella gia' pubblicata.
+
+    Questo test esiste perche' quel comportamento non lo teneva nessuno:
+    filtrare le righe a valore zero in entrambi gli scrittori lasciava la
+    suite verde. Chi lo togliesse non saprebbe che il documento conta quelle
+    righe.
+
+    Attenzione allo zero **negativo**: un confronto sulla stringa
+    `"0.000000000e+00"` non lo vede, `float(...) == 0.0` si'.
+
+    Mutazione che lo uccide: filtrare le righe a valore zero nello scrittore
+    di `coppia_equivalente`. Le due righe mute spariscono e ne restano otto.
+    """
+    nodi, tetraedri = cube_mesh_fine
+    indici = _sommita_piu_il_nodo(nodi, (0.0, SIZE[1], SIZE[2] / 2.0))
+    momento = config.Momento(asse=(0.0, 0.0, 1.0), modulo=3000.0, braccio=60.0)
+    righe, _ = abaqus.coppia_equivalente(momento, nodi, tetraedri, indici, "C3D4", nome="TEST")
+    valori = [float(riga.split(",")[2]) for riga in righe[1:]]
+    assert len(valori) == 10
+    assert [v for v in valori if v == 0.0] == [0.0, 0.0]
+
+
+def test_il_momento_riporta_il_rapporto_dei_valori_singolari(cube_mesh, recwarn):
+    """Quanto la direzione della coppia sia determinata si legge nel resoconto, e passa.
 
     `separazione` e' il primo vettore singolare di `piano`: ben definito
     quando il primo valore singolare domina il secondo, arbitrario quando i
@@ -2083,14 +2173,30 @@ def test_il_momento_riporta_il_rapporto_dei_valori_singolari(cube_mesh):
     il rapporto vale 0,4 esatto -- oracolo geometrico, non un numero
     ricopiato dal programma.
 
-    Mutazione che lo uccide: rendere `valori[0] / valori[1]` invece di
-    `valori[1] / valori[0]`. Il rapporto diventa 2,5.
+    **La soglia non deve rifiutare una piastra con un asse maggiore vero.**
+    E' il vincolo che ha tenuto aperta questa guardia per una tornata: la
+    ricetta della media geometrica dei due estremi la piazzava a 0,310, e
+    questo stesso banco -- rapporto 0,400 -- ci finiva sopra. Quella piastra
+    sta 2,5 : 1 e la sua direzione e' stabile: tolto un nodo ruota di 0,49
+    gradi nel caso peggiore. Una soglia che la segnala segnalerebbe
+    geometrie sane, e un avviso che parte sempre non lo legge piu' nessuno.
+    Il secondo `assert` sta qui e non in un test a parte perche' il primo era
+    gia' la sua fixture, la sua chiamata e la sua prima asserzione, parola
+    per parola.
+
+    Mutazione che uccide la prima asserzione: rendere `valori[0] / valori[1]`
+    invece di `valori[1] / valori[0]`. Il rapporto diventa 2,5.
+
+    Mutazione che uccide la seconda: portare
+    `SOGLIA_PAREGGIO_VALORI_SINGOLARI` a 0,31, la media geometrica. L'avviso
+    parte sul banco.
     """
     nodi, tetraedri = cube_mesh
     indici = np.flatnonzero(nodi[:, 2] >= nodi[:, 2].max() - 1e-6)
     momento = config.Momento(asse=(0.0, 0.0, 1.0), modulo=3000.0, braccio=60.0)
     _, resoconto = abaqus.coppia_equivalente(momento, nodi, tetraedri, indici, "C3D4", nome="TEST")
     assert resoconto["rapporto_valori_singolari"] == pytest.approx(SIZE[1] / SIZE[0], abs=1e-9)
+    assert [w for w in recwarn if issubclass(w.category, abaqus.SelettoreIsotropoWarning)] == []
 
 
 def test_un_selettore_quadrato_avvisa_che_la_direzione_non_e_determinata():
@@ -2123,32 +2229,6 @@ def test_un_selettore_quadrato_avvisa_che_la_direzione_non_e_determinata():
             momento, nodi, tetraedri, indici, "C3D4", nome="TEST"
         )
     assert resoconto["rapporto_valori_singolari"] == pytest.approx(1.0, abs=1e-9)
-
-
-def test_il_banco_dei_test_resta_sotto_la_soglia_del_pareggio(cube_mesh, recwarn):
-    """La soglia non deve rifiutare una piastra con un asse maggiore vero.
-
-    E' il vincolo che ha tenuto aperta questa guardia per una tornata: la
-    ricetta della media geometrica dei due estremi la piazzava a 0,310, e
-    la faccia superiore del banco -- 100 x 40 mm, rapporto 0,400 -- ci
-    finiva sopra. Quella piastra sta 2,5 : 1 e la sua direzione e'
-    stabile: tolto un nodo ruota di 0,13 gradi. Una soglia che la segnala
-    segnalerebbe geometrie sane, e un avviso che parte sempre non lo
-    legge piu' nessuno.
-
-    Mutazione che lo uccide: portare `SOGLIA_PAREGGIO_VALORI_SINGOLARI` a
-    0,31, la media geometrica. L'avviso parte sul banco.
-    """
-    nodi, tetraedri = cube_mesh
-    indici = np.flatnonzero(nodi[:, 2] >= nodi[:, 2].max() - 1e-6)
-    momento = config.Momento(asse=(0.0, 0.0, 1.0), modulo=3000.0, braccio=60.0)
-    _, resoconto = abaqus.coppia_equivalente(
-        momento, nodi, tetraedri, indici, "C3D4", nome="TEST"
-    )
-    assert resoconto["rapporto_valori_singolari"] == pytest.approx(
-        SIZE[1] / SIZE[0], abs=1e-9
-    )
-    assert [w for w in recwarn if issubclass(w.category, abaqus.SelettoreIsotropoWarning)] == []
 
 
 def test_il_resoconto_dei_selettori_si_scrive_sempre(cube_mesh, tmp_path):
@@ -2339,18 +2419,31 @@ def test_carico_sommita_che_interseca_in_parte_il_vincolo_avvisa(cube_mesh, tmp_
     condividono solo l'angolo basso (2 nodi su 6), ne' l'uno sottoinsieme
     dell'altro.
 
-    Mutazione che lo uccide: come sopra, escludere `carico_sommita`
-    dall'elenco controllato.
+    **Il conteggio deve anche uscire nel resoconto.** L'avviso va su stderr e
+    si perde con la finestra del terminale; il § 7 di
+    `docs/fase-6-carichi.md` promette `nodi_sul_vincolo` su **ogni** carico,
+    e `CARICO_TOP` e' quello che rischia di restarne fuori perche' cita un
+    `*NSET` per nome invece di un selettore risolto.
+
+    Mutazione che uccide l'avviso: escludere `carico_sommita` dall'elenco
+    controllato.
+
+    Mutazione che uccide il resoconto: filtrare il ciclo che scrive
+    `nodi_sul_vincolo` su `nome != "CARICO_TOP"`. La chiave sparisce e
+    l'avviso resta.
     """
     nodi, tetraedri = cube_mesh
     analisi = config.AnalysisConfig(material=MATERIALE, set_tolerance_factor=0.5)
     with pytest.warns(abaqus.CaricoSulVincoloWarning, match=r"CARICO_TOP.*2 dei suoi 6.*'BASE'"):
-        abaqus.export_model(
+        metriche = abaqus.export_model(
             tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tetraedri, analisi, config.TetConfig(),
             carichi=config.CarichiConfig(
                 carico_sommita=config.CaricoSommita(risultante=1000.0, nset="SIDE_LEFT"),
             ),
         )
+    sommita = metriche["carichi_posizionati"]["CARICO_TOP"]
+    assert sommita["nodi"] == 6
+    assert sommita["nodi_sul_vincolo"] == 2
 
 
 def test_un_caso_misto_di_selettore_arriva_al_deck_scritto(cube_mesh, tmp_path):
@@ -2496,6 +2589,119 @@ def test_un_carico_lontano_dal_vincolo_conta_zero_nodi_bloccati(cube_mesh, tmp_p
     testa = metriche["carichi_posizionati"]["TESTA"]
     assert testa["nodi"] == 6
     assert testa["nodi_sul_vincolo"] == 0
+
+
+def test_una_forza_scrive_la_riga_del_nodo_ad_area_nulla(cube_mesh, tmp_path):
+    """Anche sul percorso della forza la riga muta resta nel deck.
+
+    Gemello di `test_il_momento_scrive_anche_le_righe_dei_nodi_ad_area_nulla`
+    sull'altro scrittore: `_gradi_da_scrivere` filtra le componenti della
+    direzione, uguali per tutti i nodi, e la quota del singolo nodo non passa
+    di li'. Un selettore che unisca i quattro nodi di `BASE` e **un** nodo di
+    `TOP` da' `nodi_ad_area_nulla == 1` -- l'unica faccia intera nell'insieme
+    e' quella di base -- e cinque righe `*CLOAD`, l'ultima a zero.
+
+    Il conteggio delle righe e' cio' che `docs/fase-6-carichi.md` § 4
+    pubblica per `CARICO_TOP` (3.036, non 2.333) sulla base di una corsa in
+    `runs/`, che e' in sola lettura: filtrare le righe mute la smentirebbe.
+
+    Lo zero e' **negativo**: si confronta il `float`, non la stringa.
+
+    Mutazione che lo uccide: filtrare le righe a valore zero nello scrittore
+    della forza in `write_inp`. Restano quattro righe su cinque.
+    """
+    nodi, tetraedri = cube_mesh
+    insiemi = _base_and_top(nodi)
+    misto = np.concatenate([insiemi["BASE"], insiemi["TOP"][:1]])
+    percorso = tmp_path / "m.inp"
+    resoconto = abaqus.write_inp(
+        percorso, nodi, tetraedri, node_sets=insiemi, material=MATERIALE,
+        nset_selettori={"misto": misto},
+        carichi=config.CarichiConfig(posizionati=[
+            config.CaricoPosizionato(nome="PIEDE", selettore="misto", forza=(0.0, 0.0, -1200.0)),
+        ]),
+    )
+    assert resoconto["PIEDE"]["nodi_ad_area_nulla"] == 1
+    testo = percorso.read_text(encoding="ascii")
+    corpo = testo[testo.index("** NOME PASSO: PIEDE"):].split("*CLOAD, OP=NEW\n")[1]
+    righe = list(itertools.takewhile(lambda r: r and not r.startswith("*"), corpo.split("\n")))
+    valori = [float(riga.split(",")[2]) for riga in righe]
+    assert len(valori) == misto.size == 5
+    assert [v for v in valori if v == 0.0] == [0.0]
+
+
+def test_una_componente_minuscola_ma_vera_scrive_la_sua_riga():
+    """La soglia relativa taglia il rumore del prodotto vettoriale, non un dato.
+
+    Entrambi i chiamanti passano un versore, quindi la componente piu' grande
+    non scende sotto 1/sqrt(3) e la soglia assoluta sta fra 5,8e-13 e 1e-12:
+    e' quattro ordini di grandezza sopra l'arrotondamento di
+    `np.cross(asse, separazione)` (~1e-16 relativo) e otto sotto qualunque
+    componente che sposti un risultato. Una direzione con una componente a
+    8,3e-10 del massimo e' una direzione dichiarata, non rumore, e la sua
+    riga si scrive.
+
+    Mutazione che lo uccide: portare `SOGLIA_COMPONENTE_RELATIVA` a 1e-3. La
+    seconda componente sparisce e restano due gradi su tre.
+    """
+    gradi = abaqus._gradi_da_scrivere(np.array([1.0, 8.3e-10, -1.0]))
+    assert [g for g, _ in gradi] == [1, 2, 3]
+
+
+def test_il_filtro_delle_componenti_e_un_confronto_stretto():
+    """Una componente esattamente sulla soglia non e' sopra la soglia.
+
+    `abs(c) > soglia`, non `>=`: la soglia e' il confine del rumore e cio'
+    che ci sta esattamente sopra e' rumore quanto cio' che ci sta sotto. Il
+    caso e' costruibile esatto -- `1e-12 * 1.0` e' `1e-12` in doppia
+    precisione -- e non serve cercare una geometria che ci caschi.
+
+    Mutazione che lo uccide: `abs(c) >= soglia`. Il secondo grado torna
+    dentro e i gradi diventano due.
+    """
+    direzione = np.array([1.0, abaqus.SOGLIA_COMPONENTE_RELATIVA, 0.0])
+    assert direzione[1] == abaqus.SOGLIA_COMPONENTE_RELATIVA * abs(direzione).max()
+    assert [g for g, _ in abaqus._gradi_da_scrivere(direzione)] == [1]
+
+
+def test_una_direzione_tutta_nulla_non_scrive_alcun_grado():
+    """Zero componenti utili sono zero righe, non una divisione per zero.
+
+    La soglia e' relativa alla componente piu' grande: su un vettore nullo
+    vale zero, e `abs(c) > 0.0` non passa per nessuna componente. Nessun
+    chiamante ci arriva oggi -- `Momento` rifiuta l'asse nullo a validazione
+    e `write_inp` normalizza la forza per il suo modulo -- ma la funzione e'
+    privata e chi la riusa deve sapere che rende `[]`.
+
+    Mutazione che lo uccide: dividere per `np.abs(direzione).max()` invece di
+    moltiplicare, cioe' scrivere la soglia come un rapporto. `ZeroDivisionError`
+    o un `nan` che fa passare tutto.
+    """
+    assert abaqus._gradi_da_scrivere(np.zeros(3)) == []
+
+
+def test_un_rapporto_esattamente_pari_alla_soglia_non_avvisa(cube_mesh, recwarn, monkeypatch):
+    """`rapporto > soglia`, non `>=`: il pareggio con la soglia passa.
+
+    Il caso non esiste in doppia precisione su una geometria vera -- la
+    piastra 100 x 80 rende 0,7999999999999997 sul reticolo 12 x 12 del § 5.5
+    e 0,8000000000000002 sulla mesh a quattro vertici, due nuvole diverse --
+    quindi la soglia si sposta sul rapporto misurato invece di cercare una
+    geometria che ci cada sopra.
+
+    Mutazione che lo uccide: `rapporto_singolari >= SOGLIA_PAREGGIO_VALORI_SINGOLARI`.
+    L'avviso parte sul pareggio esatto.
+    """
+    nodi, tetraedri = cube_mesh
+    indici = np.flatnonzero(nodi[:, 2] >= nodi[:, 2].max() - 1e-6)
+    momento = config.Momento(asse=(0.0, 0.0, 1.0), modulo=3000.0, braccio=60.0)
+    _, misurato = abaqus.coppia_equivalente(momento, nodi, tetraedri, indici, "C3D4", nome="TEST")
+    monkeypatch.setattr(
+        abaqus, "SOGLIA_PAREGGIO_VALORI_SINGOLARI", misurato["rapporto_valori_singolari"]
+    )
+    _, resoconto = abaqus.coppia_equivalente(momento, nodi, tetraedri, indici, "C3D4", nome="TEST")
+    assert resoconto["rapporto_valori_singolari"] == abaqus.SOGLIA_PAREGGIO_VALORI_SINGOLARI
+    assert [w for w in recwarn if issubclass(w.category, abaqus.SelettoreIsotropoWarning)] == []
 
 
 def test_un_fixed_nset_sconosciuto_nomina_gli_insiemi_disponibili(cube_mesh, tmp_path):
