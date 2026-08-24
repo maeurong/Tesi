@@ -2709,16 +2709,45 @@ def test_un_fixed_nset_sconosciuto_nomina_gli_insiemi_disponibili(cube_mesh, tmp
 
     `export_model` indicizzava `node_sets[cfg.fixed_nset]` direttamente, e
     il controllo con messaggio civile di `write_inp` non veniva mai
-    raggiunto: `fixed_nset: base` (minuscolo) produceva un `KeyError:
-    'base'` nudo dopo che tutta la mesh era stata costruita.
+    raggiunto: un `fixed_nset` sconosciuto produceva un `KeyError` nudo dopo
+    che tutta la mesh era stata costruita.
 
-    Mutazione che lo uccide: togliere il controllo e tornare a indicizzare.
-    L'errore torna a essere un `KeyError`, che `pytest.raises(ValueError)`
-    non cattura.
+    Il nome di prova era `base` (minuscolo), e non lo e' piu': dal momento in
+    cui `fixed_nset` e' un `NomeSetDiFaccia`, `base` si normalizza a `BASE` a
+    validazione e non arriva mai qui. Serviva un nome davvero fuori dai sei,
+    ed e' il caso che questo controllo deve coprire: un errore di battitura,
+    non una differenza di maiuscole.
+
+    Mutazione che lo uccide: togliere la guardia di `export_model` (quella
+    subito dopo `build_node_sets`, non quella di `write_inp`: si arriva prima
+    alla prima) e tornare a indicizzare. L'errore torna a essere un
+    `KeyError`, che `pytest.raises(ValueError)` non cattura.
     """
     nodi, tetraedri = cube_mesh
-    analisi = config.AnalysisConfig(material=MATERIALE, fixed_nset="base")
+    analisi = config.AnalysisConfig(material=MATERIALE, fixed_nset="BASAMENTO")
     with pytest.raises(ValueError, match="SIDE_RIGHT"):
         abaqus.export_model(
             tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tetraedri, analisi, config.TetConfig(),
         )
+
+
+def test_un_fixed_nset_in_minuscolo_arriva_al_deck_senza_sollevare(cube_mesh, tmp_path):
+    """`fixed_nset: base` nello YAML non deve morire a mesh gia' costruita.
+
+    Il gemello a monte sta in `tests/test_config.py`
+    (`test_fixed_nset_canonicalizza_il_nome_dei_sei`) e guarda il solo campo;
+    qui si pretende che la normalizzazione arrivi fino al deck scritto, cioe'
+    che il `*BOUNDARY` nomini `BASE` e non `base`. E' lo stesso percorso che
+    prima costava una tetraedralizzazione intera per poi sollevare.
+
+    Mutazione che lo uccide: ritipare `AnalysisConfig.fixed_nset` da
+    `NomeSetDiFaccia` a `NomeSet`. Torna il `ValueError` di `write_inp`.
+    """
+    nodi, tetraedri = cube_mesh
+    analisi = config.AnalysisConfig(material=MATERIALE, fixed_nset="base")
+    assert analisi.fixed_nset == "BASE"
+    percorso = tmp_path / "m.inp"
+    abaqus.export_model(
+        percorso, tmp_path / "m.vtu", nodi, tetraedri, analisi, config.TetConfig(),
+    )
+    assert "\nBASE, 1, 3\n" in percorso.read_text(encoding="ascii")

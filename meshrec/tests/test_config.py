@@ -464,20 +464,67 @@ def test_selettore_nset_canonicalizza_il_nome_dei_sei(nome):
     (`core/selezione.py`) fallirebbe altrimenti su un nome che collide
     solo ignorando le maiuscole.
 
-    Mutazione che lo uccide: cancellare il `model_validator`
-    `_il_nome_usa_il_caso_canonico_dei_sei`. Nessun test in questo file
-    lo copriva prima: la cancellazione non faceva cadere nulla.
+    Mutazione che lo uccide: ritipare `SelettoreNset.nome` da
+    `NomeSetDiFaccia` a `NomeSet`, cioe' togliere la normalizzazione. Nessun
+    test in questo file la copriva prima che questo esistesse: toglierla non
+    faceva cadere nulla.
     """
     selettore = config.SelettoreNset(tipo="nset", nome=nome.casefold())
     assert selettore.nome == nome
 
 
+@pytest.mark.parametrize("nome", config.NOMI_SET_DI_FACCIA)
+def test_fixed_nset_canonicalizza_il_nome_dei_sei(nome):
+    """`fixed_nset: base` nello YAML non deve morire dopo la tetraedralizzazione.
+
+    Misurato prima di questa correzione: `AnalysisConfig(fixed_nset='base')`
+    passava la validazione, faceva girare la mesh di volume per minuti, e
+    solo allora `export_model` sollevava -- mentre `SelettoreNset(nome='base')`
+    era gia' normalizzato a `BASE` a validazione. Stesso spazio di nomi,
+    stesso `ccx` che risolve gli `*NSET` senza distinguere le maiuscole
+    (`docs/fase-6-cantiere/sonda-caso-nomi/README.md`), tre campi e tre
+    comportamenti diversi. La guardia in `abaqus.write_inp` dichiarava nel
+    proprio messaggio di conoscere la trappola e la lasciava aperta.
+
+    Mutazione che lo uccide: ritipare `fixed_nset` da `NomeSetDiFaccia` a
+    `NomeSet`. Il nome resta minuscolo e l'errore torna a valle.
+    """
+    analisi = config.AnalysisConfig(material=MATERIALE, fixed_nset=nome.casefold())
+    assert analisi.fixed_nset == nome
+
+
+@pytest.mark.parametrize("nome", config.NOMI_SET_DI_FACCIA)
+def test_il_nset_del_carico_in_sommita_canonicalizza_il_nome_dei_sei(nome):
+    """Terzo campo dello stesso spazio di nomi, stessa regola.
+
+    `CaricoSommita(nset='top')` era accettato e sollevava dentro `write_inp`,
+    a mesh gia' costruita.
+
+    Mutazione che lo uccide: ritipare `CaricoSommita.nset` da
+    `NomeSetDiFaccia` a `NomeSet`.
+    """
+    carico = config.CaricoSommita(risultante=1000.0, nset=nome.casefold())
+    assert carico.nset == nome
+
+
+def test_un_nome_di_set_che_non_e_fra_i_sei_resta_come_scritto():
+    """La normalizzazione tocca i sei nomi di faccia, non ogni stringa.
+
+    `NomeSetDiFaccia` non e' un `Literal`: un nome fuori dai sei passa
+    intatto e chi lo rifiuta e' la guardia a valle, che sa quali insiemi il
+    deck contiene davvero e li elenca nel messaggio.
+
+    Mutazione che lo uccide: rendere il caso canonico incondizionatamente,
+    per esempio con `.upper()`. `montante` diventerebbe `MONTANTE`.
+    """
+    assert config.AnalysisConfig(material=MATERIALE, fixed_nset="montante").fixed_nset == "montante"
+
+
 def test_selettore_nset_gia_canonico_non_solleva_e_resta_intatto():
     """Ingresso degenere: un nome gia' nel caso canonico non e' toccato.
 
-    Mutazione che lo uccide: far sollevare il validatore su un nome gia'
-    canonico, o riscriverlo comunque (nessun effetto visibile qui, ma la
-    riga `if canonico is not None` esiste apposta per non farlo).
+    Mutazione che lo uccide: far sollevare `_caso_canonico_dei_sei` quando la
+    mappa restituisce il nome che ha ricevuto.
     """
     selettore = config.SelettoreNset(tipo="nset", nome="TOP")
     assert selettore.nome == "TOP"

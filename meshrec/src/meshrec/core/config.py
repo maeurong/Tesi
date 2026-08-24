@@ -10,11 +10,34 @@ from pathlib import Path
 from typing import Annotated, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    model_validator,
+)
 
 GRAVITY_MM_S2: float = 9810.0
 
 NomeSet = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_.-]+$")]
+
+
+def _caso_canonico_dei_sei(nome: str) -> str:
+    """Uno dei sei nomi di faccia riscritto nel proprio caso canonico, gli altri intatti.
+
+    `node_sets` porta i sei nomi di faccia nel caso canonico (`TOP`, non
+    `top`): un confronto esatto a valle (`core/selezione.py`,
+    `abaqus.write_inp`) fallirebbe su un nome che collide solo ignorando le
+    maiuscole, ed e' un errore che arriva dopo la tetraedralizzazione invece
+    che a validazione. Un nome fuori dai sei passa intatto: chi lo rifiuta e'
+    la guardia a valle, che sa quali insiemi il deck contiene davvero.
+    """
+    return _mappa_casefold(NOMI_SET_DI_FACCIA).get(nome.casefold(), nome)
+
+
+NomeSetDiFaccia = Annotated[NomeSet, AfterValidator(_caso_canonico_dei_sei)]
 
 
 def _mappa_casefold(nomi: Iterable[str]) -> dict[str, str]:
@@ -61,8 +84,7 @@ class Material(_ModelloBase):
     dedurre dalla nuvola o supplire per conto suo.
     """
 
-    name: str = Field(
-        pattern=r"^[A-Za-z0-9_.-]+$",
+    name: NomeSet = Field(
         description=(
             "nome del materiale. Il vincolo non e' cosmetico: il nome viene interpolato "
             "in `*MATERIAL, NAME=...` e il deck e' scritto in ascii, quindi un carattere "
@@ -259,7 +281,7 @@ class CaricoSommita(_ModelloBase):
     risultante: float = Field(
         gt=0.0, description="risultante in N, ripartita per area tributaria sui nodi"
     )
-    nset: NomeSet = Field(description="insieme di nodi su cui ripartire, di norma TOP")
+    nset: NomeSetDiFaccia = Field(description="insieme di nodi su cui ripartire, di norma TOP")
 
 
 class Modale(_ModelloBase):
@@ -284,7 +306,7 @@ class AnalysisConfig(_ModelloBase):
 
     material: Material
     gravity: float = Field(default=GRAVITY_MM_S2, gt=0.0)
-    fixed_nset: NomeSet = "BASE"
+    fixed_nset: NomeSetDiFaccia = "BASE"
     step_name: NomeSet = "GRAVITA"
     set_tolerance_factor: float = Field(
         default=6.0,
@@ -628,18 +650,16 @@ class ModelConfig(_ModelloBase):
             "vincolo degli strati"
         ),
     )
-    tie_name_prefix: str = Field(
+    tie_name_prefix: NomeSet = Field(
         default="GIUNZIONE",
-        pattern=r"^[A-Za-z0-9_.-]+$",
         description=(
             "prefisso dei nomi dei vincoli *TIE fra membrature adiacenti. Stesso "
             "vincolo di caratteri del nome del materiale, e per la stessa "
             "ragione: finisce interpolato in un deck scritto in ascii"
         ),
     )
-    lateral_nset: str | None = Field(
+    lateral_nset: NomeSet | None = Field(
         default=None,
-        pattern=r"^[A-Za-z0-9_.-]+$",
         description=(
             "CARICO LATERALE, facoltativo: nome della superficie di elemento su "
             "cui agisce la pressione. Assente se non richiesto"
@@ -727,21 +747,9 @@ class SelettoreNset(_ModelloBase):
     """Un insieme di nodi gia' esistente nel deck, per nome."""
 
     tipo: Literal["nset"]
-    nome: NomeSet = Field(
+    nome: NomeSetDiFaccia = Field(
         description="nome di un *NSET gia' scritto, di norma uno dei sei di faccia"
     )
-
-    @model_validator(mode="after")
-    def _il_nome_usa_il_caso_canonico_dei_sei(self) -> "SelettoreNset":
-        """`node_sets` porta i sei nomi di faccia nel caso canonico (`TOP`, non
-        `top`): un confronto esatto a valle (`core/selezione.py`) fallirebbe
-        su un nome che collide solo ignorando le maiuscole, lo stesso guasto
-        gia' misurato per i selettori posizionati (vedi
-        `_i_posizionati_citano_selettori_dichiarati`)."""
-        canonico = _mappa_casefold(NOMI_SET_DI_FACCIA).get(self.nome.casefold())
-        if canonico is not None:
-            self.nome = canonico
-        return self
 
 
 Selettore = Annotated[

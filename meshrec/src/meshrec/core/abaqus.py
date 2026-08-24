@@ -1338,8 +1338,10 @@ def export_model(
     if cfg.fixed_nset not in node_sets:
         raise ValueError(
             f"il set vincolato '{cfg.fixed_nset}' non e fra gli insiemi che il modello "
-            f"offre ({sorted(node_sets)}): il confronto distingue le maiuscole, mentre "
-            "gli *NSET che il solutore legge no"
+            f"offre ({sorted(node_sets)}). Il caso non c'entra: `AnalysisConfig.fixed_nset` "
+            "e' un NomeSetDiFaccia e riscrive da se' i sei nomi nel proprio caso "
+            "canonico, quindi cio' che arriva qui e' un nome diverso, non un 'base' "
+            "scritto minuscolo"
         )
     if len(node_sets[cfg.fixed_nset]) == 0:
         raise ValueError(f"il set vincolato '{cfg.fixed_nset}' e vuoto: tolleranza {tolerance:.3f} mm troppo stretta")
