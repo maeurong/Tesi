@@ -38,6 +38,13 @@ from meshrec.app.server import UI_DIR, create_app
 from meshrec.core.config import InputConfig, PipelineConfig, save_config
 from materiale import ANALISI
 
+# Il server risponde solo a un nome locale (middleware
+# `solo_dal_calcolatore_locale` in server.py, contro il DNS rebinding). Il
+# predefinito di TestClient e' `http://testserver`, che quel middleware rifiuta
+# con 403 -- ed e' giusto: i banchi devono parlare col server come ci parla il
+# browser vero.
+BASE_LOCALE = "http://127.0.0.1"
+
 
 def _markup() -> str:
     return (UI_DIR / "index.html").read_text(encoding="utf-8")
@@ -937,7 +944,7 @@ def test_il_fuori_scala_non_scrive_null_sul_disco(tmp_path):
     cfg.downsample.voxel_size = 25.0
     cfg.simplify.target_faces = 200000
     save_config(cfg, percorso)
-    cliente = TestClient(create_app(percorso), raise_server_exceptions=False)
+    cliente = TestClient(create_app(percorso), base_url=BASE_LOCALE, raise_server_exceptions=False)
 
     uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
                      + _funzioni("valoreScritto")
@@ -975,7 +982,7 @@ def test_una_battuta_illeggibile_non_cambia_la_configurazione_su_disco(tmp_path)
     cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"), analysis=ANALISI)
     cfg.run.out_dir = tmp_path / "corsa"
     save_config(cfg, percorso)
-    cliente = TestClient(create_app(percorso), raise_server_exceptions=False)
+    cliente = TestClient(create_app(percorso), base_url=BASE_LOCALE, raise_server_exceptions=False)
 
     def scritto(battuto: str) -> object:
         uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
@@ -1011,6 +1018,185 @@ def test_una_battuta_illeggibile_non_cambia_la_configurazione_su_disco(tmp_path)
         "un valore legittimo non arriva piu' a destinazione"
     )
     assert percorso.read_bytes() != prima, "il valore buono non e' stato scritto su disco"
+
+
+# --------------------------------------------------------------------------
+# Il pannello del materiale, eseguito: e' l'unica strada per dichiararlo
+# dall'interfaccia. `campoParametro` scrive un campo scalare per volta e
+# `analysis.material` e' annidato, quindi se il corpo della PUT che questo
+# pannello costruisce non e' quello che il modello accetta, il materiale resta
+# modificabile solo dal file di configurazione -- cioe' da nessuna parte, per
+# chi il programma lo apre e basta.
+# --------------------------------------------------------------------------
+
+
+def _banco_del_materiale(configurazione: dict, compilati: list[str], risposta: str) -> str:
+    """`pannelloMateriale` vero, sulla configurazione vera del server.
+
+    `configurazione` arriva da `GET /api/config` e non da un dizionario scritto
+    a mano: il pannello manda l'intera configurazione, quindi provarlo su una
+    finta direbbe solo che il blocco `analysis` e' ben formato, non che il
+    corpo intero e' ancora quello che il modello accetta.
+    """
+    return _DOM + _funzioni(
+        "valoreScritto", "ragioneDelRifiuto", "serverMuto", "superata", "corpoLetto",
+        "dichiaraErrore", "pannelloMateriale",
+    ) + """
+// Il pannello si ridisegna dalla strada che lo disegna sempre: al banco basta
+// sapere che e' stata percorsa, il disegno e' provato altrove.
+let riaperto = null;
+async function apriDettaglio(numero) { riaperto = numero; }
+const richieste = [];
+globalThis.fetch = async (percorso, opzioni) => {
+  richieste.push({ percorso, metodo: opzioni.method, corpo: JSON.parse(opzioni.body) });
+  return RISPOSTA;
+};
+configurazione = CONFIGURAZIONE;
+const gruppo = pannelloMateriale(11, generazione);
+const caselle = gruppo.children.filter((f) => f.className === "campo").map((r) => r.children[1]);
+assert.equal(caselle.length, 4, "il materiale non si dichiara piu' con quattro valori");
+const bottone = gruppo.lastElementChild;
+COMPILATI.forEach((valore, i) => { caselle[i].value = valore; });
+await bottone.scatena("click");
+""".replace("RISPOSTA", risposta).replace(
+        "CONFIGURAZIONE", json.dumps(configurazione)
+    ).replace("COMPILATI", json.dumps(compilati))
+
+
+_ACCETTA_JS = (
+    "{ ok: true, status: 200, json: async () => "
+    '({ analysis: { material: { name: "gia\' scritto" } } }) }'
+)
+
+
+def test_il_pannello_del_materiale_manda_una_sola_put_che_il_modello_accetta(tmp_path):
+    """Quattro caselle compilate, una sola PUT, e il materiale finisce su disco.
+
+    Il corpo lo costruisce la funzione vera in `node`, la PUT e' quella vera
+    del server e il file e' quello della corsa: se il pannello sbagliasse la
+    forma del blocco annidato, il 422 arriverebbe qui.
+    """
+    from meshrec.core.config import load_config
+
+    percorso = tmp_path / "config.yaml"
+    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"))
+    cfg.run.out_dir = tmp_path / "corsa"
+    save_config(cfg, percorso)
+    assert cfg.analysis is None, "il banco parte da una corsa senza materiale"
+    cliente = TestClient(create_app(percorso), base_url=BASE_LOCALE, raise_server_exceptions=False)
+
+    uscita = _esegui(tmp_path, _banco_del_materiale(
+        cliente.get("/api/config").json(),
+        ["CLS", "30000", "0.2", "2.5e-9"],
+        _ACCETTA_JS,
+    ) + "process.stdout.write(JSON.stringify(richieste));")
+
+    richieste = json.loads(uscita)
+    assert [(r["percorso"], r["metodo"]) for r in richieste] == [("/api/config", "PUT")], (
+        "il pannello non manda una sola PUT a /api/config"
+    )
+    salvata = cliente.put("/api/config", json=richieste[0]["corpo"])
+    assert salvata.status_code == 200, salvata.text
+    materiale = load_config(percorso).analysis.material
+    assert (materiale.name, materiale.young, materiale.poisson, materiale.density) == (
+        "CLS", 30000.0, 0.2, 2.5e-9,
+    )
+
+
+def test_un_campo_vuoto_del_materiale_parte_lo_stesso_e_il_rifiuto_si_vede(tmp_path):
+    """Ingresso degenere: una casella lasciata vuota.
+
+    Il pannello non decide il dominio -- non lo decide nemmeno il browser: il
+    corpo parte com'e' e il modello e' l'unico posto dove un materiale a meta'
+    viene rifiutato. Quello che il pannello deve fare e' portare quel rifiuto a
+    video, e non lasciare la pagina muta con un bottone spento.
+    """
+    from meshrec.core.config import load_config
+
+    percorso = tmp_path / "config.yaml"
+    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"))
+    cfg.run.out_dir = tmp_path / "corsa"
+    save_config(cfg, percorso)
+    cliente = TestClient(create_app(percorso), base_url=BASE_LOCALE, raise_server_exceptions=False)
+    configurazione = cliente.get("/api/config").json()
+    vuoto = ["CLS", "", "0.2", "2.5e-9"]
+
+    corpo = json.loads(_esegui(tmp_path, _banco_del_materiale(
+        configurazione, vuoto, _ACCETTA_JS,
+    ) + "process.stdout.write(JSON.stringify(richieste[0].corpo));"))
+    assert corpo["analysis"]["material"]["young"] is None, (
+        "la casella vuota non arriva al modello: il rifiuto lo darebbe il browser"
+    )
+
+    rifiuto = cliente.put("/api/config", json=corpo)
+    assert rifiuto.status_code == 422, "un materiale a meta' e' stato accettato"
+    assert load_config(percorso).analysis is None, "il materiale a meta' e' finito su disco"
+
+    # La ragione vera del server, rimessa nel pannello vero: e' l'ultimo pezzo
+    # del giro, e senza il rifiuto ci sarebbe e non si vedrebbe.
+    a_video = _esegui(tmp_path, _banco_del_materiale(
+        configurazione, vuoto,
+        "{ ok: false, status: 422, text: async () => " + json.dumps(rifiuto.text) + " }",
+    ) + "process.stdout.write(JSON.stringify("
+        "{ detto: rigaErrore.textContent, bottone: bottone.disabled }));")
+
+    detto = json.loads(a_video)
+    assert "young" in detto["detto"], f"il rifiuto non nomina la casella: {detto['detto']}"
+    assert detto["bottone"] is False, "il bottone resta spento: non si puo' correggere e riprovare"
+
+
+def test_una_corsa_illeggibile_resta_nell_elenco_d_ingresso_e_non_si_apre(tmp_path):
+    """La schermata d'ingresso, eseguita, sul caso che il server dichiara rotto.
+
+    Le tre meta' sono una decisione sola: la riga resta (una corsa sparita e'
+    indistinguibile da una mai esistita), non si apre (legarla lascerebbe ogni
+    pannello su un percorso che nessun endpoint sa caricare), e resta
+    raggiungibile da tastiera e annunciata -- e' l'unica voce che porta una
+    spiegazione, e `disabled` la toglierebbe proprio a chi quella spiegazione
+    serve di piu'. Percio' `aria-disabled` e un gestore che si ferma da se'.
+    """
+    _esegui(tmp_path, _DOM + _funzioni(
+        "ragioneDelRifiuto", "serverMuto", "superata", "corpoLetto",
+        "apriIngresso", "disegnaIngresso",
+    ) + """
+const rigaErroreIngresso = document.getElementById("ingresso-errore");
+let ultimoIngresso = 0;
+let chiamate = 0;
+globalThis.fetch = async () => {
+  chiamate += 1;
+  return { ok: true, status: 200, json: async () => ({
+    radice: "runs", corrente: "sana", corse: [
+      { nome: "sana", nuvola: "scansione.ply", materiale: null,
+        riferimento: false, modificata: 20, errore: null },
+      { nome: "rotta", nuvola: null, materiale: null,
+        riferimento: false, modificata: 10,
+        errore: "input.path: Field required" },
+    ],
+  }) };
+};
+
+await disegnaIngresso();
+
+const voci = document.getElementById("corse-elenco").children;
+assert.deepEqual(voci.map((v) => v.dataset.nome), ["sana", "rotta"],
+  "una corsa rotta sparita dall'elenco e' indistinguibile da una mai esistita");
+assert.equal(voci[0].getAttribute("aria-disabled"), null, "una corsa buona non si apre piu'");
+assert.equal(voci[1].getAttribute("aria-disabled"), "true",
+  "una corsa illeggibile si lascia aprire");
+assert.equal(voci[1].disabled, undefined,
+  "disabled scritto sulla riga la toglie da tastiera e lettore di schermo");
+assert.equal(voci[0].getAttribute("aria-current"), "true", "la corsa aperta non e' marcata");
+assert.match(voci[1].children[1].textContent, /input\\.path/,
+  "la riga rotta non dice che cosa il server non e' riuscito a leggere");
+assert.equal(document.getElementById("corse-vuoto").hidden, true,
+  "l'elenco ha due voci e mostra lo stato vuoto");
+
+// Il gestore della riga rotta si ferma prima della fetch: senza il ritorno in
+// testa, aria-disabled sarebbe decorazione e il clic legherebbe comunque.
+const prima = chiamate;
+await voci[1].scatena("click");
+assert.equal(chiamate, prima, "il clic su una corsa illeggibile parte lo stesso");
+""")
 
 
 # --------------------------------------------------------------------------

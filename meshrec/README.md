@@ -30,6 +30,21 @@ senza. Gli step 11 e 13 si fermano con un messaggio finché non ci sono.
 Le configurazioni del caso studio della tesi stanno in `casi/` e si aprono per
 nome — `uv run meshrec serve casi/lab_telaio.yaml`. Vedi `casi/README.md`.
 
+### Proteggere una corsa di riferimento
+
+Una cartella di corsa che contiene un file vuoto chiamato `SOLA_LETTURA` si apre
+e si guarda, ma le tratte che scrivono — eseguire uno step, ricalcolare il prior,
+generare un modello, riscrivere la configurazione, ritagliare, scegliere un
+cluster — si fermano dicendo perché. Serve a non riscrivere con un clic un
+risultato che finisce in tesi.
+
+**Va messo a mano dopo il clone: `runs/` è in `.gitignore`, quindi la sentinella
+non viaggia col repository.**
+
+```bash
+touch runs/muro/SOLA_LETTURA runs/lab_crop/SOLA_LETTURA
+```
+
 ```bash
 uv run pytest                          # test del nucleo
 

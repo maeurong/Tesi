@@ -70,8 +70,21 @@ def with_override(cfg: PipelineConfig, path: str, value: object) -> PipelineConf
     data = cfg.model_dump(mode="json")
     node = data
     parts = path.split(".")
-    for part in parts[:-1]:
+    for indice, part in enumerate(parts[:-1]):
         node = node[part]
+        # Un blocco puo' essere assente per intero -- `analysis` non esiste
+        # finche' il materiale non e' dichiarato, cioe' su ogni corsa nata
+        # dall'interfaccia. Questa strada cammina il dump e non l'attributo,
+        # quindi non passa da `PipelineConfig.analisi_dichiarata`: senza questa
+        # riga la riga sotto dava `TypeError: 'NoneType' object is not
+        # subscriptable`, che non dice ne' quale asse ne' che cosa manca.
+        if node is None:
+            blocco = ".".join(parts[: indice + 1])
+            raise ValueError(
+                f"l'asse '{path}' scende dentro '{blocco}', che questa configurazione "
+                f"non dichiara: compila '{blocco}' nella base dell'esperimento prima "
+                "di farne un asse dello sweep"
+            )
     node[parts[-1]] = value
     return PipelineConfig.model_validate(data)
 

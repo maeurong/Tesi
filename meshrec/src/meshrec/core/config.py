@@ -689,21 +689,29 @@ class PipelineConfig(_ModelloBase):
     model: ModelConfig = Field(default_factory=ModelConfig)
     run: RunConfig = Field(default_factory=RunConfig)
 
-    def analisi_dichiarata(self, numero_step: int) -> AnalysisConfig:
-        """L'analisi, oppure un rifiuto che dice quale campo manca e a chi serve.
+    def analisi_dichiarata(self, chiede: str) -> AnalysisConfig:
+        """L'analisi, oppure un rifiuto che dice chi la pretende e dove darla.
 
         Unico varco verso `self.analysis` per chi ne pretende uno: cosi' la
         guardia sta in un posto solo e nessun chiamante puo' leggere `None`
         scambiandolo per un materiale.
+
+        `chiede` e' l'etichetta del chiamante e non un numero: `meshrec model`
+        esporta lo stesso deck dello step 11 ma step non e', e chi lo lancia
+        veniva mandato a guardare uno step che nel pannello poteva gia' essere
+        verde. Il messaggio nomina il pannello e non i campi YAML per la stessa
+        ragione: `young` e `density` nell'interfaccia non esistono, si chiamano
+        «modulo elastico E [MPa]» e «densita [t/mm^3]». Il nome del campo resta
+        pero' nella coda, perche' chi arriva qui da `meshrec run` un pannello
+        non ce l'ha e deve sapere dove scrivere.
         """
         if self.analysis is None:
             raise ValueError(
-                f"lo step {numero_step} pretende il materiale, e questa corsa non lo "
-                "dichiara: compila analysis.material (nome, young, poisson, density). "
-                "Il programma non lo deduce dalla nuvola e non ne mette uno per conto "
-                "suo -- un predefinito di muratura era gia' finito in silenzio su un "
-                "telaio in calcestruzzo, dove il modulo elastico giusto e' venti volte "
-                "piu' grande"
+                f"{chiede} pretende il materiale, e questa corsa non lo dichiara. "
+                "Dichiaralo nel pannello dello step 11, riquadro «materiale»: nome, "
+                "modulo elastico, coefficiente di Poisson, densita -- da riga di "
+                "comando e' analysis.material nel config.yaml della corsa. Il "
+                "programma non lo deduce dalla nuvola e non ne mette uno per conto suo"
             )
         return self.analysis
 

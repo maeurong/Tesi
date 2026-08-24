@@ -42,6 +42,12 @@ def cliente(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
             radice_corse=tmp_path / "runs",
             radice_esperimenti=tmp_path / "experiments",
         ),
+        # Il server risponde solo a un nome locale (middleware
+        # `solo_dal_calcolatore_locale`, contro il DNS rebinding). Il
+        # predefinito di TestClient e' `http://testserver`, che quel middleware
+        # rifiuta con 403 -- ed e' giusto: il banco deve parlare col server come
+        # ci parla il browser vero.
+        base_url="http://127.0.0.1",
         raise_server_exceptions=False,
     )
 
@@ -2414,6 +2420,7 @@ def test_la_galleria_mostra_il_candidato_di_fronte_su_lab_crop():
             radice_repo / "casi" / "lab.yaml",
             radice_esperimenti=radice_repo / "experiments",
         ),
+        base_url="http://127.0.0.1",
         raise_server_exceptions=False,
     )
     corpo = cliente_reale.get("/api/experiments/lab_crop").json()

@@ -173,6 +173,31 @@ def test_l_impronta_di_una_corsa_registrata_non_cambia():
     assert righe == 22, f"attese 22 righe nei due registri, trovate {righe}"
 
 
+@pytest.mark.parametrize(
+    ("caso", "impronta"),
+    [
+        ("lab.yaml", "327f3f1f8ec9eef26b0a1fc575f122d9d1028461152a443d698a97848ca8afb1"),
+        ("muro.yaml", "83bbe93f7ce6e0d4f70b6f077d1705158a37bd7083b55b09b4d57fa32b38100b"),
+    ],
+)
+def test_l_impronta_delle_configurazioni_del_caso_studio_e_quella_misurata(caso, impronta):
+    """Le due configurazioni da cui partono gli sweep di tesi, fissate al valore
+    misurato sul commit che le ha spostate in `casi/` (identico a quello che
+    avevano alla radice: lo spostamento non le ha toccate).
+
+    Il test sopra rilegge i registri e non se ne accorgerebbe: ogni riga porta
+    dentro di se' la configurazione con cui e' stata calcolata, quindi resta
+    derivabile anche se la base da cui e' nata cambia. Una modifica a
+    `casi/lab.yaml` o a `casi/muro.yaml` sposterebbe in silenzio le corse
+    future fuori dalle cartelle di quelle gia' registrate: qui lo dice.
+    """
+    from meshrec.core.sweep import fingerprint
+
+    percorso = Path(__file__).resolve().parents[1] / "casi" / caso
+
+    assert fingerprint(config.load_config(percorso)) == impronta
+
+
 def test_i_blocchi_nuovi_stanno_in_pipelineconfig_e_fuori_dall_impronta():
     """I tre blocchi della Fase 4 e 5 viaggiano con la configurazione, perche'
     gli step 12 e 13 li leggono, e restano fuori dall'impronta di sweep,

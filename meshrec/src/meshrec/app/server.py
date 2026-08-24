@@ -19,7 +19,14 @@ from typing import Annotated, get_args
 import numpy as np
 from fastapi import FastAPI, Response
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
-from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, Field
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    ValidationError,
+)
 
 from meshrec.app.worker import Worker
 from meshrec.core import io, pipeline, quality, report, segment, steps, sweep, viewport
@@ -300,7 +307,32 @@ def _ingresso_del_ritaglio(sorgente: Path, _mtime_ns: int, vicini: int, scarto: 
 # tabella (`lab.v2` e' un nome legittimo), quindi il solo pattern lascia
 # passare proprio le due voci che risalgono l'albero.
 NOME_CORSA = r"^[A-Za-z0-9_.-]+$"
-NOMI_RISERVATI = (".", "..")
+
+# Il file che marca una corsa come di riferimento. Vive nella cartella della
+# corsa e non in un elenco dentro il codice: cosi' la protezione viaggia con la
+# cartella, e chi la copia altrove se la porta dietro.
+SENTINELLA_SOLA_LETTURA = "SOLA_LETTURA"
+
+# I nomi con cui il server accetta di essere chiamato. `ServerConfig.host` e'
+# 127.0.0.1: qualunque altro nome nell'Host significa che la richiesta e'
+# passata per una risoluzione che non e' quella dell'utente.
+NOMI_LOCALI = frozenset({"127.0.0.1", "localhost", "::1", "0.0.0.0"})
+
+
+def _non_e_un_passo_dell_albero(nome: str) -> str:
+    """Rifiuta i nomi fatti di soli punti.
+
+    Il punto e' un carattere ammesso dalla tabella -- `lab.v2` e' un nome
+    legittimo -- quindi il solo pattern lascia passare `.`, `..` e `...`.
+    I primi due risalgono l'albero; il terzo su POSIX e' una cartella
+    letterale, ma su Win32 i punti finali vengono normalizzati via. La regola
+    che li copre tutti e' una: un nome non e' un passo dell'albero.
+    """
+    if not nome.strip("."):
+        raise ValueError(
+            f"'{nome}' non e' un nome di corsa: e' un passo dell'albero delle cartelle"
+        )
+    return nome
 
 
 def _modello_del_blocco(annotazione: object) -> type:
@@ -311,18 +343,22 @@ def _modello_del_blocco(annotazione: object) -> type:
     leggerli dall'annotazione grezza faceva cadere `/api/schema` -- cioe' il
     pannello degli step 11 e 13 -- con un `AttributeError` fuori vista.
     """
-    for candidato in get_args(annotazione) or (annotazione,):
-        if candidato is not type(None):
-            return candidato
-    raise TypeError(f"nessun modello annidato in {annotazione!r}")
+    return next(t for t in get_args(annotazione) or (annotazione,) if t is not type(None))
 
 
-def _non_e_un_passo_dell_albero(nome: str) -> str:
-    if nome in NOMI_RISERVATI:
-        raise ValueError(
-            f"'{nome}' non e' un nome di corsa: e' un passo dell'albero delle cartelle"
-        )
-    return nome
+def _rifiuto_leggibile(errore: Exception) -> str:
+    """Una riga che dice che cosa non va, non il verbale del validatore.
+
+    `str(ValidationError)` sono cinque righe con il tipo interno, il valore
+    ricevuto e un collegamento alla documentazione di pydantic; rese dentro un
+    `<small>` collassano in una riga sola e illeggibile. Chi apre il programma
+    deve leggere quale campo e perche', non imparare pydantic.
+    """
+    if isinstance(errore, ValidationError) and errore.errors():
+        voce = errore.errors()[0]
+        campo = ".".join(str(pezzo) for pezzo in voce["loc"]) or "la configurazione"
+        return f"{campo}: {voce['msg']}"
+    return f"{type(errore).__name__}: {errore}"
 
 
 NomeCorsa = Annotated[
@@ -391,6 +427,29 @@ def create_app(
         # riuscira' piu' a caricare.
         load_config(percorso)
         config_path = percorso
+        # `mappe` e' indicizzata sul solo numero di step: senza questa riga, dopo
+        # un cambio di corsa `/api/cluster` troverebbe la mappa di decimazione
+        # della corsa precedente, la guardia `if not gruppi` resterebbe
+        # soddisfatta, e la risposta sarebbe un cluster plausibile e sbagliato.
+        mappe.clear()
+
+    def sola_lettura() -> bool:
+        """Vero se la corsa aperta porta il file sentinella `SOLA_LETTURA`.
+
+        `runs/muro` e `runs/lab_crop` sono le corse di riferimento della tesi.
+        Prima bastava un clic nell'elenco per legarle e da li' ogni bottone ci
+        scriveva dentro; la sentinella le apre in lettura e ferma le tratte che
+        scrivono.
+        """
+        return config_path is not None and (config_path.parent / SENTINELLA_SOLA_LETTURA).exists()
+
+    def non_in_sola_lettura(azione: str) -> None:
+        if sola_lettura():
+            raise ValueError(
+                f"'{nome_corrente() or config_path.parent}' e' una corsa di riferimento, "
+                f"aperta in sola lettura: {azione} la modificherebbe. Toglile il file "
+                f"{SENTINELLA_SOLA_LETTURA} se vuoi davvero riscriverla, oppure creane una nuova"
+            )
 
     def nome_corrente() -> str | None:
         """Il nome della corsa aperta, se e' una delle corse di `radice_corse`.
@@ -405,6 +464,34 @@ def create_app(
         if cartella.resolve().parent != radice_corse.resolve():
             return None
         return cartella.name
+
+    @app.middleware("http")
+    async def solo_dal_calcolatore_locale(richiesta, prosegui):
+        """Rifiuta le richieste che non arrivano da un nome locale.
+
+        Il CSRF classico e' gia' chiuso: i corpi sono `application/json`,
+        quindi il browser fa il preflight, e nessuna intestazione CORS torna.
+        Resta il DNS rebinding, che fa risolvere un dominio ostile su
+        127.0.0.1 e rende le richieste same-origin, saltando il preflight: da
+        li' una pagina qualunque enumererebbe i percorsi assoluti del disco
+        (`/api/corse`), creerebbe corse e lancerebbe sottoprocessi.
+
+        Il nome, non l'indirizzo del chiamante: e' l'`Host` che il rebinding
+        controlla e che l'origine legittima non puo' falsificare dal browser.
+        """
+        nome = (richiesta.headers.get("host") or "").split(":")[0].strip("[]").lower()
+        if nome and nome not in NOMI_LOCALI:
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "errore": "HostNonLocale",
+                    "messaggio": (
+                        f"richiesta arrivata con Host '{nome}': questo server risponde "
+                        "solo a localhost. Aprilo da http://127.0.0.1"
+                    ),
+                },
+            )
+        return await prosegui(richiesta)
 
     @app.exception_handler(Exception)
     async def nessuna_eccezione_verso_il_browser(_richiesta, errore: Exception):
@@ -461,14 +548,19 @@ def create_app(
                 voce: dict[str, object] = {
                     "nome": cartella.name,
                     "nuvola": None,
-                    "modificata": percorso.stat().st_mtime,
+                    "modificata": None,
                     "materiale": None,
+                    "riferimento": (cartella / SENTINELLA_SOLA_LETTURA).exists(),
                     "errore": None,
                 }
+                # `stat()` dentro il try quanto `load_config`: un config
+                # cancellato fra `is_file()` e qui faceva 400 sull'intero
+                # elenco invece di perdere la sola riga che lo riguarda.
                 try:
+                    voce["modificata"] = percorso.stat().st_mtime
                     cfg = load_config(percorso)
                 except Exception as errore:
-                    voce["errore"] = f"{type(errore).__name__}: {errore}"
+                    voce["errore"] = _rifiuto_leggibile(errore)
                 else:
                     voce["nuvola"] = str(cfg.input.path)
                     voce["materiale"] = cfg.analysis.material.name if cfg.analysis else None
@@ -483,11 +575,21 @@ def create_app(
         resta al proprio predefinito, dichiarato in `config.py`, e il materiale
         resta assente finche' non lo dichiara chi analizza.
         """
+        # Prima di ogni altra cosa: `Path("")` e' `PosixPath('.')`, e senza
+        # questo ramo un campo lasciato vuoto tornava indietro come
+        # «'.' non e' un file», cioe' un punto comparso dal nulla.
+        if not str(richiesta.nuvola).strip():
+            raise ValueError("indica il percorso del file di punti da cui far nascere la corsa")
         nuvola = Path(richiesta.nuvola).expanduser()
         if not nuvola.exists():
             raise ValueError(f"nessun file di punti in '{nuvola}'")
         if not nuvola.is_file():
             raise ValueError(f"'{nuvola}' non e' un file: serve una nuvola di punti")
+        if not nuvola.suffix:
+            raise ValueError(
+                f"'{nuvola.name}' non ha estensione: servono "
+                f"{', '.join(io.ESTENSIONI_NUVOLA)}"
+            )
         if nuvola.suffix.lower() not in io.ESTENSIONI_NUVOLA:
             raise ValueError(
                 f"'{nuvola.suffix}' non e' un formato che il programma legge: "
@@ -530,6 +632,7 @@ def create_app(
         # senza, `save_config(nuova, None)` cadrebbe con un TypeError che non
         # dice quale sia il problema.
         corrente()
+        non_in_sola_lettura("riscrivere la configurazione")
         save_config(nuova, config_path)
         return nuova.model_dump(mode="json")
 
@@ -563,6 +666,8 @@ def create_app(
 
     @app.post("/api/wall")
     def calcola_prior() -> dict[str, object]:
+        corrente()
+        non_in_sola_lettura("ricalcolare il prior")
         lavoratore.start_comando(["wall", str(config_path)], etichetta="prior geometrico")
         return {"avviato": "wall"}
 
@@ -579,6 +684,7 @@ def create_app(
                 "'estruso' e 'primitive'. as-built e' la corsa madre e non si genera"
             )
         madre = Path(corrente().run.out_dir)
+        non_in_sola_lettura(f"generare il modello {tipo}")
         lavoratore.start_comando(
             ["model", str(config_path), "--tipo", tipo,
              "--out-dir", str(madre.with_name(f"{madre.name}-{tipo}"))],
@@ -691,6 +797,11 @@ def create_app(
 
     @app.post("/api/step/{numero}")
     def esegui_step(numero: int) -> dict[str, object]:
+        # Senza queste due righe, a legame vuoto il Worker lanciava
+        # `python -m meshrec.cli run None` e restava occupato: un 200 che non
+        # eseguiva niente e bloccava anche la richiesta successiva.
+        corrente()
+        non_in_sola_lettura(f"eseguire lo step {numero}")
         lavoratore.start(config_path, numero, numero)
         return {"avviato": numero, "fino_a": numero}
 
@@ -702,6 +813,8 @@ def create_app(
         # il solutore fa parte di ogni corsa): "riprendi da qui" nel pannello
         # non deve far partire un processo esterno da solo, per lo stesso
         # motivo per cui sweep.run_candidate chiede --to-step 12 esplicito.
+        corrente()
+        non_in_sola_lettura(f"eseguire dallo step {numero} in giu'")
         lavoratore.start(config_path, numero, 12)
         return {"avviato": numero, "fino_a": 12}
 
@@ -758,6 +871,7 @@ def create_app(
             cfg.segment.outlier_std_ratio,
         )
         _dentro, metriche = segment.crop_box(puliti, cfg.segment)
+        non_in_sola_lettura("scrivere il ritaglio")
         save_config(cfg, config_path)
         # Le metriche del core sono l'unica fonte: points_after c'e' gia'
         # dentro (`segment.crop_box`), e riscriverlo qui sarebbe una riga che
@@ -910,6 +1024,7 @@ def create_app(
         metodo_precedente = cfg.segment.method
         cfg.segment.method = "auto"
         cfg.segment.cluster_index = scelto
+        non_in_sola_lettura("scegliere il cluster")
         save_config(cfg, config_path)
         return {
             "cluster_index": scelto,
@@ -1121,14 +1236,22 @@ def create_app(
             inviate = 0
             emesse = 0
             while True:
-                cfg = corrente()
+                # Nessuna corsa aperta non e' un errore qui, ed e' lo stato in
+                # cui la schermata d'ingresso vive: il browser apre
+                # l'EventSource al caricamento del modulo, sempre. Sollevare
+                # dentro il generatore non produce nemmeno un 400 -- le
+                # intestazioni sono gia' partite, e il gestore generico non le
+                # puo' piu' toccare: il browser riceveva 200 con corpo vuoto e
+                # riconnetteva ogni tre secondi, con una traccia per giro.
+                cfg = corrente() if config_path is not None else None
                 stato = {
+                    "legata": cfg is not None,
                     "in_corso": lavoratore.is_running(),
                     "step": lavoratore.step,
                     "exit_code": lavoratore.exit_code,
                     "annullato": lavoratore.annullato,
                     "da_secondi": lavoratore.da_secondi(),
-                    "steps": steps.run_state(cfg.run.out_dir, cfg),
+                    "steps": steps.run_state(cfg.run.out_dir, cfg) if cfg else [],
                 }
                 yield f"event: stato\ndata: {json.dumps(stato, default=str)}\n\n"
                 emesse += 1
