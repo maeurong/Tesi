@@ -2749,7 +2749,8 @@ def test_una_metrica_annidata_diventa_una_riga_per_foglia(tmp_path):
 
     Provato sulla forma vera che `quality.geometric_error` restituisce.
     """
-    _esegui(tmp_path, _DOM + _funzioni("righeDellaMetrica", "valoreDellaMetrica") + """
+    _esegui(tmp_path, _DOM + _costante("VALORE_LARGO") + "\n" + _costante("CLASSE_VALORE_LARGO")
+        + "\n" + _funzioni("righeDellaMetrica", "valoreDellaMetrica") + """
 const righe = righeDellaMetrica("geometric_error", {
   cloud_to_mesh: { mean: 4.41, max: 72.2, non_finite: 0 },
   mesh_to_cloud: { mean: 3.02, max: 55.1, non_finite: 0 },
@@ -2814,7 +2815,8 @@ def test_una_metrica_che_e_una_lista_resta_una_riga_sola(tmp_path):
     lo impedisce, ed era l'unica parte di quella funzione che nessun controllo
     teneva: tolta, `790 passed`.
     """
-    _esegui(tmp_path, _DOM + _funzioni("righeDellaMetrica", "valoreDellaMetrica") + """
+    _esegui(tmp_path, _DOM + _costante("VALORE_LARGO") + "\n" + _costante("CLASSE_VALORE_LARGO")
+        + "\n" + _funzioni("righeDellaMetrica", "valoreDellaMetrica") + """
 const righe = righeDellaMetrica("extent", [2.759, 0.785, 2.0]);
 assert.equal(righe.length, 2, "una lista si e' aperta in una riga per elemento");
 assert.equal(righe[0].textContent, "extent");
@@ -4066,6 +4068,64 @@ def test_l_alto_del_mondo_segue_il_polo_scavalcato():
     guarda = corpo.index("camera.lookAt(")
     assert alto < guarda, "`up` viene scritto dopo lookAt, che l'aveva gia' letto"
     assert "Math.sin(phi)" in corpo[alto:guarda], "`up` non segue piu' il segno del seno dell'elevazione"
+
+
+def test_un_valore_troppo_lungo_per_la_colonna_del_numero_viene_marcato(tmp_path):
+    """Il difetto misurato a schermo: «339.710» reso a una cifra per riga.
+
+    La tabella ha due colonne, e in una zona da 22rem non ci stanno. Lo step 7
+    annida due dizionari dentro `geometric_error` e questa funzione appiattisce
+    il percorso in un'etichetta sola: «geometric_error · cloud_to_mesh ·
+    diag_mesh_1» sono 44 caratteri. Con `grid-template-columns: auto 1fr` la
+    colonna dell'etichetta si prendeva 298 dei 319 pixel disponibili, misurati
+    nel browser, e al valore ne restavano 8,98 -- una cifra. Non sbordava,
+    perche' `overflow-wrap: anywhere` da' al numero il permesso di spezzarsi
+    ovunque: invece di reclamare spazio, scendeva in verticale.
+
+    Meta' della correzione e' nel foglio (la colonna del valore ora e'
+    dichiarata) e la sorveglia test_stile. Questa meta' e' qui: i valori che in
+    quella colonna non ci stanno comunque -- una lista chiusa da JSON.stringify
+    -- vanno marcati, perche' passino sotto la propria etichetta a tutta
+    larghezza invece di stringersi in colonna.
+    """
+    _esegui(tmp_path, _DOM + _costante("VALORE_LARGO") + "\n"
+        + _costante("CLASSE_VALORE_LARGO") + "\n"
+        + _funzioni("valoreDellaMetrica", "righeDellaMetrica") + """
+const corta = righeDellaMetrica("vertices", 339710);
+assert.equal(corta[1].textContent, "339.710", "il numero non passa piu' da toLocaleString");
+assert.equal(corta[1].className, "", "un numero che nella colonna ci sta viene mandato sotto l'etichetta");
+
+// Il caso vero, non inventato: `06_repair · hole_areas` e' una lista di
+// ventiquattro aree, 540 caratteri chiusi da JSON.stringify. In colonna sono
+// trentanove righe; a tutta larghezza dodici.
+const aree = Array.from({ length: 24 }, (_, i) => 1.330381131055531 / (i + 1));
+const lunga = righeDellaMetrica("hole_areas", aree);
+assert.ok(lunga[1].textContent.length > 400, "il banco non sta piu' provando una lista lunga davvero");
+assert.equal(
+  lunga[1].className, CLASSE_VALORE_LARGO,
+  "una lista da 540 caratteri resta nella colonna del numero, a un carattere per riga",
+);
+
+// Il confine, dai due lati, ed e' la larghezza dichiarata della colonna: non un
+// numero scelto qui.
+assert.equal(
+  righeDellaMetrica("x", "a".repeat(VALORE_LARGO))[1].className, "",
+  "un valore che ci sta esatto viene mandato sotto l'etichetta lo stesso",
+);
+assert.equal(
+  righeDellaMetrica("x", "a".repeat(VALORE_LARGO + 1))[1].className, CLASSE_VALORE_LARGO,
+  "un valore piu' lungo della colonna ci resta dentro e si spezza",
+);
+
+// L'annidamento non e' cambiato: il percorso resta appiattito nell'etichetta, ed
+// e' proprio lui a rendere l'etichetta lunga.
+const annidata = righeDellaMetrica("geometric_error", { cloud_to_mesh: { RMS: 3.8984 } });
+assert.equal(annidata.length, 2, "un dizionario di dizionari non produce piu' una riga sola");
+assert.equal(
+  annidata[0].textContent, "geometric_error \u00b7 cloud_to_mesh \u00b7 RMS",
+  "il percorso non e' piu' appiattito nell'etichetta",
+);
+""")
 
 
 def test_il_marchio_del_cambio_sta_solo_sulle_righe_che_sono_cambiate(tmp_path):

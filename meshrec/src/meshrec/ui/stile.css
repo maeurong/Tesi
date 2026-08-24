@@ -417,11 +417,38 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .errore-campo { color: var(--guasto); font-size: var(--tipo-nota); line-height: var(--interlinea); max-width: var(--misura); overflow-wrap: anywhere; text-wrap: pretty; }
 .campo input[readonly] { background: var(--spento); color: var(--tenue); }
 .aiuto { color: var(--tenue); font-size: var(--tipo-nota); line-height: var(--interlinea); max-width: var(--misura); text-wrap: pretty; }
-.metriche { display: grid; grid-template-columns: auto 1fr; gap: var(--passo-1) var(--passo-3); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); }
-.metriche dt { color: var(--tenue); }
+/* Le due colonne erano `auto 1fr`, e in una zona da 22rem non ci stavano.
+   Lo step 7 annida due dizionari dentro `geometric_error`, e righeDellaMetrica
+   appiattisce il percorso in un'etichetta sola: «geometric_error ·
+   cloud_to_mesh · diag_mesh_1» sono 44 caratteri. La colonna `auto` si prendeva
+   la loro larghezza intera -- 298px dei 319 disponibili, misurati -- e alla
+   colonna del valore ne restavano 8,98: con `overflow-wrap: anywhere` il numero
+   ha il permesso di spezzarsi ovunque, quindi invece di reclamare spazio
+   scendeva a UNA CIFRA PER RIGA. «339.710» diventava sette righe.
+   Adesso la colonna del valore e' dichiarata e l'etichetta prende il resto:
+   e' il numero il motivo per cui si guarda questa tabella, ed e' lui che non
+   deve mai spezzarsi. 14ch tengono su una riga sola il piu' lungo che questa
+   pipeline produce (un volume in mm cubi, tredici caratteri col separatore
+   delle migliaia); 6ch sono il minimo sotto cui la colonna non scende nemmeno
+   quando tutte le etichette sono corte. Le cifre tabulari finalmente pagano:
+   allineate a destra in una colonna di larghezza fissa, i valori si confrontano
+   incolonnati. */
+.metriche { display: grid; grid-template-columns: minmax(0, 1fr) minmax(6ch, 14ch); gap: var(--passo-1) var(--passo-3); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); }
+/* L'etichetta e' quella che puo' spezzarsi ovunque, e non piu' il valore: un
+   percorso di chiavi non ha spazi su cui andare a capo, e senza questa riga
+   sborderebbe invece di mandare a capo. */
+.metriche dt { color: var(--tenue); overflow-wrap: anywhere; }
 /* Il valore e' un numero misurato: cifre tabulari, cosi' due metriche
    incolonnate si confrontano senza rileggerle. */
-.metriche dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.metriche dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+/* Il valore che in 14ch non ci sta comunque -- una lista chiusa da
+   JSON.stringify: `06_repair · hole_areas` sono 540 caratteri -- non si stringe
+   nella colonna del numero: passa sotto la propria etichetta e prende tutta la
+   larghezza del pannello. In colonna sarebbero trentanove righe, qui sono
+   dodici, e la scelta di tenere le liste chiuse (vedi righeDellaMetrica) resta
+   quella che era. Allineato a sinistra: e' testo, non una misura da
+   incolonnare. */
+.metriche dd.metrica-larga { grid-column: 1 / -1; text-align: left; }
 /* La colonna della galleria e' stretta (22rem) e la tabella dei candidati ha
    otto colonne: scorre in orizzontale dentro il proprio contenitore, non la
    pagina. */

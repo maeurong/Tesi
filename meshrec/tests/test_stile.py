@@ -80,3 +80,42 @@ def test_ogni_stato_del_server_ha_il_suo_pallino_nella_colonna():
         # che il modulo scrive davvero, non quella che sarebbe corretta.
         regola = f".stato-{stato.replace(' ', '-', 1)} .step-nome::before"
         assert regola in foglio, f"stato senza pallino nella colonna: «{stato}» ({regola})"
+
+
+def test_il_valore_di_una_metrica_ha_una_colonna_sua_e_non_quella_che_avanza():
+    """Due controlli su una tabella che a video era illeggibile.
+
+    Con `grid-template-columns: auto 1fr` la colonna dell'etichetta prendeva la
+    larghezza del suo contenuto piu' lungo -- 298 dei 319 pixel della zona,
+    misurati nel browser sullo step 7 -- e al valore restava quel che avanzava,
+    8,98 pixel. Non sbordava: `overflow-wrap: anywhere` autorizza il numero a
+    spezzarsi fra due cifre qualunque, quindi «339.710» scendeva in sette righe
+    invece di chiedere spazio. La colonna del valore va DICHIARATA, e la sua
+    larghezza si dichiara in `ch`, che e' la larghezza di una cifra.
+
+    E il valore che in quella colonna non ci sta comunque -- una lista chiusa da
+    JSON.stringify -- viene marcato da app.js con una classe: qui si controlla
+    che il foglio la vesta davvero, e che la porti fuori dalla colonna. Una
+    classe scritta in un file e assente nell'altro non fa rosso niente da se':
+    il valore resta stretto e nessuno se ne accorge finche' non lo guarda.
+    """
+    foglio = _senza_commenti()
+    regola = foglio.split(".metriche {", 1)[1].split("}", 1)[0]
+    colonne = re.search(r"grid-template-columns:([^;]+);", regola)
+    assert colonne is not None, "la tabella delle metriche non dichiara piu' le proprie colonne"
+    assert "ch" in colonne.group(1), (
+        "la colonna del valore non ha piu' una larghezza dichiarata in ch: quel che avanza "
+        f"puo' essere una cifra, e il numero scende in verticale ({colonne.group(1).strip()})"
+    )
+
+    modulo = (UI_DIR / "app.js").read_text(encoding="utf-8")
+    trovata = re.search(r'^const CLASSE_VALORE_LARGO = "([^"]+)";$', modulo, flags=re.MULTILINE)
+    assert trovata is not None, "app.js non dichiara piu' CLASSE_VALORE_LARGO"
+    selettore = f".metriche dd.{trovata.group(1)}"
+    assert selettore in foglio, (
+        f"app.js marca i valori lunghi con «{trovata.group(1)}» e il foglio non la veste: {selettore}"
+    )
+    corpo = foglio.split(selettore, 1)[1].split("}", 1)[0]
+    assert "grid-column" in corpo, (
+        "la classe non porta piu' il valore fuori dalla colonna del numero"
+    )

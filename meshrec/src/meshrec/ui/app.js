@@ -1855,6 +1855,16 @@ async function apriDettaglio(numero, ordine = generazione) {
 // `4.442869663238525`. Sei cifre significative perche' sedici non si leggono e
 // non aggiungono niente -- metrics.json conserva la precisione piena, ed e' da
 // li' che si citano i numeri, non dallo schermo.
+// Oltre questa lunghezza un valore non entra nella colonna del numero e passa
+// sotto la propria etichetta, a tutta larghezza (vedi .metrica-larga nel
+// foglio). 14 e' la larghezza dichiarata di quella colonna, non un numero
+// scelto: sopra, il valore si spezzerebbe comunque.
+// La classe sta in una costante perche' la cerca il banco: scritta a mano in
+// due file, il nome puo' divergere e il foglio smette di vestire cio' che il
+// modulo scrive, senza che niente diventi rosso.
+const VALORE_LARGO = 14;
+const CLASSE_VALORE_LARGO = "metrica-larga";
+
 function righeDellaMetrica(nome, valore) {
   const annidata = valore !== null && typeof valore === "object" && !Array.isArray(valore);
   // Un dizionario vuoto non lascia righe: «{}» a video non e' una misura.
@@ -1863,10 +1873,10 @@ function righeDellaMetrica(nome, valore) {
       ([interno, dentro]) => righeDellaMetrica(`${nome} · ${interno}`, dentro),
     );
   }
-  return [
-    Object.assign(document.createElement("dt"), { textContent: nome }),
-    Object.assign(document.createElement("dd"), { textContent: valoreDellaMetrica(valore) }),
-  ];
+  const testo = valoreDellaMetrica(valore);
+  const dd = Object.assign(document.createElement("dd"), { textContent: testo });
+  if (testo.length > VALORE_LARGO) dd.className = CLASSE_VALORE_LARGO;
+  return [Object.assign(document.createElement("dt"), { textContent: nome }), dd];
 }
 
 // Solo qui dentro l'`Array.isArray`: dopo la guardia di `annidata`, `typeof
