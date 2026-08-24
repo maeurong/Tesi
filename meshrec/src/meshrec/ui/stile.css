@@ -297,6 +297,12 @@ code { font-family: var(--stack-cifre); }
    Vuota non lascia un buco: senza `:empty` la riga occuperebbe la sua altezza
    sopra la testata per tutta la vita dell'applicazione, e a corsa mai lanciata
    sarebbe uno spazio che non annuncia niente. */
+/* La scorciatoia della testata: si legge una volta e poi si smette di vederla,
+   che e' cio' che deve fare. Il corpo e' quello delle note, non quello
+   dell'esito: l'esito e' un fatto appena successo, questa e' un'istruzione
+   permanente, e allo stesso peso si contenderebbero l'occhio. */
+.scorciatoia { margin: 0; }
+.scorciatoia kbd { font-family: var(--stack-cifre); font-size: 0.9em; padding: 0 var(--passo-1); border: 1px solid var(--bordo); border-radius: var(--raggio); background: var(--superficie); }
 .esito { margin: 0; font-size: var(--tipo-dato); line-height: var(--interlinea-riga); color: var(--tenue); }
 .esito:empty { display: none; }
 /* Il colore ACCANTO al testo e non al posto del testo: «esecuzione fallita» si

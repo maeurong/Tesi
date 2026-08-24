@@ -684,6 +684,160 @@ function aggiornaDaStato(stato) {
 
 flusso.addEventListener("stato", (evento) => aggiornaDaStato(JSON.parse(evento.data)));
 
+// --- Annullare e rifare una modifica ---------------------------------------
+
+// I tipi di campo che hanno un undo NATIVO da difendere. Per tipo e non per
+// tag: la casella del fantasma e il cursore del taglio sono <input> anche loro,
+// ma un undo non ce l'hanno, e lasciare li' il gesto lo renderebbe un tasto
+// morto proprio sui due comandi che si toccano di continuo.
+const CAMPI_SCRITTI = new Set(["text", "search", "url", "tel", "email", "password", "number"]);
+
+// Il verso che i tasti premuti chiedono, o null se non chiedono niente. Pura e
+// di primo livello come superata(): e' l'unico punto in cui una combinazione di
+// tasti diventa una scrittura su disco, e da fuori si prova senza un motore di
+// DOM.
+//
+// metaKey oltre a ctrlKey: su macOS il gesto e' cmd+z, e questo progetto sta su
+// macOS. toLowerCase perche' col maiusc il browser riporta "Z": legato alla
+// sola minuscola, il rifare non risponderebbe mai.
+function gestoDelloStorico(evento) {
+  if (!(evento.ctrlKey || evento.metaKey)) return null;
+  if (evento.key.toLowerCase() !== "z") return null;
+  // La ripetizione automatica del tasto tenuto premuto batte una trentina di
+  // eventi al secondo, e ognuno qui e' un POST che riscrive config.yaml
+  // davvero: un secondo di tasto premuto riavvolgerebbe lo storico fino
+  // all'avvio. La guardia dell'ordine non limita quel danno, lo NASCONDE --
+  // lascia a video il solo messaggio dell'ultima risposta.
+  if (evento.repeat) return null;
+  // Dentro un campo scritto il gesto e' gia' preso, e da chi ha piu' diritto:
+  // il browser annulla la scrittura nel campo. Questo ascoltatore sta sul
+  // documento e lo vedrebbe comunque; scavalcarlo toglierebbe l'undo del testo
+  // per darne uno che ripristina un'altra cosa -- e sui campi dei parametri
+  // quella «altra cosa» e' proprio la modifica che si sta scrivendo a mano.
+  const bersaglio = evento.target;
+  const tag = bersaglio?.tagName;
+  if (tag === "TEXTAREA" || bersaglio?.isContentEditable) return null;
+  // `type` assente e' un campo di testo, che e' cio' che il DOM stesso dice di
+  // un <input> senza type.
+  if (tag === "INPUT" && CAMPI_SCRITTI.has(bersaglio.type ?? "text")) return null;
+  return evento.shiftKey ? "avanti" : "indietro";
+}
+
+// Che cosa e' cambiato davvero, nei due versi, dai due elenchi di stato.
+//
+// Il server manda lo stato INTERO e non un elenco di cambiamenti, e il calcolo
+// sta qui perche' qui ci sono tutti e due i termini. Un campo `invalidati` col
+// solo elenco degli step passati a «non valido» era stato provato e tolto per
+// questo: nel flusso che si usa -- cambio un parametro, poi Ctrl+Z -- quegli
+// step erano gia' non validi per via della modifica, e l'undo li fa tornare
+// VALIDI. Sarebbe arrivato vuoto, e la frase avrebbe detto «nessuno step cambia
+// stato» mentre a sinistra le righe passano da rosso a verde: il caso
+// dominante, e falso.
+//
+// I nomi e non i numeri: la colonna di sinistra mostra i nomi, e «step 2» sono
+// le due lingue per la stessa cosa che nomeDelloStep esiste per togliere. Dal
+// nuovo stato e non da `ultimoStato`, che a questo punto porta ancora quello
+// vecchio.
+function fraseDelRitorno(prima, dopo) {
+  const era = new Map(prima.map((voce) => [voce.numero, voce.stato]));
+  const nome = (voce) => ETICHETTE[voce.chiave] ?? `step ${voce.numero}`;
+  const passatiA = (stato) =>
+    dopo.filter((voce) => voce.stato === stato && era.get(voce.numero) !== stato).map(nome);
+  const validi = passatiA("valido");
+  const nonValidi = passatiA("non valido");
+  const pezzi = [];
+  if (validi.length) {
+    pezzi.push(`${validi.join(", ")} ${validi.length === 1 ? "torna «valido»" : "tornano «validi»"}`);
+  }
+  if (nonValidi.length) {
+    pezzi.push(
+      `${nonValidi.join(", ")} ${nonValidi.length === 1 ? "passa a «non valido»" : "passano a «non validi»"}`,
+    );
+  }
+  return `configurazione ripristinata: ${pezzi.length ? pezzi.join("; ") : "nessuno step cambia stato"}`;
+}
+
+// Un contatore suo, non apriGenerazione(). La generazione e' condivisa, e
+// bumparla scarterebbe ogni tratta in volo. Questa e' anche la prima strada che
+// puo' uscire senza ripartire -- «niente da annullare», guasto, corpo nullo,
+// rifiuto -- ed e' la stessa ragione per cui la geometria ha `ultimaGeometria`
+// e il velo `ultimoFantasma`.
+let ultimoRitorno = 0;
+
+function apriRitorno() {
+  ultimoRitorno += 1;
+  return ultimoRitorno;
+}
+
+async function chiediStorico(verso) {
+  // L'ordine si apre PRIMA dell'attesa, non dopo: due gesti ravvicinati
+  // finiscono in volo insieme, e aperto dopo sarebbe il numero di ARRIVO invece
+  // che quello di partenza, cioe' vincerebbe la risposta vecchia.
+  const ordine = apriRitorno();
+  const risposta = await fetch(`/api/storico/${verso}`, { method: "POST" }).catch(serverMuto);
+  // Tutto l'esito del gesto esce dalla stessa riga, #esito, compresi i rifiuti:
+  // chi preme un tasto guarda dove sono comparse le risposte a quel tasto, non
+  // la classificazione interna del guasto. E #errore vive nella colonna del
+  // dettaglio, che apriDettaglio svuota a ogni apertura -- cioe' proprio qualche
+  // riga piu' sotto: scritti la', due messaggi su cinque sparirebbero nel tempo
+  // di due fetch.
+  if (!risposta.ok) {
+    const ragione = await ragioneDelRifiuto(risposta);
+    if (superata(ordine, ultimoRitorno)) return;
+    mostraEsito(ragione, null);
+    return;
+  }
+  const corpo = await corpoLetto(risposta);
+  // Dopo l'ultima attesa e prima della prima scrittura, come le due strade che
+  // disegnano: un ripristino superato da uno piu' recente non scrive niente.
+  if (superata(ordine, ultimoRitorno)) return;
+  // == e non ===: il corpo di questa tratta non e' mai legittimamente null.
+  if (corpo == null) {
+    mostraEsito(
+      "il server ha risposto con un corpo che non si legge. "
+        + "Ricarica la pagina; se il messaggio torna, riavvia «meshrec serve» dal terminale.",
+      null,
+    );
+    return;
+  }
+  // Il corpo si legge anche quando la risposta e' riuscita: scartarlo qui
+  // renderebbe il silenzio di «non c'era niente da annullare» identico a quello
+  // di un ritorno riuscito, che e' il difetto gia' prodotto e corretto una volta
+  // sul bottone «Annulla».
+  if (!corpo.annullato) {
+    // Si legge `guasto` e non il testo del «perche'»: il nome dell'eccezione
+    // dentro quel testo cambia col guasto, il bit no. Un deposito rotto chiede
+    // di mettere le mani dentro .storico, e annunciato col peso di «niente da
+    // annullare» resterebbe indistinguibile da un gesto a vuoto.
+    mostraEsito(corpo.guasto ? corpo.perche : null, corpo.guasto ? null : corpo.perche);
+    return;
+  }
+  // Composta PRIMA di caricaStato(), che riscrive `ultimoStato`: il termine di
+  // confronto e' lo stato che era a video quando il tasto e' stato premuto.
+  mostraEsito(null, fraseDelRitorno(ultimoStato, corpo.steps));
+  await caricaStato();
+  // Il config e' cambiato sotto: la geometria di prima con lo stato nuovo a
+  // sinistra e' la vista che contraddice la propria didascalia. Senza ordine
+  // proprio, come il ricaricamento del fronte di discesa: prende la generazione
+  // in corso, cosi' non annulla una geometria in volo e un clic dell'utente lo
+  // batte.
+  if (stepScelto !== null) ricaricaVista(stepScelto);
+  if (stepAperto !== null) apriDettaglio(stepAperto);
+}
+
+// L'unico tasto globale dell'interfaccia. I comandi della tela -- frecce, +, -,
+// f, maiusc -- restano legati al canvas col fuoco sopra (viewport.js), e un
+// gestore globale su quelli li ruberebbe a chi orbita da tastiera.
+document.addEventListener("keydown", (evento) => {
+  const verso = gestoDelloStorico(evento);
+  if (verso === null) return;
+  // Solo quando il gesto e' davvero nostro: incondizionato, preventDefault
+  // toglierebbe l'undo del browser anche dove gestoDelloStorico ha appena
+  // deciso di lasciarglielo.
+  evento.preventDefault();
+  chiediStorico(verso);
+});
+
 // Quante righe restano nel registro. E' una finestra di lettura, non una
 // misura: chi vuole tutto lo stdout ha il file della corsa su disco.
 const RIGHE_DEL_REGISTRO = 500;

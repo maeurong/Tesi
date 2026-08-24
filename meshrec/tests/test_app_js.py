@@ -5071,3 +5071,123 @@ assert.ok(
   "un pannello aperto in mezzo a una corsa nasce coi bottoni vivi: il clic finira' sul 400",
 );
 """)
+
+
+def test_il_gesto_non_ruba_l_undo_a_chi_sta_scrivendo(tmp_path):
+    """Ctrl+Z dentro un campo e' gia' preso, e da chi ha piu' diritto.
+
+    L'ascoltatore sta sul documento e vedrebbe comunque il tasto; scavalcarlo
+    toglierebbe l'undo del TESTO per darne uno che ripristina un'altra cosa --
+    e sui campi dei parametri quella «altra cosa» e' proprio la modifica che si
+    sta scrivendo a mano.
+
+    Per TIPO e non per tag: la casella del fantasma e il cursore del taglio sono
+    <input> anche loro, ma un undo nativo non ce l'hanno, e lasciare li' il
+    gesto lo renderebbe un tasto morto proprio sui due comandi che si toccano di
+    continuo.
+
+    E la ripetizione automatica non passa: il tasto tenuto premuto batte una
+    trentina di eventi al secondo, e ognuno qui e' un POST che riscrive
+    config.yaml davvero -- un secondo riavvolgerebbe lo storico fino all'avvio.
+    La guardia dell'ordine non limita quel danno, lo NASCONDE.
+
+    Mutazione che lo uccide: togliere il ramo su `CAMPI_SCRITTI`.
+    """
+    _esegui(tmp_path, _DOM + _costante("CAMPI_SCRITTI") + _funzioni("gestoDelloStorico") + """
+const tasto = (extra = {}) => ({ ctrlKey: true, key: "z", repeat: false, target: null, ...extra });
+
+assert.equal(gestoDelloStorico(tasto()), "indietro");
+assert.equal(gestoDelloStorico(tasto({ shiftKey: true })), "avanti");
+// Su macOS il gesto e' cmd+z.
+assert.equal(gestoDelloStorico(tasto({ ctrlKey: false, metaKey: true })), "indietro");
+// Col maiusc il browser riporta "Z": legato alla sola minuscola, il rifare non
+// risponderebbe mai.
+assert.equal(gestoDelloStorico(tasto({ key: "Z", shiftKey: true })), "avanti");
+
+// Niente modificatore, altro tasto, ripetizione automatica.
+assert.equal(gestoDelloStorico(tasto({ ctrlKey: false })), null);
+assert.equal(gestoDelloStorico(tasto({ key: "y" })), null);
+assert.equal(gestoDelloStorico(tasto({ repeat: true })), null, "il tasto tenuto premuto riavvolge tutto");
+
+// Dentro cio' che ha un undo suo: si lascia stare.
+for (const tipo of ["text", "number", "search", "password"]) {
+  assert.equal(
+    gestoDelloStorico(tasto({ target: { tagName: "INPUT", type: tipo } })), null,
+    `il gesto ha rubato l'undo a un <input type="${tipo}">`,
+  );
+}
+// Un <input> senza type e' un campo di testo, che e' cio' che il DOM stesso dice.
+assert.equal(gestoDelloStorico(tasto({ target: { tagName: "INPUT" } })), null);
+assert.equal(gestoDelloStorico(tasto({ target: { tagName: "TEXTAREA" } })), null);
+assert.equal(gestoDelloStorico(tasto({ target: { isContentEditable: true } })), null);
+
+// Ma sui comandi che un undo non ce l'hanno il gesto resta vivo: sono <input>
+// anche loro, e per tag sarebbero due tasti morti.
+assert.equal(gestoDelloStorico(tasto({ target: { tagName: "INPUT", type: "checkbox" } })), "indietro");
+assert.equal(gestoDelloStorico(tasto({ target: { tagName: "INPUT", type: "range" } })), "indietro");
+""")
+
+
+def test_il_ritorno_dice_quali_step_cambiano_stato_e_li_nomina(tmp_path):
+    """Un ritorno che cambia in silenzio lo stato di sette step e' una modifica
+    invisibile.
+
+    Il server manda lo stato INTERO e non un elenco di cambiamenti, e il calcolo
+    sta nel browser perche' li' ci sono tutti e due i termini. Un campo
+    `invalidati` col solo elenco degli step passati a «non valido» era stato
+    provato e tolto: nel flusso che si usa -- cambio un parametro, poi Ctrl+Z --
+    quegli step erano gia' non validi per via della modifica, e l'undo li fa
+    tornare VALIDI. Sarebbe arrivato vuoto, e la frase avrebbe detto «nessuno
+    step cambia stato» mentre a sinistra le righe passano da rosso a verde: il
+    caso dominante, e falso.
+
+    I nomi e non i numeri: la colonna mostra i nomi, e «step 2» sono le due
+    lingue per la stessa cosa che nomeDelloStep esiste per togliere.
+
+    Mutazione che lo uccide: guardare i soli step passati a «non valido»,
+    togliendo il ramo dei tornati validi.
+    """
+    _esegui(tmp_path, _DOM + _funzioni("fraseDelRitorno") + """
+ETICHETTE["02_segment"] = "Segmentazione";
+ETICHETTE["03_downsample"] = "Riduzione";
+ETICHETTE["09_tetrahedralize"] = "Tetraedri";
+
+// Il caso dominante: si annulla una modifica, e gli step tornano validi.
+const prima = [
+  { numero: 2, chiave: "02_segment", stato: "non valido" },
+  { numero: 3, chiave: "03_downsample", stato: "non valido" },
+  { numero: 9, chiave: "09_tetrahedralize", stato: "valido" },
+];
+const dopo = [
+  { numero: 2, chiave: "02_segment", stato: "valido" },
+  { numero: 3, chiave: "03_downsample", stato: "valido" },
+  { numero: 9, chiave: "09_tetrahedralize", stato: "valido" },
+];
+assert.equal(
+  fraseDelRitorno(prima, dopo),
+  "configurazione ripristinata: Segmentazione, Riduzione tornano «validi»",
+);
+
+// Il verso opposto, e al singolare.
+assert.equal(
+  fraseDelRitorno(dopo, [
+    { numero: 2, chiave: "02_segment", stato: "valido" },
+    { numero: 3, chiave: "03_downsample", stato: "valido" },
+    { numero: 9, chiave: "09_tetrahedralize", stato: "non valido" },
+  ]),
+  "configurazione ripristinata: Tetraedri passa a «non valido»",
+);
+
+// Nessun cambiamento si dice, non si tace.
+assert.equal(fraseDelRitorno(dopo, dopo), "configurazione ripristinata: nessuno step cambia stato");
+
+// Una chiave che nessuna tabella nomina ripiega sul numero, non su un nome
+// inventato.
+assert.match(
+  fraseDelRitorno(
+    [{ numero: 7, chiave: "07_ignoto", stato: "non valido" }],
+    [{ numero: 7, chiave: "07_ignoto", stato: "valido" }],
+  ),
+  /step 7 torna/,
+);
+""")

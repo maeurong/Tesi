@@ -2902,3 +2902,211 @@ def test_il_velo_non_arbitra_al_posto_delle_geometrie():
         assert esito.returncode == 0, esito.stderr
     finally:
         prova.unlink()
+
+
+def test_annullare_e_rifare_una_modifica_riportano_il_file_com_era(cliente, tmp_path):
+    """Il giro completo, per HTTP: modifica, Ctrl+Z, Ctrl+Maiusc+Z.
+
+    La versione di partenza si deposita pigramente alla PRIMA modifica: senza,
+    il primo «indietro» non avrebbe niente a cui tornare e la prima modifica
+    sarebbe l'unica non annullabile.
+
+    **Cosa NON prova, e dove sta invece:** che il ripristino riscriva il testo
+    grezzo invece di ripassare dal modello. Qui non lo distingue nulla, ed e'
+    stato misurato: sostituendo la scrittura atomica con
+    `save_config(candidata, config_path)` questo controllo resta VERDE. Il
+    motivo e' che le versioni depositate dall'interfaccia le ha scritte
+    `save_config`, quindi riserializzarle da' gli stessi byte. La differenza
+    esiste solo dove il testo depositato NON viene da li' -- la modifica fatta
+    a mano, che porta i commenti dell'editor -- e la prova
+    `test_l_undo_di_una_modifica_a_mano_non_riscrive_il_file_a_modo_proprio`.
+
+    Mutazione che lo uccide: rispondere `{"annullato": True}` senza riscrivere
+    `config.yaml`.
+    """
+    percorso = tmp_path / "config.yaml"
+    prima = percorso.read_text(encoding="utf-8")
+
+    corpo = cliente.get("/api/config").json()
+    corpo["tet"]["min_ratio"] = 1.9
+    assert cliente.put("/api/config", json=corpo).status_code == 200
+    dopo = percorso.read_text(encoding="utf-8")
+    assert dopo != prima
+
+    indietro = cliente.post("/api/storico/indietro").json()
+    assert indietro["annullato"] is True
+    assert percorso.read_text(encoding="utf-8") == prima, "l'undo non ha reso il file identico"
+    assert isinstance(indietro["steps"], list), "il ritorno non dice che cosa e' cambiato"
+
+    avanti = cliente.post("/api/storico/avanti").json()
+    assert avanti["annullato"] is True
+    assert percorso.read_text(encoding="utf-8") == dopo, "il redo non ha reso il file identico"
+
+
+def test_un_gesto_a_vuoto_lo_dice_invece_di_tacere(cliente):
+    """Un silenzio identico fra riuscita e nulla-da-fare e' gia' stato prodotto
+    e corretto una volta su questo progetto: era il bottone «Annulla», che a
+    corsa ferma tornava `{"annullato": false}` e il browser lo scartava.
+
+    E i due rifiuti si distinguono: `guasto` separa il caso normale di chi preme
+    Ctrl+Z una volta di troppo da un deposito rotto, che chiede invece di
+    mettere le mani dentro `.storico`. Non e' un codice di stato perche' la
+    richiesta e' formata bene -- e' lo stato sul disco a essere rotto.
+
+    Mutazione che lo uccide: rispondere `{"annullato": False}` senza `perche`.
+    """
+    vuoto = cliente.post("/api/storico/indietro").json()
+    assert vuoto["annullato"] is False
+    assert vuoto["guasto"] is False, "un gesto a vuoto e' stato annunciato come un guasto"
+    assert vuoto["perche"], "il gesto a vuoto tace, come faceva il bottone Annulla"
+
+
+def test_una_modifica_fatta_a_mano_non_si_perde_nell_annullamento(cliente, tmp_path):
+    """Il progetto e' nato CLI-first e le Fasi 1 e 2 si lavorano da editor.
+
+    Col server acceso, un parametro cambiato a mano in `config.yaml` non sta in
+    nessuna versione, e un «indietro» lo sovrascriverebbe senza che ne esista
+    una copia da nessuna parte: e' l'unica perdita irrecuperabile di questa
+    superficie, e basta depositarlo per chiuderla.
+
+    Depositato, e' l'ultima scrittura: «indietro» la toglie e «avanti» la
+    rimette. E' cio' che chi preme Ctrl+Z si aspetta senza dover leggere niente.
+
+    Mutazione che lo uccide: togliere la chiamata a
+    `_deposita_le_modifiche_fatte_a_mano` da `/api/storico/indietro`.
+    """
+    percorso = tmp_path / "config.yaml"
+
+    corpo = cliente.get("/api/config").json()
+    corpo["tet"]["min_ratio"] = 1.9
+    cliente.put("/api/config", json=corpo)
+
+    # Ora l'editor, fuori dall'interfaccia.
+    a_mano = percorso.read_text(encoding="utf-8").replace("min_ratio: 1.9", "min_ratio: 2.5")
+    assert "2.5" in a_mano, "il testo di prova non ha sostituito niente"
+    percorso.write_text(a_mano, encoding="utf-8")
+
+    assert cliente.post("/api/storico/indietro").json()["annullato"] is True
+    assert percorso.read_text(encoding="utf-8") != a_mano
+
+    # E si rifa': la modifica fatta a mano e' una versione come le altre.
+    assert cliente.post("/api/storico/avanti").json()["annullato"] is True
+    assert percorso.read_text(encoding="utf-8") == a_mano, (
+        "la modifica fatta dall'editor e' sparita senza che ne esista una copia"
+    )
+
+
+def test_una_versione_che_punta_a_un_altra_corsa_viene_respinta(cliente, tmp_path):
+    """Il caso peggiore e' quello che NON solleva.
+
+    Una versione con un altro `out_dir` e' una configurazione valida, e
+    accettarla ripunterebbe l'applicazione su un'altra corsa in silenzio: il
+    prossimo «esegui step» scriverebbe i suoi artefatti la' dentro, e se e' una
+    corsa di riferimento e' il danno che l'intero progetto vieta -- PRODUCT.md
+    dichiara `runs/muro` e `runs/lab_crop` di sola lettura.
+
+    E il cursore torna indietro: `storico.indietro` lo ha gia' spostato quando
+    il rifiuto arriva, e lasciarlo li' farebbe saltare una versione al
+    tentativo successivo.
+
+    Mutazione che lo uccide: togliere il confronto su `run.out_dir` da
+    `_ripristina`.
+    """
+    from meshrec.app import storico
+
+    percorso = tmp_path / "config.yaml"
+    corpo = cliente.get("/api/config").json()
+    corpo["tet"]["min_ratio"] = 1.9
+    cliente.put("/api/config", json=corpo)
+    dopo = percorso.read_text(encoding="utf-8")
+
+    # Si avvelena la versione 1 con un out_dir diverso, come farebbe una
+    # cartella .storico copiata da un'altra corsa.
+    out_dir = Path(corpo["run"]["out_dir"])
+    veleno = storico._percorso(out_dir, 1)
+    veleno.write_text(
+        veleno.read_text(encoding="utf-8").replace(
+            str(out_dir), str(tmp_path / "un-altra-corsa")
+        ),
+        encoding="utf-8",
+    )
+
+    esito = cliente.post("/api/storico/indietro").json()
+    assert esito["annullato"] is False
+    assert esito["guasto"] is True
+    assert "un'altra corsa" in esito["perche"]
+    assert percorso.read_text(encoding="utf-8") == dopo, "il config e' stato ripuntato altrove"
+    # Il cursore e' tornato dov'era: il tentativo successivo non salta nulla.
+    assert storico._cursore(out_dir) == 2
+
+
+def test_il_registro_dello_storico_nomina_i_campi_e_non_i_blocchi(cliente, tmp_path):
+    """`registro.jsonl` non si pota mai: cio' che vi si scrive resta per sempre.
+
+    Elencare i blocchi di primo livello a ogni scrittura sarebbe precisione
+    inventata proprio nel file che dovra' rispondere «da dove viene questa
+    versione». Il vocabolario e' quello che gia' registrano `POST /api/crop` e
+    `POST /api/cluster`: `segment.crop_min`, non `segment`.
+
+    Mutazione che lo uccide: in `_campi_cambiati`, smettere di ricorrere nei
+    dizionari e restituire la sola chiave di primo livello.
+    """
+    import json as _json
+
+    from meshrec.app import storico
+
+    corpo = cliente.get("/api/config").json()
+    corpo["tet"]["min_ratio"] = 1.9
+    cliente.put("/api/config", json=corpo)
+
+    out_dir = Path(corpo["run"]["out_dir"])
+    righe = [
+        _json.loads(r)
+        for r in (out_dir / storico.CARTELLA / "registro.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if r.strip()
+    ]
+    assert righe[0]["endpoint"] == "avvio", "la versione di partenza non e' stata depositata"
+    assert righe[-1]["endpoint"] == "PUT /api/config"
+    assert righe[-1]["campi"] == ["tet.min_ratio"], righe[-1]["campi"]
+
+
+def test_l_undo_di_una_modifica_a_mano_non_riscrive_il_file_a_modo_proprio(cliente, tmp_path):
+    """Il testo si riscrive tale e quale, senza ripassare dal modello.
+
+    Sulle versioni scritte dall'interfaccia la differenza non si vede -- le ha
+    prodotte `save_config`, quindi riserializzarle da' gli stessi byte, e
+    misurato: il controllo del giro completo resta verde con la mutazione. Si
+    vede dove il testo depositato viene da FUORI: il progetto e' nato CLI-first
+    e le Fasi 1 e 2 si lavorano da editor, quindi il file porta commenti e un
+    ordine che nessun `model_dump` conserva.
+
+    Un redo che rende «una configurazione equivalente» invece del file che
+    l'utente aveva scritto gli cancella i commenti senza dirglielo, ed e'
+    esattamente il genere di modifica invisibile contro cui esiste tutta questa
+    superficie.
+
+    Mutazione che lo uccide: in `_ripristina`, scrivere
+    `save_config(candidata, config_path)` al posto della scrittura atomica del
+    testo.
+    """
+    percorso = tmp_path / "config.yaml"
+
+    corpo = cliente.get("/api/config").json()
+    corpo["tet"]["min_ratio"] = 1.9
+    cliente.put("/api/config", json=corpo)
+
+    # L'editor: un commento che nessun model_dump sa riprodurre.
+    a_mano = (
+        "# la taglia la decide la geometria del provino, non il predefinito\n"
+        + percorso.read_text(encoding="utf-8").replace("min_ratio: 1.9", "min_ratio: 2.5")
+    )
+    percorso.write_text(a_mano, encoding="utf-8")
+
+    assert cliente.post("/api/storico/indietro").json()["annullato"] is True
+    assert cliente.post("/api/storico/avanti").json()["annullato"] is True
+
+    tornato = percorso.read_text(encoding="utf-8")
+    assert tornato == a_mano, "il redo ha reso una configurazione equivalente, non il file"
+    assert "# la taglia la decide" in tornato, "il commento dell'editor e' sparito in silenzio"

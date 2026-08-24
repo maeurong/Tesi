@@ -38,6 +38,15 @@
        step o un comando. Il verbo dice l'azione e il complemento dice su che
        cosa cade. -->
   <button type="button" id="annulla" class="bottone" disabled>Interrompi il calcolo</button>
+  <!-- Il gesto e' solo da tastiera, e un comando che non si vede non esiste
+       per chi non sa gia' che c'e'. Una riga tenue nella testata e non un
+       bottone: annullare e' un ripensamento, non uno scopo del programma, e
+       due bottoni accanto a «Interrompi il calcolo» direbbero che questa
+       schermata serve a tornare indietro.
+       <kbd> e non testo normale: e' l'elemento che il markup ha per un tasto,
+       e chi legge con uno screen reader lo sente annunciato come tale. -->
+  <p class="aiuto scorciatoia"><kbd>Ctrl/Cmd</kbd>+<kbd>Z</kbd> annulla l'ultima
+    modifica ai parametri, con <kbd>Maiusc</kbd> la rifà.</p>
 </header>
 <!-- Le due schermate si escludono a vicenda e nascono entrambe nascoste:
      app.js ne scopre una quando /api/run ha risposto. Nascondere solo
