@@ -388,6 +388,42 @@ caricaStato();
 // Il tempo trascorso lo misura il server, dove lo step parte davvero: contato
 // qui conterebbe da quando questa pagina ha visto lo stato "in corso", e
 // tornerebbe a zero a ogni ricarica mentre il calcolo prosegue.
+// Una durata misurata, letta come la direbbe una persona. Sotto il minuto e
+// mezzo i secondi bastano; sopra, «312 s» smette di essere una durata e torna
+// a essere un numero -- e in questa riga adesso ce ne stanno due accanto, il
+// tempo di adesso e quello dell'ultima volta.
+//
+// Sotto il secondo NON si arrotonda a «0 s». Lo step 8 a semplificazione
+// disabilitata dura 1,3e-05 s (misurato, runs/prova/steps.json), e uno zero li'
+// si legge «non e' partito» invece di «e' finito prima che si potesse
+// misurare»: sarebbe il difetto che PRODUCT.md nomina, uno zero che significa
+// «sotto la risoluzione della misura» presentato come «esatto».
+//
+// Arrotonda PRIMA di dividere: 119,6 s diviso e poi arrotondato dava
+// «1 min 60 s».
+function durataMisurata(secondi) {
+  if (secondi < 1) return "meno di 1 s";
+  const tondo = Math.round(secondi);
+  if (tondo < 90) return `${tondo} s`;
+  return `${Math.floor(tondo / 60)} min ${tondo % 60} s`;
+}
+
+// Il tempo che questo stesso step ha impiegato l'ultima volta, se il disco lo
+// sa e se e' una misura.
+//
+// La guardia sul fallito non e' prudenza generica: pipeline.py:574 registra
+// `0.0` fisso quando uno step fallisce, che e' un segnaposto e non un
+// cronometro. Uno step che e' morto dopo venti secondi di lavoro ha su disco
+// «secondi: 0.0», e mostrarlo scriverebbe «0 s» accanto a un numero vero --
+// esattamente il numero senza controllo che il primo principio di prodotto
+// vieta. "mai eseguito" non ha `secondi` affatto e cade sul typeof.
+function ultimaDurata(voce) {
+  if (voce === undefined || voce === null) return null;
+  if (voce.stato === "fallito") return null;
+  if (typeof voce.secondi !== "number") return null;
+  return durataMisurata(voce.secondi);
+}
+
 const flusso = new EventSource("/api/events");
 
 let eraInCorso = false;
@@ -404,9 +440,29 @@ flusso.addEventListener("stato", (evento) => {
     // (il prior, un modello parametrico: worker.start_comando, non
     // worker.start): la colonna non ha una riga per un comando del genere,
     // e "step null in corso" sarebbe il numero di un ramo che non esiste.
+    // Quanto duro' l'ultima volta questo stesso step. E' l'unico numero che
+    // questo programma possiede davvero sull'attesa che sta facendo fare: una
+    // percentuale non gliela fornisce nessuna libreria, e fabbricarla e' vietato
+    // per nome. Non promette niente su questa esecuzione -- i parametri possono
+    // essere cambiati -- e infatti la riga non dice «mancano», dice «l'ultima
+    // volta». Quando il tempo di adesso lo supera, il ritardo si legge da se',
+    // che e' informazione e non allarme.
+    //
+    // Da `stato.steps` e non da `ultimoStato`: e' lo stesso evento, quindi non
+    // dipende dall'ordine in cui disegnaStep lo ha gia' assorbito. Il file di
+    // stato si riscrive solo a step finito (steps.write_state, un solo punto),
+    // quindi mentre lo step gira quel numero e' ancora quello di prima.
+    //
+    // Solo per uno step: un comando fuori pipeline (il prior, un modello
+    // parametrico) non ha una riga nel file di stato, e non c'e' nessuna ultima
+    // volta da leggere.
+    const prima = stato.step !== null
+      ? ultimaDurata(stato.steps.find((voce) => voce.numero === stato.step))
+      : null;
+    const scorso = durataMisurata(stato.da_secondi);
     barra.textContent = stato.step !== null
-      ? `step ${stato.step} in corso, ${Math.round(stato.da_secondi)} s`
-      : `un comando è in corso, ${Math.round(stato.da_secondi)} s`;
+      ? `step ${stato.step} in corso, ${scorso}${prima !== null ? ` · l'ultima volta ${prima}` : ""}`
+      : `un comando è in corso, ${scorso}`;
     barra.hidden = false;
   } else {
     barra.hidden = true;
@@ -1782,6 +1838,24 @@ async function apriDettaglio(numero, ordine = generazione) {
     azioni.append(bottone);
   }
   dettaglio.append(azioni);
+
+  // Quanto costa il bottone qui sopra, detto prima di premerlo. E' la stessa
+  // misura che la riga dell'attesa mostra mentre lo step gira, letta nel
+  // momento in cui serve per decidere: lo step 7 dura 33 secondi sulla
+  // scansione di riferimento, e finora l'unico modo di saperlo era averlo gia'
+  // aspettato una volta. Vale doppio per l'utente successivo confermato, che
+  // gli undici step non li ha mai visti girare.
+  //
+  // Da `ultimoStato`, che e' lo stato piu' recente arrivato dal flusso. Vuoto
+  // finche' la prima risposta non e' tornata: in quel caso la riga non c'e', e
+  // una riga assente e' l'unica alternativa onesta a un numero che non si ha.
+  const misurato = ultimaDurata(ultimoStato.find((v) => v.numero === numero));
+  if (misurato !== null) {
+    dettaglio.append(Object.assign(document.createElement("p"), {
+      className: "aiuto",
+      textContent: `L'ultima esecuzione di questo step è durata ${misurato}.`,
+    }));
+  }
 
   for (const blocco of voce.blocchi) {
     const gruppo = document.createElement("fieldset");

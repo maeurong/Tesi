@@ -927,6 +927,74 @@ def test_il_campo_parametro_non_indovina_il_tipo_dal_valore():
     assert 'input.step = "any"' not in campo, "step=any toglie il passo unitario ai 14 interi"
 
 
+def test_una_durata_misurata_non_diventa_uno_zero_ne_un_minuto_di_sessanta(tmp_path):
+    """La funzione che legge un tempo misurato, eseguita sui valori veri.
+
+    Due estremi, entrambi presi da dati reali e non ipotizzati.
+
+    Sotto: `runs/prova/steps.json` registra per lo step 8, a semplificazione
+    disabilitata, `secondi: 1.3042008504271507e-05`. Arrotondato varrebbe «0 s»,
+    e uno zero accanto agli altri tempi si legge «non e' partito» invece di «e'
+    finito prima che si potesse misurare». E' il terzo principio di prodotto
+    citato alla lettera: nessuno zero che significa «sotto la risoluzione della
+    misura» presentato come «esatto».
+
+    Sopra: dividere prima di arrotondare produce «1 min 60 s». 119,6 secondi
+    danno `Math.floor(119.6 / 60)` uguale a 1 e un resto di 59,6 che
+    l'arrotondamento porta a 60. Il controllo spazza un intervallo intero
+    invece di fidarsi del caso singolo, perche' il difetto si ripresenta a ogni
+    confine di minuto.
+    """
+    _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
+            + _funzioni("durataMisurata") + """
+assert.equal(durataMisurata(0.000013042008504271507), "meno di 1 s",
+  "lo step 8 a semplificazione spenta si legge «0 s», cioe' «non e' partito»");
+assert.equal(durataMisurata(0), "meno di 1 s");
+assert.equal(durataMisurata(0.9), "meno di 1 s");
+assert.equal(durataMisurata(1), "1 s");
+assert.equal(durataMisurata(32.98888658406213), "33 s", "il tempo misurato dello step 7");
+assert.equal(durataMisurata(14.536296917009167), "15 s", "il tempo misurato dello step 2");
+assert.equal(durataMisurata(89), "89 s", "sotto il minuto e mezzo i secondi bastano");
+assert.equal(durataMisurata(89.6), "1 min 30 s");
+assert.equal(durataMisurata(125), "2 min 5 s");
+
+// Nessun minuto di sessanta secondi, a nessun confine.
+for (let decimi = 900; decimi <= 6000; decimi += 1) {
+  const letto = durataMisurata(decimi / 10);
+  assert.ok(!/ 60 s$/.test(letto), `${decimi / 10} s si legge ${letto}`);
+}
+""")
+
+
+def test_lo_zero_di_uno_step_fallito_non_viene_mostrato_come_una_misura(tmp_path):
+    """`pipeline.py:574` registra `0.0` fisso quando uno step fallisce.
+
+    Non e' un cronometro ma un segnaposto: uno step morto dopo venti secondi di
+    lavoro lascia su disco `"secondi": 0.0`, e in `runs/prova/steps.json` lo
+    step 9 e' esattamente cosi'. Mostrarlo scriverebbe «l'ultima volta 0 s»
+    accanto a un tempo vero, cioe' un numero che nessuna misura sostiene messo
+    dove sembra misurato -- il primo principio di prodotto letto al contrario.
+
+    E la guardia non deve mangiare il caso che serve di piu': "non valido"
+    significa che i parametri sono cambiati dopo l'esecuzione, non che quella
+    esecuzione non sia avvenuta. Quel tempo e' misurato eccome, ed e' proprio
+    lo step che si sta per rieseguire.
+    """
+    _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
+            + _funzioni("durataMisurata", "ultimaDurata") + """
+assert.equal(ultimaDurata({ numero: 9, stato: "fallito", secondi: 0.0 }), null,
+  "lo zero segnaposto di uno step fallito arriva a video come una misura");
+assert.equal(ultimaDurata({ numero: 7, stato: "valido", secondi: 32.98888658406213 }), "33 s");
+assert.equal(ultimaDurata({ numero: 2, stato: "non valido", secondi: 14.536296917009167 }), "15 s",
+  "un tempo misurato sotto un'altra configurazione resta un tempo misurato");
+assert.equal(ultimaDurata({ numero: 3, stato: "mai eseguito" }), null,
+  "uno step mai eseguito non ha un tempo, e non ne inventa uno");
+assert.equal(ultimaDurata({ numero: 3, stato: "valido", secondi: null }), null);
+assert.equal(ultimaDurata(undefined), null, "uno step che il flusso non porta ancora");
+assert.equal(ultimaDurata(null), null);
+""")
+
+
 def test_una_battuta_illeggibile_resta_quella_battuta(tmp_path):
     """La funzione che trasforma dei tasti in un dato persistito, eseguita.
 
@@ -1791,6 +1859,7 @@ def _banco_di_apriDettaglio() -> str:
         "segnaStepAperto", "nuovaRiga", "disegnaStep", "dichiaraErrore", "fallisciDettaglio",
         "ragioneDelRifiuto", "serverMuto", "superata", "corpoLetto", "valoreScritto",
         "segnalaCampo", "apriBattuta", "scriviParametro", "campoParametro", "apriDettaglio",
+        "durataMisurata", "ultimaDurata",
     ) + """
 let ultimaBattutaDelCampo = new Map();
 let schemaParametri = null;
