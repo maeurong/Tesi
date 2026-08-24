@@ -1790,6 +1790,51 @@ def test_fra_due_geometrie_della_stessa_generazione_vince_chi_e_partita_dopo(num
         prova.unlink()
 
 
+def test_la_luce_segue_la_camera_e_non_sta_ferma_nel_mondo():
+    """Il difetto che Mario ha visto girando la figura: mezzo giro e il pezzo
+    diventa una sagoma grigia uniforme, senza un'ombra, in cui la forma non si
+    legge. La luce direzionale stava ferma a `(1, 2, 3)` mentre la camera
+    girava, quindi dal lato opposto restava solo l'ambiente.
+
+    Misurato nel browser il 24/08/2026 sul telaio di lab_crop, non dedotto.
+
+    Strutturale e non eseguito: `aggiornaCamera` e' annidata dentro
+    `creaViewport`, e il banco di test_app_js.py sa ritagliare solo funzioni di
+    primo livello. La prova che conta resta quella a schermo -- questa
+    sorveglia la mossa, cioe' che la luce non torni a essere una costante.
+    """
+    from meshrec.app.server import UI_DIR
+
+    testo = (UI_DIR / "viewport.js").read_text(encoding="utf-8")
+
+    # 1. Nessuna posizione costante: e' esattamente cio' che rendeva buio un lato.
+    assert "direzionale.position.set(" not in testo, (
+        "la luce e' tornata a una posizione fissa nel mondo"
+    )
+
+    # 2. La riposiziona chi muove la camera, non qualcun altro.
+    corpo = testo.split("function aggiornaCamera() {", 1)[1].split("\n  }\n", 1)[0]
+    assert "direzionale.position.copy(camera.position)" in corpo, (
+        "la luce non segue piu' la camera"
+    )
+    assert "direzionale.target.position.copy(centro)" in corpo, (
+        "la luce non punta piu' al centro dell'orbita: sul modello, che sta a "
+        "qualche metro dall'origine, lo illuminerebbe di taglio"
+    )
+
+    # 3. Scostata dall'asse dello sguardo: una luce sull'occhio non fa ombre,
+    #    che e' lo stesso difetto per un'altra strada.
+    assert "_destra" in corpo and "_alto" in corpo, (
+        "la luce e' finita esattamente sull'occhio: illumina di fronte e non da' rilievo"
+    )
+
+    # 4. Il bersaglio dev'essere nel grafo, altrimenti il suo matrixWorld resta
+    #    quello con cui e' nato e spostarlo non cambia dove la luce punta.
+    assert "scena.add(direzionale.target)" in testo, (
+        "il bersaglio della luce non e' nella scena: spostarlo non ha effetto"
+    )
+
+
 def test_svuota_libera_i_buffer_e_non_tocca_i_piani_di_taglio():
     """I-5. gruppo.clear() toglie dalla scena e non libera: senza dispose ogni
     passaggio fra step lascia i suoi buffer sulla scheda. E i piani di taglio

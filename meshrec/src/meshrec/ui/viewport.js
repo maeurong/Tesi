@@ -172,8 +172,17 @@ export function creaViewport(contenitore) {
   let box = null;
   scena.add(new THREE.AmbientLight(0xffffff, 0.7));
   const direzionale = new THREE.DirectionalLight(0xffffff, 0.8);
-  direzionale.position.set(1, 2, 3);
   scena.add(direzionale);
+  // Il bersaglio va aggiunto alla scena, non basta spostarlo: una
+  // DirectionalLight punta da `position` verso `target.position`, e un target
+  // che non sta nel grafo non viene aggiornato dal render -- il suo
+  // matrixWorld resterebbe quello con cui e' nato.
+  scena.add(direzionale.target);
+
+  // Due vettori d'appoggio tenuti qui e non dentro aggiornaCamera: quella gira
+  // a ogni pointermove, cioe' decine di volte per ogni trascinamento.
+  const _destra = new THREE.Vector3();
+  const _alto = new THREE.Vector3();
 
   let orbita = { theta: 0.7, phi: 1.0, raggio: 1, centro: new THREE.Vector3() };
 
@@ -201,6 +210,30 @@ export function creaViewport(contenitore) {
       centro.z + raggio * Math.sin(phi) * Math.sin(theta),
     );
     camera.lookAt(centro);
+
+    // La luce segue la camera, e non e' una rifinitura. Ferma nel mondo
+    // (com'era, a (1, 2, 3)) lasciava senza rilievo tutto il lato opposto:
+    // li' la superficie riceveva solo l'ambiente e diventava una sagoma grigia
+    // uniforme, in cui la forma non si legge. Misurato nel browser il
+    // 24/08/2026 girando attorno al telaio di lab_crop -- mezzo giro, e la
+    // figura e' piatta come un ritaglio di carta.
+    //
+    // Scostata in alto e a destra, non esattamente sull'occhio: una luce
+    // sull'asse dello sguardo illumina di fronte e non lascia ombre, che e'
+    // lo stesso difetto per un'altra strada. Le due frazioni del raggio sono
+    // una direzione, non una distanza: una direzionale non ha decadimento, e
+    // conta solo da che parte arriva.
+    camera.updateMatrixWorld();
+    _destra.setFromMatrixColumn(camera.matrixWorld, 0);
+    _alto.setFromMatrixColumn(camera.matrixWorld, 1);
+    direzionale.position.copy(camera.position)
+      .addScaledVector(_destra, raggio * 0.6)
+      .addScaledVector(_alto, raggio * 0.4);
+    // Il centro dell'orbita e non l'origine del mondo: il modello sta a
+    // qualche metro dall'origine (lab_crop e' fra 1697 e 4457 mm in X), e una
+    // direzionale puntata all'origine lo illuminerebbe di taglio.
+    direzionale.target.position.copy(centro);
+    direzionale.target.updateMatrixWorld();
   }
 
   let premuto = false;
