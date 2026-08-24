@@ -1367,6 +1367,7 @@ def create_app(
                     "legata": cfg is not None,
                     "in_corso": lavoratore.is_running(),
                     "step": lavoratore.step,
+                    "a_step": lavoratore.a_step,
                     "exit_code": lavoratore.exit_code,
                     "annullato": lavoratore.annullato,
                     "da_secondi": lavoratore.da_secondi(),

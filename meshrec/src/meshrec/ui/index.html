@@ -11,6 +11,19 @@
   <h1>MeshRec</h1>
   <p class="corsa" id="corsa">nessuna corsa</p>
   <p class="in-corso" id="in-corso" hidden></p>
+  <!-- Come una corsa e' finita: conclusa, fallita, annullata. Tre fatti
+       diversi, una riga sola, e sta QUI e non in #errore.
+       #errore vive nella colonna del dettaglio, e apriDettaglio la svuota a
+       ogni apertura: un fallimento annunciato la' sparirebbe nella stessa
+       passata che lo scrive, perche' il fronte di discesa riapre il pannello
+       due righe piu' sotto. Due meccanismi si contenderebbero la stessa riga.
+       Nel markup e non fabbricata da app.js, come #conteggi e la didascalia
+       della vista: nessun ramo del modulo la puo' distruggere.
+       aria-live="polite" perche' l'esito arriva senza che nessuno lo chieda,
+       ed e' la fine di un'attesa che puo' essere durata minuti: chi non
+       guardava lo schermo deve saperlo. Vuota alla nascita: una regione viva
+       dev'essere nell'albero prima che ci si scriva dentro. -->
+  <p class="esito" id="esito" aria-live="polite"></p>
   <!-- Nasce spento: a corsa ferma non c'e' niente da annullare, e un bottone
        sempre acceso che risponde con un silenzio identico al successo non
        distingue «annullato» da «non c'era nulla da annullare». app.js lo

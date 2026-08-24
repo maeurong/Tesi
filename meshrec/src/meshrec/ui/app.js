@@ -448,12 +448,112 @@ function ultimaDurata(voce) {
   return durataMisurata(voce.secondi);
 }
 
+// --- Di che cosa parla una corsa, e come e' finita -------------------------
+
+// Un solo `meshrec run` copre from_step..to_step, ma `stato.step` e' il capo di
+// PARTENZA e non avanza mai: si fissa in worker.start() e resta li'. Finche' la
+// riga portava il solo capo, una corsa da 1 a 11 si annunciava «step 1 in
+// corso» dall'inizio alla fine -- misurato: a quattro secondi dall'avvio
+// diceva ancora Lettura, che ne era durata 0,03.
+//
+// Una superficie sola perche' la riga che pulsa e quella dell'esito devono
+// nominare la stessa cosa: scritte due volte, una delle due resterebbe
+// indietro.
+//
+// `unoSolo` non e' un dettaglio di resa: e' la condizione che decide se una
+// durata si puo' mostrare. `secondi` e' il tempo del solo step di partenza, e
+// appiccicarlo a una corsa di undici step lo dichiarerebbe durata dell'intera
+// corsa.
+function descrizioneDellaCorsa(stato) {
+  const nome = nomeDelloStep(stato.step);
+  // a_step assente e' un frame che non lo porta -- una corsa aperta prima che
+  // il server lo mandasse, o un comando fuori pipeline. Si torna al nome del
+  // capo, che e' cio' che si sapeva prima e non e' un'invenzione.
+  if (stato.a_step === null || stato.a_step === undefined || stato.a_step === stato.step) {
+    return { testo: nome, unoSolo: true };
+  }
+  return { testo: `da ${nome} a ${nomeDelloStep(stato.a_step)}`, unoSolo: false };
+}
+
+// Che cosa dire quando una corsa finisce. Pura e di primo livello come
+// superata(): e' la decisione che l'interfaccia non prendeva affatto, e presa
+// dentro un gestore anonimo non la esegue nessun banco.
+//
+// Il soggetto delle tre frasi e' «esecuzione» e non il nome dello step: nove
+// degli undici nomi sono femminili (Lettura, Segmentazione, Riduzione,
+// Superficie, Riparazione, Semplificazione, Esportazione, le due Qualita') e
+// due no (Normali, Tetraedri), quindi «Lettura concluso» era sbagliato in nove
+// casi su undici e nessun participio accorda con tutti. Con un soggetto fisso
+// e femminile l'accordo torna senza una tabella dei generi, e la parola e' gia'
+// quella del titolo «Registro dell'esecuzione».
+//
+// I tre esiti sono distinti perche' sono tre fatti diversi, ed e' la voce del
+// progetto: un annullamento e' una scelta di chi guarda, non un guasto.
+// L'ordine dei rami conta: un annullamento arriva con un codice d'uscita non
+// nullo (il segnale che lo ha fermato), quindi va guardato per primo,
+// altrimenti ogni annullamento si annuncerebbe come un fallimento.
+function esitoDellaCorsa(stato) {
+  const { testo: soggetto, unoSolo } = descrizioneDellaCorsa(stato);
+  // Una corsa finita senza codice d'uscita non e' piu' uno stato possibile: il
+  // worker fissa exit_code prima di dichiararsi fermo. Se arriva lo stesso --
+  // una start() che solleva prima di avere un figlio, un frame caduto dentro
+  // il fork -- si tace. Dirlo «concluso» annuncerebbe riuscita una corsa mai
+  // partita, che e' il falso successo per cui esiste tutto questo ramo.
+  if (stato.exit_code === null || stato.exit_code === undefined) {
+    return { errore: null, esito: null };
+  }
+  if (stato.annullato) return { errore: null, esito: `${soggetto}: esecuzione annullata` };
+  if (stato.exit_code !== 0) {
+    return {
+      errore: `${soggetto}: esecuzione fallita (codice ${stato.exit_code}). `
+        + "Il motivo è nelle ultime righe del registro, qui sotto.",
+      esito: null,
+    };
+  }
+  // La durata la misura il server e la scrive nel file di stato. Quando manca
+  // non si mette uno zero ne' un trattino formattato come un numero -- sarebbe
+  // una misura fabbricata -- si dice solo che e' finito. Su un intervallo non
+  // si mette affatto, per la ragione scritta sopra `descrizioneDellaCorsa`: era
+  // il numero piu' in vista dell'applicazione e diceva 0,03 s per una corsa che
+  // ne aveva impiegati dieci. La durata intera nessuno la misura oggi, e tacere
+  // e' l'unica alternativa che non inventa.
+  const misura = unoSolo
+    ? ultimaDurata((stato.steps ?? []).find((v) => v.numero === stato.step))
+    : null;
+  return {
+    errore: null,
+    esito: misura === null
+      ? `${soggetto}: esecuzione conclusa`
+      : `${soggetto}: esecuzione conclusa in ${misura}`,
+  };
+}
+
+// Dove finisce l'esito di una corsa: una regione sola per tutti e tre gli
+// esiti, #esito, che sta nella testata. Il fallimento sarebbe finito in
+// #errore, che vive nella colonna del dettaglio, e apriDettaglio la svuota a
+// ogni apertura: l'annuncio sparirebbe il tempo di due fetch dopo essere
+// comparso, e cio' che resta a video sarebbe indistinguibile da una corsa
+// riuscita. L'esito ha una riga sua, dove nessun ricaricamento di pannello
+// passa.
+//
+// La classe ACCANTO al testo e non al posto del testo: il fallimento si legge
+// per esteso comunque, e chi non distingue le tinte non perde niente (WCAG
+// 1.4.1). La classe aggiunge il peso visivo, non l'informazione.
+function mostraEsito(errore, esito) {
+  const riga = document.getElementById("esito");
+  riga.textContent = errore ?? esito ?? "";
+  riga.classList.toggle("esito-fallito", errore !== null && errore !== undefined);
+}
+
 const flusso = new EventSource("/api/events");
 
 let eraInCorso = false;
 
-flusso.addEventListener("stato", (evento) => {
-  const stato = JSON.parse(evento.data);
+// Di primo livello e non una freccia dentro addEventListener: dentro la freccia
+// non lo esegue nessun banco. La decisione su come finisce una corsa e' pura e
+// gia' a tiro dei test; il CABLAGGIO -- quale regione riceve il testo, e chi la
+// svuota subito dopo -- era la meta' che restava fuori.
+function aggiornaDaStato(stato) {
   // A nessuna corsa aperta il flusso manda comunque lo stato del lavoratore,
   // con `steps` vuoto: la colonna degli step non esiste ancora e disegnarla
   // sarebbe disegnare tredici righe di una corsa che nessuno ha scelto.
@@ -480,12 +580,18 @@ flusso.addEventListener("stato", (evento) => {
     // Solo per uno step: un comando fuori pipeline (il prior, un modello
     // parametrico) non ha una riga nel file di stato, e non c'e' nessuna ultima
     // volta da leggere.
-    const prima = stato.step !== null
-      ? ultimaDurata(stato.steps.find((voce) => voce.numero === stato.step))
+    //
+    // E solo su UNO step, non su un intervallo: `secondi` e' il tempo del solo
+    // capo di partenza, e su una corsa da 1 a 11 «l'ultima volta 0,03 s»
+    // starebbe sotto un'attesa di dieci minuti. E' lo stesso motivo per cui
+    // esitoDellaCorsa tace la durata sugli intervalli.
+    const { testo: soggetto, unoSolo } = descrizioneDellaCorsa(stato);
+    const prima = stato.step !== null && unoSolo
+      ? ultimaDurata((stato.steps ?? []).find((voce) => voce.numero === stato.step))
       : null;
     const scorso = durataMisurata(stato.da_secondi);
     barra.textContent = stato.step !== null
-      ? `step ${stato.step} in corso, ${scorso}${prima !== null ? ` · l'ultima volta ${prima}` : ""}`
+      ? `${soggetto} in corso, ${scorso}${prima !== null ? ` · l'ultima volta ${prima}` : ""}`
       : `un comando è in corso, ${scorso}`;
     barra.hidden = false;
   } else {
@@ -503,6 +609,12 @@ flusso.addEventListener("stato", (evento) => {
   // ogni evento, perche' lo stato arriva ogni mezzo secondo e il pannello si
   // riscriverebbe sotto le dita di chi sta compilando un campo.
   if (eraInCorso && !stato.in_corso) {
+    // L'esito PRIMA di riaprire il pannello, e in una regione che il pannello
+    // non tocca. apriDettaglio svuota #errore a ogni apertura: annunciato la',
+    // il fallimento sparirebbe due righe piu' sotto, nella stessa passata, e a
+    // video resterebbe qualcosa di indistinguibile da una corsa riuscita.
+    const { errore, esito } = esitoDellaCorsa(stato);
+    mostraEsito(errore, esito);
     if (stepAperto !== null) apriDettaglio(stepAperto);
     // La vista quanto il pannello: senza questa riga lo step rieseguito mostra
     // a destra le metriche nuove e nel viewport il contorno vecchio, col
@@ -514,8 +626,15 @@ flusso.addEventListener("stato", (evento) => {
       ricaricaVista(stepScelto);
     }
   }
+  // Sul fronte di SALITA l'esito di prima se ne va: lasciato li', «esecuzione
+  // fallita» resterebbe a video sopra la corsa nuova che sta partendo proprio
+  // per correggere quel fallimento, e sarebbe il piu' vecchio dei due testi a
+  // descrivere il piu' recente dei due fatti.
+  if (!eraInCorso && stato.in_corso) mostraEsito(null, null);
   eraInCorso = stato.in_corso;
-});
+}
+
+flusso.addEventListener("stato", (evento) => aggiornaDaStato(JSON.parse(evento.data)));
 
 // Quante righe restano nel registro. E' una finestra di lettura, non una
 // misura: chi vuole tutto lo stdout ha il file della corsa su disco.

@@ -31,6 +31,13 @@ class Worker:
         self._lucchetto = threading.Lock()
         self.exit_code: int | None = None
         self.step: int | None = None
+        # Il capo di arrivo. `step` da solo e' il capo di PARTENZA e non avanza
+        # mai -- si fissa in start() e resta li' -- quindi una corsa da 1 a 11
+        # si annunciava «step 1 in corso» dall'inizio alla fine, e a quattro
+        # secondi dall'avvio diceva ancora Lettura, che ne era durata 0,03.
+        # Con i due capi l'interfaccia puo' dire di che cosa parla la corsa
+        # invece di nominare solo il primo passo.
+        self.a_step: int | None = None
         self.etichetta: str | None = None
         self.annullato = False
         self.avviato: float | None = None
@@ -65,6 +72,7 @@ class Worker:
         self.exit_code = None
         self.annullato = False
         self.step = from_step
+        self.a_step = to_step
         self.etichetta = None
         self.avviato = time.monotonic()
         self._processo = subprocess.Popen(
@@ -96,6 +104,11 @@ class Worker:
         self.exit_code = None
         self.annullato = False
         self.step = None
+        # Un comando fuori pipeline (il prior, un modello parametrico) non ha
+        # capi: azzerato qui perche' altrimenti resterebbe quello della corsa
+        # di prima, e il browser annuncerebbe un intervallo che questo comando
+        # non percorre.
+        self.a_step = None
         self.etichetta = etichetta
         self.avviato = time.monotonic()
         self._processo = subprocess.Popen(

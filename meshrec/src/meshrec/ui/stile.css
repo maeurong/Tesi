@@ -290,6 +290,20 @@ code { font-family: var(--stack-cifre); }
 /* I secondi trascorsi cambiano una volta al secondo: senza cifre tabulari la
    riga si allarga e si stringe sotto gli occhi a ogni passaggio da 9 a 10. */
 .in-corso { margin: 0; color: var(--accento); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); font-variant-numeric: tabular-nums; }
+/* L'esito di una corsa, nella testata accanto alla riga che pulsa. Stessa
+   taglia e stessa interlinea di .in-corso: sono la stessa voce letta in due
+   momenti -- una dice che sta girando, l'altra come e' finita -- e due corpi
+   diversi le farebbero sembrare due meccanismi.
+   Vuota non lascia un buco: senza `:empty` la riga occuperebbe la sua altezza
+   sopra la testata per tutta la vita dell'applicazione, e a corsa mai lanciata
+   sarebbe uno spazio che non annuncia niente. */
+.esito { margin: 0; font-size: var(--tipo-dato); line-height: var(--interlinea-riga); color: var(--tenue); }
+.esito:empty { display: none; }
+/* Il colore ACCANTO al testo e non al posto del testo: «esecuzione fallita» si
+   legge per esteso comunque, e chi non distingue le tinte non perde niente
+   (WCAG 1.4.1). Il peso porta il rango dove il colore non arriva -- proiettato
+   su un muro, una differenza di tinta a questa taglia si perde. */
+.esito-fallito { color: var(--guasto); font-weight: 600; }
 .registro { max-height: 14rem; overflow: auto; font-family: var(--stack-cifre); font-size: var(--tipo-nota); line-height: var(--interlinea); border: 1px solid var(--bordo); border-radius: var(--raggio); padding: var(--passo-2); }
 /* Il registro e' una tappa di tabulazione (tabindex="0" in index.html, perche'
    scorre e non contiene nulla di focalizzabile): reso raggiungibile senza un

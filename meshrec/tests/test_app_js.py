@@ -4642,3 +4642,178 @@ assert.equal(conteggi.textContent, "caricamento di Segmentazione...");
 assert.equal(viewport.getAttribute("aria-busy"), "true");
 assert.ok(!conteggi.textContent.includes("%"), "l'attesa ha inventato un avanzamento");
 """)
+
+
+def _banco_di_esito() -> str:
+    """`aggiornaDaStato` e le tre funzioni dell'esito, con il resto stubbato.
+
+    Le quattro sono ritagliate vere: la decisione su come finisce una corsa e'
+    pura, ma il CABLAGGIO -- quale regione riceve il testo e chi la svuota
+    subito dopo -- e' la meta' che restava fuori dai test finche' viveva dentro
+    una freccia anonima.
+    """
+    return _DOM + _funzioni(
+        "nomeDelloStep",
+        "durataMisurata",
+        "ultimaDurata",
+        "descrizioneDellaCorsa",
+        "esitoDellaCorsa",
+        "mostraEsito",
+        "aggiornaDaStato",
+    ) + """
+let eraInCorso = false;
+// `stepAperto` no: lo dichiara gia' _DOM, ed e' proprio la variabile di modulo
+// che il banco deve condividere invece di copiarne una sua.
+let stepScelto = null;
+const ricaricate = [];
+const riaperte = [];
+function disegnaStep(steps) { ultimoStato = steps; }
+function apriDettaglio(n) { riaperte.push(n); }
+function ricaricaVista(n) { ricaricate.push(n); }
+const esito = document.getElementById("esito");
+"""
+
+
+def test_una_corsa_che_finisce_dice_come_e_finita(tmp_path):
+    """I tre esiti sono tre fatti diversi, e l'interfaccia non ne diceva nessuno.
+
+    Il fronte di discesa riapriva il pannello e ricaricava la vista, e basta:
+    una corsa fallita e una riuscita lasciavano lo schermo nello stesso stato.
+    Il registro portava il motivo, ma bisognava sapere di doverlo leggere.
+
+    Un annullamento NON e' un fallimento: e' una scelta di chi guarda. Arriva
+    pero' con un codice d'uscita non nullo -- il segnale che lo ha fermato --
+    quindi va guardato per primo, altrimenti ogni annullamento si annuncerebbe
+    come un guasto. E' l'ordine dei rami, ed e' la cosa che si sbaglia.
+
+    Il soggetto e' «esecuzione» e non il nome dello step: nove degli undici
+    nomi sono femminili e due no, quindi nessun participio accorda con tutti e
+    «Lettura concluso» sarebbe sbagliato in nove casi su undici.
+
+    Mutazione che lo uccide: spostare il ramo di `annullato` sotto quello di
+    `exit_code !== 0`.
+    """
+    _esegui(tmp_path, _banco_di_esito() + """
+ETICHETTE["01_load"] = "Lettura";
+const steps = [{ numero: 1, chiave: "01_load", stato: "valido", secondi: 12 }];
+// nomeDelloStep legge la variabile di modulo, non l'argomento: e' quella che
+// disegnaStep riempie a ogni frame.
+ultimoStato = steps;
+const base = { in_corso: false, step: 1, a_step: 1, steps, annullato: false };
+
+assert.deepEqual(
+  esitoDellaCorsa({ ...base, exit_code: 0 }),
+  { errore: null, esito: "Lettura: esecuzione conclusa in 12 s" },
+);
+assert.deepEqual(
+  esitoDellaCorsa({ ...base, exit_code: 1 }),
+  {
+    errore: "Lettura: esecuzione fallita (codice 1). Il motivo è nelle ultime righe del registro, qui sotto.",
+    esito: null,
+  },
+);
+// Annullato, e col codice d'uscita del segnale che lo ha fermato.
+assert.deepEqual(
+  esitoDellaCorsa({ ...base, exit_code: -15, annullato: true }),
+  { errore: null, esito: "Lettura: esecuzione annullata" },
+);
+// Ferma senza codice: si tace. Dirlo «conclusa» annuncerebbe riuscita una
+// corsa mai partita.
+assert.deepEqual(
+  esitoDellaCorsa({ ...base, exit_code: null }),
+  { errore: null, esito: null },
+);
+""")
+
+
+def test_una_corsa_di_piu_step_non_si_annuncia_col_nome_del_primo(tmp_path):
+    """`stato.step` e' il capo di PARTENZA e non avanza mai: worker.start lo
+    fissa una volta e resta li'.
+
+    Finche' la riga portava il solo capo, una corsa da 1 a 11 si annunciava
+    «Lettura in corso» dall'inizio alla fine -- a quattro secondi dall'avvio
+    diceva ancora Lettura, che ne era durata 0,03.
+
+    E la durata tace sugli intervalli: `secondi` e' il tempo del solo capo di
+    partenza, e appiccicarlo a una corsa di undici step lo dichiarerebbe durata
+    dell'intera corsa. Era il numero piu' in vista dell'applicazione, e diceva
+    0,03 s per una corsa che ne aveva impiegati dieci. La durata intera nessuno
+    la misura oggi: tacere e' l'unica alternativa che non inventa.
+
+    Mutazione che lo uccide: togliere il ramo di `unoSolo` da
+    `esitoDellaCorsa`, cosi' la durata del capo di partenza torna a valere per
+    tutta la corsa.
+    """
+    _esegui(tmp_path, _banco_di_esito() + """
+ETICHETTE["01_load"] = "Lettura";
+ETICHETTE["11_export"] = "Esportazione";
+const steps = [
+  { numero: 1, chiave: "01_load", stato: "valido", secondi: 0.03 },
+  { numero: 11, chiave: "11_export", stato: "valido", secondi: 4 },
+];
+ultimoStato = steps;
+
+assert.deepEqual(
+  descrizioneDellaCorsa({ step: 1, a_step: 11, steps }),
+  { testo: "da Lettura a Esportazione", unoSolo: false },
+);
+assert.deepEqual(
+  descrizioneDellaCorsa({ step: 1, a_step: 1, steps }),
+  { testo: "Lettura", unoSolo: true },
+);
+// a_step assente: si torna al nome del capo, che non e' un'invenzione.
+assert.deepEqual(
+  descrizioneDellaCorsa({ step: 1, steps }),
+  { testo: "Lettura", unoSolo: true },
+);
+
+const intervallo = esitoDellaCorsa({
+  in_corso: false, step: 1, a_step: 11, steps, annullato: false, exit_code: 0,
+});
+assert.equal(intervallo.esito, "da Lettura a Esportazione: esecuzione conclusa");
+assert.ok(
+  !intervallo.esito.includes("0,03"),
+  "la durata del primo step si e' spacciata per quella dell'intera corsa: " + intervallo.esito,
+);
+""")
+
+
+def test_il_fronte_di_discesa_annuncia_l_esito_e_ricarica(tmp_path):
+    """Il cablaggio, eseguito: chi riceve il testo, e in che ordine.
+
+    L'esito va scritto PRIMA che `apriDettaglio` riapra il pannello, e in una
+    regione che il pannello non tocca. #errore vive nella colonna del
+    dettaglio e apriDettaglio la svuota a ogni apertura: annunciato la', il
+    fallimento sparirebbe due righe piu' sotto nella stessa passata, e a video
+    resterebbe qualcosa di indistinguibile da una corsa riuscita.
+
+    E sul fronte di SALITA l'esito di prima se ne va: lasciato li',
+    «esecuzione fallita» resterebbe sopra la corsa nuova partita proprio per
+    correggere quel fallimento -- il piu' vecchio dei due testi a descrivere il
+    piu' recente dei due fatti.
+
+    Mutazione che lo uccide: togliere `mostraEsito(null, null)` dal fronte di
+    salita.
+    """
+    _esegui(tmp_path, _banco_di_esito() + """
+ETICHETTE["01_load"] = "Lettura";
+const steps = [{ numero: 1, chiave: "01_load", stato: "fallito" }];
+stepAperto = 1;
+stepScelto = 1;
+
+// Parte.
+aggiornaDaStato({ in_corso: true, step: 1, a_step: 1, steps, da_secondi: 0.5, annullato: false, exit_code: null });
+assert.equal(esito.textContent, "", "una corsa che parte non ha ancora un esito");
+
+// Finisce male.
+aggiornaDaStato({ in_corso: false, step: 1, a_step: 1, steps, da_secondi: null, annullato: false, exit_code: 2 });
+assert.match(esito.textContent, /esecuzione fallita \\(codice 2\\)/);
+assert.ok(esito.className.includes("esito-fallito"), "il fallimento non ha il proprio peso");
+assert.deepEqual(riaperte, [1], "il pannello non e' stato riaperto");
+assert.deepEqual(ricaricate, [1], "la vista e' rimasta indietro");
+
+// Riparte: l'esito di prima se ne va, e con lui la sua classe.
+aggiornaDaStato({ in_corso: true, step: 1, a_step: 1, steps, da_secondi: 0.1, annullato: false, exit_code: null });
+assert.equal(esito.textContent, "", "l'esito vecchio e' rimasto sopra la corsa nuova");
+assert.ok(!esito.className.includes("esito-fallito"), "la classe del fallimento e' sopravvissuta");
+""")
