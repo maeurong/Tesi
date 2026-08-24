@@ -221,14 +221,20 @@ def main() -> int:
         rapporto = float(np.linalg.norm(eff - eff[2] * np.array([0.0, 0.0, 1.0]))) / 3000.0
         print(f"  braccio={braccio} mm -> rapporto fuori asse {rapporto:.6f}")
         peggiore = max(peggiore, rapporto)
-        # Le due chiavi che il resoconto del momento non portava (§ 7): non
+        # Le tre chiavi che il resoconto del momento non portava (§ 7): non
         # dipendono dal braccio, perche' la ripartizione e il piano si
-        # calcolano una volta sola sull'intero selettore.
+        # calcolano una volta sola sull'intero selettore. `area_totale` e' la
+        # terza, recuperata dopo le altre due: senza di lei una forza e un
+        # momento nello stesso metrics.json non si confrontano.
         vicino(
             0.0961010, resoconto["rapporto_valori_singolari"], 1e-6,
             f"TOP braccio={braccio}: rapporto SVD reso dal resoconto",
         )
         uguale(703, resoconto["nodi_ad_area_nulla"], f"TOP braccio={braccio}: nodi ad area nulla")
+        vicino(
+            987277.395112, resoconto["area_totale"], 1e-5,
+            f"TOP braccio={braccio}: area tributaria totale [mm^2]",
+        )
     vicino(0.003552, peggiore, 5e-6, "TOP as-built: rapporto fuori asse peggiore dei tre bracci")
 
     print("\nil momento fuori asse: selettore volumetrico con estensione piena lungo l'asse")

@@ -791,10 +791,14 @@ Un estratto reale, da `runs/lab_telaio_v4_posizionati_top/metrics.json`:
 }
 ```
 
-L'estratto è la corsa congelata e **precede tre chiavi** aggiunte dopo:
-`rapporto_valori_singolari` e `nodi_ad_area_nulla` su ogni momento (il
-secondo esisteva già per le forze e per `CARICO_TOP`, e sul momento veniva
-buttato), e `nodi_sul_vincolo` su ogni carico, forze e momenti insieme.
+L'estratto è la corsa congelata e **precede quattro chiavi** aggiunte dopo:
+`rapporto_valori_singolari`, `nodi_ad_area_nulla` e `area_totale` su ogni
+momento (gli ultimi due esistevano già per le forze e per `CARICO_TOP` — si
+vedano `PRESSA` qui sopra e `TORSIONE` senza — e sul momento venivano
+buttati insieme, poi recuperati uno per volta), e `nodi_sul_vincolo` su ogni
+carico, forze e momenti insieme. Senza `area_totale` chi confronta una forza
+e un momento nello stesso `metrics.json` ha l'area caricata dell'una e non
+dell'altro.
 Rilette sulla stessa mesh, `TORSIONE` porta un rapporto di **0,0961010** e
 **703** nodi ad area nulla sui 3.036 presi: quasi un quarto del selettore non
 tocca alcuna faccia di bordo e non riceve quota, un numero che il resoconto
@@ -811,9 +815,10 @@ davvero*, perché l'operatore possa collocare un selettore senza indovinare
 alla cieca. Ogni carico posizionato riporta, per una forza, i nodi coinvolti,
 l'area tributaria totale, quanti nodi non hanno toccato alcuna faccia di
 bordo, e la forza effettivamente scritta contro quella dichiarata (§ 4); per
-un momento, entrambi i bracci, entrambi i momenti (dichiarato ed effettivo),
-i due gruppi della coppia (§ 5-6) e il rapporto fra i due valori singolari che
-dice quanto la direzione della coppia sia determinata (§ 5.2). Per ogni
+un momento, le stesse due grandezze dell'area — totale e nodi a quota nulla
+— più entrambi i bracci, entrambi i momenti (dichiarato ed effettivo), i due
+gruppi della coppia (§ 5-6) e il rapporto fra i due valori singolari che dice
+quanto la direzione della coppia sia determinata (§ 5.2). Per ogni
 carico, forza o momento, anche `nodi_sul_vincolo`: **quanti** dei nodi presi
 cadono pure nell'insieme vincolato. È un conteggio di nodi, e non è la
 frazione di risultante che finisce in reazione invece che in spostamento: le
