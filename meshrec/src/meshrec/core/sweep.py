@@ -24,38 +24,69 @@ import numpy as np
 from meshrec.core.config import ExperimentConfig, PipelineConfig
 
 
-# I blocchi di PipelineConfig che non entrano nell'impronta di sweep.
+# I blocchi di PipelineConfig che non entrano mai nell'impronta di sweep.
 # `run` non ci entra perche' out_dir e from_step non cambiano il risultato
 # dell'elaborazione. `wall` e `model` non ci entrano perche' sono nati con la
 # Fase 4, dopo che i registri della Fase 2 erano gia' scritti: includerli
 # cambierebbe l'impronta di ogni riga gia' registrata, cioe' la provenienza
 # della tabella sperimentale della tesi, e nessun asse di sweep li tocca --
-# tutti gli assi della griglia stanno a monte dello step 11. `carichi` non ci
-# entra per la stessa ragione: nato dopo la Fase 2 con la Fase 5, e' letto dallo
-# step 11 (scrittura del deck) e consumato dagli step successivi (simulazione e
-# risoluzione), e nessun asse di sweep lo tocca. Nota: due corse di sweep separate
-# con lo stesso root e un carichi di base diverso calcolano la stessa impronta e
-# scrivono nella stessa cartella. verify_registry lo scopre a posteriori, ma nel
-# frattempo pareto_front le tratterebbe come un unico esperimento. Non riusare il
-# root fra corse con carichi diversi senza rieseguire verify_registry. La falla
-# che l'esclusione apre e' chiusa da `expand`, che rifiuta un asse su un blocco
-# escluso invece di produrre candidati indistinguibili.
-BLOCCHI_FUORI_IMPRONTA: tuple[str, ...] = ("run", "wall", "model", "carichi")
+# tutti gli assi della griglia stanno a monte dello step 11.
+#
+# Questa lista e' la stessa conoscenza che STEP_BLOCKS (core/steps.py) tiene
+# come fonte unica -- quale blocco conta per quale step -- scritta una seconda
+# volta a mano. Le due possono divergere in silenzio, ed e' cosi' che
+# l'esclusione di `carichi` e' sopravvissuta: tenerle d'accordo e' un obbligo,
+# non una comodita'.
+BLOCCHI_FUORI_IMPRONTA: tuple[str, ...] = ("run", "wall", "model")
+
+# I blocchi che entrano nell'impronta solo quando portano qualcosa.
+#
+# `carichi` e' letto dallo step 11 (STEP_BLOCKS[11]) e cambia il deck, che e'
+# artefatto richiesto di ogni candidato -- lo sweep arriva a --to-step 12.
+# Quindi due candidati con carichi diversi sono esperimenti diversi e devono
+# avere impronte diverse: la cartella di un candidato e' fingerprint(cfg)[:12],
+# e senza questa distinzione la seconda corsa sovrascrive la prima in silenzio,
+# con verify_registry che se ne accorge solo a posteriori e solo se eseguito.
+#
+# Perche' condizionato e non secco: misurato il 22/08/2026 sulle 22 righe di
+# experiments/muro e experiments/lab_crop, includere `carichi` senza condizione
+# cambia l'impronta di 22 righe su 22, cioe' la provenienza della tabella
+# sperimentale della tesi. Con l'omissione del blocco vuoto ne cambia 0 su 22:
+# quelle righe sono nate prima della Fase 5 e hanno i tre campi tutti nulli.
+# La regola regge anche da sola, non solo per compatibilita': una corsa senza
+# carichi e una corsa i cui carichi sono tutti assenti sono lo stesso
+# esperimento.
+#
+# E' l'unica regola condizionata dell'impronta, e va dichiarata come tale:
+# dentro l'impronta sopravvivono gia' cinque valori nulli (segment.crop_min,
+# segment.crop_max, repair.max_hole_area, simplify.target_faces,
+# tet.max_volume) che nessuno omette.
+#
+# `selettori` segue `carichi` e per la stessa ragione: e' letto dallo step 11,
+# cambia il deck, e due candidati con selettori diversi sono esperimenti
+# diversi. La regola dell'omissione quando vuoto tiene ferma la provenienza
+# delle righe gia' registrate, che il blocco non ce l'hanno.
+BLOCCHI_VUOTI_FUORI_IMPRONTA: tuple[str, ...] = ("carichi", "selettori")
 
 
 def fingerprint(cfg: PipelineConfig) -> str:
-    """Sha256 della configurazione canonica, esclusi i blocchi di BLOCCHI_FUORI_IMPRONTA.
+    """Sha256 della configurazione canonica, esclusi i blocchi che non contano.
+
+    Due liste, non una: BLOCCHI_FUORI_IMPRONTA esce sempre,
+    BLOCCHI_VUOTI_FUORI_IMPRONTA esce solo quando il blocco non porta nulla.
+    Il motivo di ciascuna e' commentato dove sono dichiarate.
 
     out_dir e from_step non cambiano il risultato dell'elaborazione, e
     includerli renderebbe diverse due corse identiche: e' precisamente cio'
     che l'impronta esiste per impedire. Stessa impronta significa stesso
     esperimento.
-
-    Il motivo di ogni blocco escluso e' commentato sopra BLOCCHI_FUORI_IMPRONTA.
     """
     payload = cfg.model_dump(mode="json")
     for blocco in BLOCCHI_FUORI_IMPRONTA:
         payload.pop(blocco, None)
+    for blocco in BLOCCHI_VUOTI_FUORI_IMPRONTA:
+        if not any((payload.get(blocco) or {}).values()):
+            payload.pop(blocco, None)
     canonical = json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
@@ -102,6 +133,14 @@ def expand(
 
     I duplicati sono rimossi per impronta: un livello uguale al valore di
     base non produce un secondo candidato identico.
+
+    Il rifiuto qui sotto esiste perche' due candidati che differissero solo per
+    un blocco fuori impronta avrebbero la stessa impronta. Non riguarda piu'
+    `carichi`, uscito da BLOCCHI_FUORI_IMPRONTA: un asse su un carico produce
+    candidati distinguibili, ed e' un esperimento legittimo -- lo stesso carico
+    in due posti. Resta il caso degenere dell'asse su un carico che sta vuoto a
+    tutti i livelli, che non produce candidati distinti: non serve una guardia,
+    lo assorbe la deduplica per impronta qui sotto.
     """
     for asse in experiment.axes:
         blocco = asse.path.split(".")[0]

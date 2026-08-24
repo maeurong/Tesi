@@ -5,13 +5,54 @@ Sistema di unita di lavoro: mm, N, MPa, tonnellata, secondo.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    model_validator,
+)
 
 GRAVITY_MM_S2: float = 9810.0
+
+NomeSet = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_.-]+$")]
+
+
+def _caso_canonico_dei_sei(nome: str) -> str:
+    """Uno dei sei nomi di faccia riscritto nel proprio caso canonico, gli altri intatti.
+
+    `node_sets` porta i sei nomi di faccia nel caso canonico (`TOP`, non
+    `top`): un confronto esatto a valle (`core/selezione.py`,
+    `abaqus.write_inp`) fallirebbe su un nome che collide solo ignorando le
+    maiuscole, ed e' un errore che arriva dopo la tetraedralizzazione invece
+    che a validazione. Un nome fuori dai sei passa intatto: chi lo rifiuta e'
+    la guardia a valle, che sa quali insiemi il deck contiene davvero.
+    """
+    return _mappa_casefold(NOMI_SET_DI_FACCIA).get(nome.casefold(), nome)
+
+
+NomeSetDiFaccia = Annotated[NomeSet, AfterValidator(_caso_canonico_dei_sei)]
+
+
+def _mappa_casefold(nomi: Iterable[str]) -> dict[str, str]:
+    """`nome.casefold()` -> nome canonico: un solo spazio di nomi nel deck.
+
+    `ccx` risolve gli `*NSET` senza distinguere le maiuscole (misurato in
+    `docs/fase-6-cantiere/sonda-caso-nomi/README.md`): ogni punto che
+    confronta un nome di set con un altro deve normalizzare il caso allo
+    stesso modo, o due nomi che per `ccx` sono lo stesso `*NSET` passerebbero
+    controlli diversi. Estratta qui perche' e' la quarta volta che il
+    confronto ricorre (i sei nomi di faccia, i passi riservati, i selettori
+    dichiarati, e ora `SelettoreNset.nome`): la soglia per estrarla era il
+    terzo punto, e questo modulo l'ha gia' superata.
+    """
+    return {nome.casefold(): nome for nome in nomi}
 
 
 class _ModelloBase(BaseModel):
@@ -43,8 +84,7 @@ class Material(_ModelloBase):
     dedurre dalla nuvola o supplire per conto suo.
     """
 
-    name: str = Field(
-        pattern=r"^[A-Za-z0-9_.-]+$",
+    name: NomeSet = Field(
         description=(
             "nome del materiale. Il vincolo non e' cosmetico: il nome viene interpolato "
             "in `*MATERIAL, NAME=...` e il deck e' scritto in ascii, quindi un carattere "
@@ -229,19 +269,19 @@ class SpintaOrizzontale(_ModelloBase):
 
 
 class CaricoSommita(_ModelloBase):
-    """Risultante verticale ripartita sui nodi di un insieme.
+    """Risultante verticale ripartita sui nodi di un insieme, per area tributaria.
 
-    La ripartizione e' uniforme per nodo, quindi il carico si concentra dove i
-    nodi sono piu' fitti, e l'insieme e' costruito per tolleranza e non e' la
-    faccia superiore certificata del pezzo. Sono due cose da dichiarare accanto
-    ai risultati di questo caso, non da correggere qui.
+    Pesata per area tributaria dalla Fase 6 (la stessa `ripartisci` dei
+    carichi posizionati): un nodo non riceve piu' carico solo perche' la
+    mesh e' piu' fitta li'. L'insieme e' comunque costruito per tolleranza e
+    non e' la faccia superiore certificata del pezzo: quello resta da
+    dichiarare accanto ai risultati di questo caso.
     """
 
-    risultante: float = Field(gt=0.0, description="risultante in N, ripartita sui nodi")
-    nset: str = Field(
-        pattern=r"^[A-Za-z0-9_.-]+$",
-        description="insieme di nodi su cui ripartire, di norma TOP",
+    risultante: float = Field(
+        gt=0.0, description="risultante in N, ripartita per area tributaria sui nodi"
     )
+    nset: NomeSetDiFaccia = Field(description="insieme di nodi su cui ripartire, di norma TOP")
 
 
 class Modale(_ModelloBase):
@@ -266,8 +306,8 @@ class AnalysisConfig(_ModelloBase):
 
     material: Material
     gravity: float = Field(default=GRAVITY_MM_S2, gt=0.0)
-    fixed_nset: str = "BASE"
-    step_name: str = "GRAVITA"
+    fixed_nset: NomeSetDiFaccia = "BASE"
+    step_name: NomeSet = "GRAVITA"
     set_tolerance_factor: float = Field(
         default=6.0,
         gt=0.0,
@@ -610,18 +650,16 @@ class ModelConfig(_ModelloBase):
             "vincolo degli strati"
         ),
     )
-    tie_name_prefix: str = Field(
+    tie_name_prefix: NomeSet = Field(
         default="GIUNZIONE",
-        pattern=r"^[A-Za-z0-9_.-]+$",
         description=(
             "prefisso dei nomi dei vincoli *TIE fra membrature adiacenti. Stesso "
             "vincolo di caratteri del nome del materiale, e per la stessa "
             "ragione: finisce interpolato in un deck scritto in ascii"
         ),
     )
-    lateral_nset: str | None = Field(
+    lateral_nset: NomeSet | None = Field(
         default=None,
-        pattern=r"^[A-Za-z0-9_.-]+$",
         description=(
             "CARICO LATERALE, facoltativo: nome della superficie di elemento su "
             "cui agisce la pressione. Assente se non richiesto"
@@ -645,10 +683,154 @@ class ModelConfig(_ModelloBase):
         return self
 
 
+# I sei nomi che `abaqus.build_node_sets` fabbrica a ogni esportazione.
+# Stanno qui e non in `core/abaqus.py` perche' la validazione della
+# configurazione deve conoscerli e `abaqus` importa gia' `config`: l'altro
+# verso sarebbe un ciclo. `build_node_sets` **non** li importa da qui: e' un
+# dizionario letterale che li riscrive, per tenere ogni nome sulla riga del
+# proprio criterio geometrico (il perche' e' scritto li'). L'accordo fra le
+# due liste lo tengono due test, non il tipo: se questa costante cambia e
+# quel dizionario no, sono loro a dirlo.
+NOMI_SET_DI_FACCIA: tuple[str, ...] = (
+    "BASE", "TOP", "FACE_FRONT", "FACE_BACK", "SIDE_LEFT", "SIDE_RIGHT",
+)
+
+
+class SelettoreBox(_ModelloBase):
+    """Tutti i nodi dentro un parallelepipedo allineato agli assi del modello.
+
+    Le coordinate sono nel sistema di riferimento **dopo** `align_to_axes`,
+    lo stesso di `wall_model.vtu`: e' il maglio che il deck contiene.
+    L'estensione in quel sistema e' pubblicata in
+    `metrics["11_export"]["extent"]`, e la bbox dei nodi presi in
+    `metrics["11_export"]["selettori"]`, perche' l'operatore possa
+    collocare una box senza indovinare.
+    """
+
+    tipo: Literal["box"]
+    min: tuple[float, float, float] = Field(description="angolo minimo [mm]")
+    max: tuple[float, float, float] = Field(description="angolo massimo [mm]")
+
+    @model_validator(mode="after")
+    def _la_box_non_e_rovesciata(self) -> "SelettoreBox":
+        for asse, minimo, massimo in zip("xyz", self.min, self.max, strict=True):
+            if minimo > massimo:
+                raise ValueError(
+                    f"la box ha min > max sulla componente {asse}: {minimo} > {massimo}. "
+                    "Risolverebbe zero nodi, con lo stesso sintomo di altre quattro "
+                    "condizioni diverse, e nessuno saprebbe quale sia successa"
+                )
+        return self
+
+
+class SelettoreSfera(_ModelloBase):
+    """Tutti i nodi entro un raggio da un centro. Coordinate come in SelettoreBox."""
+
+    tipo: Literal["sfera"]
+    centro: tuple[float, float, float] = Field(description="centro [mm]")
+    raggio: float = Field(gt=0.0, description="raggio [mm]. Zero non e' una sfera piccola")
+
+
+class SelettoreNodo(_ModelloBase):
+    """Il singolo nodo piu' vicino a un punto. Coordinate come in SelettoreBox.
+
+    Per costruzione non puo' rendere zero nodi: `argmin` un vincitore ce l'ha
+    sempre, anche a chilometri di distanza. L'oracolo sta a valle, sulla
+    distanza, e non qui.
+    """
+
+    tipo: Literal["nodo"]
+    punto: tuple[float, float, float] = Field(description="punto di riferimento [mm]")
+
+
+class SelettoreNset(_ModelloBase):
+    """Un insieme di nodi gia' esistente nel deck, per nome."""
+
+    tipo: Literal["nset"]
+    nome: NomeSetDiFaccia = Field(
+        description="nome di un *NSET gia' scritto, di norma uno dei sei di faccia"
+    )
+
+
+Selettore = Annotated[
+    SelettoreBox | SelettoreSfera | SelettoreNodo | SelettoreNset,
+    Field(discriminator="tipo"),
+]
+
+
+class Momento(_ModelloBase):
+    """Momento realizzato come coppia di forze staticamente equivalente.
+
+    Non come `*CLOAD` sui gradi 4-6: misurato su un deck di sonda dato a
+    `ccx` 2.22, un momento concentrato su un C3D4 e' scartato **in
+    silenzio** -- zero occorrenze di `warning` o `error`, `number of
+    equations 3`, spostamento `0.000000E+00` su tutte e tre le componenti.
+    La guardia di `core/solve.py:438` non lo intercetta perche' non c'e'
+    nessun warning da intercettare.
+
+    `braccio` fissa la soglia di separazione fra i due gruppi di nodi, e il
+    programma la contraddice se i nodi presi non la sostengono. Il momento
+    realizzato resta `modulo`: e' la forza a calibrarsi sul braccio
+    effettivo che i nodi offrono davvero -- maggiore di quello dichiarato,
+    ed e' nel resoconto -- non il momento a scostarsi da quello dichiarato.
+    """
+
+    asse: tuple[float, float, float] = Field(
+        description="asse del momento, versore non normalizzato"
+    )
+    modulo: float = Field(gt=0.0, description="modulo del momento [N*mm]")
+    braccio: float = Field(
+        gt=0.0,
+        description=(
+            "soglia di separazione dei due gruppi di nodi [mm]; il braccio "
+            "effettivo fra i baricentri pesati risulta maggiore ed e' nel resoconto"
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _lasse_non_e_nullo(self) -> "Momento":
+        if not any(self.asse):
+            raise ValueError(
+                "l'asse del momento e' [0, 0, 0]: non e' una direzione, si vede "
+                "dalla configurazione senza aver letto la mesh"
+            )
+        return self
+
+
+class CaricoPosizionato(_ModelloBase):
+    """Un carico che porta con se' il proprio indirizzo.
+
+    E' la differenza vera dagli altri tre casi di `CarichiConfig`, che sono
+    dichiarati a mano anche loro ma citano un insieme che il deck fabbrica.
+    """
+
+    nome: NomeSet = Field(description="nome del passo statico nel deck")
+    selettore: NomeSet = Field(description="nome di un selettore dichiarato in `selettori`")
+    forza: tuple[float, float, float] | None = Field(
+        default=None, description="risultante [N], ripartita per area sui nodi presi"
+    )
+    momento: Momento | None = None
+
+    @model_validator(mode="after")
+    def _o_forza_o_momento(self) -> "CaricoPosizionato":
+        if (self.forza is None) == (self.momento is None):
+            raise ValueError(
+                f"il carico '{self.nome}' deve dichiarare uno solo fra `forza` e "
+                "`momento`: entrambi sono due carichi e vanno scritti come due voci, "
+                "nessuno dei due non e' un carico"
+            )
+        if self.forza is not None and not any(self.forza):
+            raise ValueError(
+                f"il carico '{self.nome}' ha forza di modulo nullo: scriverebbe un "
+                "passo statico identico al peso proprio, con un nome che promette altro"
+            )
+        return self
+
+
 class CarichiConfig(_ModelloBase):
     """Casi di carico applicati al modello, oltre al peso proprio.
 
-    I tre campi sono nullabili perché la dichiarazione e' opzionale: chi non
+    I tre campi nullabili lo sono perché la dichiarazione e' opzionale: chi non
     dichiara nulla ottiene il solo peso proprio, l'unico caso che il programma
     puo' derivare dai dati (densita' e gravita' sono gia' nella configurazione).
 
@@ -660,6 +842,15 @@ class CarichiConfig(_ModelloBase):
     spinta: SpintaOrizzontale | None = None
     carico_sommita: CaricoSommita | None = None
     modale: Modale | None = None
+    posizionati: tuple[CaricoPosizionato, ...] = Field(
+        default=(),
+        description=(
+            "carichi che portano con se' il proprio selettore. Tupla vuota e non "
+            "None: il codice a valle itera, e una corsa senza posizionati e una "
+            "con la lista vuota sono lo stesso esperimento -- e' la regola che "
+            "l'impronta di sweep gia' applica al blocco intero"
+        ),
+    )
 
 
 class PipelineConfig(_ModelloBase):
@@ -685,8 +876,114 @@ class PipelineConfig(_ModelloBase):
         ),
     )
     carichi: CarichiConfig = Field(default_factory=CarichiConfig)
+    selettori: dict[NomeSet, Selettore] = Field(
+        default_factory=dict,
+        description=(
+            "regole geometriche nominate che indirizzano i nodi di una mesh senza "
+            "topologia. Nominate e non annidate nei carichi: due carichi sullo "
+            "stesso posto citano lo stesso nome, e una correzione fatta in un "
+            "punto solo li muove entrambi"
+        ),
+    )
     wall: WallConfig = Field(default_factory=WallConfig)
     model: ModelConfig = Field(default_factory=ModelConfig)
+
+    @model_validator(mode="after")
+    def _i_nomi_dei_selettori_non_collidono_coi_sei(self) -> "PipelineConfig":
+        """Il confronto normalizza il caso su entrambi i lati.
+
+        Misurato in `docs/fase-6-cantiere/sonda-caso-nomi/README.md`: `ccx`
+        risolve un `*NSET` senza distinguere le maiuscole, quindi un
+        selettore `base` collide con `BASE` nel deck anche se le stringhe
+        Python sono diverse. Per lo stesso motivo due selettori
+        dell'operatore che differiscono solo per caso (`piastra`/`PIASTRA`)
+        sono due chiavi distinte nel dizionario ma un solo nome nel deck.
+        """
+        casi_di_faccia = _mappa_casefold(NOMI_SET_DI_FACCIA)
+        visti: dict[str, str] = {}
+        for nome in self.selettori:
+            chiave = nome.casefold()
+            if chiave in casi_di_faccia:
+                raise ValueError(
+                    f"il selettore {nome!r} collide, ignorando le maiuscole, con il "
+                    f"set di faccia {casi_di_faccia[chiave]!r} che il deck fabbrica da "
+                    "se': nel deck c'e' un solo spazio di nomi, case-insensitive "
+                    "(vedi docs/fase-6-cantiere/sonda-caso-nomi/README.md), e il "
+                    "*NSET dell'operatore lo sovrascriverebbe"
+                )
+            if chiave in visti:
+                raise ValueError(
+                    f"i selettori {visti[chiave]!r} e {nome!r} differiscono solo per "
+                    "maiuscole: nel deck sono lo stesso nome, case-insensitive "
+                    "(vedi docs/fase-6-cantiere/sonda-caso-nomi/README.md)"
+                )
+            visti[chiave] = nome
+        return self
+
+    @model_validator(mode="after")
+    def _i_posizionati_citano_selettori_dichiarati(self) -> "PipelineConfig":
+        # Il confronto sui nomi ignora il caso, come gia' fa
+        # `_i_nomi_dei_selettori_non_collidono_coi_sei`. Una sola regola nel
+        # modulo, non due: la ragione la' era misurata (ccx risolve gli *NSET
+        # senza distinguere le maiuscole, vedi
+        # docs/fase-6-cantiere/sonda-caso-nomi/), qui e' che due passi che
+        # differiscono solo per caso sono indistinguibili per chi legge il
+        # rapporto, e un nome che l'operatore crede nuovo ne sovrascrive uno
+        # riservato nella sua testa se non nel deck.
+        riservati = _mappa_casefold(NOMI_PASSO_RISERVATI)
+        # `analysis` puo' mancare: una corsa nasce dalla sola nuvola e il
+        # materiale si dichiara piu' tardi (lo pretendono gli step 11 e 13, non
+        # gli altri). Questo validatore gira a OGNI costruzione, comprese le
+        # configurazioni che un'analisi non ce l'hanno ancora, quindi leggere
+        # `self.analysis.step_name` diritto la faceva cadere sulla nuvola appena
+        # caricata. Senza analisi non c'e' nessun passo di peso proprio da
+        # riservare, e il nome resta libero fino a quando l'analisi lo prende.
+        passo_del_peso = self.analysis.step_name if self.analysis else None
+        if passo_del_peso is not None:
+            riservati[passo_del_peso.casefold()] = passo_del_peso
+        selettori_per_caso = _mappa_casefold(self.selettori)
+        visti: dict[str, str] = {}
+        for carico in self.carichi.posizionati:
+            chiave_selettore = carico.selettore.casefold()
+            if chiave_selettore not in selettori_per_caso:
+                raise ValueError(
+                    f"il carico '{carico.nome}' cita il selettore "
+                    f"'{carico.selettore}', che non e' dichiarato. Dichiarati: "
+                    f"{sorted(self.selettori)}"
+                )
+            # Normalizzato al nome canonico qui, a monte: a valle
+            # (`core/abaqus.py`, che costruisce `nset_selettori` dalle chiavi
+            # di `self.selettori`) il confronto e' un'uguaglianza esatta, e
+            # deve trovare sempre lo stesso nome che il selettore ha
+            # dichiarato, non la grafia con cui il carico lo ha citato.
+            carico.selettore = selettori_per_caso[chiave_selettore]
+            chiave = carico.nome.casefold()
+            if chiave in riservati:
+                raise ValueError(
+                    f"il carico '{carico.nome}' porta il nome del passo "
+                    f"'{riservati[chiave]}', gia' preso. I riservati sono "
+                    f"{list(NOMI_PASSO_RISERVATI)}"
+                    # Nominato solo quando c'e': senza analisi la frase
+                    # direbbe che il passo di peso proprio si chiama 'None',
+                    # cioe' inventerebbe un nome che nessuno ha dichiarato.
+                    + (
+                        f" e il passo di peso proprio si chiama '{passo_del_peso}'"
+                        if passo_del_peso is not None
+                        else ""
+                    )
+                    + ". Il confronto ignora il caso: due passi che "
+                    "differiscono solo per maiuscole sono indistinguibili "
+                    "per chi legge il rapporto"
+                )
+            if chiave in visti:
+                raise ValueError(
+                    f"due carichi posizionati si chiamano '{visti[chiave]}' e "
+                    f"'{carico.nome}': il deck scriverebbe due passi omonimi e i "
+                    "due risultati sarebbero indistinguibili nel file risolto"
+                )
+            visti[chiave] = carico.nome
+        return self
+
     run: RunConfig = Field(default_factory=RunConfig)
 
     def analisi_dichiarata(self, chiede: str) -> AnalysisConfig:
@@ -716,10 +1013,47 @@ class PipelineConfig(_ModelloBase):
         return self.analysis
 
 
+class _LoaderChiaviUniche(yaml.SafeLoader):
+    """`SafeLoader` che rifiuta due chiavi omonime invece di tenere l'ultima.
+
+    Misurato: con il loader di serie la prima delle due sparisce senza alcun
+    segnale. E' l'unico ingresso degenere che non ha un sintomo -- gli altri
+    almeno risolvono zero nodi -- e per questo si rifiuta alla lettura invece
+    che a valle.
+
+    Deriva da `yaml.SafeLoader` e ne eredita i costruttori: nessun tag
+    `!!python/object`, nessuna costruzione di tipi arbitrari. Aggiunge un
+    controllo, non toglie un divieto.
+    """
+
+    def construct_mapping(self, node, deep=False):  # type: ignore[override]
+        viste: set[object] = set()
+        for chiave_node, _ in node.value:
+            chiave = self.construct_object(chiave_node, deep=deep)
+            if chiave in viste:
+                raise ValueError(
+                    f"la chiave '{chiave}' compare due volte nello stesso blocco "
+                    f"({chiave_node.start_mark}): il lettore terrebbe l'ultima e la "
+                    "prima sparirebbe senza un segnale"
+                )
+            viste.add(chiave)
+        return super().construct_mapping(node, deep=deep)
+
+
+def carica_yaml(path: Path) -> object:
+    """L'unica lettura YAML del modulo, con il rifiuto delle chiavi omonime.
+
+    `yaml.load` con un loader che **eredita da SafeLoader** ha esattamente i
+    costruttori di `safe_load`. Non sostituire il loader con `yaml.Loader` o
+    `yaml.UnsafeLoader`, che i tag `!!python/object` li eseguono davvero.
+    """
+    with Path(path).open(encoding="utf-8") as handle:
+        return yaml.load(handle, Loader=_LoaderChiaviUniche)  # noqa: S506
+
+
 def load_config(path: Path) -> PipelineConfig:
     """Legge un config.yaml senza perdita rispetto a quanto scritto da `save_config`."""
-    with Path(path).open(encoding="utf-8") as handle:
-        return PipelineConfig.model_validate(yaml.safe_load(handle))
+    return PipelineConfig.model_validate(carica_yaml(path))
 
 
 def save_config(cfg: PipelineConfig, path: Path) -> None:
@@ -805,8 +1139,7 @@ class ExperimentConfig(_ModelloBase):
 
 def load_experiment(path: Path) -> ExperimentConfig:
     """Legge la dichiarazione di un esperimento."""
-    with Path(path).open(encoding="utf-8") as handle:
-        return ExperimentConfig.model_validate(yaml.safe_load(handle))
+    return ExperimentConfig.model_validate(carica_yaml(path))
 
 
 class ViewportConfig(_ModelloBase):

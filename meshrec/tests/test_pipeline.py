@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 from pydantic import ValidationError
 
-from meshrec.core import config, io, pipeline, quality, solve, steps, synth
+from meshrec.core import abaqus, config, io, pipeline, quality, solve, steps, synth
 from materiale import ANALISI, MATERIALE, crea_config
 
 
@@ -869,3 +869,66 @@ def test_generare_un_modello_senza_materiale_non_lascia_una_cartella_a_meta(tmp_
         pipeline.genera_modello(cfg, "estruso", figlia)
 
     assert not (figlia / "config.yaml").exists()
+
+
+def test_lo_step_11_passa_i_selettori(monkeypatch, tmp_path):
+    """Il percorso as-built e' quello della tesi: se non passa i selettori, non esistono.
+
+    Mutazione che lo uccide: togliere `selettori=cfg.selettori` dalla
+    chiamata di core/pipeline.py:439-448. La cattura non vede la chiave e
+    l'assert cade.
+    """
+    visti: dict[str, object] = {}
+    originale = abaqus.export_model
+
+    def spia(*args, **kwargs):
+        visti.update(kwargs)
+        return originale(*args, **kwargs)
+
+    monkeypatch.setattr(abaqus, "export_model", spia)
+
+    cfg = _config_cubo(tmp_path)
+    cfg.run.to_step = 11
+    # Banda in quota fra 200 e 240 mm su un cubo alto 240 (SIZE): prende
+    # piu' di zero nodi e meno di tutti, qualunque sia il permutare degli
+    # assi orizzontali fatto da align_to_axes (z resta il verticale).
+    cfg.selettori = {"piastra": config.SelettoreBox(
+        tipo="box", min=(-1e9, -1e9, 200.0), max=(1e9, 1e9, 1e9)
+    )}
+    pipeline.run(cfg)
+
+    assert visti.get("selettori")
+
+
+def test_il_percorso_esaedrico_non_riceve_selettori(monkeypatch, tmp_path):
+    """`selezione.spigolo_medio` media tutte le coppie di nodi dentro un
+    elemento, che coincide con gli spigoli solo per un tetraedro: su un
+    esaedro conterebbe anche le diagonali, allentando in silenzio la soglia
+    dei tre spigoli. Il percorso esaedrico (`genera_modello`) non deve
+    passare `selettori` a `export_model`, altrimenti quel limite diventa
+    raggiungibile.
+
+    Mutazione che lo uccide: aggiungere `selettori=cfg.selettori` alla
+    chiamata di `abaqus.export_model` dentro `genera_modello`
+    (core/pipeline.py:190-202). La cattura vedrebbe la chiave e l'assert
+    cadrebbe.
+    """
+    visti: dict[str, object] = {}
+    originale = abaqus.export_model
+
+    def spia(*args, **kwargs):
+        visti.update(kwargs)
+        return originale(*args, **kwargs)
+
+    monkeypatch.setattr(abaqus, "export_model", spia)
+
+    cfg = _config_cubo(tmp_path)
+    cfg.selettori = {"piastra": config.SelettoreSfera(
+        tipo="sfera", centro=(0.0, 0.0, 0.0), raggio=5.0
+    )}
+    pipeline.run(cfg)
+    visti.clear()  # pipeline.run chiama gia' export_model (step 11, as-built): isola la sola chiamata di genera_modello
+
+    pipeline.genera_modello(cfg, "estruso", tmp_path / "figlia")
+
+    assert "selettori" not in visti

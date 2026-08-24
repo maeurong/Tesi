@@ -437,8 +437,13 @@ def test_casi_di_carico_segue_l_ordine_vero_scritto_da_write_inp(tmp_path):
     scrive davvero (le righe `** NOME PASSO: ...`, comprese nello stesso
     deck che `export_model` produce), e quello e' l'oracolo contro cui si
     confronta `casi_di_carico`. Nessun `ccx` necessario: e' solo testo.
+
+    `set_tolerance_factor` ridotto: col predefinito `TOP` e `BASE`
+    collassano nello stesso insieme su questo cubo sintetico, e la
+    guardia carico-sul-vincolo (punto 1, Task 15) rifiuterebbe il
+    CARICO_TOP che qui non c'entra con l'ordine dei passi.
     """
-    from meshrec.core.config import TetConfig
+    from meshrec.core.config import AnalysisConfig, TetConfig
 
     vertices, faces = synth.box_mesh((100.0, 100.0, 100.0))
     nodi, elementi = volume.tetrahedralize(
@@ -449,9 +454,10 @@ def test_casi_di_carico_segue_l_ordine_vero_scritto_da_write_inp(tmp_path):
         carico_sommita=CaricoSommita(risultante=1000.0, nset="TOP"),
         modale=Modale(modi=2),
     )
+    analisi = AnalysisConfig(material=MATERIALE, set_tolerance_factor=0.5)
     esito = abaqus.export_model(
         tmp_path / "prova.inp", tmp_path / "prova.vtu", nodi, elementi,
-        ANALISI, TetConfig(), carichi=carichi,
+        analisi, TetConfig(), carichi=carichi,
     )
 
     testo = (tmp_path / "prova.inp").read_text(encoding="ascii")

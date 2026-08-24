@@ -721,7 +721,26 @@ def create_app(
         for numero, blocchi in steps.STEP_BLOCKS.items():
             campi: dict[str, object] = {}
             for blocco in blocchi:
+                # `selettori` e' un `dict[NomeSet, Selettore]`, non un
+                # `BaseModel`: le sue voci sono nominate dall'operatore, non
+                # campi fissi da descrivere uno per uno. Niente `model_fields`
+                # da leggere, quindi nessun campo da elencare per questo blocco.
+                #
+                # Le due meta' di questo blocco vengono da due rami e servono a
+                # due casi diversi: nessuna copre l'altro, e tenerne una sola
+                # reintroduce il difetto che l'altra aveva chiuso.
+                # _modello_del_blocco scarta il None da `X | None` -- senza,
+                # `analysis` faceva cadere /api/schema con un AttributeError,
+                # cioe' spegneva il pannello degli step 11 e 13. La guardia
+                # regge le annotazioni che non sono modelli affatto, come
+                # questo dict, su cui _modello_del_blocco da solo prenderebbe
+                # NomeSet e chiederebbe model_fields a una stringa. Il difetto
+                # muto e' il peggiore dei due: esce 200 con i campi mancanti,
+                # invece di sollevare dove qualcuno se ne accorge.
                 annidato = _modello_del_blocco(modelli[blocco].annotation)
+                if not hasattr(annidato, "model_fields"):
+                    campi[blocco] = {}
+                    continue
                 campi[blocco] = {
                     nome: {
                         "description": campo.description or "",

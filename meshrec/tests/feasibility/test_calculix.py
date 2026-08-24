@@ -14,10 +14,12 @@ from meshrec.core import abaqus, solve, synth, volume
 from meshrec.core.config import (
     GRAVITY_MM_S2,
     AnalysisConfig,
+    CaricoPosizionato,
     CaricoSommita,
     CarichiConfig,
     Material,
     Modale,
+    Momento,
     SpintaOrizzontale,
 )
 from ccx_utils import read_dat_displacements
@@ -495,3 +497,359 @@ def test_lo_step_13_risolve_il_deck_e_scrive_i_campi_nel_vtu(tmp_path):
         "il carico aggiuntivo in sommita' (peso proprio + risultante verticale) "
         "deve accorciare la colonna piu' del solo peso proprio"
     )
+
+
+def test_un_posizionato_gira_a_zero_avvisi_e_sposta_qualcosa(tmp_path):
+    """Il deck con un carico posizionato lo onora il solutore, non una lettura del testo.
+
+    Non basta "zero avvisi": un momento su un C3D4 esce a zero avvisi e
+    spostamento esattamente nullo. L'oracolo sullo spostamento verifica
+    solo che qualcosa si sia mosso.
+
+    L'oracolo che uccide davvero e' sulle **reazioni**, non sullo
+    spostamento: `max|uz|` risponde sia a un carico verticale che a uno
+    orizzontale (una colonna snella si inflette, e la flessione sposta
+    la sommita' in z quanto o piu' del carico assiale corretto -- vedi
+    sotto), quindi non puo' distinguere "la forza e' andata dove
+    dichiarato" da "e' andata altrove". Le reazioni sono equilibrio, non
+    inflessione: non dipendono dalla snellezza, e la loro somma sul set
+    vincolato dice esattamente quale vettore il solutore ha applicato.
+
+    Il passo letto e' il secondo (`passo=2`): il deck ha due passi
+    statici, GRAVITA (il solo peso proprio, scritto sempre per primo da
+    `write_inp`) e PRESSA (peso proprio piu' il carico posizionato,
+    cumulativo come ogni passo di questa funzione). Il peso proprio
+    atteso e' calcolato da massa e gravita' (`material.density * volume
+    * GRAVITY_MM_S2`), non misurato da una corsa a parte: la colonna e'
+    un box, il suo volume e' noto in forma chiusa senza bisogno della
+    mesh.
+
+    Mutazione che lo uccide: scrivere il grado del *CLOAD a 1 invece del
+    grado vero (3, verticale). Misurato: somma reazioni corretto
+    (fx,fy,fz)=(-9e-6, 2.2e-6, 1067.5) N, mutato (1000.0, -1.7e-5, 67.5)
+    N -- la firma si ribalta netta, x prende il carico e z resta col
+    solo peso, senza soglie da negoziare.
+
+    Due mutazioni tentate prima, contro l'oracolo sullo spostamento, non
+    uccidono e restano documentate perche' qualcuno non le riprovi:
+    (1) nodo base zero invece di base uno -- il nodo 0 non cade nel
+    selettore "piastra" (set TOP), lo shift di un'unita' sposta la forza
+    su un nodo vicino ancora quasi sempre in TOP: max|uz| corretto
+    0.0275 mm, mutato 0.0300 mm, stesso ordine, nessuna soglia separa.
+    (2) grado 1 invece di 3 contro max|uz| (invece che contro le
+    reazioni): la colonna e' snella (100x100x400 mm) e la forza fuori
+    asse la inflette, spostando la sommita' in z per rotazione della
+    sezione piu' del carico assiale corretto -- max|uz| corretto
+    0.0274568 mm, mutato 0.223764 mm, rapporto ~8.1x, sotto l'ordine di
+    grandezza per una soglia onesta. Stessa mutazione, oracolo sbagliato:
+    la sostituzione dell'oracolo (reazioni al posto dello spostamento),
+    non della mutazione, e' quello che l'ha resa netta.
+    """
+    executable = shutil.which("ccx")
+    if executable is None:
+        pytest.skip("eseguibile 'ccx' non presente nel PATH")
+
+    material = Material(name="MURATURA", young=1500.0, poisson=0.2, density=1.8e-9)
+    vertices, faces = synth.box_mesh(SIZE)
+    nodes, tets = volume.tetrahedralize(
+        vertices, faces, max_volume=20_000.0, min_ratio=1.8, max_steiner_points=-1, nobisect=False
+    )
+    z = nodes[:, 2]
+    node_sets = {
+        "BASE": np.flatnonzero(z <= z.min() + 1e-6),
+        "TOP": np.flatnonzero(z >= z.max() - 1e-6),
+    }
+
+    abaqus.write_inp(
+        tmp_path / "model.inp", nodes, tets,
+        node_sets=node_sets,
+        material=material,
+        print_nsets=("TOP",),
+        nset_selettori={"piastra": node_sets["TOP"]},
+        carichi=CarichiConfig(posizionati=[
+            CaricoPosizionato(nome="PRESSA", selettore="piastra", forza=(0.0, 0.0, -1000.0)),
+        ]),
+    )
+
+    processo = subprocess.run(
+        [executable, "-i", "model"],
+        cwd=tmp_path, capture_output=True, text=True, timeout=600,
+    )
+    uscita = processo.stdout
+    assert "Job finished" in uscita, uscita[-2000:] + processo.stderr[-2000:]
+    assert uscita.upper().count("*WARNING") == 0, uscita
+    assert uscita.upper().count("*ERROR") == 0, uscita
+
+    spostamenti = read_dat_displacements(tmp_path / "model.dat")
+    assert spostamenti, "il .dat non porta spostamenti: il carico non e' arrivato"
+    assert max(abs(u[2]) for u in spostamenti.values()) > 0.0
+
+    # Oracolo vero: la somma delle reazioni sul passo PRESSA (il secondo,
+    # peso proprio incluso) e' esattamente il vettore applicato, in
+    # equilibrio -- non dipende dalla snellezza della colonna come lo
+    # spostamento sopra.
+    reazioni = solve.leggi_reazioni(tmp_path / "model.dat", passo=2)
+    assert reazioni, "il passo 2 (PRESSA) non porta reazioni"
+    fx, fy, fz = np.array(list(reazioni.values())).sum(axis=0)
+    peso_atteso = material.density * SIZE[0] * SIZE[1] * SIZE[2] * GRAVITY_MM_S2
+    assert fz == pytest.approx(1000.0 + peso_atteso, rel=0.02), (
+        "la reazione verticale non bilancia forza dichiarata + peso proprio: "
+        "il carico non e' arrivato sul grado giusto"
+    )
+    assert abs(fx) < 1.0 and abs(fy) < 1.0, (
+        "reazione orizzontale non trascurabile: il carico verticale dichiarato "
+        "sta spingendo la struttura di lato, non e' sul grado 3"
+    )
+
+
+def test_il_secondo_posizionato_non_eredita_il_cload_del_primo(tmp_path):
+    """Un *CLOAD dichiarato in un passo statico resta attivo nel passo dopo, se nessuno lo azzera.
+
+    Misurato con la sonda in `docs/fase-6-cantiere/sonda-cload-persiste/`:
+    un `*CLOAD` di un passo statico si legge ancora nelle reazioni del
+    passo successivo, a meno che quel passo non apra con `*CLOAD, OP=NEW`.
+    Fino a questa fase nessun deck aveva mai due passi statici consecutivi
+    che dichiarano entrambi un `*CLOAD` (`SPINTA_ORIZZONTALE` usa `*DLOAD`,
+    `CARICO_TOP` era sempre l'ultimo passo statico prima di `MODALE`, che
+    e' `*FREQUENCY`): due carichi posizionati sono la prima configurazione
+    che li mette in sequenza, ed e' per questo che nessun test lo aveva
+    ancora colto -- incluso quello sopra
+    (`test_un_posizionato_gira_a_zero_avvisi_e_sposta_qualcosa`), che ha un
+    solo posizionato e non puo' vedere il difetto.
+
+    I due carichi stanno su **selettori disgiunti** (`piastra`=TOP verticale,
+    `lato`=una faccia laterale) e su **gradi diversi** (z e x): un primo
+    tentativo con lo stesso selettore per entrambi risultava verde anche col
+    difetto presente, perche' il default Abaqus/CalculiX per `*CLOAD` senza
+    `OP=NEW` e' `OP=MOD` -- il valore nuovo *sovrascrive* quello vecchio sullo
+    stesso nodo/grado, e due carichi sullo stesso nodo/grado si sovrascrivono
+    a vicenda anche senza `OP=NEW`. Il difetto e' visibile solo quando il
+    secondo passo non ridichiara affatto il nodo/grado del primo: e' esattamente
+    il caso di `carico_sommita` seguito da un posizionato su un altro selettore,
+    o due posizionati su selettori diversi.
+
+    Mutazione che lo uccide: togliere ``OP=NEW`` dal `*CLOAD` che
+    `write_inp` scrive per ogni carico posizionato con `forza`. Misurato
+    applicando davvero la mutazione: la reazione fz del passo TIRO sale da
+    ~67,5 N (il solo peso proprio misurato al passo 1: TIRO e' tutto
+    orizzontale) a ~1067,5 N (1000 N verticali di PRESSA, mai azzerati, +
+    peso proprio) -- il *CLOAD di PRESSA su TOP resta applicato nel passo
+    di TIRO, che non lo tocca.
+    """
+    executable = shutil.which("ccx")
+    if executable is None:
+        pytest.skip("eseguibile 'ccx' non presente nel PATH")
+
+    material = Material(name="MURATURA", young=1500.0, poisson=0.2, density=1.8e-9)
+    vertices, faces = synth.box_mesh(SIZE)
+    nodes, tets = volume.tetrahedralize(
+        vertices, faces, max_volume=20_000.0, min_ratio=1.8, max_steiner_points=-1, nobisect=False
+    )
+    x, z = nodes[:, 0], nodes[:, 2]
+    node_sets = {
+        "BASE": np.flatnonzero(z <= z.min() + 1e-6),
+        "TOP": np.flatnonzero(z >= z.max() - 1e-6),
+    }
+    # Faccia laterale a x minimo, esclusa la sommita' e la base: disgiunta da
+    # TOP per costruzione, cosi' il *CLOAD di PRESSA (su TOP) non viene mai
+    # ridichiarato -- ne' quindi sovrascritto -- dal *CLOAD di TIRO (su LATO).
+    lato = np.flatnonzero((x <= x.min() + 1e-6) & (z < z.max() - 1e-6) & (z > z.min() + 1e-6))
+    assert not set(node_sets["TOP"].tolist()) & set(lato.tolist()), "TOP e LATO devono essere disgiunti"
+
+    abaqus.write_inp(
+        tmp_path / "model.inp", nodes, tets,
+        node_sets=node_sets,
+        material=material,
+        print_nsets=("TOP",),
+        nset_selettori={"piastra": node_sets["TOP"], "lato": lato},
+        carichi=CarichiConfig(posizionati=[
+            CaricoPosizionato(nome="PRESSA", selettore="piastra", forza=(0.0, 0.0, -1000.0)),
+            CaricoPosizionato(nome="TIRO", selettore="lato", forza=(300.0, 0.0, 0.0)),
+        ]),
+    )
+
+    processo = subprocess.run(
+        [executable, "-i", "model"],
+        cwd=tmp_path, capture_output=True, text=True, timeout=600,
+    )
+    uscita = processo.stdout
+    assert "Job finished" in uscita, uscita[-2000:] + processo.stderr[-2000:]
+    assert uscita.upper().count("*WARNING") == 0, uscita
+    assert uscita.upper().count("*ERROR") == 0, uscita
+
+    # Il peso proprio si misura dal passo 1 (GRAVITA, il solo peso, scritto
+    # sempre per primo da write_inp) invece che da rho*V*g sul volume
+    # nominale del box: la tetraedrizzazione approssima quel volume (misurato
+    # qui: scarto ~4,4%), e un oracolo tarato sul valore nominale avrebbe una
+    # soglia falsamente larga proprio dove serve stretta (passo 3, dove il
+    # solo peso proprio e' l'intera reazione attesa).
+    reazioni_gravita = solve.leggi_reazioni(tmp_path / "model.dat", passo=1)
+    peso_misurato = float(np.array(list(reazioni_gravita.values())).sum(axis=0)[2])
+
+    # Passo 2 (PRESSA): peso proprio + PRESSA (verticale), nessun TIRO ancora.
+    reazioni_pressa = solve.leggi_reazioni(tmp_path / "model.dat", passo=2)
+    fx, fy, fz = np.array(list(reazioni_pressa.values())).sum(axis=0)
+    assert fz == pytest.approx(1000.0 + peso_misurato, rel=0.02)
+    assert abs(fx) < 1.0 and abs(fy) < 1.0
+
+    # Passo 3 (TIRO): l'oracolo vero. TIRO e' tutto orizzontale (x): la
+    # reazione verticale deve tornare al solo peso proprio, non portare
+    # ancora i -1000 N verticali di PRESSA.
+    reazioni_tiro = solve.leggi_reazioni(tmp_path / "model.dat", passo=3)
+    fx, fy, fz = np.array(list(reazioni_tiro.values())).sum(axis=0)
+    assert fz == pytest.approx(peso_misurato, rel=0.02), (
+        f"fz={fz:.3f} N: il passo TIRO porta ancora il *CLOAD verticale di "
+        f"PRESSA (atteso ~{1000.0 + peso_misurato:.1f} N se non azzerato, "
+        f"contro il solo peso proprio {peso_misurato:.1f} N misurato al passo 1)"
+    )
+    assert fx == pytest.approx(-300.0, rel=0.02), "la reazione orizzontale deve bilanciare TIRO"
+    assert abs(fy) < 1.0
+
+
+def test_carico_top_non_eredita_la_spinta_del_dload(tmp_path):
+    """Un *DLOAD (GRAV) dichiarato in un passo statico resta attivo nel passo dopo, come il *CLOAD.
+
+    Misurato con la sonda in
+    `docs/fase-6-cantiere/sonda-cload-persiste/sonda-dload-ridichiarato.inp`:
+    il peso proprio si ridichiara identico a ogni passo e non raddoppia, ma
+    la spinta orizzontale (`SPINTA_ORIZZONTALE`), dichiarata una volta sola
+    nel suo passo, restava attiva in ogni passo statico successivo prima
+    che `_passo_statico` aprisse `*DLOAD` con `OP=NEW`. `CARICO_TOP` e' il
+    primo passo dove la combinazione `spinta` + `carico_sommita` e'
+    verificabile: senza il fix la sua reazione orizzontale sarebbe quella
+    di `SPINTA_ORIZZONTALE`, non quella del solo peso.
+
+    L'oracolo e' sulle reazioni orizzontali, non sul testo del deck: un
+    `*DLOAD, OP=NEW` scritto ma letto male da `ccx` non lo smentirebbe un
+    controllo sulla sola stringa.
+
+    Mutazione che lo uccide: togliere ``, OP=NEW`` dalla riga ``*DLOAD`` di
+    `_passo_statico`. Misurato applicando davvero la mutazione: la reazione
+    fx del passo CARICO_TOP resta quella di SPINTA_ORIZZONTALE (~-98 N)
+    invece di tornare a quella del solo peso proprio (~0 N).
+    """
+    executable = shutil.which("ccx")
+    if executable is None:
+        pytest.skip("eseguibile 'ccx' non presente nel PATH")
+
+    material = Material(name="MURATURA", young=1500.0, poisson=0.2, density=1.8e-9)
+    vertices, faces = synth.box_mesh(SIZE)
+    nodes, tets = volume.tetrahedralize(
+        vertices, faces, max_volume=20_000.0, min_ratio=1.8, max_steiner_points=-1, nobisect=False
+    )
+    z = nodes[:, 2]
+    node_sets = {
+        "BASE": np.flatnonzero(z <= z.min() + 1e-6),
+        "TOP": np.flatnonzero(z >= z.max() - 1e-6),
+    }
+
+    abaqus.write_inp(
+        tmp_path / "model.inp", nodes, tets,
+        node_sets=node_sets,
+        material=material,
+        carichi=CarichiConfig(
+            spinta=SpintaOrizzontale(coefficiente=0.1, asse="x"),
+            carico_sommita=CaricoSommita(risultante=500.0, nset="TOP"),
+        ),
+    )
+
+    processo = subprocess.run(
+        [executable, "-i", "model"],
+        cwd=tmp_path, capture_output=True, text=True, timeout=600,
+    )
+    uscita = processo.stdout
+    assert "Job finished" in uscita, uscita[-2000:] + processo.stderr[-2000:]
+    assert uscita.upper().count("*WARNING") == 0, uscita
+    assert uscita.upper().count("*ERROR") == 0, uscita
+
+    # Passo 1: GRAVITA (solo peso). Passo 2: SPINTA_ORIZZONTALE (peso + spinta
+    # orizzontale). Passo 3: CARICO_TOP (peso + *CLOAD in sommita').
+    reazioni_gravita = solve.leggi_reazioni(tmp_path / "model.dat", passo=1)
+    fx_peso, fy_peso, _ = np.array(list(reazioni_gravita.values())).sum(axis=0)
+
+    reazioni_spinta = solve.leggi_reazioni(tmp_path / "model.dat", passo=2)
+    fx_spinta, _, _ = np.array(list(reazioni_spinta.values())).sum(axis=0)
+    assert abs(fx_spinta - fx_peso) > 1.0, "la spinta non ha spostato la reazione orizzontale: il deck non esercita il codice da coprire"
+
+    reazioni_top = solve.leggi_reazioni(tmp_path / "model.dat", passo=3)
+    fx_top, fy_top, _ = np.array(list(reazioni_top.values())).sum(axis=0)
+    assert fx_top == pytest.approx(fx_peso, abs=1.0), (
+        f"fx={fx_top:.3f} N: il passo CARICO_TOP porta ancora la spinta orizzontale "
+        f"del passo precedente (atteso ~{fx_spinta:.1f} N se non azzerata, contro "
+        f"il solo peso proprio ~{fx_peso:.1f} N misurato al passo 1)"
+    )
+    assert fy_top == pytest.approx(fy_peso, abs=1.0)
+
+
+def test_un_momento_come_coppia_non_e_scartato_in_silenzio(tmp_path):
+    """Il momento realizzato come coppia sposta davvero, a differenza della card muta.
+
+    Misurato: un `*CLOAD` sul grado 4 di un C3D4 esce a zero avvisi e
+    spostamento `0.000000E+00`. Questo test afferma il contrario sulla
+    coppia, ed e' l'unico modo di distinguere le due cose.
+
+    Soglia di 1e-3 mm, non zero: misurato che la sola gravita' (senza
+    alcun momento) genera gia' fino a ~1.8e-5 mm di spostamento
+    orizzontale per asimmetria della mesh -- un confronto con 0.0
+    sarebbe soddisfatto anche da una card muta sul grado 4, che non
+    sposta nulla di suo ma eredita quel rumore. La coppia vera qui
+    misura ~0.05 mm, ~2700 volte sopra la soglia.
+
+    Mutazione che lo uccide: scrivere il momento come `*CLOAD` sui gradi
+    4-6 invece che come coppia. `ccx` esce a zero, senza warning, e gli
+    spostamenti orizzontali restano al rumore di fondo della gravita'
+    (~1.8e-5 mm), sotto la soglia.
+
+    Perche' questo test guarda lo spostamento e il test del posizionato
+    guarda le reazioni: una coppia ha forza netta nulla per costruzione,
+    quindi le sue reazioni sono indistinguibili da quelle della sola
+    gravita' -- l'oracolo sulle reazioni non direbbe nulla qui. La firma
+    di una coppia e' lo spostamento orizzontale, non l'equilibrio delle
+    forze. Non e' un'incoerenza da uniformare: sono due carichi diversi
+    con due firme diverse.
+    """
+    executable = shutil.which("ccx")
+    if executable is None:
+        pytest.skip("eseguibile 'ccx' non presente nel PATH")
+
+    material = Material(name="MURATURA", young=1500.0, poisson=0.2, density=1.8e-9)
+    vertices, faces = synth.box_mesh(SIZE)
+    nodes, tets = volume.tetrahedralize(
+        vertices, faces, max_volume=20_000.0, min_ratio=1.8, max_steiner_points=-1, nobisect=False
+    )
+    z = nodes[:, 2]
+    node_sets = {
+        "BASE": np.flatnonzero(z <= z.min() + 1e-6),
+        "TOP": np.flatnonzero(z >= z.max() - 1e-6),
+    }
+
+    abaqus.write_inp(
+        tmp_path / "model.inp", nodes, tets,
+        node_sets=node_sets,
+        material=material,
+        print_nsets=("TOP",),
+        nset_selettori={"piastra": node_sets["TOP"]},
+        carichi=CarichiConfig(posizionati=[
+            CaricoPosizionato(
+                nome="TORSIONE", selettore="piastra",
+                momento=Momento(asse=(0.0, 0.0, 1.0), modulo=50_000.0, braccio=60.0),
+            ),
+        ]),
+    )
+
+    processo = subprocess.run(
+        [executable, "-i", "model"],
+        cwd=tmp_path, capture_output=True, text=True, timeout=600,
+    )
+    uscita = processo.stdout
+    assert "Job finished" in uscita, uscita[-2000:] + processo.stderr[-2000:]
+    assert uscita.upper().count("*WARNING") == 0, uscita
+    assert uscita.upper().count("*ERROR") == 0, uscita
+
+    spostamenti = read_dat_displacements(tmp_path / "model.dat")
+    assert spostamenti, "il .dat non porta spostamenti"
+    orizzontali = max(max(abs(u[0]), abs(u[1])) for u in spostamenti.values())
+    # 1e-3 mm, non 0.0: la sola gravita' (mesh non simmetrica) genera gia'
+    # ~1.8e-5 mm di rumore orizzontale, che una card muta erediterebbe
+    # superando un confronto con zero senza aver mosso nulla di suo.
+    assert orizzontali > 1e-3, "la coppia non ha mosso nulla oltre il rumore: e' muta come la card sul grado 4"
