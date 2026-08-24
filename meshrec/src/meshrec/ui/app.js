@@ -231,35 +231,34 @@ function nuovaRiga() {
   return riga;
 }
 
-// Lo stato degli step come il server l'ha mandato l'ultima volta, tenuto per
-// una domanda sola: quale artefatto esiste DAVVERO. `disegnaStep` e' l'unico
-// imbuto per cui arriva (dal caricamento e dallo scorrere degli eventi, che
-// mandano entrambi run_state), quindi una riga qui lo tiene fresco da tutte e
-// due le strade.
+// Lo stato degli step per come il server l'ha DICHIARATO l'ultima volta. Non
+// e' cio' che sta sul disco, e la differenza conta: i due rami di rifiuto piu'
+// sotto esistono proprio per quando divergono. `disegnaStep` e' l'unico imbuto
+// per cui arriva (dal caricamento e dallo scorrere degli eventi, che mandano
+// entrambi run_state), quindi una riga la' lo tiene fresco da tutte e due le
+// strade.
 let ultimoStato = [];
 
 // Lo step la cui geometria si puo' mostrare al posto di quella di `numero`.
 //
-// Quattro step su tredici non scrivono un artefatto proprio, per costruzione e
-// non per guasto: il 7 e il 10 misurano, l'11 scrive un deck e il 12 un prior,
-// e nessuno dei quattro produce geometria (pipeline.ARTIFACTS ha nove chiavi).
-// Cliccarli svuotava il viewport: la statua spariva perche' lo scultore aveva
-// preso in mano un metro invece di uno scalpello.
+// Quattro step su tredici non scrivono GEOMETRIA, per costruzione e non per
+// guasto: il 7 e il 10 misurano, l'11 scrive un deck e il 12 un prior
+// (pipeline.ARTIFACTS ha nove chiavi su tredici). Cliccarli svuotava il
+// viewport.
 //
-// Servono DUE condizioni, e la seconda l'ha insegnata il registro di una corsa
-// vera (runs/lab_crop/steps.json): lo step 11 vi compare con
-// `artefatto: wall_model.inp`, cioe' NON nullo. Un artefatto ce l'ha davvero --
-// e' un deck di calcolo -- ma non e' geometria che il viewport sappia disegnare,
-// e chiederla porta dritti a /api/cloud/11, che il server rifiuta perche' l'11
-// non e' fra le chiavi di pipeline.ARTIFACTS. Cioe' di nuovo lo schermo vuoto,
-// per una strada nuova.
+// Servono DUE condizioni:
 //
 // 1. lo step deve avere SCRITTO qualcosa (`artefatto` non nullo). Non basta la
 //    tabella: lo step 8 scrive solo a semplificazione abilitata
 //    (`registra(8, ..., None)` altrimenti, che e' il predefinito), e una corsa
 //    non ancora eseguita non ha scritto niente.
-// 2. cio' che ha scritto dev'essere DISEGNABILE. Non basta il registro: vedi
-//    lo step 11 qui sopra.
+// 2. cio' che ha scritto dev'essere DISEGNABILE. Non basta il registro, e la
+//    seconda condizione l'ha insegnata una corsa vera: in
+//    runs/lab_crop/steps.json lo step 11 compare con
+//    `artefatto: wall_model.inp`, cioe' NON nullo. Un artefatto ce l'ha
+//    davvero, ma e' un deck di calcolo; chiederlo porta a /api/cloud/11, che
+//    il server rifiuta perche' l'11 non e' fra le chiavi di ARTIFACTS. Lo
+//    schermo vuoto di nuovo, per una strada nuova.
 //
 // `null` quando a monte non c'e' niente che soddisfi entrambe: e' l'unico caso
 // in cui svuotare la vista e' onesto.
@@ -360,8 +359,8 @@ flusso.addEventListener("stato", (evento) => {
     // Una corsa partita dallo step N riscrive gli artefatti dall'N in giu',
     // quindi solo un numero >= N puo' essere scaduto: sotto non c'e' niente da
     // ricaricare, e ogni ricaricamento e' una richiesta in piu'.
-    if (stepMostrato !== null && stato.step !== null && stepMostrato >= stato.step) {
-      ricaricaVista(stepMostrato);
+    if (stepScelto !== null && stato.step !== null && stepScelto >= stato.step) {
+      ricaricaVista(stepScelto);
     }
   }
   eraInCorso = stato.in_corso;
@@ -453,8 +452,11 @@ async function mostraNuvolaDelloStep(numero, ordine) {
     // testo lo dice, invece di dare la colpa allo step.
     vista.svuota();
     document.getElementById("conteggi").textContent =
-      `l'artefatto dello step ${numero} risulta scritto ma il server non lo trova`;
-    return true;
+      `l'artefatto dello step ${numero} non c'e' piu' sul disco: riesegui lo step ${numero}`;
+    // "vuoto" e non true: ha SCRITTO (quindi non e' una risposta scartata, e
+    // chi guarda l'ordine deve saperlo) ma non ha DISEGNATO. Chi ci scrive
+    // sopra una didascalia deve poter distinguere i due casi.
+    return "vuoto";
   }
   const disegnati = Number(risposta.headers.get("X-Points-Drawn"));
   const pieni = Number(risposta.headers.get("X-Points-Total"));
@@ -495,8 +497,9 @@ async function mostraStep(numero, ordine) {
     // solo se registro e disco non concordano.
     vista.svuota();
     document.getElementById("conteggi").textContent =
-      `l'artefatto dello step ${numero} risulta scritto ma il server non lo trova`;
-    return true;
+      `l'artefatto dello step ${numero} non c'e' piu' sul disco: riesegui lo step ${numero}`;
+    // Come nella tratta della nuvola: ha scritto, non ha disegnato.
+    return "vuoto";
   }
   const vertici = Number(risposta.headers.get("X-Vertices"));
   const triangoli = Number(risposta.headers.get("X-Triangles"));
@@ -604,7 +607,10 @@ async function mostraCampoDelloStep(caso, grandezza, ordine) {
 // arbitrazione: le didascalie seguono solo se quella chiamata ha vinto.
 async function mostraModoDelloStep(numero, frequenza, ordine) {
   const disegnato = await mostraStep(STEP_CON_CAMPO, ordine);
-  if (!disegnato) return false;
+  // `!== true` e non `!`: col solo `!` il ramo "vuoto" passava e la didascalia
+  // del modo finiva sotto un viewport svuotato, sopra il messaggio che dice
+  // che l'artefatto non c'e'.
+  if (disegnato !== true) return false;
   // `Modo 1` e non `MODO_1`: e' il nome che il <select> mostra nella stessa
   // schermata, e due nomi per la stessa cosa a mezzo palmo di distanza si
   // leggono come due cose. `MODO_1` resta la chiave del .vtu, che a video non
@@ -678,12 +684,19 @@ function pannelloCampo(ordine, metriche13) {
 }
 
 // Il piano di taglio serve a guardare dentro il volume, percio' il comando
-// compare solo sullo step che il volume lo produce, e solo se qualcosa e'
-// stato davvero disegnato.
+// compare solo quando nel viewport C'E' il volume, e solo se qualcosa e' stato
+// davvero disegnato. Da quando la vista ripiega, «c'e' il volume» non coincide
+// piu' con «e' selezionato lo step 9»: scelto il 10, l'11 o il 12 il ripiego
+// atterra sul 9 e il comando compare anche li'. E' voluto -- il volume e'
+// davvero sullo schermo e si puo' davvero tagliare -- e i chiamanti passano
+// per questo lo step MOSTRATO, non quello scelto.
 const STEP_CON_TAGLIO = 9;
-// Lo step la cui geometria e' nel viewport: non e' sempre quello del pannello,
-// che resta aperto anche mentre la geometria nuova sta arrivando.
-let stepMostrato = null;
+// Lo step che l'utente ha SCELTO, non quello la cui geometria e' a schermo:
+// quella e' `passoDaMostrare(stepScelto)`, che puo' essere piu' a monte. Il
+// nome vecchio (`stepMostrato`) diceva l'una cosa mentre il codice faceva
+// l'altra. Non e' sempre quello del pannello, che resta aperto anche mentre la
+// geometria nuova sta arrivando.
+let stepScelto = null;
 const comandoTaglio = document.getElementById("taglio");
 const asseTaglio = document.getElementById("taglio-asse");
 const quotaTaglio = document.getElementById("taglio-quota");
@@ -751,13 +764,13 @@ quotaTaglio.addEventListener("input", applicaTaglio);
 // Lo step mostrato e non quello scelto, per la stessa ragione di ricaricaVista:
 // scelto lo step 11 il viewport porta il volume dello step 9, e passare qui 11
 // spegnerebbe il comando del taglio sotto una geometria che si puo' tagliare.
-asseTaglio.addEventListener("change", () => riallineaTaglio(passoDaMostrare(stepMostrato)));
+asseTaglio.addEventListener("change", () => riallineaTaglio(passoDaMostrare(stepScelto)));
 
 document.getElementById("elenco-step").addEventListener("click", (evento) => {
   const riga = evento.target.closest(".step");
   if (!riga) return;
   const numero = Number(riga.dataset.numero);
-  stepMostrato = numero;
+  stepScelto = numero;
   // Una sola generazione per il clic, passata a tutte e due le tratte: se la
   // guardia stesse su mostraStep e non su apriDettaglio, meta' del difetto
   // resterebbe con l'aria di essere risolta.
@@ -803,10 +816,17 @@ function ricaricaVista(numero, ordine = generazione) {
   // ha disegnato, cioe' su una lettura che non appartiene a questo numero.
   mostraStep(mostrato, ordine).then((disegnato) => {
     if (disegnato && !superata(ordine)) {
-      // Senza questa coda si torna esattamente al difetto che vista.svuota()
-      // voleva evitare: una geometria sullo schermo che la didascalia
-      // attribuisce a uno step che non l'ha prodotta.
-      if (mostrato !== numero) {
+      // `=== true` e non solo truthy: mostraStep torna "vuoto" dal ramo del
+      // rifiuto dichiarato, dove ha svuotato la vista e scritto perche'.
+      // Attaccarci la coda direbbe «artefatto dello step 9 (Tetraedri)» in fondo
+      // a «non c'e' piu' sul disco», cioe' attribuirebbe a uno step una
+      // geometria che sullo schermo non c'e'. E' il difetto che vista.svuota()
+      // esisteva per chiudere, riaperto dalla correzione che lo chiudeva.
+      //
+      // riallineaTaglio resta fuori dal `=== true` apposta: sulla vista vuota
+      // ingombro() torna null (viewport.js:405) e il comando del taglio si
+      // nasconde, che e' cio' che deve succedere.
+      if (disegnato === true && mostrato !== numero) {
         const conteggi = document.getElementById("conteggi");
         conteggi.textContent +=
           ` — artefatto dello step ${mostrato} (${nomeDelloStep(mostrato)})`;
@@ -1711,24 +1731,48 @@ async function apriDettaglio(numero, ordine = generazione) {
 //
 // Ricorsiva perche' i due livelli sono misurati, non ipotizzati: appiattirne
 // uno solo lascerebbe `geometric_error . cloud_to_mesh` ancora in JSON.
-// Le liste restano in JSON: nessuna metrica di questo programma ne ha, e
-// numerarne gli elementi sarebbe struttura scritta per un caso che non esiste.
-function righeDellaMetrica(nome, valore, righe = []) {
+//
+// Le liste invece restano in JSON, e la guardia che le tiene chiuse e'
+// portante: le metriche di liste ne hanno eccome -- misurate su
+// runs/lab_crop/metrics.json, otto, fra cui `01_load.extent` (tre numeri),
+// `06_repair.hole_areas` (sei) e `11_export.transform`, che e' una matrice
+// quattro per quattro. Aperte darebbero una riga per elemento, e per la
+// matrice una riga per riga di matrice: rumore al posto di una misura.
+//
+// I numeri passano da toLocaleString come i conteggi sotto la vista: senza,
+// sullo stesso schermo convivevano `19.314 triangoli` e
+// `4.442869663238525`. Sei cifre significative perche' sedici non si leggono e
+// non aggiungono niente -- metrics.json conserva la precisione piena, ed e' da
+// li' che si citano i numeri, non dallo schermo.
+function righeDellaMetrica(nome, valore) {
   const annidata = valore !== null && typeof valore === "object" && !Array.isArray(valore);
+  // Un dizionario vuoto non lascia righe: «{}» a video non e' una misura.
   if (annidata) {
-    // Un dizionario vuoto non lascia righe: «{}» a video non e' una misura.
-    for (const [interno, dentro] of Object.entries(valore)) {
-      righeDellaMetrica(`${nome} · ${interno}`, dentro, righe);
-    }
-    return righe;
+    return Object.entries(valore).flatMap(
+      ([interno, dentro]) => righeDellaMetrica(`${nome} · ${interno}`, dentro),
+    );
   }
-  righe.push(
+  return [
     Object.assign(document.createElement("dt"), { textContent: nome }),
-    Object.assign(document.createElement("dd"), {
-      textContent: typeof valore === "object" ? JSON.stringify(valore) : String(valore),
-    }),
-  );
-  return righe;
+    Object.assign(document.createElement("dd"), { textContent: valoreDellaMetrica(valore) }),
+  ];
+}
+
+// Solo qui dentro l'`Array.isArray`: dopo la guardia di `annidata`, `typeof
+// valore === "object"` e' vero per le sole liste e per null -- e `String(null)`
+// e `JSON.stringify(null)` danno la stessa cosa. Nominare le liste dice cosa si
+// intende; il typeof lasciava credere che coprisse anche i dizionari.
+function valoreDellaMetrica(valore) {
+  if (Array.isArray(valore)) return JSON.stringify(valore);
+  if (typeof valore !== "number") return String(valore);
+  // Gli interi NON si arrotondano: sono conteggi, e un conteggio arrotondato e'
+  // un conteggio sbagliato. Misurato a schermo il 24/08/2026 sulla corsa
+  // lab_crop: con le sole sei cifre significative `points_read` usciva
+  // 6.329.100 mentre il valore e' 6.329.096 -- e due centimetri sotto la vista
+  // #conteggi scriveva «su 6.329.096», cioe' due numeri diversi per la stessa
+  // quantita' sullo stesso schermo.
+  if (Number.isInteger(valore)) return valore.toLocaleString("it");
+  return valore.toLocaleString("it", { maximumSignificantDigits: 6 });
 }
 
 // Galleria di curazione: i registri della Fase 2 (/api/experiments*), in

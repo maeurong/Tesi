@@ -1989,8 +1989,8 @@ def test_il_fronte_di_discesa_ricarica_anche_la_vista_e_non_solo_il_pannello():
     testo = (UI_DIR / "app.js").read_text(encoding="utf-8")
     corpo = testo.split('addEventListener("stato"', 1)[1].split("\n});", 1)[0]
     assert "apriDettaglio(stepAperto)" in corpo
-    assert "ricaricaVista(stepMostrato)" in corpo, "la vista resta indietro sul fronte di discesa"
-    assert "stepMostrato >= stato.step" in corpo, "chiede anche cio' che nessuna corsa ha toccato"
+    assert "ricaricaVista(stepScelto)" in corpo, "la vista resta indietro sul fronte di discesa"
+    assert "stepScelto >= stato.step" in corpo, "chiede anche cio' che nessuna corsa ha toccato"
     assert "apriGenerazione" not in corpo, "il fronte di discesa annulla una geometria in volo"
     # Lo stesso punto serve il clic: se il clic smettesse di passarci, il
     # riallineamento del cursore resterebbe scritto per un solo chiamante.

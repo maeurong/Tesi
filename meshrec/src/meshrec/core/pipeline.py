@@ -90,8 +90,12 @@ def _read_mesh(path: Path) -> tuple[np.ndarray, np.ndarray]:
     # senza errore e passerebbe la prima meta' del controllo, per poi far
     # girare la riparazione su una superficie che facce non ne ha.
     if len(vertices) == 0 or len(faces) == 0:
+        # Non «file assente»: i due soli chiamanti passano da
+        # `_ingresso_di_ripresa`, che il file inesistente lo intercetta prima
+        # con un messaggio suo. Qui il file c'e' sempre, e dirlo assente
+        # contraddirebbe la frase che lo avvolge.
         raise ValueError(
-            f"nessuna superficie letta da '{path}': file assente, vuoto o formato non riconosciuto"
+            f"nessuna superficie letta da '{path}': vuota o di formato non riconosciuto"
         )
     return vertices, faces
 
@@ -324,15 +328,15 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
     `_RESUME_POINTS` e `_RESUME_MESH`. La ripresa si fida dell'operatore su un
     punto solo: non verifica che quegli artefatti siano stati prodotti con la
     configurazione corrente. Che esistano invece lo verifica, e se mancano
-    rifiuta nominando lo step da eseguire prima (`_ingresso_di_ripresa`).
-    Unica eccezione governata da `cfg`
+    solleva `ValueError` nominando lo step da eseguire prima
+    (`_ingresso_di_ripresa`). Unica eccezione governata da `cfg`
     invece che dalla tabella: `from_step=9` ricarica `08_simplified.ply` se
     `cfg.simplify.enabled` e' vero, altrimenti `06_repaired.ply`, perche' lo
     step 8 scrive il proprio artefatto solo quando la semplificazione e'
     abilitata (predefinito: disabilitata). Se l'operatore riparte da 9 con
     `simplify.enabled=True` ma la corsa precedente non aveva scritto
     `08_simplified.ply` (per esempio perche' era disabilitata in quella
-    corsa), la ripresa rifiuta invece di indovinare.
+    corsa), la ripresa solleva `ValueError` invece di indovinare.
 
     La ripresa arriva fino allo step 9 (tetraedrizzazione): `RunConfig.from_step`
     e' vincolato a 9 (vedi `config.py`). Gli step 10 e 11 sono il calcolo delle
@@ -394,11 +398,25 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
             registra(2, avvio, ARTIFACTS[2])
             if stop <= 2:
                 raise _FermataRichiesta
-        else:
-            # nuvola segmentata (uscita dello step 2), sempre ricaricata da qui
-            # indipendentemente da cosa serva a `points` piu sotto: e' il
-            # riferimento fisso per l'errore geometrico dello step 7.
-            source_cloud, _ = _ingresso_di_ripresa(start, 2, out, io.read_cloud)
+        elif start <= 7 or stop >= 12:
+            # La nuvola segmentata (uscita dello step 2) ha DUE consumatori e
+            # nessun altro: l'errore geometrico dello step 7 e il prior dello
+            # step 12. La condizione li nomina entrambi invece di caricarla
+            # sempre, e non e' una micro-ottimizzazione: caricarla quando non
+            # gira nessuno dei due faceva FALLIRE una corsa che non ne aveva
+            # bisogno. «Esegui solo lo step 9» in una cartella senza
+            # 02_segmented.ply si fermava per un artefatto che quello step non
+            # tocca -- ed e' proprio il caso che from_step == to_step esiste per
+            # servire (config.py, RunConfig).
+            #
+            # `chiede` e' lo step che la consuma, non quello da cui la corsa
+            # riparte. Nominare `start` produceva un consiglio che distrugge il
+            # lavoro: «lo step 9 pretende 02_segmented.ply, esegui da qui in
+            # giu' dallo step 2» riscrive gli artefatti dal 2 al 9, cioe'
+            # proprio quelli su cui si stava iterando.
+            source_cloud, _ = _ingresso_di_ripresa(
+                7 if start <= 7 else 12, 2, out, io.read_cloud
+            )
 
         if start <= 3:
             in_corso = 3

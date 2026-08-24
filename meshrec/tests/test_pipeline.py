@@ -359,6 +359,97 @@ def test_un_artefatto_presente_ma_senza_facce_non_attraversa_la_ripresa(run_dir,
     assert riparata.read_bytes() == prima
 
 
+def test_la_nuvola_di_riferimento_dello_step_7_si_ricarica_dal_2_e_non_dalla_tabella(
+    run_dir, tmp_path
+):
+    """Dei cinque punti di ripresa, questo e' l'unico che chiede un numero
+    fisso invece della tabella `_RESUME_POINTS`: `source_cloud` e' la nuvola
+    SEGMENTATA dello step 2 e nient'altro, perche' e' il riferimento contro cui
+    lo step 7 misura l'errore geometrico.
+
+    Attraversato da ogni ripresa, ma senza un oracolo suo: sostituita la riga
+    con `_RESUME_POINTS[start]` -- l'errore di copia naturale, dato che le due
+    righe si somigliano -- una ripresa dal 6 caricherebbe 04_normals.ply, che
+    esiste, e proseguirebbe misurando contro la nuvola sbagliata senza dire
+    niente. Misurato il 24/08/2026: con quella sostituzione, `790 passed`.
+    """
+    import shutil
+
+    out, _ = run_dir
+    copia = tmp_path / "corsa"
+    shutil.copytree(out, copia)
+    # Solo la segmentata: cio' che serve al punto di ripresa provato qui sopra
+    # (04_normals.ply) resta al suo posto, cosi' se la riga ripiegasse sulla
+    # tabella la ripresa passerebbe invece di fermarsi.
+    (copia / pipeline.ARTIFACTS[2]).unlink()
+
+    cfg = config.load_config(copia / "config.yaml")
+    cfg.run.out_dir = copia
+    cfg.run.from_step = 6
+
+    # «lo step 7» e non «lo step 6»: il messaggio nomina lo step che la
+    # CONSUMA, non quello da cui la corsa riparte. Ripartendo dal 6 lo step 7
+    # gira, quindi quella nuvola serve davvero e il rifiuto e' giusto.
+    with pytest.raises(ValueError, match="lo step 7 pretende 02_segmented.ply"):
+        pipeline.run(cfg)
+
+
+def test_eseguire_un_solo_step_non_pretende_artefatti_che_quello_step_non_tocca(
+    run_dir, tmp_path
+):
+    """«Tecnicamente io devo poter eseguire qualsiasi step in qualsiasi
+    momento»: questo e' quel requisito, sul caso concreto.
+
+    La nuvola segmentata dello step 2 ha due soli consumatori, l'errore
+    geometrico dello step 7 e il prior dello step 12. Veniva pero' ricaricata a
+    ogni ripresa, quindi «esegui solo lo step 9» in una cartella senza
+    02_segmented.ply si fermava per un artefatto che lo step 9 non guarda mai.
+    """
+    import shutil
+
+    out, _ = run_dir
+    copia = tmp_path / "corsa"
+    shutil.copytree(out, copia)
+    (copia / pipeline.ARTIFACTS[2]).unlink()
+
+    cfg = config.load_config(copia / "config.yaml")
+    cfg.run.out_dir = copia
+    cfg.run.to_step = 9
+    cfg.run.from_step = 9
+
+    esito = pipeline.run(cfg)
+    assert esito["09_tetrahedralize"]["nodes"] > 0
+
+
+def test_quando_la_nuvola_di_riferimento_serve_davvero_il_rifiuto_nomina_chi_la_consuma(
+    run_dir, tmp_path
+):
+    """Se invece la corsa arriva al prior, quella nuvola serve sul serio.
+
+    Il messaggio deve nominare lo step 12, che la consuma, e non lo step da cui
+    la corsa riparte: «lo step 9 pretende 02_segmented.ply» era falso, e il
+    consiglio che ne seguiva -- riprendere dal 2 -- riscrive gli artefatti dal 2
+    al 9, cioe' proprio quelli su cui si stava iterando.
+    """
+    import shutil
+
+    out, _ = run_dir
+    copia = tmp_path / "corsa"
+    shutil.copytree(out, copia)
+    (copia / pipeline.ARTIFACTS[2]).unlink()
+
+    cfg = config.load_config(copia / "config.yaml")
+    cfg.run.out_dir = copia
+    cfg.run.from_step = 9
+
+    with pytest.raises(ValueError) as caduta:
+        pipeline.run(cfg)
+
+    detto = str(caduta.value)
+    assert "lo step 12 pretende 02_segmented.ply" in detto
+    assert "lo step 9 pretende" not in detto
+
+
 def test_una_corsa_completa_lascia_i_dodici_step_di_elaborazione_validi(tmp_path):
     """Dal Task 9 (Fase 4) lo step 12 (prior geometrico) e' parte della corsa
     madre: una corsa intera non lascia piu' nulla di "mai eseguito" nel nucleo

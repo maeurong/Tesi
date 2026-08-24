@@ -2432,6 +2432,21 @@ assert.equal(passoDaMostrare(1), 1);
 """)
 
 
+def test_prima_che_arrivi_il_primo_stato_il_ripiego_non_indovina(tmp_path):
+    """`ultimoStato` resta vuoto finche' il primo `run_state` non arriva, e il
+    cambio d'asse ci passa gia' da li': `asseTaglio` sta nella pagina dal
+    caricamento, e cambiarlo prima che l'elenco esista chiama `passoDaMostrare`
+    su un elenco vuoto e con `stepMostrato` ancora `null`.
+
+    Deve rispondere `null` -- cioe' «niente da mostrare» -- e non inciampare.
+    """
+    _esegui(tmp_path, _DOM + _costante("STEP_CON_GEOMETRIA") + _funzioni("passoDaMostrare") + """
+assert.deepEqual(ultimoStato, [], "il banco non parte piu' da un elenco vuoto");
+assert.equal(passoDaMostrare(13), null, "il ripiego indovina uno step su un elenco vuoto");
+assert.equal(passoDaMostrare(null), null, "nessuno step ancora mostrato non e' uno step");
+""")
+
+
 def test_gli_step_disegnabili_del_modulo_sono_quelli_del_server():
     """L'unica tabella che il modulo rispecchia dal server, e il controllo che
     ne impedisce la deriva.
@@ -2573,6 +2588,46 @@ assert.equal(
 """)
 
 
+def test_la_coda_del_ripiego_non_si_attacca_a_un_rifiuto(tmp_path):
+    """`mostraStep` scrive da due rami: quando disegna, e quando dichiara che
+    l'artefatto non c'e'. Guardando il solo valore di verita' la coda si
+    attaccava anche al secondo, e a schermo usciva
+
+        l'artefatto dello step 9 non c'e' piu' sul disco: riesegui lo step 9
+        — artefatto dello step 9 (Tetraedri)
+
+    cioe' il ripiego dichiarava la paternita' di una geometria che sullo
+    schermo non c'e'. E' il difetto che `vista.svuota()` esisteva per chiudere,
+    riaperto dalla correzione che lo chiudeva.
+
+    Da qui il tri-stato: `"vuoto"` resta truthy -- la risposta non e' stata
+    scartata, e il cursore del taglio deve comunque rifarsi, che sulla vista
+    vuota vuol dire nascondersi -- ma non e' `true`.
+    """
+    _esegui(tmp_path, _DOM + _costante("STEP_CON_GEOMETRIA") + _funzioni(
+        "didascaliaDellaVista", "superata", "passoDaMostrare", "nomeDelloStep", "ricaricaVista"
+    ) + _RIPIEGO + """
+const rifiuto = "l'artefatto dello step 9 non c'e' piu' sul disco: riesegui lo step 9";
+let allineato = "mai";
+const vista = { svuota: () => {} };
+function riallineaTaglio(numero) { allineato = numero; }
+async function mostraStep() {
+  document.getElementById("conteggi").textContent = rifiuto;
+  return "vuoto";
+}
+
+await ricaricaVista(11, generazione);
+await new Promise((r) => setTimeout(r, 0));
+assert.equal(
+  document.getElementById("conteggi").textContent, rifiuto,
+  "la coda si e' attaccata al messaggio che dice che l'artefatto non c'e'",
+);
+// Il cursore si rifa' lo stesso: sulla vista vuota ingombro() torna null e il
+// comando si nasconde, che e' cio' che deve succedere.
+assert.equal(allineato, 9, "una vista vuota lascia il cursore del taglio come stava");
+""")
+
+
 def test_una_generazione_superata_non_scrive_la_coda_del_ripiego(tmp_path):
     """La coda e' una scrittura dopo un'attesa, quindi risponde alla regola
     dell'ordine come ogni altra: due clic di seguito e la risposta del primo
@@ -2608,7 +2663,7 @@ def test_una_metrica_annidata_diventa_una_riga_per_foglia(tmp_path):
 
     Provato sulla forma vera che `quality.geometric_error` restituisce.
     """
-    _esegui(tmp_path, _DOM + _funzioni("righeDellaMetrica") + """
+    _esegui(tmp_path, _DOM + _funzioni("righeDellaMetrica", "valoreDellaMetrica") + """
 const righe = righeDellaMetrica("geometric_error", {
   cloud_to_mesh: { mean: 4.41, max: 72.2, non_finite: 0 },
   mesh_to_cloud: { mean: 3.02, max: 55.1, non_finite: 0 },
@@ -2617,26 +2672,141 @@ const righe = righeDellaMetrica("geometric_error", {
 const coppie = [];
 for (let i = 0; i < righe.length; i += 2) coppie.push([righe[i].textContent, righe[i + 1].textContent]);
 
+// Virgola e non punto: sullo stesso schermo, due funzioni piu' su, si legge
+// gia' `19.314 triangoli` all'italiana. Due convenzioni numeriche a un palmo di
+// distanza erano il difetto.
 assert.deepEqual(coppie, [
-  ["geometric_error \u00b7 cloud_to_mesh \u00b7 mean", "4.41"],
-  ["geometric_error \u00b7 cloud_to_mesh \u00b7 max", "72.2"],
+  ["geometric_error \u00b7 cloud_to_mesh \u00b7 mean", "4,41"],
+  ["geometric_error \u00b7 cloud_to_mesh \u00b7 max", "72,2"],
   ["geometric_error \u00b7 cloud_to_mesh \u00b7 non_finite", "0"],
-  ["geometric_error \u00b7 mesh_to_cloud \u00b7 mean", "3.02"],
-  ["geometric_error \u00b7 mesh_to_cloud \u00b7 max", "55.1"],
+  ["geometric_error \u00b7 mesh_to_cloud \u00b7 mean", "3,02"],
+  ["geometric_error \u00b7 mesh_to_cloud \u00b7 max", "55,1"],
   ["geometric_error \u00b7 mesh_to_cloud \u00b7 non_finite", "0"],
-  ["geometric_error \u00b7 hausdorff", "72.2"],
+  ["geometric_error \u00b7 hausdorff", "72,2"],
 ]);
+// Sedici cifre non si leggono e non aggiungono niente: metrics.json conserva la
+// precisione piena, ed e' da li' che si citano i numeri della tesi.
+assert.deepEqual(
+  righeDellaMetrica("mean", 4.442869663238525).map((n) => n.textContent),
+  ["mean", "4,44287"],
+);
+// Ma un CONTEGGIO non si arrotonda: e' il difetto che le sole sei cifre
+// significative introducevano, trovato a schermo e non in suite. 6.329.096
+// diventava 6.329.100, mentre #conteggi due centimetri sotto la vista scriveva
+// il numero giusto: due numeri per la stessa quantita' sullo stesso schermo.
+assert.deepEqual(
+  righeDellaMetrica("points_read", 6329096).map((n) => n.textContent),
+  ["points_read", "6.329.096"],
+);
 // Nessuna graffa a video: era il difetto.
 assert.ok(!coppie.some(([, v]) => v.includes("{")), "una metrica e' rimasta in JSON");
 
 // Uno scalare resta una riga sola, e un dizionario vuoto non ne lascia
 // nessuna: «{}» a video non e' una misura.
-assert.equal(righeDellaMetrica("watertight", true).length, 2);
+assert.deepEqual(
+  righeDellaMetrica("watertight", true).map((n) => n.textContent), ["watertight", "true"],
+);
 assert.deepEqual(righeDellaMetrica("niente", {}), []);
 // `null` e' un valore, non un dizionario: _distribution lo restituisce quando
 // nessun valore finito resta, e va letto come tale.
 assert.deepEqual(
   righeDellaMetrica("min", null).map((n) => n.textContent), ["min", "null"],
+);
+""")
+
+
+def test_una_metrica_che_e_una_lista_resta_una_riga_sola(tmp_path):
+    """Le liste ci sono davvero, contro quanto diceva il commento sopra
+    `righeDellaMetrica` prima che lo si correggesse.
+
+    Misurate su `runs/lab_crop/metrics.json` il 24/08/2026: otto, fra cui
+    `01_load.extent` (tre numeri), `06_repair.hole_areas` (sei) e
+    `11_export.transform`, che e' una matrice quattro per quattro.
+
+    Aperte darebbero una riga per elemento -- e per la matrice una riga per
+    riga di matrice -- al posto di una. La guardia `!Array.isArray` e' cio' che
+    lo impedisce, ed era l'unica parte di quella funzione che nessun controllo
+    teneva: tolta, `790 passed`.
+    """
+    _esegui(tmp_path, _DOM + _funzioni("righeDellaMetrica", "valoreDellaMetrica") + """
+const righe = righeDellaMetrica("extent", [2.759, 0.785, 2.0]);
+assert.equal(righe.length, 2, "una lista si e' aperta in una riga per elemento");
+assert.equal(righe[0].textContent, "extent");
+// JSON e non formato all'italiana: dentro le parentesi non c'e' prosa, c'e' un
+// valore che si copia.
+assert.equal(righe[1].textContent, "[2.759,0.785,2]");
+// Anche annidata, che e' la forma vera: `hole_areas` sta dentro lo step 6.
+assert.deepEqual(
+  righeDellaMetrica("06_repair", { hole_areas: [1.33, 0.1] }).map((n) => n.textContent),
+  ["06_repair \u00b7 hole_areas", "[1.33,0.1]"],
+);
+""")
+
+
+def test_lo_stato_che_il_ripiego_legge_e_quello_che_l_elenco_ha_appena_disegnato(tmp_path):
+    """`disegnaStep` e' l'unico canale per cui `ultimoStato` si riempie, e ogni
+    controllo sul ripiego lo scrive a mano: la giuntura fra i due non la
+    guardava nessuno.
+
+    Tolta la riga che aggiorna `ultimoStato`, `passoDaMostrare` risponde `null`
+    per ogni step -- cioe' la vista si svuota sempre, che e' esattamente il
+    difetto di partenza -- e la suite resta verde. Misurato il 24/08/2026:
+    `790 passed`.
+    """
+    _esegui(tmp_path, _DOM + _costante("STEP_CON_GEOMETRIA") + _funzioni(
+        "segnaStepAperto", "nuovaRiga", "disegnaStep", "passoDaMostrare"
+    ) + """
+disegnaStep([
+  { numero: 1, chiave: "01_load", stato: "valido", artefatto: "01_cloud.ply" },
+  { numero: 2, chiave: "02_segment", stato: "valido", artefatto: "02_segmented.ply" },
+  { numero: 3, chiave: "03_downsample", stato: "mai eseguito", artefatto: null },
+]);
+assert.equal(
+  passoDaMostrare(3), 2,
+  "il ripiego non vede lo stato che l'elenco ha appena disegnato",
+);
+
+// E lo tiene fresco: il fronte di discesa manda run_state di nuovo, e cio' che
+// e' stato scritto nel frattempo deve contare.
+disegnaStep([
+  { numero: 1, chiave: "01_load", stato: "valido", artefatto: "01_cloud.ply" },
+  { numero: 2, chiave: "02_segment", stato: "valido", artefatto: "02_segmented.ply" },
+  { numero: 3, chiave: "03_downsample", stato: "valido", artefatto: "03_downsampled.ply" },
+]);
+assert.equal(passoDaMostrare(3), 3, "il ripiego risponde sullo stato di un evento fa");
+""")
+
+
+def test_il_cambio_d_asse_riallinea_il_taglio_sulla_geometria_mostrata(tmp_path):
+    """Il ripiego cambia anche il gestore del cursore del taglio, e li' non
+    arrivava nessun controllo.
+
+    Scelto lo step 11 il viewport porta il volume dello step 9: passare 11 a
+    `riallineaTaglio` spegne il comando del taglio sotto una geometria che si
+    puo' tagliare -- lo stesso difetto di prima, spostato sul comando.
+    Misurato il 24/08/2026: rimesso `riallineaTaglio(stepMostrato)`, la suite
+    resta verde.
+
+    Il gestore e' una riga di registrazione e non una funzione, quindi si
+    prende dal sorgente vero e si esegue: una ricerca testuale passerebbe anche
+    con l'argomento capovolto, che e' il difetto per cui questo file esegue.
+    """
+    registrazione = re.search(
+        r"^asseTaglio\.addEventListener\(.*\);$", _modulo(), flags=re.MULTILINE
+    )
+    assert registrazione is not None, "il gestore del cambio d'asse non e' piu' una riga sola"
+
+    _esegui(tmp_path, _DOM + _costante("STEP_CON_GEOMETRIA") + _funzioni("passoDaMostrare")
+            + _RIPIEGO + """
+let allineato = "mai";
+function riallineaTaglio(numero) { allineato = numero; }
+const asseTaglio = document.getElementById("taglio-asse");
+let stepScelto = 11;
+""" + registrazione.group(0) + """
+await asseTaglio.scatena("change");
+assert.equal(
+  allineato, 9,
+  "il cambio d'asse riallinea il taglio sullo step scelto invece che su quello mostrato",
 );
 """)
 
