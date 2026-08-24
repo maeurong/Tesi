@@ -157,3 +157,29 @@ def test_la_misura_leggibile_e_una_lunghezza_e_raggiunge_la_prosa():
         "`.aiuto` senza `display: block`: sui <small> dell'ingresso resta inline, "
         "e su una scatola inline il max-width qui accanto non fa nulla"
     )
+
+
+def test_ogni_sovrapposto_della_vista_sa_ancora_nascondersi():
+    """`hidden` non basta su un elemento che dichiara un `display`.
+
+    L'attributo vale `display: none` da foglio dell'utente, che la piu' debole
+    delle regole d'autore batte. Il comando del taglio l'ha gia' pagato -- il
+    commento accanto alla sua regola lo dice per iscritto -- e lo stato vuoto
+    della vista e' finito nella stessa forma: `display: grid`, un `hidden`
+    scritto nel markup, e senza la propria riga resterebbe stampato al centro
+    della tela sopra il pezzo, per sempre.
+
+    Sui sovrapposti della vista e non su tutto il foglio: sono loro a nascere
+    nascosti nel markup, ed e' li' che l'errore non si vede provando la pagina
+    a corsa finita.
+    """
+    foglio = _senza_commenti()
+    for classe in ["taglio", "vista-vuota"]:
+        dichiarazione = re.search(rf"^\.{re.escape(classe)} \{{([^}}]*)\}}", foglio, flags=re.MULTILINE)
+        assert dichiarazione is not None, f".{classe} non e' piu' dichiarata"
+        if "display:" not in dichiarazione.group(1):
+            continue
+        assert f".{classe}[hidden]" in foglio, (
+            f".{classe} dichiara un display ma non si sa piu' nascondere: "
+            "l'attributo hidden non morde, e resta a video"
+        )

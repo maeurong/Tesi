@@ -112,6 +112,34 @@
          l'immagine anche la didascalia. -->
     <div id="viewport" class="viewport">
       <p class="conteggi" id="conteggi" aria-live="polite"></p>
+      <!-- Lo stato vuoto della vista, ed e' l'ultimo che mancava: aprire una
+           corsa lasciava al centro dello schermo 856x640 px bianchi, misurati,
+           senza una riga che dicesse cosa ci va. Gli altri cinque vuoti di
+           questa pagina (le corse, il dettaglio, il prior, il confronto, la
+           galleria) dicono tutti perche' non mostrano niente; questo no, ed era
+           il piu' grande.
+           Nel markup e non fabbricato da app.js, come la riga d'errore, la
+           didascalia e gli altri quattro: uno stato vuoto creato nell'istante in
+           cui ci si scrive dentro non preesiste a cio' che annuncia, ed e' la
+           lezione che in questo file e' gia' costata tre ricadute.
+           Nessun aria-live: non annuncia un cambiamento, sta li' dall'inizio. Il
+           cambiamento lo annuncia #conteggi qui sopra, che e' vivo. -->
+      <div class="vista-vuota" id="vista-vuota" hidden>
+        <p class="vuoto">Qui compare la geometria della corsa.</p>
+        <!-- Cio' che i conteggi non possono dire. Loro portano il fatto
+             («nessuno step ha ancora prodotto un artefatto: esegui lo step 1»);
+             qui sta il modello d'interazione, che l'utente successivo
+             confermato non ha modo di indovinare: tredici righe con un pallino
+             e una parola somigliano a un elenco di stato molto piu' che a
+             tredici bottoni.
+             La frase nomina l'INTESTAZIONE e non una direzione: sotto il
+             breakpoint le tre zone si impilano e l'elenco degli step finisce
+             SOPRA la vista, dove «la colonna a sinistra» -- che e' la prima
+             grafia di questa riga -- diventa semplicemente falsa. Visto a
+             schermo, non dedotto. «Pipeline» invece e' scritto sopra l'elenco a
+             ogni larghezza. -->
+        <p class="vuoto">Ogni step dell'elenco «Pipeline» si clicca per vederne l'artefatto.</p>
+      </div>
       <!-- Il comando del taglio. Nasce nascosto: app.js lo mostra solo dove c'e'
            un volume disegnato, e l'intervallo del cursore lo scrive da li'
            leggendo l'ingombro della geometria. min, max e step non stanno qui

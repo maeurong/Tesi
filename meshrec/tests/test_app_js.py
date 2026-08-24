@@ -1799,7 +1799,109 @@ def _banco_di_caricaStato() -> str:
     ) + """
 let risponde = null;
 globalThis.fetch = async () => risponde();
+// Aperta una corsa, `caricaStato` chiede da se' la geometria piu' avanzata che
+// la corsa possiede, invece di lasciare il centro dello schermo bianco fino al
+// primo clic. Qui non si prova il disegno -- ha il suo banco -- ma si registra
+// che cosa e' stato chiesto: e' l'unico modo di distinguere «non ha chiesto
+// niente» da «ha chiesto la coda della pipeline».
+let chiesto = "mai";
+let stepScelto = null;
+function ricaricaVista(numero) { chiesto = numero; }
+// La schermata d'ingresso ha i propri banchi: qui serve solo che il ramo
+// "nessuna corsa aperta" arrivi in fondo, per poter guardare che da li' NON
+// parta nessuna richiesta di geometria.
+function mostraIngresso() {}
 """
+
+
+def test_aprire_una_corsa_mostra_da_se_l_artefatto_piu_avanzato(tmp_path):
+    """Il vuoto piu' grande dell'interfaccia, e l'unico che non diceva niente.
+
+    Aperta una corsa, il centro dello schermo restava bianco -- 856x640 px
+    misurati a 1568 -- finche' qualcuno non cliccava uno step. Gli artefatti
+    erano gia' sul disco: non mostrarli era chiedere un gesto per far vedere che
+    il programma funziona, e PRODUCT.md dichiara vincolante che l'utente
+    successivo la pipeline non l'abbia mai vista.
+
+    Si chiede la CODA della pipeline, non uno step scelto a mano:
+    `passoDaMostrare` cammina a monte da li' e si ferma sul primo disegnabile,
+    quindi una corsa arrivata a meta' mostra la propria meta' e una corsa vuota
+    cade nel ramo che scrive «esegui lo step 1». Nessuna delle due strade e'
+    nuova. E il numero viene da quanti step il server ha dichiarato, non da un
+    13 battuto nel modulo: un quattordicesimo step non richiederebbe di tornare
+    qui.
+
+    `stepScelto` va scritto insieme alla richiesta: il cambio d'asse del taglio
+    chiama `passoDaMostrare(stepScelto)`, e lasciandolo a null il comando del
+    taglio sparirebbe al primo cambio d'asse su una geometria visibile.
+    """
+    _esegui(tmp_path, _banco_di_caricaStato() + """
+risponde = async () => ({ ok: true, status: 200, json: async () => ({ out_dir: "/tmp/corsa", steps: STEPS }) });
+await caricaStato();
+assert.equal(chiesto, STEPS.length,
+  "aperta una corsa non si chiede nessuna geometria: il centro resta bianco fino al primo clic");
+assert.equal(stepScelto, STEPS.length,
+  "stepScelto resta null: al primo cambio d'asse il comando del taglio sparisce");
+
+// --- il controllo che smentisce: senza corsa non si chiede niente.
+chiesto = "mai";
+risponde = async () => ({ ok: true, status: 200, json: async () => ({ legata: false }) });
+await caricaStato();
+assert.equal(chiesto, "mai",
+  "si chiede una geometria anche a nessuna corsa aperta, dove la schermata d'ingresso e' l'unica a video");
+
+chiesto = "mai";
+risponde = async () => ({ ok: true, status: 200, json: async () => null });
+await caricaStato();
+assert.equal(chiesto, "mai", "un corpo illeggibile fa comunque partire una richiesta di geometria");
+""")
+
+
+def test_lo_stato_vuoto_della_vista_compare_solo_dove_non_c_e_niente(tmp_path):
+    """Le due meta' del vuoto, che non devono ripetersi ne' contraddirsi.
+
+    I conteggi in alto a sinistra portano il fatto («nessuno step ha ancora
+    prodotto un artefatto»); la scatola al centro porta il modello
+    d'interazione, che il fatto non puo' dire: tredici righe con un pallino e
+    una parola somigliano a un elenco di stato molto piu' che a tredici bottoni.
+
+    E la scatola deve sparire appena si chiede una geometria, non appena una
+    geometria arriva: `ricaricaVista` e' l'unico imbuto per cui la vista cambia,
+    quindi si nasconde li' e si riscopre solo dal ramo in cui non c'e' proprio
+    niente a monte. Lasciata accesa, la frase resterebbe stampata sopra il pezzo.
+    """
+    _esegui(tmp_path, _DOM + _costante("STEP_CON_GEOMETRIA") + _funzioni(
+        "didascaliaDellaVista", "superata", "passoDaMostrare", "nomeDelloStep", "ricaricaVista"
+    ) + """
+const vuoto = document.getElementById("vista-vuota");
+let allineato = "mai";
+const vista = { svuota: () => {} };
+function riallineaTaglio(n) { allineato = n; }
+let chiesto = null;
+async function mostraStep(n) { chiesto = n; return true; }
+
+// Niente a monte: la scatola si accende.
+ultimoStato = [
+  { numero: 1, chiave: "01_load", artefatto: null },
+  { numero: 2, chiave: "02_segment", artefatto: null },
+];
+ricaricaVista(2, generazione);
+assert.equal(vuoto.hidden, false, "non c'e' niente a monte e il centro dello schermo resta muto");
+assert.equal(
+  document.getElementById("conteggi").textContent,
+  "nessuno step ha ancora prodotto un artefatto: esegui lo step 1",
+  "le due meta' del vuoto non si dividono piu' il lavoro");
+
+// Un artefatto c'e': la scatola se ne va, e se ne va SUBITO, non a disegno
+// finito.
+ultimoStato = [
+  { numero: 1, chiave: "01_load", artefatto: "01_cloud.ply" },
+  { numero: 2, chiave: "02_segment", artefatto: null },
+];
+ricaricaVista(2, generazione);
+assert.equal(vuoto.hidden, true, "la frase resta stampata sopra il pezzo che sta arrivando");
+assert.equal(chiesto, 1, "il ripiego a monte non chiede piu' lo step giusto");
+""")
 
 
 def test_caricaStato_non_crolla_su_un_corpo_che_non_si_legge(tmp_path):

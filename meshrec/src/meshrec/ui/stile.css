@@ -337,6 +337,27 @@ code { font-family: var(--stack-cifre); }
    riga d'errore: aria-live="polite" vuole una regione viva prima che ci si
    scriva dentro. Si toglie solo cio' che si vede. */
 .conteggi:empty { padding: 0; background: none; }
+/* Lo stato vuoto della vista sta al CENTRO della tela, non in un angolo: e' il
+   vuoto piu' grande dell'interfaccia, e una riga in alto a sinistra dentro
+   856x640 px bianchi si legge come una didascalia di cio' che manca, non come
+   la cosa da leggere. I conteggi restano dove sono e continuano a portare il
+   fatto; questo porta il modello d'interazione.
+   `align-content: center` su una griglia, non un translate: la scatola si
+   centra da se' e le due righe restano una sotto l'altra senza che nessuna
+   misura vada scritta a mano.
+   `pointer-events: none` perche' copre l'intera tela: senza, il primo gesto di
+   rotazione su una vista che si e' appena riempita cadrebbe su di lui invece
+   che sul canvas. Non e' un comando e non deve intercettare niente.
+   `[hidden]` esplicito per la stessa ragione del comando del taglio poco piu'
+   sotto: su un elemento con `display` dichiarato l'attributo non basta. */
+.vista-vuota { position: absolute; inset: 0; display: grid; align-content: center; justify-items: center; gap: var(--passo-2); padding: var(--passo-6); text-align: center; pointer-events: none; }
+.vista-vuota[hidden] { display: none; }
+.vista-vuota p { margin: 0; }
+/* La prima riga dice cosa e' questa superficie, la seconda cosa fare: il rango
+   lo porta il colore e non il corpo, che e' la stessa scelta gia' fatta sui
+   titoli di sezione -- e' l'unico canale che sopravvive alla distanza di una
+   proiezione. */
+.vista-vuota p:first-child { color: var(--testo); }
 /* Il comando del taglio sta in basso a destra sulla vista: i conteggi occupano
    gia' l'angolo sinistro. hidden non basta su un elemento con display: flex,
    che lo sovrascriverebbe e lo lascerebbe a video. */

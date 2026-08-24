@@ -37,6 +37,30 @@ async function caricaStato() {
   document.getElementById("cambia-corsa").hidden = false;
   document.getElementById("corsa").textContent = corpo.out_dir;
   disegnaStep(corpo.steps);
+  // Aprire una corsa e trovare il centro bianco. La corsa ha gia' i propri
+  // artefatti sul disco: si mostra il piu' avanzato che possiede, invece di
+  // aspettare un clic per far vedere che il programma funziona. E' la sola
+  // cosa che questa schermata puo' fare, all'apertura, per chi la pipeline non
+  // l'ha mai vista girare.
+  //
+  // La coda della pipeline e non uno step scelto a mano: `passoDaMostrare`
+  // cammina a monte da li' e si ferma sul primo disegnabile. Se non ne trova
+  // nessuno cade nel ramo che scrive «esegui lo step 1» e scopre lo stato
+  // vuoto, che sono due strade gia' scritte: qui non se ne aggiunge nessuna.
+  // Da `corpo.steps.length` e non da un 13 battuto qui: quanti step ci sono lo
+  // dichiara il server, ed e' lo stesso elenco appena disegnato.
+  //
+  // `stepScelto` va scritto e non lasciato a null: il cambio d'asse del taglio
+  // chiama `passoDaMostrare(stepScelto)`, e con null il comando del taglio
+  // sparirebbe sotto le dita di chi lo sta usando su una geometria che si vede.
+  // Un clic dell'utente lo sovrascrive subito, e la generazione che apre butta
+  // via questa geometria se arriva dopo.
+  //
+  // La zona morta di `let stepScelto` non morde: questa riga sta dopo la prima
+  // attesa, e li' il modulo e' gia' stato valutato per intero -- la stessa
+  // ragione per cui `disegnaStep` puo' leggere `stepAperto`.
+  stepScelto = corpo.steps.length;
+  ricaricaVista(stepScelto);
 }
 
 // --- Schermata d'ingresso --------------------------------------------------
@@ -923,6 +947,13 @@ function ricaricaVista(numero, ordine = generazione) {
   // questo e' l'unico imbuto per cui la vista cambia, dal clic e dal fronte di
   // discesa; chi disegna un campo la riscrive subito dopo.
   didascaliaDellaVista().textContent = "";
+  // Lo stato vuoto se ne va appena si chiede una geometria, e torna solo dal
+  // ramo qui sotto. Basta questo punto perche' questo e' l'unico imbuto per cui
+  // la vista cambia (lo dice il commento qui sopra): scriverlo in ognuno dei
+  // rami che disegnano sarebbe la stessa riga in quattro posti, con uno che
+  // prima o poi resta indietro e lascia la frase sopra il pezzo.
+  const vuotoDellaVista = document.getElementById("vista-vuota");
+  vuotoDellaVista.hidden = true;
   // Il ripiego sta QUI e non dentro mostraStep, che ha un secondo chiamante:
   // mostraModoDelloStep pretende la mesh dello step 13 e nient'altro, perche'
   // ci scrive sopra la didascalia di un modo. Un ripiego dentro mostraStep gli
@@ -935,6 +966,10 @@ function ricaricaVista(numero, ordine = generazione) {
     vista.svuota();
     document.getElementById("conteggi").textContent =
       "nessuno step ha ancora prodotto un artefatto: esegui lo step 1";
+    // I due si dividono il lavoro e non si ripetono: i conteggi dicono cosa
+    // manca adesso, lo stato vuoto dice cosa e' questa superficie e che la
+    // colonna a sinistra e' fatta di comandi.
+    vuotoDellaVista.hidden = false;
     riallineaTaglio(null);
     return;
   }
