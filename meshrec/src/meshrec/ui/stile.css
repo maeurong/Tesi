@@ -121,6 +121,11 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .ingresso { padding: var(--passo-4); overflow: auto; background: var(--superficie); flex: 1; min-height: 0; }
 .ingresso > * { max-width: var(--misura); }
 .ingresso .campo { max-width: 40rem; }
+/* Campo e bottone sulla stessa riga: il campo prende lo spazio, il bottone la
+   propria larghezza. align-items: stretch perche' i due si allineino in
+   altezza senza numeri scritti a mano. */
+.campo-riga { display: flex; gap: var(--passo-2); align-items: stretch; }
+.campo-riga input { flex: 1; min-width: 0; }
 .corse { display: flex; flex-direction: column; gap: var(--passo-2); margin-bottom: var(--passo-6); }
 /* Una voce e' un bottone alto due righe: il nome e cio' da cui la corsa e'
    nata. text-align: left perche' un bottone centra di suo, e qui il contenuto

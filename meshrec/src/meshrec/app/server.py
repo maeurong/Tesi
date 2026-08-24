@@ -9,6 +9,8 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import subprocess
+import sys
 import time
 import zipfile
 from collections import Counter
@@ -318,6 +320,59 @@ SENTINELLA_SOLA_LETTURA = "SOLA_LETTURA"
 # passata per una risoluzione che non e' quella dell'utente.
 NOMI_LOCALI = frozenset({"127.0.0.1", "localhost", "::1", "0.0.0.0"})
 
+# Il selettore file di sistema, per il campo del percorso nella schermata
+# d'ingresso. Sfogliare e' una comodita' e non l'unica strada: il campo resta
+# scrivibile, e chi lavora da remoto o incolla un percorso non passa di qui.
+#
+# Gira in un SOTTOPROCESSO e non nel server, per due ragioni che non sono
+# stilistiche:
+#   1. su macOS Tk pretende il thread principale del processo, e FastAPI
+#      esegue gli endpoint sincroni in un threadpool. Chiamare tkinter li'
+#      dentro non fa cadere la richiesta: fa cadere il processo.
+#   2. un dialogo lasciato aperto terrebbe occupato quel thread per sempre.
+#      Un sottoprocesso ha il proprio timeout e si uccide.
+#
+# Il percorso torna su stdout e nient'altro finisce li': gli avvisi di Tk vanno
+# su stderr, e mescolarli al risultato darebbe un percorso che non esiste.
+_SELETTORE = """
+import sys
+import tkinter
+from tkinter import filedialog
+
+radice = tkinter.Tk()
+radice.withdraw()
+# Senza questo la finestra nasce dietro al browser e sembra che il clic non
+# abbia fatto niente.
+radice.attributes("-topmost", True)
+scelto = filedialog.askopenfilename(
+    parent=radice,
+    title="MeshRec - scegli la nuvola di punti",
+    initialdir=sys.argv[1],
+    filetypes=[("Nuvole di punti", "*.pcd *.ply *.xyz"), ("Tutti i file", "*")],
+)
+radice.destroy()
+sys.stdout.write(scelto or "")
+"""
+
+# Due minuti: il dialogo e' un'azione umana e non una richiesta di rete, ma
+# senza un tetto un sottoprocesso dimenticato resterebbe fino allo spegnimento.
+SECONDI_SELETTORE = 120
+
+
+class CartellaIniziale(BaseModel):
+    """Da dove aprire il selettore. Vuoto: la cartella da cui gira il server."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    iniziale: str = ""
+
+
+def _riga_decisiva(stderr: str) -> str:
+    """L'ultima riga non vuota di una traccia: quella che dice che cosa e'
+    successo, senza le venti che dicono da dove."""
+    righe = [riga.strip() for riga in stderr.splitlines() if riga.strip()]
+    return righe[-1] if righe else "nessun dettaglio"
+
 
 def _non_e_un_passo_dell_albero(nome: str) -> str:
     """Rifiuta i nomi fatti di soli punti.
@@ -619,6 +674,51 @@ def create_app(
             )
         lega(percorso)
         return stato_corsa()
+
+    @app.post("/api/sfoglia")
+    def sfoglia(richiesta: CartellaIniziale) -> dict[str, object]:
+        """Il selettore file di sistema, per non dover scrivere il percorso.
+
+        Apre la finestra sulla macchina dove gira il server -- che e' la stessa
+        dove sta il file, e la stessa dove sta il browser: il programma e'
+        locale per progetto. Un `<input type="file">` non servirebbe: il
+        browser restituisce un oggetto File e nasconde la via reale
+        (`C:\\fakepath\\...`), per difesa propria, quindi il percorso da
+        scrivere in `input.path` non arriverebbe mai.
+
+        Annullare non e' un errore: torna `percorso: null` e chi ha chiamato
+        lascia il campo com'era.
+        """
+        iniziale = Path(richiesta.iniziale).expanduser() if richiesta.iniziale.strip() else None
+        # Dalla cartella del percorso gia' battuto, se ne porta uno: riaprire
+        # il selettore deve tornare dove si era, non alla radice ogni volta.
+        if iniziale is not None and not iniziale.is_dir():
+            iniziale = iniziale.parent
+        if iniziale is None or not iniziale.is_dir():
+            iniziale = Path.cwd()
+        try:
+            esito = subprocess.run(
+                [sys.executable, "-c", _SELETTORE, str(iniziale)],
+                capture_output=True,
+                text=True,
+                timeout=SECONDI_SELETTORE,
+            )
+        except subprocess.TimeoutExpired:
+            raise ValueError(
+                f"il selettore file e' rimasto aperto piu' di {SECONDI_SELETTORE} secondi "
+                "ed e' stato chiuso: riprova, oppure scrivi il percorso nel campo"
+            ) from None
+        if esito.returncode != 0:
+            # Succede senza tkinter (alcune build di Python ridotte) e senza
+            # schermo a cui attaccarsi (sessione remota, servizio). Nessuno dei
+            # due e' un motivo per non lavorare: il campo resta scrivibile, e
+            # il messaggio lo dice invece di lasciare il bottone muto.
+            raise ValueError(
+                "il selettore file non si e' aperto su questa macchina "
+                f"({_riga_decisiva(esito.stderr)}): scrivi il percorso nel campo"
+            )
+        scelto = esito.stdout.strip()
+        return {"percorso": scelto or None}
 
     @app.get("/api/config")
     def configurazione() -> dict[str, object]:

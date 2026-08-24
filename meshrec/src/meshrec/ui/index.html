@@ -49,13 +49,19 @@
            aria-describedby="aiuto-nuova-nome">
   </label>
   <small class="aiuto" id="aiuto-nuova-nome">Diventa il nome della cartella: lettere, cifre, punto, trattino, trattino basso.</small>
-  <label class="campo" for="nuova-nuvola">
+  <label class="campo campo-con-bottone" for="nuova-nuvola">
     <span>percorso del file di punti</span>
-    <input type="text" id="nuova-nuvola" autocomplete="off" spellcheck="false"
-           placeholder="../Nuvole di punti/scansione.pcd"
-           aria-describedby="aiuto-nuova-nuvola">
+    <!-- Il campo e il bottone, non il bottone al posto del campo: sfogliare e'
+         una comodita', ma un percorso si incolla, e da una sessione remota la
+         finestra non si apre affatto. -->
+    <span class="campo-riga">
+      <input type="text" id="nuova-nuvola" autocomplete="off" spellcheck="false"
+             placeholder="../Nuvole di punti/scansione.pcd"
+             aria-describedby="aiuto-nuova-nuvola">
+      <button type="button" id="sfoglia-nuvola" class="bottone">Sfoglia&hellip;</button>
+    </span>
   </label>
-  <small class="aiuto" id="aiuto-nuova-nuvola">Percorso sul disco di questa macchina, assoluto o relativo alla cartella da cui gira il programma.</small>
+  <small class="aiuto" id="aiuto-nuova-nuvola">Percorso sul disco di questa macchina, assoluto o relativo alla cartella da cui gira il programma. «Sfoglia» apre il selettore file del sistema.</small>
   <button type="button" id="crea-corsa" class="bottone">Crea la corsa</button>
   <!-- Stessa regola della riga d'errore del pannello: vive nel markup, non
        viene fabbricata, e a vuota non occupa spazio. -->

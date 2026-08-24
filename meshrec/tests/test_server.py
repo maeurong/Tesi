@@ -1607,8 +1607,9 @@ def test_ogni_tratta_che_interroga_il_server_si_scarta_se_e_stata_superata():
     #
     # Dalla schermata d'ingresso sono 11: 6 nominate (le 5 di prima piu'
     # disegnaIngresso) e 5 freccia (le 2 di prima, il clic su una corsa, il clic
-    # che ne crea una, il clic che dichiara il materiale).
-    assert interrogano >= 11, "le tratte attese sono sparite dal modulo"
+    # che ne crea una, il clic che dichiara il materiale). Col bottone
+    # «Sfoglia», che chiede al server di aprire il selettore file, 12.
+    assert interrogano >= 12, "le tratte attese sono sparite dal modulo"
 
 
 def test_due_geometrie_in_volo_nella_stessa_generazione_non_si_arbitrano_per_arrivo():
