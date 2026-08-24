@@ -673,11 +673,39 @@ class PipelineConfig(_ModelloBase):
     repair: RepairConfig = Field(default_factory=RepairConfig)
     simplify: SimplifyConfig = Field(default_factory=SimplifyConfig)
     tet: TetConfig = Field(default_factory=TetConfig)
-    analysis: AnalysisConfig
+    analysis: AnalysisConfig | None = Field(
+        default=None,
+        description=(
+            "materiale e analisi. Assente finche' non viene dichiarato: `analysis` "
+            "e' letto dai soli step 11 e 13 (vedi `steps.STEP_BLOCKS`), e pretenderlo "
+            "alla nascita di una corsa costringeva a scegliere la classe del "
+            "calcestruzzo prima di aver guardato un punto della nuvola. Il materiale "
+            "resta obbligatorio *dentro* `AnalysisConfig`: quell'invariante nasce da "
+            "un difetto misurato e non e' allentata qui"
+        ),
+    )
     carichi: CarichiConfig = Field(default_factory=CarichiConfig)
     wall: WallConfig = Field(default_factory=WallConfig)
     model: ModelConfig = Field(default_factory=ModelConfig)
     run: RunConfig = Field(default_factory=RunConfig)
+
+    def analisi_dichiarata(self, numero_step: int) -> AnalysisConfig:
+        """L'analisi, oppure un rifiuto che dice quale campo manca e a chi serve.
+
+        Unico varco verso `self.analysis` per chi ne pretende uno: cosi' la
+        guardia sta in un posto solo e nessun chiamante puo' leggere `None`
+        scambiandolo per un materiale.
+        """
+        if self.analysis is None:
+            raise ValueError(
+                f"lo step {numero_step} pretende il materiale, e questa corsa non lo "
+                "dichiara: compila analysis.material (nome, young, poisson, density). "
+                "Il programma non lo deduce dalla nuvola e non ne mette uno per conto "
+                "suo -- un predefinito di muratura era gia' finito in silenzio su un "
+                "telaio in calcestruzzo, dove il modulo elastico giusto e' venti volte "
+                "piu' grande"
+            )
+        return self.analysis
 
 
 def load_config(path: Path) -> PipelineConfig:
@@ -740,7 +768,12 @@ class ExperimentConfig(_ModelloBase):
     """Dichiarazione di un esperimento. Tracciata da git accanto al proprio registro."""
 
     name: str
-    base: Path = Field(description="configurazione di partenza, es. muro.yaml")
+    base: Path = Field(
+        description=(
+            "configurazione di partenza, es. casi/muro.yaml. Risolta rispetto alla "
+            "cartella da cui gira il programma, non rispetto a questo file"
+        )
+    )
     axes: list[AxisSpec] = Field(min_length=1)
     pairs: list[tuple[str, str]] = Field(
         default_factory=list,

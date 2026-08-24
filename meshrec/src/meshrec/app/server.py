@@ -14,17 +14,19 @@ import zipfile
 from collections import Counter
 from functools import lru_cache
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, get_args
 
 import numpy as np
 from fastapi import FastAPI, Response
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
-from pydantic import BaseModel, BeforeValidator, ConfigDict
+from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, Field
 
 from meshrec.app.worker import Worker
 from meshrec.core import io, pipeline, quality, report, segment, steps, sweep, viewport
 from meshrec.core.config import (
+    InputConfig,
     PipelineConfig,
+    RunConfig,
     SegmentConfig,
     ViewportConfig,
     load_config,
@@ -290,13 +292,119 @@ def _ingresso_del_ritaglio(sorgente: Path, _mtime_ns: int, vicini: int, scarto: 
     return puliti
 
 
-def create_app(config_path: Path) -> FastAPI:
-    """Applicazione legata a un file di configurazione, che e' la corsa corrente."""
-    config_path = Path(config_path)
+# Il nome di una corsa diventa il nome di una cartella dentro `runs/`. Il
+# vincolo non e' cosmetico: senza, un nome come `../fuori` scriverebbe fuori
+# dalla radice, e uno con una barra creerebbe un annidamento che l'elenco non
+# ritroverebbe piu'. Stessa forma del vincolo su `Material.name`, piu' il
+# divieto esplicito su `.` e `..`: il punto e' un carattere ammesso dalla
+# tabella (`lab.v2` e' un nome legittimo), quindi il solo pattern lascia
+# passare proprio le due voci che risalgono l'albero.
+NOME_CORSA = r"^[A-Za-z0-9_.-]+$"
+NOMI_RISERVATI = (".", "..")
+
+
+def _modello_del_blocco(annotazione: object) -> type:
+    """Il modello annidato di un blocco di `PipelineConfig`.
+
+    `analysis` puo' essere assente, quindi la sua annotazione e'
+    `AnalysisConfig | None`: i campi stanno sul modello, non sull'unione, e
+    leggerli dall'annotazione grezza faceva cadere `/api/schema` -- cioe' il
+    pannello degli step 11 e 13 -- con un `AttributeError` fuori vista.
+    """
+    for candidato in get_args(annotazione) or (annotazione,):
+        if candidato is not type(None):
+            return candidato
+    raise TypeError(f"nessun modello annidato in {annotazione!r}")
+
+
+def _non_e_un_passo_dell_albero(nome: str) -> str:
+    if nome in NOMI_RISERVATI:
+        raise ValueError(
+            f"'{nome}' non e' un nome di corsa: e' un passo dell'albero delle cartelle"
+        )
+    return nome
+
+
+NomeCorsa = Annotated[
+    str,
+    Field(pattern=NOME_CORSA, min_length=1, max_length=64),
+    AfterValidator(_non_e_un_passo_dell_albero),
+]
+
+
+class NuovaCorsa(BaseModel):
+    """Tutto cio' che serve per far nascere una corsa: un nome e una nuvola."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    nome: NomeCorsa
+    nuvola: Path
+
+
+class CorsaScelta(BaseModel):
+    """La corsa gia' su disco da legare all'applicazione."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    nome: NomeCorsa
+
+
+def create_app(
+    config_path: Path | None = None,
+    radice_corse: Path = Path("runs"),
+    radice_esperimenti: Path = Path("experiments"),
+) -> FastAPI:
+    """Applicazione legata a un file di configurazione, che e' la corsa corrente.
+
+    Il legame e' mutabile e puo' nascere vuoto. `serve` senza argomenti apre
+    l'interfaccia su nessuna corsa: si sceglie una cartella di `runs/` o si
+    crea una corsa nuova da un file di punti, e da li' in poi tutto il resto
+    del server lavora come prima su `config_path`. Chi passa gia' un percorso
+    (la forma vecchia, `serve config.yaml`) trova l'applicazione legata
+    all'avvio, come e' sempre stato.
+
+    `radice_corse` e' la cartella dove le corse nascono e dove vengono cercate;
+    `radice_esperimenti` quella dei registri di sweep della galleria. Relative
+    come `run.out_dir` e `CACHE_DIR`: risolte rispetto alla cartella da cui gira
+    il server, non rispetto al file di configurazione. La galleria le cercava
+    accanto al config, e bastava aprire una configurazione che non stesse alla
+    radice del progetto -- oggi ogni corsa nuova, che vive in
+    `runs/<nome>/config.yaml` -- perche' sparisse senza dire perche'.
+    """
+    config_path = Path(config_path) if config_path is not None else None
+    radice_corse = Path(radice_corse)
+    radice_esperimenti = Path(radice_esperimenti)
     app = FastAPI(title="MeshRec", docs_url=None, redoc_url=None)
 
     def corrente() -> PipelineConfig:
+        if config_path is None:
+            raise ValueError(
+                "nessuna corsa aperta: scegline una fra quelle di "
+                f"'{radice_corse}' oppure creane una da un file di punti"
+            )
         return load_config(config_path)
+
+    def lega(percorso: Path) -> None:
+        nonlocal config_path
+        # Letta prima di legare: una configurazione illeggibile non deve
+        # lasciare l'applicazione appesa a un percorso che nessun endpoint
+        # riuscira' piu' a caricare.
+        load_config(percorso)
+        config_path = percorso
+
+    def nome_corrente() -> str | None:
+        """Il nome della corsa aperta, se e' una delle corse di `radice_corse`.
+
+        `serve casi/lab_telaio.yaml` apre una configurazione che non sta in
+        `runs/`: non e' una voce dell'elenco, e restituire «casi» segnerebbe
+        come corrente una riga che non esiste.
+        """
+        if config_path is None:
+            return None
+        cartella = config_path.parent
+        if cartella.resolve().parent != radice_corse.resolve():
+            return None
+        return cartella.name
 
     @app.exception_handler(Exception)
     async def nessuna_eccezione_verso_il_browser(_richiesta, errore: Exception):
@@ -321,12 +429,94 @@ def create_app(config_path: Path) -> FastAPI:
 
     @app.get("/api/run")
     def stato_corsa() -> dict[str, object]:
+        # Nessuna corsa non e' un errore: e' lo stato in cui il programma si
+        # apre la prima volta. Rispondere 400 qui farebbe nascere l'interfaccia
+        # da una pagina rossa invece che dalla schermata d'ingresso.
+        if config_path is None:
+            return {"legata": False, "corsa": None, "out_dir": None,
+                    "config_path": None, "steps": None}
         cfg = corrente()
         return {
+            "legata": True,
+            "corsa": nome_corrente(),
             "out_dir": str(cfg.run.out_dir),
             "config_path": str(config_path),
             "steps": steps.run_state(cfg.run.out_dir, cfg),
         }
+
+    @app.get("/api/corse")
+    def elenco_corse() -> dict[str, object]:
+        """Le corse trovate su disco: una cartella con un config.yaml dentro.
+
+        Una configurazione illeggibile non fa sparire le altre: quella riga
+        porta il proprio errore e resta nell'elenco, perche' una corsa rotta
+        che non compare e' indistinguibile da una corsa che non e' mai esistita.
+        """
+        corse: list[dict[str, object]] = []
+        if radice_corse.is_dir():
+            for cartella in sorted(radice_corse.iterdir()):
+                percorso = cartella / "config.yaml"
+                if not percorso.is_file():
+                    continue
+                voce: dict[str, object] = {
+                    "nome": cartella.name,
+                    "nuvola": None,
+                    "modificata": percorso.stat().st_mtime,
+                    "materiale": None,
+                    "errore": None,
+                }
+                try:
+                    cfg = load_config(percorso)
+                except Exception as errore:
+                    voce["errore"] = f"{type(errore).__name__}: {errore}"
+                else:
+                    voce["nuvola"] = str(cfg.input.path)
+                    voce["materiale"] = cfg.analysis.material.name if cfg.analysis else None
+                corse.append(voce)
+        return {"radice": str(radice_corse), "corse": corse, "corrente": nome_corrente()}
+
+    @app.post("/api/corse")
+    def crea_corsa(richiesta: NuovaCorsa) -> dict[str, object]:
+        """Fa nascere una corsa dalla sola nuvola, e ci lega l'applicazione.
+
+        Scrive `input.path` e `run.out_dir` e nient'altro: ogni altro parametro
+        resta al proprio predefinito, dichiarato in `config.py`, e il materiale
+        resta assente finche' non lo dichiara chi analizza.
+        """
+        nuvola = Path(richiesta.nuvola).expanduser()
+        if not nuvola.exists():
+            raise ValueError(f"nessun file di punti in '{nuvola}'")
+        if not nuvola.is_file():
+            raise ValueError(f"'{nuvola}' non e' un file: serve una nuvola di punti")
+        if nuvola.suffix.lower() not in io.ESTENSIONI_NUVOLA:
+            raise ValueError(
+                f"'{nuvola.suffix}' non e' un formato che il programma legge: "
+                f"servono {', '.join(io.ESTENSIONI_NUVOLA)}"
+            )
+        cartella = radice_corse / richiesta.nome
+        if cartella.exists():
+            raise ValueError(
+                f"'{richiesta.nome}' esiste gia' in '{radice_corse}': scegli un altro "
+                "nome. Una corsa non viene mai sovrascritta"
+            )
+        cfg = PipelineConfig(
+            input=InputConfig(path=nuvola),
+            run=RunConfig(out_dir=cartella),
+        )
+        percorso = cartella / "config.yaml"
+        save_config(cfg, percorso)
+        lega(percorso)
+        return stato_corsa()
+
+    @app.put("/api/corrente")
+    def apri_corsa(richiesta: CorsaScelta) -> dict[str, object]:
+        percorso = radice_corse / richiesta.nome / "config.yaml"
+        if not percorso.is_file():
+            raise ValueError(
+                f"nessuna corsa chiamata '{richiesta.nome}' in '{radice_corse}'"
+            )
+        lega(percorso)
+        return stato_corsa()
 
     @app.get("/api/config")
     def configurazione() -> dict[str, object]:
@@ -336,6 +526,10 @@ def create_app(config_path: Path) -> FastAPI:
     def scrivi_configurazione(nuova: PipelineConfig) -> dict[str, object]:
         # La validazione e' quella dei modelli: l'interfaccia non ne ha una
         # propria, e un valore fuori dominio non arriva mai alla pipeline.
+        # `corrente()` prima della scrittura per la sola guardia sul legame:
+        # senza, `save_config(nuova, None)` cadrebbe con un TypeError che non
+        # dice quale sia il problema.
+        corrente()
         save_config(nuova, config_path)
         return nuova.model_dump(mode="json")
 
@@ -421,7 +615,7 @@ def create_app(config_path: Path) -> FastAPI:
         for numero, blocchi in steps.STEP_BLOCKS.items():
             campi: dict[str, object] = {}
             for blocco in blocchi:
-                annidato = modelli[blocco].annotation
+                annidato = _modello_del_blocco(modelli[blocco].annotation)
                 campi[blocco] = {
                     nome: {
                         "description": campo.description or "",
@@ -450,7 +644,7 @@ def create_app(config_path: Path) -> FastAPI:
         Una sottocartella di experiments/ senza registro.jsonl non e' un
         esperimento concluso, e resta fuori dall'elenco.
         """
-        radice = config_path.parent / "experiments"
+        radice = radice_esperimenti
         if not radice.is_dir():
             return {"esperimenti": []}
         return {
@@ -470,7 +664,7 @@ def create_app(config_path: Path) -> FastAPI:
         elenchi di colonne che divergono sono precisamente il difetto che
         questo ramo ha gia' inseguito per giorni.
         """
-        radice = (config_path.parent / "experiments").resolve()
+        radice = radice_esperimenti.resolve()
         percorso = (radice / nome / "registro.jsonl").resolve()
         if not percorso.is_relative_to(radice) or not percorso.exists():
             raise FileNotFoundError(f"nessun registro per l'esperimento {nome}")

@@ -13,6 +13,24 @@ Python 3.12 e [uv](https://docs.astral.sh/uv/).
 
 ```bash
 uv sync
+uv run meshrec serve                   # apre il browser sulla schermata d'ingresso
+```
+
+Senza argomenti l'interfaccia si apre su una schermata che elenca le corse già
+presenti in `runs/` e permette di crearne una nuova da un file di punti
+(`.pcd`, `.ply`, `.xyz`), indicandone il percorso su questa macchina. Non serve
+scrivere a mano un `config.yaml`: nasce da lì, con ogni parametro al proprio
+predefinito.
+
+Il **materiale** non viene chiesto all'inizio e non viene indovinato: nome,
+modulo elastico, coefficiente di Poisson e densità si dichiarano allo step 11,
+che è il primo a pretenderli. Fino a lì la corsa attraversa tutta la geometria
+senza. Gli step 11 e 13 si fermano con un messaggio finché non ci sono.
+
+Le configurazioni del caso studio della tesi stanno in `casi/` e si aprono per
+nome — `uv run meshrec serve casi/lab_telaio.yaml`. Vedi `casi/README.md`.
+
+```bash
 uv run pytest                          # test del nucleo
 
 uv sync --all-extras                   # installa anche gmsh (gruppo opzionale "feasibility")

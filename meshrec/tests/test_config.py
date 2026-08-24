@@ -31,9 +31,15 @@ def test_the_material_has_no_defaults_and_must_be_declared():
     materiale per il resto dichiarato passa inosservato a un controllo che ne
     omette due insieme, ed e' proprio il parametro sbagliato di venti volte
     sul telaio in calcestruzzo.
+
+    Dalla correzione dell'ingresso una configurazione puo' *nascere* senza
+    analisi -- una corsa comincia dalla sola nuvola -- ma non puo' arrivare
+    allo step che il materiale lo pretende: la guardia si e' spostata da
+    `PipelineConfig` a `analisi_dichiarata`, non e' stata tolta.
     """
+    senza_analisi = config.PipelineConfig(input=config.InputConfig(path="nuvola.ply"))
     with pytest.raises(ValueError):
-        config.PipelineConfig(input=config.InputConfig(path="nuvola.ply"))
+        senza_analisi.analisi_dichiarata(11)
     with pytest.raises(ValueError):
         config.AnalysisConfig()
 
@@ -247,3 +253,45 @@ def test_lo_step_name_predefinito_e_i_nomi_liberi_restano_accettati():
     """Controprova: la guardia sopra vieta tre nomi, non i nomi."""
     assert config.AnalysisConfig(material=MATERIALE).step_name == "GRAVITA"
     assert config.AnalysisConfig(material=MATERIALE, step_name="PESO_PROPRIO").step_name == "PESO_PROPRIO"
+
+
+def test_una_configurazione_nasce_senza_analisi():
+    """Una corsa deve poter nascere dalla sola nuvola.
+
+    `analysis` e' letto dai soli step 11 e 13 (`steps.STEP_BLOCKS`), quindi
+    esigerlo alla nascita costringeva a dichiarare la classe del calcestruzzo
+    prima di aver guardato un punto. Il materiale resta obbligatorio *dentro*
+    `AnalysisConfig`: quell'invariante nasce da un difetto misurato e non si
+    tocca.
+    """
+    cfg = config.PipelineConfig(input=config.InputConfig(path="nuvola.ply"))
+
+    assert cfg.analysis is None
+
+
+def test_una_configurazione_senza_analisi_sopravvive_al_giro_su_disco(tmp_path):
+    cfg = config.PipelineConfig(input=config.InputConfig(path="nuvola.ply"))
+    config.save_config(cfg, tmp_path / "config.yaml")
+
+    assert config.load_config(tmp_path / "config.yaml").analysis is None
+
+
+def test_chiedere_l_analisi_mancante_nomina_il_campo_e_lo_step():
+    """Il rifiuto deve insegnare: quale campo manca e quale step lo pretende."""
+    cfg = config.PipelineConfig(input=config.InputConfig(path="nuvola.ply"))
+
+    with pytest.raises(ValueError, match="analysis.material") as errore:
+        cfg.analisi_dichiarata(11)
+    assert "11" in str(errore.value)
+
+
+def test_chiedere_l_analisi_dichiarata_la_restituisce():
+    """Controprova: la guardia vieta l'assenza, non l'uso."""
+    cfg = config.PipelineConfig(input=config.InputConfig(path="nuvola.ply"), analysis=ANALISI)
+
+    assert cfg.analisi_dichiarata(11) is ANALISI
+
+
+def test_il_materiale_resta_obbligatorio_dentro_l_analisi():
+    with pytest.raises(ValidationError):
+        config.AnalysisConfig()

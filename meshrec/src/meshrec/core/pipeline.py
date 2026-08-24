@@ -192,7 +192,9 @@ def genera_modello(cfg: PipelineConfig, tipo: str, out_dir: Path) -> dict[str, o
         out / "wall_model.vtu",
         nodi,
         elementi,
-        cfg.analysis,
+        # Stessa esportazione dello step 11, su una corsa figlia: stesso varco,
+        # stesso rifiuto se il materiale non e' stato dichiarato.
+        cfg.analisi_dichiarata(11),
         cfg.tet,
         reference=nodi,
         element_type=cfg.model.element,
@@ -441,7 +443,7 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
             out / "wall_model.vtu",
             nodes,
             tets,
-            cfg.analysis,
+            cfg.analisi_dichiarata(11),
             cfg.tet,
             reference=vertices,
             carichi=cfg.carichi,
@@ -471,7 +473,7 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
         # dei casi (casi_di_carico) vengono dalla stessa riga: e' l'ordine che
         # export_model ha scritto davvero nel deck, non una sua ricostruzione.
         metrics["13_solve"] = solve.risolvi(
-            out, out / "wall_model.inp", cfg.analysis, nodes, tets,
+            out, out / "wall_model.inp", cfg.analisi_dichiarata(13), nodes, tets,
             metrics["11_export"]["element_type"],
             casi_di_carico=metrics["11_export"]["casi_di_carico"],
             # Gia' calcolato allo step 11 (abaqus.constraint_plan_extent):

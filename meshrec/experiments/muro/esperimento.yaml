@@ -1,7 +1,7 @@
 # Dichiarazione dell'esperimento sul muro sintetico (corsa di riferimento).
 # I livelli sono definiti nel brief del Task 12, Step 1: non sono una mia scelta.
 name: muro
-base: muro.yaml
+base: casi/muro.yaml
 known_thickness: 1245.7
 axes:
   - path: downsample.voxel_size

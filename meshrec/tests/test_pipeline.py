@@ -785,3 +785,31 @@ def test_generare_un_modello_senza_prior_dice_che_cosa_manca(tmp_path):
 
     with pytest.raises(FileNotFoundError, match="12_wall.json"):
         pipeline.genera_modello(cfg, "estruso", tmp_path / "figlia")
+
+
+def test_senza_materiale_la_corsa_arriva_alle_metriche_di_volume(tmp_path):
+    """Una nuvola appena caricata deve poter attraversare la geometria.
+
+    Gli step 1-10 non leggono `analysis` (`steps.STEP_BLOCKS`): chiedere il
+    materiale prima di loro sarebbe chiederlo per nulla.
+    """
+    cfg = _config_cubo(tmp_path)
+    cfg.analysis = None
+    cfg.run = config.RunConfig(out_dir=tmp_path / "out", to_step=10)
+
+    metriche = pipeline.run(cfg)
+
+    assert "10_volume_quality" in metriche
+    assert "11_export" not in metriche
+
+
+def test_lo_step_11_senza_materiale_si_ferma_dicendo_che_cosa_manca(tmp_path):
+    cfg = _config_cubo(tmp_path)
+    cfg.analysis = None
+    cfg.run = config.RunConfig(out_dir=tmp_path / "out", to_step=11)
+
+    with pytest.raises(ValueError, match="analysis.material"):
+        pipeline.run(cfg)
+
+    stato = steps.read_state(tmp_path / "out")
+    assert stato["11_export"]["esito"] == "fallito"

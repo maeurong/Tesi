@@ -2124,7 +2124,12 @@ def test_la_didascalia_della_vista_sta_dentro_la_vista_e_non_nella_terza_colonna
     ridargli `class="aiuto"` (--tipo-nota, 13 px, --tenue).
     """
     markup = _senza_commenti_html(_markup())
-    vista = markup[markup.index('class="zona zona-vista"'):markup.index("</section>")]
+    # La chiusura *della vista*, non la prima del documento: cercata dall'inizio
+    # bastava una qualunque altra `<section>` piu' in alto nella pagina (la
+    # schermata d'ingresso, per esempio) per far ritagliare una fetta vuota e
+    # far fallire il test su un markup corretto.
+    apre = markup.index('class="zona zona-vista"')
+    vista = markup[apre:markup.index("</section>", apre)]
     assert 'id="didascalia-vista"' in vista, (
         "la didascalia della vista non sta dentro la zona della vista"
     )

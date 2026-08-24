@@ -18,7 +18,47 @@
        una corsa gira davvero. -->
   <button type="button" id="annulla" class="bottone" disabled>Annulla</button>
 </header>
-<main class="tre-zone">
+<!-- Schermata d'ingresso. Nasce nascosta e app.js la scopre solo quando
+     /api/run dice che non c'e' nessuna corsa aperta: chi apre il programma
+     su una corsa non deve vederla lampeggiare. Sta fuori da <main>, che
+     viene nascosto insieme, perche' le due schermate si escludono a vicenda
+     e una sola per volta ha senso nell'albero di accessibilita'. -->
+<section class="ingresso" id="ingresso" aria-label="Scelta della corsa" hidden>
+  <h2>Da dove si comincia</h2>
+  <p class="aiuto">
+    Una corsa e' una cartella con la configurazione, gli artefatti di ogni step
+    e le metriche. Nasce da un file di punti: <code>.pcd</code>,
+    <code>.ply</code> o <code>.xyz</code>.
+  </p>
+  <h3>Corse gia' sul disco</h3>
+  <p class="vuoto" id="corse-vuoto" hidden>Nessuna corsa: la prima si crea qui sotto.</p>
+  <div class="corse" id="corse-elenco"></div>
+  <h3>Nuova analisi</h3>
+  <!-- Percorso e non caricamento: il programma gira sulla stessa macchina
+       dove il file gia' sta, e la scansione di riferimento pesa 152 MB.
+       Copiarla dentro il browser per riscriverla su disco sarebbe pagare
+       due volte per non muovere niente. -->
+  <label class="campo" for="nuova-nome">
+    <span>nome della corsa</span>
+    <input type="text" id="nuova-nome" autocomplete="off" spellcheck="false">
+    <small class="aiuto">Diventa il nome della cartella: lettere, cifre, punto, trattino, trattino basso.</small>
+  </label>
+  <label class="campo" for="nuova-nuvola">
+    <span>percorso del file di punti</span>
+    <input type="text" id="nuova-nuvola" autocomplete="off" spellcheck="false"
+           placeholder="../Nuvole di punti/scansione.pcd">
+    <small class="aiuto">Percorso sul disco di questa macchina, assoluto o relativo alla cartella da cui gira il programma.</small>
+  </label>
+  <button type="button" id="crea-corsa" class="bottone">Crea la corsa</button>
+  <!-- Stessa regola della riga d'errore del pannello: vive nel markup, non
+       viene fabbricata, e a vuota non occupa spazio. -->
+  <p class="errore" id="ingresso-errore" role="alert"></p>
+  <p class="aiuto">
+    Il materiale non viene chiesto adesso e non viene indovinato: lo si dichiara
+    allo step 11, che e' il primo a pretenderlo.
+  </p>
+</section>
+<main class="tre-zone" id="lavoro">
   <nav class="zona zona-step" aria-label="Step della pipeline">
     <h2>Pipeline</h2>
     <ol class="elenco-step" id="elenco-step"></ol>

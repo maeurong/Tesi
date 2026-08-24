@@ -32,7 +32,18 @@ def cliente(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     # al chiamante quando questo flag e' vero (e' il predefinito), per dare a
     # chi testa la scelta di vederla. Qui si vuole il contratto HTTP che vede
     # il browser, non l'eccezione interna.
-    return TestClient(create_app(tmp_path / "config.yaml"), raise_server_exceptions=False)
+    # Le due radici esplicite: dalla correzione dell'ingresso non discendono
+    # piu' dal percorso del config (`experiments/` accanto al config sparirebbe
+    # per ogni corsa che vive in `runs/<nome>/`), ma dalla cartella da cui gira
+    # il server -- che sotto pytest e' il repository, non tmp_path.
+    return TestClient(
+        create_app(
+            tmp_path / "config.yaml",
+            radice_corse=tmp_path / "runs",
+            radice_esperimenti=tmp_path / "experiments",
+        ),
+        raise_server_exceptions=False,
+    )
 
 
 def test_la_radice_serve_l_interfaccia(cliente):
@@ -1587,7 +1598,11 @@ def test_ogni_tratta_che_interroga_il_server_si_scarta_se_e_stata_superata():
     # apriDettaglio, mostraEsperimento) piu' 2 freccia, quindi la soglia
     # pareggia il numero vero. Se ne aggiungi una, alza la soglia invece di
     # lasciarla indietro.
-    assert interrogano >= 7, "le tratte attese sono sparite dal modulo"
+    #
+    # Dalla schermata d'ingresso sono 11: 6 nominate (le 5 di prima piu'
+    # disegnaIngresso) e 5 freccia (le 2 di prima, il clic su una corsa, il clic
+    # che ne crea una, il clic che dichiara il materiale).
+    assert interrogano >= 11, "le tratte attese sono sparite dal modulo"
 
 
 def test_due_geometrie_in_volo_nella_stessa_generazione_non_si_arbitrano_per_arrivo():
@@ -2390,11 +2405,17 @@ def test_la_galleria_non_scrive_mai_nei_registri(cliente, tmp_path):
 def test_la_galleria_mostra_il_candidato_di_fronte_su_lab_crop():
     """Verifica sul dato vero, non su tmp_path: i quattro valori vengono da
     meshrec/docs/fase-2-sweep.md, paragrafo 3, riga del fronte
-    (surface.poisson_depth = 7). Il client punta a lab.yaml e experiments/
+    (surface.poisson_depth = 7). Il client punta a casi/lab.yaml e experiments/
     reali del repository: la tratta e' GET, quindi non scrive su nessuno dei due.
     """
     radice_repo = Path(__file__).resolve().parents[1]
-    cliente_reale = TestClient(create_app(radice_repo / "lab.yaml"), raise_server_exceptions=False)
+    cliente_reale = TestClient(
+        create_app(
+            radice_repo / "casi" / "lab.yaml",
+            radice_esperimenti=radice_repo / "experiments",
+        ),
+        raise_server_exceptions=False,
+    )
     corpo = cliente_reale.get("/api/experiments/lab_crop").json()
     indice_colonne = {voce["chiave"]: i for i, voce in enumerate(corpo["colonne"])}
     fronte = [i for i, riga in enumerate(corpo["righe"]) if riga.get("on_front")]

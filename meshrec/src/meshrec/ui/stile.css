@@ -106,6 +106,21 @@ body {
    carattere accanto al titolo. */
 .corsa { margin: 0; color: var(--tenue); font-family: var(--stack-cifre); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); overflow-wrap: anywhere; }
 .tre-zone { display: grid; grid-template-columns: 18rem 1fr 22rem; flex: 1; min-height: 0; }
+.tre-zone[hidden] { display: none; }
+
+/* Schermata d'ingresso. Una colonna sola e larga la misura leggibile: e' la
+   prima cosa che vede chi non ha mai aperto il programma, e non ha niente da
+   confrontare affiancato. Scorre per conto suo perche' l'elenco delle corse
+   cresce con l'uso. */
+.ingresso { padding: var(--passo-4); overflow: auto; background: var(--superficie); max-width: var(--misura); }
+.ingresso[hidden] { display: none; }
+.ingresso .campo { max-width: 40rem; }
+.corse { display: flex; flex-direction: column; gap: var(--passo-2); margin-bottom: var(--passo-6); }
+/* Una voce e' un bottone alto due righe: il nome e cio' da cui la corsa e'
+   nata. text-align: left perche' un bottone centra di suo, e qui il contenuto
+   e' una scheda, non un'etichetta. */
+.corsa-voce { display: grid; gap: var(--passo-1); text-align: left; }
+.corsa-nome { font-family: var(--stack-cifre); font-size: var(--tipo-corpo); line-height: var(--interlinea-riga); overflow-wrap: anywhere; }
 .zona { padding: var(--passo-4); overflow: auto; }
 .zona-step, .zona-dettaglio { background: var(--superficie); }
 .zona-step { border-right: 1px solid var(--bordo); }
