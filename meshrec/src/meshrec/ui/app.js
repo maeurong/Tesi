@@ -281,6 +281,20 @@ function nomeDelloStep(numero) {
 }
 
 function disegnaStep(steps) {
+  // Lo stato di prima, letto prima di sovrascriverlo: e' l'unica cosa che
+  // distingue «lo step 6 e' appena diventato valido» da «lo step 6 e' valido»,
+  // e la colonna diceva il secondo anche nell'istante in cui accadeva il primo.
+  // Da qui e non dal DOM: `className` sulla riga e' cio' che il foglio legge, e
+  // farlo portare anche la memoria di cio' che c'era prima significherebbe
+  // riscrivere lo stato per esprimere un evento.
+  //
+  // Vuoto alla prima passata, e non e' un caso limite da tollerare ma il
+  // comportamento voluto: al primo disegno tutti e tredici gli step sarebbero
+  // «cambiati» rispetto a niente, e la colonna si accenderebbe tutta all'avvio
+  // dicendo che e' appena successo qualcosa che invece era gia' cosi'. Legare
+  // una corsa ricarica la pagina, quindi non esiste una seconda strada per cui
+  // questa mappa arrivi popolata da una corsa diversa.
+  const precedente = new Map(ultimoStato.map((voce) => [voce.numero, voce.stato]));
   ultimoStato = steps;
   const elenco = document.getElementById("elenco-step");
   // Le righe si costruiscono una volta sola e poi si aggiornano sul posto.
@@ -296,8 +310,19 @@ function disegnaStep(steps) {
     elenco.replaceChildren(...steps.map(() => nuovaRiga()));
   }
   steps.forEach((voce, indice) => {
-    const comando = elenco.children[indice].firstElementChild;
-    elenco.children[indice].className = `stato-${voce.stato.replace(" ", "-")}`;
+    const riga = elenco.children[indice];
+    const comando = riga.firstElementChild;
+    riga.className = `stato-${voce.stato.replace(" ", "-")}`;
+    // Il marchio del cambio, che il foglio anima per mezzo secondo. Messo nel
+    // giro in cui lo stato cambia e tolto in quello dopo -- gli eventi di stato
+    // arrivano ogni mezzo secondo -- cosi' la volta seguente l'attributo torna
+    // ad apparire e l'animazione riparte da se': un attributo che restasse
+    // attaccato la lascerebbe girare una volta sola e mai piu'.
+    if (precedente.has(voce.numero) && precedente.get(voce.numero) !== voce.stato) {
+      riga.dataset.cambiato = "";
+    } else {
+      delete riga.dataset.cambiato;
+    }
     comando.dataset.numero = voce.numero;
     comando.firstElementChild.textContent = ETICHETTE[voce.chiave] ?? voce.chiave;
     comando.lastElementChild.textContent = voce.stato;

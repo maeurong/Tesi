@@ -3777,3 +3777,117 @@ assert.ok(didascalia.textContent.length > 0, "rifiuto muto");
 assert.ok(/1000/.test(didascalia.textContent) && /\\b4\\b/.test(didascalia.textContent),
   `il rifiuto non dice quanto sono disallineati: ${didascalia.textContent}`);
 """)
+
+
+# --------------------------------------------------------------------------
+# Il movimento: due controlli, e nessuno guarda l'estetica.
+#
+# Cio' che si prova qui e' logica, e sono le due strade per cui un movimento
+# smette di essere un'informazione e diventa un difetto: una transizione che non
+# finisce mai, e un marchio di «e' appena cambiato» acceso su qualcosa che non
+# e' cambiato affatto. Nessuna delle due si vede guardando un fotogramma.
+# --------------------------------------------------------------------------
+
+
+def _durata_dell_arrivo() -> str:
+    """La costante vera di `viewport.js`, non una copia scritta nel banco.
+
+    Gemella di `_costante`, che legge `app.js`. Senza, il banco proverebbe una
+    durata che il modulo non usa piu' e resterebbe verde."""
+    trovato = re.search(
+        r"^export const DURATA_ARRIVO = .*;$", _modulo_viewport(), flags=re.MULTILINE
+    )
+    assert trovato is not None, "nessuna costante DURATA_ARRIVO in viewport.js"
+    return trovato.group(0).removeprefix("export ")
+
+
+def test_l_arrivo_finisce_e_non_lascia_la_camera_in_un_punto_che_non_esiste(tmp_path):
+    """Le due proprieta' che tengono in piedi l'assestamento dell'inquadratura.
+
+    **Finisce.** `disegna()` smonta la transizione sul confronto `frazione >= 1`:
+    una frazione che si avvicina a 1 senza arrivarci lascerebbe acceso un
+    `aggiornaCamera` per ogni fotogramma, per tutta la durata della sessione, e
+    una pagina che resta aperta ore non lo direbbe con nessun sintomo.
+
+    **Non produce NaN.** La frazione moltiplica il raggio e interpola il centro:
+    un NaN qui porta la camera in una posizione che non esiste e la scena
+    sparisce, senza un errore in console e senza una riga nel registro. Le due
+    strade sono una durata nulla (divisione per zero) e un trascorso non finito.
+    """
+    uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
+        + _durata_dell_arrivo() + "\n"
+        + _funzioni_viewport("frazioneDellArrivo") + """
+assert.equal(frazioneDellArrivo(0), 0, "l'arrivo non parte dall'inquadratura di prima");
+assert.equal(frazioneDellArrivo(DURATA_ARRIVO), 1, "a tempo scaduto la transizione non si smonta");
+assert.equal(frazioneDellArrivo(DURATA_ARRIVO * 10), 1, "oltre la durata la frazione scappa");
+assert.equal(frazioneDellArrivo(-50), 0, "un trascorso negativo tira la camera all'indietro");
+
+// Monotona e chiusa: un'inquadratura che oltrepassa e torna indietro mostra un
+// pezzo piu' grande di quello che e'.
+let scorso = -1;
+for (let t = 0; t <= DURATA_ARRIVO; t += 5) {
+  const frazione = frazioneDellArrivo(t);
+  assert.ok(frazione >= scorso, `la frazione torna indietro a ${t} ms`);
+  assert.ok(frazione >= 0 && frazione <= 1, `frazione fuori da [0, 1] a ${t} ms: ${frazione}`);
+  scorso = frazione;
+}
+
+// Le tre strade per il NaN, che nessuna delle due guardie qui sopra vede.
+for (const [nome, valore] of [["NaN", NaN], ["Infinity", Infinity], ["assente", undefined]]) {
+  assert.equal(frazioneDellArrivo(valore), 1, `un trascorso ${nome} non finisce l'arrivo`);
+}
+assert.equal(frazioneDellArrivo(10, 0), 1, "durata nulla: la frazione divide per zero");
+assert.equal(frazioneDellArrivo(10, -1), 1, "durata negativa: la frazione esce dall'intervallo");
+console.log("ok");
+""")
+    assert uscita.strip() == "ok"
+
+
+def test_il_marchio_del_cambio_sta_solo_sulle_righe_che_sono_cambiate(tmp_path):
+    """Il marchio e' un evento, e un evento dichiarato dove non e' successo
+    niente e' un numero mostrato senza un controllo che lo smentisca.
+
+    Tre modi di romperlo, tutti invisibili guardando la colonna ferma:
+
+    1. **La prima passata.** Confrontato con niente, ogni step risulta cambiato:
+       all'avvio la colonna si accenderebbe tutta dicendo che e' appena successo
+       qualcosa che era gia' cosi'.
+    2. **Lo stato che non cambia.** Gli eventi arrivano due volte al secondo per
+       tutta la corsa: un marchio che non guarda il valore precedente
+       lampeggerebbe su tredici righe per i trentaquattro secondi di uno step.
+    3. **Il marchio che resta attaccato.** Tolto solo al cambio successivo,
+       l'animazione girerebbe una volta e mai piu', perche' e' l'attributo che
+       ricompare a farla ripartire.
+
+    Provato eseguendo `disegnaStep`, non cercando `data-cambiato` nel sorgente:
+    la stessa guardia scritta al contrario lascia la sottostringa al suo posto.
+    """
+    _esegui(tmp_path, _DOM + _funzioni("segnaStepAperto", "nuovaRiga", "disegnaStep") + """
+const marchiati = () =>
+  elenco.children.flatMap((riga, i) => ("cambiato" in riga.dataset ? [i] : []));
+
+disegnaStep(STEPS);
+assert.deepEqual(marchiati(), [], "alla prima passata la colonna si accende tutta");
+
+// Lo stesso stato, di nuovo: e' cio' che arriva due volte al secondo.
+disegnaStep(STEPS);
+assert.deepEqual(marchiati(), [], "uno stato che non cambia si dichiara cambiato");
+
+// Solo il secondo step finisce.
+disegnaStep(STEPS.map((v) => (v.numero === 2 ? { ...v, stato: "valido" } : v)));
+assert.deepEqual(marchiati(), [1], "il marchio non e' sulla riga cambiata, o non e' solo sua");
+assert.equal(elenco.children[1].className, "stato-valido",
+  "il marchio e' finito dentro la classe di stato: due canali diventati uno");
+
+// L'evento dopo, mezzo secondo piu' tardi: niente e' cambiato di nuovo.
+disegnaStep(STEPS.map((v) => (v.numero === 2 ? { ...v, stato: "valido" } : v)));
+assert.deepEqual(marchiati(), [],
+  "il marchio resta attaccato: l'animazione non puo' piu' ripartire");
+
+// E riparte quando lo stato cambia davvero un'altra volta.
+disegnaStep(STEPS.map((v) => (v.numero === 2 ? { ...v, stato: "fallito" } : v)));
+assert.deepEqual(marchiati(), [1], "il secondo cambio sulla stessa riga non si vede");
+""")
+    assert ".elenco-step [data-cambiato]" in _foglio(), (
+        "il foglio non si aggancia piu' a data-cambiato: il marchio resta senza animazione"
+    )

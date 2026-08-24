@@ -35,10 +35,16 @@
   --passo-6: 1.5rem;   /* 24px — sopra un titolo, cioe' fra due gruppi */
   --raggio: 0.25rem;   /* un solo raggio: erano due, 0,2 e 0,25 */
 
-  /* Movimento. Due durate: il ritorno di un comando toccato, e la comparsa di
-     qualcosa che prima non c'era. Oltre queste due non c'e' niente da dire. */
+  /* Movimento. Tre durate: il ritorno di un comando toccato, la comparsa di
+     qualcosa che prima non c'era, e il marchio su una riga che ha appena
+     cambiato stato. La terza e' la piu' lunga perche' e' l'unica che non
+     risponde a un gesto: uno step dura secondi, e chi lo ha lanciato non sta
+     guardando la colonna nell'istante in cui finisce. Oltre queste tre, in
+     questo foglio non c'e' niente da dire; la quarta e' l'arrivo di una
+     geometria nella vista e vive in viewport.js, dove la legge la camera. */
   --durata-tocco: 120ms;
   --durata-comparsa: 200ms;
+  --durata-cambio: 500ms;
   --curva: cubic-bezier(0.16, 1, 0.3, 1);
 
   /* Caratteri di sistema soltanto: il server e' locale e nessuna risorsa esce
@@ -306,7 +312,9 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .rifiuto { margin: 0 0 var(--passo-1); padding-left: var(--passo-2); border-left: 2px solid var(--guasto); color: var(--guasto); font-size: var(--tipo-dato); line-height: var(--interlinea); max-width: var(--misura); text-wrap: pretty; }
 
 /* --- Movimento ------------------------------------------------------------
-   Tre soli momenti, e nessuno decorativo.
+   Cinque momenti, e nessuno decorativo. Il quinto non e' qui: e' l'arrivo di
+   una geometria nella vista, e sta in viewport.js perche' meta' di lui e' uno
+   spostamento di camera (DURATA_ARRIVO, frazioneDellArrivo).
 
    1. Il respiro dello step in corso. Il progresso qui non e' una percentuale
       (le librerie non ne danno una, e fabbricarla sarebbe un numero che
@@ -317,12 +325,32 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
    2. La comparsa della riga d'errore. E' l'unica cosa che nasce in mezzo a un
       pannello fermo, e chi ha appena premuto un bottone guarda il bottone.
    3. Il ritorno dei comandi al passaggio e al rifiuto, qui sopra.
+   4. Il marchio su una riga che ha appena cambiato stato. E' l'unico movimento
+      di questo foglio che non risponde a un gesto, e porta un'informazione che
+      prima non arrivava a nessuno: uno step che finisce dopo trentaquattro
+      secondi cambiava una parola in una colonna di tredici righe, e chi lo ha
+      lanciato nel frattempo guarda altrove. Vale anche al contrario, ed e' il
+      caso piu' utile: modificato un parametro, gli step a valle diventano «non
+      valido» tutti insieme, e finora quel fatto — che il lavoro fatto e'
+      scaduto — si vedeva solo rileggendo la colonna riga per riga.
 
-   Non animato apposta: l'elenco degli step. app.js lo riscrive tutto a ogni
-   evento di stato, cioe' due volte al secondo mentre la pipeline gira, e
-   qualunque animazione di comparsa su .step ripartirebbe da capo a ogni
-   riscrittura: undici righe che lampeggiano due volte al secondo per mezzo
-   minuto. */
+      Il marchio e' `data-cambiato` e non una classe di stato: lo stato e' cio'
+      che la riga E', il marchio e' cio' che le e' appena successo, e tenerli
+      su due canali significa che nessuno dei due va riscritto per esprimere
+      l'altro. app.js lo mette nel giro in cui lo stato cambia e lo toglie nel
+      giro dopo, cioe' entro mezzo secondo: e' cosi' che l'animazione riparte
+      la volta seguente senza che nessuno la riavvii a mano.
+
+   Non animato apposta: la comparsa delle righe dell'elenco. Le righe non
+   compaiono — `disegnaStep` le costruisce una volta e poi le aggiorna sul
+   posto, per non distruggere l'elemento che ha il fuoco — e animare una
+   comparsa che non avviene vorrebbe dire ricostruirle apposta, riaprendo il
+   difetto di tastiera che quella scelta ha chiuso.
+
+   Non animato apposta: la sostituzione fra la schermata d'ingresso e le tre
+   zone. E' la risposta immediata a un clic su una corsa, e la pagina si
+   ricarica: non c'e' nessuna continuita' da preservare fra due schermate che
+   non condividono niente. */
 .in-corso::before {
   /* Disegnato, non un carattere: un glifo unicode al posto di un segno
      dipende dal font installato e non si puo' colorare in modo prevedibile. */
@@ -344,11 +372,26 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
   from { opacity: 0; transform: translateY(-0.25rem); }
   to { opacity: 1; transform: none; }
 }
+/* Il marchio del cambio di stato. Sul <li> e non sul <button>: il bottone ha
+   gia' tre fondi propri (passaggio, pressione, step aperto), e un quarto
+   scritto sopra di loro sarebbe un colore che dipende da dove sta il puntatore.
+   Nessuna coda: a fine ciclo il fondo torna quello che era, e la riga non
+   conserva niente da pulire. */
+.elenco-step [data-cambiato] { animation: cambio-di-stato var(--durata-cambio) var(--curva); }
+@keyframes cambio-di-stato {
+  from { background: var(--evidenza); }
+  to { background: transparent; }
+}
 /* Chi ha chiesto meno movimento non chiede meno informazione. Sparisce cio'
    che si muove: il ciclo del pallino, che resta acceso e dichiara lo stesso
    fatto, e lo spostamento della riga d'errore, che resta una comparsa. Restano
    il velo dell'errore e i ritorni di colore al tocco: non sono spostamenti, e
-   sono la risposta a un gesto, non un effetto. */
+   sono la risposta a un gesto, non un effetto. Resta anche il marchio del
+   cambio di stato, per la stessa regola e per una ragione in piu': e' un fondo
+   che si spegne, non una riga che si sposta, ed e' l'unico canale con cui la
+   colonna dice che qualcosa e' appena successo. viewport.js applica la stessa
+   regola dalla sua parte: la camera salta invece di assestarsi, la tela
+   compare lo stesso. */
 @media (prefers-reduced-motion: reduce) {
   .in-corso::before { animation: none; opacity: 1; }
   @keyframes comparsa {
