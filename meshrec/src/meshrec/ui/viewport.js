@@ -85,7 +85,7 @@ export function didascaliaDelCampo({ caso, grandezza, modale, frequenza, massimo
     // un'ampiezza che non e' a schermo, ed e' la stessa classe dell'«amplificato
     // ×1779» che questo ramo ha gia' pagato: la didascalia dice solo cio' che
     // la vista fa davvero.
-    const coda = "la forma modale non e' disegnata, la vista mostra il modello indeformato";
+    const coda = "la forma modale non è disegnata, la vista mostra il modello indeformato";
     return hz === null
       ? `${caso}: frequenza non disponibile; ${coda}`
       : `${caso} — ${hz} Hz: ${coda}`;
@@ -116,6 +116,104 @@ export function didascaliaDelCampo({ caso, grandezza, modale, frequenza, massimo
   const fuori = Number.isFinite(massimo) && Number.isFinite(taglio) && massimo > taglio;
   return `${caso} — ${nome}: ${scala}; massimo ${spostamento ? "reale " : ""}${scritto} ${unita}`
     + (fuori ? ", fuori scala" : "");
+}
+
+// --- L'arrivo ---------------------------------------------------------------
+//
+// Il movimento della vista, e ce n'e' uno solo: l'arrivo di una geometria
+// nell'inquadratura. Ogni strada che disegna passa da inquadra() -- mostraNuvola,
+// mostraMesh, mostraMeshPerCampo, mostraNuvolaPerMembratura -- quindi il
+// movimento sta li' dentro e non in quattro copie da tenere allineate.
+//
+// Che cosa dice, perche' non e' una rifinitura. Fra lo step 5, il 6 e il 9 si
+// guarda lo stesso pezzo tre volte, e le tre superfici si somigliano: sostituite
+// in un fotogramma, una vista nuova e' indistinguibile da una vista che non e'
+// cambiata. E' la stessa ambiguita' che il marchio sullo step aperto chiude
+// dall'altra parte della finestra -- «si modifica il parametro di uno credendo
+// di essere su un altro» -- e qui non la chiudeva nessuno. La comparsa dichiara
+// che cio' che si guarda e' arrivato adesso; l'inquadratura che si assesta
+// invece di saltare dice che e' lo stesso pezzo misurato da un'altra parte, non
+// un pezzo diverso. Toglierle, si perde quella distinzione, non un effetto.
+//
+// Una durata sola, e in un posto solo: la comparsa della tela e lo spostamento
+// della camera sono lo stesso movimento, e due numeri sarebbero due movimenti
+// che invecchiano separati. Sta qui e non fra le durate di stile.css perche' e'
+// la camera a leggerla, e un valore scritto in CSS e riletto da JS sarebbe la
+// stessa duplicazione al contrario.
+export const DURATA_ARRIVO = 400;
+
+// Dove sta l'arrivo, fra 0 (l'inquadratura di prima) e 1 (quella nuova).
+// Pura e fuori da creaViewport per la ragione gia' pagata da scalaDelCampo e
+// frazioneDelCampo: dentro una chiusura che tocca three.js e
+// requestAnimationFrame nessun banco la esegue, e resterebbe provata cercando
+// una sottostringa.
+//
+// Chiusa a 1, e a 1 esatto quando il tempo e' scaduto: chi chiama smonta la
+// transizione su questo confronto, e una frazione che si ferma a 0,999 la
+// lascerebbe accesa per sempre -- un aggiornaCamera in piu' a ogni fotogramma
+// per tutta la sessione, su una pagina che resta aperta per ore. Una durata
+// nulla o un trascorso non finito valgono 1 e non NaN: un NaN moltiplicato per
+// il raggio porta la camera in una posizione che non esiste, e la scena
+// sparisce senza che niente lo dica.
+export function frazioneDellArrivo(trascorso, durata = DURATA_ARRIVO) {
+  if (!(durata > 0) || !Number.isFinite(trascorso)) return 1;
+  const quota = Math.min(1, Math.max(0, trascorso / durata));
+  // Decelerazione e nient'altro: l'inquadratura arriva e si posa. E' la gemella
+  // in cifre di cubic-bezier(0.16, 1, 0.3, 1), la --curva del foglio di stile;
+  // una curva elastica qui farebbe oltrepassare l'ingombro e tornare indietro,
+  // cioe' mostrerebbe un pezzo piu' grande di quello che e'.
+  return 1 - (1 - quota) ** 5;
+}
+
+// --- Il giro completo -------------------------------------------------------
+//
+// L'elevazione correva fra 0,01 e pi greco meno 0,01: un fermo appena prima dei
+// due poli, e arrivati li' il trascinamento non muoveva piu' niente. Ogni lato
+// del pezzo restava raggiungibile -- l'azimut non ha fermi -- ma il gesto si
+// bloccava senza dire perche', e un gesto che si blocca in silenzio si legge
+// come un guasto, non come un limite.
+//
+// Adesso phi corre come theta e si continua oltre il polo. Il prezzo e' che di
+// la' dal polo il mondo e' capovolto: passato pi greco il seno di phi diventa
+// negativo, la posizione si specchia sull'azimut opposto, e con `up` fermo a
+// +Y l'immagine si ribalterebbe di scatto. `up` segue il segno del seno (vedi
+// aggiornaCamera), che e' esattamente cio' che scavalcare un polo fa
+// all'orizzonte: per chi guarda il movimento resta continuo.
+//
+// I due poli esatti si scavalcano e non si toccano. La' la camera sta
+// sull'asse e `up` le e' parallelo: `lookAt` produce NaN, la camera esce dal
+// mondo e la scena sparisce senza un errore in console. Non e' un caso di
+// scuola -- phi nasce a 1,0 e la freccia in su lo scala di 0,1, quindi dieci
+// battute arrivano esattamente a zero. Il salto e' un millesimo di radiante,
+// cioe' sei centesimi di grado: non si vede.
+//
+// Prende l'elevazione di adesso e il passo, non il risultato gia' sommato: il
+// segno del passo e' il verso del gesto, ed e' l'unica cosa che dice da che
+// parte uscire quando si finisce sopra un polo. Uscire «dal lato piu' vicino»
+// senza saperlo rimanderebbe indietro chi sta arrivando, cioe' fermerebbe il
+// gesto proprio dove questa correzione esiste per non fermarlo.
+//
+// La fascia si misura per distanza e non per uguaglianza, e la differenza non e'
+// formale: il modulo non restituisce mai pi greco esatto -- 3*pi greco meno
+// 2*pi greco vale pi greco piu' 4e-16 -- quindi un `=== Math.PI` non
+// riconoscerebbe il polo raggiunto girando. E non serve che sia esatto per fare
+// danno: a 4e-16 dall'asse il prodotto vettoriale con `up` e' lungo 1e-31, e
+// normalizzarlo amplifica il solo errore di arrotondamento.
+//
+// Pura e di primo livello come frazioneDellArrivo, e senza costanti di modulo:
+// dentro la chiusura che tocca three.js nessun banco la eseguirebbe, e con le
+// costanti qui dentro il banco non deve ricostruire niente.
+function oltreIlPolo(phi, passo) {
+  const giro = Math.PI * 2;
+  const scarto = 1e-3;
+  const chiudi = (valore) => ((valore % giro) + giro) % giro;
+  const grezzo = chiudi(phi + passo);
+  // Tre poli e non due: 0 e il giro intero sono lo stesso punto, e la fascia
+  // attorno a ciascuno va guardata dalla propria parte.
+  for (const polo of [0, Math.PI, giro]) {
+    if (Math.abs(grezzo - polo) < scarto) return chiudi(polo + (passo >= 0 ? scarto : -scarto));
+  }
+  return grezzo;
 }
 
 export function creaViewport(contenitore) {
@@ -152,7 +250,7 @@ export function creaViewport(contenitore) {
   // tastiera. Il ruolo e' "application" e non "img" perche' la tela si comanda
   // davvero dalla tastiera: "img" la annuncerebbe come figura ferma e lo
   // screen reader intercetterebbe le frecce invece di passarle qui.
-  const COMANDI = "frecce per ruotare, piu' e meno per lo zoom";
+  const COMANDI = "frecce per ruotare, più e meno per lo zoom";
   const tela = renderer.domElement;
   tela.setAttribute("role", "application");
   tela.setAttribute("tabindex", "0");
@@ -172,10 +270,61 @@ export function creaViewport(contenitore) {
   let box = null;
   scena.add(new THREE.AmbientLight(0xffffff, 0.7));
   const direzionale = new THREE.DirectionalLight(0xffffff, 0.8);
-  direzionale.position.set(1, 2, 3);
   scena.add(direzionale);
+  // Il bersaglio va aggiunto alla scena, non basta spostarlo: una
+  // DirectionalLight punta da `position` verso `target.position`, e un target
+  // che non sta nel grafo non viene aggiornato dal render -- il suo
+  // matrixWorld resterebbe quello con cui e' nato.
+  scena.add(direzionale.target);
+
+  // Due vettori d'appoggio tenuti qui e non dentro aggiornaCamera: quella gira
+  // a ogni pointermove, cioe' decine di volte per ogni trascinamento.
+  const _destra = new THREE.Vector3();
+  const _alto = new THREE.Vector3();
 
   let orbita = { theta: 0.7, phi: 1.0, raggio: 1, centro: new THREE.Vector3() };
+
+  // L'arrivo in corso, o null. Vedi DURATA_ARRIVO. disegna() lo guarda a ogni
+  // fotogramma: fuori da un arrivo il ciclo di disegno paga un confronto.
+  let transizione = null;
+  // La prima inquadratura non ha un «da»: orbita nasce con raggio 1 e centro
+  // all'origine, e interpolare da li' sarebbe una picchiata da un millimetro
+  // fino a qualche metro -- un movimento che non racconta nessun cambiamento,
+  // perche' prima non c'era niente da cambiare. Non si azzera in svuota():
+  // svuotare e ridisegnare e' proprio la sostituzione che l'assestamento deve
+  // rendere leggibile.
+  let inquadratoUnaVolta = false;
+  // Interrogata a ogni arrivo e non copiata all'avvio: la preferenza di sistema
+  // si cambia mentre la pagina e' aperta, e una copia resterebbe indietro.
+  const menoMovimento = window.matchMedia?.("(prefers-reduced-motion: reduce)") ?? null;
+  let comparsaDellaTela = null;
+
+  // La comparsa: la tela intera, non i materiali. Con transparent e
+  // side: DoubleSide three.js disegna le due facce nell'ordine di costruzione e
+  // non di profondita', e un pezzo che compare mostrando il proprio interno e'
+  // un difetto, non una comparsa. Sotto la tela c'e' --sfondo, che e' anche lo
+  // sfondo della scena (0xfbfaf8 qui sopra): cio' che si vede durante la
+  // comparsa e' la stessa carta, non un buco. I conteggi, il comando del taglio
+  // e la didascalia sono fratelli della tela e non figli: non sfarfallano.
+  //
+  // Resta accesa anche a movimento ridotto: e' un'opacita' e non uno
+  // spostamento, ed e' l'unico canale che dichiara «questa e' una vista nuova»
+  // a chi ha appena ricevuto il salto d'inquadratura invece dell'assestamento.
+  function comparsa() {
+    comparsaDellaTela?.cancel();
+    comparsaDellaTela = tela.animate(
+      [{ opacity: 0 }, { opacity: 1 }],
+      { duration: DURATA_ARRIVO, easing: "cubic-bezier(0.16, 1, 0.3, 1)" },
+    );
+  }
+
+  // Il gesto vince sull'arrivo. Senza, chi trascina mentre l'inquadratura si
+  // assesta comanda una camera che il fotogramma dopo viene riscritta
+  // dall'interpolazione: due mani sullo stesso volante, e la vista torna
+  // indietro a ogni fotogramma finche' l'arrivo non e' finito.
+  function laCameraPassaAlGesto() {
+    transizione = null;
+  }
 
   function ridimensiona() {
     const larghezza = contenitore.clientWidth || 1;
@@ -200,7 +349,36 @@ export function creaViewport(contenitore) {
       centro.y + raggio * Math.cos(phi),
       centro.z + raggio * Math.sin(phi) * Math.sin(theta),
     );
+    // Scritto prima di lookAt, che lo legge. Vedi oltreIlPolo: oltre il polo il
+    // seno di phi e' negativo e l'alto del mondo e' dall'altra parte. Senza
+    // questa riga il giro resta possibile ma l'immagine si capovolge di scatto
+    // nel punto esatto in cui il gesto dovrebbe essere piu' continuo.
+    camera.up.set(0, Math.sin(phi) >= 0 ? 1 : -1, 0);
     camera.lookAt(centro);
+
+    // La luce segue la camera, e non e' una rifinitura. Ferma nel mondo
+    // (com'era, a (1, 2, 3)) lasciava senza rilievo tutto il lato opposto:
+    // li' la superficie riceveva solo l'ambiente e diventava una sagoma grigia
+    // uniforme, in cui la forma non si legge. Misurato nel browser il
+    // 24/08/2026 girando attorno al telaio di lab_crop -- mezzo giro, e la
+    // figura e' piatta come un ritaglio di carta.
+    //
+    // Scostata in alto e a destra, non esattamente sull'occhio: una luce
+    // sull'asse dello sguardo illumina di fronte e non lascia ombre, che e'
+    // lo stesso difetto per un'altra strada. Le due frazioni del raggio sono
+    // una direzione, non una distanza: una direzionale non ha decadimento, e
+    // conta solo da che parte arriva.
+    camera.updateMatrixWorld();
+    _destra.setFromMatrixColumn(camera.matrixWorld, 0);
+    _alto.setFromMatrixColumn(camera.matrixWorld, 1);
+    direzionale.position.copy(camera.position)
+      .addScaledVector(_destra, raggio * 0.6)
+      .addScaledVector(_alto, raggio * 0.4);
+    // Il centro dell'orbita e non l'origine del mondo: il modello sta a
+    // qualche metro dall'origine (lab_crop e' fra 1697 e 4457 mm in X), e una
+    // direzionale puntata all'origine lo illuminerebbe di taglio.
+    direzionale.target.position.copy(centro);
+    direzionale.target.updateMatrixWorld();
   }
 
   let premuto = false;
@@ -213,13 +391,15 @@ export function creaViewport(contenitore) {
   tela.addEventListener("pointerup", () => { premuto = false; });
   tela.addEventListener("pointermove", (evento) => {
     if (!premuto) return;
+    laCameraPassaAlGesto();
     orbita.theta -= (evento.clientX - ultimo.x) * 0.005;
-    orbita.phi = Math.min(Math.PI - 0.01, Math.max(0.01, orbita.phi - (evento.clientY - ultimo.y) * 0.005));
+    orbita.phi = oltreIlPolo(orbita.phi, -(evento.clientY - ultimo.y) * 0.005);
     ultimo = { x: evento.clientX, y: evento.clientY };
     aggiornaCamera();
   });
   tela.addEventListener("wheel", (evento) => {
     evento.preventDefault();
+    laCameraPassaAlGesto();
     orbita.raggio *= evento.deltaY > 0 ? 1.1 : 0.9;
     aggiornaCamera();
   }, { passive: false });
@@ -230,19 +410,29 @@ export function creaViewport(contenitore) {
     const passi = {
       ArrowLeft: () => { orbita.theta -= 0.1; },
       ArrowRight: () => { orbita.theta += 0.1; },
-      ArrowUp: () => { orbita.phi = Math.max(0.01, orbita.phi - 0.1); },
-      ArrowDown: () => { orbita.phi = Math.min(Math.PI - 0.01, orbita.phi + 0.1); },
+      ArrowUp: () => { orbita.phi = oltreIlPolo(orbita.phi, -0.1); },
+      ArrowDown: () => { orbita.phi = oltreIlPolo(orbita.phi, 0.1); },
       "+": () => { orbita.raggio *= 0.9; },
       "-": () => { orbita.raggio *= 1.1; },
     };
     const passo = passi[evento.key];
     if (!passo) return;
     evento.preventDefault();
+    laCameraPassaAlGesto();
     passo();
     aggiornaCamera();
   });
 
   function disegna() {
+    if (transizione !== null) {
+      const frazione = frazioneDellArrivo(performance.now() - transizione.inizio);
+      orbita.centro.lerpVectors(transizione.daCentro, transizione.aCentro, frazione);
+      orbita.raggio = transizione.daRaggio + (transizione.aRaggio - transizione.daRaggio) * frazione;
+      // Smontata sul confronto, non sul tempo: frazioneDellArrivo torna 1 esatto
+      // a tempo scaduto apposta, e questa e' la riga che ci conta sopra.
+      if (frazione >= 1) transizione = null;
+      aggiornaCamera();
+    }
     renderer.render(scena, camera);
     requestAnimationFrame(disegna);
   }
@@ -269,9 +459,28 @@ export function creaViewport(contenitore) {
   function inquadra() {
     const scatola = scatolaDelGruppo();
     if (scatola.isEmpty()) return;
-    scatola.getCenter(orbita.centro);
-    orbita.raggio = scatola.getSize(new THREE.Vector3()).length() * 1.2;
-    aggiornaCamera();
+    const centro = scatola.getCenter(new THREE.Vector3());
+    const raggio = scatola.getSize(new THREE.Vector3()).length() * 1.2;
+    // Il salto resta dove l'assestamento non avrebbe niente da raccontare: alla
+    // prima geometria, e a chi ha chiesto meno movimento. La comparsa qui sotto
+    // vale in entrambi i casi -- l'informazione «questa e' una vista nuova» non
+    // si toglie con lo spostamento, si porta su un altro canale.
+    if (!inquadratoUnaVolta || menoMovimento?.matches) {
+      orbita.centro.copy(centro);
+      orbita.raggio = raggio;
+      transizione = null;
+      aggiornaCamera();
+    } else {
+      transizione = {
+        daCentro: orbita.centro.clone(),
+        daRaggio: orbita.raggio,
+        aCentro: centro,
+        aRaggio: raggio,
+        inizio: performance.now(),
+      };
+    }
+    inquadratoUnaVolta = true;
+    comparsa();
   }
 
   return {

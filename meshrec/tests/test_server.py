@@ -1607,8 +1607,9 @@ def test_ogni_tratta_che_interroga_il_server_si_scarta_se_e_stata_superata():
     #
     # Dalla schermata d'ingresso sono 11: 6 nominate (le 5 di prima piu'
     # disegnaIngresso) e 5 freccia (le 2 di prima, il clic su una corsa, il clic
-    # che ne crea una, il clic che dichiara il materiale).
-    assert interrogano >= 11, "le tratte attese sono sparite dal modulo"
+    # che ne crea una, il clic che dichiara il materiale). Col bottone
+    # «Sfoglia», che chiede al server di aprire il selettore file, 12.
+    assert interrogano >= 12, "le tratte attese sono sparite dal modulo"
 
 
 def test_due_geometrie_in_volo_nella_stessa_generazione_non_si_arbitrano_per_arrivo():
@@ -1658,6 +1659,11 @@ _BANCO_ORDINE = """import assert from 'node:assert/strict';
 let generazione = 1;
 let ultimaGeometria = 0;
 const STEP_CON_MESH = new Set([9]);
+// Come STEP_CON_MESH qui sopra: uno stub deliberato coi soli due step che
+// questo banco esercita. Qui si prova l'arbitraggio, non il ripiego -- che la
+// tabella vera coincida con pipeline.ARTIFACTS lo verifica
+// test_app_js.py::test_gli_step_disegnabili_del_modulo_sono_quelli_del_server.
+const STEP_CON_GEOMETRIA = new Set([2, 9]);
 const scritture = [];
 const vista = {
   svuota() {},
@@ -1666,6 +1672,13 @@ const vista = {
 };
 const document = { getElementById: () => ({ textContent: '' }) };
 function riallineaTaglio(numero) { scritture.push(`riallinea:${numero}`); }
+
+// Ogni step col proprio artefatto: qui si prova l'ARBITRAGGIO fra due risposte,
+// non il ripiego della vista, e `passoDaMostrare` deve restituire lo step
+// chiesto perche' il caso da riprodurre resti quello di prima.
+const ultimoStato = Array.from({ length: 13 }, (_, i) => ({
+  numero: i + 1, chiave: `0${i + 1}`, artefatto: 'scritto',
+}));
 
 // Ogni richiesta resta sospesa finche' il banco non la sblocca: l'ordine di
 // arrivo e' l'ingresso della prova, non un caso.
@@ -1756,6 +1769,9 @@ def test_fra_due_geometrie_della_stessa_generazione_vince_chi_e_partita_dopo(num
             "didascaliaDellaVista",
             "mostraNuvolaDelloStep",
             "mostraStep",
+            # `ricaricaVista` risolve il ripiego prima di chiedere la geometria:
+            # senza questa, il banco cade su un riferimento che non esiste.
+            "passoDaMostrare",
             "ricaricaVista",
         )
     )
@@ -1773,6 +1789,51 @@ def test_fra_due_geometrie_della_stessa_generazione_vince_chi_e_partita_dopo(num
         assert esito.returncode == 0, esito.stderr
     finally:
         prova.unlink()
+
+
+def test_la_luce_segue_la_camera_e_non_sta_ferma_nel_mondo():
+    """Il difetto che Mario ha visto girando la figura: mezzo giro e il pezzo
+    diventa una sagoma grigia uniforme, senza un'ombra, in cui la forma non si
+    legge. La luce direzionale stava ferma a `(1, 2, 3)` mentre la camera
+    girava, quindi dal lato opposto restava solo l'ambiente.
+
+    Misurato nel browser il 24/08/2026 sul telaio di lab_crop, non dedotto.
+
+    Strutturale e non eseguito: `aggiornaCamera` e' annidata dentro
+    `creaViewport`, e il banco di test_app_js.py sa ritagliare solo funzioni di
+    primo livello. La prova che conta resta quella a schermo -- questa
+    sorveglia la mossa, cioe' che la luce non torni a essere una costante.
+    """
+    from meshrec.app.server import UI_DIR
+
+    testo = (UI_DIR / "viewport.js").read_text(encoding="utf-8")
+
+    # 1. Nessuna posizione costante: e' esattamente cio' che rendeva buio un lato.
+    assert "direzionale.position.set(" not in testo, (
+        "la luce e' tornata a una posizione fissa nel mondo"
+    )
+
+    # 2. La riposiziona chi muove la camera, non qualcun altro.
+    corpo = testo.split("function aggiornaCamera() {", 1)[1].split("\n  }\n", 1)[0]
+    assert "direzionale.position.copy(camera.position)" in corpo, (
+        "la luce non segue piu' la camera"
+    )
+    assert "direzionale.target.position.copy(centro)" in corpo, (
+        "la luce non punta piu' al centro dell'orbita: sul modello, che sta a "
+        "qualche metro dall'origine, lo illuminerebbe di taglio"
+    )
+
+    # 3. Scostata dall'asse dello sguardo: una luce sull'occhio non fa ombre,
+    #    che e' lo stesso difetto per un'altra strada.
+    assert "_destra" in corpo and "_alto" in corpo, (
+        "la luce e' finita esattamente sull'occhio: illumina di fronte e non da' rilievo"
+    )
+
+    # 4. Il bersaglio dev'essere nel grafo, altrimenti il suo matrixWorld resta
+    #    quello con cui e' nato e spostarlo non cambia dove la luce punta.
+    assert "scena.add(direzionale.target)" in testo, (
+        "il bersaglio della luce non e' nella scena: spostarlo non ha effetto"
+    )
 
 
 def test_svuota_libera_i_buffer_e_non_tocca_i_piani_di_taglio():
@@ -1974,8 +2035,8 @@ def test_il_fronte_di_discesa_ricarica_anche_la_vista_e_non_solo_il_pannello():
     testo = (UI_DIR / "app.js").read_text(encoding="utf-8")
     corpo = testo.split('addEventListener("stato"', 1)[1].split("\n});", 1)[0]
     assert "apriDettaglio(stepAperto)" in corpo
-    assert "ricaricaVista(stepMostrato)" in corpo, "la vista resta indietro sul fronte di discesa"
-    assert "stepMostrato >= stato.step" in corpo, "chiede anche cio' che nessuna corsa ha toccato"
+    assert "ricaricaVista(stepScelto)" in corpo, "la vista resta indietro sul fronte di discesa"
+    assert "stepScelto >= stato.step" in corpo, "chiede anche cio' che nessuna corsa ha toccato"
     assert "apriGenerazione" not in corpo, "il fronte di discesa annulla una geometria in volo"
     # Lo stesso punto serve il clic: se il clic smettesse di passarci, il
     # riallineamento del cursore resterebbe scritto per un solo chiamante.

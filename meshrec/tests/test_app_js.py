@@ -99,6 +99,18 @@ def _funzioni(*nomi: str) -> str:
     return "\n".join(_sorgente_di(nome, testo) for nome in nomi)
 
 
+def _costante(nome: str) -> str:
+    """La riga di una costante di modulo, presa dal sorgente vero.
+
+    Le costanti non sono funzioni e `_sorgente_di` non le vede. Dichiararne una
+    copia nel banco lascerebbe che banco e modulo divergano in silenzio, che e'
+    la famiglia di difetti per cui questo file esegue invece di leggere.
+    """
+    trovato = re.search(rf"^const {nome} = .*;$", _modulo(), flags=re.MULTILINE)
+    assert trovato is not None, f"nessuna costante {nome} in app.js"
+    return trovato.group(0)
+
+
 def _modulo_viewport() -> str:
     """Il sorgente di `viewport.js`. Gemella di `_modulo()`, che legge `app.js`.
 
@@ -203,6 +215,9 @@ let stepAperto = null;
 // senza, il banco proverebbe una copia che non e' quella del modulo.
 let configurazione = null;
 let generazione = 0;
+// Lo stato degli step che `disegnaStep` scrive e `passoDaMostrare` legge: senza,
+// il banco proverebbe una copia che non e' quella del modulo.
+let ultimoStato = [];
 const elenco = document.getElementById("elenco-step");
 const STEPS = [
   { numero: 1, chiave: "01_load", stato: "valido" },
@@ -275,6 +290,39 @@ def test_ogni_step_e_un_comando_e_non_una_riga_cliccabile():
     assert 'createElement("button")' in riga, "lo step e' tornato una riga senza ruolo"
     assert 'comando.type = "button"' in riga, "senza type, dentro un form il bottone invia"
     assert 'className = "step"' in riga, "il foglio si aggancia a .step: il nome non cambia"
+
+
+def test_ogni_riga_porta_il_numero_dello_step_che_le_istruzioni_nominano(tmp_path):
+    """L'interfaccia parla per numeri e la colonna non ne mostrava nessuno.
+
+    «esegui lo step 1», «e' lo step 12», «lo step 11 si ferma finche' questi
+    quattro valori non ci sono», «step 5 in corso»: tutte istruzioni che
+    indicano una coordinata che a video non c'era: l'elenco ha
+    `list-style: none` e la riga portava il solo nome. Chi apre il programma
+    per la prima volta -- il lettore dichiarato in PRODUCT.md -- leggeva
+    «esegui lo step 1» davanti a tredici parole e nessun modo di contarle.
+
+    Il numero viene da `voce.numero`, cioe' dal server, e non dalla posizione
+    nell'elenco: un contatore CSS lo indovinerebbe dalla riga e stamperebbe
+    comunque un numero -- quello sbagliato -- il giorno in cui l'elenco non
+    partisse da uno. Il banco chiede 4 e 13 alle posizioni 0 e 1 apposta: un
+    numero letto dalla posizione direbbe 1 e 2 e cadrebbe qui.
+    """
+    _esegui(tmp_path, _DOM + _funzioni("segnaStepAperto", "nuovaRiga", "disegnaStep") + """
+disegnaStep([
+  { numero: 4, chiave: "04_normals", stato: "valido" },
+  { numero: 13, chiave: "13_solve", stato: "mai eseguito" },
+]);
+const primi = elenco.children.map((riga) => riga.firstElementChild.firstElementChild);
+assert.deepEqual(
+  primi.map((e) => e.textContent), ["4", "13"],
+  "la riga non porta il numero dello step, o lo legge dalla posizione nell'elenco",
+);
+assert.deepEqual(
+  primi.map((e) => e.className), ["step-numero", "step-numero"],
+  "il numero non e' piu' il primo figlio della riga: il foglio gli da' la colonna per nome",
+);
+""")
 
 
 def test_l_elenco_degli_step_si_aggiorna_e_non_si_ricostruisce(tmp_path):
@@ -879,6 +927,74 @@ def test_il_campo_parametro_non_indovina_il_tipo_dal_valore():
     assert 'input.step = "any"' not in campo, "step=any toglie il passo unitario ai 14 interi"
 
 
+def test_una_durata_misurata_non_diventa_uno_zero_ne_un_minuto_di_sessanta(tmp_path):
+    """La funzione che legge un tempo misurato, eseguita sui valori veri.
+
+    Due estremi, entrambi presi da dati reali e non ipotizzati.
+
+    Sotto: `runs/prova/steps.json` registra per lo step 8, a semplificazione
+    disabilitata, `secondi: 1.3042008504271507e-05`. Arrotondato varrebbe «0 s»,
+    e uno zero accanto agli altri tempi si legge «non e' partito» invece di «e'
+    finito prima che si potesse misurare». E' il terzo principio di prodotto
+    citato alla lettera: nessuno zero che significa «sotto la risoluzione della
+    misura» presentato come «esatto».
+
+    Sopra: dividere prima di arrotondare produce «1 min 60 s». 119,6 secondi
+    danno `Math.floor(119.6 / 60)` uguale a 1 e un resto di 59,6 che
+    l'arrotondamento porta a 60. Il controllo spazza un intervallo intero
+    invece di fidarsi del caso singolo, perche' il difetto si ripresenta a ogni
+    confine di minuto.
+    """
+    _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
+            + _funzioni("durataMisurata") + """
+assert.equal(durataMisurata(0.000013042008504271507), "meno di 1 s",
+  "lo step 8 a semplificazione spenta si legge «0 s», cioe' «non e' partito»");
+assert.equal(durataMisurata(0), "meno di 1 s");
+assert.equal(durataMisurata(0.9), "meno di 1 s");
+assert.equal(durataMisurata(1), "1 s");
+assert.equal(durataMisurata(32.98888658406213), "33 s", "il tempo misurato dello step 7");
+assert.equal(durataMisurata(14.536296917009167), "15 s", "il tempo misurato dello step 2");
+assert.equal(durataMisurata(89), "89 s", "sotto il minuto e mezzo i secondi bastano");
+assert.equal(durataMisurata(89.6), "1 min 30 s");
+assert.equal(durataMisurata(125), "2 min 5 s");
+
+// Nessun minuto di sessanta secondi, a nessun confine.
+for (let decimi = 900; decimi <= 6000; decimi += 1) {
+  const letto = durataMisurata(decimi / 10);
+  assert.ok(!/ 60 s$/.test(letto), `${decimi / 10} s si legge ${letto}`);
+}
+""")
+
+
+def test_lo_zero_di_uno_step_fallito_non_viene_mostrato_come_una_misura(tmp_path):
+    """`pipeline.py:574` registra `0.0` fisso quando uno step fallisce.
+
+    Non e' un cronometro ma un segnaposto: uno step morto dopo venti secondi di
+    lavoro lascia su disco `"secondi": 0.0`, e in `runs/prova/steps.json` lo
+    step 9 e' esattamente cosi'. Mostrarlo scriverebbe «l'ultima volta 0 s»
+    accanto a un tempo vero, cioe' un numero che nessuna misura sostiene messo
+    dove sembra misurato -- il primo principio di prodotto letto al contrario.
+
+    E la guardia non deve mangiare il caso che serve di piu': "non valido"
+    significa che i parametri sono cambiati dopo l'esecuzione, non che quella
+    esecuzione non sia avvenuta. Quel tempo e' misurato eccome, ed e' proprio
+    lo step che si sta per rieseguire.
+    """
+    _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
+            + _funzioni("durataMisurata", "ultimaDurata") + """
+assert.equal(ultimaDurata({ numero: 9, stato: "fallito", secondi: 0.0 }), null,
+  "lo zero segnaposto di uno step fallito arriva a video come una misura");
+assert.equal(ultimaDurata({ numero: 7, stato: "valido", secondi: 32.98888658406213 }), "33 s");
+assert.equal(ultimaDurata({ numero: 2, stato: "non valido", secondi: 14.536296917009167 }), "15 s",
+  "un tempo misurato sotto un'altra configurazione resta un tempo misurato");
+assert.equal(ultimaDurata({ numero: 3, stato: "mai eseguito" }), null,
+  "uno step mai eseguito non ha un tempo, e non ne inventa uno");
+assert.equal(ultimaDurata({ numero: 3, stato: "valido", secondi: null }), null);
+assert.equal(ultimaDurata(undefined), null, "uno step che il flusso non porta ancora");
+assert.equal(ultimaDurata(null), null);
+""")
+
+
 def test_una_battuta_illeggibile_resta_quella_battuta(tmp_path):
     """La funzione che trasforma dei tasti in un dato persistito, eseguita.
 
@@ -1247,6 +1363,59 @@ function apriCampo(blocco, nome) {
 """
 
 
+def test_il_nome_della_casella_e_il_nome_del_parametro_e_nient_altro(tmp_path):
+    """L'aiuto stava dentro la <label> che avvolgeva la casella.
+
+    Una <label> che avvolge nomina con tutto il proprio sottoalbero: il campo
+    si annunciava «voxel_size la spaziatura del voxel» a ogni fuoco e a ogni
+    tabulazione, e col rifiuto a video si accodava anche quello. La lezione era
+    gia' scritta nell'ingresso -- il <small> di #nuova-nome sta fuori dalla
+    <label> apposta, e il commento nel markup dice perche' -- e non aveva mai
+    raggiunto i campi che il modulo costruisce da se'.
+
+    Il banco calcola il nome come lo calcola il browser: dall'etichetta che
+    punta alla casella per `for` se c'e', altrimenti da tutto il sottoalbero
+    della <label> che la contiene. Cosi' il controllo non guarda che forma ha
+    la riga -- puo' cambiare -- ma cio' che verrebbe letto ad alta voce.
+    """
+    _esegui(tmp_path, _banco_del_campo() + """
+configurazione = { downsample: { voxel_size: 25 } };
+const riga = campoParametro("downsample", "voxel_size", CAMPO, generazione);
+const [, input, aiuto, messaggio] = riga.children;
+
+const testoProfondo = (e) => [e.textContent, ...e.figli.map(testoProfondo)].join(" ").trim();
+// Tutte le etichette associate, non la prima: una casella e' nominata sia da
+// una <label for> sia da ogni <label> che la contiene, e il browser le
+// concatena. Prendere solo la prima farebbe passare per corretta una riga che
+// le ha entrambe -- cioe' esattamente la ricaduta da sorvegliare.
+function nomeAccessibile(radice, casella) {
+  const candidati = [radice, ...radice.discendenti()];
+  return candidati
+    .filter((e) => e.tag === "label"
+      && (e.getAttribute("for") === casella.id || e.discendenti().includes(casella)))
+    .map(testoProfondo)
+    .join(" ")
+    .trim();
+}
+
+assert.equal(
+  nomeAccessibile(riga, input), "voxel_size",
+  "il nome accessibile della casella si porta dietro l'aiuto: descritto e' cio' che serve, nominato no",
+);
+assert.equal(
+  input.getAttribute("aria-describedby"), aiuto.id,
+  "l'aiuto e' uscito dalla label e nessun describedby lo lega: adesso non lo annuncia piu' nessuno",
+);
+// Il rifiuto e' la seconda meta' dello stesso difetto: compare dentro la riga
+// mentre la casella ha il fuoco, ed e' il momento in cui il nome viene riletto.
+segnalaCampo(input, messaggio, "e' troppo grande");
+assert.equal(
+  nomeAccessibile(riga, input), "voxel_size",
+  "il messaggio di rifiuto entra nel nome della casella invece di restarne la descrizione",
+);
+""")
+
+
 def test_un_campo_nullabile_vuoto_non_mostra_la_stringa_null(tmp_path):
     """`String(null)` e' `"null"`: quattro parole in una casella dove `null`
     significa «lascia decidere alla misura», e chi la riscrive senza toccarla
@@ -1383,7 +1552,7 @@ def test_la_didascalia_del_ritaglio_dice_di_quale_numero_si_tratta(tmp_path):
                      "function didascalia(corpo) { return (" + espressione + "); }\n" + """
 const parziale = didascalia({ points_after: 5602, completo: false });
 const intero = didascalia({ points_after: 84, completo: true });
-const COINCIDENZA = /e' quanti ne terrebbe lo step 2/;
+const COINCIDENZA = /\u00e8 quanti ne terrebbe lo step 2/;
 const SEGUITO = /prosegue/;
 assert.match(parziale, SEGUITO,
   "l'anteprima non e' tutto lo step 2 e la didascalia non dice che lo step prosegue");
@@ -1630,7 +1799,109 @@ def _banco_di_caricaStato() -> str:
     ) + """
 let risponde = null;
 globalThis.fetch = async () => risponde();
+// Aperta una corsa, `caricaStato` chiede da se' la geometria piu' avanzata che
+// la corsa possiede, invece di lasciare il centro dello schermo bianco fino al
+// primo clic. Qui non si prova il disegno -- ha il suo banco -- ma si registra
+// che cosa e' stato chiesto: e' l'unico modo di distinguere «non ha chiesto
+// niente» da «ha chiesto la coda della pipeline».
+let chiesto = "mai";
+let stepScelto = null;
+function ricaricaVista(numero) { chiesto = numero; }
+// La schermata d'ingresso ha i propri banchi: qui serve solo che il ramo
+// "nessuna corsa aperta" arrivi in fondo, per poter guardare che da li' NON
+// parta nessuna richiesta di geometria.
+function mostraIngresso() {}
 """
+
+
+def test_aprire_una_corsa_mostra_da_se_l_artefatto_piu_avanzato(tmp_path):
+    """Il vuoto piu' grande dell'interfaccia, e l'unico che non diceva niente.
+
+    Aperta una corsa, il centro dello schermo restava bianco -- 856x640 px
+    misurati a 1568 -- finche' qualcuno non cliccava uno step. Gli artefatti
+    erano gia' sul disco: non mostrarli era chiedere un gesto per far vedere che
+    il programma funziona, e PRODUCT.md dichiara vincolante che l'utente
+    successivo la pipeline non l'abbia mai vista.
+
+    Si chiede la CODA della pipeline, non uno step scelto a mano:
+    `passoDaMostrare` cammina a monte da li' e si ferma sul primo disegnabile,
+    quindi una corsa arrivata a meta' mostra la propria meta' e una corsa vuota
+    cade nel ramo che scrive «esegui lo step 1». Nessuna delle due strade e'
+    nuova. E il numero viene da quanti step il server ha dichiarato, non da un
+    13 battuto nel modulo: un quattordicesimo step non richiederebbe di tornare
+    qui.
+
+    `stepScelto` va scritto insieme alla richiesta: il cambio d'asse del taglio
+    chiama `passoDaMostrare(stepScelto)`, e lasciandolo a null il comando del
+    taglio sparirebbe al primo cambio d'asse su una geometria visibile.
+    """
+    _esegui(tmp_path, _banco_di_caricaStato() + """
+risponde = async () => ({ ok: true, status: 200, json: async () => ({ out_dir: "/tmp/corsa", steps: STEPS }) });
+await caricaStato();
+assert.equal(chiesto, STEPS.length,
+  "aperta una corsa non si chiede nessuna geometria: il centro resta bianco fino al primo clic");
+assert.equal(stepScelto, STEPS.length,
+  "stepScelto resta null: al primo cambio d'asse il comando del taglio sparisce");
+
+// --- il controllo che smentisce: senza corsa non si chiede niente.
+chiesto = "mai";
+risponde = async () => ({ ok: true, status: 200, json: async () => ({ legata: false }) });
+await caricaStato();
+assert.equal(chiesto, "mai",
+  "si chiede una geometria anche a nessuna corsa aperta, dove la schermata d'ingresso e' l'unica a video");
+
+chiesto = "mai";
+risponde = async () => ({ ok: true, status: 200, json: async () => null });
+await caricaStato();
+assert.equal(chiesto, "mai", "un corpo illeggibile fa comunque partire una richiesta di geometria");
+""")
+
+
+def test_lo_stato_vuoto_della_vista_compare_solo_dove_non_c_e_niente(tmp_path):
+    """Le due meta' del vuoto, che non devono ripetersi ne' contraddirsi.
+
+    I conteggi in alto a sinistra portano il fatto («nessuno step ha ancora
+    prodotto un artefatto»); la scatola al centro porta il modello
+    d'interazione, che il fatto non puo' dire: tredici righe con un pallino e
+    una parola somigliano a un elenco di stato molto piu' che a tredici bottoni.
+
+    E la scatola deve sparire appena si chiede una geometria, non appena una
+    geometria arriva: `ricaricaVista` e' l'unico imbuto per cui la vista cambia,
+    quindi si nasconde li' e si riscopre solo dal ramo in cui non c'e' proprio
+    niente a monte. Lasciata accesa, la frase resterebbe stampata sopra il pezzo.
+    """
+    _esegui(tmp_path, _DOM + _costante("STEP_CON_GEOMETRIA") + _funzioni(
+        "didascaliaDellaVista", "superata", "passoDaMostrare", "nomeDelloStep", "ricaricaVista"
+    ) + """
+const vuoto = document.getElementById("vista-vuota");
+let allineato = "mai";
+const vista = { svuota: () => {} };
+function riallineaTaglio(n) { allineato = n; }
+let chiesto = null;
+async function mostraStep(n) { chiesto = n; return true; }
+
+// Niente a monte: la scatola si accende.
+ultimoStato = [
+  { numero: 1, chiave: "01_load", artefatto: null },
+  { numero: 2, chiave: "02_segment", artefatto: null },
+];
+ricaricaVista(2, generazione);
+assert.equal(vuoto.hidden, false, "non c'e' niente a monte e il centro dello schermo resta muto");
+assert.equal(
+  document.getElementById("conteggi").textContent,
+  "nessuno step ha ancora prodotto un artefatto: esegui lo step 1",
+  "le due meta' del vuoto non si dividono piu' il lavoro");
+
+// Un artefatto c'e': la scatola se ne va, e se ne va SUBITO, non a disegno
+// finito.
+ultimoStato = [
+  { numero: 1, chiave: "01_load", artefatto: "01_cloud.ply" },
+  { numero: 2, chiave: "02_segment", artefatto: null },
+];
+ricaricaVista(2, generazione);
+assert.equal(vuoto.hidden, true, "la frase resta stampata sopra il pezzo che sta arrivando");
+assert.equal(chiesto, 1, "il ripiego a monte non chiede piu' lo step giusto");
+""")
 
 
 def test_caricaStato_non_crolla_su_un_corpo_che_non_si_legge(tmp_path):
@@ -1690,6 +1961,7 @@ def _banco_di_apriDettaglio() -> str:
         "segnaStepAperto", "nuovaRiga", "disegnaStep", "dichiaraErrore", "fallisciDettaglio",
         "ragioneDelRifiuto", "serverMuto", "superata", "corpoLetto", "valoreScritto",
         "segnalaCampo", "apriBattuta", "scriviParametro", "campoParametro", "apriDettaglio",
+        "durataMisurata", "ultimaDurata",
     ) + """
 let ultimaBattutaDelCampo = new Map();
 let schemaParametri = null;
@@ -2286,7 +2558,7 @@ def test_lo_stato_vuoto_del_prior_e_nel_markup_e_non_lo_fabbrica_il_modulo():
     markup = _senza_commenti_html(_markup())
 
     assert 'id="prior-vuoto"' in markup
-    assert "non e' ancora stato calcolato" in markup
+    assert "non è ancora stato calcolato" in markup
     modulo = _senza_commenti_js(_modulo())
     corpo = _sorgente_di("caricaPrior", modulo)
     assert 'getElementById("prior-vuoto")' in corpo
@@ -2348,7 +2620,13 @@ def test_la_didascalia_della_vista_si_svuota_lasciando_lo_step_del_campo(tmp_pat
 
     Mutazione che uccide: togliere la riga che la svuota in `ricaricaVista`.
     """
-    _esegui(tmp_path, _DOM + _funzioni("didascaliaDellaVista", "superata", "ricaricaVista") + """
+    _esegui(tmp_path, _DOM + _costante("STEP_CON_GEOMETRIA") + _funzioni(
+        "didascaliaDellaVista", "superata", "passoDaMostrare", "nomeDelloStep", "ricaricaVista"
+    ) + """
+// Lo step 2 il proprio artefatto ce l'ha: cosi' ricaricaVista prende la strada
+// normale e non il ramo «nessuno step ha ancora prodotto un artefatto», che
+// non e' cio' che questo controllo guarda.
+ultimoStato = [{ numero: 2, chiave: "02_segment", artefatto: "02_segmented.ply" }];
 async function mostraStep() { return true; }
 function riallineaTaglio() {}
 document.getElementById("didascalia-vista").textContent =
@@ -2356,6 +2634,439 @@ document.getElementById("didascalia-vista").textContent =
 ricaricaVista(2, generazione);
 assert.equal(document.getElementById("didascalia-vista").textContent, "",
   "la didascalia del campo e' rimasta sotto la vista di un altro step");
+""")
+
+
+_RIPIEGO = """
+// Il registro di una corsa arrivata allo step 9 con la semplificazione SPENTA:
+// e' il caso predefinito del programma, e i suoi buchi sono quelli veri.
+// Lo step 7 e il 10 misurano, l'8 non scrive perche' e' disabilitato, l'11 e il
+// 12 non hanno ancora girato.
+ultimoStato = [
+  { numero: 1, chiave: "01_load", artefatto: "01_cloud.ply" },
+  { numero: 2, chiave: "02_segment", artefatto: "02_segmented.ply" },
+  { numero: 3, chiave: "03_downsample", artefatto: "03_downsampled.ply" },
+  { numero: 4, chiave: "04_normals", artefatto: "04_normals.ply" },
+  { numero: 5, chiave: "05_reconstruct", artefatto: "05_surface.ply" },
+  { numero: 6, chiave: "06_repair", artefatto: "06_repaired.ply" },
+  { numero: 7, chiave: "07_surface_quality", artefatto: null },
+  { numero: 8, chiave: "08_simplify", artefatto: null },
+  { numero: 9, chiave: "09_tetrahedralize", artefatto: "09_volume.vtu" },
+  { numero: 10, chiave: "10_volume_quality", artefatto: null },
+  // NON nullo, e non e' un dettaglio: e' cio' che `runs/lab_crop/steps.json`
+  // contiene davvero. Lo step 11 un artefatto ce l'ha -- un deck di calcolo --
+  // e non e' geometria che il viewport sappia disegnare.
+  { numero: 11, chiave: "11_export", artefatto: "wall_model.inp" },
+  { numero: 12, chiave: "12_wall", artefatto: null },
+  { numero: 13, chiave: "13_solve", artefatto: null },
+];
+"""
+
+
+def test_uno_step_che_non_scolpisce_ripiega_sull_ultimo_artefatto_a_monte(tmp_path):
+    """Il difetto che Mario ha riportato: cambiando step compariva «nessun
+    artefatto per questo step» e la nuvola lavorata negli step precedenti
+    spariva dallo schermo.
+
+    Quattro step su tredici non scrivono geometria per costruzione (il 7 e il
+    10 misurano, l'11 scrive un deck, il 12 un prior), piu' l'8 quando la
+    semplificazione e' spenta, che e' il predefinito. Cinque righe su tredici
+    svuotavano il viewport.
+
+    Il ripiego si prova sui numeri veri del registro, non sulla riga per
+    iscritto: e' una funzione pura e va eseguita.
+    """
+    _esegui(tmp_path, _DOM + _costante("STEP_CON_GEOMETRIA") + _funzioni("passoDaMostrare") + _RIPIEGO + """
+assert.equal(passoDaMostrare(7), 6, "lo step 7 misura: deve mostrare la superficie del 6");
+assert.equal(passoDaMostrare(10), 9, "lo step 10 misura: deve mostrare il volume del 9");
+assert.equal(passoDaMostrare(11), 9, "lo step 11 scrive un deck, non geometria");
+assert.equal(passoDaMostrare(12), 9, "lo step 12 scrive un prior, non geometria");
+assert.equal(passoDaMostrare(13), 9, "lo step 13 non ha ancora risolto");
+// Chi l'artefatto ce l'ha resta se stesso: il ripiego non deve spostare nulla
+// quando non c'e' niente da ripiegare.
+assert.equal(passoDaMostrare(9), 9);
+assert.equal(passoDaMostrare(1), 1);
+""")
+
+
+def test_prima_che_arrivi_il_primo_stato_il_ripiego_non_indovina(tmp_path):
+    """`ultimoStato` resta vuoto finche' il primo `run_state` non arriva, e il
+    cambio d'asse ci passa gia' da li': `asseTaglio` sta nella pagina dal
+    caricamento, e cambiarlo prima che l'elenco esista chiama `passoDaMostrare`
+    su un elenco vuoto e con `stepMostrato` ancora `null`.
+
+    Deve rispondere `null` -- cioe' «niente da mostrare» -- e non inciampare.
+    """
+    _esegui(tmp_path, _DOM + _costante("STEP_CON_GEOMETRIA") + _funzioni("passoDaMostrare") + """
+assert.deepEqual(ultimoStato, [], "il banco non parte piu' da un elenco vuoto");
+assert.equal(passoDaMostrare(13), null, "il ripiego indovina uno step su un elenco vuoto");
+assert.equal(passoDaMostrare(null), null, "nessuno step ancora mostrato non e' uno step");
+""")
+
+
+def test_gli_step_disegnabili_del_modulo_sono_quelli_del_server():
+    """L'unica tabella che il modulo rispecchia dal server, e il controllo che
+    ne impedisce la deriva.
+
+    `STEP_CON_GEOMETRIA` deve coincidere con `pipeline.ARTIFACTS`, che e' cio'
+    contro cui /api/cloud e /api/mesh validano il numero chiesto: uno step in
+    piu' qui e la vista chiede una geometria che il server rifiuta, uno in meno
+    e ripiega piu' indietro del necessario. Letta dalla tabella vera, non
+    ricopiata: una copia in questo file avrebbe la stessa deriva del modulo.
+    """
+    from meshrec.core import pipeline
+
+    dichiarati = re.search(
+        r"^const STEP_CON_GEOMETRIA = new Set\(\[([^\]]*)\]\);$", _modulo(), flags=re.MULTILINE
+    )
+    assert dichiarati is not None, "STEP_CON_GEOMETRIA non e' piu' una costante di modulo"
+    assert [int(n) for n in dichiarati.group(1).split(",")] == sorted(pipeline.ARTIFACTS)
+
+    # E la tratta della mesh e' un sottoinsieme: uno step che disegna una mesh
+    # senza essere disegnabile sarebbe una richiesta che il server rifiuta.
+    mesh = re.search(r"^const STEP_CON_MESH = new Set\(\[([^\]]*)\]\);$", _modulo(), flags=re.MULTILINE)
+    assert mesh is not None
+    assert set(int(n) for n in mesh.group(1).split(",")) <= set(pipeline.ARTIFACTS)
+
+
+def test_uno_step_con_un_artefatto_che_non_si_disegna_non_ferma_il_ripiego(tmp_path):
+    """Il difetto trovato leggendo un registro vero, non ragionando.
+
+    In `runs/lab_crop/steps.json` lo step 11 ha `artefatto: wall_model.inp`:
+    NON nullo. Un ripiego che si fermasse al solo campo `artefatto` lo
+    prenderebbe per buono e chiederebbe /api/cloud/11, che il server rifiuta
+    perche' l'11 non e' fra le chiavi di pipeline.ARTIFACTS -- cioe' di nuovo
+    lo schermo vuoto, per una strada nuova.
+
+    Servono due condizioni: aver scritto, e aver scritto qualcosa di
+    disegnabile.
+    """
+    _esegui(tmp_path, _DOM + _costante("STEP_CON_GEOMETRIA") + _funzioni("passoDaMostrare") + _RIPIEGO + """
+assert.equal(
+  ultimoStato[10].artefatto, "wall_model.inp",
+  "il registro di prova non riproduce piu' il caso vero dello step 11",
+);
+assert.equal(passoDaMostrare(11), 9, "il deck dello step 11 e' stato preso per geometria");
+assert.equal(passoDaMostrare(12), 9, "il prior dello step 12 e' stato preso per geometria");
+""")
+
+
+def test_il_ripiego_legge_il_registro_e_non_una_tabella_scritta_a_mano(tmp_path):
+    """Lo step 8 scrive `08_simplified.ply` SOLO a semplificazione abilitata
+    (`registra(8, ..., None)` altrimenti, pipeline.py), che e' il predefinito.
+
+    Una tabella step -> artefatto scritta nel modulo direbbe che l'8 un
+    artefatto ce l'ha e manderebbe a chiedere un file che non esiste. Il campo
+    `artefatto` del registro dice cio' che quello step ha SCRITTO, e distingue
+    i due casi da solo.
+    """
+    _esegui(tmp_path, _DOM + _costante("STEP_CON_GEOMETRIA") + _funzioni("passoDaMostrare") + _RIPIEGO + """
+assert.equal(passoDaMostrare(8), 6, "semplificazione spenta: l'8 non ha scritto niente");
+// Accesa, lo stesso numero risponde se stesso. Nessuna riga del modulo cambia:
+// cambia il registro.
+ultimoStato[7].artefatto = "08_simplified.ply";
+assert.equal(passoDaMostrare(8), 8, "semplificazione accesa: l'artefatto dell'8 esiste");
+""")
+
+
+def test_senza_niente_a_monte_la_vista_non_incolpa_lo_step_scelto(tmp_path):
+    """L'unico caso in cui svuotare resta onesto: la corsa non e' mai partita.
+
+    Ma il testo non deve dire «nessun artefatto per QUESTO step», che da' la
+    colpa allo step cliccato: non e' lui che manca, e' che non e' stato
+    eseguito ancora niente. E deve dire cosa fare.
+    """
+    _esegui(tmp_path, _DOM + _costante("STEP_CON_GEOMETRIA") + _funzioni(
+        "didascaliaDellaVista", "superata", "passoDaMostrare", "nomeDelloStep", "ricaricaVista"
+    ) + """
+ultimoStato = [
+  { numero: 1, chiave: "01_load", artefatto: null },
+  { numero: 2, chiave: "02_segment", artefatto: null },
+];
+let svuotata = 0;
+let allineato = "mai";
+const vista = { svuota: () => { svuotata += 1; } };
+function riallineaTaglio(n) { allineato = n; }
+async function mostraStep() { throw new Error("non si deve chiedere nessuna geometria"); }
+
+ricaricaVista(2, generazione);
+assert.equal(svuotata, 1, "la vista non e' stata svuotata quando non c'e' proprio niente");
+assert.equal(
+  document.getElementById("conteggi").textContent,
+  "nessuno step ha ancora prodotto un artefatto: esegui lo step 1",
+);
+assert.equal(allineato, null, "il cursore del taglio resta appeso a una geometria che non c'e'");
+""")
+
+
+def test_la_vista_che_ripiega_dichiara_a_quale_step_appartiene(tmp_path):
+    """Senza la coda si torna al difetto che `vista.svuota()` voleva evitare:
+    una geometria sullo schermo che la didascalia attribuisce a chi non l'ha
+    prodotta. Cliccato l'11 si vede il volume del 9, e lo schermo lo dice.
+
+    Mutazione che uccide: togliere la coda, o metterla senza la guardia
+    `mostrato !== numero` (che la scriverebbe anche sullo step giusto).
+    """
+    _esegui(tmp_path, _DOM + _costante("STEP_CON_GEOMETRIA") + _funzioni(
+        "didascaliaDellaVista", "superata", "passoDaMostrare", "nomeDelloStep", "ricaricaVista"
+    ) + _RIPIEGO + """
+ETICHETTE["09_tetrahedralize"] = "Tetraedri";
+let chiesto = null;
+let allineato = "mai";
+const vista = { svuota: () => {} };
+function riallineaTaglio(n) { allineato = n; }
+async function mostraStep(numero) {
+  chiesto = numero;
+  document.getElementById("conteggi").textContent = "94.663 vertici, 189.322 triangoli";
+  return true;
+}
+
+await ricaricaVista(11, generazione);
+await new Promise((r) => setTimeout(r, 0));
+assert.equal(chiesto, 9, "cliccato l'11, la geometria chiesta non e' quella del 9");
+assert.equal(
+  document.getElementById("conteggi").textContent,
+  "94.663 vertici, 189.322 triangoli \u2014 artefatto dello step 9 (Tetraedri)",
+  "la vista non dichiara a quale step appartiene cio' che mostra",
+);
+// Lo step MOSTRATO e non quello scelto: il cursore del taglio si rifa'
+// sull'ingombro di cio' che e' disegnato.
+assert.equal(allineato, 9, "il cursore del taglio segue lo step scelto invece della geometria");
+
+// Sullo step che l'artefatto ce l'ha, nessuna coda: sarebbe rumore che ripete
+// il numero gia' evidenziato nella colonna.
+document.getElementById("conteggi").textContent = "94.663 vertici, 189.322 triangoli";
+await ricaricaVista(9, generazione);
+await new Promise((r) => setTimeout(r, 0));
+assert.equal(
+  document.getElementById("conteggi").textContent, "94.663 vertici, 189.322 triangoli",
+  "la coda compare anche quando lo step mostrato e' quello scelto",
+);
+""")
+
+
+def test_la_coda_del_ripiego_non_si_attacca_a_un_rifiuto(tmp_path):
+    """`mostraStep` scrive da due rami: quando disegna, e quando dichiara che
+    l'artefatto non c'e'. Guardando il solo valore di verita' la coda si
+    attaccava anche al secondo, e a schermo usciva
+
+        l'artefatto dello step 9 non c'e' piu' sul disco: riesegui lo step 9
+        — artefatto dello step 9 (Tetraedri)
+
+    cioe' il ripiego dichiarava la paternita' di una geometria che sullo
+    schermo non c'e'. E' il difetto che `vista.svuota()` esisteva per chiudere,
+    riaperto dalla correzione che lo chiudeva.
+
+    Da qui il tri-stato: `"vuoto"` resta truthy -- la risposta non e' stata
+    scartata, e il cursore del taglio deve comunque rifarsi, che sulla vista
+    vuota vuol dire nascondersi -- ma non e' `true`.
+    """
+    _esegui(tmp_path, _DOM + _costante("STEP_CON_GEOMETRIA") + _funzioni(
+        "didascaliaDellaVista", "superata", "passoDaMostrare", "nomeDelloStep", "ricaricaVista"
+    ) + _RIPIEGO + """
+const rifiuto = "l'artefatto dello step 9 non c'e' piu' sul disco: riesegui lo step 9";
+let allineato = "mai";
+const vista = { svuota: () => {} };
+function riallineaTaglio(numero) { allineato = numero; }
+async function mostraStep() {
+  document.getElementById("conteggi").textContent = rifiuto;
+  return "vuoto";
+}
+
+await ricaricaVista(11, generazione);
+await new Promise((r) => setTimeout(r, 0));
+assert.equal(
+  document.getElementById("conteggi").textContent, rifiuto,
+  "la coda si e' attaccata al messaggio che dice che l'artefatto non c'e'",
+);
+// Il cursore si rifa' lo stesso: sulla vista vuota ingombro() torna null e il
+// comando si nasconde, che e' cio' che deve succedere.
+assert.equal(allineato, 9, "una vista vuota lascia il cursore del taglio come stava");
+""")
+
+
+def test_una_generazione_superata_non_scrive_la_coda_del_ripiego(tmp_path):
+    """La coda e' una scrittura dopo un'attesa, quindi risponde alla regola
+    dell'ordine come ogni altra: due clic di seguito e la risposta del primo
+    non deve posarsi sulla didascalia del secondo.
+    """
+    _esegui(tmp_path, _DOM + _costante("STEP_CON_GEOMETRIA") + _funzioni(
+        "didascaliaDellaVista", "superata", "passoDaMostrare", "nomeDelloStep", "ricaricaVista"
+    ) + _RIPIEGO + """
+const vista = { svuota: () => {} };
+let allineato = "mai";
+function riallineaTaglio(n) { allineato = n; }
+async function mostraStep() {
+  document.getElementById("conteggi").textContent = "94.663 vertici, 189.322 triangoli";
+  return true;
+}
+
+const vecchia = generazione;
+generazione += 1;   // un secondo clic e' partito mentre la prima risposta arrivava
+await ricaricaVista(11, vecchia);
+await new Promise((r) => setTimeout(r, 0));
+assert.equal(
+  document.getElementById("conteggi").textContent, "94.663 vertici, 189.322 triangoli",
+  "una risposta superata ha scritto la propria coda sulla vista di un altro step",
+);
+assert.equal(allineato, "mai", "una risposta superata ha rifatto il cursore del taglio");
+""")
+
+
+def test_una_metrica_annidata_diventa_una_riga_per_foglia(tmp_path):
+    """`geometric_error` e' annidato DUE livelli (`cloud_to_mesh` -> `mean`,
+    `max`, ...): e' il collaudo per cui lo step 7 esiste, e finiva a video come
+    una riga di JSON crudo.
+
+    Provato sulla forma vera che `quality.geometric_error` restituisce.
+    """
+    _esegui(tmp_path, _DOM + _costante("VALORE_LARGO") + "\n" + _costante("CLASSE_VALORE_LARGO")
+        + "\n" + _funzioni("righeDellaMetrica", "valoreDellaMetrica") + """
+const righe = righeDellaMetrica("geometric_error", {
+  cloud_to_mesh: { mean: 4.41, max: 72.2, non_finite: 0 },
+  mesh_to_cloud: { mean: 3.02, max: 55.1, non_finite: 0 },
+  hausdorff: 72.2,
+});
+const coppie = [];
+for (let i = 0; i < righe.length; i += 2) coppie.push([righe[i].textContent, righe[i + 1].textContent]);
+
+// Virgola e non punto: sullo stesso schermo, due funzioni piu' su, si legge
+// gia' `19.314 triangoli` all'italiana. Due convenzioni numeriche a un palmo di
+// distanza erano il difetto.
+assert.deepEqual(coppie, [
+  ["geometric_error \u00b7 cloud_to_mesh \u00b7 mean", "4,41"],
+  ["geometric_error \u00b7 cloud_to_mesh \u00b7 max", "72,2"],
+  ["geometric_error \u00b7 cloud_to_mesh \u00b7 non_finite", "0"],
+  ["geometric_error \u00b7 mesh_to_cloud \u00b7 mean", "3,02"],
+  ["geometric_error \u00b7 mesh_to_cloud \u00b7 max", "55,1"],
+  ["geometric_error \u00b7 mesh_to_cloud \u00b7 non_finite", "0"],
+  ["geometric_error \u00b7 hausdorff", "72,2"],
+]);
+// Sedici cifre non si leggono e non aggiungono niente: metrics.json conserva la
+// precisione piena, ed e' da li' che si citano i numeri della tesi.
+assert.deepEqual(
+  righeDellaMetrica("mean", 4.442869663238525).map((n) => n.textContent),
+  ["mean", "4,44287"],
+);
+// Ma un CONTEGGIO non si arrotonda: e' il difetto che le sole sei cifre
+// significative introducevano, trovato a schermo e non in suite. 6.329.096
+// diventava 6.329.100, mentre #conteggi due centimetri sotto la vista scriveva
+// il numero giusto: due numeri per la stessa quantita' sullo stesso schermo.
+assert.deepEqual(
+  righeDellaMetrica("points_read", 6329096).map((n) => n.textContent),
+  ["points_read", "6.329.096"],
+);
+// Nessuna graffa a video: era il difetto.
+assert.ok(!coppie.some(([, v]) => v.includes("{")), "una metrica e' rimasta in JSON");
+
+// Uno scalare resta una riga sola, e un dizionario vuoto non ne lascia
+// nessuna: «{}» a video non e' una misura.
+assert.deepEqual(
+  righeDellaMetrica("watertight", true).map((n) => n.textContent), ["watertight", "true"],
+);
+assert.deepEqual(righeDellaMetrica("niente", {}), []);
+// `null` e' un valore, non un dizionario: _distribution lo restituisce quando
+// nessun valore finito resta, e va letto come tale.
+assert.deepEqual(
+  righeDellaMetrica("min", null).map((n) => n.textContent), ["min", "null"],
+);
+""")
+
+
+def test_una_metrica_che_e_una_lista_resta_una_riga_sola(tmp_path):
+    """Le liste ci sono davvero, contro quanto diceva il commento sopra
+    `righeDellaMetrica` prima che lo si correggesse.
+
+    Misurate su `runs/lab_crop/metrics.json` il 24/08/2026: otto, fra cui
+    `01_load.extent` (tre numeri), `06_repair.hole_areas` (sei) e
+    `11_export.transform`, che e' una matrice quattro per quattro.
+
+    Aperte darebbero una riga per elemento -- e per la matrice una riga per
+    riga di matrice -- al posto di una. La guardia `!Array.isArray` e' cio' che
+    lo impedisce, ed era l'unica parte di quella funzione che nessun controllo
+    teneva: tolta, `790 passed`.
+    """
+    _esegui(tmp_path, _DOM + _costante("VALORE_LARGO") + "\n" + _costante("CLASSE_VALORE_LARGO")
+        + "\n" + _funzioni("righeDellaMetrica", "valoreDellaMetrica") + """
+const righe = righeDellaMetrica("extent", [2.759, 0.785, 2.0]);
+assert.equal(righe.length, 2, "una lista si e' aperta in una riga per elemento");
+assert.equal(righe[0].textContent, "extent");
+// JSON e non formato all'italiana: dentro le parentesi non c'e' prosa, c'e' un
+// valore che si copia.
+assert.equal(righe[1].textContent, "[2.759,0.785,2]");
+// Anche annidata, che e' la forma vera: `hole_areas` sta dentro lo step 6.
+assert.deepEqual(
+  righeDellaMetrica("06_repair", { hole_areas: [1.33, 0.1] }).map((n) => n.textContent),
+  ["06_repair \u00b7 hole_areas", "[1.33,0.1]"],
+);
+""")
+
+
+def test_lo_stato_che_il_ripiego_legge_e_quello_che_l_elenco_ha_appena_disegnato(tmp_path):
+    """`disegnaStep` e' l'unico canale per cui `ultimoStato` si riempie, e ogni
+    controllo sul ripiego lo scrive a mano: la giuntura fra i due non la
+    guardava nessuno.
+
+    Tolta la riga che aggiorna `ultimoStato`, `passoDaMostrare` risponde `null`
+    per ogni step -- cioe' la vista si svuota sempre, che e' esattamente il
+    difetto di partenza -- e la suite resta verde. Misurato il 24/08/2026:
+    `790 passed`.
+    """
+    _esegui(tmp_path, _DOM + _costante("STEP_CON_GEOMETRIA") + _funzioni(
+        "segnaStepAperto", "nuovaRiga", "disegnaStep", "passoDaMostrare"
+    ) + """
+disegnaStep([
+  { numero: 1, chiave: "01_load", stato: "valido", artefatto: "01_cloud.ply" },
+  { numero: 2, chiave: "02_segment", stato: "valido", artefatto: "02_segmented.ply" },
+  { numero: 3, chiave: "03_downsample", stato: "mai eseguito", artefatto: null },
+]);
+assert.equal(
+  passoDaMostrare(3), 2,
+  "il ripiego non vede lo stato che l'elenco ha appena disegnato",
+);
+
+// E lo tiene fresco: il fronte di discesa manda run_state di nuovo, e cio' che
+// e' stato scritto nel frattempo deve contare.
+disegnaStep([
+  { numero: 1, chiave: "01_load", stato: "valido", artefatto: "01_cloud.ply" },
+  { numero: 2, chiave: "02_segment", stato: "valido", artefatto: "02_segmented.ply" },
+  { numero: 3, chiave: "03_downsample", stato: "valido", artefatto: "03_downsampled.ply" },
+]);
+assert.equal(passoDaMostrare(3), 3, "il ripiego risponde sullo stato di un evento fa");
+""")
+
+
+def test_il_cambio_d_asse_riallinea_il_taglio_sulla_geometria_mostrata(tmp_path):
+    """Il ripiego cambia anche il gestore del cursore del taglio, e li' non
+    arrivava nessun controllo.
+
+    Scelto lo step 11 il viewport porta il volume dello step 9: passare 11 a
+    `riallineaTaglio` spegne il comando del taglio sotto una geometria che si
+    puo' tagliare -- lo stesso difetto di prima, spostato sul comando.
+    Misurato il 24/08/2026: rimesso `riallineaTaglio(stepMostrato)`, la suite
+    resta verde.
+
+    Il gestore e' una riga di registrazione e non una funzione, quindi si
+    prende dal sorgente vero e si esegue: una ricerca testuale passerebbe anche
+    con l'argomento capovolto, che e' il difetto per cui questo file esegue.
+    """
+    registrazione = re.search(
+        r"^asseTaglio\.addEventListener\(.*\);$", _modulo(), flags=re.MULTILINE
+    )
+    assert registrazione is not None, "il gestore del cambio d'asse non e' piu' una riga sola"
+
+    _esegui(tmp_path, _DOM + _costante("STEP_CON_GEOMETRIA") + _funzioni("passoDaMostrare")
+            + _RIPIEGO + """
+let allineato = "mai";
+function riallineaTaglio(numero) { allineato = numero; }
+const asseTaglio = document.getElementById("taglio-asse");
+let stepScelto = 11;
+""" + registrazione.group(0) + """
+await asseTaglio.scatena("change");
+assert.equal(
+  allineato, 9,
+  "il cambio d'asse riallinea il taglio sullo step scelto invece che su quello mostrato",
+);
 """)
 
 
@@ -2873,7 +3584,7 @@ assert.ok(testo.includes("12,34"), testo);
 // un'ampiezza che non e' a schermo.
 assert.ok(!/ampiezza/i.test(testo),
   `annuncia un'ampiezza che la vista non disegna: ${testo}`);
-assert.ok(/non e' disegnata/.test(testo) && /indeformato/.test(testo),
+assert.ok(/non \u00e8 disegnata/.test(testo) && /indeformato/.test(testo),
   `non dichiara che la forma non e' a schermo: ${testo}`);
 console.log("ok");
 """)
@@ -3325,3 +4036,398 @@ assert.ok(didascalia.textContent.length > 0, "rifiuto muto");
 assert.ok(/1000/.test(didascalia.textContent) && /\\b4\\b/.test(didascalia.textContent),
   `il rifiuto non dice quanto sono disallineati: ${didascalia.textContent}`);
 """)
+
+
+# --------------------------------------------------------------------------
+# Il movimento: due controlli, e nessuno guarda l'estetica.
+#
+# Cio' che si prova qui e' logica, e sono le due strade per cui un movimento
+# smette di essere un'informazione e diventa un difetto: una transizione che non
+# finisce mai, e un marchio di «e' appena cambiato» acceso su qualcosa che non
+# e' cambiato affatto. Nessuna delle due si vede guardando un fotogramma.
+# --------------------------------------------------------------------------
+
+
+def _durata_dell_arrivo() -> str:
+    """La costante vera di `viewport.js`, non una copia scritta nel banco.
+
+    Gemella di `_costante`, che legge `app.js`. Senza, il banco proverebbe una
+    durata che il modulo non usa piu' e resterebbe verde."""
+    trovato = re.search(
+        r"^export const DURATA_ARRIVO = .*;$", _modulo_viewport(), flags=re.MULTILINE
+    )
+    assert trovato is not None, "nessuna costante DURATA_ARRIVO in viewport.js"
+    return trovato.group(0).removeprefix("export ")
+
+
+def test_l_arrivo_finisce_e_non_lascia_la_camera_in_un_punto_che_non_esiste(tmp_path):
+    """Le due proprieta' che tengono in piedi l'assestamento dell'inquadratura.
+
+    **Finisce.** `disegna()` smonta la transizione sul confronto `frazione >= 1`:
+    una frazione che si avvicina a 1 senza arrivarci lascerebbe acceso un
+    `aggiornaCamera` per ogni fotogramma, per tutta la durata della sessione, e
+    una pagina che resta aperta ore non lo direbbe con nessun sintomo.
+
+    **Non produce NaN.** La frazione moltiplica il raggio e interpola il centro:
+    un NaN qui porta la camera in una posizione che non esiste e la scena
+    sparisce, senza un errore in console e senza una riga nel registro. Le due
+    strade sono una durata nulla (divisione per zero) e un trascorso non finito.
+    """
+    uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
+        + _durata_dell_arrivo() + "\n"
+        + _funzioni_viewport("frazioneDellArrivo") + """
+assert.equal(frazioneDellArrivo(0), 0, "l'arrivo non parte dall'inquadratura di prima");
+assert.equal(frazioneDellArrivo(DURATA_ARRIVO), 1, "a tempo scaduto la transizione non si smonta");
+assert.equal(frazioneDellArrivo(DURATA_ARRIVO * 10), 1, "oltre la durata la frazione scappa");
+assert.equal(frazioneDellArrivo(-50), 0, "un trascorso negativo tira la camera all'indietro");
+
+// Monotona e chiusa: un'inquadratura che oltrepassa e torna indietro mostra un
+// pezzo piu' grande di quello che e'.
+let scorso = -1;
+for (let t = 0; t <= DURATA_ARRIVO; t += 5) {
+  const frazione = frazioneDellArrivo(t);
+  assert.ok(frazione >= scorso, `la frazione torna indietro a ${t} ms`);
+  assert.ok(frazione >= 0 && frazione <= 1, `frazione fuori da [0, 1] a ${t} ms: ${frazione}`);
+  scorso = frazione;
+}
+
+// Le tre strade per il NaN, che nessuna delle due guardie qui sopra vede.
+for (const [nome, valore] of [["NaN", NaN], ["Infinity", Infinity], ["assente", undefined]]) {
+  assert.equal(frazioneDellArrivo(valore), 1, `un trascorso ${nome} non finisce l'arrivo`);
+}
+assert.equal(frazioneDellArrivo(10, 0), 1, "durata nulla: la frazione divide per zero");
+assert.equal(frazioneDellArrivo(10, -1), 1, "durata negativa: la frazione esce dall'intervallo");
+console.log("ok");
+""")
+    assert uscita.strip() == "ok"
+
+
+def test_l_elevazione_scavalca_il_polo_invece_di_fermarsi_prima(tmp_path):
+    """Il giro verticale si fermava un soffio prima dei due poli.
+
+    `phi` era stretto fra 0,01 e pi greco meno 0,01 da due `Math.min`/`Math.max`,
+    uno nel trascinamento e uno nelle frecce. Ogni lato del pezzo restava
+    raggiungibile -- l'azimut non ha fermi -- ma il gesto si bloccava senza dire
+    perche', e un gesto che si blocca in silenzio si legge come un guasto.
+
+    Le tre cose che questo controllo tiene ferme, e che la correzione poteva
+    rompere una per una:
+
+    - il giro si chiude, in avanti e all'indietro. Senza la normalizzazione
+      `phi` cresce senza fine, e dopo qualche giro la precisione dei
+      trigonometrici si mangia il passo del trascinamento;
+    - i due poli si scavalcano, e la misura e' la distanza dall'asse e non
+      l'uguaglianza a zero: `Math.sin(Math.PI)` vale 1,22e-16, quindi un
+      confronto con zero non vedrebbe il polo non scavalcato. La' `up` e'
+      parallelo allo sguardo, il prodotto vettoriale e' lungo 1e-32 e
+      normalizzarlo amplifica il solo arrotondamento: l'inquadratura esce a
+      caso, o NaN, e la scena sparisce senza un errore. Non e' un caso di
+      scuola --
+      `phi` nasce a 1,0 e la freccia in su lo scala di 0,1, quindi dieci battute
+      ci arrivano esatte, ed e' la strada che il banco percorre davvero;
+    - oltre il polo il seno cambia segno. E' cio' che `aggiornaCamera` legge per
+      capovolgere `up`, e senza quel cambio di segno il giro resta possibile ma
+      l'immagine si ribalta di scatto nel punto in cui dovrebbe essere piu'
+      continua.
+    """
+    uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
+        + _funzioni_viewport("oltreIlPolo") + """
+const GIRO = Math.PI * 2;
+const vicino = (a, b) => Math.abs(a - b) < 1e-9;
+
+// Lontano dai poli il passo arriva dove deve, nei due versi.
+assert.ok(vicino(oltreIlPolo(1.0, 0.2), 1.2), "il passo in avanti non arriva dove chiede");
+assert.ok(vicino(oltreIlPolo(1.0, -0.2), 0.8), "il passo all'indietro non arriva dove chiede");
+
+// Il giro si chiude nei due versi. Senza, l'elevazione cresce senza fine e dopo
+// qualche giro la precisione dei trigonometrici si mangia il passo del gesto.
+assert.ok(vicino(oltreIlPolo(GIRO - 0.1, 0.2), 0.1), "il giro non si chiude in avanti");
+assert.ok(vicino(oltreIlPolo(0.1, -0.2), GIRO - 0.1), "il giro non si chiude all'indietro");
+
+// I poli. La misura e' la distanza dall'asse e non l'uguaglianza a zero:
+// `Math.sin(Math.PI)` vale 1,22e-16 e il modulo non restituisce mai pi greco
+// esatto, quindi un confronto con zero passerebbe anche col polo non
+// scavalcato. E non serve l'esattezza per fare danno: a 1e-16 dall'asse il
+// prodotto vettoriale con `up` e' lungo 1e-32, e normalizzarlo amplifica il
+// solo arrotondamento. La soglia sta mille volte sotto lo scavalcamento vero
+// (1e-3) e dieci ordini sopra il rumore.
+const LONTANO_DALL_ASSE = 1e-6;
+const dallAsse = (phi, passo) => Math.abs(Math.sin(oltreIlPolo(phi, passo)));
+assert.ok(dallAsse(0.1, -0.1) > LONTANO_DALL_ASSE, "il polo nord lascia la camera sull'asse");
+assert.ok(dallAsse(Math.PI - 0.1, 0.1) > LONTANO_DALL_ASSE, "il polo sud lascia la camera sull'asse");
+assert.ok(dallAsse(GIRO - 0.1, 0.1) > LONTANO_DALL_ASSE, "il polo raggiunto girando non viene scavalcato");
+// La fascia appena SOTTO il giro intero, che e' lo stesso polo visto dall'altra
+// parte: un passo negativo minuscolo da un'elevazione quasi nulla ci finisce
+// dentro, e da 0 quel valore dista un giro intero. Guardando solo 0 e pi greco
+// non lo vedrebbe nessuno, e la camera resterebbe a un ulp dall'asse.
+assert.ok(dallAsse(1e-15, -2e-15) > LONTANO_DALL_ASSE, "il polo appena sotto il giro intero non viene visto");
+
+// La strada vera, e non un caso di scuola: l'elevazione nasce a 1,0 e la freccia
+// in su la scala di 0,1, quindi dieci battute ci arrivano sopra.
+let phi = 1.0;
+for (let i = 0; i < 10; i += 1) phi = oltreIlPolo(phi, -0.1);
+assert.ok(Math.abs(Math.sin(phi)) > LONTANO_DALL_ASSE, "dieci frecce in su portano la camera sull'asse");
+
+// Il gesto non si ferma MAI: e' il difetto che questa funzione esiste per
+// chiudere. Duecento battute nello stesso verso sono piu' di tre giri interi, e
+// nessuna deve lasciare l'elevazione dov'era -- ne' fermandosi contro un fermo,
+// ne' uscendo dalla fascia del polo dalla parte da cui si sta arrivando.
+let corrente = 1.0;
+for (let i = 0; i < 200; i += 1) {
+  const dopo = oltreIlPolo(corrente, -0.1);
+  assert.notEqual(dopo, corrente, `il gesto si e' fermato alla battuta ${i}, a phi ${corrente}`);
+  assert.ok(Math.abs(Math.sin(dopo)) > LONTANO_DALL_ASSE, `la camera finisce sull'asse alla battuta ${i}`);
+  corrente = dopo;
+}
+
+// Di la' dal polo l'alto del mondo e' dall'altra parte, ed e' il segno del seno
+// che aggiornaCamera legge per capovolgere `up`. Senza il cambio di segno il
+// giro resta possibile ma l'immagine si ribalta di scatto.
+assert.ok(Math.sin(oltreIlPolo(Math.PI - 0.05, 0.1)) < 0, "scavalcato il polo il seno non cambia segno");
+assert.ok(Math.sin(oltreIlPolo(Math.PI - 0.05, -0.1)) > 0, "prima del polo il seno non e' positivo");
+
+// E all'incontrario: SFIORARE un polo senza volerlo scavalcare non deve
+// capovolgere niente. Chi si ferma dentro la fascia ne esce dalla parte da cui
+// stava andando, non da quella opposta -- uscire sempre in avanti farebbe
+// ribaltare l'immagine per un movimento che non si vede. Il passo qui e' piu'
+// piccolo di un pixel di trascinamento, quindi la difesa e' preventiva: il
+// gesto vero non ci arriva, ma la funzione non deve dipendere da questo.
+assert.ok(Math.sin(oltreIlPolo(Math.PI - 0.0005, -0.0001)) > 0, "sfiorare il polo da sotto capovolge l'immagine");
+assert.ok(Math.sin(oltreIlPolo(Math.PI + 0.0005, 0.0001)) < 0, "sfiorare il polo da sopra capovolge l'immagine");
+
+// E lo scavalcamento non si vede: nessuna battuta sposta l'elevazione piu' di un
+// millesimo di radiante -- sei centesimi di grado -- oltre cio' che il gesto ha
+// chiesto.
+for (const [da, passo] of [[0.1, -0.1], [Math.PI - 0.1, 0.1], [GIRO - 0.05, 0.05], [1.0, 0.3]]) {
+  const chiesto = (((da + passo) % GIRO) + GIRO) % GIRO;
+  const avuto = oltreIlPolo(da, passo);
+  const salto = Math.min(Math.abs(avuto - chiesto), GIRO - Math.abs(avuto - chiesto));
+  assert.ok(salto <= 1e-3 + 1e-12, `lo scavalcamento sposta di ${salto} rad, e si vede`);
+}
+console.log("ok");
+""")
+    assert uscita.strip() == "ok"
+
+
+def test_i_due_gesti_dell_elevazione_passano_dalla_stessa_funzione():
+    """Il fermo stava in DUE posti, il trascinamento e le frecce, e toglierlo da
+    uno solo lo lascia raggiungibile dall'altro. Qui non si esegue niente: le
+    due righe vivono dentro gestori annidati in `creaViewport`, che tocca
+    three.js e non si monta in un banco. Il controllo guarda che nessuna delle
+    due riscriva `orbita.phi` per conto proprio.
+    """
+    sorgente = _modulo_viewport()
+    scritture = re.findall(r"orbita\.phi = ([^;\n]+)", sorgente)
+    assert len(scritture) >= 3, f"solo {len(scritture)} scritture di orbita.phi: il regex non morde piu'"
+    fuori = [s for s in scritture if "oltreIlPolo(" not in s]
+    assert not fuori, f"l'elevazione viene scritta senza scavalcare il polo: {fuori}"
+
+
+def test_l_alto_del_mondo_segue_il_polo_scavalcato():
+    """Meta' della correzione sta dove nessun banco arriva.
+
+    `aggiornaCamera` vive dentro `creaViewport`, che tocca three.js e non si
+    monta: qui non si esegue niente, si guarda l'ordine di due righe. Ed e'
+    l'ordine il punto -- `lookAt` legge `camera.up` nell'istante in cui viene
+    chiamata, quindi scriverlo dopo non ha alcun effetto e non lascia nessun
+    sintomo: la scena resta, e si capovolge di scatto solo scavalcando un polo.
+    Senza il segno del seno il giro completo resta possibile ma illeggibile.
+    """
+    corpo = _sorgente_di("aggiornaCamera", _modulo_viewport())
+    assert "camera.up.set(" in corpo, "`up` non viene piu' scritto: oltre il polo l'immagine si ribalta"
+    alto = corpo.index("camera.up.set(")
+    guarda = corpo.index("camera.lookAt(")
+    assert alto < guarda, "`up` viene scritto dopo lookAt, che l'aveva gia' letto"
+    assert "Math.sin(phi)" in corpo[alto:guarda], "`up` non segue piu' il segno del seno dell'elevazione"
+
+
+def test_un_valore_troppo_lungo_per_la_colonna_del_numero_viene_marcato(tmp_path):
+    """Il difetto misurato a schermo: «339.710» reso a una cifra per riga.
+
+    La tabella ha due colonne, e in una zona da 22rem non ci stanno. Lo step 7
+    annida due dizionari dentro `geometric_error` e questa funzione appiattisce
+    il percorso in un'etichetta sola: «geometric_error · cloud_to_mesh ·
+    diag_mesh_1» sono 44 caratteri. Con `grid-template-columns: auto 1fr` la
+    colonna dell'etichetta si prendeva 298 dei 319 pixel disponibili, misurati
+    nel browser, e al valore ne restavano 8,98 -- una cifra. Non sbordava,
+    perche' `overflow-wrap: anywhere` da' al numero il permesso di spezzarsi
+    ovunque: invece di reclamare spazio, scendeva in verticale.
+
+    Meta' della correzione e' nel foglio (la colonna del valore ora e'
+    dichiarata) e la sorveglia test_stile. Questa meta' e' qui: i valori che in
+    quella colonna non ci stanno comunque -- una lista chiusa da JSON.stringify
+    -- vanno marcati, perche' passino sotto la propria etichetta a tutta
+    larghezza invece di stringersi in colonna.
+    """
+    _esegui(tmp_path, _DOM + _costante("VALORE_LARGO") + "\n"
+        + _costante("CLASSE_VALORE_LARGO") + "\n"
+        + _funzioni("valoreDellaMetrica", "righeDellaMetrica") + """
+const corta = righeDellaMetrica("vertices", 339710);
+assert.equal(corta[1].textContent, "339.710", "il numero non passa piu' da toLocaleString");
+assert.equal(corta[1].className, "", "un numero che nella colonna ci sta viene mandato sotto l'etichetta");
+
+// Il caso vero, non inventato: `06_repair · hole_areas` e' una lista di
+// ventiquattro aree, 540 caratteri chiusi da JSON.stringify. In colonna sono
+// trentanove righe; a tutta larghezza dodici.
+const aree = Array.from({ length: 24 }, (_, i) => 1.330381131055531 / (i + 1));
+const lunga = righeDellaMetrica("hole_areas", aree);
+assert.ok(lunga[1].textContent.length > 400, "il banco non sta piu' provando una lista lunga davvero");
+assert.equal(
+  lunga[1].className, CLASSE_VALORE_LARGO,
+  "una lista da 540 caratteri resta nella colonna del numero, a un carattere per riga",
+);
+
+// Il confine, dai due lati, ed e' la larghezza dichiarata della colonna: non un
+// numero scelto qui.
+assert.equal(
+  righeDellaMetrica("x", "a".repeat(VALORE_LARGO))[1].className, "",
+  "un valore che ci sta esatto viene mandato sotto l'etichetta lo stesso",
+);
+assert.equal(
+  righeDellaMetrica("x", "a".repeat(VALORE_LARGO + 1))[1].className, CLASSE_VALORE_LARGO,
+  "un valore piu' lungo della colonna ci resta dentro e si spezza",
+);
+
+// L'annidamento non e' cambiato: il percorso resta appiattito nell'etichetta, ed
+// e' proprio lui a rendere l'etichetta lunga.
+const annidata = righeDellaMetrica("geometric_error", { cloud_to_mesh: { RMS: 3.8984 } });
+assert.equal(annidata.length, 2, "un dizionario di dizionari non produce piu' una riga sola");
+assert.equal(
+  annidata[0].textContent, "geometric_error \u00b7 cloud_to_mesh \u00b7 RMS",
+  "il percorso non e' piu' appiattito nell'etichetta",
+);
+""")
+
+
+def test_le_stringhe_mostrate_portano_gli_accenti_italiani():
+    """La regola sta scritta nel piano del giro 3 e non era mai stata eseguita.
+
+    «Sorgenti in ASCII, con una sola eccezione dichiarata: le stringhe mostrate
+    all'utente portano gli accenti italiani veri.» I commenti, i nomi e il resto
+    del codice restano ASCII; cio' che finisce a video no. Il motivo non e'
+    ortografico ma di prodotto: PRODUCT.md dichiara che questa interfaccia viene
+    proiettata durante la discussione e che le viste finiscono in un'appendice
+    cartacea, e «Qualita'» su un muro davanti alla commissione si legge come un
+    refuso di tesi, non come una convenzione di sorgente. Nella stessa frase
+    convivevano gia' le virgolette caporali e la lineetta lunga: l'apostrofo al
+    posto dell'accento era l'unico segno rimasto indietro.
+
+    Questo controllo esiste perche' la deriva e' gia' successa in questa
+    direzione: una passata sul testo ha «corretto» `Qualita` in `Qualita'`
+    allineandolo ai commenti, che la regola esclude. Guarda le sole regioni
+    mostrate -- il testo fra i tag, gli attributi che portano testo, e i
+    letterali sulle righe di codice -- e lascia in pace tutto il resto.
+
+    **Confine dichiarato:** questo controllo copre i tre file dell'interfaccia,
+    non le stringhe che arrivano dal server. Quelle sono un'altra superficie e
+    sono molte -- 275 parole tronche in quindici moduli Python, fra cui le
+    descrizioni dei parametri di `core/config.py`, che il pannello mostra, e
+    `core/report.py`, che finisce nell'appendice cartacea. Finche' non vengono
+    fatte anche quelle, nella colonna di destra convivono le due grafie.
+    """
+    tronca = re.compile(r"\b[A-Za-z]*[aeiou]'(?![A-Za-z\u00e0\u00e8\u00e9\u00ec\u00f2\u00f9])")
+    # `po'` e' un troncamento corretto, non un accento mancante: se comparira'
+    # non e' un difetto. Nessun'altra parola tronca lo e'.
+    lecite = {"po'"}
+
+    def tronche(testo):
+        return {p for p in tronca.findall(testo) if p not in lecite}
+
+    markup = _markup()
+    senza_commenti = re.sub(r"<!--.*?-->", "", markup, flags=re.S)
+    mostrate = re.findall(r">([^<>]+)<", senza_commenti)
+    # Il testo che vive in un attributo si vede quanto quello fra i tag:
+    # `data-testo-vuoto` e' cio' da cui app.js RIPRISTINA lo stato vuoto, e
+    # lasciarlo indietro fa ricomparire la vecchia grafia dopo un ripristino.
+    mostrate += re.findall(r'(?:placeholder|aria-label|title|data-testo-vuoto)="([^"]*)"', senza_commenti)
+
+    letterale = re.compile(r"`[^`]*`|\"[^\"\\]*\"|'[^'\\]*'")
+    for sorgente in (_modulo(), _modulo_viewport()):
+        for riga in sorgente.split("\n"):
+            if riga.strip().startswith(("//", "*", "/*")):
+                continue
+            taglio = riga.find(" // ")
+            codice = riga[:taglio] if taglio >= 0 else riga
+            mostrate += [m[1:-1] for m in letterale.findall(codice)]
+
+    assert len(mostrate) > 100, f"solo {len(mostrate)} regioni mostrate: l'estrazione non morde piu'"
+    guasti = {p for testo in mostrate for p in tronche(testo)}
+    assert not guasti, (
+        "stringhe mostrate con l'apostrofo al posto dell'accento: "
+        + ", ".join(sorted(guasti))
+    )
+
+
+def test_il_marchio_del_cambio_sta_solo_sulle_righe_che_sono_cambiate(tmp_path):
+    """Il marchio e' un evento, e un evento dichiarato dove non e' successo
+    niente e' un numero mostrato senza un controllo che lo smentisca.
+
+    Tre modi di romperlo, tutti invisibili guardando la colonna ferma:
+
+    1. **La prima passata.** Confrontato con niente, ogni step risulta cambiato:
+       all'avvio la colonna si accenderebbe tutta dicendo che e' appena successo
+       qualcosa che era gia' cosi'.
+    2. **Lo stato che non cambia.** Gli eventi arrivano due volte al secondo per
+       tutta la corsa: un marchio che non guarda il valore precedente
+       lampeggerebbe su tredici righe per i trentaquattro secondi di uno step.
+    3. **Il marchio che resta attaccato.** Tolto solo al cambio successivo,
+       l'animazione girerebbe una volta e mai piu', perche' e' l'attributo che
+       ricompare a farla ripartire.
+
+    Provato eseguendo `disegnaStep`, non cercando `data-cambiato` nel sorgente:
+    la stessa guardia scritta al contrario lascia la sottostringa al suo posto.
+    """
+    _esegui(tmp_path, _DOM + _funzioni("segnaStepAperto", "nuovaRiga", "disegnaStep") + """
+const marchiati = () =>
+  elenco.children.flatMap((riga, i) => ("cambiato" in riga.dataset ? [i] : []));
+
+disegnaStep(STEPS);
+assert.deepEqual(marchiati(), [], "alla prima passata la colonna si accende tutta");
+
+// Lo stesso stato, di nuovo: e' cio' che arriva due volte al secondo.
+disegnaStep(STEPS);
+assert.deepEqual(marchiati(), [], "uno stato che non cambia si dichiara cambiato");
+
+// Solo il secondo step finisce.
+disegnaStep(STEPS.map((v) => (v.numero === 2 ? { ...v, stato: "valido" } : v)));
+assert.deepEqual(marchiati(), [1], "il marchio non e' sulla riga cambiata, o non e' solo sua");
+assert.equal(elenco.children[1].className, "stato-valido",
+  "il marchio e' finito dentro la classe di stato: due canali diventati uno");
+
+// L'evento dopo, mezzo secondo piu' tardi: niente e' cambiato di nuovo.
+disegnaStep(STEPS.map((v) => (v.numero === 2 ? { ...v, stato: "valido" } : v)));
+assert.deepEqual(marchiati(), [],
+  "il marchio resta attaccato: l'animazione non puo' piu' ripartire");
+
+// E riparte quando lo stato cambia davvero un'altra volta.
+disegnaStep(STEPS.map((v) => (v.numero === 2 ? { ...v, stato: "fallito" } : v)));
+assert.deepEqual(marchiati(), [1], "il secondo cambio sulla stessa riga non si vede");
+""")
+    assert ".elenco-step [data-cambiato]" in _foglio(), (
+        "il foglio non si aggancia piu' a data-cambiato: il marchio resta senza animazione"
+    )
+
+
+def test_ogni_elemento_che_il_modulo_cerca_esiste_nel_markup():
+    """`getElementById` non solleva: restituisce `null`.
+
+    Il difetto sta tutto qui. Rinominato o tolto un `id` da `index.html`, il
+    modulo non si accorge di niente finche' qualcuno non tocca quel `null` — e
+    il `TypeError` arriva dentro una funzione asincrona, cioe' in una promessa
+    che nessuno guarda: la sezione resta vuota e la pagina non dice nulla. E'
+    esattamente la forma di guasto che questa interfaccia non deve avere,
+    perche' «vuoto» qui e' anche un esito legittimo.
+
+    Solo le chiamate con una stringa letterale: quelle costruite con un
+    template (`errore-${blocco}-${nome}`, app.js:1466) puntano a elementi che
+    il modulo stesso fabbrica, e non hanno un `id` da trovare nel markup.
+    """
+    modulo = _modulo()
+    chiesti = set(re.findall(r'getElementById\("([^"]+)"\)', modulo))
+    # Se il regex smette di trovare qualcosa il controllo diventa cieco invece
+    # che rosso: il modulo ne cerca decine, zero significa che e' cambiata la
+    # forma della chiamata, non che il difetto e' sparito.
+    assert len(chiesti) > 20, f"solo {len(chiesti)} getElementById letterali: il regex non morde piu'"
+    presenti = set(re.findall(r'id="([^"]+)"', _markup()))
+    mancanti = sorted(chiesti - presenti)
+    assert not mancanti, f"il modulo cerca elementi che il markup non ha: {mancanti}"

@@ -19,7 +19,12 @@
   <!-- Riporta alla scelta della corsa senza riavviare il programma. Nasce
        nascosto: a nessuna corsa aperta l'ingresso e' gia' a video. -->
   <button type="button" id="cambia-corsa" class="bottone" hidden>Cambia corsa</button>
-  <button type="button" id="annulla" class="bottone" disabled>Annulla</button>
+  <!-- «Interrompi il calcolo» e non «Annulla»: annullare, accanto a una corsa
+       che sta girando, si legge anche come «disfa quello che hai fatto», e il
+       bottone non disfa niente -- ferma il sottoprocesso in corso, che sia uno
+       step o un comando. Il verbo dice l'azione e il complemento dice su che
+       cosa cade. -->
+  <button type="button" id="annulla" class="bottone" disabled>Interrompi il calcolo</button>
 </header>
 <!-- Le due schermate si escludono a vicenda e nascono entrambe nascoste:
      app.js ne scopre una quando /api/run ha risposto. Nascondere solo
@@ -30,11 +35,11 @@
 <section class="ingresso" id="ingresso" aria-label="Scelta della corsa" hidden>
   <h2>Da dove si comincia</h2>
   <p class="aiuto">
-    Una corsa e' una cartella con la configurazione, gli artefatti di ogni step
+    Una corsa è una cartella con la configurazione, gli artefatti di ogni step
     e le metriche. Nasce da un file di punti: <code>.pcd</code>,
     <code>.ply</code> o <code>.xyz</code>.
   </p>
-  <h3 id="corse-titolo">Corse gia' sul disco</h3>
+  <h3 id="corse-titolo">Corse già sul disco</h3>
   <p class="vuoto" id="corse-vuoto" hidden>Nessuna corsa: la prima si crea qui sotto.</p>
   <div class="corse" id="corse-elenco"></div>
   <h3>Nuova corsa</h3>
@@ -49,20 +54,38 @@
            aria-describedby="aiuto-nuova-nome">
   </label>
   <small class="aiuto" id="aiuto-nuova-nome">Diventa il nome della cartella: lettere, cifre, punto, trattino, trattino basso.</small>
-  <label class="campo" for="nuova-nuvola">
-    <span>percorso del file di punti</span>
-    <input type="text" id="nuova-nuvola" autocomplete="off" spellcheck="false"
-           placeholder="../Nuvole di punti/scansione.pcd"
-           aria-describedby="aiuto-nuova-nuvola">
-  </label>
-  <small class="aiuto" id="aiuto-nuova-nuvola">Percorso sul disco di questa macchina, assoluto o relativo alla cartella da cui gira il programma.</small>
-  <button type="button" id="crea-corsa" class="bottone">Crea la corsa</button>
+  <!-- Un <div> e non una <label>, e la <label> nomina per `for`. Avvolgendo
+       tutto, si portava dentro anche il tasto: una <label> nomina con tutto il
+       proprio sottoalbero, e il campo si annunciava «percorso del file di punti
+       Sfoglia...». Ed e' markup invalido: dentro una <label> non ci va un
+       secondo elemento etichettabile, e il <button> lo e'. Stessa forma e
+       stessa ragione dei campi dei parametri in app.js.
+       `campo-con-bottone` sparisce con l'occasione: nel foglio non esiste
+       nessuna regola con quel nome. -->
+  <div class="campo">
+    <label for="nuova-nuvola">percorso del file di punti</label>
+    <!-- Il campo e il bottone, non il bottone al posto del campo: sfogliare e'
+         una comodita', ma un percorso si incolla, e da una sessione remota la
+         finestra non si apre affatto. -->
+    <span class="campo-riga">
+      <input type="text" id="nuova-nuvola" autocomplete="off" spellcheck="false"
+             placeholder="../Nuvole di punti/scansione.pcd"
+             aria-describedby="aiuto-nuova-nuvola">
+      <button type="button" id="sfoglia-nuvola" class="bottone">Sfoglia&hellip;</button>
+    </span>
+  </div>
+  <small class="aiuto" id="aiuto-nuova-nuvola">Percorso sul disco di questa macchina, assoluto o relativo alla cartella da cui gira il programma. «Sfoglia» apre il selettore file del sistema.</small>
+  <!-- Il comando pieno dell'ingresso: sotto due caselle, un tasto che sfoglia e
+       una lista di corse, e' l'unica cosa che questa schermata chiede di fare a
+       chi non ne ha ancora nessuna. «Sfoglia» resta il contorno grigio: due
+       fondi pieni nella stessa colonna smettono di dire quale sia il primo. -->
+  <button type="button" id="crea-corsa" class="bottone bottone-primario">Crea la corsa</button>
   <!-- Stessa regola della riga d'errore del pannello: vive nel markup, non
        viene fabbricata, e a vuota non occupa spazio. -->
   <p class="errore" id="ingresso-errore" role="alert"></p>
   <p class="aiuto">
     Il materiale non viene chiesto adesso e non viene indovinato: lo si dichiara
-    allo step 11, che e' il primo a pretenderlo.
+    allo step 11, che è il primo a pretenderlo.
   </p>
 </section>
 <div class="tre-zone" id="lavoro" hidden>
@@ -89,6 +112,34 @@
          l'immagine anche la didascalia. -->
     <div id="viewport" class="viewport">
       <p class="conteggi" id="conteggi" aria-live="polite"></p>
+      <!-- Lo stato vuoto della vista, ed e' l'ultimo che mancava: aprire una
+           corsa lasciava al centro dello schermo 856x640 px bianchi, misurati,
+           senza una riga che dicesse cosa ci va. Gli altri cinque vuoti di
+           questa pagina (le corse, il dettaglio, il prior, il confronto, la
+           galleria) dicono tutti perche' non mostrano niente; questo no, ed era
+           il piu' grande.
+           Nel markup e non fabbricato da app.js, come la riga d'errore, la
+           didascalia e gli altri quattro: uno stato vuoto creato nell'istante in
+           cui ci si scrive dentro non preesiste a cio' che annuncia, ed e' la
+           lezione che in questo file e' gia' costata tre ricadute.
+           Nessun aria-live: non annuncia un cambiamento, sta li' dall'inizio. Il
+           cambiamento lo annuncia #conteggi qui sopra, che e' vivo. -->
+      <div class="vista-vuota" id="vista-vuota" hidden>
+        <p class="vuoto">Qui compare la geometria della corsa.</p>
+        <!-- Cio' che i conteggi non possono dire. Loro portano il fatto
+             («nessuno step ha ancora prodotto un artefatto: esegui lo step 1»);
+             qui sta il modello d'interazione, che l'utente successivo
+             confermato non ha modo di indovinare: tredici righe con un pallino
+             e una parola somigliano a un elenco di stato molto piu' che a
+             tredici bottoni.
+             La frase nomina l'INTESTAZIONE e non una direzione: sotto il
+             breakpoint le tre zone si impilano e l'elenco degli step finisce
+             SOPRA la vista, dove «la colonna a sinistra» -- che e' la prima
+             grafia di questa riga -- diventa semplicemente falsa. Visto a
+             schermo, non dedotto. «Pipeline» invece e' scritto sopra l'elenco a
+             ogni larghezza. -->
+        <p class="vuoto">Ogni step dell'elenco «Pipeline» si clicca per vederne l'artefatto.</p>
+      </div>
       <!-- Il comando del taglio. Nasce nascosto: app.js lo mostra solo dove c'e'
            un volume disegnato, e l'intervallo del cursore lo scrive da li'
            leggendo l'ingombro della geometria. min, max e step non stanno qui
@@ -136,13 +187,17 @@
          lezione della regione d'errore, che tre volte era stata distrutta da un
          replaceChildren(). Uno stato vuoto creato nell'istante in cui ci si
          scrive dentro non preesiste a cio' che annuncia. -->
-    <p class="vuoto" id="prior-vuoto">Il prior geometrico non e' ancora stato calcolato: e' lo step 12.</p>
+    <p class="vuoto" id="prior-vuoto">Il prior geometrico non è ancora stato calcolato: è lo step 12.</p>
     <button type="button" id="calcola-prior" class="bottone">Calcola il prior</button>
     <div id="prior-membrature"></div>
     <div id="prior-scartate"></div>
     <h2>Confronto</h2>
-    <p class="vuoto" id="confronto-vuoto" data-testo-vuoto="Nessun modello parametrico generato: il confronto e' una scheda singola.">Nessun modello parametrico generato: il confronto e' una scheda singola.</p>
-    <div class="confronto" id="confronto">
+    <p class="vuoto" id="confronto-vuoto" data-testo-vuoto="Nessun modello parametrico generato: il confronto è una scheda singola.">Nessun modello parametrico generato: il confronto è una scheda singola.</p>
+    <!-- Senza `class="confronto"`: nel foglio non esiste nessuna regola con
+         quel nome, e una classe che non veste niente fa cercare un
+         raggruppamento che non c'e'. Il `div` resta, l'`id` pure: e' l'ancora
+         del pannello. -->
+    <div id="confronto">
       <div class="confronto-tabella" id="confronto-tabella"></div>
     </div>
     <h2>Registro</h2>
@@ -164,9 +219,18 @@
     <!-- Sola lettura: nessun clic qui scrive sul disco. I registri sono
          quelli della Fase 2 (experiments/), la tabella sperimentale della
          tesi. -->
-    <p class="aiuto">Registri della Fase 2. La riga di fronte e' evidenziata.</p>
+    <p class="aiuto">Registri della Fase 2. La riga di fronte è evidenziata.</p>
+    <!-- Lo stato vuoto che mancava, e vive nel markup come gli altri quattro:
+         senza cartella experiments/ accanto, il titolo e la riga qui sopra
+         promettevano una tabella sopra il nulla. Era l'unica delle sezioni di
+         questa colonna a non dire perche' non mostrava niente. -->
+    <p class="vuoto" id="galleria-vuoto" hidden>Nessun registro di sweep in <code>experiments/</code>: la galleria resta vuota finché non ne esiste uno.</p>
     <div class="azioni" id="galleria-elenco"></div>
-    <div class="galleria-tabella" id="galleria-tabella"></div>
+    <!-- tabindex="0" per la stessa ragione del registro: la tabella e' a otto
+         colonne dentro una zona da 22rem, scorre in orizzontale e non contiene
+         niente su cui il fuoco possa posarsi, quindi senza questo attributo le
+         colonne fuori vista non si raggiungono da tastiera (WCAG 2.1.1). -->
+    <div class="galleria-tabella" id="galleria-tabella" tabindex="0"></div>
   </aside>
 </div>
 </main>

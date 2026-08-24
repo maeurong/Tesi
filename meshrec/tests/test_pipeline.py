@@ -246,6 +246,210 @@ def test_resuming_from_tetrahedralize_still_works_when_simplify_is_enabled(tmp_p
     assert resumed["11_export"]["volume"] == pytest.approx(EXACT_VOLUME, rel=0.1)
 
 
+def test_una_mesh_assente_non_si_legge_come_una_mesh_vuota(tmp_path):
+    """open3d non solleva su file assente: torna una mesh vuota e scrive un
+    avviso su stderr, che nessuno legge (misurato il 24/08/2026: "Read PLY
+    failed: unable to open file", zero vertici, nessuna eccezione).
+
+    Senza la guardia questo era il difetto peggiore della ripresa: la lettura
+    riusciva, lo step girava su zero vertici e si registrava "riuscito"."""
+    with pytest.raises(ValueError, match="nessuna superficie letta"):
+        pipeline._read_mesh(tmp_path / "mai-scritta.ply")
+
+
+def test_una_nuvola_al_posto_di_una_superficie_non_passa_per_superficie(tmp_path):
+    """Un .ply di soli punti si apre senza errore e ha zero facce. Contare i
+    soli vertici lo lascerebbe passare, e la riparazione girerebbe su una
+    superficie che facce non ne ha."""
+    solo_punti = tmp_path / "solo-punti.ply"
+    io.write_cloud(solo_punti, synth.sample_box_surface(SIZE, SPACING))
+
+    with pytest.raises(ValueError, match="nessuna superficie letta"):
+        pipeline._read_mesh(solo_punti)
+
+
+def test_saltare_uno_step_dice_quale_manca_invece_di_nominare_un_file(tmp_path):
+    """Il messaggio nomina gli STEP, non solo il file: chi guarda l'interfaccia
+    ragiona per step, e "nessun punto letto da '04_normals.ply'" non dice a
+    nessuno che deve eseguire lo step 4 prima del 5."""
+    with pytest.raises(ValueError) as caduta:
+        pipeline._ingresso_di_ripresa(5, 4, tmp_path, io.read_cloud)
+
+    detto = str(caduta.value)
+    assert "lo step 5 pretende 04_normals.ply" in detto
+    assert "lo step 4 non ha ancora scritto" in detto
+    # La sequenza e' consigliata, non imposta: il messaggio dice come rimediare.
+    assert "Esegui prima lo step 4" in detto
+
+
+def test_un_artefatto_illeggibile_non_si_scambia_per_uno_mai_scritto(tmp_path):
+    """Due guasti diversi, due messaggi diversi. Mandare a "eseguire prima lo
+    step 4" davanti a un file che esiste ed e' troncato manderebbe a rifare uno
+    step gia' fatto, senza dire perche' la prima volta non e' bastata."""
+    (tmp_path / "04_normals.ply").write_text("non e' un ply", encoding="utf-8")
+
+    with pytest.raises(ValueError) as caduta:
+        pipeline._ingresso_di_ripresa(5, 4, tmp_path, io.read_cloud)
+
+    detto = str(caduta.value)
+    assert "esiste ma non si legge" in detto
+    assert "non ha ancora scritto" not in detto
+
+
+def test_riprendere_da_uno_step_saltato_rifiuta_invece_di_corrompere_il_seguito(
+    run_dir, tmp_path
+):
+    """La corsa reale, non la funzione presa a se'.
+
+    Prima della guardia: si toglie 05_surface.ply, si riparte dal 6, la
+    riparazione gira su zero vertici, RISCRIVE 06_repaired.ply vuoto e lo
+    registra "riuscito". Il danno non era il rifiuto mancato, era che un
+    artefatto BUONO a valle veniva sostituito da uno vuoto senza un errore.
+
+    L'oracolo e' quindi doppio: rifiuta, e lascia intatto cio' che c'era."""
+    import shutil
+
+    out, _ = run_dir
+    copia = tmp_path / "corsa"
+    shutil.copytree(out, copia)
+
+    riparata = copia / pipeline.ARTIFACTS[6]
+    impronta_prima = riparata.read_bytes()
+    (copia / pipeline.ARTIFACTS[5]).unlink()
+
+    cfg = config.load_config(copia / "config.yaml")
+    cfg.run.out_dir = copia
+    cfg.run.from_step = 6
+
+    with pytest.raises(ValueError, match="lo step 6 pretende 05_surface.ply"):
+        pipeline.run(cfg)
+
+    assert riparata.read_bytes() == impronta_prima
+
+
+def test_un_artefatto_presente_ma_senza_facce_non_attraversa_la_ripresa(run_dir, tmp_path):
+    """Il caso che il controllo di esistenza NON copre, e per cui la guardia in
+    `_read_mesh` esiste: il file c'e', si apre, ed e' vuoto.
+
+    Misurato togliendo la guardia: senza, questo e' esattamente il percorso su
+    cui la riparazione gira su zero vertici e riscrive 06_repaired.ply vuoto
+    dichiarandosi riuscita. Il test che toglie il file non basta a coprirlo,
+    perche' si ferma prima, sul controllo di esistenza."""
+    import shutil
+
+    out, _ = run_dir
+    copia = tmp_path / "corsa"
+    shutil.copytree(out, copia)
+
+    riparata = copia / pipeline.ARTIFACTS[6]
+    prima = riparata.read_bytes()
+    # Un .ply VALIDO scritto dove la ripresa cerca una superficie: ha vertici,
+    # non ha facce. open3d lo apre senza un solo errore -- e' il caso peggiore,
+    # perche' non c'e' niente su cui inciampare tranne le facce che mancano.
+    io.write_cloud(copia / pipeline.ARTIFACTS[5], synth.sample_box_surface(SIZE, SPACING))
+    assert (copia / pipeline.ARTIFACTS[5]).exists()
+
+    cfg = config.load_config(copia / "config.yaml")
+    cfg.run.out_dir = copia
+    cfg.run.from_step = 6
+
+    with pytest.raises(ValueError, match="esiste ma non si legge"):
+        pipeline.run(cfg)
+
+    assert riparata.read_bytes() == prima
+
+
+def test_la_nuvola_di_riferimento_dello_step_7_si_ricarica_dal_2_e_non_dalla_tabella(
+    run_dir, tmp_path
+):
+    """Dei cinque punti di ripresa, questo e' l'unico che chiede un numero
+    fisso invece della tabella `_RESUME_POINTS`: `source_cloud` e' la nuvola
+    SEGMENTATA dello step 2 e nient'altro, perche' e' il riferimento contro cui
+    lo step 7 misura l'errore geometrico.
+
+    Attraversato da ogni ripresa, ma senza un oracolo suo: sostituita la riga
+    con `_RESUME_POINTS[start]` -- l'errore di copia naturale, dato che le due
+    righe si somigliano -- una ripresa dal 6 caricherebbe 04_normals.ply, che
+    esiste, e proseguirebbe misurando contro la nuvola sbagliata senza dire
+    niente. Misurato il 24/08/2026: con quella sostituzione, `790 passed`.
+    """
+    import shutil
+
+    out, _ = run_dir
+    copia = tmp_path / "corsa"
+    shutil.copytree(out, copia)
+    # Solo la segmentata: cio' che serve al punto di ripresa provato qui sopra
+    # (04_normals.ply) resta al suo posto, cosi' se la riga ripiegasse sulla
+    # tabella la ripresa passerebbe invece di fermarsi.
+    (copia / pipeline.ARTIFACTS[2]).unlink()
+
+    cfg = config.load_config(copia / "config.yaml")
+    cfg.run.out_dir = copia
+    cfg.run.from_step = 6
+
+    # «lo step 7» e non «lo step 6»: il messaggio nomina lo step che la
+    # CONSUMA, non quello da cui la corsa riparte. Ripartendo dal 6 lo step 7
+    # gira, quindi quella nuvola serve davvero e il rifiuto e' giusto.
+    with pytest.raises(ValueError, match="lo step 7 pretende 02_segmented.ply"):
+        pipeline.run(cfg)
+
+
+def test_eseguire_un_solo_step_non_pretende_artefatti_che_quello_step_non_tocca(
+    run_dir, tmp_path
+):
+    """«Tecnicamente io devo poter eseguire qualsiasi step in qualsiasi
+    momento»: questo e' quel requisito, sul caso concreto.
+
+    La nuvola segmentata dello step 2 ha due soli consumatori, l'errore
+    geometrico dello step 7 e il prior dello step 12. Veniva pero' ricaricata a
+    ogni ripresa, quindi «esegui solo lo step 9» in una cartella senza
+    02_segmented.ply si fermava per un artefatto che lo step 9 non guarda mai.
+    """
+    import shutil
+
+    out, _ = run_dir
+    copia = tmp_path / "corsa"
+    shutil.copytree(out, copia)
+    (copia / pipeline.ARTIFACTS[2]).unlink()
+
+    cfg = config.load_config(copia / "config.yaml")
+    cfg.run.out_dir = copia
+    cfg.run.to_step = 9
+    cfg.run.from_step = 9
+
+    esito = pipeline.run(cfg)
+    assert esito["09_tetrahedralize"]["nodes"] > 0
+
+
+def test_quando_la_nuvola_di_riferimento_serve_davvero_il_rifiuto_nomina_chi_la_consuma(
+    run_dir, tmp_path
+):
+    """Se invece la corsa arriva al prior, quella nuvola serve sul serio.
+
+    Il messaggio deve nominare lo step 12, che la consuma, e non lo step da cui
+    la corsa riparte: «lo step 9 pretende 02_segmented.ply» era falso, e il
+    consiglio che ne seguiva -- riprendere dal 2 -- riscrive gli artefatti dal 2
+    al 9, cioe' proprio quelli su cui si stava iterando.
+    """
+    import shutil
+
+    out, _ = run_dir
+    copia = tmp_path / "corsa"
+    shutil.copytree(out, copia)
+    (copia / pipeline.ARTIFACTS[2]).unlink()
+
+    cfg = config.load_config(copia / "config.yaml")
+    cfg.run.out_dir = copia
+    cfg.run.from_step = 9
+
+    with pytest.raises(ValueError) as caduta:
+        pipeline.run(cfg)
+
+    detto = str(caduta.value)
+    assert "lo step 12 pretende 02_segmented.ply" in detto
+    assert "lo step 9 pretende" not in detto
+
+
 def test_una_corsa_completa_lascia_i_dodici_step_di_elaborazione_validi(tmp_path):
     """Dal Task 9 (Fase 4) lo step 12 (prior geometrico) e' parte della corsa
     madre: una corsa intera non lascia piu' nulla di "mai eseguito" nel nucleo

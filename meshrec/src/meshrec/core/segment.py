@@ -57,7 +57,50 @@ def crop_box(points: np.ndarray, cfg: SegmentConfig) -> tuple[np.ndarray, dict[s
     return np.ascontiguousarray(points[inside]), {
         "cropped": True,
         "points_after": int(inside.sum()),
+        **_cosa_toglie_il_box(points, low, high, inside),
     }
+
+
+def _cosa_toglie_il_box(
+    points: np.ndarray, low: np.ndarray, high: np.ndarray, inside: np.ndarray
+) -> dict[str, object]:
+    """Quanto il box ha tolto, e da quale faccia.
+
+    `points_before` e `points_after` c'erano gia', ma la loro differenza dice
+    solo un numero: non dice che il ritaglio ha portato via un pezzo di
+    struttura. Su lab_crop toglieva il 30,8% della nuvola -- fra cui tutta la
+    base del portale, i due appoggi -- e a video non compariva niente che lo
+    facesse sospettare. Le facce lo dicono: 1.944.686 punti sotto la faccia Z
+    e' un piano di taglio che ha incontrato qualcosa, non una rifinitura dei
+    bordi.
+
+    Un punto puo' uscire da piu' facce, quindi la somma delle facce puo'
+    superare il totale tolto: sono sei domande separate («quanti punti stanno
+    sotto questa faccia»), non una ripartizione.
+
+    Le facce che non tolgono niente non compaiono: sei zeri sono rumore che
+    nasconde l'unica riga che conta.
+    """
+    tolti = int((~inside).sum())
+    per_faccia: dict[str, int] = {}
+    for asse, nome in enumerate("xyz"):
+        sotto = int((points[:, asse] < low[asse]).sum())
+        sopra = int((points[:, asse] > high[asse]).sum())
+        if sotto:
+            per_faccia[f"sotto_{nome}"] = sotto
+        if sopra:
+            per_faccia[f"sopra_{nome}"] = sopra
+
+    metriche: dict[str, object] = {
+        "cropped_points": tolti,
+        # Sul totale in ingresso al ritaglio, che e' la nuvola gia' ripulita
+        # dagli outlier: e' il denominatore su cui il box ha davvero agito.
+        "cropped_fraction": float(tolti / len(points)) if len(points) else 0.0,
+    }
+    # Un box che non toglie niente non lascia un dizionario vuoto a video.
+    if per_faccia:
+        metriche["cropped_by_face"] = per_faccia
+    return metriche
 
 
 def _as_cloud(points: np.ndarray) -> o3d.geometry.PointCloud:
