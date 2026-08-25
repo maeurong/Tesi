@@ -51,11 +51,6 @@ surface:
   poisson_scale: 1.1
   density_quantile: 0.05
   poisson_n_threads: 1
-  bpa_radius_factors:
-  - 1.0
-  - 2.0
-  - 4.0
-  alpha_factor: 5.0
 repair:
   largest_component_only: true
   max_hole_area: null
@@ -63,7 +58,6 @@ repair:
 simplify:
   enabled: false
   mode: remesh
-  target_faces: null
   remesh_target_len_pct: 1.0
   taubin_iterations: 0
 tet:

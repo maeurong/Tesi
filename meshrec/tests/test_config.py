@@ -214,46 +214,61 @@ def test_un_inf_gia_scritto_su_disco_non_si_rilegge(tmp_path):
 
 
 def test_l_impronta_di_una_corsa_registrata_non_cambia():
-    """Le impronte della Fase 2 vivono nei registri: allargare PipelineConfig
-    senza escludere il blocco nuovo cambierebbe la provenienza di ogni riga
-    della tabella sperimentale della tesi.
+    """Le impronte della Fase 2 vivono nei registri, e questo test le sorveglia.
 
-    Il test non fissa un valore magico: rilegge i due registri veri, rivalida
-    la configurazione incorporata in ciascuna riga e ricalcola l'impronta. Se
-    coincide con quella registrata, la riga e' ancora derivabile dalla
-    configurazione che dichiara.
+    Fino al taglio di `bpa`/`alpha`/`decimate` il test confrontava l'impronta
+    ricalcolata con quella scritta dentro ciascuna riga, e le 22 righe
+    tornavano tutte. Togliere tre campi da `SurfaceConfig` e `SimplifyConfig`
+    ha spostato l'impronta di tutte e 22: la regola di
+    `BLOCCHI_VUOTI_FUORI_IMPRONTA` protegge dai blocchi **aggiunti**, non dai
+    campi **tolti**, e non c'era modo di tenere insieme le due cose. Rottura
+    deliberata, decisa il 25/08/2026 con la misura davanti (0 righe su 22
+    prima, 22 su 22 dopo), non un effetto scoperto a valle.
+
+    Il campo `fingerprint` delle righe registrate resta quello di allora: e' un
+    dato misurato e non si riscrive. Cio' che questo test sorveglia da qui in
+    avanti e' l'aggregato delle impronte che lo **schema corrente** produce da
+    quelle stesse configurazioni. Uno spostamento successivo, deliberato o no,
+    lo fa cadere esattamente come prima.
+
+    Mutazione che lo uccide: togliere o aggiungere un campo a un blocco dentro
+    l'impronta. L'aggregato cambia e il test lo dice.
     """
+    import hashlib
     import json
 
     from meshrec.core.sweep import fingerprint
 
     radice = Path(__file__).resolve().parents[1] / "experiments"
-    righe = 0
+    marchi = []
     for registro in sorted(radice.glob("*/registro.jsonl")):
         for riga in registro.read_text(encoding="utf-8").splitlines():
             if not riga.strip():
                 continue
             voce = json.loads(riga)
-            cfg = PipelineConfig.model_validate(voce["config"])
-            assert fingerprint(cfg) == voce["fingerprint"], (
-                f"{registro}: la riga {righe + 1} non e' piu' derivabile dalla "
-                "propria configurazione"
-            )
-            righe += 1
-    assert righe == 22, f"attese 22 righe nei due registri, trovate {righe}"
+            marchi.append(fingerprint(PipelineConfig.model_validate(voce["config"])))
+
+    assert len(marchi) == 22, f"attese 22 righe nei due registri, trovate {len(marchi)}"
+    aggregato = hashlib.sha256("\n".join(sorted(marchi)).encode("utf-8")).hexdigest()
+    assert aggregato == "9f3b5528fc1a9fd8d70615f8ed15070556b0d7cd868502b5f94a5b6fe64bbb9e", (
+        "lo schema della configurazione ha spostato l'impronta delle righe "
+        "registrate: se e' voluto, aggiorna l'aggregato e dillo nel commit"
+    )
 
 
 @pytest.mark.parametrize(
     ("caso", "impronta"),
     [
-        ("lab.yaml", "327f3f1f8ec9eef26b0a1fc575f122d9d1028461152a443d698a97848ca8afb1"),
-        ("muro.yaml", "83bbe93f7ce6e0d4f70b6f077d1705158a37bd7083b55b09b4d57fa32b38100b"),
+        ("lab.yaml", "ee7308f7fc34962b54b118e9159c86fd8ae2af172e4ac93e155505727c368a55"),
+        ("muro.yaml", "78f0cf059e50f08e7b6823d240def3bdc0ba2172e908d85e03d8b71350a6cda1"),
     ],
 )
 def test_l_impronta_delle_configurazioni_del_caso_studio_e_quella_misurata(caso, impronta):
     """Le due configurazioni da cui partono gli sweep di tesi, fissate al valore
-    misurato sul commit che le ha spostate in `casi/` (identico a quello che
-    avevano alla radice: lo spostamento non le ha toccate).
+    misurato sul commit che ha tolto `bpa`/`alpha`/`decimate` dai modelli. I
+    valori precedenti (`327f3f1f…` e `83bbe93f…`) reggevano dallo spostamento
+    in `casi/`; sono caduti li' perche' l'impronta copre l'intero blocco
+    `surface` e `simplify`, tre campi in meno compresi.
 
     Il test sopra rilegge i registri e non se ne accorgerebbe: ogni riga porta
     dentro di se' la configurazione con cui e' stata calcolata, quindi resta

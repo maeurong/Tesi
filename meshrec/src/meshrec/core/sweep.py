@@ -58,9 +58,14 @@ BLOCCHI_FUORI_IMPRONTA: tuple[str, ...] = ("run", "wall", "model")
 # esperimento.
 #
 # E' l'unica regola condizionata dell'impronta, e va dichiarata come tale:
-# dentro l'impronta sopravvivono gia' cinque valori nulli (segment.crop_min,
-# segment.crop_max, repair.max_hole_area, simplify.target_faces,
-# tet.max_volume) che nessuno omette.
+# dentro l'impronta sopravvivono gia' quattro valori nulli (segment.crop_min,
+# segment.crop_max, repair.max_hole_area, tet.max_volume) che nessuno omette.
+#
+# La regola protegge dai blocchi AGGIUNTI, non dai campi TOLTI: togliere un
+# campo dai modelli sposta l'impronta di ogni riga gia' registrata. E'
+# accaduto una volta, deliberatamente, quando bpa/alpha/decimate sono usciti
+# dalla configurazione, e le undici righe per esperimento di `experiments/`
+# non ricalcolano piu' la propria impronta dalla propria config.
 #
 # `selettori` segue `carichi` e per la stessa ragione: e' letto dallo step 11,
 # cambia il deck, e due candidati con selettori diversi sono esperimenti

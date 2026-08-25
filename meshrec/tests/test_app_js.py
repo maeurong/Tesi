@@ -1046,9 +1046,9 @@ def test_il_fuori_scala_non_diventa_un_numero(tmp_path):
     """Il confine della guardia. `Number("1e999")` e `Number("Infinity")` non
     sono `NaN`: passavano come numeri, e `JSON.stringify` li scrive **`null`**.
     Il corpo della PUT partiva gia' azzerato, il server accettava, e su
-    `simplify.target_faces` e `tet.max_volume` — dove `null` significa «nessun
-    limite» — chi batteva `1e999` credendo di alzare il tetto se lo vedeva
-    tolto, con un 200 e lo schermo muto.
+    `wall.membrature_attese` e `tet.max_volume` — dove `null` significa
+    «nessun limite» — chi batteva `1e999` credendo di alzare il tetto se lo
+    vedeva tolto, con un 200 e lo schermo muto.
 
     Col controllo che lo smentisce: `1e3` e' notazione esponenziale legittima e
     deve continuare a valere `1000`, altrimenti la guardia rifiuta tutto e
@@ -1082,7 +1082,7 @@ def test_il_fuori_scala_non_scrive_null_sul_disco(tmp_path):
     cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"), analysis=ANALISI)
     cfg.run.out_dir = tmp_path / "corsa"
     cfg.downsample.voxel_size = 25.0
-    cfg.simplify.target_faces = 200000
+    cfg.wall.membrature_attese = 8
     save_config(cfg, percorso)
     cliente = TestClient(create_app(percorso), base_url=BASE_LOCALE, raise_server_exceptions=False)
 
@@ -1096,10 +1096,10 @@ def test_il_fuori_scala_non_scrive_null_sul_disco(tmp_path):
     configurazione = cliente.get("/api/config").json()
     prima = percorso.read_bytes()
 
-    configurazione["simplify"]["target_faces"] = json.loads(uscita)
+    configurazione["wall"]["membrature_attese"] = json.loads(uscita)
     rifiuto = cliente.put("/api/config", json=configurazione)
     assert rifiuto.status_code == 422, "il fuori scala e' stato accettato su un intero"
-    assert percorso.read_bytes() == prima, "il tetto della semplificazione e' cambiato su disco"
+    assert percorso.read_bytes() == prima, "il conto atteso delle membrature e' cambiato su disco"
 
     configurazione = cliente.get("/api/config").json()
     configurazione["downsample"]["voxel_size"] = json.loads(uscita)
