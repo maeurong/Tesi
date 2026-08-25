@@ -232,7 +232,10 @@ const marcati = () =>
   document.querySelectorAll(".step")
     .filter((c) => c.getAttribute("aria-current") === "true")
     .map((c) => Number(c.dataset.numero));
-"""
+""" + _costante("elemento") + "\n"
+# `elemento` e' un legame di modulo che quasi ogni funzione estratta chiama, e
+# le funzioni arrivano al banco senza cio' che sta loro attorno. Preso dal
+# sorgente vero e non riscritto qui: e' la ragione per cui `_costante` esiste.
 
 
 # --------------------------------------------------------------------------
