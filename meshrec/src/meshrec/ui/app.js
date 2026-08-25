@@ -36,9 +36,7 @@ const PROPOSITI = {
   "13_solve": "Manda il deck a CalculiX e rilegge spostamenti e tensioni sul maglio.",
 };
 
-// Crea un nodo e gli posa addosso le proprieta' in un colpo solo. Ventisei
-// punti del file lo scrivevano per esteso, e il nome del tag finiva in mezzo
-// a due chiamate annidate invece che in testa alla riga.
+// Nodo piu' proprieta' in una riga.
 const elemento = (tag, proprieta) => Object.assign(document.createElement(tag), proprieta);
 
 async function caricaStato() {
@@ -1979,27 +1977,9 @@ function pannelloRitaglio(ordine) {
     ? { min: [...persistito.crop_min], max: [...persistito.crop_max] }
     : { min: [...ingombro.min], max: [...ingombro.max] };
   // Che cosa sono i sei numeri, in che unita', e che cosa fa il bottone --
-  // detto PRIMA di premerlo. Finora l'unica frase del pannello arrivava dopo
-  // l'applicazione, e diceva che crop_min e crop_max erano gia' stati scritti:
-  // chi esplorava lo scopriva a scrittura avvenuta. La sorgente dei numeri
-  // cambia con `persistito` ed e' la stessa distinzione che il commento qui
-  // sopra difende: l'ingombro disegnato e cio' che sta sul disco non sono la
-  // stessa domanda, e la frase non deve confonderli.
-  contenitore.append(elemento("p", {
-    className: "aiuto",
-    textContent: (persistito
-      ? "Gli estremi del box in mm, come sono scritti nella configurazione della corsa. "
-      : "Gli estremi del box in mm, presi dall'ingombro della nuvola disegnata. ")
-      + "«Applica il ritaglio» li scrive nella configurazione, su crop_min e crop_max, "
-      + "e conta i punti che resterebbero.",
-  }));
-  // Che cosa sono i sei numeri, in che unita', e che cosa fa il bottone --
-  // detto PRIMA di premerlo. Finora l'unica frase del pannello arrivava dopo
-  // l'applicazione, e diceva che crop_min e crop_max erano gia' stati scritti:
-  // chi esplorava lo scopriva a scrittura avvenuta. La sorgente dei numeri
-  // cambia con `persistito` ed e' la stessa distinzione che il commento qui
-  // sopra difende: l'ingombro disegnato e cio' che sta sul disco non sono la
-  // stessa domanda, e la frase non deve confonderli.
+  // detto PRIMA di premerlo. La sorgente dei numeri cambia con `persistito`:
+  // l'ingombro disegnato e cio' che sta sul disco non sono la stessa domanda,
+  // e la frase non deve confonderli.
   contenitore.append(elemento("p", {
     className: "aiuto",
     textContent: (persistito

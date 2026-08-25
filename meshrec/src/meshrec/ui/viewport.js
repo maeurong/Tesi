@@ -461,7 +461,7 @@ export function creaViewport(contenitore) {
   // allarga a piacere, che poi taglia il cursore del taglio (Task 13) e
   // riprecompila i sei campi del ritaglio, allargandosi a ogni giro.
   // Escluso a mano e non con box.visible = false: Box3.expandByObject non
-  // guarda `visible` (three.js r180, `Box3`), quindi nasconderlo non
+  // guarda `visible` (three.js r180), quindi nasconderlo non
   // toglierebbe niente dalla misura. Misurato in node, non dedotto.
   function scatolaDelGruppo() {
     const scatola = new THREE.Box3();
@@ -553,10 +553,9 @@ export function creaViewport(contenitore) {
       descrivi(`nuvola di ${(punti.length / 3).toLocaleString("it")} punti`);
       inquadra();
     },
-    // Vale anche per la mesh esaedrica: la sua superficie di contorno e' fatta
-    // di quadrilateri, che il server ha gia' diviso in triangoli con
-    // core.viewport.triangoli_da_quadrilateri. Qui non arriva mai un
-    // quadrilatero.
+    // Qui arrivano solo triangoli: l'unico .vtu servito e' tetraedrico, e
+    // `_contorno_del_volume` (app/server.py) solleva su una griglia che non
+    // porta celle "tetra".
     mostraMesh(vertici, facce) {
       const geometria = new THREE.BufferGeometry();
       geometria.setAttribute("position", new THREE.BufferAttribute(vertici, 3));

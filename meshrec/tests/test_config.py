@@ -213,26 +213,29 @@ def test_un_inf_gia_scritto_su_disco_non_si_rilegge(tmp_path):
         config.load_config(path)
 
 
-def test_l_impronta_di_una_corsa_registrata_non_cambia():
-    """Le impronte della Fase 2 vivono nei registri, e questo test le sorveglia.
+def test_lo_schema_non_sposta_l_impronta_dei_registri_in_silenzio():
+    """Due sorveglianze sulle 22 righe della tabella sperimentale, non una.
 
-    Fino al taglio di `bpa`/`alpha`/`decimate` il test confrontava l'impronta
-    ricalcolata con quella scritta dentro ciascuna riga, e le 22 righe
-    tornavano tutte. Togliere tre campi da `SurfaceConfig` e `SimplifyConfig`
-    ha spostato l'impronta di tutte e 22: la regola di
-    `BLOCCHI_VUOTI_FUORI_IMPRONTA` protegge dai blocchi **aggiunti**, non dai
-    campi **tolti**, e non c'era modo di tenere insieme le due cose. Rottura
-    deliberata, decisa il 25/08/2026 con la misura davanti (0 righe su 22
-    prima, 22 su 22 dopo), non un effetto scoperto a valle.
+    **Riga per riga**: la cartella di un candidato e' `fingerprint(cfg)[:12]`
+    (`core/sweep.py`), quindi il basename di `out_dir` ancora l'impronta
+    registrata alla riga che la porta. Regge a qualunque schema, perche' non
+    ricalcola niente: cade se qualcuno scambia due config fra righe, o
+    riscrive a mano un `fingerprint`.
 
-    Il campo `fingerprint` delle righe registrate resta quello di allora: e' un
-    dato misurato e non si riscrive. Cio' che questo test sorveglia da qui in
-    avanti e' l'aggregato delle impronte che lo **schema corrente** produce da
-    quelle stesse configurazioni. Uno spostamento successivo, deliberato o no,
-    lo fa cadere esattamente come prima.
+    **In sequenza**: l'aggregato delle impronte che lo schema **corrente**
+    produce da quelle stesse configurazioni, nell'ordine in cui le righe
+    stanno sul disco. Cade se un campo entra o esce da un blocco dentro
+    l'impronta, e cade anche se due config vengono scambiate fra righe.
 
-    Mutazione che lo uccide: togliere o aggiungere un campo a un blocco dentro
-    l'impronta. L'aggregato cambia e il test lo dice.
+    L'ordine non e' un dettaglio di resa: e' l'unica cosa che distingue le 22
+    impronte da un mucchio. Ordinarle prima di hasharle -- come faceva la
+    prima stesura di questa guardia -- rende il digest invariante allo
+    scambio, e lo scambio e' proprio la mutazione che il legame per-riga,
+    morto col cambio di schema, sorvegliava.
+
+    Il campo `fingerprint` delle righe non si riscrive: e' un dato misurato.
+    L'aggregato invece si aggiorna quando lo schema cambia apposta, e allora
+    lo si dice nel commit.
     """
     import hashlib
     import json
@@ -242,15 +245,24 @@ def test_l_impronta_di_una_corsa_registrata_non_cambia():
     radice = Path(__file__).resolve().parents[1] / "experiments"
     marchi = []
     for registro in sorted(radice.glob("*/registro.jsonl")):
-        for riga in registro.read_text(encoding="utf-8").splitlines():
+        for numero, riga in enumerate(registro.read_text(encoding="utf-8").splitlines(), 1):
             if not riga.strip():
                 continue
             voce = json.loads(riga)
+            dove = f"{registro.parent.name}/registro.jsonl riga {numero}"
+            assert "config" in voce, f"{dove}: la riga non porta la configurazione"
+            # `out_dir` e' scritto dalla piattaforma che ha girato lo sweep e
+            # puo' portare separatori di Windows: il basename si isola a mano.
+            cartella = voce["out_dir"].replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+            assert cartella == voce["fingerprint"][:12], (
+                f"{dove}: la cartella '{cartella}' non e' quella che l'impronta "
+                f"registrata nomina ({voce['fingerprint'][:12]})"
+            )
             marchi.append(fingerprint(PipelineConfig.model_validate(voce["config"])))
 
     assert len(marchi) == 22, f"attese 22 righe nei due registri, trovate {len(marchi)}"
-    aggregato = hashlib.sha256("\n".join(sorted(marchi)).encode("utf-8")).hexdigest()
-    assert aggregato == "9f3b5528fc1a9fd8d70615f8ed15070556b0d7cd868502b5f94a5b6fe64bbb9e", (
+    aggregato = hashlib.sha256("\n".join(marchi).encode("utf-8")).hexdigest()
+    assert aggregato == "9b409e2d30a7465e81ea1268f913c766316280db9d40983f258ffe7f7bf79bd6", (
         "lo schema della configurazione ha spostato l'impronta delle righe "
         "registrate: se e' voluto, aggiorna l'aggregato e dillo nel commit"
     )
@@ -265,10 +277,7 @@ def test_l_impronta_di_una_corsa_registrata_non_cambia():
 )
 def test_l_impronta_delle_configurazioni_del_caso_studio_e_quella_misurata(caso, impronta):
     """Le due configurazioni da cui partono gli sweep di tesi, fissate al valore
-    misurato sul commit che ha tolto `bpa`/`alpha`/`decimate` dai modelli. I
-    valori precedenti (`327f3f1f…` e `83bbe93f…`) reggevano dallo spostamento
-    in `casi/`; sono caduti li' perche' l'impronta copre l'intero blocco
-    `surface` e `simplify`, tre campi in meno compresi.
+    misurato dopo il taglio di `bpa`/`alpha`/`decimate`.
 
     Il test sopra rilegge i registri e non se ne accorgerebbe: ogni riga porta
     dentro di se' la configurazione con cui e' stata calcolata, quindi resta

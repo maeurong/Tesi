@@ -64,16 +64,21 @@ def estimate_normals(
 
 def reconstruct(
     points: np.ndarray,
-    normals: np.ndarray | None,
+    normals: np.ndarray,
     cfg: SurfaceConfig,
 ) -> tuple[np.ndarray, np.ndarray, dict[str, object]]:
     """Step 5: ricostruzione della superficie, con trimming per densita nel Poisson.
 
-    Poisson e basta. Ball pivoting e alpha shape stavano qui come alternative
-    dichiarabili: nessuna corsa le ha mai scelte e nessun esito le confronta,
-    quindi erano due rami che il programma portava senza percorrerli. Erano
-    anche le sole a usare la spaziatura, che con loro esce dalla firma.
+    Le normali non sono facoltative: Poisson le pretende. Il tipo lo dice, ma
+    `io.read_cloud` rende `None` su un file che non ne porta, quindi una
+    ripresa dallo step 5 con un `04_normals.ply` spoglio arriverebbe qui a
+    mani vuote -- e Open3D risponderebbe con un RuntimeError di libreria che
+    non nomina lo step da rifare.
     """
+    if normals is None:
+        raise ValueError(
+            "lo step 5 richiede le normali e non ne ha ricevute: rifai lo step 4"
+        )
     cloud = _to_cloud(points, normals)
     metrics: dict[str, object] = {"method": cfg.method, "vertices_trimmed": 0}
 
@@ -113,9 +118,8 @@ def simplify(
     Lo smoothing laplaciano e' escluso: contrae il volume e assottiglia il muro,
     cioe' falsa proprio la grandezza che il modello deve misurare.
 
-    La decimazione quadrica stava qui come secondo modo, e nessuna corsa l'ha
-    mai scelto. `mode` resta nelle metriche perche' e' cio' che una corsa
-    dichiara di aver fatto, non un ramo da percorrere.
+    `mode` ha un solo valore legale e finisce lo stesso nelle metriche: e' cio'
+    che una corsa dichiara di aver fatto, non un ramo da scegliere.
     """
     metrics: dict[str, object] = {
         "enabled": cfg.enabled,

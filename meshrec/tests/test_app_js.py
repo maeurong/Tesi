@@ -232,10 +232,11 @@ const marcati = () =>
   document.querySelectorAll(".step")
     .filter((c) => c.getAttribute("aria-current") === "true")
     .map((c) => Number(c.dataset.numero));
-""" + _costante("elemento") + "\n"
+"""
 # `elemento` e' un legame di modulo che quasi ogni funzione estratta chiama, e
 # le funzioni arrivano al banco senza cio' che sta loro attorno. Preso dal
 # sorgente vero e non riscritto qui: e' la ragione per cui `_costante` esiste.
+_DOM += _costante("elemento") + "\n"
 
 
 # --------------------------------------------------------------------------
@@ -1045,10 +1046,13 @@ assert.equal(valoreScritto("false"), false);
 def test_il_fuori_scala_non_diventa_un_numero(tmp_path):
     """Il confine della guardia. `Number("1e999")` e `Number("Infinity")` non
     sono `NaN`: passavano come numeri, e `JSON.stringify` li scrive **`null`**.
-    Il corpo della PUT partiva gia' azzerato, il server accettava, e su
-    `wall.membrature_attese` e `tet.max_volume` — dove `null` significa
-    «nessun limite» — chi batteva `1e999` credendo di alzare il tetto se lo
-    vedeva tolto, con un 200 e lo schermo muto.
+    Il corpo della PUT partiva gia' azzerato, il server accettava, e su un
+    campo numerico nullabile — `tet.max_volume`, dove `null` significa
+    «nessun limite», o `wall.membrature_attese`, dove significa «non
+    dichiarato» — chi batteva `1e999` si vedeva scrivere l'assenza al posto
+    del proprio numero, con un 200 e lo schermo muto. Qui il campo intero
+    serve a provare che il rifiuto arriva prima del disco, non a rappresentare
+    un tetto.
 
     Col controllo che lo smentisce: `1e3` e' notazione esponenziale legittima e
     deve continuare a valere `1000`, altrimenti la guardia rifiuta tutto e

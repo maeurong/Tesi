@@ -468,17 +468,10 @@ FACCE_DEL_SOLUTORE: dict[int, tuple[tuple[int, ...], ...]] = {
     ),
 }
 
-# Nodi d'angolo per numero di nodi dell'elemento. Mappa esplicita e non un
-# ternario: un conteggio non previsto deve fermarsi con un errore, non essere
-# trattato come tetraedro per default. Stessa mappa per FACCE_DEL_SOLUTORE
-# (qui sotto, angoli 4 e 8) e per FACCE_TOPOLOGICHE in boundary_faces: e' lo
-# stesso conteggio di angoli, non un'altra tabella.
-#
-# Oggi angoli e colonne coincidono perche' il deck scrive solo elementi del
-# primo grado. Un elemento del secondo grado (dieci nodi, quattro angoli) e'
-# proprio il caso per cui la tabella e' indicizzata sulle colonne invece che
-# assumere l'identita': il giorno che il writer lo gestisse, qui va una riga.
-_ANGOLI_PER_COLONNE: dict[int, int] = {4: 4, 8: 8}
+# Le due tabelle sono indicizzate sul numero di nodi dell'elemento, che per il
+# primo grado coincide col numero di angoli. Un elemento del secondo grado
+# (dieci nodi, quattro angoli) romperebbe la coincidenza e chiederebbe una
+# conversione: il writer non lo scrive, e la chiave assente lo ferma.
 
 
 def _facce_di_bordo(
@@ -525,7 +518,7 @@ def element_surface(
     if element_type not in NODI_PER_ELEMENTO:
         raise ValueError(f"tipo di elemento '{element_type}' sconosciuto")
     elementi = np.asarray(elements, dtype=np.int64)
-    angoli = _ANGOLI_PER_COLONNE[NODI_PER_ELEMENTO[element_type]]
+    angoli = NODI_PER_ELEMENTO[element_type]
     dentro = np.zeros(int(elementi.max()) + 1, dtype=bool)
     dentro[np.asarray(indici_nodo, dtype=np.int64)] = True
 
@@ -586,7 +579,7 @@ def tie_surface(
         raise ValueError(f"tipo di elemento '{element_type}' sconosciuto")
     punti = np.asarray(nodes, dtype=np.float64)
     elementi = np.asarray(elements, dtype=np.int64)
-    angoli = _ANGOLI_PER_COLONNE[NODI_PER_ELEMENTO[element_type]]
+    angoli = NODI_PER_ELEMENTO[element_type]
 
     combinazioni = FACCE_DEL_SOLUTORE[angoli]
     nodi_per_faccia = len(combinazioni[0])
@@ -653,7 +646,7 @@ def aree_tributarie(
     """
     punti = np.asarray(nodes, dtype=np.float64)
     elementi = np.asarray(elements, dtype=np.int64)
-    angoli = _ANGOLI_PER_COLONNE[NODI_PER_ELEMENTO[element_type]]
+    angoli = NODI_PER_ELEMENTO[element_type]
 
     aree = np.zeros(punti.shape[0], dtype=np.float64)
     for elemento, numero in superficie:
@@ -908,21 +901,14 @@ def boundary_faces(elements: np.ndarray) -> np.ndarray:
     costruiscono tutte le facce di ogni elemento, si ordinano gli indici al
     loro interno, si contano le occorrenze e si tengono quelle con occorrenza
     singola.
-
-    La generalizzazione e' sui **nodi d'angolo** e non sulle colonne: in un
-    elemento del secondo grado i nodi di lato non definiscono facce proprie, e
-    i vertici stanno nelle prime colonne — convenzione di TetGen e di Abaqus.
-    Il deck oggi scrive solo elementi del primo grado, dove le due cose
-    coincidono; la distinzione resta perche' e' quella che regge il giorno che
-    non coincidano piu'.
     """
     elementi = np.asarray(elements, dtype=np.int64)
     colonne = elementi.shape[1]
-    if colonne not in _ANGOLI_PER_COLONNE:
+    if colonne not in FACCE_TOPOLOGICHE:
         raise ValueError(
             f"elemento con {colonne} nodi: nessuna topologia di faccia definita per questa forma"
         )
-    combinazioni = FACCE_TOPOLOGICHE[_ANGOLI_PER_COLONNE[colonne]]
+    combinazioni = FACCE_TOPOLOGICHE[colonne]
     facce = np.vstack([elementi[:, combo] for combo in combinazioni])
     facce = np.sort(facce, axis=1)
     uniche, conteggi = np.unique(facce, axis=0, return_counts=True)
