@@ -520,13 +520,17 @@ code { font-family: var(--stack-cifre); }
    accanto alla propria etichetta in system-ui 14px. Lo stesso controllo dentro
    .taglio era gia' vestito (vedi .taglio select). */
 .campo input, .campo select { font: inherit; font-variant-numeric: tabular-nums; padding: var(--passo-1) var(--passo-2); border: 1px solid var(--bordo-comando); border-radius: var(--raggio); background: var(--sfondo); color: var(--testo); transition: border-color var(--durata-tocco) var(--curva); }
-.campo input:focus-visible { outline: 2px solid var(--accento); outline-offset: 1px; }
+/* `select` accanto a `input` anche qui: la regola di base sopra li vestiva
+   gia' entrambi, il fuoco no. Finche' nessun campo era una tendina la mancanza
+   non si vedeva; da quando gli otto a scelta chiusa lo sono, senza questa riga
+   una tendina raggiunta col tabulatore non direbbe dove sta il fuoco. */
+.campo input:focus-visible, .campo select:focus-visible { outline: 2px solid var(--accento); outline-offset: 1px; }
 /* Con il solo .campo-rifiutato il contorno rosso non compariva mai, misurato
    a video: .campo input pesa una classe e un elemento, .campo-rifiutato una
    classe sola, e vinceva la regola generica. Il nome della classe non cambia,
    cambia il peso del selettore. Il colore non e' l'unico canale: il messaggio
    del rifiuto sta scritto sotto il campo, e app.js segna aria-invalid. */
-.campo input.campo-rifiutato { border-color: var(--guasto); }
+.campo input.campo-rifiutato, .campo select.campo-rifiutato { border-color: var(--guasto); }
 .errore { margin: 0 0 var(--passo-3); color: var(--guasto); font-size: var(--tipo-dato); line-height: var(--interlinea); max-width: var(--misura); overflow-wrap: anywhere; text-wrap: pretty; }
 /* Vuota non occupa spazio, ma resta nell'albero di accessibilita': display:none
    e hidden ne toglierebbero la regione role="alert", che deve essere viva prima

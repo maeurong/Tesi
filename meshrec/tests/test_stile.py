@@ -183,3 +183,33 @@ def test_ogni_sovrapposto_della_vista_sa_ancora_nascondersi():
             f".{classe} dichiara un display ma non si sa piu' nascondere: "
             "l'attributo hidden non morde, e resta a video"
         )
+
+
+def test_ogni_regola_che_veste_una_casella_veste_anche_una_tendina():
+    """Da quando i campi a scelta chiusa sono tendine, `.campo input` da solo
+    lascia scoperto un campo su nove: otto dei settantuno sono `<select>`.
+
+    Non e' cosmetica, ed e' proprio cio' che la suite non vedeva. Le due regole
+    scoperte erano il **contorno di fuoco** -- una tendina raggiunta col
+    tabulatore non diceva dove stava il fuoco, su un'interfaccia che dichiara
+    WCAG AA e viene proiettata in discussione -- e il **bordo del rifiuto**. Il
+    foglio le vestiva gia' entrambe per `input`, e la suite restava verde con
+    entrambe assenti per `select`, perche' nessun controllo guardava il foglio
+    accanto al modulo che costruisce i campi.
+
+    `[readonly]` resta fuori, dichiarato: `<select>` non ha `readOnly`, e
+    `campoParametro` costruisce apposta una casella di testo dove il blocco e'
+    assente -- `disabled` toglierebbe il campo dalla tastiera e dal lettore di
+    schermo, che e' il difetto che quel ramo evita.
+    """
+    scoperte = [
+        selettore.strip()
+        for selettore in re.findall(r"([^{}]+)\{", _senza_commenti())
+        if ".campo input" in selettore
+        and "[readonly]" not in selettore
+        and ".campo select" not in selettore
+    ]
+    assert not scoperte, (
+        "regole che vestono la casella e non la tendina: "
+        f"{scoperte}"
+    )

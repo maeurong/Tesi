@@ -17,7 +17,7 @@ import zipfile
 from collections import Counter
 from functools import lru_cache
 from pathlib import Path
-from typing import Annotated, get_args
+from typing import Annotated, Literal, get_args, get_origin
 
 import numpy as np
 from fastapi import FastAPI, Response
@@ -440,6 +440,36 @@ def _modello_del_blocco(annotazione: object) -> type:
     pannello degli step 11 e 13 -- con un `AttributeError` fuori vista.
     """
     return next(t for t in get_args(annotazione) or (annotazione,) if t is not type(None))
+
+
+def _valori_ammessi(annotazione: object) -> list[dict[str, object]] | None:
+    """I valori fra cui un campo lascia scegliere, o None se non e' a scelta chiusa.
+
+    `Literal[...]` e `bool` sono le due sole forme che l'operatore sceglie da un
+    elenco invece di batterle a mano. Senza questo elenco l'unico modo di
+    scoprire le alternative era svuotare la casella e leggere il rifiuto del
+    validatore: provocare un errore per farsi dire quali sono le voci giuste.
+
+    Un'unione con None resta fuori. Nessuno dei campi a scelta chiusa e'
+    nullabile, e una tendina che non sa offrire il valore nullo toglierebbe
+    all'operatore l'unico modo di rimetterlo: meglio la casella di testo di
+    prima che una tendina che nasconde uno stato raggiungibile.
+
+    Le etichette non sono simmetriche, e il motivo e' di prodotto. I `Literal`
+    si mostrano alla lettera perche' sono identificatori che il progetto
+    preserva -- `C3D4`, `poisson`, `crop` stanno nell'elenco della terminologia
+    da non tradurre. I booleani no: `true`/`false` non sono termini tecnici ma
+    lingua, e l'interfaccia e' in italiano. Il valore scritto resta booleano in
+    entrambi i casi, l'etichetta cambia solo cio' che si legge.
+    """
+    if annotazione is bool:
+        return [
+            {"valore": True, "etichetta": "vero"},
+            {"valore": False, "etichetta": "falso"},
+        ]
+    if get_origin(annotazione) is Literal:
+        return [{"valore": voce, "etichetta": str(voce)} for voce in get_args(annotazione)]
+    return None
 
 
 def _rifiuto_leggibile(errore: Exception) -> str:
@@ -1182,6 +1212,10 @@ def create_app(
                         # cioe' nasconderebbe l'unico campo che chiede una
                         # risposta.
                         "obbligatorio": campo.is_required(),
+                        # Presente su ogni campo, `null` dove la scelta non e'
+                        # chiusa: il pannello distingue per valore e non per
+                        # assenza della chiave, come gia' fa con `default`.
+                        "valori": _valori_ammessi(campo.annotation),
                     }
                     for nome, campo in annidato.model_fields.items()
                 }

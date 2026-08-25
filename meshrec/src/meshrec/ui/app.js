@@ -1936,6 +1936,32 @@ function valoreScritto(grezzo) {
     testo === "" ? null : Number.isFinite(numerico) ? numerico : testo;
 }
 
+// Il verso opposto di valoreScritto: dal dato allo schermo, e regge il valore
+// che la tendina non prevede.
+//
+// `select.value = x` senza un'opzione uguale a `x` non solleva: seleziona il
+// vuoto. La casella resta muta mentre sul disco c'e' scritto qualcosa, che e'
+// esattamente il guasto che la riscrittura del valore accettato — in fondo a
+// scriviParametro — esiste per chiudere. Un valore fuori elenco entra invece
+// come opzione dichiarata: chi guarda legge che cosa c'e' scritto davvero,
+// senza che nessuno glielo riscriva di nascosto.
+//
+// Il caso non e' teorico: un config.yaml battuto a mano, o scritto da una
+// versione in cui quel valore era ammesso, arriva qui e la tendina non lo ha.
+//
+// Nessun controllo sul tag: si guarda se ci sono opzioni. Una <input> non ne
+// ha e il ramo non scatta mai, quindi la stessa funzione serve le due forme.
+function mostraValore(input, testo) {
+  const opzioni = [...(input.children ?? [])];
+  if (opzioni.length > 0 && !opzioni.some((opzione) => opzione.value === testo)) {
+    input.append(Object.assign(document.createElement("option"), {
+      value: testo,
+      textContent: `${testo} — non fra i valori ammessi`,
+    }));
+  }
+  input.value = testo;
+}
+
 // Il ritaglio si comanda dallo step che lo esegue: crop_min e crop_max sono
 // parametri di segment, e lo step 2 e' quello che li applica.
 const STEP_CON_RITAGLIO = 2;
@@ -2209,7 +2235,7 @@ async function scriviParametro(blocco, nome, input, messaggio, ordine) {
   // e' la configurazione canonica appena scritta, ed e' quella che la PUT
   // successiva deve mandare.
   configurazione = salvata;
-  input.value = String(configurazione[blocco][nome] ?? "");
+  mostraValore(input, String(configurazione[blocco][nome] ?? ""));
   segnalaCampo(input, messaggio, null);
 }
 
@@ -2256,9 +2282,26 @@ function campoParametro(blocco, nome, campo, ordine) {
   // gia' che il blocco non c'e': qui basta il campo in sola lettura.
   const bloccoAssente = configurazione[blocco] == null;
   const scalare = valore === null || ["string", "number", "boolean"].includes(typeof valore);
-  const input = document.createElement("input");
+  // La tendina solo dove la scelta e' chiusa E il campo si puo' scrivere. Un
+  // blocco assente resta la casella di testo in sola lettura di prima: <select>
+  // non ha readOnly, e l'unico modo di fermarlo -- disabled -- lo toglierebbe
+  // dalla navigazione da tastiera e dal lettore di schermo, cioe' proprio cio'
+  // che il ramo di sola lettura qui sotto evita apposta.
+  //
+  // `valori` arriva da /api/schema, che lo ricava dall'annotazione del modello:
+  // i valori ammessi restano dichiarati in config.py, uno solo, e nessun elenco
+  // viene ricopiato qui dove divergerebbe in silenzio.
+  const aScelta = scalare && !bloccoAssente
+    && Array.isArray(campo.valori) && campo.valori.length > 0;
+  const input = document.createElement(aScelta ? "select" : "input");
   input.id = `campo-${identita}`;
-  input.value = scalare ? String(valore ?? "") : JSON.stringify(valore);
+  for (const voce of aScelta ? campo.valori : []) {
+    input.append(Object.assign(document.createElement("option"), {
+      value: String(voce.valore),
+      textContent: voce.etichetta,
+    }));
+  }
+  mostraValore(input, scalare ? String(valore ?? "") : JSON.stringify(valore));
   // Niente `input.title`: era la stessa frase dell'aiuto qui sotto, detta una
   // seconda volta in un fumetto che non si apre da tastiera ne' col dito, e che
   // il lettore di schermo accoda al nome. Detta una volta sola, sotto la

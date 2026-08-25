@@ -1355,7 +1355,7 @@ def _banco_del_campo() -> str:
     """
     return _DOM + _funzioni(
         "valoreScritto", "ragioneDelRifiuto", "serverMuto", "superata", "corpoLetto",
-        "segnalaCampo", "apriBattuta", "scriviParametro", "campoParametro",
+        "segnalaCampo", "apriBattuta", "scriviParametro", "campoParametro", "mostraValore",
     ) + """
 // Il terzo contatore di Rilievo 1, per campo: scriviParametro lo legge dal
 // modulo per nome, non da un parametro, quindi il banco deve ricrearlo tale e
@@ -1453,6 +1453,134 @@ const tupla = apriCampo("segment", "crop_min");
 assert.equal(tupla.input.value, "[1,2,3]", "la lista finisce nel campo come testo di nessuno");
 assert.equal(tupla.input.readOnly, true, "una lista diventa modificabile e ogni modifica e' rifiutata");
 assert.equal((tupla.input.gestori.change ?? []).length, 0, "la lista manda una PUT a ogni battuta");
+""")
+
+
+# --------------------------------------------------------------------------
+# BL-3: i campi a scelta chiusa.
+# --------------------------------------------------------------------------
+
+# Le due forme che /api/schema manda per un campo a scelta chiusa. Scritte qui
+# e non lette dal server apposta: il banco del browser prova cio' che il
+# browser fa con lo schema, e il contratto dello schema lo prova
+# test_server.py. Se le due divergono, e' quel test a doverlo dire.
+_METODI = """
+const SCELTA = { description: "come isolare il muro", valori: [
+  { valore: "crop", etichetta: "crop" },
+  { valore: "auto", etichetta: "auto" },
+] };
+const BOOLEANO = { description: "se semplificare", valori: [
+  { valore: true, etichetta: "vero" },
+  { valore: false, etichetta: "falso" },
+] };
+"""
+
+
+def test_un_campo_a_scelta_chiusa_diventa_una_tendina_e_gli_altri_no(tmp_path):
+    """Il difetto che l'ha chiesta: `segment.method` accetta `crop` o `auto`,
+    e da una casella di testo le due voci **non si vedono**. L'unico modo di
+    scoprirle era svuotare la casella e leggere il rifiuto del validatore,
+    cioe' provocare un errore per farsi dire quali sono le risposte giuste.
+
+    L'elenco non e' ricopiato nell'interfaccia: arriva da /api/schema, che lo
+    ricava dall'annotazione del modello. Un campo senza `valori` resta la
+    casella di testo di prima -- sono 63 su 71, e trasformarli tutti in tendine
+    vuote sarebbe il difetto opposto.
+    """
+    _esegui(tmp_path, _banco_del_campo() + _METODI + """
+configurazione = { segment: { method: "crop" }, downsample: { voxel_size: 25 } };
+const [, tendina] = campoParametro("segment", "method", SCELTA, generazione).children;
+assert.equal(tendina.tag, "select", "un campo a scelta chiusa resta una casella di testo");
+assert.deepEqual(
+  tendina.children.map((o) => [o.tag, o.value, o.textContent]),
+  [["option", "crop", "crop"], ["option", "auto", "auto"]],
+  "le voci della tendina non sono quelle che lo schema dichiara",
+);
+assert.equal(tendina.value, "crop", "la tendina non parte dal valore della configurazione");
+
+const [, libera] = campoParametro("downsample", "voxel_size", CAMPO, generazione).children;
+assert.equal(libera.tag, "input", "un campo a testo libero e' diventato una tendina senza voci");
+""")
+
+
+def test_la_tendina_di_un_booleano_scrive_un_booleano_non_la_sua_scritta(tmp_path):
+    """Il giro completo: la voce scelta diventa il valore che finisce su disco.
+
+    `valoreScritto` converte `"false"` nel booleano, ed e' la stessa porta che
+    la casella di testo usava: la tendina ci entra senza una seconda strada.
+    Se ne aprisse una propria, la PUT manderebbe la **stringa** `"false"` --
+    che pydantic accetta, perche' la converte, e il difetto resterebbe muto
+    fino al primo campo dove la conversione non c'e'.
+
+    Le etichette sono in italiano mentre i `Literal` restano alla lettera:
+    `true`/`false` sono lingua, `crop` e `C3D4` sono identificatori che il
+    progetto preserva.
+    """
+    _esegui(tmp_path, _banco_del_campo() + _METODI + """
+configurazione = { simplify: { enabled: true } };
+const [, tendina, , messaggio] = campoParametro("simplify", "enabled", BOOLEANO, generazione).children;
+assert.equal(tendina.value, "true", "il valore vero non seleziona la propria voce");
+assert.deepEqual(
+  tendina.children.map((o) => o.textContent), ["vero", "falso"],
+  "un booleano si mostra in inglese in un'interfaccia italiana",
+);
+
+tendina.value = "false";
+risponde = accetta({ simplify: { enabled: false } });
+await tendina.scatena("change");
+assert.strictEqual(
+  richieste[0].corpo.simplify.enabled, false,
+  "la tendina manda la scritta invece del booleano",
+);
+assert.strictEqual(configurazione.simplify.enabled, false, "in memoria resta il valore di prima");
+assert.equal(tendina.value, "false", "la tendina non mostra il valore che il server ha accettato");
+assert.equal(messaggio.hidden, true, "una modifica accettata porta un messaggio d'errore");
+""")
+
+
+def test_un_valore_fuori_elenco_si_dichiara_invece_di_sparire(tmp_path):
+    """`select.value = x` senza un'opzione uguale a `x` **non solleva**:
+    seleziona il vuoto. La casella resterebbe muta mentre sul disco c'e'
+    scritto qualcosa -- lo stesso guasto che la riscrittura del valore
+    accettato esiste per chiudere, ripresentato dalla porta accanto.
+
+    Il caso non e' teorico: un `config.yaml` battuto a mano, o scritto da una
+    versione in cui quel valore era ammesso, arriva qui con un valore che la
+    tendina non ha.
+    """
+    _esegui(tmp_path, _banco_del_campo() + _METODI + """
+configurazione = { segment: { method: "ritaglio-vecchio" } };
+const [, tendina] = campoParametro("segment", "method", SCELTA, generazione).children;
+assert.equal(tendina.value, "ritaglio-vecchio", "il valore fuori elenco svuota la casella");
+assert.ok(
+  tendina.children.some((o) => o.value === "ritaglio-vecchio"),
+  "il valore fuori elenco non compare fra le voci, e la casella non dice cosa mostra",
+);
+assert.equal(tendina.children.length, 3, "la voce fuori elenco si aggiunge piu' di una volta");
+
+// E la stessa difesa dopo il salvataggio, dove il valore lo sceglie il server.
+tendina.value = "auto";
+risponde = accetta({ segment: { method: "un-terzo-mai-visto" } });
+await tendina.scatena("change");
+assert.equal(tendina.value, "un-terzo-mai-visto", "cio' che il server ha accettato non arriva a video");
+""")
+
+
+def test_un_blocco_assente_resta_una_casella_di_testo_e_non_una_tendina_spenta(tmp_path):
+    """`<select>` non ha `readOnly`, e l'unico modo di fermarlo -- `disabled` --
+    lo toglie dalla navigazione da tastiera e dal lettore di schermo. E' la
+    stessa ragione per cui i campi non scrivibili sono `readOnly` e non
+    `disabled` da quando esiste il pannello.
+
+    Un blocco assente (`analysis`, finche' il materiale non e' dichiarato) non
+    si scrive un campo alla volta: resta la casella di testo di prima.
+    """
+    _esegui(tmp_path, _banco_del_campo() + _METODI + """
+configurazione = {};
+const [, casella] = campoParametro("segment", "method", SCELTA, generazione).children;
+assert.equal(casella.tag, "input", "un blocco assente diventa una tendina che non si puo' fermare");
+assert.equal(casella.readOnly, true, "la casella di un blocco assente si lascia scrivere");
+assert.equal((casella.gestori.change ?? []).length, 0, "un blocco assente manda una PUT a meta'");
 """)
 
 
@@ -1986,7 +2114,7 @@ def _banco_di_apriDettaglio() -> str:
     return _DOM + _funzioni(
         "segnaStepAperto", "nuovaRiga", "disegnaStep", "dichiaraErrore", "fallisciDettaglio",
         "ragioneDelRifiuto", "serverMuto", "superata", "corpoLetto", "valoreScritto",
-        "segnalaCampo", "apriBattuta", "scriviParametro", "campoParametro", "apriDettaglio",
+        "segnalaCampo", "apriBattuta", "scriviParametro", "campoParametro", "mostraValore", "apriDettaglio",
         "durataMisurata", "ultimaDurata",
         # L'intestazione e il gruppo che richiude i predefiniti: il pannello li
         # costruisce a ogni apertura, quindi il banco li incontra comunque.
@@ -4927,7 +5055,7 @@ def test_i_parametri_al_predefinito_si_richiudono_e_gli_altri_no(tmp_path):
     """
     _esegui(tmp_path, _DOM + _funzioni(
         "nuovaRiga", "segnalaCampo", "valoreScritto", "apriBattuta", "scriviParametro",
-        "campoParametro", "reso", "cambiatoDalPredefinito", "gruppoDelBlocco",
+        "campoParametro", "mostraValore", "reso", "cambiatoDalPredefinito", "gruppoDelBlocco",
     ) + """
 let ultimaBattutaDelCampo = new Map();
 // `configurazione` la dichiara gia' _DOM: e' la variabile di modulo che il
@@ -4970,7 +5098,7 @@ def test_con_tutto_al_predefinito_la_piega_nasce_aperta(tmp_path):
     """
     _esegui(tmp_path, _DOM + _funzioni(
         "nuovaRiga", "segnalaCampo", "valoreScritto", "apriBattuta", "scriviParametro",
-        "campoParametro", "reso", "cambiatoDalPredefinito", "gruppoDelBlocco",
+        "campoParametro", "mostraValore", "reso", "cambiatoDalPredefinito", "gruppoDelBlocco",
     ) + """
 let ultimaBattutaDelCampo = new Map();
 configurazione = { tet: { min_ratio: 1.8, nobisect: false } };

@@ -3283,3 +3283,63 @@ def test_una_corsa_di_riferimento_non_prende_uno_storico(cliente, tmp_path):
     )
     assert cliente.post("/api/storico/indietro").status_code == 400
     assert cliente.post("/api/storico/avanti").status_code == 400
+
+
+def test_lo_schema_dice_fra_quali_valori_un_campo_a_scelta_chiusa_lascia_scegliere(cliente):
+    """Il contratto su cui poggia la tendina del pannello.
+
+    Prima, un campo che accetta due sole parole -- `segment.method`, `crop` o
+    `auto` -- arrivava al browser identico a uno che accetta qualsiasi numero:
+    l'elenco delle voci non usciva da `config.py`, e l'unico modo di scoprirlo
+    era svuotare la casella e leggere il rifiuto del validatore.
+
+    Gli otto sono contati, non copiati: quattro `Literal` e quattro booleani sui
+    blocchi che il pannello mostra, gli stessi che
+    `test_il_campo_parametro_non_indovina_il_tipo_dal_valore` conta nel proprio
+    docstring. Un campo nuovo a scelta chiusa fa cadere questo controllo, ed e'
+    voluto: e' il promemoria che la sua spiegazione va scritta.
+
+    `valori` sta su ogni campo e vale `null` dove la scelta non e' chiusa, come
+    gia' fa `default`: il pannello distingue per valore, non per assenza della
+    chiave.
+    """
+    risposta = cliente.get("/api/schema")
+    assert risposta.status_code == 200
+    campi = {
+        f"{blocco}.{nome}": voce
+        for passo in risposta.json().values()
+        for blocco, elenco in passo["campi"].items()
+        for nome, voce in elenco.items()
+    }
+
+    a_scelta = {nome for nome, voce in campi.items() if voce["valori"] is not None}
+    assert a_scelta == {
+        "segment.method",
+        "surface.method",
+        "repair.largest_component_only",
+        "repair.join_components",
+        "simplify.enabled",
+        "simplify.mode",
+        "tet.nobisect",
+        "tet.element",
+    }
+
+    # I `Literal` alla lettera: sono identificatori che il progetto preserva.
+    assert campi["segment.method"]["valori"] == [
+        {"valore": "crop", "etichetta": "crop"},
+        {"valore": "auto", "etichetta": "auto"},
+    ]
+    assert campi["tet.element"]["valori"] == [
+        {"valore": "C3D4", "etichetta": "C3D4"},
+        {"valore": "C3D10", "etichetta": "C3D10"},
+    ]
+    # I booleani no: `true`/`false` non sono termini tecnici ma lingua, e
+    # l'interfaccia e' in italiano. Il valore resta booleano, cambia la scritta.
+    assert campi["simplify.enabled"]["valori"] == [
+        {"valore": True, "etichetta": "vero"},
+        {"valore": False, "etichetta": "falso"},
+    ]
+
+    # E i campi a testo libero non guadagnano una tendina vuota.
+    assert campi["downsample.voxel_size"]["valori"] is None
+    assert campi["input.scale"]["valori"] is None
