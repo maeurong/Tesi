@@ -894,3 +894,18 @@ def test_fixed_nset_e_step_name_rifiutano_i_nomi_non_scrivibili(cattivo):
         config.AnalysisConfig(material=MATERIALE, fixed_nset=cattivo)
     with pytest.raises(ValidationError):
         config.AnalysisConfig(material=MATERIALE, step_name=cattivo)
+
+
+def test_c3d10_non_e_dichiarabile_finche_il_writer_non_lo_gestisce():
+    """L'unico grado che il deck sa scrivere e' il primo, e il rifiuto sta qui.
+
+    TetGen produce i nodi di lato con `order=2`, ma il writer scrive i soli
+    vertici: un deck C3D10 sarebbe muto invece che sbagliato. Il rifiuto
+    stava dentro `export_model`, cioe' dopo la tetraedralizzazione dell'intera
+    nuvola; qui ferma la corsa prima che cominci.
+
+    Mutazione che lo uccide: riportare `element` a `Literal["C3D4", "C3D10"]`.
+    Il valore torna dichiarabile e il rifiuto scivola a valle.
+    """
+    with pytest.raises(ValidationError):
+        config.TetConfig(element="C3D10")

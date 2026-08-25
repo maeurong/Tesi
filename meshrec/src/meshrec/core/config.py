@@ -244,7 +244,7 @@ class TetConfig(_ModelloBase):
             "misurate le due corse di riferimento (8,10% e 9,55%)"
         ),
     )
-    element: Literal["C3D4", "C3D10"] = "C3D4"
+    element: Literal["C3D4"] = "C3D4"
 
 
 class SpintaOrizzontale(_ModelloBase):
