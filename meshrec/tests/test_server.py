@@ -3346,10 +3346,16 @@ def test_lo_schema_dice_fra_quali_valori_un_campo_a_scelta_chiusa_lascia_sceglie
         {"valore": "crop", "etichetta": "crop"},
         {"valore": "auto", "etichetta": "auto"},
     ]
+    # Una voce sola, e non e' un caso degenere da aggirare: dopo i tagli di
+    # #28 (`refactor(abaqus): togli C3D10`) il modello dichiara un elemento
+    # solo, e la tendina dice proprio quello -- c'e' una scelta, ed e' questa.
+    # Lo stesso vale per surface.method e simplify.mode, rimasti a `poisson` e
+    # `remesh`.
     assert campi["tet.element"]["valori"] == [
         {"valore": "C3D4", "etichetta": "C3D4"},
-        {"valore": "C3D10", "etichetta": "C3D10"},
     ]
+    assert [v["valore"] for v in campi["surface.method"]["valori"]] == ["poisson"]
+    assert [v["valore"] for v in campi["simplify.mode"]["valori"]] == ["remesh"]
     # I booleani no: `true`/`false` non sono termini tecnici ma lingua, e
     # l'interfaccia e' in italiano. Il valore resta booleano, cambia la scritta.
     assert campi["simplify.enabled"]["valori"] == [
