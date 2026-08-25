@@ -11,6 +11,19 @@
   <h1>MeshRec</h1>
   <p class="corsa" id="corsa">nessuna corsa</p>
   <p class="in-corso" id="in-corso" hidden></p>
+  <!-- Come una corsa e' finita: conclusa, fallita, annullata. Tre fatti
+       diversi, una riga sola, e sta QUI e non in #errore.
+       #errore vive nella colonna del dettaglio, e apriDettaglio la svuota a
+       ogni apertura: un fallimento annunciato la' sparirebbe nella stessa
+       passata che lo scrive, perche' il fronte di discesa riapre il pannello
+       due righe piu' sotto. Due meccanismi si contenderebbero la stessa riga.
+       Nel markup e non fabbricata da app.js, come #conteggi e la didascalia
+       della vista: nessun ramo del modulo la puo' distruggere.
+       aria-live="polite" perche' l'esito arriva senza che nessuno lo chieda,
+       ed e' la fine di un'attesa che puo' essere durata minuti: chi non
+       guardava lo schermo deve saperlo. Vuota alla nascita: una regione viva
+       dev'essere nell'albero prima che ci si scriva dentro. -->
+  <p class="esito" id="esito" aria-live="polite"></p>
   <!-- Nasce spento: a corsa ferma non c'e' niente da annullare, e un bottone
        sempre acceso che risponde con un silenzio identico al successo non
        distingue «annullato» da «non c'era nulla da annullare». app.js lo
@@ -25,6 +38,15 @@
        step o un comando. Il verbo dice l'azione e il complemento dice su che
        cosa cade. -->
   <button type="button" id="annulla" class="bottone" disabled>Interrompi il calcolo</button>
+  <!-- Il gesto e' solo da tastiera, e un comando che non si vede non esiste
+       per chi non sa gia' che c'e'. Una riga tenue nella testata e non un
+       bottone: annullare e' un ripensamento, non uno scopo del programma, e
+       due bottoni accanto a «Interrompi il calcolo» direbbero che questa
+       schermata serve a tornare indietro.
+       <kbd> e non testo normale: e' l'elemento che il markup ha per un tasto,
+       e chi legge con uno screen reader lo sente annunciato come tale. -->
+  <p class="aiuto scorciatoia"><kbd>Ctrl/Cmd</kbd>+<kbd>Z</kbd> annulla l'ultima
+    modifica ai parametri, con <kbd>Maiusc</kbd> la rifà.</p>
 </header>
 <!-- Le due schermate si escludono a vicenda e nascono entrambe nascoste:
      app.js ne scopre una quando /api/run ha risposto. Nascondere solo

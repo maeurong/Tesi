@@ -209,6 +209,10 @@ const document = {
 };
 
 const ETICHETTE = {};
+// Vuoti apposta, come ETICHETTE: chi prova i nomi se li scrive dentro. Una
+// chiave assente non prende una frase inventata, ed e' proprio la regola che
+// intestazioneDelloStep deve rispettare.
+const PROPOSITI = {};
 const rigaErrore = document.getElementById("errore");
 let stepAperto = null;
 // Le due variabili di modulo che le funzioni estratte leggono e scrivono:
@@ -805,7 +809,24 @@ def _banco_di_geometria() -> str:
     una risposta partita prima portando lo stesso `ordine`; solo
     `ultimaGeometria` li distingue.
     """
-    return _DOM + _funzioni("apriGeometria", "superata", "mostraNuvolaDelloStep", "mostraStep") + """
+    return _DOM + _funzioni(
+        "apriGeometria",
+        "superata",
+        # L'attesa dichiarata e la strada dell'artefatto che non arriva, VERE e
+        # non stubbate: sono dentro le due tratte che questo banco esercita, e
+        # stubbarle toglierebbe di mezzo proprio cio' che puo' rompersi -- un
+        # caricamento che non si chiude, o che si chiude mentre un'altra lettura
+        # e' ancora in volo.
+        "nomeDelloStep",
+        "dichiaraCaricamento",
+        "corpoBinarioLetto",
+        "serverMuto",
+        "ragioneDelRifiuto",
+        "messaggioDownloadInterrotto",
+        "segnalaArtefattoMancante",
+        "mostraNuvolaDelloStep",
+        "mostraStep",
+    ) + """
 let ultimaGeometria = 0;
 const STEP_CON_MESH = new Set([5, 6, 8, 9]);
 const vista = {
@@ -1967,7 +1988,13 @@ def _banco_di_apriDettaglio() -> str:
         "ragioneDelRifiuto", "serverMuto", "superata", "corpoLetto", "valoreScritto",
         "segnalaCampo", "apriBattuta", "scriviParametro", "campoParametro", "apriDettaglio",
         "durataMisurata", "ultimaDurata",
+        # L'intestazione e il gruppo che richiude i predefiniti: il pannello li
+        # costruisce a ogni apertura, quindi il banco li incontra comunque.
+        "intestazioneDelloStep", "reso", "cambiatoDalPredefinito", "gruppoDelBlocco",
     ) + """
+// Vera mentre una corsa gira: i due «Esegui» nascono spenti se lo e'. Falsa
+// qui, che e' lo stato in cui un pannello si apre normalmente.
+let corsaInCorso = false;
 let ultimaBattutaDelCampo = new Map();
 let schemaParametri = null;
 const richieste = [];
@@ -2221,7 +2248,11 @@ risponde = {
   "/api/metrics": async () => ({ ok: true, status: 200, json: async () => METRICHE_BUONE }),
 };
 await apriDettaglio(1);
-const azioni = document.getElementById("dettaglio").figli[0];
+// Per classe e non per posizione: `figli[0]` era il contenitore dei bottoni
+// finche' il pannello si apriva su di loro, e adesso davanti c'e'
+// l'intestazione dello step. Un indice qui lega il controllo all'ORDINE del
+// pannello, che non e' cio' che sta provando.
+const [azioni] = document.getElementById("dettaglio").querySelectorAll(".azioni");
 const [questo, daQui] = azioni.figli;
 
 let risolvi1, risolvi2;
@@ -4509,3 +4540,755 @@ def test_il_fantasma_dello_step_8_viene_dal_6_e_non_dal_7():
     assert "8: 7" not in coppie
     # Il velo esiste solo dove il conteggio cala: tre coppie, non undici.
     assert re.findall(r"(\d+): (\d+)", coppie) == [("2", "1"), ("3", "2"), ("8", "6")]
+
+
+def test_un_download_caduto_a_meta_lo_dice_invece_di_restare_in_caricamento(tmp_path):
+    """Il buco che il modulo aveva su tutte e due le tratte della geometria.
+
+    `await risposta.arrayBuffer()` era nudo. Su una nuvola vera il corpo dura
+    secondi -- 6,3 milioni di punti sulla scansione di riferimento -- e la rete
+    puo' cadere in quella finestra tanto quanto prima della prima risposta. Il
+    rigetto usciva da una funzione asincrona il cui esito `ricaricaVista`
+    consuma con `.then` e nessuno con `.catch`: nessun messaggio, l'attesa mai
+    chiusa, e a video la geometria dello step di prima sotto la scritta
+    «caricamento di ...». Indistinguibile da una lettura lenta, per sempre.
+
+    `undefined` e non un buffer vuoto: un ArrayBuffer di zero byte e' un dato
+    legittimo, e confonderli tratterebbe una mesh vuota come un guasto di rete.
+
+    Mutazione che lo uccide: rimettere `await risposta.arrayBuffer()` al posto
+    di `corpoBinarioLetto(risposta)`.
+    """
+    _esegui(tmp_path, _banco_di_geometria() + """
+const viewport = document.getElementById("viewport");
+const conteggi = document.getElementById("conteggi");
+risponde = [() => ({
+  ok: true,
+  headers: { get: (nome) => ({ "X-Points-Drawn": "20", "X-Points-Total": "20" }[nome]) },
+  arrayBuffer: async () => { throw new TypeError("Failed to fetch"); },
+})];
+
+const esito = await mostraNuvolaDelloStep(2, generazione);
+
+assert.equal(esito, "vuoto", "un download caduto non e' ne' un disegno ne' una risposta scartata");
+assert.ok(
+  !conteggi.textContent.includes("caricamento"),
+  "l'attesa e' rimasta scritta per sempre: " + conteggi.textContent,
+);
+assert.match(
+  conteggi.textContent, /il server non ha risposto/,
+  "il download caduto non dice niente: " + conteggi.textContent,
+);
+assert.ok(vista.svuotate > 0, "la geometria di prima e' rimasta sotto un testo che la smentisce");
+""")
+
+
+def test_una_lettura_superata_non_cancella_l_annuncio_di_quella_che_l_ha_superata(tmp_path):
+    """Chi e' stato superato non tocca la scritta dell'attesa: a riscriverla e'
+    chi lo ha superato, quando arriva.
+
+    Le due richieste della stessa generazione sono il caso normale, non un caso
+    limite: il fronte di discesa ricarica la vista senza aprire una generazione,
+    quindi puo' gareggiare con una risposta partita prima. Se la piu' vecchia,
+    rientrando, scrivesse i propri conteggi, a video comparirebbero i numeri di
+    una lettura scartata mentre quella buona e' ancora in volo -- e su una
+    scansione vera quella finestra dura decine di secondi.
+
+    E' il contratto che prima era affidato ad `aria-busy`, tolto perche'
+    #conteggi e' figlio di #viewport (index.html:135-136): l'attributo
+    sull'antenato zittiva la regione viva invece di descriverla. Qui si misura
+    la cosa vera -- che cosa c'e' scritto -- invece del suo surrogato.
+
+    Mutazione che lo uccide: togliere la guardia `if (superata(...)) return
+    false` che sta sopra la scrittura dei conteggi.
+    """
+    _esegui(tmp_path, _banco_di_geometria() + """
+const conteggi = document.getElementById("conteggi");
+ETICHETTE["02_segment"] = "Segmentazione";
+ultimoStato = [{ numero: 2, chiave: "02_segment" }];
+let risolvi1, risolvi2;
+risponde = [
+  () => new Promise((r) => { risolvi1 = r; }),
+  () => new Promise((r) => { risolvi2 = r; }),
+];
+const corpo = (n) => ({
+  ok: true,
+  headers: { get: (nome) => ({ "X-Points-Drawn": String(n), "X-Points-Total": String(n) }[nome]) },
+  arrayBuffer: async () => new ArrayBuffer(n * 12),
+});
+
+const vecchia = mostraNuvolaDelloStep(2, generazione);
+const nuova = mostraNuvolaDelloStep(2, generazione);
+assert.equal(
+  conteggi.textContent, "caricamento di Segmentazione...",
+  "l'attesa non e' stata dichiarata",
+);
+
+// La VECCHIA rientra per prima: e' superata, e la nuova e' ancora in volo.
+risolvi1(corpo(1));
+assert.equal(await vecchia, false, "la richiesta vecchia ha scritto");
+assert.equal(
+  conteggi.textContent, "caricamento di Segmentazione...",
+  "la richiesta superata ha cancellato l'annuncio di quella che l'ha superata: "
+  + conteggi.textContent,
+);
+
+risolvi2(corpo(2));
+assert.equal(await nuova, true);
+assert.match(
+  conteggi.textContent, /\\b2\\b/,
+  "chi ha disegnato non ha sostituito l'attesa coi propri numeri: " + conteggi.textContent,
+);
+assert.ok(
+  !conteggi.textContent.includes("caricamento"),
+  "l'attesa e' rimasta scritta dopo che la geometria era a video",
+);
+""")
+
+
+def test_l_attesa_dice_quale_step_sta_leggendo_e_non_inventa_una_percentuale(tmp_path):
+    """Che cosa si sta leggendo e' un fatto; quanto manca sarebbe una stima.
+
+    Le librerie non danno un avanzamento, e PRODUCT.md vieta di fabbricare
+    precisione che non esiste: una percentuale scritta qui sarebbe un numero che
+    nessuna misura sostiene. Si dichiara il nome dello step, che il modulo
+    conosce gia'.
+
+    E il nome, non il numero: la colonna mostra «Segmentazione», e «caricamento
+    dello step 2» costringerebbe a contare le righe per capire di quale si
+    parla -- la stessa ragione per cui la coda della didascalia porta il nome.
+
+    Mutazione che lo uccide: togliere la chiamata a `dichiaraCaricamento` da
+    `mostraNuvolaDelloStep`.
+    """
+    _esegui(tmp_path, _banco_di_geometria() + """
+const viewport = document.getElementById("viewport");
+const conteggi = document.getElementById("conteggi");
+ETICHETTE["02_segment"] = "Segmentazione";
+ultimoStato = [{ numero: 2, chiave: "02_segment" }];
+// Mai risolta: qui si guarda la finestra dell'attesa, non il suo esito.
+risponde = [() => new Promise(() => {})];
+
+mostraNuvolaDelloStep(2, generazione);
+await Promise.resolve();
+
+assert.equal(conteggi.textContent, "caricamento di Segmentazione...");
+assert.ok(!conteggi.textContent.includes("%"), "l'attesa ha inventato un avanzamento");
+assert.equal(
+  viewport.getAttribute("aria-busy"), null,
+  "aria-busy su #viewport zittisce #conteggi, che gli sta dentro ed e' la regione viva",
+);
+""")
+
+
+def _banco_di_esito() -> str:
+    """`aggiornaDaStato` e le tre funzioni dell'esito, con il resto stubbato.
+
+    Le quattro sono ritagliate vere: la decisione su come finisce una corsa e'
+    pura, ma il CABLAGGIO -- quale regione riceve il testo e chi la svuota
+    subito dopo -- e' la meta' che restava fuori dai test finche' viveva dentro
+    una freccia anonima.
+    """
+    return _DOM + _funzioni(
+        "nomeDelloStep",
+        "durataMisurata",
+        "ultimaDurata",
+        "descrizioneDellaCorsa",
+        "esitoDellaCorsa",
+        "mostraEsito",
+        # I due «Esegui» seguono la corsa dallo stesso carico di «Annulla»:
+        # aggiornaDaStato la chiama, quindi il banco la incontra.
+        "spegniLeEsecuzioni",
+        "aggiornaDaStato",
+    ) + """
+let corsaInCorso = false;
+let eraInCorso = false;
+// `stepAperto` no: lo dichiara gia' _DOM, ed e' proprio la variabile di modulo
+// che il banco deve condividere invece di copiarne una sua.
+let stepScelto = null;
+const ricaricate = [];
+const riaperte = [];
+function disegnaStep(steps) { ultimoStato = steps; }
+function apriDettaglio(n) { riaperte.push(n); }
+function ricaricaVista(n) { ricaricate.push(n); }
+const esito = document.getElementById("esito");
+"""
+
+
+def test_una_corsa_che_finisce_dice_come_e_finita(tmp_path):
+    """I tre esiti sono tre fatti diversi, e l'interfaccia non ne diceva nessuno.
+
+    Il fronte di discesa riapriva il pannello e ricaricava la vista, e basta:
+    una corsa fallita e una riuscita lasciavano lo schermo nello stesso stato.
+    Il registro portava il motivo, ma bisognava sapere di doverlo leggere.
+
+    Un annullamento NON e' un fallimento: e' una scelta di chi guarda. Arriva
+    pero' con un codice d'uscita non nullo -- il segnale che lo ha fermato --
+    quindi va guardato per primo, altrimenti ogni annullamento si annuncerebbe
+    come un guasto. E' l'ordine dei rami, ed e' la cosa che si sbaglia.
+
+    Il soggetto e' «esecuzione» e non il nome dello step: nove degli undici
+    nomi sono femminili e due no, quindi nessun participio accorda con tutti e
+    «Lettura concluso» sarebbe sbagliato in nove casi su undici.
+
+    Mutazione che lo uccide: spostare il ramo di `annullato` sotto quello di
+    `exit_code !== 0`.
+    """
+    _esegui(tmp_path, _banco_di_esito() + """
+ETICHETTE["01_load"] = "Lettura";
+const steps = [{ numero: 1, chiave: "01_load", stato: "valido", secondi: 12 }];
+// nomeDelloStep legge la variabile di modulo, non l'argomento: e' quella che
+// disegnaStep riempie a ogni frame.
+ultimoStato = steps;
+const base = { in_corso: false, step: 1, a_step: 1, steps, annullato: false };
+
+assert.deepEqual(
+  esitoDellaCorsa({ ...base, exit_code: 0 }),
+  { errore: null, esito: "Lettura: esecuzione conclusa in 12 s" },
+);
+assert.deepEqual(
+  esitoDellaCorsa({ ...base, exit_code: 1 }),
+  {
+    errore: "Lettura: esecuzione fallita (codice 1). Il motivo è nelle ultime righe del registro, in fondo alla colonna Dettaglio.",
+    esito: null,
+  },
+);
+// Annullato, e col codice d'uscita del segnale che lo ha fermato.
+assert.deepEqual(
+  esitoDellaCorsa({ ...base, exit_code: -15, annullato: true }),
+  { errore: null, esito: "Lettura: esecuzione annullata" },
+);
+// Ferma senza codice: si tace. Dirlo «conclusa» annuncerebbe riuscita una
+// corsa mai partita.
+assert.deepEqual(
+  esitoDellaCorsa({ ...base, exit_code: null }),
+  { errore: null, esito: null },
+);
+""")
+
+
+def test_una_corsa_di_piu_step_non_si_annuncia_col_nome_del_primo(tmp_path):
+    """`stato.step` e' il capo di PARTENZA e non avanza mai: worker.start lo
+    fissa una volta e resta li'.
+
+    Finche' la riga portava il solo capo, una corsa da 1 a 11 si annunciava
+    «Lettura in corso» dall'inizio alla fine -- a quattro secondi dall'avvio
+    diceva ancora Lettura, che ne era durata 0,03.
+
+    E la durata tace sugli intervalli: `secondi` e' il tempo del solo capo di
+    partenza, e appiccicarlo a una corsa di undici step lo dichiarerebbe durata
+    dell'intera corsa. Era il numero piu' in vista dell'applicazione, e diceva
+    0,03 s per una corsa che ne aveva impiegati dieci. La durata intera nessuno
+    la misura oggi: tacere e' l'unica alternativa che non inventa.
+
+    Mutazione che lo uccide: togliere il ramo di `unoSolo` da
+    `esitoDellaCorsa`, cosi' la durata del capo di partenza torna a valere per
+    tutta la corsa.
+    """
+    _esegui(tmp_path, _banco_di_esito() + """
+ETICHETTE["01_load"] = "Lettura";
+ETICHETTE["11_export"] = "Esportazione";
+const steps = [
+  { numero: 1, chiave: "01_load", stato: "valido", secondi: 0.03 },
+  { numero: 11, chiave: "11_export", stato: "valido", secondi: 4 },
+];
+ultimoStato = steps;
+
+assert.deepEqual(
+  descrizioneDellaCorsa({ step: 1, a_step: 11, steps }),
+  { testo: "da Lettura a Esportazione", unoSolo: false },
+);
+assert.deepEqual(
+  descrizioneDellaCorsa({ step: 1, a_step: 1, steps }),
+  { testo: "Lettura", unoSolo: true },
+);
+// a_step assente: si torna al nome del capo, che non e' un'invenzione.
+assert.deepEqual(
+  descrizioneDellaCorsa({ step: 1, steps }),
+  { testo: "Lettura", unoSolo: true },
+);
+
+const intervallo = esitoDellaCorsa({
+  in_corso: false, step: 1, a_step: 11, steps, annullato: false, exit_code: 0,
+});
+assert.equal(intervallo.esito, "da Lettura a Esportazione: esecuzione conclusa");
+assert.ok(
+  !intervallo.esito.includes("0,03"),
+  "la durata del primo step si e' spacciata per quella dell'intera corsa: " + intervallo.esito,
+);
+""")
+
+
+def test_il_fronte_di_discesa_annuncia_l_esito_e_ricarica(tmp_path):
+    """Il cablaggio, eseguito: chi riceve il testo, e in che ordine.
+
+    L'esito va scritto PRIMA che `apriDettaglio` riapra il pannello, e in una
+    regione che il pannello non tocca. #errore vive nella colonna del
+    dettaglio e apriDettaglio la svuota a ogni apertura: annunciato la', il
+    fallimento sparirebbe due righe piu' sotto nella stessa passata, e a video
+    resterebbe qualcosa di indistinguibile da una corsa riuscita.
+
+    E sul fronte di SALITA l'esito di prima se ne va: lasciato li',
+    «esecuzione fallita» resterebbe sopra la corsa nuova partita proprio per
+    correggere quel fallimento -- il piu' vecchio dei due testi a descrivere il
+    piu' recente dei due fatti.
+
+    Mutazione che lo uccide: togliere `mostraEsito(null, null)` dal fronte di
+    salita.
+    """
+    _esegui(tmp_path, _banco_di_esito() + """
+ETICHETTE["01_load"] = "Lettura";
+const steps = [{ numero: 1, chiave: "01_load", stato: "fallito" }];
+stepAperto = 1;
+stepScelto = 1;
+
+// Parte.
+aggiornaDaStato({ in_corso: true, step: 1, a_step: 1, steps, da_secondi: 0.5, annullato: false, exit_code: null });
+assert.equal(esito.textContent, "", "una corsa che parte non ha ancora un esito");
+
+// Finisce male.
+aggiornaDaStato({ in_corso: false, step: 1, a_step: 1, steps, da_secondi: null, annullato: false, exit_code: 2 });
+assert.match(esito.textContent, /esecuzione fallita \\(codice 2\\)/);
+assert.ok(esito.className.includes("esito-fallito"), "il fallimento non ha il proprio peso");
+assert.deepEqual(riaperte, [1], "il pannello non e' stato riaperto");
+assert.deepEqual(ricaricate, [1], "la vista e' rimasta indietro");
+
+// Riparte: l'esito di prima se ne va, e con lui la sua classe.
+aggiornaDaStato({ in_corso: true, step: 1, a_step: 1, steps, da_secondi: 0.1, annullato: false, exit_code: null });
+assert.equal(esito.textContent, "", "l'esito vecchio e' rimasto sopra la corsa nuova");
+assert.ok(!esito.className.includes("esito-fallito"), "la classe del fallimento e' sopravvissuta");
+""")
+
+
+def test_il_pannello_dice_quale_step_si_sta_guardando(tmp_path):
+    """Il pannello si apriva su «Esegui questo step» senza dire quale.
+
+    Il solo canale che lo nominava era il marchio nella colonna a sinistra, a
+    1100 px di distanza su uno schermo largo: per sapere che cosa si stava per
+    eseguire bisognava riattraversare lo schermo. Adesso il titolo sta in testa,
+    prima dei due bottoni, che e' l'ordine in cui la domanda si pone.
+
+    Il numero E il nome, non uno dei due: il numero e' come lo step si chiama
+    negli artefatti sul disco e nei messaggi del server, il nome e' come si
+    chiama nella colonna. Chi legge il pannello ha bisogno di tutti e due per
+    collegare le due lingue.
+
+    Uno step di cui non si conosce la chiave non prende un nome inventato --
+    resta il numero, che e' l'unica cosa che si sa -- e uno senza proposito non
+    prende una frase: e' la stessa regola di nomeDelloStep.
+
+    Mutazione che lo uccide: far cadere `intestazioneDelloStep` sul solo nome
+    (`textContent = nome`), che perde il numero.
+    """
+    _esegui(tmp_path, _DOM + _funzioni("intestazioneDelloStep") + """
+ETICHETTE["09_tetrahedralize"] = "Tetraedri";
+PROPOSITI["09_tetrahedralize"] = "Riempie il volume di tetraedri.";
+ultimoStato = [
+  { numero: 9, chiave: "09_tetrahedralize" },
+  { numero: 12, chiave: "12_ignota" },
+];
+
+const [titolo, proposito] = intestazioneDelloStep(9);
+assert.equal(titolo.tag, "h3");
+assert.equal(titolo.textContent, "Step 9 · Tetraedri");
+assert.equal(proposito.textContent, "Riempie il volume di tetraedri.");
+assert.equal(proposito.className, "aiuto");
+
+// Chiave che nessuna tabella nomina: niente nome inventato, niente frase.
+const soloTitolo = intestazioneDelloStep(12);
+assert.equal(soloTitolo.length, 1, "una chiave sconosciuta ha preso una frase inventata");
+assert.equal(soloTitolo[0].textContent, "Step 12");
+
+// Step che lo stato non conosce affatto.
+assert.deepEqual(intestazioneDelloStep(99).map((n) => n.textContent), ["Step 99"]);
+""")
+
+
+def test_i_parametri_al_predefinito_si_richiudono_e_gli_altri_no(tmp_path):
+    """`segment` rende undici campi e `surface` nove: molto oltre i quattro che
+    si tengono in mente insieme, e senza nessun ordine dentro.
+
+    Il taglio fra cio' che resta aperto e cio' che si richiude non lo decide il
+    gusto: e' cio' che QUESTA corsa ha spostato dal predefinito. Un elenco
+    base/avanzato scritto nel modulo sarebbe una classificazione che nessun dato
+    sostiene, e i nomi dei parametri non ne portano una.
+
+    Un obbligatorio resta in vista anche se il suo valore coincide col
+    predefinito nullo: nella piega finirebbe sotto un titolo che dice «al valore
+    predefinito», e un predefinito non ce l'ha. E' anche il campo che di solito
+    conta di piu' -- `input.path` e' la nuvola su cui gira tutto il resto.
+
+    Il predefinito da solo non basta a riconoscerlo: un campo obbligatorio
+    arriva `default: null`, ma anche un nullabile il cui predefinito e' None.
+    Per questo lo schema manda `obbligatorio`.
+
+    Mutazione che lo uccide: togliere `campo.obbligatorio ||` dalla condizione,
+    cosi' il campo che chiede una risposta finisce nella piega.
+    """
+    _esegui(tmp_path, _DOM + _funzioni(
+        "nuovaRiga", "segnalaCampo", "valoreScritto", "apriBattuta", "scriviParametro",
+        "campoParametro", "reso", "cambiatoDalPredefinito", "gruppoDelBlocco",
+    ) + """
+let ultimaBattutaDelCampo = new Map();
+// `configurazione` la dichiara gia' _DOM: e' la variabile di modulo che il
+// banco deve CONDIVIDERE, non una copia sua.
+configurazione = {
+  segment: { method: "crop", outlier_neighbors: 40, crop_min: null, path: null },
+};
+const campi = {
+  method: { description: "", default: "crop", obbligatorio: false },
+  outlier_neighbors: { description: "", default: 20, obbligatorio: false },
+  crop_min: { description: "", default: null, obbligatorio: false },
+  path: { description: "", default: null, obbligatorio: true },
+};
+
+const gruppo = gruppoDelBlocco("segment", campi, generazione);
+const pieghe = gruppo.figli.filter((n) => n.tag === "details");
+assert.equal(pieghe.length, 1, "la piega non e' stata costruita");
+const [piega] = pieghe;
+
+// In vista: quello spostato (outlier_neighbors) e l'obbligatorio (path).
+const inVista = gruppo.figli.filter((n) => n.className === "campo").length;
+assert.equal(inVista, 2, "in vista non ci sono i due che contano: " + inVista);
+// Richiusi: quelli fermi al predefinito, method e crop_min.
+const richiusi = piega.figli.filter((n) => n.className === "campo").length;
+assert.equal(richiusi, 2, "nella piega non ci sono i due fermi: " + richiusi);
+assert.equal(piega.figli[0].textContent, "2 parametri al valore predefinito");
+assert.ok(!piega.open, "la piega e' nata aperta con dei campi in vista sopra");
+""")
+
+
+def test_con_tutto_al_predefinito_la_piega_nasce_aperta(tmp_path):
+    """Alla prima corsa nessun parametro e' stato spostato.
+
+    Un pannello che mostra solo una riga da cliccare non insegna niente a chi
+    apre lo step per la prima volta: e' il caso in cui la piega serve meno, ed
+    e' esattamente quello in cui la si troverebbe chiusa se la regola guardasse
+    solo il numero dei fermi.
+
+    Mutazione che lo uccide: togliere `if (cambiati.length === 0) piega.open = true`.
+    """
+    _esegui(tmp_path, _DOM + _funzioni(
+        "nuovaRiga", "segnalaCampo", "valoreScritto", "apriBattuta", "scriviParametro",
+        "campoParametro", "reso", "cambiatoDalPredefinito", "gruppoDelBlocco",
+    ) + """
+let ultimaBattutaDelCampo = new Map();
+configurazione = { tet: { min_ratio: 1.8, nobisect: false } };
+const campi = {
+  min_ratio: { description: "", default: 1.8, obbligatorio: false },
+  nobisect: { description: "", default: false, obbligatorio: false },
+};
+
+const gruppo = gruppoDelBlocco("tet", campi, generazione);
+const [piega] = gruppo.figli.filter((n) => n.tag === "details");
+assert.ok(piega.open, "tutto al predefinito e il pannello e' solo una riga da cliccare");
+assert.equal(gruppo.figli.filter((n) => n.className === "campo").length, 0);
+""")
+
+
+def test_una_tupla_e_una_lista_con_gli_stessi_numeri_non_sono_un_cambiamento(tmp_path):
+    """Il predefinito e il valore corrente arrivano da due strade diverse.
+
+    Lo schema li rende con `default=str` per i tipi che JSON non porta (un
+    `Path`, una tupla), la configurazione della corsa arriva dal suo yaml: la
+    stessa cosa puo' presentarsi in due forme. Un `!==` diretto le direbbe
+    diverse e terrebbe in vista un campo che nessuno ha toccato -- cioe' la
+    piega si svuoterebbe da sola e smetterebbe di servire.
+
+    Mutazione che lo uccide: confrontare `valore !== predefinito` invece di
+    passare da `reso`.
+    """
+    _esegui(tmp_path, _DOM + _funzioni("reso", "cambiatoDalPredefinito") + """
+// La stessa terna, in due forme che JSON.stringify riporta alla stessa.
+assert.equal(cambiatoDalPredefinito([1, 2, 3], [1, 2, 3]), false);
+// null e undefined sono la stessa assenza: un campo mai scritto contro un
+// predefinito nullo non e' uno spostamento.
+assert.equal(cambiatoDalPredefinito(undefined, null), false);
+assert.equal(cambiatoDalPredefinito(null, null), false);
+// Il numero e la stringa che lo rende: lo schema manda i Path come stringhe.
+assert.equal(cambiatoDalPredefinito("2", 2), false);
+// E i cambiamenti veri restano cambiamenti.
+assert.equal(cambiatoDalPredefinito(40, 20), true);
+assert.equal(cambiatoDalPredefinito([1, 2, 3], [1, 2, 4]), true);
+assert.equal(cambiatoDalPredefinito("nuvola.ply", null), true);
+""")
+
+
+def test_i_due_esegui_seguono_la_corsa_come_annulla(tmp_path):
+    """Un bottone che risponde «no» non si distingue da uno che non ha fatto
+    niente.
+
+    I due «Esegui» restavano vivi durante una corsa e si affidavano al 400 del
+    worker: un rifiuto che si poteva evitare, ed e' lo stesso difetto per cui
+    «Annulla» era gia' stato legato allo stato. Dallo stesso carico e nel verso
+    opposto -- «Annulla» vive mentre la corsa gira, loro mentre e' ferma.
+
+    E un pannello aperto IN MEZZO a una corsa nasce coi bottoni spenti: il
+    fronte di salita che li spegne e' gia' passato, e quell'apertura non lo
+    saprebbe.
+
+    Mutazione che lo uccide: togliere `bottone.disabled = corsaInCorso` dalla
+    costruzione dei due bottoni.
+    """
+    _esegui(tmp_path, _banco_di_esito() + """
+const finti = ["a", "b"].map(() => {
+  const b = document.createElement("button");
+  b.className = "bottone esecuzione";
+  return b;
+});
+document.getElementById("dettaglio").append(...finti);
+const steps = [{ numero: 1, chiave: "01_load", stato: "valido" }];
+
+aggiornaDaStato({ in_corso: true, step: 1, a_step: 1, steps, da_secondi: 1, annullato: false, exit_code: null });
+assert.ok(finti.every((b) => b.disabled), "i due «Esegui» sono vivi mentre la corsa gira");
+assert.ok(corsaInCorso, "un pannello aperto adesso nascerebbe coi bottoni vivi");
+
+aggiornaDaStato({ in_corso: false, step: 1, a_step: 1, steps, da_secondi: null, annullato: false, exit_code: 0 });
+assert.ok(finti.every((b) => !b.disabled), "i due «Esegui» sono rimasti spenti a corsa ferma");
+assert.ok(!corsaInCorso);
+""")
+
+
+def test_un_pannello_aperto_in_mezzo_a_una_corsa_nasce_coi_bottoni_spenti(tmp_path):
+    """`spegniLeEsecuzioni` spegne cio' che TROVA, e questo pannello non c'era.
+
+    Il fronte di salita passa una volta sola, all'avvio della corsa. Un pannello
+    aperto dopo -- si clicca un altro step mentre gira -- costruisce due bottoni
+    nuovi, che quella passata non ha mai visto: nascevano vivi, e un clic
+    sarebbe finito sul 400 del worker. Un bottone che risponde «no» non si
+    distingue da uno che non ha fatto niente, ed e' esattamente il difetto per
+    cui «Annulla» era gia' stato legato allo stato.
+
+    Si chiede allo stesso stato che lo scorrere degli eventi tiene, invece di
+    dedurlo: `corsaInCorso` e' l'unica cosa che sa se una corsa gira, e questo
+    e' l'unico punto in cui un bottone nasce.
+
+    Mutazione che lo uccide: togliere `bottone.disabled = corsaInCorso` dalla
+    costruzione dei due bottoni.
+    """
+    _esegui(tmp_path, _banco_di_apriDettaglio() + """
+risponde = {
+  "/api/schema": async () => ({ ok: true, status: 200, json: async () => SCHEMA_BUONO }),
+  "/api/config": async () => ({ ok: true, status: 200, json: async () => CONFIG_BUONA }),
+  "/api/metrics": async () => ({ ok: true, status: 200, json: async () => METRICHE_BUONE }),
+};
+
+// A corsa ferma nascono vivi: e' la controprova, senza la quale il controllo
+// passerebbe anche con due bottoni spenti per sempre.
+corsaInCorso = false;
+await apriDettaglio(1);
+const aFermo = document.getElementById("dettaglio").discendenti()
+  .filter((n) => n.className.includes("esecuzione"));
+assert.equal(aFermo.length, 2, "i due «Esegui» non si trovano piu' per classe");
+assert.ok(aFermo.every((b) => !b.disabled), "a corsa ferma i due «Esegui» nascono spenti");
+
+// Aperto mentre una corsa gia' gira: il fronte di salita e' passato prima che
+// questi due bottoni esistessero.
+corsaInCorso = true;
+await apriDettaglio(1);
+const inCorsa = document.getElementById("dettaglio").discendenti()
+  .filter((n) => n.className.includes("esecuzione"));
+assert.equal(inCorsa.length, 2);
+assert.ok(
+  inCorsa.every((b) => b.disabled),
+  "un pannello aperto in mezzo a una corsa nasce coi bottoni vivi: il clic finira' sul 400",
+);
+""")
+
+
+def test_il_gesto_non_ruba_l_undo_a_chi_sta_scrivendo(tmp_path):
+    """Ctrl+Z dentro un campo e' gia' preso, e da chi ha piu' diritto.
+
+    L'ascoltatore sta sul documento e vedrebbe comunque il tasto; scavalcarlo
+    toglierebbe l'undo del TESTO per darne uno che ripristina un'altra cosa --
+    e sui campi dei parametri quella «altra cosa» e' proprio la modifica che si
+    sta scrivendo a mano.
+
+    Per TIPO e non per tag: la casella del fantasma e il cursore del taglio sono
+    <input> anche loro, ma un undo nativo non ce l'hanno, e lasciare li' il
+    gesto lo renderebbe un tasto morto proprio sui due comandi che si toccano di
+    continuo.
+
+    E la ripetizione automatica non passa: il tasto tenuto premuto batte una
+    trentina di eventi al secondo, e ognuno qui e' un POST che riscrive
+    config.yaml davvero -- un secondo riavvolgerebbe lo storico fino all'avvio.
+    La guardia dell'ordine non limita quel danno, lo NASCONDE.
+
+    Mutazione che lo uccide: togliere il ramo su `CAMPI_SCRITTI`.
+    """
+    _esegui(tmp_path, _DOM + _costante("CAMPI_SCRITTI") + _funzioni("gestoDelloStorico") + """
+const tasto = (extra = {}) => ({ ctrlKey: true, key: "z", repeat: false, target: null, ...extra });
+
+assert.equal(gestoDelloStorico(tasto()), "indietro");
+assert.equal(gestoDelloStorico(tasto({ shiftKey: true })), "avanti");
+// Su macOS il gesto e' cmd+z.
+assert.equal(gestoDelloStorico(tasto({ ctrlKey: false, metaKey: true })), "indietro");
+// Col maiusc il browser riporta "Z": legato alla sola minuscola, il rifare non
+// risponderebbe mai.
+assert.equal(gestoDelloStorico(tasto({ key: "Z", shiftKey: true })), "avanti");
+
+// Niente modificatore, altro tasto, ripetizione automatica.
+assert.equal(gestoDelloStorico(tasto({ ctrlKey: false })), null);
+assert.equal(gestoDelloStorico(tasto({ key: "y" })), null);
+assert.equal(gestoDelloStorico(tasto({ repeat: true })), null, "il tasto tenuto premuto riavvolge tutto");
+
+// Dentro cio' che ha un undo suo: si lascia stare.
+for (const tipo of ["text", "number", "search", "password"]) {
+  assert.equal(
+    gestoDelloStorico(tasto({ target: { tagName: "INPUT", type: tipo } })), null,
+    `il gesto ha rubato l'undo a un <input type="${tipo}">`,
+  );
+}
+// Un <input> senza type e' un campo di testo, che e' cio' che il DOM stesso dice.
+assert.equal(gestoDelloStorico(tasto({ target: { tagName: "INPUT" } })), null);
+assert.equal(gestoDelloStorico(tasto({ target: { tagName: "TEXTAREA" } })), null);
+assert.equal(gestoDelloStorico(tasto({ target: { isContentEditable: true } })), null);
+
+// Ma sui comandi che un undo non ce l'hanno il gesto resta vivo: sono <input>
+// anche loro, e per tag sarebbero due tasti morti.
+assert.equal(gestoDelloStorico(tasto({ target: { tagName: "INPUT", type: "checkbox" } })), "indietro");
+assert.equal(gestoDelloStorico(tasto({ target: { tagName: "INPUT", type: "range" } })), "indietro");
+""")
+
+
+def test_il_ritorno_dice_quali_step_cambiano_stato_e_li_nomina(tmp_path):
+    """Un ritorno che cambia in silenzio lo stato di sette step e' una modifica
+    invisibile.
+
+    Il server manda lo stato INTERO e non un elenco di cambiamenti, e il calcolo
+    sta nel browser perche' li' ci sono tutti e due i termini. Un campo
+    `invalidati` col solo elenco degli step passati a «non valido» era stato
+    provato e tolto: nel flusso che si usa -- cambio un parametro, poi Ctrl+Z --
+    quegli step erano gia' non validi per via della modifica, e l'undo li fa
+    tornare VALIDI. Sarebbe arrivato vuoto, e la frase avrebbe detto «nessuno
+    step cambia stato» mentre a sinistra le righe passano da rosso a verde: il
+    caso dominante, e falso.
+
+    I nomi e non i numeri: la colonna mostra i nomi, e «step 2» sono le due
+    lingue per la stessa cosa che nomeDelloStep esiste per togliere.
+
+    Mutazione che lo uccide: guardare i soli step passati a «non valido»,
+    togliendo il ramo dei tornati validi.
+    """
+    _esegui(tmp_path, _DOM + _funzioni("fraseDelRitorno") + """
+ETICHETTE["02_segment"] = "Segmentazione";
+ETICHETTE["03_downsample"] = "Riduzione";
+ETICHETTE["09_tetrahedralize"] = "Tetraedri";
+
+// Il caso dominante: si annulla una modifica, e gli step tornano validi.
+const prima = [
+  { numero: 2, chiave: "02_segment", stato: "non valido" },
+  { numero: 3, chiave: "03_downsample", stato: "non valido" },
+  { numero: 9, chiave: "09_tetrahedralize", stato: "valido" },
+];
+const dopo = [
+  { numero: 2, chiave: "02_segment", stato: "valido" },
+  { numero: 3, chiave: "03_downsample", stato: "valido" },
+  { numero: 9, chiave: "09_tetrahedralize", stato: "valido" },
+];
+assert.equal(
+  fraseDelRitorno(prima, dopo),
+  "configurazione ripristinata: Segmentazione, Riduzione tornano «validi»",
+);
+
+// Il verso opposto, e al singolare.
+assert.equal(
+  fraseDelRitorno(dopo, [
+    { numero: 2, chiave: "02_segment", stato: "valido" },
+    { numero: 3, chiave: "03_downsample", stato: "valido" },
+    { numero: 9, chiave: "09_tetrahedralize", stato: "non valido" },
+  ]),
+  "configurazione ripristinata: Tetraedri passa a «non valido»",
+);
+
+// Nessun cambiamento si dice, non si tace.
+assert.equal(fraseDelRitorno(dopo, dopo), "configurazione ripristinata: nessuno step cambia stato");
+
+// Una chiave che nessuna tabella nomina ripiega sul numero, non su un nome
+// inventato.
+assert.match(
+  fraseDelRitorno(
+    [{ numero: 7, chiave: "07_ignoto", stato: "non valido" }],
+    [{ numero: 7, chiave: "07_ignoto", stato: "valido" }],
+  ),
+  /step 7 torna/,
+);
+""")
+
+
+def test_un_comando_fuori_pipeline_non_si_annuncia_come_step_null(tmp_path):
+    """«Ricalcola il prior» e «Ricostruisci il modello» non hanno un numero.
+
+    `worker.start_comando` lascia `step` e `a_step` a null, e il carico SSE non
+    porta un'etichetta. `nomeDelloStep(null)` ripiega sulla forma «step
+    <numero>», quindi la testata annunciava alla lettera, misurato:
+
+        step null: esecuzione conclusa
+        step null: esecuzione fallita (codice 1). ...
+        step null: esecuzione annullata
+
+    La riga che pulsa il caso lo trattava gia' -- dice «un comando è in corso»
+    -- ed e' l'esito che non lo trattava. Due superfici che descrivono la stessa
+    cosa e una sola delle due sa che il caso esiste.
+
+    Mutazione che lo uccide: togliere il ramo `stato.step === null` da
+    `descrizioneDellaCorsa`.
+    """
+    _esegui(tmp_path, _banco_di_esito() + """
+ultimoStato = [];
+const base = { in_corso: false, step: null, a_step: null, steps: [], annullato: false };
+
+assert.deepEqual(
+  esitoDellaCorsa({ ...base, exit_code: 0 }),
+  { errore: null, esito: "il comando: esecuzione conclusa" },
+);
+assert.deepEqual(
+  esitoDellaCorsa({ ...base, exit_code: -15, annullato: true }),
+  { errore: null, esito: "il comando: esecuzione annullata" },
+);
+const fallito = esitoDellaCorsa({ ...base, exit_code: 1 });
+assert.ok(
+  !fallito.errore.includes("null"),
+  "l'esito nomina uno step che non esiste: " + fallito.errore,
+);
+""")
+
+
+def test_l_esito_si_annuncia_anche_se_il_codice_arriva_dopo_la_fine(tmp_path):
+    """La finestra fra «non gira piu'» e «ecco com'e' finita».
+
+    `is_running()` e' `poll() is None`, mentre `exit_code` lo fissa `_leggi`
+    DOPO aver svuotato stdout: esiste un frame -- il drain della pipe -- in cui
+    la corsa e' gia' dichiarata ferma e il codice non c'e' ancora.
+
+    Consumando il fronte li', al frame dopo `eraInCorso` era gia' falso e per
+    quella corsa l'esito non si annunciava MAI: ne' conclusa, ne' fallita, ne'
+    annullata. `esitoDellaCorsa` taceva correttamente, e proprio per questo il
+    fronte veniva bruciato in silenzio -- il rigetto muto che tutta questa
+    superficie esiste per togliere.
+
+    Mutazione che lo uccide: rimettere `eraInCorso = stato.in_corso;`
+    incondizionato in fondo ad `aggiornaDaStato`.
+    """
+    _esegui(tmp_path, _banco_di_esito() + """
+ETICHETTE["01_load"] = "Lettura";
+const steps = [{ numero: 1, chiave: "01_load", stato: "valido", secondi: 12 }];
+const base = { step: 1, a_step: 1, steps, annullato: false };
+
+// La corsa gira.
+aggiornaDaStato({ ...base, in_corso: true, exit_code: null });
+assert.equal(esito.textContent, "", "a corsa in moto non c'e' un esito da dire");
+
+// Il frame di mezzo: ferma, ma il codice non e' ancora stato letto.
+aggiornaDaStato({ ...base, in_corso: false, exit_code: null });
+assert.equal(esito.textContent, "", "ha inventato un esito senza codice");
+
+// Il frame dopo porta il codice: e' adesso che l'esito si annuncia.
+aggiornaDaStato({ ...base, in_corso: false, exit_code: 0 });
+assert.equal(esito.textContent, "Lettura: esecuzione conclusa in 12 s");
+
+// E una volta sola: il fronte si e' consumato qui, non prima.
+esito.textContent = "";
+aggiornaDaStato({ ...base, in_corso: false, exit_code: 0 });
+assert.equal(esito.textContent, "", "il fronte si e' ripetuto a ogni frame");
+""")

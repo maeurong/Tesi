@@ -290,6 +290,35 @@ code { font-family: var(--stack-cifre); }
 /* I secondi trascorsi cambiano una volta al secondo: senza cifre tabulari la
    riga si allarga e si stringe sotto gli occhi a ogni passaggio da 9 a 10. */
 .in-corso { margin: 0; color: var(--accento); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); font-variant-numeric: tabular-nums; }
+/* L'esito di una corsa, nella testata accanto alla riga che pulsa. Stessa
+   taglia e stessa interlinea di .in-corso: sono la stessa voce letta in due
+   momenti -- una dice che sta girando, l'altra come e' finita -- e due corpi
+   diversi le farebbero sembrare due meccanismi.
+   Vuota non lascia un buco: senza la regola su `:empty` la riga occuperebbe la
+   sua altezza sopra la testata per tutta la vita dell'applicazione, e a corsa
+   mai lanciata sarebbe uno spazio che non annuncia niente.
+   `height: 0` e NON `display: none`: #esito e' aria-live, e una regione viva
+   dev'essere nell'albero PRIMA che ci si scriva dentro (index.html:22-25).
+   `display: none` la toglie dall'albero di accessibilita' proprio finche' e'
+   vuota, cioe' fino all'istante prima della scrittura, e se l'annuncio
+   sopravviva a quella transizione dipende dal lettore di schermo. Cosi' invece
+   la riga c'e' sempre e non si vede: stesso effetto a video, nessuna scommessa. */
+.esito { margin: 0; font-size: var(--tipo-dato); line-height: var(--interlinea-riga); color: var(--tenue); }
+.esito:empty { height: 0; overflow: hidden; }
+/* La scorciatoia della testata: si legge una volta e poi si smette di vederla,
+   che e' cio' che deve fare. Il corpo lo eredita da .aiuto, messo sull'elemento
+   in index.html, e non dall'esito: l'esito e' un fatto appena successo, questa
+   e' un'istruzione permanente, e allo stesso peso si contenderebbero l'occhio.
+   Il contorno del tasto usa --bordo-comando e non --bordo: qui il bordo E' il
+   solo segnale che «Ctrl/Cmd» e «Z» sono capsule e non parole della frase, e
+   --bordo sta a 1,41:1 dichiarato -- proiettato sparisce e resta testo. */
+.scorciatoia { margin: 0; }
+.scorciatoia kbd { font-family: var(--stack-cifre); font-size: 0.9em; padding: 0 var(--passo-1); border: 1px solid var(--bordo-comando); border-radius: var(--raggio); background: var(--superficie); }
+/* Il colore ACCANTO al testo e non al posto del testo: «esecuzione fallita» si
+   legge per esteso comunque, e chi non distingue le tinte non perde niente
+   (WCAG 1.4.1). Il peso porta il rango dove il colore non arriva -- proiettato
+   su un muro, una differenza di tinta a questa taglia si perde. */
+.esito-fallito { color: var(--guasto); font-weight: 600; }
 .registro { max-height: 14rem; overflow: auto; font-family: var(--stack-cifre); font-size: var(--tipo-nota); line-height: var(--interlinea); border: 1px solid var(--bordo); border-radius: var(--raggio); padding: var(--passo-2); }
 /* Il registro e' una tappa di tabulazione (tabindex="0" in index.html, perche'
    scorre e non contiene nulla di focalizzabile): reso raggiungibile senza un
@@ -461,6 +490,18 @@ code { font-family: var(--stack-cifre); }
    padding del gruppo, e ogni riquadro aveva 24 px sotto contro i 12 sopra la
    prima riga. Non e' una simmetria da amare in astratto, e' che quel fondo in
    piu' faceva sembrare l'ultimo campo staccato dal gruppo che lo contiene. */
+/* Il titolo del pannello: quale step si sta guardando. Primo di tutto, prima
+   dei due «Esegui», perche' e' la risposta alla domanda che chi apre la terza
+   colonna si pone per prima. Il margine sotto e' zero: la riga del proposito
+   gli sta attaccata e le due sono una cosa sola. */
+.titolo-step { margin: 0 0 var(--passo-1); font-size: var(--tipo-corpo); line-height: var(--interlinea-riga); }
+/* La piega dei parametri rimasti al predefinito. Il riepilogo si legge come una
+   riga di comando e non come un titolo: e' un gesto, non una sezione. */
+.gruppo details > summary { cursor: pointer; font-size: var(--tipo-nota); line-height: var(--interlinea-riga); color: var(--tenue); padding: var(--passo-1) 0; }
+.gruppo details > summary:focus-visible { outline: 2px solid var(--accento); outline-offset: 2px; }
+/* Aperta, i campi rientrano sotto il proprio riepilogo: senza, si allineano ai
+   campi in vista sopra e la piega smette di leggersi come un contenitore. */
+.gruppo details[open] > summary { margin-bottom: var(--passo-2); }
 .gruppo { border: 1px solid var(--bordo); border-radius: var(--raggio); padding: var(--passo-3); margin: 0 0 var(--passo-6); }
 .gruppo .campo:last-child { margin-bottom: 0; }
 .gruppo legend { font-size: var(--tipo-nota); line-height: var(--interlinea-riga); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--tenue); }
@@ -512,6 +553,11 @@ code { font-family: var(--stack-cifre); }
    per questo che la' il valore troppo lungo esce dalla griglia invece di
    stringersi.) */
 .aiuto { display: block; color: var(--tenue); font-size: var(--tipo-nota); line-height: var(--interlinea); max-width: var(--misura); overflow-wrap: anywhere; text-wrap: pretty; }
+/* Il proposito dello step sta attaccato al titolo: sono una cosa sola, e lo
+   spazio sotto separa la coppia dai due «Esegui». DOPO la regola base e non
+   prima, che e' anche l'ordine giusto in cascata: qui si sovrascrivono i soli
+   margini, e scritta sopra sarebbe la base a vincerli. */
+.titolo-step + .aiuto { margin-top: 0; margin-bottom: var(--passo-4); }
 /* Le due colonne erano `auto 1fr`, e in una zona da 22rem non ci stavano.
    Lo step 7 annida due dizionari dentro `geometric_error`, e righeDellaMetrica
    appiattisce il percorso in un'etichetta sola: «geometric_error ·

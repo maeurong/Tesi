@@ -1040,15 +1040,30 @@ class _LoaderChiaviUniche(yaml.SafeLoader):
         return super().construct_mapping(node, deep=deep)
 
 
-def carica_yaml(path: Path) -> object:
-    """L'unica lettura YAML del modulo, con il rifiuto delle chiavi omonime.
+def carica_yaml_da_testo(testo: str) -> object:
+    """Come `carica_yaml`, ma su un testo che non e' ancora un file.
+
+    Esiste perche' chi vuole sapere in anticipo se un testo diventera' un
+    `config.yaml` valido deve usare **lo stesso** lettore che quel file
+    rileggera'. Con `yaml.safe_load` la prova era piu' permissiva del
+    controllo vero: le chiavi omonime passavano di qui e venivano respinte
+    solo dopo, a file gia' riscritto -- cioe' proprio l'ingresso degenere per
+    cui `_LoaderChiaviUniche` esiste, e il solo che non ha altro sintomo.
 
     `yaml.load` con un loader che **eredita da SafeLoader** ha esattamente i
     costruttori di `safe_load`. Non sostituire il loader con `yaml.Loader` o
     `yaml.UnsafeLoader`, che i tag `!!python/object` li eseguono davvero.
     """
-    with Path(path).open(encoding="utf-8") as handle:
-        return yaml.load(handle, Loader=_LoaderChiaviUniche)  # noqa: S506
+    return yaml.load(testo, Loader=_LoaderChiaviUniche)  # noqa: S506
+
+
+def carica_yaml(path: Path) -> object:
+    """L'unica lettura YAML del modulo, con il rifiuto delle chiavi omonime.
+
+    Passa dal gemello su testo per costruzione: due lettori separati potevano
+    divergere in silenzio, e lo avevano gia' fatto.
+    """
+    return carica_yaml_da_testo(Path(path).read_text(encoding="utf-8"))
 
 
 def load_config(path: Path) -> PipelineConfig:
