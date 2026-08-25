@@ -401,6 +401,17 @@ code { font-family: var(--stack-cifre); }
 /* Il comando del taglio sta in basso a destra sulla vista: i conteggi occupano
    gia' l'angolo sinistro. hidden non basta su un elemento con display: flex,
    che lo sovrascriverebbe e lo lascerebbe a video. */
+/* Le sei viste sugli assi, nell'angolo in basso a sinistra: gli altri tre
+   sono presi -- i conteggi in alto a sinistra, il passaggio a monte in alto a
+   destra, il taglio qui sotto in basso a destra -- e sovrapporsi a uno di
+   quelli nasconderebbe un comando dietro l'altro. */
+.viste { position: absolute; bottom: var(--passo-2); left: var(--passo-2); display: flex; gap: var(--passo-1); padding: var(--passo-1); background: var(--velo); border: 1px solid var(--bordo-comando); border-radius: var(--raggio); }
+.viste[hidden] { display: none; }
+/* Etichette di due caratteri: la spaziatura del bottone generico le
+   allontanerebbe fra loro piu' di quanto siano larghe. La larghezza minima le
+   tiene tutte uguali, ed e' cio' che le fa leggere come una pulsantiera invece
+   che come sei bottoni scollegati. */
+.viste .bottone { padding: var(--passo-1) var(--passo-2); min-width: 2.5rem; font-variant-numeric: tabular-nums; }
 .taglio { position: absolute; bottom: var(--passo-2); right: var(--passo-2); display: flex; align-items: center; flex-wrap: wrap; gap: var(--passo-2); padding: var(--passo-2); background: var(--velo); border: 1px solid var(--bordo-comando); border-radius: var(--raggio); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); }
 .taglio[hidden] { display: none; }
 .taglio select { font: inherit; padding: var(--passo-1); background: var(--superficie); color: var(--testo); border: 1px solid var(--bordo-comando); border-radius: var(--raggio); }

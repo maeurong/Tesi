@@ -5292,3 +5292,216 @@ esito.textContent = "";
 aggiornaDaStato({ ...base, in_corso: false, exit_code: 0 });
 assert.equal(esito.textContent, "", "il fronte si e' ripetuto a ogni frame");
 """)
+
+
+# --------------------------------------------------------------------------
+# La navigazione: i fermi, la rotella, l'arco corto, le sei viste.
+# --------------------------------------------------------------------------
+
+
+def _le_viste() -> str:
+    """L'elenco vero di `viewport.js`, non una copia scritta nel banco.
+
+    Stessa ragione di `_durata_dell_arrivo`: una copia resterebbe verde su sei
+    viste che il modulo non usa piu'.
+    """
+    trovato = re.search(
+        r"^export const VISTE = \[.*?\];$", _modulo_viewport(), flags=re.MULTILINE | re.DOTALL
+    )
+    assert trovato is not None, "nessuna costante VISTE in viewport.js"
+    return trovato.group(0).removeprefix("export ")
+
+
+def test_i_fermi_del_raggio_tengono_la_camera_in_un_posto_che_esiste(tmp_path):
+    """Il raggio non aveva fermi. `raggio *= 0.9` ripetuto lo porta sotto il
+    piano vicino -- si finisce dentro il pezzo e non si torna -- e `*= 1.1`
+    ripetuto lo porta oltre il piano lontano, dove il pezzo e' un punto.
+    Nessuna delle due solleva e nessuna lascia un segnale: la scena si svuota e
+    si legge come un guasto del programma.
+
+    I fermi sono relativi all'ingombro inquadrato: un millimetro e' vicino su
+    lab_crop (2,76 m) e lontanissimo su un provino da dieci centimetri.
+
+    Senza riferimento -- prima che sia arrivata una geometria -- non si stringe
+    niente: si rifiuta solo cio' che non e' un raggio, perche' un NaN o uno zero
+    moltiplicato per il raggio mette la camera in una posizione che non esiste.
+    """
+    _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
+        + _funzioni_viewport("raggioAmmesso") + """
+assert.equal(raggioAmmesso(50, 100), 50, "un raggio dentro la banda viene stretto lo stesso");
+assert.equal(raggioAmmesso(1e-9, 100), 0.1, "il fermo vicino non morde: si entra nel pezzo");
+assert.equal(raggioAmmesso(1e9, 100), 10000, "il fermo lontano non morde: il pezzo diventa un punto");
+
+// Il degenere non deve mai uscire da qui: e' cio' che moltiplica il raggio.
+for (const brutto of [NaN, 0, -5, Infinity, -Infinity]) {
+  const esito = raggioAmmesso(brutto, 100);
+  assert.ok(Number.isFinite(esito) && esito > 0, `raggioAmmesso(${brutto}) esce ${esito}`);
+}
+assert.equal(raggioAmmesso(NaN, null), 1, "senza riferimento un raggio guasto non ha un ripiego");
+
+// Senza riferimento non si stringe: la prima geometria non e' ancora arrivata,
+// e una banda inventata sarebbe una scala che nessuna misura sostiene.
+assert.equal(raggioAmmesso(7, null), 7, "si stringe su una scala che nessuno ha misurato");
+assert.equal(raggioAmmesso(7, 0), 7, "un riferimento nullo diventa una banda");
+
+// Il gesto ripetuto, che e' il modo in cui il difetto si presentava davvero.
+let raggio = 100;
+for (let giro = 0; giro < 500; giro += 1) raggio = raggioAmmesso(raggio * 0.9, 100);
+assert.equal(raggio, 0.1, "cinquecento scatti di rotella portano la camera dentro il pezzo");
+for (let giro = 0; giro < 500; giro += 1) raggio = raggioAmmesso(raggio * 1.1, 100);
+assert.equal(raggio, 10000, "cinquecento scatti al contrario perdono il pezzo");
+""")
+
+
+def test_la_rotella_misura_quanto_ha_girato_e_non_solo_da_che_parte(tmp_path):
+    """`deltaY > 0 ? 1.1 : 0.9` guardava il SEGNO e buttava via la misura.
+
+    Con una rotella a scatti, un evento per scatto, il conto tornava. Con un
+    trackpad, che di un solo gesto emette una raffica di eventi piccoli, ogni
+    evento della raffica moltiplicava il raggio del dieci per cento: trenta
+    eventi da due pixel valevano 0,9^30, cioe' un fattore ventiquattro per un
+    gesto solo.
+
+    La proprieta' che lo chiude e' che il gesto valga il suo totale comunque lo
+    si spezzi: una scala moltiplicativa con esponente proporzionale allo
+    spostamento somma gli esponenti, quindi trenta eventi da due valgono uno da
+    sessanta. E' la stessa quantita' di zoom, non «meno zoom».
+
+    E `deltaY` non e' nella stessa unita' su tutti i browser: `deltaMode` dice
+    se sono pixel, righe o pagine. Chi lo ignora zooma sedici volte piu' in
+    fretta dove il browser conta a righe.
+    """
+    _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
+        + _funzioni_viewport("passoDellaRotella") + """
+assert.equal(passoDellaRotella(100, 0, 600), 100, "i pixel non passano com'erano");
+assert.equal(passoDellaRotella(3, 1, 600), 48, "una riga vale come un pixel: zoom sedici volte piu' veloce");
+assert.equal(passoDellaRotella(1, 2, 600), 600, "una pagina non vale l'altezza della tela");
+assert.equal(passoDellaRotella(1, 2, 0), 320, "senza un'altezza vera la pagina non ha un ripiego");
+assert.equal(passoDellaRotella(NaN, 0, 600), 0, "un delta guasto arriva al raggio");
+assert.equal(passoDellaRotella(1, undefined, 600), 1, "un deltaMode assente non e' trattato come pixel");
+
+// La proprieta' vera: il gesto vale il suo totale comunque sia spezzato.
+const scala = (passo) => Math.exp(passo * 0.0015);
+let raffica = 1;
+for (let evento = 0; evento < 30; evento += 1) raffica *= scala(passoDellaRotella(2, 0, 600));
+const unico = scala(passoDellaRotella(60, 0, 600));
+assert.ok(Math.abs(raffica - unico) < 1e-12,
+  `una raffica da trackpad non vale il gesto che rappresenta: ${raffica} contro ${unico}`);
+""")
+
+
+def test_l_arco_piu_corto_non_fa_girare_il_pezzo_su_se_stesso(tmp_path):
+    """L'azimut e' un angolo che gira: da 6,2 a 0,1 ci sono 0,18 radianti in
+    avanti e 6,1 all'indietro. Interpolare fra i due numeri come fra due
+    grandezze qualsiasi prende la strada lunga, cioe' fa fare al pezzo un giro
+    quasi completo su se stesso per arrivare a un lato che era li' accanto.
+
+    Due proprieta', e servono entrambe: l'arrivo deve essere lo stesso angolo
+    (a meno di un giro) e la strada non deve mai superare il mezzo giro.
+    """
+    _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
+        + _funzioni_viewport("arcoPiuCorto") + """
+const giro = Math.PI * 2;
+const chiudi = (v) => ((v % giro) + giro) % giro;
+
+for (const [da, a] of [[6.2, 0.1], [0.1, 6.2], [0, Math.PI / 2], [3, 3], [-1, 4], [10, -10]]) {
+  const meta = arcoPiuCorto(da, a);
+  assert.ok(Math.abs(chiudi(meta) - chiudi(a)) < 1e-9 || Math.abs(Math.abs(chiudi(meta) - chiudi(a)) - giro) < 1e-9,
+    `da ${da} a ${a}: si arriva a ${meta}, che non e' lo stesso angolo`);
+  assert.ok(Math.abs(meta - da) <= Math.PI + 1e-9,
+    `da ${da} a ${a}: la strada e' ${Math.abs(meta - da)}, oltre il mezzo giro`);
+}
+assert.equal(arcoPiuCorto(3, 3), 3, "restare fermi non e' fermo");
+""")
+
+
+def test_nessuna_delle_sei_viste_cade_su_un_polo(tmp_path):
+    """Le viste dall'alto e dal basso stanno sull'asse della camera, dove `up`
+    le e' parallelo: `lookAt` produce NaN, la camera esce dal mondo e la scena
+    sparisce senza un errore in console. Non e' un caso di scuola -- e' proprio
+    dove una vista «da sopra» vorrebbe andare.
+
+    L'invariante che tiene: ogni elevazione dichiarata sta a piu' di un
+    millesimo di radiante dai due poli, lo stesso scarto e per lo stesso motivo
+    di `oltreIlPolo`.
+
+    E le sei devono essere sei viste diverse con sei tasti diversi: due voci
+    con lo stesso tasto lascerebbero la seconda irraggiungibile, e nessuno se ne
+    accorgerebbe guardando lo schermo.
+    """
+    _esegui(tmp_path, "import assert from 'node:assert/strict';\n" + _le_viste() + """
+assert.ok(VISTE.length >= 6, `solo ${VISTE.length} viste dichiarate`);
+// La soglia e' 9e-4 e non 1e-3, e non e' un allentamento: lo scarto
+// dichiarato E' un millesimo, ma `Math.PI - 1e-3` in binario vale
+// 0,0009999999999998899, cioe' un millesimo meno un errore di
+// arrotondamento. Pretendere qui l'uguaglianza esatta sarebbe provare
+// l'aritmetica in virgola mobile, non l'invariante. Nove decimillesimi
+// restano dodici ordini di grandezza sopra la fascia dove il prodotto
+// vettoriale con `up` degenera, che e' cio' che conta davvero.
+for (const vista of VISTE) {
+  const dalPolo = Math.min(vista.phi, Math.PI - vista.phi);
+  assert.ok(dalPolo >= 9e-4,
+    `la vista ${vista.nome} sta a ${dalPolo} dal polo: lookAt produce NaN e la scena sparisce`);
+}
+const tasti = new Set(VISTE.map((v) => v.tasto));
+assert.equal(tasti.size, VISTE.length, "due viste sullo stesso tasto: una e' irraggiungibile");
+const nomi = new Set(VISTE.map((v) => v.nome));
+assert.equal(nomi.size, VISTE.length, "due viste con lo stesso nome sulla pulsantiera");
+const angoli = new Set(VISTE.map((v) => `${v.theta.toFixed(6)}/${v.phi.toFixed(6)}`));
+assert.equal(angoli.size, VISTE.length, "due tasti diversi portano alla stessa inquadratura");
+""")
+
+
+def test_i_comandi_annunciati_coprono_le_viste_che_esistono():
+    """`COMANDI` e' cio' che il lettore di schermo annuncia sulla tela, ed e'
+    l'unico posto in cui i comandi sono scritti a parole.
+
+    Il gestore trova le viste scorrendo `VISTE`, quindi una vista in piu'
+    funziona da sola: a non seguirla e' la frase. Una settima vista lascerebbe
+    l'annuncio a «da 1 a 6», cioe' direbbe a chi non vede lo schermo che un
+    comando che esiste non c'e'.
+    """
+    sorgente = _modulo_viewport()
+    trovato = re.search(r'const COMANDI = "([^"]*)"', sorgente)
+    assert trovato is not None, "viewport.js non dichiara piu' COMANDI"
+    comandi = trovato.group(1)
+    quante = len(re.findall(r"\{ tasto:", _le_viste()))
+    assert f"1 a {quante}" in comandi, (
+        f"le viste dichiarate sono {quante} e l'annuncio dice «{comandi}»"
+    )
+    for parola in ("ruotare", "spostare", "zoom", "rinquadrare"):
+        assert parola in comandi, f"l'annuncio non nomina piu' come {parola}: «{comandi}»"
+
+
+def test_ogni_gesto_che_cambia_il_raggio_passa_dai_fermi():
+    """Gemello del controllo sull'elevazione, e per lo stesso motivo: il fermo
+    serve a niente se una sola strada lo scavalca.
+
+    Qui non si esegue: le scritture vivono dentro gestori annidati in
+    `creaViewport`, che tocca three.js e non si monta in un banco. Si guarda che
+    nessuna riscriva il raggio per conto proprio.
+
+    Le due scritture ammesse oltre ai fermi sono dichiarate e non generiche.
+    L'inquadratura scrive il raggio MISURATO sull'ingombro -- e' lui il
+    riferimento dei fermi, stringerlo su se stesso non vorrebbe dire niente.
+    L'arrivo interpola fra due raggi gia' ammessi, e una combinazione convessa
+    di due valori in banda resta in banda.
+
+    Mutazione che lo uccide: rimettere `orbita.raggio *= evento.deltaY > 0 ?
+    1.1 : 0.9` nel gestore della rotella, che e' esattamente la forma da cui
+    questo lavoro e' partito.
+    """
+    sorgente = _modulo_viewport()
+    scritture = re.findall(r"orbita\.raggio\s*[*+/-]?=\s*([^;\n]+)", sorgente)
+    assert len(scritture) >= 3, (
+        f"solo {len(scritture)} scritture di orbita.raggio: il regex non morde piu'"
+    )
+    ammesse = ("raggioAmmesso(", "= raggio", "transizione.daRaggio")
+    fuori = [s for s in scritture if not any(voce.lstrip("= ") in s for voce in ammesse)]
+    assert not fuori, f"il raggio viene scritto senza passare dai fermi: {fuori}"
+
+    # E la rotella misura quanto ha girato invece di guardare da che parte.
+    assert "evento.deltaY > 0 ?" not in sorgente, (
+        "la rotella torna a guardare il segno: una raffica da trackpad zooma per ogni evento"
+    )
+    assert "passoDellaRotella(" in sorgente, "il deltaMode torna ignorato"

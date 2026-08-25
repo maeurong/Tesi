@@ -194,6 +194,20 @@
         <input type="range" id="taglio-quota">
         <output id="taglio-valore" for="taglio-quota"></output>
       </div>
+      <!-- Le sei viste sugli assi. Il contenitore sta nel markup, i bottoni no:
+           l'elenco delle viste vive in VISTE dentro viewport.js, che e' anche
+           chi conosce gli angoli, e riscriverne qui i nomi e i tasti darebbe
+           due copie dello stesso elenco da tenere d'accordo a mano. Lo stesso
+           argomento per cui i valori delle tendine non sono ricopiati
+           nell'interfaccia.
+           Nasce nascosto: viewport.js lo mostra dove c'e' una geometria da
+           guardare. Sei bottoni che non muovono niente sopra una vista vuota
+           sarebbero comandi inerti, che questa pagina evita apposta (vedi il
+           commento del passaggio a monte qui sopra).
+           role="group" e non una lista: sono sei comandi paralleli, e il nome
+           del gruppo e' cio' che li spiega tutti insieme invece di ripetere
+           «vista» in ciascuno. -->
+      <div class="viste" id="viste" role="group" aria-label="Viste sugli assi" hidden></div>
     </div>
     <!-- La didascalia della vista, e sta QUI: sotto la tela e dentro
          l'inquadratura, non nella terza colonna. Fotografata o proiettata in
