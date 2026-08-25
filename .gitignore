@@ -36,3 +36,11 @@ Cartella di lavoro Abaqus/
 # non prodotto del progetto. La storia di git e il documento di esiti sono il
 # record; questo e la mappa di recupero del controllore mentre la fase gira.
 .superpowers/
+
+# I worktree locali. Ogni sottocartella qui dentro e' un checkout di QUESTO
+# repository: tracciarla vorrebbe dire mettere il repository dentro se stesso, e
+# un `git add -A` distratto committerebbe l'albero di lavoro di un ramo dentro
+# un altro. Finche' e' restata fuori dall'elenco, `git status` la mostrava a
+# ogni chiamata come non tracciata -- rumore fisso, che nasconde le righe che
+# contano davvero.
+/.claude/worktrees/
