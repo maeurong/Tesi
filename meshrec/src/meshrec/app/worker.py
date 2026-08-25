@@ -9,12 +9,36 @@ l'avvio di un interprete costa pochi secondi contro i minuti di una corsa.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import threading
 import time
 from collections import deque
 from pathlib import Path
+
+# I due capi del tubo, dichiarati invece che lasciati al locale della macchina.
+#
+# `text=True` da solo fa scegliere a ciascun capo la propria codifica di
+# sistema, e nessuno garantisce che coincidano. Su Windows non coincidono: il
+# lettore leggeva UTF-8 e il figlio scriveva nella codepage italiana, quindi il
+# primo accento -- e dopo la passata di ieri le righe mostrate ne portano --
+# faceva sollevare `UnicodeDecodeError` a meta' della prima riga. Misurato:
+# `0xE0` e' `à` in cp1252.
+#
+# Servono TUTTI E DUE i capi, misurato con tre Popen a confronto: con il solo
+# `errors="replace"` il lettore smette di morire ma il registro consegna
+# `citt<?>.ply` invece di `città.ply`, cioe' il guasto diventa invisibile
+# invece che chiuso. E `errors="replace"` serve comunque anche col figlio
+# forzato, perche' Open3D e ccx scrivono sul descrittore in C++ saltando
+# `sys.stdout`: `PYTHONIOENCODING` non li governa, e una riga storta di
+# libreria non deve poter fermare una corsa.
+CODIFICA_DEL_TUBO = {"encoding": "utf-8", "errors": "replace"}
+
+
+def _ambiente_del_figlio() -> dict[str, str]:
+    """L'ambiente del sottoprocesso con la codifica di stdout dichiarata."""
+    return {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"}
 
 # Le righe tenute in memoria per il pannello del log. Un tetto e' necessario
 # perche' un processo prolisso non faccia crescere il server senza limite; il
@@ -84,6 +108,8 @@ class Worker:
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
+            env=_ambiente_del_figlio(),
+            **CODIFICA_DEL_TUBO,
         )
         threading.Thread(target=self._leggi, daemon=True).start()
 
@@ -114,6 +140,7 @@ class Worker:
         self._processo = subprocess.Popen(
             [sys.executable, "-m", "meshrec.cli", *argomenti],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
+            env=_ambiente_del_figlio(), **CODIFICA_DEL_TUBO,
         )
         threading.Thread(target=self._leggi, daemon=True).start()
 
@@ -121,11 +148,26 @@ class Worker:
         processo = self._processo
         if processo is None or processo.stdout is None:
             return
-        for riga in processo.stdout:
-            with self._lucchetto:
-                self._righe.append(riga.rstrip("\n"))
-        processo.wait()
-        self.exit_code = processo.returncode
+        # Il `finally` non e' cintura sopra bretelle. Questo corpo gira in un
+        # THREAD DEMONE: un'eccezione qui dentro non risale a nessuno, uccide
+        # solo il lettore, e da li' `wait()` non viene chiamato ed `exit_code`
+        # resta None PER SEMPRE. E `exit_code` nullo l'interfaccia lo tratta
+        # come «non lo so ancora» e tace (ui/app.js, `esitoDellaCorsa`), quindi
+        # la corsa falliva e a video non compariva niente: ne' conclusa, ne'
+        # fallita, ne' annullata. Misurato: e' cosi' che il difetto di codifica
+        # e' arrivato all'utente come schermo muto invece che come messaggio.
+        #
+        # `errors="replace"` toglie la causa che l'ha prodotto; questo toglie la
+        # classe. Il codice di uscita e' l'unica cosa che il resto del programma
+        # ha per sapere com'e' finita una corsa, e non deve dipendere dal fatto
+        # che la lettura del registro sia andata bene.
+        try:
+            for riga in processo.stdout:
+                with self._lucchetto:
+                    self._righe.append(riga.rstrip("\n"))
+        finally:
+            processo.wait()
+            self.exit_code = processo.returncode
 
     def cancel(self) -> bool:
         """Termina lo step in corso. Falso se non ce n'era uno.
