@@ -1679,8 +1679,8 @@ const vista = {
   mostraFantasma() { scritture.push('fantasma'); },
   togliFantasma() {},
 };
-// setAttribute/removeAttribute perche' dichiaraCaricamento accende aria-busy
-// sul viewport: senza, la funzione vera cade su un elemento che non sa
+// setAttribute/removeAttribute perche' le funzioni ritagliate toccano attributi
+// dell'elemento: senza, la funzione vera cade su un elemento che non sa
 // rispondere, e il banco misurerebbe quella caduta invece dell'arbitraggio.
 const attributi = {};
 const document = {
@@ -1793,7 +1793,6 @@ def test_fra_due_geometrie_della_stessa_generazione_vince_chi_e_partita_dopo(num
             "didascaliaDellaVista",
             "nomeDelloStep",
             "dichiaraCaricamento",
-            "chiudiCaricamento",
             "corpoBinarioLetto",
             "ragioneDelRifiuto",
             "messaggioDownloadInterrotto",
@@ -2778,8 +2777,8 @@ const vista = {
   mostraFantasma() { scritture.push('velo'); },
   togliFantasma() {},
 };
-// setAttribute/removeAttribute perche' dichiaraCaricamento accende aria-busy
-// sul viewport: senza, la funzione vera cade su un elemento che non sa
+// setAttribute/removeAttribute perche' le funzioni ritagliate toccano attributi
+// dell'elemento: senza, la funzione vera cade su un elemento che non sa
 // rispondere, e il banco misurerebbe quella caduta invece dell'arbitraggio.
 const attributi = {};
 const document = {
@@ -2881,7 +2880,6 @@ def test_il_velo_non_arbitra_al_posto_delle_geometrie():
             "apriFantasma",
             "nomeDelloStep",
             "dichiaraCaricamento",
-            "chiudiCaricamento",
             "corpoBinarioLetto",
             "ragioneDelRifiuto",
             "messaggioDownloadInterrotto",
@@ -3110,3 +3108,178 @@ def test_l_undo_di_una_modifica_a_mano_non_riscrive_il_file_a_modo_proprio(clien
     tornato = percorso.read_text(encoding="utf-8")
     assert tornato == a_mano, "il redo ha reso una configurazione equivalente, non il file"
     assert "# la taglia la decide" in tornato, "il commento dell'editor e' sparito in silenzio"
+
+
+def test_la_modifica_fatta_a_mano_si_deposita_anche_quando_a_scrivere_e_l_interfaccia(
+    cliente, tmp_path
+):
+    """La stessa perdita irrecuperabile, entrata dalla porta accanto.
+
+    Il deposito della modifica fuori dall'interfaccia stava sui soli due
+    endpoint dello storico. Ma `scriviParametro` rimanda l'INTERA copia che il
+    browser ha in memoria, non il campo toccato: una riga cambiata dall'editor
+    nel frattempo viene sovrascritta per intero dalla PUT successiva. Senza il
+    deposito anche qui, quel valore non finiva in nessuna versione e non
+    esisteva piu' da nessuna parte -- ne' su disco, ne' nello storico, ne'
+    annullabile.
+
+    E' il progetto nato CLI-first che rende lo scenario normale invece che di
+    laboratorio: le Fasi 1 e 2 si lavorano da editor col server acceso.
+
+    Mutazione che lo uccide: togliere la chiamata a
+    `_deposita_le_modifiche_fatte_a_mano` da `scrivi_config`.
+    """
+    percorso = tmp_path / "config.yaml"
+
+    corpo = cliente.get("/api/config").json()
+    corpo["tet"]["min_ratio"] = 1.5
+    cliente.put("/api/config", json=corpo)
+
+    # L'editor, col server acceso: un valore che il browser non ha mai visto.
+    percorso.write_text(
+        percorso.read_text(encoding="utf-8").replace("min_ratio: 1.5", "min_ratio: 9.99"),
+        encoding="utf-8",
+    )
+
+    # L'interfaccia scrive: manda la propria copia, che porta ancora 1.5.
+    corpo["tet"]["min_ratio"] = 1.7
+    assert cliente.put("/api/config", json=corpo).status_code == 200
+    assert "9.99" not in percorso.read_text(encoding="utf-8"), "premessa: la PUT sovrascrive"
+
+    # Un solo «indietro» deve riportare il 9.99, non il 1.5: la modifica a mano
+    # e' l'ultima cosa che c'era prima di questa scrittura.
+    assert cliente.post("/api/storico/indietro").json()["annullato"] is True
+    assert "min_ratio: 9.99" in percorso.read_text(encoding="utf-8"), (
+        "il valore scritto dall'editor non sta in nessuna versione: e' perso"
+    )
+
+
+def test_una_versione_con_due_chiavi_omonime_non_arriva_su_config_yaml(cliente, tmp_path):
+    """La prova in anticipo deve usare LO STESSO lettore del controllo vero.
+
+    `yaml.safe_load` tiene l'ultima di due chiavi omonime e non dice niente;
+    `carica_yaml` -- quello che rileggera' il file -- le rifiuta. Con due
+    lettori diversi la validazione qui era piu' permissiva del controllo a
+    valle: la versione passava, finiva su config.yaml, e la respingeva
+    `load_config` DOPO la scrittura. Da quel momento ogni tratta che chiama
+    `corrente()` fallisce, compresi i due endpoint dello storico, cioe' lo
+    strumento di recupero moriva insieme al resto.
+
+    E' l'unico ingresso degenere senza altro sintomo -- gli altri almeno
+    sollevano subito -- ed e' la ragione per cui `_LoaderChiaviUniche` esiste.
+
+    Mutazione che lo uccide: rimettere `yaml.safe_load(testo)` al posto di
+    `carica_yaml_da_testo(testo)` in `_ripristina`.
+    """
+    percorso = tmp_path / "config.yaml"
+
+    corpo = cliente.get("/api/config").json()
+    corpo["tet"]["min_ratio"] = 1.5
+    cliente.put("/api/config", json=corpo)
+    intatto = percorso.read_text(encoding="utf-8")
+
+    # Un editor dentro .storico: la versione 1 acquista un secondo blocco `tet`.
+    #
+    # `tet` e non `run`: una chiave `run` doppia la prenderebbe comunque la
+    # guardia sull'out_dir, cioe' il test resterebbe rosso sotto mutazione ma
+    # per il motivo sbagliato, e non proverebbe niente sul lettore. Su `tet`
+    # nessun'altra guardia interviene: con il lettore di serie vince la seconda,
+    # la configurazione e' valida, l'out_dir combacia, e il testo arriva su
+    # config.yaml -- dove `load_config`, che il loader stretto ce l'ha, lo
+    # rifiuta da li' in avanti per sempre.
+    versione = tmp_path / "corsa" / ".storico" / "0001.yaml"
+    versione.write_text(
+        versione.read_text(encoding="utf-8") + "\ntet:\n  min_ratio: 1.8\n",
+        encoding="utf-8",
+    )
+
+    risposta = cliente.post("/api/storico/indietro").json()
+    assert risposta["annullato"] is False
+    assert risposta["guasto"] is True
+    assert "leggibile" in risposta["perche"]
+    # E soprattutto: config.yaml non e' stato toccato, quindi il server e' ancora
+    # in piedi e lo storico ancora raggiungibile. Sotto mutazione e' qui che si
+    # vede il danno vero: il file riscritto e ogni tratta successiva a 400.
+    assert percorso.read_text(encoding="utf-8") == intatto
+    assert cliente.get("/api/config").status_code == 200
+    assert cliente.post("/api/storico/avanti").status_code == 200
+
+
+def test_una_post_partita_da_un_altro_sito_non_riavvolge_la_configurazione(cliente):
+    """CSRF sulle tratte senza corpo, che il preflight non protegge.
+
+    Una POST senza corpo non porta `Content-Type`: e' una richiesta
+    CORS-safelisted, il browser non fa il preflight, e l'`Host` che arriva e'
+    `127.0.0.1`, quindi la guardia sul nome locale la lascia passare. La
+    risposta resta opaca -- niente CORSMiddleware qui -- ma l'effetto
+    collaterale succede lo stesso, e un `<form method=POST>` auto-inviato non
+    ha bisogno nemmeno di JavaScript.
+
+    Sono sette le tratte cosi': le due dello storico e cinque che c'erano gia',
+    tre delle quali lanciano sottoprocessi.
+
+    Mutazione che lo uccide: togliere il controllo su `Sec-Fetch-Site` dal
+    middleware.
+    """
+    risposta = cliente.post(
+        "/api/storico/indietro", headers={"Sec-Fetch-Site": "cross-site"}
+    )
+    assert risposta.status_code == 403
+    assert risposta.json()["errore"] == "RichiestaDaUnAltroSito"
+
+
+def test_l_interfaccia_e_la_riga_di_comando_passano_lo_stesso(cliente):
+    """La controprova: la guardia non deve chiudere la porta a chi ha diritto.
+
+    `same-origin` e' l'interfaccia che chiama il proprio server. `none` e' la
+    navigazione diretta, cioe' l'indirizzo battuto a mano o il segnalibro con
+    cui questa applicazione si apre. Assente vuol dire che a chiamare non e' un
+    browser -- `curl`, la suite -- e chi non ha un browser non ha nemmeno una
+    vittima da far cliccare, che e' il presupposto del CSRF.
+
+    Senza questa controprova la guardia piu' stretta possibile (rifiuta tutto)
+    passerebbe il test qui sopra.
+    """
+    assert cliente.get("/api/config", headers={"Sec-Fetch-Site": "same-origin"}).status_code == 200
+    assert cliente.get("/api/config", headers={"Sec-Fetch-Site": "none"}).status_code == 200
+    assert cliente.get("/api/config").status_code == 200
+
+
+def test_una_corsa_di_riferimento_non_prende_uno_storico(cliente, tmp_path):
+    """La sentinella ferma anche la superficie nuova.
+
+    `runs/muro` e `runs/lab_crop` sono le corse di riferimento della tesi,
+    dichiarate di sola lettura da PRODUCT.md. Lo storico e' una scrittura nuova
+    dentro la cartella della corsa -- una `.storico/` accanto agli artefatti --
+    e prima di questo controllo nessun test la sorvegliava su nessuna delle
+    cinque tratte che scrivono.
+
+    CHE COSA QUESTO CONTROLLO PROVA DAVVERO, misurato e non dedotto. La guardia
+    sta in due posti: sull'endpoint e -- da adesso -- anche dentro
+    `scrivi_config`, il punto condiviso. Togliendone UNA il controllo resta
+    VERDE in tutti e due i versi: provato, prima levandola dall'endpoint, poi
+    dal punto condiviso. E' il senso della difesa in profondita', e vuol dire
+    che quello che si sorveglia qui e' «la corsa di riferimento resta intatta»,
+    non «questa riga esiste».
+
+    L'una senza l'altra non e' isolabile dall'esterno: i tre chiamanti di oggi
+    la propria ce l'hanno gia', e `scrivi_config` e' una chiusura dentro
+    `create_app`, quindi da qui non la si chiama. Quella condivisa esiste per il
+    quarto chiamante, che ancora non c'e'; il giorno che arriva, e' lui a
+    portarsi il controllo che la mette alla prova.
+
+    Mutazione che lo uccide: togliere `non_in_sola_lettura` da ENTRAMBI --
+    dall'endpoint e da `scrivi_config`. Misurata: 400 diventa 200 e la corsa di
+    riferimento si prende la sua `.storico/`.
+    """
+    (tmp_path / server.SENTINELLA_SOLA_LETTURA).touch()
+
+    corpo = cliente.get("/api/config").json()
+    corpo["tet"]["min_ratio"] = 1.5
+    assert cliente.put("/api/config", json=corpo).status_code == 400
+
+    assert not (tmp_path / "corsa" / ".storico").exists(), (
+        "una corsa di riferimento ha preso un deposito"
+    )
+    assert cliente.post("/api/storico/indietro").status_code == 400
+    assert cliente.post("/api/storico/avanti").status_code == 400

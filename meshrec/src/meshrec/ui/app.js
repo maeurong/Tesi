@@ -493,6 +493,15 @@ function ultimaDurata(voce) {
 // appiccicarlo a una corsa di undici step lo dichiarerebbe durata dell'intera
 // corsa.
 function descrizioneDellaCorsa(stato) {
+  // Un comando fuori pipeline -- «Ricalcola il prior», «Ricostruisci il
+  // modello» -- non ha un numero di step: `worker.start_comando` lascia `step`
+  // e `a_step` a null. `nomeDelloStep(null)` ripiega sulla forma «step
+  // <numero>», quindi la testata annunciava alla lettera «step null: esecuzione
+  // conclusa». Qui un nome da dire non c'e', e si dice quello che la cosa e'.
+  // La riga che pulsa il caso lo trattava gia'; l'esito no.
+  if (stato.step === null || stato.step === undefined) {
+    return { testo: "il comando", unoSolo: true };
+  }
   const nome = nomeDelloStep(stato.step);
   // a_step assente e' un frame che non lo porta -- una corsa aperta prima che
   // il server lo mandasse, o un comando fuori pipeline. Si torna al nome del
@@ -533,8 +542,12 @@ function esitoDellaCorsa(stato) {
   if (stato.annullato) return { errore: null, esito: `${soggetto}: esecuzione annullata` };
   if (stato.exit_code !== 0) {
     return {
+      // Dove sta, non «qui sotto»: #esito e' nella testata e il registro e'
+      // l'ultimo dei quattro titoli della terza colonna, dentro un contenitore
+      // che scorre. E' la stessa distanza che il pannello aveva dal proprio
+      // nome, e per cui il nome e' stato portato dentro il pannello.
       errore: `${soggetto}: esecuzione fallita (codice ${stato.exit_code}). `
-        + "Il motivo è nelle ultime righe del registro, qui sotto.",
+        + "Il motivo è nelle ultime righe del registro, in fondo alla colonna Dettaglio.",
       esito: null,
     };
   }
@@ -656,7 +669,21 @@ function aggiornaDaStato(stato) {
   // sinistra mentre a destra restano le metriche di prima, o nessuna. Non a
   // ogni evento, perche' lo stato arriva ogni mezzo secondo e il pannello si
   // riscriverebbe sotto le dita di chi sta compilando un campo.
-  if (eraInCorso && !stato.in_corso) {
+  // `esitoPronto` e non il solo `!in_corso`: `is_running()` e' `poll() is
+  // None`, mentre `exit_code` lo fissa `_leggi` DOPO aver svuotato stdout,
+  // quindi esiste una finestra -- il drain della pipe -- in cui la corsa e' gia'
+  // dichiarata ferma e il codice non c'e' ancora. Consumando il fronte li', al
+  // frame dopo `eraInCorso` era gia' falso e per quella corsa l'esito non si
+  // annunciava MAI: ne' conclusa, ne' fallita, ne' annullata. Era il rigetto
+  // silenzioso che questa funzione esiste per togliere.
+  //
+  // Aspettare invece di consumare e' anche cio' che tiene il fronte UNO: finche'
+  // l'esito non c'e' non scatta niente, e se non arrivasse mai non scatta mai --
+  // meglio di un pannello che si riapre ogni mezzo secondo su una corsa di cui
+  // non si sa com'e' finita. `esitoDellaCorsa` la stessa condizione ce l'ha gia'
+  // dentro: adesso il chiamante gliela dice d'accordo.
+  const esitoPronto = stato.exit_code !== null && stato.exit_code !== undefined;
+  if (eraInCorso && !stato.in_corso && esitoPronto) {
     // L'esito PRIMA di riaprire il pannello, e in una regione che il pannello
     // non tocca. apriDettaglio svuota #errore a ogni apertura: annunciato la',
     // il fallimento sparirebbe due righe piu' sotto, nella stessa passata, e a
@@ -679,7 +706,10 @@ function aggiornaDaStato(stato) {
   // per correggere quel fallimento, e sarebbe il piu' vecchio dei due testi a
   // descrivere il piu' recente dei due fatti.
   if (!eraInCorso && stato.in_corso) mostraEsito(null, null);
-  eraInCorso = stato.in_corso;
+  // Il fronte si consuma solo quando c'e' un esito da annunciare: dentro la
+  // finestra sopra, `eraInCorso` resta vero e aspetta il frame che porta il
+  // codice.
+  if (stato.in_corso || esitoPronto) eraInCorso = stato.in_corso;
 }
 
 flusso.addEventListener("stato", (evento) => aggiornaDaStato(JSON.parse(evento.data)));
@@ -774,6 +804,24 @@ async function chiediStorico(verso) {
   // finiscono in volo insieme, e aperto dopo sarebbe il numero di ARRIVO invece
   // che quello di partenza, cioe' vincerebbe la risposta vecchia.
   const ordine = apriRitorno();
+  // Lo stato di partenza si prende ADESSO, prima di qualunque attesa. Qui c'era
+  // scritto che bastasse comporre la frase prima di `caricaStato()`, ma non e'
+  // `caricaStato` a riscrivere `ultimoStato`: e' `disegnaStep`, che il flusso
+  // SSE chiama a OGNI frame, mezzo secondo l'uno, del tutto indipendente da
+  // questo gesto. E `_ripristina` scrive config.yaml prima di calcolare la
+  // risposta, quindi un frame emesso in quella finestra porta gia' gli step
+  // nuovi: se arrivava prima della risposta, i due termini erano lo stesso
+  // stato, `passatiA` tornava vuoto in tutti e due i versi e la riga diceva
+  // «nessuno step cambia stato» mentre la colonna a sinistra passava da rosso a
+  // verde. `disegnaStep` riassegna e non muta, quindi questa copia regge.
+  //
+  // Senza controllo, e dichiarato: sorvegliarlo vuole un banco che ritagli
+  // `chiediStorico` intera -- fetch, corpoLetto, ragioneDelRifiuto, superata,
+  // caricaStato, ricaricaVista, apriDettaglio -- e poi faccia arrivare un frame
+  // SSE nel mezzo di una fetch. E' un cantiere suo, non una riga di banco.
+  // `fraseDelRitorno` il proprio controllo ce l'ha (test_app_js.py); quel che
+  // resta scoperto e' da dove arriva il primo dei suoi due argomenti.
+  const prima = ultimoStato;
   const risposta = await fetch(`/api/storico/${verso}`, { method: "POST" }).catch(serverMuto);
   // Tutto l'esito del gesto esce dalla stessa riga, #esito, compresi i rifiuti:
   // chi preme un tasto guarda dove sono comparse le risposte a quel tasto, non
@@ -812,9 +860,9 @@ async function chiediStorico(verso) {
     mostraEsito(corpo.guasto ? corpo.perche : null, corpo.guasto ? null : corpo.perche);
     return;
   }
-  // Composta PRIMA di caricaStato(), che riscrive `ultimoStato`: il termine di
-  // confronto e' lo stato che era a video quando il tasto e' stato premuto.
-  mostraEsito(null, fraseDelRitorno(ultimoStato, corpo.steps));
+  // `prima`, catturato in cima: il termine di confronto e' lo stato che era a
+  // video quando il tasto e' stato premuto, non quello che c'e' adesso.
+  mostraEsito(null, fraseDelRitorno(prima, corpo.steps));
   await caricaStato();
   // Il config e' cambiato sotto: la geometria di prima con lo stato nuovo a
   // sinistra e' la vista che contraddice la propria didascalia. Senza ordine
@@ -925,17 +973,17 @@ function apriGeometria() {
 // E' la «vista che contraddice la propria didascalia» vista dall'altro capo:
 // le due generazioni difendono dalle scritture vecchie, questa riga dalle
 // letture vecchie ancora a video.
+// NIENTE aria-busy su #viewport, e non e' una dimenticanza. #conteggi e' figlio
+// diretto di #viewport (index.html:135-136) ed e' lui la regione viva:
+// aria-busy su un antenato zittisce la regione che contiene. Messo qui,
+// spegnerebbe l'annuncio scritto la riga sopra, nello stesso blocco sincrono --
+// cioe' proprio la sola cosa che dichiara l'attesa a chi non guarda lo schermo.
+// Non aggiungeva nemmeno un fatto: «caricamento di Riduzione...» dice gia' che
+// si sta leggendo, e che cosa. Se un giorno servisse davvero, va sulla tela che
+// viewport.js appende dentro #viewport, mai sul contenitore.
 function dichiaraCaricamento(numero) {
   document.getElementById("conteggi").textContent =
     `caricamento di ${nomeDelloStep(numero)}...`;
-  document.getElementById("viewport").setAttribute("aria-busy", "true");
-}
-
-// Chiude cio' che dichiaraCaricamento ha aperto. Una superficie sola e non
-// tante copie letterali della stessa riga: una superficie sola e' anche
-// l'unica che un test puo' sorvegliare per tutti i punti che la chiamano.
-function chiudiCaricamento() {
-  document.getElementById("viewport").removeAttribute("aria-busy");
 }
 
 // Il corpo binario di una risposta ok, letto senza lasciare uscire un rigetto
@@ -978,7 +1026,6 @@ function messaggioDownloadInterrotto() {
 // 09_volume.vtu» -- e il nome del file e' la cosa concreta, mentre «riesegui lo
 // step 9» era un'istruzione che il browser inventava.
 function segnalaArtefattoMancante(messaggio) {
-  chiudiCaricamento();
   // Svuotare e' obbligatorio: senza, la scena resta quella dello step
   // precedente mentre il testo dice che non c'e' nulla. Una vista che
   // contraddice la sua didascalia e' peggio di una vista vuota.
@@ -991,11 +1038,12 @@ async function mostraNuvolaDelloStep(numero, ordine) {
   dichiaraCaricamento(numero);
   // `.catch(serverMuto)`: senza, un server fermo o una rete caduta faceva
   // uscire il rigetto da questa funzione asincrona, cioe' dentro una promessa
-  // che nessuno guarda (ricaricaVista la consuma con .then). Il caricamento non
-  // si chiudeva piu', aria-busy restava acceso e a video restava la geometria
-  // di prima sotto la scritta «caricamento di ...», per sempre. Il resto del
-  // modulo la guardia ce l'aveva gia' (caricaConfronto, caricaGalleria): le due
-  // tratte della geometria erano le sole scoperte.
+  // che nessuno guarda (ricaricaVista la consuma con .then). A video restava la
+  // geometria di prima sotto la scritta «caricamento di ...», per sempre, e
+  // nessuno diceva perche'. `caricaGalleria` la guardia ce l'aveva gia'
+  // (app.js:2681, 2764); `caricaConfronto` (app.js:1666), `caricaPrior`
+  // (app.js:1576) e `mostraMembratureNelViewport` (app.js:1639) NO -- restano
+  // scoperte e sono un cantiere suo, non di questa riga.
   const risposta = await fetch(`/api/cloud/${numero}`).catch(serverMuto);
   if (!risposta.ok) {
     const messaggio = await ragioneDelRifiuto(risposta);
@@ -1021,11 +1069,10 @@ async function mostraNuvolaDelloStep(numero, ordine) {
   // in alto lascerebbe passare cio' che e' stato superato mentre il corpo
   // arrivava.
   //
-  // Chi esce di qui NON chiude il caricamento: e' stato superato, e a chiuderlo
-  // sarebbe la richiesta che l'ha superato, che ne ha aperto uno suo. Chiuderlo
-  // qui spegnerebbe aria-busy mentre un'altra lettura e' ancora in corso.
+  // Chi esce di qui non tocca la scritta dell'attesa: e' stato superato, e a
+  // riscriverla e' la richiesta che l'ha superato. Toccarla qui cancellerebbe
+  // l'annuncio di una lettura ancora in corso.
   if (superata(ordine) || superata(emissione, ultimaGeometria)) return false;
-  chiudiCaricamento();
   vista.svuota();
   vista.mostraNuvola(new Float32Array(grezzi));
   // Sempre entrambi: una nuvola decimata che non lo dichiara e' un dato falso.
@@ -1073,7 +1120,6 @@ async function mostraStep(numero, ordine) {
   // Qui la latenza e' quella vera: e' la mesh dello step 9 che arriva tardi a
   // posarsi sulla nuvola di un altro step.
   if (superata(ordine) || superata(emissione, ultimaGeometria)) return false;
-  chiudiCaricamento();
   vista.svuota();
   vista.mostraMesh(
     new Float32Array(grezzi, 0, vertici * 3),
@@ -1163,7 +1209,9 @@ async function mostraFantasmaDelloStep(numero, ordine) {
   // puo' semplicemente non essere ancora girato, e la geometria corrente resta
   // quella che e'. Il silenzio qui non nasconde niente che l'utente abbia
   // chiesto -- cio' che ha chiesto e' a video, con la sua didascalia.
-  if (risposta === undefined || !risposta.ok) return;
+  // Un termine solo: `serverMuto` rende sempre un oggetto con ok: false, quindi
+  // da quando la fetch qui sopra ha il .catch, `undefined` non arriva piu'.
+  if (!risposta.ok) return;
   const pieni = Number(risposta.headers.get(nuvola ? "X-Points-Total" : "X-Vertices"));
   const triangoli = Number(risposta.headers.get("X-Triangles"));
   const grezzi = await corpoBinarioLetto(risposta);
@@ -1499,12 +1547,6 @@ function ricaricaVista(numero, ordine = generazione) {
     // L'unico caso in cui svuotare e' onesto: non c'e' proprio niente a monte.
     // Il testo non da' la colpa allo step scelto -- non e' lui che manca, e'
     // che la corsa non e' mai partita.
-    // Chiude un'attesa che questa strada non ha aperto, e serve proprio per
-    // questo: una lettura ancora in volo viene superata da questo clic e per
-    // contratto NON chiude il caricamento (a chiuderlo e' chi l'ha superata).
-    // Qui chi supera non ne apre uno suo, quindi se non lo chiude questa riga
-    // aria-busy resta acceso sulla vista vuota, e non lo spegne piu' nessuno.
-    chiudiCaricamento();
     vista.svuota();
     document.getElementById("conteggi").textContent =
       "nessuno step ha ancora prodotto un artefatto: esegui lo step 1";
@@ -1847,22 +1889,6 @@ function dichiaraErrore(testo) {
   rigaErrore.textContent = testo ?? "";
 }
 
-// Il valore che finisce nella configurazione, dalla stringa lasciata nel campo.
-// Pura e di primo livello apposta, come superata(): e' l'unico punto in cui dei
-// tasti diventano un dato scritto su disco, e da fuori si puo' provare senza un
-// motore di DOM.
-// trim() perche' Number(" ") e' 0, non NaN: uno spazio scriveva zero in un
-// campo che a video sembra vuoto. Tolto lo spazio, un campo che sembra vuoto e'
-// vuoto, e vuoto vale null — che e' cio' che il campo mostra.
-// Quello che non si legge come numero resta la stringa battuta e parte cosi':
-// il modello la rifiuta con un 422 leggibile, che e' l'unico posto dove il tipo
-// vero si conosce. Trasformarla in null qui la farebbe accettare in silenzio.
-// isFinite e non isNaN: Number("1e999") e Number("Infinity") non sono NaN, ma
-// JSON.stringify li scrive `null`. Passavano la guardia come numeri e il corpo
-// della PUT partiva gia' azzerato: chi batteva `1e999` su max_volume credendo
-// di alzare il tetto se lo vedeva tolto, con un 200 e lo schermo muto. Fuori
-// scala si comporta come illeggibile — resta la stringa battuta, e la decide il
-// modello. (Sul residuo che il modello oggi non ferma, vedi il rapporto.)
 // Un valore reso come testo, per CONFRONTARLO e non per mostrarlo. Gemella nel
 // verso opposto di valoreScritto, che legge cio' che l'utente ha battuto.
 //
@@ -1884,6 +1910,25 @@ function cambiatoDalPredefinito(valore, predefinito) {
   return reso(valore) !== reso(predefinito);
 }
 
+// Il valore che finisce nella configurazione, dalla stringa lasciata nel campo.
+// Pura e di primo livello apposta, come superata(): e' l'unico punto in cui dei
+// tasti diventano un dato scritto su disco, e da fuori si puo' provare senza un
+// motore di DOM.
+//
+// trim() perche' Number(" ") e' 0, non NaN: uno spazio scriveva zero in un
+// campo che a video sembra vuoto. Tolto lo spazio, un campo che sembra vuoto e'
+// vuoto, e vuoto vale null — che e' cio' che il campo mostra.
+//
+// Quello che non si legge come numero resta la stringa battuta e parte cosi':
+// il modello la rifiuta con un 422 leggibile, che e' l'unico posto dove il tipo
+// vero si conosce. Trasformarla in null qui la farebbe accettare in silenzio.
+//
+// isFinite e non isNaN: Number("1e999") e Number("Infinity") non sono NaN, ma
+// JSON.stringify li scrive `null`. Passavano la guardia come numeri e il corpo
+// della PUT partiva gia' azzerato: chi batteva `1e999` su max_volume credendo
+// di alzare il tetto se lo vedeva tolto, con un 200 e lo schermo muto. Fuori
+// scala si comporta come illeggibile — resta la stringa battuta, e la decide il
+// modello. (Sul residuo che il modello oggi non ferma, vedi il rapporto.)
 function valoreScritto(grezzo) {
   const testo = grezzo.trim();
   const numerico = Number(testo);
@@ -2349,9 +2394,6 @@ function fallisciDettaglio(dettaglio, ragione) {
   segnaStepAperto(null);
 }
 
-// ordine: la generazione del clic che ha chiesto questo pannello. Il
-// ricaricamento dallo scorrere degli eventi non ne apre una: prende quella in
-// corso, cosi' un clic dell'utente arrivato nel frattempo lo batte.
 // Il fieldset di un blocco, con i campi rimasti al predefinito richiusi.
 //
 // `segment` rende undici campi e `surface` nove: molto oltre i quattro che si
@@ -2424,6 +2466,9 @@ function intestazioneDelloStep(numero) {
   })];
 }
 
+// ordine: la generazione del clic che ha chiesto questo pannello. Il
+// ricaricamento dallo scorrere degli eventi non ne apre una: prende quella in
+// corso, cosi' un clic dell'utente arrivato nel frattempo lo batte.
 async function apriDettaglio(numero, ordine = generazione) {
   const dettaglio = document.getElementById("dettaglio");
   if (schemaParametri === null) {

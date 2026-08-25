@@ -20,7 +20,6 @@ from pathlib import Path
 from typing import Annotated, get_args
 
 import numpy as np
-import yaml
 from fastapi import FastAPI, Response
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import (
@@ -41,6 +40,7 @@ from meshrec.core.config import (
     RunConfig,
     SegmentConfig,
     ViewportConfig,
+    carica_yaml_da_testo,
     load_config,
     save_config,
 )
@@ -395,9 +395,17 @@ def _non_e_un_passo_dell_albero(nome: str) -> str:
 
 # Uvicorn serve le tratte sincrone su un pool di thread: due scritture di
 # configurazione possono sovrapporsi davvero, e il deposito dello storico legge
-# lo stato prima di scriverlo. Rientrante e non semplice: gli endpoint dello
-# storico lo prendono e chiamano funzioni che lo riprendono, e un Lock semplice
-# si stamperebbe un blocco a vita invece di un errore.
+# lo stato prima di scriverlo.
+#
+# Rientrante per margine, non per necessita': qui c'era scritto che gli endpoint
+# dello storico lo prendessero e chiamassero funzioni che lo riprendono, e non
+# e' vero -- ne' `_deposita_le_modifiche_fatte_a_mano` ne' `_ripristina` lo
+# prendono, e `scrivi_config` non e' mai chiamata da dentro. Un Lock semplice
+# basterebbe oggi. Resta rientrante perche' questo blocco tiene insieme una
+# lettura e una scrittura, ed e' il posto dove un giorno una chiamata annidata
+# ci finisce dentro: un errore di provenienza e' silenzioso, uno stallo no, ma
+# un'applicazione locale che si pianta e' comunque un guasto che l'utente
+# subisce senza saperne il perche'.
 _LUCCHETTO_STORICO = threading.RLock()
 
 
@@ -557,16 +565,46 @@ def create_app(
     async def solo_dal_calcolatore_locale(richiesta, prosegui):
         """Rifiuta le richieste che non arrivano da un nome locale.
 
-        Il CSRF classico e' gia' chiuso: i corpi sono `application/json`,
-        quindi il browser fa il preflight, e nessuna intestazione CORS torna.
-        Resta il DNS rebinding, che fa risolvere un dominio ostile su
-        127.0.0.1 e rende le richieste same-origin, saltando il preflight: da
-        li' una pagina qualunque enumererebbe i percorsi assoluti del disco
-        (`/api/corse`), creerebbe corse e lancerebbe sottoprocessi.
-
-        Il nome, non l'indirizzo del chiamante: e' l'`Host` che il rebinding
+        Il DNS rebinding fa risolvere un dominio ostile su 127.0.0.1 e rende le
+        richieste same-origin: da li' una pagina qualunque enumererebbe i
+        percorsi assoluti del disco (`/api/corse`), creerebbe corse e
+        lancerebbe sottoprocessi. Lo ferma il controllo sull'`Host`: il nome e
+        non l'indirizzo del chiamante, perche' e' l'`Host` che il rebinding
         controlla e che l'origine legittima non puo' falsificare dal browser.
+
+        **Il CSRF non era chiuso, e qui c'era scritto che lo fosse.** L'argomento
+        era «i corpi sono application/json, quindi il browser fa il preflight»,
+        e vale per le sole tratte che un corpo ce l'hanno. Sette non ce l'hanno:
+        `/api/storico/indietro` e `/api/storico/avanti`, e prima di loro
+        `/api/cancel`, `/api/step/{numero}`, `/api/step/{numero}/from`,
+        `/api/wall`, `/api/model/{tipo}` -- di cui tre lanciano sottoprocessi.
+        Una POST senza corpo non porta `Content-Type`, quindi e' una richiesta
+        CORS-safelisted e il preflight non parte; l'`Host` che arriva e'
+        `127.0.0.1`, quindi la guardia sopra la lascia passare. La risposta
+        resta opaca -- nessun `CORSMiddleware` in questo server -- quindi non si
+        legge niente, ma l'effetto collaterale succede lo stesso, e un
+        `<form method=POST>` auto-inviato non ha bisogno nemmeno di JS.
+
+        `Sec-Fetch-Site` lo chiude per tutte e sette in un punto solo: lo scrive
+        il browser e una pagina non lo puo' falsificare. Assente vuol dire che a
+        chiamare non e' un browser -- `curl`, un test, la suite -- e passa: chi
+        non ha un browser non ha nemmeno una vittima da far cliccare, che e' il
+        presupposto del CSRF. `none` e' la navigazione diretta, cioe' l'indirizzo
+        battuto a mano o il segnalibro con cui questa applicazione si apre.
         """
+        sito = richiesta.headers.get("sec-fetch-site")
+        if sito is not None and sito not in {"same-origin", "same-site", "none"}:
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "errore": "RichiestaDaUnAltroSito",
+                    "messaggio": (
+                        f"richiesta partita da un altro sito (Sec-Fetch-Site: {sito}): "
+                        "questo server risponde solo alla propria interfaccia. "
+                        "Aprila da http://127.0.0.1"
+                    ),
+                },
+            )
         nome = (richiesta.headers.get("host") or "").split(":")[0].strip("[]").lower()
         if nome and nome not in NOMI_LOCALI:
             return JSONResponse(
@@ -788,7 +826,15 @@ def create_app(
         La guardia sta qui, nell'unico punto di scrittura, e non nel solo
         endpoint che oggi ne ha bisogno: crop e cluster partono da `corrente()`
         e la superano per costruzione.
+
+        Per la stessa ragione ci sta anche quella di sola lettura, che i tre
+        chiamanti di oggi hanno gia' ciascuno per conto proprio. Lasciarla solo
+        a loro voleva dire che il quarto chiamante -- quello che ancora non
+        esiste -- avrebbe depositato una `.storico/` dentro una corsa di
+        riferimento senza che niente lo fermasse. Ripeterla e' senza effetto
+        sui tre che la fanno gia': solleva sullo stesso stato, prima.
         """
+        non_in_sola_lettura(f"scrivere la configurazione ({endpoint})")
         with _LUCCHETTO_STORICO:
             # La lettura sta dentro insieme alla scrittura: e' su questa che si
             # decide che cosa registrare, e una decisione presa su uno stato che
@@ -816,6 +862,18 @@ def create_app(
             # non e' un gesto da registrare.
             if not storico.esiste(out_dir):
                 storico.deposita(out_dir, config_path.read_text(encoding="utf-8"), "avvio", [])
+            # La modifica fatta a mano si deposita anche QUI, e non solo prima
+            # di un «indietro». `scriviParametro` rimanda l'intera copia che il
+            # browser ha in memoria, quindi una riga cambiata dall'editor nel
+            # frattempo viene sovrascritta per intero da questa PUT: senza
+            # questa riga non finiva in nessuna versione e non esisteva piu' da
+            # nessuna parte. Era la stessa perdita irrecuperabile che la porta
+            # accanto dichiarava chiusa, entrata dal percorso di scrittura.
+            #
+            # A deposito appena creato non fa niente: «avvio» ha appena messo
+            # dentro il file corrente, quindi i due testi coincidono e torna
+            # False senza scrivere.
+            _deposita_le_modifiche_fatte_a_mano(out_dir)
             save_config(nuova, config_path)
             storico.deposita(out_dir, config_path.read_text(encoding="utf-8"), endpoint, campi)
 
@@ -830,19 +888,6 @@ def create_app(
         non_in_sola_lettura("riscrivere la configurazione")
         scrivi_config(nuova, "PUT /api/config")
         return nuova.model_dump(mode="json")
-
-    def _versione_al_cursore(out_dir: Path) -> str | None:
-        """Il testo della versione su cui il cursore sta adesso.
-
-        Entra nei nomi privati di `app/storico.py`, che non espone una lettura
-        senza spostamento. L'alternativa con la sola superficie pubblica sarebbe
-        indietro -> avanti per sbirciare e poi indietro per muovere davvero: tre
-        scritture del cursore al posto di una lettura, e ogni scrittura in piu'
-        e' un'occasione in piu' di lasciarlo disallineato. Il giorno che
-        `storico.py` esporta una `versione_corrente(out_dir)`, questa sparisce.
-        """
-        percorso = storico._percorso(out_dir, storico._cursore(out_dir))
-        return percorso.read_text(encoding="utf-8") if percorso.exists() else None
 
     def _deposita_le_modifiche_fatte_a_mano(out_dir: Path) -> bool:
         """Deposita il config che sta su disco, se non e' quello al cursore.
@@ -870,12 +915,11 @@ def create_app(
         if not storico.esiste(out_dir):
             return False
         attuale = config_path.read_text(encoding="utf-8")
-        if attuale == _versione_al_cursore(out_dir):
+        if attuale == storico.versione_corrente(out_dir):
             return False
-        # Contata PRIMA del deposito: dopo, la versione appena scritta e' essa
+        # Chiesta PRIMA del deposito: dopo, la versione appena scritta e' essa
         # stessa oltre il cursore di prima.
-        cursore = storico._cursore(out_dir)
-        coda = any(numero > cursore for numero in storico._numeri(out_dir))
+        coda = storico.coda_oltre_il_cursore(out_dir)
         storico.deposita(out_dir, attuale, "modifica fuori dall'interfaccia", [])
         return coda
 
@@ -903,8 +947,15 @@ def create_app(
         # riscritto, e da quel momento ogni tratta che chiama corrente()
         # fallisce -- compresi questi due endpoint, cioe' il deposito smette di
         # essere raggiungibile via HTTP.
+        # `carica_yaml_da_testo` e NON `yaml.safe_load`: dev'essere lo stesso
+        # lettore che rileggera' il file, senno' la prova e' piu' permissiva
+        # del controllo vero. Con `safe_load` una versione con due chiavi
+        # omonime passava di qui, finiva su config.yaml, e la respingeva
+        # `load_config` -- dopo la scrittura, cioe' quando il deposito era gia'
+        # irraggiungibile. E' l'unico ingresso degenere che non ha altro
+        # sintomo: il lettore di serie tiene l'ultima e la prima sparisce muta.
         try:
-            candidata = PipelineConfig.model_validate(yaml.safe_load(testo))
+            candidata = PipelineConfig.model_validate(carica_yaml_da_testo(testo))
         except Exception as errore:
             rimetti()
             return {
@@ -990,8 +1041,12 @@ def create_app(
             # «indietro» ha sempre una versione a cui tornare, quindi non
             # risponde mai a vuoto e non tace niente.
             vuoto = (
+                # Il gesto per nome, non un comando per nome: «Annulla» non
+                # esiste nell'interfaccia -- il solo bottone che gli somiglia
+                # dice «Interrompi il calcolo» (index.html:40) e ferma la corsa,
+                # cioe' l'azione sbagliata. Annullare e' solo da tastiera.
                 "la modifica fatta a mano a config.yaml ha preso il posto delle "
-                "versioni da rifare: per tornare a quella di prima usa Annulla"
+                "versioni da rifare: per tornare a quella di prima premi Ctrl/Cmd+Z"
                 if coda_tolta
                 else "niente da rifare"
             )

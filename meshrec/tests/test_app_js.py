@@ -819,7 +819,6 @@ def _banco_di_geometria() -> str:
         # e' ancora in volo.
         "nomeDelloStep",
         "dichiaraCaricamento",
-        "chiudiCaricamento",
         "corpoBinarioLetto",
         "serverMuto",
         "ragioneDelRifiuto",
@@ -1893,7 +1892,7 @@ def test_lo_stato_vuoto_della_vista_compare_solo_dove_non_c_e_niente(tmp_path):
     niente a monte. Lasciata accesa, la frase resterebbe stampata sopra il pezzo.
     """
     _esegui(tmp_path, _DOM + _costante("STEP_CON_GEOMETRIA") + _funzioni(
-        "didascaliaDellaVista", "superata", "passoDaMostrare", "nomeDelloStep", "comandoDelFantasma", "chiudiCaricamento", "ricaricaVista"
+        "didascaliaDellaVista", "superata", "passoDaMostrare", "nomeDelloStep", "comandoDelFantasma", "ricaricaVista"
     ) + """
 // Il velo del passaggio a monte fa una fetch e questo banco prova altro:
 // stub, come riallineaTaglio e mostraStep qui accanto. Che il velo taccia
@@ -2658,7 +2657,7 @@ def test_la_didascalia_della_vista_si_svuota_lasciando_lo_step_del_campo(tmp_pat
     Mutazione che uccide: togliere la riga che la svuota in `ricaricaVista`.
     """
     _esegui(tmp_path, _DOM + _costante("STEP_CON_GEOMETRIA") + _funzioni(
-        "didascaliaDellaVista", "superata", "passoDaMostrare", "nomeDelloStep", "comandoDelFantasma", "chiudiCaricamento", "ricaricaVista"
+        "didascaliaDellaVista", "superata", "passoDaMostrare", "nomeDelloStep", "comandoDelFantasma", "ricaricaVista"
     ) + """
 // Il velo del passaggio a monte fa una fetch e questo banco prova altro:
 // stub, come riallineaTaglio e mostraStep qui accanto. Che il velo taccia
@@ -2825,7 +2824,7 @@ def test_senza_niente_a_monte_la_vista_non_incolpa_lo_step_scelto(tmp_path):
     eseguito ancora niente. E deve dire cosa fare.
     """
     _esegui(tmp_path, _DOM + _costante("STEP_CON_GEOMETRIA") + _funzioni(
-        "didascaliaDellaVista", "superata", "passoDaMostrare", "nomeDelloStep", "comandoDelFantasma", "chiudiCaricamento", "ricaricaVista"
+        "didascaliaDellaVista", "superata", "passoDaMostrare", "nomeDelloStep", "comandoDelFantasma", "ricaricaVista"
     ) + """
 // Il velo del passaggio a monte fa una fetch e questo banco prova altro:
 // stub, come riallineaTaglio e mostraStep qui accanto. Che il velo taccia
@@ -2861,7 +2860,7 @@ def test_la_vista_che_ripiega_dichiara_a_quale_step_appartiene(tmp_path):
     `mostrato !== numero` (che la scriverebbe anche sullo step giusto).
     """
     _esegui(tmp_path, _DOM + _costante("STEP_CON_GEOMETRIA") + _funzioni(
-        "didascaliaDellaVista", "superata", "passoDaMostrare", "nomeDelloStep", "comandoDelFantasma", "chiudiCaricamento", "ricaricaVista"
+        "didascaliaDellaVista", "superata", "passoDaMostrare", "nomeDelloStep", "comandoDelFantasma", "ricaricaVista"
     ) + _RIPIEGO + """
 ETICHETTE["09_tetrahedralize"] = "Tetraedri";
 let chiesto = null;
@@ -2915,7 +2914,7 @@ def test_la_coda_del_ripiego_non_si_attacca_a_un_rifiuto(tmp_path):
     vuota vuol dire nascondersi -- ma non e' `true`.
     """
     _esegui(tmp_path, _DOM + _costante("STEP_CON_GEOMETRIA") + _funzioni(
-        "didascaliaDellaVista", "superata", "passoDaMostrare", "nomeDelloStep", "comandoDelFantasma", "chiudiCaricamento", "ricaricaVista"
+        "didascaliaDellaVista", "superata", "passoDaMostrare", "nomeDelloStep", "comandoDelFantasma", "ricaricaVista"
     ) + _RIPIEGO + """
 const rifiuto = "l'artefatto dello step 9 non c'e' piu' sul disco: riesegui lo step 9";
 let allineato = "mai";
@@ -2944,7 +2943,7 @@ def test_una_generazione_superata_non_scrive_la_coda_del_ripiego(tmp_path):
     non deve posarsi sulla didascalia del secondo.
     """
     _esegui(tmp_path, _DOM + _costante("STEP_CON_GEOMETRIA") + _funzioni(
-        "didascaliaDellaVista", "superata", "passoDaMostrare", "nomeDelloStep", "comandoDelFantasma", "chiudiCaricamento", "ricaricaVista"
+        "didascaliaDellaVista", "superata", "passoDaMostrare", "nomeDelloStep", "comandoDelFantasma", "ricaricaVista"
     ) + _RIPIEGO + """
 const vista = { svuota: () => {} };
 let allineato = "mai";
@@ -4572,7 +4571,10 @@ risponde = [() => ({
 const esito = await mostraNuvolaDelloStep(2, generazione);
 
 assert.equal(esito, "vuoto", "un download caduto non e' ne' un disegno ne' una risposta scartata");
-assert.equal(viewport.getAttribute("aria-busy"), null, "l'attesa e' rimasta aperta per sempre");
+assert.ok(
+  !conteggi.textContent.includes("caricamento"),
+  "l'attesa e' rimasta scritta per sempre: " + conteggi.textContent,
+);
 assert.match(
   conteggi.textContent, /il server non ha risposto/,
   "il download caduto non dice niente: " + conteggi.textContent,
@@ -4581,22 +4583,29 @@ assert.ok(vista.svuotate > 0, "la geometria di prima e' rimasta sotto un testo c
 """)
 
 
-def test_una_lettura_superata_non_spegne_l_attesa_di_quella_che_l_ha_superata(tmp_path):
-    """Chi e' stato superato NON chiude il caricamento: a chiuderlo e' chi lo ha
-    superato, che ne ha aperto uno suo.
+def test_una_lettura_superata_non_cancella_l_annuncio_di_quella_che_l_ha_superata(tmp_path):
+    """Chi e' stato superato non tocca la scritta dell'attesa: a riscriverla e'
+    chi lo ha superato, quando arriva.
 
     Le due richieste della stessa generazione sono il caso normale, non un caso
     limite: il fronte di discesa ricarica la vista senza aprire una generazione,
     quindi puo' gareggiare con una risposta partita prima. Se la piu' vecchia,
-    rientrando, spegnesse aria-busy, la tela smetterebbe di dichiararsi occupata
-    mentre la lettura buona e' ancora in volo -- e su una scansione vera quella
-    finestra dura decine di secondi.
+    rientrando, scrivesse i propri conteggi, a video comparirebbero i numeri di
+    una lettura scartata mentre quella buona e' ancora in volo -- e su una
+    scansione vera quella finestra dura decine di secondi.
 
-    Mutazione che lo uccide: spostare `chiudiCaricamento()` sopra la guardia
-    `if (superata(...)) return false`.
+    E' il contratto che prima era affidato ad `aria-busy`, tolto perche'
+    #conteggi e' figlio di #viewport (index.html:135-136): l'attributo
+    sull'antenato zittiva la regione viva invece di descriverla. Qui si misura
+    la cosa vera -- che cosa c'e' scritto -- invece del suo surrogato.
+
+    Mutazione che lo uccide: togliere la guardia `if (superata(...)) return
+    false` che sta sopra la scrittura dei conteggi.
     """
     _esegui(tmp_path, _banco_di_geometria() + """
-const viewport = document.getElementById("viewport");
+const conteggi = document.getElementById("conteggi");
+ETICHETTE["02_segment"] = "Segmentazione";
+ultimoStato = [{ numero: 2, chiave: "02_segment" }];
 let risolvi1, risolvi2;
 risponde = [
   () => new Promise((r) => { risolvi1 = r; }),
@@ -4610,19 +4619,30 @@ const corpo = (n) => ({
 
 const vecchia = mostraNuvolaDelloStep(2, generazione);
 const nuova = mostraNuvolaDelloStep(2, generazione);
-assert.equal(viewport.getAttribute("aria-busy"), "true", "l'attesa non e' stata dichiarata");
+assert.equal(
+  conteggi.textContent, "caricamento di Segmentazione...",
+  "l'attesa non e' stata dichiarata",
+);
 
 // La VECCHIA rientra per prima: e' superata, e la nuova e' ancora in volo.
 risolvi1(corpo(1));
 assert.equal(await vecchia, false, "la richiesta vecchia ha scritto");
 assert.equal(
-  viewport.getAttribute("aria-busy"), "true",
-  "la richiesta superata ha spento l'attesa di quella che l'ha superata",
+  conteggi.textContent, "caricamento di Segmentazione...",
+  "la richiesta superata ha cancellato l'annuncio di quella che l'ha superata: "
+  + conteggi.textContent,
 );
 
 risolvi2(corpo(2));
 assert.equal(await nuova, true);
-assert.equal(viewport.getAttribute("aria-busy"), null, "chi ha disegnato non ha chiuso l'attesa");
+assert.match(
+  conteggi.textContent, /\\b2\\b/,
+  "chi ha disegnato non ha sostituito l'attesa coi propri numeri: " + conteggi.textContent,
+);
+assert.ok(
+  !conteggi.textContent.includes("caricamento"),
+  "l'attesa e' rimasta scritta dopo che la geometria era a video",
+);
 """)
 
 
@@ -4653,8 +4673,11 @@ mostraNuvolaDelloStep(2, generazione);
 await Promise.resolve();
 
 assert.equal(conteggi.textContent, "caricamento di Segmentazione...");
-assert.equal(viewport.getAttribute("aria-busy"), "true");
 assert.ok(!conteggi.textContent.includes("%"), "l'attesa ha inventato un avanzamento");
+assert.equal(
+  viewport.getAttribute("aria-busy"), null,
+  "aria-busy su #viewport zittisce #conteggi, che gli sta dentro ed e' la regione viva",
+);
 """)
 
 
@@ -4726,7 +4749,7 @@ assert.deepEqual(
 assert.deepEqual(
   esitoDellaCorsa({ ...base, exit_code: 1 }),
   {
-    errore: "Lettura: esecuzione fallita (codice 1). Il motivo è nelle ultime righe del registro, qui sotto.",
+    errore: "Lettura: esecuzione fallita (codice 1). Il motivo è nelle ultime righe del registro, in fondo alla colonna Dettaglio.",
     esito: null,
   },
 );
@@ -5190,4 +5213,82 @@ assert.match(
   ),
   /step 7 torna/,
 );
+""")
+
+
+def test_un_comando_fuori_pipeline_non_si_annuncia_come_step_null(tmp_path):
+    """«Ricalcola il prior» e «Ricostruisci il modello» non hanno un numero.
+
+    `worker.start_comando` lascia `step` e `a_step` a null, e il carico SSE non
+    porta un'etichetta. `nomeDelloStep(null)` ripiega sulla forma «step
+    <numero>», quindi la testata annunciava alla lettera, misurato:
+
+        step null: esecuzione conclusa
+        step null: esecuzione fallita (codice 1). ...
+        step null: esecuzione annullata
+
+    La riga che pulsa il caso lo trattava gia' -- dice «un comando è in corso»
+    -- ed e' l'esito che non lo trattava. Due superfici che descrivono la stessa
+    cosa e una sola delle due sa che il caso esiste.
+
+    Mutazione che lo uccide: togliere il ramo `stato.step === null` da
+    `descrizioneDellaCorsa`.
+    """
+    _esegui(tmp_path, _banco_di_esito() + """
+ultimoStato = [];
+const base = { in_corso: false, step: null, a_step: null, steps: [], annullato: false };
+
+assert.deepEqual(
+  esitoDellaCorsa({ ...base, exit_code: 0 }),
+  { errore: null, esito: "il comando: esecuzione conclusa" },
+);
+assert.deepEqual(
+  esitoDellaCorsa({ ...base, exit_code: -15, annullato: true }),
+  { errore: null, esito: "il comando: esecuzione annullata" },
+);
+const fallito = esitoDellaCorsa({ ...base, exit_code: 1 });
+assert.ok(
+  !fallito.errore.includes("null"),
+  "l'esito nomina uno step che non esiste: " + fallito.errore,
+);
+""")
+
+
+def test_l_esito_si_annuncia_anche_se_il_codice_arriva_dopo_la_fine(tmp_path):
+    """La finestra fra «non gira piu'» e «ecco com'e' finita».
+
+    `is_running()` e' `poll() is None`, mentre `exit_code` lo fissa `_leggi`
+    DOPO aver svuotato stdout: esiste un frame -- il drain della pipe -- in cui
+    la corsa e' gia' dichiarata ferma e il codice non c'e' ancora.
+
+    Consumando il fronte li', al frame dopo `eraInCorso` era gia' falso e per
+    quella corsa l'esito non si annunciava MAI: ne' conclusa, ne' fallita, ne'
+    annullata. `esitoDellaCorsa` taceva correttamente, e proprio per questo il
+    fronte veniva bruciato in silenzio -- il rigetto muto che tutta questa
+    superficie esiste per togliere.
+
+    Mutazione che lo uccide: rimettere `eraInCorso = stato.in_corso;`
+    incondizionato in fondo ad `aggiornaDaStato`.
+    """
+    _esegui(tmp_path, _banco_di_esito() + """
+ETICHETTE["01_load"] = "Lettura";
+const steps = [{ numero: 1, chiave: "01_load", stato: "valido", secondi: 12 }];
+const base = { step: 1, a_step: 1, steps, annullato: false };
+
+// La corsa gira.
+aggiornaDaStato({ ...base, in_corso: true, exit_code: null });
+assert.equal(esito.textContent, "", "a corsa in moto non c'e' un esito da dire");
+
+// Il frame di mezzo: ferma, ma il codice non e' ancora stato letto.
+aggiornaDaStato({ ...base, in_corso: false, exit_code: null });
+assert.equal(esito.textContent, "", "ha inventato un esito senza codice");
+
+// Il frame dopo porta il codice: e' adesso che l'esito si annuncia.
+aggiornaDaStato({ ...base, in_corso: false, exit_code: 0 });
+assert.equal(esito.textContent, "Lettura: esecuzione conclusa in 12 s");
+
+// E una volta sola: il fronte si e' consumato qui, non prima.
+esito.textContent = "";
+aggiornaDaStato({ ...base, in_corso: false, exit_code: 0 });
+assert.equal(esito.textContent, "", "il fronte si e' ripetuto a ogni frame");
 """)

@@ -43,19 +43,30 @@ def _percorso(out_dir: Path, numero: int) -> Path:
 def _numeri(out_dir: Path) -> list[int]:
     """I numeri delle versioni presenti, in ordine.
 
-    Il glob e' sulla forma del nome e non su "*.yaml" perche' scrivi_atomico
-    lascia un temporaneo "0003.tmp.yaml" quando il processo muore a meta'
-    scrittura, e nessuno lo raccoglie: scarta_temporanei non ricorre nelle
-    sottocartelle (core/io.py:151 usa glob e non rglob) e l'unico che lo chiama
-    e' pipeline sulla cartella della corsa. Con "*.yaml" quel residuo farebbe
-    sollevare int() a ogni chiamata, cioe' il deposito smetterebbe di
-    funzionare per un file che non e' una versione.
+    Si filtra su `.isdigit()` e non con un glob a quattro cifre perche'
+    scrivi_atomico lascia un temporaneo "0003.tmp.yaml" quando il processo muore
+    a meta' scrittura, e nessuno lo raccoglie: scarta_temporanei non ricorre
+    nelle sottocartelle (core/io.py:151 usa glob e non rglob) e l'unico che lo
+    chiama e' pipeline sulla cartella della corsa. Con "*.yaml" nudo quel
+    residuo farebbe sollevare int() a ogni chiamata, cioe' il deposito
+    smetterebbe di funzionare per un file che non e' una versione. `"0003.tmp"`
+    non e' `isdigit()`, quindi la guardia regge.
+
+    "[0-9][0-9][0-9][0-9].yaml" reggeva anche lui, ma solo fino a 9999. I numeri
+    sono monotoni -- `deposita` fa `corrente + 1` e il TETTO pota i FILE, non i
+    numeri -- quindi la 10000esima versione si scrive come "10000.yaml", cinque
+    cifre, e il glob a quattro non la vede piu'. Da li' in poi lo storico si
+    congelava in silenzio: ogni scrittura sovrascriveva lo stesso file
+    invisibile, e «avanti» restituiva la 9999, cioe' uno stato PIU' VECCHIO di
+    quello che config.yaml portava davvero.
     """
     cartella = _cartella(out_dir)
     if not cartella.is_dir():
         return []
     return sorted(
-        int(percorso.stem) for percorso in cartella.glob("[0-9][0-9][0-9][0-9].yaml")
+        int(percorso.stem)
+        for percorso in cartella.glob("*.yaml")
+        if percorso.stem.isdigit()
     )
 
 
@@ -80,12 +91,16 @@ def _cursore(out_dir: Path) -> int:
         # configurazione che aveva appena rifiutato. Dirglielo richiede un
         # canale verso l'interfaccia, che qui non c'e'.
         return numeri[-1]
-    # Il cursore e' un file, e un file si puo' modificare a mano: e' l'unica
-    # causa di un numero fuori intervallo, perche' deposita lascia sempre il
-    # cursore sul massimo e il tetto toglie solo le piu' vecchie. Riportarlo
-    # dentro non e' cortesia: senza, la scrittura successiva prenderebbe un
-    # numero a cinque cifre, che sta fuori dalla forma dei nomi riconosciuti, e
-    # la versione finirebbe su disco invisibile al deposito stesso.
+    # Il cursore e' un file, e un file si puo' modificare a mano: e' la causa
+    # che resta di un numero fuori intervallo, perche' deposita lascia sempre il
+    # cursore sul massimo e il tetto toglie solo le piu' vecchie.
+    #
+    # Qui c'era scritto che fosse l'UNICA, e non lo era: `deposita` fa
+    # `corrente + 1` senza mai rileggere il massimo, quindi ci arrivava da sola
+    # oltre la 9999. Adesso `_numeri` riconosce i nomi per `.isdigit()` e non
+    # per un glob a quattro cifre, quindi un numero a cinque cifre e' una
+    # versione come le altre e quella strada non esiste piu'. Il clamp resta
+    # per il file scritto a mano, che nessuno puo' impedire.
     return min(max(salvato, numeri[0]), numeri[-1])
 
 
@@ -101,6 +116,28 @@ def _scrivi_cursore(out_dir: Path, numero: int) -> None:
 def esiste(out_dir: Path) -> bool:
     """C'e' gia' almeno una versione depositata."""
     return bool(_numeri(out_dir))
+
+
+def versione_corrente(out_dir: Path) -> str | None:
+    """Il testo della versione su cui il cursore sta adesso, senza spostarlo.
+
+    Una LETTURA, che la sola coppia indietro/avanti non sapeva fare: sbirciare
+    con quelle costava indietro -> avanti -> indietro, tre scritture del cursore
+    al posto di zero, e ogni scrittura in piu' e' un'occasione in piu' di
+    lasciarlo disallineato.
+    """
+    percorso = _percorso(out_dir, _cursore(out_dir))
+    return percorso.read_text(encoding="utf-8") if percorso.exists() else None
+
+
+def coda_oltre_il_cursore(out_dir: Path) -> bool:
+    """C'e' almeno una versione da rifare oltre quella su cui siamo.
+
+    Va chiesta PRIMA di depositare: dopo, la versione appena scritta e' essa
+    stessa oltre il cursore di prima e la risposta e' sempre vera.
+    """
+    cursore = _cursore(out_dir)
+    return any(numero > cursore for numero in _numeri(out_dir))
 
 
 def _applica_tetto(out_dir: Path) -> None:

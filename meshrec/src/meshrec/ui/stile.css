@@ -294,17 +294,26 @@ code { font-family: var(--stack-cifre); }
    taglia e stessa interlinea di .in-corso: sono la stessa voce letta in due
    momenti -- una dice che sta girando, l'altra come e' finita -- e due corpi
    diversi le farebbero sembrare due meccanismi.
-   Vuota non lascia un buco: senza `:empty` la riga occuperebbe la sua altezza
-   sopra la testata per tutta la vita dell'applicazione, e a corsa mai lanciata
-   sarebbe uno spazio che non annuncia niente. */
-/* La scorciatoia della testata: si legge una volta e poi si smette di vederla,
-   che e' cio' che deve fare. Il corpo e' quello delle note, non quello
-   dell'esito: l'esito e' un fatto appena successo, questa e' un'istruzione
-   permanente, e allo stesso peso si contenderebbero l'occhio. */
-.scorciatoia { margin: 0; }
-.scorciatoia kbd { font-family: var(--stack-cifre); font-size: 0.9em; padding: 0 var(--passo-1); border: 1px solid var(--bordo); border-radius: var(--raggio); background: var(--superficie); }
+   Vuota non lascia un buco: senza la regola su `:empty` la riga occuperebbe la
+   sua altezza sopra la testata per tutta la vita dell'applicazione, e a corsa
+   mai lanciata sarebbe uno spazio che non annuncia niente.
+   `height: 0` e NON `display: none`: #esito e' aria-live, e una regione viva
+   dev'essere nell'albero PRIMA che ci si scriva dentro (index.html:22-25).
+   `display: none` la toglie dall'albero di accessibilita' proprio finche' e'
+   vuota, cioe' fino all'istante prima della scrittura, e se l'annuncio
+   sopravviva a quella transizione dipende dal lettore di schermo. Cosi' invece
+   la riga c'e' sempre e non si vede: stesso effetto a video, nessuna scommessa. */
 .esito { margin: 0; font-size: var(--tipo-dato); line-height: var(--interlinea-riga); color: var(--tenue); }
-.esito:empty { display: none; }
+.esito:empty { height: 0; overflow: hidden; }
+/* La scorciatoia della testata: si legge una volta e poi si smette di vederla,
+   che e' cio' che deve fare. Il corpo lo eredita da .aiuto, messo sull'elemento
+   in index.html, e non dall'esito: l'esito e' un fatto appena successo, questa
+   e' un'istruzione permanente, e allo stesso peso si contenderebbero l'occhio.
+   Il contorno del tasto usa --bordo-comando e non --bordo: qui il bordo E' il
+   solo segnale che «Ctrl/Cmd» e «Z» sono capsule e non parole della frase, e
+   --bordo sta a 1,41:1 dichiarato -- proiettato sparisce e resta testo. */
+.scorciatoia { margin: 0; }
+.scorciatoia kbd { font-family: var(--stack-cifre); font-size: 0.9em; padding: 0 var(--passo-1); border: 1px solid var(--bordo-comando); border-radius: var(--raggio); background: var(--superficie); }
 /* Il colore ACCANTO al testo e non al posto del testo: «esecuzione fallita» si
    legge per esteso comunque, e chi non distingue le tinte non perde niente
    (WCAG 1.4.1). Il peso porta il rango dove il colore non arriva -- proiettato

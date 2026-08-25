@@ -163,3 +163,102 @@ def test_esiste_dice_se_c_e_gia_una_versione(tmp_path: Path):
     assert storico.esiste(tmp_path) is False
     storico.deposita(tmp_path, "uno\n", "avvio", [])
     assert storico.esiste(tmp_path) is True
+
+
+def test_la_diecimillesima_versione_non_fa_sparire_lo_storico(tmp_path: Path):
+    """Il numero non ha un tetto, il numero di FILE si'.
+
+    `deposita` fa `corrente + 1` e non rilegge mai il massimo; `TETTO` pota i
+    file e non i numeri. Quindi una corsa longeva ci arriva da sola: la
+    10000esima versione si scrive «10000.yaml», cinque cifre.
+
+    Con l'elenco preso da un glob a quattro cifre quel file era invisibile al
+    deposito stesso, e il guasto era muto in tutti e tre i modi peggiori: ogni
+    scrittura successiva sovrascriveva lo stesso file, `esiste` continuava a
+    dire di si', e «avanti» restituiva la 9999 -- cioe' uno stato PIU' VECCHIO
+    di quello che config.yaml portava davvero, presentato come il rifare.
+
+    Le due versioni si posano a mano invece di depositarne diecimila: la
+    grandezza sorvegliata e' il passaggio da quattro a cinque cifre, non la
+    fatica di arrivarci.
+
+    Mutazione che lo uccide: rimettere `glob("[0-9][0-9][0-9][0-9].yaml")` al
+    posto del filtro su `.isdigit()` in `_numeri`.
+    """
+    cartella = tmp_path / ".storico"
+    cartella.mkdir(parents=True)
+    (cartella / "9998.yaml").write_text("a: 9998\n", encoding="utf-8")
+    (cartella / "9999.yaml").write_text("a: 9999\n", encoding="utf-8")
+    (cartella / "cursore.json").write_text(json.dumps({"versione": 9999}), encoding="utf-8")
+
+    assert storico.deposita(tmp_path, "a: 10000\n", "PUT /api/config", ["x"]) == 10000
+    # La nuova e' una versione come le altre: la si vede, e il cursore ci sta
+    # sopra. Senza il filtro giusto qui l'elenco tornava [9998, 9999].
+    assert storico.indietro(tmp_path) == "a: 9999\n"
+    assert storico.avanti(tmp_path) == "a: 10000\n"
+    # E la scrittura dopo prosegue da 10000, non ricomincia da 9999+1.
+    assert storico.deposita(tmp_path, "a: 10001\n", "PUT /api/config", ["y"]) == 10001
+
+
+def test_un_temporaneo_a_cinque_cifre_resta_fuori_dalle_versioni(tmp_path: Path):
+    """La controprova del test qui sopra: allargare il glob non doveva far
+    entrare i temporanei, che sono la ragione per cui il glob era stretto.
+
+    `scrivi_atomico` lascia «10000.tmp.yaml» se il processo muore a meta', e
+    `"10000.tmp"` non e' `.isdigit()`. La guardia regge alla larghezza nuova.
+    """
+    cartella = tmp_path / ".storico"
+    cartella.mkdir(parents=True)
+    (cartella / "9999.yaml").write_text("a: 9999\n", encoding="utf-8")
+    (cartella / "10000.tmp.yaml").write_text("meta' scrittura", encoding="utf-8")
+    (cartella / "cursore.json").write_text(json.dumps({"versione": 9999}), encoding="utf-8")
+
+    assert storico.esiste(tmp_path) is True
+    assert storico.deposita(tmp_path, "a: 10000\n", "PUT /api/config", ["x"]) == 10000
+
+
+def test_versione_corrente_legge_senza_spostare_il_cursore(tmp_path: Path):
+    """La lettura che prima non c'era, e per cui il server entrava nei nomi
+    privati di questo modulo.
+
+    Sbirciare con la sola coppia indietro/avanti costava tre scritture del
+    cursore per zero spostamenti voluti, e ogni scrittura in piu' e'
+    un'occasione in piu' di lasciarlo disallineato.
+
+    Mutazione che lo uccide: far chiamare `indietro` a `versione_corrente`.
+    """
+    storico.deposita(tmp_path, "uno\n", "avvio", [])
+    storico.deposita(tmp_path, "due\n", "PUT /api/config", ["a"])
+
+    assert storico.versione_corrente(tmp_path) == "due\n"
+    # Due volte di fila la stessa risposta: se spostasse, la seconda sarebbe
+    # «uno\n».
+    assert storico.versione_corrente(tmp_path) == "due\n"
+    # E il cursore e' rimasto dov'era: «indietro» adesso da' la prima.
+    assert storico.indietro(tmp_path) == "uno\n"
+
+
+def test_versione_corrente_su_un_deposito_vuoto_e_none(tmp_path: Path):
+    """Non c'e' niente da leggere, e non e' un guasto: e' la corsa aperta e mai
+    modificata. `_cursore` torna 0 e «0000.yaml» non esiste."""
+    assert storico.versione_corrente(tmp_path) is None
+
+
+def test_la_coda_si_chiede_prima_di_depositare(tmp_path: Path):
+    """C'e' qualcosa da rifare oltre il punto in cui siamo?
+
+    La domanda ha senso solo PRIMA di una scrittura: dopo, la versione appena
+    depositata e' essa stessa oltre il cursore di prima, e la risposta sarebbe
+    sempre vera. E' l'unico modo che il server ha di sapere se un deposito ha
+    fatto sparire delle versioni da rifare, cioe' se deve dirlo.
+
+    Mutazione che lo uccide: `>=` al posto di `>` in `coda_oltre_il_cursore`.
+    """
+    storico.deposita(tmp_path, "uno\n", "avvio", [])
+    storico.deposita(tmp_path, "due\n", "PUT /api/config", ["a"])
+    # Sul massimo non c'e' coda: siamo in fondo.
+    assert storico.coda_oltre_il_cursore(tmp_path) is False
+
+    storico.indietro(tmp_path)
+    # Adesso «due» sta oltre il cursore, e un deposito la cancellerebbe.
+    assert storico.coda_oltre_il_cursore(tmp_path) is True
