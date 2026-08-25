@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
 
 import pytest
 
-from meshrec.app.worker import Worker
+from meshrec.app.worker import CODIFICA_DEL_TUBO, Worker
 from meshrec.core.config import InputConfig, PipelineConfig, save_config
 from materiale import ANALISI
 
@@ -172,8 +174,24 @@ def test_una_riga_non_decodificabile_non_uccide_il_lettore(tmp_path, monkeypatch
     da una corsa lenta; senza la terza passerebbe un rimedio che tiene in vita
     il thread ma butta via la riga.
 
-    Mutazione che lo uccide: togliere `errors=` (o l'accordo sulla codifica)
-    dai `Popen` di `worker.py:78` e `worker.py:114` lo riporta rosso.
+    Il rimedio ha spostato che cosa questo controllo prova, e la docstring
+    segue. Prima il figlio ereditava `PYTHONIOENCODING` dal genitore e scriveva
+    davvero latin-1: il controllo pesava la sopravvivenza del lettore. Adesso i
+    `Popen` passano un `env` che dichiara la codifica del figlio, quindi quel
+    latin-1 non arriva piu' a destinazione -- ed e' proprio questo che si
+    misura: **col genitore avvelenato, l'accento arriva INTATTO**. Non
+    sostituito: intatto. E' la meta' del rimedio che chiude la causa invece di
+    tamponarla, e la sola che si puo' pesare da qui.
+
+    L'altra meta' -- `errors="replace"`, per i byte storti che le librerie in
+    C++ scrivono sul descrittore saltando `sys.stdout` -- ha il suo controllo
+    suo, `test_un_byte_storto_dal_descrittore_non_solleva`: da qui non e'
+    raggiungibile, perche' `Worker` puo' lanciare solo `meshrec.cli` e su questa
+    macchina non c'e' modo di far emettere byte non-UTF-8 a Open3D.
+
+    Mutazione che lo uccide: togliere `env=_ambiente_del_figlio()` dai due
+    `Popen`. Misurata: l'accento torna a essere scritto latin-1, il lettore lo
+    sostituisce e la riga porta `citt<?>.ply` invece di `città.ply`.
     """
     fuori = _eccezioni_dei_thread(monkeypatch)
     monkeypatch.setenv("PYTHONIOENCODING", "latin-1")
@@ -189,10 +207,14 @@ def test_una_riga_non_decodificabile_non_uccide_il_lettore(tmp_path, monkeypatch
 
     assert fuori == []
     assert lavoratore.exit_code is not None
-    # O l'accento e' arrivato intatto (i due capi si sono accordati), o e'
-    # diventato un carattere di sostituzione (il lettore ha tirato dritto):
-    # tutte e due sono esiti buoni, perche' la riga c'e'. Perderla non lo e'.
-    assert any(".ply" in riga for riga in lavoratore.righe())
+    # INTATTO, non «arrivato in qualche forma»: la sostituzione sarebbe la
+    # prova che i due capi non si sono accordati e che il lettore ha solo
+    # tirato dritto. Accettarla qui renderebbe questo controllo cieco alla
+    # meta' del rimedio che sta misurando.
+    righe = lavoratore.righe()
+    assert any("città.ply" in riga for riga in righe), (
+        f"l'accento non e' arrivato intatto: {righe}"
+    )
 
 
 def test_un_accento_italiano_vero_arriva_integro_al_registro(tmp_path):
@@ -243,3 +265,87 @@ def test_una_riga_vuota_del_sottoprocesso_non_e_un_guasto(tmp_path, monkeypatch)
     assert fuori == []
     assert lavoratore.exit_code == 0
     assert "" in lavoratore.righe()
+
+
+def test_un_byte_storto_dal_descrittore_non_solleva():
+    """L'altra meta' del rimedio: `errors="replace"` sulla costante condivisa.
+
+    `env` mette d'accordo i due capi finche' a scrivere e' Python. Open3D e
+    `ccx` no: scrivono dal C++ direttamente sul descrittore, saltando
+    `sys.stdout`, e `PYTHONIOENCODING` non li governa. Un byte storto di
+    libreria non deve poter fermare una corsa, e senza `errors=` lo fermava --
+    e' come il difetto e' arrivato all'utente.
+
+    Si misura la COSTANTE e non un `Worker`, ed e' deliberato: `Worker` puo'
+    lanciare solo `meshrec.cli` (`worker.py`, i due `Popen`), quindi da li' non
+    esiste un modo di far emettere byte non-UTF-8 su questa macchina. La
+    costante e' pero' esattamente la superficie che i due `Popen` condividono:
+    provata qui, vale per tutti e due.
+
+    `0xE0` e non un byte a caso: e' `à` in cp1252, il byte dell'errore vero.
+
+    Mutazione che lo uccide: togliere `"errors": "replace"` da
+    `CODIFICA_DEL_TUBO`. Misurata: `UnicodeDecodeError` invece della riga.
+    """
+    processo = subprocess.Popen(
+        [
+            sys.executable, "-c",
+            r"import sys; sys.stdout.buffer.write(b'citt\xe0.ply\n'); sys.stdout.buffer.flush()",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        **CODIFICA_DEL_TUBO,
+    )
+    righe = list(processo.stdout)
+    processo.wait()
+
+    assert len(righe) == 1
+    # La riga c'e' e finisce dove deve: il byte storto e' diventato un
+    # carattere di sostituzione, non ha mangiato il resto.
+    assert righe[0].endswith(".ply\n"), righe
+    assert "citt" in righe[0]
+
+
+def test_il_codice_di_uscita_si_fissa_anche_se_la_lettura_esplode(tmp_path):
+    """Il codice d'uscita non deve dipendere dall'esito della lettura.
+
+    `_leggi` gira in un THREAD DEMONE: un'eccezione nel corpo non risale a
+    nessuno, uccide il solo lettore, e da li' `wait()` non viene chiamato ed
+    `exit_code` resta None per sempre. L'interfaccia legge `exit_code` nullo
+    come «non lo so ancora» e TACE, quindi la corsa falliva e a video non
+    compariva niente -- ne' conclusa, ne' fallita, ne' annullata. E' cosi' che
+    il difetto di codifica e' arrivato come schermo muto invece che come
+    messaggio, e il muto e' peggio.
+
+    `errors="replace"` toglie la causa che l'ha prodotto; questo toglie la
+    classe. Si prova con un processo finto perche' la causa vera adesso non si
+    puo' piu' produrre: e' la classe a essere sorvegliata, non un guasto
+    particolare.
+
+    Mutazione che lo uccide: rimettere `processo.wait()` e l'assegnazione di
+    `exit_code` nel corpo del `try` invece che nel `finally`.
+    """
+    class _StdoutCheEsplode:
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            raise UnicodeDecodeError("utf-8", b"\xe0", 0, 1, "invalid continuation byte")
+
+    class _ProcessoFinto:
+        returncode = 3
+        stdout = _StdoutCheEsplode()
+
+        def wait(self):
+            return self.returncode
+
+    lavoratore = Worker()
+    lavoratore._processo = _ProcessoFinto()
+
+    with pytest.raises(UnicodeDecodeError):
+        lavoratore._leggi()
+
+    assert lavoratore.exit_code == 3, (
+        "il codice d'uscita non e' stato fissato: la corsa resta senza esito per sempre"
+    )
