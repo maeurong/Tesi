@@ -1,2 +1,8 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# I due avviatori vanno consegnati con i fine riga del loro sistema: cmd.exe
+# non esegue un .bat a fine riga LF, e la shell non esegue un .command a fine
+# riga CRLF (`\r` finisce dentro l'argomento).
+*.bat text eol=crlf
+*.command text eol=lf
