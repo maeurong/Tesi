@@ -516,7 +516,39 @@ code { font-family: var(--stack-cifre); }
 .gruppo { border: 1px solid var(--bordo); border-radius: var(--raggio); padding: var(--passo-3); margin: 0 0 var(--passo-6); }
 .gruppo .campo:last-child { margin-bottom: 0; }
 .gruppo legend { font-size: var(--tipo-nota); line-height: var(--interlinea-riga); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--tenue); }
-.campo { display: grid; gap: var(--passo-1); margin-bottom: var(--passo-3); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); }
+/* La testata di un campo: il nome, e accanto il punto interrogativo quando c'e'
+   qualcosa da dire. In riga e non impilati, cosi' il «?» si legge come una
+   proprieta' di quel nome e non come una riga a se'. */
+.campo-testata { display: flex; align-items: baseline; gap: var(--passo-2); }
+.campo-aiuto { display: inline-flex; }
+/* Tondo e piccolo, ma non sotto la misura del tocco: 1,5rem sono 24px, e resta
+   un bersaglio raggiungibile col dito accanto a un'etichetta di 13px. Il colore
+   e' --tenue perche' e' un comando accessorio; il contorno passa a --testo al
+   passaggio, cosi' non e' il solo colore a dire che si puo' premere. */
+.punto-interrogativo { display: inline-flex; align-items: center; justify-content: center; width: 1.5rem; height: 1.5rem; padding: 0; border: 1px solid var(--bordo-comando); border-radius: 50%; background: var(--superficie); color: var(--tenue); font: inherit; font-size: var(--tipo-nota); line-height: 1; cursor: pointer; transition: color var(--durata-tocco) var(--curva), border-color var(--durata-tocco) var(--curva); }
+.punto-interrogativo:hover { color: var(--testo); border-color: var(--testo); }
+.punto-interrogativo:focus-visible { outline: 2px solid var(--accento); outline-offset: 2px; }
+/* La bolla. Sopra il resto del pannello, e con una larghezza propria: eredita la
+   colonna del dettaglio, che e' stretta, e senza questa misura la spiegazione
+   scenderebbe in una colonna di due parole. Il testo e' --testo e non --tenue:
+   si apre a richiesta, quindi quando c'e' va letto -- anche proiettato. */
+.bolla { position: absolute; z-index: 2; top: calc(100% + var(--passo-1)); left: 0; right: 0; padding: var(--passo-3); background: var(--superficie); border: 1px solid var(--bordo-comando); border-radius: var(--raggio); font-size: var(--tipo-nota); line-height: var(--interlinea); color: var(--testo); text-wrap: pretty; }
+.bolla[hidden] { display: none; }
+.bolla p { margin: 0; }
+.bolla dl { display: grid; grid-template-columns: auto 1fr; gap: var(--passo-1) var(--passo-2); margin: var(--passo-2) 0 0; }
+/* Il nome del valore in cifre monospaziate: sono identificatori -- C3D4,
+   poisson, crop -- e vanno distinti dalla prosa che li spiega. */
+.bolla dt { font-family: var(--stack-cifre); color: var(--testo); }
+.bolla dd { margin: 0; color: var(--tenue); }
+/* Da quando la descrizione sta dietro il «?», questa riga resta spesso vuota, e
+   un figlio vuoto di una griglia con gap occupa comunque la propria riga. */
+.aiuto:empty { display: none; }
+/* L'ancora della bolla dell'aiuto. Sul campo e non sul bottone: ancorata al
+   bottone, la bolla nasceva dal «?» e cresceva verso destra, dove nella colonna
+   del dettaglio non c'e' spazio -- misurata a schermo, usciva dalla finestra e
+   le spiegazioni si leggevano a meta'. Stesa fra i due bordi del campo e' larga
+   quanto il campo che spiega, e non puo' sbordare da nessuna parte. */
+.campo { position: relative; display: grid; gap: var(--passo-1); margin-bottom: var(--passo-3); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); }
 /* Come .taglio[hidden]: display: grid pesa quanto l'attributo hidden, e senza
    questa regola un campo nascosto (la grandezza di un modo, che non ne ha una)
    resterebbe a video. */
@@ -531,13 +563,17 @@ code { font-family: var(--stack-cifre); }
    accanto alla propria etichetta in system-ui 14px. Lo stesso controllo dentro
    .taglio era gia' vestito (vedi .taglio select). */
 .campo input, .campo select { font: inherit; font-variant-numeric: tabular-nums; padding: var(--passo-1) var(--passo-2); border: 1px solid var(--bordo-comando); border-radius: var(--raggio); background: var(--sfondo); color: var(--testo); transition: border-color var(--durata-tocco) var(--curva); }
-.campo input:focus-visible { outline: 2px solid var(--accento); outline-offset: 1px; }
+/* `select` accanto a `input` anche qui: la regola di base sopra li vestiva
+   gia' entrambi, il fuoco no. Finche' nessun campo era una tendina la mancanza
+   non si vedeva; da quando gli otto a scelta chiusa lo sono, senza questa riga
+   una tendina raggiunta col tabulatore non direbbe dove sta il fuoco. */
+.campo input:focus-visible, .campo select:focus-visible { outline: 2px solid var(--accento); outline-offset: 1px; }
 /* Con il solo .campo-rifiutato il contorno rosso non compariva mai, misurato
    a video: .campo input pesa una classe e un elemento, .campo-rifiutato una
    classe sola, e vinceva la regola generica. Il nome della classe non cambia,
    cambia il peso del selettore. Il colore non e' l'unico canale: il messaggio
    del rifiuto sta scritto sotto il campo, e app.js segna aria-invalid. */
-.campo input.campo-rifiutato { border-color: var(--guasto); }
+.campo input.campo-rifiutato, .campo select.campo-rifiutato { border-color: var(--guasto); }
 .errore { margin: 0 0 var(--passo-3); color: var(--guasto); font-size: var(--tipo-dato); line-height: var(--interlinea); max-width: var(--misura); overflow-wrap: anywhere; text-wrap: pretty; }
 /* Vuota non occupa spazio, ma resta nell'albero di accessibilita': display:none
    e hidden ne toglierebbero la regione role="alert", che deve essere viva prima

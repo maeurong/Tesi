@@ -17,7 +17,7 @@ import zipfile
 from collections import Counter
 from functools import lru_cache
 from pathlib import Path
-from typing import Annotated, get_args
+from typing import Annotated, Literal, get_args, get_origin
 
 import numpy as np
 from fastapi import FastAPI, Response
@@ -440,6 +440,56 @@ def _modello_del_blocco(annotazione: object) -> type:
     pannello degli step 11 e 13 -- con un `AttributeError` fuori vista.
     """
     return next(t for t in get_args(annotazione) or (annotazione,) if t is not type(None))
+
+
+def _valori_ammessi(campo: object) -> list[dict[str, object]] | None:
+    """I valori fra cui un campo lascia scegliere, o None se non e' a scelta chiusa.
+
+    `Literal[...]` e `bool` sono le due sole forme che l'operatore sceglie da un
+    elenco invece di batterle a mano. Senza questo elenco l'unico modo di
+    scoprire le alternative era svuotare la casella e leggere il rifiuto del
+    validatore: provocare un errore per farsi dire quali sono le voci giuste.
+
+    Un'unione con None resta fuori. Nessuno dei campi a scelta chiusa e'
+    nullabile, e una tendina che non sa offrire il valore nullo toglierebbe
+    all'operatore l'unico modo di rimetterlo: meglio la casella di testo di
+    prima che una tendina che nasconde uno stato raggiungibile.
+
+    Le etichette non sono simmetriche, e il motivo e' di prodotto. I `Literal`
+    si mostrano alla lettera perche' sono identificatori che il progetto
+    preserva -- `C3D4`, `poisson`, `crop` stanno nell'elenco della terminologia
+    da non tradurre. I booleani no: `true`/`false` non sono termini tecnici ma
+    lingua, e l'interfaccia e' in italiano. Il valore scritto resta booleano in
+    entrambi i casi, l'etichetta cambia solo cio' che si legge.
+
+    Ogni voce porta anche la propria **spiegazione**, che dice in che cosa
+    differisce dalle altre. Sta in `json_schema_extra` accanto al campo, in
+    config.py, e non nell'interfaccia: e' la stessa regola dei valori ammessi e
+    dei predefiniti, un fatto sul parametro vive dove vive il parametro.
+    Assente vale stringa vuota e non `null`: chi legge distingue «non c'e'
+    niente da dire» guardando il testo, non il tipo.
+
+    Le chiavi sono `true`/`false` per i booleani e il valore alla lettera per i
+    `Literal`: in YAML un booleano si scrive minuscolo, e la chiave segue cio'
+    che l'operatore batte, non il nome che Python gli da'.
+    """
+    annotazione = getattr(campo, "annotation", campo)
+    extra = getattr(campo, "json_schema_extra", None)
+    spiegazioni = (extra or {}).get("spiegazioni", {}) if isinstance(extra, dict) else {}
+
+    def voce(valore: object, etichetta: str) -> dict[str, object]:
+        chiave = str(valore).lower() if isinstance(valore, bool) else str(valore)
+        return {
+            "valore": valore,
+            "etichetta": etichetta,
+            "spiegazione": str(spiegazioni.get(chiave, "")),
+        }
+
+    if annotazione is bool:
+        return [voce(True, "vero"), voce(False, "falso")]
+    if get_origin(annotazione) is Literal:
+        return [voce(valore, str(valore)) for valore in get_args(annotazione)]
+    return None
 
 
 def _rifiuto_leggibile(errore: Exception) -> str:
@@ -1182,6 +1232,10 @@ def create_app(
                         # cioe' nasconderebbe l'unico campo che chiede una
                         # risposta.
                         "obbligatorio": campo.is_required(),
+                        # Presente su ogni campo, `null` dove la scelta non e'
+                        # chiusa: il pannello distingue per valore e non per
+                        # assenza della chiave, come gia' fa con `default`.
+                        "valori": _valori_ammessi(campo),
                     }
                     for nome, campo in annidato.model_fields.items()
                 }

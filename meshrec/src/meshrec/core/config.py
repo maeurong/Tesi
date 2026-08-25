@@ -114,7 +114,25 @@ class InputConfig(_ModelloBase):
 class SegmentConfig(_ModelloBase):
     """Step 2: segmentazione."""
 
-    method: Literal["crop", "auto"] = "crop"
+    method: Literal["crop", "auto"] = Field(
+        default="crop",
+        description="come isolare il pezzo dal resto della scena scansionata",
+        json_schema_extra={
+            "spiegazioni": {
+                "crop": (
+                    "ritaglia con la scatola allineata agli assi definita da crop_min e "
+                    "crop_max. Senza quei due estremi la nuvola passa intera. È il metodo "
+                    "di entrambe le corse di riferimento."
+                ),
+                "auto": (
+                    "estrae i piani con RANSAC — pavimento e pareti — e sceglie un gruppo "
+                    "del residuo con DBSCAN, indicato da cluster_index. Non chiede "
+                    "coordinate, ma dipende da cinque parametri e nessuna corsa della tesi "
+                    "lo usa."
+                ),
+            }
+        },
+    )
     outlier_neighbors: int = Field(default=20, gt=0)
     outlier_std_ratio: float = Field(default=2.0, gt=0.0)
     crop_min: tuple[float, float, float] | None = None
@@ -144,7 +162,28 @@ class NormalsConfig(_ModelloBase):
 class SurfaceConfig(_ModelloBase):
     """Step 5: ricostruzione della superficie."""
 
-    method: Literal["poisson", "bpa", "alpha"] = "poisson"
+    method: Literal["poisson", "bpa", "alpha"] = Field(
+        default="poisson",
+        description="come costruire la superficie triangolare dalla nuvola orientata",
+        json_schema_extra={
+            "spiegazioni": {
+                "poisson": (
+                    "ricostruzione di Poisson, con scarto dei vertici sotto il quantile di "
+                    "densità. Lo scarto è il rimedio all'artefatto principale del programma "
+                    "sostituito: Poisson chiude le zone non rilevate inventando superficie. "
+                    "È il metodo delle corse di riferimento."
+                ),
+                "bpa": (
+                    "ball pivoting sui raggi di bpa_radius_factors per la spaziatura media. "
+                    "Non inventa superficie dove i punti non ci sono, quindi lascia aperti i "
+                    "buchi invece di chiuderli."
+                ),
+                "alpha": (
+                    "alpha shape con alpha_factor per la spaziatura media."
+                ),
+            }
+        },
+    )
     poisson_depth: int = Field(
         default=9,
         ge=4,
@@ -169,7 +208,23 @@ class SurfaceConfig(_ModelloBase):
 class RepairConfig(_ModelloBase):
     """Step 6: riparazione."""
 
-    largest_component_only: bool = True
+    largest_component_only: bool = Field(
+        default=True,
+        description="se tenere solo la componente connessa più numerosa",
+        json_schema_extra={
+            "spiegazioni": {
+                "true": (
+                    "le componenti oltre la maggiore vengono scartate, e con loro i vertici "
+                    "che restano orfani. Toglie i frammenti staccati che la ricostruzione "
+                    "lascia attorno al pezzo."
+                ),
+                "false": (
+                    "tutte le componenti proseguono. Da usare quando il pezzo è davvero "
+                    "fatto di parti separate, non quando si spera che lo sia."
+                ),
+            }
+        },
+    )
     max_hole_area: float | None = Field(
         default=None,
         description=(
@@ -177,14 +232,57 @@ class RepairConfig(_ModelloBase):
             "di bordo chiuso o un cammino aperto"
         ),
     )
-    join_components: bool = False
+    join_components: bool = Field(
+        default=False,
+        description="se MeshFix debba unire fra loro le componenti separate",
+        json_schema_extra={
+            "spiegazioni": {
+                "true": (
+                    "MeshFix riceve joincomp e unisce le componenti in un corpo solo. Cambia "
+                    "la topologia del pezzo, non solo la sua chiusura."
+                ),
+                "false": (
+                    "le componenti restano distinte. È il predefinito, e lascia alla "
+                    "riparazione il solo compito di chiudere."
+                ),
+            }
+        },
+    )
 
 
 class SimplifyConfig(_ModelloBase):
     """Step 8: semplificazione, opzionale."""
 
-    enabled: bool = False
-    mode: Literal["decimate", "remesh"] = "remesh"
+    enabled: bool = Field(
+        default=False,
+        description="se eseguire lo step 8",
+        json_schema_extra={
+            "spiegazioni": {
+                "true": "la superficie viene semplificata con il metodo scelto in mode.",
+                "false": (
+                    "lo step non tocca niente: la superficie riparata passa invariata allo "
+                    "step 9, e i triangoli prima e dopo coincidono."
+                ),
+            }
+        },
+    )
+    mode: Literal["decimate", "remesh"] = Field(
+        default="remesh",
+        description="come semplificare, quando lo step 8 è acceso",
+        json_schema_extra={
+            "spiegazioni": {
+                "decimate": (
+                    "decimazione quadrica fino al numero di triangoli scritto in "
+                    "target_faces. Richiede target_faces: senza, lo step si ferma con un "
+                    "errore, e il predefinito è vuoto."
+                ),
+                "remesh": (
+                    "remeshing isotropo con passo pari a remesh_target_len_pct per cento "
+                    "della diagonale. È il predefinito e non chiede altri parametri."
+                ),
+            }
+        },
+    )
     target_faces: int | None = Field(default=None, gt=0)
     remesh_target_len_pct: float = Field(default=1.0, gt=0.0, description="percentuale della diagonale")
     taubin_iterations: int = Field(default=0, ge=0)
@@ -230,6 +328,21 @@ class TetConfig(_ModelloBase):
             "può restare disatteso; il caso è segnalato con "
             "IneffectiveVolumeLimitWarning. Vedi docs/fase-1-min-ratio.md"
         ),
+        json_schema_extra={
+            "spiegazioni": {
+                "true": (
+                    "TetGen non suddivide le facce in ingresso. Serve dove la scala locale "
+                    "della superficie è minuscola, come le strozzature sotto il millimetro "
+                    "di lab_frame.pcd. Su una superficie grossolana max_volume può restare "
+                    "disatteso, e il caso viene segnalato."
+                ),
+                "false": (
+                    "TetGen può suddividere le facce per raffinare. È il predefinito, e su "
+                    "geometrie con strozzature sottili il raffinamento può non convergere a "
+                    "nessun min_ratio."
+                ),
+            }
+        },
     )
     reference_ratio: float = Field(
         default=1.8,
@@ -244,7 +357,23 @@ class TetConfig(_ModelloBase):
             "misurate le due corse di riferimento (8,10% e 9,55%)"
         ),
     )
-    element: Literal["C3D4", "C3D10"] = "C3D4"
+    element: Literal["C3D4", "C3D10"] = Field(
+        default="C3D4",
+        description="tipo di elemento solido scritto nel deck dallo step 11",
+        json_schema_extra={
+            "spiegazioni": {
+                "C3D4": (
+                    "tetraedro a quattro nodi, interpolazione lineare. È l'unico che lo "
+                    "scrittore del deck sa scrivere."
+                ),
+                "C3D10": (
+                    "tetraedro a dieci nodi. Lo step 11 si ferma: TetGen produce i nodi di "
+                    "lato con order=2 e il deck scrive i soli vertici. Resta dichiarato "
+                    "perché la scelta esiste nel modello, non perché sia percorribile oggi."
+                ),
+            }
+        },
+    )
 
 
 class SpintaOrizzontale(_ModelloBase):

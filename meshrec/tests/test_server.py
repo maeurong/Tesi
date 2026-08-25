@@ -3283,3 +3283,91 @@ def test_una_corsa_di_riferimento_non_prende_uno_storico(cliente, tmp_path):
     )
     assert cliente.post("/api/storico/indietro").status_code == 400
     assert cliente.post("/api/storico/avanti").status_code == 400
+
+
+def test_lo_schema_dice_fra_quali_valori_un_campo_a_scelta_chiusa_lascia_scegliere(cliente):
+    """Il contratto su cui poggia la tendina del pannello.
+
+    Prima, un campo che accetta due sole parole -- `segment.method`, `crop` o
+    `auto` -- arrivava al browser identico a uno che accetta qualsiasi numero:
+    l'elenco delle voci non usciva da `config.py`, e l'unico modo di scoprirlo
+    era svuotare la casella e leggere il rifiuto del validatore.
+
+    Gli otto sono contati, non copiati: quattro `Literal` e quattro booleani sui
+    blocchi che il pannello mostra, gli stessi che
+    `test_il_campo_parametro_non_indovina_il_tipo_dal_valore` conta nel proprio
+    docstring. Un campo nuovo a scelta chiusa fa cadere questo controllo, ed e'
+    voluto: e' il promemoria che la sua spiegazione va scritta.
+
+    `valori` sta su ogni campo e vale `null` dove la scelta non e' chiusa, come
+    gia' fa `default`: il pannello distingue per valore, non per assenza della
+    chiave.
+    """
+    risposta = cliente.get("/api/schema")
+    assert risposta.status_code == 200
+    campi = {
+        f"{blocco}.{nome}": voce
+        for passo in risposta.json().values()
+        for blocco, elenco in passo["campi"].items()
+        for nome, voce in elenco.items()
+    }
+
+    a_scelta = {nome for nome, voce in campi.items() if voce["valori"] is not None}
+    assert a_scelta == {
+        "segment.method",
+        "surface.method",
+        "repair.largest_component_only",
+        "repair.join_components",
+        "simplify.enabled",
+        "simplify.mode",
+        "tet.nobisect",
+        "tet.element",
+    }
+
+    # I `Literal` alla lettera: sono identificatori che il progetto preserva.
+    assert [(v["valore"], v["etichetta"]) for v in campi["segment.method"]["valori"]] == [
+        ("crop", "crop"),
+        ("auto", "auto"),
+    ]
+    assert [(v["valore"], v["etichetta"]) for v in campi["tet.element"]["valori"]] == [
+        ("C3D4", "C3D4"),
+        ("C3D10", "C3D10"),
+    ]
+    # I booleani no: `true`/`false` non sono termini tecnici ma lingua, e
+    # l'interfaccia e' in italiano. Il valore resta booleano, cambia la scritta.
+    assert [(v["valore"], v["etichetta"]) for v in campi["simplify.enabled"]["valori"]] == [
+        (True, "vero"),
+        (False, "falso"),
+    ]
+
+    # Ogni campo a scelta chiusa dice a che cosa serve E in che cosa le voci
+    # differiscono. E' la meta' che mancava: la tendina mostrava `crop` e `auto`
+    # senza una riga che dicesse che cosa cambia fra i due, e la differenza non
+    # era scritta da nessuna parte del programma.
+    #
+    # Un campo nuovo a scelta chiusa fa cadere questo controllo finche' non gli
+    # si scrive il testo, ed e' voluto: e' il promemoria.
+    muti = [
+        f"{nome}.{voce['valore']}"
+        for nome in sorted(a_scelta)
+        for voce in campi[nome]["valori"]
+        if not voce["spiegazione"].strip()
+    ]
+    assert not muti, f"voci senza spiegazione: {muti}"
+    senza_scopo = [nome for nome in sorted(a_scelta) if not campi[nome]["description"].strip()]
+    assert not senza_scopo, f"campi a scelta chiusa senza descrizione: {senza_scopo}"
+
+    # E il solo valore che manda la corsa a sbattere lo dichiara. `C3D10` fa
+    # sollevare lo step 11 -- TetGen produce i nodi di lato con order=2 e il
+    # deck scrive i soli vertici -- quindi sceglierlo dalla tendina senza
+    # saperlo costa una corsa. Se questa riga diventa rossa perche' il testo e'
+    # stato riscritto, si riscriva pure: quello che non deve sparire e'
+    # l'avvertimento.
+    spiegazioni = {v["valore"]: v["spiegazione"] for v in campi["tet.element"]["valori"]}
+    assert "step 11" in spiegazioni["C3D10"], (
+        f"la voce C3D10 non avverte piu' che lo step 11 si ferma: {spiegazioni['C3D10']!r}"
+    )
+
+    # E i campi a testo libero non guadagnano una tendina vuota.
+    assert campi["downsample.voxel_size"]["valori"] is None
+    assert campi["input.scale"]["valori"] is None

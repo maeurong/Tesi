@@ -183,3 +183,67 @@ def test_ogni_sovrapposto_della_vista_sa_ancora_nascondersi():
             f".{classe} dichiara un display ma non si sa piu' nascondere: "
             "l'attributo hidden non morde, e resta a video"
         )
+
+
+def test_ogni_regola_che_veste_una_casella_veste_anche_una_tendina():
+    """Da quando i campi a scelta chiusa sono tendine, `.campo input` da solo
+    lascia scoperto un campo su nove: otto dei settantuno sono `<select>`.
+
+    Non e' cosmetica, ed e' proprio cio' che la suite non vedeva. Le due regole
+    scoperte erano il **contorno di fuoco** -- una tendina raggiunta col
+    tabulatore non diceva dove stava il fuoco, su un'interfaccia che dichiara
+    WCAG AA e viene proiettata in discussione -- e il **bordo del rifiuto**. Il
+    foglio le vestiva gia' entrambe per `input`, e la suite restava verde con
+    entrambe assenti per `select`, perche' nessun controllo guardava il foglio
+    accanto al modulo che costruisce i campi.
+
+    `[readonly]` resta fuori, dichiarato: `<select>` non ha `readOnly`, e
+    `campoParametro` costruisce apposta una casella di testo dove il blocco e'
+    assente -- `disabled` toglierebbe il campo dalla tastiera e dal lettore di
+    schermo, che e' il difetto che quel ramo evita.
+    """
+    scoperte = [
+        selettore.strip()
+        for selettore in re.findall(r"([^{}]+)\{", _senza_commenti())
+        if ".campo input" in selettore
+        and "[readonly]" not in selettore
+        and ".campo select" not in selettore
+    ]
+    assert not scoperte, (
+        "regole che vestono la casella e non la tendina: "
+        f"{scoperte}"
+    )
+
+
+def test_la_bolla_dell_aiuto_non_puo_uscire_dalla_colonna():
+    """Misurato a schermo, non dedotto.
+
+    Ancorata al «?» -- `position: relative` sul bottone e una larghezza propria
+    -- la bolla nasceva dal punto interrogativo e cresceva verso destra. Nella
+    colonna del dettaglio a destra non c'e' spazio: usciva dalla finestra e le
+    spiegazioni si leggevano a meta', tagliate a filo del bordo.
+
+    Stesa fra i due bordi del CAMPO -- `left` e `right` insieme, nessuna
+    larghezza -- e' larga quanto il campo che spiega, e non puo' sbordare da
+    nessuna parte a nessuna larghezza di finestra. E' la ragione per cui questo
+    controllo guarda i due bordi e non una misura: una larghezza qualunque, in
+    `rem` o in `vw`, rimetterebbe in piedi lo stesso difetto con un altro numero.
+
+    Serve anche l'ancora: senza `position` sul campo, `left`/`right` si
+    risolverebbero sull'antenato posizionato piu' vicino, che non e' il campo.
+    """
+    foglio = _senza_commenti()
+    campo = foglio.split(".campo {", 1)[1].split("}", 1)[0]
+    assert "position: relative" in campo, (
+        "il campo non e' piu' l'ancora della bolla: left e right si risolvono altrove"
+    )
+
+    regola = foglio.split(".bolla {", 1)[1].split("}", 1)[0]
+    for bordo in ("left:", "right:"):
+        assert bordo in regola, (
+            f"la bolla non e' piu' stesa fra i due bordi del campo (manca {bordo}): "
+            "cresce da un punto, e verso destra la finestra finisce"
+        )
+    assert "width:" not in regola, (
+        "la bolla dichiara una larghezza propria: e' cio' che la faceva uscire dalla colonna"
+    )

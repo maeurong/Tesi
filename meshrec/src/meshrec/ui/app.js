@@ -1936,6 +1936,32 @@ function valoreScritto(grezzo) {
     testo === "" ? null : Number.isFinite(numerico) ? numerico : testo;
 }
 
+// Il verso opposto di valoreScritto: dal dato allo schermo, e regge il valore
+// che la tendina non prevede.
+//
+// `select.value = x` senza un'opzione uguale a `x` non solleva: seleziona il
+// vuoto. La casella resta muta mentre sul disco c'e' scritto qualcosa, che e'
+// esattamente il guasto che la riscrittura del valore accettato — in fondo a
+// scriviParametro — esiste per chiudere. Un valore fuori elenco entra invece
+// come opzione dichiarata: chi guarda legge che cosa c'e' scritto davvero,
+// senza che nessuno glielo riscriva di nascosto.
+//
+// Il caso non e' teorico: un config.yaml battuto a mano, o scritto da una
+// versione in cui quel valore era ammesso, arriva qui e la tendina non lo ha.
+//
+// Nessun controllo sul tag: si guarda se ci sono opzioni. Una <input> non ne
+// ha e il ramo non scatta mai, quindi la stessa funzione serve le due forme.
+function mostraValore(input, testo) {
+  const opzioni = [...(input.children ?? [])];
+  if (opzioni.length > 0 && !opzioni.some((opzione) => opzione.value === testo)) {
+    input.append(Object.assign(document.createElement("option"), {
+      value: testo,
+      textContent: `${testo} — non fra i valori ammessi`,
+    }));
+  }
+  input.value = testo;
+}
+
 // Il ritaglio si comanda dallo step che lo esegue: crop_min e crop_max sono
 // parametri di segment, e lo step 2 e' quello che li applica.
 const STEP_CON_RITAGLIO = 2;
@@ -2209,7 +2235,7 @@ async function scriviParametro(blocco, nome, input, messaggio, ordine) {
   // e' la configurazione canonica appena scritta, ed e' quella che la PUT
   // successiva deve mandare.
   configurazione = salvata;
-  input.value = String(configurazione[blocco][nome] ?? "");
+  mostraValore(input, String(configurazione[blocco][nome] ?? ""));
   segnalaCampo(input, messaggio, null);
 }
 
@@ -2228,6 +2254,97 @@ async function scriviParametro(blocco, nome, input, messaggio, ordine) {
 // schermo non compariva niente. Il tipo lo conosce solo il modello, e
 // /api/schema oggi non lo manda: finche' non lo manda, la casella lascia
 // passare cio' che e' stato battuto e il rifiuto torna visibile come 422.
+// Il punto interrogativo accanto al nome del campo, e cio' che apre.
+//
+// Sostituisce la riga di descrizione sempre visibile. Con settantuno campi
+// quella riga era un muro di testo che chi la pipeline la conosce a memoria non
+// legge, e chi non la conosce non riusciva comunque a distinguere fra i valori:
+// la differenza fra `crop` e `auto` non c'era scritta da nessuna parte.
+//
+// E' un <button> vero e non un `title=`: il fumetto del browser non si apre da
+// tastiera ne' col dito, e il lettore di schermo lo accoda al nome del campo.
+// Questo si apre in tre modi -- col mouse sopra, con Invio, col dito -- e Esc
+// lo chiude. E' la stessa lezione gia' pagata due volte in questo file.
+//
+// Niente aria-describedby verso la bolla: un describedby che punta a un
+// elemento `hidden` non risolve, e uno che punta a un elemento sempre presente
+// rimetterebbe l'intera spiegazione nel nome accessibile del campo, letta a
+// ogni fuoco e a ogni tabulazione. Il bottone si raggiunge col tabulatore e
+// porta il nome del campo, che e' come lo si distingue fra settantuno.
+//
+// Torna null dove non c'e' niente da dire: un punto interrogativo che si apre
+// sul vuoto e' peggio della sua assenza.
+function pannelloDiAiuto(identita, nome, campo) {
+  const voci = (campo.valori ?? []).filter((voce) => voce.spiegazione);
+  if (!campo.description && voci.length === 0) return null;
+
+  const bolla = document.createElement("div");
+  bolla.className = "bolla";
+  bolla.id = `bolla-${identita}`;
+  bolla.hidden = true;
+  if (campo.description) {
+    bolla.append(Object.assign(document.createElement("p"), { textContent: campo.description }));
+  }
+  if (voci.length > 0) {
+    // <dl> e non un elenco puntato: sono termini con la propria definizione, ed
+    // e' esattamente cio' che il valore e la sua spiegazione sono.
+    const elenco = document.createElement("dl");
+    for (const voce of voci) {
+      elenco.append(
+        Object.assign(document.createElement("dt"), { textContent: voce.etichetta }),
+        Object.assign(document.createElement("dd"), { textContent: voce.spiegazione }),
+      );
+    }
+    bolla.append(elenco);
+  }
+
+  const bottone = document.createElement("button");
+  bottone.type = "button";
+  bottone.className = "punto-interrogativo";
+  bottone.textContent = "?";
+  bottone.setAttribute("aria-label", `Aiuto per ${nome}`);
+  bottone.setAttribute("aria-expanded", "false");
+  bottone.setAttribute("aria-controls", bolla.id);
+
+  const contenitore = document.createElement("span");
+  contenitore.className = "campo-aiuto";
+  const apri = (visibile) => {
+    bolla.hidden = !visibile;
+    bottone.setAttribute("aria-expanded", String(visibile));
+  };
+  // Chi commuta e chi no, e il perche' e' misurato a schermo.
+  //
+  // Il puntatore che arriva sul bottone emette `mouseenter` PRIMA del `click`:
+  // il primo apre, il secondo commuta, e la bolla si richiude nello stesso
+  // gesto che avrebbe dovuto aprirla. A video il bottone non faceva niente.
+  // (Lo stesso vale per il fuoco, ed e' la ragione per cui non si apre li'.)
+  //
+  // `sopra` scioglie i tre modi senza inventarne uno stato:
+  // - col mouse, il passaggio apre e l'uscita chiude; il clic non commuta,
+  //   perche' la bolla e' gia' aperta e commutarla la toglierebbe di mano;
+  // - col dito, il tocco emette `mouseenter` e apre; si chiude toccando
+  //   altrove, che emette `mouseleave`;
+  // - da tastiera non si passa sopra niente, quindi `sopra` resta falso e Invio
+  //   o spazio -- che un <button> traduce in un clic -- commutano davvero.
+  let sopra = false;
+  bottone.addEventListener("click", () => {
+    if (!sopra) apri(bolla.hidden);
+  });
+  contenitore.addEventListener("mouseenter", () => {
+    sopra = true;
+    apri(true);
+  });
+  contenitore.addEventListener("mouseleave", () => {
+    sopra = false;
+    apri(false);
+  });
+  contenitore.addEventListener("keydown", (evento) => {
+    if (evento?.key === "Escape") apri(false);
+  });
+  contenitore.append(bottone, bolla);
+  return contenitore;
+}
+
 function campoParametro(blocco, nome, campo, ordine) {
   // La riga e' un <div> e l'etichetta nomina per `for`. Era una <label> che
   // avvolgeva tutto, e dentro la <label> stavano anche l'aiuto e il messaggio
@@ -2243,7 +2360,17 @@ function campoParametro(blocco, nome, campo, ordine) {
   const etichetta = document.createElement("label");
   etichetta.setAttribute("for", `campo-${identita}`);
   etichetta.textContent = nome;
-  riga.append(etichetta);
+  // Il nome e il punto interrogativo stanno in una testata, e la riga conserva
+  // i suoi quattro figli nello stesso ordine di prima. Il bottone e' FUORI
+  // dalla <label>: una label nomina con tutto il proprio sottoalbero, e il «?»
+  // finirebbe nel nome accessibile del campo -- la stessa ricaduta per cui
+  // l'aiuto era gia' uscito da li'.
+  const testata = document.createElement("div");
+  testata.className = "campo-testata";
+  testata.append(etichetta);
+  const aiutoDelCampo = pannelloDiAiuto(identita, nome, campo);
+  if (aiutoDelCampo !== null) testata.append(aiutoDelCampo);
+  riga.append(testata);
   const valore = (configurazione[blocco] ?? {})[nome] ?? null;
   // Una lista o un modello annidato non sono scritti in una casella di testo:
   // String() li renderebbe come "1,2,4" o "[object Object]", cioe' un testo che
@@ -2256,9 +2383,26 @@ function campoParametro(blocco, nome, campo, ordine) {
   // gia' che il blocco non c'e': qui basta il campo in sola lettura.
   const bloccoAssente = configurazione[blocco] == null;
   const scalare = valore === null || ["string", "number", "boolean"].includes(typeof valore);
-  const input = document.createElement("input");
+  // La tendina solo dove la scelta e' chiusa E il campo si puo' scrivere. Un
+  // blocco assente resta la casella di testo in sola lettura di prima: <select>
+  // non ha readOnly, e l'unico modo di fermarlo -- disabled -- lo toglierebbe
+  // dalla navigazione da tastiera e dal lettore di schermo, cioe' proprio cio'
+  // che il ramo di sola lettura qui sotto evita apposta.
+  //
+  // `valori` arriva da /api/schema, che lo ricava dall'annotazione del modello:
+  // i valori ammessi restano dichiarati in config.py, uno solo, e nessun elenco
+  // viene ricopiato qui dove divergerebbe in silenzio.
+  const aScelta = scalare && !bloccoAssente
+    && Array.isArray(campo.valori) && campo.valori.length > 0;
+  const input = document.createElement(aScelta ? "select" : "input");
   input.id = `campo-${identita}`;
-  input.value = scalare ? String(valore ?? "") : JSON.stringify(valore);
+  for (const voce of aScelta ? campo.valori : []) {
+    input.append(Object.assign(document.createElement("option"), {
+      value: String(voce.valore),
+      textContent: voce.etichetta,
+    }));
+  }
+  mostraValore(input, scalare ? String(valore ?? "") : JSON.stringify(valore));
   // Niente `input.title`: era la stessa frase dell'aiuto qui sotto, detta una
   // seconda volta in un fumetto che non si apre da tastiera ne' col dito, e che
   // il lettore di schermo accoda al nome. Detta una volta sola, sotto la
@@ -2278,10 +2422,11 @@ function campoParametro(blocco, nome, campo, ordine) {
   const aiuto = document.createElement("small");
   aiuto.className = "aiuto";
   aiuto.id = `aiuto-${identita}`;
-  aiuto.textContent = [
-    campo.description,
-    !scalare && !bloccoAssente ? "si modifica dal file di configurazione" : null,
-  ].filter(Boolean).join(" — ");
+  // La descrizione e' passata dietro il punto interrogativo. Qui resta il solo
+  // stato operativo: non e' una spiegazione del parametro ma una notizia su
+  // questo campo adesso, e nasconderla dietro un gesto direbbe che il campo si
+  // scrive quando non si scrive.
+  aiuto.textContent = !scalare && !bloccoAssente ? "si modifica dal file di configurazione" : "";
   // Legato solo se c'e' qualcosa da leggere: uno schema che non descrive il
   // campo lascia l'aiuto vuoto, e un aria-describedby che punta a una riga muta
   // e' una descrizione promessa e non mantenuta.

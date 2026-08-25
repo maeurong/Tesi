@@ -172,7 +172,10 @@ class Elemento {
   // Il gestore vero, eseguito: e' cio' che mancava al banco. `await` perche' il
   // gestore del campo e' asincrono, e senza aspettarlo il controllo guarderebbe
   // lo stato di prima della risposta.
-  async scatena(tipo) { for (const gestore of this.gestori[tipo] ?? []) await gestore(); }
+  // L'evento arriva al gestore: i gestori che lo leggono -- Esc sull'aiuto,
+  // il tasto sulla vista -- non si proverebbero altrimenti. Chi non lo usa
+  // riceve undefined, come prima.
+  async scatena(tipo, evento) { for (const gestore of this.gestori[tipo] ?? []) await gestore(evento); }
   get children() { return this.figli; }
   get childElementCount() { return this.figli.length; }
   get firstElementChild() { return this.figli[0] ?? null; }
@@ -1355,7 +1358,7 @@ def _banco_del_campo() -> str:
     """
     return _DOM + _funzioni(
         "valoreScritto", "ragioneDelRifiuto", "serverMuto", "superata", "corpoLetto",
-        "segnalaCampo", "apriBattuta", "scriviParametro", "campoParametro",
+        "segnalaCampo", "apriBattuta", "scriviParametro", "campoParametro", "mostraValore", "pannelloDiAiuto",
     ) + """
 // Il terzo contatore di Rilievo 1, per campo: scriviParametro lo legge dal
 // modulo per nome, non da un parametro, quindi il banco deve ricrearlo tale e
@@ -1423,10 +1426,38 @@ assert.equal(
   nomeAccessibile(riga, input), "voxel_size",
   "il nome accessibile della casella si porta dietro l'aiuto: descritto e' cio' che serve, nominato no",
 );
-assert.equal(
-  input.getAttribute("aria-describedby"), aiuto.id,
-  "l'aiuto e' uscito dalla label e nessun describedby lo lega: adesso non lo annuncia piu' nessuno",
+// La descrizione non sta piu' nella riga sempre visibile: con settantuno campi
+// era un muro di testo, e chi la pipeline la conosce a memoria non la leggeva.
+// Ma «spostata» non deve voler dire «persa»: sta dietro un bottone vero, che il
+// tabulatore raggiunge e che porta il NOME DEL CAMPO, perche' fra settantuno
+// campi un bottone chiamato «Aiuto» non distingue niente.
+//
+// Niente aria-describedby verso la bolla, e non e' una dimenticanza: un
+// describedby verso un elemento `hidden` non risolve, e verso un elemento
+// sempre presente rimetterebbe l'intera spiegazione nel nome accessibile,
+// riletta a ogni fuoco -- che e' il difetto che l'assert qui sopra sorveglia.
+assert.ok(
+  !aiuto.textContent.includes("la spaziatura del voxel"),
+  "la descrizione e' tornata nella riga sempre visibile",
 );
+const [testata] = riga.children;
+const bottone = testata.discendenti().find((e) => e.tag === "button");
+assert.ok(bottone !== undefined,
+  "nessun punto interrogativo: la descrizione non la raggiunge piu' nessuno");
+assert.equal(bottone.getAttribute("aria-label"), "Aiuto per voxel_size",
+  "il bottone non dice di quale campo e' l'aiuto");
+assert.equal(bottone.getAttribute("aria-expanded"), "false", "l'aiuto nasce aperto");
+const bolla = testata.discendenti().find((e) => e.id === bottone.getAttribute("aria-controls"));
+assert.ok(bolla !== undefined, "aria-controls punta a un elemento che non esiste");
+assert.equal(bolla.hidden, true);
+assert.ok(testoProfondo(bolla).includes("la spaziatura del voxel"),
+  "la bolla non porta la descrizione del campo");
+await bottone.scatena("click");
+assert.equal(bolla.hidden, false, "il punto interrogativo non apre niente");
+assert.equal(bottone.getAttribute("aria-expanded"), "true", "aria-expanded non segue cio' che si vede");
+await bottone.scatena("click");
+assert.equal(bolla.hidden, true, "il secondo clic non richiude");
+assert.equal(bottone.getAttribute("aria-expanded"), "false");
 // Il rifiuto e' la seconda meta' dello stesso difetto: compare dentro la riga
 // mentre la casella ha il fuoco, ed e' il momento in cui il nome viene riletto.
 segnalaCampo(input, messaggio, "e' troppo grande");
@@ -1453,6 +1484,134 @@ const tupla = apriCampo("segment", "crop_min");
 assert.equal(tupla.input.value, "[1,2,3]", "la lista finisce nel campo come testo di nessuno");
 assert.equal(tupla.input.readOnly, true, "una lista diventa modificabile e ogni modifica e' rifiutata");
 assert.equal((tupla.input.gestori.change ?? []).length, 0, "la lista manda una PUT a ogni battuta");
+""")
+
+
+# --------------------------------------------------------------------------
+# BL-3: i campi a scelta chiusa.
+# --------------------------------------------------------------------------
+
+# Le due forme che /api/schema manda per un campo a scelta chiusa. Scritte qui
+# e non lette dal server apposta: il banco del browser prova cio' che il
+# browser fa con lo schema, e il contratto dello schema lo prova
+# test_server.py. Se le due divergono, e' quel test a doverlo dire.
+_METODI = """
+const SCELTA = { description: "come isolare il muro", valori: [
+  { valore: "crop", etichetta: "crop" },
+  { valore: "auto", etichetta: "auto" },
+] };
+const BOOLEANO = { description: "se semplificare", valori: [
+  { valore: true, etichetta: "vero" },
+  { valore: false, etichetta: "falso" },
+] };
+"""
+
+
+def test_un_campo_a_scelta_chiusa_diventa_una_tendina_e_gli_altri_no(tmp_path):
+    """Il difetto che l'ha chiesta: `segment.method` accetta `crop` o `auto`,
+    e da una casella di testo le due voci **non si vedono**. L'unico modo di
+    scoprirle era svuotare la casella e leggere il rifiuto del validatore,
+    cioe' provocare un errore per farsi dire quali sono le risposte giuste.
+
+    L'elenco non e' ricopiato nell'interfaccia: arriva da /api/schema, che lo
+    ricava dall'annotazione del modello. Un campo senza `valori` resta la
+    casella di testo di prima -- sono 63 su 71, e trasformarli tutti in tendine
+    vuote sarebbe il difetto opposto.
+    """
+    _esegui(tmp_path, _banco_del_campo() + _METODI + """
+configurazione = { segment: { method: "crop" }, downsample: { voxel_size: 25 } };
+const [, tendina] = campoParametro("segment", "method", SCELTA, generazione).children;
+assert.equal(tendina.tag, "select", "un campo a scelta chiusa resta una casella di testo");
+assert.deepEqual(
+  tendina.children.map((o) => [o.tag, o.value, o.textContent]),
+  [["option", "crop", "crop"], ["option", "auto", "auto"]],
+  "le voci della tendina non sono quelle che lo schema dichiara",
+);
+assert.equal(tendina.value, "crop", "la tendina non parte dal valore della configurazione");
+
+const [, libera] = campoParametro("downsample", "voxel_size", CAMPO, generazione).children;
+assert.equal(libera.tag, "input", "un campo a testo libero e' diventato una tendina senza voci");
+""")
+
+
+def test_la_tendina_di_un_booleano_scrive_un_booleano_non_la_sua_scritta(tmp_path):
+    """Il giro completo: la voce scelta diventa il valore che finisce su disco.
+
+    `valoreScritto` converte `"false"` nel booleano, ed e' la stessa porta che
+    la casella di testo usava: la tendina ci entra senza una seconda strada.
+    Se ne aprisse una propria, la PUT manderebbe la **stringa** `"false"` --
+    che pydantic accetta, perche' la converte, e il difetto resterebbe muto
+    fino al primo campo dove la conversione non c'e'.
+
+    Le etichette sono in italiano mentre i `Literal` restano alla lettera:
+    `true`/`false` sono lingua, `crop` e `C3D4` sono identificatori che il
+    progetto preserva.
+    """
+    _esegui(tmp_path, _banco_del_campo() + _METODI + """
+configurazione = { simplify: { enabled: true } };
+const [, tendina, , messaggio] = campoParametro("simplify", "enabled", BOOLEANO, generazione).children;
+assert.equal(tendina.value, "true", "il valore vero non seleziona la propria voce");
+assert.deepEqual(
+  tendina.children.map((o) => o.textContent), ["vero", "falso"],
+  "un booleano si mostra in inglese in un'interfaccia italiana",
+);
+
+tendina.value = "false";
+risponde = accetta({ simplify: { enabled: false } });
+await tendina.scatena("change");
+assert.strictEqual(
+  richieste[0].corpo.simplify.enabled, false,
+  "la tendina manda la scritta invece del booleano",
+);
+assert.strictEqual(configurazione.simplify.enabled, false, "in memoria resta il valore di prima");
+assert.equal(tendina.value, "false", "la tendina non mostra il valore che il server ha accettato");
+assert.equal(messaggio.hidden, true, "una modifica accettata porta un messaggio d'errore");
+""")
+
+
+def test_un_valore_fuori_elenco_si_dichiara_invece_di_sparire(tmp_path):
+    """`select.value = x` senza un'opzione uguale a `x` **non solleva**:
+    seleziona il vuoto. La casella resterebbe muta mentre sul disco c'e'
+    scritto qualcosa -- lo stesso guasto che la riscrittura del valore
+    accettato esiste per chiudere, ripresentato dalla porta accanto.
+
+    Il caso non e' teorico: un `config.yaml` battuto a mano, o scritto da una
+    versione in cui quel valore era ammesso, arriva qui con un valore che la
+    tendina non ha.
+    """
+    _esegui(tmp_path, _banco_del_campo() + _METODI + """
+configurazione = { segment: { method: "ritaglio-vecchio" } };
+const [, tendina] = campoParametro("segment", "method", SCELTA, generazione).children;
+assert.equal(tendina.value, "ritaglio-vecchio", "il valore fuori elenco svuota la casella");
+assert.ok(
+  tendina.children.some((o) => o.value === "ritaglio-vecchio"),
+  "il valore fuori elenco non compare fra le voci, e la casella non dice cosa mostra",
+);
+assert.equal(tendina.children.length, 3, "la voce fuori elenco si aggiunge piu' di una volta");
+
+// E la stessa difesa dopo il salvataggio, dove il valore lo sceglie il server.
+tendina.value = "auto";
+risponde = accetta({ segment: { method: "un-terzo-mai-visto" } });
+await tendina.scatena("change");
+assert.equal(tendina.value, "un-terzo-mai-visto", "cio' che il server ha accettato non arriva a video");
+""")
+
+
+def test_un_blocco_assente_resta_una_casella_di_testo_e_non_una_tendina_spenta(tmp_path):
+    """`<select>` non ha `readOnly`, e l'unico modo di fermarlo -- `disabled` --
+    lo toglie dalla navigazione da tastiera e dal lettore di schermo. E' la
+    stessa ragione per cui i campi non scrivibili sono `readOnly` e non
+    `disabled` da quando esiste il pannello.
+
+    Un blocco assente (`analysis`, finche' il materiale non e' dichiarato) non
+    si scrive un campo alla volta: resta la casella di testo di prima.
+    """
+    _esegui(tmp_path, _banco_del_campo() + _METODI + """
+configurazione = {};
+const [, casella] = campoParametro("segment", "method", SCELTA, generazione).children;
+assert.equal(casella.tag, "input", "un blocco assente diventa una tendina che non si puo' fermare");
+assert.equal(casella.readOnly, true, "la casella di un blocco assente si lascia scrivere");
+assert.equal((casella.gestori.change ?? []).length, 0, "un blocco assente manda una PUT a meta'");
 """)
 
 
@@ -1986,7 +2145,7 @@ def _banco_di_apriDettaglio() -> str:
     return _DOM + _funzioni(
         "segnaStepAperto", "nuovaRiga", "disegnaStep", "dichiaraErrore", "fallisciDettaglio",
         "ragioneDelRifiuto", "serverMuto", "superata", "corpoLetto", "valoreScritto",
-        "segnalaCampo", "apriBattuta", "scriviParametro", "campoParametro", "apriDettaglio",
+        "segnalaCampo", "apriBattuta", "scriviParametro", "campoParametro", "mostraValore", "pannelloDiAiuto", "apriDettaglio",
         "durataMisurata", "ultimaDurata",
         # L'intestazione e il gruppo che richiude i predefiniti: il pannello li
         # costruisce a ogni apertura, quindi il banco li incontra comunque.
@@ -4927,7 +5086,7 @@ def test_i_parametri_al_predefinito_si_richiudono_e_gli_altri_no(tmp_path):
     """
     _esegui(tmp_path, _DOM + _funzioni(
         "nuovaRiga", "segnalaCampo", "valoreScritto", "apriBattuta", "scriviParametro",
-        "campoParametro", "reso", "cambiatoDalPredefinito", "gruppoDelBlocco",
+        "campoParametro", "mostraValore", "pannelloDiAiuto", "reso", "cambiatoDalPredefinito", "gruppoDelBlocco",
     ) + """
 let ultimaBattutaDelCampo = new Map();
 // `configurazione` la dichiara gia' _DOM: e' la variabile di modulo che il
@@ -4970,7 +5129,7 @@ def test_con_tutto_al_predefinito_la_piega_nasce_aperta(tmp_path):
     """
     _esegui(tmp_path, _DOM + _funzioni(
         "nuovaRiga", "segnalaCampo", "valoreScritto", "apriBattuta", "scriviParametro",
-        "campoParametro", "reso", "cambiatoDalPredefinito", "gruppoDelBlocco",
+        "campoParametro", "mostraValore", "pannelloDiAiuto", "reso", "cambiatoDalPredefinito", "gruppoDelBlocco",
     ) + """
 let ultimaBattutaDelCampo = new Map();
 configurazione = { tet: { min_ratio: 1.8, nobisect: false } };
@@ -5505,3 +5664,158 @@ def test_ogni_gesto_che_cambia_il_raggio_passa_dai_fermi():
         "la rotella torna a guardare il segno: una raffica da trackpad zooma per ogni evento"
     )
     assert "passoDellaRotella(" in sorgente, "il deltaMode torna ignorato"
+# Il punto interrogativo.
+# --------------------------------------------------------------------------
+
+_CAMPI_DI_AIUTO = """
+const CON_TUTTO = {
+  description: "come isolare il pezzo dal resto della scena",
+  valori: [
+    { valore: "crop", etichetta: "crop", spiegazione: "ritaglia con la scatola" },
+    { valore: "auto", etichetta: "auto", spiegazione: "RANSAC piu' DBSCAN" },
+  ],
+};
+const SENZA_NIENTE = {};
+const SOLE_VOCI = {
+  valori: [{ valore: true, etichetta: "vero", spiegazione: "acceso" }],
+};
+const VOCI_MUTE = {
+  valori: [{ valore: "crop", etichetta: "crop", spiegazione: "" }],
+};
+"""
+
+
+def test_il_punto_interrogativo_spiega_anche_la_differenza_fra_i_valori(tmp_path):
+    """La meta' che mancava. La riga di descrizione diceva a che cosa serve il
+    campo, mai in che cosa le voci differiscono: fra `crop` e `auto` la
+    differenza non era scritta in nessun punto del programma, e l'unico modo di
+    scoprire che le voci fossero due era svuotare la casella.
+
+    Le voci stanno in un `<dl>` perche' sono termini con la propria
+    definizione, che e' cio' che un valore e la sua spiegazione sono.
+
+    Tre vie per aprirlo, e servono tutte e tre: il mouse sopra per chi punta, il
+    clic -- che Invio e spazio su un `<button>` emettono da se' -- per chi usa la
+    tastiera e per chi tocca lo schermo. Esc chiude. E' la ragione per cui non e'
+    un `title=`: quel fumetto ne copre una sola.
+    """
+    _esegui(tmp_path, _DOM + _funzioni("pannelloDiAiuto") + _CAMPI_DI_AIUTO + """
+const aiuto = pannelloDiAiuto("segment-method", "method", CON_TUTTO);
+const [bottone, bolla] = aiuto.figli;
+
+assert.equal(bottone.tag, "button", "il punto interrogativo non e' un bottone vero");
+assert.equal(bottone.attributi.type, undefined);
+assert.equal(bottone.getAttribute("aria-label"), "Aiuto per method",
+  "il bottone non dice di quale campo e' l'aiuto, e i campi sono settantuno");
+assert.equal(bottone.getAttribute("aria-controls"), bolla.id);
+
+// La descrizione, e poi una coppia termine/definizione per ogni voce.
+const [paragrafo, coppie] = bolla.figli;
+assert.equal(paragrafo.tag, "p");
+assert.equal(paragrafo.textContent, "come isolare il pezzo dal resto della scena");
+assert.equal(coppie.tag, "dl", "le voci non sono termini con la propria definizione");
+assert.deepEqual(
+  coppie.figli.map((e) => [e.tag, e.textContent]),
+  [["dt", "crop"], ["dd", "ritaglia con la scatola"],
+   ["dt", "auto"], ["dd", "RANSAC piu' DBSCAN"]],
+  "la bolla non porta la differenza fra le voci",
+);
+
+// Chiuso alla nascita, e aria-expanded lo dice.
+assert.equal(bolla.hidden, true, "la bolla nasce aperta");
+assert.equal(bottone.getAttribute("aria-expanded"), "false");
+
+// Il clic commuta. Non si apre anche sul fuoco: il clic da' il fuoco PRIMA di
+// commutare, quindi il bottone si aprirebbe e si richiuderebbe da se'.
+await bottone.scatena("click");
+assert.equal(bolla.hidden, false, "il clic non apre");
+assert.equal(bottone.getAttribute("aria-expanded"), "true");
+await bottone.scatena("click");
+assert.equal(bolla.hidden, true, "il secondo clic non richiude");
+
+// Il mouse sopra apre, e uscendo si chiude.
+await aiuto.scatena("mouseenter");
+assert.equal(bolla.hidden, false, "il passaggio del mouse non apre");
+await aiuto.scatena("mouseleave");
+assert.equal(bolla.hidden, true, "uscendo col mouse la bolla resta aperta");
+
+// La sequenza vera del mouse, e non e' un caso di scuola: e' stata misurata a
+// schermo. Il puntatore che arriva sul bottone emette `mouseenter` PRIMA del
+// `click`; con un clic che commuta sempre, il primo apriva e il secondo
+// richiudeva nello stesso gesto, e il bottone a video non faceva niente.
+await aiuto.scatena("mouseenter");
+assert.equal(bolla.hidden, false);
+await bottone.scatena("click");
+assert.equal(bolla.hidden, false,
+  "il clic richiude cio' che il passaggio ha appena aperto: a schermo il bottone non fa niente");
+await aiuto.scatena("mouseleave");
+assert.equal(bolla.hidden, true);
+
+// Da tastiera non si passa sopra niente: li' il clic -- che Invio e spazio
+// emettono da se' -- deve commutare davvero, altrimenti l'aiuto non si apre
+// affatto per chi non usa il mouse.
+await bottone.scatena("click");
+assert.equal(bolla.hidden, false, "senza passaggio del mouse il bottone non apre piu'");
+await bottone.scatena("click");
+assert.equal(bolla.hidden, true);
+
+// Esc chiude, e un altro tasto non fa niente.
+await aiuto.scatena("mouseenter");
+await aiuto.scatena("keydown", { key: "a" });
+assert.equal(bolla.hidden, false, "un tasto qualunque chiude l'aiuto");
+await aiuto.scatena("keydown", { key: "Escape" });
+assert.equal(bolla.hidden, true, "Esc non chiude");
+assert.equal(bottone.getAttribute("aria-expanded"), "false");
+""")
+
+
+def test_un_campo_senza_niente_da_dire_non_riceve_un_punto_interrogativo(tmp_path):
+    """Un «?» che si apre sul vuoto e' peggio della sua assenza: promette una
+    spiegazione e non la mantiene.
+
+    Sono trentatre campi su settantuno a non avere ancora una descrizione, cioe'
+    non un caso di bordo: e' quasi meta' del pannello.
+
+    E le due meta' bastano da sole. Un campo con la sola descrizione ha di che
+    parlare; uno con le sole voci spiegate pure. A non averne e' solo chi non ha
+    ne' l'una ne' le altre -- e una voce con la spiegazione vuota non conta come
+    voce, altrimenti gli otto campi a scelta chiusa avrebbero tutti un «?»
+    ancora prima che qualcuno ne scriva il testo.
+    """
+    _esegui(tmp_path, _DOM + _funzioni("pannelloDiAiuto") + _CAMPI_DI_AIUTO + """
+assert.equal(pannelloDiAiuto("a-b", "b", SENZA_NIENTE), null,
+  "un campo senza niente da dire riceve un punto interrogativo muto");
+assert.equal(pannelloDiAiuto("a-b", "b", VOCI_MUTE), null,
+  "una voce con la spiegazione vuota conta come qualcosa da dire");
+
+const soleVoci = pannelloDiAiuto("simplify-enabled", "enabled", SOLE_VOCI);
+assert.ok(soleVoci !== null, "le sole spiegazioni delle voci non bastano ad aprire un aiuto");
+const [, bolla] = soleVoci.figli;
+assert.deepEqual(bolla.figli.map((e) => e.tag), ["dl"],
+  "senza descrizione la bolla scrive comunque un paragrafo vuoto");
+""")
+
+
+def test_la_riga_sempre_visibile_tiene_lo_stato_e_non_piu_la_spiegazione(tmp_path):
+    """La descrizione e' passata dietro il «?». Cio' che NON la segue e' la
+    riga «si modifica dal file di configurazione»: non spiega il parametro, dice
+    che cosa si puo' fare con questo campo adesso.
+
+    Nasconderla dietro un gesto direbbe all'operatore che il campo si scrive
+    quando non si scrive, e lo scoprirebbe battendoci dentro.
+    """
+    _esegui(tmp_path, _banco_del_campo() + """
+configurazione = { segment: { crop_min: [1, 2, 3] }, downsample: { voxel_size: 25 } };
+
+const lista = campoParametro("segment", "crop_min", CAMPO, generazione);
+const [, , aiutoLista] = lista.children;
+assert.equal(aiutoLista.textContent, "si modifica dal file di configurazione",
+  "lo stato operativo e' finito dietro il punto interrogativo");
+assert.ok(!aiutoLista.textContent.includes("la spaziatura del voxel"),
+  "la descrizione e' tornata nella riga sempre visibile");
+
+const scalare = campoParametro("downsample", "voxel_size", CAMPO, generazione);
+const [, , aiutoScalare] = scalare.children;
+assert.equal(aiutoScalare.textContent, "",
+  "un campo scrivibile porta una riga di stato che non ha niente da dire");
+""")
