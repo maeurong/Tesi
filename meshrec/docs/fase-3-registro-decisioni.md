@@ -186,6 +186,11 @@ Il grafo dei moduli si chiude: `index.html` carica `/ui/app.js` con
 con percorso relativo — risolto dallo stesso endpoint statico. Nessun
 riferimento resta appeso.
 
+> Misura di allora, lasciata com'era. Le due righe di `vendor/` nominano le
+> build non minificate di three.js, sostituite in seguito dalle minificate
+> della stessa release (`three.module.min.js`, `three.core.min.js`, 338.908 e
+> 381.124 B). Il grafo dei moduli ha la stessa forma, coi nomi nuovi.
+
 Resta non verificato, e va scritto cosi' nel documento finale invece che
 dichiarato funzionante: che WebGL disegni davvero, che le frecce ruotino la
 scena, che l'`aria-label` cambi ad ogni disegno, che `cattura()` restituisca

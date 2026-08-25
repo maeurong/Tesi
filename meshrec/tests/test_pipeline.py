@@ -236,7 +236,7 @@ def test_resuming_from_tetrahedralize_still_works_when_simplify_is_enabled(tmp_p
             input=config.InputConfig(path=cloud_path, spacing_sample=5000),
             downsample=config.DownsampleConfig(voxel_size=SPACING),
             surface=config.SurfaceConfig(poisson_depth=8, density_quantile=0.02),
-            simplify=config.SimplifyConfig(enabled=True, mode="decimate", target_faces=500),
+            simplify=config.SimplifyConfig(enabled=True, remesh_target_len_pct=2.0),
             run=config.RunConfig(out_dir=tmp_path / "out", from_step=from_step, to_step=12),
         )
 

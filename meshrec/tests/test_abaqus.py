@@ -478,21 +478,6 @@ def test_export_model_senza_carichi_elenca_il_solo_peso_proprio(tmp_path):
     assert metrics["casi_di_carico"] == ["GRAVITA"]
 
 
-def test_c3d10_is_refused_until_the_writer_supports_it(tmp_path):
-    vertices, faces = synth.box_mesh((100.0, 40.0, 200.0))
-    nodes, tets, _ = volume.tetrahedralize_with_metrics(vertices, faces, config.TetConfig())
-
-    with pytest.raises(NotImplementedError, match="C3D10"):
-        abaqus.export_model(
-            tmp_path / "m.inp",
-            tmp_path / "m.vtu",
-            nodes,
-            tets,
-            config.AnalysisConfig(material=MATERIALE),
-            config.TetConfig(element="C3D10"),
-        )
-
-
 def _yaw(angle_deg: float) -> np.ndarray:
     """Rotazione attorno a z: lo z del sistema d'ingresso resta il verticale vero."""
     angle = np.radians(angle_deg)
@@ -576,7 +561,7 @@ def test_align_to_axes_ignores_interior_nodes_when_given_boundary_reference():
         + hex_tets[1:]
     )
 
-    boundary = abaqus._boundary_nodes(tets)
+    boundary = np.unique(abaqus.boundary_faces(tets))
     assert steiner_index not in boundary
 
     _, _, metrics_boundary_only = abaqus.align_to_axes(nodes, reference=nodes[boundary])
@@ -686,7 +671,7 @@ def test_the_tolerance_follows_the_boundary_spacing_not_the_element_volume(cube_
     reali, in docs/fase-1-tolleranza-set.md.
     """
     nodes, tets = cube_mesh
-    facce = abaqus._boundary_faces(tets)
+    facce = abaqus.boundary_faces(tets)
     spigoli = np.unique(
         np.sort(np.vstack([facce[:, [0, 1]], facce[:, [1, 2]], facce[:, [0, 2]]]), axis=1), axis=0
     )
@@ -696,17 +681,10 @@ def test_the_tolerance_follows_the_boundary_spacing_not_the_element_volume(cube_
     assert abaqus.set_tolerance(nodes, tets, 1.0) == pytest.approx(atteso)
 
 
-def test_the_boundary_nodes_are_the_nodes_of_the_boundary_faces(cube_mesh):
-    """Le due funzioni non devono divergere: la seconda deriva dalla prima."""
-    _, tets = cube_mesh
-
-    assert np.array_equal(abaqus._boundary_nodes(tets), np.unique(abaqus._boundary_faces(tets)))
-
-
 def test_the_footprint_is_fully_covered_on_a_flat_base(cube_mesh):
     """Su una base piana l'insieme vincolato copre tutta la superficie d'appoggio."""
     nodes, tets = cube_mesh
-    bordo = abaqus._boundary_nodes(tets)
+    bordo = np.unique(abaqus.boundary_faces(tets))
     spaziatura = abaqus.set_tolerance(nodes, tets, 1.0)
     insieme = abaqus.build_node_sets(nodes, 6.0 * spaziatura)["BASE"]
 
@@ -851,7 +829,7 @@ def test_l_estensione_in_pianta_crolla_anche_quando_e_x_l_asse_stretto():
 
 
 def test_le_facce_di_bordo_di_un_esaedro_solo_sono_sei_quadrilateri():
-    """_boundary_faces dava per scontati quattro nodi per elemento e tre per
+    """boundary_faces dava per scontati quattro nodi per elemento e tre per
     faccia. Un esaedro ha sei facce, tutte quadrilatere, e tutte di bordo."""
     esaedro = np.array([[0, 1, 2, 3, 4, 5, 6, 7]], dtype=np.int64)
 
@@ -955,7 +933,7 @@ def test_export_model_rifiuta_l_incoerenza_tipo_nodi_prima_di_qualunque_calcolo(
     interpretata male prima di fallire.
 
     `element_type="C3D8"` passa per il parametro esplicito e non per
-    `tet_cfg.element`, che accetta solo 'C3D4' o 'C3D10': e' l'unica via per
+    `tet_cfg.element`, che accetta il solo 'C3D4': e' l'unica via per
     dichiarare un tipo esaedrico su un array di tetraedri senza che la
     validazione di pydantic intercetti il caso prima ancora di arrivare a
     `export_model`."""

@@ -422,7 +422,6 @@ def fix_sign(direction: np.ndarray) -> np.ndarray:
 
 NODI_PER_ELEMENTO: dict[str, int] = {
     "C3D4": 4,
-    "C3D10": 10,
     "C3D8": 8,
     "C3D8I": 8,
     "C3D8R": 8,
@@ -469,14 +468,10 @@ FACCE_DEL_SOLUTORE: dict[int, tuple[tuple[int, ...], ...]] = {
     ),
 }
 
-# Nodi d'angolo per numero di nodi dell'elemento: un C3D10 ne ha dieci ma la
-# topologia di faccia e' quella del tetraedro (le prime quattro colonne sono
-# i vertici). Mappa esplicita e non un ternario: un conteggio non previsto
-# deve fermarsi con un errore, non essere trattato come tetraedro per
-# default. Stessa mappa per FACCE_DEL_SOLUTORE (qui sotto, angoli 4 e 8) e
-# per FACCE_TOPOLOGICHE in boundary_faces: e' lo stesso conteggio di angoli,
-# non un'altra tabella.
-_ANGOLI_PER_COLONNE: dict[int, int] = {4: 4, 8: 8, 10: 4}
+# Le due tabelle sono indicizzate sul numero di nodi dell'elemento, che per il
+# primo grado coincide col numero di angoli. Un elemento del secondo grado
+# (dieci nodi, quattro angoli) romperebbe la coincidenza e chiederebbe una
+# conversione: il writer non lo scrive, e la chiave assente lo ferma.
 
 
 def _facce_di_bordo(
@@ -523,7 +518,7 @@ def element_surface(
     if element_type not in NODI_PER_ELEMENTO:
         raise ValueError(f"tipo di elemento '{element_type}' sconosciuto")
     elementi = np.asarray(elements, dtype=np.int64)
-    angoli = _ANGOLI_PER_COLONNE[NODI_PER_ELEMENTO[element_type]]
+    angoli = NODI_PER_ELEMENTO[element_type]
     dentro = np.zeros(int(elementi.max()) + 1, dtype=bool)
     dentro[np.asarray(indici_nodo, dtype=np.int64)] = True
 
@@ -584,7 +579,7 @@ def tie_surface(
         raise ValueError(f"tipo di elemento '{element_type}' sconosciuto")
     punti = np.asarray(nodes, dtype=np.float64)
     elementi = np.asarray(elements, dtype=np.int64)
-    angoli = _ANGOLI_PER_COLONNE[NODI_PER_ELEMENTO[element_type]]
+    angoli = NODI_PER_ELEMENTO[element_type]
 
     combinazioni = FACCE_DEL_SOLUTORE[angoli]
     nodi_per_faccia = len(combinazioni[0])
@@ -651,7 +646,7 @@ def aree_tributarie(
     """
     punti = np.asarray(nodes, dtype=np.float64)
     elementi = np.asarray(elements, dtype=np.int64)
-    angoli = _ANGOLI_PER_COLONNE[NODI_PER_ELEMENTO[element_type]]
+    angoli = NODI_PER_ELEMENTO[element_type]
 
     aree = np.zeros(punti.shape[0], dtype=np.float64)
     for elemento, numero in superficie:
@@ -906,37 +901,18 @@ def boundary_faces(elements: np.ndarray) -> np.ndarray:
     costruiscono tutte le facce di ogni elemento, si ordinano gli indici al
     loro interno, si contano le occorrenze e si tengono quelle con occorrenza
     singola.
-
-    La generalizzazione e' sui **nodi d'angolo**: un C3D10 ha dieci nodi ma la
-    sua topologia e' quella del tetraedro, e i nodi di lato non definiscono
-    facce proprie. Le prime quattro colonne di un C3D10 sono i suoi vertici,
-    che e' la convenzione di TetGen e di Abaqus.
     """
     elementi = np.asarray(elements, dtype=np.int64)
     colonne = elementi.shape[1]
-    if colonne not in _ANGOLI_PER_COLONNE:
+    if colonne not in FACCE_TOPOLOGICHE:
         raise ValueError(
             f"elemento con {colonne} nodi: nessuna topologia di faccia definita per questa forma"
         )
-    combinazioni = FACCE_TOPOLOGICHE[_ANGOLI_PER_COLONNE[colonne]]
+    combinazioni = FACCE_TOPOLOGICHE[colonne]
     facce = np.vstack([elementi[:, combo] for combo in combinazioni])
     facce = np.sort(facce, axis=1)
     uniche, conteggi = np.unique(facce, axis=0, return_counts=True)
     return uniche[conteggi == 1]
-
-
-# Il nome privato resta come alias per non toccare i chiamanti interni gia'
-# scritti e verificati: e' la stessa funzione, non una seconda.
-_boundary_faces = boundary_faces
-
-
-def _boundary_nodes(tets: np.ndarray) -> np.ndarray:
-    """Indici dei nodi sul bordo della mesh tetraedrica.
-
-    I punti di Steiner interni aggiunti da TetGen compaiono solo in facce
-    condivise da due tetraedri e restano quindi esclusi.
-    """
-    return np.unique(_boundary_faces(tets))
 
 
 def boundary_spacing(nodes: np.ndarray, faces: np.ndarray) -> float:
@@ -1079,7 +1055,7 @@ def set_tolerance(nodes: np.ndarray, tets: np.ndarray, factor: float) -> float:
     criterio di accettazione e sweep del fattore in
     docs/fase-1-tolleranza-set.md.
     """
-    return factor * boundary_spacing(nodes, _boundary_faces(tets))
+    return factor * boundary_spacing(nodes, boundary_faces(tets))
 
 
 def footprint_coverage(
@@ -1236,7 +1212,7 @@ def write_vtu(
     """
     import meshio
 
-    celle = {"C3D4": "tetra", "C3D10": "tetra10", "C3D8": "hexahedron",
+    celle = {"C3D4": "tetra", "C3D8": "hexahedron",
              "C3D8I": "hexahedron", "C3D8R": "hexahedron"}
     if element_type not in celle:
         raise ValueError(f"tipo di elemento '{element_type}' senza corrispondente in meshio")
@@ -1304,12 +1280,6 @@ def export_model(
     from meshrec.core.quality import element_volumes
 
     tipo = tet_cfg.element if element_type is None else element_type
-    if tipo == "C3D10":
-        raise NotImplementedError(
-            "elemento C3D10 non supportato dal writer: TetGen produce i nodi di "
-            "lato con order=2, ma il deck scrive i soli vertici. Usa C3D4 finché "
-            "il writer non gestisce i dieci nodi."
-        )
     if tipo not in NODI_PER_ELEMENTO:
         raise ValueError(f"tipo di elemento '{tipo}' sconosciuto")
     attesi = NODI_PER_ELEMENTO[tipo]
@@ -1323,7 +1293,7 @@ def export_model(
     # Nome distinto dalla funzione pubblica boundary_faces: qui e' una
     # variabile locale, non va confusa col contratto che questo task ha
     # promosso (vedi Task 5, 7, 8).
-    bordo_facce = _boundary_faces(elements)
+    bordo_facce = boundary_faces(elements)
     boundary = np.unique(bordo_facce)
     if reference is None:
         reference = np.asarray(nodes, dtype=np.float64)[boundary]
