@@ -1,9 +1,13 @@
 """Step 1: caricamento, filtro dei non finiti, spaziatura, scala."""
 
+import ast
+import json
+from pathlib import Path
+
 import numpy as np
 import pytest
 
-from meshrec.core import config, io, synth
+from meshrec.core import config, io, steps, sweep, synth
 
 SIZE = (100.0, 40.0, 200.0)
 SPACING = 10.0
@@ -103,3 +107,109 @@ def test_all_points_non_finite_raises_with_message(tmp_path):
 
     with pytest.raises(ValueError, match="coordinate non finite"):
         io.load_cloud(config.InputConfig(path=path))
+
+
+def _sorgenti_del_pacchetto() -> list[Path]:
+    radice = Path(__file__).resolve().parent.parent / "src" / "meshrec"
+    sorgenti = sorted(radice.rglob("*.py"))
+    assert sorgenti, f"nessun sorgente sotto {radice}: il controllo sorveglierebbe il nulla"
+    return sorgenti
+
+
+def _nome_puntato(nodo: ast.expr) -> str:
+    """`json.JSONDecodeError` da un albero, senza valutarlo."""
+    if isinstance(nodo, ast.Attribute):
+        return f"{_nome_puntato(nodo.value)}.{nodo.attr}"
+    if isinstance(nodo, ast.Name):
+        return nodo.id
+    return ""
+
+
+def test_nessuna_guardia_cattura_json_decode_error_al_posto_di_value_error():
+    """`json.JSONDecodeError` come tipo catturato e' sempre un difetto, qui.
+
+    E' una SOTTOCLASSE di `ValueError`, e sorella di `UnicodeDecodeError`: chi
+    scrive `except json.JSONDecodeError` sta scrivendo «il file e' troncato» e
+    lascia passare «il file e' storto», cioe' un byte che non e' UTF-8. Quel
+    byte la lettura lo solleva PRIMA del parse, quindi la guardia non lo vede
+    nemmeno arrivare.
+
+    Non e' un caso di scuola. Il guasto di codifica del 25/08/2026 e' arrivato
+    da un tubo che non dichiarava le proprie codifiche, e ha lasciato dietro
+    l'osservazione che le stesse tre righe stavano anche qui. Su un artefatto
+    scritto storto, una guardia che dichiara di coprire l'illeggibile e non lo
+    copre non fallisce dove sta scritta: fa saltare il chiamante.
+
+    Il controllo e' STRUTTURALE e non per sito, e questa e' la ragione: il
+    difetto era gia' stato trovato e chiuso UNA VOLTA, in
+    `core/report.py::_legge_json` (che infatti cattura `ValueError` e lo
+    motiva), e i tre fratelli erano rimasti aperti. Un controllo per sito
+    avrebbe chiuso i tre e lasciato passare il quarto che verra'.
+
+    Non impone di catturare qualcosa: chi vuole SOLLEVARE su un artefatto
+    corrotto -- ed e' la scelta giusta per il prior e per il registro degli
+    sweep, che sono dati di tesi -- semplicemente non scrive un `except`.
+    Questo controllo parla solo di chi la guardia ce l'ha gia'.
+
+    Mutazione che lo uccide: rimettere `json.JSONDecodeError` in una qualunque
+    delle tre guardie (`core/steps.py`, `core/sweep.py`, `core/pipeline.py`).
+    """
+    colpevoli: list[str] = []
+    for sorgente in _sorgenti_del_pacchetto():
+        albero = ast.parse(sorgente.read_text(encoding="utf-8"), filename=str(sorgente))
+        for nodo in ast.walk(albero):
+            if not isinstance(nodo, ast.ExceptHandler) or nodo.type is None:
+                continue
+            catturati = (
+                nodo.type.elts if isinstance(nodo.type, ast.Tuple) else [nodo.type]
+            )
+            for tipo in catturati:
+                if _nome_puntato(tipo).endswith("JSONDecodeError"):
+                    colpevoli.append(f"{sorgente.name}:{nodo.lineno}")
+
+    assert colpevoli == [], (
+        "guardie che dicono «troncato» e non coprono «storto» "
+        f"(usa ValueError, che le comprende entrambe): {colpevoli}"
+    )
+
+
+def test_uno_stato_scritto_storto_vale_come_stato_assente(tmp_path):
+    """Un `steps.json` con un byte non UTF-8 non deve far saltare la rilettura.
+
+    La guardia dichiarava «uno stato illeggibile e' uno stato assente», ed e' il
+    contratto giusto: tutti gli step tornano «mai eseguito», che e' pessimista e
+    mai falsamente rassicurante. Ma copriva il solo troncamento. Un byte storto
+    -- `0xE0`, cioe' `à` scritto in cp1252 -- solleva `UnicodeDecodeError` alla
+    lettura, prima del parse, e scavalcava la guardia: la colonna degli step
+    smetteva di disegnarsi invece di mostrarli tutti da rifare.
+
+    Mutazione che lo uccide: rimettere `json.JSONDecodeError` al posto di
+    `ValueError` in `read_state`.
+    """
+    (tmp_path / "steps.json").write_bytes(b'{"1": {"esito": "citt\xe0"}}')
+
+    assert steps.read_state(tmp_path) == {}
+
+
+def test_metriche_scritte_storte_non_fermano_la_raccolta_di_uno_sweep(tmp_path):
+    """Uno sweep non deve fermarsi tutto per un candidato scritto storto.
+
+    `leggi_metriche` prova `metrics.json` e poi il parziale: la guardia esiste
+    perche' un processo ucciso lascia il primo a meta'. Con un byte non UTF-8 la
+    lettura sollevava invece di passare al successivo, e siccome gli sweep
+    girano i candidati in parallelo quel guasto non scartava UN candidato:
+    fermava la raccolta di tutti.
+
+    Il parziale qui e' scritto BENE apposta: si misura che la guardia lasci
+    proseguire, non solo che non sollevi. Con un solo file storto un `return {}`
+    frettoloso passerebbe lo stesso.
+
+    Mutazione che lo uccide: rimettere `json.JSONDecodeError` al posto di
+    `ValueError` in `leggi_metriche`.
+    """
+    (tmp_path / sweep.METRICS_FILENAME).write_bytes(b'{"nodi": "citt\xe0"}')
+    (tmp_path / sweep.METRICS_PARTIAL).write_text(
+        json.dumps({"nodi": 14103}), encoding="utf-8"
+    )
+
+    assert sweep.leggi_metriche(tmp_path) == {"nodi": 14103}
