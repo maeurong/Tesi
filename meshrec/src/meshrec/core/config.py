@@ -144,7 +144,7 @@ class NormalsConfig(_ModelloBase):
 class SurfaceConfig(_ModelloBase):
     """Step 5: ricostruzione della superficie."""
 
-    method: Literal["poisson", "bpa", "alpha"] = "poisson"
+    method: Literal["poisson"] = "poisson"
     poisson_depth: int = Field(
         default=9,
         ge=4,
@@ -162,8 +162,6 @@ class SurfaceConfig(_ModelloBase):
     poisson_n_threads: int = Field(
         default=1, description="thread per il solutore Poisson; 1 = riproducibile, -1 = automatico"
     )
-    bpa_radius_factors: tuple[float, ...] = (1.0, 2.0, 4.0)
-    alpha_factor: float = Field(default=5.0, gt=0.0, description="x spaziatura media")
 
 
 class RepairConfig(_ModelloBase):
@@ -184,8 +182,7 @@ class SimplifyConfig(_ModelloBase):
     """Step 8: semplificazione, opzionale."""
 
     enabled: bool = False
-    mode: Literal["decimate", "remesh"] = "remesh"
-    target_faces: int | None = Field(default=None, gt=0)
+    mode: Literal["remesh"] = "remesh"
     remesh_target_len_pct: float = Field(default=1.0, gt=0.0, description="percentuale della diagonale")
     taubin_iterations: int = Field(default=0, ge=0)
 
@@ -244,7 +241,7 @@ class TetConfig(_ModelloBase):
             "misurate le due corse di riferimento (8,10% e 9,55%)"
         ),
     )
-    element: Literal["C3D4", "C3D10"] = "C3D4"
+    element: Literal["C3D4"] = "C3D4"
 
 
 class SpintaOrizzontale(_ModelloBase):

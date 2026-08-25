@@ -36,6 +36,9 @@ const PROPOSITI = {
   "13_solve": "Manda il deck a CalculiX e rilegge spostamenti e tensioni sul maglio.",
 };
 
+// Nodo piu' proprieta' in una riga.
+const elemento = (tag, proprieta) => Object.assign(document.createElement(tag), proprieta);
+
 async function caricaStato() {
   const risposta = await fetch("/api/run");
   const corpo = await corpoLetto(risposta);
@@ -163,12 +166,12 @@ async function disegnaIngresso() {
       ? `la configurazione non si legge — ${corsa.errore}`
       : `${corsa.nuvola}${corsa.materiale ? ` — ${corsa.materiale}` : " — materiale non dichiarato"}`;
     bottone.append(
-      Object.assign(document.createElement("span"), {
+      elemento("span", {
         className: "corsa-nome", textContent: corsa.nome,
       }),
       // Cio' che il server ha letto, non una descrizione inventata: una corsa
       // rotta lo dice qui invece di sparire dall'elenco.
-      Object.assign(document.createElement("small"), {
+      elemento("small", {
         className: "aiuto",
         textContent: corsa.riferimento ? `${stato} — di riferimento, sola lettura` : stato,
       }),
@@ -1364,11 +1367,11 @@ async function mostraModoDelloStep(numero, frequenza, ordine) {
 function pannelloCampo(ordine, metriche13) {
   const contenitore = document.createElement("fieldset");
   contenitore.className = "gruppo";
-  contenitore.append(Object.assign(document.createElement("legend"), { textContent: "Campo" }));
+  contenitore.append(elemento("legend", { textContent: "Campo" }));
   const casi = Object.keys(metriche13?.casi ?? {});
   const modi = metriche13?.modi ?? 0;
   if (casi.length === 0 && modi === 0) {
-    contenitore.append(Object.assign(document.createElement("p"), {
+    contenitore.append(elemento("p", {
       className: "aiuto",
       textContent: "Lo step 13 non ha ancora prodotto casi di carico né modi da mostrare.",
     }));
@@ -1383,13 +1386,13 @@ function pannelloCampo(ordine, metriche13) {
   }
   const rigaCaso = document.createElement("label");
   rigaCaso.className = "campo";
-  rigaCaso.append(Object.assign(document.createElement("span"), { textContent: "caso" }), selCaso);
+  rigaCaso.append(elemento("span", { textContent: "caso" }), selCaso);
 
   const selGrandezza = document.createElement("select");
   selGrandezza.append(new Option("spostamento (U)", "U"), new Option("tensione equivalente (VM)", "VM"));
   const rigaGrandezza = document.createElement("label");
   rigaGrandezza.className = "campo";
-  rigaGrandezza.append(Object.assign(document.createElement("span"), { textContent: "grandezza" }), selGrandezza);
+  rigaGrandezza.append(elemento("span", { textContent: "grandezza" }), selGrandezza);
 
   async function aggiorna() {
     const caso = selCaso.value;
@@ -1973,13 +1976,13 @@ const STEP_CON_RITAGLIO = 2;
 function pannelloRitaglio(ordine) {
   const contenitore = document.createElement("fieldset");
   contenitore.className = "gruppo";
-  contenitore.append(Object.assign(document.createElement("legend"), { textContent: "Ritaglio" }));
+  contenitore.append(elemento("legend", { textContent: "Ritaglio" }));
   const ingombro = vista.ingombro();
   // Senza geometria non c'e' nessun ingombro da leggere, e ingombro() lo dice
   // con null apposta: una scatola vuota darebbe +Infinity e -Infinity, che
   // sono valori accettabili per un campo numerico e per nient'altro.
   if (ingombro === null) {
-    contenitore.append(Object.assign(document.createElement("p"), {
+    contenitore.append(elemento("p", {
       className: "aiuto",
       textContent: "Nessuna nuvola disegnata: esegui lo step per vedere i punti e ritagliarli.",
     }));
@@ -2000,28 +2003,10 @@ function pannelloRitaglio(ordine) {
     ? { min: [...persistito.crop_min], max: [...persistito.crop_max] }
     : { min: [...ingombro.min], max: [...ingombro.max] };
   // Che cosa sono i sei numeri, in che unita', e che cosa fa il bottone --
-  // detto PRIMA di premerlo. Finora l'unica frase del pannello arrivava dopo
-  // l'applicazione, e diceva che crop_min e crop_max erano gia' stati scritti:
-  // chi esplorava lo scopriva a scrittura avvenuta. La sorgente dei numeri
-  // cambia con `persistito` ed e' la stessa distinzione che il commento qui
-  // sopra difende: l'ingombro disegnato e cio' che sta sul disco non sono la
-  // stessa domanda, e la frase non deve confonderli.
-  contenitore.append(Object.assign(document.createElement("p"), {
-    className: "aiuto",
-    textContent: (persistito
-      ? "Gli estremi del box in mm, come sono scritti nella configurazione della corsa. "
-      : "Gli estremi del box in mm, presi dall'ingombro della nuvola disegnata. ")
-      + "«Applica il ritaglio» li scrive nella configurazione, su crop_min e crop_max, "
-      + "e conta i punti che resterebbero.",
-  }));
-  // Che cosa sono i sei numeri, in che unita', e che cosa fa il bottone --
-  // detto PRIMA di premerlo. Finora l'unica frase del pannello arrivava dopo
-  // l'applicazione, e diceva che crop_min e crop_max erano gia' stati scritti:
-  // chi esplorava lo scopriva a scrittura avvenuta. La sorgente dei numeri
-  // cambia con `persistito` ed e' la stessa distinzione che il commento qui
-  // sopra difende: l'ingombro disegnato e cio' che sta sul disco non sono la
-  // stessa domanda, e la frase non deve confonderli.
-  contenitore.append(Object.assign(document.createElement("p"), {
+  // detto PRIMA di premerlo. La sorgente dei numeri cambia con `persistito`:
+  // l'ingombro disegnato e cio' che sta sul disco non sono la stessa domanda,
+  // e la frase non deve confonderli.
+  contenitore.append(elemento("p", {
     className: "aiuto",
     textContent: (persistito
       ? "Gli estremi del box in mm, come sono scritti nella configurazione della corsa. "
@@ -2033,7 +2018,7 @@ function pannelloRitaglio(ordine) {
     for (const asse of [0, 1, 2]) {
       const riga = document.createElement("label");
       riga.className = "campo";
-      riga.append(Object.assign(document.createElement("span"), {
+      riga.append(elemento("span", {
         textContent: `${estremo} ${"xyz"[asse]}`,
       }));
       const input = document.createElement("input");
@@ -2344,9 +2329,9 @@ function campoParametro(blocco, nome, campo, ordine) {
 function pannelloMateriale(numero, ordine) {
   const gruppo = document.createElement("fieldset");
   gruppo.className = "gruppo";
-  gruppo.append(Object.assign(document.createElement("legend"), { textContent: "materiale" }));
+  gruppo.append(elemento("legend", { textContent: "materiale" }));
   const dichiarato = configurazione.analysis?.material ?? null;
-  gruppo.append(Object.assign(document.createElement("p"), {
+  gruppo.append(elemento("p", {
     className: "aiuto",
     textContent: dichiarato
       ? "Dichiarato da chi analizza. Il programma non lo deduce dalla nuvola."
@@ -2362,7 +2347,7 @@ function pannelloMateriale(numero, ordine) {
   ]) {
     const riga = document.createElement("label");
     riga.className = "campo";
-    riga.append(Object.assign(document.createElement("span"), { textContent: etichetta }));
+    riga.append(elemento("span", { textContent: etichetta }));
     const casella = document.createElement("input");
     casella.value = dichiarato ? String(dichiarato[nome]) : "";
     riga.append(casella);
@@ -2452,7 +2437,7 @@ function fallisciDettaglio(dettaglio, ragione) {
 function gruppoDelBlocco(blocco, campi, ordine) {
   const gruppo = document.createElement("fieldset");
   gruppo.className = "gruppo";
-  gruppo.append(Object.assign(document.createElement("legend"), { textContent: blocco }));
+  gruppo.append(elemento("legend", { textContent: blocco }));
   const cambiati = [];
   const fermi = [];
   for (const [nome, campo] of Object.entries(campi)) {
@@ -2468,7 +2453,7 @@ function gruppoDelBlocco(blocco, campi, ordine) {
   gruppo.append(...cambiati);
   if (fermi.length > 0) {
     const piega = document.createElement("details");
-    const titolo = Object.assign(document.createElement("summary"), {
+    const titolo = elemento("summary", {
       textContent: fermi.length === 1
         ? "1 parametro al valore predefinito"
         : `${fermi.length} parametri al valore predefinito`,
@@ -2497,13 +2482,13 @@ function gruppoDelBlocco(blocco, campi, ordine) {
 function intestazioneDelloStep(numero) {
   const voce = ultimoStato.find((v) => v.numero === numero);
   const nome = voce ? ETICHETTE[voce.chiave] : undefined;
-  const titolo = Object.assign(document.createElement("h3"), {
+  const titolo = elemento("h3", {
     className: "titolo-step",
     textContent: nome === undefined ? `Step ${numero}` : `Step ${numero} · ${nome}`,
   });
   const proposito = voce ? PROPOSITI[voce.chiave] : undefined;
   if (proposito === undefined) return [titolo];
-  return [titolo, Object.assign(document.createElement("p"), {
+  return [titolo, elemento("p", {
     className: "aiuto",
     textContent: proposito,
   })];
@@ -2651,7 +2636,7 @@ async function apriDettaglio(numero, ordine = generazione) {
   // una riga assente e' l'unica alternativa onesta a un numero che non si ha.
   const misurato = ultimaDurata(ultimoStato.find((v) => v.numero === numero));
   if (misurato !== null) {
-    dettaglio.append(Object.assign(document.createElement("p"), {
+    dettaglio.append(elemento("p", {
       className: "aiuto",
       textContent: `L'ultima esecuzione di questo step è durata ${misurato}.`,
     }));
@@ -2691,7 +2676,7 @@ async function apriDettaglio(numero, ordine = generazione) {
   // i soli bottoni, e un riquadro vuoto non distingue "niente da mostrare" da
   // "non ha caricato".
   if (voce.blocchi.length === 0 && !chiave) {
-    dettaglio.append(Object.assign(document.createElement("p"), {
+    dettaglio.append(elemento("p", {
       className: "vuoto",
       textContent: "Questo step non ha parametri propri e non ha ancora prodotto metriche.",
     }));
@@ -2740,9 +2725,9 @@ function righeDellaMetrica(nome, valore) {
     );
   }
   const testo = valoreDellaMetrica(valore);
-  const dd = Object.assign(document.createElement("dd"), { textContent: testo });
+  const dd = elemento("dd", { textContent: testo });
   if (testo.length > VALORE_LARGO) dd.className = CLASSE_VALORE_LARGO;
-  return [Object.assign(document.createElement("dt"), { textContent: nome }), dd];
+  return [elemento("dt", { textContent: nome }), dd];
 }
 
 // Solo qui dentro l'`Array.isArray`: dopo la guardia di `annidata`, `typeof
@@ -2801,7 +2786,7 @@ function disegnaTabellaGalleria(corpo) {
   const contenitore = document.getElementById("galleria-tabella");
   contenitore.replaceChildren();
   if (corpo.righe.length === 0) {
-    contenitore.append(Object.assign(document.createElement("p"), {
+    contenitore.append(elemento("p", {
       className: "vuoto",
       textContent: `${corpo.nome}: registro vuoto.`,
     }));
@@ -2809,7 +2794,7 @@ function disegnaTabellaGalleria(corpo) {
   }
   const rigaTesta = document.createElement("tr");
   for (const colonna of corpo.colonne) {
-    rigaTesta.append(Object.assign(document.createElement("th"), { textContent: colonna.etichetta }));
+    rigaTesta.append(elemento("th", { textContent: colonna.etichetta }));
   }
   const testa = document.createElement("thead");
   testa.append(rigaTesta);
@@ -2820,14 +2805,14 @@ function disegnaTabellaGalleria(corpo) {
     // scrive sulla riga di fronte dell'appendice della tesi.
     if (riga.on_front) rigaHtml.className = "fronte";
     for (const cella of corpo.celle[indice]) {
-      rigaHtml.append(Object.assign(document.createElement("td"), { textContent: cella }));
+      rigaHtml.append(elemento("td", { textContent: cella }));
     }
     corpoTabella.append(rigaHtml);
   });
   const tabella = document.createElement("table");
   tabella.append(testa, corpoTabella);
   contenitore.append(
-    Object.assign(document.createElement("p"), {
+    elemento("p", {
       className: "aiuto",
       textContent: `${corpo.nome}: ${corpo.righe.length} candidati, ${corpo.fronte} sul fronte.`,
     }),

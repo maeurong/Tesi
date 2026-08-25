@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import shutil
@@ -1907,7 +1908,7 @@ def test_l_ingombro_non_conta_il_box_di_ritaglio():
 
     Eseguito, non letto: `box.visible = false` — la correzione piu' corta che
     la revisione suggeriva — qui si vedrebbe passare, perche'
-    `Box3.expandByObject` non guarda `visible` (vendor/three.core.js:9730). La
+    `Box3.expandByObject` non guarda `visible` (three.js r180). La
     funzione vera del viewport gira sopra il three.js vendorizzato, che e' lo
     stesso che il browser riceve.
     """
@@ -1924,7 +1925,7 @@ def test_l_ingombro_non_conta_il_box_di_ritaglio():
     )[0] + "\n  }"
     prova = Path(__file__).parent / "_prova_ingombro.mjs"
     prova.write_text(
-        f"import * as THREE from {(UI_DIR / 'vendor' / 'three.core.js').as_uri()!r};\n"
+        f"import * as THREE from {(UI_DIR / 'vendor' / 'three.core.min.js').as_uri()!r};\n"
         "import assert from 'node:assert/strict';\n"
         "const gruppo = new THREE.Group();\n"
         "const box = new THREE.Box3Helper(new THREE.Box3(), new THREE.Color(0xc4671b));\n"
@@ -2116,11 +2117,27 @@ def test_i_moduli_dell_interfaccia_sono_sintatticamente_validi():
         assert esito.returncode == 0, f"{percorso.name}: {esito.stderr}"
 
 
+#: sha256 dei due file di three.js r180 come stanno nel repo, verificati contro
+#: il tarball firmato del registry npm (vedi ui/vendor/README.md). Il controllo
+#: precedente era `len(content) > 100_000`, che dice «il file e' grosso» e non
+#: «il file e' quello»: un bundle sostituito e' servito con l'origine
+#: dell'interfaccia, quindi puo' chiamare da solo ogni /api/, POST
+#: /api/step/{n} compresa -- che lancia un sottoprocesso.
+IMPRONTE_VENDOR = {
+    "three.core.min.js": "61ba0df005b05991361d040d8ff670e1aadfd0ce7aeebd1fdb0725957a8957de",
+    "three.module.min.js": "e2b5ee6bccd38fd6d8a2428546b83c5f2426d84b152ef82be8055556e3b40eb6",
+}
+
+
 def test_three_js_e_servito_dal_server_e_non_dalla_rete(cliente):
-    for nome in ("three.module.js", "three.core.js"):
+    for nome, atteso in IMPRONTE_VENDOR.items():
         risposta = cliente.get(f"/ui/vendor/{nome}")
         assert risposta.status_code == 200
-        assert len(risposta.content) > 100_000
+        impronta = hashlib.sha256(risposta.content).hexdigest()
+        assert impronta == atteso, (
+            f"{nome} non e' il bundle verificato: se l'aggiornamento e' voluto, "
+            f"rifai la verifica in ui/vendor/README.md e aggiorna l'impronta"
+        )
 
 
 def test_nessun_riferimento_a_una_rete_esterna_nell_interfaccia():
