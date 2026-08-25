@@ -100,10 +100,17 @@ def read_state(out_dir: Path) -> dict[str, object]:
     try:
         with percorso.open(encoding="utf-8") as maniglia:
             contenuto = json.load(maniglia)
-    except (OSError, json.JSONDecodeError):
+    except (OSError, ValueError):
         # Un processo ucciso puo' lasciare il file troncato a meta' scrittura.
         # Uno stato illeggibile e' uno stato assente: tutti gli step tornano
         # "mai eseguito", che e' pessimista e mai falsamente rassicurante.
+        #
+        # ValueError e non json.JSONDecodeError: quest'ultimo e' una SOTTOCLASSE
+        # di ValueError e non copre UnicodeDecodeError, che pure ne e' un'altra
+        # e che la lettura solleva PRIMA del parse, su un byte non UTF-8.
+        # Scritta stretta, la guardia dichiarava di coprire «un file troncato»
+        # e lasciava passare «un file storto» -- e un file storto qui non
+        # tornava uno stato assente: faceva saltare la lettura.
         return {}
     return contenuto if isinstance(contenuto, dict) else {}
 

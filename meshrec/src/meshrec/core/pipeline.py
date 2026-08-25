@@ -598,9 +598,16 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
             with (out / METRICS_FILENAME).open(encoding="utf-8") as handle:
                 letto = json.load(handle)
             precedenti = letto if isinstance(letto, dict) else {}
-        except (OSError, json.JSONDecodeError):
+        except (OSError, ValueError):
             # Un metrics.json illeggibile non fa fallire una corsa riuscita:
             # si riparte da quello che questa corsa ha misurato.
+            #
+            # ValueError e non json.JSONDecodeError, che ne e' una sottoclasse e
+            # lascia scoperto UnicodeDecodeError -- sollevato dalla lettura del
+            # file, prima del parse, su un byte non UTF-8. Qui la guardia esiste
+            # proprio perche' una corsa RIUSCITA non deve fallire sulla
+            # rilettura di cio' che c'era prima, e scritta stretta faceva
+            # esattamente quello che era li' a impedire.
             precedenti = {}
     unite = dict(sorted({**precedenti, **metrics}.items()))
     io.scrivi_atomico(

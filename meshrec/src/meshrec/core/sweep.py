@@ -233,9 +233,16 @@ def leggi_metriche(out_dir: Path) -> dict[str, object]:
         try:
             with percorso.open(encoding="utf-8") as maniglia:
                 return json.load(maniglia)
-        except (OSError, json.JSONDecodeError):
+        except (OSError, ValueError):
             # Un processo ucciso puo' lasciare il file troncato: si prova il
             # successivo invece di sollevare, e is_complete({}) resta falso.
+            #
+            # ValueError e non json.JSONDecodeError, che ne e' una sottoclasse e
+            # lascia fuori UnicodeDecodeError: quello lo solleva la lettura del
+            # file prima ancora del parse, su un byte non UTF-8. Qui pesa il
+            # doppio, perche' uno sweep gira i candidati in parallelo e un
+            # metrics.json storto fermerebbe la raccolta di TUTTI invece di far
+            # scartare quel candidato.
             continue
     return {}
 
