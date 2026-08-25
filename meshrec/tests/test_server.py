@@ -3325,20 +3325,48 @@ def test_lo_schema_dice_fra_quali_valori_un_campo_a_scelta_chiusa_lascia_sceglie
     }
 
     # I `Literal` alla lettera: sono identificatori che il progetto preserva.
-    assert campi["segment.method"]["valori"] == [
-        {"valore": "crop", "etichetta": "crop"},
-        {"valore": "auto", "etichetta": "auto"},
+    assert [(v["valore"], v["etichetta"]) for v in campi["segment.method"]["valori"]] == [
+        ("crop", "crop"),
+        ("auto", "auto"),
     ]
-    assert campi["tet.element"]["valori"] == [
-        {"valore": "C3D4", "etichetta": "C3D4"},
-        {"valore": "C3D10", "etichetta": "C3D10"},
+    assert [(v["valore"], v["etichetta"]) for v in campi["tet.element"]["valori"]] == [
+        ("C3D4", "C3D4"),
+        ("C3D10", "C3D10"),
     ]
     # I booleani no: `true`/`false` non sono termini tecnici ma lingua, e
     # l'interfaccia e' in italiano. Il valore resta booleano, cambia la scritta.
-    assert campi["simplify.enabled"]["valori"] == [
-        {"valore": True, "etichetta": "vero"},
-        {"valore": False, "etichetta": "falso"},
+    assert [(v["valore"], v["etichetta"]) for v in campi["simplify.enabled"]["valori"]] == [
+        (True, "vero"),
+        (False, "falso"),
     ]
+
+    # Ogni campo a scelta chiusa dice a che cosa serve E in che cosa le voci
+    # differiscono. E' la meta' che mancava: la tendina mostrava `crop` e `auto`
+    # senza una riga che dicesse che cosa cambia fra i due, e la differenza non
+    # era scritta da nessuna parte del programma.
+    #
+    # Un campo nuovo a scelta chiusa fa cadere questo controllo finche' non gli
+    # si scrive il testo, ed e' voluto: e' il promemoria.
+    muti = [
+        f"{nome}.{voce['valore']}"
+        for nome in sorted(a_scelta)
+        for voce in campi[nome]["valori"]
+        if not voce["spiegazione"].strip()
+    ]
+    assert not muti, f"voci senza spiegazione: {muti}"
+    senza_scopo = [nome for nome in sorted(a_scelta) if not campi[nome]["description"].strip()]
+    assert not senza_scopo, f"campi a scelta chiusa senza descrizione: {senza_scopo}"
+
+    # E il solo valore che manda la corsa a sbattere lo dichiara. `C3D10` fa
+    # sollevare lo step 11 -- TetGen produce i nodi di lato con order=2 e il
+    # deck scrive i soli vertici -- quindi sceglierlo dalla tendina senza
+    # saperlo costa una corsa. Se questa riga diventa rossa perche' il testo e'
+    # stato riscritto, si riscriva pure: quello che non deve sparire e'
+    # l'avvertimento.
+    spiegazioni = {v["valore"]: v["spiegazione"] for v in campi["tet.element"]["valori"]}
+    assert "step 11" in spiegazioni["C3D10"], (
+        f"la voce C3D10 non avverte piu' che lo step 11 si ferma: {spiegazioni['C3D10']!r}"
+    )
 
     # E i campi a testo libero non guadagnano una tendina vuota.
     assert campi["downsample.voxel_size"]["valori"] is None

@@ -213,3 +213,37 @@ def test_ogni_regola_che_veste_una_casella_veste_anche_una_tendina():
         "regole che vestono la casella e non la tendina: "
         f"{scoperte}"
     )
+
+
+def test_la_bolla_dell_aiuto_non_puo_uscire_dalla_colonna():
+    """Misurato a schermo, non dedotto.
+
+    Ancorata al «?» -- `position: relative` sul bottone e una larghezza propria
+    -- la bolla nasceva dal punto interrogativo e cresceva verso destra. Nella
+    colonna del dettaglio a destra non c'e' spazio: usciva dalla finestra e le
+    spiegazioni si leggevano a meta', tagliate a filo del bordo.
+
+    Stesa fra i due bordi del CAMPO -- `left` e `right` insieme, nessuna
+    larghezza -- e' larga quanto il campo che spiega, e non puo' sbordare da
+    nessuna parte a nessuna larghezza di finestra. E' la ragione per cui questo
+    controllo guarda i due bordi e non una misura: una larghezza qualunque, in
+    `rem` o in `vw`, rimetterebbe in piedi lo stesso difetto con un altro numero.
+
+    Serve anche l'ancora: senza `position` sul campo, `left`/`right` si
+    risolverebbero sull'antenato posizionato piu' vicino, che non e' il campo.
+    """
+    foglio = _senza_commenti()
+    campo = foglio.split(".campo {", 1)[1].split("}", 1)[0]
+    assert "position: relative" in campo, (
+        "il campo non e' piu' l'ancora della bolla: left e right si risolvono altrove"
+    )
+
+    regola = foglio.split(".bolla {", 1)[1].split("}", 1)[0]
+    for bordo in ("left:", "right:"):
+        assert bordo in regola, (
+            f"la bolla non e' piu' stesa fra i due bordi del campo (manca {bordo}): "
+            "cresce da un punto, e verso destra la finestra finisce"
+        )
+    assert "width:" not in regola, (
+        "la bolla dichiara una larghezza propria: e' cio' che la faceva uscire dalla colonna"
+    )
