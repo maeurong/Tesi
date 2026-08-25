@@ -443,7 +443,7 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
         if start <= 5:
             in_corso = 5
             avvio = time.monotonic()
-            vertices, faces, step_metrics = surface.reconstruct(points, normals, cfg.surface, spacing)
+            vertices, faces, step_metrics = surface.reconstruct(points, normals, cfg.surface)
             metrics["05_reconstruct"] = step_metrics
             _write_mesh(out / ARTIFACTS[5], vertices, faces)
             registra(5, avvio, ARTIFACTS[5])

@@ -1,5 +1,5 @@
 // Scena tridimensionale. Disegna cio' che il server manda, non ricalcola nulla.
-import * as THREE from "/ui/vendor/three.module.js";
+import * as THREE from "/ui/vendor/three.module.min.js";
 
 // Il taglio della scala colore di un campo per nodo: al p99, non al massimo.
 // Il maglio dell'as-built ha una singolarita' di geometria che tiene il
@@ -708,7 +708,7 @@ export function creaViewport(contenitore) {
   // allarga a piacere, che poi taglia il cursore del taglio (Task 13) e
   // riprecompila i sei campi del ritaglio, allargandosi a ogni giro.
   // Escluso a mano e non con box.visible = false: Box3.expandByObject non
-  // guarda `visible` (vendor/three.core.js:9730), quindi nasconderlo non
+  // guarda `visible` (three.js r180), quindi nasconderlo non
   // toglierebbe niente dalla misura. Misurato in node, non dedotto.
   function scatolaDelGruppo() {
     const scatola = new THREE.Box3();
@@ -805,7 +805,7 @@ export function creaViewport(contenitore) {
       togliFantasma();
       mostraLeViste(false);
       // Togliere un oggetto dalla scena non libera i suoi buffer: in three.js
-      // sono gli eventi di dispose a cancellarli davvero (three.module.js:3821,
+      // sono gli eventi di dispose a cancellarli davvero (three.js r180,
       // onGeometryDispose, toglie l'indice e ogni attributo). Senza, ogni
       // passaggio fra lo step 5, il 6 e il 9 lasciava sul posto 7,6 MB di
       // attributi piu' un materiale, e il ciclo fra gli step e' un gesto che
@@ -838,10 +838,9 @@ export function creaViewport(contenitore) {
       descrivi(`nuvola di ${(punti.length / 3).toLocaleString("it")} punti`);
       inquadra();
     },
-    // Vale anche per la mesh esaedrica: la sua superficie di contorno e' fatta
-    // di quadrilateri, che il server ha gia' diviso in triangoli con
-    // core.viewport.triangoli_da_quadrilateri. Qui non arriva mai un
-    // quadrilatero.
+    // Qui arrivano solo triangoli: l'unico .vtu servito e' tetraedrico, e
+    // `_contorno_del_volume` (app/server.py) solleva su una griglia che non
+    // porta celle "tetra".
     mostraMesh(vertici, facce) {
       const geometria = new THREE.BufferGeometry();
       geometria.setAttribute("position", new THREE.BufferAttribute(vertici, 3));
@@ -976,7 +975,7 @@ export function creaViewport(contenitore) {
     // Un solo Box3Helper riusato: si ridisegna a ogni tasto premuto nei sei
     // campi, e crearne uno nuovo ogni volta lascerebbe sulla scheda la
     // geometria di quello di prima. three.js rilegge this.box a ogni
-    // fotogramma (three.core.js:57620, updateMatrixWorld), quindi riscrivere
+    // fotogramma (three.js r180, Box3Helper.updateMatrixWorld), quindi riscrivere
     // gli estremi basta e non serve ricostruire nulla.
     mostraBox(basso, alto) {
       if (box === null) {

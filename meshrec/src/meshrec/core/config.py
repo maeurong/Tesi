@@ -162,7 +162,7 @@ class NormalsConfig(_ModelloBase):
 class SurfaceConfig(_ModelloBase):
     """Step 5: ricostruzione della superficie."""
 
-    method: Literal["poisson", "bpa", "alpha"] = Field(
+    method: Literal["poisson"] = Field(
         default="poisson",
         description="come costruire la superficie triangolare dalla nuvola orientata",
         json_schema_extra={
@@ -171,15 +171,8 @@ class SurfaceConfig(_ModelloBase):
                     "ricostruzione di Poisson, con scarto dei vertici sotto il quantile di "
                     "densità. Lo scarto è il rimedio all'artefatto principale del programma "
                     "sostituito: Poisson chiude le zone non rilevate inventando superficie. "
-                    "È il metodo delle corse di riferimento."
-                ),
-                "bpa": (
-                    "ball pivoting sui raggi di bpa_radius_factors per la spaziatura media. "
-                    "Non inventa superficie dove i punti non ci sono, quindi lascia aperti i "
-                    "buchi invece di chiuderli."
-                ),
-                "alpha": (
-                    "alpha shape con alpha_factor per la spaziatura media."
+                    "È l'unico metodo rimasto: ball pivoting e alpha shape sono stati tolti "
+                    "perché nessuna corsa li adoperava."
                 ),
             }
         },
@@ -201,8 +194,6 @@ class SurfaceConfig(_ModelloBase):
     poisson_n_threads: int = Field(
         default=1, description="thread per il solutore Poisson; 1 = riproducibile, -1 = automatico"
     )
-    bpa_radius_factors: tuple[float, ...] = (1.0, 2.0, 4.0)
-    alpha_factor: float = Field(default=5.0, gt=0.0, description="x spaziatura media")
 
 
 class RepairConfig(_ModelloBase):
@@ -258,7 +249,7 @@ class SimplifyConfig(_ModelloBase):
         description="se eseguire lo step 8",
         json_schema_extra={
             "spiegazioni": {
-                "true": "la superficie viene semplificata con il metodo scelto in mode.",
+                "true": "la superficie viene semplificata con il modo dichiarato in mode.",
                 "false": (
                     "lo step non tocca niente: la superficie riparata passa invariata allo "
                     "step 9, e i triangoli prima e dopo coincidono."
@@ -266,24 +257,19 @@ class SimplifyConfig(_ModelloBase):
             }
         },
     )
-    mode: Literal["decimate", "remesh"] = Field(
+    mode: Literal["remesh"] = Field(
         default="remesh",
         description="come semplificare, quando lo step 8 è acceso",
         json_schema_extra={
             "spiegazioni": {
-                "decimate": (
-                    "decimazione quadrica fino al numero di triangoli scritto in "
-                    "target_faces. Richiede target_faces: senza, lo step si ferma con un "
-                    "errore, e il predefinito è vuoto."
-                ),
                 "remesh": (
                     "remeshing isotropo con passo pari a remesh_target_len_pct per cento "
-                    "della diagonale. È il predefinito e non chiede altri parametri."
+                    "della diagonale. È l'unico modo rimasto: la decimazione quadrica è "
+                    "stata tolta, e con lei target_faces."
                 ),
             }
         },
     )
-    target_faces: int | None = Field(default=None, gt=0)
     remesh_target_len_pct: float = Field(default=1.0, gt=0.0, description="percentuale della diagonale")
     taubin_iterations: int = Field(default=0, ge=0)
 
@@ -357,19 +343,15 @@ class TetConfig(_ModelloBase):
             "misurate le due corse di riferimento (8,10% e 9,55%)"
         ),
     )
-    element: Literal["C3D4", "C3D10"] = Field(
+    element: Literal["C3D4"] = Field(
         default="C3D4",
         description="tipo di elemento solido scritto nel deck dallo step 11",
         json_schema_extra={
             "spiegazioni": {
                 "C3D4": (
-                    "tetraedro a quattro nodi, interpolazione lineare. È l'unico che lo "
-                    "scrittore del deck sa scrivere."
-                ),
-                "C3D10": (
-                    "tetraedro a dieci nodi. Lo step 11 si ferma: TetGen produce i nodi di "
-                    "lato con order=2 e il deck scrive i soli vertici. Resta dichiarato "
-                    "perché la scelta esiste nel modello, non perché sia percorribile oggi."
+                    "tetraedro a quattro nodi, interpolazione lineare. È l'unico tipo "
+                    "rimasto: C3D10 è stato tolto perché lo scrittore del deck non sa "
+                    "scrivere i dieci nodi che TetGen produce con order=2."
                 ),
             }
         },

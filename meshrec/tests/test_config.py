@@ -213,47 +213,71 @@ def test_un_inf_gia_scritto_su_disco_non_si_rilegge(tmp_path):
         config.load_config(path)
 
 
-def test_l_impronta_di_una_corsa_registrata_non_cambia():
-    """Le impronte della Fase 2 vivono nei registri: allargare PipelineConfig
-    senza escludere il blocco nuovo cambierebbe la provenienza di ogni riga
-    della tabella sperimentale della tesi.
+def test_lo_schema_non_sposta_l_impronta_dei_registri_in_silenzio():
+    """Due sorveglianze sulle 22 righe della tabella sperimentale, non una.
 
-    Il test non fissa un valore magico: rilegge i due registri veri, rivalida
-    la configurazione incorporata in ciascuna riga e ricalcola l'impronta. Se
-    coincide con quella registrata, la riga e' ancora derivabile dalla
-    configurazione che dichiara.
+    **Riga per riga**: la cartella di un candidato e' `fingerprint(cfg)[:12]`
+    (`core/sweep.py`), quindi il basename di `out_dir` ancora l'impronta
+    registrata alla riga che la porta. Regge a qualunque schema, perche' non
+    ricalcola niente: cade se qualcuno scambia due config fra righe, o
+    riscrive a mano un `fingerprint`.
+
+    **In sequenza**: l'aggregato delle impronte che lo schema **corrente**
+    produce da quelle stesse configurazioni, nell'ordine in cui le righe
+    stanno sul disco. Cade se un campo entra o esce da un blocco dentro
+    l'impronta, e cade anche se due config vengono scambiate fra righe.
+
+    L'ordine non e' un dettaglio di resa: e' l'unica cosa che distingue le 22
+    impronte da un mucchio. Ordinarle prima di hasharle -- come faceva la
+    prima stesura di questa guardia -- rende il digest invariante allo
+    scambio, e lo scambio e' proprio la mutazione che il legame per-riga,
+    morto col cambio di schema, sorvegliava.
+
+    Il campo `fingerprint` delle righe non si riscrive: e' un dato misurato.
+    L'aggregato invece si aggiorna quando lo schema cambia apposta, e allora
+    lo si dice nel commit.
     """
+    import hashlib
     import json
 
     from meshrec.core.sweep import fingerprint
 
     radice = Path(__file__).resolve().parents[1] / "experiments"
-    righe = 0
+    marchi = []
     for registro in sorted(radice.glob("*/registro.jsonl")):
-        for riga in registro.read_text(encoding="utf-8").splitlines():
+        for numero, riga in enumerate(registro.read_text(encoding="utf-8").splitlines(), 1):
             if not riga.strip():
                 continue
             voce = json.loads(riga)
-            cfg = PipelineConfig.model_validate(voce["config"])
-            assert fingerprint(cfg) == voce["fingerprint"], (
-                f"{registro}: la riga {righe + 1} non e' piu' derivabile dalla "
-                "propria configurazione"
+            dove = f"{registro.parent.name}/registro.jsonl riga {numero}"
+            assert "config" in voce, f"{dove}: la riga non porta la configurazione"
+            # `out_dir` e' scritto dalla piattaforma che ha girato lo sweep e
+            # puo' portare separatori di Windows: il basename si isola a mano.
+            cartella = voce["out_dir"].replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+            assert cartella == voce["fingerprint"][:12], (
+                f"{dove}: la cartella '{cartella}' non e' quella che l'impronta "
+                f"registrata nomina ({voce['fingerprint'][:12]})"
             )
-            righe += 1
-    assert righe == 22, f"attese 22 righe nei due registri, trovate {righe}"
+            marchi.append(fingerprint(PipelineConfig.model_validate(voce["config"])))
+
+    assert len(marchi) == 22, f"attese 22 righe nei due registri, trovate {len(marchi)}"
+    aggregato = hashlib.sha256("\n".join(marchi).encode("utf-8")).hexdigest()
+    assert aggregato == "9b409e2d30a7465e81ea1268f913c766316280db9d40983f258ffe7f7bf79bd6", (
+        "lo schema della configurazione ha spostato l'impronta delle righe "
+        "registrate: se e' voluto, aggiorna l'aggregato e dillo nel commit"
+    )
 
 
 @pytest.mark.parametrize(
     ("caso", "impronta"),
     [
-        ("lab.yaml", "327f3f1f8ec9eef26b0a1fc575f122d9d1028461152a443d698a97848ca8afb1"),
-        ("muro.yaml", "83bbe93f7ce6e0d4f70b6f077d1705158a37bd7083b55b09b4d57fa32b38100b"),
+        ("lab.yaml", "ee7308f7fc34962b54b118e9159c86fd8ae2af172e4ac93e155505727c368a55"),
+        ("muro.yaml", "78f0cf059e50f08e7b6823d240def3bdc0ba2172e908d85e03d8b71350a6cda1"),
     ],
 )
 def test_l_impronta_delle_configurazioni_del_caso_studio_e_quella_misurata(caso, impronta):
     """Le due configurazioni da cui partono gli sweep di tesi, fissate al valore
-    misurato sul commit che le ha spostate in `casi/` (identico a quello che
-    avevano alla radice: lo spostamento non le ha toccate).
+    misurato dopo il taglio di `bpa`/`alpha`/`decimate`.
 
     Il test sopra rilegge i registri e non se ne accorgerebbe: ogni riga porta
     dentro di se' la configurazione con cui e' stata calcolata, quindi resta
@@ -894,3 +918,18 @@ def test_fixed_nset_e_step_name_rifiutano_i_nomi_non_scrivibili(cattivo):
         config.AnalysisConfig(material=MATERIALE, fixed_nset=cattivo)
     with pytest.raises(ValidationError):
         config.AnalysisConfig(material=MATERIALE, step_name=cattivo)
+
+
+def test_c3d10_non_e_dichiarabile_finche_il_writer_non_lo_gestisce():
+    """L'unico grado che il deck sa scrivere e' il primo, e il rifiuto sta qui.
+
+    TetGen produce i nodi di lato con `order=2`, ma il writer scrive i soli
+    vertici: un deck C3D10 sarebbe muto invece che sbagliato. Il rifiuto
+    stava dentro `export_model`, cioe' dopo la tetraedralizzazione dell'intera
+    nuvola; qui ferma la corsa prima che cominci.
+
+    Mutazione che lo uccide: riportare `element` a `Literal["C3D4", "C3D10"]`.
+    Il valore torna dichiarabile e il rifiuto scivola a valle.
+    """
+    with pytest.raises(ValidationError):
+        config.TetConfig(element="C3D10")
