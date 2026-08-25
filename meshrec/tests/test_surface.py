@@ -41,7 +41,7 @@ def test_normals_are_unit_length_and_axis_aligned_on_a_box(cloud):
 def test_poisson_reconstructs_a_closed_box_with_the_right_volume(cloud):
     normals, _ = surface.estimate_normals(cloud, config.NormalsConfig(), SPACING)
     vertices, faces, metrics = surface.reconstruct(
-        cloud, normals, config.SurfaceConfig(poisson_depth=8), SPACING
+        cloud, normals, config.SurfaceConfig(poisson_depth=8)
     )
     assert metrics["method"] == "poisson"
     assert metrics["triangles"] == len(faces)
@@ -51,10 +51,10 @@ def test_poisson_reconstructs_a_closed_box_with_the_right_volume(cloud):
 def test_density_trimming_removes_vertices(cloud):
     normals, _ = surface.estimate_normals(cloud, config.NormalsConfig(), SPACING)
     _, _, trimmed = surface.reconstruct(
-        cloud, normals, config.SurfaceConfig(poisson_depth=8, density_quantile=0.2), SPACING
+        cloud, normals, config.SurfaceConfig(poisson_depth=8, density_quantile=0.2)
     )
     _, _, kept = surface.reconstruct(
-        cloud, normals, config.SurfaceConfig(poisson_depth=8, density_quantile=0.0), SPACING
+        cloud, normals, config.SurfaceConfig(poisson_depth=8, density_quantile=0.0)
     )
     assert trimmed["vertices_trimmed"] > 0
     assert kept["vertices_trimmed"] == 0
@@ -69,28 +69,10 @@ def test_poisson_reconstruction_is_deterministic(cloud):
     """
     normals, _ = surface.estimate_normals(cloud, config.NormalsConfig(), SPACING)
     cfg = config.SurfaceConfig(poisson_depth=8)
-    vertices_a, faces_a, _ = surface.reconstruct(cloud, normals, cfg, SPACING)
-    vertices_b, faces_b, _ = surface.reconstruct(cloud, normals, cfg, SPACING)
+    vertices_a, faces_a, _ = surface.reconstruct(cloud, normals, cfg)
+    vertices_b, faces_b, _ = surface.reconstruct(cloud, normals, cfg)
     assert np.array_equal(vertices_a, vertices_b)
     assert np.array_equal(faces_a, faces_b)
-
-
-def test_alpha_shape_produces_a_surface(cloud):
-    vertices, faces, metrics = surface.reconstruct(
-        cloud, None, config.SurfaceConfig(method="alpha"), SPACING
-    )
-    assert metrics["method"] == "alpha"
-    assert len(faces) > 0
-    assert len(vertices) > 0
-
-
-def test_ball_pivoting_produces_a_surface(cloud):
-    normals, _ = surface.estimate_normals(cloud, config.NormalsConfig(), SPACING)
-    _, faces, metrics = surface.reconstruct(
-        cloud, normals, config.SurfaceConfig(method="bpa"), SPACING
-    )
-    assert metrics["method"] == "bpa"
-    assert len(faces) > 0
 
 
 def test_disabled_simplification_is_a_no_op():
@@ -101,21 +83,6 @@ def test_disabled_simplification_is_a_no_op():
     assert out_faces.shape == faces.shape
     assert out_vertices.shape == vertices.shape
     assert metrics["enabled"] is False
-
-
-def test_decimation_reaches_the_target_face_count():
-    vertices, faces = synth.box_mesh(SIZE)
-    # da 12 triangoli grossolani a molti triangoli regolari, poi giu a 100
-    dense_vertices, dense_faces, _ = surface.simplify(
-        vertices, faces, config.SimplifyConfig(enabled=True, mode="remesh", remesh_target_len_pct=2.0)
-    )
-    _, small_faces, metrics = surface.simplify(
-        dense_vertices,
-        dense_faces,
-        config.SimplifyConfig(enabled=True, mode="decimate", target_faces=100),
-    )
-    assert len(small_faces) <= 120
-    assert metrics["triangles_before"] > metrics["triangles_after"]
 
 
 def test_taubin_smoothing_does_not_collapse_the_volume():

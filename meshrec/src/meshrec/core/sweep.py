@@ -58,9 +58,11 @@ BLOCCHI_FUORI_IMPRONTA: tuple[str, ...] = ("run", "wall", "model")
 # esperimento.
 #
 # E' l'unica regola condizionata dell'impronta, e va dichiarata come tale:
-# dentro l'impronta sopravvivono gia' cinque valori nulli (segment.crop_min,
-# segment.crop_max, repair.max_hole_area, simplify.target_faces,
-# tet.max_volume) che nessuno omette.
+# dentro l'impronta sopravvivono gia' quattro valori nulli (segment.crop_min,
+# segment.crop_max, repair.max_hole_area, tet.max_volume) che nessuno omette.
+#
+# La regola copre i blocchi AGGIUNTI, non i campi TOLTI: togliere un campo da
+# un modello sposta l'impronta di ogni riga gia' registrata.
 #
 # `selettori` segue `carichi` e per la stessa ragione: e' letto dallo step 11,
 # cambia il deck, e due candidati con selettori diversi sono esperimenti
