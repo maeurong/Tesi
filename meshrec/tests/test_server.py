@@ -1907,7 +1907,7 @@ def test_l_ingombro_non_conta_il_box_di_ritaglio():
 
     Eseguito, non letto: `box.visible = false` — la correzione piu' corta che
     la revisione suggeriva — qui si vedrebbe passare, perche'
-    `Box3.expandByObject` non guarda `visible` (vendor/three.core.js:9730). La
+    `Box3.expandByObject` non guarda `visible` (three.js r180, `Box3`). La
     funzione vera del viewport gira sopra il three.js vendorizzato, che e' lo
     stesso che il browser riceve.
     """
@@ -1924,7 +1924,7 @@ def test_l_ingombro_non_conta_il_box_di_ritaglio():
     )[0] + "\n  }"
     prova = Path(__file__).parent / "_prova_ingombro.mjs"
     prova.write_text(
-        f"import * as THREE from {(UI_DIR / 'vendor' / 'three.core.js').as_uri()!r};\n"
+        f"import * as THREE from {(UI_DIR / 'vendor' / 'three.core.min.js').as_uri()!r};\n"
         "import assert from 'node:assert/strict';\n"
         "const gruppo = new THREE.Group();\n"
         "const box = new THREE.Box3Helper(new THREE.Box3(), new THREE.Color(0xc4671b));\n"
@@ -2117,7 +2117,7 @@ def test_i_moduli_dell_interfaccia_sono_sintatticamente_validi():
 
 
 def test_three_js_e_servito_dal_server_e_non_dalla_rete(cliente):
-    for nome in ("three.module.js", "three.core.js"):
+    for nome in ("three.module.min.js", "three.core.min.js"):
         risposta = cliente.get(f"/ui/vendor/{nome}")
         assert risposta.status_code == 200
         assert len(risposta.content) > 100_000

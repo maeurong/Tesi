@@ -737,7 +737,7 @@ def test_l_insieme_dei_file_scanditi_e_derivato_non_elencato_a_mano(tmp_path):
     (finto / "app.js").write_text("", encoding="utf-8")
     (finto / "altro.js").write_text("", encoding="utf-8")
     (finto / "vendor").mkdir()
-    (finto / "vendor" / "three.module.js").write_text("", encoding="utf-8")
+    (finto / "vendor" / "three.module.min.js").write_text("", encoding="utf-8")
     (finto / "pannelli").mkdir()
     (finto / "pannelli" / "qualcosa.js").write_text("", encoding="utf-8")
     trovati = {p.relative_to(finto) for p in _file_js_dell_interfaccia(finto)}
