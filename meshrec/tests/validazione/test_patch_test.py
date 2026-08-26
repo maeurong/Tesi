@@ -108,7 +108,15 @@ def _ccx_o_salta() -> str:
     return eseguibile
 
 
-def _provino() -> tuple[np.ndarray, np.ndarray]:
+# I due elementi che il deck sa scrivere per un maglio tetraedrico, con
+# l'ordine di TetGen che li produce. Il patch test vale per entrambi, e sul
+# quadratico e' il secondo dei due oracoli sulla permutazione dei nodi di lato
+# (#45): un nodo di lato al posto sbagliato **sposta un punto nello spazio**,
+# l'elemento cambia forma e non riproduce piu' un campo lineare.
+ELEMENTI = [pytest.param(1, "C3D4", id="C3D4"), pytest.param(2, "C3D10", id="C3D10")]
+
+
+def _provino(order: int = 1) -> tuple[np.ndarray, np.ndarray]:
     """Un blocchetto di tetraedri dalla nostra pipeline, con nodi interni.
 
     `max_volume` e' scelto perche' TetGen debba aggiungere punti dentro il
@@ -119,6 +127,7 @@ def _provino() -> tuple[np.ndarray, np.ndarray]:
     return volume.tetrahedralize(
         vertici, facce,
         max_volume=8000.0, min_ratio=1.8, max_steiner_points=-1, nobisect=False,
+        order=order,
     )
 
 
@@ -126,8 +135,27 @@ def _campo(punti: np.ndarray) -> np.ndarray:
     return punti @ A.T
 
 
-def _indici_di_bordo(tets: np.ndarray) -> np.ndarray:
-    return np.unique(abaqus.boundary_faces(tets))
+def _indici_di_bordo(nodi: np.ndarray) -> np.ndarray:
+    """I nodi sulla superficie del provino, riconosciuti per **geometria**.
+
+    Non per topologia: `abaqus.boundary_faces` rende terne di **vertici**,
+    quindi su un maglio quadratico i nodi di lato che stanno sul bordo non ne
+    farebbero parte. Lasciarli liberi rompe il patch test nella variante A, e
+    non per colpa dell'elemento: un nodo libero e **scarico** non puo' stare
+    sul campo lineare, perche' su quel bordo la trazione non e' nulla. Misurato
+    prima di questa correzione: 22% di scarto sul C3D10, contro il pavimento
+    del formato sul C3D4.
+
+    Il criterio geometrico e' esatto su questo provino perche' e' una scatola
+    a facce piane e assi allineati. Non e' un criterio generale, e non pretende
+    di esserlo: qui il provino lo scegliamo noi.
+    """
+    tolleranza = 1e-9
+    fuori = np.zeros(len(nodi), dtype=bool)
+    for asse, lunghezza in enumerate(LATO):
+        fuori |= np.abs(nodi[:, asse]) < tolleranza
+        fuori |= np.abs(nodi[:, asse] - lunghezza) < tolleranza
+    return np.flatnonzero(fuori)
 
 
 def _nodo_piu_vicino(nodi: np.ndarray, punto) -> int:
@@ -187,7 +215,7 @@ def test_il_provino_ha_nodi_interni_altrimenti_non_prova_nulla():
     niente, ed e' esattamente la guardia che non guarda.
     """
     nodi, tets = _provino()
-    bordo = set(_indici_di_bordo(tets).tolist())
+    bordo = set(_indici_di_bordo(nodi).tolist())
     interni = [i for i in range(len(nodi)) if i not in bordo]
     assert len(interni) >= 10, f"solo {len(interni)} nodi interni: provino inadeguato"
 
@@ -214,7 +242,8 @@ def test_il_pavimento_del_canale_e_misurabile_e_non_nullo():
     assert FATTORE > 1.0, "un fattore a uno rende il confronto un testa o croce"
 
 
-def test_patch_test_a_il_campo_lineare_e_riprodotto_esattamente(tmp_path):
+@pytest.mark.parametrize(("order", "tipo"), ELEMENTI)
+def test_patch_test_a_il_campo_lineare_e_riprodotto_esattamente(tmp_path, order, tipo):
     """Variante A: campo imposto su tutto il bordo, interno risolto.
 
     **Cosa questo test coglie davvero su un C3D4**, misurato permutando le
@@ -237,8 +266,8 @@ def test_patch_test_a_il_campo_lineare_e_riprodotto_esattamente(tmp_path):
     campo lineare. Che questo test lo colga va misurato quando il quadratico
     esiste, non dato per scontato adesso.
     """
-    nodi, tets = _provino()
-    bordo = _indici_di_bordo(tets)
+    nodi, tets = _provino(order)
+    bordo = _indici_di_bordo(nodi)
     atteso = _campo(nodi)
 
     # Il nodo all'origine porta gia' spostamento nullo nel campo, quindi puo'
@@ -259,10 +288,14 @@ def test_patch_test_a_il_campo_lineare_e_riprodotto_esattamente(tmp_path):
 
     spostamenti = _risolvi(
         tmp_path, nodi, tets,
-        node_sets=insiemi, fixed_nset="ANCORA",
+        node_sets=insiemi, fixed_nset="ANCORA", element_type=tipo,
         spostamenti_imposti=imposti,
     )
 
+    # Tutto cio' che non e' stato imposto: i nodi interni, e sul quadratico
+    # anche i **nodi di lato che stanno sul bordo** -- `boundary_faces` rende
+    # terne di vertici, quindi quelli restano incogniti. Meglio cosi': piu'
+    # gradi di liberta' risolti, test piu' discriminante.
     interni = [i for i in range(len(nodi)) if i not in set(bordo.tolist())]
     scarto = _scarto_relativo(spostamenti, nodi, interni)
     limite = FATTORE * _pavimento_del_formato(atteso)

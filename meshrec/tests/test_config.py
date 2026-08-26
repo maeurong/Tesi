@@ -920,16 +920,34 @@ def test_fixed_nset_e_step_name_rifiutano_i_nomi_non_scrivibili(cattivo):
         config.AnalysisConfig(material=MATERIALE, step_name=cattivo)
 
 
-def test_c3d10_non_e_dichiarabile_finche_il_writer_non_lo_gestisce():
-    """L'unico grado che il deck sa scrivere e' il primo, e il rifiuto sta qui.
+def test_il_quadratico_e_dichiarabile_ed_e_il_predefinito():
+    """Il writer ha imparato a scrivere i dieci nodi (#45), e il rifiuto cade.
 
-    TetGen produce i nodi di lato con `order=2`, ma il writer scrive i soli
-    vertici: un deck C3D10 sarebbe muto invece che sbagliato. Il rifiuto
-    stava dentro `export_model`, cioe' dopo la tetraedralizzazione dell'intera
-    nuvola; qui ferma la corsa prima che cominci.
+    Questo test sostituisce `test_c3d10_non_e_dichiarabile_finche_il_writer_non_lo_gestisce`,
+    il cui stesso nome dichiarava di essere temporaneo. Il rifiuto era giusto
+    finche' un deck C3D10 sarebbe uscito muto invece che sbagliato; ora la
+    connettivita' passa per `volume.TETGEN_A_ABAQUS` e i nodi di lato finiscono
+    dove il solutore li aspetta.
 
-    Mutazione che lo uccide: riportare `element` a `Literal["C3D4", "C3D10"]`.
-    Il valore torna dichiarabile e il rifiuto scivola a valle.
+    Il predefinito e' il **quadratico**: il manuale CalculiX dice del lineare
+    «not suited for structural calculations... the element is too stiff», e la
+    suite di verifica ufficiale non contiene un solo deck C3D4 su 610.
+
+    Mutazione che lo uccide: riportare il predefinito a `C3D4`.
     """
-    with pytest.raises(ValidationError):
-        config.TetConfig(element="C3D10")
+    assert config.TetConfig().element == "C3D10"
+    assert config.TetConfig(element="C3D4").element == "C3D4", (
+        "il lineare resta dichiarabile: serve a misurare quanto la sua rigidita' costi"
+    )
+
+
+def test_un_elemento_che_il_deck_non_sa_scrivere_e_rifiutato_prima_della_corsa():
+    """Il rifiuto sta nella validazione della configurazione, non a valle.
+
+    E' la meta' buona di `66b526d`, da non perdere: un tipo sconosciuto
+    fermava la corsa **dopo** l'intera tetraedrizzazione, cioe' al punto di
+    massimo spreco.
+    """
+    for sconosciuto in ("C3D20", "C3D10M", "TET4", ""):
+        with pytest.raises(ValidationError):
+            config.TetConfig(element=sconosciuto)

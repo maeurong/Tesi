@@ -29,6 +29,16 @@ tutta: e' cio' che distingue "appoggio mancante" da "vuoto in mezzo".
 """
 
 
+# Questo file prova la logica **geometrica** dell'esportatore -- terna, set di
+# nodi, impronta a terra, selettori, ripartizione dei carichi -- su magli
+# lineari, che sono quelli che le sue fixture producono. Dal ripristino del
+# quadratico (#45) il predefinito di `TetConfig` e' C3D10, e una `TetConfig()`
+# nuda accanto a un maglio a quattro colonne fa sollevare l'esportatore prima
+# di arrivare a cio' che il test guarda. Dichiararlo qui, una volta, dice anche
+# a chi legge che l'elemento non e' la variabile sotto esame.
+TET_LINEARE = config.TetConfig(element="C3D4")
+
+
 @pytest.fixture
 def cube_mesh():
     vertices, faces = synth.box_mesh(SIZE)
@@ -421,7 +431,7 @@ def test_il_carico_in_sommita_rifiuta_un_insieme_vuoto(tmp_path):
 def test_export_model_writes_both_files_and_reports_mass(tmp_path):
     meshio = pytest.importorskip("meshio")
     vertices, faces = synth.box_mesh((100.0, 40.0, 200.0))
-    nodes, tets, _ = volume.tetrahedralize_with_metrics(vertices, faces, config.TetConfig())
+    nodes, tets, _ = volume.tetrahedralize_with_metrics(vertices, faces, TET_LINEARE)
 
     metrics = abaqus.export_model(
         tmp_path / "wall_model.inp",
@@ -429,7 +439,7 @@ def test_export_model_writes_both_files_and_reports_mass(tmp_path):
         nodes,
         tets,
         config.AnalysisConfig(material=MATERIALE),
-        config.TetConfig(),
+        TET_LINEARE,
     )
 
     assert (tmp_path / "wall_model.inp").exists()
@@ -446,7 +456,7 @@ def test_export_model_elenca_i_casi_di_carico_dichiarati(tmp_path):
     separati in blocchi di primo livello distinti): un elenco che leggesse i
     tre campi da `cfg` solleverebbe un `AttributeError`, non un elenco corto."""
     vertices, faces = synth.box_mesh((100.0, 40.0, 200.0))
-    nodes, tets, _ = volume.tetrahedralize_with_metrics(vertices, faces, config.TetConfig())
+    nodes, tets, _ = volume.tetrahedralize_with_metrics(vertices, faces, TET_LINEARE)
     carichi = config.CarichiConfig(spinta=config.SpintaOrizzontale(coefficiente=0.1, asse="x"))
 
     metrics = abaqus.export_model(
@@ -455,7 +465,7 @@ def test_export_model_elenca_i_casi_di_carico_dichiarati(tmp_path):
         nodes,
         tets,
         config.AnalysisConfig(material=MATERIALE),
-        config.TetConfig(),
+        TET_LINEARE,
         carichi=carichi,
     )
 
@@ -464,7 +474,7 @@ def test_export_model_elenca_i_casi_di_carico_dichiarati(tmp_path):
 
 def test_export_model_senza_carichi_elenca_il_solo_peso_proprio(tmp_path):
     vertices, faces = synth.box_mesh((100.0, 40.0, 200.0))
-    nodes, tets, _ = volume.tetrahedralize_with_metrics(vertices, faces, config.TetConfig())
+    nodes, tets, _ = volume.tetrahedralize_with_metrics(vertices, faces, TET_LINEARE)
 
     metrics = abaqus.export_model(
         tmp_path / "wall_model.inp",
@@ -472,7 +482,7 @@ def test_export_model_senza_carichi_elenca_il_solo_peso_proprio(tmp_path):
         nodes,
         tets,
         config.AnalysisConfig(material=MATERIALE),
-        config.TetConfig(),
+        TET_LINEARE,
     )
 
     assert metrics["casi_di_carico"] == ["GRAVITA"]
@@ -647,7 +657,7 @@ def test_export_model_estimates_the_triad_on_the_reference_it_is_given(tmp_path)
         nodes,
         tets,
         config.AnalysisConfig(material=MATERIALE),
-        config.TetConfig(),
+        TET_LINEARE,
         reference=vertices,
     )
 
@@ -736,7 +746,7 @@ def test_export_warns_when_the_constrained_set_misses_the_footprint(tmp_path, cu
             nodes,
             tets,
             config.AnalysisConfig(material=MATERIALE),
-            config.TetConfig(),
+            TET_LINEARE,
         )
 
     assert metrics["fixed_nset_coverage"] == 0.3
@@ -751,7 +761,7 @@ def test_export_reports_how_much_of_the_footprint_is_constrained(tmp_path, cube_
         nodes,
         tets,
         config.AnalysisConfig(material=MATERIALE),
-        config.TetConfig(),
+        TET_LINEARE,
     )
 
     assert metrics["fixed_nset_coverage"] == 1.0
@@ -951,7 +961,7 @@ def test_export_model_rifiuta_l_incoerenza_tipo_nodi_prima_di_qualunque_calcolo(
             nodes,
             tets,
             config.AnalysisConfig(material=MATERIALE),
-            config.TetConfig(),
+            TET_LINEARE,
             element_type="C3D8",
         )
 
@@ -2219,7 +2229,7 @@ def test_il_resoconto_dei_selettori_si_scrive_sempre(cube_mesh, tmp_path):
     nodi, tetraedri = cube_mesh
     alto = float(nodi[:, 2].max())
     metriche = abaqus.export_model(
-        tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tetraedri, ANALISI, config.TetConfig(),
+        tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tetraedri, ANALISI, TET_LINEARE,
         selettori={"piastra": config.SelettoreBox(
             tipo="box", min=(-1e9, -1e9, alto - 1.0), max=(1e9, 1e9, 1e9)
         )},
@@ -2246,7 +2256,7 @@ def test_i_posizionati_entrano_nei_casi_di_carico(cube_mesh, tmp_path):
     alto = float(nodi[:, 2].max())
     analisi = config.AnalysisConfig(material=MATERIALE, set_tolerance_factor=0.5)
     metriche = abaqus.export_model(
-        tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tetraedri, analisi, config.TetConfig(),
+        tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tetraedri, analisi, TET_LINEARE,
         selettori={"piastra": config.SelettoreBox(
             tipo="box", min=(-1e9, -1e9, alto - 1.0), max=(1e9, 1e9, 1e9)
         )},
@@ -2268,7 +2278,7 @@ def test_senza_selettori_il_resoconto_e_vuoto(cube_mesh, tmp_path):
     """
     nodi, tetraedri = cube_mesh
     metriche = abaqus.export_model(
-        tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tetraedri, ANALISI, config.TetConfig(),
+        tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tetraedri, ANALISI, TET_LINEARE,
     )
     assert metriche["selettori"] == {}
     assert metriche["carichi_posizionati"] == {}
@@ -2291,7 +2301,7 @@ def test_i_posizionati_stanno_fra_carico_top_e_modale(cube_mesh, tmp_path):
     alto = float(nodi[:, 2].max())
     analisi = config.AnalysisConfig(material=MATERIALE, set_tolerance_factor=0.5)
     metriche = abaqus.export_model(
-        tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tetraedri, analisi, config.TetConfig(),
+        tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tetraedri, analisi, TET_LINEARE,
         selettori={"piastra": config.SelettoreBox(
             tipo="box", min=(-1e9, -1e9, alto - 1.0), max=(1e9, 1e9, 1e9)
         )},
@@ -2332,7 +2342,7 @@ def test_un_carico_su_tutto_il_vincolo_solleva(cube_mesh, tmp_path):
     alto = float(nodi[:, 2].max())
     with pytest.raises(ValueError, match="coincide per intero con l'insieme vincolato"):
         abaqus.export_model(
-            tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tetraedri, ANALISI, config.TetConfig(),
+            tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tetraedri, ANALISI, TET_LINEARE,
             selettori={"piastra": config.SelettoreBox(
                 tipo="box", min=(-1e9, -1e9, alto - 1.0), max=(1e9, 1e9, 1e9)
             )},
@@ -2359,7 +2369,7 @@ def test_un_carico_che_interseca_in_parte_il_vincolo_avvisa(cube_mesh, tmp_path)
     analisi = config.AnalysisConfig(material=MATERIALE, set_tolerance_factor=0.5)
     with pytest.warns(abaqus.CaricoSulVincoloWarning, match="4 dei suoi 6"):
         abaqus.export_model(
-            tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tetraedri, analisi, config.TetConfig(),
+            tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tetraedri, analisi, TET_LINEARE,
             selettori={"bordo_basso": config.SelettoreBox(
                 tipo="box", min=(-1e9, -1e9, -1e9), max=(1e9, 1e9, 60.0)
             )},
@@ -2384,7 +2394,7 @@ def test_carico_sommita_su_tutto_il_vincolo_solleva(cube_mesh, tmp_path):
     nodi, tetraedri = cube_mesh
     with pytest.raises(ValueError, match=r"CARICO_TOP.*'BASE'"):
         abaqus.export_model(
-            tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tetraedri, ANALISI, config.TetConfig(),
+            tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tetraedri, ANALISI, TET_LINEARE,
             carichi=config.CarichiConfig(
                 carico_sommita=config.CaricoSommita(risultante=1000.0, nset="BASE"),
             ),
@@ -2414,7 +2424,7 @@ def test_carico_sommita_che_interseca_in_parte_il_vincolo_avvisa(cube_mesh, tmp_
     analisi = config.AnalysisConfig(material=MATERIALE, set_tolerance_factor=0.5)
     with pytest.warns(abaqus.CaricoSulVincoloWarning, match=r"CARICO_TOP.*2 dei suoi 6.*'BASE'"):
         metriche = abaqus.export_model(
-            tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tetraedri, analisi, config.TetConfig(),
+            tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tetraedri, analisi, TET_LINEARE,
             carichi=config.CarichiConfig(
                 carico_sommita=config.CaricoSommita(risultante=1000.0, nset="SIDE_LEFT"),
             ),
@@ -2453,7 +2463,7 @@ def test_un_caso_misto_di_selettore_arriva_al_deck_scritto(cube_mesh, tmp_path):
     )
     metriche = abaqus.export_model(
         tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tetraedri,
-        cfg.analysis, config.TetConfig(), carichi=cfg.carichi, selettori=cfg.selettori,
+        cfg.analysis, TET_LINEARE, carichi=cfg.carichi, selettori=cfg.selettori,
     )
     testo = (tmp_path / "m.inp").read_text(encoding="ascii")
     assert "*NSET, NSET=piastra" in testo.splitlines()
@@ -2481,7 +2491,7 @@ def test_il_carico_in_sommita_da_solo_riporta_i_nodi_ad_area_nulla(cube_mesh, tm
     nodi, tetraedri = cube_mesh
     analisi = config.AnalysisConfig(material=MATERIALE, set_tolerance_factor=0.5)
     metriche = abaqus.export_model(
-        tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tetraedri, analisi, config.TetConfig(),
+        tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tetraedri, analisi, TET_LINEARE,
         carichi=config.CarichiConfig(
             carico_sommita=config.CaricoSommita(risultante=1000.0, nset="TOP"),
         ),
@@ -2504,7 +2514,7 @@ def test_un_selettore_degenere_non_viene_inghiottito(cube_mesh, tmp_path):
     nodi, tetraedri = cube_mesh
     with pytest.raises(ValueError, match="zero nodi"):
         abaqus.export_model(
-            tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tetraedri, ANALISI, config.TetConfig(),
+            tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tetraedri, ANALISI, TET_LINEARE,
             selettori={"vuoto": config.SelettoreSfera(
                 tipo="sfera", centro=(1e6, 1e6, 1e6), raggio=1.0
             )},
@@ -2522,7 +2532,7 @@ def _con_box(tmp_path, cube_mesh, minimo, massimo, nome="PIEDE"):
     nodi, tetraedri = cube_mesh
     analisi = config.AnalysisConfig(material=MATERIALE, set_tolerance_factor=0.5)
     return abaqus.export_model(
-        tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tetraedri, analisi, config.TetConfig(),
+        tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tetraedri, analisi, TET_LINEARE,
         selettori={"fascia": config.SelettoreBox(tipo="box", min=minimo, max=massimo)},
         carichi=config.CarichiConfig(posizionati=[
             config.CaricoPosizionato(nome=nome, selettore="fascia", forza=(0.0, 0.0, -1200.0)),
@@ -2705,7 +2715,7 @@ def test_un_fixed_nset_sconosciuto_nomina_gli_insiemi_disponibili(cube_mesh, tmp
     analisi = config.AnalysisConfig(material=MATERIALE, fixed_nset="BASAMENTO")
     with pytest.raises(ValueError, match="SIDE_RIGHT"):
         abaqus.export_model(
-            tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tetraedri, analisi, config.TetConfig(),
+            tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tetraedri, analisi, TET_LINEARE,
         )
 
 
@@ -2726,6 +2736,6 @@ def test_un_fixed_nset_in_minuscolo_arriva_al_deck_senza_sollevare(cube_mesh, tm
     assert analisi.fixed_nset == "BASE"
     percorso = tmp_path / "m.inp"
     abaqus.export_model(
-        percorso, tmp_path / "m.vtu", nodi, tetraedri, analisi, config.TetConfig(),
+        percorso, tmp_path / "m.vtu", nodi, tetraedri, analisi, TET_LINEARE,
     )
     assert "\nBASE, 1, 3\n" in percorso.read_text(encoding="ascii")

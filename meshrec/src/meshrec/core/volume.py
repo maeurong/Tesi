@@ -43,6 +43,28 @@ class InvertedElementsError(ValueError):
     """La mesh di volume contiene elementi invertiti o degeneri."""
 
 
+# TetGen numera i nodi di lato del tetraedro quadratico in un ordine suo, che
+# **non** e' quello di Abaqus. Misurato il 26/08/2026 riconoscendo ogni nodo di
+# lato come punto medio del proprio spigolo:
+#
+#   nodo Abaqus 5 (spigolo 1-2) = nodo TetGen 7
+#   nodo Abaqus 6 (spigolo 2-3) = nodo TetGen 8
+#   nodo Abaqus 7 (spigolo 1-3) = nodo TetGen 10
+#   nodo Abaqus 8 (spigolo 1-4) = nodo TetGen 6
+#   nodo Abaqus 9 (spigolo 2-4) = nodo TetGen 9
+#   nodo Abaqus 10 (spigolo 3-4) = nodo TetGen 5
+#
+# Sbagliarla non produce un errore: produce una mesh valida all'occhio e una
+# rigidezza falsa, cioe' la stessa classe di difetto dell'ordine delle colonne
+# del `.frd`. La sorvegliano due oracoli indipendenti, un controllo geometrico
+# in `tests/test_quadratico.py` e il patch test in `tests/validazione/`.
+#
+# La convenzione di VTK per `tetra10` coincide con quella di Abaqus, quindi
+# permutare qui rende corretti sia il deck sia il file di vista, con una sola
+# convenzione invece di due.
+TETGEN_A_ABAQUS = (0, 1, 2, 3, 6, 7, 9, 5, 8, 4)
+
+
 def tetrahedralize(
     vertices: np.ndarray,
     faces: np.ndarray,
@@ -51,6 +73,7 @@ def tetrahedralize(
     min_ratio: float,
     max_steiner_points: int,
     nobisect: bool,
+    order: int = 1,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Riempie di tetraedri lineari la superficie chiusa data.
 
@@ -93,8 +116,10 @@ def tetrahedralize(
         np.ascontiguousarray(vertices, dtype=np.float64),
         np.ascontiguousarray(faces, dtype=np.int32),
     )
+    if order not in (1, 2):
+        raise ValueError(f"ordine {order}: TetGen produce solo il primo e il secondo")
     options: dict[str, object] = {
-        "order": 1,
+        "order": int(order),
         "minratio": float(min_ratio),
         "steinerleft": int(max_steiner_points),
         "nobisect": bool(nobisect),
@@ -125,6 +150,9 @@ def tetrahedralize(
             "alti = elementi meno regolari ma raffinamento che termina) e riprova. "
             f"Errore originale di TetGen: {errore}"
         ) from errore
+    tets = np.asarray(tets, dtype=np.int64)
+    if order == 2:
+        tets = tets[:, list(TETGEN_A_ABAQUS)]
     return (
         np.ascontiguousarray(nodes, dtype=np.float64),
         np.ascontiguousarray(tets, dtype=np.int64),
@@ -143,6 +171,10 @@ def tetrahedralize_with_metrics(
         min_ratio=cfg.min_ratio,
         max_steiner_points=cfg.max_steiner_points,
         nobisect=cfg.nobisect,
+        # L'ordine non e' un parametro a se': discende dall'elemento scelto, e
+        # chi lo sceglie e' `TetConfig.element`. Tenerne due sarebbe tenere due
+        # verita' sullo stesso fatto, con il rischio che si contraddicano.
+        order=2 if cfg.element == "C3D10" else 1,
     )
     seconds = time.perf_counter() - start
 
@@ -159,7 +191,13 @@ def tetrahedralize_with_metrics(
     # eguagliano il tetto esattamente, mai per difetto. Verificato sul muro reale a
     # sei tetti diversi (25000, 50000, 100000, 120000, 150000, 175000): i punti
     # aggiunti sono risultati ogni volta pari al tetto in modo esatto.
-    steiner_points = int(len(nodes) - len(np.asarray(vertices)))
+    # I nodi **d'angolo**, non tutti i nodi: col secondo ordine `nodes` porta
+    # anche i sei nodi di lato per elemento, che non sono punti di Steiner.
+    # Contarli gonfiava la stima e faceva scattare la saturazione su un maglio
+    # sano -- misurato 118 punti aggiunti contro i 20 veri, cioe' un avviso che
+    # dichiarava troncata una mesh completa.
+    angoli = np.unique(np.asarray(tets)[:, :4])
+    steiner_points = int(len(angoli) - len(np.asarray(vertices)))
     saturated = cfg.max_steiner_points > 0 and steiner_points >= cfg.max_steiner_points
     if saturated:
         warnings.warn(
