@@ -694,3 +694,114 @@ def thickness(points: np.ndarray, bin_width: float) -> dict[str, object]:
         "extent": float(extents[axis]),
         "bimodal": bimodal,
     }
+
+
+def scarto_con_segno(
+    vertices: np.ndarray, faces: np.ndarray, cloud: np.ndarray, *, tolleranza: float
+) -> dict[str, object]:
+    """Errore geometrico **con segno**: materia inventata contro materia mancante (#73).
+
+    `geometric_error` e `vertex_deviation` danno moduli, e un modulo non
+    distingue i due modi di sbagliare, che sul modello a elementi finiti hanno
+    conseguenze **opposte**: la materia inventata aggiunge massa e rigidezza
+    che non ci sono, quella mancante le toglie. Un RMS di 4 mm non dice quale
+    dei due, e i due spingono la frequenza propria in direzioni contrarie --
+    quindi **un errore che si compensa in media sembra un errore piccolo**.
+
+    **Convenzione, fissata qui una volta**: il segno e' quello della distanza
+    dal solido chiuso, cioe' `positivo = il punto rilevato sta FUORI dalla
+    superficie ricostruita`. Fuori significa che la materia c'e' nella realta'
+    e non nel modello: **materia mancante**. Negativo significa il contrario:
+    il modello racchiude spazio dove il rilievo trova la superficie piu'
+    dentro, cioe' **materia inventata**.
+
+    Il segno viene dal raycasting di Open3D (`RaycastingScene.
+    compute_signed_distance`), non dalla proiezione sulla normale della faccia
+    piu' vicina. La differenza non e' di comodo: la proiezione sbaglia il segno
+    vicino agli spigoli, dove la faccia piu' vicina e' ambigua e la normale
+    salta, ed e' esattamente dove una ricostruzione di Poisson tende a
+    sbagliare. La convenzione di Open3D e' **misurata** e non assunta: su un
+    cubo unitario il centro rende -0,5 e un punto a un mezzo sopra la faccia
+    rende +0,5.
+
+    `precision` e `recall` a `tolleranza`, che e' `errore_geometrico_max` (5 mm,
+    ratificata in #35):
+
+    - **recall** -- frazione dei punti rilevati che la superficie riproduce
+      entro tolleranza. Risponde a «quanto del rilievo e' finito nel modello»;
+    - **precision** -- frazione dei vertici della superficie sostenuta da un
+      punto rilevato entro tolleranza. Risponde a «quanto del modello e'
+      sostenuto dal dato».
+
+    I due non sono simmetrici e nessuno dei due basta: una superficie che
+    copre solo meta' del pezzo ma la copre bene ha precision alta e recall
+    basso; una che gonfia il pezzo ha il contrario.
+
+    **Limite dichiarato, lo stesso di `vertex_deviation`**: `precision` campiona
+    i **soli vertici**, quindi sottostima l'errore dove i triangoli sono
+    grandi. Campionare l'area richiederebbe un generatore pseudocasuale, e
+    #66 ha misurato che cio' che dipende dal maglio dipende dalla piattaforma:
+    un numero pubblicato non deve cambiare fra due macchine.
+
+    **Limite dichiarato, e non risolto**: la materia «mancante» e l'**occlusione**
+    qui si confondono. Lo scanner non vede dappertutto, e una zona senza punti
+    puo' essere superficie mai rilevata invece che persa dalla ricostruzione.
+    Separarle chiede una stima della copertura che questa funzione non fa: il
+    numero va quindi letto come limite superiore della materia mancante.
+    """
+    punti = np.asarray(cloud, dtype=np.float64)
+    vert = np.asarray(vertices, dtype=np.float64)
+    facce = np.asarray(faces, dtype=np.int64)
+    if not np.isfinite(tolleranza) or tolleranza <= 0.0:
+        raise ValueError(
+            f"la tolleranza vale {tolleranza!r}: senza una distanza positiva e finita "
+            "non esiste un «entro quanto», e precision e recall non sono definite"
+        )
+    if len(punti) == 0 or len(facce) == 0:
+        raise ValueError(
+            f"nuvola di {len(punti)} punti e superficie di {len(facce)} facce: "
+            "senza entrambe non c'e' uno scarto da misurare"
+        )
+
+    import open3d as o3d
+
+    maglia = o3d.t.geometry.TriangleMesh(
+        o3d.core.Tensor(vert.astype(np.float32)),
+        o3d.core.Tensor(facce.astype(np.int32)),
+    )
+    scena = o3d.t.geometry.RaycastingScene()
+    scena.add_triangles(maglia)
+    con_segno = scena.compute_signed_distance(
+        o3d.core.Tensor(punti.astype(np.float32))
+    ).numpy().astype(np.float64)
+
+    fuori = con_segno > 0.0
+    dentro = con_segno < 0.0
+    # I vertici della superficie contro la nuvola: e' il verso `mesh_to_cloud`
+    # gia' usato da `vertex_deviation`, e non si riscrive.
+    da_vertici = vertex_deviation(vert, punti)
+
+    def rms(valori: np.ndarray) -> float:
+        return float(np.sqrt(np.mean(valori**2))) if len(valori) else 0.0
+
+    return {
+        "tolleranza": float(tolleranza),
+        "punti": int(len(punti)),
+        "vertici": int(len(vert)),
+        # materia mancante: il rilievo sta fuori dal modello
+        "mancante_rms": rms(con_segno[fuori]),
+        "mancante_max": float(con_segno[fuori].max()) if fuori.any() else 0.0,
+        "mancante_frazione": float(fuori.mean()),
+        # materia inventata: il modello racchiude cio' che il rilievo non vede
+        "inventata_rms": rms(con_segno[dentro]),
+        "inventata_max": float(-con_segno[dentro].min()) if dentro.any() else 0.0,
+        "inventata_frazione": float(dentro.mean()),
+        # Il bilancio con segno e' la grandezza che un RMS non puo' portare: se
+        # i due modi si compensano vale circa zero mentre l'RMS resta grande, ed
+        # e' precisamente il caso che questa funzione esiste per rendere
+        # visibile.
+        "bilancio_medio": float(np.mean(con_segno)),
+        "modulo_rms": rms(con_segno),
+        "recall": float(np.mean(np.abs(con_segno) <= tolleranza)),
+        "precision": float(np.mean(da_vertici <= tolleranza)),
+    }
