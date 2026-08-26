@@ -19,13 +19,18 @@ scelta della teoria rispetto a quanto pesa l'elemento -- e il provino e'
 scelto **snello apposta**, perche' quel peso sia piccolo e l'elemento resti la
 grandezza sotto esame.
 
-**Cosa questo file non misura, e perche'.** La **tensione** alla radice. Benzley
-riporta che sul tet lineare l'errore in tensione **resta a circa il 21% anche
-raffinando**, mentre lo spostamento migliora -- e' il suo reperto piu' duro.
-Leggerla chiede pero' di ricostruire il tensore dal `.frd`, cioe' di fidarsi
-dell'ordine delle colonne che #39 dichiara **non verificato**. La freccia e le
-frequenze passano invece dal `.dat`, che quel problema non ce l'ha. La tensione
-entra quando #39 chiude, non prima.
+**La tensione si misura da quando #39 ha verificato l'ordine delle colonne del
+`.frd`** contro `ccx` vero. Prima era leggibile solo fidandosi di
+un'assunzione, e un benchmark che poggia su cio' che non e' stato verificato
+non e' un benchmark. Freccia e frequenze passano invece dal `.dat`, che quel
+problema non ce l'ha, ed erano gia' misurabili.
+
+**E il reperto di Benzley sulla tensione non si riproduce.** Lui la da' ferma
+al 21% anche raffinando; sulla nostra catena converge, del 65% in mediana e del
+52% nel massimo puntuale. La colonna dello spostamento riproduce la sua entro
+un punto percentuale, quella della tensione no. L'asimmetria resta aperta e sta
+scritta in `test_l_errore_in_tensione_raffinando`, con i candidati e con
+l'ipotesi che e' stata misurata e smentita.
 
 **Il confronto fra elementi vive qui e non sul telaio.** #45 non puo' misurarlo
 sull'as-built, perche' le nuvole di punti non stanno nel repository. Qui c'e' in
@@ -387,3 +392,139 @@ def test_la_freccia_converge_alla_teoria_raffinando(tmp_path):
         lineare = next(abs(e) for t, p, _, _, e in tabella if t == "C3D4" and p == passo)
         quadratico = next(abs(e) for t, p, _, _, e in tabella if t == "C3D10" and p == passo)
         assert quadratico < lineare, f"a passo {passo:g} il quadratico non vince"
+
+
+# --- la tensione: il reperto che raffinando non migliora -----------------
+#
+# Ticket #55, sbloccato da #39. Benzley et al. (1995), Tab. 2, tet lineare a
+# nu = 0,3:
+#
+#     gradi di liberta'   spostamento   TENSIONE
+#              666           31,48%      21,23%
+#             3615           10,48%      21,00%
+#
+# Raffinando, lo spostamento migliora di tre volte e **la tensione non si
+# muove**. E' l'affermazione piu' forte contro il tetraedro lineare, perche'
+# dice che il difetto non e' discretizzazione: e' l'elemento.
+#
+# **Come si legge, e perche' cosi'.** Non in una fascia stretta a meta' luce
+# confrontata con un solo valore: ogni nodo si confronta con la tensione
+# analitica **in quel punto**, `sigma_xx(x, z) = M(x) (z - h/2) / I` con
+# `M(x) = P (L - x)`. Cosi' la larghezza della fascia non introduce errore, e
+# se ne puo' usare una larga con molti nodi invece di una stretta con pochi.
+#
+# La regione esclude il quarto vicino all'incastro e quello vicino
+# all'estremo: al vincolo il campo ha la singolarita' dell'incastro, e sotto
+# il carico vale Saint-Venant. E' anche il motivo per cui Benzley legge a
+# meta' luce e non alla radice.
+#
+# Si prendono le sole **fibre estreme**, dove la tensione e' grande: vicino
+# all'asse neutro e' quasi nulla, e un errore relativo li' dividerebbe per
+# quasi zero.
+
+FIBRA = 1e-6  # mm: tolleranza per riconoscere un nodo sulla fibra estrema
+
+
+def _errore_di_tensione(tmp_path, order: int, tipo: str, passo: float) -> tuple[float, float]:
+    """Scarto mediano fra la sigma_xx letta e quella della teoria di trave.
+
+    Normalizzato sulla tensione massima della regione, non nodo per nodo: al
+    denominatore un valore quasi nullo gonfierebbe l'errore senza che nulla
+    sia andato storto.
+    """
+    nodi, tets = _maglio(order, passo=passo)
+    estremo = _insiemi(nodi)["ESTREMO"]
+    quota = -CARICO / len(estremo)
+    _corri(
+        tmp_path, nodi, tets, tipo,
+        carichi_nodali={int(i): (0.0, 0.0, quota) for i in estremo},
+    )
+
+    blocchi = [b for b in solve.leggi_frd(tmp_path / "mensola.frd") if b.grandezza == "STRESS"]
+    assert blocchi, "nessun blocco STRESS nel .frd: il deck non ne chiede l'uscita"
+    blocco = blocchi[-1]
+    # L'ordine delle colonne e' verificato contro ccx in
+    # tests/validazione/test_ordine_frd.py (#39): SXX e' la prima.
+    sigma_letta = blocco.dati[:, 0]
+    coordinate = nodi[blocco.nodi - 1]
+
+    x, z = coordinate[:, 0], coordinate[:, 2]
+    centrale = (x > 0.25 * LUNGHEZZA) & (x < 0.75 * LUNGHEZZA)
+    sulla_fibra = (z < FIBRA) | (z > ALTEZZA - FIBRA)
+    scelti = centrale & sulla_fibra
+    assert scelti.sum() >= 8, (
+        f"solo {scelti.sum()} nodi sulle fibre estreme nella regione centrale: "
+        "provino inadeguato, e allargare la fascia falserebbe la misura"
+    )
+
+    momento = CARICO * (LUNGHEZZA - x[scelti])
+    attesa = momento * (z[scelti] - ALTEZZA / 2.0) / INERZIA_FORTE
+    scala = float(np.abs(attesa).max())
+    scarti = np.abs(sigma_letta[scelti] - attesa) / scala
+    # **Mediana e massimo**, non solo la mediana. La mediana su molti nodi
+    # liscia l'errore di estrapolazione, e su un maglio piu' fine `ccx` media
+    # ogni nodo su piu' elementi: e' proprio la grandezza che Benzley isola
+    # leggendo in un punto solo. Il massimo e' il peggior caso puntuale, e
+    # dice se l'errore cala davvero o se cala solo la sua media.
+    return float(np.median(scarti)), float(scarti.max())
+
+
+def test_l_errore_in_tensione_raffinando(tmp_path):
+    """La tensione contro la teoria di trave, alle tre maglie.
+
+    **Il reperto di Benzley non si riproduce, e va detto.** Lui riporta che
+    sul tet lineare l'errore in tensione resta a circa il 21% anche raffinando
+    (21,23% a 666 DOF, 21,00% a 3615), mentre lo spostamento migliora di tre
+    volte. Sulla nostra catena **la tensione converge**: del 65% in mediana e
+    del 52% nel massimo puntuale, sullo stesso intervallo in cui lo
+    spostamento cala del 70%.
+
+    L'asimmetria e' informativa e resta aperta: la colonna dello **spostamento**
+    riproduce la sua entro un punto percentuale (vedi il docstring del modulo),
+    quella della **tensione** no. Candidati, nessuno verificato:
+
+    - il suo maglio tetraedrico e' del 1995, il nostro esce da TetGen con un
+      vincolo raggio-spigolo a 1,8: elementi meglio conformati convergono
+      meglio, e la tensione e' piu' sensibile della freccia alla forma;
+    - lui legge in **un punto** di riferimento, noi su una popolazione di nodi;
+    - `ccx` media le tensioni ai nodi condivisi, e non sappiamo cosa facesse il
+      codice del 1995.
+
+    Una prima ipotesi -- che fosse la mediana a lisciare l'errore -- e' stata
+    **misurata e smentita**: anche il massimo puntuale cala, del 52%. Per
+    questo la tabella riporta entrambi.
+
+    Il test **non impone** ne' che l'errore resti fermo ne' che cali: imporre
+    l'uno o l'altro sarebbe assumere la conclusione. Verifica solo che il
+    quadratico stia meglio del lineare a ogni maglia, e stampa la curva.
+
+    In tesi, di conseguenza: il 21% fermo di Benzley si cita come letteratura,
+    e il nostro numero si riporta come misura **che differisce**, con la
+    differenza dichiarata invece che appianata.
+    """
+    tabella: list[tuple[str, float, float, float]] = []
+    for passo in (20.0, 14.0, 10.0):
+        for order, tipo in ((1, "C3D4"), (2, "C3D10")):
+            cartella = tmp_path / f"{tipo}_{passo:g}"
+            cartella.mkdir()
+            mediana, massimo = _errore_di_tensione(cartella, order, tipo, passo)
+            tabella.append((tipo, passo, mediana, massimo))
+
+    print("\ntensione assiale contro M(x)(z-h/2)/I, sulle fibre estreme")
+    print("elemento  passo   mediana    massimo")
+    for tipo, passo, mediana, massimo in tabella:
+        print(f"{tipo:<9} {passo:>5.0f}  {mediana:>8.2%}  {massimo:>8.2%}")
+
+    lineare = [(m, x) for t, _, m, x in tabella if t == "C3D4"]
+    quadratico = [(m, x) for t, _, m, x in tabella if t == "C3D10"]
+    print(
+        f"\nraffinando, il C3D4 cambia del {(lineare[0][0] - lineare[-1][0]) / lineare[0][0]:+.0%} "
+        f"in mediana e del {(lineare[0][1] - lineare[-1][1]) / lineare[0][1]:+.0%} nel massimo."
+        f"\nSullo spostamento, nello stesso intervallo, cala del 70%."
+    )
+
+    assert all(m < 1.0 for m, _ in lineare + quadratico), "tensione fuori scala"
+    for indice, passo in enumerate((20.0, 14.0, 10.0)):
+        assert quadratico[indice][0] < lineare[indice][0], (
+            f"a passo {passo:g} il quadratico non e' piu' vicino alla teoria del lineare"
+        )
