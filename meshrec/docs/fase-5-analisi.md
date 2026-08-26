@@ -433,6 +433,18 @@ Coefficiente di spinta orizzontale **0,10** sull'asse y; risultante in sommita'
 **1200 N** sul set `TOP`; **20 modi**. Non sono valori di norma e non sono
 predefiniti del programma.
 
+> **Aggiornamento del 26/08/2026 — vale per il numero di modi, non per gli
+> altri due.** La spinta e il carico in sommita' restano come sopra. I venti
+> modi no: si e' misurato che non bastano a soddisfare EN 1998-1
+> §4.3.3.3.1(3), perche' catturano l'**87,46%** della massa partecipante in
+> verticale contro il 90% richiesto. `Modale.modi` ha quindi ora un
+> predefinito misurato (**40**) e `lab_telaio.yaml` lo eredita, mentre questa
+> corsa resta congelata coi suoi venti. Le cifre statiche qui sotto **non ne
+> risentono** -- chiedere piu' modi non cambia i passi statici ne' le
+> frequenze gia' estratte -- ma il numero di modi non e' piu' una scelta
+> libera dell'operatore. Misura e ragioni in
+> `docs/validazione/modi-per-la-normativa.md`.
+
 | caso | u_max [mm] | vm mediana [MPa] | vm p99 [MPa] | vm max [MPa] | max/p99 |
 |---|---:|---:|---:|---:|---:|
 | GRAVITA | 0,036730 | 0,0544 | 0,2336 | 0,5056 | 2,164 |

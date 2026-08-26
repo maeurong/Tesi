@@ -139,6 +139,14 @@ _SOGLIA_SPOSTAMENTO_SU_DIMENSIONE = 1.0
 #
 # Non e' un cancello sul modello ma sulla **configurazione**: sotto soglia il
 # modello non e' sbagliato, e' `Modale.modi` a essere troppo basso.
+#
+# **Seguito, 26/08/2026.** Quei venti modi erano scritti a mano nel file di
+# caso. Si e' misurato quanti ne servono davvero -- lo scavallamento cade a 32
+# su entrambi i corpi di riferimento -- e `Modale.modi` ha ora un predefinito
+# misurato di 40, che porta ogni direzione sopra il 90% con circa quattro punti
+# di margine. Il predefinito **non sostituisce questo verdetto**: e' tarato su
+# una scena sola, quindi su una struttura diversa puo' non bastare, ed e' il
+# verdetto a dirlo. Misura in `docs/validazione/modi-per-la-normativa.md`.
 _FRAZIONE_MASSA_MINIMA = 0.90
 
 # Tolleranza di equilibrio per `controlla_reazioni`.

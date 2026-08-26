@@ -329,16 +329,36 @@ def test_i_casi_di_carico_non_hanno_valori_predefiniti():
     Il test verifica che ogni campo di ogni modello e' obbligatorio campo per
     campo, non solo che l'istanziazione a vuoto fallisce (il quale potrebbe
     fallire per il motivo sbagliato, e.g. se solo asse restasse obbligatorio).
+
+    **L'unica eccezione, e perche' e' un'eccezione.** `Modale.modi` ha un
+    predefinito dal 26/08/2026. La regola qui sopra parla di grandezze «che
+    nessun dato puo' suggerire»: il modulo elastico, la densita', quanto vale
+    una spinta. Il numero di modi non e' di quella specie -- non e' una
+    proprieta' del corpo ne' una scelta di progetto, ma un parametro di
+    **discretizzazione**, e un dato lo suggerisce eccome: EN 1998-1
+    §4.3.3.3.1(3) chiede il 90% della massa partecipante, e il 40 e' il valore
+    misurato che ce lo porta con margine su entrambi i corpi di riferimento
+    (`docs/validazione/modi-per-la-normativa.md`). Il precedente in casa e'
+    `AnalysisConfig.set_tolerance_factor`, predefinito e misurato allo stesso
+    modo. Il campo resta comunque scrivibile, e il verdetto `massa_modale`
+    misura se il valore usato e' bastato: il predefinito fa partire bene, non
+    decide al posto di nessuno.
     """
-    for modello, campi_attesi in (
-        (config.SpintaOrizzontale, {"coefficiente", "asse"}),
-        (config.CaricoSommita, {"risultante", "nset"}),
-        (config.Modale, {"modi"}),
+    for modello, campi_attesi, con_predefinito in (
+        (config.SpintaOrizzontale, {"coefficiente", "asse"}, set()),
+        (config.CaricoSommita, {"risultante", "nset"}, set()),
+        (config.Modale, {"modi"}, {"modi"}),
     ):
         for nome_campo, info_campo in modello.model_fields.items():
             assert nome_campo in campi_attesi, (
                 f"{modello.__name__}.{nome_campo} non era nel set atteso"
             )
+            if nome_campo in con_predefinito:
+                assert not info_campo.is_required(), (
+                    f"{modello.__name__}.{nome_campo} dovrebbe avere un "
+                    "predefinito misurato"
+                )
+                continue
             assert info_campo.is_required(), (
                 f"{modello.__name__}.{nome_campo} ha un predefinito, "
                 "dovrebbe essere obbligatorio"
@@ -361,6 +381,40 @@ def test_un_analisi_senza_casi_dichiarati_ha_il_solo_peso_proprio():
     assert carichi.spinta is None
     assert carichi.carico_sommita is None
     assert carichi.modale is None
+
+
+def test_chiedere_un_passo_modale_senza_dire_quanti_modi_prende_il_predefinito():
+    """`modale: {}` vale «fai l'analisi modale, coi modi che servono».
+
+    Prima del 26/08/2026 `modi` era obbligatorio e `modale: {}` era un errore
+    di validazione: chi voleva un'analisi modale doveva inventarsi un numero.
+    Il numero pero' non e' una preferenza dell'operatore, e' una condizione di
+    sufficienza che la norma fissa (EN 1998-1 §4.3.3.3.1(3): il 90% della
+    massa partecipante), quindi il posto giusto e' il predefinito.
+    """
+    assert config.Modale().modi == 40
+    assert config.CarichiConfig.model_validate({"modale": {}}).modale.modi == 40
+
+
+def test_il_predefinito_dei_modi_supera_il_valore_misurato_insufficiente():
+    """Il 20 storico non arrivava al 90%: il predefinito deve stargli sopra.
+
+    Misurato il 26/08/2026 su `runs/lab_telaio_v2`: coi venti modi la
+    direzione verticale cattura l'87,46% della massa partecipante. Il perche'
+    e la scelta del 40 stanno in `docs/validazione/modi-per-la-normativa.md`,
+    rimisurabili con `docs/fase-7-cantiere/modi-per-la-normativa.py`.
+    """
+    assert config.Modale().modi > 20
+
+
+def test_dichiarare_i_modi_batte_il_predefinito():
+    """Il predefinito non e' un cancello: chi scrive un numero ottiene quello.
+
+    Vale anche per un numero che la norma non accetterebbe -- il verdetto
+    `massa_modale` lo marca dopo, non lo si vieta qui.
+    """
+    assert config.Modale(modi=3).modi == 3
+    assert config.CarichiConfig.model_validate({"modale": {"modi": 20}}).modale.modi == 20
 
 
 def test_il_coefficiente_di_spinta_rifiuta_lo_zero_e_il_negativo():
