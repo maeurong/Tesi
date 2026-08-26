@@ -425,6 +425,47 @@ def test_il_controllo_sul_vincolo_in_pianta_usa_la_soglia_di_produzione(tmp_path
     assert lab_crop["controlli"]["vincolo_in_pianta"]["passato"]
 
 
+def test_risolvi_porta_il_sesto_verdetto_col_rapporto_calcolabile_a_mano(tmp_path, monkeypatch):
+    """Aggancio di `controlla_spostamenti` a `risolvi()` (#12).
+
+    I test del reperto (tests/validazione/test_modello_mal_vincolato.py)
+    chiamano la funzione **direttamente**: senza questo, il verdetto potrebbe
+    non essere mai stato messo nel dizionario e quei test passerebbero lo
+    stesso. L'oracolo e' aritmetica sul `.frd` finto, non un numero
+    registrato: il piu' grande spostamento statico e' quello del nodo 4 al
+    passo 3, `(3,6; 0; -3,6)`, che vale `3,6*sqrt(2)`; i quattro nodi sono il
+    tetraedro unitario, quindi la diagonale del contenitore e' `sqrt(3)`.
+    """
+    casi_di_carico = ["GRAVITA", "SPINTA_ORIZZONTALE", "CARICO_TOP", "MODALE"]
+    deck = tmp_path / "wall_model.inp"
+    deck.write_text("*HEADING\n", encoding="ascii")
+
+    import subprocess
+
+    def ccx_finto(comando, **kwargs):
+        deck.with_suffix(".frd").write_text(FRD_QUATTRO_PASSI, encoding="ascii")
+        deck.with_suffix(".dat").write_text(DAT_DUE_MODI, encoding="ascii")
+        return subprocess.CompletedProcess(comando, returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(solve.shutil, "which", lambda _nome: "/usr/bin/ccx")
+    monkeypatch.setattr(solve.subprocess, "run", ccx_finto)
+
+    nodi = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+    esito = solve.risolvi(
+        tmp_path, deck, ANALISI, nodi, np.array([[0, 1, 2, 3]]), "C3D4",
+        casi_di_carico=casi_di_carico,
+        vincolo_in_pianta={"x": 1.0, "y": 1.0, "minimo": 1.0}, trasformata=np.eye(4),
+    )
+
+    spostamenti = esito["controlli"]["spostamenti"]
+    assert spostamenti["u_max"] == pytest.approx(3.6 * math.sqrt(2.0))
+    assert spostamenti["dimensione"] == pytest.approx(math.sqrt(3.0))
+    assert spostamenti["rapporto"] == pytest.approx(3.6 * math.sqrt(2.0) / math.sqrt(3.0))
+    # 2,94 supera 1: su questo provino il verdetto e' negativo, ed e' giusto
+    # -- sono spostamenti quasi tre volte il modello.
+    assert spostamenti["passato"] is False
+
+
 def test_casi_di_carico_segue_l_ordine_vero_scritto_da_write_inp(tmp_path):
     """L'origine e' una sola: `casi_di_carico`, il campo che `export_model`
     restituisce e che `solve.risolvi` legge senza ri-derivarlo (giro di
@@ -732,6 +773,13 @@ _INGRESSI_CHE_RAGGIUNGONO_UN_CONFRONTO = [
     # inline dentro `risolvi()` e non c'era una funzione da chiamare qui.
     ("vincolo_in_pianta/minimo", lambda b: solve.controlla_vincolo_in_pianta(b), 0.99),
     ("avvisi/conteggio", lambda b: solve.controlla_avvisi(b), 0),
+    # Sesto verdetto (#12). `soglia` e' lo slot che ripete la trappola gia'
+    # vista su `controlla_reazioni`: senza guardia, `soglia=+inf` sarebbe
+    # soddisfatta da qualunque rapporto finito e il controllo passerebbe su
+    # un modello esploso.
+    ("spostamenti/u_max", lambda b: solve.controlla_spostamenti(b, 100.0), 1.0),
+    ("spostamenti/dimensione", lambda b: solve.controlla_spostamenti(1.0, b), 100.0),
+    ("spostamenti/soglia", lambda b: solve.controlla_spostamenti(1.0, 100.0, soglia=b), 1.0),
 ]
 
 
@@ -761,6 +809,53 @@ def test_lo_stesso_ingresso_con_un_valore_sano_passa(nome, costruisci, sano):
     stesso slot deve restare `passato: True` -- altrimenti la guardia di
     finitezza sarebbe troppo larga, non solo troppo stretta."""
     assert costruisci(sano)["passato"] is True
+
+
+def test_senza_passo_statico_gli_spostamenti_sono_non_verificati_non_zero():
+    """Un deck solo modale non ha uno spostamento fisico da misurare: le
+    `MODO_n` sono forme normalizzate sulla massa. `None` non e' zero, e zero
+    passerebbe il confronto -- che e' come un deck modale otterrebbe un
+    verdetto verde su una grandezza che non possiede.
+    """
+    esito = solve.controlla_spostamenti(None, 100.0)
+
+    assert esito["passato"] is False
+    assert esito["rapporto"] is None
+    assert esito["u_max"] is None
+
+
+def test_una_dimensione_nulla_non_divide_per_zero():
+    """Nessun nodo, o tutti coincidenti: la diagonale del contenitore e' 0 e
+    il rapporto non esiste. Dichiarato non verificato, non `inf`."""
+    assert solve.controlla_spostamenti(1.0, 0.0)["passato"] is False
+    assert solve.controlla_spostamenti(1.0, 0.0)["rapporto"] is None
+    assert solve._dimensione(np.zeros((0, 3))) == 0.0
+
+
+def test_lo_spostamento_pari_alla_dimensione_del_modello_non_passa():
+    """Il confronto e' stretto (`<`), e il confine e' dove sta la ragione
+    della soglia: uno spostamento **grande quanto il modello** falsifica gia'
+    l'ipotesi di piccoli spostamenti con cui e' stato calcolato. Un `<=`
+    lascerebbe passare esattamente il caso che definisce il limite.
+    """
+    assert solve.controlla_spostamenti(100.0, 100.0)["passato"] is False
+    assert solve.controlla_spostamenti(99.9, 100.0)["passato"] is True
+
+
+def test_il_massimo_ignora_i_modi_e_prende_il_peggiore_fra_gli_statici():
+    """`MODO_n` e' normalizzato sulla massa: la sua ampiezza non e' un
+    millimetro. Se entrasse qui, un modale con forma grande boccerebbe una
+    corsa buona -- e un `VM_` (uno scalare) non e' uno spostamento affatto.
+    """
+    point_data = {
+        "U_GRAVITA": np.array([[1.0, 0.0, 0.0], [2.0, 0.0, 0.0]]),
+        "U_SPINTA": np.array([[0.0, 3.0, 0.0], [0.0, 0.0, 0.0]]),
+        "MODO_1": np.array([[1e6, 0.0, 0.0], [0.0, 0.0, 0.0]]),
+        "VM_GRAVITA": np.array([10.0, 20.0]),
+    }
+
+    assert solve._spostamento_massimo(point_data) == pytest.approx(3.0)
+    assert solve._spostamento_massimo({"MODO_1": np.array([[1e6, 0.0, 0.0]])}) is None
 
 
 def test_il_ramo_a_una_frequenza_non_consulta_la_soglia_relativa():
