@@ -115,6 +115,32 @@ _SOGLIA_VINCOLO_IN_PIANTA = 0.5
 # verdetto.
 _SOGLIA_SPOSTAMENTO_SU_DIMENSIONE = 1.0
 
+# Frazione minima di massa partecipante che i modi estratti devono catturare
+# perche' l'analisi modale sia citabile (#75).
+#
+# **Il valore e' letto, non nostro**: EN 1998-1 §4.3.3.3.1(3) chiede che «la
+# somma delle masse modali efficaci per i modi considerati sia almeno il 90%
+# della massa totale della struttura». Le NTC 2018 riportano lo stesso criterio
+# al §7.3.3.1.
+#
+# **Il contesto pero' e' diverso e va dichiarato.** L'Eurocodice pone quel
+# limite per l'analisi sismica con spettro di risposta, dove la massa non
+# catturata e' forza sismica che il calcolo non vede. Qui non si fa analisi
+# sismica: il criterio e' preso in prestito come misura di **sufficienza del
+# numero di modi**, che e' la stessa grandezza sottostante. Preso in prestito e
+# non derivato, quindi la nota deve dirlo -- ed e' questa.
+#
+# Il difetto che intercetta, misurato il 26/08/2026 su `runs/lab_telaio_v2`:
+# coi venti modi chiesti la frazione catturata vale 92,78% in x, 92,71% in y e
+# **87,46% in z**. La direzione verticale non arriva al 90%, e nessun controllo
+# se ne accorgeva -- `controlla_autovalori` guarda che le frequenze siano
+# reali, positive e non degeneri, e un'analisi con tre modi su una struttura
+# che ne vorrebbe cento le supera tutte.
+#
+# Non e' un cancello sul modello ma sulla **configurazione**: sotto soglia il
+# modello non e' sbagliato, e' `Modale.modi` a essere troppo basso.
+_FRAZIONE_MASSA_MINIMA = 0.90
+
 # Tolleranza di equilibrio per `controlla_reazioni`.
 #
 # Lo scarto misurato nel giro originale del Task 7 (8,5% con 35 nodi
@@ -489,8 +515,8 @@ def controlla_avvisi(conteggio: int) -> dict[str, object]:
     Il conteggio viene da `str.count` e resta un intero naturale qualunque
     cosa faccia la mesh: l'uguaglianza a zero e' gia' chiusa su NaN e sugli
     infiniti senza bisogno di guardia. Sta comunque nella tabella
-    `_INGRESSI_CHE_RAGGIUNGONO_UN_CONFRONTO` -- enumerare tutti e sei i
-    verdetti costa meno che ricordarsi quale dei sei non serviva.
+    `_INGRESSI_CHE_RAGGIUNGONO_UN_CONFRONTO` -- enumerare tutti e sette i
+    verdetti costa meno che ricordarsi quale dei sette non serviva.
     """
     return {"passato": conteggio == 0, "conteggio": conteggio}
 
@@ -584,6 +610,132 @@ def controlla_spostamenti(
         "u_max": float(u_max),
         "dimensione": float(dimensione),
         "soglia": float(soglia),
+    }
+
+
+_INTESTAZIONE_MODALE = "E F F E C T I V E   M O D A L   M A S S"
+_INTESTAZIONE_TOTALE = "T O T A L   E F F E C T I V E   M A S S"
+
+
+def leggi_massa_modale(percorso: Path) -> dict[str, list[float]] | None:
+    """Massa modale efficace dal `.dat`: quella catturata e quella disponibile.
+
+    `ccx` scrive tre blocchi dopo `E I G E N V A L U E   O U T P U T` e finora
+    non li leggeva nessuno: fattori di partecipazione, **massa modale
+    efficace** per modo (con una riga `TOTAL` che somma i modi estratti) e
+    **massa efficace totale**, cioe' quella che i modi potrebbero catturare
+    tutti insieme. Il rapporto fra i due totali e' la frazione di massa che
+    l'analisi ha davvero preso.
+
+    Sei componenti in entrambi: tre traslazioni e tre rotazioni.
+
+    `None` se il blocco non c'e' -- un deck senza passo modale, oppure un passo
+    modale che non ha estratto nulla. Non e' uno zero: zero significherebbe
+    «i modi non catturano massa», che e' un'altra cosa e sarebbe un difetto.
+    """
+    righe = Path(percorso).read_text(encoding="ascii", errors="replace").splitlines()
+
+    def sei_numeri(riga: str, salta: int = 0) -> list[float] | None:
+        campi = riga.split()[salta:]
+        if len(campi) != 6:
+            return None
+        try:
+            return [float(c) for c in campi]
+        except ValueError:
+            return None
+
+    catturata: list[float] | None = None
+    disponibile: list[float] | None = None
+    for indice, riga in enumerate(righe):
+        if _INTESTAZIONE_MODALE in riga:
+            # la riga `TOTAL` somma i soli modi estratti
+            for seguente in righe[indice:]:
+                if seguente.strip().startswith("TOTAL"):
+                    catturata = sei_numeri(seguente, salta=1)
+                    break
+        elif _INTESTAZIONE_TOTALE in riga:
+            # dopo l'intestazione e la riga dei nomi di colonna, la prima riga
+            # con sei numeri e' il totale disponibile
+            for seguente in righe[indice + 1 :]:
+                valori = sei_numeri(seguente)
+                if valori is not None:
+                    disponibile = valori
+                    break
+    if catturata is None or disponibile is None:
+        return None
+    return {"catturata": catturata, "disponibile": disponibile}
+
+
+def controlla_massa_modale(
+    masse: dict[str, list[float]] | None, soglia: float = _FRAZIONE_MASSA_MINIMA
+) -> dict[str, object]:
+    """Quanta massa partecipante i modi estratti catturano (#75).
+
+    Settimo verdetto. Gli altri sei guardano il passo statico o l'ampiezza del
+    risultato; questo e' l'unico che guarda se l'**analisi modale** ha chiesto
+    abbastanza modi. `controlla_autovalori` verifica che le frequenze siano
+    reali, positive e non degeneri, e nulla di piu': un'analisi che estragga
+    tre modi su una struttura che ne vorrebbe cento le supera tutte.
+
+    Il verdetto e' sulle sole **traslazioni**. Le componenti rotazionali hanno
+    unita' diverse (massa per lunghezza al quadrato) e il loro «totale
+    disponibile» dipende dal polo scelto, quindi una frazione su quelle non e'
+    confrontabile con la stessa soglia. Restano scritte, perche' chi legge
+    possa guardarle.
+
+    **Non e' un cancello sul modello.** Una frazione sotto soglia non dice che
+    il modello sia sbagliato: dice che il **numero di modi chiesto** e'
+    insufficiente, ed e' un parametro di configurazione (`Modale.modi`). Il
+    verdetto lo riporta come gli altri sei, si marca e non si nasconde.
+
+    `masse` a `None` -- nessun blocco modale nel `.dat` -- da' `passato: False`
+    con `frazione_minima: None`: non verificato, non «zero massa catturata».
+    Stessa convenzione di `controlla_reazioni` su un `.dat` senza reazioni.
+    """
+    if masse is None:
+        return {
+            "passato": False, "frazione_minima": None, "soglia": float(soglia),
+            "per_direzione": None, "direzione_peggiore": None,
+        }
+
+    catturata = np.asarray(masse["catturata"], dtype=np.float64)[:3]
+    disponibile = np.asarray(masse["disponibile"], dtype=np.float64)[:3]
+    nomi = ("x", "y", "z")
+
+    per_direzione: dict[str, float | None] = {}
+    frazioni: list[float] = []
+    for nome, presa, totale in zip(nomi, catturata, disponibile, strict=True):
+        # Massa disponibile nulla in una direzione: la struttura e' vincolata
+        # li' e non c'e' nulla da catturare. Non e' un fallimento, e dividere
+        # darebbe un NaN che il confronto tratterebbe come «non passato».
+        if not np.isfinite(totale) or totale <= 0.0 or not np.isfinite(presa):
+            per_direzione[nome] = None
+            continue
+        frazione = float(presa / totale)
+        per_direzione[nome] = frazione
+        frazioni.append(frazione)
+
+    if not frazioni:
+        return {
+            "passato": False, "frazione_minima": None, "soglia": float(soglia),
+            "per_direzione": per_direzione, "direzione_peggiore": None,
+        }
+
+    minima = min(frazioni)
+    peggiore = min(
+        (n for n in nomi if per_direzione[n] is not None),
+        key=lambda n: per_direzione[n],
+    )
+    return {
+        "passato": bool(np.isfinite(soglia) and minima >= soglia),
+        "frazione_minima": minima,
+        "soglia": float(soglia),
+        "per_direzione": per_direzione,
+        "direzione_peggiore": peggiore,
+        # Le rotazionali restano scritte ma fuori dal verdetto: unita' diverse,
+        # e il totale disponibile dipende dal polo.
+        "rotazionali_catturate": [float(v) for v in masse["catturata"][3:]],
+        "rotazionali_disponibili": [float(v) for v in masse["disponibile"][3:]],
     }
 
 
@@ -840,17 +992,19 @@ def risolvi(
     gia' calcolato allo step 11 su `abaqus.constraint_plan_extent`: non si
     ricalcola qui, dove non arrivano i `node_sets` per farlo.
 
-    Aggiunge `metrics["13_solve"]["controlli"]` (Task 7): sei verdetti
+    Aggiunge `metrics["13_solve"]["controlli"]` (Task 7): sette verdetti
     che dicono quando i numeri qui sopra non sono citabili -- `reazioni`
     (equilibrio del solo peso proprio, passo 1, sempre isolabile per
     costruzione di `abaqus.write_inp`), `vincolo_in_pianta` (soglia
     `_SOGLIA_VINCOLO_IN_PIANTA`, costante di modulo -- vedi il commento sopra la
     sua definizione), `autovalori`, `avvisi` (zero per essere
     citabili), `picco` (per caso di carico, dove vive il picco di tensione,
-    non se e' alto) e `spostamenti` (#12: l'ampiezza contro la dimensione del
+    non se e' alto), `spostamenti` (#12: l'ampiezza contro la dimensione del
     modello, il solo verdetto che guarda quanto grande e' il risultato invece
-    che se il deck e la configurazione concordano). Sotto soglia i risultati
-    restano scritti: si marcano, non si nascondono.
+    che se il deck e la configurazione concordano) e `massa_modale` (#75: la
+    frazione di massa partecipante che i modi estratti catturano, cioe' se il
+    numero di modi chiesto bastava). Sotto soglia i risultati restano scritti:
+    si marcano, non si nascondono.
     """
     if not casi_di_carico:
         raise ValueError(
@@ -946,6 +1100,7 @@ def risolvi(
 
     avvisi = uscita.upper().count("*WARNING")
     frequenze_hz = leggi_frequenze(percorso_dat)
+    masse_modali = leggi_massa_modale(percorso_dat)
     reazioni_peso_proprio = leggi_reazioni(percorso_dat, passo=1)
     massa = float(cfg.material.density) * _volume_totale(nodes, elements)
     quota_tributaria = _quota_tributaria_gravita(
@@ -961,7 +1116,7 @@ def risolvi(
         element_type,
     )
     peso_atteso = (0.0, 0.0, (massa - quota_tributaria) * cfg.gravity)
-    # Sei verdetti, sei funzioni: `vincolo_in_pianta` e `avvisi` erano
+    # Sette verdetti, sette funzioni: `vincolo_in_pianta` e `avvisi` erano
     # scritti inline qui, e per questo restavano fuori dalla tabella
     # `_INGRESSI_CHE_RAGGIUNGONO_UN_CONFRONTO` di tests/test_solve.py, che il
     # commento sopra `controlla_reazioni` dichiara completa (M11 della
@@ -974,6 +1129,7 @@ def risolvi(
         "autovalori": controlla_autovalori(frequenze_hz),
         "avvisi": controlla_avvisi(avvisi),
         "spostamenti": controlla_spostamenti(_spostamento_massimo(point_data), _dimensione(nodes)),
+        "massa_modale": controlla_massa_modale(masse_modali),
         "picco": {
             "passato": all(v["passato"] for v in picco_per_caso.values()) if picco_per_caso else False,
             "per_caso": picco_per_caso,
