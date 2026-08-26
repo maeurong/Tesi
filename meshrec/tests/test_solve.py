@@ -873,6 +873,11 @@ _INGRESSI_CHE_RAGGIUNGONO_UN_CONFRONTO = [
     ("spostamenti/u_max", lambda b: solve.controlla_spostamenti(b, 100.0), 1.0),
     ("spostamenti/dimensione", lambda b: solve.controlla_spostamenti(1.0, b), 100.0),
     ("spostamenti/soglia", lambda b: solve.controlla_spostamenti(1.0, 100.0, soglia=b), 1.0),
+    # Settimo verdetto (#75): la soglia sulla frazione di massa raggiunge un
+    # confronto come le altre, e `-inf` la renderebbe soddisfatta da
+    # qualunque frazione.
+    ("massa_modale/soglia", lambda b: solve.controlla_massa_modale(
+        {"catturata": [0.95] * 6, "disponibile": [1.0] * 6}, soglia=b), 0.9),
 ]
 
 
@@ -1332,3 +1337,126 @@ def test_senza_tensioni_il_verdetto_sul_picco_e_falso_e_non_vero_per_vuoto(tmp_p
 
     assert esito["controlli"]["picco"]["per_caso"] == {}
     assert esito["controlli"]["picco"]["passato"] is False
+
+
+# La massa modale (#75). Il `.dat` qui sotto e' costruito con la stessa forma
+# che `ccx` 2.22 scrive davvero, con numeri scelti: catturata meta' del
+# disponibile in z e nove decimi nelle altre due, cosi' il verdetto e i suoi
+# campi si leggono a memoria.
+DAT_MASSA_MODALE = """\
+     E I G E N V A L U E   O U T P U T
+
+ MODE NO    EIGENVALUE                       FREQUENCY
+
+      1   0.7589826E+09   0.2754964E+05   0.4384661E+04   0.0000000E+00
+
+     P A R T I C I P A T I O N   F A C T O R S
+
+MODE NO.   X-COMPONENT     Y-COMPONENT     Z-COMPONENT     X-ROTATION      Y-ROTATION      Z-ROTATION
+
+      1  -0.5526834E+00  -0.1568618E-02  -0.8979709E-03   0.1002478E+01  -0.8666169E+03   0.6908348E+03
+
+     E F F E C T I V E   M O D A L   M A S S
+
+MODE NO.   X-COMPONENT     Y-COMPONENT     Z-COMPONENT     X-ROTATION      Y-ROTATION      Z-ROTATION
+
+      1   0.4000000E+00   0.4000000E+00   0.2000000E+00   0.1000000E+03   0.2000000E+03   0.3000000E+03
+      2   0.5000000E+00   0.5000000E+00   0.3000000E+00   0.1000000E+03   0.2000000E+03   0.3000000E+03
+TOTAL     0.9000000E+00   0.9000000E+00   0.5000000E+00   0.2000000E+03   0.4000000E+03   0.6000000E+03
+
+     T O T A L   E F F E C T I V E   M A S S
+
+MODE NO.   X-COMPONENT     Y-COMPONENT     Z-COMPONENT     X-ROTATION      Y-ROTATION      Z-ROTATION
+
+          0.1000000E+01   0.1000000E+01   0.1000000E+01   0.5000000E+03   0.5000000E+03   0.5000000E+03
+"""
+
+
+def test_la_massa_modale_si_legge_dai_due_totali_del_dat(tmp_path):
+    """`ccx` scrive la riga `TOTAL` della massa modale efficace -- la somma sui
+    modi **estratti** -- e, in un blocco separato, la massa efficace
+    **totale**, cioe' quella che tutti i modi insieme potrebbero catturare.
+    Il rapporto fra i due e' la grandezza che serve, e finora nessuno leggeva
+    ne' l'una ne' l'altra.
+    """
+    percorso = tmp_path / "prova.dat"
+    percorso.write_text(DAT_MASSA_MODALE, encoding="ascii")
+
+    masse = solve.leggi_massa_modale(percorso)
+
+    assert masse["catturata"][:3] == pytest.approx([0.9, 0.9, 0.5])
+    assert masse["disponibile"][:3] == pytest.approx([1.0, 1.0, 1.0])
+    assert masse["catturata"][3:] == pytest.approx([200.0, 400.0, 600.0])
+
+
+def test_senza_blocco_modale_la_lettura_rende_none_e_non_zero(tmp_path):
+    """Un deck senza passo modale non ha massa catturata **da misurare**.
+    Zero significherebbe «i modi non ne catturano», che e' un'altra cosa e
+    sarebbe un difetto: stessa distinzione di `controlla_reazioni` su un
+    `.dat` senza reazioni.
+    """
+    percorso = tmp_path / "senza.dat"
+    percorso.write_text(DAT_FREQUENZE, encoding="ascii")
+
+    assert solve.leggi_massa_modale(percorso) is None
+    esito = solve.controlla_massa_modale(None)
+    assert esito["passato"] is False
+    assert esito["frazione_minima"] is None
+
+
+def test_il_verdetto_guarda_la_direzione_peggiore_e_la_nomina(tmp_path):
+    """Nove decimi in x e y, meta' in z: il verdetto e' la **peggiore**, non la
+    media. Una media coprirebbe una direzione scoperta con due buone, ed e'
+    proprio la direzione scoperta a mancare all'analisi.
+    """
+    percorso = tmp_path / "prova.dat"
+    percorso.write_text(DAT_MASSA_MODALE, encoding="ascii")
+
+    esito = solve.controlla_massa_modale(solve.leggi_massa_modale(percorso))
+
+    assert esito["frazione_minima"] == pytest.approx(0.5)
+    assert esito["direzione_peggiore"] == "z"
+    assert esito["passato"] is False
+    assert esito["per_direzione"]["x"] == pytest.approx(0.9)
+
+
+def test_sopra_soglia_il_verdetto_passa():
+    """Controprova: senza, un verdetto che dice sempre «no» supererebbe il
+    test qui sopra senza distinguere nulla."""
+    masse = {"catturata": [0.95, 0.95, 0.95, 1.0, 1.0, 1.0],
+             "disponibile": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]}
+
+    esito = solve.controlla_massa_modale(masse)
+
+    assert esito["passato"] is True
+    assert esito["frazione_minima"] == pytest.approx(0.95)
+
+
+def test_una_direzione_senza_massa_disponibile_non_divide_per_zero():
+    """Struttura vincolata lungo un asse: li' non c'e' nulla da catturare, e
+    la direzione si dichiara non applicabile invece di rendere un NaN che il
+    confronto tratterebbe come «non passato»."""
+    masse = {"catturata": [0.95, 0.95, 0.0, 1.0, 1.0, 1.0],
+             "disponibile": [1.0, 1.0, 0.0, 1.0, 1.0, 1.0]}
+
+    esito = solve.controlla_massa_modale(masse)
+
+    assert esito["per_direzione"]["z"] is None
+    assert esito["passato"] is True
+    assert esito["direzione_peggiore"] in ("x", "y")
+
+
+def test_le_rotazionali_restano_scritte_ma_fuori_dal_verdetto():
+    """Hanno unita' diverse -- massa per lunghezza al quadrato -- e il loro
+    totale disponibile dipende dal polo scelto, quindi una frazione su quelle
+    non e' confrontabile con la stessa soglia. Restano pero' nel resoconto,
+    perche' chi legge possa guardarle."""
+    masse = {"catturata": [0.95, 0.95, 0.95, 10.0, 20.0, 30.0],
+             "disponibile": [1.0, 1.0, 1.0, 1000.0, 1000.0, 1000.0]}
+
+    esito = solve.controlla_massa_modale(masse)
+
+    # le rotazionali catturano l'1-3%: se entrassero nel verdetto, boccerebbero
+    assert esito["passato"] is True
+    assert esito["rotazionali_catturate"] == pytest.approx([10.0, 20.0, 30.0])
+    assert esito["rotazionali_disponibili"] == pytest.approx([1000.0] * 3)
