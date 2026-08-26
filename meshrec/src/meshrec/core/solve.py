@@ -652,40 +652,102 @@ def _volume_totale(nodes: np.ndarray, elements: np.ndarray) -> float:
 
 
 def _quota_tributaria_gravita(
-    nodes: np.ndarray, elements: np.ndarray, nodi_1based: Iterable[int], density: float
+    nodes: np.ndarray,
+    elements: np.ndarray,
+    nodi_1based: Iterable[int],
+    density: float,
+    element_type: str,
 ) -> float:
     """Massa che il carico distribuito assegna direttamente ai nodi dati.
 
-    Causa radice trovata da un'indagine dedicata (21/08/2026): la `RF` che
-    `ccx` stampa per un nodo vincolato che porta anche `*DLOAD, GRAV` non
-    include la quota di gravita' applicata a quel nodo dagli elementi che lo
-    toccano -- riporta solo la forza trasmessa elasticamente attraverso la
-    struttura. Prova in forma chiusa: un tetraedro solo, base fissa, apice
-    libero -- `rho*V*g` = 2,943 N, `ccx` stampa 0,73575 N (esattamente 1/4,
-    la sola quota del nodo libero, l'unica che attraversa un elemento).
-    Senza questa correzione lo scarto misura un rapporto bordo/volume della
-    mesh (quanti nodi vincolati toccano il carico), non un errore fisico.
+    **Dipende dall'elemento, e ignorarlo era un difetto vivo (#40).** La
+    ripartizione della gravita' fra i nodi di un elemento e' il vettore dei
+    carichi consistenti, cioe' l'integrale delle funzioni di forma, e le
+    funzioni di forma del tetraedro quadratico non sono quelle del lineare:
 
-    `rho*V/4` per nodo e' esatto per un tetraedro lineare a densita'
-    costante (`*DLOAD GRAV` ripartisce in parti uguali sui quattro nodi):
-    la somma corre per ogni coppia (tetraedro, nodo di `nodi_1based`) che
-    quel tetraedro incide -- un tetraedro con due dei suoi quattro nodi in
-    `nodi_1based` contribuisce due volte, una per ciascuna coppia, non una
-    sola volta per l'elemento (`in_set[elements[:, :4]]` da' una matrice
-    `(n_tet, 4)`, non un vettore per tetraedro). Nessun bisogno dei
-    `node_sets`: `nodi_1based` sono gia' esattamente i nodi che `ccx` ha
-    stampato in `leggi_reazioni` (`*NODE PRINT, NSET=BASE, RF` stampa solo
-    il set vincolato).
+    - **C3D4**: `+V/4` a ciascuno dei quattro vertici (le funzioni di forma
+      sono lineari e il loro integrale e' `V/4`);
+    - **C3D10**: `-V/20` a ciascun **vertice** -- negativo, non e' un errore
+      di segno -- e `+V/5` a ciascuno dei sei **nodi di lato**. La somma
+      torna: `4*(-1/20) + 6*(1/5) = 1`.
+
+    Fino al 26/08/2026 questa funzione applicava `V/4` ai soli vertici
+    qualunque fosse l'elemento. Su C3D4 era esatto; su **C3D10, predefinito
+    dalla PR #53**, era sbagliato -- e non di poco, perche' sbagliava anche
+    di **segno** sui vertici e ignorava del tutto i nodi di lato, che sono
+    quelli che portano il carico. Misurato su un cubo con quattro
+    raffinamenti: col termine sbagliato lo scarto valeva 1,67e-01, 9,29e-02,
+    6,67e-02, 5,79e-02 -- sempre oltre la tolleranza di 1e-4, quindi il
+    verdetto `reazioni` era **falso su ogni corsa C3D10**; col termine giusto
+    vale 1,8e-08, 4,0e-08, 5,3e-09, 2,6e-09, cioe' precisione di solutore.
+    Nessun test lo vedeva perche' nessun test esegue la pipeline vera con
+    `ccx` vero (i test di `risolvi` usano un `ccx` finto).
+
+    Lo scarto del termine sbagliato **calava raffinando** -- 1,67e-01 ->
+    5,79e-02 -- che e' la firma di un rapporto bordo/volume, cioe' di un
+    artefatto di maglio. E' la stessa firma che l'indagine del 21/08/2026
+    aveva gia' incontrato su C3D4 e che allora aveva portato fuori strada:
+    la stessa trappola, sullo stesso controllo, un elemento piu' tardi.
+
+    Causa radice del termine, trovata dall'indagine del 21/08/2026: la `RF`
+    che `ccx` stampa per un nodo vincolato che porta anche `*DLOAD, GRAV`
+    non include la quota di gravita' applicata a quel nodo dagli elementi
+    che lo toccano -- riporta solo la forza trasmessa elasticamente
+    attraverso la struttura. Prova in forma chiusa su C3D4: un tetraedro
+    solo, base fissa, apice libero -- `rho*V*g` = 2,943 N, `ccx` stampa
+    0,73575 N (esattamente 1/4, la sola quota del nodo libero). Il manuale
+    di CalculiX (§6.11.5) lo dichiara: «selecting RF gives you the sum of
+    the reaction forces and the loading forces».
+
+    Il manuale indica `*SECTION PRINT, SOF` come alternativa. **Misurata e
+    scartata** (#40): `SOF` e' l'integrale della tensione sulla superficie,
+    quindi porta l'errore di discretizzazione e **converge** col maglio --
+    su C3D4 sbaglia dal 21,0% al 6,6% raffinando, su C3D10 dal 2,3% all'1,1%
+    -- mentre `RF` piu' questo termine e' un'**identita' algebrica**, ferma
+    a 1e-8 su ogni maglio. Un controllo di conservazione col 6,6% di residuo
+    non puo' avere tolleranza 1e-4, e soprattutto confonderebbe «il modello
+    e' sbagliato» con «il maglio e' rado»: e' proprio la distinzione per cui
+    il controllo esiste.
+
+    `element_type` e' **obbligatorio e senza predefinito**, di proposito: un
+    predefinito `"C3D4"` renderebbe il difetto qui sopra invisibile una
+    seconda volta, perche' il chiamante che se ne dimentica prende in
+    silenzio la formula sbagliata proprio sull'elemento che il progetto usa
+    per predefinito. Un tipo fuori dai due noti solleva invece di prendere
+    la formula di un altro elemento: sarebbe un numero plausibile e
+    sbagliato, che e' la cosa peggiore che questo modulo possa rendere.
     """
     nodi_1based = list(nodi_1based)
     if not nodi_1based:
         return 0.0
+    if element_type not in ("C3D4", "C3D10"):
+        raise ValueError(
+            f"la ripartizione della gravità non è definita per '{element_type}': "
+            "il vettore dei carichi consistenti dipende dalle funzioni di forma, "
+            "e un valore preso da un altro elemento sarebbe un numero plausibile "
+            "e sbagliato"
+        )
+    # Il volume e' quello del tetraedro a spigoli dritti: le quattro colonne
+    # dei vertici bastano per entrambi i tipi, e su C3D10 i nodi di lato di
+    # TetGen stanno a meta' spigolo (non c'e' curvatura da integrare).
     volumi = np.abs(quality.tet_volumes(nodes, elements[:, :4]))
-    massa_per_incidenza = volumi / 4.0 * density
+    massa = volumi * density
     in_set = np.zeros(len(nodes), dtype=bool)
     in_set[np.array(nodi_1based, dtype=np.int64) - 1] = True
-    incidenze = in_set[elements[:, :4]]
-    return float((incidenze * massa_per_incidenza[:, None]).sum())
+
+    # La somma corre per ogni coppia (elemento, nodo del set) che l'elemento
+    # incide -- un tetraedro con due dei suoi nodi nel set contribuisce due
+    # volte, una per coppia, perche' `in_set[elements[:, :4]]` da' una matrice
+    # (n_tet, 4) e non un vettore per tetraedro. Nessun bisogno dei
+    # `node_sets`: `nodi_1based` sono gia' esattamente i nodi che `ccx` ha
+    # stampato in `leggi_reazioni`.
+    vertici = in_set[elements[:, :4]]
+    if element_type == "C3D4":
+        return float((vertici * (massa / 4.0)[:, None]).sum())
+    lati = in_set[elements[:, 4:10]]
+    return float(
+        (vertici * (-massa / 20.0)[:, None]).sum() + (lati * (massa / 5.0)[:, None]).sum()
+    )
 
 
 def _rotazione_ai_punti(trasformata: np.ndarray | list[list[float]]) -> np.ndarray:
@@ -891,7 +953,12 @@ def risolvi(
         # e `list(dict)` darebbe le chiavi comunque -- ma dalla firma non si
         # vede, e chi legge passa indici a base zero e prende un off-by-one
         # silenzioso che boccia una corsa buona.
-        nodes, elements, reazioni_peso_proprio.keys(), cfg.material.density
+        # `element_type` non e' decorativo: la ripartizione della gravita' fra
+        # i nodi e' diversa fra C3D4 e C3D10, e passare il predefinito su un
+        # maglio quadratico dava un verdetto `reazioni` falso su ogni corsa
+        # (#40). E' lo stesso `element_type` che ha scritto il deck.
+        nodes, elements, reazioni_peso_proprio.keys(), cfg.material.density,
+        element_type,
     )
     peso_atteso = (0.0, 0.0, (massa - quota_tributaria) * cfg.gravity)
     # Sei verdetti, sei funzioni: `vincolo_in_pianta` e `avvisi` erano
