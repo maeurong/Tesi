@@ -118,7 +118,7 @@ def _set_lines(indices: np.ndarray) -> list[str]:
 
 
 def _passo_statico(
-    nome: str, carichi: list[str], *, elset: str, fixed_nset: str,
+    nome: str, carichi: list[str], *, elset: str, fixed_nset: str | None,
     print_nsets: tuple[str, ...], pressure: tuple[str, float] | None,
     carichi_nodali: dict[int, tuple[float, float, float]] | None = None,
 ) -> list[str]:
@@ -152,7 +152,12 @@ def _passo_statico(
                     righe += [f"{int(nodo) + 1}, {grado}, {valore:.9e}"]
     for name in print_nsets:
         righe += [f"*NODE PRINT, NSET={name}", "U"]
-    righe += [f"*NODE PRINT, NSET={fixed_nset}", "RF"]
+    # Senza set vincolato non c'e' RF da stampare, e non e' una mancanza: un
+    # modello cinematicamente incompleto per costruzione -- il benchmark modale
+    # FV52 lo e', e i suoi primi tre modi **devono** essere moti rigidi -- non ha
+    # reazioni su cui chiudere il bilancio.
+    if fixed_nset is not None:
+        righe += [f"*NODE PRINT, NSET={fixed_nset}", "RF"]
     righe += ["*NODE FILE", "U", "*EL FILE", "S, E", "*END STEP"]
     return righe
 
@@ -165,7 +170,7 @@ def write_inp(
     node_sets: dict[str, np.ndarray],
     material: Material,
     element_type: str = "C3D4",
-    fixed_nset: str = "BASE",
+    fixed_nset: str | None = "BASE",
     print_nsets: tuple[str, ...] = (),
     gravity: float = GRAVITY_MM_S2,
     elset: str = "ALL_WALL",
@@ -235,7 +240,7 @@ def write_inp(
     nulla se ne accorga (era esattamente cosi' che CARICO_TOP restava fuori
     da `metrics.json`).
     """
-    if fixed_nset not in node_sets:
+    if fixed_nset is not None and fixed_nset not in node_sets:
         raise ValueError(f"il set vincolato '{fixed_nset}' non e fra i node_sets forniti")
     for name in print_nsets:
         if name not in node_sets:
@@ -316,8 +321,9 @@ def write_inp(
         "*DENSITY",
         f"{material.density:.9g}",
         "*BOUNDARY",
-        f"{fixed_nset}, 1, 3",
     ]
+    if fixed_nset is not None:
+        lines += [f"{fixed_nset}, 1, 3"]
 
     if spostamenti_imposti:
         # Spostamento imposto a valore non nullo, nodo per nodo e grado per
