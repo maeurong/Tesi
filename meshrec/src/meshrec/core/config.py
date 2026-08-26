@@ -297,9 +297,68 @@ class Modale(_ModelloBase):
     Costa poco e smentisce molto: un modello mal vincolato ha una prima
     frequenza fuori scala. Misurato il 21/08/2026 sull'as-built del telaio:
     21,19 Hz col vincolo corretto, 4,03 Hz col vincolo su un piede solo.
+
+    **Perche' `modi` ha un predefinito mentre il materiale non ce l'ha.** Il
+    programma non indovina i parametri **meccanici**: modulo, coefficiente di
+    Poisson, densita' e carichi li dichiara l'operatore, perche' nessun dato
+    del rilievo li suggerisce. Il numero di modi non e' di quella specie. Non
+    e' una proprieta' del corpo ne' una scelta di progetto: e' un parametro di
+    **discretizzazione**, come `set_tolerance_factor`, e come quello ha un
+    predefinito **misurato**. Chi ne dichiara uno proprio lo ottiene: il
+    predefinito non e' un cancello.
+
+    **Da dove viene il 40**, misurato il 26/08/2026 e ricostruibile con
+    `docs/fase-7-cantiere/modi-per-la-normativa.py`. Il criterio non e' nostro:
+    EN 1998-1 §4.3.3.3.1(3) chiede che i modi considerati catturino almeno il
+    90% della massa partecipante, e le NTC 2018 lo riportano al §7.3.3.1 -- lo
+    stesso criterio del verdetto `massa_modale` in `core/solve.py`, dove sta
+    anche la nota che dichiara il contesto preso in prestito.
+
+    La frazione non sale liscia al crescere dei modi: sale a **gradini**,
+    perche' i modi entrano in coppie e ognuna porta la sua quota in un colpo.
+    Su due corpi -- il telaio in calcestruzzo e il ritaglio intero in muratura
+    -- la direzione traslazionale peggiore misura:
+
+    ==========  =====================  =====================
+    modi        telaio (14.103 nodi)   ritaglio (13.264 nodi)
+    ==========  =====================  =====================
+    20                        87,46%                  87,96%
+    31                        88,31%                  88,93%
+    32                        90,83%                  90,87%
+    37                        93,96%                  90,89%
+    40                        93,98%                  94,43%
+    ==========  =====================  =====================
+
+    **Perche' 40 e non 32**, che e' il piu' piccolo che regge. Il 32 sta sul
+    bordo del gradino, con 0,83 punti di margine, e il gradino largo cade a
+    **37 sul telaio ma a 38 sul ritaglio**: il bordo si sposta col maglio. Non
+    e' un dettaglio, e' il difetto n. 66 -- TetGen e gmsh danno maglie diverse
+    su Linux x86-64 e macOS arm64 a parita' di versione e di ingresso -- e un
+    predefinito appoggiato sul bordo di un gradino mobile passa qui e fallisce
+    altrove. Il 40 sta dentro il pianerottolo largo su entrambi i corpi, con
+    circa quattro punti di margine e **otto modi sopra lo scavallamento**.
+
+    **Cio' che questa misura non dimostra.** I due corpi non sono
+    indipendenti: `lab_crop` e' il ritaglio della stessa scena che contiene il
+    telaio, e scalare il modulo elastico non cambia le forme modali. Che
+    concordino era atteso e non e' una seconda conferma. Il 40 e' un punto di
+    partenza tarato su una scena sola, non una costante universale: su una
+    struttura diversa puo' non bastare, ed e' precisamente per questo che il
+    verdetto `massa_modale` resta a misurare la frazione invece di fidarsi del
+    predefinito.
     """
 
-    modi: int = Field(gt=0, description="numero di modi da estrarre")
+    modi: int = Field(
+        default=40,
+        gt=0,
+        description=(
+            "numero di modi da estrarre. Il predefinito 40 è misurato e non "
+            "indovinato: è il numero che porta ogni direzione traslazionale "
+            "sopra il 90% di massa partecipante che EN 1998-1 §4.3.3.3.1(3) "
+            "chiede, con margine. Sotto resta comunque il verdetto "
+            "`massa_modale` a dire se è bastato"
+        ),
+    )
 
 
 # Le etichette che `abaqus.export_model` assegna da se' agli altri casi di
