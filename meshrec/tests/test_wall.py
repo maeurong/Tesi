@@ -724,3 +724,122 @@ def test_una_pi_meta_fitta_e_meta_rada_non_arriva_fra_le_membrature():
             f"meta' fitta {quale}: doveva fermarla la costanza della sezione, "
             f"controlli falliti: {esito['scartate'][0]['controlli_falliti']}"
         )
+
+
+# Una sezione senza spessore arrivava a `ConvexHull` senza guardia (#68): il
+# QhullError usciva dal profondo di scipy, dentro il ciclo per regione di
+# `prior`, e uccideva la corsa sulla prima regione difettosa. Su Linux x86-64
+# il test della Pi mezza rada qui sopra lo produceva due volte su quattro
+# corse di CI, mai su macOS arm64 -- ma il difetto e' latente su entrambe.
+_COLLINEARI = np.array([[-46.0, 0.0], [-31.0, 0.0], [46.0, 0.0]])
+
+
+def test_una_sezione_senza_spessore_nomina_la_sezione_e_non_qhull():
+    """L'errore che esce deve dire che cosa non va nel **dato**, non quale
+    libreria si e' arresa. `QhullError: Initial simplex is flat` non dice a
+    chi legge ne' quale regione ne' che cosa cambiare.
+
+    I tre punti sono quelli veri della traccia della corsa in CI, tutti a
+    y = 0.
+    """
+    with pytest.raises(wall.SezioneDegenere, match="spessore"):
+        wall.semplifica_contorno(_COLLINEARI, 5.0)
+
+
+def test_la_guardia_e_sullo_spessore_non_sulla_collinearita_esatta():
+    """Misurato: `ConvexHull` **accetta** tre punti a 1e-12 dalla retta e
+    rende un triangolo di area praticamente nulla. Una guardia sul solo caso
+    esatto lascerebbe quindi passare la stessa spazzatura un epsilon piu' in
+    la', ed e' per questo che il criterio e' lo spessore contro la tolleranza
+    di contorno e non l'allineamento perfetto.
+    """
+    quasi = np.array([[-46.0, 0.0], [-31.0, 1e-12], [46.0, 0.0]])
+
+    with pytest.raises(wall.SezioneDegenere):
+        wall.semplifica_contorno(quasi, 5.0)
+
+
+def test_lo_spessore_si_misura_nella_direzione_piu_sottile():
+    """La guardia deve valere anche su una retta **obliqua**: un `ptp` per
+    coordinata vedrebbe estensione in x e in y e non si accorgerebbe di
+    nulla. Qui i punti stanno sulla bisettrice, quindi entrambe le
+    estensioni assiali valgono 100 e solo la direzione minore rivela che lo
+    spessore e' zero.
+    """
+    obliqui = np.array([[0.0, 0.0], [50.0, 50.0], [100.0, 100.0]])
+    assert np.ptp(obliqui[:, 0]) == 100.0 and np.ptp(obliqui[:, 1]) == 100.0
+
+    with pytest.raises(wall.SezioneDegenere):
+        wall.semplifica_contorno(obliqui, 5.0)
+
+
+@pytest.mark.parametrize(
+    "punti,etichetta",
+    [
+        (np.zeros((0, 2)), "nessun punto"),
+        (np.array([[0.0, 0.0]]), "un punto"),
+        (np.array([[0.0, 0.0], [10.0, 0.0]]), "due punti"),
+        (np.array([[0.0, 0.0], [0.0, 0.0], [10.0, 0.0]]), "due coincidenti e un terzo"),
+    ],
+)
+def test_ogni_sezione_troppo_povera_da_lo_stesso_esito(punti, etichetta):
+    """Quattro ingressi che prima davano tre eccezioni **diverse** -- due
+    QhullError con codici diversi (QH6154 e QH6214) e un `ValueError: No
+    points given` -- cioe' tre modi di dire la stessa cosa, nessuno dei quali
+    nomina la sezione. Ora sono un esito solo.
+    """
+    with pytest.raises(wall.SezioneDegenere):
+        wall.semplifica_contorno(punti, 5.0)
+
+
+def test_una_sezione_sana_non_cambia_comportamento():
+    """Controprova, e senza di essa la guardia potrebbe rifiutare tutto: un
+    rettangolo con vertici di rumore resta ridotto ai suoi quattro angoli."""
+    rumoroso = np.array([
+        [0.0, 0.0], [100.0, 0.1], [200.0, 0.0], [200.0, 70.0],
+        [200.0, 140.0], [100.0, 139.9], [0.0, 140.0], [0.0, 70.0],
+    ])
+
+    contorno = wall.semplifica_contorno(rumoroso, 5.0)
+
+    assert contorno.tolist() == [[0.0, 0.0], [200.0, 0.0], [200.0, 140.0], [0.0, 140.0]]
+
+
+def test_una_regione_degenere_non_uccide_le_altre(monkeypatch):
+    """La meta' che conta: `prior` deve **scartare** la regione e proseguire.
+
+    Prima della correzione l'eccezione saliva da `misura` e usciva da
+    `prior`, quindi una sola regione difettosa faceva perdere anche le
+    regioni buone gia' misurate -- e la corsa aveva gia' pagato
+    segmentazione e SVD. E' lo stesso ragionamento con cui `controlla`
+    dichiara che un controllo fallito non solleva.
+
+    La regione degenere e' iniettata invece che costruita: serve provare la
+    gestione, e un banco che producesse davvero una sezione collassata
+    dipenderebbe dal maglio, cioe' dalla piattaforma -- che e' il difetto
+    misurato in #66.
+    """
+    punti = synth.sample_frame_surface(TELAIO, SPAZIATURA)
+    vera = wall.misura
+    chiamate = {"n": 0}
+
+    def misura_con_una_degenere(punti_regione, direzioni, cfg):
+        chiamate["n"] += 1
+        if chiamate["n"] == 1:
+            raise wall.SezioneDegenere(0.0, cfg.contour_tolerance, len(punti_regione))
+        return vera(punti_regione, direzioni, cfg)
+
+    monkeypatch.setattr(wall, "misura", misura_con_una_degenere)
+
+    esito = wall.prior(punti, SegmentConfig(), _cfg(), SPAZIATURA)
+
+    assert chiamate["n"] > 1, "il banco deve avere piu' di una regione, o non prova nulla"
+    assert esito["membrature"], "le regioni buone devono arrivare in fondo lo stesso"
+
+    degeneri = [v for v in esito["scartate"] if "sezione_degenere" in v["controlli_falliti"]]
+    assert len(degeneri) == 1
+    voce = degeneri[0]["esiti"]["sezione_degenere"]
+    assert voce["passato"] is False
+    # numerici entrambi: `disegnaScartate` in ui/app.js ci chiama `.toFixed(3)`
+    assert isinstance(voce["valore"], float)
+    assert isinstance(voce["soglia"], float)
