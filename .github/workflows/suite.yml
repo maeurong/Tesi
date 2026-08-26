@@ -1,0 +1,125 @@
+# La suite gira da sola a ogni push, invece che quando fa comodo (#44).
+#
+# Due lavori, due scopi diversi, e non e' duplicazione:
+#
+# - `suite` gira su **due piattaforme** perche' PRODUCT.md dichiara che un
+#   esito discreto dipendente dalla piattaforma e' un difetto, e questa
+#   matrice ne e' il **rilevatore**: uno di quei difetti e' gia' stato trovato
+#   (l'ordine dei voxel di Open3D fra Windows x86-64 e macOS arm64). Lo
+#   sviluppo avviene su macOS arm64, quindi e' il leg Linux a dire qualcosa
+#   di nuovo. Le grandezze **continue** non sono bit-identiche fra
+#   architetture e i test infatti confrontano con tolleranze relative: se
+#   questa matrice diventasse rossa per l'ultima cifra, la risposta e' la
+#   tolleranza dichiarata, non l'uguaglianza esatta.
+#
+# - `benchmark` gira **solo su Linux** e installa CalculiX, perche' i
+#   benchmark di verifica (NAFEMS LE10 e FV52, patch test, mensola contro
+#   Gere-Timoshenko, equilibrio delle reazioni) senza solutore non esistono.
+#
+# Perche' due lavori invece di uno: senza solutore la suite **non fallisce**,
+# salta -- misurato il 26/08/2026, 1166 passed e 40 skipped, zero rossi. E'
+# il comportamento giusto per chi clona senza CalculiX, ma in CI diventa una
+# trappola: i benchmark potrebbero saltare per sempre e il verde direbbe
+# «tutto a posto». Nel lavoro `benchmark` il solutore e' quindi **dichiarato
+# obbligatorio** e `ccx -v` fa fallire il lavoro se manca, invece di lasciare
+# che 34 test scompaiano in silenzio.
+
+name: suite
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Sola lettura: questi lavori eseguono test e non scrivono nulla nel
+# repository. Il predefinito darebbe il permesso di scrittura sui contenuti a
+# ogni passo, compreso il codice di terzi in `uses:`.
+permissions:
+  contents: read
+
+jobs:
+  suite:
+    name: suite (${{ matrix.os }})
+    strategy:
+      fail-fast: false # il leg Linux e quello macOS si leggono insieme
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      # I test della logica dell'interfaccia eseguono davvero il JavaScript e
+      # senza `node` si saltano: 130 test su questa sola voce. Averlo qui e'
+      # meta' del valore di questa CI.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # open3d e gmsh portano wheel Linux ma vogliono le librerie grafiche di
+      # sistema anche a schermo spento: senza queste l'import fallisce.
+      - name: librerie di sistema (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgl1 libglu1-mesa libgomp1 libxrender1 libxcursor1 libxft2 libxinerama1
+
+      - name: sincronizza le dipendenze
+        working-directory: meshrec
+        run: uv sync --frozen
+
+      - name: la suite predefinita
+        working-directory: meshrec
+        run: uv run pytest -q
+
+  benchmark:
+    name: benchmark di verifica (CalculiX)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: librerie di sistema
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgl1 libglu1-mesa libgomp1 libxrender1 libxcursor1 libxft2 libxinerama1
+
+      - name: CalculiX
+        run: |
+          sudo apt-get install -y calculix-ccx
+          # Il pacchetto puo' installare il binario come `ccx` oppure come
+          # `ccx_2.x`; i test lo cercano sul PATH col nome `ccx`, quindi si
+          # normalizza qui invece di indovinare il nome a monte.
+          if ! command -v ccx >/dev/null; then
+            trovato=$(ls /usr/bin/ccx* 2>/dev/null | head -1)
+            if [ -n "$trovato" ]; then sudo ln -s "$trovato" /usr/bin/ccx; fi
+          fi
+          # Dichiarato obbligatorio: se manca, il lavoro fallisce qui e si
+          # vede, invece di far sparire 34 test in un verde.
+          ccx -v
+
+      - name: sincronizza le dipendenze
+        working-directory: meshrec
+        run: uv sync --frozen
+
+      # Tutti i marcatori: la suite predefinita piu' `validazione` (34 test) e
+      # `feasibility` (16). E' il numero che si cita in tesi.
+      - name: la suite completa, marcatori compresi
+        working-directory: meshrec
+        run: uv run pytest -m "" -q
