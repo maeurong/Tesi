@@ -116,7 +116,24 @@ jobs:
           fi
           # Dichiarato obbligatorio: se manca, il lavoro fallisce qui e si
           # vede, invece di far sparire 34 test in un verde.
-          ccx -v
+          #
+          # Il segnale NON e' il codice d'uscita: `ccx -v` stampa la versione e
+          # poi esce con **201** (misurato sul runner al primo giro: il lavoro
+          # e' fallito esattamente per questo). Si controlla quindi che il
+          # binario esista e che stampi una versione.
+          if ! command -v ccx >/dev/null; then
+            echo "CalculiX assente: i benchmark di verifica non sono eseguibili"
+            exit 1
+          fi
+          versione=$(ccx -v 2>&1 | tr -d '\r' | grep -i version || true)
+          if [ -z "$versione" ]; then
+            echo "ccx presente ma non stampa una versione: binario sospetto"
+            exit 1
+          fi
+          # Il runner Ubuntu porta la 2.21, lo sviluppo locale la 2.22: la
+          # differenza e' dichiarata qui perche' i numeri dei benchmark
+          # potrebbero dipenderne, e un giorno potrebbe spiegare uno scarto.
+          echo "CalculiX sul runner -> $versione"
 
       - name: sincronizza le dipendenze
         working-directory: meshrec
