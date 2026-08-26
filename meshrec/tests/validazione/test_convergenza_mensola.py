@@ -104,21 +104,32 @@ def test_su_c3d4_la_banda_contiene_anche_l_errore_vero(tmp_path):
 def test_su_c3d10_la_gci_non_e_una_barra_d_errore_verso_il_vero(tmp_path):
     """Il reperto del file, e va in tesi.
 
-    La GCI stima **0,0015 %** mentre la distanza da Timoshenko e' **0,279 %**:
-    due ordini di grandezza. Non e' la stima a sbagliare -- la distanza dal
-    maglio convergente vale davvero 0,00116 %, e il test gemello lo asserisce.
-    Il residuo e' **errore di modello**, non di discretizzazione.
+    La GCI **non contiene** la distanza da Timoshenko. Non e' la stima a
+    sbagliare -- la distanza dal maglio convergente vale 0,00116 %, dentro la
+    banda, e il test gemello lo asserisce. Il residuo e' **errore di modello**,
+    non di discretizzazione.
 
-    Il test pretende che il divario sia **grande**, non solo che esista: se un
-    giorno si riducesse a un fattore due, la distinzione che questo file
-    esiste per fissare andrebbe rimisurata invece di restare scritta.
+    **Il divario si asserisce, il suo fattore no**, e la ragione e' un difetto
+    che la CI ha colto in questo stesso test. La prima stesura pretendeva un
+    fattore maggiore di dieci, misurato su macOS arm64: GCI 0,0015 % contro un
+    errore vero dello 0,279 %, cioe' **186 volte**. Su Linux x86-64 l'errore
+    vero e' praticamente lo stesso (0,271 %) ma la GCI vale **0,0346 %**,
+    ventitre volte piu' grande, e il fattore scende a **7,8**.
+
+    Il motivo e' una proprieta' del metodo, non un caso: su una grandezza
+    **gia' convergente** le tre frecce differiscono per quantita' minime, e la
+    GCI che ne discende misura il rumore del maglio invece della
+    discretizzazione. Il maglio dipende dalla piattaforma (#66), quindi quel
+    rumore anche. Il **fatto** -- la banda non contiene l'errore vero -- regge
+    su entrambe; il **fattore** no, ed era una soglia decisa dopo aver visto il
+    numero.
     """
     riferimento = M._freccia_timoshenko()
     frecce = _frecce(tmp_path, 2, "C3D10")
     esito = convergenza.stima(tuple(frecce), PASSI, fattore=FATTORE, ordine_formale=3.0)
 
     errore_vero = abs(frecce[0] - riferimento) / riferimento
-    assert errore_vero > 10.0 * esito["gci_fine"], (errore_vero, esito["gci_fine"])
+    assert errore_vero > esito["gci_fine"], (errore_vero, esito["gci_fine"])
     # la freccia converge, e converge **sotto** la teoria di trave: e' la
     # stessa direzione trovata in #47, dove il C3D10 cade fra Eulero-Bernoulli
     # e Timoshenko

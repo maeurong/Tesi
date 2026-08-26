@@ -44,6 +44,35 @@ E si vede solo perché il confronto è stato fatto **su due elementi**. Con il
 solo C3D4 la conclusione sbagliata — «la GCI copre l'errore vero» — sarebbe
 passata.
 
+### La GCI di una grandezza già convergente è rumore, e lo si è misurato
+
+I numeri della tabella sono di macOS arm64. La CI su Linux x86-64 dà, sullo
+stesso problema:
+
+| | macOS arm64 | Linux x86-64 |
+|---|---|---|
+| errore vero contro Timoshenko | 0,279 % | 0,271 % |
+| **GCI sulla griglia fine** | **0,0015 %** | **0,0346 %** |
+| rapporto fra i due | 186 × | 7,8 × |
+
+L'errore vero è praticamente lo stesso; la **GCI cambia di ventitré volte**.
+
+Non è una contraddizione: su una grandezza già convergente le tre frecce
+differiscono per quantità minime, e la GCI che ne discende misura il **rumore
+del maglio** invece della discretizzazione. Il maglio dipende dalla
+piattaforma ([#66](https://github.com/maeurong/Tesi/issues/66)), quindi quel
+rumore anche.
+
+Conseguenza pratica: **una GCI molto piccola non va citata come cifra**, va
+letta come «sotto la soglia di rumore di questa serie di griglie». Il fatto
+qualitativo — la banda non contiene l'errore vero — regge su entrambe le
+piattaforme; il fattore no.
+
+Questa distinzione è arrivata da un **difetto in questo stesso lavoro**: la
+prima stesura del test pretendeva un fattore maggiore di dieci, misurato su
+una piattaforma sola. Era una soglia decisa dopo aver visto il numero, ed è
+caduta al primo giro di CI su Linux.
+
 ## 2. Sul telaio la GCI non è ottenibile raffinando il volume
 
 Il secondo passo del ticket era applicarla dove la soluzione non si conosce.
