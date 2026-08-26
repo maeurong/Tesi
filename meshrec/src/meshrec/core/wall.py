@@ -307,6 +307,43 @@ def scomponi(
     return per_regione, metriche, puliti, tenuti, direzioni
 
 
+class SezioneDegenere(ValueError):
+    """La sezione non ha spessore: non c'e' un contorno da semplificare (#68).
+
+    Porta con se' i due numeri che l'hanno decisa, perche' `prior` li rimette
+    nel resoconto nella stessa forma degli altri controlli e l'interfaccia
+    possa dire *quale* controllo ha detto no e *quanto* -- vedi
+    `disegnaScartate` in `ui/app.js`, che su ogni voce chiama `.toFixed(3)` su
+    `valore` e `soglia`.
+    """
+
+    def __init__(self, spessore: float, tolleranza: float, punti: int) -> None:
+        super().__init__(
+            f"la sezione ha spessore {spessore:.4g} mm su "
+            f"{punti} punt{'o' if punti == 1 else 'i'}, non oltre la tolleranza di "
+            f"contorno ({tolleranza:.4g} mm): i punti stanno tutti su una retta a "
+            "meno della tolleranza, quindi non delimitano un'area e non esiste un "
+            "contorno da semplificare"
+        )
+        self.spessore = float(spessore)
+        self.tolleranza = float(tolleranza)
+
+
+def _spessore_di_sezione(punti: np.ndarray) -> float:
+    """Estensione della nuvola 2D nella direzione in cui e' piu' sottile.
+
+    Invariante per rotazione, che qui serve: una sezione appiattita su una
+    retta obliqua e' degenere quanto una appiattita su un asse coordinato, e
+    un `ptp` per coordinata non la vedrebbe. La direzione minore viene dalla
+    SVD dei punti centrati, e lo spessore e' l'ampiezza della loro proiezione
+    su quella direzione -- cioe' la larghezza della striscia che li contiene.
+    """
+    centrati = punti - punti.mean(axis=0)
+    # `full_matrices=False` basta: servono solo le due direzioni principali
+    _u, _s, vt = np.linalg.svd(centrati, full_matrices=False)
+    return float(np.ptp(centrati @ vt[-1]))
+
+
 def semplifica_contorno(contorno: np.ndarray, tolleranza: float) -> np.ndarray:
     """Inviluppo convesso della sezione, ridotto ai vertici che contano.
 
@@ -329,6 +366,31 @@ def semplifica_contorno(contorno: np.ndarray, tolleranza: float) -> np.ndarray:
     from scipy.spatial import ConvexHull
 
     punti = np.asarray(contorno, dtype=np.float64)
+
+    # Guardia sulla sezione degenere (#68). Senza, `ConvexHull` solleva un
+    # `QhullError` che nomina qhull e non la sezione, e -- peggio -- lo
+    # solleva dal profondo di scipy dentro il ciclo per regione di `prior`,
+    # uccidendo la corsa sulla prima regione difettosa invece di scartarla.
+    # Misurato: su Linux x86-64 il test della Π mezza rada lo produceva due
+    # volte su quattro corse (#68 porta gli identificativi).
+    #
+    # Il criterio e' lo **spessore**, non la collinearita' esatta, e non e'
+    # una scelta di comodo: `ConvexHull` accetta punti a 1e-12 dalla retta e
+    # rende un triangolo di area praticamente nulla (misurato), quindi
+    # guardare solo il caso esatto lascerebbe passare la stessa spazzatura un
+    # epsilon piu' in la'.
+    #
+    # La soglia e' `tolleranza`, cioe' quella che questa funzione **gia' usa**
+    # per semplificare: un contorno i cui punti stanno tutti dentro quella
+    # banda attorno a una retta verrebbe ridotto a un segmento dalla
+    # riduzione stessa. Nessuna soglia nuova da dichiarare, e nessuna voce da
+    # aggiungere a `core/soglie.py`: e' la coerenza interna della funzione.
+    if len(punti) < 3:
+        raise SezioneDegenere(0.0, tolleranza, len(punti))
+    spessore = _spessore_di_sezione(punti)
+    if spessore <= tolleranza:
+        raise SezioneDegenere(spessore, tolleranza, len(punti))
+
     inviluppo = punti[ConvexHull(punti).vertices]
 
     while len(inviluppo) > 3:
@@ -724,7 +786,36 @@ def prior(
     accettate: list[Membratura] = []
     scartate: list[dict[str, object]] = []
     for numero, indici in enumerate(regioni_punti):
-        membratura = misura(puliti[indici], direzioni, cfg)
+        try:
+            membratura = misura(puliti[indici], direzioni, cfg)
+        except SezioneDegenere as degenere:
+            # Una regione senza sezione non e' una membratura, ed e' un esito
+            # da **scrivere**, non un'eccezione da propagare (#68). Stesso
+            # ragionamento di `controlla`: un'eccezione ucciderebbe la corsa
+            # sulla prima regione difettosa e non lascerebbe nulla da mostrare
+            # sulle altre. La voce ha la forma degli altri rifiuti -- nome del
+            # controllo in `controlli_falliti`, e in `esiti` un `valore` e una
+            # `soglia` numerici -- perche' `disegnaScartate` in `ui/app.js` li
+            # formatta con `.toFixed(3)` e senza si romperebbe.
+            scartate.append({
+                "regione": numero,
+                "punti": int(len(indici)),
+                "controlli_falliti": ["sezione_degenere"],
+                "esiti": {
+                    "sezione_degenere": {
+                        "passato": False,
+                        "valore": degenere.spessore,
+                        "soglia": degenere.tolleranza,
+                        "unita": "mm",
+                        "spiegazione": (
+                            "spessore della sezione nella direzione in cui è più "
+                            "sottile: sotto la tolleranza di contorno i punti stanno "
+                            "su una retta e non delimitano un'area"
+                        ),
+                    }
+                },
+            })
+            continue
         membratura.punti = indici
         membratura.esiti = controlla(membratura, cfg)
         falliti = [nome for nome, esito in membratura.esiti.items() if not esito["passato"]]
