@@ -134,7 +134,15 @@ _COLUMNS: tuple[tuple[str, str], ...] = (
     ("thickness_error", "errore di spessore [mm]"),
     ("tets", "tetraedri"),
     ("over", "fuori vincolo"),
-    ("dihedral", "diedro min., mediana"),
+    # Peggiore **e** mediana, non la sola mediana. La mediana confronta due
+    # candidati dello sweep; il peggiore e' l'unico dei due che vede uno
+    # sliver, e lo sliver e' l'elemento che il vincolo raggio-spigolo di
+    # TetGen non puo' fermare: misurato, un tetraedro di manuale con
+    # raggio-spigolo 0,707 -- ben sotto il limite di 2,0 -- ha un diedro
+    # minimo di 0,162 gradi. Con la sola mediana in tabella quel maglio si
+    # legge sano. Il numero c'era gia' in metrics.json, non lo mostrava
+    # nessuno.
+    ("dihedral", "diedro min. [peggiore / mediana]"),
     ("duration_s", "durata [s]"),
 )
 
@@ -172,7 +180,14 @@ def _cell(row: dict[str, object], key: str) -> str:
     elif key == "over":
         value = volume.get("radius_edge_over_reference")
     elif key == "dihedral":
-        value = volume.get("min_dihedral_deg", {}).get("median")
+        diedro = volume.get("min_dihedral_deg", {})
+        peggiore, mediana = diedro.get("min"), diedro.get("median")
+        # Una riga vecchia del registro puo' non avere `min`: si scrive quello
+        # che c'e' invece di fabbricare un trattino che si leggerebbe come un
+        # valore misurato.
+        if isinstance(peggiore, float) and isinstance(mediana, float):
+            return f"{peggiore:.4g} / {mediana:.4g}"
+        value = peggiore if isinstance(peggiore, float) else mediana
     else:
         value = row.get(key)
 

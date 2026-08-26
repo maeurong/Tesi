@@ -1208,7 +1208,23 @@ def footprint_coverage(
     np.minimum.at(floor_height, inverse, points[edge, 2])
     in_contact = floor_height <= low[2] + 0.02 * height
     if not in_contact.any():
-        return 0.0
+        # Non raggiungibile dalla pipeline, e il motivo va scritto qui perche'
+        # non e' ovvio: `low[2]` e' il minimo su **tutti** i nodi, mentre
+        # `floor_height` e' il minimo sui soli nodi **di bordo**, per colonna.
+        # Su un solido chiuso il nodo piu' basso e' di bordo, quindi la sua
+        # colonna soddisfa sempre la condizione e almeno una colonna tocca.
+        # L'unico modo di arrivare qui e' un `boundary` che non contiene il
+        # nodo piu' basso, cioe' un errore del chiamante.
+        #
+        # Solleva invece di rendere 0.0: quello zero si legge come «l'insieme
+        # non copre nulla dell'impronta», che e' una condizione vera, diversa
+        # e gia' rappresentabile: confonderla con «non esiste un'impronta»
+        # renderebbe indistinguibili un vincolo sbagliato e un ingresso rotto.
+        raise ValueError(
+            "nessuna colonna tocca il piano d'appoggio: i nodi di bordo non "
+            "contengono il più basso del maglio, quindi l'impronta su cui "
+            "misurare la copertura non esiste"
+        )
 
     in_set = np.zeros(len(points), dtype=bool)
     in_set[np.asarray(indices, dtype=np.int64)] = True

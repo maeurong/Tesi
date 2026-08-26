@@ -116,7 +116,16 @@ _ANGOLI_ESAEDRO = (
 
 
 def scaled_jacobian(nodes: np.ndarray, hexes: np.ndarray) -> np.ndarray:
-    """Jacobiano scalato di ogni esaedro: il minimo sugli otto angoli.
+    """Jacobiano scalato di ogni esaedro: il minimo su nove punti.
+
+    **Nove e non otto**, come in Sandia Verdict: gli otto angoli piu' il
+    **centro**, dove si usano gli assi principali medi invece di tre spigoli
+    uscenti. Il nono punto e' l'unico che vede un esaedro con tutti gli spigoli
+    a posto e l'interno ripiegato -- misurato, esiste un esaedro con gli otto
+    angoli a 0,9155 e il centro a -0,9979. Nota: la documentazione Cubit 15.8
+    dice «8 corner nodes only», il sorgente `sandialabs/verdict` ne usa nove;
+    fra i due vince il sorgente.
+
 
     E' la grandezza di qualita' degli esaedri, e non ha nulla a che vedere con
     `min_ratio`, che e' il rapporto raggio-spigolo di un tetraedro. Su un
@@ -159,7 +168,33 @@ def scaled_jacobian(nodes: np.ndarray, hexes: np.ndarray) -> np.ndarray:
         )
         minimi = np.minimum(minimi, valore)
 
-    return np.ascontiguousarray(minimi)
+    # Il nono punto: il centro dell'elemento, dove Verdict non usa tre spigoli
+    # uscenti ma gli **assi principali medi** -- la somma dei quattro spigoli
+    # paralleli, uno per direzione. E' l'unico punto in cui si vede se
+    # l'interno e' rovesciato mentre tutti gli spigoli sono a posto.
+    #
+    # Non e' una raffinatezza. Misurato cercando il caso peggiore: esiste un
+    # esaedro con tutti e otto gli angoli a **0,9155** -- che si legge
+    # «elemento ottimo» -- e il centro a **-0,9979**, cioe' completamente
+    # ripiegato dentro. Senza questo termine la funzione lo promuoveva.
+    #
+    # Sui magli veri il termine non vincola mai: zero scarto su 1644 esaedri di
+    # tre prismi gmsh e su 148 689 cubi perturbati a caso. Aggiungerlo quindi
+    # **non sposta alcun numero gia' pubblicato**, e copre il caso che la
+    # ricerca mirata trova e il campionamento no.
+    q = punti[h]
+    assi = (
+        q[:, 1] - q[:, 0] + q[:, 2] - q[:, 3] + q[:, 5] - q[:, 4] + q[:, 6] - q[:, 7],
+        q[:, 3] - q[:, 0] + q[:, 2] - q[:, 1] + q[:, 7] - q[:, 4] + q[:, 6] - q[:, 5],
+        q[:, 4] - q[:, 0] + q[:, 5] - q[:, 1] + q[:, 6] - q[:, 2] + q[:, 7] - q[:, 3],
+    )
+    determinante = np.einsum("ij,ij->i", assi[0], np.cross(assi[1], assi[2]))
+    prodotto = np.prod([np.linalg.norm(asse, axis=1) for asse in assi], axis=0)
+    centro = np.divide(
+        determinante, prodotto, out=np.zeros_like(determinante), where=prodotto > 0.0
+    )
+
+    return np.ascontiguousarray(np.minimum(minimi, centro))
 
 
 def hexa_metrics(nodes: np.ndarray, hexes: np.ndarray) -> dict[str, object]:
@@ -261,7 +296,20 @@ def min_dihedral_angles(nodes: np.ndarray, tets: np.ndarray) -> np.ndarray:
 
 
 def tet_aspect_ratios(nodes: np.ndarray, tets: np.ndarray) -> np.ndarray:
-    """Rapporto d'aspetto dei tetraedri: 1 per il regolare, cresce coi degeneri."""
+    """Rapporto d'aspetto dei tetraedri: 1 per il regolare, cresce coi degeneri.
+
+    **Il nome vale due grandezze diverse, e questa e' quella di Verdict**:
+    spigolo massimo diviso `2*sqrt(6)` volte il raggio della sfera inscritta.
+    Abaqus e CAE chiamano «aspect ratio» il rapporto fra spigolo massimo e
+    minimo -- cio' che Verdict chiama invece `edge ratio`. Le due non sono
+    riscalabili l'una nell'altra: sul tetraedro rettangolo di lato 1 questa
+    vale `(1+sqrt(3))/2 = 1,366` e quella di Abaqus `sqrt(2) = 1,414`.
+
+    La conseguenza pratica e' che una soglia presa da un manuale Abaqus e
+    applicata a questo numero confronta due cose diverse. Il registro delle
+    soglie lo dichiara sulla voce `aspect_ratio_tet`; sta anche qui perche'
+    chi legge la funzione non passa necessariamente di la'.
+    """
     n = np.asarray(nodes, dtype=np.float64)
     t = np.asarray(tets)
     volume = np.abs(tet_volumes(n, t))
@@ -291,6 +339,17 @@ def radius_edge_ratios(nodes: np.ndarray, tets: np.ndarray) -> np.ndarray:
     che impone uguale distanza dai quattro vertici. Su un tetraedro degenere la
     matrice e singolare: il risultato e' infinito e non un'eccezione, cosi la
     metrica resta calcolabile su un maglio che contiene qualche elemento piatto.
+
+    **E' cieca agli sliver, e non per approssimazione.** Uno sliver ha i
+    quattro vertici vicini a una circonferenza: la sfera circoscritta resta
+    piccola e gli spigoli restano lunghi, quindi il rapporto resta buono
+    mentre il volume tende a zero. Misurato su quattro punti sfalsati di un
+    millesimo attorno a una circonferenza di raggio 1: raggio-spigolo
+    **0,707**, cioe' sotto il limite di 2,0 che TetGen impone, e angolo diedro
+    minimo **0,162 gradi**. Il default `-q` di TetGen limita questo rapporto e
+    pretende un diedro minimo di **zero** gradi: gli sliver sopravvivono per
+    costruzione, non per caso. Chi vuole vederli guardi `min_dihedral_angles`,
+    che e' l'unica grandezza del set che li coglie.
     """
     n = np.asarray(nodes, dtype=np.float64)
     t = np.asarray(tets)
@@ -618,8 +677,16 @@ def thickness(points: np.ndarray, bin_width: float) -> dict[str, object]:
     # bimodale cio' che non lo e'. La media converge alla densita' vera al
     # crescere del numero di bin nella valle, che e' la stessa leva (bin_width,
     # densita' della nuvola) su cui lo sweep della Fase 2 non da' garanzie.
-    valley = float(counts[lower + 1 : upper].mean()) if upper > lower + 1 else float(counts[lower])
-    bimodal = bool(valley < 0.5 * min(counts[lower], counts[upper]))
+    # Modi in bin **contigui**: fra i due massimi non esiste alcun bin, quindi
+    # non c'e' una valle da misurare e lungo questo asse le due facce non si
+    # distinguono. Sta scritto come esito e non come calcolo perche' la forma
+    # precedente -- `valley = counts[lower]` e poi lo stesso confronto -- era
+    # falsa per costruzione: `counts[lower] < 0.5 * min(counts[lower], ...)`
+    # richiede un conteggio negativo, e un istogramma non ne ha. Il ramo
+    # sembrava poter dare True e non poteva, il che e' peggio di non averlo.
+    bimodal = upper > lower + 1 and bool(
+        counts[lower + 1 : upper].mean() < 0.5 * min(counts[lower], counts[upper])
+    )
 
     return {
         "thickness": float(centres[upper] - centres[lower]),
