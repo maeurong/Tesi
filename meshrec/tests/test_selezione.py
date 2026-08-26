@@ -163,3 +163,96 @@ def test_risolvi_tutti_senza_selettori_rende_un_dizionario_vuoto():
     """
     nodi, elementi, node_sets = _banco()
     assert selezione.risolvi_tutti({}, nodi, elementi, node_sets) == {}
+
+
+# Un nodo con una coordinata non finita rendeva inerti, in due modi
+# **indipendenti**, la guardia «questo non e' un indirizzo» (#50). I test qui
+# sotto tengono i due modi separati, perche' separatamente si presentano:
+# chiuderne uno solo lascerebbe l'altro aperto e la suite verde.
+_NODI_CON_UN_NAN = np.array([[0.0, 0.0, 0.0], [1000.0, 0.0, 0.0], [float("nan"), 0.0, 0.0]])
+
+
+def test_il_selettore_a_nodo_non_sceglie_mai_il_nodo_non_finito():
+    """Primo modo: `np.argmin` su distanze con `nan` rende l'indice del `nan`.
+
+    Reperto misurato prima della correzione: su questi nodi, col punto a
+    (5000, 0, 0) e spigolo 10, la funzione rendeva **`[2]`** -- il nodo
+    rotto -- mentre il vicino vero sta a 4000 mm, cioe' **oltre** i 30 mm di
+    tolleranza. Due asserzioni, e servono entrambe: la prima dice che il
+    `nan` non vince, la seconda che il rifiuto e' quello giusto, col numero
+    vero (4000) e non con un `nan` stampato nel messaggio.
+    """
+    selettore = config.SelettoreNodo(tipo="nodo", punto=(5000.0, 0.0, 0.0))
+    with pytest.raises(ValueError, match="4000.0 mm") as errore:
+        selezione.risolvi(selettore, _NODI_CON_UN_NAN, {}, nome="carico", spigolo=10.0)
+    assert "nan" not in str(errore.value)
+
+
+def test_col_nodo_non_finito_presente_vince_comunque_il_finito_piu_vicino():
+    """Controprova del test sopra, e la meta' che lo rende non vacuo: un
+    controllo che sollevasse **sempre** in presenza di un `nan` lo
+    supererebbe senza distinguere nulla. Qui il vicino finito e' dentro
+    tolleranza e deve vincere -- l'indice 1, non il 2.
+    """
+    selettore = config.SelettoreNodo(tipo="nodo", punto=(1005.0, 0.0, 0.0))
+
+    presi = selezione.risolvi(selettore, _NODI_CON_UN_NAN, {}, nome="carico", spigolo=10.0)
+
+    assert presi.tolist() == [1]
+
+
+def test_senza_alcun_nodo_finito_il_selettore_lo_dice_con_parole_sue():
+    """Caso limite del ramo nuovo: escludendo i non finiti non resta nulla su
+    cui fare `argmin`. Messaggio distinto da «troppo lontano», perche' e' una
+    condizione diversa: li' un vicino c'era ed era sbagliato, qui non c'e'.
+    """
+    rotti = np.array([[float("nan"), 0.0, 0.0], [float("nan"), 1.0, 0.0]])
+    selettore = config.SelettoreNodo(tipo="nodo", punto=(0.0, 0.0, 0.0))
+    with pytest.raises(ValueError, match="coordinate finite"):
+        selezione.risolvi(selettore, rotti, {}, nome="carico", spigolo=10.0)
+
+
+def test_uno_spigolo_non_finito_non_spegne_il_controllo_sulla_distanza():
+    """Secondo modo, **indipendente dal primo**: i nodi sono tutti sani, ma
+    `spigolo` e' `nan` e allora `limite` e' `nan`, e `distanza > nan` e'
+    falso per qualunque distanza. Misurato: rendeva il nodo a 3000 mm.
+
+    Nodi sani apposta -- se il test usasse quelli col `nan` non
+    distinguerebbe questo modo dall'altro, e chiudere uno solo dei due lo
+    lascerebbe passare.
+    """
+    sani = np.array([[0.0, 0.0, 0.0], [1000.0, 0.0, 0.0], [2000.0, 0.0, 0.0]])
+    selettore = config.SelettoreNodo(tipo="nodo", punto=(5000.0, 0.0, 0.0))
+    for spigolo in (float("nan"), float("inf")):
+        with pytest.raises(ValueError, match="tolleranza non finita"):
+            selezione.risolvi(selettore, sani, {}, nome="carico", spigolo=spigolo)
+
+
+def test_lo_spigolo_medio_non_propaga_un_nan_come_se_fosse_una_lunghezza():
+    """`lunghezze.mean()` rende `nan` con un solo nodo non finito, e quel
+    valore e' la **tolleranza** con cui i selettori decidono. Propagarlo non
+    sbaglia il confronto a valle: lo spegne.
+    """
+    elementi = np.array([[0, 1, 2, 2]], dtype=np.int64)
+    with pytest.raises(ValueError, match="spigolo medio"):
+        selezione.spigolo_medio(_NODI_CON_UN_NAN, elementi)
+
+
+def test_box_e_sfera_gia_escludevano_il_nodo_non_finito():
+    """Il **perche'** non serve una guardia unica all'ingresso di questo
+    modulo, misurato invece che assunto: `box` e `sfera` confrontano con
+    `>=`/`<=`, che sono falsi su `nan`, quindi il nodo rotto resta fuori da
+    solo. Solo `nodo` falliva aperto, perche' `argmin` un vincitore lo
+    nomina comunque.
+
+    Se un domani uno dei due cambiasse forma e cominciasse a includerlo,
+    questo test cadrebbe e direbbe che la decisione va rifatta.
+    """
+    tutto = config.SelettoreBox(tipo="box", min=(-1e9, -1e9, -1e9), max=(1e9, 1e9, 1e9))
+    sfera = config.SelettoreSfera(tipo="sfera", centro=(0.0, 0.0, 0.0), raggio=1e9)
+
+    presi_box = selezione.risolvi(tutto, _NODI_CON_UN_NAN, {}, nome="b", spigolo=10.0)
+    presi_sfera = selezione.risolvi(sfera, _NODI_CON_UN_NAN, {}, nome="s", spigolo=10.0)
+
+    assert presi_box.tolist() == [0, 1]
+    assert presi_sfera.tolist() == [0, 1]

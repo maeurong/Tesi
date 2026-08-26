@@ -152,6 +152,61 @@ def test_passo_di_mesh_rifiuta_un_contorno_con_estensione_nulla_su_un_asse():
         hexa.passo_di_mesh(degenere, ModelConfig())
 
 
+# Un vertice non finito in una sezione: il contorno non e' un poligono, e le
+# tre guardie che lo riguardano erano scritte in negativo (#50), cioe' false
+# su `nan`. I quattro test qui sotto sono uno per sito eseguito.
+_SEZIONE_ROTTA = np.array([[0.0, 0.0], [1.0, 0.0], [1.0, float("nan")], [0.0, 1.0]])
+
+
+def test_l_area_con_segno_rifiuta_un_vertice_non_finito():
+    """Il segno di `_area_poligono` **decide un orientamento** in tre punti e
+    la sua ampiezza e' una chiave di ordinamento in un quarto. `nan < 0.0` e'
+    falso: il contorno rotto non veniva invertito e nessuno lo sapeva.
+    Misurato prima della correzione: rendeva `nan`.
+    """
+    with pytest.raises(ValueError, match="non finito"):
+        hexa._area_poligono(_SEZIONE_ROTTA)
+
+
+def test_l_area_con_segno_di_una_sezione_piatta_resta_zero():
+    """Controprova: la guardia nuova non deve inghiottire il caso degenere
+    gia' definito. Un poligono appiattito ha area **zero**, che e' un numero
+    e una risposta -- diversa da «non e' un numero».
+    """
+    piatta = np.array([[0.0, 0.0], [1.0, 0.0], [2.0, 0.0], [3.0, 0.0]])
+
+    assert hexa._area_poligono(piatta) == 0.0
+
+
+def test_il_passo_di_mesh_rifiuta_un_vertice_non_finito():
+    """Senza la forma in positivo il passo usciva `nan` e arrivava intatto a
+    `gmsh.model.geo.addPoint(u, v, 0.0, passo)` -- eseguito e misurato."""
+    with pytest.raises(ValueError, match="non finita"):
+        hexa.passo_di_mesh(_SEZIONE_ROTTA, ModelConfig())
+
+
+def test_mesh_prisma_rifiuta_una_lunghezza_non_finita():
+    """Stessa forma negata di `lunghezza <= 0.0`, ma il difetto **non era**
+    l'assenza di segnale: e' il segnale sbagliato, misurato prima della
+    correzione sui tre valori.
+
+    - `-inf` era gia' preso, perche' `-inf <= 0.0` e' vero;
+    - `nan` scavalcava e cadeva piu' avanti su `int(round(nan / passo))`,
+      cioe' `ValueError: cannot convert float NaN to integer` -- dopo
+      l'import di gmsh, e senza nominare la lunghezza;
+    - `inf` scavalcava e cadeva sullo stesso `int(round(...))` con
+      **`OverflowError`**, che non e' nemmeno un `ValueError`: un chiamante
+      che catturasse `ValueError` per riportare l'errore all'utente si
+      sarebbe visto passare accanto un'eccezione di un'altra famiglia.
+
+    Il test chiede quindi tutti e tre nello **stesso** tipo e con lo stesso
+    messaggio, che e' la parte che la vecchia forma non dava.
+    """
+    for lunghezza in (float("nan"), float("inf"), float("-inf")):
+        with pytest.raises(ValueError, match="lunghezza"):
+            hexa.mesh_prisma(RETTANGOLO, np.zeros(3), ASSE_Z, lunghezza, ModelConfig())
+
+
 def _membratura_finta(
     contorno, origine, asse, lunghezza, asse_ideale, riempimento="pieno", sezione=None
 ):

@@ -61,7 +61,19 @@ def spigolo_medio(nodi: np.ndarray, elementi: np.ndarray) -> float:
     lunghezze = np.concatenate([
         np.linalg.norm(punti[celle[:, a]] - punti[celle[:, b]], axis=1) for a, b in coppie
     ])
-    return float(lunghezze.mean())
+    medio = float(lunghezze.mean())
+    # Un solo nodo non finito rende `nan` la media (#50), e questo valore non
+    # e' un numero da riportare: e' la **tolleranza** con cui `risolvi`
+    # decide se un selettore ha indovinato il nodo. Un `nan` qui non sbaglia
+    # il confronto a valle, lo **spegne** -- `distanze > 3*nan` e' falso per
+    # qualunque distanza. Solleva invece di propagarlo.
+    if not (np.isfinite(medio) and medio > 0.0):
+        raise ValueError(
+            f"lo spigolo medio vale {medio!r}: con nodi coincidenti o con "
+            "coordinate non finite non esiste una lunghezza caratteristica, "
+            "e senza di essa le tolleranze dei selettori non hanno scala"
+        )
+    return medio
 
 
 def risolvi(
@@ -89,8 +101,42 @@ def risolvi(
     elif isinstance(selettore, SelettoreNodo):
         punto = np.asarray(selettore.punto, dtype=np.float64)
         distanze = np.linalg.norm(punti - punto, axis=1)
-        vincitore = int(np.argmin(distanze))
+        # Due modi indipendenti rendevano inerte la guardia qui sotto (#50),
+        # entrambi eseguiti il 26/08/2026 e chiusi qui separatamente perche'
+        # separatamente si presentano.
+        #
+        # Primo: `np.argmin` su distanze che contengono `nan` rende l'indice
+        # del `nan`, e `nan > limite` e' falso -- il selettore rendeva il nodo
+        # rotto invece di rifiutarlo. Su `[[0,0,0],[1000,0,0],[nan,0,0]]` con
+        # punto (5000,0,0) e spigolo 10 rendeva `[2]`, mentre il vicino vero
+        # sta a 4000 mm, cioe' oltre i 30 mm di tolleranza. Escludere i non
+        # finiti dall'argmin fa scegliere il nodo finito piu' vicino e lascia
+        # che sia il controllo sulla distanza a decidere, come su una mesh
+        # sana. Gli altri due selettori non hanno questo difetto ed e' stato
+        # verificato, non assunto: `box` e `sfera` confrontano con `>=`/`<=`,
+        # falsi su `nan`, quindi **escludono** il nodo rotto (misurato: sullo
+        # stesso array rendono `[0, 1]`).
+        finiti = np.isfinite(distanze)
+        if not finiti.any():
+            raise ValueError(
+                f"il selettore '{nome}' non trova alcun nodo con coordinate "
+                "finite: non c'è un punto più vicino perché non c'è un punto"
+            )
+        candidati = np.flatnonzero(finiti)
+        vincitore = int(candidati[np.argmin(distanze[candidati])])
+        # Secondo: `spigolo` arriva da `spigolo_medio`, che rendeva `nan` con
+        # un solo nodo non finito. Allora `limite` e' `nan` e il confronto e'
+        # falso per qualunque distanza -- nodi tutti sani e guardia comunque
+        # spenta. `spigolo_medio` ora solleva, ma `spigolo` e' un parametro e
+        # puo' arrivare da altrove: il confronto si difende da solo.
         limite = SPIGOLI_DI_TOLLERANZA * spigolo
+        if not np.isfinite(limite):
+            raise ValueError(
+                f"il selettore '{nome}' ha una tolleranza non finita "
+                f"(spigolo={spigolo!r}): senza una scala non esiste un "
+                "«abbastanza vicino», e il controllo sulla distanza non "
+                "direbbe mai di no"
+            )
         if distanze[vincitore] > limite:
             raise ValueError(
                 f"il selettore '{nome}' chiede il nodo più vicino a "

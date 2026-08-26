@@ -42,10 +42,24 @@ def passo_di_mesh(contorno: np.ndarray, cfg: ModelConfig) -> float:
     """
     punti = np.asarray(contorno, dtype=np.float64)
     minima = float(np.min(np.ptp(punti, axis=0)))
-    if minima <= 0.0:
+    # Criterio scritto in positivo (#36, e ora #50): `minima <= 0.0` e' falso
+    # per `nan`, quindi un contorno con un vertice non finito rendeva un passo
+    # `nan` -- eseguito e misurato. Buono se e solo se finito e positivo.
+    #
+    # Il ticket sosteneva che quel `nan` finisse in
+    # `gmsh.model.geo.addPoint(u, v, 0.0, passo)`: **e' falso**, verificato
+    # tracciando `addPoint`, che viene chiamato **zero** volte. In
+    # `mesh_prisma` il passo passa prima per `int(round(lunghezza / passo))`
+    # (:165), che su `nan` solleva `ValueError: cannot convert float NaN to
+    # integer`. Il difetto quindi non era una mesh corrotta ma un errore
+    # opaco: sollevato dentro una conversione a intero, dopo l'import di
+    # gmsh, senza nominare ne' il contorno ne' il passo. La funzione resta
+    # pero' pubblica e chiamabile da sola -- ed era li' che rendeva `nan`
+    # senza dire nulla.
+    if not (np.isfinite(minima) and minima > 0.0):
         raise ValueError(
-            f"il contorno ha estensione nulla su un asse (minima={minima!r} mm): "
-            "non è una sezione valida per un prisma"
+            f"il contorno ha estensione nulla o non finita su un asse "
+            f"(minima={minima!r} mm): non è una sezione valida per un prisma"
         )
     tetto = minima / cfg.min_layers
     if cfg.target_size is None:
@@ -82,8 +96,31 @@ def ordine_canonico(nodi: np.ndarray, esaedri: np.ndarray) -> tuple[np.ndarray, 
 
 
 def _area_poligono(contorno: np.ndarray) -> float:
-    """Area con segno di un poligono chiuso, formula di Gauss."""
-    x, y = np.asarray(contorno, dtype=np.float64).T
+    """Area con segno di un poligono chiuso, formula di Gauss.
+
+    Solleva su un vertice non finito invece di rendere `nan` (#50). Quattro
+    chiamanti, e tre usi diversi dello stesso numero: il **segno** decide un
+    orientamento in `mesh_prisma` (:161) e in `dentro_prisma` (:342),
+    l'**ampiezza** e' l'area della sezione (:163), e l'ampiezza negata e' una
+    **chiave di ordinamento** in `taglia_giunzioni` (:569).
+
+    I tre usi degenerano in modo diverso, e nessuno si vede: `nan < 0.0` e'
+    falso, quindi il contorno rotto non viene invertito e la mesh esce con
+    esaedri rovesciati o il test di appartenenza risponde al contrario; e un
+    `nan` come chiave di `sorted` rende l'ordine arbitrario, perche' ogni
+    confronto con `nan` e' falso.
+
+    La guardia sta qui e non nei chiamanti perche' e' qui che tutti e quattro
+    passano: una copia per sito sarebbe la stessa guardia scritta quattro
+    volte, e dimenticata al quinto.
+    """
+    punti = np.asarray(contorno, dtype=np.float64)
+    if not np.isfinite(punti).all():
+        raise ValueError(
+            "il contorno ha un vertice non finito: l'area con segno non "
+            "esiste, quindi l'orientamento del poligono non è determinabile"
+        )
+    x, y = punti.T
     return float(0.5 * (np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1))))
 
 
@@ -129,10 +166,10 @@ def mesh_prisma(
     stato globale di modulo, non per istanza, e due chiamate concorrenti (thread
     o processi che condividono lo stato) si pesterebbero i piedi.
     """
-    if float(lunghezza) <= 0.0:
+    if not (np.isfinite(float(lunghezza)) and float(lunghezza) > 0.0):
         raise ValueError(
-            f"lunghezza={lunghezza!r} non è positiva: un prisma richiede "
-            "un'estrusione di lunghezza maggiore di zero"
+            f"lunghezza={lunghezza!r} non è finita e positiva: un prisma "
+            "richiede un'estrusione di lunghezza maggiore di zero"
         )
 
     import gmsh
