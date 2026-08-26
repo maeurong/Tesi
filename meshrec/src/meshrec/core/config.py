@@ -241,7 +241,17 @@ class TetConfig(_ModelloBase):
             "misurate le due corse di riferimento (8,10% e 9,55%)"
         ),
     )
-    element: Literal["C3D4"] = "C3D4"
+    element: Literal["C3D10", "C3D4"] = Field(
+        default="C3D10",
+        description=(
+            "elemento del maglio di volume. C3D10 è il tetraedro quadratico ed è "
+            "il predefinito: il manuale CalculiX dice del lineare «not suited for "
+            "structural calculations... the element is too stiff», e la suite di "
+            "verifica ufficiale non contiene un solo deck C3D4 su 610. C3D4 resta "
+            "dichiarabile perché serve a misurare quanto quella rigidità costi su "
+            "questa geometria"
+        ),
+    )
 
 
 class SpintaOrizzontale(_ModelloBase):

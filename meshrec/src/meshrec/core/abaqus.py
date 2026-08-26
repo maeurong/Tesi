@@ -455,6 +455,7 @@ def fix_sign(direction: np.ndarray) -> np.ndarray:
 
 NODI_PER_ELEMENTO: dict[str, int] = {
     "C3D4": 4,
+    "C3D10": 10,
     "C3D8": 8,
     "C3D8I": 8,
     "C3D8R": 8,
@@ -464,6 +465,27 @@ NODI_PER_ELEMENTO: dict[str, int] = {
 C3D8, C3D8I e C3D8R hanno la stessa geometria e differiscono per la
 formulazione: la mesh e' la stessa, cambia cosa il solutore ne fa. Sono
 distinti qui perche' il nome finisce nel deck e il solutore lo legge.
+"""
+
+ANGOLI_PER_ELEMENTO: dict[str, int] = {
+    "C3D4": 4,
+    "C3D10": 4,
+    "C3D8": 8,
+    "C3D8I": 8,
+    "C3D8R": 8,
+}
+"""Nodi **d'angolo**, che non sono i nodi.
+
+Un C3D10 ne ha dieci ma i suoi vertici restano quattro: i sei di lato stanno a
+meta' degli spigoli e non definiscono ne' facce ne' topologia. Chi cerca il
+bordo, costruisce una superficie o ripartisce un'area lavora sui vertici, e
+usare `NODI_PER_ELEMENTO` al posto di questa mappa cercherebbe le facce di un
+elemento a dieci angoli, che non esiste.
+
+E' la mappa che il commit `66b526d` aveva tolto insieme a C3D10, sotto il nome
+`_ANGOLI_PER_COLONNE` e chiavata sul numero di colonne. Chiavarla sul nome
+dell'elemento dice la stessa cosa senza chiedere a chi legge di sapere quante
+colonne ha un C3D10.
 """
 
 # Le facce di un elemento, come insiemi di nodi d'angolo, per il solo scopo di
@@ -551,7 +573,7 @@ def element_surface(
     if element_type not in NODI_PER_ELEMENTO:
         raise ValueError(f"tipo di elemento '{element_type}' sconosciuto")
     elementi = np.asarray(elements, dtype=np.int64)
-    angoli = NODI_PER_ELEMENTO[element_type]
+    angoli = ANGOLI_PER_ELEMENTO[element_type]
     dentro = np.zeros(int(elementi.max()) + 1, dtype=bool)
     dentro[np.asarray(indici_nodo, dtype=np.int64)] = True
 
@@ -612,7 +634,7 @@ def tie_surface(
         raise ValueError(f"tipo di elemento '{element_type}' sconosciuto")
     punti = np.asarray(nodes, dtype=np.float64)
     elementi = np.asarray(elements, dtype=np.int64)
-    angoli = NODI_PER_ELEMENTO[element_type]
+    angoli = ANGOLI_PER_ELEMENTO[element_type]
 
     combinazioni = FACCE_DEL_SOLUTORE[angoli]
     nodi_per_faccia = len(combinazioni[0])
@@ -679,7 +701,7 @@ def aree_tributarie(
     """
     punti = np.asarray(nodes, dtype=np.float64)
     elementi = np.asarray(elements, dtype=np.int64)
-    angoli = NODI_PER_ELEMENTO[element_type]
+    angoli = ANGOLI_PER_ELEMENTO[element_type]
 
     aree = np.zeros(punti.shape[0], dtype=np.float64)
     for elemento, numero in superficie:
@@ -714,6 +736,29 @@ def ripartisci(
     esattamente `risultante` anche quando qualche nodo dell'insieme non
     tocca alcuna faccia e resta a zero.
     """
+    # Su una faccia quadratica questa ripartizione e' **sbagliata**, e sbagliata
+    # in un modo che nessuna guardia di conservazione vedrebbe. La formula
+    # consistente per pressione uniforme su un triangolo a 6 nodi da' **zero ai
+    # tre vertici** e un terzo dell'area a ciascun nodo di lato -- Abaqus Theory
+    # Guide §3.2.6, verbatim: «a constant pressure on an element face produces
+    # zero equivalent loads at the corner nodes». Qui la ripartizione va per
+    # area tributaria sui soli vertici, cioe' l'esatto contrario.
+    #
+    # La risultante resterebbe giusta, perche' `quote` normalizza sul totale:
+    # l'errore e' **autoequilibrato**, risultante e momento nulli, e attraversa
+    # `controlla_reazioni` indenne mettendo carico spurio proprio sui vertici,
+    # dove si legge il picco di tensione. Meglio fermarsi che mentire in modo
+    # invisibile. Vedi docs/validazione/carichi-consistenti-tet10.md.
+    attesi = NODI_PER_ELEMENTO.get(element_type)
+    if attesi is not None and attesi != ANGOLI_PER_ELEMENTO[element_type]:
+        raise NotImplementedError(
+            f"carico '{nome}' su elementi {element_type}: la ripartizione per area "
+            "tributaria vale per le facce a vertici soli. Su una faccia quadratica i "
+            "carichi consistenti danno zero ai vertici, e questa funzione darebbe "
+            "loro tutto il carico conservando la risultante -- un errore che nessun "
+            "controllo di equilibrio vede. Usa un elemento lineare per i carichi "
+            "distribuiti finché la formula consistente non è implementata."
+        )
     indici = np.asarray(indici, dtype=np.int64)
     superficie = element_surface(elements, indici, element_type)
     aree = aree_tributarie(nodes, elements, superficie, element_type)[indici]
@@ -936,6 +981,15 @@ def boundary_faces(elements: np.ndarray) -> np.ndarray:
     singola.
     """
     elementi = np.asarray(elements, dtype=np.int64)
+    # La topologia sta nei **vertici**: i sei nodi di lato di un C3D10 stanno a
+    # meta' degli spigoli e non definiscono ne' facce ne' adiacenze. Due
+    # tetraedri quadratici che condividono una faccia condividono i tre vertici
+    # di quella faccia, e il conteggio delle occorrenze funziona su quelli.
+    # Prima di #45 dieci colonne erano un errore, perche' nessun elemento a
+    # dieci nodi esisteva; ora sono un tetraedro, e i suoi vertici sono i primi
+    # quattro.
+    if elementi.shape[1] == 10:
+        elementi = elementi[:, :4]
     colonne = elementi.shape[1]
     if colonne not in FACCE_TOPOLOGICHE:
         raise ValueError(
@@ -1245,7 +1299,10 @@ def write_vtu(
     """
     import meshio
 
-    celle = {"C3D4": "tetra", "C3D8": "hexahedron",
+    # `tetra10` senza riordinare: la convenzione di VTK per i nodi di lato del
+    # tetraedro quadratico coincide con quella di Abaqus, e `volume.tetrahedralize`
+    # ha gia' portato la connettivita' in quella convenzione uscendo da TetGen.
+    celle = {"C3D4": "tetra", "C3D10": "tetra10", "C3D8": "hexahedron",
              "C3D8I": "hexahedron", "C3D8R": "hexahedron"}
     if element_type not in celle:
         raise ValueError(f"tipo di elemento '{element_type}' senza corrispondente in meshio")

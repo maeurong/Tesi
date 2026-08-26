@@ -69,7 +69,9 @@ def test_with_metrics_reports_counts_and_time():
     assert metrics["nodes"] == len(nodes)
     assert metrics["tets"] == len(tets)
     assert metrics["seconds"] > 0.0
-    assert metrics["element"] == "C3D4"
+    # Il predefinito e' il quadratico dal ripristino di #45: il manuale
+    # CalculiX dice del lineare «not suited for structural calculations».
+    assert metrics["element"] == "C3D10"
 
 
 def test_inverted_elements_are_a_blocking_error(monkeypatch):
@@ -158,12 +160,18 @@ def test_an_exhausted_steiner_budget_is_reported_not_hidden():
     cfg = config.TetConfig(max_volume=20_000.0, max_steiner_points=20)
 
     with pytest.warns(volume.TruncatedRefinementWarning):
-        nodes, _, metrics = volume.tetrahedralize_with_metrics(vertices, faces, cfg)
+        nodes, tets, metrics = volume.tetrahedralize_with_metrics(vertices, faces, cfg)
 
     assert metrics["steiner_saturated"] is True
     assert metrics["steiner_points"] == 20
     assert metrics["max_steiner_points"] == 20
-    assert len(nodes) == len(vertices) + 20
+    # I nodi **d'angolo**, non tutti i nodi. Dal ripristino del quadratico
+    # (#45) il predefinito e' C3D10, e `nodes` porta anche i sei nodi di lato
+    # per elemento: contarli qui diceva 126 invece di 28, cioe' misurava
+    # l'ordine dell'elemento al posto del budget di raffinamento.
+    import numpy as np
+
+    assert len(np.unique(tets[:, :4])) == len(vertices) + 20
 
 
 def test_without_a_ceiling_the_refinement_is_not_reported_as_truncated():

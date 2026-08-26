@@ -457,7 +457,10 @@ def test_casi_di_carico_segue_l_ordine_vero_scritto_da_write_inp(tmp_path):
     analisi = AnalysisConfig(material=MATERIALE, set_tolerance_factor=0.5)
     esito = abaqus.export_model(
         tmp_path / "prova.inp", tmp_path / "prova.vtu", nodi, elementi,
-        analisi, TetConfig(), carichi=carichi,
+        # Maglio lineare, quindi elemento lineare dichiarato: il predefinito e'
+        # C3D10 dal ripristino del quadratico (#45), e qui l'elemento non e' la
+        # variabile sotto esame -- lo e' l'ordine dei passi nel deck.
+        analisi, TetConfig(element="C3D4"), carichi=carichi,
     )
 
     testo = (tmp_path / "prova.inp").read_text(encoding="ascii")

@@ -495,7 +495,12 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
         avvio = time.monotonic()
         nodes, tets, step_metrics = volume.tetrahedralize_with_metrics(vertices, faces, cfg.tet)
         metrics["09_tetrahedralize"] = step_metrics
-        abaqus.write_vtu(out / ARTIFACTS[9], nodes, tets)
+        # Il tipo va dichiarato: `write_vtu` non lo indovina dal numero di
+        # colonne, e il suo predefinito e' il lineare. Senza, un maglio
+        # quadratico finirebbe scritto come `tetra` e meshio rifiuterebbe la
+        # forma -- che e' il modo buono di sbagliare, ma solo perche' meshio
+        # controlla.
+        abaqus.write_vtu(out / ARTIFACTS[9], nodes, tets, element_type=cfg.tet.element)
         registra(9, avvio, ARTIFACTS[9])
         if stop <= 9:
             raise _FermataRichiesta
