@@ -120,6 +120,7 @@ def _set_lines(indices: np.ndarray) -> list[str]:
 def _passo_statico(
     nome: str, carichi: list[str], *, elset: str, fixed_nset: str,
     print_nsets: tuple[str, ...], pressure: tuple[str, float] | None,
+    carichi_nodali: dict[int, tuple[float, float, float]] | None = None,
 ) -> list[str]:
     """Un passo statico completo: nome a commento, carichi, uscite.
 
@@ -137,6 +138,18 @@ def _passo_statico(
     righe += carichi
     if pressure is not None:
         righe += ["*DSLOAD", f"{pressure[0]}, P, {pressure[1]}"]
+    if carichi_nodali:
+        # Forze nodali esplicite, una componente per riga come vuole `*CLOAD`.
+        # Servono al patch test nella variante a carichi (vedi #46): la
+        # trazione di uno stato tensionale costante si integra sulle facce di
+        # bordo e diventa un vettore per nodo, che nessuna delle vie esistenti
+        # sa esprimere -- `ripartisci` distribuisce una risultante per area
+        # tributaria, che e' un'altra cosa.
+        righe += ["*CLOAD"]
+        for nodo in sorted(carichi_nodali):
+            for grado, valore in enumerate(carichi_nodali[nodo], start=1):
+                if valore != 0.0:
+                    righe += [f"{int(nodo) + 1}, {grado}, {valore:.9e}"]
     for name in print_nsets:
         righe += [f"*NODE PRINT, NSET={name}", "U"]
     righe += [f"*NODE PRINT, NSET={fixed_nset}", "RF"]
@@ -162,6 +175,8 @@ def write_inp(
     pressure: tuple[str, float] | None = None,
     carichi: CarichiConfig | None = None,
     nset_selettori: dict[str, np.ndarray] | None = None,
+    spostamenti_imposti: dict[int, dict[int, float]] | None = None,
+    carichi_nodali: dict[int, tuple[float, float, float]] | None = None,
 ) -> dict[str, object]:
     """Scrive un modello pronto all'analisi statica sotto peso proprio.
 
@@ -304,9 +319,27 @@ def write_inp(
         f"{fixed_nset}, 1, 3",
     ]
 
+    if spostamenti_imposti:
+        # Spostamento imposto a valore non nullo, nodo per nodo e grado per
+        # grado. Serve al patch test (vedi #46): la variante canonica impone
+        # su tutto il bordo un campo di spostamento lineare noto e risolve
+        # l'interno, e nessun set puo' esprimerlo perche' il valore cambia da
+        # nodo a nodo.
+        #
+        # Sta nello stesso blocco `*BOUNDARY` del set vincolato, e non lo
+        # sostituisce: chi impone spostamenti deve comunque togliere i moti
+        # rigidi, e il modo piu' semplice e' un campo nullo nell'origine con
+        # un nodo li'. Un nodo che compare in entrambi riceverebbe due
+        # condizioni sullo stesso grado, quindi il chiamante lo esclude.
+        for nodo in sorted(spostamenti_imposti):
+            for grado in sorted(spostamenti_imposti[nodo]):
+                valore = spostamenti_imposti[nodo][grado]
+                lines += [f"{int(nodo) + 1}, {grado}, {grado}, {valore:.9e}"]
+
     passo_statico = functools.partial(
         _passo_statico, elset=elset, fixed_nset=fixed_nset,
         print_nsets=print_nsets, pressure=pressure,
+        carichi_nodali=carichi_nodali,
     )
 
     peso = f"{elset}, GRAV, {gravity}, 0.0, 0.0, -1.0"

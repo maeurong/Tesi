@@ -44,7 +44,8 @@ artifacts = ["src/meshrec/ui/**"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-m 'not feasibility'"
+addopts = "-m 'not feasibility and not validazione'"
 markers = [
     "feasibility: verifica di fattibilita di una dipendenza esterna (Fase 0)",
+    "validazione: verifica dei codici di calcolo contro un riferimento esterno (Fase 7)",
 ]
