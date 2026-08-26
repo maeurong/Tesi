@@ -742,10 +742,12 @@ def test_il_cuneo_e_calcolato_dalla_geometria_e_allarga_le_facce_a_contatto():
     quella distanza per la tangente dell'angolo fuori squadra --
     100 * tan(1 grado) = 1,7455 mm.
 
-    Le due facce attese (20 sul lato dipendente per baricentro, 26 sul lato
-    indipendente per "tocca" -- Ruling AH del giro di correzione 6) sono
-    lette da `hexa.costruisci` in questa sessione, non assunte prima di
-    eseguire.
+    I conteggi delle facce (20 sul lato dipendente per baricentro, 26 sul
+    lato indipendente per "tocca" -- Ruling AH del giro di correzione 6)
+    erano letti da `hexa.costruisci` ed asseriti esatti. **Non lo sono piu'**
+    (#66): dipendono dal maglio, e il maglio di gmsh dipende dalla
+    piattaforma. Le asserzioni sono ora sul **regime** e non sul valore --
+    vedi il commento accanto.
 
     Muore se: la tolleranza di contatto torna a essere solo
     `_TOLLERANZA_CONTATTO`, senza il cuneo per giunzione -- misurato in
@@ -768,5 +770,16 @@ def test_il_cuneo_e_calcolato_dalla_geometria_e_allarga_le_facce_a_contatto():
     modello = hexa.costruisci([colonna, trave], "estruso", ModelConfig())
     assert modello["ties"], "la giunzione fuori squadra deve comunque legarsi"
     _nome, dipendente, indipendente = modello["ties"][0]
-    assert len(modello["superfici"][dipendente]) == 20
-    assert len(modello["superfici"][indipendente]) == 26
+    # Confini e non valori registrati (#66). I conteggi esatti dipendono dal
+    # maglio, e il maglio dipende dalla piattaforma: misurato in CI, gmsh
+    # 4.15.2 rende 1221 nodi e 832 esaedri su macOS arm64 contro 1188 e 800
+    # su Linux x86-64, a parita' di versione e di ingresso. Su questo provino
+    # il lato dipendente valeva 20 facce su macOS e 19 su Linux.
+    #
+    # Cio' che il test vuole distinguere non e' il conteggio: e' il regime.
+    # Con il cuneo le facce sono 20/26, senza (mutazione dichiarata nel
+    # docstring) crollano a 10/16 -- un fattore due. I confini stanno a meta'
+    # fra i due regimi, quindi la mutazione resta morta con ampio margine e
+    # una differenza di poche facce fra piattaforme non fabbrica un rosso.
+    assert len(modello["superfici"][dipendente]) >= 15, "senza il cuneo sarebbero 10"
+    assert len(modello["superfici"][indipendente]) >= 21, "senza il cuneo sarebbero 16"
