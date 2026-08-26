@@ -30,6 +30,10 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Lancio a mano: serve per rilanciare la suite senza un commit finto quando
+  # a cambiare e' l'ambiente e non il codice -- una versione nuova di `ccx`
+  # nei repository Ubuntu, o una wheel ricostruita a monte.
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
