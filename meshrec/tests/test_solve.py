@@ -724,9 +724,102 @@ def test_somma_reazioni_su_un_tetraedro_piu_la_quota_tributaria_eguaglia_il_peso
         reazioni = solve.leggi_reazioni(percorso, passo=1)
 
     somma_z = sum(v[2] for v in reazioni.values())
-    quota_tributaria_massa = solve._quota_tributaria_gravita(nodes, tets, reazioni.keys(), densita)
+    quota_tributaria_massa = solve._quota_tributaria_gravita(
+        nodes, tets, reazioni.keys(), densita, "C3D4"
+    )
 
     assert somma_z + quota_tributaria_massa * gravita == pytest.approx(peso_atteso_z, rel=1e-6)
+
+
+def test_la_ripartizione_della_gravita_somma_al_peso_su_entrambi_gli_elementi():
+    """L'oracolo in forma chiusa della ripartizione, senza eseguire `ccx` (#40).
+
+    Il vettore dei carichi consistenti e' l'integrale delle funzioni di
+    forma, quindi sommato su **tutti** i nodi di un elemento deve dare
+    esattamente il volume -- e moltiplicato per la densita', la massa. Vale
+    per costruzione qualunque siano i coefficienti giusti, quindi e' il test
+    che smaschera una tabella sbagliata senza sapere quale sia quella giusta.
+
+    Su C3D10 i coefficienti sono `-1/20` ai quattro vertici e `+1/5` ai sei
+    nodi di lato: `4*(-1/20) + 6*(1/5) = 1`. Il segno negativo sui vertici
+    non e' un refuso, ed e' la ragione per cui la formula del lineare
+    sbagliava anche di **verso** e non solo di ampiezza.
+    """
+    nodes_lin = np.array(
+        [[0.0, 0.0, 0.0], [100.0, 0.0, 0.0], [0.0, 100.0, 0.0], [0.0, 0.0, 100.0]]
+    )
+    tets = np.array([[0, 1, 2, 3]], dtype=np.int64)
+    densita = 1.8e-9
+    massa = densita * float(np.abs(quality.tet_volumes(nodes_lin, tets)).sum())
+
+    tutti_lin = np.arange(1, len(nodes_lin) + 1)
+    assert solve._quota_tributaria_gravita(
+        nodes_lin, tets, tutti_lin, densita, "C3D4"
+    ) == pytest.approx(massa, rel=1e-12)
+
+    # lo stesso tetraedro a dieci nodi: i sei di lato a meta' spigolo, che e'
+    # dove TetGen li mette con `order=2`
+    v = nodes_lin
+    lati = np.array([
+        (v[0] + v[1]) / 2, (v[1] + v[2]) / 2, (v[0] + v[2]) / 2,
+        (v[0] + v[3]) / 2, (v[1] + v[3]) / 2, (v[2] + v[3]) / 2,
+    ])
+    nodes_quad = np.vstack([v, lati])
+    tets10 = np.arange(10, dtype=np.int64).reshape(1, 10)
+    tutti_quad = np.arange(1, len(nodes_quad) + 1)
+
+    assert solve._quota_tributaria_gravita(
+        nodes_quad, tets10, tutti_quad, densita, "C3D10"
+    ) == pytest.approx(massa, rel=1e-12)
+
+
+def test_su_c3d10_i_vertici_pesano_negativo_e_i_lati_portano_il_carico():
+    """La controprova del test sopra, e **serve davvero**: verificato per
+    mutazione il 26/08/2026, rimettendo la formula del lineare sul ramo
+    C3D10, il test della somma totale **non fallisce**. Con `+V/4` sui soli
+    quattro vertici la somma su tutti e dieci i nodi vale comunque `V`, cioe'
+    l'oracolo globale e' soddisfatto da una tabella sbagliata. Solo guardando
+    le due meta' separate la differenza si vede.
+
+    Quattro vertici a `-V/20` fanno `-massa/5`; sei nodi di lato a `+V/5`
+    fanno `+6*massa/5`. Sono i due numeri che la formula del tetraedro
+    lineare (`+massa/4` sui soli vertici, zero sui lati) non puo' produrre
+    ne' per ampiezza ne' per segno.
+    """
+    v = np.array([[0.0, 0.0, 0.0], [100.0, 0.0, 0.0], [0.0, 100.0, 0.0], [0.0, 0.0, 100.0]])
+    lati = np.array([
+        (v[0] + v[1]) / 2, (v[1] + v[2]) / 2, (v[0] + v[2]) / 2,
+        (v[0] + v[3]) / 2, (v[1] + v[3]) / 2, (v[2] + v[3]) / 2,
+    ])
+    nodes = np.vstack([v, lati])
+    tets10 = np.arange(10, dtype=np.int64).reshape(1, 10)
+    densita = 1.8e-9
+    massa = densita * float(np.abs(quality.tet_volumes(nodes, tets10[:, :4])).sum())
+
+    soli_vertici = solve._quota_tributaria_gravita(nodes, tets10, [1, 2, 3, 4], densita, "C3D10")
+    soli_lati = solve._quota_tributaria_gravita(
+        nodes, tets10, [5, 6, 7, 8, 9, 10], densita, "C3D10"
+    )
+
+    assert soli_vertici == pytest.approx(-massa / 5.0, rel=1e-12)
+    assert soli_lati == pytest.approx(6.0 * massa / 5.0, rel=1e-12)
+    # e la formula del lineare sugli stessi vertici da' tutt'altro: e' il
+    # numero che il codice usava prima della correzione
+    assert solve._quota_tributaria_gravita(
+        nodes, tets10, [1, 2, 3, 4], densita, "C3D4"
+    ) == pytest.approx(massa, rel=1e-12)
+
+
+def test_un_elemento_sconosciuto_non_prende_la_formula_di_un_altro():
+    """Senza predefinito e senza ripiego: la ripartizione dipende dalle
+    funzioni di forma, e prendere quelle di un elemento diverso darebbe un
+    numero plausibile e sbagliato -- che e' peggio di nessun numero.
+    """
+    nodes = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+    tets = np.array([[0, 1, 2, 3]], dtype=np.int64)
+
+    with pytest.raises(ValueError, match="C3D8"):
+        solve._quota_tributaria_gravita(nodes, tets, [1], 1.8e-9, "C3D8")
 
 
 # ---------------------------------------------------------------------------

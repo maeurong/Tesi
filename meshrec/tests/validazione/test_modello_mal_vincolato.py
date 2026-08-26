@@ -111,7 +111,9 @@ def _esegui(tmp_path, nodi, elementi, vincolati):
 
     reazioni = solve.leggi_reazioni(deck.with_suffix(".dat"), passo=1)
     massa = float(MATERIALE.density) * solve._volume_totale(nodi, elementi)
-    quota = solve._quota_tributaria_gravita(nodi, elementi, reazioni.keys(), MATERIALE.density)
+    quota = solve._quota_tributaria_gravita(
+        nodi, elementi, reazioni.keys(), MATERIALE.density, "C3D4"
+    )
     peso_atteso = (0.0, 0.0, (massa - quota) * abaqus.GRAVITY_MM_S2)
 
     return {
