@@ -5,6 +5,22 @@ from __future__ import annotations
 import numpy as np
 
 
+def finito_o_none(valore: float) -> float | None:
+    """Un aggregato non finito esce come `None`, mai come `NaN`.
+
+    JSON non ammette `NaN`: `json.dumps` lo scrive lo stesso, ma
+    `JSONResponse` solleva e `/api/metrics` risponde 500, e `JSON.parse` nel
+    browser si ferma su `SyntaxError`. Un campo che vale `null` dice «non
+    calcolabile» e attraversa entrambi.
+
+    E' la convenzione che `_distribution` applica gia' alle distribuzioni;
+    questa funzione la estende agli scalari, che ne erano rimasti fuori --
+    area, volume racchiuso, volume totale tetraedrico ed esaedrico uscivano
+    `NaN` da una mesh con una coordinata non finita.
+    """
+    return valore if np.isfinite(valore) else None
+
+
 def _edge_counts(faces: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Spigoli unici (ordinati per indice) e numero di triangoli che li usano."""
     edges = np.vstack([faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]])
@@ -19,9 +35,16 @@ def boundary_edges(faces: np.ndarray) -> np.ndarray:
 
 
 def is_watertight(faces: np.ndarray) -> bool:
-    """Vero se ogni spigolo e condiviso da esattamente due triangoli."""
+    """Vero se ogni spigolo e condiviso da esattamente due triangoli.
+
+    Una mesh **vuota** rende `False`, non `True`. `(counts == 2).all()` su un
+    array vuoto e' vacuamente vero, e quel vero attraversava il cancello di
+    `volume.tetrahedralize` che esiste per fermare le superfici aperte: una
+    mesh senza facce finiva a TetGen invece di essere rifiutata. Non c'e' una
+    lettura utile in cui il nulla sia un solido chiuso.
+    """
     _, counts = _edge_counts(np.asarray(faces))
-    return bool((counts == 2).all())
+    return bool(counts.size > 0 and (counts == 2).all())
 
 
 def mesh_volume(vertices: np.ndarray, faces: np.ndarray) -> float:
@@ -44,8 +67,20 @@ def tet_volumes(nodes: np.ndarray, tets: np.ndarray) -> np.ndarray:
 
 
 def inverted_tets(nodes: np.ndarray, tets: np.ndarray) -> np.ndarray:
-    """Indici dei tetraedri degeneri o invertiti (volume non positivo)."""
-    return np.flatnonzero(tet_volumes(nodes, tets) <= 0.0)
+    """Indici dei tetraedri non utilizzabili: volume non finito, nullo o negativo.
+
+    Il criterio e' scritto in positivo -- **buono se e solo se finito e
+    positivo** -- e non come negazione di «non positivo». La differenza non e'
+    stilistica: `nan <= 0.0` e' `False`, quindi la forma negata lasciava
+    passare per sano un elemento con una coordinata `NaN`. La conseguenza,
+    misurata il 26/08/2026, era che `volume.tetrahedralize` non sollevava e
+    `metrics.json` scriveva `inverted: 0` su una mesh corrotta.
+
+    Il controllo di finitezza copre anche la meta' che `not (v > 0)` da solo
+    non coprirebbe: un volume `+inf` e' maggiore di zero e passerebbe.
+    """
+    volumes = tet_volumes(nodes, tets)
+    return np.flatnonzero(~(np.isfinite(volumes) & (volumes > 0.0)))
 
 
 # Decomposizione di un esaedro in sei tetraedri, a ventaglio dal nodo 0 attorno
@@ -145,8 +180,14 @@ def hexa_metrics(nodes: np.ndarray, hexes: np.ndarray) -> dict[str, object]:
     return {
         "nodes": int(len(np.asarray(nodes))),
         "hexes": int(len(np.asarray(hexes))),
-        "inverted": int((jacobiani <= 0.0).sum()),
-        "total_volume": float(volumi.sum()),
+        # Stesso criterio di `inverted_tets`, scritto nella stessa forma: buono
+        # se e solo se finito e positivo. Su un nodo `NaN` il vecchio
+        # `jacobiani <= 0.0` era gia' corretto per una proprieta' di
+        # `scaled_jacobian`, che li' riporta 0,0; su un nodo `inf` no --
+        # il jacobiano esce `NaN` e il vecchio confronto contava **zero**
+        # invertiti su un esaedro corrotto.
+        "inverted": int((~(np.isfinite(jacobiani) & (jacobiani > 0.0))).sum()),
+        "total_volume": finito_o_none(float(volumi.sum())),
         "element_volume": _distribution(volumi),
         "scaled_jacobian": _distribution(jacobiani),
     }
@@ -319,8 +360,8 @@ def surface_metrics(vertices: np.ndarray, faces: np.ndarray) -> dict[str, object
         "triangles": int(len(f)),
         "watertight": is_watertight(f),
         "boundary_edges": int(len(boundary_edges(f))),
-        "area": float(np.linalg.norm(np.cross(b - a, c - a), axis=1).sum() / 2.0),
-        "volume": mesh_volume(v, f),
+        "area": finito_o_none(float(np.linalg.norm(np.cross(b - a, c - a), axis=1).sum() / 2.0)),
+        "volume": finito_o_none(mesh_volume(v, f)),
         "aspect_ratio": _distribution(triangle_aspect_ratios(v, f)),
     }
 
@@ -353,7 +394,7 @@ def volume_metrics(nodes: np.ndarray, tets: np.ndarray, reference_ratio: float) 
         "nodes": int(len(np.asarray(nodes))),
         "tets": int(len(np.asarray(tets))),
         "inverted": int(len(inverted_tets(nodes, tets))),
-        "total_volume": float(volumes.sum()),
+        "total_volume": finito_o_none(float(volumes.sum())),
         "element_volume": _distribution(volumes),
         "min_dihedral_deg": _distribution(min_dihedral_angles(nodes, tets)),
         "aspect_ratio": _distribution(tet_aspect_ratios(nodes, tets)),
@@ -465,7 +506,16 @@ def vertex_deviation(vertices: np.ndarray, cloud: np.ndarray) -> np.ndarray:
     """
     from scipy.spatial import cKDTree
 
-    albero = cKDTree(np.asarray(cloud, dtype=np.float64))
+    punti = np.asarray(cloud, dtype=np.float64)
+    # Su una nuvola vuota `cKDTree.query` rende `inf` per ogni vertice, senza
+    # sollevare. Quegli `inf` sono lo scalare per vertice che
+    # `pipeline.genera_modello` porta alla mappa di colore: non una misura, una
+    # scala rotta. Un punto solo invece e' poco ma e' una misura, e passa.
+    if len(punti) == 0:
+        raise ValueError(
+            "nuvola vuota: nessun punto da cui misurare la distanza dei vertici"
+        )
+    albero = cKDTree(punti)
     distanze, _indici = albero.query(np.asarray(vertices, dtype=np.float64), k=1)
     return np.ascontiguousarray(distanze, dtype=np.float64)
 

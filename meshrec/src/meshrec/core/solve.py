@@ -389,6 +389,17 @@ def controlla_picco(valori: np.ndarray, quote: np.ndarray, banda: float) -> dict
     """
     v = np.asarray(valori, dtype=np.float64)
     q = np.asarray(quote, dtype=np.float64)
+    # `leggi_frd` non produce mai un blocco vuoto, quindi in produzione non ci
+    # si arriva: e' latente. Ma senza guardia schianta con «zero-size array to
+    # reduction operation maximum», che accusa numpy di un errore che sta a
+    # monte. Stesso trattamento che `risolvi` da' a `casi_di_carico` vuoto: un
+    # errore del chiamante, dichiarato come tale invece che mascherato da
+    # verdetto.
+    if v.size == 0 or q.size == 0:
+        raise ValueError(
+            "valori o quote vuoti: non c'è un picco da localizzare. È un errore "
+            "del chiamante, non uno stato da valutare a vuoto"
+        )
     finito = bool(np.isfinite(v).all() and np.isfinite(q).all() and np.isfinite(banda))
     massimo = float(v.max())
     p99 = float(np.percentile(v, 99))

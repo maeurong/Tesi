@@ -173,7 +173,19 @@ def repair_surface(
     # promette una superficie chiusa promette anche il verso, perche' e' cio'
     # che TetGen richiede in ingresso. L'inversione dell'avvolgimento e'
     # esatta: non approssima nulla e non sposta un solo vertice.
-    flipped = mesh_volume(v, f) < 0.0
+    volume_prima_del_verso = mesh_volume(v, f)
+    # `nan < 0.0` e' `False`: senza questa guardia un volume non calcolabile
+    # produceva `flipped = False`, nessun ribaltamento, e `orientation_flipped:
+    # false` scritto nel registro **come se il verso fosse stato verificato**.
+    # Chi promette una superficie chiusa promette anche il verso: non poterlo
+    # determinare e' un fallimento da dichiarare, non un «diritta» da dedurre.
+    if not np.isfinite(volume_prima_del_verso):
+        raise ValueError(
+            f"volume racchiuso non calcolabile ({volume_prima_del_verso}): il verso "
+            "della superficie non è determinabile, e TetGen lo richiede. Coordinate "
+            "non finite fra i vertici sono la causa attesa"
+        )
+    flipped = volume_prima_del_verso < 0.0
     if flipped:
         f = np.ascontiguousarray(f[:, [0, 2, 1]])
 
