@@ -31,6 +31,47 @@ entra quando #39 chiude, non prima.
 sull'as-built, perche' le nuvole di punti non stanno nel repository. Qui c'e' in
 piu' la soluzione **esatta**, quindi il confronto non e' fra due modelli ma fra
 ciascuno e la teoria.
+
+## Il confronto con la tabella di Benzley
+
+Il suo provino e' letto dal PDF e sta in `docs/validazione/mensola-benzley.md`:
+barra **1,0 x 1,0 x 10,0**, sezione quadrata, quattro forze da 0,25 sulla faccia
+libera, `E = 10.000.000`, `nu = 0,3`. I suoi gradi di liberta' si contano come
+**3 x tutti i nodi, vincolati compresi**.
+
+Con quella convenzione i nostri due estremi di raffinamento cadono su due suoi
+punti, e gli errori corrispondono:
+
+| | nostri DOF | nostro errore | suoi DOF | suo errore |
+|---|---|---|---|---|
+| maglia rada | 573 | -30,88% | 666 | 31,48% |
+| maglia fine | 3954 | -9,31% | 3615 | 10,48% |
+
+Due punti indipendenti, entrambi entro un punto percentuale, su provini di
+dimensioni e unita' diverse. E' la conferma che l'errore misurato e' **quello
+dell'elemento** e non del nostro caso.
+
+**Tre differenze da dichiarare, non da nascondere.**
+
+1. **Benzley misura a meta' luce**, a 5,0 dall'incastro, non all'estremo: il suo
+   0,000125 e' la freccia li'. All'estremo lo stesso caso darebbe 4,0e-4. Noi
+   misuriamo all'estremo, che ha la forma analitica piu' semplice ed e' la
+   grandezza che l'ingegneria cita. Le due percentuali corrispondono lo stesso,
+   ma il punto di misura non e' lo stesso e va detto.
+2. **La sua sezione e' quadrata**, quindi i suoi due primi modi flessionali sono
+   **degeneri** -- il paper non lo discute. La nostra e' rettangolare apposta,
+   per poter dire *quale* modo e' il primo.
+3. **Il paper non dichiara mai le unita'.** Vanno inferite (pollice, libbra,
+   secondo, con la densita' letta come peso specifico e g = 386,4) e
+   l'inferenza si verifica solo perche' riproduce i suoi numeri. Un altro
+   motivo per lavorare nelle unita' del progetto invece che nelle sue.
+
+**E due incoerenze dentro il paper stesso**, trovate riproducendone i numeri:
+la tensione tagliante torsionale stampata (6,8) e' **esattamente il doppio** di
+quella che riproduce i suoi spostamenti, e il suo 2614 Hz torsionale
+corrisponde a `nu = 0,49` benche' la tabella usi un riferimento unico per
+entrambe le colonne. Non toccano il caso flessionale, ma chi aprira' il ticket
+sulla torsione deve saperlo prima di prendere quei numeri per oro.
 """
 
 from __future__ import annotations
@@ -322,9 +363,13 @@ def test_la_freccia_converge_alla_teoria_raffinando(tmp_path):
             tabella.append((tipo, passo, len(nodi), len(tets), errore))
 
     print(f"\nfreccia di riferimento (Timoshenko) {riferimento:.5f} mm")
-    print("elemento  passo   nodi    tet    errore")
+    # I gradi di liberta' si contano **come li conta Benzley**: tre per ogni
+    # nodo, vincolati compresi. Senza la stessa convenzione le due tabelle non
+    # si affiancano, e il confronto con la sua sarebbe fra numeri diversi che
+    # portano lo stesso nome.
+    print("elemento  passo   nodi    tet     DOF    errore")
     for tipo, passo, n_nodi, n_tet, errore in tabella:
-        print(f"{tipo:<9} {passo:>5.0f} {n_nodi:>6} {n_tet:>6}  {errore:+8.2%}")
+        print(f"{tipo:<9} {passo:>5.0f} {n_nodi:>6} {n_tet:>6} {3 * n_nodi:>7}  {errore:+8.2%}")
 
     for tipo in ("C3D4", "C3D10"):
         errori = [abs(e) for t, _, _, _, e in tabella if t == tipo]
