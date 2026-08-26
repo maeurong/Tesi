@@ -105,18 +105,25 @@ _VERDICT = (
 SOGLIE: tuple[Soglia, ...] = (
     # --- cancelli: bocciano ---
     Soglia(
-        nome="patch_test_relativo",
+        nome="patch_test_fattore_sul_pavimento",
         minimo=None,
-        massimo=1e-8,
+        massimo=2.0,
         unita="adim.",
         tipo="cancello",
         origine="nostra",
         fonte="Taylor, Simo, Zienkiewicz & Chan (1986), IJNME 22:39-62, DOI 10.1002/nme.1620220105",
         fissata=RATIFICA,
         nota=(
-            "La fonte dimostra che il patch test è esatto per costruzione, non fissa "
-            "una tolleranza: il valore è nostro e copre l'errore di macchina più il "
-            "condizionamento del solutore."
+            "Non una tolleranza assoluta ma un **multiplo della risoluzione del canale "
+            "di misura**. La fonte dimostra che il patch test è esatto per costruzione "
+            "e non fissa alcuna tolleranza: il fattore è nostro. La prima stesura "
+            "chiedeva 1e-8 in assoluto, e il patch test falliva mostrando esattamente "
+            "il pavimento di quantizzazione del file `.dat` di CalculiX, che stampa "
+            "sette cifre significative — 1,345e-07 sul provino misurato. L'elemento "
+            "era a posto: era la soglia a pretendere una precisione che il canale non "
+            "ha, cioè precisione fabbricata. Nella forma a fattore la soglia resta "
+            "dichiarata prima, e ciò che varia è la risoluzione della misura, non il "
+            "risultato."
         ),
     ),
     Soglia(
