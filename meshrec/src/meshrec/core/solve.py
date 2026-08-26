@@ -77,6 +77,44 @@ _TIMEOUT_S = 600.0
 # l'elaborazione stessa, non solo il verdetto su un suo risultato.
 _SOGLIA_VINCOLO_IN_PIANTA = 0.5
 
+# Rapporto fra lo spostamento massimo e la dimensione caratteristica del
+# modello, oltre il quale i numeri non sono citabili (#12).
+#
+# Il difetto che intercetta, misurato il 26/08/2026: un frammento **staccato**
+# dal corpo principale ma dentro la sua impronta -- cioe' esattamente cio' che
+# un maglio da scansione produce quando la segmentazione lascia un'isola. Il
+# corpo e' vincolato bene, l'isola cade libera. Su un cubo di 100 mm con
+# un'isola di 3 mm: `ccx` esce **0**, zero `*WARNING`, e **tutti e cinque** i
+# verdetti precedenti passano, con uno spostamento massimo di 3,6e10 mm. Con
+# l'isola a 1 mm, 8,0e21 mm. Nessuno dei cinque guarda l'ampiezza.
+#
+# Perche' `controlla_reazioni` non lo vede, ed e' il punto: la sua tolleranza
+# e' **relativa** al peso. L'isola di 3 mm pesa 5,2e-06 del totale e quella da
+# 1 mm 2,0e-07, cioe' sotto 1e-4 -- l'equilibrio globale resta soddisfatto
+# entro tolleranza mentre una parte del modello vola via. Un'isola grande la
+# prende (lato 30 mm: scarto 5,2e-03), una piccola no: la cecita' cresce al
+# calare della massa staccata, non del disordine.
+#
+# Perche' 1,0, e perche' **non** e' una soglia difficile da tarare -- che era
+# il dubbio esplicito del ticket. Ha una giustificazione teorica prima che
+# empirica: l'elasticita' lineare a piccoli spostamenti assume u << L, quindi
+# uno spostamento grande quanto il modello stesso **falsifica l'ipotesi con
+# cui il solutore lo ha appena calcolato**. Non e' un limite fisico tarato su
+# un provino, e' il confine di validita' del modello. La misura poi dice che
+# la banda e' larghissima: i casi legittimi stanno a 1,0e-08 e i casi guasti
+# partono da 1,7e+07, sedici ordini di grandezza di vuoto in mezzo. La media
+# geometrica dei due estremi vale 0,41, quindi 1,0 ci cade dentro a meno di un
+# fattore 2,5, con circa otto decadi di margine per lato. `origine`: **nostra**
+# -- nessuna fonte pubblica questo rapporto, e la nota che il registro esige
+# per una soglia nostra e' questo commento.
+#
+# ponytail: la dimensione caratteristica e' la diagonale del parallelepipedo
+# contenitore dei nodi, che **non** e' invariante per rotazione. Irrilevante
+# qui: cambia il rapporto di un fattore di pochi, contro otto decadi di
+# margine. Una misura invariante costerebbe di piu' e non sposterebbe alcun
+# verdetto.
+_SOGLIA_SPOSTAMENTO_SU_DIMENSIONE = 1.0
+
 # Tolleranza di equilibrio per `controlla_reazioni`.
 #
 # Lo scarto misurato nel giro originale del Task 7 (8,5% con 35 nodi
@@ -451,10 +489,102 @@ def controlla_avvisi(conteggio: int) -> dict[str, object]:
     Il conteggio viene da `str.count` e resta un intero naturale qualunque
     cosa faccia la mesh: l'uguaglianza a zero e' gia' chiusa su NaN e sugli
     infiniti senza bisogno di guardia. Sta comunque nella tabella
-    `_INGRESSI_CHE_RAGGIUNGONO_UN_CONFRONTO` -- enumerare tutti e cinque i
-    verdetti costa meno che ricordarsi quale dei cinque non serviva.
+    `_INGRESSI_CHE_RAGGIUNGONO_UN_CONFRONTO` -- enumerare tutti e sei i
+    verdetti costa meno che ricordarsi quale dei sei non serviva.
     """
     return {"passato": conteggio == 0, "conteggio": conteggio}
+
+
+def _spostamento_massimo(point_data: dict[str, np.ndarray]) -> float | None:
+    """Il piu' grande spostamento nodale fra i soli passi **statici**.
+
+    Filtra su `U_`: i campi `MODO_n` sono forme normalizzate sulla massa, non
+    spostamenti fisici (vedi il docstring del modulo), e la loro ampiezza non
+    significa nulla -- confonderli qui darebbe un verdetto su una grandezza
+    priva di unita'. `VM_` e' una tensione e non entra.
+
+    `None` se non c'e' alcun passo statico: un deck solo modale non ha uno
+    spostamento da misurare, e `controlla_spostamenti` lo dichiara non
+    verificato invece di inventare uno zero.
+    """
+    massimi = [
+        float(np.max(np.linalg.norm(np.asarray(campo, dtype=np.float64), axis=1)))
+        for nome, campo in point_data.items()
+        if nome.startswith("U_") and np.asarray(campo).ndim == 2 and len(campo)
+    ]
+    return max(massimi) if massimi else None
+
+
+def _dimensione(nodes: np.ndarray) -> float:
+    """Diagonale del parallelepipedo contenitore: la scala con cui confrontare
+    uno spostamento. Vedi la nota sopra `_SOGLIA_SPOSTAMENTO_SU_DIMENSIONE`
+    sul perche' non serva una misura invariante per rotazione."""
+    punti = np.asarray(nodes, dtype=np.float64)
+    if len(punti) == 0:
+        return 0.0
+    return float(np.linalg.norm(np.ptp(punti, axis=0)))
+
+
+def controlla_spostamenti(
+    u_max: float, dimensione: float, soglia: float = _SOGLIA_SPOSTAMENTO_SU_DIMENSIONE
+) -> dict[str, object]:
+    """Lo spostamento massimo contro la dimensione del modello (#12).
+
+    Sesto verdetto, e l'unico che guarda l'**ampiezza** del risultato invece
+    della coerenza fra il deck e cio' che la configurazione crede. Serve
+    perche' un modello mal vincolato -- o con un pezzo staccato -- produce
+    numeri enormi senza che `ccx` protesti: codice d'uscita 0, zero
+    `*WARNING`, e gli altri cinque verdetti verdi. Il motivo per cui gli
+    altri cinque non bastano sta per esteso sopra
+    `_SOGLIA_SPOSTAMENTO_SU_DIMENSIONE`, col numero misurato.
+
+    Non solleva: marca. Stessa scelta di `wall.controlla` e degli altri
+    cinque verdetti -- l'esito resta scritto col numero che lo ha deciso e la
+    soglia con cui e' stato confrontato, perche' chi legge `metrics.json`
+    possa vedere *quale* controllo ha detto no e *quanto*. `risolvi` scrive
+    `13_solution.vtu` **prima** di valutare i verdetti (solve.py:881 contro
+    902): sollevare qui lascerebbe quel file su disco senza che il chiamante
+    ne riceva mai il percorso, cioe' toglierebbe l'unico modo di **guardare**
+    dove il modello e' scappato proprio nel caso in cui serve.
+
+    `u_max` assente (`None`) significa nessun passo statico da misurare -- un
+    deck solo modale, dove `MODO_n` e' una forma normalizzata sulla massa e
+    non uno spostamento fisico. Come per `controlla_reazioni` su un `.dat`
+    senza reazioni, non e' un caso da normalizzare ma da dichiarare **non
+    verificato**: `passato: False` con `rapporto: None`.
+
+    Cancello di finitezza: entrambi gli ingressi raggiungono un confronto e
+    hanno bisogno di guardia, per motivi opposti. `u_max` non finito e' il
+    caso guasto per eccellenza (un solutore che diverge stampa `inf`) e deve
+    fallire; `dimensione` non finita o nulla renderebbe il rapporto NaN o una
+    divisione per zero. Nessuno dei due e' un ingresso della pipeline -- i
+    nodi arrivano gia' finiti allo step 11 -- ma la regola del modulo e'
+    enumerare gli ingressi che raggiungono un confronto, non ragionare caso
+    per caso su quali possano davvero degenerare.
+    """
+    fuori = (
+        u_max is None
+        or not np.isfinite(u_max)
+        or not np.isfinite(dimensione)
+        or not np.isfinite(soglia)
+        or dimensione <= 0.0
+    )
+    if fuori:
+        return {
+            "passato": False,
+            "rapporto": None,
+            "u_max": None if u_max is None else float(u_max),
+            "dimensione": float(dimensione),
+            "soglia": float(soglia),
+        }
+    rapporto = float(abs(u_max) / dimensione)
+    return {
+        "passato": rapporto < float(soglia),
+        "rapporto": rapporto,
+        "u_max": float(u_max),
+        "dimensione": float(dimensione),
+        "soglia": float(soglia),
+    }
 
 
 def leggi_frequenze(percorso: Path) -> list[float]:
@@ -648,15 +778,17 @@ def risolvi(
     gia' calcolato allo step 11 su `abaqus.constraint_plan_extent`: non si
     ricalcola qui, dove non arrivano i `node_sets` per farlo.
 
-    Aggiunge `metrics["13_solve"]["controlli"]` (Task 7): cinque verdetti
+    Aggiunge `metrics["13_solve"]["controlli"]` (Task 7): sei verdetti
     che dicono quando i numeri qui sopra non sono citabili -- `reazioni`
     (equilibrio del solo peso proprio, passo 1, sempre isolabile per
     costruzione di `abaqus.write_inp`), `vincolo_in_pianta` (soglia
     `_SOGLIA_VINCOLO_IN_PIANTA`, costante di modulo -- vedi il commento sopra la
     sua definizione), `autovalori`, `avvisi` (zero per essere
     citabili), `picco` (per caso di carico, dove vive il picco di tensione,
-    non se e' alto). Sotto soglia i risultati restano scritti: si marcano,
-    non si nascondono.
+    non se e' alto) e `spostamenti` (#12: l'ampiezza contro la dimensione del
+    modello, il solo verdetto che guarda quanto grande e' il risultato invece
+    che se il deck e la configurazione concordano). Sotto soglia i risultati
+    restano scritti: si marcano, non si nascondono.
     """
     if not casi_di_carico:
         raise ValueError(
@@ -762,7 +894,7 @@ def risolvi(
         nodes, elements, reazioni_peso_proprio.keys(), cfg.material.density
     )
     peso_atteso = (0.0, 0.0, (massa - quota_tributaria) * cfg.gravity)
-    # Cinque verdetti, cinque funzioni: `vincolo_in_pianta` e `avvisi` erano
+    # Sei verdetti, sei funzioni: `vincolo_in_pianta` e `avvisi` erano
     # scritti inline qui, e per questo restavano fuori dalla tabella
     # `_INGRESSI_CHE_RAGGIUNGONO_UN_CONFRONTO` di tests/test_solve.py, che il
     # commento sopra `controlla_reazioni` dichiara completa (M11 della
@@ -774,6 +906,7 @@ def risolvi(
         "vincolo_in_pianta": controlla_vincolo_in_pianta(vincolo_in_pianta["minimo"]),
         "autovalori": controlla_autovalori(frequenze_hz),
         "avvisi": controlla_avvisi(avvisi),
+        "spostamenti": controlla_spostamenti(_spostamento_massimo(point_data), _dimensione(nodes)),
         "picco": {
             "passato": all(v["passato"] for v in picco_per_caso.values()) if picco_per_caso else False,
             "per_caso": picco_per_caso,
