@@ -620,3 +620,123 @@ def test_le_metriche_esaedriche_non_contengono_min_ratio():
     assert metriche["inverted"] == 0
     assert metriche["hexes"] == 1
     assert metriche["total_volume"] == pytest.approx(1.0)
+
+
+# L'errore geometrico con segno (#73). Gli oracoli sono costruiti: si sposta
+# la nuvola di una quantita' nota rispetto alla superficie, e la funzione deve
+# ritrovarla con il verso giusto.
+def _cubo_e_nuvola(scostamento: float, quanti: int = 400):
+    """Un cubo di lato 100 e una nuvola sulla faccia z = 100, spostata di
+    `scostamento` lungo la normale uscente. Positivo = fuori dal cubo."""
+    vertici, facce = synth.box_mesh((100.0, 100.0, 100.0))
+    passo = np.linspace(10.0, 90.0, int(np.sqrt(quanti)))
+    x, y = np.meshgrid(passo, passo)
+    nuvola = np.column_stack([
+        x.ravel(), y.ravel(), np.full(x.size, 100.0 + scostamento)
+    ])
+    return vertici, facce, nuvola
+
+
+def test_il_segno_dice_fuori_positivo_e_dentro_negativo():
+    """La convenzione, fissata da un oracolo e non da un commento: una nuvola
+    tre millimetri **sopra** la faccia superiore e' materia che il modello non
+    ha, quindi mancante; tre millimetri sotto e' materia che il modello ha
+    inventato.
+
+    Invertire la convenzione non farebbe cadere nessun altro test: e' il tipo
+    di scelta che va inchiodata da un'asserzione o si perde.
+    """
+    v, f, sopra = _cubo_e_nuvola(+3.0)
+    _v, _f, sotto = _cubo_e_nuvola(-3.0)
+
+    fuori = quality.scarto_con_segno(v, f, sopra, tolleranza=5.0)
+    dentro = quality.scarto_con_segno(v, f, sotto, tolleranza=5.0)
+
+    assert fuori["mancante_frazione"] == 1.0
+    assert fuori["mancante_max"] == pytest.approx(3.0, abs=1e-4)
+    assert fuori["inventata_frazione"] == 0.0
+
+    assert dentro["inventata_frazione"] == 1.0
+    assert dentro["inventata_max"] == pytest.approx(3.0, abs=1e-4)
+    assert dentro["mancante_frazione"] == 0.0
+
+
+def test_due_errori_opposti_si_annullano_nel_bilancio_e_non_nel_modulo():
+    """Il reperto per cui la funzione esiste.
+
+    Meta' della nuvola tre millimetri fuori e meta' tre millimetri dentro: il
+    **bilancio con segno vale zero** mentre il **modulo resta 3 mm**. Un RMS
+    senza segno racconterebbe un errore di 3 mm e non direbbe che i due modi
+    si compensano -- e sul modello a elementi finiti non si compensano affatto,
+    perche' massa e rigidezza aggiunte da una parte non tornano indietro
+    dall'altra.
+    """
+    v, f, sopra = _cubo_e_nuvola(+3.0)
+    _v, _f, sotto = _cubo_e_nuvola(-3.0)
+    nuvola = np.vstack([sopra, sotto])
+
+    esito = quality.scarto_con_segno(v, f, nuvola, tolleranza=5.0)
+
+    assert esito["bilancio_medio"] == pytest.approx(0.0, abs=1e-4)
+    assert esito["modulo_rms"] == pytest.approx(3.0, abs=1e-4)
+    assert esito["mancante_frazione"] == pytest.approx(0.5)
+    assert esito["inventata_frazione"] == pytest.approx(0.5)
+
+
+def test_recall_conta_il_rilievo_riprodotto_e_precision_il_modello_sostenuto():
+    """I due non sono simmetrici, ed e' la ragione per cui ci sono entrambi.
+
+    Con la nuvola a 3 mm dalla superficie e tolleranza 5 mm, **tutto** il
+    rilievo e' riprodotto: recall vale 1. Con tolleranza 2 mm nessun punto lo
+    e': recall vale 0. La superficie invece non cambia, e i suoi vertici
+    distano dalla nuvola quanto la geometria impone -- quindi precision non
+    segue recall.
+    """
+    v, f, nuvola = _cubo_e_nuvola(+3.0)
+
+    largo = quality.scarto_con_segno(v, f, nuvola, tolleranza=5.0)
+    stretto = quality.scarto_con_segno(v, f, nuvola, tolleranza=2.0)
+
+    assert largo["recall"] == 1.0
+    assert stretto["recall"] == 0.0
+    # gli otto vertici del cubo distano dalla nuvola molto piu' di 5 mm: la
+    # nuvola copre una faccia sola, quindi il modello non e' sostenuto
+    assert largo["precision"] < 1.0
+
+
+def test_una_nuvola_esattamente_sulla_superficie_non_da_un_segno_dal_rumore():
+    """Scarto nullo: nessuno dei due modi, non uno scelto a caso dal segno di
+    un epsilon numerico."""
+    v, f, nuvola = _cubo_e_nuvola(0.0)
+
+    esito = quality.scarto_con_segno(v, f, nuvola, tolleranza=5.0)
+
+    assert esito["bilancio_medio"] == pytest.approx(0.0, abs=1e-5)
+    assert esito["modulo_rms"] == pytest.approx(0.0, abs=1e-5)
+    assert esito["recall"] == 1.0
+
+
+@pytest.mark.parametrize(
+    "tolleranza", [0.0, -1.0, float("nan"), float("inf")]
+)
+def test_una_tolleranza_non_positiva_o_non_finita_viene_rifiutata(tolleranza):
+    """Senza un «entro quanto» finito e positivo, precision e recall non sono
+    definite: `<= inf` sarebbe vero per qualunque scarto e renderebbe 1 su
+    qualunque ricostruzione."""
+    v, f, nuvola = _cubo_e_nuvola(1.0)
+
+    with pytest.raises(ValueError, match="tolleranza"):
+        quality.scarto_con_segno(v, f, nuvola, tolleranza=tolleranza)
+
+
+def test_senza_nuvola_o_senza_facce_non_si_misura_uno_scarto():
+    """Zero e' gia' la risposta a una domanda diversa e vera -- «la superficie
+    coincide col rilievo» -- e confonderla con «non c'e' nulla da confrontare»
+    renderebbe indistinguibile una ricostruzione perfetta da un ingresso
+    rotto."""
+    v, f, nuvola = _cubo_e_nuvola(1.0)
+
+    with pytest.raises(ValueError, match="non c'e' uno scarto"):
+        quality.scarto_con_segno(v, f, np.zeros((0, 3)), tolleranza=5.0)
+    with pytest.raises(ValueError, match="non c'e' uno scarto"):
+        quality.scarto_con_segno(v, np.zeros((0, 3), dtype=np.int64), nuvola, tolleranza=5.0)
