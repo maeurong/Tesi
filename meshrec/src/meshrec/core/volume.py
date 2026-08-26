@@ -70,6 +70,17 @@ def tetrahedralize(
     muro reale non porta a termine il raffinamento.
     """
     faces = np.asarray(faces)
+    # La mesh vuota prima di quella aperta: da quando `is_watertight` rende
+    # `False` sul vuoto (e prima rendeva `True`, lasciandola passare a TetGen),
+    # senza questo ramo il messaggio uscirebbe «non chiusa: 0 spigoli di
+    # bordo», che si contraddice, e suggerirebbe di riparare una superficie che
+    # non ha facce da riparare.
+    if len(faces) == 0:
+        raise NotWatertightError(
+            "superficie senza facce: non c'è nulla da tetraedrizzare. Gli step a "
+            "monte non hanno prodotto una superficie, e il rimedio sta lì, non "
+            "nella riparazione."
+        )
     if not is_watertight(faces):
         open_edges = len(boundary_edges(faces))
         raise NotWatertightError(

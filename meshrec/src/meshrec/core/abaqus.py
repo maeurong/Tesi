@@ -685,18 +685,26 @@ def ripartisci(
     superficie = element_surface(elements, indici, element_type)
     aree = aree_tributarie(nodes, elements, superficie, element_type)[indici]
     totale = float(aree.sum())
-    if totale <= 0.0:
+    # Forma positiva -- buono se e solo se finito e positivo -- e non
+    # `totale <= 0.0`: con quel confronto un'area `NaN` cadeva dalla parte
+    # permissiva, le quote uscivano tutte `NaN` e finivano interpolate nelle
+    # righe `*CLOAD` del deck. Un `.inp` con `nan` al posto di una forza e'
+    # peggio di un deck mancante: il solutore lo legge.
+    if not (np.isfinite(totale) and totale > 0.0):
         raise ValueError(
-            f"il carico '{nome}' agisce su {indici.size} nodi che non formano alcuna "
-            "faccia di bordo: nessuna area su cui ripartire la risultante. Un insieme "
-            "di nodi tutto interno al solido produce questo, e un carico applicato "
-            "a nulla non è un carico"
+            f"il carico '{nome}' agisce su {indici.size} nodi la cui area di bordo "
+            f"vale {totale}: nessuna area utilizzabile su cui ripartire la "
+            "risultante. Un insieme di nodi tutto interno al solido, o una "
+            "coordinata non finita, producono questo, e un carico applicato a "
+            "nulla non è un carico"
         )
     quote = risultante * aree / totale
     resoconto: dict[str, object] = {
         "nodi": int(indici.size),
         "area_totale": totale,
-        "nodi_ad_area_nulla": int((aree == 0.0).sum()),
+        # Stessa forma positiva: `aree == 0.0` con un `NaN` e' `False`, quindi
+        # il conteggio dichiarava sano un insieme che non lo era.
+        "nodi_ad_area_nulla": int((~(np.isfinite(aree) & (aree > 0.0))).sum()),
     }
     return quote, resoconto
 
@@ -986,6 +994,19 @@ def align_to_axes(
     """
     points = np.asarray(nodes, dtype=np.float64)
     reference = points if reference is None else np.asarray(reference, dtype=np.float64)
+    # Qui, e non solo in `build_node_sets`: questa e' la prima funzione che
+    # `export_model` chiama, quindi e' il punto per cui passano davvero tutti i
+    # chiamanti. Su zero nodi `np.ptp` piu' avanti solleva «zero-size array to
+    # reduction operation maximum», che accusa una riduzione invece di dire
+    # cosa manca -- e la guardia a valle non si raggiungeva mai perche' il
+    # programma moriva prima. Le tre sorelle che leggono minimi e massimi
+    # (`footprint_coverage`, `constraint_plan_extent`, `build_node_sets`)
+    # ricevono i nodi da qui.
+    if len(points) == 0 or len(reference) == 0:
+        raise ValueError(
+            "nessun nodo da allineare: la terna si ricava dall'ingombro della "
+            "nuvola di riferimento, e su un insieme vuoto non esiste"
+        )
     centre = reference.mean(axis=0)
     centred = points - centre
     centred_reference = reference - centre
@@ -1169,6 +1190,25 @@ def build_node_sets(nodes: np.ndarray, tolerance: float) -> dict[str, np.ndarray
     deve prima verificare l'orientamento sul file allineato.
     """
     points = np.asarray(nodes, dtype=np.float64)
+    # Senza questa guardia numpy solleva «zero-size array to reduction
+    # operation minimum», che accusa una riduzione invece di dire che non ci
+    # sono nodi da cui ricavare i sei set. Chi legge quel messaggio non sa
+    # cosa fare.
+    if len(points) == 0:
+        raise ValueError(
+            "nessun nodo: i sei set di faccia si ricavano dal minimo e dal massimo "
+            "delle coordinate, e su un insieme vuoto non esistono"
+        )
+    # Una coordinata non finita rende `NaN` il minimo e il massimo del proprio
+    # asse, e ogni confronto contro `NaN` e' falso: i due set di quell'asse
+    # escono **vuoti**, e il deck riceve un `*NSET` senza nodi senza che nulla
+    # protesti. Misurato su tre nodi con una x a `NaN`: `FACE_FRONT` e
+    # `FACE_BACK` entrambi vuoti, nessun errore.
+    if not np.isfinite(points).all():
+        raise ValueError(
+            "coordinate non finite: il minimo e il massimo dell'asse diventano NaN "
+            "e i suoi due set di faccia uscirebbero vuoti senza un errore"
+        )
     low = points.min(axis=0)
     high = points.max(axis=0)
     # Dizionario letterale, non un accoppiamento per posizione con
