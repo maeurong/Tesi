@@ -476,6 +476,21 @@ def von_mises(tensioni: np.ndarray) -> np.ndarray:
 
     L'ordine e' SXX, SYY, SZZ, SXY, SYZ, SZX: leggerlo sbagliato non solleva
     nulla e produce un numero plausibile, che e' il modo peggiore di sbagliare.
+
+    **Verificato contro `ccx` vero il 26/08/2026**, non piu' assunto (#39). Fino
+    ad allora la formula aveva due oracoli analitici solidi e la **mappatura non
+    ne aveva nessuno**: gli `.frd` dei test li scriveva il test stesso, con
+    trazione monoassiale `(sigma, 0, 0, 0, 0, 0)`, che e' invariante rispetto a
+    qualunque permutazione dentro il gruppo dei normali e dentro quello dei
+    taglianti. Nessun riordino la cambiava, quindi nessun riordino la faceva
+    cadere.
+
+    La prova sta in `tests/validazione/test_ordine_frd.py`: un campo di
+    spostamento lineare imposto su tutto il bordo produce uno stato costante con
+    tutte e sei le componenti distinte e ben separate, e le sei colonne lette dal
+    file si confrontano una per una con la legge di Hooke. Un secondo test prova
+    che **tutte e 719 le permutazioni** diverse dall'identita' verrebbero
+    respinte, cioe' che il confronto discrimina invece di limitarsi a passare.
     """
     s = np.asarray(tensioni, dtype=np.float64)
     normali = 0.5 * ((s[:, 0] - s[:, 1]) ** 2 + (s[:, 1] - s[:, 2]) ** 2 + (s[:, 2] - s[:, 0]) ** 2)
