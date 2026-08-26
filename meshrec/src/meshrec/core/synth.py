@@ -78,6 +78,117 @@ def box_mesh(size: tuple[float, float, float]) -> tuple[np.ndarray, np.ndarray]:
     return vertices, _BOX_FACES.copy()
 
 
+def elliptical_annulus_mesh(
+    inner: tuple[float, float],
+    outer: tuple[float, float],
+    thickness: float,
+    segments: int,
+    layers: int = 1,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Quarto di anello ellittico estruso, come mesh triangolare chiusa.
+
+    E' la geometria del benchmark NAFEMS LE10 (vedi
+    `docs/validazione/benchmark-nafems.md` §3): due ellissi concentriche di
+    semiassi diversi, il settore con `x >= 0` e `y >= 0`, estruso in z da 0 a
+    `thickness`. `inner` e `outer` sono le coppie di semiassi `(a, b)`.
+
+    Il contorno e' **poligonale**, non curvo: TetGen riceve triangoli piani, e
+    il volume del solido prodotto e' quello del poligono inscritto, che sta
+    sotto quello dell'ellisse. Lo scarto va come `1/segments^2` e va
+    dichiarato, non trascurato -- il confronto con LE10 e' su una tensione, che
+    dipende dalla geometria del bordo.
+
+    L'orientamento non e' costruito a mano faccia per faccia ma **imposto sul
+    risultato**, dal segno del volume racchiuso: costruire dodici gruppi di
+    triangoli con il verso giusto a memoria e' il genere di cosa che sembra
+    corretta e non lo e', e il segno del volume e' l'oracolo che lo dice.
+    """
+    a_i, b_i = (float(v) for v in inner)
+    a_o, b_o = (float(v) for v in outer)
+    h = float(thickness)
+    if segments < 3:
+        raise ValueError(f"{segments} suddivisioni: due punti non fanno un arco, ne servono almeno tre")
+    if h <= 0.0:
+        raise ValueError(f"spessore {h}: un solido estruso ha spessore positivo")
+    if a_i >= a_o or b_i >= b_o:
+        raise ValueError(
+            f"ellisse interna ({a_i}, {b_i}) non contenuta in quella esterna ({a_o}, {b_o}): "
+            "la superficie si autointersecherebbe"
+        )
+
+    if layers < 1:
+        raise ValueError(f"{layers} strati: l'estrusione ne vuole almeno uno")
+
+    t = np.linspace(0.0, np.pi / 2.0, segments + 1)
+    n = len(t)
+    interno = np.column_stack([a_i * np.cos(t), b_i * np.sin(t)])
+    esterno = np.column_stack([a_o * np.cos(t), b_o * np.sin(t)])
+    quote = np.linspace(0.0, h, layers + 1)
+
+    def anello(punti: np.ndarray, quota: float) -> np.ndarray:
+        return np.column_stack([punti, np.full(len(punti), quota)])
+
+    # Per ogni quota, prima l'anello interno poi quello esterno. Gli strati
+    # servono a due cose: la qualita' del maglio, e -- con `layers` pari -- a
+    # mettere davvero dei nodi sul **piano di mezzeria**, che il vincolo di
+    # LE10 richiede e che un'estrusione a due sole quote non avrebbe.
+    vertici = np.vstack(
+        [blocco for z in quote for blocco in (anello(interno, z), anello(esterno, z))]
+    )
+
+    def ib(j: int) -> int:
+        return j * 2 * n
+
+    def ob(j: int) -> int:
+        return j * 2 * n + n
+
+    quad: list[tuple[int, int, int, int]] = []
+    for k in range(n - 1):
+        quad.append((ib(0) + k, ib(0) + k + 1, ob(0) + k + 1, ob(0) + k))
+        alto = layers
+        quad.append((ib(alto) + k, ob(alto) + k, ob(alto) + k + 1, ib(alto) + k + 1))
+    for j in range(layers):
+        for k in range(n - 1):
+            # I due fianchi hanno verso **opposto** fra loro: la normale uscente
+            # del fianco interno punta dentro il foro, quella dell'esterno punta
+            # fuori. Scriverli con lo stesso avvolgimento e' l'errore che la
+            # prima stesura ha fatto, e che `is_watertight` non vede -- conta
+            # gli spigoli, non l'orientamento.
+            quad.append((ib(j) + k, ib(j + 1) + k, ib(j + 1) + k + 1, ib(j) + k + 1))
+            quad.append((ob(j) + k, ob(j) + k + 1, ob(j + 1) + k + 1, ob(j + 1) + k))
+        # Le due facce radiali piane: il taglio a y = 0 e quello a x = 0.
+        quad.append((ib(j), ob(j), ob(j + 1), ib(j + 1)))
+        quad.append((ib(j) + n - 1, ib(j + 1) + n - 1, ob(j + 1) + n - 1, ob(j) + n - 1))
+
+    facce = np.array(
+        [tri for a, b, c, d in quad for tri in ((a, b, c), (a, c, d))], dtype=np.int64
+    )
+
+    from meshrec.core.quality import is_watertight, mesh_volume
+
+    if not is_watertight(facce):
+        raise ValueError("superficie non chiusa: la costruzione delle facce ha un difetto")
+    # **Chiusa non basta.** `is_watertight` conta quanti triangoli usano ogni
+    # spigolo, non in che verso: una superficie con le normali miste passa quel
+    # controllo e produce un volume racchiuso sbagliato. La prima stesura di
+    # questa funzione aveva due gruppi di facce rovesciati su sei, e il volume
+    # usciva esattamente un terzo di quello vero.
+    #
+    # Il controllo giusto e' sull'orientamento: in una superficie coerente ogni
+    # spigolo interno e' percorso nei **due versi opposti** dalle sue due
+    # facce, quindi ogni coppia ordinata (a, b) compare una volta sola.
+    orientati = np.vstack([facce[:, [0, 1]], facce[:, [1, 2]], facce[:, [2, 0]]])
+    _, quante = np.unique(orientati, axis=0, return_counts=True)
+    if quante.max() > 1:
+        raise ValueError(
+            "superficie chiusa ma non orientata: uno spigolo è percorso nello stesso "
+            "verso da due facce, quindi le normali non sono tutte uscenti"
+        )
+    if mesh_volume(vertici, facce) < 0.0:
+        facce = np.ascontiguousarray(facce[:, [0, 2, 1]])
+    return np.ascontiguousarray(vertici), facce
+
+
 def punch_holes(faces: np.ndarray, remove: tuple[int, ...] = (0, 6)) -> np.ndarray:
     """Rimuove i triangoli indicati dalla mesh.
 
