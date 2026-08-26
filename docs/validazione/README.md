@@ -162,8 +162,9 @@ documenti di ricerca.
    frequenza contro le soluzioni analitiche di Gere-Timoshenko,
    Timoshenko-Goodier e Hurty-Rubinstein, **le stesse tre che Benzley usa**, così
    che il confronto sia diretto; sei modi rigidi nulli; massa efficace totale
-   contro ρV; benchmark NAFEMS LE10 (σ_yy = −5,38 MPa), LE11 (σ_zz = −105 MPa),
-   FV32 (44,623 Hz).
+   contro ρV; benchmark NAFEMS LE10 (σ_yy = −5,38 MPa) e FV52 (44,092 Hz, set
+   numerico). LE11 (σ_zz = −105 MPa) è ricostruibile ma Abaqus lo tabula solo
+   per C3D20/C3D20R: nessun termine di paragone per i tetraedri.
 4. **Verifica del calcolo** (ASME: *calculation verification*) — studio di
    convergenza di maglio con estrapolazione di Richardson e GCI di Roache. È
    l'omissione che ASME chiama la più grande del settore.
