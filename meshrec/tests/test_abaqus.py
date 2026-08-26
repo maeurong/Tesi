@@ -62,6 +62,64 @@ def cube_mesh_fine():
     )
 
 
+# Un cubo in sei tetraedri (decomposizione di Kuhn), coi vertici numerati sui
+# bit di (i, j, k).
+_CUBO_IN_SEI = (
+    (0, 1, 3, 7), (0, 1, 7, 5), (0, 5, 7, 4),
+    (0, 3, 2, 7), (0, 6, 4, 7), (0, 2, 6, 7),
+)
+
+
+@pytest.fixture(scope="module")
+def griglia_mesh():
+    """Lo stesso banco di `cube_mesh`, ma **costruito a mano** invece che da TetGen.
+
+    Esiste per #66. La CI su due piattaforme ha misurato che TetGen produce
+    magli **diversi** fra Linux x86-64 e macOS arm64 a parita' di versione
+    (0.8.4), di ingresso e di opzioni: sulla stessa scatola rende 16 nodi e
+    **24** elementi su macOS contro 16 e **18** su Linux, e col vincolo di
+    volume piu' stretto 30/48 contro 32/56, inserendo punti di Steiner a
+    quote che sull'altra piattaforma non esistono. Il volume totale invece
+    coincide **esatto** su entrambe: la geometria e' giusta, e' la
+    discretizzazione a differire.
+
+    I test che usano questa fixture non provano la meshatura: provano gli
+    avvisi e il resoconto dei carichi che toccano il vincolo. Farli dipendere
+    da un generatore che non e' riproducibile fra piattaforme li rendeva
+    fragili senza aggiungere nulla -- su Linux uno dei tre non trovava
+    nemmeno lo scenario che voleva provare (l'intersezione diventava totale e
+    `export_model` sollevava invece di avvisare).
+
+    Griglia 1x1x4 su (100, 40, 200): **20 nodi, 24 tetraedri**, volume
+    esattamente 800000, quote a 0, 50, 100, 150 e 200. Nessun numero qui
+    dipende dalla piattaforma.
+    """
+    xs, ys, zs = (
+        np.linspace(0.0, SIZE[0], 2),
+        np.linspace(0.0, SIZE[1], 2),
+        np.linspace(0.0, SIZE[2], 5),
+    )
+    nodi = np.array([(x, y, z) for x in xs for y in ys for z in zs], dtype=np.float64)
+
+    def indice(i, j, k):
+        return (i * 2 + j) * 5 + k
+
+    tetraedri = [
+        [
+            [
+                indice(i + (n & 1), j + ((n >> 1) & 1), k + ((n >> 2) & 1))
+                for n in range(8)
+            ][c]
+            for c in combo
+        ]
+        for i in range(1)
+        for j in range(1)
+        for k in range(4)
+        for combo in _CUBO_IN_SEI
+    ]
+    return nodi, np.array(tetraedri, dtype=np.int64)
+
+
 def _sommita_piu_il_nodo(nodi: np.ndarray, punto: tuple[float, float, float]) -> np.ndarray:
     """I nodi della faccia superiore, piu' quello che sta esattamente in `punto`.
 
@@ -2352,12 +2410,12 @@ def test_un_carico_su_tutto_il_vincolo_solleva(cube_mesh, tmp_path):
         )
 
 
-def test_un_carico_che_interseca_in_parte_il_vincolo_avvisa(cube_mesh, tmp_path):
+def test_un_carico_che_interseca_in_parte_il_vincolo_avvisa(griglia_mesh, tmp_path):
     """Un carico che include solo alcuni nodi del vincolo non e' rifiutato,
     ma l'operatore deve saperlo: quella quota finisce in reazione lo stesso.
 
-    Il selettore prende i due strati piu' bassi (z <= 60 mm): le quattro
-    basse coincidono col vincolo, le due a 50 mm no. E' l'unico dei due
+    Il selettore prende i due strati piu' bassi (z <= 60 mm): sul maglio
+    a griglia sono 8 nodi, di cui i 4 a z = 0 coincidono col vincolo. E' l'unico dei due
     controlli dove il carico resta valido -- il conteggio nell'avviso e'
     quello che permette all'operatore di giudicare se e' voluto.
 
@@ -2365,9 +2423,9 @@ def test_un_carico_che_interseca_in_parte_il_vincolo_avvisa(cube_mesh, tmp_path)
     caso normale, che rumorerebbe ogni corsa), o non emetterlo affatto
     quando l'intersezione e' parziale.
     """
-    nodi, tetraedri = cube_mesh
+    nodi, tetraedri = griglia_mesh
     analisi = config.AnalysisConfig(material=MATERIALE, set_tolerance_factor=0.5)
-    with pytest.warns(abaqus.CaricoSulVincoloWarning, match="4 dei suoi 6"):
+    with pytest.warns(abaqus.CaricoSulVincoloWarning, match="4 dei suoi 8"):
         abaqus.export_model(
             tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tetraedri, analisi, TET_LINEARE,
             selettori={"bordo_basso": config.SelettoreBox(
@@ -2401,11 +2459,11 @@ def test_carico_sommita_su_tutto_il_vincolo_solleva(cube_mesh, tmp_path):
         )
 
 
-def test_carico_sommita_che_interseca_in_parte_il_vincolo_avvisa(cube_mesh, tmp_path):
+def test_carico_sommita_che_interseca_in_parte_il_vincolo_avvisa(griglia_mesh, tmp_path):
     """Stesso controllo del test gemello sui posizionati, applicato a
     `carico_sommita`: a `set_tolerance_factor=0.5` `SIDE_LEFT` e `BASE`
-    condividono solo l'angolo basso (2 nodi su 6), ne' l'uno sottoinsieme
-    dell'altro.
+    condividono solo l'angolo basso (2 nodi su 10 sul maglio a griglia), ne'
+    l'uno sottoinsieme dell'altro.
 
     **Il conteggio deve anche uscire nel resoconto.** L'avviso va su stderr e
     si perde con la finestra del terminale; il § 7 di
@@ -2420,9 +2478,9 @@ def test_carico_sommita_che_interseca_in_parte_il_vincolo_avvisa(cube_mesh, tmp_
     `nodi_sul_vincolo` su `nome != "CARICO_TOP"`. La chiave sparisce e
     l'avviso resta.
     """
-    nodi, tetraedri = cube_mesh
+    nodi, tetraedri = griglia_mesh
     analisi = config.AnalysisConfig(material=MATERIALE, set_tolerance_factor=0.5)
-    with pytest.warns(abaqus.CaricoSulVincoloWarning, match=r"CARICO_TOP.*2 dei suoi 6.*'BASE'"):
+    with pytest.warns(abaqus.CaricoSulVincoloWarning, match=r"CARICO_TOP.*2 dei suoi 10.*'BASE'"):
         metriche = abaqus.export_model(
             tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tetraedri, analisi, TET_LINEARE,
             carichi=config.CarichiConfig(
@@ -2430,7 +2488,7 @@ def test_carico_sommita_che_interseca_in_parte_il_vincolo_avvisa(cube_mesh, tmp_
             ),
         )
     sommita = metriche["carichi_posizionati"]["CARICO_TOP"]
-    assert sommita["nodi"] == 6
+    assert sommita["nodi"] == 10
     assert sommita["nodi_sul_vincolo"] == 2
 
 
@@ -2540,7 +2598,7 @@ def _con_box(tmp_path, cube_mesh, minimo, massimo, nome="PIEDE"):
     )
 
 
-def test_i_nodi_bloccati_dal_vincolo_arrivano_nel_resoconto(cube_mesh, tmp_path):
+def test_i_nodi_bloccati_dal_vincolo_arrivano_nel_resoconto(griglia_mesh, tmp_path):
     """L'avviso va su stderr, il numero deve andare in `metrics.json`.
 
     Un selettore a cavallo del vincolo non fa sollevare la guardia
@@ -2550,16 +2608,16 @@ def test_i_nodi_bloccati_dal_vincolo_arrivano_nel_resoconto(cube_mesh, tmp_path)
     conteggio era gia' calcolato per comporre la stringa dell'avviso: qui
     si pretende che finisca anche nel resoconto.
 
-    La box prende le tre quote basse (10 nodi), di cui i 4 a z = 0 sono
-    l'insieme vincolato.
+    La box prende le tre quote basse (12 nodi sul maglio a griglia), di cui
+    i 4 a z = 0 sono l'insieme vincolato.
 
     Mutazione che lo uccide: lasciare il conteggio dentro il solo
     `warnings.warn`. La chiave sparisce e resta l'avviso.
     """
     with pytest.warns(abaqus.CaricoSulVincoloWarning):
-        metriche = _con_box(tmp_path, cube_mesh, (-1.0, -1.0, -1.0), (1e9, 1e9, 100.0))
+        metriche = _con_box(tmp_path, griglia_mesh, (-1.0, -1.0, -1.0), (1e9, 1e9, 100.0))
     piede = metriche["carichi_posizionati"]["PIEDE"]
-    assert piede["nodi"] == 10
+    assert piede["nodi"] == 12
     assert piede["nodi_sul_vincolo"] == 4
 
 
