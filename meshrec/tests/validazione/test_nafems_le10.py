@@ -274,3 +274,22 @@ def test_raffinando_l_errore_in_d_non_e_detto_che_cali(tmp_path):
         f"scarto massimo {max(rado, fine):.1%}: fuori dalla forbice fra -5,6% e +9,5% "
         "in cui stanno i risultati pubblicati su LE10"
     )
+
+
+def test_il_generatore_rifiuta_una_superficie_chiusa_ma_non_orientata(monkeypatch):
+    """La guardia di #48, che la costruzione corretta non fa mai scattare.
+
+    `is_watertight` conta quanti triangoli usano ogni spigolo, non in che
+    verso: scrivere i due fianchi con lo stesso avvolgimento -- l'errore della
+    prima stesura -- lascia la superficie chiusa e il volume racchiuso pari a
+    una frazione di quello vero. Il ramo non e' raggiungibile da fuori, quindi
+    l'oracolo si inietta: senza questo test la guardia si puo' cancellare e
+    tutta la suite resta verde.
+    """
+    from meshrec.core import quality
+
+    monkeypatch.setattr(quality, "is_oriented", lambda facce: False)
+    with pytest.raises(ValueError, match="chiusa ma non orientata"):
+        synth.elliptical_annulus_mesh(
+            (A_INTERNO, B_INTERNO), (A_ESTERNO, B_ESTERNO), SPESSORE, segments=12
+        )

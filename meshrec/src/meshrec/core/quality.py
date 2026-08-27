@@ -21,6 +21,11 @@ def finito_o_none(valore: float) -> float | None:
     return valore if np.isfinite(valore) else None
 
 
+def _conta(quanti: int, singolare: str, plurale: str) -> str:
+    """«1 faccia», non «1 facce»: il conto e il nome che gli si accorda."""
+    return f"{quanti} {singolare if quanti == 1 else plurale}"
+
+
 def _edge_counts(faces: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Spigoli unici (ordinati per indice) e numero di triangoli che li usano."""
     edges = np.vstack([faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]])
@@ -45,6 +50,28 @@ def is_watertight(faces: np.ndarray) -> bool:
     """
     _, counts = _edge_counts(np.asarray(faces))
     return bool(counts.size > 0 and (counts == 2).all())
+
+
+def is_oriented(faces: np.ndarray) -> bool:
+    """Vero se le normali sono coerenti: ogni spigolo percorso una volta per verso.
+
+    **Chiusa non basta.** `is_watertight` conta quanti triangoli usano ogni
+    spigolo, non in che verso: una superficie con le normali miste passa quel
+    controllo. #48 l'ha misurato su `synth.elliptical_annulus_mesh`, che aveva
+    due gruppi di facce rovesciati su sei e rendeva un volume racchiuso pari a
+    un terzo di quello vero.
+
+    In una superficie orientata coerentemente ogni spigolo interno e' percorso
+    nei **due versi opposti** dalle sue due facce, quindi ogni coppia ordinata
+    (a, b) compare una volta sola. Una mesh **vuota** rende `False`, come
+    `is_watertight` e per la stessa ragione.
+    """
+    f = np.asarray(faces)
+    if len(f) == 0:
+        return False
+    orientati = np.vstack([f[:, [0, 1]], f[:, [1, 2]], f[:, [2, 0]]])
+    _, quante = np.unique(orientati, axis=0, return_counts=True)
+    return bool(quante.max() == 1)
 
 
 def mesh_volume(vertices: np.ndarray, faces: np.ndarray) -> float:
@@ -748,20 +775,62 @@ def scarto_con_segno(
     puo' essere superficie mai rilevata invece che persa dalla ricostruzione.
     Separarle chiede una stima della copertura che questa funzione non fa: il
     numero va quindi letto come limite superiore della materia mancante.
+
+    **Limite dichiarato, e dichiarato anche nell'uscita**: `compute_signed_distance`
+    ha un segno definito **solo su una superficie chiusa e orientata**. Su
+    un'uscita di Poisson non chiusa il raycasting rende comunque un numero, ma
+    dentro e fuori si scambiano dove la superficie e' aperta, e la convenzione
+    «positivo = materia mancante» decade senza sintomo. La chiave
+    `segno_definito` porta l'esito del controllo: quando e' falsa, `modulo_rms`
+    resta una misura e la decomposizione fra «mancante» e «inventata» no.
+    Chiusa non basta: #48 ha misurato che `is_watertight` accetta due gruppi di
+    facce rovesciati, quindi il controllo e' `is_watertight` **e** `is_oriented`.
     """
     punti = np.asarray(cloud, dtype=np.float64)
     vert = np.asarray(vertices, dtype=np.float64)
-    facce = np.asarray(faces, dtype=np.int64)
+    ingresso_facce = np.asarray(faces)
     if not np.isfinite(tolleranza) or tolleranza <= 0.0:
         raise ValueError(
             f"la tolleranza vale {tolleranza!r}: senza una distanza positiva e finita "
             "non esiste un «entro quanto», e precision e recall non sono definite"
         )
-    if len(punti) == 0 or len(facce) == 0:
+    if len(punti) == 0 or len(ingresso_facce) == 0:
         raise ValueError(
-            f"nuvola di {len(punti)} punti e superficie di {len(facce)} facce: "
+            f"nuvola di {len(punti)} punti e superficie di {len(ingresso_facce)} facce: "
             "senza entrambe non c'e' uno scarto da misurare"
         )
+    # #89. Qui la funzione **riceve** un ingresso e insieme **conta**, e #36
+    # tiene le due cose separate: chi conta marca, chi riceve un valore non
+    # rappresentabile solleva. Vince il ricevere, come in `selezione.py`: un
+    # `nan` qui non rende `nan` le frazioni, le **spegne**. `con_segno = nan`
+    # e' insieme falso in `fuori` (`> 0`) e in `dentro` (`< 0`), quindi il
+    # punto sparisce da `mancante_frazione` e da `inventata_frazione` in una
+    # volta sola, mentre `recall` lo conta perso perche' `abs(nan) <=
+    # tolleranza` e' falso: marcare il risultato non basta, perche' il numero
+    # marcato sarebbe gia' quello sbagliato.
+    #
+    # Misurato: nuvola e vertici non finiti oggi cadono comunque, ma sul
+    # `cKDTree` che `vertex_deviation` costruisce per `precision`, con un
+    # messaggio che non dice ne' quale ingresso ne' quanti valori -- e cadono
+    # dopo il raycasting, cioe' dopo aver pagato tutto. Le **facce** non
+    # cadono affatto: `np.asarray(faces, dtype=np.int64)` di un `nan` rende
+    # -9223372036854775808 con un `RuntimeWarning`, un indice di vertice
+    # inventato, e la funzione rende frazioni verosimili su un triangolo che
+    # non esiste.
+    non_finiti = int((~np.isfinite(punti).all(axis=1)).sum())
+    vertici_non_finiti = int((~np.isfinite(vert).all(axis=1)).sum())
+    facce_non_finite = int((~np.isfinite(ingresso_facce).all(axis=1)).sum())
+    if non_finiti or vertici_non_finiti or facce_non_finite:
+        raise ValueError(
+            f"{_conta(non_finiti, 'punto', 'punti')}, "
+            f"{_conta(vertici_non_finiti, 'vertice', 'vertici')} e "
+            f"{_conta(facce_non_finite, 'faccia', 'facce')} non finiti: "
+            "un ingresso non rappresentabile non peggiora le frazioni, le "
+            "falsifica in silenzio -- un punto sparisce insieme da «mancante» "
+            "e da «inventata», una faccia castata a intero diventa un indice "
+            "di vertice inventato, e nessuno dei due casi protesta"
+        )
+    facce = ingresso_facce.astype(np.int64)
 
     import open3d as o3d
 
@@ -788,6 +857,11 @@ def scarto_con_segno(
         "tolleranza": float(tolleranza),
         "punti": int(len(punti)),
         "vertici": int(len(vert)),
+        # #90: falso significa che tutto cio' che segue ha modulo giusto e
+        # segno non definito. Marcare, non rifiutare: la superficie non chiusa
+        # e' esattamente l'uscita di Poisson che questa funzione esiste per
+        # misurare, e rifiutarla toglierebbe anche il modulo, che resta valido.
+        "segno_definito": is_watertight(facce) and is_oriented(facce),
         # materia mancante: il rilievo sta fuori dal modello
         "mancante_rms": rms(con_segno[fuori]),
         "mancante_max": float(con_segno[fuori].max()) if fuori.any() else 0.0,

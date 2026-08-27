@@ -740,3 +740,107 @@ def test_senza_nuvola_o_senza_facce_non_si_misura_uno_scarto():
         quality.scarto_con_segno(v, f, np.zeros((0, 3)), tolleranza=5.0)
     with pytest.raises(ValueError, match="non c'e' uno scarto"):
         quality.scarto_con_segno(v, np.zeros((0, 3), dtype=np.int64), nuvola, tolleranza=5.0)
+
+
+def test_un_solo_punto_non_finito_nella_nuvola_viene_rifiutato():
+    """#89. Un `nan` nella nuvola non rende `nan` le frazioni: le **spegne**.
+
+    `con_segno = nan` e' insieme falso in `fuori` (`> 0`) e in `dentro`
+    (`< 0`), quindi il punto sparisce da `mancante_frazione` e da
+    `inventata_frazione` in una volta sola -- e nessuno le somma per
+    accorgersene. `recall` invece cala davvero, perche' `abs(nan) <=
+    tolleranza` e' falso: il numero peggiora e sembra una misura.
+    """
+    v, f, nuvola = _cubo_e_nuvola(+3.0)
+    sporca = nuvola.copy()
+    sporca[0, 2] = np.nan
+
+    with pytest.raises(ValueError, match="non finit"):
+        quality.scarto_con_segno(v, f, sporca, tolleranza=5.0)
+
+
+def test_il_rifiuto_dice_quanti_punti_non_sono_finiti():
+    """Il messaggio deve portare il conto: «qualcosa non e' finito» non dice
+    se la scansione ha un ritorno mancato o un file troncato a meta'."""
+    v, f, nuvola = _cubo_e_nuvola(+3.0)
+    sporca = nuvola.copy()
+    sporca[:3, 0] = [np.nan, np.inf, -np.inf]
+
+    with pytest.raises(ValueError, match=r"\b3 punti\b"):
+        quality.scarto_con_segno(v, f, sporca, tolleranza=5.0)
+
+
+def test_vertici_o_facce_non_finiti_sono_rifiutati_come_la_tolleranza():
+    """Stesso trattamento della tolleranza: frazioni calcolate su una
+    superficie non rappresentabile non sono una misura.
+
+    Le facce arrivano come indici, ma nulla impedisce a un lettore di `.ply`
+    di consegnarle in virgola mobile: `np.asarray(..., dtype=np.int64)` di un
+    `nan` rende -9223372036854775808 con un `RuntimeWarning`, cioe' un indice
+    di vertice inventato, non un errore.
+    """
+    v, f, nuvola = _cubo_e_nuvola(+3.0)
+
+    vertici_sporchi = v.copy()
+    vertici_sporchi[0, 0] = np.nan
+    with pytest.raises(ValueError, match="non finit"):
+        quality.scarto_con_segno(vertici_sporchi, f, nuvola, tolleranza=5.0)
+
+    facce_sporche = f.astype(np.float64)
+    facce_sporche[0, 0] = np.nan
+    with pytest.raises(ValueError, match="non finit"):
+        quality.scarto_con_segno(v, facce_sporche, nuvola, tolleranza=5.0)
+
+
+def test_una_maglia_aperta_dichiara_che_il_segno_non_e_definito():
+    """#90. `compute_signed_distance` ha segno definito solo su maglia chiusa.
+
+    Su un'uscita di Poisson non chiusa materia inventata e mancante si
+    scambiano senza sintomo, e la convenzione «positivo = materia mancante»
+    decade. Chi legge il risultato deve poterlo sapere dal risultato.
+    """
+    v, f, nuvola = _cubo_e_nuvola(+3.0)
+
+    assert quality.scarto_con_segno(v, f, nuvola, tolleranza=5.0)["segno_definito"] is True
+
+    bucata = synth.punch_holes(f)
+    assert quality.scarto_con_segno(v, bucata, nuvola, tolleranza=5.0)["segno_definito"] is False
+
+
+def test_una_maglia_chiusa_ma_rovesciata_non_ha_segno_definito():
+    """La trappola misurata in #48: `is_watertight` conta gli spigoli, non il
+    verso. Due facce rovesciate su dodici lasciano la superficie chiusa e il
+    segno rovesciato dove sono, quindi «chiusa» da sola non basta a
+    dichiarare definito il segno."""
+    v, f, nuvola = _cubo_e_nuvola(+3.0)
+    rovesciata = f.copy()
+    rovesciata[:2] = rovesciata[:2][:, [0, 2, 1]]
+
+    assert quality.is_watertight(rovesciata) is True
+    assert quality.scarto_con_segno(v, rovesciata, nuvola, tolleranza=5.0)["segno_definito"] is False
+
+
+def test_il_rifiuto_di_una_faccia_non_finita_parla_di_facce():
+    """Il messaggio copre tre ingressi: chi arriva con una faccia a `nan` deve
+    leggere il proprio caso, e leggerlo con il numero grammaticale giusto --
+    «1 facce» dice al lettore che nessuno ha guardato quel messaggio.
+    """
+    v, f, nuvola = _cubo_e_nuvola(+3.0)
+    facce_sporche = f.astype(np.float64)
+    facce_sporche[0, 0] = np.nan
+
+    with pytest.raises(ValueError, match="0 punti, 0 vertici e 1 faccia non finiti"):
+        quality.scarto_con_segno(v, facce_sporche, nuvola, tolleranza=5.0)
+
+
+def test_una_superficie_vuota_non_e_orientata():
+    """`is_oriented` e' pubblica e il docstring promette `False` sul vuoto.
+
+    Nessuno dei due chiamanti di oggi ci arriva -- `scarto_con_segno` rifiuta
+    le facce vuote prima, `synth` chiama `is_watertight` prima -- ma la
+    promessa e' scritta, ed e' la stessa di `is_watertight`: senza il ramo
+    l'indicizzazione delle colonne solleverebbe `IndexError`, non renderebbe
+    `False`.
+    """
+    assert quality.is_oriented(np.zeros((0, 3), dtype=np.int64)) is False
+    assert quality.is_oriented([]) is False

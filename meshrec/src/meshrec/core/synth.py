@@ -164,22 +164,11 @@ def elliptical_annulus_mesh(
         [tri for a, b, c, d in quad for tri in ((a, b, c), (a, c, d))], dtype=np.int64
     )
 
-    from meshrec.core.quality import is_watertight, mesh_volume
+    from meshrec.core.quality import is_oriented, is_watertight, mesh_volume
 
     if not is_watertight(facce):
         raise ValueError("superficie non chiusa: la costruzione delle facce ha un difetto")
-    # **Chiusa non basta.** `is_watertight` conta quanti triangoli usano ogni
-    # spigolo, non in che verso: una superficie con le normali miste passa quel
-    # controllo e produce un volume racchiuso sbagliato. La prima stesura di
-    # questa funzione aveva due gruppi di facce rovesciati su sei, e il volume
-    # usciva esattamente un terzo di quello vero.
-    #
-    # Il controllo giusto e' sull'orientamento: in una superficie coerente ogni
-    # spigolo interno e' percorso nei **due versi opposti** dalle sue due
-    # facce, quindi ogni coppia ordinata (a, b) compare una volta sola.
-    orientati = np.vstack([facce[:, [0, 1]], facce[:, [1, 2]], facce[:, [2, 0]]])
-    _, quante = np.unique(orientati, axis=0, return_counts=True)
-    if quante.max() > 1:
+    if not is_oriented(facce):
         raise ValueError(
             "superficie chiusa ma non orientata: uno spigolo è percorso nello stesso "
             "verso da due facce, quindi le normali non sono tutte uscenti"

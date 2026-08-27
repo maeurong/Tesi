@@ -69,6 +69,13 @@ def main() -> int:
     assert esito["punti"] == pubblicato["n_samples"]
 
     print(f"tolleranza {TOLLERANZA:.1f} mm (errore_geometrico_max, #35)")
+    # #90: se questo esce falso, la decomposizione mancante/inventata pubblicata
+    # sotto non ha un segno definito e il documento non puo' citarla.
+    print(f"segno definito (superficie chiusa e orientata): {esito['segno_definito']}")
+    assert esito["segno_definito"], (
+        "segno non definito: i numeri stampati sotto restano un modulo, ma la "
+        "decomposizione fra «mancante» e «inventata» non e' citabile"
+    )
     print(f"punti {esito['punti']}  vertici {esito['vertici']}\n")
     print("MATERIA MANCANTE (il rilievo sta fuori dal modello)")
     print(f"  frazione {esito['mancante_frazione'] * 100:7.3f} %"
