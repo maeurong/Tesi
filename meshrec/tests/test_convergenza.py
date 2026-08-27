@@ -187,3 +187,94 @@ def test_i_numeri_restano_scritti_anche_quando_la_stima_non_si_fa():
     assert esito["r21"] == pytest.approx(1.6)
     assert np.isfinite(esito["r32"])
     assert esito["spiegazione"]
+
+
+def test_un_punto_fisso_che_trabocca_si_dichiara_invece_di_alzare_overflow():
+    """#86. Il punto fisso diverge, `r21**p` supera il massimo float e il
+    ciclo alzava `OverflowError` in faccia al chiamante. Misurato su 200.000
+    triple monotone con rapporti in [1,3; 3,0]: 14.924 crash, il 7,5%.
+    """
+    esito = convergenza.stima((0.1, 1.5, 2.2), (1.0, 1.3, 2.21),
+                              fattore=FATTORE, ordine_formale=2.0)
+
+    assert esito["esito"] == "fuori_campo"
+    assert esito["gci_fine"] is None
+    assert esito["ordine_osservato"] is None
+
+
+def test_tre_valori_equispaziati_non_dividono_per_zero():
+    """#86, seconda via. `eps32 == eps21` da' `p = 0`, e con `p = 0` il
+    denominatore `r32**p - s` vale `1 - 1`: `ZeroDivisionError`."""
+    esito = convergenza.stima((1.0, 2.0, 3.0), (1.0, 2.0, 4.0),
+                              fattore=FATTORE, ordine_formale=2.0)
+
+    assert esito["esito"] == "fuori_campo"
+    assert esito["gci_fine"] is None
+
+
+def test_un_punto_fisso_che_non_converge_non_rende_l_ultimo_iterato():
+    """#88. Duecento giri senza convergere e il ciclo rendeva `p` comunque,
+    indistinguibile da un ordine misurato. Non e' codice morto: misurato su
+    200.000 triple, 4.336 non convergono (2,17%) e 1.319 di quelle (0,66%)
+    uscivano `asintotico` con una `gci_fine` numerica. Qui il residuo
+    dell'ultimo giro vale 0,85, non un'inezia di arrotondamento.
+    """
+    esito = convergenza.stima((0.1, 0.6, 12.6), (1.0, 1.3, 2.34),
+                              fattore=FATTORE, ordine_formale=2.0)
+
+    assert esito["esito"] == "fuori_campo"
+    assert esito["gci_fine"] is None
+
+
+@pytest.mark.parametrize("valori", [(0.0, 0.3, 1.5), (-0.3, 0.0, 1.2)])
+def test_un_valore_nullo_non_esce_asintotico_con_una_gci_infinita(valori):
+    """#87. `e21 = |f1 - f2| / f1` con `f1 = 0` non e' un errore relativo
+    grande: non e' definito. Il codice lo poneva `inf`, e la `gci_fine` usciva
+    `inf` **dentro** l'esito `asintotico`, cioe' proprio dove il docstring
+    promette che quel numero e' la barra d'errore.
+
+    Le due serie sono di potenza esatte con `p = 2`: l'ordine torna, e' la
+    normalizzazione a degenerare, non la convergenza.
+    """
+    esito = convergenza.stima(valori, (1.0, 2.0, 4.0),
+                              fattore=FATTORE, ordine_formale=2.0)
+
+    assert esito["esito"] == "valore_nullo"
+    assert esito["gci_fine"] is None
+
+
+def test_l_ordine_osservato_rifiuta_griglie_non_raffinate():
+    """`r21 = 1` significa due griglie identiche: la formula divide per
+    `ln(r21)`, cioe' per zero. `stima` non ci arriva mai (pretende
+    `h1 < h2 < h3` e poi `r >= 1,3`), ma `ordine_osservato` e' pubblica.
+    """
+    with pytest.raises(ValueError, match="rapporto"):
+        convergenza.ordine_osservato(1.0, 2.0, 4.0, 1.0, 2.0)
+
+
+def test_una_gci_sotto_il_rumore_del_maglio_non_si_cita_come_cifra():
+    """#101. `docs/validazione/convergenza-di-maglio.md` misura la stessa
+    serie su due piattaforme e trova GCI 0,0015% e 0,0346%: ventitre' volte di
+    scarto sullo stesso errore vero. Sotto quella scala la cifra non e'
+    riproducibile, quindi la spiegazione la legge invece di stamparla. Il
+    numero resta nel dizionario: si marca, non si nasconde.
+    """
+    h = (1.0, 2.0, 4.0)
+    esito = convergenza.stima(serie(1.0, 1e-6, 2.0, h), h,
+                              fattore=FATTORE, ordine_formale=2.0)
+
+    assert esito["esito"] == "asintotico"
+    assert esito["gci_fine"] < 1e-3
+    assert "rumore" in esito["spiegazione"]
+    assert "%" not in esito["spiegazione"]
+
+
+def test_una_gci_sopra_il_rumore_resta_una_cifra():
+    """L'altra meta' della soglia: sopra il rumore la percentuale si stampa,
+    altrimenti la guardia avrebbe cancellato l'informazione utile."""
+    h = (1.0, 2.0, 4.0)
+    esito = convergenza.stima(serie(1.0, 0.01, 2.0, h), h,
+                              fattore=FATTORE, ordine_formale=2.0)
+
+    assert esito["gci_fine"] > 1e-3
+    assert "%" in esito["spiegazione"]
