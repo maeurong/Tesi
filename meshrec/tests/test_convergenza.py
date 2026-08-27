@@ -215,8 +215,8 @@ def test_tre_valori_equispaziati_non_dividono_per_zero():
 def test_un_punto_fisso_che_non_converge_non_rende_l_ultimo_iterato():
     """#88. Duecento giri senza convergere e il ciclo rendeva `p` comunque,
     indistinguibile da un ordine misurato. Non e' codice morto: misurato su
-    200.000 triple, 4.336 non convergono (2,17%) e 1.319 di quelle (0,66%)
-    uscivano `asintotico` con una `gci_fine` numerica. Qui il residuo
+    200.000 triple, 4.336 non convergono (2,17%) e 1.319, cioe' lo 0,66% del
+    campione, uscivano `asintotico` con una `gci_fine` numerica. Qui il residuo
     dell'ultimo giro vale 0,85, non un'inezia di arrotondamento.
     """
     esito = convergenza.stima((0.1, 0.6, 12.6), (1.0, 1.3, 2.34),
@@ -278,3 +278,38 @@ def test_una_gci_sopra_il_rumore_resta_una_cifra():
 
     assert esito["gci_fine"] > 1e-3
     assert "%" in esito["spiegazione"]
+
+
+def test_due_valori_grossolani_identici_non_escono_dal_dominio_del_logaritmo():
+    """#86, terza via. `eps32 = 0` rende `rapporto` nullo, e il `math.log` che
+    inizializza il punto fisso sta **fuori** dal `try`: usciva
+    `ValueError: math domain error`, dello stesso tipo con cui la funzione
+    rifiuta gli argomenti, quindi il chiamante non poteva distinguere un
+    ingresso non valido da una degenerazione numerica.
+    """
+    p = convergenza.ordine_osservato(1.0, 2.0, 2.0, 2.0, 2.0)
+
+    assert math.isnan(p)
+
+
+def test_l_ordine_osservato_rifiuta_anche_un_r32_non_raffinato():
+    """Gemella del controllo su `r21`, che da solo lasciava la funzione
+    pubblica a controllarne uno su due. La formula eleva `r32` a un esponente
+    frazionario, e su base non positiva quella potenza non e' un numero reale.
+    """
+    with pytest.raises(ValueError, match="rapporto"):
+        convergenza.ordine_osservato(1.0, 2.0, 4.0, 2.0, 1.0)
+
+
+def test_quando_due_esiti_degeneri_valgono_insieme_vince_il_primo_dell_ordine():
+    """Gli esiti sono dichiarati non intercambiabili, quindi quale vince quando
+    due condizioni valgono insieme e' parte del contratto, non un dettaglio
+    dell'ordine dei blocchi: `f1 = 0` con rapporto negativo soddisfa insieme
+    `valore_nullo` e `non_monotono`, e l'ordine scritto nel docstring di
+    `stima` rende `non_monotono`.
+    """
+    esito = convergenza.stima((0.0, 1.0, 0.5), (1.0, 2.0, 4.0),
+                              fattore=FATTORE, ordine_formale=2.0)
+
+    assert esito["esito"] == "non_monotono"
+    assert esito["gci_fine"] is None

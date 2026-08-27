@@ -93,21 +93,27 @@ def ordine_osservato(f1: float, f2: float, f3: float, r21: float, r32: float) ->
 
     `f1` e' il valore sulla griglia **piu' fine**.
 
-    Due uscite non sono numeri: `math.inf` quando `f1 == f2`, perche' senza
-    pendenza non c'e' ordine da stimare, e `math.nan` quando il punto fisso non
-    si risolve -- diverge, trabocca, o non converge nei 200 giri. `stima` le
-    tratta entrambe come ordine non determinabile e dichiara `fuori_campo`.
+    Tre uscite non sono numeri. `math.inf` quando `f1 == f2` e `math.nan`
+    quando `f2 == f3`: senza pendenza fra due delle tre griglie non c'e' ordine
+    da stimare, e il logaritmo del rapporto non ha nemmeno dominio. `stima` non
+    arriva a nessuna delle due -- rifiuta prima come `non_monotono` -- ma
+    `ordine_osservato` e' pubblica. La terza e' `math.nan` quando il punto fisso
+    non si risolve: diverge, trabocca, o non converge nei 200 giri; li' `stima`
+    dichiara `fuori_campo`.
     """
-    if not r21 > 1.0:
+    if not r21 > 1.0 or not r32 > 1.0:
         raise ValueError(
-            f"il rapporto di raffinamento r21 deve essere maggiore di 1, è {r21!r}: "
-            "la formula divide per ln(r21), e su griglie non raffinate quel "
-            "denominatore è zero"
+            "ogni rapporto di raffinamento deve essere maggiore di 1, sono "
+            f"r21={r21!r} e r32={r32!r}: la formula divide per ln(r21), che su "
+            "griglie non raffinate è zero, ed eleva r32 a un esponente "
+            "frazionario, che su base non positiva non è un numero reale"
         )
     eps21, eps32 = f2 - f1, f3 - f2
     if eps21 == 0.0:
         return math.inf
     rapporto = eps32 / eps21
+    if rapporto == 0.0:
+        return math.nan
     s = 1.0 if rapporto > 0 else -1.0
     p = abs(math.log(abs(rapporto))) / math.log(r21)
     for _ in range(200):
@@ -156,6 +162,11 @@ def stima(
     - `valore_nullo` -- il valore su una delle due griglie piu' fini e' zero:
       l'errore relativo non ha scala su cui riferirsi, e cio' che ne uscirebbe
       non e' un errore grande, e' un errore non definito.
+
+    Quando piu' di una condizione degenere vale insieme, l'esito e' il primo di
+    questo ordine: `rapporto_troppo_piccolo`, `non_monotono`, `valore_nullo`,
+    `fuori_campo`. Una serie con `f1 == 0` e rapporto negativo esce quindi
+    `non_monotono`, non `valore_nullo`.
 
     Fuori da `asintotico` le chiavi numeriche restano scritte -- si marcano,
     non si nascondono, come i verdetti di `core/solve.py` -- ma `gci_fine` e'
@@ -235,24 +246,25 @@ def stima(
     basso, alto = _BANDA_ORDINE[0] * ordine_formale, _BANDA_ORDINE[1] * ordine_formale
     if not np.isfinite(p) or not (basso <= p <= alto):
         misura = (
-            f"vale {p:.3f}" if np.isfinite(p)
-            else "non è determinabile, perché il punto fisso di Celik non si risolve,"
+            f"l'ordine osservato vale {p:.3f}, contro un ordine formale di "
+            f"{ordine_formale:g}, ed è fuori dalla banda [{basso:g}, {alto:g}]"
+            if np.isfinite(p)
+            else "l'ordine osservato non è determinabile, perché il punto fisso "
+            "di Celik non si risolve"
         )
         return {
             **comune, "esito": "fuori_campo", "ordine_osservato": None if not np.isfinite(p) else p,
             "estrapolato": None, "gci_fine": None, "gci_grossolana": None,
             "rapporto_asintotico": None,
             "spiegazione": (
-                f"l'ordine osservato {misura} contro un ordine formale di "
-                f"{ordine_formale:g}, fuori dalla banda [{basso:g}, {alto:g}]: le "
-                "griglie non sono nel campo asintotico, oppure la grandezza non "
-                "converge con una legge di potenza"
+                f"{misura}. Le griglie non sono nel campo asintotico, oppure la "
+                "grandezza non converge con una legge di potenza"
             ),
         }
 
     estrapolato = (r21**p * f1 - f2) / (r21**p - 1.0)
-    e21 = abs((f1 - f2) / f1) if f1 != 0.0 else math.inf
-    e32 = abs((f2 - f3) / f2) if f2 != 0.0 else math.inf
+    e21 = abs((f1 - f2) / f1)
+    e32 = abs((f2 - f3) / f2)
     gci21 = fattore * e21 / (r21**p - 1.0)
     gci32 = fattore * e32 / (r32**p - 1.0)
     # Indice di campo asintotico: tende a 1 quando le due GCI stanno nel
