@@ -991,10 +991,32 @@ _100CL_MEZZO = "           2                     0    "
 
 
 def _record_100cl(passo: int, valore: float, modale: bool) -> str:
+    """Numero di passo scritto **a partire** dalla colonna 62.
+
+    E' cio' che `printf("%1d", passo)` produce: a una cifra il campo occupa
+    la sola colonna 62, a due cifre trabocca a destra e sposta `MODAL`.
+    """
     return f"  100CL  101{valore:12.9f}{_100CL_MEZZO}{passo}{'MODAL' if modale else '     '}      1"
 
 
-def _frd(blocchi) -> str:
+def _record_100cl_allineato(passo: int, valore: float, modale: bool) -> str:
+    """Numero di passo allineato **a destra** sulla colonna 62.
+
+    E' cio' che `printf("%5d", passo)` produce: a una cifra e' identico a
+    `_record_100cl` -- e' l'unico caso misurato su `ccx` vero -- ma a due
+    cifre cresce verso sinistra e `MODAL` resta alla colonna 63.
+
+    Le due forme esistono perche' `ccx` non e' installabile in locale e il
+    solo record misurato ha il passo a una cifra: quale delle due larghezze
+    abbia il campo resta indeciso qui. La lettura deve reggere entrambe, e il
+    benchmark di validazione la misura contro il solutore vero.
+    """
+    cifre = str(passo)
+    mezzo = _100CL_MEZZO[: len(_100CL_MEZZO) - len(cifre) + 1]
+    return f"  100CL  101{valore:12.9f}{mezzo}{cifre}{'MODAL' if modale else '     '}      1"
+
+
+def _frd(blocchi, record=_record_100cl) -> str:
     """`.frd` ascii da una lista di `(passo, grandezza, modale, valore, righe)`.
 
     `righe` e' `{nodo: (componenti...)}`. Le colonne sono quelle che
@@ -1003,7 +1025,7 @@ def _frd(blocchi) -> str:
     """
     testo: list[str] = []
     for passo, grandezza, modale, valore, righe in blocchi:
-        testo.append(_record_100cl(passo, valore, modale))
+        testo.append(record(passo, valore, modale))
         testo.append(f" -4  {grandezza:<12}{len(next(iter(righe.values())))}    1")
         for nodo, componenti in righe.items():
             testo.append(f" -1{nodo:10d}" + "".join(f"{v:12.5E}" for v in componenti))
@@ -1460,3 +1482,102 @@ def test_le_rotazionali_restano_scritte_ma_fuori_dal_verdetto():
     assert esito["passato"] is True
     assert esito["rotazionali_catturate"] == pytest.approx([10.0, 20.0, 30.0])
     assert esito["rotazionali_disponibili"] == pytest.approx([1000.0] * 3)
+
+
+# ---------------------------------------------------------------------------
+# #94, #93, #92: il passo a due cifre, il blocco troncato, il caso mancante.
+# ---------------------------------------------------------------------------
+
+# Undici passi: dieci statici piu' uno modale. Il deck ci arriva senza sforzo
+# -- `abaqus.write_inp` scrive un passo per la gravita', uno per la spinta,
+# uno per `CARICO_TOP`, uno per ogni posizionato e uno per ogni distribuito, e
+# `carichi.distribuiti` non ha limite in `core.config`.
+def _frd_a_undici_passi(record=_record_100cl) -> str:
+    """`.frd` a dieci passi statici piu' un modale, nel layout dato.
+
+    Riusabile: l'oracolo di parsing per un deck oltre i nove passi (#95).
+    """
+    return _frd(
+        [(passo, "DISP", False, 1.0, {1: (0.0, 0.0, float(passo))}) for passo in range(1, 11)]
+        + [(11, "DISP", True, 21.19324067, {1: (1.0, 0.0, 0.0)})],
+        record=record,
+    )
+
+
+@pytest.mark.parametrize("record", [_record_100cl, _record_100cl_allineato])
+def test_dal_decimo_passo_in_poi_il_numero_si_legge_intero(tmp_path, record):
+    """#94: una sola colonna rende `1` dal passo 10 in poi.
+
+    `etichetta_passo.get` in `risolvi()` attribuirebbe allora i risultati del
+    passo 10 al primo caso di carico, in silenzio. Mutazione uccisa: tornare
+    a leggere una cifra sola.
+    """
+    percorso = tmp_path / "undici.frd"
+    percorso.write_text(_frd_a_undici_passi(record), encoding="ascii")
+
+    blocchi = solve.leggi_frd(percorso)
+
+    assert [b.passo for b in blocchi] == list(range(1, 12))
+    assert [b.modale for b in blocchi] == [False] * 10 + [True]
+
+
+@pytest.mark.parametrize("record", [_record_100cl, _record_100cl_allineato])
+def test_il_marchio_modale_sopravvive_anche_a_un_passo_a_due_cifre(tmp_path, record):
+    """#94: con `MODAL` incollato a un numero a due cifre il tipo non deve
+    scivolare fuori dalle colonne che lo cercano."""
+    percorso = tmp_path / "undici.frd"
+    percorso.write_text(_frd_a_undici_passi(record), encoding="ascii")
+
+    blocchi = solve.leggi_frd(percorso)
+
+    assert blocchi[-1].modale is True
+    assert blocchi[-1].passo == 11
+
+
+def test_un_frd_troncato_a_meta_blocco_solleva_invece_di_scartare(tmp_path):
+    """#93: un `.frd` tagliato a meta' e' una corsa di `ccx` interrotta --
+    solutore ucciso, disco pieno -- cioe' il momento in cui serve saperlo.
+
+    Mutazione uccisa: togliere il confronto fra blocchi aperti e blocchi
+    chiusi. Senza, la funzione rende un blocco su due e nessun errore.
+    """
+    intero = _frd([
+        (1, "DISP", False, 1.0, {1: (1.0, 2.0, 3.0)}),
+        (1, "STRESS", False, 1.0, {1: (1.0, 0.0, 0.0, 0.0, 0.0, 0.0)}),
+    ])
+    percorso = tmp_path / "troncato.frd"
+    percorso.write_text(intero[: intero.rindex(" -3")], encoding="ascii")
+
+    with pytest.raises(ValueError) as errore:
+        solve.leggi_frd(percorso)
+
+    messaggio = str(errore.value)
+    assert "troncato.frd" in messaggio, "l'errore non nomina il file"
+    assert "2" in messaggio and "1" in messaggio, "l'errore non porta i due conteggi"
+
+
+# Un solo caso su due nel `.frd`, e quello presente **passa**: cosi' il
+# verdetto d'insieme puo' essere falso solo per il caso mancante, non per il
+# caso letto.
+_FRD_UN_CASO_SU_DUE = _frd([
+    (1, "DISP", False, 1.0, {n: (0.0, 0.0, -1.0) for n in _NODI_STAMPATI}),
+    _blocco_stress(1, {3: 1.0, 4: 1.0, 5: 1.0, 6: 1.0, 7: 1.0, 8: 100.0}),
+])
+
+
+def test_un_caso_dichiarato_e_assente_dal_frd_boccia_il_picco(tmp_path, monkeypatch):
+    """#92: `all()` su un insieme parziale e' `True`, e approva quel che resta.
+
+    Il deck dichiara due casi statici, il `.frd` ne porta uno. Mutazione
+    uccisa: aggregare sui soli casi presenti in `picco_per_caso`.
+    """
+    esito = _risolvi_finto(
+        tmp_path, monkeypatch, _FRD_UN_CASO_SU_DUE,
+        casi=["GRAVITA", "SPINTA_ORIZZONTALE"], trasformata=np.eye(4),
+        nodi=_NODI_COLONNA, elementi=_ELEMENTI_COLONNA,
+    )
+
+    picco = esito["controlli"]["picco"]
+    assert picco["per_caso"]["GRAVITA"]["passato"] is True
+    assert picco["casi_mancanti"] == ["SPINTA_ORIZZONTALE"]
+    assert picco["passato"] is False, "un caso non letto non e' un caso superato"

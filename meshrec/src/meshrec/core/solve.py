@@ -31,6 +31,7 @@ quella intestazione per lo stesso motivo per cui `leggi_frd` marca `modale`.
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 from collections.abc import Iterable
@@ -207,12 +208,24 @@ class Blocco(NamedTuple):
 
 # Colonne del record 100CL, contate sul `.frd` scritto da ccx 2.22 (misurate
 # oggi anche su un deck di prova ad hoc, non solo su quello del brief): il
-# passo e' un'unica cifra alla colonna 62, e nel record modale "MODAL" le sta
-# incollata subito dopo, senza spazio. Un `split()` legge quel token unico e
-# perde entrambi i campi in silenzio.
+# valore sta fra 12 e 23, il passo comincia o finisce alla colonna 62, e nel
+# record modale "MODAL" gli sta incollata subito dopo, senza spazio. Un
+# `split()` sulla riga intera legge quel token unico e perde entrambi i campi
+# in silenzio.
+#
+# #94: fino a nove passi il numero occupa la sola colonna 62, ed e' l'unico
+# caso che il solutore vero ha scritto qui sotto gli occhi. Dal decimo in poi
+# non si sa se il campo cresca verso destra (`%1d`, che spinge "MODAL" avanti
+# di una colonna) o verso sinistra (`%5d`, che riempie le colonne 58-61 oggi
+# vuote): `printf` in C non tronca mai, quindi le cifre restano contigue e in
+# entrambe le forme cadono dentro la coda che comincia alla colonna 58. Si
+# legge quindi il primo gruppo di cifre della coda invece di una colonna
+# sola, e il tipo si cerca nella coda intera: la lettura non dipende da quale
+# delle due larghezze abbia il campo. Il benchmark di validazione
+# `tests/validazione/test_passi_oltre_nove.py` la misura contro `ccx` vero.
 _COL_VALORE = slice(12, 24)
-_COL_PASSO = slice(62, 63)
-_COL_TIPO = slice(63, 68)
+_COL_CODA = slice(58, None)
+_PASSO_NELLA_CODA = re.compile(r"\s*(\d+)")
 
 
 def leggi_frd(percorso: Path) -> list[Blocco]:
@@ -222,13 +235,16 @@ def leggi_frd(percorso: Path) -> list[Blocco]:
     grandezza: str | None = None
     nodi: list[int] = []
     righe: list[list[float]] = []
+    aperti = 0
     for linea in Path(percorso).read_text(encoding="ascii", errors="ignore").splitlines():
         if linea.startswith("  100CL"):
             valore = float(linea[_COL_VALORE])
-            passo = int(linea[_COL_PASSO])
-            modale = linea[_COL_TIPO].strip().startswith("MODAL")
+            coda = linea[_COL_CODA]
+            passo = int(_PASSO_NELLA_CODA.match(coda).group(1))
+            modale = "MODAL" in coda
             continue
         if linea.startswith(" -4"):
+            aperti += 1
             grandezza = linea.split()[1]
             nodi, righe = [], []
             continue
@@ -245,6 +261,18 @@ def leggi_frd(percorso: Path) -> list[Blocco]:
             nodi.append(int(linea[3:13]))
             componenti = (len(linea) - 13) // 12
             righe.append([float(linea[13 + 12 * i:25 + 12 * i]) for i in range(componenti)])
+    # #93: un blocco aperto da ` -4` e mai chiuso da ` -3` con dei dati e' un
+    # `.frd` troncato, cioe' una corsa di `ccx` interrotta -- solutore ucciso,
+    # disco pieno. Fino a qui veniva scartato senza una parola, e il
+    # chiamante riceveva meno risultati di quanti il file ne dichiarasse:
+    # esattamente il momento in cui serve saperlo. Il parser solleva, a
+    # differenza dei verdetti di questo modulo che riportano (#36).
+    if len(blocchi) != aperti:
+        raise ValueError(
+            f"{Path(percorso)} dichiara {aperti} blocchi di risultati e ne chiude "
+            f"{len(blocchi)}: il file è troncato, la corsa del solutore non l'ha "
+            "scritto tutto e i risultati letti sono parziali"
+        )
     return blocchi
 
 
@@ -1131,6 +1159,7 @@ def risolvi(
     # revisione finale: copriva tre verdetti su cinque). Non c'e' altro da
     # sapere qui sotto: il perche' di ciascuna guardia sta nel docstring della
     # funzione che la porta.
+    casi_mancanti = [nome for nome in casi_statici if nome not in picco_per_caso]
     controlli = {
         "reazioni": controlla_reazioni(reazioni_peso_proprio, peso_atteso, tolleranza=_TOLLERANZA_REAZIONI),
         "vincolo_in_pianta": controlla_vincolo_in_pianta(vincolo_in_pianta["minimo"]),
@@ -1138,9 +1167,18 @@ def risolvi(
         "avvisi": controlla_avvisi(avvisi),
         "spostamenti": controlla_spostamenti(_spostamento_massimo(point_data), _dimensione(nodes)),
         "massa_modale": controlla_massa_modale(masse_modali),
+        # #92: il verdetto si aggrega sui casi che il **deck dichiara**, non
+        # su quelli che il `.frd` ha portato. `picco_per_caso` si riempie dai
+        # blocchi letti, e `all()` su un insieme parziale e' `True`: un `.frd`
+        # con un caso su tre dava tre verdetti verdi su dati incompleti. Ogni
+        # passo statico chiede `*EL FILE S` (`abaqus._passo_statico`), quindi
+        # un caso senza blocco STRESS e' un risultato mancante, non un caso
+        # che non ne produce.
         "picco": {
-            "passato": all(v["passato"] for v in picco_per_caso.values()) if picco_per_caso else False,
+            "passato": bool(picco_per_caso) and not casi_mancanti
+            and all(v["passato"] for v in picco_per_caso.values()),
             "per_caso": picco_per_caso,
+            "casi_mancanti": casi_mancanti,
         },
     }
 
