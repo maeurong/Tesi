@@ -99,7 +99,8 @@ con fronte di Pareto e registro degli esperimenti. Report HTML statico.
 **Terminologia da preservare alla lettera.** Sono identificatori, non parole:
 `C3D4`, `C3D10`, `BASE`, `TOP`, `FACE_FRONT`, `FACE_BACK`, `SIDE_LEFT`,
 `SIDE_RIGHT`, `ALL_WALL`, `min_ratio`, `nobisect`, Poisson, TetGen, MeshFix,
-fronte di Pareto.
+fronte di Pareto. Un letterale senza spazi è un identificatore e resta ASCII;
+una chiave non si stampa mai, si stampa la sua etichetta.
 
 **Vincoli tecnici.** Unità dichiarate e imposte in un solo punto: mm, N, MPa,
 tonnellata, secondo. Un parametro di elaborazione ha il proprio valore

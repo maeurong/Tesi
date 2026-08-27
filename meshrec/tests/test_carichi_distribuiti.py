@@ -451,6 +451,37 @@ def test_un_distribuito_non_ruba_il_nome_a_una_superficie_gia_dichiarata(tmp_pat
     assert not percorso.exists()
 
 
+def test_un_distribuito_non_ruba_il_nome_a_una_superficie_che_differisce_per_caso(tmp_path):
+    """Stessa collisione, grafia diversa: nel deck i nomi sono un solo spazio
+    case-insensitive.
+
+    `ccx` risolve i nomi ignorando le maiuscole (misurato in
+    `docs/fase-6-cantiere/sonda-caso-nomi/`), ed e' la ragione per cui
+    `core/config.py` confronta col `casefold` in due punti. La guardia qui
+    confrontava invece le stringhe Python: `VENTO` e `vento` passavano
+    entrambe, il deck usciva con due `*SURFACE` che per il solutore sono la
+    stessa, e vinceva l'ultima -- che e' esattamente cio' che questa guardia
+    esiste per impedire.
+
+    Mutazione che lo uccide: rimettere il confronto esatto (`carico.nome in
+    superfici`). Nessuna eccezione, e il deck viene scritto.
+    """
+    nodi, tetraedri = _lastra(4, 4, 1, 10.0)
+    selettori = {
+        "TETTO": config.SelettoreBox(
+            tipo="box", min=(-1.0, -1.0, 9.0), max=(41.0, 41.0, 11.0)
+        )
+    }
+    percorso = tmp_path / "m.inp"
+    with pytest.raises(ValueError, match="già dichiarata"):
+        abaqus.export_model(
+            percorso, tmp_path / "m.vtu", nodi, tetraedri, ANALISI_LASTRA, TET_LINEARE,
+            reference=nodi, carichi=_distribuito("VENTO", "TETTO", 0.25),
+            selettori=selettori, element_surfaces={"vento": [(0, 1)]},
+        )
+    assert not percorso.exists()
+
+
 # Il `pressure` di `write_inp` -- la pressione **permanente**, quella della
 # Fase 4 -- e i distribuiti di #10 sono due cose diverse che finiscono nella
 # stessa card `*DSLOAD`. Che la permanente si ripeta nei passi che il parziale

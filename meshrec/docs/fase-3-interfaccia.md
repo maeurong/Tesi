@@ -1,7 +1,11 @@
 # Fase 3 — Interfaccia web: esiti, rulings, prova d'uso degli strumenti
 
 Documento di chiusura della Fase 3. Scritto il **2026-08-17**, sul ramo
-`fix/critica-giro-3`, ultimo commit dell'interfaccia `e0b84e1`.
+`fix/critica-giro-3`, ultimo commit dell'interfaccia `e0b84e1`. **Fuso in
+`main` il 2026-08-27 alle 12:04 locali con la PR #79**, commit di fusione
+`f74321a` — data letta con `git log -1 --format='%ci' f74321a`, non dedotta.
+Quel che segue resta la fotografia del 17/08: è una chiusura di fase, si
+annota e non si aggiorna.
 
 **Regola di questo documento.** Ogni numero viene da una lettura, e la lettura è
 citata. Dove una cosa non è stata misurata, sta scritto che non lo è stato:
@@ -17,6 +21,12 @@ questa fase è esistita per estirpare.
 ```
 uv run pytest    →  494 passed, 3 skipped, 6 deselected, 1 warning in 39.74s
 ```
+
+**Questo conteggio è una fotografia del 17/08, non lo stato corrente della
+suite.** La suite è cresciuta dopo la fusione della PR #79; questa nota,
+aggiunta il 27/08/2026, non l'ha rimisurata e non pubblica quindi un secondo
+numero al posto del primo. Lo stato corrente si legge eseguendo la suite da
+`meshrec/` sul commit in esame, con i marcatori attivi.
 
 Eseguita da `meshrec/` il 17/08/2026 su macOS arm64, Python 3.12.13, al commit
 `e0b84e1`. Il riferimento di partenza dichiarato dal piano era **181 test

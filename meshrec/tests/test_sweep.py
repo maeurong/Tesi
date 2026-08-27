@@ -284,6 +284,49 @@ def test_provenance_when_git_cannot_start_reports_dirty_as_unknown_not_false(mon
     assert provenance["commit"] == "sconosciuto"
 
 
+def test_provenance_outside_a_repository_reports_dirty_as_unknown_not_clean(tmp_path, monkeypatch):
+    """git parte, esce con codice != 0 e non scrive nulla su stdout.
+
+    Uno stdout vuoto per fallimento non e' un albero pulito: senza distinguere
+    il codice d'uscita, `dirty` diventerebbe bool("") = False e ogni riga scritta
+    fuori dal repository dichiarerebbe pulito un albero di cui non si sa nulla.
+    """
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path))
+
+    with pytest.warns(sweep.GitUnavailableWarning):
+        provenance = sweep.provenance()
+
+    assert provenance["commit"] == "sconosciuto"
+    assert provenance["dirty"] is None
+
+
+def test_provenance_in_a_clean_repository_reports_dirty_false_not_unknown(tmp_path, monkeypatch):
+    """git riesce su un albero pulito: stdout vuoto con codice 0 vale False, non None.
+
+    E' la distinzione che la guardia sul codice d'uscita non deve schiacciare.
+    """
+    git = ["git", "-c", "user.email=t@t", "-c", "user.name=t"]
+    sweep.subprocess.run([*git, "init", "-q", str(tmp_path)], check=True)
+    sweep.subprocess.run([*git, "commit", "-q", "--allow-empty", "-m", "vuoto"], cwd=tmp_path, check=True)
+    monkeypatch.chdir(tmp_path)
+
+    provenance = sweep.provenance()
+
+    assert provenance["dirty"] is False
+    assert provenance["commit"] != "sconosciuto"
+
+
+def test_provenance_reads_a_whitespace_only_git_output_as_a_clean_tree(monkeypatch):
+    """Solo spazi bianchi da git: dopo strip e' vuoto, quindi albero pulito."""
+    def _blank(*args, **kwargs):
+        return sweep.subprocess.CompletedProcess(args, 0, stdout="  \n", stderr="")
+
+    monkeypatch.setattr(sweep.subprocess, "run", _blank)
+
+    assert sweep.provenance()["dirty"] is False
+
+
 def test_a_candidate_that_fails_becomes_a_row_and_not_an_exception(tmp_path):
     """Un buco nel registro sarebbe indistinguibile da un candidato mai provato.
 
