@@ -21,6 +21,11 @@ def finito_o_none(valore: float) -> float | None:
     return valore if np.isfinite(valore) else None
 
 
+def _conta(quanti: int, singolare: str, plurale: str) -> str:
+    """«1 faccia», non «1 facce»: il conto e il nome che gli si accorda."""
+    return f"{quanti} {singolare if quanti == 1 else plurale}"
+
+
 def _edge_counts(faces: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Spigoli unici (ordinati per indice) e numero di triangoli che li usano."""
     edges = np.vstack([faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]])
@@ -52,7 +57,7 @@ def is_oriented(faces: np.ndarray) -> bool:
 
     **Chiusa non basta.** `is_watertight` conta quanti triangoli usano ogni
     spigolo, non in che verso: una superficie con le normali miste passa quel
-    controllo. #48 l'ha misurato su `synth.hollow_quarter_cylinder`, che aveva
+    controllo. #48 l'ha misurato su `synth.elliptical_annulus_mesh`, che aveva
     due gruppi di facce rovesciati su sei e rendeva un volume racchiuso pari a
     un terzo di quello vero.
 
@@ -817,10 +822,13 @@ def scarto_con_segno(
     facce_non_finite = int((~np.isfinite(ingresso_facce).all(axis=1)).sum())
     if non_finiti or vertici_non_finiti or facce_non_finite:
         raise ValueError(
-            f"{non_finiti} punti, {vertici_non_finiti} vertici e {facce_non_finite} "
-            "facce non finiti: uno scarto non rappresentabile non peggiora le "
-            "frazioni, le spegne -- il punto sparisce insieme da «mancante» e da "
-            "«inventata», e nessuna delle due protesta"
+            f"{_conta(non_finiti, 'punto', 'punti')}, "
+            f"{_conta(vertici_non_finiti, 'vertice', 'vertici')} e "
+            f"{_conta(facce_non_finite, 'faccia', 'facce')} non finiti: "
+            "un ingresso non rappresentabile non peggiora le frazioni, le "
+            "falsifica in silenzio -- un punto sparisce insieme da «mancante» "
+            "e da «inventata», una faccia castata a intero diventa un indice "
+            "di vertice inventato, e nessuno dei due casi protesta"
         )
     facce = ingresso_facce.astype(np.int64)
 

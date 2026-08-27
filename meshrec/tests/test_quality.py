@@ -818,3 +818,29 @@ def test_una_maglia_chiusa_ma_rovesciata_non_ha_segno_definito():
 
     assert quality.is_watertight(rovesciata) is True
     assert quality.scarto_con_segno(v, rovesciata, nuvola, tolleranza=5.0)["segno_definito"] is False
+
+
+def test_il_rifiuto_di_una_faccia_non_finita_parla_di_facce():
+    """Il messaggio copre tre ingressi: chi arriva con una faccia a `nan` deve
+    leggere il proprio caso, e leggerlo con il numero grammaticale giusto --
+    «1 facce» dice al lettore che nessuno ha guardato quel messaggio.
+    """
+    v, f, nuvola = _cubo_e_nuvola(+3.0)
+    facce_sporche = f.astype(np.float64)
+    facce_sporche[0, 0] = np.nan
+
+    with pytest.raises(ValueError, match="0 punti, 0 vertici e 1 faccia non finiti"):
+        quality.scarto_con_segno(v, facce_sporche, nuvola, tolleranza=5.0)
+
+
+def test_una_superficie_vuota_non_e_orientata():
+    """`is_oriented` e' pubblica e il docstring promette `False` sul vuoto.
+
+    Nessuno dei due chiamanti di oggi ci arriva -- `scarto_con_segno` rifiuta
+    le facce vuote prima, `synth` chiama `is_watertight` prima -- ma la
+    promessa e' scritta, ed e' la stessa di `is_watertight`: senza il ramo
+    l'indicizzazione delle colonne solleverebbe `IndexError`, non renderebbe
+    `False`.
+    """
+    assert quality.is_oriented(np.zeros((0, 3), dtype=np.int64)) is False
+    assert quality.is_oriented([]) is False
