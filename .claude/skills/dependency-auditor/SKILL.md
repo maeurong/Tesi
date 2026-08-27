@@ -1,6 +1,6 @@
 ---
 name: "dependency-auditor"
-description: "Dependency Auditor"
+description: "Audit dependencies across npm, pip, go, cargo, gem, maven, composer and nuget: CVE scanning including transitive deps, license compliance and legal risk, dependency-tree health, and safe upgrade planning. Use when asked to check or audit dependencies, when a CVE lands on an already-merged package, or for periodic dependency-hygiene runs — not only when a manifest changed."
 ---
 
 # Dependency Auditor
