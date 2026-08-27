@@ -85,10 +85,13 @@ def controlla(
             elif len(candidati) > 1:
                 elenco = ", ".join(_breve(c) for c in sorted(candidati))
                 rotti.append(f"{dove}: {citato} -- nome ambiguo: {elenco}")
+            elif int(prima) < 1:
+                rotti.append(f"{dove}: {citato} -- le righe di un file partono da 1")
             else:
                 quante = _righe(candidati[0])
-                oltre = any(int(n) > quante for n in (prima, ultima) if n)
-                if oltre or int(prima) < 1:
+                # Entrambi gli estremi, non solo il primo: `file.py:5-99999`
+                # ha il sinistro buono e il destro fuori dalla fine.
+                if any(int(n) > quante for n in (prima, ultima) if n):
                     rotti.append(f"{dove}: {citato} -- "
                                  f"{_breve(candidati[0])} ha {quante} righe")
         for abbreviato in ABBREVIATO.findall(riga):
@@ -143,8 +146,37 @@ def autoprova() -> None:
         rotti, _, _ = controlla(doc, {"vuoto.md": [vuoto]})
         assert len(rotti) == 1 and "ha 0 righe" in rotti[0], rotti
 
+        # estremo destro dell'intervallo oltre la fine: il sinistro e' buono
+        doc.write_text(f"intervallo: `{mio}:1-99999`\n", encoding="utf-8")
+        rotti, _, _ = controlla(doc)
+        assert len(rotti) == 1 and str(vere) in rotti[0], rotti
+
+        # riga zero: non esiste, e il messaggio dice da dove si conta
+        doc.write_text(f"riga zero: `{mio}:0`\n", encoding="utf-8")
+        rotti, _, _ = controlla(doc)
+        assert len(rotti) == 1 and "partono da 1" in rotti[0], rotti
+
+        # nome che combacia con piu' file in albero: ambiguo, ed e' un difetto
+        doc.write_text("nome nudo: `README.md:1`\n", encoding="utf-8")
+        rotti, _, _ = controlla(doc)
+        assert len(rotti) == 1 and "ambiguo" in rotti[0], rotti
+        assert rotti[0].count(",") >= 1, ("l'elenco dei candidati e' il rimedio", rotti)
+        assert _corsa([str(doc)])[1] == 1
+
+        # lo stesso nome con il percorso davanti: disambiguato, non piu' rotto
+        doc.write_text("col percorso: `docs/validazione/README.md:1`\n", encoding="utf-8")
+        assert controlla(doc) == ([], [], [])
+
+        # argomenti che non sono uno solo: uscita 2, non IndexError
+        assert _corsa([])[1] == 2
+        assert _corsa([str(doc), str(doc)])[1] == 2
+
         esito, uscita = _corsa([cartella])
         assert uscita == 2 and "cartella" in esito, esito
+
+        # documento inesistente: uscita 2 col messaggio, non una traccia di stack
+        esito, uscita = _corsa([str(Path(cartella) / "manca.md")])
+        assert uscita == 2 and "non esiste" in esito, esito
 
     assert _indice(), "l'indice dell'albero non puo' essere vuoto"
     print("autoprova: tutti gli assert passati")

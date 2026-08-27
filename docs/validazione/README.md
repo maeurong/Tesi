@@ -118,6 +118,10 @@ l'oracolo che ciascuna ha oggi, sta in
 
 I riferimenti si ricontrollano a macchina:
 `python docs/validazione/controlla-riferimenti.py docs/validazione/README.md`.
+Lo script porta i propri assert in `--autoprova`, e la suite li lancia:
+`meshrec/tests/test_riferimenti_documenti.py` chiama quella funzione e passa lo
+script su tutti i documenti di questa cartella, così il controllore non resta un
+controllore che nessuno controlla.
 
 ### 3.1 Difetti di correttezza
 
