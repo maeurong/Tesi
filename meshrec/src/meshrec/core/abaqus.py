@@ -308,11 +308,19 @@ def write_inp(
                 f"che non è stato risolto: arrivati {sorted(nset_selettori or {})}. "
                 "Il deck non si scrive a metà"
             )
-        if carico.nome in superfici:
+        # Il confronto ignora le maiuscole come gia' fa `core/config.py`: `ccx`
+        # risolve i nomi senza distinguerle (misurato in
+        # docs/fase-6-cantiere/sonda-caso-nomi/), quindi `VENTO` e `vento` sono
+        # due chiavi Python ma una sola *SURFACE nel deck.
+        omonima = next(
+            (n for n in superfici if n.casefold() == carico.nome.casefold()), None
+        )
+        if omonima is not None:
             raise ValueError(
                 f"il carico distribuito '{carico.nome}' darebbe il proprio nome a "
-                "una superficie che è già dichiarata: nel deck ci sarebbero due "
-                "*SURFACE omonime e il solutore userebbe l'ultima"
+                f"una superficie che è già dichiarata ('{omonima}'): nel deck ci "
+                "sarebbero due *SURFACE omonime -- il confronto ignora le "
+                "maiuscole perché ccx le ignora -- e il solutore userebbe l'ultima"
             )
         superficie, resoconto_distribuito = superficie_di_pressione(
             nodes, elements, np.asarray(nset_selettori[carico.selettore], dtype=np.int64),
