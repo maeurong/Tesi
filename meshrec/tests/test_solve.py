@@ -631,6 +631,96 @@ def test_controlla_picco_con_nan_a_monte_riporta_il_valore_invece_di_nasconderlo
 # ---------------------------------------------------------------------------
 
 
+def test_i_tre_parser_del_dat_restano_chiamabili_col_solo_percorso(tmp_path):
+    """La lettura condivisa di `risolvi` non ha spostato il contratto dei tre.
+
+    `risolvi` legge il `.dat` una volta e passa le righe ai tre parser
+    (`leggi_frequenze`, `leggi_massa_modale`, `leggi_reazioni`), invece di
+    leggerlo per intero tre volte. Il percorso resta la via normale e resta
+    obbligatorio: e' quella che usano i test e chiunque apra un `.dat` a
+    mano, ed e' quella che nomina il file quando il file non c'e'.
+
+    Le due meta' del caso degenere non sono la stessa cosa e il test le
+    tiene distinte: un `.dat` **assente** solleva nominando il file, un
+    `.dat` **vuoto** non solleva affatto -- rende zero frequenze, nessuna
+    massa modale, nessuna reazione. Un file vuoto e' un risultato mancante,
+    non un errore di lettura.
+    """
+    assente = tmp_path / "non_c_e.dat"
+    for lettura in (solve.leggi_frequenze, solve.leggi_massa_modale, solve.leggi_reazioni):
+        with pytest.raises(FileNotFoundError) as errore:
+            lettura(assente)
+        assert "non_c_e.dat" in str(errore.value)
+
+    vuoto = tmp_path / "vuoto.dat"
+    vuoto.write_text("", encoding="ascii")
+    assert solve.leggi_frequenze(vuoto) == []
+    assert solve.leggi_massa_modale(vuoto) is None
+    assert solve.leggi_reazioni(vuoto) == {}
+
+
+def test_le_righe_gia_lette_sostituiscono_davvero_la_lettura_del_file(tmp_path):
+    """L'oracolo del parametro `righe`, che senza di questo non ne ha.
+
+    Sostituire l'intero corpo di `_righe_dat` con la sola lettura dal
+    percorso -- cioe' ignorare il parametro -- lasciava la suite verde:
+    rileggere lo stesso file da' lo stesso risultato, e nessun test
+    distingueva le due cose. Qui il file **non c'e' piu'** quando i parser
+    partono, quindi l'unico modo di rendere le frequenze e' usare le righe
+    ricevute.
+
+    Mutazione che lo uccide: ignorare `righe` in `_righe_dat`. I tre parser
+    vanno a leggere un file cancellato e sollevano `FileNotFoundError`.
+    """
+    percorso = tmp_path / "sparito.dat"
+    percorso.write_text(DAT_FREQUENZE, encoding="ascii")
+    righe = percorso.read_text(encoding="ascii").splitlines()
+    percorso.unlink()
+
+    assert solve.leggi_frequenze(percorso, righe=righe) == pytest.approx(
+        [4384.661, 4384.661, 6164.044, 9633.291]
+    )
+    assert solve.leggi_massa_modale(percorso, righe=righe) is None
+    assert solve.leggi_reazioni(percorso, righe=righe) == {}
+
+
+def test_un_byte_non_ascii_non_aggiunge_un_campo_alla_riga_di_dati(tmp_path):
+    """Perche' la lettura condivisa decodifica con `errors="ignore"`.
+
+    Il `.dat` si dichiara ASCII e `ccx` lo scrive ASCII, ma la scelta di che
+    cosa fare di un byte fuori tabella cambia il **conteggio dei campi**, che
+    e' il criterio con cui questi tre parser distinguono una riga di dati da
+    una di intestazione. Misurato sulle due opzioni, con un byte isolato fra
+    due spazi in mezzo a una riga a cinque campi:
+
+    - `errors="ignore"` scarta il byte, restano cinque campi e la riga si
+      legge;
+    - `errors="replace"` mette `U+FFFD`, che non e' spazio ma nemmeno si
+      attacca ai vicini: diventa un **sesto** campo, la riga non passa piu'
+      il `len(campi) != 5` e `leggi_frequenze` si ferma li', perdendo i modi
+      che seguono.
+
+    Sull'altro caso -- byte incollato fra due cifre -- le due opzioni danno
+    lo stesso conteggio (`1.02.0` e `1.0\ufffd2.0` sono entrambi un campo
+    solo), quindi `replace` non protegge da nulla e in cambio inventa un
+    campo dove `ignore` non ne inventa. Il byte non e' uno spazio in nessuna
+    delle due letture: non puo' separare due campi che erano uniti.
+
+    Mutazione che lo uccide: rimettere `errors="replace"` in `_righe_dat`.
+    Escono due frequenze invece di quattro.
+    """
+    percorso = tmp_path / "sporco.dat"
+    intera = DAT_FREQUENZE.encode("ascii").replace(
+        b"      3   0.1500000E+10", b"      3 \xb0 0.1500000E+10"
+    )
+    assert b"\xb0" in intera
+    percorso.write_bytes(intera)
+
+    assert solve.leggi_frequenze(percorso) == pytest.approx(
+        [4384.661, 4384.661, 6164.044, 9633.291]
+    )
+
+
 def test_leggi_reazioni_su_dat_senza_blocco_forze_non_solleva(tmp_path):
     """Ingresso degenere 1: `.dat` senza alcun blocco di reazioni -> dizionario
     vuoto, non un'eccezione. Codice gia' corretto (nessun ramo puo' sollevare
@@ -820,6 +910,75 @@ def test_un_elemento_sconosciuto_non_prende_la_formula_di_un_altro():
 
     with pytest.raises(ValueError, match="C3D8"):
         solve._quota_tributaria_gravita(nodes, tets, [1], 1.8e-9, "C3D8")
+
+
+def test_c3d10_su_un_array_a_quattro_colonne_non_rende_un_peso_negativo():
+    """`element_type` era validato, le colonne di `elements` no.
+
+    Su C3D10 la funzione legge `elements[:, 4:10]` per i nodi di lato: con un
+    array a quattro colonne quella fetta e' **vuota**, il termine `+V/5` dei
+    lati vale zero, e resta il solo `-V/20` dei vertici. La funzione rendeva
+    quindi una massa **negativa**, senza errore -- e una massa negativa in un
+    controllo di equilibrio non e' un numero sbagliato di poco, e' un numero
+    che non esiste.
+
+    Non raggiungibile dalla pipeline (`export_model` valida `elements.shape[1]`
+    a monte) ma sì da chiamata diretta: test e script di cantiere chiamano
+    questa funzione senza passare da li'.
+
+    Mutazione che lo uccide: togliere la guardia sulle colonne. Nessuna
+    eccezione, e il valore reso e' `-massa/5`, cioe' negativo.
+    """
+    nodes = np.array([[0.0, 0.0, 0.0], [100.0, 0.0, 0.0], [0.0, 100.0, 0.0], [0.0, 0.0, 100.0]])
+    tets = np.array([[0, 1, 2, 3]], dtype=np.int64)
+
+    with pytest.raises(ValueError, match="10 nodi per elemento"):
+        solve._quota_tributaria_gravita(nodes, tets, [1, 2, 3, 4], 1.8e-9, "C3D10")
+
+
+def test_le_guardie_della_quota_parlano_anche_a_insieme_vuoto():
+    """`if not nodi_1based: return 0.0` precedeva le due validazioni, quindi
+    un `element_type` ignoto e un array di forma sbagliata passavano in
+    silenzio a insieme vuoto. Lo `0.0` era il numero giusto, ma l'oracolo
+    «C3D10 a quattro colonne solleva» valeva solo a insieme non vuoto e
+    nessuno lo diceva.
+
+    Ordine dichiarato: parla prima `element_type`, poi le colonne. Un tipo
+    ignoto non ha un numero di colonne atteso da confrontare, quindi la
+    seconda guardia non saprebbe nemmeno che cosa dire.
+
+    Mutazione che lo uccide: rimettere il return anticipato sopra le due
+    guardie. Nessuna delle due solleva e la funzione rende `0.0`.
+    """
+    nodes = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+    tets = np.array([[0, 1, 2, 3]], dtype=np.int64)
+
+    with pytest.raises(ValueError, match="C3D8"):
+        solve._quota_tributaria_gravita(nodes, tets, [], 1.8e-9, "C3D8")
+    with pytest.raises(ValueError, match="10 nodi per elemento"):
+        solve._quota_tributaria_gravita(nodes, tets, [], 1.8e-9, "C3D10")
+    # e a tipo noto con array coerente l'insieme vuoto resta zero, non un errore
+    assert solve._quota_tributaria_gravita(nodes, tets, [], 1.8e-9, "C3D4") == 0.0
+
+
+def test_la_guardia_sulle_colonne_scatta_anche_a_una_colonna_dalla_meta():
+    """Non solo il caso a quattro colonne, e il messaggio non promette una
+    conseguenza che vale solo lì.
+
+    Con **nove** colonne su C3D10 la fetta `elements[:, 4:10]` dà cinque nodi
+    di lato su sei: `4*(-1/20) + 5*(1/5) = +0,8` invece di `1`. Il peso esce
+    **positivo** e sbagliato, non negativo -- negativo è il solo caso a
+    quattro colonne, dove i lati mancano tutti e resta `4*(-1/20) = -0,2`.
+    Un messaggio che promette «negativo» descriverebbe quindi una
+    conseguenza falsa su ogni forma intermedia.
+    """
+    nodes = np.zeros((10, 3))
+    nodes[1:4] = np.eye(3) * 100.0
+    noni = np.arange(9, dtype=np.int64).reshape(1, 9)
+
+    with pytest.raises(ValueError, match="peso sbagliato") as errore:
+        solve._quota_tributaria_gravita(nodes, noni, [1, 2, 3, 4], 1.8e-9, "C3D10")
+    assert "9" in str(errore.value)
 
 
 # ---------------------------------------------------------------------------

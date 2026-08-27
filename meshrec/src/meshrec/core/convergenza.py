@@ -139,6 +139,33 @@ def ordine_osservato(f1: float, f2: float, f3: float, r21: float, r32: float) ->
     return math.nan
 
 
+def _non_stimabile(
+    comune: dict[str, object],
+    esito: str,
+    spiegazione: str,
+    *,
+    ordine: float | None = None,
+) -> dict[str, object]:
+    """Un'uscita degenere di `stima`: le stesse chiavi di quella asintotica.
+
+    Le quattro uscite ripetevano verbatim le cinque chiavi a `None`. Il costo
+    non e' estetico: la quinta che qualcuno aggiunge ne dimentica una, e il
+    consumatore prende `KeyError` a valle invece che qui. `ordine` e' l'unica
+    che non e' sempre `None` -- su `fuori_campo` l'ordine osservato c'e' ed e'
+    proprio il numero che spiega il rifiuto.
+    """
+    return {
+        **comune,
+        "esito": esito,
+        "ordine_osservato": ordine,
+        "estrapolato": None,
+        "gci_fine": None,
+        "gci_grossolana": None,
+        "rapporto_asintotico": None,
+        "spiegazione": spiegazione,
+    }
+
+
 def stima(
     valori: tuple[float, float, float],
     dimensioni: tuple[float, float, float],
@@ -197,34 +224,28 @@ def stima(
     }
 
     if min(r21, r32) < _RAPPORTO_MINIMO:
-        return {
-            **comune, "esito": "rapporto_troppo_piccolo", "ordine_osservato": None,
-            "estrapolato": None, "gci_fine": None, "gci_grossolana": None,
-            "rapporto_asintotico": None,
-            "spiegazione": (
-                f"il rapporto di raffinamento minimo è {min(r21, r32):.3f}, sotto "
-                f"{_RAPPORTO_MINIMO}: la formula divide per r**p - 1 e su griglie "
-                "così vicine amplifica il rumore del solutore invece di misurare "
-                "la discretizzazione"
-            ),
-        }
+        return _non_stimabile(
+            comune,
+            "rapporto_troppo_piccolo",
+            f"il rapporto di raffinamento minimo è {min(r21, r32):.3f}, sotto "
+            f"{_RAPPORTO_MINIMO}: la formula divide per r**p - 1 e su griglie "
+            "così vicine amplifica il rumore del solutore invece di misurare "
+            "la discretizzazione",
+        )
 
     # Monotonia: i tre valori devono andare nella stessa direzione. Se
     # `eps32/eps21` e' negativo la convergenza oscilla, ed e' esattamente cio'
     # che LE10 fa sulla tensione nel punto d'angolo.
     eps21, eps32 = f2 - f1, f3 - f2
     if eps21 == 0.0 or eps32 == 0.0 or (eps32 / eps21) < 0.0:
-        return {
-            **comune, "esito": "non_monotono", "ordine_osservato": None,
-            "estrapolato": None, "gci_fine": None, "gci_grossolana": None,
-            "rapporto_asintotico": None,
-            "spiegazione": (
-                "i tre valori non convergono in modo monotono: Richardson "
-                "presuppone che l'errore cali con la stessa legge e con lo stesso "
-                "segno, e senza quell'ipotesi la formula rende un numero che non "
-                "è una stima d'errore"
-            ),
-        }
+        return _non_stimabile(
+            comune,
+            "non_monotono",
+            "i tre valori non convergono in modo monotono: Richardson "
+            "presuppone che l'errore cali con la stessa legge e con lo stesso "
+            "segno, e senza quell'ipotesi la formula rende un numero che non "
+            "è una stima d'errore",
+        )
 
     # `e21` ed `e32` sono errori **relativi**, normalizzati su `f1` e su `f2`:
     # con uno dei due nullo non sono grandi, non esistono. Non e' `fuori_campo`
@@ -233,16 +254,13 @@ def stima(
     # invece di essere forzato in uno dei quattro: a mancare e' la scala su cui
     # riferire l'errore, non l'ipotesi di Richardson.
     if f1 == 0.0 or f2 == 0.0:
-        return {
-            **comune, "esito": "valore_nullo", "ordine_osservato": None,
-            "estrapolato": None, "gci_fine": None, "gci_grossolana": None,
-            "rapporto_asintotico": None,
-            "spiegazione": (
-                "un valore della serie è nullo: la GCI è un errore relativo e "
-                "senza una scala su cui riferirlo uscirebbe infinita, che non "
-                "vuol dire errore grande, vuol dire errore non definito"
-            ),
-        }
+        return _non_stimabile(
+            comune,
+            "valore_nullo",
+            "un valore della serie è nullo: la GCI è un errore relativo e "
+            "senza una scala su cui riferirlo uscirebbe infinita, che non "
+            "vuol dire errore grande, vuol dire errore non definito",
+        )
 
     p = ordine_osservato(f1, f2, f3, r21, r32)
     basso, alto = _BANDA_ORDINE[0] * ordine_formale, _BANDA_ORDINE[1] * ordine_formale
@@ -254,15 +272,13 @@ def stima(
             else "l'ordine osservato non è determinabile, perché il punto fisso "
             "di Celik non si risolve"
         )
-        return {
-            **comune, "esito": "fuori_campo", "ordine_osservato": None if not np.isfinite(p) else p,
-            "estrapolato": None, "gci_fine": None, "gci_grossolana": None,
-            "rapporto_asintotico": None,
-            "spiegazione": (
-                f"{misura}. Le griglie non sono nel campo asintotico, oppure la "
-                "grandezza non converge con una legge di potenza"
-            ),
-        }
+        return _non_stimabile(
+            comune,
+            "fuori_campo",
+            f"{misura}. Le griglie non sono nel campo asintotico, oppure la "
+            "grandezza non converge con una legge di potenza",
+            ordine=p if np.isfinite(p) else None,
+        )
 
     estrapolato = (r21**p * f1 - f2) / (r21**p - 1.0)
     e21 = abs((f1 - f2) / f1)

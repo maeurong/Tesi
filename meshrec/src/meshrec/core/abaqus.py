@@ -18,6 +18,7 @@ from meshrec.core.config import (
     Momento,
     Selettore,
     TetConfig,
+    _mappa_casefold,
 )
 
 _SET_ITEMS_PER_LINE = 8
@@ -270,16 +271,27 @@ def write_inp(
     # aggiungono, e mutare l'argomento farebbe crescere la struttura di chi
     # chiama a ogni esportazione, in silenzio.
     superfici = {} if element_surfaces is None else dict(element_surfaces)
+    # Un solo spazio di nomi, e ignora le maiuscole: `ccx` risolve i nomi senza
+    # distinguerle (misurato in docs/fase-6-cantiere/sonda-caso-nomi/), quindi
+    # ogni confronto su questo dizionario passa dallo stesso `_mappa_casefold`
+    # che `core/config.py` usa a monte. Tre confronti e non uno: i `ties` e il
+    # carico laterale chiedono se un nome c'e', i carichi distribuiti se c'e'
+    # gia' -- domande opposte sullo stesso spazio di nomi, e una sola normalizza
+    # il caso lasciava le altre due a rifiutare un deck che il solutore legge.
+    # Ricostruita dove serve e non tenuta in parallelo a `superfici`, che i
+    # distribuiti fanno crescere: due dizionari da sincronizzare a mano sono il
+    # modo in cui questa classe di difetto torna.
+    per_caso = _mappa_casefold(superfici)
     for tie in ties:
         nome, dipendente, indipendente = tie[0], tie[1], tie[2]
-        mancanti = [s for s in (dipendente, indipendente) if s not in superfici]
+        mancanti = [s for s in (dipendente, indipendente) if s.casefold() not in per_caso]
         if mancanti:
             raise ValueError(
                 f"il vincolo *TIE '{nome}' nomina {mancanti}, che non è fra le "
                 "superfici dichiarate: un deck così viene rifiutato dal solutore "
                 "solo alla lettura, e questo errore arriva prima"
             )
-    if pressure is not None and pressure[0] not in superfici:
+    if pressure is not None and pressure[0].casefold() not in per_caso:
         raise ValueError(
             f"il carico laterale agisce su '{pressure[0]}', che non è fra le "
             "superfici dichiarate: una pressione applicata a nulla non è un carico"
@@ -292,6 +304,18 @@ def write_inp(
         raise ValueError(
             f"{element_type} vuole {attesi} nodi per elemento, ne sono arrivati "
             f"{elements.shape[1]}: un deck scritto così non è leggibile da alcun solutore"
+        )
+    # Le righe, non solo le colonne: un deck con zero elementi e' **valido**
+    # per `ccx`, che lo risolve in silenzio. Reazioni nulle contro un peso
+    # nullo, e i sette verdetti di `core/solve.py` escono verdi su nulla --
+    # un controllo di conservazione che non ha niente da conservare non e'
+    # un controllo passato. Qui e non nel chiamante: `export_model` e' la sola
+    # porta di produzione e passa di qua.
+    if len(elements) == 0:
+        raise ValueError(
+            "il maglio non ha nessun elemento: un deck vuoto è valido per il "
+            "solutore, che lo risolve senza protestare, e i controlli di "
+            "conservazione uscirebbero verdi su un modello che non esiste"
         )
 
     # Le superfici dei carichi distribuiti (#10) si derivano qui, prima che le
@@ -308,11 +332,13 @@ def write_inp(
                 f"che non è stato risolto: arrivati {sorted(nset_selettori or {})}. "
                 "Il deck non si scrive a metà"
             )
-        if carico.nome in superfici:
+        omonima = _mappa_casefold(superfici).get(carico.nome.casefold())
+        if omonima is not None:
             raise ValueError(
                 f"il carico distribuito '{carico.nome}' darebbe il proprio nome a "
-                "una superficie che è già dichiarata: nel deck ci sarebbero due "
-                "*SURFACE omonime e il solutore userebbe l'ultima"
+                f"una superficie che è già dichiarata ('{omonima}'): nel deck ci "
+                "sarebbero due *SURFACE omonime -- il confronto ignora le "
+                "maiuscole perché ccx le ignora -- e il solutore userebbe l'ultima"
             )
         superficie, resoconto_distribuito = superficie_di_pressione(
             nodes, elements, np.asarray(nset_selettori[carico.selettore], dtype=np.int64),

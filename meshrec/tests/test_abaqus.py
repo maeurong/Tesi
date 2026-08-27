@@ -1161,6 +1161,108 @@ def test_il_tie_nomina_due_superfici_gia_dichiarate(tmp_path):
         )
 
 
+def test_un_maglio_senza_elementi_non_scrive_un_deck(tmp_path):
+    """`write_inp` controllava le **colonne** di `elements`, mai le righe.
+
+    Misurato prima della guardia: `np.zeros((0, 10))` con `C3D10` scriveva
+    391 byte e non sollevava. Un deck con zero elementi e' valido per `ccx`,
+    che lo risolve in silenzio: reazioni nulle contro un peso nullo, e i
+    verdetti di `core/solve.py` escono **verdi su nulla**. E' il caso in cui
+    un controllo di conservazione non ha niente da conservare, e non
+    distinguerlo da un modello sano e' peggio di non averlo.
+
+    La guardia sta in `write_inp` e non nei chiamanti: `export_model` e'
+    l'unico chiamante di produzione e ci passa attraverso, quindi una sola
+    guardia copre entrambe le porte.
+
+    Ordine dichiarato quando anche `element_type` e' ignoto: parla prima il
+    tipo. Senza un tipo noto non si sa nemmeno quante colonne aspettarsi, e
+    il numero di righe e' la meno interessante delle due notizie.
+
+    Mutazione che lo uccide: togliere il controllo su `len(elements)`. Il
+    deck si scrive e nessuna eccezione arriva.
+    """
+    percorso = tmp_path / "vuoto.inp"
+
+    with pytest.raises(ValueError, match="nessun elemento"):
+        abaqus.write_inp(
+            percorso, np.zeros((0, 3)), np.zeros((0, 10), dtype=np.int64),
+            node_sets={"BASE": np.zeros(0, dtype=np.int64)},
+            material=MATERIALE, element_type="C3D10",
+        )
+    assert not percorso.exists()
+
+    # zero righe **e** tipo ignoto: parla il tipo, non le righe
+    with pytest.raises(ValueError, match="sconosciuto"):
+        abaqus.write_inp(
+            percorso, np.zeros((0, 3)), np.zeros((0, 10), dtype=np.int64),
+            node_sets={"BASE": np.zeros(0, dtype=np.int64)},
+            material=MATERIALE, element_type="C3D999",
+        )
+    assert not percorso.exists()
+
+
+def test_tie_e_pressione_risolvono_le_superfici_ignorando_le_maiuscole(tmp_path):
+    """Le due guardie di membership erano rimaste al confronto esatto.
+
+    `ccx` risolve i nomi senza distinguere le maiuscole (misurato in
+    `docs/fase-6-cantiere/sonda-caso-nomi/`): una superficie dichiarata
+    `PELLE` e un `*TIE` che la nomina `pelle` sono lo stesso `*SURFACE` per
+    il solutore, e il deck si legge. Il rifiuto diceva invece «non è fra le
+    superfici dichiarate», cioè accusava una causa che non c'era -- la stessa
+    categoria di difetto della guardia sui carichi distribuiti, corretta nel
+    giro precedente.
+
+    Il deck scrive la grafia che il chiamante ha dato, non quella canonica:
+    a cambiare è chi viene accettato, non che cosa viene scritto.
+
+    Mutazione che lo uccide: rimettere `s not in superfici` e `pressure[0]
+    not in superfici`. Entrambe sollevano e il deck non si scrive.
+    """
+    superficie = abaqus.element_surface(_ESAEDRO, np.array([0, 1, 2, 3]), "C3D8I")
+    percorso = tmp_path / "caso.inp"
+
+    abaqus.write_inp(
+        percorso, _CUBO, _ESAEDRO,
+        node_sets={"BASE": np.array([0, 1, 2, 3])},
+        material=MATERIALE,
+        element_type="C3D8I",
+        element_surfaces={"PELLE": superficie, "CUOIO": superficie},
+        ties=(("GIUNZIONE_1", "pelle", "Cuoio"),),
+        pressure=("PeLLe", 0.25),
+    )
+
+    testo = percorso.read_text(encoding="ascii")
+    assert "pelle, Cuoio" in testo
+    assert "PeLLe, P, 0.25" in testo
+
+
+def test_una_superficie_mai_dichiarata_resta_un_rifiuto_anche_col_casefold(tmp_path):
+    """La metà che rende non vacuo il test sopra: allentare il confronto al
+    `casefold` non deve spegnere la guardia. Un nome che non esiste in
+    nessuna grafia resta un deck rotto, e l'errore arriva prima del solutore.
+    """
+    superficie = abaqus.element_surface(_ESAEDRO, np.array([0, 1, 2, 3]), "C3D8I")
+
+    with pytest.raises(ValueError, match="MAI_DICHIARATA"):
+        abaqus.write_inp(
+            tmp_path / "rotto.inp", _CUBO, _ESAEDRO,
+            node_sets={"BASE": np.array([0, 1, 2, 3])},
+            material=MATERIALE, element_type="C3D8I",
+            element_surfaces={"PELLE": superficie},
+            ties=(("GIUNZIONE_1", "pelle", "MAI_DICHIARATA"),),
+        )
+
+    with pytest.raises(ValueError, match="MAI_DICHIARATA"):
+        abaqus.write_inp(
+            tmp_path / "rotto2.inp", _CUBO, _ESAEDRO,
+            node_sets={"BASE": np.array([0, 1, 2, 3])},
+            material=MATERIALE, element_type="C3D8I",
+            element_surfaces={"PELLE": superficie},
+            pressure=("MAI_DICHIARATA", 0.25),
+        )
+
+
 def test_il_tie_con_tolleranza_scrive_position_tolerance(tmp_path):
     """Ruling AH (giro di correzione 6): il quarto elemento facoltativo della
     tupla di un *TIE e' la sua `POSITION TOLERANCE`, scritta sulla card. Un
