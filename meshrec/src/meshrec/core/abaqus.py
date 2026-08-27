@@ -123,6 +123,7 @@ def _passo_statico(
     print_nsets: tuple[str, ...], pressure: tuple[str, float] | None,
     carichi_nodali: dict[int, tuple[float, float, float]] | None = None,
     pressioni_da_azzerare: tuple[str, ...] = (),
+    pressione_distribuita: tuple[str, float] | None = None,
 ) -> list[str]:
     """Un passo statico completo: nome a commento, carichi, uscite.
 
@@ -138,23 +139,41 @@ def _passo_statico(
     """
     righe = [f"** NOME PASSO: {nome}", "*STEP", "*STATIC", "*DLOAD, OP=NEW"]
     righe += carichi
-    if pressure is not None:
-        # Una pressione **persiste** nei passi successivi come un `*CLOAD`
-        # (misurato con `ccx` 2.21: vedi
-        # `tests/feasibility/test_calculix.py::test_una_pressione_persiste_finche_non_la_si_ridichiara_a_zero`),
-        # ma qui `OP=NEW` non e' la via: `ccx` **non riconosce quel parametro**
-        # su questa card, risponde con due «*WARNING reading *DLOAD: parameter
-        # not recognized» e tira dritto ignorandolo -- due avvisi per passo che
-        # degradano `controlla_avvisi`, uno dei sette verdetti, senza fare
-        # nulla (misurato in CI il 27/08/2026, corsa 33088953374).
+    # `pressure` e' la pressione **permanente** del modello, legata al parziale
+    # in `write_inp` e percio' presente in ogni passo; `pressione_distribuita`
+    # e' quella del carico distribuito di questo passo (#10). Due parametri e
+    # non uno perche' nei passi distribuiti devono comparire **entrambe**: il
+    # `*DLOAD, OP=NEW` due righe piu' su cancella anche i `*DSLOAD` dei passi
+    # precedenti, quindi una permanente non riscritta qui semplicemente non
+    # agisce (#119).
+    pressioni = [p for p in (pressure, pressione_distribuita) if p is not None]
+    if pressioni:
+        # `OP=NEW` su questa card non e' la via: `ccx` **non riconosce quel
+        # parametro** su `*DSLOAD`, risponde con due «*WARNING reading *DLOAD:
+        # parameter not recognized» e tira dritto ignorandolo -- due avvisi per
+        # passo che degradano `controlla_avvisi`, uno dei sette verdetti, senza
+        # fare nulla (misurato in CI il 27/08/2026, corsa 33088953374).
         #
-        # Si ridichiarano allora a **zero** le superfici dei passi precedenti,
-        # nella stessa card e prima della propria: la ridichiarazione
-        # sostituisce il valore invece di sommarsi, ed e' il passo 4 della
-        # stessa sonda a misurarlo.
+        # Le superfici dei passi precedenti si ridichiarano allora a **zero**,
+        # nella stessa card e prima delle proprie. **Oggi quelle righe non
+        # spostano le reazioni**: `*DLOAD, OP=NEW`, che apre ogni passo, cura
+        # gia' lo stesso difetto e arriva prima. Misurato su `ccx` 2.21 con due
+        # distribuiti su facce perpendicolari, reazioni del secondo passo (#119):
+        #
+        #   | passo 2                          |      RF_x |      RF_y |
+        #   |----------------------------------|-----------|-----------|
+        #   | OP=NEW + azzeramento (com'e' qui) | -1666.667 |     0.000 |
+        #   | OP=NEW, azzeramento tolto        | -1666.667 |     0.000 |
+        #   | senza OP=NEW, azzeramento tenuto | -1666.667 |     0.000 |
+        #   | senza OP=NEW, azzeramento tolto  | -1666.667 | -1666.667 |
+        #
+        # L'ultima riga e' il difetto di #84, che e' reale; la terza e' il suo
+        # rimedio, che e' corretto. Restano perche' sono l'unica rete se un
+        # giorno `OP=NEW` se ne va da `*DLOAD`: si toglie la rete dopo aver
+        # visto il salto, non prima.
         righe += ["*DSLOAD"]
         righe += [f"{nome_superficie}, P, 0.0" for nome_superficie in pressioni_da_azzerare]
-        righe += [f"{pressure[0]}, P, {pressure[1]}"]
+        righe += [f"{nome_superficie}, P, {valore}" for nome_superficie, valore in pressioni]
     if carichi_nodali:
         # Forze nodali esplicite, una componente per riga come vuole `*CLOAD`.
         # Servono al patch test nella variante a carichi (vedi #46): la
@@ -234,14 +253,29 @@ def write_inp(
     precedente faceva emettere a `ccx` 2.22 due avvisi ("parameter not
     recognized: NAME=..." e "...FIELD"), questa zero.
 
-    `pressure`, quando dato insieme a `carichi`, si ripete identico in ogni
-    passo statico aggiunto (peso proprio, spinta, carico in sommita'): non e'
-    un caso di carico fra gli altri, e' una condizione permanente del modello
-    -- la stessa natura del peso proprio, che infatti e' gia' ripetuto in
-    ognuno di quei passi per la stessa ragione (senza di esso ogni passo
-    diverso dal primo descriverebbe una struttura che non pesa). Una spinta
-    del terreno dichiarata in Fase 4 non smette di agire perche' il passo
-    successivo aggiunge anche un carico in sommita'.
+    `pressure`, quando dato insieme a `carichi`, si ripete identico in **ogni**
+    passo statico: non e' un caso di carico fra gli altri, e' una condizione
+    permanente del modello -- la stessa natura del peso proprio, che infatti e'
+    ripetuto in ognuno di quei passi per la stessa ragione (senza di esso ogni
+    passo diverso dal primo descriverebbe una struttura che non pesa). Una
+    spinta del terreno dichiarata in Fase 4 non smette di agire perche' il
+    passo successivo aggiunge un carico in sommita' o il vento.
+
+    La ripetizione e' **esplicita**, card per card, e non lasciata al
+    solutore. Nei passi peso proprio, spinta, sommita' e posizionati la porta
+    il parziale `passo_statico` piu' sotto, a cui `pressure` e' legato; nei
+    passi dei carichi distribuiti (#10) la scrive `pressione_distribuita`
+    accanto alla pressione del distribuito corrente, che occupa la stessa card
+    `*DSLOAD`.
+
+    Perche' non basti scriverla una volta e fidarsi della persistenza di
+    `*DSLOAD` e' misurato in #119: `*DLOAD, OP=NEW`, che `_passo_statico` mette
+    in testa a ogni passo, cancella **anche** i carichi di superficie, non solo
+    quelli di volume. Con la sola card del primo passo, le reazioni del passo
+    distribuito perdevano per intero la componente della permanente -- `RF_y`
+    da -1666.667 a 0.0 su `ccx` 2.21, con la permanente e il distribuito su
+    facce perpendicolari. Un carico permanente che si spegne quando arriva il
+    vento, senza che il deck diventi invalido o i numeri implausibili.
 
     `nset_selettori` e' la quinta aggiunta, di questa fase: ogni voce di
     `carichi.posizionati` cita un selettore per nome, ed e' la mappa da quel
@@ -511,10 +545,14 @@ def write_inp(
         resoconto[carico.nome] = resoconto_carico
 
     # Un passo statico per carico distribuito (#10). La superficie e' gia' nel
-    # deck: qui resta solo la card `*DSLOAD`, che `_passo_statico` scrive dal
-    # suo parametro `pressure`. Il `pressure` legato al parziale e' quello del
-    # percorso hexa, uno solo per tutto il deck; qui si sovrascrive per passo,
-    # che e' la ragione per cui i distribuiti sono piu' d'uno e quello no.
+    # deck: qui resta solo la card `*DSLOAD`, che `_passo_statico` scrive dai
+    # suoi due parametri di pressione. Sono due e non uno perche' in questi
+    # passi le pressioni sono due: la permanente del percorso hexa, una sola
+    # per tutto il deck e legata al parziale, e quella del distribuito
+    # corrente, diversa a ogni giro. La seconda **non sostituisce** la prima --
+    # si aggiunge accanto, nella stessa card -- perche' il `*DLOAD, OP=NEW` in
+    # testa al passo cancella anche i `*DSLOAD` e una permanente non riscritta
+    # qui smetterebbe di agire (#119).
     distribuiti = () if carichi is None else carichi.distribuiti
     for indice, carico in enumerate(distribuiti):
         # `*CLOAD, OP=NEW` come nei due cicli gemelli sopra: `*DLOAD, OP=NEW`
@@ -523,11 +561,15 @@ def write_inp(
         # `*CLOAD` del posizionato che li precede.
         #
         # Le pressioni dei passi distribuiti precedenti si azzerano una per
-        # una (#84): persistono anche loro, e `*DSLOAD` non ha un `OP=NEW` che
-        # `ccx` accetti.
+        # una (#84): la ragione, e il perche' oggi quelle righe siano inerti,
+        # stanno nel commento dentro `_passo_statico`.
+        #
+        # `pressione_distribuita` e non `pressure`: quest'ultimo e' legato al
+        # parziale e porta la permanente, che deve comparire **anche qui**
+        # (#119).
         lines += passo_statico(
             carico.nome, [peso, "*CLOAD, OP=NEW"],
-            pressure=(carico.nome, carico.pressione),
+            pressione_distribuita=(carico.nome, carico.pressione),
             pressioni_da_azzerare=tuple(c.nome for c in distribuiti[:indice]),
         )
         resoconto[carico.nome] = resoconti_distribuiti[carico.nome]
