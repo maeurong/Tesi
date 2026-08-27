@@ -822,7 +822,8 @@ un momento, le stesse due grandezze dell'area — totale e nodi a quota nulla
 — più entrambi i bracci, entrambi i momenti (dichiarato ed effettivo), i due
 gruppi della coppia (§ 5-6) e il rapporto fra i due valori singolari che dice
 quanto la direzione della coppia sia determinata (§ 5.2). Per ogni
-carico, forza o momento, anche `nodi_sul_vincolo`: **quanti** dei nodi presi
+carico — forza, momento e, dal 27/08/2026, anche pressione (#91) — anche
+`nodi_sul_vincolo`: **quanti** dei nodi presi
 cadono pure nell'insieme vincolato. È un conteggio di nodi, e non è la
 frazione di risultante che finisce in reazione invece che in spostamento: le
 quote sono pesate per area tributaria (§ 4), quindi un nodo bloccato con una
@@ -1005,8 +1006,10 @@ Che il deck **scriva** la card non prova che il solutore la **applichi**: un
 nome di superficie sbagliato, una faccia numerata male o un segno capovolto
 passano un controllo sul testo e si vedono solo risolvendo.
 `tests/validazione/test_pressione_equilibrio.py` esegue `ccx` vero su un
-provino di 192 tetraedri e confronta la reazione al vincolo con la risultante
-dichiarata.
+provino di 192 tetraedri e confronta la reazione al vincolo con **l'opposto**
+della risultante dichiarata: dal 27/08/2026 (#85) `risultante` è la forza che
+il passo **applica** — una pressione positiva preme dentro la faccia — e la
+reazione le è opposta.
 
 Il termine gravitazionale **non si stima**: ogni passo ripete il peso proprio,
 quindi è identico nei due passi e la loro **differenza** lo cancella per
