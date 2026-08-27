@@ -28,8 +28,15 @@ cioè `errore_geometrico_max` ratificata in
 
 | | frazione dei punti | RMS | massimo |
 |---|---|---|---|
-| **materia mancante** | 48,135 % | 12,413 mm | **737,695 mm** |
+| **materia mancante** (*attribuibile alla ricostruzione: ≤*) | 48,135 % | 12,413 mm | **737,695 mm** |
 | **materia inventata** | 51,864 % | 5,473 mm | 30,681 mm |
+
+I tre valori sono **misurati**, e vanno citati nudi quando descrivono il reperto: il 48,135 % dei
+punti *sta* fuori dalla superficie, e il massimo *vale* 737,695 mm. È l'**attribuzione** a essere
+un limite superiore: occlusione e materia mancante qui si confondono, e la separazione **non è
+fatta** — chiede una stima della copertura che questa misura non esegue. Citando la materia
+mancante come errore della sola ricostruzione va quindi citato il «≤» — vedi
+[Limiti dichiarati](#limiti-dichiarati).
 
 | | |
 |---|---|
@@ -91,10 +98,11 @@ precision alta e recall basso; una che gonfia il pezzo ha il contrario.
 
 **L'occlusione e la materia mancante qui si confondono, e non è risolto.** Lo
 scanner non vede dappertutto: una zona senza punti può essere superficie mai
-rilevata invece che persa dalla ricostruzione. Il massimo di 737,7 mm è quasi
-certamente di questa natura. **La materia mancante va quindi letta come limite
-superiore**, non come misura della sola ricostruzione. Separare le due chiede
-una stima della copertura che questa misura non fa.
+rilevata invece che persa dalla ricostruzione. **La separazione non è fatta**:
+chiede una stima della copertura che questa misura non esegue, e senza quella
+il massimo di 737,7 mm non è attribuito a nessuno dei due. I valori della
+materia mancante restano misurati; è la loro **attribuzione alla sola
+ricostruzione** a valere come limite superiore.
 
 **`precision` campiona i soli vertici**, quindi sottostima l'errore dove i
 triangoli sono grandi — lo stesso limite che `vertex_deviation` già dichiara.
