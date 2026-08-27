@@ -23,9 +23,9 @@ Dalla letteratura letta, sette livelli in ordine crescente:
 | 0 | il programma gira | Cloud2FEM, art. segmentazione | già fatto |
 | 1 | autoconsistenza geometrica (mesh contro nuvola sorgente) | 3 lavori, con C2C < 3 mm su >95% | **già fatto, da irrobustire** |
 | 2 | misura diretta indipendente | calibro, volume per riempimento, check point GNSS | **sì — la tavola `MURO 1`** |
-| 3 | convergenza numerica (in ASME è *verification*, non validation) | 2 lavori, con i tempi di calcolo | **sì** |
+| 3 | convergenza numerica (in ASME è *verification*, non validation) | 4 lavori, con i tempi di calcolo | **sì** |
 | 4 | auto-validazione incrociata | 3 lavori HBIM | **sì, ma non vale da sola** |
-| 5 | prova sperimentale sulla stessa struttura (statica, modale, OMA) | 4 lavori | **no — nessuna prova disponibile** |
+| 5 | prova sperimentale sulla stessa struttura (statica, modale, OMA) | 3 lavori | **no — nessuna prova disponibile** |
 | 6 | prova distruttiva contro benchmark round-robin | 1 solo su 17 (6,59 MN misurati contro 6,56 predetti) | no |
 
 **Regola di composizione, dalla letteratura: i livelli si impilano, non si

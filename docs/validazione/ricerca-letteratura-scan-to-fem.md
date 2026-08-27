@@ -168,7 +168,7 @@ Tre trappole, tutte presenti nella letteratura letta:
 
 ## 5. Sintesi critica — la scala della forza probatoria
 
-Sei livelli, dal più debole al più forte. Per ognuno: che cosa dimostra, chi lo fa in letteratura, cosa serve concretamente per farlo.
+Sette livelli, da 0 a 6, dal più debole al più forte. Per ognuno: che cosa dimostra, chi lo fa in letteratura, cosa serve concretamente per farlo.
 
 ### Livello 0 — Il programma gira (autoconsistenza procedurale)
 **Cosa dimostra**: che la pipeline termina e produce un `.inp` leggibile dal solutore. **Nulla sulla correttezza.**
