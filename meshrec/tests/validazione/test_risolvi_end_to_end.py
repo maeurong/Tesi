@@ -54,10 +54,17 @@ def _scrivi_deck(cartella: Path, nodi: np.ndarray, elementi: np.ndarray) -> tupl
     """Deck tet10 vincolato alla base, peso proprio piu' un passo modale.
 
     La guardia sul maglio vuoto sta **prima** di `write_inp`: quella accetta
-    zero elementi e scrive un `.inp` sintatticamente valido e privo di
-    `*ELEMENT` (misurato oggi: 605 byte, nessuna eccezione). `ccx` lo
-    risolverebbe in silenzio, e il file di questo modulo confronterebbe
-    reazioni nulle con un peso nullo -- un verde su nulla.
+    zero elementi senza sollevare e scrive un `.inp` con un `*ELEMENT` che
+    **c'e' ma e' vuoto** -- l'intestazione
+    `*ELEMENT, TYPE=C3D10, ELSET=ALL_WALL` seguita subito dal `*NSET`, zero
+    righe di connettivita'. Rimisurato oggi con gli ingressi del test
+    (`np.zeros((4, 3))` e zero elementi, gli stessi argomenti che passa
+    questa funzione): **692 byte**, nessuna eccezione. Il conteggio dipende
+    dal numero di nodi, quindi vale per quegli ingressi e non in generale;
+    il fatto che non dipende da nulla e' il blocco elementi vuoto.
+
+    `ccx` risolverebbe quel deck in silenzio, e il file di questo modulo
+    confronterebbe reazioni nulle con un peso nullo -- un verde su nulla.
     """
     if len(elementi) == 0:
         raise ValueError(
@@ -78,11 +85,20 @@ def _scrivi_deck(cartella: Path, nodi: np.ndarray, elementi: np.ndarray) -> tupl
     return deck, base
 
 
-@pytest.fixture(scope="module")
-def corsa(tmp_path_factory):
-    """Una sola corsa di `ccx` per tutto il modulo: e' il costo dominante."""
+def _corri(cartella: Path):
+    """Il corpo della fixture `corsa`, chiamabile anche fuori da pytest.
+
+    Sta qui e non dentro la fixture perche' il salto senza `ccx` va asserito
+    sul **modulo**, non sull'aiutante: una fixture non si puo' invocare
+    direttamente (pytest lo vieta dalla 4), e con la sola prova su
+    `_ccx_o_salta` togliere la chiamata dalla fixture restava una mutazione
+    viva -- verde su questa macchina, e su una senza `ccx` ogni test di
+    questo file sarebbe diventato un **errore** (`risolvi` rende
+    `{"eseguito": False}` e `esito["controlli"]` da' `KeyError`) invece di
+    un salto. Cioe': il caso che il salto esiste per proteggere non era
+    protetto.
+    """
     _ccx_o_salta()
-    cartella = tmp_path_factory.mktemp("risolvi_c3d10")
     vertici, facce = synth.box_mesh((LATO, LATO, LATO))
     nodi, elementi = volume.tetrahedralize(
         vertici, facce, max_volume=(LATO / 2.0) ** 3 / 6.0, min_ratio=1.8,
@@ -101,6 +117,12 @@ def corsa(tmp_path_factory):
         trasformata=np.eye(4),
     )
     return nodi, elementi, vincolo, esito
+
+
+@pytest.fixture(scope="module")
+def corsa(tmp_path_factory):
+    """Una sola corsa di `ccx` per tutto il modulo: e' il costo dominante."""
+    return _corri(tmp_path_factory.mktemp("risolvi_c3d10"))
 
 
 def test_su_c3d10_il_verdetto_sulle_reazioni_chiude_l_equilibrio(corsa):
@@ -171,13 +193,41 @@ def test_i_verdetti_composti_da_risolvi_coincidono_con_quelli_calcolati_a_mano(c
     assert {nome: esito["controlli"][nome] for nome in attesi} == attesi
 
 
-def test_senza_ccx_la_validazione_si_salta_nominando_il_solutore(monkeypatch):
-    """Ingresso degenere: macchina senza CalculiX. Il modulo si salta con un
-    motivo che nomina `ccx`, non fallisce e non passa a vuoto."""
+def test_senza_ccx_la_validazione_si_salta_nominando_il_solutore(tmp_path, monkeypatch):
+    """Ingresso degenere: macchina senza CalculiX. Il **modulo** si salta con
+    un motivo che nomina `ccx`, non fallisce e non passa a vuoto.
+
+    L'oracolo e' su `_corri` e non su `_ccx_o_salta`: la mutazione da uccidere
+    e' togliere la chiamata alla guardia dal corpo della corsa, e provare
+    l'aiutante la lasciava viva. Senza guardia `_corri` arriva in fondo e
+    ritorna, quindi il `raises` fallisce.
+    """
     monkeypatch.setattr(shutil, "which", lambda _nome: None)
 
     with pytest.raises(pytest.skip.Exception) as saltato:
-        _ccx_o_salta()
+        _corri(tmp_path)
+
+    assert "ccx" in str(saltato.value)
+
+
+def test_un_ccx_presente_ma_non_eseguibile_e_un_salto_non_un_fallimento(tmp_path, monkeypatch):
+    """Ingresso degenere che il modulo non dichiarava: un file di nome `ccx`
+    sul PATH senza il bit di esecuzione.
+
+    La decisione, scritta qui perche' finora era implicita: e' un **salto**,
+    come l'assenza, e non un fallimento. Non e' una scelta di questo file --
+    e' la semantica di `shutil.which`, che chiede `os.access(..., X_OK)` e
+    quindi rende `None` su un file non eseguibile. Il salto e' l'unico esito
+    coerente: `solve.risolvi` usa lo stesso `shutil.which` e su quel PATH
+    direbbe «solutore assente» invece di provare a eseguirlo.
+    """
+    finto = tmp_path / "ccx"
+    finto.write_text("#!/bin/sh\nexit 0\n", encoding="ascii")
+    finto.chmod(0o644)
+    monkeypatch.setenv("PATH", str(tmp_path))
+
+    with pytest.raises(pytest.skip.Exception) as saltato:
+        _corri(tmp_path)
 
     assert "ccx" in str(saltato.value)
 
