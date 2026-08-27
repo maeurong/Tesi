@@ -250,7 +250,10 @@ def write_inp(
             f"tipo di elemento '{element_type}' sconosciuto: "
             f"i tipi scrivibili sono {sorted(NODI_PER_ELEMENTO)}"
         )
-    superfici = {} if element_surfaces is None else element_surfaces
+    # Copia e non il dizionario del chiamante: i carichi distribuiti (#10) ne
+    # aggiungono, e mutare l'argomento farebbe crescere la struttura di chi
+    # chiama a ogni esportazione, in silenzio.
+    superfici = {} if element_surfaces is None else dict(element_surfaces)
     for tie in ties:
         nome, dipendente, indipendente = tie[0], tie[1], tie[2]
         mancanti = [s for s in (dipendente, indipendente) if s not in superfici]
@@ -274,6 +277,38 @@ def write_inp(
             f"{element_type} vuole {attesi} nodi per elemento, ne sono arrivati "
             f"{elements.shape[1]}: un deck scritto così non è leggibile da alcun solutore"
         )
+
+    # Le superfici dei carichi distribuiti (#10) si derivano qui, prima che le
+    # card *SURFACE si scrivano piu' sotto: entrano nello stesso dizionario del
+    # percorso hexa, quindi la scrittura e la validazione che gia' esistono non
+    # cambiano. Prima del deck e non durante: un selettore che non delimita
+    # nulla, o che prende due lati opposti, deve fermare l'esportazione con
+    # ancora zero righe scritte -- «il deck non si scrive a metà».
+    resoconti_distribuiti: dict[str, dict[str, object]] = {}
+    for carico in () if carichi is None else carichi.distribuiti:
+        if carico.selettore not in (nset_selettori or {}):
+            raise ValueError(
+                f"il carico '{carico.nome}' cita il selettore '{carico.selettore}', "
+                f"che non è stato risolto: arrivati {sorted(nset_selettori or {})}. "
+                "Il deck non si scrive a metà"
+            )
+        if carico.nome in superfici:
+            raise ValueError(
+                f"il carico distribuito '{carico.nome}' darebbe il proprio nome a "
+                "una superficie che è già dichiarata: nel deck ci sarebbero due "
+                "*SURFACE omonime e il solutore userebbe l'ultima"
+            )
+        superficie, resoconto_distribuito = superficie_di_pressione(
+            nodes, elements, np.asarray(nset_selettori[carico.selettore], dtype=np.int64),
+            element_type, nome=carico.nome,
+        )
+        superfici[carico.nome] = superficie
+        resoconto_distribuito["pressione"] = carico.pressione
+        resoconto_distribuito["risultante"] = [
+            carico.pressione * componente
+            for componente in resoconto_distribuito["risultante_per_pressione_unitaria"]
+        ]
+        resoconti_distribuiti[carico.nome] = resoconto_distribuito
 
     lines: list[str] = ["*HEADING", "modello generato da meshrec (mm, N, MPa, t, s)", "*NODE"]
     lines += [
@@ -428,6 +463,17 @@ def write_inp(
         resoconto_carico["forza_dichiarata"] = list(carico.forza)
         resoconto_carico["forza_effettiva"] = np.outer(quote, versore).sum(axis=0).tolist()
         resoconto[carico.nome] = resoconto_carico
+
+    # Un passo statico per carico distribuito (#10). La superficie e' gia' nel
+    # deck: qui resta solo la card `*DSLOAD`, che `_passo_statico` scrive dal
+    # suo parametro `pressure`. Il `pressure` legato al parziale e' quello del
+    # percorso hexa, uno solo per tutto il deck; qui si sovrascrive per passo,
+    # che e' la ragione per cui i distribuiti sono piu' d'uno e quello no.
+    for carico in () if carichi is None else carichi.distribuiti:
+        lines += passo_statico(
+            carico.nome, [peso], pressure=(carico.nome, carico.pressione)
+        )
+        resoconto[carico.nome] = resoconti_distribuiti[carico.nome]
 
     if carichi is not None and carichi.modale is not None:
         # Nessun `*EL FILE`: le forme sono normalizzate sulla massa e una
@@ -592,6 +638,128 @@ def element_surface(
         coppie += [(int(indice), posizione + 1) for indice in np.flatnonzero(tutte_dentro)]
     coppie.sort()
     return coppie
+
+
+# Quanto della superficie sopravvive alla somma vettoriale delle sue normali:
+# ||somma(area_i * n_i)|| / somma(area_i), cioe' la risultante di una pressione
+# unitaria divisa per l'area su cui agisce. Vale **1** su una faccia piana,
+# **0,707** su uno spigolo retto a facce uguali, **0,5** su un emisfero, **0**
+# su due facce opposte che si guardano.
+#
+# **La soglia e' 0,5, ed e' derivata e non tarata.** 0,5 e' esattamente
+# l'emisfero: la superficie le cui normali coprono **esattamente un
+# semispazio**, cioe' il caso limite di un solo «lato». Sotto quel valore la
+# superficie gira **oltre** l'opposto, ovvero avvolge il solido -- ed e'
+# precisamente il selettore a box che attraversa il pezzo e prende le facce di
+# entrambi i lati. Dichiarata prima di misurare qualunque caso reale.
+#
+# **Cio' che l'indicatore non e'**: una condizione necessaria. Una superficie
+# puo' avere efficienza alta e comunque non essere quella voluta. E' un
+# indicatore sufficiente del solo difetto che coglie -- le due spinte che si
+# annullano -- e la sua ragione di esistere e' che quel difetto **nessuna
+# guardia di equilibrio lo vede**: la risultante esce quasi nulla mentre le
+# tensioni locali ci sono per davvero.
+_EFFICIENZA_MINIMA_DI_PRESSIONE = 0.5
+
+
+def superficie_di_pressione(
+    nodes: np.ndarray,
+    elements: np.ndarray,
+    indici: np.ndarray,
+    element_type: str,
+    *,
+    nome: str,
+) -> tuple[list[tuple[int, int]], dict[str, object]]:
+    """La superficie su cui una pressione agisce, piu' il resoconto che la smentisce (#10).
+
+    La superficie e' quella che `element_surface` gia' costruisce: le facce
+    **di bordo** con **tutti** i nodi nell'insieme. Qui non si ripartisce
+    nulla -- la pressione va nel deck come `*DSLOAD, P` ed e' il solutore a
+    integrarla sulle facce -- quindi, a differenza di `ripartisci`, questa
+    strada vale anche sui **tetraedri quadratici**: non c'e' alcuna quota
+    nodale da sbagliare.
+
+    Le normali sono orientate **verso l'esterno** confrontandole col vettore
+    che va dal baricentro dell'elemento a quello della faccia, e non fidandosi
+    dell'ordine di `FACCE_DEL_SOLUTORE`: quell'ordine e' giusto, ma farlo
+    dipendere da una convenzione di tabella significa che una tabella
+    sbagliata darebbe una guardia sbagliata **in silenzio**, che e' il difetto
+    per cui la tabella stessa era stata rinviata.
+    """
+    superficie = element_surface(elements, indici, element_type)
+    if not superficie:
+        raise ValueError(
+            f"il carico '{nome}' agisce su un insieme di nodi che non delimita "
+            "alcuna faccia di bordo: nessuna faccia ha tutti i suoi nodi "
+            "nell'insieme, oppure l'insieme è tutto interno al solido. Una "
+            "pressione applicata a nulla non è un carico"
+        )
+
+    punti = np.asarray(nodes, dtype=np.float64)
+    elementi = np.asarray(elements, dtype=np.int64)
+    angoli = ANGOLI_PER_ELEMENTO[element_type]
+    combinazioni = FACCE_DEL_SOLUTORE[angoli]
+
+    vettori = np.zeros((len(superficie), 3), dtype=np.float64)
+    for riga, (elemento, numero) in enumerate(superficie):
+        nodi = elementi[elemento][list(combinazioni[numero - 1])]
+        p = punti[nodi]
+        # Ventaglio dal primo nodo, la stessa decomposizione di `aree_tributarie`:
+        # su un triangolo e' il triangolo, su un quadrilatero sono i due
+        # triangoli, e la somma vettoriale porta con se' area **e** giacitura.
+        vettore = np.zeros(3, dtype=np.float64)
+        for k in range(1, len(nodi) - 1):
+            vettore = vettore + np.cross(p[k] - p[0], p[k + 1] - p[0]) / 2.0
+        centro_elemento = punti[elementi[elemento][:angoli]].mean(axis=0)
+        if float(np.dot(vettore, p.mean(axis=0) - centro_elemento)) < 0.0:
+            vettore = -vettore
+        vettori[riga] = vettore
+
+    aree = np.linalg.norm(vettori, axis=1)
+    area_totale = float(aree.sum())
+    # Forma positiva, come in `ripartisci`: con `area_totale <= 0.0` un NaN
+    # cadrebbe dalla parte permissiva e uscirebbe un'efficienza NaN, che il
+    # confronto con la soglia tratterebbe come «passata».
+    if not (np.isfinite(area_totale) and area_totale > 0.0):
+        raise ValueError(
+            f"il carico '{nome}' agisce su {len(superficie)} facce la cui area "
+            f"vale {area_totale}: una coordinata non finita o facce degeneri "
+            "producono questo, e una pressione su un'area così non è un carico"
+        )
+
+    risultante = vettori.sum(axis=0)
+    efficienza = float(np.linalg.norm(risultante) / area_totale)
+    if efficienza < _EFFICIENZA_MINIMA_DI_PRESSIONE:
+        # La direzione di riferimento e' la normale della faccia piu' grande e
+        # non il verso della risultante: quando le facce si annullano la
+        # risultante e' quasi nulla, e il suo verso non e' piu' una direzione.
+        riferimento = vettori[int(np.argmax(aree))]
+        verso = float(np.linalg.norm(riferimento))
+        concordi = (vettori @ riferimento) > 0.0
+        area_con = float(aree[concordi].sum())
+        area_contro = float(aree[~concordi].sum())
+        raise ValueError(
+            f"il carico '{nome}' agisce su una superficie che si richiude su sé "
+            f"stessa: {area_con:.6g} mm² di facce spingono da una parte e "
+            f"{area_contro:.6g} mm² dall'altra, e le due pressioni si annullano "
+            f"(efficienza {efficienza:.4f}, soglia {_EFFICIENZA_MINIMA_DI_PRESSIONE}). "
+            "Di norma è un selettore che attraversa il pezzo e ne prende "
+            "entrambi i lati: la risultante esce quasi nulla mentre le tensioni "
+            "locali ci sono davvero, e nessun controllo di equilibrio lo vede. "
+            f"Restringi il selettore a un lato solo (normale di riferimento di "
+            f"modulo {verso:.6g} mm²)"
+        )
+
+    resoconto: dict[str, object] = {
+        "facce": len(superficie),
+        "area_totale": area_totale,
+        "efficienza": efficienza,
+        # La risultante di una pressione unitaria: moltiplicata per la pressione
+        # dichiarata da' la forza che il passo applica davvero, ed e' il numero
+        # che si confronta con la reazione al vincolo.
+        "risultante_per_pressione_unitaria": risultante.tolist(),
+    }
+    return superficie, resoconto
 
 
 def tie_surface(
@@ -1565,6 +1733,10 @@ def export_model(
         carichi=carichi,
         nset_selettori=nset_selettori,
     )
+    nomi_distribuiti = (
+        frozenset() if carichi is None
+        else frozenset(carico.nome for carico in carichi.distribuiti)
+    )
     for nome, quanti in bloccati_per_carico.items():
         resoconto_carichi[nome]["nodi_sul_vincolo"] = quanti
     write_vtu(path_vtu, aligned, elements, element_type=tipo)
@@ -1589,7 +1761,18 @@ def export_model(
             }
             for nome, indici in nset_selettori.items()
         },
-        "carichi_posizionati": resoconto_carichi,
+        # Due chiavi e non una: i distribuiti (#10) hanno un resoconto di forma
+        # diversa -- area e efficienza della superficie, non nodi e quote -- e
+        # infilarli sotto un nome che dice «posizionati» renderebbe falso un
+        # nome che qualcuno legge. La vecchia chiave resta quella di prima.
+        "carichi_posizionati": {
+            nome: valore for nome, valore in resoconto_carichi.items()
+            if nome not in nomi_distribuiti
+        },
+        "carichi_distribuiti": {
+            nome: valore for nome, valore in resoconto_carichi.items()
+            if nome in nomi_distribuiti
+        },
         "volume": volume,
         "mass": volume * cfg.material.density,
         "element_type": tipo,
@@ -1609,6 +1792,11 @@ def export_model(
             None if carichi is None or carichi.spinta is None else "SPINTA_ORIZZONTALE",
             None if carichi is None or carichi.carico_sommita is None else "CARICO_TOP",
             *(() if carichi is None else tuple(c.nome for c in carichi.posizionati)),
+            # Dopo i posizionati e prima del modale, nello stesso ordine in cui
+            # `write_inp` scrive i passi: questa lista e' la promessa che
+            # `solve.risolvi` usa per dare un nome ai blocchi del `.frd`, e un
+            # ordine diverso da quello del deck scambierebbe i risultati.
+            *(() if carichi is None else tuple(c.nome for c in carichi.distribuiti)),
             None if carichi is None or carichi.modale is None else "MODALE",
         ) if nome is not None],
     }

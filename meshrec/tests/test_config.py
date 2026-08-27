@@ -956,6 +956,77 @@ def test_due_posizionati_non_possono_avere_lo_stesso_nome():
         )
 
 
+def test_senza_distribuiti_la_tupla_e_vuota():
+    """Stessa regola dei posizionati: tupla vuota e non None.
+
+    Una corsa senza distribuiti e una con la lista vuota sono lo stesso
+    esperimento, ed e' la regola che l'impronta di sweep gia' applica al
+    blocco intero.
+    """
+    assert config.CarichiConfig().distribuiti == ()
+
+
+def test_una_pressione_nulla_non_e_un_carico():
+    """Scriverebbe un passo statico identico al peso proprio, con un altro nome.
+
+    Mutazione che lo uccide: togliere il validatore. La configurazione passa e
+    il deck esce con un `*DSLOAD` a zero, cioe' un caso di carico che promette
+    qualcosa e ripete la gravita'.
+    """
+    with pytest.raises(ValidationError, match="pressione nulla"):
+        config.CaricoDistribuito(nome="VENTO", selettore="tetto", pressione=0.0)
+
+
+def test_una_pressione_negativa_e_ammessa_perche_la_depressione_e_un_carico():
+    """Il vento che solleva una falda tira, non preme: il segno negativo serve.
+
+    Sta accanto al test dello zero apposta: senza, «rifiuta lo zero» e
+    «rifiuta il non positivo» sarebbero indistinguibili, e un `gt=0.0` messo
+    per sbaglio passerebbe inosservato.
+    """
+    assert config.CaricoDistribuito(
+        nome="SOLLEVAMENTO", selettore="falda", pressione=-0.3
+    ).pressione == -0.3
+
+
+def test_un_distribuito_cita_un_selettore_dichiarato():
+    with pytest.raises(ValidationError, match="che non è dichiarato"):
+        crea_config(
+            input=config.InputConfig(path="nuvola.ply"),
+            selettori={"piastra": {"tipo": "nset", "nome": "TOP"}},
+            carichi=config.CarichiConfig(distribuiti=[
+                {"nome": "VENTO", "selettore": "inesistente", "pressione": 0.25},
+            ]),
+        )
+
+
+def test_un_distribuito_e_un_posizionato_non_possono_avere_lo_stesso_nome():
+    """Le due liste condividono un solo spazio di nomi, perche' scrivono passi.
+
+    E' il difetto che due cicli separati -- uno sui posizionati, uno sui
+    distribuiti, ognuno col proprio insieme dei nomi visti -- lascerebbero
+    passare: ciascuno dei due nomi sarebbe unico nella propria lista, e il deck
+    uscirebbe con due `** NOME PASSO: SPINTA_VENTO`.
+
+    Mutazione che lo uccide: spezzare il ciclo di
+    `_i_carichi_col_selettore_citano_selettori_dichiarati` in due.
+    """
+    with pytest.raises(ValidationError, match="SPINTA_VENTO"):
+        crea_config(
+            input=config.InputConfig(path="nuvola.ply"),
+            selettori={"piastra": {"tipo": "nset", "nome": "TOP"}},
+            carichi=config.CarichiConfig(
+                posizionati=[
+                    {"nome": "SPINTA_VENTO", "selettore": "piastra",
+                     "forza": [0.0, 0.0, -1.0]},
+                ],
+                distribuiti=[
+                    {"nome": "SPINTA_VENTO", "selettore": "piastra", "pressione": 0.25},
+                ],
+            ),
+        )
+
+
 @pytest.mark.parametrize("cattivo", ["con spazio", "BASE\n*BOUNDARY\nTOP, 1, 3", "base!"])
 def test_fixed_nset_e_step_name_rifiutano_i_nomi_non_scrivibili(cattivo):
     """I due campi rimasti `str` nudi quando la fase ha introdotto `NomeSet`.
