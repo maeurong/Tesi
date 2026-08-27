@@ -14,13 +14,17 @@ argomenti, uscita 2 sul file inesistente, uscita 1 sui rotti — le uccide tutte
 
 Il secondo passa lo script sui documenti veri.
 
-**Limite dichiarato del secondo test.** Vede solo i riferimenti che non
-risolvono affatto: riga oltre la fine del file, riga zero, nome ambiguo. **Non**
-vede quelli che risolvono su una riga sbagliata, che erano la larga maggioranza
-della deriva misurata in #96 — 166 su 168 puntavano a una riga esistente e a un
-contenuto diverso. Per quelli serve leggere. Questa non è quindi una guardia
-contro #96: è una guardia contro il suo caso peggiore, quello in cui il
-riferimento non porta più da nessuna parte.
+**Limite dichiarato del secondo test, sulla forma a numero.** Dei riferimenti
+`file:riga` vede solo quelli che non risolvono affatto: riga oltre la fine del
+file, riga zero, nome ambiguo. **Non** vede quelli che risolvono su una riga
+sbagliata, che erano la larga maggioranza della deriva misurata in #96 — 166 su
+168 puntavano a una riga esistente e a un contenuto diverso, e la fusione dei
+sette rami ne ha prodotti altri 43. Per quelli serve leggere.
+
+**Sulla forma a nome il limite non c'è**, ed è la ragione per cui i documenti di
+validazione sono stati riscritti per citare `modulo.simbolo` invece della riga:
+un nome che il modulo non definisce più è **rotto**, e questo test lo vede senza
+che nessuno rilegga.
 """
 
 import importlib.util
