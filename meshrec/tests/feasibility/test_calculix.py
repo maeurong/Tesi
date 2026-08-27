@@ -1,7 +1,7 @@
-"""Fase 0 — CalculiX accetta il nostro .inp e da un risultato corretto?
+"""Fase 0 — CalculiX accetta il nostro .inp e da' un risultato corretto?
 
 Caso di prova: colonna a base quadrata incastrata al piede sotto peso proprio.
-Accorciamento in sommita in forma chiusa: u = rho * g * L^2 / (2 * E).
+Accorciamento in sommita' in forma chiusa: u = rho * g * L^2 / (2 * E).
 """
 
 import shutil

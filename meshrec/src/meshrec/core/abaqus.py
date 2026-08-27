@@ -272,7 +272,7 @@ def write_inp(
     in testa a ogni passo, cancella **anche** i carichi di superficie, non solo
     quelli di volume. Con la sola card del primo passo, le reazioni del passo
     distribuito perdevano per intero la componente della permanente -- `RF_y`
-    da -1666,667 a 0,0 su `ccx` 2.21, con la permanente e il distribuito su
+    da -1666.667 a 0.0 su `ccx` 2.21, con la permanente e il distribuito su
     facce perpendicolari. Un carico permanente che si spegne quando arriva il
     vento, senza che il deck diventi invalido o i numeri implausibili.
 
@@ -519,10 +519,14 @@ def write_inp(
         resoconto[carico.nome] = resoconto_carico
 
     # Un passo statico per carico distribuito (#10). La superficie e' gia' nel
-    # deck: qui resta solo la card `*DSLOAD`, che `_passo_statico` scrive dal
-    # suo parametro `pressure`. Il `pressure` legato al parziale e' quello del
-    # percorso hexa, uno solo per tutto il deck; qui si sovrascrive per passo,
-    # che e' la ragione per cui i distribuiti sono piu' d'uno e quello no.
+    # deck: qui resta solo la card `*DSLOAD`, che `_passo_statico` scrive dai
+    # suoi due parametri di pressione. Sono due e non uno perche' in questi
+    # passi le pressioni sono due: la permanente del percorso hexa, una sola
+    # per tutto il deck e legata al parziale, e quella del distribuito
+    # corrente, diversa a ogni giro. La seconda **non sostituisce** la prima --
+    # si aggiunge accanto, nella stessa card -- perche' il `*DLOAD, OP=NEW` in
+    # testa al passo cancella anche i `*DSLOAD` e una permanente non riscritta
+    # qui smetterebbe di agire (#119).
     distribuiti = () if carichi is None else carichi.distribuiti
     for indice, carico in enumerate(distribuiti):
         # `*CLOAD, OP=NEW` come nei due cicli gemelli sopra: `*DLOAD, OP=NEW`
