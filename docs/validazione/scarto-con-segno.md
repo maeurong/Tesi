@@ -28,8 +28,13 @@ cioè `errore_geometrico_max` ratificata in
 
 | | frazione dei punti | RMS | massimo |
 |---|---|---|---|
-| **materia mancante** | 48,135 % | 12,413 mm | **737,695 mm** |
+| **materia mancante** (*limite superiore*) | ≤ 48,135 % | ≤ 12,413 mm | ≤ **737,695 mm** |
 | **materia inventata** | 51,864 % | 5,473 mm | 30,681 mm |
+
+I tre valori della materia mancante sono **limiti superiori**, non misure della sola
+ricostruzione: qui occlusione e materia mancante si confondono, e il massimo di 737,7 mm è
+quasi certamente occlusione. Il «≤» va citato insieme al numero — vedi
+[Limiti dichiarati](#limiti-dichiarati).
 
 | | |
 |---|---|

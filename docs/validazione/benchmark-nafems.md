@@ -471,7 +471,7 @@ rotazionale), con E = 200 GPa, ν = 0.3, ρ = 8000, h = 1, a = b = 10, κ = 5/6:
 | (2,2) | 190.138 | **167.317** | **167.89** |
 
 Il set 45.897 **è** la soluzione analitica di piastra spessa: coincide col mio Mindlin a
-5 cifre sul modo fondamentale. Il set 44.092, che nessuna teoria di piastra riproduce ma che
+**4 cifre significative** sul modo fondamentale (45.892 contro 45.897, scarto 0,011%). Il set 44.092, che nessuna teoria di piastra riproduce ma che
 C3D8I 8×8×3 riproduce a **0.0%** su tutti e sette i modi, è il target numerico.
 
 Lettura fisica: il vincolo reale di FV52 (solo u_z sui quattro spigoli **inferiori**) è più

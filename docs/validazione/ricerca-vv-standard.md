@@ -281,8 +281,11 @@ I test presenti nella guida ESRD: **LE1, LE2, LE3, LE5, LE6, LE7, LE8, LE10, LE1
 
 #### LE11 — Solid cylinder / taper / sphere, carico termico
 - Solido cilindro-raccordo-sfera; E = 210 GPa, ν = 0.3, α = 2.3·10⁻⁴ /°C.
-- Vincoli: u_z = 0 sul piano z = 0; u_x = 0 sul piano x = 0; u_y = 0 sul piano y = 0 e sulla faccia
-  BCDE (ESRD) / HIH′I′ (Abaqus — **le due fonti nominano la faccia in modo diverso**).
+- Vincoli (terna NAFEMS): u_z = 0 sul piano z = 0; u_x = 0 sul piano x = 0; u_y = 0 sul piano
+  y = 0; **u_z = 0 sulla faccia superiore HIH′I′**. ESRD chiama BCDE la stessa faccia perché
+  ruota la terna: stessa faccia, stesso vincolo, non due specifiche diverse. Formulazione NAFEMS
+  verbatim e nomenclatura in [`benchmark-nafems.md`](benchmark-nafems.md) § «Vincoli — formulazione
+  NAFEMS verbatim» (righe 244-252). [V]
 - Carico: gradiente termico lineare radiale e assiale, Δθ = √(x²+y²) + z (imposto in Abaqus via
   subroutine UTEMP).
 - **Target: σ_zz = −105 MPa nel punto A.** [V su entrambe le fonti]
@@ -809,8 +812,11 @@ a 666 DOF, 0.28% a 3615 DOF; modo torsionale (approssimato 2614 Hz) — LT 41.68
 
 **Autovalori della matrice di rigidezza di un cubo unitario** (E = 30 000 000, ν = 0.3): un cubo
 meshato con **5 tetraedri simplessi** ha **sistematicamente autovalori maggiori** dello stesso cubo con
-un esaedro — es. il primo modo deformativo: hex Nastran 1.667·10⁷, hex isoparametrico 1.923·10⁷,
-**5 tet 5.315·10⁷** (≈ 3× il Nastran); modi successivi 11.538 vs 13.915, 37.500 vs 46.085 (×10⁷).
+un esaedro — primo modo deformativo (autovalore 7): hex Nastran 1.667·10⁷, hex isoparametrico
+1.923·10⁷, **5 tet 5.315·10⁷** (≈ 3× il Nastran). Sull'**autovalore 21** questo documento e
+[`ricerca-calculix-e-c3d4.md`](ricerca-calculix-e-c3d4.md) (righe 281-282) riportavano letture
+incompatibili — due colonne contro tre, e valore diverso sul tet. **Numeri soppressi: vanno riletti
+sulla Tab. 1 del paper**, che non è versionato nel repository.
 Poiché il FEM basato su spostamenti **sovrastima** la rigidezza, autovalore più alto = elemento
 peggiore. [V]
 
@@ -875,7 +881,7 @@ Affermazioni che questa raccolta sostiene con fonte: [V dove indicato]
 | **GCI / Richardson** | incertezza numerica residua della griglia fine | banda GCI in %; F_s = 1.25 (≥3 griglie) o 3.0 (2 griglie); range asintotico se GCI₂₃ ≈ r^p·GCI₁₂ | Roache 1994, JFE 116:405–413; Celik et al. 2008, JFE 130:078001; NASA NPARC "Examining Spatial (Grid) Convergence" |
 | **Mensola Benzley** — flessione, ν=0.3 | penalità di rigidezza del tet lineare | analitico: spost. 1.25e−4, σ = 30.0. Errore **LT 31.48% / 21.23%** (666 DOF) vs **LH 0.72% / 0.00%** (567 DOF) | Benzley et al. 1995, Proc. 4th IMR, Tab. 2 |
 | **Mensola Benzley** — flessione, ν=0.49 | locking volumetrico | Errore **LT 71.68% / 66.77%** (666 DOF), **44.80% / 35.23%** (3615 DOF) | idem |
-| **Mensola Benzley** — torsione, ν=0.3 | rigidezza a taglio senza il vantaggio dell'integrazione selettiva | analitico τ = 6.8. **LT 50.81% spost. / 77.82% tens.** (666 DOF) vs **LH 15.65% / 37.59%** | idem, Tab. 3 |
+| **Mensola Benzley** — torsione, ν=0.3 | rigidezza a taglio senza il vantaggio dell'integrazione selettiva | analitico τ = 6.8 (**sospetto**: vedi [`mensola-benzley.md`](mensola-benzley.md) §6, il paper non scioglie un fattore 2 fra tensione e spostamento torsionali). **LT 50.81% spost. / 77.82% tens.** (666 DOF); **LH 15.65% spost.** (567 DOF), tensione **da rileggere sulla fonte** | idem, Tab. 3 |
 | **Autovalori cubo unitario** | sovrastima diretta di rigidezza del simplesso | primo modo deformativo: hex 1.667e7 vs **5 tet 5.315e7** | idem, Tab. 1 |
 | **Verdict — min dihedral angle** | sliver detection (l'unica metrica del set che li vede) | accettabile **[40°, 70.5288°]** | Stimpson et al. 2007, SAND2007-1751, §6.10 |
 | **Verdict — tet scaled Jacobian** | validità/qualità algebrica | accettabile **[0.5, √2/2 ≈ 0.7071]** | idem, §6.13 |

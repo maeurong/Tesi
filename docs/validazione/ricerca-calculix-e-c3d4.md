@@ -278,8 +278,13 @@ Stessa fonte, Tabella 1: autovalori della matrice di rigidezza di un cubo unitar
 modellato con un esaedro contro cinque tetraedri. Sei autovalori nulli in tutti i
 casi (i modi rigidi), poi «the Nastran hexahedron always has the lesser and the 5
 tetrahedron model always has the greater eigenvalue» — autovalore 7: 1,667 (hex
-Nastran) / 1,923 (hex isoparametrico) / **5,315 (5 tet)**; autovalore 21:
-11,538 / 11,538 / **38,276**. Prova diretta e misurata dell'eccesso di rigidezza.
+Nastran) / 1,923 (hex isoparametrico) / **5,315 (5 tet)**. Prova diretta e misurata
+dell'eccesso di rigidezza.
+
+I valori dell'**autovalore 21** sono **soppressi**: questo documento e
+[`ricerca-vv-standard.md`](ricerca-vv-standard.md) ne davano due letture incompatibili
+(tre colonne contro due, e valore diverso sul tet). Il paper non è versionato nel
+repository, quindi la riga va riletta sulla Tab. 1 prima di essere citata.
 
 **Tadepalli, Erdemir, Cavanagh (2011), «Comparison of hexahedral and tetrahedral
 elements in finite element analysis of the foot and footwear», *J Biomech*
