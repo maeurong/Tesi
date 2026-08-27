@@ -303,14 +303,14 @@ def test_il_passo_di_pressione_azzera_le_forze_nodali_del_passo_precedente(tmp_p
     )
 
 
-def test_due_pressioni_nello_stesso_deck_non_si_sommano(tmp_path):
-    """Ogni passo distribuito scrive il proprio `*DSLOAD, OP=NEW`.
+def test_due_pressioni_nello_stesso_deck_scrivono_ognuna_la_propria_card(tmp_path):
+    """Un `*DSLOAD` per passo, con la propria superficie e il proprio valore.
 
-    Senza `OP=NEW` il secondo passo somma la pressione del primo, come il
-    `*CLOAD` fa con le forze nodali. La persistenza di `*DSLOAD` fra passi non
-    è misurata in questo repo (lo è quella di `*CLOAD`, vedi
-    `docs/fase-6-cantiere/sonda-cload-persiste/`): la card è scritta per la
-    stessa ragione per cui `*DLOAD` la porta dalla prima riga.
+    Niente `OP=NEW`: `ccx` 2.21 non riconosce quel parametro su questa card
+    (misurato in CI, #84). Che la pressione di un passo **persista** in quello
+    dopo non lo può dire un controllo sul testo del deck: lo misura
+    `tests/feasibility/test_calculix.py::test_una_pressione_non_persiste_nel_passo_statico_successivo`,
+    col solutore vero.
     """
     nodi, tetraedri = _lastra(4, 4, 1, 10.0)
     selettori = {
@@ -331,9 +331,10 @@ def test_due_pressioni_nello_stesso_deck_non_si_sommano(tmp_path):
     )
 
     testo = percorso.read_text(encoding="ascii")
-    assert _passo(testo, "VENTO").count("*DSLOAD, OP=NEW") == 1
-    assert _passo(testo, "NEVE").count("*DSLOAD, OP=NEW") == 1
-    assert "\n*DSLOAD\n" not in testo, "un *DSLOAD senza OP=NEW somma il passo precedente"
+    assert _passo(testo, "VENTO").count("*DSLOAD") == 1
+    assert "\n*DSLOAD\nVENTO, P, 0.25\n" in _passo(testo, "VENTO")
+    assert _passo(testo, "NEVE").count("*DSLOAD") == 1
+    assert "\n*DSLOAD\nNEVE, P, 0.1\n" in _passo(testo, "NEVE")
 
 
 def test_una_pressione_tutta_sul_vincolo_e_un_errore_dichiarato(tmp_path):

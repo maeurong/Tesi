@@ -449,11 +449,9 @@ def test_la_pressione_si_ripete_in_ogni_passo_statico_con_carichi(tmp_path):
     carico fra gli altri: si ripete in ogni passo statico esattamente come il
     peso proprio (vedi il docstring di `write_inp`, Important A del giro di
     revisione). Qui i passi statici sono due (peso proprio + spinta): la
-    `*DSLOAD` deve comparire in entrambi, non solo nel primo.
-
-    `OP=NEW` dal fix di #84: la card e' **ridichiarata** a ogni passo, e senza
-    l'azzeramento il secondo passo sommerebbe la pressione del primo invece di
-    ripeterla."""
+    `*DSLOAD` deve comparire in entrambi, non solo nel primo. Senza `OP=NEW`:
+    `ccx` 2.21 non riconosce quel parametro su questa card e ne fa due avvisi
+    (misurato in CI, #84)."""
     superficie = abaqus.element_surface(_ESAEDRO, np.array([0, 1, 2, 3]), "C3D8I")
     carichi = config.CarichiConfig(spinta=config.SpintaOrizzontale(coefficiente=0.1, asse="x"))
     percorso = tmp_path / "con_pressione.inp"
@@ -470,7 +468,7 @@ def test_la_pressione_si_ripete_in_ogni_passo_statico_con_carichi(tmp_path):
 
     righe = percorso.read_text(encoding="ascii").splitlines()
     assert righe.count("*STEP") == 2
-    assert righe.count("*DSLOAD, OP=NEW") == 2
+    assert righe.count("*DSLOAD") == 2
     assert righe.count("FACCIA_BASSA, P, 0.25") == 2
 
 
