@@ -51,7 +51,7 @@ Legenda colonne: **Rif.** | **Cosa ricostruiscono** | **Come validano** | **Elem
 | Fonte | Cosa aggiunge |
 |---|---|
 | Castellazzi, Lo Presti, D'Altri, de Miranda (2022), *Cloud2FEM: A finite element mesh generator based on point clouds of existing/historical structures*, **SoftwareX 18:101099**, DOI 10.1016/j.softx.2022.101099 | Riferimento obbligato per il ramo "voxel" dello scan-to-FEM. Pipeline: slicing verticale della nuvola → poligoni chiusi per fetta → impilamento a voxel → **mesh esaedrica a 8 nodi**, esportata in **notazione Abaqus `.inp`** (l'esempio ha 31 638 esaedri a 8 nodi). Codice GPL-3, Python (PyQt5, NumPy, pyntcloud, Shapely). Nota importante: l'articolo è una *original software publication* — **non contiene una validazione sperimentale**, cita l'aggiornamento del modello e le valutazioni sismiche come lavori a valle. Repo: github.com/gcastellazzi/Cloud2FEM |
-| Bassoli, Vincenzi, D'Altri, de Miranda, Forghieri, Castellazzi (2018), *Ambient vibration-based finite element model updating of an earthquake-damaged masonry tower*, **Struct. Control Health Monit.** — onlinelibrary.wiley.com/doi/full/10.1002/stc.2150 | Il caso canonico di torre in muratura: nuvola → FEM → **OMA** → model updating con dati di vibrazione ambientale su struttura danneggiata dal sisma. E' il modello di riferimento per "livello 5" della scala del §5 |
+| Bassoli, Vincenzi, D'Altri, de Miranda, Forghieri, Castellazzi (2018), *Ambient vibration-based finite element model updating of an earthquake-damaged masonry tower*, **Struct. Control Health Monit.** — onlinelibrary.wiley.com/doi/full/10.1002/stc.2150 | Il caso canonico di torre in muratura: nuvola → FEM → **OMA** → model updating con dati di vibrazione ambientale su struttura danneggiata dal sisma. È il modello di riferimento per "livello 5" della scala del §5 |
 | Gentile, Saisi (2007), *Ambient vibration testing, dynamic identification and model updating of a historic tower*, **NDT & E International** — sciencedirect.com/science/article/abs/pii/S0963869511001745 (record ScienceDirect) | Lavoro fondativo su AVT + identificazione dinamica + updating su torre storica |
 | *Model updating of a masonry tower based on operational modal analysis: the role of soil-structure interaction*, **Case Studies in Construction Materials** (2022) — sciencedirect.com/science/article/pii/S2214509522000894 | Mostra che l'updating su sole frequenze può essere **non identificabile** se non si modella l'interazione terreno-struttura: monito diretto per chi valida solo con frequenze |
 | *Scan-to-BIM-to-Sim: Automated reconstruction of digital and simulation models from point clouds with applications on bridges* (2025), **Developments in the Built Environment** — sciencedirect.com/science/article/pii/S2590123025003743 | Il termine "scan-to-BIM-to-sim" con applicazione a ponti; utile per posizionare la nomenclatura |
@@ -101,7 +101,7 @@ Queste sono esattamente le eq. (1)–(2) dell'articolo 3 (Zhang et al. 2024, *En
 ### 3.2 Cloud-to-Cloud (C2C) e Cloud-to-Mesh (C2M)
 
 - **C2C**: per ogni punto di A, distanza al punto più vicino di B (nearest neighbour su kd-tree). Nella pratica CloudCompare si può raffinare con un modello locale (piano ai minimi quadrati, quadrica, triangolazione di Delaunay 2.5D) per ridurre l'errore da campionamento discreto. **Sempre non negativa, senza segno.**
-- **C2M**: per ogni punto della nuvola, distanza al **triangolo** più vicino della mesh. Può essere **con segno** (positivo/negativo secondo il lato della faccia). E' quella usata dall'art. 7 sull'acquedotto (comando "Cloud to Mesh Distance").
+- **C2M**: per ogni punto della nuvola, distanza al **triangolo** più vicino della mesh. Può essere **con segno** (positivo/negativo secondo il lato della faccia). È quella usata dall'art. 7 sull'acquedotto (comando "Cloud to Mesh Distance").
 
 La differenza pratica: C2C confronta due campionamenti e quindi **misura anche la differenza di campionamento**; C2M confronta un campionamento con una superficie continua e quindi isola meglio l'errore geometrico.
 
@@ -109,7 +109,7 @@ La differenza pratica: C2C confronta due campionamenti e quindi **misura anche l
 
     CD(A, B) = (1/|A|) Σ_{a∈A} min_{b∈B} ||a−b||²  +  (1/|B|) Σ_{b∈B} min_{a∈A} ||a−b||²
 
-(esistono varianti con norma L1 e con media al posto di somma — **dichiarare sempre quale variante**). E' la media bidirezionale, quindi robusta agli outlier al contrario di Hausdorff, ma **cieca** ai difetti locali: una mesh con un buco grande e un'ottima aderenza altrove può avere una CD bassa. E' la metrica standard nel benchmark Sulzer et al. e nella letteratura di ricostruzione neurale.
+(esistono varianti con norma L1 e con media al posto di somma — **dichiarare sempre quale variante**). È la media bidirezionale, quindi robusta agli outlier al contrario di Hausdorff, ma **cieca** ai difetti locali: una mesh con un buco grande e un'ottima aderenza altrove può avere una CD bassa. È la metrica standard nel benchmark Sulzer et al. e nella letteratura di ricostruzione neurale.
 
 ### 3.4 F-score a soglia (precision / recall)
 
@@ -118,7 +118,7 @@ Data una soglia τ:
 - **recall** = frazione dei punti di ground truth che hanno un punto di S entro τ → penalizza la **materia mancante** (buchi, zone non scansionate);
 - **F-score** = media armonica.
 
-Introdotta come standard da Tanks and Temples (Knapitsch et al. 2017). **E' la metrica che separa i due errori che RMS e Chamfer confondono**, ed è quella che manca completamente ai 17 articoli letti.
+Introdotta come standard da Tanks and Temples (Knapitsch et al. 2017). **È la metrica che separa i due errori che RMS e Chamfer confondono**, ed è quella che manca completamente ai 17 articoli letti.
 
 ### 3.5 M3C2
 
@@ -128,7 +128,7 @@ Lague, Brodu, Leroux (2013). Per ogni punto core *i*:
 3. distanza = differenza fra le **posizioni medie** delle due nuvole dentro il cilindro, **lungo n** → distanza **con segno**;
 4. **livello di confidenza** LoD₉₅% che combina la rugosità locale σ delle due nuvole (dentro il cilindro), i conteggi n₁, n₂ e l'errore di registrazione: una variazione è dichiarata significativa solo se |distanza| > LoD.
 
-E' l'unica delle metriche qui elencate che (a) dà un segno, (b) fornisce un test di significatività punto per punto, (c) è progettata per superfici rugose e nuvole con densità disomogenea. **Nessuno dei 17 PDF la usa.**
+È l'unica delle metriche qui elencate che (a) dà un segno, (b) fornisce un test di significatività punto per punto, (c) è progettata per superfici rugose e nuvole con densità disomogenea. **Nessuno dei 17 PDF la usa.**
 
 ### 3.6 Normal Consistency
 
@@ -144,7 +144,7 @@ Dalla lettura incrociata dei 17 PDF e delle fonti esterne, la prassi difendibile
 
 1. **Non un solo numero.** Il minimo accettabile è **media (o mediana) + deviazione standard + massimo**, e la **distribuzione** (istogramma) o almeno i percentili. L'art. 3 riporta media, istogramma e la quota di regione sotto soglia; l'art. 7 riporta media + σ + criterio; l'art. 5 riporta solo il massimo (e infatti dice poco).
 2. **RMS vs media.** L'RMS penalizza gli outlier più della media assoluta. Se si riporta RMS, si deve riportare anche il massimo, altrimenti non è distinguibile un errore diffuso piccolo da un errore concentrato grande.
-3. **Percentili, non solo max.** Formulazione consolidata: "errore < X mm sul P % della superficie" (art. 3: "< 3 mm su > 95 % della regione"). E' più informativa del massimo perché immune agli outlier di registrazione.
+3. **Percentili, non solo max.** Formulazione consolidata: "errore < X mm sul P % della superficie" (art. 3: "< 3 mm su > 95 % della regione"). È più informativa del massimo perché immune agli outlier di registrazione.
 4. **Il massimo va sempre dato**, e va **spiegato dove si trova**: se il massimo è su uno spigolo o su una zona non scansionata, va detto e va escluso esplicitamente dal calcolo (l'art. 3 lo fa: esclude dall'analisi d'errore i punti rossi ricostruiti ma non scansionati).
 5. **Soglia dichiarata prima.** Historic England raccomanda di fissare la deviazione massima ammessa *prima* della misura. In letteratura civile lo fa solo l'art. 7 (media ∈ ±0,10 m, σ < 0,10 m). Nel resto la soglia è implicita e a posteriori — cattiva pratica facile da attaccare in commissione.
 6. **Contro cosa.** La distanza mesh↔nuvola sorgente è **autoconsistenza**, non accuratezza. Se il ground truth è la nuvola stessa, l'errore misurato non contiene l'errore del rilievo. Va dichiarato separatamente: (a) errore di registrazione delle scansioni, (b) errore del rilievo topografico su check point indipendenti, (c) errore mesh↔nuvola. L'art. 7 è l'unico dei 17 che li separa tutti e tre (RTK ±7/14 mm → CP 3,53 cm → C2M 2,2 cm).
@@ -191,7 +191,7 @@ Sei livelli, dal più debole al più forte. Per ognuno: che cosa dimostra, chi l
 **Cosa dimostra**: che il risultato non dipende dalla discretizzazione. Nella terminologia **ASME V&V 10** questa è *verification*, **non** *validation*: riguarda la fedeltà numerica, non la fisica.
 **Chi lo fa**: art. 1 (sensibilità di mesh 20/10/5 mm; la mesh da 20 mm sovrastima la capacità del 14 %); art. 8 (studio di convergenza in COMSOL); art. 5 (confronto 3D/2D/1D — è verification incrociata fra idealizzazioni); art. 12 (sensibilità al voxel).
 **Cosa serve**: almeno tre livelli di raffinamento con la stessa quantità di interesse; il criterio di arresto dichiarato; il costo computazionale riportato (l'art. 1 lo fa: 83,6 s / 1006,3 s / 3459,5 s).
-**Vulnerabilità**: presentare la convergenza come "validazione". E' l'errore più frequente: se la mesh convergesse su un modello sbagliato, converge lo stesso.
+**Vulnerabilità**: presentare la convergenza come "validazione". È l'errore più frequente: se la mesh convergesse su un modello sbagliato, converge lo stesso.
 
 ### Livello 4 — Auto-validazione incrociata (due metodi propri che concordano)
 **Cosa dimostra**: consistenza interna fra due idealizzazioni. **Non è un confronto con la realtà.**
@@ -212,7 +212,7 @@ Sei livelli, dal più debole al più forte. Per ognuno: che cosa dimostra, chi l
 **Vulnerabilità**: l'OMA da sola non identifica univocamente le rigidezze — se non si modella l'interazione terreno-struttura o le condizioni al contorno, l'updating compensa un errore con un altro (vedi *Case Studies in Construction Materials* 2022 sul ruolo della SSI).
 
 ### Livello 6 — Prova distruttiva a scala reale, con benchmark indipendente
-**Cosa dimostra**: che il modello predice la **capacità ultima** e il **meccanismo di collasso**. E' il livello massimo raggiungibile.
+**Cosa dimostra**: che il modello predice la **capacità ultima** e il **meccanismo di collasso**. È il livello massimo raggiungibile.
 **Chi lo fa**: **Graves et al. 2023** (art. 11) — prova a collasso su grigliato 7,5×2,5 m, provino parte di uno studio **round-robin** internazionale (Ringsberg et al. 2021), capacità 6,59 MN misurata vs 6,56 MN predetta (0,46 %), con intervalli di incertezza propagati dal kriging. Nei 17 è l'unico. Parzialmente: art. 1 e art. 3 (prove a rottura su travi RC di laboratorio, ma non su una struttura rilevata in situ).
 **Cosa serve**: una struttura sacrificabile (in tesi: un provino, non il telaio del caso studio), una macchina di prova, e — decisivo — **un riferimento esterno** (round-robin, benchmark pubblicato, o almeno un metodo alternativo consolidato come termine di paragone: Graves usa lo schema spettrale di Ringsberg come benchmark, non se stesso).
 **Cosa rende Graves credibile più del numero**: dichiara che il modello **sbaglia la posizione** dell'instabilità (sezione 4 invece di 2) e che la rigidezza è sovrastimata per via delle tensioni residue mai misurate. Un lavoro che riporta solo il 0,46 % di errore e tace il resto è meno difendibile di uno che riporta entrambi.
