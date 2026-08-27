@@ -28,12 +28,14 @@ cioè `errore_geometrico_max` ratificata in
 
 | | frazione dei punti | RMS | massimo |
 |---|---|---|---|
-| **materia mancante** (*limite superiore*) | ≤ 48,135 % | ≤ 12,413 mm | ≤ **737,695 mm** |
+| **materia mancante** (*attribuibile alla ricostruzione: ≤*) | 48,135 % | 12,413 mm | **737,695 mm** |
 | **materia inventata** | 51,864 % | 5,473 mm | 30,681 mm |
 
-I tre valori della materia mancante sono **limiti superiori**, non misure della sola
-ricostruzione: qui occlusione e materia mancante si confondono, e il massimo di 737,7 mm è
-quasi certamente occlusione. Il «≤» va citato insieme al numero — vedi
+I tre valori sono **misurati**, e vanno citati nudi quando descrivono il reperto: il 48,135 % dei
+punti *sta* fuori dalla superficie, e il massimo *vale* 737,695 mm. È l'**attribuzione** a essere
+un limite superiore: occlusione e materia mancante qui si confondono, e la separazione **non è
+fatta** — chiede una stima della copertura che questa misura non esegue. Citando la materia
+mancante come errore della sola ricostruzione va quindi citato il «≤» — vedi
 [Limiti dichiarati](#limiti-dichiarati).
 
 | | |

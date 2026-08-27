@@ -813,12 +813,16 @@ a 666 DOF, 0.28% a 3615 DOF; modo torsionale (approssimato 2614 Hz) — LT 41.68
 **Autovalori della matrice di rigidezza di un cubo unitario** (E = 30 000 000, ν = 0.3): un cubo
 meshato con **5 tetraedri simplessi** ha **sistematicamente autovalori maggiori** dello stesso cubo con
 un esaedro — primo modo deformativo (autovalore 7): hex Nastran 1.667·10⁷, hex isoparametrico
-1.923·10⁷, **5 tet 5.315·10⁷** (≈ 3× il Nastran). Sull'**autovalore 21** questo documento e
-[`ricerca-calculix-e-c3d4.md`](ricerca-calculix-e-c3d4.md) (righe 281-282) riportavano letture
-incompatibili — due colonne contro tre, e valore diverso sul tet. **Numeri soppressi: vanno riletti
-sulla Tab. 1 del paper**, che non è versionato nel repository.
-Poiché il FEM basato su spostamenti **sovrastima** la rigidezza, autovalore più alto = elemento
-peggiore. [V]
+1.923·10⁷, **5 tet 5.315·10⁷** (≈ 3× il Nastran). Poiché il FEM basato su spostamenti
+**sovrastima** la rigidezza, autovalore più alto = elemento peggiore. [V]
+
+I valori dell'**autovalore 21** sono in **quarantena**: le due letture in archivio sono
+incompatibili fra loro. [`ricerca-calculix-e-c3d4.md`](ricerca-calculix-e-c3d4.md) § 2.3 «Quanto
+sbagliano — numeri pubblicati» riportava tre colonne — 11,538 (hex Nastran) / 11,538 (hex
+isoparametrico) / **38,276** (5 tet); [`ricerca-vv-standard.md`](ricerca-vv-standard.md) § 4.3
+(questo documento) ne riportava due — 11.538 vs 13.915 e 37.500 vs 46.085 (×10⁷). Entrambe le
+letture sono **non riscontrabili sulla fonte, da rileggere** sulla Tab. 1 del paper, che non è
+versionato nel repository: fino ad allora nessuna delle due va citata.
 
 **Conclusioni testuali degli autori** [V]:
 
