@@ -198,9 +198,9 @@ Struttura della Subpart 2.7: General (100–102), General Requirements (200–20
 Support Software (600–602), References (700). Copre acquisizione, V&V, e manutenzione del software. [V-sec]
 
 Catena regolatoria correlata, documentata in fonti governative USA:
-DOE O 414.1C/D (Quality Assurance) e 10 CFR 50 Appendix B; il DOE richiede che la gestione del
+DOE O 414,1C/D (Quality Assurance) e 10 CFR 50 Appendix B; il DOE richiede che la gestione del
 "safety software" includa verification and validation, inclusi inspection e testing —
-vedi *Applying DOE O 414.1C and NQA-1 Requirements to ISM Software*,
+vedi *Applying DOE O 414,1C and NQA-1 Requirements to ISM Software*,
 <https://www.energy.gov/sites/prod/files/2014/05/f16/Applying%20DOE%20O%20414.1C%20and%20NQA-1%20Requirements%20to%20ISM%20Software.pdf>. [V-sec]
 
 **[NON TROVATO]** Una norma ISO/IEC o EN *specifica per il software di calcolo strutturale*
@@ -230,7 +230,7 @@ Le due pubblicazioni da citare formalmente:
 
 **Attenzione alla numerazione FV.** Ho trovato la stessa prova con **due numeri diversi** in due
 manuali di solutori: la piastra quadrata "solid" semplicemente appoggiata è **FV52** in Abaqus e
-**FV51** in HOOPS Solve; e i valori "Theory" citati differiscono (44.092 Hz vs 45.897 Hz per il primo
+**FV51** in HOOPS Solve; e i valori "Theory" citati differiscono (44,092 Hz vs 45,897 Hz per il primo
 modo elastico). Vedi §2.3. Non risolvere la discrepanza a memoria: va sciolta sul documento NAFEMS
 1987 originale. [V — discrepanza osservata direttamente su due fonti]
 
@@ -247,40 +247,40 @@ I test presenti nella guida ESRD: **LE1, LE2, LE3, LE5, LE6, LE7, LE8, LE10, LE1
 
 #### LE1 — Elliptic membrane (plane stress)
 - Geometria: membrana a contorni ellittici ABCD, stato piano di tensione.
-- Materiale: E = 210 GPa, ν = 0.3.
+- Materiale: E = 210 GPa, ν = 0,3.
 - Vincoli: simmetria lungo AB e DC.
 - Carico: pressione uscente uniforme 10 MPa sul bordo esterno BC.
-- **Target: tensione tangenziale di bordo σ_y = 92.7 MPa nel punto D.** [V]
-- Riferimento di convergenza ESRD: quad 4 elementi → 92.75 MPa (0.05%); quad 144 elementi → 92.70 MPa (0.00%). [V]
+- **Target: tensione tangenziale di bordo σ_y = 92,7 MPa nel punto D.** [V]
+- Riferimento di convergenza ESRD: quad 4 elementi → 92,75 MPa (0,05%); quad 144 elementi → 92,70 MPa (0,00%). [V]
 - **Uso:** è 2D. Non serve a verificare un solutore 3D solido. [INF]
 
 #### LE2 — Cylindrical shell bending patch test
 - Settore di guscio cilindrico θ = 30°, spessore costante T = 10 mm.
-- E = 210 GPa, ν = 0.3. Incastro su AB, simmetria su AD e BC.
+- E = 210 GPa, ν = 0,3. Incastro su AB, simmetria su AD e BC.
 - Momento flettente uniforme 1000 N·mm per unità di lunghezza su DC.
 - **Target: tensione tangenziale sulla superficie esterna = 60 MPa.** [V]
 
 #### LE10 — Thick plate under pressure  ← il più usato per solidi 3D
-- Piastra spessa; E = 210 GPa, ν = 0.3, ρ = 7800 kg/m³ (la densità solo in Abaqus).
+- Piastra spessa; E = 210 GPa, ν = 0,3, ρ = 7800 kg/m³ (la densità solo in Abaqus).
 - Vincoli (formulazione Abaqus, più precisa di quella ESRD):
   u_y = 0 sulla faccia DCD′C′; u_x = 0 su ABA′B′; u_x = u_y = 0 su BCB′C′;
   u_z = 0 sulla linea EE′ (punti medi degli spigoli CC′ e BB′).
-- Carico: pressione normale uniforme 1.0 MPa sulla superficie superiore.
-- **Target: σ_yy = −5.38 MPa nel punto D.** (Abaqus lo scrive come "5.38 MPa"; ESRD e Altair come
-  "−5.38 MPa": è compressione, il segno dipende dalla convenzione riportata.) [V su entrambe le fonti]
+- Carico: pressione normale uniforme 1,0 MPa sulla superficie superiore.
+- **Target: σ_yy = −5,38 MPa nel punto D.** (Abaqus lo scrive come "5,38 MPa"; ESRD e Altair come
+  "−5,38 MPa": è compressione, il segno dipende dalla convenzione riportata.) [V su entrambe le fonti]
 - Risultati pubblicati Abaqus (mesh coarse / fine):
-  C3D20 −6.72 (+25.00%) / −5.64 (+4.83%); C3D20R −7.93 (+47.39%) / −5.53 (+2.78%);
-  C3D10 −5.44 (+1.15%) / −5.77 (+7.24%); C3D10HS −5.08 (−3.72%) / −5.51 (+2.42%);
-  C3D10M −5.57 (+3.53%) / −5.89 (+9.48%). [V]
+  C3D20 −6,72 (+25,00%) / −5,64 (+4,83%); C3D20R −7,93 (+47,39%) / −5,53 (+2,78%);
+  C3D10 −5,44 (+1,15%) / −5,77 (+7,24%); C3D10HS −5,08 (−3,72%) / −5,51 (+2,42%);
+  C3D10M −5,57 (+3,53%) / −5,89 (+9,48%). [V]
 - **Nota critica.** Nella tabella Abaqus l'errore di C3D10 **cresce** passando da coarse a fine
-  (1.15% → 7.24%). Non è un errore di stampa nel senso che la fonte lo riporta così, ma **significa
+  (1,15% → 7,24%). Non è un errore di stampa nel senso che la fonte lo riporta così, ma **significa
   che il valore puntuale in D non è una quantità monotona convergente su queste due mesh**: LE10
   è un target di tensione in un punto singolare/di bordo. Se la tesi usa LE10 per uno studio di
   convergenza, va detto. [V per i numeri, INF per l'interpretazione]
 - **[NON TROVATO]** Nessun risultato pubblicato per **C3D4** su LE10 nel manuale Abaqus consultato.
 
 #### LE11 — Solid cylinder / taper / sphere, carico termico
-- Solido cilindro-raccordo-sfera; E = 210 GPa, ν = 0.3, α = 2.3·10⁻⁴ /°C.
+- Solido cilindro-raccordo-sfera; E = 210 GPa, ν = 0,3, α = 2,3·10⁻⁴ /°C.
 - Vincoli (terna NAFEMS): u_z = 0 sul piano z = 0; u_x = 0 sul piano x = 0; u_y = 0 sul piano
   y = 0; **u_z = 0 sulla faccia superiore HIH′I′**. ESRD chiama BCDE la stessa faccia perché
   ruota la terna: stessa faccia, stesso vincolo, non due specifiche diverse. Formulazione NAFEMS
@@ -289,13 +289,13 @@ I test presenti nella guida ESRD: **LE1, LE2, LE3, LE5, LE6, LE7, LE8, LE10, LE1
 - Carico: gradiente termico lineare radiale e assiale, Δθ = √(x²+y²) + z (imposto in Abaqus via
   subroutine UTEMP).
 - **Target: σ_zz = −105 MPa nel punto A.** [V su entrambe le fonti]
-- Risultati ESRD: hex 8 elementi → −105.2 MPa (0.19%); hex 216 → −105.4 (0.38%);
-  **tetra 317 elementi → −105.5 MPa (0.48%); tetra 3531 → −105.4 (0.38%)** (elementi p-version
+- Risultati ESRD: hex 8 elementi → −105,2 MPa (0,19%); hex 216 → −105,4 (0,38%);
+  **tetra 317 elementi → −105,5 MPa (0,48%); tetra 3531 → −105,4 (0,38%)** (elementi p-version
   StressCheck, non tet lineari). [V]
-- Risultati Abaqus: C3D20 −96.71 (−7.9%) coarse, −103.26 (−1.7%) fine; C3D20R −93.04 (−11.4%) /
-  −99.60 (−5.1%). [V]
-- Risultato indipendente utile come terzo punto: HOOPS Solve −93.47 MPa, MSC Nastran −99.48 MPa
-  contro teoria −105.0 MPa (TechSoft3D, *The Standard NAFEMS Benchmark Tests for HOOPS Solve*,
+- Risultati Abaqus: C3D20 −96,71 (−7,9%) coarse, −103,26 (−1,7%) fine; C3D20R −93,04 (−11,4%) /
+  −99,60 (−5,1%). [V]
+- Risultato indipendente utile come terzo punto: HOOPS Solve −93,47 MPa, MSC Nastran −99,48 MPa
+  contro teoria −105,0 MPa (TechSoft3D, *The Standard NAFEMS Benchmark Tests for HOOPS Solve*,
   <https://docs.techsoft3d.com/hoops/mesh/_static/benchmark_reports/benchmark_results_2.13.0.pdf>). [V]
 
 ### 2.3 Serie FV — analisi modale
@@ -304,29 +304,29 @@ Fonte usata: TechSoft3D, *The Standard NAFEMS Benchmark Tests for HOOPS Solve* (
 *Abaqus Benchmarks Guide*, FV52 <https://abaqus-docs.mit.edu/2017/English/SIMACAEBMKRefMap/simabmk-c-fv52.htm> [V].
 
 #### FV32 — Cantilevered tapered membrane
-- Membrana rastremata a mensola; E = 200 GPa, ν = 0.3, ρ = 8000 kg/m³.
+- Membrana rastremata a mensola; E = 200 GPa, ν = 0,3, ρ = 8000 kg/m³.
 - Vincoli: z = 0 su tutti i nodi, x = y = 0 lungo l'asse y.
-- **Frequenze target (Hz), primi 6 modi: 44.623, 130.03, 162.7, 246.05, 379.9, 391.44.** [V]
-- HOOPS Solve (quad 4 nodi): 44.631, 129.833, 162.618, 244.648, 375.251, 389.853. [V]
+- **Frequenze target (Hz), primi 6 modi: 44,623, 130,03, 162,7, 246,05, 379,9, 391,44.** [V]
+- HOOPS Solve (quad 4 nodi): 44,631, 129,833, 162,618, 244,648, 375,251, 389,853. [V]
 - È 2D (membrana). Serve a verificare distorsione di mesh e comportamento a taglio, non i solidi. [INF]
 
 #### FV52 (= FV51 in HOOPS) — Simply supported "solid" square plate  ← il benchmark modale per solidi 3D
-- Piastra quadrata di spessore 1.0 m modellata con elementi solidi;
-  E = 200 GPa, ν = 0.3, ρ = 8000 kg/m³.
-- Vincolo: u_z = 0 lungo i quattro spigoli sul piano z = −0.5.
+- Piastra quadrata di spessore 1,0 m modellata con elementi solidi;
+  E = 200 GPa, ν = 0,3, ρ = 8000 kg/m³.
+- Vincolo: u_z = 0 lungo i quattro spigoli sul piano z = −0,5.
 - Modi 1–3 sono moti rigidi (RBM).
-- **Frequenze di riferimento NAFEMS secondo Abaqus (Hz): modo 4 = 44.092; 5 = 106.66; 6 = 106.66;
-  7 = 156.23; 8 = 193.58; 9 = 200.13; 10 = 200.13.** [V]
-- **Frequenze "Theory" secondo TechSoft3D (test numerato FV51) (Hz): modo 4 = 45.897; 5 = 109.44;
-  6 = 109.44; 7 = 167.89; 8 = 193.59; 9 = 206.19; 10 = 206.19.** [V]
-- **⚠ Discrepanza reale fra le due fonti** (≈4% sui modi 4–7, ma il modo 8 coincide: 193.58 vs 193.59).
+- **Frequenze di riferimento NAFEMS secondo Abaqus (Hz): modo 4 = 44,092; 5 = 106,66; 6 = 106,66;
+  7 = 156,23; 8 = 193,58; 9 = 200,13; 10 = 200,13.** [V]
+- **Frequenze "Theory" secondo TechSoft3D (test numerato FV51) (Hz): modo 4 = 45,897; 5 = 109,44;
+  6 = 109,44; 7 = 167,89; 8 = 193,59; 9 = 206,19; 10 = 206,19.** [V]
+- **⚠ Discrepanza reale fra le due fonti** (≈4% sui modi 4–7, ma il modo 8 coincide: 193,58 vs 193,59).
   Ipotesi non verificata: le due fonti stanno usando i **due diversi set di target** che la
   pubblicazione NAFEMS 1987 fornisce per ogni prova ("two sets of 'target' frequencies"). **[INF —
   da confermare sul documento NAFEMS originale prima di citarlo in tesi.]**
 - Risultati Abaqus per tipo di elemento (modo 4 / modo 7):
-  C3D8I 44.092 (0.0%) / 156.23 (0.0%); C3D10 44.348 (0.58%) / 163.58 (4.70%);
-  C3D10HS 44.348 (0.58%) / 163.58 (4.70%); C3D10M 42.687 (−3.19%) / 151.22 (−3.21%);
-  C3D20 44.796 (1.60%) / 169.10 (8.24%). [V]
+  C3D8I 44,092 (0,0%) / 156,23 (0,0%); C3D10 44,348 (0,58%) / 163,58 (4,70%);
+  C3D10HS 44,348 (0,58%) / 163,58 (4,70%); C3D10M 42,687 (−3,19%) / 151,22 (−3,21%);
+  C3D20 44,796 (1,60%) / 169,10 (8,24%). [V]
 - **[NON TROVATO]** Nessun risultato **C3D4** pubblicato su FV52.
 
 ### 2.4 Patch test di Irons
@@ -453,17 +453,17 @@ Grid Convergence Index sulla griglia fine e su quella grossolana:
     GCI₁₂ = F_s · |ε₁₂| / (r^p − 1) · 100 %
     GCI₂₃ = F_s · |ε₂₃| / (r^p − 1) · 100 %
 
-Fattore di sicurezza, verbatim NASA: *"The factor of safety is recommended to be Fs = 3.0 for
-comparisons of two grids and Fs = 1.25 for comparisons over three or more grids."*
+Fattore di sicurezza, verbatim NASA: *"The factor of safety is recommended to be Fs = 3,0 for
+comparisons of two grids and Fs = 1,25 for comparisons over three or more grids."*
 
 Verifica di essere nel range asintotico:
 
-    GCI₂₃ ≈ r^p · GCI₁₂     (il rapporto deve valere ≈ 1.0)
+    GCI₂₃ ≈ r^p · GCI₁₂     (il rapporto deve valere ≈ 1,0)
 
-**Variante Celik et al. 2008** (safety factor fisso 1.25 con tre griglie, ordine *apparente* p
+**Variante Celik et al. 2008** (safety factor fisso 1,25 con tre griglie, ordine *apparente* p
 calcolato dai dati anziché assunto). Forma citata:
 
-    GCI_fine^21 = 1.25 · e_a^21 · r^p / (r^p − 1)
+    GCI_fine^21 = 1,25 · e_a^21 · r^p / (r^p − 1)
 
 **[NON TROVATO / da verificare]** Ho trovato questa forma della formula in una sintesi di ricerca,
 non leggendo direttamente il PDF (il documento NRC ML090780152 che la ripubblica ha risposto 403).
@@ -510,28 +510,28 @@ Raggio circoscritto: R = ( |L₃|²·(L₂×L₀) + |L₂|²·(L₃×L₀) + |L�
 | Metrica Verdict | Formula esatta | Range accettabile | Equilatero | Funzione C |
 |---|---|---|---|---|
 | **edge ratio** | L_max / L_min | [1, 3] | 1 | `v_tet_edge_ratio` |
-| **aspect δ (delta)** | q = min_i { C·h_i / √(A_jkl) }, C = ⁴√108/4 ≈ 0.805927; h_i altezza del vertice i sulla faccia opposta | [0.1, DBL_MAX] | 1 | non supportata |
-| **aspect Frobenius** | numero di condizionamento in norma di Frobenius di A₀ = T₀W⁻¹, con T₀ = (L₀ L₁ L₂) e W matrice del tet regolare di riferimento; normalizzato a 1 sul regolare | [1, 1.3] | 1 | `v_tet_aspect_frobenius` |
+| **aspect δ (delta)** | q = min_i { C·h_i / √(A_jkl) }, C = ⁴√108/4 ≈ 0,805927; h_i altezza del vertice i sulla faccia opposta | [0,1, DBL_MAX] | 1 | non supportata |
+| **aspect Frobenius** | numero di condizionamento in norma di Frobenius di A₀ = T₀W⁻¹, con T₀ = (L₀ L₁ L₂) e W matrice del tet regolare di riferimento; normalizzato a 1 sul regolare | [1, 1,3] | 1 | `v_tet_aspect_frobenius` |
 | **aspect γ (gamma)** | q = R̄³·√2 / (12·\|V\|), con R̄ = √( Σᵢ₌₀⁵ \|Lᵢ\|² / 6 ) = lunghezza RMS degli spigoli | [1, 3] | 1 | `v_tet_aspect_gamma` |
 | **aspect ratio** | **L_max / (2√6 · r)** | [1, 3] | 1 | `v_tet_aspect_ratio` |
-| **collapse ratio** | q = min_i { h_i / max(\|L_jk\|, \|L_kl\|, \|L_lj\|) } | [0.1, DBL_MAX] | √6/3 | `v_tet_collapse_ratio` |
+| **collapse ratio** | q = min_i { h_i / max(\|L_jk\|, \|L_kl\|, \|L_lj\|) } | [0,1, DBL_MAX] | √6/3 | `v_tet_collapse_ratio` |
 | **condition** | q = √(T₁·T₂) / (3·C_det), con C₁ = L₀, C₂ = −(2L₂+L₀)/√3, C₃ = (3L₃+L₂−L₀)/√6, C_det = C₁·(C₂×C₃), T₁ = ΣCᵢ·Cᵢ, T₂ = Σ\|Cᵢ×Cⱼ\|² | [1, 3] | 1 | `v_tet_condition` |
 | **Jacobian** | q = (L₂ × L₀) · L₃  (dimensione L³) | [0, DBL_MAX] | √2/2 | `v_tet_jacobian` |
-| **minimum dihedral angle** | αᵢ = (180/π)·arccos(n_i1 · n_i2) su ciascuno dei 6 spigoli; q = min αᵢ, in gradi | **[40°, 70.5288°]** | arccos(1/3) ≈ 70.528779° | `v_tet_minimum_angle` |
+| **minimum dihedral angle** | αᵢ = (180/π)·arccos(n_i1 · n_i2) su ciascuno dei 6 spigoli; q = min αᵢ, in gradi | **[40°, 70,5288°]** | arccos(1/3) ≈ 70,528779° | `v_tet_minimum_angle` |
 | **radius ratio** | **q = R / (3r)** = ( \|L₃\|²(L₂×L₀) + \|L₂\|²(L₃×L₀) + \|L₀\|²(L₃×L₂) )·A / (108·V²) | [1, 3] | 1 | `v_tet_radius_ratio` (alias deprecato: `v_tet_aspect_beta`) |
-| **relative size squared** | R = V/V̄ (V̄ = volume medio dell'insieme); q = min(R, 1/R)² | [0.3, 1] | N/A | `v_tet_relative_size_squared` |
-| **scaled Jacobian** | q = J·√2 / λ_max, con J il Jacobian sopra, λ₁=\|L₀\|\|L₂\|\|L₃\|, λ₂=\|L₀\|\|L₁\|\|L₄\|, λ₃=\|L₁\|\|L₂\|\|L₅\|, λ₄=\|L₃\|\|L₄\|\|L₅\|, λ_max = max(λ₁..λ₄, J) | **[0.5, √2/2 ≈ 0.7071]** | 1 | `v_tet_scaled_jacobian` |
-| **shape** | q = 3·(J√2)^(2/3) / ( (3/2)·(L₀·L₀ + L₂·L₂ + L₃·L₃) − (L₀·(−L₂) + L₀·L₃ + (−L₂)·L₃) ) | [0.3, 1] | 1 | `v_tet_shape` |
-| **shape and size** | q = shape × relative_size_squared | [0.2, 1] | dipende da V | `v_tet_shape_and_size` |
+| **relative size squared** | R = V/V̄ (V̄ = volume medio dell'insieme); q = min(R, 1/R)² | [0,3, 1] | N/A | `v_tet_relative_size_squared` |
+| **scaled Jacobian** | q = J·√2 / λ_max, con J il Jacobian sopra, λ₁=\|L₀\|\|L₂\|\|L₃\|, λ₂=\|L₀\|\|L₁\|\|L₄\|, λ₃=\|L₁\|\|L₂\|\|L₅\|, λ₄=\|L₃\|\|L₄\|\|L₅\|, λ_max = max(λ₁..λ₄, J) | **[0,5, √2/2 ≈ 0,7071]** | 1 | `v_tet_scaled_jacobian` |
+| **shape** | q = 3·(J√2)^(2/3) / ( (3/2)·(L₀·L₀ + L₂·L₂ + L₃·L₃) − (L₀·(−L₂) + L₀·L₃ + (−L₂)·L₃) ) | [0,3, 1] | 1 | `v_tet_shape` |
+| **shape and size** | q = shape × relative_size_squared | [0,2, 1] | dipende da V | `v_tet_shape_and_size` |
 | **volume** | q = V | [0, DBL_MAX] | √2/12 | `v_tet_volume` |
 
 **Tre punti da non sbagliare:** [V per i fatti, INF per l'enfasi]
 1. **`aspect_beta` non esiste più come metrica autonoma**: Verdict dichiara che era il vecchio nome di
    `radius ratio` = R/(3r), mantenuto per retrocompatibilità e destinato alla rimozione.
    *"In previous versions of Verdict, it was named 'Aspect Ratio Beta'."*
-2. Il range accettabile dello **scaled Jacobian tetraedrico ha come estremo superiore √2/2 ≈ 0.7071,
+2. Il range accettabile dello **scaled Jacobian tetraedrico ha come estremo superiore √2/2 ≈ 0,7071,
    non 1**, benché il tet equilatero valga 1. Il "Normal Range" è [−√2/2, √2/2]. La tabella della
-   norma è così: se un tool riporta scaled Jacobian tet > 0.707, sta usando un'altra normalizzazione.
+   norma è così: se un tool riporta scaled Jacobian tet > 0,707, sta usando un'altra normalizzazione.
 3. Verdict avverte esplicitamente che il **collapse ratio non individua tutti gli sliver**:
    *"slivers can have arbitrarily high collapse ratios"*, quando il vertice a minima altezza proietta
    fuori dal triangolo opposto. Per gli sliver la metrica giusta è il **minimum dihedral angle**.
@@ -546,11 +546,11 @@ versione **normalizzata** (colonne divise per la propria norma).
 
 | Metrica | Formula | Range accettabile | Cubo unitario |
 |---|---|---|---|
-| **scaled Jacobian** | q = min_{i∈0..8} α̂ᵢ (min. determinante Jacobiano normalizzato, agli 8 angoli + centro) | **[0.5, 1]** | 1 |
-| **skew** | q = max( \|X̂₁·X̂₂\|, \|X̂₁·X̂₃\|, \|X̂₂·X̂₃\| ), con X̂ᵢ = Xᵢ/\|Xᵢ\| | **[0, 0.5]** | 0 |
-| **taper** | T_fg = \|X_fg\| / min(\|X_f\|, \|X_g\|); q = max(T₁₂, T₁₃, T₂₃) | **[0, 0.5]** | 0 |
-| **diagonal** | q = D_min / D_max sulle 4 diagonali | [0.65, 1] | 1 |
-| **stretch** | q = √3 · L_min / D_max | [0.25, 1] | 1 |
+| **scaled Jacobian** | q = min_{i∈0..8} α̂ᵢ (min. determinante Jacobiano normalizzato, agli 8 angoli + centro) | **[0,5, 1]** | 1 |
+| **skew** | q = max( \|X̂₁·X̂₂\|, \|X̂₁·X̂₃\|, \|X̂₂·X̂₃\| ), con X̂ᵢ = Xᵢ/\|Xᵢ\| | **[0, 0,5]** | 0 |
+| **taper** | T_fg = \|X_fg\| / min(\|X_f\|, \|X_g\|); q = max(T₁₂, T₁₃, T₂₃) | **[0, 0,5]** | 0 |
+| **diagonal** | q = D_min / D_max sulle 4 diagonali | [0,65, 1] | 1 |
+| **stretch** | q = √3 · L_min / D_max | [0,25, 1] | 1 |
 
 Tutte **[V]**.
 
@@ -572,7 +572,7 @@ sfera circoscritta** R e la **lunghezza dello spigolo più corto** d:
 
     ρ = R / d_min
 
-Minimo teorico ρ = √6/4 ≈ 0.612, raggiunto dal tetraedro regolare. [V-sec — riportato nella
+Minimo teorico ρ = √6/4 ≈ 0,612, raggiunto dal tetraedro regolare. [V-sec — riportato nella
 documentazione TetGen/letteratura; **non l'ho letto sul paper di Shewchuk**, il server
 people.eecs.berkeley.edu era irraggiungibile in questa sessione (302 verso una pagina di incidente)]
 
@@ -594,7 +594,7 @@ Il criterio radius-edge è cieco agli sliver **per costruzione**. [V-sec]
 Si, H. (2015), *TetGen, a Delaunay-Based Quality Tetrahedral Mesh Generator*, **ACM Transactions on
 Mathematical Software**, 41(2), art. 11, DOI [10.1145/2629697](https://doi.org/10.1145/2629697).
 Manuale: <https://wias-berlin.de/software/tetgen/1.5/doc/manual/manual005.html>. [V]
-- `-q` controlla **due** parametri: il **radius-edge ratio massimo, default 2.0**, e l'**angolo diedro
+- `-q` controlla **due** parametri: il **radius-edge ratio massimo, default 2,0**, e l'**angolo diedro
   minimo, default 0° (nessun vincolo)**. Sintassi `-q[radius-edge]/[dihedral]`, es. `-q1.2/10`.
 - Il manuale dichiara il limite verbatim: *"If there are sharp features in the PLC, TetGen will
   ensure the desired quality constraints on most of the tetrahedra, but leave some bad-quality
@@ -609,18 +609,18 @@ Fonte: *Abaqus/CAE User's Manual*, "Verifying your mesh" / "Verifying element qu
 Mirror consultato: <https://ceae-server.colorado.edu/v2016/books/usi/pt03ch17s06s01.html>. [V]
 
 Default per tetraedri:
-- **shape factor: 0.0001** (evidenzia gli elementi sotto questo valore);
+- **shape factor: 0,0001** (evidenzia gli elementi sotto questo valore);
 - **small face corner angle: 5°**;
 - **large face corner angle: 170°**;
 - **aspect ratio: 10** (definito come rapporto fra spigolo più lungo e più corto);
-- **geometric deviation factor: 0.2**.
+- **geometric deviation factor: 0,2**.
 
 Definizione dello **shape factor tetraedrico** (verbatim dal manuale): il volume dell'elemento diviso
 per *"the volume of an equilateral tetrahedron with the same circumradius as the element"*; vale 0
 per l'elemento degenere, 1 per l'ottimo. Il criterio shape factor è disponibile **solo** per triangoli
 e tetraedri. [V]
 
-> **Nota critica per la tesi.** Il default di shape factor 0.0001 è **quattro ordini di grandezza sotto
+> **Nota critica per la tesi.** Il default di shape factor 0,0001 è **quattro ordini di grandezza sotto
 > l'ottimo**: è una soglia di *degenerazione*, non di *qualità*. Superare la verifica mesh di
 > Abaqus/CAE non significa avere una mesh buona. [INF]
 
@@ -632,8 +632,8 @@ Skewness della documentazione Discovery/SpaceClaim v251. [V]
 
     3D:  Quality = C · V / [ Σ (lunghezza spigolo)² ]^(3/2)
 
-con costanti C: **tetraedro 124.70765802**, esaedro 41.56921938, cuneo 62.35382905, piramide 96,
-triangolo 6.92820323, quadrangolo 4.0. [V]
+con costanti C: **tetraedro 124,70765802**, esaedro 41,56921938, cuneo 62,35382905, piramide 96,
+triangolo 6,92820323, quadrangolo 4,0. [V]
 (Per il tetraedro questa è, a meno della normalizzazione, la **metrica di Joe–Liu**
 η = 12·(3V)^(2/3)/Σl²_ij. **[INF — l'equivalenza non è dichiarata nella doc ANSYS che ho letto]**)
 
@@ -649,14 +649,14 @@ triangolo 6.92820323, quadrangolo 4.0. [V]
 | Skewness | Giudizio |
 |---|---|
 | 0 | equilatero |
-| >0 – 0.25 | excellent |
-| 0.25 – 0.5 | good |
-| 0.5 – 0.75 | fair |
-| 0.75 – 0.9 | poor |
-| 0.9 – <1 | **bad (sliver)** |
+| >0 – 0,25 | excellent |
+| 0,25 – 0,5 | good |
+| 0,5 – 0,75 | fair |
+| 0,75 – 0,9 | poor |
+| 0,9 – <1 | **bad (sliver)** |
 | 1 | degenerate |
 
-La doc ANSYS aggiunge che mesh di qualità raggiungono tipicamente skewness ≈ 0.1 in 2D e **≈ 0.4 in
+La doc ANSYS aggiunge che mesh di qualità raggiungono tipicamente skewness ≈ 0,1 in 2D e **≈ 0,4 in
 3D**. [V]
 
 > Osservazione: la definizione ANSYS "equilateral-volume-based skewness" (volume vs cella equilatera
@@ -673,7 +673,7 @@ verbatim dal paper: *"where V is the volume of the tetrahedron, |e_max| is the l
 edge, A_i is the area of the i-th face and r_in is the inradius of the tetrahedron. The factor √24 is
 added such that the optimal tetrahedron, which is a regular tetrahedron, has a quality γ = 1."*
 
-**Soglia operativa dichiarata: Gmsh e HXT puntano a un γ minimo = 0.35.** [V]
+**Soglia operativa dichiarata: Gmsh e HXT puntano a un γ minimo = 0,35.** [V]
 
 Altre metriche Gmsh: **SICN** = inverso (con segno) del numero di condizionamento in norma di
 Frobenius della mappa verso l'elemento di riferimento, range [−1, 1], negativo = elemento invalido;
@@ -769,58 +769,58 @@ Proceedings of the 4th International Meshing Roundtable, Sandia National Laborat
 PDF: <https://coreform.com/papers/hex_tet_comparison.pdf>. [V]
 
 **Modello:** barra a sezione rettangolare 1×1×10, incastrata a un'estremità, E = 10 000 000,
-ν = 0.3 e 0.49, ρ = 0.1. Mesh regolari 2×2 e 4×4 in sezione. Sigle: LH = hex lineari,
+ν = 0,3 e 0,49, ρ = 0,1. Mesh regolari 2×2 e 4×4 in sezione. Sigle: LH = hex lineari,
 QH = hex quadratici, LT = tet lineari, QT = tet quadratici. [V]
 
 **Soluzioni analitiche di riferimento** (teoria della trave / Timoshenko-Goodier):
-flessione — spostamento 0.000125, tensione flessionale 30.0 (entrambe indipendenti da ν);
-torsione — tensione tangenziale 6.8; spostamento rotazionale 0.000003269 (ν = 0.3) e
-0.000003747 (ν = 0.49). [V]
+flessione — spostamento 0,000125, tensione flessionale 30,0 (entrambe indipendenti da ν);
+torsione — tensione tangenziale 6,8; spostamento rotazionale 0,000003269 (ν = 0,3) e
+0,000003747 (ν = 0,49). [V]
 
-**Tabella 2 — errori su mensola in flessione, ν = 0.3** [V]
-
-| DOF | tipo | errore spostamento | errore tensione |
-|---|---|---|---|
-| 567 | LH | 0.72% | 0.00% |
-| **666** | **LT** | **31.48%** | **21.23%** |
-| 1863 | QH | 0.24% | 0.01% |
-| 3075 | LH | 0.08% | 0.00% |
-| **3615** | **LT** | **10.48%** | **21.00%** |
-| 3894 | QT | 0.24% | 0.33% |
-| 10995 | QH | 0.01% | 0.01% |
-| 23613 | QT | 0.01% | 0.01% |
-
-**Tabella 2 (seguito) — stessa mensola, ν = 0.49 (quasi incomprimibile)** [V]
+**Tabella 2 — errori su mensola in flessione, ν = 0,3** [V]
 
 | DOF | tipo | errore spostamento | errore tensione |
 |---|---|---|---|
-| 567 | LH | 6.56% | 0.01% |
-| **666** | **LT** | **71.68%** | **66.77%** |
-| 1863 | QH | 5.36% | 0.01% |
-| 3075 | LH | 3.20% | 0.01% |
-| **3615** | **LT** | **44.80%** | **35.23%** |
-| 3894 | QT | 4.80% | 0.10% |
-| 10995 | QH | 2.88% | 0.01% |
-| 23613 | QT | 2.48% | 0.23% |
+| 567 | LH | 0,72% | 0,00% |
+| **666** | **LT** | **31,48%** | **21,23%** |
+| 1863 | QH | 0,24% | 0,01% |
+| 3075 | LH | 0,08% | 0,00% |
+| **3615** | **LT** | **10,48%** | **21,00%** |
+| 3894 | QT | 0,24% | 0,33% |
+| 10995 | QH | 0,01% | 0,01% |
+| 23613 | QT | 0,01% | 0,01% |
 
-**Tabella 3 — torsione, ν = 0.3** [V]: LT 50.81% (666 DOF) e 22.39% (3615 DOF) sullo spostamento,
-77.82% e 38.40% sulla tensione; LH 15.65% / 5.26% spostamento; QT 3.32% / 0.76%.
+**Tabella 2 (seguito) — stessa mensola, ν = 0,49 (quasi incomprimibile)** [V]
 
-**Tabella 4 — frequenze proprie, ν = 0.3** [V]: modo flessionale (analitico 317.5 Hz) — LT 20.28%
-a 666 DOF, 0.28% a 3615 DOF; modo torsionale (approssimato 2614 Hz) — LT 41.68% a 666 DOF,
-0.36% a 3615 DOF.
+| DOF | tipo | errore spostamento | errore tensione |
+|---|---|---|---|
+| 567 | LH | 6,56% | 0,01% |
+| **666** | **LT** | **71,68%** | **66,77%** |
+| 1863 | QH | 5,36% | 0,01% |
+| 3075 | LH | 3,20% | 0,01% |
+| **3615** | **LT** | **44,80%** | **35,23%** |
+| 3894 | QT | 4,80% | 0,10% |
+| 10995 | QH | 2,88% | 0,01% |
+| 23613 | QT | 2,48% | 0,23% |
 
-**Autovalori della matrice di rigidezza di un cubo unitario** (E = 30 000 000, ν = 0.3): un cubo
+**Tabella 3 — torsione, ν = 0,3** [V]: LT 50,81% (666 DOF) e 22,39% (3615 DOF) sullo spostamento,
+77,82% e 38,40% sulla tensione; LH 15,65% / 5,26% spostamento; QT 3,32% / 0,76%.
+
+**Tabella 4 — frequenze proprie, ν = 0,3** [V]: modo flessionale (analitico 317,5 Hz) — LT 20,28%
+a 666 DOF, 0,28% a 3615 DOF; modo torsionale (approssimato 2614 Hz) — LT 41,68% a 666 DOF,
+0,36% a 3615 DOF.
+
+**Autovalori della matrice di rigidezza di un cubo unitario** (E = 30 000 000, ν = 0,3): un cubo
 meshato con **5 tetraedri simplessi** ha **sistematicamente autovalori maggiori** dello stesso cubo con
-un esaedro — primo modo deformativo (autovalore 7): hex Nastran 1.667·10⁷, hex isoparametrico
-1.923·10⁷, **5 tet 5.315·10⁷** (≈ 3× il Nastran). Poiché il FEM basato su spostamenti
+un esaedro — primo modo deformativo (autovalore 7): hex Nastran 1,667·10⁷, hex isoparametrico
+1,923·10⁷, **5 tet 5,315·10⁷** (≈ 3× il Nastran). Poiché il FEM basato su spostamenti
 **sovrastima** la rigidezza, autovalore più alto = elemento peggiore. [V]
 
 I valori dell'**autovalore 21** sono in **quarantena**: le due letture in archivio sono
 incompatibili fra loro. [`ricerca-calculix-e-c3d4.md`](ricerca-calculix-e-c3d4.md) § 2.3 «Quanto
 sbagliano — numeri pubblicati» riportava tre colonne — 11,538 (hex Nastran) / 11,538 (hex
 isoparametrico) / **38,276** (5 tet); [`ricerca-vv-standard.md`](ricerca-vv-standard.md) § 4.3
-(questo documento) ne riportava due — 11.538 vs 13.915 e 37.500 vs 46.085 (×10⁷). Entrambe le
+(questo documento) ne riportava due — 11,538 vs 13,915 e 37,500 vs 46,085 (×10⁷). Entrambe le
 letture sono **non riscontrabili sulla fonte, da rileggere** sulla Tab. 1 del paper, che non è
 versionato nel repository: fino ad allora nessuna delle due va citata.
 
@@ -860,9 +860,9 @@ Affermazioni che questa raccolta sostiene con fonte: [V dove indicato]
 1. Il C3D4 è a tensione costante e il manuale del produttore ne **sconsiglia esplicitamente** l'uso
    fuori dalle zone di riempimento a basso gradiente. [V]
 2. Su mensola in flessione, un tet lineare sbaglia **~31% sullo spostamento e ~21% sulla tensione**
-   a parità di ordine di grandezza di DOF con un hex lineare che sbaglia <1%. Raffinando ×5.4 in DOF
+   a parità di ordine di grandezza di DOF con un hex lineare che sbaglia <1%. Raffinando ×5,4 in DOF
    l'errore in spostamento scende a ~10% ma **quello in tensione resta al 21%**. [V]
-3. Con ν = 0.49 gli stessi errori salgono a **~72% / ~67%** (666 DOF) e **~45% / ~35%** (3615 DOF):
+3. Con ν = 0,49 gli stessi errori salgono a **~72% / ~67%** (666 DOF) e **~45% / ~35%** (3615 DOF):
    è il locking volumetrico, e la degradazione è di gran lunga maggiore per LT che per LH o QT. [V]
 4. Il rimedio documentato dal produttore è **C3D10 o C3D10M**, non il raffinamento del C3D4. [V]
 5. Sui benchmark NAFEMS pubblicati dal produttore (LE10, FV52) **non esistono risultati C3D4**: il
@@ -875,28 +875,28 @@ Affermazioni che questa raccolta sostiene con fonte: [V dove indicato]
 | Benchmark / prova | Cosa verifica | Valore di riferimento | Fonte |
 |---|---|---|---|
 | **Patch test forma C** (Irons) | consistency + stability dell'elemento; condizione **necessaria** di convergenza | campo lineare riprodotto esattamente (errore ~ precisione macchina), tensione costante in tutti gli elementi; nessun autovalore nullo spurio | Taylor, Simo, Zienkiewicz & Chan 1986, IJNME 22:39–62, DOI 10.1002/nme.1620220105 |
-| **NAFEMS LE1** — elliptic membrane (2D, plane stress) | tensione di bordo in stato piano; E=210 GPa, ν=0.3, pressione 10 MPa | **σ_y = 92.7 MPa** nel punto D | NAFEMS TNSB Rev.3 (1990); valore in ESRD Benchmarks Guide 2018, p. 4 |
+| **NAFEMS LE1** — elliptic membrane (2D, plane stress) | tensione di bordo in stato piano; E=210 GPa, ν=0,3, pressione 10 MPa | **σ_y = 92,7 MPa** nel punto D | NAFEMS TNSB Rev.3 (1990); valore in ESRD Benchmarks Guide 2018, p. 4 |
 | **NAFEMS LE2** — cylindrical shell bending patch test | flessione di guscio; settore 30°, T=10 mm, M=1000 N·mm/lungh. | **σ tangenziale superficie esterna = 60 MPa** | idem, p. 8 |
-| **NAFEMS LE10** — thick plate under pressure (**3D solido**) | tensione diretta in piastra spessa; E=210 GPa, ν=0.3, p=1.0 MPa | **σ_yy = −5.38 MPa** nel punto D | NAFEMS TNSB Rev.3 (1990); Abaqus Benchmarks Guide LE10; ESRD p. 29 |
-| **NAFEMS LE11** — solid cylinder/taper/sphere (**3D solido, termico**) | tensione da gradiente termico; E=210 GPa, ν=0.3, α=2.3e−4/°C, Δθ=√(x²+y²)+z | **σ_zz = −105 MPa** nel punto A | NAFEMS TNSB Rev.3 (1990); Abaqus Benchmarks Guide LE11; ESRD p. 32 |
-| **NAFEMS FV32** — cantilevered tapered membrane (2D) | analisi modale su mesh distorta; E=200 GPa, ν=0.3, ρ=8000 kg/m³ | **44.623, 130.03, 162.7, 246.05, 379.9, 391.44 Hz** (modi 1–6) | Abbassian, Dawswell & Knowles 1987; valori in TechSoft3D HOOPS benchmark report |
-| **NAFEMS FV52 / FV51** — simply supported solid square plate (**3D solido**) | analisi modale con elementi solidi, con 3 moti rigidi; t=1.0 m, E=200 GPa, ν=0.3, ρ=8000 | Abaqus: **44.092 / 106.66 / 106.66 / 156.23 / 193.58 / 200.13 / 200.13 Hz** (modi 4–10). TechSoft3D: **45.897 / 109.44 / 109.44 / 167.89 / 193.59 / 206.19 / 206.19 Hz**. **Discrepanza sciolta il 26/08/2026** (vedi [`benchmark-nafems.md`](benchmark-nafems.md)): il numero è **FV52**, «FV51» è un errore di TechSoft3D. I due set sono i due target che NAFEMS pubblica: **45.897 = soluzione in forma chiusa**, **44.092 = numerico**. **Usare 44.092**, contro cui Abaqus tabula gli errori per tipo di elemento. Non mescolarli. | NAFEMS **TNSB Rev.3 (1990)**, non Abbassian 1987; Abaqus Benchmarks Guide FV52; NAFEMS pubguide/benchmarks Page5 |
+| **NAFEMS LE10** — thick plate under pressure (**3D solido**) | tensione diretta in piastra spessa; E=210 GPa, ν=0,3, p=1,0 MPa | **σ_yy = −5,38 MPa** nel punto D | NAFEMS TNSB Rev.3 (1990); Abaqus Benchmarks Guide LE10; ESRD p. 29 |
+| **NAFEMS LE11** — solid cylinder/taper/sphere (**3D solido, termico**) | tensione da gradiente termico; E=210 GPa, ν=0,3, α=2,3e−4/°C, Δθ=√(x²+y²)+z | **σ_zz = −105 MPa** nel punto A | NAFEMS TNSB Rev.3 (1990); Abaqus Benchmarks Guide LE11; ESRD p. 32 |
+| **NAFEMS FV32** — cantilevered tapered membrane (2D) | analisi modale su mesh distorta; E=200 GPa, ν=0,3, ρ=8000 kg/m³ | **44,623, 130,03, 162,7, 246,05, 379,9, 391,44 Hz** (modi 1–6) | Abbassian, Dawswell & Knowles 1987; valori in TechSoft3D HOOPS benchmark report |
+| **NAFEMS FV52 / FV51** — simply supported solid square plate (**3D solido**) | analisi modale con elementi solidi, con 3 moti rigidi; t=1,0 m, E=200 GPa, ν=0,3, ρ=8000 | Abaqus: **44,092 / 106,66 / 106,66 / 156,23 / 193,58 / 200,13 / 200,13 Hz** (modi 4–10). TechSoft3D: **45,897 / 109,44 / 109,44 / 167,89 / 193,59 / 206,19 / 206,19 Hz**. **Discrepanza sciolta il 26/08/2026** (vedi [`benchmark-nafems.md`](benchmark-nafems.md)): il numero è **FV52**, «FV51» è un errore di TechSoft3D. I due set sono i due target che NAFEMS pubblica: **45,897 = soluzione in forma chiusa**, **44,092 = numerico**. **Usare 44,092**, contro cui Abaqus tabula gli errori per tipo di elemento. Non mescolarli. | NAFEMS **TNSB Rev.3 (1990)**, non Abbassian 1987; Abaqus Benchmarks Guide FV52; NAFEMS pubguide/benchmarks Page5 |
 | **MMS su elasticità 3D** | **ordine di accuratezza osservato** del solutore, non l'errore assoluto | ordine osservato **2 sullo spostamento** in raffinamento di mesh (Abaqus/Standard, lin. elastico / neo-Hookean / Hencky) | Aycock, Rebelo & Craven 2020, Computers & Structures 229:106175, DOI 10.1016/j.compstruc.2019.106175 |
-| **GCI / Richardson** | incertezza numerica residua della griglia fine | banda GCI in %; F_s = 1.25 (≥3 griglie) o 3.0 (2 griglie); range asintotico se GCI₂₃ ≈ r^p·GCI₁₂ | Roache 1994, JFE 116:405–413; Celik et al. 2008, JFE 130:078001; NASA NPARC "Examining Spatial (Grid) Convergence" |
-| **Mensola Benzley** — flessione, ν=0.3 | penalità di rigidezza del tet lineare | analitico: spost. 1.25e−4, σ = 30.0. Errore **LT 31.48% / 21.23%** (666 DOF) vs **LH 0.72% / 0.00%** (567 DOF) | Benzley et al. 1995, Proc. 4th IMR, Tab. 2 |
-| **Mensola Benzley** — flessione, ν=0.49 | locking volumetrico | Errore **LT 71.68% / 66.77%** (666 DOF), **44.80% / 35.23%** (3615 DOF) | idem |
-| **Mensola Benzley** — torsione, ν=0.3 | rigidezza a taglio senza il vantaggio dell'integrazione selettiva | analitico τ = 6.8 (**sospetto**: vedi [`mensola-benzley.md`](mensola-benzley.md) §6, il paper non scioglie un fattore 2 fra tensione e spostamento torsionali). **LT 50.81% spost. / 77.82% tens.** (666 DOF); **LH 15.65% spost.** (567 DOF), tensione **da rileggere sulla fonte** | idem, Tab. 3 |
-| **Autovalori cubo unitario** | sovrastima diretta di rigidezza del simplesso | primo modo deformativo: hex 1.667e7 vs **5 tet 5.315e7** | idem, Tab. 1 |
-| **Verdict — min dihedral angle** | sliver detection (l'unica metrica del set che li vede) | accettabile **[40°, 70.5288°]** | Stimpson et al. 2007, SAND2007-1751, §6.10 |
-| **Verdict — tet scaled Jacobian** | validità/qualità algebrica | accettabile **[0.5, √2/2 ≈ 0.7071]** | idem, §6.13 |
+| **GCI / Richardson** | incertezza numerica residua della griglia fine | banda GCI in %; F_s = 1,25 (≥3 griglie) o 3,0 (2 griglie); range asintotico se GCI₂₃ ≈ r^p·GCI₁₂ | Roache 1994, JFE 116:405–413; Celik et al. 2008, JFE 130:078001; NASA NPARC "Examining Spatial (Grid) Convergence" |
+| **Mensola Benzley** — flessione, ν=0,3 | penalità di rigidezza del tet lineare | analitico: spost. 1,25e−4, σ = 30,0. Errore **LT 31,48% / 21,23%** (666 DOF) vs **LH 0,72% / 0,00%** (567 DOF) | Benzley et al. 1995, Proc. 4th IMR, Tab. 2 |
+| **Mensola Benzley** — flessione, ν=0,49 | locking volumetrico | Errore **LT 71,68% / 66,77%** (666 DOF), **44,80% / 35,23%** (3615 DOF) | idem |
+| **Mensola Benzley** — torsione, ν=0,3 | rigidezza a taglio senza il vantaggio dell'integrazione selettiva | analitico τ = 6,8 (**sospetto**: vedi [`mensola-benzley.md`](mensola-benzley.md) §6, il paper non scioglie un fattore 2 fra tensione e spostamento torsionali). **LT 50,81% spost. / 77,82% tens.** (666 DOF); **LH 15,65% spost.** (567 DOF), tensione **da rileggere sulla fonte** | idem, Tab. 3 |
+| **Autovalori cubo unitario** | sovrastima diretta di rigidezza del simplesso | primo modo deformativo: hex 1,667e7 vs **5 tet 5,315e7** | idem, Tab. 1 |
+| **Verdict — min dihedral angle** | sliver detection (l'unica metrica del set che li vede) | accettabile **[40°, 70,5288°]** | Stimpson et al. 2007, SAND2007-1751, §6.10 |
+| **Verdict — tet scaled Jacobian** | validità/qualità algebrica | accettabile **[0,5, √2/2 ≈ 0,7071]** | idem, §6.13 |
 | **Verdict — tet radius ratio** (= vecchio `aspect_beta`) | R/(3r) | accettabile **[1, 3]** | idem, §6.11 |
 | **Verdict — tet aspect ratio** | **L_max/(2√6·r)** | accettabile **[1, 3]** | idem, §6.5 |
-| **Verdict — hex scaled Jacobian / skew / taper** | qualità esaedri | **[0.5, 1] / [0, 0.5] / [0, 0.5]** | idem, §7.11, §7.16, §7.18 |
-| **TetGen `-q`** | bound Delaunay refinement | radius-edge ratio default **2.0**; angolo diedro minimo default **0° (nessun vincolo)** | Si 2015, ACM TOMS 41(2):11; manuale TetGen 1.5 §005 |
-| **Gmsh/HXT `gamma`** | qualità tet nel generatore usato | **γ = √24·r_in/\|e_max\|**, target minimo **0.35** | Marot & Remacle 2020, arXiv:2008.08508, App. A.3 |
-| **Abaqus/CAE mesh verification** | soglie di *degenerazione*, non di qualità | shape factor **0.0001**, angoli faccia **5°/170°**, aspect ratio **10**, geom. deviation **0.2** | Abaqus/CAE User's Manual, Tab. 17–2 |
-| **ANSYS skewness** | qualità cella | excellent ≤0.25, good ≤0.5, fair ≤0.75, poor ≤0.9, **bad/sliver <1**, degenerate =1; mesh 3D buone ≈0.4 | Ansys Meshing User's Guide, pagina Skewness |
-| **ANSYS Element Quality** | metrica composita [0,1] | 3D: **C·V/(Σ L²)^{3/2}**, C_tet = **124.70765802**, C_hex = 41.56921938 | Ansys Meshing User's Guide, Element Quality Metric |
+| **Verdict — hex scaled Jacobian / skew / taper** | qualità esaedri | **[0,5, 1] / [0, 0,5] / [0, 0,5]** | idem, §7.11, §7.16, §7.18 |
+| **TetGen `-q`** | bound Delaunay refinement | radius-edge ratio default **2,0**; angolo diedro minimo default **0° (nessun vincolo)** | Si 2015, ACM TOMS 41(2):11; manuale TetGen 1.5 §005 |
+| **Gmsh/HXT `gamma`** | qualità tet nel generatore usato | **γ = √24·r_in/\|e_max\|**, target minimo **0,35** | Marot & Remacle 2020, arXiv:2008.08508, App. A.3 |
+| **Abaqus/CAE mesh verification** | soglie di *degenerazione*, non di qualità | shape factor **0,0001**, angoli faccia **5°/170°**, aspect ratio **10**, geom. deviation **0,2** | Abaqus/CAE User's Manual, Tab. 17–2 |
+| **ANSYS skewness** | qualità cella | excellent ≤0,25, good ≤0,5, fair ≤0,75, poor ≤0,9, **bad/sliver <1**, degenerate =1; mesh 3D buone ≈0,4 | Ansys Meshing User's Guide, pagina Skewness |
+| **ANSYS Element Quality** | metrica composita [0,1] | 3D: **C·V/(Σ L²)^{3/2}**, C_tet = **124,70765802**, C_hex = 41,56921938 | Ansys Meshing User's Guide, Element Quality Metric |
 
 ---
 
@@ -913,7 +913,7 @@ Elenco esplicito, per non lasciare buchi che qualcuno riempia a memoria:
    manuali, non nel testo estraibile.
 3. **Risultati C3D4 su qualunque benchmark NAFEMS** nei manuali Abaqus consultati. Assenti.
 4. **Il secondo set di frequenze target NAFEMS per FV52/FV51**, che spiegherebbe la discrepanza
-   44.092 vs 45.897 Hz. Ipotesi non confermata.
+   44,092 vs 45,897 Hz. Ipotesi non confermata.
 5. **Il paper di Shewchuk** — server Berkeley irraggiungibile in questa sessione. Il bound √6/4 e la
    caratterizzazione degli sliver provengono da fonti che lo citano, non dall'originale.
 6. **Il testo di Celik et al. 2008** — la ripubblicazione NRC risponde 403. La formula

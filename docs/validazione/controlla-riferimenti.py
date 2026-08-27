@@ -4,16 +4,24 @@
     python docs/validazione/controlla-riferimenti.py docs/validazione/inventario-grandezze.md
     python docs/validazione/controlla-riferimenti.py --autoprova
 
-Stampa **solo** i riferimenti che non risolvono, uno per riga, con il perche':
-file assente, nome ambiguo, riga oltre la fine (con la lunghezza vera). Esce 1
-se ne resta almeno uno, 0 se risolvono tutti o se il documento non ne porta
-nessuno, 2 se l'argomento non e' un file leggibile.
+Ordina cio' che trova in **tre** categorie, e solo la prima e' un difetto:
 
-**Limite dichiarato.** Vede i riferimenti in forma `nome.ext:NNN`. La forma
-abbreviata `` `:NNN` `` -- il file lo porta il contesto -- non e' risolvibile a
-macchina: dentro una stessa riga di tabella i documenti alternano il sorgente e
-il suo test, quindi «l'ultimo file nominato» sbaglia. Lo script li conta e lo
-dice invece di darli per buoni.
+- **rotti** -- il file sta nell'albero e la riga non c'e' (o il nome e'
+  ambiguo). Uscita 1.
+- **fuori albero** -- il file non sta in questo repository e non ci stara' mai:
+  i documenti citano il sorgente di CalculiX (`spooles.c`, `gen3delem.f`) per
+  provenienza. Non risolvibili **per costruzione**, non un difetto, uscita 0.
+  Restano stampati: un nome di file scritto male finisce qui, e va visto.
+- **non verificabili a macchina** -- la forma abbreviata `` `:NNN` ``, dove il
+  file lo porta il contesto. Dentro una stessa riga di tabella i documenti
+  alternano il sorgente e il suo test, quindi «l'ultimo file nominato»
+  sbaglia. Contati e dichiarati invece che dati per buoni.
+
+Uscita 2 se l'argomento non e' un file leggibile.
+
+**Limite che resta.** Un riferimento che risolve puo' comunque mentire: che la
+riga esista non dice che porti ancora la cosa di cui il testo parla. Quello lo
+vede solo chi legge.
 """
 
 from __future__ import annotations
@@ -39,59 +47,94 @@ def _indice() -> dict[str, list[Path]]:
     return trovati
 
 
+def _breve(percorso: Path) -> str:
+    """Il percorso relativo alla radice, o quello intero se ne sta fuori."""
+    try:
+        return str(percorso.relative_to(RADICE))
+    except ValueError:
+        return str(percorso)
+
+
 def _righe(percorso: Path) -> int:
     with percorso.open("rb") as f:
         return sum(1 for _ in f)
 
 
-def controlla(documento: Path) -> list[str]:
-    """I riferimenti del documento che non risolvono, gia' formattati."""
-    indice = _indice()
-    guasti = []
+def controlla(
+    documento: Path, indice: dict[str, list[Path]] | None = None
+) -> tuple[list[str], list[str], list[str]]:
+    """(rotti, fuori albero, non verificabili), gia' formattati per la stampa."""
+    if indice is None:
+        indice = _indice()
+    rotti: list[str] = []
+    fuori: list[str] = []
+    non_verificabili: list[str] = []
+
     for numero, riga in enumerate(documento.read_text(encoding="utf-8").splitlines(), 1):
+        dove = f"{documento}:{numero}"
         for nome, prima, ultima in RIFERIMENTO.findall(riga):
             candidati = indice.get(Path(nome).name, [])
-            if len(nome.split("/")) > 1:
+            if "/" in nome:
                 candidati = [c for c in candidati if str(c).endswith(nome)]
             citato = f"{nome}:{prima}" + (f"-{ultima}" if ultima else "")
             if not candidati:
-                guasti.append(f"{documento}:{numero}: {citato} -- nessun file con questo nome nell'albero")
+                fuori.append(f"{dove}: {citato} -- fuori dall'albero di questo "
+                             f"repository, non risolvibile per costruzione")
             elif len(candidati) > 1:
-                elenco = ", ".join(str(c.relative_to(RADICE)) for c in sorted(candidati))
-                guasti.append(f"{documento}:{numero}: {citato} -- nome ambiguo: {elenco}")
+                elenco = ", ".join(_breve(c) for c in sorted(candidati))
+                rotti.append(f"{dove}: {citato} -- nome ambiguo: {elenco}")
             else:
                 quante = _righe(candidati[0])
-                oltre = [n for n in (prima, ultima) if n and int(n) > quante]
+                oltre = any(int(n) > quante for n in (prima, ultima) if n)
                 if oltre or int(prima) < 1:
-                    guasti.append(f"{documento}:{numero}: {citato} -- "
-                                  f"{candidati[0].relative_to(RADICE)} ha {quante} righe")
-    return guasti
+                    rotti.append(f"{dove}: {citato} -- "
+                                 f"{_breve(candidati[0])} ha {quante} righe")
+        for abbreviato in ABBREVIATO.findall(riga):
+            non_verificabili.append(f"{dove}: `:{abbreviato}` -- il file lo porta "
+                                    f"il contesto, non verificabile a macchina")
+    return rotti, fuori, non_verificabili
 
 
 def autoprova() -> None:
-    indice = _indice()
     with tempfile.TemporaryDirectory() as cartella:
         doc = Path(cartella) / "prova.md"
-
-        doc.write_text("vedi `inesistente.py:1` e basta\n", encoding="utf-8")
-        esito = controlla(doc)
-        assert len(esito) == 1 and "inesistente.py:1" in esito[0], esito
-
-        doc.write_text("nessun riferimento qui, solo prosa.\n", encoding="utf-8")
-        assert controlla(doc) == []
-
         mio = Path(__file__).name
-        doc.write_text(f"oltre la fine: `{mio}:99999`\n", encoding="utf-8")
-        esito = controlla(doc)
-        vere = _righe(Path(__file__))
-        assert len(esito) == 1 and str(vere) in esito[0], (esito, vere)
 
-        doc.write_text(f"buono: `{mio}:1`\n", encoding="utf-8")
-        assert controlla(doc) == []
+        # un sorgente che questo repository non contiene, e non conterra' mai
+        doc.write_text("il manuale cita `spooles.c:225` e basta\n", encoding="utf-8")
+        rotti, fuori, _ = controlla(doc)
+        assert rotti == [], rotti
+        assert len(fuori) == 1 and "per costruzione" in fuori[0], fuori
+        assert main([str(doc)]) == 0, "un fuori albero da solo non e' un difetto"
+
+        # la forma abbreviata: terza categoria, ne' risolta ne' taciuta
+        doc.write_text(f"`{mio}:1` e poi `:2`\n", encoding="utf-8")
+        rotti, fuori, ignoti = controlla(doc)
+        assert (rotti, fuori) == ([], []), (rotti, fuori)
+        assert len(ignoti) == 1 and "`:2`" in ignoti[0], ignoti
+
+        # documento senza alcun riferimento
+        doc.write_text("nessun riferimento qui, solo prosa.\n", encoding="utf-8")
+        assert controlla(doc) == ([], [], [])
+        assert main([str(doc)]) == 0
+
+        # riga oltre la fine: la lunghezza vera nel messaggio, non un IndexError
+        doc.write_text(f"oltre la fine: `{mio}:99999`\n", encoding="utf-8")
+        rotti, _, _ = controlla(doc)
+        vere = _righe(Path(__file__))
+        assert len(rotti) == 1 and str(vere) in rotti[0], (rotti, vere)
+        assert main([str(doc)]) == 1
+
+        # file che esiste ma e' vuoto, citato a riga 1: rotto, e lo dice con lo 0
+        vuoto = Path(cartella) / "vuoto.md"
+        vuoto.write_text("", encoding="utf-8")
+        doc.write_text("`vuoto.md:1` non esiste perche' il file e' vuoto\n", encoding="utf-8")
+        rotti, _, _ = controlla(doc, {"vuoto.md": [vuoto]})
+        assert len(rotti) == 1 and "ha 0 righe" in rotti[0], rotti
 
         assert main([cartella]) == 2, "una cartella si dichiara, non solleva"
 
-    assert indice, "l'indice dell'albero non puo' essere vuoto"
+    assert _indice(), "l'indice dell'albero non puo' essere vuoto"
     print("autoprova: tutti gli assert passati")
 
 
@@ -110,14 +153,17 @@ def main(argomenti: list[str]) -> int:
         print(f"{documento} non esiste")
         return 2
 
-    non_risolti = controlla(documento)
-    abbreviati = len(ABBREVIATO.findall(documento.read_text(encoding="utf-8")))
-    for riga in non_risolti:
-        print(riga)
-    if abbreviati:
-        print(f"({abbreviati} riferimenti in forma `:NNN` non verificabili: "
-              f"il file lo porta il contesto)")
-    return 1 if non_risolti else 0
+    rotti, fuori, non_verificabili = controlla(documento)
+    for titolo, elenco in (
+        ("rotti", rotti),
+        ("fuori albero, non risolvibili per costruzione", fuori),
+        ("non verificabili a macchina", non_verificabili),
+    ):
+        if elenco:
+            print(f"--- {titolo}: {len(elenco)}")
+            for riga in elenco:
+                print(riga)
+    return 1 if rotti else 0
 
 
 if __name__ == "__main__":

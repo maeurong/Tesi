@@ -12,6 +12,16 @@ Aperto il 26/08/2026. Quattro ricerche indipendenti, condotte in parallelo su
 
 Questo file è la sintesi. Non ripete i numeri: li indirizza.
 
+**Notazione numerica, valida per tutti i documenti di questa cartella.** La
+virgola separa i decimali, **sempre**, anche nei valori ripresi da fonti inglesi:
+44,092 Hz, non 44.092. Il punto separa le migliaia — 148.689 cubi — oppure le
+migliaia non si separano affatto (20 000); mai con la virgola. Restano col punto
+perché non sono misure ma **nomi**: numeri di sezione e di clausola (§6.11.5,
+EC2 3.1.3, NTC 11.2.10.3), di espressione, di figura, di tabella, di volume e di
+pagina; versioni (`ccx` 2.22, Cubit 15.8); DOI e identificatori arXiv. E resta
+com'è scritto nel sorgente tutto ciò che sta dentro un blocco di codice `così`:
+quello è codice, non prosa.
+
 ---
 
 ## 1. La scala della forza probatoria, e dove possiamo arrivare
@@ -81,55 +91,63 @@ E la frase che vale da sola come cornice, verbatim da ASME V&V 10:
 
 ## 3. Il registro dei difetti trovati
 
-Ognuno con `file:riga` e con l'oracolo che oggi manca. Ordinati per rischio.
+Aperto il 26/08/2026 su `a07071a`. **Richiuso quasi per intero il 27/08/2026 su
+`fed1872`**: delle venti voci, tredici sono chiuse, una lo e' in parte, una
+l'hanno superata i fatti, cinque restano vere. Ogni `file:riga` di questa
+sezione e' verificato contro `fed1872`; il dettaglio voce per voce, con
+l'oracolo che ciascuna ha oggi, sta in
+[`inventario-grandezze.md`](inventario-grandezze.md) §6.
+
+I riferimenti si ricontrollano a macchina:
+`python docs/validazione/controlla-riferimenti.py docs/validazione/README.md`.
 
 ### 3.1 Difetti di correttezza
 
-| # | difetto | dove | perché conta |
+| # | difetto | dove oggi | stato |
 |---|---|---|---|
-| D1 | `inverted_tets` filtra con `V <= 0.0`, e `nan <= 0.0` è `False`: una mesh con coordinate NaN passa `InvertedElementsError` e viene registrata con `inverted: 0` | `quality.py:48`, guardia a `volume.py:139` | **verde su una mesh corrotta.** Stessa classe che il cancello di finitezza ha chiuso in `solve.py`; `quality.py` non l'ha mai ricevuta |
-| D2 | l'ordine delle colonne `.frd` (SXX,SYY,SZZ,SXY,SYZ,SZX) non è mai stato verificato contro un `.frd` di `ccx` vero | `solve.py:477` | gli `.frd` dei test li scrive il test, con trazione monoassiale: stato **invariante per permutazione**. Un ordine sbagliato darebbe un numero plausibile |
-| D3 | `controlla_reazioni` confronta `RF` con il peso, ma sotto gravità `RF` **non** è la sola reazione | `solve.py:259` | documentato nel manuale CalculiX §6.11.5. È la causa dei 0,73575 N contro 2,943 attesi. Rimedio ufficiale: `*SECTION PRINT, SOF, SOM` |
-| D4 | nessuna guardia sull'ampiezza degli spostamenti | `solve.py` | ccx su deck non vincolato esce **0**, senza warning: `spooles.c:225` scrive su `spooles.out`, e con `MAGIC_TAU = 100.0` la matrice viene fattorizzata lo stesso. La guardia è nostra, non sua |
-| D5 | `vertex_deviation` su nuvola vuota rende `[inf, inf, inf]`, che finisce nella mappa colore | `quality.py:442` | non gestito |
-| D6 | `build_node_sets` su nodi vuoti solleva `ValueError` grezzo | `abaqus.py:1184` | non guardato |
-| D7 | `controlla_picco` su array vuoto solleva `ValueError` grezzo | `solve.py:393` | latente, non attivo |
-| D8 | `element_volumes` accetta `colonne == 10`, ma `NODI_PER_ELEMENTO` non contiene più C3D10 dopo `66b526d` | `quality.py:164`, `abaqus.py:429` | ramo morto — **torna vivo se si ripristina C3D10** |
+| D1 | `inverted_tets` filtrava con `V <= 0.0`, e `nan <= 0.0` e' `False`: una mesh con coordinate NaN passava `InvertedElementsError` e veniva registrata con `inverted: 0` | `quality.py:110` | **chiuso** (`757429c`, `69465e1`): il criterio e' scritto in positivo, `~(isfinite(V) & (V > 0))`, e copre anche il volume `+inf`. Prova in `tests/test_cancello_finitezza.py` |
+| D2 | l'ordine delle colonne `.frd` (SXX,SYY,SZZ,SXY,SYZ,SZX) non era mai stato verificato contro un `.frd` di `ccx` vero | `solve.py:827` | **chiuso** (`87c7d7c`): uno stato con tutte e sei le componenti distinte, confrontate una per una con Hooke, e tutte e 719 le permutazioni respinte — `tests/validazione/test_ordine_frd.py` |
+| D3 | `controlla_reazioni` confronta `RF` con il peso, ma sotto gravita' `RF` **non** e' la sola reazione | `solve.py:380` | **ancora vero, e gestito**: `risolvi` somma la quota tributaria (`solve.py:863`) prima del confronto, e l'invariante chiude a rel 1e-6 — `test_solve.py:731`. Resta il limite documentato nel manuale CalculiX §6.11.5 |
+| D4 | nessuna guardia sull'ampiezza degli spostamenti | `solve.py:611` | **chiuso** (`c8d9084`): `controlla_spostamenti` e' il sesto verdetto, con rapporto spostamento/dimensione — `test_solve.py:461` |
+| D5 | `vertex_deviation` su nuvola vuota rendeva `[inf, inf, inf]`, che finiva nella mappa colore | `quality.py:600-603` | **chiuso**: solleva `ValueError` col proprio messaggio |
+| D6 | `build_node_sets` su nodi vuoti sollevava `ValueError` grezzo | `abaqus.py:1507-1510` | **chiuso**: messaggio proprio, e una seconda guardia sui nodi non finiti (`abaqus.py:1517-1521`), che facevano uscire due set **vuoti** in silenzio |
+| D7 | `controlla_picco` su array vuoto sollevava `ValueError` grezzo | `solve.py:519-523` | **chiuso** (`587d138`): messaggio proprio, dichiarato errore del chiamante |
+| D8 | `element_volumes` accetta `colonne == 10`, ma `NODI_PER_ELEMENTO` non conteneva piu' C3D10 dopo `66b526d` | `quality.py:267`, `abaqus.py:539` | **superato dai fatti** (`479d671`, `76bbc00`): C3D10 e' tornato, e quel ramo e' vivo |
 
 ### 3.2 Grandezze senza oracolo
 
-| # | grandezza | dove | stato |
+| # | grandezza | dove oggi | stato |
 |---|---|---|---|
-| O1 | `tet_aspect_ratios` | `quality.py:222` | **zero test.** Il numero va in `metrics.json` e nel report |
-| O2 | `boundary_spacing` | `abaqus.py:930` | zero chiamate dirette; sotto ci stanno tutti e sei i set di nodi |
-| O3 | `export["volume"]` / `export["mass"]` | `abaqus.py:1463-1464` | in colonna nel report di confronto, nessuna asserzione di valore |
-| O4 | `GRAVITY_MM_S2 = 9810.0` | `config.py:22` | nessun test lo asserisce |
-| O5 | `radius_edge_ratio_p99`, `extent` di `thickness`, `u_max`, ingombro/bbox | vari | solo regressione |
+| O1 | `tet_aspect_ratios` | `quality.py:325` | **chiuso** (`aa2716f`): regolare = 1, rettangolo in forma chiusa, degenere → ∞ — `test_oracoli_mancanti.py:47-89` |
+| O2 | `boundary_spacing` | `abaqus.py:1220` | **chiuso** (`aa2716f`): lato del tetraedro regolare, e scala col fattore 2 — `test_oracoli_mancanti.py:95-120` |
+| O3 | `export["volume"]` / `export["mass"]` | `abaqus.py:1813-1814` | **chiuso** (`aa2716f`): scatola nota, rel 1e-6 — `test_oracoli_mancanti.py:149-150` |
+| O4 | `GRAVITY_MM_S2 = 9810,0` | `config.py:22` | **chiuso** (`aa2716f`): asserita contro 9,81·1000, e ρ·V·g → N sull'acqua — `test_oracoli_mancanti.py:163`, `test_oracoli_mancanti.py:176` |
+| O5 | `radius_edge_ratio_p99`, `extent` di `thickness`, `u_max`, ingombro/bbox | `volume.py:279`, `quality.py:660`, `solve.py:581`, `io.py:110-112` | **chiuso in parte**: i primi tre hanno ora un oracolo (`test_oracoli_mancanti.py:197`, `test_oracoli_mancanti.py:254`, `test_solve.py:461`); ingombro/bbox resta solo regressione, ed e' `max − min` per asse |
 
 ### 3.3 Guardie inerti
 
-| # | guardia | dove | esito |
+| # | guardia | dove oggi | stato |
 |---|---|---|---|
-| G1 | `bimodal` con modi in bin contigui | `quality.py:574` | **falsa per costruzione**: l'ingresso che la fa scattare non esiste |
-| G2 | `if not in_contact.any()` in `footprint_coverage` | `abaqus.py:1114` | irraggiungibile su qualunque mesh chiusa |
-| G3 | `isfinite(minimo)` e `conteggio == 0` | `solve.py:431`, `:446` | inerti **per progetto e dichiarate tali**: non un difetto, ma nemmeno una difesa |
+| G1 | `bimodal` con modi in bin contigui, falsa per costruzione | `quality.py:714-716` | **chiuso** (`0a622a5`): la condizione e' scritta come esito, `upper > lower + 1`, e il commento dice perche' la forma precedente non poteva dare `True` |
+| G2 | `if not in_contact.any()` in `footprint_coverage` | `abaqus.py:1417-1433` | **chiuso** (`0a622a5`): solleva invece di rendere `0.0`, che si sarebbe letto come «copre nulla». Il ramo resta irraggiungibile dalla pipeline, ma ora se ci si arriva si sa |
+| G3 | `isfinite(minimo)` e `conteggio == 0` | `solve.py:563`, `solve.py:578` | **ancora vero**: inerti **per progetto e dichiarate tali** nelle docstring. Non un difetto, ma nemmeno una difesa |
 
 ### 3.4 Nomi che collidono con definizioni standard
 
-| # | metrica | divergenza | rimedio proposto |
+| # | metrica | divergenza | stato |
 |---|---|---|---|
-| N1 | `scaled_jacobian` | prende il minimo su **8** angoli; Verdict ne usa **9**, includendo il centro con gli assi principali. Valore sistematicamente **più ottimistico** | **non toccare il codice**: dichiararlo in tesi e nella docstring. Aggiungere il nono punto sposterebbe tutti i numeri già pubblicati |
-| N2 | `tet_aspect_ratios` | coincide con Verdict `L_max/(2√6·r)`, **ma non con Abaqus/CAE**, dove «aspect ratio» è spigolo max su spigolo min (l'`edge ratio` di Verdict) | dichiarare quale definizione è, ogni volta che si cita una soglia da manuale |
-| N3 | `radius_edge_ratios` come unico vincolo di qualità | il default `-q` di TetGen impone radius-edge ≤ 2,0 e **angolo diedro minimo 0°**: il radius-edge è **cieco agli sliver per costruzione** | affiancare il **minimo angolo diedro**, già calcolato a `quality.py:208` ma non usato come vincolo. Range Verdict: [40°, 70,53°] |
-| N4 | `hex_volumes` | non è la quadratura di Gauss che i solutori usano per integrare l'elemento | già dichiarato nella docstring; da citare se il volume finisce accanto a una massa del solutore |
+| N1 | `scaled_jacobian` | prendeva il minimo su **8** angoli; Verdict ne usa **9**, includendo il centro con gli assi principali | **chiuso** (`0a622a5`): il nono punto c'e' (`quality.py:198-224`). La misura ha smentito il timore che l'aveva sconsigliato — zero scarto su 1644 esaedri gmsh e su 148.689 cubi perturbati, **nessun numero pubblicato si e' spostato** |
+| N2 | `tet_aspect_ratios` | coincide con Verdict `L_max/(2√6·r)`, **ma non con Abaqus/CAE**, dove «aspect ratio» e' spigolo max su spigolo min (l'`edge ratio` di Verdict): sul rettangolo di lato 1, 1,366 contro 1,414 | **ancora vero**, e ora dichiarato nella docstring (`quality.py:328-338`) oltre che nel registro delle soglie. Dichiarare quale definizione e', ogni volta che si cita una soglia da manuale |
+| N3 | `radius_edge_ratios` come unico vincolo di qualita' | il default `-q` di TetGen impone radius-edge ≤ 2,0 e **angolo diedro minimo 0°**: il radius-edge e' **cieco agli sliver per costruzione** | **ancora vero**, e ora misurato nella docstring (`quality.py:370-379`): uno sliver da' 0,707 di raggio-spigolo e 0,162° di diedro. Affiancare il minimo angolo diedro, gia' calcolato a `quality.py:311` ma non usato come vincolo. Range Verdict: [40°, 70,53°] |
+| N4 | `hex_volumes` | non e' la quadratura di Gauss che i solutori usano per integrare l'elemento | **ancora vero**, e gia' dichiarato nella docstring (`quality.py:123-129`); da citare se il volume finisce accanto a una massa del solutore |
 
-### 3.5 Il difetto strutturale: C3D4
+### 3.5 Il difetto strutturale: C3D4 — rimediato
 
-Non è un bug, è una scelta che la letteratura contraddice. Le prove, tutte in
+Non era un bug, era una scelta che la letteratura contraddice. Le prove, tutte in
 [`ricerca-calculix-e-c3d4.md`](ricerca-calculix-e-c3d4.md):
 
 - **La suite di verifica ufficiale di CalculiX non contiene un solo deck C3D4**
-  (0 occorrenze su 610 `.inp`). Il tetraedro lineare non è verificato dal proprio
+  (0 occorrenze su 610 `.inp`). Il tetraedro lineare non e' verificato dal proprio
   autore.
 - Manuale CalculiX §6.2.6: «not suited for structural calculations... the element
   is too stiff. Please use the 10-node tetrahedral element instead.»
@@ -139,24 +157,33 @@ Non è un bug, è una scelta che la letteratura contraddice. Le prove, tutte in
   spostamento e 21,2% sulla tensione** a maglio grossolano; a maglio fine lo
   spostamento scende a 10,5% ma **la tensione resta a 21,0%** — raffinare non
   salva il campo tensionale. Con ν = 0,49 si arriva a **71,7%**.
-- Modale: **20-75%** di errore, e per Ritz-Galerkin è una **sovrastima** delle
+- Modale: **20-75%** di errore, e per Ritz-Galerkin e' una **sovrastima** delle
   frequenze.
 - Aggravante specifica di CalculiX: usa le funzioni di forma standard anche sugli
   elementi lineari, senza le correzioni proprietarie che Abaqus applica — e lo
   dichiara nel manuale.
 
-Il commit `66b526d` aveva tolto C3D10 dall'esportazione. **Va rimesso.** Costa un
-giro di nodi di mezzeria: TetGen produce già i vertici.
+Il commit `66b526d` aveva tolto C3D10 dall'esportazione. **E' stato rimesso**
+(`479d671`, `76bbc00`): `NODI_PER_ELEMENTO` lo contiene di nuovo
+(`abaqus.py:539`), la permutazione da TetGen ad Abaqus sta in `volume.py:65` con
+due oracoli indipendenti — geometrico in `tests/test_quadratico.py`, patch test
+in `tests/validazione/test_patch_test.py` — e la ripartizione della gravita' sul
+quadratico e' corretta (`b7e8df9`, `solve.py:863`). Lo scarto sul nostro caso e'
+misurato in
+[`scarto-c3d4-c3d10-telaio.md`](scarto-c3d4-c3d10-telaio.md).
 
 ## 4. Il programma di validazione che ne discende
 
 Sette blocchi, in ordine di dipendenza. Il dettaglio operativo di ciascuno sta nei
 documenti di ricerca.
 
-1. **Correzioni** — D1-D8, O1-O5, G1-G2, N1-N4. Sono la premessa: non si valida un
-   programma le cui guardie non guardano.
+1. **Correzioni** — D1-D8, O1-O5, G1-G3, N1-N4. Erano la premessa: non si valida un
+   programma le cui guardie non guardano. **Fatte**, tranne le cinque voci che
+   restano vere e che si dichiarano invece di correggersi (D3, G3, N2, N3, N4):
+   vedi §3.
 2. **Ripristino di C3D10** — esportazione, soluzione, report, e il confronto
    C3D4/C3D10 sullo stesso maglio che quantifica lo scarto **sul nostro caso**.
+   **Fatto**: vedi §3.5.
 3. **Verifica del codice** (ASME: *code verification*) — patch test di
    Taylor-Simo-Zienkiewicz-Chan 1986; mensola in flessione, torsione e prima
    frequenza contro le soluzioni analitiche di Gere-Timoshenko,

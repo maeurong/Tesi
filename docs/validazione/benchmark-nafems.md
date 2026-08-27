@@ -64,15 +64,15 @@ perché serve come prova di sanità del generatore di geometria. [INF, sul «non
 | origine scheda | NAFEMS report C1, Test LE1, data/issue 1986-07-01/1 | F1 `le1.html` [V] |
 | tipo | piano di tensione (plane stress) | F1 [V] |
 | ellisse interna AD | (x/2)² + y² = 1 | F4 p. 4 (fig.), F1 `le1_1.gif` [V] |
-| ellisse esterna BC | (x/3.25)² + (y/2.75)² = 1 | idem [V] |
-| punti | A = (0, 1), B = (0, 2.75), C = (3.25, 0), D = (2, 0) — tutto in metri | F4 fig. + deck `nle1xf8c.inp` nodi 1, 4001, 4801, 801 [V, incrociato] |
-| quote a margine | OA = 1.0 m, AB = 1.75 m, OD = 2.0 m, DC = 1.25 m | F4 p. 4 [V] |
-| spessore | T = 0.1 m | F4 («T=0.1 m» in figura) + F1 («thickness 0.1») + deck `*SOLID SECTION … 0.1` [V, tre fonti] |
-| materiale | E = 210 · 10³ MPa = 210 GPa, ν = 0.3 | F1, F4, deck [V] |
+| ellisse esterna BC | (x/3,25)² + (y/2,75)² = 1 | idem [V] |
+| punti | A = (0, 1), B = (0, 2,75), C = (3,25, 0), D = (2, 0) — tutto in metri | F4 fig. + deck `nle1xf8c.inp` nodi 1, 4001, 4801, 801 [V, incrociato] |
+| quote a margine | OA = 1,0 m, AB = 1,75 m, OD = 2,0 m, DC = 1,25 m | F4 p. 4 [V] |
+| spessore | T = 0,1 m | F4 («T=0,1 m» in figura) + F1 («thickness 0,1») + deck `*SOLID SECTION … 0.1` [V, tre fonti] |
+| materiale | E = 210 · 10³ MPa = 210 GPa, ν = 0,3 | F1, F4, deck [V] |
 | vincoli | AB: simmetria attorno all'asse y → u_x = 0. DC: simmetria attorno all'asse x → u_y = 0 | F1 (verbatim) [V] |
 | carico | pressione uniforme **uscente** di 10 MPa sul bordo esterno BC. Bordo interno AD scarico | F1 (verbatim) [V] |
 | lettura | tensione tangenziale di bordo σ_yy nel punto **D** = (2, 0) | F1, F4 [V] |
-| **target** | **92.7 MPa** (nessun qualificatore sulla scheda) | F1 `TARGET 92.7 MPa` [V] |
+| **target** | **92,7 MPa** (nessun qualificatore sulla scheda) | F1 `TARGET 92.7 MPa` [V] |
 
 **Verdetto: ricostruibile.** Geometria, vincoli, carico e target completi su due fonti indipendenti.
 
@@ -87,14 +87,14 @@ tipo di elemento è dichiarato nella scheda]
 | voce | valore | fonte |
 |---|---|---|
 | origine scheda | NAFEMS report TSBM, Test LE2, data/issue 1986-11-21/2 | F1 `le2.html` [V] |
-| geometria | settore θ = 30° di guscio cilindrico, **spessore 0.01 m** | F1, F4 («T = 10 mm») [V] |
-| raggio e lunghezza | R = 1.0 m, z ∈ [0, 0.5] m | deck `nle2x58c.inp`: `*NMAP TYPE=CYLINDRICAL` con nodi (r=1.0, θ=0…30°, z=0…0.5) [V] |
-| materiale | E = 210 · 10³ MPa, ν = 0.3 | F1 [V] |
+| geometria | settore θ = 30° di guscio cilindrico, **spessore 0,01 m** | F1, F4 («T = 10 mm») [V] |
+| raggio e lunghezza | R = 1,0 m, z ∈ [0, 0,5] m | deck `nle2x58c.inp`: `*NMAP TYPE=CYLINDRICAL` con nodi (r=1,0, θ=0…30°, z=0…0,5) [V] |
+| materiale | E = 210 · 10³ MPa, ν = 0,3 | F1 [V] |
 | vincoli | bordo AB: tutte le traslazioni e rotazioni nulle (incastro). Bordi AD e BC: simmetria attorno al piano r-θ (traslazione z e rotazioni normali nulle) | F1 (verbatim) [V] |
-| carico, caso 1 | momento normale uniforme di **1.0 kN·m/m** sul bordo DC | F1 [V] |
-| carico, caso 2 | pressione normale uscente 0.6 MPa sulla superficie media ABCD + pressione tangenziale uscente 60.0 MPa sul bordo DC | F1 [V] |
+| carico, caso 1 | momento normale uniforme di **1,0 kN·m/m** sul bordo DC | F1 [V] |
+| carico, caso 2 | pressione normale uscente 0,6 MPa sulla superficie media ABCD + pressione tangenziale uscente 60,0 MPa sul bordo DC | F1 [V] |
 | lettura | tensione tangenziale (θ-θ) sulla superficie esterna (convessa) nel punto **E** | F1 [V] |
-| **target** | **60.0 MPa, per entrambi i casi** | F1 [V] |
+| **target** | **60,0 MPa, per entrambi i casi** | F1 [V] |
 
 **[NON TROVATO]**: la posizione esatta del punto E sulla scheda è nella figura, che non ho
 letto per LE2 (non serve al nostro caso). Il deck Abaqus stampa su tutti gli elementi.
@@ -113,12 +113,12 @@ Quarto di piastra spessa a pianta ellittica anulare, estruso in z.
 |---|---|---|
 | origine scheda | NAFEMS report **LSB2**, Test LE10, data/issue **1990-06-15/2** | F1 `le10.html` [V] |
 | ellisse interna AD | **(x/2)² + y² = 1** | F1 `le10_1.gif` (figura originale) + F4 p. 29 [V, due fonti] |
-| ellisse esterna BC | **(x/3.25)² + (y/2.75)² = 1** | idem [V] |
-| quote a margine | OA = 1.0 m, AB = 1.75 m, OD = 2.0 m, DC = 1.25 m | F1 `le10_1.gif`, F4 p. 29 [V] |
-| **spessore** | **0.6 m** | F1 (`thickness 0.6`) + F1 `le10_2.gif` + F4 p. 29 [V] |
+| ellisse esterna BC | **(x/3,25)² + (y/2,75)² = 1** | idem [V] |
+| quote a margine | OA = 1,0 m, AB = 1,75 m, OD = 2,0 m, DC = 1,25 m | F1 `le10_1.gif`, F4 p. 29 [V] |
+| **spessore** | **0,6 m** | F1 (`thickness 0.6`) + F1 `le10_2.gif` + F4 p. 29 [V] |
 | convenzione lettere | **senza apice = superficie superiore** (quella caricata); **con apice = superficie inferiore** | F1 `le10_2.gif`: le frecce di pressione entrano nella faccia ABCD, e A′B′C′D′ stanno sotto [V] |
-| coordinate dei vertici (origine sulla faccia **inferiore**) | A (0, 1, 0.6) · B (0, 2.75, 0.6) · C (3.25, 0, 0.6) · D (2, 0, 0.6) · A′ (0, 1, 0) · B′ (0, 2.75, 0) · C′ (3.25, 0, 0) · D′ (2, 0, 0) | SimScale, Tab. 1 [V]; concorde con seamplex, che scrive `D = (2 m, 0 m, 0.6 m)` [V]; concorde con il deck `nle10fkc.inp` (5 strati a z = 0, 0.15, 0.30, 0.45, 0.60) [V] |
-| B″, C″ | punti medi degli spigoli BB′ e CC′, cioè z = 0.3 | SimScale [V]; Abaqus li chiama E, E′ [V] |
+| coordinate dei vertici (origine sulla faccia **inferiore**) | A (0, 1, 0,6) · B (0, 2,75, 0,6) · C (3,25, 0, 0,6) · D (2, 0, 0,6) · A′ (0, 1, 0) · B′ (0, 2,75, 0) · C′ (3,25, 0, 0) · D′ (2, 0, 0) | SimScale, Tab. 1 [V]; concorde con seamplex, che scrive `D = (2 m, 0 m, 0.6 m)` [V]; concorde con il deck `nle10fkc.inp` (5 strati a z = 0, 0,15, 0,30, 0,45, 0,60) [V] |
+| B″, C″ | punti medi degli spigoli BB′ e CC′, cioè z = 0,3 | SimScale [V]; Abaqus li chiama E, E′ [V] |
 
 Tutte le dimensioni in **metri**. Il deck seamplex usa millimetri (a = 1000, b = 2750,
 c = 3250, d = 2000, h = 600): stesso corpo, unità diverse.
@@ -133,10 +133,10 @@ In termini operativi:
 - faccia DCD′C′ (il piano y = 0): **u_y = 0**
 - faccia ABA′B′ (il piano x = 0): **u_x = 0**
 - faccia esterna BCB′C′ (l'ellisse grande estrusa): **u_x = u_y = 0**
-- **solo lo spigolo di mezzeria** B″C″ di quella faccia (z = 0.3): **u_z = 0**
+- **solo lo spigolo di mezzeria** B″C″ di quella faccia (z = 0,3): **u_z = 0**
 
 Abaqus scrive lo stesso vincolo come «u_z = 0 on line EE′ (E midpoint of edge CC′, E′ midpoint
-of BB′)» [V]. Il deck lo realizza con `*BOUNDARY / MID,3` dove `MID` è la riga di nodi a z = 0.30
+of BB′)» [V]. Il deck lo realizza con `*BOUNDARY / MID,3` dove `MID` è la riga di nodi a z = 0,30
 sull'ellisse esterna [V].
 
 > **Trappola nota.** ESRD annota: *«Since constraints along a line are incompatible with
@@ -146,22 +146,22 @@ sull'ellisse esterna [V].
 
 ### Materiale e carico
 
-- E = 210 · 10³ MPa = **210 GPa**, ν = **0.3**. F1, F3, F4 [V].
+- E = 210 · 10³ MPa = **210 GPa**, ν = **0,3**. F1, F3, F4 [V].
 - Densità **7800 kg/m³** — la aggiunge solo Abaqus (serve a Abaqus/Explicit), **non è nella
   scheda NAFEMS** e non serve all'analisi statica. F3 [V].
-- Carico: **pressione normale uniforme di 1.0 MPa sulla superficie superiore** (la faccia ABCD).
+- Carico: **pressione normale uniforme di 1,0 MPa sulla superficie superiore** (la faccia ABCD).
   F1, F3, F4 [V]. Nel deck: `*DLOAD / LOAD,P2, 1.0E6` sugli elementi dello strato superiore [V].
 
 ### Punto di lettura e target
 
-- **Punto D = (2, 0, 0.6)**, cioè lo spigolo interno **sulla superficie caricata**.
+- **Punto D = (2, 0, 0,6)**, cioè lo spigolo interno **sulla superficie caricata**.
   bConverged lo chiama «the inside top corner» [V]; seamplex scrive esplicitamente
-  `sigmay(2000,0,600)` [V]; SimScale Tab. 1 mette D a z = 0.6 [V]. Tre fonti concordi.
-- **Target: σ_yy = −5.38 MPa**, e la scheda NAFEMS lo qualifica **«(mesh refinement)»**:
+  `sigmay(2000,0,600)` [V]; SimScale Tab. 1 mette D a z = 0,6 [V]. Tre fonti concordi.
+- **Target: σ_yy = −5,38 MPa**, e la scheda NAFEMS lo qualifica **«(mesh refinement)»**:
   è un target **numerico**, non una soluzione chiusa. F1 [V]. SimScale lo conferma a parole:
   *«The reference solution … is of the numerical type»* [V].
-- Il segno: la scheda NAFEMS e ESRD scrivono −5.38; Abaqus scrive «5.38 MPa» nel testo ma
-  −6.72/−5.64 ecc. in tabella. È compressione. [V]
+- Il segno: la scheda NAFEMS e ESRD scrivono −5,38; Abaqus scrive «5,38 MPa» nel testo ma
+  −6,72/−5,64 ecc. in tabella. È compressione. [V]
 
 ### Mesh prescritte dalla scheda
 
@@ -171,15 +171,15 @@ solo nodi d'angolo dati. Tipi ammessi: **solid hexahedra, wedges and tetrahedra*
 ### Tabelle di errore per tipo di elemento
 
 **Abaqus/Standard** (F3, mirror MIT, sezione LE10) — σ_yy in D, differenza percentuale rispetto
-a −5.38 MPa fra parentesi: [V]
+a −5,38 MPa fra parentesi: [V]
 
 | elemento | mesh coarse | mesh fine |
 |---|---|---|
-| C3D20 | −6.72 MPa (+25.00%) | −5.64 MPa (+4.83%) |
-| C3D20R | −7.93 MPa (+47.39%) | −5.53 MPa (+2.78%) |
-| **C3D10** | **−5.44 MPa (+1.15%)** | **−5.77 MPa (+7.24%)** |
-| C3D10HS | −5.08 MPa (−3.72%) | −5.51 MPa (+2.42%) |
-| **C3D10M** | **−5.57 MPa (+3.53%)** | **−5.89 MPa (+9.48%)** |
+| C3D20 | −6,72 MPa (+25,00%) | −5,64 MPa (+4,83%) |
+| C3D20R | −7,93 MPa (+47,39%) | −5,53 MPa (+2,78%) |
+| **C3D10** | **−5,44 MPa (+1,15%)** | **−5,77 MPa (+7,24%)** |
+| C3D10HS | −5,08 MPa (−3,72%) | −5,51 MPa (+2,42%) |
+| **C3D10M** | **−5,57 MPa (+3,53%)** | **−5,89 MPa (+9,48%)** |
 
 **Spiegazione ufficiale del non-monotono**, che vale la pena citare in tesi perché smonta
 l'uso ingenuo di LE10 come studio di convergenza:
@@ -197,11 +197,11 @@ Ma **SimScale** li pubblica, su Code_Aster: [V]
 
 | caso SimScale | mesh | σ_yy in D | errore |
 |---|---|---|---|
-| A | **tetraedri di 1° ordine**, 63 381 nodi | 5.08010 MPa | **−5.57%** |
-| B | tetraedri di 2° ordine, 476 858 nodi | 5.34163 MPa | −0.71% |
-| C | hex/quad 1° ordine, 216 nodi | 3.79913 MPa | −29.38% |
-| D | hex/quad 2° ordine, 389 nodi | 5.30337 MPa | −1.42% |
-| G | hex/quad 2° ordine, 184 594 nodi | 5.35033 MPa | −0.55% |
+| A | **tetraedri di 1° ordine**, 63 381 nodi | 5,08010 MPa | **−5,57%** |
+| B | tetraedri di 2° ordine, 476 858 nodi | 5,34163 MPa | −0,71% |
+| C | hex/quad 1° ordine, 216 nodi | 3,79913 MPa | −29,38% |
+| D | hex/quad 2° ordine, 389 nodi | 5,30337 MPa | −1,42% |
+| G | hex/quad 2° ordine, 184 594 nodi | 5,35033 MPa | −0,55% |
 
 Il caso C (esaedri lineari, mesh minima) sbaglia del **29%**: è il promemoria che il problema
 è il grado dell'elemento e la fittezza, non solo la forma. [V per i numeri]
@@ -222,20 +222,20 @@ Profilo nel piano meridiano (r, z), **z = asse di rivoluzione, z = 0 alla base**
 
 | curva | descrizione | quote | fonte |
 |---|---|---|---|
-| superficie **interna** bassa | arco di **sfera di raggio 1.0** da (r=1.0, z=0) fino a 45°, cioè fino a (0.7071, 0.7071) | R = 1.0, angolo 45° | F1 `le11_1.gif` + F4 p. 32 [V]; deck `nle11fkc.inp` nodi 1 = (1, 0, 0) e 13 = (0.7071, 0, 0.7071) [V] |
-| superficie **interna** alta | cilindro di raggio **0.7071** da z = 0.7071 a z = **1.79** | 0.7071 | F1, F4, deck (nodo 21 = 0.7071, 0, 1.79) [V] |
-| superficie **esterna** bassa | arco di **sfera di raggio 1.4** da (1.4, 0) a (1.2124, 0.7) | R = 1.4 | F1 fig., deck nodi 401 = (1.4, 0, 0), 409 = (1.2124, 0, 0.7) [V] |
-| superficie **esterna**, raccordo | segmenti rettilinei (1.2124, 0.700) → (1.1062, 1.045) → (1.0, 1.390) | due tratti da **0.345** ciascuno | F1 fig. (0.345 + 0.345) + deck nodi 413, 417 [V, incrociato] |
-| superficie **esterna** alta | cilindro di raggio **1.0** da z = 1.390 a z = **1.790** | tratto da **0.400** | F1 fig. + deck nodo 421 = (1.0, 0, 1.79) [V] |
+| superficie **interna** bassa | arco di **sfera di raggio 1,0** da (r=1,0, z=0) fino a 45°, cioè fino a (0,7071, 0,7071) | R = 1,0, angolo 45° | F1 `le11_1.gif` + F4 p. 32 [V]; deck `nle11fkc.inp` nodi 1 = (1, 0, 0) e 13 = (0,7071, 0, 0,7071) [V] |
+| superficie **interna** alta | cilindro di raggio **0,7071** da z = 0,7071 a z = **1,79** | 0,7071 | F1, F4, deck (nodo 21 = 0,7071, 0, 1,79) [V] |
+| superficie **esterna** bassa | arco di **sfera di raggio 1,4** da (1,4, 0) a (1,2124, 0,7) | R = 1,4 | F1 fig., deck nodi 401 = (1,4, 0, 0), 409 = (1,2124, 0, 0,7) [V] |
+| superficie **esterna**, raccordo | segmenti rettilinei (1,2124, 0,700) → (1,1062, 1,045) → (1,0, 1,390) | due tratti da **0,345** ciascuno | F1 fig. (0,345 + 0,345) + deck nodi 413, 417 [V, incrociato] |
+| superficie **esterna** alta | cilindro di raggio **1,0** da z = 1,390 a z = **1,790** | tratto da **0,400** | F1 fig. + deck nodo 421 = (1,0, 0, 1,79) [V] |
 
-Somma verticale della figura: 0.700 + 0.345 + 0.345 + 0.400 = **1.790** — coincide con la
+Somma verticale della figura: 0,700 + 0,345 + 0,345 + 0,400 = **1,790** — coincide con la
 quota z massima del deck Abaqus. Le due fonti si chiudono. [V]
 
-Larghezze in cima: 0.7071 (interno) + 0.2929 (spessore) = **1.0** (esterno). Alla base:
-1.0 (interno) + 0.4 (spessore) = **1.4** (esterno). F1 `le11_1.gif`, F4 p. 32 [V].
+Larghezze in cima: 0,7071 (interno) + 0,2929 (spessore) = **1,0** (esterno). Alla base:
+1,0 (interno) + 0,4 (spessore) = **1,4** (esterno). F1 `le11_1.gif`, F4 p. 32 [V].
 
 Estensione angolare: **90°**. F4 p. 32 (annotazione «90 degrees» fra E e D) [V]; il deck la
-genera con `*NCOPY … MULTIPLE=12 … 7.5` = 12 × 7.5° = 90° [V].
+genera con `*NCOPY … MULTIPLE=12 … 7.5` = 12 × 7,5° = 90° [V].
 
 **Attenzione agli assi.** ESRD (F4) ruota il modello: nel loro disegno l'asse di rivoluzione è
 **y**, la temperatura è Δθ = √(x² + z²) + y e il target è σ_y. NAFEMS e Abaqus usano l'asse **z**.
@@ -248,7 +248,7 @@ Stesso corpo, stessi numeri, terna diversa. Usare la terna NAFEMS. [V]
 > — F1 `le11.html` [V]
 
 Cioè: u_y = 0 sul piano y = 0; u_x = 0 sul piano x = 0; u_z = 0 sulla faccia di base z = 0;
-u_z = 0 anche sulla **faccia superiore HIH′I′** (z = 1.79). Abaqus dice esattamente lo stesso [V].
+u_z = 0 anche sulla **faccia superiore HIH′I′** (z = 1,79). Abaqus dice esattamente lo stesso [V].
 Il deck lo realizza con i set `XZPLANE,2` / `YZPLANE,1` / `XYPLANE,3` / `HI,3` [V].
 
 > ESRD nomina la faccia superiore **BCDE** invece di HIH′I′ perché ha ruotato la terna. Non sono
@@ -258,7 +258,7 @@ Il deck lo realizza con i set `XZPLANE,2` / `YZPLANE,1` / `XYPLANE,3` / `HI,3` [
 
 ### Materiale e carico
 
-- E = **210 GPa** (210 · 10³ MPa), ν = **0.3**, α = **2.3 · 10⁻⁴ /°C**. F1, F3, F4 [V].
+- E = **210 GPa** (210 · 10³ MPa), ν = **0,3**, α = **2,3 · 10⁻⁴ /°C**. F1, F3, F4 [V].
 - Nessuna densità: è un problema statico termo-elastico. [V]
 - Carico: **campo di temperatura imposto**, gradiente lineare radiale e assiale
   **Δθ [°C] = √(x² + y²) + z**. F1 (verbatim), F3 [V].
@@ -271,8 +271,8 @@ Il deck lo realizza con i set `XZPLANE,2` / `YZPLANE,1` / `XYPLANE,3` / `HI,3` [
 
 ### Punto di lettura e target
 
-- **Punto A**: base del corpo (z = 0), sulla **superficie interna** (r = 1.0), su un piano di
-  simmetria. Nel deck Abaqus è il nodo 1 = (1.0, 0, 0). F1 `le11_1.gif` + deck [V, incrociato].
+- **Punto A**: base del corpo (z = 0), sulla **superficie interna** (r = 1,0), su un piano di
+  simmetria. Nel deck Abaqus è il nodo 1 = (1,0, 0, 0). F1 `le11_1.gif` + deck [V, incrociato].
 - **Target: σ_zz = −105 MPa**, qualificato dalla scheda NAFEMS come **«(refined axisymmetric)»**
   — anche questo è un target **numerico**, ottenuto con un modello assialsimmetrico raffinato.
   F1 [V]. ESRD e Abaqus riportano lo stesso valore [V].
@@ -287,8 +287,8 @@ Coarse **5 × 1 × 3**, fine **10 × 2 × 3**. Tipi ammessi: solid hexahedra, we
 
 | elemento | mesh coarse | mesh fine |
 |---|---|---|
-| C3D20 | −96.71 MPa (−7.9%) | −103.26 MPa (−1.7%) |
-| C3D20R | −93.04 MPa (−11.4%) | −99.60 MPa (−5.1%) |
+| C3D20 | −96,71 MPa (−7,9%) | −103,26 MPa (−1,7%) |
+| C3D20R | −93,04 MPa (−11,4%) | −99,60 MPa (−5,1%) |
 
 > **[NON TROVATO] — e questo è il buco che conta.** Abaqus **non** pubblica LE11 per C3D10,
 > C3D10M, C3D10HS né C3D4: la riga «Elements tested» della pagina LE11 elenca **solo C3D20 e
@@ -299,12 +299,12 @@ Surrogati disponibili, da altre fonti:
 
 | fonte | elemento | σ_zz in A | errore |
 |---|---|---|---|
-| ESRD/StressCheck, F4 p. 33 | hexa p-version, 8 elementi | −105.2 MPa | 0.19% |
-| ESRD/StressCheck, F4 p. 33 | hexa p-version, 216 elementi | −105.4 MPa | 0.38% |
-| ESRD/StressCheck, F4 p. 33 | **tetra p-version, 317 elementi** | −105.5 MPa | 0.48% |
-| ESRD/StressCheck, F4 p. 33 | **tetra p-version, 3531 elementi** | −105.4 MPa | 0.38% |
-| TechSoft3D | HOOPS Solve | −93.47 MPa | −11.0% |
-| TechSoft3D | MSC Nastran | −99.48 MPa | −5.3% |
+| ESRD/StressCheck, F4 p. 33 | hexa p-version, 8 elementi | −105,2 MPa | 0,19% |
+| ESRD/StressCheck, F4 p. 33 | hexa p-version, 216 elementi | −105,4 MPa | 0,38% |
+| ESRD/StressCheck, F4 p. 33 | **tetra p-version, 317 elementi** | −105,5 MPa | 0,48% |
+| ESRD/StressCheck, F4 p. 33 | **tetra p-version, 3531 elementi** | −105,4 MPa | 0,38% |
+| TechSoft3D | HOOPS Solve | −93,47 MPa | −11,0% |
+| TechSoft3D | MSC Nastran | −99,48 MPa | −5,3% |
 
 Gli elementi ESRD sono **p-version StressCheck**, non tetraedri quadratici standard: non sono
 un paragone diretto per C3D10. Vanno citati come tali. [V per i numeri, [INF] per il caveat]
@@ -323,9 +323,9 @@ il ticket lo chiede e perché è il test modale su mesh distorta.
 | voce | valore | fonte |
 |---|---|---|
 | pubblicazione | NAFEMS TNSB Rev. 3 (1990) secondo Abaqus; NAFEMS R0015 (1987) Test FV32 secondo TechSoft3D | F3, TechSoft3D [V] — vedi §7 |
-| geometria | mensola rastremata: **lunghezza 10.0 m**; altezza **5.0 m** all'incastro (y ∈ [−2.5, +2.5]); altezza **1.0 m** all'estremo libero (y ∈ [−0.5, +0.5]) | figura Abaqus `bmkfv32.png` (quote 2.5 m, 1.0 m, 10.0 m) [V] + deck `nfv32f8c.inp` nodi (0,−2.5) (10,−0.5) (0,2.5) (10,0.5) [V, incrociato] |
-| spessore | **0.05 m** | F3 testo («Plate thickness = 0.05 m») [V]. Irrilevante per le frequenze: massa e rigidezza scalano entrambe con t [INF] |
-| materiale | E = **200 GPa**, ν = **0.3**, ρ = **8000 kg/m³** | F3, TechSoft3D [V, due fonti] |
+| geometria | mensola rastremata: **lunghezza 10,0 m**; altezza **5,0 m** all'incastro (y ∈ [−2,5, +2,5]); altezza **1,0 m** all'estremo libero (y ∈ [−0,5, +0,5]) | figura Abaqus `bmkfv32.png` (quote 2,5 m, 1,0 m, 10,0 m) [V] + deck `nfv32f8c.inp` nodi (0,−2,5) (10,−0,5) (0,2,5) (10,0,5) [V, incrociato] |
+| spessore | **0,05 m** | F3 testo («Plate thickness = 0,05 m») [V]. Irrilevante per le frequenze: massa e rigidezza scalano entrambe con t [INF] |
+| materiale | E = **200 GPa**, ν = **0,3**, ρ = **8000 kg/m³** | F3, TechSoft3D [V, due fonti] |
 | vincoli | **u_x = u_y = 0 lungo l'asse y** (il bordo incastrato x = 0); **u_z = 0 su tutti i nodi** | F3 e TechSoft3D, formulazione identica [V, due fonti] |
 | carico | nessuno: analisi modale libera | [V] |
 | lettura | prime 6 frequenze proprie | [V] |
@@ -334,7 +334,7 @@ il ticket lo chiede e perché è il test modale su mesh distorta.
 
 | modo | 1 | 2 | 3 | 4 | 5 | 6 |
 |---|---|---|---|---|---|---|
-| NAFEMS | **44.623** | **130.03** | **162.70** | **246.05** | **379.90** | **391.44** |
+| NAFEMS | **44,623** | **130,03** | **162,70** | **246,05** | **379,90** | **391,44** |
 
 Abaqus (F3) e TechSoft3D (colonna «Theory») danno **gli stessi identici valori**. Questo è
 significativo per il §7: su FV32 i due set di target NAFEMS coincidono, o le due fonti hanno
@@ -344,12 +344,12 @@ Tabella di errore Abaqus, modo 1 / modo 4: [V]
 
 | elemento | modo 1 | modo 2 | modo 3 | modo 4 | modo 5 | modo 6 |
 |---|---|---|---|---|---|---|
-| CPS4 | 44.782 (0.36) | 130.63 (0.46) | 162.59 (−0.07) | 246.79 (0.30) | 379.14 (−0.20) | 389.83 (−0.41) |
-| CPS4I | 44.524 (−0.23) | 129.55 (−0.09) | 162.55 (−0.09) | 244.13 (−0.78) | 374.46 (−1.43) | 389.60 (−0.47) |
-| CPS8 | 44.636 (0.04) | 130.14 (0.08) | 162.72 (0.01) | 246.63 (0.24) | 382.02 (0.56) | 391.55 (0.03) |
-| CPS8R | 44.629 (0.02) | 130.11 (0.06) | 162.70 (0.00) | 246.42 (0.15) | 381.32 (0.37) | 391.51 (0.02) |
-| CPS6 | 44.624 (0.00) | 130.04 (0.00) | 162.70 (0.00) | 246.09 (0.02) | 379.99 (0.02) | 391.45 (0.02) |
-| CPS6M | 44.637 (0.03) | 129.88 (−0.12) | 162.67 (−0.02) | 245.29 (−0.31) | 377.64 (−0.59) | 390.98 (−0.12) |
+| CPS4 | 44,782 (0,36) | 130,63 (0,46) | 162,59 (−0,07) | 246,79 (0,30) | 379,14 (−0,20) | 389,83 (−0,41) |
+| CPS4I | 44,524 (−0,23) | 129,55 (−0,09) | 162,55 (−0,09) | 244,13 (−0,78) | 374,46 (−1,43) | 389,60 (−0,47) |
+| CPS8 | 44,636 (0,04) | 130,14 (0,08) | 162,72 (0,01) | 246,63 (0,24) | 382,02 (0,56) | 391,55 (0,03) |
+| CPS8R | 44,629 (0,02) | 130,11 (0,06) | 162,70 (0,00) | 246,42 (0,15) | 381,32 (0,37) | 391,51 (0,02) |
+| CPS6 | 44,624 (0,00) | 130,04 (0,00) | 162,70 (0,00) | 246,09 (0,02) | 379,99 (0,02) | 391,45 (0,02) |
+| CPS6M | 44,637 (0,03) | 129,88 (−0,12) | 162,67 (−0,02) | 245,29 (−0,31) | 377,64 (−0,59) | 390,98 (−0,12) |
 
 **Verdetto: ricostruibile, ma 2D.** Se serve un test modale che eserciti l'esportatore di
 solidi, è **FV52**, non FV32.
@@ -361,17 +361,17 @@ solidi, è **FV52**, non FV32.
 | voce | valore | fonte |
 |---|---|---|
 | numero corretto | **FV52** | NAFEMS Publications Guide, sezione Dynamics: *«3D solid elements: … simply supported solid square plate (52)»* <https://www.nafems.org/publications/pubguide/benchmarks/Page5/> [V] — è NAFEMS stessa. Confermato da Abaqus, Altair e Caesar Systems [V] |
-| geometria | piastra quadrata **10.0 m × 10.0 m**, spessore **1.0 m** | figura Abaqus `bmkfv52.png` (tre quote: 10.0 m, 10.0 m, 1.0 m) [V] + deck `nfv52i8f.inp`, nodi da (0,0,−0.5) a (10,10,+0.5) [V, incrociato] |
-| sistema di riferimento | **piano medio a z = 0**; superficie inferiore z = **−0.5**, superiore z = **+0.5**; x, y ∈ [0, 10] | deck [V] |
-| materiale | E = **200 GPa**, ν = **0.3**, ρ = **8000 kg/m³** | F3, Altair, TechSoft3D [V, tre fonti] |
-| **vincoli** | **u_z = 0 lungo i quattro spigoli sul piano z = −0.5**, e nient'altro | F3 (verbatim) [V]; TechSoft3D lo scrive identico: *«Z = 0 along the 4 edges on the plane Z = −0.5m»* [V] |
+| geometria | piastra quadrata **10,0 m × 10,0 m**, spessore **1,0 m** | figura Abaqus `bmkfv52.png` (tre quote: 10,0 m, 10,0 m, 1,0 m) [V] + deck `nfv52i8f.inp`, nodi da (0,0,−0,5) a (10,10,+0,5) [V, incrociato] |
+| sistema di riferimento | **piano medio a z = 0**; superficie inferiore z = **−0,5**, superiore z = **+0,5**; x, y ∈ [0, 10] | deck [V] |
+| materiale | E = **200 GPa**, ν = **0,3**, ρ = **8000 kg/m³** | F3, Altair, TechSoft3D [V, tre fonti] |
+| **vincoli** | **u_z = 0 lungo i quattro spigoli sul piano z = −0,5**, e nient'altro | F3 (verbatim) [V]; TechSoft3D lo scrive identico: *«Z = 0 along the 4 edges on the plane Z = −0,5m»* [V] |
 | carico | nessuno: analisi modale libera | [V] |
 | modi 1–3 | **moti rigidi (RBM)**, frequenza nulla. Il vincolo è *cinematicamente incompleto* per costruzione: nessun grado in x e y è bloccato | F3 [V]; TechSoft3D lo dichiara: *«Kinematically incomplete suppressions»* [V] |
 | mesh usate | **8 × 8 × 3** con esaedri a 8 nodi; **4 × 4 × 1** con esaedri a 20 nodi | Altair OS-V 0455 [V]; il deck `nfv52i8f.inp` genera esattamente 8 × 8 × 3 [V] |
 | lettura | frequenze dei modi **4–10** | [V] |
 
 > **Errore di stampa in Altair.** OS-V 0455 scrive «constrained at **Z = −5 m** plane». Il deck
-> Abaqus, il testo Abaqus e TechSoft3D dicono tutti **z = −0.5 m**, coerente con spessore 1.0 m.
+> Abaqus, il testo Abaqus e TechSoft3D dicono tutti **z = −0,5 m**, coerente con spessore 1,0 m.
 > È un refuso Altair. [V per la discordanza, [INF] per l'attribuzione a refuso]
 
 ### I due set di target — vedi §7 per lo scioglimento
@@ -380,14 +380,14 @@ solidi, è **FV52**, non FV32.
 
 | modo | 1–3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
 |---|---|---|---|---|---|---|---|---|
-| | RBM | **44.092** | **106.66** | **106.66** | **156.23** | **193.58** | **200.13** | **200.13** |
+| | RBM | **44,092** | **106,66** | **106,66** | **156,23** | **193,58** | **200,13** | **200,13** |
 
 **Set «closed form»** — quello che Altair etichetta esplicitamente `f* = Closed form solution`
 e che TechSoft3D chiama `Theory` (Hz): [V, due fonti indipendenti che coincidono]
 
 | modo | 1–3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
 |---|---|---|---|---|---|---|---|---|
-| | RBM | **45.897** | **109.44** | **109.44** | **167.89** | **193.59** | **206.19** | **206.19** |
+| | RBM | **45,897** | **109,44** | **109,44** | **167,89** | **193,59** | **206,19** | **206,19** |
 
 ### Tabella di errore per tipo di elemento (Abaqus, contro il set numerico)
 
@@ -395,11 +395,11 @@ e che TechSoft3D chiama `Theory` (Hz): [V, due fonti indipendenti che coincidono
 
 | elemento | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
 |---|---|---|---|---|---|---|---|
-| C3D8I | 44.092 (0.0) | 106.66 (0.0) | 106.66 (0.0) | 156.23 (0.0) | 193.58 (0.0) | 200.13 (0.0) | 200.13 (0.0) |
-| **C3D10** | **44.348 (0.58)** | 107.73 (1.00) | 107.73 (1.00) | **163.58 (4.70)** | 193.63 (0.02) | 204.74 (2.30) | 205.10 (2.48) |
-| C3D10HS | 44.348 (0.58) | 107.73 (1.00) | 107.73 (1.00) | 163.58 (4.70) | 193.63 (0.02) | 204.74 (2.30) | 205.10 (2.48) |
-| **C3D10M** | **42.687 (−3.19)** | 101.57 (−4.77) | 101.57 (−4.77) | **151.22 (−3.21)** | 192.89 (−0.35) | 203.76 (1.81) | 203.76 (1.81) |
-| C3D20 | 44.796 (1.60) | 110.54 (3.64) | 110.54 (3.64) | 169.10 (8.24) | 193.92 (0.18) | 206.64 (3.25) | 206.64 (3.25) |
+| C3D8I | 44,092 (0,0) | 106,66 (0,0) | 106,66 (0,0) | 156,23 (0,0) | 193,58 (0,0) | 200,13 (0,0) | 200,13 (0,0) |
+| **C3D10** | **44,348 (0,58)** | 107,73 (1,00) | 107,73 (1,00) | **163,58 (4,70)** | 193,63 (0,02) | 204,74 (2,30) | 205,10 (2,48) |
+| C3D10HS | 44,348 (0,58) | 107,73 (1,00) | 107,73 (1,00) | 163,58 (4,70) | 193,63 (0,02) | 204,74 (2,30) | 205,10 (2,48) |
+| **C3D10M** | **42,687 (−3,19)** | 101,57 (−4,77) | 101,57 (−4,77) | **151,22 (−3,21)** | 192,89 (−0,35) | 203,76 (1,81) | 203,76 (1,81) |
+| C3D20 | 44,796 (1,60) | 110,54 (3,64) | 110,54 (3,64) | 169,10 (8,24) | 193,92 (0,18) | 206,64 (3,25) | 206,64 (3,25) |
 
 > **Avvertenza di Abaqus, da non perdere:** *«Element types C3D10, C3D10M, and C3D20 capture the
 > same eigenmodes, but the order of eigenmodes 8 through 12 is different. For example, the same
@@ -445,7 +445,7 @@ La pagina prodotto di NAFEMS per R0015 lo dice testualmente: [V — è NAFEMS st
 > and a schematic presentation of mode shapes.»*
 > — <https://www.nafems.org/publications/resource_center/r0015/>
 
-E **Altair etichetta esplicitamente** la colonna 45.897 / 109.44 / 167.89 / 193.59 / 206.19 come
+E **Altair etichetta esplicitamente** la colonna 45,897 / 109,44 / 167,89 / 193,59 / 206,19 come
 `f*` = **«Closed form solution»** [V]. TechSoft3D usa la stessa colonna e la chiama **«Theory»** [V].
 Abaqus usa l'altra e la chiama solo «NAFEMS» [V].
 
@@ -453,8 +453,8 @@ Quindi:
 
 | set | valori (modi 4, 5/6, 7, 8, 9/10) | natura | chi lo usa |
 |---|---|---|---|
-| **teorico / closed form** | 45.897 · 109.44 · 167.89 · 193.59 · 206.19 | soluzione analitica di piastra | Altair (`f*` closed form) [V], TechSoft3D («Theory») [V] |
-| **numerico** | 44.092 · 106.66 · 156.23 · 193.58 · 200.13 | target numerico | Abaqus («NAFEMS») [V] |
+| **teorico / closed form** | 45,897 · 109,44 · 167,89 · 193,59 · 206,19 | soluzione analitica di piastra | Altair (`f*` closed form) [V], TechSoft3D («Theory») [V] |
+| **numerico** | 44,092 · 106,66 · 156,23 · 193,58 · 200,13 | target numerico | Abaqus («NAFEMS») [V] |
 
 **L'ipotesi del ticket è confermata.** Non sono due prove diverse e non è un errore di stampa:
 sono i due set che R0015 pubblica per ogni prova.
@@ -462,30 +462,30 @@ sono i due set che R0015 pubblica per ogni prova.
 ### 7.3 Controprova numerica indipendente (mia)
 
 **[INF — calcolo mio, non una fonte.]** Teoria di piastra di Mindlin (taglio + inerzia
-rotazionale), con E = 200 GPa, ν = 0.3, ρ = 8000, h = 1, a = b = 10, κ = 5/6:
+rotazionale), con E = 200 GPa, ν = 0,3, ρ = 8000, h = 1, a = b = 10, κ = 5/6:
 
 | modo (m,n) | Kirchhoff (piastra sottile) | **Mindlin** | set «closed form» NAFEMS |
 |---|---|---|---|
-| (1,1) | 47.534 | **45.892** | **45.897** |
-| (1,2) | 118.836 | **109.300** | **109.44** |
-| (2,2) | 190.138 | **167.317** | **167.89** |
+| (1,1) | 47,534 | **45,892** | **45,897** |
+| (1,2) | 118,836 | **109,300** | **109,44** |
+| (2,2) | 190,138 | **167,317** | **167,89** |
 
-Il set 45.897 **è** la soluzione analitica di piastra spessa: coincide col mio Mindlin a
-**4 cifre significative** sul modo fondamentale (45.892 contro 45.897, scarto 0.011%). Il set 44.092, che nessuna teoria di piastra riproduce ma che
-C3D8I 8×8×3 riproduce a **0.0%** su tutti e sette i modi, è il target numerico.
+Il set 45,897 **è** la soluzione analitica di piastra spessa: coincide col mio Mindlin a
+**4 cifre significative** sul modo fondamentale (45,892 contro 45,897, scarto 0,011%). Il set 44,092, che nessuna teoria di piastra riproduce ma che
+C3D8I 8×8×3 riproduce a **0,0%** su tutti e sette i modi, è il target numerico.
 
 Lettura fisica: il vincolo reale di FV52 (solo u_z sui quattro spigoli **inferiori**) è più
 cedevole dell'appoggio semplice idealizzato della teoria di piastra, che è definito sul piano
 medio. Da qui il ~4% di scarto sui modi flessionali. Il modo 8 coincide fra i due set
-(193.58 vs 193.59) perché non è flessionale e quindi non risente del dettaglio d'appoggio. **[INF]**
+(193,58 vs 193,59) perché non è flessionale e quindi non risente del dettaglio d'appoggio. **[INF]**
 
 ### 7.4 Quale set usare in tesi
 
-**Raccomandazione (non decisione).** Usare il **set numerico 44.092 …** come target, e citare
+**Raccomandazione (non decisione).** Usare il **set numerico 44,092 …** come target, e citare
 l'altro come nota. Motivi: (a) è quello che Abaqus usa per la propria tabella d'errore per tipo
 di elemento, che è il nostro termine di paragone per C3D10; (b) è quello coerente con il vincolo
 effettivamente prescritto dalla scheda, mentre il closed form vale per un appoggio idealizzato
-diverso. Se invece il confronto è con Altair o con letteratura che cita 45.897, dichiararlo.
+diverso. Se invece il confronto è con Altair o con letteratura che cita 45,897, dichiararlo.
 **Non mescolare i due set nella stessa tabella.**
 
 ---
@@ -497,9 +497,9 @@ diverso. Se invece il confronto è con Altair o con letteratura che cita 45.897,
 | pubblicazione | stato | prezzo |
 |---|---|---|
 | NAFEMS **P18** — *The Standard NAFEMS Benchmarks*, TNSB Rev. 3, ottobre 1990 (serie LE, TE, FV) | a pagamento | <https://www.nafems.org/publications/resource_center/p18/> [V-sec] |
-| NAFEMS **R0015** — Abbassian, Dawswell & Knowles, *Selected Benchmarks for Natural Frequency Analysis*, novembre 1987 (serie FV, ~30 prove) | a pagamento | membri £17.50 / non membri **£52.50**; incluso nell'E-Library Corporate Subscription | [V — pagina prodotto letta] |
+| NAFEMS **R0015** — Abbassian, Dawswell & Knowles, *Selected Benchmarks for Natural Frequency Analysis*, novembre 1987 (serie FV, ~30 prove) | a pagamento | membri £17,50 / non membri **£52,50**; incluso nell'E-Library Corporate Subscription | [V — pagina prodotto letta] |
 
-R0015 costa **£52.50**. Non è una barriera economica seria se la tesi ha bisogno della citazione
+R0015 costa **£52,50**. Non è una barriera economica seria se la tesi ha bisogno della citazione
 formale. **[INF]** Il ticket lo chiama «P09»: non ho trovato una pubblicazione NAFEMS con quel
 codice pertinente ai benchmark qui trattati. I due codici che contano sono **P18** e **R0015**. [V]
 
@@ -543,7 +543,7 @@ di tetraedri contro CalculiX, i due che servono sono **LE10** (statico) e **FV52
 ## 9. Cosa resta non trovato
 
 1. **[NON TROVATO]** Risultati **C3D4 / tetraedro lineare** su LE11 e FV52, in qualunque fonte.
-   Su LE10 il buco è colmato da SimScale (tetra 1° ordine, −5.57%).
+   Su LE10 il buco è colmato da SimScale (tetra 1° ordine, −5,57%).
 2. **[NON TROVATO]** Tabella d'errore Abaqus per **tetraedri su LE11**: la pagina testa solo
    C3D20 e C3D20R.
 3. **[NON TROVATO]** Temperatura di riferimento (stato scarico) di LE11, dichiarata

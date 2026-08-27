@@ -319,7 +319,7 @@ calcestruzzo che esiste.
    l'accuratezza richiesta. **[non verificato su testo MC2010 primario, non
    liberamente consultabile]** Riscontro indiretto sul manuale DIANA FEA 12.1.2,
    che implementa MC2010 e annota: «Poisson's ratio is preset just halfway the
-   lower and upper limit: nu = 0.20 for each concrete class»
+   lower and upper limit: nu = 0,20 for each concrete class»
    (<https://manuals.dianafea.com/d101/MatLib/node194.html>). La formulazione
    «halfway the lower and upper limit» conferma che MC2010 dà limiti, non un
    valore unico.
@@ -330,7 +330,7 @@ calcestruzzo che esiste.
    letto il 26/08/2026) [V]:
 
    «The static Poisson's ratio normally for hardened concrete varies between
-   0.15-0.25 [2].»
+   0,15-0,25 [2].»
 
    dove [2] è M. Anson, K. Newman, «The Effect of Mix Proportions and Method of
    Testing on Poisson's Ratio for Mortars and Concretes», Magazine of Concrete
