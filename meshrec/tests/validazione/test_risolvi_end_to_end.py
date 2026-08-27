@@ -104,9 +104,16 @@ def corsa(tmp_path_factory):
 
 
 def test_su_c3d10_il_verdetto_sulle_reazioni_chiude_l_equilibrio(corsa):
-    """La mutazione che questo test uccide: `element_type` sostituito da un
-    `"C3D4"` letterale nella chiamata a `_quota_tributaria_gravita` dentro
-    `risolvi()` (core/solve.py:1173), cioe' il difetto #40.
+    """La mutazione che questo test uccide: dentro `solve.risolvi()`, nella
+    chiamata a `_quota_tributaria_gravita`, l'argomento `element_type`
+    sostituito da un `"C3D4"` letterale -- cioe' il difetto #40.
+
+    Il puntatore e' un nome e non un `file:riga` di proposito: il numero di
+    riga slitta a ogni merge che aggiunge codice sopra -- questo docstring
+    citava `core/solve.py:1173`, ed era gia' scaduto a 1208 il giorno stesso
+    -- e manda chi vuole rieseguire la mutazione sulla riga sbagliata. E' la
+    stessa malattia dei riferimenti morti di #96, ma dentro il codice, dove
+    nessun controllo sui documenti guarda.
 
     Misurato oggi su questo maglio: 1,98e-08 con la formula giusta, 2,22e-01
     con quella del lineare, contro una tolleranza di 1e-4. Non sono numeri
