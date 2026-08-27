@@ -872,6 +872,15 @@ def test_una_pressione_non_persiste_nel_passo_statico_successivo(tmp_path):
     la pressione **senza sottrazioni**, e la sua area e' esatta (100 x 100 / 2
     = 5000 mm², per 1 MPa fanno 5000 N).
 
+    Il numero che il passo 2 stampa non e' pero' -5000 ma **-5000/3**, ed e'
+    giusto cosi': sotto carico `RF` non e' la sola reazione ma «the sum of the
+    reaction forces and the loading forces» (manuale CalculiX §6.11.5). La
+    faccia caricata ha tre nodi, due dei quali (1 e 2) stanno in `BASSO`: la
+    reazione totale vale -5000 N, i due terzi del carico consistente
+    (+3333,33 N) si sommano sui nodi stampati, e restano -1666,67 N. Misurato
+    in CI il 27/08/2026: -1666,667152. Il terzo nodo della faccia (4) e'
+    libero e non entra nella stampa.
+
     Se il passo 3 mostra ancora quei 5000 N, `write_inp` scrive decks in cui
     la seconda pressione si somma alla prima e serve un modo -- che `ccx`
     accetti -- di azzerarla. Se torna a zero, #84 non e' un difetto: e' un
@@ -948,8 +957,10 @@ PELLE, P, 1.0
 
     solo_peso, con_pressione, dopo = fy(1), fy(2), fy(3)
     assert abs(solo_peso) < 1e-6, f"il peso proprio non deve dare RF_y: {solo_peso}"
-    assert abs(con_pressione) == pytest.approx(5000.0, rel=1e-6), (
-        f"la pressione non arriva al solutore: RF_y del passo 2 vale {con_pressione}"
+    assert con_pressione == pytest.approx(-5000.0 / 3.0, rel=1e-5), (
+        f"la pressione non arriva al solutore come dovrebbe: RF_y del passo 2 "
+        f"vale {con_pressione} invece di -5000/3 (vedi il docstring: reazione "
+        "totale piu' i due terzi del carico applicati sui nodi stampati)"
     )
     assert abs(dopo) < 1e-6, (
         "la pressione del passo 2 e' ancora attiva nel passo 3: RF_y vale "
