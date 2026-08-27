@@ -305,6 +305,18 @@ def write_inp(
             f"{element_type} vuole {attesi} nodi per elemento, ne sono arrivati "
             f"{elements.shape[1]}: un deck scritto così non è leggibile da alcun solutore"
         )
+    # Le righe, non solo le colonne: un deck con zero elementi e' **valido**
+    # per `ccx`, che lo risolve in silenzio. Reazioni nulle contro un peso
+    # nullo, e i sette verdetti di `core/solve.py` escono verdi su nulla --
+    # un controllo di conservazione che non ha niente da conservare non e'
+    # un controllo passato. Qui e non nel chiamante: `export_model` e' la sola
+    # porta di produzione e passa di qua.
+    if len(elements) == 0:
+        raise ValueError(
+            "il maglio non ha nessun elemento: un deck vuoto è valido per il "
+            "solutore, che lo risolve senza protestare, e i controlli di "
+            "conservazione uscirebbero verdi su un modello che non esiste"
+        )
 
     # Le superfici dei carichi distribuiti (#10) si derivano qui, prima che le
     # card *SURFACE si scrivano piu' sotto: entrano nello stesso dizionario del

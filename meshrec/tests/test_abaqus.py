@@ -1161,6 +1161,47 @@ def test_il_tie_nomina_due_superfici_gia_dichiarate(tmp_path):
         )
 
 
+def test_un_maglio_senza_elementi_non_scrive_un_deck(tmp_path):
+    """`write_inp` controllava le **colonne** di `elements`, mai le righe.
+
+    Misurato prima della guardia: `np.zeros((0, 10))` con `C3D10` scriveva
+    391 byte e non sollevava. Un deck con zero elementi e' valido per `ccx`,
+    che lo risolve in silenzio: reazioni nulle contro un peso nullo, e i
+    verdetti di `core/solve.py` escono **verdi su nulla**. E' il caso in cui
+    un controllo di conservazione non ha niente da conservare, e non
+    distinguerlo da un modello sano e' peggio di non averlo.
+
+    La guardia sta in `write_inp` e non nei chiamanti: `export_model` e'
+    l'unico chiamante di produzione e ci passa attraverso, quindi una sola
+    guardia copre entrambe le porte.
+
+    Ordine dichiarato quando anche `element_type` e' ignoto: parla prima il
+    tipo. Senza un tipo noto non si sa nemmeno quante colonne aspettarsi, e
+    il numero di righe e' la meno interessante delle due notizie.
+
+    Mutazione che lo uccide: togliere il controllo su `len(elements)`. Il
+    deck si scrive e nessuna eccezione arriva.
+    """
+    percorso = tmp_path / "vuoto.inp"
+
+    with pytest.raises(ValueError, match="nessun elemento"):
+        abaqus.write_inp(
+            percorso, np.zeros((0, 3)), np.zeros((0, 10), dtype=np.int64),
+            node_sets={"BASE": np.zeros(0, dtype=np.int64)},
+            material=MATERIALE, element_type="C3D10",
+        )
+    assert not percorso.exists()
+
+    # zero righe **e** tipo ignoto: parla il tipo, non le righe
+    with pytest.raises(ValueError, match="sconosciuto"):
+        abaqus.write_inp(
+            percorso, np.zeros((0, 3)), np.zeros((0, 10), dtype=np.int64),
+            node_sets={"BASE": np.zeros(0, dtype=np.int64)},
+            material=MATERIALE, element_type="C3D999",
+        )
+    assert not percorso.exists()
+
+
 def test_tie_e_pressione_risolvono_le_superfici_ignorando_le_maiuscole(tmp_path):
     """Le due guardie di membership erano rimaste al confronto esatto.
 
