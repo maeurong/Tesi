@@ -204,13 +204,13 @@ sono in `docs/fase-5-analisi.md`, sezione «I risultati, per caso di carico».
 La corsa dimostrativa citata altrove in questo documento (`lab_telaio_v4_posizionati_top`)
 non dichiara `carichi.spinta` (`casi_di_carico` è `["GRAVITA", "PRESSA",
 "TORSIONE"]`): i numeri di `docs/fase-6-carichi.md` non sono toccati da questa
-misura, ne' dal fix.
+misura, né dal fix.
 
 ## Il terzo fratello: `*DSLOAD` — persiste, e `OP=NEW` non è la via
 
 **Sì, persiste anche lui, e no, non si azzera come gli altri due.** Misurato
 il 27 agosto 2026 con `ccx` 2.21 (la versione del runner Ubuntu), prima in CI
-e poi in locale, mentre si chiudeva #84.
+(corsa 33088953374) e poi in locale, mentre si chiudeva #84.
 
 La sonda non è un `.inp` in questa cartella ma un test:
 `tests/feasibility/test_calculix.py::test_una_pressione_persiste_finche_non_la_si_ridichiara_a_zero`.

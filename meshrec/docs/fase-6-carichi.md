@@ -822,7 +822,7 @@ un momento, le stesse due grandezze dell'area — totale e nodi a quota nulla
 — più entrambi i bracci, entrambi i momenti (dichiarato ed effettivo), i due
 gruppi della coppia (§ 5-6) e il rapporto fra i due valori singolari che dice
 quanto la direzione della coppia sia determinata (§ 5.2). Per ogni
-carico — forza, momento e, dal 27/08/2026, anche pressione (#91) — anche
+carico — forza, momento e, dal 27/08/2026, pressione (#91) — anche
 `nodi_sul_vincolo`: **quanti** dei nodi presi
 cadono pure nell'insieme vincolato. È un conteggio di nodi, e non è la
 frazione di risultante che finisce in reazione invece che in spostamento: le
@@ -973,7 +973,7 @@ La misura che lo coglie è l'**efficienza** della superficie:
 
     efficienza = ‖ Σ aᵢ nᵢ ‖ / Σ aᵢ
 
-cioè la risultante di una pressione unitaria divisa per l'area su cui agisce.
+cioè il modulo dell'`area_vettoriale_uscente` diviso per l'area su cui agisce.
 
 | superficie | efficienza |
 |---|---:|
@@ -1037,3 +1037,28 @@ chi scriverà il prossimo provino a mano:
   l'altezza, il `*NSET` di `BASE` finisce per contenere **ogni** nodo del
   modello, e le reazioni escono tutte nulle senza che nulla protesti. Il
   provino di questo test è alto **otto** strati per questa ragione.
+
+### 10.6 Un modello sottile non esporta più: la conseguenza di #91
+
+Il § 7 dichiara `nodi_sul_vincolo` anche per le pressioni. Il controllo che
+lo alimenta non si ferma al conteggio: quando i nodi di un carico stanno
+**tutti** nell'insieme vincolato, dal 27/08/2026 (#91) l'esportazione si
+ferma con un `ValueError`, dove prima scriveva un deck che il solutore
+risolveva rendendo spostamenti nulli.
+
+La conseguenza va detta perché si incontra prima di capirla: sui modelli
+**sottili** — quelli in cui la tolleranza dei set supera l'altezza del pezzo,
+e `BASE` finisce per contenere ogni nodo, il caso della trappola qui sopra —
+alla tolleranza **predefinita** (`set_tolerance_factor` 6) ogni pressione
+rifiuta ora l'esportazione, qualunque sia il suo selettore. Non è una
+regressione del carico distribuito: è il vincolo mal dimensionato che
+diventa visibile, e prima non lo era.
+
+Il rimedio è dimensionare il vincolo, non aggirare il controllo: alzare il
+provino, oppure stringere `analysis.set_tolerance_factor`. I banchi di
+`tests/test_carichi_distribuiti.py` scelgono la seconda via
+(`set_tolerance_factor` 0,5) per tenere esatte le aree, e sono quindi
+banchi che **non girano più alla tolleranza predefinita**, che è quella di
+produzione: la copertura di quel valore sta altrove
+(`tests/validazione/test_pressione_equilibrio.py`, che alza il provino a
+otto strati).
