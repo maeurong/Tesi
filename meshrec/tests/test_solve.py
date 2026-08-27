@@ -874,6 +874,51 @@ def test_c3d10_su_un_array_a_quattro_colonne_non_rende_un_peso_negativo():
         solve._quota_tributaria_gravita(nodes, tets, [1, 2, 3, 4], 1.8e-9, "C3D10")
 
 
+def test_le_guardie_della_quota_parlano_anche_a_insieme_vuoto():
+    """`if not nodi_1based: return 0.0` precedeva le due validazioni, quindi
+    un `element_type` ignoto e un array di forma sbagliata passavano in
+    silenzio a insieme vuoto. Lo `0.0` era il numero giusto, ma l'oracolo
+    «C3D10 a quattro colonne solleva» valeva solo a insieme non vuoto e
+    nessuno lo diceva.
+
+    Ordine dichiarato: parla prima `element_type`, poi le colonne. Un tipo
+    ignoto non ha un numero di colonne atteso da confrontare, quindi la
+    seconda guardia non saprebbe nemmeno che cosa dire.
+
+    Mutazione che lo uccide: rimettere il return anticipato sopra le due
+    guardie. Nessuna delle due solleva e la funzione rende `0.0`.
+    """
+    nodes = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+    tets = np.array([[0, 1, 2, 3]], dtype=np.int64)
+
+    with pytest.raises(ValueError, match="C3D8"):
+        solve._quota_tributaria_gravita(nodes, tets, [], 1.8e-9, "C3D8")
+    with pytest.raises(ValueError, match="10 nodi per elemento"):
+        solve._quota_tributaria_gravita(nodes, tets, [], 1.8e-9, "C3D10")
+    # e a tipo noto con array coerente l'insieme vuoto resta zero, non un errore
+    assert solve._quota_tributaria_gravita(nodes, tets, [], 1.8e-9, "C3D4") == 0.0
+
+
+def test_la_guardia_sulle_colonne_scatta_anche_a_una_colonna_dalla_meta():
+    """Non solo il caso a quattro colonne, e il messaggio non promette una
+    conseguenza che vale solo lì.
+
+    Con **nove** colonne su C3D10 la fetta `elements[:, 4:10]` dà cinque nodi
+    di lato su sei: `4*(-1/20) + 5*(1/5) = +0,8` invece di `1`. Il peso esce
+    **positivo** e sbagliato, non negativo -- negativo è il solo caso a
+    quattro colonne, dove i lati mancano tutti e resta `4*(-1/20) = -0,2`.
+    Un messaggio che promette «negativo» descriverebbe quindi una
+    conseguenza falsa su ogni forma intermedia.
+    """
+    nodes = np.zeros((10, 3))
+    nodes[1:4] = np.eye(3) * 100.0
+    noni = np.arange(9, dtype=np.int64).reshape(1, 9)
+
+    with pytest.raises(ValueError, match="peso sbagliato") as errore:
+        solve._quota_tributaria_gravita(nodes, noni, [1, 2, 3, 4], 1.8e-9, "C3D10")
+    assert "9" in str(errore.value)
+
+
 # ---------------------------------------------------------------------------
 # Giro di correzione 5: enumerazione esplicita del cancello di finitezza,
 # non un elenco tenuto a mente. Tre giri di seguito abbiamo chiuso un caso

@@ -636,16 +636,18 @@ def controlla_spostamenti(
     della coerenza fra il deck e cio' che la configurazione crede. Serve
     perche' un modello mal vincolato -- o con un pezzo staccato -- produce
     numeri enormi senza che `ccx` protesti: codice d'uscita 0, zero
-    `*WARNING`, e gli altri cinque verdetti verdi. Il motivo per cui gli
-    altri cinque non bastano sta per esteso sopra
+    `*WARNING`, e gli altri sei verdetti verdi. Il motivo per cui gli
+    altri sei non bastano sta per esteso sopra
     `_SOGLIA_SPOSTAMENTO_SU_DIMENSIONE`, col numero misurato.
 
     Non solleva: marca. Stessa scelta di `wall.controlla` e degli altri
     cinque verdetti -- l'esito resta scritto col numero che lo ha deciso e la
     soglia con cui e' stato confrontato, perche' chi legge `metrics.json`
     possa vedere *quale* controllo ha detto no e *quanto*. `risolvi` scrive
-    `13_solution.vtu` **prima** di valutare i verdetti (solve.py:881 contro
-    902): sollevare qui lascerebbe quel file su disco senza che il chiamante
+    `13_solution.vtu` **prima** di valutare i verdetti (la chiamata a
+    `abaqus.write_vtu` precede il dizionario `controlli`; i due nomi e non i
+    due numeri di riga, che slittano a ogni fusione): sollevare qui
+    lascerebbe quel file su disco senza che il chiamante
     ne riceva mai il percorso, cioe' toglierebbe l'unico modo di **guardare**
     dove il modello e' scappato proprio nel caso in cui serve.
 
@@ -947,9 +949,12 @@ def _quota_tributaria_gravita(
     la formula di un altro elemento: sarebbe un numero plausibile e
     sbagliato, che e' la cosa peggiore che questo modulo possa rendere.
     """
-    nodi_1based = list(nodi_1based)
-    if not nodi_1based:
-        return 0.0
+    # Le due guardie prima del return anticipato, non dopo: a insieme vuoto lo
+    # zero e' il numero giusto, ma renderlo senza guardare gli argomenti fa
+    # passare in silenzio un `element_type` ignoto e un array di forma
+    # sbagliata, e l'oracolo «C3D10 a quattro colonne solleva» varrebbe solo a
+    # insieme non vuoto senza che nulla lo dica. Parla prima il tipo: senza un
+    # tipo noto non c'e' un numero di colonne atteso da confrontare.
     if element_type not in ("C3D4", "C3D10"):
         raise ValueError(
             f"la ripartizione della gravità non è definita per '{element_type}': "
@@ -957,18 +962,23 @@ def _quota_tributaria_gravita(
             "e un valore preso da un altro elemento sarebbe un numero plausibile "
             "e sbagliato"
         )
-    # Le colonne, non solo il nome: su C3D10 con un array a quattro colonne la
-    # fetta `elements[:, 4:10]` e' vuota, il termine dei lati vale zero e resta
-    # il solo `-V/20` dei vertici -- la funzione rendeva una massa **negativa**
-    # in silenzio. `export_model` valida a monte, ma qui si arriva anche per
-    # chiamata diretta (test e script di cantiere).
+    # Le colonne, non solo il nome: su C3D10 la fetta `elements[:, 4:10]` prende
+    # i nodi di lato che ci sono, non quelli che servono. Con quattro colonne ne
+    # prende zero e resta il solo `-V/20` dei vertici, cioe' `-0,2*V`; con nove
+    # ne prende cinque su sei e la somma vale `+0,8*V`. Il segno cambia col
+    # numero di colonne, l'errore no -- e nessuno dei due casi solleva da se'.
+    # `export_model` valida a monte, ma qui si arriva anche per chiamata diretta
+    # (test e script di cantiere).
     attesi = abaqus.NODI_PER_ELEMENTO[element_type]
     if elements.shape[1] < attesi:
         raise ValueError(
             f"{element_type} vuole {attesi} nodi per elemento, ne sono arrivati "
-            f"{elements.shape[1]}: senza i nodi di lato la ripartizione perde il "
-            "termine che porta il carico e rende un peso negativo"
+            f"{elements.shape[1]}: la ripartizione perde i nodi di lato che "
+            "mancano, e rende un peso sbagliato -- negativo se mancano tutti"
         )
+    nodi_1based = list(nodi_1based)
+    if not nodi_1based:
+        return 0.0
     # Il volume e' quello del tetraedro a spigoli dritti: le quattro colonne
     # dei vertici bastano per entrambi i tipi, e su C3D10 i nodi di lato di
     # TetGen stanno a meta' spigolo (non c'e' curvatura da integrare).
