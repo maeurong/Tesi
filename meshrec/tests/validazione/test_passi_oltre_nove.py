@@ -4,13 +4,12 @@ Ticket https://github.com/maeurong/Tesi/issues/94.
 
 `solve.leggi_frd` legge il numero di passo dal record `100CL` del `.frd`, a
 colonne fisse. Fino a nove passi quel numero e' una cifra sola alla colonna
-62, ed e' l'unico caso che qualcuno abbia misurato su un file scritto dal
-solutore. Dal decimo in poi il campo cresce -- `printf` in C non tronca mai --
-ma **da quale lato** dipende dalla larghezza dichiarata nel formato di `ccx`,
-che qui non si puo' leggere: il pacchetto CalculiX non e' installabile in
-locale. `tests/test_solve.py` copre allora entrambe le forme possibili con due
-generatori di record; questo file chiude la questione misurandola, e gira nel
-lavoro `benchmark` della CI, che CalculiX ce l'ha.
+62. Dal decimo in poi il campo cresce -- `printf` in C non tronca mai -- ma
+**da quale lato** dipende dalla larghezza dichiarata nel formato di `ccx`, che
+il file non dice. `tests/test_solve.py` copre allora entrambe le forme
+possibili con due generatori di record; questo file chiude la questione
+misurandola su un `.frd` scritto dal solutore vero, e gira nel lavoro
+`benchmark` della CI oltre che in locale dove `ccx` sia nel PATH.
 
 **Perche' importa.** `risolvi()` attribuisce ogni blocco a un caso di carico
 con `etichetta_passo.get(blocco.passo)`. Un passo 10 letto come 1 attribuisce
@@ -119,7 +118,15 @@ def _ccx_o_salta() -> str:
     return eseguibile
 
 
-def _blocchi_della_corsa(tmp_path):
+@pytest.fixture(scope="module")
+def blocchi_della_corsa(tmp_path_factory):
+    """I blocchi di **una** corsa di `ccx`, condivisi dai test di questo file.
+
+    I quattro test guardano lo stesso `.frd`: a corsa per test sarebbero
+    quattro tetraedrizzazioni e quattro corse complete dello stesso deck, cioe'
+    quattro volte la stessa misura pagata dal lavoro `benchmark`.
+    """
+    tmp_path = tmp_path_factory.mktemp("passi_oltre_nove")
     eseguibile = _ccx_o_salta()
     percorso, _nodi, _tets, _casi = deck_a_molti_passi(tmp_path)
 
@@ -132,7 +139,7 @@ def _blocchi_della_corsa(tmp_path):
     return solve.leggi_frd(percorso.with_suffix(".frd"))
 
 
-def test_il_passo_dieci_e_oltre_si_legge_intero_dal_frd_vero(tmp_path):
+def test_il_passo_dieci_e_oltre_si_legge_intero_dal_frd_vero(blocchi_della_corsa):
     """I dieci passi statici escono numerati 1..10, il decimo compreso.
 
     E' il riscontro che #94 cercava: senza `ccx` non era ottenibile in locale,
@@ -144,7 +151,7 @@ def test_il_passo_dieci_e_oltre_si_legge_intero_dal_frd_vero(tmp_path):
     passo tornerebbe `1` e i suoi risultati finirebbero sul primo caso di
     carico, in silenzio.
     """
-    blocchi = _blocchi_della_corsa(tmp_path)
+    blocchi = blocchi_della_corsa
     statici = sorted({b.passo for b in blocchi if not b.modale})
 
     assert statici == list(range(1, N_STATICI + 1)), (
@@ -154,7 +161,7 @@ def test_il_passo_dieci_e_oltre_si_legge_intero_dal_frd_vero(tmp_path):
     )
 
 
-def test_ccx_numera_un_passo_per_modo_e_non_uno_per_la_card_frequency(tmp_path):
+def test_ccx_numera_un_passo_per_modo_e_non_uno_per_la_card_frequency(blocchi_della_corsa):
     """Il deck dichiara **una** card `*FREQUENCY` a due modi; il `.frd` porta
     **due** passi modali, 11 e 12.
 
@@ -167,7 +174,7 @@ def test_ccx_numera_un_passo_per_modo_e_non_uno_per_la_card_frequency(tmp_path):
     modali e non dal numero di passo -- ma il fatto va inchiodato, perche' chi
     legge il deck si aspetta un passo modale solo.
     """
-    blocchi = _blocchi_della_corsa(tmp_path)
+    blocchi = blocchi_della_corsa
     forme = [b for b in blocchi if b.modale and b.grandezza == "DISP"]
     modali = sorted({b.passo for b in blocchi if b.modale})
 
@@ -178,7 +185,7 @@ def test_ccx_numera_un_passo_per_modo_e_non_uno_per_la_card_frequency(tmp_path):
     )
 
 
-def test_ogni_passo_statico_porta_un_blocco_di_tensione(tmp_path):
+def test_ogni_passo_statico_porta_un_blocco_di_tensione(blocchi_della_corsa):
     """L'altra meta' di #92: il verdetto sul picco si aggrega sui casi che il
     deck dichiara, e quella scelta vale solo se ogni passo statico produce
     davvero un blocco STRESS. `abaqus._passo_statico` scrive `*EL FILE S, E`
@@ -187,7 +194,7 @@ def test_ogni_passo_statico_porta_un_blocco_di_tensione(tmp_path):
     Mutazione che lo uccide: togliere `*EL FILE` da `_passo_statico`. Il
     verdetto sul picco segnalerebbe allora casi mancanti su una corsa sana.
     """
-    blocchi = _blocchi_della_corsa(tmp_path)
+    blocchi = blocchi_della_corsa
     statici_con_tensione = sorted(
         {b.passo for b in blocchi if b.grandezza == "STRESS" and not b.modale}
     )
@@ -198,7 +205,7 @@ def test_ogni_passo_statico_porta_un_blocco_di_tensione(tmp_path):
     )
 
 
-def test_anche_i_passi_modali_portano_tensioni_che_nessuno_ha_chiesto(tmp_path):
+def test_anche_i_passi_modali_portano_tensioni_che_nessuno_ha_chiesto(blocchi_della_corsa):
     """Il passo modale del deck **non** chiede `*EL FILE` -- e `ccx` scrive le
     tensioni lo stesso, per tutti e due i modi.
 
@@ -215,7 +222,7 @@ def test_anche_i_passi_modali_portano_tensioni_che_nessuno_ha_chiesto(tmp_path):
     i blocchi modali diversi da `DISP` -- quelle tensioni entrerebbero nel
     `.vtu` e nel verdetto sul picco come se fossero MPa.
     """
-    blocchi = _blocchi_della_corsa(tmp_path)
+    blocchi = blocchi_della_corsa
     modali_con_tensione = sorted(
         {b.passo for b in blocchi if b.grandezza == "STRESS" and b.modale}
     )

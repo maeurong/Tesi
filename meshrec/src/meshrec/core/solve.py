@@ -213,16 +213,16 @@ class Blocco(NamedTuple):
 # `split()` sulla riga intera legge quel token unico e perde entrambi i campi
 # in silenzio.
 #
-# #94: fino a nove passi il numero occupa la sola colonna 62, ed e' l'unico
-# caso che il solutore vero ha scritto qui sotto gli occhi. Dal decimo in poi
-# non si sa se il campo cresca verso destra (`%1d`, che spinge "MODAL" avanti
-# di una colonna) o verso sinistra (`%5d`, che riempie le colonne 58-61 oggi
-# vuote): `printf` in C non tronca mai, quindi le cifre restano contigue e in
-# entrambe le forme cadono dentro la coda che comincia alla colonna 58. Si
-# legge quindi il primo gruppo di cifre della coda invece di una colonna
-# sola, e il tipo si cerca nella coda intera: la lettura non dipende da quale
-# delle due larghezze abbia il campo. Il benchmark di validazione
-# `tests/validazione/test_passi_oltre_nove.py` la misura contro `ccx` vero.
+# #94: fino a nove passi il numero occupa la sola colonna 62. Dal decimo in
+# poi non si sa se il campo cresca verso destra (`%1d`, che spinge "MODAL"
+# avanti di una colonna) o verso sinistra (`%5d`, che riempie le colonne
+# 58-61 oggi vuote): `printf` in C non tronca mai, quindi le cifre restano
+# contigue e in entrambe le forme cadono dentro la coda che comincia alla
+# colonna 58. Si legge quindi il primo gruppo di cifre della coda invece di
+# una colonna sola, e il tipo si cerca subito dopo quelle cifre: la lettura
+# non dipende da quale delle due larghezze abbia il campo. Il benchmark di
+# validazione `tests/validazione/test_passi_oltre_nove.py` la misura contro
+# `ccx` vero, e ha misurato i passi 1..12 (corsa CI 33088412242).
 _COL_VALORE = slice(12, 24)
 _COL_CODA = slice(58, None)
 _PASSO_NELLA_CODA = re.compile(r"\s*(\d+)")
@@ -235,13 +235,26 @@ def leggi_frd(percorso: Path) -> list[Blocco]:
     grandezza: str | None = None
     nodi: list[int] = []
     righe: list[list[float]] = []
-    aperti = 0
-    for linea in Path(percorso).read_text(encoding="ascii", errors="ignore").splitlines():
+    aperti = chiusi = 0
+    righe_del_file = Path(percorso).read_text(encoding="ascii", errors="ignore").splitlines()
+    for numero, linea in enumerate(righe_del_file, start=1):
         if linea.startswith("  100CL"):
-            valore = float(linea[_COL_VALORE])
             coda = linea[_COL_CODA]
-            passo = int(_PASSO_NELLA_CODA.match(coda).group(1))
-            modale = "MODAL" in coda
+            # Il numero di passo si legge prima del valore: un record tagliato
+            # prima della colonna 62 -- `ccx` ucciso a meta' scrittura, lo
+            # stesso incidente di #93 visto sul record invece che sul blocco --
+            # lascia la coda senza cifre, e va nominato qui invece di uscire
+            # come un `AttributeError` su `None` che non dice quale file.
+            cifre = _PASSO_NELLA_CODA.match(coda)
+            if cifre is None:
+                raise ValueError(
+                    f"{Path(percorso)}, riga {numero}: il record 100CL non porta il "
+                    f"numero di passo alla colonna 62, il file è tagliato prima. "
+                    f"Riga letta: {linea!r}"
+                )
+            valore = float(linea[_COL_VALORE])
+            passo = int(cifre.group(1))
+            modale = coda[cifre.end():].lstrip().startswith("MODAL")
             continue
         if linea.startswith(" -4"):
             aperti += 1
@@ -249,28 +262,36 @@ def leggi_frd(percorso: Path) -> list[Blocco]:
             nodi, righe = [], []
             continue
         if linea.startswith(" -3"):
-            if grandezza is not None and righe:
-                blocchi.append(Blocco(
-                    grandezza=grandezza, passo=passo, modale=modale, valore=valore,
-                    nodi=np.array(nodi, dtype=np.int64),
-                    dati=np.array(righe, dtype=np.float64),
-                ))
+            if grandezza is not None:
+                chiusi += 1
+                if righe:
+                    blocchi.append(Blocco(
+                        grandezza=grandezza, passo=passo, modale=modale, valore=valore,
+                        nodi=np.array(nodi, dtype=np.int64),
+                        dati=np.array(righe, dtype=np.float64),
+                    ))
             grandezza = None
             continue
         if grandezza is not None and linea.startswith(" -1"):
             nodi.append(int(linea[3:13]))
             componenti = (len(linea) - 13) // 12
             righe.append([float(linea[13 + 12 * i:25 + 12 * i]) for i in range(componenti)])
-    # #93: un blocco aperto da ` -4` e mai chiuso da ` -3` con dei dati e' un
-    # `.frd` troncato, cioe' una corsa di `ccx` interrotta -- solutore ucciso,
-    # disco pieno. Fino a qui veniva scartato senza una parola, e il
-    # chiamante riceveva meno risultati di quanti il file ne dichiarasse:
-    # esattamente il momento in cui serve saperlo. Il parser solleva, a
-    # differenza dei verdetti di questo modulo che riportano (#36).
-    if len(blocchi) != aperti:
+    # #93: un blocco aperto da ` -4` e mai chiuso da ` -3` e' un `.frd`
+    # troncato, cioe' una corsa di `ccx` interrotta -- solutore ucciso, disco
+    # pieno. Fino a qui veniva scartato senza una parola, e il chiamante
+    # riceveva meno risultati di quanti il file ne dichiarasse: esattamente il
+    # momento in cui serve saperlo. Il parser solleva, a differenza dei
+    # verdetti di questo modulo che riportano (#36).
+    #
+    # Si contano le chiusure, non i blocchi con dati: un blocco regolarmente
+    # chiuso ma senza righe ` -1` e' vuoto, non troncato, e la guardia non
+    # deve accusare un file sano. Il conteggio delle chiusure prende anche il
+    # taglio a meta' file (un ` -4` che ne segue un altro mai chiuso), che una
+    # guardia sul solo stato di fine ciclo si lascerebbe scappare.
+    if aperti != chiusi:
         raise ValueError(
             f"{Path(percorso)} dichiara {aperti} blocchi di risultati e ne chiude "
-            f"{len(blocchi)}: il file è troncato, la corsa del solutore non l'ha "
+            f"{chiusi}: il file è troncato, la corsa del solutore non l'ha "
             "scritto tutto e i risultati letti sono parziali"
         )
     return blocchi

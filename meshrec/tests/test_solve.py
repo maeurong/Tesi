@@ -1003,13 +1003,13 @@ def _record_100cl_allineato(passo: int, valore: float, modale: bool) -> str:
     """Numero di passo allineato **a destra** sulla colonna 62.
 
     E' cio' che `printf("%5d", passo)` produce: a una cifra e' identico a
-    `_record_100cl` -- e' l'unico caso misurato su `ccx` vero -- ma a due
-    cifre cresce verso sinistra e `MODAL` resta alla colonna 63.
+    `_record_100cl`, ma a due cifre cresce verso sinistra e `MODAL` resta alla
+    colonna 63.
 
-    Le due forme esistono perche' `ccx` non e' installabile in locale e il
-    solo record misurato ha il passo a una cifra: quale delle due larghezze
-    abbia il campo resta indeciso qui. La lettura deve reggere entrambe, e il
-    benchmark di validazione la misura contro il solutore vero.
+    Le due forme esistono perche' il `.frd` non dichiara la larghezza del
+    campo: quale delle due abbia resta indeciso qui, dove non si esegue il
+    solutore. La lettura deve reggere entrambe, e il benchmark di validazione
+    `tests/validazione/test_passi_oltre_nove.py` la misura contro `ccx` vero.
     """
     cifre = str(passo)
     mezzo = _100CL_MEZZO[: len(_100CL_MEZZO) - len(cifre) + 1]
@@ -1554,6 +1554,82 @@ def test_un_frd_troncato_a_meta_blocco_solleva_invece_di_scartare(tmp_path):
     messaggio = str(errore.value)
     assert "troncato.frd" in messaggio, "l'errore non nomina il file"
     assert "2" in messaggio and "1" in messaggio, "l'errore non porta i due conteggi"
+
+
+def test_un_record_100cl_tagliato_nomina_il_file_e_la_riga(tmp_path):
+    """Un `100CL` tagliato prima della colonna 62 e' lo stesso incidente di
+    #93 -- `ccx` ucciso a meta' scrittura -- visto sul record invece che sul
+    blocco: il file va nominato con la stessa cura.
+
+    Mutazione uccisa: `_PASSO_NELLA_CODA.match(coda).group(1)` senza guardia,
+    che rende `AttributeError: 'NoneType' object has no attribute 'group'`
+    senza dire ne' quale file ne' quale riga.
+    """
+    intero = _frd([
+        (1, "DISP", False, 1.0, {1: (1.0, 2.0, 3.0)}),
+        (2, "DISP", False, 1.0, {1: (1.0, 2.0, 3.0)}),
+    ])
+    righe = intero.splitlines()
+    # Il secondo record 100CL, tagliato a meta': quinta riga del file.
+    assert righe[4].startswith("  100CL")
+    righe[4] = righe[4][:40]
+    percorso = tmp_path / "record_tagliato.frd"
+    percorso.write_text("\n".join(righe) + "\n", encoding="ascii")
+
+    with pytest.raises(ValueError) as errore:
+        solve.leggi_frd(percorso)
+
+    messaggio = str(errore.value)
+    assert "record_tagliato.frd" in messaggio, "l'errore non nomina il file"
+    assert "5" in messaggio, "l'errore non nomina la riga"
+
+
+def test_un_blocco_chiuso_senza_righe_non_e_un_file_troncato(tmp_path):
+    """Un blocco aperto da ` -4` e **chiuso** da ` -3` senza righe ` -1` e' un
+    blocco vuoto, non un file tagliato: la guardia di #93 non deve accusarlo.
+
+    Mutazione uccisa: contare i blocchi con dati invece delle chiusure
+    (`len(blocchi) != aperti`), che dichiara «troncato» un file sano. Una
+    guardia che accusa un file integro viene spenta dal primo che ci sbatte
+    contro, e con lei se ne va il caso vero che sorvegliava.
+    """
+    pieno = _frd([(1, "DISP", False, 1.0, {1: (1.0, 2.0, 3.0)})])
+    vuoto = "\n".join(r for r in pieno.splitlines() if not r.startswith(" -1"))
+    percorso = tmp_path / "blocco_vuoto.frd"
+    percorso.write_text(vuoto + "\n" + pieno, encoding="ascii")
+
+    blocchi = solve.leggi_frd(percorso)
+
+    assert [b.grandezza for b in blocchi] == ["DISP"]
+
+
+def test_un_blocco_aperto_e_mai_chiuso_a_meta_file_solleva(tmp_path):
+    """Il taglio non e' sempre in coda: un ` -4` seguito da un altro ` -4`
+    perde il primo blocco in silenzio, ed e' il caso che il conteggio delle
+    aperture prendeva e una guardia sul solo stato finale non prenderebbe."""
+    pieno = _frd([
+        (1, "DISP", False, 1.0, {1: (1.0, 2.0, 3.0)}),
+        (2, "DISP", False, 1.0, {1: (1.0, 2.0, 3.0)}),
+    ])
+    righe = [r for r in pieno.splitlines() if r != " -3"]
+    percorso = tmp_path / "meta_file.frd"
+    percorso.write_text("\n".join(righe) + "\n -3\n", encoding="ascii")
+
+    with pytest.raises(ValueError) as errore:
+        solve.leggi_frd(percorso)
+
+    assert "meta_file.frd" in str(errore.value)
+
+
+def test_un_frd_senza_blocchi_rende_una_lista_vuota(tmp_path):
+    """Zero blocchi non e' un file troncato: nessuna apertura, nessuna
+    chiusura mancante. Chi dichiara dei casi di carico e non li ritrova lo
+    scopre dal verdetto sui casi mancanti (#92), a valle, dove la lista dei
+    casi attesi c'e' -- qui non c'e'."""
+    percorso = tmp_path / "vuoto.frd"
+    percorso.write_text("    1C\n 9999\n", encoding="ascii")
+
+    assert solve.leggi_frd(percorso) == []
 
 
 # Un solo caso su due nel `.frd`, e quello presente **passa**: cosi' il
