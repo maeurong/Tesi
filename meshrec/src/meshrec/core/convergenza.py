@@ -56,7 +56,27 @@ _RAPPORTO_MINIMO = 1.3
 # bocciare una convergenza reale ma imperfetta.
 _BANDA_ORDINE = (0.5, 3.0)
 
-Esito = Literal["asintotico", "non_monotono", "fuori_campo", "rapporto_troppo_piccolo"]
+# Sotto questa GCI la cifra non e' riproducibile e la `spiegazione` smette di
+# citarla come numero (#101).
+#
+# `docs/validazione/convergenza-di-maglio.md` misura la stessa serie di griglie
+# su due piattaforme: GCI 0,0015% su macOS arm64 e 0,0346% su Linux x86-64,
+# ventitre' volte di scarto a fronte dello stesso errore vero (0,279% contro
+# 0,271%). Sotto quella scala la GCI misura il **rumore del maglio** -- che
+# dipende dalla piattaforma, #66 -- invece della discretizzazione, e il
+# documento conclude che una GCI molto piccola va letta, non citata.
+#
+# `origine: nostra`. Lo 0,1% sta un fattore 3 sopra la maggiore delle due
+# letture non riproducibili, scelto per coprirle entrambe con margine invece di
+# ritagliarsi addosso a una delle due. Non sta in `core/soglie.py` perche' non
+# e' un coefficiente del metodo che questo modulo riceve -- il fattore di
+# sicurezza lo e', e infatti arriva come argomento: e' la regola con cui il
+# modulo scrive il proprio testo.
+_GCI_SOTTO_RUMORE = 1e-3
+
+Esito = Literal[
+    "asintotico", "non_monotono", "fuori_campo", "rapporto_troppo_piccolo", "valore_nullo"
+]
 
 
 def ordine_osservato(f1: float, f2: float, f3: float, r21: float, r32: float) -> float:
@@ -72,23 +92,51 @@ def ordine_osservato(f1: float, f2: float, f3: float, r21: float, r32: float) ->
     non capita quasi mai perche' TetGen non produce raffinamenti esatti.
 
     `f1` e' il valore sulla griglia **piu' fine**.
+
+    Tre uscite non sono numeri. `math.inf` quando `f1 == f2` e `math.nan`
+    quando `f2 == f3`: senza pendenza fra due delle tre griglie non c'e' ordine
+    da stimare, e il logaritmo del rapporto non ha nemmeno dominio. `stima` non
+    arriva a nessuna delle due -- rifiuta prima come `non_monotono` -- ma
+    `ordine_osservato` e' pubblica. La terza e' `math.nan` quando il punto fisso
+    non si risolve: diverge, trabocca, o non converge nei 200 giri; li' `stima`
+    dichiara `fuori_campo`.
     """
+    if not r21 > 1.0 or not r32 > 1.0:
+        raise ValueError(
+            "ogni rapporto di raffinamento deve essere maggiore di 1, sono "
+            f"r21={r21!r} e r32={r32!r}: la formula divide per ln(r21), che su "
+            "griglie non raffinate è zero, ed eleva r32 a un esponente "
+            "frazionario, che su base non positiva non è un numero reale"
+        )
     eps21, eps32 = f2 - f1, f3 - f2
     if eps21 == 0.0:
         return math.inf
     rapporto = eps32 / eps21
+    if rapporto == 0.0:
+        return math.nan
     s = 1.0 if rapporto > 0 else -1.0
     p = abs(math.log(abs(rapporto))) / math.log(r21)
     for _ in range(200):
         try:
             q = math.log((r21**p - s) / (r32**p - s))
-        except ValueError:
+        except (ValueError, OverflowError, ZeroDivisionError):
+            # ValueError: il logaritmo esce dal dominio. OverflowError: `r21**p`
+            # supera il massimo float perche' il punto fisso diverge.
+            # ZeroDivisionError: `p = 0` rende `r32**p - s` esattamente nullo.
+            # Tutte e tre dicono la stessa cosa -- l'ordine non si misura -- e
+            # nessuna e' un errore del chiamante.
             return math.nan
         nuovo = abs(math.log(abs(rapporto)) + q) / math.log(r21)
         if abs(nuovo - p) < 1e-12:
             return nuovo
         p = nuovo
-    return p
+    # Non e' codice morto: su 200.000 triple monotone con rapporti in [1,3; 3,0]
+    # 3.435 esauriscono i 200 giri (1,72%), e in 825 -- lo 0,41% del campione --
+    # l'ultimo iterato cadeva in banda e usciva `asintotico` con una `gci_fine`
+    # numerica. Il residuo dell'ultimo giro e' mediano 9,5e-5 ma arriva a 74:
+    # l'ultimo iterato di un punto fisso che non converge non e' l'ordine.
+    # Le cifre le rifa `docs/fase-7-cantiere/punto-fisso-degenere.py`, seme 0.
+    return math.nan
 
 
 def stima(
@@ -103,7 +151,7 @@ def stima(
     `valori` e `dimensioni` sono ordinati dalla griglia **piu' fine** alla piu'
     grossolana: `dimensioni[0] < dimensioni[1] < dimensioni[2]`.
 
-    La chiave `esito` dice sempre che cosa e' successo, e le quattro uscite
+    La chiave `esito` dice sempre che cosa e' successo, e le cinque uscite
     non sono intercambiabili:
 
     - `asintotico` -- la stima vale, e `gci_fine` e' la barra d'errore;
@@ -112,7 +160,15 @@ def stima(
     - `fuori_campo` -- l'ordine osservato e' assurdo o troppo lontano dal
       formale: le griglie non sono nel campo asintotico;
     - `rapporto_troppo_piccolo` -- le griglie sono troppo vicine fra loro
-      perche' la differenza sia segnale invece che rumore.
+      perche' la differenza sia segnale invece che rumore;
+    - `valore_nullo` -- il valore su una delle due griglie piu' fini e' zero:
+      l'errore relativo non ha scala su cui riferirsi, e cio' che ne uscirebbe
+      non e' un errore grande, e' un errore non definito.
+
+    Quando piu' di una condizione degenere vale insieme, l'esito e' il primo di
+    questo ordine: `rapporto_troppo_piccolo`, `non_monotono`, `valore_nullo`,
+    `fuori_campo`. Una serie con `f1 == 0` e rapporto negativo esce quindi
+    `non_monotono`, non `valore_nullo`.
 
     Fuori da `asintotico` le chiavi numeriche restano scritte -- si marcano,
     non si nascondono, come i verdetti di `core/solve.py` -- ma `gci_fine` e'
@@ -170,24 +226,47 @@ def stima(
             ),
         }
 
+    # `e21` ed `e32` sono errori **relativi**, normalizzati su `f1` e su `f2`:
+    # con uno dei due nullo non sono grandi, non esistono. Non e' `fuori_campo`
+    # -- le griglie possono benissimo essere nel campo asintotico, e sulle serie
+    # di potenza esatte l'ordine torna -- quindi l'esito ha un nome proprio
+    # invece di essere forzato in uno dei quattro: a mancare e' la scala su cui
+    # riferire l'errore, non l'ipotesi di Richardson.
+    if f1 == 0.0 or f2 == 0.0:
+        return {
+            **comune, "esito": "valore_nullo", "ordine_osservato": None,
+            "estrapolato": None, "gci_fine": None, "gci_grossolana": None,
+            "rapporto_asintotico": None,
+            "spiegazione": (
+                "un valore della serie è nullo: la GCI è un errore relativo e "
+                "senza una scala su cui riferirlo uscirebbe infinita, che non "
+                "vuol dire errore grande, vuol dire errore non definito"
+            ),
+        }
+
     p = ordine_osservato(f1, f2, f3, r21, r32)
     basso, alto = _BANDA_ORDINE[0] * ordine_formale, _BANDA_ORDINE[1] * ordine_formale
     if not np.isfinite(p) or not (basso <= p <= alto):
+        misura = (
+            f"l'ordine osservato vale {p:.3f}, contro un ordine formale di "
+            f"{ordine_formale:g}, ed è fuori dalla banda [{basso:g}, {alto:g}]"
+            if np.isfinite(p)
+            else "l'ordine osservato non è determinabile, perché il punto fisso "
+            "di Celik non si risolve"
+        )
         return {
             **comune, "esito": "fuori_campo", "ordine_osservato": None if not np.isfinite(p) else p,
             "estrapolato": None, "gci_fine": None, "gci_grossolana": None,
             "rapporto_asintotico": None,
             "spiegazione": (
-                f"l'ordine osservato vale {p:.3f} contro un ordine formale di "
-                f"{ordine_formale:g}, fuori dalla banda [{basso:g}, {alto:g}]: le "
-                "griglie non sono nel campo asintotico, oppure la grandezza non "
-                "converge con una legge di potenza"
+                f"{misura}. Le griglie non sono nel campo asintotico, oppure la "
+                "grandezza non converge con una legge di potenza"
             ),
         }
 
     estrapolato = (r21**p * f1 - f2) / (r21**p - 1.0)
-    e21 = abs((f1 - f2) / f1) if f1 != 0.0 else math.inf
-    e32 = abs((f2 - f3) / f2) if f2 != 0.0 else math.inf
+    e21 = abs((f1 - f2) / f1)
+    e32 = abs((f2 - f3) / f2)
     gci21 = fattore * e21 / (r21**p - 1.0)
     gci32 = fattore * e32 / (r32**p - 1.0)
     # Indice di campo asintotico: tende a 1 quando le due GCI stanno nel
@@ -212,7 +291,12 @@ def stima(
         "gci_grossolana": gci32,
         "rapporto_asintotico": asintotico,
         "spiegazione": (
-            f"ordine osservato {p:.3f}, GCI sulla griglia fine {gci21 * 100:.3f}%, "
-            f"indice di campo asintotico {asintotico:.4f}"
+            f"ordine osservato {p:.3f}, GCI sulla griglia fine "
+            + (
+                "sotto la soglia di rumore di questa serie di griglie"
+                if gci21 < _GCI_SOTTO_RUMORE
+                else f"{gci21 * 100:.3f}%"
+            )
+            + f", indice di campo asintotico {asintotico:.4f}"
         ),
     }
