@@ -279,6 +279,14 @@ def provenance() -> dict[str, object]:
             # altrimenti un albero sporco letto a vuoto si scriverebbe pulito.
             warnings.warn(f"git non avviabile, provenienza incompleta: {exc}", GitUnavailableWarning)
             return None
+        if result.returncode != 0:
+            # Comando partito ma fallito (fuori da un repository, per esempio):
+            # stdout e' vuoto per il fallimento, non perche' l'albero e' pulito.
+            warnings.warn(
+                f"git {' '.join(args)} fallito ({result.returncode}), provenienza incompleta",
+                GitUnavailableWarning,
+            )
+            return None
         return result.stdout.strip()
 
     versions: dict[str, str] = {}
