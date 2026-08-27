@@ -306,14 +306,22 @@ def test_il_passo_di_pressione_azzera_le_forze_nodali_del_passo_precedente(tmp_p
 def test_ogni_passo_distribuito_azzera_le_pressioni_dei_passi_precedenti(tmp_path):
     """Il rimedio di #84, nella forma che `ccx` accetta.
 
-    Una pressione dichiarata in un passo statico **resta attiva** in quelli
-    dopo, come un `*CLOAD`: misurato con `ccx` 2.21 dalla sonda
-    `tests/feasibility/test_calculix.py::test_una_pressione_persiste_finche_non_la_si_ridichiara_a_zero`.
-    `OP=NEW`, la via ovvia, non e' percorribile -- `ccx` non riconosce quel
-    parametro su questa card e ne fa due avvisi -- quindi ogni passo
-    ridichiara a **zero** le superfici dei passi distribuiti precedenti, nella
-    stessa card e prima della propria. Che la ridichiarazione sostituisca
-    invece di sommarsi lo misura il passo 4 della stessa sonda.
+    **Questo test prova la forma del deck, non la fisica**, e la distinzione
+    conta qui piu' che altrove: misurato in #119, quelle righe `P, 0.0` **non
+    spostano le reazioni**, perche' il `*DLOAD, OP=NEW` che apre ogni passo
+    cancella gia' i `*DSLOAD` precedenti e arriva prima. Restano come unica
+    rete se un giorno `OP=NEW` se ne va, e questo test le tiene ferme nella
+    forma giusta -- ma un verde qui non dice nulla su che cosa il solutore
+    calcoli. Quello lo dicono le sonde di `tests/feasibility/test_calculix.py`.
+
+    La ragione per cui la forma e' questa: una pressione dichiarata in un
+    passo statico resta attiva in quelli dopo, come un `*CLOAD`
+    (`test_una_pressione_persiste_finche_non_la_si_ridichiara_a_zero`, `ccx`
+    2.21), e `OP=NEW` sulla card `*DSLOAD` non e' percorribile -- `ccx` non
+    riconosce quel parametro e ne fa due avvisi. Quindi ogni passo ridichiara
+    a **zero** le superfici dei passi distribuiti precedenti, nella stessa
+    card e prima della propria. Che la ridichiarazione sostituisca invece di
+    sommarsi lo misura il passo 4 della stessa sonda.
     """
     nodi, tetraedri = _lastra(4, 4, 1, 10.0)
     selettori = {
@@ -441,3 +449,56 @@ def test_un_distribuito_non_ruba_il_nome_a_una_superficie_gia_dichiarata(tmp_pat
             selettori=selettori, element_surfaces={"VENTO": [(0, 1)]},
         )
     assert not percorso.exists()
+
+
+# Il `pressure` di `write_inp` -- la pressione **permanente**, quella della
+# Fase 4 -- e i distribuiti di #10 sono due cose diverse che finiscono nella
+# stessa card `*DSLOAD`. Che la permanente si ripeta nei passi che il parziale
+# `passo_statico` raggiunge lo prova gia'
+# `test_abaqus.py::test_la_pressione_si_ripete_in_ogni_passo_statico_con_carichi`;
+# scoperta restava l'altra meta', i passi distribuiti, dove il parziale viene
+# sovrascritto e la permanente vive della sola persistenza del solutore (#111).
+_SUPERFICIE_FINTA = [(0, 1)]
+
+
+def test_la_pressione_permanente_non_e_fra_quelle_azzerate_dai_distribuiti(tmp_path):
+    """La forma del deck che tiene viva la permanente nei passi distribuiti.
+
+    **Forma, non fisica.** Che la permanente agisca davvero nel passo di un
+    distribuito lo prova una sola cosa, le reazioni che `ccx` restituisce:
+    `tests/feasibility/test_calculix.py::test_la_pressione_permanente_agisce_anche_nel_passo_di_un_distribuito`.
+    Questo test guarda il testo del deck, ed e' utile per l'altra meta' della
+    domanda -- che la permanente non finisca mai fra le superfici azzerate.
+
+    Due modi di romperlo, entrambi silenziosi. Aggiungere la permanente a
+    `pressioni_da_azzerare` la spegnerebbe dal primo passo distribuito in poi;
+    togliere la sua card dai passi distribuiti farebbe lo stesso, perche' il
+    `*DLOAD, OP=NEW` che apre ogni passo cancella i `*DSLOAD` precedenti
+    (#119). In entrambi i casi il deck resta valido e i numeri plausibili.
+    """
+    nodi, tetraedri = _lastra(4, 4, 1, 10.0)
+    selettori = {
+        "TETTO": config.SelettoreBox(
+            tipo="box", min=(-1.0, -1.0, 9.0), max=(41.0, 41.0, 11.0)
+        )
+    }
+    carichi = config.CarichiConfig(
+        distribuiti=(
+            config.CaricoDistribuito(nome="VENTO", selettore="TETTO", pressione=0.25),
+            config.CaricoDistribuito(nome="NEVE", selettore="TETTO", pressione=0.1),
+        )
+    )
+    percorso = tmp_path / "m.inp"
+    abaqus.export_model(
+        percorso, tmp_path / "m.vtu", nodi, tetraedri, ANALISI_LASTRA, TET_LINEARE,
+        reference=nodi, carichi=carichi, selettori=selettori,
+        element_surfaces={"PERMANENTE": _SUPERFICIE_FINTA},
+        pressure=("PERMANENTE", 0.5),
+    )
+
+    testo = percorso.read_text(encoding="ascii")
+    assert "\n*DSLOAD\nPERMANENTE, P, 0.5\n" in _passo(testo, "GRAVITA")
+    for nome in ("VENTO", "NEVE"):
+        assert "PERMANENTE, P, 0.5" in _passo(testo, nome), nome
+    azzerate = [riga for riga in testo.splitlines() if riga.endswith(", P, 0.0")]
+    assert azzerate == ["VENTO, P, 0.0"], azzerate

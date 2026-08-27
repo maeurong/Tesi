@@ -14,6 +14,7 @@ from meshrec.core import abaqus, solve, synth, volume
 from meshrec.core.config import (
     GRAVITY_MM_S2,
     AnalysisConfig,
+    CaricoDistribuito,
     CaricoPosizionato,
     CaricoSommita,
     CarichiConfig,
@@ -992,4 +993,78 @@ PELLE2, P, 1.0
     )
     assert azzerata[0] == pytest.approx(atteso, rel=1e-5), (
         f"la seconda pressione della stessa card non arriva: RF_x vale {azzerata[0]}"
+    )
+
+
+def test_la_pressione_permanente_agisce_anche_nel_passo_di_un_distribuito(tmp_path):
+    """#111 e #119, la prova diretta: sul solutore, non sul testo del deck.
+
+    La sonda di #84 qui sopra misura la persistenza di `*DSLOAD` su un deck
+    scritto a mano, che apre i passi con `*DLOAD` liscio. Questa misura il deck
+    che `write_inp` scrive davvero, dove ogni passo apre con `*DLOAD, OP=NEW`
+    -- e quello, misurato in #119, cancella **anche** i carichi di superficie.
+    Prima della correzione la permanente valeva -1666,667 nel primo passo e
+    **0,0** nel passo del distribuito: spariva, col deck ancora valido e i
+    numeri ancora plausibili. Nessun controllo sul testo del deck poteva
+    vederlo, ed e' la ragione per cui questa prova sta qui e non fra i test
+    che leggono il `.inp`.
+
+    Le due pressioni agiscono su facce perpendicolari, PERMANENTE su y = 0 e
+    VENTO su x = 0, e il peso proprio va in -z: ogni componente della reazione
+    isola la propria pressione senza sottrazioni. Il valore atteso e' quello
+    gia' derivato e misurato in #84 -- area 100 x 100 / 2 = 5000 mm² per
+    1 MPa, di cui due terzi del carico consistente si risommano sui nodi
+    stampati: -5000/3 N.
+    """
+    executable = shutil.which("ccx")
+    if executable is None:
+        pytest.skip("eseguibile 'ccx' non presente nel PATH")
+
+    nodi = np.array([
+        [0.0, 0.0, 0.0], [100.0, 0.0, 0.0], [0.0, 100.0, 0.0], [0.0, 0.0, 100.0],
+    ])
+    tetraedro = np.array([[0, 1, 2, 3]], dtype=np.int64)
+    faccia_y = abaqus.element_surface(tetraedro, np.array([0, 1, 3]), "C3D4")
+    percorso = tmp_path / "permanente.inp"
+
+    abaqus.write_inp(
+        percorso, nodi, tetraedro,
+        node_sets={"BASE": np.array([0, 1, 2])},
+        material=Material(name="ACCIAIO", young=210000.0, poisson=0.3, density=7.85e-9),
+        element_surfaces={"PERMANENTE": faccia_y},
+        pressure=("PERMANENTE", 1.0),
+        carichi=CarichiConfig(
+            distribuiti=(
+                CaricoDistribuito(nome="VENTO", selettore="FACCIA_X", pressione=1.0),
+            )
+        ),
+        nset_selettori={"FACCIA_X": np.array([0, 2, 3])},
+    )
+
+    processo = subprocess.run(
+        [executable, "-i", "permanente"],
+        cwd=tmp_path, capture_output=True, text=True, timeout=600,
+    )
+    assert processo.returncode == 0, processo.stdout[-2000:] + processo.stderr[-2000:]
+    assert not avvisi_inattesi(processo.stdout), "\n".join(avvisi_inattesi(processo.stdout))
+
+    def reazione(passo: int) -> np.ndarray:
+        reazioni = solve.leggi_reazioni(tmp_path / "permanente.dat", passo=passo)
+        return np.sum(np.array(list(reazioni.values()), dtype=np.float64), axis=0)
+
+    atteso = -5000.0 / 3.0
+    gravita, vento = reazione(1), reazione(2)
+
+    assert gravita[1] == pytest.approx(atteso, rel=1e-5), (
+        f"la permanente non arriva nemmeno al primo passo: RF_y vale {gravita[1]}"
+    )
+    assert vento[0] == pytest.approx(atteso, rel=1e-5), (
+        f"il distribuito non arriva al suo passo: RF_x vale {vento[0]}"
+    )
+    assert vento[1] == pytest.approx(atteso, rel=1e-5), (
+        f"la pressione permanente non agisce nel passo del distribuito: RF_y vale "
+        f"{vento[1]} invece di {atteso}. E' la card riscritta per esteso che la "
+        "tiene viva li' dentro (#119): il *DLOAD, OP=NEW in testa al passo cancella "
+        "anche i *DSLOAD, quindi senza quella card una spinta del terreno si spegne "
+        "in silenzio dal primo passo distribuito in poi"
     )
