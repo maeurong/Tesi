@@ -386,3 +386,58 @@ def test_il_resoconto_di_una_pressione_dichiara_i_nodi_sul_vincolo(tmp_path):
     )
 
     assert esito["carichi_distribuiti"]["VENTO"]["nodi_sul_vincolo"] == 0
+
+
+def _due_distribuiti(nomi: tuple[str, str], selettore: str) -> config.CarichiConfig:
+    return config.CarichiConfig(
+        distribuiti=tuple(
+            config.CaricoDistribuito(nome=nome, selettore=selettore, pressione=0.25)
+            for nome in nomi
+        )
+    )
+
+
+def test_due_distribuiti_omonimi_non_scrivono_due_surface_con_lo_stesso_nome(tmp_path):
+    """Due `*SURFACE` omonime nel deck: il solutore userebbe l'ultima, in silenzio.
+
+    Nessuna validazione a monte lo impedisce -- `CarichiConfig.distribuiti` è
+    una tupla senza vincolo di unicità sui nomi -- e con più carichi
+    distribuiti per deck la collisione è a portata di un copia-incolla nel
+    YAML.
+    """
+    nodi, tetraedri = _lastra(4, 4, 1, 10.0)
+    selettori = {
+        "TETTO": config.SelettoreBox(
+            tipo="box", min=(-1.0, -1.0, 9.0), max=(41.0, 41.0, 11.0)
+        )
+    }
+    percorso = tmp_path / "m.inp"
+    with pytest.raises(ValueError, match="già dichiarata"):
+        abaqus.export_model(
+            percorso, tmp_path / "m.vtu", nodi, tetraedri, ANALISI_LASTRA, TET_LINEARE,
+            reference=nodi, carichi=_due_distribuiti(("VENTO", "VENTO"), "TETTO"),
+            selettori=selettori,
+        )
+    assert not percorso.exists()
+
+
+def test_un_distribuito_non_ruba_il_nome_a_una_superficie_gia_dichiarata(tmp_path):
+    """Stessa collisione, altra provenienza: una `element_surfaces` del chiamante.
+
+    Le due sorgenti finiscono nello stesso dizionario `superfici`, quindi la
+    guardia è una sola.
+    """
+    nodi, tetraedri = _lastra(4, 4, 1, 10.0)
+    selettori = {
+        "TETTO": config.SelettoreBox(
+            tipo="box", min=(-1.0, -1.0, 9.0), max=(41.0, 41.0, 11.0)
+        )
+    }
+    percorso = tmp_path / "m.inp"
+    with pytest.raises(ValueError, match="già dichiarata"):
+        abaqus.export_model(
+            percorso, tmp_path / "m.vtu", nodi, tetraedri, ANALISI_LASTRA, TET_LINEARE,
+            reference=nodi, carichi=_distribuito("VENTO", "TETTO", 0.25),
+            selettori=selettori, element_surfaces={"VENTO": [(0, 1)]},
+        )
+    assert not percorso.exists()
