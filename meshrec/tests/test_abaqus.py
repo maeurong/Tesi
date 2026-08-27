@@ -1161,6 +1161,67 @@ def test_il_tie_nomina_due_superfici_gia_dichiarate(tmp_path):
         )
 
 
+def test_tie_e_pressione_risolvono_le_superfici_ignorando_le_maiuscole(tmp_path):
+    """Le due guardie di membership erano rimaste al confronto esatto.
+
+    `ccx` risolve i nomi senza distinguere le maiuscole (misurato in
+    `docs/fase-6-cantiere/sonda-caso-nomi/`): una superficie dichiarata
+    `PELLE` e un `*TIE` che la nomina `pelle` sono lo stesso `*SURFACE` per
+    il solutore, e il deck si legge. Il rifiuto diceva invece «non è fra le
+    superfici dichiarate», cioè accusava una causa che non c'era -- la stessa
+    categoria di difetto della guardia sui carichi distribuiti, corretta nel
+    giro precedente.
+
+    Il deck scrive la grafia che il chiamante ha dato, non quella canonica:
+    a cambiare è chi viene accettato, non che cosa viene scritto.
+
+    Mutazione che lo uccide: rimettere `s not in superfici` e `pressure[0]
+    not in superfici`. Entrambe sollevano e il deck non si scrive.
+    """
+    superficie = abaqus.element_surface(_ESAEDRO, np.array([0, 1, 2, 3]), "C3D8I")
+    percorso = tmp_path / "caso.inp"
+
+    abaqus.write_inp(
+        percorso, _CUBO, _ESAEDRO,
+        node_sets={"BASE": np.array([0, 1, 2, 3])},
+        material=MATERIALE,
+        element_type="C3D8I",
+        element_surfaces={"PELLE": superficie, "CUOIO": superficie},
+        ties=(("GIUNZIONE_1", "pelle", "Cuoio"),),
+        pressure=("PeLLe", 0.25),
+    )
+
+    testo = percorso.read_text(encoding="ascii")
+    assert "pelle, Cuoio" in testo
+    assert "PeLLe, P, 0.25" in testo
+
+
+def test_una_superficie_mai_dichiarata_resta_un_rifiuto_anche_col_casefold(tmp_path):
+    """La metà che rende non vacuo il test sopra: allentare il confronto al
+    `casefold` non deve spegnere la guardia. Un nome che non esiste in
+    nessuna grafia resta un deck rotto, e l'errore arriva prima del solutore.
+    """
+    superficie = abaqus.element_surface(_ESAEDRO, np.array([0, 1, 2, 3]), "C3D8I")
+
+    with pytest.raises(ValueError, match="MAI_DICHIARATA"):
+        abaqus.write_inp(
+            tmp_path / "rotto.inp", _CUBO, _ESAEDRO,
+            node_sets={"BASE": np.array([0, 1, 2, 3])},
+            material=MATERIALE, element_type="C3D8I",
+            element_surfaces={"PELLE": superficie},
+            ties=(("GIUNZIONE_1", "pelle", "MAI_DICHIARATA"),),
+        )
+
+    with pytest.raises(ValueError, match="MAI_DICHIARATA"):
+        abaqus.write_inp(
+            tmp_path / "rotto2.inp", _CUBO, _ESAEDRO,
+            node_sets={"BASE": np.array([0, 1, 2, 3])},
+            material=MATERIALE, element_type="C3D8I",
+            element_surfaces={"PELLE": superficie},
+            pressure=("MAI_DICHIARATA", 0.25),
+        )
+
+
 def test_il_tie_con_tolleranza_scrive_position_tolerance(tmp_path):
     """Ruling AH (giro di correzione 6): il quarto elemento facoltativo della
     tupla di un *TIE e' la sua `POSITION TOLERANCE`, scritta sulla card. Un
