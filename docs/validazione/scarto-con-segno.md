@@ -98,10 +98,11 @@ precision alta e recall basso; una che gonfia il pezzo ha il contrario.
 
 **L'occlusione e la materia mancante qui si confondono, e non è risolto.** Lo
 scanner non vede dappertutto: una zona senza punti può essere superficie mai
-rilevata invece che persa dalla ricostruzione. Il massimo di 737,7 mm è quasi
-certamente di questa natura. **La materia mancante va quindi letta come limite
-superiore**, non come misura della sola ricostruzione. Separare le due chiede
-una stima della copertura che questa misura non fa.
+rilevata invece che persa dalla ricostruzione. **La separazione non è fatta**:
+chiede una stima della copertura che questa misura non esegue, e senza quella
+il massimo di 737,7 mm non è attribuito a nessuno dei due. I valori della
+materia mancante restano misurati; è la loro **attribuzione alla sola
+ricostruzione** a valere come limite superiore.
 
 **`precision` campiona i soli vertici**, quindi sottostima l'errore dove i
 triangoli sono grandi — lo stesso limite che `vertex_deviation` già dichiara.
