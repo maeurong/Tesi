@@ -1,16 +1,35 @@
 # Inventario delle grandezze calcolate, e di cosa le verifica
 
-Misurato il 26/08/2026 su `main` a `a07071a`, **albero di lavoro sporco**
-(`quality.py`, `volume.py`, `abaqus.py`, `config.py` modificati): le righe citate
-sono quelle dell'albero di lavoro, non di HEAD.
+Rimisurato il 27/08/2026 su `main` a **`fed1872`**, **albero di lavoro pulito**:
+le righe citate sono quelle di quel commit, non di un albero di lavoro, e la
+prossima deriva è quindi databile.
 
-Raccolta test: `uv run pytest --collect-only -q` → **1019 su 1035 raccolti, 16
-deselezionati** (`tests/feasibility/`, escluso da `pyproject.toml:47` via
-`addopts = "-m 'not feasibility'"`).
+La stesura precedente era misurata su un albero **sporco** a `a07071a`, novanta
+commit più indietro. Fra i due, le PR #49-#109 hanno chiuso buona parte dei
+difetti che questo documento registrava: la sezione 6 elenca voce per voce che
+cosa è rimasto vero, che cosa è stato chiuso e da quale commit.
 
-Legenda verdetto: **O** = oracolo indipendente (valore analitico noto, invariante,
-o libreria terza) · **R** = solo regressione autoreferenziale · **N** = non
-coperta.
+I riferimenti `file:riga` si ricontrollano a macchina:
+
+    python docs/validazione/controlla-riferimenti.py docs/validazione/inventario-grandezze.md
+
+Che una riga esista non dice che porti ancora la cosa di cui il testo parla:
+quello lo vede solo chi legge, ed è il lavoro che questa stesura ha rifatto.
+
+Raccolta test: `uv run pytest --collect-only -q` → **1320 casi**, di cui **44**
+marcati `validazione` e **17** `feasibility`, entrambi esclusi dalla corsa
+predefinita (`pyproject.toml:47`, `addopts = "-m 'not feasibility and not
+validazione'"`).
+
+**Perimetro.** Sono censite le grandezze che l'inventario copriva al 26/08/2026,
+rimisurate una per una. Sono entrate dopo, e **restano da censire in un giro
+proprio**: `quality.is_oriented`, `quality.scarto_con_segno`,
+`solve.controlla_massa_modale`, l'estrapolazione di Richardson e la GCI di
+`convergenza.py`, e il registro di `soglie.py`.
+
+Legenda verdetto: **O** = oracolo indipendente (valore analitico noto,
+invariante, o libreria terza) · **R** = solo regressione autoreferenziale · **N**
+= non coperta.
 
 ---
 
@@ -18,41 +37,41 @@ coperta.
 
 | grandezza | dove | formula | unità/segno | oracolo | v |
 |---|---|---|---|---|---|
-| `mesh_volume` | `quality.py:27` | V = Σ_f (a·(b×c))/6 | mm³, + se normali uscenti | scatola esatta 100·40·200 — `test_quality.py:33`, `:78` | **O** |
-| area superficie | `quality.py:322` | A = Σ_f ‖(b−a)×(c−a)‖/2 | mm², ≥0 | 2(100·40+100·200+40·200) analitico — `test_quality.py:79` | **O** |
-| `is_watertight` | `quality.py:21` | ∀e: n(e)=2 | bool | scatola chiusa / bucata — `test_quality.py:23,36` | **O** |
-| `boundary_edges` | `quality.py:15` | {e : n(e)=1} | conteggio | 4 spigoli dopo un buco — `test_quality.py:85` | **O** |
-| `triangle_aspect_ratios` | `quality.py:175` | AR = L_max/(2√3·r), r = 2A/Σℓ | adim., ≥1 | equilatero = 1 — `test_quality.py:64`; sliver >100 — `:70` | **O** |
+| `mesh_volume` | `quality.py:77` | V = Σ_f (a·(b×c))/6 | mm³, + se normali uscenti | scatola esatta 100·40·200 — `test_quality.py:33`, `test_quality.py:78` | **O** |
+| area superficie | `quality.py:449` | A = Σ_f ‖(b−a)×(c−a)‖/2 | mm², ≥0 | 2(100·40+100·200+40·200) analitico — `test_quality.py:79` | **O** |
+| `is_watertight` | `quality.py:42` | ∀e: n(e)=2, **e almeno uno spigolo** | bool | scatola chiusa — `test_quality.py:27`; bucata — `test_quality.py:43` | **O** |
+| `boundary_edges` | `quality.py:36` | {e : n(e)=1} | conteggio | 4 spigoli dopo un buco — `test_quality.py:42` | **O** |
+| `triangle_aspect_ratios` | `quality.py:278` | AR = L_max/(2√3·r), r = 2A/Σℓ | adim., ≥1 | equilatero = 1 — `test_quality.py:64`; sliver >100 — `test_quality.py:70` | **O** |
 
 ## Volume — tetraedri
 
 | grandezza | dove | formula | unità/segno | oracolo | v |
 |---|---|---|---|---|---|
-| `tet_volumes` | `quality.py:38` | V = (b−a)·((c−a)×(d−a))/6 | mm³, **con segno**, <0 = invertito | Σ = volume esatto scatola su output TetGen — `test_volume.py:31` | **O** |
-| `inverted_tets` | `quality.py:46` | {i : V_i ≤ 0} | indici | tet a orientazione scambiata — `test_quality.py:95` | **O**, ma **cieco su NaN** (§4) |
-| `min_dihedral_angles` | `quality.py:208` | θ = min_{i<j} [180° − arccos(n̂_i·n̂_j)] | gradi, ∈[0,180] | tet regolare = arccos(1/3) = 70,5288° — `test_quality.py:52` | **O** |
-| `tet_aspect_ratios` | `quality.py:222` | AR = L_max/(2√6·r), r = 3V/ΣA_f | adim., ≥1, ∞ se degenere | **nessuna chiamata in nessun test** | **N** |
-| `radius_edge_ratios` | `quality.py:240` | ρ = R_circ/L_min | adim., ≥√6/4 | tet regolare = √6/4 (rel 1e-9) — `test_quality.py:153`; schiacciato >10 — `:162`; complanare → inf — `:170` | **O** |
-| `fraction_over_ratio` | `quality.py:328` | #{ρ finito > limite}/#{ρ finito}; 1.0 se vuoto | ∈[0,1] | 0.0/1.0 costruiti — `test_quality.py:288-292` | **O** |
-| `radius_edge_ratio_p99` | `volume.py:230` | q₀,₉₉ dei ρ finiti; `None` se vuoto | adim. | solo `< min_ratio` su mesh sana — `test_volume.py:197` | **R** |
+| `tet_volumes` | `quality.py:88` | V = (b−a)·((c−a)×(d−a))/6 | mm³, **con segno**, <0 = invertito | Σ = volume esatto scatola su output TetGen — `test_volume.py:31` | **O** |
+| `inverted_tets` | `quality.py:96` | {i : ¬(finito(V_i) ∧ V_i > 0)} | indici | tet a orientazione scambiata — `test_quality.py:95`; NaN e inf marcati — `test_cancello_finitezza.py:73` | **O** |
+| `min_dihedral_angles` | `quality.py:311` | θ = min_{i<j} [180° − arccos(n̂_i·n̂_j)] | gradi, ∈[0,180] | tet regolare = arccos(1/3) = 70,5288° — `test_quality.py:52`; schiacciato <1° — `test_quality.py:58` | **O** |
+| `tet_aspect_ratios` | `quality.py:325` | AR = L_max/(2√6·r), r = 3V/ΣA_f | adim., ≥1, ∞ se degenere | regolare = 1 — `test_oracoli_mancanti.py:55`; rettangolo (1+√3)/2 in forma chiusa — `test_oracoli_mancanti.py:73`; degenere → ∞ — `test_oracoli_mancanti.py:85` | **O** |
+| `radius_edge_ratios` | `quality.py:356` | ρ = R_circ/L_min | adim., ≥√6/4 | tet regolare = √6/4 (rel 1e-9) — `test_quality.py:151`; schiacciato >10 — `test_quality.py:161`; complanare → ∞ — `test_quality.py:169` | **O** |
+| `fraction_over_ratio` | `quality.py:455` | #{ρ finito > limite}/#{ρ finito}; 1,0 se vuoto | ∈[0,1] | 0,0/1,0 costruiti — `test_quality.py:288`, `test_quality.py:289` | **O** |
+| `radius_edge_ratio_p99` | `volume.py:279` | q₀,₉₉ dei ρ finiti; `None` se vuoto | adim. | è davvero un percentile: dentro il campo, ≥98% sotto, ≥√6/4 — `test_oracoli_mancanti.py:254`, `test_oracoli_mancanti.py:261` | **O** |
 
 ## Volume — esaedri
 
 | grandezza | dove | formula | unità/segno | oracolo | v |
 |---|---|---|---|---|---|
-| `hex_volumes` | `quality.py:60` | V = Σ_{k=1..6} V_tet (ventaglio da 0 attorno alla diagonale 0–6) | mm³, con segno | cubo unitario = 1 — `test_quality.py:499`; rovesciato <0 — `:503` | **O** |
-| `scaled_jacobian` | `quality.py:83` | SJ = min_{c=0..7} det(e₁,e₂,e₃)/(‖e₁‖‖e₂‖‖e₃‖); 0 se il prodotto è nullo | adim., ≤1 | cubo = 1 — `test_quality.py:536`; angolo a 45° = 1/√2 — `:554` | **O**, ma **formula ≠ Verdict** (§2) |
-| `element_volumes` | `quality.py:155` | dispatch sul numero di colonne: 8→hex, 4 o 10→tet dei primi 4 | mm³ | concorda con `tet_volumes`/`hex_volumes` — `test_quality.py:500,523` | **R** (tautologia) |
+| `hex_volumes` | `quality.py:122` | V = Σ_{k=1..6} V_tet (ventaglio da 0 attorno alla diagonale 0–6) | mm³, con segno | cubo unitario = 1 — `test_quality.py:499`; rovesciato <0 — `test_quality.py:513` | **O** |
+| `scaled_jacobian` | `quality.py:145` | SJ = min su **nove** punti: gli 8 angoli, det(e₁,e₂,e₃)/(‖e₁‖‖e₂‖‖e₃‖), più il centro sugli assi principali medi; 0 se il prodotto è nullo | adim., ≤1 | cubo = 1 — `test_quality.py:536`; angolo a 45° = 1/√2 in forma chiusa — `test_quality.py:554`; ripiegato <0 — `test_quality.py:583` | **O**, e **coincide con Verdict** (§2) |
+| `element_volumes` | `quality.py:258` | dispatch sul numero di colonne: 8→hex, 4 o 10→tet dei primi 4 | mm³ | concorda con `tet_volumes`/`hex_volumes` — `test_quality.py:500`, `test_quality.py:523` | **R** (tautologia) |
 
 ## Errore geometrico, deviazione, spessore
 
 | grandezza | dove | formula | unità/segno | oracolo | v |
 |---|---|---|---|---|---|
-| `geometric_error` | `quality.py:366` | delega a PyMeshLab `get_hausdorff_distance` nei due versi; `hausdorff` = max(max_c2m, max_m2c) | mm, ≥0 | nuvola campionata sulla mesh → piccolo (`:98`); traslata → cresce (`:111`); coerenza con `vertex_deviation` rel 1e-5 (`:440`) | **O** |
-| `vertex_deviation` | `quality.py:442` | d_v = min_{p∈nuvola} ‖v − p‖ (cKDTree, k=1) | mm, ≥0 | 0 esatto sui punti + 0,25 noto fuori — `:310,311`; scostamento 3.0 — `:320`; RMS = 0,5 analitico — `:366` | **O** |
-| `thickness` | `quality.py:476` | PCA 3×3 → asse di `ptp` minimo; istogramma a passo `bin_width`; s = c_upper − c_lower; `bimodal` ⟺ mean(valle) < ½·min(picchi) | mm, >0 | lastra a spessore noto 176 mm ±3 — `:187`; solido pieno → non valido — `:191` | **O** |
-| `extent` (in `thickness`) | `quality.py:527` | ptp lungo l'autovettore minimo | mm | nessuna asserzione sul valore | **R** |
-| `_distribution` | `quality.py:286` | min/median/mean/max sui soli finiti + `non_finite` | come il campo | `None` invece di NaN, mediana 2.0 — `:134,136` | **O** |
+| `geometric_error` | `quality.py:493` | delega a PyMeshLab `get_hausdorff_distance` nei due versi; `hausdorff` = max(max_c2m, max_m2c) | mm, ≥0 | nuvola campionata sulla mesh → piccolo (`test_quality.py:106`); traslata → cresce (`test_quality.py:119`); coerenza con `vertex_deviation` rel 1e-5 (`test_quality.py:440`) | **O** |
+| `vertex_deviation` | `quality.py:566` | d_v = min_{p∈nuvola} ‖v − p‖ (cKDTree, k=1) | mm, ≥0 | 0 esatto sui punti + 0,25 noto fuori — `test_quality.py:310`, `test_quality.py:311`; scostamento 3,0 — `test_quality.py:320`; RMS = 0,5 analitico — `test_quality.py:366` | **O** |
+| `thickness` | `quality.py:609` | PCA 3×3 → asse di `ptp` minimo; istogramma a passo `bin_width`; s = c_upper − c_lower; `bimodal` ⟺ modi non contigui **e** mean(valle) < ½·min(picchi) | mm, >0 | lastra a spessore noto 176 mm ±3 — `test_quality.py:187`; solido pieno → non valido — `test_quality.py:201` | **O** |
+| `extent` (in `thickness`) | `quality.py:660` | ptp lungo l'autovettore minimo | mm | lastra allineata: 37,0 esatto — `test_oracoli_mancanti.py:197` | **O** |
+| `_distribution` | `quality.py:413` | min/median/mean/max sui soli finiti + `non_finite` | come il campo | `None` invece di NaN, mediana 2,0 — `test_quality.py:131`, `test_quality.py:136` | **O** |
 
 ## Ingresso e scala
 
@@ -66,34 +85,34 @@ coperta.
 
 | grandezza | dove | formula | oracolo | v |
 |---|---|---|---|---|
-| `align_to_axes` | `:956` | ẑ ≡ [0,0,1]; x̂ = fix_sign(autovettore di ptp minimo della PCA 2D orizzontale); ŷ = ẑ×x̂ | spessore su x / lunghezza su y / altezza su z su banco noto — `test_abaqus.py:204` | **O** |
-| `build_node_sets` | `:1163` | BASE: z ≤ z_min+t; TOP: z ≥ z_max−t; FACE_*: x; SIDE_*: y | sei facce di una scatola — `:236`; chiavi = costante — `:250` | **O** per BASE/TOP; i nomi FACE_/SIDE_ restano convenzione (docstring `:1172-1181`) |
-| `boundary_faces` | `:909` | facce con occorrenza singola dopo ordinamento indici | 10 riferimenti in `test_abaqus.py` | **O** |
-| `boundary_spacing` | `:930` | mediana ‖p_i − p_j‖ sugli spigoli unici delle facce di bordo | **0 riferimenti diretti** | **N** diretta |
-| `set_tolerance` | `:1045` | t = factor · boundary_spacing | segue la spaziatura, non il volume elemento — `:658` | **O** (relazione) |
-| `footprint_coverage` | `:1073` | celle di lato 4·spacing; colonna «a contatto» se z_min,col ≤ z_min+0,02·H | base piana → 1.0 (`:684`); conta colonne, non nodi (`:694`) | **O** |
-| `constraint_plan_extent` | `:1123` | r_a = ptp(scelti_a)/ptp(tutti_a), a∈{x,y}; `minimo` = min | =1 su due piedi (`:762`), crolla su un angolo (`:787`, `:808`) | **O** |
-| `aree_tributarie` | `:639` | ventaglio dal 1° nodo; A_tri = ‖(p₁−p₀)×(p₂−p₀)‖/2; ⅓ a ciascuno | Σ = 100·40 calcolato a mano, **non** contro `surface_area` — `:1296` | **O** |
-| `surface_area` | `:617` | = `aree_tributarie(...).sum()` | faccia di cubo unitario = 1 — `:1025` | **O** |
-| `ripartisci` | `:675` | q_i = R · A_i / ΣA | somma = risultante — `:1390` | **O** |
-| `coppia_equivalente` | `:716` | separazione = fix_sign(1° vettore singolare di P_⊥asse); F = M/b_eff | **Σ F = 0 e M_z = 3000 ricalcolato dalle righe `*CLOAD` del deck** — `:1699-1702` | **O** — il più forte del repo |
-| `element_surface` | `:505` | facce di bordo con **tutti** i nodi nel set | S1 del C3D8 + area = 1 — `:1025`; 3 nodi su 4 → `[]` — `:1034` | **O** |
-| `volume` / `mass` export | `:1442,1464` | V = Σ\|V_elem\|; m = V·ρ | nessuna asserzione sul valore | **R** |
+| `align_to_axes` | `abaqus.py:1246` | ẑ ≡ [0,0,1]; x̂ = fix_sign(autovettore di ptp minimo della PCA 2D orizzontale); ŷ = ẑ×x̂ | spessore su x / lunghezza su y / altezza su z su banco noto — `test_abaqus.py:285` | **O** |
+| `build_node_sets` | `abaqus.py:1482` | BASE: z ≤ z_min+t; TOP: z ≥ z_max−t; FACE_*: x; SIDE_*: y | sei facce di una scatola — `test_abaqus.py:310`; chiavi = costante — `test_abaqus.py:332` | **O** per BASE/TOP; i nomi FACE_/SIDE_ restano convenzione (docstring `abaqus.py:1491-1501`) |
+| `boundary_faces` | `abaqus.py:1190` | facce con occorrenza singola dopo ordinamento indici; su 10 colonne usa i primi 4 vertici | 10 riferimenti in `test_abaqus.py` | **O** |
+| `boundary_spacing` | `abaqus.py:1220` | mediana ‖p_i − p_j‖ sugli spigoli unici delle facce di bordo | tetraedro regolare di lato 1 → 1 — `test_oracoli_mancanti.py:107`; scala col fattore 2 — `test_oracoli_mancanti.py:120` | **O** |
+| `set_tolerance` | `abaqus.py:1348` | t = factor · boundary_spacing (`abaqus.py:1373`) | segue la spaziatura, non il volume elemento — `test_abaqus.py:750` | **O** (relazione) |
+| `footprint_coverage` | `abaqus.py:1376` | celle di lato 4·spacing; colonna «a contatto» se z_min,col ≤ z_min+0,02·H | base piana → 1,0 (`test_abaqus.py:761`); conta colonne, non nodi (`test_abaqus.py:788`) | **O** |
+| `constraint_plan_extent` | `abaqus.py:1442` | r_a = ptp(scelti_a)/ptp(tutti_a), a∈{x,y}; `minimo` = min | =1 su due piedi (`test_abaqus.py:852`), crolla su un angolo (`test_abaqus.py:875`, `test_abaqus.py:898`) | **O** |
+| `aree_tributarie` | `abaqus.py:889` | ventaglio dal 1° nodo; A_tri = ‖(p₁−p₀)×(p₂−p₀)‖/2; ⅓ a ciascuno | Σ = 100·40 calcolato a mano, **non** contro `surface_area` — `test_abaqus.py:1366` | **O** |
+| `surface_area` | `abaqus.py:867` | = `aree_tributarie(...).sum()` | faccia di cubo unitario = 1 — `test_abaqus.py:1095` | **O** |
+| `ripartisci` | `abaqus.py:925` | q_i = R · A_i / ΣA | somma = risultante — `test_abaqus.py:1440` | **O** |
+| `coppia_equivalente` | `abaqus.py:997` | separazione = fix_sign(1° vettore singolare di P_⊥asse); F = M/b_eff | **Σ F = 0 e M_z = 3000 ricalcolato dalle righe `*CLOAD` del deck** — `test_abaqus.py:1769-1772` | **O** — il più forte del repo |
+| `element_surface` | `abaqus.py:637` | facce di bordo con **tutti** i nodi nel set | S1 del C3D8 + area = 1 — `test_abaqus.py:1094`, `test_abaqus.py:1095`; 3 nodi su 4 → `[]` — `test_abaqus.py:1104` | **O** |
+| `volume` / `mass` export | `abaqus.py:1813-1814` | V = Σ\|V_elem\|; m = V·ρ | scatola nota, rel 1e-6 — `test_oracoli_mancanti.py:149`, `test_oracoli_mancanti.py:150` | **O** |
 
 ## Soluzione (`solve.py`)
 
 | grandezza | dove | formula | oracolo | v |
 |---|---|---|---|---|
-| `von_mises` | `:474` | σ_vm = √{½[(σx−σy)²+(σy−σz)²+(σz−σx)²] + 3(τ²_xy+τ²_yz+τ²_zx)} | taglio puro = 5√3 (`:100`); trazione monoassiale = 7 (`:107`) | **O** per la formula; **ordine colonne `.frd` non verificato** (§1) |
-| `_volume_totale` | `:486` | Σ \|V_tet(elements[:, :4])\| | dentro l'invariante di equilibrio | **O** indiretto |
-| `_quota_tributaria_gravita` | `:498` | Σ_{(t,n): n∈set} ρ·V_t/4 | **invariante fisico chiuso**: Σ RF_z + q·g = ρVg su un tetraedro, rel 1e-6 — `:686` | **O** |
-| `controlla_reazioni` | `:259` | ε = ‖ΣRF − W‖/‖W‖; passa ⟺ isfinite(tol) ∧ ε ≤ tol | modulo giusto + direzione storta = bocciato — `:490` | **O** |
-| `controlla_autovalori` | `:304` | passa ⟺ tutte finite ∧ f₁>0 ∧ f₁/f₂ ≥ 0,2 | 0,0004 Hz bocciato — `:496-499` | **O** |
-| `controlla_picco` | `:353` | p99 = percentile(v,99); frazione = #{v≥p99 ∧ q ≤ q_min+banda}/#{v≥p99} | costruito frazione = 1 → bocciato — `:518` | **O** |
-| `controlla_vincolo_in_pianta` | `:409` | passa ⟺ isfinite(m) ∧ m ≥ 0,5 | `:385` | **O**, soglia però inattivabile su NaN (§3) |
-| `controlla_avvisi` | `:437` | passa ⟺ conteggio = 0 | tabella in `test_solve.py` | **O** |
-| `u_max` | `:700` | max_i ‖u_i‖ | dati sintetici — `:312` | **R** |
-| `frequenze_hz` | `:449` | colonna 4 (CYCLES/TIME) del blocco `MODE NO` | colonna giusta, non la prima — `:184` | **O** |
+| `von_mises` | `solve.py:824` | σ_vm = √{½[(σx−σy)²+(σy−σz)²+(σz−σx)²] + 3(τ²_xy+τ²_yz+τ²_zx)} | taglio puro = 5√3 (`test_solve.py:100`); trazione monoassiale = 7 (`test_solve.py:107`) | **O**; **anche l'ordine delle colonne `.frd`** è verificato contro `ccx` vero (§1) |
+| `_volume_totale` | `solve.py:851` | Σ \|V_tet(elements[:, :4])\| | dentro l'invariante di equilibrio | **O** indiretto |
+| `_quota_tributaria_gravita` | `solve.py:863` | carichi consistenti: C3D4 ρ·V/4 ai vertici; C3D10 −1/20 ai vertici e +1/5 ai lati | **invariante fisico chiuso**: Σ RF_z + q·g = ρVg su un tetraedro, rel 1e-6 — `test_solve.py:731`; somma = massa su entrambi gli elementi — `test_solve.py:756-758` | **O** |
+| `controlla_reazioni` | `solve.py:380` | ε = ‖ΣRF − W‖/‖W‖; passa ⟺ isfinite(tol) ∧ ε ≤ tol | modulo giusto + direzione storta = bocciato — `test_solve.py:536` | **O** |
+| `controlla_autovalori` | `solve.py:425` | passa ⟺ tutte finite ∧ f₁>0 ∧ f₁/f₂ ≥ 0,2 | 0,0004 Hz bocciato — `test_solve.py:542` | **O** |
+| `controlla_picco` | `solve.py:474` | p99 = percentile(v,99); frazione = #{v≥p99 ∧ q ≤ q_min+banda}/#{v≥p99} | costruito frazione = 1 → bocciato — `test_solve.py:560` | **O** |
+| `controlla_vincolo_in_pianta` | `solve.py:541` | passa ⟺ isfinite(m) ∧ m ≥ 0,5 | soglia di produzione su due casi noti — `test_solve.py:385` | **O** |
+| `controlla_avvisi` | `solve.py:569` | passa ⟺ conteggio = 0 | tabella in `test_solve.py` | **O** |
+| `u_max` | `solve.py:581` | max_i ‖u_i‖ | aritmetica in forma chiusa sul `.frd` di prova: 3,6·√2 — `test_solve.py:461` | **O** |
+| `frequenze_hz` | `solve.py:799` | colonna 4 (CYCLES/TIME) del blocco `MODE NO` | colonna giusta, non la prima — `test_solve.py:193` | **O** |
 
 ## Conversioni di unità
 
@@ -101,10 +120,12 @@ Sistema dichiarato **mm, N, MPa, t, s** (`config.py:3`). Una sola conversione
 numerica:
 
 - `GRAVITY_MM_S2 = 9810.0` (`config.py:22`), usata come `AnalysisConfig.gravity`
-  (`config.py:305`). **Nessun test asserisce il valore.** → **R/N**
-- ρ in t/mm³ (`config.py:97`), E in MPa (`config.py:95`). La coerenza ρ·V·g → N è
-  verificata **solo indirettamente** da `test_solve.py:686` (ρ=1.8e-9, g=9810,
-  V=1e6/6 → 2,943 N). Quello è un oracolo dimensionale chiuso.
+  (`config.py:374`). Asserita contro 9,81·1000 — `test_oracoli_mancanti.py:163`.
+  → **O**
+- ρ in t/mm³ (`config.py:97`), E in MPa (`config.py:95`). La coerenza ρ·V·g → N
+  ha due oracoli: quello dimensionale chiuso di `test_solve.py:731` (ρ=1,8e-9,
+  g=9810, V=1e6/6 → 2,943 N) e l'acqua a `test_oracoli_mancanti.py:176`
+  (1 t/m³ · 1 m³ · g = 9810 N).
 - `io.py:85` `points * cfg.scale`: unico punto di conversione ingresso→mm, difeso
   da `ScaleError` (`io.py:96`), non da un test di valore.
 - `viewport.py:74` `/1000.0` è un ripiego per la dimensione voxel, non un'unità.
@@ -113,77 +134,80 @@ numerica:
 
 ## 1. Grandezze senza oracolo indipendente
 
-**Non coperte del tutto:**
+**Nessuna delle voci elencate qui il 26/08/2026 lo è ancora.** Le cinque
+lacune sono state chiuse da `tests/test_oracoli_mancanti.py` (commit `aa2716f`),
+e l'ordine delle colonne `.frd` da `tests/validazione/test_ordine_frd.py`
+(commit `87c7d7c`). Il registro sta in §6.
 
-1. **`tet_aspect_ratios`** (`quality.py:222`) — zero riferimenti in tutta
-   `tests/`. Esercitata solo di rimbalzo da `volume_metrics` (`quality.py:359`),
-   e quel test (`test_quality.py:90`) asserisce **solo** `inverted`. Finisce in
-   `metrics.json` sotto `10_volume_quality.aspect_ratio` e nel report. Il gemello
-   triangolare l'oracolo ce l'ha (`test_quality.py:64`).
-2. **`boundary_spacing`** (`abaqus.py:930`) — zero chiamate dirette. Solo come
-   ingrediente di `set_tolerance` (`abaqus.py:1070`), dove il test verifica la
-   *relazione*, non il valore della mediana. **Sotto ci stanno tutti e sei i set
-   di nodi.**
+Ciò che resta senza valore ancorato, e non è un difetto ma un limite
+dichiarato:
 
-**Solo regressione o relazione, senza valore ancorato:**
-`radius_edge_ratio_p99` (`volume.py:230`) · `extent` dentro `thickness`
-(`quality.py:527`) · `export["volume"]` e `export["mass"]`
-(`abaqus.py:1463-1464`, e sono i numeri che il report di confronto mette in
-colonna, `report.py:1126`) · `u_max` (`solve.py:700`) · dispatch di
-`element_volumes` (tautologia) · `GRAVITY_MM_S2` (`config.py:22`) ·
-`extent`/`bbox_min`/`bbox_max` di `load_cloud` (`io.py:110-112`).
+- **`element_volumes`** (`quality.py:258`) — il dispatch è verificato contro
+  `tet_volumes` e `hex_volumes`, cioè contro se stesso. È una tautologia per
+  costruzione: la funzione **è** quel dispatch, e non c'è un terzo termine di
+  paragone.
+- **`extent`/`bbox_min`/`bbox_max` di `load_cloud`** (`io.py:110-112`) — solo
+  regressione. Sono `max − min` per asse: un oracolo indipendente sarebbe la
+  stessa formula scritta due volte.
+- **`mean_spacing`** (`io.py:64`) — otto test in `test_io.py` la esercitano,
+  nessuno la confronta con una spaziatura nota per costruzione.
 
-**Punto sensibile a parte — l'ordine delle colonne `.frd` in `von_mises`.**
-La formula ha due oracoli analitici solidi, ma l'assunzione
-**SXX,SYY,SZZ,SXY,SYZ,SZX** (`solve.py:477`) non è verificata contro nessun
-`.frd` prodotto da `ccx` vero. Gli `.frd` dei test li scrive il test stesso
-(`test_solve.py:242+`) e portano trazione monoassiale (σ,0,0,0,0,0) — stato
-**invariante rispetto a qualunque permutazione** dentro il gruppo dei normali e
-dentro quello dei taglianti. Nemmeno `tests/feasibility/test_calculix.py` la
-tocca. La docstring dice «leggerlo sbagliato non solleva nulla e produce un
-numero plausibile, che è il modo peggiore di sbagliare» — e oggi nulla lo
-smentirebbe.
+**Il punto sensibile che era il più grave, e non lo è più.** L'assunzione
+**SXX,SYY,SZZ,SXY,SYZ,SZX** in `von_mises` (`solve.py:827`) non è più assunta:
+`tests/validazione/test_ordine_frd.py` impone sul bordo un campo di spostamento
+lineare, che produce uno stato costante con **tutte e sei le componenti distinte
+e ben separate**, e confronta le sei colonne lette dal `.frd` una per una con la
+legge di Hooke. Un secondo test prova che **tutte e 719 le permutazioni** diverse
+dall'identità verrebbero respinte, cioè che il confronto discrimina invece di
+limitarsi a passare. Era il difetto D2 del registro; è chiuso.
 
 ## 2. Metriche col nome standard e formula diversa
 
-**`scaled_jacobian` (`quality.py:83`) — DIVERGE da Verdict/Sandia.**
-Verdict `hex_scaled_jacobian` prende il minimo su **9** punti: gli 8 angoli **più
-il centro**, dove usa gli assi principali (`calc_hex_efg`) e non tre spigoli.
-`quality.py:107-127` prende il minimo su **8**. Conseguenza: un esaedro con facce
-ragionevoli ma interno svergolato riceve qui un valore **più ottimistico** di
-quello che Verdict, Cubit o VTK darebbero — e il valore finisce in
-`hexa_metrics["scaled_jacobian"]` (`quality.py:151`) e nel report di confronto
-(`report.py:1141`). La tabella `_ANGOLI_ESAEDRO` (`quality.py:77-80`) invece
-**coincide** angolo per angolo con Verdict. La docstring non menziona
-l'omissione del centro.
+**`scaled_jacobian` (`quality.py:145`) — oggi COINCIDE con Verdict/Sandia.**
+Verdict `hex_scaled_jacobian` prende il minimo su **9** punti: gli 8 angoli più
+il centro, dove usa gli assi principali medi (`calc_hex_efg`) e non tre spigoli.
+Fino a `0a622a5` questa funzione prendeva il minimo su **8**, e dava quindi un
+valore sistematicamente **più ottimistico**. Il nono punto ora c'è
+(`quality.py:198-224`), accanto agli otto angoli (`quality.py:180-196`), e la
+docstring lo dichiara. Il costo era nullo e misurato: **nessun numero già
+pubblicato si è spostato**. La metà che gira in albero è
+`test_guardie_e_nomi.py:240`, su duecento esaedri; le cifre più grandi — zero
+scarto su 1644 esaedri di tre prismi gmsh e su 148.689 cubi perturbati a caso —
+sono state **misurate una volta il 26/08/2026 fuori dall'albero, nel giro di
+`0a622a5`, e non sono riproducibili qui**: nessuno script le genera. La tabella `_ANGOLI_ESAEDRO`
+(`quality.py:139-142`) coincide angolo per angolo con Verdict.
 *Nota di staleness:* la doc Cubit 15.8 dice «8 corner nodes only», il sorgente
-`sandialabs/verdict` dice 9 — **il sorgente vince**.
+`sandialabs/verdict` dice 9 — **il sorgente vince**, e la docstring lo scrive.
 
-**`tet_aspect_ratios` (`quality.py:222`) — coincide** con Verdict/VTK
+**`tet_aspect_ratios` (`quality.py:325`) — coincide** con Verdict/VTK
 `L_max/(2√6·r_in)` (=1 sul tet regolare). **Ma non** con `Aspect Ratio Beta`
 (= R_circ/(3·r_in)) né `Aspect Ratio Gamma` (= S_rms³/(8,479670·V)) di Cubit —
 **e non con Abaqus/CAE, dove «aspect ratio» è spigolo massimo su spigolo minimo**,
-che Verdict chiama `edge ratio`. Chi in tesi cita «aspect ratio» accanto a una
-soglia presa da un manuale sta confrontando due grandezze diverse: **va detto
-quale definizione è.**
+che Verdict chiama `edge ratio`. Sul tetraedro rettangolo di lato 1 questa vale
+(1+√3)/2 = 1,366 e quella di Abaqus √2 = 1,414. La divergenza ora è scritta
+nella docstring della funzione e nel registro delle soglie, non solo qui: chi
+cita «aspect ratio» accanto a una soglia presa da un manuale **deve dire quale
+definizione è**.
 
-**`triangle_aspect_ratios` (`quality.py:175`) — coincide** con Verdict,
-`L_max/(2√3·r_in)`. *(Caveat: verificato per analogia con la tet, non aprendo il
-sorgente Verdict del triangolo.)*
+**`triangle_aspect_ratios` (`quality.py:278`) — coincide** con Verdict,
+`L_max/(2√3·r_in)`. *(Caveat invariato: verificato per analogia con la tet, non
+aprendo il sorgente Verdict del triangolo.)*
 
-**`radius_edge_ratios` (`quality.py:240`)** — non è una metrica Verdict, è la
+**`radius_edge_ratios` (`quality.py:356`)** — non è una metrica Verdict, è la
 grandezza di **TetGen** (`-q`, `minratio`), √6/4 = 0,6124 sul regolare. Coerente
 col nome. **Ma: il default `-q` di TetGen impone radius-edge ≤ 2,0 e angolo
 diedro minimo 0° — nessun vincolo sugli sliver. Il radius-edge ratio è cieco agli
-sliver per costruzione.** Per quelli serve il **minimum dihedral angle**, che il
-progetto calcola (`quality.py:208`) ma non usa come vincolo. Fonte: manuale
-TetGen 1.5 e Si 2015, ACM TOMS 41(2):11.
+sliver per costruzione**, e la docstring lo misura: quattro punti sfalsati di un
+millesimo attorno a una circonferenza danno raggio-spigolo **0,707**, cioè sotto
+il limite, e diedro minimo **0,162°**. Per quelli serve il **minimum dihedral
+angle**, che il progetto calcola (`quality.py:311`) ma non usa come vincolo.
+Fonte: manuale TetGen 1.5 e Si 2015, ACM TOMS 41(2):11.
 
 **`min_dihedral_angles`** e **`von_mises`** — definizioni standard, nessuna
 divergenza. Range accettabile Verdict per il diedro minimo del tet: **[40°,
 70,53°]**.
 
-**`hex_volumes` (`quality.py:60`)** — la docstring lo dichiara già (`:64-67`):
+**`hex_volumes` (`quality.py:122`)** — la docstring lo dichiara (`quality.py:123-129`):
 **non** è la quadratura di Gauss dell'esaedro trilineare che Abaqus/CalculiX usano
 per integrare l'elemento. È il volume del solido a facce triangolate. Su facce non
 piane i due numeri differiscono. Scelta consapevole e documentata, da citare come
@@ -191,123 +215,156 @@ tale se il volume finisce in tesi accanto a una massa del solutore.
 
 ## 3. Guardie che non possono fallire
 
-1. **`quality.py:574-575`, ramo modi adiacenti.** Con `upper == lower + 1`,
-   `valley = float(counts[lower])` e la condizione
-   `valley < 0.5·min(counts[lower], counts[upper])` è **falsa per costruzione**
-   (verificato numericamente su 5 coppie, incluso 0/0). Due modi in bin contigui
-   danno `bimodal=False` sempre. **L'ingresso che la farebbe scattare non
-   esiste.**
-2. **`abaqus.py:1114`, `if not in_contact.any(): return 0.0`.** `floor_height` è
-   il minimo di z sui nodi **di bordo** per colonna; `low[2]` è il minimo su
-   **tutti** i punti. Su una mesh di volume chiusa il nodo globalmente più basso è
-   di bordo, quindi la sua colonna soddisfa sempre la condizione. Costruibile a
-   mano (5 punti, il più basso non di bordo), **ma non producibile dalla
-   pipeline**.
-3. **`solve.py:431`, `np.isfinite(minimo)`** e **`solve.py:446`,
-   `conteggio == 0` con NaN** — inerti **per progetto e dichiarate tali** nelle
-   rispettive docstring. Non un difetto, ma nemmeno una difesa.
+**Due delle tre voci non esistono più.**
 
-**Guardie che invece scattano davvero** (verificate): `volume.py:152` saturazione
-Steiner (`test_volume.py:163`), `volume.py:175` limite di volume disatteso
-(`:138`), `volume.py:231` vincolo raggio-spigolo (`:229`), `abaqus.py:1413`
-`UnconstrainedModelWarning` (`test_abaqus.py:722`), `abaqus.py:877`
-`SelettoreIsotropoWarning` (`:2140`), `solve.py:559` determinante ≠ +1
-(`test_solve.py:970`).
+1. **Ramo modi adiacenti in `thickness`** — era `valley = float(counts[lower])`
+   con `valley < 0.5·min(counts[lower], counts[upper])`, **falsa per
+   costruzione**. Chiusa da `0a622a5`: la condizione ora è scritta come esito e
+   non come calcolo, `upper > lower + 1 and mean(valle) < ...`
+   (`quality.py:714-716`), e il commento sopra dice perché la forma precedente
+   non poteva dare `True`. Due modi in bin contigui restano `bimodal=False`, ma
+   ora perché è **dichiarato**, non perché un confronto impossibile fallisce.
+2. **`footprint_coverage`, nessuna colonna a contatto** — era `return 0.0`,
+   irraggiungibile su qualunque mesh chiusa. Chiusa da `0a622a5`: ora
+   **solleva** (`abaqus.py:1417-1433`), e il commento spiega che quello zero si
+   sarebbe letto come «l'insieme non copre nulla», condizione vera e diversa.
+   Il ramo resta irraggiungibile dalla pipeline; ciò che è cambiato è che
+   adesso, se ci si arriva, si sa.
+3. **`solve.py:563` `np.isfinite(minimo)`** e **`solve.py:578` `conteggio == 0`
+   con NaN** — restano inerti **per progetto e dichiarate tali** nelle rispettive
+   docstring: la seconda dice esplicitamente che l'uguaglianza a zero è già
+   chiusa su NaN e sugli infiniti, e che sta nella tabella dei sette verdetti
+   perché enumerarli tutti costa meno che ricordare quale non serviva. Non un
+   difetto, ma nemmeno una difesa.
 
-## 4. Ingressi degeneri — misurati, non dedotti
+**Guardie che invece scattano davvero** (verificate): `volume.py:207`
+saturazione Steiner (`test_volume.py:162`), `volume.py:234` limite di volume
+disatteso (`test_volume.py:136`), `volume.py:287` vincolo raggio-spigolo
+(`test_volume.py:234`), `abaqus.py:1753` `UnconstrainedModelWarning`
+(`test_abaqus.py:802`), `abaqus.py:1169` `SelettoreIsotropoWarning`
+(`test_abaqus.py:2275`), `solve.py:986` determinante ≠ +1 (`test_solve.py:1199`).
 
-**Il buco vero: le coordinate NaN passano ogni guardia di inversione.**
+## 4. Ingressi degeneri
 
-```
-tet_volumes(NaN)                -> array([nan])
-inverted_tets(NaN)              -> array([], dtype=int64)   # NON marcato
-volume_metrics(NaN)["inverted"] -> 0
-```
+**Il buco che era il più grave è chiuso.** Le coordinate NaN non passano più
+la guardia di inversione: `inverted_tets` (`quality.py:110`) è scritta in
+positivo, `~(isfinite(V) & (V > 0))`, e il controllo di finitezza copre anche la
+metà che `not (V > 0)` da solo non coprirebbe — un volume `+inf` è maggiore di
+zero e passerebbe. `hexa_metrics` usa la stessa forma (`quality.py:251`), e gli
+scalari che uscivano `NaN` in JSON passano ora per `finito_o_none`
+(`quality.py:8`), che rende `None`. La copertura sta in
+`tests/test_cancello_finitezza.py`.
 
-`quality.py:48` è `np.flatnonzero(V <= 0.0)`, e `nan <= 0.0` è `False`. Quindi:
+La tabella qui sotto **non è rimisurata eseguendo il codice**: questo giro non
+aveva un ambiente con numpy separato da quello condiviso. Ogni riga porta quindi
+la propria fonte — una guardia esplicita nel sorgente, o un test che la fissa —
+e le righe che dipendevano da un comportamento di numpy senza una guardia che lo
+scriva sono marcate **da rimisurare**.
 
-- `volume.py:139` `if len(inverted) > 0: raise InvertedElementsError` **non
-  solleva** su una mesh con nodi NaN;
-- `metrics.json` scrive `inverted: 0` — **verde su una mesh corrotta**;
-- `total_volume` (`quality.py:356`) diventa NaN e finisce in JSON, che NaN non
-  ammette (`_distribution` protegge le distribuzioni, **non** `total_volume`).
-
-Nessun test passa NaN a `inverted_tets` o a `volume_metrics`. È la stessa classe
-di difetto che il «cancello di finitezza» ha chiuso in `solve.py`: `quality.py`
-non l'ha mai attraversata.
-
-Il resto, misurato:
-
-| ingresso | esito | giudizio |
-|---|---|---|
-| mesh vuota → `is_watertight` | **`True`** | una mesh vuota è «chiusa». `volume.py:73` la passa a TetGen invece di rifiutarla |
-| mesh vuota → `mesh_volume`, `surface_metrics`, `volume_metrics`, `hexa_metrics` | `0.0`, `min/median/mean/max = None` | gestito bene |
-| tet complanare (V=0) → `inverted_tets` | `array([0])` | gestito |
-| tet complanare → aspect / diedro / raggio-spigolo | `inf` / `0.0` / `inf` | gestito, mai eccezione |
-| hex con nodi NaN → `scaled_jacobian` | `0.0` | gestito (`quality.py:122-124`) |
-| nuvola a **1 punto** → `vertex_deviation` | array di zeri | gestito |
-| nuvola **vuota** → `vertex_deviation` | **`array([inf, inf, inf])`** | **non gestito**: quegli inf finiscono nella mappa colore |
-| nuvola < 2 punti → `thickness` | `{thickness: None, bimodal: False}` | gestito (`quality.py:500-520`) |
-| array vuoto → `controlla_picco` | **`ValueError: zero-size array to reduction operation maximum`** | non guardato (`solve.py:393`); latente, non attivo |
-| nodi vuoti → `build_node_sets` | **`ValueError: zero-size array to reduction operation minimum`** | non guardato (`abaqus.py:1184`) |
-| indici vuoti → `constraint_plan_extent` | `{x:0, y:0, minimo:0}` | gestito (`abaqus.py:1150`), il verdetto boccia |
-| elementi vuoti → `boundary_faces` | shape `(0,3)` | gestito |
-| elemento a **10 nodi** → `element_volumes` | calcola sui primi 4 | **ramo morto**: `NODI_PER_ELEMENTO` (`abaqus.py:429`) non contiene più C3D10 dopo `66b526d`; `quality.py:164` accetta ancora `colonne == 10` |
-| tensioni vuote → `von_mises` | array vuoto | gestito |
+| ingresso | esito | fonte | giudizio |
+|---|---|---|---|
+| mesh vuota → `is_watertight` | **`False`** | guardia `quality.py:52` | chiuso: era `True`, e `volume.tetrahedralize` la passava a TetGen. Ora `volume.py:96-105` la rifiuta per prima |
+| mesh vuota → `mesh_volume`, `surface_metrics`, `volume_metrics`, `hexa_metrics` | `0,0`, `min/median/mean/max = None` | `quality.py:427-431` | gestito |
+| tet complanare (V=0) → `inverted_tets` | marcato | `quality.py:110` (`0.0 > 0.0` è falso) | gestito |
+| tet complanare → aspetto / diedro / raggio-spigolo | ∞ / ~0° / ∞ | `test_oracoli_mancanti.py:85`, `test_quality.py:58`, `test_quality.py:169` | gestito, mai eccezione |
+| hex con nodi NaN → `scaled_jacobian` | `0,0` | guardia `where=prodotto > 0.0`, `quality.py:193-195` e `quality.py:220-222` | gestito |
+| hex con nodi inf → `hexa_metrics["inverted"]` | contato | `quality.py:251` | chiuso: il vecchio `jacobiani <= 0.0` ne contava **zero** |
+| nuvola a **1 punto** → `vertex_deviation` | array di zeri | — | **da rimisurare**: nessuna guardia lo scrive e nessun test lo fissa |
+| nuvola **vuota** → `vertex_deviation` | **`ValueError`** | guardia `quality.py:600-603` | chiuso: erano `[inf, inf, inf]` nella mappa colore |
+| nuvola < 2 punti → `thickness` | `{thickness: None, bimodal: False}` | guardia `quality.py:633-653` | gestito |
+| array vuoto → `controlla_picco` | **`ValueError` col proprio messaggio** | guardia `solve.py:519-523` | chiuso: era `zero-size array to reduction operation maximum` |
+| nodi vuoti → `build_node_sets` | **`ValueError` col proprio messaggio** | guardia `abaqus.py:1507-1510` | chiuso: era `zero-size array to reduction operation minimum` |
+| nodi non finiti → `build_node_sets` | **`ValueError`** | guardia `abaqus.py:1517-1521` | chiuso: i due set dell'asse uscivano **vuoti** senza che nulla protestasse |
+| indici vuoti → `constraint_plan_extent` | `{x:0, y:0, minimo:0}` | `abaqus.py:1469-1470` | gestito, il verdetto boccia |
+| elementi vuoti → `boundary_faces` | shape `(0,3)` | — | **da rimisurare** |
+| elemento a **10 nodi** → `element_volumes` | calcola sui primi 4 | `quality.py:267` | **non è più un ramo morto**: `NODI_PER_ELEMENTO` (`abaqus.py:539`) contiene di nuovo `C3D10` dopo `76bbc00`, e `boundary_faces` (`abaqus.py:1206-1207`) tratta le dieci colonne come tetraedro |
+| elemento a 6 nodi → `boundary_faces` | **`ValueError`** | `abaqus.py:1209-1212`, `test_abaqus.py:987` | gestito |
+| tensioni vuote → `von_mises` | array vuoto | — | **da rimisurare** |
 
 **Non verificato in questa sessione:** mesh non chiusa passata a
 `geometric_error` / `thickness` (richiede PyMeshLab); elemento esaedrico passato a
 `solve._volume_totale`, che userebbe `elements[:, :4]` senza dirlo — la docstring
-(`solve.py:486-493`) ammette il limite e dichiara zero copertura sul ramo.
+(`solve.py:851-858`) ammette il limite e dichiara zero copertura sul ramo.
 
 ## 5. Conteggio test
 
-- Raccolti: **1019 su 1035, 16 deselezionati** (2,58 s).
-- Funzioni `test_*` definite, prima della parametrizzazione (conteggio AST):
-  **892**.
-- Di queste, **153 nominano almeno una delle 47 funzioni di calcolo**:
-  `test_abaqus.py` 60, `test_quality.py` 40, `test_volume.py` 14, `test_solve.py`
-  13, `test_io.py` 8, `test_server.py` 5, `test_repair.py` 4, `test_hexa.py` 3,
-  `test_gmsh_backend.py` 2, `test_surface.py` 2, `test_config.py` 1,
-  `test_pipeline.py` 1.
-- **Caveat:** è un limite inferiore (molti test di `solve` passano per `risolvi`
-  senza nominare le funzioni) e simmetricamente un limite superiore sulla
-  *qualità* (nominare una funzione non vuol dire avere un oracolo per essa:
-  `test_quality.py:90` nomina `volume_metrics` e verifica solo `inverted`).
-- Rapporto grezzo: **153/892 ≈ 17%**. Il resto — `test_app_js.py` 158,
-  `test_server.py` 114, `test_config.py` 100 — è interfaccia, HTTP e validazione.
+- Raccolti su `fed1872`: **1320 casi**, di cui **44** marcati `validazione` e
+  **17** `feasibility`. Entrambi i marcatori sono esclusi dalla corsa
+  predefinita (`pyproject.toml:47`).
+- Funzioni `test_*` di modulo, prima della parametrizzazione:
+  **1138** — `grep -rh "^def test_" tests/ --include="*.py" | wc -l` da
+  `meshrec/`.
+- **Rimosso**, e vale la pena dire perché: la stesura precedente riportava
+  «153 su 892 nominano almeno una delle 47 funzioni di calcolo, ≈17%», con un
+  caveat che lo dichiarava insieme limite inferiore e limite superiore. Un
+  numero che non regge una conclusione in nessuna delle due direzioni, e che
+  nessun comando scritto da qualche parte permetteva di rifare, non è una
+  misura: è un'impressione con tre cifre. I conteggi che restano hanno il
+  comando accanto.
 
 ---
 
+## 6. Che cosa è cambiato dal 26/08/2026
+
+Ogni voce della stesura precedente, con il proprio esito su `fed1872`. Le sigle
+D/O/G/N sono quelle del registro in [`README.md`](README.md) §3.
+
+| voce | stato | dove |
+|---|---|---|
+| D1 — `inverted_tets` filtra con `V <= 0.0`, NaN passa | **chiusa** (`757429c`, `69465e1`) | `quality.py:110`, `tests/test_cancello_finitezza.py` |
+| D2 — ordine colonne `.frd` mai verificato contro `ccx` | **chiusa** (`87c7d7c`) | `solve.py:827`, `tests/validazione/test_ordine_frd.py` |
+| D3 — `controlla_reazioni` confronta `RF` col peso, ma sotto gravità `RF` non è la sola reazione | **ancora vera**, e gestita: `risolvi` somma la quota tributaria prima del confronto | `solve.py:863`, `test_solve.py:731` |
+| D4 — nessuna guardia sull'ampiezza degli spostamenti | **chiusa** (`c8d9084`) | `solve.controlla_spostamenti`, `solve.py:611` |
+| D5 — `vertex_deviation` su nuvola vuota rende `[inf, inf, inf]` | **chiusa** | `quality.py:600-603` |
+| D6 — `build_node_sets` su nodi vuoti solleva `ValueError` grezzo | **chiusa** | `abaqus.py:1507-1510` |
+| D7 — `controlla_picco` su array vuoto solleva `ValueError` grezzo | **chiusa** (`587d138`) | `solve.py:519-523` |
+| D8 — `element_volumes` accetta 10 colonne ma C3D10 non esiste più | **falsa oggi**: C3D10 è stato ripristinato (`76bbc00`, `479d671`) | `abaqus.py:539`, `quality.py:267` |
+| O1 — `tet_aspect_ratios` senza alcun test | **chiusa** (`aa2716f`) | `test_oracoli_mancanti.py:47-89` |
+| O2 — `boundary_spacing` senza chiamate dirette | **chiusa** (`aa2716f`) | `test_oracoli_mancanti.py:95-120` |
+| O3 — `export["volume"]`/`export["mass"]` senza asserzione di valore | **chiusa** (`aa2716f`) | `test_oracoli_mancanti.py:149-150` |
+| O4 — `GRAVITY_MM_S2` che nessun test asserisce | **chiusa** (`aa2716f`) | `test_oracoli_mancanti.py:163`, `test_oracoli_mancanti.py:176` |
+| O5 — `radius_edge_ratio_p99`, `extent` di `thickness`, `u_max`, ingombro/bbox | **chiusa in parte**: p99 ed `extent` hanno ora un oracolo, `u_max` ce l'ha in forma chiusa; ingombro/bbox resta **R** | `test_oracoli_mancanti.py:197`, `test_oracoli_mancanti.py:254`, `test_solve.py:461` |
+| G1 — `bimodal` coi modi in bin contigui, falsa per costruzione | **chiusa** (`0a622a5`) | `quality.py:714-716` |
+| G2 — `if not in_contact.any(): return 0.0` irraggiungibile | **chiusa** (`0a622a5`): ora solleva | `abaqus.py:1417-1433` |
+| G3 — `isfinite(minimo)` e `conteggio == 0` inerti per progetto | **ancora vera**, e dichiarata | `solve.py:563`, `solve.py:578` |
+| N1 — `scaled_jacobian` su 8 punti, diverge da Verdict | **chiusa** (`0a622a5`): nove punti, centro compreso | `quality.py:198-224` |
+| N2 — «aspect ratio» del tet non è quello di Abaqus | **ancora vera**, e ora dichiarata nella docstring | `quality.py:328-338` |
+| N3 — raggio-spigolo cieco agli sliver | **ancora vera**, e ora misurata nella docstring | `quality.py:370-379` |
+| N4 — `hex_volumes` non è la quadratura di Gauss | **ancora vera**, già dichiarata | `quality.py:123-129` |
+| §4 — mesh vuota «chiusa», passata a TetGen | **chiusa** | `quality.py:52`, `volume.py:96-105` |
+| §5 — «1019 su 1035 raccolti» | **scaduta**: 1320 casi | `pyproject.toml:47` |
+
+**Nessuna voce è risultata falsa già al 26/08/2026.** Tutte erano vere quando
+scritte; sedici PR le hanno superate in due giorni, e il documento non se n'era
+accorto perché nulla lo obbligava a farlo. Ora
+`docs/validazione/controlla-riferimenti.py` obbliga almeno i puntatori.
+
 ## Il materiale che conta
 
-**Senza oracolo indipendente, in ordine di rischio per la tesi:**
+**Senza oracolo indipendente, in ordine di rischio per la tesi** — la lista si è
+accorciata a tre voci, e nessuna delle tre è un difetto:
 
-1. `tet_aspect_ratios` (`quality.py:222`) — **zero test**, e il numero finisce in
-   `metrics.json` e nel report.
-2. **Ordine colonne `.frd` in `von_mises`** (`solve.py:477`) — formula verificata,
-   mappatura no, e nessuno stato di prova la potrebbe smentire.
-3. `export["volume"]` / `export["mass"]` (`abaqus.py:1463-1464`) — vanno in colonna
-   nel report di confronto, nessuna asserzione di valore.
-4. `boundary_spacing` (`abaqus.py:930`) — zero chiamate dirette; sotto ci stanno
-   tutti e sei i set di nodi.
-5. `radius_edge_ratio_p99`, `extent` di `thickness`, `u_max`, `GRAVITY_MM_S2`,
-   ingombro/bbox.
+1. `element_volumes` (`quality.py:258`) — tautologia per costruzione.
+2. `extent`/`bbox` di `load_cloud` (`io.py:110-112`) — `max − min`, nessun terzo
+   termine di paragone.
+3. `mean_spacing` (`io.py:64`) — esercitata, mai confrontata con una spaziatura
+   nota.
 
-**Guardie inerti:** `quality.py:574` · `abaqus.py:1114` · `solve.py:431` e `:446`
-(queste due dichiarate).
+**Guardie inerti che restano:** `solve.py:563` e `solve.py:578`, entrambe
+dichiarate tali nelle docstring.
 
-**Il difetto singolo più grave — una guardia cieca, non inerte:**
-`inverted_tets` (`quality.py:48`) usa `V <= 0.0`, e NaN cade dalla parte
-permissiva. Una mesh con coordinate non finite passa `InvertedElementsError`
-(`volume.py:139`) e viene registrata con `inverted: 0`.
+**Il debito vero non è più un difetto del codice, è di censimento.** Cinque
+grandezze entrate dopo il 26/08 non sono in questo inventario: `is_oriented`,
+`scarto_con_segno`, `controlla_massa_modale`, Richardson/GCI di `convergenza.py`,
+il registro di `soglie.py`. Finché non ci sono, questo documento è vero su ciò
+che dice e muto su una parte di ciò che il programma calcola.
 
-**Raccomandazione (non una decisione).** I tre buchi sono cose diverse: il NaN è
-un fix da un carattere più il suo test; `tet_aspect_ratios` è un test mancante;
-l'ordine `.frd` chiede un `.frd` prodotto da `ccx` vero in `tests/feasibility/`.
-La divergenza `scaled_jacobian` contro Verdict **non la toccherei nel codice**:
-va dichiarata in tesi e nella docstring, perché aggiungere il nono punto
-sposterebbe tutti i numeri già pubblicati.
+**Raccomandazione (non una decisione).** La divergenza `scaled_jacobian` contro
+Verdict è stata chiusa aggiungendo il nono punto, e la misura ha mostrato che
+non sposta alcun numero pubblicato: il timore che l'aveva sconsigliata era
+infondato, ed è un precedente utile. Le due divergenze di nome che restano — N2
+e N3 — **non si chiudono nel codice**: vanno dichiarate in tesi ogni volta che
+una soglia presa da un manuale finisce accanto a uno di questi numeri.
 
 ## Fonti
 

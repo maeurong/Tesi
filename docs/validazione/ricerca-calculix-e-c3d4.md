@@ -83,6 +83,19 @@ Senza precarico lo scarto peggiore è **0,19%**, i primi modi coincidono a cinqu
 cifre. Con `PERTURBATION` divergono forte sul modo più basso (705 contro 1.780).
 Deck: `beamf.inp`.
 
+**Qui il punto separa le migliaia, non i decimali**, ed è per questo che la
+tabella è l'unica di questa cartella a non essere stata riscritta con la virgola.
+È la lettura che la rende coerente con sé stessa: 13096 · 19320 · 76840 · 86955 ·
+105964 · 351862 Hz senza precarico, e 705 · 14614 · 69731 · 86544 · 101291 ·
+345729 con precarico — **ogni modo scende**, che è quello che un precarico di
+compressione fa, e il primo resta il più basso di tutti. Letta come decimali, la
+stessa tabella metterebbe un `705` secco accanto a numeri come 101,291 e 345,729
+— sei cifre, non cinque — e darebbe un primo modo più alto di tutti gli altri.
+Lo scarto dello 0,19% **non distingue** le due letture: è un rapporto, e vale
+identico in entrambe. Il manuale non è stato riaperto in questo giro: se la
+Tabella 2 di `ccx_2.22.pdf` mostrasse decimali, allora `705` andrebbe riletto
+come `0,705` — trave compressa vicino all'instabilità — e questa nota va rifatta.
+
 **b) Peer-reviewed, tre codici contro prova sperimentale.** Pala eolica composita
 da 13 m, prova statica e dinamica a scala reale, tre modelli indipendenti
 Abaqus / ANSYS / CalculiX. Prima frequenza edgewise: **misurata 4,25 Hz**;
@@ -285,7 +298,7 @@ I valori dell'**autovalore 21** sono in **quarantena**: le due letture in archiv
 incompatibili fra loro. [`ricerca-calculix-e-c3d4.md`](ricerca-calculix-e-c3d4.md) § 2.3
 (questo documento) riportava tre colonne — 11,538 (hex Nastran) / 11,538 (hex isoparametrico)
 / **38,276** (5 tet); [`ricerca-vv-standard.md`](ricerca-vv-standard.md) § 4.3 «Numeri — quanto
-sbaglia un tet lineare su una mensola» ne riportava due — 11.538 vs 13.915 e 37.500 vs 46.085
+sbaglia un tet lineare su una mensola» ne riportava due — 11,538 vs 13,915 e 37,500 vs 46,085
 (×10⁷). Entrambe le letture sono **non riscontrabili sulla fonte, da rileggere** sulla Tab. 1
 del paper, che non è versionato nel repository: fino ad allora nessuna delle due va citata.
 
@@ -300,6 +313,12 @@ Materiale pienamente incomprimibile, elementi ibridi Abaqus:
 | pressione di picco, 700 N + 100 N taglio | 1303 kPa | 1434 kPa (+10,0%) | 1389 kPa (+6,6%) |
 | elementi | 33.120 | 106.261 (3,2×) | 39.732 |
 | CPU s | 66.555 | 44.032 | 162.973 |
+
+**I secondi di CPU restano da confermare.** Sotto la convenzione di questa
+cartella `66.555` si legge 66 555 s, cioè 18 ore, ed è la lettura coerente con la
+riga degli elementi (dove `106.261 / 33.120 = 3,2` come la tabella stessa
+dichiara). La fonte però è a pagamento e non è stata aperta: se fossero decimali
+sarebbero 66,6 s, e la conclusione sul costo cambierebbe di segno.
 
 **Cifuentes & Kalbag (1992)**, *Finite Elements in Analysis and Design*
 12(3-4):313-318 — tet quadratici ed esaedri equivalenti per accuratezza e tempo

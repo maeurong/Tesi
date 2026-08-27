@@ -44,3 +44,7 @@ Cartella di lavoro Abaqus/
 # ogni chiamata come non tracciata -- rumore fisso, che nasconde le righe che
 # contano davvero.
 /.claude/worktrees/
+
+# `test_riferimenti_documenti.py` carica lo script di docs/validazione dal
+# percorso: senza questa riga la suite lascia un __pycache__ fuori da meshrec/.
+__pycache__/
