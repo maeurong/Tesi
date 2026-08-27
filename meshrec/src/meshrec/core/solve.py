@@ -307,13 +307,21 @@ def _righe_dat(percorso: Path, righe: list[str] | None) -> list[str]:
     a mano; il percorso resta comunque richiesto, cosi' l'errore di un file
     mancante continua a nominarlo.
 
-    `errors="replace"` e non `"ignore"`: un byte scartato puo' incollare due
-    campi in uno e cambiare il conteggio su cui questi parser decidono, un
-    byte sostituito no.
+    `errors="ignore"` e non `"replace"`, misurato e non scelto a orecchio: i
+    tre parser distinguono una riga di dati da una di intestazione contando i
+    campi, e delle due opzioni e' `replace` quella che il conteggio lo cambia.
+    Un byte fuori tabella isolato fra due spazi diventa `U+FFFD`, che non e'
+    spazio ma nemmeno si attacca ai vicini: e' un campo in piu', la riga non
+    passa piu' il suo `len(campi)` e i modi che seguono si perdono. Con
+    `ignore` il byte sparisce e i campi restano quelli. Sull'altro caso -- un
+    byte incollato fra due cifre -- le due opzioni danno lo stesso conteggio
+    (`1.02.0` e `1.0\ufffd2.0` sono entrambi un campo solo), quindi `replace`
+    non protegge da niente: il byte non e' uno spazio in nessuna delle due
+    letture, e non puo' separare due campi che erano uniti.
     """
     if righe is not None:
         return righe
-    return Path(percorso).read_text(encoding="ascii", errors="replace").splitlines()
+    return Path(percorso).read_text(encoding="ascii", errors="ignore").splitlines()
 
 
 def leggi_reazioni(

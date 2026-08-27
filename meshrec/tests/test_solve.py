@@ -659,6 +659,68 @@ def test_i_tre_parser_del_dat_restano_chiamabili_col_solo_percorso(tmp_path):
     assert solve.leggi_reazioni(vuoto) == {}
 
 
+def test_le_righe_gia_lette_sostituiscono_davvero_la_lettura_del_file(tmp_path):
+    """L'oracolo del parametro `righe`, che senza di questo non ne ha.
+
+    Sostituire l'intero corpo di `_righe_dat` con la sola lettura dal
+    percorso -- cioe' ignorare il parametro -- lasciava la suite verde:
+    rileggere lo stesso file da' lo stesso risultato, e nessun test
+    distingueva le due cose. Qui il file **non c'e' piu'** quando i parser
+    partono, quindi l'unico modo di rendere le frequenze e' usare le righe
+    ricevute.
+
+    Mutazione che lo uccide: ignorare `righe` in `_righe_dat`. I tre parser
+    vanno a leggere un file cancellato e sollevano `FileNotFoundError`.
+    """
+    percorso = tmp_path / "sparito.dat"
+    percorso.write_text(DAT_FREQUENZE, encoding="ascii")
+    righe = percorso.read_text(encoding="ascii").splitlines()
+    percorso.unlink()
+
+    assert solve.leggi_frequenze(percorso, righe=righe) == pytest.approx(
+        [4384.661, 4384.661, 6164.044, 9633.291]
+    )
+    assert solve.leggi_massa_modale(percorso, righe=righe) is None
+    assert solve.leggi_reazioni(percorso, righe=righe) == {}
+
+
+def test_un_byte_non_ascii_non_aggiunge_un_campo_alla_riga_di_dati(tmp_path):
+    """Perche' la lettura condivisa decodifica con `errors="ignore"`.
+
+    Il `.dat` si dichiara ASCII e `ccx` lo scrive ASCII, ma la scelta di che
+    cosa fare di un byte fuori tabella cambia il **conteggio dei campi**, che
+    e' il criterio con cui questi tre parser distinguono una riga di dati da
+    una di intestazione. Misurato sulle due opzioni, con un byte isolato fra
+    due spazi in mezzo a una riga a cinque campi:
+
+    - `errors="ignore"` scarta il byte, restano cinque campi e la riga si
+      legge;
+    - `errors="replace"` mette `U+FFFD`, che non e' spazio ma nemmeno si
+      attacca ai vicini: diventa un **sesto** campo, la riga non passa piu'
+      il `len(campi) != 5` e `leggi_frequenze` si ferma li', perdendo i modi
+      che seguono.
+
+    Sull'altro caso -- byte incollato fra due cifre -- le due opzioni danno
+    lo stesso conteggio (`1.02.0` e `1.0\ufffd2.0` sono entrambi un campo
+    solo), quindi `replace` non protegge da nulla e in cambio inventa un
+    campo dove `ignore` non ne inventa. Il byte non e' uno spazio in nessuna
+    delle due letture: non puo' separare due campi che erano uniti.
+
+    Mutazione che lo uccide: rimettere `errors="replace"` in `_righe_dat`.
+    Escono due frequenze invece di quattro.
+    """
+    percorso = tmp_path / "sporco.dat"
+    intera = DAT_FREQUENZE.encode("ascii").replace(
+        b"      3   0.1500000E+10", b"      3 \xb0 0.1500000E+10"
+    )
+    assert b"\xb0" in intera
+    percorso.write_bytes(intera)
+
+    assert solve.leggi_frequenze(percorso) == pytest.approx(
+        [4384.661, 4384.661, 6164.044, 9633.291]
+    )
+
+
 def test_leggi_reazioni_su_dat_senza_blocco_forze_non_solleva(tmp_path):
     """Ingresso degenere 1: `.dat` senza alcun blocco di reazioni -> dizionario
     vuoto, non un'eccezione. Codice gia' corretto (nessun ramo puo' sollevare
