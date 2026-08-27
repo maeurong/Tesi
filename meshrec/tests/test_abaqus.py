@@ -1171,9 +1171,11 @@ def test_un_maglio_senza_elementi_non_scrive_un_deck(tmp_path):
     un controllo di conservazione non ha niente da conservare, e non
     distinguerlo da un modello sano e' peggio di non averlo.
 
-    La guardia sta in `write_inp` e non nei chiamanti: `export_model` e'
-    l'unico chiamante di produzione e ci passa attraverso, quindi una sola
-    guardia copre entrambe le porte.
+    Questo test prova il percorso **diretto**: `write_inp` chiamata con gli
+    argomenti gia' pronti. Il percorso di produzione passa da `export_model`,
+    che col maglio vuoto non arriva mai fin qui e ha una guardia propria: la
+    prova sta nel test subito sotto. I due non si fondono -- uccidono due
+    guardie diverse in due funzioni diverse.
 
     Ordine dichiarato quando anche `element_type` e' ignoto: parla prima il
     tipo. Senza un tipo noto non si sa nemmeno quante colonne aspettarsi, e
@@ -1200,6 +1202,32 @@ def test_un_maglio_senza_elementi_non_scrive_un_deck(tmp_path):
             material=MATERIALE, element_type="C3D999",
         )
     assert not percorso.exists()
+
+
+def test_export_model_col_maglio_vuoto_nomina_gli_elementi_non_i_nodi(tmp_path):
+    """La porta di produzione rifiuta il maglio vuoto, e dice perche'.
+
+    Misurato prima di questa guardia: `export_model` non raggiungeva affatto la
+    guardia di `write_inp`. Con zero elementi `boundary_faces` non da' bordo, il
+    riferimento per la terna resta vuoto e `align_to_axes` solleva per primo con
+    «nessun nodo da allineare» -- un errore vero, ma sui **nodi**, mentre gli
+    otto nodi passati qui ci sono tutti. Chi legge quel messaggio cerca il
+    difetto nella nuvola invece che nel maglio.
+
+    Mutazione che lo uccide: togliere il controllo su `len(elements)` da
+    `export_model`. Il test torna rosso sul messaggio, non sul tipo di
+    eccezione, perche' e' il messaggio la cosa che era sbagliata.
+    """
+    with pytest.raises(ValueError, match="nessun elemento"):
+        abaqus.export_model(
+            tmp_path / "m.inp",
+            tmp_path / "m.vtu",
+            np.zeros((8, 3)),
+            np.zeros((0, 4), dtype=np.int64),
+            config.AnalysisConfig(material=MATERIALE),
+            TET_LINEARE,
+        )
+    assert list(tmp_path.iterdir()) == [], "niente sul disco: né il deck né il .vtu"
 
 
 def test_tie_e_pressione_risolvono_le_superfici_ignorando_le_maiuscole(tmp_path):
