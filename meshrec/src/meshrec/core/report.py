@@ -598,8 +598,10 @@ CONFRONTABILI: dict[str, bool] = {
 - scostamento dalla nuvola sorgente: si', ed e' il perno -- e' definito allo
   stesso modo per tutti e tre e risponde alla domanda vera, quanto costa in
   fedelta' al rilievo la regolarizzazione della forma;
-- numero di nodi e gradi di liberta': si', ma solo accanto al tipo di elemento,
-  perche' un C3D8I e un C3D4 non spendono lo stesso per nodo;
+- numero di nodi: si', ma solo accanto al tipo di elemento, perche' un C3D8I e
+  un C3D4 non spendono lo stesso per nodo. La riga si intitola «nodi e tipo di
+  elemento» e non «gradi di liberta'»: quel numero, 3 x nodi per un solido a
+  spostamenti, non lo calcola nessuno in questa fase;
 - qualita' degli elementi: NO. Rapporto raggio-spigolo per i tetraedri
   (radius_edge_ratio, la misura; tet.min_ratio e' invece il vincolo chiesto a
   TetGen), Jacobiano scalato per gli esaedri: due colonne separate, mai una
@@ -761,18 +763,30 @@ def confronta(cartelle: list[Path]) -> dict[str, object]:
 
 
 _ETICHETTE_GRANDEZZE: tuple[tuple[str, str], ...] = (
-    ("volume", "volume"),
-    ("massa", "massa"),
+    ("volume", "volume [mm^3]"),
+    ("massa", "massa [t]"),
     ("scostamento_nuvola", "scostamento dalla nuvola [mm]"),
-    ("gradi_di_liberta", "gradi di libertà"),
+    ("gradi_di_liberta", "nodi e tipo di elemento"),
 )
 """Che cosa si intitola ogni riga della tabella delle grandezze confrontabili.
 
 Sorella di _COLUMNS, e per la stessa ragione: una chiave non si stampa mai, si
 stampa la sua etichetta. Le chiavi restano quelle di CONFRONTABILI e dei
 modello.json gia' sul disco, l'etichetta e' l'italiano che legge chi ha in mano
-l'appendice. L'unita' sta dentro l'etichetta, come in
-("thickness_error", "errore di spessore [mm]").
+l'appendice.
+
+L'unita' sta dentro l'etichetta, come in
+("thickness_error", "errore di spessore [mm]"): in un'appendice cartacea una
+colonna «massa» con dentro 0,25 non dice se sono tonnellate o chilogrammi.
+mm^3 e non mm3 e' la grafia gia' in casa -- config.py scrive «densita [t/mm^3]»
+e app.js la mostra cosi'.
+
+`gradi_di_liberta` **non** si intitola «gradi di liberta'»: la chiave e' quella,
+ma confronta() ci mette {"nodi", "elemento"} e i gradi di liberta' sarebbero
+3 x nodi per un solido a spostamenti -- un numero che nessuno calcola qui.
+Un'etichetta piu' credibile del suo contenuto e' peggio della chiave nuda: con
+`gradi_di_liberta` in testa il lettore scartava la riga, con l'italiano di
+appendice ci crede.
 """
 
 

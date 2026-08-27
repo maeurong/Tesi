@@ -1310,7 +1310,7 @@ def test_i_gradi_di_liberta_dichiarati_confrontabili_compaiono_nella_tabella(tmp
         encoding="utf-8"
     )
 
-    assert "<th>gradi di libertà</th>" in testo
+    assert "<th>nodi e tipo di elemento</th>" in testo
     assert "C3D8I" in testo  # element_type del ramo esaedri, dentro la riga
 
 
@@ -1384,3 +1384,68 @@ def test_due_cartelle_dello_stesso_tipo_si_segnalano_invece_di_sovrascriversi(tm
 
     with pytest.raises(ValueError, match="estruso"):
         report.confronta([cartelle[0], originale, duplicato])
+
+
+def _righe_grandezze(testo: str) -> list[tuple[str, list[str]]]:
+    """Le righe della prima tabella, come (intestazione, celle)."""
+    return [
+        (intestazione, re.findall(r"<td>(.*?)</td>", celle))
+        for intestazione, celle in re.findall(r"<tr><th>([^<]+)</th>((?:<td>.*?</td>)+)</tr>", testo)
+    ]
+
+
+def test_l_etichetta_della_riga_nomina_cio_che_la_cella_contiene(tmp_path):
+    """Un'etichetta piu' credibile della cella e' peggio della chiave nuda.
+
+    `gradi di liberta'` sopra `nodi 1000, elemento C3D4` prometteva una
+    grandezza che la cella non porta -- i gradi di liberta' sarebbero 3 x nodi
+    per un solido a spostamenti, e quel numero non e' scritto da nessuna parte.
+    Con la chiave nuda in testa il lettore scartava la riga; con l'italiano di
+    appendice ci crede. L'etichetta deve nominare cio' che `confronta` mette
+    davvero nella cella.
+
+    Mutazione che deve morire: rimettere "gradi di liberta'" (accentato) come
+    etichetta della riga sopra una cella di nodi e tipo di elemento.
+    """
+    cartelle = _tre_cartelle_finte(tmp_path)
+    confronto = report.confronta(cartelle)
+    testo = report.write_comparison_report(cartelle, tmp_path / "confronto.html").read_text(
+        encoding="utf-8"
+    )
+
+    etichetta = dict(report._ETICHETTE_GRANDEZZE)["gradi_di_liberta"]
+    dentro = confronto["gradi_di_liberta"]["as-built"]
+
+    for campo in dentro:
+        assert campo in etichetta, (
+            f"la cella porta il campo '{campo}' e l'etichetta «{etichetta}» non lo nomina: "
+            "l'intestazione promette una grandezza diversa da quella stampata"
+        )
+    celle = ["nodi 1000, elemento C3D4", "nodi 7000, elemento C3D8I", "nodi 7000, elemento C3D8I"]
+    assert (etichetta, celle) in _righe_grandezze(testo)
+
+
+def test_ogni_grandezza_numerica_porta_l_unita_nell_etichetta(tmp_path):
+    """Un numero senza unita' in un'appendice cartacea non si ricostruisce.
+
+    Una colonna «massa» con dentro 0,25 non dice se sono tonnellate o
+    chilogrammi, e il lettore non ha il codice sotto mano. Il precedente e'
+    _COLUMNS, che scrive ("thickness_error", "errore di spessore [mm]").
+    Nessun elenco tenuto a mano: e' numerica la riga le cui celle sono tutte
+    numeri.
+
+    Mutazione che deve morire: togliere `[mm^3]` da volume o `[t]` da massa.
+    """
+    cartelle = _tre_cartelle_finte(tmp_path)
+    testo = report.write_comparison_report(cartelle, tmp_path / "confronto.html").read_text(
+        encoding="utf-8"
+    )
+
+    numeriche = [
+        intestazione
+        for intestazione, celle in _righe_grandezze(testo)
+        if celle and all(re.fullmatch(r"-?[\d.,]+", c) for c in celle)
+    ]
+    assert len(numeriche) == 3, f"righe di soli numeri trovate: {numeriche}"
+    senza = [i for i in numeriche if "[" not in i]
+    assert not senza, f"grandezze numeriche senza unita' nell'etichetta: {senza}"

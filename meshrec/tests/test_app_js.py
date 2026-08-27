@@ -35,6 +35,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from meshrec.app.server import UI_DIR, create_app
+from meshrec.core import report
 from meshrec.core.config import InputConfig, PipelineConfig, save_config
 from materiale import ANALISI
 
@@ -3363,6 +3364,50 @@ assert.match(righe, /scostamento dalla nuvola \\[mm\\]/,
 assert.doesNotMatch(righe, /scostamento_nuvola/,
   "la chiave del dizionario e' finita a video");
 """)
+
+
+def test_le_etichette_del_pannello_sono_quelle_del_report(tmp_path):
+    """Le stesse etichette vivono in due sorgenti, e dichiararlo non lega niente.
+
+    Il pannello e' proiettato in discussione, il report finisce in appendice
+    cartacea: chi cambia un'etichetta in `core/report.py` e non in `app.js` fa
+    dire due cose diverse alle due superfici, con la suite verde. Il commento in
+    `app.js` dichiara gia' il legame -- questo lo verifica, eseguendo la
+    `caricaConfronto` vera e leggendo le intestazioni che ha reso.
+
+    I gradi di liberta' sono la sola grandezza esclusa dal pannello, e per una
+    ragione: il valore e' un oggetto e qui non c'e' il `_testo` che lo sa
+    scrivere. Una quinta grandezza confrontabile che entrasse nel report senza
+    entrare qui rende questa lista piu' corta dell'attesa, e il confronto rosso.
+
+    Mutazioni che devono morire: cambiare un'etichetta in `report.py` senza
+    cambiarla in `app.js`; aggiungere una grandezza al report e non al pannello.
+    """
+    solo_nel_report = {"gradi_di_liberta"}
+    attese = [e for c, e in report._ETICHETTE_GRANDEZZE if c not in solo_nel_report]
+    payload = {c: {"as-built": 1} for c, _ in report._ETICHETTE_GRANDEZZE}
+
+    uscita = _esegui(tmp_path, _banco_di_caricaConfronto() + f"""
+risponde["/api/compare"] = async () => ({{
+  ok: true,
+  json: async () => ({{
+    scheda_singola: false,
+    ...{json.dumps(payload)},
+    note_non_geometriche: [],
+    vincoli_giunzioni: {{}},
+    chiusura_volume: null,
+  }}),
+}});
+await caricaConfronto();
+console.log(JSON.stringify(
+  document.getElementById("confronto-tabella").figli.map(
+    (r) => r.textContent.split(" \u2014 ")[0],
+  ),
+));
+""")
+
+    # Le ultime due righe del pannello sono fisse e non sono grandezze.
+    assert json.loads(uscita) == attese + ["note", "vincoli alle giunzioni"]
 
 
 def test_caricaConfronto_mostra_le_note_e_i_vincoli_alle_giunzioni(tmp_path):

@@ -1733,11 +1733,13 @@ async function caricaConfronto(ordine = generazione) {
   const tabella = document.getElementById("confronto-tabella");
   tabella.replaceChildren();
   // Una chiave non si stampa mai, si stampa la sua etichetta. Stesse etichette
-  // di _ETICHETTE_GRANDEZZE in core/report.py, meno i gradi di liberta': li' il
-  // valore e' un oggetto e il pannello non ha il _testo che lo sa scrivere.
+  // di _ETICHETTE_GRANDEZZE in core/report.py, meno nodi-e-tipo-di-elemento:
+  // li' il valore e' un oggetto e il pannello non ha il _testo che lo sa
+  // scrivere. Il legame fra le due liste non e' solo dichiarato qui: lo verifica
+  // test_app_js.py::test_le_etichette_del_pannello_sono_quelle_del_report.
   for (const [grandezza, etichetta] of [
-    ["volume", "volume"],
-    ["massa", "massa"],
+    ["volume", "volume [mm^3]"],
+    ["massa", "massa [t]"],
     ["scostamento_nuvola", "scostamento dalla nuvola [mm]"],
   ]) {
     const riga = document.createElement("p");
