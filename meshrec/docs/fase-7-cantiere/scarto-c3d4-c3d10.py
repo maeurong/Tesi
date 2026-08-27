@@ -2,11 +2,24 @@
 """Rimisura i numeri di `docs/validazione/scarto-c3d4-c3d10-telaio.md` (#45).
 
 Non fa parte del programma: sta sotto `docs/` apposta, sul modello di
-`docs/fase-6-cantiere/misura-carichi.py`. Ogni valore che il documento
-pubblica porta qui il proprio `assert`: se qualcosa si muove, questo script
-cade invece di stampare in silenzio un numero diverso da quello scritto.
+`docs/fase-6-cantiere/misura-carichi.py`.
 
     uv run python docs/fase-7-cantiere/scarto-c3d4-c3d10.py [cartella-runs]
+
+**Che cosa asserisce, e che cosa no.** Non ogni valore del documento porta qui
+il proprio `assert`. Sono **inchiodati al valore** i conteggi del maglio
+(vertici e facce della superficie di partenza, elementi, nodi, gradi di
+liberta', punti di Steiner), la massa, i tre numeri della corsa C3D4 gia'
+pubblicati in Fase 5 (`|u|max` gravita', von Mises max gravita', prima
+frequenza) e i cinque scarti percentuali della tabella -- che, presi insieme a
+quei tre, inchiodano altrettanti valori C3D10. Sono **vincolati nella sola
+forma** le frequenze dal secondo all'ottavo modo (la sola monotonia
+C3D4 > C3D10), il verso dello spostamento a gravita', e la quota del picco a
+gravita' (la sola distanza fra le due corse, sotto i 2 mm). **Non sono
+guardati affatto** i secondi di solutore, la quota del picco a spinta, e i
+valori assoluti di `|u|max` spinta e von Mises max spinta, di cui e' fissato
+il solo rapporto fra le due corse. Se si muove un numero inchiodato lo script
+cade; se si muove uno degli altri, no.
 
 **Legge e non scrive dentro `runs/`.** Parte dalla superficie gia' riparata
 della corsa di riferimento (`runs/lab_telaio_v2/06_repaired.ply`) e scrive le
