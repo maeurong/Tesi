@@ -855,7 +855,7 @@ def test_un_momento_come_coppia_non_e_scartato_in_silenzio(tmp_path):
     assert orizzontali > 1e-3, "la coppia non ha mosso nulla oltre il rumore: e' muta come la card sul grado 4"
 
 
-def test_una_pressione_non_persiste_nel_passo_statico_successivo(tmp_path):
+def test_una_pressione_persiste_finche_non_la_si_ridichiara_a_zero(tmp_path):
     """La sonda di #84, della stessa forma di quella di `*CLOAD`.
 
     Un `*CLOAD` scritto in un passo statico **resta attivo** in ogni passo
@@ -865,37 +865,45 @@ def test_una_pressione_non_persiste_nel_passo_statico_successivo(tmp_path):
     stata smentita in CI il 27/08/2026: `ccx` 2.21 non riconosce quel
     parametro su questa card e ne fa due avvisi, senza applicarlo.
 
-    Quindi si misura la persistenza invece di dedurla. Tre passi statici sullo
-    stesso tetraedro incastrato: il secondo dichiara una pressione, il terzo
-    non dichiara nulla. La pressione agisce sulla faccia y = 0 e preme lungo
-    +y, dove il peso proprio non porta nulla: `RF_y` sul set vincolato isola
-    la pressione **senza sottrazioni**, e la sua area e' esatta (100 x 100 / 2
-    = 5000 mm², per 1 MPa fanno 5000 N).
+    Quindi la persistenza si misura invece di dedurla. Quattro passi statici
+    sullo stesso tetraedro incastrato:
 
-    Il numero che il passo 2 stampa non e' pero' -5000 ma **-5000/3**, ed e'
-    giusto cosi': sotto carico `RF` non e' la sola reazione ma «the sum of the
-    reaction forces and the loading forces» (manuale CalculiX §6.11.5). La
-    faccia caricata ha tre nodi, due dei quali (1 e 2) stanno in `BASSO`: la
-    reazione totale vale -5000 N, i due terzi del carico consistente
-    (+3333,33 N) si sommano sui nodi stampati, e restano -1666,67 N. Misurato
-    in CI il 27/08/2026: -1666,667152. Il terzo nodo della faccia (4) e'
+    | passo | `*DSLOAD` dichiarato li' dentro | misurato in CI il 27/08/2026 |
+    |---|---|---|
+    | 1 | *(nessuno)* | `RF_y` 0,0 |
+    | 2 | `PELLE, P, 1.0` | `RF_y` -1666,667152 |
+    | 3 | *(nessuno)* | `RF_y` -1666,667152 — **persiste** |
+    | 4 | `PELLE, P, 0.0` + `PELLE2, P, 1.0` | `RF_y` a zero, `RF_x` -1666,667152 |
+
+    Le due pressioni agiscono su facce perpendicolari (`PELLE` su y = 0,
+    `PELLE2` su x = 0) e il peso proprio non porta nulla ne' su x ne' su y:
+    ogni componente isola la propria pressione **senza sottrazioni**, e le due
+    aree sono esatte (100 x 100 / 2 = 5000 mm², per 1 MPa fanno 5000 N).
+
+    Il numero stampato non e' pero' -5000 ma **-5000/3**, ed e' giusto cosi':
+    sotto carico `RF` non e' la sola reazione ma «the sum of the reaction
+    forces and the loading forces» (manuale CalculiX §6.11.5). La faccia
+    caricata ha tre nodi, due dei quali stanno in `BASSO`: la reazione totale
+    vale -5000 N, i due terzi del carico consistente (+3333,33 N) si sommano
+    sui nodi stampati, e restano -1666,67 N. Il terzo nodo della faccia e'
     libero e non entra nella stampa.
 
-    Se il passo 3 mostra ancora quei 5000 N, `write_inp` scrive decks in cui
-    la seconda pressione si somma alla prima e serve un modo -- che `ccx`
-    accetti -- di azzerarla. Se torna a zero, #84 non e' un difetto: e' un
-    esito negativo, e vale quanto uno positivo.
+    Il passo 4 e' la forma esatta che `write_inp` scrive dal 27/08/2026: una
+    sola card `*DSLOAD` che azzera le superfici dei passi distribuiti
+    precedenti e dichiara la propria. Prova tre cose insieme -- che la
+    ridichiarazione **sostituisca** invece di sommarsi, che `P, 0.0` sia
+    accettato senza avvisi, e che piu' righe dati sotto una card sola valgano.
     """
     executable = shutil.which("ccx")
     if executable is None:
         pytest.skip("eseguibile 'ccx' non presente nel PATH")
 
     tetraedro = np.array([[0, 1, 2, 3]], dtype=np.int64)
-    # Il numero di faccia non si indovina: lo da' la tabella del programma,
+    # I numeri di faccia non si indovinano: li da' la tabella del programma,
     # gia' provata contro il solutore dal test della pressione su S4.
-    superficie = abaqus.element_surface(tetraedro, np.array([0, 1, 3]), "C3D4")
-    assert len(superficie) == 1, "la faccia y=0 del tetraedro non e' una sola"
-    faccia = superficie[0][1]
+    faccia_y = abaqus.element_surface(tetraedro, np.array([0, 1, 3]), "C3D4")
+    faccia_x = abaqus.element_surface(tetraedro, np.array([0, 2, 3]), "C3D4")
+    assert len(faccia_y) == 1 and len(faccia_x) == 1, "le due facce non sono una sola ciascuna"
 
     peso = "TUTTO, GRAV, 9810.0, 0.0, 0.0, -1.0"
     stampa = "*NODE PRINT, NSET=BASSO\nRF\n*END STEP"
@@ -911,7 +919,9 @@ sonda #84: una pressione dichiarata in un passo agisce anche in quello dopo?
 *NSET, NSET=BASSO
 1, 2, 3
 *SURFACE, TYPE=ELEMENT, NAME=PELLE
-1, S{faccia}
+1, S{faccia_y[0][1]}
+*SURFACE, TYPE=ELEMENT, NAME=PELLE2
+1, S{faccia_x[0][1]}
 *SOLID SECTION, ELSET=TUTTO, MATERIAL=ACCIAIO
 *MATERIAL, NAME=ACCIAIO
 *ELASTIC
@@ -940,6 +950,15 @@ PELLE, P, 1.0
 *DLOAD
 {peso}
 {stampa}
+** PASSO 4: PELLE ridichiarata a zero, PELLE2 dichiarata: una card sola.
+*STEP
+*STATIC
+*DLOAD
+{peso}
+*DSLOAD
+PELLE, P, 0.0
+PELLE2, P, 1.0
+{stampa}
 """
     (tmp_path / "sonda.inp").write_text(deck, encoding="ascii")
 
@@ -947,24 +966,30 @@ PELLE, P, 1.0
         [executable, "-i", "sonda"], cwd=tmp_path, capture_output=True, text=True, timeout=600,
     )
     assert processo.returncode == 0, processo.stdout[-2000:] + processo.stderr[-2000:]
-    # Anche la prova che un `*DSLOAD` senza parametri non fa rumore: e' la
-    # forma che `_passo_statico` scrive dopo il 27/08/2026.
+    # Anche la prova che un `*DSLOAD` senza parametri, e una riga `P, 0.0`,
+    # non fanno rumore: e' la forma che `_passo_statico` scrive.
     assert not avvisi_inattesi(processo.stdout), "\n".join(avvisi_inattesi(processo.stdout))
 
-    def fy(passo: int) -> float:
+    def reazione(passo: int) -> np.ndarray:
         reazioni = solve.leggi_reazioni(tmp_path / "sonda.dat", passo=passo)
-        return float(np.sum(np.array(list(reazioni.values()), dtype=np.float64), axis=0)[1])
+        return np.sum(np.array(list(reazioni.values()), dtype=np.float64), axis=0)
 
-    solo_peso, con_pressione, dopo = fy(1), fy(2), fy(3)
-    assert abs(solo_peso) < 1e-6, f"il peso proprio non deve dare RF_y: {solo_peso}"
-    assert con_pressione == pytest.approx(-5000.0 / 3.0, rel=1e-5), (
-        f"la pressione non arriva al solutore come dovrebbe: RF_y del passo 2 "
-        f"vale {con_pressione} invece di -5000/3 (vedi il docstring: reazione "
-        "totale piu' i due terzi del carico applicati sui nodi stampati)"
+    solo_peso, con_pressione, dopo, azzerata = (reazione(n) for n in (1, 2, 3, 4))
+    atteso = -5000.0 / 3.0
+
+    assert abs(solo_peso[1]) < 1e-6, f"il peso proprio non deve dare RF_y: {solo_peso}"
+    assert con_pressione[1] == pytest.approx(atteso, rel=1e-5), (
+        f"la pressione non arriva al solutore come dovrebbe: {con_pressione}"
     )
-    assert abs(dopo) < 1e-6, (
-        "la pressione del passo 2 e' ancora attiva nel passo 3: RF_y vale "
-        f"{dopo} invece di zero (passo 1 {solo_peso}, passo 2 {con_pressione}). "
-        "Un *DSLOAD persiste come un *CLOAD, e i passi distribuiti di write_inp "
-        "si sommano (#84)"
+    assert dopo[1] == pytest.approx(atteso, rel=1e-5), (
+        f"il passo 3 non dichiara alcun *DSLOAD e la sua RF_y vale {dopo[1]}: se "
+        "fosse zero la pressione non persisterebbe, e #84 non sarebbe un difetto"
+    )
+    assert abs(azzerata[1]) < 1e-6, (
+        f"ridichiarare `PELLE, P, 0.0` non azzera la pressione del passo 2: RF_y "
+        f"vale {azzerata[1]} invece di zero. La ridichiarazione si somma invece di "
+        "sostituire, e i passi distribuiti hanno bisogno di un altro rimedio (#84)"
+    )
+    assert azzerata[0] == pytest.approx(atteso, rel=1e-5), (
+        f"la seconda pressione della stessa card non arriva: RF_x vale {azzerata[0]}"
     )
