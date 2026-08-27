@@ -191,8 +191,10 @@ def test_i_numeri_restano_scritti_anche_quando_la_stima_non_si_fa():
 
 def test_un_punto_fisso_che_trabocca_si_dichiara_invece_di_alzare_overflow():
     """#86. Il punto fisso diverge, `r21**p` supera il massimo float e il
-    ciclo alzava `OverflowError` in faccia al chiamante. Misurato su 200.000
-    triple monotone con rapporti in [1,3; 3,0]: 14.924 crash, il 7,5%.
+    ciclo alzava `OverflowError` in faccia al chiamante. Su 200.000 triple
+    monotone con rapporti in [1,3; 3,0]: 16.245 eccezioni, l'8,12%, tutte
+    `OverflowError`. Le cifre le rifa
+    `docs/fase-7-cantiere/punto-fisso-degenere.py`, seme 0.
     """
     esito = convergenza.stima((0.1, 1.5, 2.2), (1.0, 1.3, 2.21),
                               fattore=FATTORE, ordine_formale=2.0)
@@ -214,10 +216,11 @@ def test_tre_valori_equispaziati_non_dividono_per_zero():
 
 def test_un_punto_fisso_che_non_converge_non_rende_l_ultimo_iterato():
     """#88. Duecento giri senza convergere e il ciclo rendeva `p` comunque,
-    indistinguibile da un ordine misurato. Non e' codice morto: misurato su
-    200.000 triple, 4.336 non convergono (2,17%) e 1.319, cioe' lo 0,66% del
+    indistinguibile da un ordine misurato. Non e' codice morto: su 200.000
+    triple 3.435 esauriscono i 200 giri (1,72%) e 825, cioe' lo 0,41% del
     campione, uscivano `asintotico` con una `gci_fine` numerica. Qui il residuo
-    dell'ultimo giro vale 0,85, non un'inezia di arrotondamento.
+    dell'ultimo giro vale 0,85, non un'inezia di arrotondamento. Le cifre le
+    rifa `docs/fase-7-cantiere/punto-fisso-degenere.py`, seme 0.
     """
     esito = convergenza.stima((0.1, 0.6, 12.6), (1.0, 1.3, 2.34),
                               fattore=FATTORE, ordine_formale=2.0)

@@ -130,10 +130,12 @@ def ordine_osservato(f1: float, f2: float, f3: float, r21: float, r32: float) ->
         if abs(nuovo - p) < 1e-12:
             return nuovo
         p = nuovo
-    # Non e' codice morto: misurato su 200.000 triple monotone con rapporti in
-    # [1,3; 3,0], 4.336 non convergono (2,17%) e 1.319 di quelle uscivano
-    # `asintotico` con una `gci_fine` numerica, residuo mediano 2,5e-3 e massimo
-    # 17,4. L'ultimo iterato di un punto fisso che non converge non e' l'ordine.
+    # Non e' codice morto: su 200.000 triple monotone con rapporti in [1,3; 3,0]
+    # 3.435 esauriscono i 200 giri (1,72%), e in 825 -- lo 0,41% del campione --
+    # l'ultimo iterato cadeva in banda e usciva `asintotico` con una `gci_fine`
+    # numerica. Il residuo dell'ultimo giro e' mediano 9,5e-5 ma arriva a 74:
+    # l'ultimo iterato di un punto fisso che non converge non e' l'ordine.
+    # Le cifre le rifa `docs/fase-7-cantiere/punto-fisso-degenere.py`, seme 0.
     return math.nan
 
 
