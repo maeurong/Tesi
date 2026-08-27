@@ -893,6 +893,52 @@ class CaricoPosizionato(_ModelloBase):
         return self
 
 
+class CaricoDistribuito(_ModelloBase):
+    """Una pressione sulla pelle del solido, presa dai nodi di un selettore (#10).
+
+    **La differenza da `CaricoPosizionato`, che e' il motivo per cui esiste.**
+    Un posizionato dichiara una **risultante** e una direzione, e il programma
+    la spalma sui nodi presi: tutte le quote spingono nello stesso verso, anche
+    dove la parete e' girata. Una pressione invece agisce **normale alla
+    faccia**, punto per punto, quindi sull'as-built -- che e' una superficie
+    rilevata, storta e irregolare -- il carico **segue la forma**. E' l'unico
+    dei due che sappia descrivere il vento su un muro, la spinta della terra o
+    quella dell'acqua.
+
+    **Chi integra, e perche' conta.** Qui non si ripartisce nulla a mano: la
+    pressione va nel deck come `*DSLOAD, P` sulla superficie di elemento, ed e'
+    il solutore a integrarla sulle facce. Ne discende che questa strada
+    funziona sui **tetraedri quadratici**, dove `abaqus.ripartisci` deve
+    fermarsi: la ripartizione per area darebbe tutto ai vertici, mentre i
+    carichi consistenti di una faccia a sei nodi vogliono **zero** ai vertici
+    (Abaqus Theory Guide §3.2.6, vedi `docs/validazione/carichi-consistenti-tet10.md`).
+
+    **Il segno**, come lo intende la card `P`: positivo **preme dentro** la
+    faccia. Il negativo resta ammesso perche' la depressione e' un carico
+    fisico -- il vento che solleva una falda -- mentre lo zero no: sarebbe un
+    passo statico identico al peso proprio, con un nome che promette altro.
+
+    Infinito e NaN non si controllano qui: `_ModelloBase` porta
+    `allow_inf_nan=False` e li rifiuta gia' per ogni campo decimale del file.
+    Ripeterlo darebbe una guardia che non salta mai.
+    """
+
+    nome: NomeSet = Field(description="nome del passo statico e della superficie nel deck")
+    selettore: NomeSet = Field(description="nome di un selettore dichiarato in `selettori`")
+    pressione: float = Field(
+        description="pressione [N/mm²] normale alla faccia; positiva preme dentro"
+    )
+
+    @model_validator(mode="after")
+    def _la_pressione_non_e_nulla(self) -> "CaricoDistribuito":
+        if self.pressione == 0.0:
+            raise ValueError(
+                f"il carico '{self.nome}' ha pressione nulla: scriverebbe un passo "
+                "statico identico al peso proprio, con un nome che promette altro"
+            )
+        return self
+
+
 class CarichiConfig(_ModelloBase):
     """Casi di carico applicati al modello, oltre al peso proprio.
 
@@ -915,6 +961,14 @@ class CarichiConfig(_ModelloBase):
             "None: il codice a valle itera, e una corsa senza posizionati e una "
             "con la lista vuota sono lo stesso esperimento -- è la regola che "
             "l'impronta di sweep già applica al blocco intero"
+        ),
+    )
+    distribuiti: tuple[CaricoDistribuito, ...] = Field(
+        default=(),
+        description=(
+            "pressioni normali alla faccia, sulla superficie che i nodi del "
+            "selettore delimitano. Tupla vuota e non None per la stessa ragione "
+            "dei posizionati"
         ),
     )
 
@@ -987,7 +1041,7 @@ class PipelineConfig(_ModelloBase):
         return self
 
     @model_validator(mode="after")
-    def _i_posizionati_citano_selettori_dichiarati(self) -> "PipelineConfig":
+    def _i_carichi_col_selettore_citano_selettori_dichiarati(self) -> "PipelineConfig":
         # Il confronto sui nomi ignora il caso, come gia' fa
         # `_i_nomi_dei_selettori_non_collidono_coi_sei`. Una sola regola nel
         # modulo, non due: la ragione la' era misurata (ccx risolve gli *NSET
@@ -1009,7 +1063,12 @@ class PipelineConfig(_ModelloBase):
             riservati[passo_del_peso.casefold()] = passo_del_peso
         selettori_per_caso = _mappa_casefold(self.selettori)
         visti: dict[str, str] = {}
-        for carico in self.carichi.posizionati:
+        # Le due liste insieme e non due cicli: un distribuito e un posizionato
+        # omonimi scriverebbero due passi con lo stesso nome, e due cicli
+        # separati -- ognuno col proprio `visti` -- li lascerebbero passare
+        # entrambi. I controlli sono per il resto identici, perche' entrambi i
+        # carichi citano un selettore e danno il nome a un passo.
+        for carico in (*self.carichi.posizionati, *self.carichi.distribuiti):
             chiave_selettore = carico.selettore.casefold()
             if chiave_selettore not in selettori_per_caso:
                 raise ValueError(
@@ -1043,7 +1102,7 @@ class PipelineConfig(_ModelloBase):
                 )
             if chiave in visti:
                 raise ValueError(
-                    f"due carichi posizionati si chiamano '{visti[chiave]}' e "
+                    f"due carichi si chiamano '{visti[chiave]}' e "
                     f"'{carico.nome}': il deck scriverebbe due passi omonimi e i "
                     "due risultati sarebbero indistinguibili nel file risolto"
                 )

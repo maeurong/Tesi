@@ -145,7 +145,9 @@ maiuscole**: un selettore chiamato `base` collide comunque con `BASE` nel
 deck, anche se le due stringhe Python sono diverse. Il validatore normalizza
 perciò il confronto su entrambi i lati
 (`PipelineConfig._i_nomi_dei_selettori_non_collidono_coi_sei` per i selettori,
-`._i_posizionati_citano_selettori_dichiarati` per i nomi di carico, entrambi
+`._i_carichi_col_selettore_citano_selettori_dichiarati` per i nomi di carico
+— dal 27/08/2026 sia i posizionati sia i distribuiti, in un ciclo solo perché
+due liste separate lascerebbero passare due passi omonimi — entrambi
 in `core/config.py`), altrimenti rifiuterebbe un errore
 di battitura in un caso e ne lascerebbe passare uno identico nell'altro.
 
@@ -847,11 +849,17 @@ Riportato per intero e alla lettera, come approvato in fase di progetto:
 - **non ricostruisce topologia.** Nessuna faccia nominata, nessuno spigolo,
   nessuna membratura. Il selettore prende nodi per criterio geometrico, e
   basta.
-- **non applica alcun carico distribuito sull'as-built.** Né una pressione
+- ~~**non applica alcun carico distribuito sull'as-built.** Né una pressione
   vera né un carico direzionale. `ccx` 2.22 rifiuta la card `*DLOAD, TRVEC`
   con un errore fatale (misurato in una fase precedente), e un carico
   distribuito vero richiede di aprire `element_surfaces` sul percorso
-  as-built, che oggi non li passa: è il primo cantiere della coda.
+  as-built, che oggi non li passa: è il primo cantiere della coda.~~
+  **Superato il 27/08/2026**, chiudendo
+  [#10](https://github.com/maeurong/Tesi/issues/10): il § 10 racconta come.
+  Resta vero il pezzo su `TRVEC`, e resta vero che un carico distribuito
+  **direzionale** non esiste — la pressione è normale alla faccia, e la
+  direzione libera si ottiene con un posizionato, che è forza nodale e non
+  carico di superficie.
 - **non identifica fisicamente le facce.** I nomi `FACE_FRONT`, `SIDE_LEFT` e
   compagni restano nomi di convenzione, come il docstring di `build_node_sets`
   già dichiara (`core/abaqus.py`): la coppia di facce opposte è
@@ -876,7 +884,7 @@ in ordine di priorità dichiarata:
 1. **Un carico distribuito vero sull'as-built** — richiede di passare
    `element_surfaces` anche sul percorso as-built (oggi non lo fa) e una
    decisione di prodotto in più su come dichiarare una pressione su una
-   superficie senza nome.
+   superficie senza nome. **Fatto il 27/08/2026**, § 10.
 2. **Guardie sul modello mal vincolato** — verifica indipendente dai
    posizionati, che completa il controllo già esistente su quanto
    dell'impronta d'appoggio sia coperta dal vincolo.
@@ -905,3 +913,124 @@ misurata, non presunta, prima di essere dichiarata chiusa.
 Con lo stesso esito, e per la stessa ragione, la guardia sul pareggio dei
 valori singolari (§ 5.2): trovata aperta durante la stesura, chiusa e tarata
 prima della consegna. Sta al § 5.5, accanto al meccanismo che ripara, non qui.
+
+---
+
+## 10. La pressione sull'as-built, e la guardia che la smentisce
+
+Chiude [#10](https://github.com/maeurong/Tesi/issues/10), il primo cantiere
+della coda del § 9. Il ticket poneva due domande — da quali facce si costruisce
+la superficie, e in che direzione il carico può agire — e la risposta alla
+seconda era già stata scritta senza accorgersene.
+
+### 10.1 Metà del ticket era già chiusa
+
+Il ticket proponeva tre vie e chiedeva quale, e perché non le altre. La **via
+2** — «trazione ridotta a forze nodali, pesata per area di faccia» — **esiste
+dalla Fase 6 stessa**: è `carichi.posizionati` con `forza`
+(`core/abaqus.py`), che dichiara un vettore, lo ripartisce sui nodi del
+selettore in proporzione all'area tributaria via `ripartisci` →
+`element_surface`, lo scrive come `*CLOAD` con direzione libera, e mette a
+registro `forza_dichiarata` accanto a `forza_effettiva`. Anche le altre due
+domande del ticket avevano già risposta nel codice: l'area effettiva è in
+`area_totale`, e il nome lo porta il carico.
+
+Restava scoperta una cosa sola, ed è quella che questa sezione aggiunge: la
+**pressione vera**.
+
+### 10.2 Perché una pressione non è una forza con un verso
+
+Un posizionato dichiara una **risultante** e una direzione, e tutte le quote
+spingono nello stesso verso — anche dove la parete è girata. Una pressione
+agisce **normale alla faccia**, punto per punto: su una superficie rilevata,
+storta e irregolare, il carico **segue la forma**. È l'unico dei due che sappia
+descrivere il vento su un muro, la spinta della terra o quella dell'acqua.
+
+Nel deck non c'è nulla da inventare: la superficie di elemento esiste già
+(`element_surface`), la card `*SURFACE, TYPE=ELEMENT` la scrive già il percorso
+hexa, e `*DSLOAD, P` è la card che il solutore integra da sé. Il percorso
+as-built passava `carichi` e `selettori` ma non `element_surfaces` né
+`pressure`: era l'unico anello mancante.
+
+**Un guadagno che non era l'obiettivo.** Poiché è il solutore a integrare,
+questa strada vale anche sui **tetraedri quadratici**, dove `ripartisci` deve
+fermarsi: su una faccia a sei nodi i carichi consistenti di una pressione
+uniforme danno **zero ai vertici** (Abaqus Theory Guide §3.2.6), mentre la
+ripartizione per area tributaria darebbe loro tutto. La via vecchia solleva
+apposta; la nuova non ha il problema.
+
+### 10.3 La guardia, e da dove viene la sua soglia
+
+Un selettore a box che **attraversa** il pezzo prende i nodi di entrambi i
+lati. Le due pressioni si guardano e si annullano: la risultante esce quasi
+nulla mentre le tensioni locali ci sono per davvero. È un errore
+**autoequilibrato**, cioè della stessa specie di quello che il § 4 racconta per
+la ripartizione sui tetraedri quadratici: `controlla_reazioni` lo attraversa
+indenne, perché in equilibrio ci sta.
+
+La misura che lo coglie è l'**efficienza** della superficie:
+
+    efficienza = ‖ Σ aᵢ nᵢ ‖ / Σ aᵢ
+
+cioè la risultante di una pressione unitaria divisa per l'area su cui agisce.
+
+| superficie | efficienza |
+|---|---:|
+| faccia piana | 1 |
+| spigolo retto a facce uguali | 0,707 |
+| emisfero | **0,5** |
+| due facce opposte | 0 |
+
+**La soglia è 0,5, ed è derivata e non tarata.** 0,5 è esattamente l'emisfero:
+la superficie le cui normali coprono **esattamente un semispazio**, cioè il
+caso limite di un solo «lato». Sotto quel valore la superficie gira *oltre*
+l'opposto, ovvero avvolge il solido. È stata dichiarata prima di misurare
+qualunque caso reale, e il messaggio d'errore nomina le **due aree** — quanto
+spinge da una parte e quanto dall'altra — perché il rimedio è restringere il
+selettore, e per farlo bisogna sapere di quanto.
+
+**Ciò che l'indicatore non è**: una condizione necessaria. Una superficie può
+avere efficienza alta e non essere quella voluta. È un indicatore sufficiente
+del solo difetto che coglie, e la sua ragione di esistere è che quel difetto
+nessuna guardia di equilibrio lo vede.
+
+L'altra metà della soglia è provata quanto la prima: un test verifica che uno
+**spigolo retto** — tetto 1600 mm² più testata 400 mm², perpendicolari —
+**passi**, con efficienza 0,824621. Senza, `0,5` sarebbe indistinguibile da
+`0,99` e qualunque superficie non piana verrebbe rifiutata.
+
+### 10.4 Che la pressione arrivi al solutore è misurato, non presunto
+
+Che il deck **scriva** la card non prova che il solutore la **applichi**: un
+nome di superficie sbagliato, una faccia numerata male o un segno capovolto
+passano un controllo sul testo e si vedono solo risolvendo.
+`tests/validazione/test_pressione_equilibrio.py` esegue `ccx` vero su un
+provino di 192 tetraedri e confronta la reazione al vincolo con la risultante
+dichiarata.
+
+Il termine gravitazionale **non si stima**: ogni passo ripete il peso proprio,
+quindi è identico nei due passi e la loro **differenza** lo cancella per
+sottrazione. Misurato: `RF_z` vale 0,147150 N col solo peso proprio e
+100,147145 N col peso più la pressione, e la differenza è **99,999995 N**
+contro i 100,000000 dichiarati. La tolleranza non è scelta lì: è
+`solve._TOLLERANZA_REAZIONI`, già nel programma per questa stessa identità.
+
+Il test è stato provato mutando il sorgente, e coglie entrambi i modi di
+sbagliare che i controlli sul testo non vedono: il segno capovolto nella card,
+e la superficie che nomina le facce `S1` invece di quelle vere.
+
+### 10.5 Due trappole del banco, misurate scrivendolo
+
+Nessuna delle due riguarda il codice di produzione, ed entrambe valgono per
+chi scriverà il prossimo provino a mano:
+
+- **l'ordine dei bit degli angoli.** Scritto al contrario — x sul bit 2 invece
+  che sul bit 0 — la decomposizione di Kuhn produce tetraedri a **jacobiano
+  negativo**. I controlli che non risolvono non se ne accorgono; `ccx` sì, e
+  si ferma con «nonpositive jacobian determinant».
+- **l'altezza del provino contro la tolleranza dei set.**
+  `set_tolerance_factor` vale 6, e la tolleranza è sei volte la spaziatura dei
+  nodi di bordo. Su una lastra di quattro strati la tolleranza supera
+  l'altezza, il `*NSET` di `BASE` finisce per contenere **ogni** nodo del
+  modello, e le reazioni escono tutte nulle senza che nulla protesti. Il
+  provino di questo test è alto **otto** strati per questa ragione.
