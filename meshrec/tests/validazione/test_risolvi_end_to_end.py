@@ -53,25 +53,18 @@ def _ccx_o_salta() -> str:
 def _scrivi_deck(cartella: Path, nodi: np.ndarray, elementi: np.ndarray) -> tuple[Path, np.ndarray]:
     """Deck tet10 vincolato alla base, peso proprio piu' un passo modale.
 
-    La guardia sul maglio vuoto sta **prima** di `write_inp`: quella accetta
-    zero elementi senza sollevare e scrive un `.inp` con un `*ELEMENT` che
-    **c'e' ma e' vuoto** -- l'intestazione
-    `*ELEMENT, TYPE=C3D10, ELSET=ALL_WALL` seguita subito dal `*NSET`, zero
-    righe di connettivita'. Rimisurato oggi con gli ingressi del test
-    (`np.zeros((4, 3))` e zero elementi, gli stessi argomenti che passa
-    questa funzione): **692 byte**, nessuna eccezione. Il conteggio dipende
-    dal numero di nodi, quindi vale per quegli ingressi e non in generale;
-    il fatto che non dipende da nulla e' il blocco elementi vuoto.
+    Nessuna guardia qui: sul maglio vuoto solleva `abaqus.write_inp`, che dalla
+    fusione dei rami controlla le **righe** di `elements` e non solo le
+    colonne. Una guardia in piu' in questo aiutante sarebbe arrivata prima e
+    avrebbe reso verde il test che la prova senza mai toccare il codice di
+    produzione: un verde che prova codice di test invece di produzione.
 
-    `ccx` risolverebbe quel deck in silenzio, e il file di questo modulo
-    confronterebbe reazioni nulle con un peso nullo -- un verde su nulla.
+    Cosa proteggeva: senza quella guardia `write_inp` scriveva un `.inp` con un
+    `*ELEMENT` che c'e' ma e' vuoto, `ccx` lo risolveva in silenzio, e questo
+    modulo confrontava reazioni nulle con un peso nullo -- un verde su nulla.
+    La prova sta ora in `tests/test_abaqus.py`, nel test
+    `test_un_maglio_senza_elementi_non_scrive_un_deck`, sulla guardia vera.
     """
-    if len(elementi) == 0:
-        raise ValueError(
-            "il maglio non ha nessun elemento: un deck senza *ELEMENT e' un "
-            "modello vuoto che il solutore accetta in silenzio, non un caso da "
-            "risolvere"
-        )
     base = np.flatnonzero(nodi[:, 2] <= nodi[:, 2].min() + 1e-9)
     deck = cartella / "m.inp"
     abaqus.write_inp(
@@ -274,11 +267,8 @@ def test_un_frd_troncato_solleva_col_nome_del_file_invece_di_rendere_un_esito(
     assert "13_solution.frd" in str(errore.value)
 
 
-def test_un_maglio_senza_elementi_non_arriva_a_scrivere_il_deck(tmp_path):
-    """Ingresso degenere: maglio con zero elementi. La guardia sta prima di
-    `write_inp`, che invece accetta l'array vuoto e lascia sul disco un `.inp`
-    senza `*ELEMENT` -- un modello vuoto che `ccx` risolve senza protestare."""
-    with pytest.raises(ValueError, match="nessun elemento"):
-        _scrivi_deck(tmp_path, np.zeros((4, 3)), np.zeros((0, 10), dtype=np.int64))
-
-    assert list(tmp_path.iterdir()) == [], "il deck non deve esistere"
+# Il maglio vuoto non ha piu' un test qui: la guardia vive in `write_inp` e la
+# prova sta in `tests/test_abaqus.py::test_un_maglio_senza_elementi_non_scrive_un_deck`,
+# che chiama la stessa funzione con gli stessi due oracoli (solleva, e non
+# lascia file). Un secondo test che passa da `_scrivi_deck` avrebbe ucciso la
+# stessa unica mutazione, dando l'impressione di due coperture dove ce n'e' una.

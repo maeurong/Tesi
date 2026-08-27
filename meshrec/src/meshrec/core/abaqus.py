@@ -198,6 +198,21 @@ def _passo_statico(
     return righe
 
 
+MAGLIO_VUOTO = (
+    "il maglio non ha nessun elemento: un deck vuoto è valido per il "
+    "solutore, che lo risolve senza protestare, e i controlli di "
+    "conservazione uscirebbero verdi su un modello che non esiste"
+)
+"""Un solo testo per le due porte che rifiutano il maglio vuoto.
+
+`write_inp` e' la guardia di fondo, ma `export_model` non ci arriva: con zero
+elementi `boundary_faces` non da' bordo, e `align_to_axes` muore prima con
+«nessun nodo da allineare» -- vero, ma e' il sintomo, e manda chi legge a
+cercare un difetto nei nodi invece che negli elementi. Due `raise` sullo
+stesso testo, e non due testi che scivolano l'uno dall'altro.
+"""
+
+
 def write_inp(
     path: Path,
     nodes: np.ndarray,
@@ -343,14 +358,11 @@ def write_inp(
     # per `ccx`, che lo risolve in silenzio. Reazioni nulle contro un peso
     # nullo, e i sette verdetti di `core/solve.py` escono verdi su nulla --
     # un controllo di conservazione che non ha niente da conservare non e'
-    # un controllo passato. Qui e non nel chiamante: `export_model` e' la sola
-    # porta di produzione e passa di qua.
+    # un controllo passato. Qui perche' e' il fondo comune di ogni chiamante;
+    # `export_model` ne tiene una propria e identica, perche' col maglio vuoto
+    # muore prima di arrivare fin qui (misurato: «nessun nodo da allineare»).
     if len(elements) == 0:
-        raise ValueError(
-            "il maglio non ha nessun elemento: un deck vuoto è valido per il "
-            "solutore, che lo risolve senza protestare, e i controlli di "
-            "conservazione uscirebbero verdi su un modello che non esiste"
-        )
+        raise ValueError(MAGLIO_VUOTO)
 
     # Le superfici dei carichi distribuiti (#10) si derivano qui, prima che le
     # card *SURFACE si scrivano piu' sotto: entrano nello stesso dizionario del
@@ -1710,6 +1722,11 @@ def export_model(
             f"{tipo} vuole {attesi} nodi per elemento, ne sono arrivati "
             f"{elements.shape[1]}: un deck scritto così non è leggibile da alcun solutore"
         )
+    # Qui e non solo in `write_inp`, che sta in fondo a questa funzione e non
+    # viene mai raggiunto col maglio vuoto: `boundary_faces` non trova bordo e
+    # `align_to_axes` solleva per primo su una nuvola di riferimento vuota.
+    if len(elements) == 0:
+        raise ValueError(MAGLIO_VUOTO)
 
     # Nome distinto dalla funzione pubblica boundary_faces: qui e' una
     # variabile locale, non va confusa col contratto che questo task ha
