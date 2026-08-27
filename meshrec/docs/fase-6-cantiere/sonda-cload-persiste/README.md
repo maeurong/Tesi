@@ -204,4 +204,65 @@ sono in `docs/fase-5-analisi.md`, sezione «I risultati, per caso di carico».
 La corsa dimostrativa citata altrove in questo documento (`lab_telaio_v4_posizionati_top`)
 non dichiara `carichi.spinta` (`casi_di_carico` è `["GRAVITA", "PRESSA",
 "TORSIONE"]`): i numeri di `docs/fase-6-carichi.md` non sono toccati da questa
-misura, ne' dal fix.
+misura, né dal fix.
+
+## Il terzo fratello: `*DSLOAD` — persiste, e `OP=NEW` non è la via
+
+**Sì, persiste anche lui, e no, non si azzera come gli altri due.** Misurato
+il 27 agosto 2026 con `ccx` 2.21 (la versione del runner Ubuntu), prima in CI
+(corsa 33088953374) e poi in locale, mentre si chiudeva #84.
+
+La sonda non è un `.inp` in questa cartella ma un test:
+`tests/feasibility/test_calculix.py::test_una_pressione_persiste_finche_non_la_si_ridichiara_a_zero`.
+Sta lì e non qui perché il numero di faccia della superficie non si scrive a
+mano — lo dà `abaqus.element_surface`, che è codice sotto prova — e perché una
+sonda eseguita a ogni corsa della CI è una sonda che resta vera.
+
+Quattro passi statici sullo stesso tetraedro incastrato di `sonda.inp`, con
+due pressioni su facce perpendicolari (`PELLE` su y = 0, `PELLE2` su x = 0,
+5000 mm² ciascuna, 1 MPa): il peso proprio non porta nulla né su x né su y,
+quindi ogni componente isola la propria pressione senza sottrazioni.
+
+| passo | `*DSLOAD` dichiarato lì dentro | `RF_y` | `RF_x` |
+|---|---|---:|---:|
+| 1 | *(nessuno)* | 0,0 | 0,0 |
+| 2 | `PELLE, P, 1.0` | **-1666,667152** | 0,0 |
+| 3 | *(nessuno)* | **-1666,667152** | 0,0 |
+| 4 | `PELLE, P, 0.0` + `PELLE2, P, 1.0` | **0,0** | **-1666,667152** |
+
+Il passo 3 eredita la pressione del passo 2 pur non dichiarando nulla: stesso
+meccanismo di `*CLOAD` e `*DLOAD`. Il numero non è -5000 N ma -5000/3 perché
+sotto carico `RF` è «the sum of the reaction forces and the loading forces»
+(manuale CalculiX §6.11.5) e due dei tre nodi della faccia caricata stanno nel
+set stampato: la reazione vale -5000 N, i due terzi del carico consistente
+(+3333,33 N) si sommano lì sopra.
+
+**Ciò che distingue questa card dalle altre due.** `*CLOAD, OP=NEW` e
+`*DLOAD, OP=NEW` azzerano; `*DSLOAD, OP=NEW` **no**, perché `ccx` 2.21 non
+riconosce quel parametro su questa card: risponde
+
+```
+ *WARNING reading *DLOAD: parameter not recognized:
+ *WARNING reading *DLOAD. Card image:
+```
+
+e prosegue ignorandolo. Non è un errore, è un avviso — cioè esattamente la
+specie di guasto che questo progetto insegue: la card sembra scritta, non fa
+nulla, e in più degrada `controlla_avvisi`, uno dei sette verdetti. È stata
+misurata per caso, dal lavoro `benchmark` della CI che ha bocciato il primo
+tentativo di chiudere #84 copiando `OP=NEW` dagli altri due.
+
+La via che `ccx` accetta è il passo 4: **ridichiarare la superficie con
+pressione zero**, nella stessa card e prima della propria. La ridichiarazione
+sostituisce il valore invece di sommarsi — la stessa risposta che
+`sonda-dload-ridichiarato.inp` dà per `*DLOAD` — e `P, 0.0` non produce alcun
+avviso.
+
+## Conseguenza
+
+`write_inp` scrive un passo statico per ogni carico distribuito (#10), quindi
+il secondo e ogni successivo includevano anche le pressioni dei passi
+precedenti, sommate alla propria. Dal 27/08/2026 ogni passo distribuito apre
+la propria card `*DSLOAD` azzerando una per una le superfici dei distribuiti
+che lo precedono. Nessuna corsa pubblicata è toccata: nessuna dichiara più di
+un carico distribuito.

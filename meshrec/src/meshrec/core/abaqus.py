@@ -121,6 +121,7 @@ def _passo_statico(
     nome: str, carichi: list[str], *, elset: str, fixed_nset: str | None,
     print_nsets: tuple[str, ...], pressure: tuple[str, float] | None,
     carichi_nodali: dict[int, tuple[float, float, float]] | None = None,
+    pressioni_da_azzerare: tuple[str, ...] = (),
 ) -> list[str]:
     """Un passo statico completo: nome a commento, carichi, uscite.
 
@@ -137,7 +138,22 @@ def _passo_statico(
     righe = [f"** NOME PASSO: {nome}", "*STEP", "*STATIC", "*DLOAD, OP=NEW"]
     righe += carichi
     if pressure is not None:
-        righe += ["*DSLOAD", f"{pressure[0]}, P, {pressure[1]}"]
+        # Una pressione **persiste** nei passi successivi come un `*CLOAD`
+        # (misurato con `ccx` 2.21: vedi
+        # `tests/feasibility/test_calculix.py::test_una_pressione_persiste_finche_non_la_si_ridichiara_a_zero`),
+        # ma qui `OP=NEW` non e' la via: `ccx` **non riconosce quel parametro**
+        # su questa card, risponde con due «*WARNING reading *DLOAD: parameter
+        # not recognized» e tira dritto ignorandolo -- due avvisi per passo che
+        # degradano `controlla_avvisi`, uno dei sette verdetti, senza fare
+        # nulla (misurato in CI il 27/08/2026, corsa 33088953374).
+        #
+        # Si ridichiarano allora a **zero** le superfici dei passi precedenti,
+        # nella stessa card e prima della propria: la ridichiarazione
+        # sostituisce il valore invece di sommarsi, ed e' il passo 4 della
+        # stessa sonda a misurarlo.
+        righe += ["*DSLOAD"]
+        righe += [f"{nome_superficie}, P, 0.0" for nome_superficie in pressioni_da_azzerare]
+        righe += [f"{pressure[0]}, P, {pressure[1]}"]
     if carichi_nodali:
         # Forze nodali esplicite, una componente per riga come vuole `*CLOAD`.
         # Servono al patch test nella variante a carichi (vedi #46): la
@@ -304,9 +320,13 @@ def write_inp(
         )
         superfici[carico.nome] = superficie
         resoconto_distribuito["pressione"] = carico.pressione
+        # Il meno: l'area vettoriale **esce** dal solido, la pressione preme
+        # **dentro**, quindi la forza applicata e' opposta all'area uscente.
+        # `risultante` e' la forza che il passo applica, e la reazione al
+        # vincolo -- quella che `ccx` stampa -- e' la sua opposta.
         resoconto_distribuito["risultante"] = [
-            carico.pressione * componente
-            for componente in resoconto_distribuito["risultante_per_pressione_unitaria"]
+            -carico.pressione * componente
+            for componente in resoconto_distribuito["area_vettoriale_uscente"]
         ]
         resoconti_distribuiti[carico.nome] = resoconto_distribuito
 
@@ -469,9 +489,20 @@ def write_inp(
     # suo parametro `pressure`. Il `pressure` legato al parziale e' quello del
     # percorso hexa, uno solo per tutto il deck; qui si sovrascrive per passo,
     # che e' la ragione per cui i distribuiti sono piu' d'uno e quello no.
-    for carico in () if carichi is None else carichi.distribuiti:
+    distribuiti = () if carichi is None else carichi.distribuiti
+    for indice, carico in enumerate(distribuiti):
+        # `*CLOAD, OP=NEW` come nei due cicli gemelli sopra: `*DLOAD, OP=NEW`
+        # azzera il carico di volume e non le forze nodali, e i distribuiti
+        # sono ultimi nell'ordine dei passi -- senza la card erediterebbero il
+        # `*CLOAD` del posizionato che li precede.
+        #
+        # Le pressioni dei passi distribuiti precedenti si azzerano una per
+        # una (#84): persistono anche loro, e `*DSLOAD` non ha un `OP=NEW` che
+        # `ccx` accetti.
         lines += passo_statico(
-            carico.nome, [peso], pressure=(carico.nome, carico.pressione)
+            carico.nome, [peso, "*CLOAD, OP=NEW"],
+            pressure=(carico.nome, carico.pressione),
+            pressioni_da_azzerare=tuple(c.nome for c in distribuiti[:indice]),
         )
         resoconto[carico.nome] = resoconti_distribuiti[carico.nome]
 
@@ -754,10 +785,12 @@ def superficie_di_pressione(
         "facce": len(superficie),
         "area_totale": area_totale,
         "efficienza": efficienza,
-        # La risultante di una pressione unitaria: moltiplicata per la pressione
-        # dichiarata da' la forza che il passo applica davvero, ed e' il numero
-        # che si confronta con la reazione al vincolo.
-        "risultante_per_pressione_unitaria": risultante.tolist(),
+        # La somma vettoriale delle facce, **uscente** dal solido: area e
+        # giacitura in un vettore solo. Non e' una forza e il nome non deve
+        # prometterlo -- la forza applicata e' `-pressione * questo vettore`,
+        # perche' una pressione positiva preme dentro la faccia, e la reazione
+        # al vincolo e' a sua volta l'opposta di quella forza.
+        "area_vettoriale_uscente": risultante.tolist(),
     }
     return superficie, resoconto
 
@@ -1664,7 +1697,11 @@ def export_model(
             carichi_da_controllare.append((
                 "CARICO_TOP", carichi.carico_sommita.nset, node_sets[carichi.carico_sommita.nset],
             ))
-        for carico in carichi.posizionati:
+        # Anche i distribuiti (#91): una pressione il cui selettore cade tutta
+        # sul set vincolato non solleva, non avvisa, e il modello passa i sette
+        # verdetti senza rispondere al carico. I tre campi hanno la stessa
+        # forma, quindi e' lo stesso ciclo.
+        for carico in (*carichi.posizionati, *carichi.distribuiti):
             if carico.selettore in nset_selettori:  # altrimenti write_inp rifiuta con messaggio piu' completo
                 carichi_da_controllare.append((carico.nome, carico.selettore, nset_selettori[carico.selettore]))
     # Il conteggio nasce qui, dove compone la stringa dell'avviso, e va reso

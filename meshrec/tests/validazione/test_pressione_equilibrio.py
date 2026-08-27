@@ -97,7 +97,7 @@ def _somma_reazioni(dat, passo: int) -> np.ndarray:
 
 
 def test_la_reazione_al_vincolo_vale_la_pressione_dichiarata(tmp_path):
-    """RF del passo con pressione, meno RF del passo di sola gravita', e' la risultante.
+    """RF del passo con pressione, meno RF di sola gravita', e' l'opposto della risultante.
 
     La tolleranza non e' scelta qui: e' `solve._TOLLERANZA_REAZIONI`, gia'
     dichiarata nel programma per questa identita' di equilibrio, e usarne una
@@ -137,8 +137,12 @@ def test_la_reazione_al_vincolo_vale_la_pressione_dichiarata(tmp_path):
     assert resoconto["area_totale"] == pytest.approx(AREA_ATTESA), (
         "il provino non carica piu' il tetto che questo test crede"
     )
-    atteso = np.asarray(resoconto["risultante"], dtype=np.float64)
-    assert atteso == pytest.approx([0.0, 0.0, PRESSIONE * AREA_ATTESA])
+    # `risultante` e' la **forza applicata**: una pressione positiva preme
+    # dentro la faccia, quindi su un tetto orizzontale spinge verso il basso.
+    # La reazione al vincolo e' l'opposta, ed e' quella che `ccx` stampa.
+    applicata = np.asarray(resoconto["risultante"], dtype=np.float64)
+    assert applicata == pytest.approx([0.0, 0.0, -PRESSIONE * AREA_ATTESA])
+    atteso = -applicata
 
     subprocess.run(
         [_ccx_o_salta(), "-i", deck.stem], cwd=deck.parent, capture_output=True, text=True

@@ -18,7 +18,7 @@ import numpy as np
 import pytest
 
 from meshrec.core import abaqus, config
-from materiale import ANALISI
+from materiale import MATERIALE
 
 
 # Un cubo in sei tetraedri (decomposizione di Kuhn), coi vertici numerati sui
@@ -31,6 +31,15 @@ _CUBO_IN_SEI = (
 )
 
 TET_LINEARE = config.TetConfig(element="C3D4")
+
+# La lastra e' alta un solo strato: con la tolleranza predefinita (sei volte la
+# spaziatura) il `*NSET` di `BASE` arriva a contenere **ogni** nodo del
+# provino, e allora qualunque selettore cade per intero dentro l'insieme
+# vincolato. E' lo stesso inciampo che
+# `tests/validazione/test_pressione_equilibrio.py` evita alzando il provino a
+# otto strati; qui ogni area e' un numero esatto che non deve cambiare, quindi
+# si stringe la tolleranza invece della geometria.
+ANALISI_LASTRA = config.AnalysisConfig(material=MATERIALE, set_tolerance_factor=0.5)
 
 
 def _lastra(nx: int, ny: int, nz: int, passo: float):
@@ -69,7 +78,10 @@ def test_una_pressione_su_una_faccia_scrive_la_superficie_e_la_card(tmp_path):
 
     I numeri sono esatti e non di piattaforma: 1600 mm² di area (40 per 40),
     efficienza 1 perche' la faccia e' piana, e risultante 0,25 * 1600 = 400 N
-    tutta lungo z.
+    tutta lungo z. Il segno e' **negativo**: `risultante` e' la forza che il
+    passo applica, e una pressione positiva preme dentro la faccia, quindi
+    verso il basso su un tetto orizzontale. La reazione al vincolo e' l'opposta
+    (`tests/validazione/test_pressione_equilibrio.py` la misura con `ccx`).
     """
     nodi, tetraedri = _lastra(4, 4, 1, 10.0)
     selettori = {
@@ -79,7 +91,7 @@ def test_una_pressione_su_una_faccia_scrive_la_superficie_e_la_card(tmp_path):
     }
     percorso = tmp_path / "m.inp"
     esito = abaqus.export_model(
-        percorso, tmp_path / "m.vtu", nodi, tetraedri, ANALISI, TET_LINEARE,
+        percorso, tmp_path / "m.vtu", nodi, tetraedri, ANALISI_LASTRA, TET_LINEARE,
         reference=nodi, carichi=_distribuito("VENTO", "TETTO", 0.25), selettori=selettori,
     )
 
@@ -93,7 +105,7 @@ def test_una_pressione_su_una_faccia_scrive_la_superficie_e_la_card(tmp_path):
     resoconto = esito["carichi_distribuiti"]["VENTO"]
     assert resoconto["area_totale"] == pytest.approx(1600.0)
     assert resoconto["efficienza"] == pytest.approx(1.0)
-    assert resoconto["risultante"] == pytest.approx([0.0, 0.0, 400.0])
+    assert resoconto["risultante"] == pytest.approx([0.0, 0.0, -400.0])
     # Il resoconto dei posizionati non deve averlo raccolto: due chiavi, due
     # forme diverse, e un nome che dice «posizionati» non deve contenere altro.
     assert "VENTO" not in esito["carichi_posizionati"]
@@ -120,7 +132,7 @@ def test_una_scatola_che_attraversa_il_pezzo_e_rifiutata_con_le_due_aree(tmp_pat
     percorso = tmp_path / "m.inp"
     with pytest.raises(ValueError, match="si richiude su sé stessa") as errore:
         abaqus.export_model(
-            percorso, tmp_path / "m.vtu", nodi, tetraedri, ANALISI, TET_LINEARE,
+            percorso, tmp_path / "m.vtu", nodi, tetraedri, ANALISI_LASTRA, TET_LINEARE,
             reference=nodi, carichi=_distribuito("SBAGLIATO", "PASSANTE", 0.5),
             selettori=selettori,
         )
@@ -139,8 +151,8 @@ def test_uno_spigolo_retto_non_e_una_superficie_che_si_richiude():
     rifiutata e nessun test se ne accorgerebbe.
 
     La selezione e' il tetto (40x40 = 1600 mm², normale +z) piu' la testata a
-    x = 40 (40x10 = 400 mm², normale +x), perpendicolari fra loro. La
-    risultante di una pressione unitaria vale (400, 0, 1600), il suo modulo
+    x = 40 (40x10 = 400 mm², normale +x), perpendicolari fra loro. L'area
+    vettoriale uscente vale (400, 0, 1600) mm², il suo modulo
     sqrt(400² + 1600²) = 1649,242, e l'efficienza 1649,242 / 2000 = 0,824621:
     sopra soglia, quindi passa.
 
@@ -156,7 +168,7 @@ def test_uno_spigolo_retto_non_e_una_superficie_che_si_richiude():
     )
 
     assert resoconto["area_totale"] == pytest.approx(2000.0)
-    assert resoconto["risultante_per_pressione_unitaria"] == pytest.approx(
+    assert resoconto["area_vettoriale_uscente"] == pytest.approx(
         [400.0, 0.0, 1600.0]
     )
     assert resoconto["efficienza"] == pytest.approx(0.824621, abs=1e-6)
@@ -193,7 +205,7 @@ def test_la_normale_esce_dal_solido_anche_su_elementi_invertiti():
     )
 
     assert resoconto["area_totale"] == pytest.approx(1600.0)
-    assert resoconto["risultante_per_pressione_unitaria"] == pytest.approx(
+    assert resoconto["area_vettoriale_uscente"] == pytest.approx(
         [0.0, 0.0, 1600.0]
     ), "la normale punta dentro il solido: la pressione agirebbe al contrario"
 
@@ -241,3 +253,191 @@ def test_la_pressione_vale_sui_quadratici_dove_la_ripartizione_deve_fermarsi():
 
     with pytest.raises(NotImplementedError, match="zero ai vertici"):
         abaqus.ripartisci(1.0, nodi, quadratici, tetto, "C3D10", nome="VENTO")
+
+
+def _passo(testo: str, nome: str) -> str:
+    """Il blocco di deck del passo statico che porta quel nome."""
+    for blocco in testo.split("** NOME PASSO: ")[1:]:
+        if blocco.splitlines()[0] == nome:
+            return blocco
+    raise AssertionError(f"il deck non contiene un passo '{nome}'")
+
+
+def test_il_passo_di_pressione_azzera_le_forze_nodali_del_passo_precedente(tmp_path):
+    """`*CLOAD, OP=NEW` nel passo distribuito, che i due cicli gemelli già scrivono.
+
+    `_passo_statico` apre con `*DLOAD, OP=NEW`, che azzera il carico di volume
+    e non le forze nodali: `ccx` tiene attivo il `*CLOAD` del passo precedente
+    (misurato in `docs/fase-6-cantiere/sonda-cload-persiste/`). I distribuiti
+    sono ultimi nell'ordine dei passi, quindi senza la card erediterebbero le
+    quote nodali del posizionato che li precede e il passo applicherebbe due
+    carichi invece del suo.
+
+    I due tipi di carico non comparivano mai insieme in questo file: è la
+    ragione per cui nessun banco vedeva la mancanza.
+    """
+    nodi, tetraedri = _lastra(4, 4, 1, 10.0)
+    selettori = {
+        "TETTO": config.SelettoreBox(
+            tipo="box", min=(-1.0, -1.0, 9.0), max=(41.0, 41.0, 11.0)
+        )
+    }
+    carichi = config.CarichiConfig(
+        posizionati=(
+            config.CaricoPosizionato(nome="TIRO", selettore="TETTO", forza=(100.0, 0.0, 0.0)),
+        ),
+        distribuiti=(
+            config.CaricoDistribuito(nome="VENTO", selettore="TETTO", pressione=0.25),
+        ),
+    )
+    percorso = tmp_path / "m.inp"
+    abaqus.export_model(
+        percorso, tmp_path / "m.vtu", nodi, tetraedri, ANALISI_LASTRA, TET_LINEARE,
+        reference=nodi, carichi=carichi, selettori=selettori,
+    )
+
+    testo = percorso.read_text(encoding="ascii")
+    assert "*CLOAD, OP=NEW" in _passo(testo, "TIRO")
+    assert "*CLOAD, OP=NEW" in _passo(testo, "VENTO"), (
+        "il passo distribuito eredita le forze nodali del posizionato che lo precede"
+    )
+
+
+def test_ogni_passo_distribuito_azzera_le_pressioni_dei_passi_precedenti(tmp_path):
+    """Il rimedio di #84, nella forma che `ccx` accetta.
+
+    Una pressione dichiarata in un passo statico **resta attiva** in quelli
+    dopo, come un `*CLOAD`: misurato con `ccx` 2.21 dalla sonda
+    `tests/feasibility/test_calculix.py::test_una_pressione_persiste_finche_non_la_si_ridichiara_a_zero`.
+    `OP=NEW`, la via ovvia, non e' percorribile -- `ccx` non riconosce quel
+    parametro su questa card e ne fa due avvisi -- quindi ogni passo
+    ridichiara a **zero** le superfici dei passi distribuiti precedenti, nella
+    stessa card e prima della propria. Che la ridichiarazione sostituisca
+    invece di sommarsi lo misura il passo 4 della stessa sonda.
+    """
+    nodi, tetraedri = _lastra(4, 4, 1, 10.0)
+    selettori = {
+        "TETTO": config.SelettoreBox(
+            tipo="box", min=(-1.0, -1.0, 9.0), max=(41.0, 41.0, 11.0)
+        )
+    }
+    carichi = config.CarichiConfig(
+        distribuiti=(
+            config.CaricoDistribuito(nome="VENTO", selettore="TETTO", pressione=0.25),
+            config.CaricoDistribuito(nome="NEVE", selettore="TETTO", pressione=0.1),
+            config.CaricoDistribuito(nome="SPINTA_NEVE", selettore="TETTO", pressione=0.4),
+        )
+    )
+    percorso = tmp_path / "m.inp"
+    abaqus.export_model(
+        percorso, tmp_path / "m.vtu", nodi, tetraedri, ANALISI_LASTRA, TET_LINEARE,
+        reference=nodi, carichi=carichi, selettori=selettori,
+    )
+
+    testo = percorso.read_text(encoding="ascii")
+    assert "\n*DSLOAD\nVENTO, P, 0.25\n" in _passo(testo, "VENTO")
+    assert "\n*DSLOAD\nVENTO, P, 0.0\nNEVE, P, 0.1\n" in _passo(testo, "NEVE")
+    assert (
+        "\n*DSLOAD\nVENTO, P, 0.0\nNEVE, P, 0.0\nSPINTA_NEVE, P, 0.4\n"
+        in _passo(testo, "SPINTA_NEVE")
+    )
+    # Nessun `OP=NEW`: `ccx` 2.21 non lo riconosce su questa card (#84).
+    assert "*DSLOAD, OP=NEW" not in testo
+
+
+def test_una_pressione_tutta_sul_vincolo_e_un_errore_dichiarato(tmp_path):
+    """La stessa guardia dei posizionati, che i distribuiti non attraversavano.
+
+    Una pressione il cui selettore cade tutta dentro l'insieme vincolato non
+    sposta nulla: la sua quota finisce in reazione. Il modello passerebbe i
+    controlli e non risponderebbe al carico.
+    """
+    nodi, tetraedri = _lastra(4, 4, 1, 10.0)
+    selettori = {
+        "FONDO": config.SelettoreBox(
+            tipo="box", min=(-1.0, -1.0, -1.0), max=(41.0, 41.0, 1.0)
+        )
+    }
+    percorso = tmp_path / "m.inp"
+    with pytest.raises(ValueError, match="coincide per intero"):
+        abaqus.export_model(
+            percorso, tmp_path / "m.vtu", nodi, tetraedri, ANALISI_LASTRA, TET_LINEARE,
+            reference=nodi, carichi=_distribuito("SPINTA_SUOLO", "FONDO", 0.25),
+            selettori=selettori,
+        )
+    assert not percorso.exists()
+
+
+def test_il_resoconto_di_una_pressione_dichiara_i_nodi_sul_vincolo(tmp_path):
+    """`nodi_sul_vincolo` anche per i distribuiti: zero è un valore.
+
+    Una chiave assente non si distingue da una versione che non contava.
+    """
+    nodi, tetraedri = _lastra(4, 4, 1, 10.0)
+    selettori = {
+        "TETTO": config.SelettoreBox(
+            tipo="box", min=(-1.0, -1.0, 9.0), max=(41.0, 41.0, 11.0)
+        )
+    }
+    esito = abaqus.export_model(
+        tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tetraedri, ANALISI_LASTRA,
+        TET_LINEARE, reference=nodi, carichi=_distribuito("VENTO", "TETTO", 0.25),
+        selettori=selettori,
+    )
+
+    assert esito["carichi_distribuiti"]["VENTO"]["nodi_sul_vincolo"] == 0
+
+
+def _due_distribuiti(nomi: tuple[str, str], selettore: str) -> config.CarichiConfig:
+    return config.CarichiConfig(
+        distribuiti=tuple(
+            config.CaricoDistribuito(nome=nome, selettore=selettore, pressione=0.25)
+            for nome in nomi
+        )
+    )
+
+
+def test_due_distribuiti_omonimi_non_scrivono_due_surface_con_lo_stesso_nome(tmp_path):
+    """Due `*SURFACE` omonime nel deck: il solutore userebbe l'ultima, in silenzio.
+
+    Nessuna validazione a monte lo impedisce -- `CarichiConfig.distribuiti` è
+    una tupla senza vincolo di unicità sui nomi -- e con più carichi
+    distribuiti per deck la collisione è a portata di un copia-incolla nel
+    YAML.
+    """
+    nodi, tetraedri = _lastra(4, 4, 1, 10.0)
+    selettori = {
+        "TETTO": config.SelettoreBox(
+            tipo="box", min=(-1.0, -1.0, 9.0), max=(41.0, 41.0, 11.0)
+        )
+    }
+    percorso = tmp_path / "m.inp"
+    with pytest.raises(ValueError, match="già dichiarata"):
+        abaqus.export_model(
+            percorso, tmp_path / "m.vtu", nodi, tetraedri, ANALISI_LASTRA, TET_LINEARE,
+            reference=nodi, carichi=_due_distribuiti(("VENTO", "VENTO"), "TETTO"),
+            selettori=selettori,
+        )
+    assert not percorso.exists()
+
+
+def test_un_distribuito_non_ruba_il_nome_a_una_superficie_gia_dichiarata(tmp_path):
+    """Stessa collisione, altra provenienza: una `element_surfaces` del chiamante.
+
+    Le due sorgenti finiscono nello stesso dizionario `superfici`, quindi la
+    guardia è una sola.
+    """
+    nodi, tetraedri = _lastra(4, 4, 1, 10.0)
+    selettori = {
+        "TETTO": config.SelettoreBox(
+            tipo="box", min=(-1.0, -1.0, 9.0), max=(41.0, 41.0, 11.0)
+        )
+    }
+    percorso = tmp_path / "m.inp"
+    with pytest.raises(ValueError, match="già dichiarata"):
+        abaqus.export_model(
+            percorso, tmp_path / "m.vtu", nodi, tetraedri, ANALISI_LASTRA, TET_LINEARE,
+            reference=nodi, carichi=_distribuito("VENTO", "TETTO", 0.25),
+            selettori=selettori, element_surfaces={"VENTO": [(0, 1)]},
+        )
+    assert not percorso.exists()
