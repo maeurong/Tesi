@@ -1310,8 +1310,60 @@ def test_i_gradi_di_liberta_dichiarati_confrontabili_compaiono_nella_tabella(tmp
         encoding="utf-8"
     )
 
-    assert "<th>gradi_di_liberta</th>" in testo
+    assert "<th>nodi e tipo di elemento</th>" in testo
     assert "C3D8I" in testo  # element_type del ramo esaedri, dentro la riga
+
+
+def test_le_grandezze_si_intitolano_con_l_etichetta_non_con_la_chiave(tmp_path):
+    """L'appendice cartacea la legge un umano: una riga intitolata
+    `gradi_di_liberta` si legge come un refuso di tesi, non come una chiave.
+
+    Mutazione che deve morire: rimettere `{grandezza}` al posto di
+    `{html.escape(etichetta)}` nel `<th>` di write_comparison_report.
+    """
+    cartelle = _tre_cartelle_finte(tmp_path)
+
+    testo = report.write_comparison_report(cartelle, tmp_path / "confronto.html").read_text(
+        encoding="utf-8"
+    )
+
+    for _, etichetta in report._ETICHETTE_GRANDEZZE:
+        assert f"<th>{etichetta}</th>" in testo
+    # `volume` e `massa` sono chiave ed etichetta insieme e non provano niente:
+    # mordono solo le due che differiscono.
+    assert "gradi_di_liberta" not in testo
+    assert "scostamento_nuvola" not in testo
+
+
+def test_ogni_grandezza_dichiarata_confrontabile_ha_la_sua_etichetta():
+    """La mappa e' la sorgente del ciclo, quindi una chiave senza etichetta non
+    puo' finire stampata nuda: puo' pero' sparire dalla tabella in silenzio, o
+    comparirci pur essendo dichiarata non confrontabile. Le due dichiarazioni
+    devono dire la stessa cosa.
+
+    Mutazione che deve morire: togliere la coppia `gradi_di_liberta` dalle
+    etichette lasciando `CONFRONTABILI['gradi_di_liberta'] = True`.
+    """
+    assert {chiave for chiave, _ in report._ETICHETTE_GRANDEZZE} == {
+        chiave for chiave, si in report.CONFRONTABILI.items() if si
+    }
+
+
+def test_un_etichetta_con_caratteri_html_passa_da_escape(tmp_path, monkeypatch):
+    """L'etichetta finisce in un `<th>` esattamente come il valore finisce in un
+    `<td>`, e il valore passa gia' da html.escape. Se un giorno un'etichetta
+    portera' un `<` o una `&`, deve uscire dalla stessa porta.
+
+    Mutazione che deve morire: togliere html.escape dall'etichetta nel `<th>`.
+    """
+    monkeypatch.setattr(report, "_ETICHETTE_GRANDEZZE", (("volume", "volume <b> & 1"),))
+    cartelle = _tre_cartelle_finte(tmp_path)
+
+    testo = report.write_comparison_report(cartelle, tmp_path / "confronto.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert "<th>volume &lt;b&gt; &amp; 1</th>" in testo
 
 
 def test_due_cartelle_dello_stesso_tipo_si_segnalano_invece_di_sovrascriversi(tmp_path):
@@ -1332,3 +1384,68 @@ def test_due_cartelle_dello_stesso_tipo_si_segnalano_invece_di_sovrascriversi(tm
 
     with pytest.raises(ValueError, match="estruso"):
         report.confronta([cartelle[0], originale, duplicato])
+
+
+def _righe_grandezze(testo: str) -> list[tuple[str, list[str]]]:
+    """Le righe della prima tabella, come (intestazione, celle)."""
+    return [
+        (intestazione, re.findall(r"<td>(.*?)</td>", celle))
+        for intestazione, celle in re.findall(r"<tr><th>([^<]+)</th>((?:<td>.*?</td>)+)</tr>", testo)
+    ]
+
+
+def test_l_etichetta_della_riga_nomina_cio_che_la_cella_contiene(tmp_path):
+    """Un'etichetta piu' credibile della cella e' peggio della chiave nuda.
+
+    `gradi di liberta'` sopra `nodi 1000, elemento C3D4` prometteva una
+    grandezza che la cella non porta -- i gradi di liberta' sarebbero 3 x nodi
+    per un solido a spostamenti, e quel numero non e' scritto da nessuna parte.
+    Con la chiave nuda in testa il lettore scartava la riga; con l'italiano di
+    appendice ci crede. L'etichetta deve nominare cio' che `confronta` mette
+    davvero nella cella.
+
+    Mutazione che deve morire: rimettere "gradi di liberta'" (accentato) come
+    etichetta della riga sopra una cella di nodi e tipo di elemento.
+    """
+    cartelle = _tre_cartelle_finte(tmp_path)
+    confronto = report.confronta(cartelle)
+    testo = report.write_comparison_report(cartelle, tmp_path / "confronto.html").read_text(
+        encoding="utf-8"
+    )
+
+    etichetta = dict(report._ETICHETTE_GRANDEZZE)["gradi_di_liberta"]
+    dentro = confronto["gradi_di_liberta"]["as-built"]
+
+    for campo in dentro:
+        assert campo in etichetta, (
+            f"la cella porta il campo '{campo}' e l'etichetta «{etichetta}» non lo nomina: "
+            "l'intestazione promette una grandezza diversa da quella stampata"
+        )
+    celle = ["nodi 1000, elemento C3D4", "nodi 7000, elemento C3D8I", "nodi 7000, elemento C3D8I"]
+    assert (etichetta, celle) in _righe_grandezze(testo)
+
+
+def test_ogni_grandezza_numerica_porta_l_unita_nell_etichetta(tmp_path):
+    """Un numero senza unita' in un'appendice cartacea non si ricostruisce.
+
+    Una colonna «massa» con dentro 0,25 non dice se sono tonnellate o
+    chilogrammi, e il lettore non ha il codice sotto mano. Il precedente e'
+    _COLUMNS, che scrive ("thickness_error", "errore di spessore [mm]").
+    Nessun elenco tenuto a mano: e' numerica la riga le cui celle sono tutte
+    numeri.
+
+    Mutazione che deve morire: togliere `[mm^3]` da volume o `[t]` da massa.
+    """
+    cartelle = _tre_cartelle_finte(tmp_path)
+    testo = report.write_comparison_report(cartelle, tmp_path / "confronto.html").read_text(
+        encoding="utf-8"
+    )
+
+    numeriche = [
+        intestazione
+        for intestazione, celle in _righe_grandezze(testo)
+        if celle and all(re.fullmatch(r"-?[\d.,]+", c) for c in celle)
+    ]
+    assert len(numeriche) == 3, f"righe di soli numeri trovate: {numeriche}"
+    senza = [i for i in numeriche if "[" not in i]
+    assert not senza, f"grandezze numeriche senza unita' nell'etichetta: {senza}"

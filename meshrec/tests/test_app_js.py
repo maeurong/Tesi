@@ -35,6 +35,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from meshrec.app.server import UI_DIR, create_app
+from meshrec.core import report
 from meshrec.core.config import InputConfig, PipelineConfig, save_config
 from materiale import ANALISI
 
@@ -3332,6 +3333,81 @@ assert.match(tabella.figli[0].textContent, /primitive: non generato/,
 assert.doesNotMatch(tabella.figli[0].textContent, /estruso: non generato/,
   "un modello presente e' stato dichiarato non generato");
 """)
+
+
+def test_caricaConfronto_intitola_le_righe_con_l_etichetta_non_con_la_chiave(tmp_path):
+    """Il pannello e' la superficie che si vede per prima, proiettata durante
+    la discussione: `scostamento_nuvola` li' si legge come una chiave sfuggita,
+    non come una grandezza. Stessa regola del report in appendice.
+
+    Mutazione che deve morire: in `caricaConfronto`, rimettere `${grandezza}`
+    al posto di `${etichetta}` nel textContent della riga.
+    """
+    _esegui(tmp_path, _banco_di_caricaConfronto() + """
+risponde["/api/compare"] = async () => ({
+  ok: true,
+  json: async () => ({
+    scheda_singola: false,
+    volume: { "as-built": 1.5 },
+    massa: { "as-built": 12.0 },
+    scostamento_nuvola: { "as-built": 0.0 },
+    note_non_geometriche: [],
+    vincoli_giunzioni: {},
+    chiusura_volume: null,
+  }),
+});
+await caricaConfronto();
+const righe = document.getElementById("confronto-tabella").figli
+  .map((r) => r.textContent).join("\\n");
+assert.match(righe, /scostamento dalla nuvola \\[mm\\]/,
+  "la riga si intitola ancora con la chiave invece che con l'etichetta");
+assert.doesNotMatch(righe, /scostamento_nuvola/,
+  "la chiave del dizionario e' finita a video");
+""")
+
+
+def test_le_etichette_del_pannello_sono_quelle_del_report(tmp_path):
+    """Le stesse etichette vivono in due sorgenti, e dichiararlo non lega niente.
+
+    Il pannello e' proiettato in discussione, il report finisce in appendice
+    cartacea: chi cambia un'etichetta in `core/report.py` e non in `app.js` fa
+    dire due cose diverse alle due superfici, con la suite verde. Il commento in
+    `app.js` dichiara gia' il legame -- questo lo verifica, eseguendo la
+    `caricaConfronto` vera e leggendo le intestazioni che ha reso.
+
+    I gradi di liberta' sono la sola grandezza esclusa dal pannello, e per una
+    ragione: il valore e' un oggetto e qui non c'e' il `_testo` che lo sa
+    scrivere. Una quinta grandezza confrontabile che entrasse nel report senza
+    entrare qui rende questa lista piu' corta dell'attesa, e il confronto rosso.
+
+    Mutazioni che devono morire: cambiare un'etichetta in `report.py` senza
+    cambiarla in `app.js`; aggiungere una grandezza al report e non al pannello.
+    """
+    solo_nel_report = {"gradi_di_liberta"}
+    attese = [e for c, e in report._ETICHETTE_GRANDEZZE if c not in solo_nel_report]
+    payload = {c: {"as-built": 1} for c, _ in report._ETICHETTE_GRANDEZZE}
+
+    uscita = _esegui(tmp_path, _banco_di_caricaConfronto() + f"""
+risponde["/api/compare"] = async () => ({{
+  ok: true,
+  json: async () => ({{
+    scheda_singola: false,
+    ...{json.dumps(payload)},
+    note_non_geometriche: [],
+    vincoli_giunzioni: {{}},
+    chiusura_volume: null,
+  }}),
+}});
+await caricaConfronto();
+console.log(JSON.stringify(
+  document.getElementById("confronto-tabella").figli.map(
+    (r) => r.textContent.split(" \u2014 ")[0],
+  ),
+));
+""")
+
+    # Le ultime due righe del pannello sono fisse e non sono grandezze.
+    assert json.loads(uscita) == attese + ["note", "vincoli alle giunzioni"]
 
 
 def test_caricaConfronto_mostra_le_note_e_i_vincoli_alle_giunzioni(tmp_path):
