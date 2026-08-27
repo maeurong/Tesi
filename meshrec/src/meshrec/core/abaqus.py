@@ -121,6 +121,7 @@ def _passo_statico(
     nome: str, carichi: list[str], *, elset: str, fixed_nset: str | None,
     print_nsets: tuple[str, ...], pressure: tuple[str, float] | None,
     carichi_nodali: dict[int, tuple[float, float, float]] | None = None,
+    pressioni_da_azzerare: tuple[str, ...] = (),
 ) -> list[str]:
     """Un passo statico completo: nome a commento, carichi, uscite.
 
@@ -137,15 +138,22 @@ def _passo_statico(
     righe = [f"** NOME PASSO: {nome}", "*STEP", "*STATIC", "*DLOAD, OP=NEW"]
     righe += carichi
     if pressure is not None:
-        # Niente `OP=NEW` qui, a differenza di `*DLOAD` due righe sopra:
-        # `ccx` 2.21 **non riconosce quel parametro** su `*DSLOAD` e risponde
-        # con due «*WARNING reading *DLOAD: parameter not recognized», poi
-        # tira dritto ignorandolo. Misurato in CI il 27/08/2026 (#84, corsa
-        # 33088953374): la card non farebbe nulla e degraderebbe
-        # `controlla_avvisi`, che e' uno dei sette verdetti. Se la pressione
-        # persista fra passi statici lo misura
-        # `tests/feasibility/test_calculix.py::test_una_pressione_non_persiste_nel_passo_statico_successivo`.
-        righe += ["*DSLOAD", f"{pressure[0]}, P, {pressure[1]}"]
+        # Una pressione **persiste** nei passi successivi come un `*CLOAD`
+        # (misurato con `ccx` 2.21: vedi
+        # `tests/feasibility/test_calculix.py::test_una_pressione_persiste_finche_non_la_si_ridichiara_a_zero`),
+        # ma qui `OP=NEW` non e' la via: `ccx` **non riconosce quel parametro**
+        # su questa card, risponde con due «*WARNING reading *DLOAD: parameter
+        # not recognized» e tira dritto ignorandolo -- due avvisi per passo che
+        # degradano `controlla_avvisi`, uno dei sette verdetti, senza fare
+        # nulla (misurato in CI il 27/08/2026, corsa 33088953374).
+        #
+        # Si ridichiarano allora a **zero** le superfici dei passi precedenti,
+        # nella stessa card e prima della propria: la ridichiarazione
+        # sostituisce il valore invece di sommarsi, ed e' il passo 4 della
+        # stessa sonda a misurarlo.
+        righe += ["*DSLOAD"]
+        righe += [f"{nome_superficie}, P, 0.0" for nome_superficie in pressioni_da_azzerare]
+        righe += [f"{pressure[0]}, P, {pressure[1]}"]
     if carichi_nodali:
         # Forze nodali esplicite, una componente per riga come vuole `*CLOAD`.
         # Servono al patch test nella variante a carichi (vedi #46): la
@@ -481,13 +489,20 @@ def write_inp(
     # suo parametro `pressure`. Il `pressure` legato al parziale e' quello del
     # percorso hexa, uno solo per tutto il deck; qui si sovrascrive per passo,
     # che e' la ragione per cui i distribuiti sono piu' d'uno e quello no.
-    for carico in () if carichi is None else carichi.distribuiti:
+    distribuiti = () if carichi is None else carichi.distribuiti
+    for indice, carico in enumerate(distribuiti):
         # `*CLOAD, OP=NEW` come nei due cicli gemelli sopra: `*DLOAD, OP=NEW`
         # azzera il carico di volume e non le forze nodali, e i distribuiti
         # sono ultimi nell'ordine dei passi -- senza la card erediterebbero il
         # `*CLOAD` del posizionato che li precede.
+        #
+        # Le pressioni dei passi distribuiti precedenti si azzerano una per
+        # una (#84): persistono anche loro, e `*DSLOAD` non ha un `OP=NEW` che
+        # `ccx` accetti.
         lines += passo_statico(
-            carico.nome, [peso, "*CLOAD, OP=NEW"], pressure=(carico.nome, carico.pressione)
+            carico.nome, [peso, "*CLOAD, OP=NEW"],
+            pressure=(carico.nome, carico.pressione),
+            pressioni_da_azzerare=tuple(c.nome for c in distribuiti[:indice]),
         )
         resoconto[carico.nome] = resoconti_distribuiti[carico.nome]
 
