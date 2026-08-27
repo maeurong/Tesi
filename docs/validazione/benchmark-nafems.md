@@ -67,7 +67,7 @@ perché serve come prova di sanità del generatore di geometria. [INF, sul «non
 | ellisse esterna BC | (x/3,25)² + (y/2,75)² = 1 | idem [V] |
 | punti | A = (0, 1), B = (0, 2,75), C = (3,25, 0), D = (2, 0) — tutto in metri | F4 fig. + deck `nle1xf8c.inp` nodi 1, 4001, 4801, 801 [V, incrociato] |
 | quote a margine | OA = 1,0 m, AB = 1,75 m, OD = 2,0 m, DC = 1,25 m | F4 p. 4 [V] |
-| spessore | T = 0,1 m | F4 («T=0,1 m» in figura) + F1 («thickness 0,1») + deck `*SOLID SECTION … 0.1` [V, tre fonti] |
+| spessore | T = 0,1 m | F4 («T=0.1 m» in figura) + F1 («thickness 0.1») + deck `*SOLID SECTION … 0.1` [V, tre fonti] |
 | materiale | E = 210 · 10³ MPa = 210 GPa, ν = 0,3 | F1, F4, deck [V] |
 | vincoli | AB: simmetria attorno all'asse y → u_x = 0. DC: simmetria attorno all'asse x → u_y = 0 | F1 (verbatim) [V] |
 | carico | pressione uniforme **uscente** di 10 MPa sul bordo esterno BC. Bordo interno AD scarico | F1 (verbatim) [V] |
@@ -160,7 +160,7 @@ sull'ellisse esterna [V].
 - **Target: σ_yy = −5,38 MPa**, e la scheda NAFEMS lo qualifica **«(mesh refinement)»**:
   è un target **numerico**, non una soluzione chiusa. F1 [V]. SimScale lo conferma a parole:
   *«The reference solution … is of the numerical type»* [V].
-- Il segno: la scheda NAFEMS e ESRD scrivono −5,38; Abaqus scrive «5,38 MPa» nel testo ma
+- Il segno: la scheda NAFEMS e ESRD scrivono −5,38; Abaqus scrive «5.38 MPa» nel testo ma
   −6,72/−5,64 ecc. in tabella. È compressione. [V]
 
 ### Mesh prescritte dalla scheda
@@ -324,7 +324,7 @@ il ticket lo chiede e perché è il test modale su mesh distorta.
 |---|---|---|
 | pubblicazione | NAFEMS TNSB Rev. 3 (1990) secondo Abaqus; NAFEMS R0015 (1987) Test FV32 secondo TechSoft3D | F3, TechSoft3D [V] — vedi §7 |
 | geometria | mensola rastremata: **lunghezza 10,0 m**; altezza **5,0 m** all'incastro (y ∈ [−2,5, +2,5]); altezza **1,0 m** all'estremo libero (y ∈ [−0,5, +0,5]) | figura Abaqus `bmkfv32.png` (quote 2,5 m, 1,0 m, 10,0 m) [V] + deck `nfv32f8c.inp` nodi (0,−2,5) (10,−0,5) (0,2,5) (10,0,5) [V, incrociato] |
-| spessore | **0,05 m** | F3 testo («Plate thickness = 0,05 m») [V]. Irrilevante per le frequenze: massa e rigidezza scalano entrambe con t [INF] |
+| spessore | **0,05 m** | F3 testo («Plate thickness = 0.05 m») [V]. Irrilevante per le frequenze: massa e rigidezza scalano entrambe con t [INF] |
 | materiale | E = **200 GPa**, ν = **0,3**, ρ = **8000 kg/m³** | F3, TechSoft3D [V, due fonti] |
 | vincoli | **u_x = u_y = 0 lungo l'asse y** (il bordo incastrato x = 0); **u_z = 0 su tutti i nodi** | F3 e TechSoft3D, formulazione identica [V, due fonti] |
 | carico | nessuno: analisi modale libera | [V] |
@@ -364,7 +364,7 @@ solidi, è **FV52**, non FV32.
 | geometria | piastra quadrata **10,0 m × 10,0 m**, spessore **1,0 m** | figura Abaqus `bmkfv52.png` (tre quote: 10,0 m, 10,0 m, 1,0 m) [V] + deck `nfv52i8f.inp`, nodi da (0,0,−0,5) a (10,10,+0,5) [V, incrociato] |
 | sistema di riferimento | **piano medio a z = 0**; superficie inferiore z = **−0,5**, superiore z = **+0,5**; x, y ∈ [0, 10] | deck [V] |
 | materiale | E = **200 GPa**, ν = **0,3**, ρ = **8000 kg/m³** | F3, Altair, TechSoft3D [V, tre fonti] |
-| **vincoli** | **u_z = 0 lungo i quattro spigoli sul piano z = −0,5**, e nient'altro | F3 (verbatim) [V]; TechSoft3D lo scrive identico: *«Z = 0 along the 4 edges on the plane Z = −0,5m»* [V] |
+| **vincoli** | **u_z = 0 lungo i quattro spigoli sul piano z = −0,5**, e nient'altro | F3 (verbatim) [V]; TechSoft3D lo scrive identico: *«Z = 0 along the 4 edges on the plane Z = −0.5m»* [V] |
 | carico | nessuno: analisi modale libera | [V] |
 | modi 1–3 | **moti rigidi (RBM)**, frequenza nulla. Il vincolo è *cinematicamente incompleto* per costruzione: nessun grado in x e y è bloccato | F3 [V]; TechSoft3D lo dichiara: *«Kinematically incomplete suppressions»* [V] |
 | mesh usate | **8 × 8 × 3** con esaedri a 8 nodi; **4 × 4 × 1** con esaedri a 20 nodi | Altair OS-V 0455 [V]; il deck `nfv52i8f.inp` genera esattamente 8 × 8 × 3 [V] |

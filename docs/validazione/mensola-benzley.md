@@ -4,7 +4,7 @@ Fonte primaria: S. E. Benzley, E. Perry, K. Merkley, B. Clark, G. Sjaardema,
 «A Comparison of All Hexagonal and All Tetrahedral Finite Element Meshes for
 Elastic and Elasto-plastic Analysis», Proc. 4th International Meshing Roundtable,
 1995, pp. 179-191.
-PDF letto: <https://coreform.com/papers/hex_tet_comparison.pdf> (8 pagine, PDF 1,3,
+PDF letto: <https://coreform.com/papers/hex_tet_comparison.pdf> (8 pagine, PDF 1.3,
 scaricato il 26/08/2026). I numeri di pagina qui sotto sono pagine del PDF, non del volume.
 
 Convenzione: **[V]** = stampato nel paper. **[I]** = inferito, con la verifica numerica
@@ -27,8 +27,10 @@ Sezione quindi **quadrata 1x1**, non genericamente rettangolare: il testo dice
 ### Unità — non dichiarate
 
 Il paper **non dichiara mai** le unità: né in Figura 3, né nel testo, né nelle
-tabelle. Compaiono solo numeri nudi (Young's Modulus = 10,000,000; Density = 0,1;
-10,0; 1,0). Non c'è nemmeno una frase che le dichiari adimensionali.
+tabelle. Compaiono solo numeri nudi, e qui sotto stanno **come il paper li
+stampa**: «Young's Modulus = 10,000,000», «Density = 0.1», «10.0», «1.0» — virgola
+americana per le migliaia, punto per i decimali. Non c'è nemmeno una frase che le
+dichiari adimensionali.
 
 **[I]** La terna che rende consistenti tutti e quattro i valori di riferimento è
 **pollice / libbra-forza / secondo**, con la densità letta come **peso specifico**
@@ -56,9 +58,9 @@ il paper non lo scrive.
 
 | Caso | Parametri | Fonte |
 |---|---|---|
-| Barra, elastico | E = 10,000,000; nu = .3 e .49; Density = 0,1 | [V] Figura 3, p. 5 |
-| Barra, elasto-plastico | E = 10,000,000; nu = .3 (e .49 in figura); Yield Stress = 10,000 | [V] Figura 7 e testo, p. 7 |
-| Cubo unitario (studio autovalori, **caso diverso**) | E = 30,000,000; nu = .3 | [V] p. 3 |
+| Barra, elastico | «E = 10,000,000; nu = .3 e .49; Density = 0.1» | [V] Figura 3, p. 5 |
+| Barra, elasto-plastico | «E = 10,000,000; nu = .3 (e .49 in figura); Yield Stress = 10,000» | [V] Figura 7 e testo, p. 7 |
+| Cubo unitario (studio autovalori, **caso diverso**) | «E = 30,000,000; nu = .3» | [V] p. 3 |
 
 Non mescolare i due E: **30,000,000** è del cubo unitario dello studio sugli autovalori
 della matrice di rigidezza (Tabella 1, p. 3), **non** della mensola. La densità 0,1
@@ -69,7 +71,7 @@ compare solo in Figura 3 e serve al caso modale.
 ### Flessione (statica)
 
 > «the analytical magnitudes of the normal displacement and the bending stress at
-> the reference point, using classical beam theory [10] are 0,000125 and 30,0
+> the reference point, using classical beam theory [10] are 0.000125 and 30.0
 > respectively. Both the displacement and bending stress are independent of
 > Poisson's ratio.» — [V] p. 5
 
@@ -86,9 +88,9 @@ compare solo in Figura 3 e serve al caso modale.
 
 ### Torsione (statica)
 
-> «The shear stress from this solution is 6,8 and is independent of Poisson's ratio.
+> «The shear stress from this solution is 6.8 and is independent of Poisson's ratio.
 > The rotational displacement (i.e. the translation of the reference point in the
-> direction of twisting) is 0,000003269 for a Poisson's ratio of .3, and 0,000003747
+> direction of twisting) is 0.000003269 for a Poisson's ratio of .3, and 0.000003747
 > for a Poisson's ratio of .49.» — [V] p. 5
 
 Fonte: **[11] Timoshenko & Goodier, Theory of Elasticity, 3rd ed.** Il paper **non
@@ -97,7 +99,7 @@ riporta né la formula né il fattore di forma**. Vedi §6.
 ### Modale
 
 > «The analytical solution for the bending mode is given by Hurty and Rubenstien
-> [13] as 317,5 cycles/sec. An approximate solution for the torsional vibration
+> [13] as 317.5 cycles/sec. An approximate solution for the torsional vibration
 > mode, assuming the stiffness value as determined from the elasticity solution
 > [11], and no warping, is 2614 cycles/sec.» — [V] p. 7
 

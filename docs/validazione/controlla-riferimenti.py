@@ -26,6 +26,8 @@ vede solo chi legge.
 
 from __future__ import annotations
 
+import contextlib
+import io
 import re
 import sys
 import tempfile
@@ -95,6 +97,14 @@ def controlla(
     return rotti, fuori, non_verificabili
 
 
+def _corsa(argomenti: list[str]) -> tuple[str, int]:
+    """`main` con lo stdout catturato: l'autoprova non sporca la propria corsa."""
+    catturato = io.StringIO()
+    with contextlib.redirect_stdout(catturato):
+        uscita = main(argomenti)
+    return catturato.getvalue(), uscita
+
+
 def autoprova() -> None:
     with tempfile.TemporaryDirectory() as cartella:
         doc = Path(cartella) / "prova.md"
@@ -105,7 +115,7 @@ def autoprova() -> None:
         rotti, fuori, _ = controlla(doc)
         assert rotti == [], rotti
         assert len(fuori) == 1 and "per costruzione" in fuori[0], fuori
-        assert main([str(doc)]) == 0, "un fuori albero da solo non e' un difetto"
+        assert _corsa([str(doc)])[1] == 0, "un fuori albero da solo non e' un difetto"
 
         # la forma abbreviata: terza categoria, ne' risolta ne' taciuta
         doc.write_text(f"`{mio}:1` e poi `:2`\n", encoding="utf-8")
@@ -113,17 +123,18 @@ def autoprova() -> None:
         assert (rotti, fuori) == ([], []), (rotti, fuori)
         assert len(ignoti) == 1 and "`:2`" in ignoti[0], ignoti
 
-        # documento senza alcun riferimento
+        # documento senza alcun riferimento: esito stampato, non il vuoto
         doc.write_text("nessun riferimento qui, solo prosa.\n", encoding="utf-8")
         assert controlla(doc) == ([], [], [])
-        assert main([str(doc)]) == 0
+        esito, uscita = _corsa([str(doc)])
+        assert uscita == 0 and "0 rotti" in esito, esito
 
         # riga oltre la fine: la lunghezza vera nel messaggio, non un IndexError
         doc.write_text(f"oltre la fine: `{mio}:99999`\n", encoding="utf-8")
         rotti, _, _ = controlla(doc)
         vere = _righe(Path(__file__))
         assert len(rotti) == 1 and str(vere) in rotti[0], (rotti, vere)
-        assert main([str(doc)]) == 1
+        assert _corsa([str(doc)])[1] == 1
 
         # file che esiste ma e' vuoto, citato a riga 1: rotto, e lo dice con lo 0
         vuoto = Path(cartella) / "vuoto.md"
@@ -132,7 +143,8 @@ def autoprova() -> None:
         rotti, _, _ = controlla(doc, {"vuoto.md": [vuoto]})
         assert len(rotti) == 1 and "ha 0 righe" in rotti[0], rotti
 
-        assert main([cartella]) == 2, "una cartella si dichiara, non solleva"
+        esito, uscita = _corsa([cartella])
+        assert uscita == 2 and "cartella" in esito, esito
 
     assert _indice(), "l'indice dell'albero non puo' essere vuoto"
     print("autoprova: tutti gli assert passati")
@@ -163,6 +175,12 @@ def main(argomenti: list[str]) -> int:
             print(f"--- {titolo}: {len(elenco)}")
             for riga in elenco:
                 print(riga)
+    # L'esito si stampa sempre, anche quando non c'e' nulla da elencare: un
+    # prompt vuoto non dice se il controllo e' passato o se non e' partito.
+    testo = documento.read_text(encoding="utf-8")
+    totale = len(RIFERIMENTO.findall(testo)) + len(ABBREVIATO.findall(testo))
+    print(f"{documento}: {len(rotti)} rotti, {len(fuori)} fuori albero, "
+          f"{len(non_verificabili)} non verificabili, su {totale} riferimenti")
     return 1 if rotti else 0
 
 

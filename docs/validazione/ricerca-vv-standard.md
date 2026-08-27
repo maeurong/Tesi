@@ -198,9 +198,9 @@ Struttura della Subpart 2.7: General (100–102), General Requirements (200–20
 Support Software (600–602), References (700). Copre acquisizione, V&V, e manutenzione del software. [V-sec]
 
 Catena regolatoria correlata, documentata in fonti governative USA:
-DOE O 414,1C/D (Quality Assurance) e 10 CFR 50 Appendix B; il DOE richiede che la gestione del
+DOE O 414.1C/D (Quality Assurance) e 10 CFR 50 Appendix B; il DOE richiede che la gestione del
 "safety software" includa verification and validation, inclusi inspection e testing —
-vedi *Applying DOE O 414,1C and NQA-1 Requirements to ISM Software*,
+vedi *Applying DOE O 414.1C and NQA-1 Requirements to ISM Software*,
 <https://www.energy.gov/sites/prod/files/2014/05/f16/Applying%20DOE%20O%20414.1C%20and%20NQA-1%20Requirements%20to%20ISM%20Software.pdf>. [V-sec]
 
 **[NON TROVATO]** Una norma ISO/IEC o EN *specifica per il software di calcolo strutturale*
@@ -266,8 +266,8 @@ I test presenti nella guida ESRD: **LE1, LE2, LE3, LE5, LE6, LE7, LE8, LE10, LE1
   u_y = 0 sulla faccia DCD′C′; u_x = 0 su ABA′B′; u_x = u_y = 0 su BCB′C′;
   u_z = 0 sulla linea EE′ (punti medi degli spigoli CC′ e BB′).
 - Carico: pressione normale uniforme 1,0 MPa sulla superficie superiore.
-- **Target: σ_yy = −5,38 MPa nel punto D.** (Abaqus lo scrive come "5,38 MPa"; ESRD e Altair come
-  "−5,38 MPa": è compressione, il segno dipende dalla convenzione riportata.) [V su entrambe le fonti]
+- **Target: σ_yy = −5,38 MPa nel punto D.** (Abaqus lo scrive come "5.38 MPa"; ESRD e Altair come
+  "−5.38 MPa": è compressione, il segno dipende dalla convenzione riportata.) [V su entrambe le fonti]
 - Risultati pubblicati Abaqus (mesh coarse / fine):
   C3D20 −6,72 (+25,00%) / −5,64 (+4,83%); C3D20R −7,93 (+47,39%) / −5,53 (+2,78%);
   C3D10 −5,44 (+1,15%) / −5,77 (+7,24%); C3D10HS −5,08 (−3,72%) / −5,51 (+2,42%);
@@ -453,8 +453,8 @@ Grid Convergence Index sulla griglia fine e su quella grossolana:
     GCI₁₂ = F_s · |ε₁₂| / (r^p − 1) · 100 %
     GCI₂₃ = F_s · |ε₂₃| / (r^p − 1) · 100 %
 
-Fattore di sicurezza, verbatim NASA: *"The factor of safety is recommended to be Fs = 3,0 for
-comparisons of two grids and Fs = 1,25 for comparisons over three or more grids."*
+Fattore di sicurezza, verbatim NASA: *"The factor of safety is recommended to be Fs = 3.0 for
+comparisons of two grids and Fs = 1.25 for comparisons over three or more grids."*
 
 Verifica di essere nel range asintotico:
 
