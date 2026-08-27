@@ -297,8 +297,27 @@ def leggi_frd(percorso: Path) -> list[Blocco]:
     return blocchi
 
 
+def _righe_dat(percorso: Path, righe: list[str] | None) -> list[str]:
+    """Le righe del `.dat`, lette dal file se il chiamante non le porta gia'.
+
+    `risolvi` chiama tre parser sullo stesso file: leggerlo tre volte per
+    intero non serve a nessuno (14.103 nodi e 20 modi non fanno un file
+    piccolo). Il parametro e' facoltativo e i tre parser restano chiamabili
+    col solo percorso, che e' come li usano i test e chiunque legga un `.dat`
+    a mano; il percorso resta comunque richiesto, cosi' l'errore di un file
+    mancante continua a nominarlo.
+
+    `errors="replace"` e non `"ignore"`: un byte scartato puo' incollare due
+    campi in uno e cambiare il conteggio su cui questi parser decidono, un
+    byte sostituito no.
+    """
+    if righe is not None:
+        return righe
+    return Path(percorso).read_text(encoding="ascii", errors="replace").splitlines()
+
+
 def leggi_reazioni(
-    percorso: Path, passo: int | None = None
+    percorso: Path, passo: int | None = None, *, righe: list[str] | None = None
 ) -> dict[int, tuple[float, float, float]]:
     """Reazioni nodali dall'ultimo blocco statico "forces" del `.dat`.
 
@@ -327,7 +346,7 @@ def leggi_reazioni(
     reazioni: dict[int, tuple[float, float, float]] = {}
     passo_corrente = 0
     dentro_le_forze = False
-    for linea in Path(percorso).read_text(encoding="ascii", errors="ignore").splitlines():
+    for linea in _righe_dat(percorso, righe):
         if "E I G E N V A L U E   O U T P U T" in linea:
             break
         # Ogni blocco di `*NODE PRINT` si apre con "<grandezza> (...) for set
@@ -609,7 +628,7 @@ def _dimensione(nodes: np.ndarray) -> float:
 
 
 def controlla_spostamenti(
-    u_max: float, dimensione: float, soglia: float = _SOGLIA_SPOSTAMENTO_SU_DIMENSIONE
+    u_max: float | None, dimensione: float, soglia: float = _SOGLIA_SPOSTAMENTO_SU_DIMENSIONE
 ) -> dict[str, object]:
     """Lo spostamento massimo contro la dimensione del modello (#12).
 
@@ -674,7 +693,9 @@ _INTESTAZIONE_MODALE = "E F F E C T I V E   M O D A L   M A S S"
 _INTESTAZIONE_TOTALE = "T O T A L   E F F E C T I V E   M A S S"
 
 
-def leggi_massa_modale(percorso: Path) -> dict[str, list[float]] | None:
+def leggi_massa_modale(
+    percorso: Path, *, righe: list[str] | None = None
+) -> dict[str, list[float]] | None:
     """Massa modale efficace dal `.dat`: quella catturata e quella disponibile.
 
     `ccx` scrive tre blocchi dopo `E I G E N V A L U E   O U T P U T` e finora
@@ -690,7 +711,7 @@ def leggi_massa_modale(percorso: Path) -> dict[str, list[float]] | None:
     modale che non ha estratto nulla. Non e' uno zero: zero significherebbe
     «i modi non catturano massa», che e' un'altra cosa e sarebbe un difetto.
     """
-    righe = Path(percorso).read_text(encoding="ascii", errors="replace").splitlines()
+    righe = _righe_dat(percorso, righe)
 
     def sei_numeri(riga: str, salta: int = 0) -> list[float] | None:
         campi = riga.split()[salta:]
@@ -796,7 +817,7 @@ def controlla_massa_modale(
     }
 
 
-def leggi_frequenze(percorso: Path) -> list[float]:
+def leggi_frequenze(percorso: Path, *, righe: list[str] | None = None) -> list[float]:
     """Le frequenze proprie [Hz]: colonna CYCLES/TIME del blocco MODE NO del `.dat`.
 
     Il blocco e' una tabella libera (nessuna colonna incollata, a differenza
@@ -806,7 +827,7 @@ def leggi_frequenze(percorso: Path) -> list[float]:
     """
     frequenze: list[float] = []
     dentro = False
-    for linea in Path(percorso).read_text(encoding="ascii", errors="ignore").splitlines():
+    for linea in _righe_dat(percorso, righe):
         if "MODE NO" in linea and "EIGENVALUE" in linea:
             dentro = True
             continue
@@ -935,6 +956,18 @@ def _quota_tributaria_gravita(
             "il vettore dei carichi consistenti dipende dalle funzioni di forma, "
             "e un valore preso da un altro elemento sarebbe un numero plausibile "
             "e sbagliato"
+        )
+    # Le colonne, non solo il nome: su C3D10 con un array a quattro colonne la
+    # fetta `elements[:, 4:10]` e' vuota, il termine dei lati vale zero e resta
+    # il solo `-V/20` dei vertici -- la funzione rendeva una massa **negativa**
+    # in silenzio. `export_model` valida a monte, ma qui si arriva anche per
+    # chiamata diretta (test e script di cantiere).
+    attesi = abaqus.NODI_PER_ELEMENTO[element_type]
+    if elements.shape[1] < attesi:
+        raise ValueError(
+            f"{element_type} vuole {attesi} nodi per elemento, ne sono arrivati "
+            f"{elements.shape[1]}: senza i nodi di lato la ripartizione perde il "
+            "termine che porta il carico e rende un peso negativo"
         )
     # Il volume e' quello del tetraedro a spigoli dritti: le quattro colonne
     # dei vertici bastano per entrambi i tipi, e su C3D10 i nodi di lato di
@@ -1156,9 +1189,11 @@ def risolvi(
     abaqus.write_vtu(percorso_vtu, nodes, elements, element_type=element_type, point_data=point_data)
 
     avvisi = uscita.upper().count("*WARNING")
-    frequenze_hz = leggi_frequenze(percorso_dat)
-    masse_modali = leggi_massa_modale(percorso_dat)
-    reazioni_peso_proprio = leggi_reazioni(percorso_dat, passo=1)
+    # Una lettura sola per i tre parser: il `.dat` e' lo stesso file.
+    righe_dat = _righe_dat(percorso_dat, None)
+    frequenze_hz = leggi_frequenze(percorso_dat, righe=righe_dat)
+    masse_modali = leggi_massa_modale(percorso_dat, righe=righe_dat)
+    reazioni_peso_proprio = leggi_reazioni(percorso_dat, passo=1, righe=righe_dat)
     massa = float(cfg.material.density) * _volume_totale(nodes, elements)
     quota_tributaria = _quota_tributaria_gravita(
         # `.keys()` esplicito: la funzione vuole i numeri di nodo a base uno,

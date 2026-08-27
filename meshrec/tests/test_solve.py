@@ -631,6 +631,34 @@ def test_controlla_picco_con_nan_a_monte_riporta_il_valore_invece_di_nasconderlo
 # ---------------------------------------------------------------------------
 
 
+def test_i_tre_parser_del_dat_restano_chiamabili_col_solo_percorso(tmp_path):
+    """La lettura condivisa di `risolvi` non ha spostato il contratto dei tre.
+
+    `risolvi` legge il `.dat` una volta e passa le righe ai tre parser
+    (`leggi_frequenze`, `leggi_massa_modale`, `leggi_reazioni`), invece di
+    leggerlo per intero tre volte. Il percorso resta la via normale e resta
+    obbligatorio: e' quella che usano i test e chiunque apra un `.dat` a
+    mano, ed e' quella che nomina il file quando il file non c'e'.
+
+    Le due meta' del caso degenere non sono la stessa cosa e il test le
+    tiene distinte: un `.dat` **assente** solleva nominando il file, un
+    `.dat` **vuoto** non solleva affatto -- rende zero frequenze, nessuna
+    massa modale, nessuna reazione. Un file vuoto e' un risultato mancante,
+    non un errore di lettura.
+    """
+    assente = tmp_path / "non_c_e.dat"
+    for lettura in (solve.leggi_frequenze, solve.leggi_massa_modale, solve.leggi_reazioni):
+        with pytest.raises(FileNotFoundError) as errore:
+            lettura(assente)
+        assert "non_c_e.dat" in str(errore.value)
+
+    vuoto = tmp_path / "vuoto.dat"
+    vuoto.write_text("", encoding="ascii")
+    assert solve.leggi_frequenze(vuoto) == []
+    assert solve.leggi_massa_modale(vuoto) is None
+    assert solve.leggi_reazioni(vuoto) == {}
+
+
 def test_leggi_reazioni_su_dat_senza_blocco_forze_non_solleva(tmp_path):
     """Ingresso degenere 1: `.dat` senza alcun blocco di reazioni -> dizionario
     vuoto, non un'eccezione. Codice gia' corretto (nessun ramo puo' sollevare
@@ -820,6 +848,30 @@ def test_un_elemento_sconosciuto_non_prende_la_formula_di_un_altro():
 
     with pytest.raises(ValueError, match="C3D8"):
         solve._quota_tributaria_gravita(nodes, tets, [1], 1.8e-9, "C3D8")
+
+
+def test_c3d10_su_un_array_a_quattro_colonne_non_rende_un_peso_negativo():
+    """`element_type` era validato, le colonne di `elements` no.
+
+    Su C3D10 la funzione legge `elements[:, 4:10]` per i nodi di lato: con un
+    array a quattro colonne quella fetta e' **vuota**, il termine `+V/5` dei
+    lati vale zero, e resta il solo `-V/20` dei vertici. La funzione rendeva
+    quindi una massa **negativa**, senza errore -- e una massa negativa in un
+    controllo di equilibrio non e' un numero sbagliato di poco, e' un numero
+    che non esiste.
+
+    Non raggiungibile dalla pipeline (`export_model` valida `elements.shape[1]`
+    a monte) ma sì da chiamata diretta: test e script di cantiere chiamano
+    questa funzione senza passare da li'.
+
+    Mutazione che lo uccide: togliere la guardia sulle colonne. Nessuna
+    eccezione, e il valore reso e' `-massa/5`, cioe' negativo.
+    """
+    nodes = np.array([[0.0, 0.0, 0.0], [100.0, 0.0, 0.0], [0.0, 100.0, 0.0], [0.0, 0.0, 100.0]])
+    tets = np.array([[0, 1, 2, 3]], dtype=np.int64)
+
+    with pytest.raises(ValueError, match="10 nodi per elemento"):
+        solve._quota_tributaria_gravita(nodes, tets, [1, 2, 3, 4], 1.8e-9, "C3D10")
 
 
 # ---------------------------------------------------------------------------
