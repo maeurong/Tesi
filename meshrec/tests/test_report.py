@@ -1310,8 +1310,60 @@ def test_i_gradi_di_liberta_dichiarati_confrontabili_compaiono_nella_tabella(tmp
         encoding="utf-8"
     )
 
-    assert "<th>gradi_di_liberta</th>" in testo
+    assert "<th>gradi di libertà</th>" in testo
     assert "C3D8I" in testo  # element_type del ramo esaedri, dentro la riga
+
+
+def test_le_grandezze_si_intitolano_con_l_etichetta_non_con_la_chiave(tmp_path):
+    """L'appendice cartacea la legge un umano: una riga intitolata
+    `gradi_di_liberta` si legge come un refuso di tesi, non come una chiave.
+
+    Mutazione che deve morire: rimettere `{grandezza}` al posto di
+    `{html.escape(etichetta)}` nel `<th>` di write_comparison_report.
+    """
+    cartelle = _tre_cartelle_finte(tmp_path)
+
+    testo = report.write_comparison_report(cartelle, tmp_path / "confronto.html").read_text(
+        encoding="utf-8"
+    )
+
+    for _, etichetta in report._ETICHETTE_GRANDEZZE:
+        assert f"<th>{etichetta}</th>" in testo
+    # `volume` e `massa` sono chiave ed etichetta insieme e non provano niente:
+    # mordono solo le due che differiscono.
+    assert "gradi_di_liberta" not in testo
+    assert "scostamento_nuvola" not in testo
+
+
+def test_ogni_grandezza_dichiarata_confrontabile_ha_la_sua_etichetta():
+    """La mappa e' la sorgente del ciclo, quindi una chiave senza etichetta non
+    puo' finire stampata nuda: puo' pero' sparire dalla tabella in silenzio, o
+    comparirci pur essendo dichiarata non confrontabile. Le due dichiarazioni
+    devono dire la stessa cosa.
+
+    Mutazione che deve morire: togliere la coppia `gradi_di_liberta` dalle
+    etichette lasciando `CONFRONTABILI['gradi_di_liberta'] = True`.
+    """
+    assert {chiave for chiave, _ in report._ETICHETTE_GRANDEZZE} == {
+        chiave for chiave, si in report.CONFRONTABILI.items() if si
+    }
+
+
+def test_un_etichetta_con_caratteri_html_passa_da_escape(tmp_path, monkeypatch):
+    """L'etichetta finisce in un `<th>` esattamente come il valore finisce in un
+    `<td>`, e il valore passa gia' da html.escape. Se un giorno un'etichetta
+    portera' un `<` o una `&`, deve uscire dalla stessa porta.
+
+    Mutazione che deve morire: togliere html.escape dall'etichetta nel `<th>`.
+    """
+    monkeypatch.setattr(report, "_ETICHETTE_GRANDEZZE", (("volume", "volume <b> & 1"),))
+    cartelle = _tre_cartelle_finte(tmp_path)
+
+    testo = report.write_comparison_report(cartelle, tmp_path / "confronto.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert "<th>volume &lt;b&gt; &amp; 1</th>" in testo
 
 
 def test_due_cartelle_dello_stesso_tipo_si_segnalano_invece_di_sovrascriversi(tmp_path):

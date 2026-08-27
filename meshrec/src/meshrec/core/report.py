@@ -760,6 +760,22 @@ def confronta(cartelle: list[Path]) -> dict[str, object]:
     }
 
 
+_ETICHETTE_GRANDEZZE: tuple[tuple[str, str], ...] = (
+    ("volume", "volume"),
+    ("massa", "massa"),
+    ("scostamento_nuvola", "scostamento dalla nuvola [mm]"),
+    ("gradi_di_liberta", "gradi di libertà"),
+)
+"""Che cosa si intitola ogni riga della tabella delle grandezze confrontabili.
+
+Sorella di _COLUMNS, e per la stessa ragione: una chiave non si stampa mai, si
+stampa la sua etichetta. Le chiavi restano quelle di CONFRONTABILI e dei
+modello.json gia' sul disco, l'etichetta e' l'italiano che legge chi ha in mano
+l'appendice. L'unita' sta dentro l'etichetta, come in
+("thickness_error", "errore di spessore [mm]").
+"""
+
+
 def write_comparison_report(cartelle: list[Path], out_path: Path) -> Path:
     """Il confronto in una pagina, con lo stesso rivestimento del report di corsa.
 
@@ -772,12 +788,12 @@ def write_comparison_report(cartelle: list[Path], out_path: Path) -> Path:
     """
     confronto = confronta(cartelle)
     righe = []
-    for grandezza in ("volume", "massa", "scostamento_nuvola", "gradi_di_liberta"):
+    for grandezza, etichetta in _ETICHETTE_GRANDEZZE:
         celle = "".join(
             f"<td>{'non generato' if nome not in confronto[grandezza] else html.escape(_testo(confronto[grandezza][nome]))}</td>"
             for nome in MODELLI
         )
-        righe.append(f"<tr><th>{grandezza}</th>{celle}</tr>")
+        righe.append(f"<tr><th>{html.escape(etichetta)}</th>{celle}</tr>")
 
     qualita_righe = "".join(
         f"<tr><th>{nome}</th><td>{html.escape(_testo(confronto['qualita'].get(nome, 'non generato')))}</td></tr>"

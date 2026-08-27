@@ -44,7 +44,8 @@ TRONCA = re.compile(r"\b[A-Za-z]*[aeiou]'(?![A-Za-zàèéìòù])")
 # Le nude. `meta` non c'e': in `<meta charset="utf-8">` non e' una parola
 # italiana, ed e' il generatore del report a scriverlo.
 NUDA = re.compile(
-    r"\b(piu|gia|percio|cosi|perche|poiche|finche|puo|sara|qualita|densita|unita|possibilita)"
+    r"\b(piu|gia|percio|cosi|perche|poiche|finche|puo|sara|qualita|densita|unita|possibilita"
+    r"|liberta)"
     r"(?![A-Za-z'àèéìòù])"
 )
 # Un tag HTML intero, e cio' che vive dentro un paio di apici senza spazi.
@@ -177,7 +178,7 @@ def test_la_prosa_dei_moduli_che_parlano_all_utente_porta_gli_accenti():
 def test_gli_identificatori_italiani_restano_in_ascii():
     """La controprova: la guardia vieta la grafia vecchia, non le parole.
 
-    Undici stringhe corte portano una parola che in italiano vorrebbe
+    Quattordici stringhe corte portano una parola che in italiano vorrebbe
     l'accento, e **non devono cambiare**: sono un flag della CLI che Mario
     batte a mano, e chiavi gia' scritte nei `metrics.json` delle corse sul
     disco. PRODUCT.md dichiara `runs/muro` e `runs/lab_crop` di sola lettura:
@@ -189,7 +190,15 @@ def test_gli_identificatori_italiani_restano_in_ascii():
 
     Mutazione che lo uccide: rinominare `--densita` in `--densità` in `cli.py`.
     """
-    identificatori = ["--densita", "densita_dispersione", "unita", "qualita", "qualita_elementi"]
+    identificatori = [
+        "--densita",
+        "densita_dispersione",
+        "limite_densita_dispersione",
+        "unita",
+        "qualita",
+        "qualita_elementi",
+        "gradi_di_liberta",
+    ]
     trovati = {nome: 0 for nome in identificatori}
     for percorso in sorted(SORGENTI.rglob("*.py")):
         for nodo in _letterali_di(percorso):

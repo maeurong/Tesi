@@ -1732,14 +1732,21 @@ async function caricaConfronto(ordine = generazione) {
   vuoto.hidden = !corpo.scheda_singola;
   const tabella = document.getElementById("confronto-tabella");
   tabella.replaceChildren();
-  for (const grandezza of ["volume", "massa", "scostamento_nuvola"]) {
+  // Una chiave non si stampa mai, si stampa la sua etichetta. Stesse etichette
+  // di _ETICHETTE_GRANDEZZE in core/report.py, meno i gradi di liberta': li' il
+  // valore e' un oggetto e il pannello non ha il _testo che lo sa scrivere.
+  for (const [grandezza, etichetta] of [
+    ["volume", "volume"],
+    ["massa", "massa"],
+    ["scostamento_nuvola", "scostamento dalla nuvola [mm]"],
+  ]) {
     const riga = document.createElement("p");
     // Un modello assente si nomina, non si riempie con un trattino: un
     // trattino in mezzo ai numeri somiglia a un valore.
     const celle = ["as-built", "estruso", "primitive"].map((nome) =>
       nome in corpo[grandezza] ? `${nome}: ${corpo[grandezza][nome]}` : `${nome}: non generato`,
     );
-    riga.textContent = `${grandezza} — ${celle.join(" · ")}`;
+    riga.textContent = `${etichetta} — ${celle.join(" · ")}`;
     tabella.append(riga);
   }
 

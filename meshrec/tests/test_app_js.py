@@ -3334,6 +3334,37 @@ assert.doesNotMatch(tabella.figli[0].textContent, /estruso: non generato/,
 """)
 
 
+def test_caricaConfronto_intitola_le_righe_con_l_etichetta_non_con_la_chiave(tmp_path):
+    """Il pannello e' la superficie che si vede per prima, proiettata durante
+    la discussione: `scostamento_nuvola` li' si legge come una chiave sfuggita,
+    non come una grandezza. Stessa regola del report in appendice.
+
+    Mutazione che deve morire: in `caricaConfronto`, rimettere `${grandezza}`
+    al posto di `${etichetta}` nel textContent della riga.
+    """
+    _esegui(tmp_path, _banco_di_caricaConfronto() + """
+risponde["/api/compare"] = async () => ({
+  ok: true,
+  json: async () => ({
+    scheda_singola: false,
+    volume: { "as-built": 1.5 },
+    massa: { "as-built": 12.0 },
+    scostamento_nuvola: { "as-built": 0.0 },
+    note_non_geometriche: [],
+    vincoli_giunzioni: {},
+    chiusura_volume: null,
+  }),
+});
+await caricaConfronto();
+const righe = document.getElementById("confronto-tabella").figli
+  .map((r) => r.textContent).join("\\n");
+assert.match(righe, /scostamento dalla nuvola \\[mm\\]/,
+  "la riga si intitola ancora con la chiave invece che con l'etichetta");
+assert.doesNotMatch(righe, /scostamento_nuvola/,
+  "la chiave del dizionario e' finita a video");
+""")
+
+
 def test_caricaConfronto_mostra_le_note_e_i_vincoli_alle_giunzioni(tmp_path):
     """F2 del giro di correzione finale: il pannello rendeva solo volume,
     massa, scostamento -- niente diceva a chi confronta i modelli che parte
