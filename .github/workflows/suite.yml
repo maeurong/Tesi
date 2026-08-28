@@ -115,7 +115,10 @@ jobs:
             if [ -n "$trovato" ]; then sudo ln -s "$trovato" /usr/bin/ccx; fi
           fi
           # Dichiarato obbligatorio: se manca, il lavoro fallisce qui e si
-          # vede, invece di far sparire 34 test in un verde.
+          # vede, invece di far sparire 53 test in un verde. Sono i test che
+          # *spariscono*, non quelli marcati: rimisurati il 28/08/2026 su
+          # 20cb464 lanciando la suite con `ccx` fuori dal PATH -- 54 saltati
+          # contro l'unico di base, che e' `wildmeshing` assente.
           #
           # Il segnale NON e' il codice d'uscita: `ccx -v` stampa la versione e
           # poi esce con **201** (misurato sul runner al primo giro: il lavoro
@@ -139,8 +142,10 @@ jobs:
         working-directory: meshrec
         run: uv sync --frozen
 
-      # Tutti i marcatori: la suite predefinita piu' `validazione` (34 test) e
-      # `feasibility` (16). E' il numero che si cita in tesi.
+      # Tutti i marcatori: la suite predefinita piu' `validazione` (49 test) e
+      # `feasibility` (18). E' il numero che si cita in tesi, quindi si
+      # rimisura invece di ricopiarlo: `pytest tests -q -m <marcatore>
+      # --collect-only`, il 28/08/2026 su 20cb464.
       - name: la suite completa, marcatori compresi
         working-directory: meshrec
         run: uv run pytest -m "" -q
