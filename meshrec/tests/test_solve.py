@@ -2163,3 +2163,21 @@ def test_un_percorso_dichiarato_e_sbagliato_non_esce_muto(tmp_path, monkeypatch)
     assert esito["solutore"] == "assente"
     assert str(sbagliato) in esito["motivo"]
     assert "non ripiega sul PATH" in esito["motivo"]
+
+
+def test_un_percorso_con_spazi_arriva_al_processo_come_un_argomento_solo(
+    tmp_path, monkeypatch
+):
+    """Nessuna shell di mezzo: il comando è una lista, e un percorso con spazi
+    resta un argomento. Con una riga di comando montata a stringa,
+    `Program Files` diventerebbe due argomenti e il messaggio d'errore
+    accuserebbe un file che nessuno ha nominato."""
+    cartella = tmp_path / "Program Files" / "città"
+    cartella.mkdir(parents=True)
+    binario = cartella / "ccx"
+    binario.write_text("finto", encoding="utf-8")
+    visti = _finge(monkeypatch, _Processo(0, b"This is Version 2.21\n", b""))
+
+    solve.verifica(_SolutoreFinto(percorso=binario))
+
+    assert visti["comando"] == [str(binario), "-v"]
