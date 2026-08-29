@@ -560,7 +560,7 @@ def scrivi_tcl(
     righe += [
         "wipe",
         "",
-        "# --- il marcatore di fine corsa: se manca, la corsa e' stata troncata",
+        "# --- il marcatore di fine corsa: se manca, la corsa è stata troncata",
         f'set _fine [open "{NOME_FINE}" w]',
         f'puts $_fine "{MARCA_FINE}"',
         "close $_fine",
