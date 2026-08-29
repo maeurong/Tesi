@@ -688,6 +688,70 @@ def test_la_corsa_figlia_ha_cartella_configurazione_deck_e_metriche_proprie(tmp_
     assert esito["hexa"]["inverted"] == 0
 
 
+def test_un_prior_scritto_prima_delle_nuove_misure_si_rilegge_ancora():
+    """`runs/muro/` e `runs/lab_crop/` sono corse di riferimento in sola
+    lettura, e i loro 12_wall.json non portano le chiavi nuove. Rileggerle non
+    deve rompersi -- e non deve nemmeno riempirle: assente vuol dire assente,
+    non zero e non una stima.
+
+    Il test passa gia\' oggi, perche\' i tre campi hanno un predefinito e
+    `_ricostruisci_membrature` non li nomina. Resta come guardia: e\' cio\' che
+    impedisce a un compito futuro di renderli obbligatori senza accorgersene.
+    """
+    voce_vecchia = {
+        "asse": [0.0, 0.0, 1.0],
+        "origine": [0.0, 0.0, 0.0],
+        "lunghezza": 3000.0,
+        "sezione": [300.0, 300.0],
+        "sezione_dispersione": [0.01, 0.01],
+        "contorno": [[-150.0, -150.0], [150.0, -150.0], [150.0, 150.0], [-150.0, 150.0]],
+        "fuori_piombo_deg": 0.0,
+        "asse_ideale": [0.0, 0.0, 1.0],
+        "scarto_asse_deg": 0.0,
+        "volume": 270_000_000.0,
+        "riempimento": {"valore": 0.98, "stato": "pieno", "densita_dispersione": 0.1},
+    }
+
+    membrature = pipeline._ricostruisci_membrature({"membrature": [voce_vecchia]})
+
+    assert len(membrature) == 1
+    assert len(membrature[0].sezioni_fette) == 0, "non inventare fette che nessuno ha misurato"
+    assert len(membrature[0].quote_fette) == 0
+    assert membrature[0].base_sezione.shape == (0, 3)
+
+
+def test_un_prior_senza_base_di_sezione_non_fabbrica_giunzioni():
+    """L\'altra meta\' della compatibilita\' all\'indietro: le membrature
+    ricostruite da un prior vecchio non portano il piano di sezione, e
+    `wall.giunzioni` deve rendere la lista vuota invece di dedurre un\'invasione
+    su una base che non c\'e\'. Due montanti dichiarati identici e coincidenti:
+    se la base assente venisse ignorata, questo sarebbe l\'incontro piu\' facile
+    da inventare.
+    """
+    from meshrec.core import wall
+
+    def voce(origine):
+        return {
+            "asse": [0.0, 0.0, 1.0],
+            "origine": origine,
+            "lunghezza": 3000.0,
+            "sezione": [300.0, 300.0],
+            "sezione_dispersione": [0.01, 0.01],
+            "contorno": [[-150.0, -150.0], [150.0, -150.0], [150.0, 150.0], [-150.0, 150.0]],
+            "fuori_piombo_deg": 0.0,
+            "asse_ideale": [0.0, 0.0, 1.0],
+            "scarto_asse_deg": 0.0,
+            "volume": 270_000_000.0,
+            "riempimento": {"valore": 0.98, "stato": "pieno", "densita_dispersione": 0.1},
+        }
+
+    membrature = pipeline._ricostruisci_membrature(
+        {"membrature": [voce([0.0, 0.0, 0.0]), voce([0.0, 0.0, 0.0])]}
+    )
+
+    assert wall.giunzioni(membrature) == []
+
+
 def test_lo_scostamento_dalla_nuvola_prende_i_nodi_e_la_nuvola_giusti(tmp_path):
     """Giro di correzione 2: questo test **non verifica l'aritmetica** di
     `quality.vertex_deviation` -- e' gia' protetta altrove (mutare
