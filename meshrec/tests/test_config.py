@@ -1177,7 +1177,7 @@ def _materiale_dichiarato(**campi) -> dict:
     return {
         "material": MATERIALE.model_dump(),
         "provenienza": "a_mano",
-        "norma": "NTC 2018 Tab. 4.1.II",
+        "norma": "NTC 2018 Tab. 4.1.I",
         **campi,
     }
 
@@ -1297,12 +1297,67 @@ def test_il_materiale_dichiarato_non_ha_una_veste_da_scegliere():
     di confidenza e il livello di conoscenza, che valgono sulla muratura e non
     su un calcestruzzo.
 
-    Mutazione che lo uccide: reintrodurre `veste` su `MaterialeDichiarato`.
+    Il test guarda il comportamento e non la prosa: asserire sottostringhe di
+    una `description` si sarebbe rotto riscrivendo quella descrizione senza che
+    nulla cambiasse, e sarebbe restato verde con un campo `veste` chiamato in
+    un altro modo.
+
+    Mutazione che lo uccide: reintrodurre un campo qualsiasi su
+    `MaterialeDichiarato` -- il modello smette di rifiutare la chiave in piu'.
     """
-    assert "veste" not in config.MaterialeDichiarato.model_fields
-    descrizione = config.MaterialeDichiarato.model_fields["f_k"].description
-    assert "CARATTERISTICA" in descrizione
-    assert "Mai un valore di progetto" in descrizione
+    # L'insieme esatto dei campi, non la sola assenza di `veste`: un campo che
+    # facesse la stessa cosa sotto un altro nome («qualita», «stato»...)
+    # passerebbe un `not in` e non passa questo.
+    assert set(config.MaterialeDichiarato.model_fields) == {
+        "material", "f_k", "provenienza", "classe", "norma",
+    }
+    # `f_k` e' e resta caratteristica: il dominio che lo dice e' il positivo
+    # stretto, non la prosa. Togliere `gt=0.0` lasciava la suite verde.
+    assert config.MaterialeDichiarato.model_validate(
+        _materiale_dichiarato(f_k=25.0)
+    ).f_k == 25.0
+    for storto in (0.0, -25.0):
+        with pytest.raises(ValidationError):
+            config.MaterialeDichiarato.model_validate(_materiale_dichiarato(f_k=storto))
+
+
+def test_la_provenienza_da_catalogo_pretende_la_classe_e_a_mano_la_rifiuta():
+    """I due campi si dichiaravano indipendenti: `provenienza='catalogo'` senza
+    `classe` passava, e `provenienza='a_mano'` con `classe` pure.
+
+    E' il difetto preciso che #141 esiste per impedire: in onda 2 si cercherebbe
+    nel catalogo una classe `None`, oppure la tabella di provenienza della tesi
+    direbbe «da catalogo» senza dire quale voce.
+
+    Mutazione che lo uccide: togliere il validatore. Entrambe le chiamate
+    passano e la provenienza smette di essere verificabile.
+    """
+    with pytest.raises(ValidationError, match="catalogo"):
+        config.MaterialeDichiarato.model_validate(
+            _materiale_dichiarato(provenienza="catalogo")
+        )
+    with pytest.raises(ValidationError, match="catalogo"):
+        config.MaterialeDichiarato.model_validate(
+            _materiale_dichiarato(provenienza="a_mano", classe="C25/30")
+        )
+    dal_catalogo = config.MaterialeDichiarato.model_validate(
+        _materiale_dichiarato(provenienza="catalogo", classe="C25/30")
+    )
+    assert dal_catalogo.classe == "C25/30"
+    assert config.MaterialeDichiarato.model_validate(
+        _materiale_dichiarato(provenienza="a_mano")
+    ).classe is None
+
+
+@pytest.mark.parametrize("vuota", ["", "   "])
+def test_la_norma_di_un_materiale_dichiarato_non_puo_essere_vuota(vuota):
+    """Per la sua stessa descrizione `norma` e' cio' che distingue un valore di
+    norma da uno inventato: vuota, passava e finiva in tabella.
+
+    Mutazione che lo uccide: togliere `min_length=1` dal vincolo di `norma`.
+    """
+    with pytest.raises(ValidationError):
+        config.MaterialeDichiarato.model_validate(_materiale_dichiarato(norma=vuota))
 
 
 def test_due_regioni_che_differiscono_solo_per_maiuscole_sono_rifiutate():
@@ -1401,6 +1456,15 @@ def test_l_armatura_rifiuta_i_valori_che_non_sono_un_armatura():
         {"barre_compresse": -1},
         {"copriferro_nominale": 9.0},
         {"classe_acciaio": "B450B"},
+        # I due diametri longitudinali erano gli unici domini dell'armatura che
+        # nessun test guardava: togliere `gt=0` a entrambi lasciava la suite
+        # verde.
+        {"diametro_teso": 0},
+        {"diametro_teso": -12},
+        {"diametro_compresso": 0},
+        {"diametro_compresso": -12},
+        {"classe_calcestruzzo": ""},
+        {"classe_calcestruzzo": "   "},
     ):
         with pytest.raises(ValidationError):
             config.ArmaturaConfig.model_validate(_armatura_minima(**storto))

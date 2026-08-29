@@ -205,7 +205,7 @@ def test_cambiare_una_regione_invalida_lo_step_11(tmp_path):
     materiale = {
         "material": {"name": "CLS", "young": 31476.0, "poisson": 0.2, "density": 2.5e-9},
         "provenienza": "a_mano",
-        "norma": "NTC 2018 Tab. 4.1.II",
+        "norma": "NTC 2018 Tab. 4.1.I",
     }
     sezione = {
         "calcestruzzo_confinato": materiale,

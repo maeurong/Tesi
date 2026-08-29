@@ -1244,15 +1244,39 @@ class MaterialeDichiarato(_ModelloBase):
         default=None,
         description=(
             "la voce del catalogo, es. «C25/30» o «B450C», quando la provenienza "
-            "è `catalogo`. Assente per una voce battuta a mano"
+            "è `catalogo`. Assente per una voce battuta a mano, e obbligatoria "
+            "per una che viene dal catalogo: i due campi si dichiarano insieme"
         ),
     )
-    norma: str = Field(
+    norma: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)] = Field(
         description=(
             "la norma con cui il valore è dichiarato, per articolo e non per "
-            "pagina di una dispensa: es. «NTC 2018 Tab. 4.1.II»"
+            "pagina di una dispensa: es. «NTC 2018 Tab. 4.1.I», la tabella che "
+            "porta i valori delle classi -- la 4.1.II dice invece dove una "
+            "classe si può impiegare. Non può essere vuota: è la sola cosa che "
+            "distingue un valore di norma da uno inventato, e vuota passerebbe "
+            "fino alla tabella di provenienza"
         ),
     )
+
+    @model_validator(mode="after")
+    def _la_provenienza_e_la_classe_si_dichiarano_insieme(self) -> "MaterialeDichiarato":
+        """La provenienza dice da dove viene il numero, la classe dice quale voce.
+
+        Erano indipendenti: `provenienza='catalogo'` senza `classe` passava, e
+        `provenienza='a_mano'` con `classe` pure. La prima manda a cercare nel
+        catalogo una voce `None`; la seconda mette in tabella «da catalogo»
+        senza dire quale voce, che e' il difetto preciso che #141 esiste per
+        impedire.
+        """
+        if (self.provenienza == "catalogo") != (self.classe is not None):
+            raise ValueError(
+                f"provenienza='{self.provenienza}' e classe={self.classe!r} non "
+                "stanno insieme: una voce dal catalogo dichiara quale voce è, e "
+                "una battuta a mano non ne ha una. Senza, la tabella di "
+                "provenienza direbbe «da catalogo» senza dire di che cosa"
+            )
+        return self
 
 
 class ArmaturaConfig(_ModelloBase):
@@ -1268,12 +1292,14 @@ class ArmaturaConfig(_ModelloBase):
     scelto.
     """
 
-    classe_calcestruzzo: str = Field(
+    classe_calcestruzzo: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1)
+    ] = Field(
         description=(
             "classe del calcestruzzo, es. «C25/30». Resta testo e non "
             "enumerazione finché il catalogo dei materiali non esiste: "
             "un'enumerazione scritta a mano qui sarebbe una seconda verità da "
-            "tenere allineata a quel catalogo"
+            "tenere allineata a quel catalogo. Vuota però non è una classe"
         ),
     )
     classe_acciaio: Literal["B450A", "B450C"] = Field(

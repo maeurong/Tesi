@@ -3552,7 +3552,7 @@ def cliente_con_regioni(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Test
     materiale = {
         "material": {"name": "CLS", "young": 31476.0, "poisson": 0.2, "density": 2.5e-9},
         "provenienza": "a_mano",
-        "norma": "NTC 2018 Tab. 4.1.II",
+        "norma": "NTC 2018 Tab. 4.1.I",
     }
     cfg = PipelineConfig(
         input=InputConfig(path=tmp_path / "nuvola.ply"),
