@@ -687,6 +687,74 @@ def _membratura_di_prova(origine, asse, lunghezza, sezione, base_sezione):
 _TRAVE_X = ([0.0, 0.0, 0.0], [1.0, 0.0, 0.0], 1000.0, (100.0, 100.0), [[0, 1, 0], [0, 0, 1]])
 
 
+def test_una_colonna_che_attraversa_una_trave_dichiara_l_attraversamento():
+    """`hexa.taglia_giunzioni` solleva su un attraversamento; qui no: il prior
+    rileva e non valida. Ma un attraversamento non e' un incontro a T, e senza
+    il tipo il record mostrerebbe «spostamento 400 mm» -- mezza colonna -- su
+    un incontro geometricamente esatto.
+    """
+    trave = _membratura_di_prova(*_TRAVE_X)
+    colonna = _membratura_di_prova(
+        [500.0, 0.0, -400.0], [0.0, 0.0, 1.0], 800.0, (100.0, 100.0), [[1, 0, 0], [0, 1, 0]]
+    )
+
+    incontri = wall.giunzioni([trave, colonna])
+
+    assert len(incontri) == 1
+    assert incontri[0]["tipo_incontro"] == "attraversamento"
+    assert incontri[0]["distanza_proiezione"] == pytest.approx(400.0, abs=1e-6)
+
+
+def test_una_membratura_contenuta_in_un_altra_non_diventa_un_incontro_a_t():
+    """L'altro caso su cui `hexa` solleva: nessun estremo da accorciare. Qui il
+    record esce lo stesso, perche' un'anomalia geometrica e' un risultato da
+    mostrare, ma dice che cos'e'.
+    """
+    trave = _membratura_di_prova(*_TRAVE_X)
+    dentro = _membratura_di_prova(
+        [400.0, 0.0, 0.0], [1.0, 0.0, 0.0], 200.0, (40.0, 40.0), [[0, 1, 0], [0, 0, 1]]
+    )
+
+    incontri = wall.giunzioni([trave, dentro])
+
+    assert len(incontri) == 1
+    assert incontri[0]["tipo_incontro"] == "contenimento"
+
+
+def test_un_incontro_a_un_estremo_e_dichiarato_tale():
+    """Il caso normale, che i due sopra devono restare capaci di distinguere:
+    la colonna arriva da sotto e si ferma dentro la trave.
+    """
+    trave = _membratura_di_prova(*_TRAVE_X)
+    colonna = _membratura_di_prova(
+        [500.0, 0.0, -800.0], [0.0, 0.0, 1.0], 800.0, (100.0, 100.0), [[1, 0, 0], [0, 1, 0]]
+    )
+
+    incontri = wall.giunzioni([trave, colonna])
+
+    assert len(incontri) == 1
+    assert incontri[0]["tipo_incontro"] == "estremo"
+
+
+def test_due_travi_che_si_sovrappongono_danno_un_nodo_dentro_il_pezzo():
+    """Il rilievo 1 visto dal record intero e non dalla sola funzione: il nodo
+    scritto sta sul segmento di chi resta, e il record porta il campo che dice
+    se e' stato limitato.
+    """
+    prima = _membratura_di_prova(*_TRAVE_X)
+    seconda = _membratura_di_prova(
+        [900.0, 0.0, -45.0], [1.0, 0.0, 0.01], 600.0, (100.0, 100.0), [[0, 1, 0], [0, 0, 1]]
+    )
+
+    incontri = wall.giunzioni([prima, seconda])
+
+    assert len(incontri) == 1
+    nodo = np.asarray(incontri[0]["nodo"])
+    lungo = float((nodo - prima.origine) @ prima.asse)
+    assert 0.0 <= lungo <= prima.lunghezza, "il nodo deve stare sul pezzo su cui si proietta"
+    assert "nodo_limitato" in incontri[0]
+
+
 def test_il_prisma_di_prova_e_ancorato_al_centro_del_contorno_e_non_all_origine():
     """Una colonna 100 x 100 x 1000 vista da due sole facce: il caso normale di
     uno scanner, non un caso limite. L'origine sta sull'asse del **baricentro**
@@ -842,8 +910,17 @@ def test_il_prior_scrive_le_giunzioni_col_nodo_e_la_distanza():
     assert "giunzioni" in esito
     assert len(esito["giunzioni"]) >= 1, "due membrature che si toccano fanno una giunzione"
     incontro = esito["giunzioni"][0]
-    assert set(incontro) >= {"cede", "resta", "nodo", "distanza_proiezione"}
+    assert set(incontro) >= {
+        "cede",
+        "resta",
+        "nodo",
+        "distanza_proiezione",
+        "nodo_limitato",
+        "tipo_incontro",
+    }
     assert incontro["cede"] != incontro["resta"]
+    assert isinstance(incontro["nodo_limitato"], bool)
+    assert incontro["tipo_incontro"] in {"estremo", "attraversamento", "contenimento"}
     assert 0 <= incontro["cede"] < len(esito["membrature"])
     assert 0 <= incontro["resta"] < len(esito["membrature"])
     assert len(incontro["nodo"]) == 3
@@ -901,13 +978,12 @@ def test_l_ordine_delle_giunzioni_non_dipende_dall_ordine_dei_punti():
     dopo = wall.prior(rimescolati, SegmentConfig(), _cfg(), SPAZIATURA)["giunzioni"]
 
     assert len(prima) == len(dopo)
-    # confronto sui nodi e non sugli indici: gli indici numerano due
-    # ordinamenti diversi della stessa nuvola, il nodo e' la geometria
-    for incontro_prima, incontro_dopo in zip(prima, dopo, strict=True):
-        assert incontro_prima["nodo"] == pytest.approx(incontro_dopo["nodo"], abs=1e-6)
-        assert incontro_prima["distanza_proiezione"] == pytest.approx(
-            incontro_dopo["distanza_proiezione"], abs=1e-6
-        )
+    # gli indici, che sono l'unico esito discreto in ballo: `regioni` dichiara
+    # e mantiene l'ordine canonico, quindi `cede` e `resta` numerano la stessa
+    # cosa nelle due corse. Il nodo e la distanza sono grandezze continue, che
+    # PRODUCT.md:22-26 esclude esplicitamente da questa norma.
+    assert [(v["cede"], v["resta"]) for v in prima] == [(v["cede"], v["resta"]) for v in dopo]
+    assert [v["tipo_incontro"] for v in prima] == [v["tipo_incontro"] for v in dopo]
 
 
 def test_prior_non_scarta_il_pavimento_due_volte(monkeypatch):

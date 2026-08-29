@@ -946,6 +946,29 @@ def _baricentrica_invasa(interna: Membratura, esterna: Membratura) -> np.ndarray
     )
 
 
+def _tipo_dell_incontro(invaso: np.ndarray) -> str:
+    """«estremo», «attraversamento» o «contenimento», dal campionamento di chi cede.
+
+    Le stesse tre condizioni su cui `hexa.taglia_giunzioni` decide, lette con
+    l'esito opposto: la' le ultime due **sollevano** (hexa.py:645 e hexa.py:652,
+    «due regioni sovrapposte non sono due membrature»), perche' la' si
+    costruisce un maglio e un prisma dentro un altro non ha un estremo da
+    accorciare. Qui no: il prior rileva e non valida, e un'anomalia geometrica
+    e' un risultato da mostrare -- la stessa regola per cui una sezione sotto
+    il minimo di normativa e' un risultato e non un errore.
+
+    Senza questo campo un attraversamento sarebbe indistinguibile da un
+    incontro a T, e la `distanza_proiezione` che lo accompagna -- mezza
+    colonna, misurata dall'estremo piu' vicino -- verrebbe letta come lo
+    scostamento di un giunto su un incontro geometricamente esatto.
+    """
+    if invaso[0] and invaso[-1]:
+        return "contenimento"
+    if not invaso[0] and not invaso[-1]:
+        return "attraversamento"
+    return "estremo"
+
+
 def giunzioni(membrature: list[Membratura]) -> list[dict[str, object]]:
     """Gli incontri fra membrature, con il nodo e quanto e' costato collocarlo.
 
@@ -955,16 +978,44 @@ def giunzioni(membrature: list[Membratura]) -> list[dict[str, object]]:
     il proprio mestiere, che e' il taglio, e condivide con questa funzione la
     sola decisione del ruolo (`ruoli_dell_incontro`).
 
+    Ogni voce ha sei campi. `cede` e `resta` sono **indici dentro la lista
+    `membrature` ricevuta** -- che in `prior` e' l'ordine delle membrature
+    accettate, cioe' lo stesso ordine della chiave `"membrature"` del prior --
+    e non identificatori di regione: chi legge il prior indicizza quella lista.
+    `nodo` sono tre coordinate [mm], `distanza_proiezione` un millimetro,
+    `nodo_limitato` dice se il nodo e' stato riportato dentro il pezzo di chi
+    resta, `tipo_incontro` che forma ha l'incontro.
+
     L'ordine di esame e' per area di sezione decrescente, poi per lunghezza,
     poi per indice: la stessa forma di spareggio di `hexa.taglia_giunzioni`,
     che serve a non lasciare la scelta all'ordine in cui le membrature
-    arrivano. **Non lo stesso valore**: li' l'area e' quella del contorno
-    misurato, qui e' quella del rettangolo circoscritto, perche' una
-    `Membratura` porta le due estensioni e non il poligono su cui `dentro`
-    lavora. Su una sezione non rettangolare i due ordini possono divergere a
-    pari area, e con loro il ruolo assegnato allo stesso incontro fisico: il
-    taglio del maglio e l'adiacenza scritta nel prior sono due letture della
-    stessa geometria a risoluzione diversa, non due copie della stessa.
+    arrivano. **Non lo stesso valore**, e la divergenza non e' solo di area.
+    Il predicato di invasione di qui e quello del taglio differiscono per
+    quattro cose, e su una sezione non rettangolare ciascuna puo' spostare il
+    ruolo assegnato allo stesso incontro fisico:
+
+    - **area di spareggio**: `hexa` ordina sull'area del contorno misurato
+      (`hexa.area_con_segno` sul poligono), qui e' quella del rettangolo
+      circoscritto, perche' una `Membratura` porta le due estensioni e non il
+      poligono su cui `dentro` lavora;
+    - **solido**: la' il contorno convesso vero, qui il rettangolo
+      circoscritto -- la stessa approssimazione che `sezione` gia' e';
+    - **ancoraggio**: entrambi partono dal centro del contorno, `hexa` in
+      `_asse_baricentrico_invaso` (`origine + contorno.mean`), qui in
+      `_baricentrica_invasa`; media contro punto medio di minimo e massimo,
+      che su un contorno a vertici non equispaziati non coincidono;
+    - **base del piano**: `hexa` la ricostruisce dall'asse in
+      `_base_del_piano`, prendendo l'asse coordinato meno allineato; qui si
+      legge `base_sezione`, che `misura` ancora alla terna del pezzo. Su asse
+      `(0.6, 0, 0.8)` le due danno `e1 = [0, 1, 0]` e `e1 = [0.8, 0, -0.6]`:
+      **novanta gradi di scarto**, cioe' larghezza e altezza scambiate su una
+      sezione non quadrata. E' un difetto **pre-esistente** a questa funzione e
+      fuori dal suo diff -- vive nella scelta di riferimento di `misura` -- ed
+      e' nominato qui perche' e' qui che le due letture si confrontano.
+
+    Il taglio del maglio e l'adiacenza scritta nel prior sono quindi due
+    letture della stessa geometria con predicati diversi, non due copie della
+    stessa.
 
     Nessuna membratura, o una sola, danno la lista vuota senza avvisare: una
     membratura sola non e' «non legata», e' sola, e il prior gira su scatole
@@ -985,7 +1036,7 @@ def giunzioni(membrature: list[Membratura]) -> list[dict[str, object]]:
             invaso_maggiore = _baricentrica_invasa(membrature[maggiore], membrature[candidato])
             if not invaso_candidato.any() and not invaso_maggiore.any():
                 continue
-            cede, resta, _ = ruoli_dell_incontro(
+            cede, resta, invaso = ruoli_dell_incontro(
                 invaso_candidato, invaso_maggiore, candidato, maggiore
             )
             nodo, distanza, limitato = nodo_di_giunzione(
@@ -1003,6 +1054,7 @@ def giunzioni(membrature: list[Membratura]) -> list[dict[str, object]]:
                     "nodo": nodo.tolist(),
                     "distanza_proiezione": float(distanza),
                     "nodo_limitato": bool(limitato),
+                    "tipo_incontro": _tipo_dell_incontro(invaso),
                 }
             )
     return incontri
