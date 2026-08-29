@@ -869,6 +869,99 @@ def nodo_di_giunzione(
     return proietta(estremi[scelto]), distanze[scelto]
 
 
+_CAMPIONI_GIUNZIONE = 200
+"""Campioni sulla baricentrica di una membratura, per vedere se entra nell\'altra.
+
+Stesso ordine di grandezza dei campioni che `hexa.taglia_giunzioni` usa per la
+stessa domanda: qui non serve la precisione del taglio -- non si taglia niente
+-- ma la risoluzione deve bastare a non mancare un\'invasione corta.
+"""
+
+
+def _baricentrica_invasa(interna: Membratura, esterna: Membratura) -> np.ndarray:
+    """Campionamento booleano della baricentrica di `interna` dentro `esterna`.
+
+    Il prisma di `esterna` e\' definito dalla propria sezione misurata attorno
+    al proprio asse: un punto e\' dentro se la sua proiezione cade nella
+    lunghezza e le due componenti trasversali stanno dentro le semiestensioni.
+    E\' il prisma circoscritto, non il contorno: la stessa approssimazione che
+    `sezione` gia\' e\', e sulla quale `riempimento_sezione` dichiara lo scarto.
+    """
+    asse = esterna.asse / np.linalg.norm(esterna.asse)
+    passo = np.linspace(0.0, interna.lunghezza, _CAMPIONI_GIUNZIONE)
+    versore = interna.asse / np.linalg.norm(interna.asse)
+    punti = interna.origine + np.outer(passo, versore)
+    scarto = punti - esterna.origine
+    lungo = scarto @ asse
+    base = esterna.base_sezione
+    if base.shape != (2, 3):
+        # Un prior vecchio non porta la base: senza il piano non si sa dove
+        # stiano le due estensioni, e una giunzione dedotta a caso sarebbe
+        # peggio di una giunzione assente.
+        return np.zeros(len(punti), dtype=bool)
+    trasversale = np.abs(scarto @ base.T)
+    semi = np.asarray(esterna.sezione, dtype=np.float64) / 2.0
+    return (
+        (lungo >= 0.0)
+        & (lungo <= esterna.lunghezza)
+        & (trasversale[:, 0] <= semi[0])
+        & (trasversale[:, 1] <= semi[1])
+    )
+
+
+def giunzioni(membrature: list[Membratura]) -> list[dict[str, object]]:
+    """Gli incontri fra membrature, con il nodo e quanto e\' costato collocarlo.
+
+    L\'adiacenza e\' una **misura della geometria**, allo stesso titolo dell\'asse
+    e della sezione: `wall.prior` la calcola e la scrive, e chi costruisce un
+    telaio la legge invece di dedurla. `hexa.taglia_giunzioni` continua a fare
+    il proprio mestiere, che e\' il taglio, e condivide con questa funzione la
+    sola decisione del ruolo (`ruoli_dell_incontro`).
+
+    L\'ordine di esame e\' per area di sezione decrescente, poi per lunghezza,
+    poi per indice: e\' lo stesso spareggio deterministico gia\' in uso, e serve
+    a non lasciare la scelta all\'ordine in cui le membrature arrivano.
+
+    Nessuna membratura, o una sola, danno la lista vuota senza avvisare: una
+    membratura sola non e\' «non legata», e\' sola, e il prior gira su scatole
+    tanto quanto su telai.
+    """
+    ordine = sorted(
+        range(len(membrature)),
+        key=lambda i: (
+            -(membrature[i].sezione[0] * membrature[i].sezione[1]),
+            -membrature[i].lunghezza,
+            i,
+        ),
+    )
+    incontri: list[dict[str, object]] = []
+    for posizione, maggiore in enumerate(ordine):
+        for candidato in ordine[posizione + 1 :]:
+            invaso_candidato = _baricentrica_invasa(membrature[candidato], membrature[maggiore])
+            invaso_maggiore = _baricentrica_invasa(membrature[maggiore], membrature[candidato])
+            if not invaso_candidato.any() and not invaso_maggiore.any():
+                continue
+            cede, resta, _ = ruoli_dell_incontro(
+                invaso_candidato, invaso_maggiore, candidato, maggiore
+            )
+            nodo, distanza = nodo_di_giunzione(
+                membrature[cede].origine,
+                membrature[cede].asse,
+                membrature[cede].lunghezza,
+                membrature[resta].origine,
+                membrature[resta].asse,
+            )
+            incontri.append(
+                {
+                    "cede": int(cede),
+                    "resta": int(resta),
+                    "nodo": nodo.tolist(),
+                    "distanza_proiezione": float(distanza),
+                }
+            )
+    return incontri
+
+
 def _volume_unione(membrature: list[Membratura], punti: np.ndarray, passo: float) -> float:
     """Volume dell'unione delle membrature, per conteggio di celle occupate.
 
@@ -1008,6 +1101,7 @@ def prior(
             }
             for m in accettate
         ],
+        "giunzioni": giunzioni(accettate),
         "scartate": scartate,
         "chiusura_volume": {
             "somma": somma,

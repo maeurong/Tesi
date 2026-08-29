@@ -38,6 +38,15 @@ TELAIO = [
 ]
 SPAZIATURA = 20.0
 
+# Due montanti a quattro metri l'uno dall'altro: nessuna delle due entra
+# nell'altra, e nessun traverso le lega. Il banco degli incontri che non ci
+# sono. Le due sezioni restano diverse fra loro, come nel TELAIO, perche' la
+# scomposizione separa per costanza dello spessore locale.
+MEMBRATURE_LONTANE = [
+    ((0.0, -100.0, 0.0), (200.0, 200.0, 1600.0)),
+    ((4000.0, -150.0, 0.0), (200.0, 300.0, 1600.0)),
+]
+
 
 def _cfg() -> WallConfig:
     return WallConfig()
@@ -661,6 +670,87 @@ def test_il_prior_scrive_le_sezioni_di_fetta_e_la_base_in_json():
     assert all(len(riga) == 3 for riga in voce["base_sezione"])
     # la prova che conta: l'intero esito e' serializzabile
     json.dumps(esito)
+
+
+def test_il_prior_scrive_le_giunzioni_col_nodo_e_la_distanza():
+    """L'adiacenza e' una misura del prior come l'asse e la sezione: chi
+    costruisce un telaio la legge da `12_wall.json` invece di ricalcolarla.
+    """
+    import json
+
+    punti = synth.sample_frame_surface(TELAIO, SPAZIATURA)
+
+    esito = wall.prior(punti, SegmentConfig(), _cfg(), SPAZIATURA)
+
+    assert "giunzioni" in esito
+    assert len(esito["giunzioni"]) >= 1, "due membrature che si toccano fanno una giunzione"
+    incontro = esito["giunzioni"][0]
+    assert set(incontro) >= {"cede", "resta", "nodo", "distanza_proiezione"}
+    assert incontro["cede"] != incontro["resta"]
+    assert 0 <= incontro["cede"] < len(esito["membrature"])
+    assert 0 <= incontro["resta"] < len(esito["membrature"])
+    assert len(incontro["nodo"]) == 3
+    assert incontro["distanza_proiezione"] >= 0.0
+    json.dumps(esito)
+
+
+def test_membrature_che_non_si_toccano_non_fanno_giunzioni():
+    """Una giunzione inventata fra due pezzi lontani sarebbe un telaio che sta
+    in piedi su un legame che non esiste.
+    """
+    punti = synth.sample_frame_surface(MEMBRATURE_LONTANE, SPAZIATURA)
+
+    esito = wall.prior(punti, SegmentConfig(), _cfg(), SPAZIATURA)
+
+    assert len(esito["membrature"]) == 2, (
+        "il banco vale solo se le due membrature lontane sono state trovate entrambe"
+    )
+    assert esito["giunzioni"] == []
+
+
+def test_senza_membrature_le_giunzioni_sono_la_lista_vuota_e_non_mancano():
+    """Ingresso degenere, la classe piu' frequente di questo repository:
+    l'insieme vuoto che schianta invece di dichiarare. Nessuna membratura vuol
+    dire nessuna giunzione, e la chiave c'e' lo stesso.
+    """
+    assert wall.giunzioni([]) == []
+
+
+def test_una_sola_membratura_non_fa_giunzioni_e_non_avvisa():
+    """Ingresso degenere: una membratura sola non e' «non legata», e' sola.
+    Un avviso qui sarebbe rumore su una scatola, che e' il caso normale del
+    prior su un pezzo che non e' un telaio.
+    """
+    import warnings
+
+    punti = synth.sample_box_surface((200.0, 140.0, 1500.0), 15.0)
+    direzioni, _ = wall.terna(punti)
+    sola = wall.misura(punti, direzioni, _cfg())
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert wall.giunzioni([sola]) == []
+
+
+def test_l_ordine_delle_giunzioni_non_dipende_dall_ordine_dei_punti():
+    """Quinto vincolo di prodotto: un ordine e' un esito discreto e deve essere
+    funzione del dato, non della piattaforma. Stessa lezione gia' pagata
+    sull'ordine dei voxel di Open3D fra Windows x86-64 e macOS arm64.
+    """
+    punti = synth.sample_frame_surface(TELAIO, SPAZIATURA)
+    rimescolati = punti[np.random.default_rng(7).permutation(len(punti))]
+
+    prima = wall.prior(punti, SegmentConfig(), _cfg(), SPAZIATURA)["giunzioni"]
+    dopo = wall.prior(rimescolati, SegmentConfig(), _cfg(), SPAZIATURA)["giunzioni"]
+
+    assert len(prima) == len(dopo)
+    # confronto sui nodi e non sugli indici: gli indici numerano due
+    # ordinamenti diversi della stessa nuvola, il nodo e' la geometria
+    for incontro_prima, incontro_dopo in zip(prima, dopo, strict=True):
+        assert incontro_prima["nodo"] == pytest.approx(incontro_dopo["nodo"], abs=1e-6)
+        assert incontro_prima["distanza_proiezione"] == pytest.approx(
+            incontro_dopo["distanza_proiezione"], abs=1e-6
+        )
 
 
 def test_prior_non_scarta_il_pavimento_due_volte(monkeypatch):
