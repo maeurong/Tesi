@@ -56,9 +56,13 @@ def _mappa_casefold(nomi: Iterable[str]) -> dict[str, str]:
 
 
 def _nomi_senza_collisioni(
-    nomi: Iterable[str], soggetto: str, plurale: str, tipo_di_set: str
+    nomi: Iterable[str],
+    soggetto: str,
+    plurale: str,
+    tipo_di_set: str,
+    fabbricati: Iterable[str],
 ) -> None:
-    """Rifiuta i nomi dell'operatore che il deck confonderebbe fra loro o coi sei.
+    """Rifiuta i nomi dell'operatore che il deck confonderebbe fra loro o coi propri.
 
     Nel deck c'e' un solo spazio di nomi per tipo di insieme, e `ccx` lo
     risolve senza distinguere le maiuscole (misurato in
@@ -70,20 +74,28 @@ def _nomi_senza_collisioni(
     due copie che possono divergere. E' la stessa ragione per cui
     `_mappa_casefold` esiste, un livello piu' in su.
 
+    `fabbricati` sono i nomi che il deck si costruisce da se' **di quel tipo di
+    insieme**, e sono un parametro e non la costante dei sei: i sei sono
+    `*NSET` e una regione e' un `*ELSET`, cioe' due spazi di nomi distinti.
+    Confrontare entrambe le famiglie con i sei rifiutava la regione `BASE`, che
+    non collide con niente, e accettava la regione `ALL_WALL`, che collide con
+    l'insieme che le regioni partizionano.
+
     `soggetto` e `plurale` portano l'articolo con se' ("il selettore", "le
     regioni"): il genere cambia fra le due famiglie, e un articolo fisso nel
     formato produceva «il regione», che si vede a video.
     """
-    casi_di_faccia = _mappa_casefold(NOMI_SET_DI_FACCIA)
+    casi_fabbricati = _mappa_casefold(fabbricati)
     visti: dict[str, str] = {}
     for nome in nomi:
         chiave = nome.casefold()
-        if chiave in casi_di_faccia:
+        if chiave in casi_fabbricati:
             raise ValueError(
-                f"{soggetto} {nome!r} collide, ignorando le maiuscole, con il "
-                f"set di faccia {casi_di_faccia[chiave]!r} che il deck fabbrica da "
-                "sé: nel deck c'è un solo spazio di nomi, case-insensitive "
-                "(vedi docs/fase-6-cantiere/sonda-caso-nomi/README.md), e il "
+                f"{soggetto} {nome!r} collide, ignorando le maiuscole, con "
+                f"l'insieme {casi_fabbricati[chiave]!r} che il deck fabbrica da "
+                "sé: nel deck c'è un solo spazio di nomi per tipo di insieme, "
+                "case-insensitive (vedi "
+                "docs/fase-6-cantiere/sonda-caso-nomi/README.md), e il "
                 f"{tipo_di_set} dell'operatore lo sovrascriverebbe"
             )
         if chiave in visti:
@@ -892,6 +904,18 @@ NOMI_SET_DI_FACCIA: tuple[str, ...] = (
     "BASE", "TOP", "FACE_FRONT", "FACE_BACK", "SIDE_LEFT", "SIDE_RIGHT",
 )
 
+# L'unico `*ELSET` che il deck fabbrica da se': il parametro `elset` di
+# `abaqus.write_inp`, che vale "ALL_WALL" e finisce sia sulla card `*ELEMENT`
+# sia sulla `*SOLID SECTION`. E' l'insieme che le regioni partizionano, quindi
+# una regione omonima farebbe prendere alla `*SOLID SECTION` la partizione
+# sbagliata e il muro intero riceverebbe il materiale di quella regione.
+#
+# Sta in una costante propria e non insieme ai sei perche' e' un tipo di
+# insieme diverso: i sei sono `*NSET`, questo e' un `*ELSET`, e nel deck sono
+# due spazi di nomi distinti. Confrontare una famiglia con i nomi fabbricati
+# dell'altra rifiuta il nome innocuo e lascia passare quello che collide.
+NOMI_ELSET_FABBRICATI: tuple[str, ...] = ("ALL_WALL",)
+
 
 class SelettoreBox(_ModelloBase):
     """Tutti i nodi dentro un parallelepipedo allineato agli assi del modello.
@@ -1408,19 +1432,30 @@ class PipelineConfig(_ModelloBase):
         dell'operatore che differiscono solo per caso (`piastra`/`PIASTRA`)
         sono due chiavi distinte nel dizionario ma un solo nome nel deck.
         """
-        _nomi_senza_collisioni(self.selettori, "il selettore", "i selettori", "*NSET")
+        _nomi_senza_collisioni(
+            self.selettori, "il selettore", "i selettori", "*NSET", NOMI_SET_DI_FACCIA
+        )
         return self
 
     @model_validator(mode="after")
-    def _i_nomi_delle_regioni_non_collidono_coi_sei(self) -> "PipelineConfig":
-        """Stessa regola dei selettori, e per la stessa misura.
+    def _i_nomi_delle_regioni_non_collidono_con_all_wall(self) -> "PipelineConfig":
+        """Stessa regola dei selettori, ma contro l'altro spazio di nomi.
 
         Il nome di una regione diventa un `*ELSET` nel deck, e `ccx` risolve
-        anche quelli senza distinguere le maiuscole. Il validatore non legge
-        `self.analysis`, che puo' essere assente: una corsa nasce dalla sola
-        nuvola e le regioni si dichiarano prima del materiale unico.
+        anche quelli senza distinguere le maiuscole -- per analogia con la
+        sonda, non misurato: `docs/fase-6-cantiere/sonda-caso-nomi/` dichiara
+        due `*NSET` e nessun `*ELSET` di prova, quindi la regola qui e'
+        conservativa nella direzione giusta ma non poggia su una misura.
+
+        I nomi fabbricati confrontati sono quelli degli `*ELSET`, cioe'
+        `ALL_WALL` e non i sei di faccia: quelli sono `*NSET`, e nel deck sono
+        un altro spazio di nomi. Il validatore non legge `self.analysis`, che
+        puo' essere assente: una corsa nasce dalla sola nuvola e le regioni si
+        dichiarano prima del materiale unico.
         """
-        _nomi_senza_collisioni(self.regioni, "la regione", "le regioni", "*ELSET")
+        _nomi_senza_collisioni(
+            self.regioni, "la regione", "le regioni", "*ELSET", NOMI_ELSET_FABBRICATI
+        )
         return self
 
     @model_validator(mode="after")

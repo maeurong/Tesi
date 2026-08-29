@@ -1319,18 +1319,59 @@ def test_due_regioni_che_differiscono_solo_per_maiuscole_sono_rifiutate():
     assert "le regioni" in str(rifiuto.value)
 
 
-def test_una_regione_che_collide_con_un_set_di_faccia_e_rifiutata():
-    """I sei nomi di faccia li fabbrica il deck da se': una regione omonima li
-    sovrascriverebbe, ignorando le maiuscole."""
-    for nome in ("BASE", "top", "Side_Left"):
-        with pytest.raises(ValidationError, match="collide") as rifiuto:
-            crea_config(
-                input=config.InputConfig(path="nuvola.ply"),
-                regioni={nome: _regione()},
-            )
-        # Il messaggio si legge a video, in `/api/config`: «il regione» no.
-        assert "la regione" in str(rifiuto.value)
-        assert "*ELSET" in str(rifiuto.value)
+@pytest.mark.parametrize("nome", ["ALL_WALL", "all_wall", "All_Wall"])
+def test_una_regione_che_collide_con_lelset_fabbricato_e_rifiutata(nome):
+    """`ALL_WALL` e' l'unico `*ELSET` che il deck fabbrica da se'
+    (`abaqus.write_inp`, parametro `elset`, scritto in `*ELEMENT` e in
+    `*SOLID SECTION`): e' l'insieme che le regioni partizionano, e una regione
+    omonima farebbe prendere alla `*SOLID SECTION` la partizione sbagliata --
+    il muro intero riceverebbe il materiale di una regione.
+
+    Mutazione che lo uccide: rimettere `NOMI_SET_DI_FACCIA` come lista
+    confrontata anche per gli `*ELSET`. Tutte e tre le varianti passano.
+    """
+    with pytest.raises(ValidationError, match="collide") as rifiuto:
+        crea_config(
+            input=config.InputConfig(path="nuvola.ply"),
+            regioni={nome: _regione()},
+        )
+    # Il messaggio si legge a video, in `/api/config`: «il regione» no.
+    assert "la regione" in str(rifiuto.value)
+    assert "*ELSET" in str(rifiuto.value)
+    assert "ALL_WALL" in str(rifiuto.value)
+
+
+@pytest.mark.parametrize("nome", ["BASE", "top", "Side_Left"])
+def test_una_regione_puo_chiamarsi_come_un_set_di_faccia(nome):
+    """I sei di faccia sono `*NSET` e una regione e' un `*ELSET`: nel deck sono
+    due spazi di nomi distinti, e rifiutare qui il nome innocuo mentre passava
+    `ALL_WALL` era il controllo esattamente rovesciato.
+
+    Sta accanto al test del rifiuto apposta: senza, «confronta con i nomi
+    fabbricati del proprio tipo di set» e «confronta con tutti i nomi
+    fabbricati» sarebbero indistinguibili.
+    """
+    cfg = crea_config(
+        input=config.InputConfig(path="nuvola.ply"),
+        regioni={nome: _regione()},
+    )
+    assert nome in cfg.regioni
+
+
+@pytest.mark.parametrize("nome", ["", "pi lastro", "regione!"])
+def test_un_nome_di_regione_con_spazio_o_simbolo_e_rifiutato(nome):
+    """Gemello di `test_un_nome_di_selettore_con_spazio_o_simbolo_e_rifiutato`:
+    anche il nome di una regione finisce interpolato in un deck ascii, come
+    `*ELSET`, e otto rami lo leggeranno.
+
+    Mutazione che lo uccide: ritipare `regioni` da `dict[NomeSet, ...]` a
+    `dict[str, ...]`. Il rifiuto oggi viene dal tipo e da nessuna prova.
+    """
+    with pytest.raises(ValidationError):
+        crea_config(
+            input=config.InputConfig(path="nuvola.ply"),
+            regioni={nome: _regione()},
+        )
 
 
 def test_una_membratura_negativa_e_rifiutata_dalla_configurazione():
