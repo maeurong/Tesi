@@ -110,7 +110,7 @@ di Berkeley non lo nomina. [M]
 
 **Verifica che esista anche nel binario distribuito.** Il wheel ufficiale
 `openseespylinux-3.8.0.0` è stato scaricato da PyPI ed estratto; il modulo
-compilato `opensees.so` pesa 254.608.632 B. Conteggio delle occorrenze della
+compilato **opensees.so** pesa 254.608.632 B. Conteggio delle occorrenze della
 stringa nel binario: `TenNodeTetrahedron` 320, `FourNodeTetrahedron` 314,
 `ASDEmbeddedNodeElement` 350, `Brick8FiberOverlay` 163, `ReinforcingSteel` 208,
 `PlateRebar` 296. L'elemento non è solo nel sorgente: è nella ruota che si
@@ -584,7 +584,7 @@ legato al `.frd` e servirebbe un secondo lettore, non una modifica di quello.
 ## 6. Unità
 
 OpenSees è adimensionale come CalculiX, e lo dichiara. Due affermazioni
-verbatim dal manuale utente ufficiale su `opensees.berkeley.edu`: [V]
+verbatim dal manuale utente ufficiale su opensees.berkeley.edu: [V]
 
 > «The OpenSees interpreter does not process units.»
 

@@ -13,7 +13,7 @@ scendere nei comandi. Questo documento scende nei comandi, e non ripete quel
 lavoro.
 
 Le fonti sono primarie: la documentazione ufficiale di OpenSeesPy, il wiki di
-Berkeley, il nuovo sito di documentazione `opensees.github.io`, il sorgente di
+Berkeley, il nuovo sito di documentazione opensees.github.io, il sorgente di
 OpenSees su GitHub al ramo `master`, e i metadati di PyPI e dell'API GitHub.
 Dove una domanda si chiudeva contando, il conteggio è riportato con il comando
 che lo produce.
