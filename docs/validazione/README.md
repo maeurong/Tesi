@@ -9,6 +9,12 @@ Aperto il 26/08/2026. Quattro ricerche indipendenti, condotte in parallelo su
 | [`ricerca-letteratura-scan-to-fem.md`](ricerca-letteratura-scan-to-fem.md) | i 17 articoli di `Articoli/` letti uno per uno, più letteratura esterna: come questo dominio valida, e cosa non fa |
 | [`ricerca-calculix-e-c3d4.md`](ricerca-calculix-e-c3d4.md) | qualificazione di CalculiX, suite di verifica ufficiale, comportamento su ingressi degeneri letto sul sorgente, e il dossier sul tetraedro lineare |
 | [`inventario-grandezze.md`](inventario-grandezze.md) | ogni grandezza che il programma calcola, la formula implementata, e con quale oracolo è verificata — o se non lo è |
+| [`ricerca-terminologia-segmentazione.md`](ricerca-terminologia-segmentazione.md) | che cosa la letteratura chiama «segmentazione», e quali operazioni dello step 2 lo sono davvero |
+| [`ricerca-opensees-e-armature.md`](ricerca-opensees-e-armature.md) | OpenSees come secondo solutore e le armature nel continuo: che cosa i due solutori offrono e che cosa non offrono |
+| [`ricerca-armature-librerie-python.md`](ricerca-armature-librerie-python.md) | le librerie Python per sezioni in c.a. armate: quale adottare, per quale parte del lavoro, e a quale prezzo d'installazione |
+| [`ricerca-armature-opensees-fibre.md`](ricerca-armature-opensees-fibre.md) | l'idioma delle sezioni a fibre in OpenSees, e i sedici dati che mancano a una membratura per diventare un elemento |
+| [`ricerca-armature-preprocessori.md`](ricerca-armature-preprocessori.md) | come i programmi affini fanno inserire le armature in una sezione: gesto, modello dei dati, scorciatoie ricorrenti |
+| [`ricerca-armature-convenzioni-normative.md`](ricerca-armature-convenzioni-normative.md) | le grandezze con cui norma e disegno descrivono un'armatura, e le classi di calcestruzzo e acciaio con i loro valori |
 
 Questo file è la sintesi. Non ripete i numeri: li indirizza.
 
