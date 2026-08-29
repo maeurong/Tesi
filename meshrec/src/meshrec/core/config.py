@@ -56,7 +56,7 @@ def _mappa_casefold(nomi: Iterable[str]) -> dict[str, str]:
 
 
 def _nomi_senza_collisioni(
-    nomi: Iterable[str], singolare: str, plurale: str, tipo_di_set: str
+    nomi: Iterable[str], soggetto: str, plurale: str, tipo_di_set: str
 ) -> None:
     """Rifiuta i nomi dell'operatore che il deck confonderebbe fra loro o coi sei.
 
@@ -69,6 +69,10 @@ def _nomi_senza_collisioni(
     (`*NSET`) e le regioni (`*ELSET`) -- e due copie della stessa regola sono
     due copie che possono divergere. E' la stessa ragione per cui
     `_mappa_casefold` esiste, un livello piu' in su.
+
+    `soggetto` e `plurale` portano l'articolo con se' ("il selettore", "le
+    regioni"): il genere cambia fra le due famiglie, e un articolo fisso nel
+    formato produceva «il regione», che si vede a video.
     """
     casi_di_faccia = _mappa_casefold(NOMI_SET_DI_FACCIA)
     visti: dict[str, str] = {}
@@ -76,7 +80,7 @@ def _nomi_senza_collisioni(
         chiave = nome.casefold()
         if chiave in casi_di_faccia:
             raise ValueError(
-                f"il {singolare} {nome!r} collide, ignorando le maiuscole, con il "
+                f"{soggetto} {nome!r} collide, ignorando le maiuscole, con il "
                 f"set di faccia {casi_di_faccia[chiave]!r} che il deck fabbrica da "
                 "sé: nel deck c'è un solo spazio di nomi, case-insensitive "
                 "(vedi docs/fase-6-cantiere/sonda-caso-nomi/README.md), e il "
@@ -84,7 +88,7 @@ def _nomi_senza_collisioni(
             )
         if chiave in visti:
             raise ValueError(
-                f"i {plurale} {visti[chiave]!r} e {nome!r} differiscono solo per "
+                f"{plurale} {visti[chiave]!r} e {nome!r} differiscono solo per "
                 "maiuscole: nel deck sono lo stesso nome, case-insensitive "
                 "(vedi docs/fase-6-cantiere/sonda-caso-nomi/README.md)"
             )
@@ -1366,7 +1370,7 @@ class PipelineConfig(_ModelloBase):
         dell'operatore che differiscono solo per caso (`piastra`/`PIASTRA`)
         sono due chiavi distinte nel dizionario ma un solo nome nel deck.
         """
-        _nomi_senza_collisioni(self.selettori, "selettore", "selettori", "*NSET")
+        _nomi_senza_collisioni(self.selettori, "il selettore", "i selettori", "*NSET")
         return self
 
     @model_validator(mode="after")
@@ -1378,7 +1382,7 @@ class PipelineConfig(_ModelloBase):
         `self.analysis`, che puo' essere assente: una corsa nasce dalla sola
         nuvola e le regioni si dichiarano prima del materiale unico.
         """
-        _nomi_senza_collisioni(self.regioni, "regione", "regioni", "*ELSET")
+        _nomi_senza_collisioni(self.regioni, "la regione", "le regioni", "*ELSET")
         return self
 
     @model_validator(mode="after")

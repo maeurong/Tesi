@@ -1277,22 +1277,26 @@ def test_due_regioni_che_differiscono_solo_per_maiuscole_sono_rifiutate():
     senza distinguere le maiuscole, quindi due chiavi distinte nel dizionario
     python sono un solo nome nel deck.
     """
-    with pytest.raises(ValidationError, match="maiuscole"):
+    with pytest.raises(ValidationError, match="maiuscole") as rifiuto:
         crea_config(
             input=config.InputConfig(path="nuvola.ply"),
             regioni={"pilastro": _regione(), "PILASTRO": _regione(membratura=1)},
         )
+    assert "le regioni" in str(rifiuto.value)
 
 
 def test_una_regione_che_collide_con_un_set_di_faccia_e_rifiutata():
     """I sei nomi di faccia li fabbrica il deck da se': una regione omonima li
     sovrascriverebbe, ignorando le maiuscole."""
     for nome in ("BASE", "top", "Side_Left"):
-        with pytest.raises(ValidationError, match="collide"):
+        with pytest.raises(ValidationError, match="collide") as rifiuto:
             crea_config(
                 input=config.InputConfig(path="nuvola.ply"),
                 regioni={nome: _regione()},
             )
+        # Il messaggio si legge a video, in `/api/config`: «il regione» no.
+        assert "la regione" in str(rifiuto.value)
+        assert "*ELSET" in str(rifiuto.value)
 
 
 def test_una_membratura_negativa_e_rifiutata_dalla_configurazione():
