@@ -604,29 +604,32 @@ def test_il_nodo_e_la_proiezione_sull_asse_di_chi_resta():
     origine_cede = np.array([1000.0, 40.0, 0.0])
     asse_cede = np.array([0.0, 0.0, 1.0])
 
-    nodo, distanza = wall.nodo_di_giunzione(
-        origine_cede, asse_cede, 3000.0, origine_resta, asse_resta
+    nodo, distanza, limitato = wall.nodo_di_giunzione(
+        origine_cede, asse_cede, 3000.0, origine_resta, asse_resta, 2000.0
     )
 
     # il nodo sta sull'asse del traverso, quindi a y = 0 e z = 3000
     assert np.allclose(nodo, np.array([1000.0, 0.0, 3000.0]), atol=1e-9)
     # e il montante ha dovuto spostarsi dei 40 mm di cui era scansato
     assert distanza == pytest.approx(40.0, abs=1e-9)
+    assert limitato is False
 
 
 def test_assi_che_si_incontrano_davvero_danno_distanza_nulla():
     """Il caso ideale non e' un caso speciale: la stessa formula lo copre, e la
     distanza dice da sola che non c'e' stato nessuno spostamento.
     """
-    nodo, distanza = wall.nodo_di_giunzione(
+    nodo, distanza, limitato = wall.nodo_di_giunzione(
         np.array([1000.0, 0.0, 0.0]),
         np.array([0.0, 0.0, 1.0]),
         3000.0,
         np.array([0.0, 0.0, 3000.0]),
         np.array([1.0, 0.0, 0.0]),
+        2000.0,
     )
     assert np.allclose(nodo, np.array([1000.0, 0.0, 3000.0]), atol=1e-9)
     assert distanza == pytest.approx(0.0, abs=1e-9)
+    assert limitato is False
 
 
 def test_due_assi_paralleli_non_dividono_per_zero():
@@ -635,19 +638,88 @@ def test_due_assi_paralleli_non_dividono_per_zero():
     non ha il seno dell'angolo a denominatore e su assi paralleli restituisce
     numeri finiti invece di NaN.
     """
-    nodo, distanza = wall.nodo_di_giunzione(
+    nodo, distanza, limitato = wall.nodo_di_giunzione(
         np.array([500.0, 0.0, 0.0]),
         np.array([1.0, 0.0, 0.0]),
         1000.0,
         np.array([0.0, 250.0, 0.0]),
         np.array([1.0, 0.0, 0.0]),
+        2000.0,
     )
 
     assert np.all(np.isfinite(nodo))
     assert np.isfinite(distanza)
+    assert limitato is False
     # la proiezione ortogonale di un estremo su una parallela dista quanto le
     # due rette: 250 mm, il vero scarto fra gli assi
     assert distanza == pytest.approx(250.0, abs=1e-9)
+
+
+def test_il_nodo_non_cade_fuori_dal_pezzo_su_cui_si_proietta():
+    """Due travi quasi allineate che si sovrappongono. Scegliere l'estremo di
+    chi cede sulla distanza dalla **retta** infinita di chi resta prendeva
+    l'estremo lontano e proiettava 500 mm oltre la fine del pezzo: il telaio
+    sarebbe nato su un nodo che non sta su nessuna membratura.
+
+    Misurato prima della correzione: `nodo = [1499.97, 0, 0]` con
+    `distanza_proiezione = 39.0`, mentre la sovrapposizione vera sta in
+    `x` fra 900 e 1000.
+    """
+    nodo, distanza, limitato = wall.nodo_di_giunzione(
+        np.array([900.0, 0.0, -45.0]),
+        np.array([1.0, 0.0, 0.01]),
+        600.0,
+        np.array([0.0, 0.0, 0.0]),
+        np.array([1.0, 0.0, 0.0]),
+        1000.0,
+    )
+
+    assert 0.0 <= nodo[0] <= 1000.0, "il nodo deve stare sul segmento, non sulla retta"
+    assert np.allclose(nodo, np.array([900.0, 0.0, 0.0]), atol=1e-9)
+    assert distanza == pytest.approx(45.0, abs=1e-9)
+    assert limitato is False
+
+
+def test_un_estremo_oltre_la_fine_di_chi_resta_limita_il_nodo_e_lo_dichiara():
+    """Un montante che comincia 10 mm oltre il capo del traverso. Il nodo va
+    limitato al capo -- fuori dal pezzo non e' un nodo -- ma il limite e' un
+    dato: dice che i due pezzi si scavalcano invece di incontrarsi, e chi
+    disegna il telaio deve poterlo mostrare.
+    """
+    nodo, distanza, limitato = wall.nodo_di_giunzione(
+        np.array([1010.0, 0.0, 0.0]),
+        np.array([0.0, 0.0, 1.0]),
+        300.0,
+        np.array([0.0, 0.0, 0.0]),
+        np.array([1.0, 0.0, 0.0]),
+        1000.0,
+    )
+
+    assert np.allclose(nodo, np.array([1000.0, 0.0, 0.0]), atol=1e-9)
+    assert distanza == pytest.approx(10.0, abs=1e-9)
+    assert limitato is True
+
+
+def test_il_contatto_a_meta_campata_misura_l_estremo_e_non_lo_scarto_del_giunto():
+    """Il contatto sta a meta' della colonna, non a un suo capo: il numero che
+    esce e' la distanza dell'estremo piu' vicino dal pezzo di chi resta, cioe'
+    mezza colonna, e non lo scostamento di un giunto.
+
+    I due banchi che c'erano avevano entrambi il contatto su un estremo, dove
+    le due letture coincidono e la differenza non si vede.
+    """
+    nodo, distanza, limitato = wall.nodo_di_giunzione(
+        np.array([500.0, 0.0, -400.0]),
+        np.array([0.0, 0.0, 1.0]),
+        800.0,
+        np.array([0.0, 0.0, 0.0]),
+        np.array([1.0, 0.0, 0.0]),
+        1000.0,
+    )
+
+    assert np.allclose(nodo, np.array([500.0, 0.0, 0.0]), atol=1e-9)
+    assert distanza == pytest.approx(400.0, abs=1e-9), "meta' colonna, non lo scarto del giunto"
+    assert limitato is False
 
 
 def test_il_prior_scrive_le_sezioni_di_fetta_e_la_base_in_json():

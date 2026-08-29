@@ -826,23 +826,40 @@ def nodo_di_giunzione(
     lunghezza_cede: float,
     origine_resta: np.ndarray,
     asse_resta: np.ndarray,
-) -> tuple[np.ndarray, float]:
-    """Il punto in cui due membrature si legano, e quanto e' costato metterlo li'.
+    lunghezza_resta: float,
+) -> tuple[np.ndarray, float, bool]:
+    """Il punto in cui due membrature si legano, la distanza misurata, e se e' stato limitato.
 
     Su una geometria rilevata gli assi di due membrature che si incontrano non
     si intersecano quasi mai: passano vicini e si scansano di qualche
-    millimetro. Il nodo e' la **proiezione di chi cede sull'asse di chi resta**
-    -- il traverso continuo col montante che vi si innesta, che e' la
+    millimetro. Il nodo e' la **proiezione di chi cede sul segmento** di chi
+    resta -- il traverso continuo col montante che vi si innesta, che e' la
     convenzione del calcolo strutturale e coincide col ruolo che
     `ruoli_dell_incontro` ha gia' assegnato.
 
-    La distanza restituita e' **una misura, non un residuo di calcolo**: e' di
-    quanto l'estremo di chi cede si e' dovuto spostare, e va mostrata. Uno
-    spostamento silenzioso sarebbe una correzione della geometria rilevata
-    spacciata per la geometria rilevata, cioe' l'opposto dello scopo del
-    programma.
+    Sul **segmento** e non sulla retta infinita, e per due volte: l'estremo di
+    chi cede si sceglie sulla distanza dal segmento, e la coordinata lungo
+    l'asse di chi resta e' limitata a `[0, lunghezza_resta]`. Un nodo oltre il
+    capo del pezzo non e' un nodo: e' un telaio costruito su un punto che non
+    sta su nessuna membratura. Misurato prima di questa correzione, su due
+    travi quasi allineate che si sovrappongono in `x` fra 900 e 1000: il nodo
+    usciva a `x = 1499.97`, cinquecento millimetri oltre la fine del pezzo.
 
-    L'estremo di chi cede e' quello **piu' vicino** all'asse di chi resta: una
+    Il terzo valore dice se quella coordinata **e' stata limitata**. E' un
+    dato, non un dettaglio di calcolo: dice che i due pezzi si scavalcano
+    invece di incontrarsi, e chi mostra il telaio deve poterlo far vedere.
+
+    La distanza restituita e' **una misura, non un residuo di calcolo**, e va
+    mostrata; ma e' la distanza dell'estremo scelto di chi cede **dal pezzo di
+    chi resta**, non lo scostamento di un giunto. Le due letture coincidono
+    solo quando il contatto sta su un estremo di chi cede. Su un contatto a
+    meta' campata -- una colonna che attraversa il traverso -- il numero che
+    esce e' mezza colonna, ed e' `tipo_incontro` nel record di `giunzioni` a
+    dire che di quello si tratta. Uno spostamento silenzioso sarebbe una
+    correzione della geometria rilevata spacciata per la geometria rilevata,
+    cioe' l'opposto dello scopo del programma.
+
+    L'estremo di chi cede e' quello **piu' vicino** al pezzo di chi resta: una
     colonna incontra il traverso da un capo solo, e prendere l'altro
     proietterebbe il piede sul tetto.
 
@@ -856,17 +873,23 @@ def nodo_di_giunzione(
     versore_resta = versore_resta / np.linalg.norm(versore_resta)
     origine_resta = np.asarray(origine_resta, dtype=np.float64)
 
-    def proietta(punto: np.ndarray) -> np.ndarray:
-        scarto = punto - origine_resta
-        return origine_resta + versore_resta * float(scarto @ versore_resta)
+    def proietta(punto: np.ndarray) -> tuple[np.ndarray, bool]:
+        quota = float((punto - origine_resta) @ versore_resta)
+        limitata = float(np.clip(quota, 0.0, float(lunghezza_resta)))
+        return origine_resta + versore_resta * limitata, limitata != quota
 
     estremi = [
         np.asarray(origine_cede, dtype=np.float64),
         np.asarray(origine_cede, dtype=np.float64) + versore_cede * float(lunghezza_cede),
     ]
-    distanze = [float(np.linalg.norm(estremo - proietta(estremo))) for estremo in estremi]
+    proiettati = [proietta(estremo) for estremo in estremi]
+    distanze = [
+        float(np.linalg.norm(estremo - nodo))
+        for estremo, (nodo, _) in zip(estremi, proiettati, strict=True)
+    ]
     scelto = int(np.argmin(distanze))
-    return proietta(estremi[scelto]), distanze[scelto]
+    nodo, limitato = proiettati[scelto]
+    return nodo, distanze[scelto], limitato
 
 
 _CAMPIONI_GIUNZIONE = 200
@@ -951,12 +974,13 @@ def giunzioni(membrature: list[Membratura]) -> list[dict[str, object]]:
             cede, resta, _ = ruoli_dell_incontro(
                 invaso_candidato, invaso_maggiore, candidato, maggiore
             )
-            nodo, distanza = nodo_di_giunzione(
+            nodo, distanza, limitato = nodo_di_giunzione(
                 membrature[cede].origine,
                 membrature[cede].asse,
                 membrature[cede].lunghezza,
                 membrature[resta].origine,
                 membrature[resta].asse,
+                membrature[resta].lunghezza,
             )
             incontri.append(
                 {
@@ -964,6 +988,7 @@ def giunzioni(membrature: list[Membratura]) -> list[dict[str, object]]:
                     "resta": int(resta),
                     "nodo": nodo.tolist(),
                     "distanza_proiezione": float(distanza),
+                    "nodo_limitato": bool(limitato),
                 }
             )
     return incontri
