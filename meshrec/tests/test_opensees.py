@@ -441,3 +441,56 @@ def test_opensees_esegue_il_tcl_che_scriviamo_e_accorcia_la_mensola_come_la_form
     masse = opensees.leggi_massa_modale(tmp_path / opensees.NOME_MASSA_MODALE)
     assert masse is not None
     assert masse["disponibile"] == [100.0] * 6
+
+
+# --- I dati per cella nel .vtu -------------------------------------------------
+#
+# Stanno qui e non in tests/test_abaqus.py perche' esistono per il telaio: N, V
+# e M sono per CELLA (#138 Q2), e prima di questo ramo `write_vtu` sapeva
+# scrivere solo campi per nodo.
+_NODI_TETRAEDRO = np.array(
+    [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0], [1.0, 1.0, 1.0]]
+)
+_CELLE_TETRAEDRO = np.array([[0, 1, 2, 3], [1, 2, 3, 4]], dtype=np.int64)
+
+
+def _rileggi(percorso: Path):
+    import meshio
+
+    return meshio.read(str(percorso))
+
+
+def test_senza_dati_per_cella_il_vtu_resta_valido_e_dichiara_che_non_ce_ne_sono(tmp_path):
+    from meshrec.core import abaqus
+
+    percorso = tmp_path / "senza.vtu"
+    abaqus.write_vtu(percorso, _NODI_TETRAEDRO, _CELLE_TETRAEDRO, element_type="C3D4")
+
+    letto = _rileggi(percorso)
+    assert len(letto.cells[0].data) == 2
+    assert letto.cell_data == {}
+
+
+def test_i_dati_per_cella_arrivano_nel_vtu_uno_per_cella(tmp_path):
+    from meshrec.core import abaqus
+
+    percorso = tmp_path / "con.vtu"
+    abaqus.write_vtu(
+        percorso, _NODI_TETRAEDRO, _CELLE_TETRAEDRO, element_type="C3D4",
+        cell_data={"N_GRAVITA": np.array([-7.0, 3.0])},
+    )
+
+    letto = _rileggi(percorso)
+    assert letto.cell_data["N_GRAVITA"][0].tolist() == [-7.0, 3.0]
+
+
+def test_un_dato_per_cella_di_lunghezza_sbagliata_e_rifiutato(tmp_path):
+    """meshio scriverebbe il file lo stesso, e ParaView colorerebbe le celle
+    con i valori scalati di uno: un errore che si vede solo guardando."""
+    from meshrec.core import abaqus
+
+    with pytest.raises(ValueError, match="N_GRAVITA"):
+        abaqus.write_vtu(
+            tmp_path / "storto.vtu", _NODI_TETRAEDRO, _CELLE_TETRAEDRO,
+            element_type="C3D4", cell_data={"N_GRAVITA": np.array([1.0, 2.0, 3.0])},
+        )

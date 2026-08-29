@@ -1628,6 +1628,7 @@ def write_vtu(
     elements: np.ndarray,
     element_type: str = "C3D4",
     point_data: dict[str, np.ndarray] | None = None,
+    cell_data: dict[str, np.ndarray] | None = None,
 ) -> None:
     """Esportazione per la visualizzazione, delegata a meshio.
 
@@ -1639,6 +1640,22 @@ def write_vtu(
     (spostamenti e tensione equivalente per caso di carico, forme modali):
     assente lascia il file identico a prima, e i chiamanti gia' scritti (lo
     step 9 e `export_model`) non cambiano comportamento.
+
+    `cell_data`, dalla Fase 8, sono i campi per **cella**: il telaio ha `N`,
+    `V` e `M` per elemento e non per nodo (#138 Q2), e non c'era modo di
+    scriverli. Un array per campo, lungo quanto le celle; meshio vuole una
+    lista per blocco di celle e qui il blocco e' uno solo, quindi la lista la
+    costruisce questa funzione invece di chiederla al chiamante.
+
+    Assente lascia il file **valido e senza quei dati**: un `.vtu` senza
+    `CellData` e' un file regolare che ogni visualizzatore apre, e dichiara con
+    la propria struttura che quei campi non ci sono. Non si scrive un blocco
+    di zeri, che si leggerebbe come «tutte le celle valgono zero».
+
+    Una lunghezza sbagliata **solleva**: meshio scriverebbe il file lo stesso,
+    e ParaView colorerebbe le celle con i valori sfalsati. E' un errore che si
+    vede solo guardando, cioe' la classe che questo progetto esiste per non
+    produrre.
     """
     import meshio
 
@@ -1650,13 +1667,27 @@ def write_vtu(
     if element_type not in celle:
         raise ValueError(f"tipo di elemento '{element_type}' senza corrispondente in meshio")
 
+    connettivita = np.asarray(elements, dtype=np.int64)
+    per_cella: dict[str, list[np.ndarray]] = {}
+    for nome, valori in (cell_data or {}).items():
+        campo = np.asarray(valori)
+        if len(campo) != len(connettivita):
+            raise ValueError(
+                f"il campo per cella '{nome}' ha {len(campo)} valori per "
+                f"{len(connettivita)} celle: un .vtu scritto così assegnerebbe "
+                "a ogni cella il valore di un'altra, e nessun visualizzatore "
+                "protesterebbe"
+            )
+        per_cella[nome] = [campo]
+
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     meshio.write(
         str(path),
         meshio.Mesh(
             np.asarray(nodes, dtype=np.float64),
-            [(celle[element_type], np.asarray(elements, dtype=np.int64))],
+            [(celle[element_type], connettivita)],
             point_data=point_data or {},
+            cell_data=per_cella,
         ),
     )
 
