@@ -34,7 +34,7 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
 
@@ -652,8 +652,10 @@ CONTROLLI_PER_MODELLO: dict[str, dict[str, str]] = {
         # `ccx` non include nella `RF` la quota di gravita' che gli elementi
         # applicano ai nodi vincolati, e le sue due formule sono quelle delle
         # funzioni di forma di C3D4 e C3D10 -- solleva su ogni altro tipo. Sul
-        # telaio il peso proprio entra come `eleLoad -type -beamUniform` e la
-        # reazione registrata e' gia' quella intera: il termine correttivo vale
+        # telaio il peso proprio e' ripartito sui nodi meta' per estremo
+        # (`opensees._peso_nodale`, e li' e' scritto perche' non
+        # `eleLoad -type -beamUniform`), quindi il carico applicato a un nodo
+        # vincolato entra intero nella sua reazione: il termine correttivo vale
         # zero, non e' un'altra formula da scrivere.
         "telaio": "vale",
     },
@@ -661,12 +663,16 @@ CONTROLLI_PER_MODELLO: dict[str, dict[str, str]] = {
         "solido": "vale",
         "telaio": (
             "non vale: la misura è l'estensione in pianta dei nodi vincolati "
-            "rapportata a quella di tutti i nodi del modello "
-            "(abaqus.constraint_plan_extent). Nel telaio i nodi stanno "
-            "sull'asse delle membrature, quindi il denominatore è l'impronta "
-            "degli assi e non quella del pezzo, e la soglia _SOGLIA_VINCOLO_"
-            "IN_PIANTA è tarata sul rapporto del solido: sullo stesso pezzo i "
-            "due numeri non sono confrontabili"
+            "rapportata a quella di TUTTI i nodi del modello "
+            "(abaqus.constraint_plan_extent), e nel telaio i nodi stanno "
+            "sull'asse delle membrature. Su un telaio a una sola colonna quel "
+            "denominatore è ZERO: la funzione ha un ramo di guardia che in quel "
+            "caso rende 1,0 -- «un pezzo senza estensione su un asse non ha "
+            "nulla da coprire» -- e controlla_vincolo_in_pianta(1,0) passa "
+            "verde su un modello dove la grandezza non misura niente. Misurato "
+            "il 30/08/2026 su una mensola verticale con un solo nodo "
+            "vincolato: {'x': 1.0, 'y': 1.0, 'minimo': 1.0}, verdetto "
+            "«passato: True»"
         ),
     },
     "autovalori": {"solido": "vale", "telaio": "vale"},
@@ -736,6 +742,63 @@ def esito_non_applicabile(controllo: str, modello: str) -> dict[str, object] | N
         "controllo": controllo,
         "modello": modello,
         "motivo": verdetto,
+    }
+
+
+def verdetti_per_modello(
+    modello: str,
+    calcolo: Mapping[str, Callable[[], dict[str, object]]],
+) -> dict[str, dict[str, object]]:
+    """I sette verdetti di un modello, tutti e sette passati per la tabella.
+
+    Il consumatore porta i **calcoli**, uno per controllo, e non i verdetti:
+    quali girino lo decide `CONTROLLI_PER_MODELLO`. Finché i verdetti si
+    scrivono a mano -- come faceva `risolvi` -- la tabella è documentazione e
+    non un vincolo, e la via al verde su un controllo non applicabile resta
+    aperta. Misurata su una mensola: `abaqus.constraint_plan_extent` rende
+    `minimo = 1,0` (il ramo di guardia del denominatore nullo, perché i nodi
+    stanno tutti su una verticale) e `controlla_vincolo_in_pianta(1,0)` dice
+    `passato: True`, mentre la tabella dice `applicabile: False`.
+
+    Su un controllo che la tabella dichiara **non applicabile** il calcolo, se
+    c'è, non viene chiamato: vince la tabella, e l'esito che esce è quello che
+    dichiara la non applicabilità. È la proprietà per cui questa funzione
+    esiste -- il verde non è raggiungibile per quella strada nemmeno da chi
+    porta il calcolo.
+
+    Due rifiuti:
+
+    - un calcolo per un controllo che la tabella **non conosce**: sarebbe un
+      ottavo verdetto mai dichiarato, e quasi sempre è un refuso;
+    - un controllo applicabile **senza** il suo calcolo: sette meno uno non è
+      sei verdetti, è un verdetto perso in silenzio.
+
+    I calcoli sono funzioni senza argomenti e non valori già calcolati: dove la
+    tabella dice «non vale» il controllo non viene **eseguito**, e non solo
+    scartato dopo. Sul telaio la tensione equivalente per nodo non esiste, e
+    calcolarla per buttarla via vorrebbe dire prima inventarla.
+    """
+    ignoti = sorted(set(calcolo) - set(CONTROLLI_PER_MODELLO))
+    if ignoti:
+        raise KeyError(
+            f"calcolo per {ignoti}, che CONTROLLI_PER_MODELLO non dichiara: i "
+            f"controlli sono {sorted(CONTROLLI_PER_MODELLO)}"
+        )
+    applicabili = {
+        controllo
+        for controllo in CONTROLLI_PER_MODELLO
+        if esito_non_applicabile(controllo, modello) is None
+    }
+    mancanti = sorted(applicabili - set(calcolo))
+    if mancanti:
+        raise KeyError(
+            f"il modello '{modello}' non porta il calcolo di {mancanti}, che la "
+            "tabella dichiara applicabile: sette meno uno non è sei verdetti, è "
+            "un verdetto perso in silenzio"
+        )
+    return {
+        controllo: esito_non_applicabile(controllo, modello) or calcolo[controllo]()
+        for controllo in CONTROLLI_PER_MODELLO
     }
 
 
@@ -1633,13 +1696,22 @@ def risolvi(
     # sapere qui sotto: il perche' di ciascuna guardia sta nel docstring della
     # funzione che la porta.
     casi_mancanti = [nome for nome in casi_statici if nome not in picco_per_caso]
-    controlli = {
-        "reazioni": controlla_reazioni(reazioni_peso_proprio, peso_atteso, tolleranza=_TOLLERANZA_REAZIONI),
-        "vincolo_in_pianta": controlla_vincolo_in_pianta(vincolo_in_pianta["minimo"]),
-        "autovalori": controlla_autovalori(frequenze_hz),
-        "avvisi": controlla_avvisi(avvisi),
-        "spostamenti": controlla_spostamenti(_spostamento_massimo(point_data), _dimensione(nodes)),
-        "massa_modale": controlla_massa_modale(masse_modali),
+    # Il deck di questo passo e' un solido, e i sette verdetti passano da
+    # `verdetti_per_modello`: senza, la tabella `CONTROLLI_PER_MODELLO`
+    # resterebbe un commento lungo che nessun chiamante di produzione
+    # attraversa, e un controllo dichiarato non applicabile continuerebbe a
+    # girare e a uscire verde.
+    controlli = verdetti_per_modello("solido", {
+        "reazioni": lambda: controlla_reazioni(
+            reazioni_peso_proprio, peso_atteso, tolleranza=_TOLLERANZA_REAZIONI
+        ),
+        "vincolo_in_pianta": lambda: controlla_vincolo_in_pianta(vincolo_in_pianta["minimo"]),
+        "autovalori": lambda: controlla_autovalori(frequenze_hz),
+        "avvisi": lambda: controlla_avvisi(avvisi),
+        "spostamenti": lambda: controlla_spostamenti(
+            _spostamento_massimo(point_data), _dimensione(nodes)
+        ),
+        "massa_modale": lambda: controlla_massa_modale(masse_modali),
         # #92: il verdetto si aggrega sui casi che il **deck dichiara**, non
         # su quelli che il `.frd` ha portato. `picco_per_caso` si riempie dai
         # blocchi letti, e `all()` su un insieme parziale e' `True`: un `.frd`
@@ -1647,13 +1719,13 @@ def risolvi(
         # passo statico chiede `*EL FILE S` (`abaqus._passo_statico`), quindi
         # un caso senza blocco STRESS e' un risultato mancante, non un caso
         # che non ne produce.
-        "picco": {
+        "picco": lambda: {
             "passato": bool(picco_per_caso) and not casi_mancanti
             and all(v["passato"] for v in picco_per_caso.values()),
             "per_caso": picco_per_caso,
             "casi_mancanti": casi_mancanti,
         },
-    }
+    })
 
     return {
         "eseguito": True,

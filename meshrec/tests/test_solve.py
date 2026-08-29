@@ -1819,6 +1819,29 @@ def test_un_caso_dichiarato_e_assente_dal_frd_boccia_il_picco(tmp_path, monkeypa
     assert picco["passato"] is False, "un caso non letto non e' un caso superato"
 
 
+def test_risolvi_non_scrive_i_verdetti_a_mano_ma_li_prende_dalla_tabella(
+    tmp_path, monkeypatch
+):
+    """Finché `risolvi` scrive i sette a mano, la tabella è un commento lungo:
+    nessun chiamante di produzione la attraversa. Dichiarare `picco` non
+    applicabile sul solido deve quindi bastare a spegnerlo, senza toccare
+    `risolvi`."""
+    monkeypatch.setitem(
+        solve.CONTROLLI_PER_MODELLO["picco"], "solido", "non vale: prova della tabella"
+    )
+
+    esito = _risolvi_finto(
+        tmp_path, monkeypatch, _FRD_UN_CASO_SU_DUE,
+        casi=["GRAVITA", "SPINTA_ORIZZONTALE"], trasformata=np.eye(4),
+        nodi=_NODI_COLONNA, elementi=_ELEMENTI_COLONNA,
+    )
+
+    assert set(esito["controlli"]) == set(solve.CONTROLLI_PER_MODELLO)
+    assert esito["controlli"]["picco"]["applicabile"] is False
+    assert esito["controlli"]["picco"]["passato"] is False
+    assert "applicabile" not in esito["controlli"]["reazioni"]
+
+
 # --- La tabella controllo x modello (#138 Q3) ---------------------------------
 #
 # L'elenco dei sette non e' scritto a mano qui: si ricava dalle funzioni
@@ -1860,6 +1883,82 @@ def test_un_controllo_che_non_vale_e_dichiarato_e_mai_verde():
     assert esito["passato"] is False
     assert esito["applicabile"] is False
     assert esito["motivo"].startswith("non vale: ")
+
+
+def test_i_sette_verdetti_di_un_modello_escono_tutti_dalla_tabella():
+    """Il consumatore porta i **calcoli**, non i verdetti: quali girino lo
+    decide la tabella, e i due che sul telaio non valgono non vengono nemmeno
+    chiamati."""
+    chiamati: list[str] = []
+
+    def calcolo(nome):
+        def esegui():
+            chiamati.append(nome)
+            return {"passato": True, "chi": nome}
+        return esegui
+
+    verdetti = solve.verdetti_per_modello(
+        "telaio",
+        {n: calcolo(n) for n in ("reazioni", "autovalori", "avvisi",
+                                 "spostamenti", "massa_modale")},
+    )
+
+    assert set(verdetti) == set(solve.CONTROLLI_PER_MODELLO)
+    assert sorted(chiamati) == ["autovalori", "avvisi", "massa_modale",
+                                "reazioni", "spostamenti"]
+    assert verdetti["reazioni"] == {"passato": True, "chi": "reazioni"}
+    assert verdetti["picco"]["applicabile"] is False
+    assert verdetti["vincolo_in_pianta"]["applicabile"] is False
+
+
+def test_un_verdetto_scritto_a_mano_su_un_controllo_che_non_vale_e_rifiutato():
+    """Il difetto misurato: su una mensola `abaqus.constraint_plan_extent` rende
+    `minimo = 1,0` -- il ramo di guardia del denominatore nullo, perche' i nodi
+    stanno tutti su una verticale -- e `controlla_vincolo_in_pianta(1,0)` dice
+    `passato: True`, mentre la tabella dice `applicabile: False`. Chi scrivesse
+    i sette verdetti a mano otterrebbe quel verde."""
+    nodi = np.column_stack([np.zeros(5), np.zeros(5), np.linspace(0.0, 2000.0, 5)])
+    estensione = abaqus.constraint_plan_extent(nodi, np.array([0]))
+    assert estensione["minimo"] == 1.0
+    assert solve.controlla_vincolo_in_pianta(estensione["minimo"])["passato"] is True
+
+    verdetti = solve.verdetti_per_modello(
+        "telaio",
+        {
+            "vincolo_in_pianta": lambda: solve.controlla_vincolo_in_pianta(
+                estensione["minimo"]
+            ),
+            "reazioni": lambda: {"passato": True},
+            "autovalori": lambda: {"passato": True},
+            "avvisi": lambda: {"passato": True},
+            "spostamenti": lambda: {"passato": True},
+            "massa_modale": lambda: {"passato": True},
+        },
+    )
+
+    assert verdetti["vincolo_in_pianta"]["passato"] is False
+    assert verdetti["vincolo_in_pianta"]["applicabile"] is False
+    assert "minimo" not in verdetti["vincolo_in_pianta"], "il calcolo non va eseguito"
+
+
+def test_un_controllo_applicabile_senza_il_suo_calcolo_e_rifiutato():
+    """Sette meno uno non e' sei verdetti: e' un verdetto perso in silenzio."""
+    with pytest.raises(KeyError, match="massa_modale"):
+        solve.verdetti_per_modello(
+            "telaio",
+            {n: (lambda: {"passato": True})
+             for n in ("reazioni", "autovalori", "avvisi", "spostamenti")},
+        )
+
+
+def test_un_calcolo_per_un_controllo_inesistente_e_rifiutato():
+    with pytest.raises(KeyError, match="ottavo_controllo"):
+        solve.verdetti_per_modello("solido", {"ottavo_controllo": lambda: {}})
+
+
+def test_un_modello_sconosciuto_non_produce_verdetti():
+    with pytest.raises(KeyError, match="guscio"):
+        solve.verdetti_per_modello("guscio", {})
 
 
 def test_un_controllo_o_un_modello_sconosciuto_solleva_invece_di_tacere():
