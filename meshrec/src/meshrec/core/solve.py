@@ -1492,6 +1492,19 @@ def risolvi(
     rotazione = _rotazione_ai_punti(trasformata)
     out_dir = Path(out_dir)
     nome_solutore = "calculix" if solutore is None else _nome_noto(solutore.nome)
+    if nome_solutore != "calculix":
+        # Misurato il 30/08/2026 su questa macchina: «OpenSees.exe -i m» stampa
+        # il banner ed esce con codice 0. La guardia sul codice d'uscita qui
+        # sotto passerebbe, e il fallimento arriverebbe piu' avanti come un
+        # `FileNotFoundError` nudo sul `.frd` mai scritto, con un messaggio che
+        # nomina «ccx».
+        raise ValueError(
+            f"solutore.nome = '{nome_solutore}': questo passo monta la riga di "
+            "comando di CalculiX («-i <deck>») e legge il .frd e il .dat che "
+            "solo lui scrive. Il telaio su OpenSees lo porta il ramo del "
+            "telaio, con core/opensees.py (scrivi_tcl e leggi_uscite), non "
+            "risolvi"
+        )
     percorso_dichiarato = None if solutore is None else solutore.percorso
     binario, _, assente = _trova(nome_solutore, percorso_dichiarato)
     if binario is None:

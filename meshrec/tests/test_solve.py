@@ -2127,19 +2127,47 @@ def test_risolvi_usa_il_percorso_dichiarato_invece_del_path(tmp_path, monkeypatc
     assert visti == [str(dichiarato)]
 
 
-def test_risolvi_col_solutore_scelto_assente_non_scrive_niente(tmp_path, monkeypatch):
-    """Solo CalculiX installato e `solutore.nome = "opensees"`: si esce senza
-    artefatti. Il rimedio lo dice `meshrec dottore`, che nomina da dove
-    prenderlo."""
-    monkeypatch.setattr(
-        solve.shutil, "which", lambda nome: "/usr/bin/ccx" if nome == "ccx" else None
-    )
+def test_risolvi_rifiuta_opensees_invece_di_eseguirlo_come_fosse_ccx(
+    tmp_path, monkeypatch
+):
+    """`risolvi` monta la riga di comando di CalculiX e legge il `.frd`.
+
+    Misurato il 30/08/2026 su questa macchina: `OpenSees.exe -i m` stampa il
+    banner ed esce con codice **0**, quindi la guardia sul codice d'uscita
+    passa e il fallimento arriva dopo, come un `FileNotFoundError` nudo su un
+    `.frd` mai scritto, con un messaggio che parla di «ccx». Si rifiuta prima,
+    dicendo chi porta l'altro solutore.
+    """
+    binario = tmp_path / "OpenSees"
+    binario.write_text("finto", encoding="utf-8")
+
+    def mai(*_a, **_k):
+        raise AssertionError("nessun processo va avviato per un solutore che risolvi non esegue")
+
+    monkeypatch.setattr(solve.subprocess, "run", mai)
+
+    with pytest.raises(ValueError, match="core/opensees.py"):
+        solve.risolvi(
+            tmp_path, tmp_path / "m.inp", ANALISI,
+            np.zeros((1, 3)), np.zeros((1, 4), dtype=np.int64), "C3D4",
+            casi_di_carico=["GRAVITA"], vincolo_in_pianta={"minimo": 1.0},
+            trasformata=np.eye(4),
+            solutore=_SolutoreFinto(nome="opensees", percorso=binario),
+        )
+
+    assert not (tmp_path / "13_solution.vtu").exists()
+
+
+def test_risolvi_col_solutore_assente_non_scrive_niente(tmp_path, monkeypatch):
+    """CalculiX scelto e non installato: si esce senza artefatti. Il rimedio lo
+    dice `meshrec dottore`, che nomina da dove prenderlo."""
+    monkeypatch.setattr(solve.shutil, "which", lambda _nome: None)
 
     esito = solve.risolvi(
         tmp_path, tmp_path / "m.inp", ANALISI,
         np.zeros((1, 3)), np.zeros((1, 4), dtype=np.int64), "C3D4",
         casi_di_carico=["GRAVITA"], vincolo_in_pianta={"minimo": 1.0},
-        trasformata=np.eye(4), solutore=_SolutoreFinto(nome="opensees"),
+        trasformata=np.eye(4), solutore=_SolutoreFinto(nome="calculix"),
     )
 
     assert esito == {"eseguito": False, "solutore": "assente"}
