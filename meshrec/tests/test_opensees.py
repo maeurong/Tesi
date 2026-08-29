@@ -304,6 +304,42 @@ def test_il_calcestruzzo_e_una_patch_sul_rettangolo_misurato(tmp_path):
         assert [float(v) for v in campi[-4:]] == [-150.0, -100.0, 150.0, 100.0]
 
 
+def test_una_terna_col_verso_di_e1_ribaltato_e_rifiutata(tmp_path):
+    """`e1` non compariva nel modulo: l'orientamento veniva tutto da `e2` come
+    `vecxz`, e le `y` delle barre assumevano che l'asse locale y che OpenSees
+    deriva da (asse, `e2`) -- cioè `e2 x asse` -- coincidesse **in verso** con
+    `e1`. Se non coincide la sezione esce specchiata, e con armatura simmetrica
+    (il telaio di prova) un ribaltamento non si vede."""
+    telaio = _mensola()
+    ribaltato = telaio._replace(
+        elementi=[e._replace(e1=-np.asarray(e.e1)) for e in telaio.elementi]
+    )
+
+    with pytest.raises(ValueError, match="e1"):
+        opensees.scrivi_tcl(tmp_path / "m.tcl", ribaltato, casi_di_carico=["GRAVITA"])
+
+
+def test_con_armatura_asimmetrica_ogni_barra_resta_dalla_propria_parte(tmp_path):
+    """L'oracolo che l'armatura simmetrica non può dare: due barre di diametro
+    diverso, una per parte. Se la sezione uscisse specchiata, la grossa
+    finirebbe dove sta la piccola."""
+    barre = [
+        _Barra(y=-110.0, z=-60.0, diametro=20.0),
+        _Barra(y=110.0, z=-60.0, diametro=12.0),
+    ]
+    telaio = _mensola()
+    telaio = telaio._replace(
+        elementi=[e._replace(barre=list(barre)) for e in telaio.elementi]
+    )
+
+    testo = _scrivi(tmp_path, telaio)
+
+    fibre = [r.split() for r in testo.splitlines() if r.strip().startswith("fiber ")]
+    per_area = {round(float(c[3])): float(c[1]) for c in fibre}
+    assert per_area[round(math.pi * 20.0**2 / 4.0)] == -110.0
+    assert per_area[round(math.pi * 12.0**2 / 4.0)] == 110.0
+
+
 def test_il_piede_e_incastrato_e_il_resto_e_libero(tmp_path):
     testo = _scrivi(tmp_path)
 
@@ -599,6 +635,46 @@ def test_opensees_esegue_il_tcl_che_scriviamo_e_accorcia_la_mensola_come_la_form
     masse = opensees.leggi_massa_modale(tmp_path / opensees.NOME_MASSA_MODALE)
     assert masse is not None
     assert masse["disponibile"] == [100.0] * 6
+
+
+@pytest.mark.feasibility
+def test_l_asse_locale_y_di_opensees_e_e2_per_asse_col_verso(tmp_path):
+    """L'oracolo della guardia su `e1`, misurato sul binario e non letto.
+
+    Le `y` delle barre valgono solo se l'asse locale y che OpenSees costruisce
+    da (asse, `vecxz`) e' `vecxz x asse` **col verso**. Se la convenzione fosse
+    l'opposta, la guardia rifiuterebbe ogni terna sana e accetterebbe quelle
+    specchiate, e nessun test sul telaio simmetrico di prova lo vedrebbe.
+
+    Mensola lungo z, `vecxz = (0,1,0)`, quindi `vecxz x asse = (1,0,0)`: un
+    carico lungo il **global x** deve comparire nella componente locale **y**.
+    """
+    if _OPENSEES is None:
+        pytest.skip("OpenSees non trovato")
+    (tmp_path / "p.tcl").write_text(
+        "wipe\n"
+        "model BasicBuilder -ndm 3 -ndf 6\n"
+        "node 1 0 0 0\nnode 2 0 0 1000\nfix 1 1 1 1 1 1\n"
+        "uniaxialMaterial Elastic 1 30000.0\n"
+        "section Fiber 1 -GJ 1.0e12 {\n"
+        "    patch rect 1 10 10 -150 -100 150 100\n}\n"
+        "geomTransf Linear 1 0 1 0\n"
+        "element forceBeamColumn 1 1 2 5 1 1\n"
+        "timeSeries Linear 1\n"
+        "pattern Plain 1 1 {\n    load 2 1000.0 0 0 0 0 0\n}\n"
+        "recorder Element -file loc.out -precision 12 -ele 1 localForce\n"
+        "constraints Transformation\nnumberer RCM\nsystem BandGeneral\n"
+        "test NormDispIncr 1.0e-8 10\nalgorithm Linear\n"
+        "integrator LoadControl 1.0\nanalysis Static\n"
+        "if {[analyze 1] != 0} { exit 1 }\nremove recorders\nwipe\n",
+        encoding="utf-8",
+    )
+
+    subprocess.run([_OPENSEES, "p.tcl"], cwd=tmp_path, capture_output=True, timeout=300)
+
+    locali = opensees._ultima_riga(tmp_path / "loc.out", 12)
+    assert locali[1] == pytest.approx(-1000.0, rel=1e-6), "il carico non è sull'asse y"
+    assert abs(locali[2]) < 1e-6, "l'asse z locale non deve portare nulla"
 
 
 @pytest.mark.feasibility

@@ -105,6 +105,12 @@ _FRAZIONE_PIEDE = 1e-4
 # gradi.
 _COSENO_MASSIMO_VECXZ = 0.999
 
+# Quanto il verso di `e1` puo' discostarsi dall'asse locale y che OpenSees
+# deriva da (asse, `e2`). Stesso coseno del limite qui sopra, circa 2,5 gradi:
+# oltre, la terna che il prior ha stimato non e' quella che il `.tcl`
+# costruisce, e la sezione a fibre esce ruotata o specchiata.
+_COSENO_MINIMO_E1 = _COSENO_MASSIMO_VECXZ
+
 
 def _nome_uscita(caso: str, cosa: str) -> str:
     """Il nome del file che un registratore scrive, e che il lettore ricerca.
@@ -323,6 +329,28 @@ def _sezioni_ed_elementi(telaio: "Telaio", nodi: np.ndarray, tag_materiale) -> l
                 "all'asse dell'asta: geomTransf non può costruire il "
                 "riferimento locale, e OpenSees uscirebbe con un modello "
                 "orientato a caso"
+            )
+        # `geomTransf Linear` prende `vecxz` come vettore del piano locale x-z
+        # e ne ricava l'asse locale **y** come `vecxz x asse`. Misurato il
+        # 30/08/2026 eseguendo OpenSees 3.8.0, non letto: su una mensola lungo
+        # z con `vecxz = (0,1,0)` e un carico di 1000 N lungo il **global x**,
+        # `recorder Element ... localForce` rende `Py = -1000` e `Pz = 2e-14`,
+        # cioe' il global x e' l'asse locale y, col verso di `vecxz x asse`.
+        # Le `y` delle
+        # barre sono scritte cosi' come `armatura.colloca` le ha calcolate,
+        # cioe' lungo `e1`: se i due versi non coincidono la sezione esce
+        # specchiata. Con armatura simmetrica -- il caso di prova -- un
+        # ribaltamento non si vede, ed e' il motivo per cui si controlla invece
+        # di assumere.
+        y_locale = _versore(np.cross(vecxz, asse))
+        if float(np.dot(y_locale, _versore(elemento.e1))) < _COSENO_MINIMO_E1:
+            raise ValueError(
+                f"la stazione {elemento.stazione} della membratura "
+                f"{elemento.membratura} ha e1 che non coincide con e2 x asse, "
+                "cioè con l'asse locale y che OpenSees deriva da (asse, e2): le "
+                "posizioni y delle barre sono misurate lungo e1, e la sezione a "
+                "fibre uscirebbe ruotata o specchiata. Con armatura simmetrica "
+                "non si vedrebbe"
             )
         righe.append(
             f"geomTransf Linear {indice} {vecxz[0]:.10g} {vecxz[1]:.10g} {vecxz[2]:.10g}"
