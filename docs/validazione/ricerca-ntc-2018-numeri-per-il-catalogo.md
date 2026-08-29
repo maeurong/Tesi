@@ -208,16 +208,32 @@ fessurata il valore è 0,2.
 l'avvertenza esplicita che «può assumere valori anche sensibilmente diversi da
 quello indicato».
 
-**Il peso dell'unità di volume** — Tab. 3.1.I [V]. Il convertito **ha separato
-l'elenco dei materiali dalla colonna dei valori** (riga 1650: i nomi in una
-colonna, l'intestazione «PESO UNITÀ DI VOLUME [kN/m³]» dopo, e i numeri
-mescolati in mezzo alla lista). Non riporto qui i numeri della Tab. 3.1.I da
-questo file: sono già trascritti, da altra copia, in
+**Il peso dell'unità di volume** — Tab. 3.1.I [V], righe 1647-1650. Il convertito
+**ha separato l'elenco dei materiali dalla colonna dei valori** (i nomi prima,
+l'intestazione «PESO UNITÀ DI VOLUME [kN/m³]» dopo, i numeri in coda), ma
+**l'ordine è preservato** e la tabella si ricostruisce: **24,0 kN/m³ per il
+calcestruzzo ordinario e 25,0 kN/m³ per l'armato**, che sono i primi due valori
+della colonna e coincidono con le trascrizioni da altra copia in
 [`materiali-intervallo.md`](materiali-intervallo.md) §2.1 e in
 [`ricerca-armature-convenzioni-normative.md`](ricerca-armature-convenzioni-normative.md)
-§4.3 — 24,0 kN/m³ per il calcestruzzo ordinario e 25,0 kN/m³ per l'armato. **Il
-convertito non permette di confermarli né di smentirli** [NON TROVATO in forma
-leggibile].
+§4.3.
+
+L'allineamento si autoverifica su tre blocchi indipendenti, e non è quindi una
+lettura per fiducia:
+
+- i due **intervalli** della colonna, `14,0 ÷ 20,0` e `28,0 ÷ 50,0`, cadono
+  esattamente dove l'elenco dei nomi porta i due materiali «da determinarsi caso
+  per caso», i calcestruzzi leggeri e quelli pesanti;
+- il blocco **lapideo** dà sei nomi (tufo vulcanico, calcare compatto, calcare
+  tenero, gesso, granito, laterizio pieno) e sei valori (17,0 · 26,0 · 22,0 ·
+  13,0 · 27,0 · 18,0) nell'ordine giusto;
+- il blocco **metalli** dà acciaio 78,5 kN/m³, che incrocia il 7,85 kg/dm³ del
+  §11.3.2.4.
+
+**Una trappola vera**, per chi rifà il conto: `Sabbia 17,0` e `Alluminio 27,0`
+hanno il valore agganciato al nome nella prima colonna, quindi la colonna dei
+valori è più corta di quella dei nomi e un allineamento posizionale ingenuo
+sballa di due posizioni.
 
 ### 1.2 L'elenco delle classi
 
@@ -1503,8 +1519,11 @@ leggibile]; il tetto `5q − 4` è leggibile e integro.
 2. **La serie commerciale dei diametri** — le NTC danno un intervallo, non un
    elenco (§2.4). La serie sta in UNI EN 10080, già trascritta altrove in questa
    cartella e non ricontrollata qui.
-3. **La Tab. 3.1.I dei pesi dell'unità di volume** — illeggibile nel convertito
-   (§1.1).
+3. ~~**La Tab. 3.1.I dei pesi dell'unità di volume** — illeggibile nel
+   convertito.~~ **Ricostruita e verificata** in un secondo passaggio (§1.1): la
+   conversione separa i nomi dai valori ma ne preserva l'ordine, e
+   l'allineamento si autoverifica su tre blocchi indipendenti. 24,0 kN/m³
+   ordinario, 25,0 armato.
 4. **`T_C`, `T_D` e lo spettro di progetto** (§3.2.3.5), e **l'eccentricità
    accidentale** (§7.2.6). Servono alla §8 e non li ho letti.
 5. **Le espressioni `[7.3.8]` e `[7.3.9]`** sul fattore di duttilità in
