@@ -18,13 +18,12 @@ EXACT_VOLUME = 120.0 * 60.0 * 240.0
 def _config_cubo(tmp_path):
     """Configurazione del cubo di prova, la stessa della fixture run_dir.
 
-    `to_step=12` esplicito: dalla Fase 5 il predefinito di RunConfig e' 13
-    (il solutore fa parte di ogni corsa, decisione dell'utente), ma questo
-    banco serve gran parte della suite per esercitare l'elaborazione
-    geometrica (1-12), non il solutore -- e su una macchina con `ccx`
-    installato lasciarlo al predefinito farebbe girare un processo esterno
-    vero a ogni singola chiamata. Stessa ragione, stesso numero, di
-    `sweep.run_candidate`."""
+    `to_step=12` esplicito e non ereditato: dalla Fase 8 (#140) coincide col
+    predefinito di RunConfig, ma questo banco serve gran parte della suite per
+    esercitare l'elaborazione geometrica (1-12), non il solutore -- e su una
+    macchina con `ccx` installato ereditare un predefinito che un giorno
+    tornasse 13 farebbe girare un processo esterno vero a ogni singola
+    chiamata. Stessa ragione, stesso numero, di `sweep.run_candidate`."""
     pytest.importorskip("pymeshfix")
     cloud_path = tmp_path / "box.ply"
     io.write_cloud(cloud_path, synth.sample_box_surface(SIZE, SPACING))
@@ -454,9 +453,9 @@ def test_una_corsa_completa_lascia_i_dodici_step_di_elaborazione_validi(tmp_path
     """Dal Task 9 (Fase 4) lo step 12 (prior geometrico) e' parte della corsa
     madre: una corsa intera non lascia piu' nulla di "mai eseguito" nel nucleo
     di elaborazione. Lo step 13 (solutore, Fase 5) qui resta "mai eseguito"
-    perche' `_config_cubo` fissa `to_step=12` (vedi il suo docstring): il
-    predefinito vero di RunConfig e' 13, provato altrove
-    (test_lo_step_13_gira_per_difetto_in_una_corsa_intera)."""
+    perche' `_config_cubo` fissa `to_step=12` (vedi il suo docstring), che
+    dalla Fase 8 (#140) e' anche il predefinito -- provato altrove
+    (test_lo_step_13_non_gira_per_difetto_in_una_corsa_intera)."""
     from meshrec.core import pipeline, steps
 
     cfg = _config_cubo(tmp_path)
@@ -574,30 +573,32 @@ def test_lo_step_dodici_si_puo_fermare_prima_con_to_step(tmp_path):
     assert not (cfg.run.out_dir / pipeline.WALL_FILENAME).exists()
 
 
-def test_lo_step_13_gira_per_difetto_in_una_corsa_intera(tmp_path, monkeypatch):
-    """Decisione dell'utente all'apertura della Fase 5 (scelta 2 fra le tre
-    proposte, scartata la 3 -- step opzionale acceso dalla configurazione):
-    ogni corsa risolve e scrive spostamenti e tensioni accanto alle altre
-    metriche, non e' un'azione a parte da chiedere. `RunConfig.to_step` e'
-    quindi predefinito a 13, non 12.
+def test_lo_step_13_non_gira_per_difetto_in_una_corsa_intera(tmp_path, monkeypatch):
+    """Rovesciato dalla Fase 8 (#140), e il rovesciamento e' il punto.
 
-    Qui il predefinito *bare*: `_config_cubo` lo fissa esplicitamente a 12
-    per il resto della suite (vedi il suo docstring), quindi questo test
-    ricostruisce `cfg.run` senza quella fissazione, sugli stessi artefatti
-    geometrici. Senza `ccx` (simulato, cosi' la suite principale non dipende
-    da un solutore installato sulla macchina) l'esito resta negativo e
-    documentato, ma la chiave `13_solve` compare comunque -- e' questo il
-    punto: nessuno l'ha chiesta esplicitamente."""
+    Alla Fase 5 la decisione era «ogni corsa risolve», e `RunConfig.to_step`
+    era predefinito a 13. #140 sposta il solutore in una schermata dedicata:
+    una corsa di pipeline chiude allo step 12 col prior geometrico, e il
+    solutore si invoca da li'. Il tetto resta 13 -- chi lo chiede lo ottiene,
+    ed e' il test qui sotto.
+
+    Qui il predefinito *bare*: `_config_cubo` fissa `to_step=12`
+    esplicitamente per il resto della suite (vedi il suo docstring), quindi
+    questo test ricostruisce `cfg.run` senza quella fissazione, sugli stessi
+    artefatti geometrici, e verifica che il risultato coincida.
+
+    Mutazione che lo uccide: riportare il predefinito a 13. La chiave
+    `13_solve` ricomparirebbe senza che nessuno l'abbia chiesta."""
     from meshrec.core import pipeline
 
     monkeypatch.setattr(solve.shutil, "which", lambda _nome: None)
     cfg = _config_cubo(tmp_path)
     cfg.run = config.RunConfig(out_dir=cfg.run.out_dir)
-    assert cfg.run.to_step == 13, "il predefinito bare di RunConfig deve restare 13"
+    assert cfg.run.to_step == 12, "il predefinito bare di RunConfig e' 12 dalla Fase 8"
 
     metriche = pipeline.run(cfg)
 
-    assert metriche["13_solve"] == {"eseguito": False, "solutore": "assente"}
+    assert "13_solve" not in metriche
 
 
 def test_lo_step_13_con_to_step_esplicito_non_dichiara_un_artefatto_assente(

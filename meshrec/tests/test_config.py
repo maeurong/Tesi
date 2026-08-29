@@ -1441,3 +1441,31 @@ def test_ogni_campo_nuovo_di_primo_livello_dei_carichi_ha_un_predefinito_falso()
             "muoverebbero, con il test dei blocchi ancora verde"
         )
     assert not any(predefiniti.values())
+
+
+def test_una_corsa_di_pipeline_finisce_allo_step_12_e_il_tetto_resta_13():
+    """#140 sposta il solutore in una schermata dedicata.
+
+    Il predefinito passa da 13 a 12: una corsa di pipeline chiude con il prior
+    geometrico, e il solutore si invoca da li'. Il tetto non cambia -- chi
+    chiede lo step 13 esplicitamente lo ottiene ancora -- perche' la capacita'
+    non si perde, smette solo di essere cio' che accade senza chiederlo.
+
+    `run` sta in BLOCCHI_FUORI_IMPRONTA, quindi questo cambio non puo' muovere
+    l'impronta delle ventidue righe: lo verificano i due test dell'impronta,
+    con i loro numeri intatti.
+    """
+    predefinito = config.RunConfig()
+
+    assert predefinito.to_step == 12
+    assert config.RunConfig(to_step=13).to_step == 13
+    with pytest.raises(ValidationError):
+        config.RunConfig(to_step=14)
+    # from_step e to_step uguali eseguono soltanto quello step.
+    solo_il_dodici = config.RunConfig(from_step=9, to_step=9)
+    assert solo_il_dodici.from_step == solo_il_dodici.to_step == 9
+
+    descrizione = config.RunConfig.model_fields["to_step"].description
+    assert "il predefinito coincide con esso" not in descrizione, (
+        "la descrizione afferma ancora una coincidenza col tetto che non c'e' piu'"
+    )

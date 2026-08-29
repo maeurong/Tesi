@@ -205,8 +205,10 @@ def expand(
 # stanno a monte dello step 11, e un candidato e' completo quando ha il
 # proprio deck, non quando ha il prior o l'ha vista risolvere un solutore.
 # Stessa ragione per cui `run_candidate` chiede `--to-step 12` esplicito al
-# sottoprocesso invece di ereditare il predefinito di RunConfig.to_step (13
-# dalla Fase 5): le due esclusioni -- qui e li' -- si spiegano a vicenda.
+# sottoprocesso invece di ereditare il predefinito di RunConfig.to_step, che
+# dalla Fase 8 vale 12 e non piu' 13: le due esclusioni -- qui e li' -- si
+# spiegano a vicenda, e continuano a spiegarsi anche quando il predefinito
+# coincide, perche' e' una decisione del chiamante e non un'eredita'.
 from meshrec.core.pipeline import METRICS_FILENAME, METRICS_PARTIAL
 from meshrec.core.steps import STEP_KEYS
 
@@ -397,9 +399,9 @@ def run_candidate(
     started = time.monotonic()
     try:
         completed = subprocess.run(
-            # --to-step 12 esplicito: RunConfig.to_step e' predefinito a 13
-            # dalla Fase 5 (il solutore fa parte di ogni corsa, per scelta
-            # dell'utente), ma uno sweep valuta candidati di *elaborazione* e
+            # --to-step 12 esplicito, e non ereditato dal predefinito di
+            # RunConfig.to_step (12 dalla Fase 8, #140): uno sweep valuta
+            # candidati di *elaborazione* e
             # la selezione di Pareto non legge ne' il prior ne' la
             # soluzione -- stessa ragione per cui REQUIRED_STEPS qui sotto
             # non li richiede. Pagare ccx e i suoi artefatti (.frd/.vtu, MB

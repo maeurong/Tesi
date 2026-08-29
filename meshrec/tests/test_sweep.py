@@ -364,12 +364,14 @@ def test_a_candidate_that_succeeds_records_its_artifacts(tmp_path):
     assert row["input_digest"] == sweep.file_digest(cloud)
     assert "09_volume.vtu" in row["artifacts"]
     assert row["duration_s"] > 0.0
-    # RunConfig.to_step e' predefinito a 13 dalla Fase 5 (il solutore fa parte
-    # di ogni corsa): se run_candidate non chiedesse esplicitamente
-    # --to-step 12 al sottoprocesso, questo candidato risolverebbe davvero
-    # (ccx e' spesso installato dove gira lo sweep) e pagherebbe un processo
-    # esterno e i suoi artefatti (.frd/.vtu) senza che la selezione di Pareto
-    # li legga mai -- vedi il commento su REQUIRED_STEPS in sweep.py.
+    # run_candidate chiede --to-step 12 esplicito al sottoprocesso e non lo
+    # eredita: dalla Fase 8 (#140) il predefinito di RunConfig.to_step vale 12
+    # e coincide, ma fino alla Fase 7 valeva 13 e senza quella richiesta questo
+    # candidato risolveva davvero (ccx e' spesso installato dove gira lo
+    # sweep), pagando un processo esterno e i suoi artefatti (.frd/.vtu) senza
+    # che la selezione di Pareto li legga mai. La richiesta esplicita resta
+    # perche' la decisione e' del chiamante, non del predefinito -- vedi il
+    # commento su REQUIRED_STEPS in sweep.py.
     assert "13_solve" not in row["metrics"]
 
 

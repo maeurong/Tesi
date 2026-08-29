@@ -2883,10 +2883,11 @@ def test_il_confronto_dal_server_dice_quali_modelli_mancano(cliente, tmp_path):
 
 def test_lo_step_12_e_il_tetto_di_esegui_da_qui_in_poi(cliente):
     """Il tetto e' una scelta dell'interfaccia (server.py), non un'eredita' dal
-    predefinito di RunConfig.to_step (13 dalla Fase 5: il solutore fa parte di
-    ogni corsa). 'Riprendi da qui' nel pannello non deve far partire un
-    processo esterno da solo. Fermo a 11 la riga 12 resterebbe 'mai eseguita'
-    dietro 'esegui da qui in poi', senza spiegazione."""
+    predefinito di RunConfig.to_step -- che dalla Fase 8 (#140) vale 12 e prima
+    valeva 13: il tetto qui non lo ha seguito ne' allora ne' adesso. 'Riprendi
+    da qui' nel pannello non deve far partire un processo esterno da solo.
+    Fermo a 11 la riga 12 resterebbe 'mai eseguita' dietro 'esegui da qui in
+    poi', senza spiegazione."""
     risposta = cliente.post("/api/step/9/from")
 
     assert risposta.json()["fino_a"] == 12

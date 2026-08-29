@@ -535,28 +535,29 @@ class RunConfig(_ModelloBase):
         ),
     )
     to_step: int = Field(
-        default=13,
+        default=12,
         ge=1,
         le=13,
         description=(
             "ultimo step eseguito. Serve all'interfaccia, che esegue uno step "
             "alla volta: from_step e to_step uguali eseguono soltanto quello. "
-            "Il tetto è 13 dalla Fase 5 e il predefinito coincide con esso: "
-            "l'utente ha scelto esplicitamente che ogni corsa risolva e "
-            "scriva spostamenti e tensioni accanto alle altre metriche, non "
-            "che il solutore sia un extra da chiedere (scartata l'opzione "
-            "«step opzionale acceso dalla configurazione»). "
-            "Lo step 13 resta però diverso dagli altri: è l'unico che paga "
+            "Il tetto è 13 dalla Fase 5, ma il predefinito è 12 e non coincide "
+            "più con esso: dalla Fase 8 (#140) il solutore vive in una "
+            "schermata dedicata, quindi una corsa di pipeline chiude con il "
+            "prior geometrico e lo step 13 si invoca da lì. Chi lo chiede "
+            "esplicitamente lo ottiene ancora -- la capacità non si perde, "
+            "smette solo di essere ciò che accade senza chiederlo. "
+            "Lo step 13 è del resto diverso dagli altri: è l'unico che paga "
             "un processo esterno vero (ccx) invece di lavoro in-process, e "
             "chi lo invoca su molti candidati -- uno sweep -- paga quel "
             "processo e i suoi artefatti per ciascuno, senza che la "
             "selezione se ne serva: misurati sull'unica corsa vera "
             "(runs/lab_telaio_v2), .frd 81 MiB, .vtu 8,2 MiB e .dat 4,3 MiB, "
-            "cioè 93,6 MiB per candidato. Questa è la "
-            "ragione per cui sweep.py chiede esplicitamente to_step=12 al "
-            "sottoprocesso invece di ereditare questo predefinito, e per cui "
-            "REQUIRED_STEPS in sweep.py non lo richiede: è una decisione del "
-            "chiamante, non del predefinito del prodotto. "
+            "cioè 93,6 MiB per candidato. sweep.py chiede comunque to_step=12 "
+            "esplicito al sottoprocesso invece di ereditare questo "
+            "predefinito, e REQUIRED_STEPS in sweep.py non lo richiede: è una "
+            "decisione del chiamante, che non deve dipendere da come il "
+            "predefinito cambia. "
             "from_step resta fermo a 9 e non segue questo tetto, per la "
             "ragione scritta là. "
             "Con validate_assignment attivo il validatore incrociato rifiuta "
