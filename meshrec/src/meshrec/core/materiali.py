@@ -218,8 +218,9 @@ def _nota_di_classe(classe: str, f_ck: float) -> str:
 
 _NOTA_ACCIAIO = (
     "Due numeri di questa riga non stanno nelle NTC, ed è la ragione per cui l'origine è "
-    "«nostra». **Il modulo elastico**: la Circolare 7/2019 §C4.1.2.2.5.1 dà 210.000 N/mm², "
-    "ma in un paragrafo sulle tensioni in esercizio; UNI EN 1992-1-1 §3.2.7(4) dà 200.000, "
+    "«nostra». **Il modulo elastico**: la Circolare 7/2019 §C4.1.2.2.5 dà 210.000 N/mm², "
+    "ma in un paragrafo sulle tensioni in esercizio, «Stato Limite di limitazione delle "
+    "tensioni»; UNI EN 1992-1-1 §3.2.7(4) dà 200.000, "
     "ed è il valore con cui l'oracolo di collaudo del progetto torna — con 210.000 il "
     "rapporto della sezione bilanciata passa da 0,6414 a 0,6526. Qui si scrive 200.000 e la "
     "divergenza resta dichiarata invece che sciolta. **Il coefficiente di Poisson**: le NTC "

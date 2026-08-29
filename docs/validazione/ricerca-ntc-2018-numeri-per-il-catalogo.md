@@ -396,7 +396,7 @@ dalla `0,9 · 7,5%` del §4.1.2.1.2.2.
 §4.1.4 lo nomina come parametro dell'analisi non lineare («E s modulo elastico
 dell'armatura», riga 2368) senza assegnargli un valore. [NON TROVATO nelle NTC].
 
-**La Circolare lo dà, e dà 210.000.** Circolare 7/2019, §C4.1.2.2.5.1 (riga
+**La Circolare lo dà, e dà 210.000.** Circolare 7/2019, §C4.1.2.2.5 (riga
 2664), verbatim [V]:
 
 > «Nei calcoli per azioni di breve durata può assumersi il valore del modulo di
@@ -1532,7 +1532,7 @@ due espressioni compaiono a poche righe l'una dall'altra e si scambiano.
 
 ### 10.2 Fra fonti diverse
 
-**a) `E_s` = 210.000 o 200.000?** Circolare §C4.1.2.2.5.1 contro UNI EN 1992-1-1
+**a) `E_s` = 210.000 o 200.000?** Circolare §C4.1.2.2.5 contro UNI EN 1992-1-1
 §3.2.7(4) (§2.3). Il 5% di differenza sposta `k_bil` da 0,6414 a 0,6526 e `μ_bil` da
 1,872% a 1,905%, cioè l'1,8% in relativo. **L'oracolo del progetto usa 200.000.** Non scelgo.
 
@@ -1661,7 +1661,7 @@ un'enumerazione — e l'elenco è quello della §1.2, diciassette voci, non quin
 | reti e tralicci | NTC §11.3.2.5 | `[11.3.1]` |
 | resistenza in opera, soglia 85% | NTC §11.2.6 | — |
 | calcestruzzo non conforme | NTC §11.8.3.1 | — |
-| `E_s` per le tensioni in esercizio | Circolare §C4.1.2.2.5.1 | — |
+| `E_s` per le tensioni in esercizio | Circolare §C4.1.2.2.5 | — |
 | coefficienti ψ | NTC §2.5.2 | Tab. 2.5.I |
 | combinazioni delle azioni | NTC §2.5.3 | `[2.5.1]`–`[2.5.7]` |
 | coefficienti γ | NTC §2.6.1 | Tab. 2.6.I |

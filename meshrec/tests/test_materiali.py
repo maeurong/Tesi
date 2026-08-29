@@ -213,18 +213,29 @@ def test_le_due_classi_di_acciaio_hanno_la_stessa_resistenza():
 def test_l_acciaio_dichiara_la_divergenza_sul_modulo_elastico():
     """200.000 MPa, e la nota dice che l'altra fonte ne da' 210.000.
 
-    Le NTC non pubblicano `E_s`. La Circolare §C4.1.2.2.5.1 da' 210.000 in un
+    Le NTC non pubblicano `E_s`. La Circolare §C4.1.2.2.5 da' 210.000 in un
     paragrafo sulle tensioni in esercizio; UNI EN 1992-1-1 §3.2.7(4) da'
     200.000, ed e' il valore con cui l'oracolo di collaudo torna. Nascondere la
     divergenza renderebbe il numero indistinguibile da un dato di norma.
 
-    Mutazione che lo uccide: scrivere 210.000 senza toccare la nota.
+    **Il paragrafo e' il §C4.1.2.2.5 e non il §C4.1.2.2.5.1**, che nella
+    Circolare non esiste: `grep -c "C4.1.2.2.5.1"` sul convertito ne da' zero. Il
+    210.000 sta alla riga 2664, dentro il §C4.1.2.2.5 «Stato Limite di
+    limitazione delle tensioni». Fino al 2026-08-30 questo test asseriva
+    l'articolo inesistente, cioe' inchiodava la citazione falsa e la faceva
+    sembrare verificata.
+
+    Mutazione che lo uccide: scrivere 210.000 senza toccare la nota, o rimettere
+    nella nota il paragrafo che non esiste.
     """
     voce = trova("B450C")
     assert voce.young == pytest.approx(200000.0)
     assert voce.origine == "nostra"
     assert "210.000" in voce.nota
-    assert "C4.1.2.2.5.1" in voce.nota
+    assert "C4.1.2.2.5" in voce.nota
+    assert "C4.1.2.2.5.1" not in voce.nota, (
+        "il §C4.1.2.2.5.1 non esiste nella Circolare: il 210.000 sta nel §C4.1.2.2.5"
+    )
     assert "3.2.7" in voce.nota
 
 
