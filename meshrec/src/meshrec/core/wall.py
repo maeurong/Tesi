@@ -965,8 +965,9 @@ def _tipo_dell_incontro(invaso: np.ndarray) -> str:
     """«estremo», «attraversamento» o «contenimento», dal campionamento di chi cede.
 
     Le stesse tre condizioni su cui `hexa.taglia_giunzioni` decide, lette con
-    l'esito opposto: la' le ultime due **sollevano** (hexa.py:645 e hexa.py:652,
-    «due regioni sovrapposte non sono due membrature»), perche' la' si
+    l'esito opposto: la' le ultime due **sollevano** dentro
+    `hexa.taglia_giunzioni` («due regioni sovrapposte non sono due
+    membrature»), perche' la' si
     costruisce un maglio e un prisma dentro un altro non ha un estremo da
     accorciare. Qui no: il prior rileva e non valida, e un'anomalia geometrica
     e' un risultato da mostrare -- la stessa regola per cui una sezione sotto
