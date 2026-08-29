@@ -36,6 +36,21 @@ const PROPOSITI = {
   "13_solve": "Manda il deck a CalculiX e rilegge spostamenti e tensioni sul maglio.",
 };
 
+// Lo step che non sta nella colonna, e quello che chiude la colonna.
+//
+// Per CHIAVE e non per numero, come ETICHETTE e PROPOSITI: la chiave sta in ogni
+// voce di run_state, quindi il confine non va indovinato dall'ordine e uno step
+// aggiunto in mezzo alla catena non lo farebbe scivolare di uno.
+//
+// Lo step 13 resta lo step 13 -- il numero glielo da' steps.STEP_KEYS e non
+// cambia -- ma non e' un passo di elaborazione geometrica: e' l'unico che paga
+// un processo esterno vero, l'unico che legge un deck invece di una geometria,
+// e l'unico i cui risultati sono campi sul maglio e non artefatti della catena.
+// Da #140 (core/config.py:541) `to_step` predefinito vale 12: una corsa di
+// pipeline finisce dove finisce la colonna.
+const STEP_DELL_ANALISI = "13_solve";
+const STEP_DEL_PRIOR = "12_wall";
+
 // Nodo piu' proprieta' in una riga.
 const elemento = (tag, proprieta) => Object.assign(document.createElement(tag), proprieta);
 
@@ -395,6 +410,11 @@ function disegnaStep(steps) {
   // questa mappa arrivi popolata da una corsa diversa.
   const precedente = new Map(ultimoStato.map((voce) => [voce.numero, voce.stato]));
   ultimoStato = steps;
+  // Lo stato resta intero e a essere filtrata e' la sola VISTA. `passoDaMostrare`
+  // cammina a monte da `corpo.steps.length`, che vale 13, e STEP_CON_GEOMETRIA
+  // elenca il 13: filtrando `ultimoStato` invece dell'elenco, la geometria del
+  // solutore diventerebbe irraggiungibile per una strada che non guarda nessuno.
+  const pipeline = steps.filter((voce) => voce.chiave !== STEP_DELL_ANALISI);
   const elenco = document.getElementById("elenco-step");
   // Le righe si costruiscono una volta sola e poi si aggiornano sul posto.
   // Ricostruirle a ogni evento — due volte al secondo mentre la pipeline gira —
@@ -405,10 +425,10 @@ function disegnaStep(steps) {
   // correzione della tastiera, da sola, avrebbe aperto il difetto che chiudeva.
   // Il foglio aveva gia' visto meta' del problema: la nota sul movimento
   // rinuncia ad animare l'elenco per la stessa riscrittura continua.
-  if (elenco.childElementCount !== steps.length) {
-    elenco.replaceChildren(...steps.map(() => nuovaRiga()));
+  if (elenco.childElementCount !== pipeline.length) {
+    elenco.replaceChildren(...pipeline.map(() => nuovaRiga()));
   }
-  steps.forEach((voce, indice) => {
+  pipeline.forEach((voce, indice) => {
     const riga = elenco.children[indice];
     const comando = riga.firstElementChild;
     riga.className = `stato-${voce.stato.replace(" ", "-")}`;
@@ -432,7 +452,111 @@ function disegnaStep(steps) {
   // si sospende sulla prima attesa, e dallo scorrere degli eventi, cioe' sempre
   // dopo che il modulo e' stato valutato per intero.
   segnaStepAperto(stepAperto);
+  // Il passaggio e lo stadio vivo dell'analisi si aggiornano da qui e non da un
+  // secondo ascoltatore del flusso: disegnaStep e' gia' l'unico imbuto per cui
+  // lo stato arriva, e una seconda strada per lo stesso fatto invecchierebbe.
+  aggiornaPassaggio();
+  aggiornaStadi();
 }
+
+// Se il passaggio alla seconda schermata sia una porta aperta, e perche'.
+//
+// Pura, e prende gli step invece di leggere `ultimoStato`: la decisione e' la
+// meta' che si sbaglia, e va provata su stati che non esistono ancora sul disco
+// di nessuno.
+//
+// Uno step FALLITO prima del dodici e' l'unico caso in cui la porta si chiude:
+// la catena non arriva al prior geometrico, quindi la seconda schermata non
+// potrebbe dire altro che «manca tutto», e un bottone che porta la' e' un
+// bottone che spreca un gesto. Lo step 13 fallito invece non chiude niente: e'
+// esattamente cio' che quella schermata serve a rifare.
+//
+// Uno step non ancora eseguito non chiude la porta. Ci si va e la schermata
+// dichiara che cosa manca: e' lo stato in cui questa applicazione si apre, e
+// vietarlo significherebbe non poterla mai guardare prima di aver corso tutto.
+function ragioneDelPassaggio(steps) {
+  const pipeline = steps.filter((voce) => voce.chiave !== STEP_DELL_ANALISI);
+  const fallito = pipeline.find((voce) => voce.stato === "fallito");
+  if (fallito !== undefined) {
+    return {
+      bloccato: true,
+      ragione: `Lo step ${fallito.numero} (${ETICHETTE[fallito.chiave] ?? fallito.chiave})`
+        + " è fallito: la pipeline non arriva al prior geometrico, e senza quello"
+        + " non c'è un modello da analizzare.",
+    };
+  }
+  // La coda della colonna e non un 12 battuto qui: quanti step ha la pipeline
+  // lo dichiara il server, ed e' lo stesso elenco appena disegnato.
+  const prior = pipeline[pipeline.length - 1];
+  if (prior?.stato === "valido") {
+    return {
+      bloccato: false,
+      ragione: "Il prior geometrico è valido: le membrature su cui il modello si"
+        + " costruisce ci sono.",
+    };
+  }
+  return {
+    bloccato: false,
+    ragione: `Il prior geometrico è «${prior?.stato ?? "senza corsa aperta"}»:`
+      + " la schermata dice che cosa manca prima di poter risolvere.",
+  };
+}
+
+function aggiornaPassaggio() {
+  const { bloccato, ragione } = ragioneDelPassaggio(ultimoStato);
+  document.getElementById("vai-analisi").disabled = bloccato;
+  document.getElementById("vai-analisi-ragione").textContent = ragione;
+}
+
+// Che cosa dire nello stadio del modello, che e' l'unico dei quattro a poter
+// dire qualcosa di vero oggi: gli altri tre aspettano numeri che nessuno calcola
+// ancora, questo aspetta uno step che esiste gia'.
+//
+// Nomina lo step che il modello lo produce, e non solo il fatto che manca:
+// PRODUCT.md:181 chiede che gli stati vuoti insegnino, e «nessun modello» da
+// solo non dice a nessuno che cosa fare per averne uno.
+function testoDelloStadioModello(steps) {
+  const prior = steps.find((voce) => voce.chiave === STEP_DEL_PRIOR);
+  if (prior === undefined) {
+    return "Nessuna corsa aperta: il modello lo propone lo step 12 «Prior"
+      + " geometrico», che cerca nella geometria le regioni che sembrano membrature.";
+  }
+  if (prior.stato === "valido") {
+    return "Lo step 12 «Prior geometrico» ha proposto le membrature. Il pannello"
+      + " che le mostra, con il solutore che le può risolvere, non è ancora scritto.";
+  }
+  return `Nessun modello: lo step 12 «Prior geometrico», che propone le membrature,`
+    + ` è «${prior.stato}».`;
+}
+
+function aggiornaStadi() {
+  document.getElementById("stadio-modello").textContent = testoDelloStadioModello(ultimoStato);
+}
+
+// Le due schermate si escludono a vicenda, e il fuoco le segue.
+//
+// Nascondere la schermata che tiene il cursore lo butta su <body>: da sola
+// tastiera il tabulatore riparte dall'inizio del documento, e chi non guarda lo
+// schermo non ha nessun canale che dica dov'e' finito. Si posa
+// sull'intestazione di cio' che si apre, e torna sul collegamento da cui si era
+// partiti.
+function mostraAnalisi() {
+  document.getElementById("lavoro").hidden = true;
+  document.getElementById("analisi").hidden = false;
+  // Prima di mostrare: aperta senza corsa, la riga viva dello stadio non e' mai
+  // passata da disegnaStep e resterebbe quella del markup.
+  aggiornaStadi();
+  document.getElementById("analisi-titolo").focus();
+}
+
+function mostraPipeline() {
+  document.getElementById("analisi").hidden = true;
+  document.getElementById("lavoro").hidden = false;
+  document.getElementById("vai-analisi").focus();
+}
+
+document.getElementById("vai-analisi").addEventListener("click", mostraAnalisi);
+document.getElementById("torna-pipeline").addEventListener("click", mostraPipeline);
 
 caricaStato();
 
@@ -607,6 +731,26 @@ function spegniLeEsecuzioni(inCorso) {
 }
 
 const flusso = new EventSource("/api/events");
+
+// Il server caduto, dichiarato invece che taciuto.
+//
+// EventSource riprova da se', e finche' non ci riesce nessuno riceve piu' un
+// evento: l'ultimo stato ricevuto resta stampato uguale a uno fresco. La
+// colonna continua a dire «valido» e lo stadio del modello uno stato che
+// nessuno sta piu' confermando -- una schermata che finge di essere aggiornata.
+//
+// Di primo livello e non frecce dentro addEventListener, per la stessa ragione
+// di aggiornaDaStato: dentro la freccia non le esegue nessun banco.
+function perdiIlCollegamento() {
+  document.getElementById("collegamento-perso").hidden = false;
+}
+
+function riprendiIlCollegamento() {
+  document.getElementById("collegamento-perso").hidden = true;
+}
+
+flusso.addEventListener("error", perdiIlCollegamento);
+flusso.addEventListener("open", riprendiIlCollegamento);
 
 let eraInCorso = false;
 

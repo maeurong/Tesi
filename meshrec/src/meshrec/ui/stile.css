@@ -192,6 +192,39 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
    entrambi. Il gestore si ferma da se'. */
 .corsa-voce[aria-disabled="true"] { color: var(--tenue); cursor: default; }
 .corsa-voce[aria-disabled="true"]:hover { background: var(--superficie); }
+/* La seconda schermata. Come .ingresso: nessun `display` dichiarato, quindi la
+   regola [hidden] del browser morde senza una riga in piu'.
+   E nessun fondo dichiarato, a differenza di .ingresso: qui la carta sono le
+   schede degli stadi, e dandolo anche alla schermata le schede sparirebbero
+   dentro di lei. Resta il --sfondo del <body>. */
+.analisi { padding: var(--passo-4); overflow: auto; flex: 1; min-height: 0; }
+.analisi-testata { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--passo-2) var(--passo-4); margin-bottom: var(--passo-3); }
+/* Il titolo della schermata e non una legenda di sezione: --tipo-titolo, come il
+   nome del programma nella testata. Le legende in maiuscoletto delle tre zone
+   nominano un gruppo dentro una schermata; questo nomina la schermata. */
+.analisi h2 { font-size: var(--tipo-titolo); line-height: var(--interlinea-riga); font-weight: 600; margin: 0; }
+/* Il fuoco ci arriva per programma quando la schermata si apre (tabindex="-1"),
+   e senza contorno chi naviga da tastiera non saprebbe dove si e' posato. */
+.analisi h2:focus-visible { outline: 2px solid var(--accento); outline-offset: 2px; }
+/* Quattro schede, e la griglia decide da se' quante ne stanno per riga. Stretta
+   la finestra si impilano in una colonna sola; proiettata in discussione ne
+   stanno quattro, e la prosa dentro resta comunque sotto --misura, che .vuoto
+   porta gia'. Il minimo in rem e non in px: segue l'ingrandimento del testo come
+   tutto il resto della scala. */
+.stadi { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--passo-4); grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); }
+.stadio { background: var(--superficie); border: 1px solid var(--bordo); border-radius: var(--raggio); padding: var(--passo-3); }
+/* Il numero dello stadio sta nel titolo e non in un contatore d'elenco: l'ordine
+   e' una dipendenza (ciascuno ha bisogno del precedente) e va letto anche quando
+   le quattro schede stanno affiancate, dove «sopra» e «sotto» non esistono. */
+.stadio h3 { font-size: var(--tipo-dato); line-height: var(--interlinea-riga); font-weight: 600; margin: 0 0 var(--passo-2); }
+/* Il margine dei paragrafi e' quello della scala e non l'`1em` del browser, e
+   l'ultimo non ne ha: sarebbe spazio dentro il bordo della scheda, sotto
+   l'ultima riga, che nessuna riga successiva usa. */
+.stadio p { margin: 0 0 var(--passo-2); }
+.stadio p:last-child { margin-bottom: 0; }
+/* Il passaggio chiude la colonna degli step: largo quanto lei, cosi' si legge
+   come la fine dell'elenco e non come un comando qualunque appoggiato sotto. */
+.passaggio { width: 100%; margin-top: var(--passo-3); }
 .zona { padding: var(--passo-4); overflow: auto; }
 .zona-step, .zona-dettaglio { background: var(--superficie); }
 .zona-step { border-right: 1px solid var(--bordo); }

@@ -183,3 +183,32 @@ def test_ogni_sovrapposto_della_vista_sa_ancora_nascondersi():
             f".{classe} dichiara un display ma non si sa piu' nascondere: "
             "l'attributo hidden non morde, e resta a video"
         )
+
+
+def test_i_quattro_stadi_restano_leggibili_stretti_e_proiettati():
+    """La seconda schermata si guarda a due larghezze molto diverse.
+
+    Su una finestra stretta i quattro stadi devono impilarsi in una colonna
+    sola; proiettata in sede di discussione (PRODUCT.md:187) la finestra e'
+    larga e la prosa non deve stendersi su tutto lo schermo, dove la riga si
+    perde fra una fine e l'inizio della successiva.
+
+    Le due cose in un token e una traccia fluida: `auto-fit` con un `minmax` in
+    `rem` -- che segue l'ingrandimento del testo, a differenza dei px -- e il
+    tetto di `--misura` che `.vuoto` gia' porta. Una larghezza di colonna scritta
+    in pixel farebbe traboccare la griglia sotto quel numero.
+    """
+    foglio = _senza_commenti()
+    regola = re.search(r"^\.stadi \{([^}]*)\}", foglio, flags=re.MULTILINE)
+    assert regola is not None, "gli stadi della seconda schermata non sono piu' vestiti"
+    colonne = re.search(r"grid-template-columns:([^;]+);", regola.group(1))
+    assert colonne is not None, "gli stadi non dichiarano piu' le proprie colonne"
+    traccia = colonne.group(1).strip()
+    assert "auto-fit" in traccia, (
+        f"le colonne sono fissate: stretta la finestra, gli stadi non si impilano ({traccia})"
+    )
+    minimo = re.search(r"minmax\(\s*([\d.]+)(rem|px)", traccia)
+    assert minimo is not None, f"nessun minimo dichiarato per la colonna di uno stadio: {traccia}"
+    assert minimo.group(2) == "rem", (
+        f"il minimo della colonna e' in px ({minimo.group(0)}): non segue l'ingrandimento del testo"
+    )
