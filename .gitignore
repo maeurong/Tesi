@@ -29,6 +29,21 @@ Cartella di lavoro Abaqus/
 /fonti bibliografiche.docx
 /muro_1.pdf
 
+# Dispense del corso di Tecnica delle Costruzioni (lezioni 31-55) e la loro
+# conversione in Markdown. Materiale didattico di terzi, come Articoli/: non
+# prodotto del progetto, e non nostro da ridistribuire. Chi clona non le ha, e
+# nessun documento del progetto deve dipendere dal fatto che ci siano: i numeri
+# che ne discendono vanno ancorati all'articolo di norma, non alla dispensa.
+/Lezioni CLS/
+
+# Scarti di TetGen quando una faccia viene saltata: li scrive una corsa dentro
+# meshrec/, non sono prodotto del progetto.
+/meshrec/_skipped.*
+
+# Toppe di appoggio usate per riportare a mano il lavoro di un worktree prima di
+# rimuoverlo. Vivono quanto un merge.
+/.claude/scratch-merge/
+
 # Rumore del Finder, dal passaggio a macOS del 16/08/2026.
 .DS_Store
 
