@@ -720,6 +720,43 @@ def test_un_prior_scritto_prima_delle_nuove_misure_si_rilegge_ancora():
     assert membrature[0].base_sezione.shape == (0, 3)
 
 
+def test_i_tre_campi_nuovi_tornano_uguali_dopo_scrittura_e_rilettura():
+    """Scritti in `12_wall.json` e buttati alla rilettura: `sezioni_fette`,
+    `quote_fette` e `base_sezione` uscivano da `wall.prior` e
+    `_ricostruisci_membrature` non li nominava. Chi fra armatura, telaio e
+    attribuzione passa di qui trovava `base_sezione` vuota su dati **freschi**,
+    e `wall.giunzioni` su quelle membrature rendeva `[]` in silenzio.
+
+    Il giro e' quello vero: misura, serializzazione JSON, rilettura.
+    """
+    import json
+
+    from meshrec.core import synth, wall
+    from meshrec.core.config import SegmentConfig, WallConfig
+
+    telaio = [
+        ((0.0, -90.0, 0.0), (200.0, 180.0, 1600.0)),
+        ((1400.0, -130.0, 0.0), (200.0, 260.0, 1600.0)),
+        ((0.0, -70.0, 1600.0), (1600.0, 140.0, 300.0)),
+        ((0.0, -170.0, -300.0), (1600.0, 340.0, 300.0)),
+    ]
+    punti = synth.sample_frame_surface(telaio, 20.0)
+    prior = json.loads(json.dumps(wall.prior(punti, SegmentConfig(), WallConfig(), 20.0)))
+
+    membrature = pipeline._ricostruisci_membrature(prior)
+
+    assert len(membrature) == len(prior["membrature"])
+    for ricostruita, voce in zip(membrature, prior["membrature"], strict=True):
+        assert len(voce["sezioni_fette"]) > 0, "il banco vale solo se le fette sono state misurate"
+        assert ricostruita.sezioni_fette.tolist() == voce["sezioni_fette"]
+        assert ricostruita.quote_fette.tolist() == voce["quote_fette"]
+        assert ricostruita.base_sezione.tolist() == voce["base_sezione"]
+
+    # la prova che conta: le giunzioni si ritrovano, invece di sparire
+    assert wall.giunzioni(membrature) == prior["giunzioni"]
+    assert prior["giunzioni"] != []
+
+
 def test_un_prior_senza_base_di_sezione_non_fabbrica_giunzioni():
     """L'altra meta' della compatibilita' all'indietro: le membrature
     ricostruite da un prior vecchio non portano il piano di sezione, e
