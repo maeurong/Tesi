@@ -165,13 +165,22 @@ MODEL_FILENAME = "modello.json"
 def _ricostruisci_membrature(prior: dict[str, object]) -> list:
     """Le `Membratura` del prior, per costruire un modello parametrico.
 
-    Dodici dei quindici campi sono presi 1:1 dal dizionario per membratura che
+    Quindici dei diciotto campi sono presi 1:1 dal dizionario per membratura che
     `wall.prior` scrive. Gli altri tre stanno annidati sotto
     `voce["riempimento"]`, il dizionario che `wall.riempimento` scrive: e' da
     li' che viene `riempimento_stato`, il campo su cui poggia la guardia del
     Ruling J in `hexa.costruisci`, che rifiuta di costruire un modello da una
     sezione dichiarata «vuota». Estratta come funzione propria perche' e'
     l'unico punto di questa mappatura, ed e' testabile da sola.
+
+    `sezioni_fette`, `quote_fette` e `base_sezione` si leggono con `.get`
+    perche' un prior scritto prima che quelle misure esistessero non le porta,
+    e assente vuol dire assente: il predefinito vuoto e' cio' che impedisce a
+    `wall.giunzioni` di dedurre un'invasione su un piano che non c'e'. Ma su un
+    prior **nuovo** vanno rilette, o i tre campi verrebbero scritti in
+    `12_wall.json` e buttati alla rilettura: chi fra armatura, telaio e
+    attribuzione passa di qui troverebbe `base_sezione` vuota su dati freschi,
+    e `wall.giunzioni` gli renderebbe `[]` in silenzio.
     """
     from meshrec.core.wall import Membratura
 
@@ -192,6 +201,11 @@ def _ricostruisci_membrature(prior: dict[str, object]) -> list:
             riempimento_sezione=float(voce["riempimento"]["valore"]),
             riempimento_stato=str(voce["riempimento"]["stato"]),
             densita_dispersione=float(voce["riempimento"]["densita_dispersione"]),
+            sezioni_fette=np.asarray(
+                voce.get("sezioni_fette", []), dtype=np.float64
+            ).reshape(-1, 2),
+            quote_fette=np.asarray(voce.get("quote_fette", []), dtype=np.float64),
+            base_sezione=np.asarray(voce.get("base_sezione", []), dtype=np.float64).reshape(-1, 3),
         )
         for voce in prior["membrature"]
     ]

@@ -38,6 +38,15 @@ TELAIO = [
 ]
 SPAZIATURA = 20.0
 
+# Due montanti a quattro metri l'uno dall'altro: nessuna delle due entra
+# nell'altra, e nessun traverso le lega. Il banco degli incontri che non ci
+# sono. Le due sezioni restano diverse fra loro, come nel TELAIO, perche' la
+# scomposizione separa per costanza dello spessore locale.
+MEMBRATURE_LONTANE = [
+    ((0.0, -100.0, 0.0), (200.0, 200.0, 1600.0)),
+    ((4000.0, -150.0, 0.0), (200.0, 300.0, 1600.0)),
+]
+
 
 def _cfg() -> WallConfig:
     return WallConfig()
@@ -308,6 +317,126 @@ def test_la_misura_di_un_prisma_noto_ritrova_sezione_asse_e_lunghezza():
     assert membratura.volume == pytest.approx(200.0 * 140.0 * 1500.0, rel=0.15)
 
 
+def test_la_membratura_restituisce_una_sezione_per_fetta_con_la_propria_quota():
+    """Le venti fette che `misura` gia' calcola per la dispersione escono dalla
+    funzione: sono le stazioni su cui il modello a telaio poggia.
+
+    Su un prisma a sezione costante le sezioni di fetta sono tutte uguali fra
+    loro e uguali alla sezione complessiva; il test verifica la forma e
+    l'accordo, non un valore fabbricato.
+    """
+    punti = synth.sample_box_surface((200.0, 140.0, 1500.0), 15.0)
+    direzioni, _ = wall.terna(punti)
+
+    membratura = wall.misura(punti, direzioni, _cfg())
+
+    assert membratura.sezioni_fette.ndim == 2
+    assert membratura.sezioni_fette.shape[1] == 2
+    assert len(membratura.quote_fette) == len(membratura.sezioni_fette)
+    assert len(membratura.sezioni_fette) > 1, "una sola fetta non e' una stazione"
+    # le quote crescono lungo l'asse e stanno dentro la lunghezza misurata
+    assert np.all(np.diff(membratura.quote_fette) > 0.0)
+    assert membratura.quote_fette.min() >= 0.0
+    assert membratura.quote_fette.max() <= membratura.lunghezza
+    # su un prisma costante ogni fetta vede la sezione del pezzo
+    assert np.allclose(membratura.sezioni_fette, np.asarray(membratura.sezione), rtol=0.05)
+
+
+def test_la_base_del_piano_di_sezione_esce_dalla_misura_ed_e_ortonormale():
+    """`misura` costruisce gia' e1 ed e2 e le tiene per se'. Senza di loro
+    nessuno puo' collocare una barra nel piano della sezione: sono il dato che
+    trasforma due estensioni in una geometria.
+    """
+    punti = synth.sample_box_surface((200.0, 140.0, 1500.0), 15.0)
+    direzioni, _ = wall.terna(punti)
+
+    membratura = wall.misura(punti, direzioni, _cfg())
+    base = membratura.base_sezione
+
+    assert base.shape == (2, 3)
+    assert np.allclose(np.linalg.norm(base, axis=1), 1.0), "e1 ed e2 devono essere versori"
+    assert abs(float(base[0] @ base[1])) < 1e-9, "e1 ed e2 devono essere ortogonali"
+    assert np.allclose(base @ membratura.asse, 0.0, atol=1e-9), (
+        "il piano di sezione e' ortogonale all'asse"
+    )
+
+
+def test_la_base_resta_ortonormale_anche_se_la_trasversale_e_parallela_all_asse():
+    """Ingresso degenere: `direzioni[2]` quasi parallela all'asse della
+    regione. Il ramo di ripiego su `direzioni[0]` esiste gia' in `misura`; qui
+    si prova che la base che ne esce e' ortonormale come l'altra, invece di
+    nascere da una divisione per una norma quasi nulla.
+    """
+    punti = synth.sample_box_surface((1500.0, 200.0, 140.0), 15.0)
+    direzioni, _ = wall.terna(punti)
+    assert abs(float(np.dot(direzioni[2], np.array([1.0, 0.0, 0.0])))) < 0.9, (
+        "il banco vale solo se la trasversale non e' gia' quella lunga"
+    )
+    # la terna e' del pezzo intero: la si forza col caso che il ramo copre,
+    # trasversale allineata all'asse della regione
+    forzata = np.vstack([direzioni[2], direzioni[1], direzioni[0]])
+
+    membratura = wall.misura(punti, forzata, _cfg())
+    base = membratura.base_sezione
+
+    assert base.shape == (2, 3)
+    assert np.all(np.isfinite(base))
+    assert np.allclose(np.linalg.norm(base, axis=1), 1.0)
+    assert abs(float(base[0] @ base[1])) < 1e-9
+    assert np.allclose(base @ membratura.asse, 0.0, atol=1e-9)
+
+
+def test_una_regione_con_meno_di_venti_fette_utili_non_ne_dichiara_venti():
+    """Ingresso degenere: cinque punti sparsi. Le fette povere sono gia'
+    scartate da `misura` (meno di quattro punti, nessuna misura inventata), e
+    il numero di stazioni restituito deve essere quello vero -- fosse anche
+    zero -- non venti righe fabbricate per riempire la forma.
+    """
+    punti_pochi = np.array([
+        [0.0, 0.0, 0.0],
+        [10.0, 0.0, 0.0],
+        [0.0, 10.0, 0.0],
+        [0.0, 0.0, 10.0],
+        [10.0, 10.0, 10.0],
+    ])
+    direzioni, _ = wall.terna(punti_pochi)
+
+    membratura = wall.misura(punti_pochi, direzioni, _cfg())
+
+    assert len(membratura.sezioni_fette) < 20
+    assert membratura.sezioni_fette.shape[1] == 2, (
+        "anche vuoto l'array resta (n, 2): chi lo legge non deve indovinare la forma"
+    )
+    assert len(membratura.quote_fette) == len(membratura.sezioni_fette)
+
+
+def test_una_fetta_di_area_nulla_e_un_risultato_che_si_mostra():
+    """Ingresso degenere: un prisma sano con in coda un filamento di punti
+    allineati sull'asse. L'ultima fetta li vede da sola e misura estensione
+    nulla in entrambe le direzioni, cioe' area nulla. E' una misura da
+    mostrare, non un errore che ferma: chi costruisce decide, chi misura
+    riporta.
+    """
+    scatola = synth.sample_box_surface((200.0, 140.0, 1500.0), 15.0)
+    quote = np.linspace(1520.0, 1600.0, 6)
+    # sull'asse di simmetria trasversale della scatola: fuori da li' il
+    # filamento sposterebbe la direzione principale e la fetta leggerebbe uno
+    # sbieco invece dello zero che il banco vuole provare
+    filamento = np.column_stack([
+        np.full_like(quote, 100.0),
+        np.full_like(quote, 70.0),
+        quote,
+    ])
+    punti = np.vstack([scatola, filamento])
+    direzioni, _ = wall.terna(punti)
+
+    membratura = wall.misura(punti, direzioni, _cfg())
+
+    aree = membratura.sezioni_fette[:, 0] * membratura.sezioni_fette[:, 1]
+    assert len(aree) > 0, "le fette esistono anche quando la loro area e' nulla"
+    assert float(aree.min()) == pytest.approx(0.0, abs=1e-9)
+
+
 def test_il_fuori_piombo_misura_l_inclinazione_e_il_rigonfiamento_no():
     """Le due grandezze restano distinte perche' sono difetti diversi: un
     elemento puo' essere perfettamente piano e tutto storto, oppure a piombo e
@@ -429,6 +558,432 @@ def test_l_esito_del_prior_e_serializzabile_in_json():
 
     testo = json.dumps(esito)
     assert json.loads(testo)["regioni_trovate"] == esito["regioni_trovate"]
+
+
+def test_cede_chi_ha_l_asse_invaso_e_non_chi_ha_l_indice_piu_basso():
+    """Ruling AD: cede la membratura che finisce dentro l'altra, come una trave
+    appoggiata su un pilastro accorcia il pilastro e non la trave. Il criterio
+    e' del dato, non dell'ordine in cui le membrature arrivano.
+    """
+    invaso = np.array([True, True, False, False])
+    libero = np.zeros(4, dtype=bool)
+
+    # il candidato 7 ha l'asse invaso dentro il 3: cede il 7
+    cede, resta, campionamento = wall.ruoli_dell_incontro(invaso, libero, 7, 3)
+    assert (cede, resta) == (7, 3)
+    assert campionamento is invaso
+
+    # rovesciato: e' il 3 ad avere l'asse invaso dentro il 7, quindi cede il 3
+    cede, resta, campionamento = wall.ruoli_dell_incontro(libero, invaso, 7, 3)
+    assert (cede, resta) == (3, 7)
+    assert campionamento is invaso
+
+
+def test_a_pari_invasione_lo_spareggio_non_dipende_dall_ordine():
+    """Entrambi invasi o nessuno invaso: decide l'ordine che il chiamante ha
+    gia' stabilito per area, e la funzione non lo ribalta.
+    """
+    entrambi = np.array([True, False])
+    cede, resta, _ = wall.ruoli_dell_incontro(entrambi, entrambi, 7, 3)
+    assert (cede, resta) == (7, 3), "a pari invasione cede il candidato, non il maggiore"
+
+    nessuno = np.zeros(2, dtype=bool)
+    cede, resta, _ = wall.ruoli_dell_incontro(nessuno, nessuno, 7, 3)
+    assert (cede, resta) == (7, 3)
+
+
+def test_il_nodo_e_la_proiezione_sull_asse_di_chi_resta():
+    """Su una geometria rilevata gli assi non si intersecano quasi mai: passano
+    vicini e si scansano. Il nodo e' la proiezione di chi cede sull'asse di chi
+    resta -- il traverso continuo col montante che vi si innesta.
+    """
+    # traverso lungo x a quota z=3000; montante verticale che gli passa
+    # accanto, scansato di 40 mm lungo y
+    origine_resta = np.array([0.0, 0.0, 3000.0])
+    asse_resta = np.array([1.0, 0.0, 0.0])
+    origine_cede = np.array([1000.0, 40.0, 0.0])
+    asse_cede = np.array([0.0, 0.0, 1.0])
+
+    nodo, distanza, limitato = wall.nodo_di_giunzione(
+        origine_cede, asse_cede, 3000.0, origine_resta, asse_resta, 2000.0
+    )
+
+    # il nodo sta sull'asse del traverso, quindi a y = 0 e z = 3000
+    assert np.allclose(nodo, np.array([1000.0, 0.0, 3000.0]), atol=1e-9)
+    # e il montante ha dovuto spostarsi dei 40 mm di cui era scansato
+    assert distanza == pytest.approx(40.0, abs=1e-9)
+    assert limitato is False
+
+
+def test_assi_che_si_incontrano_davvero_danno_distanza_nulla():
+    """Il caso ideale non e' un caso speciale: la stessa formula lo copre, e la
+    distanza dice da sola che non c'e' stato nessuno spostamento.
+    """
+    nodo, distanza, limitato = wall.nodo_di_giunzione(
+        np.array([1000.0, 0.0, 0.0]),
+        np.array([0.0, 0.0, 1.0]),
+        3000.0,
+        np.array([0.0, 0.0, 3000.0]),
+        np.array([1.0, 0.0, 0.0]),
+        2000.0,
+    )
+    assert np.allclose(nodo, np.array([1000.0, 0.0, 3000.0]), atol=1e-9)
+    assert distanza == pytest.approx(0.0, abs=1e-9)
+    assert limitato is False
+
+
+def test_due_assi_paralleli_non_dividono_per_zero():
+    """Ingresso degenere: due membrature complanari con assi paralleli. Il nodo
+    e' una proiezione ortogonale, non l'intersezione di due rette: la formula
+    non ha il seno dell'angolo a denominatore e su assi paralleli restituisce
+    numeri finiti invece di NaN.
+    """
+    nodo, distanza, limitato = wall.nodo_di_giunzione(
+        np.array([500.0, 0.0, 0.0]),
+        np.array([1.0, 0.0, 0.0]),
+        1000.0,
+        np.array([0.0, 250.0, 0.0]),
+        np.array([1.0, 0.0, 0.0]),
+        2000.0,
+    )
+
+    assert np.all(np.isfinite(nodo))
+    assert np.isfinite(distanza)
+    assert limitato is False
+    # la proiezione ortogonale di un estremo su una parallela dista quanto le
+    # due rette: 250 mm, il vero scarto fra gli assi
+    assert distanza == pytest.approx(250.0, abs=1e-9)
+
+
+def _membratura_di_prova(origine, asse, lunghezza, sezione, base_sezione):
+    """Una `Membratura` costruita a mano, per i banchi degli incontri.
+
+    Il contorno e' il rettangolo della sezione centrato sull'origine: e' la
+    forma che `misura` produce su una nuvola simmetrica, e tenerla esplicita
+    qui rende visibile quale ancoraggio il predicato di invasione usa.
+    """
+    mezza = np.asarray(sezione, dtype=np.float64) / 2.0
+    contorno = mezza * np.array([[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0], [-1.0, 1.0]])
+    return wall.Membratura(
+        punti=np.arange(0),
+        asse=np.asarray(asse, dtype=np.float64),
+        origine=np.asarray(origine, dtype=np.float64),
+        lunghezza=float(lunghezza),
+        sezione=tuple(float(valore) for valore in sezione),
+        sezione_dispersione=(0.0, 0.0),
+        contorno=contorno,
+        fuori_piombo_deg=0.0,
+        asse_ideale=np.asarray(asse, dtype=np.float64),
+        scarto_asse_deg=0.0,
+        rigonfiamento=np.zeros(4),
+        volume=0.0,
+        riempimento_sezione=1.0,
+        riempimento_stato="pieno",
+        densita_dispersione=0.0,
+        base_sezione=np.asarray(base_sezione, dtype=np.float64),
+    )
+
+
+_TRAVE_X = ([0.0, 0.0, 0.0], [1.0, 0.0, 0.0], 1000.0, (100.0, 100.0), [[0, 1, 0], [0, 0, 1]])
+
+
+def test_una_colonna_che_attraversa_una_trave_dichiara_l_attraversamento():
+    """`hexa.taglia_giunzioni` solleva su un attraversamento; qui no: il prior
+    rileva e non valida. Ma un attraversamento non e' un incontro a T, e senza
+    il tipo il record mostrerebbe «spostamento 400 mm» -- mezza colonna -- su
+    un incontro geometricamente esatto.
+    """
+    trave = _membratura_di_prova(*_TRAVE_X)
+    colonna = _membratura_di_prova(
+        [500.0, 0.0, -400.0], [0.0, 0.0, 1.0], 800.0, (100.0, 100.0), [[1, 0, 0], [0, 1, 0]]
+    )
+
+    incontri = wall.giunzioni([trave, colonna])
+
+    assert len(incontri) == 1
+    assert incontri[0]["tipo_incontro"] == "attraversamento"
+    assert incontri[0]["distanza_proiezione"] == pytest.approx(400.0, abs=1e-6)
+
+
+def test_una_membratura_contenuta_in_un_altra_non_diventa_un_incontro_a_t():
+    """L'altro caso su cui `hexa` solleva: nessun estremo da accorciare. Qui il
+    record esce lo stesso, perche' un'anomalia geometrica e' un risultato da
+    mostrare, ma dice che cos'e'.
+    """
+    trave = _membratura_di_prova(*_TRAVE_X)
+    dentro = _membratura_di_prova(
+        [400.0, 0.0, 0.0], [1.0, 0.0, 0.0], 200.0, (40.0, 40.0), [[0, 1, 0], [0, 0, 1]]
+    )
+
+    incontri = wall.giunzioni([trave, dentro])
+
+    assert len(incontri) == 1
+    assert incontri[0]["tipo_incontro"] == "contenimento"
+
+
+def test_un_incontro_a_un_estremo_e_dichiarato_tale():
+    """Il caso normale, che i due sopra devono restare capaci di distinguere:
+    la colonna arriva da sotto e si ferma dentro la trave.
+    """
+    trave = _membratura_di_prova(*_TRAVE_X)
+    colonna = _membratura_di_prova(
+        [500.0, 0.0, -800.0], [0.0, 0.0, 1.0], 800.0, (100.0, 100.0), [[1, 0, 0], [0, 1, 0]]
+    )
+
+    incontri = wall.giunzioni([trave, colonna])
+
+    assert len(incontri) == 1
+    assert incontri[0]["tipo_incontro"] == "estremo"
+
+
+def test_due_travi_che_si_sovrappongono_danno_un_nodo_dentro_il_pezzo():
+    """Il rilievo 1 visto dal record intero e non dalla sola funzione: il nodo
+    scritto sta sul segmento di chi resta, e il record porta il campo che dice
+    se e' stato limitato.
+    """
+    prima = _membratura_di_prova(*_TRAVE_X)
+    seconda = _membratura_di_prova(
+        [900.0, 0.0, -45.0], [1.0, 0.0, 0.01], 600.0, (100.0, 100.0), [[0, 1, 0], [0, 0, 1]]
+    )
+
+    incontri = wall.giunzioni([prima, seconda])
+
+    assert len(incontri) == 1
+    nodo = np.asarray(incontri[0]["nodo"])
+    lungo = float((nodo - prima.origine) @ prima.asse)
+    assert 0.0 <= lungo <= prima.lunghezza, "il nodo deve stare sul pezzo su cui si proietta"
+    assert "nodo_limitato" in incontri[0]
+
+
+def test_il_prisma_di_prova_e_ancorato_al_centro_del_contorno_e_non_all_origine():
+    """Una colonna 100 x 100 x 1000 vista da due sole facce: il caso normale di
+    uno scanner, non un caso limite. L'origine sta sull'asse del **baricentro**
+    della nuvola, che su una nuvola asimmetrica non e' il centro della sezione,
+    e `sezione` e' un `ptp` e non una semiestensione simmetrica.
+
+    Misurato: col prisma ancorato all'origine nuda il 4,76% dei punti della
+    regione cade fuori dal prisma con cui il predicato di invasione decide, ed
+    e' materiale vero dichiarato aria. Ancorando al centro del contorno --
+    quello che `hexa.prisma_di` gia' fa -- la frazione va a zero.
+    """
+    passo = 10.0
+    lato, altezza = 100.0, 1000.0
+
+    def griglia(a, b):
+        na, nb = int(round(a / passo)) + 1, int(round(b / passo)) + 1
+        u, v = np.meshgrid(np.linspace(0.0, a, na), np.linspace(0.0, b, nb), indexing="ij")
+        return u.ravel(), v.ravel()
+
+    u, v = griglia(lato, altezza)
+    faccia_x = np.column_stack([np.zeros_like(u), u, v])
+    faccia_y = np.column_stack([u, np.zeros_like(u), v])
+    punti = np.unique(np.round(np.vstack([faccia_x, faccia_y]), 9), axis=0)
+
+    direzioni, _ = wall.terna(punti)
+    colonna = wall.misura(punti, direzioni, _cfg())
+    colonna.punti = np.arange(len(punti))
+
+    # la sonda corre lungo l'asse della colonna, appoggiata alla faccia vera
+    # sul lato in cui il baricentro e' spostato: e' dentro il materiale, e il
+    # predicato deve dirlo.
+    trasversale = (punti - colonna.origine) @ colonna.base_sezione.T
+    estremo = trasversale[:, 0].min()
+    sonda = _membratura_di_prova(
+        colonna.origine + colonna.base_sezione[0] * (estremo + 1.0) + colonna.asse * 10.0,
+        colonna.asse,
+        altezza - 20.0,
+        (10.0, 10.0),
+        colonna.base_sezione,
+    )
+
+    assert wall._baricentrica_invasa(sonda, colonna).any(), (
+        "la sonda sta sulla faccia misurata della colonna: è materiale, non aria"
+    )
+
+    # e l'oracolo diretto: nessun punto della regione fuori dal prisma di prova
+    centro = (colonna.contorno.min(axis=0) + colonna.contorno.max(axis=0)) / 2.0
+    semi = np.asarray(colonna.sezione) / 2.0
+    tolleranza = 1e-9
+    fuori = np.abs(trasversale - centro) > semi + tolleranza
+    assert not fuori.any(), "il prisma con cui si decide deve contenere i punti misurati"
+
+
+def test_il_nodo_non_cade_fuori_dal_pezzo_su_cui_si_proietta():
+    """Due travi quasi allineate che si sovrappongono. Scegliere l'estremo di
+    chi cede sulla distanza dalla **retta** infinita di chi resta prendeva
+    l'estremo lontano e proiettava 500 mm oltre la fine del pezzo: il telaio
+    sarebbe nato su un nodo che non sta su nessuna membratura.
+
+    Misurato prima della correzione: `nodo = [1499.97, 0, 0]` con
+    `distanza_proiezione = 39.0`, mentre la sovrapposizione vera sta in
+    `x` fra 900 e 1000.
+    """
+    nodo, distanza, limitato = wall.nodo_di_giunzione(
+        np.array([900.0, 0.0, -45.0]),
+        np.array([1.0, 0.0, 0.01]),
+        600.0,
+        np.array([0.0, 0.0, 0.0]),
+        np.array([1.0, 0.0, 0.0]),
+        1000.0,
+    )
+
+    assert 0.0 <= nodo[0] <= 1000.0, "il nodo deve stare sul segmento, non sulla retta"
+    assert np.allclose(nodo, np.array([900.0, 0.0, 0.0]), atol=1e-9)
+    assert distanza == pytest.approx(45.0, abs=1e-9)
+    assert limitato is False
+
+
+def test_un_estremo_oltre_la_fine_di_chi_resta_limita_il_nodo_e_lo_dichiara():
+    """Un montante che comincia 10 mm oltre il capo del traverso. Il nodo va
+    limitato al capo -- fuori dal pezzo non e' un nodo -- ma il limite e' un
+    dato: dice che i due pezzi si scavalcano invece di incontrarsi, e chi
+    disegna il telaio deve poterlo mostrare.
+    """
+    nodo, distanza, limitato = wall.nodo_di_giunzione(
+        np.array([1010.0, 0.0, 0.0]),
+        np.array([0.0, 0.0, 1.0]),
+        300.0,
+        np.array([0.0, 0.0, 0.0]),
+        np.array([1.0, 0.0, 0.0]),
+        1000.0,
+    )
+
+    assert np.allclose(nodo, np.array([1000.0, 0.0, 0.0]), atol=1e-9)
+    assert distanza == pytest.approx(10.0, abs=1e-9)
+    assert limitato is True
+
+
+def test_il_contatto_a_meta_campata_misura_l_estremo_e_non_lo_scarto_del_giunto():
+    """Il contatto sta a meta' della colonna, non a un suo capo: il numero che
+    esce e' la distanza dell'estremo piu' vicino dal pezzo di chi resta, cioe'
+    mezza colonna, e non lo scostamento di un giunto.
+
+    I due banchi che c'erano avevano entrambi il contatto su un estremo, dove
+    le due letture coincidono e la differenza non si vede.
+    """
+    nodo, distanza, limitato = wall.nodo_di_giunzione(
+        np.array([500.0, 0.0, -400.0]),
+        np.array([0.0, 0.0, 1.0]),
+        800.0,
+        np.array([0.0, 0.0, 0.0]),
+        np.array([1.0, 0.0, 0.0]),
+        1000.0,
+    )
+
+    assert np.allclose(nodo, np.array([500.0, 0.0, 0.0]), atol=1e-9)
+    assert distanza == pytest.approx(400.0, abs=1e-9), "meta' colonna, non lo scarto del giunto"
+    assert limitato is False
+
+
+def test_il_prior_scrive_le_sezioni_di_fetta_e_la_base_in_json():
+    """Il prior finisce su disco e nel browser: le misure nuove devono uscire
+    come tipi JSON, non come array numpy.
+    """
+    import json
+
+    punti = synth.sample_frame_surface(TELAIO, SPAZIATURA)
+
+    esito = wall.prior(punti, SegmentConfig(), _cfg(), SPAZIATURA)
+    voce = esito["membrature"][0]
+
+    assert isinstance(voce["sezioni_fette"], list)
+    assert all(isinstance(coppia, list) and len(coppia) == 2 for coppia in voce["sezioni_fette"])
+    assert isinstance(voce["quote_fette"], list)
+    assert len(voce["quote_fette"]) == len(voce["sezioni_fette"])
+    assert isinstance(voce["base_sezione"], list)
+    assert len(voce["base_sezione"]) == 2
+    assert all(len(riga) == 3 for riga in voce["base_sezione"])
+    # la prova che conta: l'intero esito e' serializzabile
+    json.dumps(esito)
+
+
+def test_il_prior_scrive_le_giunzioni_col_nodo_e_la_distanza():
+    """L'adiacenza e' una misura del prior come l'asse e la sezione: chi
+    costruisce un telaio la legge da `12_wall.json` invece di ricalcolarla.
+    """
+    import json
+
+    punti = synth.sample_frame_surface(TELAIO, SPAZIATURA)
+
+    esito = wall.prior(punti, SegmentConfig(), _cfg(), SPAZIATURA)
+
+    assert "giunzioni" in esito
+    assert len(esito["giunzioni"]) >= 1, "due membrature che si toccano fanno una giunzione"
+    incontro = esito["giunzioni"][0]
+    assert set(incontro) >= {
+        "cede",
+        "resta",
+        "nodo",
+        "distanza_proiezione",
+        "nodo_limitato",
+        "tipo_incontro",
+    }
+    assert incontro["cede"] != incontro["resta"]
+    assert isinstance(incontro["nodo_limitato"], bool)
+    assert incontro["tipo_incontro"] in {"estremo", "attraversamento", "contenimento"}
+    assert 0 <= incontro["cede"] < len(esito["membrature"])
+    assert 0 <= incontro["resta"] < len(esito["membrature"])
+    assert len(incontro["nodo"]) == 3
+    assert incontro["distanza_proiezione"] >= 0.0
+    json.dumps(esito)
+
+
+def test_membrature_che_non_si_toccano_non_fanno_giunzioni():
+    """Una giunzione inventata fra due pezzi lontani sarebbe un telaio che sta
+    in piedi su un legame che non esiste.
+    """
+    punti = synth.sample_frame_surface(MEMBRATURE_LONTANE, SPAZIATURA)
+
+    esito = wall.prior(punti, SegmentConfig(), _cfg(), SPAZIATURA)
+
+    assert len(esito["membrature"]) == 2, (
+        "il banco vale solo se le due membrature lontane sono state trovate entrambe"
+    )
+    assert esito["giunzioni"] == []
+
+
+def test_senza_membrature_le_giunzioni_sono_la_lista_vuota_e_non_mancano():
+    """Ingresso degenere, la classe piu' frequente di questo repository:
+    l'insieme vuoto che schianta invece di dichiarare. Nessuna membratura vuol
+    dire nessuna giunzione, e la chiave c'e' lo stesso.
+    """
+    assert wall.giunzioni([]) == []
+
+
+def test_una_sola_membratura_non_fa_giunzioni_e_non_avvisa():
+    """Ingresso degenere: una membratura sola non e' «non legata», e' sola.
+    Un avviso qui sarebbe rumore su una scatola, che e' il caso normale del
+    prior su un pezzo che non e' un telaio.
+    """
+    import warnings
+
+    punti = synth.sample_box_surface((200.0, 140.0, 1500.0), 15.0)
+    direzioni, _ = wall.terna(punti)
+    sola = wall.misura(punti, direzioni, _cfg())
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert wall.giunzioni([sola]) == []
+
+
+def test_l_ordine_delle_giunzioni_non_dipende_dall_ordine_dei_punti():
+    """Quinto vincolo di prodotto: un ordine e' un esito discreto e deve essere
+    funzione del dato, non della piattaforma. Stessa lezione gia' pagata
+    sull'ordine dei voxel di Open3D fra Windows x86-64 e macOS arm64.
+    """
+    punti = synth.sample_frame_surface(TELAIO, SPAZIATURA)
+    rimescolati = punti[np.random.default_rng(7).permutation(len(punti))]
+
+    prima = wall.prior(punti, SegmentConfig(), _cfg(), SPAZIATURA)["giunzioni"]
+    dopo = wall.prior(rimescolati, SegmentConfig(), _cfg(), SPAZIATURA)["giunzioni"]
+
+    assert len(prima) == len(dopo)
+    # gli indici, che sono l'unico esito discreto in ballo: `regioni` dichiara
+    # e mantiene l'ordine canonico, quindi `cede` e `resta` numerano la stessa
+    # cosa nelle due corse. Il nodo e la distanza sono grandezze continue, che
+    # PRODUCT.md:22-26 esclude esplicitamente da questa norma.
+    assert [(v["cede"], v["resta"]) for v in prima] == [(v["cede"], v["resta"]) for v in dopo]
+    assert [v["tipo_incontro"] for v in prima] == [v["tipo_incontro"] for v in dopo]
 
 
 def test_prior_non_scarta_il_pavimento_due_volte(monkeypatch):

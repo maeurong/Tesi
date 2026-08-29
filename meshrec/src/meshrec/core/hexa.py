@@ -22,6 +22,7 @@ import numpy as np
 
 from meshrec.core import abaqus
 from meshrec.core.config import ModelConfig
+from meshrec.core.wall import ruoli_dell_incontro
 
 _ARROTONDAMENTO = 6
 """Cifre decimali su cui i nodi sono confrontati per l'ordine canonico.
@@ -552,19 +553,16 @@ def taglia_giunzioni(prismi: list[Prisma]) -> tuple[list[Prisma], list[dict[str,
     a quella distanza non si legano. Legarle allargando il raggio di ricerca
     farebbe passare il controllo senza rendere giusto il modello.
 
-    Chi cede e' il prisma il cui asse baricentrico entra nell'altro (Ruling AD):
-    e' un criterio del dato, non dell'ordine in cui i prismi arrivano, e ha
-    anche il significato fisico giusto -- cede la membratura che finisce
-    dentro l'altra, come una trave appoggiata su un pilastro accorcia il
-    pilastro e non la trave. Il criterio precedente, «cede il prisma di
-    sezione minore», sceglieva il ruolo sbagliato proprio quando un montante
-    entra nel traverso da sotto: accorciare il traverso lungo il proprio asse
-    non toglie quella sovrapposizione. Se **entrambi** gli assi sono invasi
-    (attraversamento o contenimento, gia' gestiti dalle guardie sotto) o
-    **nessuno** dei due lo e' (la sola guardia d'angolo del Ruling Y puo'
-    ancora scattare), l'area resta lo spareggio deterministico -- a pari
-    area la lunghezza, a pari lunghezza l'indice, che e' l'ultima carta e
-    serve solo a non lasciare la scelta all'ordinamento.
+    Chi cede lo decide `wall.ruoli_dell_incontro` (Ruling AD), che e' anche il
+    solo posto dove quel criterio e' scritto: qui non se ne tiene una seconda
+    copia, o le due invecchierebbero a ritmi diversi. Quel che resta di
+    pertinenza di questa funzione e' lo spareggio a pari invasione, che la
+    decisione non ribalta e che questa funzione fornisce: `ordine` mette per
+    prime le sezioni di area maggiore -- a pari area la lunghezza, a pari
+    lunghezza l'indice, che e' l'ultima carta e serve solo a non lasciare la
+    scelta all'ordinamento. I due casi di invasione doppia (attraversamento e
+    contenimento) sono gia' fermati dalle guardie sotto, e quello di invasione
+    nulla lascia ancora scattare la sola guardia d'angolo del Ruling Y.
 
     **Soffitto dichiarato:** il taglio e' un accorciamento lungo l'asse, quindi
     vale quando l'intersezione tocca un'estremita' del prisma minore -- il caso
@@ -594,16 +592,16 @@ def taglia_giunzioni(prismi: list[Prisma]) -> tuple[list[Prisma], list[dict[str,
     for posizione, maggiore in enumerate(ordine):
         for candidato in ordine[posizione + 1 :]:
             # Ruling AD: cede chi ha l'asse baricentrico invaso nell'altro, non
-            # chi ha sezione minore -- vedi docstring. Un solo verso invaso e'
+            # chi ha sezione minore -- vedi `wall.ruoli_dell_incontro`, dove la
+            # decisione ora vive. Un solo verso invaso e'
             # il caso normale e decide da solo; entrambi o nessuno invaso
             # ricadono sullo spareggio per area gia' incorporato in `ordine`
             # (`maggiore`/`candidato` sono gia' ordinati per area decrescente).
             invaso_candidato = _asse_baricentrico_invaso(tagliati[candidato], tagliati[maggiore])
             invaso_maggiore = _asse_baricentrico_invaso(tagliati[maggiore], tagliati[candidato])
-            if invaso_maggiore.any() and not invaso_candidato.any():
-                minore, maggiore_effettivo, invaso = maggiore, candidato, invaso_maggiore
-            else:
-                minore, maggiore_effettivo, invaso = candidato, maggiore, invaso_candidato
+            minore, maggiore_effettivo, invaso = ruoli_dell_incontro(
+                invaso_candidato, invaso_maggiore, candidato, maggiore
+            )
 
             piccolo = tagliati[minore]
             versore = piccolo.asse / np.linalg.norm(piccolo.asse)

@@ -455,6 +455,38 @@ class Membratura:
     """Dispersione relativa delle distanze al vicino piu' prossimo: quanto la densita' non e' uniforme."""
     esiti: dict[str, dict] = field(default_factory=dict)
     """Gli esiti dei controlli intrinseci, riempiti da `controlla`."""
+    sezioni_fette: np.ndarray = field(default_factory=lambda: np.zeros((0, 2)))
+    """Le due estensioni trasversali, misurate fetta per fetta lungo l'asse.
+
+    Sono le stazioni su cui il modello a telaio poggia: una fetta, un elemento.
+    `misura` le calcolava gia' per la dispersione della sezione e le teneva in
+    una variabile locale; qui escono, perche' `sezione` e `sezione_dispersione`
+    sono sintesi e il telaio ha bisogno del dato che le produce.
+
+    Le fette con meno di quattro punti non compaiono: una sezione misurata su
+    tre punti misurerebbe il campionamento e non il pezzo. Il predefinito
+    vuoto non e' «nessuna fetta»: e' «questa Membratura viene da un prior
+    scritto prima che la misura esistesse».
+    """
+    quote_fette: np.ndarray = field(default_factory=lambda: np.zeros(0))
+    """Coordinata lungo l'asse del centro di ciascuna fetta, misurata da `origine`.
+
+    Stessa lunghezza e stesso ordine di `sezioni_fette`. Serve perche' una
+    sezione senza la propria stazione non colloca nulla, e perche' una fetta
+    saltata deve restare visibile come una quota assente invece di far
+    scivolare di una posizione tutte le sezioni che la seguono.
+    """
+    base_sezione: np.ndarray = field(default_factory=lambda: np.zeros((0, 3)))
+    """Le due direzioni del piano di sezione, e1 sulla riga 0 ed e2 sulla riga 1.
+
+    `misura` le costruisce gia', ancorate alla terna del pezzo e non alla SVD
+    della regione: due membrature con lo stesso asse hanno cosi' lo stesso
+    piano, e le loro sezioni sono confrontabili. Due membrature **quasi**
+    parallele no, se stanno a cavallo della soglia con cui `misura` sceglie il
+    riferimento: li' il commento accanto a quella scelta dice quanto divergono
+    e perche' resta com'e'. Escono di qui perche' `sezione` e `contorno` sono
+    numeri in quel piano, e senza il piano non collocano nulla.
+    """
 
 
 _FETTE_LUNGO_ASSE = 20
@@ -505,8 +537,20 @@ def misura(punti_regione: np.ndarray, direzioni: np.ndarray, cfg: WallConfig) ->
     origine = centro + asse * lungo.min()
 
     # base ortonormale del piano di sezione, ancorata alla terna del pezzo e non
-    # alla SVD della regione: due membrature parallele devono avere lo stesso
-    # piano di sezione, o le loro sezioni non sono confrontabili
+    # alla SVD della regione: due membrature con lo **stesso** asse hanno cosi'
+    # lo stesso piano di sezione, e le loro sezioni sono confrontabili.
+    #
+    # Due membrature quasi parallele, no: la scelta del riferimento e' uno
+    # scalino, e a cavallo di abs(dot) = 0.9 i due piani divergono. Misurato,
+    # facendo variare la direzione trasversale dell'asse a cavallo della
+    # soglia: fino a 89,5 gradi di scarto fra i due e1 (su un asse che giace in
+    # un piano coordinato lo scarto resta 0,26 gradi, ed e' per questo che sul
+    # banco non si vede). Non e' rimediabile scegliendo meglio: un riferimento
+    # preso da un insieme discreto ha sempre uno scalino da qualche parte, e la
+    # regola alternativa (l'asse della terna meno allineato) sullo stesso
+    # ingresso ne fa uno da 84 gradi e muove il rigonfiamento gia' misurato dal
+    # banco. Restare qui e' una scelta, non una svista: cambiarla e' un'altra
+    # decisione, e va presa insieme a chi legge base_sezione.
     riferimento = direzioni[2] if abs(np.dot(direzioni[2], asse)) < 0.9 else direzioni[0]
     e1 = riferimento - asse * np.dot(riferimento, asse)
     e1 = fix_sign(e1 / np.linalg.norm(e1))
@@ -537,12 +581,19 @@ def misura(punti_regione: np.ndarray, direzioni: np.ndarray, cfg: WallConfig) ->
     # raggiunge -> quel vano resta vuoto.
     lato_celle = cfg.cell_factor * spacing_locale
     per_fetta = []
+    quote_per_fetta = []
     riempimenti = []
     for indice in range(_FETTE_LUNGO_ASSE):
         dentro = fetta == indice
         if dentro.sum() < 4:
             continue
         per_fetta.append((np.ptp(sezione_2d[dentro, 0]), np.ptp(sezione_2d[dentro, 1])))
+        # Il centro della fetta lungo l'asse, non la media dei punti che
+        # contiene: la stazione e' una posizione geometrica, e su una fetta con
+        # densita' sbilanciata la media dei punti la sposterebbe. Raccolta nello
+        # stesso ramo in cui la sezione viene accettata, cosi' le due liste non
+        # possono divergere.
+        quote_per_fetta.append(float((bordi[indice] + bordi[indice + 1]) / 2.0 - lungo.min()))
         celle_fetta = chiavi_di_cella(sezione_2d[dentro], lato_celle)
         nx, ny = int(celle_fetta[:, 0].max()) + 1, int(celle_fetta[:, 1].max()) + 1
         # sotto le due celle per lato la griglia e' degenere in una riga o
@@ -632,6 +683,12 @@ def misura(punti_regione: np.ndarray, direzioni: np.ndarray, cfg: WallConfig) ->
         riempimento_sezione=riempimento_sezione,
         riempimento_stato=riempimento_stato,
         densita_dispersione=densita_dispersione,
+        # reshape e non `np.asarray` da solo: su una lista vuota `np.asarray([])`
+        # ha forma (0,) e non (0, 2), e chi legge la forma non deve indovinare
+        # su una regione che non ha prodotto nessuna fetta.
+        sezioni_fette=np.asarray(per_fetta, dtype=np.float64).reshape(-1, 2),
+        quote_fette=np.asarray(quote_per_fetta, dtype=np.float64),
+        base_sezione=np.vstack([e1, e2]),
     )
 
 
@@ -742,6 +799,281 @@ def riempimento(membratura: Membratura, cfg: WallConfig) -> dict[str, object]:
             "questo prior, che costruisce prismi pieni"
         ),
     }
+
+
+def ruoli_dell_incontro(
+    invaso_candidato: np.ndarray,
+    invaso_maggiore: np.ndarray,
+    indice_candidato: int,
+    indice_maggiore: int,
+) -> tuple[int, int, np.ndarray]:
+    """Chi cede e chi resta, quando due membrature si incontrano (Ruling AD).
+
+    Cede quella il cui asse baricentrico entra nell'altra: ha il significato
+    fisico giusto -- cede la membratura che finisce dentro l'altra, come una
+    trave appoggiata su un pilastro accorcia il pilastro e non la trave. Il
+    criterio precedente, «cede il prisma di sezione minore», sceglieva il ruolo
+    sbagliato proprio quando un montante entra nel traverso da sotto.
+
+    Un solo verso invaso decide da solo. Se **entrambi** o **nessuno** dei due
+    lo e', la funzione non ribalta l'ordine che il chiamante ha gia'
+    stabilito: cede il candidato. Il chiamante ordina per area decrescente,
+    quindi lo spareggio resta deterministico e funzione del dato.
+
+    Restituisce anche il campionamento di chi cede, gia' calcolato dal
+    chiamante per decidere il ruolo: ricalcolarlo sarebbe pagare due volte la
+    stessa misura.
+
+    Vive qui e non in `hexa` perche' ha due chiamanti -- il taglio in
+    `hexa.taglia_giunzioni` e l'adiacenza in `wall.giunzioni` -- e perche' il
+    confine fra i due moduli ammette il verso hexa -> wall e non il contrario.
+    La firma prende i campionamenti e non i prismi proprio per questo: `Prisma`
+    e' definito in `hexa`, e importarlo qui invertirebbe il confine.
+    """
+    if invaso_maggiore.any() and not invaso_candidato.any():
+        return indice_maggiore, indice_candidato, invaso_maggiore
+    return indice_candidato, indice_maggiore, invaso_candidato
+
+
+def nodo_di_giunzione(
+    origine_cede: np.ndarray,
+    asse_cede: np.ndarray,
+    lunghezza_cede: float,
+    origine_resta: np.ndarray,
+    asse_resta: np.ndarray,
+    lunghezza_resta: float,
+) -> tuple[np.ndarray, float, bool]:
+    """Il punto in cui due membrature si legano, la distanza misurata, e se e' stato limitato.
+
+    Su una geometria rilevata gli assi di due membrature che si incontrano non
+    si intersecano quasi mai: passano vicini e si scansano di qualche
+    millimetro. Il nodo e' la **proiezione di chi cede sul segmento** di chi
+    resta -- il traverso continuo col montante che vi si innesta, che e' la
+    convenzione del calcolo strutturale e coincide col ruolo che
+    `ruoli_dell_incontro` ha gia' assegnato.
+
+    Sul **segmento** e non sulla retta infinita, e per due volte: l'estremo di
+    chi cede si sceglie sulla distanza dal segmento, e la coordinata lungo
+    l'asse di chi resta e' limitata a `[0, lunghezza_resta]`. Un nodo oltre il
+    capo del pezzo non e' un nodo: e' un telaio costruito su un punto che non
+    sta su nessuna membratura. Misurato prima di questa correzione, su due
+    travi quasi allineate che si sovrappongono in `x` fra 900 e 1000: il nodo
+    usciva a `x = 1499.97`, cinquecento millimetri oltre la fine del pezzo.
+
+    Il terzo valore dice se quella coordinata **e' stata limitata**. E' un
+    dato, non un dettaglio di calcolo: dice che i due pezzi si scavalcano
+    invece di incontrarsi, e chi mostra il telaio deve poterlo far vedere.
+
+    La distanza restituita e' **una misura, non un residuo di calcolo**, e va
+    mostrata; ma e' la distanza dell'estremo scelto di chi cede **dal pezzo di
+    chi resta**, non lo scostamento di un giunto. Le due letture coincidono
+    solo quando il contatto sta su un estremo di chi cede. Su un contatto a
+    meta' campata -- una colonna che attraversa il traverso -- il numero che
+    esce e' mezza colonna, ed e' `tipo_incontro` nel record di `giunzioni` a
+    dire che di quello si tratta. Uno spostamento silenzioso sarebbe una
+    correzione della geometria rilevata spacciata per la geometria rilevata,
+    cioe' l'opposto dello scopo del programma.
+
+    L'estremo di chi cede e' quello **piu' vicino** al pezzo di chi resta: una
+    colonna incontra il traverso da un capo solo, e prendere l'altro
+    proietterebbe il piede sul tetto.
+
+    Una proiezione ortogonale e non l'intersezione di due rette: su assi
+    paralleli o complanari la seconda dividerebbe per il seno dell'angolo,
+    questa restituisce lo scarto vero fra le due rette.
+    """
+    versore_cede = np.asarray(asse_cede, dtype=np.float64)
+    versore_cede = versore_cede / np.linalg.norm(versore_cede)
+    versore_resta = np.asarray(asse_resta, dtype=np.float64)
+    versore_resta = versore_resta / np.linalg.norm(versore_resta)
+    origine_resta = np.asarray(origine_resta, dtype=np.float64)
+
+    def proietta(punto: np.ndarray) -> tuple[np.ndarray, bool]:
+        quota = float((punto - origine_resta) @ versore_resta)
+        limitata = float(np.clip(quota, 0.0, float(lunghezza_resta)))
+        return origine_resta + versore_resta * limitata, limitata != quota
+
+    estremi = [
+        np.asarray(origine_cede, dtype=np.float64),
+        np.asarray(origine_cede, dtype=np.float64) + versore_cede * float(lunghezza_cede),
+    ]
+    proiettati = [proietta(estremo) for estremo in estremi]
+    distanze = [
+        float(np.linalg.norm(estremo - nodo))
+        for estremo, (nodo, _) in zip(estremi, proiettati, strict=True)
+    ]
+    scelto = int(np.argmin(distanze))
+    nodo, limitato = proiettati[scelto]
+    return nodo, distanze[scelto], limitato
+
+
+_CAMPIONI_GIUNZIONE = 200
+"""Campioni sulla baricentrica di una membratura, per vedere se entra nell'altra.
+
+Stesso ordine di grandezza dei campioni che `hexa.taglia_giunzioni` usa per la
+stessa domanda: qui non serve la precisione del taglio -- non si taglia niente
+-- ma la risoluzione deve bastare a non mancare un'invasione corta.
+"""
+
+
+def _baricentrica_invasa(interna: Membratura, esterna: Membratura) -> np.ndarray:
+    """Campionamento booleano della baricentrica di `interna` dentro `esterna`.
+
+    Il prisma di `esterna` e' definito dalla propria sezione misurata attorno
+    al proprio asse: un punto e' dentro se la sua proiezione cade nella
+    lunghezza e le due componenti trasversali stanno dentro le semiestensioni.
+    E' il prisma circoscritto, non il contorno: la stessa approssimazione che
+    `sezione` gia' e', e sulla quale `riempimento_sezione` dichiara lo scarto.
+
+    Le semiestensioni sono contate dal **centro del contorno** e non da
+    `origine`. `sezione` e' un `ptp`, cioe' un'ampiezza, non una semiestensione
+    simmetrica; e `origine` sta sull'asse del baricentro della nuvola, che su
+    una nuvola asimmetrica -- una colonna vista da due sole facce, il caso
+    normale di uno scanner -- non e' il centro della sezione. Misurato su una
+    colonna 100 x 100 x 1000 vista da due facce: col prisma centrato
+    sull'origine nuda il 4,76% dei punti della regione cade fuori dal prisma
+    con cui si decide, e sono materiale vero dichiarato aria da un lato e aria
+    dichiarata materiale dall'altro. `hexa.prisma_di` risolve lo stesso
+    problema nello stesso modo, e per la stessa ragione: `Membratura` non porta
+    il minimo grezzo della sezione, porta le estensioni e il contorno.
+    """
+    asse = esterna.asse / np.linalg.norm(esterna.asse)
+    passo = np.linspace(0.0, interna.lunghezza, _CAMPIONI_GIUNZIONE)
+    versore = interna.asse / np.linalg.norm(interna.asse)
+    punti = interna.origine + np.outer(passo, versore)
+    scarto = punti - esterna.origine
+    lungo = scarto @ asse
+    base = esterna.base_sezione
+    if base.shape != (2, 3):
+        # Un prior vecchio non porta la base: senza il piano non si sa dove
+        # stiano le due estensioni, e una giunzione dedotta a caso sarebbe
+        # peggio di una giunzione assente.
+        return np.zeros(len(punti), dtype=bool)
+    contorno = np.asarray(esterna.contorno, dtype=np.float64)
+    centro = (contorno.min(axis=0) + contorno.max(axis=0)) / 2.0
+    trasversale = np.abs(scarto @ base.T - centro)
+    semi = np.asarray(esterna.sezione, dtype=np.float64) / 2.0
+    return (
+        (lungo >= 0.0)
+        & (lungo <= esterna.lunghezza)
+        & (trasversale[:, 0] <= semi[0])
+        & (trasversale[:, 1] <= semi[1])
+    )
+
+
+def _tipo_dell_incontro(invaso: np.ndarray) -> str:
+    """«estremo», «attraversamento» o «contenimento», dal campionamento di chi cede.
+
+    Le stesse tre condizioni su cui `hexa.taglia_giunzioni` decide, lette con
+    l'esito opposto: la' le ultime due **sollevano** dentro
+    `hexa.taglia_giunzioni` («due regioni sovrapposte non sono due
+    membrature»), perche' la' si
+    costruisce un maglio e un prisma dentro un altro non ha un estremo da
+    accorciare. Qui no: il prior rileva e non valida, e un'anomalia geometrica
+    e' un risultato da mostrare -- la stessa regola per cui una sezione sotto
+    il minimo di normativa e' un risultato e non un errore.
+
+    Senza questo campo un attraversamento sarebbe indistinguibile da un
+    incontro a T, e la `distanza_proiezione` che lo accompagna -- mezza
+    colonna, misurata dall'estremo piu' vicino -- verrebbe letta come lo
+    scostamento di un giunto su un incontro geometricamente esatto.
+    """
+    if invaso[0] and invaso[-1]:
+        return "contenimento"
+    if not invaso[0] and not invaso[-1]:
+        return "attraversamento"
+    return "estremo"
+
+
+def giunzioni(membrature: list[Membratura]) -> list[dict[str, object]]:
+    """Gli incontri fra membrature, con il nodo e quanto e' costato collocarlo.
+
+    L'adiacenza e' una **misura della geometria**, allo stesso titolo dell'asse
+    e della sezione: `wall.prior` la calcola e la scrive, e chi costruisce un
+    telaio la legge invece di dedurla. `hexa.taglia_giunzioni` continua a fare
+    il proprio mestiere, che e' il taglio, e condivide con questa funzione la
+    sola decisione del ruolo (`ruoli_dell_incontro`).
+
+    Ogni voce ha sei campi. `cede` e `resta` sono **indici dentro la lista
+    `membrature` ricevuta** -- che in `prior` e' l'ordine delle membrature
+    accettate, cioe' lo stesso ordine della chiave `"membrature"` del prior --
+    e non identificatori di regione: chi legge il prior indicizza quella lista.
+    `nodo` sono tre coordinate [mm], `distanza_proiezione` un millimetro,
+    `nodo_limitato` dice se il nodo e' stato riportato dentro il pezzo di chi
+    resta, `tipo_incontro` che forma ha l'incontro.
+
+    L'ordine di esame e' per area di sezione decrescente, poi per lunghezza,
+    poi per indice: la stessa forma di spareggio di `hexa.taglia_giunzioni`,
+    che serve a non lasciare la scelta all'ordine in cui le membrature
+    arrivano. **Non lo stesso valore**, e la divergenza non e' solo di area.
+    Il predicato di invasione di qui e quello del taglio differiscono per
+    quattro cose, e su una sezione non rettangolare ciascuna puo' spostare il
+    ruolo assegnato allo stesso incontro fisico:
+
+    - **area di spareggio**: `hexa` ordina sull'area del contorno misurato
+      (`hexa.area_con_segno` sul poligono), qui e' quella del rettangolo
+      circoscritto, perche' una `Membratura` porta le due estensioni e non il
+      poligono su cui `dentro` lavora;
+    - **solido**: la' il contorno convesso vero, qui il rettangolo
+      circoscritto -- la stessa approssimazione che `sezione` gia' e';
+    - **ancoraggio**: entrambi partono dal centro del contorno, `hexa` in
+      `_asse_baricentrico_invaso` (`origine + contorno.mean`), qui in
+      `_baricentrica_invasa`; media contro punto medio di minimo e massimo,
+      che su un contorno a vertici non equispaziati non coincidono;
+    - **base del piano**: `hexa` la ricostruisce dall'asse in
+      `_base_del_piano`, prendendo l'asse coordinato meno allineato; qui si
+      legge `base_sezione`, che `misura` ancora alla terna del pezzo. Su asse
+      `(0.6, 0, 0.8)` le due danno `e1 = [0, 1, 0]` e `e1 = [0.8, 0, -0.6]`:
+      **novanta gradi di scarto**, cioe' larghezza e altezza scambiate su una
+      sezione non quadrata. E' un difetto **pre-esistente** a questa funzione e
+      fuori dal suo diff -- vive nella scelta di riferimento di `misura` -- ed
+      e' nominato qui perche' e' qui che le due letture si confrontano.
+
+    Il taglio del maglio e l'adiacenza scritta nel prior sono quindi due
+    letture della stessa geometria con predicati diversi, non due copie della
+    stessa.
+
+    Nessuna membratura, o una sola, danno la lista vuota senza avvisare: una
+    membratura sola non e' «non legata», e' sola, e il prior gira su scatole
+    tanto quanto su telai.
+    """
+    ordine = sorted(
+        range(len(membrature)),
+        key=lambda i: (
+            -(membrature[i].sezione[0] * membrature[i].sezione[1]),
+            -membrature[i].lunghezza,
+            i,
+        ),
+    )
+    incontri: list[dict[str, object]] = []
+    for posizione, maggiore in enumerate(ordine):
+        for candidato in ordine[posizione + 1 :]:
+            invaso_candidato = _baricentrica_invasa(membrature[candidato], membrature[maggiore])
+            invaso_maggiore = _baricentrica_invasa(membrature[maggiore], membrature[candidato])
+            if not invaso_candidato.any() and not invaso_maggiore.any():
+                continue
+            cede, resta, invaso = ruoli_dell_incontro(
+                invaso_candidato, invaso_maggiore, candidato, maggiore
+            )
+            nodo, distanza, limitato = nodo_di_giunzione(
+                membrature[cede].origine,
+                membrature[cede].asse,
+                membrature[cede].lunghezza,
+                membrature[resta].origine,
+                membrature[resta].asse,
+                membrature[resta].lunghezza,
+            )
+            incontri.append(
+                {
+                    "cede": int(cede),
+                    "resta": int(resta),
+                    "nodo": nodo.tolist(),
+                    "distanza_proiezione": float(distanza),
+                    "nodo_limitato": bool(limitato),
+                    "tipo_incontro": _tipo_dell_incontro(invaso),
+                }
+            )
+    return incontri
 
 
 def _volume_unione(membrature: list[Membratura], punti: np.ndarray, passo: float) -> float:
@@ -862,6 +1194,9 @@ def prior(
                 "lunghezza": m.lunghezza,
                 "sezione": list(m.sezione),
                 "sezione_dispersione": list(m.sezione_dispersione),
+                "sezioni_fette": m.sezioni_fette.tolist(),
+                "quote_fette": m.quote_fette.tolist(),
+                "base_sezione": m.base_sezione.tolist(),
                 "contorno": m.contorno.tolist(),
                 "fuori_piombo_deg": m.fuori_piombo_deg,
                 "asse_ideale": m.asse_ideale.tolist(),
@@ -880,6 +1215,7 @@ def prior(
             }
             for m in accettate
         ],
+        "giunzioni": giunzioni(accettate),
         "scartate": scartate,
         "chiusura_volume": {
             "somma": somma,
