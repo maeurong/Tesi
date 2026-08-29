@@ -551,6 +551,38 @@ def test_l_esito_del_prior_e_serializzabile_in_json():
     assert json.loads(testo)["regioni_trovate"] == esito["regioni_trovate"]
 
 
+def test_cede_chi_ha_l_asse_invaso_e_non_chi_ha_l_indice_piu_basso():
+    """Ruling AD: cede la membratura che finisce dentro l'altra, come una trave
+    appoggiata su un pilastro accorcia il pilastro e non la trave. Il criterio
+    e' del dato, non dell'ordine in cui le membrature arrivano.
+    """
+    invaso = np.array([True, True, False, False])
+    libero = np.zeros(4, dtype=bool)
+
+    # il candidato 7 ha l'asse invaso dentro il 3: cede il 7
+    cede, resta, campionamento = wall.ruoli_dell_incontro(invaso, libero, 7, 3)
+    assert (cede, resta) == (7, 3)
+    assert campionamento is invaso
+
+    # rovesciato: e' il 3 ad avere l'asse invaso dentro il 7, quindi cede il 3
+    cede, resta, campionamento = wall.ruoli_dell_incontro(libero, invaso, 7, 3)
+    assert (cede, resta) == (3, 7)
+    assert campionamento is invaso
+
+
+def test_a_pari_invasione_lo_spareggio_non_dipende_dall_ordine():
+    """Entrambi invasi o nessuno invaso: decide l'ordine che il chiamante ha
+    gia' stabilito per area, e la funzione non lo ribalta.
+    """
+    entrambi = np.array([True, False])
+    cede, resta, _ = wall.ruoli_dell_incontro(entrambi, entrambi, 7, 3)
+    assert (cede, resta) == (7, 3), "a pari invasione cede il candidato, non il maggiore"
+
+    nessuno = np.zeros(2, dtype=bool)
+    cede, resta, _ = wall.ruoli_dell_incontro(nessuno, nessuno, 7, 3)
+    assert (cede, resta) == (7, 3)
+
+
 def test_il_prior_scrive_le_sezioni_di_fetta_e_la_base_in_json():
     """Il prior finisce su disco e nel browser: le misure nuove devono uscire
     come tipi JSON, non come array numpy.

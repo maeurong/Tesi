@@ -22,6 +22,7 @@ import numpy as np
 
 from meshrec.core import abaqus
 from meshrec.core.config import ModelConfig
+from meshrec.core.wall import ruoli_dell_incontro
 
 _ARROTONDAMENTO = 6
 """Cifre decimali su cui i nodi sono confrontati per l'ordine canonico.
@@ -594,16 +595,16 @@ def taglia_giunzioni(prismi: list[Prisma]) -> tuple[list[Prisma], list[dict[str,
     for posizione, maggiore in enumerate(ordine):
         for candidato in ordine[posizione + 1 :]:
             # Ruling AD: cede chi ha l'asse baricentrico invaso nell'altro, non
-            # chi ha sezione minore -- vedi docstring. Un solo verso invaso e'
+            # chi ha sezione minore -- vedi `wall.ruoli_dell_incontro`, dove la
+            # decisione ora vive. Un solo verso invaso e'
             # il caso normale e decide da solo; entrambi o nessuno invaso
             # ricadono sullo spareggio per area gia' incorporato in `ordine`
             # (`maggiore`/`candidato` sono gia' ordinati per area decrescente).
             invaso_candidato = _asse_baricentrico_invaso(tagliati[candidato], tagliati[maggiore])
             invaso_maggiore = _asse_baricentrico_invaso(tagliati[maggiore], tagliati[candidato])
-            if invaso_maggiore.any() and not invaso_candidato.any():
-                minore, maggiore_effettivo, invaso = maggiore, candidato, invaso_maggiore
-            else:
-                minore, maggiore_effettivo, invaso = candidato, maggiore, invaso_candidato
+            minore, maggiore_effettivo, invaso = ruoli_dell_incontro(
+                invaso_candidato, invaso_maggiore, candidato, maggiore
+            )
 
             piccolo = tagliati[minore]
             versore = piccolo.asse / np.linalg.norm(piccolo.asse)

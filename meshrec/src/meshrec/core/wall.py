@@ -786,6 +786,40 @@ def riempimento(membratura: Membratura, cfg: WallConfig) -> dict[str, object]:
     }
 
 
+def ruoli_dell_incontro(
+    invaso_candidato: np.ndarray,
+    invaso_maggiore: np.ndarray,
+    indice_candidato: int,
+    indice_maggiore: int,
+) -> tuple[int, int, np.ndarray]:
+    """Chi cede e chi resta, quando due membrature si incontrano (Ruling AD).
+
+    Cede quella il cui asse baricentrico entra nell'altra: ha il significato
+    fisico giusto -- cede la membratura che finisce dentro l'altra, come una
+    trave appoggiata su un pilastro accorcia il pilastro e non la trave. Il
+    criterio precedente, «cede il prisma di sezione minore», sceglieva il ruolo
+    sbagliato proprio quando un montante entra nel traverso da sotto.
+
+    Un solo verso invaso decide da solo. Se **entrambi** o **nessuno** dei due
+    lo e\', la funzione non ribalta l\'ordine che il chiamante ha gia\'
+    stabilito: cede il candidato. Il chiamante ordina per area decrescente,
+    quindi lo spareggio resta deterministico e funzione del dato.
+
+    Restituisce anche il campionamento di chi cede, gia\' calcolato dal
+    chiamante per decidere il ruolo: ricalcolarlo sarebbe pagare due volte la
+    stessa misura.
+
+    Vive qui e non in `hexa` perche\' ha due chiamanti -- il taglio in
+    `hexa.taglia_giunzioni` e l\'adiacenza in `wall.giunzioni` -- e perche\' il
+    confine fra i due moduli ammette il verso hexa -> wall e non il contrario.
+    La firma prende i campionamenti e non i prismi proprio per questo: `Prisma`
+    e\' definito in `hexa`, e importarlo qui invertirebbe il confine.
+    """
+    if invaso_maggiore.any() and not invaso_candidato.any():
+        return indice_maggiore, indice_candidato, invaso_maggiore
+    return indice_candidato, indice_maggiore, invaso_candidato
+
+
 def _volume_unione(membrature: list[Membratura], punti: np.ndarray, passo: float) -> float:
     """Volume dell'unione delle membrature, per conteggio di celle occupate.
 
