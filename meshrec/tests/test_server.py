@@ -2186,6 +2186,108 @@ def test_lo_schema_dice_quali_parametri_appartengono_a_ogni_step(cliente):
     assert corpo["1"]["campi"]["input"]["path"]["default"] is None
 
 
+def test_lo_schema_dice_di_che_tipo_e_ogni_campo(cliente):
+    """Il tipo lo conosce solo il modello, e il pannello ne ha bisogno per
+    scegliere la casella: un menu, una spunta, uno slider o una casella di
+    testo. Letto dalle annotazioni di pydantic e non da una tabella scritta a
+    mano, che sarebbe una seconda verita' da tenere allineata al modello.
+    """
+    corpo = cliente.get("/api/schema").json()
+    assert corpo["5"]["campi"]["surface"]["poisson_depth"]["tipo"] == "intero"
+    assert corpo["9"]["campi"]["tet"]["min_ratio"]["tipo"] == "reale"
+    assert corpo["8"]["campi"]["simplify"]["enabled"]["tipo"] == "booleano"
+    # `Path` e' un tipo composto per python ma una riga di testo per chi la
+    # batte: e' il campo piu' importante del pannello dello step 1, e una
+    # casella in sola lettura lo renderebbe modificabile solo dal file.
+    assert corpo["1"]["campi"]["input"]["path"]["tipo"] == "testo"
+    assert corpo["2"]["campi"]["segment"]["method"]["tipo"] == "enumerazione"
+    assert corpo["2"]["campi"]["segment"]["method"]["valori"] == ["crop", "auto"]
+    # Un `Literal` con un valore solo resta un'enumerazione: e' il pannello a
+    # decidere che un menu con una voce sola non e' un menu.
+    assert corpo["5"]["campi"]["surface"]["method"]["valori"] == ["poisson"]
+    # Una tupla e una lista non si scrivono in una casella di testo.
+    assert corpo["1"]["campi"]["input"]["expected_size"]["tipo"] == "composto"
+    # Nullabile: il vuoto e' un valore, e nessuno slider ne' nessuna spunta sa
+    # esprimerlo. Il pannello ha bisogno di distinguerlo dall'obbligatorio.
+    assert corpo["3"]["campi"]["downsample"]["voxel_size"]["nullabile"] is True
+    assert corpo["3"]["campi"]["downsample"]["voxel_factor"]["nullabile"] is False
+
+
+def test_lo_schema_distingue_gli_estremi_inclusi_da_quelli_esclusi(cliente):
+    """`ge` e `gt` non sono la stessa cosa: uno slider che li confonde offre
+    un valore che il modello rifiuta. Le quattro chiavi portano i nomi dei
+    vincoli di pydantic, e ciascuna compare solo dove il modello la dichiara.
+    """
+    corpo = cliente.get("/api/schema").json()
+    quantile = corpo["5"]["campi"]["surface"]["density_quantile"]
+    assert quantile["ge"] == 0.0 and quantile["lt"] == 1.0
+    assert "gt" not in quantile and "le" not in quantile
+    ratio = corpo["2"]["campi"]["segment"]["plane_min_points_ratio"]
+    assert ratio["gt"] == 0.0 and ratio["le"] == 1.0
+    profondita = corpo["5"]["campi"]["surface"]["poisson_depth"]
+    assert profondita["ge"] == 4 and profondita["le"] == 14
+    # Un estremo solo resta un estremo solo: il pannello non deve poterne
+    # dedurre un fondo scala che il modello non dichiara.
+    assert corpo["9"]["campi"]["tet"]["min_ratio"]["gt"] == 0.0
+    assert "le" not in corpo["9"]["campi"]["tet"]["min_ratio"]
+    assert "lt" not in corpo["9"]["campi"]["tet"]["min_ratio"]
+
+
+def test_lo_schema_porta_l_etichetta_dove_il_modello_la_dichiara(cliente):
+    """«Una chiave non si stampa mai, si stampa la sua etichetta» (PRODUCT.md).
+
+    Il canale e' `title`, che pydantic porta gia' accanto a `description`:
+    dove c'e', il pannello la mostra al posto della chiave; dove manca, la
+    chiave resta l'unica cosa che si sa e non si inventa una frase.
+    """
+    corpo = cliente.get("/api/schema").json()
+    etichetta = corpo["8"]["campi"]["simplify"]["enabled"]["etichetta"]
+    assert etichetta and etichetta != "enabled", (
+        "`simplify.enabled` mostra ancora la chiave grezza: dice che si accende "
+        "qualcosa senza dire che cosa"
+    )
+    assert "etichetta" not in corpo["9"]["campi"]["tet"]["min_ratio"], (
+        "un campo senza `title` porta un'etichetta inventata"
+    )
+
+
+def test_il_pannello_dello_step_11_mostra_solo_i_blocchi_che_comanda(cliente):
+    """`STEP_BLOCKS` assegna blocchi interi e non si tocca: e' la tabella da
+    cui discende l'invalidazione a valle (`steps.step_fingerprints`), e
+    toglierne un blocco invaliderebbe le corse di riferimento. La correzione
+    e' a grana di campo, dentro `schema()`.
+
+    Lo step 11 esporta il modello: non tetraedrizza (quello e' il 9) e i
+    carichi non hanno ancora una sede propria. `selettori` e' un
+    `dict[NomeSet, Selettore]`, cioe' una sezione vuota per costruzione: una
+    sezione che non puo' mai contenere nulla non compare.
+    """
+    from meshrec.core import steps
+
+    assert steps.STEP_BLOCKS[11] == ("tet", "analysis", "carichi", "selettori"), (
+        "STEP_BLOCKS e' stata cambiata: la catena delle impronte a valle "
+        "discende da li'"
+    )
+    corpo = cliente.get("/api/schema").json()
+    assert corpo["11"]["blocchi"] == ["analysis"]
+    assert set(corpo["11"]["campi"]) == {"analysis"}
+    # Il blocco resta intero dove lo step lo comanda davvero.
+    assert corpo["9"]["blocchi"] == ["tet"] and corpo["9"]["campi"]["tet"]
+
+
+def test_reference_ratio_sta_nel_pannello_dello_step_che_lo_usa(cliente):
+    """E' il metro con cui lo step 10 conta gli elementi fuori vincolo, e non
+    tocca nulla di cio' che lo step 9 fa: nel pannello del 9 sembrerebbe un
+    secondo `min_ratio`.
+    """
+    corpo = cliente.get("/api/schema").json()
+    assert "reference_ratio" in corpo["10"]["campi"]["tet"]
+    assert "reference_ratio" not in corpo["9"]["campi"]["tet"]
+    assert "min_ratio" in corpo["9"]["campi"]["tet"], (
+        "lo step 9 ha perso il vincolo che chiede davvero a TetGen"
+    )
+
+
 def test_lo_schema_non_esplode_sul_blocco_selettori(cliente):
     """`selettori` (STEP_BLOCKS[11]) e' un `dict[NomeSet, Selettore]`, non un
     modello: non ha `model_fields` come `carichi` (un `BaseModel`), e prima
@@ -2197,15 +2299,20 @@ def test_lo_schema_non_esplode_sul_blocco_selettori(cliente):
        `schema()` (core/app/server.py) e tornare a chiamare
        `annidato.model_fields` incondizionatamente -- l'AttributeError torna
        e la richiesta a `/api/schema` torna a rispondere 400.
-    2. far rendere alla guardia un valore diverso da `{}` (per esempio
-       `campi[blocco] = None`) -- resterebbe 200, e senza l'asserzione sul
-       valore il test non se ne accorgerebbe.
+    2. far rendere alla guardia dei campi inventati invece di nessun campo --
+       resterebbe 200, e senza l'asserzione sotto il test non se ne
+       accorgerebbe.
+
+    Il blocco non compare piu' nemmeno come sezione vuota: una sezione che per
+    costruzione non puo' contenere nulla non ha niente da mostrare.
     """
     risposta = cliente.get("/api/schema")
     assert risposta.status_code == 200
     corpo = risposta.json()
-    assert corpo["11"]["blocchi"] == ["tet", "analysis", "carichi", "selettori"]
-    assert corpo["11"]["campi"]["selettori"] == {}
+    assert "selettori" not in corpo["11"]["blocchi"]
+    assert "selettori" not in corpo["11"]["campi"]
+    # Lo step 11 risponde comunque: la guardia non deve spegnere il pannello.
+    assert corpo["11"]["campi"]["analysis"]
 
 
 def test_il_tempo_dello_step_viene_dal_server_e_non_dal_browser(cliente):
@@ -2624,6 +2731,114 @@ def test_il_prior_calcolato_torna_membrature_e_regioni_scartate(cliente, tmp_pat
     assert corpo["calcolato"] is True
     assert len(corpo["prior"]["membrature"]) == 1
     assert corpo["prior"]["scartate"][0]["controlli_falliti"] == ["costanza_sezione"]
+
+
+# --------------------------------------------------------------------------
+# L'esportazione del deck: /api/deck consegna il file dello step 11, non una
+# sua copia ricalcolata.
+# --------------------------------------------------------------------------
+
+
+def _scrivi_deck(cliente, testo: str = "*HEADING\nmuro\n") -> Path:
+    from meshrec.core import pipeline
+
+    corsa = _cartella_di_corsa(cliente)
+    corsa.mkdir(parents=True, exist_ok=True)
+    percorso = corsa / pipeline.DECK_FILENAME
+    percorso.write_text(testo, encoding="utf-8")
+    return percorso
+
+
+def test_il_deck_arriva_col_nome_della_corsa_davanti(cliente):
+    """`wall_model.inp` scaricato da tre corse diverse da' tre file
+    indistinguibili nella cartella dei download: la provenienza fa parte del
+    risultato, e l'unico posto dove sopravvive allo scaricamento e' il nome.
+
+    Il corpo e' il file com'e' su disco, byte per byte: e' quello che porta
+    l'impronta nel registro ed e' quello di cui il report parla.
+    """
+    deck = _scrivi_deck(cliente)
+
+    risposta = cliente.get("/api/deck")
+
+    assert risposta.status_code == 200
+    # I byte del file, non il testo: `text` passerebbe da una decodifica e da
+    # una normalizzazione degli a capo, e un deck consegnato con gli a capo di
+    # un altro sistema non e' piu' il file di cui il registro porta l'impronta.
+    assert risposta.content == deck.read_bytes()
+    disposizione = risposta.headers["content-disposition"]
+    assert disposizione.startswith("attachment")
+    assert 'filename="corsa_wall_model.inp"' in disposizione
+
+
+def test_il_deck_mai_scritto_nomina_lo_step_da_eseguire(cliente):
+    """La regola di `pipeline._ingresso_di_ripresa`: chi guarda l'interfaccia
+    ragiona per step, non per nomi di file. «file non trovato» non dice a
+    nessuno che deve eseguire lo step 11."""
+    risposta = cliente.get("/api/deck")
+
+    assert risposta.status_code == 400
+    assert "step 11" in risposta.json()["messaggio"]
+
+
+def test_una_corsa_di_riferimento_consegna_comunque_il_deck(cliente, tmp_path):
+    """La sentinella ferma le scritture, non le letture.
+
+    `runs/muro` e `runs/lab_crop` sono le corse di cui il deck serve DAVVERO --
+    sono i risultati che finiscono in tesi -- e sono anche le due aperte in
+    sola lettura. Una guardia messa qui per simmetria con le altre tratte
+    renderebbe inesportabili proprio quelle.
+
+    Mutazione che lo uccide: una chiamata a `non_in_sola_lettura` dentro
+    `/api/deck`. Il 200 diventa 400.
+    """
+    (tmp_path / server.SENTINELLA_SOLA_LETTURA).touch()
+    deck = _scrivi_deck(cliente)
+
+    risposta = cliente.get("/api/deck")
+
+    assert risposta.status_code == 200
+    assert risposta.content == deck.read_bytes()
+
+
+def test_un_deck_che_esce_dalla_cartella_della_corsa_non_viene_consegnato(cliente, tmp_path):
+    """Il controllo sta DOPO la risoluzione dei collegamenti, non prima.
+
+    Il nome del file non arriva dalla richiesta, ma `run.out_dir` arriva dalla
+    configurazione e la cartella della corsa e' scrivibile da chiunque abbia il
+    disco: un `wall_model.inp` che e' un collegamento a un altro file lo
+    consegnerebbe con la benedizione della tratta. Prima della risoluzione quel
+    percorso e' dentro la cartella; dopo, non lo e' piu'.
+    """
+    from meshrec.core import pipeline
+
+    segreto = tmp_path / "segreto.txt"
+    segreto.write_text("non deve uscire di qui", encoding="utf-8")
+    corsa = _cartella_di_corsa(cliente)
+    corsa.mkdir(parents=True, exist_ok=True)
+    try:
+        (corsa / pipeline.DECK_FILENAME).symlink_to(segreto)
+    except (OSError, NotImplementedError):
+        pytest.skip("questo filesystem non concede i collegamenti simbolici")
+
+    risposta = cliente.get("/api/deck")
+
+    assert risposta.status_code == 400
+    assert "non deve uscire di qui" not in risposta.text
+
+
+def test_il_deck_si_scarica_anche_mentre_una_corsa_gira(cliente):
+    """Consegnare e' leggere: non prende il lucchetto di nessuno e non lo fa
+    prendere. Un'esportazione che aspettasse la fine di uno step lungo
+    arriverebbe minuti dopo il clic, senza dire perche'."""
+    deck = _scrivi_deck(cliente)
+    assert cliente.post("/api/step/1").status_code == 200
+
+    risposta = cliente.get("/api/deck")
+
+    assert risposta.status_code == 200
+    assert risposta.content == deck.read_bytes()
+    cliente.post("/api/cancel")
 
 
 def test_generare_un_modello_e_una_azione_e_non_tocca_la_configurazione(cliente, tmp_path):

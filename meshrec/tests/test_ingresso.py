@@ -68,6 +68,18 @@ def test_l_elenco_delle_corse_di_una_radice_assente_e_vuoto(slegato):
     assert corpo["corrente"] is None
 
 
+def test_senza_corsa_aperta_non_c_e_nessun_deck_da_consegnare(slegato):
+    """Ingresso degenere della tratta che esporta: senza corsa aperta non c'e'
+    nessuna cartella da cui prendere il file, e la tratta lo dice invece di
+    cercarlo in una cartella indovinata. Nell'interfaccia il comando non c'e'
+    affatto: il pannello dello step vive dentro la schermata di lavoro, che a
+    corsa slegata resta chiusa."""
+    risposta = slegato.get("/api/deck")
+
+    assert risposta.status_code == 400
+    assert "nessuna corsa aperta" in risposta.json()["messaggio"]
+
+
 def test_creare_una_corsa_scrive_il_config_e_lega_l_applicazione(slegato, nuvola, tmp_path):
     risposta = slegato.post("/api/corse", json={"nome": "provino", "nuvola": str(nuvola)})
 

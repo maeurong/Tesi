@@ -2211,17 +2211,27 @@ async function scriviParametro(blocco, nome, input, messaggio, ordine) {
 // Estratta dal ciclo che la costruiva perche' e' il punto in cui la casella
 // nasce e in cui il gestore le viene attaccato, e da dentro un ciclo dentro una
 // funzione da duecento righe non la esegue nessun banco.
-// Casella di testo, e il tipo non si indovina. type="number" era stato messo
-// guardando `typeof` del valore corrente, cioe' indovinando il tipo dal valore:
-// i quattro campi numerici nullabili scalari erano testo finche' valevano None
-// e numerici appena valevano qualcosa, e i quattordici interi ricevevano
-// step="any", che il passo unitario lo toglie invece di metterlo. Ma il guasto
-// vero e' un altro: Chrome sanifica cio' che non sa leggere: battuto `1e`,
-// `.value` torna `""` mentre a video resta scritto `1e`, e `""` diventava null.
-// La configurazione della corsa finiva su disco col parametro azzerato e sullo
-// schermo non compariva niente. Il tipo lo conosce solo il modello, e
-// /api/schema oggi non lo manda: finche' non lo manda, la casella lascia
-// passare cio' che e' stato battuto e il rifiuto torna visibile come 422.
+// La forma della casella viene dal tipo, e il tipo viene dallo schema. Prima
+// veniva da `typeof` del valore corrente, cioe' era indovinato: i campi
+// numerici nullabili erano testo finche' valevano None e numerici appena
+// valevano qualcosa, e gli interi ricevevano step="any", che il passo unitario
+// lo toglie invece di metterlo. Il guasto vero era un altro: Chrome sanifica
+// cio' che non sa leggere -- battuto `1e`, `.value` torna `""` mentre a video
+// resta scritto `1e`, e `""` diventava null. La configurazione della corsa
+// finiva su disco col parametro azzerato e sullo schermo non compariva niente.
+//
+// Il tipo lo conosce solo il modello, e adesso /api/schema lo manda
+// (`_forma_del_campo` in app/server.py). Da li' discende la forma:
+// un'enumerazione e' un menu, un booleano una spunta, un numero con entrambi
+// gli estremi un cursore con la sua casella accanto. Nessuna di queste e'
+// `type="number"`: la sanificazione silenziosa resta fuori dal pannello, e cio'
+// che il browser non sa leggere continua a partire com'e' stato battuto,
+// perche' il rifiuto lo dica il modello con un 422 leggibile.
+//
+// Dove la forma scelta non saprebbe mostrare cio' che c'e' gia' scritto -- un
+// valore fuori dal dominio in una corsa vecchia, un nullabile che vale il
+// vuoto -- si torna alla casella di testo: una casella che non sa
+// rappresentare un valore esistente lo cancellerebbe.
 function campoParametro(blocco, nome, campo, ordine) {
   // La riga e' un <div> e l'etichetta nomina per `for`. Era una <label> che
   // avvolgeva tutto, e dentro la <label> stavano anche l'aiuto e il messaggio
@@ -2235,8 +2245,12 @@ function campoParametro(blocco, nome, campo, ordine) {
   const riga = document.createElement("div");
   riga.className = "campo";
   const etichetta = document.createElement("label");
+  etichetta.id = `etichetta-${identita}`;
   etichetta.setAttribute("for", `campo-${identita}`);
-  etichetta.textContent = nome;
+  // «Una chiave non si stampa mai, si stampa la sua etichetta» (PRODUCT.md).
+  // Dove lo schema non ne porta una la chiave resta l'unica cosa che si sa, e
+  // una frase inventata qui sarebbe peggio del nome vero.
+  etichetta.textContent = campo.etichetta ?? nome;
   riga.append(etichetta);
   const valore = (configurazione[blocco] ?? {})[nome] ?? null;
   // Una lista o un modello annidato non sono scritti in una casella di testo:
@@ -2249,10 +2263,47 @@ function campoParametro(blocco, nome, campo, ordine) {
   // meta' -- e va dichiarato tutto insieme dal pannello piu' sotto, che dice
   // gia' che il blocco non c'e': qui basta il campo in sola lettura.
   const bloccoAssente = configurazione[blocco] == null;
-  const scalare = valore === null || ["string", "number", "boolean"].includes(typeof valore);
-  const input = document.createElement("input");
+  // Il tipo dallo schema. Uno schema che non lo dichiara -- o che dichiara un
+  // tipo che questo pannello non conosce -- non spegne la riga: si ricade sulla
+  // casella di testo, che e' cio' che il pannello ha sempre fatto.
+  const scalare = campo.tipo === undefined
+    ? valore === null || ["string", "number", "boolean"].includes(typeof valore)
+    : campo.tipo !== "composto";
+  const valori = campo.tipo === "enumerazione" ? campo.valori ?? [] : [];
+  // Un `Literal` con un valore solo non e' una scelta: un menu con una voce
+  // sola e' un menu che mente. Resta il valore, in un campo che non si scrive.
+  const senzaScelta = valori.length === 1;
+  const vivo = scalare && !bloccoAssente && !senzaScelta;
+  // `ge`/`le` sono inclusi, `gt`/`lt` esclusi: distinguerli e' cio' che tiene
+  // il cursore dentro il dominio invece di offrire l'estremo che il modello
+  // rifiuta. Un estremo solo non fa un cursore -- sarebbe un cursore su un
+  // intervallo inventato.
+  const minimo = campo.ge ?? campo.gt;
+  const massimo = campo.le ?? campo.lt;
+  const numerico = campo.tipo === "intero" || campo.tipo === "reale";
+  // Un intero si muove di 1; un reale, di un centesimo del proprio intervallo.
+  const passo = campo.tipo === "intero" ? 1 : (massimo - minimo) / 100;
+  // Nullabile mai: il vuoto significa «decidi tu» (`voxel_size`,
+  // `max_hole_area`), e ne' un cursore ne' una spunta ne' un menu sanno
+  // esprimerlo. Quei campi restano caselle di testo, da cui il vuoto si scrive.
+  const scorrevole = vivo && numerico && !campo.nullabile
+    && minimo !== undefined && massimo !== undefined;
+  const menu = vivo && !campo.nullabile && valori.length > 1 && valori.includes(valore);
+  const spunta = vivo && !campo.nullabile && campo.tipo === "booleano"
+    && (valore === true || valore === false);
+  const input = document.createElement(menu ? "select" : "input");
   input.id = `campo-${identita}`;
-  input.value = scalare ? String(valore ?? "") : JSON.stringify(valore);
+  if (menu) {
+    for (const ammesso of valori) {
+      input.append(elemento("option", { value: ammesso, textContent: String(ammesso) }));
+    }
+  }
+  if (spunta) input.type = "checkbox";
+  // Il vuoto prima di tutto: `String(null)` e `JSON.stringify(null)` danno
+  // tutti e due la stringa "null", quattro lettere in una casella che e'
+  // vuota, e chi la riscrive senza toccarla manda al modello quella stringa.
+  input.value = valore === null ? "" : scalare ? String(valore) : JSON.stringify(valore);
+  if (spunta) input.checked = valore === true;
   // Niente `input.title`: era la stessa frase dell'aiuto qui sotto, detta una
   // seconda volta in un fumetto che non si apre da tastiera ne' col dito, e che
   // il lettore di schermo accoda al nome. Detta una volta sola, sotto la
@@ -2261,11 +2312,38 @@ function campoParametro(blocco, nome, campo, ordine) {
   messaggio.className = "errore-campo";
   messaggio.id = `errore-${identita}`;
   messaggio.hidden = true;
-  if (!scalare || bloccoAssente) {
+  if (!vivo) {
     // readOnly e non disabled: disabled lo toglierebbe anche dalla navigazione
     // da tastiera e dal lettore di schermo.
     input.readOnly = true;
   } else {
+    // La spunta lascia nel campo il testo che `valoreScritto` sa leggere: e'
+    // l'unico punto in cui dei tasti diventano un dato scritto su disco, e
+    // resta uno solo. Attaccato prima del gestore che scrive, perche' i
+    // gestori corrono nell'ordine in cui sono stati aggiunti.
+    if (spunta) input.addEventListener("change", () => { input.value = String(input.checked); });
+    if (scorrevole) {
+      const cursore = document.createElement("input");
+      cursore.type = "range";
+      cursore.id = `cursore-${identita}`;
+      // L'estremo escluso si sposta dentro di un passo: `lt: 1.0` con passo
+      // 0,01 arriva a 0,99, non a 1, che il modello rifiuterebbe.
+      cursore.min = String(campo.gt === undefined ? minimo : minimo + passo);
+      cursore.max = String(campo.lt === undefined ? massimo : massimo - passo);
+      cursore.step = String(passo);
+      cursore.value = String(valore ?? "");
+      // Il cursore e la casella sono due comandi per lo stesso parametro:
+      // l'etichetta li nomina entrambi, ma `for` ne punta uno solo.
+      cursore.setAttribute("aria-labelledby", etichetta.id);
+      // I due versi. Il cursore muove la casella mentre si trascina e scrive
+      // quando si lascia; la casella riporta il cursore dove e' stato battuto.
+      // Scrive sempre la casella: e' l'unica delle due che sa mostrare un
+      // valore fuori dall'intervallo del cursore senza cancellarlo.
+      cursore.addEventListener("input", () => { input.value = cursore.value; });
+      cursore.addEventListener("change", () => scriviParametro(blocco, nome, input, messaggio, ordine));
+      input.addEventListener("change", () => { cursore.value = input.value; });
+      riga.append(cursore);
+    }
     input.addEventListener("change", () => scriviParametro(blocco, nome, input, messaggio, ordine));
   }
   riga.append(input);
@@ -2372,6 +2450,56 @@ function pannelloMateriale(numero, ordine) {
   });
   gruppo.append(bottone);
   return gruppo;
+}
+
+const STEP_CON_DECK = 11;
+
+// L'esportazione del deck: il file esce dalla cartella della corsa e arriva
+// dove l'utente lo cerca.
+//
+// Un collegamento e non un bottone che fabbrica il file: il deck sta gia' sul
+// disco, e' il server a consegnarlo con il proprio nome (Content-Disposition,
+// /api/deck) ed e' il browser a scaricarlo. Passare per fetch vorrebbe dire
+// tenere in memoria i 35.931.310 byte del deck di `muro` per riscriverli
+// identici in un Blob.
+//
+// Il comando c'e' solo dove c'e' un file: un collegamento a un deck mai scritto
+// porterebbe su un corpo d'errore invece che su un file. Il registro dice tutte
+// e due le cose che servono -- se lo step 11 ha scritto (`artefatto`) e se
+// l'impronta di allora e' ancora quella della configurazione di adesso
+// (`stato`, vedi steps.run_state) -- e nessuna delle due si deduce a video.
+function pannelloDeck() {
+  const contenitore = document.createElement("fieldset");
+  contenitore.className = "gruppo";
+  contenitore.append(elemento("legend", { textContent: "Esportazione" }));
+  const voce = ultimoStato.find((v) => v.numero === STEP_CON_DECK);
+  if (!voce || voce.artefatto == null) {
+    contenitore.append(elemento("p", {
+      className: "aiuto",
+      textContent: "Nessun deck da esportare: lo scrive lo step 11, che questa corsa "
+        + "non ha ancora eseguito.",
+    }));
+    return contenitore;
+  }
+  // Il deck sul disco e i parametri qui sopra possono raccontare due corse
+  // diverse: si consegna quello che c'e' -- e' l'unico che porti un'impronta
+  // nel registro -- ma il pannello non lo puo' spacciare per il modello dei
+  // valori a video. Solo quando l'impronta non coincide: un cartello che
+  // comparisse sempre smetterebbe di dire qualcosa il giorno in cui e' vero.
+  contenitore.append(elemento("p", {
+    className: "aiuto",
+    textContent: voce.stato === "non valido"
+      ? "Il deck sul disco è stato scritto con parametri diversi da quelli qui sopra: "
+        + "si scarica com'è, e non viene rigenerato. Riesegui lo step 11 per averlo "
+        + "dei parametri correnti."
+      : "Il file che lo step 11 ha scritto, così com'è sul disco: non viene ricalcolato.",
+  }));
+  contenitore.append(elemento("a", {
+    className: "bottone",
+    href: "/api/deck",
+    textContent: "Scarica il deck (.inp)",
+  }));
+  return contenitore;
 }
 
 // Le due uscite d'errore di apriDettaglio, in un punto solo. Il pannello resta
@@ -2625,6 +2753,7 @@ async function apriDettaglio(numero, ordine = generazione) {
   // nuovo che lo legge.
   if (voce.blocchi.includes("analysis")) dettaglio.append(pannelloMateriale(numero, ordine));
   if (numero === STEP_CON_RITAGLIO) dettaglio.append(pannelloRitaglio(ordine));
+  if (numero === STEP_CON_DECK) dettaglio.append(pannelloDeck());
   if (numero === STEP_CON_CAMPO) dettaglio.append(pannelloCampo(ordine, metriche[chiave]));
 
   if (chiave) {

@@ -17,7 +17,7 @@ import zipfile
 from collections import Counter
 from functools import lru_cache
 from pathlib import Path
-from typing import Annotated, get_args
+from typing import Annotated, Literal, get_args, get_origin
 
 import numpy as np
 from fastapi import FastAPI, Response
@@ -440,6 +440,80 @@ def _modello_del_blocco(annotazione: object) -> type:
     pannello degli step 11 e 13 -- con un `AttributeError` fuori vista.
     """
     return next(t for t in get_args(annotazione) or (annotazione,) if t is not type(None))
+
+
+# I tipi che si battono in una riga sola. `Path` sta con `str` e non fra i
+# composti: per python e' un oggetto, per chi lo scrive e' un percorso, ed e'
+# il campo piu' importante del pannello dello step 1.
+_TIPI_SCALARI: dict[object, str] = {
+    bool: "booleano",
+    int: "intero",
+    float: "reale",
+    str: "testo",
+    Path: "testo",
+}
+
+# I quattro estremi di annotated_types, letti per nome dalla `metadata` del
+# campo. `ge` e `gt` restano distinti: uno slider che li confonde offre un
+# valore che il modello rifiuta.
+_ESTREMI = ("gt", "ge", "lt", "le")
+
+
+def _forma_del_campo(campo: object) -> dict[str, object]:
+    """Di che tipo e' un campo e che valori ammette, letto dal modello.
+
+    Dalle annotazioni e dai vincoli di pydantic, non da una tabella scritta
+    accanto ai modelli: una tabella parallela e' una seconda verita' da tenere
+    allineata, e il primo campo aggiunto la lascia indietro.
+
+    Il pannello ne ha bisogno per scegliere la casella: prima il tipo veniva
+    indovinato da `typeof` del valore corrente, e un intero valeva testo
+    finche' era `None`.
+    """
+    annotazione = campo.annotation
+    nullabile = type(None) in get_args(annotazione)
+    if nullabile:
+        annotazione = next(t for t in get_args(annotazione) if t is not type(None))
+    forma: dict[str, object] = {"nullabile": nullabile}
+    if get_origin(annotazione) is Literal:
+        forma["tipo"] = "enumerazione"
+        forma["valori"] = list(get_args(annotazione))
+    else:
+        # Una lista, una tupla, un modello annidato: si modificano dal file di
+        # configurazione, e il pannello li tiene in sola lettura.
+        forma["tipo"] = _TIPI_SCALARI.get(annotazione, "composto")
+    for vincolo in campo.metadata:
+        for nome in _ESTREMI:
+            # getattr e non isinstance: `Interval` porta tutti e quattro gli
+            # attributi insieme, i tre non dichiarati a None.
+            estremo = getattr(vincolo, nome, None)
+            if estremo is not None:
+                forma[nome] = estremo
+    # `title` solo dove il modello lo dichiara: dove manca, la chiave resta
+    # l'unica cosa che si sa e il pannello non inventa una frase.
+    if campo.title is not None:
+        forma["etichetta"] = campo.title
+    return forma
+
+
+# I campi che il pannello di uno step non mostra, benche' il blocco sia suo in
+# `STEP_BLOCKS`. Quella tabella assegna blocchi interi ed e' anche la tabella
+# da cui discende l'invalidazione a valle (`steps.step_fingerprints`):
+# toglierne un blocco romperebbe la catena delle impronte e invaliderebbe le
+# corse di riferimento. La correzione e' qui, a grana di campo, dove riguarda
+# solo cio' che si vede.
+#
+# Una voce e' un blocco intero (`tet`) o un campo solo (`tet.reference_ratio`).
+_FUORI_DAL_PANNELLO: dict[int, frozenset[str]] = {
+    # `reference_ratio` e' il metro con cui lo step 10 conta gli elementi fuori
+    # vincolo: non tocca nulla di cio' che lo step 9 fa, e nel pannello del 9
+    # sembrerebbe un secondo `min_ratio`.
+    9: frozenset({"tet.reference_ratio"}),
+    # Lo step 11 esporta il modello: non tetraedrizza (quello e' il 9), e i
+    # carichi non hanno ancora una sede propria -- escono da qui senza che se
+    # ne inventi una.
+    11: frozenset({"tet", "carichi"}),
+}
 
 
 def _rifiuto_leggibile(errore: Exception) -> str:
@@ -1061,6 +1135,54 @@ def create_app(
         """Le metriche cosi' come stanno sul disco. L'interfaccia non ne calcola."""
         return sweep.leggi_metriche(corrente().run.out_dir)
 
+    @app.get("/api/deck")
+    def deck() -> FileResponse:
+        """Consegna il deck dello step 11 cosi' com'e' sul disco.
+
+        Non lo rigenera: il file che si importa in Abaqus dev'essere quello di
+        cui il registro porta l'impronta e di cui il report parla. Una copia
+        ricalcolata sarebbe un altro file con lo stesso nome, e nessuno avrebbe
+        modo di accorgersene.
+
+        Nessun nome di file arriva dalla richiesta: la tratta ne serve uno solo,
+        scritto qui, e l'insieme dei nomi serviti e' chiuso perche' non esiste il
+        parametro con cui allargarlo. Il controllo sul percorso resta lo stesso:
+        `run.out_dir` viene dalla configurazione, la cartella della corsa la
+        scrive chiunque abbia il disco, e un `wall_model.inp` che e' un
+        collegamento simbolico punta dove vuole. Per questo si confronta il
+        percorso RISOLTO, non quello composto.
+
+        La sentinella `SOLA_LETTURA` non la ferma, ed e' deliberato: consegnare
+        e' leggere. Le corse di riferimento sono proprio quelle il cui deck serve
+        davvero, e una guardia messa qui per simmetria con le tratte che
+        scrivono le renderebbe inesportabili.
+        """
+        cfg = corrente()
+        cartella = Path(cfg.run.out_dir).resolve()
+        percorso = (cartella / pipeline.DECK_FILENAME).resolve()
+        if not percorso.is_relative_to(cartella):
+            raise ValueError(
+                f"il {pipeline.DECK_FILENAME} di questa corsa porta fuori dalla sua "
+                f"cartella ('{percorso}'): non viene consegnato"
+            )
+        if not percorso.is_file():
+            raise ValueError(
+                f"nessun deck da esportare: {pipeline.DECK_FILENAME} lo scrive lo step 11, "
+                "che questa corsa non ha ancora eseguito. Esegui lo step 11, oppure "
+                "«Esegui da qui in giù» da uno step a monte"
+            )
+        # Il nome dice da quale corsa viene: tre `wall_model.inp` scaricati da
+        # tre corse diverse sono tre file indistinguibili nella cartella dei
+        # download, e la provenienza fa parte del risultato.
+        #
+        # FileResponse e non un corpo letto in memoria: il deck di `muro` pesa
+        # 35.931.310 byte, e starlette lo manda a blocchi.
+        return FileResponse(
+            percorso,
+            media_type="application/octet-stream",
+            filename=f"{cartella.name}_{pipeline.DECK_FILENAME}",
+        )
+
     @app.get("/api/wall")
     def prior_geometrico() -> dict[str, object]:
         """Il prior come sta sul disco. Un prior non calcolato lo dichiara.
@@ -1139,8 +1261,11 @@ def create_app(
         modelli = PipelineConfig.model_fields
         fuori: dict[str, object] = {}
         for numero, blocchi in steps.STEP_BLOCKS.items():
+            escluse = _FUORI_DAL_PANNELLO.get(numero, frozenset())
             campi: dict[str, object] = {}
             for blocco in blocchi:
+                if blocco in escluse:
+                    continue
                 # `selettori` e' un `dict[NomeSet, Selettore]`, non un
                 # `BaseModel`: le sue voci sono nominate dall'operatore, non
                 # campi fissi da descrivere uno per uno. Niente `model_fields`
@@ -1163,6 +1288,7 @@ def create_app(
                     continue
                 campi[blocco] = {
                     nome: {
+                        **_forma_del_campo(campo),
                         "description": campo.description or "",
                         # Un campo obbligatorio non ha predefinito: null, e non
                         # il sentinella di pydantic, che finirebbe a video come
@@ -1184,8 +1310,17 @@ def create_app(
                         "obbligatorio": campo.is_required(),
                     }
                     for nome, campo in annidato.model_fields.items()
+                    if f"{blocco}.{nome}" not in escluse
                 }
-            fuori[str(numero)] = {"blocchi": list(blocchi), "campi": campi}
+            # Un blocco senza campi non diventa una sezione vuota: `selettori`
+            # e' un `dict` a chiavi libere e non ne puo' avere per costruzione,
+            # e una sezione che non puo' mai contenere nulla non ha niente da
+            # mostrare.
+            campi = {blocco: voci for blocco, voci in campi.items() if voci}
+            fuori[str(numero)] = {
+                "blocchi": [blocco for blocco in blocchi if blocco in campi],
+                "campi": campi,
+            }
         # Un predefinito puo' essere un Path, una tupla o un modello annidato:
         # non tutti sono serializzabili in JSON, e il pannello li mostra come
         # testo. default=str li rende senza inventarne il valore.

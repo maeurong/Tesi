@@ -181,7 +181,10 @@ class RepairConfig(_ModelloBase):
 class SimplifyConfig(_ModelloBase):
     """Step 8: semplificazione, opzionale."""
 
-    enabled: bool = False
+    # `title` e' l'etichetta che il pannello mostra al posto della chiave:
+    # «enabled» dice che si accende qualcosa senza dire che cosa, e il
+    # rifacimento dei triangoli e' il piu' costoso degli step facoltativi.
+    enabled: bool = Field(default=False, title="rifà i triangoli a misura uniforme")
     mode: Literal["remesh"] = "remesh"
     remesh_target_len_pct: float = Field(default=1.0, gt=0.0, description="percentuale della diagonale")
     taubin_iterations: int = Field(default=0, ge=0)

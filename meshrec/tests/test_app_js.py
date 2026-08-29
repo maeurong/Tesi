@@ -928,29 +928,51 @@ assert.equal(vista.disegnato.lunghezza, 21,
 # --------------------------------------------------------------------------
 
 
-def test_il_campo_parametro_non_indovina_il_tipo_dal_valore():
+def test_il_campo_parametro_prende_il_tipo_dallo_schema_e_non_dal_valore(tmp_path):
     """La radice del difetto. Il tipo veniva da `typeof` del valore corrente,
     cioe' indovinato: i quattro campi numerici nullabili scalari erano una
     casella di testo finche' valevano `None` e una numerica appena valevano
     qualcosa, e con `type="number"` Chrome sanifica cio' che non sa leggere —
     `.value` torna `""` mentre a video resta scritto `1e`. Il tipo lo conosce
-    solo il modello, e `/api/schema` oggi non lo manda.
+    solo il modello, e adesso `/api/schema` lo manda.
+
+    L'intento del controllo non cambia — il valore non decide il tipo — ma la
+    fonte si': lo stesso valore, con due schemi diversi, deve dare due caselle
+    diverse. Un controllo che guardasse solo il sorgente passerebbe anche a
+    logica capovolta, quindi la parte che decide si esegue.
 
     I sei campi del ritaglio restano `type="number"`, e non e' un'incoerenza:
     li' il tipo non e' indovinato, sono le coordinate dell'ingombro e sono
     numeri per costruzione, con la loro guardia sul campo vuoto.
-
-    I conteggi sono contati, non copiati: sui blocchi che l'interfaccia mostra i
-    campi nullabili sono 7, di cui 4 numerici scalari (gli altri 3 sono tuple,
-    che il pannello rende readOnly), gli interi 14, i decimali 19, i booleani 4,
-    i `Literal` 4.
     """
     campo = _sorgente_di("campoParametro", _modulo())
     assert "typeof valore ===" not in campo, "il tipo del campo torna a dipendere dal valore"
     assert 'input.type = "number"' not in campo, (
         'type="number" sanifica in silenzio: cio\' che il browser non legge diventa ""'
     )
-    assert 'input.step = "any"' not in campo, "step=any toglie il passo unitario ai 14 interi"
+    assert 'input.step = "any"' not in campo, "step=any toglie il passo unitario agli interi"
+    _esegui(tmp_path, _banco_del_campo() + """
+// Lo stesso valore, due schemi: la forma cambia col tipo dichiarato, non col
+// valore che c'e' dentro.
+configurazione = { finto: { uguale: 1 } };
+const testo = campoParametro("finto", "uguale", { description: "" }, generazione);
+assert.equal(testo.children[1].type ?? "text", "text",
+  "senza tipo dichiarato la casella non e' piu' di testo");
+const cursore = campoParametro(
+  "finto", "uguale", { description: "", tipo: "intero", ge: 0, le: 10 }, generazione);
+assert.equal(cursore.children[1].type, "range",
+  "il tipo dichiarato dallo schema non cambia la forma della casella");
+
+// E il verso opposto: due valori diversi, lo stesso schema, la stessa forma.
+// E' il caso che il difetto rompeva -- un nullabile valeva testo finche' era
+// null e numero appena valeva qualcosa.
+configurazione = { finto: { vuoto: null, pieno: 3.5 } };
+const forma = (nome) => campoParametro(
+  "finto", nome, { description: "", tipo: "reale", nullabile: true }, generazione,
+).children[1];
+assert.equal(forma("vuoto").tag, forma("pieno").tag,
+  "un campo nullabile cambia forma a seconda che valga null o un numero");
+""")
 
 
 def test_una_durata_misurata_non_diventa_uno_zero_ne_un_minuto_di_sessanta(tmp_path):
@@ -1451,9 +1473,20 @@ def test_un_campo_nullabile_vuoto_non_mostra_la_stringa_null(tmp_path):
     manda al modello la stringa `null`, che non e' un numero.
     """
     _esegui(tmp_path, _banco_del_campo() + """
-configurazione = { downsample: { voxel_size: null }, segment: { crop_min: [1, 2, 3] } };
+configurazione = {
+  downsample: { voxel_size: null },
+  segment: { crop_min: [1, 2, 3] },
+  input: { expected_size: null },
+};
 const { input } = apriCampo("downsample", "voxel_size");
 assert.equal(input.value, "", "un campo nullabile vuoto mostra la stringa null");
+// Anche dove il tipo lo dichiara lo schema: `expected_size` e' una tupla
+// nullabile, e `JSON.stringify(null)` e' la stringa "null" -- le stesse
+// quattro lettere in un campo che e' vuoto.
+const composto = campoParametro("input", "expected_size",
+  { description: "", tipo: "composto", nullabile: true }, generazione);
+assert.equal(composto.children[1].value, "",
+  "un composto nullabile vuoto mostra la stringa null");
 // Una tupla non e' scritta in una casella di testo: String() la renderebbe
 // "1,2,3", cioe' un testo che nessuna lettura produce. readOnly e non disabled,
 // che la toglierebbe anche dal lettore di schermo.
@@ -1461,6 +1494,207 @@ const tupla = apriCampo("segment", "crop_min");
 assert.equal(tupla.input.value, "[1,2,3]", "la lista finisce nel campo come testo di nessuno");
 assert.equal(tupla.input.readOnly, true, "una lista diventa modificabile e ogni modifica e' rifiutata");
 assert.equal((tupla.input.gestori.change ?? []).length, 0, "la lista manda una PUT a ogni battuta");
+""")
+
+
+def test_un_enumerazione_diventa_un_menu_e_un_valore_solo_una_casella_bloccata(tmp_path):
+    """I valori ammessi li conosce il modello e adesso lo schema li porta: una
+    casella di testo dove si puo' battere di tutto rimanda al 422 una scelta
+    che era gia' nota qui.
+
+    Un `Literal` con un valore solo non prende un menu: un menu che non offre
+    scelte e' un menu che mente. Resta il valore, in un campo bloccato.
+    """
+    _esegui(tmp_path, _banco_del_campo() + """
+configurazione = { segment: { method: "auto" }, surface: { method: "poisson" } };
+const menu = campoParametro("segment", "method",
+  { description: "", tipo: "enumerazione", valori: ["crop", "auto"], nullabile: false }, generazione);
+const scelta = menu.children[1];
+assert.equal(scelta.tag, "select",
+  "un'enumerazione resta una casella dove si puo' battere qualunque cosa");
+assert.deepEqual(scelta.figli.map((o) => o.value), ["crop", "auto"],
+  "il menu non offre i valori che il modello ammette");
+assert.equal(scelta.value, "auto", "il menu non parte dal valore della configurazione");
+
+scelta.value = "crop";
+risponde = accetta({ segment: { method: "crop" }, surface: { method: "poisson" } });
+await scelta.scatena("change");
+assert.deepEqual(richieste.map((r) => r.corpo.segment.method), ["crop"],
+  "la scelta dal menu non arriva al disco");
+
+const unico = campoParametro("surface", "method",
+  { description: "", tipo: "enumerazione", valori: ["poisson"], nullabile: false }, generazione);
+const bloccato = unico.children[1];
+assert.notEqual(bloccato.tag, "select", "un menu con una voce sola offre una scelta che non c'e'");
+assert.equal(bloccato.value, "poisson", "il campo bloccato non mostra il valore");
+assert.equal(bloccato.readOnly, true, "il campo bloccato si lascia scrivere");
+assert.equal((bloccato.gestori.change ?? []).length, 0, "il campo bloccato manda comunque una PUT");
+""")
+
+
+def test_un_booleano_diventa_una_spunta_e_l_etichetta_viene_dallo_schema(tmp_path):
+    """«Una chiave non si stampa mai, si stampa la sua etichetta»: dove lo
+    schema porta un'etichetta la casella la mostra, dove non c'e' resta la
+    chiave, che e' l'unica cosa che si sa.
+
+    La spunta scrive un booleano vero e non la stringa «true»: e' il valore
+    che `valoreScritto` produce dal testo lasciato nel campo, e la spunta deve
+    lasciarcelo.
+    """
+    _esegui(tmp_path, _banco_del_campo() + """
+configurazione = { simplify: { enabled: false, taubin_iterations: 0 } };
+const riga = campoParametro("simplify", "enabled", {
+  description: "", tipo: "booleano", nullabile: false,
+  etichetta: "rifà i triangoli a misura uniforme",
+}, generazione);
+const [etichetta, spunta] = riga.children;
+assert.equal(etichetta.textContent, "rifà i triangoli a misura uniforme",
+  "la riga stampa la chiave grezza anche dove lo schema porta un'etichetta");
+assert.equal(spunta.type, "checkbox", "un booleano resta una casella dove si batte true o false");
+assert.equal(spunta.checked, false, "la spunta non parte dal valore della configurazione");
+
+spunta.checked = true;
+risponde = accetta({ simplify: { enabled: true, taubin_iterations: 0 } });
+await spunta.scatena("change");
+assert.deepEqual(richieste.map((r) => r.corpo.simplify.enabled), [true],
+  "la spunta non scrive un booleano");
+
+// Senza etichetta la chiave resta la chiave: nessuna frase inventata.
+const senza = campoParametro("simplify", "taubin_iterations",
+  { description: "", tipo: "intero", ge: 0, nullabile: false }, generazione);
+assert.equal(senza.children[0].textContent, "taubin_iterations",
+  "un campo senza etichetta ne prende una inventata");
+""")
+
+
+def test_un_numero_con_due_estremi_prende_lo_slider_e_i_due_versi_restano_uniti(tmp_path):
+    """Lo slider da solo non basta: non sa mostrare il valore esatto e non sa
+    rappresentare un valore fuori dal proprio intervallo. La casella accanto
+    e' quella che scrive, e i due versi si tengono uniti.
+
+    Il passo lo chiede il tipo: un intero si muove di 1, un reale fra 0 e 1
+    no. E l'inclusivita' conta: `lt` non e' `le`, e un cursore che li
+    confondesse offrirebbe un valore che il modello rifiuta.
+
+    La casella accanto non e' `type="number"`: e' la sanificazione silenziosa
+    di Chrome — battuto `1e`, `.value` torna `""` — che aveva azzerato la
+    configurazione di una corsa senza dirlo.
+    """
+    _esegui(tmp_path, _banco_del_campo() + """
+configurazione = { surface: { density_quantile: 0.05, poisson_depth: 9 } };
+const riga = campoParametro("surface", "density_quantile",
+  { description: "", tipo: "reale", ge: 0.0, lt: 1.0, nullabile: false }, generazione);
+const [, cursore, casella, , messaggio] = riga.children;
+assert.equal(cursore.type, "range", "un numero con entrambi gli estremi non prende il cursore");
+assert.notEqual(casella.type, "number",
+  'type="number" sanifica in silenzio: cio\\' che il browser non legge diventa ""');
+assert.equal(Number(cursore.step), 0.01, "il cursore di un reale fra 0 e 1 si muove di 1");
+assert.equal(Number(cursore.min), 0, "un estremo incluso e' stato spostato come se fosse escluso");
+assert.equal(Number(cursore.max), 0.99, "il cursore offre 1.0, che `lt` esclude e il modello rifiuta");
+assert.equal(cursore.value, "0.05", "il cursore non parte dal valore della configurazione");
+
+// Dal cursore alla casella, e da li' al disco.
+cursore.value = "0.5";
+await cursore.scatena("input");
+assert.equal(casella.value, "0.5", "la casella non segue il cursore");
+risponde = accetta({ surface: { density_quantile: 0.5, poisson_depth: 9 } });
+await cursore.scatena("change");
+assert.deepEqual(richieste.map((r) => r.corpo.surface.density_quantile), [0.5],
+  "il cursore non scrive niente sul disco");
+
+// E il verso opposto: battuto nella casella, il cursore si sposta.
+casella.value = "0.2";
+risponde = accetta({ surface: { density_quantile: 0.2, poisson_depth: 9 } });
+await casella.scatena("change");
+assert.equal(cursore.value, "0.2", "il cursore resta fermo su un valore che non c'e' piu'");
+assert.equal(messaggio.hidden, true, "un valore accettato porta un messaggio d'errore");
+
+// Un intero si muove di 1.
+const intero = campoParametro("surface", "poisson_depth",
+  { description: "", tipo: "intero", ge: 4, le: 14, nullabile: false }, generazione);
+assert.equal(Number(intero.children[1].step), 1, "il cursore di un intero non si muove di 1");
+""")
+
+
+def test_senza_due_estremi_o_col_vuoto_ammesso_la_casella_resta_di_testo(tmp_path):
+    """Tre casi che il cursore non sa reggere, e la casella di testo si'.
+
+    Un estremo solo: un cursore senza fondo scala e' un cursore su un
+    intervallo inventato. Un nullabile: il vuoto significa «decidi tu», e
+    nessuna posizione del cursore lo esprime — `voxel_size` e `max_hole_area`
+    sono esattamente questo, e devono poter tornare vuoti. Un tipo che lo
+    schema non dichiara, o che il pannello non riconosce: casella di testo e
+    nessuna eccezione, perche' una forma sconosciuta non deve spegnere il
+    pannello.
+    """
+    _esegui(tmp_path, _banco_del_campo() + """
+configurazione = { normals: { knn: 30 }, downsample: { voxel_size: 3.0 }, ignoto: { boh: "x" } };
+
+const solo = campoParametro("normals", "knn",
+  { description: "", tipo: "intero", gt: 2, nullabile: false }, generazione);
+assert.equal(solo.children[1].type ?? "text", "text",
+  "un cursore senza fondo scala e' un cursore su un intervallo inventato");
+
+const nullabile = campoParametro("downsample", "voxel_size",
+  { description: "", tipo: "reale", gt: 0.0, le: 100.0, nullabile: true }, generazione);
+const casella = nullabile.children[1];
+assert.equal(casella.type ?? "text", "text", "il cursore non sa esprimere il vuoto");
+// E il vuoto deve poterci tornare: e' il valore che dice «decidi tu».
+casella.value = "";
+risponde = accetta({ normals: { knn: 30 }, downsample: { voxel_size: null }, ignoto: { boh: "x" } });
+await casella.scatena("change");
+assert.deepEqual(richieste.map((r) => r.corpo.downsample.voxel_size), [null],
+  "un campo nullabile svuotato non torna a null");
+assert.equal(casella.value, "", "il campo vuoto mostra la stringa null");
+
+const ignoto = campoParametro("ignoto", "boh",
+  { description: "", tipo: "quadrimensionale", nullabile: false }, generazione);
+assert.equal(ignoto.children[1].type ?? "text", "text",
+  "un tipo che il pannello non riconosce non ricade sulla casella di testo");
+assert.equal(ignoto.children[1].value, "x");
+assert.notEqual(ignoto.children[1].readOnly, true, "un tipo sconosciuto diventa di sola lettura");
+""")
+
+
+def test_una_forma_che_non_sa_mostrare_il_valore_gia_scritto_non_lo_cancella(tmp_path):
+    """La configurazione di una corsa vecchia puo' portare un valore che il
+    dominio di oggi non ammette piu'. Un `<select>` non ha una voce per
+    mostrarlo e una spunta non ha una terza posizione: sceglierli lo
+    cancellerebbe alla prima riscrittura del pannello, in silenzio. Chi apre
+    quella corsa deve vedere che cosa c'e' scritto, non un campo azzerato.
+    """
+    _esegui(tmp_path, _banco_del_campo() + """
+configurazione = { segment: { method: "kmeans" }, simplify: { enabled: "forse" } };
+const fuori = campoParametro("segment", "method",
+  { description: "", tipo: "enumerazione", valori: ["crop", "auto"], nullabile: false }, generazione);
+assert.notEqual(fuori.children[1].tag, "select",
+  "il menu non ha una voce per «kmeans»: il valore scritto sparisce dallo schermo");
+assert.equal(fuori.children[1].value, "kmeans", "il valore gia' scritto e' stato cancellato");
+
+const spunta = campoParametro("simplify", "enabled",
+  { description: "", tipo: "booleano", nullabile: false }, generazione);
+assert.notEqual(spunta.children[1].type, "checkbox",
+  "una spunta non ha una posizione per «forse»: il valore scritto sparisce dallo schermo");
+assert.equal(spunta.children[1].value, "forse", "il valore gia' scritto e' stato cancellato");
+""")
+
+
+def test_i_campi_di_un_blocco_assente_restano_in_sola_lettura(tmp_path):
+    """`analysis` non esiste finche' il materiale non e' dichiarato, e un campo
+    di un blocco assente non si scrive uno alla volta: la PUT manderebbe un
+    blocco a meta'. Si dichiara tutto insieme dal pannello del materiale, e
+    qui la casella resta in sola lettura — anche dove il tipo, da solo,
+    chiederebbe un cursore o una spunta.
+    """
+    _esegui(tmp_path, _banco_del_campo() + """
+configurazione = { simplify: { enabled: true } };
+const riga = campoParametro("analysis", "set_tolerance_factor",
+  { description: "", tipo: "reale", gt: 0.0, le: 20.0, nullabile: false }, generazione);
+assert.equal(riga.childElementCount, 4, "un blocco assente ha comunque preso il cursore");
+const casella = riga.children[1];
+assert.equal(casella.readOnly, true, "un campo di un blocco assente si lascia scrivere");
+assert.equal((casella.gestori.change ?? []).length, 0,
+  "un campo di un blocco assente manda una PUT con il blocco a meta'");
 """)
 
 
@@ -1599,6 +1833,78 @@ for (const testo of [parziale, intero]) {
 }
 """)
     assert uscita == ""
+
+
+# --------------------------------------------------------------------------
+# L'esportazione: il comando che porta fuori il deck, nel pannello dello step
+# che lo ha scritto.
+# --------------------------------------------------------------------------
+
+
+def _banco_del_deck(voce: dict) -> str:
+    """Il pannello costruito dalla funzione vera su una sola voce di registro.
+
+    E' il registro a dire tutto quello che il pannello decide: se il deck e'
+    stato scritto (`artefatto`) e se lo e' stato con i parametri di adesso
+    (`stato`, che vale "non valido" quando l'impronta salvata non coincide piu'
+    con quella della configurazione corrente -- vedi `steps.run_state`).
+    """
+    return _DOM + _costante("STEP_CON_DECK") + _funzioni("pannelloDeck") + f"""
+ultimoStato = [{json.dumps(voce)}];
+const pannello = pannelloDeck();
+const collegamenti = pannello.discendenti().filter((e) => e.tag === "a");
+const testo = pannello.discendenti().map((e) => e.textContent).join(" ");
+const AVVISO = /parametri diversi/;
+"""
+
+
+def test_il_deck_scritto_si_scarica_dal_pannello_dello_step_11(tmp_path):
+    """Un collegamento vero a `/api/deck`, non un bottone che fabbrica il file
+    in memoria: e' il browser a scaricare, ed e' la tratta a dire con che nome.
+
+    Nessun avviso quando l'impronta coincide: un cartello che comparisse sempre
+    smetterebbe di dire qualcosa il giorno in cui e' vero.
+    """
+    _esegui(tmp_path, _banco_del_deck(
+        {"numero": 11, "chiave": "11_export", "stato": "valido", "artefatto": "wall_model.inp"},
+    ) + """
+assert.equal(collegamenti.length, 1, "il pannello dello step 11 non porta il comando");
+assert.equal(collegamenti[0].href, "/api/deck");
+assert.doesNotMatch(testo, AVVISO, "il deck coincide coi parametri e il pannello se ne scusa");
+""")
+
+
+def test_senza_deck_scritto_il_pannello_nomina_lo_step_invece_del_file(tmp_path):
+    """Ingresso degenere: lo step 11 non e' mai stato eseguito.
+
+    Il comando non c'e' -- un collegamento a un file che non esiste porterebbe
+    su un corpo d'errore invece che su un file -- e al suo posto c'e' la riga
+    che dice quale step lo scrive. Chi guarda l'interfaccia ragiona per step.
+    """
+    _esegui(tmp_path, _banco_del_deck(
+        {"numero": 11, "chiave": "11_export", "stato": "mai eseguito", "artefatto": None},
+    ) + """
+assert.equal(collegamenti.length, 0, "il pannello offre un deck che non e' stato scritto");
+assert.match(testo, /step 11/, "il pannello non dice quale step scrive il deck");
+""")
+
+
+def test_un_deck_piu_vecchio_dei_parametri_si_scarica_e_lo_dichiara(tmp_path):
+    """Ingresso degenere: il deck su disco e' stato scritto da una
+    configurazione diversa da quella a video.
+
+    Si consegna lo stesso -- e' il file che sta sul disco, quello di cui il
+    registro porta l'impronta -- ma il pannello non lo puo' spacciare per il
+    modello dei parametri mostrati accanto. L'interfaccia non lo deduce: e' lo
+    stato "non valido" del registro, cioe' l'impronta che non coincide piu'.
+    """
+    _esegui(tmp_path, _banco_del_deck(
+        {"numero": 11, "chiave": "11_export", "stato": "non valido",
+         "artefatto": "wall_model.inp"},
+    ) + """
+assert.equal(collegamenti.length, 1, "un deck scritto resta scaricabile com'e'");
+assert.match(testo, AVVISO, "il pannello spaccia per corrente un deck che non lo e'");
+""")
 
 
 # --------------------------------------------------------------------------
@@ -2013,11 +2319,13 @@ globalThis.fetch = async (percorso) => {
 };
 // Letto e non chiamato in questi banchi (numero e' sempre 1): apriDettaglio
 // li confronta comunque a ogni apertura, quindi devono esistere. pannelloCampo
-// e' provato per conto suo (Task 9): qui basta uno stub, questi banchi non
-// aprono mai lo step 13.
+// e pannelloDeck sono provati per conto proprio: qui bastano stub, questi
+// banchi non aprono mai lo step 11 ne' il 13.
 const STEP_CON_RITAGLIO = 2;
 const STEP_CON_CAMPO = 13;
+const STEP_CON_DECK = 11;
 function pannelloCampo() { return document.createElement("fieldset"); }
+function pannelloDeck() { return document.createElement("fieldset"); }
 const SCHEMA_BUONO = { "1": { blocchi: ["input"], campi: { input: { path: { description: "percorso" } } } } };
 const CONFIG_BUONA = { input: { path: "nuvola.ply" } };
 const METRICHE_BUONE = {};

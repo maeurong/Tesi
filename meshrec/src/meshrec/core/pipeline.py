@@ -19,6 +19,11 @@ from meshrec.core.config import PipelineConfig, save_config
 METRICS_FILENAME = "metrics.json"
 METRICS_PARTIAL = "metrics.partial.json"
 WALL_FILENAME = "12_wall.json"
+# Il deck di calcolo dello step 11: il file che si importa in Abaqus o si da' a
+# CalculiX, e che lo step 13 risolve senza copiarlo. Una costante perche' da
+# adesso lo nomina anche il server, che lo consegna a chi lo chiede
+# (`/api/deck`): scritto due volte, il giorno che cambia ne cambia una sola.
+DECK_FILENAME = "wall_model.inp"
 
 
 class _FermataRichiesta(Exception):
@@ -248,7 +253,7 @@ def genera_modello(cfg: PipelineConfig, tipo: str, out_dir: Path) -> dict[str, o
         carico = (cfg.model.lateral_nset, float(cfg.model.lateral_pressure))
 
     export = abaqus.export_model(
-        out / "wall_model.inp",
+        out / DECK_FILENAME,
         out / "wall_model.vtu",
         nodi,
         elementi,
@@ -518,7 +523,7 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
         # generata: e' quella, e non i nodi del volume, a definire il sistema
         # di riferimento del modello (vedi abaqus.align_to_axes).
         metrics["11_export"] = abaqus.export_model(
-            out / "wall_model.inp",
+            out / DECK_FILENAME,
             out / "wall_model.vtu",
             nodes,
             tets,
@@ -528,7 +533,7 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
             carichi=cfg.carichi,
             selettori=cfg.selettori,
         )
-        registra(11, avvio, "wall_model.inp")
+        registra(11, avvio, DECK_FILENAME)
 
         if stop <= 11:
             raise _FermataRichiesta
@@ -553,7 +558,7 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
         # dei casi (casi_di_carico) vengono dalla stessa riga: e' l'ordine che
         # export_model ha scritto davvero nel deck, non una sua ricostruzione.
         metrics["13_solve"] = solve.risolvi(
-            out, out / "wall_model.inp", cfg.analisi_dichiarata("lo step 13"), nodes, tets,
+            out, out / DECK_FILENAME, cfg.analisi_dichiarata("lo step 13"), nodes, tets,
             metrics["11_export"]["element_type"],
             casi_di_carico=metrics["11_export"]["casi_di_carico"],
             # Gia' calcolato allo step 11 (abaqus.constraint_plan_extent):

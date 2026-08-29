@@ -268,6 +268,13 @@ code { font-family: var(--stack-cifre); }
    contorno resta pieno perche' l'elemento c'e' ancora e non deve sparire. */
 .bottone:disabled { color: var(--tenue); cursor: default; }
 .bottone:disabled:hover { background: var(--superficie); }
+/* Il comando che porta fuori il deck e' un collegamento vero e non un bottone:
+   il file sta gia' sul disco ed e' il browser a scaricarlo. Vestito da comando
+   come gli altri, a un <a> servono le due righe che un <button> ha per conto
+   suo -- la scatola, perche' su un elemento in linea il padding verticale non
+   spinge niente, e la sottolineatura tolta, che direbbe «testo dentro una
+   frase» sopra un contorno che dice «premimi». */
+a.bottone { display: inline-block; text-decoration: none; }
 /* Il comando che e' lo scopo del pannello, e uno solo per zona. L'accento si
    chiama «azione» dal primo giorno e su un'azione non era mai stato speso:
    tutti i bottoni erano il contorno grigio su fondo bianco, e il pannello
@@ -527,6 +534,19 @@ code { font-family: var(--stack-cifre); }
    cambia il peso del selettore. Il colore non e' l'unico canale: il messaggio
    del rifiuto sta scritto sotto il campo, e app.js segna aria-invalid. */
 .campo input.campo-rifiutato { border-color: var(--guasto); }
+/* Il cursore e la sua casella sono due comandi per lo stesso parametro, e
+   stanno sulla stessa riga: il cursore prende lo spazio, la casella la
+   larghezza di un numero. L'etichetta sopra, l'aiuto e il rifiuto sotto,
+   tutti e tre a riga piena come in ogni altro campo. */
+.campo:has(input[type="range"]) { grid-template-columns: 1fr 9ch; align-items: center; }
+.campo:has(input[type="range"]) > label,
+.campo:has(input[type="range"]) > small { grid-column: 1 / -1; }
+/* Il cursore non e' una casella: il contorno e lo sfondo di `.campo input` lo
+   incorniciavano come se lo fosse. */
+.campo input[type="range"] { padding: 0; border: 0; background: none; }
+/* Una spunta e' larga quanto se stessa: a riga piena il quadratino restava
+   solo, all'estremita' di una cornice vuota lunga tutta la colonna. */
+.campo input[type="checkbox"] { justify-self: start; width: 1.15em; height: 1.15em; padding: 0; }
 .errore { margin: 0 0 var(--passo-3); color: var(--guasto); font-size: var(--tipo-dato); line-height: var(--interlinea); max-width: var(--misura); overflow-wrap: anywhere; text-wrap: pretty; }
 /* Vuota non occupa spazio, ma resta nell'albero di accessibilita': display:none
    e hidden ne toglierebbero la regione role="alert", che deve essere viva prima
