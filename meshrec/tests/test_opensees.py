@@ -348,16 +348,33 @@ def test_il_piede_e_incastrato_e_il_resto_e_libero(tmp_path):
     assert [c[2:] for c in fix] == [["1"] * 6]
 
 
-def test_il_peso_proprio_e_lo_stesso_di_rho_per_V_per_g(tmp_path):
-    """L'oracolo di `controlla_reazioni` e' `rho*V*g`: se la somma dei carichi
-    nodali non lo vale, il verdetto boccia un modello sano."""
+def _peso_atteso(base: float, altezza_sezione: float, lunghezza: float, barre) -> float:
+    """Il peso di un'asta dalla **geometria**, acciaio compreso.
+
+    Oracolo indipendente da `opensees._peso_nodale`: un controllo che confronta
+    la somma delle reazioni con lo stesso numero che ha generato i carichi
+    verifica solo che i registratori abbiano scritto.
+    """
+    area_barre = sum(math.pi * float(b.diametro) ** 2 / 4.0 for b in barre)
+    area = base * altezza_sezione
+    massa = (area - area_barre) * CALCESTRUZZO.density + area_barre * ACCIAIO.density
+    return massa * lunghezza * config.GRAVITY_MM_S2
+
+
+def test_il_peso_proprio_conta_anche_l_acciaio(tmp_path):
+    """L'oracolo di `controlla_reazioni` è il peso vero del pezzo, e le barre
+    pesano: su 4Ø16 in una sezione 300x200 sono il 2,79% di peso, misurato.
+    Ignorarle mentre `EA` le include -- come faceva questo modulo -- boccia un
+    modello sano, o approva un peso sbagliato."""
     testo = _scrivi(tmp_path)
 
     carichi = [r.split() for r in testo.splitlines() if r.strip().startswith("load ")]
     somma = sum(float(c[4]) for c in carichi)
-    volume = 300.0 * 200.0 * 2000.0
-    atteso = -volume * CALCESTRUZZO.density * config.GRAVITY_MM_S2
-    assert somma == pytest.approx(atteso)
+    atteso = _peso_atteso(300.0, 200.0, 2000.0, BARRE)
+
+    assert somma == pytest.approx(-atteso)
+    solo_calcestruzzo = 300.0 * 200.0 * 2000.0 * CALCESTRUZZO.density * config.GRAVITY_MM_S2
+    assert atteso / solo_calcestruzzo == pytest.approx(1.0279, rel=1e-3)
 
 
 def test_il_blocco_modale_chiede_i_modi_e_la_massa_partecipante(tmp_path):
@@ -635,17 +652,21 @@ def test_opensees_esegue_il_tcl_che_scriviamo_e_accorcia_la_mensola_come_la_form
     area = 300.0 * 200.0
     area_barre = 4 * math.pi * 16.0**2 / 4.0
     rigidezza = CALCESTRUZZO.young * area + ACCIAIO.young * area_barre
-    peso = area * CALCESTRUZZO.density * config.GRAVITY_MM_S2
-    atteso = -peso * 2000.0**2 / (2.0 * rigidezza)
+    # Il peso viene dalla **geometria**, non dal resoconto: confrontare una
+    # reazione col numero che ha generato i carichi è un'identità, e verifica
+    # solo che i registratori abbiano scritto.
+    peso = _peso_atteso(300.0, 200.0, 2000.0, BARRE)
+    atteso = -peso / 2000.0 * 2000.0**2 / (2.0 * rigidezza)
 
     assert campi["U_GRAVITA"][-1, 2] == pytest.approx(atteso, rel=1e-6)
     assert campi["U_GRAVITA"][0].tolist() == [0.0, 0.0, 0.0]
-    assert resoconto["peso_proprio"] == pytest.approx(area * 2000.0 * CALCESTRUZZO.density * config.GRAVITY_MM_S2)
+    assert resoconto["peso_proprio"] == pytest.approx(peso)
 
-    # Le reazioni pareggiano il peso: è l'oracolo di `solve.controlla_reazioni`,
-    # e sul telaio il termine di gravità tributaria vale zero.
+    # Le reazioni pareggiano il peso della geometria: è l'oracolo di
+    # `solve.controlla_reazioni`, e sul telaio il termine di gravità tributaria
+    # vale zero.
     reazioni = opensees._ultima_riga(tmp_path / "GRAVITA_reazioni.out", 6 * 5)
-    assert reazioni.reshape(5, 6)[0, 2] == pytest.approx(resoconto["peso_proprio"], rel=1e-9)
+    assert reazioni.reshape(5, 6)[0, 2] == pytest.approx(peso, rel=1e-9)
 
     # Quattro modi chiesti, quattro forme scritte, e nessun U_ né VM_ da loro.
     assert [n for n in campi if n.startswith("MODO_")] == [f"MODO_{i}" for i in range(1, 5)]

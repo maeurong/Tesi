@@ -269,6 +269,30 @@ def _materiali(telaio: "Telaio") -> tuple[list[str], dict[int, tuple[int, int]]]
     return righe, tag_per_membratura
 
 
+def _massa_lineare(telaio: "Telaio", elemento) -> float:
+    """Massa per unita' di lunghezza di un'asta, **acciaio compreso**.
+
+    Le barre pesano, e il modulo le ignorava mentre la sezione a fibre le
+    include nella rigidezza: su 4 barre da 16 mm in una sezione 300x200 sono il
+    2,79% di peso mancante. Una massa che non e' quella del pezzo boccia un
+    modello sano su `controlla_reazioni`, e sposta le frequenze di un'analisi
+    modale che nessuno riguarda.
+
+    L'acciaio **sostituisce** il calcestruzzo dove sta: e' il peso vero del
+    pezzo. La sezione a fibre invece somma le barre alla `patch` che copre
+    tutto il rettangolo, quindi la rigidezza sovrastima di poco -- e' la
+    convenzione della sezione a fibre, e non e' questa funzione a doverla
+    correggere.
+    """
+    base, altezza = float(elemento.sezione[0]), float(elemento.sezione[1])
+    area_barre = sum(math.pi * float(b.diametro) ** 2 / 4.0 for b in elemento.barre)
+    sezione = telaio.materiali[elemento.membratura]
+    return (
+        (base * altezza - area_barre) * float(sezione.calcestruzzo_confinato.material.density)
+        + area_barre * float(sezione.acciaio.material.density)
+    )
+
+
 def _peso_nodale(telaio: "Telaio", nodi: np.ndarray) -> np.ndarray:
     """Il peso proprio ripartito sui nodi, meta' per estremo di ogni asta.
 
@@ -277,7 +301,8 @@ def _peso_nodale(telaio: "Telaio", nodi: np.ndarray) -> np.ndarray:
     le componenti nel riferimento **locale** dell'asta, quindi la gravita'
     globale andrebbe proiettata elemento per elemento, e una proiezione
     sbagliata da' un carico plausibile in una direzione sbagliata. La seconda:
-    `controlla_reazioni` confronta la somma delle reazioni con `rho*V*g`, e la
+    `controlla_reazioni` confronta la somma delle reazioni con il peso che la
+    geometria dichiara (`_massa_lineare` per la lunghezza, per `g`), e la
     ripartizione nodale rende quell'uguaglianza **esatta** -- il carico
     applicato a un nodo vincolato entra intero nella sua reazione. E' anche il
     motivo per cui la casella `reazioni` di `solve.CONTROLLI_PER_MODELLO` dice
@@ -286,11 +311,8 @@ def _peso_nodale(telaio: "Telaio", nodi: np.ndarray) -> np.ndarray:
     """
     peso = np.zeros(len(nodi), dtype=np.float64)
     for elemento in telaio.elementi:
-        base, altezza = elemento.sezione
-        area = float(base) * float(altezza)
         lunghezza = float(np.linalg.norm(nodi[elemento.nodo_j] - nodi[elemento.nodo_i]))
-        densita = telaio.materiali[elemento.membratura].calcestruzzo_confinato.material.density
-        meta = 0.5 * area * lunghezza * float(densita) * GRAVITY_MM_S2
+        meta = 0.5 * _massa_lineare(telaio, elemento) * lunghezza * GRAVITY_MM_S2
         peso[elemento.nodo_i] += meta
         peso[elemento.nodo_j] += meta
     return peso
@@ -361,8 +383,10 @@ def _sezioni_ed_elementi(telaio: "Telaio", nodi: np.ndarray, tag_materiale) -> l
         righe.append(
             f"geomTransf Linear {indice} {vecxz[0]:.10g} {vecxz[1]:.10g} {vecxz[2]:.10g}"
         )
-        area = base * altezza
-        massa = area * float(dichiarato.density)
+        # La stessa massa dei carichi nodali, acciaio compreso: due formule
+        # diverse per la stessa asta darebbero una statica e una modale che
+        # pesano cose diverse.
+        massa = _massa_lineare(telaio, elemento)
         righe.append(
             f"element forceBeamColumn {indice} {elemento.nodo_i + 1} "
             f"{elemento.nodo_j + 1} {_PUNTI_INTEGRAZIONE} {indice} {indice} "
