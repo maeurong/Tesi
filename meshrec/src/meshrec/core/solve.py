@@ -36,12 +36,19 @@ import shutil
 import subprocess
 from collections.abc import Iterable
 from pathlib import Path
-from typing import NamedTuple
+from typing import TYPE_CHECKING, NamedTuple
 
 import numpy as np
 
 from meshrec.core import abaqus, quality
-from meshrec.core.config import AnalysisConfig
+from meshrec.core.config import AnalysisConfig, _mappa_casefold
+
+if TYPE_CHECKING:  # pragma: no cover
+    # Il blocco `solutore` di `PipelineConfig` lo scrive l'onda 0 della Fase 8:
+    # qui serve solo come annotazione, e le annotazioni di questo modulo sono
+    # stringhe (`from __future__ import annotations`). L'import vero
+    # arriverebbe a runtime prima che il blocco esista.
+    from meshrec.core.config import SolutoreConfig
 
 # Tempo massimo concesso a ccx: stesso valore usato in tutta la suite di
 # fattibilita' (tests/feasibility/test_calculix.py), non un numero nuovo.
@@ -1137,6 +1144,245 @@ def _quota_tributaria_gravita(
     )
 
 
+# Dove si prende ciascun solutore. Sta nel codice e non in un documento perche'
+# lo legge chi ha appena scoperto che gli manca: un messaggio che dice «assente»
+# senza dire da dove prenderlo costringe a indovinare (#144).
+DOVE_PRENDERLO: dict[str, str] = {
+    "calculix": (
+        "CalculiX CrunchiX da http://www.dhondt.de/ (sorgenti e binari), "
+        "oppure il pacchetto 'calculix-ccx' della propria distribuzione: "
+        "l'eseguibile si chiama 'ccx' e va messo nel PATH, o dichiarato in "
+        "solutore.percorso"
+    ),
+    "opensees": (
+        "OpenSees da https://opensees.berkeley.edu/ (sezione Download): "
+        "l'eseguibile si chiama 'OpenSees' ('OpenSees.exe' su Windows) e va "
+        "messo nel PATH, o dichiarato in solutore.percorso. Non è installabile "
+        "a sistema da un gestore di pacchetti sulla maggior parte delle "
+        "distribuzioni"
+    ),
+}
+
+# Come si prova che un eseguibile è davvero quel solutore, e non un omonimo.
+#
+# Due prove diverse perche' i due programmi si presentano in due modi diversi,
+# e tutti e due misurati su questa macchina il 30/08/2026:
+#
+# - `ccx -v` stampa «This is Version 2.21» ed esce con **codice 201**. Il
+#   codice d'uscita non e' il segnale, e' gia' costato un difetto (`9d2f751`):
+#   la prova guarda l'uscita.
+# - OpenSees non ha un flag di versione. Senza argomenti legge lo script da
+#   stdin, quindi gli si fa **eseguire una riga** e si guarda che l'abbia
+#   eseguita. Non basta il banner: OpenSees 3.8.0 lo stampa e poi esce con
+#   **codice 0** anche quando lo script muore su un errore fatale (misurato su
+#   `element truss 1 1 99 100.0 1` con nodo e materiale inesistenti), quindi
+#   ne' il codice ne' il banner distinguono «c'e'» da «funziona».
+_SOLUTORI: dict[str, dict[str, object]] = {
+    "calculix": {
+        "eseguibile": "ccx",
+        "argomenti": ("-v",),
+        "ingresso": "",
+        "marcatore": "Version",
+    },
+    "opensees": {
+        "eseguibile": "OpenSees",
+        "argomenti": (),
+        "ingresso": 'puts "MESHREC_VERIFICA"\n',
+        "marcatore": "MESHREC_VERIFICA",
+    },
+}
+
+# Tempo massimo concesso alla prova di un solutore. Non `_TIMEOUT_S`: quello e'
+# il tempo di una corsa vera, e una prova che stampa una riga o e' immediata o
+# e' rotta.
+_TIMEOUT_VERIFICA_S = 30.0
+
+
+def _nome_noto(nome: str) -> str:
+    if nome not in _SOLUTORI:
+        raise KeyError(
+            f"solutore '{nome}' sconosciuto: i solutori sono {sorted(_SOLUTORI)}"
+        )
+    return nome
+
+
+def _trova(nome: str, percorso: Path | None) -> tuple[Path | None, str | None, str | None]:
+    """`(percorso, origine, motivo dell'assenza)` per un solutore solo.
+
+    Il punto unico in cui si decide *dove* sta un solutore, cosi' che
+    `eseguibile`, `disponibilita` e `verifica` non abbiano tre risposte.
+
+    Un `percorso` dichiarato e inesistente **non ripiega sul PATH**: sarebbe il
+    caso peggiore da diagnosticare, perche' l'utente crede di star usando il
+    proprio binario e ne sta usando un altro, e nulla glielo dice.
+    """
+    _nome_noto(nome)
+    if percorso is not None:
+        dichiarato = Path(percorso)
+        if dichiarato.is_file():
+            return dichiarato, "dichiarato", None
+        return None, None, (
+            f"solutore.percorso dichiara «{dichiarato}», che non è un file. Un "
+            "percorso dichiarato non ripiega sul PATH: correggilo o toglilo per "
+            "far cercare il solutore nel PATH"
+        )
+    binario = str(_SOLUTORI[nome]["eseguibile"])
+    nel_path = shutil.which(binario)
+    if nel_path is not None:
+        return Path(nel_path), "PATH", None
+    return None, None, (
+        f"«{binario}» non è nel PATH e solutore.percorso non è dichiarato. "
+        f"{DOVE_PRENDERLO[nome]}"
+    )
+
+
+def eseguibile(cfg: "SolutoreConfig") -> Path | None:
+    """Il percorso dichiarato, altrimenti `shutil.which`. `None` se non c'è.
+
+    Vale per `ccx` e per OpenSees: il percorso dichiarabile mancava a entrambi
+    (#139), e `risolvi` cercava `ccx` nel solo PATH. OpenSees in particolare
+    non si installa a sistema quasi da nessuna parte, quindi senza percorso
+    dichiarabile non sarebbe raggiungibile affatto.
+    """
+    trovato, _, _ = _trova(cfg.nome, cfg.percorso)
+    return trovato
+
+
+def disponibilita(cfg: "SolutoreConfig | None" = None) -> dict[str, dict[str, object]]:
+    """Lo sguardo rapido dell'avvio: c'è / non c'è, e da dove (#144 Q1).
+
+    **Non esegue niente** e non solleva mai per un solutore assente: un
+    solutore che non c'è non è un difetto finché nessuno lo sceglie. Chi usa
+    solo CalculiX deve vedere OpenSees come «non installato, e va bene», non
+    come un errore -- ed è il motivo per cui `scelto` sta accanto a
+    `disponibile` invece di essere dedotto da chi legge.
+
+    Il `percorso` dichiarato vale per il solo solutore scelto: è il campo di
+    *quella* configurazione, e attribuirlo anche all'altro direbbe che
+    l'utente ha dichiarato una cosa che non ha dichiarato.
+
+    `cfg` a `None` significa «nessuna configurazione»: si guarda il PATH e
+    nessuno dei due è scelto.
+    """
+    scelto = _nome_noto(cfg.nome) if cfg is not None else None
+    stato: dict[str, dict[str, object]] = {}
+    for nome in _SOLUTORI:
+        percorso, origine, motivo = _trova(
+            nome, cfg.percorso if cfg is not None and nome == scelto else None
+        )
+        stato[nome] = {
+            "disponibile": percorso is not None,
+            "percorso": None if percorso is None else str(percorso),
+            "origine": origine,
+            "scelto": nome == scelto,
+            "motivo": motivo,
+            "dove_prenderlo": DOVE_PRENDERLO[nome],
+        }
+    return stato
+
+
+def verifica(cfg: "SolutoreConfig") -> dict[str, object]:
+    """La prova vera, al momento di scegliere: esegue il binario e guarda che risponda.
+
+    «C'è» non è «funziona» (#144 Q1). Un file col nome giusto e i permessi
+    giusti può essere un omonimo, un collegamento rotto, un binario per
+    un'altra architettura, o il solutore vero che non trova le proprie
+    librerie: nessuna di queste si vede da `shutil.which`.
+
+    **Il codice d'uscita non è il verdetto**, per tutti e due i solutori e per
+    due ragioni diverse, misurate e non lette: `ccx -v` funziona ed esce 201
+    (`9d2f751`); OpenSees 3.8.0 esce 0 anche quando lo script muore su un
+    errore fatale. Il verdetto è il marcatore che `_SOLUTORI` dichiara. Il
+    codice resta comunque riportato, e finisce nel messaggio quando la prova
+    fallisce: è l'indizio che dice se il binario è nemmeno partito.
+
+    L'uscita si decodifica con `errors="ignore"`, la stessa scelta misurata di
+    `_righe_dat`: un byte fuori tabella nell'uscita di un solutore non deve
+    trasformare una diagnosi in un `UnicodeDecodeError` che non nomina nulla.
+    """
+    nome = _nome_noto(cfg.nome)
+    percorso, _, assente = _trova(nome, cfg.percorso)
+    if percorso is None:
+        return {
+            "solutore": nome, "percorso": None, "disponibile": False,
+            "funziona": False, "codice": None, "uscita": "",
+            "motivo": f"{assente} {DOVE_PRENDERLO[nome]}",
+        }
+
+    scheda = _SOLUTORI[nome]
+    try:
+        processo = subprocess.run(
+            [str(percorso), *scheda["argomenti"]],
+            input=str(scheda["ingresso"]).encode(),
+            capture_output=True,
+            timeout=_TIMEOUT_VERIFICA_S,
+        )
+    except (OSError, subprocess.SubprocessError) as errore:
+        return {
+            "solutore": nome, "percorso": str(percorso), "disponibile": True,
+            "funziona": False, "codice": None, "uscita": "",
+            "motivo": f"«{percorso}» non è eseguibile: {type(errore).__name__}: {errore}",
+        }
+
+    uscita = (processo.stdout + processo.stderr).decode("utf-8", errors="ignore")
+    funziona = str(scheda["marcatore"]) in uscita
+    motivo = None
+    if not funziona:
+        motivo = (
+            f"«{percorso}» è partito (codice {processo.returncode}) ma la sua "
+            f"uscita non è riconosciuta come {nome}: manca il marcatore "
+            f"'{scheda['marcatore']}'. Coda dell'uscita:\n{uscita[-2000:]}"
+        )
+    return {
+        "solutore": nome, "percorso": str(percorso), "disponibile": True,
+        "funziona": funziona, "codice": processo.returncode,
+        "uscita": uscita[-2000:], "motivo": motivo,
+    }
+
+
+def valida_casi_di_carico(casi_di_carico: list[str]) -> list[str]:
+    """I nomi dei casi, o il motivo per cui non sono nomi.
+
+    Due guardie, e nessuna delle due è teorica in questo repo.
+
+    **Vuoto**: un deck senza casi non è uno stato da eseguire a vuoto. Era già
+    la guardia di `risolvi`, spostata qui perché ora ha un secondo chiamante --
+    `opensees.scrivi_tcl`, che senza di essa scriverebbe un file muto che
+    OpenSees esegue senza calcolare nulla.
+
+    **Due nomi che differiscono solo per le maiuscole**: `ccx` risolve i nomi
+    senza distinguere il caso (misurato in
+    `docs/fase-6-cantiere/sonda-caso-nomi/`), quindi nel deck sono lo stesso
+    nome e i risultati del secondo sovrascrivono quelli del primo. `config.
+    PipelineConfig` lo verifica già sui nomi che l'operatore dichiara; questa
+    è la stessa regola al confine di chi riceve la lista già costruita, dove
+    arriva anche per chiamata diretta.
+
+    L'ordine si conserva: è un contratto col lettore del `.frd`, dove il
+    numero di passo è l'unico legame fra un blocco e il suo caso, e un ordine
+    diverso da quello del deck scambierebbe i risultati.
+    """
+    if not casi_di_carico:
+        raise ValueError(
+            "casi_di_carico è vuoto: nessun caso da risolvere. Un deck senza "
+            "casi è un errore del chiamante, non uno stato da eseguire a vuoto"
+        )
+    per_caso = _mappa_casefold(casi_di_carico)
+    if len(per_caso) != len(casi_di_carico):
+        visti: dict[str, str] = {}
+        for nome in casi_di_carico:
+            gemello = visti.get(nome.casefold())
+            if gemello is not None:
+                raise ValueError(
+                    f"i casi di carico '{gemello}' e '{nome}' differiscono solo "
+                    "per le maiuscole: per il solutore sono lo stesso nome (ccx "
+                    "risolve i nomi senza distinguere il caso), e il secondo "
+                    "sovrascriverebbe i risultati del primo"
+                )
+            visti[nome.casefold()] = nome
+    return list(casi_di_carico)
+
+
 def _rotazione_ai_punti(trasformata: np.ndarray | list[list[float]]) -> np.ndarray:
     """La parte rotatoria di `metrics["11_export"]["transform"]`, verificata.
 
@@ -1181,6 +1427,7 @@ def risolvi(
     casi_di_carico: list[str],
     vincolo_in_pianta: dict[str, float],
     trasformata: np.ndarray | list[list[float]],
+    solutore: "SolutoreConfig | None" = None,
 ) -> dict[str, object]:
     """Step 13: esegue `ccx` sul deck e scrive i campi in `13_solution.vtu`.
 
@@ -1241,20 +1488,32 @@ def risolvi(
     numero di modi chiesto bastava). Sotto soglia i risultati restano scritti:
     si marcano, non si nascondono.
     """
-    if not casi_di_carico:
-        raise ValueError(
-            "casi_di_carico è vuoto: nessun caso da risolvere. Un deck senza "
-            "casi è un errore del chiamante, non uno stato da eseguire a vuoto"
-        )
+    valida_casi_di_carico(casi_di_carico)
     rotazione = _rotazione_ai_punti(trasformata)
     out_dir = Path(out_dir)
-    eseguibile = shutil.which("ccx")
-    if eseguibile is None:
-        return {"eseguito": False, "solutore": "assente"}
+    nome_solutore = "calculix" if solutore is None else _nome_noto(solutore.nome)
+    percorso_dichiarato = None if solutore is None else solutore.percorso
+    binario, _, assente = _trova(nome_solutore, percorso_dichiarato)
+    if binario is None:
+        # `{"eseguito": False, "solutore": "assente"}` senza altro e' lo stato
+        # che questo passo dichiara da sempre, ed e' quello giusto per un
+        # solutore semplicemente non installato: PRODUCT.md dichiara utenti
+        # confermati senza CalculiX, e non e' un difetto. Ma un `percorso`
+        # **dichiarato** e sbagliato e' un'altra cosa -- l'utente crede di aver
+        # detto dove sta il binario -- e uscire di qui con la stessa parola
+        # muta lo lascerebbe a indovinare quale delle due sia. Il motivo
+        # compare quindi solo quando c'e' qualcosa di dichiarato da correggere;
+        # per tutto il resto `meshrec dottore` dice da dove prendere il
+        # solutore. La chiave in piu' e' additiva: nessun consumatore di
+        # `metrics["13_solve"]` legge questo dizionario per intero.
+        esito: dict[str, object] = {"eseguito": False, "solutore": "assente"}
+        if percorso_dichiarato is not None:
+            esito["motivo"] = f"{assente} {DOVE_PRENDERLO[nome_solutore]}"
+        return esito
 
     deck = Path(deck)
     processo = subprocess.run(
-        [eseguibile, "-i", deck.stem],
+        [str(binario), "-i", deck.stem],
         cwd=deck.parent,
         capture_output=True,
         text=True,

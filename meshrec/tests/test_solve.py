@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
+from typing import NamedTuple
 
 import numpy as np
 import pytest
@@ -1867,3 +1868,298 @@ def test_un_controllo_o_un_modello_sconosciuto_solleva_invece_di_tacere():
         solve.esito_non_applicabile("ottavo_controllo", "solido")
     with pytest.raises(KeyError, match="guscio"):
         solve.esito_non_applicabile("picco", "guscio")
+
+
+# --- Percorso dichiarabile, disponibilita' e verifica (#139, #144) ------------
+#
+# `config.SolutoreConfig` lo scrive l'onda 0 e qui non c'e' ancora: il blocco
+# ha forma `nome: Literal["calculix", "opensees"]` piu' `percorso: Path | None`,
+# e il codice sotto prova e' scritto contro quella forma. Il sostituto ha gli
+# stessi due campi e nient'altro -- se l'onda 0 ne aggiunge un terzo, il codice
+# non lo legge e questi test restano validi.
+class _SolutoreFinto(NamedTuple):
+    nome: str = "calculix"
+    percorso: Path | None = None
+
+
+def test_senza_percorso_dichiarato_il_solutore_si_cerca_nel_path(monkeypatch):
+    monkeypatch.setattr(solve.shutil, "which", lambda nome: f"/usr/bin/{nome}")
+
+    assert solve.eseguibile(_SolutoreFinto(nome="calculix")) == Path("/usr/bin/ccx")
+
+
+def test_un_percorso_dichiarato_e_inesistente_non_ripiega_sul_path(tmp_path, monkeypatch):
+    """Il ripiego silenzioso è il difetto: l'utente crede di usare il proprio
+    binario e ne usa un altro."""
+    monkeypatch.setattr(solve.shutil, "which", lambda nome: f"/usr/bin/{nome}")
+    inesistente = tmp_path / "non_c_e" / "ccx"
+
+    assert solve.eseguibile(_SolutoreFinto(percorso=inesistente)) is None
+
+    stato = solve.disponibilita(_SolutoreFinto(percorso=inesistente))
+    assert stato["calculix"]["disponibile"] is False
+    assert str(inesistente) in stato["calculix"]["motivo"]
+
+
+def test_un_percorso_con_spazi_e_accenti_si_cita_per_intero(tmp_path, monkeypatch):
+    monkeypatch.setattr(solve.shutil, "which", lambda _nome: None)
+    cartella = tmp_path / "Program Files" / "città"
+    cartella.mkdir(parents=True)
+    binario = cartella / "OpenSees.exe"
+    binario.write_text("finto", encoding="utf-8")
+
+    cfg = _SolutoreFinto(nome="opensees", percorso=binario)
+    assert solve.eseguibile(cfg) == binario
+    stato = solve.disponibilita(cfg)
+    assert stato["opensees"]["percorso"] == str(binario)
+    assert stato["opensees"]["origine"] == "dichiarato"
+
+
+def test_il_solutore_assente_e_non_scelto_non_e_un_difetto(monkeypatch):
+    """Chi usa solo CalculiX non deve vedere OpenSees come un errore."""
+    monkeypatch.setattr(
+        solve.shutil, "which", lambda nome: "/usr/bin/ccx" if nome == "ccx" else None
+    )
+
+    stato = solve.disponibilita(_SolutoreFinto(nome="calculix"))
+
+    assert stato["calculix"] == {
+        "disponibile": True, "percorso": "/usr/bin/ccx", "origine": "PATH",
+        "scelto": True, "motivo": None,
+        "dove_prenderlo": solve.DOVE_PRENDERLO["calculix"],
+    }
+    assert stato["opensees"]["disponibile"] is False
+    assert stato["opensees"]["scelto"] is False
+    assert stato["opensees"]["dove_prenderlo"] == solve.DOVE_PRENDERLO["opensees"]
+
+
+def test_nessuno_dei_due_installato_si_elenca_e_non_solleva(monkeypatch):
+    monkeypatch.setattr(solve.shutil, "which", lambda _nome: None)
+
+    stato = solve.disponibilita(None)
+
+    assert set(stato) == {"calculix", "opensees"}
+    assert not any(voce["disponibile"] for voce in stato.values())
+    assert not any(voce["scelto"] for voce in stato.values())
+    for nome, voce in stato.items():
+        assert solve.DOVE_PRENDERLO[nome] in voce["dove_prenderlo"]
+
+
+def test_un_solutore_sconosciuto_solleva_invece_di_dirsi_assente():
+    with pytest.raises(KeyError, match="ansys"):
+        solve.disponibilita(_SolutoreFinto(nome="ansys"))
+
+
+def test_la_verifica_di_un_solutore_assente_lo_dichiara_senza_eseguire(monkeypatch):
+    monkeypatch.setattr(solve.shutil, "which", lambda _nome: None)
+
+    def mai(*_a, **_k):
+        raise AssertionError("nessun processo va avviato se il binario non c'è")
+
+    monkeypatch.setattr(solve.subprocess, "run", mai)
+
+    esito = solve.verifica(_SolutoreFinto(nome="opensees"))
+    assert esito["disponibile"] is False
+    assert esito["funziona"] is False
+    assert solve.DOVE_PRENDERLO["opensees"] in esito["motivo"]
+
+
+class _Processo(NamedTuple):
+    returncode: int
+    stdout: bytes
+    stderr: bytes
+
+
+def _finge(monkeypatch, processo, *, esiste="/usr/bin/ccx"):
+    monkeypatch.setattr(solve.shutil, "which", lambda _nome: esiste)
+    visti: dict[str, object] = {}
+
+    def finto(comando, **kwargs):
+        visti["comando"] = comando
+        visti["kwargs"] = kwargs
+        return processo
+
+    monkeypatch.setattr(solve.subprocess, "run", finto)
+    return visti
+
+
+def test_il_codice_201_di_ccx_non_boccia_la_verifica(monkeypatch):
+    """9d2f751: `ccx -v` esce 201 e funziona. Il codice non è il segnale."""
+    _finge(monkeypatch, _Processo(201, b"\nThis is Version 2.21\n", b""))
+
+    esito = solve.verifica(_SolutoreFinto(nome="calculix"))
+
+    assert esito["funziona"] is True
+    assert esito["codice"] == 201
+    assert esito["motivo"] is None
+
+
+def test_un_binario_che_non_e_il_solutore_dichiara_l_uscita_non_riconosciuta(monkeypatch):
+    _finge(monkeypatch, _Processo(0, b"GNU bash, version 5.2\n", b""))
+
+    esito = solve.verifica(_SolutoreFinto(nome="calculix"))
+
+    assert esito["funziona"] is False
+    assert "non è riconosciuta" in esito["motivo"]
+    assert "GNU bash" in esito["motivo"]
+
+
+def test_un_codice_diverso_da_zero_entra_nel_messaggio_con_la_coda(monkeypatch):
+    _finge(monkeypatch, _Processo(127, b"", b"error while loading shared libraries\n"))
+
+    esito = solve.verifica(_SolutoreFinto(nome="calculix"))
+
+    assert esito["funziona"] is False
+    assert "127" in esito["motivo"]
+    assert "shared libraries" in esito["motivo"]
+
+
+def test_l_uscita_con_byte_non_decodificabili_si_legge_senza_sollevare(monkeypatch):
+    """Stessa scelta di `_righe_dat`: `ignore`, non `replace`."""
+    _finge(monkeypatch, _Processo(0, b"This is \xff\xfeVersion 2.21\n", b""))
+
+    esito = solve.verifica(_SolutoreFinto(nome="calculix"))
+
+    assert esito["funziona"] is True
+    assert "�" not in esito["uscita"]
+
+
+def test_opensees_si_verifica_facendogli_eseguire_una_riga(monkeypatch):
+    """«C'è» non è «funziona»: un banner stampato non prova che l'interprete giri."""
+    visti = _finge(
+        monkeypatch,
+        _Processo(0, b"Version 3.8.0 64-Bit\nMESHREC_VERIFICA\n", b""),
+        esiste="/opt/OpenSees",
+    )
+
+    esito = solve.verifica(_SolutoreFinto(nome="opensees"))
+
+    assert esito["funziona"] is True
+    assert visti["kwargs"]["input"] == solve._SOLUTORI["opensees"]["ingresso"].encode()
+
+
+def test_opensees_che_stampa_il_banner_e_non_esegue_e_bocciato(monkeypatch):
+    """Misurato il 30/08/2026: OpenSees 3.8.0 esce con codice 0 anche su uno
+    script che muore su un errore fatale. Il codice non basta, serve la prova
+    che l'interprete abbia eseguito."""
+    _finge(
+        monkeypatch,
+        _Processo(0, b"Version 3.8.0 64-Bit\nTclElementCommand -- unable\n", b""),
+        esiste="/opt/OpenSees",
+    )
+
+    esito = solve.verifica(_SolutoreFinto(nome="opensees"))
+
+    assert esito["funziona"] is False
+    assert "non è riconosciuta" in esito["motivo"]
+
+
+def test_un_binario_che_non_parte_dichiara_il_perche(monkeypatch):
+    monkeypatch.setattr(solve.shutil, "which", lambda _nome: "/usr/bin/ccx")
+
+    def esplode(*_a, **_k):
+        raise OSError(8, "Exec format error")
+
+    monkeypatch.setattr(solve.subprocess, "run", esplode)
+
+    esito = solve.verifica(_SolutoreFinto(nome="calculix"))
+    assert esito["funziona"] is False
+    assert "Exec format error" in esito["motivo"]
+
+
+# --- I nomi dei casi di carico -----------------------------------------------
+def test_casi_di_carico_vuoto_si_dichiara():
+    with pytest.raises(ValueError, match="vuoto"):
+        solve.valida_casi_di_carico([])
+
+
+def test_due_casi_che_differiscono_solo_per_maiuscole_sono_rifiutati():
+    """`ccx` risolve i nomi senza distinguere il caso
+    (docs/fase-6-cantiere/sonda-caso-nomi/)."""
+    with pytest.raises(ValueError, match="GRAVITA"):
+        solve.valida_casi_di_carico(["GRAVITA", "Gravita"])
+
+
+def test_casi_distinti_passano_e_tornano_indietro():
+    casi = ["GRAVITA", "SPINTA_ORIZZONTALE", "MODALE"]
+    assert solve.valida_casi_di_carico(casi) == casi
+
+
+def test_risolvi_rifiuta_i_casi_omonimi_prima_di_avviare_il_solutore(tmp_path, monkeypatch):
+    monkeypatch.setattr(solve.shutil, "which", lambda _nome: "/usr/bin/ccx")
+
+    def mai(*_a, **_k):
+        raise AssertionError("il solutore non va avviato su casi già rifiutati")
+
+    monkeypatch.setattr(solve.subprocess, "run", mai)
+
+    with pytest.raises(ValueError, match="maiuscole"):
+        solve.risolvi(
+            tmp_path, tmp_path / "m.inp", ANALISI,
+            np.zeros((1, 3)), np.zeros((1, 4), dtype=np.int64), "C3D4",
+            casi_di_carico=["GRAVITA", "gravita"],
+            vincolo_in_pianta={"minimo": 1.0}, trasformata=np.eye(4),
+        )
+
+
+def test_risolvi_usa_il_percorso_dichiarato_invece_del_path(tmp_path, monkeypatch):
+    """Il percorso dichiarato mancava a `risolvi`, che cercava solo nel PATH (#139)."""
+    monkeypatch.setattr(solve.shutil, "which", lambda _nome: "/usr/bin/ccx_del_path")
+    dichiarato = tmp_path / "mio_ccx"
+    dichiarato.write_text("finto", encoding="utf-8")
+    visti: list[str] = []
+
+    def finto(comando, **_kwargs):
+        visti.append(comando[0])
+        raise RuntimeError("basta il comando")
+
+    monkeypatch.setattr(solve.subprocess, "run", finto)
+
+    with pytest.raises(RuntimeError, match="basta il comando"):
+        solve.risolvi(
+            tmp_path, tmp_path / "m.inp", ANALISI,
+            np.zeros((1, 3)), np.zeros((1, 4), dtype=np.int64), "C3D4",
+            casi_di_carico=["GRAVITA"], vincolo_in_pianta={"minimo": 1.0},
+            trasformata=np.eye(4),
+            solutore=_SolutoreFinto(nome="calculix", percorso=dichiarato),
+        )
+
+    assert visti == [str(dichiarato)]
+
+
+def test_risolvi_col_solutore_scelto_assente_non_scrive_niente(tmp_path, monkeypatch):
+    """Solo CalculiX installato e `solutore.nome = "opensees"`: si esce senza
+    artefatti. Il rimedio lo dice `meshrec dottore`, che nomina da dove
+    prenderlo."""
+    monkeypatch.setattr(
+        solve.shutil, "which", lambda nome: "/usr/bin/ccx" if nome == "ccx" else None
+    )
+
+    esito = solve.risolvi(
+        tmp_path, tmp_path / "m.inp", ANALISI,
+        np.zeros((1, 3)), np.zeros((1, 4), dtype=np.int64), "C3D4",
+        casi_di_carico=["GRAVITA"], vincolo_in_pianta={"minimo": 1.0},
+        trasformata=np.eye(4), solutore=_SolutoreFinto(nome="opensees"),
+    )
+
+    assert esito == {"eseguito": False, "solutore": "assente"}
+    assert not (tmp_path / "13_solution.vtu").exists()
+
+
+def test_un_percorso_dichiarato_e_sbagliato_non_esce_muto(tmp_path, monkeypatch):
+    """«assente» da solo non distingue un solutore non installato da un
+    percorso dichiarato male, e i due rimedi sono opposti."""
+    monkeypatch.setattr(solve.shutil, "which", lambda _nome: "/usr/bin/ccx")
+    sbagliato = tmp_path / "questo" / "non" / "esiste"
+
+    esito = solve.risolvi(
+        tmp_path, tmp_path / "m.inp", ANALISI,
+        np.zeros((1, 3)), np.zeros((1, 4), dtype=np.int64), "C3D4",
+        casi_di_carico=["GRAVITA"], vincolo_in_pianta={"minimo": 1.0},
+        trasformata=np.eye(4),
+        solutore=_SolutoreFinto(percorso=sbagliato),
+    )
+
+    assert esito["solutore"] == "assente"
+    assert str(sbagliato) in esito["motivo"]
+    assert "non ripiega sul PATH" in esito["motivo"]
