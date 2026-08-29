@@ -1816,3 +1816,54 @@ def test_un_caso_dichiarato_e_assente_dal_frd_boccia_il_picco(tmp_path, monkeypa
     assert picco["per_caso"]["GRAVITA"]["passato"] is True
     assert picco["casi_mancanti"] == ["SPINTA_ORIZZONTALE"]
     assert picco["passato"] is False, "un caso non letto non e' un caso superato"
+
+
+# --- La tabella controllo x modello (#138 Q3) ---------------------------------
+#
+# L'elenco dei sette non e' scritto a mano qui: si ricava dalle funzioni
+# `controlla_*` del modulo. Chi ne aggiunge un ottavo senza dichiararlo nella
+# tabella fa cadere questo test, che e' il punto: la tabella va scritta prima
+# del controllo, non dedotta dopo.
+def _i_sette_controlli() -> set[str]:
+    return {
+        nome[len("controlla_"):]
+        for nome in dir(solve)
+        if nome.startswith("controlla_") and callable(getattr(solve, nome))
+    }
+
+
+def test_la_tabella_copre_i_sette_controlli_su_ogni_modello():
+    assert len(_i_sette_controlli()) == 7, _i_sette_controlli()
+    assert set(solve.CONTROLLI_PER_MODELLO) == _i_sette_controlli()
+    for controllo, per_modello in solve.CONTROLLI_PER_MODELLO.items():
+        assert set(per_modello) == set(solve.MODELLI), controllo
+
+
+def test_ogni_casella_o_vale_o_porta_il_motivo_per_cui_non_vale():
+    """«non vale» senza una ragione e' un'omissione, non una dichiarazione."""
+    for controllo, per_modello in solve.CONTROLLI_PER_MODELLO.items():
+        for modello, verdetto in per_modello.items():
+            if verdetto == "vale":
+                continue
+            assert verdetto.startswith("non vale: "), (controllo, modello, verdetto)
+            assert len(verdetto) > len("non vale: ") + 20, (controllo, modello)
+
+
+def test_un_controllo_che_vale_non_ha_esito_di_non_applicabilita():
+    assert solve.esito_non_applicabile("reazioni", "solido") is None
+
+
+def test_un_controllo_che_non_vale_e_dichiarato_e_mai_verde():
+    esito = solve.esito_non_applicabile("picco", "telaio")
+    assert esito is not None
+    assert esito["passato"] is False
+    assert esito["applicabile"] is False
+    assert esito["motivo"].startswith("non vale: ")
+
+
+def test_un_controllo_o_un_modello_sconosciuto_solleva_invece_di_tacere():
+    """Un refuso non deve valere «vale»: sarebbe un verde su nulla."""
+    with pytest.raises(KeyError, match="ottavo_controllo"):
+        solve.esito_non_applicabile("ottavo_controllo", "solido")
+    with pytest.raises(KeyError, match="guscio"):
+        solve.esito_non_applicabile("picco", "guscio")

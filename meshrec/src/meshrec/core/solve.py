@@ -194,6 +194,13 @@ _TOLLERANZA_REAZIONI = 1e-4
 # caso reale con un picco vicino al confine, tarare qui.
 _FRAZIONE_BANDA_VINCOLO = 0.05
 
+# Il marcatore con cui `ccx` apre una riga di avviso. Costante e non letterale
+# sparso, perche' non e' lo stesso per ogni solutore: OpenSees 3.8.0 scrive
+# `WARNING` senza asterisco (misurato il 30/08/2026), e cercare questa stringa
+# nella sua uscita darebbe zero avvisi qualunque cosa sia successo. Vedi la
+# casella `avvisi` di `CONTROLLI_PER_MODELLO`.
+_MARCA_AVVISO_CCX = "*WARNING"
+
 
 class Blocco(NamedTuple):
     """Un blocco di risultati del `.frd`, con il passo a cui appartiene."""
@@ -603,6 +610,126 @@ def controlla_avvisi(conteggio: int) -> dict[str, object]:
     verdetti costa meno che ricordarsi quale dei sette non serviva.
     """
     return {"passato": conteggio == 0, "conteggio": conteggio}
+
+
+# I due modelli su cui i sette verdetti possono girare. Non sono i due
+# solutori: la validita' dipende dal MODELLO, non da chi lo risolve. Un telaio
+# ad aste ha spostamenti nodali come un solido, ma non ha una tensione
+# equivalente per nodo, e nessun cambio di solutore gliela da'.
+MODELLI = ("solido", "telaio")
+
+# La tabella che #138 Q3 obbliga a scrivere PRIMA di portare un controllo al
+# secondo modello, e non a dedurre dopo.
+#
+# Il motivo per cui va scritta prima non e' una formalita': un controllo
+# eseguito su un modello dove la sua grandezza non significa niente produce un
+# numero verde che non vale nulla, ed e' precisamente la classe di falso che
+# tutti i verdetti di questo modulo esistono per non produrre. Un «vale» dato
+# per scontato non lascia traccia; un «non vale» scritto qui la lascia.
+#
+# Ogni casella e' "vale" oppure "non vale: <ragione>". Chi la consuma passa da
+# `esito_non_applicabile`, che su una casella «non vale» rende un esito mai
+# verde invece di far girare il controllo.
+#
+# Le caselle del telaio sono misurate su questa macchina il 30/08/2026
+# eseguendo `OpenSees` 3.8.0 su script di prova, non lette dal manuale:
+# `eigen` rende gli autovalori, `recorder Node ... reaction` le reazioni,
+# `recorder Node ... disp` gli spostamenti, `modalProperties -print -file` le
+# percentuali cumulate di massa partecipante per MX, MY e MZ.
+CONTROLLI_PER_MODELLO: dict[str, dict[str, str]] = {
+    "reazioni": {
+        "solido": "vale",
+        # Il confronto e' fra la somma delle reazioni e `rho*V*g` come vettore:
+        # e' equilibrio globale, e non dipende dal tipo di elemento. Cambia il
+        # solo termine correttivo: `_quota_tributaria_gravita` esiste perche'
+        # `ccx` non include nella `RF` la quota di gravita' che gli elementi
+        # applicano ai nodi vincolati, e le sue due formule sono quelle delle
+        # funzioni di forma di C3D4 e C3D10 -- solleva su ogni altro tipo. Sul
+        # telaio il peso proprio entra come `eleLoad -type -beamUniform` e la
+        # reazione registrata e' gia' quella intera: il termine correttivo vale
+        # zero, non e' un'altra formula da scrivere.
+        "telaio": "vale",
+    },
+    "vincolo_in_pianta": {
+        "solido": "vale",
+        "telaio": (
+            "non vale: la misura è l'estensione in pianta dei nodi vincolati "
+            "rapportata a quella di tutti i nodi del modello "
+            "(abaqus.constraint_plan_extent). Nel telaio i nodi stanno "
+            "sull'asse delle membrature, quindi il denominatore è l'impronta "
+            "degli assi e non quella del pezzo, e la soglia _SOGLIA_VINCOLO_"
+            "IN_PIANTA è tarata sul rapporto del solido: sullo stesso pezzo i "
+            "due numeri non sono confrontabili"
+        ),
+    },
+    "autovalori": {"solido": "vale", "telaio": "vale"},
+    "avvisi": {
+        "solido": "vale",
+        # `controlla_avvisi` prende un intero e chiede che sia zero: il
+        # confronto e' neutro rispetto al solutore, cambia chi conta. `ccx`
+        # marca `*WARNING` con l'asterisco; OpenSees 3.8.0 scrive `WARNING`
+        # senza -- misurato: «WARNING - no torsion specified for 3D fiber
+        # section, use -GJ or -torsion». Chi contasse `*WARNING` sull'uscita di
+        # OpenSees conterebbe sempre zero, cioe' avrebbe un verdetto verde per
+        # costruzione. Il marcatore di `ccx` sta in `_MARCA_AVVISO_CCX`.
+        "telaio": "vale",
+    },
+    "spostamenti": {"solido": "vale", "telaio": "vale"},
+    "massa_modale": {
+        "solido": "vale",
+        # `leggi_massa_modale` legge i blocchi del `.dat` di `ccx` e su OpenSees
+        # non vale, ma il verdetto `controlla_massa_modale` consuma
+        # `{"catturata", "disponibile"}` e non un formato: cambia la sorgente,
+        # non la grandezza. Su OpenSees la sorgente e' il rapporto cumulato che
+        # `modalProperties` stampa (`opensees.leggi_massa_modale`).
+        "telaio": "vale",
+    },
+    "picco": {
+        "solido": "vale",
+        "telaio": (
+            "non vale: il verdetto è su una tensione equivalente per NODO e "
+            "sulla quota del suo picco. Il telaio non ha una tensione per nodo "
+            "-- le sue grandezze sono N, V e M per elemento, e la tensione vive "
+            "per fibra dentro la sezione. Un max/p99 sulle fibre è un'altra "
+            "grandezza, e la banda di vincolo di `controlla_picco` non vi si "
+            "applica"
+        ),
+    },
+}
+
+
+def esito_non_applicabile(controllo: str, modello: str) -> dict[str, object] | None:
+    """`None` se il controllo vale su quel modello, altrimenti l'esito che lo dichiara.
+
+    Si usa come `esito_non_applicabile(c, m) or controlla_...(...)`: dove la
+    tabella dice «non vale» il controllo **non viene eseguito**, e l'esito che
+    esce non e' mai verde -- `passato: False` con `applicabile: False` e il
+    motivo. E' diverso da un `passato: False` per dati cattivi, e chi legge
+    `metrics.json` deve poterli distinguere: il primo dice «questa domanda non
+    ha senso qui», il secondo «la risposta e' no».
+
+    Un controllo o un modello che la tabella non conosce **solleva** invece di
+    valere «vale»: un refuso che rendesse `None` farebbe girare il controllo su
+    un modello mai dichiarato, cioe' esattamente il verde su nulla per cui la
+    tabella esiste.
+    """
+    if controllo not in CONTROLLI_PER_MODELLO:
+        raise KeyError(
+            f"controllo '{controllo}' non dichiarato in CONTROLLI_PER_MODELLO: "
+            f"i sette sono {sorted(CONTROLLI_PER_MODELLO)}"
+        )
+    if modello not in MODELLI:
+        raise KeyError(f"modello '{modello}' sconosciuto: i modelli sono {list(MODELLI)}")
+    verdetto = CONTROLLI_PER_MODELLO[controllo][modello]
+    if verdetto == "vale":
+        return None
+    return {
+        "passato": False,
+        "applicabile": False,
+        "controllo": controllo,
+        "modello": modello,
+        "motivo": verdetto,
+    }
 
 
 def _spostamento_massimo(point_data: dict[str, np.ndarray]) -> float | None:
@@ -1206,7 +1333,7 @@ def risolvi(
     percorso_vtu = out_dir / "13_solution.vtu"
     abaqus.write_vtu(percorso_vtu, nodes, elements, element_type=element_type, point_data=point_data)
 
-    avvisi = uscita.upper().count("*WARNING")
+    avvisi = uscita.upper().count(_MARCA_AVVISO_CCX)
     # Una lettura sola per i tre parser: il `.dat` e' lo stesso file.
     righe_dat = _righe_dat(percorso_dat, None)
     frequenze_hz = leggi_frequenze(percorso_dat, righe=righe_dat)
