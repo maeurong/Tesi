@@ -212,6 +212,45 @@ def test_due_casi_che_differiscono_solo_per_maiuscole_sono_rifiutati(tmp_path):
         )
 
 
+def test_il_primo_caso_col_nome_di_un_altra_azione_non_diventa_gravita(tmp_path):
+    """Misurato prima della guardia: `casi_di_carico=["VENTO"]` scriveva un
+    pattern di **gravità** e le uscite uscivano etichettate `U_VENTO`. È
+    l'etichetta al posto del carico, cioè proprio il falso che il docstring di
+    questo modulo dichiara di esistere per impedire.
+
+    `AnalysisConfig.step_name` porta già il nome giusto, e non veniva letto.
+    """
+    with pytest.raises(ValueError, match="VENTO"):
+        opensees.scrivi_tcl(
+            tmp_path / "m.tcl", _mensola(), casi_di_carico=["VENTO"]
+        )
+    assert not (tmp_path / "m.tcl").exists()
+
+
+def test_il_nome_del_peso_proprio_e_quello_che_AnalysisConfig_dichiara(tmp_path):
+    """Non un secondo «GRAVITA» scritto qui: il predefinito si legge da dove è
+    dichiarato, altrimenti i due divergono in silenzio."""
+    nome = config.AnalysisConfig.model_fields["step_name"].default
+
+    resoconto = opensees.scrivi_tcl(
+        tmp_path / "m.tcl", _mensola(), casi_di_carico=[nome]
+    )
+
+    assert resoconto["casi_di_carico"] == [nome]
+
+
+def test_un_nome_di_peso_proprio_diverso_si_dichiara_e_passa(tmp_path):
+    """Chi configura `step_name` porta quel nome fin qui: il caso lo si
+    pretende, non lo si indovina dal primo della lista."""
+    resoconto = opensees.scrivi_tcl(
+        tmp_path / "m.tcl", _mensola(),
+        casi_di_carico=["PESO_PROPRIO"], nome_peso_proprio="PESO_PROPRIO",
+    )
+
+    assert resoconto["peso_proprio"] > 0.0
+    assert "PESO_PROPRIO_spostamenti.out" in (tmp_path / "m.tcl").read_text()
+
+
 def test_un_caso_senza_carico_dichiarato_si_ferma_e_dice_a_chi_appartiene(tmp_path):
     """Il contratto §4.7 non porta i carichi: `Telaio` ha nodi, elementi,
     giunzioni e materiali, e nient'altro. Scrivere un passo senza carichi

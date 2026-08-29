@@ -43,7 +43,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from meshrec.core import solve
-from meshrec.core.config import GRAVITY_MM_S2, Modale
+from meshrec.core.config import GRAVITY_MM_S2, AnalysisConfig, Modale
 
 if TYPE_CHECKING:  # pragma: no cover
     # `core/telaio.py` lo scrive il ramo D dell'onda 3. Le annotazioni di
@@ -54,6 +54,12 @@ if TYPE_CHECKING:  # pragma: no cover
 
 # `WARNING`, e non `*WARNING` di CalculiX. Vedi la nota in testa al modulo.
 MARCA_AVVISO = "WARNING"
+
+# Il nome che il caso di peso proprio deve portare, letto dal predefinito che
+# `AnalysisConfig` dichiara e non riscritto qui: un secondo "GRAVITA" scritto a
+# mano divergerebbe dal primo in silenzio. Chi configura `step_name` passa il
+# proprio nome a `scrivi_tcl`.
+_NOME_PESO_PROPRIO = str(AnalysisConfig.model_fields["step_name"].default)
 
 # Punti d'integrazione per elemento a forze. Cinque e' il numero d'uso per un
 # `forceBeamColumn` a sezione costante: sotto i tre l'integrazione di
@@ -396,6 +402,7 @@ def scrivi_tcl(
     *,
     casi_di_carico: list[str],
     modi: int | None = None,
+    nome_peso_proprio: str = _NOME_PESO_PROPRIO,
 ) -> dict[str, object]:
     """Il gemello del `.inp`: un file che chiunque abbia la distribuzione standard esegue.
 
@@ -414,6 +421,13 @@ def scrivi_tcl(
     c'e', e' l'ultima voce. **Ogni altro nome si rifiuta**: i suoi carichi non
     stanno nel contratto `Telaio` e appartengono al ramo G.
 
+    `nome_peso_proprio` e' il nome che il primo caso **deve** portare, e il suo
+    predefinito e' quello che `AnalysisConfig.step_name` dichiara. Il nome non
+    si prende dal primo della lista: prima si faceva, e `casi_di_carico=
+    ["VENTO"]` scriveva un pattern di gravita' con le uscite etichettate
+    `U_VENTO` -- l'etichetta al posto del carico, cioe' il falso contro cui
+    questo modulo e' costruito.
+
     `modi` predefinito da `config.Modale`, che ha il proprio numero misurato:
     non un secondo 40 scritto qui.
     """
@@ -424,6 +438,19 @@ def scrivi_tcl(
     peso_proprio, *restanti = casi
     if peso_proprio == "MODALE":
         peso_proprio, restanti = None, casi
+    elif peso_proprio != nome_peso_proprio:
+        # Prendere «il primo della lista» qualunque nome portasse scriveva un
+        # pattern di gravita' sotto l'etichetta di un'altra azione: misurato,
+        # `casi_di_carico=["VENTO"]` dava le uscite `U_VENTO` di un carico che
+        # nessuno ha chiesto. E' l'etichetta al posto del carico.
+        raise ValueError(
+            f"il primo caso di carico è '{peso_proprio}', ma l'unico carico "
+            f"che questo modulo scrive è il peso proprio, che si chiama "
+            f"'{nome_peso_proprio}' (AnalysisConfig.step_name, o "
+            "nome_peso_proprio). Scriverlo sotto un'altra etichetta darebbe un "
+            "pattern di gravità con il nome di un'azione che nessuno ha "
+            "calcolato"
+        )
     fuori_contratto = [nome for nome in restanti if nome != "MODALE"]
     if fuori_contratto:
         raise ValueError(
