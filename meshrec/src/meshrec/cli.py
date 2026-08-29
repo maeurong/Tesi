@@ -11,7 +11,14 @@ import json
 import sys
 from pathlib import Path
 
-from meshrec.core import pipeline
+# `solve` e' leggero (numpy, e i moduli di questo pacchetto che non aprono
+# nulla): `pipeline` no -- tira dentro open3d, gmsh e pymeshlab. Sta quindi nei
+# rami che lo usano e non qui, come gia' fanno `sweep` e `report`. Non e' un
+# vezzo: `meshrec dottore` esiste per dire che cosa manca, e un dottore che
+# muore all'import di una dipendenza rotta e' inservibile proprio quando serve.
+# Misurato: con `libgomp.so.1` assente, `import pipeline` fa cadere l'intera
+# riga di comando con uno stack, `dottore` compreso.
+from meshrec.core import solve
 from meshrec.core.config import (
     AnalysisConfig,
     InputConfig,
@@ -111,7 +118,103 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     serve_command.add_argument("--port", type=int, default=None)
     serve_command.add_argument("--no-browser", action="store_true")
+
+    # #144 lascia aperto se il controllo delle dipendenze sia una tratta del
+    # server, un sottocomando, o entrambi (§8.3 del sequenziamento). Qui c'e' il
+    # sottocomando: argparse e' gia' in casa e non costa nulla. La tratta, se la
+    # si vorra', si aggiunge dove vive il server e leggera' la stessa
+    # `solve.disponibilita`: la logica non e' qui, e' li'.
+    dottore_command = commands.add_parser(
+        "dottore",
+        help="controlla che i solutori esterni ci siano e funzionino",
+        description=(
+            "Guarda i due solutori esterni: se ci sono, da dove, e se "
+            "rispondono davvero. Un solutore che non c'è non è un errore "
+            "finché non è quello scelto"
+        ),
+    )
+    dottore_command.add_argument(
+        "config",
+        type=Path,
+        nargs="?",
+        default=None,
+        help=(
+            "configurazione da cui leggere il solutore scelto e il suo "
+            "percorso. Se omessa, nessuno dei due è scelto e si guarda "
+            "soltanto che cosa è installato"
+        ),
+    )
     return parser
+
+
+# I nomi dei due solutori incolonnati: il referto si legge per colonne, e senza
+# allineamento la seconda riga non si confronta con la prima.
+_LARGHEZZA_NOME = 10
+
+
+def _referto(nome: str, voce: dict[str, object], esito: dict[str, object] | None) -> list[str]:
+    """Le righe che un solutore merita: che cosa c'è, dove, e se risponde.
+
+    Un solutore assente ha due vesti diverse a seconda che sia quello scelto o
+    no, ed è il punto del comando: chi usa solo CalculiX non deve leggere
+    OpenSees come un guasto da riparare.
+    """
+    margine = " " * (_LARGHEZZA_NOME + 1)
+    etichetta = f"{nome:<{_LARGHEZZA_NOME}}"
+    if not voce["disponibile"]:
+        if voce["scelto"]:
+            prima = f"{etichetta} MANCA    è il solutore scelto, e non si trova"
+        else:
+            prima = f"{etichetta} assente  non installato, e va bene se non lo usi"
+        return [prima, margine + str(voce["motivo"])]
+    dove = f"{voce['percorso']} ({voce['origine']})"
+    if esito is None:
+        return [f"{etichetta} presente {dove}"]
+    if esito["funziona"]:
+        return [f"{etichetta} ok       {dove}"]
+    return [f"{etichetta} ROTTO    {dove}", margine + str(esito["motivo"])]
+
+
+def _dottore(percorso_config: Path | None) -> int:
+    """Il referto sui solutori, e il codice d'uscita che lo riassume.
+
+    Chi ha scelto un solutore vuole sapere se **quello** funziona: gli altri
+    sono informazione, non un difetto. Chi non ne ha scelto nessuno vuole
+    sapere se può risolvere qualcosa, e la risposta è no soltanto se non ne
+    funziona nemmeno uno.
+
+    Si esegue il binario del solo solutore scelto. `solve.disponibilita` non
+    avvia processi di proposito, e avviarli tutti per un referto renderebbe
+    lento un comando che deve rispondere subito.
+    """
+    solutore = None
+    if percorso_config is not None:
+        cfg = load_config(percorso_config)
+        # Il blocco `solutore` lo dichiara l'onda 0 della Fase 8. Finché non
+        # c'è, una configurazione che non lo porta vale «nessun solutore
+        # scelto», che è lo stesso stato del comando senza configurazione: il
+        # referto esce lo stesso invece di cadere su un attributo mancante.
+        solutore = getattr(cfg, "solutore", None)
+
+    stato = solve.disponibilita(solutore)
+    esito = solve.verifica(solutore) if solutore is not None else None
+
+    print("MeshRec — solutori esterni")
+    if solutore is None:
+        print("nessun solutore scelto: leggo soltanto che cosa è installato")
+    for nome, voce in stato.items():
+        for riga in _referto(nome, voce, esito if voce["scelto"] else None):
+            print(riga)
+
+    if esito is not None:
+        if esito["funziona"]:
+            return 0
+        print(f"\nil solutore scelto ({esito['solutore']}) non è utilizzabile.")
+        return 1
+    if any(voce["disponibile"] for voce in stato.values()):
+        return 0
+    print("\nnessuno dei due solutori è installato: non c'è niente con cui risolvere.")
+    return 1
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -137,6 +240,13 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         print(f"configurazione scritta in {args.config}")
         return 0
+
+    if args.command == "dottore":
+        try:
+            return _dottore(args.config)
+        except Exception as error:  # la riga di comando riporta il problema, non lo stack
+            print(f"{type(error).__name__}: {error}", file=sys.stderr)
+            return 1
 
     if args.command == "sweep":
         from meshrec.core import sweep
@@ -169,7 +279,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "wall":
-        from meshrec.core import io
+        from meshrec.core import io, pipeline
 
         try:
             cfg = load_config(args.config)
@@ -191,6 +301,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "model":
+        from meshrec.core import pipeline
+
         try:
             cfg = load_config(args.config)
             destinazione = args.out_dir
@@ -238,6 +350,8 @@ def main(argv: list[str] | None = None) -> int:
             create_app(args.config), host=impostazioni.host, port=impostazioni.port, log_level="warning"
         )
         return 0
+
+    from meshrec.core import pipeline
 
     try:
         cfg = load_config(args.config)

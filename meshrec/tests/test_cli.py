@@ -86,7 +86,11 @@ def test_from_step_overrides_the_configuration(tmp_path, monkeypatch):
         seen["from_step"] = cfg.run.from_step
         return {}
 
-    monkeypatch.setattr(cli.pipeline, "run", fake_run)
+    # Sul modulo e non su `cli.pipeline`: `cli` importa `pipeline` dentro il
+    # ramo che lo usa e non piu' in testa al file, cosi' `meshrec dottore` --
+    # che serve proprio quando una dipendenza e' rotta -- non muore all'import
+    # di open3d.
+    monkeypatch.setattr("meshrec.core.pipeline.run", fake_run)
     cfg = crea_config(input=config.InputConfig(path="nuvola.ply"))
     config.save_config(cfg, tmp_path / "config.yaml")
 
@@ -356,3 +360,113 @@ def test_il_comando_compare_scrive_la_pagina_e_nomina_i_modelli_assenti(tmp_path
     assert cli.main(["compare", *[str(c) for c in cartelle], "--out", str(uscita)]) == 0
     assert "non generato" in uscita.read_text(encoding="utf-8")
     assert str(uscita) in capsys.readouterr().out
+
+
+def _config_con_solutore(tmp_path, monkeypatch, nome, percorso=None):
+    """Una configurazione che porta il blocco `solutore`, senza passare dal file.
+
+    Il blocco lo dichiara l'onda 0 della Fase 8 e in `PipelineConfig` non c'e'
+    ancora: `_ModelloBase` vieta i campi ignoti, quindi scriverlo nel YAML lo
+    farebbe rifiutare a caricamento. Si sostituisce quindi `load_config`, cosi'
+    il test prova `dottore` contro la forma dichiarata -- `cfg.solutore.nome` e
+    `cfg.solutore.percorso` -- invece che contro lo schema di oggi.
+    """
+    percorso_yaml = tmp_path / "c.yaml"
+    percorso_yaml.write_text("segnaposto\n", encoding="utf-8")
+
+    class _Cfg:
+        solutore = _SolutoreFinto(nome=nome, percorso=percorso)
+
+    monkeypatch.setattr(cli, "load_config", lambda _p: _Cfg())
+    return percorso_yaml
+
+
+# --- `meshrec dottore` (#144, sottocomando: vedi §8.3 del sequenziamento) -----
+from pathlib import Path  # noqa: E402
+from typing import NamedTuple  # noqa: E402
+
+from meshrec.core import solve  # noqa: E402
+
+
+class _SolutoreFinto(NamedTuple):
+    nome: str = "calculix"
+    percorso: Path | None = None
+
+
+def _niente_installato(monkeypatch):
+    monkeypatch.setattr(solve.shutil, "which", lambda _nome: None)
+
+
+def _solo_calculix(monkeypatch):
+    monkeypatch.setattr(
+        solve.shutil, "which", lambda nome: "/usr/bin/ccx" if nome == "ccx" else None
+    )
+    monkeypatch.setattr(
+        solve.subprocess, "run",
+        lambda *_a, **_k: _ProcessoFinto(201, b"This is Version 2.21\n", b""),
+    )
+
+
+class _ProcessoFinto(NamedTuple):
+    returncode: int
+    stdout: bytes
+    stderr: bytes
+
+
+def test_dottore_senza_nessun_solutore_lo_dice_e_nomina_cosa_scaricare(monkeypatch, capsys):
+    _niente_installato(monkeypatch)
+
+    codice = cli.main(["dottore"])
+
+    uscita = capsys.readouterr().out
+    assert codice == 1, "senza nessun solutore non si può risolvere niente"
+    assert "dhondt.de" in uscita
+    assert "opensees.berkeley.edu" in uscita
+
+
+def test_dottore_con_solo_calculix_e_calculix_scelto_e_verde(tmp_path, monkeypatch, capsys):
+    _solo_calculix(monkeypatch)
+    percorso = _config_con_solutore(tmp_path, monkeypatch, "calculix")
+
+    codice = cli.main(["dottore", str(percorso)])
+
+    uscita = capsys.readouterr().out
+    assert codice == 0
+    assert "ccx" in uscita
+    # OpenSees assente e non scelto: non è un errore, ed è scritto che va bene
+    assert "va bene se non lo usi" in uscita
+
+
+def test_dottore_con_solo_calculix_e_opensees_scelto_e_rosso(tmp_path, monkeypatch, capsys):
+    _solo_calculix(monkeypatch)
+    percorso = _config_con_solutore(tmp_path, monkeypatch, "opensees")
+
+    codice = cli.main(["dottore", str(percorso)])
+
+    uscita = capsys.readouterr().out
+    assert codice == 1
+    assert "opensees.berkeley.edu" in uscita
+
+
+def test_dottore_dichiara_un_percorso_che_non_esiste_invece_di_tacerlo(
+    tmp_path, monkeypatch, capsys
+):
+    monkeypatch.setattr(solve.shutil, "which", lambda _nome: "/usr/bin/ccx")
+    inesistente = tmp_path / "Program Files" / "città" / "ccx.exe"
+    percorso = _config_con_solutore(
+        tmp_path, monkeypatch, "calculix", percorso=inesistente
+    )
+
+    codice = cli.main(["dottore", str(percorso)])
+
+    uscita = capsys.readouterr().out
+    assert codice == 1
+    assert str(inesistente) in uscita
+    assert "non ripiega sul PATH" in uscita
+
+
+def test_dottore_su_una_configurazione_che_non_esiste_non_mostra_lo_stack(tmp_path, capsys):
+    codice = cli.main(["dottore", str(tmp_path / "manca.yaml")])
+
+    assert codice == 1
+    assert "Traceback" not in capsys.readouterr().err

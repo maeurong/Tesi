@@ -34,14 +34,21 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
-from typing import NamedTuple
+from typing import TYPE_CHECKING, NamedTuple
 
 import numpy as np
 
 from meshrec.core import abaqus, quality
-from meshrec.core.config import AnalysisConfig
+from meshrec.core.config import AnalysisConfig, _mappa_casefold
+
+if TYPE_CHECKING:  # pragma: no cover
+    # Il blocco `solutore` di `PipelineConfig` lo scrive l'onda 0 della Fase 8:
+    # qui serve solo come annotazione, e le annotazioni di questo modulo sono
+    # stringhe (`from __future__ import annotations`). L'import vero
+    # arriverebbe a runtime prima che il blocco esista.
+    from meshrec.core.config import SolutoreConfig
 
 # Tempo massimo concesso a ccx: stesso valore usato in tutta la suite di
 # fattibilita' (tests/feasibility/test_calculix.py), non un numero nuovo.
@@ -193,6 +200,13 @@ _TOLLERANZA_REAZIONI = 1e-4
 # difettoso reale, segnalata nel report del Task 7. Se il Task 11 porta un
 # caso reale con un picco vicino al confine, tarare qui.
 _FRAZIONE_BANDA_VINCOLO = 0.05
+
+# Il marcatore con cui `ccx` apre una riga di avviso. Costante e non letterale
+# sparso, perche' non e' lo stesso per ogni solutore: OpenSees 3.8.0 scrive
+# `WARNING` senza asterisco (misurato il 30/08/2026), e cercare questa stringa
+# nella sua uscita darebbe zero avvisi qualunque cosa sia successo. Vedi la
+# casella `avvisi` di `CONTROLLI_PER_MODELLO`.
+_MARCA_AVVISO_CCX = "*WARNING"
 
 
 class Blocco(NamedTuple):
@@ -605,6 +619,189 @@ def controlla_avvisi(conteggio: int) -> dict[str, object]:
     return {"passato": conteggio == 0, "conteggio": conteggio}
 
 
+# I due modelli su cui i sette verdetti possono girare. Non sono i due
+# solutori: la validita' dipende dal MODELLO, non da chi lo risolve. Un telaio
+# ad aste ha spostamenti nodali come un solido, ma non ha una tensione
+# equivalente per nodo, e nessun cambio di solutore gliela da'.
+MODELLI = ("solido", "telaio")
+
+# La tabella che #138 Q3 obbliga a scrivere PRIMA di portare un controllo al
+# secondo modello, e non a dedurre dopo.
+#
+# Il motivo per cui va scritta prima non e' una formalita': un controllo
+# eseguito su un modello dove la sua grandezza non significa niente produce un
+# numero verde che non vale nulla, ed e' precisamente la classe di falso che
+# tutti i verdetti di questo modulo esistono per non produrre. Un «vale» dato
+# per scontato non lascia traccia; un «non vale» scritto qui la lascia.
+#
+# Ogni casella e' "vale" oppure "non vale: <ragione>". Chi la consuma passa da
+# `esito_non_applicabile`, che su una casella «non vale» rende un esito mai
+# verde invece di far girare il controllo.
+#
+# Le caselle del telaio sono misurate su questa macchina il 30/08/2026
+# eseguendo `OpenSees` 3.8.0 su script di prova, non lette dal manuale:
+# `eigen` rende gli autovalori, `recorder Node ... reaction` le reazioni,
+# `recorder Node ... disp` gli spostamenti, `modalProperties -print -file` le
+# percentuali cumulate di massa partecipante per MX, MY e MZ.
+CONTROLLI_PER_MODELLO: dict[str, dict[str, str]] = {
+    "reazioni": {
+        "solido": "vale",
+        # Il confronto e' fra la somma delle reazioni e `rho*V*g` come vettore:
+        # e' equilibrio globale, e non dipende dal tipo di elemento. Cambia il
+        # solo termine correttivo: `_quota_tributaria_gravita` esiste perche'
+        # `ccx` non include nella `RF` la quota di gravita' che gli elementi
+        # applicano ai nodi vincolati, e le sue due formule sono quelle delle
+        # funzioni di forma di C3D4 e C3D10 -- solleva su ogni altro tipo. Sul
+        # telaio il peso proprio e' ripartito sui nodi meta' per estremo
+        # (`opensees._peso_nodale`, e li' e' scritto perche' non
+        # `eleLoad -type -beamUniform`), quindi il carico applicato a un nodo
+        # vincolato entra intero nella sua reazione: il termine correttivo vale
+        # zero, non e' un'altra formula da scrivere.
+        "telaio": "vale",
+    },
+    "vincolo_in_pianta": {
+        "solido": "vale",
+        "telaio": (
+            "non vale: la misura è l'estensione in pianta dei nodi vincolati "
+            "rapportata a quella di TUTTI i nodi del modello "
+            "(abaqus.constraint_plan_extent), e nel telaio i nodi stanno "
+            "sull'asse delle membrature. Su un telaio a una sola colonna quel "
+            "denominatore è ZERO: la funzione ha un ramo di guardia che in quel "
+            "caso rende 1,0 -- «un pezzo senza estensione su un asse non ha "
+            "nulla da coprire» -- e controlla_vincolo_in_pianta(1,0) passa "
+            "verde su un modello dove la grandezza non misura niente. Misurato "
+            "il 30/08/2026 su una mensola verticale con un solo nodo "
+            "vincolato: {'x': 1.0, 'y': 1.0, 'minimo': 1.0}, verdetto "
+            "«passato: True»"
+        ),
+    },
+    "autovalori": {"solido": "vale", "telaio": "vale"},
+    "avvisi": {
+        "solido": "vale",
+        # `controlla_avvisi` prende un intero e chiede che sia zero: il
+        # confronto e' neutro rispetto al solutore, cambia chi conta. `ccx`
+        # marca `*WARNING` con l'asterisco; OpenSees 3.8.0 scrive `WARNING`
+        # senza -- misurato: «WARNING - no torsion specified for 3D fiber
+        # section, use -GJ or -torsion». Chi contasse `*WARNING` sull'uscita di
+        # OpenSees conterebbe sempre zero, cioe' avrebbe un verdetto verde per
+        # costruzione. Il marcatore di `ccx` sta in `_MARCA_AVVISO_CCX`.
+        "telaio": "vale",
+    },
+    "spostamenti": {"solido": "vale", "telaio": "vale"},
+    "massa_modale": {
+        "solido": "vale",
+        # `leggi_massa_modale` legge i blocchi del `.dat` di `ccx` e su OpenSees
+        # non vale, ma il verdetto `controlla_massa_modale` consuma
+        # `{"catturata", "disponibile"}` e non un formato: cambia la sorgente,
+        # non la grandezza. Su OpenSees la sorgente e' il rapporto cumulato che
+        # `modalProperties` stampa (`opensees.leggi_massa_modale`).
+        "telaio": "vale",
+    },
+    "picco": {
+        "solido": "vale",
+        "telaio": (
+            "non vale: il verdetto è su una tensione equivalente per NODO e "
+            "sulla quota del suo picco. Il telaio non ha una tensione per nodo "
+            "-- le sue grandezze sono N, V e M per elemento, e la tensione vive "
+            "per fibra dentro la sezione. Un max/p99 sulle fibre è un'altra "
+            "grandezza, e la banda di vincolo di `controlla_picco` non vi si "
+            "applica"
+        ),
+    },
+}
+
+
+def esito_non_applicabile(controllo: str, modello: str) -> dict[str, object] | None:
+    """`None` se il controllo vale su quel modello, altrimenti l'esito che lo dichiara.
+
+    Si usa come `esito_non_applicabile(c, m) or controlla_...(...)`: dove la
+    tabella dice «non vale» il controllo **non viene eseguito**, e l'esito che
+    esce non e' mai verde -- `passato: False` con `applicabile: False` e il
+    motivo. E' diverso da un `passato: False` per dati cattivi, e chi legge
+    `metrics.json` deve poterli distinguere: il primo dice «questa domanda non
+    ha senso qui», il secondo «la risposta e' no».
+
+    Un controllo o un modello che la tabella non conosce **solleva** invece di
+    valere «vale»: un refuso che rendesse `None` farebbe girare il controllo su
+    un modello mai dichiarato, cioe' esattamente il verde su nulla per cui la
+    tabella esiste.
+    """
+    if controllo not in CONTROLLI_PER_MODELLO:
+        raise KeyError(
+            f"controllo '{controllo}' non dichiarato in CONTROLLI_PER_MODELLO: "
+            f"i sette sono {sorted(CONTROLLI_PER_MODELLO)}"
+        )
+    if modello not in MODELLI:
+        raise KeyError(f"modello '{modello}' sconosciuto: i modelli sono {list(MODELLI)}")
+    verdetto = CONTROLLI_PER_MODELLO[controllo][modello]
+    if verdetto == "vale":
+        return None
+    return {
+        "passato": False,
+        "applicabile": False,
+        "controllo": controllo,
+        "modello": modello,
+        "motivo": verdetto,
+    }
+
+
+def verdetti_per_modello(
+    modello: str,
+    calcolo: Mapping[str, Callable[[], dict[str, object]]],
+) -> dict[str, dict[str, object]]:
+    """I sette verdetti di un modello, tutti e sette passati per la tabella.
+
+    Il consumatore porta i **calcoli**, uno per controllo, e non i verdetti:
+    quali girino lo decide `CONTROLLI_PER_MODELLO`. Finché i verdetti si
+    scrivono a mano -- come faceva `risolvi` -- la tabella è documentazione e
+    non un vincolo, e la via al verde su un controllo non applicabile resta
+    aperta. Misurata su una mensola: `abaqus.constraint_plan_extent` rende
+    `minimo = 1,0` (il ramo di guardia del denominatore nullo, perché i nodi
+    stanno tutti su una verticale) e `controlla_vincolo_in_pianta(1,0)` dice
+    `passato: True`, mentre la tabella dice `applicabile: False`.
+
+    Su un controllo che la tabella dichiara **non applicabile** il calcolo, se
+    c'è, non viene chiamato: vince la tabella, e l'esito che esce è quello che
+    dichiara la non applicabilità. È la proprietà per cui questa funzione
+    esiste -- il verde non è raggiungibile per quella strada nemmeno da chi
+    porta il calcolo.
+
+    Due rifiuti:
+
+    - un calcolo per un controllo che la tabella **non conosce**: sarebbe un
+      ottavo verdetto mai dichiarato, e quasi sempre è un refuso;
+    - un controllo applicabile **senza** il suo calcolo: sette meno uno non è
+      sei verdetti, è un verdetto perso in silenzio.
+
+    I calcoli sono funzioni senza argomenti e non valori già calcolati: dove la
+    tabella dice «non vale» il controllo non viene **eseguito**, e non solo
+    scartato dopo. Sul telaio la tensione equivalente per nodo non esiste, e
+    calcolarla per buttarla via vorrebbe dire prima inventarla.
+    """
+    ignoti = sorted(set(calcolo) - set(CONTROLLI_PER_MODELLO))
+    if ignoti:
+        raise KeyError(
+            f"calcolo per {ignoti}, che CONTROLLI_PER_MODELLO non dichiara: i "
+            f"controlli sono {sorted(CONTROLLI_PER_MODELLO)}"
+        )
+    applicabili = {
+        controllo
+        for controllo in CONTROLLI_PER_MODELLO
+        if esito_non_applicabile(controllo, modello) is None
+    }
+    mancanti = sorted(applicabili - set(calcolo))
+    if mancanti:
+        raise KeyError(
+            f"il modello '{modello}' non porta il calcolo di {mancanti}, che la "
+            "tabella dichiara applicabile: sette meno uno non è sei verdetti, è "
+            "un verdetto perso in silenzio"
+        )
+    return {
+        controllo: esito_non_applicabile(controllo, modello) or calcolo[controllo]()
+        for controllo in CONTROLLI_PER_MODELLO
+    }
+
+
 def _spostamento_massimo(point_data: dict[str, np.ndarray]) -> float | None:
     """Il piu' grande spostamento nodale fra i soli passi **statici**.
 
@@ -1010,6 +1207,259 @@ def _quota_tributaria_gravita(
     )
 
 
+# Dove si prende ciascun solutore. Sta nel codice e non in un documento perche'
+# lo legge chi ha appena scoperto che gli manca: un messaggio che dice «assente»
+# senza dire da dove prenderlo costringe a indovinare (#144).
+DOVE_PRENDERLO: dict[str, str] = {
+    "calculix": (
+        "CalculiX CrunchiX da http://www.dhondt.de/ (sorgenti e binari), "
+        "oppure il pacchetto 'calculix-ccx' della propria distribuzione: "
+        "l'eseguibile si chiama 'ccx' e va messo nel PATH, o dichiarato in "
+        "solutore.percorso"
+    ),
+    "opensees": (
+        "OpenSees da https://opensees.berkeley.edu/ (sezione Download): "
+        "l'eseguibile si chiama 'OpenSees' ('OpenSees.exe' su Windows) e va "
+        "messo nel PATH, o dichiarato in solutore.percorso. Non è installabile "
+        "a sistema da un gestore di pacchetti sulla maggior parte delle "
+        "distribuzioni"
+    ),
+}
+
+# Come si prova che un eseguibile è davvero quel solutore, e non un omonimo.
+#
+# Due prove diverse perche' i due programmi si presentano in due modi diversi,
+# e tutti e due misurati su questa macchina il 30/08/2026:
+#
+# - `ccx -v` stampa «This is Version 2.21» ed esce con **codice 201**. Il
+#   codice d'uscita non e' il segnale, e' gia' costato un difetto (`9d2f751`):
+#   la prova guarda l'uscita.
+# - OpenSees non ha un flag di versione. Senza argomenti legge lo script da
+#   stdin, quindi gli si fa **eseguire una riga** e si guarda che l'abbia
+#   eseguita. Non basta il banner: OpenSees 3.8.0 lo stampa e poi esce con
+#   **codice 0** anche quando lo script muore su un errore fatale (misurato su
+#   `element truss 1 1 99 100.0 1` con nodo e materiale inesistenti), quindi
+#   ne' il codice ne' il banner distinguono «c'e'» da «funziona». E non basta
+#   l'eco: la sola eco la fa anche un omonimo qualsiasi, e misurato il
+#   30/08/2026 `percorso=/bin/cat` passava la prova con
+#   `{'funziona': True, 'codice': 0, 'motivo': None}`. I marcatori richiesti
+#   sono quindi **due**, e vanno chiesti tutti: il banner chiude l'omonimo,
+#   l'eco chiude il «parte e muore subito».
+_SOLUTORI: dict[str, dict[str, object]] = {
+    "calculix": {
+        "eseguibile": "ccx",
+        "argomenti": ("-v",),
+        "ingresso": "",
+        # `ccx -v` stampa la sola riga «This is Version 2.21» (misurato il
+        # 30/08/2026): non c'e' un secondo marcatore da chiedere.
+        "marcatori": ("Version",),
+    },
+    "opensees": {
+        "eseguibile": "OpenSees",
+        "argomenti": (),
+        "ingresso": 'puts "MESHREC_VERIFICA"\n',
+        "marcatori": ("OpenSees", "MESHREC_VERIFICA"),
+    },
+}
+
+# Tempo massimo concesso alla prova di un solutore. Non `_TIMEOUT_S`: quello e'
+# il tempo di una corsa vera, e una prova che stampa una riga o e' immediata o
+# e' rotta.
+_TIMEOUT_VERIFICA_S = 30.0
+
+
+def _nome_noto(nome: str) -> str:
+    if nome not in _SOLUTORI:
+        raise KeyError(
+            f"solutore '{nome}' sconosciuto: i solutori sono {sorted(_SOLUTORI)}"
+        )
+    return nome
+
+
+def _trova(nome: str, percorso: Path | None) -> tuple[Path | None, str | None, str | None]:
+    """`(percorso, origine, motivo dell'assenza)` per un solutore solo.
+
+    Il punto unico in cui si decide *dove* sta un solutore, cosi' che
+    `eseguibile`, `disponibilita` e `verifica` non abbiano tre risposte.
+
+    Un `percorso` dichiarato e inesistente **non ripiega sul PATH**: sarebbe il
+    caso peggiore da diagnosticare, perche' l'utente crede di star usando il
+    proprio binario e ne sta usando un altro, e nulla glielo dice.
+    """
+    _nome_noto(nome)
+    if percorso is not None:
+        dichiarato = Path(percorso)
+        if dichiarato.is_file():
+            return dichiarato, "dichiarato", None
+        return None, None, (
+            f"solutore.percorso dichiara «{dichiarato}», che non è un file. Un "
+            "percorso dichiarato non ripiega sul PATH: correggilo o toglilo per "
+            "far cercare il solutore nel PATH"
+        )
+    binario = str(_SOLUTORI[nome]["eseguibile"])
+    # Anche col suffisso: la distribuzione di OpenSees che gira qui porta
+    # `OpenSees.exe` (misurato, con la sua cartella nel PATH
+    # `shutil.which("OpenSees")` rende None e `shutil.which("OpenSees.exe")` lo
+    # trova), e `DOVE_PRENDERLO` promette che basti metterlo nel PATH.
+    nel_path = shutil.which(binario) or shutil.which(binario + ".exe")
+    if nel_path is not None:
+        return Path(nel_path), "PATH", None
+    return None, None, (
+        f"«{binario}» non è nel PATH e solutore.percorso non è dichiarato. "
+        f"{DOVE_PRENDERLO[nome]}"
+    )
+
+
+def eseguibile(cfg: "SolutoreConfig") -> Path | None:
+    """Il percorso dichiarato, altrimenti `shutil.which`. `None` se non c'è.
+
+    Vale per `ccx` e per OpenSees: il percorso dichiarabile mancava a entrambi
+    (#139), e `risolvi` cercava `ccx` nel solo PATH. OpenSees in particolare
+    non si installa a sistema quasi da nessuna parte, quindi senza percorso
+    dichiarabile non sarebbe raggiungibile affatto.
+    """
+    trovato, _, _ = _trova(cfg.nome, cfg.percorso)
+    return trovato
+
+
+def disponibilita(cfg: "SolutoreConfig | None" = None) -> dict[str, dict[str, object]]:
+    """Lo sguardo rapido dell'avvio: c'è / non c'è, e da dove (#144 Q1).
+
+    **Non esegue niente** e non solleva mai per un solutore assente: un
+    solutore che non c'è non è un difetto finché nessuno lo sceglie. Chi usa
+    solo CalculiX deve vedere OpenSees come «non installato, e va bene», non
+    come un errore -- ed è il motivo per cui `scelto` sta accanto a
+    `disponibile` invece di essere dedotto da chi legge.
+
+    Il `percorso` dichiarato vale per il solo solutore scelto: è il campo di
+    *quella* configurazione, e attribuirlo anche all'altro direbbe che
+    l'utente ha dichiarato una cosa che non ha dichiarato.
+
+    `cfg` a `None` significa «nessuna configurazione»: si guarda il PATH e
+    nessuno dei due è scelto.
+    """
+    scelto = _nome_noto(cfg.nome) if cfg is not None else None
+    stato: dict[str, dict[str, object]] = {}
+    for nome in _SOLUTORI:
+        percorso, origine, motivo = _trova(
+            nome, cfg.percorso if cfg is not None and nome == scelto else None
+        )
+        stato[nome] = {
+            "disponibile": percorso is not None,
+            "percorso": None if percorso is None else str(percorso),
+            "origine": origine,
+            "scelto": nome == scelto,
+            "motivo": motivo,
+            "dove_prenderlo": DOVE_PRENDERLO[nome],
+        }
+    return stato
+
+
+def verifica(cfg: "SolutoreConfig") -> dict[str, object]:
+    """La prova vera, al momento di scegliere: esegue il binario e guarda che risponda.
+
+    «C'è» non è «funziona» (#144 Q1). Un file col nome giusto e i permessi
+    giusti può essere un omonimo, un collegamento rotto, un binario per
+    un'altra architettura, o il solutore vero che non trova le proprie
+    librerie: nessuna di queste si vede da `shutil.which`.
+
+    **Il codice d'uscita non è il verdetto**, per tutti e due i solutori e per
+    due ragioni diverse, misurate e non lette: `ccx -v` funziona ed esce 201
+    (`9d2f751`); OpenSees 3.8.0 esce 0 anche quando lo script muore su un
+    errore fatale. Il verdetto è il marcatore che `_SOLUTORI` dichiara. Il
+    codice resta comunque riportato, e finisce nel messaggio quando la prova
+    fallisce: è l'indizio che dice se il binario è nemmeno partito.
+
+    L'uscita si decodifica con `errors="ignore"`, la stessa scelta misurata di
+    `_righe_dat`: un byte fuori tabella nell'uscita di un solutore non deve
+    trasformare una diagnosi in un `UnicodeDecodeError` che non nomina nulla.
+    """
+    nome = _nome_noto(cfg.nome)
+    percorso, _, assente = _trova(nome, cfg.percorso)
+    if percorso is None:
+        return {
+            "solutore": nome, "percorso": None, "disponibile": False,
+            "funziona": False, "codice": None, "uscita": "",
+            # `assente` porta gia' `DOVE_PRENDERLO` quando il binario non e'
+            # nel PATH; concatenarcelo di nuovo stampava la frase due volte.
+            "motivo": assente,
+        }
+
+    scheda = _SOLUTORI[nome]
+    try:
+        processo = subprocess.run(
+            [str(percorso), *scheda["argomenti"]],
+            input=str(scheda["ingresso"]).encode(),
+            capture_output=True,
+            timeout=_TIMEOUT_VERIFICA_S,
+        )
+    except (OSError, subprocess.SubprocessError) as errore:
+        return {
+            "solutore": nome, "percorso": str(percorso), "disponibile": True,
+            "funziona": False, "codice": None, "uscita": "",
+            "motivo": f"«{percorso}» non è eseguibile: {type(errore).__name__}: {errore}",
+        }
+
+    uscita = (processo.stdout + processo.stderr).decode("utf-8", errors="ignore")
+    mancanti = [marca for marca in scheda["marcatori"] if marca not in uscita]
+    funziona = not mancanti
+    motivo = None
+    if not funziona:
+        motivo = (
+            f"«{percorso}» è partito (codice {processo.returncode}) ma la sua "
+            f"uscita non è riconosciuta come {nome}: mancano i marcatori "
+            f"{mancanti}. Coda dell'uscita:\n{uscita[-2000:]}"
+        )
+    return {
+        "solutore": nome, "percorso": str(percorso), "disponibile": True,
+        "funziona": funziona, "codice": processo.returncode,
+        "uscita": uscita[-2000:], "motivo": motivo,
+    }
+
+
+def valida_casi_di_carico(casi_di_carico: list[str]) -> list[str]:
+    """I nomi dei casi, o il motivo per cui non sono nomi.
+
+    Due guardie, e nessuna delle due è teorica in questo repo.
+
+    **Vuoto**: un deck senza casi non è uno stato da eseguire a vuoto. Era già
+    la guardia di `risolvi`, spostata qui perché ora ha un secondo chiamante --
+    `opensees.scrivi_tcl`, che senza di essa scriverebbe un file muto che
+    OpenSees esegue senza calcolare nulla.
+
+    **Due nomi che differiscono solo per le maiuscole**: `ccx` risolve i nomi
+    senza distinguere il caso (misurato in
+    `docs/fase-6-cantiere/sonda-caso-nomi/`), quindi nel deck sono lo stesso
+    nome e i risultati del secondo sovrascrivono quelli del primo. `config.
+    PipelineConfig` lo verifica già sui nomi che l'operatore dichiara; questa
+    è la stessa regola al confine di chi riceve la lista già costruita, dove
+    arriva anche per chiamata diretta.
+
+    L'ordine si conserva: è un contratto col lettore del `.frd`, dove il
+    numero di passo è l'unico legame fra un blocco e il suo caso, e un ordine
+    diverso da quello del deck scambierebbe i risultati.
+    """
+    if not casi_di_carico:
+        raise ValueError(
+            "casi_di_carico è vuoto: nessun caso da risolvere. Un deck senza "
+            "casi è un errore del chiamante, non uno stato da eseguire a vuoto"
+        )
+    per_caso = _mappa_casefold(casi_di_carico)
+    if len(per_caso) != len(casi_di_carico):
+        visti: dict[str, str] = {}
+        for nome in casi_di_carico:
+            gemello = visti.get(nome.casefold())
+            if gemello is not None:
+                raise ValueError(
+                    f"i casi di carico '{gemello}' e '{nome}' differiscono solo "
+                    "per le maiuscole: per il solutore sono lo stesso nome (ccx "
+                    "risolve i nomi senza distinguere il caso), e il secondo "
+                    "sovrascriverebbe i risultati del primo"
+                )
+            visti[nome.casefold()] = nome
+    return list(casi_di_carico)
+
+
 def _rotazione_ai_punti(trasformata: np.ndarray | list[list[float]]) -> np.ndarray:
     """La parte rotatoria di `metrics["11_export"]["transform"]`, verificata.
 
@@ -1054,6 +1504,7 @@ def risolvi(
     casi_di_carico: list[str],
     vincolo_in_pianta: dict[str, float],
     trasformata: np.ndarray | list[list[float]],
+    solutore: "SolutoreConfig | None" = None,
 ) -> dict[str, object]:
     """Step 13: esegue `ccx` sul deck e scrive i campi in `13_solution.vtu`.
 
@@ -1114,20 +1565,45 @@ def risolvi(
     numero di modi chiesto bastava). Sotto soglia i risultati restano scritti:
     si marcano, non si nascondono.
     """
-    if not casi_di_carico:
-        raise ValueError(
-            "casi_di_carico è vuoto: nessun caso da risolvere. Un deck senza "
-            "casi è un errore del chiamante, non uno stato da eseguire a vuoto"
-        )
+    valida_casi_di_carico(casi_di_carico)
     rotazione = _rotazione_ai_punti(trasformata)
     out_dir = Path(out_dir)
-    eseguibile = shutil.which("ccx")
-    if eseguibile is None:
-        return {"eseguito": False, "solutore": "assente"}
+    nome_solutore = "calculix" if solutore is None else _nome_noto(solutore.nome)
+    if nome_solutore != "calculix":
+        # Misurato il 30/08/2026 su questa macchina: «OpenSees.exe -i m» stampa
+        # il banner ed esce con codice 0. La guardia sul codice d'uscita qui
+        # sotto passerebbe, e il fallimento arriverebbe piu' avanti come un
+        # `FileNotFoundError` nudo sul `.frd` mai scritto, con un messaggio che
+        # nomina «ccx».
+        raise ValueError(
+            f"solutore.nome = '{nome_solutore}': questo passo monta la riga di "
+            "comando di CalculiX («-i <deck>») e legge il .frd e il .dat che "
+            "solo lui scrive. Il telaio su OpenSees lo porta il ramo del "
+            "telaio, con core/opensees.py (scrivi_tcl e leggi_uscite), non "
+            "risolvi"
+        )
+    percorso_dichiarato = None if solutore is None else solutore.percorso
+    binario, _, assente = _trova(nome_solutore, percorso_dichiarato)
+    if binario is None:
+        # `{"eseguito": False, "solutore": "assente"}` senza altro e' lo stato
+        # che questo passo dichiara da sempre, ed e' quello giusto per un
+        # solutore semplicemente non installato: PRODUCT.md dichiara utenti
+        # confermati senza CalculiX, e non e' un difetto. Ma un `percorso`
+        # **dichiarato** e sbagliato e' un'altra cosa -- l'utente crede di aver
+        # detto dove sta il binario -- e uscire di qui con la stessa parola
+        # muta lo lascerebbe a indovinare quale delle due sia. Il motivo
+        # compare quindi solo quando c'e' qualcosa di dichiarato da correggere;
+        # per tutto il resto `meshrec dottore` dice da dove prendere il
+        # solutore. La chiave in piu' e' additiva: nessun consumatore di
+        # `metrics["13_solve"]` legge questo dizionario per intero.
+        esito: dict[str, object] = {"eseguito": False, "solutore": "assente"}
+        if percorso_dichiarato is not None:
+            esito["motivo"] = assente
+        return esito
 
     deck = Path(deck)
     processo = subprocess.run(
-        [eseguibile, "-i", deck.stem],
+        [str(binario), "-i", deck.stem],
         cwd=deck.parent,
         capture_output=True,
         text=True,
@@ -1206,7 +1682,7 @@ def risolvi(
     percorso_vtu = out_dir / "13_solution.vtu"
     abaqus.write_vtu(percorso_vtu, nodes, elements, element_type=element_type, point_data=point_data)
 
-    avvisi = uscita.upper().count("*WARNING")
+    avvisi = uscita.upper().count(_MARCA_AVVISO_CCX)
     # Una lettura sola per i tre parser: il `.dat` e' lo stesso file.
     righe_dat = _righe_dat(percorso_dat, None)
     frequenze_hz = leggi_frequenze(percorso_dat, righe=righe_dat)
@@ -1234,13 +1710,22 @@ def risolvi(
     # sapere qui sotto: il perche' di ciascuna guardia sta nel docstring della
     # funzione che la porta.
     casi_mancanti = [nome for nome in casi_statici if nome not in picco_per_caso]
-    controlli = {
-        "reazioni": controlla_reazioni(reazioni_peso_proprio, peso_atteso, tolleranza=_TOLLERANZA_REAZIONI),
-        "vincolo_in_pianta": controlla_vincolo_in_pianta(vincolo_in_pianta["minimo"]),
-        "autovalori": controlla_autovalori(frequenze_hz),
-        "avvisi": controlla_avvisi(avvisi),
-        "spostamenti": controlla_spostamenti(_spostamento_massimo(point_data), _dimensione(nodes)),
-        "massa_modale": controlla_massa_modale(masse_modali),
+    # Il deck di questo passo e' un solido, e i sette verdetti passano da
+    # `verdetti_per_modello`: senza, la tabella `CONTROLLI_PER_MODELLO`
+    # resterebbe un commento lungo che nessun chiamante di produzione
+    # attraversa, e un controllo dichiarato non applicabile continuerebbe a
+    # girare e a uscire verde.
+    controlli = verdetti_per_modello("solido", {
+        "reazioni": lambda: controlla_reazioni(
+            reazioni_peso_proprio, peso_atteso, tolleranza=_TOLLERANZA_REAZIONI
+        ),
+        "vincolo_in_pianta": lambda: controlla_vincolo_in_pianta(vincolo_in_pianta["minimo"]),
+        "autovalori": lambda: controlla_autovalori(frequenze_hz),
+        "avvisi": lambda: controlla_avvisi(avvisi),
+        "spostamenti": lambda: controlla_spostamenti(
+            _spostamento_massimo(point_data), _dimensione(nodes)
+        ),
+        "massa_modale": lambda: controlla_massa_modale(masse_modali),
         # #92: il verdetto si aggrega sui casi che il **deck dichiara**, non
         # su quelli che il `.frd` ha portato. `picco_per_caso` si riempie dai
         # blocchi letti, e `all()` su un insieme parziale e' `True`: un `.frd`
@@ -1248,13 +1733,13 @@ def risolvi(
         # passo statico chiede `*EL FILE S` (`abaqus._passo_statico`), quindi
         # un caso senza blocco STRESS e' un risultato mancante, non un caso
         # che non ne produce.
-        "picco": {
+        "picco": lambda: {
             "passato": bool(picco_per_caso) and not casi_mancanti
             and all(v["passato"] for v in picco_per_caso.values()),
             "per_caso": picco_per_caso,
             "casi_mancanti": casi_mancanti,
         },
-    }
+    })
 
     return {
         "eseguito": True,
