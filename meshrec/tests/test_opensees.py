@@ -385,6 +385,18 @@ def test_il_blocco_modale_chiede_i_modi_e_la_massa_partecipante(tmp_path):
     assert " 6\n" in testo or " 6 " in testo
 
 
+@pytest.mark.parametrize("modi", [0, -3])
+def test_un_numero_di_modi_non_positivo_si_dichiara(tmp_path, modi):
+    """`modi=0` scriveva `eigen 0` nel `.tcl`: degrada a non-verde e non è
+    quindi un verde falso, ma non lo diceva nessuno."""
+    with pytest.raises(ValueError, match="modi"):
+        opensees.scrivi_tcl(
+            tmp_path / "m.tcl", _mensola(),
+            casi_di_carico=["GRAVITA", "MODALE"], modi=modi,
+        )
+    assert not (tmp_path / "m.tcl").exists()
+
+
 def test_senza_caso_modale_non_si_chiedono_autovalori(tmp_path):
     assert "eigen" not in _scrivi(tmp_path)
 
@@ -784,6 +796,20 @@ def test_i_dati_per_cella_arrivano_nel_vtu_uno_per_cella(tmp_path):
 
     letto = _rileggi(percorso)
     assert letto.cell_data["N_GRAVITA"][0].tolist() == [-7.0, 3.0]
+
+
+def test_un_dato_per_cella_a_zero_dimensioni_e_rifiutato_parlando(tmp_path):
+    """Misurato: `len()` su un array a zero dimensioni alza
+    `TypeError: len() of unsized object`, che accusa una lunghezza invece di
+    dire che quel campo non è un valore per cella. Il `ValueError` parlante sta
+    due righe sotto e non veniva mai raggiunto."""
+    from meshrec.core import abaqus
+
+    with pytest.raises(ValueError, match="N_GRAVITA"):
+        abaqus.write_vtu(
+            tmp_path / "scalare.vtu", _NODI_TETRAEDRO, _CELLE_TETRAEDRO,
+            element_type="C3D4", cell_data={"N_GRAVITA": np.array(7.0)},
+        )
 
 
 def test_un_dato_per_cella_di_lunghezza_sbagliata_e_rifiutato(tmp_path):

@@ -548,6 +548,13 @@ def scrivi_tcl(
         righe += _passo_statico(peso_proprio, len(nodi), len(telaio.elementi), pesi)
         righe.append("")
     if "MODALE" in casi:
+        if modi < 1:
+            raise ValueError(
+                f"modi={modi}: il caso MODALE chiede almeno un modo. «eigen "
+                f"{modi}» non estrae niente, e il verdetto sulla massa modale "
+                "leggerebbe una cartella senza forme come se il passo non ci "
+                "fosse stato"
+            )
         righe += _passo_modale(modi, len(nodi))
         righe.append("")
     righe += [
@@ -611,10 +618,6 @@ def _ultima_riga(percorso: Path, attesi: int) -> np.ndarray:
     return np.array([float(c) for c in campi], dtype=np.float64)
 
 
-def _terna_locale(telaio: "Telaio", nodi: np.ndarray, elemento) -> np.ndarray:
-    return _versore(nodi[elemento.nodo_j] - nodi[elemento.nodo_i])
-
-
 def leggi_uscite(out_dir: Path, telaio: "Telaio") -> dict[str, np.ndarray]:
     """I risultati nelle convenzioni del contratto già in casa (#138 Q2).
 
@@ -671,7 +674,7 @@ def leggi_uscite(out_dir: Path, telaio: "Telaio") -> dict[str, np.ndarray]:
         taglio = np.zeros(n_elementi)
         flessione = np.zeros(n_elementi)
         for indice, elemento in enumerate(telaio.elementi):
-            asse = _terna_locale(telaio, nodi, elemento)
+            asse = _versore(nodi[elemento.nodo_j] - nodi[elemento.nodo_i])
             forza, momento = crude[indice, 6:9], crude[indice, 9:12]
             lungo = float(np.dot(forza, asse))
             assiale[indice] = lungo

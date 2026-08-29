@@ -1671,9 +1671,13 @@ def write_vtu(
     per_cella: dict[str, list[np.ndarray]] = {}
     for nome, valori in (cell_data or {}).items():
         campo = np.asarray(valori)
-        if len(campo) != len(connettivita):
+        # `campo.ndim == 0` prima di `len`: su un array a zero dimensioni `len`
+        # alza «TypeError: len() of unsized object», che accusa una lunghezza
+        # invece di dire che quel campo non e' un valore per cella, e il
+        # messaggio parlante qui sotto non veniva mai raggiunto.
+        if campo.ndim == 0 or len(campo) != len(connettivita):
             raise ValueError(
-                f"il campo per cella '{nome}' ha {len(campo)} valori per "
+                f"il campo per cella '{nome}' ha forma {campo.shape} per "
                 f"{len(connettivita)} celle: un .vtu scritto così assegnerebbe "
                 "a ogni cella il valore di un'altra, e nessun visualizzatore "
                 "protesterebbe"
