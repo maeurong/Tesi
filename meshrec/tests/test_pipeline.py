@@ -694,8 +694,8 @@ def test_un_prior_scritto_prima_delle_nuove_misure_si_rilegge_ancora():
     deve rompersi -- e non deve nemmeno riempirle: assente vuol dire assente,
     non zero e non una stima.
 
-    Il test passa gia\' oggi, perche\' i tre campi hanno un predefinito e
-    `_ricostruisci_membrature` non li nomina. Resta come guardia: e\' cio\' che
+    Il test passa gia' oggi, perche' i tre campi hanno un predefinito e
+    `_ricostruisci_membrature` non li nomina. Resta come guardia: e' cio' che
     impedisce a un compito futuro di renderli obbligatori senza accorgersene.
     """
     voce_vecchia = {
@@ -721,11 +721,11 @@ def test_un_prior_scritto_prima_delle_nuove_misure_si_rilegge_ancora():
 
 
 def test_un_prior_senza_base_di_sezione_non_fabbrica_giunzioni():
-    """L\'altra meta\' della compatibilita\' all\'indietro: le membrature
+    """L'altra meta' della compatibilita' all'indietro: le membrature
     ricostruite da un prior vecchio non portano il piano di sezione, e
-    `wall.giunzioni` deve rendere la lista vuota invece di dedurre un\'invasione
-    su una base che non c\'e\'. Due montanti dichiarati identici e coincidenti:
-    se la base assente venisse ignorata, questo sarebbe l\'incontro piu\' facile
+    `wall.giunzioni` deve rendere la lista vuota invece di dedurre un'invasione
+    su una base che non c'e'. Due montanti dichiarati identici e coincidenti:
+    se la base assente venisse ignorata, questo sarebbe l'incontro piu' facile
     da inventare.
     """
     from meshrec.core import wall

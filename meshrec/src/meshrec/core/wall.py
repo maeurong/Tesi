@@ -801,19 +801,19 @@ def ruoli_dell_incontro(
     sbagliato proprio quando un montante entra nel traverso da sotto.
 
     Un solo verso invaso decide da solo. Se **entrambi** o **nessuno** dei due
-    lo e\', la funzione non ribalta l\'ordine che il chiamante ha gia\'
+    lo e', la funzione non ribalta l'ordine che il chiamante ha gia'
     stabilito: cede il candidato. Il chiamante ordina per area decrescente,
     quindi lo spareggio resta deterministico e funzione del dato.
 
-    Restituisce anche il campionamento di chi cede, gia\' calcolato dal
+    Restituisce anche il campionamento di chi cede, gia' calcolato dal
     chiamante per decidere il ruolo: ricalcolarlo sarebbe pagare due volte la
     stessa misura.
 
-    Vive qui e non in `hexa` perche\' ha due chiamanti -- il taglio in
-    `hexa.taglia_giunzioni` e l\'adiacenza in `wall.giunzioni` -- e perche\' il
+    Vive qui e non in `hexa` perche' ha due chiamanti -- il taglio in
+    `hexa.taglia_giunzioni` e l'adiacenza in `wall.giunzioni` -- e perche' il
     confine fra i due moduli ammette il verso hexa -> wall e non il contrario.
     La firma prende i campionamenti e non i prismi proprio per questo: `Prisma`
-    e\' definito in `hexa`, e importarlo qui invertirebbe il confine.
+    e' definito in `hexa`, e importarlo qui invertirebbe il confine.
     """
     if invaso_maggiore.any() and not invaso_candidato.any():
         return indice_maggiore, indice_candidato, invaso_maggiore
@@ -827,27 +827,27 @@ def nodo_di_giunzione(
     origine_resta: np.ndarray,
     asse_resta: np.ndarray,
 ) -> tuple[np.ndarray, float]:
-    """Il punto in cui due membrature si legano, e quanto e\' costato metterlo li\'.
+    """Il punto in cui due membrature si legano, e quanto e' costato metterlo li'.
 
     Su una geometria rilevata gli assi di due membrature che si incontrano non
     si intersecano quasi mai: passano vicini e si scansano di qualche
-    millimetro. Il nodo e\' la **proiezione di chi cede sull\'asse di chi resta**
-    -- il traverso continuo col montante che vi si innesta, che e\' la
+    millimetro. Il nodo e' la **proiezione di chi cede sull'asse di chi resta**
+    -- il traverso continuo col montante che vi si innesta, che e' la
     convenzione del calcolo strutturale e coincide col ruolo che
-    `ruoli_dell_incontro` ha gia\' assegnato.
+    `ruoli_dell_incontro` ha gia' assegnato.
 
-    La distanza restituita e\' **una misura, non un residuo di calcolo**: e\' di
-    quanto l\'estremo di chi cede si e\' dovuto spostare, e va mostrata. Uno
+    La distanza restituita e' **una misura, non un residuo di calcolo**: e' di
+    quanto l'estremo di chi cede si e' dovuto spostare, e va mostrata. Uno
     spostamento silenzioso sarebbe una correzione della geometria rilevata
-    spacciata per la geometria rilevata, cioe\' l\'opposto dello scopo del
+    spacciata per la geometria rilevata, cioe' l'opposto dello scopo del
     programma.
 
-    L\'estremo di chi cede e\' quello **piu\' vicino** all\'asse di chi resta: una
-    colonna incontra il traverso da un capo solo, e prendere l\'altro
+    L'estremo di chi cede e' quello **piu' vicino** all'asse di chi resta: una
+    colonna incontra il traverso da un capo solo, e prendere l'altro
     proietterebbe il piede sul tetto.
 
-    Una proiezione ortogonale e non l\'intersezione di due rette: su assi
-    paralleli o complanari la seconda dividerebbe per il seno dell\'angolo,
+    Una proiezione ortogonale e non l'intersezione di due rette: su assi
+    paralleli o complanari la seconda dividerebbe per il seno dell'angolo,
     questa restituisce lo scarto vero fra le due rette.
     """
     versore_cede = np.asarray(asse_cede, dtype=np.float64)
@@ -870,22 +870,22 @@ def nodo_di_giunzione(
 
 
 _CAMPIONI_GIUNZIONE = 200
-"""Campioni sulla baricentrica di una membratura, per vedere se entra nell\'altra.
+"""Campioni sulla baricentrica di una membratura, per vedere se entra nell'altra.
 
 Stesso ordine di grandezza dei campioni che `hexa.taglia_giunzioni` usa per la
 stessa domanda: qui non serve la precisione del taglio -- non si taglia niente
--- ma la risoluzione deve bastare a non mancare un\'invasione corta.
+-- ma la risoluzione deve bastare a non mancare un'invasione corta.
 """
 
 
 def _baricentrica_invasa(interna: Membratura, esterna: Membratura) -> np.ndarray:
     """Campionamento booleano della baricentrica di `interna` dentro `esterna`.
 
-    Il prisma di `esterna` e\' definito dalla propria sezione misurata attorno
-    al proprio asse: un punto e\' dentro se la sua proiezione cade nella
+    Il prisma di `esterna` e' definito dalla propria sezione misurata attorno
+    al proprio asse: un punto e' dentro se la sua proiezione cade nella
     lunghezza e le due componenti trasversali stanno dentro le semiestensioni.
-    E\' il prisma circoscritto, non il contorno: la stessa approssimazione che
-    `sezione` gia\' e\', e sulla quale `riempimento_sezione` dichiara lo scarto.
+    E' il prisma circoscritto, non il contorno: la stessa approssimazione che
+    `sezione` gia' e', e sulla quale `riempimento_sezione` dichiara lo scarto.
     """
     asse = esterna.asse / np.linalg.norm(esterna.asse)
     passo = np.linspace(0.0, interna.lunghezza, _CAMPIONI_GIUNZIONE)
@@ -910,20 +910,20 @@ def _baricentrica_invasa(interna: Membratura, esterna: Membratura) -> np.ndarray
 
 
 def giunzioni(membrature: list[Membratura]) -> list[dict[str, object]]:
-    """Gli incontri fra membrature, con il nodo e quanto e\' costato collocarlo.
+    """Gli incontri fra membrature, con il nodo e quanto e' costato collocarlo.
 
-    L\'adiacenza e\' una **misura della geometria**, allo stesso titolo dell\'asse
+    L'adiacenza e' una **misura della geometria**, allo stesso titolo dell'asse
     e della sezione: `wall.prior` la calcola e la scrive, e chi costruisce un
     telaio la legge invece di dedurla. `hexa.taglia_giunzioni` continua a fare
-    il proprio mestiere, che e\' il taglio, e condivide con questa funzione la
+    il proprio mestiere, che e' il taglio, e condivide con questa funzione la
     sola decisione del ruolo (`ruoli_dell_incontro`).
 
-    L\'ordine di esame e\' per area di sezione decrescente, poi per lunghezza,
-    poi per indice: e\' lo stesso spareggio deterministico gia\' in uso, e serve
-    a non lasciare la scelta all\'ordine in cui le membrature arrivano.
+    L'ordine di esame e' per area di sezione decrescente, poi per lunghezza,
+    poi per indice: e' lo stesso spareggio deterministico gia' in uso, e serve
+    a non lasciare la scelta all'ordine in cui le membrature arrivano.
 
     Nessuna membratura, o una sola, danno la lista vuota senza avvisare: una
-    membratura sola non e\' «non legata», e\' sola, e il prior gira su scatole
+    membratura sola non e' «non legata», e' sola, e il prior gira su scatole
     tanto quanto su telai.
     """
     ordine = sorted(
