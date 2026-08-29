@@ -333,6 +333,50 @@ def test_la_membratura_restituisce_una_sezione_per_fetta_con_la_propria_quota():
     assert np.allclose(membratura.sezioni_fette, np.asarray(membratura.sezione), rtol=0.05)
 
 
+def test_la_base_del_piano_di_sezione_esce_dalla_misura_ed_e_ortonormale():
+    """`misura` costruisce gia' e1 ed e2 e le tiene per se'. Senza di loro
+    nessuno puo' collocare una barra nel piano della sezione: sono il dato che
+    trasforma due estensioni in una geometria.
+    """
+    punti = synth.sample_box_surface((200.0, 140.0, 1500.0), 15.0)
+    direzioni, _ = wall.terna(punti)
+
+    membratura = wall.misura(punti, direzioni, _cfg())
+    base = membratura.base_sezione
+
+    assert base.shape == (2, 3)
+    assert np.allclose(np.linalg.norm(base, axis=1), 1.0), "e1 ed e2 devono essere versori"
+    assert abs(float(base[0] @ base[1])) < 1e-9, "e1 ed e2 devono essere ortogonali"
+    assert np.allclose(base @ membratura.asse, 0.0, atol=1e-9), (
+        "il piano di sezione e' ortogonale all'asse"
+    )
+
+
+def test_la_base_resta_ortonormale_anche_se_la_trasversale_e_parallela_all_asse():
+    """Ingresso degenere: `direzioni[2]` quasi parallela all'asse della
+    regione. Il ramo di ripiego su `direzioni[0]` esiste gia' in `misura`; qui
+    si prova che la base che ne esce e' ortonormale come l'altra, invece di
+    nascere da una divisione per una norma quasi nulla.
+    """
+    punti = synth.sample_box_surface((1500.0, 200.0, 140.0), 15.0)
+    direzioni, _ = wall.terna(punti)
+    assert abs(float(np.dot(direzioni[2], np.array([1.0, 0.0, 0.0])))) < 0.9, (
+        "il banco vale solo se la trasversale non e' gia' quella lunga"
+    )
+    # la terna e' del pezzo intero: la si forza col caso che il ramo copre,
+    # trasversale allineata all'asse della regione
+    forzata = np.vstack([direzioni[2], direzioni[1], direzioni[0]])
+
+    membratura = wall.misura(punti, forzata, _cfg())
+    base = membratura.base_sezione
+
+    assert base.shape == (2, 3)
+    assert np.all(np.isfinite(base))
+    assert np.allclose(np.linalg.norm(base, axis=1), 1.0)
+    assert abs(float(base[0] @ base[1])) < 1e-9
+    assert np.allclose(base @ membratura.asse, 0.0, atol=1e-9)
+
+
 def test_una_regione_con_meno_di_venti_fette_utili_non_ne_dichiara_venti():
     """Ingresso degenere: cinque punti sparsi. Le fette povere sono gia'
     scartate da `misura` (meno di quattro punti, nessuna misura inventata), e

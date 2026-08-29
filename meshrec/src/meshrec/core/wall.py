@@ -476,6 +476,14 @@ class Membratura:
     saltata deve restare visibile come una quota assente invece di far
     scivolare di una posizione tutte le sezioni che la seguono.
     """
+    base_sezione: np.ndarray = field(default_factory=lambda: np.zeros((0, 3)))
+    """Le due direzioni del piano di sezione, e1 sulla riga 0 ed e2 sulla riga 1.
+
+    `misura` le costruisce gia', ancorate alla terna del pezzo e non alla SVD
+    della regione, «o le loro sezioni non sono confrontabili»: due membrature
+    parallele devono avere lo stesso piano. Escono di qui perche' `sezione` e
+    `contorno` sono numeri in quel piano, e senza il piano non collocano nulla.
+    """
 
 
 _FETTE_LUNGO_ASSE = 20
@@ -665,6 +673,7 @@ def misura(punti_regione: np.ndarray, direzioni: np.ndarray, cfg: WallConfig) ->
         # su una regione che non ha prodotto nessuna fetta.
         sezioni_fette=np.asarray(per_fetta, dtype=np.float64).reshape(-1, 2),
         quote_fette=np.asarray(quote_per_fetta, dtype=np.float64),
+        base_sezione=np.vstack([e1, e2]),
     )
 
 
