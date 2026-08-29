@@ -20,6 +20,7 @@ from datetime import date
 
 import pytest
 
+from meshrec.core import materiali
 from meshrec.core.materiali import (
     ALFA_CC,
     CATALOGO,
@@ -382,6 +383,27 @@ def test_trova_su_stringa_vuota_dichiara_invece_di_sbagliare_tipo_di_errore():
     with pytest.raises(KeyError) as errore:
         trova("")
     assert "C25/30" in str(errore.value)
+
+
+def test_gli_aggregati_leggeri_sono_fuori_campo_e_il_modulo_lo_dichiara():
+    """Il campo del catalogo e' ristretto, e un campo ristretto va detto.
+
+    Le NTC §4.1.12 (riga 2458) ammettono i calcestruzzi di aggregati leggeri
+    «fino alla classe LC55/60», e qui non ce n'e' nessuno. Non e' una
+    dimenticanza: la riga 2124 definisce «calcestruzzi ordinari» proprio «con
+    esclusione dei calcestruzzi di aggregati leggeri (LC), di cui al §4.1.12, e
+    di quelli fibrorinforzati (FRC), di cui al §11.2.12», e il catalogo copre
+    quelli. Ma un campo ristretto e non dichiarato si scopre a valle, quando
+    `trova` solleva su una classe che la norma ammette.
+
+    Mutazione che lo uccide: togliere la dichiarazione dal docstring del modulo.
+    """
+    with pytest.raises(KeyError):
+        trova("LC25/28")
+    fuori_campo = [v.classe for v in CATALOGO if v.classe.upper().startswith(("LC", "FRC"))]
+    assert not fuori_campo, f"voci fuori dal campo dichiarato: {fuori_campo}"
+    assert "LC" in materiali.__doc__
+    assert "FRC" in materiali.__doc__
 
 
 # --- i valori di progetto ------------------------------------------------

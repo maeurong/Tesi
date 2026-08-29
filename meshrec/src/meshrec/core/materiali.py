@@ -59,6 +59,14 @@ entreranno come **argomenti espliciti** di `valori_di_progetto`, mai come
 predefiniti silenziosi: un fattore applicato di nascosto e' indistinguibile da
 un fattore dimenticato.
 
+**Il catalogo copre i calcestruzzi ordinari, e nient'altro.** E' la definizione
+della riga 2124 delle NTC: ordinari sono quelli «conformi al presente § 4.1 ed
+al § 11.2, con esclusione dei calcestruzzi di aggregati leggeri (LC), di cui al
+§4.1.12, e di quelli fibrorinforzati (FRC), di cui al §11.2.12». Il §4.1.12
+ammette gli LC fino alla LC55/60 e l'§11.2.12 gli FRC: nessuno dei due sta qui,
+e chi ne cerca uno riceve il rifiuto di `trova`. Il campo e' ristretto per
+scelta, ma un campo ristretto e non dichiarato si scopre solo a valle.
+
 **Il catalogo non e' un cancello.** `runs/muro` usa una muratura a 1500 MPa che
 nessuna tabella NTC 2018 contiene, e un catalogo che rifiutasse cio' che non
 elenca renderebbe irripetibile una corsa di riferimento. Qui non c'e' nulla che
