@@ -37,6 +37,7 @@ possa rendere: `scrivi_tcl` si ferma e lo dice.
 from __future__ import annotations
 
 import math
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -139,6 +140,11 @@ NOME_MASSA_MODALE = "massa_modale.out"
 # modo di dire che la **corsa** e' finita.
 NOME_FINE = "fine.out"
 MARCA_FINE = "MESHREC_FINE"
+
+# Il nome di un'uscita modale, e non la glob `modo_*.out`: quella cattura anche
+# `modo_forze.out` e `modo_spostamenti.out`, cioe' le uscite di un caso di
+# carico chiamato `modo`, e il numero del modo si leggeva da «forze».
+_USCITA_MODALE = re.compile(r"modo_(\d+)\.out")
 
 
 def conta_avvisi(uscita: str) -> int:
@@ -655,10 +661,12 @@ def leggi_uscite(out_dir: Path, telaio: "Telaio") -> dict[str, np.ndarray]:
         campi[f"V_{caso}"] = taglio
         campi[f"M_{caso}"] = flessione
 
-    for percorso in sorted(
-        cartella.glob("modo_*.out"), key=lambda p: int(p.stem.split("_")[1])
-    ):
-        modo = int(percorso.stem.split("_")[1])
+    modali = [
+        (int(trovato.group(1)), percorso)
+        for percorso in cartella.glob("modo_*.out")
+        if (trovato := _USCITA_MODALE.fullmatch(percorso.name)) is not None
+    ]
+    for modo, percorso in sorted(modali):
         campi[f"MODO_{modo}"] = _ultima_riga(percorso, 3 * n_nodi).reshape(n_nodi, 3)
 
     return campi

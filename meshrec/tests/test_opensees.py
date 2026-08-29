@@ -462,6 +462,23 @@ def test_un_blocco_modale_non_produce_mai_U_ne_VM(tmp_path):
     assert not [nome for nome in campi if nome.startswith(("U_", "VM_"))]
 
 
+def test_un_caso_di_carico_chiamato_modo_non_confonde_le_uscite_modali(tmp_path):
+    """La glob `modo_*.out` catturava anche `modo_forze.out` e `modo_
+    spostamenti.out`, cioè le uscite di un caso chiamato `modo`. Misurato:
+    `leggi_uscite` alzava
+    `ValueError: invalid literal for int() with base 10: 'forze'`."""
+    _scrivi_uscite(
+        tmp_path, _SPOSTAMENTI_MENSOLA, " ".join(["1.0"] * 12 * 4) + "\n"
+    )
+    for vecchio in ("spostamenti", "forze"):
+        (tmp_path / f"GRAVITA_{vecchio}.out").rename(tmp_path / f"modo_{vecchio}.out")
+
+    campi = opensees.leggi_uscite(tmp_path, _mensola())
+
+    assert campi["U_modo"].shape == (5, 3)
+    assert not [nome for nome in campi if nome.startswith("MODO_")]
+
+
 def test_un_uscita_troncata_a_meta_riga_si_dichiara_incompleta(tmp_path):
     """Classe di difetto gia' occorsa quattro volte in questo repo: il
     processo ucciso a meta' scrittura. Il file resta, e le sue righe sono
