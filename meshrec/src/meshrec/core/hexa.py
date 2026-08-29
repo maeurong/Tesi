@@ -553,19 +553,16 @@ def taglia_giunzioni(prismi: list[Prisma]) -> tuple[list[Prisma], list[dict[str,
     a quella distanza non si legano. Legarle allargando il raggio di ricerca
     farebbe passare il controllo senza rendere giusto il modello.
 
-    Chi cede e' il prisma il cui asse baricentrico entra nell'altro (Ruling AD):
-    e' un criterio del dato, non dell'ordine in cui i prismi arrivano, e ha
-    anche il significato fisico giusto -- cede la membratura che finisce
-    dentro l'altra, come una trave appoggiata su un pilastro accorcia il
-    pilastro e non la trave. Il criterio precedente, «cede il prisma di
-    sezione minore», sceglieva il ruolo sbagliato proprio quando un montante
-    entra nel traverso da sotto: accorciare il traverso lungo il proprio asse
-    non toglie quella sovrapposizione. Se **entrambi** gli assi sono invasi
-    (attraversamento o contenimento, gia' gestiti dalle guardie sotto) o
-    **nessuno** dei due lo e' (la sola guardia d'angolo del Ruling Y puo'
-    ancora scattare), l'area resta lo spareggio deterministico -- a pari
-    area la lunghezza, a pari lunghezza l'indice, che e' l'ultima carta e
-    serve solo a non lasciare la scelta all'ordinamento.
+    Chi cede lo decide `wall.ruoli_dell_incontro` (Ruling AD), che e' anche il
+    solo posto dove quel criterio e' scritto: qui non se ne tiene una seconda
+    copia, o le due invecchierebbero a ritmi diversi. Quel che resta di
+    pertinenza di questa funzione e' lo spareggio a pari invasione, che la
+    decisione non ribalta e che questa funzione fornisce: `ordine` mette per
+    prime le sezioni di area maggiore -- a pari area la lunghezza, a pari
+    lunghezza l'indice, che e' l'ultima carta e serve solo a non lasciare la
+    scelta all'ordinamento. I due casi di invasione doppia (attraversamento e
+    contenimento) sono gia' fermati dalle guardie sotto, e quello di invasione
+    nulla lascia ancora scattare la sola guardia d'angolo del Ruling Y.
 
     **Soffitto dichiarato:** il taglio e' un accorciamento lungo l'asse, quindi
     vale quando l'intersezione tocca un'estremita' del prisma minore -- il caso

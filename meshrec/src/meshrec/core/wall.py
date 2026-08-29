@@ -919,8 +919,15 @@ def giunzioni(membrature: list[Membratura]) -> list[dict[str, object]]:
     sola decisione del ruolo (`ruoli_dell_incontro`).
 
     L'ordine di esame e' per area di sezione decrescente, poi per lunghezza,
-    poi per indice: e' lo stesso spareggio deterministico gia' in uso, e serve
-    a non lasciare la scelta all'ordine in cui le membrature arrivano.
+    poi per indice: la stessa forma di spareggio di `hexa.taglia_giunzioni`,
+    che serve a non lasciare la scelta all'ordine in cui le membrature
+    arrivano. **Non lo stesso valore**: li' l'area e' quella del contorno
+    misurato, qui e' quella del rettangolo circoscritto, perche' una
+    `Membratura` porta le due estensioni e non il poligono su cui `dentro`
+    lavora. Su una sezione non rettangolare i due ordini possono divergere a
+    pari area, e con loro il ruolo assegnato allo stesso incontro fisico: il
+    taglio del maglio e l'adiacenza scritta nel prior sono due letture della
+    stessa geometria a risoluzione diversa, non due copie della stessa.
 
     Nessuna membratura, o una sola, danno la lista vuota senza avvisare: una
     membratura sola non e' «non legata», e' sola, e il prior gira su scatole
