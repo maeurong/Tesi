@@ -96,6 +96,33 @@ def test_le_fonti_non_sono_autoreferenziali():
     )
 
 
+def test_le_due_classi_gia_in_uso_non_dichiarano_la_tab_4_1_i_come_proprio_elenco():
+    """La Tab. 4.1.I elenca quindici classi, e il catalogo ne porta diciassette.
+
+    Riga 2126 delle NTC, verbatim: C8/10, C12/15, C16/20, C20/25, C25/30,
+    C30/37, C35/45, C40/50, C45/55, C50/60, C55/67, C60/75, C70/85, C80/95,
+    C90/105. **Quindici.** C28/35 e C32/40 vengono dalla frase che segue, riga
+    2128: «Oltre alle classi di resistenza riportate in Tab. 4.1.I si possono
+    prendere in considerazione le classi di resistenza gia' in uso C28/35 e
+    C32/40».
+
+    La `nota` di quelle due righe lo diceva gia', ma la `fonte` -- il campo che
+    questi test sorvegliano -- attribuiva a entrambe l'elenco della tabella, e
+    per due righe su diciassette era falso.
+
+    Mutazione che lo uccide: rendere la fonte del calcestruzzo di nuovo unica.
+    """
+    for classe in ("C28/35", "C32/40"):
+        fonte = trova(classe).fonte
+        assert "elenco delle classi" not in fonte, (
+            f"{classe} non sta nell'elenco della Tab. 4.1.I: la tabella ne porta quindici"
+        )
+        assert "gia' in uso" in fonte or "già in uso" in fonte
+
+    assert "Tab. 4.1.I (elenco delle classi)" in trova("C25/30").fonte
+    assert "Tab. 4.1.I (elenco delle classi)" in trova("C90/105").fonte
+
+
 def test_ogni_voce_nostra_dichiara_perche_e_nostra():
     """Come `test_soglie.py` gia' fa per le soglie.
 

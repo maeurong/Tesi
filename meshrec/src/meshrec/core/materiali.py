@@ -114,10 +114,19 @@ ALFA_CC = 0.85
 GAMMA_C = 1.5
 GAMMA_S = 1.15
 
-_FONTE_CALCESTRUZZO = (
-    "NTC 2018 §4.1, Tab. 4.1.I (elenco delle classi); §11.2.10.1 e §11.2.10.3, "
-    "espressioni [11.2.2] e [11.2.5]; §11.2.10.4 (Poisson); §3.1.2, Tab. 3.1.I "
-    "(peso dell'unità di volume)"
+# La Tab. 4.1.I (riga 2126 delle NTC) elenca **quindici** classi. C28/35 e
+# C32/40 le ammette la frase che la segue, riga 2128, e la loro fonte deve dirlo:
+# la `nota` lo dichiarava gia', ma la `fonte` e' il campo che i test sorvegliano.
+_FONTE_CLASSI_IN_TABELLA = "NTC 2018 §4.1, Tab. 4.1.I (elenco delle classi)"
+
+_FONTE_CLASSI_IN_USO = (
+    "NTC 2018 §4.1, la frase che segue la Tab. 4.1.I: le classi «già in uso» C28/35 e "
+    "C32/40, che la tabella non elenca"
+)
+
+_FONTE_GRANDEZZE_CALCESTRUZZO = (
+    "§11.2.10.1 e §11.2.10.3, espressioni [11.2.2] e [11.2.5]; §11.2.10.4 (Poisson); "
+    "§3.1.2, Tab. 3.1.I (peso dell'unità di volume)"
 )
 
 _FONTE_ACCIAIO = (
@@ -141,8 +150,9 @@ _POISSON_CALCESTRUZZO = 0.2
 # aggiunto qui e dichiarato nella nota delle due voci.
 _POISSON_ACCIAIO = 0.3
 
-# I diciassette nomi della Tab. 4.1.I piu' le due classi che la frase seguente
-# ammette in via residuale. Il catalogo tiene i **nomi** e ricalcola il resto:
+# I **quindici** nomi della Tab. 4.1.I piu' le **due** che la frase seguente
+# ammette in via residuale: diciassette in tutto. Il numero in tupla era gia'
+# giusto, la provenienza scritta qui no. Il catalogo tiene i **nomi** e ricalcola il resto:
 # ricopiare la tabella di valori della ricerca creerebbe la seconda copia che
 # questo modulo esiste per evitare.
 _CLASSI_CALCESTRUZZO = (
@@ -166,6 +176,12 @@ _CLASSI_CALCESTRUZZO = (
 )
 
 _IN_USO = ("C28/35", "C32/40")
+
+
+def _fonte_di_classe(classe: str) -> str:
+    """L'autorita' che elenca **questa** classe, piu' quelle delle sue grandezze."""
+    elenco = _FONTE_CLASSI_IN_USO if classe in _IN_USO else _FONTE_CLASSI_IN_TABELLA
+    return f"{elenco}; {_FONTE_GRANDEZZE_CALCESTRUZZO}"
 
 
 def _f_ck_dal_nome(classe: str) -> float:
@@ -240,7 +256,7 @@ CATALOGO: tuple[VoceMateriale, ...] = tuple(
         poisson=_POISSON_CALCESTRUZZO,
         density=_DENSITA_CALCESTRUZZO,
         f_k=_f_ck_dal_nome(classe),
-        fonte=_FONTE_CALCESTRUZZO,
+        fonte=_fonte_di_classe(classe),
         origine="derivata",
         fissata=FISSATA,
         nota=_nota_di_classe(classe, _f_ck_dal_nome(classe)),
