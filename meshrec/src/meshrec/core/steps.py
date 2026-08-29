@@ -64,7 +64,10 @@ STEP_BLOCKS: dict[int, tuple[str, ...]] = {
     10: ("tet",),
     11: ("tet", "analysis", "carichi", "selettori"),
     12: ("wall",),
-    13: ("tet", "analysis"),
+    # `solutore` e' del solo 13 (Fase 8, #139): cambiare motore o percorso
+    # dell'eseguibile invalida la soluzione e nient'altro. Piu' in alto nella
+    # catena invaliderebbe il maglio, che nessun solutore tocca.
+    13: ("tet", "analysis", "solutore"),
 }
 
 STATE_FILENAME = "steps.json"

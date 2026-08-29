@@ -306,12 +306,20 @@ def test_i_blocchi_nuovi_stanno_in_pipelineconfig_e_nella_lista_di_esclusione_gi
 
     L'ultima asserzione e' quella che smentisce: un blocco nelle due liste
     insieme sarebbe una contraddizione, "sempre fuori" e "fuori solo se vuoto".
+
+    **La scelta della Fase 8, dichiarata qui e non lasciata accadere.**
+    `solutore` (#139) va nell'esclusione **secca**: quale motore risolve e dove
+    sta il suo eseguibile non cambiano il maglio ne' il deck, e la scelta e'
+    della macchina che esegue, non dell'esperimento. E' anche l'unico posto in
+    cui `SolutoreConfig.nome` puo' permettersi un predefinito **truthy**
+    ("calculix"): dentro l'esclusione condizionata renderebbe il blocco sempre
+    non vuoto e sposterebbe tutte e ventidue le righe.
     """
     from meshrec.core.sweep import BLOCCHI_FUORI_IMPRONTA, BLOCCHI_VUOTI_FUORI_IMPRONTA
 
     campi = set(PipelineConfig.model_fields)
     assert {"wall", "model", "carichi"} <= campi
-    assert set(BLOCCHI_FUORI_IMPRONTA) == {"run", "wall", "model"}
+    assert set(BLOCCHI_FUORI_IMPRONTA) == {"run", "wall", "model", "solutore"}
     assert set(BLOCCHI_VUOTI_FUORI_IMPRONTA) == {"carichi", "selettori"}
     assert set(BLOCCHI_FUORI_IMPRONTA) <= campi
     assert set(BLOCCHI_VUOTI_FUORI_IMPRONTA) <= campi
@@ -1076,3 +1084,39 @@ def test_un_elemento_che_il_deck_non_sa_scrivere_e_rifiutato_prima_della_corsa()
     for sconosciuto in ("C3D20", "C3D10M", "TET4", ""):
         with pytest.raises(ValidationError):
             config.TetConfig(element=sconosciuto)
+
+
+def test_il_solutore_si_dichiara_per_nome_e_il_percorso_e_facoltativo():
+    """Il blocco `solutore` della Fase 8 (#139): quale motore, e dove trovarlo.
+
+    `percorso` a None non e' un percorso mancante: e' la dichiarazione «cercalo
+    nel PATH», che e' il caso normale di una macchina dove `ccx` e' installato.
+    Il nome invece e' un'enumerazione chiusa, perche' un nome inventato
+    fallirebbe soltanto allo step 13, cioe' dopo l'intera elaborazione.
+    """
+    predefinito = config.SolutoreConfig()
+
+    assert predefinito.nome == "calculix"
+    assert predefinito.percorso is None
+    assert config.SolutoreConfig(nome="opensees").nome == "opensees"
+    assert config.SolutoreConfig(percorso="/usr/bin/ccx").percorso == Path("/usr/bin/ccx")
+
+    for inventato in ("abaqus", "Calculix", "ccx", ""):
+        with pytest.raises(ValidationError):
+            config.SolutoreConfig(nome=inventato)
+
+
+def test_una_configurazione_senza_i_blocchi_della_fase_8_si_rilegge_coi_predefiniti(tmp_path):
+    """Le corse gia' su disco non hanno ne' `solutore` ne' `regioni`.
+
+    E' la stessa regola dell'omissione che tiene ferme le 22 righe dei
+    registri: un blocco aggiunto non puo' rendere illeggibile cio' che e' gia'
+    stato scritto.
+    """
+    percorso = tmp_path / "config.yaml"
+    percorso.write_text("input:\n  path: nuvola.ply\n", encoding="utf-8")
+
+    cfg = config.load_config(percorso)
+
+    assert cfg.solutore.nome == "calculix"
+    assert cfg.solutore.percorso is None

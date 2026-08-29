@@ -416,6 +416,39 @@ class AnalysisConfig(_ModelloBase):
         return self
 
 
+class SolutoreConfig(_ModelloBase):
+    """Quale motore risolve lo step 13, e dove sta il suo eseguibile (#139).
+
+    Fuori dall'impronta per esclusione **secca** (`sweep.BLOCCHI_FUORI_IMPRONTA`):
+    il motore e il percorso del suo binario non cambiano ne' il maglio ne' il
+    deck, e sono una proprieta' della macchina che esegue, non
+    dell'esperimento. Due corse identiche risolte da due motori diversi restano
+    lo stesso esperimento, e devono finire nella stessa cartella.
+
+    E' anche la ragione per cui `nome` puo' avere un predefinito **truthy**:
+    dentro l'esclusione condizionata (`BLOCCHI_VUOTI_FUORI_IMPRONTA`) una
+    stringa non vuota renderebbe il blocco sempre non vuoto, l'omissione non
+    scatterebbe mai e le ventidue righe dei registri si muoverebbero.
+    """
+
+    nome: Literal["calculix", "opensees"] = Field(
+        default="calculix",
+        description=(
+            "motore di calcolo dello step 13. Enumerazione chiusa e non testo "
+            "libero: un nome che nessuno scrittore di deck conosce fallirebbe "
+            "soltanto allo step 13, cioè dopo l'intera elaborazione"
+        ),
+    )
+    percorso: Path | None = Field(
+        default=None,
+        description=(
+            "percorso dell'eseguibile. None non è un percorso mancante: è la "
+            "dichiarazione «cercalo nel PATH», che è il caso normale di una "
+            "macchina dove il solutore è installato a sistema"
+        ),
+    )
+
+
 class RunConfig(_ModelloBase):
     """Esecuzione: percorsi e ripresa."""
 
@@ -1010,6 +1043,13 @@ class PipelineConfig(_ModelloBase):
     )
     wall: WallConfig = Field(default_factory=WallConfig)
     model: ModelConfig = Field(default_factory=ModelConfig)
+    solutore: SolutoreConfig = Field(
+        default_factory=SolutoreConfig,
+        description=(
+            "motore dello step 13 e percorso del suo eseguibile. Fuori "
+            "dall'impronta per esclusione secca: vedi SolutoreConfig"
+        ),
+    )
 
     @model_validator(mode="after")
     def _i_nomi_dei_selettori_non_collidono_coi_sei(self) -> "PipelineConfig":

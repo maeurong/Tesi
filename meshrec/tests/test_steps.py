@@ -107,9 +107,35 @@ def test_una_voce_di_stato_non_dizionario_non_solleva(tmp_path):
 
 
 def test_gli_step_sono_tredici_e_l_ultimo_e_il_solutore():
+    """`solutore` entra negli STEP_BLOCKS del 13 dalla Fase 8 (#139).
+
+    Lo step 13 e' l'unico che invoca un processo esterno: cambiare motore o
+    percorso dell'eseguibile invalida la sua uscita e nient'altro, quindi il
+    blocco sta li' e non piu' in alto nella catena.
+    """
     assert len(steps.STEP_KEYS) == 13
     assert steps.STEP_KEYS[-1] == "13_solve"
-    assert steps.STEP_BLOCKS[13] == ("tet", "analysis")
+    assert steps.STEP_BLOCKS[13] == ("tet", "analysis", "solutore")
+
+
+def test_cambiare_solutore_invalida_il_solo_step_13(tmp_path):
+    """Mutazione che lo uccide: togliere "solutore" da STEP_BLOCKS[13].
+
+    Le due impronte restano uguali e la corsa riusa una soluzione calcolata da
+    un altro motore.
+    """
+    from meshrec.core.config import SolutoreConfig
+
+    prima = _config(tmp_path)
+    dopo = _config(tmp_path)
+    dopo.solutore = SolutoreConfig(nome="opensees")
+
+    marchi_prima = steps.step_fingerprints(prima)
+    marchi_dopo = steps.step_fingerprints(dopo)
+
+    for numero in range(1, 13):
+        assert marchi_prima[numero] == marchi_dopo[numero], f"step {numero} non doveva cambiare"
+    assert marchi_prima[13] != marchi_dopo[13]
 
 
 def test_lo_step_dodici_non_cambia_le_impronte_degli_undici_precedenti(tmp_path):

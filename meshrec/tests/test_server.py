@@ -3515,3 +3515,29 @@ def test_una_corsa_di_riferimento_non_prende_uno_storico(cliente, tmp_path):
     )
     assert cliente.post("/api/storico/indietro").status_code == 400
     assert cliente.post("/api/storico/avanti").status_code == 400
+
+
+def test_lo_schema_descrive_il_blocco_solutore_nel_pannello_dello_step_13(cliente):
+    """Il blocco nuovo entra con il suo test su `/api/schema`, non dopo.
+
+    Il difetto e' gia' occorso una volta (`5d4d24b`, «lo schema non esplode
+    piu' sul blocco selettori»): un blocco che `schema()` non sa leggere fa
+    cadere l'endpoint con un `AttributeError` fuori vista, cioe' spegne il
+    pannello degli step che lo comandano.
+
+    `solutore` e' un `BaseModel` vero, quindi i suoi campi si descrivono: il
+    pannello dello step 13 li mostra, `percorso` compreso, che e' nullabile
+    perche' None significa «cercalo nel PATH».
+    """
+    risposta = cliente.get("/api/schema")
+    assert risposta.status_code == 200
+    corpo = risposta.json()
+
+    assert "solutore" in corpo["13"]["blocchi"]
+    campi = corpo["13"]["campi"]["solutore"]
+    assert campi["nome"]["tipo"] == "enumerazione"
+    assert campi["nome"]["valori"] == ["calculix", "opensees"]
+    assert campi["nome"]["default"] == "calculix"
+    assert campi["percorso"]["nullabile"] is True
+    assert campi["percorso"]["default"] is None
+    assert campi["percorso"]["obbligatorio"] is False
