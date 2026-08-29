@@ -1,0 +1,352 @@
+"""Il catalogo dei materiali e' una tabella di norma, non numeri sparsi nel codice.
+
+Stessa disciplina di `tests/test_soglie.py`, e per la stessa ragione: una voce
+senza fonte non deve essere rappresentabile, e una voce che si giustifica da se'
+-- col catalogo stesso, con una dispensa, con «da progetto» -- non e' una voce di
+norma. Il registro delle soglie ha gia' pagato quell'errore una volta (la fonte
+«Benzley» accanto a un numero che in Benzley non c'e'), e qui si evita per
+imitazione invece che per esperienza.
+
+Cio' che questi test **non** fanno e' ricalcolare le formule del modulo per
+confrontarle con il modulo: sarebbe la stessa espressione scritta due volte, e
+non ucciderebbe una formula sbagliata. I numeri attesi sono trascritti da
+`docs/validazione/ricerca-ntc-2018-numeri-per-il-catalogo.md`, che li ha
+verificati contro le NTC e, per l'oracolo, per tre vie indipendenti.
+"""
+
+import math
+import re
+from datetime import date
+
+import pytest
+
+from meshrec.core.materiali import (
+    ALFA_CC,
+    CATALOGO,
+    FISSATA,
+    GAMMA_C,
+    GAMMA_S,
+    VoceMateriale,
+    trova,
+    valori_di_progetto,
+)
+
+
+def _voce(**campi) -> VoceMateriale:
+    """Una `VoceMateriale` valida, da deformare campo per campo nei casi limite."""
+    predefiniti = dict(
+        classe="C25/30",
+        famiglia="calcestruzzo",
+        young=31475.8,
+        poisson=0.2,
+        density=2.5493e-9,
+        f_k=25.0,
+        fonte="NTC 2018 §4.1, Tab. 4.1.I",
+        origine="derivata",
+        fissata=FISSATA,
+        nota="",
+    )
+    return VoceMateriale(**{**predefiniti, **campi})
+
+
+# --- il registro ---------------------------------------------------------
+
+
+def test_il_catalogo_non_e_vuoto_e_porta_tutte_e_due_le_famiglie():
+    """Un catalogo senza voci e' un difetto, non uno stato.
+
+    E' la classe di difetto piu' frequente di questo repository -- l'insieme
+    vuoto che passa inosservato invece di dichiararsi -- e qui morde due volte:
+    un catalogo vuoto, o un catalogo che perde per strada una delle due
+    famiglie, lascerebbe `trova` a sollevare sempre senza che nulla lo dica.
+    """
+    assert CATALOGO, "catalogo vuoto: nessuna classe di materiale dichiarata"
+    assert {v.famiglia for v in CATALOGO} == {"calcestruzzo", "acciaio"}
+
+
+def test_ogni_voce_porta_una_fonte_e_una_data():
+    """Mutazione che lo uccide: aggiungere una `VoceMateriale` con `fonte=""`."""
+    senza_fonte = [v.classe for v in CATALOGO if not v.fonte.strip()]
+    assert not senza_fonte, f"voci senza fonte: {senza_fonte}"
+
+    senza_data = [v.classe for v in CATALOGO if not isinstance(v.fissata, date)]
+    assert not senza_data, f"voci senza data di fissazione: {senza_data}"
+
+
+def test_le_fonti_non_sono_autoreferenziali():
+    """Una voce non si giustifica da se', ne' con una dispensa.
+
+    Tre modi di scriverlo che sarebbero tutti sbagliati: il catalogo stesso
+    (`core/materiali.py`), il materiale del corso (`Lezioni CLS/`,
+    `Domini_NM_DM2018`, `Tabelle_flessione_SL_2018`), e «da progetto», che non e'
+    una fonte ma l'assenza di una. Le dispense spiegano la norma e non la
+    sostituiscono; e chi clona il repository non le ha.
+
+    Mutazione che lo uccide: dare a una voce `fonte="Lezioni 35-36, tabella"`.
+    """
+    interna = re.compile(
+        r"(core/|src/|meshrec|runs/|tests/|Lezioni|dispensa|Domini_NM|Tabelle_flessione"
+        r"|da progetto|catalogo)",
+        re.IGNORECASE,
+    )
+    autoreferenziali = [v.classe for v in CATALOGO if interna.search(v.fonte)]
+    assert not autoreferenziali, (
+        f"voci giustificate da noi stessi o da una dispensa invece che dalla norma: "
+        f"{autoreferenziali}"
+    )
+
+
+def test_ogni_voce_nostra_dichiara_perche_e_nostra():
+    """Come `test_soglie.py` gia' fa per le soglie.
+
+    Vale in particolare per l'acciaio, la cui `origine` e' `nostra` per un solo
+    motivo: `E_s` e' una scelta fra due fonti che divergono. Senza nota, quella
+    scelta sparirebbe.
+    """
+    mute = [v.classe for v in CATALOGO if v.origine == "nostra" and not v.nota.strip()]
+    assert not mute, f"voci nostre senza una nota che dica perche': {mute}"
+
+
+def test_ogni_origine_e_una_delle_tre_dichiarate():
+    ammesse = {"letta", "derivata", "nostra"}
+    fuori = {v.origine for v in CATALOGO} - ammesse
+    assert not fuori, f"origini non dichiarate: {fuori}"
+
+
+def test_le_classi_non_collidono_nemmeno_ignorando_il_caso():
+    """Due voci con la stessa classe: l'ultima vincerebbe in silenzio.
+
+    `trova` normalizza il caso, quindi la collisione va cercata sulla stessa
+    chiave normalizzata: «C25/30» e «c25/30» sarebbero due righe distinte nella
+    tupla e una sola raggiungibile.
+    """
+    chiavi = [v.classe.strip().upper() for v in CATALOGO]
+    doppie = sorted({c for c in chiavi if chiavi.count(c) > 1})
+    assert not doppie, f"due voci con la stessa classe: {doppie}"
+
+
+def test_ogni_f_k_e_positivo():
+    """`f_k` nullo o negativo non e' impossibile per costruzione: e' rifiutato qui.
+
+    `VoceMateriale` e' una `NamedTuple`, quindi un `f_k=0.0` e' costruibile --
+    vincolare il tipo renderebbe impossibile fabbricare una voce nei test, come
+    `soglie.Soglia` dichiara per la propria `fonte`. Il controllo sta sul
+    registro, dove serve, e `valori_di_progetto` lo ripete sul proprio ingresso
+    perche' accetta anche voci che il registro non ha filtrato.
+    """
+    non_positivi = [v.classe for v in CATALOGO if not math.isfinite(v.f_k) or v.f_k <= 0.0]
+    assert not non_positivi, f"voci con resistenza caratteristica non positiva: {non_positivi}"
+
+
+def test_il_catalogo_e_immutabile():
+    """La mutazione che uccide: trasformare `VoceMateriale` in una dataclass mutabile.
+
+    Un catalogo riscrivibile a runtime permetterebbe di alzare un `f_ck` dopo
+    aver visto il verdetto della sezione, che e' il difetto che tenere la
+    tabella come dato esiste per impedire.
+    """
+    with pytest.raises(AttributeError):
+        CATALOGO[0].f_k = 999.0  # type: ignore[misc]
+    assert isinstance(CATALOGO, tuple)
+    assert all(isinstance(v, tuple) for v in CATALOGO)
+
+
+# --- i numeri, trascritti dalla ricerca e non ricalcolati ----------------
+
+
+def test_il_nome_della_classe_porta_f_ck_e_non_r_ck():
+    """La divergenza della §1.3 della ricerca, fissata in un test.
+
+    «C25/30» e' la coppia normalizzata `f_ck`/`R_ck` di UNI EN 206: `f_ck` = 25
+    per definizione. Chi applicasse `f_ck = 0,83 · R_ck` al secondo numero del
+    nome otterrebbe 24,9 sulla C25/30 e sbaglierebbe fino al 6,7% sulla C35/45.
+
+    Mutazione che lo uccide: costruire il catalogo da `R_ck` con la `[11.2.1]`.
+    """
+    assert trova("C25/30").f_k == pytest.approx(25.0)
+    assert trova("C35/45").f_k == pytest.approx(35.0)
+    assert trova("C8/10").f_k == pytest.approx(8.0)
+
+
+def test_il_modulo_elastico_e_quello_della_formula_non_quello_pubblicato_altrove():
+    """La C8/10 vale 25.331 MPa, non 25.393.
+
+    `docs/validazione/ricerca-armature-convenzioni-normative.md` §4.2 pubblicava
+    25.393 per questa sola riga; le altre sedici coincidono cifra per cifra fra
+    le due ricerche, quindi era un refuso isolato. `22000·(16/10)^0,3` =
+    25.331,37, e quel documento e' stato corretto insieme a questo test.
+    """
+    assert trova("C8/10").young == pytest.approx(25331.37, abs=0.01)
+    assert trova("C25/30").young == pytest.approx(31475.81, abs=0.01)
+    assert trova("C90/105").young == pytest.approx(43630.53, abs=0.01)
+
+
+def test_il_calcestruzzo_porta_poisson_non_fessurato_e_la_densita_dell_armato():
+    """I due numeri che non vengono dalla cascata delle resistenze.
+
+    Poisson: le NTC §11.2.10.4 danno un intervallo i cui due estremi sono due
+    modelli diversi, 0 (fessurato) e 0,2 (non fessurato). Un'analisi elastica
+    lineare e' il secondo.
+
+    Densita': Tab. 3.1.I da' 25,0 kN/m³ per il calcestruzzo armato, cioe'
+    2,5493·10⁻⁹ t/mm³ con g = 9,80665 m/s². Non e' il 2,5·10⁻⁹ di prassi che le
+    corse del progetto usano, che vale 24,52 kN/m³.
+    """
+    voce = trova("C25/30")
+    assert voce.poisson == pytest.approx(0.2)
+    assert voce.density == pytest.approx(2.5493e-9, rel=1e-4)
+
+
+def test_le_due_classi_di_acciaio_hanno_la_stessa_resistenza():
+    """L'equivoco piu' facile da commettere in un menu' a tendina.
+
+    NTC §11.3.2.2: il B450A e' «caratterizzato dai medesimi valori nominali
+    della tensione di snervamento e della tensione a carico massimo
+    dell'acciaio B450C». Differiscono per duttilita' e per diametri ammessi, non
+    per resistenza.
+    """
+    assert trova("B450A").f_k == pytest.approx(450.0)
+    assert trova("B450C").f_k == pytest.approx(450.0)
+    assert trova("B450A").young == trova("B450C").young
+
+
+def test_l_acciaio_dichiara_la_divergenza_sul_modulo_elastico():
+    """200.000 MPa, e la nota dice che l'altra fonte ne da' 210.000.
+
+    Le NTC non pubblicano `E_s`. La Circolare §C4.1.2.2.5.1 da' 210.000 in un
+    paragrafo sulle tensioni in esercizio; UNI EN 1992-1-1 §3.2.7(4) da'
+    200.000, ed e' il valore con cui l'oracolo di collaudo torna. Nascondere la
+    divergenza renderebbe il numero indistinguibile da un dato di norma.
+
+    Mutazione che lo uccide: scrivere 210.000 senza toccare la nota.
+    """
+    voce = trova("B450C")
+    assert voce.young == pytest.approx(200000.0)
+    assert voce.origine == "nostra"
+    assert "210.000" in voce.nota
+    assert "C4.1.2.2.5.1" in voce.nota
+    assert "3.2.7" in voce.nota
+
+
+# --- trova ---------------------------------------------------------------
+
+
+def test_trova_dice_quali_classi_esistono():
+    """Solleva invece di rendere `None`, e nomina cio' che c'e'.
+
+    Un chiamante che confrontasse contro `None` otterrebbe un attributo mancante
+    a valle, lontano dal punto in cui la classe e' stata scritta male.
+    """
+    with pytest.raises(KeyError) as errore:
+        trova("C99/99")
+    assert "C99/99" in str(errore.value)
+    assert "C25/30" in str(errore.value), "il rifiuto non elenca le classi che esistono"
+
+    with pytest.raises(KeyError, match="B999"):
+        trova("B999")
+
+
+def test_trova_normalizza_il_caso_e_gli_spazi():
+    """La scelta e' **normalizzare**, e vale su entrambi i lati del confronto.
+
+    Il caso e' la seconda classe di difetto piu' frequente del repository. Qui
+    normalizzare non costa nulla: le classi di norma sono maiuscole per
+    convenzione tipografica, non per identita', e nessuna coppia di voci
+    differisce per il solo caso -- lo sorveglia
+    `test_le_classi_non_collidono_nemmeno_ignorando_il_caso`.
+    """
+    atteso = trova("C25/30")
+    assert trova("c25/30") is atteso
+    assert trova("  C25/30  ") is atteso
+    assert trova("b450c") is trova("B450C")
+
+
+def test_trova_su_stringa_vuota_dichiara_invece_di_sbagliare_tipo_di_errore():
+    """Ingresso degenere: la stringa vuota non e' un `IndexError`.
+
+    Arriva da un campo di configurazione lasciato in bianco, ed e' esattamente
+    il caso in cui il messaggio deve dire che cosa manca.
+    """
+    with pytest.raises(KeyError) as errore:
+        trova("")
+    assert "C25/30" in str(errore.value)
+
+
+# --- i valori di progetto ------------------------------------------------
+
+
+def test_il_calcestruzzo_da_f_cd_e_non_f_yd():
+    """`f_cd = α_cc · f_ck / γ_c`, e `α_cc` non e' facoltativo.
+
+    NTC §4.1.2.1.1.1, espressione `[4.1.3]`: il coefficiente di lunga durata sta
+    dentro la formula, ha un nome e vale 0,85. Chi scrive `f_ck / 1,5` ottiene un
+    valore del 17,6% piu' alto del vero, e sbaglia dalla parte insicura.
+
+    Mutazione che lo uccide: togliere `ALFA_CC` dalla formula.
+    """
+    valori = valori_di_progetto(trova("C25/30"))
+    assert set(valori) == {"f_cd"}
+    assert valori["f_cd"] == pytest.approx(0.85 * 25.0 / 1.5)
+    assert valori["f_cd"] == pytest.approx(14.1667, abs=1e-4)
+
+
+def test_l_acciaio_da_f_yd_e_non_f_cd():
+    """`f_yd = f_yk / γ_s`, senza alcun α: la `[4.1.5]` non ne ha.
+
+    E il 1,15 vale «sempre, per tutti i tipi di acciaio» -- la parola e' nel
+    testo di norma, §4.1.2.1.1.3.
+    """
+    valori = valori_di_progetto(trova("B450C"))
+    assert set(valori) == {"f_yd"}
+    assert valori["f_yd"] == pytest.approx(391.3043, abs=1e-4)
+
+
+def test_i_coefficienti_parziali_sono_quelli_delle_ntc():
+    """I tre numeri che la `[4.1.3]` e la `[4.1.5]` fissano, esposti e non sepolti.
+
+    `γ_c` e' quello europeo, `α_cc` no: la Circolare lo dice, «il coefficiente
+    αcc resta fissato a 0,85, a differenza di quello proposto dalla UNI EN
+    1992». Chi un giorno volesse una modalita' Eurocodice cambierebbe `ALFA_CC`
+    e non `GAMMA_C`.
+    """
+    assert ALFA_CC == 0.85
+    assert GAMMA_C == 1.5
+    assert GAMMA_S == 1.15
+
+
+def test_l_oracolo_di_collaudo_del_progetto_parte_da_rck_30_e_non_dalla_c25_30():
+    """`R_ck` = 30, B450C: `f_cd` = 14,110 MPa. Verificato per tre vie nella ricerca.
+
+    **L'ingresso e' `R_ck` = 30, non la classe C25/30**, e le due cose non
+    coincidono: la C25/30 ha `f_ck` = 25 per definizione e darebbe 14,17 MPa. Uno
+    scarto dello 0,4%, cioe' il modo peggiore di fallire. La `[11.2.1]`
+    `f_ck = 0,83 · R_ck` si applica qui, nel test, perche' l'ingresso e' un
+    `R_ck` di capitolato; il catalogo parte dal nome della classe e non la
+    incontra mai.
+
+    `k_bil` e `μ_bil` non si calcolano qui: sono del controllo di sezione, che
+    questo modulo non fa.
+    """
+    f_ck_da_rck = 0.83 * 30.0
+    voce = _voce(classe="da R_ck = 30", f_k=f_ck_da_rck)
+    assert valori_di_progetto(voce)["f_cd"] == pytest.approx(14.110, abs=5e-4)
+
+
+def test_valori_di_progetto_rifiuta_una_resistenza_non_positiva():
+    """Non e' impossibile per costruzione: un materiale dichiarato a mano puo' portarla.
+
+    Senza guardia, `f_k = 0` darebbe `f_cd = 0` in silenzio, e una sezione con
+    resistenza nulla non verrebbe letta come un difetto di dichiarazione ma come
+    un risultato.
+    """
+    for f_k in (0.0, -25.0, float("nan")):
+        with pytest.raises(ValueError, match="caratteristica"):
+            valori_di_progetto(_voce(f_k=f_k))
+
+
+def test_valori_di_progetto_rifiuta_una_famiglia_che_non_conosce():
+    """`Literal` non vincola a runtime, e cadere sul ramo dell'acciaio per una
+    famiglia sconosciuta restituirebbe un `f_yd` per un materiale che non e'
+    acciaio."""
+    with pytest.raises(ValueError, match="famiglia"):
+        valori_di_progetto(_voce(famiglia="muratura"))
