@@ -909,6 +909,18 @@ def _baricentrica_invasa(interna: Membratura, esterna: Membratura) -> np.ndarray
     lunghezza e le due componenti trasversali stanno dentro le semiestensioni.
     E' il prisma circoscritto, non il contorno: la stessa approssimazione che
     `sezione` gia' e', e sulla quale `riempimento_sezione` dichiara lo scarto.
+
+    Le semiestensioni sono contate dal **centro del contorno** e non da
+    `origine`. `sezione` e' un `ptp`, cioe' un'ampiezza, non una semiestensione
+    simmetrica; e `origine` sta sull'asse del baricentro della nuvola, che su
+    una nuvola asimmetrica -- una colonna vista da due sole facce, il caso
+    normale di uno scanner -- non e' il centro della sezione. Misurato su una
+    colonna 100 x 100 x 1000 vista da due facce: col prisma centrato
+    sull'origine nuda il 4,76% dei punti della regione cade fuori dal prisma
+    con cui si decide, e sono materiale vero dichiarato aria da un lato e aria
+    dichiarata materiale dall'altro. `hexa.prisma_di` risolve lo stesso
+    problema nello stesso modo, e per la stessa ragione: `Membratura` non porta
+    il minimo grezzo della sezione, porta le estensioni e il contorno.
     """
     asse = esterna.asse / np.linalg.norm(esterna.asse)
     passo = np.linspace(0.0, interna.lunghezza, _CAMPIONI_GIUNZIONE)
@@ -922,7 +934,9 @@ def _baricentrica_invasa(interna: Membratura, esterna: Membratura) -> np.ndarray
         # stiano le due estensioni, e una giunzione dedotta a caso sarebbe
         # peggio di una giunzione assente.
         return np.zeros(len(punti), dtype=bool)
-    trasversale = np.abs(scarto @ base.T)
+    contorno = np.asarray(esterna.contorno, dtype=np.float64)
+    centro = (contorno.min(axis=0) + contorno.max(axis=0)) / 2.0
+    trasversale = np.abs(scarto @ base.T - centro)
     semi = np.asarray(esterna.sezione, dtype=np.float64) / 2.0
     return (
         (lungo >= 0.0)

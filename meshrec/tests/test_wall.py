@@ -655,6 +655,91 @@ def test_due_assi_paralleli_non_dividono_per_zero():
     assert distanza == pytest.approx(250.0, abs=1e-9)
 
 
+def _membratura_di_prova(origine, asse, lunghezza, sezione, base_sezione):
+    """Una `Membratura` costruita a mano, per i banchi degli incontri.
+
+    Il contorno e' il rettangolo della sezione centrato sull'origine: e' la
+    forma che `misura` produce su una nuvola simmetrica, e tenerla esplicita
+    qui rende visibile quale ancoraggio il predicato di invasione usa.
+    """
+    mezza = np.asarray(sezione, dtype=np.float64) / 2.0
+    contorno = mezza * np.array([[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0], [-1.0, 1.0]])
+    return wall.Membratura(
+        punti=np.arange(0),
+        asse=np.asarray(asse, dtype=np.float64),
+        origine=np.asarray(origine, dtype=np.float64),
+        lunghezza=float(lunghezza),
+        sezione=tuple(float(valore) for valore in sezione),
+        sezione_dispersione=(0.0, 0.0),
+        contorno=contorno,
+        fuori_piombo_deg=0.0,
+        asse_ideale=np.asarray(asse, dtype=np.float64),
+        scarto_asse_deg=0.0,
+        rigonfiamento=np.zeros(4),
+        volume=0.0,
+        riempimento_sezione=1.0,
+        riempimento_stato="pieno",
+        densita_dispersione=0.0,
+        base_sezione=np.asarray(base_sezione, dtype=np.float64),
+    )
+
+
+_TRAVE_X = ([0.0, 0.0, 0.0], [1.0, 0.0, 0.0], 1000.0, (100.0, 100.0), [[0, 1, 0], [0, 0, 1]])
+
+
+def test_il_prisma_di_prova_e_ancorato_al_centro_del_contorno_e_non_all_origine():
+    """Una colonna 100 x 100 x 1000 vista da due sole facce: il caso normale di
+    uno scanner, non un caso limite. L'origine sta sull'asse del **baricentro**
+    della nuvola, che su una nuvola asimmetrica non e' il centro della sezione,
+    e `sezione` e' un `ptp` e non una semiestensione simmetrica.
+
+    Misurato: col prisma ancorato all'origine nuda il 4,76% dei punti della
+    regione cade fuori dal prisma con cui il predicato di invasione decide, ed
+    e' materiale vero dichiarato aria. Ancorando al centro del contorno --
+    quello che `hexa.prisma_di` gia' fa -- la frazione va a zero.
+    """
+    passo = 10.0
+    lato, altezza = 100.0, 1000.0
+
+    def griglia(a, b):
+        na, nb = int(round(a / passo)) + 1, int(round(b / passo)) + 1
+        u, v = np.meshgrid(np.linspace(0.0, a, na), np.linspace(0.0, b, nb), indexing="ij")
+        return u.ravel(), v.ravel()
+
+    u, v = griglia(lato, altezza)
+    faccia_x = np.column_stack([np.zeros_like(u), u, v])
+    faccia_y = np.column_stack([u, np.zeros_like(u), v])
+    punti = np.unique(np.round(np.vstack([faccia_x, faccia_y]), 9), axis=0)
+
+    direzioni, _ = wall.terna(punti)
+    colonna = wall.misura(punti, direzioni, _cfg())
+    colonna.punti = np.arange(len(punti))
+
+    # la sonda corre lungo l'asse della colonna, appoggiata alla faccia vera
+    # sul lato in cui il baricentro e' spostato: e' dentro il materiale, e il
+    # predicato deve dirlo.
+    trasversale = (punti - colonna.origine) @ colonna.base_sezione.T
+    estremo = trasversale[:, 0].min()
+    sonda = _membratura_di_prova(
+        colonna.origine + colonna.base_sezione[0] * (estremo + 1.0) + colonna.asse * 10.0,
+        colonna.asse,
+        altezza - 20.0,
+        (10.0, 10.0),
+        colonna.base_sezione,
+    )
+
+    assert wall._baricentrica_invasa(sonda, colonna).any(), (
+        "la sonda sta sulla faccia misurata della colonna: è materiale, non aria"
+    )
+
+    # e l'oracolo diretto: nessun punto della regione fuori dal prisma di prova
+    centro = (colonna.contorno.min(axis=0) + colonna.contorno.max(axis=0)) / 2.0
+    semi = np.asarray(colonna.sezione) / 2.0
+    tolleranza = 1e-9
+    fuori = np.abs(trasversale - centro) > semi + tolleranza
+    assert not fuori.any(), "il prisma con cui si decide deve contenere i punti misurati"
+
+
 def test_il_nodo_non_cade_fuori_dal_pezzo_su_cui_si_proietta():
     """Due travi quasi allineate che si sovrappongono. Scegliere l'estremo di
     chi cede sulla distanza dalla **retta** infinita di chi resta prendeva
