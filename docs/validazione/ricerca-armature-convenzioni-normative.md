@@ -575,7 +575,7 @@ con quella già pubblicata in [`materiali-intervallo.md`](materiali-intervallo.m
 
 | classe | `fck` [MPa] | `fcm` [MPa] | `Ecm` EC2 tabulato [GPa] | `Ecm` da formula [MPa] | in NTC? | in EC2? |
 |---|---|---|---|---|---|---|
-| C8/10 | 8 | 16 | — | 25.393 | sì | **no** |
+| C8/10 | 8 | 16 | — | 25.331 | sì | **no** |
 | C12/15 | 12 | 20 | 27 | 27.085 | sì | sì |
 | C16/20 | 16 | 24 | 29 | 28.608 | sì | sì |
 | C20/25 | 20 | 28 | 30 | 29.962 | sì | sì |
@@ -592,6 +592,16 @@ con quella già pubblicata in [`materiali-intervallo.md`](materiali-intervallo.m
 | C70/85 | 70 | 78 | 41 | 40.743 | sì | sì |
 | C80/95 | 80 | 88 | 42 | 42.244 | sì | sì |
 | C90/105 | 90 | 98 | 44 | 43.631 | sì | sì |
+
+**Correzione del 30/08/2026 sulla riga C8/10.** Questa tabella pubblicava
+`Ecm` = 25.393 MPa. È un refuso isolato: `22000·(16/10)^0,3` = **25.331,37**, e
+la ricerca successiva
+[`ricerca-ntc-2018-numeri-per-il-catalogo.md`](ricerca-ntc-2018-numeri-per-il-catalogo.md)
+§1.4 ottiene lo stesso 25.331 ricalcolando la colonna da capo, con le altre
+sedici righe che coincidono cifra per cifra fra le due sessioni — quindi non era
+né una formula diversa né un arrotondamento sistematico, ma questa sola riga. Il
+valore in tabella è stato portato a quello della formula, che è anche quello che
+il catalogo dei materiali di `core/materiali.py` produce.
 
 La riga C8/10 porta un `Ecm` calcolato **fuori dal dominio in cui EC2 tabula la
 formula**: la classe esiste nelle NTC ma non in EC2 Tabella 3.1. Il numero è
