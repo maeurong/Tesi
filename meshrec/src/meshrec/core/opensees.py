@@ -117,6 +117,17 @@ def _nome_uscita(caso: str, cosa: str) -> str:
 
 NOME_MASSA_MODALE = "massa_modale.out"
 
+# Il marcatore di fine corsa, e il file in cui il `.tcl` lo scrive.
+#
+# Serve perche' il codice d'uscita di OpenSees non e' il segnale (misurato: 0
+# anche su uno script che muore su un errore fatale) e perche' i registratori
+# scrivono a ogni passo: una corsa uccisa a meta' lascia sul disco file pieni e
+# ben formati, che sono l'ultimo stato e non un risultato. Le due guardie di
+# `_ultima_riga` vedono il singolo file troncato; questo marcatore e' l'unico
+# modo di dire che la **corsa** e' finita.
+NOME_FINE = "fine.out"
+MARCA_FINE = "MESHREC_FINE"
+
 
 def conta_avvisi(uscita: str) -> int:
     """Gli avvisi nell'uscita di OpenSees, da dare a `solve.controlla_avvisi`.
@@ -344,7 +355,15 @@ def _passo_statico(caso: str, n_nodi: int, n_elementi: int, pesi: np.ndarray) ->
         "algorithm Linear",
         "integrator LoadControl 1.0",
         "analysis Static",
-        "analyze 1",
+        # Il codice di `analyze` si guarda: un'analisi che non converge non
+        # fermerebbe lo script, OpenSees uscirebbe 0 lo stesso, i registratori
+        # scriverebbero l'ultimo stato e il lettore non lo distinguerebbe da un
+        # risultato. `exit 1` lascia anche il marcatore di fine non scritto.
+        "if {[analyze 1] != 0} {",
+        f'    puts "{MARCA_FINE}_MANCA: il caso {caso} non è arrivato a '
+        'convergenza"',
+        "    exit 1",
+        "}",
         "remove recorders",
         "wipeAnalysis",
         "remove loadPattern 1",
@@ -446,7 +465,15 @@ def scrivi_tcl(
     if "MODALE" in casi:
         righe += _passo_modale(modi, len(nodi))
         righe.append("")
-    righe += ["wipe", ""]
+    righe += [
+        "wipe",
+        "",
+        "# --- il marcatore di fine corsa: se manca, la corsa e' stata troncata",
+        f'set _fine [open "{NOME_FINE}" w]',
+        f'puts $_fine "{MARCA_FINE}"',
+        "close $_fine",
+        "",
+    ]
 
     percorso = Path(path)
     percorso.parent.mkdir(parents=True, exist_ok=True)
@@ -526,6 +553,19 @@ def leggi_uscite(out_dir: Path, telaio: "Telaio") -> dict[str, np.ndarray]:
     interrotta, non un'assenza.
     """
     cartella = Path(out_dir)
+    if list(cartella.glob("*.out")):
+        fine = cartella / NOME_FINE
+        completa = fine.is_file() and MARCA_FINE in fine.read_text(
+            encoding="ascii", errors="ignore"
+        )
+        if not completa:
+            raise ValueError(
+                f"{cartella} porta uscite ma non il marcatore di fine "
+                f"({NOME_FINE}): la corsa è stata troncata -- processo ucciso, "
+                "oppure l'analisi non è arrivata a convergenza e lo script è "
+                "uscito. I file che ci sono portano l'ultimo stato scritto, che "
+                "non è un risultato"
+            )
     nodi = np.asarray(telaio.nodi, dtype=np.float64)
     n_nodi, n_elementi = len(nodi), len(telaio.elementi)
     campi: dict[str, np.ndarray] = {}

@@ -311,9 +311,17 @@ def test_il_resoconto_conta_quello_che_ha_scritto(tmp_path):
 
 
 # --- Il lettore delle uscite --------------------------------------------------
+def _fine(cartella: Path) -> None:
+    """Il marcatore che il `.tcl` scrive in coda, e che il lettore pretende."""
+    (cartella / opensees.NOME_FINE).write_text(
+        opensees.MARCA_FINE + "\n", encoding="utf-8"
+    )
+
+
 def _scrivi_uscite(cartella: Path, righe_spostamenti: str, righe_forze: str) -> None:
     (cartella / "GRAVITA_spostamenti.out").write_text(righe_spostamenti, encoding="utf-8")
     (cartella / "GRAVITA_forze.out").write_text(righe_forze, encoding="utf-8")
+    _fine(cartella)
 
 
 _SPOSTAMENTI_MENSOLA = " ".join(["0 0 0"] + [f"{i} 0 {-i}" for i in range(1, 5)]) + "\n"
@@ -371,6 +379,7 @@ def test_il_telaio_non_produce_mai_una_von_mises_per_nodo(tmp_path):
 
 def test_un_blocco_modale_non_produce_mai_U_ne_VM(tmp_path):
     (tmp_path / "modo_1.out").write_text(_SPOSTAMENTI_MENSOLA, encoding="utf-8")
+    _fine(tmp_path)
 
     campi = opensees.leggi_uscite(tmp_path, _mensola())
 
@@ -383,6 +392,7 @@ def test_un_uscita_troncata_a_meta_riga_si_dichiara_incompleta(tmp_path):
     processo ucciso a meta' scrittura. Il file resta, e le sue righe sono
     corte."""
     (tmp_path / "GRAVITA_spostamenti.out").write_text("0 0 0 1 0 -1 2 0", encoding="utf-8")
+    _fine(tmp_path)
 
     with pytest.raises(ValueError, match="troncat"):
         opensees.leggi_uscite(tmp_path, _mensola())
@@ -392,6 +402,7 @@ def test_un_uscita_con_byte_non_decodificabili_si_legge_senza_sollevare(tmp_path
     (tmp_path / "GRAVITA_spostamenti.out").write_bytes(
         b"0 0 0 1 0 \xff-1 2 0 -2 3 0 -3 4 0 -4\n"
     )
+    _fine(tmp_path)
 
     campi = opensees.leggi_uscite(tmp_path, _mensola())
 
@@ -402,8 +413,43 @@ def test_un_uscita_vuota_non_e_un_campo_di_zeri(tmp_path):
     """Un file che c'e' ma non porta righe e' una corsa che non ha scritto: e'
     diverso da spostamenti nulli, e va detto."""
     (tmp_path / "GRAVITA_spostamenti.out").write_text("\n\n", encoding="utf-8")
+    _fine(tmp_path)
 
     with pytest.raises(ValueError, match="nessuna riga"):
+        opensees.leggi_uscite(tmp_path, _mensola())
+
+
+def test_un_analisi_che_non_converge_ferma_lo_script(tmp_path):
+    """`analyze 1` rende un codice, e ignorarlo è il difetto: un'analisi che
+    non converge non fermava lo script, OpenSees usciva 0 (misurato: il codice
+    d'uscita non è mai il segnale), i registratori scrivevano l'ultimo stato e
+    il lettore non lo distingueva da un risultato vero."""
+    righe = _scrivi(tmp_path).splitlines()
+
+    assert "analyze 1" not in righe, "il valore di ritorno va guardato"
+    guardia = [r for r in righe if "analyze 1" in r]
+    assert guardia and guardia[0].startswith("if {[analyze 1] != 0}"), guardia
+    assert any("exit 1" in r for r in righe)
+
+
+def test_il_tcl_scrive_il_marcatore_di_fine_in_coda(tmp_path):
+    """Il solo modo di distinguere una corsa troncata da una completa a livello
+    di **corsa** e non di singolo file."""
+    testo = _scrivi(tmp_path)
+
+    assert opensees.NOME_FINE in testo
+    assert opensees.MARCA_FINE in testo
+
+
+def test_una_corsa_senza_marcatore_di_fine_si_dichiara_incompleta(tmp_path):
+    """Uscite sul disco e nessun marcatore: il processo è morto a metà, o
+    l'analisi non ha converso ed è uscita 1. In tutti e due i casi l'ultimo
+    stato scritto non è un risultato."""
+    (tmp_path / "GRAVITA_spostamenti.out").write_text(
+        _SPOSTAMENTI_MENSOLA, encoding="utf-8"
+    )
+
+    with pytest.raises(ValueError, match="marcatore di fine"):
         opensees.leggi_uscite(tmp_path, _mensola())
 
 
@@ -489,6 +535,8 @@ def test_opensees_esegue_il_tcl_che_scriviamo_e_accorcia_la_mensola_come_la_form
     # uscite scritte.
     assert opensees.conta_avvisi(uscita) == 0, uscita[-3000:]
     assert "while executing" not in uscita, uscita[-3000:]
+    # Il marcatore di fine: la corsa è arrivata in fondo, non è stata troncata.
+    assert (tmp_path / opensees.NOME_FINE).is_file(), uscita[-3000:]
 
     campi = opensees.leggi_uscite(tmp_path, telaio)
 
