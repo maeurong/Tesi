@@ -551,6 +551,28 @@ def test_l_esito_del_prior_e_serializzabile_in_json():
     assert json.loads(testo)["regioni_trovate"] == esito["regioni_trovate"]
 
 
+def test_il_prior_scrive_le_sezioni_di_fetta_e_la_base_in_json():
+    """Il prior finisce su disco e nel browser: le misure nuove devono uscire
+    come tipi JSON, non come array numpy.
+    """
+    import json
+
+    punti = synth.sample_frame_surface(TELAIO, SPAZIATURA)
+
+    esito = wall.prior(punti, SegmentConfig(), _cfg(), SPAZIATURA)
+    voce = esito["membrature"][0]
+
+    assert isinstance(voce["sezioni_fette"], list)
+    assert all(isinstance(coppia, list) and len(coppia) == 2 for coppia in voce["sezioni_fette"])
+    assert isinstance(voce["quote_fette"], list)
+    assert len(voce["quote_fette"]) == len(voce["sezioni_fette"])
+    assert isinstance(voce["base_sezione"], list)
+    assert len(voce["base_sezione"]) == 2
+    assert all(len(riga) == 3 for riga in voce["base_sezione"])
+    # la prova che conta: l'intero esito e' serializzabile
+    json.dumps(esito)
+
+
 def test_prior_non_scarta_il_pavimento_due_volte(monkeypatch):
     """F11 del giro di correzione finale: wall.prior chiamava scarta_pavimento
     direttamente, e scomponi lo richiamava una seconda volta con gli stessi
