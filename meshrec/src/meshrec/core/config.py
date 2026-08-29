@@ -508,11 +508,39 @@ class SolutoreConfig(_ModelloBase):
     percorso: Path | None = Field(
         default=None,
         description=(
-            "percorso dell'eseguibile. None non è un percorso mancante: è la "
-            "dichiarazione «cercalo nel PATH», che è il caso normale di una "
-            "macchina dove il solutore è installato a sistema"
+            "percorso dell'eseguibile. Solo None dichiara «cercalo nel PATH», "
+            "che è il caso normale di una macchina dove il solutore è "
+            "installato a sistema: la stringa vuota non è quella dichiarazione, "
+            "è la cartella corrente, ed è rifiutata insieme a ogni directory "
+            "esistente. Un file che ancora non c'è passa: dire che il binario "
+            "manca spetta al passo che lo esegue, non a questa configurazione"
         ),
     )
+
+    @model_validator(mode="after")
+    def _il_percorso_non_e_una_cartella(self) -> "SolutoreConfig":
+        """Questo campo sceglie il binario che verra' eseguito.
+
+        Il ramo del solutore lo consuma in un `subprocess.run` con lista di
+        argomenti, quindi nessuna shell lo interpreta -- ma un `config.yaml`
+        copiato da altri, o una `PUT /api/config`, sceglie comunque quale
+        programma parte. I due modi in cui la scelta e' muta si vedono da qui e
+        si chiudono da qui; che il file esista e funzioni no, e resta di
+        `solve.verifica`, che lo dichiara invece di ripiegare in silenzio.
+
+        Una sola guardia per due ingressi: `Path("")` e' `Path(".")`, quindi la
+        stringa vuota -- che sembra «non dichiarato» e invece e' la cartella
+        corrente -- cade nello stesso controllo della directory esistente. Un
+        percorso che non esiste non e' una directory e passa.
+        """
+        if self.percorso is not None and self.percorso.is_dir():
+            raise ValueError(
+                f"solutore.percorso '{self.percorso}' è una directory e non un "
+                "eseguibile. La stringa vuota finisce qui: vale la cartella "
+                "corrente, non «non dichiarato». Per «cercalo nel PATH» il "
+                "valore è None, cioè la chiave omessa"
+            )
+        return self
 
 
 class RunConfig(_ModelloBase):

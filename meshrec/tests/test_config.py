@@ -1122,6 +1122,40 @@ def test_il_solutore_si_dichiara_per_nome_e_il_percorso_e_facoltativo():
             config.SolutoreConfig(nome=inventato)
 
 
+def test_il_percorso_del_solutore_rifiuta_la_stringa_vuota_e_una_cartella(tmp_path):
+    """Un `config.yaml` copiato da altri, o una `PUT /api/config`, sceglie il
+    binario che verra' eseguito: i due modi in cui la scelta e' muta non passano.
+
+    La stringa vuota diventa `PosixPath('.')`, cioe' un percorso che *sembra*
+    «non dichiarato» e invece e' la cartella corrente. Una directory esistente
+    non e' un eseguibile. Che il file esista davvero, e che funzioni, resta del
+    ramo del solutore: ha `solve.verifica` e lo dichiara invece di ripiegare in
+    silenzio.
+
+    Mutazione che lo uccide: togliere il validatore. Entrambe le chiamate
+    passano e la scelta del binario diventa muta.
+    """
+    with pytest.raises(ValidationError):
+        config.SolutoreConfig(percorso="")
+    with pytest.raises(ValidationError):
+        config.SolutoreConfig(percorso=tmp_path)
+
+
+def test_il_percorso_del_solutore_accetta_un_file_che_non_esiste_ancora(tmp_path):
+    """Sta accanto al test del rifiuto apposta: senza, «rifiuta il percorso
+    muto» e «pretende un binario installato» sarebbero indistinguibili, e una
+    guardia di esistenza messa qui passerebbe inosservata.
+
+    Dichiarare che il binario manca e' del ramo del solutore, non della
+    configurazione: qui una macchina che non l'ha ancora installato deve poter
+    scrivere il percorso dove lo mettera'.
+    """
+    assert config.SolutoreConfig(
+        percorso=tmp_path / "ccx"
+    ).percorso == tmp_path / "ccx"
+    assert config.SolutoreConfig(percorso=None).percorso is None
+
+
 def test_una_configurazione_senza_i_blocchi_della_fase_8_si_rilegge_coi_predefiniti(tmp_path):
     """Le corse gia' su disco non hanno ne' `solutore` ne' `regioni`.
 
