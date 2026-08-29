@@ -270,6 +270,93 @@ Tutto ciò che tocca `config.py`, `sweep.py`, `steps.py` si fa **qui e una volta
 
 Chi attua un sottosistema vede solo il proprio. **Questa sezione è il modo in cui impara i nomi che i vicini useranno.** Le firme sono normative: chi le cambia lo dichiara e avvisa gli altri rami, perché nessuno se ne accorgerebbe finché il merge non fallisce.
 
+### 4.0 Che cosa è cambiato mentre i rami costruivano
+
+> Scritto il 30/08/2026, ad attuazione in corso. **Le §4.3–§4.9 qui sotto sono il
+> contratto come è stato *previsto*; questa sezione è il contratto come è *uscito*.
+> Dove le due divergono, vale questa.** §4.2 lo pretendeva: «se l'onda 0 li cambia,
+> lo dice qui prima di chiudere», e valeva per ogni ramo, non solo per l'onda 0.
+
+**Dall'onda 0 (lo schema).**
+
+- **`veste` non esiste**, e non va scritto. §4.4 lo dava obbligatorio su
+  `MaterialeDichiarato`. Mario ha deciso che vale [#141](https://github.com/maeurong/Tesi/issues/141)
+  senza eccezioni: le voci sono **sempre caratteristiche** e il programma deriva i
+  valori di progetto con i γ di norma. Le parole «già ridotte» di
+  [#146](https://github.com/maeurong/Tesi/issues/146) riguardavano il fattore di
+  confidenza e il livello di conoscenza, che non si applicano perché il materiale è
+  calcestruzzo e non muratura. Un test sorveglia contro la reintroduzione.
+- Di conseguenza `f_k` è **sempre caratteristico**, non «caratteristico o ridotto»
+  come §4.4 scriveva.
+- **`classe_calcestruzzo` è `str` e non un'enumerazione.** §4.5 la voleva chiusa «da
+  C8/10 in su», ma il catalogo è del ramo B, e un'enumerazione scritta a mano nella
+  configurazione sarebbe una seconda verità che diverge dalla prima.
+- **`diametro_teso`, `diametro_compresso` e `diametro_staffe` sono interi con un
+  dominio**, non l'enumerazione EN 10080 ∩ NTC 11.3.2.4 che §4.5 nominava. Stessa
+  ragione. Chi compila legge la serie commerciale nella descrizione del campo; chi
+  vuole il menù lo costruisce nell'interfaccia, dove la serie è un fatto di
+  presentazione e non un secondo dominio.
+
+**Dal ramo A (il prior).** Il piano d'attuazione di A è autorità su §4.3, e ha
+fissato nomi diversi. **Questi sono i nomi veri:**
+
+| §4.3 diceva | è | nota |
+|---|---|---|
+| `sezioni_per_fetta` | `sezioni_fette` | `(n, 2)` float64, mm. Colonna 0 lungo **e1**, colonna 1 lungo **e2** |
+| `quote_per_fetta` | `quote_fette` | `(n,)` float64, mm dall'origine. Stessa lunghezza e stesso ordine |
+| `e1`, `e2`, due campi `(3,)` | `base_sezione`, un campo `(2, 3)` | riga 0 = e1, riga 1 = e2. Nascono insieme e insieme sono un piano |
+| chiave JSON `adiacenza` | chiave `giunzioni` | di primo livello in `12_wall.json` |
+| `maggiore` / `minore` | `cede` / `resta` | il Ruling AD assegna il ruolo **per invasione**, non per area: «maggiore» sarebbe un nome falso |
+| — | `distanza_proiezione` | float, mm, ≥ 0. Si misura e si mostra; **non** è una soglia |
+| `core/adiacenza.py` | **non creato** | `ruoli_dell_incontro`, `nodo_di_giunzione` e `giunzioni` vivono in `core/wall.py` |
+
+`quote_fette` è la quota del **centro geometrico** della fetta, non la media dei
+punti. `n ≤ 20`: una fetta con meno di quattro punti non produce riga, e il numero
+dichiarato è quello vero.
+
+**Un'incoerenza dichiarata e non risolta, che riguarda D.** `wall.giunzioni` ordina
+per area del **rettangolo circoscritto**; `hexa.taglia_giunzioni` usa l'area del
+**contorno misurato**. Su una sezione non rettangolare i due possono assegnare ruoli
+diversi allo stesso incontro. Sono due letture a risoluzione diversa, non due copie:
+chi costruisce il telaio dai nodi di uno e le sezioni dell'altro deve saperlo.
+
+**Dal ramo E (il solutore).**
+
+- **`leggi_uscite` non produce mai un `VM_` sul telaio.** §4.6 lo prometteva in prosa,
+  ma la tabella controllo × modello che [#138](https://github.com/maeurong/Tesi/issues/138)
+  obbliga a scrivere dichiara il controllo `picco` **non applicabile** al telaio: la
+  tensione lì vive per fibra, non per nodo. Vale la tabella.
+- **§4.6 e §4.7 non chiudono, e la casella è vuota.** `scrivi_tcl` riceve
+  `casi_di_carico`, ma il `Telaio` di §4.7 non porta le azioni con cui scriverli, e
+  §4.9 le assegna a G, due onde dopo. E scrive il peso proprio e il blocco modale — i
+  soli derivabili dal telaio — e **rifiuta** ogni altro nome nominando a chi
+  appartiene. Uno `*STEP` senza carichi darebbe spostamenti nulli e sette verdetti
+  verdi su un modello mai caricato. **Va deciso da chi ricongiunge D, E e G.**
+- **Tre cose che `Telaio` non porta e che E ha dedotto**, dichiarandole: i vincoli
+  (regola usata: i nodi alla quota minima, come `BASE`), il numero di modi (keyword
+  con predefinito letto dalla configurazione), e il nome del caso di peso proprio (il
+  primo della lista, per la convenzione già documentata). **Se D vuole altro, è
+  `Telaio` che deve portarlo.**
+- **Il codice d'uscita non è il segnale.** Misurato: OpenSees esce `0` anche dopo un
+  errore fatale, e `ccx` esce `201` quando funziona. Nessun ramo concluda «riuscito»
+  da un codice.
+- **OpenSees non si invoca dalla sua cartella `bin/`.** Misurato: carica le DLL da
+  qualunque cwd. E **non deve** essere invocato da lì, perché i registratori scrivono
+  con nomi relativi alla cartella corrente e le uscite finirebbero dentro
+  l'installazione invece che nella cartella della corsa.
+
+**Dal ramo B (il catalogo).** Tre divergenze fra fonti, decise e scritte nelle note
+delle voci: `E_s = 200.000 MPa` (non i 210.000 della Circolare, che stanno in un
+paragrafo sulle tensioni in esercizio, e con cui l'oracolo di collaudo fallisce);
+`E_cm` presa dalla formula e non dalla tabella pubblicata altrove; e `f_ck` letto dal
+**nome della classe**, perché «C25/30» *è* la coppia normalizzata e `0,83·R_ck`
+sbaglia fino al 6,7% su C35/45. Nessuna delle sei riduzioni ulteriori previste dalla
+norma è attuata: ognuna dipende da un fatto che una riga di catalogo non porta, e
+quando serviranno entreranno come **argomenti espliciti**, mai come predefiniti
+silenziosi.
+
+---
+
 ### 4.1 Ciò che esiste oggi e non cambia
 
 Verificato in questa sessione. Chi scrive un contratto nuovo lo scrive **accanto** a questi, non al loro posto.
