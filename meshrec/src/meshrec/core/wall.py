@@ -480,9 +480,12 @@ class Membratura:
     """Le due direzioni del piano di sezione, e1 sulla riga 0 ed e2 sulla riga 1.
 
     `misura` le costruisce gia', ancorate alla terna del pezzo e non alla SVD
-    della regione, «o le loro sezioni non sono confrontabili»: due membrature
-    parallele devono avere lo stesso piano. Escono di qui perche' `sezione` e
-    `contorno` sono numeri in quel piano, e senza il piano non collocano nulla.
+    della regione: due membrature con lo stesso asse hanno cosi' lo stesso
+    piano, e le loro sezioni sono confrontabili. Due membrature **quasi**
+    parallele no, se stanno a cavallo della soglia con cui `misura` sceglie il
+    riferimento: li' il commento accanto a quella scelta dice quanto divergono
+    e perche' resta com'e'. Escono di qui perche' `sezione` e `contorno` sono
+    numeri in quel piano, e senza il piano non collocano nulla.
     """
 
 
@@ -534,8 +537,20 @@ def misura(punti_regione: np.ndarray, direzioni: np.ndarray, cfg: WallConfig) ->
     origine = centro + asse * lungo.min()
 
     # base ortonormale del piano di sezione, ancorata alla terna del pezzo e non
-    # alla SVD della regione: due membrature parallele devono avere lo stesso
-    # piano di sezione, o le loro sezioni non sono confrontabili
+    # alla SVD della regione: due membrature con lo **stesso** asse hanno cosi'
+    # lo stesso piano di sezione, e le loro sezioni sono confrontabili.
+    #
+    # Due membrature quasi parallele, no: la scelta del riferimento e' uno
+    # scalino, e a cavallo di abs(dot) = 0.9 i due piani divergono. Misurato,
+    # facendo variare la direzione trasversale dell'asse a cavallo della
+    # soglia: fino a 89,5 gradi di scarto fra i due e1 (su un asse che giace in
+    # un piano coordinato lo scarto resta 0,26 gradi, ed e' per questo che sul
+    # banco non si vede). Non e' rimediabile scegliendo meglio: un riferimento
+    # preso da un insieme discreto ha sempre uno scalino da qualche parte, e la
+    # regola alternativa (l'asse della terna meno allineato) sullo stesso
+    # ingresso ne fa uno da 84 gradi e muove il rigonfiamento gia' misurato dal
+    # banco. Restare qui e' una scelta, non una svista: cambiarla e' un'altra
+    # decisione, e va presa insieme a chi legge base_sezione.
     riferimento = direzioni[2] if abs(np.dot(direzioni[2], asse)) < 0.9 else direzioni[0]
     e1 = riferimento - asse * np.dot(riferimento, asse)
     e1 = fix_sign(e1 / np.linalg.norm(e1))
