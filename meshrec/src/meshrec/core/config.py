@@ -293,6 +293,14 @@ class TetConfig(_ModelloBase):
     )
 
 
+# La natura di un'azione, che decide quale coefficiente parziale e quale
+# coefficiente di combinazione le spetta (#146, NTC 2018 Tab. 2.6.I). Non e' un
+# attributo del carico in se': la stessa forza e' permanente su una struttura e
+# variabile su un'altra, quindi la dichiara chi analizza e non la deduce il
+# programma.
+Natura = Literal["permanente_strutturale", "permanente_non_strutturale", "variabile"]
+
+
 class SpintaOrizzontale(_ModelloBase):
     """Forza di massa orizzontale, come frazione dell'accelerazione di gravita.
 
@@ -312,6 +320,15 @@ class SpintaOrizzontale(_ModelloBase):
     asse: Literal["x", "y"] = Field(
         description="asse orizzontale del modello lungo cui la spinta agisce"
     )
+    natura: Natura | None = Field(
+        default=None,
+        description=(
+            "natura dell'azione ai fini delle combinazioni (#146). Il predefinito "
+            "è None e non una natura plausibile: «non dichiarata» è uno stato che "
+            "il generatore delle combinazioni legge per rifiutarsi, perché senza "
+            "la natura nessun coefficiente parziale può scegliersi da solo"
+        ),
+    )
 
 
 class CaricoSommita(_ModelloBase):
@@ -328,6 +345,15 @@ class CaricoSommita(_ModelloBase):
         gt=0.0, description="risultante in N, ripartita per area tributaria sui nodi"
     )
     nset: NomeSetDiFaccia = Field(description="insieme di nodi su cui ripartire, di norma TOP")
+    natura: Natura | None = Field(
+        default=None,
+        description=(
+            "natura dell'azione ai fini delle combinazioni (#146). Il predefinito "
+            "è None e non una natura plausibile: «non dichiarata» è uno stato che "
+            "il generatore delle combinazioni legge per rifiutarsi, perché senza "
+            "la natura nessun coefficiente parziale può scegliersi da solo"
+        ),
+    )
 
 
 class Modale(_ModelloBase):
@@ -948,6 +974,15 @@ class CaricoPosizionato(_ModelloBase):
         default=None, description="risultante [N], ripartita per area sui nodi presi"
     )
     momento: Momento | None = None
+    natura: Natura | None = Field(
+        default=None,
+        description=(
+            "natura dell'azione ai fini delle combinazioni (#146). Il predefinito "
+            "è None e non una natura plausibile: «non dichiarata» è uno stato che "
+            "il generatore delle combinazioni legge per rifiutarsi, perché senza "
+            "la natura nessun coefficiente parziale può scegliersi da solo"
+        ),
+    )
 
     @model_validator(mode="after")
     def _o_forza_o_momento(self) -> "CaricoPosizionato":
@@ -1000,6 +1035,15 @@ class CaricoDistribuito(_ModelloBase):
     pressione: float = Field(
         description="pressione [N/mm²] normale alla faccia; positiva preme dentro"
     )
+    natura: Natura | None = Field(
+        default=None,
+        description=(
+            "natura dell'azione ai fini delle combinazioni (#146). Il predefinito "
+            "è None e non una natura plausibile: «non dichiarata» è uno stato che "
+            "il generatore delle combinazioni legge per rifiutarsi, perché senza "
+            "la natura nessun coefficiente parziale può scegliersi da solo"
+        ),
+    )
 
     @model_validator(mode="after")
     def _la_pressione_non_e_nulla(self) -> "CaricoDistribuito":
@@ -1009,6 +1053,43 @@ class CaricoDistribuito(_ModelloBase):
                 "statico identico al peso proprio, con un nome che promette altro"
             )
         return self
+
+
+class Combinazione(_ModelloBase):
+    """Una combinazione di azioni, proposta dal programma o corretta a mano (#146).
+
+    `proposta` distingue le due cose, ed e' la ragione per cui il campo esiste:
+    il programma non puo' sapere la categoria d'uso di un edificio rilevato, e
+    generare senza chiedere sarebbe indovinare. Propone, l'operatore corregge,
+    e il flag dice quali voci nessuno ha ancora guardato.
+    """
+
+    nome: NomeSet = Field(
+        description=(
+            "nome del passo nel deck. Stesso vincolo di caratteri degli altri "
+            "nomi: finisce interpolato in un file scritto in ascii"
+        ),
+    )
+    tipo: Literal[
+        "slu_fondamentale",
+        "sle_rara",
+        "sle_frequente",
+        "sle_quasi_permanente",
+        "sismica",
+    ] = Field(description="stato limite della combinazione, NTC 2018 §2.5.3")
+    termini: tuple[tuple[str, float], ...] = Field(
+        description=(
+            "le azioni combinate e il loro coefficiente: (nome dell'azione, "
+            "coefficiente). L'ordine è quello con cui i termini entrano nel deck"
+        ),
+    )
+    proposta: bool = Field(
+        description=(
+            "True = generata dal programma e non ancora toccata dall'operatore. "
+            "Nessun predefinito: chi scrive una combinazione a mano deve dire "
+            "che è sua, e chi la genera deve dire che è da rivedere"
+        ),
+    )
 
 
 class CarichiConfig(_ModelloBase):
@@ -1041,6 +1122,16 @@ class CarichiConfig(_ModelloBase):
             "pressioni normali alla faccia, sulla superficie che i nodi del "
             "selettore delimitano. Tupla vuota e non None per la stessa ragione "
             "dei posizionati"
+        ),
+    )
+    combinazioni: tuple[Combinazione, ...] = Field(
+        default=(),
+        description=(
+            "le combinazioni delle azioni dichiarate. Tupla vuota e non None, e "
+            "vuota è anche l'unico predefinito ammesso: `carichi` esce "
+            "dall'impronta solo quando ogni suo campo di primo livello è falso, e "
+            "un predefinito truthy qui sposterebbe le ventidue righe dei registri "
+            "lasciando verde il test dei blocchi"
         ),
     )
 

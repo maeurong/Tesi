@@ -359,10 +359,18 @@ def test_i_casi_di_carico_non_hanno_valori_predefiniti():
     modo. Il campo resta comunque scrivibile, e il verdetto `massa_modale`
     misura se il valore usato e' bastato: il predefinito fa partire bene, non
     decide al posto di nessuno.
+
+    **La seconda eccezione, dalla Fase 8.** `natura` (#146) ha predefinito
+    `None` su ogni azione. Non e' una congettura sul valore, e' l'assenza
+    dichiarata: «questa azione non ha detto che natura ha», che il generatore
+    delle combinazioni deve poter leggere per rifiutarsi invece di scegliere un
+    coefficiente da solo. Obbligatorio non poteva essere: renderebbe
+    illeggibile ogni configurazione gia' scritta, e la regola dell'omissione
+    copre i blocchi aggiunti, non i campi resi obbligatori.
     """
     for modello, campi_attesi, con_predefinito in (
-        (config.SpintaOrizzontale, {"coefficiente", "asse"}, set()),
-        (config.CaricoSommita, {"risultante", "nset"}, set()),
+        (config.SpintaOrizzontale, {"coefficiente", "asse", "natura"}, {"natura"}),
+        (config.CaricoSommita, {"risultante", "nset", "natura"}, {"natura"}),
         (config.Modale, {"modi"}, {"modi"}),
     ):
         for nome_campo, info_campo in modello.model_fields.items():
@@ -1356,3 +1364,80 @@ def test_le_regioni_sopravvivono_al_giro_su_disco(tmp_path):
     riletta = config.load_config(percorso)
 
     assert riletta.model_dump() == cfg.model_dump()
+
+
+def test_ogni_azione_dichiara_la_propria_natura_e_l_assenza_e_uno_stato():
+    """#146: ogni azione dichiara la propria natura, e senza dichiararla nessun
+    coefficiente si sceglie da solo.
+
+    Il predefinito e' `None` e non una natura plausibile: «non dichiarata» e'
+    uno stato che il generatore delle combinazioni deve poter leggere per
+    rifiutarsi, non un buco da riempire con una congettura. E' anche la sola
+    forma che l'impronta ammetta -- vedi il test sotto.
+
+    `Modale` non compare: non e' un'azione, e' un'analisi in frequenza, e non
+    porta coefficienti in nessuna combinazione.
+    """
+    azioni = (
+        config.SpintaOrizzontale,
+        config.CaricoSommita,
+        config.CaricoPosizionato,
+        config.CaricoDistribuito,
+    )
+    for modello in azioni:
+        assert "natura" in modello.model_fields, f"{modello.__name__} non dichiara la natura"
+        campo = modello.model_fields["natura"]
+        assert campo.default is None, f"{modello.__name__}.natura ha un predefinito"
+        assert campo.description
+
+    assert "natura" not in config.Modale.model_fields
+
+    spinta = config.SpintaOrizzontale(coefficiente=0.1, asse="x", natura="variabile")
+    assert spinta.natura == "variabile"
+    with pytest.raises(ValidationError):
+        config.SpintaOrizzontale(coefficiente=0.1, asse="x", natura="accidentale")
+
+
+def test_le_combinazioni_si_dichiarano_dentro_i_carichi_e_partono_vuote():
+    """La struttura che #146 chiede, e che `core/combinazioni.py` riempira'.
+
+    `proposta` distingue una combinazione generata dal programma da una che
+    l'operatore ha corretto: il programma non puo' sapere la categoria d'uso di
+    un edificio rilevato, quindi propone e non decide.
+    """
+    assert config.CarichiConfig().combinazioni == ()
+
+    combinazione = config.Combinazione(
+        nome="SLU_1",
+        tipo="slu_fondamentale",
+        termini=(("peso_proprio", 1.3), ("neve", 1.5)),
+        proposta=True,
+    )
+    assert combinazione.termini == (("peso_proprio", 1.3), ("neve", 1.5))
+    with pytest.raises(ValidationError):
+        config.Combinazione(
+            nome="SLU_1", tipo="slu_inventato", termini=(), proposta=True
+        )
+
+
+def test_ogni_campo_nuovo_di_primo_livello_dei_carichi_ha_un_predefinito_falso():
+    """La trappola meno visibile delle quattro (§6 del sequenziamento).
+
+    `carichi` sta in BLOCCHI_VUOTI_FUORI_IMPRONTA, e il predicato di vuotezza
+    e' `not any(payload["carichi"].values())`: un solo campo di primo livello
+    con predefinito truthy renderebbe il blocco sempre non vuoto e sposterebbe
+    tutte e ventidue le righe dei registri -- mentre il test dei blocchi
+    resterebbe verde, perche' il blocco *e'* nella lista giusta.
+
+    Mutazione che lo uccide: dare a `combinazioni` un predefinito non vuoto, o
+    aggiungere a CarichiConfig un `bool = True` qualsiasi.
+    """
+    predefiniti = config.CarichiConfig().model_dump(mode="json")
+
+    for nome, valore in predefiniti.items():
+        assert not valore, (
+            f"carichi.{nome} nasce truthy ({valore!r}): l'omissione del blocco "
+            "vuoto non scatterebbe piu' e le 22 righe dei registri si "
+            "muoverebbero, con il test dei blocchi ancora verde"
+        )
+    assert not any(predefiniti.values())
