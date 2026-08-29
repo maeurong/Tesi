@@ -137,6 +137,11 @@ function apriIngresso() {
 // punto solo, cosi' non esiste uno stato in cui si vedono entrambe o nessuna.
 function mostraIngresso() {
   document.getElementById("lavoro").hidden = true;
+  // Le schermate sono tre e questa riga e' la terza. `#cambia-corsa` vive nella
+  // testata, cioe' fuori da <main>: si vede e si clicca anche dalla schermata
+  // dell'analisi, e senza questa riga la scelta della corsa comparirebbe con i
+  // quattro stadi ancora stampati sotto.
+  document.getElementById("analisi").hidden = true;
   document.getElementById("cambia-corsa").hidden = true;
   document.getElementById("ingresso").hidden = false;
   disegnaIngresso();

@@ -5930,3 +5930,27 @@ def test_la_seconda_schermata_porta_i_quattro_stadi_in_ordine_di_dipendenza():
         assert "step" in stadio, (
             f"lo stadio «{titolo}» non nomina niente che lo riempirebbe"
         )
+
+
+def test_tornare_alla_scelta_della_corsa_spegne_anche_la_seconda_schermata(tmp_path):
+    """Le schermate erano due e adesso sono tre, e «Cambia corsa» ne conosceva due.
+
+    `#cambia-corsa` vive nella testata, cioe' fuori da <main>: si vede e si clicca
+    anche dalla schermata dell'analisi. `mostraIngresso` spegneva `#lavoro` e
+    accendeva `#ingresso`, e nessuno toccava `#analisi`: la scelta della corsa
+    compariva con i quattro stadi ancora stampati sotto.
+
+    Mutazione che lo uccide: togliere la riga che nasconde `#analisi`.
+    """
+    _esegui(tmp_path, _DOM + _funzioni("mostraIngresso") + """
+// L'ingresso si ridisegna da /api/corse e questo banco prova altro: il disegno
+// ha i propri controlli.
+function disegnaIngresso() {}
+const analisi = document.getElementById("analisi");
+analisi.hidden = false;
+mostraIngresso();
+assert.equal(analisi.hidden, true,
+  "la scelta della corsa compare con i quattro stadi dell'analisi ancora stampati sotto");
+assert.equal(document.getElementById("lavoro").hidden, true, "la pipeline resta a video");
+assert.equal(document.getElementById("ingresso").hidden, false, "l'ingresso non compare");
+""")
