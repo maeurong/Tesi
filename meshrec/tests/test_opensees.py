@@ -601,6 +601,36 @@ def test_opensees_esegue_il_tcl_che_scriviamo_e_accorcia_la_mensola_come_la_form
     assert masse["disponibile"] == [100.0] * 6
 
 
+@pytest.mark.feasibility
+def test_la_verifica_promuove_opensees_vero_e_boccia_un_omonimo(tmp_path):
+    """La prova di `solve.verifica` contro il binario vero, non contro un finto.
+
+    `/bin/cat` esiste su ogni macchina, esegue, e fa l'eco di quello che gli
+    arriva: è l'omonimo perfetto, e passava la prova quando il verdetto era la
+    sola eco.
+    """
+    from typing import NamedTuple
+
+    from meshrec.core import solve
+
+    class _Cfg(NamedTuple):
+        nome: str
+        percorso: Path | None
+
+    if _OPENSEES is None:
+        pytest.skip(
+            "OpenSees non trovato: né MESHREC_OPENSEES né 'OpenSees' nel PATH"
+        )
+
+    vero = solve.verifica(_Cfg("opensees", Path(_OPENSEES)))
+    assert vero["funziona"] is True, vero["motivo"]
+    assert vero["motivo"] is None
+
+    omonimo = solve.verifica(_Cfg("opensees", Path("/bin/cat")))
+    assert omonimo["disponibile"] is True
+    assert omonimo["funziona"] is False
+
+
 # --- I dati per cella nel .vtu -------------------------------------------------
 #
 # Stanno qui e non in tests/test_abaqus.py perche' esistono per il telaio: N, V

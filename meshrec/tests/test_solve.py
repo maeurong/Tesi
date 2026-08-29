@@ -2127,7 +2127,7 @@ def test_opensees_si_verifica_facendogli_eseguire_una_riga(monkeypatch):
     """«C'è» non è «funziona»: un banner stampato non prova che l'interprete giri."""
     visti = _finge(
         monkeypatch,
-        _Processo(0, b"Version 3.8.0 64-Bit\nMESHREC_VERIFICA\n", b""),
+        _Processo(0, b"OpenSees -- Open System 3.8.0 64-Bit\nMESHREC_VERIFICA\n", b""),
         esiste="/opt/OpenSees",
     )
 
@@ -2143,7 +2143,7 @@ def test_opensees_che_stampa_il_banner_e_non_esegue_e_bocciato(monkeypatch):
     che l'interprete abbia eseguito."""
     _finge(
         monkeypatch,
-        _Processo(0, b"Version 3.8.0 64-Bit\nTclElementCommand -- unable\n", b""),
+        _Processo(0, b"OpenSees -- Open System 3.8.0\nTclElementCommand -- unable\n", b""),
         esiste="/opt/OpenSees",
     )
 
@@ -2151,6 +2151,42 @@ def test_opensees_che_stampa_il_banner_e_non_esegue_e_bocciato(monkeypatch):
 
     assert esito["funziona"] is False
     assert "non è riconosciuta" in esito["motivo"]
+
+
+def test_un_omonimo_che_esegue_ma_non_e_opensees_e_bocciato():
+    """Misurato prima della guardia: `percorso=/bin/cat` dava
+    `{'funziona': True, 'codice': 0, 'motivo': None}`, perché la prova era solo
+    un'eco e `cat` la eco. Banner **e** eco insieme chiudono sia l'omonimo sia
+    il «parte ma muore subito»: nessuno dei due da solo basta."""
+    esito = solve.verifica(_SolutoreFinto(nome="opensees", percorso=Path("/bin/cat")))
+
+    assert esito["disponibile"] is True
+    assert esito["funziona"] is False
+    assert "OpenSees" in esito["motivo"]
+
+
+def test_il_motivo_di_un_solutore_assente_non_ripete_la_frase_due_volte(monkeypatch):
+    """`_trova` mette già `DOVE_PRENDERLO` dentro il motivo dell'assenza:
+    concatenarcelo di nuovo lo stampava per intero due volte in
+    `metrics["13_solve"]["motivo"]`."""
+    monkeypatch.setattr(solve.shutil, "which", lambda _nome: None)
+
+    motivo = solve.verifica(_SolutoreFinto(nome="opensees"))["motivo"]
+
+    assert motivo.count(solve.DOVE_PRENDERLO["opensees"]) == 1
+
+
+def test_il_solutore_si_cerca_anche_col_suffisso_exe(monkeypatch):
+    """Su questa macchina l'eseguibile di OpenSees si chiama `OpenSees.exe`, e
+    `DOVE_PRENDERLO` promette che basti metterlo nel PATH: misurato, con la sua
+    cartella nel PATH `shutil.which("OpenSees")` rende `None` e
+    `shutil.which("OpenSees.exe")` lo trova."""
+    monkeypatch.setattr(
+        solve.shutil, "which",
+        lambda nome: "/opt/OpenSees.exe" if nome == "OpenSees.exe" else None,
+    )
+
+    assert solve.eseguibile(_SolutoreFinto(nome="opensees")) == Path("/opt/OpenSees.exe")
 
 
 def test_un_binario_che_non_parte_dichiara_il_perche(monkeypatch):

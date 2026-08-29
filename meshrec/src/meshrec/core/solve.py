@@ -1239,19 +1239,26 @@ DOVE_PRENDERLO: dict[str, str] = {
 #   eseguita. Non basta il banner: OpenSees 3.8.0 lo stampa e poi esce con
 #   **codice 0** anche quando lo script muore su un errore fatale (misurato su
 #   `element truss 1 1 99 100.0 1` con nodo e materiale inesistenti), quindi
-#   ne' il codice ne' il banner distinguono «c'e'» da «funziona».
+#   ne' il codice ne' il banner distinguono «c'e'» da «funziona». E non basta
+#   l'eco: la sola eco la fa anche un omonimo qualsiasi, e misurato il
+#   30/08/2026 `percorso=/bin/cat` passava la prova con
+#   `{'funziona': True, 'codice': 0, 'motivo': None}`. I marcatori richiesti
+#   sono quindi **due**, e vanno chiesti tutti: il banner chiude l'omonimo,
+#   l'eco chiude il «parte e muore subito».
 _SOLUTORI: dict[str, dict[str, object]] = {
     "calculix": {
         "eseguibile": "ccx",
         "argomenti": ("-v",),
         "ingresso": "",
-        "marcatore": "Version",
+        # `ccx -v` stampa la sola riga «This is Version 2.21» (misurato il
+        # 30/08/2026): non c'e' un secondo marcatore da chiedere.
+        "marcatori": ("Version",),
     },
     "opensees": {
         "eseguibile": "OpenSees",
         "argomenti": (),
         "ingresso": 'puts "MESHREC_VERIFICA"\n',
-        "marcatore": "MESHREC_VERIFICA",
+        "marcatori": ("OpenSees", "MESHREC_VERIFICA"),
     },
 }
 
@@ -1290,7 +1297,11 @@ def _trova(nome: str, percorso: Path | None) -> tuple[Path | None, str | None, s
             "far cercare il solutore nel PATH"
         )
     binario = str(_SOLUTORI[nome]["eseguibile"])
-    nel_path = shutil.which(binario)
+    # Anche col suffisso: la distribuzione di OpenSees che gira qui porta
+    # `OpenSees.exe` (misurato, con la sua cartella nel PATH
+    # `shutil.which("OpenSees")` rende None e `shutil.which("OpenSees.exe")` lo
+    # trova), e `DOVE_PRENDERLO` promette che basti metterlo nel PATH.
+    nel_path = shutil.which(binario) or shutil.which(binario + ".exe")
     if nel_path is not None:
         return Path(nel_path), "PATH", None
     return None, None, (
@@ -1369,7 +1380,9 @@ def verifica(cfg: "SolutoreConfig") -> dict[str, object]:
         return {
             "solutore": nome, "percorso": None, "disponibile": False,
             "funziona": False, "codice": None, "uscita": "",
-            "motivo": f"{assente} {DOVE_PRENDERLO[nome]}",
+            # `assente` porta gia' `DOVE_PRENDERLO` quando il binario non e'
+            # nel PATH; concatenarcelo di nuovo stampava la frase due volte.
+            "motivo": assente,
         }
 
     scheda = _SOLUTORI[nome]
@@ -1388,13 +1401,14 @@ def verifica(cfg: "SolutoreConfig") -> dict[str, object]:
         }
 
     uscita = (processo.stdout + processo.stderr).decode("utf-8", errors="ignore")
-    funziona = str(scheda["marcatore"]) in uscita
+    mancanti = [marca for marca in scheda["marcatori"] if marca not in uscita]
+    funziona = not mancanti
     motivo = None
     if not funziona:
         motivo = (
             f"«{percorso}» è partito (codice {processo.returncode}) ma la sua "
-            f"uscita non è riconosciuta come {nome}: manca il marcatore "
-            f"'{scheda['marcatore']}'. Coda dell'uscita:\n{uscita[-2000:]}"
+            f"uscita non è riconosciuta come {nome}: mancano i marcatori "
+            f"{mancanti}. Coda dell'uscita:\n{uscita[-2000:]}"
         )
     return {
         "solutore": nome, "percorso": str(percorso), "disponibile": True,
@@ -1584,7 +1598,7 @@ def risolvi(
         # `metrics["13_solve"]` legge questo dizionario per intero.
         esito: dict[str, object] = {"eseguito": False, "solutore": "assente"}
         if percorso_dichiarato is not None:
-            esito["motivo"] = f"{assente} {DOVE_PRENDERLO[nome_solutore]}"
+            esito["motivo"] = assente
         return esito
 
     deck = Path(deck)
