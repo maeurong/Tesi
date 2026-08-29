@@ -289,6 +289,57 @@ def test_l_autorizzazione_ministeriale_e_attribuita_alla_fonte_che_la_porta():
     assert "§11.1" in nota, "il rinvio delle NTC al caso C) del §11.1 resta il meccanismo"
 
 
+def test_ogni_voce_di_calcestruzzo_dichiara_le_due_scelte_che_la_norma_lascia_aperte():
+    """Il modulo detta la regola e deve applicarla a se stesso.
+
+    La regola scritta nel docstring del modulo e' che una scelta va dichiarata
+    anche «dove la fonte ne pubblica due che divergono». Ne pubblica due, due
+    volte: il §11.2.10.4 da' Poisson «compreso tra 0 (calcestruzzo fessurato) e
+    0,2 (calcestruzzo non fessurato)», che sono due modelli e non un intervallo
+    di incertezza; la Tab. 3.1.I da' 24,0 kN/m³ per il calcestruzzo ordinario e
+    25,0 per l'armato. Le diciassette righe prendono l'estremo alto tutte e due
+    le volte.
+
+    L'`origine` resta `derivata` -- la resistenza, che e' la grandezza
+    principale della riga, lo e' davvero -- quindi la scelta o sta nella nota o
+    non sta da nessuna parte.
+
+    Mutazione che lo uccide: togliere il preambolo comune dalle note di classe.
+    """
+    for voce in CATALOGO:
+        if voce.famiglia != "calcestruzzo":
+            continue
+        assert "11.2.10.4" in voce.nota, voce.classe
+        assert "0,2" in voce.nota, voce.classe
+        assert "3.1.I" in voce.nota, voce.classe
+        assert "25,0" in voce.nota, voce.classe
+        assert "24,0" in voce.nota, voce.classe
+
+
+def test_ogni_voce_di_calcestruzzo_dichiara_lo_scarto_con_le_corse_di_riferimento():
+    """1,972%: il 2,5493e-9 di norma contro il 2,5e-9 che le corse usano.
+
+    `casi/lab.yaml`, `casi/lab_telaio.yaml`, `casi/prova-interfaccia.yaml` e i due
+    `lab_telaio_v4_posizionati*.yaml` girano con 2,5e-9 t/mm³. Il catalogo tiene
+    il valore di norma, perche' 25,0 kN/m³ e' quello che la Tab. 3.1.I pubblica
+    per il calcestruzzo **armato** e le sezioni servite sono armate, e perche' le
+    corse di riferimento sono dati di tesi in sola lettura.
+
+    Non c'e' rischio di sovrascrittura silenziosa: la densita' sta in
+    `analysis.material` e quindi dentro l'impronta, quindi una corsa col valore
+    di catalogo finisce in un'altra cartella. Il rischio e' di lettura -- chi
+    confronta un risultato nuovo con uno vecchio non saprebbe perche' non
+    tornano -- ed e' quello che questa nota chiude.
+
+    Mutazione che lo uccide: togliere lo scarto dalla nota lasciando la densita'.
+    """
+    for voce in CATALOGO:
+        if voce.famiglia != "calcestruzzo":
+            continue
+        assert "2,5e-9" in voce.nota, voce.classe
+        assert "1,972" in voce.nota, voce.classe
+
+
 # --- trova ---------------------------------------------------------------
 
 

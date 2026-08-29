@@ -18,9 +18,15 @@ dove la fonte non pubblica un valore o ne pubblica due che divergono. Una voce
 `nostra` senza nota viene rifiutata dai test.
 
 **Una voce porta piu' numeri e una sola `origine`, e la regola e' che vince il
-piu' debole.** Per il calcestruzzo tutte le grandezze sono `derivata`: la
-Tab. 4.1.I porta i **nomi** delle classi e nessun valore, e `f_cm` ed `E_cm` si
-calcolano dalle espressioni del §11.2.10. Per l'acciaio `f_yk` e la densita'
+piu' debole.** Per il calcestruzzo l'origine e' `derivata`: la Tab. 4.1.I porta i
+**nomi** delle classi e nessun valore, e `f_cm` ed `E_cm` si calcolano dalle
+espressioni del §11.2.10. **Ma non tutte le sue grandezze lo sono**: il
+§11.2.10.4 pubblica due coefficienti di Poisson e la Tab. 3.1.I due densita', e
+prendere l'estremo alto di entrambi e' una scelta per la regola scritta qui
+sopra. L'etichetta resta `derivata` perche' la resistenza -- la grandezza
+principale della riga -- lo e' davvero, e chiamare `nostra` l'intera voce direbbe
+un'altra cosa falsa; le due scelte stanno percio' nella `nota` di ogni classe,
+che e' cio' per cui la forma di `soglie.py` esiste. Per l'acciaio `f_yk` e la densita'
 sono lette in Tab. 11.3.Ia e nel §11.3.2.4, ma `E_s` e il coefficiente di
 Poisson non stanno nelle NTC: la voce e' percio' `nostra`, e la nota dice quali
 numeri lo sono e perche'. Marcare `letta` una riga che contiene una scelta
@@ -138,6 +144,13 @@ _FONTE_ACCIAIO = (
 # Il catalogo porta il primo, perche' le sezioni che serve sono armate:
 # 25,0e3 / 9,80665 = 2549,3 kg/m³, cioe' 2,5493e-9 t/mm³. Non e' il 2,5e-9 di
 # prassi che le corse del progetto usano, che vale 24,52 kN/m³.
+#
+# **Due incoerenze note, entrambe dichiarate qui e nella nota di ogni classe.**
+# La prima: le corse di riferimento girano con 2,5e-9, cioe' l'1,972% in meno
+# sul peso proprio. La seconda: la conversione qui sopra usa g = 9,80665 m/s²,
+# ma le corse girano con `gravity: 9810` mm/s² (`casi/lab.yaml`), e con quel
+# valore 2,5493e-9 rende 25,009 kN/m³ invece di 25,000 -- lo 0,03%, trascurabile
+# in se', ma e' una seconda incoerenza e va nominata invece che subita.
 _DENSITA_CALCESTRUZZO = 2.5493e-9
 
 # 7,85 kg/dm³, cioe' 7850 kg/m³, letto verbatim nel §11.3.2.4.
@@ -198,14 +211,35 @@ def _modulo_elastico(f_ck: float) -> float:
     return 22000.0 * ((f_ck + 8.0) / 10.0) ** 0.3
 
 
+# Le due grandezze del calcestruzzo di cui la norma pubblica **due** valori
+# possibili. Per il criterio che il docstring di questo modulo enuncia sono
+# scelte, non derivazioni, e vanno dette accanto alla riga: l'`origine` resta
+# `derivata` perche' la resistenza -- la grandezza principale della voce -- lo e'
+# davvero, e cambiare l'etichetta dell'intera voce direbbe un'altra cosa falsa.
+_NOTA_SCELTE_CALCESTRUZZO = (
+    "Due numeri di questa riga sono **scelti** fra due che la norma pubblica entrambi. "
+    "**Poisson**: il §11.2.10.4 ammette «un valore compreso tra 0 (calcestruzzo "
+    "fessurato) e 0,2 (calcestruzzo non fessurato)», che sono due modelli e non un "
+    "intervallo di incertezza; qui vale 0,2, perché l'analisi è elastica lineare su "
+    "sezione non fessurata. **Densità**: la Tab. 3.1.I pubblica 24,0 kN/m³ per il "
+    "calcestruzzo ordinario e 25,0 per l'armato; qui vale 25,0, cioè 2,5493e-9 t/mm³, "
+    "perché le sezioni che questo catalogo serve sono armate. Le corse di riferimento "
+    "del progetto girano invece con 2,5e-9 t/mm³: l'1,972% in meno sul peso proprio, ed "
+    "è la ragione per cui un risultato nuovo non torna cifra per cifra con uno vecchio. "
+    "Le corse usano anche «gravity: 9810» mm/s² invece di 9,80665 m/s², con cui il "
+    "2,5493e-9 rende 25,009 kN/m³ e non 25,000: lo 0,03%."
+)
+
+
 def _nota_di_classe(classe: str, f_ck: float) -> str:
     """I vincoli d'uso che la classe si porta dietro, uno per frase.
 
     Ogni classe del catalogo e' ammessa dalle NTC, ma quattro di esse lo sono
     **a condizioni**, e la condizione va accanto alla riga: altrove nessuno la
-    leggerebbe.
+    leggerebbe. Prima delle condizioni stanno le due scelte che la norma lascia
+    aperte, uguali per tutte le classi.
     """
-    frasi = []
+    frasi = [_NOTA_SCELTE_CALCESTRUZZO]
     if classe == "C8/10":
         frasi.append(
             "Il modulo elastico è un'estrapolazione: la classe sta nelle NTC ma non nella "
