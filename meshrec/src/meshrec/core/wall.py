@@ -455,6 +455,27 @@ class Membratura:
     """Dispersione relativa delle distanze al vicino piu' prossimo: quanto la densita' non e' uniforme."""
     esiti: dict[str, dict] = field(default_factory=dict)
     """Gli esiti dei controlli intrinseci, riempiti da `controlla`."""
+    sezioni_fette: np.ndarray = field(default_factory=lambda: np.zeros((0, 2)))
+    """Le due estensioni trasversali, misurate fetta per fetta lungo l'asse.
+
+    Sono le stazioni su cui il modello a telaio poggia: una fetta, un elemento.
+    `misura` le calcolava gia' per la dispersione della sezione e le teneva in
+    una variabile locale; qui escono, perche' `sezione` e `sezione_dispersione`
+    sono sintesi e il telaio ha bisogno del dato che le produce.
+
+    Le fette con meno di quattro punti non compaiono: una sezione misurata su
+    tre punti misurerebbe il campionamento e non il pezzo. Il predefinito
+    vuoto non e' «nessuna fetta»: e' «questa Membratura viene da un prior
+    scritto prima che la misura esistesse».
+    """
+    quote_fette: np.ndarray = field(default_factory=lambda: np.zeros(0))
+    """Coordinata lungo l'asse del centro di ciascuna fetta, misurata da `origine`.
+
+    Stessa lunghezza e stesso ordine di `sezioni_fette`. Serve perche' una
+    sezione senza la propria stazione non colloca nulla, e perche' una fetta
+    saltata deve restare visibile come una quota assente invece di far
+    scivolare di una posizione tutte le sezioni che la seguono.
+    """
 
 
 _FETTE_LUNGO_ASSE = 20
@@ -537,12 +558,19 @@ def misura(punti_regione: np.ndarray, direzioni: np.ndarray, cfg: WallConfig) ->
     # raggiunge -> quel vano resta vuoto.
     lato_celle = cfg.cell_factor * spacing_locale
     per_fetta = []
+    quote_per_fetta = []
     riempimenti = []
     for indice in range(_FETTE_LUNGO_ASSE):
         dentro = fetta == indice
         if dentro.sum() < 4:
             continue
         per_fetta.append((np.ptp(sezione_2d[dentro, 0]), np.ptp(sezione_2d[dentro, 1])))
+        # Il centro della fetta lungo l'asse, non la media dei punti che
+        # contiene: la stazione e' una posizione geometrica, e su una fetta con
+        # densita' sbilanciata la media dei punti la sposterebbe. Raccolta nello
+        # stesso ramo in cui la sezione viene accettata, cosi' le due liste non
+        # possono divergere.
+        quote_per_fetta.append(float((bordi[indice] + bordi[indice + 1]) / 2.0 - lungo.min()))
         celle_fetta = chiavi_di_cella(sezione_2d[dentro], lato_celle)
         nx, ny = int(celle_fetta[:, 0].max()) + 1, int(celle_fetta[:, 1].max()) + 1
         # sotto le due celle per lato la griglia e' degenere in una riga o
@@ -632,6 +660,11 @@ def misura(punti_regione: np.ndarray, direzioni: np.ndarray, cfg: WallConfig) ->
         riempimento_sezione=riempimento_sezione,
         riempimento_stato=riempimento_stato,
         densita_dispersione=densita_dispersione,
+        # reshape e non `np.asarray` da solo: su una lista vuota `np.asarray([])`
+        # ha forma (0,) e non (0, 2), e chi legge la forma non deve indovinare
+        # su una regione che non ha prodotto nessuna fetta.
+        sezioni_fette=np.asarray(per_fetta, dtype=np.float64).reshape(-1, 2),
+        quote_fette=np.asarray(quote_per_fetta, dtype=np.float64),
     )
 
 

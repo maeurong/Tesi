@@ -308,6 +308,82 @@ def test_la_misura_di_un_prisma_noto_ritrova_sezione_asse_e_lunghezza():
     assert membratura.volume == pytest.approx(200.0 * 140.0 * 1500.0, rel=0.15)
 
 
+def test_la_membratura_restituisce_una_sezione_per_fetta_con_la_propria_quota():
+    """Le venti fette che `misura` gia' calcola per la dispersione escono dalla
+    funzione: sono le stazioni su cui il modello a telaio poggia.
+
+    Su un prisma a sezione costante le sezioni di fetta sono tutte uguali fra
+    loro e uguali alla sezione complessiva; il test verifica la forma e
+    l'accordo, non un valore fabbricato.
+    """
+    punti = synth.sample_box_surface((200.0, 140.0, 1500.0), 15.0)
+    direzioni, _ = wall.terna(punti)
+
+    membratura = wall.misura(punti, direzioni, _cfg())
+
+    assert membratura.sezioni_fette.ndim == 2
+    assert membratura.sezioni_fette.shape[1] == 2
+    assert len(membratura.quote_fette) == len(membratura.sezioni_fette)
+    assert len(membratura.sezioni_fette) > 1, "una sola fetta non e' una stazione"
+    # le quote crescono lungo l'asse e stanno dentro la lunghezza misurata
+    assert np.all(np.diff(membratura.quote_fette) > 0.0)
+    assert membratura.quote_fette.min() >= 0.0
+    assert membratura.quote_fette.max() <= membratura.lunghezza
+    # su un prisma costante ogni fetta vede la sezione del pezzo
+    assert np.allclose(membratura.sezioni_fette, np.asarray(membratura.sezione), rtol=0.05)
+
+
+def test_una_regione_con_meno_di_venti_fette_utili_non_ne_dichiara_venti():
+    """Ingresso degenere: cinque punti sparsi. Le fette povere sono gia'
+    scartate da `misura` (meno di quattro punti, nessuna misura inventata), e
+    il numero di stazioni restituito deve essere quello vero -- fosse anche
+    zero -- non venti righe fabbricate per riempire la forma.
+    """
+    punti_pochi = np.array([
+        [0.0, 0.0, 0.0],
+        [10.0, 0.0, 0.0],
+        [0.0, 10.0, 0.0],
+        [0.0, 0.0, 10.0],
+        [10.0, 10.0, 10.0],
+    ])
+    direzioni, _ = wall.terna(punti_pochi)
+
+    membratura = wall.misura(punti_pochi, direzioni, _cfg())
+
+    assert len(membratura.sezioni_fette) < 20
+    assert membratura.sezioni_fette.shape[1] == 2, (
+        "anche vuoto l'array resta (n, 2): chi lo legge non deve indovinare la forma"
+    )
+    assert len(membratura.quote_fette) == len(membratura.sezioni_fette)
+
+
+def test_una_fetta_di_area_nulla_e_un_risultato_che_si_mostra():
+    """Ingresso degenere: un prisma sano con in coda un filamento di punti
+    allineati sull'asse. L'ultima fetta li vede da sola e misura estensione
+    nulla in entrambe le direzioni, cioe' area nulla. E' una misura da
+    mostrare, non un errore che ferma: chi costruisce decide, chi misura
+    riporta.
+    """
+    scatola = synth.sample_box_surface((200.0, 140.0, 1500.0), 15.0)
+    quote = np.linspace(1520.0, 1600.0, 6)
+    # sull'asse di simmetria trasversale della scatola: fuori da li' il
+    # filamento sposterebbe la direzione principale e la fetta leggerebbe uno
+    # sbieco invece dello zero che il banco vuole provare
+    filamento = np.column_stack([
+        np.full_like(quote, 100.0),
+        np.full_like(quote, 70.0),
+        quote,
+    ])
+    punti = np.vstack([scatola, filamento])
+    direzioni, _ = wall.terna(punti)
+
+    membratura = wall.misura(punti, direzioni, _cfg())
+
+    aree = membratura.sezioni_fette[:, 0] * membratura.sezioni_fette[:, 1]
+    assert len(aree) > 0, "le fette esistono anche quando la loro area e' nulla"
+    assert float(aree.min()) == pytest.approx(0.0, abs=1e-9)
+
+
 def test_il_fuori_piombo_misura_l_inclinazione_e_il_rigonfiamento_no():
     """Le due grandezze restano distinte perche' sono difetti diversi: un
     elemento puo' essere perfettamente piano e tutto storto, oppure a piombo e
