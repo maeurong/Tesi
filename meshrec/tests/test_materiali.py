@@ -424,6 +424,36 @@ def test_il_calcestruzzo_da_f_cd_e_non_f_yd():
     assert valori["f_cd"] == pytest.approx(14.1667, abs=1e-4)
 
 
+def test_alpha_cc_e_applicato_a_ogni_voce_del_catalogo_e_non_solo_alla_c25_30():
+    """Da «impossibile per costruzione» a «misurato».
+
+    `valori_di_progetto` ha un solo ramo per famiglia, quindi oggi la divergenza
+    per classe non e' rappresentabile -- ma cio' che regge per costruzione regge
+    finche' la costruzione non cambia, e un caso speciale per le classi alte
+    (dove la norma **ha** riduzioni ulteriori, §11.2.10.2-3) e' esattamente la
+    modifica plausibile. Il test che lo provava su una sola classe non l'avrebbe
+    vista.
+
+    I due coefficienti sono scritti come letterali e non ripresi dal modulo: la
+    stessa espressione confrontata con se stessa non ucciderebbe una formula
+    sbagliata.
+
+    Mutazione che lo uccide: togliere `ALFA_CC` dalla formula, o applicarlo solo
+    sotto una certa classe.
+    """
+    calcestruzzi = [v for v in CATALOGO if v.famiglia == "calcestruzzo"]
+    assert len(calcestruzzi) == 17
+    for voce in calcestruzzi:
+        assert valori_di_progetto(voce)["f_cd"] == pytest.approx(0.85 * voce.f_k / 1.5), (
+            f"{voce.classe}: alpha_cc non applicato"
+        )
+
+    acciai = [v for v in CATALOGO if v.famiglia == "acciaio"]
+    assert len(acciai) == 2
+    for voce in acciai:
+        assert valori_di_progetto(voce)["f_yd"] == pytest.approx(voce.f_k / 1.15), voce.classe
+
+
 def test_l_acciaio_da_f_yd_e_non_f_cd():
     """`f_yd = f_yk / γ_s`, senza alcun α: la `[4.1.5]` non ne ha.
 
