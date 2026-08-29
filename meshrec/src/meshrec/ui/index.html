@@ -24,14 +24,10 @@
        guardava lo schermo deve saperlo. Vuota alla nascita: una regione viva
        dev'essere nell'albero prima che ci si scriva dentro. -->
   <p class="esito" id="esito" aria-live="polite"></p>
-  <!-- Tutto cio' che le due schermate mostrano viene dal flusso degli eventi.
-       Caduto il server l'ultimo stato ricevuto resta stampato e nessuno dice
-       che e' vecchio: la colonna continua a dichiarare «valido» e gli stadi
-       dell'analisi uno stato che nessuno sta piu' confermando. Una schermata
-       che non si aggiorna piu' non deve fingere di essere fresca.
-       Nella testata e non dentro una delle due schermate: il fatto vale per
-       tutte e due, e scritto in una sola sparirebbe nel momento in cui si passa
-       all'altra.
+  <!-- Perche' questa riga esista sta accanto a `perdiIlCollegamento` in app.js,
+       dove sta la logica. Qui si decide solo dove: nella testata, perche' il
+       fatto vale per tutte e tre le schermate, e scritta dentro una sola
+       sparirebbe nel momento in cui si passa a un'altra.
        role="status" e non "alert": e' un cambio di condizione, non il rifiuto di
        un gesto appena fatto. Nasce nascosta e nel markup come le altre regioni
        vive di questa pagina -- una regione creata nell'istante in cui ci si
@@ -62,9 +58,10 @@
   <p class="aiuto scorciatoia"><kbd>Ctrl/Cmd</kbd>+<kbd>Z</kbd> annulla l'ultima
     modifica ai parametri, con <kbd>Maiusc</kbd> la rifà.</p>
 </header>
-<!-- Le due schermate si escludono a vicenda e nascono entrambe nascoste:
-     app.js ne scopre una quando /api/run ha risposto. Nascondere solo
-     l'ingresso faceva lampeggiare le tre colonne vuote a chi corse non ne ha.
+<!-- Le tre schermate si escludono a vicenda e nascono tutte nascoste:
+     app.js ne scopre una quando /api/run ha risposto, e da li' in poi
+     l'esclusione la tiene `mostraSchermata`. Nascondere solo l'ingresso faceva
+     lampeggiare le tre colonne vuote a chi corse non ne ha.
      Stanno dentro un <main> unico perche' una pagina che nasconde la sua
      schermata attiva non deve restare senza landmark principale. -->
 <main>
@@ -126,14 +123,15 @@
 </section>
 <div class="tre-zone" id="lavoro" hidden>
   <nav class="zona zona-step" aria-label="Step della pipeline">
-    <h2>Pipeline</h2>
+    <!-- tabindex="-1": e' qui che il fuoco si posa tornando dalla schermata
+         dell'analisi. Non entra nel giro del tabulatore, che e' cio' che -1
+         significa. -->
+    <h2 id="pipeline-titolo" tabindex="-1">Pipeline</h2>
     <ol class="elenco-step" id="elenco-step"></ol>
     <!-- La colonna arriva a 12 e si chiude qui. Lo step 13 resta lo step 13 --
-         il numero e' quello che `steps.STEP_KEYS` gli da' e non cambia -- ma non
-         e' un passo di elaborazione geometrica: e' l'unico che paga un processo
-         esterno vero, l'unico che legge un deck invece di una geometria, e
-         l'unico i cui risultati sono campi sul maglio e non artefatti della
-         catena. Comandarlo di fianco agli altri dodici diceva il contrario.
+         il numero e' quello che `steps.STEP_KEYS` gli da' e non cambia -- ma sta
+         fuori dalla colonna, e la ragione e' scritta a video nella schermata
+         dell'analisi, dove la legge chi la usa.
          `to_step` predefinito e' 12 da #140 (core/config.py:541): una corsa di
          pipeline finisce dove finisce questa colonna.
          Un bottone e non un <a href>: non si cambia documento, si scambia quale
@@ -145,7 +143,7 @@
          scrive `aggiornaPassaggio` dallo stato che il server manda. -->
     <button type="button" id="vai-analisi" class="bottone passaggio">Analisi strutturale
       — step 13</button>
-    <p class="aiuto" id="vai-analisi-ragione"></p>
+    <p class="vuoto" id="vai-analisi-ragione"></p>
     <h2>Modelli</h2>
     <!-- as-built e' la corsa madre e c'e' gia': la casella e' spuntata e
          disabilitata, perche' una casella che si puo' togliere ma non fa nulla
@@ -321,7 +319,7 @@
     <h2 id="analisi-titolo" tabindex="-1">Analisi strutturale — step 13</h2>
     <button type="button" id="torna-pipeline" class="bottone">Torna alla pipeline</button>
   </div>
-  <p class="aiuto">Il solutore non è un passo di elaborazione geometrica: legge un
+  <p class="vuoto">Il solutore non è un passo di elaborazione geometrica: legge un
     deck invece di una geometria, paga un processo esterno e produce campi sul
     maglio. Per questo sta qui e non nella colonna della pipeline.</p>
   <ol class="stadi">
@@ -329,12 +327,9 @@
       <h3>1 · Modello</h3>
       <p class="vuoto">Qui si sceglierà che cosa si manda al solutore — il solido
         tetraedrico dello step 9 o il telaio costruito sulle membrature dello
-        step 12 — e quale dei due solutori, CalculiX o OpenSees, lo può
-        risolvere.</p>
-      <!-- L'unica riga viva di questa schermata, e non e' un numero: e' lo stato
-           dello step che il modello lo produce. `aggiornaStadi` la riscrive da
-           `ultimoStato`, cioe' dallo stesso flusso che aggiorna la colonna.
-           Il testo qui e' quello della prima apertura assoluta, non un
+        step 12 — e con quale solutore: CalculiX, che è integrato, oppure
+        OpenSees, che non c'è ancora.</p>
+      <!-- Il testo scritto qui e' quello della prima apertura assoluta, e non un
            segnaposto: senza corsa aperta e' esattamente cio' che va detto. -->
       <p class="vuoto" id="stadio-modello">Nessuna corsa aperta: il modello lo
         propone lo step 12 «Prior geometrico», che cerca nella geometria le
@@ -345,18 +340,18 @@
       <p class="vuoto">Qui andranno sezione, materiale e armatura di ciascuna
         membratura proposta dallo step 12, con il verdetto stazione per
         stazione.</p>
-      <p class="vuoto">Vuoto: il programma non sa ancora dichiarare né materiali
-        né armature. Un pannello scritto adesso mostrerebbe numeri che nessuno
-        ha calcolato.</p>
+      <p class="vuoto">Vuoto: manca un catalogo dei materiali da cui scegliere e
+        un modo di dichiarare l'armatura. Nel programma non esiste ancora né
+        l'uno né l'altro.</p>
     </li>
     <li class="stadio">
       <h3>3 · Pre-processore</h3>
       <p class="vuoto">Qui andranno vincoli, carichi, combinazioni di norma e
         sismica: ciò che oggi si dichiara nel <code>config.yaml</code> e nel
         pannello dello step 11.</p>
-      <p class="vuoto">Vuoto: finché i carichi non si dichiarano da qui, restano
-        dove sono. Averli in due posti sarebbe peggio che averli nel posto
-        sbagliato.</p>
+      <p class="vuoto">Vuoto: i carichi si dichiarano ancora nel
+        <code>config.yaml</code>, e restano lì finché questa scheda non li sa
+        scrivere.</p>
     </li>
     <li class="stadio">
       <h3>4 · Post-processore</h3>

@@ -174,7 +174,13 @@ def test_ogni_sovrapposto_della_vista_sa_ancora_nascondersi():
     a corsa finita.
     """
     foglio = _senza_commenti()
-    for classe in ["taglio", "vista-vuota", "fantasma-comando"]:
+    # Le tre schermate ci stanno da quando sono tre: nascono `hidden` nel markup
+    # come i sovrapposti della vista, e un `display` aggiunto a una di loro la
+    # stamperebbe sopra le altre due. `analisi` e' quella nuova; `ingresso` e
+    # `tre-zone` erano gia' nella stessa condizione e non li guardava nessuno --
+    # `tre-zone` la propria riga [hidden] ce l'ha, e questo controllo la difende.
+    for classe in ["taglio", "vista-vuota", "fantasma-comando",
+                   "analisi", "ingresso", "tre-zone"]:
         dichiarazione = re.search(rf"^\.{re.escape(classe)} \{{([^}}]*)\}}", foglio, flags=re.MULTILINE)
         assert dichiarazione is not None, f".{classe} non e' piu' dichiarata"
         if "display:" not in dichiarazione.group(1):
@@ -204,6 +210,9 @@ def test_i_quattro_stadi_restano_leggibili_stretti_e_proiettati():
     colonne = re.search(r"grid-template-columns:([^;]+);", regola.group(1))
     assert colonne is not None, "gli stadi non dichiarano piu' le proprie colonne"
     traccia = colonne.group(1).strip()
+    assert "display: grid" in regola.group(1), (
+        "gli stadi non sono piu' una griglia: `grid-template-columns` resta scritta e inerte"
+    )
     assert "auto-fit" in traccia, (
         f"le colonne sono fissate: stretta la finestra, gli stadi non si impilano ({traccia})"
     )
@@ -211,4 +220,71 @@ def test_i_quattro_stadi_restano_leggibili_stretti_e_proiettati():
     assert minimo is not None, f"nessun minimo dichiarato per la colonna di uno stadio: {traccia}"
     assert minimo.group(2) == "rem", (
         f"il minimo della colonna e' in px ({minimo.group(0)}): non segue l'ingrandimento del testo"
+    )
+    # L'unita' da sola non basta: `minmax(1rem, 1fr)` la soddisfa e rimette quattro
+    # colonne strettissime sulla finestra piu' stretta. Il numero e' il vincolo.
+    assert float(minimo.group(1)) >= 12, (
+        f"la colonna di uno stadio puo' scendere a {minimo.group(0)}: quattro colonne "
+        "sottili invece di una impilata"
+    )
+
+
+def _rapporto(primo: str, secondo: str) -> float:
+    """Il rapporto di contrasto WCAG fra due esadecimali, calcolato e non creduto.
+
+    Formula di WCAG 2.1 (1.4.3): canale in [0,1], linearizzazione, luminanza
+    relativa, (L+0,05)/(l+0,05). Quindici righe di stdlib: la dipendenza in più
+    costerebbe più della formula.
+    """
+    def luminanza(esadecimale: str) -> float:
+        grezzo = esadecimale.lstrip("#")
+        canali = [int(grezzo[i:i + 2], 16) / 255 for i in (0, 2, 4)]
+        lineari = [c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in canali]
+        return 0.2126 * lineari[0] + 0.7152 * lineari[1] + 0.0722 * lineari[2]
+
+    alto, basso = sorted((luminanza(primo), luminanza(secondo)), reverse=True)
+    return (alto + 0.05) / (basso + 0.05)
+
+
+def test_il_grigio_degli_stati_vuoti_regge_su_tutte_e_due_le_carte():
+    """Gli stati vuoti sono l'intera schermata dell'analisi, e vengono proiettati.
+
+    `--tenue` è il colore di `.vuoto` e di `.aiuto`, cioè di ogni frase che dice
+    perché qualcosa non c'è. Compare su due fondi diversi: `--superficie` dentro
+    le schede degli stadi e dentro le zone, `--sfondo` sulla schermata
+    dell'analisi, che un fondo proprio non lo dichiara.
+
+    Finora il rapporto era affermato da un commento in `:root` e da nessun
+    controllo. Un commento non cade quando qualcuno schiarisce il grigio: era a
+    posto per fortuna, non per un cancello. 4,5:1 è la soglia AA per il testo
+    normale, e `PRODUCT.md` (sezione Accessibility & Inclusion) dichiara di
+    puntare a WCAG AA pieno con la postilla della proiezione in discussione.
+    """
+    testo = _senza_commenti()
+    token = dict(re.findall(r"^\s*(--[\w-]+):\s*(#[0-9a-fA-F]{6});", testo, re.MULTILINE))
+    for nome in ("--tenue", "--testo", "--superficie", "--sfondo"):
+        assert nome in token, f"{nome} non e' piu' un esadecimale in :root: {sorted(token)}"
+    for fondo in ("--superficie", "--sfondo"):
+        for davanti in ("--tenue", "--testo"):
+            rapporto = _rapporto(token[davanti], token[fondo])
+            assert rapporto >= 4.5, (
+                f"{davanti} su {fondo} vale {rapporto:.2f}:1, sotto il 4,5:1 di WCAG AA"
+            )
+
+
+def test_sotto_la_soglia_stretta_le_tre_zone_diventano_una_colonna():
+    """La colonna a dodici step va letta anche su una finestra stretta.
+
+    A tre tracce fisse — 18rem + 22rem + 22rem — sotto quella somma la vista, cioè
+    l'unica cosa che quella schermata esiste per mostrare, resta più stretta del
+    pannello che la commenta. La regola che rimedia sta in fondo al foglio e non
+    la guardava nessun controllo: cancellata, la pagina non fa rosso niente e si
+    rompe soltanto su uno schermo che chi la prova non ha davanti.
+    """
+    foglio = _senza_commenti()
+    blocco = re.search(r"@media \(max-width: (\d+)rem\) \{(.*?)\n\}", foglio, flags=re.S)
+    assert blocco is not None, "il foglio non porta piu' la soglia della colonna unica"
+    assert ".tre-zone { grid-template-columns: 1fr; }" in blocco.group(2), (
+        "sotto la soglia le tre zone non si impilano piu': la vista resta piu' stretta "
+        "del pannello che la commenta"
     )

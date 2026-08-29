@@ -43,9 +43,9 @@ const PROPOSITI = {
 // aggiunto in mezzo alla catena non lo farebbe scivolare di uno.
 //
 // Lo step 13 resta lo step 13 -- il numero glielo da' steps.STEP_KEYS e non
-// cambia -- ma non e' un passo di elaborazione geometrica: e' l'unico che paga
-// un processo esterno vero, l'unico che legge un deck invece di una geometria,
-// e l'unico i cui risultati sono campi sul maglio e non artefatti della catena.
+// cambia -- ma sta fuori dalla colonna. Perche' non sia un passo di elaborazione
+// geometrica lo dice la schermata stessa, in index.html, dove lo legge chi la
+// usa: qui non se ne tiene una seconda copia da far invecchiare.
 // Da #140 (core/config.py:541) `to_step` predefinito vale 12: una corsa di
 // pipeline finisce dove finisce la colonna.
 const STEP_DELL_ANALISI = "13_solve";
@@ -78,8 +78,12 @@ async function caricaStato() {
     dichiaraErrore("il server ha risposto con uno stato della corsa che non si legge");
     return;
   }
-  document.getElementById("ingresso").hidden = true;
-  document.getElementById("lavoro").hidden = false;
+  // Solo se l'analisi non e' aperta. `caricaStato` non gira solo all'avvio: la
+  // rilegge anche l'annullamento (Ctrl/Cmd+Z), che e' un cambio di
+  // configurazione e non un cambio di schermata, e scoprendo `#lavoro` senza
+  // guardare la colonna ricomparirebbe sotto le dita di chi stava guardando
+  // l'analisi -- due schermate a video insieme.
+  if (document.getElementById("analisi").hidden) mostraSchermata("lavoro");
   document.getElementById("cambia-corsa").hidden = false;
   document.getElementById("corsa").textContent = corpo.out_dir;
   disegnaStep(corpo.steps);
@@ -135,15 +139,21 @@ function apriIngresso() {
 
 // Le due schermate si escludono: chi ne scopre una nasconde l'altra, da un
 // punto solo, cosi' non esiste uno stato in cui si vedono entrambe o nessuna.
+// Quale delle tre schermate e' a video, e l'esclusione sta in un punto solo.
+//
+// Scritta a mano in ogni transizione era gia' stata dimenticata due volte nello
+// stesso giro: «Cambia corsa» lasciava accesa la schermata dell'analisi, e
+// l'annullamento ci rimetteva sopra la colonna della pipeline. `#cambia-corsa`
+// vive nella testata, cioe' fuori da <main>, quindi si clicca da tutte e tre.
+function mostraSchermata(quale) {
+  for (const nome of ["ingresso", "lavoro", "analisi"]) {
+    document.getElementById(nome).hidden = nome !== quale;
+  }
+}
+
 function mostraIngresso() {
-  document.getElementById("lavoro").hidden = true;
-  // Le schermate sono tre e questa riga e' la terza. `#cambia-corsa` vive nella
-  // testata, cioe' fuori da <main>: si vede e si clicca anche dalla schermata
-  // dell'analisi, e senza questa riga la scelta della corsa comparirebbe con i
-  // quattro stadi ancora stampati sotto.
-  document.getElementById("analisi").hidden = true;
+  mostraSchermata("ingresso");
   document.getElementById("cambia-corsa").hidden = true;
-  document.getElementById("ingresso").hidden = false;
   disegnaIngresso();
 }
 
@@ -482,6 +492,16 @@ function disegnaStep(steps) {
 function ragioneDelPassaggio(steps) {
   const pipeline = steps.filter((voce) => voce.chiave !== STEP_DELL_ANALISI);
   const fallito = pipeline.find((voce) => voce.stato === "fallito");
+  // Il prior che fallisce da se' ha la propria frase: quella generale direbbe
+  // «lo step 12 e' fallito: la pipeline non arriva al prior geometrico», cioe'
+  // si contraddirebbe davanti a chi ha appena visto fallire proprio quel passo.
+  if (fallito?.chiave === STEP_DEL_PRIOR) {
+    return {
+      bloccato: true,
+      ragione: "Il prior geometrico (step 12) è fallito: non ci sono membrature"
+        + " su cui costruire il modello.",
+    };
+  }
   if (fallito !== undefined) {
     return {
       bloccato: true,
@@ -490,26 +510,46 @@ function ragioneDelPassaggio(steps) {
         + " non c'è un modello da analizzare.",
     };
   }
-  // La coda della colonna e non un 12 battuto qui: quanti step ha la pipeline
-  // lo dichiara il server, ed e' lo stesso elenco appena disegnato.
-  const prior = pipeline[pipeline.length - 1];
-  if (prior?.stato === "valido") {
+  // Per CHIAVE e non in coda alla colonna, come lo cerca `testoDelloStadioModello`:
+  // un server che mandasse gli step fino a `to_step` ne manderebbe undici, e la
+  // coda sarebbe l'esportazione. «Il prior geometrico e' valido» letto sullo
+  // stato dell'export e' la frase giusta sul fatto sbagliato, e contraddirebbe
+  // lo stadio del modello, che la chiave la usa.
+  const prior = pipeline.find((voce) => voce.chiave === STEP_DEL_PRIOR);
+  if (prior === undefined) {
     return {
       bloccato: false,
-      ragione: "Il prior geometrico è valido: le membrature su cui il modello si"
-        + " costruisce ci sono.",
+      ragione: "Nessuna corsa aperta: la schermata dell'analisi dice che cosa manca.",
     };
   }
+  if (prior.stato === "valido") {
+    return {
+      bloccato: false,
+      ragione: "Prior geometrico valido: ci sono le membrature su cui il modello"
+        + " si costruisce.",
+    };
+  }
+  // Nomina il gesto e non solo lo stato: «la schermata dice che cosa manca» non
+  // dice a chi la pipeline non l'ha mai vista che cosa deve premere.
   return {
     bloccato: false,
-    ragione: `Il prior geometrico è «${prior?.stato ?? "senza corsa aperta"}»:`
-      + " la schermata dice che cosa manca prima di poter risolvere.",
+    ragione: `Prior geometrico «${prior.stato}»: esegui lo step 12 per avere le`
+      + " membrature del modello.",
   };
 }
 
+// aria-disabled e non `disabled`, per la ragione gia' scritta accanto a
+// `.corsa-voce[aria-disabled]` nel foglio: il bottone porta una spiegazione, e
+// `disabled` lo toglierebbe insieme dal giro del tabulatore e dall'annuncio,
+// cioe' toglierebbe proprio cio' per cui esiste. E lo toglierebbe anche a chi
+// ci sta sopra col fuoco nell'istante in cui uno step fallisce: `disegnaStep`
+// gira due volte al secondo mentre la pipeline lavora. Il gesto si ferma da se'
+// dentro `mostraAnalisi`.
 function aggiornaPassaggio() {
   const { bloccato, ragione } = ragioneDelPassaggio(ultimoStato);
-  document.getElementById("vai-analisi").disabled = bloccato;
+  const bottone = document.getElementById("vai-analisi");
+  if (bloccato) bottone.setAttribute("aria-disabled", "true");
+  else bottone.removeAttribute("aria-disabled");
   document.getElementById("vai-analisi-ragione").textContent = ragione;
 }
 
@@ -517,9 +557,10 @@ function aggiornaPassaggio() {
 // dire qualcosa di vero oggi: gli altri tre aspettano numeri che nessuno calcola
 // ancora, questo aspetta uno step che esiste gia'.
 //
-// Nomina lo step che il modello lo produce, e non solo il fatto che manca:
-// PRODUCT.md:181 chiede che gli stati vuoti insegnino, e «nessun modello» da
-// solo non dice a nessuno che cosa fare per averne uno.
+// Nomina lo step che il modello lo produce, e non solo il fatto che manca: il
+// quinto principio di prodotto (PRODUCT.md, «Chi arriva dopo deve poter capire»)
+// chiede che gli stati vuoti insegnino, e «nessun modello» da solo non dice a
+// nessuno che cosa fare per averne uno.
 function testoDelloStadioModello(steps) {
   const prior = steps.find((voce) => voce.chiave === STEP_DEL_PRIOR);
   if (prior === undefined) {
@@ -538,26 +579,30 @@ function aggiornaStadi() {
   document.getElementById("stadio-modello").textContent = testoDelloStadioModello(ultimoStato);
 }
 
-// Le due schermate si escludono a vicenda, e il fuoco le segue.
+// Il fuoco segue le schermate. Nascondere quella che tiene il cursore lo butta
+// su <body>: da sola tastiera il tabulatore riparte dall'inizio del documento, e
+// chi non guarda lo schermo non ha nessun canale che dica dov'e' finito. Si posa
+// sull'intestazione di cio' che si apre, di la' e di qua.
 //
-// Nascondere la schermata che tiene il cursore lo butta su <body>: da sola
-// tastiera il tabulatore riparte dall'inizio del documento, e chi non guarda lo
-// schermo non ha nessun canale che dica dov'e' finito. Si posa
-// sull'intestazione di cio' che si apre, e torna sul collegamento da cui si era
-// partiti.
+// Al ritorno l'intestazione della colonna e non il passaggio da cui si era
+// partiti: quel bottone puo' essersi spento nel frattempo -- basta che uno step
+// fallisca mentre l'analisi e' aperta -- e il fuoco cadrebbe proprio nel caso
+// che queste due funzioni esistono per chiudere.
 function mostraAnalisi() {
-  document.getElementById("lavoro").hidden = true;
-  document.getElementById("analisi").hidden = false;
-  // Prima di mostrare: aperta senza corsa, la riga viva dello stadio non e' mai
-  // passata da disegnaStep e resterebbe quella del markup.
+  // Il gesto si ferma da se', come la voce di una corsa che non si apre: il
+  // passaggio bloccato resta raggiungibile e annunciato con la propria ragione,
+  // ma non porta sul vuoto.
+  if (ragioneDelPassaggio(ultimoStato).bloccato) return;
+  mostraSchermata("analisi");
+  // Dopo aver mostrato e prima del fuoco: aperta senza corsa, la riga viva dello
+  // stadio non e' mai passata da `disegnaStep` e resterebbe quella del markup.
   aggiornaStadi();
   document.getElementById("analisi-titolo").focus();
 }
 
 function mostraPipeline() {
-  document.getElementById("analisi").hidden = true;
-  document.getElementById("lavoro").hidden = false;
-  document.getElementById("vai-analisi").focus();
+  mostraSchermata("lavoro");
+  document.getElementById("pipeline-titolo").focus();
 }
 
 document.getElementById("vai-analisi").addEventListener("click", mostraAnalisi);

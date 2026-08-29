@@ -203,9 +203,11 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
    nome del programma nella testata. Le legende in maiuscoletto delle tre zone
    nominano un gruppo dentro una schermata; questo nomina la schermata. */
 .analisi h2 { font-size: var(--tipo-titolo); line-height: var(--interlinea-riga); font-weight: 600; margin: 0; }
-/* Il fuoco ci arriva per programma quando la schermata si apre (tabindex="-1"),
-   e senza contorno chi naviga da tastiera non saprebbe dove si e' posato. */
-.analisi h2:focus-visible { outline: 2px solid var(--accento); outline-offset: 2px; }
+/* Il fuoco ci arriva per programma quando una delle due schermate si apre
+   (tabindex="-1" sulle due intestazioni), e senza contorno chi naviga da
+   tastiera non saprebbe dove si e' posato. Su ogni h2 e non sulle due nominate:
+   una regola per bersaglio e' un elenco da tenere allineato al markup. */
+h2:focus-visible { outline: 2px solid var(--accento); outline-offset: 2px; }
 /* Quattro schede, e la griglia decide da se' quante ne stanno per riga. Stretta
    la finestra si impilano in una colonna sola; proiettata in discussione ne
    stanno quattro, e la prosa dentro resta comunque sotto --misura, che .vuoto
@@ -215,16 +217,25 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .stadio { background: var(--superficie); border: 1px solid var(--bordo); border-radius: var(--raggio); padding: var(--passo-3); }
 /* Il numero dello stadio sta nel titolo e non in un contatore d'elenco: l'ordine
    e' una dipendenza (ciascuno ha bisogno del precedente) e va letto anche quando
-   le quattro schede stanno affiancate, dove «sopra» e «sotto» non esistono. */
-.stadio h3 { font-size: var(--tipo-dato); line-height: var(--interlinea-riga); font-weight: 600; margin: 0 0 var(--passo-2); }
-/* Il margine dei paragrafi e' quello della scala e non l'`1em` del browser, e
-   l'ultimo non ne ha: sarebbe spazio dentro il bordo della scheda, sotto
-   l'ultima riga, che nessuna riga successiva usa. */
+   le quattro schede stanno affiancate, dove «sopra» e «sotto» non esistono.
+   --tipo-corpo e non --tipo-dato come gli h3 delle zone: qui dentro il corpo e'
+   .vuoto, cioe' 16 px, e un titolo a 14 sarebbe piu' piccolo del testo che
+   intitola -- proiettato, l'unica cosa che porta l'ordine sarebbe la piu' piccola
+   della scheda. */
+.stadio h3 { font-size: var(--tipo-corpo); line-height: var(--interlinea-riga); font-weight: 600; margin: 0 0 var(--passo-2); }
+/* L'ultimo paragrafo non porta margine: sarebbe spazio dentro il bordo della
+   scheda che nessuna riga successiva usa. */
 .stadio p { margin: 0 0 var(--passo-2); }
 .stadio p:last-child { margin-bottom: 0; }
 /* Il passaggio chiude la colonna degli step: largo quanto lei, cosi' si legge
    come la fine dell'elenco e non come un comando qualunque appoggiato sotto. */
 .passaggio { width: 100%; margin-top: var(--passo-3); }
+/* Spento senza `disabled`, per la stessa ragione di .corsa-voce qui sopra: il
+   bottone porta una spiegazione, e `disabled` lo toglierebbe dal tabulatore e
+   dall'annuncio. Resta raggiungibile e si vede che non porta da nessuna parte;
+   il gestore si ferma da se'. */
+.passaggio[aria-disabled="true"] { color: var(--tenue); cursor: default; }
+.passaggio[aria-disabled="true"]:hover { background: var(--superficie); }
 .zona { padding: var(--passo-4); overflow: auto; }
 .zona-step, .zona-dettaglio { background: var(--superficie); }
 .zona-step { border-right: 1px solid var(--bordo); }
