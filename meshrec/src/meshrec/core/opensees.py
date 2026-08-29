@@ -76,13 +76,23 @@ _PUNTI_INTEGRAZIONE = 5
 # lineari, questo numero va misurato.
 _SUDDIVISIONI_PATCH = 10
 
-# Sotto questa distanza dalla quota minima un nodo del telaio e' «al piede».
-# I nodi del telaio sono calcolati, non misurati -- stanno sull'asse che il
-# prior ha stimato, alle quote delle fette -- quindi una tolleranza di
-# confronto fra numeri in virgola mobile basta, e non serve la tolleranza
-# relativa al maglio che `abaqus.build_node_sets` usa sui nodi di una
-# tetraedralizzazione.
-_TOLLERANZA_PIEDE_MM = 1e-6
+# Un nodo del telaio e' «al piede» se sta entro questa frazione dell'altezza
+# del telaio dalla quota minima.
+#
+# **Relativa e non assoluta**, ed e' il punto: i nodi del telaio non sono
+# misurati, stanno sull'asse che il **prior ha stimato** alle quote delle
+# fette, quindi due piedi che il disegno vuole complanari escono a quote
+# vicine e non uguali. Con la tolleranza assoluta di 1e-6 mm che questo modulo
+# portava prima, due piedi a quota 0,0 e 1e-5 davano un solo incastro e un
+# telaio che penzola: e' il difetto misurato il 21/08/2026 sull'as-built
+# (`abaqus.constraint_plan_extent`), e sul telaio nessuno dei sette verdetti lo
+# vedrebbe, perche' li' quel controllo e' dichiarato non applicabile.
+#
+# 1e-4 dell'altezza sono 0,2 mm su un telaio di 2 m e 0,31 mm sull'as-built di
+# 3144 mm: sopra ogni scarto di stima fra nodi che il prior mette allo stesso
+# livello, e sotto qualunque quota che in un telaio significhi «un altro
+# piano».
+_FRAZIONE_PIEDE = 1e-4
 
 # Un versore della sezione quasi parallelo all'asse dell'asta non definisce un
 # piano: `geomTransf` ne uscirebbe degenere. Il coseno e' quello di circa 2,5
@@ -155,6 +165,13 @@ def _controlla_telaio(telaio: "Telaio") -> tuple[np.ndarray, np.ndarray]:
     e non ha nulla da risolvere.
     """
     nodi = np.asarray(telaio.nodi, dtype=np.float64)
+    if not np.isfinite(nodi).all():
+        raise ValueError(
+            "il telaio ha coordinate non finite: la quota minima diventa NaN, "
+            "ogni confronto contro NaN è falso, e l'insieme dei piedi uscirebbe "
+            "vuoto. Il .tcl avrebbe zero righe `fix` e un resoconto che "
+            "dichiara nodi_vincolati = 0 e peso_proprio = nan senza fermarsi"
+        )
     if not telaio.elementi:
         raise ValueError(
             "il telaio non ha nessun elemento: un .tcl scritto così sarebbe un "
@@ -167,7 +184,8 @@ def _controlla_telaio(telaio: "Telaio") -> tuple[np.ndarray, np.ndarray]:
             "scrivere"
         )
     quote = nodi[:, 2]
-    al_piede = np.flatnonzero(quote <= float(quote.min()) + _TOLLERANZA_PIEDE_MM)
+    tolleranza = _FRAZIONE_PIEDE * float(np.ptp(quote))
+    al_piede = np.flatnonzero(quote <= float(quote.min()) + tolleranza)
     if len(al_piede) == len(nodi):
         raise ValueError(
             "ogni nodo del telaio sta alla quota minima: il piede prenderebbe "

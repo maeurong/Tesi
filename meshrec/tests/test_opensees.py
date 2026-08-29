@@ -125,6 +125,77 @@ def test_un_telaio_tutto_su_una_quota_non_ha_nodi_liberi(tmp_path):
         opensees.scrivi_tcl(tmp_path / "m.tcl", piatto, casi_di_carico=["GRAVITA"])
 
 
+def _due_colonne(quota_secondo_piede: float = 0.0) -> _Telaio:
+    """Due colonne alte 2000 mm, i due piedi alle quote 0 e `quota_secondo_piede`."""
+    nodi = np.array(
+        [
+            [0.0, 0.0, 0.0], [1000.0, 0.0, quota_secondo_piede],
+            [0.0, 0.0, 2000.0], [1000.0, 0.0, 2000.0],
+        ]
+    )
+    elementi = [
+        _Elemento(
+            membratura=0, stazione=i, nodo_i=i, nodo_j=i + 2,
+            sezione=(300.0, 200.0),
+            e1=np.array([1.0, 0.0, 0.0]), e2=np.array([0.0, 1.0, 0.0]),
+            barre=list(BARRE),
+        )
+        for i in range(2)
+    ]
+    return _Telaio(nodi=nodi, elementi=elementi, giunzioni=[], materiali={0: SEZIONE})
+
+
+@pytest.mark.parametrize("valore", [float("nan"), float("inf")])
+def test_un_nodo_con_coordinata_non_finita_non_si_scrive(tmp_path, valore):
+    """Misurato prima della guardia, con `z = NaN` sul secondo nodo: il minimo
+    delle quote esce `NaN`, ogni confronto contro `NaN` e' falso, e l'insieme
+    dei piedi resta **vuoto**. Il `.tcl` usciva con zero righe `fix`, un
+    `node 2 0 0 nan`, e un resoconto che dichiarava `nodi_vincolati = 0` e
+    `peso_proprio = nan` senza che nulla si fermasse.
+
+    E' la stessa guardia che `abaqus.build_node_sets` porta gia', per la stessa
+    ragione: la' i set di faccia uscivano vuoti, qui i vincoli.
+    """
+    telaio = _mensola()
+    nodi = telaio.nodi.copy()
+    nodi[1, 2] = valore
+
+    with pytest.raises(ValueError, match="non finit"):
+        opensees.scrivi_tcl(
+            tmp_path / "m.tcl", telaio._replace(nodi=nodi), casi_di_carico=["GRAVITA"]
+        )
+    assert not (tmp_path / "m.tcl").exists()
+
+
+def test_due_piedi_quasi_complanari_sono_incastrati_tutti_e_due(tmp_path):
+    """I nodi del telaio vengono da una **stima del prior**, non da un disegno:
+    due piedi che il disegno vuole complanari escono a quote vicine e non
+    uguali. Con la tolleranza assoluta di 1e-6 mm che questo modulo portava,
+    quote 0,0 e 1e-5 davano **un solo** piede incastrato e un telaio che
+    penzola -- il difetto misurato il 21/08/2026 che `constraint_plan_extent`
+    esiste per catturare, e che sul telaio nessuno dei sette verdetti vede,
+    perche' li' quel controllo e' dichiarato non applicabile.
+    """
+    resoconto = opensees.scrivi_tcl(
+        tmp_path / "m.tcl", _due_colonne(1e-5), casi_di_carico=["GRAVITA"]
+    )
+
+    assert resoconto["nodi_vincolati"] == 2
+    fix = [r.split()[1] for r in (tmp_path / "m.tcl").read_text().splitlines()
+           if r.startswith("fix ")]
+    assert fix == ["1", "2"]
+
+
+def test_un_piede_piu_alto_della_tolleranza_resta_libero(tmp_path):
+    """La tolleranza e' relativa all'altezza, non larga: una colonna che parte
+    un metro piu' su e' un'altra cosa da un piede, e non si incastra."""
+    resoconto = opensees.scrivi_tcl(
+        tmp_path / "m.tcl", _due_colonne(1000.0), casi_di_carico=["GRAVITA"]
+    )
+
+    assert resoconto["nodi_vincolati"] == 1
+
+
 def test_casi_di_carico_vuoto_non_produce_un_file_muto(tmp_path):
     with pytest.raises(ValueError, match="vuoto"):
         opensees.scrivi_tcl(tmp_path / "m.tcl", _mensola(), casi_di_carico=[])
