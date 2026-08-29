@@ -328,12 +328,32 @@
       <p class="vuoto">Qui si sceglierà che cosa si manda al solutore — il solido
         tetraedrico dello step 9 o il telaio costruito sulle membrature dello
         step 12 — e con quale solutore: CalculiX, che è integrato, oppure
-        OpenSees, che non c'è ancora.</p>
+        OpenSees, che non c'è ancora. Oggi la scelta non c'è: il comando qui
+        sotto manda il solido a CalculiX, che è l'unica strada che esiste.</p>
       <!-- Il testo scritto qui e' quello della prima apertura assoluta, e non un
            segnaposto: senza corsa aperta e' esattamente cio' che va detto. -->
       <p class="vuoto" id="stadio-modello">Nessuna corsa aperta: il modello lo
         propone lo step 12 «Prior geometrico», che cerca nella geometria le
         regioni che sembrano membrature.</p>
+      <!-- Il solo comando di questa schermata, e non e' un segnaposto: lancia la
+           tratta che il bottone della colonna lanciava, `POST /api/step/13`, e fa
+           la cosa che dice. Il divieto di riempire questi stadi riguarda i
+           pannelli che MOSTRANO numeri che nessuno ha ancora calcolato.
+           Ce n'e' bisogno perche' altrimenti il solutore non si raggiunge da
+           nessuna strada: tolto lo step 13 dalla colonna e' morto il suo unico
+           ingresso, e `meshrec run --from-step 13` non parte per il tetto di
+           `from_step` (le=9, core/config.py:530).
+           `esecuzione` e' come `spegniLeEsecuzioni` lo trova: il comando segue
+           la corsa come gli altri due «Esegui». Spento senza prior con
+           `aria-disabled`, come il passaggio: la ragione va sentita, non tolta.
+           La riga d'errore vive QUI e non e' `#errore`: quella sta nella colonna
+           del dettaglio, cioe' su una schermata che da qui e' nascosta, e un
+           rifiuto annunciato la' sarebbe un clic senza ritorno. Nel markup e
+           vuota alla nascita, come tutte le regioni vive di questa pagina. -->
+      <button type="button" id="risolvi" class="bottone bottone-primario esecuzione">Esegui
+        lo step 13</button>
+      <p class="vuoto" id="risolvi-ragione"></p>
+      <p class="errore" id="analisi-errore" role="alert"></p>
     </li>
     <li class="stadio">
       <h3>2 · Struttura</h3>

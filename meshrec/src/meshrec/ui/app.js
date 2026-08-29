@@ -474,7 +474,14 @@ function disegnaStep(steps) {
   aggiornaStadi();
 }
 
-// Se il passaggio alla seconda schermata sia una porta aperta, e perche'.
+// Il verdetto sulla seconda schermata: se la porta e' aperta (`bloccato`), se il
+// solutore si puo' lanciare (`pronto`), e la frase che vale per tutti e due.
+//
+// Due booleani e non uno negato: si entra nella schermata anche senza prior --
+// e' li' che si legge che cosa manca -- ma il solutore no, perche' cadrebbe sul
+// deck che non c'e'. Una frase sola perche' il fatto e' uno: il passaggio e il
+// comando dicono la stessa cosa, e due lingue per lo stesso fatto ne
+// lascerebbero invecchiare una.
 //
 // Pura, e prende gli step invece di leggere `ultimoStato`: la decisione e' la
 // meta' che si sbaglia, e va provata su stati che non esistono ancora sul disco
@@ -498,6 +505,7 @@ function ragioneDelPassaggio(steps) {
   if (fallito?.chiave === STEP_DEL_PRIOR) {
     return {
       bloccato: true,
+      pronto: false,
       ragione: "Il prior geometrico (step 12) è fallito: non ci sono membrature"
         + " su cui costruire il modello.",
     };
@@ -505,6 +513,7 @@ function ragioneDelPassaggio(steps) {
   if (fallito !== undefined) {
     return {
       bloccato: true,
+      pronto: false,
       ragione: `Lo step ${fallito.numero} (${ETICHETTE[fallito.chiave] ?? fallito.chiave})`
         + " è fallito: la pipeline non arriva al prior geometrico, e senza quello"
         + " non c'è un modello da analizzare.",
@@ -519,12 +528,14 @@ function ragioneDelPassaggio(steps) {
   if (prior === undefined) {
     return {
       bloccato: false,
+      pronto: false,
       ragione: "Nessuna corsa aperta: la schermata dell'analisi dice che cosa manca.",
     };
   }
   if (prior.stato === "valido") {
     return {
       bloccato: false,
+      pronto: true,
       ragione: "Prior geometrico valido: ci sono le membrature su cui il modello"
         + " si costruisce.",
     };
@@ -533,6 +544,7 @@ function ragioneDelPassaggio(steps) {
   // dice a chi la pipeline non l'ha mai vista che cosa deve premere.
   return {
     bloccato: false,
+    pronto: false,
     ragione: `Prior geometrico «${prior.stato}»: esegui lo step 12 per avere le`
       + " membrature del modello.",
   };
@@ -546,11 +558,17 @@ function ragioneDelPassaggio(steps) {
 // gira due volte al secondo mentre la pipeline lavora. Il gesto si ferma da se'
 // dentro `mostraAnalisi`.
 function aggiornaPassaggio() {
-  const { bloccato, ragione } = ragioneDelPassaggio(ultimoStato);
-  const bottone = document.getElementById("vai-analisi");
-  if (bloccato) bottone.setAttribute("aria-disabled", "true");
-  else bottone.removeAttribute("aria-disabled");
-  document.getElementById("vai-analisi-ragione").textContent = ragione;
+  const { bloccato, pronto, ragione } = ragioneDelPassaggio(ultimoStato);
+  for (const [identificativo, spento] of [["vai-analisi", bloccato], ["risolvi", !pronto]]) {
+    const bottone = document.getElementById(identificativo);
+    if (spento) bottone.setAttribute("aria-disabled", "true");
+    else bottone.removeAttribute("aria-disabled");
+  }
+  // La stessa frase sotto tutti e due, e da un solo posto: il passaggio e il
+  // comando parlano dello stesso prior.
+  for (const identificativo of ["vai-analisi-ragione", "risolvi-ragione"]) {
+    document.getElementById(identificativo).textContent = ragione;
+  }
 }
 
 // Che cosa dire nello stadio del modello, che e' l'unico dei quattro a poter
@@ -568,8 +586,9 @@ function testoDelloStadioModello(steps) {
       + " geometrico», che cerca nella geometria le regioni che sembrano membrature.";
   }
   if (prior.stato === "valido") {
-    return "Lo step 12 «Prior geometrico» ha proposto le membrature. Il pannello"
-      + " che le mostra, con il solutore che le può risolvere, non è ancora scritto.";
+    return "Lo step 12 «Prior geometrico» ha proposto le membrature: il solutore"
+      + " si può lanciare qui sotto. Il pannello che mostra le membrature, la"
+      + " scelta del modello e i risultati non è ancora scritto.";
   }
   return `Nessun modello: lo step 12 «Prior geometrico», che propone le membrature,`
     + ` è «${prior.stato}».`;
@@ -605,6 +624,42 @@ function mostraPipeline() {
   document.getElementById("pipeline-titolo").focus();
 }
 
+// Il solo comando della seconda schermata. Un contatore per clic, come le due
+// esecuzioni del pannello: due clic condividono la chiusura, e il rifiuto del
+// primo scritto dopo il secondo parlerebbe di una richiesta che non e' quella.
+let ultimaRisoluzione = 0;
+
+function apriRisoluzione() {
+  ultimaRisoluzione += 1;
+  return ultimaRisoluzione;
+}
+
+// Il numero dallo stato che il server manda e non da un 13 battuto qui: e' lo
+// stesso elenco che la colonna ha appena disegnato, meno la voce che ne e'
+// stata tolta.
+async function risolvi() {
+  const { pronto } = ragioneDelPassaggio(ultimoStato);
+  const voce = ultimoStato.find((v) => v.chiave === STEP_DELL_ANALISI);
+  // Il gesto si ferma da se', come il passaggio bloccato: `aria-disabled` lascia
+  // il bottone cliccabile per costruzione, ed e' il prezzo di tenerlo annunciato
+  // con la propria ragione. La ragione e' gia' a video sotto di lui: qui non si
+  // riscrive niente, si rifiuta e basta.
+  if (!pronto || voce === undefined) return;
+  const riga = document.getElementById("analisi-errore");
+  riga.textContent = "";
+  const ordine = apriRisoluzione();
+  const risposta = await fetch(`/api/step/${voce.numero}`, { method: "POST" })
+    .catch(serverMuto);
+  if (risposta.ok) return;
+  const rifiuto = await ragioneDelRifiuto(risposta);
+  if (superata(ordine, ultimaRisoluzione)) return;
+  // Non `dichiaraErrore`: quella scrive in #errore, che vive nella colonna del
+  // dettaglio, cioe' su una schermata che da qui e' nascosta. Un rifiuto
+  // annunciato la' e' un clic senza ritorno.
+  riga.textContent = rifiuto;
+}
+
+document.getElementById("risolvi").addEventListener("click", risolvi);
 document.getElementById("vai-analisi").addEventListener("click", mostraAnalisi);
 document.getElementById("torna-pipeline").addEventListener("click", mostraPipeline);
 

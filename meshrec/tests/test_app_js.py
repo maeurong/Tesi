@@ -5792,6 +5792,16 @@ assert.match(ragioneDelPassaggio(senzaPrior).ragione, /nessuna corsa|non compare
 
 const arrivata = ragioneDelPassaggio(tredici());
 assert.equal(arrivata.bloccato, false, "arrivata al dodici, il passaggio resta chiuso");
+// `pronto` e `bloccato` non sono lo stesso fatto negato: si entra nella
+// schermata anche senza prior (e li' si legge che cosa manca), ma il solutore
+// non si lancia. Un solo booleano avrebbe dovuto scegliere quale dei due
+// tradire.
+assert.equal(arrivata.pronto, true, "col prior valido il solutore non si puo' lanciare");
+assert.equal(ragioneDelPassaggio(tredici("mai eseguito")).pronto, false,
+  "senza prior il solutore parte lo stesso, e cade sul deck che non c'e'");
+assert.equal(ragioneDelPassaggio(tredici("mai eseguito")).bloccato, false,
+  "senza prior la schermata non si apre piu': non si puo' leggere che cosa manca");
+assert.equal(ragioneDelPassaggio([]).pronto, false, "senza corsa il solutore e' lanciabile");
 assert.match(arrivata.ragione, /membrature/,
   `il passaggio aperto non dice perche': ${arrivata.ragione}`);
 
@@ -6089,3 +6099,101 @@ def test_i_due_bottoni_del_passaggio_sono_legati_alle_due_funzioni_giuste():
         assert atteso in modulo, (
             f"#{identificativo} non chiama piu' {funzione}: il bottone non porta da nessuna parte"
         )
+
+
+def test_lo_stadio_del_modello_porta_il_comando_che_risolve(tmp_path):
+    """Un comando che funziona non è un segnaposto.
+
+    Tolto lo step 13 dalla colonna è morto il suo unico ingresso, e con lui
+    l'unico modo di lanciare il solutore dal browser. Da riga di comando non
+    c'è ripiego: `from_step` ha `le=9` (`core/config.py:530`), quindi
+    `meshrec run --from-step 13` non parte nemmeno. Il divieto del brief
+    riguarda i pannelli che mostrano numeri che nessuno ha calcolato; un
+    bottone legato a una tratta che esiste è l'opposto.
+
+    Lo stadio acquista il comando e nient'altro: nessun pannello di parametri,
+    nessun menù di caso di carico o di modo, nessuna rilettura dei risultati.
+    Il controllo qui sotto guarda anche quello — la scheda non deve crescere
+    di nascosto.
+    """
+    markup = _senza_commenti_html(_markup())
+    corpo = markup.split('id="analisi"', 1)[1]
+    primo = re.search(r'<li class="stadio">(.*?)</li>', corpo, flags=re.S).group(1)
+    assert 'id="risolvi"' in primo, "lo stadio del modello non porta il comando che risolve"
+    assert 'class="bottone bottone-primario esecuzione"' in primo, (
+        "il comando non segue la corsa come gli altri «Esegui»: `esecuzione` e' come "
+        "spegniLeEsecuzioni li trova"
+    )
+    assert 'id="analisi-errore"' in corpo and 'role="alert"' in corpo, (
+        "il rifiuto del solutore non ha dove essere annunciato: #errore vive nella colonna "
+        "del dettaglio, cioe' su una schermata che qui e' nascosta"
+    )
+    for vietato in ("<select", "id=\"caso\"", "id=\"grandezza\"", "Metriche"):
+        assert vietato not in corpo, (
+            f"la schermata dell'analisi ha cominciato a mostrare numeri: «{vietato}». "
+            "I pannelli sono l'onda 4, e si scrivono con i numeri veri in mano"
+        )
+
+    _esegui(tmp_path, _DOM + _funzioni(*_COLONNA) + _TREDICI + """
+const comando = document.getElementById("risolvi");
+ultimoStato = tredici();
+aggiornaPassaggio();
+assert.equal(comando.getAttribute("aria-disabled"), null,
+  "col prior valido il comando resta spento");
+
+ultimoStato = tredici("mai eseguito");
+aggiornaPassaggio();
+assert.equal(comando.getAttribute("aria-disabled"), "true",
+  "senza prior il comando resta acceso e cade sul deck che non c'e'");
+// La stessa frase della riga sotto il passaggio, non una seconda lingua per
+// dire lo stesso fatto.
+assert.equal(
+  document.getElementById("risolvi-ragione").textContent,
+  document.getElementById("vai-analisi-ragione").textContent,
+  "il comando spento spiega la propria ragione con parole sue");
+""")
+
+
+def test_il_comando_che_risolve_si_ferma_da_se_e_dichiara_il_rifiuto(tmp_path):
+    """Tre proprietà del gesto, e nessuna si vede senza eseguirlo.
+
+    Senza prior non parte nessuna richiesta: `aria-disabled` lascia il bottone
+    cliccabile per costruzione, quindi la guardia deve stare nel gestore.
+
+    Col prior parte, e sulla tratta che esisteva già — `POST /api/step/13`,
+    quella che il bottone della colonna usava. Il numero viene dallo stato che
+    il server manda, non da un 13 battuto nel modulo.
+
+    E il rifiuto si vede: `dichiaraErrore` scrive in `#errore`, che vive nella
+    colonna del dettaglio, cioè su una schermata che da qui è nascosta. Un
+    rifiuto annunciato là sarebbe un clic senza ritorno.
+    """
+    _esegui(tmp_path, _DOM + _funzioni(
+        "ragioneDelPassaggio", "superata", "serverMuto", "ragioneDelRifiuto",
+        "apriRisoluzione", "risolvi",
+    ) + _TREDICI + """
+let ultimaRisoluzione = 0;
+let chiesto = [];
+let risponde = async () => ({ ok: true, status: 200 });
+globalThis.fetch = async (percorso, opzioni) => { chiesto.push([percorso, opzioni?.method]); return risponde(); };
+const riga = document.getElementById("analisi-errore");
+
+// Senza prior: nessuna richiesta.
+ultimoStato = tredici("mai eseguito");
+await risolvi();
+assert.deepEqual(chiesto, [], "il comando parte anche senza prior");
+
+// Col prior: la tratta che esisteva gia', e il numero dallo stato.
+ultimoStato = tredici();
+await risolvi();
+assert.deepEqual(chiesto, [["/api/step/13", "POST"]],
+  `la tratta non e' quella che il bottone della colonna usava: ${JSON.stringify(chiesto)}`);
+assert.equal(riga.textContent, "", "un avvio riuscito lascia scritto un errore");
+
+// Rifiutato: si vede, e su questa schermata.
+risponde = async () => ({ ok: false, status: 400,
+  text: async () => JSON.stringify({ messaggio: "una corsa sta già girando" }) });
+await risolvi();
+assert.equal(riga.textContent, "una corsa sta già girando",
+  "il rifiuto del solutore non arriva a video: il clic non ha ritorno");
+""")
