@@ -78,7 +78,15 @@ BLOCCHI_FUORI_IMPRONTA: tuple[str, ...] = ("run", "wall", "model", "solutore")
 # cambia il deck, e due candidati con selettori diversi sono esperimenti
 # diversi. La regola dell'omissione quando vuoto tiene ferma la provenienza
 # delle righe gia' registrate, che il blocco non ce l'hanno.
-BLOCCHI_VUOTI_FUORI_IMPRONTA: tuple[str, ...] = ("carichi", "selettori")
+#
+# `regioni` (Fase 8, #135) segue entrambi: STEP_BLOCKS[11] lo legge, partiziona
+# ALL_WALL in `*ELSET` e cambia il deck. E' un `dict[NomeSet, RegioneConfig]`
+# che nasce `{}` -- cioe' falso -- e la forma a dizionario e' precisamente cio'
+# che rende sicura la sua presenza in questa lista: un modello con campi
+# porterebbe i propri predefiniti, e basta uno solo truthy fra quelli perche'
+# il predicato di vuotezza qui sotto non scatti piu' e le ventidue righe si
+# muovano, con il test dei blocchi verde.
+BLOCCHI_VUOTI_FUORI_IMPRONTA: tuple[str, ...] = ("carichi", "selettori", "regioni")
 
 
 def fingerprint(cfg: PipelineConfig) -> str:

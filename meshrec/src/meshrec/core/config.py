@@ -55,6 +55,42 @@ def _mappa_casefold(nomi: Iterable[str]) -> dict[str, str]:
     return {nome.casefold(): nome for nome in nomi}
 
 
+def _nomi_senza_collisioni(
+    nomi: Iterable[str], singolare: str, plurale: str, tipo_di_set: str
+) -> None:
+    """Rifiuta i nomi dell'operatore che il deck confonderebbe fra loro o coi sei.
+
+    Nel deck c'e' un solo spazio di nomi per tipo di insieme, e `ccx` lo
+    risolve senza distinguere le maiuscole (misurato in
+    `docs/fase-6-cantiere/sonda-caso-nomi/README.md`): due chiavi distinte in
+    un dizionario python possono essere un solo nome nel file.
+
+    Estratta perche' e' la seconda famiglia di nomi che la segue -- i selettori
+    (`*NSET`) e le regioni (`*ELSET`) -- e due copie della stessa regola sono
+    due copie che possono divergere. E' la stessa ragione per cui
+    `_mappa_casefold` esiste, un livello piu' in su.
+    """
+    casi_di_faccia = _mappa_casefold(NOMI_SET_DI_FACCIA)
+    visti: dict[str, str] = {}
+    for nome in nomi:
+        chiave = nome.casefold()
+        if chiave in casi_di_faccia:
+            raise ValueError(
+                f"il {singolare} {nome!r} collide, ignorando le maiuscole, con il "
+                f"set di faccia {casi_di_faccia[chiave]!r} che il deck fabbrica da "
+                "sé: nel deck c'è un solo spazio di nomi, case-insensitive "
+                "(vedi docs/fase-6-cantiere/sonda-caso-nomi/README.md), e il "
+                f"{tipo_di_set} dell'operatore lo sovrascriverebbe"
+            )
+        if chiave in visti:
+            raise ValueError(
+                f"i {plurale} {visti[chiave]!r} e {nome!r} differiscono solo per "
+                "maiuscole: nel deck sono lo stesso nome, case-insensitive "
+                "(vedi docs/fase-6-cantiere/sonda-caso-nomi/README.md)"
+            )
+        visti[chiave] = nome
+
+
 class _ModelloBase(BaseModel):
     """Base comune a ogni modello del file: rifiuta infinito e NaN nei campi decimali.
 
@@ -1009,6 +1045,171 @@ class CarichiConfig(_ModelloBase):
     )
 
 
+class MaterialeDichiarato(_ModelloBase):
+    """Il materiale di una regione, con cio' che dichiara di se' (#141).
+
+    Sta qui e non dentro `Material`, che e' congelato: un campo nuovo la'
+    sposterebbe l'impronta di tutte le ventidue righe dei registri, perche'
+    `analysis` non e' fra i blocchi esclusi. Il modello congelato viene riusato
+    intero e il resto -- resistenza, provenienza, norma -- gli sta accanto.
+
+    **Non c'e' un campo `veste`, ed e' una decisione e non una dimenticanza.**
+    La proposta di dichiarare se un valore fosse «caratteristico» o «gia'
+    ridotto» apriva la strada a una doppia riduzione o a nessuna, senza che
+    nulla se ne accorgesse. #141 vale senza eccezioni: le voci sono **sempre**
+    caratteristiche, e i valori di progetto li deriva il programma applicando i
+    coefficienti di norma. Le parole «gia' ridotte» di #146 riguardano il
+    fattore di confidenza e il livello di conoscenza, che si applicano alla
+    muratura e non a un calcestruzzo.
+    """
+
+    material: Material = Field(
+        description="il modello elastico isotropo, dichiarato per intero come altrove"
+    )
+    f_k: float | None = Field(
+        default=None,
+        gt=0.0,
+        description=(
+            "resistenza CARATTERISTICA [MPa]: f_ck per un calcestruzzo, f_yk per "
+            "un acciaio. Mai un valore di progetto: i γ di norma li applica il "
+            "programma, e una voce già ridotta verrebbe ridotta due volte"
+        ),
+    )
+    provenienza: Literal["catalogo", "a_mano"] = Field(
+        description=(
+            "da dove viene questa voce: da una classe del catalogo dei materiali "
+            "oppure battuta a mano. Senza dichiararlo un numero non ha provenienza, "
+            "ed è la sola cosa che distingue un valore di norma da uno inventato"
+        ),
+    )
+    classe: str | None = Field(
+        default=None,
+        description=(
+            "la voce del catalogo, es. «C25/30» o «B450C», quando la provenienza "
+            "è `catalogo`. Assente per una voce battuta a mano"
+        ),
+    )
+    norma: str = Field(
+        description=(
+            "la norma con cui il valore è dichiarato, per articolo e non per "
+            "pagina di una dispensa: es. «NTC 2018 Tab. 4.1.II»"
+        ),
+    )
+
+
+class ArmaturaConfig(_ModelloBase):
+    """I nove campi che l'operatore dichiara di un'armatura (#136).
+
+    Base e altezza NON stanno qui: vengono da `wall.misura`, e chiederle
+    disferebbe il programma -- la sezione si misura sulla nuvola, non si batte.
+
+    Nessun campo ha un predefinito, per la stessa ragione di `Material` e dei
+    casi di carico: sono grandezze che nessun dato del rilievo puo' suggerire.
+    Un copriferro predefinito sarebbe lo stesso errore del modulo elastico a
+    1500 MPa finito su un telaio in calcestruzzo senza che nessuno l'avesse
+    scelto.
+    """
+
+    classe_calcestruzzo: str = Field(
+        description=(
+            "classe del calcestruzzo, es. «C25/30». Resta testo e non "
+            "enumerazione finché il catalogo dei materiali non esiste: "
+            "un'enumerazione scritta a mano qui sarebbe una seconda verità da "
+            "tenere allineata a quel catalogo"
+        ),
+    )
+    classe_acciaio: Literal["B450A", "B450C"] = Field(
+        description="classe dell'acciaio da armatura, NTC 2018 §11.3.2.1-2",
+    )
+    barre_tese: int = Field(
+        ge=2,
+        description=(
+            "numero di barre longitudinali in zona tesa. Il minimo è due, non "
+            "una: una barra sola non è un'armatura (ISO 3766 §3)"
+        ),
+    )
+    diametro_teso: int = Field(
+        gt=0, description="diametro delle barre tese [mm]"
+    )
+    barre_compresse: int = Field(
+        ge=0,
+        description=(
+            "numero di barre longitudinali in zona compressa. Zero è ammesso ed è "
+            "l'armatura semplice, non un errore"
+        ),
+    )
+    diametro_compresso: int = Field(
+        gt=0,
+        description=(
+            "diametro delle barre compresse [mm]. Si dichiara anche con zero "
+            "barre compresse: il campo non ha predefinito, come tutti gli altri"
+        ),
+    )
+    diametro_staffe: int = Field(
+        ge=6,
+        description=(
+            "diametro delle staffe [mm]. Il minimo di norma è 6 mm, e vale "
+            "insieme al minimo relativo Ø_long,max/4 che questa configurazione "
+            "non può controllare da sola (NTC 2018 §4.1.6.1.2)"
+        ),
+    )
+    passo_staffe: float = Field(
+        gt=0.0,
+        description="passo delle staffe [mm]. Zero non è un passo (NTC 2018 §4.1.6.1.2)",
+    )
+    copriferro_nominale: float = Field(
+        ge=10.0,
+        description=(
+            "copriferro nominale [mm], netto e misurato all'esterno delle staffe. "
+            "Sotto i 10 mm non è un copriferro"
+        ),
+    )
+
+
+class SezioneConfig(_ModelloBase):
+    """La sezione di una regione: i tre materiali e, dove c'e', l'armatura.
+
+    Due calcestruzzi e non uno: il nucleo confinato dalle staffe e il
+    copriferro hanno leggi diverse, ed e' la distinzione su cui il verdetto di
+    duttilita' si regge.
+    """
+
+    calcestruzzo_confinato: MaterialeDichiarato = Field(
+        description="il nucleo racchiuso dalle staffe"
+    )
+    calcestruzzo_copriferro: MaterialeDichiarato = Field(
+        description="lo strato esterno alle staffe, non confinato"
+    )
+    acciaio: MaterialeDichiarato = Field(description="l'acciaio delle barre")
+    armatura: ArmaturaConfig | None = Field(
+        default=None,
+        description=(
+            "disposizione delle barre, dove è stata rilevata. Assente: la sezione "
+            "è di solo calcestruzzo, e nessuna armatura si inventa"
+        ),
+    )
+
+
+class RegioneConfig(_ModelloBase):
+    """Una regione punta a una sezione; la sezione nomina i materiali (#135).
+
+    Il nome della regione e' la chiave del dizionario `PipelineConfig.regioni`,
+    e diventa un `*ELSET` nel deck: e' per questo che le chiavi seguono le
+    stesse regole dei selettori.
+    """
+
+    membratura: int = Field(
+        ge=0,
+        description=(
+            "indice della membratura nel prior geometrico (`12_wall.json`). Il "
+            "tetto -- quante membrature il prior ha davvero trovato -- non è "
+            "verificabile qui: la configurazione nasce prima che lo step 12 giri, "
+            "e il rifiuto dell'indice fuori intervallo spetta a chi legge il prior"
+        ),
+    )
+    sezione: SezioneConfig = Field(description="la sezione attribuita a questa regione")
+
+
 class PipelineConfig(_ModelloBase):
     """Configurazione completa di un'elaborazione."""
 
@@ -1043,6 +1244,17 @@ class PipelineConfig(_ModelloBase):
     )
     wall: WallConfig = Field(default_factory=WallConfig)
     model: ModelConfig = Field(default_factory=ModelConfig)
+    regioni: dict[NomeSet, RegioneConfig] = Field(
+        default_factory=dict,
+        description=(
+            "le regioni in cui il pezzo è partizionato, ciascuna con la propria "
+            "sezione e i propri materiali. Un dizionario a chiavi libere e non un "
+            "modello con campi: il nome della regione lo sceglie l'operatore e "
+            "diventa un `*ELSET` nel deck. La forma a dizionario è anche ciò che "
+            "tiene ferma l'impronta delle corse già registrate: nasce `{}`, cioè "
+            "falso, e `sweep.fingerprint` lo omette finché resta vuoto"
+        ),
+    )
     solutore: SolutoreConfig = Field(
         default_factory=SolutoreConfig,
         description=(
@@ -1062,25 +1274,19 @@ class PipelineConfig(_ModelloBase):
         dell'operatore che differiscono solo per caso (`piastra`/`PIASTRA`)
         sono due chiavi distinte nel dizionario ma un solo nome nel deck.
         """
-        casi_di_faccia = _mappa_casefold(NOMI_SET_DI_FACCIA)
-        visti: dict[str, str] = {}
-        for nome in self.selettori:
-            chiave = nome.casefold()
-            if chiave in casi_di_faccia:
-                raise ValueError(
-                    f"il selettore {nome!r} collide, ignorando le maiuscole, con il "
-                    f"set di faccia {casi_di_faccia[chiave]!r} che il deck fabbrica da "
-                    "sé: nel deck c'è un solo spazio di nomi, case-insensitive "
-                    "(vedi docs/fase-6-cantiere/sonda-caso-nomi/README.md), e il "
-                    "*NSET dell'operatore lo sovrascriverebbe"
-                )
-            if chiave in visti:
-                raise ValueError(
-                    f"i selettori {visti[chiave]!r} e {nome!r} differiscono solo per "
-                    "maiuscole: nel deck sono lo stesso nome, case-insensitive "
-                    "(vedi docs/fase-6-cantiere/sonda-caso-nomi/README.md)"
-                )
-            visti[chiave] = nome
+        _nomi_senza_collisioni(self.selettori, "selettore", "selettori", "*NSET")
+        return self
+
+    @model_validator(mode="after")
+    def _i_nomi_delle_regioni_non_collidono_coi_sei(self) -> "PipelineConfig":
+        """Stessa regola dei selettori, e per la stessa misura.
+
+        Il nome di una regione diventa un `*ELSET` nel deck, e `ccx` risolve
+        anche quelli senza distinguere le maiuscole. Il validatore non legge
+        `self.analysis`, che puo' essere assente: una corsa nasce dalla sola
+        nuvola e le regioni si dichiarano prima del materiale unico.
+        """
+        _nomi_senza_collisioni(self.regioni, "regione", "regioni", "*ELSET")
         return self
 
     @model_validator(mode="after")

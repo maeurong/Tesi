@@ -191,6 +191,39 @@ def test_cambiare_un_selettore_invalida_lo_step_11(tmp_path):
     assert steps.step_fingerprints(uno)[11] != steps.step_fingerprints(altro)[11]
 
 
+def test_cambiare_una_regione_invalida_lo_step_11(tmp_path):
+    """Le regioni partizionano ALL_WALL in `*ELSET` e portano una
+    `*SOLID SECTION` per ciascuna: cambiarle cambia il deck.
+
+    Mutazione che lo uccide: non aggiungere "regioni" a STEP_BLOCKS[11]. Le due
+    impronte restano uguali e la corsa riusa un deck monomaterico.
+    """
+    from meshrec.core.config import RegioneConfig
+
+    assert steps.STEP_BLOCKS[11] == ("tet", "analysis", "carichi", "selettori", "regioni")
+
+    materiale = {
+        "material": {"name": "CLS", "young": 31476.0, "poisson": 0.2, "density": 2.5e-9},
+        "provenienza": "a_mano",
+        "norma": "NTC 2018 Tab. 4.1.II",
+    }
+    sezione = {
+        "calcestruzzo_confinato": materiale,
+        "calcestruzzo_copriferro": materiale,
+        "acciaio": materiale,
+    }
+    uno = _config(tmp_path)
+    uno.regioni = {
+        "pilastro": RegioneConfig.model_validate({"membratura": 0, "sezione": sezione})
+    }
+    altro = _config(tmp_path)
+    altro.regioni = {
+        "pilastro": RegioneConfig.model_validate({"membratura": 1, "sezione": sezione})
+    }
+
+    assert steps.step_fingerprints(uno)[11] != steps.step_fingerprints(altro)[11]
+
+
 def test_lo_step_13_e_l_ultimo_e_non_entra_nella_completezza_di_uno_sweep():
     """Stesso principio del Ruling D della Fase 4 su 12_wall.
 

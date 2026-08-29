@@ -2264,7 +2264,9 @@ def test_il_pannello_dello_step_11_mostra_solo_i_blocchi_che_comanda(cliente):
     """
     from meshrec.core import steps
 
-    assert steps.STEP_BLOCKS[11] == ("tet", "analysis", "carichi", "selettori"), (
+    assert steps.STEP_BLOCKS[11] == (
+        "tet", "analysis", "carichi", "selettori", "regioni",
+    ), (
         "STEP_BLOCKS e' stata cambiata: la catena delle impronte a valle "
         "discende da li'"
     )
@@ -3541,3 +3543,81 @@ def test_lo_schema_descrive_il_blocco_solutore_nel_pannello_dello_step_13(client
     assert campi["percorso"]["nullabile"] is True
     assert campi["percorso"]["default"] is None
     assert campi["percorso"]["obbligatorio"] is False
+
+
+@pytest.fixture()
+def cliente_con_regioni(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
+    """Come `cliente`, ma con una regione dichiarata nel config sul disco."""
+    materiale = {
+        "material": {"name": "CLS", "young": 31476.0, "poisson": 0.2, "density": 2.5e-9},
+        "provenienza": "a_mano",
+        "norma": "NTC 2018 Tab. 4.1.II",
+    }
+    cfg = PipelineConfig(
+        input=InputConfig(path=tmp_path / "nuvola.ply"),
+        analysis=ANALISI,
+        regioni={
+            "pilastro": {
+                "membratura": 0,
+                "sezione": {
+                    "calcestruzzo_confinato": materiale,
+                    "calcestruzzo_copriferro": materiale,
+                    "acciaio": materiale,
+                },
+            }
+        },
+    )
+    cfg.run.out_dir = tmp_path / "corsa"
+    # pydantic ignora i campi che il modello non ha: senza questa riga il
+    # banco «con regioni» sarebbe indistinguibile da quello senza, e il test
+    # resterebbe verde per il motivo sbagliato.
+    assert set(cfg.regioni) == {"pilastro"}
+    save_config(cfg, tmp_path / "config.yaml")
+    monkeypatch.setattr(server, "CACHE_DIR", tmp_path / "cache")
+    return TestClient(
+        create_app(
+            tmp_path / "config.yaml",
+            radice_corse=tmp_path / "runs",
+            radice_esperimenti=tmp_path / "experiments",
+        ),
+        base_url="http://127.0.0.1",
+        raise_server_exceptions=False,
+    )
+
+
+@pytest.mark.parametrize("banco", ["cliente", "cliente_con_regioni"])
+def test_lo_schema_non_esplode_sul_blocco_regioni(banco, request):
+    """`regioni` (STEP_BLOCKS[11]) e' un `dict[NomeSet, RegioneConfig]`, non un
+    modello: senza la guardia su `hasattr(annidato, "model_fields")` in
+    `schema()`, `_modello_del_blocco` ne prende la chiave -- una stringa -- e
+    le chiede `model_fields`, con l'`AttributeError` fuori vista che spegne il
+    pannello dello step 11. E' il difetto di `5d4d24b`, ripetuto su un blocco
+    nuovo.
+
+    Le due varianti del banco perche' l'oracolo del brief le chiede entrambe,
+    con regioni popolate e senza. Vale la pena dichiarare che oggi esercitano
+    lo stesso codice: `/api/schema` descrive i **modelli**, non la
+    configurazione corrente, e non legge il config del disco. Restano perche'
+    il giorno in cui l'endpoint cominciasse a leggerlo -- il pannello che
+    elenca le regioni dichiarate -- la variante popolata e' la sola che se ne
+    accorgerebbe.
+
+    Il blocco non compare, per la stessa ragione di `selettori`: le sue chiavi
+    le sceglie l'operatore, non ci sono campi fissi da descrivere, e una
+    sezione che per costruzione non puo' contenere nulla non si mostra.
+    """
+    from meshrec.core import steps
+
+    assert "regioni" in steps.STEP_BLOCKS[11], (
+        "senza il blocco fra quelli dello step 11 questo test non esercita "
+        "nulla: `schema()` non lo guarderebbe affatto"
+    )
+    cliente = request.getfixturevalue(banco)
+
+    risposta = cliente.get("/api/schema")
+    assert risposta.status_code == 200
+    corpo = risposta.json()
+    assert "regioni" not in corpo["11"]["blocchi"]
+    assert "regioni" not in corpo["11"]["campi"]
+    # Lo step 11 risponde comunque: la guardia non deve spegnere il pannello.
+    assert corpo["11"]["campi"]["analysis"]

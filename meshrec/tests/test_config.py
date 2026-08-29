@@ -314,13 +314,21 @@ def test_i_blocchi_nuovi_stanno_in_pipelineconfig_e_nella_lista_di_esclusione_gi
     cui `SolutoreConfig.nome` puo' permettersi un predefinito **truthy**
     ("calculix"): dentro l'esclusione condizionata renderebbe il blocco sempre
     non vuoto e sposterebbe tutte e ventidue le righe.
+
+    `regioni` (#135, #141, #136) va invece nell'esclusione **condizionata**,
+    come `carichi` e `selettori`: STEP_BLOCKS[11] lo legge e cambia il deck,
+    quindi due candidati con regioni diverse sono esperimenti diversi. E' un
+    `dict` che nasce `{}` -- cioe' falso -- ed e' per questo che il blocco e'
+    un dizionario a chiavi libere e non un modello con campi: un modello
+    porterebbe i propri predefiniti, e basta un campo truthy fra quelli perche'
+    l'omissione non scatti mai.
     """
     from meshrec.core.sweep import BLOCCHI_FUORI_IMPRONTA, BLOCCHI_VUOTI_FUORI_IMPRONTA
 
     campi = set(PipelineConfig.model_fields)
     assert {"wall", "model", "carichi"} <= campi
     assert set(BLOCCHI_FUORI_IMPRONTA) == {"run", "wall", "model", "solutore"}
-    assert set(BLOCCHI_VUOTI_FUORI_IMPRONTA) == {"carichi", "selettori"}
+    assert set(BLOCCHI_VUOTI_FUORI_IMPRONTA) == {"carichi", "selettori", "regioni"}
     assert set(BLOCCHI_FUORI_IMPRONTA) <= campi
     assert set(BLOCCHI_VUOTI_FUORI_IMPRONTA) <= campi
     assert not set(BLOCCHI_FUORI_IMPRONTA) & set(BLOCCHI_VUOTI_FUORI_IMPRONTA)
@@ -1120,3 +1128,231 @@ def test_una_configurazione_senza_i_blocchi_della_fase_8_si_rilegge_coi_predefin
 
     assert cfg.solutore.nome == "calculix"
     assert cfg.solutore.percorso is None
+
+
+def _materiale_dichiarato(**campi) -> dict:
+    """Un `MaterialeDichiarato` come lo scrive l'operatore, coi minimi ammessi."""
+    return {
+        "material": MATERIALE.model_dump(),
+        "provenienza": "a_mano",
+        "norma": "NTC 2018 Tab. 4.1.II",
+        **campi,
+    }
+
+
+def _armatura_minima(**campi) -> dict:
+    """Un `ArmaturaConfig` con ogni campo al minimo che il dominio ammette."""
+    return {
+        "classe_calcestruzzo": "C25/30",
+        "classe_acciaio": "B450C",
+        "barre_tese": 2,
+        "diametro_teso": 12,
+        "barre_compresse": 0,
+        "diametro_compresso": 12,
+        "diametro_staffe": 6,
+        "passo_staffe": 100.0,
+        "copriferro_nominale": 10.0,
+        **campi,
+    }
+
+
+def _regione(**campi) -> dict:
+    return {
+        "membratura": 0,
+        "sezione": {
+            "calcestruzzo_confinato": _materiale_dichiarato(),
+            "calcestruzzo_copriferro": _materiale_dichiarato(),
+            "acciaio": _materiale_dichiarato(),
+        },
+        **campi,
+    }
+
+
+def test_le_regioni_vuote_escono_dall_impronta_e_dal_payload():
+    """`regioni` nasce `{}`, cioe' falso: e' la ragione per cui il blocco e' un
+    dizionario e non un modello con campi.
+
+    Il predicato di `sweep.fingerprint` e' `not any(payload[blocco].values())`:
+    un modello con anche un solo campo dal predefinito truthy renderebbe il
+    blocco sempre non vuoto, l'omissione non scatterebbe mai, e le ventidue
+    righe dei registri si muoverebbero.
+    """
+    from meshrec.core.sweep import fingerprint
+
+    cfg = crea_config(input=config.InputConfig(path="nuvola.ply"))
+
+    assert cfg.regioni == {}
+    assert cfg.model_dump(mode="json")["regioni"] == {}
+    # Il blocco esce dal payload che l'impronta hasha: e' l'omissione a
+    # tenere ferme le ventidue righe, non un caso.
+    assert "regioni" not in _payload_dell_impronta(cfg)
+    assert fingerprint(cfg) == fingerprint(config.PipelineConfig.model_validate(
+        {k: v for k, v in cfg.model_dump(mode="json").items() if k != "regioni"}
+    ))
+
+
+def _payload_dell_impronta(cfg) -> dict:
+    """I blocchi che `sweep.fingerprint` hasha davvero, ricostruiti come li' dentro."""
+    from meshrec.core.sweep import BLOCCHI_FUORI_IMPRONTA, BLOCCHI_VUOTI_FUORI_IMPRONTA
+
+    payload = cfg.model_dump(mode="json")
+    for blocco in BLOCCHI_FUORI_IMPRONTA:
+        payload.pop(blocco, None)
+    for blocco in BLOCCHI_VUOTI_FUORI_IMPRONTA:
+        if not any((payload.get(blocco) or {}).values()):
+            payload.pop(blocco, None)
+    return payload
+
+
+def test_una_regione_dichiarata_entra_nell_impronta():
+    """L'altra meta' dell'omissione: il blocco che porta qualcosa conta.
+
+    Due candidati con regioni diverse sono esperimenti diversi -- lo step 11
+    li legge e il deck cambia -- e senza questa distinzione il secondo
+    sovrascriverebbe il primo, che e' esattamente il difetto per cui
+    `carichi` e `selettori` stanno nella stessa lista.
+    """
+    from meshrec.core.sweep import fingerprint
+
+    vuota = crea_config(input=config.InputConfig(path="nuvola.ply"))
+    piena = crea_config(input=config.InputConfig(path="nuvola.ply"), regioni={"pilastro": _regione()})
+
+    assert "regioni" in _payload_dell_impronta(piena)
+    assert fingerprint(piena) != fingerprint(vuota)
+
+
+def test_una_regione_ai_minimi_si_costruisce_e_l_armatura_e_facoltativa():
+    """Una sezione di solo calcestruzzo e' legittima: l'armatura si dichiara
+    dove c'e', e non si inventa dove non e' stata rilevata."""
+    cfg = crea_config(
+        input=config.InputConfig(path="nuvola.ply"),
+        regioni={"trave": _regione(sezione={
+            "calcestruzzo_confinato": _materiale_dichiarato(),
+            "calcestruzzo_copriferro": _materiale_dichiarato(),
+            "acciaio": _materiale_dichiarato(),
+            "armatura": _armatura_minima(),
+        })},
+    )
+
+    regione = cfg.regioni["trave"]
+    assert regione.membratura == 0
+    assert regione.sezione.armatura.barre_tese == 2
+    assert regione.sezione.armatura.barre_compresse == 0, (
+        "zero barre compresse e' l'armatura semplice, non un errore"
+    )
+
+    senza_armatura = config.RegioneConfig.model_validate(_regione())
+    assert senza_armatura.sezione.armatura is None
+
+
+def test_il_materiale_dichiarato_non_ha_una_veste_da_scegliere():
+    """#141 senza eccezioni: le voci sono **sempre** caratteristiche.
+
+    Il programma deriva i valori di progetto applicando i coefficienti di
+    norma. Un campo che permettesse di dichiarare «questo valore e' gia'
+    ridotto» aprirebbe la strada a una doppia riduzione o a nessuna, senza che
+    nulla se ne accorga. Le parole «gia' ridotte» di #146 riguardano il fattore
+    di confidenza e il livello di conoscenza, che valgono sulla muratura e non
+    su un calcestruzzo.
+
+    Mutazione che lo uccide: reintrodurre `veste` su `MaterialeDichiarato`.
+    """
+    assert "veste" not in config.MaterialeDichiarato.model_fields
+    descrizione = config.MaterialeDichiarato.model_fields["f_k"].description
+    assert "CARATTERISTICA" in descrizione
+    assert "Mai un valore di progetto" in descrizione
+
+
+def test_due_regioni_che_differiscono_solo_per_maiuscole_sono_rifiutate():
+    """Stessa ragione dei selettori, misurata in
+    docs/fase-6-cantiere/sonda-caso-nomi/: `ccx` risolve i nomi di insieme
+    senza distinguere le maiuscole, quindi due chiavi distinte nel dizionario
+    python sono un solo nome nel deck.
+    """
+    with pytest.raises(ValidationError, match="maiuscole"):
+        crea_config(
+            input=config.InputConfig(path="nuvola.ply"),
+            regioni={"pilastro": _regione(), "PILASTRO": _regione(membratura=1)},
+        )
+
+
+def test_una_regione_che_collide_con_un_set_di_faccia_e_rifiutata():
+    """I sei nomi di faccia li fabbrica il deck da se': una regione omonima li
+    sovrascriverebbe, ignorando le maiuscole."""
+    for nome in ("BASE", "top", "Side_Left"):
+        with pytest.raises(ValidationError, match="collide"):
+            crea_config(
+                input=config.InputConfig(path="nuvola.ply"),
+                regioni={nome: _regione()},
+            )
+
+
+def test_una_membratura_negativa_e_rifiutata_dalla_configurazione():
+    """`membratura` e' un indice nel prior: negativo non e' un indice.
+
+    Il tetto -- quante membrature il prior ha trovato davvero -- **non** e'
+    verificabile qui: `12_wall.json` non e' visibile alla configurazione, che
+    nasce prima che lo step 12 giri. Il rifiuto dell'indice fuori intervallo
+    spetta a chi legge il prior, e questa configurazione non puo' fingere di
+    saperlo.
+    """
+    with pytest.raises(ValidationError):
+        config.RegioneConfig.model_validate(_regione(membratura=-1))
+    assert config.RegioneConfig.model_validate(_regione(membratura=99)).membratura == 99
+
+
+def test_l_armatura_rifiuta_i_valori_che_non_sono_un_armatura():
+    """I domini che il contratto nomina, e nient'altro: una sola barra tesa non
+    e' un'armatura (ISO 3766 §3), un passo di staffe nullo non e' un passo, e
+    una staffa sotto i 6 mm non e' una staffa (NTC 4.1.6.1.2)."""
+    for storto in (
+        {"barre_tese": 1},
+        {"barre_tese": 0},
+        {"passo_staffe": 0.0},
+        {"passo_staffe": -100.0},
+        {"diametro_staffe": 5},
+        {"barre_compresse": -1},
+        {"copriferro_nominale": 9.0},
+        {"classe_acciaio": "B450B"},
+    ):
+        with pytest.raises(ValidationError):
+            config.ArmaturaConfig.model_validate(_armatura_minima(**storto))
+
+
+def test_nessun_campo_dell_armatura_ha_un_valore_predefinito():
+    """Stessa regola di `Material` e dei casi di carico: sono grandezze che
+    nessun dato del rilievo puo' suggerire. Un copriferro predefinito sarebbe
+    lo stesso errore del modulo elastico a 1500 MPa finito su un telaio in
+    calcestruzzo senza che nessuno l'avesse scelto."""
+    for nome, campo in config.ArmaturaConfig.model_fields.items():
+        assert campo.is_required(), f"ArmaturaConfig.{nome} ha un predefinito"
+        assert campo.description, f"ArmaturaConfig.{nome} non ha una descrizione"
+
+
+def test_le_regioni_convivono_con_un_analisi_assente():
+    """`analysis` e' `X | None` e ogni validatore che l'ha letto diritto e' gia'
+    caduto una volta (vedi `_i_carichi_col_selettore_citano_selettori_dichiarati`).
+
+    Una corsa nasce dalla sola nuvola: le regioni possono essere dichiarate
+    prima che il materiale unico della corsa esista.
+    """
+    cfg = config.PipelineConfig(
+        input=config.InputConfig(path="nuvola.ply"),
+        regioni={"pilastro": _regione()},
+    )
+
+    assert cfg.analysis is None
+    assert set(cfg.regioni) == {"pilastro"}
+
+
+def test_le_regioni_sopravvivono_al_giro_su_disco(tmp_path):
+    percorso = tmp_path / "config.yaml"
+    cfg = crea_config(
+        input=config.InputConfig(path="nuvola.ply"),
+        regioni={"pilastro": _regione()},
+    )
+    config.save_config(cfg, percorso)
+
+    riletta = config.load_config(percorso)
+
+    assert riletta.model_dump() == cfg.model_dump()

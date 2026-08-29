@@ -62,7 +62,10 @@ STEP_BLOCKS: dict[int, tuple[str, ...]] = {
     8: ("simplify",),
     9: ("tet",),
     10: ("tet",),
-    11: ("tet", "analysis", "carichi", "selettori"),
+    # `regioni` sta con `carichi` e `selettori` (Fase 8, #135): partiziona
+    # ALL_WALL in `*ELSET` e porta una `*SOLID SECTION` per regione, quindi
+    # cambia il deck che lo step 11 scrive.
+    11: ("tet", "analysis", "carichi", "selettori", "regioni"),
     12: ("wall",),
     # `solutore` e' del solo 13 (Fase 8, #139): cambiare motore o percorso
     # dell'eseguibile invalida la soluzione e nient'altro. Piu' in alto nella
