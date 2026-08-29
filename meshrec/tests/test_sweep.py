@@ -916,3 +916,44 @@ def test_un_asse_su_un_blocco_fuori_impronta_viene_rifiutato(tmp_path):
     base = crea_config(input=InputConfig(path=tmp_path / "n.ply"))
     with pytest.raises(ValueError, match="non entra nell'impronta"):
         sweep.expand(esperimento, base)
+
+
+def test_le_impronte_dei_registri_non_si_muovono():
+    """Le ventidue righe di experiments/ sono la tabella sperimentale della
+    tesi: ogni cartella di corsa e' nominata con i primi dodici caratteri
+    dell'impronta della propria configurazione, ed e' quell'ancoraggio a
+    rendere la tabella risalibile alla corsa che l'ha prodotta.
+
+    E' l'invariante che governa tutta la Fase 8 e va verificata dopo ogni onda,
+    non solo dopo quella che tocca la configurazione.
+
+    **Perche' l'ancoraggio e non il ricalcolo.** La verifica piu' forte --
+    rileggere `config` dalla riga, ripassarla in `PipelineConfig` e ricalcolare
+    `sweep.fingerprint` -- oggi fallisce su tutte e ventidue le righe, e gia'
+    su 7be879b, prima della Fase 8. Le righe furono scritte quando
+    `PipelineConfig` non aveva ancora i blocchi `carichi`, `model`, `selettori`
+    e `wall` ne' `run.to_step`, e aveva invece `simplify.target_faces`,
+    `surface.bpa_radius_factors` e `surface.alpha_factor`: la configurazione
+    registrata non e' piu' la configurazione di oggi, quindi la sua impronta di
+    oggi non e' piu' quella di allora. Ripristinare quel confronto e' lavoro
+    dell'onda 0, che possiede la configurazione; qui si verifica cio' che e'
+    vero e verificabile, e non si ratifica un'impronta ricalcolata per farla
+    tornare.
+    """
+    registri = sorted(Path("experiments").glob("*/registro.jsonl"))
+    if not registri:
+        pytest.skip("nessun registro di sweep in questa copia di lavoro")
+
+    righe = 0
+    for registro in registri:
+        for linea in registro.read_text(encoding="utf-8").splitlines():
+            if not linea.strip():
+                continue
+            record = json.loads(linea)
+            cartella = record["out_dir"].replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+            assert cartella == record["fingerprint"][:12], (
+                f"{registro}: la cartella {cartella} non porta piu' l'impronta "
+                f"{record['fingerprint'][:12]} della propria riga"
+            )
+            righe += 1
+    assert righe == 22, f"attese 22 righe registrate, trovate {righe}"
