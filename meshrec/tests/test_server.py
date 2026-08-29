@@ -90,6 +90,42 @@ def test_una_configurazione_fuori_dominio_non_solleva_ma_spiega(cliente):
     assert "poisson_depth" in risposta.text
 
 
+def test_una_regione_che_collide_con_lelset_fabbricato_e_rifiutata_dallendpoint(cliente):
+    """`PUT /api/config` accetta un `PipelineConfig` intero dall'esterno: e' la
+    via vera per cui un nome di regione sbagliato arriva al programma, e il
+    rifiuto a video restava non provato -- il test di `tests/test_config.py`
+    cita `/api/config` nel commento ma la PUT non la esercita.
+
+    `ALL_WALL` e' l'unico `*ELSET` che il deck fabbrica da se': e' l'insieme
+    che le regioni partizionano.
+
+    Mutazione che lo uccide: togliere `ALL_WALL` da `NOMI_ELSET_FABBRICATI`.
+    """
+    materiale = {
+        "material": {"name": "CLS", "young": 31476.0, "poisson": 0.2, "density": 2.5e-9},
+        "provenienza": "a_mano",
+        "norma": "NTC 2018 Tab. 4.1.I",
+    }
+    guasta = cliente.get("/api/config").json()
+    guasta["regioni"] = {
+        "all_wall": {
+            "membratura": 0,
+            "sezione": {
+                "calcestruzzo_confinato": materiale,
+                "calcestruzzo_copriferro": materiale,
+                "acciaio": materiale,
+            },
+        }
+    }
+    risposta = cliente.put("/api/config", json=guasta)
+    assert risposta.status_code == 422
+    # Il messaggio si legge a video: nomina la regione, l'insieme con cui
+    # collide e il tipo di insieme.
+    assert "la regione" in risposta.text
+    assert "ALL_WALL" in risposta.text
+    assert "*ELSET" in risposta.text
+
+
 # /api/events e' un generatore SSE senza fine: una GET secca lo terrebbe
 # aperto e bloccherebbe la suite. Ha il proprio test dedicato, con un tetto
 # agli eventi emessi. Tenere questo insieme corto: cio' che vi entra esce

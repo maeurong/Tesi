@@ -1170,6 +1170,11 @@ def test_una_configurazione_senza_i_blocchi_della_fase_8_si_rilegge_coi_predefin
 
     assert cfg.solutore.nome == "calculix"
     assert cfg.solutore.percorso is None
+    # L'altra meta' della cerniera: il docstring nomina anche `regioni`, e
+    # senza questa riga il test lo dichiarava e non lo provava -- la prova
+    # stava altrove, su un oggetto costruito in memoria e non riletto da disco.
+    assert cfg.regioni == {}
+    assert cfg.carichi.combinazioni == ()
 
 
 def _materiale_dichiarato(**campi) -> dict:

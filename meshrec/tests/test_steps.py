@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from itertools import chain
 from pathlib import Path
 
 import pytest
@@ -23,6 +24,22 @@ def test_i_tredici_step_sono_quelli_che_la_pipeline_scrive():
     assert steps.STEP_KEYS[-1] == "13_solve"
     assert len(steps.STEP_KEYS) == 13
     assert set(steps.STEP_BLOCKS) == set(range(1, 14))
+
+
+def test_ogni_blocco_nominato_negli_step_esiste_in_pipelineconfig():
+    """Un blocco nominato in `STEP_BLOCKS` ma assente da `PipelineConfig` cade
+    eccome -- una trentina di test rossi con un `KeyError` dentro
+    `step_fingerprints` -- ma trenta rossi con un `KeyError` non dicono
+    *perche'*. Questa e' la riga che lo dice.
+
+    Mutazione che lo uccide: aggiungere un nome inventato a una qualsiasi voce
+    di `STEP_BLOCKS`.
+    """
+    nominati = set(chain.from_iterable(steps.STEP_BLOCKS.values()))
+    assert nominati <= set(PipelineConfig.model_fields), (
+        f"blocchi nominati in STEP_BLOCKS e assenti da PipelineConfig: "
+        f"{sorted(nominati - set(PipelineConfig.model_fields))}"
+    )
 
 
 def test_una_corsa_mai_eseguita_ha_tutti_gli_step_mai_eseguiti(tmp_path):
