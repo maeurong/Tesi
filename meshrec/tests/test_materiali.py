@@ -239,6 +239,29 @@ def test_l_acciaio_dichiara_la_divergenza_sul_modulo_elastico():
     assert "3.2.7" in voce.nota
 
 
+def test_l_autorizzazione_ministeriale_e_attribuita_alla_fonte_che_la_porta():
+    """La frase e' della Circolare, non del §11.1 caso C) delle NTC.
+
+    Le NTC alla riga 2128 dicono soltanto «Per classi di resistenza superiore a
+    C70/85 si rinvia al caso C) del § 11.1», e il §11.1 caso C) (riga 6278) usa
+    parole diverse: «dovra' ottenere un "Certificato di Valutazione Tecnica"
+    rilasciato dal Presidente del Consiglio Superiore dei Lavori Pubblici,
+    previa istruttoria del Servizio Tecnico Centrale». La parola
+    «autorizzazione ministeriale» la porta la Circolare 7/2019 §CC4.1, riga
+    2465: «Per le Classi di resistenza superiori a C70/85 deve essere richiesta
+    l'autorizzazione ministeriale mediante le procedure gia' stabilite per altri
+    materiali "innovativi"». Il meccanismo e' lo stesso, la parola no.
+
+    Mutazione che lo uccide: rimettere la frase accanto al solo §11.1.
+    """
+    nota = trova("C80/95").nota
+    assert "autorizzazione ministeriale" in nota
+    assert "Circolare" in nota, (
+        "la frase e' attribuita a un articolo che non la porta: la parola e' della Circolare"
+    )
+    assert "§11.1" in nota, "il rinvio delle NTC al caso C) del §11.1 resta il meccanismo"
+
+
 # --- trova ---------------------------------------------------------------
 
 

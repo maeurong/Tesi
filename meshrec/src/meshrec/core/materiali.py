@@ -211,7 +211,11 @@ def _nota_di_classe(classe: str, f_ck: float) -> str:
         frasi.append("Oltre la C45/55 le NTC chiedono «un'apposita sperimentazione preventiva».")
     if f_ck > 70.0:
         frasi.append(
-            "Oltre la C70/85 serve l'autorizzazione ministeriale, §11.1 caso C)."
+            "Oltre la C70/85 le NTC «rinviano al caso C) del §11.1», che chiede un "
+            "«Certificato di Valutazione Tecnica» del Presidente del Consiglio Superiore "
+            "dei Lavori Pubblici, previa istruttoria del Servizio Tecnico Centrale. La "
+            "Circolare 7/2019, §CC4.1, chiama la stessa procedura «autorizzazione "
+            "ministeriale»: le parole sono sue, non delle NTC."
         )
     return " ".join(frasi)
 
