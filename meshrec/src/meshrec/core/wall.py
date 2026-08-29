@@ -820,6 +820,55 @@ def ruoli_dell_incontro(
     return indice_candidato, indice_maggiore, invaso_candidato
 
 
+def nodo_di_giunzione(
+    origine_cede: np.ndarray,
+    asse_cede: np.ndarray,
+    lunghezza_cede: float,
+    origine_resta: np.ndarray,
+    asse_resta: np.ndarray,
+) -> tuple[np.ndarray, float]:
+    """Il punto in cui due membrature si legano, e quanto e\' costato metterlo li\'.
+
+    Su una geometria rilevata gli assi di due membrature che si incontrano non
+    si intersecano quasi mai: passano vicini e si scansano di qualche
+    millimetro. Il nodo e\' la **proiezione di chi cede sull\'asse di chi resta**
+    -- il traverso continuo col montante che vi si innesta, che e\' la
+    convenzione del calcolo strutturale e coincide col ruolo che
+    `ruoli_dell_incontro` ha gia\' assegnato.
+
+    La distanza restituita e\' **una misura, non un residuo di calcolo**: e\' di
+    quanto l\'estremo di chi cede si e\' dovuto spostare, e va mostrata. Uno
+    spostamento silenzioso sarebbe una correzione della geometria rilevata
+    spacciata per la geometria rilevata, cioe\' l\'opposto dello scopo del
+    programma.
+
+    L\'estremo di chi cede e\' quello **piu\' vicino** all\'asse di chi resta: una
+    colonna incontra il traverso da un capo solo, e prendere l\'altro
+    proietterebbe il piede sul tetto.
+
+    Una proiezione ortogonale e non l\'intersezione di due rette: su assi
+    paralleli o complanari la seconda dividerebbe per il seno dell\'angolo,
+    questa restituisce lo scarto vero fra le due rette.
+    """
+    versore_cede = np.asarray(asse_cede, dtype=np.float64)
+    versore_cede = versore_cede / np.linalg.norm(versore_cede)
+    versore_resta = np.asarray(asse_resta, dtype=np.float64)
+    versore_resta = versore_resta / np.linalg.norm(versore_resta)
+    origine_resta = np.asarray(origine_resta, dtype=np.float64)
+
+    def proietta(punto: np.ndarray) -> np.ndarray:
+        scarto = punto - origine_resta
+        return origine_resta + versore_resta * float(scarto @ versore_resta)
+
+    estremi = [
+        np.asarray(origine_cede, dtype=np.float64),
+        np.asarray(origine_cede, dtype=np.float64) + versore_cede * float(lunghezza_cede),
+    ]
+    distanze = [float(np.linalg.norm(estremo - proietta(estremo))) for estremo in estremi]
+    scelto = int(np.argmin(distanze))
+    return proietta(estremi[scelto]), distanze[scelto]
+
+
 def _volume_unione(membrature: list[Membratura], punti: np.ndarray, passo: float) -> float:
     """Volume dell'unione delle membrature, per conteggio di celle occupate.
 

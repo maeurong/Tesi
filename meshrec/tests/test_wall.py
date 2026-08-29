@@ -583,6 +583,64 @@ def test_a_pari_invasione_lo_spareggio_non_dipende_dall_ordine():
     assert (cede, resta) == (7, 3)
 
 
+def test_il_nodo_e_la_proiezione_sull_asse_di_chi_resta():
+    """Su una geometria rilevata gli assi non si intersecano quasi mai: passano
+    vicini e si scansano. Il nodo e' la proiezione di chi cede sull'asse di chi
+    resta -- il traverso continuo col montante che vi si innesta.
+    """
+    # traverso lungo x a quota z=3000; montante verticale che gli passa
+    # accanto, scansato di 40 mm lungo y
+    origine_resta = np.array([0.0, 0.0, 3000.0])
+    asse_resta = np.array([1.0, 0.0, 0.0])
+    origine_cede = np.array([1000.0, 40.0, 0.0])
+    asse_cede = np.array([0.0, 0.0, 1.0])
+
+    nodo, distanza = wall.nodo_di_giunzione(
+        origine_cede, asse_cede, 3000.0, origine_resta, asse_resta
+    )
+
+    # il nodo sta sull'asse del traverso, quindi a y = 0 e z = 3000
+    assert np.allclose(nodo, np.array([1000.0, 0.0, 3000.0]), atol=1e-9)
+    # e il montante ha dovuto spostarsi dei 40 mm di cui era scansato
+    assert distanza == pytest.approx(40.0, abs=1e-9)
+
+
+def test_assi_che_si_incontrano_davvero_danno_distanza_nulla():
+    """Il caso ideale non e' un caso speciale: la stessa formula lo copre, e la
+    distanza dice da sola che non c'e' stato nessuno spostamento.
+    """
+    nodo, distanza = wall.nodo_di_giunzione(
+        np.array([1000.0, 0.0, 0.0]),
+        np.array([0.0, 0.0, 1.0]),
+        3000.0,
+        np.array([0.0, 0.0, 3000.0]),
+        np.array([1.0, 0.0, 0.0]),
+    )
+    assert np.allclose(nodo, np.array([1000.0, 0.0, 3000.0]), atol=1e-9)
+    assert distanza == pytest.approx(0.0, abs=1e-9)
+
+
+def test_due_assi_paralleli_non_dividono_per_zero():
+    """Ingresso degenere: due membrature complanari con assi paralleli. Il nodo
+    e' una proiezione ortogonale, non l'intersezione di due rette: la formula
+    non ha il seno dell'angolo a denominatore e su assi paralleli restituisce
+    numeri finiti invece di NaN.
+    """
+    nodo, distanza = wall.nodo_di_giunzione(
+        np.array([500.0, 0.0, 0.0]),
+        np.array([1.0, 0.0, 0.0]),
+        1000.0,
+        np.array([0.0, 250.0, 0.0]),
+        np.array([1.0, 0.0, 0.0]),
+    )
+
+    assert np.all(np.isfinite(nodo))
+    assert np.isfinite(distanza)
+    # la proiezione ortogonale di un estremo su una parallela dista quanto le
+    # due rette: 250 mm, il vero scarto fra gli assi
+    assert distanza == pytest.approx(250.0, abs=1e-9)
+
+
 def test_il_prior_scrive_le_sezioni_di_fetta_e_la_base_in_json():
     """Il prior finisce su disco e nel browser: le misure nuove devono uscire
     come tipi JSON, non come array numpy.
