@@ -316,6 +316,16 @@ class TetConfig(_ModelloBase):
 # programma.
 Natura = Literal["permanente_strutturale", "permanente_non_strutturale", "variabile"]
 
+# La descrizione che le quattro azioni mostrano nel pannello accanto al campo
+# `natura`. In una costante e non ricopiata quattro volte: e' testo che
+# l'utente legge, e quattro copie sono quattro cose da tenere allineate a mano.
+DESCRIZIONE_NATURA = (
+    "natura dell'azione ai fini delle combinazioni (#146). Il predefinito "
+    "è None e non una natura plausibile: «non dichiarata» è uno stato che "
+    "il generatore delle combinazioni legge per rifiutarsi, perché senza "
+    "la natura nessun coefficiente parziale può scegliersi da solo"
+)
+
 
 class SpintaOrizzontale(_ModelloBase):
     """Forza di massa orizzontale, come frazione dell'accelerazione di gravita.
@@ -336,15 +346,7 @@ class SpintaOrizzontale(_ModelloBase):
     asse: Literal["x", "y"] = Field(
         description="asse orizzontale del modello lungo cui la spinta agisce"
     )
-    natura: Natura | None = Field(
-        default=None,
-        description=(
-            "natura dell'azione ai fini delle combinazioni (#146). Il predefinito "
-            "è None e non una natura plausibile: «non dichiarata» è uno stato che "
-            "il generatore delle combinazioni legge per rifiutarsi, perché senza "
-            "la natura nessun coefficiente parziale può scegliersi da solo"
-        ),
-    )
+    natura: Natura | None = Field(default=None, description=DESCRIZIONE_NATURA)
 
 
 class CaricoSommita(_ModelloBase):
@@ -361,15 +363,7 @@ class CaricoSommita(_ModelloBase):
         gt=0.0, description="risultante in N, ripartita per area tributaria sui nodi"
     )
     nset: NomeSetDiFaccia = Field(description="insieme di nodi su cui ripartire, di norma TOP")
-    natura: Natura | None = Field(
-        default=None,
-        description=(
-            "natura dell'azione ai fini delle combinazioni (#146). Il predefinito "
-            "è None e non una natura plausibile: «non dichiarata» è uno stato che "
-            "il generatore delle combinazioni legge per rifiutarsi, perché senza "
-            "la natura nessun coefficiente parziale può scegliersi da solo"
-        ),
-    )
+    natura: Natura | None = Field(default=None, description=DESCRIZIONE_NATURA)
 
 
 class Modale(_ModelloBase):
@@ -509,8 +503,13 @@ class SolutoreConfig(_ModelloBase):
     scatterebbe mai e le ventidue righe dei registri si muoverebbero.
     """
 
+    # `title` e' l'etichetta che il pannello mostra al posto della chiave
+    # (PRODUCT.md: una chiave non si stampa mai, si stampa la sua etichetta).
+    # Senza, l'utente dello step 13 leggeva «nome» e «percorso»: nome di che
+    # cosa.
     nome: Literal["calculix", "opensees"] = Field(
         default="calculix",
+        title="motore di calcolo",
         description=(
             "motore di calcolo dello step 13. Enumerazione chiusa e non testo "
             "libero: un nome che nessuno scrittore di deck conosce fallirebbe "
@@ -519,6 +518,7 @@ class SolutoreConfig(_ModelloBase):
     )
     percorso: Path | None = Field(
         default=None,
+        title="percorso dell'eseguibile",
         description=(
             "percorso dell'eseguibile. Solo None dichiara «cercalo nel PATH», "
             "che è il caso normale di una macchina dove il solutore è "
@@ -1031,15 +1031,7 @@ class CaricoPosizionato(_ModelloBase):
         default=None, description="risultante [N], ripartita per area sui nodi presi"
     )
     momento: Momento | None = None
-    natura: Natura | None = Field(
-        default=None,
-        description=(
-            "natura dell'azione ai fini delle combinazioni (#146). Il predefinito "
-            "è None e non una natura plausibile: «non dichiarata» è uno stato che "
-            "il generatore delle combinazioni legge per rifiutarsi, perché senza "
-            "la natura nessun coefficiente parziale può scegliersi da solo"
-        ),
-    )
+    natura: Natura | None = Field(default=None, description=DESCRIZIONE_NATURA)
 
     @model_validator(mode="after")
     def _o_forza_o_momento(self) -> "CaricoPosizionato":
@@ -1092,15 +1084,7 @@ class CaricoDistribuito(_ModelloBase):
     pressione: float = Field(
         description="pressione [N/mm²] normale alla faccia; positiva preme dentro"
     )
-    natura: Natura | None = Field(
-        default=None,
-        description=(
-            "natura dell'azione ai fini delle combinazioni (#146). Il predefinito "
-            "è None e non una natura plausibile: «non dichiarata» è uno stato che "
-            "il generatore delle combinazioni legge per rifiutarsi, perché senza "
-            "la natura nessun coefficiente parziale può scegliersi da solo"
-        ),
-    )
+    natura: Natura | None = Field(default=None, description=DESCRIZIONE_NATURA)
 
     @model_validator(mode="after")
     def _la_pressione_non_e_nulla(self) -> "CaricoDistribuito":
@@ -1309,11 +1293,14 @@ class ArmaturaConfig(_ModelloBase):
         ge=2,
         description=(
             "numero di barre longitudinali in zona tesa. Il minimo è due, non "
-            "una: una barra sola non è un'armatura (ISO 3766 §3)"
+            "una: una barra sola non è un'armatura "
+            "(docs/validazione/ricerca-armature-convenzioni-normative.md §7.1). "
+            "ISO 3766 §3 regge il nome del campo, «number», non il minimo di due"
         ),
     )
     diametro_teso: int = Field(
-        gt=0, description="diametro delle barre tese [mm]"
+        gt=0,
+        description="diametro delle barre tese [mm]. La serie commerciale è 6, 8, 10, 12, 14, 16, 20, 25, 28, 32, 40 mm con B450C e 5, 6, 8, 10 mm con B450A (docs/validazione/ricerca-armature-convenzioni-normative.md §7.1): il dominio resta l'intero positivo e non un'enumerazione, per la stessa ragione di `classe_calcestruzzo`, ma 17 mm non esiste in commercio",
     )
     barre_compresse: int = Field(
         ge=0,
@@ -1326,7 +1313,8 @@ class ArmaturaConfig(_ModelloBase):
         gt=0,
         description=(
             "diametro delle barre compresse [mm]. Si dichiara anche con zero "
-            "barre compresse: il campo non ha predefinito, come tutti gli altri"
+            "barre compresse: il campo non ha predefinito, come tutti gli "
+            "altri. La serie commerciale è 6, 8, 10, 12, 14, 16, 20, 25, 28, 32, 40 mm con B450C e 5, 6, 8, 10 mm con B450A (docs/validazione/ricerca-armature-convenzioni-normative.md §7.1): il dominio resta l'intero positivo e non un'enumerazione, per la stessa ragione di `classe_calcestruzzo`, ma 17 mm non esiste in commercio"
         ),
     )
     diametro_staffe: int = Field(
@@ -1334,7 +1322,7 @@ class ArmaturaConfig(_ModelloBase):
         description=(
             "diametro delle staffe [mm]. Il minimo di norma è 6 mm, e vale "
             "insieme al minimo relativo Ø_long,max/4 che questa configurazione "
-            "non può controllare da sola (NTC 2018 §4.1.6.1.2)"
+            "non può controllare da sola (NTC 2018 §4.1.6.1.2). La serie commerciale è 6, 8, 10, 12, 14, 16, 20, 25, 28, 32, 40 mm con B450C e 5, 6, 8, 10 mm con B450A (docs/validazione/ricerca-armature-convenzioni-normative.md §7.1): il dominio resta l'intero positivo e non un'enumerazione, per la stessa ragione di `classe_calcestruzzo`, ma 17 mm non esiste in commercio"
         ),
     )
     passo_staffe: float = Field(
@@ -1345,7 +1333,8 @@ class ArmaturaConfig(_ModelloBase):
         ge=10.0,
         description=(
             "copriferro nominale [mm], netto e misurato all'esterno delle staffe. "
-            "Sotto i 10 mm non è un copriferro"
+            "Sotto i 10 mm non è un copriferro "
+            "(docs/validazione/ricerca-armature-convenzioni-normative.md §7.1)"
         ),
     )
 

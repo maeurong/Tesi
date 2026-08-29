@@ -1450,8 +1450,10 @@ def test_una_membratura_negativa_e_rifiutata_dalla_configurazione():
 
 def test_l_armatura_rifiuta_i_valori_che_non_sono_un_armatura():
     """I domini che il contratto nomina, e nient'altro: una sola barra tesa non
-    e' un'armatura (ISO 3766 §3), un passo di staffe nullo non e' un passo, e
-    una staffa sotto i 6 mm non e' una staffa (NTC 4.1.6.1.2)."""
+    e' un'armatura (docs/validazione/ricerca-armature-convenzioni-normative.md
+    §7.1 -- ISO 3766 §3 regge il nome del campo, «number», non il minimo di
+    due), un passo di staffe nullo non e' un passo, e una staffa sotto i 6 mm
+    non e' una staffa (NTC 4.1.6.1.2)."""
     for storto in (
         {"barre_tese": 1},
         {"barre_tese": 0},

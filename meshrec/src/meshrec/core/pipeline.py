@@ -366,8 +366,8 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
     # True, senza un numero da tenere sincronizzato a mano con cfg.run.to_step
     # altrove. Lo step 13 (solutore) e' un'azione in piu' che non ridefinisce
     # questa completezza: una corsa fermata a 12 (sweep, to_step=12 esplicito)
-    # e una arrivata a 13 (predefinito) sono ugualmente complete per questo
-    # flag -- la differenza fra le due e' se ha anche una soluzione.
+    # e una arrivata a 13 (richiesta esplicitamente) sono ugualmente complete
+    # per questo flag -- la differenza fra le due e' se ha anche una soluzione.
     pipeline_completa = False
 
     def registra(numero: int, avvio: float, artefatto: str | None) -> None:

@@ -86,6 +86,15 @@ BLOCCHI_FUORI_IMPRONTA: tuple[str, ...] = ("run", "wall", "model", "solutore")
 # porterebbe i propri predefiniti, e basta uno solo truthy fra quelli perche'
 # il predicato di vuotezza qui sotto non scatti piu' e le ventidue righe si
 # muovano, con il test dei blocchi verde.
+#
+# La regola dell'omissione vale per l'IMPRONTA DI CANDIDATO di questo modulo e
+# NON per la catena degli step (`steps.step_fingerprints`), che hasha il
+# payload cosi' com'e': `{"regioni": {}}` e i predefiniti di `solutore` vi
+# entrano comunque. Aggiungere un blocco letto dallo step 11 sposta percio' le
+# impronte degli step 11, 12 e 13 una volta sola, e ogni corsa gia' su disco si
+# dichiara da rieseguire da li' in giu' al primo avvio -- senza che l'operatore
+# abbia cambiato un campo. E' una volta sola e si accetta; inseguire
+# l'omissione dentro `step_fingerprints` sarebbe un'altra decisione.
 BLOCCHI_VUOTI_FUORI_IMPRONTA: tuple[str, ...] = ("carichi", "selettori", "regioni")
 
 
