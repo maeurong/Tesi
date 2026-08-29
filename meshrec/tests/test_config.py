@@ -1411,16 +1411,126 @@ def test_le_combinazioni_si_dichiarano_dentro_i_carichi_e_partono_vuote():
     """
     assert config.CarichiConfig().combinazioni == ()
 
+    # I due termini sono nomi che una configurazione puo' davvero portare:
+    # `GRAVITA` e' il predefinito di `analysis.step_name` e
+    # `SPINTA_ORIZZONTALE` una delle etichette riservate. Un esempio con
+    # `peso_proprio` e `neve` insegnerebbe a chi legge una sintassi che nessun
+    # deck di questo programma conosce.
     combinazione = config.Combinazione(
         nome="SLU_1",
         tipo="slu_fondamentale",
-        termini=(("peso_proprio", 1.3), ("neve", 1.5)),
+        termini=(("GRAVITA", 1.3), ("SPINTA_ORIZZONTALE", 1.5)),
         proposta=True,
     )
-    assert combinazione.termini == (("peso_proprio", 1.3), ("neve", 1.5))
+    assert combinazione.termini == (("GRAVITA", 1.3), ("SPINTA_ORIZZONTALE", 1.5))
     with pytest.raises(ValidationError):
         config.Combinazione(
-            nome="SLU_1", tipo="slu_inventato", termini=(), proposta=True
+            nome="SLU_1",
+            tipo="slu_inventato",
+            termini=(("GRAVITA", 1.3),),
+            proposta=True,
+        )
+
+
+def _config_con_combinazione(nome: str = "SLU_1", **campi):
+    """Una configurazione col solo carico `PRESSA` e una combinazione."""
+    combinazione = {
+        "nome": nome,
+        "tipo": "slu_fondamentale",
+        "termini": (("GRAVITA", 1.3),),
+        "proposta": True,
+    }
+    combinazione.update(campi)
+    return crea_config(
+        input=config.InputConfig(path="nuvola.ply"),
+        selettori={"piastra": {"tipo": "nset", "nome": "TOP"}},
+        carichi=config.CarichiConfig(
+            posizionati=[
+                {"nome": "PRESSA", "selettore": "piastra", "forza": [0.0, 0.0, -1.0]}
+            ],
+            combinazioni=[combinazione],
+        ),
+    )
+
+
+def test_una_combinazione_col_nome_del_passo_di_peso_proprio_e_rifiutata():
+    """`GRAVITA` e' il predefinito di `analysis.step_name`: il deck avrebbe due
+    `*STEP` omonimi, `ccx` ne risolverebbe uno e il rapporto ne mostrerebbe due.
+
+    Mutazione che lo uccide: lasciare `Combinazione.nome` fuori dal ciclo
+    `visti`/`riservati` dei carichi.
+    """
+    with pytest.raises(ValidationError, match="già preso"):
+        _config_con_combinazione(nome="GRAVITA")
+
+
+def test_una_combinazione_col_nome_di_unetichetta_riservata_e_rifiutata():
+    """`MODALE` sta in `NOMI_PASSO_RISERVATI`: la fabbrica `abaqus.export_model`.
+
+    Mutazione che lo uccide: controllare le combinazioni solo contro i nomi dei
+    carichi e non contro i riservati.
+    """
+    with pytest.raises(ValidationError, match="già preso"):
+        _config_con_combinazione(nome="MODALE")
+
+
+def test_due_combinazioni_che_differiscono_solo_per_maiuscole_sono_rifiutate():
+    """`C1` e `c1` sono un solo nome nel deck: `ccx` non distingue le maiuscole.
+
+    Mutazione che lo uccide: togliere `.casefold()` dalla chiave con cui le
+    combinazioni entrano in `visti`.
+    """
+    with pytest.raises(ValidationError, match="C1"):
+        crea_config(
+            input=config.InputConfig(path="nuvola.ply"),
+            carichi=config.CarichiConfig(combinazioni=[
+                {"nome": "C1", "tipo": "sle_rara",
+                 "termini": (("GRAVITA", 1.0),), "proposta": True},
+                {"nome": "c1", "tipo": "sle_frequente",
+                 "termini": (("GRAVITA", 1.0),), "proposta": True},
+            ]),
+        )
+
+
+def test_una_combinazione_e_un_carico_omonimi_sono_rifiutati_dallo_stesso_ciclo():
+    """Un solo spazio di nomi: entrambi scrivono un `*STEP`.
+
+    E' il difetto che due validatori separati -- uno sui carichi, uno sulle
+    combinazioni, ognuno col proprio `visti` -- lascerebbero passare, perche'
+    ciascun nome sarebbe unico nella propria famiglia.
+
+    Mutazione che lo uccide: spostare le combinazioni in un validatore proprio.
+    """
+    with pytest.raises(ValidationError, match="PRESSA"):
+        _config_con_combinazione(nome="pressa")
+
+
+@pytest.mark.parametrize("azione", ["G 1, *STEP\ninject", "", "*STEP", "a capo\n"])
+def test_il_nome_dellazione_di_un_termine_sta_nel_dominio_dei_nomi_di_set(azione):
+    """L'altra meta' della riga di deck che `nome` gia' protegge: un a capo
+    dentro il nome di un'azione apre una scheda `*` arbitraria nel file.
+
+    Mutazione che lo uccide: ritipare gli elementi di `termini` da `NomeSet` a
+    `str`.
+    """
+    with pytest.raises(ValidationError):
+        config.Combinazione(
+            nome="SLU_1",
+            tipo="slu_fondamentale",
+            termini=((azione, 1.3),),
+            proposta=True,
+        )
+
+
+def test_una_combinazione_senza_termini_e_rifiutata():
+    """Uno `*STEP` senza azioni risolve e da' spostamenti nulli, che nessuno
+    distingue da una struttura scarica.
+
+    Mutazione che lo uccide: togliere `min_length=1` da `termini`.
+    """
+    with pytest.raises(ValidationError):
+        config.Combinazione(
+            nome="SLU_1", tipo="slu_fondamentale", termini=(), proposta=True
         )
 
 

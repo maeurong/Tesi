@@ -1082,10 +1082,20 @@ class Combinazione(_ModelloBase):
         "sle_quasi_permanente",
         "sismica",
     ] = Field(description="stato limite della combinazione, NTC 2018 §2.5.3")
-    termini: tuple[tuple[str, float], ...] = Field(
+    termini: tuple[tuple[NomeSet, float], ...] = Field(
+        min_length=1,
         description=(
             "le azioni combinate e il loro coefficiente: (nome dell'azione, "
-            "coefficiente). L'ordine è quello con cui i termini entrano nel deck"
+            "coefficiente). Il nome dell'azione è il `nome` di un carico "
+            "dichiarato, oppure una delle etichette riservate "
+            f"({', '.join(NOMI_PASSO_RISERVATI)}) e il nome del passo di peso "
+            "proprio, che sono passi che il programma fabbrica da sé e che "
+            "nessun carico dichiara. Stesso vincolo di caratteri di `nome`, e "
+            "per la stessa ragione: il termine è l'altra metà della riga di "
+            "deck, e un a capo dentro il nome vi aprirebbe una scheda `*` "
+            "arbitraria. Almeno un termine: uno `*STEP` senza azioni risolve e "
+            "dà spostamenti nulli, indistinguibili da una struttura scarica. "
+            "L'ordine è quello con cui i termini entrano nel deck"
         ),
     )
     proposta: bool = Field(
@@ -1408,29 +1418,37 @@ class PipelineConfig(_ModelloBase):
             riservati[passo_del_peso.casefold()] = passo_del_peso
         selettori_per_caso = _mappa_casefold(self.selettori)
         visti: dict[str, str] = {}
-        # Le due liste insieme e non due cicli: un distribuito e un posizionato
-        # omonimi scriverebbero due passi con lo stesso nome, e due cicli
-        # separati -- ognuno col proprio `visti` -- li lascerebbero passare
-        # entrambi. I controlli sono per il resto identici, perche' entrambi i
-        # carichi citano un selettore e danno il nome a un passo.
-        for carico in (*self.carichi.posizionati, *self.carichi.distribuiti):
-            chiave_selettore = carico.selettore.casefold()
-            if chiave_selettore not in selettori_per_caso:
-                raise ValueError(
-                    f"il carico '{carico.nome}' cita il selettore "
-                    f"'{carico.selettore}', che non è dichiarato. Dichiarati: "
-                    f"{sorted(self.selettori)}"
-                )
-            # Normalizzato al nome canonico qui, a monte: a valle
-            # (`core/abaqus.py`, che costruisce `nset_selettori` dalle chiavi
-            # di `self.selettori`) il confronto e' un'uguaglianza esatta, e
-            # deve trovare sempre lo stesso nome che il selettore ha
-            # dichiarato, non la grafia con cui il carico lo ha citato.
-            carico.selettore = selettori_per_caso[chiave_selettore]
-            chiave = carico.nome.casefold()
+        # Le tre liste insieme e non tre cicli: un distribuito, un posizionato
+        # e una combinazione omonimi scriverebbero passi con lo stesso nome, e
+        # cicli separati -- ognuno col proprio `visti` -- li lascerebbero
+        # passare tutti. I controlli sono per il resto identici, perche' tutte
+        # e tre le voci danno il nome a un passo; il solo pezzo che le
+        # distingue e' il selettore, che le combinazioni non citano.
+        for voce in (
+            *self.carichi.posizionati,
+            *self.carichi.distribuiti,
+            *self.carichi.combinazioni,
+        ):
+            e_combinazione = isinstance(voce, Combinazione)
+            soggetto = "la combinazione" if e_combinazione else "il carico"
+            if not e_combinazione:
+                chiave_selettore = voce.selettore.casefold()
+                if chiave_selettore not in selettori_per_caso:
+                    raise ValueError(
+                        f"il carico '{voce.nome}' cita il selettore "
+                        f"'{voce.selettore}', che non è dichiarato. Dichiarati: "
+                        f"{sorted(self.selettori)}"
+                    )
+                # Normalizzato al nome canonico qui, a monte: a valle
+                # (`core/abaqus.py`, che costruisce `nset_selettori` dalle
+                # chiavi di `self.selettori`) il confronto e' un'uguaglianza
+                # esatta, e deve trovare sempre lo stesso nome che il selettore
+                # ha dichiarato, non la grafia con cui il carico lo ha citato.
+                voce.selettore = selettori_per_caso[chiave_selettore]
+            chiave = voce.nome.casefold()
             if chiave in riservati:
                 raise ValueError(
-                    f"il carico '{carico.nome}' porta il nome del passo "
+                    f"{soggetto} '{voce.nome}' porta il nome del passo "
                     f"'{riservati[chiave]}', già preso. I riservati sono "
                     f"{list(NOMI_PASSO_RISERVATI)}"
                     # Nominato solo quando c'e': senza analisi la frase
@@ -1447,11 +1465,11 @@ class PipelineConfig(_ModelloBase):
                 )
             if chiave in visti:
                 raise ValueError(
-                    f"due carichi si chiamano '{visti[chiave]}' e "
-                    f"'{carico.nome}': il deck scriverebbe due passi omonimi e i "
+                    f"due passi si chiamano '{visti[chiave]}' e "
+                    f"'{voce.nome}': il deck scriverebbe due passi omonimi e i "
                     "due risultati sarebbero indistinguibili nel file risolto"
                 )
-            visti[chiave] = carico.nome
+            visti[chiave] = voce.nome
         return self
 
     run: RunConfig = Field(default_factory=RunConfig)
