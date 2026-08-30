@@ -3483,29 +3483,33 @@ async function catalogoMateriali() {
   const risposta = await fetch("/api/materiali").catch(serverMuto);
   if (!risposta.ok) return [];
   const corpo = await corpoLetto(risposta);
-  catalogoDeiMateriali = Array.isArray(corpo?.voci) ? corpo.voci : [];
+  // Le voci senza `classe` cadono qui e non piu' avanti. E' l'unico punto in
+  // cui il catalogo entra nel programma, e cio' che passa arriva a tre lettori
+  // diversi: il menu' ne farebbe righe senza testo, e la rilettura del nome ci
+  // si romperebbe dentro -- dentro una `.then`, cioe' con una promessa rifiutata
+  // che nessuno cattura e niente a video.
+  catalogoDeiMateriali = Array.isArray(corpo?.voci)
+    ? corpo.voci.filter((voce) => typeof voce?.classe === "string")
+    : [];
   return catalogoDeiMateriali;
 }
 
 // La classe scritta come nome di materiale: «C25/30» diventa «C25_30».
 //
-// `Material.name` ammette `^[A-Za-z0-9_.-]+$` e la barra non c'e'. Non e' una
-// dimenticanza del modello: il nome viene interpolato in `*MATERIAL, NAME=...`
-// in un deck ascii che va a un solutore esterno, e allargare quel vincolo per
-// far entrare la barra metterebbe un carattere in piu' in un nome di deck per
-// una comodita' dell'interfaccia. Tutte le classi di calcestruzzo del catalogo
-// la portano, quindi senza questa sostituzione ogni voce del menu' otteneva un
-// 422 e il materiale non si dichiarava affatto.
+// La barra non passa `NomeSet` (`core/config.py`), il tipo che vincola il nome
+// del materiale insieme ai nomi di elset, di passo e di selettore: la ragione
+// sta nel campo `Material.name` e non si ricopia qui, e allargare quel vincolo
+// non sarebbe una scelta di questo pannello. La sostituzione specchia la classe
+// di caratteri invece di elencarne uno: nel catalogo di oggi la barra e' il solo
+// carattere vietato, ma una voce futura con uno spazio o un accento non
+// ritroverebbe il 422.
 //
-// Il trattino basso, e non il taglio del pezzo dopo la barra, per due ragioni
-// che vanno insieme: la classe deve restare leggibile a occhio da chi legge il
-// deck o `config.yaml` -- e' l'unico posto in cui la provenienza dei tre numeri
-// sopravvive -- e la corrispondenza deve reggere anche all'indietro, perche' il
-// menu' riaperto ritrova la classe gia' dichiarata confrontando i nomi. Un
-// «C25» tagliato perderebbe tutte e due: non direbbe piu' dove finisce `f_ck`,
-// e C25/30 e un'ipotetica C25/35 diventerebbero lo stesso nome.
+// Trattino basso e non il taglio del pezzo dopo la barra: il menu' riaperto
+// ritrova la classe gia' dichiarata confrontando i nomi, quindi la
+// trasformazione deve reggere all'indietro, e un «C25» tagliato darebbe lo
+// stesso nome a C25/30 e a C25/35.
 function nomeDellaClasse(classe) {
-  return classe.replaceAll("/", "_");
+  return classe.replace(/[^A-Za-z0-9_.-]/g, "_");
 }
 
 // Dal catalogo e da una classe, i quattro valori che vanno nelle caselle.
@@ -3582,7 +3586,8 @@ function pannelloMateriale(numero, ordine) {
     textContent: "Solo calcestruzzi: lo step 11 dichiara il materiale del continuo solido, e"
       + " in un cemento armato è il calcestruzzo. L'acciaio si dichiara nelle sezioni delle"
       + " membrature. Scelta la classe, i tre valori restano modificabili: un calcestruzzo"
-      + " esistente provato in sito ha il modulo che è stato misurato, non quello di norma.",
+      + " esistente provato in sito ha il modulo che è stato misurato, non quello di norma."
+      + " Nel nome la barra diventa un trattino basso: C25/30 → C25_30.",
   }));
 
   const caselle = {};
@@ -3626,10 +3631,8 @@ function pannelloMateriale(numero, ordine) {
     // invece di ripartire da «scegli una classe», che direbbe il falso. Il
     // confronto passa per `nomeDellaClasse`, la stessa trasformazione che ha
     // scritto quel nome: senza, non riconoscerebbe nessuna classe del catalogo.
-    // Il valore del menu' resta la classe con la barra, che e' cio' che sta
-    // nelle sue voci.
-    const gia = voci.find((voce) => nomeDellaClasse(voce.classe) === dichiarato?.name);
-    if (gia !== undefined) menuClasse.value = gia.classe;
+    const gia = dichiarato && voci.find((voce) => nomeDellaClasse(voce.classe) === dichiarato.name);
+    if (gia) menuClasse.value = gia.classe;
   });
 
   const bottone = document.createElement("button");

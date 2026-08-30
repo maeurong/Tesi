@@ -1444,10 +1444,12 @@ def test_ogni_classe_del_menu_da_un_nome_che_il_modello_accetta(tmp_path):
     e' cio' che permette a chi legge `*MATERIAL, NAME=...` di risalire alla
     riga di norma.
 
-    Mutazione che lo uccide: togliere la barra invece di scambiarla (C25/30 e
-    C2/5 30 non collidono, ma il nome smette di dire dove finisce `f_ck`), o
-    tagliare la classe al primo pezzo -- C25/30 e C25/35 diventerebbero lo
-    stesso «C25».
+    Mutazione che lo uccide: tagliare la classe al primo pezzo -- C25/30 e
+    C25/35 diventerebbero lo stesso «C25», e l'asserzione sui nomi distinti
+    salta -- oppure cancellare la barra invece di scambiarla, che i nomi
+    distinti li lascia intatti: la conta dei trattini bassi e' li' per quella,
+    perche' «C2530» e' un nome che il modello accetta e che non dice piu' dove
+    finisce `f_ck`.
     """
     from meshrec.core.config import load_config
 
@@ -1470,6 +1472,13 @@ def test_ogni_classe_del_menu_da_un_nome_che_il_modello_accetta(tmp_path):
         assert re.sub(r"[^A-Za-z0-9]", "", nome) == re.sub(r"[^A-Za-z0-9]", "", voce["classe"]), (
             f"la classe non si legge piu' nel nome: {voce['classe']} e' diventata {nome}"
         )
+        # Le due righe sopra spogliano tutti e due i lati, quindi restano verdi
+        # anche se la barra viene cancellata invece che scambiata. La conta e'
+        # cio' che distingue la sostituzione dalla cancellazione.
+        assert nome.count("_") == voce["classe"].count("/"), (
+            f"la barra e' sparita invece di diventare un trattino basso:"
+            f" {voce['classe']} e' diventata {nome}"
+        )
         corpo["analysis"] = {"material": {
             "name": nome,
             "young": voce["young"],
@@ -1481,6 +1490,49 @@ def test_ogni_classe_del_menu_da_un_nome_che_il_modello_accetta(tmp_path):
             f"la classe {voce['classe']} e' stata rifiutata come {nome}: {salvata.text}"
         )
         assert load_config(percorso).analysis.material.name == nome
+
+
+def test_una_classe_con_un_carattere_vietato_da_lo_stesso_un_nome_accettabile(tmp_path):
+    """Ingresso degenere: una voce di catalogo fuori da `NomeSet` per piu' della barra.
+
+    Il catalogo di oggi porta la sola barra, e una trasformazione che scambiasse
+    quel solo carattere resterebbe verde su tutte e diciassette le classi vere.
+    La voce di questo banco e' fabbricata apposta -- uno spazio, una virgola e
+    una lettera accentata -- e il catalogo vero non si tocca: e' l'unico modo di
+    provare che la regola specchia il vincolo invece di elencarne un carattere.
+    Il giorno in cui il catalogo cresce con un nome meno regolare, il 422 non
+    torna.
+
+    Mutazione che lo uccide: scambiare la sola barra.
+    """
+    percorso = tmp_path / "config.yaml"
+    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"))
+    cfg.run.out_dir = tmp_path / "corsa"
+    save_config(cfg, percorso)
+    cliente = TestClient(create_app(percorso), base_url=BASE_LOCALE, raise_server_exceptions=False)
+    # I tre numeri vengono da una voce vera: sotto misura c'e' il nome, non loro.
+    vera = cliente.get("/api/materiali").json()["voci"][0]
+    fabbricata = {**vera, "classe": "C25/30 rinforzato, però"}
+
+    scelto = json.loads(_esegui(tmp_path, _funzioni("nomeDellaClasse", "valoriDellaClasse")
+                                + "process.stdout.write(JSON.stringify(valoriDellaClasse("
+                                + json.dumps([fabbricata]) + ", "
+                                + json.dumps(fabbricata["classe"]) + ")));"))
+    assert re.fullmatch(r"[A-Za-z0-9_.-]+", scelto["name"]), (
+        f"il nome resta fuori da NomeSet: {scelto['name']}"
+    )
+
+    corpo = cliente.get("/api/config").json()
+    corpo["analysis"] = {"material": {
+        "name": scelto["name"],
+        "young": fabbricata["young"],
+        "poisson": fabbricata["poisson"],
+        "density": fabbricata["density"],
+    }}
+    salvata = cliente.put("/api/config", json=corpo)
+    assert salvata.status_code == 200, (
+        f"la classe {fabbricata['classe']} e' stata rifiutata come {scelto['name']}: {salvata.text}"
+    )
 
 
 def test_un_campo_vuoto_del_materiale_parte_lo_stesso_e_il_rifiuto_si_vede(tmp_path):
@@ -7247,6 +7299,68 @@ await Promise.resolve();
 const menu = gruppo.children.find((f) => f.className === "campo campo-catalogo").children[1];
 assert.equal(menu.value, "C25/30",
   `il menu' riaperto non ritrova la classe gia' dichiarata: ${menu.value}`);
+""")
+
+
+def test_una_voce_di_catalogo_malformata_non_ferma_il_menu(tmp_path):
+    """Ingresso degenere: `/api/materiali` risponde con voci che non sono voci.
+
+    L'array arriva da un endpoint e non da una costante: `catalogoMateriali`
+    controlla che sia un array e nient'altro, quindi una voce senza `classe`
+    passa fino a chi la legge. Il menu' le darebbe una riga senza testo, e la
+    rilettura del nome ci si romperebbe dentro -- dentro una `.then`, cioe' con
+    una promessa rifiutata che nessuno cattura: menu' fermo a meta' e niente a
+    video.
+
+    Mutazione che lo uccide: lasciar passare le voci senza `classe`.
+    """
+    _esegui(tmp_path, _banco_del_materiale(
+        {"analysis": {"material": {
+            "name": "C25_30", "young": 31475.81, "poisson": 0.2, "density": 2.5493e-9,
+        }}},
+        ["C25_30", "31475.81", "0.2", "2.5493e-9"],
+        _ACCETTA_JS,
+        catalogo="{ ok: true, status: 200, json: async () => ({ voci: ["
+                 '{ classe: "C25/30", young: 31475.806210019346, poisson: 0.2,'
+                 " density: 2.5493e-9 }, {}, 7, null] }) }",
+    ) + """
+await Promise.resolve();
+await Promise.resolve();
+const menu = gruppo.children.find((f) => f.className === "campo campo-catalogo").children[1];
+assert.equal(menu.figli.length, 2, `il menu' porta voci morte: ${menu.figli.length}`);
+assert.equal(menu.value, "C25/30",
+  `la voce malformata ha fatto perdere la classe gia' dichiarata: ${menu.value}`);
+""")
+
+
+def test_senza_materiale_dichiarato_il_menu_non_scandisce_il_catalogo(tmp_path):
+    """Ingresso degenere: il pannello si riapre su una corsa senza materiale.
+
+    Non c'e' nessun nome da ritrovare, quindi non c'e' niente da cercare. Un
+    confronto contro il nome di un materiale che non c'e' e' un giro a vuoto su
+    tutte le voci del catalogo, e soprattutto dice il contrario di cio' che il
+    commento sopra promette: la classe gia' dichiarata.
+
+    Il catalogo di questo banco sorveglia la propria `find`, perche' il giro a
+    vuoto non lascia altra traccia -- l'esito e' lo stesso, il menu' resta sulla
+    voce vuota in tutti e due i casi.
+
+    Mutazione che lo uccide: cercare comunque e confrontare contro `undefined`.
+    """
+    _esegui(tmp_path, _banco_del_materiale(
+        {"analysis": None},
+        ["", "", "", ""],
+        _ACCETTA_JS,
+        catalogo="{ ok: true, status: 200, json: async () => {"
+                 " globalThis.scansioni = 0;"
+                 " class Sorvegliato extends Array {"
+                 " find(...a) { globalThis.scansioni += 1; return super.find(...a); } }"
+                 " return { voci: Sorvegliato.from(CATALOGO_FINTO) }; } }",
+    ) + """
+await Promise.resolve();
+await Promise.resolve();
+assert.equal(globalThis.scansioni, 0,
+  `senza materiale dichiarato il catalogo e' stato scandito lo stesso: ${globalThis.scansioni}`);
 """)
 
 
