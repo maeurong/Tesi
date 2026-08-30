@@ -33,7 +33,20 @@ from pydantic import (
 
 from meshrec.app import storico
 from meshrec.app.worker import Worker
-from meshrec.core import io, pipeline, quality, report, segment, steps, sweep, viewport
+from meshrec.core import (
+    armatura,
+    combinazioni,
+    io,
+    materiali,
+    pipeline,
+    quality,
+    report,
+    segment,
+    solve,
+    steps,
+    sweep,
+    viewport,
+)
 from meshrec.core.config import (
     InputConfig,
     PipelineConfig,
@@ -553,6 +566,122 @@ class CorsaScelta(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     nome: NomeCorsa
+
+
+# Quale dei due modelli il solutore riceve davvero oggi.
+#
+# `pipeline._step_solutore` passa `out / DECK_FILENAME` -- il deck dello step
+# 11, cioe' il solido tetraedrico -- e non ha un ramo per il telaio.
+# `core/telaio.costruisci` il telaio lo costruisce, e nessuna strada lo manda a
+# risolvere: offrirlo come scelta sarebbe offrire una scelta che fallisce.
+# Dichiarato qui in un posto solo, cosi' che il giorno in cui la strada esiste
+# lo stadio del modello cambi da se'.
+MODELLO_INSTRADATO = "solido"
+
+# Perche' il telaio non e' instradato. Sta accanto alla costante di sopra e non
+# dentro la tratta: e' la stessa affermazione, e due grafie invecchierebbero
+# separatamente.
+_TELAIO_SENZA_STRADA = (
+    "il telaio si costruisce (core/telaio.costruisci) e non si risolve: "
+    "pipeline.risolvi_corsa manda al solutore il deck dello step 11, che è il "
+    "solido. La scelta non viene offerta perché oggi fallirebbe"
+)
+
+
+def _letto_o_dichiarato(percorso: Path, che_cosa: str) -> tuple[dict[str, object], str | None]:
+    """Il JSON di un artefatto, oppure il motivo per cui non si legge.
+
+    `sweep.leggi_metriche` ripiega su `{}` in silenzio, ed e' giusto per uno
+    sweep -- un candidato storto non deve fermare la raccolta di tutti. Qui no:
+    `{}` e «mai eseguito» sono lo stesso corpo, e chi guarda la schermata non
+    avrebbe modo di distinguerli. Un file troncato da un processo ucciso si
+    dichiara.
+
+    ValueError e non json.JSONDecodeError, che ne e' una sottoclasse e lascia
+    fuori UnicodeDecodeError: quello lo solleva la lettura del file prima
+    ancora del parse, su un byte non UTF-8.
+    """
+    if not percorso.exists():
+        return {}, None
+    try:
+        with percorso.open(encoding="utf-8") as maniglia:
+            letto = json.load(maniglia)
+    except (OSError, ValueError) as errore:
+        return {}, (
+            f"{percorso.name} c'è ma non si legge ({type(errore).__name__}: "
+            f"{errore}): {che_cosa} non si mostra da un file troncato"
+        )
+    if not isinstance(letto, dict):
+        return {}, (
+            f"{percorso.name} non porta un oggetto ma un {type(letto).__name__}: "
+            f"{che_cosa} non si legge da qui"
+        )
+    return letto, None
+
+
+def _stazioni_della_membratura(
+    voce: dict[str, object], sezione: object | None
+) -> tuple[list[dict[str, object]], str | None]:
+    """I verdetti stazione per stazione, oppure il motivo per cui non ce ne sono.
+
+    Un verdetto per fetta e non uno per membratura: una gabbia dichiarata una
+    volta sola puo' essere duttile dove la sezione e' piena e fragile dove si
+    restringe, e la media appiattirebbe le due cose in una
+    (`core/armatura.VerdettoStazione`).
+
+    Il calcolo e' di `armatura.verdetti` e non di qui: l'interfaccia mostra i
+    numeri che il core produce, e non ne produce di propri. Cio' che il core
+    dichiara di non sapere -- l'esponente della parabola oltre la C50/60, una
+    sezione troppo stretta per le barre dichiarate -- arriva come motivo e va a
+    video com'e', invece di diventare una lista vuota senza spiegazione.
+    """
+    fette = voce.get("sezioni_fette") or []
+    quote = voce.get("quote_fette") or []
+    if not fette:
+        return [], (
+            "il prior non ha misurato nessuna fetta su questa membratura: non ci "
+            "sono stazioni da giudicare, e la sezione media è una sintesi, non una "
+            "stazione"
+        )
+    if sezione is None:
+        return [], (
+            "nessuna regione dichiarata punta a questa membratura: il verdetto per "
+            "stazione ha bisogno dell'armatura, che si dichiara in `regioni`"
+        )
+    if sezione.armatura is None:
+        return [], (
+            "la sezione dichiarata non porta armatura: è di solo calcestruzzo, e "
+            "nessuna armatura si inventa"
+        )
+    classe = sezione.armatura.classe_calcestruzzo
+    try:
+        f_ctm = materiali.trova(classe).f_ctm
+        if f_ctm is None:
+            return [], (
+                f"il catalogo non porta la f_ctm di «{classe}»: senza, l'armatura "
+                "minima di norma [4.1.45] non si calcola"
+            )
+        esiti = armatura.verdetti(sezione.armatura, fette, quote, f_ctm)
+    except (KeyError, ValueError) as errore:
+        # KeyError rende il proprio messaggio fra apici (`repr`): scritto cosi'
+        # a video sarebbe una frase virgolettata dentro un'altra.
+        return [], str(errore.args[0] if isinstance(errore, KeyError) else errore)
+    return [esito._asdict() for esito in esiti], None
+
+
+class ProponiCombinazioni(BaseModel):
+    """La categoria d'uso e, dove c'è, quale azione fa da sisma.
+
+    La categoria non è un campo della configurazione e non ci diventa: è
+    l'ingresso della proposta, cioè un fatto dell'edificio che l'operatore
+    dichiara al momento di proporre. Scritta in `PipelineConfig` sposterebbe
+    l'impronta di ogni corsa che la porta senza che il modello sia cambiato.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    categoria_uso: str
+    azione_sismica: str | None = None
 
 
 def create_app(
@@ -1228,6 +1357,192 @@ def create_app(
         non_in_sola_lettura("eseguire il solutore")
         lavoratore.start_comando(["solve", str(config_path)], etichetta="solutore")
         return {"avviato": "solve"}
+
+    @app.get("/api/analisi")
+    def analisi() -> dict[str, object]:
+        """Tutto cio' che i quattro stadi della schermata dell'analisi mostrano.
+
+        Una tratta sola e non quattro: la schermata si apre tutta insieme, e
+        ogni fetch in piu' e' un modo in piu' di restare vuoti in silenzio.
+        Quello che si legge gia' da /api/wall, /api/metrics e /api/config passa
+        di qui **riletto e non ricalcolato**; quello che non aveva una tratta --
+        la disponibilita' vera dei solutori, il verdetto per stazione, le
+        categorie d'uso, le azioni dichiarate -- lo produce il core (`solve`,
+        `armatura`, `combinazioni`), mai questo modulo e mai il browser.
+
+        Ogni grandezza che esce di qui porta accanto o il proprio controllo o il
+        motivo per cui non c'e' (PRODUCT.md:170): mai una chiave a zero al posto
+        di una chiave assente.
+
+        `verifica` esegue davvero il binario del solutore scelto, perche' «c'e'»
+        non e' «funziona». Costa un processo che stampa una riga, e la tratta la
+        chiama la schermata quando si apre e quando lo stato degli step cambia,
+        non due volte al secondo.
+        """
+        cfg = corrente()
+        out = Path(cfg.run.out_dir)
+        metriche, metriche_illeggibili = _letto_o_dichiarato(
+            out / pipeline.METRICS_FILENAME, "le metriche"
+        )
+        prior, prior_motivo = _letto_o_dichiarato(
+            out / pipeline.WALL_FILENAME, "il prior geometrico"
+        )
+        if prior_motivo is None and not (out / pipeline.WALL_FILENAME).exists():
+            prior_motivo = (
+                "il prior geometrico non è ancora stato calcolato: lo propone lo "
+                "step 12, e senza di lui non c'è nessuna struttura da mostrare"
+            )
+
+        esportazione = metriche.get("11_export")
+        regioni_misurate = (
+            esportazione.get("regioni") if isinstance(esportazione, dict) else None
+        )
+        if regioni_misurate is not None:
+            regioni_motivo = None
+        elif metriche_illeggibili is not None:
+            regioni_motivo = metriche_illeggibili
+        elif not cfg.regioni:
+            regioni_motivo = (
+                "nessuna regione dichiarata: la frazione orfana la misura "
+                "l'attribuzione dello step 11, che gira soltanto dove `regioni` "
+                "dichiara almeno una regione. Assente, non zero"
+            )
+        else:
+            regioni_motivo = (
+                "lo step 11 «Esportazione» non ha ancora attribuito gli elementi "
+                "alle regioni dichiarate: la frazione orfana non esiste ancora, ed "
+                "è assente e non zero"
+            )
+
+        # L'ultima regione vince, e non e' una scelta da fare qui: due regioni
+        # sulla stessa membratura sono una configurazione che il modello ammette,
+        # e dichiarare quale conta spetterebbe a chi la ammette.
+        per_membratura = {
+            regione.membratura: (nome, regione.sezione)
+            for nome, regione in cfg.regioni.items()
+        }
+        elenco = prior.get("membrature") or []
+        membrature = []
+        for indice, voce in enumerate(elenco):
+            nome, sezione = per_membratura.get(indice, (None, None))
+            stazioni, stazioni_motivo = _stazioni_della_membratura(voce, sezione)
+            membrature.append({
+                "indice": indice,
+                "lunghezza": voce.get("lunghezza"),
+                "sezione": voce.get("sezione"),
+                # Il riempimento di sezione porta con se' soglia e affidabilita':
+                # e' il numero e il controllo che lo sorveglia, e viaggiano
+                # insieme perche' `wall.riempimento` li scrive insieme.
+                "riempimento": voce.get("riempimento"),
+                "regione": nome,
+                "sezione_dichiarata": (
+                    None if sezione is None else sezione.model_dump(mode="json")
+                ),
+                "stazioni": stazioni,
+                "stazioni_motivo": stazioni_motivo,
+            })
+        if prior_motivo is None and not elenco:
+            prior_motivo = (
+                "lo step 12 ha calcolato il prior e non ha accettato nessuna "
+                "membratura: le regioni viste e scartate stanno in «scartate» del "
+                "prior, ciascuna col controllo che non ha passato"
+            )
+
+        giunzioni = prior.get("giunzioni")
+        giunzioni_motivo = None
+        if giunzioni is None:
+            giunzioni_motivo = (
+                "il prior non porta la chiave `giunzioni`: è una corsa scritta prima "
+                "che l'adiacenza fosse misurata, e dedurre qui gli incontri "
+                "fabbricherebbe una misura che nessuno ha fatto"
+            ) if elenco else prior_motivo
+
+        deck = out / pipeline.DECK_FILENAME
+        modelli = {
+            "solido": {
+                "etichetta": "solido tetraedrico",
+                "produce": "lo step 11 «Esportazione», sul maglio dello step 9",
+                "pronto": deck.is_file(),
+                "manca": None if deck.is_file() else (
+                    f"manca {pipeline.DECK_FILENAME}: lo scrive lo step 11"
+                ),
+                "instradato": MODELLO_INSTRADATO == "solido",
+                "motivo": None if MODELLO_INSTRADATO == "solido" else _TELAIO_SENZA_STRADA,
+            },
+            "telaio": {
+                "etichetta": "telaio sulle membrature",
+                "produce": "lo step 12 «Prior geometrico», via core/telaio.costruisci",
+                "pronto": bool(elenco),
+                "manca": None if elenco else prior_motivo,
+                "instradato": MODELLO_INSTRADATO == "telaio",
+                "motivo": None if MODELLO_INSTRADATO == "telaio" else _TELAIO_SENZA_STRADA,
+            },
+        }
+
+        esito = metriche.get("13_solve")
+        return {
+            "modelli": modelli,
+            "solutori": solve.disponibilita(cfg.solutore),
+            "verifica": solve.verifica(cfg.solutore),
+            "regioni": regioni_misurate,
+            "regioni_motivo": regioni_motivo,
+            "regioni_dichiarate": sorted(cfg.regioni),
+            "membrature": membrature,
+            "membrature_motivo": prior_motivo,
+            "giunzioni": giunzioni or [],
+            "giunzioni_motivo": giunzioni_motivo,
+            "azioni": combinazioni.azioni_dichiarate(cfg),
+            "categorie": [
+                {
+                    "categoria": voce.categoria,
+                    "descrizione": voce.descrizione,
+                    "psi_0": voce.psi_0,
+                    "psi_1": voce.psi_1,
+                    "psi_2": voce.psi_2,
+                    "fonte": voce.fonte,
+                }
+                for voce in combinazioni.PSI
+            ],
+            "configurazione": cfg.model_dump(mode="json"),
+            "solve": esito if isinstance(esito, dict) else None,
+            "solve_motivo": None if isinstance(esito, dict) else (
+                metriche_illeggibili
+                or "lo step 13 non è ancora stato eseguito: non c'è niente da rileggere"
+            ),
+            "metriche_illeggibili": metriche_illeggibili,
+        }
+
+    @app.post("/api/combinazioni")
+    def proponi_combinazioni(richiesta: ProponiCombinazioni) -> dict[str, object]:
+        """Le combinazioni di norma, proposte e scritte nella configurazione.
+
+        `aggiorna` e non `proponi`: una combinazione corretta a mano
+        (`proposta=False`) non torna a essere sovrascritta, e una proposta
+        omonima non entra. Sarebbe il programma che smentisce chi analizza, in
+        silenzio.
+
+        La categoria d'uso arriva dalla richiesta e non dalla configurazione,
+        dove non c'e' un campo che la porti: e' un fatto dell'edificio che
+        l'operatore dichiara al momento di proporre.
+        """
+        cfg = corrente()
+        non_in_sola_lettura("proporre le combinazioni")
+        if not richiesta.categoria_uso.strip():
+            raise ValueError(
+                "nessuna categoria d'uso scelta: i ψ della Tab. 2.5.I si leggono "
+                "per categoria, e sceglierne una d'ufficio sarebbe indovinarla -- "
+                "fra il residenziale e il magazzino ψ_2 vale 0,3 e 0,8. Scegli la "
+                "categoria e le combinazioni si propongono"
+            )
+        nuove = combinazioni.aggiorna(
+            cfg.carichi.combinazioni,
+            combinazioni.azioni_dichiarate(cfg),
+            richiesta.categoria_uso,
+            azione_sismica=richiesta.azione_sismica,
+        )
+        cfg.carichi.combinazioni = nuove
+        scrivi_config(cfg, "POST /api/combinazioni", ["carichi.combinazioni"])
+        return {"combinazioni": [voce.model_dump(mode="json") for voce in nuove]}
 
     @app.post("/api/model/{tipo}")
     def genera_modello(tipo: str) -> dict[str, object]:
