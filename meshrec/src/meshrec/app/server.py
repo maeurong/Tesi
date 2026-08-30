@@ -189,11 +189,30 @@ def _contorno_del_volume(
 
     if griglia is None:
         griglia = meshio.read(percorso)
-    if "tetra" not in griglia.cells_dict:
+    # Il blocco si prende per unicita' e non per nome, come in
+    # pipeline._maglio_di_volume: `abaqus.write_vtu` ne scrive uno solo, e i
+    # nomi sono due -- `tetra` per C3D4, `tetra10` per C3D10, che e' il
+    # predefinito di TetConfig.element. Cercando `tetra` la vista del volume
+    # non si e' mai aperta sull'elemento predefinito, e nemmeno quella dei
+    # campi di soluzione, su file perfettamente validi.
+    tipi = sorted(griglia.cells_dict)
+    if len(tipi) != 1:
         raise ValueError(
-            f"{percorso.name} non contiene tetraedri: le celle sono {sorted(griglia.cells_dict)}"
+            f"{percorso.name} porta {len(tipi)} blocchi di celle ({tipi}) invece del solo "
+            "maglio di volume che lo step 9 scrive"
         )
-    tetraedri = griglia.cells_dict["tetra"]
+    tetraedri = np.asarray(griglia.cells_dict[tipi[0]])
+    # Le stesse quattro colonne che abaqus.boundary_faces prende, e per la
+    # stessa ragione scritta li': la topologia sta nei vertici, i sei nodi di
+    # lato di un C3D10 stanno a meta' degli spigoli e non definiscono ne'
+    # facce ne' adiacenze. In VTK come in Abaqus i vertici sono i primi
+    # quattro, ed e' la convenzione che volume.TETGEN_A_ABAQUS garantisce.
+    if tetraedri.shape[1] == 10:
+        tetraedri = tetraedri[:, :4]
+    if tetraedri.shape[1] != 4:
+        raise ValueError(
+            f"{percorso.name} non contiene tetraedri: le celle sono {tipi}"
+        )
     # quality._TET_FACES: la stessa convenzione, non una copia. E' privata, ma
     # da lei dipende il verso uscente delle facce e due copie di una
     # convenzione che decide un segno prima o poi divergono.
@@ -1465,9 +1484,11 @@ def create_app(
 
         Stessa strada del prior geometrico: `start_comando` e non `start`,
         perche' non c'e' un intervallo di step da percorrere. `POST
-        /api/step/13` non e' un ripiego -- il tetto di `from_step` e' 9, quindi
-        quella tratta faceva partire un sottoprocesso che moriva sulla
-        validazione della configurazione, dopo aver risposto 200.
+        /api/step/13` non e' un ripiego -- il tetto di `from_step` e' 12, quindi
+        quella tratta fa partire un sottoprocesso che muore sulla validazione
+        della configurazione, dopo aver risposto 200. Il tetto e' stato 9 fino
+        al 30/08/2026 e ora e' 12, ma il 13 resta fuori per la sua ragione, che
+        non e' il numero: e' l'unico step che paga un processo esterno vero.
         """
         corrente()
         non_in_sola_lettura("eseguire il solutore")

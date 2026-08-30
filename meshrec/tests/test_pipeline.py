@@ -88,10 +88,22 @@ def test_una_corsa_piena_sostituisce_una_chiave_estranea_gia_sul_disco(tmp_path)
     assert "99_estranea" not in metriche
 
 
-def test_from_step_beyond_tetrahedralize_is_rejected():
-    """Gli step 10 e 11 non hanno lavoro costoso da saltare: from_step si ferma a 9."""
+def test_la_ripresa_arriva_al_prior_e_si_ferma_prima_del_solutore():
+    """Il tetto di `from_step` era 9, e l'interfaccia non lo sapeva.
+
+    Il pannello esegue uno step alla volta assegnando `from_step = to_step =
+    numero`: con il tetto a 9 gli step 10, 11 e 12 venivano rifiutati dalla
+    validazione prima ancora di partire, e il pannello rispondeva «Input should
+    be less than or equal to 9». Erano tre step non eseguibili singolarmente in
+    un'interfaccia costruita per eseguirli uno alla volta.
+
+    Il 13 resta fuori, e non per simmetria: e' l'unico step che paga un
+    processo esterno vero, ed e' un'azione (`meshrec solve`), non una ripresa.
+    """
+    for numero in (9, 10, 11, 12):
+        assert config.RunConfig(from_step=numero, to_step=numero).from_step == numero
     with pytest.raises(ValidationError):
-        config.RunConfig(from_step=10)
+        config.RunConfig(from_step=13, to_step=13)
 
 
 @pytest.fixture(scope="module")
@@ -1677,3 +1689,98 @@ def test_una_corsa_intera_manda_lo_step_13_sul_ramo_del_telaio(tmp_path, monkeyp
     assert metriche["13_solve"]["solutore"] == "opensees"
     stato = {voce["chiave"]: voce for voce in steps.run_state(cfg.run.out_dir, cfg)}
     assert stato["13_solve"]["artefatto"] == "13_telaio.tcl"
+
+
+def test_riprendere_dallo_step_10_non_ritetraedrizza(run_dir, tmp_path, monkeypatch):
+    """«Qualità volume» non deve ripagare TetGen per contare gli elementi.
+
+    E' il motivo per cui il tetto di `from_step` si alza: senza la guardia sullo
+    step 9, alzarlo soltanto avrebbe reso lo step 10 eseguibile **rifacendo la
+    tetraedrizzazione**, cioe' i minuti che la ripresa esiste per non ripagare.
+    Su una scansione reale sono decine di secondi per un conteggio che costa
+    meno di uno.
+
+    La prova e' osservabile e non temporale: se la tetraedrizzazione parte, il
+    sostituto solleva.
+    """
+    import shutil
+
+    from meshrec.core import volume
+
+    out, _ = run_dir
+    copia = tmp_path / "corsa"
+    shutil.copytree(out, copia)
+
+    def _non_chiamarmi(*_args, **_kwargs):
+        raise AssertionError("lo step 10 non deve ritetraedrizzare")
+
+    monkeypatch.setattr(volume, "tetrahedralize_with_metrics", _non_chiamarmi)
+
+    cfg = config.load_config(copia / "config.yaml")
+    cfg.run.out_dir = copia
+    cfg.run.from_step = 10
+    cfg.run.to_step = 10
+
+    esito = pipeline.run(cfg)
+    assert esito["10_volume_quality"]["tets"] > 0
+
+
+def test_riprendere_dallo_step_11_riscrive_il_deck_dal_maglio_sul_disco(
+    run_dir, tmp_path, monkeypatch
+):
+    """Lo step 11 esporta: rilegge il maglio, non lo rigenera.
+
+    Lo step 11 ha bisogno di due cose che non sono in memoria quando la corsa
+    parte da li': il maglio di volume, che rilegge da 09_volume.vtu, e la
+    superficie da cui e' nato, che definisce il sistema di riferimento del
+    modello (`abaqus.align_to_axes`) e si ricarica con la stessa regola dello
+    step 9 -- 08_simplified.ply se la semplificazione e' accesa, altrimenti la
+    superficie riparata dello step 6.
+    """
+    import shutil
+
+    from meshrec.core import volume
+
+    out, _ = run_dir
+    copia = tmp_path / "corsa"
+    shutil.copytree(out, copia)
+    (copia / pipeline.DECK_FILENAME).unlink()
+
+    def _non_chiamarmi(*_args, **_kwargs):
+        raise AssertionError("lo step 11 non deve ritetraedrizzare")
+
+    monkeypatch.setattr(volume, "tetrahedralize_with_metrics", _non_chiamarmi)
+
+    cfg = config.load_config(copia / "config.yaml")
+    cfg.run.out_dir = copia
+    cfg.run.from_step = 11
+    cfg.run.to_step = 11
+
+    esito = pipeline.run(cfg)
+    assert esito["11_export"]["volume"] > 0
+    assert esito["11_export"]["element_type"] == cfg.tet.element
+    assert (copia / pipeline.DECK_FILENAME).exists()
+
+
+def test_riprendere_da_uno_step_di_valle_senza_il_maglio_lo_dichiara(run_dir, tmp_path):
+    """Il maglio assente e' un rifiuto che nomina il file, non un KeyError.
+
+    E' la stessa garanzia che `_ingresso_di_ripresa` da' per ogni altro
+    artefatto: chi riprende da uno step di valle in una cartella incompleta
+    deve leggere quale file manca e quale step lo scrive.
+    """
+    import shutil
+
+    out, _ = run_dir
+    copia = tmp_path / "corsa"
+    shutil.copytree(out, copia)
+    (copia / pipeline.ARTIFACTS[9]).unlink()
+
+    cfg = config.load_config(copia / "config.yaml")
+    cfg.run.out_dir = copia
+    cfg.run.from_step = 10
+    cfg.run.to_step = 10
+
+    with pytest.raises(ValueError) as caduta:
+        pipeline.run(cfg)
+    assert "09_volume.vtu" in str(caduta.value)

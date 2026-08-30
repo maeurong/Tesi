@@ -346,11 +346,12 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "solve":
         # Un'azione e non una ripresa, esattamente come `wall`. Lo step 13 non
-        # si ottiene con `run --from-step 13`, e il tetto di `from_step` resta
-        # 9 apposta: la ripresa serve a saltare lavoro geometrico costoso gia'
-        # fatto, e la coda di `pipeline.run` dallo step 9 in giu' non ha
-        # guardie per step, quindi una ripresa da 13 rifarebbe volume, deck e
-        # prior invece di risolvere soltanto.
+        # si ottiene con `run --from-step 13`, e il tetto di `from_step` si
+        # ferma a 12 apposta: la ripresa serve a saltare lavoro gia' fatto, e
+        # gli step 10, 11 e 12 nella coda di `pipeline.run` non hanno guardie
+        # per step, quindi una ripresa da 13 rifarebbe metriche, deck e prior
+        # invece di risolvere soltanto. Lo step 9 la guardia ce l'ha dal
+        # 30/08/2026, ed e' cio' che ha permesso al tetto di salire da 9 a 12.
         from meshrec.core import pipeline
 
         try:

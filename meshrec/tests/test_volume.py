@@ -85,6 +85,150 @@ def test_inverted_elements_are_a_blocking_error(monkeypatch):
         volume.tetrahedralize_with_metrics(vertices, faces, config.TetConfig())
 
 
+class _TetGenCheFallisce:
+    """TetGen che si interrompe con un messaggio scelto, senza raffinare nulla.
+
+    La diagnosi si esercita sul messaggio, che e' l'unica cosa che la libreria
+    dia: riprodurre davvero una superficie con strozzature sotto il millimetro
+    costerebbe una scansione reale e trenta secondi per prova.
+    """
+
+    def __init__(self, messaggio):
+        self._messaggio = messaggio
+
+    def __call__(self, *_args, **_kwargs):
+        return self
+
+    def tetrahedralize(self, **_opzioni):
+        raise RuntimeError(self._messaggio)
+
+
+def test_l_invasione_delle_facce_consiglia_nobisect_e_non_un_min_ratio_piu_alto(monkeypatch):
+    """`split_subface` a nobisect spento non e' un vincolo troppo severo.
+
+    Nel raffinamento di Delaunay una faccia di ingresso viene suddivisa anche
+    per **invasione** della sua sfera diametrale, e quella suddivisione ricorre
+    fino alla distanza locale fra lembi opposti della superficie: dove quella
+    distanza crolla, nessun valore del rapporto raggio-spigolo la ferma.
+    `docs/fase-1-min-ratio.md` lo misura su `lab_frame.pcd` -- 1,8 · 2,5 · 3,0 ·
+    4,0 · 6,0 e 12,0 falliscono tutti, e con `nobisect` la stessa superficie
+    converge a 1,8. Il consiglio «alza min_ratio» mandava l'utente a tarare per
+    ore un parametro gia' escluso come causa.
+
+    TetGen stessa dichiara questa diagnosi nel proprio sorgente
+    (`terminatetetgen`, codice 5): «Two very close input facets were detected.
+    Hint: use -Y option to avoid adding Steiner points in boundary». `-Y` e'
+    `nobisect`.
+    """
+    monkeypatch.setattr(
+        volume.tetgen,
+        "TetGen",
+        _TetGenCheFallisce("Internal TetGen error within `split_subface`."),
+    )
+    vertices, faces = synth.box_mesh(SIZE)
+
+    with pytest.raises(volume.RefinementFailedError) as caduta:
+        volume.tetrahedralize(
+            vertices, faces, None, min_ratio=1.8, max_steiner_points=-1, nobisect=False
+        )
+
+    messaggio = str(caduta.value)
+    assert "nobisect" in messaggio
+    # Il consiglio vecchio non deve sopravvivere accanto a quello nuovo: due
+    # rimedi contraddittori nello stesso messaggio non sono una diagnosi.
+    assert "Alza min_ratio" not in messaggio
+
+
+def test_a_nobisect_gia_acceso_l_invasione_non_e_piu_il_sospetto(monkeypatch):
+    """Con `nobisect` acceso TetGen non suddivide le facce di ingresso.
+
+    Consigliare di accendere una leva gia' accesa e' peggio di non consigliare
+    niente: manda a cercare il difetto dove non c'e'. Qui resta il rimedio sul
+    vincolo di qualita', che a quel punto e' di nuovo il sospetto principale.
+    """
+    monkeypatch.setattr(
+        volume.tetgen,
+        "TetGen",
+        _TetGenCheFallisce("Internal TetGen error within `split_subface`."),
+    )
+    vertices, faces = synth.box_mesh(SIZE)
+
+    with pytest.raises(volume.RefinementFailedError) as caduta:
+        volume.tetrahedralize(
+            vertices, faces, None, min_ratio=1.8, max_steiner_points=-1, nobisect=True
+        )
+
+    messaggio = str(caduta.value)
+    assert "Alza min_ratio" in messaggio
+    assert "accendi" not in messaggio
+
+
+def test_il_recupero_del_bordo_non_e_un_problema_di_qualita(monkeypatch):
+    """`recoversubfaces` fallisce prima che il raffinamento cominci.
+
+    E' il recupero delle facce di ingresso nella triangolazione di Delaunay: il
+    vincolo raggio-spigolo non e' ancora entrato in gioco, quindi consigliarlo
+    e' falso a prescindere dalla geometria. La causa tipica sono le
+    autointersezioni della superficie, e il rimedio sta a monte.
+    """
+    monkeypatch.setattr(
+        volume.tetgen,
+        "TetGen",
+        _TetGenCheFallisce("Internal TetGen error within `recoversubfaces`."),
+    )
+    vertices, faces = synth.box_mesh(SIZE)
+
+    with pytest.raises(volume.RefinementFailedError) as caduta:
+        volume.tetrahedralize(
+            vertices, faces, None, min_ratio=1.8, max_steiner_points=-1, nobisect=False
+        )
+
+    messaggio = str(caduta.value)
+    assert "Alza min_ratio" not in messaggio
+    assert "nobisect" not in messaggio
+
+
+def test_un_guasto_che_non_si_riconosce_non_viene_diagnosticato(monkeypatch):
+    """Un messaggio ignoto tiene il rimedio generico invece di inventarne uno.
+
+    Una diagnosi sbagliata costa piu' di nessuna diagnosi: e' il difetto che
+    queste righe correggono, e ripeterlo al contrario non sarebbe un progresso.
+    """
+    monkeypatch.setattr(
+        volume.tetgen,
+        "TetGen",
+        _TetGenCheFallisce("Internal TetGen error within `qualcosa_di_nuovo`."),
+    )
+    vertices, faces = synth.box_mesh(SIZE)
+
+    with pytest.raises(volume.RefinementFailedError) as caduta:
+        volume.tetrahedralize(
+            vertices, faces, None, min_ratio=1.8, max_steiner_points=-1, nobisect=False
+        )
+
+    assert "Alza min_ratio" in str(caduta.value)
+
+
+def test_l_errore_originale_di_tetgen_sopravvive_a_ogni_diagnosi(monkeypatch):
+    """Qualunque cosa il programma concluda, il messaggio grezzo resta leggibile.
+
+    E' cio' che permette di smentire la diagnosi: senza, un rimedio sbagliato
+    non sarebbe piu' contestabile da chi legge il registro.
+    """
+    vertices, faces = synth.box_mesh(SIZE)
+    for grezzo in (
+        "Internal TetGen error within `split_subface`.",
+        "Internal TetGen error within `recoversubfaces`.",
+        "Internal TetGen error within `qualcosa_di_nuovo`.",
+    ):
+        monkeypatch.setattr(volume.tetgen, "TetGen", _TetGenCheFallisce(grezzo))
+        with pytest.raises(volume.RefinementFailedError) as caduta:
+            volume.tetrahedralize(
+                vertices, faces, None, min_ratio=1.8, max_steiner_points=-1, nobisect=False
+            )
+        assert grezzo in str(caduta.value)
+
+
 def test_the_default_config_puts_no_ceiling_on_the_refinement():
     """Il tetto predefinito della libreria (100000) non deve tornare di nascosto."""
     assert config.TetConfig().max_steiner_points == -1

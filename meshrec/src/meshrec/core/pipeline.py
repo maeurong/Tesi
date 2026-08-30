@@ -71,13 +71,19 @@ ARTIFACTS: dict[int, str] = {
 
 # Nuvola da ricaricare come ingresso dello step che riparte (usata anche solo
 # per stimare la spaziatura quando lo step stesso legge il proprio artefatto).
-_RESUME_POINTS: dict[int, int] = {2: 1, 3: 2, 4: 3, 5: 4, 6: 4, 7: 4, 8: 4, 9: 4}
+_RESUME_POINTS: dict[int, int] = {
+    2: 1, 3: 2, 4: 3, 5: 4, 6: 4, 7: 4, 8: 4, 9: 4, 10: 4, 11: 4, 12: 4
+}
 
 # Mesh (vertici/facce) da ricaricare come ingresso dello step che riparte.
 # Lo step 7 non scrive un proprio artefatto (produce solo metriche), quindi
 # from_step=8 riparte anch'esso dalla superficie riparata dello step 6.
-# from_step=9 non e' qui: l'artefatto giusto dipende da cfg.simplify.enabled
-# (vedi run()), perche' lo step 8 scrive 08_simplified.ply solo se abilitato.
+# from_step da 9 in poi non e' qui: l'artefatto giusto dipende da
+# cfg.simplify.enabled (vedi run()), perche' lo step 8 scrive
+# 08_simplified.ply solo se abilitato. Vale per il 9 che la genera e per gli
+# step di valle che la rileggono -- lo step 11 ne ha bisogno perche' e' la
+# superficie, non i nodi del volume, a definire il sistema di riferimento del
+# modello (abaqus.align_to_axes).
 _RESUME_MESH: dict[int, int] = {6: 5, 7: 6, 8: 6}
 
 
@@ -559,12 +565,12 @@ def risolvi_corsa(cfg: PipelineConfig) -> dict[str, object]:
 
     Gemella di `calcola_prior`, e per la stessa ragione: lo step 13 e'
     un'AZIONE e non una ripresa. La ripresa (`cfg.run.from_step`) esiste per
-    saltare lavoro geometrico costoso gia' fatto, e si ferma a 9; qui non c'e'
-    niente da saltare, ci sono artefatti da rileggere -- il deck dello step 11 e
-    il maglio dello step 9 -- e un processo esterno da lanciare su di essi.
-    Alzare il tetto di `from_step` fino a 13 sarebbe la strada sbagliata: la
-    coda di `run()` dallo step 9 in giu' non ha guardie `if start <= n`, quindi
-    una «ripresa da 13» rifarebbe volume, metriche, deck e prior invece di
+    saltare lavoro gia' fatto, e si ferma a 12; qui non c'e' niente da saltare,
+    ci sono artefatti da rileggere -- il deck dello step 11 e il maglio dello
+    step 9 -- e un processo esterno da lanciare su di essi.
+    Alzare il tetto di `from_step` fino a 13 sarebbe la strada sbagliata: gli
+    step 10, 11 e 12 nella coda di `run()` non hanno guardie `if start <= n`,
+    quindi una «ripresa da 13» rifarebbe metriche, deck e prior invece di
     risolvere soltanto.
 
     Le metriche finiscono dove le scrive `run` (`metrics.json`, fuse con quelle
@@ -664,10 +670,13 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
     `08_simplified.ply` (per esempio perche' era disabilitata in quella
     corsa), la ripresa solleva `ValueError` invece di indovinare.
 
-    La ripresa arriva fino allo step 9 (tetraedrizzazione): `RunConfig.from_step`
-    e' vincolato a 9 (vedi `config.py`). Gli step 10 e 11 sono il calcolo delle
-    metriche di volume e l'esportazione del deck, senza lavoro costoso da
-    saltare, quindi vengono sempre rieseguiti, qualunque sia `from_step`.
+    La ripresa arriva fino allo step 12 (prior geometrico): `RunConfig.from_step`
+    e' vincolato a 12 (vedi `config.py`). Solo lo step 9 ha una guardia
+    `if start <= 9`, e riprendendo da piu' in la' rilegge il maglio da
+    `09_volume.vtu` invece di ritetraedrizzare. Gli step 10, 11 e 12 non hanno
+    guardia: sono metriche di volume, esportazione del deck e prior geometrico,
+    tutti senza lavoro costoso da saltare, e vengono rieseguiti a ogni corsa che
+    li comprende.
     """
     out = Path(cfg.run.out_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -775,12 +784,16 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
             registra(5, avvio, ARTIFACTS[5])
             if stop <= 5:
                 raise _FermataRichiesta
-        elif start == 9:
+        elif start >= 9:
             # lo step 8 scrive 08_simplified.ply solo se la semplificazione e'
             # abilitata: con from_step=9 la mesh valida a monte e' quella
             # dello step 8 se abilitata, altrimenti quella riparata dello
             # step 6 (predefinito), mai un ripiego generico sull'ultimo file
             # esistente.
+            # `>= 9` e non `== 9` da quando il tetto di from_step e' 12: lo
+            # step 11 pretende la stessa superficie con la stessa regola,
+            # perche' e' lei -- e non i nodi del volume -- a definire il
+            # sistema di riferimento del modello.
             resume_from = 8 if cfg.simplify.enabled else 6
             vertices, faces = _ingresso_di_ripresa(start, resume_from, out, _read_mesh)
         else:
@@ -817,19 +830,31 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
             if stop <= 8:
                 raise _FermataRichiesta
 
-        in_corso = 9
-        avvio = time.monotonic()
-        nodes, tets, step_metrics = volume.tetrahedralize_with_metrics(vertices, faces, cfg.tet)
-        metrics["09_tetrahedralize"] = step_metrics
-        # Il tipo va dichiarato: `write_vtu` non lo indovina dal numero di
-        # colonne, e il suo predefinito e' il lineare. Senza, un maglio
-        # quadratico finirebbe scritto come `tetra` e meshio rifiuterebbe la
-        # forma -- che e' il modo buono di sbagliare, ma solo perche' meshio
-        # controlla.
-        abaqus.write_vtu(out / ARTIFACTS[9], nodes, tets, element_type=cfg.tet.element)
-        registra(9, avvio, ARTIFACTS[9])
-        if stop <= 9:
-            raise _FermataRichiesta
+        if start <= 9:
+            in_corso = 9
+            avvio = time.monotonic()
+            nodes, tets, step_metrics = volume.tetrahedralize_with_metrics(
+                vertices, faces, cfg.tet
+            )
+            metrics["09_tetrahedralize"] = step_metrics
+            # Il tipo va dichiarato: `write_vtu` non lo indovina dal numero di
+            # colonne, e il suo predefinito e' il lineare. Senza, un maglio
+            # quadratico finirebbe scritto come `tetra` e meshio rifiuterebbe la
+            # forma -- che e' il modo buono di sbagliare, ma solo perche' meshio
+            # controlla.
+            abaqus.write_vtu(out / ARTIFACTS[9], nodes, tets, element_type=cfg.tet.element)
+            registra(9, avvio, ARTIFACTS[9])
+            if stop <= 9:
+                raise _FermataRichiesta
+        else:
+            # La guardia esiste per questo: il tetto di from_step e' salito a 12
+            # perche' l'interfaccia esegue uno step alla volta, e senza di essa
+            # «esegui lo step 10» avrebbe ritetraedrizzato -- su una scansione
+            # reale decine di secondi per un conteggio che ne costa meno di uno.
+            # `_maglio_di_volume` e' lo stesso lettore che il solutore usa: il
+            # blocco di celle si prende per unicita' e non per nome, perche' i
+            # nomi sono due (`tetra`, `tetra10`) e uno solo e' scritto.
+            nodes, tets = _ingresso_di_ripresa(start, 9, out, _maglio_di_volume)
 
         in_corso = 10
         avvio = time.monotonic()
