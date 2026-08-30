@@ -929,9 +929,9 @@ def esegui(
     if solutore.nome != "opensees":
         raise ValueError(
             f"solutore.nome = '{solutore.nome}': questo passo risolve un telaio "
-            "a fibre, che e' uno script di OpenSees e non un deck Abaqus -- non "
-            "c'e' un .inp da dare a CalculiX, e le grandezze del telaio (N, V, "
-            "M per elemento) non stanno in un .frd. La strada di CalculiX e' "
+            "a fibre, che è uno script di OpenSees e non un deck Abaqus -- non "
+            "c'è un .inp da dare a CalculiX, e le grandezze del telaio (N, V, "
+            "M per elemento) non stanno in un .frd. La strada di CalculiX è "
             "core/solve.py (risolvi), sul deck dello step 11"
         )
     binario = solve.eseguibile(solutore)

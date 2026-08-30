@@ -2,6 +2,7 @@
 
 import json
 import shutil
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -764,13 +765,18 @@ def test_uno_steps_json_troncato_non_impedisce_di_risolvere(
 def test_uno_step_13_rifiutato_resta_registrato_come_fallito(
     corsa_all_undici, tmp_path
 ):
-    """`solve.risolvi` rifiuta ogni nome che non sia calculix, e il rifiuto
-    non deve sparire dallo stato su disco: chi guarda la colonna deve vedere
-    che il tredici e' fallito, non che non e' mai partito."""
+    """Un rifiuto dello step 13 non deve sparire dallo stato su disco: chi
+    guarda la colonna deve vedere che il tredici e' fallito, non che non e' mai
+    partito.
+
+    Il rifiuto qui e' quello del ramo del telaio -- questa corsa e' un solido e
+    non dichiara `regioni`, quindi non ha sezioni da mettere nelle fibre -- e
+    non piu' quello di `solve.risolvi` contro il nome del solutore: da quando
+    `_step_telaio` esiste, `opensees` e' una strada che si percorre."""
     cfg = _copia_della_corsa(corsa_all_undici, tmp_path)
     cfg.solutore = config.SolutoreConfig(nome="opensees")
 
-    with pytest.raises(ValueError, match="core/opensees.py"):
+    with pytest.raises(ValueError, match="regioni"):
         pipeline.risolvi_corsa(cfg)
 
     assert steps.read_state(cfg.run.out_dir)["13_solve"]["esito"] == "fallito"
@@ -1522,3 +1528,152 @@ def test_senza_regioni_lo_step_11_non_rilegge_il_prior(tmp_path):
     testo = (cfg.run.out_dir / pipeline.DECK_FILENAME).read_text(encoding="ascii")
     assert "*ELSET" not in testo
     assert abaqus.CONTINUO_CONFINATO not in testo
+
+
+# --- Lo step 13 sul ramo del telaio -------------------------------------------
+def _sezione_di_prova() -> config.SezioneConfig:
+    """Una sezione dichiarata, senza armatura: qui si prova l'aggancio, non le barre."""
+    def materiale(nome, young, densita):
+        return config.MaterialeDichiarato(
+            material=config.Material(
+                name=nome, young=young, poisson=0.2, density=densita
+            ),
+            f_k=25.0, provenienza="a_mano", norma="banco di prova",
+        )
+
+    calcestruzzo = materiale("C25_30", 31_476.0, 2.5e-9)
+    return config.SezioneConfig(
+        calcestruzzo_confinato=calcestruzzo,
+        calcestruzzo_copriferro=calcestruzzo,
+        acciaio=materiale("B450C", 200_000.0, 7.85e-9),
+        armatura=None,
+    )
+
+
+def _corsa_a_telaio(tmp_path, *, regioni: bool = True):
+    """Una corsa col prior di un telaio a quattro membrature, e OpenSees scelto."""
+    cfg = _config_cubo(tmp_path)
+    _scrivi_prior_telaio(cfg, _TELAIO_QUATTRO_MEMBRATURE)
+    cfg.solutore = config.SolutoreConfig(nome="opensees")
+    if regioni:
+        cfg.regioni = {
+            f"M{indice}": config.RegioneConfig(
+                membratura=indice, sezione=_sezione_di_prova()
+            )
+            for indice in range(4)
+        }
+    return cfg
+
+
+_ESITO_FINTO = {
+    "eseguito": True,
+    "solutore": "opensees",
+    "controlli": {"reazioni": {"passato": True}},
+    "frequenze_hz": [12.0],
+}
+
+
+def test_risolvi_corsa_su_opensees_costruisce_il_telaio_e_lo_da_al_solutore(
+    tmp_path, monkeypatch
+):
+    """L'anello che mancava: la corsa arriva a un telaio risolto da OpenSees.
+
+    `opensees.esegui` è finto -- il lancio vero è provato in
+    tests/test_opensees.py, col binario -- ma il telaio che riceve è quello
+    costruito dal prior di questa corsa, non un sostituto: è la parte che
+    questo aggancio deve fare bene.
+    """
+    from meshrec.core import opensees, pipeline
+
+    cfg = _corsa_a_telaio(tmp_path)
+    visti = {}
+
+    def finto(out_dir, modello, solutore, *, casi_di_carico, modi=None):
+        visti.update(
+            out_dir=Path(out_dir), nodi=len(modello.nodi),
+            elementi=len(modello.elementi), casi=list(casi_di_carico),
+            solutore=solutore.nome,
+        )
+        return dict(_ESITO_FINTO)
+
+    monkeypatch.setattr(opensees, "esegui", finto)
+
+    esito = pipeline.risolvi_corsa(cfg)
+
+    assert esito["eseguito"] is True
+    assert visti["solutore"] == "opensees"
+    assert visti["out_dir"] == Path(cfg.run.out_dir)
+    assert visti["nodi"] == 80 and visti["elementi"] == 80
+    assert visti["casi"] == [cfg.analysis.step_name]
+    metriche = json.loads(
+        (Path(cfg.run.out_dir) / pipeline.METRICS_FILENAME).read_text(encoding="utf-8")
+    )
+    assert metriche["13_solve"]["controlli"]["reazioni"]["passato"] is True
+
+
+def test_il_telaio_senza_regioni_dichiarate_si_ferma_e_dice_perche(tmp_path):
+    """Il telaio a fibre ha bisogno delle sezioni: senza `regioni` non c'è un
+    materiale da mettere nelle fibre, e un telaio senza materiali non è un
+    telaio con materiali predefiniti."""
+    from meshrec.core import pipeline
+
+    cfg = _corsa_a_telaio(tmp_path, regioni=False)
+
+    with pytest.raises(ValueError, match="regioni"):
+        pipeline.risolvi_corsa(cfg)
+
+
+def test_il_telaio_chiede_il_passo_modale_solo_se_i_carichi_lo_dichiarano(
+    tmp_path, monkeypatch
+):
+    """Il blocco modale è quello che `carichi.modale` dichiara, con i suoi
+    modi: gli stessi che il deck del solido chiede. Chiederlo sempre sarebbe
+    un'analisi che nessuno ha configurato, non chiederlo mai lascerebbe due dei
+    sette verdetti non verificati per costruzione."""
+    from meshrec.core import opensees, pipeline
+
+    cfg = _corsa_a_telaio(tmp_path)
+    cfg.carichi.modale = config.Modale(modi=7)
+    visti = {}
+    monkeypatch.setattr(
+        opensees, "esegui",
+        lambda out, modello, solutore, *, casi_di_carico, modi=None: (
+            visti.update(casi=list(casi_di_carico), modi=modi) or dict(_ESITO_FINTO)
+        ),
+    )
+
+    pipeline.risolvi_corsa(cfg)
+
+    assert visti["casi"] == [cfg.analysis.step_name, "MODALE"]
+    assert visti["modi"] == 7
+
+
+def test_una_corsa_intera_manda_lo_step_13_sul_ramo_del_telaio(tmp_path, monkeypatch):
+    """`run` con `to_step=13` e OpenSees scelto non deve finire su CalculiX.
+
+    L'instradamento è nello stesso posto per le due vie che arrivano allo step
+    13 -- la corsa intera e il comando `solve` -- o una corsa a telaio
+    risolverebbe il deck del solido col solutore sbagliato, e il rifiuto
+    arriverebbe da `solve.risolvi` invece che dal ramo giusto.
+    """
+    from meshrec.core import pipeline, solve
+
+    def non_deve_partire(*_argomenti, **_chiavi):
+        raise AssertionError("CalculiX è partito su una corsa a telaio")
+
+    monkeypatch.setattr(solve, "risolvi", non_deve_partire)
+    visti = {}
+    monkeypatch.setattr(
+        pipeline, "_step_telaio",
+        lambda out, cfg: (visti.update(out=Path(out)), dict(_ESITO_FINTO))[1],
+    )
+    cfg = _config_cubo(tmp_path)
+    cfg.run.to_step = 13
+    cfg.solutore = config.SolutoreConfig(nome="opensees")
+
+    metriche = pipeline.run(cfg)
+
+    assert visti["out"] == Path(cfg.run.out_dir)
+    assert metriche["13_solve"]["solutore"] == "opensees"
+    stato = {voce["chiave"]: voce for voce in steps.run_state(cfg.run.out_dir, cfg)}
+    assert stato["13_solve"]["artefatto"] == "13_telaio.tcl"
