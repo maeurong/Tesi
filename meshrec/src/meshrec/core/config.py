@@ -156,25 +156,22 @@ class InputConfig(_ModelloBase):
     scale: float = Field(
         default=1.0,
         gt=0.0,
-        description="fattore verso i mm",
         title="fattore di scala verso i millimetri",
     )
     max_points: int = Field(default=20_000_000, gt=0, title="punti massimi letti dal file")
     expected_size: tuple[float, float, float] | None = Field(
         default=None,
         title="dimensioni reali misurate",
-        description="dimensioni reali misurate del muro [mm], per il controllo di scala",
+        description="il controllo di scala dello step 1 le confronta con l'ingombro letto",
     )
     size_tolerance: float = Field(
         default=0.2,
         gt=0.0,
-        description="scarto relativo ammesso",
         title="scarto relativo ammesso sul controllo di scala",
     )
     spacing_sample: int = Field(
         default=20_000,
         gt=1,
-        description="punti campionati per la spaziatura",
         title="punti campionati per stimare la spaziatura",
     )
     seed: int = Field(default=0, title="seme del campionamento")
@@ -203,7 +200,6 @@ class SegmentConfig(_ModelloBase):
     plane_distance_factor: float = Field(
         default=3.0,
         gt=0.0,
-        description="x spaziatura media",
         title="distanza dal piano, in multipli della spaziatura",
     )
     plane_max_count: int = Field(default=4, ge=0, title="piani estratti al massimo")
@@ -216,14 +212,13 @@ class SegmentConfig(_ModelloBase):
     cluster_eps_factor: float = Field(
         default=4.0,
         gt=0.0,
-        description="x spaziatura media",
         title="raggio del gruppo, in multipli della spaziatura",
     )
     cluster_min_points: int = Field(default=50, gt=0, title="punti minimi perché un gruppo esista")
     cluster_index: int = Field(
         default=0,
         ge=0,
-        description="0 = cluster più numeroso",
+        description="0 è il gruppo più numeroso",
         title="quale gruppo si tiene",
     )
 
@@ -233,7 +228,7 @@ class DownsampleConfig(_ModelloBase):
 
     voxel_size: float | None = Field(
         default=None,
-        description="None = 2 x spaziatura media",
+        description="vuoto: due volte la spaziatura media",
         title="lato del voxel [mm]",
     )
     voxel_factor: float = Field(
@@ -260,8 +255,8 @@ class SurfaceConfig(_ModelloBase):
         le=14,
         title="profondità dell'ottree di Poisson",
         description=(
-            "profondità dell'ottree del solutore Poisson: più alta, superficie più "
-            "fitta; su muro, 9 -> 8 porta i triangoli da 908.118 a 221.369"
+            "più alta, superficie più fitta: su muro, 9 -> 8 porta i triangoli "
+            "da 908.118 a 221.369"
         ),
     )
     poisson_width: float = Field(default=0.0, ge=0.0, title="lato della cella più fine [mm]")
@@ -271,7 +266,6 @@ class SurfaceConfig(_ModelloBase):
         ge=0.0,
         lt=1.0,
         title="quantile di densità sotto cui i vertici si scartano",
-        description="quantile di densità sotto il quale i vertici sono scartati",
     )
     poisson_n_threads: int = Field(
         default=1, description="thread per il solutore Poisson; 1 = riproducibile, -1 = automatico",
@@ -305,7 +299,6 @@ class SimplifyConfig(_ModelloBase):
     remesh_target_len_pct: float = Field(
         default=1.0,
         gt=0.0,
-        description="percentuale della diagonale",
         title="lato del triangolo, in percentuale della diagonale",
     )
     taubin_iterations: int = Field(default=0, ge=0, title="passate di lisciatura Taubin")
@@ -319,8 +312,8 @@ class TetConfig(_ModelloBase):
         gt=0.0,
         title="rapporto raggio-spigolo massimo chiesto a TetGen",
         description=(
-            "rapporto raggio-spigolo massimo: valori più bassi danno elementi più "
-            "regolari, ma il raffinamento può non convergere su geometrie difficili. "
+            "valori più bassi danno elementi più regolari, ma il raffinamento può "
+            "non convergere su geometrie difficili. "
             "Sul muro di riferimento 1.6 e valori inferiori interrompono TetGen con un "
             "errore interno mentre 1.7 converge: il predefinito 1.8 non è quindi il "
             "valore più severo che porta a termine il lavoro, ma quello che tiene un "
@@ -331,7 +324,6 @@ class TetConfig(_ModelloBase):
     max_volume: float | None = Field(
         default=None,
         gt=0.0,
-        description="volume massimo elemento [mm^3]",
         title="volume massimo dell'elemento [mm^3]",
     )
     max_steiner_points: int = Field(
@@ -339,7 +331,7 @@ class TetConfig(_ModelloBase):
         ge=-1,
         title="punti che TetGen può aggiungere",
         description=(
-            "punti che TetGen può aggiungere per raffinare; -1 = nessun limite. "
+            "-1 = nessun limite. "
             "Il predefinito della libreria tetgen è 100000: su geometrie a scala "
             "reale quel tetto viene raggiunto e il raffinamento si ferma li, "
             "restituendo una mesh troncata che nessuna metrica segnalava"
@@ -349,7 +341,6 @@ class TetConfig(_ModelloBase):
         default=False,
         title="vieta a TetGen di suddividere le facce di ingresso",
         description=(
-            "vieta a TetGen di suddividere le facce della superficie di ingresso. "
             "Serve dove la scala locale della superficie è minuscola: la "
             "suddivisione per invasione ricorre fino alla distanza fra lembi "
             "opposti, e su lab_frame.pcd, che ha strozzature sotto il millimetro, "
@@ -378,8 +369,8 @@ class TetConfig(_ModelloBase):
         default="C3D10",
         title="elemento del maglio di volume",
         description=(
-            "elemento del maglio di volume. C3D10 è il tetraedro quadratico ed è "
-            "il predefinito: il manuale CalculiX dice del lineare «not suited for "
+            "C3D10 è il tetraedro quadratico ed è il predefinito: il manuale "
+            "CalculiX dice del lineare «not suited for "
             "structural calculations... the element is too stiff», e la suite di "
             "verifica ufficiale non contiene un solo deck C3D4 su 610. C3D4 resta "
             "dichiarabile perché serve a misurare quanto quella rigidità costi su "
@@ -595,7 +586,7 @@ class SolutoreConfig(_ModelloBase):
         default="calculix",
         title="motore di calcolo",
         description=(
-            "motore di calcolo dello step 13. Enumerazione chiusa e non testo "
+            "quale motore risolve lo step 13. Enumerazione chiusa e non testo "
             "libero: un nome che nessuno scrittore di deck conosce fallirebbe "
             "soltanto allo step 13, cioè dopo l'intera elaborazione"
         ),
@@ -604,7 +595,7 @@ class SolutoreConfig(_ModelloBase):
         default=None,
         title="percorso dell'eseguibile",
         description=(
-            "percorso dell'eseguibile. Solo None dichiara «cercalo nel PATH», "
+            "il campo lasciato vuoto dichiara «cercalo nel PATH», "
             "che è il caso normale di una macchina dove il solutore è "
             "installato a sistema: la stringa vuota non è quella dichiarazione, "
             "è la cartella corrente, ed è rifiutata insieme a ogni directory "
@@ -720,8 +711,7 @@ class WallConfig(_ModelloBase):
         gt=0.0,
         title="lato della cella, in multipli della spaziatura",
         description=(
-            "lato della cella quadrata, in multipli della spaziatura media. E' il "
-            "«metodo delle colonne» di docs/fase-1-tolleranza-set.md, dove il "
+            "È il «metodo delle colonne» di docs/fase-1-tolleranza-set.md, dove il "
             "fattore 4 è misurato e non scelto: con una cella larga quanto la "
             "spaziatura la griglia diventa più fine dei triangoli della faccia e "
             "una colonna su dieci risulta vuota per puro artefatto di griglia"
@@ -732,8 +722,7 @@ class WallConfig(_ModelloBase):
         gt=1,
         title="punti campionati per la spaziatura locale",
         description=(
-            "punti campionati per stimare la spaziatura locale di ogni regione, "
-            "stessa semantica di input.spacing_sample ma per il riempimento della "
+            "stessa semantica del campionamento dello step 1, ma per il riempimento della "
             "sezione: la spaziatura del pezzo intero non descrive una regione "
             "campionata più rada (più lontana dallo scanner, parzialmente "
             "occlusa), e usarla al posto di quella locale sposta la soglia sulla "
@@ -748,8 +737,8 @@ class WallConfig(_ModelloBase):
         lt=1.0,
         title="scarto relativo entro cui lo spessore è lo stesso",
         description=(
-            "scarto relativo entro cui due celle adiacenti contano come «stesso "
-            "spessore», e quindi come stessa membratura. E' la forma numerica di "
+            "due celle adiacenti dentro questo scarto sono la stessa membratura. "
+            "È la forma numerica di "
             "«quasi costante»: le membrature sono le regioni connesse a spessore "
             "quasi costante, e questa è l'unica soglia della scomposizione"
         ),
@@ -759,8 +748,7 @@ class WallConfig(_ModelloBase):
         gt=0,
         title="celle minime perché una regione sia una membratura",
         description=(
-            "celle minime perché una regione connessa sia una membratura. Sotto "
-            "questo numero la regione è rumore di griglia e non ha abbastanza "
+            "sotto questo numero la regione è rumore di griglia e non ha abbastanza "
             "celle perché una direzione principale sia stimabile"
         ),
     )
@@ -781,8 +769,8 @@ class WallConfig(_ModelloBase):
         le=1.0,
         title="frazione minima di punti perché un piano sia il pavimento",
         description=(
-            "frazione minima dei punti perché un piano quasi orizzontale sia il "
-            "pavimento e non la faccia superiore di una membratura. Le due "
+            "un piano quasi orizzontale ed esteso è il pavimento, non la faccia "
+            "superiore di una membratura. Le due "
             "condizioni valgono insieme: orizzontale e esteso"
         ),
     )
@@ -886,8 +874,7 @@ class WallConfig(_ModelloBase):
         gt=0.0,
         title="passo del conteggio di celle, in multipli della spaziatura",
         description=(
-            "passo del conteggio di celle con cui si misura il volume "
-            "dell'unione, in multipli della spaziatura media. Più fine, più "
+            "con questo passo si misura il volume dell'unione. Più fine, più "
             "lento e più preciso: l'errore di discretizzazione viene riportato "
             "accanto al risultato, non nascosto"
         ),

@@ -4274,3 +4274,39 @@ def test_un_rifiuto_su_un_campo_senza_etichetta_resta_la_chiave(cliente):
     with pytest.raises(ValidationError) as caduta:
         Riga(anonimo=9)
     assert "anonimo" in _rifiuto_leggibile(caduta.value)
+
+
+def test_l_aiuto_non_ripete_l_etichetta(cliente):
+    """L'etichetta dice che cos'è il campo, l'aiuto dice il resto: sono due
+    cose diverse, e a video stanno una sotto l'altra.
+
+    Trovato guardando in Chrome: sotto «elemento del maglio di volume» c'era
+    scritto «elemento del maglio di volume. C3D10 è il tetraedro quadratico...»
+    -- la stessa frase due volte, una dentro l'altra.
+    """
+    corpo = cliente.get("/api/schema").json()
+    doppioni = set()
+    for voce in corpo.values():
+        for blocco, campi in voce["campi"].items():
+            for nome, campo in campi.items():
+                etichetta = (campo.get("etichetta") or "").strip().lower()
+                aiuto = (campo.get("description") or "").strip().lower()
+                if etichetta and aiuto and aiuto.startswith(etichetta[: max(len(etichetta) - 6, 8)]):
+                    doppioni.add(f"{blocco}.{nome}")
+    assert not doppioni, "l'aiuto ricomincia con l'etichetta: " + ", ".join(sorted(doppioni))
+
+
+def test_nessun_aiuto_mostra_un_letterale_di_python(cliente):
+    """`None` e `True` sono come si scrivono in python, non come si legge una
+    casella vuota: nell'aiuto di `voxel_size` c'era «None = 2 x spaziatura
+    media», e chi apre il programma non ha nessun modo di battere `None`.
+    """
+    corpo = cliente.get("/api/schema").json()
+    guasti = {
+        f"{blocco}.{nome}"
+        for voce in corpo.values()
+        for blocco, campi in voce["campi"].items()
+        for nome, campo in campi.items()
+        if re.search(r"\b(None|True|False)\b", campo.get("description") or "")
+    }
+    assert not guasti, "un letterale di python nell'aiuto: " + ", ".join(sorted(guasti))
