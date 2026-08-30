@@ -745,6 +745,22 @@ def test_risolvere_due_volte_di_fila_rifa_e_lascia_lo_stato_coerente(
     assert salvato["11_export"]["esito"] == "riuscito", "la seconda corsa ha toccato l'undici"
 
 
+def test_uno_steps_json_troncato_non_impedisce_di_risolvere(
+    corsa_all_undici, tmp_path, monkeypatch
+):
+    """Uno stato su disco a meta' non e' uno stato valido e non si legge come
+    tale: `steps.read_state` lo tratta come vuoto, e risolvere lo riscrive
+    intero invece di fallire sulla sua rilettura."""
+    monkeypatch.setattr(solve.shutil, "which", lambda _nome: None)
+    cfg = _copia_della_corsa(corsa_all_undici, tmp_path)
+    stato = cfg.run.out_dir / steps.STATE_FILENAME
+    stato.write_text('{"11_export": {"impronta"', encoding="utf-8")
+
+    pipeline.risolvi_corsa(cfg)
+
+    assert json.loads(stato.read_text(encoding="utf-8"))["13_solve"]["esito"] == "riuscito"
+
+
 def test_uno_step_13_rifiutato_resta_registrato_come_fallito(
     corsa_all_undici, tmp_path
 ):

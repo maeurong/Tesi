@@ -358,7 +358,7 @@ def _misure_dell_esportazione(out: Path) -> dict[str, object]:
     if not isinstance(esportazione, dict):
         raise ValueError(
             f"{METRICS_FILENAME} non porta le misure dello step 11 (chiave "
-            "'11_export'): questa corsa non e' arrivata al deck. Esegui lo step 11"
+            "'11_export'): questa corsa non è arrivata al deck. Esegui lo step 11"
         )
     mancanti = [chiave for chiave in _CHIAVI_DELL_ESPORTAZIONE if chiave not in esportazione]
     if mancanti:

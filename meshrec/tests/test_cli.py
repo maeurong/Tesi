@@ -391,6 +391,32 @@ def test_il_comando_solve_col_binario_assente_lo_dice_prima_di_cominciare(
     assert "Traceback" not in err
 
 
+def test_il_comando_solve_riporta_codice_e_coda_di_un_binario_che_fallisce(
+    tmp_path, capsys, monkeypatch
+):
+    """Il codice d'uscita non e' il segnale -- `ccx` esce 201 quando funziona --
+    ma quando la verifica boccia, il codice e la coda di cio' che il binario ha
+    scritto sono le due sole cose da cui si capisce perche'. Passano da
+    `solve.verifica`, che le mette nel motivo, fino a video."""
+    from meshrec.core import solve
+
+    percorso = _corsa_col_deck(tmp_path)
+    monkeypatch.setattr(solve.shutil, "which", lambda _nome: "/usr/bin/ccx")
+
+    class _Processo:
+        returncode = 127
+        stdout = b""
+        stderr = b"error while loading shared libraries: libgomp.so.1\n"
+
+    monkeypatch.setattr(solve.subprocess, "run", lambda *_a, **_k: _Processo())
+
+    assert cli.main(["solve", str(percorso)]) == 1
+    err = capsys.readouterr().err
+    assert "127" in err
+    assert "shared libraries" in err
+    assert "Traceback" not in err
+
+
 def test_il_comando_solve_propaga_il_rifiuto_di_opensees_per_intero(
     tmp_path, capsys, monkeypatch
 ):
