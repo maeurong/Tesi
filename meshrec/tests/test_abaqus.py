@@ -3464,3 +3464,50 @@ def test_le_combinazioni_entrano_dopo_i_casi_singoli_e_prima_del_modale(
     posizioni = [testo.index(f"** NOME PASSO: {nome}") for nome in
                  ("GRAVITA", "SPINTA_ORIZZONTALE", "PUNTUALE", "SLU", "MODALE")]
     assert posizioni == sorted(posizioni), posizioni
+
+
+def test_una_combinazione_con_due_distribuiti_scrive_due_pressioni_nel_passo(
+    tmp_path, griglia_mesh
+):
+    """Due pressioni in un passo solo, ciascuna scalata dal proprio coefficiente.
+
+    E' la ragione per cui `_passo_statico` prende una **tupla** di pressioni
+    invece di una sola: col parametro singolo la seconda superficie della
+    combinazione non era esprimibile, e sarebbe sparita senza un errore.
+
+    Le superfici dei passi precedenti restano azzerate prima delle proprie,
+    nella stessa card: e' la rete di #84, e in un passo di combinazione i
+    distribuiti precedenti sono **tutti**, non quelli fino all'indice.
+    """
+    nodi, tetraedri = griglia_mesh
+    selettori = {
+        "TETTO": config.SelettoreBox(
+            tipo="box", min=(-1.0, -1.0, SIZE[2] - 1.0), max=(1e9, 1e9, 1e9)),
+        "FIANCO": config.SelettoreBox(
+            tipo="box", min=(-1.0, SIZE[1] - 1.0, 40.0), max=(1e9, 1e9, 1e9)),
+    }
+    carichi = config.CarichiConfig(
+        distribuiti=(
+            config.CaricoDistribuito(nome="NEVE", selettore="TETTO", pressione=0.25),
+            config.CaricoDistribuito(nome="VENTO", selettore="FIANCO", pressione=0.5),
+        ),
+        combinazioni=(
+            config.Combinazione(
+                nome="SLU", tipo="slu_fondamentale",
+                termini=(("GRAVITA", 1.3), ("NEVE", 1.5), ("VENTO", 1.05)),
+                proposta=True),
+        ),
+    )
+    percorso = tmp_path / "m.inp"
+    abaqus.export_model(
+        percorso, tmp_path / "m.vtu", nodi, tetraedri,
+        config.AnalysisConfig(material=MATERIALE, set_tolerance_factor=0.5),
+        TET_LINEARE, reference=nodi, carichi=carichi, selettori=selettori,
+    )
+
+    passo = _passo_del_deck(percorso.read_text(encoding="ascii"), "SLU")
+    assert "NEVE, P, 0.375" in passo
+    assert "VENTO, P, 0.525" in passo
+    # e prima delle proprie, le stesse superfici a zero: la rete di #84
+    assert passo.index("NEVE, P, 0.0") < passo.index("NEVE, P, 0.375")
+    assert passo.index("VENTO, P, 0.0") < passo.index("VENTO, P, 0.525")
