@@ -559,16 +559,24 @@ function ragioneDelPassaggio(steps) {
 // dentro `mostraAnalisi`.
 function aggiornaPassaggio() {
   const { bloccato, pronto, ragione } = ragioneDelPassaggio(ultimoStato);
-  for (const [identificativo, spento] of [["vai-analisi", bloccato], ["risolvi", !pronto]]) {
+  // Il passaggio guarda il solo prior: si entra nella schermata anche con un
+  // solutore che non c'e', ed e' li' che si legge dove prenderlo. Il comando no:
+  // mandare il deck a un binario assente e' un clic che fallisce, e la ragione
+  // ce l'ha gia' in mano `solve.verifica`.
+  const solutore = ragioneDelSolutore(datiAnalisi);
+  for (const [identificativo, spento] of [
+    ["vai-analisi", bloccato], ["risolvi", !pronto || !solutore.pronto],
+  ]) {
     const bottone = document.getElementById(identificativo);
     if (spento) bottone.setAttribute("aria-disabled", "true");
     else bottone.removeAttribute("aria-disabled");
   }
   // La stessa frase sotto tutti e due, e da un solo posto: il passaggio e il
-  // comando parlano dello stesso prior.
-  for (const identificativo of ["vai-analisi-ragione", "risolvi-ragione"]) {
-    document.getElementById(identificativo).textContent = ragione;
-  }
+  // comando parlano dello stesso prior. Il comando ne porta una seconda, che il
+  // passaggio non ha: il verdetto sul solutore, che riguarda lui solo.
+  document.getElementById("vai-analisi-ragione").textContent = ragione;
+  document.getElementById("risolvi-ragione").textContent =
+    [ragione, solutore.ragione].filter(Boolean).join(" ");
 }
 
 // Che cosa dire nello stadio del modello, che e' l'unico dei quattro a poter
@@ -596,6 +604,8 @@ function testoDelloStadioModello(steps) {
 
 function aggiornaStadi() {
   document.getElementById("stadio-modello").textContent = testoDelloStadioModello(ultimoStato);
+  disegnaAnalisi();
+  rileggiSeServe();
 }
 
 // Il fuoco segue le schermate. Nascondere quella che tiene il cursore lo butta
@@ -613,6 +623,11 @@ function mostraAnalisi() {
   // ma non porta sul vuoto.
   if (ragioneDelPassaggio(ultimoStato).bloccato) return;
   mostraSchermata("analisi");
+  // Entrando si rilegge sempre, anche se lo stato degli step non e' cambiato:
+  // il disco puo' essersi mosso sotto (un solutore installato nel frattempo, il
+  // config.yaml corretto a mano), e una schermata che si apre su un carico
+  // vecchio mostra numeri che nessuno sta piu' confermando.
+  firmaAnalisi = null;
   // Dopo aver mostrato e prima del fuoco: aperta senza corsa, la riga viva dello
   // stadio non e' mai passata da `disegnaStep` e resterebbe quella del markup.
   aggiornaStadi();
@@ -622,6 +637,659 @@ function mostraAnalisi() {
 function mostraPipeline() {
   mostraSchermata("lavoro");
   document.getElementById("pipeline-titolo").focus();
+}
+
+// --- I quattro stadi della schermata dell'analisi ---------------------------
+//
+// Tutto cio' che queste quattro schede mostrano arriva da `/api/analisi`, che
+// e' una tratta sola: la schermata si apre tutta insieme, e ogni fetch in piu'
+// sarebbe un modo in piu' di restare vuoti in silenzio. Nessun numero si
+// calcola qui -- li producono `core/solve.py`, `core/armatura.py`,
+// `core/combinazioni.py` e il prior dello step 12 -- e ogni numero esce con
+// accanto il proprio controllo o, dove non c'e', il motivo che nomina lo step
+// o la decisione mancante (PRODUCT.md:170).
+//
+// `datiAnalisi` e `motivoAnalisi` sono i due esiti possibili della richiesta, e
+// sono esclusivi. Tutti e due a null significa «non ancora chiesta»: in quel
+// caso le schede NON si toccano, perche' lo stato vuoto del markup e' gia'
+// quello giusto e riscriverlo lo distruggerebbe. E' la stessa lezione che
+// questo file ha gia' pagato tre volte sulla regione role="alert".
+let datiAnalisi = null;
+let motivoAnalisi = null;
+
+// Un numero e la sua unita', o la dichiarazione che non c'e'. `numeroDelCampo`
+// rende null su cio' che non e' finito: «NaN mm» a video sarebbe un numero
+// inesistente vestito da misura.
+function cifra(valore, formato = { maximumFractionDigits: 1 }) {
+  return numeroDelCampo(valore, formato) ?? "non misurata";
+}
+
+function misura(valore, unita, formato = { maximumFractionDigits: 1 }) {
+  const scritto = numeroDelCampo(valore, formato);
+  return scritto === null ? "non misurata" : `${scritto} ${unita}`;
+}
+
+// Le righe di una tabella di dati, dentro il proprio contenitore che scorre.
+// tabindex="0" sul contenitore per la stessa ragione del registro e della
+// galleria: una tabella che scorre e non contiene niente su cui il fuoco possa
+// posarsi non si raggiunge da tastiera (WCAG 2.1.1, livello A).
+function tabellaDiDati(intestazioni, righe) {
+  const tavola = document.createElement("table");
+  const capo = document.createElement("tr");
+  capo.append(...intestazioni.map((testo) => elemento("th", { textContent: testo, scope: "col" })));
+  tavola.append(capo);
+  for (const { celle, classe } of righe) {
+    const riga = document.createElement("tr");
+    if (classe) riga.className = classe;
+    riga.append(...celle.map((testo) => elemento("td", { textContent: testo })));
+    tavola.append(riga);
+  }
+  const contenitore = document.createElement("div");
+  contenitore.className = "tabella-dati";
+  contenitore.setAttribute("tabindex", "0");
+  contenitore.append(tavola);
+  return contenitore;
+}
+
+// Se il solutore scelto puo' davvero risolvere, e perche' no.
+//
+// Tre stati e non due: «non installato» e «installato ma non funziona» sono due
+// diagnosi diverse -- la prima si chiude scaricando un programma, la seconda no
+// -- e confonderle manda a cercare nel posto sbagliato. La distinzione la fa
+// `solve.verifica`, che il binario lo ESEGUE, perche' «c'e'» non e' «funziona».
+//
+// `dati` a null e' «non ancora chiesto», e non spegne niente: un comando spento
+// per una verifica che non e' ancora tornata sarebbe un rifiuto senza motivo.
+function ragioneDelSolutore(dati) {
+  const referto = dati?.verifica;
+  if (referto == null) return { pronto: true, ragione: "" };
+  const nome = referto.solutore;
+  if (referto.disponibile !== true) {
+    const dove = dati.solutori?.[nome]?.dove_prenderlo ?? "";
+    return {
+      pronto: false,
+      ragione: `Il solutore scelto (${nome}) non è installato. ${dove}`.trim(),
+    };
+  }
+  if (referto.funziona !== true) {
+    return {
+      pronto: false,
+      ragione: `Il solutore scelto (${nome}) c'è ma non funziona: ${referto.motivo ?? ""}`.trim(),
+    };
+  }
+  return { pronto: true, ragione: `Solutore ${nome} verificato: ${referto.percorso}.` };
+}
+
+// Il menu del solutore, e accanto a ciascuna voce se quel solutore c'e'.
+//
+// Le voci restano tutte scegliibili e nessuna e' spenta: la scelta e' una
+// dichiarazione della configurazione (`solutore.nome`), e un motore si sceglie
+// anche prima di installarlo. Quello che non si fa e' offrirla al buio: ogni
+// voce dice se il proprio binario e' stato trovato e dove, e scegliendone uno
+// che non c'e' il comando qui sotto si spegne all'istante con la propria
+// ragione, che porta dove prenderlo.
+//
+// Scrive con `scriviParametro`, cioe' per la stessa strada dei parametri del
+// pannello: una seconda strada verso `PUT /api/config` sarebbe una seconda
+// cosa da tenere allineata (l'ordine fra risposte, il ripristino su rifiuto, la
+// riscrittura del valore accettato).
+function menuDelSolutore(dati, ordine) {
+  const riga = document.createElement("div");
+  riga.className = "campo";
+  const etichetta = elemento("label", { textContent: "motore di calcolo" });
+  etichetta.setAttribute("for", "campo-solutore-nome");
+  const menu = document.createElement("select");
+  menu.id = "campo-solutore-nome";
+  for (const [nome, voce] of Object.entries(dati.solutori ?? {})) {
+    const dove = voce.disponibile ? `installato — ${voce.origine}: ${voce.percorso}` : "non installato";
+    const scelta = elemento("option", { value: nome, textContent: `${nome} — ${dove}` });
+    if (voce.scelto) scelta.selected = true;
+    menu.append(scelta);
+  }
+  menu.value = dati.verifica?.solutore ?? "";
+  const rifiuto = elemento("small", { className: "errore-campo", id: "errore-solutore-nome" });
+  rifiuto.hidden = true;
+  menu.addEventListener("change", async () => {
+    await scriviParametro("solutore", "nome", menu, rifiuto, ordine);
+    // La verifica va rifatta: cambiato motore, il referto di prima parla di un
+    // altro binario, e il comando resterebbe acceso o spento per il solutore
+    // sbagliato.
+    await caricaAnalisi();
+  });
+  riga.append(etichetta, menu, rifiuto);
+  return riga;
+}
+
+// Lo stadio 1: che cosa si manda al solutore, con quale solutore, e quanta
+// parte del maglio non e' caduta in nessuna regione.
+function schedaModello(dati, motivo, ordine) {
+  if (dati === null) return [elemento("p", { className: "errore", textContent: motivo ?? "" })];
+  const nodi = [elemento("h4", { textContent: "Che cosa si manda" })];
+  for (const [nome, voce] of Object.entries(dati.modelli ?? {})) {
+    const coda = voce.instradato
+      ? "È il modello che il comando qui sotto manda al solutore."
+      : `Non instradato: ${voce.motivo ?? ""}`;
+    nodi.push(elemento("p", {
+      className: voce.instradato ? "aiuto" : "vuoto",
+      textContent: `${voce.etichetta} (${nome}) — lo produce ${voce.produce}. ${coda}`,
+    }));
+    if (!voce.pronto && voce.manca) {
+      nodi.push(elemento("p", { className: "vuoto", textContent: voce.manca }));
+    }
+  }
+
+  nodi.push(elemento("h4", { textContent: "Con quale solutore" }));
+  nodi.push(menuDelSolutore(dati, ordine));
+  const { pronto, ragione } = ragioneDelSolutore(dati);
+  nodi.push(elemento("p", { className: pronto ? "aiuto" : "vuoto", textContent: ragione }));
+
+  nodi.push(elemento("h4", { textContent: "Frazione orfana" }));
+  const regioni = dati.regioni;
+  if (regioni == null) {
+    // Assente, e non zero: uno zero qui direbbe «nessun elemento orfano», che e'
+    // l'opposto di «non misurata».
+    nodi.push(elemento("p", { className: "vuoto", textContent: dati.regioni_motivo ?? "" }));
+    return nodi;
+  }
+  const tabella = document.createElement("dl");
+  tabella.className = "metriche";
+  const voci = [
+    ["frazione orfana", cifra(regioni.frazione_orfana, { maximumFractionDigits: 4 })],
+    ["contesi risolti", String(regioni.contesi_risolti ?? "—")],
+  ];
+  for (const [nome, quanti] of Object.entries(regioni.elementi_per_regione ?? {})) {
+    voci.push([`elementi in «${nome}»`, String(quanti)]);
+  }
+  for (const [nome, volume] of Object.entries(regioni.volume_per_regione ?? {})) {
+    voci.push([`volume di «${nome}»`, misura(volume, "mm³", { maximumSignificantDigits: 4 })]);
+  }
+  for (const [nome, valore] of voci) {
+    tabella.append(elemento("dt", { textContent: nome }), elemento("dd", { textContent: valore }));
+  }
+  nodi.push(tabella);
+  // Il numero da solo non basta: `contesi_risolti` dice quanti elementi due
+  // regioni si contendevano, ed e' il controllo che sorveglia la frazione.
+  if (regioni.frazione_orfana === 1) {
+    nodi.push(elemento("p", {
+      className: "rifiuto",
+      textContent: "Tutto il maglio è orfano: nessun elemento è caduto in una regione, e"
+        + " le regioni dichiarate non toccano la geometria che lo step 9 ha costruito.",
+    }));
+  } else if (regioni.frazione_orfana > 0) {
+    nodi.push(elemento("p", {
+      className: "aiuto",
+      textContent: "Gli elementi orfani restano sul materiale unico della corsa: non sono"
+        + " esclusi dal modello, portano un materiale che nessuna regione ha dichiarato.",
+    }));
+  }
+  if (regioni.continuo) {
+    nodi.push(elemento("p", { className: "vuoto", textContent: `Limitazione dichiarata: ${regioni.continuo}.` }));
+  }
+  return nodi;
+}
+
+// Come si legge un incontro fra due membrature. Il tipo non e' un dettaglio di
+// calcolo: la lunghezza di calcolo di un attraversamento non e' quella di un
+// incontro a un estremo, e senza il nome l'una si leggerebbe per l'altra.
+function nomeDellIncontro(tipo) {
+  if (tipo === "estremo") return "incontro a un estremo";
+  if (tipo === "attraversamento") {
+    return "attraversamento: il pezzo che cede passa oltre, e la distanza qui sotto non"
+      + " è lo scostamento di un giunto";
+  }
+  if (tipo === "contenimento") {
+    return "contenimento: il pezzo che cede sta dentro l'altro per tutta la propria lunghezza";
+  }
+  // Un tipo che il prior non ha ancora nominato resta la propria parola: una
+  // frase inventata qui sarebbe peggio del nome vero.
+  return tipo;
+}
+
+// Lo stadio 2: le membrature del prior, ciascuna con la propria sezione, il
+// proprio materiale e il verdetto stazione per stazione.
+function schedaStruttura(dati, motivo) {
+  if (dati === null) return [elemento("p", { className: "errore", textContent: motivo ?? "" })];
+  const nodi = [];
+  if (!(dati.membrature ?? []).length) {
+    nodi.push(elemento("p", { className: "vuoto", textContent: dati.membrature_motivo ?? "" }));
+  }
+  if (!(dati.regioni_dichiarate ?? []).length) {
+    nodi.push(elemento("p", {
+      className: "vuoto",
+      textContent: "Nessuna regione dichiarata: senza, una membratura non ha né materiale"
+        + " né armatura, e il verdetto per stazione non si calcola. Le regioni si"
+        + " dichiarano in «regioni», ciascuna con l'indice della membratura del prior.",
+    }));
+  }
+  for (const voce of dati.membrature ?? []) {
+    const nome = voce.regione === null ? "nessuna regione dichiarata" : `regione «${voce.regione}»`;
+    nodi.push(elemento("h4", { textContent: `Membratura ${voce.indice} — ${nome}` }));
+    const sezione = voce.sezione ?? [];
+    nodi.push(elemento("p", {
+      className: "aiuto",
+      textContent: `Sezione media ${cifra(sezione[0])} × ${cifra(sezione[1])} mm,`
+        + ` lunga ${misura(voce.lunghezza, "mm")}.`,
+    }));
+    const riempimento = voce.riempimento;
+    if (riempimento == null) {
+      nodi.push(elemento("p", {
+        className: "vuoto",
+        textContent: "Riempimento di sezione non misurato: è una corsa il cui prior è stato"
+          + " scritto prima che si misurasse.",
+      }));
+    } else if (riempimento.stato === "non_verificabile") {
+      // Il valore che il prior scrive qui e' zero, e zero letto in una frazione
+      // occupata significa «la sezione e' vuota»: e' il contrario di cio' che lo
+      // stato dice. Misurato su `runs/onda4` il 30/08/2026, quattro membrature
+      // su cinque.
+      nodi.push(elemento("p", {
+        className: "vuoto",
+        textContent: "Riempimento di sezione non verificabile: la misura non ha le"
+          + " condizioni per valere su questa membratura, e il valore che il prior"
+          + ` scrive (${cifra(riempimento.valore, { maximumFractionDigits: 3 })}) non è`
+          + " una frazione occupata.",
+      }));
+    } else {
+      // Il numero e il controllo che lo sorveglia nella stessa riga: la soglia
+      // dice dove sta il confine, e l'affidabilita' dice se la misura vale.
+      // Lo stato con lo spazio al posto del trattino basso: quella e' la chiave,
+      // e una chiave non si stampa mai (PRODUCT.md).
+      nodi.push(elemento("p", {
+        className: riempimento.affidabile ? "aiuto" : "vuoto",
+        textContent: `Riempimento di sezione ${cifra(riempimento.valore, { maximumFractionDigits: 3 })}`
+          + ` («${String(riempimento.stato).replace(/_/g, " ")}»), soglia`
+          + ` ${cifra(riempimento.soglia, { maximumFractionDigits: 3 })};`
+          + ` misura ${riempimento.affidabile ? "affidabile" : "NON affidabile: la dispersione della densità è oltre il limite"}.`,
+      }));
+    }
+    const dichiarata = voce.sezione_dichiarata;
+    if (dichiarata !== null) {
+      const classe = (materiale) => materiale?.classe ?? materiale?.material?.name ?? "non dichiarato";
+      nodi.push(elemento("p", {
+        className: "aiuto",
+        textContent: `Materiali: nucleo ${classe(dichiarata.calcestruzzo_confinato)},`
+          + ` copriferro ${classe(dichiarata.calcestruzzo_copriferro)},`
+          + ` acciaio ${classe(dichiarata.acciaio)}.`,
+      }));
+    }
+    if (!voce.stazioni.length) {
+      nodi.push(elemento("p", { className: "vuoto", textContent: voce.stazioni_motivo ?? "" }));
+      continue;
+    }
+    nodi.push(tabellaDiDati(
+      ["quota [mm]", "b×h [mm]", "d [mm]", "μ", "interferro [mm]", "verdetto"],
+      voce.stazioni.map((stazione) => ({
+        // Un verdetto sgradevole si vede: il programma rileva e non progetta,
+        // e una stazione fragile e' un risultato, non un difetto da nascondere.
+        classe: stazione.verdetto === "duttile" ? "" : "stazione-fuori",
+        celle: [
+          cifra(stazione.quota),
+          `${cifra(stazione.b)} × ${cifra(stazione.h)}`,
+          cifra(stazione.d),
+          cifra(stazione.mu, { maximumFractionDigits: 4 }),
+          cifra(stazione.interferro_netto),
+          stazione.verdetto.replace(/_/g, " "),
+        ],
+      })),
+    ));
+    const prima = voce.stazioni[0];
+    nodi.push(elemento("p", {
+      className: "aiuto",
+      textContent: `I due estremi del verdetto sono gli stessi a ogni stazione, perché la`
+        + ` gabbia è dichiarata una volta sola: μ_min`
+        + ` ${cifra(prima.mu_min, { maximumFractionDigits: 4 })} (NTC 2018 §4.1.6.1.1)`
+        + ` e μ della sezione bilanciata`
+        + ` ${cifra(prima.mu_bil, { maximumFractionDigits: 4 })}. Copriferro netto`
+        + ` della barra longitudinale ${misura(prima.copriferro_netto, "mm")}.`,
+    }));
+  }
+
+  nodi.push(elemento("h4", { textContent: "Giunzioni" }));
+  if (!(dati.giunzioni ?? []).length) {
+    nodi.push(elemento("p", {
+      className: "vuoto",
+      textContent: dati.giunzioni_motivo
+        ?? "Nessuna giunzione: il prior non ha trovato membrature che si incontrano.",
+    }));
+    return nodi;
+  }
+  for (const giunzione of dati.giunzioni) {
+    const scavalco = giunzione.nodo_limitato
+      ? " I due pezzi si scavalcano: il nodo è stato riportato dentro il pezzo di chi resta."
+      : "";
+    nodi.push(elemento("p", {
+      className: giunzione.nodo_limitato || giunzione.tipo_incontro !== "estremo" ? "vuoto" : "aiuto",
+      textContent: `La membratura ${giunzione.cede} cede alla ${giunzione.resta} —`
+        + ` ${nomeDellIncontro(giunzione.tipo_incontro)}.`
+        + ` Distanza di proiezione ${misura(giunzione.distanza_proiezione, "mm")}.${scavalco}`,
+    }));
+  }
+  return nodi;
+}
+
+// Lo stadio 3: vincoli, carichi e combinazioni. Le combinazioni si propongono e
+// si correggono: `aggiorna` sul server non tocca quelle gia' corrette a mano, e
+// `proposta` dice quali nessuno ha ancora guardato.
+function schedaPreprocessore(dati, motivo) {
+  if (dati === null) return [elemento("p", { className: "errore", textContent: motivo ?? "" })];
+  const analisi = dati.configurazione?.analysis;
+  const nodi = [elemento("h4", { textContent: "Vincoli e carichi" })];
+  nodi.push(elemento("p", {
+    className: analisi ? "aiuto" : "vuoto",
+    textContent: analisi
+      ? `Vincolo: il set di faccia «${analisi.fixed_nset}», estratto allo step 11.`
+      : "Nessun materiale né vincolo dichiarati: li porta il blocco «analysis», che lo"
+        + " step 11 pretende.",
+  }));
+  const azioni = Object.entries(dati.azioni ?? {});
+  if (!azioni.length) {
+    nodi.push(elemento("p", {
+      className: "vuoto",
+      textContent: "Nessuna azione dichiarata: senza, il deck porta il solo peso proprio e"
+        + " non c'è niente da combinare.",
+    }));
+  } else {
+    const tabella = document.createElement("dl");
+    tabella.className = "metriche";
+    for (const [nome, natura] of azioni) {
+      tabella.append(
+        elemento("dt", { textContent: nome }),
+        elemento("dd", {
+          className: natura === null ? "metrica-larga" : "",
+          textContent: natura === null
+            ? "natura non dichiarata: senza, il coefficiente parziale non si sceglie"
+            : natura.replace(/_/g, " "),
+        }),
+      );
+    }
+    nodi.push(tabella);
+  }
+
+  nodi.push(elemento("h4", { textContent: "Combinazioni di norma" }));
+  const combinazioni = dati.configurazione?.carichi?.combinazioni ?? [];
+  if (!combinazioni.length) {
+    nodi.push(elemento("p", {
+      className: "vuoto",
+      textContent: "Nessuna combinazione: si propongono qui sotto, e ciascuna resta"
+        + " correggibile a mano nel config.yaml.",
+    }));
+  } else {
+    for (const voce of combinazioni) {
+      const termini = (voce.termini ?? [])
+        .map(([nome, coefficiente]) =>
+          // Un decimale sempre: «1» accanto a «1,3» sulla stessa riga si legge
+          // come un intero accanto a un decimale invece che come due coefficienti.
+          `${cifra(coefficiente, { minimumFractionDigits: 1, maximumFractionDigits: 3 })}·${nome}`)
+        .join(" + ");
+      nodi.push(elemento("p", {
+        className: voce.proposta ? "aiuto" : "vuoto",
+        textContent: `${voce.nome} (${voce.tipo.replace(/_/g, " ")}) —`
+          + ` ${voce.proposta ? "proposta dal programma" : "corretta a mano"}: ${termini}`,
+      }));
+    }
+  }
+  nodi.push(propostaDelleCombinazioni(dati));
+  return nodi;
+}
+
+// Un contatore per clic, come le altre tratte di questa pagina. Vive di modulo e
+// non dentro la funzione che costruisce il comando: quella si riesegue a ogni
+// ridisegno delle schede, e un contatore che riparte da zero non ordina niente.
+let ultimaProposta = 0;
+
+function apriProposta() {
+  ultimaProposta += 1;
+  return ultimaProposta;
+}
+
+// Il comando che propone, con i due ingressi che gli servono.
+//
+// La categoria d'uso NON e' un campo della configurazione e non ci diventa: e'
+// un fatto dell'edificio, e scritta in `PipelineConfig` sposterebbe l'impronta
+// di ogni corsa che la porta senza che il modello sia cambiato. Sta qui, dove
+// la si dichiara al momento di proporre.
+function propostaDelleCombinazioni(dati) {
+  const gruppo = document.createElement("fieldset");
+  gruppo.className = "gruppo";
+  gruppo.append(elemento("legend", { textContent: "Proponi le combinazioni" }));
+
+  const rigaCategoria = document.createElement("div");
+  rigaCategoria.className = "campo";
+  const etichettaCategoria = elemento("label", { textContent: "categoria d'uso" });
+  etichettaCategoria.setAttribute("for", "campo-categoria-uso");
+  const categoria = document.createElement("select");
+  categoria.id = "campo-categoria-uso";
+  categoria.append(elemento("option", { value: "", textContent: "— non scelta —" }));
+  for (const voce of dati.categorie ?? []) {
+    categoria.append(elemento("option", {
+      value: voce.categoria,
+      // Come ogni altro numero della pagina: `numeroDelCampo`, non il punto
+      // decimale con cui il JSON lo porta.
+      textContent: `${voce.categoria} — ${voce.descrizione}`
+        + ` (ψ₂ ${cifra(voce.psi_2, { minimumFractionDigits: 1, maximumFractionDigits: 2 })})`,
+    }));
+  }
+  categoria.value = "";
+  rigaCategoria.append(etichettaCategoria, categoria, elemento("small", {
+    className: "aiuto",
+    textContent: `I ψ vengono da ${dati.categorie?.[0]?.fonte ?? "NTC 2018"}, e sono quelli`
+      + " della sola categoria scelta: vento, neve e variazioni termiche hanno righe"
+      + " proprie, e la proposta si corregge a mano.",
+  }));
+
+  const rigaSisma = document.createElement("div");
+  rigaSisma.className = "campo";
+  const etichettaSisma = elemento("label", { textContent: "azione sismica" });
+  etichettaSisma.setAttribute("for", "campo-azione-sismica");
+  const sisma = document.createElement("select");
+  sisma.id = "campo-azione-sismica";
+  sisma.append(elemento("option", { value: "", textContent: "— nessuna: la [2.5.5] non si propone —" }));
+  for (const nome of Object.keys(dati.azioni ?? {})) {
+    sisma.append(elemento("option", { value: nome, textContent: nome }));
+  }
+  sisma.value = "";
+  rigaSisma.append(etichettaSisma, sisma);
+
+  const comando = elemento("button", {
+    type: "button",
+    className: "bottone",
+    textContent: "Proponi le combinazioni di norma",
+  });
+  const ragione = elemento("p", { className: "vuoto" });
+  const rifiuto = elemento("p", { className: "errore" });
+
+  // Il comando spento dice PERCHE'. `aria-disabled` e non `disabled`, come il
+  // passaggio e le voci delle corse: il bottone porta una spiegazione, e
+  // `disabled` lo toglierebbe insieme dal tabulatore e dall'annuncio.
+  function aggiornaIlComando() {
+    const scelta = categoria.value !== "";
+    if (scelta) comando.removeAttribute("aria-disabled");
+    else comando.setAttribute("aria-disabled", "true");
+    ragione.textContent = scelta
+      ? "Le combinazioni già corrette a mano non vengono sovrascritte, e una proposta"
+        + " omonima di una correzione non entra."
+      : "Categoria d'uso non scelta: i ψ della Tab. 2.5.I si leggono per categoria, e"
+        + " sceglierne una d'ufficio sarebbe indovinarla. Finché non è scelta, le"
+        + " combinazioni non si propongono.";
+  }
+  categoria.addEventListener("change", aggiornaIlComando);
+  aggiornaIlComando();
+
+  comando.addEventListener("click", async () => {
+    if (categoria.value === "") return;
+    rifiuto.textContent = "";
+    const ordine = apriProposta();
+    const risposta = await fetch("/api/combinazioni", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        categoria_uso: categoria.value,
+        azione_sismica: sisma.value === "" ? null : sisma.value,
+      }),
+    }).catch(serverMuto);
+    const ragioneDelNo = risposta.ok ? null : await ragioneDelRifiuto(risposta);
+    // Dopo l'ultima attesa e prima della prima scrittura, come le altre tratte:
+    // due clic sono due POST in volo, e il rifiuto del primo scritto dopo il
+    // secondo parlerebbe di una richiesta che non e' quella.
+    if (superata(ordine, ultimaProposta)) return;
+    if (ragioneDelNo !== null) {
+      rifiuto.textContent = ragioneDelNo;
+      return;
+    }
+    await caricaAnalisi();
+  });
+
+  gruppo.append(rigaCategoria, rigaSisma, comando, ragione, rifiuto);
+  return gruppo;
+}
+
+// Lo stadio 4: l'esito del solutore, i sette verdetti, e la vista per caso e
+// grandezza -- che e' cio' che il pannello dello step 13 gia' faceva.
+//
+// Mappe di colore, deformate e scelta delle grandezze non ci sono, e non e' una
+// dimenticanza: quali risultati i due solutori abbiano in comune e' una
+// decisione ancora aperta, e un menu di grandezze scritto prima ne offrirebbe
+// di non calcolate.
+function schedaPostprocessore(dati, motivo, ordine) {
+  if (dati === null) return [elemento("p", { className: "errore", textContent: motivo ?? "" })];
+  const esito = dati.solve;
+  // == e non ===: una chiave che il server non ha mandato affatto e' la stessa
+  // cosa, per chi guarda, di uno step 13 mai eseguito -- e non deve far
+  // sollevare la scheda fuori da ogni catch, che e' il difetto di `5d4d24b`
+  // ripetuto un piano piu' in la'.
+  if (esito == null) {
+    return [elemento("p", {
+      className: "vuoto",
+      textContent: dati.solve_motivo
+        ?? "lo step 13 non è ancora stato eseguito: non c'è niente da rileggere",
+    })];
+  }
+  const nodi = [];
+  if (esito.eseguito !== true) {
+    nodi.push(elemento("p", {
+      className: "vuoto",
+      textContent: `Lo step 13 è passato senza risolvere: solutore «${esito.solutore ?? "assente"}».`
+        + ` ${esito.motivo ?? "Un solutore che non c'è non è un fallimento: non ci sono risultati da rileggere."}`,
+    }));
+    return nodi;
+  }
+  const tabella = document.createElement("dl");
+  tabella.className = "metriche";
+  for (const [nome, valore] of [
+    ["casi di carico", String(Object.keys(esito.casi ?? {}).length)],
+    ["modi", String(esito.modi ?? 0)],
+    ["avvisi del solutore", String(esito.avvisi ?? 0)],
+    ["errori del solutore", String(esito.errori ?? 0)],
+  ]) {
+    tabella.append(elemento("dt", { textContent: nome }), elemento("dd", { textContent: valore }));
+  }
+  nodi.push(tabella);
+
+  nodi.push(elemento("h4", { textContent: "I sette verdetti" }));
+  const controlli = Object.entries(esito.controlli ?? {});
+  if (!controlli.length) {
+    nodi.push(elemento("p", {
+      className: "vuoto",
+      textContent: "Nessun verdetto: è una corsa risolta prima che i controlli esistessero,"
+        + " e i suoi numeri non hanno niente che li smentisca.",
+    }));
+  }
+  for (const [nome, verdetto] of controlli) {
+    // Un controllo che non vale su questo modello non e' un controllo fallito:
+    // il primo dice «questa domanda non ha senso qui», il secondo «la risposta
+    // e' no». `solve.esito_non_applicabile` li distingue, e a video restano
+    // distinti.
+    const inapplicabile = verdetto.applicabile === false;
+    // Il nome col trattino basso e' la chiave di `metrics.json`, e una chiave non
+    // si stampa mai (PRODUCT.md). Un elenco di etichette scritto qui sarebbe una
+    // seconda verita' da tenere allineata ai sette di `solve`: si toglie il
+    // trattino e basta.
+    const etichetta = nome.replace(/_/g, " ");
+    nodi.push(elemento("p", {
+      className: verdetto.passato ? "aiuto" : (inapplicabile ? "vuoto" : "rifiuto"),
+      textContent: inapplicabile
+        ? `${etichetta}: non vale su questo modello — ${verdetto.motivo ?? ""}`
+        : `${etichetta}: ${verdetto.passato ? "passato" : "NON passato"}`,
+    }));
+  }
+
+  nodi.push(elemento("h4", { textContent: "Il campo sul maglio" }));
+  nodi.push(pannelloCampo(ordine, esito));
+  nodi.push(elemento("p", {
+    className: "aiuto",
+    textContent: "Il campo si disegna nella vista tridimensionale della pipeline, con la"
+      + " propria didascalia sotto: «Torna alla pipeline» qui sopra per guardarlo.",
+  }));
+  return nodi;
+}
+
+// Le tre schede che vivono fuori dalla riga viva dello stadio del modello.
+// Non si toccano finche' la richiesta non e' tornata: lo stato vuoto del markup
+// e' gia' quello giusto, e riscriverlo prima lo distruggerebbe.
+function disegnaAnalisi(ordine = generazione) {
+  if (datiAnalisi === null && motivoAnalisi === null) return;
+  document.getElementById("modello-dati")
+    .replaceChildren(...schedaModello(datiAnalisi, motivoAnalisi, ordine));
+  document.getElementById("stadio-struttura")
+    .replaceChildren(...schedaStruttura(datiAnalisi, motivoAnalisi));
+  document.getElementById("stadio-preprocessore")
+    .replaceChildren(...schedaPreprocessore(datiAnalisi, motivoAnalisi));
+  document.getElementById("stadio-postprocessore")
+    .replaceChildren(...schedaPostprocessore(datiAnalisi, motivoAnalisi, ordine));
+}
+
+// Un contatore per richiesta, come le altre tratte: due carichi in volo -- uno
+// dall'apertura, uno dal cambio di solutore -- e il piu' vecchio che rientra
+// dopo riscriverebbe le quattro schede con lo stato di prima.
+let ultimaAnalisi = 0;
+
+async function caricaAnalisi() {
+  ultimaAnalisi += 1;
+  const ordine = ultimaAnalisi;
+  const risposta = await fetch("/api/analisi").catch(serverMuto);
+  const rifiuto = risposta.ok ? null : await ragioneDelRifiuto(risposta);
+  const corpo = risposta.ok ? await corpoLetto(risposta) : null;
+  if (superata(ordine, ultimaAnalisi)) return;
+  if (rifiuto !== null) {
+    datiAnalisi = null;
+    motivoAnalisi = rifiuto;
+  } else if (corpo == null) {
+    // == e non ===: il corpo intero di questa tratta non e' mai un null
+    // legittimo. Un null vero passerebbe la guardia e farebbe sollevare le
+    // quattro schede fuori da ogni catch, cioe' schermata muta.
+    datiAnalisi = null;
+    motivoAnalisi = "il server ha risposto con un carico dell'analisi che non si legge";
+  } else {
+    datiAnalisi = corpo;
+    motivoAnalisi = null;
+    // La configurazione arriva con lo stesso carico: senza, il menu del
+    // solutore scriverebbe partendo da `null` la prima volta che lo si tocca,
+    // perche' `configurazione` la popola solo l'apertura di un pannello, che
+    // sta sull'altra schermata.
+    if (configurazione === null) configurazione = corpo.configurazione;
+  }
+  disegnaAnalisi();
+}
+
+// La firma dello stato degli step al momento dell'ultimo carico. Serve a
+// rileggere l'analisi quando qualcosa cambia davvero -- il dodici che finisce,
+// il tredici che risolve -- senza chiedere due volte al secondo una tratta che
+// esegue il binario del solutore.
+let firmaAnalisi = null;
+
+function firmaDegliStep() {
+  return ultimoStato.map((voce) => `${voce.numero}:${voce.stato}`).join("|");
+}
+
+// `hidden === false` e non `!hidden`: la schermata dev'essere a video DAVVERO.
+// Un elemento senza quella proprieta' -- un banco che non e' un browser -- non
+// deve far partire una richiesta di rete che nessuno gli ha chiesto.
+function rileggiSeServe() {
+  if (document.getElementById("analisi").hidden !== false) return;
+  const firma = firmaDegliStep();
+  if (firma === firmaAnalisi) return;
+  firmaAnalisi = firma;
+  caricaAnalisi();
 }
 
 // Il solo comando della seconda schermata. Un contatore per clic, come le due

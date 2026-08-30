@@ -227,6 +227,40 @@ h2:focus-visible { outline: 2px solid var(--accento); outline-offset: 2px; }
    scheda che nessuna riga successiva usa. */
 .stadio p { margin: 0 0 var(--passo-2); }
 .stadio p:last-child { margin-bottom: 0; }
+/* Il titoletto dentro una scheda: sotto l'h3 dello stadio, sopra un corpo che
+   qui e' .vuoto a 16 px. --tipo-dato e non --tipo-nota perche' proiettato in
+   discussione un titolo a 13 px sotto un corpo a 16 non si legge piu' come un
+   titolo. Niente maiuscoletto spaziato: quello nomina le zone della prima
+   schermata, e ripeterlo qui direbbe che questi sono raggruppamenti dello
+   stesso rango, mentre stanno dentro una scheda. */
+.stadio h4 { font-size: var(--tipo-dato); line-height: var(--interlinea-riga); font-weight: 600; color: var(--testo); margin: var(--passo-4) 0 var(--passo-2); }
+.stadio h4:first-child { margin-top: 0; }
+/* Le tre cose che una scheda mostra oltre alla prosa portano il proprio stacco:
+   .stadio p lo da' ai soli paragrafi, e senza queste righe una tabella e la
+   riga successiva si toccherebbero. */
+.stadio dl, .stadio .tabella-dati, .stadio fieldset { margin-bottom: var(--passo-3); }
+.stadio > :last-child, .stadio fieldset :last-child { margin-bottom: 0; }
+/* La tabella delle stazioni, e ogni altra tabella di dati dentro una scheda.
+   Stessa forma della galleria di curazione, e stesso tabindex="0": scorre in
+   orizzontale e non contiene niente su cui il fuoco possa posarsi, quindi senza
+   quell'attributo le colonne fuori vista non si raggiungono da tastiera
+   (WCAG 2.1.1, livello A). Un secondo nome e non `.galleria-tabella` riusata:
+   quel nome dice da dove viene, e una tabella di stazioni non viene di la'. */
+.tabella-dati { overflow-x: auto; }
+.tabella-dati:focus-visible { outline: 2px solid var(--accento); outline-offset: 2px; }
+.tabella-dati table { border-collapse: collapse; width: 100%; font-size: var(--tipo-dato); line-height: var(--interlinea-riga); font-variant-numeric: tabular-nums; }
+.tabella-dati th, .tabella-dati td { padding: var(--passo-1) var(--passo-2); border-bottom: 1px solid var(--bordo); text-align: left; white-space: nowrap; }
+.tabella-dati th { color: var(--tenue); font-weight: 600; }
+/* Una stazione fuori dai due estremi del verdetto si vede senza leggere la
+   colonna: il programma rileva e non progetta, e un risultato sgradevole e' un
+   risultato da mostrare. Non il solo colore -- il bordo a sinistra porta lo
+   stesso fatto a chi il colore non lo distingue (WCAG 1.4.1) -- e la parola
+   resta comunque scritta nella propria colonna. */
+.tabella-dati tr.stazione-fuori { color: var(--guasto); box-shadow: inset 2px 0 0 var(--guasto); }
+/* Il contorno del fuoco c'era per le caselle e non per i menu, e la seconda
+   schermata di menu ne ha tre: il solutore, la categoria d'uso e l'azione
+   sismica. Senza, da sola tastiera non si vede dove ci si trova (WCAG 2.4.7). */
+.campo select:focus-visible { outline: 2px solid var(--accento); outline-offset: 1px; }
 /* Il passaggio chiude la colonna degli step: largo quanto lei, cosi' si legge
    come la fine dell'elenco e non come un comando qualunque appoggiato sotto. */
 .passaggio { width: 100%; margin-top: var(--passo-3); }

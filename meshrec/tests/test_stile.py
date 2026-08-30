@@ -288,3 +288,25 @@ def test_sotto_la_soglia_stretta_le_tre_zone_diventano_una_colonna():
         "sotto la soglia le tre zone non si impilano piu': la vista resta piu' stretta "
         "del pannello che la commenta"
     )
+
+
+def test_ogni_cosa_che_prende_il_fuoco_lo_mostra():
+    """WCAG 2.4.7: da sola tastiera il contorno del fuoco è l'unico canale che
+    dice dove ci si trova.
+
+    La regola per le caselle c'era e quella per i menù no, e la schermata
+    dell'analisi ne porta tre — il solutore, la categoria d'uso e l'azione
+    sismica: senza, il fuoco ci passava sopra invisibile. L'elenco è di
+    famiglie, non di selettori esatti: ogni voce è una forma di comando che una
+    delle tre schermate mette davvero sotto il tabulatore.
+    """
+    testo = _senza_commenti()
+    for famiglia in (
+        ".bottone", ".campo input", ".campo select", ".step",
+        ".registro", ".galleria-tabella", ".tabella-dati",
+        ".gruppo details > summary", ".viewport canvas", "h2",
+    ):
+        assert f"{famiglia}:focus-visible" in testo, (
+            f"«{famiglia}» prende il fuoco e non lo mostra: da sola tastiera il "
+            "cursore ci passa sopra invisibile (WCAG 2.4.7)"
+        )

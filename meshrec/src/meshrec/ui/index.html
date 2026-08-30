@@ -325,16 +325,24 @@
   <ol class="stadi">
     <li class="stadio">
       <h3>1 · Modello</h3>
-      <p class="vuoto">Qui si sceglierà che cosa si manda al solutore — il solido
-        tetraedrico dello step 9 o il telaio costruito sulle membrature dello
-        step 12 — e con quale solutore: CalculiX, che è integrato, oppure
-        OpenSees, che non c'è ancora. Oggi la scelta non c'è: il comando qui
-        sotto manda il solido a CalculiX, che è l'unica strada che esiste.</p>
       <!-- Il testo scritto qui e' quello della prima apertura assoluta, e non un
            segnaposto: senza corsa aperta e' esattamente cio' che va detto. -->
       <p class="vuoto" id="stadio-modello">Nessuna corsa aperta: il modello lo
         propone lo step 12 «Prior geometrico», che cerca nella geometria le
         regioni che sembrano membrature.</p>
+      <!-- Il contenitore delle tre cose che questa scheda mostra quando una
+           corsa e' aperta: che cosa si manda, con quale solutore, e la frazione
+           orfana. Lo stato vuoto vive QUI dentro, nel markup, e non lo fabbrica
+           app.js: `disegnaAnalisi` non tocca niente finche' la richiesta non e'
+           tornata, quindi cio' che si legge alla prima apertura assoluta e'
+           questo, e nessun ramo del modulo lo puo' distruggere prima. E' la
+           stessa regola gia' costata tre ricadute sulla regione role="alert". -->
+      <div id="modello-dati">
+        <p class="vuoto">Con una corsa aperta questa scheda dice che cosa si manda
+          al solutore — il solido tetraedrico dello step 11 o il telaio costruito
+          sulle membrature dello step 12 — con quale dei due solutori, e quanta
+          parte del maglio non è caduta in nessuna regione.</p>
+      </div>
       <!-- Il solo comando di questa schermata, e non e' un segnaposto: lancia la
            tratta che il bottone della colonna lanciava, `POST /api/step/13`, e fa
            la cosa che dice. Il divieto di riempire questi stadi riguarda i
@@ -357,28 +365,45 @@
     </li>
     <li class="stadio">
       <h3>2 · Struttura</h3>
-      <p class="vuoto">Qui andranno sezione, materiale e armatura di ciascuna
-        membratura proposta dallo step 12, con il verdetto stazione per
-        stazione.</p>
-      <p class="vuoto">Vuoto: manca un catalogo dei materiali da cui scegliere e
-        un modo di dichiarare l'armatura. Nel programma non esiste ancora né
-        l'uno né l'altro.</p>
+      <!-- Stato vuoto nel markup, come nello stadio del modello e per la stessa
+           ragione: preesiste a cio' che annuncia. -->
+      <div id="stadio-struttura">
+        <p class="vuoto">Nessuna corsa aperta: le membrature le propone lo step 12
+          «Prior geometrico», e sezione, materiale e armatura di ciascuna si
+          dichiarano in <code>regioni</code>. Il verdetto è per stazione e non per
+          membratura: una gabbia dichiarata una volta sola può essere duttile dove
+          la sezione è piena e fragile dove si restringe.</p>
+      </div>
     </li>
     <li class="stadio">
       <h3>3 · Pre-processore</h3>
-      <p class="vuoto">Qui andranno vincoli, carichi, combinazioni di norma e
-        sismica: ciò che oggi si dichiara nel <code>config.yaml</code> e nel
-        pannello dello step 11.</p>
-      <p class="vuoto">Vuoto: i carichi si dichiarano ancora nel
-        <code>config.yaml</code>, e restano lì finché questa scheda non li sa
-        scrivere.</p>
+      <div id="stadio-preprocessore">
+        <p class="vuoto">Nessuna corsa aperta: vincoli e carichi si dichiarano nel
+          <code>config.yaml</code> e nel pannello dello step 11, e le combinazioni
+          di norma si propongono qui una volta scelta la categoria d'uso.</p>
+      </div>
+      <!-- Una assenza dichiarata, e non un numero: sta nel markup perche' non
+           dipende dalla corsa aperta. La ragione per esteso e' in
+           core/combinazioni.py, e qui non se ne tiene una copia da far
+           invecchiare -- si nomina il file. -->
+      <p class="vuoto">La modale con spettro non c'è, ed è una decisione che manca
+        (<code>core/combinazioni.py</code>): combinare le risposte modali produce
+        una grandezza senza segno che non appartiene a nessun caso di carico. Qui
+        c'è la sola statica lineare equivalente, e lo spettro di progetto dipende
+        dal sito, che nessun campo della configurazione porta.</p>
     </li>
     <li class="stadio">
       <h3>4 · Post-processore</h3>
-      <p class="vuoto">Qui andranno spostamenti e tensioni riletti dal solutore,
-        per caso di carico e per modo, disegnati sul maglio.</p>
-      <p class="vuoto">Vuoto: senza un modello risolto non c'è niente da
-        rileggere, ed è lo step 13 a risolverlo.</p>
+      <div id="stadio-postprocessore">
+        <p class="vuoto">Nessuna corsa aperta: spostamenti e tensioni li rilegge lo
+          step 13, e senza un modello risolto non c'è niente da rileggere.</p>
+      </div>
+      <!-- Il confine di questa scheda, dichiarato: non e' che manchi il tempo di
+           scriverli, e' che la decisione non e' stata presa. -->
+      <p class="vuoto">Mappe di colore, deformate e scelta delle grandezze non ci
+        sono: quali risultati i due solutori abbiano in comune è una decisione
+        ancora aperta, e un menù di grandezze scritto prima ne offrirebbe di non
+        calcolate.</p>
     </li>
   </ol>
 </section>

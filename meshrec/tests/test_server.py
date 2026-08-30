@@ -3702,3 +3702,352 @@ def test_lo_schema_non_esplode_sul_blocco_regioni(banco, request):
     assert "regioni" not in corpo["11"]["campi"]
     # Lo step 11 risponde comunque: la guardia non deve spegnere il pannello.
     assert corpo["11"]["campi"]["analysis"]
+
+
+# --------------------------------------------------------------------------
+# /api/analisi: cio' che i quattro stadi della schermata dell'analisi mostrano.
+#
+# Una tratta sola e non quattro: la schermata si apre tutta insieme, e ogni
+# fetch in piu' e' un modo in piu' di restare vuoti in silenzio. Quello che si
+# poteva gia' leggere da /api/wall, /api/metrics e /api/config passa di qui
+# riletto e non ricalcolato; quello che non esisteva -- la disponibilita' vera
+# dei solutori, il verdetto per stazione, le categorie d'uso, le azioni
+# dichiarate -- lo produce il core, mai l'interfaccia.
+# --------------------------------------------------------------------------
+
+
+def _corsa_con_prior(cliente, prior: dict) -> Path:
+    """Scrive `12_wall.json` nella cartella della corsa aperta."""
+    from meshrec.core import pipeline
+
+    corsa = _cartella_di_corsa(cliente)
+    corsa.mkdir(parents=True, exist_ok=True)
+    (corsa / pipeline.WALL_FILENAME).write_text(
+        json.dumps(prior, default=float), encoding="utf-8"
+    )
+    return corsa
+
+
+def _membratura_di_prova(**campi) -> dict:
+    """Una membratura del prior con i soli campi che /api/analisi legge."""
+    voce = {
+        "lunghezza": 3000.0,
+        "sezione": [300.0, 500.0],
+        "sezioni_fette": [[300.0, 500.0], [300.0, 480.0]],
+        "quote_fette": [0.0, 1500.0],
+        "riempimento": {
+            "stato": "pieno", "valore": 0.91, "soglia": 0.6,
+            "affidabile": True, "unita": "frazione",
+        },
+    }
+    voce.update(campi)
+    return voce
+
+
+def _dichiara_regione(cliente, nome: str, membratura: int, armatura: dict | None) -> None:
+    """Scrive una regione con la propria sezione nella configurazione della corsa."""
+    corpo = cliente.get("/api/config").json()
+    corpo["regioni"] = {
+        nome: {
+            "membratura": membratura,
+            "sezione": {
+                "calcestruzzo_confinato": {
+                    "material": {"name": "C25_30", "young": 31476.0,
+                                 "poisson": 0.2, "density": 2.5e-9},
+                    "classe": "C25/30", "norma": "NTC 2018 Tab. 4.1.I", "provenienza": "catalogo",
+                },
+                "calcestruzzo_copriferro": {
+                    "material": {"name": "C25_30_COPRI", "young": 31476.0,
+                                 "poisson": 0.2, "density": 2.5e-9},
+                    "classe": "C25/30", "norma": "NTC 2018 Tab. 4.1.I", "provenienza": "catalogo",
+                },
+                "acciaio": {
+                    "material": {"name": "B450C", "young": 210000.0,
+                                 "poisson": 0.3, "density": 7.85e-9},
+                    "classe": "B450C", "norma": "NTC 2018 §11.3.2", "provenienza": "catalogo",
+                },
+                "armatura": armatura,
+            },
+        }
+    }
+    risposta = cliente.put("/api/config", json=corpo)
+    assert risposta.status_code == 200, risposta.text
+
+
+_ARMATURA_DUTTILE = {
+    "classe_calcestruzzo": "C25/30", "classe_acciaio": "B450C",
+    "barre_tese": 4, "diametro_teso": 16,
+    "barre_compresse": 2, "diametro_compresso": 12,
+    "diametro_staffe": 8, "passo_staffe": 150.0, "copriferro_nominale": 30.0,
+}
+
+
+def test_l_analisi_dichiara_i_due_solutori_con_dove_prenderli(cliente):
+    """Il primo stadio offre una scelta solo dove c'e' qualcosa da scegliere.
+
+    `solve.disponibilita` guarda il PATH e non esegue niente: qui si controlla
+    che la tratta la riporti intera -- «scelto» compreso, che e' cio' che
+    distingue «non installato e va bene» da «non installato e serve».
+    """
+    corpo = cliente.get("/api/analisi").json()
+
+    assert set(corpo["solutori"]) == {"calculix", "opensees"}
+    for nome, voce in corpo["solutori"].items():
+        assert "disponibile" in voce, nome
+        assert voce["dove_prenderlo"], f"{nome} non dice dove prenderlo"
+    assert corpo["solutori"]["calculix"]["scelto"] is True
+    assert corpo["solutori"]["opensees"]["scelto"] is False
+
+
+def test_l_analisi_distingue_il_solutore_assente_da_quello_che_non_funziona(
+    cliente, monkeypatch
+):
+    """«C'e'» non e' «funziona», e i due stati non si confondono a video."""
+    from meshrec.core import solve
+
+    monkeypatch.setattr(solve, "verifica", lambda cfg: {
+        "solutore": cfg.nome, "percorso": "/finto/ccx", "disponibile": True,
+        "funziona": False, "codice": 127, "uscita": "",
+        "motivo": "«/finto/ccx» è partito (codice 127) ma la sua uscita non è riconosciuta",
+    })
+
+    corpo = cliente.get("/api/analisi").json()
+
+    assert corpo["verifica"]["disponibile"] is True
+    assert corpo["verifica"]["funziona"] is False
+    assert "codice 127" in corpo["verifica"]["motivo"]
+
+
+def test_l_analisi_dichiara_quale_modello_il_solutore_riceve_davvero(cliente):
+    """Il telaio esiste come modello e non ha una strada verso il solutore.
+
+    Offrirlo come scelta sarebbe una scelta che fallisce: la tratta lo dice
+    invece di lasciarlo credere.
+    """
+    corpo = cliente.get("/api/analisi").json()
+
+    assert set(corpo["modelli"]) == {"solido", "telaio"}
+    assert corpo["modelli"]["solido"]["instradato"] is True
+    assert corpo["modelli"]["telaio"]["instradato"] is False
+    assert corpo["modelli"]["telaio"]["motivo"]
+
+
+def test_senza_regioni_dichiarate_la_frazione_orfana_e_assente_e_non_zero(cliente):
+    """Uno zero qui direbbe «nessun orfano», che e' l'opposto di «non misurata»."""
+    corpo = cliente.get("/api/analisi").json()
+
+    assert corpo["regioni"] is None
+    assert "step 11" in corpo["regioni_motivo"]
+
+
+def test_la_frazione_orfana_arriva_dalle_metriche_coi_propri_controlli(cliente):
+    from meshrec.core import pipeline
+
+    corsa = _cartella_di_corsa(cliente)
+    corsa.mkdir(parents=True, exist_ok=True)
+    (corsa / pipeline.METRICS_FILENAME).write_text(json.dumps({
+        "11_export": {"regioni": {
+            "elementi_per_regione": {"pilastro": 120},
+            "volume_per_regione": {"pilastro": 4.2e6},
+            "frazione_orfana": 1.0,
+            "contesi_risolti": 3,
+            "continuo": "il continuo di ogni regione: il calcestruzzo confinato",
+        }},
+    }), encoding="utf-8")
+
+    corpo = cliente.get("/api/analisi").json()
+
+    assert corpo["regioni"]["frazione_orfana"] == 1.0
+    assert corpo["regioni"]["contesi_risolti"] == 3
+    assert corpo["regioni"]["continuo"]
+    assert corpo["metriche_illeggibili"] is None
+
+
+def test_un_metrics_troncato_e_dichiarato_e_non_letto_come_stato_valido(cliente):
+    """`sweep.leggi_metriche` ripiega su `{}` in silenzio: `{}` e «mai eseguito»
+    sono lo stesso corpo, e chi guarda non ha modo di distinguerli."""
+    from meshrec.core import pipeline
+
+    corsa = _cartella_di_corsa(cliente)
+    corsa.mkdir(parents=True, exist_ok=True)
+    (corsa / pipeline.METRICS_FILENAME).write_text('{"11_export": {', encoding="utf-8")
+
+    corpo = cliente.get("/api/analisi").json()
+
+    assert corpo["metriche_illeggibili"] is not None
+    assert pipeline.METRICS_FILENAME in corpo["metriche_illeggibili"]
+    assert corpo["regioni"] is None
+
+
+def test_senza_prior_le_membrature_sono_assenti_e_si_dice_quale_step_le_produce(cliente):
+    corpo = cliente.get("/api/analisi").json()
+
+    assert corpo["membrature"] == []
+    assert "step 12" in corpo["membrature_motivo"]
+
+
+def test_una_membratura_senza_stazioni_e_dichiarata_e_non_una_riga_vuota(cliente):
+    _corsa_con_prior(cliente, {
+        "membrature": [_membratura_di_prova(sezioni_fette=[], quote_fette=[])],
+        "giunzioni": [],
+    })
+
+    corpo = cliente.get("/api/analisi").json()
+
+    membratura = corpo["membrature"][0]
+    assert membratura["stazioni"] == []
+    assert "fetta" in membratura["stazioni_motivo"]
+
+
+def test_il_riempimento_di_sezione_arriva_con_la_propria_soglia(cliente):
+    _corsa_con_prior(cliente, {"membrature": [_membratura_di_prova()], "giunzioni": []})
+
+    membratura = cliente.get("/api/analisi").json()["membrature"][0]
+
+    assert membratura["riempimento"]["valore"] == 0.91
+    assert membratura["riempimento"]["soglia"] == 0.6
+    assert membratura["riempimento"]["affidabile"] is True
+
+
+def test_senza_armatura_dichiarata_le_stazioni_dicono_che_cosa_manca(cliente):
+    _corsa_con_prior(cliente, {"membrature": [_membratura_di_prova()], "giunzioni": []})
+
+    membratura = cliente.get("/api/analisi").json()["membrature"][0]
+
+    assert membratura["stazioni"] == []
+    assert "armatura" in membratura["stazioni_motivo"]
+
+
+def test_le_stazioni_portano_un_verdetto_ciascuna_e_non_uno_per_membratura(cliente):
+    _corsa_con_prior(cliente, {"membrature": [_membratura_di_prova()], "giunzioni": []})
+    _dichiara_regione(cliente, "pilastro", 0, _ARMATURA_DUTTILE)
+
+    membratura = cliente.get("/api/analisi").json()["membrature"][0]
+
+    assert len(membratura["stazioni"]) == 2
+    prima = membratura["stazioni"][0]
+    assert prima["verdetto"] in ("fragile", "duttile", "oltre_la_bilanciata")
+    assert prima["quota"] == 0.0
+    assert prima["mu_min"] > 0.0
+    assert membratura["stazioni_motivo"] is None
+    assert membratura["regione"] == "pilastro"
+
+
+def test_una_stazione_fragile_si_vede_e_non_viene_nascosta(cliente):
+    """Il programma rileva e non progetta: un verdetto sgradevole e' un risultato."""
+    _corsa_con_prior(cliente, {
+        "membrature": [_membratura_di_prova(
+            sezioni_fette=[[600.0, 900.0]], quote_fette=[0.0]
+        )],
+        "giunzioni": [],
+    })
+    _dichiara_regione(cliente, "trave", 0, {**_ARMATURA_DUTTILE, "barre_tese": 2,
+                                            "diametro_teso": 6})
+
+    stazioni = cliente.get("/api/analisi").json()["membrature"][0]["stazioni"]
+
+    assert [s["verdetto"] for s in stazioni] == ["fragile"]
+
+
+def test_una_classe_oltre_la_c50_60_dichiara_che_il_dato_di_norma_manca(cliente):
+    """L'esponente della parabola non e' pubblicato: si dice, non si indovina."""
+    _corsa_con_prior(cliente, {"membrature": [_membratura_di_prova()], "giunzioni": []})
+    _dichiara_regione(cliente, "pilastro", 0,
+                      {**_ARMATURA_DUTTILE, "classe_calcestruzzo": "C55/67"})
+
+    membratura = cliente.get("/api/analisi").json()["membrature"][0]
+
+    assert membratura["stazioni"] == []
+    assert "C50/60" in membratura["stazioni_motivo"]
+
+
+def test_le_giunzioni_arrivano_intere_col_nodo_limitato_e_il_tipo_di_incontro(cliente):
+    _corsa_con_prior(cliente, {
+        "membrature": [_membratura_di_prova(), _membratura_di_prova()],
+        "giunzioni": [{
+            "cede": 1, "resta": 0, "nodo": [10.0, 20.0, 30.0],
+            "distanza_proiezione": 412.5, "nodo_limitato": True,
+            "tipo_incontro": "attraversamento",
+        }],
+    })
+
+    giunzione = cliente.get("/api/analisi").json()["giunzioni"][0]
+
+    assert giunzione["nodo_limitato"] is True
+    assert giunzione["tipo_incontro"] == "attraversamento"
+    assert giunzione["distanza_proiezione"] == 412.5
+
+
+def test_le_azioni_dichiarate_arrivano_con_la_propria_natura(cliente):
+    corpo = cliente.get("/api/analisi").json()
+
+    assert corpo["azioni"] == {"GRAVITA": "permanente_strutturale"}
+
+
+def test_le_categorie_d_uso_vengono_dal_registro_e_non_da_un_elenco_a_mano(cliente):
+    from meshrec.core import combinazioni
+
+    corpo = cliente.get("/api/analisi").json()
+
+    assert [voce["categoria"] for voce in corpo["categorie"]] == [
+        voce.categoria for voce in combinazioni.PSI
+    ]
+    assert corpo["categorie"][0]["descrizione"]
+    assert corpo["categorie"][0]["fonte"]
+
+
+def test_le_combinazioni_dicono_quali_sono_proposte_e_quali_scritte_a_mano(cliente):
+    corpo = cliente.get("/api/config").json()
+    corpo["carichi"]["combinazioni"] = [
+        {"nome": "MIA", "tipo": "slu_fondamentale",
+         "termini": [["GRAVITA", 1.3]], "proposta": False},
+    ]
+    assert cliente.put("/api/config", json=corpo).status_code == 200
+
+    corpo = cliente.get("/api/analisi").json()
+    combinazioni = corpo["configurazione"]["carichi"]["combinazioni"]
+
+    assert [(c["nome"], c["proposta"]) for c in combinazioni] == [("MIA", False)]
+
+
+def test_proporre_le_combinazioni_senza_categoria_d_uso_e_rifiutato(cliente):
+    """Senza la categoria i ψ non esistono, e sceglierne una sarebbe indovinare."""
+    risposta = cliente.post("/api/combinazioni", json={"categoria_uso": ""})
+
+    assert risposta.status_code >= 400
+    assert "categoria" in risposta.text
+
+
+def test_proporre_le_combinazioni_le_scrive_nella_configurazione(cliente):
+    risposta = cliente.post("/api/combinazioni", json={"categoria_uso": "A"})
+
+    assert risposta.status_code == 200, risposta.text
+    scritte = cliente.get("/api/config").json()["carichi"]["combinazioni"]
+    assert scritte, "la proposta non e' finita su disco"
+    assert all(voce["proposta"] for voce in scritte)
+    assert {voce["tipo"] for voce in scritte} == {
+        "slu_fondamentale", "sle_rara", "sle_frequente", "sle_quasi_permanente"
+    }
+
+
+def test_la_proposta_non_sovrascrive_una_combinazione_corretta_a_mano(cliente):
+    corpo = cliente.get("/api/config").json()
+    corpo["carichi"]["combinazioni"] = [
+        {"nome": "SLU_FOND", "tipo": "slu_fondamentale",
+         "termini": [["GRAVITA", 1.0]], "proposta": False},
+    ]
+    assert cliente.put("/api/config", json=corpo).status_code == 200
+
+    assert cliente.post("/api/combinazioni", json={"categoria_uso": "A"}).status_code == 200
+
+    scritte = cliente.get("/api/config").json()["carichi"]["combinazioni"]
+    a_mano = [voce for voce in scritte if not voce["proposta"]]
+    assert [voce["termini"] for voce in a_mano] == [[["GRAVITA", 1.0]]]
+
+
+def test_la_sismica_non_si_propone_senza_l_azione_che_le_fa_da_E(cliente):
+    risposta = cliente.post("/api/combinazioni", json={"categoria_uso": "A"})
+
+    assert risposta.status_code == 200
+    scritte = cliente.get("/api/config").json()["carichi"]["combinazioni"]
+    assert "sismica" not in {voce["tipo"] for voce in scritte}
