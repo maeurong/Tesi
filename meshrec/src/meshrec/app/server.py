@@ -369,9 +369,9 @@ scelto = filedialog.askopenfilename(
 radice.destroy()
 # In byte e non con `write`, e la codifica dichiarata da tutte e due le parti.
 # `sys.stdout.write` su Windows userebbe la codepage locale (cp1252), e il
-# lettore la decodifica: un percorso con un accento -- «Universita'», «citta'»,
-# una qualunque cartella di un utente italiano -- usciva 0xe0 ed entrava come
-# utf-8, che quel byte non lo ammette come continuazione. L'utente vedeva un
+# lettore la decodifica: un percorso con una lettera accentata -- una cartella
+# qualunque di un utente italiano -- usciva 0xe0 ed entrava come utf-8, che
+# quel byte non lo ammette come continuazione. L'utente vedeva un
 # UnicodeDecodeError al posto del file che aveva appena scelto.
 sys.stdout.buffer.write((scelto or "").encode("utf-8"))
 """
