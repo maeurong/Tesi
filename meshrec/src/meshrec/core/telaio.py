@@ -70,6 +70,12 @@ from meshrec.core.config import RegioneConfig, SezioneConfig
 # `12_wall.json` la riscrive in decimale.
 _TOLLERANZA_TERNA = 1e-6
 
+# Sotto questa norma la proiezione di `e1` sul piano ortogonale all'asse
+# dell'asta e' collassata: `e1` e' parallelo all'asse, e il piano di sezione
+# non e' definito. Costante propria e non la tolleranza qui sopra: le due hanno
+# significati diversi, e stringere l'una sposterebbe l'altra in silenzio.
+_NORMA_MINIMA_E1 = 1e-6
+
 
 def _versore(v: np.ndarray) -> np.ndarray:
     norma = float(np.linalg.norm(v))
@@ -158,8 +164,12 @@ def _sezioni_dichiarate(
     return per_membratura
 
 
-def _piano_di_sezione(voce: dict, indice: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """`(asse, e1, e2)` della membratura, o il motivo per cui non si costruisce."""
+def _piano_di_sezione(voce: dict, indice: int) -> tuple[np.ndarray, np.ndarray]:
+    """`(asse, e1)` della membratura, o il motivo per cui non si costruisce.
+
+    `e2` si verifica qui e non esce: chi costruisce un'asta lo ricava dal
+    proprio asse, e restituirlo inviterebbe a usare quello della membratura.
+    """
     base = np.asarray(voce.get("base_sezione", []), dtype=np.float64).reshape(-1, 3)
     if base.shape != (2, 3):
         raise ValueError(
@@ -179,7 +189,7 @@ def _piano_di_sezione(voce: dict, indice: int) -> tuple[np.ndarray, np.ndarray, 
             "raddrizzarlo scambierebbe base e altezza della sezione a fibre "
             "senza che nulla lo dica"
         )
-    return asse, e1, e2
+    return asse, e1
 
 
 def _stazioni(voce: dict, indice: int) -> tuple[np.ndarray, np.ndarray]:
@@ -207,8 +217,17 @@ def _stazioni(voce: dict, indice: int) -> tuple[np.ndarray, np.ndarray]:
             "significherebbe dare al solutore una misura che il rilievo non ha "
             "fatto"
         )
+    lunghezza = float(voce["lunghezza"])
+    if not (np.all(np.diff(quote) > 0.0) and quote[0] > 0.0 and quote[-1] < lunghezza):
+        raise ValueError(
+            f"la membratura {indice} ha `quote_fette` che non cresce dentro "
+            f"[0, {lunghezza:g}] mm: {quote.tolist()}. Le fette di `wall.misura` "
+            "sono i centri di bin equispaziati, quindi crescono per costruzione; "
+            "fuori ordine o fuori dal pezzo appenderebbero ogni sezione alla "
+            "stazione sbagliata senza che nulla lo dica"
+        )
     interni = (quote[:-1] + quote[1:]) / 2.0
-    return np.concatenate([[0.0], interni, [float(voce["lunghezza"])]]), sezioni
+    return np.concatenate([[0.0], interni, [lunghezza]]), sezioni
 
 
 def _fondi_le_giunzioni(
@@ -239,19 +258,16 @@ def _fondi_le_giunzioni(
         estremi = [0, len(catene[cede]) - 1]
         distanze = [float(np.linalg.norm(catene[cede][e] - nodo)) for e in estremi]
         sorgente = offset[cede] + estremi[int(np.argmin(distanze))]
-        if alias.get(sorgente, bersaglio) != bersaglio:
-            raise ValueError(
-                f"l'estremo della membratura {cede} è già legato a un altro "
-                f"nodo: due incontri se lo contendono, e fonderli entrambi "
-                "collasserebbe due giunzioni distinte in una"
-            )
-        alias[sorgente] = bersaglio
-        coppia_di[sorgente] = (cede, resta)
-        incontri.append({
-            **record,
-            "nodo_telaio": bersaglio,
-            "scostamento_nodo": float(np.linalg.norm(catene[resta][stazione] - nodo)),
-        })
+        # Unione e non assegnazione: la testa di un pilastro interno riceve
+        # due traversi **dallo stesso estremo**, ed e' la topologia normale di
+        # un telaio a piu' campate. Rifiutarla -- come questo modulo faceva --
+        # lasciava passare solo i telai a campata unica. I nodi diventano uno;
+        # di quanto ciascuno si e' mosso lo dice `scostamento_nodo`.
+        radice_cede, radice_resta = _risolvi(sorgente, alias), _risolvi(bersaglio, alias)
+        if radice_cede != radice_resta:
+            alias[radice_cede] = radice_resta
+        coppia_di.setdefault(sorgente, (cede, resta))
+        incontri.append({**record, "nodo_telaio": bersaglio})
     return alias, coppia_di, incontri
 
 
@@ -302,9 +318,16 @@ def costruisci(prior: dict[str, object], regioni: dict[str, RegioneConfig]) -> T
     piani: list[tuple[np.ndarray, np.ndarray]] = []
     sezioni_di: list[np.ndarray] = []
     for indice, voce in enumerate(membrature):
-        asse, e1, _ = _piano_di_sezione(voce, indice)
+        asse, e1 = _piano_di_sezione(voce, indice)
         lungo, sezioni = _stazioni(voce, indice)
         catena = np.asarray(voce["origine"], dtype=np.float64) + np.outer(lungo, asse)
+        if not np.isfinite(catena).all():
+            raise ValueError(
+                f"la membratura {indice} produce nodi con coordinate non finite: "
+                "`origine`, `asse` o `lunghezza` portano un NaN. Ogni confronto "
+                "contro NaN è falso, quindi nessuna guardia a valle lo vedrebbe "
+                "e il telaio arriverebbe intero al solutore"
+            )
         offset.append(len(posizioni))
         posizioni.extend(catena)
         catene.append(catena)
@@ -330,27 +353,33 @@ def costruisci(prior: dict[str, object], regioni: dict[str, RegioneConfig]) -> T
         armatura = sezioni_dichiarate[indice].armatura
         riempimento = float(voce["riempimento"]["valore"])
         for stazione in range(len(sezioni)):
+            base, altezza = float(sezioni[stazione, 0]), float(sezioni[stazione, 1])
+            if not (base > 0.0 and altezza > 0.0):
+                raise ValueError(
+                    f"la stazione {stazione} della membratura {indice} ha "
+                    f"sezione {base:g} x {altezza:g} mm: una `patch rect` di "
+                    "estensione nulla e un `-GJ 0` OpenSees li accetta senza "
+                    "dire niente, e l'asta esce senza rigidezza"
+                )
             grezzo_i, grezzo_j = offset[indice] + stazione, offset[indice] + stazione + 1
             nodo_i, nodo_j = registra(grezzo_i), registra(grezzo_j)
             delta = nodi[nodo_j] - nodi[nodo_i]
             if float(delta @ asse) <= 0.0:
                 raise ValueError(
                     f"la stazione {stazione} della membratura {indice} ha "
-                    f"lunghezza di calcolo {float(delta @ asse):g} mm: il nodo di "
-                    f"giunzione{_nomina_coppia(grezzo_i, grezzo_j, coppia_di)} "
-                    "cade oltre la stazione successiva, e l'asta si rovescia su "
-                    "se stessa invece di accorciarsi"
+                    f"lunghezza di calcolo {float(delta @ asse):g} mm: l'asta si "
+                    "rovescia su se stessa invece di accorciarsi"
+                    f"{_nomina_coppia(grezzo_i, grezzo_j, coppia_di)}"
                 )
             asse_elemento = _versore(delta)
             e1_elemento = e1 - asse_elemento * float(e1 @ asse_elemento)
-            if float(np.linalg.norm(e1_elemento)) < _TOLLERANZA_TERNA:
+            if float(np.linalg.norm(e1_elemento)) < _NORMA_MINIMA_E1:
                 raise ValueError(
                     f"la stazione {stazione} della membratura {indice} ha l'asse "
                     "dell'asta parallelo a e1: il piano di sezione non è "
                     "definito, e la sezione a fibre uscirebbe orientata a caso"
                 )
             e1_elemento = _versore(e1_elemento)
-            base, altezza = float(sezioni[stazione, 0]), float(sezioni[stazione, 1])
             elementi.append(
                 ElementoTelaio(
                     membratura=indice,
@@ -365,8 +394,18 @@ def costruisci(prior: dict[str, object], regioni: dict[str, RegioneConfig]) -> T
                 )
             )
 
+    # Lo scostamento si misura contro il nodo **finale**, non contro la
+    # stazione scelta: dopo l'unione di due incontri sullo stesso estremo il
+    # nodo puo' essersi mosso una seconda volta, e il numero deve dire dove il
+    # telaio l'ha davvero messo rispetto a dove il prior l'aveva misurato.
     for incontro in incontri:
         incontro["nodo_telaio"] = registra(int(incontro["nodo_telaio"]))
+        incontro["scostamento_nodo"] = float(
+            np.linalg.norm(
+                nodi[incontro["nodo_telaio"]]
+                - np.asarray(incontro["nodo"], dtype=np.float64)
+            )
+        )
 
     return Telaio(
         nodi=np.asarray(nodi, dtype=np.float64).reshape(-1, 3),
@@ -382,7 +421,10 @@ def _nomina_coppia(
     for grezzo in (grezzo_i, grezzo_j):
         if grezzo in coppia_di:
             cede, resta = coppia_di[grezzo]
-            return f" fra le membrature {cede} e {resta}"
+            return (
+                f": il nodo di giunzione fra le membrature {cede} e {resta} cade "
+                "oltre la stazione successiva"
+            )
     return ""
 
 

@@ -311,8 +311,8 @@ def test_la_lunghezza_di_calcolo_e_da_nodo_a_nodo_e_non_l_estensione_della_nuvol
 
 
 def test_una_lunghezza_di_calcolo_nulla_solleva_nominando_la_coppia():
-    """Il nodo cade sotto la penultima stazione: l'asta d'estremo si rovescia,
-    e un'asta di lunghezza negativa non e' un'asta."""
+    """Il nodo di giunzione cade oltre la prima stazione del montante: l'asta
+    del piede si rovescia, e un'asta di lunghezza negativa non e' un'asta."""
     montante = _voce(asse=(0.0, 0.0, 1.0), origine=(0.0, 0.0, 0.0), lunghezza=1000.0)
     traverso = _voce(asse=(1.0, 0.0, 0.0), origine=(0.0, 0.0, 80.0), lunghezza=2000.0)
     prior = _prior([montante, traverso], [_giunzione(0, 1, (0.0, 0.0, 80.0))])
@@ -464,11 +464,24 @@ def test_i_materiali_escono_indicizzati_per_membratura():
 
 
 # --- un esito discreto che cambia e' un difetto di prodotto -------------------
-def test_lo_stesso_prior_costruito_due_volte_da_lo_stesso_telaio():
-    prior = _telaio_a_elle()
+def test_lo_stesso_prior_da_lo_stesso_telaio_comunque_sia_ordinato():
+    """Non «due chiamate uguali danno lo stesso esito», che e' vero per
+    costruzione: i due rischi veri sono l'ordine d'inserimento di `regioni` e
+    l'ordine dei record di giunzione, che sono dizionari e liste di chi
+    configura e non del dato."""
+    prior = _prior(
+        [_voce(asse=(0.0, 0.0, 1.0), origine=(0.0, 0.0, 0.0), lunghezza=1000.0),
+         _voce(asse=(1.0, 0.0, 0.0), origine=(0.0, 0.0, 1000.0), lunghezza=2000.0),
+         _voce(asse=(1.0, 0.0, 0.0), origine=(0.0, 0.0, -400.0), lunghezza=2000.0)],
+        [_giunzione(0, 1, (0.0, 0.0, 1000.0)), _giunzione(0, 2, (0.0, 0.0, -400.0))],
+    )
+    rovesciato = _prior(prior["membrature"], list(reversed(prior["giunzioni"])))
+    regioni = _regioni(3)
 
-    primo = telaio.costruisci(prior, _regioni(2))
-    secondo = telaio.costruisci(prior, _regioni(2))
+    primo = telaio.costruisci(prior, regioni)
+    secondo = telaio.costruisci(
+        rovesciato, {nome: regioni[nome] for nome in reversed(list(regioni))}
+    )
 
     assert np.array_equal(primo.nodi, secondo.nodi)
     assert [(e.membratura, e.stazione, e.nodo_i, e.nodo_j) for e in primo.elementi] == [
@@ -509,9 +522,70 @@ def test_il_prior_vero_arriva_fino_al_tcl(tmp_path):
     )
     assert resoconto["elementi"] == len(costruito.elementi)
     assert resoconto["barre"] > 0
-    assert len(costruito.nodi) < sum(
-        len(m["quote_fette"]) + 1 for m in prior["membrature"]
-    ), "gli incontri devono avere fuso dei nodi"
+    grezzi = sum(len(m["quote_fette"]) + 1 for m in prior["membrature"])
+    assert len(costruito.nodi) == grezzi - len(prior["giunzioni"]), (
+        "ogni incontro fonde esattamente un nodo, e il conteggio si misura"
+    )
+
+
+# --- le guardie trovate in review -------------------------------------------
+def test_un_montante_che_cede_a_due_traversi_ha_un_nodo_solo():
+    """La testa di un pilastro interno: due traversi vi arrivano dallo stesso
+    estremo. E' la topologia normale di un telaio a piu' campate, e il telaio
+    deve fondere i tre nodi in uno invece di rifiutarsi."""
+    montante = _voce(asse=(0.0, 0.0, 1.0), origine=(0.0, 0.0, 0.0), lunghezza=1000.0)
+    sinistro = _voce(asse=(1.0, 0.0, 0.0), origine=(-2000.0, 0.0, 1000.0), lunghezza=2000.0)
+    destro = _voce(asse=(1.0, 0.0, 0.0), origine=(0.0, 0.0, 1000.0), lunghezza=2000.0)
+    prior = _prior(
+        [montante, sinistro, destro],
+        [_giunzione(0, 1, (0.0, 0.0, 1000.0)), _giunzione(0, 2, (0.0, 0.0, 1000.0))],
+    )
+
+    costruito = telaio.costruisci(prior, _regioni(3))
+
+    testa = [e for e in costruito.elementi if e.membratura == 0][-1].nodo_j
+    fine_sinistro = [e for e in costruito.elementi if e.membratura == 1][-1].nodo_j
+    inizio_destro = [e for e in costruito.elementi if e.membratura == 2][0].nodo_i
+    assert testa == fine_sinistro == inizio_destro
+    assert len(costruito.nodi) == 63 - 2
+
+
+def test_quote_di_fetta_non_crescenti_sono_rifiutate():
+    """Le stazioni fuori ordine appenderebbero ogni sezione alla fetta
+    sbagliata, in silenzio: e' lo stesso difetto che la guardia sul numero di
+    quote dichiara di impedire."""
+    voce = _voce(fette=3)
+    voce["quote_fette"] = [500.0, 200.0, 900.0]
+
+    with pytest.raises(ValueError, match="quote_fette"):
+        telaio.costruisci(_prior([voce]), _regioni(1))
+
+
+def test_una_quota_di_fetta_fuori_dalla_membratura_e_rifiutata():
+    voce = _voce(fette=3)
+    voce["quote_fette"] = [100.0, 1000.0, 2500.0]
+
+    with pytest.raises(ValueError, match="quote_fette"):
+        telaio.costruisci(_prior([voce]), _regioni(1))
+
+
+def test_una_coordinata_non_finita_non_arriva_al_solutore():
+    """Ogni confronto contro NaN è falso: senza questa guardia il telaio si
+    costruisce, e il rifiuto arriva due moduli piu' in la'."""
+    voce = _voce(origine=(float("nan"), 0.0, 0.0))
+
+    with pytest.raises(ValueError, match="non finite"):
+        telaio.costruisci(_prior([voce]), _regioni(1))
+
+
+def test_una_sezione_di_estensione_nulla_e_rifiutata():
+    """Una `patch rect` larga zero e un `-GJ 0`: OpenSees li accetta senza dire
+    niente, e l'asta esce senza rigidezza."""
+    voce = _voce(fette=2)
+    voce["sezioni_fette"] = [[300.0, 200.0], [0.0, 200.0]]
+
+    with pytest.raises(ValueError, match="stazione 1 della membratura 0"):
+        telaio.costruisci(_prior([voce]), _regioni(1, armatura=None))
 
 
 _OPENSEES = os.environ.get("MESHREC_OPENSEES") or shutil.which("OpenSees")
