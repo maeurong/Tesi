@@ -955,7 +955,7 @@ def _solutore(percorso: str | None = "/finto/OpenSees") -> config.SolutoreConfig
 
 
 def _opensees_finto(caso: str = "GRAVITA", *, modi: int = 0, marcatore: bool = True,
-                    uscita: str = "", codice: int = 0):
+                    uscita: str = "", codice: int = 0, uscita_grezza: bytes | None = None):
     """Al posto di `subprocess.run`: scrive le uscite che i registratori
     scriverebbero, leggendole dal `.tcl` come farebbe il solutore vero.
 
@@ -995,7 +995,10 @@ def _opensees_finto(caso: str = "GRAVITA", *, modi: int = 0, marcatore: bool = T
 
         class _Processo:
             returncode = codice
-            stdout = uscita.encode()
+            # `uscita_grezza` per i byte che un OpenSees di Windows scrive
+            # davvero: `uscita.encode()` li produrrebbe utf-8 e nasconderebbe
+            # il caso.
+            stdout = uscita.encode() if uscita_grezza is None else uscita_grezza
             stderr = b""
 
         return _Processo()
@@ -1154,3 +1157,35 @@ def test_la_catena_intera_gira_su_opensees_vero(tmp_path):
     assert esito["controlli"]["spostamenti"]["passato"] is True
     assert esito["controlli"]["picco"]["applicabile"] is False
     assert len(esito["frequenze_hz"]) == 4
+
+
+def test_un_byte_illeggibile_di_opensees_lascia_un_segno_nel_registro(tmp_path, monkeypatch):
+    """`errors="ignore"` cancella il carattere; nel registro dello step 13 e' una bugia.
+
+    OpenSees e' un binario di terze parti e su Windows scrive nella codepage
+    locale: il nome accentato di una cartella esce con `0xE0`, che utf-8 non
+    ammette. La lettura non cade -- decodifica gia' con una politica sugli
+    errori -- ma `ignore` fa sparire il byte senza traccia, e il registro che
+    l'utente apre per capire perche' il telaio si e' fermato consegna una riga
+    che nessuno ha scritto.
+
+    `replace` lascia `U+FFFD`: si vede che li' c'era qualcosa che non si e'
+    letto. E' la stessa scelta gia' fatta per il tubo del worker
+    (`app/worker.py`, `CODIFICA_DEL_TUBO`) e per il selettore file; l'argomento
+    che regge `ignore` in `_righe_dat` vale per i file di DATI che i parser
+    contano a campi, non per un registro in prosa.
+    """
+    monkeypatch.setattr(opensees.solve, "disponibilita", _c_e_opensees)
+    monkeypatch.setattr(
+        opensees.subprocess, "run",
+        _opensees_finto(uscita_grezza="*WARNING: nodo isolato in città.ply\n".encode("cp1252")),
+    )
+
+    esito = opensees.esegui(
+        tmp_path, _mensola(), _solutore(), casi_di_carico=["GRAVITA"]
+    )
+
+    registro = (tmp_path / opensees.NOME_REGISTRO).read_text(encoding="utf-8")
+    assert esito["eseguito"] is True
+    assert "*WARNING: nodo isolato in citt" in registro
+    assert "�" in registro, "il byte illeggibile e' stato cancellato invece che segnato"
