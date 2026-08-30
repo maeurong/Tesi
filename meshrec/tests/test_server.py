@@ -87,7 +87,9 @@ def test_una_configurazione_fuori_dominio_non_solleva_ma_spiega(cliente):
     guasta["surface"]["poisson_depth"] = 99   # il modello ammette 4..14
     risposta = cliente.put("/api/config", json=guasta)
     assert risposta.status_code == 422
-    assert "poisson_depth" in risposta.text
+    # Per etichetta e non per chiave: e' la regola di PRODUCT.md, e vale anche
+    # per il rifiuto che compare sotto la casella.
+    assert "profondità dell'ottree di Poisson" in risposta.json()["messaggio"]
 
 
 def test_una_regione_che_collide_con_lelset_fabbricato_e_rifiutata_dallendpoint(cliente):
@@ -2282,9 +2284,62 @@ def test_lo_schema_porta_l_etichetta_dove_il_modello_la_dichiara(cliente):
         "`simplify.enabled` mostra ancora la chiave grezza: dice che si accende "
         "qualcosa senza dire che cosa"
     )
-    assert "etichetta" not in corpo["9"]["campi"]["tet"]["min_ratio"], (
-        "un campo senza `title` porta un'etichetta inventata"
+    # Dove il modello non dichiara `title` non si inventa nulla. La prova sta
+    # su `_forma_del_campo`, che e' il punto in cui l'etichetta nasce, e non su
+    # un campo del pannello: di campi del pannello senza etichetta non ne deve
+    # restare nessuno, ed e' il test qui sotto a dirlo.
+    from pydantic import BaseModel
+
+    from meshrec.app.server import _forma_del_campo
+
+    class SenzaTitolo(BaseModel):
+        anonimo: int = 0
+
+    assert "etichetta" not in _forma_del_campo(SenzaTitolo.model_fields["anonimo"])
+
+
+def test_nessun_campo_del_pannello_si_mostra_con_la_chiave_grezza(cliente):
+    """«Una chiave non si stampa mai, si stampa la sua etichetta» (PRODUCT.md).
+
+    Senza `title` il pannello ripiega sulla chiave, e chi apre il programma
+    legge `plane_min_points_ratio`, `density_quantile`, `nobisect`. La regola
+    vale per tutti i campi che l'interfaccia mostra e non per quelli che di
+    volta in volta se ne ricordano: la prova gira sull'elenco vero di
+    `/api/schema`, cosi' un campo aggiunto domani senza etichetta la fa
+    cadere.
+
+    Mutazione che lo uccide: togliere `title=` a un campo qualunque di
+    `PipelineConfig` fra quelli che uno step mostra.
+    """
+    corpo = cliente.get("/api/schema").json()
+    nudi = {
+        f"{blocco}.{nome}"
+        for voce in corpo.values()
+        for blocco, campi in voce["campi"].items()
+        for nome, campo in campi.items()
+        if not campo.get("etichetta")
+    }
+    assert not nudi, "campi senza etichetta, di cui il pannello stampa la chiave: " + ", ".join(
+        sorted(nudi)
     )
+
+
+def test_l_etichetta_non_e_la_chiave_ribattuta(cliente):
+    """Un'etichetta che ripete la chiave non e' un'etichetta.
+
+    `title="nobisect"` passerebbe il controllo qui sopra e a video non
+    cambierebbe niente: la regola e' che l'etichetta dica la grandezza in
+    italiano, non che esista.
+    """
+    corpo = cliente.get("/api/schema").json()
+    ribattute = {
+        f"{blocco}.{nome}"
+        for voce in corpo.values()
+        for blocco, campi in voce["campi"].items()
+        for nome, campo in campi.items()
+        if campo.get("etichetta", "").strip().lower() == nome.lower()
+    }
+    assert not ribattute, "etichette che ripetono la chiave: " + ", ".join(sorted(ribattute))
 
 
 def test_il_pannello_dello_step_11_mostra_solo_i_blocchi_che_comanda(cliente):
@@ -2309,6 +2364,16 @@ def test_il_pannello_dello_step_11_mostra_solo_i_blocchi_che_comanda(cliente):
     corpo = cliente.get("/api/schema").json()
     assert corpo["11"]["blocchi"] == ["analysis"]
     assert set(corpo["11"]["campi"]) == {"analysis"}
+    # Di `analysis` lo step 11 comanda una cosa sola: la tolleranza con cui
+    # estrae i set di faccia. `gravity`, `fixed_nset` e `step_name` descrivono
+    # il caso di carico e vivono nel pannello dello step 13, che e' la
+    # schermata dell'analisi; `material` ha gia' il proprio pannello qui
+    # sotto, e in questo elenco compariva una seconda volta come riga di
+    # sola lettura con dentro il JSON del modello.
+    assert set(corpo["11"]["campi"]["analysis"]) == {"set_tolerance_factor"}
+    assert {"gravity", "fixed_nset", "step_name", "material"} <= set(
+        corpo["13"]["campi"]["analysis"]
+    ), "tolti dallo step 11 e da nessuna parte: il caso di carico e' dello step 13"
     # Il blocco resta intero dove lo step lo comanda davvero.
     assert corpo["9"]["blocchi"] == ["tet"] and corpo["9"]["campi"]["tet"]
 
@@ -4163,3 +4228,85 @@ def test_le_due_parti_del_selettore_dichiarano_la_stessa_codifica(monkeypatch, c
     assert visto["errors"] == "replace"
     assert "sys.stdout.buffer.write" in server._SELETTORE
     assert 'encode("utf-8")' in server._SELETTORE
+
+
+def test_un_valore_fuori_dominio_e_rifiutato_in_italiano_e_per_etichetta(cliente):
+    """Trovato guardando in Chrome, non eseguendo: battuto 99 nella casella
+    accanto al cursore di `poisson_depth`, sotto il campo compariva
+    «surface.poisson_depth: Input should be less than or equal to 14».
+
+    Due cose sbagliate in una riga. La chiave grezza, che PRODUCT.md vieta di
+    stampare -- ed e' la stessa regola per cui ogni campo ha adesso la propria
+    etichetta. E l'inglese di pydantic, in un programma che parla italiano.
+
+    Mutazione che lo uccide: tornare a comporre il messaggio dal `loc`
+    dell'errore e dal `msg` di pydantic senza tradurli.
+    """
+    corrente = cliente.get("/api/config").json()
+    corrente["surface"]["poisson_depth"] = 99
+
+    risposta = cliente.put("/api/config", json=corrente)
+
+    # 422 e non 400: un corpo che non passa i modelli lo ferma FastAPI prima
+    # dell'endpoint, e il gestore di RequestValidationError gli da' la forma
+    # {errore, messaggio} degli altri rifiuti.
+    assert risposta.status_code == 422
+    detto = risposta.json()["messaggio"]
+    assert "poisson_depth" not in detto, f"il rifiuto stampa la chiave grezza: {detto}"
+    assert "profondità dell'ottree di Poisson" in detto, (
+        f"il rifiuto non nomina il campo con la sua etichetta: {detto}"
+    )
+    assert "Input should be" not in detto, f"il rifiuto e' in inglese: {detto}"
+    assert "14" in detto, f"il rifiuto non dice l'estremo violato: {detto}"
+
+
+def test_un_rifiuto_su_un_campo_senza_etichetta_resta_la_chiave(cliente):
+    """Dove il modello non dichiara `title` non si inventa una frase: la
+    chiave e' l'unica cosa che si sa. E' la stessa regola del pannello.
+    """
+    from pydantic import BaseModel, Field, ValidationError
+
+    from meshrec.app.server import _rifiuto_leggibile
+
+    class Riga(BaseModel):
+        anonimo: int = Field(default=0, le=3)
+
+    with pytest.raises(ValidationError) as caduta:
+        Riga(anonimo=9)
+    assert "anonimo" in _rifiuto_leggibile(caduta.value)
+
+
+def test_l_aiuto_non_ripete_l_etichetta(cliente):
+    """L'etichetta dice che cos'è il campo, l'aiuto dice il resto: sono due
+    cose diverse, e a video stanno una sotto l'altra.
+
+    Trovato guardando in Chrome: sotto «elemento del maglio di volume» c'era
+    scritto «elemento del maglio di volume. C3D10 è il tetraedro quadratico...»
+    -- la stessa frase due volte, una dentro l'altra.
+    """
+    corpo = cliente.get("/api/schema").json()
+    doppioni = set()
+    for voce in corpo.values():
+        for blocco, campi in voce["campi"].items():
+            for nome, campo in campi.items():
+                etichetta = (campo.get("etichetta") or "").strip().lower()
+                aiuto = (campo.get("description") or "").strip().lower()
+                if etichetta and aiuto and aiuto.startswith(etichetta[: max(len(etichetta) - 6, 8)]):
+                    doppioni.add(f"{blocco}.{nome}")
+    assert not doppioni, "l'aiuto ricomincia con l'etichetta: " + ", ".join(sorted(doppioni))
+
+
+def test_nessun_aiuto_mostra_un_letterale_di_python(cliente):
+    """`None` e `True` sono come si scrivono in python, non come si legge una
+    casella vuota: nell'aiuto di `voxel_size` c'era «None = 2 x spaziatura
+    media», e chi apre il programma non ha nessun modo di battere `None`.
+    """
+    corpo = cliente.get("/api/schema").json()
+    guasti = {
+        f"{blocco}.{nome}"
+        for voce in corpo.values()
+        for blocco, campi in voce["campi"].items()
+        for nome, campo in campi.items()
+        if re.search(r"\b(None|True|False)\b", campo.get("description") or "")
+    }
+    assert not guasti, "un letterale di python nell'aiuto: " + ", ".join(sorted(guasti))

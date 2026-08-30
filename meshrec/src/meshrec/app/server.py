@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 import subprocess
 import sys
 import threading
@@ -21,6 +22,7 @@ from typing import Annotated, Literal, get_args, get_origin
 
 import numpy as np
 from fastapi import FastAPI, Response
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import (
     AfterValidator,
@@ -371,7 +373,10 @@ radice.destroy()
 # `sys.stdout.write` su Windows userebbe la codepage locale (cp1252), e il
 # lettore la decodifica: un percorso con una lettera accentata -- una cartella
 # qualunque di un utente italiano -- usciva 0xe0 ed entrava come utf-8, che
-# quel byte non lo ammette come continuazione. L'utente vedeva un
+# quel byte non lo ammette come continuazione. Le due parole d'esempio non si
+# scrivono qui: questo commento vive dentro il sorgente che va sulla riga di
+# comando del sottoprocesso, e non c'e' ragione di metterci caratteri fuori
+# tabella. L'utente vedeva un
 # UnicodeDecodeError al posto del file che aveva appena scelto.
 sys.stdout.buffer.write((scelto or "").encode("utf-8"))
 """
@@ -531,8 +536,77 @@ _FUORI_DAL_PANNELLO: dict[int, frozenset[str]] = {
     # Lo step 11 esporta il modello: non tetraedrizza (quello e' il 9), e i
     # carichi non hanno ancora una sede propria -- escono da qui senza che se
     # ne inventi una.
-    11: frozenset({"tet", "carichi"}),
+    #
+    # Di `analysis` lo step 11 comanda la sola tolleranza dei set di faccia.
+    # `gravity`, `fixed_nset` e `step_name` descrivono il caso di carico e non
+    # la geometria: stanno nel pannello dello step 13, che e' la schermata
+    # dell'analisi. `material` ha gia' il proprio pannello -- quattro caselle
+    # che partono insieme -- e qui compariva una seconda volta, come riga di
+    # sola lettura col JSON del modello dentro.
+    11: frozenset(
+        {
+            "tet",
+            "carichi",
+            "analysis.material",
+            "analysis.gravity",
+            "analysis.fixed_nset",
+            "analysis.step_name",
+        }
+    ),
 }
+
+
+def _etichetta_del_percorso(percorso: tuple[object, ...]) -> str:
+    """L'etichetta del campo che il validatore ha rifiutato.
+
+    «Una chiave non si stampa mai, si stampa la sua etichetta» (PRODUCT.md)
+    vale anche per il rifiuto: sotto la casella compariva
+    `surface.poisson_depth`, cioe' la stessa chiave grezza che il pannello ha
+    smesso di mostrare sopra di essa. Dove il modello non dichiara `title` la
+    chiave resta l'unica cosa che si sa, e non si inventa una frase.
+
+    `body` in testa lo mette FastAPI quando il rifiuto arriva dalla lettura del
+    corpo della richiesta: non e' un campo e non si stampa.
+    """
+    pezzi = [str(passo) for passo in percorso if passo != "body"]
+    modello: object = PipelineConfig
+    etichetta: str | None = None
+    for pezzo in pezzi:
+        campi = getattr(modello, "model_fields", None)
+        if not campi or pezzo not in campi:
+            etichetta = None
+            break
+        campo = campi[pezzo]
+        etichetta = campo.title or pezzo
+        modello = _modello_del_blocco(campo.annotation)
+    return etichetta or ".".join(pezzi) or "la configurazione"
+
+
+# I rifiuti di pydantic che il pannello sa produrre, detti in italiano. Sono i
+# vincoli che i campi dichiarano -- gli estremi, il tipo, l'insieme chiuso, il
+# campo obbligatorio -- e non la tabella intera di pydantic: cio' che non e'
+# qui esce come il validatore lo scrive, che e' meglio di una traduzione
+# indovinata.
+_RIFIUTI_TRADOTTI: tuple[tuple[str, str], ...] = (
+    (r"^Input should be less than or equal to (.+)$", "non può superare {}"),
+    (r"^Input should be less than (.+)$", "deve stare sotto {}"),
+    (r"^Input should be greater than or equal to (.+)$", "non può stare sotto {}"),
+    (r"^Input should be greater than (.+)$", "deve superare {}"),
+    (r"^Input should be a valid integer.*$", "vuole un numero intero"),
+    (r"^Input should be a valid number.*$", "vuole un numero"),
+    (r"^Input should be a valid boolean.*$", "vuole vero o falso"),
+    (r"^Input should be a valid string$", "vuole del testo"),
+    (r"^Field required$", "è obbligatorio e non è stato dichiarato"),
+    (r"^Input should be (.+)$", "ammette {}"),
+)
+
+
+def _ragione_tradotta(msg: str) -> str:
+    for forma, italiano in _RIFIUTI_TRADOTTI:
+        trovata = re.match(forma, msg)
+        if trovata:
+            return italiano.format(*trovata.groups())
+    return msg
 
 
 def _rifiuto_leggibile(errore: Exception) -> str:
@@ -545,8 +619,7 @@ def _rifiuto_leggibile(errore: Exception) -> str:
     """
     if isinstance(errore, ValidationError) and errore.errors():
         voce = errore.errors()[0]
-        campo = ".".join(str(pezzo) for pezzo in voce["loc"]) or "la configurazione"
-        return f"{campo}: {voce['msg']}"
+        return f"{_etichetta_del_percorso(tuple(voce['loc']))}: {_ragione_tradotta(voce['msg'])}"
     return f"{type(errore).__name__}: {errore}"
 
 
@@ -836,6 +909,27 @@ def create_app(
                 },
             )
         return await prosegui(richiesta)
+
+    @app.exception_handler(RequestValidationError)
+    async def il_corpo_rifiutato_lo_dice_in_italiano(_richiesta, errore: RequestValidationError):
+        # Un corpo che non passa i modelli non arriva mai all'endpoint: lo
+        # ferma FastAPI, e il suo 422 porta il `detail` grezzo di pydantic, con
+        # la chiave del campo e la frase inglese. E' cio' che compariva sotto
+        # la casella accanto al cursore: «surface.poisson_depth: Input should
+        # be less than or equal to 14». Qui prende la stessa forma di ogni
+        # altro rifiuto di questo server, {errore, messaggio}, che
+        # `ragioneDelRifiuto` legge per prima.
+        voci = errore.errors()
+        messaggio = (
+            f"{_etichetta_del_percorso(tuple(voci[0]['loc']))}: "
+            f"{_ragione_tradotta(voci[0]['msg'])}"
+            if voci
+            else "la configurazione non è stata accettata"
+        )
+        return JSONResponse(
+            status_code=422,
+            content={"errore": "ValidationError", "messaggio": messaggio},
+        )
 
     @app.exception_handler(Exception)
     async def nessuna_eccezione_verso_il_browser(_richiesta, errore: Exception):

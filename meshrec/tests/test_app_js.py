@@ -1260,9 +1260,12 @@ def test_una_battuta_illeggibile_non_cambia_la_configurazione_su_disco(tmp_path)
                       + "const risposta = { status: 422, text: async () => "
                       + json.dumps(rifiuto.text) + " };\n"
                       "process.stdout.write(await ragioneDelRifiuto(risposta));")
-    assert "voxel_size" in ragione and "number" in ragione, (
+    # Il campo per etichetta e non per chiave, e la ragione in italiano: la
+    # regola di PRODUCT.md vale anche sotto la casella, non solo sopra.
+    assert "lato del voxel" in ragione and "numero" in ragione, (
         f"la ragione non nomina il campo o non dice perche': {ragione}"
     )
+    assert "voxel_size" not in ragione, f"la ragione stampa la chiave grezza: {ragione}"
 
     configurazione["downsample"]["voxel_size"] = scritto("2.5")
     buono = cliente.put("/api/config", json=configurazione)
@@ -1471,7 +1474,7 @@ def _banco_del_campo() -> str:
     """
     return _DOM + _funzioni(
         "valoreScritto", "ragioneDelRifiuto", "serverMuto", "superata", "corpoLetto",
-        "segnalaCampo", "apriBattuta", "scriviParametro", "campoParametro",
+        "segnalaCampo", "apriBattuta", "scriviValore", "scriviParametro", "campoParametro",
     ) + """
 // Il terzo contatore di Rilievo 1, per campo: scriviParametro lo legge dal
 // modulo per nome, non da un parametro, quindi il banco deve ricrearlo tale e
@@ -1561,15 +1564,14 @@ def test_un_campo_nullabile_vuoto_non_mostra_la_stringa_null(tmp_path):
     _esegui(tmp_path, _banco_del_campo() + """
 configurazione = {
   downsample: { voxel_size: null },
-  segment: { crop_min: [1, 2, 3] },
-  input: { expected_size: null },
+  segment: { crop_min: [1, 2, 3], crop_max: null },
 };
 const { input } = apriCampo("downsample", "voxel_size");
 assert.equal(input.value, "", "un campo nullabile vuoto mostra la stringa null");
-// Anche dove il tipo lo dichiara lo schema: `expected_size` e' una tupla
+// Anche dove il tipo lo dichiara lo schema: `crop_max` e' una tupla
 // nullabile, e `JSON.stringify(null)` e' la stringa "null" -- le stesse
 // quattro lettere in un campo che e' vuoto.
-const composto = campoParametro("input", "expected_size",
+const composto = campoParametro("segment", "crop_max",
   { description: "", tipo: "composto", nullabile: true }, generazione);
 assert.equal(composto.children[1].value, "",
   "un composto nullabile vuoto mostra la stringa null");
@@ -1914,8 +1916,10 @@ assert.doesNotMatch(intero, SEGUITO,
 assert.ok(parziale.includes((5602).toLocaleString("it")), "il numero non compare");
 assert.ok(intero.includes((84).toLocaleString("it")), "il numero non compare");
 for (const testo of [parziale, intero]) {
-  assert.match(testo, /crop_min e crop_max sono stati scritti/,
+  assert.match(testo, /spigoli del box sono stati scritti/,
     "il bottone dice Applica: chi lo preme deve sapere che ha scritto");
+  assert.doesNotMatch(testo, /crop_min|crop_max/,
+    "la didascalia stampa la chiave grezza invece dell'etichetta");
 }
 """)
     assert uscita == ""
@@ -2026,7 +2030,9 @@ def test_scriviparametro_guarda_anche_la_battuta_del_campo_per_iscritto():
     guardia lo dice senza dover eseguire `node`. Non basta da solo — una
     guardia scritta e resa inerte passerebbe questo controllo — percio' il
     controllo che conta e' quello che esegue, subito sotto."""
-    corpo = _sorgente_di("scriviParametro", _modulo())
+    # `scriviValore` e non `scriviParametro`: la parte che parla col server e'
+    # una sola, e da li' passano anche i due comandi composti dello step 1.
+    corpo = _sorgente_di("scriviValore", _modulo())
     assert "apriBattuta(chiave)" in corpo, "la battuta non si apre piu' per campo"
     assert "superata(battuta, ultimaBattutaDelCampo.get(chiave))" in corpo, (
         "la guardia sulla battuta del campo e' sparita: due scritture sullo stesso "
@@ -2386,7 +2392,7 @@ def _banco_di_apriDettaglio() -> str:
     return _DOM + _funzioni(
         *_COLONNA, "dichiaraErrore", "fallisciDettaglio",
         "ragioneDelRifiuto", "serverMuto", "superata", "corpoLetto", "valoreScritto",
-        "segnalaCampo", "apriBattuta", "scriviParametro", "campoParametro", "apriDettaglio",
+        "segnalaCampo", "apriBattuta", "scriviValore", "scriviParametro", "campoParametro", "apriDettaglio",
         "durataMisurata", "ultimaDurata",
         # L'intestazione e il gruppo che richiude i predefiniti: il pannello li
         # costruisce a ogni apertura, quindi il banco li incontra comunque.
@@ -6793,4 +6799,221 @@ const testo = testoDi([propostaDelleCombinazioni(dati)]);
 assert.match(testo, /ψ₂ 0,3/, `il coefficiente esce col punto decimale: ${testo}`);
 assert.ok(!/ψ₂ 0\\.3/.test(testo), `il punto decimale del JSON arriva a video: ${testo}`);
 assert.match(testo, /ψ₂ 0,0/, `uno zero esce senza il proprio decimale: ${testo}`);
+""")
+
+
+def test_il_proposito_dello_step_2_nomina_le_tre_cose_che_lo_step_fa():
+    """La riga descriveva solo la meta' di pre-processing.
+
+    `docs/validazione/ricerca-terminologia-segmentazione.md` (28/08/2026) da'
+    ragione in parte al tutore: togliere gli outlier e ritagliare non sono
+    segmentazione in nessuna tassonomia, mentre l'estrazione di piani (RANSAC)
+    e il raggruppamento (DBSCAN) lo sono senza ambiguita'. La frase vecchia
+    -- «toglie il rumore e ritaglia via il resto della stanza» -- taceva
+    proprio le due meta' che il nome dello step giustificano, e chi legge il
+    pannello non sapeva che lo step estrae piani e raggruppa.
+
+    Mutazione che lo uccide: rimettere la frase vecchia.
+    """
+    modulo = _senza_commenti_js(_modulo())
+    # Dentro PROPOSITI e non nel modulo intero: ETICHETTE e PROPOSITI portano
+    # le stesse chiavi, e ETICHETTE viene prima.
+    blocco = re.search(r"const PROPOSITI = \{(.*?)\n\};", modulo, flags=re.DOTALL)
+    assert blocco is not None, "PROPOSITI non e' piu' un oggetto letterale"
+    trovata = re.search(r'"02_segment":\s*"([^"]+)"', blocco.group(1))
+    assert trovata is not None, "PROPOSITI non ha piu' una voce per 02_segment"
+    frase = trovata.group(1).lower()
+    for parola in ("rumore", "ritagl", "pian", "grupp"):
+        assert parola in frase, f"il proposito dello step 2 non nomina «{parola}»: {frase}"
+
+
+def test_nessun_proposito_nomina_una_chiave_del_modello():
+    """«Una chiave non si stampa mai, si stampa la sua etichetta» vale anche
+    per la prosa: il proposito dello step 8 citava «enabled», che dallo step 8
+    in poi non e' piu' il nome che il pannello mostra.
+    """
+    modulo = _senza_commenti_js(_modulo())
+    blocco = re.search(r"const PROPOSITI = \{(.*?)\n\};", modulo, flags=re.DOTALL)
+    assert blocco is not None
+    for chiave in ("enabled", "largest_component_only", "poisson_depth", "nobisect"):
+        assert chiave not in blocco.group(1), (
+            f"il proposito di uno step nomina la chiave «{chiave}» invece della sua etichetta"
+        )
+
+
+def _banco_della_scala() -> str:
+    """Il banco del campo, piu' le due composizioni dello step 1.
+
+    `scale` e `expected_size` non sono campi scalari: sono due comandi che
+    scrivono un valore solo, e la logica che compone e scompone e' logica --
+    si prova eseguendola, come tutto il resto di questo file.
+    """
+    costanti = "\n".join(
+        _costante(nome) for nome in
+        ("FATTORI_DI_SCALA", "UNITA_DI_SCALA", "ASSI_DELLE_DIMENSIONI")
+    )
+    return _DOM + costanti + "\n" + _funzioni(
+        "valoreScritto", "ragioneDelRifiuto", "serverMuto", "superata",
+        "corpoLetto", "segnalaCampo", "apriBattuta", "scriviValore", "scriviParametro",
+        "coppiaDiScala", "unitaDellaScala", "rigaComposta", "campoScala",
+        "campoDimensioniAttese",
+    ) + """
+// `configurazione` e `generazione` sono gia' del DOM finto: il banco le usa,
+// non le ridichiara. `ultimaBattutaDelCampo` invece e' del modulo, e
+// `scriviValore` la legge per nome.
+generazione = 1;
+let ultimaBattutaDelCampo = new Map();
+const richieste = [];
+let risponde = null;
+globalThis.fetch = async (percorso, opzioni) => {
+  richieste.push({ percorso, corpo: JSON.parse(opzioni.body) });
+  return risponde(percorso, opzioni);
+};
+const accetta = (canonica) => async () => ({ ok: true, status: 200, json: async () => canonica });
+"""
+
+
+def test_la_scala_si_compone_da_due_menu_e_scrive_un_numero_solo(tmp_path):
+    """Fattore 1 e unita' cm: «la nuvola e' gia' in centimetri e ci resta».
+
+    I due menu non sono due campi del modello: `input.scale` resta il numero
+    che e' -- vive nei config.yaml delle corse registrate e dentro l'impronta,
+    e due campi nuovi sposterebbero l'impronta di ventidue righe di registro.
+    La composizione sta nell'interfaccia, e il numero che ne esce e' uno solo.
+
+    Mutazione che lo uccide: comporre moltiplicando per l'unita' sbagliata.
+    """
+    _esegui(tmp_path, _banco_della_scala() + """
+configurazione = { input: { scale: 10 } };
+const riga = campoScala("input", "scale", { etichetta: "fattore di scala", description: "" }, 1);
+const [fattore, unita] = riga.children[1].children;
+assert.equal(fattore.value, "1", `il fattore letto da scale=10 non e' 1: ${fattore.value}`);
+assert.equal(unita.value, "cm", `l'unita' letta da scale=10 non e' cm: ${unita.value}`);
+
+// La coppia scelta scrive un numero solo, e nient'altro cambia nel blocco.
+risponde = accetta({ input: { scale: 1000 } });
+fattore.value = "1";
+unita.value = "m";
+await unita.scatena("change");
+assert.equal(richieste.length, 1, "la coppia non ha scritto niente");
+assert.equal(richieste[0].corpo.input.scale, 1000,
+  `1 in metri non fa 1000 millimetri: ${richieste[0].corpo.input.scale}`);
+assert.equal(Object.keys(richieste[0].corpo.input).length, 1,
+  "i due menu hanno scritto piu' di un campo");
+
+// E riaperto il pannello i due menu tornano su quella coppia.
+const riaperta = campoScala("input", "scale", { etichetta: "fattore di scala", description: "" }, 1);
+const [dopoFattore, dopoUnita] = riaperta.children[1].children;
+assert.equal(dopoFattore.value, "1", "il fattore non torna su quello scelto");
+assert.equal(dopoUnita.value, "m", "l'unita' non torna su quella scelta");
+""")
+
+
+def test_una_scala_che_nessuna_coppia_produce_resta_il_numero_che_e(tmp_path):
+    """Ingresso degenere: un `config.yaml` con `scale: 3`.
+
+    Nessuna coppia fattore-unita' lo produce. Arrotondarlo alla coppia piu'
+    vicina cambierebbe in silenzio la scala di una corsa gia' registrata: il
+    numero resta, si vede, e la riga dice perche' i due menu non ci sono.
+    """
+    _esegui(tmp_path, _banco_della_scala() + """
+configurazione = { input: { scale: 3 } };
+const riga = campoScala("input", "scale", { etichetta: "fattore di scala", description: "" }, 1);
+const caselle = riga.children.filter((f) => f.tag === "select");
+assert.equal(caselle.length, 0, "i due menu compaiono su un valore che non sanno rappresentare");
+const casella = riga.children.find((f) => f.tag === "input");
+assert.equal(casella.value, "3", `il valore e' stato riscritto: ${casella.value}`);
+const detto = riga.children.map((f) => f.textContent).join(" ");
+assert.match(detto, /3/, `il numero fuori coppia non e' nominato: ${detto}`);
+assert.match(detto, /coppia|fattore/, `la riga non dice perche' i menu non ci sono: ${detto}`);
+""")
+
+
+def test_le_dimensioni_attese_vuote_valgono_nessun_controllo_di_scala(tmp_path):
+    """Le tre caselle vuote sono il predefinito di oggi (`expected_size = None`),
+    non un errore: il controllo di scala non e' richiesto.
+    """
+    _esegui(tmp_path, _banco_della_scala() + """
+configurazione = { input: { scale: 1000, expected_size: [2000, 250, 1200] } };
+const riga = campoDimensioniAttese("input", "expected_size", { etichetta: "dimensioni", description: "" }, 1);
+const caselle = riga.children[1].children.filter((f) => f.tag === "input");
+assert.equal(caselle.length, 3, `le misure non sono tre: ${caselle.length}`);
+// Scritte nell'unita' scelta in scale: 2000 mm con l'unita' m sono 2.
+assert.equal(caselle[0].value, "2", `la misura non e' nell'unita' della scala: ${caselle[0].value}`);
+
+risponde = accetta({ input: { scale: 1000, expected_size: null } });
+for (const casella of caselle) casella.value = "";
+await caselle[0].scatena("change");
+assert.equal(richieste.length, 1, "le tre caselle vuote non hanno scritto niente");
+assert.equal(richieste[0].corpo.input.expected_size, null,
+  `tre caselle vuote non danno «nessun controllo»: ${JSON.stringify(richieste[0].corpo.input.expected_size)}`);
+""")
+
+
+def test_una_sola_dimensione_attesa_e_un_rifiuto_detto(tmp_path):
+    """Ingresso degenere: una casella riempita e due vuote.
+
+    Il modello pretende una terna o niente. Mandare al server due vuoti e un
+    numero darebbe un 422 sul tipo, che non dice all'operatore che cosa
+    manca: il rifiuto si dice qui, con la regola.
+    """
+    _esegui(tmp_path, _banco_della_scala() + """
+configurazione = { input: { scale: 1, expected_size: null } };
+const riga = campoDimensioniAttese("input", "expected_size", { etichetta: "dimensioni", description: "" }, 1);
+const caselle = riga.children[1].children.filter((f) => f.tag === "input");
+const messaggio = riga.children[riga.children.length - 1];
+caselle[0].value = "2000";
+await caselle[0].scatena("change");
+assert.equal(richieste.length, 0, "una terna a meta' e' partita verso il server");
+assert.equal(messaggio.hidden, false, "il rifiuto non si vede");
+assert.match(messaggio.textContent, /tre/,
+  `il rifiuto non dice che le misure vanno tutte e tre: ${messaggio.textContent}`);
+""")
+
+
+def test_una_dimensione_attesa_non_numerica_e_un_rifiuto_detto(tmp_path):
+    """Ingresso degenere: «due metri» battuto in una casella.
+
+    Senza guardia la stringa finisce nella terna e torna un errore di
+    validazione grezzo di pydantic, cioe' cinque righe sul tipo interno.
+    """
+    _esegui(tmp_path, _banco_della_scala() + """
+configurazione = { input: { scale: 1, expected_size: null } };
+const riga = campoDimensioniAttese("input", "expected_size", { etichetta: "dimensioni", description: "" }, 1);
+const caselle = riga.children[1].children.filter((f) => f.tag === "input");
+const messaggio = riga.children[riga.children.length - 1];
+caselle[0].value = "due metri";
+caselle[1].value = "250";
+caselle[2].value = "1200";
+await caselle[0].scatena("change");
+assert.equal(richieste.length, 0, "una misura non numerica e' partita verso il server");
+assert.equal(messaggio.hidden, false, "il rifiuto non si vede");
+assert.match(messaggio.textContent, /numero/,
+  `il rifiuto non dice che serve un numero: ${messaggio.textContent}`);
+""")
+
+
+def test_uno_step_senza_parametri_e_senza_metriche_lo_dichiara(tmp_path):
+    """Ingresso degenere del pannello: lo step 7 non ha parametri propri
+    (`STEP_BLOCKS[7]` e' vuota), e finche' non e' stato eseguito non ha
+    nemmeno metriche. Restano i due bottoni e basta, e un riquadro quasi
+    vuoto non distingue «niente da mostrare» da «non ha caricato».
+
+    Mutazione che lo uccide: togliere il ramo finale di `apriDettaglio` che
+    scrive la riga quando non c'e' ne' un blocco ne' una chiave di metriche.
+    """
+    _esegui(tmp_path, _banco_di_apriDettaglio() + """
+risponde = {
+  "/api/schema": async () => ({ ok: true, status: 200, json: async () => ({
+    "1": { blocchi: [], campi: {} },
+  }) }),
+  "/api/config": async () => ({ ok: true, status: 200, json: async () => CONFIG_BUONA }),
+  "/api/metrics": async () => ({ ok: true, status: 200, json: async () => ({}) }),
+};
+await apriDettaglio(1);
+const dettaglio = document.getElementById("dettaglio");
+const detto = [...dettaglio.discendenti(), ...dettaglio.figli]
+  .map((n) => n.testo).join(" ");
+assert.match(detto, /non ha parametri/,
+  `uno step senza parametri e senza metriche non lo dichiara: ${detto}`);
 """)

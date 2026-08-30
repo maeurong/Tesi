@@ -310,3 +310,22 @@ def test_ogni_cosa_che_prende_il_fuoco_lo_mostra():
             f"«{famiglia}» prende il fuoco e non lo mostra: da sola tastiera il "
             "cursore ci passa sopra invisibile (WCAG 2.4.7)"
         )
+
+
+def test_un_campo_bloccato_si_vede_bloccato():
+    """Un valore solo non e' una scelta, e il pannello lo mette in un campo che
+    non si scrive (`method` allo step 5, `mode` allo step 8). Bloccato senza
+    dirlo e' peggio che modificabile: chi ci batte dentro non capisce perche'
+    non succede niente. Il fondo spento e il testo tenue lo dicono senza una
+    riga di prosa in piu'.
+
+    Mutazione che lo uccide: togliere la regola su `input[readonly]`.
+    """
+    testo = _senza_commenti()
+    regola = re.search(r"\.campo input\[readonly\]\s*\{([^}]*)\}", testo)
+    assert regola is not None, (
+        "un campo bloccato si vede come una casella vuota qualunque"
+    )
+    assert "background" in regola.group(1), (
+        "il campo bloccato non cambia fondo: bloccato senza dirlo"
+    )
