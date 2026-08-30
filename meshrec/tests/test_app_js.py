@@ -6794,3 +6794,42 @@ assert.match(testo, /ψ₂ 0,3/, `il coefficiente esce col punto decimale: ${tes
 assert.ok(!/ψ₂ 0\\.3/.test(testo), `il punto decimale del JSON arriva a video: ${testo}`);
 assert.match(testo, /ψ₂ 0,0/, `uno zero esce senza il proprio decimale: ${testo}`);
 """)
+
+
+def test_il_proposito_dello_step_2_nomina_le_tre_cose_che_lo_step_fa():
+    """La riga descriveva solo la meta' di pre-processing.
+
+    `docs/validazione/ricerca-terminologia-segmentazione.md` (28/08/2026) da'
+    ragione in parte al tutore: togliere gli outlier e ritagliare non sono
+    segmentazione in nessuna tassonomia, mentre l'estrazione di piani (RANSAC)
+    e il raggruppamento (DBSCAN) lo sono senza ambiguita'. La frase vecchia
+    -- «toglie il rumore e ritaglia via il resto della stanza» -- taceva
+    proprio le due meta' che il nome dello step giustificano, e chi legge il
+    pannello non sapeva che lo step estrae piani e raggruppa.
+
+    Mutazione che lo uccide: rimettere la frase vecchia.
+    """
+    modulo = _senza_commenti_js(_modulo())
+    # Dentro PROPOSITI e non nel modulo intero: ETICHETTE e PROPOSITI portano
+    # le stesse chiavi, e ETICHETTE viene prima.
+    blocco = re.search(r"const PROPOSITI = \{(.*?)\n\};", modulo, flags=re.DOTALL)
+    assert blocco is not None, "PROPOSITI non e' piu' un oggetto letterale"
+    trovata = re.search(r'"02_segment":\s*"([^"]+)"', blocco.group(1))
+    assert trovata is not None, "PROPOSITI non ha piu' una voce per 02_segment"
+    frase = trovata.group(1).lower()
+    for parola in ("rumore", "ritagl", "pian", "grupp"):
+        assert parola in frase, f"il proposito dello step 2 non nomina «{parola}»: {frase}"
+
+
+def test_nessun_proposito_nomina_una_chiave_del_modello():
+    """«Una chiave non si stampa mai, si stampa la sua etichetta» vale anche
+    per la prosa: il proposito dello step 8 citava «enabled», che dallo step 8
+    in poi non e' piu' il nome che il pannello mostra.
+    """
+    modulo = _senza_commenti_js(_modulo())
+    blocco = re.search(r"const PROPOSITI = \{(.*?)\n\};", modulo, flags=re.DOTALL)
+    assert blocco is not None
+    for chiave in ("enabled", "largest_component_only", "poisson_depth", "nobisect"):
+        assert chiave not in blocco.group(1), (
+            f"il proposito di uno step nomina la chiave «{chiave}» invece della sua etichetta"
+        )

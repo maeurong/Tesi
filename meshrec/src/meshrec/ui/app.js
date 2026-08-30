@@ -22,13 +22,13 @@ const ETICHETTE = {
 // chiave sconosciuta ripiega sul numero invece di fabbricare un nome.
 const PROPOSITI = {
   "01_load": "Legge la nuvola dal file, la porta in millimetri e ne misura ingombro e spaziatura.",
-  "02_segment": "Tiene i soli punti dell'oggetto: toglie il rumore e ritaglia via il resto della stanza.",
+  "02_segment": "Tiene i soli punti dell'oggetto: toglie il rumore, ritaglia via il resto della stanza, estrae i piani che la delimitano e raggruppa ciò che resta, tenendo il gruppo scelto.",
   "03_downsample": "Dirada i punti a passo costante: meno punti, stessa forma, calcolo più leggero.",
   "04_normals": "Stima in ogni punto da che parte guarda la superficie: serve alla ricostruzione.",
   "05_reconstruct": "Costruisce dai punti una superficie fatta di triangoli.",
   "06_repair": "Chiude i buchi, toglie i pezzi staccati e rigira le facce finché la superficie racchiude un volume.",
   "07_surface_quality": "Misura la superficie: se è chiusa, quanto sono regolari i triangoli, quanto si scosta dalla nuvola di partenza.",
-  "08_simplify": "Rifà o dirada i triangoli. È opzionale: senza «enabled» la superficie passa avanti com'è.",
+  "08_simplify": "Rifà o dirada i triangoli. È opzionale: finché non si rifanno a misura uniforme la superficie passa avanti com'è.",
   "09_tetrahedralize": "Riempie il volume di tetraedri: è il maglio su cui si calcola.",
   "10_volume_quality": "Misura il maglio: elementi rovesciati, volumi, angoli, allungamento.",
   "11_export": "Scrive il file .inp per Abaqus o CalculiX, con materiale, gravità e set di nodi.",
