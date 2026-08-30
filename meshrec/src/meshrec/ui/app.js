@@ -3487,6 +3487,27 @@ async function catalogoMateriali() {
   return catalogoDeiMateriali;
 }
 
+// La classe scritta come nome di materiale: «C25/30» diventa «C25_30».
+//
+// `Material.name` ammette `^[A-Za-z0-9_.-]+$` e la barra non c'e'. Non e' una
+// dimenticanza del modello: il nome viene interpolato in `*MATERIAL, NAME=...`
+// in un deck ascii che va a un solutore esterno, e allargare quel vincolo per
+// far entrare la barra metterebbe un carattere in piu' in un nome di deck per
+// una comodita' dell'interfaccia. Tutte le classi di calcestruzzo del catalogo
+// la portano, quindi senza questa sostituzione ogni voce del menu' otteneva un
+// 422 e il materiale non si dichiarava affatto.
+//
+// Il trattino basso, e non il taglio del pezzo dopo la barra, per due ragioni
+// che vanno insieme: la classe deve restare leggibile a occhio da chi legge il
+// deck o `config.yaml` -- e' l'unico posto in cui la provenienza dei tre numeri
+// sopravvive -- e la corrispondenza deve reggere anche all'indietro, perche' il
+// menu' riaperto ritrova la classe gia' dichiarata confrontando i nomi. Un
+// «C25» tagliato perderebbe tutte e due: non direbbe piu' dove finisce `f_ck`,
+// e C25/30 e un'ipotetica C25/35 diventerebbero lo stesso nome.
+function nomeDellaClasse(classe) {
+  return classe.replaceAll("/", "_");
+}
+
 // Dal catalogo e da una classe, i quattro valori che vanno nelle caselle.
 //
 // La classe diventa il **nome** del materiale, e non un campo a parte: il nome
@@ -3513,7 +3534,7 @@ function valoriDellaClasse(voci, classe) {
   const voce = voci.find((v) => v.classe === classe);
   if (voce === undefined) return null;
   return {
-    name: voce.classe,
+    name: nomeDellaClasse(voce.classe),
     young: String(Math.round(voce.young * 100) / 100),
     poisson: String(voce.poisson),
     density: String(voce.density),
@@ -3602,10 +3623,13 @@ function pannelloMateriale(numero, ordine) {
     }
     // La classe gia' dichiarata si rilegge dal nome, che e' dove il menu'
     // l'aveva scritta: riaprendo il pannello il menu' mostra quella scelta
-    // invece di ripartire da «scegli una classe», che direbbe il falso.
-    if (dichiarato && voci.some((voce) => voce.classe === dichiarato.name)) {
-      menuClasse.value = dichiarato.name;
-    }
+    // invece di ripartire da «scegli una classe», che direbbe il falso. Il
+    // confronto passa per `nomeDellaClasse`, la stessa trasformazione che ha
+    // scritto quel nome: senza, non riconoscerebbe nessuna classe del catalogo.
+    // Il valore del menu' resta la classe con la barra, che e' cio' che sta
+    // nelle sue voci.
+    const gia = voci.find((voce) => nomeDellaClasse(voce.classe) === dichiarato?.name);
+    if (gia !== undefined) menuClasse.value = gia.classe;
   });
 
   const bottone = document.createElement("button");

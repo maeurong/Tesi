@@ -1286,17 +1286,29 @@ def test_una_battuta_illeggibile_non_cambia_la_configurazione_su_disco(tmp_path)
 # --------------------------------------------------------------------------
 
 
-def _banco_del_materiale(configurazione: dict, compilati: list[str], risposta: str) -> str:
+def _banco_del_materiale(
+    configurazione: dict,
+    compilati: list[str],
+    risposta: str,
+    catalogo: str = "{ ok: true, status: 200, json: async () => ({ voci: CATALOGO_FINTO }) }",
+) -> str:
     """`pannelloMateriale` vero, sulla configurazione vera del server.
 
     `configurazione` arriva da `GET /api/config` e non da un dizionario scritto
     a mano: il pannello manda l'intera configurazione, quindi provarlo su una
     finta direbbe solo che il blocco `analysis` e' ben formato, non che il
     corpo intero e' ancora quello che il modello accetta.
+
+    `catalogo` e' cio' che `/api/materiali` risponde, ed e' un parametro perche'
+    il pannello ha due comportamenti a seconda: col catalogo il menu' riempie
+    le caselle, senza resta la sola voce vuota e le quattro caselle si battono
+    a mano. La seconda strada e' quella che c'era prima del menu' e va provata
+    anche lei.
     """
     return _DOM + _funzioni(
         "valoreScritto", "ragioneDelRifiuto", "serverMuto", "superata", "corpoLetto",
-        "dichiaraErrore", "valoriDellaClasse", "catalogoMateriali", "pannelloMateriale",
+        "dichiaraErrore", "nomeDellaClasse", "valoriDellaClasse", "catalogoMateriali",
+        "pannelloMateriale",
     ) + """
 // Il pannello si ridisegna dalla strada che lo disegna sempre: al banco basta
 // sapere che e' stata percorsa, il disegno e' provato altrove.
@@ -1314,7 +1326,7 @@ globalThis.fetch = async (percorso, opzioni) => {
   // provare a leggerne il corpo, farebbe cadere il banco su una chiamata che
   // non e' quella sotto misura.
   if (percorso === "/api/materiali") {
-    return { ok: true, status: 200, json: async () => ({ voci: CATALOGO_FINTO }) };
+    return RISPOSTA_CATALOGO;
   }
   richieste.push({ percorso, metodo: opzioni.method, corpo: JSON.parse(opzioni.body) });
   return RISPOSTA;
@@ -1326,7 +1338,7 @@ assert.equal(caselle.length, 4, "il materiale non si dichiara piu' con quattro v
 const bottone = gruppo.lastElementChild;
 COMPILATI.forEach((valore, i) => { caselle[i].value = valore; });
 await bottone.scatena("click");
-""".replace("RISPOSTA", risposta).replace(
+""".replace("RISPOSTA_CATALOGO", catalogo).replace("RISPOSTA", risposta).replace(
         "CONFIGURAZIONE", json.dumps(configurazione)
     ).replace("COMPILATI", json.dumps(compilati))
 
@@ -1369,6 +1381,106 @@ def test_il_pannello_del_materiale_manda_una_sola_put_che_il_modello_accetta(tmp
     assert (materiale.name, materiale.young, materiale.poisson, materiale.density) == (
         "CLS", 30000.0, 0.2, 2.5e-9,
     )
+
+
+def test_la_classe_scelta_dal_menu_da_un_materiale_che_il_modello_accetta(tmp_path):
+    """Il gesto documentato del pannello: si sceglie una classe, le caselle si
+    riempiono, si preme il bottone.
+
+    Le quattro caselle non le batte l'utente: le riempie `valoriDellaClasse`
+    con i valori del catalogo di `/api/materiali`, e il nome che ci mette e' il
+    nome della classe. Il giro va provato con quei valori e non con quattro
+    stringhe scelte a mano, perche' e' l'unico punto in cui il catalogo e il
+    modello si toccano: se il nome di una classe non e' un nome che `Material`
+    accetta, ogni classe del menu' finisce in un 422 e il materiale non si
+    dichiara piu' da nessuna parte, mentre il pannello scritto a mano resta
+    verde.
+    """
+    from meshrec.core.config import load_config
+
+    percorso = tmp_path / "config.yaml"
+    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"))
+    cfg.run.out_dir = tmp_path / "corsa"
+    save_config(cfg, percorso)
+    cliente = TestClient(create_app(percorso), base_url=BASE_LOCALE, raise_server_exceptions=False)
+    voci = cliente.get("/api/materiali").json()["voci"]
+    assert voci, "il catalogo e' vuoto: il menu' non ha niente da offrire"
+
+    # La funzione vera, sul catalogo vero: e' lei a decidere che cosa finisce
+    # nelle quattro caselle quando il menu' cambia.
+    scelto = json.loads(_esegui(tmp_path, _funzioni("nomeDellaClasse", "valoriDellaClasse")
+                                + "process.stdout.write(JSON.stringify(valoriDellaClasse("
+                                + json.dumps(voci) + ", "
+                                + json.dumps(voci[0]["classe"]) + ")));"))
+
+    corpo = json.loads(_esegui(tmp_path, _banco_del_materiale(
+        cliente.get("/api/config").json(),
+        [scelto["name"], scelto["young"], scelto["poisson"], scelto["density"]],
+        _ACCETTA_JS,
+    ) + "process.stdout.write(JSON.stringify(richieste[0].corpo));"))
+
+    salvata = cliente.put("/api/config", json=corpo)
+    assert salvata.status_code == 200, (
+        f"la classe {voci[0]['classe']} scelta dal menu' e' stata rifiutata: {salvata.text}"
+    )
+    assert load_config(percorso).analysis is not None, (
+        "lo step 11 pretende ancora il materiale dopo che il menu' lo ha dichiarato"
+    )
+
+
+def test_ogni_classe_del_menu_da_un_nome_che_il_modello_accetta(tmp_path):
+    """Tutte le classi del catalogo, non una a campione.
+
+    Il difetto da cui questo test nasce era uniforme: la barra sta nel nome di
+    ognuna delle classi di calcestruzzo, quindi provarne una sola non dice
+    niente di piu' che provarle tutte -- ma la prossima regola sui nomi potrebbe
+    non esserlo, e un catalogo che cresce porta nomi che nessuno ha guardato.
+
+    Tre cose insieme, perche' separate non bastano: il nome e' accettato dal
+    modello (la PUT vera, fino al disco), due classi diverse danno nomi diversi
+    (un nome ambiguo nel deck sarebbe peggio di un rifiuto: il deck lo
+    accetterebbe e chi legge non saprebbe piu' quale classe c'era), e la classe
+    resta leggibile a occhio -- le lettere e le cifre nello stesso ordine, che
+    e' cio' che permette a chi legge `*MATERIAL, NAME=...` di risalire alla
+    riga di norma.
+
+    Mutazione che lo uccide: togliere la barra invece di scambiarla (C25/30 e
+    C2/5 30 non collidono, ma il nome smette di dire dove finisce `f_ck`), o
+    tagliare la classe al primo pezzo -- C25/30 e C25/35 diventerebbero lo
+    stesso «C25».
+    """
+    from meshrec.core.config import load_config
+
+    percorso = tmp_path / "config.yaml"
+    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"))
+    cfg.run.out_dir = tmp_path / "corsa"
+    save_config(cfg, percorso)
+    cliente = TestClient(create_app(percorso), base_url=BASE_LOCALE, raise_server_exceptions=False)
+    voci = cliente.get("/api/materiali").json()["voci"]
+    assert len(voci) >= 17, f"il catalogo ha perso delle classi: {len(voci)}"
+
+    nomi = json.loads(_esegui(tmp_path, _funzioni("nomeDellaClasse", "valoriDellaClasse")
+                              + "process.stdout.write(JSON.stringify("
+                              + json.dumps(voci) + ".map((v) => valoriDellaClasse("
+                              + json.dumps(voci) + ", v.classe).name)));"))
+    assert len(set(nomi)) == len(voci), f"due classi danno lo stesso nome: {nomi}"
+
+    corpo = cliente.get("/api/config").json()
+    for voce, nome in zip(voci, nomi, strict=True):
+        assert re.sub(r"[^A-Za-z0-9]", "", nome) == re.sub(r"[^A-Za-z0-9]", "", voce["classe"]), (
+            f"la classe non si legge piu' nel nome: {voce['classe']} e' diventata {nome}"
+        )
+        corpo["analysis"] = {"material": {
+            "name": nome,
+            "young": voce["young"],
+            "poisson": voce["poisson"],
+            "density": voce["density"],
+        }}
+        salvata = cliente.put("/api/config", json=corpo)
+        assert salvata.status_code == 200, (
+            f"la classe {voce['classe']} e' stata rifiutata come {nome}: {salvata.text}"
+        )
+        assert load_config(percorso).analysis.material.name == nome
 
 
 def test_un_campo_vuoto_del_materiale_parte_lo_stesso_e_il_rifiuto_si_vede(tmp_path):
@@ -7042,17 +7154,23 @@ def test_la_classe_scelta_porta_i_valori_di_norma_nelle_caselle(tmp_path):
     di C25/30 vale 31475,81 e non 31500, che e' precisamente lo scarto che una
     corsa reale portava scritto a mano.
 
+    Il nome e' la classe con la barra scambiata per un trattino basso, perche'
+    `Material.name` non ammette la barra: la classe resta leggibile e il nome
+    e' un nome che il modello accetta. La regola vale su tutte le classi vere
+    del catalogo, e il test che le percorre tutte sta accanto al pannello del
+    materiale; qui si prova la funzione che la applica.
+
     Mutazione che lo uccide: arrotondare, o mettere la classe in un campo che
     non e' `name` -- il nome del materiale e' l'unica cosa che, nel deck e in
     `config.yaml`, dice da quale voce di catalogo vengono i tre numeri.
     """
-    uscita = _esegui(tmp_path, _DOM + _funzioni("valoriDellaClasse") + """
+    uscita = _esegui(tmp_path, _DOM + _funzioni("nomeDellaClasse", "valoriDellaClasse") + """
 const voci = [
   { classe: "C25/30", young: 31475.806210019346, poisson: 0.2, density: 2.5493e-9, f_k: 25 },
   { classe: "C32/40", young: 33345.8, poisson: 0.2, density: 2.5493e-9, f_k: 32 },
 ];
 const scelto = valoriDellaClasse(voci, "C25/30");
-assert.equal(scelto.name, "C25/30", "il nome del materiale non e' la classe scelta");
+assert.equal(scelto.name, "C25_30", "il nome del materiale non e' la classe scelta");
 // Arrotondato al centesimo, e il catalogo finto parte dal valore in doppia
 // precisione che il server serve davvero: senza l'arrotondamento qui
 // arriverebbero quattordici decimali, che finirebbero in config.yaml.
@@ -7092,7 +7210,7 @@ assert.equal(classi[0], "", "la prima voce non e' quella vuota: il menu' nasce g
 
 menu.value = "C25/30";
 await menu.scatena("change");
-assert.equal(caselle[0].value, "C25/30", "il nome non porta la classe scelta");
+assert.equal(caselle[0].value, "C25_30", "il nome non porta la classe scelta");
 assert.equal(caselle[1].value, "31475.81", `modulo elastico: ${caselle[1].value}`);
 assert.equal(Number(caselle[2].value), 0.2, `Poisson: ${caselle[2].value}`);
 assert.equal(Number(caselle[3].value), 2.5493e-9, `densita': ${caselle[3].value}`);
@@ -7100,5 +7218,112 @@ assert.equal(Number(caselle[3].value), 2.5493e-9, `densita': ${caselle[3].value}
 // La voce vuota non butta via cio' che si e' scritto.
 menu.value = "";
 await menu.scatena("change");
-assert.equal(caselle[0].value, "C25/30", "tornare alla voce vuota ha svuotato le caselle");
+assert.equal(caselle[0].value, "C25_30", "tornare alla voce vuota ha svuotato le caselle");
 """)
+
+
+def test_il_menu_riaperto_ritrova_la_classe_gia_dichiarata(tmp_path):
+    """Ingresso degenere: il pannello si riapre su una corsa che la classe ce l'ha.
+
+    Il menu' non ha uno stato proprio -- si ridisegna a ogni apertura dello
+    step -- e la sola traccia della classe scelta e' il nome del materiale in
+    `config.yaml`. Rileggerla vuol dire percorrere all'indietro la stessa
+    trasformazione che l'ha scritta.
+
+    Mutazione che lo uccide: confrontare `voce.classe` con `dichiarato.name`
+    senza trasformare. Il confronto fallirebbe su ogni classe del catalogo, il
+    menu' resterebbe su «scegli una classe», e chi riapre lo step leggerebbe
+    che non ha scelto niente mentre il materiale sta su disco.
+    """
+    _esegui(tmp_path, _banco_del_materiale(
+        {"analysis": {"material": {
+            "name": "C25_30", "young": 31475.81, "poisson": 0.2, "density": 2.5493e-9,
+        }}},
+        ["C25_30", "31475.81", "0.2", "2.5493e-9"],
+        _ACCETTA_JS,
+    ) + """
+await Promise.resolve();
+await Promise.resolve();
+const menu = gruppo.children.find((f) => f.className === "campo campo-catalogo").children[1];
+assert.equal(menu.value, "C25/30",
+  `il menu' riaperto non ritrova la classe gia' dichiarata: ${menu.value}`);
+""")
+
+
+def test_la_correzione_a_mano_dopo_il_menu_non_tocca_il_nome(tmp_path):
+    """Ingresso degenere: si sceglie la classe e poi si corregge un numero.
+
+    E' il caso che l'aiuto del pannello promette per scritto -- «un calcestruzzo
+    esistente provato in sito ha il modulo che e' stato misurato, non quello di
+    norma» -- e le due cose non si escludono: il numero corretto parte, e il
+    nome resta quello della classe da cui gli altri due vengono.
+
+    Mutazione che lo uccide: riscrivere il nome al momento della PUT a partire
+    dai valori delle caselle. Il modulo corretto a mano non appartiene piu' a
+    nessuna classe, e il nome si perderebbe proprio quando serve di piu'.
+    """
+    uscita = _esegui(tmp_path, _banco_del_materiale(
+        {"analysis": None}, ["", "", "", ""], _ACCETTA_JS,
+    ) + """
+await Promise.resolve();
+await Promise.resolve();
+const menu = gruppo.children.find((f) => f.className === "campo campo-catalogo").children[1];
+menu.value = "C25/30";
+await menu.scatena("change");
+// Il modulo misurato in sito, battuto sopra quello di norma.
+caselle[1].value = "31500";
+await bottone.scatena("click");
+process.stdout.write(JSON.stringify(richieste[richieste.length - 1].corpo));
+""")
+    materiale = json.loads(uscita)["analysis"]["material"]
+    assert materiale["name"] == "C25_30", f"il nome non e' piu' quello della classe: {materiale}"
+    assert materiale["young"] == 31500, f"la correzione a mano non e' partita: {materiale}"
+
+
+def test_un_nome_battuto_a_mano_arriva_intatto(tmp_path):
+    """Ingresso degenere: chi il menu' non lo usa.
+
+    Il catalogo non e' un cancello (vedi il docstring di `core/materiali.py`):
+    `runs/muro` dichiara una muratura che nessuna tabella NTC contiene. Il nome
+    battuto a mano deve arrivare al server come e' stato scritto, compreso il
+    caso in cui il modello lo rifiuti: e' l'utente a doverlo vedere, non un
+    aggiustamento silenzioso a decidere per lui.
+
+    Mutazione che lo uccide: applicare la trasformazione della classe al
+    contenuto della casella del nome invece che alla voce del catalogo.
+    """
+    uscita = _esegui(tmp_path, _banco_del_materiale(
+        {"analysis": None}, ["C25/30", "31500", "0.2", "2.5493e-9"], _ACCETTA_JS,
+    ) + "process.stdout.write(JSON.stringify(richieste[0].corpo));")
+    nome = json.loads(uscita)["analysis"]["material"]["name"]
+    assert nome == "C25/30", f"il nome battuto a mano e' stato riscritto: {nome}"
+
+
+def test_senza_catalogo_il_menu_resta_alla_sola_voce_vuota(tmp_path):
+    """Ingresso degenere: `/api/materiali` non risponde.
+
+    Il menu' e' una scorciatoia, non l'unica via: un catalogo che non arriva
+    lascia il pannello com'era prima che il menu' esistesse, quattro caselle da
+    battere a mano. Un menu' vuoto ma pieno di voci morte, o un pannello che si
+    ferma ad aspettare, toglierebbero anche quella strada.
+
+    Mutazione che lo uccide: riempire il menu' senza guardare l'esito della
+    richiesta -- `corpoLetto` su una risposta di errore, e il pannello cade
+    invece di degradare.
+    """
+    uscita = _esegui(tmp_path, _banco_del_materiale(
+        {"analysis": None},
+        ["CLS", "30000", "0.2", "2.5e-9"],
+        _ACCETTA_JS,
+        catalogo="{ ok: false, status: 500 }",
+    ) + """
+await Promise.resolve();
+await Promise.resolve();
+const menu = gruppo.children.find((f) => f.className === "campo campo-catalogo").children[1];
+assert.equal(menu.figli.length, 1, `il menu' non e' rimasto alla sola voce vuota: ${menu.figli.length}`);
+assert.equal(menu.figli[0].attributi.value ?? menu.figli[0].value, "",
+  "la voce rimasta non e' quella vuota");
+process.stdout.write(JSON.stringify(richieste[0].corpo));
+""")
+    materiale = json.loads(uscita)["analysis"]["material"]
+    assert materiale["name"] == "CLS", f"le caselle a mano non partono piu': {materiale}"
