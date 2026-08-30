@@ -13,7 +13,19 @@ from pathlib import Path
 
 import numpy as np
 
-from meshrec.core import abaqus, io, quality, repair, segment, solve, steps, surface, volume, wall
+from meshrec.core import (
+    abaqus,
+    attribuzione,
+    io,
+    quality,
+    repair,
+    segment,
+    solve,
+    steps,
+    surface,
+    volume,
+    wall,
+)
 from meshrec.core.config import PipelineConfig, save_config
 
 METRICS_FILENAME = "metrics.json"
@@ -211,6 +223,46 @@ def _ricostruisci_membrature(prior: dict[str, object]) -> list:
     ]
 
 
+def _membrature_del_prior(percorso: Path, chi: str) -> list:
+    """Le membrature di `12_wall.json`, rilette da chi non le puo' calcolare.
+
+    Due chiamanti, e lo stesso mestiere: il modello parametrico, che si
+    costruisce sulle membrature misurate, e lo step 11 quando la
+    configurazione dichiara delle regioni -- `RegioneConfig.membratura` cita
+    per costruzione gli indici di questo file, e allo step 11 le membrature
+    non esistono ancora.
+
+    Rileggere il prior allo step 11 non e' leggere il futuro: il prior misura
+    la **nuvola segmentata**, che e' l'artefatto dello step 2, e non dipende
+    dal maglio di volume. Chi arriva qui senza prior deve rifare lo step 12,
+    oppure il solo prior col comando `meshrec wall`: il messaggio nomina
+    entrambi, come gia' fa il comando `wall` quando manca la nuvola segmentata.
+
+    `chi` e' il soggetto della frase del rifiuto -- l'unica cosa che cambia fra
+    i due chiamanti, e la sola ragione per cui questa non e' una funzione senza
+    argomenti.
+
+    Le due porte sono quelle di `_ingresso_di_ripresa`: l'assente e il
+    troncato dicono cose diverse, perche' «esegui lo step 12» davanti a un
+    file che esiste ma non si legge manderebbe a rieseguire uno step che e'
+    gia' stato eseguito.
+    """
+    if not percorso.exists():
+        raise FileNotFoundError(
+            f"manca {percorso}: {chi} si costruisce sul prior, e il prior è lo "
+            "step 12. Esegui `meshrec wall` sulla stessa configurazione e riprova"
+        )
+    try:
+        with percorso.open(encoding="utf-8") as handle:
+            prior = json.load(handle)
+        return _ricostruisci_membrature(prior)
+    except (OSError, ValueError, KeyError, TypeError) as errore:
+        raise ValueError(
+            f"{percorso} esiste ma non si legge come prior ({errore}): "
+            "riesegui lo step 12, o il comando `meshrec wall`"
+        ) from errore
+
+
 def genera_modello(cfg: PipelineConfig, tipo: str, out_dir: Path) -> dict[str, object]:
     """Genera un modello parametrico come corsa figlia, nella propria cartella.
 
@@ -229,17 +281,9 @@ def genera_modello(cfg: PipelineConfig, tipo: str, out_dir: Path) -> dict[str, o
     from meshrec.core import hexa
 
     sorgente = Path(cfg.run.out_dir)
-    percorso_prior = sorgente / WALL_FILENAME
-    if not percorso_prior.exists():
-        raise FileNotFoundError(
-            f"manca {percorso_prior}: un modello parametrico si costruisce sul "
-            "prior, e il prior è lo step 12. Esegui `meshrec wall` sulla stessa "
-            "configurazione e riprova"
-        )
-    with percorso_prior.open(encoding="utf-8") as handle:
-        prior = json.load(handle)
-
-    membrature = _ricostruisci_membrature(prior)
+    membrature = _membrature_del_prior(
+        sorgente / WALL_FILENAME, "un modello parametrico"
+    )
 
     # Letta qui e non al punto d'uso, per la stessa ragione per cui il
     # save_config sta dopo `costruisci`: e' una lettura pura, e lasciata a valle
@@ -724,6 +768,30 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
 
         in_corso = 11
         avvio = time.monotonic()
+        # Le regioni si attribuiscono qui, sui nodi **non allineati**:
+        # `align_to_axes` gira dentro `export_model` e sposta le coordinate,
+        # non l'ordine degli elementi. Misurata nello stesso riferimento in
+        # cui il prior misura, la mappa e' fatta di soli indici e resta valida
+        # nel deck allineato.
+        regioni_deck, attribuzione_metriche = None, None
+        if cfg.regioni:
+            membrature = _membrature_del_prior(
+                out / WALL_FILENAME, "l'attribuzione delle regioni"
+            )
+            prismi = attribuzione.prismi_delle_regioni(membrature, cfg.regioni)
+            etichette, attribuzione_metriche = attribuzione.attribuisci(nodes, tets, prismi)
+            # Il calcestruzzo **confinato** e' il continuo del modello solido, ed
+            # e' una limitazione dichiarata: vedi `abaqus.CONTINUO_CONFINATO`.
+            # `SezioneConfig` pretende gia' i tre materiali, quindi qui non c'e'
+            # un ripiego da inventare -- ci si appoggia a quella garanzia invece
+            # di duplicarla.
+            regioni_deck = {
+                nome: (
+                    np.flatnonzero(etichette == posizione),
+                    cfg.regioni[nome].sezione.calcestruzzo_confinato.material,
+                )
+                for posizione, nome in enumerate(prismi)
+            }
         # `vertices` e' la superficie da cui la mesh di volume e' stata
         # generata: e' quella, e non i nodi del volume, a definire il sistema
         # di riferimento del modello (vedi abaqus.align_to_axes).
@@ -737,7 +805,16 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
             reference=vertices,
             carichi=cfg.carichi,
             selettori=cfg.selettori,
+            regioni=regioni_deck,
         )
+        if attribuzione_metriche is not None:
+            # Il resoconto dell'attribuzione **e** la limitazione dichiarata:
+            # chi legge metrics.json non apre il deck, e senza questa chiave
+            # crederebbe che il modello distingua nucleo e copriferro.
+            metrics["11_export"]["regioni"] = {
+                **attribuzione_metriche,
+                "continuo": abaqus.CONTINUO_CONFINATO,
+            }
         registra(11, avvio, DECK_FILENAME)
 
         if stop <= 11:

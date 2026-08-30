@@ -214,10 +214,13 @@ stesso testo, e non due testi che scivolano l'uno dall'altro.
 
 
 CONTINUO_CONFINATO = (
-    "il continuo e' il calcestruzzo confinato della regione: un tetraedro non "
+    "il continuo di ogni regione: il calcestruzzo confinato. Un tetraedro non "
     "ha fibre, e non distingue nucleo da copriferro"
 )
 """Un solo testo per il commento nel deck e per la chiave nel resoconto.
+
+Il testo non porta accenti perche' finisce in un deck scritto in ascii, ed e'
+per questo che la frase non ha copula (vedi tests/test_accenti.py).
 
 Il continuo del modello solido e' il calcestruzzo confinato, e la scelta e' una
 **limitazione dichiarata** e non una ovvieta': la distinzione fra nucleo e

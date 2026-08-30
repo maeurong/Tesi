@@ -13,7 +13,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from meshrec.core import attribuzione, config, hexa
+from meshrec.core import abaqus, attribuzione, config, hexa
 from materiale import MATERIALE
 
 
@@ -263,3 +263,30 @@ def test_i_prismi_escono_nell_ordine_delle_regioni():
 
     assert list(prismi) == ["TRAVE", "PILASTRO"]
     assert np.ptp(prismi["TRAVE"].contorno[:, 0]) == pytest.approx(300.0)
+
+
+def test_con_tutti_gli_elementi_orfani_il_deck_e_rifiutato_invece_che_monomaterico(tmp_path):
+    """Nessun baricentro dentro il prisma: la regione resta vuota, e il deck no.
+
+    E' la chiusura fra questo modulo e `abaqus.write_inp`. Una regione senza
+    elementi diventerebbe un `*ELSET` vuoto, che `ccx` legge senza protestare
+    risolvendo un modello dove quella sezione non c'e': il deck sarebbe di
+    fatto monomaterico pur nascendo da una configurazione che dichiara una
+    regione. Il rifiuto e' la dichiarazione.
+
+    Mutazione che lo uccide: costruire il dizionario delle regioni saltando
+    quelle rimaste vuote, che le farebbe sparire in silenzio.
+    """
+    nodi, elementi = _maglio([(0.0, 0.0, 50.0), (10.0, 10.0, 60.0)])
+    prismi = {"LONTANA": _prisma(centro=(5000.0, 5000.0), lati=(10.0, 10.0), altezza=10.0)}
+
+    etichette, resoconto = attribuzione.attribuisci(nodi, elementi, prismi)
+
+    assert (etichette == -1).all()
+    assert resoconto["frazione_orfana"] == 1.0
+    with pytest.raises(ValueError, match="non contiene alcun elemento"):
+        abaqus.write_inp(
+            tmp_path / "model.inp", nodi, elementi,
+            node_sets={"BASE": np.array([0])}, material=MATERIALE,
+            regioni={"LONTANA": (np.flatnonzero(etichette == 0), MATERIALE)},
+        )
