@@ -417,12 +417,16 @@ def test_il_comando_solve_riporta_codice_e_coda_di_un_binario_che_fallisce(
     assert "Traceback" not in err
 
 
-def test_il_comando_solve_propaga_il_rifiuto_di_opensees_per_intero(
+def test_il_comando_solve_su_opensees_chiede_il_prior_e_non_il_deck(
     tmp_path, capsys, monkeypatch
 ):
-    """Il telaio su OpenSees non c'e' ancora, e `solve.risolvi` lo dichiara
-    nominando chi lo portera'. Quel rifiuto deve arrivare a video leggibile,
-    non affiorare come un'eccezione nuda."""
+    """Il telaio non si costruisce sul deck dello step 11: si costruisce sul
+    prior dello step 12. Chiedere `wall_model.inp` a chi risolve un telaio
+    manderebbe a rifare l'undici per un file che quel ramo non apre.
+
+    Questa corsa il prior non ce l'ha, e il rifiuto deve arrivare a video
+    leggibile -- nominando `12_wall.json` e il comando che lo scrive -- non
+    affiorare come un'eccezione nuda."""
     from meshrec.core import solve
 
     percorso = _corsa_col_deck(tmp_path)
@@ -433,7 +437,8 @@ def test_il_comando_solve_propaga_il_rifiuto_di_opensees_per_intero(
 
     assert cli.main(["solve", str(percorso)]) == 1
     err = capsys.readouterr().err
-    assert "core/opensees.py" in err
+    assert "12_wall.json" in err
+    assert "meshrec wall" in err
     assert "Traceback" not in err
 
 

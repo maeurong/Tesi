@@ -17,12 +17,14 @@ from meshrec.core import (
     abaqus,
     attribuzione,
     io,
+    opensees,
     quality,
     repair,
     segment,
     solve,
     steps,
     surface,
+    telaio,
     volume,
     wall,
 )
@@ -247,6 +249,23 @@ def _membrature_del_prior(percorso: Path, chi: str) -> list:
     file che esiste ma non si legge manderebbe a rieseguire uno step che e'
     gia' stato eseguito.
     """
+    prior = _prior_letto(percorso, chi)
+    try:
+        return _ricostruisci_membrature(prior)
+    except (ValueError, KeyError, TypeError) as errore:
+        raise ValueError(
+            f"{percorso} esiste ma non si legge come prior ({errore}): "
+            "riesegui lo step 12, o il comando `meshrec wall`"
+        ) from errore
+
+
+def _prior_letto(percorso: Path, chi: str) -> dict[str, object]:
+    """Il `12_wall.json` come sta sul disco, per chi lo consuma tal quale.
+
+    `_membrature_del_prior` lo traduce in `Membratura`; `core/telaio.py` legge
+    invece il dizionario, giunzioni comprese, e le due porte del rifiuto --
+    l'assente e il troncato -- sono le stesse per tutti e due.
+    """
     if not percorso.exists():
         raise FileNotFoundError(
             f"manca {percorso}: {chi} si costruisce sul prior, e il prior è lo "
@@ -254,9 +273,8 @@ def _membrature_del_prior(percorso: Path, chi: str) -> list:
         )
     try:
         with percorso.open(encoding="utf-8") as handle:
-            prior = json.load(handle)
-        return _ricostruisci_membrature(prior)
-    except (OSError, ValueError, KeyError, TypeError) as errore:
+            return json.load(handle)
+    except (OSError, ValueError) as errore:
         raise ValueError(
             f"{percorso} esiste ma non si legge come prior ({errore}): "
             "riesegui lo step 12, o il comando `meshrec wall`"
@@ -485,6 +503,57 @@ def _step_solutore(
     )
 
 
+def _step_telaio(out: Path, cfg: PipelineConfig) -> dict[str, object]:
+    """Step 13 sul ramo del telaio: il prior e le regioni, risolti da OpenSees.
+
+    **Fratello di `_step_solutore`, non un suo ramo.** Quella funzione mappa le
+    misure dello step 11 sugli argomenti di `solve.risolvi`, che monta la riga
+    di comando di CalculiX e legge il `.frd`: rifiuta ogni altro solutore, e lo
+    fa apposta. Qui non c'e' nessun deck da risolvere -- il modello e' lo
+    script che `opensees.scrivi_tcl` costruisce dal prior -- e l'ingresso e'
+    un altro: `12_wall.json` dello step 12 invece del deck dello step 11.
+
+    Il passo modale e' quello che `carichi.modale` dichiara, coi suoi modi:
+    sono gli stessi che il deck del solido chiede, e chiederne sempre uno
+    sarebbe un'analisi che nessuno ha configurato.
+    """
+    if not cfg.regioni:
+        raise ValueError(
+            "il telaio a fibre non ha materiali: `regioni` è vuoto, e ogni "
+            "membratura del prior vuole la propria sezione dichiarata "
+            "(RegioneConfig.sezione). Non si ricade su un materiale "
+            "predefinito: un telaio in cemento armato con la sezione di "
+            "nessuno non è il telaio, e i sette verdetti uscirebbero su un "
+            "modello che l'operatore non ha dichiarato"
+        )
+    prior = _prior_letto(out / WALL_FILENAME, "il telaio a fibre")
+    # `analisi_dichiarata` per il nome del passo di peso proprio: il primo caso
+    # deve portarlo, e `scrivi_tcl` rifiuta ogni altra etichetta.
+    analisi = cfg.analisi_dichiarata("lo step 13 sul telaio")
+    modale = cfg.carichi.modale
+    casi = [analisi.step_name] + (["MODALE"] if modale is not None else [])
+    return opensees.esegui(
+        out,
+        telaio.costruisci(prior, cfg.regioni),
+        cfg.solutore,
+        casi_di_carico=casi,
+        modi=None if modale is None else modale.modi,
+    )
+
+
+def _artefatto_del_solutore(cfg: PipelineConfig, esito: dict[str, object]) -> str | None:
+    """L'artefatto che lo step 13 lascia, o `None` se il solutore non c'era.
+
+    Sono due file diversi perche' sono due modelli diversi: il solido lascia i
+    campi sul maglio (`13_solution.vtu`), il telaio lascia lo script che
+    OpenSees ha eseguito -- che per il telaio **e'** il modello, perche'
+    OpenSees non ha un formato di deck (vedi la testa di `core/opensees.py`).
+    """
+    if not esito["eseguito"]:
+        return None
+    return opensees.NOME_TCL if cfg.solutore.nome == "opensees" else ARTIFACTS[13]
+
+
 def risolvi_corsa(cfg: PipelineConfig) -> dict[str, object]:
     """Esegue il solo step 13 sugli artefatti gia' presenti nella corsa.
 
@@ -507,16 +576,19 @@ def risolvi_corsa(cfg: PipelineConfig) -> dict[str, object]:
     impronta = steps.step_fingerprints(cfg)[13]
     avvio = time.monotonic()
     try:
-        esportazione = _misure_dell_esportazione(out)
-        nodes, tets = _ingresso_di_ripresa(13, 9, out, _maglio_di_volume)
-        esito = _step_solutore(out, cfg, nodes, tets, esportazione)
+        if cfg.solutore.nome == "opensees":
+            esito = _step_telaio(out, cfg)
+        else:
+            esportazione = _misure_dell_esportazione(out)
+            nodes, tets = _ingresso_di_ripresa(13, 9, out, _maglio_di_volume)
+            esito = _step_solutore(out, cfg, nodes, tets, esportazione)
     except BaseException:
         # Stessa scelta di run(): la traccia resta e l'errore risale intatto.
         steps.write_state(out, 13, impronta, "fallito", None, 0.0)
         raise
     steps.write_state(
         out, 13, impronta, "riuscito",
-        ARTIFACTS[13] if esito["eseguito"] else None,
+        _artefatto_del_solutore(cfg, esito),
         time.monotonic() - avvio,
     )
     _unisci_metriche(out, {"13_solve": esito})
@@ -837,8 +909,12 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
         # La stessa funzione che il comando `meshrec solve` chiama sugli
         # artefatti gia' presenti: una sola mappatura fra le misure dello step
         # 11 e gli argomenti del solutore.
-        metrics["13_solve"] = _step_solutore(out, cfg, nodes, tets, metrics["11_export"])
-        registra(13, avvio, ARTIFACTS[13] if metrics["13_solve"]["eseguito"] else None)
+        metrics["13_solve"] = (
+            _step_telaio(out, cfg)
+            if cfg.solutore.nome == "opensees"
+            else _step_solutore(out, cfg, nodes, tets, metrics["11_export"])
+        )
+        registra(13, avvio, _artefatto_del_solutore(cfg, metrics["13_solve"]))
     except _FermataRichiesta:
         # Fermata su richiesta: gli step chiesti sono stati eseguiti e il
         # risultato e' valido quanto quello di una corsa intera, per gli step

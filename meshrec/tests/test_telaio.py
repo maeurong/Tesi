@@ -522,6 +522,20 @@ def test_il_prior_vero_arriva_fino_al_tcl(tmp_path):
     )
     assert resoconto["elementi"] == len(costruito.elementi)
     assert resoconto["barre"] > 0
+    # Il traverso di fondazione ha l'asse fuori piano di 0,53 gradi e i suoi
+    # ventuno nodi si spandono di 14,94 mm in quota (misurato il 30/08/2026):
+    # poggia a terra per tutta la lunghezza, e ci poggia con tutti e ventuno.
+    # Con la tolleranza relativa all'altezza che questo modulo portava prima,
+    # gli ottanta nodi del telaio uscivano incastrati in **uno**.
+    trave = min(
+        (
+            [e for e in costruito.elementi if e.membratura == m]
+            for m in {e.membratura for e in costruito.elementi}
+        ),
+        key=lambda aste: min(costruito.nodi[a.nodo_i, 2] for a in aste),
+    )
+    nodi_della_trave = {a.nodo_i for a in trave} | {a.nodo_j for a in trave}
+    assert resoconto["nodi_vincolati"] == len(nodi_della_trave) == 21
     grezzi = sum(len(m["quote_fette"]) + 1 for m in prior["membrature"])
     assert len(costruito.nodi) == grezzi - len(prior["giunzioni"]), (
         "ogni incontro fonde esattamente un nodo, e il conteggio si misura"

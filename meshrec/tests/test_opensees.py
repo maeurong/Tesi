@@ -115,14 +115,124 @@ def test_un_telaio_con_un_solo_nodo_non_si_scrive(tmp_path):
         opensees.scrivi_tcl(tmp_path / "m.tcl", solo, casi_di_carico=["GRAVITA"])
 
 
-def test_un_telaio_tutto_su_una_quota_non_ha_nodi_liberi(tmp_path):
+def _telaio_di(nodi, aste) -> _Telaio:
+    """Un telaio da nodi e aste `(membratura, nodo_i, nodo_j, e1, e2)`.
+
+    Le terne si dichiarano per asta perche' `_sezioni_ed_elementi` le
+    controlla: `e1` deve coincidere con `e2 x asse`. Per un'asta nel piano xz
+    valgono `e1 = (0,1,0)`, `e2 = (0,0,1)`; per una verticale `e1 = (1,0,0)`,
+    `e2 = (0,1,0)`.
+    """
+    elementi = [
+        _Elemento(
+            membratura=membratura, stazione=stazione, nodo_i=nodo_i, nodo_j=nodo_j,
+            sezione=(300.0, 200.0),
+            e1=np.asarray(e1, dtype=np.float64), e2=np.asarray(e2, dtype=np.float64),
+            barre=list(BARRE),
+        )
+        for stazione, (membratura, nodo_i, nodo_j, e1, e2) in enumerate(aste)
+    ]
+    return _Telaio(
+        nodi=np.asarray(nodi, dtype=np.float64),
+        elementi=elementi,
+        giunzioni=[],
+        materiali={asta[0]: SEZIONE for asta in aste},
+    )
+
+
+_ORIZZONTALE = ((0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
+_VERTICALE = ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0))
+
+
+def _trave_coricata(nodi_trave: int = 5, fuori_piombo: float = 15.0) -> _Telaio:
+    """Una trave di fondazione fuori piombo, con una colonna che vi poggia sopra.
+
+    Il banco del difetto misurato sul telaio sintetico: l'asse della trave e'
+    fuori piano, quindi i suoi nodi si spandono in quota anche se la trave
+    poggia a terra per tutta la propria lunghezza.
+    """
+    passo = 1600.0 / (nodi_trave - 1)
+    nodi = [
+        [i * passo, 0.0, i * fuori_piombo / (nodi_trave - 1)] for i in range(nodi_trave)
+    ]
+    aste = [(0, i, i + 1, *_ORIZZONTALE) for i in range(nodi_trave - 1)]
+    meta = nodi_trave // 2
+    for gradino in range(3):
+        nodi.append([nodi[meta][0], 0.0, nodi[meta][2] + 500.0 * (gradino + 1)])
+        precedente = meta if gradino == 0 else len(nodi) - 2
+        aste.append((1, precedente, len(nodi) - 1, *_VERTICALE))
+    return _telaio_di(nodi, aste)
+
+
+def test_una_trave_di_fondazione_fuori_piombo_poggia_con_tutti_i_suoi_nodi(tmp_path):
+    """Il difetto misurato: il traverso inferiore del telaio sintetico ha
+    l'asse fuori piano di 0,53 gradi, quindi i suoi ventuno nodi si spandono di
+    14,94 mm in quota. La tolleranza relativa all'altezza del telaio ne
+    incastrava **uno**, e il telaio pendeva da un punto solo, senza che nessuno
+    dei sette verdetti lo vedesse.
+
+    Il fuori piombo non e' rumore di stima: e' la misura che il programma
+    esiste per conservare. Una trave coricata poggia a terra per tutta la
+    propria lunghezza, comunque sia inclinata.
+    """
+    resoconto = opensees.scrivi_tcl(
+        tmp_path / "m.tcl", _trave_coricata(), casi_di_carico=["GRAVITA"]
+    )
+
+    assert resoconto["nodi_vincolati"] == 5
+    fix = [r.split()[1] for r in (tmp_path / "m.tcl").read_text().splitlines()
+           if r.startswith("fix ")]
+    assert fix == ["1", "2", "3", "4", "5"]
+
+
+def test_una_trave_coricata_da_sola_non_lascia_niente_da_calcolare(tmp_path):
     """Se il piede prende tutto, non resta niente da calcolare: si dice, non si
     lancia il solutore su un modello interamente vincolato."""
-    piatto = _mensola()
-    piatto = piatto._replace(nodi=np.zeros_like(piatto.nodi))
+    trave = _trave_coricata()
+    solo_trave = _telaio_di(
+        trave.nodi[:5], [(0, i, i + 1, *_ORIZZONTALE) for i in range(4)]
+    )
 
     with pytest.raises(ValueError, match="nessun nodo libero"):
-        opensees.scrivi_tcl(tmp_path / "m.tcl", piatto, casi_di_carico=["GRAVITA"])
+        opensees.scrivi_tcl(tmp_path / "m.tcl", solo_trave, casi_di_carico=["GRAVITA"])
+
+
+def _portale() -> _Telaio:
+    """Due colonne e un traverso di copertura che sborda oltre le colonne.
+
+    Gli sbalzi del traverso hanno estremi **liberi** come i piedi delle
+    colonne, e uno dei due e' il piu' basso del traverso: e' il caso che
+    distingue una regola sulla struttura da una regola sulla quota.
+    """
+    nodi = [
+        [0.0, 0.0, 0.0], [1500.0, 0.0, 0.0],          # i due piedi
+        [0.0, 0.0, 2000.0], [1500.0, 0.0, 2007.0],    # le due teste
+        [-300.0, 0.0, 1998.5], [1800.0, 0.0, 2008.5],  # gli sbalzi del traverso
+    ]
+    aste = [
+        (0, 0, 2, *_VERTICALE),
+        (1, 1, 3, *_VERTICALE),
+        (2, 4, 2, *_ORIZZONTALE),
+        (2, 2, 3, *_ORIZZONTALE),
+        (2, 3, 5, *_ORIZZONTALE),
+    ]
+    return _telaio_di(nodi, aste)
+
+
+def test_lo_sbalzo_del_traverso_non_e_un_piede(tmp_path):
+    """L'estremo libero di un'asta coricata e' la punta di uno sbalzo, non un
+    appoggio: la struttura ci arriva da sopra, non ci poggia sopra. Una regola
+    che guardasse solo «da qui in giu' non prosegue niente» incastrerebbe la
+    punta bassa del traverso di copertura, che sta a due metri da terra.
+    """
+    resoconto = opensees.scrivi_tcl(
+        tmp_path / "m.tcl", _portale(), casi_di_carico=["GRAVITA"]
+    )
+
+    assert resoconto["nodi_vincolati"] == 2
+    fix = [r.split()[1] for r in (tmp_path / "m.tcl").read_text().splitlines()
+           if r.startswith("fix ")]
+    assert fix == ["1", "2"]
 
 
 def _due_colonne(quota_secondo_piede: float = 0.0) -> _Telaio:
@@ -135,14 +245,16 @@ def _due_colonne(quota_secondo_piede: float = 0.0) -> _Telaio:
     )
     elementi = [
         _Elemento(
-            membratura=0, stazione=i, nodo_i=i, nodo_j=i + 2,
+            membratura=i, stazione=0, nodo_i=i, nodo_j=i + 2,
             sezione=(300.0, 200.0),
             e1=np.array([1.0, 0.0, 0.0]), e2=np.array([0.0, 1.0, 0.0]),
             barre=list(BARRE),
         )
         for i in range(2)
     ]
-    return _Telaio(nodi=nodi, elementi=elementi, giunzioni=[], materiali={0: SEZIONE})
+    return _Telaio(
+        nodi=nodi, elementi=elementi, giunzioni=[], materiali={0: SEZIONE, 1: SEZIONE}
+    )
 
 
 @pytest.mark.parametrize("valore", [float("nan"), float("inf")])
@@ -167,7 +279,8 @@ def test_un_nodo_con_coordinata_non_finita_non_si_scrive(tmp_path, valore):
     assert not (tmp_path / "m.tcl").exists()
 
 
-def test_due_piedi_quasi_complanari_sono_incastrati_tutti_e_due(tmp_path):
+@pytest.mark.parametrize("quota_secondo_piede", [1e-5, 1000.0])
+def test_due_colonne_hanno_due_piedi_a_qualunque_quota(tmp_path, quota_secondo_piede):
     """I nodi del telaio vengono da una **stima del prior**, non da un disegno:
     due piedi che il disegno vuole complanari escono a quote vicine e non
     uguali. Con la tolleranza assoluta di 1e-6 mm che questo modulo portava,
@@ -175,9 +288,16 @@ def test_due_piedi_quasi_complanari_sono_incastrati_tutti_e_due(tmp_path):
     penzola -- il difetto misurato il 21/08/2026 che `constraint_plan_extent`
     esiste per catturare, e che sul telaio nessuno dei sette verdetti vede,
     perche' li' quel controllo e' dichiarato non applicabile.
+
+    La quota del secondo piede non entra nella decisione, ed e' il cambiamento
+    rispetto alla tolleranza: una colonna che parte un metro piu' su e da cui
+    la struttura sale soltanto poggia comunque su qualcosa. Lasciarla libera
+    perche' la sua quota non somiglia a quella dell'altra non ne fa «un altro
+    piano», ne fa un corpo rigido -- il piano vero e' una colonna il cui piede
+    e' l'attacco di una trave, e li' sotto la struttura prosegue.
     """
     resoconto = opensees.scrivi_tcl(
-        tmp_path / "m.tcl", _due_colonne(1e-5), casi_di_carico=["GRAVITA"]
+        tmp_path / "m.tcl", _due_colonne(quota_secondo_piede), casi_di_carico=["GRAVITA"]
     )
 
     assert resoconto["nodi_vincolati"] == 2
@@ -186,14 +306,18 @@ def test_due_piedi_quasi_complanari_sono_incastrati_tutti_e_due(tmp_path):
     assert fix == ["1", "2"]
 
 
-def test_un_piede_piu_alto_della_tolleranza_resta_libero(tmp_path):
-    """La tolleranza e' relativa all'altezza, non larga: una colonna che parte
-    un metro piu' su e' un'altra cosa da un piede, e non si incastra."""
+def test_una_colonna_che_poggia_su_una_trave_non_e_un_piede(tmp_path):
+    """Il piano vero: sotto il piede della colonna la struttura prosegue, e
+    quel nodo non e' un appoggio. E' la distinzione che la tolleranza sulla
+    quota non sapeva fare -- guardava quanto il nodo fosse in basso, non se
+    sotto ci fosse qualcosa."""
     resoconto = opensees.scrivi_tcl(
-        tmp_path / "m.tcl", _due_colonne(1000.0), casi_di_carico=["GRAVITA"]
+        tmp_path / "m.tcl", _trave_coricata(), casi_di_carico=["GRAVITA"]
     )
 
-    assert resoconto["nodi_vincolati"] == 1
+    assert resoconto["nodi_vincolati"] == 5, (
+        "i cinque nodi della trave, e nessuno dei tre della colonna che vi poggia"
+    )
 
 
 def test_casi_di_carico_vuoto_non_produce_un_file_muto(tmp_path):
@@ -822,3 +946,211 @@ def test_un_dato_per_cella_di_lunghezza_sbagliata_e_rifiutato(tmp_path):
             tmp_path / "storto.vtu", _NODI_TETRAEDRO, _CELLE_TETRAEDRO,
             element_type="C3D4", cell_data={"N_GRAVITA": np.array([1.0, 2.0, 3.0])},
         )
+
+
+
+# --- Il lancio del solutore ---------------------------------------------------
+def _solutore(percorso: str | None = "/finto/OpenSees") -> config.SolutoreConfig:
+    return config.SolutoreConfig(nome="opensees", percorso=percorso)
+
+
+def _opensees_finto(caso: str = "GRAVITA", *, modi: int = 0, marcatore: bool = True,
+                    uscita: str = "", codice: int = 0):
+    """Al posto di `subprocess.run`: scrive le uscite che i registratori
+    scriverebbero, leggendole dal `.tcl` come farebbe il solutore vero.
+
+    Il peso lo prende dalle righe `load` dello script e lo posa **intero sul
+    primo nodo incastrato**: la somma delle reazioni torna, e il verdetto
+    `reazioni` prova la lettura invece di essere verde per costruzione.
+    """
+    def esegui(argomenti, cwd=None, **_altro):
+        cartella = Path(cwd)
+        righe = (cartella / argomenti[-1]).read_text(encoding="utf-8").splitlines()
+        n_nodi = sum(1 for r in righe if r.startswith("node "))
+        n_elementi = sum(1 for r in righe if r.startswith("element "))
+        piede = [int(r.split()[1]) for r in righe if r.startswith("fix ")]
+        peso = -sum(float(r.split()[4]) for r in righe if r.strip().startswith("load "))
+
+        def scrivi(nome: str, valori) -> None:
+            (cartella / nome).write_text(
+                " ".join(f"{v:.12g}" for v in valori) + "\n", encoding="ascii"
+            )
+
+        if peso:
+            scrivi(f"{caso}_spostamenti.out", [0.1] * (3 * n_nodi))
+            scrivi(f"{caso}_forze.out", [1.0] * (12 * n_elementi))
+            reazioni = np.zeros((n_nodi, 6))
+            reazioni[piede[0] - 1, 2] = peso
+            scrivi(f"{caso}_reazioni.out", reazioni.reshape(-1))
+        for modo in range(1, modi + 1):
+            scrivi(f"modo_{modo}.out", [0.01 * modo] * (3 * n_nodi))
+        if modi:
+            (cartella / opensees.NOME_MASSA_MODALE).write_text(
+                _RAPPORTO_MODALE, encoding="ascii"
+            )
+        if marcatore:
+            (cartella / opensees.NOME_FINE).write_text(
+                opensees.MARCA_FINE + "\n", encoding="ascii"
+            )
+
+        class _Processo:
+            returncode = codice
+            stdout = uscita.encode()
+            stderr = b""
+
+        return _Processo()
+
+    return esegui
+
+
+# Le due tabelle di `modalProperties -print`, nella forma misurata il
+# 30/08/2026 su OpenSees 3.8.0 (le colonne vere, non un formato inventato).
+_RAPPORTO_MODALE = """# MODAL ANALYSIS REPORT
+
+* 2. EIGENVALUE ANALYSIS:
+#          MODE        LAMBDA         OMEGA     FREQUENCY        PERIOD
+# ------------- ------------- ------------- ------------- -------------
+              1       18674.2       136.654            10     0.0459789
+              2         46428       215.472            20     0.0291602
+
+* 9. MASS RATIOS (%) (cumulative):
+#          MODE            MX            MY            MZ           RMX           RMY           RMZ
+# ------------- ------------- ------------- ------------- ------------- ------------- -------------
+              1            50            50            50            50            50            50
+              2            95            95            95            95            95            95
+"""
+
+
+def _c_e_opensees(_cfg=None):
+    """`solve.disponibilita` con OpenSees presente: il binario finto lo mette
+    poi al suo posto il finto `subprocess.run`."""
+    return {"opensees": {
+        "disponibile": True, "percorso": "/finto/OpenSees", "origine": "dichiarato",
+        "scelto": True, "motivo": None,
+        "dove_prenderlo": opensees.solve.DOVE_PRENDERLO["opensees"],
+    }}
+
+
+def test_opensees_assente_si_dichiara_prima_di_scrivere_il_tcl(tmp_path):
+    """Un solutore che non c'è non è un difetto, ed è una risposta che deve
+    arrivare **prima** del lavoro: scrivere il `.tcl` e poi scoprire che manca
+    il binario lascia sul disco un artefatto che nessuno ha risolto."""
+    esito = opensees.esegui(
+        tmp_path, _mensola(), _solutore("/non/c/e/OpenSees"), casi_di_carico=["GRAVITA"]
+    )
+
+    assert esito["eseguito"] is False
+    assert esito["solutore"] == "assente"
+    assert "/non/c/e/OpenSees" in esito["motivo"]
+    assert "opensees.berkeley.edu" in esito["dove_prenderlo"]
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_un_solutore_che_non_e_opensees_si_dichiara(tmp_path):
+    """Il telaio non è un deck Abaqus: `calculix` qui non è una scelta, è un
+    errore, e il rifiuto nomina chi porta l'altra strada."""
+    with pytest.raises(ValueError, match="core/solve.py|risolvi"):
+        opensees.esegui(
+            tmp_path, _mensola(), config.SolutoreConfig(nome="calculix"),
+            casi_di_carico=["GRAVITA"],
+        )
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_senza_il_marcatore_di_fine_la_corsa_e_fallita(tmp_path, monkeypatch):
+    """**Il codice d'uscita non è il segnale**: OpenSees 3.8.0 esce 0 anche
+    quando lo script muore su un errore fatale (misurato il 30/08/2026). Il
+    segnale è il marcatore che il `.tcl` scrive in coda, e che qui non c'è.
+    """
+    monkeypatch.setattr(opensees.solve, "disponibilita", _c_e_opensees)
+    monkeypatch.setattr(
+        opensees.subprocess, "run",
+        _opensees_finto(marcatore=False, uscita="WARNING - qualcosa è morto"),
+    )
+
+    with pytest.raises(RuntimeError, match=opensees.NOME_FINE):
+        opensees.esegui(tmp_path, _mensola(), _solutore(), casi_di_carico=["GRAVITA"])
+    assert (tmp_path / "13_solver.log").is_file(), "il registro resta, o non si diagnostica"
+
+
+def test_un_analisi_che_non_converge_esce_diversa_da_zero_e_senza_marcatore(
+    tmp_path, monkeypatch
+):
+    """`analyze` che non torna 0 fa uscire lo script con codice 1 e senza
+    marcatore (è il ramo che `_passo_statico` scrive): il fallimento si legge
+    dal marcatore mancante, e il codice finisce nel messaggio."""
+    monkeypatch.setattr(opensees.solve, "disponibilita", _c_e_opensees)
+    monkeypatch.setattr(
+        opensees.subprocess, "run",
+        _opensees_finto(marcatore=False, codice=1, uscita="MESHREC_FINE_MANCA"),
+    )
+
+    with pytest.raises(RuntimeError, match=r"d'uscita \(1\)"):
+        opensees.esegui(tmp_path, _mensola(), _solutore(), casi_di_carico=["GRAVITA"])
+
+
+def test_i_sette_verdetti_del_telaio_passano_tutti_dalla_tabella(tmp_path, monkeypatch):
+    """I sette ci sono tutti, e i due che la tabella dichiara non applicabili
+    non escono verdi: è la ragione per cui `verdetti_per_modello` esiste."""
+    monkeypatch.setattr(opensees.solve, "disponibilita", _c_e_opensees)
+    monkeypatch.setattr(opensees.subprocess, "run", _opensees_finto(modi=2))
+
+    esito = opensees.esegui(
+        tmp_path, _mensola(), _solutore(), casi_di_carico=["GRAVITA", "MODALE"], modi=2
+    )
+
+    controlli = esito["controlli"]
+    assert set(controlli) == set(opensees.solve.CONTROLLI_PER_MODELLO)
+    for non_applicabile in ("vincolo_in_pianta", "picco"):
+        assert controlli[non_applicabile]["applicabile"] is False
+        assert controlli[non_applicabile]["passato"] is False
+    for verde in ("reazioni", "autovalori", "avvisi", "spostamenti", "massa_modale"):
+        assert controlli[verde]["passato"] is True, (verde, controlli[verde])
+    assert esito["frequenze_hz"] == [10.0, 20.0]
+    assert esito["eseguito"] is True
+
+
+def test_le_uscite_della_corsa_precedente_non_si_mescolano_con_le_nuove(
+    tmp_path, monkeypatch
+):
+    """La stessa corsa risolta due volte: i registratori riscrivono i propri
+    file, ma un `modo_3.out` di una corsa a tre modi resterebbe sul disco
+    accanto ai due della corsa nuova, e il lettore lo leggerebbe come un modo
+    di questa."""
+    monkeypatch.setattr(opensees.solve, "disponibilita", _c_e_opensees)
+    monkeypatch.setattr(opensees.subprocess, "run", _opensees_finto(modi=3))
+    opensees.esegui(
+        tmp_path, _mensola(), _solutore(), casi_di_carico=["GRAVITA", "MODALE"], modi=3
+    )
+    assert (tmp_path / "modo_3.out").is_file()
+
+    monkeypatch.setattr(opensees.subprocess, "run", _opensees_finto(modi=2))
+    esito = opensees.esegui(
+        tmp_path, _mensola(), _solutore(), casi_di_carico=["GRAVITA", "MODALE"], modi=2
+    )
+
+    assert not (tmp_path / "modo_3.out").exists()
+    assert esito["modi"] == 2
+
+
+@pytest.mark.feasibility
+def test_la_catena_intera_gira_su_opensees_vero(tmp_path):
+    """Capo a capo con il binario vero: scrive, lancia, pretende il marcatore,
+    rilegge e scrive i sette verdetti. È la prova che i tre pezzi -- lo
+    scrittore, il lanciatore e i verdetti -- parlano davvero della stessa
+    corsa."""
+    if _OPENSEES is None:
+        pytest.skip("OpenSees non trovato: né MESHREC_OPENSEES né 'OpenSees' nel PATH")
+
+    esito = opensees.esegui(
+        tmp_path, _mensola(stazioni=8), config.SolutoreConfig(nome="opensees", percorso=_OPENSEES),
+        casi_di_carico=["GRAVITA", "MODALE"], modi=4,
+    )
+
+    assert esito["eseguito"] is True
+    assert esito["avvisi"] == 0
+    assert esito["controlli"]["reazioni"]["passato"] is True, esito["controlli"]["reazioni"]
+    assert esito["controlli"]["autovalori"]["passato"] is True
+    assert esito["controlli"]["spostamenti"]["passato"] is True
+    assert esito["controlli"]["picco"]["applicabile"] is False
+    assert len(esito["frequenze_hz"]) == 4

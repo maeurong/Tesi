@@ -316,13 +316,26 @@ def main(argv: list[str] | None = None) -> int:
 
         try:
             cfg = load_config(args.config)
-            deck = Path(cfg.run.out_dir) / pipeline.DECK_FILENAME
-            if not deck.exists():
-                raise FileNotFoundError(
-                    f"manca {deck}: il solutore risolve il deck di calcolo, che è "
-                    "l'artefatto dello step 11. Esegui almeno fino a quello "
-                    f"(`meshrec run {args.config} --to-step 11`) e riprova"
-                )
+            if cfg.solutore.nome == "opensees":
+                # Il telaio a fibre non si costruisce sul deck: si costruisce
+                # sul prior dello step 12, e il deck dello step 11 quel ramo
+                # non lo apre. Chiedergli `wall_model.inp` manderebbe a
+                # rieseguire un passo per un file che nessuno leggerà.
+                prior = Path(cfg.run.out_dir) / pipeline.WALL_FILENAME
+                if not prior.exists():
+                    raise FileNotFoundError(
+                        f"manca {prior}: il telaio a fibre si costruisce sul "
+                        "prior, che è l'artefatto dello step 12. Esegui "
+                        f"`meshrec wall {args.config}` e riprova"
+                    )
+            else:
+                deck = Path(cfg.run.out_dir) / pipeline.DECK_FILENAME
+                if not deck.exists():
+                    raise FileNotFoundError(
+                        f"manca {deck}: il solutore risolve il deck di calcolo, che è "
+                        "l'artefatto dello step 11. Esegui almeno fino a quello "
+                        f"(`meshrec run {args.config} --to-step 11`) e riprova"
+                    )
             # Prima di rileggere il maglio, che su una corsa vera costa: un
             # binario che non c'è si dichiara adesso, con dove prenderlo, e non
             # a metà corsa. `verifica` lo esegue davvero, perché «c'è» non è

@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import math
 import re
+import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -47,6 +48,7 @@ from meshrec.core import solve
 from meshrec.core.config import GRAVITY_MM_S2, AnalysisConfig, Modale
 
 if TYPE_CHECKING:  # pragma: no cover
+    from meshrec.core.config import SolutoreConfig
     # `core/telaio.py` lo scrive il ramo D dell'onda 3. Le annotazioni di
     # questo modulo sono stringhe (`from __future__ import annotations`), e
     # l'import vero non gira mai: lo scrittore legge solo i campi che §4.7
@@ -83,24 +85,6 @@ _PUNTI_INTEGRAZIONE = 5
 # lineari, questo numero va misurato.
 _SUDDIVISIONI_PATCH = 10
 
-# Un nodo del telaio e' «al piede» se sta entro questa frazione dell'altezza
-# del telaio dalla quota minima.
-#
-# **Relativa e non assoluta**, ed e' il punto: i nodi del telaio non sono
-# misurati, stanno sull'asse che il **prior ha stimato** alle quote delle
-# fette, quindi due piedi che il disegno vuole complanari escono a quote
-# vicine e non uguali. Con la tolleranza assoluta di 1e-6 mm che questo modulo
-# portava prima, due piedi a quota 0,0 e 1e-5 davano un solo incastro e un
-# telaio che penzola: e' il difetto misurato il 21/08/2026 sull'as-built
-# (`abaqus.constraint_plan_extent`), e sul telaio nessuno dei sette verdetti lo
-# vedrebbe, perche' li' quel controllo e' dichiarato non applicabile.
-#
-# 1e-4 dell'altezza sono 0,2 mm su un telaio di 2 m e 0,31 mm sull'as-built di
-# 3144 mm: sopra ogni scarto di stima fra nodi che il prior mette allo stesso
-# livello, e sotto qualunque quota che in un telaio significhi «un altro
-# piano».
-_FRAZIONE_PIEDE = 1e-4
-
 # Un versore della sezione quasi parallelo all'asse dell'asta non definisce un
 # piano: `geomTransf` ne uscirebbe degenere. Il coseno e' quello di circa 2,5
 # gradi.
@@ -129,6 +113,13 @@ def _nome_uscita(caso: str, cosa: str) -> str:
 
 
 NOME_MASSA_MODALE = "massa_modale.out"
+
+# Lo script e il registro della corsa, dentro la cartella della corsa. Il
+# registro porta lo stesso nome di quello di CalculiX (`solve.risolvi`): una
+# corsa risolve un solido oppure un telaio, mai tutti e due, e chi va a
+# guardare che cosa ha detto il solutore cerca un nome solo.
+NOME_TCL = "13_telaio.tcl"
+NOME_REGISTRO = "13_solver.log"
 
 # Il marcatore di fine corsa, e il file in cui il `.tcl` lo scrive.
 #
@@ -184,6 +175,74 @@ def _versore(v: np.ndarray) -> np.ndarray:
     return a / norma
 
 
+def _coricata(delta: np.ndarray) -> bool:
+    """Un'asta e' coricata se il suo asse e' piu' orizzontale che verticale.
+
+    Non e' una tolleranza sulla quota, e' il ruolo dell'asta: quarantacinque
+    gradi e' la bisettrice, cioe' l'unica soglia che non si sceglie -- di qua
+    l'asta si posa, di la' l'asta si alza. Sul telaio sintetico i due traversi
+    stanno a 0,36 e 0,53 gradi dall'orizzontale e i due montanti a 89,60 e
+    89,94, misurati il 30/08/2026: nessuno dei quattro e' vicino alla
+    bisettrice, e nessuno cambia ruolo se la si sposta di dieci gradi.
+    """
+    return abs(float(delta[2])) < float(np.hypot(delta[0], delta[1]))
+
+
+def _al_piede(nodi: np.ndarray, elementi) -> np.ndarray:
+    """Gli indici dei nodi che poggiano a terra, dedotti dalla struttura.
+
+    **Nessuna tolleranza sulla quota**, e la ragione e' il difetto che questa
+    funzione sostituisce. Il criterio precedente era «entro 1e-4 dell'altezza
+    dalla quota minima»: sul telaio sintetico il traverso di fondazione ha
+    l'asse fuori piano di 0,53 gradi, i suoi ventuno nodi si spandono di 14,94
+    mm in quota, la tolleranza ne valeva 0,191, e il telaio da ottanta nodi
+    usciva incastrato in **uno** solo (misurato il 30/08/2026). Quello scarto
+    non e' rumore di stima: e' il fuori piombo che il rilievo ha misurato,
+    cioe' precisamente cio' che questo programma esiste per conservare. Una
+    soglia che lo tratta come rumore va allargata finche' il caso torna, ed e'
+    la soglia decisa dopo aver visto il risultato.
+
+    Il piede si deduce invece da com'e' fatta la struttura, con due sole
+    domande e nessun numero da tarare:
+
+    1. **La membratura coricata che tocca il punto piu' basso ci poggia per
+       tutta la propria lunghezza.** E' la trave di fondazione: si parte dal
+       nodo di quota minima -- un `argmin`, non un confronto con una soglia --
+       e si cammina lungo le sole aste coricate. Comunque il rilievo l'abbia
+       trovata inclinata, la trave sta a terra da un capo all'altro.
+    2. **Ogni nodo da cui la struttura sale soltanto, e sale in piedi.** E' il
+       piede di un montante: sotto non prosegue niente, quindi o poggia o
+       penzola. La seconda condizione -- che le aste che ne partono siano in
+       piedi -- esclude la punta di uno sbalzo: l'estremo libero di un traverso
+       e' il punto piu' basso *del traverso*, ma la struttura ci arriva da
+       sopra e non ci poggia sopra.
+
+    Il nodo di quota minima e' sempre nell'insieme (e' il punto di partenza
+    del cammino), quindi il telaio non resta mai senza vincoli.
+    """
+    quote = nodi[:, 2]
+    vicini: dict[int, list[tuple[int, bool]]] = {}
+    for elemento in elementi:
+        coricata = _coricata(nodi[elemento.nodo_j] - nodi[elemento.nodo_i])
+        vicini.setdefault(elemento.nodo_i, []).append((elemento.nodo_j, coricata))
+        vicini.setdefault(elemento.nodo_j, []).append((elemento.nodo_i, coricata))
+
+    a_terra = {int(np.argmin(quote))}
+    da_visitare = list(a_terra)
+    while da_visitare:
+        for altro, coricata in vicini.get(da_visitare.pop(), ()):
+            if coricata and altro not in a_terra:
+                a_terra.add(altro)
+                da_visitare.append(altro)
+
+    a_terra.update(
+        nodo
+        for nodo, intorno in vicini.items()
+        if all(not coricata and quote[altro] > quote[nodo] for altro, coricata in intorno)
+    )
+    return np.array(sorted(a_terra), dtype=np.int64)
+
+
 def _controlla_telaio(telaio: "Telaio") -> tuple[np.ndarray, np.ndarray]:
     """`(nodi, indici dei nodi al piede)`, o il motivo per cui non si scrive.
 
@@ -212,14 +271,12 @@ def _controlla_telaio(telaio: "Telaio") -> tuple[np.ndarray, np.ndarray]:
             f"il telaio ha un nodo solo ({len(nodi)} nodi): non c'è un'asta da "
             "scrivere"
         )
-    quote = nodi[:, 2]
-    tolleranza = _FRAZIONE_PIEDE * float(np.ptp(quote))
-    al_piede = np.flatnonzero(quote <= float(quote.min()) + tolleranza)
+    al_piede = _al_piede(nodi, telaio.elementi)
     if len(al_piede) == len(nodi):
         raise ValueError(
-            "ogni nodo del telaio sta alla quota minima: il piede prenderebbe "
-            "tutto e non resterebbe nessun nodo libero da calcolare. Il modello "
-            "è degenere, non è un telaio"
+            "ogni nodo del telaio poggia a terra: il piede prende tutto e non "
+            "resta nessun nodo libero da calcolare. Il modello è degenere, non "
+            "è un telaio"
         )
     return nodi, al_piede
 
@@ -537,7 +594,10 @@ def scrivi_tcl(
     ]
     for indice, (x, y, z) in enumerate(nodi, start=1):
         righe.append(f"node {indice} {x:.10g} {y:.10g} {z:.10g}")
-    righe += ["", "# --- vincoli: i nodi alla quota minima, incastrati ---"]
+    righe += [
+        "",
+        f"# --- vincoli: i {len(al_piede)} nodi che poggiano a terra, incastrati ---",
+    ]
     for indice in al_piede:
         righe.append(f"fix {int(indice) + 1} 1 1 1 1 1 1")
     righe += ["", "# --- materiali ---", *card_materiali]
@@ -745,3 +805,229 @@ def leggi_massa_modale(percorso: Path) -> dict[str, list[float]] | None:
     if ultima is None:
         return None
     return {"catturata": ultima, "disponibile": [100.0] * 6}
+
+
+_INTESTAZIONE_AUTOVALORI = "EIGENVALUE ANALYSIS"
+
+
+def leggi_frequenze(percorso: Path) -> list[float]:
+    """Le frequenze proprie [Hz] dal blocco «EIGENVALUE ANALYSIS» di `modalProperties`.
+
+    Stessa forma che `solve.controlla_autovalori` consuma per CalculiX -- una
+    lista in Hz, in ordine crescente di modo -- e stessa sorgente della massa
+    partecipante, cioe' il file che `modalProperties -print -file` scrive: la
+    tabella porta `MODE LAMBDA OMEGA FREQUENCY PERIOD` (misurato il 30/08/2026
+    su OpenSees 3.8.0), e la frequenza in Hz e' la terza colonna dopo il numero
+    del modo. Si legge di li' e non si ricava da `eigen`, che rende gli
+    autovalori allo script e non lascia nulla sul disco.
+
+    Lista vuota se il blocco non c'e': nessun passo modale. Non e' uno zero --
+    una frequenza nulla e' un meccanismo -- e `controlla_autovalori` sulla
+    lista vuota dichiara «non verificato».
+    """
+    percorso = Path(percorso)
+    if not percorso.is_file():
+        return []
+    dentro = False
+    frequenze: list[float] = []
+    for riga in percorso.read_text(encoding="ascii", errors="ignore").splitlines():
+        if _INTESTAZIONE_AUTOVALORI in riga:
+            dentro = True
+            continue
+        if not dentro:
+            continue
+        campi = riga.split()
+        # Cinque campi, il primo il numero del modo: le intestazioni del blocco
+        # cominciano con `#` e non passano di qui. La prima riga che non e' una
+        # riga di modo, dopo che almeno una c'e' stata, chiude il blocco.
+        if len(campi) != 5 or not campi[0].isdigit():
+            if frequenze:
+                break
+            continue
+        try:
+            frequenze.append(float(campi[3]))
+        except ValueError:
+            continue
+    return frequenze
+
+
+def _reazioni_al_piede(
+    cartella: Path, caso: str, n_nodi: int, al_piede: np.ndarray
+) -> dict[int, tuple[float, float, float]]:
+    """Le reazioni **dei soli nodi incastrati**, a numero di nodo a base uno.
+
+    Il registratore le scrive per tutti i nodi e sei gradi per nodo; qui
+    servono le tre forze dei nodi al piede, che sono quelle che
+    `solve.controlla_reazioni` somma per confrontarle col peso.
+
+    I nodi liberi restano fuori di proposito. La somma su **tutti** i nodi
+    torna sempre uguale al carico applicato -- e' come sono definite le
+    reazioni nodali, e infatti misurata il 30/08/2026 sul telaio sintetico
+    valeva il peso a sedici cifre anche col telaio incastrato in un nodo solo:
+    un verdetto che la guardasse sarebbe verde per costruzione. La somma sui
+    soli appoggi e' invece l'equilibrio vero, e il residuo dei nodi liberi
+    (misurato: 6e-9 N su 10 kN) resta fuori dove si vede.
+    """
+    percorso = cartella / _nome_uscita(caso, "reazioni")
+    if not percorso.is_file():
+        return {}
+    campi = _ultima_riga(percorso, 6 * n_nodi).reshape(n_nodi, 6)
+    return {
+        int(indice) + 1: (
+            float(campi[indice, 0]), float(campi[indice, 1]), float(campi[indice, 2])
+        )
+        for indice in al_piede
+    }
+
+
+def esegui(
+    out_dir: Path,
+    telaio: "Telaio",
+    solutore: "SolutoreConfig",
+    *,
+    casi_di_carico: list[str],
+    modi: int | None = None,
+) -> dict[str, object]:
+    """Scrive il `.tcl`, lancia OpenSees su di esso, e rende i sette verdetti.
+
+    E' il pezzo che mancava fra `scrivi_tcl` e `leggi_uscite`: senza, il
+    modulo scriveva uno script che nessuno eseguiva. Sta qui e non in
+    `solve.risolvi` perche' quella funzione monta la riga di comando di
+    CalculiX e legge il `.frd` e il `.dat` che solo lui scrive: rifiuta ogni
+    altro solutore, e questa e' l'altra strada che il suo rifiuto nomina.
+
+    Tre cose misurate il 30/08/2026 su OpenSees 3.8.0, non dedotte:
+
+    - **Il codice d'uscita non e' il segnale.** OpenSees esce 0 anche quando lo
+      script muore su un errore fatale. Il segnale e' il marcatore di fine che
+      `scrivi_tcl` scrive in coda: se manca, la corsa non e' arrivata in fondo
+      -- errore fatale, processo ucciso, o `analyze` che non converge, che fa
+      uscire lo script con codice 1 prima del marcatore. Il codice resta nel
+      messaggio, perche' dice se il binario e' nemmeno partito.
+    - **La cartella corrente e' quella d'uscita, mai la `bin/`
+      dell'installazione.** I registratori portano nomi relativi e scrivono
+      dove sta il processo: lanciato dalla propria cartella, OpenSees
+      scriverebbe i risultati dentro l'installazione.
+    - **Le uscite della corsa precedente si tolgono prima.** I registratori
+      riscrivono i propri file, ma non quelli che questa corsa non apre: un
+      `modo_3.out` di una corsa a tre modi resterebbe accanto ai due di una
+      corsa a due, e `leggi_uscite` lo leggerebbe come un modo di questa.
+
+    Un solutore assente **non e' un fallimento** -- e' lo stato che
+    `solve.risolvi` dichiara da sempre per CalculiX -- e si dichiara *prima* di
+    scrivere il `.tcl`: uno script sul disco che nessuno ha risolto e' un
+    artefatto che mente sulla propria corsa.
+
+    I sette verdetti passano tutti da `solve.verdetti_per_modello("telaio",
+    ...)`, che e' l'unico modo perche' `vincolo_in_pianta` e `picco` -- le due
+    caselle che la tabella dichiara non applicabili al telaio -- non escano
+    verdi: la loro via al verde e' misurata e aperta (una mensola verticale da'
+    `constraint_plan_extent` con `minimo = 1,0`, e `controlla_vincolo_in_pianta`
+    la promuove), e non passa di qui perche' il calcolo non viene nemmeno
+    chiamato.
+    """
+    if solutore.nome != "opensees":
+        raise ValueError(
+            f"solutore.nome = '{solutore.nome}': questo passo risolve un telaio "
+            "a fibre, che è uno script di OpenSees e non un deck Abaqus -- non "
+            "c'è un .inp da dare a CalculiX, e le grandezze del telaio (N, V, "
+            "M per elemento) non stanno in un .frd. La strada di CalculiX è "
+            "core/solve.py (risolvi), sul deck dello step 11"
+        )
+    # Prima di scrivere il .tcl: uno script sul disco che nessuno ha risolto
+    # direbbe che la corsa e' arrivata al modello quando manca il solutore. Il
+    # motivo e il dove prenderlo vengono da `solve.disponibilita`, che e' il
+    # punto unico in cui si decide dove sta un solutore: riscriverli qui
+    # darebbe due diagnosi diverse per la stessa assenza.
+    stato = solve.disponibilita(solutore)["opensees"]
+    if not stato["disponibile"]:
+        return {
+            "eseguito": False,
+            "solutore": "assente",
+            "motivo": stato["motivo"],
+            "dove_prenderlo": stato["dove_prenderlo"],
+        }
+    binario = stato["percorso"]
+
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for vecchia in out_dir.glob("*.out"):
+        vecchia.unlink()
+
+    percorso_tcl = out_dir / NOME_TCL
+    resoconto = scrivi_tcl(
+        percorso_tcl, telaio, casi_di_carico=casi_di_carico, modi=modi
+    )
+
+    processo = subprocess.run(
+        [binario, NOME_TCL],
+        cwd=out_dir,
+        capture_output=True,
+        timeout=solve._TIMEOUT_S,
+    )
+    uscita = (processo.stdout + processo.stderr).decode("utf-8", errors="ignore")
+    percorso_registro = out_dir / NOME_REGISTRO
+    percorso_registro.write_text(uscita, encoding="utf-8")
+
+    fine = out_dir / NOME_FINE
+    arrivata = fine.is_file() and MARCA_FINE in fine.read_text(
+        encoding="ascii", errors="ignore"
+    )
+    if not arrivata:
+        raise RuntimeError(
+            f"OpenSees non ha scritto il marcatore di fine ({NOME_FINE}) su "
+            f"{percorso_tcl.name}: la corsa non è arrivata in fondo. Il codice "
+            f"d'uscita ({processo.returncode}) non è il segnale -- OpenSees "
+            "esce 0 anche dopo un errore fatale -- e i file che ci sono portano "
+            f"l'ultimo stato scritto, che non è un risultato. Coda "
+            f"dell'uscita:\n{uscita[-2000:]}"
+        )
+
+    nodi = np.asarray(telaio.nodi, dtype=np.float64)
+    campi = leggi_uscite(out_dir, telaio)
+    casi = list(resoconto["casi_di_carico"])
+    statico = next((nome for nome in casi if nome != "MODALE"), None)
+    reazioni = (
+        {}
+        if statico is None
+        else _reazioni_al_piede(
+            out_dir, statico, len(nodi), _al_piede(nodi, telaio.elementi)
+        )
+    )
+    frequenze_hz = leggi_frequenze(out_dir / NOME_MASSA_MODALE)
+    masse = leggi_massa_modale(out_dir / NOME_MASSA_MODALE)
+    avvisi = conta_avvisi(uscita)
+    # Le reazioni tengono su il peso proprio, e il peso proprio e' quello che
+    # `_peso_nodale` ha applicato: la ripartizione nodale rende l'uguaglianza
+    # esatta (vedi il suo docstring, e la casella `reazioni` della tabella).
+    peso_atteso = (0.0, 0.0, float(resoconto["peso_proprio"]))
+
+    # Le quattro grandezze che seguono vengono da `core/solve.py` e sono
+    # private la': la tolleranza sulle reazioni, il tempo massimo di una corsa,
+    # lo spostamento massimo fra i passi statici e la dimensione del modello
+    # sono le stesse cose del solido, e riscriverle qui vorrebbe dire tenere
+    # allineate due copie di ciascuna -- la seconda verita' accanto alla prima.
+    controlli = solve.verdetti_per_modello("telaio", {
+        "reazioni": lambda: solve.controlla_reazioni(
+            reazioni, peso_atteso, tolleranza=solve._TOLLERANZA_REAZIONI
+        ),
+        "autovalori": lambda: solve.controlla_autovalori(frequenze_hz),
+        "avvisi": lambda: solve.controlla_avvisi(avvisi),
+        "spostamenti": lambda: solve.controlla_spostamenti(
+            solve._spostamento_massimo(campi), solve._dimensione(nodi)
+        ),
+        "massa_modale": lambda: solve.controlla_massa_modale(masse),
+    })
+
+    return {
+        "eseguito": True,
+        "solutore": "opensees",
+        "returncode": processo.returncode,
+        "avvisi": avvisi,
+        "controlli": controlli,
+        "modi": sum(1 for nome in campi if nome.startswith("MODO_")),
+        "frequenze_hz": frequenze_hz,
+        "telaio": resoconto,
+        "tcl": str(percorso_tcl),
+        "log": str(percorso_registro),
+    }
