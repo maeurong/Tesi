@@ -152,82 +152,146 @@ class Material(_ModelloBase):
 class InputConfig(_ModelloBase):
     """Step 1: ingresso e scala."""
 
-    path: Path
-    scale: float = Field(default=1.0, gt=0.0, description="fattore verso i mm")
-    max_points: int = Field(default=20_000_000, gt=0)
-    expected_size: tuple[float, float, float] | None = Field(
-        default=None, description="dimensioni reali misurate del muro [mm], per il controllo di scala"
+    path: Path = Field(title="file della nuvola di punti")
+    scale: float = Field(
+        default=1.0,
+        gt=0.0,
+        description="fattore verso i mm",
+        title="fattore di scala verso i millimetri",
     )
-    size_tolerance: float = Field(default=0.2, gt=0.0, description="scarto relativo ammesso")
-    spacing_sample: int = Field(default=20_000, gt=1, description="punti campionati per la spaziatura")
-    seed: int = 0
+    max_points: int = Field(default=20_000_000, gt=0, title="punti massimi letti dal file")
+    expected_size: tuple[float, float, float] | None = Field(
+        default=None,
+        title="dimensioni reali misurate [mm]",
+        description="dimensioni reali misurate del muro [mm], per il controllo di scala",
+    )
+    size_tolerance: float = Field(
+        default=0.2,
+        gt=0.0,
+        description="scarto relativo ammesso",
+        title="scarto relativo ammesso sul controllo di scala",
+    )
+    spacing_sample: int = Field(
+        default=20_000,
+        gt=1,
+        description="punti campionati per la spaziatura",
+        title="punti campionati per stimare la spaziatura",
+    )
+    seed: int = Field(default=0, title="seme del campionamento")
 
 
 class SegmentConfig(_ModelloBase):
     """Step 2: segmentazione."""
 
-    method: Literal["crop", "auto"] = "crop"
-    outlier_neighbors: int = Field(default=20, gt=0)
-    outlier_std_ratio: float = Field(default=2.0, gt=0.0)
-    crop_min: tuple[float, float, float] | None = None
-    crop_max: tuple[float, float, float] | None = None
-    plane_distance_factor: float = Field(default=3.0, gt=0.0, description="x spaziatura media")
-    plane_max_count: int = Field(default=4, ge=0)
-    plane_min_points_ratio: float = Field(default=0.05, gt=0.0, le=1.0)
-    cluster_eps_factor: float = Field(default=4.0, gt=0.0, description="x spaziatura media")
-    cluster_min_points: int = Field(default=50, gt=0)
-    cluster_index: int = Field(default=0, ge=0, description="0 = cluster più numeroso")
+    method: Literal["crop", "auto"] = Field(default="crop", title="come si isola l'oggetto")
+    outlier_neighbors: int = Field(
+        default=20,
+        gt=0,
+        title="vicini con cui si riconosce un punto isolato",
+    )
+    outlier_std_ratio: float = Field(
+        default=2.0,
+        gt=0.0,
+        title="scarti tipo oltre i quali un punto è rumore",
+    )
+    crop_min: tuple[float, float, float] | None = Field(
+        default=None, title="spigolo minimo del box di ritaglio [mm]"
+    )
+    crop_max: tuple[float, float, float] | None = Field(
+        default=None, title="spigolo massimo del box di ritaglio [mm]"
+    )
+    plane_distance_factor: float = Field(
+        default=3.0,
+        gt=0.0,
+        description="x spaziatura media",
+        title="distanza dal piano, in multipli della spaziatura",
+    )
+    plane_max_count: int = Field(default=4, ge=0, title="piani estratti al massimo")
+    plane_min_points_ratio: float = Field(
+        default=0.05,
+        gt=0.0,
+        le=1.0,
+        title="frazione minima di punti perché un piano conti",
+    )
+    cluster_eps_factor: float = Field(
+        default=4.0,
+        gt=0.0,
+        description="x spaziatura media",
+        title="raggio del gruppo, in multipli della spaziatura",
+    )
+    cluster_min_points: int = Field(default=50, gt=0, title="punti minimi perché un gruppo esista")
+    cluster_index: int = Field(
+        default=0,
+        ge=0,
+        description="0 = cluster più numeroso",
+        title="quale gruppo si tiene",
+    )
 
 
 class DownsampleConfig(_ModelloBase):
     """Step 3: riduzione a voxel."""
 
-    voxel_size: float | None = Field(default=None, description="None = 2 x spaziatura media")
-    voxel_factor: float = Field(default=2.0, gt=0.0)
+    voxel_size: float | None = Field(
+        default=None,
+        description="None = 2 x spaziatura media",
+        title="lato del voxel [mm]",
+    )
+    voxel_factor: float = Field(
+        default=2.0,
+        gt=0.0,
+        title="lato del voxel, in multipli della spaziatura",
+    )
 
 
 class NormalsConfig(_ModelloBase):
     """Step 4: normali."""
 
-    knn: int = Field(default=30, gt=2)
-    orient_knn: int = Field(default=30, gt=2)
+    knn: int = Field(default=30, gt=2, title="vicini con cui si stima la normale")
+    orient_knn: int = Field(default=30, gt=2, title="vicini con cui si orientano le normali")
 
 
 class SurfaceConfig(_ModelloBase):
     """Step 5: ricostruzione della superficie."""
 
-    method: Literal["poisson"] = "poisson"
+    method: Literal["poisson"] = Field(default="poisson", title="algoritmo di ricostruzione")
     poisson_depth: int = Field(
         default=9,
         ge=4,
         le=14,
+        title="profondità dell'ottree di Poisson",
         description=(
             "profondità dell'ottree del solutore Poisson: più alta, superficie più "
             "fitta; su muro, 9 -> 8 porta i triangoli da 908.118 a 221.369"
         ),
     )
-    poisson_width: float = Field(default=0.0, ge=0.0)
-    poisson_scale: float = Field(default=1.1, gt=0.0)
+    poisson_width: float = Field(default=0.0, ge=0.0, title="lato della cella più fine [mm]")
+    poisson_scale: float = Field(default=1.1, gt=0.0, title="margine attorno alla nuvola")
     density_quantile: float = Field(
-        default=0.05, ge=0.0, lt=1.0, description="quantile di densità sotto il quale i vertici sono scartati"
+        default=0.05,
+        ge=0.0,
+        lt=1.0,
+        title="quantile di densità sotto cui i vertici si scartano",
+        description="quantile di densità sotto il quale i vertici sono scartati",
     )
     poisson_n_threads: int = Field(
-        default=1, description="thread per il solutore Poisson; 1 = riproducibile, -1 = automatico"
+        default=1, description="thread per il solutore Poisson; 1 = riproducibile, -1 = automatico",
+        title="thread del solutore Poisson",
     )
 
 
 class RepairConfig(_ModelloBase):
     """Step 6: riparazione."""
 
-    largest_component_only: bool = True
+    largest_component_only: bool = Field(default=True, title="tiene il solo pezzo più grande")
     max_hole_area: float | None = Field(
         default=None,
+        title="area oltre cui un'apertura viene segnalata [mm^2]",
         description=(
             "area [mm^2] oltre la quale un'apertura viene segnalata, sia essa un ciclo "
             "di bordo chiuso o un cammino aperto"
         ),
     )
-    join_components: bool = False
+    join_components: bool = Field(default=False, title="unisce i pezzi staccati")
 
 
 class SimplifyConfig(_ModelloBase):
@@ -237,9 +301,14 @@ class SimplifyConfig(_ModelloBase):
     # «enabled» dice che si accende qualcosa senza dire che cosa, e il
     # rifacimento dei triangoli e' il piu' costoso degli step facoltativi.
     enabled: bool = Field(default=False, title="rifà i triangoli a misura uniforme")
-    mode: Literal["remesh"] = "remesh"
-    remesh_target_len_pct: float = Field(default=1.0, gt=0.0, description="percentuale della diagonale")
-    taubin_iterations: int = Field(default=0, ge=0)
+    mode: Literal["remesh"] = Field(default="remesh", title="come si rifanno i triangoli")
+    remesh_target_len_pct: float = Field(
+        default=1.0,
+        gt=0.0,
+        description="percentuale della diagonale",
+        title="lato del triangolo, in percentuale della diagonale",
+    )
+    taubin_iterations: int = Field(default=0, ge=0, title="passate di lisciatura Taubin")
 
 
 class TetConfig(_ModelloBase):
@@ -248,6 +317,7 @@ class TetConfig(_ModelloBase):
     min_ratio: float = Field(
         default=1.8,
         gt=0.0,
+        title="rapporto raggio-spigolo massimo chiesto a TetGen",
         description=(
             "rapporto raggio-spigolo massimo: valori più bassi danno elementi più "
             "regolari, ma il raffinamento può non convergere su geometrie difficili. "
@@ -258,10 +328,16 @@ class TetConfig(_ModelloBase):
             "docs/fase-1-min-ratio.md"
         ),
     )
-    max_volume: float | None = Field(default=None, gt=0.0, description="volume massimo elemento [mm^3]")
+    max_volume: float | None = Field(
+        default=None,
+        gt=0.0,
+        description="volume massimo elemento [mm^3]",
+        title="volume massimo dell'elemento [mm^3]",
+    )
     max_steiner_points: int = Field(
         default=-1,
         ge=-1,
+        title="punti che TetGen può aggiungere",
         description=(
             "punti che TetGen può aggiungere per raffinare; -1 = nessun limite. "
             "Il predefinito della libreria tetgen è 100000: su geometrie a scala "
@@ -271,6 +347,7 @@ class TetConfig(_ModelloBase):
     )
     nobisect: bool = Field(
         default=False,
+        title="vieta a TetGen di suddividere le facce di ingresso",
         description=(
             "vieta a TetGen di suddividere le facce della superficie di ingresso. "
             "Serve dove la scala locale della superficie è minuscola: la "
@@ -286,6 +363,7 @@ class TetConfig(_ModelloBase):
     reference_ratio: float = Field(
         default=1.8,
         gt=0.0,
+        title="metro con cui lo step 10 conta gli elementi fuori vincolo",
         description=(
             "metro fisso con cui lo step 10 conta la frazione di elementi fuori "
             "vincolo raggio-spigolo. Non è il vincolo chiesto a TetGen: nel "
@@ -298,6 +376,7 @@ class TetConfig(_ModelloBase):
     )
     element: Literal["C3D10", "C3D4"] = Field(
         default="C3D10",
+        title="elemento del maglio di volume",
         description=(
             "elemento del maglio di volume. C3D10 è il tetraedro quadratico ed è "
             "il predefinito: il manuale CalculiX dice del lineare «not suited for "
@@ -445,13 +524,18 @@ NOMI_PASSO_RISERVATI = ("SPINTA_ORIZZONTALE", "CARICO_TOP", "MODALE")
 class AnalysisConfig(_ModelloBase):
     """Materiale e analisi."""
 
-    material: Material
-    gravity: float = Field(default=GRAVITY_MM_S2, gt=0.0)
-    fixed_nset: NomeSetDiFaccia = "BASE"
-    step_name: NomeSet = "GRAVITA"
+    material: Material = Field(title="materiale del modello")
+    gravity: float = Field(
+        default=GRAVITY_MM_S2,
+        gt=0.0,
+        title="accelerazione di gravità [mm/s^2]",
+    )
+    fixed_nset: NomeSetDiFaccia = Field(default="BASE", title="set di nodi incastrati")
+    step_name: NomeSet = Field(default="GRAVITA", title="nome del passo di carico")
     set_tolerance_factor: float = Field(
         default=6.0,
         gt=0.0,
+        title="tolleranza dei set di faccia, in multipli della spaziatura dei nodi",
         description=(
             "moltiplica la spaziatura dei nodi sul bordo del maglio di volume e "
             "dà la tolleranza con cui i set di faccia sono estratti. Il "
@@ -634,6 +718,7 @@ class WallConfig(_ModelloBase):
     cell_factor: float = Field(
         default=4.0,
         gt=0.0,
+        title="lato della cella, in multipli della spaziatura",
         description=(
             "lato della cella quadrata, in multipli della spaziatura media. E' il "
             "«metodo delle colonne» di docs/fase-1-tolleranza-set.md, dove il "
@@ -645,6 +730,7 @@ class WallConfig(_ModelloBase):
     spacing_sample: int = Field(
         default=20_000,
         gt=1,
+        title="punti campionati per la spaziatura locale",
         description=(
             "punti campionati per stimare la spaziatura locale di ogni regione, "
             "stessa semantica di input.spacing_sample ma per il riempimento della "
@@ -654,12 +740,13 @@ class WallConfig(_ModelloBase):
             "grandezza sbagliata"
         ),
     )
-    seed: int = 0
+    seed: int = Field(default=0, title="seme del campionamento")
     """Seme del campionamento di spacing_sample, stessa semantica di input.seed."""
     thickness_tolerance: float = Field(
         default=0.15,
         gt=0.0,
         lt=1.0,
+        title="scarto relativo entro cui lo spessore è lo stesso",
         description=(
             "scarto relativo entro cui due celle adiacenti contano come «stesso "
             "spessore», e quindi come stessa membratura. E' la forma numerica di "
@@ -670,6 +757,7 @@ class WallConfig(_ModelloBase):
     min_cells: int = Field(
         default=12,
         gt=0,
+        title="celle minime perché una regione sia una membratura",
         description=(
             "celle minime perché una regione connessa sia una membratura. Sotto "
             "questo numero la regione è rumore di griglia e non ha abbastanza "
@@ -680,6 +768,7 @@ class WallConfig(_ModelloBase):
         default=15.0,
         gt=0.0,
         lt=90.0,
+        title="angolo dalla verticale entro cui un piano è pavimento [°]",
         description=(
             "un piano estratto con la normale entro questo angolo dalla verticale "
             "è candidato pavimento. Il pavimento non è una membratura e va "
@@ -690,6 +779,7 @@ class WallConfig(_ModelloBase):
         default=0.10,
         gt=0.0,
         le=1.0,
+        title="frazione minima di punti perché un piano sia il pavimento",
         description=(
             "frazione minima dei punti perché un piano quasi orizzontale sia il "
             "pavimento e non la faccia superiore di una membratura. Le due "
@@ -699,6 +789,7 @@ class WallConfig(_ModelloBase):
     contour_tolerance: float = Field(
         default=5.0,
         gt=0.0,
+        title="tolleranza con cui il contorno viene semplificato [mm]",
         description=(
             "tolleranza [mm] con cui il contorno di sezione misurato viene "
             "semplificato. Un contorno con un vertice per punto rilevato porta "
@@ -709,6 +800,7 @@ class WallConfig(_ModelloBase):
         default=5.0,
         gt=0.0,
         lt=90.0,
+        title="angolo massimo fra le due facce opposte [°]",
         description=(
             "controllo intrinseco: angolo massimo fra le due facce opposte di una "
             "regione. Oltre, la regione non ha una sezione e il prior si rifiuta "
@@ -719,6 +811,7 @@ class WallConfig(_ModelloBase):
         default=0.5,
         gt=0.0,
         le=1.0,
+        title="frazione minima di celle che vedono entrambe le facce",
         description=(
             "controllo intrinseco: frazione minima delle celle della regione che "
             "vedono entrambe le facce. E' la lezione già pagata su FACE_FRONT e "
@@ -728,6 +821,7 @@ class WallConfig(_ModelloBase):
     section_dispersion: float = Field(
         default=0.10,
         gt=0.0,
+        title="dispersione relativa massima della sezione lungo l'asse",
         description=(
             "controllo intrinseco: dispersione relativa massima della sezione "
             "lungo l'asse. Oltre, la regione non è un prisma e viene riportata "
@@ -742,6 +836,7 @@ class WallConfig(_ModelloBase):
         default=0.5,
         gt=0.0,
         le=1.0,
+        title="confine fra sezione piena e sezione vuota",
         description=(
             "confine fra i due esiti «pieno» e «vuoto» del riempimento di "
             "sezione: frazione (mediana sulle fette lungo l'asse) delle celle "
@@ -758,6 +853,7 @@ class WallConfig(_ModelloBase):
     density_dispersion_limit: float = Field(
         default=1.0,
         gt=0.0,
+        title="dispersione massima delle distanze al vicino più prossimo",
         description=(
             "condizione di validità della misura di riempimento, non criterio "
             "di qualità del pezzo: dispersione massima delle distanze al vicino "
@@ -777,6 +873,7 @@ class WallConfig(_ModelloBase):
     union_tolerance: float = Field(
         default=0.02,
         gt=0.0,
+        title="scarto ammesso fra somma dei volumi e volume dell'unione",
         description=(
             "controllo intrinseco: scarto relativo ammesso fra la somma dei "
             "volumi delle membrature e il volume della loro unione. Oltre c'è "
@@ -787,6 +884,7 @@ class WallConfig(_ModelloBase):
     union_step_factor: float = Field(
         default=2.0,
         gt=0.0,
+        title="passo del conteggio di celle, in multipli della spaziatura",
         description=(
             "passo del conteggio di celle con cui si misura il volume "
             "dell'unione, in multipli della spaziatura media. Più fine, più "
@@ -797,6 +895,7 @@ class WallConfig(_ModelloBase):
     membrature_attese: int | None = Field(
         default=None,
         gt=0,
+        title="membrature attese, facoltativo",
         description=(
             "RISCONTRO DICHIARATO, facoltativo: quante membrature l'operatore si "
             "aspetta. Assente per definizione su un pezzo nuovo. Se dichiarato il "
@@ -806,6 +905,7 @@ class WallConfig(_ModelloBase):
     )
     sezioni_nominali: list[tuple[float, float]] | None = Field(
         default=None,
+        title="sezioni nominali attese [mm], facoltativo",
         description=(
             "RISCONTRO DICHIARATO, facoltativo: le sezioni nominali attese [mm], "
             "dal disegno se esiste. Non sono la fonte del modello: i modelli "
@@ -816,6 +916,7 @@ class WallConfig(_ModelloBase):
     volume_atteso: float | None = Field(
         default=None,
         gt=0.0,
+        title="volume complessivo atteso [mm^3], facoltativo",
         description=(
             "RISCONTRO DICHIARATO, facoltativo: il volume complessivo atteso "
             "[mm^3], dal disegno se esiste"

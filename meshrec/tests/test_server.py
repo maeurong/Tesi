@@ -2282,9 +2282,62 @@ def test_lo_schema_porta_l_etichetta_dove_il_modello_la_dichiara(cliente):
         "`simplify.enabled` mostra ancora la chiave grezza: dice che si accende "
         "qualcosa senza dire che cosa"
     )
-    assert "etichetta" not in corpo["9"]["campi"]["tet"]["min_ratio"], (
-        "un campo senza `title` porta un'etichetta inventata"
+    # Dove il modello non dichiara `title` non si inventa nulla. La prova sta
+    # su `_forma_del_campo`, che e' il punto in cui l'etichetta nasce, e non su
+    # un campo del pannello: di campi del pannello senza etichetta non ne deve
+    # restare nessuno, ed e' il test qui sotto a dirlo.
+    from pydantic import BaseModel
+
+    from meshrec.app.server import _forma_del_campo
+
+    class SenzaTitolo(BaseModel):
+        anonimo: int = 0
+
+    assert "etichetta" not in _forma_del_campo(SenzaTitolo.model_fields["anonimo"])
+
+
+def test_nessun_campo_del_pannello_si_mostra_con_la_chiave_grezza(cliente):
+    """«Una chiave non si stampa mai, si stampa la sua etichetta» (PRODUCT.md).
+
+    Senza `title` il pannello ripiega sulla chiave, e chi apre il programma
+    legge `plane_min_points_ratio`, `density_quantile`, `nobisect`. La regola
+    vale per tutti i campi che l'interfaccia mostra e non per quelli che di
+    volta in volta se ne ricordano: la prova gira sull'elenco vero di
+    `/api/schema`, cosi' un campo aggiunto domani senza etichetta la fa
+    cadere.
+
+    Mutazione che lo uccide: togliere `title=` a un campo qualunque di
+    `PipelineConfig` fra quelli che uno step mostra.
+    """
+    corpo = cliente.get("/api/schema").json()
+    nudi = {
+        f"{blocco}.{nome}"
+        for voce in corpo.values()
+        for blocco, campi in voce["campi"].items()
+        for nome, campo in campi.items()
+        if not campo.get("etichetta")
+    }
+    assert not nudi, "campi senza etichetta, di cui il pannello stampa la chiave: " + ", ".join(
+        sorted(nudi)
     )
+
+
+def test_l_etichetta_non_e_la_chiave_ribattuta(cliente):
+    """Un'etichetta che ripete la chiave non e' un'etichetta.
+
+    `title="nobisect"` passerebbe il controllo qui sopra e a video non
+    cambierebbe niente: la regola e' che l'etichetta dica la grandezza in
+    italiano, non che esista.
+    """
+    corpo = cliente.get("/api/schema").json()
+    ribattute = {
+        f"{blocco}.{nome}"
+        for voce in corpo.values()
+        for blocco, campi in voce["campi"].items()
+        for nome, campo in campi.items()
+        if campo.get("etichetta", "").strip().lower() == nome.lower()
+    }
+    assert not ribattute, "etichette che ripetono la chiave: " + ", ".join(sorted(ribattute))
 
 
 def test_il_pannello_dello_step_11_mostra_solo_i_blocchi_che_comanda(cliente):
