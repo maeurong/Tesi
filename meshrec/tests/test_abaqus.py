@@ -2974,8 +2974,8 @@ def test_ogni_regione_ha_il_suo_elset_e_la_sua_sezione(tmp_path, cube_mesh):
     abaqus.write_inp(
         percorso, nodi, tetraedri, node_sets=_base_and_top(nodi), material=MATERIALE,
         regioni={
-            "PILASTRO": np.array([0, 1, 2]),
-            "TRAVE": np.arange(3, len(tetraedri)),
+            "PILASTRO": (np.array([0, 1, 2]), MATERIALE),
+            "TRAVE": (np.arange(3, len(tetraedri)), MATERIALE),
         },
     )
     righe = percorso.read_text(encoding="ascii").splitlines()
@@ -3000,7 +3000,7 @@ def test_una_regione_senza_elementi_e_rifiutata(tmp_path, cube_mesh):
         abaqus.write_inp(
             tmp_path / "model.inp", nodi, tetraedri,
             node_sets=_base_and_top(nodi), material=MATERIALE,
-            regioni={"VUOTA": np.array([], dtype=np.int64)},
+            regioni={"VUOTA": (np.array([], dtype=np.int64), MATERIALE)},
         )
 
 
@@ -3018,7 +3018,7 @@ def test_gli_orfani_tengono_la_sezione_di_all_wall(tmp_path, cube_mesh):
 
     abaqus.write_inp(
         percorso, nodi, tetraedri, node_sets=_base_and_top(nodi), material=MATERIALE,
-        regioni={"PILASTRO": np.array([0, 1, 2])},
+        regioni={"PILASTRO": (np.array([0, 1, 2]), MATERIALE)},
     )
     sezioni = [
         r for r in percorso.read_text(encoding="ascii").splitlines()
@@ -3044,8 +3044,8 @@ def test_senza_orfani_il_ripiego_non_si_scrive(tmp_path, cube_mesh):
     abaqus.write_inp(
         percorso, nodi, tetraedri, node_sets=_base_and_top(nodi), material=MATERIALE,
         regioni={
-            "PILASTRO": np.arange(meta),
-            "TRAVE": np.arange(meta, len(tetraedri)),
+            "PILASTRO": (np.arange(meta), MATERIALE),
+            "TRAVE": (np.arange(meta, len(tetraedri)), MATERIALE),
         },
     )
     testo = percorso.read_text(encoding="ascii")
@@ -3069,9 +3069,195 @@ def test_export_model_porta_le_regioni_fino_al_deck(tmp_path, cube_mesh):
 
     abaqus.export_model(
         percorso, tmp_path / "m.vtu", nodi, tetraedri, ANALISI, TET_LINEARE,
-        regioni={"PILASTRO": np.arange(len(tetraedri))},
+        regioni={"PILASTRO": (np.arange(len(tetraedri)), MATERIALE)},
     )
     testo = percorso.read_text(encoding="ascii")
 
     assert "*ELSET, ELSET=PILASTRO" in testo
     assert "*SOLID SECTION, ELSET=PILASTRO, MATERIAL=MURATURA" in testo
+
+
+# --- Un materiale per regione (#135) ---------------------------------------
+#
+# Il continuo del modello solido e' il calcestruzzo confinato, e la scelta e'
+# una limitazione dichiarata: un tetraedro non ha fibre, quindi il deck non
+# rappresenta la distinzione fra nucleo e copriferro. Chi legge il deck fra sei
+# mesi lo deve trovare scritto, o credera' che la distinzione ci sia.
+
+CLS_C25 = config.Material(name="CLS_C25", young=31476.0, poisson=0.2, density=2.5e-9)
+CLS_C30 = config.Material(name="CLS_C30", young=32837.0, poisson=0.2, density=2.5e-9)
+
+
+def test_ogni_regione_scrive_il_proprio_materiale(tmp_path, cube_mesh):
+    """Due regioni di classe diversa, due *MATERIAL, due sezioni che li citano.
+
+    E' la molteplicita' vera: senza di essa le regioni sarebbero soltanto
+    insiemi, tutti con le stesse proprieta', e il deck acquisterebbe nomi
+    invece che materiali.
+
+    Mutazione che lo uccide: far citare a ogni *SOLID SECTION il materiale
+    unico della corsa, che e' esattamente il comportamento di prima.
+    """
+    nodi, tetraedri = cube_mesh
+    meta = len(tetraedri) // 2
+    percorso = tmp_path / "model.inp"
+
+    abaqus.write_inp(
+        percorso, nodi, tetraedri, node_sets=_base_and_top(nodi), material=MATERIALE,
+        regioni={
+            "NUCLEO": (np.arange(meta), CLS_C25),
+            "TESTA": (np.arange(meta, len(tetraedri)), CLS_C30),
+        },
+    )
+    righe = percorso.read_text(encoding="ascii").splitlines()
+
+    assert [r for r in righe if r.startswith("*SOLID SECTION")] == [
+        "*SOLID SECTION, ELSET=NUCLEO, MATERIAL=CLS_C25",
+        "*SOLID SECTION, ELSET=TESTA, MATERIAL=CLS_C30",
+    ]
+    assert [r for r in righe if r.startswith("*MATERIAL")] == [
+        "*MATERIAL, NAME=CLS_C25",
+        "*MATERIAL, NAME=CLS_C30",
+    ]
+    # Il modulo di ciascuno, non solo il nome: due card omonime con le stesse
+    # proprieta' passerebbero la prima asserzione senza portare due materiali.
+    assert righe[righe.index("*MATERIAL, NAME=CLS_C25") + 2] == "31476.0, 0.2"
+    assert righe[righe.index("*MATERIAL, NAME=CLS_C30") + 2] == "32837.0, 0.2"
+
+
+def test_gli_orfani_restano_sul_materiale_unico_della_corsa(tmp_path, cube_mesh):
+    """Il ripiego su `ALL_WALL` cita `analysis.material`, e resta dov'e' (#145).
+
+    Il materiale della corsa e' il primo *MATERIAL scritto perche' la sua
+    sezione e' la prima: su due sezioni sovrapposte `ccx` applica l'ultima
+    senza un avviso, e il ripiego deve poter essere sovrascritto.
+
+    Mutazione che lo uccide: far citare al ripiego il materiale di una regione.
+    """
+    nodi, tetraedri = cube_mesh
+    percorso = tmp_path / "model.inp"
+
+    abaqus.write_inp(
+        percorso, nodi, tetraedri, node_sets=_base_and_top(nodi), material=MATERIALE,
+        regioni={"NUCLEO": (np.array([0, 1, 2]), CLS_C25)},
+    )
+    righe = percorso.read_text(encoding="ascii").splitlines()
+
+    assert [r for r in righe if r.startswith("*SOLID SECTION")] == [
+        "*SOLID SECTION, ELSET=ALL_WALL, MATERIAL=MURATURA",
+        "*SOLID SECTION, ELSET=NUCLEO, MATERIAL=CLS_C25",
+    ]
+    assert [r for r in righe if r.startswith("*MATERIAL")] == [
+        "*MATERIAL, NAME=MURATURA",
+        "*MATERIAL, NAME=CLS_C25",
+    ]
+
+
+def test_due_regioni_sullo_stesso_materiale_scrivono_una_card_sola(tmp_path, cube_mesh):
+    """Lo stesso materiale in due regioni e' un materiale, non due.
+
+    `ccx` legge due *MATERIAL omonimi senza protestare e tiene l'ultimo: il
+    deck resterebbe valido, ma porterebbe una card che non aggiunge nulla e un
+    nome definito due volte. Una sola, e le due sezioni la citano.
+
+    Mutazione che lo uccide: scrivere una card per regione invece che per
+    materiale distinto.
+    """
+    nodi, tetraedri = cube_mesh
+    meta = len(tetraedri) // 2
+    percorso = tmp_path / "model.inp"
+
+    abaqus.write_inp(
+        percorso, nodi, tetraedri, node_sets=_base_and_top(nodi), material=MATERIALE,
+        regioni={
+            "NUCLEO": (np.arange(meta), CLS_C25),
+            "TESTA": (np.arange(meta, len(tetraedri)), CLS_C25),
+        },
+    )
+    righe = percorso.read_text(encoding="ascii").splitlines()
+
+    assert [r for r in righe if r.startswith("*MATERIAL")] == ["*MATERIAL, NAME=CLS_C25"]
+    assert [r for r in righe if r.startswith("*SOLID SECTION")] == [
+        "*SOLID SECTION, ELSET=NUCLEO, MATERIAL=CLS_C25",
+        "*SOLID SECTION, ELSET=TESTA, MATERIAL=CLS_C25",
+    ]
+
+
+def test_due_materiali_omonimi_ignorando_le_maiuscole_sono_rifiutati(tmp_path, cube_mesh):
+    """`ccx` risolve i nomi senza distinguere il caso: `cls_c25` e' `CLS_C25`.
+
+    Due materiali diversi sotto lo stesso nome darebbero un deck che il
+    solutore legge senza un avviso, applicando all'una e all'altra regione le
+    proprieta' dell'ultima card. E' il difetto del caso dei nomi, gia' occorso
+    quattro volte in questo repository.
+
+    Mutazione che lo uccide: confrontare i nomi senza `casefold`.
+    """
+    nodi, tetraedri = cube_mesh
+    meta = len(tetraedri) // 2
+    minuscolo = config.Material(name="cls_c25", young=32837.0, poisson=0.2, density=2.5e-9)
+
+    with pytest.raises(ValueError, match="senza distinguere le maiuscole"):
+        abaqus.write_inp(
+            tmp_path / "model.inp", nodi, tetraedri,
+            node_sets=_base_and_top(nodi), material=MATERIALE,
+            regioni={
+                "NUCLEO": (np.arange(meta), CLS_C25),
+                "TESTA": (np.arange(meta, len(tetraedri)), minuscolo),
+            },
+        )
+
+
+def test_il_deck_a_regioni_dichiara_che_non_distingue_nucleo_e_copriferro(tmp_path, cube_mesh):
+    """La limitazione sta scritta nel deck, non solo nella relazione.
+
+    Chi apre il `.inp` fra sei mesi vede un calcestruzzo per regione: senza
+    questa riga crederebbe che il modello distingua il nucleo confinato dal
+    copriferro, che e' una distinzione della sezione a fibre e non di un
+    solido a tetraedri.
+
+    Mutazione che lo uccide: togliere il commento, o scriverlo anche quando le
+    regioni non ci sono -- il deck di una corsa monomaterica non cambia.
+    """
+    nodi, tetraedri = cube_mesh
+    con = tmp_path / "con.inp"
+    senza = tmp_path / "senza.inp"
+
+    abaqus.write_inp(
+        con, nodi, tetraedri, node_sets=_base_and_top(nodi), material=MATERIALE,
+        regioni={"NUCLEO": (np.arange(len(tetraedri)), CLS_C25)},
+    )
+    abaqus.write_inp(
+        senza, nodi, tetraedri, node_sets=_base_and_top(nodi), material=MATERIALE,
+    )
+
+    assert f"** {abaqus.CONTINUO_CONFINATO}" in con.read_text(encoding="ascii").splitlines()
+    assert abaqus.CONTINUO_CONFINATO not in senza.read_text(encoding="ascii")
+    # `ccx` tronca le righe lunghe: un commento oltre la larghezza di lettura
+    # arriverebbe al solutore spezzato, e la meta' orfana non e' piu' un commento.
+    assert len(f"** {abaqus.CONTINUO_CONFINATO}") <= 132
+
+
+def test_un_dizionario_di_regioni_vuoto_scrive_il_deck_di_prima(tmp_path, cube_mesh):
+    """`regioni={}` e `regioni=None` sono lo stesso deck, byte per byte.
+
+    E' il vincolo piu' stretto della fase: le ventidue righe dei registri sono
+    la provenienza della tabella sperimentale, e una corsa che non dichiara
+    regioni deve produrre il deck che ha gia' prodotto. Il confronto e' sui
+    byte e non sulle card, perche' una riga in piu' in qualunque punto basta a
+    rendere la corsa irriproducibile.
+
+    Mutazione che lo uccide: scrivere il commento della limitazione, o
+    riorganizzare i *MATERIAL, senza guardare se le regioni ci sono.
+    """
+    nodi, tetraedri = cube_mesh
+    vuoto = tmp_path / "vuoto.inp"
+    assente = tmp_path / "assente.inp"
+
+    for percorso, regioni in ((vuoto, {}), (assente, None)):
+        abaqus.write_inp(
+            percorso, nodi, tetraedri, node_sets=_base_and_top(nodi), material=MATERIALE,
+            regioni=regioni,
+        )
+
+    assert vuoto.read_bytes() == assente.read_bytes()

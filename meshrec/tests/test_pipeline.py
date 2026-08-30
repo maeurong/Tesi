@@ -1391,3 +1391,134 @@ def test_il_percorso_esaedrico_non_riceve_selettori(monkeypatch, tmp_path):
     pipeline.genera_modello(cfg, "estruso", tmp_path / "figlia")
 
     assert "selettori" not in visti
+
+
+# --- Lo step 11 rilegge il prior dello step 12 (#135) -----------------------
+#
+# Le membrature non esistono allo step 11: `RegioneConfig.membratura` cita per
+# costruzione gli indici di `12_wall.json`, che e' l'artefatto dello step 12.
+# Lo step 11 lo rilegge invece di ricalcolarlo -- lo stesso mestiere di
+# `genera_modello`, e per la stessa ragione: il prior misura la nuvola
+# segmentata dello step 2, non il maglio di volume, quindi rileggerlo qui non
+# e' leggere il futuro. Il flusso e' arrivare a 12, dichiarare le regioni,
+# rieseguire lo step 11.
+
+_CLS_NUCLEO = config.Material(name="CLS_C25", young=31476.0, poisson=0.2, density=2.5e-9)
+
+
+def _regione(membratura, materiale):
+    """Una `RegioneConfig` col calcestruzzo confinato chiesto."""
+    voce = config.MaterialeDichiarato(
+        material=materiale, provenienza="a_mano", norma="NTC 2018 Tab. 4.1.I"
+    )
+    return config.RegioneConfig(
+        membratura=membratura,
+        sezione=config.SezioneConfig(
+            calcestruzzo_confinato=voce, calcestruzzo_copriferro=voce, acciaio=voce
+        ),
+    )
+
+
+def test_lo_step_11_rilegge_il_prior_e_porta_il_materiale_della_regione_nel_deck(tmp_path):
+    """Il prior della corsa gia' fatta diventa i prismi dell'attribuzione.
+
+    La seconda corsa riparte dallo step 9 e si ferma all'11: `12_wall.json` e'
+    quello che la prima ha scritto, e lo step 11 lo rilegge invece di
+    pretendere membrature che alla sua ora non esistono.
+
+    Il deck che ne esce porta due materiali -- il calcestruzzo confinato della
+    regione e il materiale unico della corsa, che resta il ripiego degli
+    orfani -- e il resoconto dice quanti elementi sono finiti dove.
+
+    Mutazione che deve morire: passare `regioni=None` a `export_model` allo
+    step 11, o costruire le regioni senza rileggere il prior.
+    """
+    cfg = _config_cubo(tmp_path)
+    pipeline.run(cfg)
+    assert (cfg.run.out_dir / pipeline.WALL_FILENAME).exists()
+
+    cfg.regioni = {"NUCLEO": _regione(0, _CLS_NUCLEO)}
+    cfg.run.from_step = 9
+    cfg.run.to_step = 11
+    metriche = pipeline.run(cfg)
+
+    testo = (cfg.run.out_dir / pipeline.DECK_FILENAME).read_text(encoding="ascii")
+    assert "*ELSET, ELSET=NUCLEO" in testo
+    assert "*SOLID SECTION, ELSET=NUCLEO, MATERIAL=CLS_C25" in testo
+    assert "*MATERIAL, NAME=CLS_C25" in testo
+
+    resoconto = metriche["11_export"]["regioni"]
+    assert resoconto["elementi_per_regione"]["NUCLEO"] > 0
+    assert 0.0 <= resoconto["frazione_orfana"] <= 1.0
+    # La limitazione dichiarata sta anche qui, non solo nel deck: chi legge
+    # metrics.json non apre il .inp.
+    assert resoconto["continuo"] == abaqus.CONTINUO_CONFINATO
+
+
+def test_lo_step_11_senza_il_prior_nomina_lo_step_12_e_il_comando_wall(tmp_path):
+    """Regioni dichiarate e nessun `12_wall.json`: la corsa si ferma e dice come.
+
+    Proseguire ignorando le regioni darebbe un deck monomaterico da una
+    configurazione che ne dichiara due: e' il silenzio che questo progetto non
+    produce. Il rifiuto nomina lo step che scrive il prior e il comando che lo
+    calcola da solo, come gia' fa `genera_modello`.
+
+    Mutazione che deve morire: ricadere su `regioni=None` quando il prior
+    manca, invece di sollevare.
+    """
+    cfg = _config_cubo(tmp_path)
+    cfg.regioni = {"NUCLEO": _regione(0, _CLS_NUCLEO)}
+    cfg.run.to_step = 11
+
+    with pytest.raises(FileNotFoundError) as errore:
+        pipeline.run(cfg)
+
+    messaggio = str(errore.value)
+    assert pipeline.WALL_FILENAME in messaggio
+    assert "step 12" in messaggio
+    assert "meshrec wall" in messaggio
+    assert not (cfg.run.out_dir / pipeline.DECK_FILENAME).exists()
+
+
+def test_un_prior_troncato_e_dichiarato_invece_di_valere_come_prior(tmp_path):
+    """Un `12_wall.json` a meta' non e' un prior: e' un file che c'e'.
+
+    Senza questa porta l'errore sarebbe quello di `json`, che parla di una
+    colonna in un documento e manda a cercare un difetto nel formato invece
+    che nella corsa da rifare.
+
+    Mutazione che deve morire: leggere il prior senza `try`, lasciando salire
+    `JSONDecodeError` nuda.
+    """
+    cfg = _config_cubo(tmp_path)
+    pipeline.run(cfg)
+    percorso = cfg.run.out_dir / pipeline.WALL_FILENAME
+    percorso.write_text(percorso.read_text(encoding="utf-8")[:80], encoding="utf-8")
+
+    cfg.regioni = {"NUCLEO": _regione(0, _CLS_NUCLEO)}
+    cfg.run.from_step = 9
+    cfg.run.to_step = 11
+
+    with pytest.raises(ValueError, match="non si legge"):
+        pipeline.run(cfg)
+
+
+def test_senza_regioni_lo_step_11_non_rilegge_il_prior(tmp_path):
+    """Nessuna regione, nessuna rilettura: lo step 11 gira prima del 12.
+
+    E' il vincolo piu' stretto della fase, e qui si misura nel punto in cui si
+    romperebbe per primo: una corsa fermata all'11 non ha ancora un
+    `12_wall.json`, quindi una rilettura incondizionata la farebbe fallire.
+
+    Mutazione che deve morire: rileggere il prior senza guardare `cfg.regioni`.
+    """
+    cfg = _config_cubo(tmp_path)
+    cfg.run.to_step = 11
+
+    metriche = pipeline.run(cfg)
+
+    assert not (cfg.run.out_dir / pipeline.WALL_FILENAME).exists()
+    assert "regioni" not in metriche["11_export"]
+    testo = (cfg.run.out_dir / pipeline.DECK_FILENAME).read_text(encoding="ascii")
+    assert "*ELSET" not in testo
+    assert abaqus.CONTINUO_CONFINATO not in testo
