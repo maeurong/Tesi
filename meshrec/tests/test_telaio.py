@@ -336,6 +336,24 @@ def test_quanto_il_nodo_si_e_spostato_dalla_misura_si_mostra():
     assert incontro["distanza_proiezione"] == 0.0, "la misura del prior resta intatta"
 
 
+def test_una_proiezione_grande_sposta_il_nodo_e_lo_dichiara():
+    """Il nodo misurato sta 40 mm fuori dall'asse di chi cede: l'estremo ci
+    arriva davvero, e di quanto ci si e' spostati resta scritto nel record."""
+    montante = _voce(asse=(0.0, 0.0, 1.0), origine=(0.0, 0.0, 0.0), lunghezza=1000.0)
+    traverso = _voce(asse=(1.0, 0.0, 0.0), origine=(-500.0, 40.0, 1000.0), lunghezza=2000.0)
+    prior = _prior(
+        [montante, traverso],
+        [_giunzione(0, 1, (0.0, 40.0, 1000.0), distanza_proiezione=40.0)],
+    )
+
+    costruito = telaio.costruisci(prior, _regioni(2))
+
+    testa = costruito.nodi[[e for e in costruito.elementi if e.membratura == 0][-1].nodo_j]
+    fuori_asse = float(np.linalg.norm(testa - [0.0, 0.0, 1000.0]))
+    assert fuori_asse == pytest.approx(40.0, abs=1e-9)
+    assert costruito.giunzioni[0]["distanza_proiezione"] == 40.0
+
+
 def test_un_incontro_che_si_scavalca_arriva_dichiarato_nel_telaio():
     """`nodo_limitato` dice che i due pezzi si scavalcano invece di
     incontrarsi: il telaio si costruisce e lo mostra, non lo nasconde."""
