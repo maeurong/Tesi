@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 
 from meshrec.app import server
 from meshrec.app.server import create_app
+from meshrec.core import materiali
 from meshrec.core.config import InputConfig, PipelineConfig, save_config
 from materiale import ANALISI
 
@@ -1669,7 +1670,16 @@ def test_ogni_tratta_che_interroga_il_server_si_scarta_se_e_stata_superata():
     # superarle. annullaLaCorsa non scrive nulla dopo l'attesa, quindi non ha
     # niente da contraddire; ha un nome apposta per poter comparire qui invece
     # di non essere mai incontrata.
-    senza_ordine = {"caricaStato", "annullaLaCorsa", "caricaGalleria"}
+    # catalogoMateriali non scrive: rende un valore, e la guardia sta dove
+    # quel valore tocca il documento. E' esente per la stessa ragione di
+    # annullaLaCorsa -- non ha niente da contraddire -- e l'esenzione non e'
+    # gratuita: l'assert qui sotto pretende che il suo unico chiamante guardi
+    # l'ordine prima di scrivere, che e' cio' che questa regola difende.
+    senza_ordine = {"caricaStato", "annullaLaCorsa", "caricaGalleria", "catalogoMateriali"}
+    assert re.search(
+        r"catalogoMateriali\(\)\.then\(\(voci\) => \{\s*\n\s*if \(superata\(ordine\)\) return;",
+        testo,
+    ), "il menu' del catalogo si riempie senza guardare se il pannello e' stato superato"
     tratte = [
         (nome, _sorgente_di(nome, testo))
         for nome in re.findall(r"^async function (\w+)\(", testo, re.MULTILINE)
@@ -2256,6 +2266,58 @@ def test_le_metriche_di_una_corsa_mai_eseguita_sono_vuote_e_non_sollevano(client
     risposta = cliente.get("/api/metrics")
     assert risposta.status_code == 200
     assert risposta.json() == {}
+
+
+def test_il_catalogo_dei_materiali_porta_le_classi_di_calcestruzzo(cliente):
+    """Il pannello del materiale chiedeva quattro numeri battuti a mano.
+
+    Il catalogo di `core.materiali` esiste dal 30/08/2026 con le classi della
+    Tab. 4.1.I delle NTC 2018, e nessuna tratta lo serviva: il modulo elastico
+    di norma restava scritto a mano, arrotondato, e con la classe che lo
+    giustifica nominata da nessuna parte. Una corsa reale portava `young:
+    31500` dove la [11.2.2] su C25/30 da' 31475,81.
+
+    L'acciaio resta fuori: lo step 11 dichiara il materiale del continuo
+    solido, che in un cemento armato e' il calcestruzzo. L'acciaio vive nelle
+    sezioni delle membrature, e offrirlo qui darebbe un modello di solo
+    acciaio senza che nulla lo segnali.
+    """
+    risposta = cliente.get("/api/materiali")
+    assert risposta.status_code == 200
+    voci = risposta.json()["voci"]
+
+    classi = [voce["classe"] for voce in voci]
+    assert "C25/30" in classi
+    assert "C90/105" in classi
+    # Nessun acciaio, e il conto per intero: cosi' una voce nuova nel catalogo
+    # arriva al pannello senza aggiornare questo elenco, ma una famiglia nuova
+    # che ci entrasse di straforo si vede.
+    assert not [voce for voce in voci if voce["famiglia"] != "calcestruzzo"]
+    assert len(voci) == len(
+        [voce for voce in materiali.CATALOGO if voce.famiglia == "calcestruzzo"]
+    )
+
+
+def test_ogni_voce_del_catalogo_porta_i_numeri_e_la_fonte(cliente):
+    """I tre valori meccanici e l'autorita' che li giustifica, insieme.
+
+    Servire i numeri senza la fonte li renderebbe indistinguibili da valori
+    inventati, che e' il difetto che `core.materiali` esiste per impedire: il
+    menu' li mostra, e chi legge il modello deve poter risalire all'articolo.
+    """
+    voci = cliente.get("/api/materiali").json()["voci"]
+    voce = next(v for v in voci if v["classe"] == "C25/30")
+
+    atteso = materiali.trova("C25/30")
+    assert voce["young"] == pytest.approx(atteso.young)
+    assert voce["poisson"] == pytest.approx(atteso.poisson)
+    assert voce["density"] == pytest.approx(atteso.density)
+    assert voce["f_k"] == pytest.approx(25.0)
+    # Il modulo elastico non e' tabellato: lo da' la [11.2.2]. Il valore
+    # arrotondato che una corsa reale portava a mano era 31500.
+    assert voce["young"] == pytest.approx(31475.81, abs=0.01)
+    assert voce["fonte"].strip()
+    assert "NTC 2018" in voce["fonte"]
 
 
 def test_lo_schema_dice_quali_parametri_appartengono_a_ogni_step(cliente):

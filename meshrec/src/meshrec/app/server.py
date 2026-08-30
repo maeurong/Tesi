@@ -1720,6 +1720,48 @@ def create_app(
         ]
         return report.confronta(cartelle)
 
+    @app.get("/api/materiali")
+    def catalogo_materiali() -> dict[str, object]:
+        """Le classi di calcestruzzo di `core.materiali`, per il menu' del materiale.
+
+        Il pannello del materiale chiedeva quattro numeri battuti a mano mentre
+        il catalogo di norma esisteva gia': una corsa reale portava `young:
+        31500` dove la [11.2.2] su C25/30 da' 31475,81, cioe' il valore giusto
+        arrotondato a mano e senza la classe che lo giustifica scritta da
+        nessuna parte.
+
+        **Solo il calcestruzzo.** Lo step 11 dichiara il materiale del continuo
+        solido, che in un cemento armato e' il calcestruzzo; l'acciaio non sta
+        li', sta nelle sezioni delle membrature (`regioni`, e di la' passa per
+        `SezioneConfig`). Offrirlo qui darebbe un modello di solo acciaio senza
+        che nulla lo segnali. Il filtro e' sulla famiglia e non su un elenco di
+        nomi, cosi' una classe nuova nel catalogo arriva al menu' da se'.
+
+        `fonte` viaggia con i numeri e non e' un ornamento: senza, i tre valori
+        sono indistinguibili da valori inventati, ed e' precisamente cio' che
+        quel catalogo esiste per impedire.
+
+        La tratta non legge la configurazione e non ne dipende: il catalogo e'
+        lo stesso per ogni corsa, e chiederne una qui renderebbe il menu'
+        indisponibile sulla schermata d'ingresso, dove corsa non ce n'e'.
+        """
+        return {
+            "voci": [
+                {
+                    "classe": voce.classe,
+                    "famiglia": voce.famiglia,
+                    "young": voce.young,
+                    "poisson": voce.poisson,
+                    "density": voce.density,
+                    "f_k": voce.f_k,
+                    "fonte": voce.fonte,
+                    "nota": voce.nota,
+                }
+                for voce in materiali.CATALOGO
+                if voce.famiglia == "calcestruzzo"
+            ]
+        }
+
     @app.get("/api/schema")
     def schema() -> dict[str, object]:
         """Quali parametri appartengono a quale step, con descrizione e dominio.
