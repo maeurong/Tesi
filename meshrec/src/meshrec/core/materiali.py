@@ -73,12 +73,22 @@ elenca renderebbe irripetibile una corsa di riferimento. Qui non c'e' nulla che
 obblighi un chiamante a passare da `trova`: il catalogo e' la tabella di norma
 per chi la vuole, non il solo modo di dichiarare un materiale.
 
-**Cosa non sta qui.** Le grandezze della cascata che nessun chiamante di questa
-fase legge -- `f_cm`, `f_ctm`, i due frattili, `epsilon_c2`, `epsilon_cu` -- non
-sono campi del catalogo: aggiungerle ora vorrebbe dire fissarne la forma prima
-di sapere chi le usa. Stanno tutte, con i loro articoli, nella ricerca citata
-sopra. Il copriferro per classe di esposizione non e' un dato di materiale: vive
-in `config.ArmaturaConfig`.
+**Perche' `f_ctm` sta qui, e le altre della cascata no.** La regola per entrare
+e' avere un chiamante: fissare la forma di una grandezza prima di sapere chi la
+usa vuol dire indovinarla. `f_ctm` un chiamante ce l'ha -- l'armatura minima a
+flessione, `A_s,min = 0,26 · (f_ctm / f_yk) · b_t · d`, NTC §4.1.6.1.1
+espressione `[4.1.45]`, dove la norma stessa rimanda al §11.2.10.2 per la
+definizione di `f_ctm` -- e finche' il catalogo non la portava quel calcolo se
+la faceva passare dall'esterno, cioe' teneva un numero di norma fuori dal solo
+luogo che li tiene. Le altre -- `f_cm`, i due frattili `f_ctk` 5% e 95%,
+`f_cfm`, `epsilon_c2`, `epsilon_cu` -- restano fuori per la stessa regola, che
+per loro dice ancora di no: stanno tutte, con i loro articoli, nella ricerca
+citata sopra. Nemmeno `f_ctd` e' qui, e quando servira' non sara' un campo: e'
+una resistenza di **progetto**, `f_ctk / gamma_c` per la `[4.1.4]`, quindi
+appartiene all'uscita di `valori_di_progetto` accanto a `f_cd`, dove sta gia' la
+regola che i valori di progetto non si tengono come dato. Il copriferro per
+classe di esposizione non e' un dato di materiale: vive in
+`config.ArmaturaConfig`.
 """
 
 from __future__ import annotations
@@ -103,6 +113,12 @@ class VoceMateriale(NamedTuple):
     zero sono costruibili -- perche' vincolarli renderebbe impossibile
     fabbricare una voce nei test. I controlli vivono sul registro e
     sull'ingresso di `valori_di_progetto`, dove servono.
+
+    `f_ctm` e' l'unico campo che non vale per tutte e due le famiglie: e' la
+    resistenza media a trazione **del calcestruzzo**, e sull'acciaio vale
+    `None`. Non zero: uno zero entrerebbe nella `[4.1.45]` come un numero e
+    renderebbe un'armatura minima nulla in silenzio, mentre `None` fa fallire il
+    conto nel punto in cui la grandezza e' stata chiesta al materiale sbagliato.
     """
 
     classe: str
@@ -115,6 +131,7 @@ class VoceMateriale(NamedTuple):
     origine: Origine
     fissata: date
     nota: str = ""
+    f_ctm: float | None = None
 
 
 FISSATA = date(2026, 8, 30)
@@ -139,7 +156,8 @@ _FONTE_CLASSI_IN_USO = (
 )
 
 _FONTE_GRANDEZZE_CALCESTRUZZO = (
-    "§11.2.10.1 e §11.2.10.3, espressioni [11.2.2] e [11.2.5]; §11.2.10.4 (Poisson); "
+    "§11.2.10.1 e §11.2.10.3, espressioni [11.2.2] e [11.2.5]; §11.2.10.2, espressioni "
+    "[11.2.3a] e [11.2.3b] (resistenza media a trazione); §11.2.10.4 (Poisson); "
     "§3.1.2, Tab. 3.1.I (peso dell'unità di volume)"
 )
 
@@ -219,6 +237,27 @@ def _modulo_elastico(f_ck: float) -> float:
     return 22000.0 * ((f_ck + 8.0) / 10.0) ** 0.3
 
 
+# Il confine fra le due espressioni della [11.2.3]: la C50/60 sta **dentro** il
+# campo della [11.2.3a], che vale «per classi <= C50/60».
+_F_CK_LIMITE_TRAZIONE = 50.0
+
+
+def _resistenza_a_trazione_media(f_ck: float) -> float:
+    """`f_ctm` dal §11.2.10.2, che ha **due** espressioni e non una.
+
+        f_ctm = 0,30 · f_ck^(2/3)         per classi <= C50/60   [11.2.3a]
+        f_ctm = 2,12 · ln(1 + f_cm/10)    per classi >  C50/60   [11.2.3b]
+
+    Estendere la `[11.2.3a]` sopra il suo campo sbaglierebbe dalla parte
+    insicura per l'armatura minima, che le e' proporzionale: sulla C55/67
+    darebbe 4,339 MPa contro i 4,214 della `[11.2.3b]`, il 2,9% in piu'. Il
+    salto e' nella norma, non nel conto.
+    """
+    if f_ck <= _F_CK_LIMITE_TRAZIONE:
+        return 0.30 * f_ck ** (2.0 / 3.0)
+    return 2.12 * math.log(1.0 + (f_ck + 8.0) / 10.0)
+
+
 # Le due grandezze del calcestruzzo di cui la norma pubblica **due** valori
 # possibili. Per il criterio che il docstring di questo modulo enuncia sono
 # scelte, non derivazioni, e vanno dette accanto alla riga: l'`origine` resta
@@ -265,6 +304,14 @@ def _nota_di_classe(classe: str, f_ck: float) -> str:
             "la ammette ai soli fini della durabilità dove sono prescritte le classi "
             "immediatamente inferiori."
         )
+    if f_ck > _F_CK_LIMITE_TRAZIONE:
+        frasi.append(
+            "La resistenza media a trazione di questa riga viene dalla [11.2.3b], "
+            "«2,12 · ln [1+fcm/10] per classi > C50/60», e non dalla [11.2.3a] delle altre "
+            "dodici: oltre la C50/60 la norma cambia forma, e la f_ctm smette di crescere "
+            "come f_ck^(2/3). Dalla C50/60 alla C90/105 la resistenza a compressione quasi "
+            "raddoppia e quella a trazione sale del 24%."
+        )
     if f_ck > 45.0:
         frasi.append("Oltre la C45/55 le NTC chiedono «un'apposita sperimentazione preventiva».")
     if f_ck > 70.0:
@@ -302,6 +349,7 @@ CATALOGO: tuple[VoceMateriale, ...] = tuple(
         origine="derivata",
         fissata=FISSATA,
         nota=_nota_di_classe(classe, _f_ck_dal_nome(classe)),
+        f_ctm=_resistenza_a_trazione_media(_f_ck_dal_nome(classe)),
     )
     for classe in _CLASSI_CALCESTRUZZO
 ) + (

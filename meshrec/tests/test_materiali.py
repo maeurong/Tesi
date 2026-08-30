@@ -514,3 +514,114 @@ def test_valori_di_progetto_rifiuta_una_famiglia_che_non_conosce():
     acciaio."""
     with pytest.raises(ValueError, match="famiglia"):
         valori_di_progetto(_voce(famiglia="muratura"))
+
+
+# --- la resistenza media a trazione --------------------------------------
+
+
+def test_f_ctm_classe_per_classe_e_quello_della_ricerca():
+    """Le diciassette righe della §1.4 della ricerca, trascritte e non ricalcolate.
+
+    Ricalcolare qui la `[11.2.3a]` sarebbe la stessa espressione scritta due
+    volte, e non ucciderebbe una formula sbagliata -- e' la disciplina che il
+    docstring di questo file dichiara. I numeri vengono dalla tabella della
+    ricerca, che li ha ottenuti dalle espressioni di norma con `f_ck` letto dal
+    nome della classe.
+
+    Mutazione che lo uccide: cambiare il coefficiente 0,30 o l'esponente 2/3.
+    """
+    atteso = {
+        "C8/10": 1.20,
+        "C12/15": 1.57,
+        "C16/20": 1.90,
+        "C20/25": 2.21,
+        "C25/30": 2.56,
+        "C28/35": 2.77,
+        "C30/37": 2.90,
+        "C32/40": 3.02,
+        "C35/45": 3.21,
+        "C40/50": 3.51,
+        "C45/55": 3.80,
+        "C50/60": 4.07,
+        "C55/67": 4.21,
+        "C60/75": 4.35,
+        "C70/85": 4.61,
+        "C80/95": 4.84,
+        "C90/105": 5.04,
+    }
+    calcestruzzi = [v for v in CATALOGO if v.famiglia == "calcestruzzo"]
+    assert {v.classe for v in calcestruzzi} == set(atteso), (
+        "il catalogo e la tabella della ricerca non portano le stesse classi"
+    )
+    for voce in calcestruzzi:
+        assert voce.f_ctm == pytest.approx(atteso[voce.classe], abs=5e-3), voce.classe
+
+
+def test_oltre_la_c50_60_f_ctm_cambia_forma_invece_di_estendere_la_parabola():
+    """La `[11.2.3a]` vale «per classi ǂ C50/60», la `[11.2.3b]` per quelle sopra.
+
+    NTC §11.2.10.2, riga 6389 del testo convertito, verbatim: «fctm= 0,30 · fck2/3
+    per classi ǂ C50/60 [11.2.3a] fctm = 2,12 · ln [1+fcm/10] per classi > C50/60
+    [11.2.3b]». La C50/60 sta **dentro** il primo campo: il confine e' `f_ck` = 50
+    incluso.
+
+    Il salto e' nella norma e non nel conto: sulla C55/67 la `[11.2.3a]`
+    estrapolata darebbe 4,339 MPa e la `[11.2.3b]` da' 4,214, cioe' il 2,9% in
+    meno. Estendere la prima oltre il suo campo sbaglierebbe dalla parte
+    insicura sull'armatura minima, che e' proporzionale a `f_ctm`.
+
+    Mutazione che lo uccide: applicare la `[11.2.3a]` a tutte le classi, o
+    spostare il confine a `f_ck` < 50.
+    """
+    assert trova("C50/60").f_ctm == pytest.approx(4.0716, abs=5e-4)
+    assert trova("C55/67").f_ctm == pytest.approx(4.2143, abs=5e-4)
+    assert trova("C55/67").f_ctm < 4.3, (
+        "la [11.2.3a] estrapolata alla C55/67 darebbe 4,339: il campo delle due "
+        "espressioni non e' rispettato"
+    )
+    assert trova("C90/105").f_ctm == pytest.approx(5.0446, abs=5e-4)
+
+
+def test_le_classi_oltre_la_c50_60_dichiarano_il_cambio_di_forma_nella_nota():
+    """Il modulo detta la regola e deve applicarla a se stesso.
+
+    Una riga che porta un numero calcolato con un'espressione diversa da quella
+    di tutte le altre righe, e non lo dice, e' indistinguibile da una riga
+    calcolata male.
+
+    Mutazione che lo uccide: togliere la frase dalle note delle cinque classi alte.
+    """
+    for classe in ("C55/67", "C60/75", "C70/85", "C80/95", "C90/105"):
+        nota = trova(classe).nota
+        assert "11.2.3b" in nota, classe
+    for classe in ("C25/30", "C50/60"):
+        assert "11.2.3b" not in trova(classe).nota, classe
+
+
+def test_ogni_voce_di_calcestruzzo_cita_l_articolo_di_f_ctm_nella_propria_fonte():
+    """La grandezza nuova porta la propria fonte, come le altre della riga.
+
+    La `fonte` e' il campo che questi test sorvegliano: un `f_ctm` senza il
+    §11.2.10.2 accanto sarebbe un numero giustificato dagli articoli delle altre
+    grandezze, che non lo contengono.
+
+    Mutazione che lo uccide: aggiungere `f_ctm` senza toccare la fonte.
+    """
+    for voce in CATALOGO:
+        if voce.famiglia != "calcestruzzo":
+            continue
+        assert "11.2.10.2" in voce.fonte, voce.classe
+        assert "11.2.3a" in voce.fonte, voce.classe
+
+
+def test_l_acciaio_dichiara_di_non_avere_una_resistenza_a_trazione_del_calcestruzzo():
+    """`f_ctm` e' una grandezza del calcestruzzo, e sull'acciaio vale `None`.
+
+    Non zero: uno zero entrerebbe nella `[4.1.45]` come un numero e darebbe
+    un'armatura minima nulla in silenzio. `None` fa fallire il conto nel punto in
+    cui la grandezza e' stata chiesta al materiale sbagliato.
+
+    Mutazione che lo uccide: dare `f_ctm=0.0` alle due voci di acciaio.
+    """
+    for classe in ("B450A", "B450C"):
+        assert trova(classe).f_ctm is None, classe
