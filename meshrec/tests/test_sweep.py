@@ -959,3 +959,123 @@ def test_le_impronte_dei_registri_non_si_muovono():
             )
             righe += 1
     assert righe == 22, f"attese 22 righe registrate, trovate {righe}"
+
+
+def test_la_provenienza_legge_l_uscita_di_git_dichiarando_la_codifica(monkeypatch):
+    """`git` su Windows nomina i file nella codepage locale, non in utf-8.
+
+    `subprocess.run(..., text=True)` senza `encoding` decodifica con quella
+    preferita dalla macchina. Dentro il sottoprocesso del server quella e'
+    utf-8 -- `app/worker.py` gli mette `PYTHONUTF8=1` nell'ambiente -- e il
+    byte `0xE0` di «Universita'» non e' una continuazione utf-8 valida: la
+    provenienza, che gira a ogni corsa, solleva `UnicodeDecodeError` prima
+    ancora che il candidato parta.
+
+    Il banco riproduce `git` VERO su Windows: restituisce i byte cp1252
+    decodificati con le chiavi che il codice sotto esame passa davvero. Se non
+    ne passa nessuna il finto solleva `KeyError` e il test cade, che e' il modo
+    di provare il contratto su una macchina dove la codifica preferita e' gia'
+    utf-8 e un test scritto ingenuamente passerebbe anche col codice rotto.
+
+    La riga si scrive comunque, storta se serve: una provenienza illeggibile e'
+    una provenienza da leggere con un punto interrogativo dentro, non una corsa
+    che non parte.
+    """
+    sporco = " M nuvole/Università degli Studi di Perugia.pcd\n"
+
+    def git_di_windows(comando, **chiavi):
+        grezzo = (sporco if "status" in comando else "abc1234def\n").encode("cp1252")
+        return sweep.subprocess.CompletedProcess(
+            comando,
+            0,
+            stdout=grezzo.decode(chiavi["encoding"], errors=chiavi["errors"]),
+            stderr="",
+        )
+
+    monkeypatch.setattr(sweep.subprocess, "run", git_di_windows)
+
+    provenienza = sweep.provenance()
+
+    assert provenienza["dirty"] is True
+    assert provenienza["commit"] == "abc1234def"
+
+
+def test_il_candidato_legge_l_uscita_del_sottoprocesso_dichiarando_la_codifica(
+    tmp_path, monkeypatch
+):
+    """Lo stderr del candidato entra nella riga del registro: va letto dichiarando come.
+
+    Il candidato e' un `meshrec run` in un processo separato, e il suo stderr
+    e' dove finiscono gli avvisi che la riga registra. Con `text=True` e nessuna
+    codifica i due capi del tubo scelgono ciascuno la propria: su Windows il
+    figlio scrive nella codepage e il padre legge utf-8, e un solo nome di file
+    accentato -- o una riga di `ccx`, che scrive sul descrittore saltando
+    `sys.stdout` -- fa saltare l'intero candidato con `UnicodeDecodeError`.
+
+    Stesso banco della provenienza: il finto decodifica con le chiavi che il
+    codice passa davvero, e senza chiavi solleva `KeyError`.
+    """
+    out_dir = tmp_path / "candidato"
+    out_dir.mkdir()
+
+    def figlio_di_windows(comando, **chiavi):
+        if comando[0] == "git":
+            # Riuscito e muto: la provenienza non e' l'oggetto di questo test e
+            # un suo avviso maschererebbe il KeyError del contratto.
+            return sweep.subprocess.CompletedProcess(comando, 0, stdout="", stderr="")
+        grezzo = "*WARNING: nodo isolato in città.ply\n".encode("cp1252")
+        return sweep.subprocess.CompletedProcess(
+            comando,
+            1,
+            stdout="",
+            stderr=grezzo.decode(chiavi["encoding"], errors=chiavi["errors"]),
+        )
+
+    monkeypatch.setattr(sweep.subprocess, "run", figlio_di_windows)
+
+    row = sweep.run_candidate({}, _base(), out_dir, timeout_s=120.0)
+
+    assert row["outcome"] == "fallito"
+    assert "*WARNING: nodo isolato" in row["stderr"]
+
+
+def test_l_uscita_del_candidato_ucciso_entra_nella_riga_come_testo_non_come_repr(
+    tmp_path, monkeypatch
+):
+    """Un candidato ucciso per timeout lascia un'uscita troncata, e in byte.
+
+    Misurato su questa macchina (CPython 3.12.14, POSIX): con `text=True`,
+    `TimeoutExpired.stderr` NON e' decodificata -- `_check_timeout` costruisce
+    l'eccezione unendo i pezzi grezzi, e la traduzione di riga avviene solo
+    sulla via normale. Su Windows invece `subprocess.run` richiama
+    `communicate()` dopo il `kill()` e la stessa attributo e' `str`.
+
+    Quindi la riga del registro scriveva `b'*WARNING...\\n'` su Linux e
+    `*WARNING...` su Windows: la stessa corsa uccisa allo stesso modo lascia
+    due tracce diverse, e su Linux quella che c'e' non e' l'uscita ma la sua
+    rappresentazione. Il candidato resta incompleto in tutti e due i casi --
+    questo il codice lo dichiara gia' -- ma l'uscita va letta, non stampata
+    come oggetto.
+    """
+    out_dir = tmp_path / "candidato"
+    out_dir.mkdir()
+
+    def ucciso(comando, **_chiavi):
+        if comando[0] == "git":
+            return sweep.subprocess.CompletedProcess(comando, 0, stdout="", stderr="")
+        raise sweep.subprocess.TimeoutExpired(
+            comando,
+            120.0,
+            output=None,
+            # Come le costruisce CPython su POSIX: byte, anche con `text=True`.
+            stderr="*WARNING: nodo isolato in città.ply\n".encode("utf-8"),
+        )
+
+    monkeypatch.setattr(sweep.subprocess, "run", ucciso)
+
+    row = sweep.run_candidate({}, _base(), out_dir, timeout_s=120.0)
+
+    assert row["outcome"] == "timeout"
+    assert row["complete"] is False
+    assert "*WARNING: nodo isolato in città.ply" in row["stderr"]
+    assert "\\x" not in row["stderr"] and not row["stderr"].endswith("'")
