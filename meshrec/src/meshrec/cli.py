@@ -85,6 +85,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     wall_command.add_argument("config", type=Path)
 
+    solve_command = commands.add_parser(
+        "solve", help="esegue il solo solutore sugli artefatti già presenti"
+    )
+    solve_command.add_argument("config", type=Path)
+
     model_command = commands.add_parser(
         "model", help="genera un modello parametrico come corsa figlia"
     )
@@ -295,6 +300,42 @@ def main(argv: list[str] | None = None) -> int:
             spaziatura = io.mean_spacing(punti, cfg.input.spacing_sample, cfg.input.seed)
             esito = pipeline.calcola_prior(out, cfg, punti, spaziatura)
         except Exception as error:
+            print(f"{type(error).__name__}: {error}", file=sys.stderr)
+            return 1
+        print(json.dumps(esito, indent=2, default=float, ensure_ascii=False))
+        return 0
+
+    if args.command == "solve":
+        # Un'azione e non una ripresa, esattamente come `wall`. Lo step 13 non
+        # si ottiene con `run --from-step 13`, e il tetto di `from_step` resta
+        # 9 apposta: la ripresa serve a saltare lavoro geometrico costoso gia'
+        # fatto, e la coda di `pipeline.run` dallo step 9 in giu' non ha
+        # guardie per step, quindi una ripresa da 13 rifarebbe volume, deck e
+        # prior invece di risolvere soltanto.
+        from meshrec.core import pipeline
+
+        try:
+            cfg = load_config(args.config)
+            deck = Path(cfg.run.out_dir) / pipeline.DECK_FILENAME
+            if not deck.exists():
+                raise FileNotFoundError(
+                    f"manca {deck}: il solutore risolve il deck di calcolo, che è "
+                    "l'artefatto dello step 11. Esegui almeno fino a quello "
+                    f"(`meshrec run {args.config} --to-step 11`) e riprova"
+                )
+            # Prima di rileggere il maglio, che su una corsa vera costa: un
+            # binario che non c'è si dichiara adesso, con dove prenderlo, e non
+            # a metà corsa. `verifica` lo esegue davvero, perché «c'è» non è
+            # «funziona» -- e non decide dal codice d'uscita, che su `ccx` vale
+            # 201 quando tutto va bene.
+            referto = solve.verifica(cfg.solutore)
+            if not referto["funziona"]:
+                raise RuntimeError(
+                    f"il solutore scelto ({referto['solutore']}) non è utilizzabile: "
+                    f"{referto['motivo']}"
+                )
+            esito = pipeline.risolvi_corsa(cfg)
+        except Exception as error:  # la riga di comando riporta il problema, non lo stack
             print(f"{type(error).__name__}: {error}", file=sys.stderr)
             return 1
         print(json.dumps(esito, indent=2, default=float, ensure_ascii=False))

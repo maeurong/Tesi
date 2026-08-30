@@ -308,6 +308,109 @@ def test_il_comando_wall_senza_lo_step_due_dice_che_cosa_manca(tmp_path, capsys)
     assert "02_segmented.ply" in capsys.readouterr().err
 
 
+def _corsa_col_deck(tmp_path):
+    """Una corsa portata fino al deck, che e' l'ingresso dello step 13."""
+    from meshrec.core import pipeline
+
+    percorso = _config_cubo_su_disco(tmp_path)
+    cfg = config.load_config(percorso)
+    cfg.run.to_step = 11
+    config.save_config(cfg, percorso)
+    pipeline.run(cfg)
+    return percorso
+
+
+def test_il_comando_solve_esegue_il_solo_step_13(tmp_path, capsys, monkeypatch):
+    """Il solutore e' un'azione sugli artefatti presenti, come `wall`: non
+    rifa' la pipeline e non ha bisogno di una ripresa.
+
+    Il binario si finge utilizzabile e poi assente: cosi' il banco prova la
+    strada intera -- riga di comando, `pipeline.risolvi_corsa`, `solve.risolvi`
+    -- su una macchina che CalculiX non ce l'ha, che PRODUCT.md dichiara essere
+    quella degli utenti successivi.
+    """
+    from meshrec.core import pipeline, solve
+
+    percorso = _corsa_col_deck(tmp_path)
+    monkeypatch.setattr(solve, "verifica", lambda _cfg: {"funziona": True, "solutore": "calculix"})
+    monkeypatch.setattr(solve.shutil, "which", lambda _nome: None)
+
+    assert cli.main(["solve", str(percorso)]) == 0
+
+    esito = json.loads(capsys.readouterr().out)
+    assert esito["eseguito"] is False
+    out = config.load_config(percorso).run.out_dir
+    metriche = json.loads((out / pipeline.METRICS_FILENAME).read_text(encoding="utf-8"))
+    assert metriche["13_solve"] == esito
+    assert "11_export" in metriche
+
+
+def test_il_comando_solve_senza_il_deck_dice_quale_step_lo_scrive(tmp_path, capsys):
+    """Gemello di `test_il_comando_wall_senza_lo_step_due_dice_che_cosa_manca`:
+    chi arriva dopo non conosce gli step, e un FileNotFoundError nudo non dice
+    a nessuno che deve eseguire l'undici prima del tredici."""
+    percorso = _config_cubo_su_disco(tmp_path)
+
+    assert cli.main(["solve", str(percorso)]) == 1
+    err = capsys.readouterr().err
+    assert "wall_model.inp" in err
+    assert "step 11" in err
+    assert "--to-step 11" in err
+    assert "Traceback" not in err
+
+
+def test_il_comando_solve_su_una_cartella_che_non_esiste_lo_dichiara(tmp_path, capsys):
+    """La cartella della corsa puo' non esserci affatto: e' lo stesso vuoto del
+    deck mancante, e si dichiara con la stessa frase invece di cadere sul
+    percorso."""
+    percorso = _config_cubo_su_disco(tmp_path)
+    cfg = config.load_config(percorso)
+    cfg.run.out_dir = tmp_path / "mai-esistita"
+    config.save_config(cfg, percorso)
+
+    assert cli.main(["solve", str(percorso)]) == 1
+    err = capsys.readouterr().err
+    assert "step 11" in err
+    assert "Traceback" not in err
+
+
+def test_il_comando_solve_col_binario_assente_lo_dice_prima_di_cominciare(
+    tmp_path, capsys, monkeypatch
+):
+    """`solve.verifica` esiste per questo: scoprirlo a meta' corsa vorrebbe
+    dire aver gia' riletto il maglio. Il messaggio porta dove prendere il
+    binario, che e' la sola cosa da fare per chi lo legge."""
+    from meshrec.core import solve
+
+    percorso = _corsa_col_deck(tmp_path)
+    monkeypatch.setattr(solve.shutil, "which", lambda _nome: None)
+
+    assert cli.main(["solve", str(percorso)]) == 1
+    err = capsys.readouterr().err
+    assert solve.DOVE_PRENDERLO["calculix"] in err
+    assert "Traceback" not in err
+
+
+def test_il_comando_solve_propaga_il_rifiuto_di_opensees_per_intero(
+    tmp_path, capsys, monkeypatch
+):
+    """Il telaio su OpenSees non c'e' ancora, e `solve.risolvi` lo dichiara
+    nominando chi lo portera'. Quel rifiuto deve arrivare a video leggibile,
+    non affiorare come un'eccezione nuda."""
+    from meshrec.core import solve
+
+    percorso = _corsa_col_deck(tmp_path)
+    cfg = config.load_config(percorso)
+    cfg.solutore = config.SolutoreConfig(nome="opensees")
+    config.save_config(cfg, percorso)
+    monkeypatch.setattr(solve, "verifica", lambda _cfg: {"funziona": True, "solutore": "opensees"})
+
+    assert cli.main(["solve", str(percorso)]) == 1
+    err = capsys.readouterr().err
+    assert "core/opensees.py" in err
+    assert "Traceback" not in err
+
+
 def test_il_comando_model_scrive_la_cartella_col_suffisso_del_tipo(tmp_path):
     """La cartella predefinita e' quella della madre col suffisso: nessuna
     corsa figlia scrive dentro la cartella della madre, che e' il risultato di
