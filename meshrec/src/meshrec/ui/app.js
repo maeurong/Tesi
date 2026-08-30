@@ -3064,11 +3064,28 @@ function apriBattuta(chiave) {
 // nessun banco, e due difese che mancavano — il ripristino dopo una rete caduta
 // e la riscrittura del valore accettato — non le fermava nessun controllo.
 // ordine: la generazione del clic che ha aperto questo pannello.
+//
+// Il valore lo legge dalla casella; `scriviValore` fa il resto. La divisione
+// esiste da quando due comandi dello step 1 -- i due menu della scala e le tre
+// caselle delle dimensioni attese -- scrivono un campo del modello senza che
+// una casella sola lo contenga: la parte che parla col server e ricuce
+// l'ordine delle risposte resta una, e non se ne fabbrica una seconda copia.
 async function scriviParametro(blocco, nome, input, messaggio, ordine) {
+  return scriviValore(blocco, nome, valoreScritto(input.value), input, messaggio, ordine);
+}
+
+// La scrittura vera: mette il valore nella configurazione, la manda intera, e
+// riporta a video cio' che il server ha accettato.
+// riporta: come il valore accettato torna nei comandi. Il predefinito e' la
+// casella singola; chi ne ha piu' d'una passa il proprio.
+async function scriviValore(
+  blocco, nome, valore, input, messaggio, ordine,
+  riporta = (accettato) => { input.value = String(accettato ?? ""); },
+) {
   const chiave = `${blocco}.${nome}`;
   const battuta = apriBattuta(chiave);
   const precedente = configurazione[blocco][nome];
-  configurazione[blocco][nome] = valoreScritto(input.value);
+  configurazione[blocco][nome] = valore;
   const risposta = await fetch("/api/config", {
     method: "PUT",
     headers: { "content-type": "application/json" },
@@ -3119,8 +3136,171 @@ async function scriviParametro(blocco, nome, input, messaggio, ordine) {
   // e' la configurazione canonica appena scritta, ed e' quella che la PUT
   // successiva deve mandare.
   configurazione = salvata;
-  input.value = String(configurazione[blocco][nome] ?? "");
+  riporta(configurazione[blocco][nome]);
   segnalaCampo(input, messaggio, null);
+}
+
+// La scala del rilievo, letta come si legge su un disegno: un rapporto e
+// l'unita' a cui si riferisce. `1` con `cm` vuol dire «la nuvola e' gia' in
+// centimetri e ci resta»; `10` con `cm` vuol dire 1:10 in centimetri.
+//
+// Nel modello `input.scale` resta il numero che e' sempre stato -- il fattore
+// verso i millimetri -- e la composizione vive soltanto qui. Non e' pigrizia:
+// quel campo sta nei `config.yaml` delle corse registrate e dentro l'impronta,
+// e due campi nuovi sposterebbero l'impronta di ventidue righe di registro che
+// sono la provenienza di una tabella sperimentale.
+const FATTORI_DI_SCALA = [1, 2, 5, 10, 20, 50, 100, 1000];
+const UNITA_DI_SCALA = { m: 1000, cm: 10, mm: 1 };
+
+// La coppia che produce quel numero, o null se nessuna lo produce.
+//
+// Le unita' si provano dalla piu' grande: 1000 e' sia `1 m` sia `100 cm` sia
+// `1000 mm`, e fra tre letture dello stesso fatto si mostra quella col fattore
+// piu' piccolo, che e' come la si direbbe a voce. Un numero che nessuna coppia
+// produce -- `scale: 3` in una corsa vecchia -- torna null: il pannello lo
+// mostra com'e' invece di arrotondarlo alla coppia piu' vicina, che
+// cambierebbe in silenzio la scala di una corsa gia' registrata.
+function coppiaDiScala(valore) {
+  for (const [unita, inMillimetri] of Object.entries(UNITA_DI_SCALA)) {
+    const fattore = valore / inMillimetri;
+    if (FATTORI_DI_SCALA.includes(fattore)) return { fattore, unita };
+  }
+  return null;
+}
+
+// L'unita' con cui si scrivono le dimensioni attese: quella scelta per la
+// scala. Dove la scala non si compone da nessuna coppia restano i millimetri,
+// che sono l'unita' in cui il modello le tiene.
+function unitaDellaScala() {
+  return coppiaDiScala(configurazione.input?.scale ?? 1)?.unita ?? "mm";
+}
+
+// Lo scheletro comune alle due righe composte: etichetta, contenitore dei
+// comandi, aiuto e messaggio di rifiuto, nello stesso ordine e con gli stessi
+// identificativi delle righe scalari.
+function rigaComposta(blocco, nome, campo) {
+  const identita = `${blocco}-${nome}`;
+  const riga = elemento("div", { className: "campo" });
+  const etichetta = elemento("label", {
+    id: `etichetta-${identita}`,
+    textContent: campo.etichetta ?? nome,
+  });
+  const comandi = elemento("span", { className: "campo-riga" });
+  const aiuto = elemento("small", { className: "aiuto", id: `aiuto-${identita}` });
+  const messaggio = elemento("small", { className: "errore-campo", id: `errore-${identita}` });
+  messaggio.hidden = true;
+  return { identita, riga, etichetta, comandi, aiuto, messaggio };
+}
+
+// I due menu della scala. Scrivono un numero solo, quello di sempre.
+function campoScala(blocco, nome, campo, ordine) {
+  const { identita, riga, etichetta, comandi, aiuto, messaggio } = rigaComposta(blocco, nome, campo);
+  riga.append(etichetta);
+  const valore = (configurazione[blocco] ?? {})[nome] ?? null;
+  const coppia = valore === null ? null : coppiaDiScala(valore);
+  if (coppia === null) {
+    // Nessuna coppia lo produce: resta la casella, col numero dentro, e la
+    // riga dice perche' i due menu non ci sono. Detto e non arrotondato.
+    const casella = elemento("input", { id: `campo-${identita}` });
+    casella.value = valore === null ? "" : String(valore);
+    etichetta.setAttribute("for", casella.id);
+    casella.addEventListener("change", () => scriviParametro(blocco, nome, casella, messaggio, ordine));
+    aiuto.textContent = `Nessuna coppia di fattore e unità dà ${valore}: resta il numero, `
+      + "che è il fattore verso i millimetri, e si scrive a mano.";
+    casella.setAttribute("aria-describedby", aiuto.id);
+    riga.append(casella, aiuto, messaggio);
+    return riga;
+  }
+  const fattore = elemento("select", { id: `campo-${identita}-fattore` });
+  for (const ammesso of FATTORI_DI_SCALA) {
+    fattore.append(elemento("option", { value: String(ammesso), textContent: `1:${ammesso}` }));
+  }
+  fattore.value = String(coppia.fattore);
+  const unita = elemento("select", { id: `campo-${identita}-unita` });
+  for (const ammessa of Object.keys(UNITA_DI_SCALA)) {
+    unita.append(elemento("option", { value: ammessa, textContent: ammessa }));
+  }
+  unita.value = coppia.unita;
+  // L'etichetta nomina il fattore per `for` e l'unita' per riferimento: sono
+  // due comandi di uno stesso parametro, come il cursore e la sua casella.
+  etichetta.setAttribute("for", fattore.id);
+  unita.setAttribute("aria-labelledby", etichetta.id);
+  const riporta = (accettato) => {
+    const tornata = coppiaDiScala(accettato);
+    if (tornata === null) return;
+    fattore.value = String(tornata.fattore);
+    unita.value = tornata.unita;
+  };
+  const scrivi = () => scriviValore(
+    blocco, nome, Number(fattore.value) * UNITA_DI_SCALA[unita.value],
+    fattore, messaggio, ordine, riporta,
+  );
+  fattore.addEventListener("change", scrivi);
+  unita.addEventListener("change", scrivi);
+  comandi.append(fattore, unita);
+  aiuto.textContent = "Si leggono insieme: fattore 1 con unità cm vuol dire che la nuvola "
+    + "è già in centimetri e ci resta.";
+  fattore.setAttribute("aria-describedby", aiuto.id);
+  riga.append(comandi, aiuto, messaggio);
+  return riga;
+}
+
+// Le tre dimensioni reali misurate, nell'unità scelta per la scala.
+//
+// Possono restare tutte e tre vuote, ed è il predefinito: vuote significa
+// «nessun controllo di scala richiesto», cioè `expected_size = None`. Una
+// terna a metà e una misura non numerica sono due rifiuti detti qui, prima
+// della PUT: dal server tornerebbe un errore di validazione sul tipo, che non
+// dice all'operatore che cosa manca.
+const ASSI_DELLE_DIMENSIONI = ["x", "y", "z"];
+
+function campoDimensioniAttese(blocco, nome, campo, ordine) {
+  const { identita, riga, etichetta, comandi, aiuto, messaggio } = rigaComposta(blocco, nome, campo);
+  riga.append(etichetta);
+  const unita = unitaDellaScala();
+  const inMillimetri = UNITA_DI_SCALA[unita];
+  const misure = (configurazione[blocco] ?? {})[nome] ?? null;
+  const caselle = ASSI_DELLE_DIMENSIONI.map((asse, indice) => {
+    const casella = elemento("input", { id: `campo-${identita}-${asse}` });
+    casella.value = misure === null ? "" : String(misure[indice] / inMillimetri);
+    casella.setAttribute("aria-label", `${campo.etichetta ?? nome}, ${asse}`);
+    return casella;
+  });
+  etichetta.setAttribute("for", caselle[0].id);
+  const scrivi = () => {
+    const battute = caselle.map((casella) => casella.value.trim());
+    if (battute.every((battuta) => battuta === "")) {
+      return scriviValore(blocco, nome, null, caselle[0], messaggio, ordine, riporta);
+    }
+    if (battute.some((battuta) => battuta === "")) {
+      segnalaCampo(caselle[0], messaggio,
+        "servono tutte e tre le misure, oppure nessuna: tre caselle vuote valgono «nessun controllo di scala»");
+      return undefined;
+    }
+    const numeri = battute.map(Number);
+    const guasta = numeri.findIndex((numero) => !Number.isFinite(numero));
+    if (guasta !== -1) {
+      segnalaCampo(caselle[0], messaggio,
+        `«${battute[guasta]}» non è un numero: la misura ${ASSI_DELLE_DIMENSIONI[guasta]} va scritta in cifre`);
+      return undefined;
+    }
+    return scriviValore(
+      blocco, nome, numeri.map((numero) => numero * inMillimetri),
+      caselle[0], messaggio, ordine, riporta,
+    );
+  };
+  function riporta(accettate) {
+    caselle.forEach((casella, indice) => {
+      casella.value = accettate === null ? "" : String(accettate[indice] / inMillimetri);
+    });
+  }
+  for (const casella of caselle) casella.addEventListener("change", scrivi);
+  comandi.append(...caselle, elemento("span", { className: "unita", textContent: unita }));
+  aiuto.textContent = `Le misure reali del pezzo, in ${unita}. Vuote tutte e tre: nessun `
+    + "controllo di scala, che è il predefinito.";
+  caselle[0].setAttribute("aria-describedby", aiuto.id);
+  riga.append(comandi, aiuto, messaggio);
+  return riga;
 }
 
 // La riga di un parametro: etichetta, casella, aiuto e messaggio d'errore.
@@ -3149,6 +3329,14 @@ async function scriviParametro(blocco, nome, input, messaggio, ordine) {
 // vuoto -- si torna alla casella di testo: una casella che non sa
 // rappresentare un valore esistente lo cancellerebbe.
 function campoParametro(blocco, nome, campo, ordine) {
+  // I due campi dello step 1 che non sono una casella sola, e vanno prima di
+  // tutto: nulla di cio' che segue saprebbe costruirne la riga. Per blocco e
+  // nome, non per tipo -- sono due composizioni decise, non una regola che
+  // vale per ogni campo che ha quella forma.
+  if (blocco === "input" && nome === "scale") return campoScala(blocco, nome, campo, ordine);
+  if (blocco === "input" && nome === "expected_size") {
+    return campoDimensioniAttese(blocco, nome, campo, ordine);
+  }
   // La riga e' un <div> e l'etichetta nomina per `for`. Era una <label> che
   // avvolgeva tutto, e dentro la <label> stavano anche l'aiuto e il messaggio
   // di rifiuto: il nome accessibile della casella non era «voxel_size» ma

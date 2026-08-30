@@ -173,8 +173,18 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 /* Campo e bottone sulla stessa riga: il campo prende lo spazio, il bottone la
    propria larghezza. align-items: stretch perche' i due si allineino in
    altezza senza numeri scritti a mano. */
-.campo-riga { display: flex; gap: var(--passo-2); align-items: stretch; }
+/* min-width: 0 perche' la riga sta dentro una griglia, dove il minimo
+   automatico di un elemento e' il proprio contenuto: con tre caselle affiancate
+   -- le dimensioni attese dello step 1 -- quel minimo vale tre caselle intere,
+   e la colonna del dettaglio, larga 22rem, ne veniva sfondata. Misurato in
+   Chrome: minimo 567px in una colonna da 351px. */
+.campo-riga { display: flex; gap: var(--passo-2); align-items: stretch; min-width: 0; }
 .campo-riga input { flex: 1; min-width: 0; }
+/* Un menu non e' una casella: prende la propria larghezza e non la divide con
+   gli altri, cosi' il fattore e l'unita' della scala restano leggibili. */
+.campo-riga select { flex: 0 1 auto; min-width: 0; }
+/* L'unita' accanto alle misure: non si restringe e non si legge come un dato. */
+.campo-riga .unita { flex: none; align-self: center; color: var(--tenue); }
 /* Nessun margine in fondo: il fratello successivo e' sempre <h3>Nuova corsa</h3>
    e porta gia' il suo --passo-6 sopra. Due margini adiacenti collassano nel
    piu' grande, quindi il secondo non produceva un pixel di spazio in piu'. */

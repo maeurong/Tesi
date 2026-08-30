@@ -162,7 +162,7 @@ class InputConfig(_ModelloBase):
     max_points: int = Field(default=20_000_000, gt=0, title="punti massimi letti dal file")
     expected_size: tuple[float, float, float] | None = Field(
         default=None,
-        title="dimensioni reali misurate [mm]",
+        title="dimensioni reali misurate",
         description="dimensioni reali misurate del muro [mm], per il controllo di scala",
     )
     size_tolerance: float = Field(
