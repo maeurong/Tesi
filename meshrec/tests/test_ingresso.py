@@ -318,7 +318,8 @@ def test_l_errore_di_una_configurazione_rotta_non_e_il_verbale_di_pydantic(slega
 
     errore = slegato.get("/api/corse").json()["corse"][0]["errore"]
 
-    assert errore.startswith("input.scale:")
+    # Per etichetta e non per chiave, come ogni altro rifiuto di questo server.
+    assert errore.startswith("fattore di scala verso i millimetri:")
     assert "errors.pydantic.dev" not in errore
     assert "\n" not in errore
 

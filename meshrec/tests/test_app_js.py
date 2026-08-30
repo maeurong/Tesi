@@ -1260,9 +1260,12 @@ def test_una_battuta_illeggibile_non_cambia_la_configurazione_su_disco(tmp_path)
                       + "const risposta = { status: 422, text: async () => "
                       + json.dumps(rifiuto.text) + " };\n"
                       "process.stdout.write(await ragioneDelRifiuto(risposta));")
-    assert "voxel_size" in ragione and "number" in ragione, (
+    # Il campo per etichetta e non per chiave, e la ragione in italiano: la
+    # regola di PRODUCT.md vale anche sotto la casella, non solo sopra.
+    assert "lato del voxel" in ragione and "numero" in ragione, (
         f"la ragione non nomina il campo o non dice perche': {ragione}"
     )
+    assert "voxel_size" not in ragione, f"la ragione stampa la chiave grezza: {ragione}"
 
     configurazione["downsample"]["voxel_size"] = scritto("2.5")
     buono = cliente.put("/api/config", json=configurazione)

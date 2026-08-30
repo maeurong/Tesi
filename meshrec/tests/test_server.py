@@ -87,7 +87,9 @@ def test_una_configurazione_fuori_dominio_non_solleva_ma_spiega(cliente):
     guasta["surface"]["poisson_depth"] = 99   # il modello ammette 4..14
     risposta = cliente.put("/api/config", json=guasta)
     assert risposta.status_code == 422
-    assert "poisson_depth" in risposta.text
+    # Per etichetta e non per chiave: e' la regola di PRODUCT.md, e vale anche
+    # per il rifiuto che compare sotto la casella.
+    assert "profondità dell'ottree di Poisson" in risposta.json()["messaggio"]
 
 
 def test_una_regione_che_collide_con_lelset_fabbricato_e_rifiutata_dallendpoint(cliente):
@@ -4226,3 +4228,49 @@ def test_le_due_parti_del_selettore_dichiarano_la_stessa_codifica(monkeypatch, c
     assert visto["errors"] == "replace"
     assert "sys.stdout.buffer.write" in server._SELETTORE
     assert 'encode("utf-8")' in server._SELETTORE
+
+
+def test_un_valore_fuori_dominio_e_rifiutato_in_italiano_e_per_etichetta(cliente):
+    """Trovato guardando in Chrome, non eseguendo: battuto 99 nella casella
+    accanto al cursore di `poisson_depth`, sotto il campo compariva
+    «surface.poisson_depth: Input should be less than or equal to 14».
+
+    Due cose sbagliate in una riga. La chiave grezza, che PRODUCT.md vieta di
+    stampare -- ed e' la stessa regola per cui ogni campo ha adesso la propria
+    etichetta. E l'inglese di pydantic, in un programma che parla italiano.
+
+    Mutazione che lo uccide: tornare a comporre il messaggio dal `loc`
+    dell'errore e dal `msg` di pydantic senza tradurli.
+    """
+    corrente = cliente.get("/api/config").json()
+    corrente["surface"]["poisson_depth"] = 99
+
+    risposta = cliente.put("/api/config", json=corrente)
+
+    # 422 e non 400: un corpo che non passa i modelli lo ferma FastAPI prima
+    # dell'endpoint, e il gestore di RequestValidationError gli da' la forma
+    # {errore, messaggio} degli altri rifiuti.
+    assert risposta.status_code == 422
+    detto = risposta.json()["messaggio"]
+    assert "poisson_depth" not in detto, f"il rifiuto stampa la chiave grezza: {detto}"
+    assert "profondità dell'ottree di Poisson" in detto, (
+        f"il rifiuto non nomina il campo con la sua etichetta: {detto}"
+    )
+    assert "Input should be" not in detto, f"il rifiuto e' in inglese: {detto}"
+    assert "14" in detto, f"il rifiuto non dice l'estremo violato: {detto}"
+
+
+def test_un_rifiuto_su_un_campo_senza_etichetta_resta_la_chiave(cliente):
+    """Dove il modello non dichiara `title` non si inventa una frase: la
+    chiave e' l'unica cosa che si sa. E' la stessa regola del pannello.
+    """
+    from pydantic import BaseModel, Field, ValidationError
+
+    from meshrec.app.server import _rifiuto_leggibile
+
+    class Riga(BaseModel):
+        anonimo: int = Field(default=0, le=3)
+
+    with pytest.raises(ValidationError) as caduta:
+        Riga(anonimo=9)
+    assert "anonimo" in _rifiuto_leggibile(caduta.value)
