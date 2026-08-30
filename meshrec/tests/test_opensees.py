@@ -115,14 +115,124 @@ def test_un_telaio_con_un_solo_nodo_non_si_scrive(tmp_path):
         opensees.scrivi_tcl(tmp_path / "m.tcl", solo, casi_di_carico=["GRAVITA"])
 
 
-def test_un_telaio_tutto_su_una_quota_non_ha_nodi_liberi(tmp_path):
+def _telaio_di(nodi, aste) -> _Telaio:
+    """Un telaio da nodi e aste `(membratura, nodo_i, nodo_j, e1, e2)`.
+
+    Le terne si dichiarano per asta perche' `_sezioni_ed_elementi` le
+    controlla: `e1` deve coincidere con `e2 x asse`. Per un'asta nel piano xz
+    valgono `e1 = (0,1,0)`, `e2 = (0,0,1)`; per una verticale `e1 = (1,0,0)`,
+    `e2 = (0,1,0)`.
+    """
+    elementi = [
+        _Elemento(
+            membratura=membratura, stazione=stazione, nodo_i=nodo_i, nodo_j=nodo_j,
+            sezione=(300.0, 200.0),
+            e1=np.asarray(e1, dtype=np.float64), e2=np.asarray(e2, dtype=np.float64),
+            barre=list(BARRE),
+        )
+        for stazione, (membratura, nodo_i, nodo_j, e1, e2) in enumerate(aste)
+    ]
+    return _Telaio(
+        nodi=np.asarray(nodi, dtype=np.float64),
+        elementi=elementi,
+        giunzioni=[],
+        materiali={asta[0]: SEZIONE for asta in aste},
+    )
+
+
+_ORIZZONTALE = ((0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
+_VERTICALE = ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0))
+
+
+def _trave_coricata(nodi_trave: int = 5, fuori_piombo: float = 15.0) -> _Telaio:
+    """Una trave di fondazione fuori piombo, con una colonna che vi poggia sopra.
+
+    Il banco del difetto misurato sul telaio sintetico: l'asse della trave e'
+    fuori piano, quindi i suoi nodi si spandono in quota anche se la trave
+    poggia a terra per tutta la propria lunghezza.
+    """
+    passo = 1600.0 / (nodi_trave - 1)
+    nodi = [
+        [i * passo, 0.0, i * fuori_piombo / (nodi_trave - 1)] for i in range(nodi_trave)
+    ]
+    aste = [(0, i, i + 1, *_ORIZZONTALE) for i in range(nodi_trave - 1)]
+    meta = nodi_trave // 2
+    for gradino in range(3):
+        nodi.append([nodi[meta][0], 0.0, nodi[meta][2] + 500.0 * (gradino + 1)])
+        precedente = meta if gradino == 0 else len(nodi) - 2
+        aste.append((1, precedente, len(nodi) - 1, *_VERTICALE))
+    return _telaio_di(nodi, aste)
+
+
+def test_una_trave_di_fondazione_fuori_piombo_poggia_con_tutti_i_suoi_nodi(tmp_path):
+    """Il difetto misurato: il traverso inferiore del telaio sintetico ha
+    l'asse fuori piano di 0,53 gradi, quindi i suoi ventuno nodi si spandono di
+    14,94 mm in quota. La tolleranza relativa all'altezza del telaio ne
+    incastrava **uno**, e il telaio pendeva da un punto solo, senza che nessuno
+    dei sette verdetti lo vedesse.
+
+    Il fuori piombo non e' rumore di stima: e' la misura che il programma
+    esiste per conservare. Una trave coricata poggia a terra per tutta la
+    propria lunghezza, comunque sia inclinata.
+    """
+    resoconto = opensees.scrivi_tcl(
+        tmp_path / "m.tcl", _trave_coricata(), casi_di_carico=["GRAVITA"]
+    )
+
+    assert resoconto["nodi_vincolati"] == 5
+    fix = [r.split()[1] for r in (tmp_path / "m.tcl").read_text().splitlines()
+           if r.startswith("fix ")]
+    assert fix == ["1", "2", "3", "4", "5"]
+
+
+def test_una_trave_coricata_da_sola_non_lascia_niente_da_calcolare(tmp_path):
     """Se il piede prende tutto, non resta niente da calcolare: si dice, non si
     lancia il solutore su un modello interamente vincolato."""
-    piatto = _mensola()
-    piatto = piatto._replace(nodi=np.zeros_like(piatto.nodi))
+    trave = _trave_coricata()
+    solo_trave = _telaio_di(
+        trave.nodi[:5], [(0, i, i + 1, *_ORIZZONTALE) for i in range(4)]
+    )
 
     with pytest.raises(ValueError, match="nessun nodo libero"):
-        opensees.scrivi_tcl(tmp_path / "m.tcl", piatto, casi_di_carico=["GRAVITA"])
+        opensees.scrivi_tcl(tmp_path / "m.tcl", solo_trave, casi_di_carico=["GRAVITA"])
+
+
+def _portale() -> _Telaio:
+    """Due colonne e un traverso di copertura che sborda oltre le colonne.
+
+    Gli sbalzi del traverso hanno estremi **liberi** come i piedi delle
+    colonne, e uno dei due e' il piu' basso del traverso: e' il caso che
+    distingue una regola sulla struttura da una regola sulla quota.
+    """
+    nodi = [
+        [0.0, 0.0, 0.0], [1500.0, 0.0, 0.0],          # i due piedi
+        [0.0, 0.0, 2000.0], [1500.0, 0.0, 2007.0],    # le due teste
+        [-300.0, 0.0, 1998.5], [1800.0, 0.0, 2008.5],  # gli sbalzi del traverso
+    ]
+    aste = [
+        (0, 0, 2, *_VERTICALE),
+        (1, 1, 3, *_VERTICALE),
+        (2, 4, 2, *_ORIZZONTALE),
+        (2, 2, 3, *_ORIZZONTALE),
+        (2, 3, 5, *_ORIZZONTALE),
+    ]
+    return _telaio_di(nodi, aste)
+
+
+def test_lo_sbalzo_del_traverso_non_e_un_piede(tmp_path):
+    """L'estremo libero di un'asta coricata e' la punta di uno sbalzo, non un
+    appoggio: la struttura ci arriva da sopra, non ci poggia sopra. Una regola
+    che guardasse solo «da qui in giu' non prosegue niente» incastrerebbe la
+    punta bassa del traverso di copertura, che sta a due metri da terra.
+    """
+    resoconto = opensees.scrivi_tcl(
+        tmp_path / "m.tcl", _portale(), casi_di_carico=["GRAVITA"]
+    )
+
+    assert resoconto["nodi_vincolati"] == 2
+    fix = [r.split()[1] for r in (tmp_path / "m.tcl").read_text().splitlines()
+           if r.startswith("fix ")]
+    assert fix == ["1", "2"]
 
 
 def _due_colonne(quota_secondo_piede: float = 0.0) -> _Telaio:
@@ -135,14 +245,16 @@ def _due_colonne(quota_secondo_piede: float = 0.0) -> _Telaio:
     )
     elementi = [
         _Elemento(
-            membratura=0, stazione=i, nodo_i=i, nodo_j=i + 2,
+            membratura=i, stazione=0, nodo_i=i, nodo_j=i + 2,
             sezione=(300.0, 200.0),
             e1=np.array([1.0, 0.0, 0.0]), e2=np.array([0.0, 1.0, 0.0]),
             barre=list(BARRE),
         )
         for i in range(2)
     ]
-    return _Telaio(nodi=nodi, elementi=elementi, giunzioni=[], materiali={0: SEZIONE})
+    return _Telaio(
+        nodi=nodi, elementi=elementi, giunzioni=[], materiali={0: SEZIONE, 1: SEZIONE}
+    )
 
 
 @pytest.mark.parametrize("valore", [float("nan"), float("inf")])
@@ -167,7 +279,8 @@ def test_un_nodo_con_coordinata_non_finita_non_si_scrive(tmp_path, valore):
     assert not (tmp_path / "m.tcl").exists()
 
 
-def test_due_piedi_quasi_complanari_sono_incastrati_tutti_e_due(tmp_path):
+@pytest.mark.parametrize("quota_secondo_piede", [1e-5, 1000.0])
+def test_due_colonne_hanno_due_piedi_a_qualunque_quota(tmp_path, quota_secondo_piede):
     """I nodi del telaio vengono da una **stima del prior**, non da un disegno:
     due piedi che il disegno vuole complanari escono a quote vicine e non
     uguali. Con la tolleranza assoluta di 1e-6 mm che questo modulo portava,
@@ -175,9 +288,16 @@ def test_due_piedi_quasi_complanari_sono_incastrati_tutti_e_due(tmp_path):
     penzola -- il difetto misurato il 21/08/2026 che `constraint_plan_extent`
     esiste per catturare, e che sul telaio nessuno dei sette verdetti vede,
     perche' li' quel controllo e' dichiarato non applicabile.
+
+    La quota del secondo piede non entra nella decisione, ed e' il cambiamento
+    rispetto alla tolleranza: una colonna che parte un metro piu' su e da cui
+    la struttura sale soltanto poggia comunque su qualcosa. Lasciarla libera
+    perche' la sua quota non somiglia a quella dell'altra non ne fa «un altro
+    piano», ne fa un corpo rigido -- il piano vero e' una colonna il cui piede
+    e' l'attacco di una trave, e li' sotto la struttura prosegue.
     """
     resoconto = opensees.scrivi_tcl(
-        tmp_path / "m.tcl", _due_colonne(1e-5), casi_di_carico=["GRAVITA"]
+        tmp_path / "m.tcl", _due_colonne(quota_secondo_piede), casi_di_carico=["GRAVITA"]
     )
 
     assert resoconto["nodi_vincolati"] == 2
@@ -186,14 +306,18 @@ def test_due_piedi_quasi_complanari_sono_incastrati_tutti_e_due(tmp_path):
     assert fix == ["1", "2"]
 
 
-def test_un_piede_piu_alto_della_tolleranza_resta_libero(tmp_path):
-    """La tolleranza e' relativa all'altezza, non larga: una colonna che parte
-    un metro piu' su e' un'altra cosa da un piede, e non si incastra."""
+def test_una_colonna_che_poggia_su_una_trave_non_e_un_piede(tmp_path):
+    """Il piano vero: sotto il piede della colonna la struttura prosegue, e
+    quel nodo non e' un appoggio. E' la distinzione che la tolleranza sulla
+    quota non sapeva fare -- guardava quanto il nodo fosse in basso, non se
+    sotto ci fosse qualcosa."""
     resoconto = opensees.scrivi_tcl(
-        tmp_path / "m.tcl", _due_colonne(1000.0), casi_di_carico=["GRAVITA"]
+        tmp_path / "m.tcl", _trave_coricata(), casi_di_carico=["GRAVITA"]
     )
 
-    assert resoconto["nodi_vincolati"] == 1
+    assert resoconto["nodi_vincolati"] == 5, (
+        "i cinque nodi della trave, e nessuno dei tre della colonna che vi poggia"
+    )
 
 
 def test_casi_di_carico_vuoto_non_produce_un_file_muto(tmp_path):
@@ -822,3 +946,4 @@ def test_un_dato_per_cella_di_lunghezza_sbagliata_e_rifiutato(tmp_path):
             tmp_path / "storto.vtu", _NODI_TETRAEDRO, _CELLE_TETRAEDRO,
             element_type="C3D4", cell_data={"N_GRAVITA": np.array([1.0, 2.0, 3.0])},
         )
+

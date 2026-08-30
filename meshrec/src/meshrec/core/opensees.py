@@ -83,24 +83,6 @@ _PUNTI_INTEGRAZIONE = 5
 # lineari, questo numero va misurato.
 _SUDDIVISIONI_PATCH = 10
 
-# Un nodo del telaio e' «al piede» se sta entro questa frazione dell'altezza
-# del telaio dalla quota minima.
-#
-# **Relativa e non assoluta**, ed e' il punto: i nodi del telaio non sono
-# misurati, stanno sull'asse che il **prior ha stimato** alle quote delle
-# fette, quindi due piedi che il disegno vuole complanari escono a quote
-# vicine e non uguali. Con la tolleranza assoluta di 1e-6 mm che questo modulo
-# portava prima, due piedi a quota 0,0 e 1e-5 davano un solo incastro e un
-# telaio che penzola: e' il difetto misurato il 21/08/2026 sull'as-built
-# (`abaqus.constraint_plan_extent`), e sul telaio nessuno dei sette verdetti lo
-# vedrebbe, perche' li' quel controllo e' dichiarato non applicabile.
-#
-# 1e-4 dell'altezza sono 0,2 mm su un telaio di 2 m e 0,31 mm sull'as-built di
-# 3144 mm: sopra ogni scarto di stima fra nodi che il prior mette allo stesso
-# livello, e sotto qualunque quota che in un telaio significhi «un altro
-# piano».
-_FRAZIONE_PIEDE = 1e-4
-
 # Un versore della sezione quasi parallelo all'asse dell'asta non definisce un
 # piano: `geomTransf` ne uscirebbe degenere. Il coseno e' quello di circa 2,5
 # gradi.
@@ -184,6 +166,74 @@ def _versore(v: np.ndarray) -> np.ndarray:
     return a / norma
 
 
+def _coricata(delta: np.ndarray) -> bool:
+    """Un'asta e' coricata se il suo asse e' piu' orizzontale che verticale.
+
+    Non e' una tolleranza sulla quota, e' il ruolo dell'asta: quarantacinque
+    gradi e' la bisettrice, cioe' l'unica soglia che non si sceglie -- di qua
+    l'asta si posa, di la' l'asta si alza. Sul telaio sintetico i due traversi
+    stanno a 0,36 e 0,53 gradi dall'orizzontale e i due montanti a 89,60 e
+    89,94, misurati il 30/08/2026: nessuno dei quattro e' vicino alla
+    bisettrice, e nessuno cambia ruolo se la si sposta di dieci gradi.
+    """
+    return abs(float(delta[2])) < float(np.hypot(delta[0], delta[1]))
+
+
+def _al_piede(nodi: np.ndarray, elementi) -> np.ndarray:
+    """Gli indici dei nodi che poggiano a terra, dedotti dalla struttura.
+
+    **Nessuna tolleranza sulla quota**, e la ragione e' il difetto che questa
+    funzione sostituisce. Il criterio precedente era «entro 1e-4 dell'altezza
+    dalla quota minima»: sul telaio sintetico il traverso di fondazione ha
+    l'asse fuori piano di 0,53 gradi, i suoi ventuno nodi si spandono di 14,94
+    mm in quota, la tolleranza ne valeva 0,191, e il telaio da ottanta nodi
+    usciva incastrato in **uno** solo (misurato il 30/08/2026). Quello scarto
+    non e' rumore di stima: e' il fuori piombo che il rilievo ha misurato,
+    cioe' precisamente cio' che questo programma esiste per conservare. Una
+    soglia che lo tratta come rumore va allargata finche' il caso torna, ed e'
+    la soglia decisa dopo aver visto il risultato.
+
+    Il piede si deduce invece da com'e' fatta la struttura, con due sole
+    domande e nessun numero da tarare:
+
+    1. **La membratura coricata che tocca il punto piu' basso ci poggia per
+       tutta la propria lunghezza.** E' la trave di fondazione: si parte dal
+       nodo di quota minima -- un `argmin`, non un confronto con una soglia --
+       e si cammina lungo le sole aste coricate. Comunque il rilievo l'abbia
+       trovata inclinata, la trave sta a terra da un capo all'altro.
+    2. **Ogni nodo da cui la struttura sale soltanto, e sale in piedi.** E' il
+       piede di un montante: sotto non prosegue niente, quindi o poggia o
+       penzola. La seconda condizione -- che le aste che ne partono siano in
+       piedi -- esclude la punta di uno sbalzo: l'estremo libero di un traverso
+       e' il punto piu' basso *del traverso*, ma la struttura ci arriva da
+       sopra e non ci poggia sopra.
+
+    Il nodo di quota minima e' sempre nell'insieme (e' il punto di partenza
+    del cammino), quindi il telaio non resta mai senza vincoli.
+    """
+    quote = nodi[:, 2]
+    vicini: dict[int, list[tuple[int, bool]]] = {}
+    for elemento in elementi:
+        coricata = _coricata(nodi[elemento.nodo_j] - nodi[elemento.nodo_i])
+        vicini.setdefault(elemento.nodo_i, []).append((elemento.nodo_j, coricata))
+        vicini.setdefault(elemento.nodo_j, []).append((elemento.nodo_i, coricata))
+
+    a_terra = {int(np.argmin(quote))}
+    da_visitare = list(a_terra)
+    while da_visitare:
+        for altro, coricata in vicini.get(da_visitare.pop(), ()):
+            if coricata and altro not in a_terra:
+                a_terra.add(altro)
+                da_visitare.append(altro)
+
+    a_terra.update(
+        nodo
+        for nodo, intorno in vicini.items()
+        if all(not coricata and quote[altro] > quote[nodo] for altro, coricata in intorno)
+    )
+    return np.array(sorted(a_terra), dtype=np.int64)
+
+
 def _controlla_telaio(telaio: "Telaio") -> tuple[np.ndarray, np.ndarray]:
     """`(nodi, indici dei nodi al piede)`, o il motivo per cui non si scrive.
 
@@ -212,14 +262,12 @@ def _controlla_telaio(telaio: "Telaio") -> tuple[np.ndarray, np.ndarray]:
             f"il telaio ha un nodo solo ({len(nodi)} nodi): non c'è un'asta da "
             "scrivere"
         )
-    quote = nodi[:, 2]
-    tolleranza = _FRAZIONE_PIEDE * float(np.ptp(quote))
-    al_piede = np.flatnonzero(quote <= float(quote.min()) + tolleranza)
+    al_piede = _al_piede(nodi, telaio.elementi)
     if len(al_piede) == len(nodi):
         raise ValueError(
-            "ogni nodo del telaio sta alla quota minima: il piede prenderebbe "
-            "tutto e non resterebbe nessun nodo libero da calcolare. Il modello "
-            "è degenere, non è un telaio"
+            "ogni nodo del telaio poggia a terra: il piede prende tutto e non "
+            "resta nessun nodo libero da calcolare. Il modello è degenere, non "
+            "è un telaio"
         )
     return nodi, al_piede
 
@@ -537,7 +585,10 @@ def scrivi_tcl(
     ]
     for indice, (x, y, z) in enumerate(nodi, start=1):
         righe.append(f"node {indice} {x:.10g} {y:.10g} {z:.10g}")
-    righe += ["", "# --- vincoli: i nodi alla quota minima, incastrati ---"]
+    righe += [
+        "",
+        f"# --- vincoli: i {len(al_piede)} nodi che poggiano a terra, incastrati ---",
+    ]
     for indice in al_piede:
         righe.append(f"fix {int(indice) + 1} 1 1 1 1 1 1")
     righe += ["", "# --- materiali ---", *card_materiali]
