@@ -1370,9 +1370,15 @@ def verifica(cfg: "SolutoreConfig") -> dict[str, object]:
     codice resta comunque riportato, e finisce nel messaggio quando la prova
     fallisce: è l'indizio che dice se il binario è nemmeno partito.
 
-    L'uscita si decodifica con `errors="ignore"`, la stessa scelta misurata di
-    `_righe_dat`: un byte fuori tabella nell'uscita di un solutore non deve
-    trasformare una diagnosi in un `UnicodeDecodeError` che non nomina nulla.
+    L'uscita si decodifica con `errors="replace"`, e non con l'`ignore` di
+    `_righe_dat`: quell'argomento qui non arriva. Là i parser contano i campi
+    di una riga e `U+FFFD` ne aggiungerebbe uno; qui non si conta nulla, si
+    cerca una sottostringa e si mostra il resto a una persona. Con `ignore` un
+    byte illeggibile *dentro* «Version» sparirebbe e la parola si
+    ricomporrebbe: la cancellazione fabbricherebbe il marcatore che non c'era,
+    cioè un verdetto di «funziona» su un binario che non è un solutore. Resta
+    la ragione originale, che vale per tutte e due le politiche: un byte fuori
+    tabella non deve trasformare una diagnosi in un `UnicodeDecodeError`.
     """
     nome = _nome_noto(cfg.nome)
     percorso, _, assente = _trova(nome, cfg.percorso)
@@ -1400,7 +1406,7 @@ def verifica(cfg: "SolutoreConfig") -> dict[str, object]:
             "motivo": f"«{percorso}» non è eseguibile: {type(errore).__name__}: {errore}",
         }
 
-    uscita = (processo.stdout + processo.stderr).decode("utf-8", errors="ignore")
+    uscita = (processo.stdout + processo.stderr).decode("utf-8", errors="replace")
     mancanti = [marca for marca in scheda["marcatori"] if marca not in uscita]
     funziona = not mancanti
     motivo = None
@@ -1611,6 +1617,15 @@ def risolvi(
         cwd=deck.parent,
         capture_output=True,
         text=True,
+        # `ccx` e' di terze parti e su Windows scrive nella codepage locale.
+        # Senza `encoding` la lettura userebbe quella preferita dalla macchina
+        # -- utf-8 dentro il sottoprocesso del server -- e un byte accentato
+        # farebbe morire lo step 13 prima di scrivere `13_solver.log`, cioe'
+        # prima di lasciare la sola cosa che spiega perche' si e' fermato.
+        # `replace` e non `ignore`: in un registro che si apre per capire un
+        # guasto un carattere cancellato e' una bugia silenziosa.
+        encoding="utf-8",
+        errors="replace",
         timeout=_TIMEOUT_S,
     )
     uscita = processo.stdout + processo.stderr
