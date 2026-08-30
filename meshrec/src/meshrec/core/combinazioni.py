@@ -295,6 +295,16 @@ def proponi(
 
     I coefficienti sono tutti quelli **sfavorevoli**: vedi il docstring del
     modulo per il motivo.
+
+    **Un limite dichiarato: i ψ sono quelli di `categoria_uso` per ogni
+    variabile.** La Tab. 2.5.I ha righe proprie per il vento, la neve e le
+    variazioni termiche, diverse da quelle delle categorie d'uso, e una neve
+    combinata coi ψ del residenziale prende 0,7/0,5/0,3 invece di 0,5/0,2/0,0.
+    Assegnare a ciascuna azione la propria riga pretende un dato che nessun
+    campo della configurazione porta -- quale riga della tabella spetti a quel
+    carico -- e questo modulo non lo indovina. Le righe ci sono gia' in `PSI`
+    (`VENTO`, `NEVE`, `NEVE_OLTRE_1000`, `TERMICHE`): la proposta si corregge a
+    mano, ed e' esattamente cio' per cui `proposta` esiste.
     """
     psi = psi_di(categoria_uso)
     if azione_sismica is not None and azione_sismica not in azioni:
