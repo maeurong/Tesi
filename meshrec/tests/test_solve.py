@@ -2114,13 +2114,21 @@ def test_un_codice_diverso_da_zero_entra_nel_messaggio_con_la_coda(monkeypatch):
 
 
 def test_l_uscita_con_byte_non_decodificabili_si_legge_senza_sollevare(monkeypatch):
-    """Stessa scelta di `_righe_dat`: `ignore`, non `replace`."""
+    """Non cadere e' il minimo; il byte pero' lascia un segno, non sparisce.
+
+    L'assunto di prima era `ignore`, «stessa scelta di `_righe_dat`». Quella
+    scelta la regge un argomento che qui non arriva: i parser del `.dat`
+    contano i campi di una riga e `U+FFFD` ne aggiunge uno, mentre questa
+    uscita si mostra a una persona e ci si cerca dentro un marcatore. Su
+    tutte e due le cose `ignore` fa danno: nasconde il guasto a chi legge, e
+    puo' ricomporre un marcatore spezzato da un byte (il test qui sotto).
+    """
     _finge(monkeypatch, _Processo(0, b"This is \xff\xfeVersion 2.21\n", b""))
 
     esito = solve.verifica(_SolutoreFinto(nome="calculix"))
 
     assert esito["funziona"] is True
-    assert "�" not in esito["uscita"]
+    assert "�" in esito["uscita"]
 
 
 def test_opensees_si_verifica_facendogli_eseguire_una_riga(monkeypatch):
@@ -2344,3 +2352,85 @@ def test_un_percorso_con_spazi_arriva_al_processo_come_un_argomento_solo(
     solve.verifica(_SolutoreFinto(percorso=binario))
 
     assert visti["comando"] == [str(binario), "-v"]
+
+
+def test_risolvi_legge_l_uscita_di_ccx_dichiarando_la_codifica(tmp_path, monkeypatch):
+    """Lo step 13 su Windows: `ccx` scrive nella codepage, il log si scrive lo stesso.
+
+    `ccx` e' un binario di terze parti e scrive quello che vuole: su Windows
+    quello che vuole e' la codepage locale, e un nome di file accentato --
+    quello della corsa, per esempio -- esce con `0xE0`. `subprocess.run(...,
+    text=True)` senza `encoding` lo decodifica con la codifica preferita dalla
+    macchina, che dentro il sottoprocesso del server e' utf-8 perche'
+    `app/worker.py` gli mette `PYTHONUTF8=1`: `0xE0` non e' una continuazione
+    valida e lo step 13 muore prima di scrivere `13_solver.log`, cioe' prima
+    di lasciare all'utente la sola cosa che spiegherebbe perche' si e' fermato.
+
+    Per un binario che non controlliamo la domanda non e' quale codifica --
+    non c'e' una risposta giusta -- ma come non cadere e non mentire:
+    `errors="replace"` lascia `U+FFFD` dove il byte non si legge. In un log
+    che l'utente apre per capire un guasto un carattere cancellato e' una
+    bugia silenziosa; un carattere storto si vede.
+
+    Il finto decodifica con le chiavi che il codice passa davvero: senza
+    chiavi solleva `KeyError`, che e' il modo di provare il contratto su una
+    macchina dove la codifica preferita e' gia' utf-8.
+    """
+    import subprocess
+
+    out_dir = tmp_path / "corsa città"
+    out_dir.mkdir()
+    deck = out_dir / "wall_model.inp"
+    deck.write_text("*HEADING\n", encoding="ascii")
+    grezzo = "*WARNING in nmatrix: nodo isolato in città.ply\nJob finished\n".encode("cp1252")
+
+    def ccx_di_windows(comando, **chiavi):
+        deck.with_suffix(".frd").write_text(FRD_QUATTRO_PASSI, encoding="ascii")
+        deck.with_suffix(".dat").write_text(DAT_DUE_MODI, encoding="ascii")
+        return subprocess.CompletedProcess(
+            comando,
+            returncode=0,
+            stdout=grezzo.decode(chiavi["encoding"], errors=chiavi["errors"]),
+            stderr="",
+        )
+
+    monkeypatch.setattr(solve.shutil, "which", lambda _nome: "/usr/bin/ccx")
+    monkeypatch.setattr(solve.subprocess, "run", ccx_di_windows)
+
+    esito = solve.risolvi(
+        out_dir, deck, ANALISI,
+        np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]),
+        np.array([[0, 1, 2, 3]]), "C3D4",
+        casi_di_carico=["GRAVITA", "SPINTA_ORIZZONTALE", "CARICO_TOP", "MODALE"],
+        vincolo_in_pianta={"x": 1.0, "y": 1.0, "minimo": 1.0},
+        trasformata=np.eye(4),
+    )
+
+    log = (out_dir / "13_solver.log").read_text(encoding="utf-8")
+    assert "Job finished" in log
+    assert "�" in log, "il byte illeggibile e' stato cancellato invece che segnato"
+    assert esito["eseguito"] is True
+    assert esito["avvisi"] == 1
+
+
+def test_un_byte_cancellato_non_deve_fabbricare_il_marcatore_di_un_solutore(monkeypatch):
+    """`errors="ignore"` non e' solo silenzioso: qui inventa un verdetto.
+
+    `verifica` decide che il binario e' quello giusto cercando un marcatore
+    nell'uscita -- per CalculiX la parola «Version». Con `ignore` un byte
+    illeggibile *dentro* la parola sparisce e la parola si ricompone: un
+    binario che ha stampato `Ver<0xE0>sion` viene dichiarato funzionante,
+    cioe' la cancellazione FABBRICA il marcatore che non c'era. Con `replace`
+    il byte diventa `U+FFFD`, il marcatore non c'e' e il verdetto e' quello
+    vero.
+
+    L'argomento misurato che regge `ignore` in `_righe_dat` non arriva fin
+    qui: la' i parser contano i campi di una riga e `U+FFFD` ne aggiunge uno,
+    qui non si conta nulla e si cerca una sottostringa.
+    """
+    _finge(monkeypatch, _Processo(0, b"This is Ver\xe0sion 2.21\n", b""))
+
+    esito = solve.verifica(_SolutoreFinto(nome="calculix"))
+
+    assert esito["funziona"] is False
+    assert "�" in esito["uscita"]
