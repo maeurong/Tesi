@@ -357,8 +357,13 @@ def test_lo_schema_descrive_il_materiale_anche_se_il_blocco_e_opzionale(slegato)
     grezza faceva cadere /api/schema, cioe' il pannello degli step 11 e 13."""
     corpo = slegato.get("/api/schema").json()
 
-    assert "material" in corpo["11"]["campi"]["analysis"]
+    # Lo step 13 e' la schermata dell'analisi, e li' il blocco si legge per
+    # intero: e' quello a provare che l'unione con None non fa cadere nulla.
+    # Nello step 11 di `analysis` resta la sola tolleranza dei set di faccia
+    # (`_FUORI_DAL_PANNELLO`), perche' il materiale ha gia' il proprio
+    # pannello e il caso di carico appartiene allo step 13.
     assert "material" in corpo["13"]["campi"]["analysis"]
+    assert corpo["11"]["campi"]["analysis"]
 
 
 def test_scrivere_la_configurazione_senza_una_corsa_e_un_rifiuto_leggibile(slegato):

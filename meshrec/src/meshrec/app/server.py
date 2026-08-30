@@ -531,7 +531,23 @@ _FUORI_DAL_PANNELLO: dict[int, frozenset[str]] = {
     # Lo step 11 esporta il modello: non tetraedrizza (quello e' il 9), e i
     # carichi non hanno ancora una sede propria -- escono da qui senza che se
     # ne inventi una.
-    11: frozenset({"tet", "carichi"}),
+    #
+    # Di `analysis` lo step 11 comanda la sola tolleranza dei set di faccia.
+    # `gravity`, `fixed_nset` e `step_name` descrivono il caso di carico e non
+    # la geometria: stanno nel pannello dello step 13, che e' la schermata
+    # dell'analisi. `material` ha gia' il proprio pannello -- quattro caselle
+    # che partono insieme -- e qui compariva una seconda volta, come riga di
+    # sola lettura col JSON del modello dentro.
+    11: frozenset(
+        {
+            "tet",
+            "carichi",
+            "analysis.material",
+            "analysis.gravity",
+            "analysis.fixed_nset",
+            "analysis.step_name",
+        }
+    ),
 }
 
 

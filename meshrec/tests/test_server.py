@@ -2362,6 +2362,16 @@ def test_il_pannello_dello_step_11_mostra_solo_i_blocchi_che_comanda(cliente):
     corpo = cliente.get("/api/schema").json()
     assert corpo["11"]["blocchi"] == ["analysis"]
     assert set(corpo["11"]["campi"]) == {"analysis"}
+    # Di `analysis` lo step 11 comanda una cosa sola: la tolleranza con cui
+    # estrae i set di faccia. `gravity`, `fixed_nset` e `step_name` descrivono
+    # il caso di carico e vivono nel pannello dello step 13, che e' la
+    # schermata dell'analisi; `material` ha gia' il proprio pannello qui
+    # sotto, e in questo elenco compariva una seconda volta come riga di
+    # sola lettura con dentro il JSON del modello.
+    assert set(corpo["11"]["campi"]["analysis"]) == {"set_tolerance_factor"}
+    assert {"gravity", "fixed_nset", "step_name", "material"} <= set(
+        corpo["13"]["campi"]["analysis"]
+    ), "tolti dallo step 11 e da nessuna parte: il caso di carico e' dello step 13"
     # Il blocco resta intero dove lo step lo comanda davvero.
     assert corpo["9"]["blocchi"] == ["tet"] and corpo["9"]["campi"]["tet"]
 
