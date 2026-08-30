@@ -213,6 +213,56 @@ stesso testo, e non due testi che scivolano l'uno dall'altro.
 """
 
 
+CONTINUO_CONFINATO = (
+    "il continuo e' il calcestruzzo confinato della regione: un tetraedro non "
+    "ha fibre, e non distingue nucleo da copriferro"
+)
+"""Un solo testo per il commento nel deck e per la chiave nel resoconto.
+
+Il continuo del modello solido e' il calcestruzzo confinato, e la scelta e' una
+**limitazione dichiarata** e non una ovvieta': la distinzione fra nucleo e
+copriferro e' un concetto della sezione a fibre, dove sono fibre diverse dello
+stesso elemento, e un tetraedro non ha fibre. Fra i due il nucleo e' quello che
+domina il volume. L'acciaio non e' un materiale del continuo: senza barre
+modellate non ha un elemento a cui appartenere.
+
+Scritto nel deck e non solo qui: chi apre il `.inp` fra sei mesi vede un
+calcestruzzo per regione, e senza quella riga crederebbe che il modello
+distingua cio' che non distingue. Un testo solo, perche' il commento del deck e
+la chiave del resoconto non possano dire due cose diverse.
+"""
+
+
+def _materiali_del_deck(citati: list[tuple[str, Material]]) -> list[Material]:
+    """Un `*MATERIAL` per nome distinto, nell'ordine in cui le sezioni li citano.
+
+    `citati` sono i materiali che il deck nomina davvero, ciascuno con chi lo
+    dichiara -- serve solo a scrivere di chi parla il rifiuto.
+
+    Lo stesso materiale in due regioni e' un materiale e non due: `ccx` legge
+    due card omonime senza protestare e tiene l'ultima, quindi la seconda non
+    aggiungerebbe nulla e lascerebbe un nome definito due volte.
+
+    Due materiali **diversi** sotto lo stesso nome sono invece rifiutati, e il
+    confronto ignora le maiuscole: `ccx` risolve i nomi senza distinguerle
+    (misurato in docs/fase-6-cantiere/sonda-caso-nomi/), quindi le due card
+    diventerebbero una sola e a una delle due regioni toccherebbero in silenzio
+    le proprieta' dell'altra.
+    """
+    scritti: dict[str, tuple[str, Material]] = {}
+    for chi, materiale in citati:
+        gia_chi, gia = scritti.setdefault(materiale.name.casefold(), (chi, materiale))
+        if gia != materiale:
+            raise ValueError(
+                f"{chi} dichiara il materiale '{materiale.name}', ma {gia_chi} ne "
+                f"dichiara un altro sotto il nome '{gia.name}': `ccx` risolve i nomi "
+                "senza distinguere le maiuscole, quindi le due card diventerebbero "
+                "una sola e una delle due regioni prenderebbe in silenzio le "
+                "proprietà dell'altra"
+            )
+    return [materiale for _, materiale in scritti.values()]
+
+
 def write_inp(
     path: Path,
     nodes: np.ndarray,
@@ -225,7 +275,7 @@ def write_inp(
     print_nsets: tuple[str, ...] = (),
     gravity: float = GRAVITY_MM_S2,
     elset: str = "ALL_WALL",
-    regioni: dict[str, np.ndarray] | None = None,
+    regioni: dict[str, tuple[np.ndarray, Material]] | None = None,
     step_name: str = "GRAVITA",
     element_surfaces: dict[str, list[tuple[int, int]]] | None = None,
     ties: tuple[tuple[str, str, str] | tuple[str, str, str, float], ...] = (),
@@ -300,19 +350,26 @@ def write_inp(
     nome) e un passo statico per carico, col peso proprio ripetuto per la
     stessa ragione degli altri passi.
 
-    `regioni` e' la sesta, della Fase 8 (#135): la mappa da nome di regione
-    agli indici degli elementi che le appartengono, di norma quella che
-    `core/attribuzione.py` misura. Senza di essa il deck ha la sola sezione su
-    `elset`, identica a prima -- ed e' cosi' che le corse gia' registrate
-    restano riproducibili. Con essa il deck scrive un `*ELSET` per regione e
-    una `*SOLID SECTION` per ciascuno; `elset` (`ALL_WALL`) non si rinomina e
-    non si toglie, resta l'insieme di tutti gli elementi dichiarato dalla card
-    `*ELEMENT` ed e' quello che le regioni partizionano.
+    `regioni` e' la sesta, della Fase 8 (#135): la mappa da nome di regione ai
+    suoi elementi e al suo materiale, `(indici, Material)`, di norma quella che
+    `core/attribuzione.py` misura e che la pipeline completa col materiale
+    della sezione. Senza di essa il deck ha la sola sezione su `elset`,
+    identica a prima -- ed e' cosi' che le corse gia' registrate restano
+    riproducibili. Con essa il deck scrive un `*ELSET` per regione, una
+    `*SOLID SECTION` per ciascuno e un `*MATERIAL` per nome distinto; `elset`
+    (`ALL_WALL`) non si rinomina e non si toglie, resta l'insieme di tutti gli
+    elementi dichiarato dalla card `*ELEMENT` ed e' quello che le regioni
+    partizionano.
 
-    Tutte le sezioni citano `material`, il materiale unico della corsa: qui
-    arriva un `Material` solo, e un materiale per regione chiede di decidere
-    quale dei tre dichiarati in `SezioneConfig` valga per il continuo -- una
-    decisione che non appartiene a questa funzione.
+    Gli indici e il materiale insieme e non due dizionari a chiavi uguali: due
+    strutture da tenere allineate a mano sono il modo in cui la classe di
+    difetto torna, e una regione senza il proprio materiale ricadrebbe in
+    silenzio su quello unico della corsa -- cioe' proprio il deck monomaterico
+    che dichiarare le regioni serve a non produrre.
+
+    Il materiale delle regioni e' il **calcestruzzo confinato** della loro
+    sezione, e il deck lo dichiara: vedi `CONTINUO_CONFINATO`. Gli orfani
+    restano su `material`, il materiale unico della corsa (#145).
 
     Il resoconto (forza effettiva, nodi, e per CARICO_TOP anche
     `nodi_ad_area_nulla`) e' il valore di ritorno di questa funzione, chiave
@@ -355,7 +412,7 @@ def write_inp(
                 "superfici dichiarate: un deck così viene rifiutato dal solutore "
                 "solo alla lettura, e questo errore arriva prima"
             )
-    for nome_regione, indici_regione in (regioni or {}).items():
+    for nome_regione, (indici_regione, _) in (regioni or {}).items():
         # Prima che si scriva una riga: un *ELSET vuoto non ferma `ccx`, che
         # risolve un modello in cui quella sezione semplicemente non c'e'.
         if len(np.asarray(indici_regione)) == 0:
@@ -472,25 +529,40 @@ def write_inp(
     # niente a nessuno. Sta **prima** delle regioni perche' e' il ripiego: chi
     # ha una regione la sovrascrive.
     attribuiti = np.zeros(len(elements), dtype=bool)
-    for nome_regione, indici_regione in (regioni or {}).items():
+    if regioni:
+        # Sopra gli *ELSET che spiega, e solo quando le regioni ci sono: senza
+        # di esse il deck non ha nulla da dichiarare ed e' quello di prima.
+        lines.append(f"** {CONTINUO_CONFINATO}")
+    for nome_regione, (indici_regione, _) in (regioni or {}).items():
         indici_regione = np.asarray(indici_regione, dtype=np.int64)
         attribuiti[indici_regione] = True
         lines.append(f"*ELSET, ELSET={nome_regione}")
         lines += _set_lines(indici_regione)
+    citati = [
+        (f"la regione '{nome_regione}'", materiale)
+        for nome_regione, (_, materiale) in (regioni or {}).items()
+    ]
     if not attribuiti.all():
         lines.append(f"*SOLID SECTION, ELSET={elset}, MATERIAL={material.name}")
+        # In testa perche' la sua sezione e' la prima, e il ripiego deve poter
+        # essere sovrascritto da chi ha una regione.
+        citati.insert(0, ("il materiale della corsa", material))
     lines += [
-        *(
-            f"*SOLID SECTION, ELSET={nome_regione}, MATERIAL={material.name}"
-            for nome_regione in (regioni or {})
-        ),
-        f"*MATERIAL, NAME={material.name}",
-        "*ELASTIC",
-        f"{material.young}, {material.poisson}",
-        "*DENSITY",
-        f"{material.density:.9g}",
-        "*BOUNDARY",
+        f"*SOLID SECTION, ELSET={nome_regione}, MATERIAL={materiale.name}"
+        for nome_regione, (_, materiale) in (regioni or {}).items()
     ]
+    # Solo i materiali che una sezione cita: senza orfani il materiale unico
+    # della corsa non e' scritto, per la stessa ragione per cui non e' scritta
+    # la sua sezione -- una card che non attribuisce niente a nessuno.
+    for materiale in _materiali_del_deck(citati):
+        lines += [
+            f"*MATERIAL, NAME={materiale.name}",
+            "*ELASTIC",
+            f"{materiale.young}, {materiale.poisson}",
+            "*DENSITY",
+            f"{materiale.density:.9g}",
+        ]
+    lines.append("*BOUNDARY")
     if fixed_nset is not None:
         lines += [f"{fixed_nset}, 1, 3"]
 
@@ -1752,13 +1824,13 @@ def export_model(
     pressure: tuple[str, float] | None = None,
     carichi: CarichiConfig | None = None,
     selettori: dict[str, Selettore] | None = None,
-    regioni: dict[str, np.ndarray] | None = None,
+    regioni: dict[str, tuple[np.ndarray, Material]] | None = None,
 ) -> dict[str, object]:
     """Step 11: allinea, costruisce i set, scrive il deck e il file di visualizzazione.
 
-    `regioni` sono gli indici degli elementi di ciascuna regione, misurati da
-    `core/attribuzione.py` e passati di qui a `write_inp`. Gli indici e non le
-    coordinate: `align_to_axes` sposta i nodi e non l'ordine degli elementi,
+    `regioni` sono gli elementi di ciascuna regione col materiale della sua
+    sezione, misurati da `core/attribuzione.py` e passati di qui a `write_inp`.
+    Gli indici e non le coordinate: `align_to_axes` sposta i nodi e non l'ordine degli elementi,
     quindi l'attribuzione si misura fuori di qui, sui nodi non allineati che
     la pipeline ha in mano e nello stesso riferimento in cui il prior misura.
 
