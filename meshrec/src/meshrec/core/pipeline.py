@@ -322,6 +322,197 @@ def genera_modello(cfg: PipelineConfig, tipo: str, out_dir: Path) -> dict[str, o
     return esito
 
 
+_CHIAVI_DELL_ESPORTAZIONE = (
+    "element_type", "casi_di_carico", "constraint_plan_extent", "transform"
+)
+
+
+def _misure_dell_esportazione(out: Path) -> dict[str, object]:
+    """Le misure dello step 11 rilette da `metrics.json`, o il rifiuto.
+
+    Lo step 13 non le sa ricalcolare: il tipo di elemento, l'ordine dei casi di
+    carico scritti nel deck, l'estensione in pianta del vincolo e la 4x4 con cui
+    i nodi sono stati allineati sono cio' che `abaqus.export_model` ha fatto
+    davvero, e l'unica copia sta li'. Ognuno dei tre modi di non averle -- il
+    file assente, il file troncato, la chiave mancante -- nomina lo step 11,
+    perche' e' quello da rieseguire in tutti e tre.
+    """
+    percorso = out / METRICS_FILENAME
+    if not percorso.exists():
+        raise ValueError(
+            f"lo step 13 pretende le misure dello step 11, che stanno in "
+            f"{METRICS_FILENAME}, e questa corsa non ce l'ha. Esegui lo step 11"
+        )
+    try:
+        letto = json.loads(percorso.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as errore:
+        # ValueError e non json.JSONDecodeError, per la ragione gia' scritta
+        # nella coda di run(): il file si legge prima di essere interpretato, e
+        # un byte non UTF-8 solleva UnicodeDecodeError, che JSONDecodeError non
+        # copre.
+        raise ValueError(
+            f"lo step 13 pretende le misure dello step 11, e {METRICS_FILENAME} "
+            f"esiste ma non si legge ({errore}). Riesegui lo step 11"
+        ) from errore
+    esportazione = letto.get("11_export") if isinstance(letto, dict) else None
+    if not isinstance(esportazione, dict):
+        raise ValueError(
+            f"{METRICS_FILENAME} non porta le misure dello step 11 (chiave "
+            "'11_export'): questa corsa non è arrivata al deck. Esegui lo step 11"
+        )
+    mancanti = [chiave for chiave in _CHIAVI_DELL_ESPORTAZIONE if chiave not in esportazione]
+    if mancanti:
+        raise ValueError(
+            f"le misure dello step 11 in {METRICS_FILENAME} non portano "
+            f"{', '.join(mancanti)}: sono di una versione precedente del deck. "
+            "Riesegui lo step 11"
+        )
+    return esportazione
+
+
+def _maglio_di_volume(percorso: Path) -> tuple[np.ndarray, np.ndarray]:
+    """Nodi e celle del maglio dello step 9, riletti dal proprio artefatto.
+
+    Il blocco si prende per unicita' e non per nome. Il nome sarebbe quello di
+    meshio ('tetra10'), mentre `metrics["11_export"]["element_type"]` porta
+    quello di Abaqus ('C3D10'): sono due vocabolari per la stessa cosa, e
+    cercare l'uno con l'altro non trova niente. `abaqus.write_vtu` scrive un
+    solo blocco, quindi «l'unico» e' una chiave che non ha bisogno di
+    traduzione. Un file che di blocchi ne porta un numero diverso da uno si
+    dichiara qui e diventa il ramo «esiste ma non si legge» di
+    `_ingresso_di_ripresa`, che e' il chiamante.
+    """
+    import meshio
+
+    griglia = meshio.read(percorso)
+    tipi = sorted(griglia.cells_dict)
+    if len(tipi) != 1:
+        raise ValueError(
+            f"porta {len(tipi)} blocchi di celle ({tipi}) invece del solo maglio di "
+            "volume che lo step 9 scrive"
+        )
+    return (
+        np.ascontiguousarray(griglia.points, dtype=np.float64),
+        np.ascontiguousarray(griglia.cells_dict[tipi[0]]),
+    )
+
+
+def _step_solutore(
+    out: Path,
+    cfg: PipelineConfig,
+    nodes: np.ndarray,
+    tets: np.ndarray,
+    esportazione: dict[str, object],
+) -> dict[str, object]:
+    """Step 13: il solutore sul deck dello step 11.
+
+    Sta in una funzione propria e non dentro `run()` per la ragione di
+    `calcola_prior`: ha due chiamanti, la corsa che lo chiede con `to_step=13` e
+    il comando `meshrec solve`, e una seconda copia della mappatura fra le
+    misure dello step 11 e gli argomenti di `solve.risolvi` sarebbe una seconda
+    cosa da tenere allineata.
+
+    Il solutore legge il deck dello step 11, non una sua copia: se il deck e'
+    quello che l'analisi risolve, allora e' quello che il report descrive e
+    quello di cui il registro porta l'impronta. Le etichette dei casi
+    (`casi_di_carico`) vengono dalla stessa riga: e' l'ordine che `export_model`
+    ha scritto davvero nel deck, non una sua ricostruzione.
+    """
+    return solve.risolvi(
+        out,
+        out / DECK_FILENAME,
+        cfg.analisi_dichiarata("lo step 13"),
+        nodes,
+        tets,
+        esportazione["element_type"],
+        casi_di_carico=esportazione["casi_di_carico"],
+        # Gia' calcolato allo step 11 (abaqus.constraint_plan_extent): risolvi
+        # non ha i node_sets per ricalcolarlo, una sola origine.
+        vincolo_in_pianta=esportazione["constraint_plan_extent"],
+        # `nodes` non e' allineato agli assi (export_model allinea internamente
+        # e non restituisce i nodi allineati), mentre i campi che risolvi legge
+        # dal .frd vengono dal deck allineato: la 4x4 dello step 11 e' cio' che
+        # permette di scriverli nello stesso telaio dei punti del .vtu.
+        trasformata=esportazione["transform"],
+        # Quale motore, e dove trovarlo. Senza, la scelta scritta in
+        # `solutore` non arrivava a chi risolve e ogni corsa usava CalculiX dal
+        # PATH qualunque cosa la configurazione dichiarasse.
+        solutore=cfg.solutore,
+    )
+
+
+def risolvi_corsa(cfg: PipelineConfig) -> dict[str, object]:
+    """Esegue il solo step 13 sugli artefatti gia' presenti nella corsa.
+
+    Gemella di `calcola_prior`, e per la stessa ragione: lo step 13 e'
+    un'AZIONE e non una ripresa. La ripresa (`cfg.run.from_step`) esiste per
+    saltare lavoro geometrico costoso gia' fatto, e si ferma a 9; qui non c'e'
+    niente da saltare, ci sono artefatti da rileggere -- il deck dello step 11 e
+    il maglio dello step 9 -- e un processo esterno da lanciare su di essi.
+    Alzare il tetto di `from_step` fino a 13 sarebbe la strada sbagliata: la
+    coda di `run()` dallo step 9 in giu' non ha guardie `if start <= n`, quindi
+    una «ripresa da 13» rifarebbe volume, metriche, deck e prior invece di
+    risolvere soltanto.
+
+    Le metriche finiscono dove le scrive `run` (`metrics.json`, fuse con quelle
+    gia' presenti) e lo stato dove lo scriverebbe una corsa (`steps.json`),
+    fallimento compreso: chi guarda la colonna deve vedere che il tredici e'
+    fallito, non che non e' mai partito.
+    """
+    out = Path(cfg.run.out_dir)
+    impronta = steps.step_fingerprints(cfg)[13]
+    avvio = time.monotonic()
+    try:
+        esportazione = _misure_dell_esportazione(out)
+        nodes, tets = _ingresso_di_ripresa(13, 9, out, _maglio_di_volume)
+        esito = _step_solutore(out, cfg, nodes, tets, esportazione)
+    except BaseException:
+        # Stessa scelta di run(): la traccia resta e l'errore risale intatto.
+        steps.write_state(out, 13, impronta, "fallito", None, 0.0)
+        raise
+    steps.write_state(
+        out, 13, impronta, "riuscito",
+        ARTIFACTS[13] if esito["eseguito"] else None,
+        time.monotonic() - avvio,
+    )
+    _unisci_metriche(out, {"13_solve": esito})
+    return esito
+
+
+def _unisci_metriche(out: Path, misure: dict[str, object]) -> dict[str, object]:
+    """Fonde `misure` con il `metrics.json` gia' sul disco e riscrive il file.
+
+    L'interfaccia esegue uno step per volta: se ognuno sostituisse
+    `metrics.json`, il pannello delle metriche perderebbe tutto cio' che sta a
+    monte dello step aperto.
+    """
+    precedenti: dict[str, object] = {}
+    if (out / METRICS_FILENAME).exists():
+        try:
+            with (out / METRICS_FILENAME).open(encoding="utf-8") as handle:
+                letto = json.load(handle)
+            precedenti = letto if isinstance(letto, dict) else {}
+        except (OSError, ValueError):
+            # Un metrics.json illeggibile non fa fallire una corsa riuscita:
+            # si riparte da quello che questa corsa ha misurato.
+            #
+            # ValueError e non json.JSONDecodeError, che ne e' una sottoclasse e
+            # lascia scoperto UnicodeDecodeError -- sollevato dalla lettura del
+            # file, prima del parse, su un byte non UTF-8. Qui la guardia esiste
+            # proprio perche' una corsa RIUSCITA non deve fallire sulla
+            # rilettura di cio' che c'era prima, e scritta stretta faceva
+            # esattamente quello che era li' a impedire.
+            precedenti = {}
+    unite = dict(sorted({**precedenti, **misure}.items()))
+    io.scrivi_atomico(
+        out / METRICS_FILENAME,
+        lambda destinazione: destinazione.write_text(
+            json.dumps(unite, indent=2, default=float, ensure_ascii=False), encoding="utf-8"
+        ),
+    )
+    return unite
+
+
 def run(cfg: PipelineConfig) -> dict[str, object]:
     """Esegue la pipeline e restituisce le metriche di ogni step.
 
@@ -566,25 +757,10 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
 
         in_corso = 13
         avvio = time.monotonic()
-        # Il solutore legge il deck dello step 11, non una sua copia: se il
-        # deck e' quello che l'analisi risolve, allora e' quello che il report
-        # descrive e quello di cui il registro porta l'impronta. Le etichette
-        # dei casi (casi_di_carico) vengono dalla stessa riga: e' l'ordine che
-        # export_model ha scritto davvero nel deck, non una sua ricostruzione.
-        metrics["13_solve"] = solve.risolvi(
-            out, out / DECK_FILENAME, cfg.analisi_dichiarata("lo step 13"), nodes, tets,
-            metrics["11_export"]["element_type"],
-            casi_di_carico=metrics["11_export"]["casi_di_carico"],
-            # Gia' calcolato allo step 11 (abaqus.constraint_plan_extent):
-            # risolvi non ha i node_sets per ricalcolarlo, una sola origine.
-            vincolo_in_pianta=metrics["11_export"]["constraint_plan_extent"],
-            # `nodes` qui non e' allineato agli assi (export_model allinea
-            # internamente e non restituisce i nodi allineati), mentre i campi
-            # che risolvi legge dal .frd vengono dal deck allineato: la 4x4
-            # dello step 11 e' cio' che permette di scriverli nello stesso
-            # telaio dei punti del .vtu.
-            trasformata=metrics["11_export"]["transform"],
-        )
+        # La stessa funzione che il comando `meshrec solve` chiama sugli
+        # artefatti gia' presenti: una sola mappatura fra le misure dello step
+        # 11 e gli argomenti del solutore.
+        metrics["13_solve"] = _step_solutore(out, cfg, nodes, tets, metrics["11_export"])
         registra(13, avvio, ARTIFACTS[13] if metrics["13_solve"]["eseguito"] else None)
     except _FermataRichiesta:
         # Fermata su richiesta: gli step chiesti sono stati eseguiti e il
@@ -616,29 +792,6 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
         (out / METRICS_PARTIAL).replace(out / METRICS_FILENAME)
         return metrics
 
-    precedenti: dict[str, object] = {}
-    if (out / METRICS_FILENAME).exists():
-        try:
-            with (out / METRICS_FILENAME).open(encoding="utf-8") as handle:
-                letto = json.load(handle)
-            precedenti = letto if isinstance(letto, dict) else {}
-        except (OSError, ValueError):
-            # Un metrics.json illeggibile non fa fallire una corsa riuscita:
-            # si riparte da quello che questa corsa ha misurato.
-            #
-            # ValueError e non json.JSONDecodeError, che ne e' una sottoclasse e
-            # lascia scoperto UnicodeDecodeError -- sollevato dalla lettura del
-            # file, prima del parse, su un byte non UTF-8. Qui la guardia esiste
-            # proprio perche' una corsa RIUSCITA non deve fallire sulla
-            # rilettura di cio' che c'era prima, e scritta stretta faceva
-            # esattamente quello che era li' a impedire.
-            precedenti = {}
-    unite = dict(sorted({**precedenti, **metrics}.items()))
-    io.scrivi_atomico(
-        out / METRICS_FILENAME,
-        lambda destinazione: destinazione.write_text(
-            json.dumps(unite, indent=2, default=float, ensure_ascii=False), encoding="utf-8"
-        ),
-    )
+    unite = _unisci_metriche(out, metrics)
     (out / METRICS_PARTIAL).unlink(missing_ok=True)
     return unite
