@@ -331,16 +331,16 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
     cartella, non biforcazioni di questa funzione.
 
     Dalla Fase 5 c'e' un tredicesimo step, il solutore: legge il deck che lo
-    step 11 ha scritto e vi applica `ccx`. E' parte del nucleo che questa
-    funzione esegue per difetto -- `RunConfig.to_step` e' predefinito a 13 --
-    per una decisione dell'utente presa all'apertura della fase: ogni corsa
-    risolve e scrive spostamenti e tensioni accanto alle altre metriche, non
-    e' un'azione a parte da richiedere. Resta pero' l'unico step che paga un
-    processo esterno vero anziche' lavoro in-process: chi elabora molti
-    candidati (lo sweep) non deve pagarlo per ciascuno, e per questo
-    `sweep.run_candidate` chiede esplicitamente `--to-step 12` al
-    sottoprocesso invece di ereditare questo predefinito (vedi `sweep.py`,
-    che per la stessa ragione non lo richiede in `REQUIRED_STEPS`).
+    step 11 ha scritto e vi applica `ccx`. NON e' parte del nucleo che questa
+    funzione esegue per difetto: dalla Fase 8 (#140) `RunConfig.to_step` e'
+    predefinito a 12, perche' il solutore vive in una schermata dedicata e si
+    invoca da li'. Chi lo chiede esplicitamente lo ottiene -- il tetto resta
+    13 -- ma nessuna corsa di pipeline lo paga senza averlo chiesto. E' del
+    resto l'unico step che paga un processo esterno vero anziche' lavoro
+    in-process: chi elabora molti candidati (lo sweep) non deve pagarlo per
+    ciascuno, e per questo `sweep.run_candidate` chiede comunque `--to-step 12`
+    esplicito al sottoprocesso invece di ereditare questo predefinito (vedi
+    `sweep.py`, che per la stessa ragione non lo richiede in `REQUIRED_STEPS`).
 
     `cfg.run.from_step` salta gli step precedenti e ricarica dal disco
     l'artefatto numerato che precede quello di ripartenza, secondo le tabelle
@@ -380,8 +380,8 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
     # True, senza un numero da tenere sincronizzato a mano con cfg.run.to_step
     # altrove. Lo step 13 (solutore) e' un'azione in piu' che non ridefinisce
     # questa completezza: una corsa fermata a 12 (sweep, to_step=12 esplicito)
-    # e una arrivata a 13 (predefinito) sono ugualmente complete per questo
-    # flag -- la differenza fra le due e' se ha anche una soluzione.
+    # e una arrivata a 13 (richiesta esplicitamente) sono ugualmente complete
+    # per questo flag -- la differenza fra le due e' se ha anche una soluzione.
     pipeline_completa = False
 
     def registra(numero: int, avvio: float, artefatto: str | None) -> None:

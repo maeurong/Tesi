@@ -55,6 +55,58 @@ def _mappa_casefold(nomi: Iterable[str]) -> dict[str, str]:
     return {nome.casefold(): nome for nome in nomi}
 
 
+def _nomi_senza_collisioni(
+    nomi: Iterable[str],
+    soggetto: str,
+    plurale: str,
+    tipo_di_set: str,
+    fabbricati: Iterable[str],
+) -> None:
+    """Rifiuta i nomi dell'operatore che il deck confonderebbe fra loro o coi propri.
+
+    Nel deck c'e' un solo spazio di nomi per tipo di insieme, e `ccx` lo
+    risolve senza distinguere le maiuscole (misurato in
+    `docs/fase-6-cantiere/sonda-caso-nomi/README.md`): due chiavi distinte in
+    un dizionario python possono essere un solo nome nel file.
+
+    Estratta perche' e' la seconda famiglia di nomi che la segue -- i selettori
+    (`*NSET`) e le regioni (`*ELSET`) -- e due copie della stessa regola sono
+    due copie che possono divergere. E' la stessa ragione per cui
+    `_mappa_casefold` esiste, un livello piu' in su.
+
+    `fabbricati` sono i nomi che il deck si costruisce da se' **di quel tipo di
+    insieme**, e sono un parametro e non la costante dei sei: i sei sono
+    `*NSET` e una regione e' un `*ELSET`, cioe' due spazi di nomi distinti.
+    Confrontare entrambe le famiglie con i sei rifiutava la regione `BASE`, che
+    non collide con niente, e accettava la regione `ALL_WALL`, che collide con
+    l'insieme che le regioni partizionano.
+
+    `soggetto` e `plurale` portano l'articolo con se' ("il selettore", "le
+    regioni"): il genere cambia fra le due famiglie, e un articolo fisso nel
+    formato produceva «il regione», che si vede a video.
+    """
+    casi_fabbricati = _mappa_casefold(fabbricati)
+    visti: dict[str, str] = {}
+    for nome in nomi:
+        chiave = nome.casefold()
+        if chiave in casi_fabbricati:
+            raise ValueError(
+                f"{soggetto} {nome!r} collide, ignorando le maiuscole, con "
+                f"l'insieme {casi_fabbricati[chiave]!r} che il deck fabbrica da "
+                "sé: nel deck c'è un solo spazio di nomi per tipo di insieme, "
+                "case-insensitive (vedi "
+                "docs/fase-6-cantiere/sonda-caso-nomi/README.md), e il "
+                f"{tipo_di_set} dell'operatore lo sovrascriverebbe"
+            )
+        if chiave in visti:
+            raise ValueError(
+                f"{plurale} {visti[chiave]!r} e {nome!r} differiscono solo per "
+                "maiuscole: nel deck sono lo stesso nome, case-insensitive "
+                "(vedi docs/fase-6-cantiere/sonda-caso-nomi/README.md)"
+            )
+        visti[chiave] = nome
+
+
 class _ModelloBase(BaseModel):
     """Base comune a ogni modello del file: rifiuta infinito e NaN nei campi decimali.
 
@@ -257,6 +309,24 @@ class TetConfig(_ModelloBase):
     )
 
 
+# La natura di un'azione, che decide quale coefficiente parziale e quale
+# coefficiente di combinazione le spetta (#146, NTC 2018 Tab. 2.6.I). Non e' un
+# attributo del carico in se': la stessa forza e' permanente su una struttura e
+# variabile su un'altra, quindi la dichiara chi analizza e non la deduce il
+# programma.
+Natura = Literal["permanente_strutturale", "permanente_non_strutturale", "variabile"]
+
+# La descrizione che le quattro azioni mostrano nel pannello accanto al campo
+# `natura`. In una costante e non ricopiata quattro volte: e' testo che
+# l'utente legge, e quattro copie sono quattro cose da tenere allineate a mano.
+DESCRIZIONE_NATURA = (
+    "natura dell'azione ai fini delle combinazioni (#146). Il predefinito "
+    "è None e non una natura plausibile: «non dichiarata» è uno stato che "
+    "il generatore delle combinazioni legge per rifiutarsi, perché senza "
+    "la natura nessun coefficiente parziale può scegliersi da solo"
+)
+
+
 class SpintaOrizzontale(_ModelloBase):
     """Forza di massa orizzontale, come frazione dell'accelerazione di gravita.
 
@@ -276,6 +346,7 @@ class SpintaOrizzontale(_ModelloBase):
     asse: Literal["x", "y"] = Field(
         description="asse orizzontale del modello lungo cui la spinta agisce"
     )
+    natura: Natura | None = Field(default=None, description=DESCRIZIONE_NATURA)
 
 
 class CaricoSommita(_ModelloBase):
@@ -292,6 +363,7 @@ class CaricoSommita(_ModelloBase):
         gt=0.0, description="risultante in N, ripartita per area tributaria sui nodi"
     )
     nset: NomeSetDiFaccia = Field(description="insieme di nodi su cui ripartire, di norma TOP")
+    natura: Natura | None = Field(default=None, description=DESCRIZIONE_NATURA)
 
 
 class Modale(_ModelloBase):
@@ -416,6 +488,73 @@ class AnalysisConfig(_ModelloBase):
         return self
 
 
+class SolutoreConfig(_ModelloBase):
+    """Quale motore risolve lo step 13, e dove sta il suo eseguibile (#139).
+
+    Fuori dall'impronta per esclusione **secca** (`sweep.BLOCCHI_FUORI_IMPRONTA`):
+    il motore e il percorso del suo binario non cambiano ne' il maglio ne' il
+    deck, e sono una proprieta' della macchina che esegue, non
+    dell'esperimento. Due corse identiche risolte da due motori diversi restano
+    lo stesso esperimento, e devono finire nella stessa cartella.
+
+    E' anche la ragione per cui `nome` puo' avere un predefinito **truthy**:
+    dentro l'esclusione condizionata (`BLOCCHI_VUOTI_FUORI_IMPRONTA`) una
+    stringa non vuota renderebbe il blocco sempre non vuoto, l'omissione non
+    scatterebbe mai e le ventidue righe dei registri si muoverebbero.
+    """
+
+    # `title` e' l'etichetta che il pannello mostra al posto della chiave
+    # (PRODUCT.md: una chiave non si stampa mai, si stampa la sua etichetta).
+    # Senza, l'utente dello step 13 leggeva «nome» e «percorso»: nome di che
+    # cosa.
+    nome: Literal["calculix", "opensees"] = Field(
+        default="calculix",
+        title="motore di calcolo",
+        description=(
+            "motore di calcolo dello step 13. Enumerazione chiusa e non testo "
+            "libero: un nome che nessuno scrittore di deck conosce fallirebbe "
+            "soltanto allo step 13, cioè dopo l'intera elaborazione"
+        ),
+    )
+    percorso: Path | None = Field(
+        default=None,
+        title="percorso dell'eseguibile",
+        description=(
+            "percorso dell'eseguibile. Solo None dichiara «cercalo nel PATH», "
+            "che è il caso normale di una macchina dove il solutore è "
+            "installato a sistema: la stringa vuota non è quella dichiarazione, "
+            "è la cartella corrente, ed è rifiutata insieme a ogni directory "
+            "esistente. Un file che ancora non c'è passa: dire che il binario "
+            "manca spetta al passo che lo esegue, non a questa configurazione"
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _il_percorso_non_e_una_cartella(self) -> "SolutoreConfig":
+        """Questo campo sceglie il binario che verra' eseguito.
+
+        Il ramo del solutore lo consuma in un `subprocess.run` con lista di
+        argomenti, quindi nessuna shell lo interpreta -- ma un `config.yaml`
+        copiato da altri, o una `PUT /api/config`, sceglie comunque quale
+        programma parte. I due modi in cui la scelta e' muta si vedono da qui e
+        si chiudono da qui; che il file esista e funzioni no, e resta di
+        `solve.verifica`, che lo dichiara invece di ripiegare in silenzio.
+
+        Una sola guardia per due ingressi: `Path("")` e' `Path(".")`, quindi la
+        stringa vuota -- che sembra «non dichiarato» e invece e' la cartella
+        corrente -- cade nello stesso controllo della directory esistente. Un
+        percorso che non esiste non e' una directory e passa.
+        """
+        if self.percorso is not None and self.percorso.is_dir():
+            raise ValueError(
+                f"solutore.percorso '{self.percorso}' è una directory e non un "
+                "eseguibile. La stringa vuota finisce qui: vale la cartella "
+                "corrente, non «non dichiarato». Per «cercalo nel PATH» il "
+                "valore è None, cioè la chiave omessa"
+            )
+        return self
+
+
 class RunConfig(_ModelloBase):
     """Esecuzione: percorsi e ripresa."""
 
@@ -440,28 +579,29 @@ class RunConfig(_ModelloBase):
         ),
     )
     to_step: int = Field(
-        default=13,
+        default=12,
         ge=1,
         le=13,
         description=(
             "ultimo step eseguito. Serve all'interfaccia, che esegue uno step "
             "alla volta: from_step e to_step uguali eseguono soltanto quello. "
-            "Il tetto è 13 dalla Fase 5 e il predefinito coincide con esso: "
-            "l'utente ha scelto esplicitamente che ogni corsa risolva e "
-            "scriva spostamenti e tensioni accanto alle altre metriche, non "
-            "che il solutore sia un extra da chiedere (scartata l'opzione "
-            "«step opzionale acceso dalla configurazione»). "
-            "Lo step 13 resta però diverso dagli altri: è l'unico che paga "
+            "Il tetto è 13 dalla Fase 5, ma il predefinito è 12 e non coincide "
+            "più con esso: dalla Fase 8 (#140) il solutore vive in una "
+            "schermata dedicata, quindi una corsa di pipeline chiude con il "
+            "prior geometrico e lo step 13 si invoca da lì. Chi lo chiede "
+            "esplicitamente lo ottiene ancora -- la capacità non si perde, "
+            "smette solo di essere ciò che accade senza chiederlo. "
+            "Lo step 13 è del resto diverso dagli altri: è l'unico che paga "
             "un processo esterno vero (ccx) invece di lavoro in-process, e "
             "chi lo invoca su molti candidati -- uno sweep -- paga quel "
             "processo e i suoi artefatti per ciascuno, senza che la "
             "selezione se ne serva: misurati sull'unica corsa vera "
             "(runs/lab_telaio_v2), .frd 81 MiB, .vtu 8,2 MiB e .dat 4,3 MiB, "
-            "cioè 93,6 MiB per candidato. Questa è la "
-            "ragione per cui sweep.py chiede esplicitamente to_step=12 al "
-            "sottoprocesso invece di ereditare questo predefinito, e per cui "
-            "REQUIRED_STEPS in sweep.py non lo richiede: è una decisione del "
-            "chiamante, non del predefinito del prodotto. "
+            "cioè 93,6 MiB per candidato. sweep.py chiede comunque to_step=12 "
+            "esplicito al sottoprocesso invece di ereditare questo "
+            "predefinito, e REQUIRED_STEPS in sweep.py non lo richiede: è una "
+            "decisione del chiamante, che non deve dipendere da come il "
+            "predefinito cambia. "
             "from_step resta fermo a 9 e non segue questo tetto, per la "
             "ragione scritta là. "
             "Con validate_assignment attivo il validatore incrociato rifiuta "
@@ -764,6 +904,18 @@ NOMI_SET_DI_FACCIA: tuple[str, ...] = (
     "BASE", "TOP", "FACE_FRONT", "FACE_BACK", "SIDE_LEFT", "SIDE_RIGHT",
 )
 
+# L'unico `*ELSET` che il deck fabbrica da se': il parametro `elset` di
+# `abaqus.write_inp`, che vale "ALL_WALL" e finisce sia sulla card `*ELEMENT`
+# sia sulla `*SOLID SECTION`. E' l'insieme che le regioni partizionano, quindi
+# una regione omonima farebbe prendere alla `*SOLID SECTION` la partizione
+# sbagliata e il muro intero riceverebbe il materiale di quella regione.
+#
+# Sta in una costante propria e non insieme ai sei perche' e' un tipo di
+# insieme diverso: i sei sono `*NSET`, questo e' un `*ELSET`, e nel deck sono
+# due spazi di nomi distinti. Confrontare una famiglia con i nomi fabbricati
+# dell'altra rifiuta il nome innocuo e lascia passare quello che collide.
+NOMI_ELSET_FABBRICATI: tuple[str, ...] = ("ALL_WALL",)
+
 
 class SelettoreBox(_ModelloBase):
     """Tutti i nodi dentro un parallelepipedo allineato agli assi del modello.
@@ -879,6 +1031,7 @@ class CaricoPosizionato(_ModelloBase):
         default=None, description="risultante [N], ripartita per area sui nodi presi"
     )
     momento: Momento | None = None
+    natura: Natura | None = Field(default=None, description=DESCRIZIONE_NATURA)
 
     @model_validator(mode="after")
     def _o_forza_o_momento(self) -> "CaricoPosizionato":
@@ -931,6 +1084,7 @@ class CaricoDistribuito(_ModelloBase):
     pressione: float = Field(
         description="pressione [N/mm²] normale alla faccia; positiva preme dentro"
     )
+    natura: Natura | None = Field(default=None, description=DESCRIZIONE_NATURA)
 
     @model_validator(mode="after")
     def _la_pressione_non_e_nulla(self) -> "CaricoDistribuito":
@@ -940,6 +1094,53 @@ class CaricoDistribuito(_ModelloBase):
                 "statico identico al peso proprio, con un nome che promette altro"
             )
         return self
+
+
+class Combinazione(_ModelloBase):
+    """Una combinazione di azioni, proposta dal programma o corretta a mano (#146).
+
+    `proposta` distingue le due cose, ed e' la ragione per cui il campo esiste:
+    il programma non puo' sapere la categoria d'uso di un edificio rilevato, e
+    generare senza chiedere sarebbe indovinare. Propone, l'operatore corregge,
+    e il flag dice quali voci nessuno ha ancora guardato.
+    """
+
+    nome: NomeSet = Field(
+        description=(
+            "nome del passo nel deck. Stesso vincolo di caratteri degli altri "
+            "nomi: finisce interpolato in un file scritto in ascii"
+        ),
+    )
+    tipo: Literal[
+        "slu_fondamentale",
+        "sle_rara",
+        "sle_frequente",
+        "sle_quasi_permanente",
+        "sismica",
+    ] = Field(description="stato limite della combinazione, NTC 2018 §2.5.3")
+    termini: tuple[tuple[NomeSet, float], ...] = Field(
+        min_length=1,
+        description=(
+            "le azioni combinate e il loro coefficiente: (nome dell'azione, "
+            "coefficiente). Il nome dell'azione è il `nome` di un carico "
+            "dichiarato, oppure una delle etichette riservate "
+            f"({', '.join(NOMI_PASSO_RISERVATI)}) e il nome del passo di peso "
+            "proprio, che sono passi che il programma fabbrica da sé e che "
+            "nessun carico dichiara. Stesso vincolo di caratteri di `nome`, e "
+            "per la stessa ragione: il termine è l'altra metà della riga di "
+            "deck, e un a capo dentro il nome vi aprirebbe una scheda `*` "
+            "arbitraria. Almeno un termine: uno `*STEP` senza azioni risolve e "
+            "dà spostamenti nulli, indistinguibili da una struttura scarica. "
+            "L'ordine è quello con cui i termini entrano nel deck"
+        ),
+    )
+    proposta: bool = Field(
+        description=(
+            "True = generata dal programma e non ancora toccata dall'operatore. "
+            "Nessun predefinito: chi scrive una combinazione a mano deve dire "
+            "che è sua, e chi la genera deve dire che è da rivedere"
+        ),
+    )
 
 
 class CarichiConfig(_ModelloBase):
@@ -974,6 +1175,212 @@ class CarichiConfig(_ModelloBase):
             "dei posizionati"
         ),
     )
+    combinazioni: tuple[Combinazione, ...] = Field(
+        default=(),
+        description=(
+            "le combinazioni delle azioni dichiarate. Tupla vuota e non None, e "
+            "vuota è anche l'unico predefinito ammesso: `carichi` esce "
+            "dall'impronta solo quando ogni suo campo di primo livello è falso, e "
+            "un predefinito truthy qui sposterebbe le ventidue righe dei registri "
+            "lasciando verde il test dei blocchi"
+        ),
+    )
+
+
+class MaterialeDichiarato(_ModelloBase):
+    """Il materiale di una regione, con cio' che dichiara di se' (#141).
+
+    Sta qui e non dentro `Material`, che e' congelato: un campo nuovo la'
+    sposterebbe l'impronta di tutte le ventidue righe dei registri, perche'
+    `analysis` non e' fra i blocchi esclusi. Il modello congelato viene riusato
+    intero e il resto -- resistenza, provenienza, norma -- gli sta accanto.
+
+    **Non c'e' un campo `veste`, ed e' una decisione e non una dimenticanza.**
+    La proposta di dichiarare se un valore fosse «caratteristico» o «gia'
+    ridotto» apriva la strada a una doppia riduzione o a nessuna, senza che
+    nulla se ne accorgesse. #141 vale senza eccezioni: le voci sono **sempre**
+    caratteristiche, e i valori di progetto li deriva il programma applicando i
+    coefficienti di norma. Le parole «gia' ridotte» di #146 riguardano il
+    fattore di confidenza e il livello di conoscenza, che si applicano alla
+    muratura e non a un calcestruzzo.
+    """
+
+    material: Material = Field(
+        description="il modello elastico isotropo, dichiarato per intero come altrove"
+    )
+    f_k: float | None = Field(
+        default=None,
+        gt=0.0,
+        description=(
+            "resistenza CARATTERISTICA [MPa]: f_ck per un calcestruzzo, f_yk per "
+            "un acciaio. Mai un valore di progetto: i γ di norma li applica il "
+            "programma, e una voce già ridotta verrebbe ridotta due volte"
+        ),
+    )
+    provenienza: Literal["catalogo", "a_mano"] = Field(
+        description=(
+            "da dove viene questa voce: da una classe del catalogo dei materiali "
+            "oppure battuta a mano. Senza dichiararlo un numero non ha provenienza, "
+            "ed è la sola cosa che distingue un valore di norma da uno inventato"
+        ),
+    )
+    classe: str | None = Field(
+        default=None,
+        description=(
+            "la voce del catalogo, es. «C25/30» o «B450C», quando la provenienza "
+            "è `catalogo`. Assente per una voce battuta a mano, e obbligatoria "
+            "per una che viene dal catalogo: i due campi si dichiarano insieme"
+        ),
+    )
+    norma: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)] = Field(
+        description=(
+            "la norma con cui il valore è dichiarato, per articolo e non per "
+            "pagina di una dispensa: es. «NTC 2018 Tab. 4.1.I», la tabella che "
+            "porta i valori delle classi -- la 4.1.II dice invece dove una "
+            "classe si può impiegare. Non può essere vuota: è la sola cosa che "
+            "distingue un valore di norma da uno inventato, e vuota passerebbe "
+            "fino alla tabella di provenienza"
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _la_provenienza_e_la_classe_si_dichiarano_insieme(self) -> "MaterialeDichiarato":
+        """La provenienza dice da dove viene il numero, la classe dice quale voce.
+
+        Erano indipendenti: `provenienza='catalogo'` senza `classe` passava, e
+        `provenienza='a_mano'` con `classe` pure. La prima manda a cercare nel
+        catalogo una voce `None`; la seconda mette in tabella «da catalogo»
+        senza dire quale voce, che e' il difetto preciso che #141 esiste per
+        impedire.
+        """
+        if (self.provenienza == "catalogo") != (self.classe is not None):
+            raise ValueError(
+                f"provenienza='{self.provenienza}' e classe={self.classe!r} non "
+                "stanno insieme: una voce dal catalogo dichiara quale voce è, e "
+                "una battuta a mano non ne ha una. Senza, la tabella di "
+                "provenienza direbbe «da catalogo» senza dire di che cosa"
+            )
+        return self
+
+
+class ArmaturaConfig(_ModelloBase):
+    """I nove campi che l'operatore dichiara di un'armatura (#136).
+
+    Base e altezza NON stanno qui: vengono da `wall.misura`, e chiederle
+    disferebbe il programma -- la sezione si misura sulla nuvola, non si batte.
+
+    Nessun campo ha un predefinito, per la stessa ragione di `Material` e dei
+    casi di carico: sono grandezze che nessun dato del rilievo puo' suggerire.
+    Un copriferro predefinito sarebbe lo stesso errore del modulo elastico a
+    1500 MPa finito su un telaio in calcestruzzo senza che nessuno l'avesse
+    scelto.
+    """
+
+    classe_calcestruzzo: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1)
+    ] = Field(
+        description=(
+            "classe del calcestruzzo, es. «C25/30». Resta testo e non "
+            "enumerazione finché il catalogo dei materiali non esiste: "
+            "un'enumerazione scritta a mano qui sarebbe una seconda verità da "
+            "tenere allineata a quel catalogo. Vuota però non è una classe"
+        ),
+    )
+    classe_acciaio: Literal["B450A", "B450C"] = Field(
+        description="classe dell'acciaio da armatura, NTC 2018 §11.3.2.1-2",
+    )
+    barre_tese: int = Field(
+        ge=2,
+        description=(
+            "numero di barre longitudinali in zona tesa. Il minimo è due, non "
+            "una: una barra sola non è un'armatura "
+            "(docs/validazione/ricerca-armature-convenzioni-normative.md §7.1). "
+            "ISO 3766 §3 regge il nome del campo, «number», non il minimo di due"
+        ),
+    )
+    diametro_teso: int = Field(
+        gt=0,
+        description="diametro delle barre tese [mm]. La serie commerciale è 6, 8, 10, 12, 14, 16, 20, 25, 28, 32, 40 mm con B450C e 5, 6, 8, 10 mm con B450A (docs/validazione/ricerca-armature-convenzioni-normative.md §7.1): il dominio resta l'intero positivo e non un'enumerazione, per la stessa ragione di `classe_calcestruzzo`, ma 17 mm non esiste in commercio",
+    )
+    barre_compresse: int = Field(
+        ge=0,
+        description=(
+            "numero di barre longitudinali in zona compressa. Zero è ammesso ed è "
+            "l'armatura semplice, non un errore"
+        ),
+    )
+    diametro_compresso: int = Field(
+        gt=0,
+        description=(
+            "diametro delle barre compresse [mm]. Si dichiara anche con zero "
+            "barre compresse: il campo non ha predefinito, come tutti gli "
+            "altri. La serie commerciale è 6, 8, 10, 12, 14, 16, 20, 25, 28, 32, 40 mm con B450C e 5, 6, 8, 10 mm con B450A (docs/validazione/ricerca-armature-convenzioni-normative.md §7.1): il dominio resta l'intero positivo e non un'enumerazione, per la stessa ragione di `classe_calcestruzzo`, ma 17 mm non esiste in commercio"
+        ),
+    )
+    diametro_staffe: int = Field(
+        ge=6,
+        description=(
+            "diametro delle staffe [mm]. Il minimo di norma è 6 mm, e vale "
+            "insieme al minimo relativo Ø_long,max/4 che questa configurazione "
+            "non può controllare da sola (NTC 2018 §4.1.6.1.2). La serie commerciale è 6, 8, 10, 12, 14, 16, 20, 25, 28, 32, 40 mm con B450C e 5, 6, 8, 10 mm con B450A (docs/validazione/ricerca-armature-convenzioni-normative.md §7.1): il dominio resta l'intero positivo e non un'enumerazione, per la stessa ragione di `classe_calcestruzzo`, ma 17 mm non esiste in commercio"
+        ),
+    )
+    passo_staffe: float = Field(
+        gt=0.0,
+        description="passo delle staffe [mm]. Zero non è un passo (NTC 2018 §4.1.6.1.2)",
+    )
+    copriferro_nominale: float = Field(
+        ge=10.0,
+        description=(
+            "copriferro nominale [mm], netto e misurato all'esterno delle staffe. "
+            "Sotto i 10 mm non è un copriferro "
+            "(docs/validazione/ricerca-armature-convenzioni-normative.md §7.1)"
+        ),
+    )
+
+
+class SezioneConfig(_ModelloBase):
+    """La sezione di una regione: i tre materiali e, dove c'e', l'armatura.
+
+    Due calcestruzzi e non uno: il nucleo confinato dalle staffe e il
+    copriferro hanno leggi diverse, ed e' la distinzione su cui il verdetto di
+    duttilita' si regge.
+    """
+
+    calcestruzzo_confinato: MaterialeDichiarato = Field(
+        description="il nucleo racchiuso dalle staffe"
+    )
+    calcestruzzo_copriferro: MaterialeDichiarato = Field(
+        description="lo strato esterno alle staffe, non confinato"
+    )
+    acciaio: MaterialeDichiarato = Field(description="l'acciaio delle barre")
+    armatura: ArmaturaConfig | None = Field(
+        default=None,
+        description=(
+            "disposizione delle barre, dove è stata rilevata. Assente: la sezione "
+            "è di solo calcestruzzo, e nessuna armatura si inventa"
+        ),
+    )
+
+
+class RegioneConfig(_ModelloBase):
+    """Una regione punta a una sezione; la sezione nomina i materiali (#135).
+
+    Il nome della regione e' la chiave del dizionario `PipelineConfig.regioni`,
+    e diventa un `*ELSET` nel deck: e' per questo che le chiavi seguono le
+    stesse regole dei selettori.
+    """
+
+    membratura: int = Field(
+        ge=0,
+        description=(
+            "indice della membratura nel prior geometrico (`12_wall.json`). Il "
+            "tetto -- quante membrature il prior ha davvero trovato -- non è "
+            "verificabile qui: la configurazione nasce prima che lo step 12 giri, "
+            "e il rifiuto dell'indice fuori intervallo spetta a chi legge il prior"
+        ),
+    )
+    sezione: SezioneConfig = Field(description="la sezione attribuita a questa regione")
 
 
 class PipelineConfig(_ModelloBase):
@@ -1010,6 +1417,24 @@ class PipelineConfig(_ModelloBase):
     )
     wall: WallConfig = Field(default_factory=WallConfig)
     model: ModelConfig = Field(default_factory=ModelConfig)
+    regioni: dict[NomeSet, RegioneConfig] = Field(
+        default_factory=dict,
+        description=(
+            "le regioni in cui il pezzo è partizionato, ciascuna con la propria "
+            "sezione e i propri materiali. Un dizionario a chiavi libere e non un "
+            "modello con campi: il nome della regione lo sceglie l'operatore e "
+            "diventa un `*ELSET` nel deck. La forma a dizionario è anche ciò che "
+            "tiene ferma l'impronta delle corse già registrate: nasce `{}`, cioè "
+            "falso, e `sweep.fingerprint` lo omette finché resta vuoto"
+        ),
+    )
+    solutore: SolutoreConfig = Field(
+        default_factory=SolutoreConfig,
+        description=(
+            "motore dello step 13 e percorso del suo eseguibile. Fuori "
+            "dall'impronta per esclusione secca: vedi SolutoreConfig"
+        ),
+    )
 
     @model_validator(mode="after")
     def _i_nomi_dei_selettori_non_collidono_coi_sei(self) -> "PipelineConfig":
@@ -1022,25 +1447,30 @@ class PipelineConfig(_ModelloBase):
         dell'operatore che differiscono solo per caso (`piastra`/`PIASTRA`)
         sono due chiavi distinte nel dizionario ma un solo nome nel deck.
         """
-        casi_di_faccia = _mappa_casefold(NOMI_SET_DI_FACCIA)
-        visti: dict[str, str] = {}
-        for nome in self.selettori:
-            chiave = nome.casefold()
-            if chiave in casi_di_faccia:
-                raise ValueError(
-                    f"il selettore {nome!r} collide, ignorando le maiuscole, con il "
-                    f"set di faccia {casi_di_faccia[chiave]!r} che il deck fabbrica da "
-                    "sé: nel deck c'è un solo spazio di nomi, case-insensitive "
-                    "(vedi docs/fase-6-cantiere/sonda-caso-nomi/README.md), e il "
-                    "*NSET dell'operatore lo sovrascriverebbe"
-                )
-            if chiave in visti:
-                raise ValueError(
-                    f"i selettori {visti[chiave]!r} e {nome!r} differiscono solo per "
-                    "maiuscole: nel deck sono lo stesso nome, case-insensitive "
-                    "(vedi docs/fase-6-cantiere/sonda-caso-nomi/README.md)"
-                )
-            visti[chiave] = nome
+        _nomi_senza_collisioni(
+            self.selettori, "il selettore", "i selettori", "*NSET", NOMI_SET_DI_FACCIA
+        )
+        return self
+
+    @model_validator(mode="after")
+    def _i_nomi_delle_regioni_non_collidono_con_all_wall(self) -> "PipelineConfig":
+        """Stessa regola dei selettori, ma contro l'altro spazio di nomi.
+
+        Il nome di una regione diventa un `*ELSET` nel deck, e `ccx` risolve
+        anche quelli senza distinguere le maiuscole -- per analogia con la
+        sonda, non misurato: `docs/fase-6-cantiere/sonda-caso-nomi/` dichiara
+        due `*NSET` e nessun `*ELSET` di prova, quindi la regola qui e'
+        conservativa nella direzione giusta ma non poggia su una misura.
+
+        I nomi fabbricati confrontati sono quelli degli `*ELSET`, cioe'
+        `ALL_WALL` e non i sei di faccia: quelli sono `*NSET`, e nel deck sono
+        un altro spazio di nomi. Il validatore non legge `self.analysis`, che
+        puo' essere assente: una corsa nasce dalla sola nuvola e le regioni si
+        dichiarano prima del materiale unico.
+        """
+        _nomi_senza_collisioni(
+            self.regioni, "la regione", "le regioni", "*ELSET", NOMI_ELSET_FABBRICATI
+        )
         return self
 
     @model_validator(mode="after")
@@ -1066,29 +1496,37 @@ class PipelineConfig(_ModelloBase):
             riservati[passo_del_peso.casefold()] = passo_del_peso
         selettori_per_caso = _mappa_casefold(self.selettori)
         visti: dict[str, str] = {}
-        # Le due liste insieme e non due cicli: un distribuito e un posizionato
-        # omonimi scriverebbero due passi con lo stesso nome, e due cicli
-        # separati -- ognuno col proprio `visti` -- li lascerebbero passare
-        # entrambi. I controlli sono per il resto identici, perche' entrambi i
-        # carichi citano un selettore e danno il nome a un passo.
-        for carico in (*self.carichi.posizionati, *self.carichi.distribuiti):
-            chiave_selettore = carico.selettore.casefold()
-            if chiave_selettore not in selettori_per_caso:
-                raise ValueError(
-                    f"il carico '{carico.nome}' cita il selettore "
-                    f"'{carico.selettore}', che non è dichiarato. Dichiarati: "
-                    f"{sorted(self.selettori)}"
-                )
-            # Normalizzato al nome canonico qui, a monte: a valle
-            # (`core/abaqus.py`, che costruisce `nset_selettori` dalle chiavi
-            # di `self.selettori`) il confronto e' un'uguaglianza esatta, e
-            # deve trovare sempre lo stesso nome che il selettore ha
-            # dichiarato, non la grafia con cui il carico lo ha citato.
-            carico.selettore = selettori_per_caso[chiave_selettore]
-            chiave = carico.nome.casefold()
+        # Le tre liste insieme e non tre cicli: un distribuito, un posizionato
+        # e una combinazione omonimi scriverebbero passi con lo stesso nome, e
+        # cicli separati -- ognuno col proprio `visti` -- li lascerebbero
+        # passare tutti. I controlli sono per il resto identici, perche' tutte
+        # e tre le voci danno il nome a un passo; il solo pezzo che le
+        # distingue e' il selettore, che le combinazioni non citano.
+        for voce in (
+            *self.carichi.posizionati,
+            *self.carichi.distribuiti,
+            *self.carichi.combinazioni,
+        ):
+            e_combinazione = isinstance(voce, Combinazione)
+            soggetto = "la combinazione" if e_combinazione else "il carico"
+            if not e_combinazione:
+                chiave_selettore = voce.selettore.casefold()
+                if chiave_selettore not in selettori_per_caso:
+                    raise ValueError(
+                        f"il carico '{voce.nome}' cita il selettore "
+                        f"'{voce.selettore}', che non è dichiarato. Dichiarati: "
+                        f"{sorted(self.selettori)}"
+                    )
+                # Normalizzato al nome canonico qui, a monte: a valle
+                # (`core/abaqus.py`, che costruisce `nset_selettori` dalle
+                # chiavi di `self.selettori`) il confronto e' un'uguaglianza
+                # esatta, e deve trovare sempre lo stesso nome che il selettore
+                # ha dichiarato, non la grafia con cui il carico lo ha citato.
+                voce.selettore = selettori_per_caso[chiave_selettore]
+            chiave = voce.nome.casefold()
             if chiave in riservati:
                 raise ValueError(
-                    f"il carico '{carico.nome}' porta il nome del passo "
+                    f"{soggetto} '{voce.nome}' porta il nome del passo "
                     f"'{riservati[chiave]}', già preso. I riservati sono "
                     f"{list(NOMI_PASSO_RISERVATI)}"
                     # Nominato solo quando c'e': senza analisi la frase
@@ -1105,11 +1543,11 @@ class PipelineConfig(_ModelloBase):
                 )
             if chiave in visti:
                 raise ValueError(
-                    f"due carichi si chiamano '{visti[chiave]}' e "
-                    f"'{carico.nome}': il deck scriverebbe due passi omonimi e i "
+                    f"due passi si chiamano '{visti[chiave]}' e "
+                    f"'{voce.nome}': il deck scriverebbe due passi omonimi e i "
                     "due risultati sarebbero indistinguibili nel file risolto"
                 )
-            visti[chiave] = carico.nome
+            visti[chiave] = voce.nome
         return self
 
     run: RunConfig = Field(default_factory=RunConfig)

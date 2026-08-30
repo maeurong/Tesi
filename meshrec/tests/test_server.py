@@ -90,6 +90,42 @@ def test_una_configurazione_fuori_dominio_non_solleva_ma_spiega(cliente):
     assert "poisson_depth" in risposta.text
 
 
+def test_una_regione_che_collide_con_lelset_fabbricato_e_rifiutata_dallendpoint(cliente):
+    """`PUT /api/config` accetta un `PipelineConfig` intero dall'esterno: e' la
+    via vera per cui un nome di regione sbagliato arriva al programma, e il
+    rifiuto a video restava non provato -- il test di `tests/test_config.py`
+    cita `/api/config` nel commento ma la PUT non la esercita.
+
+    `ALL_WALL` e' l'unico `*ELSET` che il deck fabbrica da se': e' l'insieme
+    che le regioni partizionano.
+
+    Mutazione che lo uccide: togliere `ALL_WALL` da `NOMI_ELSET_FABBRICATI`.
+    """
+    materiale = {
+        "material": {"name": "CLS", "young": 31476.0, "poisson": 0.2, "density": 2.5e-9},
+        "provenienza": "a_mano",
+        "norma": "NTC 2018 Tab. 4.1.I",
+    }
+    guasta = cliente.get("/api/config").json()
+    guasta["regioni"] = {
+        "all_wall": {
+            "membratura": 0,
+            "sezione": {
+                "calcestruzzo_confinato": materiale,
+                "calcestruzzo_copriferro": materiale,
+                "acciaio": materiale,
+            },
+        }
+    }
+    risposta = cliente.put("/api/config", json=guasta)
+    assert risposta.status_code == 422
+    # Il messaggio si legge a video: nomina la regione, l'insieme con cui
+    # collide e il tipo di insieme.
+    assert "la regione" in risposta.text
+    assert "ALL_WALL" in risposta.text
+    assert "*ELSET" in risposta.text
+
+
 # /api/events e' un generatore SSE senza fine: una GET secca lo terrebbe
 # aperto e bloccherebbe la suite. Ha il proprio test dedicato, con un tetto
 # agli eventi emessi. Tenere questo insieme corto: cio' che vi entra esce
@@ -2264,7 +2300,9 @@ def test_il_pannello_dello_step_11_mostra_solo_i_blocchi_che_comanda(cliente):
     """
     from meshrec.core import steps
 
-    assert steps.STEP_BLOCKS[11] == ("tet", "analysis", "carichi", "selettori"), (
+    assert steps.STEP_BLOCKS[11] == (
+        "tet", "analysis", "carichi", "selettori", "regioni",
+    ), (
         "STEP_BLOCKS e' stata cambiata: la catena delle impronte a valle "
         "discende da li'"
     )
@@ -2881,10 +2919,11 @@ def test_il_confronto_dal_server_dice_quali_modelli_mancano(cliente, tmp_path):
 
 def test_lo_step_12_e_il_tetto_di_esegui_da_qui_in_poi(cliente):
     """Il tetto e' una scelta dell'interfaccia (server.py), non un'eredita' dal
-    predefinito di RunConfig.to_step (13 dalla Fase 5: il solutore fa parte di
-    ogni corsa). 'Riprendi da qui' nel pannello non deve far partire un
-    processo esterno da solo. Fermo a 11 la riga 12 resterebbe 'mai eseguita'
-    dietro 'esegui da qui in poi', senza spiegazione."""
+    predefinito di RunConfig.to_step -- che dalla Fase 8 (#140) vale 12 e prima
+    valeva 13: il tetto qui non lo ha seguito ne' allora ne' adesso. 'Riprendi
+    da qui' nel pannello non deve far partire un processo esterno da solo.
+    Fermo a 11 la riga 12 resterebbe 'mai eseguita' dietro 'esegui da qui in
+    poi', senza spiegazione."""
     risposta = cliente.post("/api/step/9/from")
 
     assert risposta.json()["fino_a"] == 12
@@ -3515,3 +3554,107 @@ def test_una_corsa_di_riferimento_non_prende_uno_storico(cliente, tmp_path):
     )
     assert cliente.post("/api/storico/indietro").status_code == 400
     assert cliente.post("/api/storico/avanti").status_code == 400
+
+
+def test_lo_schema_descrive_il_blocco_solutore_nel_pannello_dello_step_13(cliente):
+    """Il blocco nuovo entra con il suo test su `/api/schema`, non dopo.
+
+    Il difetto e' gia' occorso una volta (`5d4d24b`, «lo schema non esplode
+    piu' sul blocco selettori»): un blocco che `schema()` non sa leggere fa
+    cadere l'endpoint con un `AttributeError` fuori vista, cioe' spegne il
+    pannello degli step che lo comandano.
+
+    `solutore` e' un `BaseModel` vero, quindi i suoi campi si descrivono: il
+    pannello dello step 13 li mostra, `percorso` compreso, che e' nullabile
+    perche' None significa «cercalo nel PATH».
+    """
+    risposta = cliente.get("/api/schema")
+    assert risposta.status_code == 200
+    corpo = risposta.json()
+
+    assert "solutore" in corpo["13"]["blocchi"]
+    campi = corpo["13"]["campi"]["solutore"]
+    assert campi["nome"]["tipo"] == "enumerazione"
+    assert campi["nome"]["valori"] == ["calculix", "opensees"]
+    assert campi["nome"]["default"] == "calculix"
+    assert campi["percorso"]["nullabile"] is True
+    assert campi["percorso"]["default"] is None
+    assert campi["percorso"]["obbligatorio"] is False
+
+
+@pytest.fixture()
+def cliente_con_regioni(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
+    """Come `cliente`, ma con una regione dichiarata nel config sul disco."""
+    materiale = {
+        "material": {"name": "CLS", "young": 31476.0, "poisson": 0.2, "density": 2.5e-9},
+        "provenienza": "a_mano",
+        "norma": "NTC 2018 Tab. 4.1.I",
+    }
+    cfg = PipelineConfig(
+        input=InputConfig(path=tmp_path / "nuvola.ply"),
+        analysis=ANALISI,
+        regioni={
+            "pilastro": {
+                "membratura": 0,
+                "sezione": {
+                    "calcestruzzo_confinato": materiale,
+                    "calcestruzzo_copriferro": materiale,
+                    "acciaio": materiale,
+                },
+            }
+        },
+    )
+    cfg.run.out_dir = tmp_path / "corsa"
+    # pydantic ignora i campi che il modello non ha: senza questa riga il
+    # banco «con regioni» sarebbe indistinguibile da quello senza, e il test
+    # resterebbe verde per il motivo sbagliato.
+    assert set(cfg.regioni) == {"pilastro"}
+    save_config(cfg, tmp_path / "config.yaml")
+    monkeypatch.setattr(server, "CACHE_DIR", tmp_path / "cache")
+    return TestClient(
+        create_app(
+            tmp_path / "config.yaml",
+            radice_corse=tmp_path / "runs",
+            radice_esperimenti=tmp_path / "experiments",
+        ),
+        base_url="http://127.0.0.1",
+        raise_server_exceptions=False,
+    )
+
+
+@pytest.mark.parametrize("banco", ["cliente", "cliente_con_regioni"])
+def test_lo_schema_non_esplode_sul_blocco_regioni(banco, request):
+    """`regioni` (STEP_BLOCKS[11]) e' un `dict[NomeSet, RegioneConfig]`, non un
+    modello: senza la guardia su `hasattr(annidato, "model_fields")` in
+    `schema()`, `_modello_del_blocco` ne prende la chiave -- una stringa -- e
+    le chiede `model_fields`, con l'`AttributeError` fuori vista che spegne il
+    pannello dello step 11. E' il difetto di `5d4d24b`, ripetuto su un blocco
+    nuovo.
+
+    Le due varianti del banco perche' l'oracolo del brief le chiede entrambe,
+    con regioni popolate e senza. Vale la pena dichiarare che oggi esercitano
+    lo stesso codice: `/api/schema` descrive i **modelli**, non la
+    configurazione corrente, e non legge il config del disco. Restano perche'
+    il giorno in cui l'endpoint cominciasse a leggerlo -- il pannello che
+    elenca le regioni dichiarate -- la variante popolata e' la sola che se ne
+    accorgerebbe.
+
+    Il blocco non compare, per la stessa ragione di `selettori`: le sue chiavi
+    le sceglie l'operatore, non ci sono campi fissi da descrivere, e una
+    sezione che per costruzione non puo' contenere nulla non si mostra.
+    """
+    from meshrec.core import steps
+
+    assert "regioni" in steps.STEP_BLOCKS[11], (
+        "senza il blocco fra quelli dello step 11 questo test non esercita "
+        "nulla: `schema()` non lo guarderebbe affatto"
+    )
+    cliente = request.getfixturevalue(banco)
+
+    risposta = cliente.get("/api/schema")
+    assert risposta.status_code == 200
+    corpo = risposta.json()
+    assert "regioni" not in corpo["11"]["blocchi"]
+    assert "regioni" not in corpo["11"]["campi"]
+    # Lo step 11 risponde comunque: la guardia non deve spegnere il pannello.
+    assert corpo["11"]["campi"]["analysis"]

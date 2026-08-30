@@ -37,7 +37,17 @@ from meshrec.core.config import ExperimentConfig, PipelineConfig
 # volta a mano. Le due possono divergere in silenzio, ed e' cosi' che
 # l'esclusione di `carichi` e' sopravvissuta: tenerle d'accordo e' un obbligo,
 # non una comodita'.
-BLOCCHI_FUORI_IMPRONTA: tuple[str, ...] = ("run", "wall", "model")
+#
+# `solutore` (Fase 8, #139) sta qui e non nella lista condizionata sotto: quale
+# motore risolve e dove sta il suo eseguibile sono proprieta' della macchina
+# che esegue, non dell'esperimento, e due corse identiche risolte da due motori
+# diversi devono finire nella stessa cartella. E' anche l'unica ragione per cui
+# `SolutoreConfig.nome` puo' avere un predefinito TRUTHY ("calculix"): dentro
+# BLOCCHI_VUOTI_FUORI_IMPRONTA una stringa non vuota renderebbe il blocco
+# sempre non vuoto, l'omissione non scatterebbe mai, e le ventidue righe dei
+# registri si muoverebbero -- con il test dei blocchi verde, perche' il blocco
+# *e'* in una delle due liste.
+BLOCCHI_FUORI_IMPRONTA: tuple[str, ...] = ("run", "wall", "model", "solutore")
 
 # I blocchi che entrano nell'impronta solo quando portano qualcosa.
 #
@@ -68,7 +78,24 @@ BLOCCHI_FUORI_IMPRONTA: tuple[str, ...] = ("run", "wall", "model")
 # cambia il deck, e due candidati con selettori diversi sono esperimenti
 # diversi. La regola dell'omissione quando vuoto tiene ferma la provenienza
 # delle righe gia' registrate, che il blocco non ce l'hanno.
-BLOCCHI_VUOTI_FUORI_IMPRONTA: tuple[str, ...] = ("carichi", "selettori")
+#
+# `regioni` (Fase 8, #135) segue entrambi: STEP_BLOCKS[11] lo legge, partiziona
+# ALL_WALL in `*ELSET` e cambia il deck. E' un `dict[NomeSet, RegioneConfig]`
+# che nasce `{}` -- cioe' falso -- e la forma a dizionario e' precisamente cio'
+# che rende sicura la sua presenza in questa lista: un modello con campi
+# porterebbe i propri predefiniti, e basta uno solo truthy fra quelli perche'
+# il predicato di vuotezza qui sotto non scatti piu' e le ventidue righe si
+# muovano, con il test dei blocchi verde.
+#
+# La regola dell'omissione vale per l'IMPRONTA DI CANDIDATO di questo modulo e
+# NON per la catena degli step (`steps.step_fingerprints`), che hasha il
+# payload cosi' com'e': `{"regioni": {}}` e i predefiniti di `solutore` vi
+# entrano comunque. Aggiungere un blocco letto dallo step 11 sposta percio' le
+# impronte degli step 11, 12 e 13 una volta sola, e ogni corsa gia' su disco si
+# dichiara da rieseguire da li' in giu' al primo avvio -- senza che l'operatore
+# abbia cambiato un campo. E' una volta sola e si accetta; inseguire
+# l'omissione dentro `step_fingerprints` sarebbe un'altra decisione.
+BLOCCHI_VUOTI_FUORI_IMPRONTA: tuple[str, ...] = ("carichi", "selettori", "regioni")
 
 
 def fingerprint(cfg: PipelineConfig) -> str:
@@ -187,8 +214,10 @@ def expand(
 # stanno a monte dello step 11, e un candidato e' completo quando ha il
 # proprio deck, non quando ha il prior o l'ha vista risolvere un solutore.
 # Stessa ragione per cui `run_candidate` chiede `--to-step 12` esplicito al
-# sottoprocesso invece di ereditare il predefinito di RunConfig.to_step (13
-# dalla Fase 5): le due esclusioni -- qui e li' -- si spiegano a vicenda.
+# sottoprocesso invece di ereditare il predefinito di RunConfig.to_step, che
+# dalla Fase 8 vale 12 e non piu' 13: le due esclusioni -- qui e li' -- si
+# spiegano a vicenda, e continuano a spiegarsi anche quando il predefinito
+# coincide, perche' e' una decisione del chiamante e non un'eredita'.
 from meshrec.core.pipeline import METRICS_FILENAME, METRICS_PARTIAL
 from meshrec.core.steps import STEP_KEYS
 
@@ -379,9 +408,9 @@ def run_candidate(
     started = time.monotonic()
     try:
         completed = subprocess.run(
-            # --to-step 12 esplicito: RunConfig.to_step e' predefinito a 13
-            # dalla Fase 5 (il solutore fa parte di ogni corsa, per scelta
-            # dell'utente), ma uno sweep valuta candidati di *elaborazione* e
+            # --to-step 12 esplicito, e non ereditato dal predefinito di
+            # RunConfig.to_step (12 dalla Fase 8, #140): uno sweep valuta
+            # candidati di *elaborazione* e
             # la selezione di Pareto non legge ne' il prior ne' la
             # soluzione -- stessa ragione per cui REQUIRED_STEPS qui sotto
             # non li richiede. Pagare ccx e i suoi artefatti (.frd/.vtu, MB
