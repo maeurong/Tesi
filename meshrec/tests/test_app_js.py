@@ -6989,3 +6989,29 @@ assert.equal(messaggio.hidden, false, "il rifiuto non si vede");
 assert.match(messaggio.textContent, /numero/,
   `il rifiuto non dice che serve un numero: ${messaggio.textContent}`);
 """)
+
+
+def test_uno_step_senza_parametri_e_senza_metriche_lo_dichiara(tmp_path):
+    """Ingresso degenere del pannello: lo step 7 non ha parametri propri
+    (`STEP_BLOCKS[7]` e' vuota), e finche' non e' stato eseguito non ha
+    nemmeno metriche. Restano i due bottoni e basta, e un riquadro quasi
+    vuoto non distingue «niente da mostrare» da «non ha caricato».
+
+    Mutazione che lo uccide: togliere il ramo finale di `apriDettaglio` che
+    scrive la riga quando non c'e' ne' un blocco ne' una chiave di metriche.
+    """
+    _esegui(tmp_path, _banco_di_apriDettaglio() + """
+risponde = {
+  "/api/schema": async () => ({ ok: true, status: 200, json: async () => ({
+    "1": { blocchi: [], campi: {} },
+  }) }),
+  "/api/config": async () => ({ ok: true, status: 200, json: async () => CONFIG_BUONA }),
+  "/api/metrics": async () => ({ ok: true, status: 200, json: async () => ({}) }),
+};
+await apriDettaglio(1);
+const dettaglio = document.getElementById("dettaglio");
+const detto = [...dettaglio.discendenti(), ...dettaglio.figli]
+  .map((n) => n.testo).join(" ");
+assert.match(detto, /non ha parametri/,
+  `uno step senza parametri e senza metriche non lo dichiara: ${detto}`);
+""")
