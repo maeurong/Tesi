@@ -3466,6 +3466,60 @@ function campoParametro(blocco, nome, campo, ordine) {
   return riga;
 }
 
+// Il catalogo di norma, letto una volta sola per sessione.
+//
+// Non cambia mai mentre il programma gira -- e' una tabella delle NTC 2018
+// compilata in `core/materiali.py` -- e il pannello del materiale si riapre a
+// ogni clic sullo step: rileggerlo ogni volta sarebbe una richiesta al server
+// per un dato che non si muove.
+//
+// Un catalogo che non si carica lascia le quattro caselle esattamente come
+// erano: il materiale si dichiara ancora a mano, che e' la strada che c'era
+// prima del menu'. Il menu' e' una scorciatoia, non l'unica via.
+let catalogoDeiMateriali = null;
+
+async function catalogoMateriali() {
+  if (catalogoDeiMateriali !== null) return catalogoDeiMateriali;
+  const risposta = await fetch("/api/materiali").catch(serverMuto);
+  if (!risposta.ok) return [];
+  const corpo = await corpoLetto(risposta);
+  catalogoDeiMateriali = Array.isArray(corpo?.voci) ? corpo.voci : [];
+  return catalogoDeiMateriali;
+}
+
+// Dal catalogo e da una classe, i quattro valori che vanno nelle caselle.
+//
+// La classe diventa il **nome** del materiale, e non un campo a parte: il nome
+// e' cio' che il deck interpola in `*MATERIAL, NAME=...` e cio' che
+// `config.yaml` conserva, quindi e' l'unico posto in cui la provenienza dei
+// tre numeri sopravvive fino a chi legge il modello. Un campo nuovo nello
+// schema avrebbe mosso l'impronta di ogni corsa senza aggiungere nulla che
+// questo non dica.
+//
+// Poisson e densita' passano come sono: nel catalogo sono costanti esatte
+// (0,2 e 2,5493e-9), non risultati di un conto. Il modulo elastico invece e'
+// derivato dalla [11.2.2] e in doppia precisione esce 31475,806210019346 su
+// C25/30: quattordici decimali in una casella, e poi in `config.yaml`, sono
+// rumore che si legge come precisione. Si arrotonda al centesimo di MPa --
+// tre parti su dieci milioni, mentre le NTC e l'EC2 tabulano E_cm a tre cifre
+// significative. Restano 31475,81, che e' il valore di norma; il 31500 che una
+// corsa reale portava scritto a mano e' un'altra cosa, e sbaglia di 24 MPa.
+//
+// `null` e non una voce di ripiego quando la classe non c'e': la voce vuota
+// del menu' e una classe sconosciuta significano tutte e due «non riempire
+// niente», e riempire con la prima voce del catalogo metterebbe in un modello
+// un calcestruzzo che nessuno ha scelto.
+function valoriDellaClasse(voci, classe) {
+  const voce = voci.find((v) => v.classe === classe);
+  if (voce === undefined) return null;
+  return {
+    name: voce.classe,
+    young: String(Math.round(voce.young * 100) / 100),
+    poisson: String(voce.poisson),
+    density: String(voce.density),
+  };
+}
+
 // Il materiale, dichiarato dagli step che lo pretendono e non prima.
 //
 // `campoParametro` scrive un campo scalare per volta, e il materiale e' un
@@ -3486,6 +3540,30 @@ function pannelloMateriale(numero, ordine) {
       : `Non dichiarato: lo step ${numero} si ferma finché questi quattro valori non ci sono. `
         + "Il programma non ne mette uno per conto suo.",
   }));
+  // Il menu' sta SOPRA le quattro caselle perche' e' il gesto che viene
+  // prima: si sceglie una classe e le caselle si riempiono. Sotto, sarebbe
+  // una correzione di cio' che si e' gia' battuto.
+  const rigaClasse = document.createElement("label");
+  // `campo-catalogo` oltre a `campo`: lo stile e' lo stesso, ma questa riga
+  // non e' uno dei quattro valori dichiarati -- e' il gesto che li riempie.
+  // Il banco che conta le caselle del materiale cerca `campo` esatto, e senza
+  // la seconda classe questa riga si sarebbe contata come quinta.
+  rigaClasse.className = "campo campo-catalogo";
+  rigaClasse.append(elemento("span", { textContent: "classe (NTC 2018, Tab. 4.1.I)" }));
+  const menuClasse = document.createElement("select");
+  // La voce vuota e' la prima e resta selezionata: un menu' che nasce su
+  // «C8/10» direbbe che quella classe e' stata scelta, e nessuno l'ha scelta.
+  menuClasse.append(elemento("option", { value: "", textContent: "— scegli una classe —" }));
+  rigaClasse.append(menuClasse);
+  gruppo.append(rigaClasse);
+  gruppo.append(elemento("p", {
+    className: "aiuto",
+    textContent: "Solo calcestruzzi: lo step 11 dichiara il materiale del continuo solido, e"
+      + " in un cemento armato è il calcestruzzo. L'acciaio si dichiara nelle sezioni delle"
+      + " membrature. Scelta la classe, i tre valori restano modificabili: un calcestruzzo"
+      + " esistente provato in sito ha il modulo che è stato misurato, non quello di norma.",
+  }));
+
   const caselle = {};
   for (const [nome, etichetta] of [
     ["name", "nome"],
@@ -3502,6 +3580,34 @@ function pannelloMateriale(numero, ordine) {
     caselle[nome] = casella;
     gruppo.append(riga);
   }
+  menuClasse.addEventListener("change", () => {
+    const scelto = valoriDellaClasse(catalogoDeiMateriali ?? [], menuClasse.value);
+    // Voce vuota o classe sconosciuta: le caselle restano come sono. Non si
+    // svuotano, perche' chi torna sulla voce vuota dopo aver scelto non sta
+    // chiedendo di buttare via cio' che aveva scritto.
+    if (scelto === null) return;
+    for (const nome of ["name", "young", "poisson", "density"]) {
+      caselle[nome].value = scelto[nome];
+    }
+  });
+  // Le voci arrivano dopo che il pannello e' gia' a video: il menu' nasce con
+  // la sola voce vuota e si riempie quando la tratta risponde. `superata`
+  // prima di scrivere, come ovunque qui: fra la richiesta e la risposta
+  // l'utente puo' aver aperto un altro step, e questo menu' non e' piu' nel
+  // documento.
+  catalogoMateriali().then((voci) => {
+    if (superata(ordine)) return;
+    for (const voce of voci) {
+      menuClasse.append(elemento("option", { value: voce.classe, textContent: voce.classe }));
+    }
+    // La classe gia' dichiarata si rilegge dal nome, che e' dove il menu'
+    // l'aveva scritta: riaprendo il pannello il menu' mostra quella scelta
+    // invece di ripartire da «scegli una classe», che direbbe il falso.
+    if (dichiarato && voci.some((voce) => voce.classe === dichiarato.name)) {
+      menuClasse.value = dichiarato.name;
+    }
+  });
+
   const bottone = document.createElement("button");
   bottone.type = "button";
   bottone.className = "bottone";

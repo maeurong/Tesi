@@ -1296,14 +1296,26 @@ def _banco_del_materiale(configurazione: dict, compilati: list[str], risposta: s
     """
     return _DOM + _funzioni(
         "valoreScritto", "ragioneDelRifiuto", "serverMuto", "superata", "corpoLetto",
-        "dichiaraErrore", "pannelloMateriale",
+        "dichiaraErrore", "valoriDellaClasse", "catalogoMateriali", "pannelloMateriale",
     ) + """
 // Il pannello si ridisegna dalla strada che lo disegna sempre: al banco basta
 // sapere che e' stata percorsa, il disegno e' provato altrove.
 let riaperto = null;
 async function apriDettaglio(numero) { riaperto = numero; }
+// La cache di modulo del catalogo: `_funzioni` estrae funzioni, non `let`.
+let catalogoDeiMateriali = null;
+const CATALOGO_FINTO = [
+  { classe: "C25/30", young: 31475.806210019346, poisson: 0.2, density: 2.5493e-9, f_k: 25 },
+  { classe: "C32/40", young: 33345.8, poisson: 0.2, density: 2.5493e-9, f_k: 32 },
+];
 const richieste = [];
 globalThis.fetch = async (percorso, opzioni) => {
+  // Il catalogo e' una GET senza corpo: registrarla fra le richieste, o
+  // provare a leggerne il corpo, farebbe cadere il banco su una chiamata che
+  // non e' quella sotto misura.
+  if (percorso === "/api/materiali") {
+    return { ok: true, status: 200, json: async () => ({ voci: CATALOGO_FINTO }) };
+  }
   richieste.push({ percorso, metodo: opzioni.method, corpo: JSON.parse(opzioni.body) });
   return RISPOSTA;
 };
@@ -7016,4 +7028,77 @@ const detto = [...dettaglio.discendenti(), ...dettaglio.figli]
   .map((n) => n.testo).join(" ");
 assert.match(detto, /non ha parametri/,
   `uno step senza parametri e senza metriche non lo dichiara: ${detto}`);
+""")
+
+
+def test_la_classe_scelta_porta_i_valori_di_norma_nelle_caselle(tmp_path):
+    """Il ponte fra il catalogo e le quattro caselle, eseguito.
+
+    E' la sola logica del menu' del materiale: dalla risposta di
+    `/api/materiali` e da una classe, i quattro valori che finiscono nelle
+    caselle. Il resto e' collegamento al DOM.
+
+    I numeri escono come li ha scritti il server e non arrotondati: `young`
+    di C25/30 vale 31475,81 e non 31500, che e' precisamente lo scarto che una
+    corsa reale portava scritto a mano.
+
+    Mutazione che lo uccide: arrotondare, o mettere la classe in un campo che
+    non e' `name` -- il nome del materiale e' l'unica cosa che, nel deck e in
+    `config.yaml`, dice da quale voce di catalogo vengono i tre numeri.
+    """
+    uscita = _esegui(tmp_path, _DOM + _funzioni("valoriDellaClasse") + """
+const voci = [
+  { classe: "C25/30", young: 31475.806210019346, poisson: 0.2, density: 2.5493e-9, f_k: 25 },
+  { classe: "C32/40", young: 33345.8, poisson: 0.2, density: 2.5493e-9, f_k: 32 },
+];
+const scelto = valoriDellaClasse(voci, "C25/30");
+assert.equal(scelto.name, "C25/30", "il nome del materiale non e' la classe scelta");
+// Arrotondato al centesimo, e il catalogo finto parte dal valore in doppia
+// precisione che il server serve davvero: senza l'arrotondamento qui
+// arriverebbero quattordici decimali, che finirebbero in config.yaml.
+assert.equal(scelto.young, "31475.81", `modulo elastico: ${scelto.young}`);
+// Gli altri due sono costanti esatte del catalogo e non si toccano.
+assert.equal(scelto.density, "2.5493e-9", `densita alterata: ${scelto.density}`);
+assert.equal(Number(scelto.poisson), 0.2, `Poisson: ${scelto.poisson}`);
+assert.equal(Number(scelto.density), 2.5493e-9, `densita': ${scelto.density}`);
+assert.equal(valoriDellaClasse(voci, ""), null, "la voce vuota deve dare null");
+assert.equal(valoriDellaClasse(voci, "C99/99"), null,
+  "una classe che il catalogo non porta deve dare null, non una voce a caso");
+console.log("ok");
+""")
+    assert "ok" in uscita
+
+
+def test_scegliere_la_classe_riempie_le_quattro_caselle(tmp_path):
+    """Il gesto intero, sul pannello vero: si sceglie e le caselle si riempiono.
+
+    La funzione pura e' provata a parte; qui si prova il collegamento, che e'
+    dove il difetto si nasconderebbe -- un menu' che non scrive in nessuna
+    casella si vede solo aprendo il programma.
+
+    Mutazione che lo uccide: dimenticare `name` fra i campi riempiti. Le altre
+    tre sono numeri e si notano; il nome resterebbe vuoto, il modello lo
+    rifiuterebbe, e il rifiuto parlerebbe del nome invece che del menu'.
+    """
+    _esegui(tmp_path, _banco_del_materiale({"analysis": None}, ["", "", "", ""], _ACCETTA_JS) + """
+// Il menu' si riempie da una promessa: il pannello e' gia' tornato, le voci
+// arrivano dopo. Un giro di coda di microtask e ci sono.
+await Promise.resolve();
+await Promise.resolve();
+const menu = gruppo.children.find((f) => f.className === "campo campo-catalogo").children[1];
+const classi = menu.figli.map((o) => o.attributi.value ?? o.value);
+assert.ok(classi.includes("C25/30"), `il menu' non porta le classi: ${classi}`);
+assert.equal(classi[0], "", "la prima voce non e' quella vuota: il menu' nasce gia' scelto");
+
+menu.value = "C25/30";
+await menu.scatena("change");
+assert.equal(caselle[0].value, "C25/30", "il nome non porta la classe scelta");
+assert.equal(caselle[1].value, "31475.81", `modulo elastico: ${caselle[1].value}`);
+assert.equal(Number(caselle[2].value), 0.2, `Poisson: ${caselle[2].value}`);
+assert.equal(Number(caselle[3].value), 2.5493e-9, `densita': ${caselle[3].value}`);
+
+// La voce vuota non butta via cio' che si e' scritto.
+menu.value = "";
+await menu.scatena("change");
+assert.equal(caselle[0].value, "C25/30", "tornare alla voce vuota ha svuotato le caselle");
 """)
