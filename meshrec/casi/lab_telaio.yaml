@@ -74,7 +74,7 @@ analysis:
     name: CALCESTRUZZO_C25_30
     young: 31500.0
     poisson: 0.2
-    density: 2.5e-09
+    density: 2.5493e-09
   gravity: 9810.0
   fixed_nset: BASE
   step_name: GRAVITA

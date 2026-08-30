@@ -271,7 +271,7 @@ def test_lo_schema_non_sposta_l_impronta_dei_registri_in_silenzio():
 @pytest.mark.parametrize(
     ("caso", "impronta"),
     [
-        ("lab.yaml", "ee7308f7fc34962b54b118e9159c86fd8ae2af172e4ac93e155505727c368a55"),
+        ("lab.yaml", "3e72227dcbb1dc20bf14763402aab60c1a65893e78321b8f8fc013b9a966b097"),
         ("muro.yaml", "78f0cf059e50f08e7b6823d240def3bdc0ba2172e908d85e03d8b71350a6cda1"),
     ],
 )
@@ -284,6 +284,20 @@ def test_l_impronta_delle_configurazioni_del_caso_studio_e_quella_misurata(caso,
     derivabile anche se la base da cui e' nata cambia. Una modifica a
     `casi/lab.yaml` o a `casi/muro.yaml` sposterebbe in silenzio le corse
     future fuori dalle cartelle di quelle gia' registrate: qui lo dice.
+
+    **L'impronta di `lab.yaml` e' cambiata apposta il 30/08/2026**, e questo e'
+    il posto in cui si dichiara. La densita' del calcestruzzo e' passata da
+    2,5e-9 a 2,5493e-9 t/mm^3, che e' il valore di norma per il calcestruzzo
+    ARMATO (NTC 2018 Tab. 3.1.I, 25,0 kN/m^3) e quello che il catalogo dei
+    materiali gia' porta: il provino di `lab_frame` e' un telaio in cemento
+    armato, quindi il valore di prima era quello sbagliato di 1,972%. Deciso
+    dall'utente.
+
+    Il prezzo, e va saputo: uno sweep lanciato da oggi su questa base produce
+    cartelle diverse da quelle delle ventidue righe gia' registrate. Le righe
+    restano valide e leggibili -- ognuna porta la propria configurazione -- ma
+    non si rigenerano piu' da qui. `casi/muro.yaml` non e' toccato: e'
+    muratura, e 1,8e-9 e' il suo valore giusto.
     """
     from meshrec.core.sweep import fingerprint
 
