@@ -1,6 +1,7 @@
 """Verifica di Fase 1: il parallelepipedo a soluzione nota attraversa tutta la catena."""
 
 import json
+import shutil
 
 import numpy as np
 import pytest
@@ -621,6 +622,142 @@ def test_lo_step_13_con_to_step_esplicito_non_dichiara_un_artefatto_assente(
     stato = {voce["chiave"]: voce for voce in steps.run_state(cfg.run.out_dir, cfg)}
     assert stato["13_solve"]["stato"] == "valido"
     assert stato["13_solve"]["artefatto"] is None
+
+
+@pytest.fixture(scope="module")
+def corsa_all_undici(tmp_path_factory):
+    """Una corsa ferma al deck: il punto di partenza del comando `solve`.
+
+    Di modulo per la ragione di `run_dir`: l'elaborazione geometrica e' la
+    parte lenta, e i banchi qui sotto ne cambiano solo la coda. Ogni test ne
+    prende una copia propria, perche' risolvere scrive nella cartella.
+    """
+    pytest.importorskip("pymeshfix")
+    base = tmp_path_factory.mktemp("undici")
+    cloud_path = base / "box.ply"
+    io.write_cloud(cloud_path, synth.sample_box_surface(SIZE, SPACING))
+    cfg = config.PipelineConfig(
+        analysis=ANALISI,
+        input=config.InputConfig(path=cloud_path, spacing_sample=5000),
+        downsample=config.DownsampleConfig(voxel_size=SPACING),
+        surface=config.SurfaceConfig(poisson_depth=8, density_quantile=0.02),
+        tet=config.TetConfig(min_ratio=1.2),
+        run=config.RunConfig(out_dir=base / "out", to_step=11),
+    )
+    pipeline.run(cfg)
+    return cfg
+
+
+def _copia_della_corsa(corsa, tmp_path):
+    """La corsa del modulo sotto tmp_path, con la configurazione che la nomina."""
+    destinazione = tmp_path / "out"
+    shutil.copytree(corsa.run.out_dir, destinazione)
+    cfg = corsa.model_copy(deep=True)
+    cfg.run.out_dir = destinazione
+    return cfg
+
+
+def test_risolvi_corsa_esegue_il_solo_step_13_sugli_artefatti_gia_presenti(
+    corsa_all_undici, tmp_path, monkeypatch
+):
+    """Lo step 13 e' un'azione e non una ripresa: gemello di `calcola_prior`.
+
+    Legge il deck dello step 11 e il maglio dello step 9 gia' sul disco, e non
+    tocca niente di cio' che sta a monte. Le metriche finiscono dove le scrive
+    `run` e lo stato dove lo scriverebbe una corsa.
+
+    Mutazione che deve morire: far rieseguire un qualunque step a monte -- il
+    tempo di scrittura del maglio cambierebbe -- oppure sostituire invece di
+    fondere le metriche, e `11_export` sparirebbe.
+    """
+    monkeypatch.setattr(solve.shutil, "which", lambda _nome: None)
+    cfg = _copia_della_corsa(corsa_all_undici, tmp_path)
+    out = cfg.run.out_dir
+    prima = (out / pipeline.ARTIFACTS[9]).stat().st_mtime_ns
+
+    esito = pipeline.risolvi_corsa(cfg)
+
+    assert esito == {"eseguito": False, "solutore": "assente"}
+    assert (out / pipeline.ARTIFACTS[9]).stat().st_mtime_ns == prima
+    metriche = json.loads((out / pipeline.METRICS_FILENAME).read_text(encoding="utf-8"))
+    assert metriche["13_solve"] == esito
+    assert "11_export" in metriche, "risolvere ha buttato le metriche dello step 11"
+    salvato = steps.read_state(out)
+    assert salvato["13_solve"]["esito"] == "riuscito"
+    assert salvato["13_solve"]["artefatto"] is None
+
+
+def test_risolvi_corsa_senza_le_metriche_dell_undici_nomina_lo_step_che_le_scrive(
+    corsa_all_undici, tmp_path
+):
+    """`casi_di_carico`, la trasformata e il vincolo in pianta li misura lo
+    step 11: senza `metrics.json` non c'e' nulla da cui dedurli, e il rifiuto
+    nomina lo step invece del file."""
+    cfg = _copia_della_corsa(corsa_all_undici, tmp_path)
+    (cfg.run.out_dir / pipeline.METRICS_FILENAME).unlink()
+
+    with pytest.raises(ValueError, match="step 11"):
+        pipeline.risolvi_corsa(cfg)
+
+
+def test_metriche_troncate_non_si_leggono_come_uno_stato_valido(
+    corsa_all_undici, tmp_path
+):
+    """Un `metrics.json` a meta' e' la terza malattia di questo repo: si
+    dichiara, non lo si legge. `json.JSONDecodeError` da solo direbbe una
+    colonna e un carattere, e nessuno step."""
+    cfg = _copia_della_corsa(corsa_all_undici, tmp_path)
+    (cfg.run.out_dir / pipeline.METRICS_FILENAME).write_text(
+        '{"11_export": {"element_type"', encoding="utf-8"
+    )
+
+    with pytest.raises(ValueError) as caduta:
+        pipeline.risolvi_corsa(cfg)
+
+    assert "step 11" in str(caduta.value)
+    assert pipeline.METRICS_FILENAME in str(caduta.value)
+
+
+def test_risolvi_corsa_senza_il_maglio_nomina_lo_step_nove(corsa_all_undici, tmp_path):
+    """Il deck c'e' ma il maglio no: i campi del `.frd` si scrivono sui nodi
+    dello step 9, e senza quelli non c'e' un `.vtu` da scrivere."""
+    cfg = _copia_della_corsa(corsa_all_undici, tmp_path)
+    (cfg.run.out_dir / pipeline.ARTIFACTS[9]).unlink()
+
+    with pytest.raises(ValueError, match="step 9"):
+        pipeline.risolvi_corsa(cfg)
+
+
+def test_risolvere_due_volte_di_fila_rifa_e_lascia_lo_stato_coerente(
+    corsa_all_undici, tmp_path, monkeypatch
+):
+    """La seconda corsa non e' un errore: rifa'. E steps.json resta un solo
+    documento leggibile, con lo step 13 registrato una volta sola."""
+    monkeypatch.setattr(solve.shutil, "which", lambda _nome: None)
+    cfg = _copia_della_corsa(corsa_all_undici, tmp_path)
+
+    pipeline.risolvi_corsa(cfg)
+    secondo = pipeline.risolvi_corsa(cfg)
+
+    assert secondo == {"eseguito": False, "solutore": "assente"}
+    salvato = steps.read_state(cfg.run.out_dir)
+    assert salvato["13_solve"]["esito"] == "riuscito"
+    assert salvato["11_export"]["esito"] == "riuscito", "la seconda corsa ha toccato l'undici"
+
+
+def test_uno_step_13_rifiutato_resta_registrato_come_fallito(
+    corsa_all_undici, tmp_path
+):
+    """`solve.risolvi` rifiuta ogni nome che non sia calculix, e il rifiuto
+    non deve sparire dallo stato su disco: chi guarda la colonna deve vedere
+    che il tredici e' fallito, non che non e' mai partito."""
+    cfg = _copia_della_corsa(corsa_all_undici, tmp_path)
+    cfg.solutore = config.SolutoreConfig(nome="opensees")
+
+    with pytest.raises(ValueError, match="core/opensees.py"):
+        pipeline.risolvi_corsa(cfg)
+
+    assert steps.read_state(cfg.run.out_dir)["13_solve"]["esito"] == "fallito"
 
 
 def test_una_corsa_fermata_all_undici_non_si_dichiara_completa(tmp_path):
