@@ -44,6 +44,12 @@ Cartella di lavoro Abaqus/
 # rimuoverlo. Vivono quanto un merge.
 /.claude/scratch-merge/
 
+# Testi di norma (NTC 2018, Circolare 7, tabelle e domini N-M) e le loro
+# conversioni. Come Lezioni CLS/ e Articoli/: materiale di terzi, non nostro da
+# ridistribuire. Chi clona non li ha, e ogni numero che ne discende va citato per
+# articolo, non per pagina di un file che non c'e'.
+/Norme/
+
 # Rumore del Finder, dal passaggio a macOS del 16/08/2026.
 .DS_Store
 
