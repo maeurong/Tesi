@@ -4073,3 +4073,93 @@ def test_la_sismica_non_si_propone_senza_l_azione_che_le_fa_da_E(cliente):
     assert risposta.status_code == 200
     scritte = cliente.get("/api/config").json()["carichi"]["combinazioni"]
     assert "sismica" not in {voce["tipo"] for voce in scritte}
+
+
+def test_il_selettore_file_non_cade_su_un_percorso_scritto_nella_codepage(monkeypatch, cliente):
+    """Il difetto che ha fermato l'utente, il 30/08/2026.
+
+    Il figlio scriveva il percorso con `sys.stdout.write`, che su Windows usa
+    la codepage locale: «Università» esce con `0xe0`. Il padre leggeva con
+    `text=True` e nessuna codifica dichiarata, cioe' con quella preferita
+    dalla macchina, e dove quella e' utf-8 -- come qui -- `0xe0` non e' una
+    continuazione valida. L'utente vedeva `UnicodeDecodeError` al posto del
+    file appena scelto.
+
+    Il banco riproduce il figlio VECCHIO, che scrive cp1252, e prova che il
+    padre nuovo non cade piu': `errors="replace"` toglie la classe. Il
+    percorso esce storto -- e' inevitabile, quei byte quella lettera non la
+    portano in utf-8 -- ma storto si vede e si corregge, mentre un'eccezione
+    si mangia la scelta.
+    """
+    import subprocess as _subprocess
+
+    percorso = "C:\\Users\\mario\\OneDrive - Università degli Studi di Perugia\\nuvola.pcd"
+
+    def figlio_vecchio(argomenti, **chiavi):
+        grezzo = percorso.encode("cp1252")
+        return _subprocess.CompletedProcess(
+            argomenti, 0,
+            stdout=grezzo.decode(chiavi["encoding"], errors=chiavi["errors"]),
+            stderr="",
+        )
+
+    monkeypatch.setattr(server.subprocess, "run", figlio_vecchio)
+
+    risposta = cliente.post("/api/sfoglia", json={"iniziale": ""})
+
+    assert risposta.status_code == 200
+    assert risposta.json()["percorso"].endswith("nuvola.pcd")
+
+
+def test_il_selettore_file_consegna_intero_un_percorso_con_accenti(monkeypatch, cliente):
+    """E il figlio NUOVO lo consegna intero, accento compreso.
+
+    Il test di sopra prova che non si cade; questo prova che si legge. Sono
+    due cose diverse e servono tutte e due: senza il secondo, scrivere il
+    percorso in latin-1 su tutte e due le parti passerebbe il primo e
+    consegnerebbe una lettera sbagliata.
+    """
+    import subprocess as _subprocess
+
+    percorso = "C:\\Users\\mario\\OneDrive - Università degli Studi di Perugia\\nuvola.pcd"
+
+    def figlio_nuovo(argomenti, **chiavi):
+        # `sys.stdout.buffer.write(scelto.encode("utf-8"))`, come lo scrive ora
+        grezzo = percorso.encode("utf-8")
+        return _subprocess.CompletedProcess(
+            argomenti, 0,
+            stdout=grezzo.decode(chiavi["encoding"], errors=chiavi["errors"]),
+            stderr="",
+        )
+
+    monkeypatch.setattr(server.subprocess, "run", figlio_nuovo)
+
+    risposta = cliente.post("/api/sfoglia", json={"iniziale": ""})
+
+    assert risposta.status_code == 200
+    assert risposta.json()["percorso"] == percorso
+
+
+def test_le_due_parti_del_selettore_dichiarano_la_stessa_codifica(monkeypatch, cliente):
+    """Nessuna delle due si affida alla macchina.
+
+    I due test di sopra passano da un sottoprocesso finto, quindi non vedono
+    che cosa il codice vero chiede: questo lo guarda. Il figlio scrive byte
+    utf-8 espliciti, il padre li legge dichiarando utf-8, e la macchina non
+    entra nella decisione.
+    """
+    visto: dict[str, object] = {}
+
+    def spia(argomenti, **chiavi):
+        import subprocess as _subprocess
+
+        visto.update(chiavi)
+        return _subprocess.CompletedProcess(argomenti, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(server.subprocess, "run", spia)
+    cliente.post("/api/sfoglia", json={"iniziale": ""})
+
+    assert visto["encoding"] == "utf-8"
+    assert visto["errors"] == "replace"
+    assert "sys.stdout.buffer.write" in server._SELETTORE
+    assert 'encode("utf-8")' in server._SELETTORE

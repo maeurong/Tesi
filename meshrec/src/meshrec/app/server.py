@@ -367,7 +367,13 @@ scelto = filedialog.askopenfilename(
     filetypes=[("Nuvole di punti", "*.pcd *.ply *.xyz"), ("Tutti i file", "*")],
 )
 radice.destroy()
-sys.stdout.write(scelto or "")
+# In byte e non con `write`, e la codifica dichiarata da tutte e due le parti.
+# `sys.stdout.write` su Windows userebbe la codepage locale (cp1252), e il
+# lettore la decodifica: un percorso con un accento -- «Universita'», «citta'»,
+# una qualunque cartella di un utente italiano -- usciva 0xe0 ed entrava come
+# utf-8, che quel byte non lo ammette come continuazione. L'utente vedeva un
+# UnicodeDecodeError al posto del file che aveva appena scelto.
+sys.stdout.buffer.write((scelto or "").encode("utf-8"))
 """
 
 # Due minuti: il dialogo e' un'azione umana e non una richiesta di rete, ma
@@ -984,6 +990,14 @@ def create_app(
                 [sys.executable, "-c", _SELETTORE, str(iniziale)],
                 capture_output=True,
                 text=True,
+                # Dichiarata, non ereditata: senza, `text=True` decodifica con
+                # `locale.getpreferredencoding()`, che dipende dalla macchina e
+                # dalle variabili d'ambiente -- e il figlio scrive utf-8 sempre.
+                # `errors="replace"` perche' un percorso illeggibile e' un
+                # percorso da mostrare storto e correggere, non un'eccezione
+                # che si mangia la scelta appena fatta.
+                encoding="utf-8",
+                errors="replace",
                 timeout=SECONDI_SELETTORE,
             )
         except subprocess.TimeoutExpired:
