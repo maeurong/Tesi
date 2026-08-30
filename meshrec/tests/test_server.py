@@ -2891,6 +2891,50 @@ def test_generare_un_modello_e_una_azione_e_non_tocca_la_configurazione(cliente,
     assert cliente.get("/api/config").json() == prima
 
 
+def test_la_tratta_del_solutore_avvia_il_comando_solve(cliente, monkeypatch, tmp_path):
+    """Il pannello non ha piu' una strada verso lo step 13: la colonna non lo
+    mostra piu' e `POST /api/step/13` moriva sul tetto di `from_step`.
+
+    Come il prior e i modelli parametrici, il solutore e' un'AZIONE: passa da
+    `start_comando`, non da `start`, e il comando che parte e' quello della riga
+    di comando, non una corsa con from_step e to_step.
+    """
+    visti: list[tuple[list[str], str]] = []
+    monkeypatch.setattr(
+        server.Worker, "start_comando",
+        lambda _se, argomenti, etichetta: visti.append((argomenti, etichetta)),
+    )
+
+    risposta = cliente.post("/api/solve")
+
+    assert risposta.status_code == 200
+    assert risposta.json() == {"avviato": "solve"}
+    assert visti == [(["solve", str(tmp_path / "config.yaml")], "solutore")]
+
+
+def test_il_solutore_non_parte_mentre_una_corsa_gira(cliente, monkeypatch):
+    """Impedito e non accodato: il Worker e' uno solo, e due processi di
+    calcolo sulla stessa cartella si sovrascriverebbero gli artefatti. Il
+    rifiuto e' un 400 con la propria ragione, che l'interfaccia annuncia."""
+    monkeypatch.setattr(server.Worker, "is_running", lambda _se: True)
+
+    risposta = cliente.post("/api/solve")
+
+    assert risposta.status_code == 400
+    assert "già girando" in risposta.json()["messaggio"]
+
+
+def test_una_corsa_di_riferimento_non_si_risolve(cliente, tmp_path):
+    """La sentinella ferma anche la tratta nuova: risolvere scrive
+    `13_solution.vtu`, `metrics.json` e `steps.json` dentro la cartella della
+    corsa."""
+    (tmp_path / server.SENTINELLA_SOLA_LETTURA).touch()
+
+    risposta = cliente.post("/api/solve")
+
+    assert risposta.status_code == 400
+
+
 def test_un_tipo_di_modello_inventato_viene_rifiutato(cliente):
     risposta = cliente.post("/api/model/asbuilt")
 
@@ -3486,8 +3530,8 @@ def test_una_post_partita_da_un_altro_sito_non_riavvolge_la_configurazione(clien
     collaterale succede lo stesso, e un `<form method=POST>` auto-inviato non
     ha bisogno nemmeno di JavaScript.
 
-    Sono sette le tratte cosi': le due dello storico e cinque che c'erano gia',
-    tre delle quali lanciano sottoprocessi.
+    Sono otto le tratte cosi': le due dello storico, cinque che c'erano gia' e
+    quella del solutore; cinque di loro lanciano sottoprocessi.
 
     Mutazione che lo uccide: togliere il controllo su `Sec-Fetch-Site` dal
     middleware.

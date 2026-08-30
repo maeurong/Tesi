@@ -6145,6 +6145,16 @@ ultimoStato = tredici("mai eseguito");
 aggiornaPassaggio();
 assert.equal(comando.getAttribute("aria-disabled"), "true",
   "senza prior il comando resta acceso e cade sul deck che non c'e'");
+
+// Il deck lo scrive lo step 11: fallito quello, non c'e' niente da risolvere,
+// e il comando non deve mandare una richiesta che fallira'.
+ultimoStato = tredici();
+ultimoStato[10].stato = "fallito";
+aggiornaPassaggio();
+assert.equal(comando.getAttribute("aria-disabled"), "true",
+  "con l'export fallito il comando parte lo stesso, e non c'e' un deck da risolvere");
+assert.match(document.getElementById("risolvi-ragione").textContent, /step 11/,
+  "il comando spento non dice quale step manca");
 // La stessa frase della riga sotto il passaggio, non una seconda lingua per
 // dire lo stesso fatto.
 assert.equal(
@@ -6160,9 +6170,9 @@ def test_il_comando_che_risolve_si_ferma_da_se_e_dichiara_il_rifiuto(tmp_path):
     Senza prior non parte nessuna richiesta: `aria-disabled` lascia il bottone
     cliccabile per costruzione, quindi la guardia deve stare nel gestore.
 
-    Col prior parte, e sulla tratta che esisteva già — `POST /api/step/13`,
-    quella che il bottone della colonna usava. Il numero viene dallo stato che
-    il server manda, non da un 13 battuto nel modulo.
+    Col prior parte, e sulla tratta del solutore — `POST /api/solve`, che avvia
+    il comando `meshrec solve`. Non `POST /api/step/13`: quella rispondeva 200
+    e poi il sottoprocesso moriva su `from_step`, il cui tetto è 9.
 
     E il rifiuto si vede: `dichiaraErrore` scrive in `#errore`, che vive nella
     colonna del dettaglio, cioè su una schermata che da qui è nascosta. Un
@@ -6183,11 +6193,11 @@ ultimoStato = tredici("mai eseguito");
 await risolvi();
 assert.deepEqual(chiesto, [], "il comando parte anche senza prior");
 
-// Col prior: la tratta che esisteva gia', e il numero dallo stato.
+// Col prior: la tratta del solutore.
 ultimoStato = tredici();
 await risolvi();
-assert.deepEqual(chiesto, [["/api/step/13", "POST"]],
-  `la tratta non e' quella che il bottone della colonna usava: ${JSON.stringify(chiesto)}`);
+assert.deepEqual(chiesto, [["/api/solve", "POST"]],
+  `la tratta non e' quella del solutore: ${JSON.stringify(chiesto)}`);
 assert.equal(riga.textContent, "", "un avvio riuscito lascia scritto un errore");
 
 // Rifiutato: si vede, e su questa schermata.

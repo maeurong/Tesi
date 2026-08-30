@@ -648,10 +648,11 @@ def create_app(
 
         **Il CSRF non era chiuso, e qui c'era scritto che lo fosse.** L'argomento
         era «i corpi sono application/json, quindi il browser fa il preflight»,
-        e vale per le sole tratte che un corpo ce l'hanno. Sette non ce l'hanno:
+        e vale per le sole tratte che un corpo ce l'hanno. Otto non ce l'hanno:
         `/api/storico/indietro` e `/api/storico/avanti`, e prima di loro
         `/api/cancel`, `/api/step/{numero}`, `/api/step/{numero}/from`,
-        `/api/wall`, `/api/model/{tipo}` -- di cui tre lanciano sottoprocessi.
+        `/api/wall`, `/api/model/{tipo}`, `/api/solve` -- di cui cinque
+        lanciano sottoprocessi.
         Una POST senza corpo non porta `Content-Type`, quindi e' una richiesta
         CORS-safelisted e il preflight non parte; l'`Host` che arriva e'
         `127.0.0.1`, quindi la guardia sopra la lascia passare. La risposta
@@ -659,7 +660,7 @@ def create_app(
         legge niente, ma l'effetto collaterale succede lo stesso, e un
         `<form method=POST>` auto-inviato non ha bisogno nemmeno di JS.
 
-        `Sec-Fetch-Site` lo chiude per tutte e sette in un punto solo: lo scrive
+        `Sec-Fetch-Site` lo chiude per tutte e otto in un punto solo: lo scrive
         il browser e una pagina non lo puo' falsificare. Assente vuol dire che a
         chiamare non e' un browser -- `curl`, un test, la suite -- e passa: chi
         non ha un browser non ha nemmeno una vittima da far cliccare, che e' il
@@ -1212,6 +1213,21 @@ def create_app(
         non_in_sola_lettura("ricalcolare il prior")
         lavoratore.start_comando(["wall", str(config_path)], etichetta="prior geometrico")
         return {"avviato": "wall"}
+
+    @app.post("/api/solve")
+    def risolvi_analisi() -> dict[str, object]:
+        """Lo step 13 sugli artefatti gia' presenti. E' un'azione, non uno step.
+
+        Stessa strada del prior geometrico: `start_comando` e non `start`,
+        perche' non c'e' un intervallo di step da percorrere. `POST
+        /api/step/13` non e' un ripiego -- il tetto di `from_step` e' 9, quindi
+        quella tratta faceva partire un sottoprocesso che moriva sulla
+        validazione della configurazione, dopo aver risposto 200.
+        """
+        corrente()
+        non_in_sola_lettura("eseguire il solutore")
+        lavoratore.start_comando(["solve", str(config_path)], etichetta="solutore")
+        return {"avviato": "solve"}
 
     @app.post("/api/model/{tipo}")
     def genera_modello(tipo: str) -> dict[str, object]:

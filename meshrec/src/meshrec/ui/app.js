@@ -634,22 +634,21 @@ function apriRisoluzione() {
   return ultimaRisoluzione;
 }
 
-// Il numero dallo stato che il server manda e non da un 13 battuto qui: e' lo
-// stesso elenco che la colonna ha appena disegnato, meno la voce che ne e'
-// stata tolta.
+// `/api/solve` e non `/api/step/13`: lo step 13 e' un'azione e non una ripresa.
+// Quella tratta rispondeva 200 e poi il sottoprocesso moriva sulla validazione
+// della configurazione, perche' `from_step` ha il tetto a 9 -- un clic che
+// sembrava riuscito e non lasciava nemmeno una riga in steps.json.
 async function risolvi() {
   const { pronto } = ragioneDelPassaggio(ultimoStato);
-  const voce = ultimoStato.find((v) => v.chiave === STEP_DELL_ANALISI);
   // Il gesto si ferma da se', come il passaggio bloccato: `aria-disabled` lascia
   // il bottone cliccabile per costruzione, ed e' il prezzo di tenerlo annunciato
   // con la propria ragione. La ragione e' gia' a video sotto di lui: qui non si
   // riscrive niente, si rifiuta e basta.
-  if (!pronto || voce === undefined) return;
+  if (!pronto) return;
   const riga = document.getElementById("analisi-errore");
   riga.textContent = "";
   const ordine = apriRisoluzione();
-  const risposta = await fetch(`/api/step/${voce.numero}`, { method: "POST" })
-    .catch(serverMuto);
+  const risposta = await fetch("/api/solve", { method: "POST" }).catch(serverMuto);
   if (risposta.ok) return;
   const rifiuto = await ragioneDelRifiuto(risposta);
   if (superata(ordine, ultimaRisoluzione)) return;
