@@ -6,6 +6,7 @@ import functools
 import warnings
 from collections.abc import Callable
 from pathlib import Path
+from typing import NamedTuple
 
 import numpy as np
 
@@ -123,7 +124,7 @@ def _passo_statico(
     print_nsets: tuple[str, ...], pressure: tuple[str, float] | None,
     carichi_nodali: dict[int, tuple[float, float, float]] | None = None,
     pressioni_da_azzerare: tuple[str, ...] = (),
-    pressione_distribuita: tuple[str, float] | None = None,
+    pressioni_distribuite: tuple[tuple[str, float], ...] = (),
 ) -> list[str]:
     """Un passo statico completo: nome a commento, carichi, uscite.
 
@@ -136,17 +137,25 @@ def _passo_statico(
     `RF` su `fixed_nset` non e' un'uscita in piu': e' il controllo di
     conservazione, e sta nel deck perche' e' li' che il solutore lo puo'
     dare.
+
+    `pressioni_distribuite` e' una **tupla** e non una pressione sola (#146):
+    un passo di combinazione porta dentro di se' piu' azioni, e fra queste
+    possono esserci due carichi distribuiti su due superfici diverse. Nei passi
+    dei singoli distribuiti la tupla ha un elemento solo, come prima.
     """
     righe = [f"** NOME PASSO: {nome}", "*STEP", "*STATIC", "*DLOAD, OP=NEW"]
     righe += carichi
     # `pressure` e' la pressione **permanente** del modello, legata al parziale
-    # in `write_inp` e percio' presente in ogni passo; `pressione_distribuita`
-    # e' quella del carico distribuito di questo passo (#10). Due parametri e
+    # in `write_inp` e percio' presente in ogni passo; `pressioni_distribuite`
+    # sono quelle dei carichi distribuiti di questo passo (#10). Due parametri e
     # non uno perche' nei passi distribuiti devono comparire **entrambe**: il
     # `*DLOAD, OP=NEW` due righe piu' su cancella anche i `*DSLOAD` dei passi
     # precedenti, quindi una permanente non riscritta qui semplicemente non
     # agisce (#119).
-    pressioni = [p for p in (pressure, pressione_distribuita) if p is not None]
+    pressioni = [
+        *(() if pressure is None else (pressure,)),
+        *pressioni_distribuite,
+    ]
     if pressioni:
         # `OP=NEW` su questa card non e' la via: `ccx` **non riconosce quel
         # parametro** su `*DSLOAD`, risponde con due «*WARNING reading *DLOAD:
@@ -196,6 +205,52 @@ def _passo_statico(
         righe += [f"*NODE PRINT, NSET={fixed_nset}", "RF"]
     righe += ["*NODE FILE", "U", "*EL FILE", "S, E", "*END STEP"]
     return righe
+
+
+class _Azione(NamedTuple):
+    """Le righe di carico di un'azione dichiarata, senza il peso proprio accanto.
+
+    E' quello che una combinazione somma. **Senza** il peso proprio, che nei
+    passi dei casi singoli si ripete per una ragione diversa (un passo senza
+    peso descriverebbe una struttura che non pesa) e che in una combinazione e'
+    esso stesso un'azione, con il proprio coefficiente: ripeterlo di nuovo lo
+    scriverebbe due volte, una col γ della combinazione e una senza.
+
+    `cload` non porta l'intestazione `*CLOAD, OP=NEW`: quella va scritta **una
+    volta per passo**, e due `OP=NEW` nello stesso passo cancellerebbero le
+    forze della prima.
+    """
+
+    dload: tuple[str, ...] = ()
+    cload: tuple[str, ...] = ()
+    pressione: tuple[str, float] | None = None
+
+
+def _riga_scalata(riga: str, coefficiente: float) -> str:
+    """Una riga di carico moltiplicata per il coefficiente della combinazione.
+
+    Si scala il **testo gia' scritto** invece di rifare il conto a monte, e la
+    ragione e' che cosi' i passi dei casi singoli restano identici all'ultima
+    riga: il coefficiente unitario non passa di qui, e nessuna corsa gia'
+    registrata cambia deck. Il conto e' comunque lo stesso -- ogni carico di
+    questo esportatore e' lineare nel proprio modulo -- e la riga da scalare la
+    scrive questa stessa funzione, non un formato altrui.
+
+    Le due sole forme che arrivano qui portano il numero nella **terza**
+    colonna: `elset, GRAV, modulo, nx, ny, nz` e `nodo, grado, valore`. Una
+    riga di forma diversa e' un errore di chi ha costruito l'azione, e si
+    rifiuta invece di scalare la colonna sbagliata in silenzio.
+    """
+    campi = [campo.strip() for campo in riga.split(",")]
+    if riga.startswith("*") or len(campi) not in (3, 6):
+        raise ValueError(
+            f"riga di carico non scalabile: {riga!r}. Le forme note sono la "
+            "gravità («elset, GRAV, modulo, nx, ny, nz») e la forza nodale "
+            "(«nodo, grado, valore»), e in entrambe il modulo sta nella terza "
+            "colonna"
+        )
+    campi[2] = f"{float(campi[2]) * coefficiente:.9e}"
+    return ", ".join(campi)
 
 
 MAGLIO_VUOTO = (
@@ -592,7 +647,14 @@ def write_inp(
         carichi_nodali=carichi_nodali,
     )
 
+    # Le azioni del deck, ciascuna con le proprie righe di carico e senza il
+    # peso proprio accanto: e' cio' che una combinazione somma (#146). Si
+    # riempie mentre i passi dei casi singoli si scrivono, perche' le righe
+    # sono le stesse -- costruirle due volte sarebbe due posti dove divergere.
+    azioni_del_deck: dict[str, _Azione] = {}
+
     peso = f"{elset}, GRAV, {gravity}, 0.0, 0.0, -1.0"
+    azioni_del_deck[step_name] = _Azione(dload=(peso,))
     lines += passo_statico(step_name, [peso])
 
     if carichi is not None and carichi.spinta is not None:
@@ -602,6 +664,7 @@ def write_inp(
         # davvero orizzontale.
         versore = {"x": "1.0, 0.0, 0.0", "y": "0.0, 1.0, 0.0"}[carichi.spinta.asse]
         spinta = f"{elset}, GRAV, {gravity * carichi.spinta.coefficiente}, {versore}"
+        azioni_del_deck["SPINTA_ORIZZONTALE"] = _Azione(dload=(spinta,))
         lines += passo_statico("SPINTA_ORIZZONTALE", [peso, spinta])
 
     # Il resoconto di ogni carico che passa da `ripartisci`/`coppia_equivalente`,
@@ -635,6 +698,7 @@ def write_inp(
             f"{int(n) + 1}, 3, {-quota:.9e}"
             for n, quota in zip(nodi_carico, quote, strict=True)
         ]
+        azioni_del_deck["CARICO_TOP"] = _Azione(cload=tuple(righe_cload[1:]))
         lines += passo_statico("CARICO_TOP", [peso] + righe_cload)
         resoconto["CARICO_TOP"] = resoconto_top
 
@@ -653,6 +717,7 @@ def write_inp(
             righe_cload, resoconto_carico = coppia_equivalente(
                 carico.momento, nodes, elements, indici, element_type, nome=carico.nome
             )
+            azioni_del_deck[carico.nome] = _Azione(cload=tuple(righe_cload[1:]))
             lines += passo_statico(carico.nome, [peso] + righe_cload)
             resoconto[carico.nome] = resoconto_carico
             continue
@@ -668,6 +733,7 @@ def write_inp(
                 f"{int(nodo) + 1}, {grado}, {quota * componente:.9e}"
                 for grado, componente in gradi
             ]
+        azioni_del_deck[carico.nome] = _Azione(cload=tuple(righe_cload[1:]))
         lines += passo_statico(carico.nome, [peso] + righe_cload)
         resoconto_carico["forza_dichiarata"] = list(carico.forza)
         resoconto_carico["forza_effettiva"] = np.outer(quote, versore).sum(axis=0).tolist()
@@ -696,12 +762,60 @@ def write_inp(
         # `pressione_distribuita` e non `pressure`: quest'ultimo e' legato al
         # parziale e porta la permanente, che deve comparire **anche qui**
         # (#119).
+        azioni_del_deck[carico.nome] = _Azione(
+            pressione=(carico.nome, carico.pressione)
+        )
         lines += passo_statico(
             carico.nome, [peso, "*CLOAD, OP=NEW"],
-            pressione_distribuita=(carico.nome, carico.pressione),
+            pressioni_distribuite=((carico.nome, carico.pressione),),
             pressioni_da_azzerare=tuple(c.nome for c in distribuiti[:indice]),
         )
         resoconto[carico.nome] = resoconti_distribuiti[carico.nome]
+
+    # Un passo per combinazione (#146), **dopo** tutti i casi singoli e prima
+    # del modale: `metrics["11_export"]["casi_di_carico"]` elenca i passi in
+    # quest'ordine, e `solve.risolvi` traduce il numero di passo del `.frd`
+    # nell'etichetta del caso leggendo quella lista in ordine. Un passo di
+    # combinazione scritto altrove attribuirebbe i risultati al caso sbagliato
+    # senza un errore e senza un avviso.
+    #
+    # Qui il peso proprio **non** si ripete: in una combinazione e' un'azione
+    # come le altre, col proprio coefficiente, e chi non lo mette fra i termini
+    # ha dichiarato una combinazione senza peso proprio.
+    for combinazione in () if carichi is None else carichi.combinazioni:
+        dload: list[str] = []
+        cload: list[str] = []
+        pressioni_combinate: list[tuple[str, float]] = []
+        for nome_azione, coefficiente in combinazione.termini:
+            azione = azioni_del_deck.get(nome_azione)
+            if azione is None:
+                raise ValueError(
+                    f"la combinazione '{combinazione.nome}' cita l'azione "
+                    f"'{nome_azione}', che questo deck non scrive. Le azioni "
+                    f"dichiarate sono {sorted(azioni_del_deck)}"
+                )
+            # Un coefficiente nullo **non** salta il termine: la riga si scrive
+            # con il valore a zero, cosi' chi legge il deck vede che l'azione e'
+            # stata messa a zero invece di dedurlo dalla sua assenza -- che e'
+            # indistinguibile da un termine dimenticato. Un coefficiente
+            # negativo e' ammesso e rovescia il verso dell'azione: e' il modo
+            # con cui si scrivono le due direzioni del sisma senza dichiarare
+            # due carichi.
+            dload += [_riga_scalata(riga, coefficiente) for riga in azione.dload]
+            cload += [_riga_scalata(riga, coefficiente) for riga in azione.cload]
+            if azione.pressione is not None:
+                superficie, valore = azione.pressione
+                pressioni_combinate.append((superficie, valore * coefficiente))
+        lines += passo_statico(
+            combinazione.nome,
+            [*dload, "*CLOAD, OP=NEW", *cload],
+            pressioni_distribuite=tuple(pressioni_combinate),
+            # Tutte, e non le precedenti: i passi di combinazione vengono dopo
+            # ogni distribuito, quindi ogni sua superficie e' gia' stata
+            # dichiarata. Le proprie si riscrivono subito sotto, col valore
+            # scalato.
+            pressioni_da_azzerare=tuple(c.nome for c in distribuiti),
+        )
 
     if carichi is not None and carichi.modale is not None:
         # Nessun `*EL FILE`: le forme sono normalizzate sulla massa e una
@@ -2079,6 +2193,12 @@ def export_model(
             # `solve.risolvi` usa per dare un nome ai blocchi del `.frd`, e un
             # ordine diverso da quello del deck scambierebbe i risultati.
             *(() if carichi is None else tuple(c.nome for c in carichi.distribuiti)),
+            # Le combinazioni entrano DOPO tutti i casi singoli (#146), nello
+            # stesso punto in cui `write_inp` scrive i loro passi, e prima del
+            # modale: `risolvi` scarta il modale come **ultima** voce della
+            # lista, e una combinazione dietro di lui non troverebbe piu' il
+            # proprio blocco.
+            *(() if carichi is None else tuple(c.nome for c in carichi.combinazioni)),
             None if carichi is None or carichi.modale is None else "MODALE",
         ) if nome is not None],
     }

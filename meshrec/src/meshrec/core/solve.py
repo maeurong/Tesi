@@ -1517,7 +1517,11 @@ def risolvi(
     viewport: `U_<CASO>` (vettore, spostamento nodale) e `VM_<CASO>` (scalare,
     tensione equivalente) per ciascun passo statico -- `<CASO>` e' il nome che
     `abaqus.write_inp` da' al passo ("GRAVITA" di norma, "SPINTA_ORIZZONTALE",
-    "CARICO_TOP"); `MODO_<n>` (vettore, forma non dimensionale) per l'n-esimo
+    "CARICO_TOP", il nome di ogni carico posizionato o distribuito e -- dalla
+    Fase 8 -- il nome di ogni **combinazione** dichiarata, che e' un passo
+    statico come gli altri e produce un campo come gli altri, in coda ai casi
+    singoli e prima del modale);
+    `MODO_<n>` (vettore, forma non dimensionale) per l'n-esimo
     modo. Un blocco modale non produce mai `U_`/`VM_`: la forma e' normalizzata
     sulla massa, non uno spostamento fisico (vedi il docstring del modulo).
 
