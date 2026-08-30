@@ -947,3 +947,201 @@ def test_un_dato_per_cella_di_lunghezza_sbagliata_e_rifiutato(tmp_path):
             element_type="C3D4", cell_data={"N_GRAVITA": np.array([1.0, 2.0, 3.0])},
         )
 
+
+
+# --- Il lancio del solutore ---------------------------------------------------
+def _solutore(percorso: str | None = "/finto/OpenSees") -> config.SolutoreConfig:
+    return config.SolutoreConfig(nome="opensees", percorso=percorso)
+
+
+def _opensees_finto(caso: str = "GRAVITA", *, modi: int = 0, marcatore: bool = True,
+                    uscita: str = "", codice: int = 0):
+    """Al posto di `subprocess.run`: scrive le uscite che i registratori
+    scriverebbero, leggendole dal `.tcl` come farebbe il solutore vero.
+
+    Il peso lo prende dalle righe `load` dello script e lo posa **intero sul
+    primo nodo incastrato**: la somma delle reazioni torna, e il verdetto
+    `reazioni` prova la lettura invece di essere verde per costruzione.
+    """
+    def esegui(argomenti, cwd=None, **_altro):
+        cartella = Path(cwd)
+        righe = (cartella / argomenti[-1]).read_text(encoding="utf-8").splitlines()
+        n_nodi = sum(1 for r in righe if r.startswith("node "))
+        n_elementi = sum(1 for r in righe if r.startswith("element "))
+        piede = [int(r.split()[1]) for r in righe if r.startswith("fix ")]
+        peso = -sum(float(r.split()[4]) for r in righe if r.strip().startswith("load "))
+
+        def scrivi(nome: str, valori) -> None:
+            (cartella / nome).write_text(
+                " ".join(f"{v:.12g}" for v in valori) + "\n", encoding="ascii"
+            )
+
+        if peso:
+            scrivi(f"{caso}_spostamenti.out", [0.1] * (3 * n_nodi))
+            scrivi(f"{caso}_forze.out", [1.0] * (12 * n_elementi))
+            reazioni = np.zeros((n_nodi, 6))
+            reazioni[piede[0] - 1, 2] = peso
+            scrivi(f"{caso}_reazioni.out", reazioni.reshape(-1))
+        for modo in range(1, modi + 1):
+            scrivi(f"modo_{modo}.out", [0.01 * modo] * (3 * n_nodi))
+        if modi:
+            (cartella / opensees.NOME_MASSA_MODALE).write_text(
+                _RAPPORTO_MODALE, encoding="ascii"
+            )
+        if marcatore:
+            (cartella / opensees.NOME_FINE).write_text(
+                opensees.MARCA_FINE + "\n", encoding="ascii"
+            )
+
+        class _Processo:
+            returncode = codice
+            stdout = uscita.encode()
+            stderr = b""
+
+        return _Processo()
+
+    return esegui
+
+
+# Le due tabelle di `modalProperties -print`, nella forma misurata il
+# 30/08/2026 su OpenSees 3.8.0 (le colonne vere, non un formato inventato).
+_RAPPORTO_MODALE = """# MODAL ANALYSIS REPORT
+
+* 2. EIGENVALUE ANALYSIS:
+#          MODE        LAMBDA         OMEGA     FREQUENCY        PERIOD
+# ------------- ------------- ------------- ------------- -------------
+              1       18674.2       136.654            10     0.0459789
+              2         46428       215.472            20     0.0291602
+
+* 9. MASS RATIOS (%) (cumulative):
+#          MODE            MX            MY            MZ           RMX           RMY           RMZ
+# ------------- ------------- ------------- ------------- ------------- ------------- -------------
+              1            50            50            50            50            50            50
+              2            95            95            95            95            95            95
+"""
+
+
+def test_opensees_assente_si_dichiara_prima_di_scrivere_il_tcl(tmp_path, monkeypatch):
+    """Un solutore che non c'è non è un difetto, ed è una risposta che deve
+    arrivare **prima** del lavoro: scrivere il `.tcl` e poi scoprire che manca
+    il binario lascia sul disco un artefatto che nessuno ha risolto."""
+    monkeypatch.setattr(opensees.solve, "eseguibile", lambda _cfg: None)
+
+    esito = opensees.esegui(
+        tmp_path, _mensola(), _solutore(), casi_di_carico=["GRAVITA"]
+    )
+
+    assert esito["eseguito"] is False
+    assert esito["solutore"] == "assente"
+    assert "opensees.berkeley.edu" in esito["motivo"]
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_un_solutore_che_non_e_opensees_si_dichiara(tmp_path):
+    """Il telaio non è un deck Abaqus: `calculix` qui non è una scelta, è un
+    errore, e il rifiuto nomina chi porta l'altra strada."""
+    with pytest.raises(ValueError, match="core/solve.py|risolvi"):
+        opensees.esegui(
+            tmp_path, _mensola(), config.SolutoreConfig(nome="calculix"),
+            casi_di_carico=["GRAVITA"],
+        )
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_senza_il_marcatore_di_fine_la_corsa_e_fallita(tmp_path, monkeypatch):
+    """**Il codice d'uscita non è il segnale**: OpenSees 3.8.0 esce 0 anche
+    quando lo script muore su un errore fatale (misurato il 30/08/2026). Il
+    segnale è il marcatore che il `.tcl` scrive in coda, e che qui non c'è.
+    """
+    monkeypatch.setattr(opensees.solve, "eseguibile", lambda _cfg: Path("/finto/OpenSees"))
+    monkeypatch.setattr(
+        opensees.subprocess, "run",
+        _opensees_finto(marcatore=False, uscita="WARNING - qualcosa è morto"),
+    )
+
+    with pytest.raises(RuntimeError, match=opensees.NOME_FINE):
+        opensees.esegui(tmp_path, _mensola(), _solutore(), casi_di_carico=["GRAVITA"])
+    assert (tmp_path / "13_solver.log").is_file(), "il registro resta, o non si diagnostica"
+
+
+def test_un_analisi_che_non_converge_esce_diversa_da_zero_e_senza_marcatore(
+    tmp_path, monkeypatch
+):
+    """`analyze` che non torna 0 fa uscire lo script con codice 1 e senza
+    marcatore (è il ramo che `_passo_statico` scrive): il fallimento si legge
+    dal marcatore mancante, e il codice finisce nel messaggio."""
+    monkeypatch.setattr(opensees.solve, "eseguibile", lambda _cfg: Path("/finto/OpenSees"))
+    monkeypatch.setattr(
+        opensees.subprocess, "run",
+        _opensees_finto(marcatore=False, codice=1, uscita="MESHREC_FINE_MANCA"),
+    )
+
+    with pytest.raises(RuntimeError, match=r"d'uscita \(1\)"):
+        opensees.esegui(tmp_path, _mensola(), _solutore(), casi_di_carico=["GRAVITA"])
+
+
+def test_i_sette_verdetti_del_telaio_passano_tutti_dalla_tabella(tmp_path, monkeypatch):
+    """I sette ci sono tutti, e i due che la tabella dichiara non applicabili
+    non escono verdi: è la ragione per cui `verdetti_per_modello` esiste."""
+    monkeypatch.setattr(opensees.solve, "eseguibile", lambda _cfg: Path("/finto/OpenSees"))
+    monkeypatch.setattr(opensees.subprocess, "run", _opensees_finto(modi=2))
+
+    esito = opensees.esegui(
+        tmp_path, _mensola(), _solutore(), casi_di_carico=["GRAVITA", "MODALE"], modi=2
+    )
+
+    controlli = esito["controlli"]
+    assert set(controlli) == set(opensees.solve.CONTROLLI_PER_MODELLO)
+    for non_applicabile in ("vincolo_in_pianta", "picco"):
+        assert controlli[non_applicabile]["applicabile"] is False
+        assert controlli[non_applicabile]["passato"] is False
+    for verde in ("reazioni", "autovalori", "avvisi", "spostamenti", "massa_modale"):
+        assert controlli[verde]["passato"] is True, (verde, controlli[verde])
+    assert esito["frequenze_hz"] == [10.0, 20.0]
+    assert esito["eseguito"] is True
+
+
+def test_le_uscite_della_corsa_precedente_non_si_mescolano_con_le_nuove(
+    tmp_path, monkeypatch
+):
+    """La stessa corsa risolta due volte: i registratori riscrivono i propri
+    file, ma un `modo_3.out` di una corsa a tre modi resterebbe sul disco
+    accanto ai due della corsa nuova, e il lettore lo leggerebbe come un modo
+    di questa."""
+    monkeypatch.setattr(opensees.solve, "eseguibile", lambda _cfg: Path("/finto/OpenSees"))
+    monkeypatch.setattr(opensees.subprocess, "run", _opensees_finto(modi=3))
+    opensees.esegui(
+        tmp_path, _mensola(), _solutore(), casi_di_carico=["GRAVITA", "MODALE"], modi=3
+    )
+    assert (tmp_path / "modo_3.out").is_file()
+
+    monkeypatch.setattr(opensees.subprocess, "run", _opensees_finto(modi=2))
+    esito = opensees.esegui(
+        tmp_path, _mensola(), _solutore(), casi_di_carico=["GRAVITA", "MODALE"], modi=2
+    )
+
+    assert not (tmp_path / "modo_3.out").exists()
+    assert esito["modi"] == 2
+
+
+@pytest.mark.feasibility
+def test_la_catena_intera_gira_su_opensees_vero(tmp_path):
+    """Capo a capo con il binario vero: scrive, lancia, pretende il marcatore,
+    rilegge e scrive i sette verdetti. È la prova che i tre pezzi -- lo
+    scrittore, il lanciatore e i verdetti -- parlano davvero della stessa
+    corsa."""
+    if _OPENSEES is None:
+        pytest.skip("OpenSees non trovato: né MESHREC_OPENSEES né 'OpenSees' nel PATH")
+
+    esito = opensees.esegui(
+        tmp_path, _mensola(stazioni=8), config.SolutoreConfig(nome="opensees", percorso=_OPENSEES),
+        casi_di_carico=["GRAVITA", "MODALE"], modi=4,
+    )
+
+    assert esito["eseguito"] is True
+    assert esito["avvisi"] == 0
+    assert esito["controlli"]["reazioni"]["passato"] is True, esito["controlli"]["reazioni"]
+    assert esito["controlli"]["autovalori"]["passato"] is True
+    assert esito["controlli"]["spostamenti"]["passato"] is True
+    assert esito["controlli"]["picco"]["applicabile"] is False
+    assert len(esito["frequenze_hz"]) == 4
