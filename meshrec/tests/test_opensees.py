@@ -1021,19 +1021,28 @@ _RAPPORTO_MODALE = """# MODAL ANALYSIS REPORT
 """
 
 
-def test_opensees_assente_si_dichiara_prima_di_scrivere_il_tcl(tmp_path, monkeypatch):
+def _c_e_opensees(_cfg=None):
+    """`solve.disponibilita` con OpenSees presente: il binario finto lo mette
+    poi al suo posto il finto `subprocess.run`."""
+    return {"opensees": {
+        "disponibile": True, "percorso": "/finto/OpenSees", "origine": "dichiarato",
+        "scelto": True, "motivo": None,
+        "dove_prenderlo": opensees.solve.DOVE_PRENDERLO["opensees"],
+    }}
+
+
+def test_opensees_assente_si_dichiara_prima_di_scrivere_il_tcl(tmp_path):
     """Un solutore che non c'è non è un difetto, ed è una risposta che deve
     arrivare **prima** del lavoro: scrivere il `.tcl` e poi scoprire che manca
     il binario lascia sul disco un artefatto che nessuno ha risolto."""
-    monkeypatch.setattr(opensees.solve, "eseguibile", lambda _cfg: None)
-
     esito = opensees.esegui(
-        tmp_path, _mensola(), _solutore(), casi_di_carico=["GRAVITA"]
+        tmp_path, _mensola(), _solutore("/non/c/e/OpenSees"), casi_di_carico=["GRAVITA"]
     )
 
     assert esito["eseguito"] is False
     assert esito["solutore"] == "assente"
-    assert "opensees.berkeley.edu" in esito["motivo"]
+    assert "/non/c/e/OpenSees" in esito["motivo"]
+    assert "opensees.berkeley.edu" in esito["dove_prenderlo"]
     assert list(tmp_path.iterdir()) == []
 
 
@@ -1053,7 +1062,7 @@ def test_senza_il_marcatore_di_fine_la_corsa_e_fallita(tmp_path, monkeypatch):
     quando lo script muore su un errore fatale (misurato il 30/08/2026). Il
     segnale è il marcatore che il `.tcl` scrive in coda, e che qui non c'è.
     """
-    monkeypatch.setattr(opensees.solve, "eseguibile", lambda _cfg: Path("/finto/OpenSees"))
+    monkeypatch.setattr(opensees.solve, "disponibilita", _c_e_opensees)
     monkeypatch.setattr(
         opensees.subprocess, "run",
         _opensees_finto(marcatore=False, uscita="WARNING - qualcosa è morto"),
@@ -1070,7 +1079,7 @@ def test_un_analisi_che_non_converge_esce_diversa_da_zero_e_senza_marcatore(
     """`analyze` che non torna 0 fa uscire lo script con codice 1 e senza
     marcatore (è il ramo che `_passo_statico` scrive): il fallimento si legge
     dal marcatore mancante, e il codice finisce nel messaggio."""
-    monkeypatch.setattr(opensees.solve, "eseguibile", lambda _cfg: Path("/finto/OpenSees"))
+    monkeypatch.setattr(opensees.solve, "disponibilita", _c_e_opensees)
     monkeypatch.setattr(
         opensees.subprocess, "run",
         _opensees_finto(marcatore=False, codice=1, uscita="MESHREC_FINE_MANCA"),
@@ -1083,7 +1092,7 @@ def test_un_analisi_che_non_converge_esce_diversa_da_zero_e_senza_marcatore(
 def test_i_sette_verdetti_del_telaio_passano_tutti_dalla_tabella(tmp_path, monkeypatch):
     """I sette ci sono tutti, e i due che la tabella dichiara non applicabili
     non escono verdi: è la ragione per cui `verdetti_per_modello` esiste."""
-    monkeypatch.setattr(opensees.solve, "eseguibile", lambda _cfg: Path("/finto/OpenSees"))
+    monkeypatch.setattr(opensees.solve, "disponibilita", _c_e_opensees)
     monkeypatch.setattr(opensees.subprocess, "run", _opensees_finto(modi=2))
 
     esito = opensees.esegui(
@@ -1108,7 +1117,7 @@ def test_le_uscite_della_corsa_precedente_non_si_mescolano_con_le_nuove(
     file, ma un `modo_3.out` di una corsa a tre modi resterebbe sul disco
     accanto ai due della corsa nuova, e il lettore lo leggerebbe come un modo
     di questa."""
-    monkeypatch.setattr(opensees.solve, "eseguibile", lambda _cfg: Path("/finto/OpenSees"))
+    monkeypatch.setattr(opensees.solve, "disponibilita", _c_e_opensees)
     monkeypatch.setattr(opensees.subprocess, "run", _opensees_finto(modi=3))
     opensees.esegui(
         tmp_path, _mensola(), _solutore(), casi_di_carico=["GRAVITA", "MODALE"], modi=3

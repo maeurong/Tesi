@@ -934,22 +934,20 @@ def esegui(
             "M per elemento) non stanno in un .frd. La strada di CalculiX è "
             "core/solve.py (risolvi), sul deck dello step 11"
         )
-    binario = solve.eseguibile(solutore)
-    if binario is None:
-        # Prima di scrivere il .tcl: un artefatto sul disco che nessuno ha
-        # risolto direbbe che la corsa e' arrivata al modello quando non c'e'
-        # nemmeno il solutore. Il motivo porta dove prenderlo, perche' chi lo
-        # legge ha appena scoperto che gli manca.
+    # Prima di scrivere il .tcl: uno script sul disco che nessuno ha risolto
+    # direbbe che la corsa e' arrivata al modello quando manca il solutore. Il
+    # motivo e il dove prenderlo vengono da `solve.disponibilita`, che e' il
+    # punto unico in cui si decide dove sta un solutore: riscriverli qui
+    # darebbe due diagnosi diverse per la stessa assenza.
+    stato = solve.disponibilita(solutore)["opensees"]
+    if not stato["disponibile"]:
         return {
             "eseguito": False,
             "solutore": "assente",
-            "motivo": (
-                f"«{solutore.percorso}» non è un file"
-                if solutore.percorso is not None
-                else "«OpenSees» non è nel PATH e solutore.percorso non è dichiarato"
-            )
-            + f". {solve.DOVE_PRENDERLO['opensees']}",
+            "motivo": stato["motivo"],
+            "dove_prenderlo": stato["dove_prenderlo"],
         }
+    binario = stato["percorso"]
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -962,7 +960,7 @@ def esegui(
     )
 
     processo = subprocess.run(
-        [str(binario), NOME_TCL],
+        [binario, NOME_TCL],
         cwd=out_dir,
         capture_output=True,
         timeout=solve._TIMEOUT_S,
