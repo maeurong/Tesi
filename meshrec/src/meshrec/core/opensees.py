@@ -965,7 +965,11 @@ def esegui(
         capture_output=True,
         timeout=solve._TIMEOUT_S,
     )
-    uscita = (processo.stdout + processo.stderr).decode("utf-8", errors="ignore")
+    # `replace` e non `ignore`: questo è un registro in prosa che l'utente apre
+    # per capire un guasto, non un file di dati letto a campi come quelli di
+    # `_righe_dat`. Un carattere cancellato consegna una riga che nessuno ha
+    # scritto; `U+FFFD` dice che lì c'era qualcosa che non si è letto.
+    uscita = (processo.stdout + processo.stderr).decode("utf-8", errors="replace")
     percorso_registro = out_dir / NOME_REGISTRO
     percorso_registro.write_text(uscita, encoding="utf-8")
 
