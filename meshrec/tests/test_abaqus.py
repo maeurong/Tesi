@@ -2929,3 +2929,126 @@ def test_un_fixed_nset_in_minuscolo_arriva_al_deck_senza_sollevare(cube_mesh, tm
         percorso, tmp_path / "m.vtu", nodi, tetraedri, analisi, TET_LINEARE,
     )
     assert "\nBASE, 1, 3\n" in percorso.read_text(encoding="ascii")
+
+
+# --- Le regioni nel deck (#135) --------------------------------------------
+#
+# `ALL_WALL` non si rinomina e non si toglie (PRODUCT.md lo elenca fra i
+# letterali da preservare): resta l'insieme di tutti gli elementi, quello che
+# la card *ELEMENT dichiara, e le regioni lo partizionano.
+
+
+def test_senza_regioni_il_deck_scrive_la_sola_sezione_di_all_wall(tmp_path, cube_mesh):
+    """Una corsa senza regioni produce il deck di prima, non uno nuovo.
+
+    E' il vincolo piu' stretto della molteplicita': le ventidue righe dei
+    registri sono la provenienza della tabella sperimentale, e un deck diverso
+    a parita' di configurazione le renderebbe irriproducibili in silenzio.
+
+    Mutazione che lo uccide: scrivere comunque un *ELSET, o una seconda riga
+    *SOLID SECTION, quando `regioni` e' assente.
+    """
+    nodi, tetraedri = cube_mesh
+    percorso = tmp_path / "model.inp"
+
+    abaqus.write_inp(
+        percorso, nodi, tetraedri, node_sets=_base_and_top(nodi), material=MATERIALE,
+    )
+    righe = percorso.read_text(encoding="ascii").splitlines()
+
+    assert [r for r in righe if r.startswith("*SOLID SECTION")] == [
+        "*SOLID SECTION, ELSET=ALL_WALL, MATERIAL=MURATURA"
+    ]
+    assert not [r for r in righe if r.startswith("*ELSET")]
+
+
+def test_ogni_regione_ha_il_suo_elset_e_la_sua_sezione(tmp_path, cube_mesh):
+    """Un *ELSET per regione, una *SOLID SECTION per ciascuno, indici 1-based.
+
+    Mutazione che lo uccide: scrivere gli indici degli elementi 0-based, o una
+    sola sezione per l'unione delle regioni.
+    """
+    nodi, tetraedri = cube_mesh
+    percorso = tmp_path / "model.inp"
+
+    abaqus.write_inp(
+        percorso, nodi, tetraedri, node_sets=_base_and_top(nodi), material=MATERIALE,
+        regioni={
+            "PILASTRO": np.array([0, 1, 2]),
+            "TRAVE": np.arange(3, len(tetraedri)),
+        },
+    )
+    righe = percorso.read_text(encoding="ascii").splitlines()
+
+    assert "*ELEMENT, TYPE=C3D4, ELSET=ALL_WALL" in righe
+    assert righe[righe.index("*ELSET, ELSET=PILASTRO") + 1] == "1, 2, 3"
+    assert "*ELSET, ELSET=TRAVE" in righe
+    assert [r for r in righe if r.startswith("*SOLID SECTION")] == [
+        "*SOLID SECTION, ELSET=PILASTRO, MATERIAL=MURATURA",
+        "*SOLID SECTION, ELSET=TRAVE, MATERIAL=MURATURA",
+    ]
+
+
+def test_una_regione_senza_elementi_e_rifiutata(tmp_path, cube_mesh):
+    """Un *ELSET vuoto non ferma `ccx`: il modello gira senza quella sezione.
+
+    Mutazione che lo uccide: scrivere la card e lasciarla senza righe.
+    """
+    nodi, tetraedri = cube_mesh
+
+    with pytest.raises(ValueError, match="non contiene alcun elemento"):
+        abaqus.write_inp(
+            tmp_path / "model.inp", nodi, tetraedri,
+            node_sets=_base_and_top(nodi), material=MATERIALE,
+            regioni={"VUOTA": np.array([], dtype=np.int64)},
+        )
+
+
+def test_gli_orfani_tengono_la_sezione_di_all_wall(tmp_path, cube_mesh):
+    """Un elemento senza regione resta senza materiale: `ccx` non lo accetta.
+
+    Il ripiego e' la sezione su `ALL_WALL` col materiale unico della corsa, e
+    sta **prima** delle regioni: chi ha una regione la sovrascrive.
+
+    Mutazione che lo uccide: omettere il ripiego quando qualche elemento resta
+    fuori dalle regioni, o scriverlo dopo di esse.
+    """
+    nodi, tetraedri = cube_mesh
+    percorso = tmp_path / "model.inp"
+
+    abaqus.write_inp(
+        percorso, nodi, tetraedri, node_sets=_base_and_top(nodi), material=MATERIALE,
+        regioni={"PILASTRO": np.array([0, 1, 2])},
+    )
+    sezioni = [
+        r for r in percorso.read_text(encoding="ascii").splitlines()
+        if r.startswith("*SOLID SECTION")
+    ]
+
+    assert sezioni == [
+        "*SOLID SECTION, ELSET=ALL_WALL, MATERIAL=MURATURA",
+        "*SOLID SECTION, ELSET=PILASTRO, MATERIAL=MURATURA",
+    ]
+
+
+def test_senza_orfani_il_ripiego_non_si_scrive(tmp_path, cube_mesh):
+    """Nessun elemento fuori dalle regioni: nessuna sezione su `ALL_WALL`.
+
+    Mutazione che lo uccide: scrivere il ripiego sempre, che lascerebbe nel
+    deck una sezione che non attribuisce niente a nessuno.
+    """
+    nodi, tetraedri = cube_mesh
+    meta = len(tetraedri) // 2
+    percorso = tmp_path / "model.inp"
+
+    abaqus.write_inp(
+        percorso, nodi, tetraedri, node_sets=_base_and_top(nodi), material=MATERIALE,
+        regioni={
+            "PILASTRO": np.arange(meta),
+            "TRAVE": np.arange(meta, len(tetraedri)),
+        },
+    )
+    testo = percorso.read_text(encoding="ascii")
+
+    assert "*SOLID SECTION, ELSET=ALL_WALL" not in testo
+    assert testo.count("*SOLID SECTION") == 2

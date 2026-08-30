@@ -225,6 +225,7 @@ def write_inp(
     print_nsets: tuple[str, ...] = (),
     gravity: float = GRAVITY_MM_S2,
     elset: str = "ALL_WALL",
+    regioni: dict[str, np.ndarray] | None = None,
     step_name: str = "GRAVITA",
     element_surfaces: dict[str, list[tuple[int, int]]] | None = None,
     ties: tuple[tuple[str, str, str] | tuple[str, str, str, float], ...] = (),
@@ -299,6 +300,20 @@ def write_inp(
     nome) e un passo statico per carico, col peso proprio ripetuto per la
     stessa ragione degli altri passi.
 
+    `regioni` e' la sesta, della Fase 8 (#135): la mappa da nome di regione
+    agli indici degli elementi che le appartengono, di norma quella che
+    `core/attribuzione.py` misura. Senza di essa il deck ha la sola sezione su
+    `elset`, identica a prima -- ed e' cosi' che le corse gia' registrate
+    restano riproducibili. Con essa il deck scrive un `*ELSET` per regione e
+    una `*SOLID SECTION` per ciascuno; `elset` (`ALL_WALL`) non si rinomina e
+    non si toglie, resta l'insieme di tutti gli elementi dichiarato dalla card
+    `*ELEMENT` ed e' quello che le regioni partizionano.
+
+    Tutte le sezioni citano `material`, il materiale unico della corsa: qui
+    arriva un `Material` solo, e un materiale per regione chiede di decidere
+    quale dei tre dichiarati in `SezioneConfig` valga per il continuo -- una
+    decisione che non appartiene a questa funzione.
+
     Il resoconto (forza effettiva, nodi, e per CARICO_TOP anche
     `nodi_ad_area_nulla`) e' il valore di ritorno di questa funzione, chiave
     per nome di passo: un dizionario riempito e reso, non un parametro
@@ -339,6 +354,15 @@ def write_inp(
                 f"il vincolo *TIE '{nome}' nomina {mancanti}, che non è fra le "
                 "superfici dichiarate: un deck così viene rifiutato dal solutore "
                 "solo alla lettura, e questo errore arriva prima"
+            )
+    for nome_regione, indici_regione in (regioni or {}).items():
+        # Prima che si scriva una riga: un *ELSET vuoto non ferma `ccx`, che
+        # risolve un modello in cui quella sezione semplicemente non c'e'.
+        if len(np.asarray(indici_regione)) == 0:
+            raise ValueError(
+                f"la regione '{nome_regione}' non contiene alcun elemento: un "
+                "*ELSET vuoto non ferma il solutore, che risolve un modello in "
+                "cui quella sezione non esiste. Il deck non si scrive a metà"
             )
     if pressure is not None and pressure[0].casefold() not in per_caso:
         raise ValueError(
@@ -440,8 +464,26 @@ def write_inp(
         lines.append(f"*TIE, NAME={nome}{tolleranza_card}, ADJUST=NO")
         lines.append(f"{dipendente}, {indipendente}")
 
+    # Le regioni (#135) partizionano `elset`, che resta l'insieme di tutti gli
+    # elementi: gli *ELSET prima delle sezioni che li citano, e la sezione su
+    # `elset` solo se qualche elemento e' rimasto fuori da ogni regione. Senza
+    # sezione quell'elemento non ha materiale e il deck non e' leggibile;
+    # scriverla comunque lascerebbe invece una sezione che non attribuisce
+    # niente a nessuno. Sta **prima** delle regioni perche' e' il ripiego: chi
+    # ha una regione la sovrascrive.
+    attribuiti = np.zeros(len(elements), dtype=bool)
+    for nome_regione, indici_regione in (regioni or {}).items():
+        indici_regione = np.asarray(indici_regione, dtype=np.int64)
+        attribuiti[indici_regione] = True
+        lines.append(f"*ELSET, ELSET={nome_regione}")
+        lines += _set_lines(indici_regione)
+    if not attribuiti.all():
+        lines.append(f"*SOLID SECTION, ELSET={elset}, MATERIAL={material.name}")
     lines += [
-        f"*SOLID SECTION, ELSET={elset}, MATERIAL={material.name}",
+        *(
+            f"*SOLID SECTION, ELSET={nome_regione}, MATERIAL={material.name}"
+            for nome_regione in (regioni or {})
+        ),
         f"*MATERIAL, NAME={material.name}",
         "*ELASTIC",
         f"{material.young}, {material.poisson}",
