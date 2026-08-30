@@ -6626,6 +6626,9 @@ assert.match(testo, /corretta a mano/,
   `una combinazione corretta a mano si legge come una proposta: ${testo}`);
 assert.match(testo, /1,3·GRAVITA/,
   `i coefficienti della combinazione non arrivano a video: ${testo}`);
+// Un decimale sempre, cosi' che «1» e «1,3» sulla stessa riga si leggano come
+// due coefficienti e non come un intero accanto a un decimale.
+assert.match(testo, /1,0·GRAVITA/, `un coefficiente unitario esce senza decimale: ${testo}`);
 // L'azione e la sua natura: e' da li' che il coefficiente parziale si sceglie.
 assert.match(testo, /permanente strutturale/, `la natura dell'azione non e' a video: ${testo}`);
 assert.match(testo, /«BASE»/, `il vincolo dichiarato non e' a video: ${testo}`);
@@ -6656,6 +6659,7 @@ dati.solve = {
     picco: { passato: false, applicabile: false, controllo: "picco", modello: "telaio",
              motivo: "non vale: il telaio non ha una tensione per nodo" },
     spostamenti: { passato: false },
+    vincolo_in_pianta: { passato: true },
   },
 };
 dati.solve_motivo = null;
@@ -6667,6 +6671,10 @@ assert.match(testo, /spostamenti: NON passato/, `un verdetto fallito non si vede
 const gravi = nodi.filter((n) => n.className === "rifiuto");
 assert.equal(gravi.length, 1,
   "il marchio del fallito finisce anche sul non applicabile, o non finisce affatto");
+// «Una chiave non si stampa mai, si stampa la sua etichetta» (PRODUCT.md): la
+// chiave del controllo porta il trattino basso, e a video no.
+assert.match(testo, /vincolo in pianta/, `il nome del controllo esce come chiave: ${testo}`);
+assert.ok(!/vincolo_in_pianta/.test(testo), `la chiave arriva a video cosi' com'e': ${testo}`);
 """)
 
 
@@ -6738,4 +6746,51 @@ assert.equal(chiesto, 1, "a stato fermo la tratta riparte a ogni giro di eventi"
 ultimoStato = tredici("mai eseguito");
 rileggiSeServe();
 assert.equal(chiesto, 2, "cambiato lo stato degli step, la schermata resta su un carico vecchio");
+""")
+
+
+def test_un_riempimento_non_verificabile_non_si_legge_come_uno_zero(tmp_path):
+    """Trovato eseguendo su una corsa vera (`runs/onda4`, 30/08/2026): quattro
+    membrature su cinque escono con `stato: "non_verificabile"` e `valore: 0.0`,
+    e la riga a video diceva «Riempimento di sezione 0».
+
+    Zero letto in una frazione occupata significa «la sezione e' vuota»; lo
+    stato dice invece che la misura non ha le condizioni per valere. Sono due
+    fatti opposti, e la seconda peggiore delle due letture e' quella che il
+    numero suggerisce.
+    """
+    _esegui(tmp_path, _banco_delle_schede() + _CARICO + """
+const dati = carico();
+dati.membrature_motivo = null;
+dati.membrature = [membratura({ riempimento: { stato: "non_verificabile", valore: 0,
+                                               soglia: 0.5, affidabile: true } })];
+const testo = testoDi(schedaStruttura(dati, null));
+assert.match(testo, /non verificabile/,
+  `una misura senza condizioni per valere non lo dichiara: ${testo}`);
+assert.ok(!/di sezione 0 /.test(testo),
+  `il valore di una misura non verificabile si legge come una sezione vuota: ${testo}`);
+// E lo stato non arriva a video con il proprio trattino basso: «non_verificabile»
+// e' la chiave, e una chiave non si stampa mai.
+assert.ok(!/non_verificabile/.test(testo), `la chiave arriva a video cosi' com'e': ${testo}`);
+""")
+
+
+def test_i_coefficienti_della_tabella_arrivano_scritti_all_italiana(tmp_path):
+    """Trovato eseguendo sul registro vero: le voci del menu della categoria
+    d'uso mostravano «ψ₂ 0.3» e «ψ₂ 0», cioè il punto decimale del JSON e uno
+    zero senza decimale, in una pagina dove ogni altro numero passa da
+    `numeroDelCampo`."""
+    _esegui(tmp_path, _banco_delle_schede() + _CARICO + """
+let ultimaProposta = 0;
+const dati = carico();
+dati.categorie = [
+  { categoria: "A", descrizione: "Residenziale", psi_0: 0.7, psi_1: 0.5, psi_2: 0.3,
+    fonte: "NTC 2018 §2.5.2, Tab. 2.5.I" },
+  { categoria: "VENTO", descrizione: "Vento", psi_0: 0.6, psi_1: 0.2, psi_2: 0,
+    fonte: "NTC 2018 §2.5.2, Tab. 2.5.I" },
+];
+const testo = testoDi([propostaDelleCombinazioni(dati)]);
+assert.match(testo, /ψ₂ 0,3/, `il coefficiente esce col punto decimale: ${testo}`);
+assert.ok(!/ψ₂ 0\\.3/.test(testo), `il punto decimale del JSON arriva a video: ${testo}`);
+assert.match(testo, /ψ₂ 0,0/, `uno zero esce senza il proprio decimale: ${testo}`);
 """)

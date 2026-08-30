@@ -877,13 +877,28 @@ function schedaStruttura(dati, motivo) {
         textContent: "Riempimento di sezione non misurato: è una corsa il cui prior è stato"
           + " scritto prima che si misurasse.",
       }));
+    } else if (riempimento.stato === "non_verificabile") {
+      // Il valore che il prior scrive qui e' zero, e zero letto in una frazione
+      // occupata significa «la sezione e' vuota»: e' il contrario di cio' che lo
+      // stato dice. Misurato su `runs/onda4` il 30/08/2026, quattro membrature
+      // su cinque.
+      nodi.push(elemento("p", {
+        className: "vuoto",
+        textContent: "Riempimento di sezione non verificabile: la misura non ha le"
+          + " condizioni per valere su questa membratura, e il valore che il prior"
+          + ` scrive (${cifra(riempimento.valore, { maximumFractionDigits: 3 })}) non è`
+          + " una frazione occupata.",
+      }));
     } else {
       // Il numero e il controllo che lo sorveglia nella stessa riga: la soglia
       // dice dove sta il confine, e l'affidabilita' dice se la misura vale.
+      // Lo stato con lo spazio al posto del trattino basso: quella e' la chiave,
+      // e una chiave non si stampa mai (PRODUCT.md).
       nodi.push(elemento("p", {
         className: riempimento.affidabile ? "aiuto" : "vuoto",
         textContent: `Riempimento di sezione ${cifra(riempimento.valore, { maximumFractionDigits: 3 })}`
-          + ` («${riempimento.stato}»), soglia ${cifra(riempimento.soglia, { maximumFractionDigits: 3 })};`
+          + ` («${String(riempimento.stato).replace(/_/g, " ")}»), soglia`
+          + ` ${cifra(riempimento.soglia, { maximumFractionDigits: 3 })};`
           + ` misura ${riempimento.affidabile ? "affidabile" : "NON affidabile: la dispersione della densità è oltre il limite"}.`,
       }));
     }
@@ -1001,7 +1016,10 @@ function schedaPreprocessore(dati, motivo) {
   } else {
     for (const voce of combinazioni) {
       const termini = (voce.termini ?? [])
-        .map(([nome, coefficiente]) => `${cifra(coefficiente, { maximumFractionDigits: 3 })}·${nome}`)
+        .map(([nome, coefficiente]) =>
+          // Un decimale sempre: «1» accanto a «1,3» sulla stessa riga si legge
+          // come un intero accanto a un decimale invece che come due coefficienti.
+          `${cifra(coefficiente, { minimumFractionDigits: 1, maximumFractionDigits: 3 })}·${nome}`)
         .join(" + ");
       nodi.push(elemento("p", {
         className: voce.proposta ? "aiuto" : "vuoto",
@@ -1045,7 +1063,10 @@ function propostaDelleCombinazioni(dati) {
   for (const voce of dati.categorie ?? []) {
     categoria.append(elemento("option", {
       value: voce.categoria,
-      textContent: `${voce.categoria} — ${voce.descrizione} (ψ₂ ${voce.psi_2})`,
+      // Come ogni altro numero della pagina: `numeroDelCampo`, non il punto
+      // decimale con cui il JSON lo porta.
+      textContent: `${voce.categoria} — ${voce.descrizione}`
+        + ` (ψ₂ ${cifra(voce.psi_2, { minimumFractionDigits: 1, maximumFractionDigits: 2 })})`,
     }));
   }
   categoria.value = "";
@@ -1179,11 +1200,16 @@ function schedaPostprocessore(dati, motivo, ordine) {
     // e' no». `solve.esito_non_applicabile` li distingue, e a video restano
     // distinti.
     const inapplicabile = verdetto.applicabile === false;
+    // Il nome col trattino basso e' la chiave di `metrics.json`, e una chiave non
+    // si stampa mai (PRODUCT.md). Un elenco di etichette scritto qui sarebbe una
+    // seconda verita' da tenere allineata ai sette di `solve`: si toglie il
+    // trattino e basta.
+    const etichetta = nome.replace(/_/g, " ");
     nodi.push(elemento("p", {
       className: verdetto.passato ? "aiuto" : (inapplicabile ? "vuoto" : "rifiuto"),
       textContent: inapplicabile
-        ? `${nome}: non vale su questo modello — ${verdetto.motivo ?? ""}`
-        : `${nome}: ${verdetto.passato ? "passato" : "NON passato"}`,
+        ? `${etichetta}: non vale su questo modello — ${verdetto.motivo ?? ""}`
+        : `${etichetta}: ${verdetto.passato ? "passato" : "NON passato"}`,
     }));
   }
 

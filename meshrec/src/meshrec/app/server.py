@@ -609,12 +609,13 @@ def _letto_o_dichiarato(percorso: Path, che_cosa: str) -> tuple[dict[str, object
     except (OSError, ValueError) as errore:
         return {}, (
             f"{percorso.name} c'è ma non si legge ({type(errore).__name__}: "
-            f"{errore}): {che_cosa} non si mostra da un file troncato"
+            f"{errore}). Un file troncato non è uno stato valido, e senza "
+            f"{che_cosa} non c'è niente da mostrare"
         )
     if not isinstance(letto, dict):
         return {}, (
-            f"{percorso.name} non porta un oggetto ma un {type(letto).__name__}: "
-            f"{che_cosa} non si legge da qui"
+            f"{percorso.name} non porta un oggetto ma un {type(letto).__name__}, "
+            f"e senza {che_cosa} non c'è niente da mostrare"
         )
     return letto, None
 
