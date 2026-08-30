@@ -1166,6 +1166,52 @@ def test_il_contorno_del_volume_torna_con_le_facce_uscenti(cliente, tmp_path):
     assert quality.mesh_volume(vertici, facce) == pytest.approx(1.0 / 6.0)
 
 
+def test_il_contorno_del_volume_legge_anche_il_tetraedro_quadratico(cliente, tmp_path):
+    """C3D10 e' il predefinito di TetConfig.element, e la vista non lo apriva.
+
+    meshio chiama `tetra10` il tetraedro quadratico, e la funzione cercava la
+    chiave `tetra`: con l'elemento predefinito del progetto il pannello
+    rispondeva «09_volume.vtu non contiene tetraedri: le celle sono
+    ['tetra10']» su un file perfettamente valido, e lo stesso accadeva ai campi
+    di soluzione dello step 13. Il file lo scrive `abaqus.write_vtu`, non
+    meshio a mano: cosi' la prova passa per la convenzione vera del progetto e
+    non per una scritta apposta qui.
+
+    Il criterio e' il confronto con il gemello lineare sugli stessi quattro
+    vertici: stesso contorno, perche' i nodi di lato stanno a meta' degli
+    spigoli e non aggiungono ne' facce ne' adiacenze.
+    """
+    import numpy as np
+
+    from meshrec.core import abaqus, pipeline, quality
+
+    base = np.array([10.0, 10.0, 10.0])
+    angoli = base + np.array(
+        [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+    )
+    # I sei nodi di lato nell'ordine di Abaqus, che e' quello di VTK: 4=(0,1),
+    # 5=(1,2), 6=(2,0), 7=(0,3), 8=(1,3), 9=(2,3).
+    spigoli = [(0, 1), (1, 2), (2, 0), (0, 3), (1, 3), (2, 3)]
+    lati = np.array([(angoli[a] + angoli[b]) / 2.0 for a, b in spigoli])
+    nodi = np.vstack([angoli, lati])
+
+    corsa = tmp_path / "corsa"
+    corsa.mkdir(exist_ok=True)
+    abaqus.write_vtu(
+        corsa / pipeline.ARTIFACTS[9], nodi, np.arange(10)[None, :], element_type="C3D10"
+    )
+
+    risposta = cliente.get("/api/mesh/9")
+    assert risposta.status_code == 200
+    # I quattro vertici d'angolo e le quattro facce del tetraedro: i sei nodi
+    # di lato non disegnano nulla e non devono comparire nel conteggio.
+    assert (risposta.headers["X-Vertices"], risposta.headers["X-Triangles"]) == ("4", "4")
+    vertici, facce = _mesh_dalla_risposta(risposta)
+    assert np.array_equal(vertici, angoli.astype("<f4"))
+    # Lo stesso verso uscente del caso lineare, misurato allo stesso modo.
+    assert quality.mesh_volume(vertici, facce) == pytest.approx(1.0 / 6.0)
+
+
 def test_la_seconda_richiesta_del_contorno_non_riestrae(cliente, tmp_path, monkeypatch):
     """I-3 della revisione: l'estrazione costa 14,9 s e oltre un gigabyte di
     picco su lab_crop, e senza cache si rifa' identica a ogni clic. La prova e'

@@ -65,6 +65,62 @@ class InvertedElementsError(ValueError):
 TETGEN_A_ABAQUS = (0, 1, 2, 3, 6, 7, 9, 5, 8, 4)
 
 
+def _diagnosi_del_guasto(messaggio: str, nobisect: bool) -> str:
+    """Il rimedio giusto per il punto interno in cui TetGen si e' fermato.
+
+    Fino al 30/08/2026 il rimedio era uno solo -- «alza min_ratio» -- e su
+    `lab_frame.pcd` era falso: `docs/fase-1-min-ratio.md` misura 1,8 · 2,5 ·
+    3,0 · 4,0 · 6,0 e **12,0** tutti falliti, e conclude che «`tet.min_ratio`
+    e' escluso come causa». Un utente ha passato mezza giornata a tarare al
+    rialzo un parametro che quel verbale aveva gia' assolto, arrivando a 4,5 e
+    a un maglio peggiore di quello che il predefinito 1,8 produce con la leva
+    giusta (451.188 tetraedri contro 952.907, diedro mediano 38,95 gradi contro
+    29,92, misurato sulla sua stessa superficie il 30/08/2026).
+
+    I due punti interni sono due guasti diversi:
+
+    - `recoversubface*` e' il **recupero del bordo**, che avviene prima del
+      raffinamento: il vincolo raggio-spigolo non e' ancora entrato in gioco,
+      quindi nominarlo e' falso a prescindere dalla geometria;
+    - `split_subface` con `nobisect` spento e' l'**invasione**: nel
+      raffinamento di Delaunay una faccia di ingresso viene suddivisa anche
+      quando qualcosa entra nella sua sfera diametrale, e quella suddivisione
+      ricorre fino alla distanza locale fra lembi opposti. Dove quella distanza
+      crolla non la ferma nessun valore del rapporto raggio-spigolo. TetGen
+      dichiara essa stessa questa diagnosi nel proprio sorgente
+      (`terminatetetgen`, codice 5): «Two very close input facets were
+      detected. Hint: use -Y option to avoid adding Steiner points in
+      boundary», e `-Y` e' esattamente `nobisect`.
+
+    Fuori da quei due casi resta il rimedio generico: **una diagnosi sbagliata
+    costa piu' di nessuna diagnosi**, ed e' il difetto che questa funzione
+    corregge. Ripeterlo al contrario non sarebbe un progresso.
+    """
+    if "recoversubface" in messaggio:
+        return (
+            "il guasto è nel recupero delle facce di ingresso, prima "
+            "che il raffinamento cominciasse: il vincolo raggio-spigolo non è "
+            "ancora entrato in gioco e cambiarlo non sposta nulla. La causa "
+            "tipica sono le autointersezioni della superficie, e il rimedio sta "
+            "a monte, negli step 6 e 8."
+        )
+    if "split_subface" in messaggio and not nobisect:
+        return (
+            "le facce di ingresso vengono suddivise per invasione, e la "
+            "suddivisione ricorre fino alla distanza fra lembi opposti della "
+            "superficie: dove quella distanza è minuscola non la ferma nessun "
+            "valore del vincolo. Accendi tet.nobisect, che vieta a TetGen di "
+            "suddividere le facce di ingresso. Alzare min_ratio non serve: su "
+            "una scansione reale è stato misurato inutile fino a 12,0, sette "
+            "volte il predefinito (docs/fase-1-min-ratio.md)."
+        )
+    return (
+        "il vincolo raggio-spigolo può essere troppo severo per questa "
+        "geometria, il raffinamento non converge. Alza min_ratio (valori più "
+        "alti = elementi meno regolari ma raffinamento che termina) e riprova."
+    )
+
+
 def tetrahedralize(
     vertices: np.ndarray,
     faces: np.ndarray,
@@ -137,17 +193,12 @@ def tetrahedralize(
         nodes, tets, *_ = generator.tetrahedralize(**options)
     except RuntimeError as errore:
         # L'errore grezzo della libreria ("Internal TetGen error within
-        # `split_subface`") non dice nulla a chi lo riceve. Nella pratica arriva
-        # quando il vincolo raggio-spigolo e' troppo severo per la geometria: il
-        # raffinamento non converge e TetGen si arrende su una configurazione
-        # degenere. Sul muro di riferimento accade con min_ratio fino a 1.6, non
-        # con 1.8, quindi il margine e' sottile e su un'altra geometria puo' non
-        # bastare.
+        # `split_subface`") non dice nulla a chi lo riceve, e il rimedio non e'
+        # sempre lo stesso: `_diagnosi_del_guasto` legge in quale punto interno
+        # TetGen si e' fermato e sceglie il consiglio di conseguenza.
         raise RefinementFailedError(
             f"TetGen si è interrotto con min_ratio={min_ratio}: "
-            "il vincolo raggio-spigolo può essere troppo severo per questa "
-            "geometria, il raffinamento non converge. Alza min_ratio (valori più "
-            "alti = elementi meno regolari ma raffinamento che termina) e riprova. "
+            f"{_diagnosi_del_guasto(str(errore), nobisect)} "
             f"Errore originale di TetGen: {errore}"
         ) from errore
     tets = np.asarray(tets, dtype=np.int64)

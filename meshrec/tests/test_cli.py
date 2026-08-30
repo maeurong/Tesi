@@ -109,10 +109,17 @@ def test_a_failing_run_reports_the_error_without_a_traceback(tmp_path, capsys):
 
 
 def test_from_step_out_of_domain_is_rejected_by_pydantic_not_a_keyerror(tmp_path, capsys):
+    """13 e non 10: dal 30/08/2026 il tetto di `from_step` e' 12.
+
+    Il valore era 10 perche' allora era il primo fuori dominio. Ora e' dentro,
+    e con 10 questo test misurava un altro guasto -- l'artefatto mancante --
+    invece del rifiuto di pydantic che gli da' il nome. Lo step 13 e' il primo
+    fuori dominio oggi, e ci resta apposta: e' un'azione, non una ripresa.
+    """
     cfg = crea_config(input=config.InputConfig(path="nuvola.ply"))
     config.save_config(cfg, tmp_path / "config.yaml")
 
-    assert cli.main(["run", str(tmp_path / "config.yaml"), "--from-step", "10"]) == 1
+    assert cli.main(["run", str(tmp_path / "config.yaml"), "--from-step", "13"]) == 1
     err = capsys.readouterr().err
     assert "KeyError" not in err
     assert "from_step" in err

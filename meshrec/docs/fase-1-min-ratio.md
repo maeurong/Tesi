@@ -627,3 +627,59 @@ la Fase 1 aveva scambiato per un successo, ha il **86,36%** degli elementi fuori
 vincolo. Nessuna metrica dell'epoca la smentiva: zero elementi invertiti, deck
 scritto, tutto in ordine. L'avviso su `min_ratio` scatta oltre la metà, quindi
 **l'avrebbe segnalata**.
+
+### Il verbale c'era, il programma non lo diceva — 30 agosto 2026
+
+Un anno dopo questo documento, la stessa scansione ha prodotto lo stesso guasto
+su un altro utente, e il programma lo ha mandato esattamente nella direzione che
+queste pagine avevano già escluso.
+
+La corsa era su `lab_frame.pcd`, la nuvola di questo documento, con
+`tet.nobisect: false` e la configurazione costruita a mano nel pannello invece
+che caricata da `casi/lab.yaml`. Lo step 9 si è interrotto con `split_subface`
+per ogni `min_ratio` fino a circa 4,5. Il messaggio d'errore diceva, come dice a
+chiunque dal primo giorno, «alza min_ratio»; l'utente lo ha fatto per mezza
+giornata, e a 4,5 la tetraedrizzazione è passata.
+
+Il prezzo di quel consiglio, misurato sulla sua stessa superficie
+(`runs/prova2/06_repaired.ply`, 74 811 vertici e 149 622 triangoli), a variabile
+unica:
+
+| | `nobisect` acceso, `min_ratio` 1,8 | `nobisect` spento, `min_ratio` 4,5 |
+|---|---|---|
+| esito a `min_ratio` 1,8 | riuscito in 5,3 s | fallito in 6,2 s, `split_subface` |
+| tetraedri | 451 188 | 952 907 |
+| nodi | 110 852 | 275 028 |
+| angolo diedro minimo, mediana | **38,95°** | 29,92° |
+| fuori vincolo contro il metro 1,8 | **6,13%** | 43,04% |
+| rapporto d'aspetto, mediana | **1,78** | 2,64 |
+| rapporto d'aspetto, massimo | **7 130** | 2 049 000 |
+| elementi invertiti | 0 | 0 |
+| volume totale | 0,533689 | 0,533689 |
+
+Il volume identico è la conferma che `nobisect` non cambia il corpo: cambia solo
+come lo si riempie. Il resto della tabella dice che la mezza giornata di taratura
+al rialzo ha prodotto un maglio **peggiore sotto ogni misura** di quello che il
+valore predefinito dà con la leva giusta, e in un sesto del tempo.
+
+Il difetto non era nella diagnosi di questo documento, che era corretta e
+completa: era che **nessuno l'aveva messa nel programma**. La correzione è in
+`core/volume.py`, `_diagnosi_del_guasto`: il rimedio si sceglie leggendo in quale
+punto interno TetGen si è fermato, e non è più uno solo per tutti i casi.
+`recoversubfaces` è il recupero del bordo e avviene prima del raffinamento,
+quindi il vincolo di qualità non è mai entrato in gioco; `split_subface` con
+`nobisect` spento è l'invasione descritta qui sopra, e il rimedio è `nobisect`.
+Fuori da questi due casi resta il consiglio generico, perché una diagnosi
+sbagliata costa più di nessuna diagnosi.
+
+TetGen dichiara la stessa cosa nel proprio sorgente, e nessuno l'aveva letta:
+`terminatetetgen`, codice 5, «Two very close input facets were detected. Hint:
+use -Y option to avoid adding Steiner points in boundary» — e `-Y` è `nobisect`.
+
+Un dato che questo documento non aveva e che vale la pena aggiungere, dallo
+stesso manuale: la garanzia di terminazione del raffinamento di Delaunay vale
+per un tetto al rapporto raggio-spigolo **non inferiore a 2,0** («In the absence
+of sharp features in the input PLC, the Delaunay refinement algorithm used in
+TetGen is guaranteed to terminate successfully with a radius-edge ratio bound no
+smaller than 2.0»). Il predefinito 1,8 di questo progetto sta sotto quella
+soglia: che converga è un fatto misurato caso per caso, non una garanzia teorica.

@@ -641,15 +641,19 @@ class RunConfig(_ModelloBase):
     from_step: int = Field(
         default=1,
         ge=1,
-        le=9,
+        le=12,
         description=(
-            "la ripresa arriva fino allo step 9 (tetraedrizzazione); gli step 10 e 11 "
-            "sono metriche di volume ed esportazione, senza lavoro costoso da saltare, "
-            "e vengono comunque rieseguiti a ogni corsa."
-            " Lo step 12 (prior geometrico) è l'ultimo e non è un punto di "
-            "ripresa: legge 02_segmented.ply, che è già ciò che una ripresa "
-            "da 3 in poi ricarica. Chi vuole il solo prior usa `meshrec wall`, "
-            "che è un'azione e non una ripresa."
+            "la ripresa arriva fino allo step 12 (prior geometrico). Il tetto è "
+            "stato 9 fino al 30/08/2026, quando gli step 10, 11 e 12 non erano "
+            "punti di ripresa perché nessuno di loro ha lavoro costoso da "
+            "saltare. Quel ragionamento valeva per una corsa intera e non per "
+            "l'interfaccia, che esegue uno step alla volta assegnando "
+            "from_step = to_step = numero: con il tetto a 9 quei tre step non "
+            "erano eseguibili singolarmente, e il pannello rispondeva «Input "
+            "should be less than or equal to 9» invece di eseguirli. "
+            "Lo step 13 resta fuori: è l'unico che paga un processo esterno "
+            "vero, e si invoca come azione con `meshrec solve`. Anche il solo "
+            "prior ha la propria azione, `meshrec wall`."
         ),
     )
     to_step: int = Field(
