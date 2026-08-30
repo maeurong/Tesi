@@ -15,6 +15,7 @@ Aperto il 26/08/2026. Quattro ricerche indipendenti, condotte in parallelo su
 | [`ricerca-armature-opensees-fibre.md`](ricerca-armature-opensees-fibre.md) | l'idioma delle sezioni a fibre in OpenSees, e i sedici dati che mancano a una membratura per diventare un elemento |
 | [`ricerca-armature-preprocessori.md`](ricerca-armature-preprocessori.md) | come i programmi affini fanno inserire le armature in una sezione: gesto, modello dei dati, scorciatoie ricorrenti |
 | [`ricerca-armature-convenzioni-normative.md`](ricerca-armature-convenzioni-normative.md) | le grandezze con cui norma e disegno descrivono un'armatura, e le classi di calcestruzzo e acciaio con i loro valori |
+| [`ricerca-ntc-2018-numeri-per-il-catalogo.md`](ricerca-ntc-2018-numeri-per-il-catalogo.md) | NTC 2018 e Circolare 7/2019 letti in casa: le formule delle classi di calcestruzzo, gli acciai B450, i coefficienti parziali e il coefficiente di lunga durata, i legami costitutivi, i minimi di armatura, le combinazioni di carico e la sismica statica equivalente — ogni numero col proprio articolo |
 
 Questo file è la sintesi. Non ripete i numeri: li indirizza.
 
