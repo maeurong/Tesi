@@ -3819,17 +3819,39 @@ def test_l_analisi_distingue_il_solutore_assente_da_quello_che_non_funziona(
 
 
 def test_l_analisi_dichiara_quale_modello_il_solutore_riceve_davvero(cliente):
-    """Il telaio esiste come modello e non ha una strada verso il solutore.
+    """Quale modello parte non e' una scelta a se': la decide il solutore.
 
-    Offrirlo come scelta sarebbe una scelta che fallisce: la tratta lo dice
-    invece di lasciarlo credere.
+    `pipeline.risolvi_corsa` instrada su `cfg.solutore.nome`, e la tratta scrive
+    la stessa conoscenza per chi guarda. Il modello che non parte non dice
+    soltanto «non instradato»: nomina il solutore da scegliere, perche' la
+    strada esiste e chi legge deve sapere qual e' il gesto che la apre.
     """
     corpo = cliente.get("/api/analisi").json()
 
     assert set(corpo["modelli"]) == {"solido", "telaio"}
+    # Il predefinito e' calculix, che risolve il solido.
     assert corpo["modelli"]["solido"]["instradato"] is True
+    assert corpo["modelli"]["solido"]["motivo"] is None
     assert corpo["modelli"]["telaio"]["instradato"] is False
-    assert corpo["modelli"]["telaio"]["motivo"]
+    assert "scegli opensees" in corpo["modelli"]["telaio"]["motivo"]
+
+
+def test_scegliendo_opensees_il_modello_instradato_diventa_il_telaio(cliente):
+    """La controprova dell'altro verso.
+
+    Senza, il test di sopra reggerebbe anche con una costante murata a
+    «solido», che e' precisamente il difetto che questo cambio ripara.
+    """
+    prima = cliente.get("/api/config").json()
+    prima["solutore"]["nome"] = "opensees"
+    assert cliente.put("/api/config", json=prima).status_code == 200
+
+    corpo = cliente.get("/api/analisi").json()
+
+    assert corpo["modelli"]["telaio"]["instradato"] is True
+    assert corpo["modelli"]["telaio"]["motivo"] is None
+    assert corpo["modelli"]["solido"]["instradato"] is False
+    assert "scegli calculix" in corpo["modelli"]["solido"]["motivo"]
 
 
 def test_senza_regioni_dichiarate_la_frazione_orfana_e_assente_e_non_zero(cliente):

@@ -572,20 +572,27 @@ class CorsaScelta(BaseModel):
 #
 # `pipeline._step_solutore` passa `out / DECK_FILENAME` -- il deck dello step
 # 11, cioe' il solido tetraedrico -- e non ha un ramo per il telaio.
-# `core/telaio.costruisci` il telaio lo costruisce, e nessuna strada lo manda a
-# risolvere: offrirlo come scelta sarebbe offrire una scelta che fallisce.
-# Dichiarato qui in un posto solo, cosi' che il giorno in cui la strada esiste
-# lo stadio del modello cambi da se'.
-MODELLO_INSTRADATO = "solido"
+# Quale modello va a risolvere non e' una scelta a se': la decide il solutore.
+# `pipeline.risolvi_corsa` instrada su `cfg.solutore.nome` -- opensees prende il
+# telaio a fibre, calculix il deck solido dello step 11 -- e questa tabella e' la
+# stessa conoscenza scritta per chi guarda invece che per chi esegue. Sta qui in
+# un posto solo perche' due grafie invecchierebbero separatamente: e' gia'
+# successo, quando il telaio non era instradato e questa costante lo diceva.
+MODELLO_DEL_SOLUTORE = {"calculix": "solido", "opensees": "telaio"}
 
-# Perche' il telaio non e' instradato. Sta accanto alla costante di sopra e non
-# dentro la tratta: e' la stessa affermazione, e due grafie invecchierebbero
-# separatamente.
-_TELAIO_SENZA_STRADA = (
-    "il telaio si costruisce (core/telaio.costruisci) e non si risolve: "
-    "pipeline.risolvi_corsa manda al solutore il deck dello step 11, che è il "
-    "solido. La scelta non viene offerta perché oggi fallirebbe"
-)
+
+def _perche_non_instrada(modello: str, scelto: str) -> str:
+    """Perche' quel modello non e' quello che partirebbe adesso.
+
+    Nomina il solutore da scegliere invece di dire soltanto «non instradato»:
+    la strada esiste, e chi legge deve sapere qual e' il gesto che la apre.
+    """
+    per_modello = {valore: nome for nome, valore in MODELLO_DEL_SOLUTORE.items()}
+    return (
+        f"il solutore scelto è {scelto}, che risolve il modello "
+        f"{MODELLO_DEL_SOLUTORE[scelto]}. Per mandare al solutore il "
+        f"{modello}, scegli {per_modello[modello]}"
+    )
 
 
 def _letto_o_dichiarato(percorso: Path, che_cosa: str) -> tuple[dict[str, object], str | None]:
@@ -1467,16 +1474,18 @@ def create_app(
                 "manca": None if deck.is_file() else (
                     f"manca {pipeline.DECK_FILENAME}: lo scrive lo step 11"
                 ),
-                "instradato": MODELLO_INSTRADATO == "solido",
-                "motivo": None if MODELLO_INSTRADATO == "solido" else _TELAIO_SENZA_STRADA,
+                "instradato": MODELLO_DEL_SOLUTORE[cfg.solutore.nome] == "solido",
+                "motivo": None if MODELLO_DEL_SOLUTORE[cfg.solutore.nome] == "solido"
+                else _perche_non_instrada("solido", cfg.solutore.nome),
             },
             "telaio": {
                 "etichetta": "telaio sulle membrature",
                 "produce": "lo step 12 «Prior geometrico», via core/telaio.costruisci",
                 "pronto": bool(elenco),
                 "manca": None if elenco else prior_motivo,
-                "instradato": MODELLO_INSTRADATO == "telaio",
-                "motivo": None if MODELLO_INSTRADATO == "telaio" else _TELAIO_SENZA_STRADA,
+                "instradato": MODELLO_DEL_SOLUTORE[cfg.solutore.nome] == "telaio",
+                "motivo": None if MODELLO_DEL_SOLUTORE[cfg.solutore.nome] == "telaio"
+                else _perche_non_instrada("telaio", cfg.solutore.nome),
             },
         }
 
