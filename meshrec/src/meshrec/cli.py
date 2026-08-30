@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import traceback
 from pathlib import Path
 
 # `solve` e' leggero (numpy, e i moduli di questo pacchetto che non aprono
@@ -222,6 +223,48 @@ def _dottore(percorso_config: Path | None) -> int:
     return 1
 
 
+# I tre tipi con cui questo programma parla all'operatore. Ricavati dai test che
+# la scelta la fissavano gia': ValueError e' il vettore principale, OSError copre
+# i FileNotFoundError che `wall` e `solve` sollevano nominando l'artefatto
+# mancante, RuntimeError quelli che `solve` solleva su un binario assente o che
+# fallisce. Vedi `_riporta` per il debito che questo elenco porta.
+_DIAGNOSTICI = (ValueError, OSError, RuntimeError)
+
+
+def _riporta(errore: BaseException) -> int:
+    """Una riga per un errore che il programma ha scritto, la traccia per gli altri.
+
+    `_DIAGNOSTICI` sono i tre tipi con cui questo programma parla
+    all'operatore: il messaggio e' gia' scritto per essere letto, e la traccia
+    sopra lo seppellirebbe. Non e' un elenco scelto a priori -- l'ho ricavato
+    dai test che quella scelta la fissavano gia', uno per tipo, e ognuno e'
+    caduto quando ho provato a stampare la traccia dappertutto.
+
+    **Debito dichiarato:** il discriminante giusto non e' il tipo ma se
+    l'eccezione l'abbiamo sollevata noi, e si terrebbe con una classe marcatore
+    invece che con un elenco. L'elenco cresce ogni volta che un comando nuovo
+    sceglie un tipo nuovo, e il modo in cui lo scopri e' un test che cade.
+
+    Ogni altra eccezione e' un guasto che nessuno ha previsto, e la sola riga
+    di riepilogo non basta ad agire. Misurato il 30/08/2026 su un utente
+    fermo al primo step: `UnicodeDecodeError: 'utf-8' codec can't decode byte
+    0xe0 in position 79` e' arrivato senza dire quale file stesse leggendo, e
+    senza la traccia non era diagnosticabile ne' da lui ne' da chi lo aiutava.
+
+    **`UnicodeError` e' escluso a mano, e non e' un dettaglio.** Discende da
+    `ValueError` -- `UnicodeDecodeError` -&gt; `UnicodeError` -&gt; `ValueError` --
+    quindi la sola regola «una riga per i ValueError» avrebbe tolto la traccia
+    proprio all'errore per cui questa funzione e' stata scritta. Trovato
+    scrivendo il test, non leggendo: il primo giro e' passato verde sul caso
+    sbagliato.
+    """
+    print(f"{type(errore).__name__}: {errore}", file=sys.stderr)
+    scritto_da_noi = isinstance(errore, _DIAGNOSTICI) and not isinstance(errore, UnicodeError)
+    if not scritto_da_noi:
+        traceback.print_exception(errore, file=sys.stderr)
+    return 1
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
 
@@ -241,8 +284,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.config,
             )
         except Exception as error:  # i domini stanno in pydantic, non in argparse
-            print(f"{type(error).__name__}: {error}", file=sys.stderr)
-            return 1
+            return _riporta(error)
         print(f"configurazione scritta in {args.config}")
         return 0
 
@@ -250,8 +292,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             return _dottore(args.config)
         except Exception as error:  # la riga di comando riporta il problema, non lo stack
-            print(f"{type(error).__name__}: {error}", file=sys.stderr)
-            return 1
+            return _riporta(error)
 
     if args.command == "sweep":
         from meshrec.core import sweep
@@ -260,8 +301,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             result = sweep.run_experiment(experiment, load_config(experiment.base))
         except Exception as error:
-            print(f"{type(error).__name__}: {error}", file=sys.stderr)
-            return 1
+            return _riporta(error)
         print(json.dumps(result["summary"], indent=2, ensure_ascii=False, default=float))
         print(f"registro in {result['registry']}", file=sys.stderr)
         return 0
@@ -300,8 +340,7 @@ def main(argv: list[str] | None = None) -> int:
             spaziatura = io.mean_spacing(punti, cfg.input.spacing_sample, cfg.input.seed)
             esito = pipeline.calcola_prior(out, cfg, punti, spaziatura)
         except Exception as error:
-            print(f"{type(error).__name__}: {error}", file=sys.stderr)
-            return 1
+            return _riporta(error)
         print(json.dumps(esito, indent=2, default=float, ensure_ascii=False))
         return 0
 
@@ -349,8 +388,7 @@ def main(argv: list[str] | None = None) -> int:
                 )
             esito = pipeline.risolvi_corsa(cfg)
         except Exception as error:  # la riga di comando riporta il problema, non lo stack
-            print(f"{type(error).__name__}: {error}", file=sys.stderr)
-            return 1
+            return _riporta(error)
         print(json.dumps(esito, indent=2, default=float, ensure_ascii=False))
         return 0
 
@@ -365,8 +403,7 @@ def main(argv: list[str] | None = None) -> int:
                 destinazione = madre.with_name(f"{madre.name}-{args.tipo}")
             esito = pipeline.genera_modello(cfg, args.tipo, destinazione)
         except Exception as error:
-            print(f"{type(error).__name__}: {error}", file=sys.stderr)
-            return 1
+            return _riporta(error)
         print(json.dumps(esito, indent=2, default=float, ensure_ascii=False))
         return 0
 
@@ -376,12 +413,12 @@ def main(argv: list[str] | None = None) -> int:
         try:
             percorso = report.write_comparison_report(args.cartelle, args.out)
         except Exception as error:
-            print(f"{type(error).__name__}: {error}", file=sys.stderr)
-            return 1
+            return _riporta(error)
         print(f"confronto in {percorso}")
         return 0
 
     if args.command == "serve":
+        import socket
         import threading
         import webbrowser
 
@@ -394,6 +431,33 @@ def main(argv: list[str] | None = None) -> int:
         if args.port is not None:
             impostazioni.port = args.port
         indirizzo = f"http://{impostazioni.host}:{impostazioni.port}/"
+
+        # La porta si prova PRIMA di annunciare l'ascolto e prima di aprire il
+        # browser. Senza, il programma diceva «MeshRec in ascolto su ...» e poi
+        # uvicorn falliva il bind: l'annuncio era una bugia, e il browser si
+        # apriva sul server GIA' IN ASCOLTO su quella porta -- cioe' su una
+        # copia vecchia del programma, con il codice di prima. Misurato il
+        # 30/08/2026 su un utente che ha lavorato per ore su un processo
+        # rimasto vivo, convinto di usare la versione appena aggiornata.
+        prova = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            prova.bind((impostazioni.host, impostazioni.port))
+        except OSError as errore:
+            print(
+                f"la porta {impostazioni.port} è già occupata su {impostazioni.host}: "
+                f"{errore.strerror or errore}.\n"
+                "Quasi sempre è un'altra copia di MeshRec rimasta aperta, e finché "
+                "resta viva il browser parla con quella — non con questa. Chiudila, "
+                "oppure scegli un'altra porta con `--port`.\n"
+                "Per trovarla: su Windows `netstat -ano | findstr :"
+                f"{impostazioni.port}` dà il PID nell'ultima colonna; su macOS e "
+                f"Linux `lsof -i :{impostazioni.port}`.",
+                file=sys.stderr,
+            )
+            return 1
+        finally:
+            prova.close()
+
         if impostazioni.open_browser and not args.no_browser:
             # Dopo un secondo: uvicorn non e' ancora in ascolto al momento della
             # chiamata, e un browser aperto su una porta chiusa mostra un errore
@@ -431,8 +495,7 @@ def main(argv: list[str] | None = None) -> int:
             cfg.run.out_dir = args.out_dir
         metrics = pipeline.run(cfg)
     except Exception as error:  # la riga di comando riporta il problema, non lo stack
-        print(f"{type(error).__name__}: {error}", file=sys.stderr)
-        return 1
+        return _riporta(error)
 
     print(json.dumps(metrics, indent=2, default=float, ensure_ascii=False))
     return 0

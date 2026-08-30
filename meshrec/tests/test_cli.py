@@ -604,3 +604,88 @@ def test_dottore_su_una_configurazione_che_non_esiste_non_mostra_lo_stack(tmp_pa
 
     assert codice == 1
     assert "Traceback" not in capsys.readouterr().err
+
+
+def test_la_porta_occupata_si_dice_prima_di_annunciare_l_ascolto(capsys):
+    """Il difetto che ha fatto lavorare l'utente per ore sul codice vecchio.
+
+    `serve` stampava «MeshRec in ascolto su ...» e apriva il browser PRIMA che
+    uvicorn provasse il bind. Con la porta gia' occupata da un'altra copia
+    rimasta viva, l'annuncio era falso e il browser si apriva su quella copia:
+    l'utente vedeva l'interfaccia, la usava, e ogni correzione appena
+    installata non era in quel processo.
+
+    Il banco occupa davvero la porta con un socket, poi chiama `serve`.
+    """
+    import socket as _socket
+
+    occupante = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+    occupante.bind(("127.0.0.1", 0))
+    porta = occupante.getsockname()[1]
+    occupante.listen(1)
+    try:
+        codice = cli.main(["serve", "--port", str(porta), "--no-browser"])
+    finally:
+        occupante.close()
+
+    assert codice == 1
+    detto = capsys.readouterr().err
+    assert f"la porta {porta} è già occupata" in detto
+    assert "un'altra copia di MeshRec" in detto
+    assert "--port" in detto
+    # E soprattutto: non deve aver annunciato un ascolto che non c'e'.
+    assert "in ascolto" not in detto
+
+
+def test_un_errore_che_il_programma_non_ha_previsto_porta_la_propria_traccia(tmp_path, capsys):
+    """Una riga sola non basta per un guasto che nessuno ha scritto.
+
+    Misurato il 30/08/2026: `UnicodeDecodeError: 'utf-8' codec can't decode
+    byte 0xe0 in position 79` e' arrivato all'utente senza dire quale file
+    stesse leggendo. Senza la traccia non era diagnosticabile.
+
+    Un `ValueError` resta invece una riga sola: e' il modo in cui questo
+    programma parla all'operatore, e la traccia sopra lo seppellirebbe.
+    """
+    configurazione = tmp_path / "config.yaml"
+    configurazione.write_bytes(b"input:\n  path: nuvola.ply\n  scale: 1.0\n")
+
+    def esplode(_cfg):
+        raise UnicodeDecodeError("utf-8", b"\xe0", 0, 1, "invalid continuation byte")
+
+    import meshrec.core.pipeline as _pipeline
+
+    originale = _pipeline.run
+    _pipeline.run = esplode
+    try:
+        codice = cli.main(["run", str(configurazione)])
+    finally:
+        _pipeline.run = originale
+
+    assert codice == 1
+    detto = capsys.readouterr().err
+    assert "UnicodeDecodeError" in detto
+    assert "Traceback" in detto, "senza la traccia l'errore non dice che cosa leggeva"
+
+
+def test_un_errore_scritto_dal_programma_resta_una_riga_sola(tmp_path, capsys):
+    """La controprova: senza, basterebbe stampare sempre la traccia."""
+    configurazione = tmp_path / "config.yaml"
+    configurazione.write_bytes(b"input:\n  path: nuvola.ply\n  scale: 1.0\n")
+
+    def rifiuta(_cfg):
+        raise ValueError("la nuvola non ha punti: controlla input.path")
+
+    import meshrec.core.pipeline as _pipeline
+
+    originale = _pipeline.run
+    _pipeline.run = rifiuta
+    try:
+        codice = cli.main(["run", str(configurazione)])
+    finally:
+        _pipeline.run = originale
+
+    assert codice == 1
+    detto = capsys.readouterr().err
+    assert "controlla input.path" in detto
+    assert "Traceback" not in detto
