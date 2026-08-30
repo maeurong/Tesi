@@ -3261,3 +3261,206 @@ def test_un_dizionario_di_regioni_vuoto_scrive_il_deck_di_prima(tmp_path, cube_m
         )
 
     assert vuoto.read_bytes() == assente.read_bytes()
+
+
+# --------------------------------------------------------------------------
+# Le combinazioni di carico (#146): piu' azioni dentro un `*STEP` solo.
+# --------------------------------------------------------------------------
+
+
+def _passo_del_deck(testo: str, nome: str) -> list[str]:
+    """Le righe del passo che porta quel nome, dal commento al `*END STEP`.
+
+    Il nome sta in un commento e non in `*STEP, NAME=` (CalculiX rifiuta quel
+    parametro), quindi il blocco si taglia sul commento.
+    """
+    righe = testo.splitlines()
+    inizio = righe.index(f"** NOME PASSO: {nome}")
+    fine = righe.index("*END STEP", inizio)
+    return righe[inizio:fine + 1]
+
+
+def _somma_cload_verticale(righe: list[str]) -> float:
+    """La risultante lungo z delle righe `*CLOAD` di un passo."""
+    totale = 0.0
+    for riga in righe:
+        campi = [campo.strip() for campo in riga.split(",")]
+        if len(campi) == 3 and campi[1] == "3" and campi[0].isdigit():
+            totale += float(campi[2])
+    return totale
+
+
+def _deck_con_combinazioni(tmp_path, nome, combinazioni_dichiarate):
+    """Un cubo con spinta, carico in sommita' e le combinazioni date."""
+    vertices, faces = synth.box_mesh((100.0, 100.0, 100.0))
+    nodi, elementi = volume.tetrahedralize(
+        vertices, faces, max_volume=100_000.0, min_ratio=1.8,
+        max_steiner_points=-1, nobisect=False,
+    )
+    carichi = config.CarichiConfig(
+        spinta=config.SpintaOrizzontale(coefficiente=0.1, asse="y"),
+        carico_sommita=config.CaricoSommita(risultante=1000.0, nset="TOP"),
+        combinazioni=combinazioni_dichiarate,
+    )
+    percorso = tmp_path / f"{nome}.inp"
+    abaqus.write_inp(
+        percorso, nodi, elementi,
+        node_sets=_base_and_top(nodi), material=MATERIALE, carichi=carichi,
+    )
+    return percorso.read_text(encoding="ascii")
+
+
+def test_senza_combinazioni_il_deck_e_quello_di_prima(tmp_path):
+    """Nessuna combinazione dichiarata: il deck non cambia di una riga.
+
+    L'oracolo e' piu' forte di un conteggio di passi: il deck con una
+    combinazione e' **esattamente** quello senza, piu' il passo nuovo in coda.
+    Se le combinazioni toccassero i passi gia' scritti, il prefisso non
+    combacerebbe.
+    """
+    senza = _deck_con_combinazioni(tmp_path, "senza", ())
+    con = _deck_con_combinazioni(
+        tmp_path, "con",
+        (config.Combinazione(
+            nome="SLU", tipo="slu_fondamentale",
+            termini=(("GRAVITA", 1.3),), proposta=True),),
+    )
+
+    assert con.startswith(senza), "le combinazioni hanno cambiato i passi già scritti"
+    assert "** NOME PASSO: SLU" in con
+    assert "** NOME PASSO: SLU" not in senza
+
+
+def test_una_combinazione_mette_piu_azioni_in_un_passo_solo(tmp_path):
+    """Due azioni, un `*STEP`, ciascuna col proprio coefficiente.
+
+    E' la ragione per cui `_passo_statico` e' stato toccato: prima ogni azione
+    dichiarata aveva il proprio passo, e una combinazione non era esprimibile.
+    """
+    testo = _deck_con_combinazioni(
+        tmp_path, "somma",
+        (config.Combinazione(
+            nome="SLU", tipo="slu_fondamentale",
+            termini=(("GRAVITA", 1.3), ("CARICO_TOP", 1.5)), proposta=True),),
+    )
+    passo = _passo_del_deck(testo, "SLU")
+
+    grav = [riga for riga in passo if riga.startswith("ALL_WALL, GRAV,")]
+    assert len(grav) == 1, grav
+    assert float(grav[0].split(",")[2]) == pytest.approx(1.3 * config.GRAVITY_MM_S2)
+    # una sola intestazione *CLOAD: due `OP=NEW` nello stesso passo e il
+    # secondo cancellerebbe le forze del primo
+    assert passo.count("*CLOAD, OP=NEW") == 1
+    assert _somma_cload_verticale(passo) == pytest.approx(-1.5 * 1000.0, rel=1e-9)
+
+
+def test_una_combinazione_che_cita_un_azione_non_dichiarata_e_rifiutata(tmp_path):
+    """Il rifiuto elenca le azioni che esistono: quasi sempre quella giusta e'
+    una di quelle e differisce di poco."""
+    with pytest.raises(ValueError, match="VENTO") as errore:
+        _deck_con_combinazioni(
+            tmp_path, "ignota",
+            (config.Combinazione(
+                nome="SLU", tipo="slu_fondamentale",
+                termini=(("VENTO", 1.5),), proposta=True),),
+        )
+    assert "CARICO_TOP" in str(errore.value), str(errore.value)
+
+
+def test_una_combinazione_a_un_termine_solo_e_legittima(tmp_path):
+    """Un termine solo non e' un errore: e' la struttura che porta il proprio
+    peso moltiplicato per il γ di norma."""
+    testo = _deck_con_combinazioni(
+        tmp_path, "uno",
+        (config.Combinazione(
+            nome="SOLO_PESO", tipo="slu_fondamentale",
+            termini=(("GRAVITA", 1.3),), proposta=True),),
+    )
+    passo = _passo_del_deck(testo, "SOLO_PESO")
+    assert [riga for riga in passo if riga.startswith("ALL_WALL, GRAV,")]
+
+
+def test_un_coefficiente_zero_scrive_il_termine_invece_di_toglierlo(tmp_path):
+    """Il termine a zero **si scrive**, non sparisce.
+
+    Un termine che scompare e' indistinguibile da un termine dimenticato: chi
+    legge il deck deve vedere che quell'azione e' stata messa a zero, e non
+    dedurlo dall'assenza.
+    """
+    testo = _deck_con_combinazioni(
+        tmp_path, "zero",
+        (config.Combinazione(
+            nome="SLU", tipo="slu_fondamentale",
+            termini=(("GRAVITA", 1.3), ("CARICO_TOP", 0.0)), proposta=True),),
+    )
+    passo = _passo_del_deck(testo, "SLU")
+    righe_cload = [
+        riga for riga in passo
+        if len(riga.split(",")) == 3 and riga.split(",")[0].strip().isdigit()
+    ]
+    assert righe_cload, "il termine a zero è sparito dal deck"
+    assert _somma_cload_verticale(passo) == pytest.approx(0.0, abs=1e-9)
+
+
+def test_un_coefficiente_negativo_rovescia_il_carico_e_non_e_rifiutato(tmp_path):
+    """Ammesso, e non per distrazione.
+
+    Un coefficiente negativo e' l'azione applicata nel verso opposto, ed e' il
+    modo con cui si scrivono le due direzioni del sisma (±E) senza dichiarare
+    due carichi. La norma omette i carichi favorevoli, non li nega: il segno
+    resta una scelta di chi analizza.
+    """
+    testo = _deck_con_combinazioni(
+        tmp_path, "negativo",
+        (config.Combinazione(
+            nome="MENO_TOP", tipo="sismica",
+            termini=(("CARICO_TOP", -1.0),), proposta=False),),
+    )
+    passo = _passo_del_deck(testo, "MENO_TOP")
+    assert _somma_cload_verticale(passo) == pytest.approx(+1000.0, rel=1e-9)
+
+
+def test_le_combinazioni_entrano_dopo_i_casi_singoli_e_prima_del_modale(
+    tmp_path, cube_mesh_fine
+):
+    """L'ordine di `casi_di_carico` e' un contratto col lettore del `.frd`.
+
+    `solve.risolvi` traduce il numero di passo del file nell'etichetta del
+    caso leggendo questa lista in ordine, e scarta il modale perche' e'
+    l'ultima voce. Una combinazione infilata prima di un caso singolo, o dopo
+    il modale, attribuirebbe i risultati al caso sbagliato **senza un errore**.
+    """
+    nodi, elementi = cube_mesh_fine
+    alto = float(nodi[:, 2].max())
+    carichi = config.CarichiConfig(
+        spinta=config.SpintaOrizzontale(coefficiente=0.1, asse="y"),
+        posizionati=(
+            config.CaricoPosizionato(
+                nome="PUNTUALE", selettore="CIMA", forza=(0.0, 0.0, -500.0)),
+        ),
+        modale=config.Modale(modi=3),
+        combinazioni=(
+            config.Combinazione(
+                nome="SLU", tipo="slu_fondamentale",
+                termini=(("GRAVITA", 1.3), ("PUNTUALE", 1.5)), proposta=True),
+        ),
+    )
+    percorso = tmp_path / "wall_model.inp"
+
+    metriche = abaqus.export_model(
+        percorso, tmp_path / "wall_model.vtu", nodi, elementi,
+        config.AnalysisConfig(material=MATERIALE, set_tolerance_factor=0.5),
+        TET_LINEARE,
+        carichi=carichi,
+        selettori={"CIMA": config.SelettoreBox(
+            tipo="box", min=(-1e9, -1e9, alto - 1.0), max=(1e9, 1e9, 1e9))},
+    )
+
+    assert metriche["casi_di_carico"] == [
+        "GRAVITA", "SPINTA_ORIZZONTALE", "PUNTUALE", "SLU", "MODALE",
+    ]
+    # e il deck scrive i passi nello stesso ordine, o la lista mentirebbe
+    testo = percorso.read_text(encoding="ascii")
+    posizioni = [testo.index(f"** NOME PASSO: {nome}") for nome in
+                 ("GRAVITA", "SPINTA_ORIZZONTALE", "PUNTUALE", "SLU", "MODALE")]
+    assert posizioni == sorted(posizioni), posizioni

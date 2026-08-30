@@ -377,3 +377,69 @@ def test_azioni_dichiarate_porta_il_peso_proprio_come_permanente_strutturale():
     assert azioni["GRAVITA"] == "permanente_strutturale"
     assert azioni["SPINTA_ORIZZONTALE"] == "variabile"
     assert azioni["PESO_SOLAIO"] is None
+
+
+# ------------------------------------------- i rifiuti che la configurazione porta già
+
+
+def _config_con(combinazioni_dichiarate, **carichi):
+    return crea_config(
+        input=InputConfig(path="nuvola.ply"),
+        selettori={"CIMA": SelettoreNset(tipo="nset", nome="TOP")},
+        carichi=CarichiConfig(combinazioni=combinazioni_dichiarate, **carichi),
+    )
+
+
+def _comb(nome: str) -> Combinazione:
+    return Combinazione(
+        nome=nome, tipo="slu_fondamentale", termini=(("GRAVITA", 1.3),), proposta=True
+    )
+
+
+def test_due_combinazioni_omonime_le_rifiuta_la_configurazione():
+    """Due passi con lo stesso nome nel deck: i due risultati sarebbero
+    indistinguibili nel file risolto.
+
+    Verificato e non dato per scontato: le combinazioni passano dallo **stesso**
+    ciclo di collisione dei carichi, e se un giorno ne uscissero questo test
+    cadrebbe.
+    """
+    with pytest.raises(ValueError, match="due passi si chiamano"):
+        _config_con((_comb("SLU"), _comb("SLU")))
+
+
+def test_due_combinazioni_che_differiscono_per_le_sole_maiuscole_sono_rifiutate():
+    """`ccx` risolve i nomi senza distinguere il caso: nel deck sono lo stesso
+    nome, e il secondo sovrascriverebbe il primo."""
+    with pytest.raises(ValueError, match="due passi si chiamano"):
+        _config_con((_comb("SLU"), _comb("slu")))
+
+
+def test_una_combinazione_omonima_di_un_passo_riservato_e_rifiutata():
+    """`MODALE`, `SPINTA_ORIZZONTALE`, `CARICO_TOP` e il passo di peso proprio
+    sono etichette che la pipeline assegna da sé."""
+    with pytest.raises(ValueError, match="nome del passo"):
+        _config_con((_comb("MODALE"),))
+    with pytest.raises(ValueError, match="nome del passo"):
+        _config_con((_comb("GRAVITA"),))
+
+
+def test_una_combinazione_omonima_di_un_carico_dichiarato_e_rifiutata():
+    """Stesso ciclo, stesso rifiuto: un carico e una combinazione omonimi
+    scriverebbero due passi con lo stesso nome."""
+    with pytest.raises(ValueError, match="due passi si chiamano"):
+        _config_con(
+            (_comb("PUNTUALE"),),
+            posizionati=(
+                CaricoPosizionato(
+                    nome="PUNTUALE", selettore="CIMA", forza=(0.0, 0.0, -1.0)
+                ),
+            ),
+        )
+
+
+def test_una_combinazione_senza_termini_e_rifiutata():
+    """Uno `*STEP` senza azioni risolve e dà spostamenti nulli, indistinguibili
+    da una struttura scarica."""
+    with pytest.raises(ValueError):
+        Combinazione(nome="VUOTA", tipo="slu_fondamentale", termini=(), proposta=True)
