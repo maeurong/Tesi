@@ -300,7 +300,19 @@ def provenance() -> dict[str, object]:
     def _git(*args: str) -> str | None:
         try:
             result = subprocess.run(
-                ["git", *args], capture_output=True, text=True, check=False
+                # `git` e' di terze parti e su Windows nomina i file nella
+                # codepage locale. Senza `encoding` la lettura userebbe quella
+                # preferita dalla macchina -- utf-8 dentro il sottoprocesso del
+                # server, che parte con `PYTHONUTF8=1` -- e un nome accentato
+                # farebbe cadere la provenienza, che gira a ogni corsa, prima
+                # ancora che il candidato parta. `replace` perche' una
+                # provenienza storta si legge, un'eccezione no.
+                ["git", *args],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                check=False,
             )
         except OSError as exc:
             # git assente, o l'avvio del processo negato dall'ambiente: in ogni
@@ -418,6 +430,14 @@ def run_candidate(
             [sys.executable, "-m", "meshrec.cli", "run", str(config_path), "--to-step", "12"],
             capture_output=True,
             text=True,
+            # Lo stderr del candidato entra nella riga del registro: senza
+            # `encoding` i due capi del tubo scelgono ognuno la propria, e su
+            # Windows il figlio scrive nella codepage mentre il padre legge
+            # utf-8. Un solo nome accentato -- o una riga di `ccx`, che scrive
+            # sul descrittore saltando `sys.stdout` -- farebbe saltare
+            # l'intero candidato.
+            encoding="utf-8",
+            errors="replace",
             timeout=timeout_s,
             check=False,
         )
@@ -425,7 +445,15 @@ def run_candidate(
         outcome = "riuscito" if exit_code == 0 else "fallito"
     except subprocess.TimeoutExpired as expired:
         exit_code, outcome = None, "timeout"
-        stderr = f"nessuna uscita entro {timeout_s} s\n{expired.stderr or ''}"
+        # `TimeoutExpired.stderr` non e' decodificata su POSIX nemmeno con
+        # `text=True` -- l'eccezione unisce i pezzi grezzi -- mentre su Windows
+        # `subprocess.run` richiama `communicate()` dopo il `kill()` e la trova
+        # `str`. Senza questo la stessa corsa uccisa lasciava `b'*WARNING...'`
+        # su una macchina e il testo sull'altra.
+        parziale = expired.stderr or ""
+        if isinstance(parziale, bytes):
+            parziale = parziale.decode("utf-8", errors="replace")
+        stderr = f"nessuna uscita entro {timeout_s} s\n{parziale}"
     duration = time.monotonic() - started
 
     metrics = leggi_metriche(out_dir)
