@@ -281,8 +281,7 @@ class RepairConfig(_ModelloBase):
         default=None,
         title="area oltre cui un'apertura viene segnalata [mm^2]",
         description=(
-            "area [mm^2] oltre la quale un'apertura viene segnalata, sia essa un ciclo "
-            "di bordo chiuso o un cammino aperto"
+            "vale sia per un ciclo di bordo chiuso sia per un cammino aperto"
         ),
     )
     join_components: bool = Field(default=False, title="unisce i pezzi staccati")
