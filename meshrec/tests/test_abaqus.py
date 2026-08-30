@@ -3052,3 +3052,26 @@ def test_senza_orfani_il_ripiego_non_si_scrive(tmp_path, cube_mesh):
 
     assert "*SOLID SECTION, ELSET=ALL_WALL" not in testo
     assert testo.count("*SOLID SECTION") == 2
+
+
+def test_export_model_porta_le_regioni_fino_al_deck(tmp_path, cube_mesh):
+    """Le regioni si misurano fuori di qui e arrivano al deck da questo passaggio.
+
+    Gli indici degli elementi non cambiano con `align_to_axes`, che sposta le
+    coordinate e non l'ordine: e' per questo che l'attribuzione puo' essere
+    misurata sui nodi non allineati che la pipeline ha in mano, e arrivare qui
+    come soli indici.
+
+    Mutazione che lo uccide: accettare `regioni` e non passarlo a `write_inp`.
+    """
+    nodi, tetraedri = cube_mesh
+    percorso = tmp_path / "m.inp"
+
+    abaqus.export_model(
+        percorso, tmp_path / "m.vtu", nodi, tetraedri, ANALISI, TET_LINEARE,
+        regioni={"PILASTRO": np.arange(len(tetraedri))},
+    )
+    testo = percorso.read_text(encoding="ascii")
+
+    assert "*ELSET, ELSET=PILASTRO" in testo
+    assert "*SOLID SECTION, ELSET=PILASTRO, MATERIAL=MURATURA" in testo

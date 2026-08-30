@@ -1752,8 +1752,15 @@ def export_model(
     pressure: tuple[str, float] | None = None,
     carichi: CarichiConfig | None = None,
     selettori: dict[str, Selettore] | None = None,
+    regioni: dict[str, np.ndarray] | None = None,
 ) -> dict[str, object]:
     """Step 11: allinea, costruisce i set, scrive il deck e il file di visualizzazione.
+
+    `regioni` sono gli indici degli elementi di ciascuna regione, misurati da
+    `core/attribuzione.py` e passati di qui a `write_inp`. Gli indici e non le
+    coordinate: `align_to_axes` sposta i nodi e non l'ordine degli elementi,
+    quindi l'attribuzione si misura fuori di qui, sui nodi non allineati che
+    la pipeline ha in mano e nello stesso riferimento in cui il prior misura.
 
     `carichi` e' un parametro a se', non un campo di `cfg`: dalla Fase 5 i tre
     casi di carico oltre al peso proprio (spinta orizzontale, carico in
@@ -1931,6 +1938,7 @@ def export_model(
         pressure=pressure,
         carichi=carichi,
         nset_selettori=nset_selettori,
+        regioni=regioni,
     )
     nomi_distribuiti = (
         frozenset() if carichi is None
