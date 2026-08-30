@@ -2910,7 +2910,7 @@ function pannelloRitaglio(ordine) {
     textContent: (persistito
       ? "Gli estremi del box in mm, come sono scritti nella configurazione della corsa. "
       : "Gli estremi del box in mm, presi dall'ingombro della nuvola disegnata. ")
-      + "«Applica il ritaglio» li scrive nella configurazione, su crop_min e crop_max, "
+      + "«Applica il ritaglio» li scrive fra i parametri della segmentazione, "
       + "e conta i punti che resterebbero.",
   }));
   for (const estremo of ["min", "max"]) {
@@ -3012,8 +3012,8 @@ function pannelloRitaglio(ordine) {
         ? `${corpo.points_after.toLocaleString("it")} punti: è quanti ne terrebbe lo step 2 ` +
           "rieseguito con questo box."
         : `${corpo.points_after.toLocaleString("it")} punti dopo il ritaglio: con ` +
-          "questo metodo lo step 2 prosegue con i piani e i cluster, e non ne terrà di più.") +
-      " crop_min e crop_max sono stati scritti nella configurazione della corsa.";
+          "questo metodo lo step 2 prosegue con i piani e i gruppi, e non ne terrà di più.") +
+      " I due spigoli del box sono stati scritti nella configurazione della corsa.";
   });
   contenitore.append(applica, esito);
   vista.mostraBox(valori.min, valori.max);

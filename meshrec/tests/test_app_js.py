@@ -1916,8 +1916,10 @@ assert.doesNotMatch(intero, SEGUITO,
 assert.ok(parziale.includes((5602).toLocaleString("it")), "il numero non compare");
 assert.ok(intero.includes((84).toLocaleString("it")), "il numero non compare");
 for (const testo of [parziale, intero]) {
-  assert.match(testo, /crop_min e crop_max sono stati scritti/,
+  assert.match(testo, /spigoli del box sono stati scritti/,
     "il bottone dice Applica: chi lo preme deve sapere che ha scritto");
+  assert.doesNotMatch(testo, /crop_min|crop_max/,
+    "la didascalia stampa la chiave grezza invece dell'etichetta");
 }
 """)
     assert uscita == ""
