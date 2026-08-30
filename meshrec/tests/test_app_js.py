@@ -100,6 +100,22 @@ def _funzioni(*nomi: str) -> str:
     return "\n".join(_sorgente_di(nome, testo) for nome in nomi)
 
 
+# Le funzioni che disegnano la colonna degli step, in un elenco solo.
+#
+# `disegnaStep` chiude chiamando `aggiornaPassaggio` e `aggiornaStadi` -- il
+# passaggio alla seconda schermata e lo stadio vivo che ne dipendono stanno sullo
+# stesso stato, e una seconda strada per lo stesso fatto invecchierebbe. Un banco
+# che ne dimenticasse una non fallirebbe sul comportamento ma su un
+# ReferenceError, cioe' con un rosso che non insegna niente: elencate qui una
+# volta, non c'e' un elenco per banco da tenere allineato.
+_COLONNA = (
+    "segnaStepAperto", "nuovaRiga",
+    "ragioneDelPassaggio", "aggiornaPassaggio",
+    "testoDelloStadioModello", "aggiornaStadi",
+    "disegnaStep",
+)
+
+
 def _costante(nome: str) -> str:
     """La riga di una costante di modulo, presa dal sorgente vero.
 
@@ -184,6 +200,10 @@ class Elemento {
   append(...nodi) { for (const nodo of nodi) { nodo.padre = this; this.figli.push(nodo); } }
   replaceChildren(...nodi) { this.figli = []; this.append(...nodi); }
   remove() { this.padre.figli.splice(this.padre.figli.indexOf(this), 1); }
+  // Il fuoco non e' un effetto grafico: e' l'unico canale con cui chi naviga da
+  // sola tastiera sa dove si trova dopo che una schermata ha nascosto quella che
+  // teneva il cursore. Il banco lo registra invece di disegnarlo.
+  focus() { aFuoco = this; }
   setAttribute(nome, valore) { this.attributi[nome] = String(valore); }
   removeAttribute(nome) { delete this.attributi[nome]; }
   getAttribute(nome) { return this.attributi[nome] ?? null; }
@@ -194,6 +214,7 @@ class Elemento {
   }
 }
 
+let aFuoco = null;
 const radice = new Elemento("body");
 const perId = new Map();
 const document = {
@@ -238,6 +259,11 @@ const marcati = () =>
 # le funzioni arrivano al banco senza cio' che sta loro attorno. Preso dal
 # sorgente vero e non riscritto qui: e' la ragione per cui `_costante` esiste.
 _DOM += _costante("elemento") + "\n"
+# Le due chiavi che segnano il confine fra la colonna della pipeline e la seconda
+# schermata. `disegnaStep` legge la prima e `testoDelloStadioModello` la seconda,
+# quindi ogni banco che disegna la colonna le vuole. Prese dal sorgente vero e non
+# riscritte qui, per la stessa ragione di `elemento`.
+_DOM += _costante("STEP_DELL_ANALISI") + "\n" + _costante("STEP_DEL_PRIOR") + "\n"
 
 
 # --------------------------------------------------------------------------
@@ -314,17 +340,21 @@ def test_ogni_riga_porta_il_numero_dello_step_che_le_istruzioni_nominano(tmp_pat
     Il numero viene da `voce.numero`, cioe' dal server, e non dalla posizione
     nell'elenco: un contatore CSS lo indovinerebbe dalla riga e stamperebbe
     comunque un numero -- quello sbagliato -- il giorno in cui l'elenco non
-    partisse da uno. Il banco chiede 4 e 13 alle posizioni 0 e 1 apposta: un
+    partisse da uno. Il banco chiede 4 e 12 alle posizioni 0 e 1 apposta: un
     numero letto dalla posizione direbbe 1 e 2 e cadrebbe qui.
+
+    Il 12 e non il 13, che era la coppia di prima: dallo step 13 fuori dalla
+    colonna, una riga con quel numero non esiste piu' li' dentro e il banco
+    proverebbe il filtro invece del numero.
     """
-    _esegui(tmp_path, _DOM + _funzioni("segnaStepAperto", "nuovaRiga", "disegnaStep") + """
+    _esegui(tmp_path, _DOM + _funzioni(*_COLONNA) + """
 disegnaStep([
   { numero: 4, chiave: "04_normals", stato: "valido" },
-  { numero: 13, chiave: "13_solve", stato: "mai eseguito" },
+  { numero: 12, chiave: "12_wall", stato: "mai eseguito" },
 ]);
 const primi = elenco.children.map((riga) => riga.firstElementChild.firstElementChild);
 assert.deepEqual(
-  primi.map((e) => e.textContent), ["4", "13"],
+  primi.map((e) => e.textContent), ["4", "12"],
   "la riga non porta il numero dello step, o lo legge dalla posizione nell'elenco",
 );
 assert.deepEqual(
@@ -347,7 +377,7 @@ def test_l_elenco_degli_step_si_aggiorna_e_non_si_ricostruisce(tmp_path):
     lascia la sottostringa al suo posto, ricostruisce l'elenco a ogni evento, e
     un controllo testuale resta verde. Questo diventa rosso.
     """
-    _esegui(tmp_path, _DOM + _funzioni("segnaStepAperto", "nuovaRiga", "disegnaStep") + """
+    _esegui(tmp_path, _DOM + _funzioni(*_COLONNA) + """
 disegnaStep(STEPS);
 const prima = elenco.children.map((riga) => riga.firstElementChild);
 assert.equal(prima.length, 3, "l'elenco non viene piu' costruito");
@@ -378,7 +408,7 @@ def test_solo_lo_step_aperto_porta_il_marchio(tmp_path):
     (due «stai guardando questo» sono peggio di nessuno), e il marchio sparisce
     quando nessun pannello e' aperto.
     """
-    _esegui(tmp_path, _DOM + _funzioni("segnaStepAperto", "nuovaRiga", "disegnaStep") + """
+    _esegui(tmp_path, _DOM + _funzioni(*_COLONNA) + """
 disegnaStep(STEPS);
 segnaStepAperto(2);
 assert.deepEqual(marcati(), [2], "il marchio non e' sullo step aperto, o non e' solo suo");
@@ -404,7 +434,7 @@ def test_il_marchio_non_resta_su_uno_step_che_nessun_pannello_mostra(tmp_path):
         "una delle due uscite d'errore di apriDettaglio non passa piu' di qui"
     )
     _esegui(tmp_path, _DOM + _funzioni(
-        "segnaStepAperto", "nuovaRiga", "disegnaStep", "dichiaraErrore", "fallisciDettaglio",
+        *_COLONNA, "dichiaraErrore", "fallisciDettaglio",
     ) + """
 const dettaglio = document.getElementById("dettaglio");
 disegnaStep(STEPS);
@@ -487,7 +517,10 @@ def test_il_fuoco_da_tastiera_si_vede_su_ogni_comando():
     al clic del mouse; e nessun `outline: none`, che e' il modo in cui questo
     difetto rientra di solito."""
     foglio = _foglio()
-    for comando in (".bottone", ".step", ".registro", ".campo input"):
+    # `h2` ci sta da quando le due intestazioni delle schermate ricevono il fuoco
+    # per programma (tabindex="-1"): senza la loro regola il passaggio fra pipeline
+    # e analisi posa il cursore in un punto che non si vede.
+    for comando in (".bottone", ".step", ".registro", ".campo input", "h2"):
         assert f"{comando}:focus-visible" in foglio, (
             f"{comando} non mostra piu' dove si trova il fuoco"
         )
@@ -2130,7 +2163,7 @@ def _banco_di_caricaStato() -> str:
     banco lo direbbe eseguendo, non ragionandoci sopra.
     """
     return _DOM + _funzioni(
-        "caricaStato", "segnaStepAperto", "nuovaRiga", "disegnaStep", "dichiaraErrore", "corpoLetto",
+        "caricaStato", "mostraSchermata", *_COLONNA, "dichiaraErrore", "corpoLetto",
     ) + """
 let risponde = null;
 globalThis.fetch = async () => risponde();
@@ -2298,7 +2331,7 @@ def _banco_di_apriDettaglio() -> str:
     righe; nessun banco qui li scatena.
     """
     return _DOM + _funzioni(
-        "segnaStepAperto", "nuovaRiga", "disegnaStep", "dichiaraErrore", "fallisciDettaglio",
+        *_COLONNA, "dichiaraErrore", "fallisciDettaglio",
         "ragioneDelRifiuto", "serverMuto", "superata", "corpoLetto", "valoreScritto",
         "segnalaCampo", "apriBattuta", "scriviParametro", "campoParametro", "apriDettaglio",
         "durataMisurata", "ultimaDurata",
@@ -3381,7 +3414,7 @@ def test_lo_stato_che_il_ripiego_legge_e_quello_che_l_elenco_ha_appena_disegnato
     `790 passed`.
     """
     _esegui(tmp_path, _DOM + _costante("STEP_CON_GEOMETRIA") + _funzioni(
-        "segnaStepAperto", "nuovaRiga", "disegnaStep", "passoDaMostrare"
+        *_COLONNA, "passoDaMostrare"
     ) + """
 disegnaStep([
   { numero: 1, chiave: "01_load", stato: "valido", artefatto: "01_cloud.ply" },
@@ -4820,7 +4853,7 @@ def test_il_marchio_del_cambio_sta_solo_sulle_righe_che_sono_cambiate(tmp_path):
     Provato eseguendo `disegnaStep`, non cercando `data-cambiato` nel sorgente:
     la stessa guardia scritta al contrario lascia la sottostringa al suo posto.
     """
-    _esegui(tmp_path, _DOM + _funzioni("segnaStepAperto", "nuovaRiga", "disegnaStep") + """
+    _esegui(tmp_path, _DOM + _funzioni(*_COLONNA) + """
 const marchiati = () =>
   elenco.children.flatMap((riga, i) => ("cambiato" in riga.dataset ? [i] : []));
 
@@ -5682,4 +5715,485 @@ assert.equal(esito.textContent, "Lettura: esecuzione conclusa in 12 s");
 esito.textContent = "";
 aggiornaDaStato({ ...base, in_corso: false, exit_code: 0 });
 assert.equal(esito.textContent, "", "il fronte si e' ripetuto a ogni frame");
+""")
+
+
+# --------------------------------------------------------------------------
+# Le due schermate: la colonna a dodici, il passaggio, e i quattro stadi vuoti.
+#
+# Lo step 13 resta lo step 13 e resta nello stato che il server manda -- e'
+# `passoDaMostrare` a leggerlo, e STEP_CON_GEOMETRIA lo elenca. Cio' che cambia
+# e' dove si comanda: non piu' una riga in fondo alla colonna della pipeline,
+# ma una schermata sua. La colonna, quindi, si ferma al dodici.
+# --------------------------------------------------------------------------
+
+# Le tredici chiavi come il server le manda, scritte per esteso: il confine fra
+# la colonna e la seconda schermata e' una CHIAVE, non un numero, e un banco che
+# fabbricasse le chiavi da un contatore non proverebbe piu' quel confine.
+_TREDICI = """
+const CHIAVI = ["01_load", "02_segment", "03_downsample", "04_normals",
+  "05_reconstruct", "06_repair", "07_surface_quality", "08_simplify",
+  "09_tetrahedralize", "10_volume_quality", "11_export", "12_wall", "13_solve"];
+const tredici = (stato = "valido") =>
+  CHIAVI.map((chiave, i) => ({ numero: i + 1, chiave, stato }));
+"""
+
+
+def test_la_colonna_della_pipeline_si_ferma_al_dodici_e_non_perde_lo_stato_del_tredici(tmp_path):
+    """Due meta' che si contraddirebbero se una sola fosse fatta.
+
+    La colonna arriva a 12: il tredicesimo step non e' un passo di elaborazione
+    geometrica e non va comandato di fianco agli altri (`to_step` predefinito e'
+    12 da #140, `core/config.py:541`).
+
+    Ma `ultimoStato` deve continuare a portarlo tutto: `passoDaMostrare` cammina
+    a monte da `corpo.steps.length`, che vale 13, e STEP_CON_GEOMETRIA elenca il
+    13. Filtrando lo stato invece della sola vista, la geometria del solutore
+    diventerebbe irraggiungibile per una strada che nessuno guarda.
+    """
+    _esegui(tmp_path, _DOM + _funzioni(
+        *_COLONNA,
+    ) + _TREDICI + """
+disegnaStep(tredici());
+assert.equal(elenco.childElementCount, 12,
+  "la colonna della pipeline non si ferma al dodici");
+assert.deepEqual(
+  elenco.children.map((riga) => riga.firstElementChild.dataset.numero),
+  [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+  "la colonna non porta piu' i dodici step della pipeline, o li rinumera");
+assert.equal(ultimoStato.length, 13,
+  "lo step 13 e' sparito anche dallo stato: passoDaMostrare non lo trova piu'");
+""")
+
+
+def test_il_passaggio_dichiara_l_impedimento_invece_di_restare_cliccabile(tmp_path):
+    """Il collegamento non e' una porta sempre aperta.
+
+    Uno step fallito prima del dodici significa che la pipeline non arriva al
+    prior geometrico: cliccare porterebbe a una schermata che non puo' dire
+    altro che «manca tutto». Il collegamento si spegne e dice quale step ha
+    fermato la catena, che e' l'informazione che il vuoto non porterebbe.
+
+    Il caso opposto sta nello stesso banco: arrivata al dodici, la porta e'
+    aperta e dice perche' -- «attivo» senza ragione e' un bottone che chiede
+    fiducia.
+    """
+    _esegui(tmp_path, _DOM + _funzioni(
+        "ragioneDelPassaggio", "aggiornaPassaggio",
+    ) + _TREDICI + """
+// Il prior si cerca per CHIAVE e non in coda alla colonna: un server che
+// mandasse gli step fino a to_step manderebbe undici voci, e la coda sarebbe
+// lo step 11. «Il prior geometrico e' valido» letto sullo stato dell'export e'
+// la frase giusta sul fatto sbagliato, e contraddirebbe lo stadio 1/4, che il
+// prior lo cerca per chiave.
+const senzaPrior = tredici().filter((v) => v.numero <= 11);
+assert.match(ragioneDelPassaggio(senzaPrior).ragione, /nessuna corsa|non compare/i,
+  `il prior letto in coda: ${ragioneDelPassaggio(senzaPrior).ragione}`);
+
+const arrivata = ragioneDelPassaggio(tredici());
+assert.equal(arrivata.bloccato, false, "arrivata al dodici, il passaggio resta chiuso");
+// `pronto` e `bloccato` non sono lo stesso fatto negato: si entra nella
+// schermata anche senza prior (e li' si legge che cosa manca), ma il solutore
+// non si lancia. Un solo booleano avrebbe dovuto scegliere quale dei due
+// tradire.
+assert.equal(arrivata.pronto, true, "col prior valido il solutore non si puo' lanciare");
+assert.equal(ragioneDelPassaggio(tredici("mai eseguito")).pronto, false,
+  "senza prior il solutore parte lo stesso, e cade sul deck che non c'e'");
+assert.equal(ragioneDelPassaggio(tredici("mai eseguito")).bloccato, false,
+  "senza prior la schermata non si apre piu': non si puo' leggere che cosa manca");
+assert.equal(ragioneDelPassaggio([]).pronto, false, "senza corsa il solutore e' lanciabile");
+assert.match(arrivata.ragione, /membrature/,
+  `il passaggio aperto non dice perche': ${arrivata.ragione}`);
+
+// Capovolgere `=== "valido"` scambia le due frasi non bloccate, e cercare
+// «prior geometrico» in entrambe lasciava il mutante vivo: la corsa arrivata al
+// dodici si sarebbe sentita dire di eseguire lo step 12.
+const scaduta = ragioneDelPassaggio(
+  tredici().map((v) => (v.chiave === "12_wall" ? { ...v, stato: "non valido" } : v)));
+assert.equal(scaduta.bloccato, false, "un prior scaduto chiude la porta");
+assert.match(scaduta.ragione, /esegui lo step 12/,
+  `il prior scaduto non dice che cosa premere: ${scaduta.ragione}`);
+assert.notEqual(scaduta.ragione, arrivata.ragione,
+  "prior valido e prior scaduto si sentono dire la stessa cosa");
+
+// Il prior che fallisce da se' non puo' dirsi «la pipeline non arriva al prior
+// geometrico»: si contraddirebbe davanti a chi ha appena visto fallire quel passo.
+const priorCaduto = ragioneDelPassaggio(
+  tredici().map((v) => (v.chiave === "12_wall" ? { ...v, stato: "fallito" } : v)));
+assert.equal(priorCaduto.bloccato, true, "il prior fallito lascia la porta aperta sul vuoto");
+assert.doesNotMatch(priorCaduto.ragione, /non arriva al prior/,
+  `la frase si contraddice: ${priorCaduto.ragione}`);
+
+const rotta = tredici().map((v) => (v.numero === 7 ? { ...v, stato: "fallito" } : v));
+const fermata = ragioneDelPassaggio(rotta);
+assert.equal(fermata.bloccato, true,
+  "uno step fallito prima del dodici e il passaggio resta cliccabile verso il vuoto");
+assert.match(fermata.ragione, /step 7/,
+  `l'impedimento non nomina lo step che ha fermato la catena: ${fermata.ragione}`);
+
+// Lo step 13 fallito NON e' un impedimento al passaggio: e' cio' che la
+// seconda schermata serve a rifare.
+const solutoreCaduto = tredici().map((v) => (v.numero === 13 ? { ...v, stato: "fallito" } : v));
+assert.equal(ragioneDelPassaggio(solutoreCaduto).bloccato, false,
+  "il solutore caduto chiude la porta della schermata che serve a rilanciarlo");
+
+// E il cablaggio: la decisione deve arrivare al bottone e alla riga accanto.
+// aria-disabled e non disabled, per la stessa ragione gia' scritta accanto a
+// .corsa-voce nel foglio: il bottone porta una spiegazione, e `disabled` lo
+// toglierebbe insieme dal giro del tabulatore e dall'annuncio. E toglierebbe
+// anche il fuoco a chi ci sta sopra nell'istante in cui uno step fallisce --
+// disegnaStep gira due volte al secondo mentre la pipeline lavora.
+ultimoStato = rotta;
+aggiornaPassaggio();
+assert.equal(document.getElementById("vai-analisi").getAttribute("aria-disabled"), "true",
+  "il bottone resta acceso su una catena ferma");
+assert.equal(document.getElementById("vai-analisi").disabled, undefined,
+  "il bottone e' `disabled`: esce dal tabulatore e la sua ragione non si sente piu'");
+assert.match(document.getElementById("vai-analisi-ragione").textContent, /step 7/,
+  "la ragione non arriva a video");
+
+// Aperto, il passaggio si spegne: aggiornaPassaggio deve togliere l'attributo,
+// non lasciarlo appiccicato dalla volta prima.
+ultimoStato = tredici();
+aggiornaPassaggio();
+assert.equal(document.getElementById("vai-analisi").getAttribute("aria-disabled"), null,
+  "il passaggio resta spento su una catena che e' tornata sana");
+""")
+
+
+def test_lo_stadio_del_modello_dice_che_cosa_manca_e_quale_step_lo_produce(tmp_path):
+    """Lo stato vuoto che insegna, e i tre ingressi che lo mettono alla prova.
+
+    PRODUCT.md:181 dichiara vincolante che stati vuoti e prima apertura
+    insegnino: l'utente successivo confermato la pipeline non l'ha mai vista.
+    Questa schermata e' TUTTA stato vuoto, quindi e' il caso in cui quella
+    regola morde di piu'.
+
+    Prima apertura assoluta (nessuna corsa), corsa ferma allo step 1, corsa
+    arrivata al dodici: tre frasi diverse, e nessuna delle tre e' un rettangolo
+    muto.
+    """
+    _esegui(tmp_path, _DOM + _funzioni(
+        "testoDelloStadioModello", "aggiornaStadi",
+    ) + _TREDICI + """
+const prima = testoDelloStadioModello([]);
+assert.match(prima, /nessuna corsa/i,
+  `prima apertura assoluta: lo stadio non dice che non c'e' nessuna corsa: ${prima}`);
+
+const ferma = testoDelloStadioModello(tredici("mai eseguito"));
+assert.match(ferma, /step 12/,
+  `corsa ferma allo step 1: lo stadio non nomina lo step che produce il modello: ${ferma}`);
+assert.match(ferma, /mai eseguito/,
+  `lo stadio non dichiara in che stato e' quello step: ${ferma}`);
+
+const pronta = testoDelloStadioModello(tredici());
+assert.match(pronta, /step 12/, `lo stadio non nomina piu' lo step: ${pronta}`);
+assert.notEqual(pronta, ferma,
+  "lo stadio dice la stessa cosa a prior calcolato e a prior mai eseguito");
+
+// E il cablaggio: la frase arriva nella riga del markup, non resta in memoria.
+ultimoStato = [];
+aggiornaStadi();
+assert.match(document.getElementById("stadio-modello").textContent, /nessuna corsa/i,
+  "lo stadio del modello resta muto a video");
+""")
+
+
+def test_il_fuoco_non_si_perde_nel_passaggio_fra_le_due_schermate(tmp_path):
+    """Nascondere la schermata che tiene il cursore butta il fuoco su `<body>`.
+
+    Da sola tastiera quello e' il momento in cui si perde il posto: il
+    tabulatore riparte dall'inizio del documento e chi non vede lo schermo non
+    ha nessun canale che dica dov'e' finito. Il fuoco va posato sull'intestazione
+    della schermata che si apre, di là e di qua: al ritorno l'intestazione della
+    colonna e non il passaggio da cui si era partiti, che nel frattempo può
+    essersi spento -- e `focus()` su un comando spento non fa niente.
+    """
+    _esegui(tmp_path, _DOM + _funzioni(
+        "ragioneDelPassaggio", "mostraSchermata",
+        "testoDelloStadioModello", "aggiornaStadi", "mostraAnalisi", "mostraPipeline",
+    ) + """
+const lavoro = document.getElementById("lavoro");
+const analisi = document.getElementById("analisi");
+mostraAnalisi();
+assert.equal(lavoro.hidden, true, "la pipeline resta a video sotto la seconda schermata");
+assert.equal(analisi.hidden, false, "la seconda schermata non si apre");
+assert.equal(aFuoco, document.getElementById("analisi-titolo"),
+  "il fuoco resta appeso all'elemento appena nascosto");
+
+mostraPipeline();
+assert.equal(lavoro.hidden, false, "non si torna piu' alla pipeline");
+assert.equal(analisi.hidden, true, "la seconda schermata resta aperta sotto la pipeline");
+assert.equal(aFuoco, document.getElementById("pipeline-titolo"),
+  "tornando indietro il fuoco non si posa sull'intestazione della colonna");
+""")
+
+
+def test_il_collegamento_perso_col_server_si_dichiara(tmp_path):
+    """Una schermata che non si aggiorna piu' non deve fingere di essere fresca.
+
+    Tutto cio' che le due schermate mostrano viene dal flusso degli eventi. Caduto
+    il server, l'ultimo stato ricevuto resta stampato e nessuno dice che e'
+    vecchio: la colonna continua a dichiarare «valido» e lo stadio del modello
+    continua a dichiarare uno stato che nessuno sta piu' confermando.
+
+    Le due funzioni sono di primo livello e non frecce dentro
+    `addEventListener`, per la stessa ragione di `aggiornaDaStato`: dentro la
+    freccia non le esegue nessun banco.
+    """
+    _esegui(tmp_path, _DOM + _funzioni(
+        "perdiIlCollegamento", "riprendiIlCollegamento",
+    ) + """
+const riga = document.getElementById("collegamento-perso");
+riga.hidden = true;
+perdiIlCollegamento();
+assert.equal(riga.hidden, false, "il server caduto non si dichiara");
+riprendiIlCollegamento();
+assert.equal(riga.hidden, true, "riconnesso, l'avviso resta acceso e diventa un cartello inerte");
+""")
+    modulo = _senza_commenti_js(_modulo())
+    for evento, gestore in (("error", "perdiIlCollegamento"), ("open", "riprendiIlCollegamento")):
+        assert f'flusso.addEventListener("{evento}", {gestore})' in modulo, (
+            f"nessuno lega {gestore} all'evento «{evento}» del flusso: la funzione non gira mai"
+        )
+
+
+def test_la_seconda_schermata_porta_i_quattro_stadi_in_ordine_di_dipendenza():
+    """Modello, struttura, pre-processore, post-processore: e' un ordine, non un
+    elenco. Ciascuno ha bisogno del precedente, e mostrarli in un ordine diverso
+    direbbe che si possono compilare in un ordine diverso.
+
+    Nel markup e non fabbricati da `app.js`, come la regione d'errore, lo stato
+    vuoto della vista e la didascalia: uno stato vuoto creato nell'istante in cui
+    ci si scrive dentro non preesiste a cio' che annuncia, ed e' la lezione che
+    in questo file e' gia' costata tre ricadute.
+    """
+    markup = _senza_commenti_html(_markup())
+    assert "hidden" in _elemento(markup, "analisi"), (
+        "la seconda schermata non nasce nascosta: lampeggia all'avvio sopra l'ingresso"
+    )
+    corpo = markup.split('id="analisi"', 1)[1]
+    titoli = re.findall(r"<h3[^>]*>(.*?)</h3>", corpo, flags=re.S)
+    assert titoli == ["1 · Modello", "2 · Struttura", "3 · Pre-processore", "4 · Post-processore"], (
+        f"i quattro stadi non ci sono, o non sono in ordine di dipendenza: {titoli}"
+    )
+    stadi = re.findall(r'<li class="stadio">(.*?)</li>', corpo, flags=re.S)
+    assert len(stadi) == 4, f"gli stadi non sono quattro voci d'elenco: {len(stadi)}"
+    for titolo, stadio in zip(titoli, stadi):
+        assert 'class="vuoto"' in stadio, (
+            f"lo stadio «{titolo}» e' un rettangolo muto: non dichiara di essere vuoto"
+        )
+        # Che cosa aspetta, e non solo che e' vuoto: «vuoto» da solo non insegna
+        # niente a chi la pipeline non l'ha mai vista girare.
+        assert "step" in stadio, (
+            f"lo stadio «{titolo}» non nomina niente che lo riempirebbe"
+        )
+
+
+def test_tornare_alla_scelta_della_corsa_spegne_anche_la_seconda_schermata(tmp_path):
+    """Le schermate erano due e adesso sono tre, e «Cambia corsa» ne conosceva due.
+
+    `#cambia-corsa` vive nella testata, cioe' fuori da <main>: si vede e si clicca
+    anche dalla schermata dell'analisi. `mostraIngresso` spegneva `#lavoro` e
+    accendeva `#ingresso`, e nessuno toccava `#analisi`: la scelta della corsa
+    compariva con i quattro stadi ancora stampati sotto.
+
+    Mutazione che lo uccide: togliere la riga che nasconde `#analisi`.
+    """
+    _esegui(tmp_path, _DOM + _funzioni("mostraSchermata", "mostraIngresso") + """
+// L'ingresso si ridisegna da /api/corse e questo banco prova altro: il disegno
+// ha i propri controlli.
+function disegnaIngresso() {}
+const analisi = document.getElementById("analisi");
+analisi.hidden = false;
+mostraIngresso();
+assert.equal(analisi.hidden, true,
+  "la scelta della corsa compare con i quattro stadi dell'analisi ancora stampati sotto");
+assert.equal(document.getElementById("lavoro").hidden, true, "la pipeline resta a video");
+assert.equal(document.getElementById("ingresso").hidden, false, "l'ingresso non compare");
+""")
+
+
+def test_il_passaggio_spento_non_apre_la_schermata_e_non_ruba_il_fuoco(tmp_path):
+    """Un bottone che porta una spiegazione non si spegne con `disabled`.
+
+    `disabled` lo toglie dal giro del tabulatore E dall'annuncio, cioè toglie
+    proprio la ragione per cui esiste. Il foglio lo dichiara già per iscritto
+    accanto a `.corsa-voce[aria-disabled]`: «resta raggiungibile da tastiera e
+    annunciata -- e' l'unica voce che porta una spiegazione». Il gesto si ferma
+    da sé.
+
+    E il ritorno posa il fuoco sull'intestazione della colonna, non sul
+    passaggio: sul passaggio bloccato `focus()` sarebbe un `no-op` con
+    `disabled`, e il fuoco cadrebbe su <body> -- il difetto che questa coppia di
+    funzioni esiste per chiudere.
+    """
+    _esegui(tmp_path, _DOM + _funzioni(
+        *_COLONNA, "mostraSchermata", "mostraAnalisi", "mostraPipeline",
+    ) + _TREDICI + """
+const analisi = document.getElementById("analisi");
+analisi.hidden = true;
+const rotta = tredici().map((v) => (v.numero === 7 ? { ...v, stato: "fallito" } : v));
+disegnaStep(rotta);
+
+mostraAnalisi();
+assert.equal(analisi.hidden, true,
+  "il passaggio bloccato apre lo stesso la schermata, e ci porta sul vuoto");
+
+// Aperta da una catena sana, il ritorno deve funzionare anche se nel frattempo
+// uno step e' fallito: e' il caso in cui il fuoco si perdeva.
+disegnaStep(tredici());
+mostraAnalisi();
+assert.equal(analisi.hidden, false, "il passaggio aperto non apre la schermata");
+disegnaStep(rotta);
+mostraPipeline();
+assert.equal(aFuoco, document.getElementById("pipeline-titolo"),
+  "il fuoco non si posa sull'intestazione della colonna: da tastiera si perde il posto");
+""")
+
+
+def test_l_annullamento_non_rimette_la_pipeline_sopra_la_schermata_dell_analisi(tmp_path):
+    """`caricaStato` non gira solo all'avvio: la rilegge anche l'annullamento
+    (Ctrl/Cmd+Z), che è un cambio di configurazione e non un cambio di schermata.
+
+    Scoprendo `#lavoro` senza guardare, la colonna della pipeline ricompariva
+    sotto le dita di chi stava guardando l'analisi, con le due schermate a
+    video insieme. È la stessa dimenticanza di «Cambia corsa», per la terza
+    strada: le schermate sono tre e ogni transizione se le riscriveva a mano.
+    """
+    _esegui(tmp_path, _banco_di_caricaStato() + """
+const analisi = document.getElementById("analisi");
+risponde = async () => ({ ok: true, status: 200, json: async () => ({ out_dir: "/tmp/corsa", steps: STEPS }) });
+
+analisi.hidden = false;
+document.getElementById("lavoro").hidden = true;
+await caricaStato();
+assert.equal(analisi.hidden, false,
+  "l'annullamento butta fuori dalla schermata dell'analisi chi ci stava");
+assert.equal(document.getElementById("lavoro").hidden, true,
+  "la colonna ricompare sotto la schermata dell'analisi: due schermate a video insieme");
+
+// Il controllo che smentisce: dall'ingresso, `caricaStato` deve scoprire la
+// pipeline come ha sempre fatto.
+analisi.hidden = true;
+document.getElementById("lavoro").hidden = true;
+document.getElementById("ingresso").hidden = false;
+await caricaStato();
+assert.equal(document.getElementById("lavoro").hidden, false, "la pipeline non compare piu'");
+assert.equal(document.getElementById("ingresso").hidden, true, "l'ingresso resta a video");
+""")
+
+
+def test_i_due_bottoni_del_passaggio_sono_legati_alle_due_funzioni_giuste():
+    """Il fuoco e le due funzioni hanno i loro banchi; il CABLAGGIO no.
+
+    Scambiati i due gestori, o cancellato un `addEventListener`, ogni banco di
+    questo file resta verde e premere Invio sul bottone non porta in nessun
+    posto. È la stessa metà che mancava al flusso degli eventi, e si chiude allo
+    stesso modo: nominando la coppia elemento→funzione.
+    """
+    modulo = _senza_commenti_js(_modulo())
+    for identificativo, funzione in (("vai-analisi", "mostraAnalisi"),
+                                     ("torna-pipeline", "mostraPipeline")):
+        atteso = f'document.getElementById("{identificativo}").addEventListener("click", {funzione})'
+        assert atteso in modulo, (
+            f"#{identificativo} non chiama piu' {funzione}: il bottone non porta da nessuna parte"
+        )
+
+
+def test_lo_stadio_del_modello_porta_il_comando_che_risolve(tmp_path):
+    """Un comando che funziona non è un segnaposto.
+
+    Tolto lo step 13 dalla colonna è morto il suo unico ingresso, e con lui
+    l'unico modo di lanciare il solutore dal browser. Da riga di comando non
+    c'è ripiego: `from_step` ha `le=9` (`core/config.py:530`), quindi
+    `meshrec run --from-step 13` non parte nemmeno. Il divieto del brief
+    riguarda i pannelli che mostrano numeri che nessuno ha calcolato; un
+    bottone legato a una tratta che esiste è l'opposto.
+
+    Lo stadio acquista il comando e nient'altro: nessun pannello di parametri,
+    nessun menù di caso di carico o di modo, nessuna rilettura dei risultati.
+    Il controllo qui sotto guarda anche quello — la scheda non deve crescere
+    di nascosto.
+    """
+    markup = _senza_commenti_html(_markup())
+    corpo = markup.split('id="analisi"', 1)[1]
+    primo = re.search(r'<li class="stadio">(.*?)</li>', corpo, flags=re.S).group(1)
+    assert 'id="risolvi"' in primo, "lo stadio del modello non porta il comando che risolve"
+    assert 'class="bottone bottone-primario esecuzione"' in primo, (
+        "il comando non segue la corsa come gli altri «Esegui»: `esecuzione` e' come "
+        "spegniLeEsecuzioni li trova"
+    )
+    assert 'id="analisi-errore"' in corpo and 'role="alert"' in corpo, (
+        "il rifiuto del solutore non ha dove essere annunciato: #errore vive nella colonna "
+        "del dettaglio, cioe' su una schermata che qui e' nascosta"
+    )
+    for vietato in ("<select", "id=\"caso\"", "id=\"grandezza\"", "Metriche"):
+        assert vietato not in corpo, (
+            f"la schermata dell'analisi ha cominciato a mostrare numeri: «{vietato}». "
+            "I pannelli sono l'onda 4, e si scrivono con i numeri veri in mano"
+        )
+
+    _esegui(tmp_path, _DOM + _funzioni(*_COLONNA) + _TREDICI + """
+const comando = document.getElementById("risolvi");
+ultimoStato = tredici();
+aggiornaPassaggio();
+assert.equal(comando.getAttribute("aria-disabled"), null,
+  "col prior valido il comando resta spento");
+
+ultimoStato = tredici("mai eseguito");
+aggiornaPassaggio();
+assert.equal(comando.getAttribute("aria-disabled"), "true",
+  "senza prior il comando resta acceso e cade sul deck che non c'e'");
+// La stessa frase della riga sotto il passaggio, non una seconda lingua per
+// dire lo stesso fatto.
+assert.equal(
+  document.getElementById("risolvi-ragione").textContent,
+  document.getElementById("vai-analisi-ragione").textContent,
+  "il comando spento spiega la propria ragione con parole sue");
+""")
+
+
+def test_il_comando_che_risolve_si_ferma_da_se_e_dichiara_il_rifiuto(tmp_path):
+    """Tre proprietà del gesto, e nessuna si vede senza eseguirlo.
+
+    Senza prior non parte nessuna richiesta: `aria-disabled` lascia il bottone
+    cliccabile per costruzione, quindi la guardia deve stare nel gestore.
+
+    Col prior parte, e sulla tratta che esisteva già — `POST /api/step/13`,
+    quella che il bottone della colonna usava. Il numero viene dallo stato che
+    il server manda, non da un 13 battuto nel modulo.
+
+    E il rifiuto si vede: `dichiaraErrore` scrive in `#errore`, che vive nella
+    colonna del dettaglio, cioè su una schermata che da qui è nascosta. Un
+    rifiuto annunciato là sarebbe un clic senza ritorno.
+    """
+    _esegui(tmp_path, _DOM + _funzioni(
+        "ragioneDelPassaggio", "superata", "serverMuto", "ragioneDelRifiuto",
+        "apriRisoluzione", "risolvi",
+    ) + _TREDICI + """
+let ultimaRisoluzione = 0;
+let chiesto = [];
+let risponde = async () => ({ ok: true, status: 200 });
+globalThis.fetch = async (percorso, opzioni) => { chiesto.push([percorso, opzioni?.method]); return risponde(); };
+const riga = document.getElementById("analisi-errore");
+
+// Senza prior: nessuna richiesta.
+ultimoStato = tredici("mai eseguito");
+await risolvi();
+assert.deepEqual(chiesto, [], "il comando parte anche senza prior");
+
+// Col prior: la tratta che esisteva gia', e il numero dallo stato.
+ultimoStato = tredici();
+await risolvi();
+assert.deepEqual(chiesto, [["/api/step/13", "POST"]],
+  `la tratta non e' quella che il bottone della colonna usava: ${JSON.stringify(chiesto)}`);
+assert.equal(riga.textContent, "", "un avvio riuscito lascia scritto un errore");
+
+// Rifiutato: si vede, e su questa schermata.
+risponde = async () => ({ ok: false, status: 400,
+  text: async () => JSON.stringify({ messaggio: "una corsa sta già girando" }) });
+await risolvi();
+assert.equal(riga.textContent, "una corsa sta già girando",
+  "il rifiuto del solutore non arriva a video: il clic non ha ritorno");
 """)
