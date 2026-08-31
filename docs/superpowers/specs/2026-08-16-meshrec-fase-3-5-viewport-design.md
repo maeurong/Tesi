@@ -37,8 +37,9 @@ Non è un difetto di disegno: è il ritaglio adottato che fa il proprio lavoro.
 Il config di lavoro ha `segment.method: crop` con `crop_min[2] = -480`, mentre
 la nuvola piena parte da `bbox_min[2] = -781,5`
 (`runs/lab_crop/metrics.json`, `01_load`). Il box toglie **301,5 mm alla base**,
-cioè i piedistalli, ed è corretto che lo faccia: i piedistalli sono in
-calcestruzzo e la tesi modella il telaio in muratura. Lo stesso box restringe la
+cioè i piedistalli, ed è la scelta di modellazione della corsa `lab_crop`, che
+tiene il solo telaio sopra le zapatas. Non è una distinzione di materiale:
+piedistalli, pilastri e trave sono tutti in cemento armato. Lo stesso box restringe la
 profondità da 785 mm (`bbox` da −703,5 a 81,5) ai 290 mm fra −470 e −180,
 togliendo lo sfondo del laboratorio.
 
