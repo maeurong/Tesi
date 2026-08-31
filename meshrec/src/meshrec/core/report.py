@@ -137,6 +137,38 @@ _MINIMO_PER_ISTOGRAMMA = 4
 _FIRMA_PNG = b"\x89PNG\r\n\x1a\n"
 _MINIMO_PNG = 67
 
+# La resa italiana dei numeri, una sola per tutti e tre i documenti.
+#
+# I documenti sono un'appendice italiana e vengono stampati, dove la prosa del
+# progetto scrive gia' «8,10%» e «1.752.795 tetraedri». Le tabelle scrivevano
+# invece `1.1943`: in un documento italiano quel punto si legge come
+# separatore delle migliaia, cioe' «milleduecento», e il segno dice l'opposto
+# di quel che significa. Da qui due decisioni che stanno in piedi solo
+# insieme -- la virgola sui decimali e il punto sulle migliaia -- perche' un
+# solo segno per due mestieri, nella stessa colonna, e' proprio il difetto per
+# cui il raggruppamento non era stato aggiunto prima.
+#
+# `format` sa raggruppare, ma solo alla maniera inglese: `f"{1752795:,}"` da'
+# "1,752,795", che e' esattamente la convenzione opposta. I due segni si
+# scambiano con una tabella di traduzione invece che con due `replace`: la
+# traduzione e' simultanea, mentre due sostituzioni in fila si
+# sovrascriverebbero a vicenda e obbligherebbero a inventare un segno
+# intermedio.
+#
+# Il raggruppamento va sulle **grandezze**: quanto misura una cosa, quante ce
+# ne sono. Non sugli identificatori -- l'impronta esadecimale, il commit della
+# provenienza, `C3D10`, `C25_30`, un numero di versione -- che nei tre
+# documenti arrivano tutti come stringhe e restano intatti, perche' i due rami
+# qui sotto guardano il tipo e non le cifre. Un identificatore spezzato in tre
+# non si rimette insieme.
+_SEGNI_ITALIANI = str.maketrans(",.", ".,")
+
+
+def _italiano(scritto: str) -> str:
+    """Una resa di `format` con i due segni scambiati: inglese in, italiano out."""
+    return scritto.translate(_SEGNI_ITALIANI)
+
+
 _COLUMNS: tuple[tuple[str, str], ...] = (
     ("fingerprint", "impronta"),
     ("axes", "assi"),
@@ -216,8 +248,8 @@ def histogram_svg(values: list[float], title: str, bins: int) -> str:
         # La linea di base: senza, le barre galleggiano e le due estremita'
         # dell'intervallo qui sotto non si capisce a che cosa si riferiscano.
         f"<line x1='8' y1='120.5' x2='308' y2='120.5' stroke='currentColor' stroke-opacity='0.35'/>"
-        f"<text x='8' y='134' font-size='10'>{low:.3g}</text>"
-        f"<text x='260' y='134' font-size='10'>{high:.3g}</text></svg>"
+        f"<text x='8' y='134' font-size='10'>{_italiano(f'{low:,.3g}')}</text>"
+        f"<text x='260' y='134' font-size='10'>{_italiano(f'{high:,.3g}')}</text></svg>"
     )
 
 
@@ -234,13 +266,19 @@ def _cell(row: dict[str, object], key: str) -> str:
         # che c'e' invece di fabbricare un trattino che si leggerebbe come un
         # valore misurato.
         if isinstance(peggiore, float) and isinstance(mediana, float):
-            return f"{peggiore:.4g} / {mediana:.4g}"
+            return _italiano(f"{peggiore:,.4g} / {mediana:,.4g}")
         value = peggiore if isinstance(peggiore, float) else mediana
     else:
         value = row.get(key)
 
     if isinstance(value, float):
-        return f"{value:.4g}"
+        return _italiano(f"{value:,.4g}")
+    # I tetraedri sono un intero e non passerebbero da nessuna formattazione:
+    # senza questo ramo la colonna piu' larga della tabella e' anche l'unica
+    # che si conta col dito. Il booleano e' un intero per Python e non per chi
+    # legge: raggruppato uscirebbe "1".
+    if isinstance(value, int) and not isinstance(value, bool):
+        return _italiano(f"{value:,}")
     if isinstance(value, dict):
         return ", ".join(
             f"{html.escape(str(name))}={html.escape(str(item))}" for name, item in value.items()
@@ -621,7 +659,20 @@ def _numero(valore: float) -> str:
     dall'intervallo qui sotto l'esponenziale resta l'unica resa leggibile.
 
     nan e inf non sono numeri da formattare ma esiti da dichiarare, e scritti
-    cosi' come sono restano due parole inglesi in un documento italiano.
+    cosi' come sono restano due parole inglesi in un documento italiano. Le due
+    guardie stanno prima di ogni formattazione perche' nessuno dei due ha
+    migliaia o decimali da rendere.
+
+    Dentro l'intervallo si raggruppa dalle migliaia in su, quattro cifre
+    comprese: `1.234` e non `1234`. Le due regole sono entrambe in uso, ma
+    tenerne una sola evita che nella stessa colonna `1234` e `12.345` sembrino
+    due formati diversi dello stesso dato.
+
+    Fuori dall'intervallo il numero passa all'esponenziale, e li' la resa e'
+    dichiarata invece che casuale: la mantissa e' una grandezza e prende la
+    virgola, l'esponente e' la potenza di dieci che la scala e resta come si
+    scrive. Un punto ogni tre cifre dentro `e-09` non separerebbe niente, e
+    `%g` non ne produce comunque: la traduzione tocca il solo punto decimale.
     """
     if math.isnan(valore):
         return NON_UN_NUMERO
@@ -629,8 +680,8 @@ def _numero(valore: float) -> str:
         return f"-{INFINITO}" if valore < 0 else INFINITO
     arrotondato = float(f"{valore:.6g}")
     if arrotondato and not 1e-4 <= abs(arrotondato) < 1e12:
-        return f"{arrotondato:.6g}"
-    return f"{arrotondato:.10f}".rstrip("0").rstrip(".")
+        return _italiano(f"{arrotondato:.6g}")
+    return _italiano(f"{arrotondato:,.10f}".rstrip("0").rstrip("."))
 
 
 def _testo(valore: object) -> str:
@@ -643,6 +694,11 @@ def _testo(valore: object) -> str:
         return NON_IMPOSTATO
     if isinstance(valore, float):
         return _numero(valore)
+    # Un intero non passa da _numero: `%.6g` lo arrotonderebbe a sei cifre
+    # significative, e i 6.329.096 punti letti da una nuvola diventerebbero
+    # 6.329.100. Un conteggio non si arrotonda, si raggruppa e basta.
+    if isinstance(valore, int):
+        return _italiano(f"{valore:,}")
     if isinstance(valore, dict):
         if not valore:
             return MAPPA_VUOTA
