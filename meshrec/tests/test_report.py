@@ -2249,8 +2249,12 @@ def test_quello_che_non_e_una_grandezza_non_viene_raggruppato():
     """
     assert report._testo("2026") == "2026"
     assert report._testo("1.10.2") == "1.10.2"
+    # L'impronta in tabella si scrive troncata alle prime dodici cifre, ma
+    # nessuna delle due -- ne' l'intera ne' la troncata -- passa da un
+    # separatore: sono cifre di un identificatore, non di una grandezza.
     impronta = "34fde846646a49c15db339663ce8e7d84ad64a8c5f9c8cbd7551176a4b4a47df"
-    assert report._cell({"fingerprint": impronta}, "fingerprint") == impronta
+    assert report._testo(impronta) == impronta
+    assert report._cell({"fingerprint": impronta}, "fingerprint") == "34fde846646a"
 
 
 def test_la_tabella_dello_sweep_raggruppa_i_tetraedri_e_lascia_stare_l_impronta(tmp_path):
@@ -2317,3 +2321,101 @@ def test_i_tetraedri_raggruppati_non_allargano_la_loro_colonna(tmp_path):
 
     assert report._cell(riga, "tets") == "1.752.795"
     assert len(report._cell(riga, "tets")) <= len(intestazione)
+
+
+# --- l'impronta in appendice: dodici cifre, non sessantaquattro --------------
+
+
+_IMPRONTA_VERA = "2e93bb8095dbb8e79d5b1a3ba52ff3c9ee0f0c4b48f7f4e1d8a4a5cbb1e5c0aa"
+
+
+def test_l_impronta_in_tabella_si_scrive_con_le_prime_dodici_cifre(tmp_path):
+    """L'impronta in appendice si scrive con le prime dodici cifre.
+
+    Dodici non e' un numero scelto qui: la cartella di ogni candidato si chiama
+    gia' `fingerprint(cfg)[:12]` e i documenti della Fase 2 citano le impronte
+    gia' troncate. Chi legge l'appendice ritrova la cartella sul disco leggendo
+    la cella, invece di contare sessantaquattro cifre spezzate su cinque righe.
+
+    Non e' una cura per la larghezza di stampa, e il test non la promette:
+    misurata in Chrome sul registro di experiments/muro con le regole di
+    `@media print` applicate e la finestra a 717 px, la colonna dell'impronta
+    stava in 86,0 px prima e sta in 86,0 px adesso, perche' le sessantaquattro
+    cifre andavano gia' a capo dentro il `max-width` del foglio.
+
+    Mutazione che deve morire: togliere il troncamento in `_cell` -- la cella
+    tornerebbe di sessantaquattro cifre e la tabella di 951 px.
+    """
+    assert report._cell({"fingerprint": _IMPRONTA_VERA}, "fingerprint") == "2e93bb8095db"
+
+    registro = _registro(tmp_path, [{**_riuscito(tets=1000), "fingerprint": _IMPRONTA_VERA}])
+    testo = report.write_report(registro, tmp_path / "sweep.html").read_text(encoding="utf-8")
+
+    assert "<td>2e93bb8095db</td>" in testo
+    assert _IMPRONTA_VERA not in testo
+
+
+def test_l_intestazione_dell_impronta_dichiara_che_e_un_troncamento():
+    """Chi legge l'appendice non ha il registro sotto mano: una colonna di dodici
+    cifre intestata «impronta» si legge come l'impronta intera, e non lo e'.
+
+    Mutazione che deve morire: rimettere l'etichetta a «impronta» -- la cella
+    resterebbe troncata e l'intestazione affermerebbe il contrario.
+    """
+    assert dict(report._COLUMNS)["fingerprint"] == "impronta (prime 12 cifre)"
+
+
+def test_una_riga_senza_impronta_dichiara_cio_che_manca():
+    """Il troncamento e' una fetta di stringa, e una fetta di `None` esplode. La
+    cella vuota deve continuare a dire «non misurato» come tutte le altre.
+
+    Mutazione che deve morire: troncare prima di distinguere la stringa
+    dall'assenza -- la riga senza impronta alzerebbe un TypeError, oppure
+    stamperebbe `None` come se fosse un valore letto.
+    """
+    assert report._cell({}, "fingerprint") == report.NON_MISURATO
+    assert report._cell({"fingerprint": None}, "fingerprint") == report.NON_MISURATO
+
+
+def test_un_impronta_piu_corta_di_dodici_cifre_resta_quella_che_e():
+    """I registri di prova di questa suite portano impronte finte e corte. Il
+    troncamento non deve ne' rompersi ne' inventare cifre che nel dato non ci
+    sono.
+
+    Mutazione che deve morire: riempire la cella fino a dodici caratteri
+    (uno zfill, un ljust) -- la cella affermerebbe cifre mai calcolate.
+    """
+    assert report._cell({"fingerprint": "aaa"}, "fingerprint") == "aaa"
+    assert report._cell({"fingerprint": "impronta0"}, "fingerprint") == "impronta0"
+
+
+def test_dodici_cifre_distinguono_le_ventidue_righe_dei_registri_veri():
+    """Un troncamento che facesse collidere due righe renderebbe la tabella
+    ambigua proprio dove serve: due candidati diversi, la stessa cella.
+
+    Le ventidue righe di experiments/muro e experiments/lab_crop sono la
+    provenienza della tabella sperimentale della tesi. Su quelle si misura, non
+    su impronte inventate: dodici cifre le distinguono tutte, e ogni cella
+    coincide con il nome della cartella del candidato -- che e' l'ancoraggio con
+    cui si ritrova la corsa sul disco.
+
+    Mutazione che deve morire: troncare a meno cifre, o troncare dalla coda
+    invece che dalla testa -- la cella smetterebbe di nominare la cartella.
+    """
+    radice = Path(__file__).resolve().parents[1] / "experiments"
+    celle = []
+    for registro in sorted(radice.glob("*/registro.jsonl")):
+        for numero, riga in enumerate(registro.read_text(encoding="utf-8").splitlines(), 1):
+            if not riga.strip():
+                continue
+            voce = json.loads(riga)
+            cella = report._cell(voce, "fingerprint")
+            cartella = voce["out_dir"].replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+            assert cella == cartella, (
+                f"{registro.parent.name}/registro.jsonl riga {numero}: la cella "
+                f"'{cella}' non nomina la cartella '{cartella}'"
+            )
+            celle.append(cella)
+
+    assert len(celle) == 22, f"attese 22 righe nei due registri, trovate {len(celle)}"
+    assert len(set(celle)) == 22, "due righe collidono sulle prime dodici cifre"

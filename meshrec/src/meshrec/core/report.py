@@ -170,7 +170,29 @@ def _italiano(scritto: str) -> str:
 
 
 _COLUMNS: tuple[tuple[str, str], ...] = (
-    ("fingerprint", "impronta"),
+    # Le prime dodici cifre e non tutte e sessantaquattro. Dodici non e' una
+    # scelta fatta qui: la cartella di ogni candidato si chiama gia'
+    # `fingerprint(cfg)[:12]` (core/sweep.py) e i documenti della Fase 2 citano
+    # le impronte gia' troncate. Chi legge l'appendice ritrova la corsa sul
+    # disco leggendo la cella, invece di contare sessantaquattro cifre spezzate
+    # su cinque righe. Sulle ventidue righe dei due registri dello studio
+    # dodici cifre distinguono tutte le corse, una per una.
+    #
+    # Il troncamento e' una scelta di lettura e non una cura per la larghezza
+    # di stampa: misurato in Chrome con le regole di `@media print` applicate e
+    # la finestra a 717 px (la larghezza stampabile di un A4 con margini da un
+    # centimetro), la colonna dell'impronta stava in 86,0 px prima e sta in
+    # 86,0 px adesso -- le sessantaquattro cifre andavano gia' a capo dentro il
+    # `max-width` del foglio. La tabella misura 951,08 px e sfora il foglio per
+    # colpa della colonna «assi», che a 244,9 px e' la piu' larga delle otto:
+    # difetto aperto, non toccato qui.
+    #
+    # L'intestazione dice il troncamento perche' chi legge l'appendice non ha
+    # il registro sotto mano: una colonna intestata «impronta» si leggerebbe
+    # come l'impronta intera. L'impronta intera non si perde -- resta nel
+    # registro.jsonl, che e' il dato, e resta quella che sweep.fingerprint
+    # calcola: cambia come si scrive in un documento stampato.
+    ("fingerprint", "impronta (prime 12 cifre)"),
     ("axes", "assi"),
     ("outcome", "esito"),
     ("thickness_error", "errore di spessore [mm]"),
@@ -268,6 +290,13 @@ def _cell(row: dict[str, object], key: str) -> str:
         if isinstance(peggiore, float) and isinstance(mediana, float):
             return _italiano(f"{peggiore:,.4g} / {mediana:,.4g}")
         value = peggiore if isinstance(peggiore, float) else mediana
+    elif key == "fingerprint":
+        impronta = row.get(key)
+        # Una fetta si prende solo di una stringa: una riga senza impronta deve
+        # continuare a dire «non misurato» come tutte le altre celle vuote, e
+        # un'impronta piu' corta di dodici cifre resta quella che e' invece di
+        # farsi riempire con cifre mai calcolate.
+        value = impronta[:12] if isinstance(impronta, str) else impronta
     else:
         value = row.get(key)
 
@@ -425,11 +454,13 @@ thead th {
    numeri da confrontare a occhio, un dato illeggibile. Le intestazioni
    invece vanno a capo, sugli spazi, perché «errore di spessore [mm]» su una
    riga sola allarga la colonna quanto tutta la sua misura.
-   L'impronta è l'unica eccezione: sono 64 cifre esadecimali, una parola
-   sola, e su una riga sarebbe larga quanto mezza pagina. Va a capo in poche
-   righe e non in sette: la larghezza minima e il corpo ridotto stanno qui
-   per questo, altrimenti l'identificativo detta l'altezza di ogni riga della
-   tabella e la colonna più opaca diventa la più alta. */
+   L'impronta è l'unica eccezione: adesso la cella porta 12 cifre, ma la sua
+   intestazione ne dichiara il troncamento e su una riga sola sarebbe più
+   larga della cella che intesta. Va a capo entro una larghezza fissata, e
+   larghezza minima e corpo ridotto stanno qui per questo: senza, la colonna
+   più opaca detterebbe l'altezza o la larghezza di tutta la tabella.
+   Misurato in Chrome sul registro di experiments/muro, con le regole di
+   `@media print` applicate: la colonna sta in 86,0 px. */
 .sweep tbody td { white-space: nowrap; }
 .sweep tbody td:first-child {
   white-space: normal;
