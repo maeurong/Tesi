@@ -1717,21 +1717,32 @@ def test_ogni_campo_nuovo_di_primo_livello_dei_carichi_ha_un_predefinito_falso()
     assert not any(predefiniti.values())
 
 
-def test_una_corsa_di_pipeline_finisce_allo_step_12_e_il_tetto_resta_13():
-    """#140 sposta il solutore in una schermata dedicata.
+def test_una_corsa_di_pipeline_finisce_allo_step_11_e_il_tetto_resta_13():
+    """Il predefinito segue il perimetro del prodotto, non il tetto.
 
-    Il predefinito passa da 13 a 12: una corsa di pipeline chiude con il prior
-    geometrico, e il solutore si invoca da li'. Il tetto non cambia -- chi
-    chiede lo step 13 esplicitamente lo ottiene ancora -- perche' la capacita'
-    non si perde, smette solo di essere cio' che accade senza chiederlo.
+    Due spostamenti sovrapposti, ed e' bene tenerli distinti. #140 porto' il
+    predefinito da 13 a 12 spostando il solutore in una schermata dedicata. Il
+    perimetro del prodotto (docs/linea-analisi-integrata.md) lo porta da 12 a
+    11: il prodotto va dalla nuvola al
+    deck `.inp` e si chiude li', mentre il prior geometrico dello step 12 e il
+    solutore dello step 13 appartengono alla linea di sviluppo descritta in
+    docs/linea-analisi-integrata.md.
+
+    Il tetto non cambia in nessuno dei due spostamenti -- chi chiede lo step 13
+    esplicitamente lo ottiene ancora -- perche' la capacita' non si perde,
+    smette solo di essere cio' che accade senza chiederlo.
 
     `run` sta in BLOCCHI_FUORI_IMPRONTA, quindi questo cambio non puo' muovere
     l'impronta delle ventidue righe: lo verificano i due test dell'impronta,
     con i loro numeri intatti.
+
+    Mutazione che lo uccide: riportare il predefinito a 12. Una corsa senza
+    argomenti tornerebbe a calcolare il prior, che i documenti dichiarano fuori
+    perimetro.
     """
     predefinito = config.RunConfig()
 
-    assert predefinito.to_step == 12
+    assert predefinito.to_step == 11
     assert config.RunConfig(to_step=13).to_step == 13
     with pytest.raises(ValidationError):
         config.RunConfig(to_step=14)

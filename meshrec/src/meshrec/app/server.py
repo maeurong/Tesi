@@ -1473,8 +1473,9 @@ def create_app(
                 "calcolato": False,
                 "motivo": (
                     "il prior geometrico non è ancora stato calcolato: è lo "
-                    "step 12, e si ottiene eseguendo la corsa fino in fondo "
-                    "oppure con il comando 'Calcola il prior' qui accanto"
+                    "step 12, e non fa parte della corsa predefinita. Si "
+                    "ottiene con il comando 'Calcola il prior' qui accanto, "
+                    "oppure eseguendo lo step 12 dalla colonna"
                 ),
                 "prior": None,
             }
@@ -1944,12 +1945,15 @@ def create_app(
 
     @app.post("/api/step/{numero}/from")
     def esegui_da(numero: int) -> dict[str, object]:
-        # 12 e non 11 dalla Fase 4: lo step 12 e' il prior geometrico e chiude
-        # la corsa madre. Il tetto qui e' una scelta dell'interfaccia e non
-        # un'eredita' dal predefinito di RunConfig.to_step, che dalla Fase 8
-        # (#140) vale 12: "riprendi da qui" nel pannello non deve far partire
-        # un processo esterno da solo, per lo stesso motivo per cui
-        # sweep.run_candidate chiede --to-step 12 esplicito.
+        # 12 e non 11 dalla Fase 4: lo step 12 e' il prior geometrico. Il
+        # tetto qui e' una scelta dell'interfaccia e non un'eredita' dal
+        # predefinito di RunConfig.to_step, che dal perimetro del prodotto vale
+        # 11: "riprendi da qui" nel pannello non deve far partire un processo
+        # esterno da solo, per lo stesso motivo per cui sweep.run_candidate
+        # chiede --to-step 12 esplicito. E resta 12 anche ora che il
+        # predefinito e' 11, perche' l'interfaccia mostra tutti e tredici gli
+        # step: fermo a 11, la riga 12 resterebbe "mai eseguita" dietro
+        # "esegui da qui in giu'" senza alcun modo di eseguirla.
         corrente()
         non_in_sola_lettura(f"eseguire dallo step {numero} in giù")
         lavoratore.start(config_path, numero, 12)

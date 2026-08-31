@@ -680,10 +680,11 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
 
     Dalla Fase 5 c'e' un tredicesimo step, il solutore: legge il deck che lo
     step 11 ha scritto e vi applica `ccx`. NON e' parte del nucleo che questa
-    funzione esegue per difetto: dalla Fase 8 (#140) `RunConfig.to_step` e'
-    predefinito a 12, perche' il solutore vive in una schermata dedicata e si
-    invoca da li'. Chi lo chiede esplicitamente lo ottiene -- il tetto resta
-    13 -- ma nessuna corsa di pipeline lo paga senza averlo chiesto. E' del
+    funzione esegue per difetto, e nemmeno lo step 12: `RunConfig.to_step` e'
+    predefinito a 11, il deck, perche' li' si chiude il perimetro del prodotto
+    (docs/linea-analisi-integrata.md). Chi li chiede esplicitamente li ottiene
+    -- il tetto resta 13 -- ma nessuna corsa di pipeline li paga senza averlo
+    chiesto. E' del
     resto l'unico step che paga un processo esterno vero anziche' lavoro
     in-process: chi elabora molti candidati (lo sweep) non deve pagarlo per
     ciascuno, e per questo `sweep.run_candidate` chiede comunque `--to-step 12`
@@ -737,12 +738,16 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
     in_corso = start
     # Vero solo se il flusso ha attraversato per intero il nucleo di
     # elaborazione geometrica che questa versione di run() esegue (oggi
-    # 12_wall): si aggiorna da solo spostandosi con la riga che lo mette a
-    # True, senza un numero da tenere sincronizzato a mano con cfg.run.to_step
-    # altrove. Lo step 13 (solutore) e' un'azione in piu' che non ridefinisce
-    # questa completezza: una corsa fermata a 12 (sweep, to_step=12 esplicito)
-    # e una arrivata a 13 (richiesta esplicitamente) sono ugualmente complete
-    # per questo flag -- la differenza fra le due e' se ha anche una soluzione.
+    # 11_export, il deck): si aggiorna da solo spostandosi con la riga che lo
+    # mette a True, senza un numero da tenere sincronizzato a mano con
+    # cfg.run.to_step altrove. La riga si e' spostata con il perimetro del
+    # prodotto, che chiude sul deck: lasciata dov'era, dopo lo step 12, ogni
+    # corsa predefinita sarebbe caduta nel ramo di fusione e avrebbe conservato
+    # in metrics.json un 12_wall e un 13_solve misurati su un'altra geometria.
+    # Gli step 12 e 13 sono azioni in piu' che non ridefiniscono questa
+    # completezza: una corsa fermata a 11, una fermata a 12 (sweep, to_step=12
+    # esplicito) e una arrivata a 13 sono ugualmente complete per questo flag
+    # -- la differenza fra le tre e' che cosa hanno in piu' del deck.
     pipeline_completa = False
 
     def registra(numero: int, avvio: float, artefatto: str | None) -> None:
@@ -1007,6 +1012,7 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
                 "continuo": abaqus.CONTINUO_CONFINATO,
             }
         registra(11, avvio, DECK_FILENAME)
+        pipeline_completa = True
 
         if stop <= 11:
             raise _FermataRichiesta
@@ -1019,7 +1025,6 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
         # dello step 2, che la ripresa ricarica quando riparte da piu' in la'.
         metrics["12_wall"] = calcola_prior(out, cfg, source_cloud, spacing)
         registra(12, avvio, WALL_FILENAME)
-        pipeline_completa = True
         if stop <= 12:
             raise _FermataRichiesta
 

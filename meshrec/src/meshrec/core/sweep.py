@@ -214,10 +214,11 @@ def expand(
 # stanno a monte dello step 11, e un candidato e' completo quando ha il
 # proprio deck, non quando ha il prior o l'ha vista risolvere un solutore.
 # Stessa ragione per cui `run_candidate` chiede `--to-step 12` esplicito al
-# sottoprocesso invece di ereditare il predefinito di RunConfig.to_step, che
-# dalla Fase 8 vale 12 e non piu' 13: le due esclusioni -- qui e li' -- si
-# spiegano a vicenda, e continuano a spiegarsi anche quando il predefinito
-# coincide, perche' e' una decisione del chiamante e non un'eredita'.
+# sottoprocesso invece di ereditare il predefinito di RunConfig.to_step, che ha
+# gia' valso 13, poi 12 dalla Fase 8, e ora 11 dal perimetro del prodotto: le
+# due esclusioni -- qui e li' -- si spiegano a vicenda, e hanno continuato a
+# spiegarsi mentre il predefinito cambiava tre volte sotto di esse, perche' e'
+# una decisione del chiamante e non un'eredita'.
 from meshrec.core.pipeline import METRICS_FILENAME, METRICS_PARTIAL
 from meshrec.core.steps import STEP_KEYS
 
@@ -421,7 +422,7 @@ def run_candidate(
     try:
         completed = subprocess.run(
             # --to-step 12 esplicito, e non ereditato dal predefinito di
-            # RunConfig.to_step (12 dalla Fase 8, #140): uno sweep valuta
+            # RunConfig.to_step (11 dal perimetro del prodotto): uno sweep valuta
             # candidati di *elaborazione* e
             # la selezione di Pareto non legge ne' il prior ne' la
             # soluzione -- stessa ragione per cui REQUIRED_STEPS qui sotto

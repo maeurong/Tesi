@@ -46,8 +46,9 @@ const PROPOSITI = {
 // cambia -- ma sta fuori dalla colonna. Perche' non sia un passo di elaborazione
 // geometrica lo dice la schermata stessa, in index.html, dove lo legge chi la
 // usa: qui non se ne tiene una seconda copia da far invecchiare.
-// Da #140 (core/config.py:541) `to_step` predefinito vale 12: una corsa di
-// pipeline finisce dove finisce la colonna.
+// `to_step` predefinito vale 11 (core/config.py), il deck: e' li' che si chiude
+// il perimetro del prodotto. La colonna arriva piu' in la' perche' l'interfaccia
+// mostra anche cio' che sta fuori.
 const STEP_DELL_ANALISI = "13_solve";
 const STEP_DEL_PRIOR = "12_wall";
 

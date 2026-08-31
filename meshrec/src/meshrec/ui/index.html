@@ -132,8 +132,10 @@
          il numero e' quello che `steps.STEP_KEYS` gli da' e non cambia -- ma sta
          fuori dalla colonna, e la ragione e' scritta a video nella schermata
          dell'analisi, dove la legge chi la usa.
-         `to_step` predefinito e' 12 da #140 (core/config.py:541): una corsa di
-         pipeline finisce dove finisce questa colonna.
+         `to_step` predefinito e' 11, il deck: e' li' che si chiude il
+         perimetro del prodotto, e una corsa di pipeline da riga di comando
+         finisce li'. Questa colonna arriva piu' in la' perche' l'interfaccia
+         mostra anche cio' che sta fuori dal perimetro.
          Un bottone e non un <a href>: non si cambia documento, si scambia quale
          delle due schermate e' a video, e un collegamento che non porta a un
          indirizzo mente sul proprio ruolo.
@@ -255,7 +257,7 @@
          lezione della regione d'errore, che tre volte era stata distrutta da un
          replaceChildren(). Uno stato vuoto creato nell'istante in cui ci si
          scrive dentro non preesiste a cio' che annuncia. -->
-    <p class="vuoto" id="prior-vuoto">Il prior geometrico non è ancora stato calcolato: è lo step 12.</p>
+    <p class="vuoto" id="prior-vuoto">Il prior geometrico non è ancora stato calcolato: è lo step 12, e non fa parte della corsa predefinita.</p>
     <button type="button" id="calcola-prior" class="bottone">Calcola il prior</button>
     <div id="prior-membrature"></div>
     <div id="prior-scartate"></div>
@@ -322,6 +324,9 @@
   <p class="vuoto">Il solutore non è un passo di elaborazione geometrica: legge un
     deck invece di una geometria, paga un processo esterno e produce campi sul
     maglio. Per questo sta qui e non nella colonna della pipeline.</p>
+  <p class="vuoto">I risultati strutturali della tesi vengono da Abaqus, aprendo
+    il deck che lo step 11 ha scritto, non da qui: questa schermata governa una
+    linea di sviluppo parallela.</p>
   <ol class="stadi">
     <li class="stadio">
       <h3>1 · Modello</h3>

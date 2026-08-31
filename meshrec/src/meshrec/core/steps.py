@@ -20,9 +20,11 @@ from meshrec.core.config import PipelineConfig
 # ripresa. Lo step 13 e' il solutore della Fase 5: legge il deck che lo step 11
 # ha scritto, e nemmeno lui e' un punto di ripresa. E' anche l'unico step che
 # paga un processo esterno vero, non lavoro in-process come tutti gli altri:
-# dalla Fase 8 (#140) RunConfig.to_step si ferma a 12 e il solutore si invoca
-# dalla propria schermata, mentre lo sweep continua a chiedere --to-step 12
-# esplicito per non dipendere da come il predefinito cambia. is_complete()
+# dalla Fase 8 (#140) il solutore si invoca dalla propria schermata. Dal
+# perimetro del prodotto RunConfig.to_step si ferma a 11, il deck: gli step 12 e
+# 13 restano raggiungibili chiedendoli, ma stanno fuori da cio' che il prodotto
+# dichiara. Lo sweep continua a chiedere --to-step 12 esplicito per non
+# dipendere da come il predefinito cambia. is_complete()
 # in sweep.py continua a non richiedere ne' "12_wall" ne' "13_solve" a un
 # candidato perche' un candidato di sweep si confronta sulle sole undici
 # misure di elaborazione: e' completo quando ha il proprio deck, non quando

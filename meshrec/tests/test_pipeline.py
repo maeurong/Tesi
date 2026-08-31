@@ -20,8 +20,8 @@ EXACT_VOLUME = 120.0 * 60.0 * 240.0
 def _config_cubo(tmp_path):
     """Configurazione del cubo di prova, la stessa della fixture run_dir.
 
-    `to_step=12` esplicito e non ereditato: dalla Fase 8 (#140) coincide col
-    predefinito di RunConfig, ma questo banco serve gran parte della suite per
+    `to_step=12` esplicito e non ereditato: non coincide col predefinito di
+    RunConfig, che dal perimetro del prodotto vale 11, ma questo banco serve gran parte della suite per
     esercitare l'elaborazione geometrica (1-12), non il solutore -- e su una
     macchina con `ccx` installato ereditare un predefinito che un giorno
     tornasse 13 farebbe girare un processo esterno vero a ogni singola
@@ -889,28 +889,71 @@ def test_lo_step_13_non_gira_per_difetto_in_una_corsa_intera(tmp_path, monkeypat
     """Rovesciato dalla Fase 8 (#140), e il rovesciamento e' il punto.
 
     Alla Fase 5 la decisione era «ogni corsa risolve», e `RunConfig.to_step`
-    era predefinito a 13. #140 sposta il solutore in una schermata dedicata:
-    una corsa di pipeline chiude allo step 12 col prior geometrico, e il
-    solutore si invoca da li'. Il tetto resta 13 -- chi lo chiede lo ottiene,
-    ed e' il test qui sotto.
+    era predefinito a 13. #140 sposto' il solutore in una schermata dedicata,
+    portando il predefinito a 12; il perimetro del prodotto lo porta poi a 11,
+    perche' il prodotto si chiude sul deck e il prior geometrico appartiene
+    alla linea di sviluppo (docs/linea-analisi-integrata.md). Il tetto resta 13
+    -- chi lo chiede lo ottiene, ed e' il test qui sotto.
 
     Qui il predefinito *bare*: `_config_cubo` fissa `to_step=12`
     esplicitamente per il resto della suite (vedi il suo docstring), quindi
     questo test ricostruisce `cfg.run` senza quella fissazione, sugli stessi
     artefatti geometrici, e verifica che il risultato coincida.
 
-    Mutazione che lo uccide: riportare il predefinito a 13. La chiave
-    `13_solve` ricomparirebbe senza che nessuno l'abbia chiesta."""
+    Mutazione che lo uccide: riportare il predefinito a 12 o a 13. Ricomparirebbe
+    una chiave -- `12_wall` o `13_solve` -- senza che nessuno l'abbia chiesta."""
     from meshrec.core import pipeline
 
     monkeypatch.setattr(solve.shutil, "which", lambda _nome: None)
     cfg = _config_cubo(tmp_path)
     cfg.run = config.RunConfig(out_dir=cfg.run.out_dir)
-    assert cfg.run.to_step == 12, "il predefinito bare di RunConfig e' 12 dalla Fase 8"
+    assert cfg.run.to_step == 11, "il predefinito bare di RunConfig e' 11 dal perimetro"
 
     metriche = pipeline.run(cfg)
 
+    assert "11_export" in metriche
+    assert "12_wall" not in metriche
     assert "13_solve" not in metriche
+    # L'artefatto e non la sola chiave: `metriche` puo' essere un dizionario
+    # fuso, e li' l'assenza di "12_wall" direbbe soltanto che nessuna corsa
+    # precedente lo aveva lasciato in questa cartella.
+    assert not (cfg.run.out_dir / pipeline.WALL_FILENAME).exists()
+
+
+def test_una_corsa_predefinita_non_eredita_il_prior_della_corsa_precedente(tmp_path):
+    """Il flag di completezza deve seguire il nucleo, o metrics.json mente.
+
+    `pipeline_completa` decide se la corsa e' autoritativa -- sostituisce
+    metrics.json -- oppure se si fonde con cio' che la cartella conteneva gia'.
+    La riga che lo mette a True stava dopo lo step 12; sceso il predefinito a
+    11, ogni corsa predefinita usciva prima di raggiungerla, cadeva nel ramo di
+    fusione, e si portava dietro il `12_wall` della corsa precedente --
+    misurato su un'altra geometria e presentato come proprio. In un progetto la
+    cui tesi e' la provenienza, e' il difetto peggiore della categoria.
+
+    La suite non lo vedeva perche' ogni test parte da una `tmp_path` vergine.
+    Serve una cartella *riusata*, che e' poi il caso d'uso vero: si ritara un
+    parametro e si rilancia sulla stessa corsa.
+
+    Mutazione che lo uccide: rimettere `pipeline_completa = True` dopo lo step
+    12."""
+    cfg = _config_cubo(tmp_path)
+    pipeline.run(cfg)
+    salvato = json.loads(
+        (cfg.run.out_dir / pipeline.METRICS_FILENAME).read_text(encoding="utf-8")
+    )
+    assert "12_wall" in salvato, "la corsa a 12 non ha lasciato il prior: il test non proverebbe nulla"
+
+    cfg.run = config.RunConfig(out_dir=cfg.run.out_dir)
+    metriche = pipeline.run(cfg)
+
+    assert "12_wall" not in metriche
+    riletto = json.loads(
+        (cfg.run.out_dir / pipeline.METRICS_FILENAME).read_text(encoding="utf-8")
+    )
+    assert "12_wall" not in riletto, (
+        "metrics.json conserva un prior che questa corsa non ha calcolato"
+    )
 
 
 def test_lo_step_13_con_to_step_esplicito_non_dichiara_un_artefatto_assente(
@@ -1092,7 +1135,7 @@ def test_uno_step_13_rifiutato_resta_registrato_come_fallito(
     assert steps.read_state(cfg.run.out_dir)["13_solve"]["esito"] == "fallito"
 
 
-def test_una_corsa_fermata_all_undici_non_si_dichiara_completa(tmp_path):
+def test_una_corsa_fermata_al_dieci_non_si_dichiara_completa(tmp_path):
     """Il gemello di `test_una_corsa_piena_sostituisce_una_chiave_estranea...`,
     dall'altro lato del confine: una corsa intera SOSTITUISCE metrics.json, una
     corsa parziale ci si FONDE, ed e' la distinzione da cui dipende lo sweep
@@ -1103,11 +1146,22 @@ def test_una_corsa_fermata_all_undici_non_si_dichiara_completa(tmp_path):
     sopravvive solo se la corsa si e' considerata parziale: e' un controllo
     indiretto ma non circolare, perche' non rilegge il valore che vuole
     provare.
+
+    Il confine si e' spostato una volta, e questo test con lui. Fermava a 11
+    quando il nucleo di `run()` chiudeva allo step 12; ora il nucleo chiude al
+    deck dello step 11 -- e' il perimetro del prodotto, vedi
+    docs/linea-analisi-integrata.md -- quindi una corsa a 11 e' intera e
+    sostituisce, mentre la prima parziale e' quella a 10. Il guardiano e' lo
+    stesso, un passo piu' sotto: sorveglia il confine, non il numero.
+
+    L'altro lato lo tiene
+    `test_una_corsa_predefinita_non_eredita_il_prior_della_corsa_precedente`,
+    che verifica che a 11 la sostituzione avvenga davvero.
     """
     from meshrec.core import pipeline
 
     cfg = _config_cubo(tmp_path)
-    cfg.run.to_step = 11
+    cfg.run.to_step = 10
     out = cfg.run.out_dir
     out.mkdir(parents=True, exist_ok=True)
     (out / pipeline.METRICS_FILENAME).write_text(

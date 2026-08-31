@@ -667,18 +667,33 @@ class RunConfig(_ModelloBase):
         ),
     )
     to_step: int = Field(
-        default=12,
+        default=11,
         ge=1,
         le=13,
         description=(
             "ultimo step eseguito. Serve all'interfaccia, che esegue uno step "
             "alla volta: from_step e to_step uguali eseguono soltanto quello. "
-            "Il tetto è 13 dalla Fase 5, ma il predefinito è 12 e non coincide "
-            "più con esso: dalla Fase 8 (#140) il solutore vive in una "
-            "schermata dedicata, quindi una corsa di pipeline chiude con il "
-            "prior geometrico e lo step 13 si invoca da lì. Chi lo chiede "
-            "esplicitamente lo ottiene ancora -- la capacità non si perde, "
-            "smette solo di essere ciò che accade senza chiederlo. "
+            "Il tetto è 13 dalla Fase 5, ma il predefinito è 11 e non coincide "
+            "più con esso, per due ragioni sovrapposte. La prima è di "
+            "perimetro: il prodotto va dalla nuvola al deck `.inp` e si chiude "
+            "lì, mentre il prior geometrico dello step 12 e il solutore dello "
+            "step 13 appartengono a una linea di sviluppo che sta fuori -- "
+            "docs/linea-analisi-integrata.md. Il predefinito coincide quindi "
+            "con l'ultimo artefatto che il prodotto promette, e una corsa "
+            "senza argomenti non calcola più nulla che i documenti dichiarino "
+            "fuori. La seconda ragione riguarda il solo step 13 e precede la "
+            "prima: dalla Fase 8 (#140) il solutore vive in una schermata "
+            "dedicata e si invoca da lì. Chi li chiede esplicitamente li "
+            "ottiene ancora -- la capacità non si perde, smette solo di essere "
+            "ciò che accade senza chiederlo. Restano da conoscere le "
+            "operazioni che il prior lo pretendono: l'attribuzione per regione "
+            "dello step 11 quando la configurazione dichiara `regioni` (nessuna "
+            "in casi/ lo fa oggi), `meshrec model`, `meshrec solve` con "
+            "OpenSees, e `meshrec compare` per la chiusura di volume. Tutte si "
+            "sbloccano con `meshrec wall`, e non con una corsa chiesta fino a "
+            "12: con `regioni` dichiarate lo step 11 legge il prior prima che "
+            "lo step 12 lo scriva, quindi una corsa 1->12 si ferma a 11 e non "
+            "arriva mai a calcolarlo. "
             "Lo step 13 è del resto diverso dagli altri: è l'unico che paga "
             "un processo esterno vero (ccx) invece di lavoro in-process, e "
             "chi lo invoca su molti candidati -- uno sweep -- paga quel "

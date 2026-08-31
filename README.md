@@ -3,10 +3,15 @@
 Da un rilievo fotogrammetrico di una struttura in cemento armato a un modello a
 elementi finiti pronto per l'analisi, in modo riproducibile e documentabile.
 
-Il percorso è di tredici passaggi — segmentazione della nuvola di punti,
+Il percorso è di undici passaggi — segmentazione della nuvola di punti,
 ricostruzione della superficie, riempimento a tetraedri, esportazione del
-modello, soluzione — e ogni passaggio salva i parametri con cui è stato eseguito
-e le misure di qualità del proprio risultato.
+modello — e ogni passaggio salva i parametri con cui è stato eseguito e le
+misure di qualità del proprio risultato.
+
+Il programma si ferma al deck. L'analisi si esegue in Abaqus, aprendo il file
+`.inp` che il programma ha scritto: MeshRec costruisce il modello, non lo
+risolve. I risultati ottenuti in questo modo sul caso studio si depositano in
+[`analisi-abaqus/`](analisi-abaqus/), accanto ai deck che li hanno prodotti.
 
 ## Dove guardare
 
