@@ -1,8 +1,8 @@
 # Risultati Abaqus
 
 MeshRec si ferma al deck `.inp`. L'analisi si esegue in Abaqus, a mano, e i suoi
-risultati stanno qui — accanto al deck che li ha prodotti, non solo nella tesi
-stampata.
+risultati vanno depositati qui — accanto al deck che li ha prodotti, e non solo
+nella tesi stampata.
 
 La ragione è la stessa che regge il resto del progetto. Il registro degli
 esperimenti lega già ogni corsa alla propria configurazione, alle impronte dei

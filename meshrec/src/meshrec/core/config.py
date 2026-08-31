@@ -700,7 +700,7 @@ class RunConfig(_ModelloBase):
             "processo e i suoi artefatti per ciascuno, senza che la "
             "selezione se ne serva: misurati sull'unica corsa vera "
             "(runs/lab_telaio_v2), .frd 81 MiB, .vtu 8,2 MiB e .dat 4,3 MiB, "
-            "cioè 93,6 MiB per candidato. sweep.py chiede comunque to_step=12 "
+            "cioè 93,6 MiB per candidato. sweep.py chiede to_step=11 "
             "esplicito al sottoprocesso invece di ereditare questo "
             "predefinito, e REQUIRED_STEPS in sweep.py non lo richiede: è una "
             "decisione del chiamante, che non deve dipendere da come il "

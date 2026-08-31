@@ -129,7 +129,7 @@ def test_due_selettori_diversi_danno_impronte_diverse():
     """Senza questo, due candidati scrivono nella stessa cartella e il secondo vince.
 
     La cartella di un candidato e' `fingerprint(cfg)[:12]` (core/sweep.py:677),
-    e lo sweep arriva a --to-step 12: il deck 11_export e' artefatto richiesto
+    e lo sweep arriva a --to-step 11: il deck 11_export e' artefatto richiesto
     di ogni candidato.
 
     Mutazione che lo uccide: togliere "selettori" da BLOCCHI_VUOTI_FUORI_IMPRONTA
@@ -364,7 +364,7 @@ def test_a_candidate_that_succeeds_records_its_artifacts(tmp_path):
     assert row["input_digest"] == sweep.file_digest(cloud)
     assert "09_volume.vtu" in row["artifacts"]
     assert row["duration_s"] > 0.0
-    # run_candidate chiede --to-step 12 esplicito al sottoprocesso e non lo
+    # run_candidate chiede --to-step 11 esplicito al sottoprocesso e non lo
     # eredita. La richiesta esplicita e' esattamente cio' che rende lo sweep
     # indifferente a come il predefinito cambia, e il predefinito e' cambiato
     # due volte: 13 fino alla Fase 7, 12 dalla Fase 8 (#140), 11 dal perimetro
