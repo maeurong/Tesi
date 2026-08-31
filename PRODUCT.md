@@ -10,8 +10,8 @@ web
 
 **Utente primario:** l'autore della tesi. Apre l'applicazione da riga di comando
 con `uv run meshrec serve`, e la usa ogni giorno per tarare e rieseguire la
-pipeline sulle proprie scansioni. Conosce a memoria i dodici step della pipeline,
-il solutore che sta nella propria schermata, e i nomi dei parametri.
+pipeline sulle proprie scansioni. Conosce a memoria gli undici step della
+pipeline e i nomi dei parametri.
 
 Ha lavorato su Windows 11 fino al 16/08/2026, poi su macOS con Apple Silicon, e
 al 28/08/2026 dichiara di essere tornato su Windows, operando da WSL mentre il
@@ -52,6 +52,20 @@ riparazione opache e non citabili in un lavoro scientifico.
 
 Il successo ha due metà: il metodo — una pipeline parametrizzata, misurata e
 validata — e i risultati ottenuti applicandolo al caso studio della tesi.
+
+**Perimetro.** Il prodotto va dalla nuvola di punti al deck `.inp` e si ferma
+lì. L'analisi strutturale si esegue in Abaqus, a mano, sul deck che il programma
+ha scritto; i suoi risultati appartengono alla tesi e non sono un'uscita del
+software. Fermarsi al deck sposta il carico della prova su un formato standard:
+un deck riproducibile lo verifica chiunque abbia Abaqus, mentre una soluzione
+calcolata internamente la verifica solo chi si fida della catena che l'ha
+prodotta.
+
+Il pre-processore integrato — il prior geometrico che misura telaio, membrature
+e armature — e il solutore integrato, con la schermata che li governa, restano
+nel repository e restano funzionanti, ma stanno **fuori da questo perimetro**:
+sono una linea di sviluppo portata avanti in parallelo, descritta in
+[`docs/linea-analisi-integrata.md`](docs/linea-analisi-integrata.md).
 
 ## Positioning
 
@@ -179,7 +193,7 @@ oltre alle differenze di capacità elencate sopra.
 4. **La provenienza è parte del risultato.** Un artefatto, una metrica o una vista
    dicono sempre da quale configurazione e da quale esecuzione vengono.
 5. **Chi arriva dopo deve poter capire.** L'utente successivo confermato non
-   conosce i dodici step della pipeline: stati vuoti, errori e prima apertura devono
+   conosce gli undici step della pipeline: stati vuoti, errori e prima apertura devono
    insegnare, senza rallentare chi la pipeline la conosce a memoria.
 
 ## Accessibility & Inclusion

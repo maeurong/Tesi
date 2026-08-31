@@ -5,7 +5,7 @@ Istruzioni per chi lavora su questo repository con un agente di codice.
 ## Cos'è e dov'è
 
 MeshRec porta un rilievo fotogrammetrico di una struttura in cemento armato fino
-a un modello a elementi finiti, in tredici passaggi. Ogni passaggio salva i parametri con cui è
+a un modello a elementi finiti, in undici passaggi. Ogni passaggio salva i parametri con cui è
 stato eseguito e le misure di qualità del proprio risultato.
 
 ```
@@ -75,7 +75,12 @@ Il punto di ingresso è **`src/meshrec/core/steps.py`**. Contiene due tabelle ch
 valgono più di qualsiasi diagramma:
 
 - `STEP_KEYS` — i tredici passaggi in ordine, dal caricamento della nuvola di
-  punti fino alla soluzione.
+  punti fino alla soluzione. **Il prodotto ne dichiara undici**: si chiude sul
+  deck `.inp` dello step 11, e per questo `to_step` ha 11 come predefinito. Gli
+  ultimi due — il prior geometrico e il solutore — restano funzionanti e
+  raggiungibili chiedendoli, ma appartengono a una linea di sviluppo che sta
+  fuori dal perimetro (`docs/linea-analisi-integrata.md`). Prima di aggiungere
+  capacità là dentro, leggi quel documento.
 - `STEP_BLOCKS` — quale blocco di configurazione ogni passaggio legge davvero.
   È da qui che discende quali passaggi diventano non validi quando si cambia un
   parametro.

@@ -3330,11 +3330,17 @@ def test_il_confronto_dal_server_dice_quali_modelli_mancano(cliente, tmp_path):
 
 def test_lo_step_12_e_il_tetto_di_esegui_da_qui_in_poi(cliente):
     """Il tetto e' una scelta dell'interfaccia (server.py), non un'eredita' dal
-    predefinito di RunConfig.to_step -- che dalla Fase 8 (#140) vale 12 e prima
-    valeva 13: il tetto qui non lo ha seguito ne' allora ne' adesso. 'Riprendi
-    da qui' nel pannello non deve far partire un processo esterno da solo.
-    Fermo a 11 la riga 12 resterebbe 'mai eseguita' dietro 'esegui da qui in
-    poi', senza spiegazione."""
+    predefinito di RunConfig.to_step -- che ha gia' valso 13, poi 12 dalla Fase
+    8 (#140), e ora 11 dal perimetro del prodotto: il tetto qui non lo ha mai
+    seguito. Le due ragioni sono diverse e vanno tenute separate.
+
+    'Riprendi da qui' nel pannello non deve far partire un processo esterno da
+    solo: per questo il tetto e' 12 e non 13. E resta 12 anche ora che il
+    predefinito e' 11, perche' l'interfaccia mostra tutti e tredici gli step:
+    fermo a 11, la riga 12 resterebbe 'mai eseguita' dietro 'esegui da qui in
+    poi', senza spiegazione e senza modo di eseguirla. Il perimetro del
+    prodotto governa che cosa accade *senza chiedere* -- una corsa da riga di
+    comando -- non che cosa l'interfaccia rende raggiungibile a chi clicca."""
     risposta = cliente.post("/api/step/9/from")
 
     assert risposta.json()["fino_a"] == 12

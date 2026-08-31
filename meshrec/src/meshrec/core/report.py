@@ -24,7 +24,7 @@ import yaml
 
 from meshrec.core import steps
 from meshrec.core.config import PipelineConfig, load_config
-from meshrec.core.pipeline import METRICS_FILENAME, WALL_FILENAME
+from meshrec.core.pipeline import DECK_FILENAME, METRICS_FILENAME, WALL_FILENAME
 from meshrec.core.sweep import load_registry, objectives
 
 CONFIG_FILENAME = "config.yaml"
@@ -1172,13 +1172,22 @@ def confronta(cartelle: list[Path]) -> dict[str, object]:
             # Assenza di modello.json non basta: e' un segnale negativo, e una
             # cartella vuota (percorso sbagliato, o corsa parametrica fallita a
             # meta') lo soddisfa allo stesso modo della vera corsa madre. Il
-            # segno positivo della corsa madre e' 12_wall.json leggibile.
+            # segno positivo della corsa madre e' il deck dello step 11 oppure
+            # il prior dello step 12: basta uno dei due.
+            #
+            # Era il solo prior, e ha smesso di bastare quando il predefinito di
+            # to_step e' sceso a 11: una corsa predefinita si ferma al deck e
+            # non calcola piu' il prior, e una cartella perfettamente valida
+            # veniva rifiutata come "non una corsa". Il prior continua a essere
+            # letto perche' serve alla chiusura di volume piu' sotto -- la sua
+            # assenza toglie una colonna al confronto, non la corsa.
             wall = _legge_json(percorso / WALL_FILENAME)
-            if wall is None:
+            if wall is None and not (percorso / DECK_FILENAME).exists():
                 raise ValueError(
-                    f"{percorso} non è una corsa valida: né modello.json né "
-                    f"{WALL_FILENAME} si leggono, e senza uno dei due non è né "
-                    "un modello parametrico né la corsa madre"
+                    f"{percorso} non è una corsa valida: non si legge né "
+                    f"modello.json, né {WALL_FILENAME}, né {DECK_FILENAME}, e "
+                    "senza almeno uno di questi non è né un modello parametrico "
+                    "né la corsa madre"
                 )
             chiave = "as-built"
         else:

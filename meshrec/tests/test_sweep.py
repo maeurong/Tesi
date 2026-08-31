@@ -365,13 +365,14 @@ def test_a_candidate_that_succeeds_records_its_artifacts(tmp_path):
     assert "09_volume.vtu" in row["artifacts"]
     assert row["duration_s"] > 0.0
     # run_candidate chiede --to-step 12 esplicito al sottoprocesso e non lo
-    # eredita: dalla Fase 8 (#140) il predefinito di RunConfig.to_step vale 12
-    # e coincide, ma fino alla Fase 7 valeva 13 e senza quella richiesta questo
-    # candidato risolveva davvero (ccx e' spesso installato dove gira lo
-    # sweep), pagando un processo esterno e i suoi artefatti (.frd/.vtu) senza
-    # che la selezione di Pareto li legga mai. La richiesta esplicita resta
-    # perche' la decisione e' del chiamante, non del predefinito -- vedi il
-    # commento su REQUIRED_STEPS in sweep.py.
+    # eredita. La richiesta esplicita e' esattamente cio' che rende lo sweep
+    # indifferente a come il predefinito cambia, e il predefinito e' cambiato
+    # due volte: 13 fino alla Fase 7, 12 dalla Fase 8 (#140), 11 dal perimetro
+    # del prodotto. Senza quella richiesta, alla Fase 7 questo candidato
+    # risolveva davvero (ccx e' spesso installato dove gira lo sweep), pagando
+    # un processo esterno e i suoi artefatti (.frd/.vtu) senza che la selezione
+    # di Pareto li legga mai. La decisione e' del chiamante, non del
+    # predefinito -- vedi il commento su REQUIRED_STEPS in sweep.py.
     assert "13_solve" not in row["metrics"]
 
 

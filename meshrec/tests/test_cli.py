@@ -16,8 +16,8 @@ SIZE = (120.0, 60.0, 240.0)
 def _config_cubo_su_disco(tmp_path):
     """Configurazione del cubo scritta su disco, come negli altri test di questo file.
 
-    `to_step=12` esplicito: dalla Fase 8 (#140) coincide col predefinito di
-    RunConfig, ma questi test esercitano il comando `run` e la ripresa, non il
+    `to_step=12` esplicito: non coincide col predefinito di RunConfig, che dal
+    perimetro del prodotto vale 11, e questi test esercitano il comando `run` e la ripresa, non il
     solutore, e non devono dipendere da come quel predefinito cambia -- stessa
     ragione di `_config_cubo` in test_pipeline.py."""
     cloud_path = tmp_path / "box.ply"
