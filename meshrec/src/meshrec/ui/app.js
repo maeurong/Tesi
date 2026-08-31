@@ -700,9 +700,37 @@ function tabellaDiDati(intestazioni, righe) {
 //
 // `dati` a null e' «non ancora chiesto», e non spegne niente: un comando spento
 // per una verifica che non e' ancora tornata sarebbe un rifiuto senza motivo.
+//
+// Senza referto -- cioe' come la schermata si apre, perche' la prova sta dietro
+// un gesto e non parte da sola -- si guarda `solutori`, che `solve.disponibilita`
+// riempie senza eseguire niente. Dice due cose che restano utili: se il binario
+// c'e' e QUALE percorso il gesto eseguirebbe, che e' l'unica cosa da cui chi
+// guarda puo' accorgersi che il `config.yaml` della corsa ne nomina un altro. E
+// dichiara il proprio limite: «c'e'» non e' «funziona», e un percorso trovato
+// non e' un verdetto.
 function ragioneDelSolutore(dati) {
   const referto = dati?.verifica;
-  if (referto == null) return { pronto: true, ragione: "" };
+  if (referto == null) {
+    const scelto = Object.entries(dati?.solutori ?? {}).find(([, voce]) => voce.scelto);
+    if (scelto === undefined) return { pronto: true, ragione: "" };
+    const [nome, voce] = scelto;
+    if (voce.disponibile !== true) {
+      // Spento gia' qui, senza aver eseguito niente: mandare il deck a un
+      // binario che non c'e' e' un clic che fallisce, e la disponibilita' basta
+      // a saperlo.
+      return {
+        pronto: false,
+        ragione: `Il solutore scelto (${nome}) non è installato. ${voce.dove_prenderlo ?? ""}`.trim(),
+      };
+    }
+    return {
+      pronto: true,
+      ragione: `Il solutore scelto (${nome}) c'è: ${voce.percorso} (${voce.origine}).`
+        + " «C'è» non è «funziona»: un omonimo, un collegamento rotto o un binario"
+        + " che non trova le proprie librerie da qui non si distinguono. Premi"
+        + " «Verifica il solutore» per eseguirlo davvero.",
+    };
+  }
   const nome = referto.solutore;
   if (referto.disponibile !== true) {
     const dove = dati.solutori?.[nome]?.dove_prenderlo ?? "";
@@ -751,9 +779,10 @@ function menuDelSolutore(dati, ordine) {
   rifiuto.hidden = true;
   menu.addEventListener("change", async () => {
     await scriviParametro("solutore", "nome", menu, rifiuto, ordine);
-    // La verifica va rifatta: cambiato motore, il referto di prima parla di un
-    // altro binario, e il comando resterebbe acceso o spento per il solutore
-    // sbagliato.
+    // Il referto di prima se ne va con i dati riletti, e non viene rifatto:
+    // parlava di un altro binario, e tenerlo lascerebbe il comando acceso o
+    // spento per il solutore sbagliato. La prova sul motore nuovo la chiede chi
+    // vuole, col proprio gesto.
     await caricaAnalisi();
   });
   riga.append(etichetta, menu, rifiuto);
@@ -782,6 +811,16 @@ function schedaModello(dati, motivo, ordine) {
   nodi.push(menuDelSolutore(dati, ordine));
   const { pronto, ragione } = ragioneDelSolutore(dati);
   nodi.push(elemento("p", { className: pronto ? "aiuto" : "vuoto", textContent: ragione }));
+  // Il gesto, e non l'apertura della schermata: la prova esegue l'eseguibile che
+  // `solutore.percorso` nomina, e quel percorso lo scrive il config.yaml della
+  // corsa. La riga qui sopra lo mostra prima che parta.
+  const prova = elemento("button", {
+    type: "button",
+    className: "bottone",
+    textContent: "Verifica il solutore",
+  });
+  prova.addEventListener("click", verificaSolutore);
+  nodi.push(prova);
 
   nodi.push(elemento("h4", { textContent: "Frazione orfana" }));
   const regioni = dati.regioni;
@@ -1271,10 +1310,63 @@ async function caricaAnalisi() {
   disegnaAnalisi();
 }
 
+// La prova vera del solutore, e soltanto quando qualcuno la chiede.
+//
+// `solve.verifica` esegue l'eseguibile che `solutore.percorso` nomina, e quel
+// percorso viene dal config.yaml della corsa: una cartella che arriva da fuori
+// -- uno zip del laboratorio, il caso di un collega -- lo porta con se'. Finche'
+// la prova stava dentro `GET /api/analisi`, aprire questa schermata bastava a
+// far partire quel programma, senza un gesto e senza mostrarlo prima.
+//
+// Il referto entra in `datiAnalisi` come ci entrava quando arrivava dalla GET:
+// da li' lo legge `ragioneDelSolutore`, e una rilettura dell'analisi lo porta
+// via insieme al resto, che e' giusto -- un referto sopravvissuto a un cambio di
+// motore parlerebbe del binario di prima.
+// Un contatore per clic, come la risoluzione e la proposta delle combinazioni:
+// due prove in volo condividono la scrittura, e la piu' vecchia che rientra dopo
+// parlerebbe di un binario che non e' quello scelto adesso. In una funzione
+// apposta -- e non due righe dentro la tratta -- perche' e' la forma che lo
+// scanner dei gestori riconosce come difesa.
+let ultimaVerifica = 0;
+
+function apriVerifica() {
+  ultimaVerifica += 1;
+  return ultimaVerifica;
+}
+
+async function verificaSolutore() {
+  const ordine = apriVerifica();
+  const riga = document.getElementById("analisi-errore");
+  riga.textContent = "";
+  const risposta = await fetch("/api/solutore/verifica", { method: "POST" }).catch(serverMuto);
+  const rifiuto = risposta.ok ? null : await ragioneDelRifiuto(risposta);
+  const referto = risposta.ok ? await corpoLetto(risposta) : null;
+  // Dopo l'ultima attesa e prima della prima scrittura, come le altre tratte:
+  // due prove in volo -- due clic, o un clic dopo un cambio di motore -- e la
+  // piu' vecchia che rientra dopo parlerebbe di un binario che non e' quello
+  // scelto adesso.
+  if (superata(ordine, ultimaVerifica)) return;
+  if (rifiuto !== null) {
+    // Non `dichiaraErrore`: quella scrive in #errore, che vive sulla schermata
+    // della pipeline, da qui nascosta. Stessa ragione di `risolvi`.
+    riga.textContent = rifiuto;
+    return;
+  }
+  if (referto == null) {
+    riga.textContent = "la prova del solutore è tornata con un referto che non si legge";
+    return;
+  }
+  // Un'analisi riletta mentre la prova era in volo puo' averla azzerata: senza
+  // questa riga la scrittura cadrebbe su null, cioe' schermata muta.
+  if (datiAnalisi === null) return;
+  datiAnalisi.verifica = referto;
+  disegnaAnalisi();
+}
+
 // La firma dello stato degli step al momento dell'ultimo carico. Serve a
 // rileggere l'analisi quando qualcosa cambia davvero -- il dodici che finisce,
-// il tredici che risolve -- senza chiedere due volte al secondo una tratta che
-// esegue il binario del solutore.
+// il tredici che risolve -- senza rifare due volte al secondo il giro di letture
+// che quella tratta costa.
 let firmaAnalisi = null;
 
 function firmaDegliStep() {

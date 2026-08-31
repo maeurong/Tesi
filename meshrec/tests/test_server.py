@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 from meshrec.app import server
 from meshrec.app.server import create_app
 from meshrec.core import materiali
-from meshrec.core.config import InputConfig, PipelineConfig, save_config
+from meshrec.core.config import InputConfig, PipelineConfig, load_config, save_config
 from materiale import ANALISI
 
 
@@ -1864,7 +1864,9 @@ def test_ogni_tratta_che_interroga_il_server_si_scarta_se_e_stata_superata():
     # disegnaIngresso) e 5 freccia (le 2 di prima, il clic su una corsa, il clic
     # che ne crea una, il clic che dichiara il materiale). Col bottone
     # «Sfoglia», che chiede al server di aprire il selettore file, 12.
-    assert interrogano >= 12, "le tratte attese sono sparite dal modulo"
+    # Col gesto che prova il solutore (`verificaSolutore`, la tratta che ESEGUE
+    # il binario e che percio' non sta piu' dentro `GET /api/analisi`), 13.
+    assert interrogano >= 13, "le tratte attese sono sparite dal modulo"
 
 
 def test_due_geometrie_in_volo_nella_stessa_generazione_non_si_arbitrano_per_arrivo():
@@ -4164,23 +4166,111 @@ def test_l_analisi_dichiara_i_due_solutori_con_dove_prenderli(cliente):
     assert corpo["solutori"]["opensees"]["scelto"] is False
 
 
-def test_l_analisi_distingue_il_solutore_assente_da_quello_che_non_funziona(
-    cliente, monkeypatch
-):
-    """«C'e'» non e' «funziona», e i due stati non si confondono a video."""
-    from meshrec.core import solve
+def _percorso_del_solutore(radice: Path, percorso: Path) -> None:
+    """Scrive `solutore.percorso` nel config della corsa aperta.
 
-    monkeypatch.setattr(solve, "verifica", lambda cfg: {
-        "solutore": cfg.nome, "percorso": "/finto/ccx", "disponibile": True,
-        "funziona": False, "codice": 127, "uscita": "",
-        "motivo": "«/finto/ccx» è partito (codice 127) ma la sua uscita non è riconosciuta",
-    })
+    Il config si rilegge a ogni richiesta (`corrente()` chiama `load_config`),
+    quindi riscriverlo qui basta a descrivere la corsa che arriva da fuori: una
+    cartella di laboratorio che nomina un eseguibile qualunque.
+    """
+    cfg = load_config(radice / "config.yaml")
+    cfg.solutore.percorso = percorso
+    save_config(cfg, radice / "config.yaml")
+
+
+def test_aprire_l_analisi_non_esegue_il_binario_che_il_config_nomina(
+    cliente, tmp_path, monkeypatch
+):
+    """La schermata si apre da sola; un eseguibile non deve partire da solo.
+
+    Il percorso del solutore viene dal `config.yaml` della corsa, e una cartella
+    che arriva da fuori -- uno zip del laboratorio, il caso di un collega -- lo
+    porta con se'. Finche' `/api/analisi` chiamava `solve.verifica`, legare
+    quella corsa e aprire la schermata bastava a far partire il programma che il
+    file nominava, senza un gesto e senza che niente lo mostrasse prima.
+
+    L'oracolo e' il processo, non la chiave: si sorveglia `subprocess.run`, cosi'
+    il controllo regge anche se domani la tratta esegue per un'altra strada.
+    """
+    eseguiti = []
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: eseguiti.append(a))
+    arbitrario = tmp_path / "binario-arbitrario"
+    arbitrario.write_text("", encoding="utf-8")
+    _percorso_del_solutore(tmp_path, arbitrario)
 
     corpo = cliente.get("/api/analisi").json()
 
-    assert corpo["verifica"]["disponibile"] is True
-    assert corpo["verifica"]["funziona"] is False
-    assert "codice 127" in corpo["verifica"]["motivo"]
+    assert eseguiti == [], "aprire la schermata dell'analisi ha eseguito un programma"
+    # E il percorso si legge PRIMA che parta: e' l'unica cosa che permette a chi
+    # guarda di accorgersi che non e' quello che si aspettava.
+    assert corpo["solutori"]["calculix"]["percorso"] == str(arbitrario)
+    assert "verifica" not in corpo, (
+        "il referto della prova torna dalla GET: qualcuno ha rimesso l'esecuzione "
+        "sull'apertura della schermata"
+    )
+
+
+def test_la_verifica_chiesta_esegue_il_binario_e_ne_riporta_l_esito(
+    cliente, tmp_path, monkeypatch
+):
+    """Il gesto esplicito esegue davvero: «c'e'» non e' «funziona» resta provato."""
+    arbitrario = tmp_path / "ccx-finto"
+    arbitrario.write_text("", encoding="utf-8")
+    _percorso_del_solutore(tmp_path, arbitrario)
+    eseguiti = []
+
+    def finta_run(argomenti, **_):
+        eseguiti.append(argomenti)
+        return subprocess.CompletedProcess(argomenti, 0, b"CalculiX Version 2.20", b"")
+
+    monkeypatch.setattr(subprocess, "run", finta_run)
+
+    corpo = cliente.post("/api/solutore/verifica").json()
+
+    assert eseguiti and eseguiti[0][0] == str(arbitrario)
+    assert corpo["funziona"] is True
+    assert corpo["percorso"] == str(arbitrario)
+
+
+def test_la_verifica_su_un_solutore_assente_rifiuta_senza_eseguire_niente(
+    cliente, tmp_path, monkeypatch
+):
+    """Il rifiuto nomina il percorso cercato: e' cio' che si va a correggere."""
+    eseguiti = []
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: eseguiti.append(a))
+    _percorso_del_solutore(tmp_path, tmp_path / "questo-non-esiste")
+
+    corpo = cliente.post("/api/solutore/verifica").json()
+
+    assert eseguiti == []
+    assert corpo["disponibile"] is False
+    assert "questo-non-esiste" in corpo["motivo"]
+
+
+def test_la_verifica_che_va_in_timeout_arriva_a_chi_l_ha_chiesta(
+    cliente, tmp_path, monkeypatch
+):
+    """Un binario che non torna e' una diagnosi, non una riga di registro.
+
+    `solve.verifica` cattura `subprocess.SubprocessError` -- di cui
+    `TimeoutExpired` e' sottoclasse -- e ne fa un motivo: la tratta lo consegna
+    invece di lasciarlo sollevare, cosi' chi ha premuto legge perche'.
+    """
+    arbitrario = tmp_path / "ccx-che-non-torna"
+    arbitrario.write_text("", encoding="utf-8")
+    _percorso_del_solutore(tmp_path, arbitrario)
+
+    def si_pianta(argomenti, **_):
+        raise subprocess.TimeoutExpired(argomenti, 20)
+
+    monkeypatch.setattr(subprocess, "run", si_pianta)
+
+    risposta = cliente.post("/api/solutore/verifica")
+
+    assert risposta.status_code == 200
+    corpo = risposta.json()
+    assert corpo["funziona"] is False
+    assert "TimeoutExpired" in corpo["motivo"]
 
 
 def test_l_analisi_dichiara_quale_modello_il_solutore_riceve_davvero(cliente):

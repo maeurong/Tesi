@@ -1521,10 +1521,14 @@ def create_app(
         motivo per cui non c'e' (PRODUCT.md:170): mai una chiave a zero al posto
         di una chiave assente.
 
-        `verifica` esegue davvero il binario del solutore scelto, perche' «c'e'»
-        non e' «funziona». Costa un processo che stampa una riga, e la tratta la
-        chiama la schermata quando si apre e quando lo stato degli step cambia,
-        non due volte al secondo.
+        `solutori` viene da `solve.disponibilita`, che guarda il PATH e il
+        percorso dichiarato e **non esegue niente**. La prova vera -- quella che
+        il binario lo lancia, perche' «c'e'» non e' «funziona» -- sta dietro un
+        gesto, su `POST /api/solutore/verifica`: il percorso del solutore lo
+        nomina il `config.yaml` della corsa, e una cartella che arriva da fuori
+        lo porta con se'. Finche' la prova stava qui, legare quella corsa e
+        aprire la schermata bastava a far partire il programma che quel file
+        nominava, senza un gesto e senza mostrarlo prima.
         """
         cfg = corrente()
         out = Path(cfg.run.out_dir)
@@ -1632,7 +1636,6 @@ def create_app(
         return {
             "modelli": modelli,
             "solutori": solve.disponibilita(cfg.solutore),
-            "verifica": solve.verifica(cfg.solutore),
             "regioni": regioni_misurate,
             "regioni_motivo": regioni_motivo,
             "regioni_dichiarate": sorted(cfg.regioni),
@@ -1660,6 +1663,27 @@ def create_app(
             ),
             "metriche_illeggibili": metriche_illeggibili,
         }
+
+    @app.post("/api/solutore/verifica")
+    def verifica_solutore() -> dict[str, object]:
+        """La prova vera del solutore, dietro un gesto e mai all'apertura.
+
+        POST e non GET perche' e' un'azione e non una lettura: esegue
+        l'eseguibile che `solutore.percorso` nomina, che e' un dato del
+        `config.yaml` della corsa e non di questo programma. Una GET che lancia
+        un processo la chiama anche chi la schermata l'ha solo aperta.
+
+        Il verdetto e i motivi li produce `solve.verifica`: qui non si decide
+        niente, si consegna. Un binario assente o che si pianta torna con
+        `funziona: False` e il proprio motivo, e non come un 400: e' una
+        diagnosi riuscita, non una richiesta rifiutata.
+
+        Nessuna guardia di sola lettura: la prova non scrive nella cartella
+        della corsa. Il gesto che scrive resta `POST /api/solve`, che la sua
+        guardia ce l'ha.
+        """
+        cfg = corrente()
+        return solve.verifica(cfg.solutore)
 
     @app.post("/api/combinazioni")
     def proponi_combinazioni(richiesta: ProponiCombinazioni) -> dict[str, object]:

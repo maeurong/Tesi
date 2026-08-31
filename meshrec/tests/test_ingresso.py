@@ -80,6 +80,20 @@ def test_senza_corsa_aperta_non_c_e_nessun_deck_da_consegnare(slegato):
     assert "nessuna corsa aperta" in risposta.json()["messaggio"]
 
 
+def test_senza_corsa_aperta_la_verifica_del_solutore_rifiuta_invece_di_sollevare(slegato):
+    """Ingresso degenere del gesto che esegue: nessuna corsa legata.
+
+    Senza corsa non c'e' nessuna configurazione da cui leggere quale solutore
+    provare, e il rifiuto nomina il legame che manca invece di lasciar cadere un
+    `TypeError` addosso a chi ha premuto. Nell'interfaccia il bottone non c'e'
+    affatto: vive nella schermata dell'analisi, che a corsa slegata resta chiusa.
+    """
+    risposta = slegato.post("/api/solutore/verifica")
+
+    assert risposta.status_code == 400
+    assert "nessuna corsa aperta" in risposta.json()["messaggio"]
+
+
 def test_creare_una_corsa_scrive_il_config_e_lega_l_applicazione(slegato, nuvola, tmp_path):
     risposta = slegato.post("/api/corse", json={"nome": "provino", "nuvola": str(nuvola)})
 

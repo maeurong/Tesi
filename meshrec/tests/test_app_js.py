@@ -126,7 +126,8 @@ _ANALISI = (
     "ragioneDelSolutore", "cifra", "misura", "tabellaDiDati", "nomeDellIncontro",
     "menuDelSolutore", "schedaModello", "schedaStruttura",
     "propostaDelleCombinazioni", "schedaPreprocessore", "schedaPostprocessore",
-    "disegnaAnalisi", "caricaAnalisi", "firmaDegliStep", "rileggiSeServe",
+    "disegnaAnalisi", "caricaAnalisi", "apriVerifica", "verificaSolutore",
+    "firmaDegliStep", "rileggiSeServe",
     "superata", "serverMuto", "ragioneDelRifiuto", "corpoLetto",
 )
 
@@ -284,6 +285,7 @@ let datiAnalisi = null;
 let motivoAnalisi = null;
 let firmaAnalisi = null;
 let ultimaAnalisi = 0;
+let ultimaVerifica = 0;
 // Un banco non ha un server. Il fetch predefinito e' quello che il browser
 // incontra col server spento -- solleva -- cosi' la tratta dell'analisi
 // percorre il proprio ramo di rifiuto invece di rompersi su un identificatore
@@ -6580,8 +6582,6 @@ const carico = () => ({
     opensees: { disponibile: false, percorso: null, origine: null, scelto: false,
                 motivo: "non nel PATH", dove_prenderlo: "OpenSees da https://opensees.berkeley.edu/" },
   },
-  verifica: { solutore: "calculix", percorso: "/usr/bin/ccx", disponibile: true,
-              funziona: true, codice: 201, uscita: "", motivo: null },
   regioni: null,
   regioni_motivo: "nessuna regione dichiarata: la frazione orfana la misura lo step 11",
   regioni_dichiarate: [],
@@ -6684,13 +6684,86 @@ assert.equal(schedaModello(dati, null, 0).filter((n) => n.className === "rifiuto
 """)
 
 
+def test_senza_la_prova_la_scheda_dice_che_il_solutore_c_e_e_che_non_basta(tmp_path):
+    """La schermata resta utile anche senza eseguire niente.
+
+    `solve.disponibilita` dice gia' se il binario c'e' e da dove, e la
+    differenza fra «c'e'» e «funziona» va detta invece di sparire insieme alla
+    prova automatica. Il percorso esce a video prima di ogni esecuzione: e' la
+    sola cosa che permette a chi guarda di accorgersi che l'eseguibile nominato
+    dal `config.yaml` non e' quello che si aspettava.
+    """
+    _esegui(tmp_path, _banco_delle_schede() + _CARICO + """
+const dati = carico();
+const prima = ragioneDelSolutore(dati);
+assert.equal(prima.pronto, true,
+  "senza aver chiesto niente il comando nasce spento: sarebbe un rifiuto senza motivo");
+assert.match(prima.ragione, /\\/usr\\/bin\\/ccx/,
+  `il percorso che sta per essere eseguito non si legge: ${prima.ragione}`);
+assert.match(prima.ragione, /non è «funziona»/,
+  `«c'è» passa per «funziona»: ${prima.ragione}`);
+
+const testo = testoDi(schedaModello(dati, null, 0));
+assert.match(testo, /\\/usr\\/bin\\/ccx/, `il percorso non arriva nella scheda: ${testo}`);
+
+// Il solutore che non c'e' spegne il comando anche senza la prova: mandare il
+// deck a un binario assente e' un clic che fallisce, e la disponibilita' basta
+// a saperlo.
+dati.solutori.calculix.disponibile = false;
+dati.solutori.calculix.percorso = null;
+const assente = ragioneDelSolutore(dati);
+assert.equal(assente.pronto, false, "il comando resta acceso su un solutore che non c'e'");
+assert.match(assente.ragione, /dhondt/,
+  `il solutore assente non dice dove prenderlo: ${assente.ragione}`);
+""")
+
+
+def test_la_prova_del_solutore_parte_dal_gesto_e_non_dal_disegno(tmp_path):
+    """L'esecuzione sta dietro un bottone, e il suo esito torna a video.
+
+    Disegnare la scheda non deve chiedere niente al server: era proprio
+    l'apertura della schermata a far partire il binario. Premuto il bottone, la
+    prova parte, il referto entra nei dati dell'analisi e il motivo del
+    fallimento si legge nella scheda -- non resta nel registro del browser.
+    """
+    _esegui(tmp_path, _banco_delle_schede() + _CARICO + """
+datiAnalisi = carico();
+const chiamate = [];
+globalThis.fetch = async (percorso, opzioni) => {
+  chiamate.push([percorso, opzioni?.method]);
+  return { ok: true, status: 200, json: async () => ({
+    solutore: "calculix", percorso: "/usr/bin/ccx", disponibile: true,
+    funziona: false, codice: 0, uscita: "",
+    motivo: "«/usr/bin/ccx» è partito (codice 0) ma la sua uscita non è riconosciuta come calculix",
+  }) };
+};
+
+const scheda = document.getElementById("modello-dati");
+scheda.replaceChildren(...schedaModello(datiAnalisi, null, 0));
+assert.deepEqual(chiamate, [],
+  `disegnare la scheda dell'analisi ha gia' chiesto la prova: ${JSON.stringify(chiamate)}`);
+
+const bottone = scheda.discendenti().find((nodo) => nodo.tag === "button");
+assert.ok(bottone !== undefined, "la scheda non porta nessun gesto con cui provare il solutore");
+assert.match(bottone.textContent, /[Vv]erifica/, bottone.textContent);
+
+await bottone.scatena("click");
+assert.deepEqual(chiamate, [["/api/solutore/verifica", "POST"]],
+  `il gesto non chiede la prova al server: ${JSON.stringify(chiamate)}`);
+assert.equal(datiAnalisi.verifica.funziona, false, "il referto non entra nei dati dell'analisi");
+const testo = testoDi(document.getElementById("modello-dati").figli);
+assert.match(testo, /c'è ma non funziona/, `il verdetto della prova non arriva a video: ${testo}`);
+assert.match(testo, /codice 0/, `il motivo del fallimento resta nel registro: ${testo}`);
+""")
+
+
 def test_il_solutore_assente_e_quello_rotto_sono_due_diagnosi_diverse(tmp_path):
     """La prima si chiude scaricando un programma, la seconda no: confonderle
     manda a cercare nel posto sbagliato. `solve.verifica` il binario lo esegue,
     perche' «c'e'» non e' «funziona»."""
     _esegui(tmp_path, _banco_delle_schede() + _CARICO + """
 const dati = carico();
-assert.equal(ragioneDelSolutore(dati).pronto, true, "un solutore verificato non basta");
+assert.equal(ragioneDelSolutore(dati).pronto, true, "un solutore disponibile non basta");
 
 dati.verifica = { solutore: "opensees", percorso: null, disponibile: false,
                   funziona: false, codice: null, uscita: "", motivo: "non nel PATH" };
@@ -6726,7 +6799,7 @@ ultimoStato = tredici();
 datiAnalisi = carico();
 aggiornaPassaggio();
 assert.equal(document.getElementById("risolvi").getAttribute("aria-disabled"), null,
-  "col prior valido e il solutore verificato il comando resta spento");
+  "col prior valido e il solutore disponibile il comando resta spento");
 
 datiAnalisi.verifica = { solutore: "calculix", percorso: null, disponibile: false,
                          funziona: false, codice: null, uscita: "", motivo: "non nel PATH" };
