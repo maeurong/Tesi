@@ -4,8 +4,8 @@ Istruzioni per chi lavora su questo repository con un agente di codice.
 
 ## Cos'è e dov'è
 
-MeshRec porta una scansione laser di una parete in muratura fino a un modello a
-elementi finiti, in tredici passaggi. Ogni passaggio salva i parametri con cui è
+MeshRec porta un rilievo fotogrammetrico di una struttura in cemento armato fino
+a un modello a elementi finiti, in tredici passaggi. Ogni passaggio salva i parametri con cui è
 stato eseguito e le misure di qualità del proprio risultato.
 
 ```
