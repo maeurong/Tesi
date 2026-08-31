@@ -132,12 +132,12 @@ deposita l'autore, che è l'unico ad averli.
 ### E. La linea parallela viene dichiarata invece che lasciata implicita
 
 Esistono due branch non mergiati che portano avanti l'analisi integrata:
-`worktree-notte-analisi-strutturale`, **diciotto commit** avanti a `main`, con
-una spec dell'analisi strutturale «dal telaio alle verifiche»; e
+`worktree-notte-analisi-strutturale`, **ventun commit** avanti a `origin/main`,
+con una spec dell'analisi strutturale «dal telaio alle verifiche»; e
 `worktree-wayfinder-analisi-strutturale`, tre commit, con una mappa le cui issue
 pianificano di costruire le verifiche NTC ed Eurocodice **dentro MeshRec**.
 
-Il primo dei due esiste soltanto in locale. Diciotto commit che vivono in un
+Il primo dei due esiste soltanto in locale. Ventun commit che vivono in un
 worktree e in nessun altro posto sono lavoro a rischio di sparizione: vanno
 spinti su `origin` prima di ogni altra cosa.
 
@@ -174,7 +174,14 @@ perimetro.
 - Una corsa senza argomenti si ferma dopo `11_export` e scrive il deck.
 - `--to-step 12` continua a produrre `12_wall.json`, e `meshrec solve` continua
   a risolvere.
-- La suite passa senza modifiche ai test.
+- I test che codificano il predefinito sono aggiornati con la ragione scritta
+  accanto. Sono quattro file — `test_config.py`, `test_pipeline.py`,
+  `test_server.py`, `test_sweep.py` — e due di essi asserivano `to_step == 12`
+  in modo diretto: il criterio «la suite passa senza toccare i test» sarebbe
+  stato sbagliato, perché quei test dichiarano il predefinito, e cambiarlo senza
+  cambiarli significherebbe che nessuno lo stava verificando.
+- Il numero di test falliti nella suite intera resta identico a quello ottenuto
+  sugli stessi sorgenti di `origin/main` nello stesso ambiente.
 - `README.md`, `PRODUCT.md` e `AGENTS.md` dicono lo stesso perimetro, e nessuno
   dei tre promette la soluzione come uscita del prodotto.
 - `worktree-notte-analisi-strutturale` è presente su `origin`.
