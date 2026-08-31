@@ -136,7 +136,7 @@ def test_l_invasione_delle_facce_consiglia_nobisect_e_non_un_min_ratio_piu_alto(
     assert "nobisect" in messaggio
     # Il consiglio vecchio non deve sopravvivere accanto a quello nuovo: due
     # rimedi contraddittori nello stesso messaggio non sono una diagnosi.
-    assert "Alza min_ratio" not in messaggio
+    assert "Alza tet.min_ratio" not in messaggio
 
 
 def test_a_nobisect_gia_acceso_l_invasione_non_e_piu_il_sospetto(monkeypatch):
@@ -159,8 +159,12 @@ def test_a_nobisect_gia_acceso_l_invasione_non_e_piu_il_sospetto(monkeypatch):
         )
 
     messaggio = str(caduta.value)
-    assert "Alza min_ratio" in messaggio
-    assert "accendi" not in messaggio
+    assert "Alza tet.min_ratio" in messaggio
+    # La minuscola rendeva l'asserzione morta: il sorgente scrive «Accendi», e
+    # `in` distingue le maiuscole, quindi "accendi" non compariva in NESSUNO dei
+    # tre rami e la riga era vera per ogni ingresso. Provate tutte e sei le
+    # combinazioni il 31/08/2026: solo l'altra asserzione uccideva il test.
+    assert "Accendi tet.nobisect" not in messaggio
 
 
 def test_il_recupero_del_bordo_non_e_un_problema_di_qualita(monkeypatch):
@@ -184,7 +188,7 @@ def test_il_recupero_del_bordo_non_e_un_problema_di_qualita(monkeypatch):
         )
 
     messaggio = str(caduta.value)
-    assert "Alza min_ratio" not in messaggio
+    assert "Alza tet.min_ratio" not in messaggio
     assert "nobisect" not in messaggio
 
 
@@ -206,7 +210,7 @@ def test_un_guasto_che_non_si_riconosce_non_viene_diagnosticato(monkeypatch):
             vertices, faces, None, min_ratio=1.8, max_steiner_points=-1, nobisect=False
         )
 
-    assert "Alza min_ratio" in str(caduta.value)
+    assert "Alza tet.min_ratio" in str(caduta.value)
 
 
 def test_l_errore_originale_di_tetgen_sopravvive_a_ogni_diagnosi(monkeypatch):

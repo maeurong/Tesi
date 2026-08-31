@@ -62,7 +62,7 @@ ARTIFACTS: dict[int, str] = {
 }
 
 # Tabelle esplicite da from_step all'artefatto da ricaricare, verificate a mano
-# per ogni from_step da 2 a 9 (non solo il caso 1). Sostituiscono un calcolo
+# per ogni from_step da 2 a 12 (non solo il caso 1). Sostituiscono un calcolo
 # con ARTIFACTS[min(from_step - 1, N)] che era sbagliato in due punti:
 # - per from_step=8 chiedeva ARTIFACTS[7], che non esiste (KeyError);
 # - per from_step=4..7 la nuvola di riferimento per l'errore geometrico dello
@@ -71,6 +71,10 @@ ARTIFACTS: dict[int, str] = {
 
 # Nuvola da ricaricare come ingresso dello step che riparte (usata anche solo
 # per stimare la spaziatura quando lo step stesso legge il proprio artefatto).
+# Le chiavi da 5 in poi valgono SOLO quando la corsa arriva al prior dello step
+# 12, l'unico consumatore della nuvola a valle dello step 4: la guardia sta in
+# `run()`, che senza di essa pretendeva 04_normals.ply per eseguire il solo
+# step 10 o il solo step 11, che la nuvola non la toccano.
 _RESUME_POINTS: dict[int, int] = {
     2: 1, 3: 2, 4: 3, 5: 4, 6: 4, 7: 4, 8: 4, 9: 4, 10: 4, 11: 4, 12: 4
 }
@@ -142,6 +146,18 @@ def _ingresso_di_ripresa(
     "lo step 4 non ha ancora scritto" davanti a un artefatto che esiste ma e'
     troncato manderebbe a rieseguire uno step che e' gia' stato eseguito,
     senza spiegare perche' la prima volta non e' bastata.
+
+    Il ramo «esiste ma non si legge» cattura `Exception` e non un elenco di
+    tipi. L'elenco c'era -- `(ValueError, OSError)` -- e lasciava passare tutto
+    il resto: un `09_volume.vtu` con zero celle fa alzare a `meshio.read` un
+    `IndexError` suo, prima che `_maglio_di_volume` veda un solo array, e
+    quell'errore risaliva nudo fino al pannello, che rispondeva 500 senza
+    nominare ne' il file ne' lo step da rifare. I lettori sono tre
+    (`io.read_cloud`, `_read_mesh`, `_maglio_di_volume`) e si appoggiano a tre
+    librerie diverse: prevedere che cosa alza ciascuna e' una lista che
+    invecchia a ogni aggiornamento, mentre la domanda a cui questa funzione
+    risponde e' una sola e non cambia. L'errore originale resta nel messaggio e
+    in `__cause__`, quindi non si perde niente nel tradurlo.
     """
     percorso = out / ARTIFACTS[da]
     if not percorso.exists():
@@ -152,7 +168,7 @@ def _ingresso_di_ripresa(
         )
     try:
         return leggi(percorso)
-    except (ValueError, OSError) as errore:
+    except Exception as errore:
         raise ValueError(
             f"lo step {chiede} pretende {ARTIFACTS[da]}, che esiste ma non si legge "
             f"({errore}). Riesegui lo step {da}"
@@ -449,6 +465,22 @@ def _maglio_di_volume(percorso: Path) -> tuple[np.ndarray, np.ndarray]:
     traduzione. Un file che di blocchi ne porta un numero diverso da uno si
     dichiara qui e diventa il ramo «esiste ma non si legge» di
     `_ingresso_di_ripresa`, che e' il chiamante.
+
+    L'unicita' del blocco pero' non dice niente sul numero di colonne, e da
+    sola non basta: un file con un solo blocco di `triangle` passava per maglio
+    di volume (misurato il 31/08/2026: nodi `(6, 3)`, celle `(2, 3)`) e la
+    corsa moriva piu' in la', dentro `quality.volume_metrics`, con un
+    `IndexError` sulla quarta colonna che non c'e'. Il controllo di forma sta
+    qui e non presso i consumatori perche' i consumatori sono tre -- le
+    metriche dello step 10, l'esportazione dello step 11 e il solutore dello
+    step 13 -- e passano tutti di qui.
+
+    E' lo stesso controllo che `server._contorno_del_volume` fa da sempre sul
+    proprio ingresso, con una differenza voluta: li' le dieci colonne del
+    tetraedro quadratico si tagliano a quattro, perche' la topologia sta nei
+    vertici e i nodi di lato non definiscono ne' facce ne' adiacenze; qui il
+    maglio si restituisce intero, perche' il deck di Abaqus quei nodi li vuole
+    tutti.
     """
     import meshio
 
@@ -459,10 +491,13 @@ def _maglio_di_volume(percorso: Path) -> tuple[np.ndarray, np.ndarray]:
             f"porta {len(tipi)} blocchi di celle ({tipi}) invece del solo maglio di "
             "volume che lo step 9 scrive"
         )
-    return (
-        np.ascontiguousarray(griglia.points, dtype=np.float64),
-        np.ascontiguousarray(griglia.cells_dict[tipi[0]]),
-    )
+    celle = np.ascontiguousarray(griglia.cells_dict[tipi[0]])
+    if celle.shape[1] not in (4, 10):
+        raise ValueError(
+            f"non porta tetraedri: il blocco {tipi} ha {celle.shape[1]} nodi per "
+            "cella, invece dei 4 di un tetraedro lineare o dei 10 di uno quadratico"
+        )
+    return np.ascontiguousarray(griglia.points, dtype=np.float64), celle
 
 
 def _step_solutore(
@@ -677,6 +712,16 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
     guardia: sono metriche di volume, esportazione del deck e prior geometrico,
     tutti senza lavoro costoso da saltare, e vengono rieseguiti a ogni corsa che
     li comprende.
+
+    Ogni ricarica e' condizionata al fatto che gli step compresi in questa corsa
+    consumino davvero quell'artefatto, e la condizione guarda `to_step` oltre a
+    `from_step`. Ricaricare cio' che non serve non e' costo sprecato: e' un
+    RIFIUTO in una cartella incompleta, cioe' proprio nel caso per cui la
+    ripresa esiste. La nuvola serve fino allo step 4 e poi al solo prior dello
+    step 12; la superficie fino allo step 9 e poi alla sola esportazione dello
+    step 11; la nuvola segmentata al solo errore geometrico dello step 7 e al
+    solo prior dello step 12. «Esegui solo lo step 10» in una cartella che porta
+    il solo 09_volume.vtu percio' esegue, e non pretende niente altro.
     """
     out = Path(cfg.run.out_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -715,13 +760,49 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
             registra(1, avvio, ARTIFACTS[1])
             if stop <= 1:
                 raise _FermataRichiesta
-        else:
-            points, _ = _ingresso_di_ripresa(start, _RESUME_POINTS[start], out, io.read_cloud)
+        elif start <= 4 or stop >= 12:
+            # La nuvola ha consumatori fino allo step 4 -- segmentazione,
+            # rarefazione, normali -- e poi uno solo: la spaziatura che il
+            # prior dello step 12 passa a `wall.prior`. Gli step da 5 a 11
+            # leggono superficie e maglio, non la nuvola, e caricarla lo stesso
+            # non era costo sprecato ma un RIFIUTO in una cartella incompleta:
+            # «esegui solo lo step 10» si fermava su 04_normals.ply, un file
+            # che quello step non guarda mai -- ed e' proprio il caso che il
+            # tetto di from_step a 12 esiste per servire.
+            #
+            # Stessa guardia e stessa ragione della nuvola segmentata piu'
+            # sotto, e come li' `chiede` nomina lo step che la CONSUMA, non
+            # quello da cui la corsa riparte: «lo step 10 pretende
+            # 04_normals.ply, esegui da qui in giu' dallo step 4» consigliava
+            # di riscrivere gli artefatti dal 4 al 10, cioe' proprio quelli su
+            # cui si stava iterando.
+            points, _ = _ingresso_di_ripresa(
+                start if start <= 4 else 12, _RESUME_POINTS[start], out, io.read_cloud
+            )
 
-        spacing = float(
-            metrics.get("01_load", {}).get("spacing")
-            or io.mean_spacing(points, cfg.input.spacing_sample, cfg.input.seed)
-        )
+        # Stessa condizione del caricamento qui sopra (`start <= 1` la implica):
+        # senza nuvola non c'e' spaziatura da stimare, e senza consumatori non
+        # c'e' spaziatura da chiedere.
+        #
+        # LIMITE DICHIARATO, preesistente e non chiuso qui. `metrics` nasce
+        # vuoto a ogni corsa, quindi su una ripresa il primo addendo manca
+        # sempre e la spaziatura si ristima dalla nuvola caricata. Per
+        # from_step da 5 a 12 quella nuvola e' 04_normals.ply, gia' rarefatta
+        # dallo step 3, mentre una corsa intera prende
+        # `metrics["01_load"]["spacing"]`, misurato sulla nuvola grezza: la
+        # stessa cartella da' quindi due prior diversi a seconda di quanti step
+        # la corsa comprende. Misurato il 31/08/2026 sul cubo sintetico
+        # (spaziatura nativa 4,0): con `downsample.voxel_size` a 8,0 la nuvola
+        # ridotta da' 7,447 contro i 4,0 della grezza, 1,86 volte. Sulla
+        # configurazione di prova, dove `voxel_size` uguaglia la spaziatura
+        # nativa, le due misure coincidono e la differenza non si vede. Chiuderlo
+        # vuol dire decidere quale delle due misure e' quella giusta per
+        # `wall.prior`, che e' una decisione sul prior e non sulla ripresa.
+        if start <= 4 or stop >= 12:
+            spacing = float(
+                metrics.get("01_load", {}).get("spacing")
+                or io.mean_spacing(points, cfg.input.spacing_sample, cfg.input.seed)
+            )
 
         if start <= 2:
             in_corso = 2
@@ -772,7 +853,13 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
             registra(4, avvio, ARTIFACTS[4])
             if stop <= 4:
                 raise _FermataRichiesta
-        else:
+        elif start <= 5:
+            # `points` e `normals` hanno un consumatore solo, la ricostruzione
+            # dello step 5. Da 6 in poi si lavora sulla superficie, e questa
+            # riga era la seconda lettura della stessa nuvola nella stessa
+            # corsa (misurate due letture di 04_normals.ply per ogni ripresa da
+            # 5 in giu'), oltre che il secondo artefatto preteso da chi non lo
+            # consuma.
             points, normals = _ingresso_di_ripresa(start, 4, out, io.read_cloud)
 
         if start <= 5:
@@ -784,20 +871,27 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
             registra(5, avvio, ARTIFACTS[5])
             if stop <= 5:
                 raise _FermataRichiesta
-        elif start >= 9:
+        elif start <= 8:
+            vertices, faces = _ingresso_di_ripresa(start, _RESUME_MESH[start], out, _read_mesh)
+        elif start <= 9 or stop >= 11:
             # lo step 8 scrive 08_simplified.ply solo se la semplificazione e'
             # abilitata: con from_step=9 la mesh valida a monte e' quella
             # dello step 8 se abilitata, altrimenti quella riparata dello
             # step 6 (predefinito), mai un ripiego generico sull'ultimo file
             # esistente.
-            # `>= 9` e non `== 9` da quando il tetto di from_step e' 12: lo
-            # step 11 pretende la stessa superficie con la stessa regola,
-            # perche' e' lei -- e non i nodi del volume -- a definire il
-            # sistema di riferimento del modello.
+            #
+            # Non solo `== 9` da quando il tetto di from_step e' 12: lo step 11
+            # pretende la stessa superficie con la stessa regola, perche' e'
+            # lei -- e non i nodi del volume -- a definire il sistema di
+            # riferimento del modello (`abaqus.align_to_axes`). Lo step 11 pero'
+            # gira anche senza guardia di partenza, quindi la condizione e'
+            # `stop >= 11` e non `start >= 11`: chi riparte dal 10 per fermarsi
+            # al 10 fa solo metriche di volume, e la superficie non la guarda.
+            # Come per la nuvola, `chiede` nomina lo step che la consuma.
             resume_from = 8 if cfg.simplify.enabled else 6
-            vertices, faces = _ingresso_di_ripresa(start, resume_from, out, _read_mesh)
-        else:
-            vertices, faces = _ingresso_di_ripresa(start, _RESUME_MESH[start], out, _read_mesh)
+            vertices, faces = _ingresso_di_ripresa(
+                start if start <= 9 else 11, resume_from, out, _read_mesh
+            )
 
         if start <= 6:
             in_corso = 6

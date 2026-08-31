@@ -1211,6 +1211,166 @@ def test_il_contorno_del_volume_legge_anche_il_tetraedro_quadratico(cliente, tmp
     assert np.array_equal(vertici, angoli.astype("<f4"))
     # Lo stesso verso uscente del caso lineare, misurato allo stesso modo.
     assert quality.mesh_volume(vertici, facce) == pytest.approx(1.0 / 6.0)
+def test_il_contorno_del_volume_rifiuta_un_file_con_due_blocchi_di_celle(cliente, tmp_path):
+    """Il ramo `len(tipi) != 1` non aveva una prova che lo attraversasse.
+
+    `abaqus.write_vtu` scrive un blocco solo, ed è per questo che il blocco si
+    prende per unicità e non per nome: i nomi sarebbero due (`tetra`,
+    `tetra10`) e uno solo è scritto. Un file che ne porta due non è quel file,
+    e prenderne uno a caso significherebbe aprire la vista su metà del modello
+    senza dirlo.
+
+    Mutazione che uccide: `tetraedri = griglia.cells_dict[tipi[0]]` al posto
+    della guardia — la richiesta risponde 200 sul solo blocco `tetra`.
+    """
+    import meshio
+    import numpy as np
+
+    from meshrec.core import pipeline
+
+    corsa = tmp_path / "corsa"
+    corsa.mkdir(exist_ok=True)
+    punti = np.array(
+        [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+    )
+    meshio.write_points_cells(
+        corsa / pipeline.ARTIFACTS[9],
+        punti,
+        [("tetra", np.array([[0, 1, 2, 3]])), ("triangle", np.array([[0, 1, 2]]))],
+    )
+
+    risposta = cliente.get("/api/mesh/9")
+    assert risposta.status_code == 400
+    messaggio = risposta.json()["messaggio"]
+    assert "porta 2 blocchi di celle" in messaggio
+    assert "09_volume.vtu" in messaggio
+
+
+def test_il_contorno_del_volume_rifiuta_un_blocco_che_non_e_di_tetraedri(cliente, tmp_path):
+    """Il ramo `shape[1] != 4` nemmeno: il blocco è unico ma non è di volume.
+
+    L'unicità dice quale blocco prendere, non che quel blocco sia un maglio di
+    tetraedri: un `.vtu` di soli triangoli ne ha uno solo, e le sue celle hanno
+    tre colonne. È il controllo che `pipeline._maglio_di_volume` non aveva e
+    che ora ha, e questa prova fissa il gemello che ce l'aveva già.
+
+    Mutazione che uccide: togliere la guardia — `quality._TET_FACES` indicizza
+    la quarta colonna e la richiesta muore con un `IndexError` invece che con
+    un messaggio.
+    """
+    import meshio
+    import numpy as np
+
+    from meshrec.core import pipeline
+
+    corsa = tmp_path / "corsa"
+    corsa.mkdir(exist_ok=True)
+    punti = np.array(
+        [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+    )
+    meshio.write_points_cells(
+        corsa / pipeline.ARTIFACTS[9], punti, [("triangle", np.array([[0, 1, 2], [1, 2, 3]]))]
+    )
+
+    risposta = cliente.get("/api/mesh/9")
+    assert risposta.status_code == 400
+    corpo = risposta.json()
+    assert corpo["errore"] != "IndexError"
+    assert "non contiene tetraedri" in corpo["messaggio"]
+    assert "triangle" in corpo["messaggio"]
+
+
+def _scrivi_volume_quadratico(corsa: Path):
+    """Un .vtu di un solo C3D10, scritto dalla stessa funzione dello step 9.
+
+    I sei nodi di lato stanno a metà degli spigoli nell'ordine di Abaqus, che è
+    quello di VTK: 4=(0,1), 5=(1,2), 6=(2,0), 7=(0,3), 8=(1,3), 9=(2,3). Il
+    tetraedro è lontano dall'origine per la stessa ragione del gemello lineare.
+    """
+    import numpy as np
+
+    from meshrec.core import abaqus, pipeline
+
+    angoli = np.array([10.0, 10.0, 10.0]) + np.array(
+        [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+    )
+    lati = np.array(
+        [(angoli[a] + angoli[b]) / 2.0 for a, b in [(0, 1), (1, 2), (2, 0), (0, 3), (1, 3), (2, 3)]]
+    )
+    corsa.mkdir(exist_ok=True)
+    abaqus.write_vtu(
+        corsa / pipeline.ARTIFACTS[9],
+        np.vstack([angoli, lati]),
+        np.arange(10)[None, :],
+        element_type="C3D10",
+    )
+    return angoli
+
+
+def test_la_seconda_richiesta_del_contorno_quadratico_risponde_dalla_cache(
+    cliente, tmp_path, monkeypatch
+):
+    """La cache del contorno vale per il C3D10 come per il C3D4.
+
+    Il difetto che questa cartella ha appena corretto era di famiglia: il
+    blocco di celle cercato per nome (`tetra`) invece che per unicità, e il
+    tetraedro quadratico che si chiama `tetra10`. La cache è l'altro pezzo di
+    codice che quel percorso attraversa, e una guardia rimasta indietro sul
+    nome -- scrivere la voce solo quando il blocco si chiama `tetra` -- non la
+    vedrebbe nessuno: il caso lineare continuerebbe a rispondere dalla cache e
+    il predefinito del progetto ricomincerebbe da capo a ogni clic, che è
+    proprio il costo che la cache esiste per non pagare.
+
+    Il criterio è quello del gemello lineare: la seconda richiesta deve
+    riuscire, e rispondere gli stessi byte, anche se leggere il file adesso
+    solleva.
+    """
+    import meshio
+
+    _scrivi_volume_quadratico(tmp_path / "corsa")
+
+    prima = cliente.get("/api/mesh/9")
+    assert prima.status_code == 200
+
+    def _non_chiamarmi(*_args, **_kwargs):
+        raise AssertionError("il contorno non deve essere riestratto a cache calda")
+
+    monkeypatch.setattr(meshio, "read", _non_chiamarmi)
+    poi = cliente.get("/api/mesh/9")
+    assert poi.status_code == 200
+    assert poi.content == prima.content
+    assert (poi.headers["X-Vertices"], poi.headers["X-Triangles"]) == ("4", "4")
+
+
+def test_un_maglio_con_due_blocchi_di_celle_e_rifiutato_nominandoli(cliente, tmp_path):
+    """Lo step 9 scrive un blocco solo, e prenderne uno a caso non è una lettura.
+
+    Da quando il blocco si prende per unicità e non per nome, un file con due
+    blocchi non ha più un candidato ovvio, e il conteggio delle colonne non lo
+    salva: `quad` ne ha quattro come il tetraedro lineare, quindi prendere il
+    primo blocco che capita disegnerebbe dei quadrilateri come se fossero il
+    solido, con un 200 e nessun avviso. Il rifiuto nomina quanti blocchi ha
+    trovato e quali, che è l'unica cosa che permette a chi legge di capire
+    quale file ha aperto.
+    """
+    import meshio
+    import numpy as np
+
+    from meshrec.core import pipeline
+
+    corsa = tmp_path / "corsa"
+    corsa.mkdir()
+    meshio.write_points_cells(
+        corsa / pipeline.ARTIFACTS[9],
+        np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]),
+        [("tetra", np.array([[0, 1, 2, 3]])), ("quad", np.array([[0, 1, 2, 3]]))],
+    )
+
+    risposta = cliente.get("/api/mesh/9")
+    assert risposta.status_code == 400
+    messaggio = risposta.json()["messaggio"]
+    assert "tetra" in messaggio and "quad" in messaggio
+    assert "2 blocchi" in messaggio
 
 
 def test_la_seconda_richiesta_del_contorno_non_riestrae(cliente, tmp_path, monkeypatch):
