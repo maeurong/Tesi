@@ -1902,30 +1902,36 @@ def test_un_parametro_senza_title_si_stampa_con_la_chiave(tmp_path):
     Non si inventa una frase, e non si lascia la cella al suo posto vuota: e'
     la stessa regola che `server._etichetta_del_percorso` scrive per il
     rifiuto del validatore. Vale sia per un campo senza `title`
-    (`analysis.material.density`) sia per una chiave che il modello non
-    conosce affatto, che un config.yaml piu' vecchio puo' ancora portare.
+    (`model.target_size`) sia per una chiave che il modello non conosce
+    affatto, che un config.yaml piu' vecchio puo' ancora portare.
 
     Mutazione che uccide questo test: stampare `None` — cioe' il title
     mancante — invece della chiave.
+
+    Il campo scelto e' cambiato il 31/08/2026. Era `analysis.material.density`,
+    e la prova portava con se' la propria data di scadenza: un `assert not
+    ...title` che si dichiarava obsoleto se qualcuno avesse dato un'etichetta a
+    quel campo. Qualcuno l'ha fatto, nello stesso giorno e su un altro ramo --
+    i quattro campi di `Material` hanno ora il `title` che il pannello gia'
+    mostrava -- e la guardia ha morso al primo merge. Il campo nuovo non e'
+    piu' sicuro del vecchio: e' semplicemente uno dei cinquantaquattro ancora
+    senza etichetta, e quando toccherà a lui la guardia dirà di nuovo dove
+    guardare.
     """
     corsa = _corsa(
         tmp_path,
-        configurazione="analysis:\n  material:\n    density: 1.8e-09\nbislacco:\n  chiave: 3\n",
+        configurazione="model:\n  target_size: 12.5\nbislacco:\n  chiave: 3\n",
     )
 
     testo = report.write_run_report(corsa, viste=[]).read_text(encoding="utf-8")
 
     blocchi = _blocchi_dei_parametri(testo)
-    annotazione = PipelineConfig.model_fields["analysis"].annotation
-    analisi = next(
-        t for t in get_args(annotazione) or (annotazione,) if t is not type(None)
-    )
-    materiale = analisi.model_fields["material"]
-    assert not materiale.annotation.model_fields["density"].title, (
+    modello = PipelineConfig.model_fields["model"].annotation
+    modello = next(t for t in get_args(modello) or (modello,) if t is not type(None))
+    assert not modello.model_fields["target_size"].title, (
         "il campo ha un title: la prova non prova piu' niente"
     )
-    # 1.8e-09 resta esponenziale: `_numero` ci passa sotto 1e-4 apposta
-    assert ("materiale del modello · density", "1.8e-09") in blocchi["analysis"]
+    assert ("target_size", "12.5") in blocchi["model"]
     assert blocchi["bislacco"] == [("chiave", "3")]
     assert "None" not in testo
 
