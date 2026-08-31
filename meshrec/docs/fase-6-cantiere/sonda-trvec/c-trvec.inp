@@ -1,0 +1,14 @@
+** C: la domanda. TRVEC modulo 1.0 direzione (0,0,1) sulla faccia SOPRA.
+** Se accettata e applicata, risultante attesa 1.0 in +z.
+*INCLUDE, INPUT=cubo.inc
+*BOUNDARY
+FISSI, 1, 3
+*STEP
+*STATIC
+*DSLOAD
+SOPRA, TRVEC, 1.0, 0.0, 0.0, 1.0
+*NODE PRINT, NSET=LIBERI
+U
+*NODE PRINT, NSET=FISSI, TOTALS=ONLY
+RF
+*END STEP

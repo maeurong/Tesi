@@ -1,0 +1,11 @@
+** N: ingresso degenere doppio. TRVEC su corpo libero, nessun *BOUNDARY.
+** Oracolo: ccx deve fallire. Confronto con k-p-senza-vincolo.inp, che invece
+** finisce pulito stampando numeri enormi.
+*INCLUDE, INPUT=cubo.inc
+*STEP
+*STATIC
+*DSLOAD
+SOPRA, TRVEC, 1.0, 0.0, 0.0, 1.0
+*NODE PRINT, NSET=LIBERI
+U
+*END STEP

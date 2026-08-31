@@ -1,0 +1,13 @@
+** L: ingresso degenere. TRVEC modulo 1.0 ma direzione (0,0,0).
+** Oracolo: se la card fosse accettata, spostamento nullo -- e quello sarebbe
+** indistinguibile da "card ignorata". Serve a smascherare il silenzio.
+*INCLUDE, INPUT=cubo.inc
+*BOUNDARY
+FISSI, 1, 3
+*STEP
+*STATIC
+*DSLOAD
+SOPRA, TRVEC, 1.0, 0.0, 0.0, 0.0
+*NODE PRINT, NSET=LIBERI
+U
+*END STEP

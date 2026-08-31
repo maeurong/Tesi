@@ -1,0 +1,8 @@
+# Uscite di ccx: si rigenerano con `ccx <nome>`, i numeri stanno nella nota.
+*.dat
+*.frd
+*.log
+*.sta
+*.cvg
+*.12d
+spooles.out

@@ -1,0 +1,22 @@
+** Q: la via che resta. Trazione tangenziale 1.0 in +x sulla faccia SOPRA
+** (area 1.0), portata a mano come *CLOAD nodale consistente: per un triangolo
+** lineare ogni nodo prende area/3.
+** SOPRA = triangoli {8,7,5} e {5,7,6}, area 0.5 ciascuno.
+**   nodo 5 in entrambi -> 1/3   nodo 7 in entrambi -> 1/3
+**   nodo 6 in uno      -> 1/6   nodo 8 in uno      -> 1/6
+** Risultante attesa 1.0 in +x, cioe' RF totale (-1, 0, 0).
+*INCLUDE, INPUT=cubo.inc
+*BOUNDARY
+FISSI, 1, 3
+*STEP
+*STATIC
+*CLOAD
+5, 1, 0.3333333333333333
+6, 1, 0.1666666666666667
+7, 1, 0.3333333333333333
+8, 1, 0.1666666666666667
+*NODE PRINT, NSET=LIBERI
+U
+*NODE PRINT, NSET=FISSI, TOTALS=ONLY
+RF
+*END STEP

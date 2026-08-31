@@ -1,0 +1,13 @@
+** O: TRVEC sulla card *DLOAD per elemento, non su *DSLOAD per superficie.
+** Il messaggio d'errore di ccx nomina sempre *DLOAD: qui si vede se il
+** lettore e' davvero lo stesso.
+*INCLUDE, INPUT=cubo.inc
+*BOUNDARY
+FISSI, 1, 3
+*STEP
+*STATIC
+*DLOAD
+4, TRVEC, 1.0, 0.0, 0.0, 1.0
+*NODE PRINT, NSET=LIBERI
+U
+*END STEP

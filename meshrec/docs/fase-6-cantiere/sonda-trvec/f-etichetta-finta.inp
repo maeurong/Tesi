@@ -1,0 +1,12 @@
+** F: etichetta inventata. Stabilisce come ccx tratta un'etichetta ignota
+** qualunque, per sapere se il rifiuto di TRVEC e' specifico o generico.
+*INCLUDE, INPUT=cubo.inc
+*BOUNDARY
+FISSI, 1, 3
+*STEP
+*STATIC
+*DSLOAD
+SOPRA, XYZZY, 1.0
+*NODE PRINT, NSET=FISSI, TOTALS=ONLY
+RF
+*END STEP
