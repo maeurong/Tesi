@@ -1449,3 +1449,180 @@ def test_ogni_grandezza_numerica_porta_l_unita_nell_etichetta(tmp_path):
     assert len(numeriche) == 3, f"righe di soli numeri trovate: {numeriche}"
     senza = [i for i in numeriche if "[" not in i]
     assert not senza, f"grandezze numeriche senza unita' nell'etichetta: {senza}"
+
+
+# --- il rivestimento: quello che i tre documenti devono reggere stampati ----
+#
+# I tre documenti finiscono nell'appendice della tesi: si aprono da disco,
+# viaggiano allegati e vengono stampati, spesso da una macchina in bianco e
+# nero. Un foglio di stile che regge solo a schermo e' un difetto che nessun
+# test sulla prosa vede, perche' la prosa resta giusta mentre il documento
+# stampato diventa illeggibile. Questi test guardano il rivestimento con lo
+# stesso metro con cui gli altri guardano i dati: non che sia bello, ma che
+# ogni cosa che il documento afferma con il colore la affermi anche senza.
+
+
+def _foglio(testo: str) -> str:
+    """Il contenuto del solo <style> del documento."""
+    return "".join(re.findall(r"<style>(.*?)</style>", testo, re.S))
+
+
+def _regola(foglio: str, selettore: str) -> str:
+    """Le dichiarazioni della regola che ha esattamente quel selettore.
+
+    Non `selettore in foglio`: un selettore che compare dentro un gruppo piu'
+    largo o dentro un commento non dice niente su quali proprieta' porti. Qui
+    serve il corpo, perche' l'asserzione riguarda i canali dichiarati.
+    """
+    trovate = re.findall(
+        rf"(?:^|[}}\n])\s*{re.escape(selettore)}\s*\{{([^}}]*)\}}", foglio, re.M
+    )
+    assert trovate, f"nessuna regola con selettore «{selettore}» nel foglio"
+    return " ".join(trovate)
+
+
+def _tre_documenti(tmp_path):
+    """I tre documenti che il modulo genera, in un caso normale ciascuno."""
+    registro = tmp_path / "sweep" / "registro.jsonl"
+    registro.parent.mkdir()
+    sweep.append_row(
+        registro,
+        {
+            "fingerprint": "aaa",
+            "axes": {"tet.min_ratio": 1.8},
+            "outcome": "riuscito",
+            "complete": True,
+            "on_front": True,
+            "thickness_error": 2.0,
+            "duration_s": 12.0,
+            "metrics": {
+                "10_volume_quality": {
+                    "tets": 1000,
+                    "radius_edge_over_reference": 0.08,
+                    "min_dihedral_deg": {"min": 0.162, "median": 38.0},
+                }
+            },
+        },
+    )
+    corsa = _corsa(
+        tmp_path,
+        metriche={"06_repair": {"hole_areas": [42120.4, 33986.0, 31702.6, 12231.8]}},
+    )
+    # una sola cartella: e' il caso che accende <p class='avviso'>, la scheda
+    # singola, cioe' la classe che il foglio non ha mai vestito
+    singola = _tre_cartelle_finte(tmp_path)[:1]
+    return [
+        report.write_report(registro, tmp_path / "sweep.html").read_text(encoding="utf-8"),
+        report.write_run_report(corsa, viste=[]).read_text(encoding="utf-8"),
+        report.write_comparison_report(singola, tmp_path / "confronto.html").read_text(
+            encoding="utf-8"
+        ),
+    ]
+
+
+def test_un_registro_vuoto_non_produce_una_tabella_senza_righe(tmp_path):
+    """Zero candidati e' un dato: va detto, non lasciato come tabella vuota.
+
+    Una tabella con le sole intestazioni e nessuna riga, stampata, si legge
+    come un guasto del generatore invece che come uno sweep che non ha ancora
+    prodotto niente. Il documento esce lo stesso e dichiara il vuoto.
+    """
+    registro = tmp_path / "esperimento" / "registro.jsonl"
+    registro.parent.mkdir()
+    registro.write_text("", encoding="utf-8")
+
+    testo = report.write_report(registro, tmp_path / "report.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert report.NESSUN_CANDIDATO in testo
+    assert "<tbody></tbody>" not in testo
+    assert "<thead>" not in testo, "la tabella esce comunque, con le sole intestazioni"
+
+
+def test_ogni_classe_scritta_nei_documenti_ha_una_regola_nel_foglio(tmp_path):
+    """Una classe senza regola e' una dichiarazione che il documento non fa.
+
+    `p.avviso` — la scheda singola del confronto — e' scritta nel documento da
+    sempre e non compare in nessuna regola: il paragrafo che avverte «questa
+    non e' una tabella di confronto» esce identico al testo intorno. Il
+    generatore crede di averlo marcato, il lettore non lo vede.
+    """
+    for testo in _tre_documenti(tmp_path):
+        foglio = _foglio(testo)
+        classi = {c for c in re.findall(r"class=['\"]([^'\"]*)['\"]", testo) if c.strip()}
+        senza = sorted(c for c in classi if f".{c}" not in foglio)
+        assert not senza, f"classi scritte e mai vestite: {senza}"
+
+
+def test_un_nome_di_cartella_con_caratteri_html_arriva_come_testo(tmp_path):
+    """I nomi di cartella li sceglie chi lancia la corsa, non il programma.
+
+    `<`, `>` e `&` in un nome sono legittimi su disco e diventano marcatura in
+    un documento che li scriva crudi. Vale per due dei tre generatori, perche'
+    entrambi mettono un nome di cartella nel titolo e nel titolone.
+    """
+    cattivo = "a<b>&c"
+    registro = tmp_path / cattivo / "registro.jsonl"
+    registro.parent.mkdir()
+    registro.write_text("", encoding="utf-8")
+    corsa = tmp_path / f"corsa {cattivo}"
+    corsa.mkdir()
+
+    documenti = [
+        report.write_report(registro, tmp_path / "sweep.html").read_text(encoding="utf-8"),
+        report.write_run_report(corsa, viste=[]).read_text(encoding="utf-8"),
+    ]
+
+    for testo in documenti:
+        assert cattivo not in testo, "il nome della cartella e' entrato crudo nel documento"
+        assert "a&lt;b&gt;&amp;c" in testo
+
+
+def test_il_foglio_ripete_l_intestazione_e_non_spezza_le_righe_in_stampa(tmp_path):
+    """Una tabella lunga finisce su piu' pagine, e la carta non si scorre.
+
+    Senza `table-header-group` la seconda pagina porta colonne di numeri senza
+    nomi; senza `break-inside: avoid` una riga si taglia a meta' fra due
+    fogli. Sono due difetti che a schermo non esistono e in appendice sono
+    permanenti.
+    """
+    for testo in _tre_documenti(tmp_path):
+        foglio = _foglio(testo)
+        assert "@media print" in foglio, "il documento non ha nessuna resa per la stampa"
+        stampa = foglio.split("@media print", 1)[1]
+        assert "table-header-group" in stampa
+        assert "break-inside: avoid" in stampa
+
+
+def test_il_fronte_di_pareto_si_distingue_anche_senza_colore(tmp_path):
+    """Il fronte e' il risultato principale della tabella, e va stampato.
+
+    Il fondo verde chiaro non arriva sulla carta: i browser non stampano i
+    fondi se non glielo si chiede, e su una laser in bianco e nero diventa
+    comunque un grigio indistinguibile. Il fronte deve portare un canale che
+    la stampa conserva — un filetto — oltre al peso e al colore.
+    """
+    testo = _tre_documenti(tmp_path)[0]
+    regola = _regola(_foglio(testo), "tr.fronte td")
+
+    assert "font-weight" in regola
+    assert "border" in regola, (
+        "il fronte si distingue solo per fondo e peso: stampato senza fondi "
+        "resta il solo peso, su un corpo di 0,8rem"
+    )
+
+
+def test_i_documenti_non_chiedono_niente_alla_rete(tmp_path):
+    """Si aprono da disco, anche staccati: nessuna risorsa esterna.
+
+    Un carattere scaricato da un CDN e' un titolo che cambia faccia sulla
+    macchina di chi legge, e una richiesta in uscita da un documento che
+    dovrebbe essere un file solo. Le pile di caratteri sono locali per
+    obbligo, non per scelta di stile.
+    """
+    for testo in _tre_documenti(tmp_path):
+        assert "http" not in testo
+        assert "@import" not in testo
+        assert "<link" not in testo
+        assert "url(" not in _foglio(testo)

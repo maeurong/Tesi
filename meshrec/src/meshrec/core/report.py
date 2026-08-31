@@ -148,9 +148,36 @@ _COLUMNS: tuple[tuple[str, str], ...] = (
 
 
 def histogram_svg(values: list[float], title: str, bins: int) -> str:
-    """Istogramma come SVG scritto a mano, senza dipendenze."""
+    """Istogramma come SVG scritto a mano, senza dipendenze.
+
+    Le misure restano quelle di sempre, 320 x 140, ma passano anche da
+    `viewBox`: con le sole `width`/`height` in pixel il riquadro non si
+    rimpicciolisce sotto la larghezza di una finestra stretta e sfonda la
+    pagina in orizzontale. Con il `viewBox` il foglio di stile puo' dargli una
+    larghezza relativa, e il disegno la segue.
+
+    Le barre non hanno piu' un colore proprio: `currentColor` le lega alla
+    tinta che il foglio da' al riquadro, cosi' l'istogramma cambia con il tema
+    del documento invece di restare l'unico grigio-azzurro scritto a mano nel
+    codice. Fuori dal documento, senza foglio, `currentColor` e' il nero
+    ereditato, che e' esattamente cio' che serve a un SVG che deve reggere da
+    solo.
+
+    Il `role='img'` con dentro un `<title>` vale per entrambi i rami, anche
+    per quello vuoto: un riquadro senza nome accessibile e' un buco per chi
+    legge con un lettore di schermo, e il ramo vuoto e' proprio quello che ha
+    qualcosa da dichiarare. Il nome sta in un `<title>` e non in un
+    `aria-label` perche' e' il modo canonico di nominare un SVG, e perche' il
+    testo dentro un elemento non e' un attributo che qualcuno debba ricordarsi
+    di leggere.
+    """
+    etichetta = html.escape(title)
     if not values:
-        return f"<svg width='320' height='140'><text x='8' y='20'>{html.escape(title)}: vuoto</text></svg>"
+        return (
+            f"<svg class='istogramma' viewBox='0 0 320 140' width='320' height='140' role='img'>"
+            f"<title>{etichetta}: vuoto</title>"
+            f"<text x='8' y='20' font-size='11'>{etichetta}: vuoto</text></svg>"
+        )
 
     low, high = min(values), max(values)
     width = (high - low) / bins if high > low else 1.0
@@ -162,12 +189,16 @@ def histogram_svg(values: list[float], title: str, bins: int) -> str:
 
     bars = "".join(
         f"<rect x='{8 + index * (300 / bins):.1f}' y='{120 - 100 * count / tallest:.1f}' "
-        f"width='{300 / bins - 2:.1f}' height='{100 * count / tallest:.1f}' fill='#456'/>"
+        f"width='{300 / bins - 2:.1f}' height='{100 * count / tallest:.1f}' fill='currentColor'/>"
         for index, count in enumerate(counts)
     )
     return (
-        f"<svg width='320' height='140' role='img'>"
-        f"<text x='8' y='14' font-size='11'>{html.escape(title)}</text>{bars}"
+        f"<svg class='istogramma' viewBox='0 0 320 140' width='320' height='140' role='img'>"
+        f"<title>{etichetta}</title>"
+        f"<text x='8' y='14' font-size='11'>{etichetta}</text>{bars}"
+        # La linea di base: senza, le barre galleggiano e le due estremita'
+        # dell'intervallo qui sotto non si capisce a che cosa si riferiscano.
+        f"<line x1='8' y1='120.5' x2='308' y2='120.5' stroke='currentColor' stroke-opacity='0.35'/>"
         f"<text x='8' y='134' font-size='10'>{low:.3g}</text>"
         f"<text x='260' y='134' font-size='10'>{high:.3g}</text></svg>"
     )
@@ -200,6 +231,233 @@ def _cell(row: dict[str, object], key: str) -> str:
     return html.escape(str(value)) if value is not None else ""
 
 
+# Il rivestimento dei tre documenti, uno solo per tutti e tre.
+#
+# Erano due fogli: uno scritto dentro write_report e uno qui, e divergevano su
+# una regola che decide come si legge una tabella -- `text-align: right` la',
+# `text-align: left` qui. Due documenti dello stesso programma, stampati nella
+# stessa appendice, allineavano i numeri in due modi. Un foglio solo non e'
+# risparmio di righe: e' l'unico modo perche' quella divergenza non torni.
+#
+# I documenti si aprono da disco, viaggiano allegati e vengono stampati. Da
+# qui tre vincoli che non sono estetici:
+#
+# - **nessuna risorsa esterna.** Niente <link>, niente @import, nessun
+#   carattere scaricato: le pile sono quelle che la macchina ha gia'. E' lo
+#   stesso ragionamento -- e le stesse due pile -- di ui/stile.css, che le
+#   nomina invece di fidarsi del solo `system-ui` perche' il ripiego di
+#   `system-ui` su un Windows senza Segoe UI e' Times New Roman.
+# - **la stampa e' in bianco e nero.** Ogni cosa che il documento dice con il
+#   colore la deve dire anche senza. Il fronte di Pareto -- il risultato
+#   principale della tabella dello sweep -- portava il solo fondo verde e il
+#   grassetto: i browser non stampano i fondi se non glielo si chiede, e sulla
+#   carta restava il peso di un corpo di 0,8rem. Adesso porta anche un
+#   filetto, che si stampa sempre.
+# - **l'inchiostro si paga.** Niente griglia di riquadri intorno a ogni cella
+#   e niente fondo pieno sulle intestazioni: filetti orizzontali, che e' anche
+#   il modo in cui una tabella di riferimento si e' sempre composta.
+#
+# La tavolozza e la scala dei passi vengono da ui/stile.css e valgono li' le
+# stesse ragioni, misurate: il rapporto di --testo su carta, il verde
+# dell'azione, l'ocra dell'avviso, il rosso del guasto, il passo di 4px. Il
+# report non e' l'interfaccia e non deve somigliarle -- uno e' proiettato in
+# discussione, l'altro e' stampato e rilegato -- ma quando i due dicono la
+# stessa cosa la dicono con la stessa tinta, e dove divergono divergono per
+# una ragione: qui il corpo del testo e' un graziato, perche' il documento si
+# legge su carta e non a tre metri da un proiettore, e i dati stanno tutti in
+# una pila a passo fisso, perche' una colonna di numeri da confrontare a
+# colpo d'occhio vuole cifre della stessa larghezza.
+_STILE = """
+/* Hallmark · genre: editorial · theme: Almanac · macrostructure: Long Document
+ * nav: none · footer: none · enrichment: none · motion: none
+ * (documento stampabile, non pagina web: nessuna di queste cose esiste qui)
+ * paper #fbfaf8 · ink #1c1b19 · accent #2f5d50 · rule #ddd9d2 / #948e85
+ * display + body: local serif stack · data: local mono stack
+ * print is the primary medium · pre-emit critique: P5 H5 E4 S5 R5 V4 */
+:root {
+  --carta: #fbfaf8;
+  --inchiostro: #1c1b19;
+  --tenue: #6b6862;
+  --filetto: #ddd9d2;
+  --filetto-marcato: #948e85;
+  --accento: #2f5d50;
+  --avviso: #9a5b12;
+  --guasto: #a02020;
+  --fronte: #eaf3ea;
+  --passo-1: 0.25rem;
+  --passo-2: 0.5rem;
+  --passo-3: 0.75rem;
+  --passo-4: 1rem;
+  --passo-6: 1.5rem;
+  --passo-8: 2rem;
+  --stack-prosa: ui-serif, Georgia, "Times New Roman", "Liberation Serif", serif;
+  --stack-dati: ui-monospace, "Cascadia Mono", Consolas, "SF Mono", "DejaVu Sans Mono", monospace;
+  --tipo-dato: 0.8125rem;
+  --tipo-nota: 0.75rem;
+}
+html, body { overflow-x: clip; }
+body {
+  font-family: var(--stack-prosa);
+  font-size: 1rem;
+  line-height: 1.5;
+  color: var(--inchiostro);
+  background: var(--carta);
+  margin: var(--passo-8) auto;
+  padding: 0 var(--passo-6);
+  /* Larga per le tabelle, non per la prosa: la misura del testo la fissa la
+     regola su `p`, in caratteri, e resta quella qualunque sia la finestra. */
+  max-width: 72rem;
+}
+h1, h2, h3 { line-height: 1.25; overflow-wrap: anywhere; }
+h1 {
+  font-size: 1.75rem;
+  font-weight: 600;
+  margin: 0 0 var(--passo-6);
+  padding-bottom: var(--passo-3);
+  border-bottom: 2px solid var(--inchiostro);
+}
+h2 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin: var(--passo-8) 0 var(--passo-3);
+  padding: var(--passo-2) 0;
+  border-top: 1px solid var(--filetto-marcato);
+  background: var(--carta);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+h3 {
+  font-family: var(--stack-dati);
+  font-size: var(--tipo-dato);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  margin: var(--passo-6) 0 var(--passo-2);
+}
+p { max-width: 68ch; margin: var(--passo-3) 0; }
+ul { max-width: 68ch; padding-left: var(--passo-4); }
+li { margin: var(--passo-2) 0; }
+.tabellone { overflow-x: auto; }
+table {
+  border-collapse: collapse;
+  font-size: var(--tipo-dato);
+  margin: var(--passo-3) 0 var(--passo-6);
+  border-top: 1.5px solid var(--inchiostro);
+  border-bottom: 1.5px solid var(--inchiostro);
+}
+th, td {
+  padding: var(--passo-1) var(--passo-3);
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--filetto);
+}
+th { font-family: var(--stack-dati); font-weight: 600; }
+td {
+  font-family: var(--stack-dati);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+thead th {
+  font-size: var(--tipo-nota);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--tenue);
+  border-bottom: 1.5px solid var(--inchiostro);
+}
+.prosa th { font-family: var(--stack-prosa); }
+/* Le celle dello sweep non vanno a capo: un esito diviso in «riusci / to» e
+   soprattutto un intero diviso in «160714 / 6» sono, in una colonna di
+   numeri da confrontare a occhio, un dato illeggibile. Le intestazioni
+   invece vanno a capo, sugli spazi, perché «errore di spessore [mm]» su una
+   riga sola allarga la colonna quanto tutta la sua misura.
+   L'impronta è l'unica eccezione: sono 64 cifre esadecimali, una parola
+   sola, e su una riga sarebbe larga quanto mezza pagina. Va a capo in poche
+   righe e non in sette: la larghezza minima e il corpo ridotto stanno qui
+   per questo, altrimenti l'identificativo detta l'altezza di ogni riga della
+   tabella e la colonna più opaca diventa la più alta. */
+.sweep tbody td { white-space: nowrap; }
+.sweep tbody td:first-child {
+  white-space: normal;
+  word-break: break-all;
+  min-width: 22ch;
+  max-width: 34ch;
+  font-size: var(--tipo-nota);
+  line-height: 1.25;
+  color: var(--tenue);
+}
+.sweep th:nth-child(n+4), .sweep td:nth-child(n+4) { text-align: right; }
+tr.fronte td {
+  background: var(--fronte);
+  font-weight: 600;
+  border-top: 1px solid var(--inchiostro);
+  border-bottom: 1px solid var(--inchiostro);
+}
+tr.fronte td:first-child { border-left: 3px solid var(--inchiostro); color: var(--inchiostro); }
+tr.fronte td:last-child { border-right: 1px solid var(--inchiostro); }
+p.assente {
+  border-left: 3px solid var(--guasto);
+  background: color-mix(in srgb, var(--guasto) 6%, var(--carta));
+  padding: var(--passo-2) var(--passo-3);
+}
+p.avviso {
+  border-left: 3px solid var(--avviso);
+  background: color-mix(in srgb, var(--avviso) 8%, var(--carta));
+  padding: var(--passo-2) var(--passo-3);
+}
+.istogramma {
+  display: inline-block;
+  width: 100%;
+  max-width: 20rem;
+  height: auto;
+  margin: 0 var(--passo-4) var(--passo-4) 0;
+  color: var(--accento);
+}
+.istogramma text { font-family: var(--stack-dati); fill: var(--inchiostro); }
+figure { display: inline-block; max-width: 30rem; margin: 0 var(--passo-4) var(--passo-4) 0; }
+figcaption {
+  font-family: var(--stack-dati);
+  font-size: var(--tipo-nota);
+  color: var(--tenue);
+  margin-top: var(--passo-1);
+}
+/* Mai ingrandita oltre la sua taglia vera: una vista scalata in su è una
+   figura sfocata in appendice, e a schermo quel difetto non si vede. */
+img { display: block; max-width: 100%; height: auto; border: 1px solid var(--filetto-marcato); }
+@media (max-width: 40rem) {
+  body { margin: var(--passo-4) auto; padding: 0 var(--passo-4); }
+}
+@page { margin: 18mm 15mm; }
+@media print {
+  body { margin: 0; padding: 0; max-width: none; background: none; font-size: 10pt; }
+  /* Il fondo del titolo serve solo a coprire quello che gli scorre sotto
+     quando resta appiccicato in cima: sulla carta niente scorre, e resterebbe
+     un rettangolo di inchiostro che non dice niente. */
+  h2 { position: static; background: none; }
+  thead { display: table-header-group; }
+  tr, figure, .istogramma { break-inside: avoid; }
+  h1, h2, h3 { break-after: avoid; }
+  .tabellone { overflow: visible; }
+  /* Sulla carta la larghezza non è negoziabile: l'impronta rinuncia al suo
+     minimo e va a capo quante volte serve, perché una tabella tagliata dal
+     bordo del foglio perde le colonne di destra, che sono le misure. */
+  .sweep tbody td:first-child { min-width: 0; }
+  p.assente, p.avviso { background: none; }
+}
+"""
+
+# L'intestazione comune ai tre documenti: la codifica, e la larghezza reale
+# della finestra invece di quella finta a 980px che i telefoni assumono per i
+# documenti che non la dichiarano.
+_TESTA = '<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">'
+
+# Un registro senza righe non e' un guasto: e' uno sweep che non ha ancora
+# prodotto niente, o un esperimento cancellato. Stampata, una tabella con le
+# sole intestazioni e nessuna riga si legge invece come un generatore rotto, e
+# nessuno puo' chiedere al foglio quale delle due cose sia. Il documento esce
+# lo stesso e dichiara il vuoto, che e' un dato.
+NESSUN_CANDIDATO = "registro vuoto: nessun candidato da mostrare"
+
+
 def write_report(registry_path: Path, out_path: Path) -> Path:
     """Scrive il report HTML a partire dal solo registro.
 
@@ -210,8 +468,8 @@ def write_report(registry_path: Path, out_path: Path) -> Path:
     rows = load_registry(registry_path)
     head = "".join(f"<th>{html.escape(label)}</th>" for _, label in _COLUMNS)
     body = "".join(
-        "<tr class='{}'>{}</tr>".format(
-            "fronte" if row.get("on_front") else "",
+        "<tr{}>{}</tr>".format(
+            " class='fronte'" if row.get("on_front") else "",
             "".join(f"<td>{_cell(row, key)}</td>" for key, _ in _COLUMNS),
         )
         for row in rows
@@ -224,19 +482,19 @@ def write_report(registry_path: Path, out_path: Path) -> Path:
         if row.get("metrics", {}).get("10_volume_quality")
     ]
 
-    document = f"""<!doctype html>
-<html lang="it"><head><meta charset="utf-8"><title>Sweep — {html.escape(registry_path.parent.name)}</title>
-<style>
-body {{ font-family: system-ui, sans-serif; margin: 2rem; color: #222; }}
-table {{ border-collapse: collapse; font-size: 0.85rem; }}
-th, td {{ border: 1px solid #ccc; padding: 0.25rem 0.5rem; text-align: right; }}
-th {{ background: #eee; }}
-tr.fronte td {{ background: #eaf3ea; font-weight: 600; }}
-</style></head><body>
-<h1>Sweep — {html.escape(registry_path.parent.name)}</h1>
-<p>{len(rows)} candidati. Le righe evidenziate sono il <strong>fronte</strong> di Pareto:
+    tabella = (
+        f"""<p>{len(rows)} candidati. Le righe evidenziate sono il <strong>fronte</strong> di Pareto:
 errore di spessore, numero di tetraedri e frazione fuori vincolo, tutti da minimizzare.</p>
-<table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>
+<div class="tabellone"><table class="sweep"><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>"""
+        if rows
+        else f"<p class='assente'>{NESSUN_CANDIDATO}.</p>"
+    )
+
+    document = f"""<!doctype html>
+<html lang="it"><head>{_TESTA}<title>Sweep — {html.escape(registry_path.parent.name)}</title>
+<style>{_STILE}</style></head><body>
+<h1>Sweep — {html.escape(registry_path.parent.name)}</h1>
+{tabella}
 <h2>Distribuzioni</h2>
 {histogram_svg(errors, "errore di spessore [mm]", bins=12)}
 {histogram_svg(tets, "tetraedri", bins=12)}
@@ -246,17 +504,6 @@ errore di spessore, numero di tetraedri e frazione fuori vincolo, tutti da minim
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(document, encoding="utf-8")
     return out_path
-
-
-_STILE = """
-body { font-family: system-ui, sans-serif; margin: 2rem; color: #222; }
-table { border-collapse: collapse; font-size: 0.85rem; margin-bottom: 1rem; }
-th, td { border: 1px solid #ccc; padding: 0.25rem 0.5rem; text-align: left; }
-th { background: #eee; }
-p.assente { background: #fbeaea; padding: 0.25rem 0.5rem; }
-figure { display: inline-block; margin: 0 1rem 1rem 0; }
-img { max-width: 30rem; border: 1px solid #ccc; }
-"""
 
 
 def _mappa(percorso: Path, caricatore, assente: str) -> tuple[dict | None, str]:
@@ -554,7 +801,7 @@ def write_run_report(out_dir: Path, viste: list[Path]) -> Path:
     )
 
     documento = f"""<!doctype html>
-<html lang="it"><head><meta charset="utf-8"><title>Corsa: {html.escape(out_dir.name)}</title>
+<html lang="it"><head>{_TESTA}<title>Corsa: {html.escape(out_dir.name)}</title>
 <style>{_STILE}</style></head><body>
 <h1>Corsa: {html.escape(out_dir.name)}</h1>
 <h2>Parametri</h2>
@@ -827,21 +1074,21 @@ def write_comparison_report(cartelle: list[Path], out_path: Path) -> Path:
     )
 
     pagina = f"""<!doctype html>
-<html lang="it"><head><meta charset="utf-8"><title>MeshRec -- confronto fra modelli</title>
+<html lang="it"><head>{_TESTA}<title>MeshRec -- confronto fra modelli</title>
 <style>{_STILE}</style></head><body>
 <h1>Confronto fra modelli</h1>
 {avviso}
 <h2>Grandezze confrontabili</h2>
-<table><thead><tr><th></th>{intestazione}</tr></thead><tbody>{''.join(righe)}</tbody></table>
+<div class="tabellone"><table class="prosa"><thead><tr><th></th>{intestazione}</tr></thead><tbody>{''.join(righe)}</tbody></table></div>
 <h2>Qualità degli elementi: due colonne, mai una differenza</h2>
 <p>radius_edge_ratio vale per i tetraedri, il Jacobiano scalato per gli esaedri. Non sono
 la stessa grandezza e la loro differenza non è un numero.</p>
-<table><tbody>{qualita_righe}</tbody></table>
+<div class="tabellone"><table class="prosa"><tbody>{qualita_righe}</tbody></table></div>
 <h2>Vincoli alle giunzioni: il limite che il vincolo aggiunge, non la geometria</h2>
 <p>Giunzioni tagliate e *TIE effettivamente scritti restano due numeri distinti;
 i nodi della superficie dipendente vincolati sul totale dicono quanto il
 solutore chiude davvero. as-built è monolitico: non applicabile.</p>
-<table><tbody>{vincoli_righe}</tbody></table>
+<div class="tabellone"><table class="prosa"><tbody>{vincoli_righe}</tbody></table></div>
 <h2>Che cosa non deriva dalla geometria</h2>
 <ul>{note}</ul>
 <h2>Che cosa questa fase non dice</h2>
