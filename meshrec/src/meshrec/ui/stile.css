@@ -3,9 +3,9 @@
      (0xfbfaf8 in viewport.js): l'interfaccia e la vista sono la stessa carta. */
   --sfondo: #fbfaf8;
   --superficie: #ffffff;
-  /* Testo. Rapporti misurati su --superficie: 17,21:1 e 5,55:1. */
+  /* Testo. Rapporti misurati su --superficie: 17,21:1 e 6,55:1. */
   --testo: #1c1b19;
-  --tenue: #6b6862;
+  --tenue: #605d58;
   /* Linee. --bordo separa (1,41:1, non porta informazione); --bordo-comando
      disegna il contorno di cio' che si puo' toccare, e sta sopra 3:1 su
      entrambe le superfici (3,22:1 e 3,11:1) come chiede WCAG 1.4.11: il
@@ -15,9 +15,9 @@
   --bordo-comando: #948e85;
   /* Azione e stati. Le tre tinte di stato erano scritte a mano dentro le
      regole; qui sono ruoli, e ogni rapporto e' calcolato su --superficie, dove
-     tutte e tre compaiono: 7,49:1, 5,41:1, 7,71:1. */
+     tutte e tre compaiono: 7,49:1, 6,59:1, 7,71:1. */
   --accento: #2f5d50;   /* azione, fuoco, selezione, stato valido */
-  --avviso: #9a5b12;    /* stato non valido: lo step c'e' ma non e' aggiornato */
+  --avviso: #875010;    /* stato non valido: lo step c'e' ma non e' aggiornato */
   --guasto: #a02020;    /* stato fallito, errori, campo rifiutato */
   /* Superfici derivate: il velo sopra la vista, l'evidenza sotto il puntatore,
      la selezione sotto cio' che e' aperto adesso, il grigio di un campo che si
@@ -294,8 +294,9 @@ h2:focus-visible { outline: 2px solid var(--accento); outline-offset: 2px; }
    che viene proiettata per prima. */
 /* Il colore e' --testo e non piu' --tenue. Il titolo di sezione restava il
    piu' debole di tutta la colonna e il proprio SOTTOtitolo lo superava:
-   <h2>Dettaglio</h2> misura 5,55:1 sul bianco, <h3>Metriche</h3> che gli sta
-   dentro ne misura 17,21:1 -- il figlio legge tre volte piu' forte del padre.
+   <h2>Dettaglio</h2> misura 6,55:1 sul bianco, <h3>Metriche</h3> che gli sta
+   dentro ne misura 17,21:1 -- il figlio legge due volte e mezzo piu' forte del
+   padre.
    Il corpo resta 13px e il maiuscoletto crenato pure: sono quelli a dire «sono
    un'etichetta di sezione, non un titolo», e il filetto sopra li separa. A
    cambiare e' il solo canale che sopravvive alla distanza di una proiezione, che
@@ -375,8 +376,8 @@ a.bottone { display: inline-block; text-decoration: none; }
    restando nella stessa famiglia. Testo su fondo: 7,49:1 fermo, 8,38:1 al
    passaggio, 9,23:1 alla pressione.
    Spento perde il fondo e non solo il testo: --tenue sopra l'accento pieno
-   sarebbe 1,7:1, cioe' un bottone illeggibile invece di un bottone inerte.
-   Cosi' scende a --spento come gli altri, dove il testo tiene 5,00:1. */
+   sarebbe 1,14:1, cioe' un bottone illeggibile invece di un bottone inerte.
+   Cosi' scende a --spento come gli altri, dove il testo tiene 5,85:1. */
 .bottone-primario { background: var(--accento); border-color: var(--accento); color: var(--superficie); }
 .bottone-primario:hover { background: color-mix(in srgb, var(--accento) 88%, var(--testo)); }
 .bottone-primario:active { background: color-mix(in srgb, var(--accento) 78%, var(--testo)); }
@@ -431,7 +432,7 @@ a.bottone { display: inline-block; text-decoration: none; }
    dal fondo della stanza, e la riga che porta il caso di carico, la grandezza
    e i due numeri della scala non e' un aiuto a pie' di pagina, e' il titolo
    della figura. --testo e non --tenue, per la stessa ragione: 17,21:1 contro
-   5,55:1. Cifre tabulari perche' cambiando caso i numeri si sostituiscono
+   6,55:1. Cifre tabulari perche' cambiando caso i numeri si sostituiscono
    sotto gli occhi. */
 /* La misura vale anche qui, ed era l'unica prosa del foglio senza. Le
    didascalie vere (viewport.js, didascaliaDelCampo) stanno fra 91 e 115
@@ -564,14 +565,24 @@ a.bottone { display: inline-block; text-decoration: none; }
   border: 1px solid var(--tenue);
   border-radius: 50%;
 }
-/* Rapporti nel caso peggiore, cioe' sul fondo della riga aperta, che di tutti
-   e' il piu' scuro: 4,21:1 l'anello, 5,69:1 il pieno dell'accento, 4,11:1
-   quello dell'avviso, 5,85:1 quello del guasto. Tutti sopra il 3:1 che WCAG
-   1.4.11 chiede a cio' che porta uno stato. L'anello e' --tenue e non
-   --bordo-comando, che pure e' il grigio dei contorni: quello disegna cio'
-   che si tocca, e su quel fondo sarebbe sceso a 2,46:1. Qui il grigio e'
-   quello della parola «mai eseguito», che e' esattamente cio' che il pallino
-   sta ripetendo. */
+/* Le soglie qui sono due, perche' i canali sono due, e questo commento ne
+   dichiarava una sola. Il pallino porta lo stato in figura e risponde a WCAG
+   1.4.11, che chiede 3:1; la parola in fondo alla riga e' testo di 13px --
+   --tipo-nota, e «large text» comincia a 18,66px in grassetto -- quindi
+   risponde a 1.4.3, che ne chiede 4,5. Giudicare anche la parola contro il 3:1
+   del pallino promuoveva due testi che erano sotto soglia: «mai eseguito» a
+   4,21:1 e «non valido» a 4,11:1, sul fondo della riga aperta e cioe' sulla
+   sola riga che il pubblico di una discussione sta guardando.
+   Rapporti nel caso peggiore, che e' quel fondo, il piu' scuro di tutti:
+   --selezione su --superficie, rgb(218,226,224). Il pallino, contro 3:1:
+   4,97:1 l'anello, 5,69:1 il pieno dell'accento, 5,00:1 quello dell'avviso,
+   5,85:1 quello del guasto. La parola, contro 4,5:1: gli stessi quattro numeri,
+   perche' porta le stesse quattro tinte. Sulla carta bianca, dove sta ogni
+   altra riga, salgono a 6,55:1, 7,49:1, 6,59:1 e 7,71:1.
+   L'anello e' --tenue e non --bordo-comando, che pure e' il grigio dei
+   contorni: quello disegna cio' che si tocca, e su quel fondo sarebbe sceso a
+   2,46:1. Qui il grigio e' quello della parola «mai eseguito», che e'
+   esattamente cio' che il pallino sta ripetendo. */
 .stato-valido .step-nome::before { border-color: var(--accento); background: var(--accento); }
 .stato-non-valido .step-nome::before { border-color: var(--avviso); background: var(--avviso); }
 .stato-fallito .step-nome::before { border-color: var(--guasto); background: var(--guasto); }
