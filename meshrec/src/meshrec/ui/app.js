@@ -52,6 +52,23 @@ const PROPOSITI = {
 const STEP_DELL_ANALISI = "13_solve";
 const STEP_DEL_PRIOR = "12_wall";
 
+// L'interruttore della linea dell'analisi integrata. Spento, l'interfaccia
+// mostra gli undici passaggi del perimetro del prodotto e nient'altro: niente
+// riga del prior nella colonna, niente pannello del prior, niente ingresso alla
+// schermata dell'analisi. Acceso, torna tutto.
+//
+// E' una riga e non una cancellazione perche' quel codice non e' morto: e' la
+// linea di sviluppo descritta in docs/linea-analisi-integrata.md, che prosegue
+// e un giorno potrebbe rientrare. Nascondere costa una riga, cancellare
+// costerebbe la schermata, otto route e circa trecento test, e renderebbe
+// doloroso il rientro.
+//
+// Nasconde la VISTA e non lo stato, come gia' fa il filtro dello step 13 piu'
+// sotto: `ultimoStato` resta intero, e le funzioni che leggono il prior per
+// costruire frasi continuano a trovarlo. Quelle frasi finiscono in elementi
+// nascosti, quindi non le legge nessuno, ma nessun ramo va in errore.
+const MOSTRA_LINEA_ANALISI = false;
+
 // Nodo piu' proprieta' in una riga.
 const elemento = (tag, proprieta) => Object.assign(document.createElement(tag), proprieta);
 
@@ -430,7 +447,11 @@ function disegnaStep(steps) {
   // cammina a monte da `corpo.steps.length`, che vale 13, e STEP_CON_GEOMETRIA
   // elenca il 13: filtrando `ultimoStato` invece dell'elenco, la geometria del
   // solutore diventerebbe irraggiungibile per una strada che non guarda nessuno.
-  const pipeline = steps.filter((voce) => voce.chiave !== STEP_DELL_ANALISI);
+  const pipeline = steps.filter(
+    (voce) =>
+      voce.chiave !== STEP_DELL_ANALISI
+      && (MOSTRA_LINEA_ANALISI || voce.chiave !== STEP_DEL_PRIOR),
+  );
   const elenco = document.getElementById("elenco-step");
   // Le righe si costruiscono una volta sola e poi si aggiornano sul posto.
   // Ricostruirle a ogni evento — due volte al secondo mentre la pipeline gira —

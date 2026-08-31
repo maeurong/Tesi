@@ -1951,9 +1951,13 @@ def create_app(
         # 11: "riprendi da qui" nel pannello non deve far partire un processo
         # esterno da solo, per lo stesso motivo per cui sweep.run_candidate
         # chiede il proprio tetto esplicito. E resta 12 anche ora che il
-        # predefinito e' 11, perche' l'interfaccia mostra tutti e tredici gli
-        # step: fermo a 11, la riga 12 resterebbe "mai eseguita" dietro
-        # "esegui da qui in giu'" senza alcun modo di eseguirla.
+        # predefinito e' 11 e che l'interfaccia nasconde la riga del prior
+        # (MOSTRA_LINEA_ANALISI in app.js): quell'interruttore e' del client, e
+        # questo tetto e' del server, che non ha modo di sapere come e' messo.
+        # Farli inseguire l'uno l'altro accoppierebbe una decisione di
+        # presentazione a una di esecuzione; il prior calcolato e non mostrato
+        # e' un file in piu' sul disco, non un difetto. Se la linea si riaccende,
+        # il tetto e' gia' quello giusto.
         corrente()
         non_in_sola_lettura(f"eseguire dallo step {numero} in giù")
         lavoratore.start(config_path, numero, 12)

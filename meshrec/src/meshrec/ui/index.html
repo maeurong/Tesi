@@ -143,9 +143,13 @@
          cui il passaggio spento dice PERCHE' e' spento, e un bottone disabilitato
          senza quella riga e' un rifiuto senza motivo. Vuota alla nascita, la
          scrive `aggiornaPassaggio` dallo stato che il server manda. -->
-    <button type="button" id="vai-analisi" class="bottone passaggio">Analisi strutturale
+    <!-- Nascosto finche' MOSTRA_LINEA_ANALISI in app.js resta spento: l'analisi
+         integrata e' linea di sviluppo e sta fuori dal perimetro del prodotto,
+         che si chiude sul deck dello step 11. Il markup resta perche' il codice
+         dietro e' vivo -- vedi docs/linea-analisi-integrata.md. -->
+    <button type="button" id="vai-analisi" class="bottone passaggio" hidden>Analisi strutturale
       — step 13</button>
-    <p class="vuoto" id="vai-analisi-ragione"></p>
+    <p class="vuoto" id="vai-analisi-ragione" hidden></p>
     <h2>Modelli</h2>
     <!-- as-built e' la corsa madre e c'e' gia': la casella e' spuntata e
          disabilitata, perche' una casella che si puo' togliere ma non fa nulla
@@ -252,6 +256,11 @@
          distruggerla, e test_app_js.py sorveglia che non ci si torni. -->
     <p class="errore" id="errore" role="alert"></p>
     <div id="dettaglio"><p class="vuoto">Scegli uno step per vederne parametri e metriche.</p></div>
+    <!-- Tutto il pannello del prior sta dentro un solo contenitore nascosto: gli
+         elementi restano nel DOM, e getElementById continua a trovarli, cosi'
+         nessun ramo del modulo va in errore scrivendo dentro qualcosa che non
+         c'e'. Si riaccende insieme a MOSTRA_LINEA_ANALISI in app.js. -->
+    <div id="pannello-prior" hidden>
     <h2>Prior geometrico</h2>
     <!-- Lo stato vuoto sta nel markup e non lo fabbrica il modulo: e' la stessa
          lezione della regione d'errore, che tre volte era stata distrutta da un
@@ -261,6 +270,7 @@
     <button type="button" id="calcola-prior" class="bottone">Calcola il prior</button>
     <div id="prior-membrature"></div>
     <div id="prior-scartate"></div>
+    </div>
     <h2>Confronto</h2>
     <p class="vuoto" id="confronto-vuoto" data-testo-vuoto="Nessun modello parametrico generato: il confronto è una scheda singola.">Nessun modello parametrico generato: il confronto è una scheda singola.</p>
     <!-- Senza `class="confronto"`: nel foglio non esiste nessuna regola con
