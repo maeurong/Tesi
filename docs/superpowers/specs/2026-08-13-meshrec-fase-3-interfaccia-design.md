@@ -11,9 +11,9 @@
 
 Dopo la Fase 1 esiste la pipeline, dopo la Fase 2 esiste il metodo. La Fase 3
 consegna **l'applicazione**: il programma che sostituisce `MeshReconstructorPro`
-e che si presenta in discussione. È anche la fase che chiude il primo limite
-elencato nella spec di architettura — «interfaccia grafica obbligatoria, nessuna
-esecuzione batch, parametri non salvati» — dal lato opposto: qui l'interfaccia
+e che si presenta in discussione. È anche la fase che chiude il primo requisito
+elencato nella spec di architettura — esecuzione batch e parametri salvati con la
+corsa — dal lato opposto: qui l'interfaccia
 c'è, ma il batch resta e i parametri sono già tracciati, perché l'interfaccia
 pilota il core esistente invece di sostituirlo.
 
