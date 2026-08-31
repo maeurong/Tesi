@@ -119,6 +119,15 @@ class VoceMateriale(NamedTuple):
     `None`. Non zero: uno zero entrerebbe nella `[4.1.45]` come un numero e
     renderebbe un'armatura minima nulla in silenzio, mentre `None` fa fallire il
     conto nel punto in cui la grandezza e' stata chiesta al materiale sbagliato.
+
+    `nota` e `avvertenze` non sono due nomi per la stessa cosa. La `nota` e' la
+    provenienza per intero -- la difesa dei numeri scelti, uguale per ogni
+    classe, piu' le condizioni d'uso di quella classe -- e la legge chi legge il
+    catalogo. `avvertenze` porta le sole condizioni d'uso, una per voce
+    dell'elenco, e serve a chi ne sceglie una sola: sotto un menu' la difesa dei
+    numeri e' mille caratteri fra chi sceglie e cio' che deve sapere. Le
+    avvertenze restano dentro la nota, quindi il campo nuovo non sottrae niente
+    a nessuno.
     """
 
     classe: str
@@ -132,6 +141,7 @@ class VoceMateriale(NamedTuple):
     fissata: date
     nota: str = ""
     f_ctm: float | None = None
+    avvertenze: tuple[str, ...] = ()
 
 
 FISSATA = date(2026, 8, 30)
@@ -278,15 +288,20 @@ _NOTA_SCELTE_CALCESTRUZZO = (
 )
 
 
-def _nota_di_classe(classe: str, f_ck: float) -> str:
+def _avvertenze_di_classe(classe: str, f_ck: float) -> tuple[str, ...]:
     """I vincoli d'uso che la classe si porta dietro, uno per frase.
 
-    Ogni classe del catalogo e' ammessa dalle NTC, ma quattro di esse lo sono
+    Ogni classe del catalogo e' ammessa dalle NTC, ma alcune di esse lo sono
     **a condizioni**, e la condizione va accanto alla riga: altrove nessuno la
-    leggerebbe. Prima delle condizioni stanno le due scelte che la norma lascia
-    aperte, uguali per tutte le classi.
+    leggerebbe. Qui stanno le sole condizioni, senza le due scelte che la norma
+    lascia aperte: quelle valgono per ogni classe, quindi chi ne ha scelta una
+    non le sta leggendo per la propria: le legge per il catalogo, ed e'
+    `_nota_di_classe` a comporre le due cose per chi legge il catalogo.
+
+    Una classe senza condizioni rende la tupla vuota, non una stringa vuota:
+    a video la seconda diventa un separatore appeso sopra il nulla.
     """
-    frasi = [_NOTA_SCELTE_CALCESTRUZZO]
+    frasi: list[str] = []
     if classe == "C8/10":
         frasi.append(
             "Il modulo elastico è un'estrapolazione: la classe sta nelle NTC ma non nella "
@@ -322,7 +337,16 @@ def _nota_di_classe(classe: str, f_ck: float) -> str:
             "Circolare 7/2019, §CC4.1, chiama la stessa procedura «autorizzazione "
             "ministeriale»: le parole sono sue, non delle NTC."
         )
-    return " ".join(frasi)
+    return tuple(frasi)
+
+
+def _nota_di_classe(classe: str, f_ck: float) -> str:
+    """La provenienza per intero: la difesa dei numeri, poi le avvertenze.
+
+    E' cio' che il catalogo pubblica per la riga, e va letto per intero da chi
+    legge il catalogo. Chi sceglie una sola classe legge invece `avvertenze`.
+    """
+    return " ".join((_NOTA_SCELTE_CALCESTRUZZO, *_avvertenze_di_classe(classe, f_ck)))
 
 
 _NOTA_ACCIAIO = (
@@ -334,6 +358,22 @@ _NOTA_ACCIAIO = (
     "rapporto della sezione bilanciata passa da 0,6414 a 0,6526. Qui si scrive 200.000 e la "
     "divergenza resta dichiarata invece che sciolta. **Il coefficiente di Poisson**: le NTC "
     "non lo pubblicano per l'acciaio da armatura, e 0,3 è il valore corrente, aggiunto da noi."
+)
+
+# Le due voci d'acciaio non passano da `_avvertenze_di_classe` -- il loro
+# vincolo d'uso non si deduce da una resistenza, sta scritto in un articolo per
+# ciascuna -- ma la nota ha la stessa forma delle altre: il preambolo comune,
+# poi cio' che vale per quella sola classe. Le frasi proprie stanno qui perche'
+# la voce le usa due volte, nella `nota` e in `avvertenze`, e riscriverle
+# significherebbe farle divergere.
+_AVVERTENZE_B450C = (
+    "È l'acciaio che il §7.4.2.2 obbliga a usare in zona sismica, salvo le eccezioni che vi "
+    "sono elencate. Barre da 6 a 40 mm (§11.3.2.4).",
+)
+_AVVERTENZE_B450A = (
+    "Stessa resistenza del B450C — il §11.3.2.2 dice «i medesimi valori nominali» — e "
+    "duttilità minore: allungamento uniforme al carico massimo 2,5% contro 7,5%, e nessun "
+    "tetto sul rapporto di sovraresistenza. Barre da 5 a 10 mm (§11.3.2.4).",
 )
 
 
@@ -350,6 +390,7 @@ CATALOGO: tuple[VoceMateriale, ...] = tuple(
         fissata=FISSATA,
         nota=_nota_di_classe(classe, _f_ck_dal_nome(classe)),
         f_ctm=_resistenza_a_trazione_media(_f_ck_dal_nome(classe)),
+        avvertenze=_avvertenze_di_classe(classe, _f_ck_dal_nome(classe)),
     )
     for classe in _CLASSI_CALCESTRUZZO
 ) + (
@@ -363,10 +404,8 @@ CATALOGO: tuple[VoceMateriale, ...] = tuple(
         fonte=_FONTE_ACCIAIO,
         origine="nostra",
         fissata=FISSATA,
-        nota=(
-            _NOTA_ACCIAIO + " È l'acciaio che il §7.4.2.2 obbliga a usare in zona sismica, "
-            "salvo le eccezioni che vi sono elencate. Barre da 6 a 40 mm (§11.3.2.4)."
-        ),
+        nota=" ".join((_NOTA_ACCIAIO, *_AVVERTENZE_B450C)),
+        avvertenze=_AVVERTENZE_B450C,
     ),
     VoceMateriale(
         classe="B450A",
@@ -378,12 +417,8 @@ CATALOGO: tuple[VoceMateriale, ...] = tuple(
         fonte=_FONTE_ACCIAIO,
         origine="nostra",
         fissata=FISSATA,
-        nota=(
-            _NOTA_ACCIAIO + " Stessa resistenza del B450C — il §11.3.2.2 dice «i medesimi "
-            "valori nominali» — e duttilità minore: allungamento uniforme al carico massimo "
-            "2,5% contro 7,5%, e nessun tetto sul rapporto di sovraresistenza. Barre da 5 a "
-            "10 mm (§11.3.2.4)."
-        ),
+        nota=" ".join((_NOTA_ACCIAIO, *_AVVERTENZE_B450A)),
+        avvertenze=_AVVERTENZE_B450A,
     ),
 )
 

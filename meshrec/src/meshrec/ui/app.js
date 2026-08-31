@@ -3605,25 +3605,31 @@ function pannelloMateriale(numero, ordine) {
   // dentro finirebbe nel nome accessibile del menu' invece che nella sua
   // descrizione, ed e' la lezione gia' pagata dalle righe dei parametri.
   //
-  // `fonte` e `nota` le serve /api/materiali per ogni voce, e la sua docstring
-  // dice perche': senza, i tre valori che il menu' scrive nelle caselle sono
-  // indistinguibili da valori inventati. La `nota` non e' un doppione della
-  // fonte: e' li' che C8/10 dichiara di stare sotto la classe minima per le
-  // strutture semplicemente armate, e chi sceglie quella voce deve leggerlo
-  // qui, perche' altrove non lo leggerebbe.
+  // `fonte` e `avvertenze` le serve /api/materiali per ogni voce, e la sua
+  // docstring dice perche': senza la fonte, i tre valori che il menu' scrive
+  // nelle caselle sono indistinguibili da valori inventati; e le avvertenze
+  // sono dove C8/10 dichiara di stare sotto la classe minima per le strutture
+  // semplicemente armate, che chi sceglie quella voce deve leggere qui perche'
+  // altrove non lo leggerebbe.
+  //
+  // La `nota` no, benche' la tratta la serva: e' la provenienza per intero, e
+  // le sue prime mille battute difendono la scelta di Poisson e della densita'
+  // -- vere per ogni classe, quindi non una risposta a cio' che si e' appena
+  // scelto. Mostrata qui, seppelliva l'unica frase che riguardava la scelta.
   const provenienza = document.createElement("small");
   provenienza.className = "aiuto";
   // A voce assente resta vuota, e vuota non occupa spazio: nessuna classe
   // scelta vuol dire nessuna fonte da affermare, e affermarne una sopra quattro
   // numeri battuti a mano sarebbe precisamente la bugia che questa riga esiste
   // per impedire. `filter(Boolean)` e non un template: una voce senza le due
-  // chiavi scriverebbe «undefined».
+  // chiavi scriverebbe «undefined», e una classe senza avvertenze -- la
+  // maggioranza -- lascerebbe un separatore appeso dopo la fonte.
   // Le `**` cadono: nel catalogo le note sono scritte per essere lette anche in
   // un documento, dove i doppi asterischi sono un grassetto. Dentro un <small>
   // non lo sono, e a video comparirebbero come asterischi.
   const mostraProvenienza = () => {
     const voce = (catalogoDeiMateriali ?? []).find((v) => v.classe === menuClasse.value);
-    provenienza.textContent = [voce?.fonte, voce?.nota]
+    provenienza.textContent = [voce?.fonte, ...(voce?.avvertenze ?? [])]
       .filter(Boolean).join(" — ").replaceAll("**", "");
   };
   // L'aiuto del menu' sta PRIMA del menu', non dopo la fonte della classe

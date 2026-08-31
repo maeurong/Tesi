@@ -7644,6 +7644,114 @@ process.stdout.write(JSON.stringify(righe[posto + 1].textContent));
     )
 
 
+def test_l_avviso_di_C8_10_non_e_sepolto_nella_difesa_dei_numeri(tmp_path):
+    """Ingresso degenere: si sceglie C8/10, e l'avviso deve leggersi davvero.
+
+    La `nota` del catalogo e' due cose in una: la difesa dei numeri, uguale per
+    ogni classe, e le condizioni d'uso di quella classe. Mostrandola intera, la
+    frase sulla classe minima arrivava ultima dopo piu' di mille caratteri su
+    Poisson, densita' e accelerazione di gravita': c'era e non si leggeva, che
+    e' il difetto che il riquadro esiste per non avere.
+
+    Sotto il menu' va la sola `avvertenze`. La difesa dei numeri resta nella
+    `nota`, che la tratta continua a servire per chi legge il catalogo.
+
+    Mutazione che lo uccide: rimettere `voce.nota` nella riga della provenienza.
+    """
+    catalogo, voci = _catalogo_vero(tmp_path)
+    bassa = next(v for v in voci if v["classe"] == "C8/10")
+    assert "1,972" in bassa["nota"], "la nota non porta piu' la difesa dei numeri"
+
+    detto = json.loads(_esegui(tmp_path, _banco_del_materiale(
+        {"analysis": None}, ["", "", "", ""], _ACCETTA_JS, catalogo=catalogo,
+    ) + """
+await Promise.resolve();
+await Promise.resolve();
+const righe = gruppo.children;
+const posto = righe.findIndex((f) => f.className === "campo campo-catalogo");
+righe[posto].children[1].value = "C8/10";
+await righe[posto].children[1].scatena("change");
+process.stdout.write(JSON.stringify(righe[posto + 1].textContent));
+"""))
+
+    assert "Sotto la classe minima per le strutture semplicemente armate" in detto
+    # «1,972» e' lo scarto con le corse di riferimento, e «fessurato» la scelta
+    # sul Poisson: due frasi che stanno nella difesa dei numeri e non nella
+    # fonte, dove il §11.2.10.4 invece compare da se'.
+    assert "1,972" not in detto and "fessurato" not in detto, (
+        f"la difesa dei numeri e' ancora sotto il menu': {detto!r}"
+    )
+    assert len(detto) < len(bassa["fonte"]) + len(bassa["nota"]), (
+        "sotto il menu' c'e' ancora tutto quello che c'era prima"
+    )
+
+
+def test_una_classe_senza_avvertenze_mostra_la_sola_fonte(tmp_path):
+    """Ingresso degenere: una classe che le NTC ammettono senza condizioni.
+
+    C25/30 non ha niente da avvertire, e la maggioranza delle classi e' come
+    lei. Sotto il menu' deve restare la sola fonte: nessun separatore sospeso,
+    nessuno spazio in coda, nessun «undefined» al posto di una lista vuota.
+
+    Mutazione che lo uccide: comporre la riga con un template letterale, o
+    unire con un separatore senza scartare le avvertenze assenti.
+    """
+    catalogo, voci = _catalogo_vero(tmp_path)
+    piana = next(v for v in voci if v["classe"] == "C25/30")
+    assert piana["avvertenze"] == [], "C25/30 ha smesso di essere la classe senza condizioni"
+
+    detto = json.loads(_esegui(tmp_path, _banco_del_materiale(
+        {"analysis": None}, ["", "", "", ""], _ACCETTA_JS, catalogo=catalogo,
+    ) + """
+await Promise.resolve();
+await Promise.resolve();
+const righe = gruppo.children;
+const posto = righe.findIndex((f) => f.className === "campo campo-catalogo");
+righe[posto].children[1].value = "C25/30";
+await righe[posto].children[1].scatena("change");
+process.stdout.write(JSON.stringify(righe[posto + 1].textContent));
+"""))
+
+    assert detto == piana["fonte"], (
+        f"sotto il menu' c'e' altro oltre alla fonte della classe: {detto!r}"
+    )
+
+
+def test_un_avvertenza_con_segni_di_marcatura_arriva_a_video_come_testo(tmp_path):
+    """Ingresso degenere: un'avvertenza che contiene `<` e `&`.
+
+    Le avvertenze arrivano da una tratta e finiscono in un nodo del documento.
+    Scritte come marcatura, un `<` del catalogo diventerebbe un tag e il testo
+    che segue sparirebbe dalla pagina: il riquadro mostrerebbe meno di quello
+    che il catalogo dice, che qui e' il danno peggiore.
+
+    Mutazione che lo uccide: passare da `textContent` a `innerHTML`.
+    """
+    catalogo = json.dumps([{
+        "classe": "C25/30", "young": 31475.8, "poisson": 0.2, "density": 2.5493e-9,
+        "f_k": 25, "fonte": "NTC 2018 Tab. 4.1.I",
+        "avvertenze": ["Vale per f_ck < 16 & per <b>ogni</b> ripresa."],
+    }])
+    letto = json.loads(_esegui(tmp_path, _banco_del_materiale(
+        {"analysis": None}, ["", "", "", ""], _ACCETTA_JS,
+        catalogo="{ ok: true, status: 200, json: async () => ({ voci: " + catalogo + " }) }",
+    ) + """
+await Promise.resolve();
+await Promise.resolve();
+const righe = gruppo.children;
+const posto = righe.findIndex((f) => f.className === "campo campo-catalogo");
+righe[posto].children[1].value = "C25/30";
+await righe[posto].children[1].scatena("change");
+const riga = righe[posto + 1];
+process.stdout.write(JSON.stringify({ testo: riga.textContent, figli: riga.children.length }));
+"""))
+
+    assert "f_ck < 16 & per <b>ogni</b> ripresa." in letto["testo"], (
+        f"l'avvertenza arriva a video mutilata: {letto['testo']!r}"
+    )
+    assert letto["figli"] == 0, "la riga della provenienza ha figli: e' stata interpretata"
+
+
 def test_il_materiale_battuto_a_mano_non_afferma_nessuna_fonte(tmp_path):
     """Ingresso degenere: nessuna classe scelta, quattro valori battuti.
 

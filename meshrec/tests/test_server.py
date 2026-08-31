@@ -2458,6 +2458,34 @@ def test_il_catalogo_dei_materiali_porta_le_classi_di_calcestruzzo(cliente):
     )
 
 
+def test_il_catalogo_serve_le_avvertenze_della_classe_accanto_alla_nota(cliente):
+    """Il pannello mostra le avvertenze della classe, non la nota intera.
+
+    La `nota` resta servita perche' e' la provenienza per intero -- la difesa
+    dei numeri che vale per ogni classe -- ma sopra il menu' del materiale
+    l'unica cosa da leggere e' cio' che riguarda la classe appena scelta. Le due
+    chiavi viaggiano insieme: chi legge il catalogo ha la prima, chi sceglie una
+    classe ha la seconda.
+
+    Mutazione che lo uccide: servire la sola `nota`, e lasciare al pannello il
+    compito di ritagliarla.
+    """
+    voci = cliente.get("/api/materiali").json()["voci"]
+    bassa = next(v for v in voci if v["classe"] == "C8/10")
+    piana = next(v for v in voci if v["classe"] == "C25/30")
+
+    assert any("Sotto la classe minima" in a for a in bassa["avvertenze"]), (
+        f"le avvertenze di C8/10 non arrivano alla tratta: {bassa['avvertenze']}"
+    )
+    assert len(" ".join(bassa["avvertenze"])) < len(bassa["nota"]), (
+        "le avvertenze sono lunghe quanto la nota: non e' stato separato niente"
+    )
+    assert piana["avvertenze"] == [], (
+        f"una classe senza condizioni d'uso porta comunque avvertenze: {piana['avvertenze']}"
+    )
+    assert "11.2.10.4" in piana["nota"], "la nota servita ha perso la difesa dei numeri"
+
+
 def test_ogni_voce_del_catalogo_porta_i_numeri_e_la_fonte(cliente):
     """I tre valori meccanici e l'autorita' che li giustifica, insieme.
 

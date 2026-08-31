@@ -598,6 +598,83 @@ def test_le_classi_oltre_la_c50_60_dichiarano_il_cambio_di_forma_nella_nota():
         assert "11.2.3b" not in trova(classe).nota, classe
 
 
+def test_le_avvertenze_della_classe_stanno_in_un_campo_proprio():
+    """La `nota` e' due cose in una, e al pannello del materiale serve la seconda.
+
+    La difesa dei numeri -- Poisson 0,2, densita' 25,0 kN/m^3, lo scarto con le
+    corse di riferimento -- vale per ogni classe ed e' provenienza: la legge chi
+    legge il catalogo per intero. Le condizioni d'uso, invece, valgono per LA
+    classe scelta, e chi sceglie C8/10 deve leggerle senza attraversare mille
+    caratteri di difesa dei numeri.
+
+    Le due parti `_nota_di_classe` gia' le costruisce distinte: `avvertenze` le
+    espone, la `nota` continua a portarle tutte e due perche' e' cio' che il
+    catalogo pubblica.
+
+    Mutazione che lo uccide: mettere in `avvertenze` la nota intera.
+    """
+    voce = trova("C8/10")
+
+    assert any("Sotto la classe minima" in a for a in voce.avvertenze), (
+        f"l'avvertenza di C8/10 non sta nel campo che la espone: {voce.avvertenze}"
+    )
+    comune = " ".join(voce.avvertenze)
+    assert "11.2.10.4" not in comune, (
+        "la difesa dei numeri e' finita nelle avvertenze: il pannello la rimostrerebbe"
+    )
+    assert "1,972" not in comune, (
+        "lo scarto con le corse di riferimento e' finito nelle avvertenze"
+    )
+    for avvertenza in voce.avvertenze:
+        assert avvertenza in voce.nota, (
+            f"un'avvertenza non compare piu' nella nota del catalogo: {avvertenza!r}"
+        )
+
+
+def test_una_classe_senza_condizioni_d_uso_non_porta_nessuna_avvertenza():
+    """Ingresso degenere: la classe che le NTC ammettono senza condizioni.
+
+    C25/30 sta in Tab. 4.1.I, sopra la minima armata, sotto la C50/60 e fuori
+    dalle classi «gia' in uso»: non ha niente da avvertire. Il campo deve
+    restare vuoto e non portare una stringa vuota, che a video diventerebbe un
+    separatore sospeso sopra il nulla.
+
+    Mutazione che lo uccide: restituire `("",)` invece della tupla vuota, o
+    lasciarci dentro il preambolo comune.
+    """
+    voce = trova("C25/30")
+
+    assert voce.avvertenze == (), (
+        f"una classe senza condizioni porta comunque qualcosa: {voce.avvertenze}"
+    )
+    assert "11.2.10.4" in voce.nota, "la difesa dei numeri si e' persa dalla nota"
+
+
+def test_le_voci_d_acciaio_separano_le_avvertenze_come_quelle_di_calcestruzzo():
+    """Le due voci d'acciaio compongono la nota a mano, e restano coerenti.
+
+    Non passano da `_nota_di_classe`, ma la loro nota ha la stessa forma: un
+    preambolo comune -- i due numeri che non stanno nelle NTC -- piu' una frase
+    che vale per quella sola classe. Se la separazione valesse per il solo
+    calcestruzzo, `avvertenze` significherebbe due cose diverse a seconda della
+    famiglia.
+
+    Mutazione che lo uccide: lasciare `avvertenze` vuoto sulle due voci
+    d'acciaio, o metterci dentro `_NOTA_ACCIAIO`.
+    """
+    for classe in ("B450C", "B450A"):
+        voce = trova(classe)
+        assert voce.avvertenze, f"{classe}: nessuna avvertenza, e la nota ne porta una"
+        comune = " ".join(voce.avvertenze)
+        assert "210.000" not in comune, (
+            f"{classe}: il preambolo sul modulo elastico e' finito nelle avvertenze"
+        )
+        for avvertenza in voce.avvertenze:
+            assert avvertenza in voce.nota, (
+                f"{classe}: un'avvertenza non compare nella nota: {avvertenza!r}"
+            )
+
+
 def test_ogni_voce_di_calcestruzzo_cita_l_articolo_di_f_ctm_nella_propria_fonte():
     """La grandezza nuova porta la propria fonte, come le altre della riga.
 

@@ -1751,6 +1751,13 @@ def create_app(
         sono indistinguibili da valori inventati, ed e' precisamente cio' che
         quel catalogo esiste per impedire.
 
+        `nota` e `avvertenze` viaggiano tutte e due, e non sono un doppione: la
+        prima e' la provenienza per intero, per chi legge il catalogo; la
+        seconda porta le sole condizioni d'uso della classe, ed e' cio' che il
+        pannello mostra a chi ne ha scelta una. Servita la sola nota, l'avviso
+        che C8/10 sta sotto la classe minima arrivava sotto il menu' in coda a
+        mille caratteri sulla scelta di Poisson e della densita'.
+
         La tratta non legge la configurazione e non ne dipende: il catalogo e'
         lo stesso per ogni corsa, e chiederne una qui renderebbe il menu'
         indisponibile sulla schermata d'ingresso, dove corsa non ce n'e'.
@@ -1766,6 +1773,7 @@ def create_app(
                     "f_k": voce.f_k,
                     "fonte": voce.fonte,
                     "nota": voce.nota,
+                    "avvertenze": list(voce.avvertenze),
                 }
                 for voce in materiali.CATALOGO
                 if voce.famiglia == "calcestruzzo"
