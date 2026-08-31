@@ -132,12 +132,12 @@ deposita l'autore, che è l'unico ad averli.
 ### E. La linea parallela viene dichiarata invece che lasciata implicita
 
 Esistono due branch non mergiati che portano avanti l'analisi integrata:
-`worktree-notte-analisi-strutturale`, **ventun commit** avanti a `origin/main`,
-con una spec dell'analisi strutturale «dal telaio alle verifiche»; e
+`worktree-notte-analisi-strutturale`, **ventitre commit** avanti a `origin/main`
+al 31/08/2026, con una spec dell'analisi strutturale «dal telaio alle verifiche»; e
 `worktree-wayfinder-analisi-strutturale`, tre commit, con una mappa le cui issue
 pianificano di costruire le verifiche NTC ed Eurocodice **dentro MeshRec**.
 
-Il primo dei due esiste soltanto in locale. Ventun commit che vivono in un
+Il primo dei due esiste soltanto in locale. Ventitre commit che vivono in un
 worktree e in nessun altro posto sono lavoro a rischio di sparizione: vanno
 spinti su `origin` prima di ogni altra cosa.
 
