@@ -8,12 +8,6 @@ ricostruzione della superficie, riempimento a tetraedri, esportazione del
 modello, soluzione — e ogni passaggio salva i parametri con cui è stato eseguito
 e le misure di qualità del proprio risultato.
 
-Sostituisce `MeshReconstructorPro`, un eseguibile fornito senza sorgente i cui
-limiti sono l'origine del progetto: nessuna esecuzione batch, parametri non
-salvati, nessuna metrica di qualità degli elementi, nessuna misura dell'errore
-geometrico rispetto alla nuvola di partenza, operazioni di riparazione opache e
-quindi non citabili in un lavoro scientifico.
-
 ## Dove guardare
 
 - **[`meshrec/`](meshrec/)** — il programma. Requisiti, avvio, configurazioni del
