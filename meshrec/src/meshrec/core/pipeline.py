@@ -687,7 +687,7 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
     chiesto. E' del
     resto l'unico step che paga un processo esterno vero anziche' lavoro
     in-process: chi elabora molti candidati (lo sweep) non deve pagarlo per
-    ciascuno, e per questo `sweep.run_candidate` chiede comunque `--to-step 12`
+    ciascuno, e per questo `sweep.run_candidate` chiede `--to-step 11`
     esplicito al sottoprocesso invece di ereditare questo predefinito (vedi
     `sweep.py`, che per la stessa ragione non lo richiede in `REQUIRED_STEPS`).
 
@@ -745,9 +745,10 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
     # corsa predefinita sarebbe caduta nel ramo di fusione e avrebbe conservato
     # in metrics.json un 12_wall e un 13_solve misurati su un'altra geometria.
     # Gli step 12 e 13 sono azioni in piu' che non ridefiniscono questa
-    # completezza: una corsa fermata a 11, una fermata a 12 (sweep, to_step=12
-    # esplicito) e una arrivata a 13 sono ugualmente complete per questo flag
-    # -- la differenza fra le tre e' che cosa hanno in piu' del deck.
+    # completezza: una corsa fermata a 11 (il predefinito, e lo sweep che lo
+    # chiede esplicito), una fermata a 12 e una arrivata a 13 sono ugualmente
+    # complete per questo flag -- la differenza fra le tre e' che cosa hanno in
+    # piu' del deck.
     pipeline_completa = False
 
     def registra(numero: int, avvio: float, artefatto: str | None) -> None:

@@ -10,7 +10,7 @@ misure di qualità del proprio risultato.
 
 Il programma si ferma al deck. L'analisi si esegue in Abaqus, aprendo il file
 `.inp` che il programma ha scritto: MeshRec costruisce il modello, non lo
-risolve. I risultati ottenuti in questo modo sul caso studio si depositano in
+risolve. I risultati ottenuti in questo modo sul caso studio confluiranno in
 [`analisi-abaqus/`](analisi-abaqus/), accanto ai deck che li hanno prodotti.
 
 ## Dove guardare
