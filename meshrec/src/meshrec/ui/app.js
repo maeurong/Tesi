@@ -3478,6 +3478,11 @@ function campoParametro(blocco, nome, campo, ordine) {
 // prima del menu'. Il menu' e' una scorciatoia, non l'unica via.
 let catalogoDeiMateriali = null;
 
+// L'esito dell'ultima scrittura riuscita del materiale, in attesa del ridisegno
+// che lo mostra e lo consuma. Di modulo perche' il pannello che lo scrive viene
+// distrutto dal ridisegno che deve mostrarlo: vedi `pannelloMateriale`.
+let esitoDelMateriale = null;
+
 async function catalogoMateriali() {
   if (catalogoDeiMateriali !== null) return catalogoDeiMateriali;
   const risposta = await fetch("/api/materiali").catch(serverMuto);
@@ -3565,6 +3570,15 @@ function pannelloMateriale(numero, ordine) {
       : `Non dichiarato: lo step ${numero} si ferma finché questi quattro valori non ci sono. `
         + "Il programma non ne mette uno per conto suo.",
   }));
+  // L'esito dell'ultima scrittura riuscita, letto e consumato qui.
+  //
+  // Una variabile di modulo e non un nodo scritto dal gestore: dopo la PUT il
+  // pannello si ridisegna da capo (`apriDettaglio`), e una frase scritta in un
+  // nodo di questo fieldset sparirebbe nell'istante in cui compare. Consumata
+  // dal disegno perche' dice «appena scritto»: riaperto lo step domani, la
+  // stessa frase sarebbe la lapide di una scrittura vecchia.
+  const esitoScritto = esitoDelMateriale;
+  esitoDelMateriale = null;
   // Il menu' sta SOPRA le quattro caselle perche' e' il gesto che viene
   // prima: si sceglie una classe e le caselle si riempiono. Sotto, sarebbe
   // una correzione di cio' che si e' gia' battuto.
@@ -3574,13 +3588,47 @@ function pannelloMateriale(numero, ordine) {
   // Il banco che conta le caselle del materiale cerca `campo` esatto, e senza
   // la seconda classe questa riga si sarebbe contata come quinta.
   rigaClasse.className = "campo campo-catalogo";
-  rigaClasse.append(elemento("span", { textContent: "classe (NTC 2018, Tab. 4.1.I)" }));
+  // «classe (NTC 2018)» e non piu' «Tab. 4.1.I»: quella tabella e' l'elenco
+  // delle classi e nient'altro, mentre sotto l'etichetta compaiono anche E,
+  // Poisson e densita', che vengono dal §11.2.10.1, dal §11.2.10.4 e dalla
+  // Tab. 3.1.I. Chi citava questa riga in tesi citava la tabella sbagliata per
+  // tre numeri su quattro. La fonte per esteso la porta la voce scelta, qui
+  // sotto: e' il catalogo a saperla, non questa etichetta.
+  rigaClasse.append(elemento("span", { textContent: "classe (NTC 2018)" }));
   const menuClasse = document.createElement("select");
   // La voce vuota e' la prima e resta selezionata: un menu' che nasce su
   // «C8/10» direbbe che quella classe e' stata scelta, e nessuno l'ha scelta.
-  menuClasse.append(elemento("option", { value: "", textContent: "— scegli una classe —" }));
+  const voceVuota = elemento("option", { value: "", textContent: "— scegli una classe —" });
+  menuClasse.append(voceVuota);
   rigaClasse.append(menuClasse);
-  gruppo.append(rigaClasse);
+  // La provenienza della classe scelta, sotto il menu' e fuori dalla <label>:
+  // dentro finirebbe nel nome accessibile del menu' invece che nella sua
+  // descrizione, ed e' la lezione gia' pagata dalle righe dei parametri.
+  //
+  // `fonte` e `nota` le serve /api/materiali per ogni voce, e la sua docstring
+  // dice perche': senza, i tre valori che il menu' scrive nelle caselle sono
+  // indistinguibili da valori inventati. La `nota` non e' un doppione della
+  // fonte: e' li' che C8/10 dichiara di stare sotto la classe minima per le
+  // strutture semplicemente armate, e chi sceglie quella voce deve leggerlo
+  // qui, perche' altrove non lo leggerebbe.
+  const provenienza = document.createElement("small");
+  provenienza.className = "aiuto";
+  // A voce assente resta vuota, e vuota non occupa spazio: nessuna classe
+  // scelta vuol dire nessuna fonte da affermare, e affermarne una sopra quattro
+  // numeri battuti a mano sarebbe precisamente la bugia che questa riga esiste
+  // per impedire. `filter(Boolean)` e non un template: una voce senza le due
+  // chiavi scriverebbe «undefined».
+  // Le `**` cadono: nel catalogo le note sono scritte per essere lette anche in
+  // un documento, dove i doppi asterischi sono un grassetto. Dentro un <small>
+  // non lo sono, e a video comparirebbero come asterischi.
+  const mostraProvenienza = () => {
+    const voce = (catalogoDeiMateriali ?? []).find((v) => v.classe === menuClasse.value);
+    provenienza.textContent = [voce?.fonte, voce?.nota]
+      .filter(Boolean).join(" — ").replaceAll("**", "");
+  };
+  // L'aiuto del menu' sta PRIMA del menu', non dopo la fonte della classe
+  // scelta: la fonte e' lunga quanto la norma che cita, e un aiuto che spiega
+  // il menu' letto quindici righe sotto il menu' arriva a chi ha gia' scelto.
   gruppo.append(elemento("p", {
     className: "aiuto",
     textContent: "Solo calcestruzzi: lo step 11 dichiara il materiale del continuo solido, e"
@@ -3589,6 +3637,7 @@ function pannelloMateriale(numero, ordine) {
       + " esistente provato in sito ha il modulo che è stato misurato, non quello di norma."
       + " Nel nome la barra diventa un trattino basso: C25/30 → C25_30.",
   }));
+  gruppo.append(rigaClasse, provenienza);
 
   const caselle = {};
   for (const [nome, etichetta] of [
@@ -3607,6 +3656,11 @@ function pannelloMateriale(numero, ordine) {
     gruppo.append(riga);
   }
   menuClasse.addEventListener("change", () => {
+    // Prima della guardia sotto: tornare sulla voce vuota lascia le caselle
+    // com'erano, ma scelto non c'e' piu' niente, e la fonte di prima resterebbe
+    // affermata sopra valori che nessuno ha piu' dichiarato di aver preso di
+    // li'.
+    mostraProvenienza();
     const scelto = valoriDellaClasse(catalogoDeiMateriali ?? [], menuClasse.value);
     // Voce vuota o classe sconosciuta: le caselle restano come sono. Non si
     // svuotano, perche' chi torna sulla voce vuota dopo aver scelto non sta
@@ -3623,6 +3677,14 @@ function pannelloMateriale(numero, ordine) {
   // documento.
   catalogoMateriali().then((voci) => {
     if (superata(ordine)) return;
+    // Catalogo muto e catalogo che sta arrivando si somigliavano: la sola voce
+    // vuota, che invita a scegliere in un menu' dove non c'e' niente da
+    // scegliere. Detto qui, chi legge sa che le quattro caselle restano l'unica
+    // strada e non aspetta un elenco che non arrivera'.
+    if (voci.length === 0) {
+      voceVuota.textContent = "catalogo non disponibile: batti i quattro valori";
+      return;
+    }
     for (const voce of voci) {
       menuClasse.append(elemento("option", { value: voce.classe, textContent: voce.classe }));
     }
@@ -3632,16 +3694,34 @@ function pannelloMateriale(numero, ordine) {
     // confronto passa per `nomeDellaClasse`, la stessa trasformazione che ha
     // scritto quel nome: senza, non riconoscerebbe nessuna classe del catalogo.
     const gia = dichiarato && voci.find((voce) => nomeDellaClasse(voce.classe) === dichiarato.name);
-    if (gia) menuClasse.value = gia.classe;
+    if (gia) {
+      menuClasse.value = gia.classe;
+      mostraProvenienza();
+    }
   });
 
   const bottone = document.createElement("button");
   bottone.type = "button";
   bottone.className = "bottone";
   bottone.textContent = dichiarato ? "Aggiorna il materiale" : "Dichiara il materiale";
+  // Il rifiuto sta qui sotto e non in cima al pannello.
+  //
+  // `dichiaraErrore` scrive in `#errore`, che sta in testa all'aside e fuori da
+  // `#dettaglio`: fra il bottone e quella regione ci sono il titolo, le azioni,
+  // la durata, i fieldset dei blocchi e il riquadro intero. La colonna scorre e
+  // la regione non e' sticky, quindi comparire non sposta niente sotto gli
+  // occhi di chi ha appena premuto -- un utente ci ha perso mezza giornata su
+  // un rifiuto che c'era e non si vedeva. Le righe dei parametri, in questo
+  // stesso pannello, non hanno mai avuto il problema: hanno il proprio slot
+  // accanto al comando. Il materiale prende lo stesso, con gli stessi tre
+  // canali di `segnalaCampo`.
+  const messaggio = document.createElement("small");
+  messaggio.className = "errore-campo";
+  messaggio.id = "errore-materiale";
+  messaggio.hidden = true;
   bottone.addEventListener("click", async () => {
     bottone.disabled = true;
-    dichiaraErrore(null);
+    segnalaCampo(bottone, messaggio, null);
     const nuova = {
       ...configurazione,
       analysis: {
@@ -3665,7 +3745,7 @@ function pannelloMateriale(numero, ordine) {
     // `configurazione` e' di modulo e la riapre ogni pannello.
     if (superata(ordine)) return;
     if (rifiuto !== null) {
-      dichiaraErrore(rifiuto);
+      segnalaCampo(bottone, messaggio, rifiuto);
       bottone.disabled = false;
       return;
     }
@@ -3673,19 +3753,34 @@ function pannelloMateriale(numero, ordine) {
       // La PUT e' passata (risposta.ok): il materiale e' gia' sul disco, e
       // dirlo salvato sarebbe vero. Quello che non si puo' fare e' cachear in
       // `configurazione` un corpo che non descrive cio' che si e' scritto.
-      dichiaraErrore(
+      segnalaCampo(
+        bottone,
+        messaggio,
         "il materiale è stato scritto, ma il server ha risposto con una configurazione che non si legge",
       );
       bottone.disabled = false;
       return;
     }
     configurazione = salvata;
+    // La riuscita si vede, e non solo la prima volta.
+    //
+    // La prima dichiarazione cambiava due cose a video -- il bottone da
+    // «Dichiara» ad «Aggiorna», l'aiuto da «Non dichiarato» a «Dichiarato da
+    // chi analizza» -- e ogni scrittura successiva non cambiava niente:
+    // stesso bottone, stesso aiuto, stesse caselle. L'assenza d'errore non e'
+    // una conferma. E' la stessa riga d'esito che il Ritaglio tiene accanto al
+    // proprio bottone, e l'ora la distingue dalla scrittura di prima.
+    esitoDelMateriale = "Il materiale è stato scritto nella configurazione della corsa, alle "
+      + new Date().toLocaleTimeString("it") + ".";
     // Ridisegnato dalla stessa strada che lo disegna sempre: il pannello deve
     // mostrare cio' che il server ha accettato, e una seconda copia della
     // logica di disegno invecchierebbe alla prima modifica dell'altra.
     apriDettaglio(numero);
   });
-  gruppo.append(bottone);
+  gruppo.append(bottone, messaggio);
+  if (esitoScritto !== null) {
+    gruppo.append(elemento("p", { className: "aiuto", textContent: esitoScritto }));
+  }
   return gruppo;
 }
 

@@ -616,6 +616,16 @@ _RIFIUTI_TRADOTTI: tuple[tuple[str, str], ...] = (
     (r"^Input should be a valid boolean.*$", "vuole vero o falso"),
     (r"^Input should be a valid string$", "vuole del testo"),
     (r"^Field required$", "è obbligatorio e non è stato dichiarato"),
+    # La regex non si stampa: chi dichiara un materiale legge «C25/30» rifiutato
+    # da `'^[A-Za-z0-9_.-]+$'` e non sa che cosa correggere. I caratteri sono
+    # detti per nome perche' nel progetto il vincolo e' uno solo -- `NomeSet` in
+    # core/config.py e `NOME_CORSA` qui, che portano la stessa classe -- e
+    # nominarli e' l'unica forma utile: un «non e' nella forma ammessa» non dice
+    # quale sia la forma. Un pattern nuovo e diverso vorra' la propria riga.
+    (
+        r"^String should match pattern .*$",
+        "ammette solo lettere non accentate, cifre, punto, trattino e trattino basso",
+    ),
     (r"^Input should be (.+)$", "ammette {}"),
 )
 

@@ -136,7 +136,17 @@ class Material(_ModelloBase):
     dedurre dalla nuvola o supplire per conto suo.
     """
 
+    # I quattro `title` sono le etichette del riquadro «materiale», ripetute
+    # qui verbatim e non riscritte: sono cio' che il rifiuto del server stampa
+    # (`_etichetta_del_percorso` in app/server.py legge `title`), e senza di
+    # essi sotto il bottone compariva «young: deve superare 0». `young` e
+    # `density` nell'interfaccia non esistono -- lo dice gia' il docstring di
+    # `analisi_dichiarata`, che manda chi sbaglia al pannello e non al YAML --
+    # e una chiave non si stampa mai, si stampa la sua etichetta (PRODUCT.md).
+    # Dove il titolo dice tutto, la `description` non lo ripete: sarebbe la
+    # stessa frase due volte, una dentro l'altra.
     name: NomeSet = Field(
+        title="nome",
         description=(
             "nome del materiale. Il vincolo non è cosmetico: il nome viene interpolato "
             "in `*MATERIAL, NAME=...` e il deck è scritto in ascii, quindi un carattere "
@@ -144,9 +154,9 @@ class Material(_ModelloBase):
             "inietterebbe card nel deck senza che nulla se ne accorga"
         ),
     )
-    young: float = Field(gt=0.0, description="modulo elastico [MPa]")
-    poisson: float = Field(ge=0.0, lt=0.5, description="coefficiente di Poisson")
-    density: float = Field(gt=0.0, description="densità [t/mm^3]")
+    young: float = Field(gt=0.0, title="modulo elastico E [MPa]")
+    poisson: float = Field(ge=0.0, lt=0.5, title="coefficiente di Poisson")
+    density: float = Field(gt=0.0, title="densità [t/mm^3]")
 
 
 class InputConfig(_ModelloBase):

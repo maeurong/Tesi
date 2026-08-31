@@ -631,6 +631,11 @@ a.bottone { display: inline-block; text-decoration: none; }
    cambia il peso del selettore. Il colore non e' l'unico canale: il messaggio
    del rifiuto sta scritto sotto il campo, e app.js segna aria-invalid. */
 .campo input.campo-rifiutato { border-color: var(--guasto); }
+/* Il bottone rifiutato, stesso canale della casella. Il riquadro del materiale
+   dichiara quattro valori insieme e il rifiuto arriva sul bottone, non su una
+   casella: senza questa riga il rifiuto avrebbe due canali su tre — il testo
+   sotto e aria-invalid — e chi guarda il bottone non vedrebbe niente. */
+.bottone.campo-rifiutato { border-color: var(--guasto); }
 /* Il cursore e la sua casella sono due comandi per lo stesso parametro, e
    stanno sulla stessa riga: il cursore prende lo spazio, la casella la
    larghezza di un numero. L'etichetta sopra, l'aiuto e il rifiuto sotto,
@@ -649,7 +654,12 @@ a.bottone { display: inline-block; text-decoration: none; }
    e hidden ne toglierebbero la regione role="alert", che deve essere viva prima
    che ci si scriva dentro perche' l'annuncio sia garantito. */
 .errore:empty { margin: 0; }
-.errore-campo { color: var(--guasto); font-size: var(--tipo-nota); line-height: var(--interlinea); max-width: var(--misura); overflow-wrap: anywhere; text-wrap: pretty; }
+/* `display: block` per la stessa ragione di `.aiuto`: dentro una riga `.campo`
+   la griglia blocca da se' i figli, ma il rifiuto del riquadro «materiale» sta
+   accanto al bottone, figlio diretto del fieldset. Li' un `<small>` resta
+   inline, gli si affianca al bottone quando ci sta, e il `max-width` qui
+   accanto non agisce affatto. */
+.errore-campo { display: block; color: var(--guasto); font-size: var(--tipo-nota); line-height: var(--interlinea); max-width: var(--misura); overflow-wrap: anywhere; text-wrap: pretty; }
 .campo input[readonly] { background: var(--spento); color: var(--tenue); }
 /* display: block, e non e' una rifinitura: `.aiuto` veste anche i <small>
    dell'ingresso, che sono figli diretti di <section> e quindi restano inline.
@@ -675,6 +685,13 @@ a.bottone { display: inline-block; text-decoration: none; }
    prima, che e' anche l'ordine giusto in cascata: qui si sovrascrivono i soli
    margini, e scritta sopra sarebbe la base a vincerli. */
 .titolo-step + .aiuto { margin-top: 0; margin-bottom: var(--passo-4); }
+/* La riga della classe non e' uno dei quattro valori: e' il gesto che li
+   riempie, e senza uno stacco le cinque righe si leggono come cinque valori
+   uguali mentre l'aiuto sopra dice «questi quattro valori». Il filetto chiude
+   il blocco del catalogo — il menu e la fonte della classe scelta, che gli sta
+   attaccata sotto — e i quattro valori ricominciano dopo. Sul fratello e non
+   su .campo-catalogo, perche' la fonte appartiene al menu e non ai valori. */
+.campo-catalogo + .aiuto { margin-bottom: var(--passo-3); padding-bottom: var(--passo-3); border-bottom: 1px solid var(--bordo); }
 /* Le due colonne erano `auto 1fr`, e in una zona da 22rem non ci stavano.
    Lo step 7 annida due dizionari dentro `geometric_error`, e righeDellaMetrica
    appiattisce il percorso in un'etichetta sola: «geometric_error ·

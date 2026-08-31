@@ -4368,6 +4368,65 @@ def test_un_valore_fuori_dominio_e_rifiutato_in_italiano_e_per_etichetta(cliente
     assert "14" in detto, f"il rifiuto non dice l'estremo violato: {detto}"
 
 
+def test_i_quattro_campi_del_materiale_sono_rifiutati_per_etichetta(cliente):
+    """Ingresso degenere: il server rifiuta un campo del materiale.
+
+    Gli stessi due difetti del `poisson_depth` qui sopra, sopravvissuti dentro
+    `Material` perche' i suoi quattro campi portavano solo `description` e mai
+    `title`: `_etichetta_del_percorso` ricadeva sulla chiave e sotto il bottone
+    compariva «young: deve superare 0». `young` nell'interfaccia non esiste --
+    si chiama «modulo elastico E [MPa]», e il docstring di
+    `PipelineConfig.analisi_dichiarata` lo dice per iscritto proprio di questi
+    campi.
+
+    Mutazione che lo uccide: togliere il `title` dai campi di `Material`.
+    """
+    corrente = cliente.get("/api/config").json()
+    corrente["analysis"] = {"material": {
+        "name": "CLS", "young": -1.0, "poisson": 0.2, "density": 2.5e-9,
+    }}
+
+    risposta = cliente.put("/api/config", json=corrente)
+
+    assert risposta.status_code == 422
+    detto = risposta.json()["messaggio"]
+    assert "young" not in detto, f"il rifiuto stampa la chiave grezza: {detto}"
+    assert "modulo elastico E [MPa]" in detto, (
+        f"il rifiuto non nomina il campo con la sua etichetta: {detto}"
+    )
+    assert "deve superare 0" in detto, f"il rifiuto non dice il vincolo violato: {detto}"
+
+
+def test_il_nome_fuori_dai_caratteri_ammessi_e_rifiutato_in_italiano_senza_la_regex(cliente):
+    """Ingresso degenere: si dichiara il materiale col nome della classe.
+
+    «C25/30» e' il primo nome che a chi sceglie una classe viene in mente, e la
+    barra non passa `NomeSet`. Il rifiuto era «name: String should match
+    pattern '^[A-Za-z0-9_.-]+$'»: inglese, chiave grezza, e una regex in faccia
+    a chi sta dichiarando un calcestruzzo. La forma non era in
+    `_RIFIUTI_TRADOTTI`, quindi usciva come pydantic la scrive.
+
+    Mutazione che lo uccide: togliere la riga del pattern dalla tabella.
+    """
+    corrente = cliente.get("/api/config").json()
+    corrente["analysis"] = {"material": {
+        "name": "C25/30", "young": 30000.0, "poisson": 0.2, "density": 2.5e-9,
+    }}
+
+    risposta = cliente.put("/api/config", json=corrente)
+
+    assert risposta.status_code == 422
+    detto = risposta.json()["messaggio"]
+    assert "String should match" not in detto, f"il rifiuto e' in inglese: {detto}"
+    assert "[A-Za-z0-9" not in detto and "pattern" not in detto, (
+        f"il rifiuto stampa la regex a chi dichiara un materiale: {detto}"
+    )
+    assert "name" not in detto, f"il rifiuto stampa la chiave grezza: {detto}"
+    assert "trattino basso" in detto, (
+        f"il rifiuto non dice quali caratteri il nome ammette: {detto}"
+    )
+
+
 def test_un_rifiuto_su_un_campo_senza_etichetta_resta_la_chiave(cliente):
     """Dove il modello non dichiara `title` non si inventa una frase: la
     chiave e' l'unica cosa che si sa. E' la stessa regola del pannello.

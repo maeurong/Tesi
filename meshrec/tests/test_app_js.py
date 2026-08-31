@@ -1307,8 +1307,8 @@ def _banco_del_materiale(
     """
     return _DOM + _funzioni(
         "valoreScritto", "ragioneDelRifiuto", "serverMuto", "superata", "corpoLetto",
-        "dichiaraErrore", "nomeDellaClasse", "valoriDellaClasse", "catalogoMateriali",
-        "pannelloMateriale",
+        "dichiaraErrore", "segnalaCampo", "nomeDellaClasse", "valoriDellaClasse",
+        "catalogoMateriali", "pannelloMateriale",
     ) + """
 // Il pannello si ridisegna dalla strada che lo disegna sempre: al banco basta
 // sapere che e' stata percorsa, il disegno e' provato altrove.
@@ -1316,6 +1316,10 @@ let riaperto = null;
 async function apriDettaglio(numero) { riaperto = numero; }
 // La cache di modulo del catalogo: `_funzioni` estrae funzioni, non `let`.
 let catalogoDeiMateriali = null;
+// L'esito dell'ultima scrittura riuscita, che il ridisegno consuma: e' di
+// modulo perche' il pannello che lo scrive viene distrutto dal ridisegno che
+// deve mostrarlo. `_funzioni` estrae funzioni, non `let`.
+let esitoDelMateriale = null;
 const CATALOGO_FINTO = [
   { classe: "C25/30", young: 31475.806210019346, poisson: 0.2, density: 2.5493e-9, f_k: 25 },
   { classe: "C32/40", young: 33345.8, poisson: 0.2, density: 2.5493e-9, f_k: 32 },
@@ -1335,7 +1339,9 @@ configurazione = CONFIGURAZIONE;
 const gruppo = pannelloMateriale(11, generazione);
 const caselle = gruppo.children.filter((f) => f.className === "campo").map((r) => r.children[1]);
 assert.equal(caselle.length, 4, "il materiale non si dichiara piu' con quattro valori");
-const bottone = gruppo.lastElementChild;
+// Il bottone per tag e non come ultimo figlio: sotto di lui stanno adesso lo
+// slot del rifiuto e la riga d'esito, e cercarlo in coda prenderebbe quelli.
+const bottone = gruppo.children.find((f) => f.tag === "button");
 COMPILATI.forEach((valore, i) => { caselle[i].value = valore; });
 await bottone.scatena("click");
 """.replace("RISPOSTA_CATALOGO", catalogo).replace("RISPOSTA", risposta).replace(
@@ -1542,6 +1548,17 @@ def test_un_campo_vuoto_del_materiale_parte_lo_stesso_e_il_rifiuto_si_vede(tmp_p
     corpo parte com'e' e il modello e' l'unico posto dove un materiale a meta'
     viene rifiutato. Quello che il pannello deve fare e' portare quel rifiuto a
     video, e non lasciare la pagina muta con un bottone spento.
+
+    **La riga che pretendeva `young` e' cambiata, e non e' un danno
+    collaterale.** Questo controllo chiedeva che il rifiuto nominasse la
+    *chiave* -- `young` -- mentre il suo gemello sul voxel qui sopra
+    (`test_una_battuta_che_il_browser_non_sa_leggere...`) chiede l'opposto e
+    PRODUCT.md pure: «una chiave non si stampa mai, si stampa la sua
+    etichetta». I quattro campi di `Material` non dichiaravano un `title`,
+    quindi `_etichetta_del_percorso` ricadeva sulla chiave e questo controllo
+    fotografava quella mancanza scambiandola per il requisito. Adesso il
+    modello porta le etichette che il pannello gia' usa, e il controllo chiede
+    l'etichetta e vieta la chiave, come il gemello.
     """
     from meshrec.core.config import load_config
 
@@ -1569,12 +1586,77 @@ def test_un_campo_vuoto_del_materiale_parte_lo_stesso_e_il_rifiuto_si_vede(tmp_p
     a_video = _esegui(tmp_path, _banco_del_materiale(
         configurazione, vuoto,
         "{ ok: false, status: 422, text: async () => " + json.dumps(rifiuto.text) + " }",
-    ) + "process.stdout.write(JSON.stringify("
-        "{ detto: rigaErrore.textContent, bottone: bottone.disabled }));")
+    ) + """
+const messaggio = gruppo.children.find((f) => f.className === "errore-campo");
+process.stdout.write(JSON.stringify(
+  { detto: messaggio.textContent, bottone: bottone.disabled }));
+""")
 
     detto = json.loads(a_video)
-    assert "young" in detto["detto"], f"il rifiuto non nomina la casella: {detto['detto']}"
+    assert "modulo elastico E [MPa]" in detto["detto"], (
+        f"il rifiuto non nomina la casella per etichetta: {detto['detto']}"
+    )
+    assert "young" not in detto["detto"], f"il rifiuto stampa la chiave grezza: {detto['detto']}"
     assert detto["bottone"] is False, "il bottone resta spento: non si puo' correggere e riprovare"
+
+
+def test_il_rifiuto_del_materiale_si_legge_dentro_il_riquadro_e_non_solo_in_cima(tmp_path):
+    """Ingresso degenere: il server rifiuta la scrittura del materiale.
+
+    Il bottone sta in fondo al fieldset e la regione `#errore` sta in testa
+    all'aside, fuori da `#dettaglio`: fra i due ci sono il titolo, le azioni, la
+    durata, i fieldset dei blocchi e il riquadro intero. La colonna scorre e la
+    regione non e' sticky, quindi scriverci dentro non sposta niente sotto gli
+    occhi di chi ha appena premuto. Un utente ci ha perso mezza giornata.
+
+    Il rifiuto va dove va quello di ogni altra riga del programma: nello slot
+    `errore-campo` accanto al comando che lo ha provocato, legato con
+    `aria-errormessage` -- gli stessi tre canali di `segnalaCampo`, che il
+    pannello usa gia' per i campi scalari.
+
+    Mutazione che lo uccide: tornare a `dichiaraErrore(rifiuto)`. Il testo
+    sarebbe a video lo stesso, ma fuori inquadratura.
+    """
+    percorso = tmp_path / "config.yaml"
+    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"))
+    cfg.run.out_dir = tmp_path / "corsa"
+    save_config(cfg, percorso)
+    cliente = TestClient(create_app(percorso), base_url=BASE_LOCALE, raise_server_exceptions=False)
+    configurazione = cliente.get("/api/config").json()
+    corpo = dict(configurazione)
+    corpo["analysis"] = {"material": {
+        "name": "CLS", "young": -1.0, "poisson": 0.2, "density": 2.5e-9,
+    }}
+    rifiuto = cliente.put("/api/config", json=corpo)
+    assert rifiuto.status_code == 422, "un modulo elastico negativo e' stato accettato"
+
+    a_video = json.loads(_esegui(tmp_path, _banco_del_materiale(
+        configurazione, ["CLS", "-1", "0.2", "2.5e-9"],
+        "{ ok: false, status: 422, text: async () => " + json.dumps(rifiuto.text) + " }",
+    ) + """
+const messaggio = gruppo.children.find((f) => f.className === "errore-campo");
+assert.ok(messaggio !== undefined, "nel riquadro non c'e' nessuno slot per il rifiuto");
+process.stdout.write(JSON.stringify({
+  dentro: messaggio.textContent,
+  nascosto: messaggio.hidden,
+  in_cima: rigaErrore.textContent,
+  legato: bottone.getAttribute("aria-errormessage"),
+  invalido: bottone.getAttribute("aria-invalid"),
+  identita: messaggio.attributi.id ?? messaggio.id,
+}));
+"""))
+
+    assert "deve superare 0" in a_video["dentro"], (
+        f"la ragione del server non arriva dentro il riquadro: {a_video['dentro']}"
+    )
+    assert a_video["nascosto"] is False, "lo slot del rifiuto resta nascosto"
+    assert a_video["in_cima"] == "", (
+        f"il rifiuto e' finito anche in cima al pannello: {a_video['in_cima']}"
+    )
+    assert a_video["legato"] == a_video["identita"], (
+        "il bottone non punta allo slot: chi naviga a tastiera non trova la ragione"
+    )
+    assert a_video["invalido"] == "true", "il bottone non si dichiara rifiutato"
 
 
 def test_una_corsa_illeggibile_resta_nell_elenco_d_ingresso_e_non_si_apre(tmp_path):
@@ -7424,6 +7506,13 @@ def test_senza_catalogo_il_menu_resta_alla_sola_voce_vuota(tmp_path):
     Mutazione che lo uccide: riempire il menu' senza guardare l'esito della
     richiesta -- `corpoLetto` su una risposta di errore, e il pannello cade
     invece di degradare.
+
+    **E la voce che resta non invita a scegliere.** «— scegli una classe —» in
+    un menu' dove non c'e' niente da scegliere e' un invito a un gesto
+    impossibile, indistinguibile dal catalogo che sta ancora arrivando, mentre
+    l'aiuto continua a promettere «Scelta la classe, i tre valori restano
+    modificabili». Il testo della voce dice invece che cosa e' successo e che
+    cosa resta da fare.
     """
     uscita = _esegui(tmp_path, _banco_del_materiale(
         {"analysis": None},
@@ -7437,7 +7526,251 @@ const menu = gruppo.children.find((f) => f.className === "campo campo-catalogo")
 assert.equal(menu.figli.length, 1, `il menu' non e' rimasto alla sola voce vuota: ${menu.figli.length}`);
 assert.equal(menu.figli[0].attributi.value ?? menu.figli[0].value, "",
   "la voce rimasta non e' quella vuota");
-process.stdout.write(JSON.stringify(richieste[0].corpo));
+process.stdout.write(JSON.stringify(
+  { corpo: richieste[0].corpo, voce: menu.figli[0].textContent }));
 """)
-    materiale = json.loads(uscita)["analysis"]["material"]
+    letto = json.loads(uscita)
+    materiale = letto["corpo"]["analysis"]["material"]
     assert materiale["name"] == "CLS", f"le caselle a mano non partono piu': {materiale}"
+    assert "scegli" not in letto["voce"], (
+        f"il menu' vuoto invita ancora a scegliere: {letto['voce']}"
+    )
+    assert "catalogo non disponibile" in letto["voce"], (
+        f"la voce rimasta non dice che il catalogo non c'e': {letto['voce']}"
+    )
+
+
+def _catalogo_vero(tmp_path: Path) -> tuple[str, list[dict]]:
+    """`/api/materiali` come lo serve il server vero, e la sua risposta in JS.
+
+    Le note di norma non si riscrivono qui: la frase sulla classe minima e la
+    fonte di ogni classe le compone `core/materiali.py`, e un banco che se le
+    inventasse proverebbe la propria copia invece del catalogo che arriva al
+    menu'.
+    """
+    percorso = tmp_path / "config.yaml"
+    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"))
+    cfg.run.out_dir = tmp_path / "corsa"
+    save_config(cfg, percorso)
+    cliente = TestClient(create_app(percorso), base_url=BASE_LOCALE, raise_server_exceptions=False)
+    voci = cliente.get("/api/materiali").json()["voci"]
+    assert voci, "il catalogo e' vuoto: non c'e' nessuna fonte da mostrare"
+    return (
+        "{ ok: true, status: 200, json: async () => ({ voci: " + json.dumps(voci) + " }) }",
+        voci,
+    )
+
+
+def test_la_fonte_della_classe_scelta_compare_sotto_il_menu_e_cambia_con_la_classe(tmp_path):
+    """Ingresso degenere: si sceglie una classe, e poi un'altra.
+
+    `/api/materiali` serve `fonte` e `nota` per ogni voce, e il docstring della
+    tratta dice perche': «`fonte` viaggia con i numeri e non e' un ornamento:
+    senza, i tre valori sono indistinguibili da valori inventati». Il pannello
+    le buttava tutte e due -- la stringa `fonte` non compariva da nessuna parte
+    in `app.js` -- e i tre numeri che il menu' scriveva nelle caselle
+    arrivavano senza niente che li giustificasse.
+
+    Mutazione che lo uccide: riempire la riga della provenienza una volta sola,
+    alla prima scelta. Chi cambia classe leggerebbe la fonte della precedente.
+    """
+    catalogo, voci = _catalogo_vero(tmp_path)
+    prima, seconda = voci[0]["classe"], voci[-1]["classe"]
+    assert prima != seconda, "il catalogo porta una classe sola: non c'e' cambio da provare"
+
+    letto = json.loads(_esegui(tmp_path, _banco_del_materiale(
+        {"analysis": None}, ["", "", "", ""], _ACCETTA_JS, catalogo=catalogo,
+    ) + """
+await Promise.resolve();
+await Promise.resolve();
+const righe = gruppo.children;
+const posto = righe.findIndex((f) => f.className === "campo campo-catalogo");
+const menu = righe[posto].children[1];
+const fonte = righe[posto + 1];
+assert.equal(fonte.className, "aiuto",
+  "sotto il menu' non c'e' nessuna riga per la provenienza della classe");
+menu.value = PRIMA;
+await menu.scatena("change");
+const una = fonte.textContent;
+menu.value = SECONDA;
+await menu.scatena("change");
+process.stdout.write(JSON.stringify({ una, due: fonte.textContent }));
+""".replace("PRIMA", json.dumps(prima)).replace("SECONDA", json.dumps(seconda))))
+
+    assert voci[0]["fonte"] in letto["una"], (
+        f"la fonte della classe scelta non arriva a video: {letto['una']!r}"
+    )
+    assert letto["due"] != letto["una"], (
+        "cambiando classe la provenienza resta quella di prima: "
+        f"{letto['due']!r}"
+    )
+    assert voci[-1]["fonte"] in letto["due"], (
+        f"la fonte della seconda classe non arriva a video: {letto['due']!r}"
+    )
+
+
+def test_l_avviso_della_classe_sotto_la_minima_arriva_a_chi_sceglie_C8_10(tmp_path):
+    """Ingresso degenere: si sceglie la classe piu' bassa del catalogo.
+
+    La `nota` di C8/10 dice che sta «Sotto la classe minima per le strutture
+    semplicemente armate, che la Tab. 4.1.II fissa a C16/20». Buttata dal
+    pannello, chi sceglie quella voce dichiara un calcestruzzo fuori norma
+    senza un segnale -- e il catalogo la nota la porta proprio perche' «altrove
+    nessuno la leggerebbe» (`_nota_di_classe`).
+
+    Mutazione che lo uccide: mostrare la sola `fonte`. La fonte di C8/10 e'
+    quella di tutte le altre classi in tabella, e l'avviso sparirebbe.
+    """
+    catalogo, voci = _catalogo_vero(tmp_path)
+    bassa = next(v for v in voci if v["classe"] == "C8/10")
+    assert "Sotto la classe minima" in bassa["nota"], (
+        f"la nota di C8/10 non porta piu' l'avviso: {bassa['nota']}"
+    )
+
+    detto = json.loads(_esegui(tmp_path, _banco_del_materiale(
+        {"analysis": None}, ["", "", "", ""], _ACCETTA_JS, catalogo=catalogo,
+    ) + """
+await Promise.resolve();
+await Promise.resolve();
+const righe = gruppo.children;
+const posto = righe.findIndex((f) => f.className === "campo campo-catalogo");
+righe[posto].children[1].value = "C8/10";
+await righe[posto].children[1].scatena("change");
+process.stdout.write(JSON.stringify(righe[posto + 1].textContent));
+"""))
+
+    assert "Sotto la classe minima per le strutture semplicemente armate" in detto, (
+        f"chi sceglie C8/10 non legge che sta sotto la classe minima: {detto!r}"
+    )
+
+
+def test_il_materiale_battuto_a_mano_non_afferma_nessuna_fonte(tmp_path):
+    """Ingresso degenere: nessuna classe scelta, quattro valori battuti.
+
+    Il catalogo non e' un cancello e `runs/muro` dichiara una muratura che
+    nessuna tabella NTC contiene: la riga della provenienza deve restare muta,
+    perche' una fonte affermata sopra numeri che nessuna norma sostiene e' la
+    bugia esatta che quella riga esiste per impedire. Vale anche per chi torna
+    sulla voce vuota dopo aver scelto -- le caselle restano piene, ma scelto
+    non c'e' piu' niente.
+
+    Mutazione che lo uccide: riempire la provenienza dopo la guardia sulla voce
+    vuota, dove il gestore e' gia' uscito.
+    """
+    catalogo, _voci = _catalogo_vero(tmp_path)
+    letto = json.loads(_esegui(tmp_path, _banco_del_materiale(
+        {"analysis": None}, ["muratura", "1500", "0.2", "1.8e-9"], _ACCETTA_JS,
+        catalogo=catalogo,
+    ) + """
+await Promise.resolve();
+await Promise.resolve();
+const righe = gruppo.children;
+const posto = righe.findIndex((f) => f.className === "campo campo-catalogo");
+const menu = righe[posto].children[1];
+const fonte = righe[posto + 1];
+const mai = fonte.textContent;
+menu.value = "C25/30";
+await menu.scatena("change");
+menu.value = "";
+await menu.scatena("change");
+process.stdout.write(JSON.stringify({ mai, tornato: fonte.textContent }));
+"""))
+
+    assert letto["mai"] == "", (
+        f"il pannello afferma una fonte senza che nessuna classe sia scelta: {letto['mai']!r}"
+    )
+    assert letto["tornato"] == "", (
+        f"tornati alla voce vuota resta affermata la fonte di prima: {letto['tornato']!r}"
+    )
+
+
+def test_una_voce_senza_fonte_ne_nota_non_lascia_uno_spazio_ne_undefined(tmp_path):
+    """Ingresso degenere: una voce di catalogo senza `fonte` e senza `nota`.
+
+    Le due chiavi arrivano da un endpoint e non da una costante: una voce che
+    non le porta e' la stessa famiglia di caso della voce senza `classe`, gia'
+    filtrata in `catalogoMateriali`. `undefined` scritto sotto il menu' sarebbe
+    peggio del silenzio, e una riga vuota con dello spazio sotto direbbe che
+    manca qualcosa.
+
+    Mutazione che lo uccide: comporre la riga con un template letterale invece
+    di scartare le chiavi assenti.
+    """
+    detto = json.loads(_esegui(tmp_path, _banco_del_materiale(
+        {"analysis": None}, ["", "", "", ""], _ACCETTA_JS,
+    ) + """
+await Promise.resolve();
+await Promise.resolve();
+const righe = gruppo.children;
+const posto = righe.findIndex((f) => f.className === "campo campo-catalogo");
+righe[posto].children[1].value = "C25/30";
+await righe[posto].children[1].scatena("change");
+process.stdout.write(JSON.stringify(righe[posto + 1].textContent));
+"""))
+
+    assert detto == "", (
+        f"una voce senza fonte ne' nota lascia qualcosa sotto il menu': {detto!r}"
+    )
+
+
+def test_ogni_scrittura_riuscita_del_materiale_si_vede_anche_dalla_seconda(tmp_path):
+    """Ingresso degenere: si preme il bottone due volte di seguito, e riesce.
+
+    La prima dichiarazione cambiava due cose visibili -- il bottone da
+    «Dichiara» ad «Aggiorna», l'aiuto da «Non dichiarato» a «Dichiarato da chi
+    analizza» -- e ogni salvataggio successivo non cambiava niente: stesso
+    bottone, stesso aiuto, stesse caselle. L'assenza d'errore non e' una
+    conferma. Il Ritaglio, due riquadri piu' in la', dice invece la propria
+    frase d'esito accanto al bottone, ed e' la cosa che qui mancava.
+
+    L'esito e' una variabile di modulo e non un nodo perche' il pannello che lo
+    scrive viene distrutto dal ridisegno che deve mostrarlo: `apriDettaglio`
+    rifa' il fieldset da capo. Il ridisegno lo consuma, cosi' la frase resta
+    quella di una scrittura appena avvenuta e non la lapide di una vecchia.
+
+    Mutazione che lo uccide: scrivere l'esito in un nodo del pannello prima di
+    `apriDettaglio`. Sparirebbe nello stesso istante in cui compare.
+    """
+    _esegui(tmp_path, _banco_del_materiale(
+        {"analysis": None}, ["CLS", "30000", "0.2", "2.5e-9"], _ACCETTA_JS,
+    ) + """
+const detta = (g) => g.children.map((f) => f.textContent).join(" ");
+assert.equal(riaperto, 11, "il pannello non si e' ridisegnato dopo la scrittura");
+const dopoUna = pannelloMateriale(11, generazione);
+assert.match(detta(dopoUna), /scritto nella configurazione della corsa/,
+  "la prima scrittura riuscita non lascia niente di visibile");
+const senzaScrivere = pannelloMateriale(11, generazione);
+assert.doesNotMatch(detta(senzaScrivere), /scritto nella configurazione della corsa/,
+  "l'esito resta appeso a ogni riapertura: non dice piu' di una scrittura appena avvenuta");
+
+await bottone.scatena("click");
+assert.equal(richieste.length, 2, "la seconda scrittura non e' partita");
+const dopoDue = pannelloMateriale(11, generazione);
+assert.match(detta(dopoDue), /scritto nella configurazione della corsa/,
+  "la seconda scrittura riuscita non lascia niente di visibile");
+""")
+
+
+def test_il_menu_della_classe_si_stacca_dai_quattro_valori_e_non_cita_la_tabella_sbagliata():
+    """Due difetti che stanno nella stessa riga del pannello.
+
+    **Lo stacco.** `campo-catalogo` era una classe senza regola nel foglio: la
+    riga della classe rendeva identica alle quattro caselle, cinque righe
+    uguali in un riquadro il cui aiuto dice «questi quattro valori». Il
+    commento nel codice affermava la distinzione e nulla la rendeva.
+
+    **La tabella.** L'etichetta diceva «classe (NTC 2018, Tab. 4.1.I)» e sotto
+    comparivano E, Poisson e densita': la Tab. 4.1.I e' l'elenco delle classi,
+    mentre E viene dal §11.2.10.1, Poisson dal §11.2.10.4 e la densita' dalla
+    Tab. 3.1.I -- lo dice la `fonte` che il catalogo serve. Chi citava quella
+    riga in tesi citava la tabella sbagliata per tre numeri su quattro. La
+    fonte vera la porta adesso la voce scelta, e l'etichetta non la anticipa.
+    """
+    modulo = _modulo()
+    assert "Tab. 4.1.I" not in _senza_commenti_js(modulo), (
+        "l'etichetta del menu' attribuisce ancora alla Tab. 4.1.I numeri che non vengono da li'"
+    )
+    foglio = (UI_DIR / "stile.css").read_text(encoding="utf-8")
+    assert "campo-catalogo" in foglio, (
+        "`campo-catalogo` non veste niente: la riga della classe si legge come un quinto valore"
+    )
