@@ -319,6 +319,11 @@ _DOM += _costante("elemento") + "\n"
 # quindi ogni banco che disegna la colonna le vuole. Prese dal sorgente vero e non
 # riscritte qui, per la stessa ragione di `elemento`.
 _DOM += _costante("STEP_DELL_ANALISI") + "\n" + _costante("STEP_DEL_PRIOR") + "\n"
+# L'interruttore della linea dell'analisi: `disegnaStep` lo legge accanto alle due
+# chiavi qui sopra, nello stesso filtro, quindi vive nella stessa riga di banco.
+# Dimenticarlo non da' un rosso sul comportamento ma un ReferenceError -- ed e'
+# gia' successo: il banco costruiva un modulo in cui la costante non esisteva.
+_DOM += _costante("MOSTRA_LINEA_ANALISI") + "\n"
 
 
 # --------------------------------------------------------------------------
