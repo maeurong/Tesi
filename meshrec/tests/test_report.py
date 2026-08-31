@@ -6,7 +6,7 @@ import json
 import re
 import struct
 import zlib
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import get_args
 
@@ -372,8 +372,50 @@ def test_ogni_cifra_delle_metriche_viene_riletta_dal_disco(tmp_path):
     )
     secondo = report.write_run_report(corsa, viste=[]).read_text(encoding="utf-8")
 
-    assert "6.329.096" in primo and "41" not in primo
-    assert "41" in secondo and "6.329.096" not in secondo
+    # Il perimetro e' la sezione delle metriche, non il documento intero: "41"
+    # e' un ago di due caratteri, e la riga di provenienza sotto il titolone
+    # porta l'ora dell'orologio della macchina. Dentro il minuto :41 il
+    # documento contiene "41" comunque, e cercandolo li' dentro le due
+    # asserzioni mentono in due modi opposti: la prima colora di rosso un
+    # report giusto, la seconda resta verde anche se il report avesse
+    # dimenticato il numero. Lette nella sola sezione, rispondono di nuovo
+    # alla domanda vera, cioe' se la cifra viene dal disco.
+    assert "6.329.096" in _visibile(primo) and "41" not in _visibile(primo)
+    assert "41" in _visibile(secondo) and "6.329.096" not in _visibile(secondo)
+
+
+def test_lo_stesso_documento_al_minuto_41(tmp_path, monkeypatch):
+    """Regressione: il test qui sopra dipendeva dall'orologio, non solo dal disco.
+
+    `_provenienza` stampa `datetime.now().strftime("%Y-%m-%d %H:%M")` nella riga
+    sotto il titolone (core/report.py). Finche' l'ago "41" veniva cercato in
+    tutto il documento, riga di provenienza compresa, nei sessanta secondi del
+    minuto :41 la stessa identica revisione falliva su qualunque macchina e nei
+    cinquantanove minuti restanti passava: il fallimento intermittente visto in
+    CI, con i lavori dello stesso run rossi insieme e il run successivo verde.
+
+    Qui l'orologio e' fissato dentro quel minuto, quindi la condizione non e'
+    piu' intermittente: la provenienza contiene "41" a ogni esecuzione, e il
+    contratto regge solo perche' sta fuori dal perimetro delle metriche.
+    """
+
+    class _Fermo(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 8, 31, 14, 41)
+
+    monkeypatch.setattr(report, "datetime", _Fermo)
+    corsa = _corsa(tmp_path, metriche={"01_load": {"points_kept": 6329096}})
+    primo = report.write_run_report(corsa, viste=[]).read_text(encoding="utf-8")
+
+    (corsa / pipeline.METRICS_FILENAME).write_text(
+        json.dumps({"01_load": {"points_kept": 41}}), encoding="utf-8"
+    )
+    secondo = report.write_run_report(corsa, viste=[]).read_text(encoding="utf-8")
+
+    assert "14:41" in primo and "14:41" in secondo
+    assert "6.329.096" in _visibile(primo) and "41" not in _visibile(primo)
+    assert "41" in _visibile(secondo) and "6.329.096" not in _visibile(secondo)
 
 
 def test_ogni_parametro_viene_riletto_da_config_yaml(tmp_path):
