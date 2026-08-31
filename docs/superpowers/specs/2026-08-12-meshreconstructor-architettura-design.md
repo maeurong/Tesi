@@ -55,7 +55,8 @@ Il materiale di partenza è quello condiviso dai tutor per la tesi:
 
 ## 2. Obiettivo
 
-Realizzare una pipeline riproducibile da nuvola di punti a modello FEM di muratura, con
+Realizzare una pipeline riproducibile da nuvola di punti a modello FEM di strutture in
+cemento armato, con
 applicazione grafica locale, e usarla come strumento del caso studio della tesi. Il contributo
 è duplice: il metodo (pipeline documentata, parametrizzata e validata) e i risultati ottenuti
 applicandolo.

@@ -470,8 +470,8 @@ class Modale(_ModelloBase):
 
     La frazione non sale liscia al crescere dei modi: sale a **gradini**,
     perche' i modi entrano in coppie e ognuna porta la sua quota in un colpo.
-    Su due corpi -- il telaio in calcestruzzo e il ritaglio intero in muratura
-    -- la direzione traslazionale peggiore misura:
+    Su due corpi -- il telaio col materiale calcestruzzo e il ritaglio intero
+    col materiale muratura -- la direzione traslazionale peggiore misura:
 
     ==========  =====================  =====================
     modi        telaio (14.103 nodi)   ritaglio (13.264 nodi)
