@@ -329,3 +329,116 @@ def test_un_campo_bloccato_si_vede_bloccato():
     assert "background" in regola.group(1), (
         "il campo bloccato non cambia fondo: bloccato senza dirlo"
     )
+
+
+def _composito(sopra: str, quota: float, sotto: str) -> str:
+    """Il colore che si vede dove una tinta trasparente sta su un fondo opaco.
+
+    `color-mix(in srgb, X n%, transparent)` vale X con alpha n/100: il mix è
+    premoltiplicato, quindi i canali tornano X esatti una volta divisi per
+    l'alpha. Sopra un fondo opaco resta la media pesata canale per canale, ed è
+    quella che l'occhio misura -- non X, che sul fondo non ci arriva mai puro.
+    """
+    su = [int(sopra.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4)]
+    giu = [int(sotto.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4)]
+    return "#" + "".join(f"{round(quota * a + (1 - quota) * b):02x}" for a, b in zip(su, giu))
+
+
+def _colori_del_foglio() -> dict[str, str]:
+    """I token esadecimali di `:root`, più i tre fondi che il foglio compone.
+
+    `--evidenza`, `--selezione` e `--spento` non sono un colore finché non si sa
+    su cosa stanno. In questo foglio stanno sulla carta bianca: `.zona-step`,
+    `.zona-dettaglio` e `.ingresso` dichiarano tutte `--superficie`, e la riga
+    aperta, la riga sotto il puntatore, il candidato di fronte e il campo
+    bloccato vivono lì dentro.
+    """
+    testo = _senza_commenti()
+    token = dict(re.findall(r"^\s*(--[\w-]+):\s*(#[0-9a-fA-F]{6});", testo, re.MULTILINE))
+    for nome in ("--evidenza", "--selezione", "--spento"):
+        composto = re.search(
+            rf"{nome}:\s*color-mix\(in srgb, var\((--[\w-]+)\) (\d+)%, transparent\)", testo
+        )
+        assert composto is not None, f"{nome} non e' piu' una tinta trasparente composta in :root"
+        token[f"{nome}-su-superficie"] = _composito(
+            token[composto.group(1)], int(composto.group(2)) / 100, token["--superficie"]
+        )
+    return token
+
+
+def test_la_colonna_degli_stati_si_legge_anche_sul_fondo_della_riga_aperta():
+    """Le parole di stato sono testo normale, non decorazione: la soglia è 4,5:1.
+
+    La colonna degli step dice a che punto sta la corsa con due canali, il
+    pallino e la parola in fondo alla riga. Il foglio giudicava tutti e due
+    contro il 3:1 di WCAG 1.4.11, che è la soglia di ciò che porta uno stato
+    *graficamente*: giusta per il pallino, sbagliata per la parola. `--tipo-nota`
+    è 13px, e «large text» comincia a 18,66px in grassetto, quindi la parola
+    risponde a 1.4.3 e vuole 4,5:1. Sul fondo della riga aperta -- il più scuro
+    del foglio -- «mai eseguito» valeva 4,21:1 e «non valido» 4,11:1: sotto
+    soglia proprio dove il pubblico di una discussione sta guardando.
+
+    Il pallino porta le stesse quattro tinte sugli stessi quattro fondi: 4,5:1
+    gli sta sopra il suo 3:1 per costruzione, e non serve un secondo controllo.
+
+    Mutazione che lo uccide: schiarire `--tenue` o `--avviso`, o alzare la quota
+    di `--selezione`.
+    """
+    token = _colori_del_foglio()
+    fondi = {
+        "riga ferma": token["--superficie"],
+        "riga sotto il puntatore": token["--evidenza-su-superficie"],
+        "riga aperta": token["--selezione-su-superficie"],
+        "campo bloccato": token["--spento-su-superficie"],
+    }
+    for dove, fondo in fondi.items():
+        for davanti in ("--tenue", "--accento", "--avviso", "--guasto"):
+            rapporto = _rapporto(token[davanti], fondo)
+            assert rapporto >= 4.5, (
+                f"{davanti} sulla {dove} ({fondo}) vale {rapporto:.2f}:1, sotto il 4,5:1 "
+                "che WCAG 1.4.3 chiede a un testo di 13px"
+            )
+
+
+# Il foglio porta i rapporti misurati accanto alle regole: è la sua forma di
+# prova, e senza un cancello è una prova che nessuno rifà. Qui stanno le coppie
+# che la riga aperta mette in gioco, quelle che questo cambio ha toccato.
+RAPPORTI_SCRITTI = (
+    ("--testo", "--superficie", "17,21"),
+    ("--tenue", "--superficie", "6,55"),
+    ("--accento", "--superficie", "7,49"),
+    ("--avviso", "--superficie", "6,59"),
+    ("--guasto", "--superficie", "7,71"),
+    ("--testo", "--selezione-su-superficie", "13,06"),
+    ("--tenue", "--selezione-su-superficie", "4,97"),
+    ("--accento", "--selezione-su-superficie", "5,69"),
+    ("--avviso", "--selezione-su-superficie", "5,00"),
+    ("--guasto", "--selezione-su-superficie", "5,85"),
+    ("--bordo-comando", "--selezione-su-superficie", "2,46"),
+    ("--tenue", "--spento-su-superficie", "5,85"),
+    ("--tenue", "--accento", "1,14"),
+)
+
+
+def test_i_rapporti_scritti_intorno_alla_riga_aperta_sono_quelli_dei_colori_dichiarati():
+    """Un commento che porta un numero è vero finché nessuno tocca il token.
+
+    I rapporti stanno scritti accanto alle regole perché il foglio si legge come
+    un documento e non come una tabella di valori; ma un numero scritto non cade
+    quando il colore sotto cambia, e un foglio che afferma 4,21:1 dove ne misura
+    4,97:1 è peggio di un foglio che tace. Questo controllo li rifà tutti.
+
+    Mutazione che lo uccide: cambiare un token senza riscrivere il numero, o
+    riscrivere il numero senza cambiare il token.
+    """
+    token = _colori_del_foglio()
+    grezzo = (UI_DIR / "stile.css").read_text(encoding="utf-8")
+    for davanti, fondo, scritto in RAPPORTI_SCRITTI:
+        calcolato = f"{_rapporto(token[davanti], token[fondo]):.2f}".replace(".", ",")
+        assert calcolato == scritto, (
+            f"{davanti} su {fondo} misura {calcolato}:1, e il foglio scrive {scritto}:1"
+        )
+        assert f"{scritto}:1" in grezzo, (
+            f"il rapporto di {davanti} su {fondo} ({scritto}:1) non e' piu' scritto "
+            "da nessuna parte nel foglio: la misura resta e la prova sparisce"
+        )
