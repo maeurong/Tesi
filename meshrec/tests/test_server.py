@@ -3087,9 +3087,13 @@ def test_la_galleria_mostra_il_candidato_di_fronte_su_lab_crop():
     celle = corpo["celle"][fronte[0]]
 
     assert celle[indice_colonne["axes"]] == "surface.poisson_depth=7"
-    assert celle[indice_colonne["tets"]] == "50630"
-    assert celle[indice_colonne["over"]] == "0.06844"
-    assert celle[indice_colonne["thickness_error"]] == "1.192"
+    # All'italiana dal 31/08/2026, e non e' un dettaglio di questa tratta: la
+    # tabella che il browser riceve la formatta `report._cell`, la stessa che
+    # scrive l'appendice. Le due rese non possono divergere, ed e' proprio
+    # questo che il riuso di `_COLUMNS`/`_cell` esiste per garantire.
+    assert celle[indice_colonne["tets"]] == "50.630"
+    assert celle[indice_colonne["over"]] == "0,06844"
+    assert celle[indice_colonne["thickness_error"]] == "1,192"
 
 
 def _cartella_di_corsa(cliente) -> Path:

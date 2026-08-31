@@ -360,8 +360,12 @@ def test_il_report_mostra_il_peggiore_e_non_solo_la_mediana():
     muove di un grado. Un controllo che non puo' cambiare esito non e' un
     controllo.
     """
+    # Virgola e non punto dal 31/08/2026: i tre documenti dell'appendice
+    # scrivono i numeri all'italiana, perche' sono un'appendice italiana
+    # stampata e `1.1943` vi si legge «milleduecento». Il valore non e'
+    # cambiato, e' cambiato come si scrive.
     cella = report._cell(_riga({"min": 0.16, "median": 42.31}), "dihedral")
-    assert "0.16" in cella and "42.31" in cella
+    assert "0,16" in cella and "42,31" in cella
 
 
 def test_una_riga_vecchia_senza_il_peggiore_non_fabbrica_un_valore():

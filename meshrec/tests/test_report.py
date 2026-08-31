@@ -372,8 +372,8 @@ def test_ogni_cifra_delle_metriche_viene_riletta_dal_disco(tmp_path):
     )
     secondo = report.write_run_report(corsa, viste=[]).read_text(encoding="utf-8")
 
-    assert "6329096" in primo and "41" not in primo
-    assert "41" in secondo and "6329096" not in secondo
+    assert "6.329.096" in primo and "41" not in primo
+    assert "41" in secondo and "6.329.096" not in secondo
 
 
 def test_ogni_parametro_viene_riletto_da_config_yaml(tmp_path):
@@ -387,8 +387,8 @@ def test_ogni_parametro_viene_riletto_da_config_yaml(tmp_path):
 
     etichetta = PipelineConfig.model_fields["tet"].annotation.model_fields["min_ratio"].title
     assert etichetta in primo
-    assert "1.8" in primo and "2.7" not in primo
-    assert "2.7" in secondo and "1.8" not in secondo
+    assert "1,8" in primo and "2,7" not in primo
+    assert "2,7" in secondo and "1,8" not in secondo
 
 
 def test_gli_istogrammi_nascono_dalle_liste_trovate_nelle_metriche(tmp_path):
@@ -504,7 +504,7 @@ def test_una_configurazione_non_valida_rende_la_coerenza_non_verificabile(tmp_pa
 
     etichetta = PipelineConfig.model_fields["tet"].annotation.model_fields["min_ratio"].title
     assert f"{report.NON_VERIFICABILE}: {report.CONFIG_FILENAME}" in testo
-    assert etichetta in testo and "1.8" in testo
+    assert etichetta in testo and "1,8" in testo
     assert report.COERENTI not in testo
 
 
@@ -745,7 +745,7 @@ def test_un_numero_grande_non_passa_alla_notazione_esponenziale(tmp_path):
     testo = report.write_run_report(corsa, viste=[]).read_text(encoding="utf-8")
 
     assert "e+08" not in testo
-    assert "168846000" in testo
+    assert "168.846.000" in testo
 
 
 # --- eseguito e misurato sono due domande diverse --------------------------
@@ -1434,7 +1434,11 @@ def test_l_etichetta_della_riga_nomina_cio_che_la_cella_contiene(tmp_path):
             f"la cella porta il campo '{campo}' e l'etichetta «{etichetta}» non lo nomina: "
             "l'intestazione promette una grandezza diversa da quella stampata"
         )
-    celle = ["nodi 1000, elemento C3D4", "nodi 7000, elemento C3D8I", "nodi 7000, elemento C3D8I"]
+    celle = [
+        "nodi 1.000, elemento C3D4",
+        "nodi 7.000, elemento C3D8I",
+        "nodi 7.000, elemento C3D8I",
+    ]
     assert (etichetta, celle) in _righe_grandezze(testo)
 
 
@@ -1848,7 +1852,11 @@ def test_ogni_colonna_di_misure_dello_sweep_porta_l_unita(tmp_path):
 
     testo = report.write_report(registro, tmp_path / "sweep.html").read_text(encoding="utf-8")
 
-    numero = r"-?[\d.]+(?:e[+-]?\d+)?"
+    # I numeri dei documenti sono in italiano: virgola sui decimali e punto
+    # ogni tre cifre. Un riconoscitore che ammette il solo punto vedrebbe
+    # «0,08098» come una cella non numerica e la colonna sparirebbe dal conto
+    # invece di pretendere la sua unita'.
+    numero = r"-?[\d.,]+(?:e[+-]?\d+)?"
     colonne = list(zip(*_corpo_sweep(testo)))
     etichette = [etichetta for _, etichetta in report._COLUMNS]
     misure = [
@@ -1857,7 +1865,7 @@ def test_ogni_colonna_di_misure_dello_sweep_porta_l_unita(tmp_path):
         if all(re.fullmatch(rf"{numero}(?: / {numero})?", cella) for cella in celle)
         # un conteggio non ha unita': «tetraedri [pezzi]» sarebbe rumore.
         # Sono le grandezze misurate a doverla portare
-        and not all(re.fullmatch(r"-?\d+", cella) for cella in celle)
+        and not all(re.fullmatch(r"-?\d{1,3}(?:\.\d{3})*", cella) for cella in celle)
     ]
     assert len(misure) == 4, f"colonne di misure trovate: {misure}"
     senza = [etichetta for etichetta in misure if "[" not in etichetta]
@@ -1892,7 +1900,7 @@ def test_un_parametro_con_title_si_stampa_con_la_sua_etichetta(tmp_path):
 
     etichetta = PipelineConfig.model_fields["input"].annotation.model_fields["max_points"].title
     assert etichetta, "il campo non ha piu' un title: la prova non prova piu' niente"
-    assert _blocchi_dei_parametri(testo)["input"] == [(etichetta, "20000000")]
+    assert _blocchi_dei_parametri(testo)["input"] == [(etichetta, "20.000.000")]
     assert "max_points" not in testo
 
 
@@ -1931,7 +1939,7 @@ def test_un_parametro_senza_title_si_stampa_con_la_chiave(tmp_path):
     assert not modello.model_fields["target_size"].title, (
         "il campo ha un title: la prova non prova piu' niente"
     )
-    assert ("target_size", "12.5") in blocchi["model"]
+    assert ("target_size", "12,5") in blocchi["model"]
     assert blocchi["bislacco"] == [("chiave", "3")]
     assert "None" not in testo
 
@@ -2131,3 +2139,181 @@ def test_il_filetto_del_fronte_lascia_inchiostro_sulla_carta(tmp_path):
     assert filetti, "il fronte non dichiara nessun filetto: stampato resta il solo peso"
     spenti = [voce for voce in filetti if voce[2] in ("none", "0", "0px")]
     assert not spenti, f"il fronte dichiara filetti che non lasciano inchiostro: {spenti}"
+
+
+# --- i numeri dei tre documenti si leggono in italiano ---------------------
+#
+# I documenti sono un'appendice italiana stampata, e la prosa del progetto
+# scrive gia' «8,10%» e «1.752.795 tetraedri». Le tabelle scrivevano invece
+# `1.1943` e `0.08098`: in un documento italiano `1.1943` si legge
+# «milleduecento», cioe' il segno dice l'opposto di quel che significa.
+#
+# La regola applicata sta in `report._SEGNI_ITALIANI` e nei suoi due usi:
+# virgola sui decimali, punto ogni tre cifre a sinistra della virgola. Il
+# raggruppamento vale per le grandezze, non per gli identificatori.
+
+
+def test_un_intero_di_nove_cifre_porta_i_punti_delle_migliaia():
+    """Mutazione che deve morire: togliere il ramo `int` di `_testo` -- il
+    volume tornerebbe `477700000`, nove cifre di seguito che stampate si
+    contano col dito.
+    """
+    assert report._testo(477700000) == "477.700.000"
+
+
+def test_il_raggruppamento_comincia_gia_dalla_quarta_cifra():
+    """Una regola sola per tutta l'appendice: dalle migliaia in su si
+    raggruppa sempre, intero o decimale che sia. La regola opposta -- lasciare
+    intatti i numeri di quattro cifre -- e' altrettanto in uso, ma due regole
+    nella stessa colonna fanno sembrare `1234` e `12.345` due formati diversi
+    dello stesso dato.
+
+    Mutazione che deve morire: togliere la virgola dalla specifica di formato
+    (`:,.10f` diventa `:.10f`) -- `1234` e `1234,5` passerebbero senza punto.
+    """
+    assert report._testo(1234) == "1.234"
+    assert report._testo(1234.5) == "1.234,5"
+
+
+def test_un_decimale_sotto_l_unita_prende_la_virgola_e_nessun_separatore():
+    """Mutazione che deve morire: togliere `.translate(_SEGNI_ITALIANI)` dal
+    ramo decimale di `_numero` -- resterebbe `0.08098`.
+    """
+    assert report._testo(0.08098) == "0,08098"
+    assert report._testo(1.1943) == "1,1943"
+    assert report._testo(38.26) == "38,26"
+
+
+def test_l_esponenziale_prende_la_virgola_sulla_mantissa_e_lascia_l_esponente():
+    """Fuori da 1e-4 .. 1e12 `_numero` passa alla notazione esponenziale, e li'
+    la resa e' dichiarata invece che casuale: la mantissa e' una grandezza e
+    prende la virgola, l'esponente e' la potenza di dieci che la scala e resta
+    come si scrive. Un punto ogni tre cifre dentro `e-09` non separerebbe
+    niente.
+
+    2,5493e-09 e' la densita' del C25/30 in t/mm^3, che sta in ogni corsa.
+
+    Mutazione che deve morire: togliere `.translate(_SEGNI_ITALIANI)` dal ramo
+    esponenziale -- la mantissa tornerebbe col punto in mezzo a una pagina di
+    virgole.
+    """
+    assert report._testo(2.5493e-09) == "2,5493e-09"
+    assert report._testo(4.2e18) == "4,2e+18"
+
+
+def test_non_un_numero_e_infinito_restano_le_parole_gia_scritte():
+    """Le due costanti vengono prima di ogni formattazione: `nan` e `inf` non
+    sono numeri da rendere in italiano ma esiti da dichiarare.
+
+    Mutazione che deve morire: spostare le due guardie dopo la formattazione --
+    `float('nan')` non ha ne' migliaia ne' decimali e uscirebbe come `nan`.
+    """
+    assert report._testo(float("nan")) == report.NON_UN_NUMERO
+    assert report._testo(float("inf")) == report.INFINITO
+    assert report._testo(float("-inf")) == f"-{report.INFINITO}"
+
+
+def test_un_negativo_porta_insieme_il_segno_i_punti_e_la_virgola():
+    """Il segno non e' un separatore e non deve raccoglierne uno: `-1.234,57`
+    e non `-.1234,57`. Le sei cifre significative valgono come sempre, il
+    segno non conta come cifra.
+
+    Mutazione che deve morire: raggruppare a mano contando le cifre da destra
+    sulla stringa intera, segno compreso.
+    """
+    assert report._testo(-1234.5678) == "-1.234,57"
+    assert report._testo(-477700000) == "-477.700.000"
+
+
+def test_lo_zero_resta_uno_zero():
+    """Mutazione che deve morire: togliere `.rstrip("0").rstrip(".")` --
+    lo zero uscirebbe `0,0000000000`, che stampato afferma dieci decimali
+    misurati.
+    """
+    assert report._testo(0) == "0"
+    assert report._testo(0.0) == "0"
+
+
+def test_quello_che_non_e_una_grandezza_non_viene_raggruppato():
+    """Il separatore va sulle grandezze. Un'impronta, un anno, un numero di
+    versione, un codice di elemento non sono grandezze: raggrupparli
+    spezzerebbe un identificatore in tre pezzi che non si rimettono insieme.
+
+    Nei tre documenti tutti gli identificatori arrivano gia' come stringhe --
+    l'impronta esadecimale del registro, `C3D10`, `C25_30`, il commit della
+    provenienza -- e il ramo che li stampa non tocca nessun separatore.
+
+    Mutazione che deve morire: raggruppare in `_testo` prima di distinguere
+    stringa da numero (per esempio su `str(valore)` con una regex sulle cifre)
+    -- l'anno diventerebbe `2.026` e l'impronta si spezzerebbe.
+    """
+    assert report._testo("2026") == "2026"
+    assert report._testo("1.10.2") == "1.10.2"
+    impronta = "34fde846646a49c15db339663ce8e7d84ad64a8c5f9c8cbd7551176a4b4a47df"
+    assert report._cell({"fingerprint": impronta}, "fingerprint") == impronta
+
+
+def test_la_tabella_dello_sweep_raggruppa_i_tetraedri_e_lascia_stare_l_impronta(tmp_path):
+    """La stessa riga che l'appendice stampa e che /api/experiments serve
+    all'interfaccia: `_cell` e' uno solo per tutti e due.
+
+    Mutazione che deve morire: togliere il ramo `int` di `_cell` -- i
+    tetraedri, che nel registro sono interi e non passano da `_numero`,
+    tornerebbero `1752795`.
+    """
+    registro = _registro(tmp_path, [_riuscito(tets=1752795, over=0.08098)])
+
+    testo = report.write_report(registro, tmp_path / "sweep.html").read_text(encoding="utf-8")
+
+    assert "<td>1.752.795</td>" in testo
+    assert "<td>0,08098</td>" in testo
+    assert "1752795" not in testo
+    # l'impronta e' un identificatore e attraversa la tabella intatta
+    assert "<td>impronta0</td>" in testo
+
+
+def test_il_registro_resta_col_punto_dopo_che_il_documento_e_stato_scritto(tmp_path):
+    """La formattazione e' del documento, non del dato: il `.jsonl` e' la
+    rappresentazione leggibile a macchina e resta in notazione neutra.
+
+    Mutazione che deve morire: formattare in `sweep.append_row` invece che in
+    `report` -- il registro porterebbe le virgole e nessun lettore JSON lo
+    rileggerebbe.
+    """
+    registro = _registro(tmp_path, [_riuscito(tets=1752795, over=0.08098)])
+    prima = registro.read_bytes()
+
+    report.write_report(registro, tmp_path / "sweep.html")
+
+    assert registro.read_bytes() == prima
+    riga = json.loads(prima.decode("utf-8").splitlines()[0])
+    assert riga["metrics"]["10_volume_quality"]["radius_edge_over_reference"] == 0.08098
+    assert "0.08098" in prima.decode("utf-8")
+
+
+def test_i_tetraedri_raggruppati_non_allargano_la_loro_colonna(tmp_path):
+    """Il separatore costa due caratteri sul numero piu' lungo della tabella, e
+    la tabella dello sweep viene stampata: la domanda non e' estetica, e' se le
+    colonne di destra restano sul foglio.
+
+    Misurato in Chrome (--headless, regole di `@media print` applicate, finestra
+    a 717px cioe' la larghezza stampabile di un A4 con margini da 1cm) sul
+    registro di experiments/muro: le otto colonne misurano
+    86,0 | 244,9 | 84,9 | 86,0 | 115,4 | 115,4 | 145,9 | 70,5 px prima del
+    cambiamento e le stesse otto dopo. Zero pixel aggiunti, perche' la colonna
+    dei tetraedri e' larga quanto la parola «TETRAEDRI» che la intesta, e
+    `1.752.795` ha esattamente le nove battute di quella parola.
+
+    Questo test e' la guardia in caratteri di quella misura: e' la cella piu'
+    larga della tabella a decidere la colonna, e finche' non supera la propria
+    intestazione la colonna non cresce.
+
+    Mutazione che deve morire: raggruppare a due cifre invece che a tre, o
+    separare con qualcosa di piu' largo di un punto -- `1.75.27.95` sfonderebbe
+    l'intestazione e con essa il bordo del foglio.
+    """
+    intestazione = dict(report._COLUMNS)["tets"]
+    riga = _riuscito(tets=1752795)
+
+    assert report._cell(riga, "tets") == "1.752.795"
+    assert len(report._cell(riga, "tets")) <= len(intestazione)
