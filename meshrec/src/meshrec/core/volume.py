@@ -110,13 +110,13 @@ def _diagnosi_del_guasto(messaggio: str, nobisect: bool) -> str:
             "suddivisione ricorre fino alla distanza fra lembi opposti della "
             "superficie: dove quella distanza è minuscola non la ferma nessun "
             "valore del vincolo. Accendi tet.nobisect, che vieta a TetGen di "
-            "suddividere le facce di ingresso. Alzare min_ratio non serve: su "
-            "una scansione reale è stato misurato inutile fino a 12,0, sette "
+            "suddividere le facce di ingresso. Alzare tet.min_ratio non serve: su "
+            "una scansione reale è stato misurato inutile fino a 12,0, quasi sette "
             "volte il predefinito (docs/fase-1-min-ratio.md)."
         )
     return (
         "il vincolo raggio-spigolo può essere troppo severo per questa "
-        "geometria, il raffinamento non converge. Alza min_ratio (valori più "
+        "geometria, il raffinamento non converge. Alza tet.min_ratio (valori più "
         "alti = elementi meno regolari ma raffinamento che termina) e riprova."
     )
 

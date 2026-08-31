@@ -1211,6 +1211,73 @@ def test_il_contorno_del_volume_legge_anche_il_tetraedro_quadratico(cliente, tmp
     assert np.array_equal(vertici, angoli.astype("<f4"))
     # Lo stesso verso uscente del caso lineare, misurato allo stesso modo.
     assert quality.mesh_volume(vertici, facce) == pytest.approx(1.0 / 6.0)
+def test_il_contorno_del_volume_rifiuta_un_file_con_due_blocchi_di_celle(cliente, tmp_path):
+    """Il ramo `len(tipi) != 1` non aveva una prova che lo attraversasse.
+
+    `abaqus.write_vtu` scrive un blocco solo, ed è per questo che il blocco si
+    prende per unicità e non per nome: i nomi sarebbero due (`tetra`,
+    `tetra10`) e uno solo è scritto. Un file che ne porta due non è quel file,
+    e prenderne uno a caso significherebbe aprire la vista su metà del modello
+    senza dirlo.
+
+    Mutazione che uccide: `tetraedri = griglia.cells_dict[tipi[0]]` al posto
+    della guardia — la richiesta risponde 200 sul solo blocco `tetra`.
+    """
+    import meshio
+    import numpy as np
+
+    from meshrec.core import pipeline
+
+    corsa = tmp_path / "corsa"
+    corsa.mkdir(exist_ok=True)
+    punti = np.array(
+        [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+    )
+    meshio.write_points_cells(
+        corsa / pipeline.ARTIFACTS[9],
+        punti,
+        [("tetra", np.array([[0, 1, 2, 3]])), ("triangle", np.array([[0, 1, 2]]))],
+    )
+
+    risposta = cliente.get("/api/mesh/9")
+    assert risposta.status_code == 400
+    messaggio = risposta.json()["messaggio"]
+    assert "porta 2 blocchi di celle" in messaggio
+    assert "09_volume.vtu" in messaggio
+
+
+def test_il_contorno_del_volume_rifiuta_un_blocco_che_non_e_di_tetraedri(cliente, tmp_path):
+    """Il ramo `shape[1] != 4` nemmeno: il blocco è unico ma non è di volume.
+
+    L'unicità dice quale blocco prendere, non che quel blocco sia un maglio di
+    tetraedri: un `.vtu` di soli triangoli ne ha uno solo, e le sue celle hanno
+    tre colonne. È il controllo che `pipeline._maglio_di_volume` non aveva e
+    che ora ha, e questa prova fissa il gemello che ce l'aveva già.
+
+    Mutazione che uccide: togliere la guardia — `quality._TET_FACES` indicizza
+    la quarta colonna e la richiesta muore con un `IndexError` invece che con
+    un messaggio.
+    """
+    import meshio
+    import numpy as np
+
+    from meshrec.core import pipeline
+
+    corsa = tmp_path / "corsa"
+    corsa.mkdir(exist_ok=True)
+    punti = np.array(
+        [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+    )
+    meshio.write_points_cells(
+        corsa / pipeline.ARTIFACTS[9], punti, [("triangle", np.array([[0, 1, 2], [1, 2, 3]]))]
+    )
+
+    risposta = cliente.get("/api/mesh/9")
+    assert risposta.status_code == 400
+    corpo = risposta.json()
+    assert corpo["errore"] != "IndexError"
+    assert "non contiene tetraedri" in corpo["messaggio"]
+    assert "triangle" in corpo["messaggio"]
 
 
 def test_la_seconda_richiesta_del_contorno_non_riestrae(cliente, tmp_path, monkeypatch):

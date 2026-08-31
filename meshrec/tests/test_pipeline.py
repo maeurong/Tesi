@@ -463,6 +463,304 @@ def test_quando_la_nuvola_di_riferimento_serve_davvero_il_rifiuto_nomina_chi_la_
     assert "lo step 9 pretende" not in detto
 
 
+# ---------------------------------------------------------------------------
+# La forma delle celle del maglio, e la ripresa dagli step di valle (10, 11, 12).
+# ---------------------------------------------------------------------------
+
+
+def _scrivi_maglio(percorso, tipo, celle):
+    """Un `09_volume.vtu` con un blocco di celle scelto a mano.
+
+    Serve a costruire i file che `abaqus.write_vtu` non scriverebbe mai — un
+    blocco di triangoli, due blocchi invece di uno — perché è esattamente da
+    quei file che la ripresa si deve difendere: il maglio arriva dal disco, e
+    chi lo mette lì non è sempre la corsa precedente di questa pipeline.
+    """
+    import meshio
+
+    punti = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [1.0, 1.0, 0.0],
+            [1.0, 0.0, 1.0],
+        ]
+    )
+    meshio.write(percorso, meshio.Mesh(punti, [(tipo, np.asarray(celle))]))
+
+
+def _corsa_con_maglio(run_dir, tmp_path, tipo, celle):
+    """Una copia della corsa in cui il solo `09_volume.vtu` è stato sostituito."""
+    out, _ = run_dir
+    copia = tmp_path / "corsa"
+    shutil.copytree(out, copia)
+    _scrivi_maglio(copia / pipeline.ARTIFACTS[9], tipo, celle)
+
+    cfg = config.load_config(copia / "config.yaml")
+    cfg.run.out_dir = copia
+    cfg.run.from_step = 10
+    cfg.run.to_step = 10
+    return cfg
+
+
+def test_un_maglio_di_triangoli_non_si_scambia_per_un_maglio_di_volume(run_dir, tmp_path):
+    """Il gemello di `server._contorno_del_volume` non controllava la forma.
+
+    Il blocco si prende per unicità, e l'unicità non dice niente sul numero di
+    colonne: un file con un solo blocco di `triangle` veniva accettato come
+    maglio di volume — misurato `(6, 3) (2, 3)` — e lo step 10 esplodeva più in
+    là con `IndexError: index 3 is out of bounds for axis 1 with size 3`.
+    `_ingresso_di_ripresa` cattura il guasto e lo traduce, ma un `IndexError`
+    che sfugge non attraversa il ramo «esiste ma non si legge»: chi guarda il
+    pannello vede un 500 nudo, senza il nome del file né lo step da rifare.
+
+    Mutazione che uccide: togliere il controllo di forma da `_maglio_di_volume`
+    — la corsa non si ferma qui e muore dentro `quality.volume_metrics`.
+    """
+    cfg = _corsa_con_maglio(run_dir, tmp_path, "triangle", [[0, 1, 2], [3, 4, 5]])
+
+    with pytest.raises(ValueError) as caduta:
+        pipeline.run(cfg)
+
+    detto = str(caduta.value)
+    # Il file lo nomina l'involucro, i tipi e le colonne il lettore: insieme
+    # dicono che cosa c'è nel file e perché non serve.
+    assert "09_volume.vtu" in detto
+    assert "esiste ma non si legge" in detto
+    assert "il blocco ['triangle'] ha 3 nodi per cella" in detto
+
+
+def test_due_blocchi_di_celle_dicono_quanti_ne_ha_trovati(run_dir, tmp_path):
+    """Il ramo `len(tipi) != 1` esisteva senza una prova che lo attraversasse.
+
+    `abaqus.write_vtu` scrive un blocco solo, quindi «l'unico» è una chiave che
+    non ha bisogno di traduzione fra il vocabolario di meshio e quello di
+    Abaqus. Un file che ne porta due non è quel file, e il rifiuto deve dire
+    quanti ne ha trovati invece di prenderne uno a caso.
+
+    Mutazione che uccide: `tipi[0]` al posto della guardia — la corsa prende il
+    primo blocco in ordine alfabetico e prosegue in silenzio.
+    """
+    out, _ = run_dir
+    copia = tmp_path / "corsa"
+    shutil.copytree(out, copia)
+
+    import meshio
+
+    punti = np.array(
+        [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+    )
+    meshio.write(
+        copia / pipeline.ARTIFACTS[9],
+        meshio.Mesh(punti, [("tetra", [[0, 1, 2, 3]]), ("triangle", [[0, 1, 2]])]),
+    )
+
+    cfg = config.load_config(copia / "config.yaml")
+    cfg.run.out_dir = copia
+    cfg.run.from_step = 10
+    cfg.run.to_step = 10
+
+    with pytest.raises(ValueError) as caduta:
+        pipeline.run(cfg)
+
+    detto = str(caduta.value)
+    assert "porta 2 blocchi di celle" in detto
+    assert "09_volume.vtu" in detto
+
+
+def test_un_maglio_senza_celle_si_dichiara_invece_di_rompersi(run_dir, tmp_path):
+    """Un `.vtu` con zero celle: il guasto arriva da meshio, non dalla forma.
+
+    Misurato il 31/08/2026: `meshio.write` rifiuta un blocco di lunghezza zero
+    («need at least one array to concatenate»), quindi un `cells_dict` con
+    `shape == (0,)` non è raggiungibile per quella strada. Un `.vtu` scritto a
+    mano con `NumberOfCells="0"` invece si legge, e `meshio.read` stesso alza
+    `IndexError: index 0 is out of bounds for axis 0 with size 0` prima che
+    questo modulo veda un solo array.
+
+    È lo stesso difetto di `IndexError` visto dall'altro capo: la lista dei
+    tipi catturati da `_ingresso_di_ripresa` non può prevedere che cosa alzano
+    tre lettori diversi (meshio, open3d, io.read_cloud). Un artefatto che esiste
+    e non si legge è un artefatto che non si legge, qualunque cosa alzi.
+
+    Mutazione che uccide: rimettere `except (ValueError, OSError)` — l'errore
+    risale nudo e il pannello risponde 500 senza nominare né il file né lo step.
+    """
+    out, _ = run_dir
+    copia = tmp_path / "corsa"
+    shutil.copytree(out, copia)
+    (copia / pipeline.ARTIFACTS[9]).write_text(
+        '<?xml version="1.0"?>\n'
+        '<VTKFile type="UnstructuredGrid" version="0.1" byte_order="LittleEndian">\n'
+        "  <UnstructuredGrid>\n"
+        '    <Piece NumberOfPoints="4" NumberOfCells="0">\n'
+        "      <Points>\n"
+        '        <DataArray type="Float64" NumberOfComponents="3" format="ascii">\n'
+        "          0 0 0  1 0 0  0 1 0  0 0 1\n"
+        "        </DataArray>\n"
+        "      </Points>\n"
+        "      <Cells>\n"
+        '        <DataArray type="Int64" Name="connectivity" format="ascii"> </DataArray>\n'
+        '        <DataArray type="Int64" Name="offsets" format="ascii"> </DataArray>\n'
+        '        <DataArray type="UInt8" Name="types" format="ascii"> </DataArray>\n'
+        "      </Cells>\n"
+        "    </Piece>\n"
+        "  </UnstructuredGrid>\n"
+        "</VTKFile>\n",
+        encoding="utf-8",
+    )
+
+    cfg = config.load_config(copia / "config.yaml")
+    cfg.run.out_dir = copia
+    cfg.run.from_step = 10
+    cfg.run.to_step = 10
+
+    with pytest.raises(ValueError) as caduta:
+        pipeline.run(cfg)
+
+    detto = str(caduta.value)
+    assert "lo step 10 pretende 09_volume.vtu" in detto
+    assert "esiste ma non si legge" in detto
+
+
+def test_il_solutore_rifiuta_lo_stesso_maglio_rotto_che_rifiuta_la_ripresa(
+    corsa_all_undici, tmp_path
+):
+    """Lo step 13 legge il maglio con lo stesso lettore della ripresa.
+
+    Il percorso del solutore passa da `_ingresso_di_ripresa(13, 9, ...)`: senza
+    il controllo di forma dei finti tetraedri arriverebbero fino al deck, e la
+    soluzione sarebbe scritta su una topologia che non è quella del modello.
+    L'oracolo è doppio: rifiuta, e non lascia dietro di sé un `13_solution.vtu`.
+
+    Mutazione che uccide: togliere il controllo di forma da `_maglio_di_volume`
+    — il rifiuto non arriva e il test cade sul `pytest.raises`.
+    """
+    cfg = _copia_della_corsa(corsa_all_undici, tmp_path)
+    _scrivi_maglio(
+        cfg.run.out_dir / pipeline.ARTIFACTS[9], "triangle", [[0, 1, 2], [3, 4, 5]]
+    )
+
+    with pytest.raises(ValueError) as caduta:
+        pipeline.risolvi_corsa(cfg)
+
+    detto = str(caduta.value)
+    assert "lo step 13 pretende 09_volume.vtu" in detto
+    assert "il blocco ['triangle'] ha 3 nodi per cella" in detto
+    assert not (cfg.run.out_dir / pipeline.ARTIFACTS[13]).exists()
+
+
+def _solo_gli_artefatti(run_dir, tmp_path, tenuti):
+    """Una copia della corsa con i soli artefatti numerati elencati in `tenuti`."""
+    out, _ = run_dir
+    copia = tmp_path / "corsa"
+    shutil.copytree(out, copia)
+    for numero, nome in pipeline.ARTIFACTS.items():
+        if numero not in tenuti:
+            (copia / nome).unlink(missing_ok=True)
+
+    cfg = config.load_config(copia / "config.yaml")
+    cfg.run.out_dir = copia
+    return cfg
+
+
+def test_le_metriche_di_volume_non_pretendono_nuvola_ne_superficie(run_dir, tmp_path):
+    """«Esegui solo lo step 10» in una cartella che ha il solo maglio.
+
+    Lo step 10 è `quality.volume_metrics(nodes, tets, ...)`: non tocca `points`,
+    non tocca `spacing`, non tocca `vertices`. La ripresa li ricaricava lo
+    stesso, quindi in una cartella incompleta si fermava su `04_normals.ply`
+    prima e su `06_repaired.ply` poi — due file che quello step non guarda —
+    e il consiglio che ne seguiva («Esegui da qui in giù dallo step 4»)
+    riscrive gli artefatti dal 4 al 10, cioè proprio quelli su cui si sta
+    iterando. È la stessa trappola già chiusa per `02_segmented.ply`.
+
+    Mutazione che uccide: togliere una delle due guardie nuove — la corsa
+    pretende di nuovo un artefatto che questo step non consuma.
+    """
+    cfg = _solo_gli_artefatti(run_dir, tmp_path, {9})
+    cfg.run.from_step = 10
+    cfg.run.to_step = 10
+
+    esito = pipeline.run(cfg)
+    assert esito["10_volume_quality"]["tets"] > 0
+
+
+def test_il_deck_si_riesporta_senza_la_nuvola_ma_con_maglio_e_superficie(
+    run_dir, tmp_path
+):
+    """Lo step 11 usa `vertices` — il riferimento di `align_to_axes` — e basta.
+
+    La nuvola non entra nell'esportazione da nessuna parte: pretenderla
+    rifiutava una riesportazione del deck che aveva tutto ciò che le serve.
+
+    Mutazione che uccide: rimettere il caricamento della nuvola incondizionato
+    — la corsa si ferma su `04_normals.ply`, che qui non c'è.
+    """
+    cfg = _solo_gli_artefatti(run_dir, tmp_path, {6, 9})
+    cfg.run.from_step = 11
+    cfg.run.to_step = 11
+
+    esito = pipeline.run(cfg)
+    assert esito["11_export"]["volume"] == pytest.approx(EXACT_VOLUME, rel=0.1)
+
+
+def test_lo_step_11_ricarica_la_superficie_semplificata_quando_e_accesa(tmp_path):
+    """La regola di `from_step=9` vale identica per l'11, e la guardia nuova
+    non deve perderla: con la semplificazione accesa la superficie valida a
+    monte è `08_simplified.ply`, altrimenti `06_repaired.ply`.
+
+    Mutazione che uccide: fissare `resume_from = 6` — la corsa si ferma su
+    `06_repaired.ply`, che qui è stato tolto apposta.
+    """
+    pytest.importorskip("pymeshfix")
+    cloud_path = tmp_path / "box.ply"
+    io.write_cloud(cloud_path, synth.sample_box_surface(SIZE, SPACING))
+
+    def makecfg(from_step, to_step):
+        return crea_config(
+            input=config.InputConfig(path=cloud_path, spacing_sample=5000),
+            downsample=config.DownsampleConfig(voxel_size=SPACING),
+            surface=config.SurfaceConfig(poisson_depth=8, density_quantile=0.02),
+            simplify=config.SimplifyConfig(enabled=True, remesh_target_len_pct=2.0),
+            tet=config.TetConfig(min_ratio=1.2),
+            run=config.RunConfig(
+                out_dir=tmp_path / "out", from_step=from_step, to_step=to_step
+            ),
+        )
+
+    pipeline.run(makecfg(1, 12))
+    out = tmp_path / "out"
+    assert (out / pipeline.ARTIFACTS[8]).exists()
+    # Solo la riparata: se la guardia ripiegasse sul 6 la ripresa si fermerebbe.
+    (out / pipeline.ARTIFACTS[6]).unlink()
+
+    esito = pipeline.run(makecfg(11, 11))
+    assert esito["11_export"]["volume"] == pytest.approx(EXACT_VOLUME, rel=0.1)
+
+
+def test_il_prior_la_nuvola_la_pretende_davvero_e_il_rifiuto_la_nomina(run_dir, tmp_path):
+    """Lo step 12 è l'unico dei tre di valle che la nuvola la consuma: la
+    spaziatura che passa a `wall.prior` viene da lì. Le guardie nuove tolgono
+    il caricamento a chi non lo usa, non a chi lo usa.
+
+    Mutazione che uccide: aggiungere `stop >= 12` alla guardia sbagliata (o
+    toglierlo da quella giusta) — la corsa arriva al prior senza spaziatura,
+    o non arriva affatto.
+    """
+    cfg = _solo_gli_artefatti(run_dir, tmp_path, {2, 6, 9})
+    cfg.run.from_step = 12
+    cfg.run.to_step = 12
+
+    with pytest.raises(ValueError) as caduta:
+        pipeline.run(cfg)
+
+    detto = str(caduta.value)
+    assert "lo step 12 pretende 04_normals.ply" in detto
+
+
 def test_una_corsa_completa_lascia_i_dodici_step_di_elaborazione_validi(tmp_path):
     """Dal Task 9 (Fase 4) lo step 12 (prior geometrico) e' parte della corsa
     madre: una corsa intera non lascia piu' nulla di "mai eseguito" nel nucleo
