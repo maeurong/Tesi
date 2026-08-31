@@ -861,7 +861,7 @@ dato si calcola, si assume o si va a cercare.
 
 ### 6.2 Ciò che manca e non è nella nuvola — va deciso o cercato altrove
 
-5. **Il numero di barre.** Non è nella nuvola. Una scansione laser vede la
+5. **Il numero di barre.** Non è nella nuvola. Un rilievo fotogrammetrico vede la
    superficie del calcestruzzo; le barre stanno sotto.
 6. **Il diametro, quindi `areaFiber`.** Idem.
 7. **La posizione delle barre nella sezione**, cioè le coordinate (y, z) degli
@@ -962,7 +962,7 @@ conseguenze del fatto che `wall.prior` guarda una membratura per volta, e **uno*
 è una scelta di discretizzazione.
 
 Il gruppo che decide è il terzo, e non è quello che ci si aspetta. I dati di
-armatura (gruppo 6.2) mancano per una ragione onesta e dichiarabile: un laser non
+armatura (gruppo 6.2) mancano per una ragione onesta e dichiarabile: la fotogrammetria non
 vede sotto il calcestruzzo, e in tesi si scrive che vengono dal progetto o da
 un'ipotesi. La **connettività** (gruppo 6.3) è invece un dato che dovrebbe venire
 dalla nuvola, che la nuvola contiene, e che il programma oggi non estrae: sei

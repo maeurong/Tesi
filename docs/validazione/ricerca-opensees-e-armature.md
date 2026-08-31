@@ -3,7 +3,7 @@
 Ricerca del 28/08/2026, su repo `main` a `787fdeb`. Domanda posta: se il
 programma possa offrire **OpenSees** come alternativa a CalculiX scelta
 dall'utente, e se in uno dei due si possano **inserire le armature** del telaio
-in cemento armato rilevato al laser scanner.
+in cemento armato rilevato per fotogrammetria.
 
 Le fonti sono primarie: il sorgente di OpenSees su GitHub, la documentazione
 ufficiale di OpenSeesPy, il wiki di Berkeley, il manuale ufficiale di CalculiX
