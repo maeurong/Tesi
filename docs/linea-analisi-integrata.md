@@ -27,9 +27,8 @@ Chi vuole il prior o la soluzione li chiede — `meshrec wall`, `--to-step 12`,
 
 Due rami, entrambi non fusi in `main`.
 
-**`worktree-notte-analisi-strutturale`** — il lavoro più avanzato della linea, e
-al momento **non pubblicato su GitHub**: il ramo esiste solo nel clone locale
-dell'autore, quindi da questo repository non è raggiungibile. Contiene la lettura delle
+**`worktree-notte-analisi-strutturale`** — il lavoro più avanzato della linea.
+Contiene la lettura delle
 risultanti dal file `.dat` del solutore, il passo statico che chiede le
 sollecitazioni sulle sezioni dichiarate, la deduplicazione delle sezioni nel
 deck, e una corsa di riferimento risolta per intero. Porta con sé una spec dell'analisi strutturale che va dal
