@@ -2,7 +2,7 @@
 
 - **Data:** 2026-08-12
 - **Stato:** design approvato in sessione di brainstorming
-- **Sostituisce:** `MeshReconstructorPro` (eseguibile fornito dai tutor, senza sorgente)
+- **Sostituisce:** `MeshReconstructorPro` (eseguibile distribuito senza codice sorgente)
 - **Collocazione codice:** `meshrec/` dentro il repository `Tesi`
 
 ---
@@ -38,20 +38,25 @@ Il materiale di partenza è quello condiviso dai tutor per la tesi:
 - `Articoli/` — 17 pubblicazioni su ricostruzione FEM da nuvole di punti, valutazione del danno,
   gemelli digitali e modellazione HBIM di murature.
 
-### Limiti del programma attuale
+### Requisiti che il programma attuale non copre
 
-1. Interfaccia grafica obbligatoria, nessuna esecuzione batch, parametri non salvati: un risultato
-   non è riproducibile e quindi non è documentabile in tesi.
-2. Nessuna metrica di qualità degli elementi (jacobiano, angolo diedro, elementi invertiti):
-   lo stato `SOLIDO` è una condizione topologica, non una garanzia numerica.
-3. Nessuna gestione esplicita di unità, scala e sistema di riferimento.
-4. Nessun node set o element set: vincoli e carichi vanno applicati a mano su migliaia di nodi.
-5. Nessuna misura dell'errore geometrico rispetto alla nuvola sorgente.
-6. La ricostruzione di Poisson chiude le zone non rilevate creando superfici inventate, e nulla
-   quantifica il fenomeno.
-7. Le operazioni di riparazione ("locale", "estrema") sono opache, non deterministiche e non
-   citabili in un lavoro scientifico.
-8. Nessuna segmentazione: la scena reale non è trattabile senza pre-elaborazione esterna.
+Il programma attuale risolve il problema per cui è nato. Questi sono i requisiti che
+la tesi aggiunge, e che il nuovo programma deve soddisfare.
+
+1. **Esecuzione batch e parametri salvati con la corsa.** Oggi il percorso si guida
+   dall'interfaccia e i parametri non restano: un risultato non è ripetibile, quindi
+   non è documentabile in tesi.
+2. **Metriche di qualità degli elementi** — jacobiano, angolo diedro, elementi
+   invertiti. Lo stato `SOLIDO` è una condizione topologica, non una garanzia numerica.
+3. **Gestione esplicita di unità, scala e sistema di riferimento.**
+4. **Node set ed element set.** Senza, vincoli e carichi si applicano a mano su
+   migliaia di nodi.
+5. **Misura dell'errore geometrico rispetto alla nuvola sorgente.**
+6. **Quantificazione delle superfici interpolate.** La ricostruzione di Poisson chiude
+   le zone non rilevate, e serve un numero che dica quanto.
+7. **Riparazione deterministica e citabile.** Le operazioni «locale» ed «estrema» non
+   sono documentate, quindi un lavoro scientifico non può riferirsi a loro.
+8. **Segmentazione.** Senza, la scena reale richiede una pre-elaborazione esterna.
 
 ## 2. Obiettivo
 
@@ -142,7 +147,7 @@ misurate del muro prima di procedere. Il fattore di scala è un parametro visibi
 valore implicito: un modello in unità errate produce tensioni sbagliate di ordini di grandezza
 senza alcun segnale.
 
-**Riparazione citabile.** Le operazioni opache dell'attuale sono sostituite da algoritmi
+**Riparazione citabile.** Le operazioni di riparazione dell'attuale sono sostituite da algoritmi
 pubblicati (MeshFix tramite PyMeshFix; in alternativa tetraedrizzazione robusta con fTetWild),
 con riferimenti bibliografici e comportamento deterministico.
 
