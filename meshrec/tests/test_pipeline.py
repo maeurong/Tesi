@@ -1784,3 +1784,82 @@ def test_riprendere_da_uno_step_di_valle_senza_il_maglio_lo_dichiara(run_dir, tm
     with pytest.raises(ValueError) as caduta:
         pipeline.run(cfg)
     assert "09_volume.vtu" in str(caduta.value)
+
+
+def test_riprendere_dallo_step_12_calcola_il_prior_senza_ritetraedrizzare(
+    run_dir, tmp_path, monkeypatch
+):
+    """Lo step 12 è l'ultimo punto di ripresa, e il suo ingresso non è come gli altri.
+
+    Gli step 10 e 11 leggono il maglio di volume; il prior geometrico legge la
+    nuvola segmentata dello step 2, che nessuno degli altri due chiede. È
+    l'ingresso che rende questa ripresa diversa dalle sue vicine, e il motivo
+    per cui provarle non prova questa: una corsa che riparte dal 12 deve
+    ricaricare `02_segmented.ply` e non deve ripagare TetGen per farlo.
+
+    La prova è osservabile e non temporale, come per gli step 10 e 11: se la
+    tetraedrizzazione parte, il sostituto solleva.
+    """
+    import shutil
+
+    from meshrec.core import volume
+
+    out, _ = run_dir
+    copia = tmp_path / "corsa"
+    shutil.copytree(out, copia)
+    (copia / pipeline.WALL_FILENAME).unlink()
+
+    def _non_chiamarmi(*_args, **_kwargs):
+        raise AssertionError("lo step 12 non deve ritetraedrizzare")
+
+    monkeypatch.setattr(volume, "tetrahedralize_with_metrics", _non_chiamarmi)
+
+    cfg = config.load_config(copia / "config.yaml")
+    cfg.run.out_dir = copia
+    cfg.run.from_step = 12
+    cfg.run.to_step = 12
+
+    esito = pipeline.run(cfg)
+    assert esito["12_wall"]
+    assert (copia / pipeline.WALL_FILENAME).exists()
+
+
+def test_riprendere_da_valle_con_la_semplificazione_accesa_rilegge_lo_step_8(tmp_path):
+    """La regola che sceglie la superficie a monte vale per tutti gli step di valle.
+
+    `test_resuming_from_tetrahedralize_still_works_when_simplify_is_enabled`
+    prova che la ripresa dal 9 riesce, non da quale artefatto: con la
+    superficie riparata dello step 6 ancora sul disco, riesce comunque.
+    Misurato il 31/08/2026 sostituendo `resume_from = 8 if
+    cfg.simplify.enabled else 6` con `resume_from = 6`: tutti e 75 i test di
+    questo file restano verdi.
+
+    Qui la superficie dello step 6 non c'è più, quindi l'unico artefatto che
+    può soddisfare la ripresa è `08_simplified.ply`, e la ripresa è da uno step
+    di valle -- l'11, che la pretende perché è la superficie, e non i nodi del
+    volume, a definire il sistema di riferimento del modello.
+    """
+    pytest.importorskip("pymeshfix")
+    cloud_path = tmp_path / "box.ply"
+    io.write_cloud(cloud_path, synth.sample_box_surface(SIZE, SPACING))
+
+    def makecfg(from_step, to_step):
+        return crea_config(
+            input=config.InputConfig(path=cloud_path, spacing_sample=5000),
+            downsample=config.DownsampleConfig(voxel_size=SPACING),
+            surface=config.SurfaceConfig(poisson_depth=8, density_quantile=0.02),
+            simplify=config.SimplifyConfig(enabled=True, remesh_target_len_pct=2.0),
+            run=config.RunConfig(
+                out_dir=tmp_path / "out", from_step=from_step, to_step=to_step
+            ),
+        )
+
+    pipeline.run(makecfg(1, 12))
+    corsa = tmp_path / "out"
+    assert (corsa / pipeline.ARTIFACTS[8]).exists()
+    (corsa / pipeline.ARTIFACTS[6]).unlink()
+    (corsa / pipeline.DECK_FILENAME).unlink()
+
+    ripresa = pipeline.run(makecfg(11, 11))
+    assert ripresa["11_export"]["volume"] == pytest.approx(EXACT_VOLUME, rel=0.1)
+    assert (corsa / pipeline.DECK_FILENAME).exists()

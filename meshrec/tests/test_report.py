@@ -1551,7 +1551,14 @@ def test_ogni_classe_scritta_nei_documenti_ha_una_regola_nel_foglio(tmp_path):
     for testo in _tre_documenti(tmp_path):
         foglio = _foglio(testo)
         classi = {c for c in re.findall(r"class=['\"]([^'\"]*)['\"]", testo) if c.strip()}
-        senza = sorted(c for c in classi if f".{c}" not in foglio)
+        # Il nome intero e non un prefisso: `".avviso" in foglio` è vero anche
+        # se l'unica regola che lo nomina si chiama `.avvisone`, e quella classe
+        # resta svestita esattamente come prima. Misurato il 31/08/2026
+        # rinominando `p.avviso` in `p.avvisone`: tutti e 71 i test di questo
+        # file restavano verdi.
+        senza = sorted(
+            c for c in classi if not re.search(rf"\.{re.escape(c)}(?![\w-])", foglio)
+        )
         assert not senza, f"classi scritte e mai vestite: {senza}"
 
 
@@ -1626,3 +1633,91 @@ def test_i_documenti_non_chiedono_niente_alla_rete(tmp_path):
         assert "@import" not in testo
         assert "<link" not in testo
         assert "url(" not in _foglio(testo)
+
+
+def _regole(foglio: str) -> list[tuple[str, str]]:
+    """Coppie (selettori, dichiarazioni) di ogni regola del foglio.
+
+    Il blocco `@media print` non si presenta come regola -- il suo corpo
+    contiene graffe -- e le regole che ha dentro compaiono qui come tutte le
+    altre. È esattamente ciò che serve: la domanda che questi test fanno non è
+    dove sta scritta una dichiarazione, ma su che cosa cade.
+    """
+    return [(sel.strip(), corpo) for sel, corpo in re.findall(r"([^{}@]+)\{([^{}]*)\}", foglio)]
+
+
+def _cade_su(selettori: str, elemento: str) -> bool:
+    """Vero se almeno uno dei selettori termina su quell'elemento.
+
+    Il confronto è sull'ultimo elemento semplice, spogliato di discendenza,
+    figlio e pseudo-classi: `tr`, `tbody tr` e `.sweep > tr:hover` cadono tutti
+    su `tr`. Una riscrittura del foglio può cambiare il selettore quanto vuole,
+    finché la dichiarazione continua a cadere dove la garanzia la vuole.
+    """
+    return any(
+        parte.split()[-1].split(">")[-1].split(":")[0].strip() == elemento
+        for parte in selettori.split(",")
+        if parte.strip()
+    )
+
+
+def _dichiarano(foglio: str, proprieta: str, valore: str) -> list[str]:
+    """I selettori delle regole che dichiarano quella proprietà con quel valore."""
+    return [
+        sel
+        for sel, corpo in _regole(foglio)
+        if re.search(rf"\b{proprieta}\s*:\s*{valore}\b", corpo)
+    ]
+
+
+def test_le_due_garanzie_di_stampa_cadono_sulle_righe_e_sulle_intestazioni(tmp_path):
+    """Non che le due dichiarazioni esistano: che cadano dove servono.
+
+    `test_il_foglio_ripete_l_intestazione_e_non_spezza_le_righe_in_stampa`
+    cerca le due stringhe dentro tutto il blocco `@media print`, e una stringa
+    non ha un bersaglio. Misurato il 31/08/2026 spostando `display:
+    table-header-group` da `thead` a `caption` e `break-inside: avoid` da `tr,
+    figure, .istogramma` a `h4`: le due garanzie spariscono dal documento
+    stampato -- la seconda pagina torna a portare colonne di numeri senza nomi
+    e le righe a spezzarsi fra due fogli -- e tutti e 69 i test di questo file
+    restano verdi.
+
+    Qui il bersaglio è l'elemento, non il selettore: `thead`, `table thead` e
+    `.sweep thead` valgono uguale, e una riscrittura del foglio non fa cadere
+    il test finché la garanzia resta.
+    """
+    for testo in _tre_documenti(tmp_path):
+        stampa = _foglio(testo).split("@media print", 1)[1]
+        intestazioni = _dichiarano(stampa, "display", "table-header-group")
+        assert any(_cade_su(sel, "thead") for sel in intestazioni), (
+            f"nessuna regola ripete l'intestazione sulle pagine dopo la prima: {intestazioni}"
+        )
+        righe = _dichiarano(stampa, "break-inside", "avoid")
+        assert any(_cade_su(sel, "tr") for sel in righe), (
+            f"nessuna regola tiene insieme una riga fra due fogli: {righe}"
+        )
+
+
+def test_il_filetto_del_fronte_lascia_inchiostro_sulla_carta(tmp_path):
+    """Un filetto dichiarato `none` è un filetto che non c'è.
+
+    `test_il_fronte_di_pareto_si_distingue_anche_senza_colore` chiede che la
+    regola del fronte nomini `border`, e `border: none` la nomina: misurato il
+    31/08/2026 sostituendo i due filetti di `tr.fronte td` con `border: none`,
+    il fronte perde sulla carta tutto tranne il peso di un corpo di 0,8rem e
+    tutti e 69 i test di questo file restano verdi.
+
+    Qui la domanda è se il filetto lasci inchiostro: nessuna regola del fronte
+    può annullarlo, e almeno una deve dichiararlo con una larghezza vera.
+    """
+    testo = _tre_documenti(tmp_path)[0]
+    filetti = [
+        (sel, proprieta, valore.strip())
+        for sel, corpo in _regole(_foglio(testo))
+        if ".fronte" in sel
+        for proprieta, valore in re.findall(r"\b(border[a-z-]*)\s*:\s*([^;]+)", corpo)
+    ]
+
+    assert filetti, "il fronte non dichiara nessun filetto: stampato resta il solo peso"
+    spenti = [voce for voce in filetti if voce[2] in ("none", "0", "0px")]
+    assert not spenti, f"il fronte dichiara filetti che non lasciano inchiostro: {spenti}"
