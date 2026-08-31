@@ -403,18 +403,21 @@ def test_ogni_riga_porta_il_numero_dello_step_che_le_istruzioni_nominano(tmp_pat
     partisse da uno. Il banco chiede 4 e 12 alle posizioni 0 e 1 apposta: un
     numero letto dalla posizione direbbe 1 e 2 e cadrebbe qui.
 
-    Il 12 e non il 13, che era la coppia di prima: dallo step 13 fuori dalla
-    colonna, una riga con quel numero non esiste piu' li' dentro e il banco
-    proverebbe il filtro invece del numero.
+    L'11 e non il 12, che era la coppia di prima, e prima ancora il 13: ogni
+    volta che il fondo della colonna si e' alzato, il numero alto del banco e'
+    dovuto scendere sotto di esso. Una riga con un numero che il filtro toglie
+    non esiste piu' li' dentro, e il banco proverebbe il filtro invece del
+    numero. Oggi il fondo e' l'11, il deck, dove si chiude il perimetro del
+    prodotto.
     """
     _esegui(tmp_path, _DOM + _funzioni(*_COLONNA) + """
 disegnaStep([
   { numero: 4, chiave: "04_normals", stato: "valido" },
-  { numero: 12, chiave: "12_wall", stato: "mai eseguito" },
+  { numero: 11, chiave: "11_export", stato: "mai eseguito" },
 ]);
 const primi = elenco.children.map((riga) => riga.firstElementChild.firstElementChild);
 assert.deepEqual(
-  primi.map((e) => e.textContent), ["4", "12"],
+  primi.map((e) => e.textContent), ["4", "11"],
   "la riga non porta il numero dello step, o lo legge dalla posizione nell'elenco",
 );
 assert.deepEqual(
@@ -6063,30 +6066,36 @@ const tredici = (stato = "valido") =>
 """
 
 
-def test_la_colonna_della_pipeline_si_ferma_al_dodici_e_non_perde_lo_stato_del_tredici(tmp_path):
+def test_la_colonna_si_ferma_all_undici_e_non_perde_lo_stato_degli_altri_due(tmp_path):
     """Due meta' che si contraddirebbero se una sola fosse fatta.
 
-    La colonna arriva a 12: il tredicesimo step non e' un passo di elaborazione
-    geometrica e non va comandato di fianco agli altri (`to_step` predefinito e'
-    12 da #140, `core/config.py:541`).
+    La colonna arriva a 11, il deck: e' li' che si chiude il perimetro del
+    prodotto. Il prior geometrico e il solutore restano eseguibili ma stanno
+    fuori dalla vista, dietro MOSTRA_LINEA_ANALISI -- vedi
+    docs/linea-analisi-integrata.md. Il fondo si e' alzato due volte: 13 fino a
+    #140, poi 12, e ora 11.
 
-    Ma `ultimoStato` deve continuare a portarlo tutto: `passoDaMostrare` cammina
-    a monte da `corpo.steps.length`, che vale 13, e STEP_CON_GEOMETRIA elenca il
-    13. Filtrando lo stato invece della sola vista, la geometria del solutore
-    diventerebbe irraggiungibile per una strada che nessuno guarda.
+    Ma `ultimoStato` deve continuare a portarli tutti e tredici:
+    `passoDaMostrare` cammina a monte da `corpo.steps.length`, che vale 13, e
+    STEP_CON_GEOMETRIA elenca il 13. Filtrando lo stato invece della sola vista,
+    la geometria del prior e quella del solutore diventerebbero irraggiungibili
+    per una strada che nessuno guarda -- ed e' la meta' che vale di piu' adesso,
+    perche' e' quella che distingue «nascosto» da «cancellato».
     """
     _esegui(tmp_path, _DOM + _funzioni(
         *_COLONNA,
     ) + _TREDICI + """
 disegnaStep(tredici());
-assert.equal(elenco.childElementCount, 12,
-  "la colonna della pipeline non si ferma al dodici");
+assert.equal(elenco.childElementCount, 11,
+  "la colonna della pipeline non si ferma all'undici");
 assert.deepEqual(
   elenco.children.map((riga) => riga.firstElementChild.dataset.numero),
-  [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
-  "la colonna non porta piu' i dodici step della pipeline, o li rinumera");
+  [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+  "la colonna non porta piu' gli undici step del perimetro, o li rinumera");
 assert.equal(ultimoStato.length, 13,
-  "lo step 13 e' sparito anche dallo stato: passoDaMostrare non lo trova piu'");
+  "il 12 e il 13 sono spariti anche dallo stato: nascosti e non cancellati e'"
+  + " esattamente cio' che distingue questa scelta, e passoDaMostrare non li"
+  + " troverebbe piu'");
 """)
 
 
