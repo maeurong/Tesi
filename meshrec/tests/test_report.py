@@ -1,11 +1,14 @@
 """Il report si genera dal registro e non da altro."""
 
+import html as marcatura
 import inspect
 import json
 import re
 import struct
 import zlib
+from datetime import date
 from pathlib import Path
+from typing import get_args
 
 import pytest
 
@@ -331,7 +334,9 @@ def test_le_viste_presenti_hanno_percorsi_relativi_al_report(tmp_path):
     ).read_text(encoding="utf-8")
 
     assert 'src="viste/fronte.png"' in testo
-    assert str(corsa) not in testo
+    # non in tutto il documento: la riga di provenienza porta apposta il
+    # percorso assoluto della corsa, ed e' l'unico posto dove ci va
+    assert str(corsa) not in testo.split("<h2>Viste</h2>", 1)[1]
     assert "1 attese" in testo and "1 presenti" in testo
 
 
@@ -380,7 +385,8 @@ def test_ogni_parametro_viene_riletto_da_config_yaml(tmp_path):
     )
     secondo = report.write_run_report(corsa, viste=[]).read_text(encoding="utf-8")
 
-    assert "tet.min_ratio" in primo
+    etichetta = PipelineConfig.model_fields["tet"].annotation.model_fields["min_ratio"].title
+    assert etichetta in primo
     assert "1.8" in primo and "2.7" not in primo
     assert "2.7" in secondo and "1.8" not in secondo
 
@@ -496,8 +502,9 @@ def test_una_configurazione_non_valida_rende_la_coerenza_non_verificabile(tmp_pa
 
     testo = report.write_run_report(corsa, viste=[]).read_text(encoding="utf-8")
 
+    etichetta = PipelineConfig.model_fields["tet"].annotation.model_fields["min_ratio"].title
     assert f"{report.NON_VERIFICABILE}: {report.CONFIG_FILENAME}" in testo
-    assert "tet.min_ratio" in testo and "1.8" in testo
+    assert etichetta in testo and "1.8" in testo
     assert report.COERENTI not in testo
 
 
@@ -717,10 +724,16 @@ def test_i_valori_logici_e_quelli_mancanti_sono_in_italiano(tmp_path):
 
     testo = report.write_run_report(corsa, viste=[]).read_text(encoding="utf-8")
 
+    def etichetta(blocco: str, campo: str) -> str:
+        campi = PipelineConfig.model_fields[blocco].annotation.model_fields
+        return marcatura.escape(campi[campo].title)
+
     assert "None" not in testo and "True" not in testo and "False" not in testo
-    assert f"<th>tet.max_volume</th><td>{report.NON_IMPOSTATO}</td>" in testo
-    assert "<th>tet.nobisect</th><td>si</td>" in testo
-    assert "<th>simplify.enabled</th><td>no</td>" in testo
+    assert (
+        f"<th>{etichetta('tet', 'max_volume')}</th><td>{report.NON_IMPOSTATO}</td>" in testo
+    )
+    assert f"<th>{etichetta('tet', 'nobisect')}</th><td>si</td>" in testo
+    assert f"<th>{etichetta('simplify', 'enabled')}</th><td>no</td>" in testo
 
 
 def test_un_numero_grande_non_passa_alla_notazione_esponenziale(tmp_path):
@@ -1626,3 +1639,396 @@ def test_i_documenti_non_chiedono_niente_alla_rete(tmp_path):
         assert "@import" not in testo
         assert "<link" not in testo
         assert "url(" not in _foglio(testo)
+
+
+# --- che cosa i tre documenti dicono, non come sono vestiti -----------------
+#
+# I tre documenti finiscono stampati nell'appendice e vengono discussi mesi
+# dopo essere stati generati. Chi li legge non ha il registro sotto mano, non
+# ha il codice e non puo' chiedere niente al foglio: tutto quello che serve a
+# capire che cosa afferma una cella deve stare nella cella o nell'intestazione
+# sopra di essa. Questi test guardano proprio quello.
+
+
+def _registro(tmp_path, righe: list[dict]) -> Path:
+    """Un registro con le righe date, ognuna completata col minimo che serve."""
+    registro = tmp_path / "esperimento" / "registro.jsonl"
+    registro.parent.mkdir(exist_ok=True)
+    for indice, riga in enumerate(righe):
+        sweep.append_row(
+            registro,
+            {
+                "fingerprint": f"impronta{indice}",
+                "axes": {"tet.min_ratio": 1.8},
+                "duration_s": 12.0,
+                **riga,
+            },
+        )
+    return registro
+
+
+def _riuscito(tets: int, over: float = 0.08, errore: float = 2.0) -> dict:
+    return {
+        "outcome": "riuscito",
+        "complete": True,
+        "on_front": False,
+        "thickness_error": errore,
+        "metrics": {
+            "10_volume_quality": {
+                "tets": tets,
+                "radius_edge_over_reference": over,
+                "min_dihedral_deg": {"min": 0.162, "median": 38.0},
+            }
+        },
+    }
+
+
+def _fallito(errore: float = 0.0) -> dict:
+    """Un candidato che non e' arrivato in fondo: nessuna misura, nemmeno vuota.
+
+    E' la forma che le quattro righe `fallito` hanno in experiments/muro:
+    thickness_error c'e' (0 oppure 9,125) e 10_volume_quality no.
+    """
+    return {
+        "outcome": "fallito",
+        "complete": False,
+        "on_front": False,
+        "thickness_error": errore,
+        "metrics": {},
+    }
+
+
+def _corpo_sweep(testo: str) -> list[list[str]]:
+    """Le celle di ogni riga del corpo della tabella dello sweep."""
+    corpo = testo.split("<tbody>", 1)[1].split("</tbody>", 1)[0]
+    return [re.findall(r"<td>(.*?)</td>", riga) for riga in re.findall(r"<tr[^>]*>.*?</tr>", corpo)]
+
+
+def test_un_candidato_fallito_dichiara_le_misure_che_non_ha(tmp_path):
+    """Quattro righe su undici, in experiments/muro, escono con tre celle bianche.
+
+    Un candidato `fallito` non ha 10_volume_quality: tetraedri, fuori vincolo e
+    diedro non esistono. Stampate bianche, quelle celle non dicono se manca il
+    dato o se il generatore ha saltato una colonna, e chi guarda 132 righe su
+    23 pagine non ha modo di chiederlo. Il modulo ha gia' la regola scritta
+    (LISTA_VUOTA, NON_IMPOSTATO, VUOTO, SOLI_SPAZI, MAPPA_VUOTA) e `_cell` non
+    la applicava.
+
+    Niente trattino: write_comparison_report ha gia' deciso che «un trattino in
+    mezzo ai numeri somiglia a un valore».
+
+    Mutazione che uccide questo test: rimettere `else ""` in coda a `_cell`.
+    """
+    registro = _registro(tmp_path, [_riuscito(tets=1000), _fallito()])
+
+    testo = report.write_report(registro, tmp_path / "sweep.html").read_text(encoding="utf-8")
+
+    assert _celle_bianche(testo) == []
+    assert testo.count(f"<td>{report.NON_MISURATO}</td>") == 3
+    assert "-" not in report.NON_MISURATO
+
+
+def test_una_misura_a_zero_non_si_confonde_con_una_misura_assente(tmp_path):
+    """Zero tetraedri e' un dato; nessun tetraedro misurato e' un altro fatto.
+
+    Nella stessa tabella un candidato fallito mostra «errore di spessore 0»,
+    che letto da solo somiglia al risultato perfetto: la distinzione fra un
+    valore misurato e una misura che non c'e' deve stare nella cella.
+
+    Mutazione che uccide questo test: far tornare NON_MISURATO anche per i
+    valori falsi (`if not value` invece di `if value is not None`).
+    """
+    registro = _registro(tmp_path, [_riuscito(tets=0, over=0.0), _fallito()])
+
+    testo = report.write_report(registro, tmp_path / "sweep.html").read_text(encoding="utf-8")
+
+    righe = _corpo_sweep(testo)
+    misurata, assente = righe[0], righe[1]
+    assert "0" in misurata and report.NON_MISURATO not in misurata
+    assert report.NON_MISURATO in assente
+
+
+def test_gli_istogrammi_dello_sweep_non_mescolano_riusciti_e_falliti(tmp_path):
+    """Un candidato fallito porta un thickness_error che non misura nessuna mesh.
+
+    Sul registro di experiments/muro quattro falliti portano 0 oppure 9,125 e
+    finivano nella distribuzione insieme ai riusciti. La popolazione degli
+    istogrammi e' la stessa del fronte di Pareto — `sweep.objectives`, cioe' i
+    confrontabili — e il titolo lo dichiara, altrimenti la selezione e' una
+    scelta invisibile.
+
+    Mutazione che uccide questo test: togliere il filtro e ricostruire `errors`
+    da tutte le righe.
+    """
+    registro = _registro(
+        tmp_path,
+        [_riuscito(tets=1000, errore=2.0), _riuscito(tets=9000, errore=3.0), _fallito(errore=99.0)],
+    )
+
+    testo = report.write_report(registro, tmp_path / "sweep.html").read_text(encoding="utf-8")
+
+    titoli = re.findall(r"<title>([^<]*)</title>", testo)
+    distribuzioni = [t for t in titoli if report.SOLO_CONFRONTABILI in t]
+    assert len(distribuzioni) == 2, titoli
+    # il conteggio sta nel paragrafo e non nel titolo: dentro il riquadro da
+    # 320 unita' una riga piu' lunga di una quarantina di caratteri esce dal
+    # viewBox e stampata si taglia
+    assert "2 su 3" in _paragrafo(testo, report.SOLO_CONFRONTABILI)
+    # 99 e' l'errore del candidato fallito: nell'istogramma segnerebbe l'estremo
+    assert "99" not in testo.split("<h2>Distribuzioni</h2>", 1)[1]
+
+
+def test_un_registro_di_soli_falliti_non_afferma_una_distribuzione(tmp_path):
+    """Zero candidati confrontabili: due riquadri con dentro «vuoto» sono peggio.
+
+    Stampati sono due rettangoli bianchi da cinque centimetri che ripetono, in
+    forma di grafico, quello che una riga di prosa dice meglio.
+
+    Mutazione che uccide questo test: chiamare histogram_svg anche con la lista
+    vuota invece di dichiarare il vuoto.
+    """
+    registro = _registro(tmp_path, [_fallito(), _fallito(errore=9.125)])
+
+    testo = report.write_report(registro, tmp_path / "sweep.html").read_text(encoding="utf-8")
+
+    assert report.NESSUN_CONFRONTABILE in testo
+    assert "<rect" not in testo
+    assert "<svg" not in testo
+
+
+def test_un_registro_vuoto_non_lascia_riquadri_vuoti_dopo_la_dichiarazione(tmp_path):
+    """Il paragrafo «registro vuoto» dice tutto; i due SVG che seguono ripetono peggio.
+
+    Mutazione che uccide questo test: rimettere la sezione delle distribuzioni
+    fuori dalla condizione su `rows`.
+    """
+    registro = tmp_path / "esperimento" / "registro.jsonl"
+    registro.parent.mkdir()
+    registro.write_text("", encoding="utf-8")
+
+    testo = report.write_report(registro, tmp_path / "sweep.html").read_text(encoding="utf-8")
+
+    assert report.NESSUN_CANDIDATO in testo
+    assert "<svg" not in testo
+    assert "Distribuzioni" not in testo
+
+
+def test_ogni_colonna_di_misure_dello_sweep_porta_l_unita(tmp_path):
+    """Una colonna di numeri senza unita', in appendice, non si ricostruisce.
+
+    `fuori vincolo` esce come 0.08098 — una frazione, che altrove il progetto
+    scrive come percentuale — e `diedro min. [peggiore / mediana]` esce come
+    «0.0025 / 38.26», che sono gradi: l'intestazione dichiara quali due
+    statistiche ma mai di che cosa. Il precedente e' nella stessa tupla:
+    ("thickness_error", "errore di spessore [mm]"). Nessun elenco tenuto a
+    mano: e' una colonna di misure quella le cui celle sono tutte numeri, o
+    coppie di numeri.
+
+    I dati non si toccano: 0.08098 resta una frazione e l'etichetta dice
+    frazione, perche' scriverci «[%]» sopra un numero non moltiplicato e' la
+    stessa bugia con un sintomo peggiore.
+
+    Mutazione che uccide questo test: togliere l'unita' da `fuori vincolo` o
+    da `diedro min.`.
+    """
+    registro = _registro(
+        tmp_path,
+        [
+            {**_riuscito(tets=1000, errore=2.5), "duration_s": 12.5},
+            {**_riuscito(tets=9000, errore=3.5), "duration_s": 30.5},
+        ],
+    )
+
+    testo = report.write_report(registro, tmp_path / "sweep.html").read_text(encoding="utf-8")
+
+    numero = r"-?[\d.]+(?:e[+-]?\d+)?"
+    colonne = list(zip(*_corpo_sweep(testo)))
+    etichette = [etichetta for _, etichetta in report._COLUMNS]
+    misure = [
+        etichette[indice]
+        for indice, celle in enumerate(colonne)
+        if all(re.fullmatch(rf"{numero}(?: / {numero})?", cella) for cella in celle)
+        # un conteggio non ha unita': «tetraedri [pezzi]» sarebbe rumore.
+        # Sono le grandezze misurate a doverla portare
+        and not all(re.fullmatch(r"-?\d+", cella) for cella in celle)
+    ]
+    assert len(misure) == 4, f"colonne di misure trovate: {misure}"
+    senza = [etichetta for etichetta in misure if "[" not in etichetta]
+    assert not senza, f"colonne di misure senza unita' nell'etichetta: {senza}"
+
+
+def _blocchi_dei_parametri(testo: str) -> dict[str, list[tuple[str, str]]]:
+    """Le righe della sezione «Parametri», raggruppate sotto la loro intestazione."""
+    sezione = testo.split("<h2>Parametri</h2>", 1)[1].split("<h2>", 1)[0]
+    blocchi = {}
+    for pezzo in sezione.split("<h3>")[1:]:
+        nome, resto = pezzo.split("</h3>", 1)
+        blocchi[nome] = re.findall(r"<th>(.*?)</th><td>(.*?)</td>", resto)
+    return blocchi
+
+
+def test_un_parametro_con_title_si_stampa_con_la_sua_etichetta(tmp_path):
+    """«Una chiave non si stampa mai, si stampa la sua etichetta» (PRODUCT.md).
+
+    `input.max_points 20000000` non dice niente a chi legge l'appendice, e le
+    etichette esistono gia': sono i `title` dei campi di PipelineConfig, messi
+    li' apposta per il pannello. La stessa logica di
+    `server._etichetta_del_percorso`, riscritta qui perche' quel modulo e'
+    l'interfaccia e questo il generatore dei documenti.
+
+    Mutazione che uccide questo test: ripiegare sempre sulla chiave, ignorando
+    il `title`.
+    """
+    corsa = _corsa(tmp_path, configurazione="input:\n  max_points: 20000000\n")
+
+    testo = report.write_run_report(corsa, viste=[]).read_text(encoding="utf-8")
+
+    etichetta = PipelineConfig.model_fields["input"].annotation.model_fields["max_points"].title
+    assert etichetta, "il campo non ha piu' un title: la prova non prova piu' niente"
+    assert _blocchi_dei_parametri(testo)["input"] == [(etichetta, "20000000")]
+    assert "max_points" not in testo
+
+
+def test_un_parametro_senza_title_si_stampa_con_la_chiave(tmp_path):
+    """Dove il modello non dichiara un `title` la chiave e' l'unica cosa che si sa.
+
+    Non si inventa una frase, e non si lascia la cella al suo posto vuota: e'
+    la stessa regola che `server._etichetta_del_percorso` scrive per il
+    rifiuto del validatore. Vale sia per un campo senza `title`
+    (`analysis.material.density`) sia per una chiave che il modello non
+    conosce affatto, che un config.yaml piu' vecchio puo' ancora portare.
+
+    Mutazione che uccide questo test: stampare `None` — cioe' il title
+    mancante — invece della chiave.
+    """
+    corsa = _corsa(
+        tmp_path,
+        configurazione="analysis:\n  material:\n    density: 1.8e-09\nbislacco:\n  chiave: 3\n",
+    )
+
+    testo = report.write_run_report(corsa, viste=[]).read_text(encoding="utf-8")
+
+    blocchi = _blocchi_dei_parametri(testo)
+    annotazione = PipelineConfig.model_fields["analysis"].annotation
+    analisi = next(
+        t for t in get_args(annotazione) or (annotazione,) if t is not type(None)
+    )
+    materiale = analisi.model_fields["material"]
+    assert not materiale.annotation.model_fields["density"].title, (
+        "il campo ha un title: la prova non prova piu' niente"
+    )
+    # 1.8e-09 resta esponenziale: `_numero` ci passa sotto 1e-4 apposta
+    assert ("materiale del modello · density", "1.8e-09") in blocchi["analysis"]
+    assert blocchi["bislacco"] == [("chiave", "3")]
+    assert "None" not in testo
+
+
+def test_la_tabella_dei_parametri_e_spezzata_per_blocco(tmp_path):
+    """Novanta righe di seguito non si leggono: un'intestazione per blocco le spezza.
+
+    E' la forma che «Metriche per step» ha gia' — un <h3> e la sua tabella —
+    riusata invece di inventarne una seconda.
+
+    Mutazione che uccide questo test: tornare a una tabella sola con le chiavi
+    puntate.
+    """
+    corsa = _corsa(
+        tmp_path,
+        configurazione="input:\n  max_points: 20000000\n  seed: 0\ntet:\n  min_ratio: 1.8\n",
+    )
+
+    testo = report.write_run_report(corsa, viste=[]).read_text(encoding="utf-8")
+
+    blocchi = _blocchi_dei_parametri(testo)
+    assert list(blocchi) == ["input", "tet"]
+    assert len(blocchi["input"]) == 2 and len(blocchi["tet"]) == 1
+
+
+def test_ogni_documento_dice_da_quale_sorgente_e_da_quando_viene(tmp_path):
+    """Quarto principio di prodotto: la provenienza e' parte del risultato.
+
+    Stampati, i tre documenti diventano fogli che nessuno puo' ricondurre a una
+    corsa: «Sweep — muro» e basta, «Corsa: lab_crop» e basta. Sotto il titolone
+    ci va il percorso della sorgente e la data di generazione, perche' il
+    documento si discute mesi dopo essere stato scritto.
+
+    Mutazione che uccide questo test: togliere la riga di provenienza da uno
+    solo dei tre documenti.
+    """
+    registro = _registro(tmp_path, [_riuscito(tets=1000)])
+    corsa = _corsa(tmp_path, metriche={"01_load": {"points_kept": 10}})
+    cartelle = _tre_cartelle_finte(tmp_path)
+    oggi = date.today().isoformat()
+
+    documenti = [
+        (report.write_report(registro, tmp_path / "sweep.html"), [str(registro)]),
+        (report.write_run_report(corsa, viste=[]), [str(corsa)]),
+        (
+            report.write_comparison_report(cartelle, tmp_path / "confronto.html"),
+            [str(c) for c in cartelle],
+        ),
+    ]
+    for percorso, sorgenti in documenti:
+        testo = percorso.read_text(encoding="utf-8")
+        riga = _paragrafo(testo, report.GENERATO)
+        assert oggi in riga, riga
+        for sorgente in sorgenti:
+            assert marcatura.escape(sorgente) in riga, (sorgente, riga)
+
+
+def test_il_documento_dello_sweep_porta_il_commit_scritto_nel_registro(tmp_path):
+    """Il commit e' gia' in ogni riga, sotto `provenance`: non ce n'e' da cercare.
+
+    Mutazione che uccide questo test: scrivere il commit del processo che
+    genera il documento invece di quello registrato dalle corse.
+    """
+    riga = _riuscito(tets=1000)
+    riga["provenance"] = {"commit": "10e15a0b3ebc1c169b1732dea68dc652517b6065", "dirty": True}
+    registro = _registro(tmp_path, [riga])
+
+    testo = report.write_report(registro, tmp_path / "sweep.html").read_text(encoding="utf-8")
+
+    assert "10e15a0b3ebc1c169b1732dea68dc652517b6065" in _paragrafo(testo, report.GENERATO)
+
+
+def test_l_intestazione_della_qualita_descrive_la_tabella_che_ha_sotto(tmp_path):
+    """Il titolo prometteva due colonne sopra una tabella che ne ha una.
+
+    Il ragionamento e' giusto — radius_edge_ratio e Jacobiano scalato non si
+    sottraggono — ma la forma descritta non e' quella del documento: sotto c'e'
+    una riga per modello, e la colonna dei valori non aveva nome.
+
+    Mutazione che uccide questo test: rimettere «due colonne» nel titolo, o
+    togliere il <thead> alla tabella.
+    """
+    cartelle = _tre_cartelle_finte(tmp_path)
+
+    testo = report.write_comparison_report(cartelle, tmp_path / "confronto.html").read_text(
+        encoding="utf-8"
+    )
+
+    titolo, sezione = testo.split("<h2>Qualità degli elementi", 1)[1].split("</h2>", 1)
+    sezione = sezione.split("<h2>", 1)[0]
+    assert "due colonne" not in titolo
+    intestazioni = re.findall(r"<th>(.*?)</th>", sezione.split("<tbody>", 1)[0])
+    corpo = sezione.split("<tbody>", 1)[1]
+    assert len(intestazioni) == 2, intestazioni
+    assert all(riga.count("<t") == 2 for riga in re.findall(r"<tr>(.*?)</tr>", corpo))
+
+
+def test_i_documenti_non_mescolano_due_ortografie_nello_stesso_elenco(tmp_path):
+    """`E'` con l'apostrofo e `è` con l'accento, due righe piu' sotto, nello stesso <ul>.
+
+    Va in appendice cartacea, e il controllo degli accenti non vede la maiuscola
+    tronca: TRONCA cerca `[aeiou]'` minuscole. Il <title> del confronto usa il
+    doppio trattino ASCII mentre gli altri due usano l'em dash, e quel titolo
+    finisce nell'intestazione di pagina quando si stampa in PDF dal browser.
+
+    Mutazione che uccide questo test: rimettere `E'` in NOTE_STATICHE o `--`
+    nel <title> del confronto.
+    """
+    assert not [nota for nota in report.NOTE_STATICHE if "E'" in nota]
+
+    for testo in _tre_documenti(tmp_path):
+        titolo = re.search(r"<title>(.*?)</title>", testo).group(1)
+        assert "--" not in titolo, titolo

@@ -369,10 +369,12 @@ def test_una_riga_vecchia_senza_il_peggiore_non_fabbrica_un_valore():
 
     Si scrive quello che c'e'. Un trattino o uno zero al posto del numero
     mancante si rileggerebbe fra mesi come una misura, ed e' esattamente il
-    modo in cui un'assenza diventa un dato.
+    modo in cui un'assenza diventa un dato. NON_MISURATO non e' un valore
+    fabbricato ma la dichiarazione dell'assenza, e sostituisce la cella vuota
+    che stampata non si distingueva da un dato mancante.
     """
     assert report._cell(_riga({"median": 38.0}), "dihedral") == "38"
-    assert report._cell(_riga({}), "dihedral") == ""
+    assert report._cell(_riga({}), "dihedral") == report.NON_MISURATO
 
 
 def test_uno_sliver_ben_orientato_non_e_marcato_invertito():

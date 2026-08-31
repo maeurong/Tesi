@@ -16,15 +16,16 @@ import html
 import json
 import math
 import os
+from datetime import datetime
 from pathlib import Path
-from typing import Iterator
+from typing import Iterator, get_args
 
 import yaml
 
 from meshrec.core import steps
-from meshrec.core.config import load_config
+from meshrec.core.config import PipelineConfig, load_config
 from meshrec.core.pipeline import METRICS_FILENAME, WALL_FILENAME
-from meshrec.core.sweep import load_registry
+from meshrec.core.sweep import load_registry, objectives
 
 CONFIG_FILENAME = "config.yaml"
 RUN_REPORT_FILENAME = "report.html"
@@ -103,6 +104,15 @@ MAPPA_VUOTA = "nessuna voce (mappa vuota)"
 # Uno step le cui metriche non sono una mappa non porta nomi di voce: senza
 # questo l'intestazione esce vuota, che stampata e' la cella bianca di sempre.
 SENZA_NOME = "(voce senza nome)"
+# La stessa regola nella tabella dello sweep, che e' la piu' lunga delle tre.
+# Un candidato che non arriva in fondo non ha 10_volume_quality: tetraedri,
+# fuori vincolo e diedro non sono zero, non esistono. Sul registro di
+# experiments/muro sono quattro righe su undici, tre celle bianche ciascuna,
+# e chi guarda 132 righe su 23 pagine non ha modo di sapere se manca il dato o
+# se il generatore ha saltato una colonna. Nessun trattino:
+# write_comparison_report ha gia' deciso che un trattino in mezzo ai numeri
+# somiglia a un valore.
+NON_MISURATO = "non misurato"
 # nan e inf arrivano davvero: pipeline scrive metrics.json con json.dump, che
 # li salva come NaN e Infinity, e riletti tornano float non finiti.
 NON_UN_NUMERO = "non un numero"
@@ -133,7 +143,7 @@ _COLUMNS: tuple[tuple[str, str], ...] = (
     ("outcome", "esito"),
     ("thickness_error", "errore di spessore [mm]"),
     ("tets", "tetraedri"),
-    ("over", "fuori vincolo"),
+    ("over", "fuori vincolo [frazione]"),
     # Peggiore **e** mediana, non la sola mediana. La mediana confronta due
     # candidati dello sweep; il peggiore e' l'unico dei due che vede uno
     # sliver, e lo sliver e' l'elemento che il vincolo raggio-spigolo di
@@ -142,7 +152,14 @@ _COLUMNS: tuple[tuple[str, str], ...] = (
     # minimo di 0,162 gradi. Con la sola mediana in tabella quel maglio si
     # legge sano. Il numero c'era gia' in metrics.json, non lo mostrava
     # nessuno.
-    ("dihedral", "diedro min. [peggiore / mediana]"),
+    #
+    # L'unita' sta dentro l'etichetta come in "errore di spessore [mm]", ed e'
+    # la stessa ragione di _ETICHETTE_GRANDEZZE: su carta un numero senza
+    # unita' non si ricostruisce. «frazione» e non «%» perche' il dato non si
+    # tocca -- radius_edge_over_reference vale 0,08098 e non 8,098 -- e
+    # un'etichetta in percento sopra una frazione e' la stessa bugia con un
+    # sintomo peggiore.
+    ("dihedral", "diedro min. [gradi: peggiore / mediana]"),
     ("duration_s", "durata [s]"),
 )
 
@@ -228,7 +245,7 @@ def _cell(row: dict[str, object], key: str) -> str:
         return ", ".join(
             f"{html.escape(str(name))}={html.escape(str(item))}" for name, item in value.items()
         ) or "base"
-    return html.escape(str(value)) if value is not None else ""
+    return html.escape(str(value)) if value is not None else NON_MISURATO
 
 
 # Il rivestimento dei tre documenti, uno solo per tutti e tre.
@@ -404,6 +421,16 @@ p.avviso {
   background: color-mix(in srgb, var(--avviso) 8%, var(--carta));
   padding: var(--passo-2) var(--passo-3);
 }
+/* Sta sotto il titolone e non fa parte del testo: corpo di nota, pila dei
+   dati perché è fatta di percorsi e di impronte, e si spezza dove capita
+   perché un percorso assoluto è più largo di mezza pagina. */
+p.provenienza {
+  font-family: var(--stack-dati);
+  font-size: var(--tipo-nota);
+  color: var(--tenue);
+  margin: calc(-1 * var(--passo-4)) 0 var(--passo-6);
+  overflow-wrap: anywhere;
+}
 .istogramma {
   display: inline-block;
   width: 100%;
@@ -450,6 +477,42 @@ img { display: block; max-width: 100%; height: auto; border: 1px solid var(--fil
 # documenti che non la dichiarano.
 _TESTA = '<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">'
 
+# «La provenienza e' parte del risultato. Un artefatto, una metrica o una
+# vista dicono sempre da quale configurazione e da quale esecuzione vengono»
+# (PRODUCT.md, quarto principio). I tre documenti finiscono stampati in
+# appendice e si discutono mesi dopo essere stati generati: senza queste due
+# cose diventano tre fogli che nessuno puo' ricondurre a una corsa, e il
+# titolone da solo -- «Sweep -- muro» -- non e' un riferimento.
+SORGENTE = "sorgente:"
+GENERATO = "generato il"
+
+
+def _provenienza(sorgente: str, coda: str = "") -> str:
+    """Da dove viene il documento e quando e' stato scritto, sotto il titolone.
+
+    La data la mette l'orologio della macchina che genera, perche' e' l'unica
+    che risponde alla domanda vera: quanto e' vecchio il foglio che ho in
+    mano. Tutto il resto viene da una lettura, `coda` compresa -- per lo sweep
+    e' il commit gia' scritto nelle righe del registro, non quello del
+    processo che compone il documento, che sarebbe un'altra corsa.
+    """
+    quando = datetime.now().strftime("%Y-%m-%d %H:%M")
+    return (
+        f"<p class='provenienza'>{SORGENTE} {html.escape(sorgente)} — "
+        f"{GENERATO} {quando}{coda}</p>"
+    )
+
+
+# Gli istogrammi dello sweep descrivono la stessa popolazione del fronte di
+# Pareto -- sweep.objectives, cioe' i candidati riusciti, completi e con le
+# misure sul disco -- e non tutte le righe del registro. Un candidato fallito
+# porta comunque un thickness_error che non misura nessuna mesh: sul registro
+# di experiments/muro quattro falliti portano 0 oppure 9,125 e spostavano la
+# distribuzione dei sette riusciti. «confrontabili» e' la parola che sweep.py
+# usa gia' per questo insieme (check_sweep).
+SOLO_CONFRONTABILI = "solo i confrontabili"
+NESSUN_CONFRONTABILE = "nessun candidato confrontabile: nessuna distribuzione da mostrare"
+
 # Un registro senza righe non e' un guasto: e' uno sweep che non ha ancora
 # prodotto niente, o un esperimento cancellato. Stampata, una tabella con le
 # sole intestazioni e nessuna riga si legge invece come un generatore rotto, e
@@ -475,12 +538,11 @@ def write_report(registry_path: Path, out_path: Path) -> Path:
         for row in rows
     )
 
-    errors = [row["thickness_error"] for row in rows if isinstance(row.get("thickness_error"), float)]
-    tets = [
-        float(row["metrics"]["10_volume_quality"]["tets"])
-        for row in rows
-        if row.get("metrics", {}).get("10_volume_quality")
-    ]
+    # La stessa lettura che decide il fronte, riusata: cosi' la tabella e le
+    # distribuzioni parlano dello stesso insieme di candidati invece di due.
+    misurati = [assi for assi in (objectives(row) for row in rows) if assi is not None]
+    errors = [assi[0] for assi in misurati]
+    tets = [assi[1] for assi in misurati]
 
     tabella = (
         f"""<p>{len(rows)} candidati. Le righe evidenziate sono il <strong>fronte</strong> di Pareto:
@@ -490,14 +552,39 @@ errore di spessore, numero di tetraedri e frazione fuori vincolo, tutti da minim
         else f"<p class='assente'>{NESSUN_CANDIDATO}.</p>"
     )
 
+    if not rows:
+        # Il paragrafo del registro vuoto ha gia' detto tutto. Due riquadri con
+        # dentro la parola «vuoto» sono, stampati, due rettangoli bianchi da
+        # cinque centimetri che lo ripetono peggio.
+        distribuzioni = ""
+    elif not misurati:
+        distribuzioni = f"<h2>Distribuzioni</h2>\n<p class='assente'>{NESSUN_CONFRONTABILE}.</p>"
+    else:
+        distribuzioni = f"""<h2>Distribuzioni</h2>
+<p>Solo i candidati confrontabili entrano in queste distribuzioni — riusciti, completi e con le
+misure sul disco: {len(misurati)} su {len(rows)}. Gli altri restano nella tabella qui sopra, dove
+la colonna «esito» dice perché.</p>
+{histogram_svg(errors, f"errore di spessore [mm] — {SOLO_CONFRONTABILI}", bins=12)}
+{histogram_svg(tets, f"tetraedri — {SOLO_CONFRONTABILI}", bins=12)}"""
+
+    # Il commit e' gia' in ogni riga, sotto provenance: quello del processo che
+    # compone il documento sarebbe l'impronta di un'altra esecuzione.
+    commit = sorted(
+        {
+            str(riga["provenance"]["commit"])
+            for riga in rows
+            if isinstance(riga.get("provenance"), dict) and riga["provenance"].get("commit")
+        }
+    )
+    coda = f" — commit {html.escape(', '.join(commit))}" if commit else ""
+
     document = f"""<!doctype html>
 <html lang="it"><head>{_TESTA}<title>Sweep — {html.escape(registry_path.parent.name)}</title>
 <style>{_STILE}</style></head><body>
 <h1>Sweep — {html.escape(registry_path.parent.name)}</h1>
+{_provenienza(str(registry_path), coda)}
 {tabella}
-<h2>Distribuzioni</h2>
-{histogram_svg(errors, "errore di spessore [mm]", bins=12)}
-{histogram_svg(tets, "tetraedri", bins=12)}
+{distribuzioni}
 </body></html>"""
 
     out_path = Path(out_path)
@@ -588,6 +675,71 @@ def _tabella(coppie: Iterator[tuple[str, object]]) -> str:
         for nome, valore in coppie
     )
     return f"<table>{righe}</table>" if righe else "<p>nessuna voce.</p>"
+
+
+def _etichette(percorso: tuple[str, ...]) -> list[str]:
+    """L'etichetta di ogni passo di una chiave puntata di configurazione.
+
+    «Una chiave non si stampa mai, si stampa la sua etichetta» (PRODUCT.md).
+    Le etichette esistono gia' e non vanno scritte qui: sono i `title` dei
+    campi di PipelineConfig, messi li' per il pannello, e `input.max_points`
+    stampato crudo in appendice non dice ne' che cosa misura ne' in che unita'.
+
+    E' la stessa logica di `server._etichetta_del_percorso`, riscritta qui
+    perche' quel modulo e' l'interfaccia e questo il generatore dei documenti:
+    li' serve il nome del campo che il validatore ha rifiutato, uno solo, qui
+    servono tutti i passi perche' la riga li porta annidati.
+
+    Dove il `title` manca resta la chiave, che e' l'unica cosa che si sa, e non
+    si inventa una frase. Vale anche per una chiave che il modello non conosce
+    affatto: un config.yaml scritto da una versione precedente ne porta, e
+    fermarsi li' lascerebbe la riga senza nome.
+    """
+    modello: object = PipelineConfig
+    nomi: list[str] = []
+    for passo in percorso:
+        campi = getattr(modello, "model_fields", None)
+        if not campi or passo not in campi:
+            return nomi + list(percorso[len(nomi) :])
+        campo = campi[passo]
+        nomi.append(campo.title or passo)
+        # `analysis` e' `AnalysisConfig | None`: i campi stanno sul modello e
+        # non sull'unione, e leggerli dall'annotazione grezza li perderebbe.
+        modello = next(
+            (
+                tipo
+                for tipo in get_args(campo.annotation) or (campo.annotation,)
+                if tipo is not type(None)
+            ),
+            None,
+        )
+    return nomi
+
+
+def _sezione_parametri(configurazione: dict[str, object]) -> str:
+    """I parametri della corsa, un'intestazione per blocco e le etichette al posto delle chiavi.
+
+    Novanta righe di chiavi puntate di seguito sono, stampate, una colonna che
+    nessuno legge: la gerarchia che il config.yaml ha gia' si vede se i blocchi
+    restano blocchi. La forma e' quella che «Metriche per step» usa da sempre
+    -- un <h3> e la sua tabella -- riusata invece di inventarne una seconda.
+
+    Un blocco che non e' una mappa (`analysis: null` sta in ogni corsa senza
+    analisi) resta una riga sola col nome del blocco: passarlo a `_piatto` gli
+    darebbe il nome vuoto, cioe' la cella bianca di sempre.
+    """
+    pezzi = []
+    for blocco, dentro in configurazione.items():
+        titolo = _etichette((str(blocco),))[0]
+        if isinstance(dentro, dict) and dentro:
+            coppie = [
+                (" · ".join(_etichette((str(blocco), *nome.split(".")))[1:]), valore)
+                for nome, valore in _piatto("", dentro)
+            ]
+        else:
+            coppie = [(titolo, dentro)]
+        pezzi.append(f"<h3>{html.escape(titolo)}</h3>{_tabella(iter(coppie))}")
+    return "".join(pezzi) or "<p>nessuna voce.</p>"
 
 
 def _stato_degli_step(out_dir: Path) -> tuple[dict[str, str] | None, str]:
@@ -795,7 +947,7 @@ def write_run_report(out_dir: Path, viste: list[Path]) -> Path:
     )
     stato, motivo = _stato_degli_step(out_dir)
     parametri = (
-        _tabella(_piatto("", configurazione))
+        _sezione_parametri(configurazione)
         if configurazione is not None
         else f"<p class='assente'>{html.escape(motivo_config)}</p>"
     )
@@ -804,6 +956,7 @@ def write_run_report(out_dir: Path, viste: list[Path]) -> Path:
 <html lang="it"><head>{_TESTA}<title>Corsa: {html.escape(out_dir.name)}</title>
 <style>{_STILE}</style></head><body>
 <h1>Corsa: {html.escape(out_dir.name)}</h1>
+{_provenienza(str(out_dir))}
 <h2>Parametri</h2>
 {parametri}
 <h2>Metriche per step</h2>
@@ -857,7 +1010,7 @@ CONFRONTABILI: dict[str, bool] = {
 """
 
 NOTE_STATICHE = (
-    "Nessuna armatura in alcun modello: calcestruzzo omogeneo. E' una scelta "
+    "Nessuna armatura in alcun modello: calcestruzzo omogeneo. È una scelta "
     "dell'autore e non una dimenticanza, e il dato delle barre resta nel disegno. "
     "Un telaio in cemento armato modellato senza armatura non è il telaio vero.",
     "Il set BASE non è una faccia del pezzo: è la quota di taglio scelta "
@@ -906,6 +1059,11 @@ def confronta(cartelle: list[Path]) -> dict[str, object]:
 
     Non ricalcola nulla: legge cio' che ogni corsa ha scritto. Ricalcolare
     darebbe numeri che nessun artefatto sostiene.
+
+    La cartella di ogni modello esce insieme alle sue misure: il confronto si
+    stampa in appendice con le colonne intitolate «as-built», «estruso» e
+    «primitive», e senza il percorso quei tre nomi non riconducono a nessuna
+    corsa sul disco.
 
     Lo scostamento dalla nuvola legge il verso mesh_to_cloud, non cloud_to_mesh:
     quality.vertex_deviation, che pipeline.genera_modello usa per lo
@@ -995,6 +1153,7 @@ def confronta(cartelle: list[Path]) -> dict[str, object]:
 
     return {
         "modelli": sorted(presenti),
+        "cartelle": {nome: str(voce["cartella"]) for nome, voce in presenti.items()},
         "mancanti": mancanti,
         "scheda_singola": len(presenti) == 1,
         "confrontabili": dict(CONFRONTABILI),
@@ -1060,6 +1219,11 @@ def write_comparison_report(cartelle: list[Path], out_path: Path) -> Path:
         f"<tr><th>{nome}</th><td>{html.escape(_testo(confronto['qualita'].get(nome, 'non generato')))}</td></tr>"
         for nome in MODELLI
     )
+    sorgenti = ", ".join(
+        f"{nome} {confronto['cartelle'][nome]}"
+        for nome in MODELLI
+        if nome in confronto["cartelle"]
+    )
     vincoli_righe = "".join(
         f"<tr><th>{nome}</th><td>{html.escape(_testo_vincoli(confronto['vincoli_giunzioni'].get(nome, 'non generato')))}</td></tr>"
         for nome in MODELLI
@@ -1074,16 +1238,18 @@ def write_comparison_report(cartelle: list[Path], out_path: Path) -> Path:
     )
 
     pagina = f"""<!doctype html>
-<html lang="it"><head>{_TESTA}<title>MeshRec -- confronto fra modelli</title>
+<html lang="it"><head>{_TESTA}<title>MeshRec — confronto fra modelli</title>
 <style>{_STILE}</style></head><body>
 <h1>Confronto fra modelli</h1>
+{_provenienza(sorgenti)}
 {avviso}
 <h2>Grandezze confrontabili</h2>
 <div class="tabellone"><table class="prosa"><thead><tr><th></th>{intestazione}</tr></thead><tbody>{''.join(righe)}</tbody></table></div>
-<h2>Qualità degli elementi: due colonne, mai una differenza</h2>
+<h2>Qualità degli elementi: una misura per modello, mai una differenza</h2>
 <p>radius_edge_ratio vale per i tetraedri, il Jacobiano scalato per gli esaedri. Non sono
-la stessa grandezza e la loro differenza non è un numero.</p>
-<div class="tabellone"><table class="prosa"><tbody>{qualita_righe}</tbody></table></div>
+la stessa grandezza e la loro differenza non è un numero: ogni modello porta la propria,
+col nome davanti, e nessuna colonna le affianca.</p>
+<div class="tabellone"><table class="prosa"><thead><tr><th>modello</th><th>misura e valore</th></tr></thead><tbody>{qualita_righe}</tbody></table></div>
 <h2>Vincoli alle giunzioni: il limite che il vincolo aggiunge, non la geometria</h2>
 <p>Giunzioni tagliate e *TIE effettivamente scritti restano due numeri distinti;
 i nodi della superficie dipendente vincolati sul totale dicono quanto il
