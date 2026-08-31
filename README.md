@@ -1,7 +1,7 @@
 # MeshRec
 
-Da una scansione laser di una parete in muratura a un modello a elementi finiti
-pronto per l'analisi, in modo riproducibile e documentabile.
+Da un rilievo fotogrammetrico di una struttura in cemento armato a un modello a
+elementi finiti pronto per l'analisi, in modo riproducibile e documentabile.
 
 Il percorso è di tredici passaggi — segmentazione della nuvola di punti,
 ricostruzione della superficie, riempimento a tetraedri, esportazione del

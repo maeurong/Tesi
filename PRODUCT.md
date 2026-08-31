@@ -40,9 +40,9 @@ discussione.
 
 ## Product Purpose
 
-MeshRec trasforma una nuvola di punti rilevata da laser scanner in un modello a
-elementi finiti di muratura pronto per l'analisi, in modo **riproducibile e
-documentabile**.
+MeshRec trasforma una nuvola di punti rilevata per fotogrammetria in un modello
+a elementi finiti di una struttura in cemento armato pronto per l'analisi, in
+modo **riproducibile e documentabile**.
 
 Sostituisce `MeshReconstructorPro`, un eseguibile fornito senza sorgente, i cui
 limiti sono l'origine del progetto: interfaccia obbligatoria senza esecuzione

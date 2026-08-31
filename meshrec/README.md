@@ -1,7 +1,7 @@
 # MeshRec
 
-Pipeline riproducibile da nuvola di punti a modello FEM di muratura, sviluppata
-come strumento della tesi. Sostituisce `MeshReconstructorPro`.
+Pipeline riproducibile da nuvola di punti a modello FEM di strutture in cemento
+armato, sviluppata come strumento della tesi. Sostituisce `MeshReconstructorPro`.
 
 Spec: `../docs/superpowers/specs/2026-08-12-meshreconstructor-architettura-design.md`
 
