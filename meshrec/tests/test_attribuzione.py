@@ -50,13 +50,10 @@ def _maglio(baricentri):
 
 def _regione(membratura):
     """Una `RegioneConfig` col minimo che la configurazione pretende."""
-    voce = config.MaterialeDichiarato(
-        material=MATERIALE, provenienza="a_mano", norma="NTC 2018 Tab. 4.1.I"
-    )
     return config.RegioneConfig(
         membratura=membratura,
-        sezione=config.SezioneConfig(
-            calcestruzzo_confinato=voce, calcestruzzo_copriferro=voce, acciaio=voce
+        materiale=config.MaterialeDichiarato(
+            material=MATERIALE, provenienza="a_mano", norma="NTC 2018 Tab. 4.1.I"
         ),
     )
 

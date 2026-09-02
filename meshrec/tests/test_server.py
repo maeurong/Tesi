@@ -110,14 +110,7 @@ def test_una_regione_che_collide_con_lelset_fabbricato_e_rifiutata_dallendpoint(
     }
     guasta = cliente.get("/api/config").json()
     guasta["regioni"] = {
-        "all_wall": {
-            "membratura": 0,
-            "sezione": {
-                "calcestruzzo_confinato": materiale,
-                "calcestruzzo_copriferro": materiale,
-                "acciaio": materiale,
-            },
-        }
+        "all_wall": {"membratura": 0, "materiale": materiale}
     }
     risposta = cliente.put("/api/config", json=guasta)
     assert risposta.status_code == 422
@@ -3659,11 +3652,7 @@ def cliente_con_regioni(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Test
         regioni={
             "pilastro": {
                 "membratura": 0,
-                "sezione": {
-                    "calcestruzzo_confinato": materiale,
-                    "calcestruzzo_copriferro": materiale,
-                    "acciaio": materiale,
-                },
+                "materiale": materiale,
             }
         },
     )

@@ -1,5 +1,12 @@
 # NTC 2018 e Circolare 7/2019 — i numeri per il catalogo dei materiali e per i controlli di sezione
 
+> **Nota del 02/09/2026.** Questo documento è una ricerca, e resta come è stata
+> scritta: registra che cosa la norma chiede e come il programma lo teneva
+> allora. La descrizione dell'armatura di cui parla è uscita dal programma con
+> la mappa [#161](https://github.com/maeurong/Tesi/issues/161), quando la linea
+> dell'analisi integrata è stata dismessa. I numeri di norma qui dentro restano
+> veri; i rimandi al codice descrivono uno stato passato, e sono al passato.
+
 Data: 30/08/2026. Autore della raccolta: agente di ricerca (sola lettura).
 Scopo: mettere sotto un solo tetto i valori normativi di cui hanno bisogno il
 catalogo dei materiali e i controlli di sezione in cemento armato, **ciascuno
@@ -1107,8 +1114,9 @@ Riassunto, con l'articolo di ciascuna riga:
 | quota a taglio | ≥ 50% in staffe — §4.1.6.1.1 | — |
 | ritegno delle compresse | passo ≤ 15·Ø — §4.1.6.1.1 | — |
 
-**Il campo `diametro_staffe` di `config.ArmaturaConfig`** (`config.py:1148`)
-cita già il §4.1.6.1.2 e impone `ge=6`, con una nota che dice esplicitamente che
+**Il campo `diametro_staffe` della descrizione d'armatura** — uscita dal
+programma il 02/09/2026 con la mappa #161, quando la linea dell'analisi
+integrata è stata dismessa — citava il §4.1.6.1.2 e imponeva `ge=6`, con una nota che dice esplicitamente che
 il minimo relativo `Ø_long,max/4` «questa configurazione non può controllare da
 sola». La lettura di questa sessione conferma la citazione ed è d'accordo con la
 nota: il minimo di norma è il **massimo fra due numeri**, e uno dei due dipende
@@ -1194,8 +1202,9 @@ c_nom = c_min(ambiente, tipo elemento, classe)   # Tabella C4.1.IV
         + tolleranza di posa (10 mm o meno)
 ```
 
-Il campo `config.ArmaturaConfig.copriferro_nominale` (`config.py:1160`) chiede
-già il **nominale** e impone `ge=10.0`. Coerente: il minimo assoluto della
+Il campo `copriferro_nominale` della descrizione d'armatura — uscita col
+resto il 02/09/2026, vedi sopra — chiedeva il **nominale** e imponeva
+`ge=10.0`. Era coerente: il minimo assoluto della
 Tabella C4.1.IV è 15 mm, e con la tolleranza di posa il nominale non scende sotto
 25 mm nel caso più favorevole.
 
@@ -1638,8 +1647,9 @@ stesso, del genere che `soglie.trova` rende possibile per le soglie.
    sperimentazione preventiva; sopra C70/85 l'autorizzazione ministeriale. Il
    catalogo può portarle tutte purché ciascuna porti il proprio vincolo.
 
-`config.ArmaturaConfig` (`config.py:1100`) tiene già `classe_calcestruzzo` come
-**testo libero** e ne spiega il perché nella propria docstring: «Resta testo e
+La descrizione d'armatura — uscita col resto, vedi sopra — teneva
+`classe_calcestruzzo` come **testo libero**, e ne spiegava il perché nella
+propria docstring: «Resta testo e
 non enumerazione finché il catalogo dei materiali non esiste: un'enumerazione
 scritta a mano qui sarebbe una seconda verità da tenere allineata a quel
 catalogo». Quando il catalogo esisterà, quel campo è il primo che può diventare

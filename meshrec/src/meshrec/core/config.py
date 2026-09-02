@@ -572,73 +572,6 @@ class AnalysisConfig(_ModelloBase):
         return self
 
 
-class SolutoreConfig(_ModelloBase):
-    """Quale motore risolve lo step 13, e dove sta il suo eseguibile (#139).
-
-    Fuori dall'impronta per esclusione **secca** (`sweep.BLOCCHI_FUORI_IMPRONTA`):
-    il motore e il percorso del suo binario non cambiano ne' il maglio ne' il
-    deck, e sono una proprieta' della macchina che esegue, non
-    dell'esperimento. Due corse identiche risolte da due motori diversi restano
-    lo stesso esperimento, e devono finire nella stessa cartella.
-
-    E' anche la ragione per cui `nome` puo' avere un predefinito **truthy**:
-    dentro l'esclusione condizionata (`BLOCCHI_VUOTI_FUORI_IMPRONTA`) una
-    stringa non vuota renderebbe il blocco sempre non vuoto, l'omissione non
-    scatterebbe mai e le ventidue righe dei registri si muoverebbero.
-    """
-
-    # `title` e' l'etichetta che il pannello mostra al posto della chiave
-    # (PRODUCT.md: una chiave non si stampa mai, si stampa la sua etichetta).
-    # Senza, l'utente dello step 13 leggeva «nome» e «percorso»: nome di che
-    # cosa.
-    nome: Literal["calculix", "opensees"] = Field(
-        default="calculix",
-        title="motore di calcolo",
-        description=(
-            "quale motore risolve lo step 13. Enumerazione chiusa e non testo "
-            "libero: un nome che nessuno scrittore di deck conosce fallirebbe "
-            "soltanto allo step 13, cioè dopo l'intera elaborazione"
-        ),
-    )
-    percorso: Path | None = Field(
-        default=None,
-        title="percorso dell'eseguibile",
-        description=(
-            "il campo lasciato vuoto dichiara «cercalo nel PATH», "
-            "che è il caso normale di una macchina dove il solutore è "
-            "installato a sistema: la stringa vuota non è quella dichiarazione, "
-            "è la cartella corrente, ed è rifiutata insieme a ogni directory "
-            "esistente. Un file che ancora non c'è passa: dire che il binario "
-            "manca spetta al passo che lo esegue, non a questa configurazione"
-        ),
-    )
-
-    @model_validator(mode="after")
-    def _il_percorso_non_e_una_cartella(self) -> "SolutoreConfig":
-        """Questo campo sceglie il binario che verra' eseguito.
-
-        Il ramo del solutore lo consuma in un `subprocess.run` con lista di
-        argomenti, quindi nessuna shell lo interpreta -- ma un `config.yaml`
-        copiato da altri, o una `PUT /api/config`, sceglie comunque quale
-        programma parte. I due modi in cui la scelta e' muta si vedono da qui e
-        si chiudono da qui; che il file esista e funzioni no, e resta di
-        `solve.verifica`, che lo dichiara invece di ripiegare in silenzio.
-
-        Una sola guardia per due ingressi: `Path("")` e' `Path(".")`, quindi la
-        stringa vuota -- che sembra «non dichiarato» e invece e' la cartella
-        corrente -- cade nello stesso controllo della directory esistente. Un
-        percorso che non esiste non e' una directory e passa.
-        """
-        if self.percorso is not None and self.percorso.is_dir():
-            raise ValueError(
-                f"solutore.percorso '{self.percorso}' è una directory e non un "
-                "eseguibile. La stringa vuota finisce qui: vale la cartella "
-                "corrente, non «non dichiarato». Per «cercalo nel PATH» il "
-                "valore è None, cioè la chiave omessa"
-            )
-        return self
-
-
 class RunConfig(_ModelloBase):
     """Esecuzione: percorsi e ripresa."""
 
@@ -661,54 +594,37 @@ class RunConfig(_ModelloBase):
             "from_step = to_step = numero: con il tetto a 9 quei tre step non "
             "erano eseguibili singolarmente, e il pannello rispondeva «Input "
             "should be less than or equal to 9» invece di eseguirli. "
-            "Lo step 13 resta fuori: è l'unico che paga un processo esterno "
-            "vero, e si invoca come azione con `meshrec solve`. Anche il solo "
-            "prior ha la propria azione, `meshrec wall`."
+            "Il solo prior ha anche la propria azione, `meshrec wall`."
         ),
     )
     to_step: int = Field(
         default=11,
         ge=1,
-        le=13,
+        le=12,
         description=(
             "ultimo step eseguito. Serve all'interfaccia, che esegue uno step "
             "alla volta: from_step e to_step uguali eseguono soltanto quello. "
-            "Il tetto è 13 dalla Fase 5, ma il predefinito è 11 e non coincide "
-            "più con esso, per due ragioni sovrapposte. La prima è di "
-            "perimetro: il prodotto va dalla nuvola al deck `.inp` e si chiude "
-            "lì, mentre il prior geometrico dello step 12 e il solutore dello "
-            "step 13 appartengono a una linea di sviluppo che sta fuori -- "
-            "docs/linea-analisi-integrata.md. Il predefinito coincide quindi "
-            "con l'ultimo artefatto che il prodotto promette, e una corsa "
-            "senza argomenti non calcola più nulla che i documenti dichiarino "
-            "fuori. La seconda ragione riguarda il solo step 13 e precede la "
-            "prima: dalla Fase 8 (#140) il solutore vive in una schermata "
-            "dedicata e si invoca da lì. Chi li chiede esplicitamente li "
-            "ottiene ancora -- la capacità non si perde, smette solo di essere "
-            "ciò che accade senza chiederlo. Restano da conoscere le "
+            "Il tetto è 12, ma il predefinito è 11 e non coincide con esso: "
+            "il prodotto va dalla nuvola al deck `.inp` e si chiude lì, mentre "
+            "il prior geometrico dello step 12 misura la scansione e sta "
+            "fuori dal perimetro. Il predefinito coincide quindi con l'ultimo "
+            "artefatto che il prodotto promette, e una corsa senza argomenti "
+            "non calcola più nulla che i documenti dichiarino fuori. Chi "
+            "chiede il prior esplicitamente lo ottiene: la capacità non si "
+            "perde, smette solo di essere ciò che accade senza chiederlo. "
+            "Restano da conoscere le "
             "operazioni che il prior lo pretendono: l'attribuzione per regione "
             "dello step 11 quando la configurazione dichiara `regioni` (nessuna "
-            "in casi/ lo fa oggi), `meshrec model`, `meshrec solve` con "
-            "OpenSees, e `meshrec compare` per la chiusura di volume. Tutte si "
+            "in casi/ lo fa oggi), `meshrec model`, e `meshrec compare` per la "
+            "chiusura di volume. Tutte si "
             "sbloccano con `meshrec wall`, e non con una corsa chiesta fino a "
             "12: con `regioni` dichiarate lo step 11 legge il prior prima che "
             "lo step 12 lo scriva, quindi una corsa 1->12 si ferma a 11 e non "
             "arriva mai a calcolarlo. "
-            "Lo step 13 è del resto diverso dagli altri: è l'unico che paga "
-            "un processo esterno vero (ccx) invece di lavoro in-process, e "
-            "chi lo invoca su molti candidati -- uno sweep -- paga quel "
-            "processo e i suoi artefatti per ciascuno, senza che la "
-            "selezione se ne serva: misurati sull'unica corsa vera "
-            "(runs/lab_telaio_v2), .frd 81 MiB, .vtu 8,2 MiB e .dat 4,3 MiB, "
-            "cioè 93,6 MiB per candidato. sweep.py chiede to_step=11 "
-            "esplicito al sottoprocesso invece di ereditare questo "
-            "predefinito, e REQUIRED_STEPS in sweep.py non lo richiede: è una "
-            "decisione del chiamante, che non deve dipendere da come il "
-            "predefinito cambia. "
-            "from_step non segue questo tetto e si ferma a 12: lo step 13 non è "
-            "un punto di ripresa, perché non c'è lavoro a monte da saltare — ci "
-            "sono artefatti da rileggere e un processo esterno da lanciare su di "
-            "essi. La ragione per esteso è scritta là. "
+            "sweep.py chiede to_step=11 esplicito al sottoprocesso invece di "
+            "ereditare questo predefinito, e REQUIRED_STEPS in sweep.py non lo "
+            "richiede: è una decisione del chiamante, che non deve dipendere "
+            "da come il predefinito cambia. "
             "Con validate_assignment attivo il validatore incrociato rifiuta "
             "ogni stato intermedio incoerente, e nessun ordine di assegnazione "
             "è sicuro: restringendo un intervallo verso l'alto rompe to_step "
@@ -1381,112 +1297,18 @@ class MaterialeDichiarato(_ModelloBase):
         return self
 
 
-class ArmaturaConfig(_ModelloBase):
-    """I nove campi che l'operatore dichiara di un'armatura (#136).
-
-    Base e altezza NON stanno qui: vengono da `wall.misura`, e chiederle
-    disferebbe il programma -- la sezione si misura sulla nuvola, non si batte.
-
-    Nessun campo ha un predefinito, per la stessa ragione di `Material` e dei
-    casi di carico: sono grandezze che nessun dato del rilievo puo' suggerire.
-    Un copriferro predefinito sarebbe lo stesso errore del modulo elastico a
-    1500 MPa finito su un telaio in calcestruzzo senza che nessuno l'avesse
-    scelto.
-    """
-
-    classe_calcestruzzo: Annotated[
-        str, StringConstraints(strip_whitespace=True, min_length=1)
-    ] = Field(
-        description=(
-            "classe del calcestruzzo, es. «C25/30». Resta testo e non "
-            "enumerazione finché il catalogo dei materiali non esiste: "
-            "un'enumerazione scritta a mano qui sarebbe una seconda verità da "
-            "tenere allineata a quel catalogo. Vuota però non è una classe"
-        ),
-    )
-    classe_acciaio: Literal["B450A", "B450C"] = Field(
-        description="classe dell'acciaio da armatura, NTC 2018 §11.3.2.1-2",
-    )
-    barre_tese: int = Field(
-        ge=2,
-        description=(
-            "numero di barre longitudinali in zona tesa. Il minimo è due, non "
-            "una: una barra sola non è un'armatura "
-            "(docs/validazione/ricerca-armature-convenzioni-normative.md §7.1). "
-            "ISO 3766 §3 regge il nome del campo, «number», non il minimo di due"
-        ),
-    )
-    diametro_teso: int = Field(
-        gt=0,
-        description="diametro delle barre tese [mm]. La serie commerciale è 6, 8, 10, 12, 14, 16, 20, 25, 28, 32, 40 mm con B450C e 5, 6, 8, 10 mm con B450A (docs/validazione/ricerca-armature-convenzioni-normative.md §7.1): il dominio resta l'intero positivo e non un'enumerazione, per la stessa ragione di `classe_calcestruzzo`, ma 17 mm non esiste in commercio",
-    )
-    barre_compresse: int = Field(
-        ge=0,
-        description=(
-            "numero di barre longitudinali in zona compressa. Zero è ammesso ed è "
-            "l'armatura semplice, non un errore"
-        ),
-    )
-    diametro_compresso: int = Field(
-        gt=0,
-        description=(
-            "diametro delle barre compresse [mm]. Si dichiara anche con zero "
-            "barre compresse: il campo non ha predefinito, come tutti gli "
-            "altri. La serie commerciale è 6, 8, 10, 12, 14, 16, 20, 25, 28, 32, 40 mm con B450C e 5, 6, 8, 10 mm con B450A (docs/validazione/ricerca-armature-convenzioni-normative.md §7.1): il dominio resta l'intero positivo e non un'enumerazione, per la stessa ragione di `classe_calcestruzzo`, ma 17 mm non esiste in commercio"
-        ),
-    )
-    diametro_staffe: int = Field(
-        ge=6,
-        description=(
-            "diametro delle staffe [mm]. Il minimo di norma è 6 mm, e vale "
-            "insieme al minimo relativo Ø_long,max/4 che questa configurazione "
-            "non può controllare da sola (NTC 2018 §4.1.6.1.2). La serie commerciale è 6, 8, 10, 12, 14, 16, 20, 25, 28, 32, 40 mm con B450C e 5, 6, 8, 10 mm con B450A (docs/validazione/ricerca-armature-convenzioni-normative.md §7.1): il dominio resta l'intero positivo e non un'enumerazione, per la stessa ragione di `classe_calcestruzzo`, ma 17 mm non esiste in commercio"
-        ),
-    )
-    passo_staffe: float = Field(
-        gt=0.0,
-        description="passo delle staffe [mm]. Zero non è un passo (NTC 2018 §4.1.6.1.2)",
-    )
-    copriferro_nominale: float = Field(
-        ge=10.0,
-        description=(
-            "copriferro nominale [mm], netto e misurato all'esterno delle staffe. "
-            "Sotto i 10 mm non è un copriferro "
-            "(docs/validazione/ricerca-armature-convenzioni-normative.md §7.1)"
-        ),
-    )
-
-
-class SezioneConfig(_ModelloBase):
-    """La sezione di una regione: i tre materiali e, dove c'e', l'armatura.
-
-    Due calcestruzzi e non uno: il nucleo confinato dalle staffe e il
-    copriferro hanno leggi diverse, ed e' la distinzione su cui il verdetto di
-    duttilita' si regge.
-    """
-
-    calcestruzzo_confinato: MaterialeDichiarato = Field(
-        description="il nucleo racchiuso dalle staffe"
-    )
-    calcestruzzo_copriferro: MaterialeDichiarato = Field(
-        description="lo strato esterno alle staffe, non confinato"
-    )
-    acciaio: MaterialeDichiarato = Field(description="l'acciaio delle barre")
-    armatura: ArmaturaConfig | None = Field(
-        default=None,
-        description=(
-            "disposizione delle barre, dove è stata rilevata. Assente: la sezione "
-            "è di solo calcestruzzo, e nessuna armatura si inventa"
-        ),
-    )
-
-
 class RegioneConfig(_ModelloBase):
-    """Una regione punta a una sezione; la sezione nomina i materiali (#135).
+    """Un prisma di membratura e il materiale che il deck gli scrive dentro.
 
     Il nome della regione e' la chiave del dizionario `PipelineConfig.regioni`,
     e diventa un `*ELSET` nel deck: e' per questo che le chiavi seguono le
     stesse regole dei selettori.
+
+    Portava una `sezione` con tre materiali -- nucleo confinato, copriferro,
+    acciaio -- e l'armatura, perche' una sezione a fibre se li porta dentro.
+    Uscito il solutore a fibre con la mappa #161, di quei quattro il deck ne
+    leggeva uno: quello. Tre campi che l'operatore compila e che nessuno
+    consuma sono tre numeri senza un controllo che li smentisca.
     """
 
     membratura: int = Field(
@@ -1498,7 +1320,9 @@ class RegioneConfig(_ModelloBase):
             "e il rifiuto dell'indice fuori intervallo spetta a chi legge il prior"
         ),
     )
-    sezione: SezioneConfig = Field(description="la sezione attribuita a questa regione")
+    materiale: MaterialeDichiarato = Field(
+        description="il materiale che il deck scrive per questa regione"
+    )
 
 
 class PipelineConfig(_ModelloBase):
@@ -1544,13 +1368,6 @@ class PipelineConfig(_ModelloBase):
             "diventa un `*ELSET` nel deck. La forma a dizionario è anche ciò che "
             "tiene ferma l'impronta delle corse già registrate: nasce `{}`, cioè "
             "falso, e `sweep.fingerprint` lo omette finché resta vuoto"
-        ),
-    )
-    solutore: SolutoreConfig = Field(
-        default_factory=SolutoreConfig,
-        description=(
-            "motore dello step 13 e percorso del suo eseguibile. Fuori "
-            "dall'impronta per esclusione secca: vedi SolutoreConfig"
         ),
     )
 

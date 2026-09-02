@@ -38,16 +38,10 @@ from meshrec.core.config import ExperimentConfig, PipelineConfig
 # l'esclusione di `carichi` e' sopravvissuta: tenerle d'accordo e' un obbligo,
 # non una comodita'.
 #
-# `solutore` (Fase 8, #139) sta qui e non nella lista condizionata sotto: quale
-# motore risolve e dove sta il suo eseguibile sono proprieta' della macchina
-# che esegue, non dell'esperimento, e due corse identiche risolte da due motori
-# diversi devono finire nella stessa cartella. E' anche l'unica ragione per cui
-# `SolutoreConfig.nome` puo' avere un predefinito TRUTHY ("calculix"): dentro
-# BLOCCHI_VUOTI_FUORI_IMPRONTA una stringa non vuota renderebbe il blocco
-# sempre non vuoto, l'omissione non scatterebbe mai, e le ventidue righe dei
-# registri si muoverebbero -- con il test dei blocchi verde, perche' il blocco
-# *e'* in una delle due liste.
-BLOCCHI_FUORI_IMPRONTA: tuple[str, ...] = ("run", "wall", "model", "solutore")
+# `solutore` stava qui fino alla mappa #161, ed e' uscito col blocco: era
+# escluso in secco, quindi toglierlo non muove le ventidue righe gia'
+# registrate -- che e' precisamente la ragione per cui ci stava.
+BLOCCHI_FUORI_IMPRONTA: tuple[str, ...] = ("run", "wall", "model")
 
 # I blocchi che entrano nell'impronta solo quando portano qualcosa.
 #

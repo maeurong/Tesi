@@ -199,18 +199,17 @@ def test_cambiare_una_regione_invalida_lo_step_11(tmp_path):
         "provenienza": "a_mano",
         "norma": "NTC 2018 Tab. 4.1.I",
     }
-    sezione = {
-        "calcestruzzo_confinato": materiale,
-        "calcestruzzo_copriferro": materiale,
-        "acciaio": materiale,
-    }
     uno = _config(tmp_path)
     uno.regioni = {
-        "pilastro": RegioneConfig.model_validate({"membratura": 0, "sezione": sezione})
+        "pilastro": RegioneConfig.model_validate(
+            {"membratura": 0, "materiale": materiale}
+        )
     }
     altro = _config(tmp_path)
     altro.regioni = {
-        "pilastro": RegioneConfig.model_validate({"membratura": 1, "sezione": sezione})
+        "pilastro": RegioneConfig.model_validate(
+            {"membratura": 1, "materiale": materiale}
+        )
     }
 
     assert steps.step_fingerprints(uno)[11] != steps.step_fingerprints(altro)[11]

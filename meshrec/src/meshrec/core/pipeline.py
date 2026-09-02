@@ -838,15 +838,16 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
             )
             prismi = attribuzione.prismi_delle_regioni(membrature, cfg.regioni)
             etichette, attribuzione_metriche = attribuzione.attribuisci(nodes, tets, prismi)
-            # Il calcestruzzo **confinato** e' il continuo del modello solido, ed
+            # Il continuo del modello solido e' il calcestruzzo confinato, ed
             # e' una limitazione dichiarata: vedi `abaqus.CONTINUO_CONFINATO`.
-            # `SezioneConfig` pretende gia' i tre materiali, quindi qui non c'e'
-            # un ripiego da inventare -- ci si appoggia a quella garanzia invece
-            # di duplicarla.
+            # Fino alla mappa #161 la regione portava una sezione con tre
+            # materiali e qui si sceglieva il confinato fra i tre; adesso ne
+            # dichiara uno, ed e' quello -- la limitazione resta, ma non c'e'
+            # piu' una scelta da fare in silenzio al posto di chi legge.
             regioni_deck = {
                 nome: (
                     np.flatnonzero(etichette == posizione),
-                    cfg.regioni[nome].sezione.calcestruzzo_confinato.material,
+                    cfg.regioni[nome].materiale.material,
                 )
                 for posizione, nome in enumerate(prismi)
             }

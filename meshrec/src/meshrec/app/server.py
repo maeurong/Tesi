@@ -1416,10 +1416,9 @@ def create_app(
         nessuna parte.
 
         **Solo il calcestruzzo.** Lo step 11 dichiara il materiale del continuo
-        solido, che in un cemento armato e' il calcestruzzo; l'acciaio non sta
-        li', sta nelle sezioni delle membrature (`regioni`, e di la' passa per
-        `SezioneConfig`). Offrirlo qui darebbe un modello di solo acciaio senza
-        che nulla lo segnali. Il filtro e' sulla famiglia e non su un elenco di
+        solido, che in un cemento armato e' il calcestruzzo. Offrirci l'acciaio
+        darebbe un modello di solo acciaio senza che nulla lo segnali: il
+        continuo e' uno, ed e' quello che il deck scrive. Il filtro e' sulla famiglia e non su un elenco di
         nomi, cosi' una classe nuova nel catalogo arriva al menu' da se'.
 
         `fonte` viaggia con i numeri e non e' un ornamento: senza, i tre valori

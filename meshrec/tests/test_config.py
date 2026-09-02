@@ -321,13 +321,9 @@ def test_i_blocchi_nuovi_stanno_in_pipelineconfig_e_nella_lista_di_esclusione_gi
     L'ultima asserzione e' quella che smentisce: un blocco nelle due liste
     insieme sarebbe una contraddizione, "sempre fuori" e "fuori solo se vuoto".
 
-    **La scelta della Fase 8, dichiarata qui e non lasciata accadere.**
-    `solutore` (#139) va nell'esclusione **secca**: quale motore risolve e dove
-    sta il suo eseguibile non cambiano il maglio ne' il deck, e la scelta e'
-    della macchina che esegue, non dell'esperimento. E' anche l'unico posto in
-    cui `SolutoreConfig.nome` puo' permettersi un predefinito **truthy**
-    ("calculix"): dentro l'esclusione condizionata renderebbe il blocco sempre
-    non vuoto e sposterebbe tutte e ventidue le righe.
+    `solutore` stava nell'esclusione **secca** ed e' uscito col blocco (mappa
+    #161): l'esclusione era secca, quindi la sua uscita non muove le ventidue
+    righe -- che e' precisamente la ragione per cui ci stava.
 
     `regioni` (#135, #141, #136) va invece nell'esclusione **condizionata**,
     come `carichi` e `selettori`: STEP_BLOCKS[11] lo legge e cambia il deck,
@@ -341,7 +337,7 @@ def test_i_blocchi_nuovi_stanno_in_pipelineconfig_e_nella_lista_di_esclusione_gi
 
     campi = set(PipelineConfig.model_fields)
     assert {"wall", "model", "carichi"} <= campi
-    assert set(BLOCCHI_FUORI_IMPRONTA) == {"run", "wall", "model", "solutore"}
+    assert set(BLOCCHI_FUORI_IMPRONTA) == {"run", "wall", "model"}
     assert set(BLOCCHI_VUOTI_FUORI_IMPRONTA) == {"carichi", "selettori", "regioni"}
     assert set(BLOCCHI_FUORI_IMPRONTA) <= campi
     assert set(BLOCCHI_VUOTI_FUORI_IMPRONTA) <= campi
@@ -1116,79 +1112,33 @@ def test_un_elemento_che_il_deck_non_sa_scrivere_e_rifiutato_prima_della_corsa()
             config.TetConfig(element=sconosciuto)
 
 
-def test_il_solutore_si_dichiara_per_nome_e_il_percorso_e_facoltativo():
-    """Il blocco `solutore` della Fase 8 (#139): quale motore, e dove trovarlo.
+def test_una_configurazione_si_rilegge_con_e_senza_i_blocchi_che_non_esistono_piu(tmp_path):
+    """La cerniera regge in tutte e due i versi.
 
-    `percorso` a None non e' un percorso mancante: e' la dichiarazione «cercalo
-    nel PATH», che e' il caso normale di una macchina dove `ccx` e' installato.
-    Il nome invece e' un'enumerazione chiusa, perche' un nome inventato
-    fallirebbe soltanto allo step 13, cioe' dopo l'intera elaborazione.
+    Un blocco **aggiunto** non puo' rendere illeggibile cio' che e' gia' stato
+    scritto: e' la regola dell'omissione che tiene ferme le 22 righe dei
+    registri. Un blocco **tolto** nemmeno, ed e' la meta' che serve adesso: le
+    `config.yaml` gia' su disco portano un `solutore:` che il modello non ha
+    piu', e devono continuare ad aprirsi. Verificato il 02/09/2026 sulle tre
+    corse vere in runs/ -- default, prova, prova2 -- che si aprono tutte.
+
+    Mutazione che lo uccide: `extra="forbid"` su `_ModelloBase`.
     """
-    predefinito = config.SolutoreConfig()
-
-    assert predefinito.nome == "calculix"
-    assert predefinito.percorso is None
-    assert config.SolutoreConfig(nome="opensees").nome == "opensees"
-    assert config.SolutoreConfig(percorso="/usr/bin/ccx").percorso == Path("/usr/bin/ccx")
-
-    for inventato in ("abaqus", "Calculix", "ccx", ""):
-        with pytest.raises(ValidationError):
-            config.SolutoreConfig(nome=inventato)
-
-
-def test_il_percorso_del_solutore_rifiuta_la_stringa_vuota_e_una_cartella(tmp_path):
-    """Un `config.yaml` copiato da altri, o una `PUT /api/config`, sceglie il
-    binario che verra' eseguito: i due modi in cui la scelta e' muta non passano.
-
-    La stringa vuota diventa `PosixPath('.')`, cioe' un percorso che *sembra*
-    «non dichiarato» e invece e' la cartella corrente. Una directory esistente
-    non e' un eseguibile. Che il file esista davvero, e che funzioni, resta del
-    ramo del solutore: ha `solve.verifica` e lo dichiara invece di ripiegare in
-    silenzio.
-
-    Mutazione che lo uccide: togliere il validatore. Entrambe le chiamate
-    passano e la scelta del binario diventa muta.
-    """
-    with pytest.raises(ValidationError):
-        config.SolutoreConfig(percorso="")
-    with pytest.raises(ValidationError):
-        config.SolutoreConfig(percorso=tmp_path)
-
-
-def test_il_percorso_del_solutore_accetta_un_file_che_non_esiste_ancora(tmp_path):
-    """Sta accanto al test del rifiuto apposta: senza, «rifiuta il percorso
-    muto» e «pretende un binario installato» sarebbero indistinguibili, e una
-    guardia di esistenza messa qui passerebbe inosservata.
-
-    Dichiarare che il binario manca e' del ramo del solutore, non della
-    configurazione: qui una macchina che non l'ha ancora installato deve poter
-    scrivere il percorso dove lo mettera'.
-    """
-    assert config.SolutoreConfig(
-        percorso=tmp_path / "ccx"
-    ).percorso == tmp_path / "ccx"
-    assert config.SolutoreConfig(percorso=None).percorso is None
-
-
-def test_una_configurazione_senza_i_blocchi_della_fase_8_si_rilegge_coi_predefiniti(tmp_path):
-    """Le corse gia' su disco non hanno ne' `solutore` ne' `regioni`.
-
-    E' la stessa regola dell'omissione che tiene ferme le 22 righe dei
-    registri: un blocco aggiunto non puo' rendere illeggibile cio' che e' gia'
-    stato scritto.
-    """
-    percorso = tmp_path / "config.yaml"
-    percorso.write_text("input:\n  path: nuvola.ply\n", encoding="utf-8")
-
-    cfg = config.load_config(percorso)
-
-    assert cfg.solutore.nome == "calculix"
-    assert cfg.solutore.percorso is None
-    # L'altra meta' della cerniera: il docstring nomina anche `regioni`, e
-    # senza questa riga il test lo dichiarava e non lo provava -- la prova
-    # stava altrove, su un oggetto costruito in memoria e non riletto da disco.
+    minima = tmp_path / "minima.yaml"
+    minima.write_text("input:\n  path: nuvola.ply\n", encoding="utf-8")
+    cfg = config.load_config(minima)
     assert cfg.regioni == {}
     assert cfg.carichi.combinazioni == ()
+
+    # Il blocco che la mappa #161 ha tolto, come lo scrivono le corse gia' fatte.
+    vecchia = tmp_path / "vecchia.yaml"
+    vecchia.write_text(
+        "input:\n  path: nuvola.ply\nsolutore:\n  nome: calculix\n  percorso: null\n",
+        encoding="utf-8",
+    )
+    riletta = config.load_config(vecchia)
+    assert not hasattr(riletta, "solutore"), "il blocco e' uscito e non deve tornare"
+    assert riletta.regioni == {}
 
 
 def _materiale_dichiarato(**campi) -> dict:
@@ -1201,32 +1151,8 @@ def _materiale_dichiarato(**campi) -> dict:
     }
 
 
-def _armatura_minima(**campi) -> dict:
-    """Un `ArmaturaConfig` con ogni campo al minimo che il dominio ammette."""
-    return {
-        "classe_calcestruzzo": "C25/30",
-        "classe_acciaio": "B450C",
-        "barre_tese": 2,
-        "diametro_teso": 12,
-        "barre_compresse": 0,
-        "diametro_compresso": 12,
-        "diametro_staffe": 6,
-        "passo_staffe": 100.0,
-        "copriferro_nominale": 10.0,
-        **campi,
-    }
-
-
 def _regione(**campi) -> dict:
-    return {
-        "membratura": 0,
-        "sezione": {
-            "calcestruzzo_confinato": _materiale_dichiarato(),
-            "calcestruzzo_copriferro": _materiale_dichiarato(),
-            "acciaio": _materiale_dichiarato(),
-        },
-        **campi,
-    }
+    return {"membratura": 0, "materiale": _materiale_dichiarato(), **campi}
 
 
 def test_le_regioni_vuote_escono_dall_impronta_e_dal_payload():
@@ -1282,28 +1208,24 @@ def test_una_regione_dichiarata_entra_nell_impronta():
     assert fingerprint(piena) != fingerprint(vuota)
 
 
-def test_una_regione_ai_minimi_si_costruisce_e_l_armatura_e_facoltativa():
-    """Una sezione di solo calcestruzzo e' legittima: l'armatura si dichiara
-    dove c'e', e non si inventa dove non e' stata rilevata."""
+def test_una_regione_e_una_membratura_e_il_suo_materiale():
+    """Due campi e basta: il prisma e cio' che il deck gli scrive dentro.
+
+    Portava una `sezione` con tre materiali e l'armatura, perche' una sezione a
+    fibre se li porta dentro. Uscito il solutore a fibre con la mappa #161, di
+    quei quattro il deck ne leggeva uno.
+
+    Mutazione che lo uccide: rimettere un secondo materiale che nessuno legge.
+    """
     cfg = crea_config(
         input=config.InputConfig(path="nuvola.ply"),
-        regioni={"trave": _regione(sezione={
-            "calcestruzzo_confinato": _materiale_dichiarato(),
-            "calcestruzzo_copriferro": _materiale_dichiarato(),
-            "acciaio": _materiale_dichiarato(),
-            "armatura": _armatura_minima(),
-        })},
+        regioni={"trave": _regione()},
     )
 
     regione = cfg.regioni["trave"]
     assert regione.membratura == 0
-    assert regione.sezione.armatura.barre_tese == 2
-    assert regione.sezione.armatura.barre_compresse == 0, (
-        "zero barre compresse e' l'armatura semplice, non un errore"
-    )
-
-    senza_armatura = config.RegioneConfig.model_validate(_regione())
-    assert senza_armatura.sezione.armatura is None
+    assert regione.materiale.material.name
+    assert set(config.RegioneConfig.model_fields) == {"membratura", "materiale"}
 
 
 def test_il_materiale_dichiarato_non_ha_una_veste_da_scegliere():
@@ -1460,45 +1382,6 @@ def test_una_membratura_negativa_e_rifiutata_dalla_configurazione():
     with pytest.raises(ValidationError):
         config.RegioneConfig.model_validate(_regione(membratura=-1))
     assert config.RegioneConfig.model_validate(_regione(membratura=99)).membratura == 99
-
-
-def test_l_armatura_rifiuta_i_valori_che_non_sono_un_armatura():
-    """I domini che il contratto nomina, e nient'altro: una sola barra tesa non
-    e' un'armatura (docs/validazione/ricerca-armature-convenzioni-normative.md
-    §7.1 -- ISO 3766 §3 regge il nome del campo, «number», non il minimo di
-    due), un passo di staffe nullo non e' un passo, e una staffa sotto i 6 mm
-    non e' una staffa (NTC 4.1.6.1.2)."""
-    for storto in (
-        {"barre_tese": 1},
-        {"barre_tese": 0},
-        {"passo_staffe": 0.0},
-        {"passo_staffe": -100.0},
-        {"diametro_staffe": 5},
-        {"barre_compresse": -1},
-        {"copriferro_nominale": 9.0},
-        {"classe_acciaio": "B450B"},
-        # I due diametri longitudinali erano gli unici domini dell'armatura che
-        # nessun test guardava: togliere `gt=0` a entrambi lasciava la suite
-        # verde.
-        {"diametro_teso": 0},
-        {"diametro_teso": -12},
-        {"diametro_compresso": 0},
-        {"diametro_compresso": -12},
-        {"classe_calcestruzzo": ""},
-        {"classe_calcestruzzo": "   "},
-    ):
-        with pytest.raises(ValidationError):
-            config.ArmaturaConfig.model_validate(_armatura_minima(**storto))
-
-
-def test_nessun_campo_dell_armatura_ha_un_valore_predefinito():
-    """Stessa regola di `Material` e dei casi di carico: sono grandezze che
-    nessun dato del rilievo puo' suggerire. Un copriferro predefinito sarebbe
-    lo stesso errore del modulo elastico a 1500 MPa finito su un telaio in
-    calcestruzzo senza che nessuno l'avesse scelto."""
-    for nome, campo in config.ArmaturaConfig.model_fields.items():
-        assert campo.is_required(), f"ArmaturaConfig.{nome} ha un predefinito"
-        assert campo.description, f"ArmaturaConfig.{nome} non ha una descrizione"
 
 
 def test_le_regioni_convivono_con_un_analisi_assente():
@@ -1717,20 +1600,16 @@ def test_ogni_campo_nuovo_di_primo_livello_dei_carichi_ha_un_predefinito_falso()
     assert not any(predefiniti.values())
 
 
-def test_una_corsa_di_pipeline_finisce_allo_step_11_e_il_tetto_resta_13():
+def test_una_corsa_di_pipeline_finisce_allo_step_11_e_il_tetto_e_il_dodici():
     """Il predefinito segue il perimetro del prodotto, non il tetto.
 
-    Due spostamenti sovrapposti, ed e' bene tenerli distinti. #140 porto' il
-    predefinito da 13 a 12 spostando il solutore in una schermata dedicata. Il
-    perimetro del prodotto (docs/linea-analisi-integrata.md) lo porta da 12 a
-    11: il prodotto va dalla nuvola al
-    deck `.inp` e si chiude li', mentre il prior geometrico dello step 12 e il
-    solutore dello step 13 appartengono alla linea di sviluppo descritta in
-    docs/linea-analisi-integrata.md.
+    Il prodotto va dalla nuvola al deck `.inp` e si chiude li', mentre il prior
+    geometrico dello step 12 misura la scansione e sta fuori dal perimetro: il
+    predefinito e' 11.
 
-    Il tetto non cambia in nessuno dei due spostamenti -- chi chiede lo step 13
-    esplicitamente lo ottiene ancora -- perche' la capacita' non si perde,
-    smette solo di essere cio' che accade senza chiederlo.
+    Il tetto e' 12 da quando il solutore e' uscito con la mappa #161. Chi
+    chiede il prior esplicitamente lo ottiene ancora: la capacita' non si
+    perde, smette solo di essere cio' che accade senza chiederlo.
 
     `run` sta in BLOCCHI_FUORI_IMPRONTA, quindi questo cambio non puo' muovere
     l'impronta delle ventidue righe: lo verificano i due test dell'impronta,
@@ -1743,9 +1622,9 @@ def test_una_corsa_di_pipeline_finisce_allo_step_11_e_il_tetto_resta_13():
     predefinito = config.RunConfig()
 
     assert predefinito.to_step == 11
-    assert config.RunConfig(to_step=13).to_step == 13
+    assert config.RunConfig(to_step=12).to_step == 12
     with pytest.raises(ValidationError):
-        config.RunConfig(to_step=14)
+        config.RunConfig(to_step=13)
     # from_step e to_step uguali eseguono soltanto quello step.
     solo_il_dodici = config.RunConfig(from_step=9, to_step=9)
     assert solo_il_dodici.from_step == solo_il_dodici.to_step == 9

@@ -87,8 +87,8 @@ citata sopra. Nemmeno `f_ctd` e' qui, e quando servira' non sara' un campo: e'
 una resistenza di **progetto**, `f_ctk / gamma_c` per la `[4.1.4]`, quindi
 appartiene all'uscita di `valori_di_progetto` accanto a `f_cd`, dove sta gia' la
 regola che i valori di progetto non si tengono come dato. Il copriferro per
-classe di esposizione non e' un dato di materiale: vive in
-`config.ArmaturaConfig`.
+classe di esposizione non e' un dato di materiale, e non ha piu' una sede: la
+descrizione dell'armatura e' uscita con la mappa #161.
 """
 
 from __future__ import annotations

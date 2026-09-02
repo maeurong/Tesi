@@ -1419,14 +1419,11 @@ _CLS_NUCLEO = config.Material(name="CLS_C25", young=31476.0, poisson=0.2, densit
 
 
 def _regione(membratura, materiale):
-    """Una `RegioneConfig` col calcestruzzo confinato chiesto."""
-    voce = config.MaterialeDichiarato(
-        material=materiale, provenienza="a_mano", norma="NTC 2018 Tab. 4.1.I"
-    )
+    """Una `RegioneConfig` col materiale chiesto."""
     return config.RegioneConfig(
         membratura=membratura,
-        sezione=config.SezioneConfig(
-            calcestruzzo_confinato=voce, calcestruzzo_copriferro=voce, acciaio=voce
+        materiale=config.MaterialeDichiarato(
+            material=materiale, provenienza="a_mano", norma="NTC 2018 Tab. 4.1.I"
         ),
     )
 
@@ -1534,41 +1531,6 @@ def test_senza_regioni_lo_step_11_non_rilegge_il_prior(tmp_path):
     testo = (cfg.run.out_dir / pipeline.DECK_FILENAME).read_text(encoding="ascii")
     assert "*ELSET" not in testo
     assert abaqus.CONTINUO_CONFINATO not in testo
-
-
-# --- Lo step 13 sul ramo del telaio -------------------------------------------
-def _sezione_di_prova() -> config.SezioneConfig:
-    """Una sezione dichiarata, senza armatura: qui si prova l'aggancio, non le barre."""
-    def materiale(nome, young, densita):
-        return config.MaterialeDichiarato(
-            material=config.Material(
-                name=nome, young=young, poisson=0.2, density=densita
-            ),
-            f_k=25.0, provenienza="a_mano", norma="banco di prova",
-        )
-
-    calcestruzzo = materiale("C25_30", 31_476.0, 2.5e-9)
-    return config.SezioneConfig(
-        calcestruzzo_confinato=calcestruzzo,
-        calcestruzzo_copriferro=calcestruzzo,
-        acciaio=materiale("B450C", 200_000.0, 7.85e-9),
-        armatura=None,
-    )
-
-
-def _corsa_a_telaio(tmp_path, *, regioni: bool = True):
-    """Una corsa col prior di un telaio a quattro membrature, e OpenSees scelto."""
-    cfg = _config_cubo(tmp_path)
-    _scrivi_prior_telaio(cfg, _TELAIO_QUATTRO_MEMBRATURE)
-    cfg.solutore = config.SolutoreConfig(nome="opensees")
-    if regioni:
-        cfg.regioni = {
-            f"M{indice}": config.RegioneConfig(
-                membratura=indice, sezione=_sezione_di_prova()
-            )
-            for indice in range(4)
-        }
-    return cfg
 
 
 _ESITO_FINTO = {
