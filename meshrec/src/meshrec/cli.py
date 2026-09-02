@@ -12,12 +12,6 @@ import sys
 import traceback
 from pathlib import Path
 
-# `solve` e' leggero (numpy, e i moduli di questo pacchetto che non aprono
-# nulla): `pipeline` no -- tira dentro open3d, gmsh e pymeshlab. Sta quindi nei
-# rami che lo usano e non qui, come gia' fanno `sweep` e `report`. Misurato:
-# con `libgomp.so.1` assente, `import pipeline` fa cadere l'intera riga di
-# comando con uno stack.
-from meshrec.core import solve
 from meshrec.core.config import (
     AnalysisConfig,
     InputConfig,
@@ -83,11 +77,6 @@ def _build_parser() -> argparse.ArgumentParser:
         "wall", help="ricalcola il solo prior geometrico sugli artefatti già presenti"
     )
     wall_command.add_argument("config", type=Path)
-
-    solve_command = commands.add_parser(
-        "solve", help="esegue il solo solutore sugli artefatti già presenti"
-    )
-    solve_command.add_argument("config", type=Path)
 
     model_command = commands.add_parser(
         "model", help="genera un modello parametrico come corsa figlia"
@@ -156,9 +145,9 @@ def _referto(nome: str, voce: dict[str, object], esito: dict[str, object] | None
 
 # I tre tipi con cui questo programma parla all'operatore. Ricavati dai test che
 # la scelta la fissavano gia': ValueError e' il vettore principale, OSError copre
-# i FileNotFoundError che `wall` e `solve` sollevano nominando l'artefatto
-# mancante, RuntimeError quelli che `solve` solleva su un binario assente o che
-# fallisce. Vedi `_riporta` per il debito che questo elenco porta.
+# i FileNotFoundError che `wall` e `model` sollevano nominando l'artefatto
+# mancante, RuntimeError quelli che nascono da un lavoro che non si e' potuto
+# fare. Vedi `_riporta` per il debito che questo elenco porta.
 _DIAGNOSTICI = (ValueError, OSError, RuntimeError)
 
 
@@ -265,55 +254,6 @@ def main(argv: list[str] | None = None) -> int:
             spaziatura = io.mean_spacing(punti, cfg.input.spacing_sample, cfg.input.seed)
             esito = pipeline.calcola_prior(out, cfg, punti, spaziatura)
         except Exception as error:
-            return _riporta(error)
-        print(json.dumps(esito, indent=2, default=float, ensure_ascii=False))
-        return 0
-
-    if args.command == "solve":
-        # Un'azione e non una ripresa, esattamente come `wall`. Lo step 13 non
-        # si ottiene con `run --from-step 13`, e il tetto di `from_step` si
-        # ferma a 12 apposta: la ripresa serve a saltare lavoro gia' fatto, e
-        # gli step 10, 11 e 12 nella coda di `pipeline.run` non hanno guardie
-        # per step, quindi una ripresa da 13 rifarebbe metriche, deck e prior
-        # invece di risolvere soltanto. Lo step 9 la guardia ce l'ha dal
-        # 30/08/2026, ed e' cio' che ha permesso al tetto di salire da 9 a 12.
-        from meshrec.core import pipeline
-
-        try:
-            cfg = load_config(args.config)
-            if cfg.solutore.nome == "opensees":
-                # Il telaio a fibre non si costruisce sul deck: si costruisce
-                # sul prior dello step 12, e il deck dello step 11 quel ramo
-                # non lo apre. Chiedergli `wall_model.inp` manderebbe a
-                # rieseguire un passo per un file che nessuno leggerà.
-                prior = Path(cfg.run.out_dir) / pipeline.WALL_FILENAME
-                if not prior.exists():
-                    raise FileNotFoundError(
-                        f"manca {prior}: il telaio a fibre si costruisce sul "
-                        "prior, che è l'artefatto dello step 12. Esegui "
-                        f"`meshrec wall {args.config}` e riprova"
-                    )
-            else:
-                deck = Path(cfg.run.out_dir) / pipeline.DECK_FILENAME
-                if not deck.exists():
-                    raise FileNotFoundError(
-                        f"manca {deck}: il solutore risolve il deck di calcolo, che è "
-                        "l'artefatto dello step 11. Esegui almeno fino a quello "
-                        f"(`meshrec run {args.config} --to-step 11`) e riprova"
-                    )
-            # Prima di rileggere il maglio, che su una corsa vera costa: un
-            # binario che non c'è si dichiara adesso, con dove prenderlo, e non
-            # a metà corsa. `verifica` lo esegue davvero, perché «c'è» non è
-            # «funziona» -- e non decide dal codice d'uscita, che su `ccx` vale
-            # 201 quando tutto va bene.
-            referto = solve.verifica(cfg.solutore)
-            if not referto["funziona"]:
-                raise RuntimeError(
-                    f"il solutore scelto ({referto['solutore']}) non è utilizzabile: "
-                    f"{referto['motivo']}"
-                )
-            esito = pipeline.risolvi_corsa(cfg)
-        except Exception as error:  # la riga di comando riporta il problema, non lo stack
             return _riporta(error)
         print(json.dumps(esito, indent=2, default=float, ensure_ascii=False))
         return 0

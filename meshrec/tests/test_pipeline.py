@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 from pydantic import ValidationError
 
-from meshrec.core import abaqus, config, io, pipeline, quality, solve, steps, synth
+from meshrec.core import abaqus, config, io, pipeline, quality, steps, synth
 from materiale import ANALISI, MATERIALE, crea_config
 
 
@@ -86,24 +86,6 @@ def test_una_corsa_piena_sostituisce_una_chiave_estranea_gia_sul_disco(tmp_path)
 
     metriche = json.loads((out / pipeline.METRICS_FILENAME).read_text(encoding="utf-8"))
     assert "99_estranea" not in metriche
-
-
-def test_la_ripresa_arriva_al_prior_e_si_ferma_prima_del_solutore():
-    """Il tetto di `from_step` era 9, e l'interfaccia non lo sapeva.
-
-    Il pannello esegue uno step alla volta assegnando `from_step = to_step =
-    numero`: con il tetto a 9 gli step 10, 11 e 12 venivano rifiutati dalla
-    validazione prima ancora di partire, e il pannello rispondeva «Input should
-    be less than or equal to 9». Erano tre step non eseguibili singolarmente in
-    un'interfaccia costruita per eseguirli uno alla volta.
-
-    Il 13 resta fuori, e non per simmetria: e' l'unico step che paga un
-    processo esterno vero, ed e' un'azione (`meshrec solve`), non una ripresa.
-    """
-    for numero in (9, 10, 11, 12):
-        assert config.RunConfig(from_step=numero, to_step=numero).from_step == numero
-    with pytest.raises(ValidationError):
-        config.RunConfig(from_step=13, to_step=13)
 
 
 @pytest.fixture(scope="module")
@@ -625,33 +607,6 @@ def test_un_maglio_senza_celle_si_dichiara_invece_di_rompersi(run_dir, tmp_path)
     assert "esiste ma non si legge" in detto
 
 
-def test_il_solutore_rifiuta_lo_stesso_maglio_rotto_che_rifiuta_la_ripresa(
-    corsa_all_undici, tmp_path
-):
-    """Lo step 13 legge il maglio con lo stesso lettore della ripresa.
-
-    Il percorso del solutore passa da `_ingresso_di_ripresa(13, 9, ...)`: senza
-    il controllo di forma dei finti tetraedri arriverebbero fino al deck, e la
-    soluzione sarebbe scritta su una topologia che non è quella del modello.
-    L'oracolo è doppio: rifiuta, e non lascia dietro di sé un `13_solution.vtu`.
-
-    Mutazione che uccide: togliere il controllo di forma da `_maglio_di_volume`
-    — il rifiuto non arriva e il test cade sul `pytest.raises`.
-    """
-    cfg = _copia_della_corsa(corsa_all_undici, tmp_path)
-    _scrivi_maglio(
-        cfg.run.out_dir / pipeline.ARTIFACTS[9], "triangle", [[0, 1, 2], [3, 4, 5]]
-    )
-
-    with pytest.raises(ValueError) as caduta:
-        pipeline.risolvi_corsa(cfg)
-
-    detto = str(caduta.value)
-    assert "lo step 13 pretende 09_volume.vtu" in detto
-    assert "il blocco ['triangle'] ha 3 nodi per cella" in detto
-    assert not (cfg.run.out_dir / pipeline.ARTIFACTS[13]).exists()
-
-
 def _solo_gli_artefatti(run_dir, tmp_path, tenuti):
     """Una copia della corsa con i soli artefatti numerati elencati in `tenuti`."""
     out, _ = run_dir
@@ -763,11 +718,9 @@ def test_il_prior_la_nuvola_la_pretende_davvero_e_il_rifiuto_la_nomina(run_dir, 
 
 def test_una_corsa_completa_lascia_i_dodici_step_di_elaborazione_validi(tmp_path):
     """Dal Task 9 (Fase 4) lo step 12 (prior geometrico) e' parte della corsa
-    madre: una corsa intera non lascia piu' nulla di "mai eseguito" nel nucleo
-    di elaborazione. Lo step 13 (solutore, Fase 5) qui resta "mai eseguito"
-    perche' `_config_cubo` fissa `to_step=12` (vedi il suo docstring), che
-    dalla Fase 8 (#140) e' anche il predefinito -- provato altrove
-    (test_lo_step_13_non_gira_per_difetto_in_una_corsa_intera)."""
+    madre: una corsa intera non lascia piu' nulla di "mai eseguito". Il
+    registro finisce li', e `_config_cubo` fissa `to_step=12` (vedi il suo
+    docstring)."""
     from meshrec.core import pipeline, steps
 
     cfg = _config_cubo(tmp_path)
@@ -775,7 +728,6 @@ def test_una_corsa_completa_lascia_i_dodici_step_di_elaborazione_validi(tmp_path
     stato = steps.run_state(cfg.run.out_dir, cfg)
     per_numero = {voce["numero"]: voce["stato"] for voce in stato}
     assert all(per_numero[n] == "valido" for n in range(1, 13))
-    assert per_numero[13] == "mai eseguito"
 
 
 def test_cambiare_un_parametro_a_monte_invalida_gli_step_a_valle(tmp_path):
@@ -885,41 +837,6 @@ def test_lo_step_dodici_si_puo_fermare_prima_con_to_step(tmp_path):
     assert not (cfg.run.out_dir / pipeline.WALL_FILENAME).exists()
 
 
-def test_lo_step_13_non_gira_per_difetto_in_una_corsa_intera(tmp_path, monkeypatch):
-    """Rovesciato dalla Fase 8 (#140), e il rovesciamento e' il punto.
-
-    Alla Fase 5 la decisione era «ogni corsa risolve», e `RunConfig.to_step`
-    era predefinito a 13. #140 sposto' il solutore in una schermata dedicata,
-    portando il predefinito a 12; il perimetro del prodotto lo porta poi a 11,
-    perche' il prodotto si chiude sul deck e il prior geometrico appartiene
-    alla linea di sviluppo (docs/linea-analisi-integrata.md). Il tetto resta 13
-    -- chi lo chiede lo ottiene, ed e' il test qui sotto.
-
-    Qui il predefinito *bare*: `_config_cubo` fissa `to_step=12`
-    esplicitamente per il resto della suite (vedi il suo docstring), quindi
-    questo test ricostruisce `cfg.run` senza quella fissazione, sugli stessi
-    artefatti geometrici, e verifica che il risultato coincida.
-
-    Mutazione che lo uccide: riportare il predefinito a 12 o a 13. Ricomparirebbe
-    una chiave -- `12_wall` o `13_solve` -- senza che nessuno l'abbia chiesta."""
-    from meshrec.core import pipeline
-
-    monkeypatch.setattr(solve.shutil, "which", lambda _nome: None)
-    cfg = _config_cubo(tmp_path)
-    cfg.run = config.RunConfig(out_dir=cfg.run.out_dir)
-    assert cfg.run.to_step == 11, "il predefinito bare di RunConfig e' 11 dal perimetro"
-
-    metriche = pipeline.run(cfg)
-
-    assert "11_export" in metriche
-    assert "12_wall" not in metriche
-    assert "13_solve" not in metriche
-    # L'artefatto e non la sola chiave: `metriche` puo' essere un dizionario
-    # fuso, e li' l'assenza di "12_wall" direbbe soltanto che nessuna corsa
-    # precedente lo aveva lasciato in questa cartella.
-    assert not (cfg.run.out_dir / pipeline.WALL_FILENAME).exists()
-
-
 def test_una_corsa_predefinita_non_eredita_il_prior_della_corsa_precedente(tmp_path):
     """Il flag di completezza deve seguire il nucleo, o metrics.json mente.
 
@@ -956,28 +873,6 @@ def test_una_corsa_predefinita_non_eredita_il_prior_della_corsa_precedente(tmp_p
     )
 
 
-def test_lo_step_13_con_to_step_esplicito_non_dichiara_un_artefatto_assente(
-    tmp_path, monkeypatch
-):
-    """Stesso esito del test sopra, ma chiesto esplicitamente con
-    `to_step=13` invece di ereditarlo dal predefinito -- e' la via che
-    l'interfaccia userebbe per rieseguire il solo step 13 su una corsa gia'
-    fatta fino all'undici. Senza `ccx` (simulato) l'esito e' negativo e
-    `registra()` non deve dichiarare un artefatto che non esiste."""
-    from meshrec.core import pipeline
-
-    monkeypatch.setattr(solve.shutil, "which", lambda _nome: None)
-    cfg = _config_cubo(tmp_path)
-    cfg.run.to_step = 13
-
-    metriche = pipeline.run(cfg)
-
-    assert metriche["13_solve"] == {"eseguito": False, "solutore": "assente"}
-    stato = {voce["chiave"]: voce for voce in steps.run_state(cfg.run.out_dir, cfg)}
-    assert stato["13_solve"]["stato"] == "valido"
-    assert stato["13_solve"]["artefatto"] is None
-
-
 @pytest.fixture(scope="module")
 def corsa_all_undici(tmp_path_factory):
     """Una corsa ferma al deck: il punto di partenza del comando `solve`.
@@ -1009,130 +904,6 @@ def _copia_della_corsa(corsa, tmp_path):
     cfg = corsa.model_copy(deep=True)
     cfg.run.out_dir = destinazione
     return cfg
-
-
-def test_risolvi_corsa_esegue_il_solo_step_13_sugli_artefatti_gia_presenti(
-    corsa_all_undici, tmp_path, monkeypatch
-):
-    """Lo step 13 e' un'azione e non una ripresa: gemello di `calcola_prior`.
-
-    Legge il deck dello step 11 e il maglio dello step 9 gia' sul disco, e non
-    tocca niente di cio' che sta a monte. Le metriche finiscono dove le scrive
-    `run` e lo stato dove lo scriverebbe una corsa.
-
-    Mutazione che deve morire: far rieseguire un qualunque step a monte -- il
-    tempo di scrittura del maglio cambierebbe -- oppure sostituire invece di
-    fondere le metriche, e `11_export` sparirebbe.
-    """
-    monkeypatch.setattr(solve.shutil, "which", lambda _nome: None)
-    cfg = _copia_della_corsa(corsa_all_undici, tmp_path)
-    out = cfg.run.out_dir
-    prima = (out / pipeline.ARTIFACTS[9]).stat().st_mtime_ns
-
-    esito = pipeline.risolvi_corsa(cfg)
-
-    assert esito == {"eseguito": False, "solutore": "assente"}
-    assert (out / pipeline.ARTIFACTS[9]).stat().st_mtime_ns == prima
-    metriche = json.loads((out / pipeline.METRICS_FILENAME).read_text(encoding="utf-8"))
-    assert metriche["13_solve"] == esito
-    assert "11_export" in metriche, "risolvere ha buttato le metriche dello step 11"
-    salvato = steps.read_state(out)
-    assert salvato["13_solve"]["esito"] == "riuscito"
-    assert salvato["13_solve"]["artefatto"] is None
-
-
-def test_risolvi_corsa_senza_le_metriche_dell_undici_nomina_lo_step_che_le_scrive(
-    corsa_all_undici, tmp_path
-):
-    """`casi_di_carico`, la trasformata e il vincolo in pianta li misura lo
-    step 11: senza `metrics.json` non c'e' nulla da cui dedurli, e il rifiuto
-    nomina lo step invece del file."""
-    cfg = _copia_della_corsa(corsa_all_undici, tmp_path)
-    (cfg.run.out_dir / pipeline.METRICS_FILENAME).unlink()
-
-    with pytest.raises(ValueError, match="step 11"):
-        pipeline.risolvi_corsa(cfg)
-
-
-def test_metriche_troncate_non_si_leggono_come_uno_stato_valido(
-    corsa_all_undici, tmp_path
-):
-    """Un `metrics.json` a meta' e' la terza malattia di questo repo: si
-    dichiara, non lo si legge. `json.JSONDecodeError` da solo direbbe una
-    colonna e un carattere, e nessuno step."""
-    cfg = _copia_della_corsa(corsa_all_undici, tmp_path)
-    (cfg.run.out_dir / pipeline.METRICS_FILENAME).write_text(
-        '{"11_export": {"element_type"', encoding="utf-8"
-    )
-
-    with pytest.raises(ValueError) as caduta:
-        pipeline.risolvi_corsa(cfg)
-
-    assert "step 11" in str(caduta.value)
-    assert pipeline.METRICS_FILENAME in str(caduta.value)
-
-
-def test_risolvi_corsa_senza_il_maglio_nomina_lo_step_nove(corsa_all_undici, tmp_path):
-    """Il deck c'e' ma il maglio no: i campi del `.frd` si scrivono sui nodi
-    dello step 9, e senza quelli non c'e' un `.vtu` da scrivere."""
-    cfg = _copia_della_corsa(corsa_all_undici, tmp_path)
-    (cfg.run.out_dir / pipeline.ARTIFACTS[9]).unlink()
-
-    with pytest.raises(ValueError, match="step 9"):
-        pipeline.risolvi_corsa(cfg)
-
-
-def test_risolvere_due_volte_di_fila_rifa_e_lascia_lo_stato_coerente(
-    corsa_all_undici, tmp_path, monkeypatch
-):
-    """La seconda corsa non e' un errore: rifa'. E steps.json resta un solo
-    documento leggibile, con lo step 13 registrato una volta sola."""
-    monkeypatch.setattr(solve.shutil, "which", lambda _nome: None)
-    cfg = _copia_della_corsa(corsa_all_undici, tmp_path)
-
-    pipeline.risolvi_corsa(cfg)
-    secondo = pipeline.risolvi_corsa(cfg)
-
-    assert secondo == {"eseguito": False, "solutore": "assente"}
-    salvato = steps.read_state(cfg.run.out_dir)
-    assert salvato["13_solve"]["esito"] == "riuscito"
-    assert salvato["11_export"]["esito"] == "riuscito", "la seconda corsa ha toccato l'undici"
-
-
-def test_uno_steps_json_troncato_non_impedisce_di_risolvere(
-    corsa_all_undici, tmp_path, monkeypatch
-):
-    """Uno stato su disco a meta' non e' uno stato valido e non si legge come
-    tale: `steps.read_state` lo tratta come vuoto, e risolvere lo riscrive
-    intero invece di fallire sulla sua rilettura."""
-    monkeypatch.setattr(solve.shutil, "which", lambda _nome: None)
-    cfg = _copia_della_corsa(corsa_all_undici, tmp_path)
-    stato = cfg.run.out_dir / steps.STATE_FILENAME
-    stato.write_text('{"11_export": {"impronta"', encoding="utf-8")
-
-    pipeline.risolvi_corsa(cfg)
-
-    assert json.loads(stato.read_text(encoding="utf-8"))["13_solve"]["esito"] == "riuscito"
-
-
-def test_uno_step_13_rifiutato_resta_registrato_come_fallito(
-    corsa_all_undici, tmp_path
-):
-    """Un rifiuto dello step 13 non deve sparire dallo stato su disco: chi
-    guarda la colonna deve vedere che il tredici e' fallito, non che non e' mai
-    partito.
-
-    Il rifiuto qui e' quello del ramo del telaio -- questa corsa e' un solido e
-    non dichiara `regioni`, quindi non ha sezioni da mettere nelle fibre -- e
-    non piu' quello di `solve.risolvi` contro il nome del solutore: da quando
-    `_step_telaio` esiste, `opensees` e' una strada che si percorre."""
-    cfg = _copia_della_corsa(corsa_all_undici, tmp_path)
-    cfg.solutore = config.SolutoreConfig(nome="opensees")
-
-    with pytest.raises(ValueError, match="regioni"):
-        pipeline.risolvi_corsa(cfg)
-
-    assert steps.read_state(cfg.run.out_dir)["13_solve"]["esito"] == "fallito"
 
 
 def test_una_corsa_fermata_al_dieci_non_si_dichiara_completa(tmp_path):
@@ -1242,43 +1013,6 @@ def test_un_prior_scritto_prima_delle_nuove_misure_si_rilegge_ancora():
     assert len(membrature[0].sezioni_fette) == 0, "non inventare fette che nessuno ha misurato"
     assert len(membrature[0].quote_fette) == 0
     assert membrature[0].base_sezione.shape == (0, 3)
-
-
-def test_i_tre_campi_nuovi_tornano_uguali_dopo_scrittura_e_rilettura():
-    """Scritti in `12_wall.json` e buttati alla rilettura: `sezioni_fette`,
-    `quote_fette` e `base_sezione` uscivano da `wall.prior` e
-    `_ricostruisci_membrature` non li nominava. Chi fra armatura, telaio e
-    attribuzione passa di qui trovava `base_sezione` vuota su dati **freschi**,
-    e `wall.giunzioni` su quelle membrature rendeva `[]` in silenzio.
-
-    Il giro e' quello vero: misura, serializzazione JSON, rilettura.
-    """
-    import json
-
-    from meshrec.core import synth, wall
-    from meshrec.core.config import SegmentConfig, WallConfig
-
-    telaio = [
-        ((0.0, -90.0, 0.0), (200.0, 180.0, 1600.0)),
-        ((1400.0, -130.0, 0.0), (200.0, 260.0, 1600.0)),
-        ((0.0, -70.0, 1600.0), (1600.0, 140.0, 300.0)),
-        ((0.0, -170.0, -300.0), (1600.0, 340.0, 300.0)),
-    ]
-    punti = synth.sample_frame_surface(telaio, 20.0)
-    prior = json.loads(json.dumps(wall.prior(punti, SegmentConfig(), WallConfig(), 20.0)))
-
-    membrature = pipeline._ricostruisci_membrature(prior)
-
-    assert len(membrature) == len(prior["membrature"])
-    for ricostruita, voce in zip(membrature, prior["membrature"], strict=True):
-        assert len(voce["sezioni_fette"]) > 0, "il banco vale solo se le fette sono state misurate"
-        assert ricostruita.sezioni_fette.tolist() == voce["sezioni_fette"]
-        assert ricostruita.quote_fette.tolist() == voce["quote_fette"]
-        assert ricostruita.base_sezione.tolist() == voce["base_sezione"]
-
-    # la prova che conta: le giunzioni si ritrovano, invece di sparire
-    assert wall.giunzioni(membrature) == prior["giunzioni"]
-    assert prior["giunzioni"] != []
 
 
 def test_un_prior_senza_base_di_sezione_non_fabbrica_giunzioni():
@@ -1443,50 +1177,6 @@ def _scrivi_prior_telaio(cfg, telaio, spaziatura=_SPAZIATURA_TELAIO):
     return esito_prior
 
 
-def test_il_deck_della_corsa_figlia_porta_le_superfici_e_i_tie(tmp_path):
-    """Il cubo di `_config_cubo` da' una sola membratura, quindi zero
-    giunzioni: le superfici e i `*TIE` si vedono solo su un telaio.
-
-    Mutazione che deve morire: rimuovere `element_surfaces=modello["superfici"]`
-    dalla chiamata a `abaqus.export_model` in `genera_modello` -- il deck non
-    scriverebbe piu' `*SURFACE` e la prima asserzione fallirebbe.
-    """
-    cfg = _config_cubo(tmp_path)
-    _scrivi_prior_telaio(cfg, _TELAIO_QUATTRO_MEMBRATURE)
-    figlia = tmp_path / "figlia-telaio"
-
-    pipeline.genera_modello(cfg, "estruso", figlia)
-
-    testo = (figlia / "wall_model.inp").read_text(encoding="ascii")
-    assert "*SURFACE, TYPE=ELEMENT" in testo
-    assert "*TIE" in testo
-
-
-def test_il_modello_json_porta_nota_giunzioni_e_conteggio_nodi_dipendenti(tmp_path):
-    """C2 e C7: la nota sul `*TIE` e i due conteggi dei nodi dipendenti sono
-    cio' che rende leggibile, nel confronto del Task 12, quanta della
-    cedevolezza del parametrico viene dal vincolo e non dalla geometria. Un
-    telaio a quattro membrature ha giunzioni vere, quindi nodi dipendenti
-    diversi da zero: sul cubo di `_config_cubo` questo controllo sarebbe
-    vuoto per costruzione (zero giunzioni) e non proverebbe nulla.
-
-    Mutazione che deve morire (giro di correzione 2): sostituire il testo
-    vero di `nota_giunzioni` con `"placeholder"` -- non vuoto, ma non dice
-    nulla sul `*TIE`, quindi un'asserzione di sola non-vuotezza non lo vede.
-    Cercare `"*TIE"` nel testo lo vede.
-    """
-    cfg = _config_cubo(tmp_path)
-    _scrivi_prior_telaio(cfg, _TELAIO_QUATTRO_MEMBRATURE)
-
-    esito = pipeline.genera_modello(cfg, "estruso", tmp_path / "figlia-telaio")
-
-    assert "*TIE" in esito["nota_giunzioni"]
-    legati = esito["modello"]["nodi_dipendenti_legati"]
-    totali = esito["modello"]["nodi_dipendenti_totali"]
-    assert totali > 0, "il telaio a quattro membrature ha giunzioni vere: il denominatore non puo' essere zero"
-    assert 0 <= legati <= totali
-
-
 def test_la_ricostruzione_legge_riempimento_sezione_e_densita_dispersione_dalle_chiavi_giuste(tmp_path):
     """Giro di correzione 2: dei quindici campi di `Membratura`, dodici sono
     presi 1:1 dal JSON del prior e tre stanno annidati sotto `"riempimento"`.
@@ -1518,30 +1208,6 @@ def test_la_ricostruzione_legge_riempimento_sezione_e_densita_dispersione_dalle_
     assert membratura.riempimento_sezione == pytest.approx(voce["riempimento"]["valore"])
     assert membratura.densita_dispersione == pytest.approx(voce["riempimento"]["densita_dispersione"])
     assert membratura.riempimento_stato == voce["riempimento"]["stato"]
-
-
-def test_la_guardia_del_ruling_j_rifiuta_una_membratura_vuota_dal_percorso_reale(tmp_path):
-    """C1: `riempimento_stato` letto male dalla ricostruzione della `Membratura`
-    lascerebbe muta la guardia di `hexa.costruisci` che rifiuta una sezione a
-    Π. Il telaio a sezioni uguali fonde la scomposizione in un'unica regione
-    che il riempimento dichiara «vuoto» e affidabile (vedi
-    `test_la_regione_a_pi_esce_vuota_e_affidabile_invece_di_essere_scartata`
-    in tests/test_wall.py): e' il percorso reale, non uno stato costruito a
-    mano nel test.
-
-    Mutazione che deve morire: in `genera_modello`, forzare
-    `riempimento_stato="pieno"` invece di leggerlo da
-    `voce["riempimento"]["stato"]` -- la guardia non scatterebbe piu' e
-    `pytest.raises` non troverebbe l'eccezione.
-    """
-    cfg = _config_cubo(tmp_path)
-    esito_prior = _scrivi_prior_telaio(cfg, _TELAIO_A_SEZIONE_UNIFORME)
-    assert esito_prior["regioni_trovate"] == 1, "il banco deve restare il caso limite: una regione a Π sola"
-    assert esito_prior["membrature"][0]["riempimento"]["stato"] == "vuoto"
-    assert esito_prior["membrature"][0]["riempimento"]["affidabile"] is True
-
-    with pytest.raises(ValueError, match="riempimento di sezione «vuoto»"):
-        pipeline.genera_modello(cfg, "estruso", tmp_path / "figlia-vuota")
 
 
 def test_una_corsa_figlia_fallita_non_lascia_una_cartella_orfana(tmp_path):
@@ -1642,30 +1308,6 @@ def test_lo_step_11_senza_materiale_si_ferma_dicendo_che_cosa_manca(tmp_path):
 
     stato = steps.read_state(tmp_path / "out")
     assert stato["11_export"]["esito"] == "fallito"
-
-
-def test_una_corsa_fino_al_solutore_senza_materiale_non_lo_avvia(tmp_path, monkeypatch):
-    """Lo step 13 chiede il materiale (`steps.STEP_BLOCKS`), e senza deve
-    fermarsi prima di far partire `ccx`: un solutore avviato su un deck che
-    non e' stato scritto brucia minuti e finisce su un errore che parla di
-    file mancanti invece che di materiale mancante.
-
-    `solve.risolvi` sostituito e non `ccx`: se il flusso ci arrivasse, il
-    controllo lo direbbe qui e non su una macchina dove il solutore non e'
-    installato.
-    """
-    from meshrec.core import solve
-
-    def non_deve_partire(*_argomenti, **_chiavi):
-        raise AssertionError("il solutore e' partito su una corsa senza materiale")
-
-    monkeypatch.setattr(solve, "risolvi", non_deve_partire)
-    cfg = _config_cubo(tmp_path)
-    cfg.analysis = None
-    cfg.run = config.RunConfig(out_dir=tmp_path / "out", to_step=13)
-
-    with pytest.raises(ValueError, match="analysis.material"):
-        pipeline.run(cfg)
 
 
 def test_generare_un_modello_senza_materiale_dice_che_cosa_manca(tmp_path):
@@ -1935,112 +1577,6 @@ _ESITO_FINTO = {
     "controlli": {"reazioni": {"passato": True}},
     "frequenze_hz": [12.0],
 }
-
-
-def test_risolvi_corsa_su_opensees_costruisce_il_telaio_e_lo_da_al_solutore(
-    tmp_path, monkeypatch
-):
-    """L'anello che mancava: la corsa arriva a un telaio risolto da OpenSees.
-
-    `opensees.esegui` è finto -- il lancio vero è provato in
-    tests/test_opensees.py, col binario -- ma il telaio che riceve è quello
-    costruito dal prior di questa corsa, non un sostituto: è la parte che
-    questo aggancio deve fare bene.
-    """
-    from meshrec.core import opensees, pipeline
-
-    cfg = _corsa_a_telaio(tmp_path)
-    visti = {}
-
-    def finto(out_dir, modello, solutore, *, casi_di_carico, modi=None):
-        visti.update(
-            out_dir=Path(out_dir), nodi=len(modello.nodi),
-            elementi=len(modello.elementi), casi=list(casi_di_carico),
-            solutore=solutore.nome,
-        )
-        return dict(_ESITO_FINTO)
-
-    monkeypatch.setattr(opensees, "esegui", finto)
-
-    esito = pipeline.risolvi_corsa(cfg)
-
-    assert esito["eseguito"] is True
-    assert visti["solutore"] == "opensees"
-    assert visti["out_dir"] == Path(cfg.run.out_dir)
-    assert visti["nodi"] == 80 and visti["elementi"] == 80
-    assert visti["casi"] == [cfg.analysis.step_name]
-    metriche = json.loads(
-        (Path(cfg.run.out_dir) / pipeline.METRICS_FILENAME).read_text(encoding="utf-8")
-    )
-    assert metriche["13_solve"]["controlli"]["reazioni"]["passato"] is True
-
-
-def test_il_telaio_senza_regioni_dichiarate_si_ferma_e_dice_perche(tmp_path):
-    """Il telaio a fibre ha bisogno delle sezioni: senza `regioni` non c'è un
-    materiale da mettere nelle fibre, e un telaio senza materiali non è un
-    telaio con materiali predefiniti."""
-    from meshrec.core import pipeline
-
-    cfg = _corsa_a_telaio(tmp_path, regioni=False)
-
-    with pytest.raises(ValueError, match="regioni"):
-        pipeline.risolvi_corsa(cfg)
-
-
-def test_il_telaio_chiede_il_passo_modale_solo_se_i_carichi_lo_dichiarano(
-    tmp_path, monkeypatch
-):
-    """Il blocco modale è quello che `carichi.modale` dichiara, con i suoi
-    modi: gli stessi che il deck del solido chiede. Chiederlo sempre sarebbe
-    un'analisi che nessuno ha configurato, non chiederlo mai lascerebbe due dei
-    sette verdetti non verificati per costruzione."""
-    from meshrec.core import opensees, pipeline
-
-    cfg = _corsa_a_telaio(tmp_path)
-    cfg.carichi.modale = config.Modale(modi=7)
-    visti = {}
-    monkeypatch.setattr(
-        opensees, "esegui",
-        lambda out, modello, solutore, *, casi_di_carico, modi=None: (
-            visti.update(casi=list(casi_di_carico), modi=modi) or dict(_ESITO_FINTO)
-        ),
-    )
-
-    pipeline.risolvi_corsa(cfg)
-
-    assert visti["casi"] == [cfg.analysis.step_name, "MODALE"]
-    assert visti["modi"] == 7
-
-
-def test_una_corsa_intera_manda_lo_step_13_sul_ramo_del_telaio(tmp_path, monkeypatch):
-    """`run` con `to_step=13` e OpenSees scelto non deve finire su CalculiX.
-
-    L'instradamento è nello stesso posto per le due vie che arrivano allo step
-    13 -- la corsa intera e il comando `solve` -- o una corsa a telaio
-    risolverebbe il deck del solido col solutore sbagliato, e il rifiuto
-    arriverebbe da `solve.risolvi` invece che dal ramo giusto.
-    """
-    from meshrec.core import pipeline, solve
-
-    def non_deve_partire(*_argomenti, **_chiavi):
-        raise AssertionError("CalculiX è partito su una corsa a telaio")
-
-    monkeypatch.setattr(solve, "risolvi", non_deve_partire)
-    visti = {}
-    monkeypatch.setattr(
-        pipeline, "_step_telaio",
-        lambda out, cfg: (visti.update(out=Path(out)), dict(_ESITO_FINTO))[1],
-    )
-    cfg = _config_cubo(tmp_path)
-    cfg.run.to_step = 13
-    cfg.solutore = config.SolutoreConfig(nome="opensees")
-
-    metriche = pipeline.run(cfg)
-
-    assert visti["out"] == Path(cfg.run.out_dir)
-    assert metriche["13_solve"]["solutore"] == "opensees"
-    stato = {voce["chiave"]: voce for voce in steps.run_state(cfg.run.out_dir, cfg)}
-    assert stato["13_solve"]["artefatto"] == "13_telaio.tcl"
 
 
 def test_riprendere_dallo_step_10_non_ritetraedrizza(run_dir, tmp_path, monkeypatch):

@@ -19,11 +19,11 @@ def _config(tmp_path: Path) -> PipelineConfig:
     return cfg
 
 
-def test_i_tredici_step_sono_quelli_che_la_pipeline_scrive():
+def test_i_dodici_step_sono_quelli_che_la_pipeline_scrive():
     assert steps.STEP_KEYS[0] == "01_load"
-    assert steps.STEP_KEYS[-1] == "13_solve"
-    assert len(steps.STEP_KEYS) == 13
-    assert set(steps.STEP_BLOCKS) == set(range(1, 14))
+    assert steps.STEP_KEYS[-1] == "12_wall"
+    assert len(steps.STEP_KEYS) == 12
+    assert set(steps.STEP_BLOCKS) == set(range(1, 13))
 
 
 def test_ogni_blocco_nominato_negli_step_esiste_in_pipelineconfig():
@@ -44,7 +44,7 @@ def test_ogni_blocco_nominato_negli_step_esiste_in_pipelineconfig():
 
 def test_una_corsa_mai_eseguita_ha_tutti_gli_step_mai_eseguiti(tmp_path):
     stato = steps.run_state(tmp_path / "vuota", _config(tmp_path))
-    assert len(stato) == 13
+    assert len(stato) == 12
     assert {voce["stato"] for voce in stato} == {"mai eseguito"}
 
 
@@ -123,47 +123,24 @@ def test_una_voce_di_stato_non_dizionario_non_solleva(tmp_path):
     assert per_chiave["05_reconstruct"] == "mai eseguito"
 
 
-def test_gli_step_sono_tredici_e_l_ultimo_e_il_solutore():
-    """`solutore` entra negli STEP_BLOCKS del 13 dalla Fase 8 (#139).
+def test_gli_step_sono_dodici_e_l_ultimo_e_il_prior():
+    """Il registro finisce sul prior, non sul solutore.
 
-    Lo step 13 e' l'unico che invoca un processo esterno: cambiare motore o
-    percorso dell'eseguibile invalida la sua uscita e nient'altro, quindi il
-    blocco sta li' e non piu' in alto nella catena.
+    Il prodotto si chiude sul deck dello step 11; il 12 misura la scansione e
+    resta raggiungibile chiedendolo. Oltre non c'e' piu' niente: il solutore
+    integrato e' uscito con la mappa #161.
     """
-    assert len(steps.STEP_KEYS) == 13
-    assert steps.STEP_KEYS[-1] == "13_solve"
-    assert steps.STEP_BLOCKS[13] == ("tet", "analysis", "solutore")
-
-
-def test_cambiare_solutore_invalida_il_solo_step_13(tmp_path):
-    """Mutazione che lo uccide: togliere "solutore" da STEP_BLOCKS[13].
-
-    Le due impronte restano uguali e la corsa riusa una soluzione calcolata da
-    un altro motore.
-    """
-    from meshrec.core.config import SolutoreConfig
-
-    prima = _config(tmp_path)
-    dopo = _config(tmp_path)
-    dopo.solutore = SolutoreConfig(nome="opensees")
-
-    marchi_prima = steps.step_fingerprints(prima)
-    marchi_dopo = steps.step_fingerprints(dopo)
-
-    for numero in range(1, 13):
-        assert marchi_prima[numero] == marchi_dopo[numero], f"step {numero} non doveva cambiare"
-    assert marchi_prima[13] != marchi_dopo[13]
+    assert len(steps.STEP_KEYS) == 12
+    assert steps.STEP_KEYS[-1] == "12_wall"
+    assert steps.STEP_BLOCKS[12] == ("wall",)
 
 
 def test_lo_step_dodici_non_cambia_le_impronte_degli_undici_precedenti(tmp_path):
     """La catena di impronte si allunga in coda: aggiungere lo step 12 non puo'
-    invalidare un artefatto gia' scritto dagli step precedenti. Lo step 13
-    invece la eredita: la catena e' cumulativa, quindi un cambio al blocco
-    `wall` (che non e' fra i suoi STEP_BLOCKS dichiarati) lo raggiunge comunque
-    attraverso l'impronta dello step 12."""
+    invalidare un artefatto gia' scritto dagli step precedenti."""
     cfg = _config(tmp_path)
     impronte = steps.step_fingerprints(cfg)
-    assert set(impronte) == set(range(1, 14))
+    assert set(impronte) == set(range(1, 13))
 
     cfg_diverso = _config(tmp_path)
     cfg_diverso.wall.min_cells = cfg.wall.min_cells + 1
@@ -172,13 +149,11 @@ def test_lo_step_dodici_non_cambia_le_impronte_degli_undici_precedenti(tmp_path)
     for numero in range(1, 12):
         assert diverse[numero] == impronte[numero], f"lo step {numero} non doveva cambiare"
     assert diverse[12] != impronte[12]
-    assert diverse[13] != impronte[13]
 
 
 def test_cambiare_i_carichi_invalida_dall_undici_in_giu(tmp_path):
     """I carichi entrano nella catena di impronte allo step 11, quindi cambi a
-    carichi invalidano lo step 11 e i successivi -- 12 e 13 compresi, per la
-    stessa catena cumulativa."""
+    carichi invalidano lo step 11 e il 12, per la stessa catena cumulativa."""
     from meshrec.core.config import CarichiConfig, SpintaOrizzontale
 
     prima = _config(tmp_path)
@@ -190,7 +165,7 @@ def test_cambiare_i_carichi_invalida_dall_undici_in_giu(tmp_path):
 
     for numero in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10):
         assert marchi_prima[numero] == marchi_dopo[numero], f"step {numero} non doveva cambiare"
-    for numero in (11, 12, 13):
+    for numero in (11, 12):
         assert marchi_prima[numero] != marchi_dopo[numero], f"step {numero} doveva cambiare"
 
 
@@ -241,13 +216,12 @@ def test_cambiare_una_regione_invalida_lo_step_11(tmp_path):
     assert steps.step_fingerprints(uno)[11] != steps.step_fingerprints(altro)[11]
 
 
-def test_lo_step_13_e_l_ultimo_e_non_entra_nella_completezza_di_uno_sweep():
-    """Stesso principio del Ruling D della Fase 4 su 12_wall.
+def test_lo_step_12_e_l_ultimo_e_non_entra_nella_completezza_di_uno_sweep():
+    """Il Ruling D della Fase 4 su 12_wall.
 
     Uno sweep varia parametri di elaborazione e confronta geometrie: farlo
-    risolvere per ogni candidato pagherebbe un solutore per ognuno di essi
-    senza che la selezione di Pareto ne guardi il risultato.
+    misurare il prior per ogni candidato pagherebbe un lavoro che la selezione
+    di Pareto non guarda.
     """
-    assert steps.STEP_KEYS[-1] == "13_solve"
-    assert "13_solve" not in sweep.REQUIRED_STEPS
+    assert steps.STEP_KEYS[-1] == "12_wall"
     assert "12_wall" not in sweep.REQUIRED_STEPS

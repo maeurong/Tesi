@@ -91,7 +91,7 @@ def test_creare_una_corsa_scrive_il_config_e_lega_l_applicazione(slegato, nuvola
     assert scritto.analysis is None
     stato = slegato.get("/api/run").json()
     assert stato["legata"] is True
-    assert len(stato["steps"]) == 13
+    assert len(stato["steps"]) == 12
 
 
 def test_una_corsa_creata_compare_nell_elenco_con_la_sua_nuvola(slegato, nuvola):
@@ -355,15 +355,13 @@ def test_un_nome_col_punto_resta_legittimo(slegato, nuvola, tmp_path):
 
 def test_lo_schema_descrive_il_materiale_anche_se_il_blocco_e_opzionale(slegato):
     """`analysis` opzionale rende la sua annotazione un'unione con None: letta
-    grezza faceva cadere /api/schema, cioe' il pannello degli step 11 e 13."""
+    grezza faceva cadere /api/schema, cioe' il pannello dello step 11."""
     corpo = slegato.get("/api/schema").json()
 
-    # Lo step 13 e' la schermata dell'analisi, e li' il blocco si legge per
-    # intero: e' quello a provare che l'unione con None non fa cadere nulla.
     # Nello step 11 di `analysis` resta la sola tolleranza dei set di faccia
     # (`_FUORI_DAL_PANNELLO`), perche' il materiale ha gia' il proprio
-    # pannello e il caso di carico appartiene allo step 13.
-    assert "material" in corpo["13"]["campi"]["analysis"]
+    # pannello: che il blocco arrivi non vuoto e' cio' che prova che l'unione
+    # con None non fa cadere lo schema.
     assert corpo["11"]["campi"]["analysis"]
 
 

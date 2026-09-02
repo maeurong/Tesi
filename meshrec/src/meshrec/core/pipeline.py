@@ -17,14 +17,11 @@ from meshrec.core import (
     abaqus,
     attribuzione,
     io,
-    opensees,
     quality,
     repair,
     segment,
-    solve,
     steps,
     surface,
-    telaio,
     volume,
     wall,
 )
@@ -500,142 +497,6 @@ def _maglio_di_volume(percorso: Path) -> tuple[np.ndarray, np.ndarray]:
     return np.ascontiguousarray(griglia.points, dtype=np.float64), celle
 
 
-def _step_solutore(
-    out: Path,
-    cfg: PipelineConfig,
-    nodes: np.ndarray,
-    tets: np.ndarray,
-    esportazione: dict[str, object],
-) -> dict[str, object]:
-    """Step 13: il solutore sul deck dello step 11.
-
-    Sta in una funzione propria e non dentro `run()` per la ragione di
-    `calcola_prior`: ha due chiamanti, la corsa che lo chiede con `to_step=13` e
-    il comando `meshrec solve`, e una seconda copia della mappatura fra le
-    misure dello step 11 e gli argomenti di `solve.risolvi` sarebbe una seconda
-    cosa da tenere allineata.
-
-    Il solutore legge il deck dello step 11, non una sua copia: se il deck e'
-    quello che l'analisi risolve, allora e' quello che il report descrive e
-    quello di cui il registro porta l'impronta. Le etichette dei casi
-    (`casi_di_carico`) vengono dalla stessa riga: e' l'ordine che `export_model`
-    ha scritto davvero nel deck, non una sua ricostruzione.
-    """
-    return solve.risolvi(
-        out,
-        out / DECK_FILENAME,
-        cfg.analisi_dichiarata("lo step 13"),
-        nodes,
-        tets,
-        esportazione["element_type"],
-        casi_di_carico=esportazione["casi_di_carico"],
-        # Gia' calcolato allo step 11 (abaqus.constraint_plan_extent): risolvi
-        # non ha i node_sets per ricalcolarlo, una sola origine.
-        vincolo_in_pianta=esportazione["constraint_plan_extent"],
-        # `nodes` non e' allineato agli assi (export_model allinea internamente
-        # e non restituisce i nodi allineati), mentre i campi che risolvi legge
-        # dal .frd vengono dal deck allineato: la 4x4 dello step 11 e' cio' che
-        # permette di scriverli nello stesso telaio dei punti del .vtu.
-        trasformata=esportazione["transform"],
-        # Quale motore, e dove trovarlo. Senza, la scelta scritta in
-        # `solutore` non arrivava a chi risolve e ogni corsa usava CalculiX dal
-        # PATH qualunque cosa la configurazione dichiarasse.
-        solutore=cfg.solutore,
-    )
-
-
-def _step_telaio(out: Path, cfg: PipelineConfig) -> dict[str, object]:
-    """Step 13 sul ramo del telaio: il prior e le regioni, risolti da OpenSees.
-
-    **Fratello di `_step_solutore`, non un suo ramo.** Quella funzione mappa le
-    misure dello step 11 sugli argomenti di `solve.risolvi`, che monta la riga
-    di comando di CalculiX e legge il `.frd`: rifiuta ogni altro solutore, e lo
-    fa apposta. Qui non c'e' nessun deck da risolvere -- il modello e' lo
-    script che `opensees.scrivi_tcl` costruisce dal prior -- e l'ingresso e'
-    un altro: `12_wall.json` dello step 12 invece del deck dello step 11.
-
-    Il passo modale e' quello che `carichi.modale` dichiara, coi suoi modi:
-    sono gli stessi che il deck del solido chiede, e chiederne sempre uno
-    sarebbe un'analisi che nessuno ha configurato.
-    """
-    if not cfg.regioni:
-        raise ValueError(
-            "il telaio a fibre non ha materiali: `regioni` è vuoto, e ogni "
-            "membratura del prior vuole la propria sezione dichiarata "
-            "(RegioneConfig.sezione). Non si ricade su un materiale "
-            "predefinito: un telaio in cemento armato con la sezione di "
-            "nessuno non è il telaio, e i sette verdetti uscirebbero su un "
-            "modello che l'operatore non ha dichiarato"
-        )
-    prior = _prior_letto(out / WALL_FILENAME, "il telaio a fibre")
-    # `analisi_dichiarata` per il nome del passo di peso proprio: il primo caso
-    # deve portarlo, e `scrivi_tcl` rifiuta ogni altra etichetta.
-    analisi = cfg.analisi_dichiarata("lo step 13 sul telaio")
-    modale = cfg.carichi.modale
-    casi = [analisi.step_name] + (["MODALE"] if modale is not None else [])
-    return opensees.esegui(
-        out,
-        telaio.costruisci(prior, cfg.regioni),
-        cfg.solutore,
-        casi_di_carico=casi,
-        modi=None if modale is None else modale.modi,
-    )
-
-
-def _artefatto_del_solutore(cfg: PipelineConfig, esito: dict[str, object]) -> str | None:
-    """L'artefatto che lo step 13 lascia, o `None` se il solutore non c'era.
-
-    Sono due file diversi perche' sono due modelli diversi: il solido lascia i
-    campi sul maglio (`13_solution.vtu`), il telaio lascia lo script che
-    OpenSees ha eseguito -- che per il telaio **e'** il modello, perche'
-    OpenSees non ha un formato di deck (vedi la testa di `core/opensees.py`).
-    """
-    if not esito["eseguito"]:
-        return None
-    return opensees.NOME_TCL if cfg.solutore.nome == "opensees" else ARTIFACTS[13]
-
-
-def risolvi_corsa(cfg: PipelineConfig) -> dict[str, object]:
-    """Esegue il solo step 13 sugli artefatti gia' presenti nella corsa.
-
-    Gemella di `calcola_prior`, e per la stessa ragione: lo step 13 e'
-    un'AZIONE e non una ripresa. La ripresa (`cfg.run.from_step`) esiste per
-    saltare lavoro gia' fatto, e si ferma a 12; qui non c'e' niente da saltare,
-    ci sono artefatti da rileggere -- il deck dello step 11 e il maglio dello
-    step 9 -- e un processo esterno da lanciare su di essi.
-    Alzare il tetto di `from_step` fino a 13 sarebbe la strada sbagliata: gli
-    step 10, 11 e 12 nella coda di `run()` non hanno guardie `if start <= n`,
-    quindi una «ripresa da 13» rifarebbe metriche, deck e prior invece di
-    risolvere soltanto.
-
-    Le metriche finiscono dove le scrive `run` (`metrics.json`, fuse con quelle
-    gia' presenti) e lo stato dove lo scriverebbe una corsa (`steps.json`),
-    fallimento compreso: chi guarda la colonna deve vedere che il tredici e'
-    fallito, non che non e' mai partito.
-    """
-    out = Path(cfg.run.out_dir)
-    impronta = steps.step_fingerprints(cfg)[13]
-    avvio = time.monotonic()
-    try:
-        if cfg.solutore.nome == "opensees":
-            esito = _step_telaio(out, cfg)
-        else:
-            esportazione = _misure_dell_esportazione(out)
-            nodes, tets = _ingresso_di_ripresa(13, 9, out, _maglio_di_volume)
-            esito = _step_solutore(out, cfg, nodes, tets, esportazione)
-    except BaseException:
-        # Stessa scelta di run(): la traccia resta e l'errore risale intatto.
-        steps.write_state(out, 13, impronta, "fallito", None, 0.0)
-        raise
-    steps.write_state(
-        out, 13, impronta, "riuscito",
-        _artefatto_del_solutore(cfg, esito),
-        time.monotonic() - avvio,
-    )
-    _unisci_metriche(out, {"13_solve": esito})
-    return esito
-
-
 def _unisci_metriche(out: Path, misure: dict[str, object]) -> dict[str, object]:
     """Fonde `misure` con il `metrics.json` gia' sul disco e riscrive il file.
 
@@ -1026,20 +887,6 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
         # dello step 2, che la ripresa ricarica quando riparte da piu' in la'.
         metrics["12_wall"] = calcola_prior(out, cfg, source_cloud, spacing)
         registra(12, avvio, WALL_FILENAME)
-        if stop <= 12:
-            raise _FermataRichiesta
-
-        in_corso = 13
-        avvio = time.monotonic()
-        # La stessa funzione che il comando `meshrec solve` chiama sugli
-        # artefatti gia' presenti: una sola mappatura fra le misure dello step
-        # 11 e gli argomenti del solutore.
-        metrics["13_solve"] = (
-            _step_telaio(out, cfg)
-            if cfg.solutore.nome == "opensees"
-            else _step_solutore(out, cfg, nodes, tets, metrics["11_export"])
-        )
-        registra(13, avvio, _artefatto_del_solutore(cfg, metrics["13_solve"]))
     except _FermataRichiesta:
         # Fermata su richiesta: gli step chiesti sono stati eseguiti e il
         # risultato e' valido quanto quello di una corsa intera, per gli step

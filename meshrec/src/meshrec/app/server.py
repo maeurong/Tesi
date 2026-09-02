@@ -36,15 +36,12 @@ from pydantic import (
 from meshrec.app import storico
 from meshrec.app.worker import Worker
 from meshrec.core import (
-    armatura,
-    combinazioni,
     io,
     materiali,
     pipeline,
     quality,
     report,
     segment,
-    solve,
     steps,
     sweep,
     viewport,
@@ -616,22 +613,16 @@ _FUORI_DAL_PANNELLO: dict[int, frozenset[str]] = {
     # carichi non hanno ancora una sede propria -- escono da qui senza che se
     # ne inventi una.
     #
-    # Di `analysis` lo step 11 comanda la sola tolleranza dei set di faccia.
-    # `gravity`, `fixed_nset` e `step_name` descrivono il caso di carico e non
-    # la geometria: stanno nel pannello dello step 13, che e' la schermata
-    # dell'analisi. `material` ha gia' il proprio pannello -- quattro caselle
+    # `gravity`, `fixed_nset` e `step_name` sono tornati in questo pannello con
+    # la mappa #161. Descrivono il caso di carico e non la geometria, e per
+    # questo stavano nel pannello dello step 13: uscito quello, l'unico posto
+    # che resta e' lo step che li scrive nel deck. Fuori da qui sarebbero tre
+    # campi che il deck porta e che nessuno puo' piu' dichiarare.
+    #
+    # `material` resta fuori: ha gia' il proprio pannello -- quattro caselle
     # che partono insieme -- e qui compariva una seconda volta, come riga di
     # sola lettura col JSON del modello dentro.
-    11: frozenset(
-        {
-            "tet",
-            "carichi",
-            "analysis.material",
-            "analysis.gravity",
-            "analysis.fixed_nset",
-            "analysis.step_name",
-        }
-    ),
+    11: frozenset({"tet", "carichi", "analysis.material"}),
 }
 
 

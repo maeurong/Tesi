@@ -14,21 +14,17 @@ from pathlib import Path
 
 from meshrec.core.config import PipelineConfig
 
-# Le tredici chiavi del registro degli step. Lo step 7 non ha artefatto proprio
+# Le dodici chiavi del registro degli step. Lo step 7 non ha artefatto proprio
 # ma ha metriche, quindi c'e' anche lui. Lo step 12 e' il prior geometrico
 # della Fase 4: chiude la corsa madre di elaborazione e non e' un punto di
-# ripresa. Lo step 13 e' il solutore della Fase 5: legge il deck che lo step 11
-# ha scritto, e nemmeno lui e' un punto di ripresa. E' anche l'unico step che
-# paga un processo esterno vero, non lavoro in-process come tutti gli altri:
-# dalla Fase 8 (#140) il solutore si invoca dalla propria schermata. Dal
-# perimetro del prodotto RunConfig.to_step si ferma a 11, il deck: gli step 12 e
-# 13 restano raggiungibili chiedendoli, ma stanno fuori da cio' che il prodotto
-# dichiara. Lo sweep chiede --to-step 11 esplicito per non dipendere da come
-# il predefinito cambia, e non paga il prior per ogni candidato. is_complete()
-# in sweep.py continua a non richiedere ne' "12_wall" ne' "13_solve" a un
-# candidato perche' un candidato di sweep si confronta sulle sole undici
-# misure di elaborazione: e' completo quando ha il proprio deck, non quando
-# ha il prior o la soluzione.
+# ripresa. Dal perimetro del prodotto RunConfig.to_step si ferma a 11, il deck:
+# il 12 resta raggiungibile chiedendolo -- `meshrec wall`, o --to-step 12 -- ma
+# sta fuori da cio' che il prodotto dichiara. Lo sweep chiede --to-step 11
+# esplicito per non dipendere da come il predefinito cambia, e non paga il
+# prior per ogni candidato. is_complete() in sweep.py continua a non richiedere
+# "12_wall" a un candidato perche' un candidato di sweep si confronta sulle
+# sole undici misure di elaborazione: e' completo quando ha il proprio deck,
+# non quando ha il prior.
 STEP_KEYS: tuple[str, ...] = (
     "01_load",
     "02_segment",
@@ -42,17 +38,16 @@ STEP_KEYS: tuple[str, ...] = (
     "10_volume_quality",
     "11_export",
     "12_wall",
-    "13_solve",
 )
 
 # I blocchi di PipelineConfig che ogni step legge davvero. E' la tabella da cui
 # discende l'invalidazione a valle: cambiare surface.poisson_depth non puo'
 # invalidare lo step 3, e deve invalidare tutto da 5 in giu'.
 #
-# Lo step 13 non ripete "carichi": la catena di `step_fingerprints` e'
+# Lo step 12 non ripete "carichi": la catena di `step_fingerprints` e'
 # cumulativa (l'impronta di ogni step incorpora quella del precedente), quindi
-# un cambio ai carichi -- gia' entrato in catena allo step 11 -- invalida 12 e
-# 13 comunque, senza bisogno di dichiararlo una seconda volta qui.
+# un cambio ai carichi -- gia' entrato in catena allo step 11 -- invalida il 12
+# comunque, senza bisogno di dichiararlo una seconda volta qui.
 STEP_BLOCKS: dict[int, tuple[str, ...]] = {
     1: ("input",),
     2: ("segment",),
@@ -69,10 +64,6 @@ STEP_BLOCKS: dict[int, tuple[str, ...]] = {
     # cambia il deck che lo step 11 scrive.
     11: ("tet", "analysis", "carichi", "selettori", "regioni"),
     12: ("wall",),
-    # `solutore` e' del solo 13 (Fase 8, #139): cambiare motore o percorso
-    # dell'eseguibile invalida la soluzione e nient'altro. Piu' in alto nella
-    # catena invaliderebbe il maglio, che nessun solutore tocca.
-    13: ("tet", "analysis", "solutore"),
 }
 
 STATE_FILENAME = "steps.json"

@@ -35,7 +35,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from meshrec.core import abaqus, quality, solve
+from meshrec.core import abaqus, quality
 
 # Tetraedro di riferimento, volume positivo: 1/6.
 NODI_SANI = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
@@ -299,31 +299,6 @@ def test_i_set_di_nodi_su_un_solo_nodo_restano_calcolabili():
         assert indici.tolist() == [0]
 
 
-def test_il_controllo_del_picco_rifiuta_un_array_vuoto():
-    """Errore del chiamante, dichiarato come tale.
-
-    `leggi_frd` non produce mai un blocco vuoto, quindi in produzione non ci
-    arriva: e' latente. Ma oggi schianta con `zero-size array to reduction
-    operation maximum`, che accusa numpy di un errore che sta a monte. Il
-    precedente in questo stesso modulo e' `risolvi`, che su `casi_di_carico`
-    vuoto solleva dicendo che e' un errore del chiamante e non uno stato da
-    eseguire a vuoto.
-    """
-    with pytest.raises(ValueError, match="vuot"):
-        solve.controlla_picco(np.empty(0), np.empty(0), banda=1.0)
-
-
-def test_il_controllo_del_picco_rifiuta_anche_le_sole_quote_vuote():
-    """La meta' gemella della guardia, che nessun test copriva.
-
-    Un audit per mutazione ha mostrato che ridurre la condizione al solo
-    `v.size == 0` sopravviveva: nessun caso passava valori pieni e quote vuote.
-    Una guardia provata a meta' e' una guardia provata a meta'.
-    """
-    with pytest.raises(ValueError, match="vuot"):
-        solve.controlla_picco(np.array([1.0, 2.0]), np.empty(0), banda=1.0)
-
-
 def test_le_metriche_di_superficie_non_scrivono_nan_nel_json():
     """Il difetto con la conseguenza piu' visibile di tutti.
 
@@ -372,9 +347,3 @@ def test_l_allineamento_rifiuta_un_insieme_vuoto():
         abaqus.align_to_axes(np.empty((0, 3)))
 
 
-def test_il_controllo_del_picco_su_valori_veri_resta_intatto():
-    """Regressione: il verdetto negativo gia' misurato non deve muoversi."""
-    valori = np.array([1.0, 1.0, 1.0, 100.0])
-    quote = np.array([0.0, 10.0, 20.0, 0.0])
-    esito = solve.controlla_picco(valori, quote, banda=1.0)
-    assert esito["passato"] is False

@@ -60,11 +60,10 @@ def test_la_radice_serve_l_interfaccia(cliente):
     assert "text/html" in risposta.headers["content-type"]
 
 
-def test_lo_stato_della_corsa_elenca_i_tredici_step(cliente):
-    """Variante scaduta dalla Fase 5 (Task 6): lo step 13 (solutore) allunga
-    STEP_KEYS a tredici voci, e /api/run le elenca tutte."""
+def test_lo_stato_della_corsa_elenca_i_dodici_step(cliente):
+    """STEP_KEYS finisce sul prior dello step 12, e /api/run le elenca tutte."""
     corpo = cliente.get("/api/run").json()
-    assert len(corpo["steps"]) == 13
+    assert len(corpo["steps"]) == 12
     assert corpo["steps"][0]["chiave"] == "01_load"
     assert {voce["stato"] for voce in corpo["steps"]} == {"mai eseguito"}
 
@@ -2545,15 +2544,18 @@ def test_il_pannello_dello_step_11_mostra_solo_i_blocchi_che_comanda(cliente):
     assert corpo["11"]["blocchi"] == ["analysis"]
     assert set(corpo["11"]["campi"]) == {"analysis"}
     # Di `analysis` lo step 11 comanda una cosa sola: la tolleranza con cui
-    # estrae i set di faccia. `gravity`, `fixed_nset` e `step_name` descrivono
-    # il caso di carico e vivono nel pannello dello step 13, che e' la
-    # schermata dell'analisi; `material` ha gia' il proprio pannello qui
-    # sotto, e in questo elenco compariva una seconda volta come riga di
-    # sola lettura con dentro il JSON del modello.
-    assert set(corpo["11"]["campi"]["analysis"]) == {"set_tolerance_factor"}
-    assert {"gravity", "fixed_nset", "step_name", "material"} <= set(
-        corpo["13"]["campi"]["analysis"]
-    ), "tolti dallo step 11 e da nessuna parte: il caso di carico e' dello step 13"
+    # estrae i set di faccia. `gravity`, `fixed_nset` e `step_name` sono
+    # tornati qui con la mappa #161: stavano nel pannello dello step 13, e
+    # uscito quello l'unico posto che resta e' lo step che li scrive nel deck.
+    # `material` resta fuori -- ha gia' il proprio pannello qui sotto, e in
+    # questo elenco compariva una seconda volta come riga di sola lettura con
+    # dentro il JSON del modello.
+    assert set(corpo["11"]["campi"]["analysis"]) == {
+        "set_tolerance_factor", "gravity", "fixed_nset", "step_name",
+    }
+    assert "material" not in corpo["11"]["campi"]["analysis"], (
+        "il materiale ha il proprio pannello e qui tornerebbe come JSON grezzo"
+    )
     # Il blocco resta intero dove lo step lo comanda davvero.
     assert corpo["9"]["blocchi"] == ["tet"] and corpo["9"]["campi"]["tet"]
 
@@ -3641,32 +3643,6 @@ def test_una_corsa_di_riferimento_non_prende_uno_storico(cliente, tmp_path):
     )
     assert cliente.post("/api/storico/indietro").status_code == 400
     assert cliente.post("/api/storico/avanti").status_code == 400
-
-
-def test_lo_schema_descrive_il_blocco_solutore_nel_pannello_dello_step_13(cliente):
-    """Il blocco nuovo entra con il suo test su `/api/schema`, non dopo.
-
-    Il difetto e' gia' occorso una volta (`5d4d24b`, «lo schema non esplode
-    piu' sul blocco selettori»): un blocco che `schema()` non sa leggere fa
-    cadere l'endpoint con un `AttributeError` fuori vista, cioe' spegne il
-    pannello degli step che lo comandano.
-
-    `solutore` e' un `BaseModel` vero, quindi i suoi campi si descrivono: il
-    pannello dello step 13 li mostra, `percorso` compreso, che e' nullabile
-    perche' None significa «cercalo nel PATH».
-    """
-    risposta = cliente.get("/api/schema")
-    assert risposta.status_code == 200
-    corpo = risposta.json()
-
-    assert "solutore" in corpo["13"]["blocchi"]
-    campi = corpo["13"]["campi"]["solutore"]
-    assert campi["nome"]["tipo"] == "enumerazione"
-    assert campi["nome"]["valori"] == ["calculix", "opensees"]
-    assert campi["nome"]["default"] == "calculix"
-    assert campi["percorso"]["nullabile"] is True
-    assert campi["percorso"]["default"] is None
-    assert campi["percorso"]["obbligatorio"] is False
 
 
 @pytest.fixture()
