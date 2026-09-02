@@ -261,6 +261,104 @@ def test_la_mesh_torna_in_binario_con_i_conteggi(cliente, tmp_path):
     assert len(risposta.content) == vertici * 3 * 4 + triangoli * 3 * 4
 
 
+def test_lo_scarto_corrisponde_vertice_per_vertice_alla_superficie_servita(cliente, tmp_path):
+    """La mappa dello scarto si posa sulle posizioni che /api/mesh/6 manda: se i
+    due corpi non hanno la stessa lunghezza, il colore di un vertice finisce su
+    un altro e la mappa indica il posto sbagliato senza nessun errore.
+
+    La garanzia non e' un accordo fra i due gestori: leggono lo stesso file.
+    Questo banco la esercita davvero, chiedendo i due corpi e rimisurando lo
+    scarto sulle coordinate servite.
+
+    La nuvola sposta un punto SI' e uno NO, e non tutti: traslata intera darebbe
+    uno scarto costante, che passerebbe anche con la corrispondenza rotta. La
+    prima stesura di questo banco l'ha fatto, e l'asserzione sulla varianza qui
+    sotto e' quella che l'ha fermata.
+    """
+    import numpy as np
+    import open3d as o3d
+
+    from meshrec.core import io, pipeline, quality
+
+    corsa = tmp_path / "corsa"
+    corsa.mkdir()
+    cubo = o3d.geometry.TriangleMesh.create_box(1.0, 1.0, 1.0)
+    o3d.io.write_triangle_mesh(str(corsa / pipeline.ARTIFACTS[6]), cubo)
+    punti = np.asarray(cubo.vertices).copy()
+    punti[::2] += np.array([0.25, 0.0, 0.0])
+    io.write_cloud(corsa / pipeline.ARTIFACTS[2], punti)
+
+    mesh = cliente.get("/api/mesh/6")
+    scarto = cliente.get("/api/scarto")
+    assert scarto.status_code == 200, scarto.json()
+    vertici = int(mesh.headers["X-Vertices"])
+    valori = np.frombuffer(scarto.content, dtype="<f4")
+    assert len(valori) == vertici
+
+    posizioni = np.frombuffer(
+        mesh.content[: vertici * 3 * 4], dtype="<f4"
+    ).reshape(-1, 3).astype(np.float64)
+    atteso = quality.vertex_deviation(posizioni, punti)
+    np.testing.assert_allclose(valori, atteso, rtol=1e-5)
+    # Non costante: un campo piatto renderebbe vacuo il confronto qui sopra.
+    assert float(valori.max()) > float(valori.min())
+    assert float(scarto.headers["X-Max"]) == pytest.approx(float(atteso.max()), rel=1e-5)
+
+
+def test_lo_scarto_misura_la_coppia_che_lo_step_7_misura():
+    """Quale superficie e quale nuvola non sono una scelta del server: sono la
+    coppia che `pipeline.run` passa a `quality.geometric_error` allo step 7.
+
+    Senza questo controllo la coppia resta scritta a mano in due posti. Cambiata
+    la tabella della pipeline -- lo step 7 che ripartisse da un'altra
+    superficie, o la nuvola di riferimento che diventasse un'altra -- il server
+    continuerebbe a dipingere la vecchia, e il campo a video non sarebbe piu'
+    quello che la tabella delle metriche accanto misura. Un colore che
+    contraddice il numero che gli sta sotto, e nessuno dei due lo dice.
+    """
+    from meshrec.app import server
+    from meshrec.core import pipeline
+
+    assert server._SCARTO_MESH == pipeline._RESUME_MESH[7], (
+        "lo step 7 non riparte piu' dalla superficie che il server dipinge"
+    )
+    assert pipeline.ARTIFACTS[server._SCARTO_NUVOLA] == "02_segmented.ply", (
+        "la nuvola di riferimento dello scarto non e' piu' quella segmentata"
+    )
+
+
+def test_lo_scarto_senza_i_due_artefatti_dice_quale_manca(cliente, tmp_path):
+    """Un rifiuto dichiarato e non una pagina bianca, come ogni altro gestore.
+
+    E nomina lo step: «lo scarto non e' disponibile» lascerebbe l'utente a
+    indovinare se manchi la superficie o la nuvola, cioe' se debba rieseguire
+    dal 6 o dal 2 -- e rieseguire dal 2 riscrive tutto quello che c'e' sotto.
+    """
+    import numpy as np
+    import open3d as o3d
+
+    from meshrec.core import io, pipeline
+
+    corsa = tmp_path / "corsa"
+    corsa.mkdir()
+
+    vuoto = cliente.get("/api/scarto")
+    assert vuoto.status_code == 400
+    assert "6" in vuoto.json()["messaggio"]
+
+    # La superficie c'e', la nuvola no: il rifiuto cambia bersaglio.
+    cubo = o3d.geometry.TriangleMesh.create_box(1.0, 1.0, 1.0)
+    o3d.io.write_triangle_mesh(str(corsa / pipeline.ARTIFACTS[6]), cubo)
+    mezzo = cliente.get("/api/scarto")
+    assert mezzo.status_code == 400
+    assert "02_segmented.ply" in mezzo.json()["messaggio"]
+
+    # Con entrambi, passa: senza questa riga i due rifiuti sopra resterebbero
+    # verdi anche se il gestore rifiutasse sempre.
+    io.write_cloud(corsa / pipeline.ARTIFACTS[2], np.asarray(cubo.vertices))
+    assert cliente.get("/api/scarto").status_code == 200
+
+
 def test_chiedere_la_mesh_di_uno_step_senza_artefatto_non_solleva(cliente):
     risposta = cliente.get("/api/mesh/6")
     assert risposta.status_code == 400

@@ -442,3 +442,46 @@ def test_i_rapporti_scritti_intorno_alla_riga_aperta_sono_quelli_dei_colori_dich
             f"il rapporto di {davanti} su {fondo} ({scritto}:1) non e' piu' scritto "
             "da nessuna parte nel foglio: la misura resta e la prova sparisce"
         )
+
+
+def test_l_etichetta_di_una_metrica_va_a_capo_come_prosa_e_non_come_una_chiave():
+    """Quella colonna ha cambiato natura, e le regole di prima erano giuste per
+    la natura di prima.
+
+    Portava chiavi -- `geometric_error · cloud_to_mesh · mean`, parole sole e
+    inspezzabili -- e `overflow-wrap: anywhere` era l'unico modo di non
+    sfondare un pannello largo 22rem. Da quando porta l'etichetta italiana con
+    la sua unita', in circa 200 px di colonna va a capo due o tre volte, e
+    `anywhere` spezza le parole a meta' in un punto qualunque.
+
+    Il valore invece resta `anywhere`: e' li' che finisce una lista chiusa da
+    JSON.stringify, che nessuna sillabazione sa dividere.
+
+    Mutazione che lo uccide: riportare `overflow-wrap: anywhere` sul `dt`.
+    """
+    foglio = _senza_commenti()
+    etichetta = foglio.split(".metriche dt {", 1)[1].split("}", 1)[0]
+    assert "anywhere" not in etichetta, (
+        "l'etichetta torna a spezzarsi come una chiave: su una frase italiana "
+        f"`anywhere` taglia le parole in un punto qualunque ({etichetta.strip()})"
+    )
+    assert "hyphens" in etichetta, (
+        "senza sillabazione una parola lunga apre un buco nella colonna invece "
+        "di andare a capo dove l'italiano vuole"
+    )
+    assert "--interlinea)" in etichetta, (
+        "l'etichetta tiene l'interlinea delle righe che NON vanno a capo, e "
+        "adesso va a capo: il foglio i due valori li distingue gia'"
+    )
+
+    valore = foglio.split(".metriche dd {", 1)[1].split("}", 1)[0]
+    assert "anywhere" in valore, (
+        "il valore ha perso `anywhere`: una lista chiusa da JSON.stringify non "
+        "ha punti in cui una sillabazione la possa dividere"
+    )
+
+    tabella = foglio.split(".metriche {", 1)[1].split("}", 1)[0]
+    assert "align-items: baseline" in tabella, (
+        "le due colonne hanno due interlinee diverse: senza linea di base "
+        "condivisa l'etichetta e il suo numero partono da due altezze diverse"
+    )

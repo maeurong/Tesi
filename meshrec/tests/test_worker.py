@@ -349,3 +349,54 @@ def test_il_codice_di_uscita_si_fissa_anche_se_la_lettura_esplode(tmp_path):
     assert lavoratore.exit_code == 3, (
         "il codice d'uscita non e' stato fissato: la corsa resta senza esito per sempre"
     )
+
+
+def test_la_durata_della_corsa_sopravvive_alla_corsa(tmp_path):
+    """`da_secondi()` misura l'attesa e smette di rispondere a processo morto:
+    e' costruita per la riga che pulsa, e a corsa ferma non c'e' nessuna attesa
+    in corso. Il numero pero' serve un istante dopo -- quando la corsa e' finita
+    e l'interfaccia deve dire quanto e' costata -- e li' si perdeva.
+
+    Il worker cronometrava gia' tutto: `avviato` si fissa in `start()` e vale
+    per la corsa intera. Mancava solo conservare la differenza.
+
+    Tre fatti, e il terzo e' quello che rende il numero leggibile senza corse:
+    `durata` viene fissata PRIMA di `exit_code`, che e' il fatto con cui il
+    resto del programma dichiara finita una corsa. Pubblicati nella stessa
+    istantanea SSE, l'ordine inverso lascerebbe una finestra in cui il browser
+    vede il fronte di discesa senza il numero.
+    """
+    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "assente.ply"), analysis=ANALISI)
+    cfg.run.out_dir = tmp_path / "corsa"
+    percorso = tmp_path / "config.yaml"
+    save_config(cfg, percorso)
+
+    lavoratore = Worker()
+    assert lavoratore.durata is None, "una durata prima di qualsiasi corsa e' una misura inventata"
+
+    lavoratore.start(percorso, 1, 1)
+    for _ in range(600):
+        if not lavoratore.is_running():
+            break
+        time.sleep(0.1)
+    assert lavoratore.is_running() is False
+
+    # Il processo e' morto: `da_secondi()` tace, ed e' giusto che taccia.
+    assert lavoratore.da_secondi() is None
+    # La durata no: e' il tempo che l'utente ha appena passato ad aspettare.
+    assert lavoratore.durata is not None, "la durata della corsa e' stata buttata via"
+    assert lavoratore.durata > 0
+
+    # Fallita o riuscita non cambia nulla: un fallimento e' costato lo stesso
+    # tempo, e la corsa che fallisce e' quella che si aspetta con piu' ansia.
+    assert lavoratore.exit_code != 0
+
+    # La corsa dopo riparte da zero e non eredita la misura di quella prima: una
+    # durata vecchia sotto una corsa nuova e' peggio di nessuna durata.
+    lavoratore.start(percorso, 1, 1)
+    assert lavoratore.durata is None, "la corsa nuova nasce con la durata della precedente"
+    for _ in range(600):
+        if not lavoratore.is_running():
+            break
+        time.sleep(0.1)
+    assert lavoratore.durata is not None, "la seconda corsa non conserva la propria durata"

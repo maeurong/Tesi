@@ -50,6 +50,40 @@ export function frazioneDelCampo(valore, taglio) {
   return Number.isFinite(valore) ? Math.min(1, Math.max(0, valore / soglia)) : 0;
 }
 
+// I due estremi della rampa sequenziale, in un posto solo.
+//
+// Esportati perche' la chiave che sta sotto la vista li deve disegnare uguali:
+// scritti due volte -- un esadecimale qui per three.js e un colore nel foglio
+// per il gradiente -- il giorno che uno dei due cambia la legenda dichiara una
+// scala che il pezzo non ha, ed e' il difetto peggiore possibile su un colore
+// che porta una misura.
+//
+// Stringhe e non numeri: THREE.Color le legge come gli esadecimali, e CSS pure.
+// Lo scuro e' --accento, la stessa tinta della nuvola.
+export const RAMPA = { chiaro: "#d9e8e4", scuro: "#2f5d50" };
+
+// Quale asse del mondo chiede il gesto, o null per l'orbita libera di sempre.
+//
+// Assi del MONDO e non del pezzo: dopo una rotazione attorno a z, l'x del
+// modello e' inclinato sullo schermo, e `ctrl` smetterebbe di voler dire sempre
+// la stessa direzione. Cosi' invece ctrl e' x oggi e x dopo dieci trascinamenti.
+//
+// Priorita' dichiarata e non «piu' di un modificatore = orbita libera»: le
+// combinazioni si premono per sbaglio, e un gesto che cade nell'orbita libera
+// proprio quando l'utente sta cercando di vincolarlo e' il contrario di cio'
+// che il vincolo serve a dare. L'ordine e' quello in cui i tre sono stati
+// chiesti -- alt, ctrl, shift -- e non c'e' un ordine piu' giusto: c'e' un
+// ordine, ed e' provato.
+//
+// Pura e fuori da creaViewport per la ragione gia' pagata da scalaDelCampo:
+// dentro una funzione che tocca three.js nessun banco la eseguirebbe.
+export function asseDelGesto(evento) {
+  if (evento.altKey) return [0, 0, 1];
+  if (evento.ctrlKey) return [1, 0, 0];
+  if (evento.shiftKey) return [0, 1, 0];
+  return null;
+}
+
 // Ogni numero che finisce a video passa di qui, e null e' «non si puo'
 // scrivere»: chi chiama sceglie la frase, non stampa NaN. Cifre significative
 // e non decimali fissi perche' gli spostamenti veri sono submillimetrici
@@ -59,6 +93,36 @@ export function frazioneDelCampo(valore, taglio) {
 // diventerebbero 13 960.
 export function numeroDelCampo(valore, formato = { maximumSignificantDigits: 4 }) {
   return Number.isFinite(valore) ? valore.toLocaleString("it", formato) : null;
+}
+
+// Che cosa si sta guardando quando la superficie porta il proprio scarto, e
+// soprattutto che cosa NON si sta guardando.
+//
+// Sorella di didascaliaDelCampo e separata da lei apposta: sono due grandezze
+// diverse, e una funzione sola con un ramo in piu' sarebbe il punto in cui il
+// limite dichiarato di questa comincia a valere anche per quella.
+//
+// Il limite non e' prudenza generica. `quality.vertex_deviation` campiona i
+// SOLI vertici, nel verso dalla superficie alla nuvola: dove la superficie
+// sbaglia FRA un vertice e l'altro questa mappa non lo vede, e la tabella
+// accanto porta anche cloud_to_mesh, che e' il verso opposto e da' un numero
+// piu' grande (4,897 mm contro 3,898 su lab_crop). Sta nella didascalia e non
+// solo in un commento perche' l'immagine finisce in appendice a un documento
+// stampato, staccata dalla tabella: deve reggersi da sola.
+export function didascaliaDelloScarto({ massimo, taglio, sopraTaglio }) {
+  const tagliato = numeroDelCampo(taglio);
+  const vertici = numeroDelCampo(sopraTaglio, { maximumFractionDigits: 0 });
+  const scala = tagliato === null || vertici === null
+    ? "scala non disponibile, il campo non ha valori leggibili"
+    : `scala tagliata a ${tagliato} mm (p99), ${vertici} vertici sopra`;
+  const limite = "misurato sui soli vertici, nel verso dalla superficie alla nuvola";
+  const scritto = numeroDelCampo(massimo);
+  if (scritto === null) {
+    return `scarto dalla nuvola: ${scala}; massimo non disponibile — ${limite}`;
+  }
+  const fuori = Number.isFinite(massimo) && Number.isFinite(taglio) && massimo > taglio;
+  return `scarto dalla nuvola: ${scala}; massimo ${scritto} mm`
+    + (fuori ? ", fuori scala" : "") + ` — ${limite}`;
 }
 
 // Che cosa si sta guardando, sempre accanto alla vista: un'immagine di
@@ -75,6 +139,15 @@ export function numeroDelCampo(valore, formato = { maximumSignificantDigits: 4 }
 // nodo-scheggia che il documento spende una sezione a rinnegare. Accostati
 // nella stessa frase, e col massimo marcato quando sta oltre il taglio, i due
 // numeri si leggono per quello che sono.
+// In che unita' e' un campo dello step 13. Estratta perche' adesso ha due
+// lettori: la didascalia sotto la vista e la chiave della scala colore, che
+// devono dire la stessa unita' sotto la stessa immagine. Scritta due volte,
+// il giorno che una grandezza nuova si aggiunge una delle due resta indietro
+// e la barra dichiara MPa sotto dei millimetri.
+export function unitaDelCampo(grandezza) {
+  return grandezza === "U" ? "mm" : "MPa";
+}
+
 export function didascaliaDelCampo({ caso, grandezza, modale, frequenza, massimo, taglio, sopraTaglio }) {
   if (modale) {
     // Un modo oltre quelli calcolati non ha una frequenza nota: NaN.toFixed()
@@ -97,7 +170,7 @@ export function didascaliaDelCampo({ caso, grandezza, modale, frequenza, massimo
   // falso sopra un pezzo fermo.
   const spostamento = grandezza === "U";
   const nome = spostamento ? "spostamento" : "tensione equivalente";
-  const unita = spostamento ? "mm" : "MPa";
+  const unita = unitaDelCampo(grandezza);
   // Entrambi i numeri passano da numeroDelCampo, che dichiara quello che non
   // si puo' scrivere invece di stamparlo. Il conteggio ha il proprio formato:
   // e' un numero di nodi, non una misura, e non va arrotondato a cifre
@@ -243,6 +316,23 @@ export function creaViewport(contenitore) {
   // comando. three.js ricompila da se' quando cambia il numero di piani.
   const pianoTaglio = new THREE.Plane(new THREE.Vector3(1, 0, 0), 0);
   const pianiTaglio = [];
+  // Che cosa il comando del taglio ha chiesto, in coordinate del MODELLO.
+  //
+  // Serve perche' il piano non e' piu' scritto una volta sola: three.js tiene i
+  // piani di taglio nel mondo, e il modello adesso puo' girare sotto di loro.
+  // Ricostruirlo a ogni rotazione da (asse, quota) e' l'unico modo perche' il
+  // taglio resti quello che il menu dichiara; tenendolo fermo nel mondo il
+  // cursore avrebbe una corsa presa da un ingombro che non e' piu' quello, e la
+  // sezione a video mostrerebbe una quota che nessuno ha chiesto.
+  let tagliaAttivo = null;
+
+  // Appoggi del giro, creati una volta: ruotaIlModello gira a ogni pointermove,
+  // cioe' decine di volte per trascinamento, e allocare li' e' la stessa spesa
+  // che il resto di questo file evita gia'.
+  const asseDelGiro = new THREE.Vector3();
+  const giro = new THREE.Quaternion();
+  const perno = new THREE.Vector3();
+  const pernoRuotato = new THREE.Vector3();
 
   // Il canvas non ha testo proprio: senza un'alternativa, chi usa uno
   // screen reader vede un buco muto. L'aria-label aggiornato ad ogni disegno
@@ -396,6 +486,45 @@ export function creaViewport(contenitore) {
     direzionale.target.updateMatrixWorld();
   }
 
+  // Il piano di taglio come sta nel mondo adesso: costruito in coordinate del
+  // modello e portato di la' dalla matrice del gruppo. `applyMatrix4` e' di
+  // three.js e fa gia' la cosa giusta anche alla normale -- riscriverla a mano
+  // qui sarebbe matematica che la libreria possiede.
+  //
+  // Da capo ogni volta e non accumulando: applicata due volte alla stessa
+  // istanza, la matrice ruoterebbe un piano gia' ruotato.
+  function riscriviIlPiano() {
+    if (tagliaAttivo === null) return;
+    const { asse, quota } = tagliaAttivo;
+    pianoTaglio.normal.set(asse === 0 ? 1 : 0, asse === 1 ? 1 : 0, asse === 2 ? 1 : 0);
+    pianoTaglio.constant = -quota;
+    pianoTaglio.applyMatrix4(gruppo.matrixWorld);
+    pianiTaglio[0] = pianoTaglio;
+  }
+
+  // Gira il modello su se' stesso, attorno a un asse del mondo.
+  //
+  // Il perno e' `orbita.centro` e non l'origine: il gruppo non ha posizione
+  // propria, quindi `rotateOnWorldAxis` girerebbe attorno all'origine del
+  // mondo -- e il pezzo non ci sta sopra. Sulla scansione di riferimento vive
+  // fra x = 1,697 e x = 4,456: attorno all'origine il gesto lo scaglierebbe
+  // fuori campo invece di girarlo dov'e'.
+  //
+  // La forma e' quella della rotazione attorno a un perno, p' = R(p - c) + c,
+  // che sul gruppo si scrive come quaternione R e posizione c - R·c.
+  // `premultiply` e non `multiply`: il giro nuovo va applicato DOPO quelli
+  // gia' fatti, cioe' nel mondo, ed e' esattamente la differenza fra un asse
+  // del mondo e un asse del pezzo.
+  function ruotaIlModello(asse, angolo) {
+    giro.setFromAxisAngle(asseDelGiro.set(asse[0], asse[1], asse[2]), angolo);
+    gruppo.quaternion.premultiply(giro);
+    perno.copy(orbita.centro);
+    pernoRuotato.copy(perno).applyQuaternion(gruppo.quaternion);
+    gruppo.position.copy(perno).sub(pernoRuotato);
+    gruppo.updateMatrixWorld(true);
+    riscriviIlPiano();
+  }
+
   let premuto = false;
   let ultimo = { x: 0, y: 0 };
   tela.addEventListener("pointerdown", (evento) => {
@@ -407,8 +536,17 @@ export function creaViewport(contenitore) {
   tela.addEventListener("pointermove", (evento) => {
     if (!premuto) return;
     laCameraPassaAlGesto();
-    orbita.theta -= (evento.clientX - ultimo.x) * 0.005;
-    orbita.phi = oltreIlPolo(orbita.phi, -(evento.clientY - ultimo.y) * 0.005);
+    // Col modificatore conta il solo spostamento orizzontale: un asse, un
+    // delta. E' il vincolo a rendere il gesto ripetibile -- con due gradi di
+    // liberta' vivi insieme, inquadrare di preciso vuole mano ferma, ed e'
+    // proprio quello che un'immagine da appendice non deve chiedere.
+    const asse = asseDelGesto(evento);
+    if (asse !== null) {
+      ruotaIlModello(asse, (evento.clientX - ultimo.x) * 0.005);
+    } else {
+      orbita.theta -= (evento.clientX - ultimo.x) * 0.005;
+      orbita.phi = oltreIlPolo(orbita.phi, -(evento.clientY - ultimo.y) * 0.005);
+    }
     ultimo = { x: evento.clientX, y: evento.clientY };
     aggiornaCamera();
   });
@@ -537,6 +675,15 @@ export function creaViewport(contenitore) {
         oggetto.material?.dispose();
       });
       gruppo.clear();
+      // La rotazione a mano se ne va con la geometria che descriveva.
+      // Sopravvivendo a un ridisegno metterebbe a video -- e in appendice, che
+      // e' dove queste immagini vanno a finire -- un orientamento che le
+      // coordinate dell'artefatto nuovo non hanno, senza che niente lo dica.
+      // La camera invece non si azzera: quella inquadra, non descrive il pezzo.
+      gruppo.quaternion.identity();
+      gruppo.position.set(0, 0, 0);
+      gruppo.updateMatrixWorld(true);
+      riscriviIlPiano();
       // Il box e' appena stato liberato dalla traversata qui sopra: tenerne il
       // riferimento lascerebbe mostraBox a riscrivere una geometria che non
       // esiste piu' sulla scheda.
@@ -599,8 +746,8 @@ export function creaViewport(contenitore) {
       // il giro precedente ricostruiva la rampa da tinta+saturazione+chiarezza
       // con quattro costanti, e il suo estremo scuro finiva a 0x178264, che
       // non e' --accento (misurato in node, non dedotto).
-      const CHIARO = new THREE.Color(0xd9e8e4);
-      const SCURO = new THREE.Color(0x2f5d50); // --accento, come la nuvola
+      const CHIARO = new THREE.Color(RAMPA.chiaro);
+      const SCURO = new THREE.Color(RAMPA.scuro);
       const colore = new THREE.Color();
       for (let indice = 0; indice < valori.length; indice += 1) {
         colore.lerpColors(CHIARO, SCURO, frazioneDelCampo(valori[indice], taglio));
@@ -702,11 +849,11 @@ export function creaViewport(contenitore) {
     // asse: 0 per x, 1 per y, 2 per z. Resta visibile la meta' oltre la quota,
     // perche' three.js tiene i punti dove normale . punto + costante > 0.
     attivaTaglio(asse, quota) {
-      pianoTaglio.normal.set(asse === 0 ? 1 : 0, asse === 1 ? 1 : 0, asse === 2 ? 1 : 0);
-      pianoTaglio.constant = -quota;
-      pianiTaglio[0] = pianoTaglio;
+      tagliaAttivo = { asse, quota };
+      riscriviIlPiano();
     },
     disattivaTaglio() {
+      tagliaAttivo = null;
       pianiTaglio.length = 0;
     },
     cattura() {

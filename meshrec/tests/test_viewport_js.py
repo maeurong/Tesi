@@ -176,3 +176,84 @@ def test_il_velo_e_materia_della_stessa_scena_della_geometria():
         f"il velo di una superficie non ha normali: esce piatto e nero invece che "
         f"illuminato come la geometria che sta dietro: {corpo}"
     )
+
+
+def test_il_modello_gira_attorno_al_proprio_centro_e_non_all_origine():
+    """`gruppo` non ha posizione propria, quindi una rotazione applicata al suo
+    quaternione e basta gira attorno all'origine del mondo -- e il pezzo non ci
+    sta sopra. Sulla scansione di riferimento vive fra x = 1,697 e x = 4,456
+    (`01_load.bbox_min` / `bbox_max` di runs/prova): attorno all'origine il
+    gesto lo scaglia fuori campo invece di girarlo dov'e'.
+
+    Il perno e' `orbita.centro`, lo stesso che inquadra() calcola dall'ingombro,
+    e la forma e' quella della rotazione attorno a un perno: posizione = c - R·c.
+
+    Mutazione che lo uccide, eseguita su questo file: togliere le due righe che
+    scrivono `gruppo.position`, lasciando il solo quaternione.
+    """
+    corpo = _corpo_di(r"function ruotaIlModello\(asse, angolo\) \{")
+    assert "orbita.centro" in corpo, (
+        "il giro non prende il perno dal centro dell'orbita: attorno all'origine "
+        "del mondo il pezzo esce dall'inquadratura invece di girare sul posto"
+    )
+    assert "gruppo.position" in corpo, (
+        "il solo quaternione gira attorno all'origine: senza la compensazione "
+        "della posizione il perno non e' il centro del pezzo"
+    )
+    assert "premultiply" in corpo, (
+        "con `multiply` il giro si compone nel sistema del pezzo e i tre "
+        "modificatori smettono di nominare sempre la stessa direzione"
+    )
+
+
+def test_il_taglio_segue_il_modello_che_gira():
+    """three.js tiene i piani di taglio nel MONDO. Ruotato il gruppo, un piano
+    scritto una volta sola resta fermo mentre il pezzo gira sotto: la sezione
+    non e' piu' quella che il menu dichiara, e il cursore ha una corsa presa da
+    un ingombro che non e' piu' quello. Un numero a video che non descrive
+    quello che si vede.
+
+    Il piano si ricostruisce da `(asse, quota)` -- che restano in coordinate del
+    modello -- e si porta nel mondo con la matrice del gruppo. Da capo ogni
+    volta: applicata due volte alla stessa istanza, la matrice ruoterebbe un
+    piano gia' ruotato.
+
+    Mutazione che lo uccide, eseguita su questo file: togliere la chiamata a
+    `riscriviIlPiano()` dal corpo di ruotaIlModello.
+    """
+    corpo = _corpo_di(r"function riscriviIlPiano\(\) \{")
+    assert "applyMatrix4(gruppo.matrixWorld)" in corpo, (
+        "il piano non passa dalla matrice del gruppo: resta fermo nel mondo "
+        "mentre il pezzo gira, e taglia una quota che nessuno ha chiesto"
+    )
+    assert "pianoTaglio.constant = -quota;" in corpo, (
+        "il piano non si ricostruisce da capo: applicata due volte, la matrice "
+        "ruota un piano gia' ruotato"
+    )
+    giro = _corpo_di(r"function ruotaIlModello\(asse, angolo\) \{")
+    assert "riscriviIlPiano();" in giro, (
+        "la rotazione non riscrive il piano: il taglio resta indietro di un gesto"
+    )
+
+
+def test_la_rotazione_a_mano_muore_con_la_geometria_che_descriveva():
+    """Sopravvivendo a un ridisegno, la rotazione metterebbe a video -- e in
+    appendice, che e' dove queste immagini vanno a finire -- un orientamento che
+    le coordinate dell'artefatto nuovo non hanno, senza che niente lo dica.
+
+    In svuota(), che ogni strada che disegna attraversa. La camera invece non si
+    azzera, ed e' una differenza voluta: la camera inquadra, non descrive il
+    pezzo.
+
+    Mutazione che lo uccide, eseguita su questo file: togliere
+    `gruppo.quaternion.identity()` da svuota().
+    """
+    corpo = _corpo_di(r"svuota\(\) \{", chiusura="\n    }")
+    assert "gruppo.quaternion.identity();" in corpo, (
+        "la rotazione a mano sopravvive al ridisegno: l'artefatto nuovo si "
+        "mostra in un orientamento che le sue coordinate non hanno"
+    )
+    assert "gruppo.position.set(0, 0, 0);" in corpo, (
+        "la posizione di compenso resta addosso al gruppo: la geometria nuova "
+        "nasce spostata del perno di quella di prima"
+    )

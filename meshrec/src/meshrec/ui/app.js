@@ -8,6 +8,99 @@ const ETICHETTE = {
   "11_export": "Esportazione", "12_wall": "Prior geometrico", "13_solve": "Analisi strutturale",
 };
 
+// Come si intitola ogni riga delle due tabelle di qualita', e in che unita'.
+//
+// La regola non e' nuova in questo repository: `core/report.py` la applica gia'
+// con `_COLUMNS` e `_ETICHETTE_GRANDEZZE` -- «una chiave non si stampa mai, si
+// stampa la sua etichetta», e l'unita' sta DENTRO l'etichetta perche' un numero
+// senza unita' non si ricostruisce. Mancava proprio sulla superficie che viene
+// proiettata in discussione: qui il pannello stampava `geometric_error ·
+// cloud_to_mesh · mean` accanto a `4,41`, senza dire ne' che cos'e' ne' se sono
+// millimetri.
+//
+// Solo lo step 7 e il 10, e non tutti e tredici: sono le due tabelle su cui si
+// decide se una configurazione va tenuta, e le altre restano chiavi finche'
+// qualcuno non ne ha bisogno. Una chiave senza etichetta non sparisce e non
+// prende un nome inventato -- si stampa com'e', come `nomeDelloStep` fa con uno
+// step che non conosce.
+//
+// Quello che NON si traduce: `min_ratio`, `nobisect`, `C3D10` e compagnia sono
+// identificatori dichiarati in PRODUCT.md, non parole, e non stanno qui dentro.
+// `RMS` resta `RMS` per la stessa ragione.
+//
+// I due versi si dicono per esteso e non con una freccia: la stessa frase che
+// la didascalia dello scarto porta sotto la vista, cosi' il pannello e
+// l'immagine nominano la stessa grandezza allo stesso modo.
+const ETICHETTE_METRICHE = {
+  "07_surface_quality": {
+    "vertices": "vertici",
+    "triangles": "triangoli",
+    "watertight": "superficie chiusa",
+    "boundary_edges": "spigoli di bordo",
+    "area": "area della superficie [mm²]",
+    "volume": "volume racchiuso [mm³]",
+    "aspect_ratio · min": "rapporto d'aspetto dei triangoli, minimo",
+    "aspect_ratio · median": "rapporto d'aspetto dei triangoli, mediano",
+    "aspect_ratio · mean": "rapporto d'aspetto dei triangoli, medio",
+    "aspect_ratio · max": "rapporto d'aspetto dei triangoli, massimo",
+    "aspect_ratio · non_finite": "triangoli con aspetto non misurabile",
+    "geometric_error · hausdorff": "scarto di Hausdorff [mm]",
+    // I due versi non sono la stessa misura e non danno lo stesso numero: nel
+    // verso dalla nuvola alla superficie i campioni sono i punti della nuvola
+    // contro le facce, nell'altro sono i soli vertici contro la nuvola. Sono
+    // 4,897 mm contro 3,898 su lab_crop, e una tabella che li chiamasse
+    // entrambi «scarto» lascerebbe scegliere il piu' comodo.
+    "geometric_error · cloud_to_mesh · min": "scarto dalla nuvola alla superficie, minimo [mm]",
+    "geometric_error · cloud_to_mesh · mean": "scarto dalla nuvola alla superficie, medio [mm]",
+    "geometric_error · cloud_to_mesh · max": "scarto dalla nuvola alla superficie, massimo [mm]",
+    "geometric_error · cloud_to_mesh · RMS": "scarto dalla nuvola alla superficie, RMS [mm]",
+    "geometric_error · cloud_to_mesh · n_samples": "campioni dalla nuvola alla superficie",
+    "geometric_error · mesh_to_cloud · min": "scarto dalla superficie alla nuvola, minimo [mm]",
+    "geometric_error · mesh_to_cloud · mean": "scarto dalla superficie alla nuvola, medio [mm]",
+    "geometric_error · mesh_to_cloud · max": "scarto dalla superficie alla nuvola, massimo [mm]",
+    "geometric_error · mesh_to_cloud · RMS": "scarto dalla superficie alla nuvola, RMS [mm]",
+    "geometric_error · mesh_to_cloud · n_samples": "campioni dalla superficie alla nuvola",
+    // Le diagonali dei due ingombri: le scrive PyMeshLab dentro lo stesso
+    // dizionario, e sono la scala rispetto a cui il suo scarto si legge.
+    "geometric_error · cloud_to_mesh · diag_mesh_0": "diagonale d'ingombro della superficie [mm]",
+    "geometric_error · cloud_to_mesh · diag_mesh_1": "diagonale d'ingombro della nuvola [mm]",
+    "geometric_error · mesh_to_cloud · diag_mesh_0": "diagonale d'ingombro della superficie [mm]",
+    "geometric_error · mesh_to_cloud · diag_mesh_1": "diagonale d'ingombro della nuvola [mm]",
+  },
+  "10_volume_quality": {
+    "nodes": "nodi",
+    "tets": "tetraedri",
+    "inverted": "elementi invertiti",
+    "total_volume": "volume totale [mm³]",
+    "element_volume · min": "volume dell'elemento, minimo [mm³]",
+    "element_volume · median": "volume dell'elemento, mediano [mm³]",
+    "element_volume · mean": "volume dell'elemento, medio [mm³]",
+    "element_volume · max": "volume dell'elemento, massimo [mm³]",
+    "element_volume · non_finite": "elementi con volume non misurabile",
+    "min_dihedral_deg · min": "diedro minimo, il peggiore [gradi]",
+    "min_dihedral_deg · median": "diedro minimo, mediano [gradi]",
+    "min_dihedral_deg · mean": "diedro minimo, medio [gradi]",
+    "min_dihedral_deg · max": "diedro minimo, il migliore [gradi]",
+    "min_dihedral_deg · non_finite": "elementi con diedro non misurabile",
+    "aspect_ratio · min": "rapporto d'aspetto dei tetraedri, minimo",
+    "aspect_ratio · median": "rapporto d'aspetto dei tetraedri, mediano",
+    "aspect_ratio · mean": "rapporto d'aspetto dei tetraedri, medio",
+    "aspect_ratio · max": "rapporto d'aspetto dei tetraedri, massimo",
+    "aspect_ratio · non_finite": "tetraedri con aspetto non misurabile",
+    "radius_edge_ratio · min": "rapporto raggio-spigolo, minimo",
+    "radius_edge_ratio · median": "rapporto raggio-spigolo, mediano",
+    "radius_edge_ratio · mean": "rapporto raggio-spigolo, medio",
+    "radius_edge_ratio · max": "rapporto raggio-spigolo, massimo",
+    "radius_edge_ratio · non_finite": "tetraedri con raggio-spigolo non misurabile",
+    // «frazione» e non «%»: il dato non si tocca -- vale 0,08098 e non 8,098 --
+    // e un'etichetta in percento sopra una frazione e' la stessa bugia con un
+    // sintomo peggiore. La grafia viene da _COLUMNS in core/report.py, dove
+    // questa stessa grandezza si intitola gia' «fuori vincolo [frazione]».
+    "radius_edge_over_reference": "elementi oltre il metro di riferimento [frazione]",
+    "reference_ratio": "metro di riferimento del raggio-spigolo",
+  },
+};
+
 // Che cosa fa uno step, in una riga. Il nome da solo e' un'etichetta:
 // «Riduzione» non dice che dirada i punti a passo costante, e chi apre il
 // pannello per la prima volta deve decidere se premere «Esegui» senza sapere
@@ -1552,7 +1645,12 @@ function esitoDellaCorsa(stato) {
   if (stato.exit_code === null || stato.exit_code === undefined) {
     return { errore: null, esito: null };
   }
-  if (stato.annullato) return { errore: null, esito: `${soggetto}: esecuzione annullata` };
+  // «interrotta» e non «annullata», e la ragione sta gia' scritta sul bottone
+  // (index.html): «Annulla» accanto a una corsa che gira si legge anche come
+  // «disfa quello che hai fatto», e il bottone non disfa niente. Rinominato
+  // li' e non qui, l'esito continuava a usare proprio la parola da cui il
+  // bottone era stato allontanato.
+  if (stato.annullato) return { errore: null, esito: `${soggetto}: esecuzione interrotta` };
   if (stato.exit_code !== 0) {
     return {
       // Dove sta, non «qui sotto»: #esito e' nella testata e il registro e'
@@ -1571,15 +1669,53 @@ function esitoDellaCorsa(stato) {
   // il numero piu' in vista dell'applicazione e diceva 0,03 s per una corsa che
   // ne aveva impiegati dieci. La durata intera nessuno la misura oggi, e tacere
   // e' l'unica alternativa che non inventa.
+  //
+  // Su un intervallo la misura c'e' adesso, e viene dal lavoratore: `durata` e'
+  // il tempo del sottoprocesso, cioe' esattamente l'attesa che c'e' stata.
+  // Il worker la cronometrava dal primo istante -- `avviato` si fissa in
+  // start() e vale per la corsa intera -- e la buttava via a processo morto,
+  // quando `da_secondi()` smette di rispondere: la corsa piu' lunga che questo
+  // programma sappia fare finiva con la stessa riga muta di uno step da 0,03 s.
+  //
+  // Sul capo singolo resta invece la misura del file di stato, che e' il tempo
+  // dello step senza l'avvio dell'interprete. Due numeri diversi per la stessa
+  // attesa sullo stesso schermo sarebbero il difetto, non la copertura: il
+  // pannello dello step dichiara quella, e questa riga non la contraddice.
   const misura = unoSolo
     ? ultimaDurata((stato.steps ?? []).find((v) => v.numero === stato.step))
-    : null;
+    : durataDellaCorsa(stato);
+  // Il deck raggiunto, detto dove si guarda quando la corsa finisce. Lo step 11
+  // e' il perimetro dichiarato del prodotto -- dalla nuvola di punti al deck, e
+  // li' si ferma -- e atterrava con la stessa riga di uno step qualunque.
+  //
+  // Solo se e' questa corsa ad arrivarci: un deck valido lasciato li' da una
+  // corsa di ieri non e' una cosa appena successa, e annunciarlo adesso sarebbe
+  // datare un fatto vecchio col momento in cui lo si legge.
+  //
+  // E nessun numero: a questo istante `corpoMetriche` e' ancora quello di
+  // prima -- apriDettaglio rilegge le metriche DOPO, nel chiamante, ed e' un
+  // ordine voluto -- quindi un conteggio di elementi preso da li' descriverebbe
+  // la corsa precedente. `stato.steps` invece arriva con questo stesso evento.
+  const arrivo = stato.a_step ?? stato.step;
+  const deck = arrivo === STEP_CON_DECK
+    && (stato.steps ?? []).find((v) => v.numero === STEP_CON_DECK)?.artefatto != null;
+  const coda = deck ? " · il deck è pronto, si scarica dallo step 11" : "";
   return {
     errore: null,
     esito: misura === null
-      ? `${soggetto}: esecuzione conclusa`
-      : `${soggetto}: esecuzione conclusa in ${misura}`,
+      ? `${soggetto}: esecuzione conclusa${coda}`
+      : `${soggetto}: esecuzione conclusa in ${misura}${coda}`,
   };
+}
+
+// La durata della corsa intera, quando il lavoratore l'ha conservata.
+//
+// Separata da `ultimaDurata`, che legge la voce di uno step nel file di stato:
+// sono due misure di due cose, e una funzione sola che accettasse entrambe le
+// forme sarebbe il punto in cui le due si confondono.
+function durataDellaCorsa(stato) {
+  if (stato.durata_secondi === null || stato.durata_secondi === undefined) return null;
+  return durataMisurata(stato.durata_secondi);
 }
 
 // Dove finisce l'esito di una corsa: una regione sola per tutti e tre gli
@@ -1947,7 +2083,10 @@ async function annullaLaCorsa() {
 
 document.getElementById("annulla").addEventListener("click", annullaLaCorsa);
 
-import { creaViewport, scalaDelCampo, numeroDelCampo, didascaliaDelCampo } from "/ui/viewport.js";
+import {
+  creaViewport, scalaDelCampo, numeroDelCampo, didascaliaDelCampo, didascaliaDelloScarto,
+  unitaDelCampo, RAMPA,
+} from "/ui/viewport.js";
 
 const vista = creaViewport(document.getElementById("viewport"));
 
@@ -1987,7 +2126,46 @@ let ultimaGeometria = 0;
 
 function apriGeometria() {
   ultimaGeometria += 1;
+  // La chiave della scala se ne va con la vista che descriveva, e se ne va IN
+  // TESTA: e' la stessa forma di togliFantasma dentro svuota(). Ogni strada che
+  // disegna passa di qui, e solo le due che colorano per misura la riaccendono
+  // dopo aver disegnato. Spenta in coda, una barra rimasta da un campo starebbe
+  // sotto una nuvola grigia dichiarando che quel grigio vale qualcosa.
+  //
+  // Scritta qui e non delegata a una funzione: `apriGeometria` e' il biglietto
+  // dell'arbitrato e viene ritagliata da una trentina di banchi, che una
+  // chiamata in piu' costringerebbe a elencare una dipendenza in piu' ciascuno.
+  document.getElementById("scala").hidden = true;
   return ultimaGeometria;
+}
+
+function scalaDellaVista() {
+  return document.getElementById("scala");
+}
+
+// La chiave della scala colore: da zero al taglio, con l'unita' accanto.
+//
+// Gli stessi due numeri della didascalia e la stessa rampa dei vertici -- il
+// gradiente viene da RAMPA, che e' la costante che li colora -- perche' una
+// legenda che dichiarasse una scala diversa da quella dipinta sarebbe peggio
+// di nessuna legenda.
+//
+// Da ZERO e non dal minimo del campo: `frazioneDelCampo` divide per il taglio e
+// blocca sotto lo zero, quindi l'estremo chiaro E' lo zero, qualunque sia il
+// valore piu' piccolo che il pezzo porta. Scrivere qui il minimo misurato
+// dichiarerebbe un capo della rampa che la rampa non ha.
+//
+// Senza un taglio scrivibile la chiave resta spenta invece di mostrare due
+// trattini: la didascalia in quel caso dice gia' «scala non disponibile», e una
+// barra colorata sotto quella frase la contraddirebbe.
+function mostraLaScala(taglio, unita) {
+  const scritto = numeroDelCampo(taglio);
+  if (scritto === null) return;
+  scalaDellaVista().hidden = false;
+  document.getElementById("scala-minimo").textContent = "0";
+  document.getElementById("scala-massimo").textContent = `${scritto} ${unita}`;
+  document.getElementById("scala-rampa").style.background =
+    `linear-gradient(to right, ${RAMPA.chiaro}, ${RAMPA.scuro})`;
 }
 
 // --- L'attesa dichiarata, e l'artefatto che non arriva ----------------------
@@ -2287,6 +2465,130 @@ comandoDelFantasma().addEventListener("change", (evento) => {
   alternaFantasma(evento.target.checked);
 });
 
+// Lo step che misura lo scarto geometrico, e la superficie su cui lo misura.
+// Sono due numeri e non uno perche' lo step 7 non ha un artefatto proprio: la
+// mesh che dipinge e' quella riparata dello step 6, la stessa che `pipeline.run`
+// gli passa. Il server tiene la coppia dalla sua parte (`_SCARTO_MESH`), e la
+// corrispondenza fra i due file la garantisce lui leggendoli entrambi.
+const STEP_CON_SCARTO = 7;
+const STEP_CON_SUPERFICIE = 6;
+
+// Lo scarto dipinto sulla superficie: gli stessi numeri di
+// metriche["07_surface_quality"].geometric_error, nel posto in cui sono.
+//
+// Stessa arbitrazione di mostraCampoDelloStep, e per la stessa ragione: due
+// clic di seguito non devono far vincere la richiesta piu' vecchia.
+async function mostraScartoDelloStep(ordine) {
+  const didascalia = didascaliaDellaVista();
+  const emissione = apriGeometria();
+  const [rispostaMesh, rispostaScarto] = await Promise.all([
+    fetch(`/api/mesh/${STEP_CON_SUPERFICIE}`).catch(serverMuto),
+    fetch("/api/scarto").catch(serverMuto),
+  ]);
+  if (!rispostaMesh.ok || !rispostaScarto.ok) {
+    if (superata(ordine) || superata(emissione, ultimaGeometria)) return false;
+    const ragione = await ragioneDelRifiuto(rispostaMesh.ok ? rispostaScarto : rispostaMesh);
+    didascalia.textContent = ragione;
+    return true;
+  }
+  const grezzoMassimo = rispostaScarto.headers.get("X-Max");
+  const massimo = grezzoMassimo ? Number(grezzoMassimo) : NaN;
+  const vertici = Number(rispostaMesh.headers.get("X-Vertices"));
+  const triangoli = Number(rispostaMesh.headers.get("X-Triangles"));
+  const grezziMesh = await rispostaMesh.arrayBuffer();
+  const grezziScarto = await rispostaScarto.arrayBuffer();
+  if (superata(ordine) || superata(emissione, ultimaGeometria)) return false;
+  const valori = new Float32Array(grezziScarto);
+  // La stessa guardia del campo, e non e' cintura sopra bretelle: i due corpi
+  // arrivano da due risposte, e una corsa rieseguita mentre la vista arriva
+  // poserebbe i colori di una superficie sulle posizioni di un'altra. Uscirebbe
+  // un pezzo dipinto sfalsato, senza nessun errore -- cioe' una mappa
+  // diagnostica che indica il posto sbagliato.
+  if (valori.length !== vertici) {
+    didascalia.textContent =
+      `lo scarto e la superficie non corrispondono (${valori.length} valori su ${vertici} vertici): `
+      + "la corsa è cambiata mentre la vista arrivava, riprova";
+    return true;
+  }
+  const { taglio, sopraTaglio } = scalaDelCampo(valori);
+  const testo = didascaliaDelloScarto({ massimo, taglio, sopraTaglio });
+  // Lo scarto e' una distanza: millimetri, e non passa da unitaDelCampo, che
+  // risponde sulle grandezze dello step 13.
+  mostraLaScala(taglio, "mm");
+  vista.svuota();
+  vista.mostraMeshPerCampo(
+    new Float32Array(grezziMesh, 0, vertici * 3),
+    new Uint32Array(grezziMesh, vertici * 3 * 4, triangoli * 3),
+    valori,
+    { taglio, descrizione: testo },
+  );
+  document.getElementById("conteggi").textContent =
+    `${vertici.toLocaleString("it")} vertici, ${triangoli.toLocaleString("it")} triangoli`;
+  didascalia.textContent = testo;
+  return true;
+}
+
+// Il pannello dello step 7: un comando solo, che non scrive niente in
+// config.yaml. Come pannelloCampo per il 13, e a differenza dei campi dei
+// blocchi non passa da scriviParametro.
+//
+// Le due voci si leggono da `ultimoStato` e non si chiede al server: un bottone
+// che si puo' premere e risponde «quel file non c'e'» e' un rifiuto che si
+// poteva evitare, ed e' la stessa regola per cui «Annulla» segue la corsa.
+function pannelloScarto(ordine) {
+  const contenitore = document.createElement("fieldset");
+  contenitore.className = "gruppo";
+  contenitore.append(elemento("legend", { textContent: "Scarto dalla nuvola" }));
+  const superficie = ultimoStato.find((v) => v.numero === STEP_CON_SUPERFICIE);
+  const nuvola = ultimoStato.find((v) => v.numero === 2);
+  if (!superficie?.artefatto || !nuvola?.artefatto) {
+    contenitore.append(elemento("p", {
+      className: "aiuto",
+      textContent: "Lo scarto si misura fra la superficie riparata dello step 6 e la nuvola "
+        + "segmentata dello step 2: questa corsa non le ha ancora prodotte entrambe.",
+    }));
+    return contenitore;
+  }
+  contenitore.append(elemento("p", {
+    className: "aiuto",
+    textContent: "Gli stessi numeri della tabella qui sotto, nel posto in cui sono: ogni "
+      + "vertice prende il colore della propria distanza dalla nuvola.",
+  }));
+  const bottone = elemento("button", {
+    type: "button",
+    className: "bottone",
+    textContent: "Dipingi lo scarto",
+  });
+  // Spento mentre la misura gira, e non e' prudenza generica: dall'altra parte
+  // c'e' un albero costruito sulla nuvola segmentata -- 4.229.538 punti su
+  // lab_crop -- e due clic di seguito lo fanno costruire due volte, perche' la
+  // memoria del server tiene UNA voce e la scrive solo a conto finito. Sono
+  // secondi di attesa e un centinaio di megabyte, spesi per un risultato
+  // identico che l'arbitrato butterebbe via comunque.
+  //
+  // E l'attesa si dichiara: senza, un clic su una nuvola vera lascia lo schermo
+  // identico per qualche secondo, che e' indistinguibile da un bottone rotto.
+  // La misura vera non c'e' -- nessuno cronometra un albero prima di costruirlo
+  // -- quindi si dice che cosa sta succedendo, non quanto manca: e' la stessa
+  // regola per cui l'attesa di uno step non porta una percentuale.
+  bottone.addEventListener("click", async () => {
+    bottone.disabled = true;
+    didascaliaDellaVista().textContent =
+      "misura dello scarto in corso: ogni vertice cerca il proprio punto più vicino nella nuvola";
+    try {
+      await mostraScartoDelloStep(ordine);
+    } finally {
+      // Il pannello puo' essere stato rifatto sotto le dita, e in quel caso
+      // questo bottone e' un orfano staccato dal documento: riaccenderlo non
+      // fa niente e non fa danno, mentre saltare il finally lascerebbe spento
+      // quello vero nel caso in cui il pannello e' ancora il suo.
+      bottone.disabled = false;
+    }
+  });
+  contenitore.append(bottone);
+  return contenitore;
+}
+
 // Lo step che risolve: /api/campo/{caso}/{grandezza} vive fuori da
 // STEP_CON_MESH/STEP_CON_TAGLIO apposta, sono comandi diversi (un campo per
 // nodo, non un artefatto di step) che condividono solo il numero di step.
@@ -2353,6 +2655,7 @@ async function mostraCampoDelloStep(caso, grandezza, ordine) {
   // della tela e in nessun altro. Scritta due volte, un giorno una delle due
   // resterebbe indietro.
   const testo = didascaliaDelCampo({ caso, grandezza, massimo, taglio, sopraTaglio });
+  mostraLaScala(taglio, unitaDelCampo(grandezza));
   vista.svuota();
   vista.mostraMeshPerCampo(
     new Float32Array(grezziMesh, 0, vertici * 3),
@@ -2768,7 +3071,7 @@ async function caricaConfronto(ordine = generazione) {
   // scrivere. Il legame fra le due liste non e' solo dichiarato qui: lo verifica
   // test_app_js.py::test_le_etichette_del_pannello_sono_quelle_del_report.
   for (const [grandezza, etichetta] of [
-    ["volume", "volume [mm^3]"],
+    ["volume", "volume [mm³]"],
     ["massa", "massa [t]"],
     ["scostamento_nuvola", "scostamento dalla nuvola [mm]"],
   ]) {
@@ -3764,7 +4067,7 @@ function pannelloMateriale(numero, ordine) {
     ["name", "nome"],
     ["young", "modulo elastico E [MPa]"],
     ["poisson", "coefficiente di Poisson"],
-    ["density", "densità [t/mm^3]"],
+    ["density", "densità [t/mm³]"],
   ]) {
     const riga = document.createElement("label");
     riga.className = "campo";
@@ -4207,15 +4510,21 @@ async function apriDettaglio(numero, ordine = generazione) {
   if (numero === STEP_CON_RITAGLIO) dettaglio.append(pannelloRitaglio(ordine));
   if (numero === STEP_CON_DECK) dettaglio.append(pannelloDeck());
   if (numero === STEP_CON_CAMPO) dettaglio.append(pannelloCampo(ordine, metriche[chiave]));
+  if (numero === STEP_CON_SCARTO) dettaglio.append(pannelloScarto(ordine));
 
   if (chiave) {
     const titolo = document.createElement("h3");
     titolo.textContent = "Metriche";
     const tabella = document.createElement("dl");
     tabella.className = "metriche";
-    for (const [nome, valore] of Object.entries(metriche[chiave])) {
-      tabella.append(...righeDellaMetrica(nome, valore));
-    }
+    // Costruite tutte, poi marcate: il confronto col giro precedente vuole i
+    // nomi gia' appiattiti, e righeDellaMetrica li appiattisce solo tornando.
+    tabella.append(...marcaLeMetricheCambiate(
+      numero,
+      Object.entries(metriche[chiave]).flatMap(
+        ([nome, valore]) => righeDellaMetrica(nome, valore, ETICHETTE_METRICHE[chiave]),
+      ),
+    ));
     dettaglio.append(titolo, tabella);
   }
 
@@ -4263,18 +4572,65 @@ async function apriDettaglio(numero, ordine = generazione) {
 const VALORE_LARGO = 14;
 const CLASSE_VALORE_LARGO = "metrica-larga";
 
-function righeDellaMetrica(nome, valore) {
+function righeDellaMetrica(nome, valore, etichette) {
   const annidata = valore !== null && typeof valore === "object" && !Array.isArray(valore);
   // Un dizionario vuoto non lascia righe: «{}» a video non e' una misura.
   if (annidata) {
     return Object.entries(valore).flatMap(
-      ([interno, dentro]) => righeDellaMetrica(`${nome} · ${interno}`, dentro),
+      ([interno, dentro]) => righeDellaMetrica(`${nome} · ${interno}`, dentro, etichette),
     );
   }
   const testo = valoreDellaMetrica(valore);
   const dd = elemento("dd", { textContent: testo });
   if (testo.length > VALORE_LARGO) dd.className = CLASSE_VALORE_LARGO;
-  return [elemento("dt", { textContent: nome }), dd];
+  // Il percorso appiattito e' la chiave: si cerca alla FOGLIA e non famiglia per
+  // famiglia, perche' `aspect_ratio · mean` dello step 7 conta i triangoli e
+  // quello del 10 i tetraedri, e un'etichetta di famiglia varrebbe per
+  // entrambi. Senza etichetta si stampa la chiave: e' la stessa regola di
+  // `nomeDelloStep`, che su una chiave sconosciuta ripiega invece di
+  // fabbricare un nome.
+  return [elemento("dt", { textContent: etichette?.[nome] ?? nome }), dd];
+}
+
+// Quali numeri il pannello mostrava l'ultima volta, e per quale step.
+//
+// Fuori dal pannello perche' il pannello non sopravvive: apriDettaglio lo
+// svuota con replaceChildren a ogni apertura, e cio' che deve durare piu' di
+// una passata non puo' stare dentro cio' che quella passata distrugge.
+let metricheMostrate = { numero: null, valori: new Map() };
+
+// Il marchio del cambio sui numeri, gemello di quello sulle righe della colonna
+// e per lo stesso motivo: quando una corsa finisce, il pannello dello step
+// aperto si riscrive da se' -- nessuno lo ha chiesto in quel momento -- e un
+// valore sostituito in silenzio e' indistinguibile da quello di prima.
+//
+// Tre condizioni, e tolta una qualsiasi il marchio dichiara un evento che non
+// e' successo:
+//
+//   - lo stesso step. Aprendone un altro a cambiare e' il soggetto, non la
+//     misura: accendere tutto direbbe che sono cambiati numeri che sono solo
+//     stati guardati per la prima volta.
+//   - un valore gia' visto. Una metrica che compare adesso -- lo step che gira
+//     la prima volta -- non e' cambiata, e' nata.
+//   - un valore diverso. Riaprire lo stesso pannello due volte non cambia
+//     niente, e riaprirlo e' cio' che si fa piu' spesso.
+//
+// Nessuna coda da pulire: le righe marcate le butta via il replaceChildren
+// dell'apertura seguente, ed e' il rinascere del `dd` a far ripartire
+// l'animazione la volta dopo.
+function marcaLeMetricheCambiate(numero, righe) {
+  const valori = new Map();
+  // A coppie perche' righeDellaMetrica torna [dt, dd] appiattite: l'etichetta
+  // e' la chiave, e per una metrica annidata porta gia' dentro il percorso.
+  for (let i = 0; i + 1 < righe.length; i += 2) {
+    const nome = righe[i].textContent;
+    const dd = righe[i + 1];
+    const prima = numero === metricheMostrate.numero ? metricheMostrate.valori.get(nome) : undefined;
+    if (prima !== undefined && prima !== dd.textContent) dd.dataset.cambiato = "";
+    valori.set(nome, dd.textContent);
+  }
+  metricheMostrate = { numero, valori };
+  return righe;
 }
 
 // Solo qui dentro l'`Array.isArray`: dopo la guardia di `annidata`, `typeof
@@ -4283,6 +4639,10 @@ function righeDellaMetrica(nome, valore) {
 // intende; il typeof lasciava credere che coprisse anche i dizionari.
 function valoreDellaMetrica(valore) {
   if (Array.isArray(valore)) return JSON.stringify(valore);
+  // `String(true)` dava «true» in un'interfaccia dichiarata italiana, accanto a
+  // etichette italiane. Prima dei numeri perche' in JavaScript un booleano non
+  // e' un numero ma ci somiglia in troppi controlli scritti in fretta.
+  if (typeof valore === "boolean") return valore ? "sì" : "no";
   if (typeof valore !== "number") return String(valore);
   // Gli interi NON si arrotondano: sono conteggi, e un conteggio arrotondato e'
   // un conteggio sbagliato. Misurato a schermo il 24/08/2026 sulla corsa

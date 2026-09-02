@@ -170,6 +170,28 @@
          l'immagine anche la didascalia. -->
     <div id="viewport" class="viewport">
       <p class="conteggi" id="conteggi" aria-live="polite"></p>
+      <!-- La chiave della scala colore. Nasce nascosta: app.js la mostra solo
+           dove il colore porta una misura, cioe' il campo dello step 13 e lo
+           scarto dello step 7. Sulla nuvola grigia e sulla superficie grigia
+           non c'e' nessuna scala da leggere, e una barra ferma sotto un pezzo
+           monocromo direbbe che quel grigio significa qualcosa.
+
+           I due estremi non stanno nel markup: li scrive app.js dai numeri
+           della stessa scala che colora i vertici. Scritti qui sarebbero
+           numeri che nessuna misura sostiene, come min/max/step del cursore
+           del taglio, e per la stessa ragione.
+
+           aria-hidden: la didascalia sotto la vista porta gia' il taglio, il
+           massimo e l'unita' per esteso, e finisce anche nell'aria-label della
+           tela. Due regioni che dicono la stessa cosa la fanno dire due volte
+           a chi ascolta -- e' la ragione per cui #conteggi non e' aria-live e
+           la didascalia non lo e' a sua volta. Qui il canale non e' il testo:
+           e' il colore, che uno screen reader non legge comunque. -->
+      <div class="scala" id="scala" hidden aria-hidden="true">
+        <span class="scala-estremo" id="scala-minimo"></span>
+        <span class="scala-rampa" id="scala-rampa"></span>
+        <span class="scala-estremo" id="scala-massimo"></span>
+      </div>
       <!-- Lo stato vuoto della vista, ed e' l'ultimo che mancava: aprire una
            corsa lasciava al centro dello schermo 856x640 px bianchi, misurati,
            senza una riga che dicesse cosa ci va. Gli altri cinque vuoti di

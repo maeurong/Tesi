@@ -156,7 +156,7 @@ class Material(_ModelloBase):
     )
     young: float = Field(gt=0.0, title="modulo elastico E [MPa]")
     poisson: float = Field(ge=0.0, lt=0.5, title="coefficiente di Poisson")
-    density: float = Field(gt=0.0, title="densità [t/mm^3]")
+    density: float = Field(gt=0.0, title="densità [t/mm³]")
 
 
 class InputConfig(_ModelloBase):
@@ -289,7 +289,7 @@ class RepairConfig(_ModelloBase):
     largest_component_only: bool = Field(default=True, title="tiene il solo pezzo più grande")
     max_hole_area: float | None = Field(
         default=None,
-        title="area oltre cui un'apertura viene segnalata [mm^2]",
+        title="area oltre cui un'apertura viene segnalata [mm²]",
         description=(
             "vale sia per un ciclo di bordo chiuso sia per un cammino aperto"
         ),
@@ -333,7 +333,7 @@ class TetConfig(_ModelloBase):
     max_volume: float | None = Field(
         default=None,
         gt=0.0,
-        title="volume massimo dell'elemento [mm^3]",
+        title="volume massimo dell'elemento [mm³]",
     )
     max_steiner_points: int = Field(
         default=-1,
@@ -528,7 +528,7 @@ class AnalysisConfig(_ModelloBase):
     gravity: float = Field(
         default=GRAVITY_MM_S2,
         gt=0.0,
-        title="accelerazione di gravità [mm/s^2]",
+        title="accelerazione di gravità [mm/s²]",
     )
     fixed_nset: NomeSetDiFaccia = Field(default="BASE", title="set di nodi incastrati")
     step_name: NomeSet = Field(default="GRAVITA", title="nome del passo di carico")
@@ -933,10 +933,10 @@ class WallConfig(_ModelloBase):
     volume_atteso: float | None = Field(
         default=None,
         gt=0.0,
-        title="volume complessivo atteso [mm^3], facoltativo",
+        title="volume complessivo atteso [mm³], facoltativo",
         description=(
             "RISCONTRO DICHIARATO, facoltativo: il volume complessivo atteso "
-            "[mm^3], dal disegno se esiste"
+            "[mm³], dal disegno se esiste"
         ),
     )
 
@@ -1682,7 +1682,7 @@ class PipelineConfig(_ModelloBase):
         veniva mandato a guardare uno step che nel pannello poteva gia' essere
         verde. Il messaggio nomina il pannello e non i campi YAML per la stessa
         ragione: `young` e `density` nell'interfaccia non esistono, si chiamano
-        «modulo elastico E [MPa]» e «densita [t/mm^3]». Il nome del campo resta
+        «modulo elastico E [MPa]» e «densita [t/mm³]». Il nome del campo resta
         pero' nella coda, perche' chi arriva qui da `meshrec run` un pannello
         non ce l'ha e deve sapere dove scrivere.
         """

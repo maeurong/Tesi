@@ -67,7 +67,7 @@ def _build_parser() -> argparse.ArgumentParser:
     init_command.add_argument(
         "--poisson", type=float, required=True, help="coefficiente di Poisson"
     )
-    init_command.add_argument("--densita", type=float, required=True, help="densità [t/mm^3]")
+    init_command.add_argument("--densita", type=float, required=True, help="densità [t/mm³]")
 
     sweep_command = commands.add_parser("sweep", help="esegue una griglia di candidati")
     sweep_command.add_argument("experiment", type=Path)

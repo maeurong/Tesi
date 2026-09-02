@@ -65,6 +65,14 @@ class Worker:
         self.etichetta: str | None = None
         self.annullato = False
         self.avviato: float | None = None
+        # Quanto e' durata l'ultima corsa finita. `da_secondi()` smette di
+        # rispondere a processo morto -- e' costruita per l'attesa, e a corsa
+        # ferma non c'e' nessuna attesa in corso -- quindi il tempo che
+        # l'utente ha appena passato ad aspettare si perdeva nello stesso
+        # istante in cui diventava un fatto compiuto. Su un intervallo era
+        # l'unica misura possibile: `secondi` nel file di stato e' il tempo del
+        # singolo step, e su una corsa da 1 a 11 non descrive niente.
+        self.durata: float | None = None
 
     def is_running(self) -> bool:
         return self._processo is not None and self._processo.poll() is None
@@ -95,6 +103,7 @@ class Worker:
             self._righe.clear()
         self.exit_code = None
         self.annullato = False
+        self.durata = None
         self.step = from_step
         self.a_step = to_step
         self.etichetta = None
@@ -129,6 +138,7 @@ class Worker:
             self._righe.clear()
         self.exit_code = None
         self.annullato = False
+        self.durata = None
         self.step = None
         # Un comando fuori pipeline (il prior, un modello parametrico) non ha
         # capi: azzerato qui perche' altrimenti resterebbe quello della corsa
@@ -167,6 +177,15 @@ class Worker:
                     self._righe.append(riga.rstrip("\n"))
         finally:
             processo.wait()
+            # La durata PRIMA del codice di uscita, e non e' un ordine
+            # indifferente: `exit_code` e' il fatto che dichiara la corsa
+            # finita, il carico SSE lo spedisce nella stessa istantanea di
+            # `durata`, e un browser che leggesse fra le due assegnazioni
+            # vedrebbe il fronte di discesa senza il numero -- una volta su
+            # quante, non si sa, ed e' esattamente il genere di guasto che non
+            # si riproduce quando lo si cerca.
+            if self.avviato is not None:
+                self.durata = time.monotonic() - self.avviato
             self.exit_code = processo.returncode
 
     def cancel(self) -> bool:

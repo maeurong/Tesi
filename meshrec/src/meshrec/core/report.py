@@ -1265,7 +1265,7 @@ def confronta(cartelle: list[Path]) -> dict[str, object]:
 
 
 _ETICHETTE_GRANDEZZE: tuple[tuple[str, str], ...] = (
-    ("volume", "volume [mm^3]"),
+    ("volume", "volume [mm³]"),
     ("massa", "massa [t]"),
     ("scostamento_nuvola", "scostamento dalla nuvola [mm]"),
     ("gradi_di_liberta", "nodi e tipo di elemento"),
@@ -1280,8 +1280,13 @@ l'appendice.
 L'unita' sta dentro l'etichetta, come in
 ("thickness_error", "errore di spessore [mm]"): in un'appendice cartacea una
 colonna «massa» con dentro 0,25 non dice se sono tonnellate o chilogrammi.
-mm^3 e non mm3 e' la grafia gia' in casa -- config.py scrive «densita [t/mm^3]»
-e app.js la mostra cosi'.
+mm³ e non mm3 ne' mm^3: l'esponente si scrive in apice, ed e' una grafia sola
+per tutto il prodotto -- config.py la usa nei titoli che l'interfaccia mostra,
+app.js nelle etichette delle metriche e questa tabella qui. Il caret era la
+grafia di prima e conviveva con l'apice in tre punti, fra cui «pressione
+[N/mm²]» di config.py: due modi di scrivere la stessa unita' a due centimetri
+l'uno dall'altro nella stessa colonna. Il banco che lo tiene fermo sta in
+test_guardie_e_nomi.
 
 `gradi_di_liberta` **non** si intitola «gradi di liberta'»: la chiave e' quella,
 ma confronta() ci mette {"nodi", "elemento"} e i gradi di liberta' sarebbero

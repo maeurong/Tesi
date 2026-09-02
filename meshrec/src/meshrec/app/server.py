@@ -338,6 +338,66 @@ def _ingresso_del_ritaglio(sorgente: Path, _mtime_ns: int, vicini: int, scarto: 
     return puliti
 
 
+# Quale superficie e quale nuvola, per lo scarto per vertice dello step 7.
+#
+# Non scelti qui: sono la coppia che `pipeline.run` misura a quello step. La
+# superficie e' quella riparata dello step 6 -- `pipeline._RESUME_MESH[7]` vale
+# 6, e lo step 7 non scrive un artefatto proprio -- e la nuvola e' quella
+# segmentata dello step 2, che `run()` carica in `source_cloud` e passa a
+# `quality.geometric_error`. Una coppia diversa dipingerebbe un campo che
+# nessuna metrica sostiene: il banco che tiene ferma la corrispondenza legge
+# `_RESUME_MESH` invece di ricopiarne il numero.
+_SCARTO_MESH = 6
+_SCARTO_NUVOLA = 2
+
+
+@lru_cache(maxsize=1)
+def _scarto_dei_vertici(
+    mesh: Path, _mesh_mtime_ns: int, nuvola: Path, _nuvola_mtime_ns: int
+) -> np.ndarray:
+    """La distanza di ogni vertice della superficie dalla nuvola segmentata.
+
+    E' la stessa funzione che lo step 7 usa per il verso mesh_to_cloud del
+    proprio `geometric_error`, sugli stessi due file: qui non c'e' una seconda
+    misura da tenere allineata, c'e' la stessa misura prima che venga ridotta a
+    quattro scalari.
+
+    In memoria e non nel file di stato, ed e' una scelta di perimetro: la mappa
+    non e' un artefatto della corsa. Scriverla vorrebbe dire allargare lo schema
+    degli artefatti, l'invalidazione a valle e le impronte del registro per un
+    campo che si guarda e non si cita. Le due mtime stanno nella chiave e la
+    fanno scadere quando uno dei due file viene riscritto, come in
+    `_ingresso_del_ritaglio`.
+
+    Il costo e' l'albero: su lab_crop la nuvola segmentata ha 4.229.538 punti.
+    Si paga una volta per coppia di file, contro i 34 s dello step che l'ha
+    prodotta. In memoria resta il solo vettore degli scarti -- uno float per
+    vertice -- perche' l'albero e' locale e muore col ritorno: la voce in cache
+    e' piccola, e non e' ovvio guardando la firma.
+
+    ponytail: nessun lucchetto. Due richieste identiche in volo insieme
+    costruiscono due alberi, perche' `lru_cache` scrive la voce solo a conto
+    finito. Dalla parte del browser il bottone si spegne mentre la misura gira,
+    quindi il caso resta quello delle due schede aperte sulla stessa corsa --
+    utente singolo, per dichiarazione di prodotto. Se dovesse capitare davvero:
+    un `threading.Lock` attorno alla chiamata, come quello che `Worker` tiene
+    per le righe del sottoprocesso.
+    """
+    import open3d as o3d
+
+    triangolare = o3d.io.read_triangle_mesh(str(mesh))
+    vertici = np.asarray(triangolare.vertices)
+    # La nuvola vuota la rifiuta gia' `quality.vertex_deviation`, con la propria
+    # ragione. Questa e' l'altra meta': una mesh senza vertici darebbe un campo
+    # vuoto, cioe' un 200 con zero valori che il browser leggerebbe come «campo
+    # e superficie non corrispondono» invece che come «non c'e' niente da
+    # misurare».
+    if len(vertici) == 0:
+        raise ValueError(f"{mesh.name} non ha vertici da cui misurare lo scarto")
+    punti, _normali = io.read_cloud(nuvola)
+    return quality.vertex_deviation(vertici, punti)
+
+
 # Il nome di una corsa diventa il nome di una cartella dentro `runs/`. Il
 # vincolo non e' cosmetico: senza, un nome come `../fuori` scriverebbe fuori
 # dalla radice, e uno con una barra creerebbe un annidamento che l'elenco non
@@ -2310,6 +2370,50 @@ def create_app(
             headers={"X-Vertices": str(len(vertici)), "X-Triangles": str(len(facce))},
         )
 
+    @app.get("/api/scarto")
+    def scarto() -> Response:
+        """Lo scarto della superficie dalla nuvola, un Float32 per vertice.
+
+        Corrisponde vertice per vertice a `/api/mesh/6`, e per la stessa
+        garanzia di `/api/campo`: i due gestori leggono lo stesso file, non si
+        accordano fra loro.
+
+        **Limite dichiarato**, ed e' quello di `quality.vertex_deviation`:
+        campiona i SOLI vertici, nel verso mesh_to_cloud. Dove la superficie
+        sbaglia fra un vertice e l'altro questa mappa non lo vede, e non e'
+        cloud_to_mesh -- il verso in cui i campioni sono i punti della nuvola e
+        il numero e' piu' grande. E' una mappa diagnostica: dice dove guardare,
+        non quanto vale la fedelta'. La didascalia lo porta a video, perche'
+        l'immagine finisce in appendice staccata da questa docstring.
+        """
+        cfg = corrente()
+        radice = Path(cfg.run.out_dir)
+        mesh = radice / pipeline.ARTIFACTS[_SCARTO_MESH]
+        nuvola = radice / pipeline.ARTIFACTS[_SCARTO_NUVOLA]
+        for percorso, numero in ((mesh, _SCARTO_MESH), (nuvola, _SCARTO_NUVOLA)):
+            if not percorso.exists():
+                raise FileNotFoundError(
+                    f"lo step {numero} non ha ancora prodotto {percorso.name}: lo scarto "
+                    "si misura fra la superficie riparata e la nuvola segmentata"
+                )
+        scarti = _scarto_dei_vertici(
+            mesh, mesh.stat().st_mtime_ns, nuvola, nuvola.stat().st_mtime_ns
+        )
+        # Il massimo viaggia in intestazione e il taglio lo calcola il browser,
+        # come per /api/campo: il conteggio dei vertici sopra la soglia esiste
+        # in un posto solo, `scalaDelCampo`, e un secondo che lo ricontasse qui
+        # potrebbe dire un numero diverso dallo stesso dato.
+        #
+        # Intestazione VUOTA e non uno zero quando nessun valore e' finito: il
+        # browser la legge come «non disponibile», e uno zero li' si leggerebbe
+        # «scarto nullo», cioe' una ricostruzione perfetta.
+        finiti = scarti[np.isfinite(scarti)]
+        return Response(
+            content=viewport.to_float32(scarti),
+            media_type="application/octet-stream",
+            headers={"X-Max": str(float(finiti.max())) if len(finiti) else ""},
+        )
+
     @app.get("/api/campo/{caso}/{grandezza}")
     def campo(caso: str, grandezza: str) -> Response:
         """Un campo dello step 13 (`solve.risolvi`), ristretto ai vertici del
@@ -2401,6 +2505,7 @@ def create_app(
                     "exit_code": lavoratore.exit_code,
                     "annullato": lavoratore.annullato,
                     "da_secondi": lavoratore.da_secondi(),
+                    "durata_secondi": lavoratore.durata,
                     "steps": steps.run_state(cfg.run.out_dir, cfg) if cfg else [],
                 }
                 yield f"event: stato\ndata: {json.dumps(stato, default=str)}\n\n"

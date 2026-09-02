@@ -152,6 +152,20 @@ def _costante(nome: str) -> str:
     return trovato.group(0)
 
 
+def _costante_viewport(nome: str) -> str:
+    """La riga di una costante di `viewport.js`, presa dal sorgente vero.
+
+    Gemella di `_costante`, che legge `app.js`, e per la stessa ragione: una
+    copia scritta nel banco lascerebbe che banco e modulo divergano in silenzio.
+    Qui pesa il doppio -- la costante e' la rampa dei colori, e un banco che
+    provasse una rampa diversa da quella dipinta direbbe verde su una legenda
+    sbagliata.
+    """
+    trovato = re.search(rf"^export const {nome} = .*;$", _modulo_viewport(), flags=re.MULTILINE)
+    assert trovato is not None, f"nessuna costante {nome} in viewport.js"
+    return trovato.group(0)
+
+
 def _modulo_viewport() -> str:
     """Il sorgente di `viewport.js`. Gemella di `_modulo()`, che legge `app.js`.
 
@@ -196,6 +210,10 @@ class Elemento {
     this.figli = [];
     this.className = "";
     this.dataset = {};
+    // Il modulo ci scrive il gradiente della chiave della scala. Un oggetto
+    // nudo basta: qui non si prova il rendering, si prova che il valore scritto
+    // venga dalla costante che colora i vertici e non da una seconda copia.
+    this.style = {};
     this.attributi = {};
     this.testo = "";
     this.scrollTop = 0;
@@ -213,7 +231,14 @@ class Elemento {
   // Il gestore vero, eseguito: e' cio' che mancava al banco. `await` perche' il
   // gestore del campo e' asincrono, e senza aspettarlo il controllo guarderebbe
   // lo stato di prima della risposta.
-  async scatena(tipo) { for (const gestore of this.gestori[tipo] ?? []) await gestore(); }
+  async scatena(tipo) {
+    // Un comando spento non riceve il clic, e il banco lo deve modellare: nel
+    // browser il gesto su un `disabled` non arriva a nessun gestore. Senza
+    // questa riga il banco dichiarava verde un doppio clic che il browser non
+    // consegna, e rosso un codice che si difende proprio spegnendo il bottone.
+    if (this.disabled && tipo === "click") return;
+    for (const gestore of this.gestori[tipo] ?? []) await gestore();
+  }
   get children() { return this.figli; }
   get childElementCount() { return this.figli.length; }
   get firstElementChild() { return this.figli[0] ?? null; }
@@ -2684,6 +2709,7 @@ globalThis.fetch = async (percorso) => {
 const STEP_CON_RITAGLIO = 2;
 const STEP_CON_CAMPO = 13;
 const STEP_CON_DECK = 11;
+const STEP_CON_SCARTO = 7;
 function pannelloCampo() { return document.createElement("fieldset"); }
 function pannelloDeck() { return document.createElement("fieldset"); }
 const SCHEMA_BUONO = { "1": { blocchi: ["input"], campi: { input: { path: { description: "percorso" } } } } };
@@ -3690,7 +3716,7 @@ assert.ok(!coppie.some(([, v]) => v.includes("{")), "una metrica e' rimasta in J
 // Uno scalare resta una riga sola, e un dizionario vuoto non ne lascia
 // nessuna: «{}» a video non e' una misura.
 assert.deepEqual(
-  righeDellaMetrica("watertight", true).map((n) => n.textContent), ["watertight", "true"],
+  righeDellaMetrica("watertight", true).map((n) => n.textContent), ["watertight", "sì"],
 );
 assert.deepEqual(righeDellaMetrica("niente", {}), []);
 // `null` e' un valore, non un dizionario: _distribution lo restituisce quando
@@ -4378,7 +4404,7 @@ def test_la_didascalia_di_una_forma_modale_non_porta_millimetri(tmp_path):
     funzione viene eseguita e il controllo guarda il testo che esce.
     """
     uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
-        + _funzioni_viewport("numeroDelCampo", "didascaliaDelCampo") + """
+        + _funzioni_viewport("numeroDelCampo", "didascaliaDelCampo", "unitaDelCampo") + """
 const testo = didascaliaDelCampo({ caso: "Modo 1", modale: true, frequenza: 12.34 });
 assert.ok(!/\\b(mm|MPa)\\b/.test(testo), `una forma modale non ha unita' fisiche: ${testo}`);
 assert.ok(testo.includes("12,34"), testo);
@@ -4402,13 +4428,232 @@ def test_la_didascalia_dello_spostamento_non_promette_un_amplificazione(tmp_path
     discussione: la didascalia dice solo cio' che la vista fa davvero.
     """
     uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
-        + _funzioni_viewport("numeroDelCampo", "didascaliaDelCampo") + """
+        + _funzioni_viewport("numeroDelCampo", "didascaliaDelCampo", "unitaDelCampo") + """
 const testo = didascaliaDelCampo({
   caso: "GRAVITA", grandezza: "U", massimo: 0.0367, taglio: 0.0365, sopraTaglio: 109,
 });
 assert.ok(!/amplific/i.test(testo), `la vista non deforma nulla: ${testo}`);
 assert.ok(testo.includes("0,0367"), testo);
 assert.ok(testo.includes("mm"), testo);
+console.log("ok");
+""")
+    assert uscita.strip() == "ok"
+
+
+def test_ogni_metrica_delle_due_tabelle_di_qualita_ha_la_sua_etichetta():
+    """`core/report.py` porta la regola scritta -- «una chiave non si stampa mai,
+    si stampa la sua etichetta», con l'unita' dentro l'etichetta perche' un
+    numero senza unita' non si ricostruisce -- e il pannello dell'interfaccia
+    era l'unica superficie a non rispettarla. Proprio quella che si proietta in
+    discussione: `geometric_error · cloud_to_mesh · mean` accanto a `4,41`,
+    senza dire se sono millimetri.
+
+    Il controllo non legge un elenco scritto a mano: **esegue** le funzioni che
+    le metriche le producono e appiattisce quello che tornano, esattamente come
+    fa `righeDellaMetrica`. Una grandezza nuova aggiunta a `surface_metrics` o a
+    `volume_metrics` -- o una chiave nuova che PyMeshLab cominci a restituire
+    dentro `geometric_error` -- fa diventare rosso questo banco invece di
+    comparire a video come chiave nuda, che e' il modo silenzioso di sbagliare.
+
+    Le chiavi senza etichetta non spariscono e non prendono un nome inventato:
+    `righeDellaMetrica` stampa la chiave. Questo banco esiste perche' quel
+    ripiego resti un ripiego e non diventi lo stato normale delle due tabelle
+    su cui si decide se una configurazione va tenuta.
+    """
+    import numpy as np
+    import open3d as o3d
+
+    from meshrec.core import quality
+
+    def appiattite(dizionario: dict, prefisso: str = "") -> list[str]:
+        chiavi = []
+        for nome, valore in dizionario.items():
+            intero = f"{prefisso}{nome}"
+            if isinstance(valore, dict) and valore:
+                chiavi += appiattite(valore, f"{intero} · ")
+            else:
+                chiavi.append(intero)
+        return chiavi
+
+    testo = _modulo()
+    regioni = {}
+    for step in ("07_surface_quality", "10_volume_quality"):
+        apertura = testo.index(f'"{step}": {{')
+        regioni[step] = testo[apertura:testo.index("\n  },", apertura)]
+
+    cubo = o3d.geometry.TriangleMesh.create_box(1.0, 1.0, 1.0)
+    vertici = np.asarray(cubo.vertices)
+    facce = np.asarray(cubo.triangles)
+    # La nuvola sono i vertici stessi: lo scarto vale zero, e non importa --
+    # qui si guardano le CHIAVI che il dizionario porta, non i numeri.
+    misure7 = quality.surface_metrics(vertici, facce)
+    misure7["geometric_error"] = quality.geometric_error(vertici, facce, vertici)
+
+    nodi = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+    misure10 = quality.volume_metrics(nodi, np.array([[0, 1, 2, 3]]), 2.0)
+
+    for step, misure in (("07_surface_quality", misure7), ("10_volume_quality", misure10)):
+        mancanti = [c for c in appiattite(misure) if f'"{c}":' not in regioni[step]]
+        assert mancanti == [], (
+            f"{step}: queste grandezze finiscono a video come chiave nuda, "
+            f"senza nome e senza unità: {mancanti}"
+        )
+
+
+def test_un_booleano_non_si_stampa_in_inglese(tmp_path):
+    """`String(true)` dava «true» sotto un'etichetta italiana, in
+    un'interfaccia la cui lingua e' un impegno dichiarato in PRODUCT.md.
+
+    Provato eseguendo `valoreDellaMetrica`: la stessa correzione scritta come
+    `if (valore === true)` lascerebbe `false` in inglese, e leggere il sorgente
+    non lo mostrerebbe.
+    """
+    _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
+        + _funzioni("valoreDellaMetrica") + """
+assert.equal(valoreDellaMetrica(true), "sì");
+assert.equal(valoreDellaMetrica(false), "no");
+// I numeri non ci passano in mezzo: 0 e 1 non sono «no» e «sì», sono conteggi.
+assert.equal(valoreDellaMetrica(0), "0");
+assert.equal(valoreDellaMetrica(1), "1");
+// E le stringhe restano quello che sono: il server ne manda gia' di italiane
+// («non richiesto»), e tradurle qui vorrebbe dire una seconda tabella.
+assert.equal(valoreDellaMetrica("crop"), "crop");
+""")
+
+
+def test_la_chiave_della_scala_vive_solo_dove_il_colore_e_una_misura(tmp_path):
+    """Una rampa di colore senza chiave non e' una misura: e' una macchia. Le
+    immagini di questa vista finiscono in appendice a un documento stampato,
+    staccate da tutto il resto, e la didascalia da sola dice i numeri ma non
+    dice quale colore vale quale numero.
+
+    Il contrario e' peggio, ed e' il motivo per cui questo banco esiste: una
+    barra rimasta accesa sotto una nuvola grigia dichiara che quel grigio vale
+    qualcosa. Per questo la chiave si spegne in `apriGeometria`, cioe' in testa
+    a OGNI strada che disegna, e la riaccendono solo le due che colorano per
+    misura -- come `togliFantasma` sta in testa a `svuota()` e per la stessa
+    ragione.
+
+    Il terzo caso e' il campo che non ha una scala scrivibile: la didascalia
+    dice gia' «scala non disponibile», e una barra colorata sotto quella frase
+    la contraddirebbe.
+
+    Il gradiente viene dalla costante che colora i vertici, non da una copia:
+    e' l'unico modo perche' la chiave non dichiari una scala che il pezzo non ha.
+    """
+    _esegui(tmp_path, _DOM + _costante_viewport("RAMPA") + "\n"
+        + _funzioni_viewport("numeroDelCampo")
+        + _funzioni("scalaDellaVista", "mostraLaScala", "apriGeometria") + """
+let ultimaGeometria = 0;
+const chiave = document.getElementById("scala");
+const massimo = document.getElementById("scala-massimo");
+
+mostraLaScala(12.5, "mm");
+assert.equal(chiave.hidden, false, "la chiave non si accende dove il colore misura");
+assert.equal(massimo.textContent, "12,5 mm", "la chiave non porta il taglio con la sua unità");
+assert.equal(document.getElementById("scala-minimo").textContent, "0",
+  "l'estremo chiaro non e' lo zero: frazioneDelCampo divide per il taglio e blocca sotto zero");
+const dipinto = document.getElementById("scala-rampa").style.background;
+assert.ok(dipinto.includes(RAMPA.chiaro) && dipinto.includes(RAMPA.scuro),
+  `la chiave dichiara una rampa diversa da quella dipinta: ${dipinto}`);
+
+// Una strada qualunque che disegna: la chiave se ne va con la vista di prima.
+apriGeometria();
+assert.equal(chiave.hidden, true,
+  "la chiave sopravvive al disegno seguente: una barra sotto una nuvola grigia "
+  + "dichiara che quel grigio vale qualcosa");
+
+// Un campo senza scala scrivibile: resta spenta, non mostra due trattini.
+mostraLaScala(NaN, "mm");
+assert.equal(chiave.hidden, true, "senza un taglio scrivibile la chiave si accende comunque");
+
+// E l'unita' segue la grandezza, non e' sempre mm.
+mostraLaScala(0.2321, "MPa");
+assert.ok(massimo.textContent.endsWith(" MPa"), massimo.textContent);
+""")
+
+
+def test_il_modificatore_sceglie_un_asse_del_mondo_e_uno_solo(tmp_path):
+    """I tre modificatori vincolano il trascinamento a un asse: alt attorno a z,
+    ctrl attorno a x, shift attorno a y. Senza modificatore resta l'orbita
+    libera di sempre, e `null` e' proprio il segnale che la sceglie.
+
+    Due cose che leggere il sorgente non mostra:
+
+    1. **Ogni asse e' un versore, non un asse a caso.** Un vettore sbagliato non
+       solleva niente: il modello gira attorno a una direzione obliqua e il
+       gesto smette di essere ripetibile, che e' l'unica cosa per cui il vincolo
+       esiste.
+    2. **Piu' modificatori insieme hanno un esito dichiarato.** Le combinazioni
+       si premono per sbaglio; cadere nell'orbita libera proprio mentre si sta
+       cercando di vincolare il gesto sarebbe il contrario del vincolo. La
+       priorita' e' alt, ctrl, shift -- non e' piu' giusta di un'altra, ma e'
+       una, ed e' provata qui.
+    """
+    _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
+        + _funzioni_viewport("asseDelGesto") + """
+const nudo = { altKey: false, ctrlKey: false, shiftKey: false };
+assert.equal(asseDelGesto(nudo), null, "senza modificatori l'orbita libera sparisce");
+
+assert.deepEqual(asseDelGesto({ ...nudo, altKey: true }), [0, 0, 1], "alt non gira attorno a z");
+assert.deepEqual(asseDelGesto({ ...nudo, ctrlKey: true }), [1, 0, 0], "ctrl non gira attorno a x");
+assert.deepEqual(asseDelGesto({ ...nudo, shiftKey: true }), [0, 1, 0], "shift non gira attorno a y");
+
+// Versori: una componente a 1, le altre a zero. Un vettore non normalizzato
+// gira lo stesso, e di un angolo diverso da quello del gesto.
+for (const evento of [{ altKey: true }, { ctrlKey: true }, { shiftKey: true }]) {
+  const asse = asseDelGesto({ ...nudo, ...evento });
+  assert.equal(asse.filter((c) => c === 1).length, 1, `non e' un versore: ${asse}`);
+  assert.equal(asse.filter((c) => c === 0).length, 2, `non e' un versore: ${asse}`);
+}
+
+// Due insieme: uno vince, e vince sempre lo stesso.
+assert.deepEqual(asseDelGesto({ ...nudo, altKey: true, ctrlKey: true }), [0, 0, 1]);
+assert.deepEqual(asseDelGesto({ ...nudo, ctrlKey: true, shiftKey: true }), [1, 0, 0]);
+assert.deepEqual(asseDelGesto({ ...nudo, altKey: true, shiftKey: true }), [0, 0, 1]);
+// E tutti e tre non cade nell'orbita libera.
+assert.notEqual(asseDelGesto({ altKey: true, ctrlKey: true, shiftKey: true }), null);
+""")
+
+
+def test_la_didascalia_dello_scarto_dichiara_sempre_il_proprio_limite(tmp_path):
+    """La mappa dello scarto campiona i SOLI vertici, nel verso dalla superficie
+    alla nuvola: dove la ricostruzione sbaglia FRA un vertice e l'altro non lo
+    vede, e non e' cloud_to_mesh, che sulla stessa corsa da' un numero piu'
+    grande (4,897 mm contro 3,898 su lab_crop).
+
+    Il limite sta nella didascalia e non solo nella docstring del server perche'
+    l'immagine finisce in appendice a un documento stampato, staccata dalla
+    tabella delle metriche: li' la frase e' l'unica cosa che dice che cosa e'
+    quel colore. Una mappa diagnostica presentata senza il proprio verso si
+    legge come una misura di fedelta', ed e' esattamente il numero mostrato
+    senza il controllo che lo smentisce.
+
+    Vale su tutti e tre i rami, quello muto compreso: e' quando la scala non si
+    puo' scrivere che la frase resta sola a dire che cosa si sta guardando.
+    """
+    uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
+        + _funzioni_viewport("numeroDelCampo", "didascaliaDelloScarto") + """
+const pieno = didascaliaDelloScarto({ massimo: 72.2, taglio: 12.5, sopraTaglio: 148 });
+assert.ok(/sui soli vertici/.test(pieno), `il limite non c'e': ${pieno}`);
+assert.ok(/dalla superficie alla nuvola/.test(pieno), `il verso non c'e': ${pieno}`);
+assert.ok(pieno.includes("72,2") && pieno.includes("12,5"), pieno);
+assert.ok(pieno.includes("148 vertici sopra"), pieno);
+// Il massimo sta oltre il taglio della scala: chi guarda la macchia piu' scura
+// non sta guardando 72,2, e la didascalia lo dice.
+assert.ok(pieno.includes("fuori scala"), pieno);
+
+// Un campo costante: massimo e taglio coincidono, e "fuori scala" sarebbe falso.
+const costante = didascaliaDelloScarto({ massimo: 3, taglio: 3, sopraTaglio: 0 });
+assert.ok(!costante.includes("fuori scala"), costante);
+assert.ok(/sui soli vertici/.test(costante), costante);
+
+// Tutti i valori non finiti: nessuna scala scrivibile, e nessuno zero al posto
+// suo -- uno zero qui si leggerebbe "ricostruzione esatta".
+const muto = didascaliaDelloScarto({ massimo: NaN, taglio: 0, sopraTaglio: 0 });
+assert.ok(muto.includes("massimo non disponibile"), muto);
+assert.ok(!/\bmassimo 0\b/.test(muto), muto);
+assert.ok(/sui soli vertici/.test(muto), `il limite sparisce sul ramo muto: ${muto}`);
 console.log("ok");
 """)
     assert uscita.strip() == "ok"
@@ -4447,7 +4692,7 @@ _TESTI_CHE_FINISCONO_A_VIDEO = [
 def _banco_dei_testi() -> str:
     return (
         "import assert from 'node:assert/strict';\n"
-        + _funzioni_viewport("numeroDelCampo", "didascaliaDelCampo")
+        + _funzioni_viewport("numeroDelCampo", "didascaliaDelCampo", "unitaDelCampo")
         + "\n"
     )
 
@@ -4520,7 +4765,7 @@ def test_la_scala_del_campo_su_tutti_zero_non_e_una_barra_vuota(tmp_path):
     """Tutti i valori a zero: la scala resta un numero leggibile (0), non NaN
     ne' un buco silenzioso nella legenda, e nessun nodo e' sopra il taglio."""
     uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
-        + _funzioni_viewport("scalaDelCampo", "numeroDelCampo", "didascaliaDelCampo") + """
+        + _funzioni_viewport("scalaDelCampo", "numeroDelCampo", "didascaliaDelCampo", "unitaDelCampo") + """
 const zeri = new Float32Array(500);
 const { taglio, sopraTaglio } = scalaDelCampo(zeri);
 assert.equal(taglio, 0);
@@ -4543,7 +4788,7 @@ def test_la_scala_del_campo_su_un_campo_vuoto_non_incanta_la_legenda(tmp_path):
     il contorno non ha nodi). Nessun crash, nessun taglio NaN, legenda che si
     legge."""
     uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
-        + _funzioni_viewport("scalaDelCampo", "numeroDelCampo", "didascaliaDelCampo") + """
+        + _funzioni_viewport("scalaDelCampo", "numeroDelCampo", "didascaliaDelCampo", "unitaDelCampo") + """
 const { taglio, sopraTaglio } = scalaDelCampo(new Float32Array(0));
 assert.equal(taglio, 0);
 assert.equal(sopraTaglio, 0);
@@ -4580,7 +4825,7 @@ def test_la_didascalia_di_un_modo_oltre_quelli_calcolati_non_scrive_nan(tmp_path
     scriverebbe silenziosamente "NaN Hz": stesso trattamento degli altri
     ingressi che il campo non puo' onorare, un messaggio dichiarato."""
     uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
-        + _funzioni_viewport("numeroDelCampo", "didascaliaDelCampo") + """
+        + _funzioni_viewport("numeroDelCampo", "didascaliaDelCampo", "unitaDelCampo") + """
 const testo = didascaliaDelCampo({ caso: "Modo 9", modale: true, frequenza: NaN });
 assert.ok(!testo.includes("NaN"), testo);
 assert.ok(testo.includes("frequenza non disponibile"), testo);
@@ -4595,7 +4840,7 @@ def test_la_legenda_del_campo_resta_leggibile_su_costante_e_su_zero(tmp_path):
     massimo, nessun picco da isolare) e un campo tutto a zero non producono una
     legenda muta o con "NaN" scritto dentro."""
     uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
-        + _funzioni_viewport("numeroDelCampo", "didascaliaDelCampo") + """
+        + _funzioni_viewport("numeroDelCampo", "didascaliaDelCampo", "unitaDelCampo") + """
 const costante = didascaliaDelCampo({
   caso: "GRAVITA", grandezza: "VM", massimo: 5.0, taglio: 5.0, sopraTaglio: 0,
 });
@@ -4624,7 +4869,7 @@ def test_la_legenda_di_uno_spostamento_submillimetrico_non_arrotonda_a_zero(tmp_
     passano dallo stesso formato.
     """
     uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
-        + _funzioni_viewport("numeroDelCampo", "didascaliaDelCampo") + """
+        + _funzioni_viewport("numeroDelCampo", "didascaliaDelCampo", "unitaDelCampo") + """
 const conScala = (taglio, nodi, grandezza) => didascaliaDelCampo({
   caso: "GRAVITA", grandezza, massimo: taglio, taglio, sopraTaglio: nodi,
 });
@@ -4678,6 +4923,68 @@ assert.ok(testo.includes("il server e' caduto"),
 """)
 
 
+def test_il_bottone_dello_scarto_non_fa_costruire_due_volte_lo_stesso_albero(tmp_path):
+    """Dall'altra parte di quel clic c'e' un albero costruito sulla nuvola
+    segmentata -- 4.229.538 punti su lab_crop -- e la memoria del server tiene
+    UNA voce, scritta solo a conto finito. Due clic di seguito lo fanno
+    costruire due volte: secondi di attesa e un centinaio di megabyte spesi per
+    un risultato identico, che l'arbitrato butterebbe via comunque.
+
+    E il primo clic deve dire che sta succedendo qualcosa. Senza, su una nuvola
+    vera lo schermo resta identico per qualche secondo, che e' esattamente ciò
+    che un bottone rotto fa vedere. La riga dice l'operazione e non quanto
+    manca: nessuno cronometra un albero prima di costruirlo, ed e' la stessa
+    regola per cui l'attesa di uno step non porta una percentuale.
+
+    Il bottone torna acceso comunque, anche quando la richiesta finisce male:
+    lasciato spento su un errore, l'unica via per riprovare sarebbe riaprire il
+    pannello.
+    """
+    _esegui(tmp_path, _DOM
+        + _funzioni_viewport("numeroDelCampo")
+        + _funzioni("didascaliaDellaVista", "scalaDellaVista", "mostraLaScala", "pannelloScarto")
+        + """
+const STEP_CON_SUPERFICIE = 6;
+// `ultimoStato` lo dichiara gia' _DOM, ed e' proprio la variabile di modulo che
+// il banco deve condividere invece di copiarne una sua.
+ultimoStato = [
+  { numero: 2, artefatto: "02_segmented.ply" },
+  { numero: 6, artefatto: "06_repaired.ply" },
+];
+// Il posto di mostraScartoDelloStep: qui si prova il bottone, non il disegno.
+let corse = 0;
+let sblocca;
+async function mostraScartoDelloStep() {
+  corse += 1;
+  await new Promise((risolvi) => { sblocca = risolvi; });
+  return true;
+}
+
+const pannello = pannelloScarto(0);
+const bottone = pannello.figli[pannello.figli.length - 1];
+assert.equal(bottone.tag, "button", "il pannello non finisce col proprio comando");
+assert.equal(bottone.disabled, undefined, "il bottone nasce spento");
+
+const primo = bottone.scatena("click");
+assert.equal(corse, 1);
+assert.equal(bottone.disabled, true, "il bottone resta premibile mentre la misura gira");
+assert.ok(didascaliaDellaVista().textContent.includes("in corso"),
+  `l'attesa non si dichiara: ${didascaliaDellaVista().textContent}`);
+// La riga dice l'operazione, non quanto manca: una percentuale qui sarebbe
+// inventata.
+assert.ok(!/%|\bmancano\b/.test(didascaliaDellaVista().textContent),
+  "l'attesa fabbrica un avanzamento che nessuno misura");
+
+// Il secondo clic mentre il primo e' in volo.
+await bottone.scatena("click");
+assert.equal(corse, 1, "il doppio clic fa costruire l'albero due volte");
+
+sblocca();
+await primo;
+assert.equal(bottone.disabled, false, "il bottone resta spento dopo la misura");
+""")
+
+
 def _banco_del_campo_dello_step() -> str:
     """`mostraCampoDelloStep`, con `vista` finta e le sue dipendenze vere: la
     stessa arbitrazione (`apriGeometria`/`ultimaGeometria`) gia' provata su
@@ -4686,10 +4993,11 @@ def _banco_del_campo_dello_step() -> str:
     """
     return (
         _DOM
-        + _funzioni_viewport("scalaDelCampo", "numeroDelCampo", "didascaliaDelCampo")
+        + _costante_viewport("RAMPA") + "\n"
+        + _funzioni_viewport("scalaDelCampo", "numeroDelCampo", "didascaliaDelCampo", "unitaDelCampo")
         + _funzioni(
             "didascaliaDellaVista", "ragioneDelRifiuto", "serverMuto", "apriGeometria", "superata",
-            "mostraCampoDelloStep",
+            "scalaDellaVista", "mostraLaScala", "mostraCampoDelloStep",
         )
         + """
 const STEP_CON_CAMPO = 13;
@@ -5211,6 +5519,87 @@ assert.deepEqual(marchiati(), [1], "il secondo cambio sulla stessa riga non si v
     )
 
 
+def test_il_marchio_sui_numeri_sta_solo_sulle_metriche_che_sono_cambiate(tmp_path):
+    """Gemello del banco qui sopra, sull'altra meta' dello schermo.
+
+    Il fatto che lo rende necessario: quando una corsa finisce, `apriDettaglio`
+    riscrive da sola le metriche dello step aperto -- nessuno le ha chieste in
+    quel momento -- e un valore sostituito in silenzio e' a video identico a
+    quello di prima.
+
+    I tre modi di sbagliarlo sono i tre modi di dichiarare un evento che non e'
+    successo, e nessuno si vede guardando il pannello fermo:
+
+    1. **La prima apertura.** Confrontato con niente, ogni numero risulta
+       cambiato e il pannello si accende tutto appena lo si apre.
+    2. **La riapertura.** Riaprire lo stesso step e' il gesto piu' frequente
+       della colonna, e li' non e' cambiato niente.
+    3. **Lo step diverso.** Cambiando pannello a cambiare e' il soggetto: un
+       numero guardato per la prima volta non e' un numero cambiato. Stessa
+       ragione per la metrica che compare adesso, che e' nata, non cambiata.
+
+    Provato eseguendo la funzione, non cercando `data-cambiato` nel sorgente: la
+    stessa guardia scritta al contrario lascia la sottostringa al suo posto.
+    """
+    _esegui(tmp_path, _DOM + _costante("VALORE_LARGO") + "\n" + _costante("CLASSE_VALORE_LARGO")
+        + "\nlet metricheMostrate = { numero: null, valori: new Map() };\n"
+        + _funzioni("righeDellaMetrica", "valoreDellaMetrica", "marcaLeMetricheCambiate") + """
+// La stessa composizione del pannello: le famiglie appiattite tutte insieme e
+// poi marcate, che e' l'ordine in cui apriDettaglio le costruisce.
+const disegna = (numero, metriche) => marcaLeMetricheCambiate(
+  numero,
+  Object.entries(metriche).flatMap(([nome, valore]) => righeDellaMetrica(nome, valore)),
+);
+const accesi = (righe) =>
+  righe.flatMap((n) => ("cambiato" in n.dataset ? [n.textContent] : []));
+
+// Annidata apposta: e' la forma vera dello step 7, e la chiave con cui si
+// confronta e' l'etichetta appiattita, non il nome della famiglia.
+const PRIMA = { vertices: 19314, geometric_error: { mean: 4.41, max: 72.2 } };
+assert.deepEqual(accesi(disegna(7, PRIMA)), [],
+  "alla prima apertura il pannello si accende tutto");
+
+assert.deepEqual(accesi(disegna(7, PRIMA)), [],
+  "una riapertura senza cambiamenti dichiara un cambiamento");
+
+// Una corsa finisce: un solo numero e' diverso, e la famiglia accanto no.
+const DOPO = { vertices: 19314, geometric_error: { mean: 3.9, max: 72.2 } };
+assert.deepEqual(accesi(disegna(7, DOPO)), ["3,9"],
+  "il marchio non e' sul solo numero cambiato, o non e' solo suo");
+
+assert.deepEqual(accesi(disegna(10, { vertices: 1 })), [],
+  "cambiando step si dichiara cambiato un numero solo guardato per la prima volta");
+
+assert.deepEqual(accesi(disegna(10, { vertices: 1, min_ratio: 0.21 })), [],
+  "una metrica che compare adesso si dichiara cambiata invece che nata");
+""")
+    assert ".metriche dd[data-cambiato]" in _foglio(), (
+        "il foglio non veste piu' il marchio sui numeri: il cambio resta senza animazione"
+    )
+
+
+def test_l_esito_della_corsa_arriva_con_la_stessa_comparsa_dell_errore():
+    """Le due righe che arrivano senza che nessuno le chieda hanno lo stesso
+    segno d'arrivo.
+
+    `#esito` e' `aria-live="polite"` proprio perche' il suo testo compare da
+    solo a fine corsa, dopo attese di decine di secondi: chi guarda lo schermo
+    non ha lo stesso canale di chi lo ascolta, e in una regione ferma un testo
+    nuovo non si distingue da uno che stava li' da prima.
+
+    Sulla stessa regola del foglio e non su una propria: due animazioni gemelle
+    scritte separate divergono alla prima modifica di una delle due.
+    """
+    regola = next(
+        (r for r in _foglio().split("\n") if "animation: comparsa" in r),
+        None,
+    )
+    assert regola is not None, "nessuna regola usa piu' la comparsa"
+    assert ".esito:not(:empty)" in regola, (
+        f"l'esito arriva senza segno d'arrivo: {regola}"
+    )
+
+
 def test_ogni_elemento_che_il_modulo_cerca_esiste_nel_markup():
     """`getElementById` non solleva: restituisce `null`.
 
@@ -5440,10 +5829,11 @@ def _banco_di_esito() -> str:
     subito dopo -- e' la meta' che restava fuori dai test finche' viveva dentro
     una freccia anonima.
     """
-    return _DOM + _funzioni(
+    return _DOM + _costante("STEP_CON_DECK") + "\n" + _funzioni(
         "nomeDelloStep",
         "durataMisurata",
         "ultimaDurata",
+        "durataDellaCorsa",
         "descrizioneDellaCorsa",
         "esitoDellaCorsa",
         "mostraEsito",
@@ -5507,7 +5897,7 @@ assert.deepEqual(
 // Annullato, e col codice d'uscita del segnale che lo ha fermato.
 assert.deepEqual(
   esitoDellaCorsa({ ...base, exit_code: -15, annullato: true }),
-  { errore: null, esito: "Lettura: esecuzione annullata" },
+  { errore: null, esito: "Lettura: esecuzione interrotta" },
 );
 // Ferma senza codice: si tace. Dirlo «conclusa» annuncerebbe riuscita una
 // corsa mai partita.
@@ -5526,11 +5916,16 @@ def test_una_corsa_di_piu_step_non_si_annuncia_col_nome_del_primo(tmp_path):
     «Lettura in corso» dall'inizio alla fine -- a quattro secondi dall'avvio
     diceva ancora Lettura, che ne era durata 0,03.
 
-    E la durata tace sugli intervalli: `secondi` e' il tempo del solo capo di
-    partenza, e appiccicarlo a una corsa di undici step lo dichiarerebbe durata
-    dell'intera corsa. Era il numero piu' in vista dell'applicazione, e diceva
-    0,03 s per una corsa che ne aveva impiegati dieci. La durata intera nessuno
-    la misura oggi: tacere e' l'unica alternativa che non inventa.
+    E sull'intervallo la durata non e' quella del capo di partenza: `secondi` e'
+    il tempo del solo step 1, e appiccicarlo a una corsa di undici lo
+    dichiarerebbe durata dell'intera corsa. Era il numero piu' in vista
+    dell'applicazione, e diceva 0,03 s per una corsa che ne aveva impiegati
+    dieci.
+
+    La misura giusta adesso c'e' e viene dal lavoratore -- `worker.durata`, il
+    tempo del sottoprocesso -- ma il pericolo e' rimasto lo stesso, ed e' su
+    quello che questo banco morde: due numeri, uno solo dei due descrive
+    l'attesa che c'e' stata.
 
     Mutazione che lo uccide: togliere il ramo di `unoSolo` da
     `esitoDellaCorsa`, cosi' la durata del capo di partenza torna a valere per
@@ -5561,12 +5956,102 @@ assert.deepEqual(
 
 const intervallo = esitoDellaCorsa({
   in_corso: false, step: 1, a_step: 11, steps, annullato: false, exit_code: 0,
+  durata_secondi: 401,
 });
-assert.equal(intervallo.esito, "da Lettura a Esportazione: esecuzione conclusa");
+assert.ok(
+  intervallo.esito.startsWith("da Lettura a Esportazione: esecuzione conclusa in 6 min 41 s"),
+  "l'intervallo non porta la durata del lavoratore: " + intervallo.esito,
+);
 assert.ok(
   !intervallo.esito.includes("0,03"),
   "la durata del primo step si e' spacciata per quella dell'intera corsa: " + intervallo.esito,
 );
+
+// Un frame senza il numero -- un server piu' vecchio del foglio, o una corsa
+// aperta prima che il lavoratore ne conservasse uno -- tace invece di mettere
+// uno zero: e' la stessa regola per cui `ultimaDurata` non formatta un trattino.
+const muto = esitoDellaCorsa({
+  in_corso: false, step: 1, a_step: 11, steps, annullato: false, exit_code: 0,
+});
+assert.equal(
+  muto.esito, "da Lettura a Esportazione: esecuzione conclusa",
+  "senza durata l'esito ne fabbrica una",
+);
+""")
+
+
+def test_il_deck_si_annuncia_solo_quando_e_questa_corsa_a_scriverlo(tmp_path):
+    """Lo step 11 e' il perimetro dichiarato del prodotto -- dalla nuvola di
+    punti al deck `.inp`, e li' si ferma -- e finiva con la stessa riga di uno
+    step qualunque.
+
+    Le due strade per cui l'annuncio diventa una bugia, e nessuna delle due si
+    vede leggendo la riga:
+
+    1. **Il deck di ieri.** Un `11_export` valido resta sul disco fra una corsa
+       e l'altra. Una corsa da 1 a 6 che finisse dicendo «il deck e' pronto»
+       daterebbe col proprio momento un fatto vecchio di giorni.
+    2. **Il deck che non c'e'.** Arrivare allo step 11 non basta: la voce porta
+       `artefatto` a null finche' il file non e' stato scritto, e indicare un
+       bottone di scarico che restituisce un 404 e' peggio del silenzio.
+
+    Nessun numero nella riga, e non e' una svista. A questo istante
+    `corpoMetriche` e' ancora quello della corsa precedente -- `apriDettaglio`
+    rilegge le metriche dopo, ed e' un ordine voluto -- quindi un conteggio di
+    elementi preso da li' descriverebbe la corsa di prima con la data di questa.
+    """
+    _esegui(tmp_path, _banco_di_esito() + """
+ETICHETTE["01_load"] = "Lettura";
+ETICHETTE["06_repair"] = "Riparazione";
+ETICHETTE["11_export"] = "Esportazione";
+const conDeck = [
+  { numero: 1, chiave: "01_load", stato: "valido", secondi: 0.03 },
+  { numero: 11, chiave: "11_export", stato: "valido", secondi: 4, artefatto: "deck.inp" },
+];
+ultimoStato = conDeck;
+
+const arrivata = esitoDellaCorsa({
+  in_corso: false, step: 1, a_step: 11, steps: conDeck,
+  annullato: false, exit_code: 0, durata_secondi: 401,
+});
+assert.ok(arrivata.esito.includes("il deck è pronto"),
+  "la corsa arriva al deck e non lo dice: " + arrivata.esito);
+assert.ok(arrivata.esito.includes("6 min 41 s"),
+  "la coda del deck ha mangiato la durata: " + arrivata.esito);
+
+// La stessa cartella, ma la corsa si ferma alla riparazione: il deck sul disco
+// e' quello di prima.
+const fermata = esitoDellaCorsa({
+  in_corso: false, step: 1, a_step: 6, steps: conDeck,
+  annullato: false, exit_code: 0, durata_secondi: 120,
+});
+assert.ok(!fermata.esito.includes("deck"),
+  "un deck di una corsa precedente si annuncia come appena scritto: " + fermata.esito);
+
+// Arrivata all'11 ma senza artefatto: niente da scaricare.
+const senzaFile = esitoDellaCorsa({
+  in_corso: false, step: 1, a_step: 11, annullato: false, exit_code: 0, durata_secondi: 401,
+  steps: [{ numero: 11, chiave: "11_export", stato: "valido", secondi: 4, artefatto: null }],
+});
+assert.ok(!senzaFile.esito.includes("deck"),
+  "si annuncia un deck che non e' stato scritto: " + senzaFile.esito);
+
+// Fallita sull'11: il ramo dell'errore esce prima, e un fallimento che
+// annunciasse un deck pronto sarebbe il falso successo peggiore di tutti.
+const fallita = esitoDellaCorsa({
+  in_corso: false, step: 1, a_step: 11, steps: conDeck,
+  annullato: false, exit_code: 1, durata_secondi: 401,
+});
+assert.equal(fallita.esito, null, "una corsa fallita passa dal ramo dell'esito");
+assert.ok(!fallita.errore.includes("deck"),
+  "un fallimento annuncia il deck pronto: " + fallita.errore);
+
+// Lo step 11 da solo: e' questa corsa a scriverlo, e `a_step` manca.
+const soloUndici = esitoDellaCorsa({
+  in_corso: false, step: 11, steps: conDeck, annullato: false, exit_code: 0,
+});
+assert.ok(soloUndici.esito.includes("il deck è pronto"),
+  "lo step 11 eseguito da solo non annuncia il deck: " + soloUndici.esito);
 """)
 
 
@@ -5976,7 +6461,7 @@ def test_un_comando_fuori_pipeline_non_si_annuncia_come_step_null(tmp_path):
 
         step null: esecuzione conclusa
         step null: esecuzione fallita (codice 1). ...
-        step null: esecuzione annullata
+        step null: esecuzione interrotta
 
     La riga che pulsa il caso lo trattava gia' -- dice «un comando è in corso»
     -- ed e' l'esito che non lo trattava. Due superfici che descrivono la stessa
@@ -5995,7 +6480,7 @@ assert.deepEqual(
 );
 assert.deepEqual(
   esitoDellaCorsa({ ...base, exit_code: -15, annullato: true }),
-  { errore: null, esito: "il comando: esecuzione annullata" },
+  { errore: null, esito: "il comando: esecuzione interrotta" },
 );
 const fallito = esitoDellaCorsa({ ...base, exit_code: 1 });
 assert.ok(
@@ -7555,6 +8040,13 @@ menu.value = "C25/30";
 await menu.scatena("change");
 // Il modulo misurato in sito, battuto sopra quello di norma.
 caselle[1].value = "31500";
+// Nel browser questo bottone, dopo una scrittura riuscita, non esiste piu': la
+// riuscita chiama apriDettaglio, che rifa' il pannello, e il comando che
+// l'utente preme la seconda volta e' nuovo e acceso. Qui apriDettaglio e'
+// stubbata a un registratore, quindi il pannello resta quello e il bottone resta
+// spento com'era a fine gestore: riacceso a mano, il banco torna a descrivere
+// la sequenza che il browser produce davvero.
+bottone.disabled = false;
 await bottone.scatena("click");
 process.stdout.write(JSON.stringify(richieste[richieste.length - 1].corpo));
 """)
@@ -7938,6 +8430,13 @@ const senzaScrivere = pannelloMateriale(11, generazione);
 assert.doesNotMatch(detta(senzaScrivere), /scritto nella configurazione della corsa/,
   "l'esito resta appeso a ogni riapertura: non dice piu' di una scrittura appena avvenuta");
 
+// Nel browser questo bottone, dopo una scrittura riuscita, non esiste piu': la
+// riuscita chiama apriDettaglio, che rifa' il pannello, e il comando che
+// l'utente preme la seconda volta e' nuovo e acceso. Qui apriDettaglio e'
+// stubbata a un registratore, quindi il pannello resta quello e il bottone resta
+// spento com'era a fine gestore: riacceso a mano, il banco torna a descrivere
+// la sequenza che il browser produce davvero.
+bottone.disabled = false;
 await bottone.scatena("click");
 assert.equal(richieste.length, 2, "la seconda scrittura non e' partita");
 const dopoDue = pannelloMateriale(11, generazione);

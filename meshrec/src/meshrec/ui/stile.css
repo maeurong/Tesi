@@ -497,6 +497,36 @@ a.bottone { display: inline-block; text-decoration: none; }
 /* Il comando del taglio sta in basso a destra sulla vista: i conteggi occupano
    gia' l'angolo sinistro. hidden non basta su un elemento con display: flex,
    che lo sovrascriverebbe e lo lascerebbe a video. */
+/* La chiave della scala colore, in basso a sinistra: l'unico dei quattro
+   angoli dell'inquadratura ancora libero -- i conteggi stanno in alto a
+   sinistra e il comando del taglio in basso a destra -- e quello piu' lontano
+   dal comando, che si usa mentre la si guarda.
+   Stesso velo e stesso raggio del comando del taglio: sono due cose appoggiate
+   sulla stessa immagine, e due materiali diversi le farebbero leggere come due
+   piani. La barra e' alta poco piu' del testo perche' la scala si legge
+   accanto ai due numeri, non da sola. */
+/* max-width e flex-wrap perche' l'estremo destro e' un numero misurato, non un
+   numero scelto: a quattro cifre significative piu' l'unita' puo' arrivare a
+   «1.234.000.000 mm». Senza tetto la chiave crescerebbe fino a incontrare il
+   comando del taglio nell'angolo opposto; col tetto va a capo e resta dov'e'. */
+/* `pointer-events: none` come lo stato vuoto della vista, e per la stessa
+   ragione portata a un caso piu' piccolo: la chiave non e' un comando, e un
+   trascinamento che cominci sopra di lei deve girare il modello come ovunque
+   altrove sulla tela. Senza, l'angolo in basso a sinistra e' un rettangolo
+   morto in cui il primo gesto non fa niente -- e chi lo incontra prova due
+   volte prima di spostare la mano. I conteggi e il comando del taglio non ne
+   hanno bisogno per due ragioni opposte: quello e' vecchio quanto la vista, e
+   quest'altro contiene comandi veri. */
+.scala { pointer-events: none; position: absolute; bottom: var(--passo-2); left: var(--passo-2); display: flex; align-items: center; flex-wrap: wrap; gap: var(--passo-1) var(--passo-2); max-width: calc(100% - var(--passo-4)); padding: var(--passo-1) var(--passo-2); background: var(--velo); border: 1px solid var(--bordo-comando); border-radius: var(--raggio); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); font-variant-numeric: tabular-nums; color: var(--tenue); }
+.scala[hidden] { display: none; }
+/* Il gradiente lo scrive app.js dalla costante RAMPA di viewport.js, che e'
+   la stessa che colora i vertici: scritto qui sarebbe una seconda copia dei
+   due estremi, e il giorno che uno cambia la chiave dichiarerebbe una scala
+   che il pezzo non ha. Il contorno serve perche' l'estremo chiaro della rampa
+   sul velo chiaro sparirebbe: senza, la barra sembra cominciare a meta'. */
+.scala-rampa { width: 6rem; height: 0.6rem; border: 1px solid var(--bordo-comando); border-radius: 1px; }
+.scala-estremo { white-space: nowrap; }
+
 .taglio { position: absolute; bottom: var(--passo-2); right: var(--passo-2); display: flex; align-items: center; flex-wrap: wrap; gap: var(--passo-2); padding: var(--passo-2); background: var(--velo); border: 1px solid var(--bordo-comando); border-radius: var(--raggio); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); }
 .taglio[hidden] { display: none; }
 .taglio select { font: inherit; padding: var(--passo-1); background: var(--superficie); color: var(--testo); border: 1px solid var(--bordo-comando); border-radius: var(--raggio); }
@@ -719,11 +749,26 @@ a.bottone { display: inline-block; text-decoration: none; }
    quando tutte le etichette sono corte. Le cifre tabulari finalmente pagano:
    allineate a destra in una colonna di larghezza fissa, i valori si confrontano
    incolonnati. */
-.metriche { display: grid; grid-template-columns: minmax(0, 1fr) minmax(6ch, 14ch); gap: var(--passo-1) var(--passo-3); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); }
+/* `align-items: baseline` perche' le due colonne adesso hanno due interlinee
+   diverse -- prosa a sinistra, cifre a destra -- e senza, un'etichetta su una
+   riga sola e il suo numero partirebbero da due altezze diverse di un paio di
+   pixel. Con la linea di base condivisa l'occhio legge la coppia come una riga
+   anche quando l'etichetta ne occupa tre. */
+.metriche { display: grid; grid-template-columns: minmax(0, 1fr) minmax(6ch, 14ch); gap: var(--passo-1) var(--passo-3); align-items: baseline; font-size: var(--tipo-dato); line-height: var(--interlinea-riga); }
 /* L'etichetta e' quella che puo' spezzarsi ovunque, e non piu' il valore: un
    percorso di chiavi non ha spazi su cui andare a capo, e senza questa riga
    sborderebbe invece di mandare a capo. */
-.metriche dt { color: var(--tenue); overflow-wrap: anywhere; }
+/* Questa colonna ha cambiato natura e con lei le sue regole. Portava chiavi --
+   `geometric_error · cloud_to_mesh · mean`, parole sole e inspezzabili, per cui
+   `anywhere` era l'unico modo di non sfondare il pannello -- e adesso porta
+   prosa italiana, che in 200 px di colonna va a capo due o tre volte.
+   `anywhere` su una frase spezza le parole a meta' in un punto qualunque;
+   `break-word` interviene solo dove una parola da sola non entra, e `hyphens`
+   la taglia dove l'italiano vuole (l'html dichiara lang="it", altrimenti la
+   sillabazione non parte). L'interlinea passa da quella delle righe che non
+   vanno a capo a quella della prosa, che e' cio' che queste righe adesso sono:
+   il foglio i due valori li teneva gia' distinti, mancava di applicarli. */
+.metriche dt { color: var(--tenue); overflow-wrap: break-word; hyphens: auto; line-height: var(--interlinea); text-wrap: pretty; }
 /* Il valore e' un numero misurato: cifre tabulari, cosi' due metriche
    incolonnate si confrontano senza rileggerle. */
 .metriche dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
@@ -827,7 +872,20 @@ a.bottone { display: inline-block; text-decoration: none; }
   0%, 100% { opacity: 1; }
   50% { opacity: 0.25; }
 }
-.errore:not(:empty) { animation: comparsa var(--durata-comparsa) var(--curva); }
+/* Anche l'esito, e per lo stesso fatto: e' una riga che arriva da sola dopo
+   un'attesa di decine di secondi, e in una regione ferma un testo nuovo non si
+   distingue da uno che stava li' da prima. `:not(:empty)` e non un marchio
+   perche' il vuoto qui e' uno stato vero -- mostraEsito svuota la riga sul
+   fronte di salita della corsa -- ed e' lui a far ripartire la comparsa la
+   volta dopo.
+
+   Non animati apposta: i conteggi sopra la vista. Cambiano insieme alla scena
+   che sta sotto di loro: a ridisegnarsi e' la geometria, non il solo numero, e
+   un secondo annuncio sopra il piu' visibile dei cambiamenti e' decorazione.
+   C'e' anche il fatto meccanico, e da solo basterebbe: #conteggi non torna
+   quasi mai vuoto, quindi li' `:not(:empty)` smetterebbe di scattare dopo la
+   prima volta e la regola sembrerebbe una copertura che non c'e'. */
+.errore:not(:empty), .esito:not(:empty) { animation: comparsa var(--durata-comparsa) var(--curva); }
 @keyframes comparsa {
   from { opacity: 0; transform: translateY(-0.25rem); }
   to { opacity: 1; transform: none; }
@@ -842,14 +900,22 @@ a.bottone { display: inline-block; text-decoration: none; }
   from { background: var(--evidenza); }
   to { background: transparent; }
 }
+/* Lo stesso marchio sui numeri, che sono la ragione per cui il pannello si
+   guarda. Quando una corsa finisce, `apriDettaglio` riscrive le metriche dello
+   step aperto sul posto: senza marchio un valore sostituito e' a video
+   indistinguibile da quello di prima, e mostrare una grandezza e' gia'
+   sembrare di averla verificata. Solo i `dd`: l'etichetta non cambia, e
+   accenderla direbbe che e' cambiato il nome della misura. */
+.metriche dd[data-cambiato] { animation: cambio-di-stato var(--durata-cambio) var(--curva); }
 /* Chi ha chiesto meno movimento non chiede meno informazione. Sparisce cio'
    che si muove: il ciclo del pallino, che resta acceso e dichiara lo stesso
    fatto, e lo spostamento della riga d'errore, che resta una comparsa. Restano
    il velo dell'errore e i ritorni di colore al tocco: non sono spostamenti, e
    sono la risposta a un gesto, non un effetto. Resta anche il marchio del
-   cambio di stato, per la stessa regola e per una ragione in piu': e' un fondo
-   che si spegne, non una riga che si sposta, ed e' l'unico canale con cui la
-   colonna dice che qualcosa e' appena successo. viewport.js applica la stessa
+   cambio di stato -- sulla riga a sinistra e sul numero a destra -- per la
+   stessa regola e per una ragione in piu': e' un fondo che si spegne, non una
+   riga che si sposta, ed e' l'unico canale con cui lo schermo dice che
+   qualcosa e' appena successo. viewport.js applica la stessa
    regola dalla sua parte: la camera salta invece di assestarsi, la tela
    compare lo stesso. */
 @media (prefers-reduced-motion: reduce) {
