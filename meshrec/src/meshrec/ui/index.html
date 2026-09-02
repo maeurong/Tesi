@@ -123,45 +123,17 @@
 </section>
 <div class="tre-zone" id="lavoro" hidden>
   <nav class="zona zona-step" aria-label="Step della pipeline">
-    <!-- tabindex="-1": e' qui che il fuoco si posa tornando dalla schermata
-         dell'analisi. Non entra nel giro del tabulatore, che e' cio' che -1
+    <!-- tabindex="-1": e' qui che il fuoco si posa quando la schermata di
+         lavoro si apre dall'ingresso, e senza un posto dove posarsi finirebbe
+         su <body>. Non entra nel giro del tabulatore, che e' cio' che -1
          significa. -->
     <h2 id="pipeline-titolo" tabindex="-1">Pipeline</h2>
     <ol class="elenco-step" id="elenco-step"></ol>
-    <!-- La colonna arriva a 12 e si chiude qui. Lo step 13 resta lo step 13 --
-         il numero e' quello che `steps.STEP_KEYS` gli da' e non cambia -- ma sta
-         fuori dalla colonna, e la ragione e' scritta a video nella schermata
-         dell'analisi, dove la legge chi la usa.
-         `to_step` predefinito e' 11, il deck: e' li' che si chiude il
-         perimetro del prodotto, e una corsa di pipeline da riga di comando
-         finisce li'. Questa colonna arriva piu' in la' perche' l'interfaccia
-         mostra anche cio' che sta fuori dal perimetro.
-         Un bottone e non un <a href>: non si cambia documento, si scambia quale
-         delle due schermate e' a video, e un collegamento che non porta a un
-         indirizzo mente sul proprio ruolo.
-         La riga sotto sta nel markup e non la fabbrica app.js: e' il canale con
-         cui il passaggio spento dice PERCHE' e' spento, e un bottone disabilitato
-         senza quella riga e' un rifiuto senza motivo. Vuota alla nascita, la
-         scrive `aggiornaPassaggio` dallo stato che il server manda. -->
-    <!-- Nascosto finche' MOSTRA_LINEA_ANALISI in app.js resta spento: l'analisi
-         integrata e' linea di sviluppo e sta fuori dal perimetro del prodotto,
-         che si chiude sul deck dello step 11. Il markup resta perche' il codice
-         dietro e' vivo -- vedi docs/linea-analisi-integrata.md. -->
-    <button type="button" id="vai-analisi" class="bottone passaggio" hidden>Analisi strutturale
-      — step 13</button>
-    <p class="vuoto" id="vai-analisi-ragione" hidden></p>
-    <h2>Modelli</h2>
-    <!-- as-built e' la corsa madre e c'e' gia': la casella e' spuntata e
-         disabilitata, perche' una casella che si puo' togliere ma non fa nulla
-         mente su cosa l'utente comanda. Le altre due sono azioni, non
-         parametri: spuntarle non scrive nulla in config.yaml, e' il bottone
-         che genera. -->
-    <div class="modelli">
-      <label><input type="checkbox" id="modello-as-built" checked disabled> as-built (corsa madre)</label>
-      <label><input type="checkbox" id="modello-estruso"> estruso — sezione e fuori piombo misurati</label>
-      <label><input type="checkbox" id="modello-primitive"> primitive — sezione squadrata, asse dritto</label>
-      <button type="button" id="genera-modelli" class="bottone">Genera i modelli spuntati</button>
-    </div>
+    <!-- La colonna si chiude sullo step 11, il deck: e' li' che finisce il
+         perimetro del prodotto, ed e' li' che finisce una corsa da riga di
+         comando. Lo step 12, il prior geometrico, resta nella pipeline e
+         nell'artefatto su disco ma non in questa colonna: non ha interfaccia,
+         si chiede con `meshrec wall`. -->
   </nav>
   <section class="zona zona-vista" aria-label="Vista tridimensionale">
     <!-- #viewport e' l'inquadratura: la tela, e sopra di lei i conteggi e il
@@ -194,12 +166,11 @@
       </div>
       <!-- Lo stato vuoto della vista, ed e' l'ultimo che mancava: aprire una
            corsa lasciava al centro dello schermo 856x640 px bianchi, misurati,
-           senza una riga che dicesse cosa ci va. Gli altri cinque vuoti di
-           questa pagina (le corse, il dettaglio, il prior, il confronto, la
-           galleria) dicono tutti perche' non mostrano niente; questo no, ed era
-           il piu' grande.
+           senza una riga che dicesse cosa ci va. Gli altri tre vuoti di
+           questa pagina (le corse, il dettaglio, la galleria) dicono tutti
+           perche' non mostrano niente; questo no, ed era il piu' grande.
            Nel markup e non fabbricato da app.js, come la riga d'errore, la
-           didascalia e gli altri quattro: uno stato vuoto creato nell'istante in
+           didascalia e gli altri due: uno stato vuoto creato nell'istante in
            cui ci si scrive dentro non preesiste a cio' che annuncia, ed e' la
            lezione che in questo file e' gia' costata tre ricadute.
            Nessun aria-live: non annuncia un cambiamento, sta li' dall'inizio. Il
@@ -259,7 +230,7 @@
          grandezza, l'unita' e i due numeri della scala; nella terza colonna
          finiva sotto la piega, al corpo piu' piccolo del foglio e in grigio
          tenue. Nel markup e non fabbricata da app.js, per la stessa ragione
-         della riga d'errore e dello stato vuoto del prior: nessun ramo del
+         della riga d'errore e dello stato vuoto della vista: nessun ramo del
          modulo la puo' distruggere. Nessun aria-live: il testo arriva anche
          nell'aria-label della tela, e due regioni vive lo direbbero due
          volte. -->
@@ -278,30 +249,6 @@
          distruggerla, e test_app_js.py sorveglia che non ci si torni. -->
     <p class="errore" id="errore" role="alert"></p>
     <div id="dettaglio"><p class="vuoto">Scegli uno step per vederne parametri e metriche.</p></div>
-    <!-- Tutto il pannello del prior sta dentro un solo contenitore nascosto: gli
-         elementi restano nel DOM, e getElementById continua a trovarli, cosi'
-         nessun ramo del modulo va in errore scrivendo dentro qualcosa che non
-         c'e'. Si riaccende insieme a MOSTRA_LINEA_ANALISI in app.js. -->
-    <div id="pannello-prior" hidden>
-    <h2>Prior geometrico</h2>
-    <!-- Lo stato vuoto sta nel markup e non lo fabbrica il modulo: e' la stessa
-         lezione della regione d'errore, che tre volte era stata distrutta da un
-         replaceChildren(). Uno stato vuoto creato nell'istante in cui ci si
-         scrive dentro non preesiste a cio' che annuncia. -->
-    <p class="vuoto" id="prior-vuoto">Il prior geometrico non è ancora stato calcolato: è lo step 12, e non fa parte della corsa predefinita.</p>
-    <button type="button" id="calcola-prior" class="bottone">Calcola il prior</button>
-    <div id="prior-membrature"></div>
-    <div id="prior-scartate"></div>
-    </div>
-    <h2>Confronto</h2>
-    <p class="vuoto" id="confronto-vuoto" data-testo-vuoto="Nessun modello parametrico generato: il confronto è una scheda singola.">Nessun modello parametrico generato: il confronto è una scheda singola.</p>
-    <!-- Senza `class="confronto"`: nel foglio non esiste nessuna regola con
-         quel nome, e una classe che non veste niente fa cercare un
-         raggruppamento che non c'e'. Il `div` resta, l'`id` pure: e' l'ancora
-         del pannello. -->
-    <div id="confronto">
-      <div class="confronto-tabella" id="confronto-tabella"></div>
-    </div>
     <h2>Registro</h2>
     <!-- tabindex="0": il registro e' alto 14rem e scorre, e dentro non c'e'
          niente su cui il fuoco possa posarsi. Senza questo attributo Chrome non
@@ -335,115 +282,6 @@
     <div class="galleria-tabella" id="galleria-tabella" tabindex="0"></div>
   </aside>
 </div>
-<!-- La seconda schermata, ed e' VUOTA apposta.
-     Tutto cio' che mostrera' e' un numero che qualcun altro sta ancora
-     calcolando. Un pannello scritto prima del numero mostra un segnaposto, e un
-     segnaposto qui e' precisamente il difetto che questo progetto e' costruito
-     per non produrre: «un numero mostrato senza un controllo che lo smentisca
-     non vale piu' di un numero assente» (PRODUCT.md:170).
-     Quindi i quattro stadi esistono, si vedono, stanno in ordine di dipendenza —
-     ciascuno ha bisogno del precedente — e ciascuno dichiara di essere vuoto e
-     che cosa aspetta. Mostrarli in un ordine diverso direbbe che si possono
-     compilare in un ordine diverso.
-     tabindex="-1" sull'intestazione: e' li' che il fuoco si posa arrivando, e
-     senza un posto dove posarsi finirebbe su <body>. Non entra nel giro del
-     tabulatore, che e' quello che -1 significa. -->
-<section class="analisi" id="analisi" hidden aria-labelledby="analisi-titolo">
-  <div class="analisi-testata">
-    <h2 id="analisi-titolo" tabindex="-1">Analisi strutturale — step 13</h2>
-    <button type="button" id="torna-pipeline" class="bottone">Torna alla pipeline</button>
-  </div>
-  <p class="vuoto">Il solutore non è un passo di elaborazione geometrica: legge un
-    deck invece di una geometria, paga un processo esterno e produce campi sul
-    maglio. Per questo sta qui e non nella colonna della pipeline.</p>
-  <p class="vuoto">I risultati strutturali della tesi vengono da Abaqus, aprendo
-    il deck che lo step 11 ha scritto, non da qui: questa schermata governa una
-    linea di sviluppo parallela.</p>
-  <ol class="stadi">
-    <li class="stadio">
-      <h3>1 · Modello</h3>
-      <!-- Il testo scritto qui e' quello della prima apertura assoluta, e non un
-           segnaposto: senza corsa aperta e' esattamente cio' che va detto. -->
-      <p class="vuoto" id="stadio-modello">Nessuna corsa aperta: il modello lo
-        propone lo step 12 «Prior geometrico», che cerca nella geometria le
-        regioni che sembrano membrature.</p>
-      <!-- Il contenitore delle tre cose che questa scheda mostra quando una
-           corsa e' aperta: che cosa si manda, con quale solutore, e la frazione
-           orfana. Lo stato vuoto vive QUI dentro, nel markup, e non lo fabbrica
-           app.js: `disegnaAnalisi` non tocca niente finche' la richiesta non e'
-           tornata, quindi cio' che si legge alla prima apertura assoluta e'
-           questo, e nessun ramo del modulo lo puo' distruggere prima. E' la
-           stessa regola gia' costata tre ricadute sulla regione role="alert". -->
-      <div id="modello-dati">
-        <p class="vuoto">Con una corsa aperta questa scheda dice che cosa si manda
-          al solutore — il solido tetraedrico dello step 11 o il telaio costruito
-          sulle membrature dello step 12 — con quale dei due solutori, e quanta
-          parte del maglio non è caduta in nessuna regione.</p>
-      </div>
-      <!-- Il solo comando di questa schermata, e non e' un segnaposto: lancia la
-           tratta che il bottone della colonna lanciava, `POST /api/step/13`, e fa
-           la cosa che dice. Il divieto di riempire questi stadi riguarda i
-           pannelli che MOSTRANO numeri che nessuno ha ancora calcolato.
-           Ce n'e' bisogno perche' altrimenti il solutore non si raggiunge da
-           nessuna strada: tolto lo step 13 dalla colonna e' morto il suo unico
-           ingresso, e `meshrec run --from-step 13` non parte per il tetto di
-           `from_step` (le=9, core/config.py:530).
-           `esecuzione` e' come `spegniLeEsecuzioni` lo trova: il comando segue
-           la corsa come gli altri due «Esegui». Spento senza prior con
-           `aria-disabled`, come il passaggio: la ragione va sentita, non tolta.
-           La riga d'errore vive QUI e non e' `#errore`: quella sta nella colonna
-           del dettaglio, cioe' su una schermata che da qui e' nascosta, e un
-           rifiuto annunciato la' sarebbe un clic senza ritorno. Nel markup e
-           vuota alla nascita, come tutte le regioni vive di questa pagina. -->
-      <button type="button" id="risolvi" class="bottone bottone-primario esecuzione">Esegui
-        lo step 13</button>
-      <p class="vuoto" id="risolvi-ragione"></p>
-      <p class="errore" id="analisi-errore" role="alert"></p>
-    </li>
-    <li class="stadio">
-      <h3>2 · Struttura</h3>
-      <!-- Stato vuoto nel markup, come nello stadio del modello e per la stessa
-           ragione: preesiste a cio' che annuncia. -->
-      <div id="stadio-struttura">
-        <p class="vuoto">Nessuna corsa aperta: le membrature le propone lo step 12
-          «Prior geometrico», e sezione, materiale e armatura di ciascuna si
-          dichiarano in <code>regioni</code>. Il verdetto è per stazione e non per
-          membratura: una gabbia dichiarata una volta sola può essere duttile dove
-          la sezione è piena e fragile dove si restringe.</p>
-      </div>
-    </li>
-    <li class="stadio">
-      <h3>3 · Pre-processore</h3>
-      <div id="stadio-preprocessore">
-        <p class="vuoto">Nessuna corsa aperta: vincoli e carichi si dichiarano nel
-          <code>config.yaml</code> e nel pannello dello step 11, e le combinazioni
-          di norma si propongono qui una volta scelta la categoria d'uso.</p>
-      </div>
-      <!-- Una assenza dichiarata, e non un numero: sta nel markup perche' non
-           dipende dalla corsa aperta. La ragione per esteso e' in
-           core/combinazioni.py, e qui non se ne tiene una copia da far
-           invecchiare -- si nomina il file. -->
-      <p class="vuoto">La modale con spettro non c'è, ed è una decisione che manca
-        (<code>core/combinazioni.py</code>): combinare le risposte modali produce
-        una grandezza senza segno che non appartiene a nessun caso di carico. Qui
-        c'è la sola statica lineare equivalente, e lo spettro di progetto dipende
-        dal sito, che nessun campo della configurazione porta.</p>
-    </li>
-    <li class="stadio">
-      <h3>4 · Post-processore</h3>
-      <div id="stadio-postprocessore">
-        <p class="vuoto">Nessuna corsa aperta: spostamenti e tensioni li rilegge lo
-          step 13, e senza un modello risolto non c'è niente da rileggere.</p>
-      </div>
-      <!-- Il confine di questa scheda, dichiarato: non e' che manchi il tempo di
-           scriverli, e' che la decisione non e' stata presa. -->
-      <p class="vuoto">Mappe di colore, deformate e scelta delle grandezze non ci
-        sono: quali risultati i due solutori abbiano in comune è una decisione
-        ancora aperta, e un menù di grandezze scritto prima ne offrirebbe di non
-        calcolate.</p>
-    </li>
-  </ol>
-</section>
 </main>
 <script type="module" src="/ui/app.js"></script>
 </body>

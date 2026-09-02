@@ -3444,35 +3444,6 @@ def test_lo_step_12_e_il_tetto_di_esegui_da_qui_in_poi(cliente):
     assert risposta.json()["fino_a"] == 12
 
 
-def test_la_linea_dell_analisi_non_si_vede_nell_interfaccia():
-    """Il perimetro del prodotto si chiude sul deck, e l'interfaccia lo mostra.
-
-    Gli step 12 e 13 restano nel codice e restano eseguibili -- sono la linea di
-    sviluppo di docs/linea-analisi-integrata.md -- ma spariscono dalla vista:
-    niente riga del prior nella colonna, niente pannello del prior, niente
-    ingresso alla schermata dell'analisi.
-
-    Controlla il markup e l'interruttore, non il browser: e' il difetto che si
-    riapre da solo, perche' basta che qualcuno tolga un `hidden` credendolo un
-    residuo, o rimetta a `true` la costante mentre prova qualcosa e non la
-    riporti indietro. `node --check` non lo vedrebbe: sintatticamente sarebbe
-    tutto corretto.
-
-    Mutazione che lo uccide: MOSTRA_LINEA_ANALISI = true, o un `hidden` tolto.
-    """
-    from meshrec.app.server import UI_DIR
-
-    marcatura = (UI_DIR / "index.html").read_text(encoding="utf-8")
-    modulo = (UI_DIR / "app.js").read_text(encoding="utf-8")
-
-    assert "const MOSTRA_LINEA_ANALISI = false;" in modulo
-    # Il filtro della colonna nomina il prior accanto all'interruttore: senza
-    # questa riga la costante sarebbe spenta e la riga 12 comparirebbe lo stesso.
-    assert "MOSTRA_LINEA_ANALISI || voce.chiave !== STEP_DEL_PRIOR" in modulo
-
-    for elemento in ('id="vai-analisi"', 'id="pannello-prior"'):
-        riga = next(r for r in marcatura.splitlines() if elemento in r)
-        assert "hidden" in riga, f"{elemento} non e' nascosto: {riga.strip()}"
 
 
 def test_membrature_rifiuta_un_prior_piu_vecchio_dello_step_2(cliente, tmp_path):

@@ -174,13 +174,12 @@ def test_ogni_sovrapposto_della_vista_sa_ancora_nascondersi():
     a corsa finita.
     """
     foglio = _senza_commenti()
-    # Le tre schermate ci stanno da quando sono tre: nascono `hidden` nel markup
-    # come i sovrapposti della vista, e un `display` aggiunto a una di loro la
-    # stamperebbe sopra le altre due. `analisi` e' quella nuova; `ingresso` e
-    # `tre-zone` erano gia' nella stessa condizione e non li guardava nessuno --
-    # `tre-zone` la propria riga [hidden] ce l'ha, e questo controllo la difende.
+    # Le due schermate ci stanno: nascono `hidden` nel markup come i
+    # sovrapposti della vista, e un `display` aggiunto a una delle due la
+    # stamperebbe sopra l'altra. `tre-zone` la propria riga [hidden] ce l'ha, e
+    # questo controllo la difende.
     for classe in ["taglio", "vista-vuota", "fantasma-comando",
-                   "analisi", "ingresso", "tre-zone"]:
+                   "ingresso", "tre-zone"]:
         dichiarazione = re.search(rf"^\.{re.escape(classe)} \{{([^}}]*)\}}", foglio, flags=re.MULTILINE)
         assert dichiarazione is not None, f".{classe} non e' piu' dichiarata"
         if "display:" not in dichiarazione.group(1):
@@ -191,42 +190,6 @@ def test_ogni_sovrapposto_della_vista_sa_ancora_nascondersi():
         )
 
 
-def test_i_quattro_stadi_restano_leggibili_stretti_e_proiettati():
-    """La seconda schermata si guarda a due larghezze molto diverse.
-
-    Su una finestra stretta i quattro stadi devono impilarsi in una colonna
-    sola; proiettata in sede di discussione (PRODUCT.md:187) la finestra e'
-    larga e la prosa non deve stendersi su tutto lo schermo, dove la riga si
-    perde fra una fine e l'inizio della successiva.
-
-    Le due cose in un token e una traccia fluida: `auto-fit` con un `minmax` in
-    `rem` -- che segue l'ingrandimento del testo, a differenza dei px -- e il
-    tetto di `--misura` che `.vuoto` gia' porta. Una larghezza di colonna scritta
-    in pixel farebbe traboccare la griglia sotto quel numero.
-    """
-    foglio = _senza_commenti()
-    regola = re.search(r"^\.stadi \{([^}]*)\}", foglio, flags=re.MULTILINE)
-    assert regola is not None, "gli stadi della seconda schermata non sono piu' vestiti"
-    colonne = re.search(r"grid-template-columns:([^;]+);", regola.group(1))
-    assert colonne is not None, "gli stadi non dichiarano piu' le proprie colonne"
-    traccia = colonne.group(1).strip()
-    assert "display: grid" in regola.group(1), (
-        "gli stadi non sono piu' una griglia: `grid-template-columns` resta scritta e inerte"
-    )
-    assert "auto-fit" in traccia, (
-        f"le colonne sono fissate: stretta la finestra, gli stadi non si impilano ({traccia})"
-    )
-    minimo = re.search(r"minmax\(\s*([\d.]+)(rem|px)", traccia)
-    assert minimo is not None, f"nessun minimo dichiarato per la colonna di uno stadio: {traccia}"
-    assert minimo.group(2) == "rem", (
-        f"il minimo della colonna e' in px ({minimo.group(0)}): non segue l'ingrandimento del testo"
-    )
-    # L'unita' da sola non basta: `minmax(1rem, 1fr)` la soddisfa e rimette quattro
-    # colonne strettissime sulla finestra piu' stretta. Il numero e' il vincolo.
-    assert float(minimo.group(1)) >= 12, (
-        f"la colonna di uno stadio puo' scendere a {minimo.group(0)}: quattro colonne "
-        "sottili invece di una impilata"
-    )
 
 
 def _rapporto(primo: str, secondo: str) -> float:
@@ -303,7 +266,7 @@ def test_ogni_cosa_che_prende_il_fuoco_lo_mostra():
     testo = _senza_commenti()
     for famiglia in (
         ".bottone", ".campo input", ".campo select", ".step",
-        ".registro", ".galleria-tabella", ".tabella-dati",
+        ".registro", ".galleria-tabella",
         ".gruppo details > summary", ".viewport canvas", "h2",
     ):
         assert f"{famiglia}:focus-visible" in testo, (

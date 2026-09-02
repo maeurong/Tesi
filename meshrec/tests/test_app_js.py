@@ -99,7 +99,7 @@ def _funzioni(*nomi: str) -> str:
     """Le funzioni chieste, una volta sola ciascuna e nell'ordine dato.
 
     Senza la deduplica un banco che elencasse `corpoLetto` per conto proprio e
-    poi anche `*_ANALISI`, che se lo porta dietro, otterrebbe due `function
+    poi anche `*_COLONNA`, che se lo porta dietro, otterrebbe due `function
     corpoLetto` nello stesso modulo: `node` si ferma su un SyntaxError, cioe' un
     rosso che non parla del comportamento. Una funzione elencata due volte e' la
     stessa funzione, non due.
@@ -110,32 +110,12 @@ def _funzioni(*nomi: str) -> str:
 
 # Le funzioni che disegnano la colonna degli step, in un elenco solo.
 #
-# `disegnaStep` chiude chiamando `aggiornaPassaggio` e `aggiornaStadi` -- il
-# passaggio alla seconda schermata e lo stadio vivo che ne dipendono stanno sullo
-# stesso stato, e una seconda strada per lo stesso fatto invecchierebbe. Un banco
-# che ne dimenticasse una non fallirebbe sul comportamento ma su un
+# Un banco che ne dimenticasse una non fallirebbe sul comportamento ma su un
 # ReferenceError, cioe' con un rosso che non insegna niente: elencate qui una
 # volta, non c'e' un elenco per banco da tenere allineato.
-#
-# Da quando gli stadi si riempiono, `aggiornaStadi` chiama anche `disegnaAnalisi`
-# e `rileggiSeServe`: le quattro schede e la rilettura della tratta stanno sullo
-# stesso stato della colonna. `_ANALISI` e' la chiusura che serve al ramo in cui
-# la richiesta non e' andata a buon fine -- che e' quello che un banco senza
-# server percorre -- piu' le quattro schede, che quel ramo tocca tutte.
-_ANALISI = (
-    "ragioneDelSolutore", "cifra", "misura", "tabellaDiDati", "nomeDellIncontro",
-    "menuDelSolutore", "schedaModello", "schedaStruttura",
-    "propostaDelleCombinazioni", "schedaPreprocessore", "schedaPostprocessore",
-    "disegnaAnalisi", "caricaAnalisi", "apriVerifica", "verificaSolutore",
-    "firmaDegliStep", "rileggiSeServe",
-    "superata", "serverMuto", "ragioneDelRifiuto", "corpoLetto",
-)
-
 _COLONNA = (
     "segnaStepAperto", "nuovaRiga",
-    "ragioneDelPassaggio", "aggiornaPassaggio",
-    "testoDelloStadioModello", "aggiornaStadi",
-    *_ANALISI,
+    "superata", "serverMuto", "ragioneDelRifiuto", "corpoLetto",
     "disegnaStep",
 )
 
@@ -339,16 +319,11 @@ const testoDi = (nodi) => []
 # le funzioni arrivano al banco senza cio' che sta loro attorno. Preso dal
 # sorgente vero e non riscritto qui: e' la ragione per cui `_costante` esiste.
 _DOM += _costante("elemento") + "\n"
-# Le due chiavi che segnano il confine fra la colonna della pipeline e la seconda
-# schermata. `disegnaStep` legge la prima e `testoDelloStadioModello` la seconda,
-# quindi ogni banco che disegna la colonna le vuole. Prese dal sorgente vero e non
-# riscritte qui, per la stessa ragione di `elemento`.
+# Le due chiavi degli step che stanno fuori dalla colonna. `disegnaStep` le
+# legge tutte e due nello stesso filtro, quindi ogni banco che disegna la
+# colonna le vuole. Prese dal sorgente vero e non riscritte qui, per la stessa
+# ragione di `elemento`.
 _DOM += _costante("STEP_DELL_ANALISI") + "\n" + _costante("STEP_DEL_PRIOR") + "\n"
-# L'interruttore della linea dell'analisi: `disegnaStep` lo legge accanto alle due
-# chiavi qui sopra, nello stesso filtro, quindi vive nella stessa riga di banco.
-# Dimenticarlo non da' un rosso sul comportamento ma un ReferenceError -- ed e'
-# gia' successo: il banco costruiva un modulo in cui la costante non esisteva.
-_DOM += _costante("MOSTRA_LINEA_ANALISI") + "\n"
 
 
 # --------------------------------------------------------------------------
@@ -3270,39 +3245,8 @@ assert.match(
 # --------------------------------------------------------------------------
 
 
-def test_le_caselle_dei_modelli_stanno_nel_markup_e_as_built_e_disabilitata():
-    """as-built esiste gia', e' la corsa madre: la casella e' spuntata e
-    disabilitata, perche' una casella che si puo' togliere ma non fa nulla
-    mente su cosa l'utente comanda."""
-    markup = _markup()
-
-    asbuilt = _elemento(markup, "modello-as-built")
-    assert "checked" in asbuilt
-    assert "disabled" in asbuilt
-    for tipo in ("estruso", "primitive"):
-        casella = _elemento(markup, f"modello-{tipo}")
-        assert "disabled" not in casella
 
 
-def test_lo_stato_vuoto_del_prior_e_nel_markup_e_non_lo_fabbrica_il_modulo():
-    """Stessa lezione della regione d'errore: uno stato vuoto creato
-    nell'istante in cui ci si scrive dentro non preesiste a cio' che annuncia.
-
-    A differenza della prima stesura di questo controllo — un'asserzione
-    `... or True` che non poteva fallire in nessuna condizione — qui si
-    guarda la proprieta' vera: `caricaPrior` trova l'elemento con
-    `getElementById`, non lo fabbrica con `createElement`.
-    """
-    markup = _senza_commenti_html(_markup())
-
-    assert 'id="prior-vuoto"' in markup
-    assert "non è ancora stato calcolato" in markup
-    modulo = _senza_commenti_js(_modulo())
-    corpo = _sorgente_di("caricaPrior", modulo)
-    assert 'getElementById("prior-vuoto")' in corpo
-    assert "createElement" not in corpo, (
-        "caricaPrior deve trovare lo stato vuoto nel markup, non fabbricarlo"
-    )
 
 
 def test_la_didascalia_della_vista_sta_dentro_la_vista_e_non_nella_terza_colonna():
@@ -3824,49 +3768,8 @@ assert.equal(
 """)
 
 
-def test_il_pannello_del_confronto_e_un_pannello_e_non_una_vista():
-    markup = _senza_commenti_html(_markup())
-
-    assert 'id="confronto"' in markup
-    assert 'id="confronto-tabella"' in markup
-    # nessun secondo contenitore di viewport: il confronto non e' una scena nuova
-    assert markup.count('class="viewport"') == 1
 
 
-def test_il_motivo_del_rifiuto_di_una_regione_arriva_a_video_con_il_proprio_numero(tmp_path):
-    """«quale controllo ha detto no, e quale numero glielo ha fatto dire»: un
-    rifiuto senza il proprio numero non dice a chi legge che cosa cambiare.
-
-    T2 del giro finale: questo controllo cercava `"valore" in corpo` e
-    `"soglia" in corpo` nel sorgente — l'anti-pattern che il docstring di
-    questo file dichiara bandito. Mutazione che sopravviveva: togliere le due
-    interpolazioni `${esito.valore.toFixed(3)}` e `${esito.soglia.toFixed(3)}`
-    lasciando due variabili morte. Il controllo a sottostringa vedeva ancora
-    gli identificatori e il gemello che esegue asseriva solo `/Regione 3/` e
-    `/parallelismo/`: i due numeri sparivano dallo schermo in silenzio.
-    Applicata davvero, adesso questo controllo cade.
-    """
-    _esegui(tmp_path, _banco_di_caricaPrior() + """
-disegnaScartate([{
-  regione: 2,
-  controlli_falliti: ["parallelismo", "costanza_sezione"],
-  esiti: {
-    parallelismo: { valore: 10.4912, soglia: 5.0 },
-    costanza_sezione: { valore: 0.7821, soglia: 0.1 },
-  },
-}]);
-const righe = document.getElementById("prior-scartate").figli.map((r) => r.textContent);
-assert.equal(righe.length, 2, `una riga per controllo fallito: ${righe.length}`);
-// Tre decimali, il valore misurato e la soglia contro cui e' stato misurato.
-// Senza i numeri la riga dice che il controllo ha detto no e non dice di
-// quanto: chi legge non sa se allargare la soglia o buttare la regione.
-assert.match(righe[0], /Regione 3/, "voce.regione + 1 non arriva a video");
-assert.match(righe[0], /parallelismo/);
-assert.ok(righe[0].includes("10.491"), `il valore misurato non e' a video: ${righe[0]}`);
-assert.ok(righe[0].includes("5.000"), `la soglia non e' a video: ${righe[0]}`);
-assert.ok(righe[1].includes("0.782"), `il valore misurato non e' a video: ${righe[1]}`);
-assert.ok(righe[1].includes("0.100"), `la soglia non e' a video: ${righe[1]}`);
-""")
 
 
 def test_nessuna_lettura_di_illeggibile_nel_modulo():
@@ -3928,370 +3831,24 @@ def _banco_di_caricaPrior() -> str:
     )
 
 
-def test_caricaPrior_mostra_il_motivo_quando_non_e_calcolato(tmp_path):
-    _esegui(tmp_path, _banco_di_caricaPrior() + """
-risponde["/api/wall"] = async () => ({
-  ok: true,
-  json: async () => ({ calcolato: false, motivo: "e' lo step 12", prior: null }),
-});
-await caricaPrior();
-const vuoto = document.getElementById("prior-vuoto");
-assert.equal(vuoto.hidden, false, "il prior non calcolato deve mostrare lo stato vuoto");
-assert.equal(vuoto.textContent, "e' lo step 12");
-assert.equal(document.getElementById("prior-membrature").childElementCount, 0);
-""")
 
 
-def test_caricaPrior_disegna_membrature_e_mappa_il_viewport_quando_calcolato(tmp_path):
-    _esegui(tmp_path, _banco_di_caricaPrior() + """
-risponde["/api/wall"] = async () => ({
-  ok: true,
-  json: async () => ({
-    calcolato: true, motivo: "",
-    prior: {
-      membrature: [{ sezione: [100, 50], lunghezza: 1200, fuori_piombo_deg: 0.4 }],
-      scartate: [{ regione: 2, controlli_falliti: ["parallelismo"],
-        esiti: { parallelismo: { valore: 3.2, soglia: 2.0 } } }],
-    },
-  }),
-});
-risponde["/api/cloud/2"] = async () => ({
-  ok: true, arrayBuffer: async () => new ArrayBuffer(24), // 2 punti
-});
-risponde["/api/membrature"] = async () => ({
-  ok: true,
-  headers: { get: (nome) => ({ "X-Membrature": "1" }[nome]) },
-  arrayBuffer: async () => new ArrayBuffer(8), // 2 etichette
-});
-await caricaPrior();
-const vuoto = document.getElementById("prior-vuoto");
-assert.equal(vuoto.hidden, true, "un prior calcolato non deve mostrare lo stato vuoto");
-const membrature = document.getElementById("prior-membrature");
-assert.equal(membrature.childElementCount, 1);
-assert.match(membrature.figli[0].textContent, /100\\.0 x 50\\.0 mm/);
-const scartate = document.getElementById("prior-scartate");
-assert.equal(scartate.childElementCount, 1);
-assert.match(scartate.figli[0].textContent, /Regione 3/, "voce.regione + 1 non arriva a video");
-assert.match(scartate.figli[0].textContent, /parallelismo/);
-assert.equal(vista.svuotate, 1, "la mappa delle membrature non ha svuotato il viewport");
-assert.equal(vista.disegnato.punti.length, 6, "i punti disegnati non sono quelli di /api/cloud/2");
-assert.equal(vista.disegnato.etichette.length, 2, "le etichette disegnate non sono quelle di /api/membrature");
-""")
 
 
-def test_caricaPrior_scarta_una_risposta_superata(tmp_path):
-    """La stessa disciplina dell'ordine gia' provata su `caricaStato` e
-    `mostraStep`: un clic su uno step, mentre il prior e' ancora in volo, non
-    deve lasciare che la risposta vecchia scriva sopra il pannello nuovo."""
-    _esegui(tmp_path, _banco_di_caricaPrior() + """
-let risolvi;
-risponde["/api/wall"] = () => new Promise((r) => { risolvi = r; });
-const ordine = generazione;
-const promessa = caricaPrior(ordine);
-generazione += 1; // un clic arriva mentre la risposta e' in volo
-risolvi({ ok: true, json: async () => ({ calcolato: false, motivo: "superato", prior: null }) });
-await promessa;
-assert.equal(
-  document.getElementById("prior-vuoto").textContent, "",
-  "una risposta superata ha scritto comunque nel pannello",
-);
-""")
 
 
-def _banco_di_caricaConfronto() -> str:
-    return _BANCO_PRIOR_CONFRONTO + _funzioni("ragioneDelRifiuto", "caricaConfronto") + """
-document.getElementById("confronto-vuoto").dataset.testoVuoto =
-  "Nessun modello parametrico generato: il confronto e' una scheda singola.";
-"""
 
 
-def test_caricaConfronto_nomina_i_modelli_non_generati(tmp_path):
-    _esegui(tmp_path, _banco_di_caricaConfronto() + """
-risponde["/api/compare"] = async () => ({
-  ok: true,
-  json: async () => ({
-    scheda_singola: false,
-    volume: { "as-built": 1.5, estruso: 1.4 },
-    massa: { "as-built": 12.0, estruso: 11.5 },
-    scostamento_nuvola: { "as-built": 0.0 },
-    note_non_geometriche: [],
-    vincoli_giunzioni: {},
-    chiusura_volume: null,
-  }),
-});
-await caricaConfronto();
-const tabella = document.getElementById("confronto-tabella");
-assert.equal(tabella.childElementCount, 5, "3 grandezze + note + vincoli; chiusura_volume nullo non aggiunge riga");
-assert.match(tabella.figli[0].textContent, /primitive: non generato/,
-  "un modello mancante non e' nominato: la colonna resta un trattino muto");
-assert.doesNotMatch(tabella.figli[0].textContent, /estruso: non generato/,
-  "un modello presente e' stato dichiarato non generato");
-""")
 
 
-def test_caricaConfronto_intitola_le_righe_con_l_etichetta_non_con_la_chiave(tmp_path):
-    """Il pannello e' la superficie che si vede per prima, proiettata durante
-    la discussione: `scostamento_nuvola` li' si legge come una chiave sfuggita,
-    non come una grandezza. Stessa regola del report in appendice.
-
-    Mutazione che deve morire: in `caricaConfronto`, rimettere `${grandezza}`
-    al posto di `${etichetta}` nel textContent della riga.
-    """
-    _esegui(tmp_path, _banco_di_caricaConfronto() + """
-risponde["/api/compare"] = async () => ({
-  ok: true,
-  json: async () => ({
-    scheda_singola: false,
-    volume: { "as-built": 1.5 },
-    massa: { "as-built": 12.0 },
-    scostamento_nuvola: { "as-built": 0.0 },
-    note_non_geometriche: [],
-    vincoli_giunzioni: {},
-    chiusura_volume: null,
-  }),
-});
-await caricaConfronto();
-const righe = document.getElementById("confronto-tabella").figli
-  .map((r) => r.textContent).join("\\n");
-assert.match(righe, /scostamento dalla nuvola \\[mm\\]/,
-  "la riga si intitola ancora con la chiave invece che con l'etichetta");
-assert.doesNotMatch(righe, /scostamento_nuvola/,
-  "la chiave del dizionario e' finita a video");
-""")
 
 
-def test_le_etichette_del_pannello_sono_quelle_del_report(tmp_path):
-    """Le stesse etichette vivono in due sorgenti, e dichiararlo non lega niente.
-
-    Il pannello e' proiettato in discussione, il report finisce in appendice
-    cartacea: chi cambia un'etichetta in `core/report.py` e non in `app.js` fa
-    dire due cose diverse alle due superfici, con la suite verde. Il commento in
-    `app.js` dichiara gia' il legame -- questo lo verifica, eseguendo la
-    `caricaConfronto` vera e leggendo le intestazioni che ha reso.
-
-    I gradi di liberta' sono la sola grandezza esclusa dal pannello, e per una
-    ragione: il valore e' un oggetto e qui non c'e' il `_testo` che lo sa
-    scrivere. Una quinta grandezza confrontabile che entrasse nel report senza
-    entrare qui rende questa lista piu' corta dell'attesa, e il confronto rosso.
-
-    Mutazioni che devono morire: cambiare un'etichetta in `report.py` senza
-    cambiarla in `app.js`; aggiungere una grandezza al report e non al pannello.
-    """
-    solo_nel_report = {"gradi_di_liberta"}
-    attese = [e for c, e in report._ETICHETTE_GRANDEZZE if c not in solo_nel_report]
-    payload = {c: {"as-built": 1} for c, _ in report._ETICHETTE_GRANDEZZE}
-
-    uscita = _esegui(tmp_path, _banco_di_caricaConfronto() + f"""
-risponde["/api/compare"] = async () => ({{
-  ok: true,
-  json: async () => ({{
-    scheda_singola: false,
-    ...{json.dumps(payload)},
-    note_non_geometriche: [],
-    vincoli_giunzioni: {{}},
-    chiusura_volume: null,
-  }}),
-}});
-await caricaConfronto();
-console.log(JSON.stringify(
-  document.getElementById("confronto-tabella").figli.map(
-    (r) => r.textContent.split(" \u2014 ")[0],
-  ),
-));
-""")
-
-    # Le ultime due righe del pannello sono fisse e non sono grandezze.
-    assert json.loads(uscita) == attese + ["note", "vincoli alle giunzioni"]
 
 
-def test_caricaConfronto_mostra_le_note_e_i_vincoli_alle_giunzioni(tmp_path):
-    """F2 del giro di correzione finale: il pannello rendeva solo volume,
-    massa, scostamento -- niente diceva a chi confronta i modelli che parte
-    dei nodi dipendenti non e' vincolata (`*TIE`), che e' esattamente il
-    limite dichiarato della fase e il quinto vincolo di prodotto. Il dato era
-    gia' nel payload di /api/compare (note_non_geometriche, vincoli_giunzioni,
-    chiusura_volume); mancava solo che il browser lo rendesse.
-
-    Mutazione che deve morire: in `caricaConfronto`, non appendere le righe
-    di note_non_geometriche/vincoli_giunzioni/chiusura_volume alla tabella --
-    le asserzioni sotto non troverebbero i loro contenuti.
-    """
-    _esegui(tmp_path, _banco_di_caricaConfronto() + """
-risponde["/api/compare"] = async () => ({
-  ok: true,
-  json: async () => ({
-    scheda_singola: false,
-    volume: { "as-built": 1.5, estruso: 1.4 },
-    massa: { "as-built": 12.0, estruso: 11.5 },
-    scostamento_nuvola: { "as-built": 0.0, estruso: 0.1 },
-    note_non_geometriche: ["MARCATORE nota statica"],
-    vincoli_giunzioni: {
-      "as-built": "non applicabile",
-      estruso: { giunzioni: 3, ties: 2, nodi_dipendenti_legati: 18, nodi_dipendenti_totali: 24 },
-    },
-    chiusura_volume: { passato: false, scarto_relativo: 0.05 },
-  }),
-});
-await caricaConfronto();
-const tabella = document.getElementById("confronto-tabella");
-const testo = [...tabella.figli].map((el) => el.textContent).join("\\n");
-assert.match(testo, /MARCATORE nota statica/, "note_non_geometriche non arriva a video");
-assert.match(testo, /18\\/24/, "nodi_dipendenti_legati\\/totali di vincoli_giunzioni non arriva a video");
-assert.match(testo, /non applicabile/, "as-built vincoli_giunzioni non e' nominato");
-assert.match(testo, /NON passato/, "chiusura_volume.passato=false non arriva a video");
-""")
 
 
-def test_caricaConfronto_non_crolla_prima_che_la_corsa_madre_esista(tmp_path):
-    """Trovato guardando nel browser, non da un test: alla primissima apertura
-    della pagina ne' 12_wall.json ne' modello.json esistono ancora in nessuna
-    cartella, e /api/compare rifiuta con un 400 (server.py, report.confronta).
-    Il corpo del rifiuto e' comunque JSON valido — {"errore", "messaggio"} —
-    quindi non e' `corpo == null` a fermarlo: senza il controllo su
-    `risposta.ok`, `corpo[grandezza]` sotto e' `undefined` e il pannello
-    solleva un TypeError fuori da ogni catch, esattamente quello che questo
-    file esiste per impedire sulle altre tratte.
-
-    F1 del giro di correzione finale: lo stesso 400 arriva anche quando una
-    corsa figlia e' fallita a meta' (cartella orfana), e in quel caso il
-    testo statico "nessun modello generato" mente a chi ha appena visto un
-    fallimento. Da qui in poi il pannello mostra `corpo.messaggio`, che il
-    gestore globale del server scrive apposta (`server.py`,
-    `nessuna_eccezione_verso_il_browser`)."""
-    _esegui(tmp_path, _banco_di_caricaConfronto() + """
-risponde["/api/compare"] = async () => ({
-  ok: false, status: 400,
-  json: async () => ({ errore: "ValueError", messaggio: "nessuna corsa madre" }),
-  text: async () => JSON.stringify({ errore: "ValueError", messaggio: "nessuna corsa madre" }),
-});
-await caricaConfronto();
-assert.equal(document.getElementById("confronto-vuoto").hidden, false,
-  "prima che la corsa madre esista non c'e' nulla da confrontare");
-assert.equal(document.getElementById("confronto-vuoto").textContent, "nessuna corsa madre",
-  "il messaggio del gestore globale non e' arrivato a video: e' rimasto il testo statico");
-assert.equal(document.getElementById("confronto-tabella").childElementCount, 0);
-""")
 
 
-_BANCO_ATTENDI = """import assert from 'node:assert/strict';
-
-class FlussoFinto {
-  constructor() { this.gestori = {}; }
-  addEventListener(tipo, gestore) { (this.gestori[tipo] ??= []).push(gestore); }
-  removeEventListener(tipo, gestore) {
-    this.gestori[tipo] = (this.gestori[tipo] ?? []).filter((g) => g !== gestore);
-  }
-  emetti(tipo, dato) {
-    for (const gestore of [...(this.gestori[tipo] ?? [])]) gestore({ data: JSON.stringify(dato) });
-  }
-}
-const flusso = new FlussoFinto();
-"""
-
-
-def test_attendiFineComando_risolve_solo_al_fronte_di_discesa(tmp_path):
-    """F3 del giro di correzione: il ciclo dei due modelli scriveva
-    `while ((await (await fetch("/api/run")).json()) && false) break;` — un
-    corpo di ciclo che non esegue mai, con la `fetch` comunque emessa e
-    scartata. La mutazione che questo test uccide e' esattamente quella: una
-    `attendiFineComando` che risolve subito (o mai) invece di risolvere sul
-    primo evento SSE "stato" con `in_corso: false`, che e' lo stesso stato
-    che il pannello degli step gia' guarda per sapere che una corsa e' finita.
-    """
-    _esegui(tmp_path, _BANCO_ATTENDI + _funzioni("attendiFineComando") + """
-let risolta = false;
-attendiFineComando().then(() => { risolta = true; });
-
-flusso.emetti("stato", { in_corso: true, steps: [] });
-await Promise.resolve();
-assert.equal(risolta, false, "risolve mentre il comando gira ancora");
-
-flusso.emetti("stato", { in_corso: true, steps: [] });
-await Promise.resolve();
-assert.equal(risolta, false, "un secondo evento 'in corso' non deve risolvere");
-
-flusso.emetti("stato", { in_corso: false, steps: [] });
-await Promise.resolve();
-assert.equal(risolta, true, "il fronte di discesa non risolve l'attesa: e' di nuovo il ciclo inerte");
-assert.equal(
-  (flusso.gestori["stato"] ?? []).length, 0,
-  "l'ascoltatore non si toglie da solo: ogni clic futuro ne aggiungerebbe uno in piu'",
-);
-""")
-
-
-def test_genera_modelli_aspetta_il_primo_prima_di_lanciare_il_secondo(tmp_path):
-    """Il worker esegue un solo sottoprocesso alla volta (worker.py): una
-    seconda `POST /api/model` mentre la prima gira solleva `RuntimeError`. Il
-    gestore vero, estratto da `app.js`, con `attendiFineComando` sostituita da
-    una finta controllabile a mano: se il gestore lanciasse la seconda POST
-    prima che la prima finisca, `chiamate` conterebbe due voci prima che il
-    test faccia risolvere la prima attesa.
-    """
-    modulo = _modulo()
-    corpo = modulo.split(
-        'document.getElementById("genera-modelli").addEventListener("click", async () => {', 1,
-    )[1].split("\n});", 1)[0]
-    assert "attendiFineComando" in corpo, "il gestore non aspetta piu' fra un modello e l'altro"
-    _esegui(tmp_path, """import assert from 'node:assert/strict';
-const document = {
-  elementi: {
-    "modello-estruso": { checked: true },
-    "modello-primitive": { checked: true },
-    "genera-modelli": { disabled: false },
-    "calcola-prior": { disabled: false },
-  },
-  getElementById(id) { return this.elementi[id]; },
-};
-// Il numero di giri di microtask fra una `await fetch` e la successiva non e'
-// un dettaglio stabile (dipende da quante promesse annidate il motore deve
-// smaltire): si aspetta la condizione, non un conteggio di tick fissato a
-// mano, col tetto solo per non restare appesi se l'implementazione si rompe.
-async function aspetta(condizione, messaggio) {
-  for (let tentativi = 0; tentativi < 1000; tentativi += 1) {
-    if (condizione()) return;
-    await Promise.resolve();
-  }
-  throw new Error(messaggio);
-}
-const chiamate = [];
-const risposteFetch = [];
-globalThis.fetch = async (percorso) => {
-  chiamate.push(percorso);
-  return new Promise((r) => { risposteFetch.push(r); });
-};
-const risolutori = [];
-async function attendiFineComando() { return new Promise((r) => { risolutori.push(r); }); }
-let generazione = 0;
-function superata(ordine, corrente = generazione) { return ordine !== corrente; }
-let confrontoRicaricato = 0;
-function caricaConfronto() { confrontoRicaricato += 1; }
-async function gestore() {""" + corpo + """
-}
-const eseguito = gestore();
-await aspetta(() => risposteFetch.length >= 1, "la prima POST non e' mai partita");
-assert.deepEqual(chiamate, ["/api/model/estruso"],
-  "la seconda POST e' partita senza aspettare la fine della prima");
-risposteFetch[0]({ ok: true });
-await aspetta(() => risolutori.length >= 1, "nessuna attesa dopo la prima POST: il ciclo e' di nuovo inerte");
-risolutori[0]();
-await aspetta(() => risposteFetch.length >= 2, "il secondo modello non e' mai partito");
-assert.deepEqual(chiamate, ["/api/model/estruso", "/api/model/primitive"]);
-risposteFetch[1]({ ok: true });
-await aspetta(() => risolutori.length >= 2, "nessuna attesa dopo la seconda POST");
-risolutori[1]();
-await eseguito;
-assert.equal(confrontoRicaricato, 1,
-  "il confronto non si ricarica dopo aver generato i modelli: resterebbe con la colonna vecchia");
-""")
-
-
-# --------------------------------------------------------------------------
-# Task 9: il campo si vede. Le due decisioni numeriche vivono in viewport.js,
-# pure e fuori da mostraMeshPerCampo apposta: una decisione sepolta dentro una
-# funzione che tocca three.js non si esegue in node, e finirebbe verificata
-# cercando una sottostringa.
-# --------------------------------------------------------------------------
 
 
 def test_la_scala_del_campo_si_taglia_al_p99_e_non_al_massimo(tmp_path):
@@ -4885,42 +4442,6 @@ console.log("ok");
     assert uscita.strip() == "ok"
 
 
-def test_un_campo_che_rigetta_in_costruzione_lo_dice_in_didascalia(tmp_path):
-    """M15 del giro finale: `pannelloCampo` chiamava `aggiorna()` in
-    costruzione senza `await` ne' `.catch()`. Un rigetto — la rete che cade, il
-    server che muore mentre il pannello nasce — diventava un unhandled
-    rejection: pannello muto, vista di prima ancora a schermo, e l'unico
-    segnale nella console del browser, che in discussione nessuno guarda.
-
-    Mutazione che uccide: togliere il `.catch()` e lasciare `aggiorna();`. Node
-    esce con codice diverso da zero per l'unhandled rejection, e `_esegui`
-    cade sul `returncode`.
-    """
-    _esegui(tmp_path, _DOM
-        + _funzioni_viewport("numeroDelCampo")
-        + _funzioni("didascaliaDellaVista", "pannelloCampo") + """
-// Option non sta nel DOM finto: e' il solo costruttore globale che
-// pannelloCampo usa, e qui basta che porti testo e valore.
-class Option { constructor(testo, valore) { this.testo = testo; this.valore = valore; } }
-globalThis.Option = Option;
-// Il valore di un <select> nel DOM finto: la prima opzione appesa, come fa il
-// browser quando nessuna e' selezionata a mano.
-Object.defineProperty(Elemento.prototype, "value", {
-  get() { return this.figli[0]?.valore ?? ""; }, configurable: true,
-});
-async function mostraCampoDelloStep() { throw new Error("il server e' caduto"); }
-async function mostraModoDelloStep() { throw new Error("il server e' caduto"); }
-
-const pannello = pannelloCampo(1, { casi: { GRAVITA: {} }, modi: 0, frequenze_hz: [] });
-assert.ok(pannello !== null, "il pannello non e' stato costruito");
-// Il <select> compare comunque: la costruzione non aspetta la vista.
-assert.equal(pannello.figli.length, 3, "il pannello ha perso una riga di comando");
-// L'unico posto in cui il rigetto puo' arrivare a chi guarda.
-await new Promise((r) => setTimeout(r, 0));
-const testo = document.getElementById("didascalia-vista").textContent;
-assert.ok(testo.includes("il server e' caduto"),
-  `il rigetto non e' arrivato in didascalia: ${JSON.stringify(testo)}`);
-""")
 
 
 def test_il_bottone_dello_scarto_non_fa_costruire_due_volte_lo_stesso_albero(tmp_path):
@@ -5020,143 +4541,10 @@ globalThis.fetch = async () => risponde[chiamata++]();
     )
 
 
-def test_il_campo_mostra_il_messaggio_del_server_su_un_400_e_non_una_pagina_bianca(tmp_path):
-    """Ingresso degenere: il server risponde 400 (caso o grandezza inesistenti,
-    o il .vtu assente perche' la corsa si e' fermata allo step 12). La
-    didascalia deve portare il messaggio del server, non restare quella di
-    prima e non sollevare fuori dal gestore."""
-    _esegui(tmp_path, _banco_del_campo_dello_step() + """
-risponde = [
-  async () => ({ ok: true, status: 200,
-    headers: { get: (n) => ({ "X-Vertices": "1", "X-Triangles": "0" }[n] ?? null) },
-    arrayBuffer: async () => new ArrayBuffer(12) }),
-  async () => ({ ok: false, status: 400,
-    text: async () => JSON.stringify({ messaggio: "nessun campo 'VM_CARICO_TOP' in 13_solution.vtu" }) }),
-];
-const disegnato = await mostraCampoDelloStep("CARICO_TOP", "VM", generazione);
-assert.equal(disegnato, true, "il rifiuto non e' stato gestito: il gestore non ha scritto nulla");
-assert.equal(vista.disegnato, null, "un rifiuto non deve disegnare comunque una mesh colorata");
-assert.equal(
-  didascalia.textContent,
-  "nessun campo 'VM_CARICO_TOP' in 13_solution.vtu",
-  "la didascalia non porta il messaggio del server",
-);
-""")
 
 
-def test_il_campo_colora_la_mesh_con_la_scala_tagliata_al_p99(tmp_path):
-    """Il percorso buono: mesh e campo arrivano insieme, la scala si taglia al
-    p99 (non al massimo che il server manda in X-Max), la didascalia porta il
-    massimo vero e i conteggi dicono su che cosa e' posato il campo."""
-    _esegui(tmp_path, _banco_del_campo_dello_step() + """
-const valoriCampo = new Float32Array(1000).fill(1.0);
-valoriCampo[999] = 50.0;
-risponde = [
-  async () => ({ ok: true, status: 200,
-    headers: { get: (n) => ({ "X-Vertices": "1000", "X-Triangles": "0" }[n] ?? null) },
-    arrayBuffer: async () => new Float32Array(3000).buffer }),
-  async () => ({ ok: true, status: 200,
-    headers: { get: (n) => ({ "X-Max": "50.0" }[n] ?? null) },
-    arrayBuffer: async () => valoriCampo.buffer }),
-];
-const disegnato = await mostraCampoDelloStep("CARICO_TOP", "VM", generazione);
-assert.equal(disegnato, true);
-assert.ok(vista.disegnato !== null, "la mesh colorata non e' mai stata disegnata");
-assert.ok(vista.disegnato.scala.taglio < 2.0,
-  `la scala ha seguito il massimo (50) invece del p99: ${vista.disegnato.scala.taglio}`);
-assert.ok(didascalia.textContent.includes("MPa"), didascalia.textContent);
-assert.ok(didascalia.textContent.includes("50"), didascalia.textContent);
-// C13 del giro finale: il massimo (50) e il taglio (1) stavano in due
-// paragrafi separati, a mezzo schermo dalla vista, e la macchia piu' scura si
-// leggeva come il massimo. Una frase sola, con entrambi, e il massimo marcato
-// per quello che e'.
-assert.ok(didascalia.textContent.includes("fuori scala"),
-  `il massimo non e' rappresentabile sulla scala e la didascalia non lo dice: ${didascalia.textContent}`);
-assert.ok(/scala tagliata a 1 MPa/.test(didascalia.textContent),
-  `il taglio non e' nella stessa frase del massimo: ${didascalia.textContent}`);
-assert.ok(/\\b1 nodi sopra/.test(didascalia.textContent), didascalia.textContent);
-// C15: l'aria-label della tela portava «campo su N facce, M nodi sopra il
-// taglio» — ne' caso di carico, ne' grandezza, ne' unita', ne' massimo.
-assert.equal(vista.disegnato.scala.descrizione, didascalia.textContent,
-  "la tela annuncia qualcosa di diverso da cio' che c'e' scritto sotto la vista");
-// Giro 1, M3: gli altri due rami scrivono #conteggi, questo lo lasciava a
-// quello della vista di prima — un conteggio di un altro artefatto.
-// "1000" senza puntino: in italiano Intl raggruppa da cinque cifre in su
-// (misurato in node), e 13 957 nodi invece si scrivono "13.957".
-assert.ok(document.getElementById("conteggi").textContent.includes("1000 vertici"),
-  `#conteggi non descrive il campo appena disegnato: ${document.getElementById("conteggi").textContent}`);
-""")
 
 
-@pytest.mark.parametrize(
-    "intestazione", ['"nan"', '"inf"', '"-inf"', "undefined"],
-    ids=["nan", "inf", "-inf", "assente"],
-)
-def test_un_x_max_che_non_si_puo_scrivere_lo_dichiara(tmp_path, intestazione):
-    """Ingresso degenere sul percorso vero, non sulla sola funzione pura.
-
-    `server.py` emette `str(float(valori.max()))` senza guardia: da un campo
-    con un residuo non finito escono le stringhe "nan", "inf", "-inf". E
-    un'intestazione assente vale `null`, che `Number` porta a 0 — «massimo
-    reale 0 mm» e' peggio di un buco, perche' si legge come una misura.
-
-    Il finto `headers.get` risponde `null` sulla chiave che non c'e', come
-    quello vero: con `undefined` il mutante che toglie la guardia
-    sopravviveva, perche' `Number(undefined)` e' NaN e la didascalia si
-    salvava da sola per la ragione sbagliata.
-    """
-    _esegui(tmp_path, _banco_del_campo_dello_step() + f"""
-const valoriCampo = new Float32Array(4).fill(1.0);
-risponde = [
-  async () => ({{ ok: true, status: 200,
-    headers: {{ get: (n) => ({{ "X-Vertices": "4", "X-Triangles": "0" }}[n] ?? null) }},
-    arrayBuffer: async () => new Float32Array(12).buffer }}),
-  async () => ({{ ok: true, status: 200,
-    headers: {{ get: (n) => ({{ "X-Max": {intestazione} }}[n] ?? null) }},
-    arrayBuffer: async () => valoriCampo.buffer }}),
-];
-await mostraCampoDelloStep("GRAVITA", "U", generazione);
-const testo = didascalia.textContent;
-assert.ok(!/NaN|Infinity|∞|undefined|null/.test(testo), testo);
-assert.ok(testo.includes("non disponibile"), `il massimo mancante non e' dichiarato: ${{testo}}`);
-assert.ok(!/\\breale 0 /.test(testo), `un dato assente si legge come una misura: ${{testo}}`);
-""")
-
-
-def test_un_campo_che_non_combacia_con_la_mesh_e_un_rifiuto_e_non_un_disegno(tmp_path):
-    """Giro 1, I4: mesh e campo arrivano da due risposte separate, e nessuno
-    controllava che si corrispondessero. Che oggi coincidano e' garanzia di due
-    handler del server che condividono `_contorno_del_volume`, non del client:
-    se `13_solution.vtu` viene riscritto fra le due fetch — l'interfaccia
-    permette di rieseguire col campo aperto — l'attributo `color` si posa su
-    posizioni di un'altra mesh e il pezzo esce colorato sfalsato, senza errori.
-    """
-    _esegui(tmp_path, _banco_del_campo_dello_step() + """
-risponde = [
-  async () => ({ ok: true, status: 200,
-    headers: { get: (n) => ({ "X-Vertices": "4", "X-Triangles": "0" }[n] ?? null) },
-    arrayBuffer: async () => new Float32Array(12).buffer }),
-  async () => ({ ok: true, status: 200,
-    headers: { get: (n) => ({ "X-Max": "3.0" }[n] ?? null) },
-    arrayBuffer: async () => new Float32Array(1000).buffer }),
-];
-const scritto = await mostraCampoDelloStep("GRAVITA", "U", generazione);
-assert.equal(scritto, true, "il disallineamento non e' stato dichiarato da nessuna parte");
-assert.equal(vista.disegnato, null, "colori sfalsati disegnati su una mesh che non e' la loro");
-assert.ok(didascalia.textContent.length > 0, "rifiuto muto");
-assert.ok(/1000/.test(didascalia.textContent) && /\\b4\\b/.test(didascalia.textContent),
-  `il rifiuto non dice quanto sono disallineati: ${didascalia.textContent}`);
-""")
-
-
-# --------------------------------------------------------------------------
-# Il movimento: due controlli, e nessuno guarda l'estetica.
-#
-# Cio' che si prova qui e' logica, e sono le due strade per cui un movimento
-# smette di essere un'informazione e diventa un difetto: una transizione che non
-# finisce mai, e un marchio di «e' appena cambiato» acceso su qualcosa che non
-# e' cambiato affatto. Nessuna delle due si vede guardando un fotogramma.
-# --------------------------------------------------------------------------
 
 
 def _durata_dell_arrivo() -> str:
@@ -5169,6 +4557,7 @@ def _durata_dell_arrivo() -> str:
     )
     assert trovato is not None, "nessuna costante DURATA_ARRIVO in viewport.js"
     return trovato.group(0).removeprefix("export ")
+
 
 
 def test_l_arrivo_finisce_e_non_lascia_la_camera_in_un_punto_che_non_esiste(tmp_path):
@@ -6555,17 +5944,16 @@ def test_la_colonna_si_ferma_all_undici_e_non_perde_lo_stato_degli_altri_due(tmp
     """Due meta' che si contraddirebbero se una sola fosse fatta.
 
     La colonna arriva a 11, il deck: e' li' che si chiude il perimetro del
-    prodotto. Il prior geometrico e il solutore restano eseguibili ma stanno
-    fuori dalla vista, dietro MOSTRA_LINEA_ANALISI -- vedi
-    docs/linea-analisi-integrata.md. Il fondo si e' alzato due volte: 13 fino a
-    #140, poi 12, e ora 11.
+    prodotto. Il prior geometrico resta eseguibile -- `meshrec wall`, e
+    l'artefatto sul disco -- ma non ha interfaccia, quindi sta fuori dalla
+    colonna. Il fondo si e' alzato due volte: 13 fino a #140, poi 12, e ora 11.
 
-    Ma `ultimoStato` deve continuare a portarli tutti e tredici:
-    `passoDaMostrare` cammina a monte da `corpo.steps.length`, che vale 13, e
-    STEP_CON_GEOMETRIA elenca il 13. Filtrando lo stato invece della sola vista,
-    la geometria del prior e quella del solutore diventerebbero irraggiungibili
-    per una strada che nessuno guarda -- ed e' la meta' che vale di piu' adesso,
-    perche' e' quella che distingue «nascosto» da «cancellato».
+    Ma `ultimoStato` deve continuare a portarli tutti: `passoDaMostrare` cammina
+    a monte da `corpo.steps.length`, e STEP_CON_GEOMETRIA elenca anche gli step
+    che la colonna non mostra. Filtrando lo stato invece della sola vista, la
+    geometria del prior diventerebbe irraggiungibile per una strada che nessuno
+    guarda -- ed e' la meta' che vale di piu', perche' e' quella che distingue
+    «fuori dalla colonna» da «fuori dal programma».
     """
     _esegui(tmp_path, _DOM + _funzioni(
         *_COLONNA,
@@ -6584,168 +5972,10 @@ assert.equal(ultimoStato.length, 13,
 """)
 
 
-def test_il_passaggio_dichiara_l_impedimento_invece_di_restare_cliccabile(tmp_path):
-    """Il collegamento non e' una porta sempre aperta.
-
-    Uno step fallito prima del dodici significa che la pipeline non arriva al
-    prior geometrico: cliccare porterebbe a una schermata che non puo' dire
-    altro che «manca tutto». Il collegamento si spegne e dice quale step ha
-    fermato la catena, che e' l'informazione che il vuoto non porterebbe.
-
-    Il caso opposto sta nello stesso banco: arrivata al dodici, la porta e'
-    aperta e dice perche' -- «attivo» senza ragione e' un bottone che chiede
-    fiducia.
-    """
-    _esegui(tmp_path, _DOM + _funzioni(
-        "ragioneDelPassaggio", "aggiornaPassaggio", "ragioneDelSolutore",
-    ) + _TREDICI + """
-// Il prior si cerca per CHIAVE e non in coda alla colonna: un server che
-// mandasse gli step fino a to_step manderebbe undici voci, e la coda sarebbe
-// lo step 11. «Il prior geometrico e' valido» letto sullo stato dell'export e'
-// la frase giusta sul fatto sbagliato, e contraddirebbe lo stadio 1/4, che il
-// prior lo cerca per chiave.
-const senzaPrior = tredici().filter((v) => v.numero <= 11);
-assert.match(ragioneDelPassaggio(senzaPrior).ragione, /nessuna corsa|non compare/i,
-  `il prior letto in coda: ${ragioneDelPassaggio(senzaPrior).ragione}`);
-
-const arrivata = ragioneDelPassaggio(tredici());
-assert.equal(arrivata.bloccato, false, "arrivata al dodici, il passaggio resta chiuso");
-// `pronto` e `bloccato` non sono lo stesso fatto negato: si entra nella
-// schermata anche senza prior (e li' si legge che cosa manca), ma il solutore
-// non si lancia. Un solo booleano avrebbe dovuto scegliere quale dei due
-// tradire.
-assert.equal(arrivata.pronto, true, "col prior valido il solutore non si puo' lanciare");
-assert.equal(ragioneDelPassaggio(tredici("mai eseguito")).pronto, false,
-  "senza prior il solutore parte lo stesso, e cade sul deck che non c'e'");
-assert.equal(ragioneDelPassaggio(tredici("mai eseguito")).bloccato, false,
-  "senza prior la schermata non si apre piu': non si puo' leggere che cosa manca");
-assert.equal(ragioneDelPassaggio([]).pronto, false, "senza corsa il solutore e' lanciabile");
-assert.match(arrivata.ragione, /membrature/,
-  `il passaggio aperto non dice perche': ${arrivata.ragione}`);
-
-// Capovolgere `=== "valido"` scambia le due frasi non bloccate, e cercare
-// «prior geometrico» in entrambe lasciava il mutante vivo: la corsa arrivata al
-// dodici si sarebbe sentita dire di eseguire lo step 12.
-const scaduta = ragioneDelPassaggio(
-  tredici().map((v) => (v.chiave === "12_wall" ? { ...v, stato: "non valido" } : v)));
-assert.equal(scaduta.bloccato, false, "un prior scaduto chiude la porta");
-assert.match(scaduta.ragione, /esegui lo step 12/,
-  `il prior scaduto non dice che cosa premere: ${scaduta.ragione}`);
-assert.notEqual(scaduta.ragione, arrivata.ragione,
-  "prior valido e prior scaduto si sentono dire la stessa cosa");
-
-// Il prior che fallisce da se' non puo' dirsi «la pipeline non arriva al prior
-// geometrico»: si contraddirebbe davanti a chi ha appena visto fallire quel passo.
-const priorCaduto = ragioneDelPassaggio(
-  tredici().map((v) => (v.chiave === "12_wall" ? { ...v, stato: "fallito" } : v)));
-assert.equal(priorCaduto.bloccato, true, "il prior fallito lascia la porta aperta sul vuoto");
-assert.doesNotMatch(priorCaduto.ragione, /non arriva al prior/,
-  `la frase si contraddice: ${priorCaduto.ragione}`);
-
-const rotta = tredici().map((v) => (v.numero === 7 ? { ...v, stato: "fallito" } : v));
-const fermata = ragioneDelPassaggio(rotta);
-assert.equal(fermata.bloccato, true,
-  "uno step fallito prima del dodici e il passaggio resta cliccabile verso il vuoto");
-assert.match(fermata.ragione, /step 7/,
-  `l'impedimento non nomina lo step che ha fermato la catena: ${fermata.ragione}`);
-
-// Lo step 13 fallito NON e' un impedimento al passaggio: e' cio' che la
-// seconda schermata serve a rifare.
-const solutoreCaduto = tredici().map((v) => (v.numero === 13 ? { ...v, stato: "fallito" } : v));
-assert.equal(ragioneDelPassaggio(solutoreCaduto).bloccato, false,
-  "il solutore caduto chiude la porta della schermata che serve a rilanciarlo");
-
-// E il cablaggio: la decisione deve arrivare al bottone e alla riga accanto.
-// aria-disabled e non disabled, per la stessa ragione gia' scritta accanto a
-// .corsa-voce nel foglio: il bottone porta una spiegazione, e `disabled` lo
-// toglierebbe insieme dal giro del tabulatore e dall'annuncio. E toglierebbe
-// anche il fuoco a chi ci sta sopra nell'istante in cui uno step fallisce --
-// disegnaStep gira due volte al secondo mentre la pipeline lavora.
-ultimoStato = rotta;
-aggiornaPassaggio();
-assert.equal(document.getElementById("vai-analisi").getAttribute("aria-disabled"), "true",
-  "il bottone resta acceso su una catena ferma");
-assert.equal(document.getElementById("vai-analisi").disabled, undefined,
-  "il bottone e' `disabled`: esce dal tabulatore e la sua ragione non si sente piu'");
-assert.match(document.getElementById("vai-analisi-ragione").textContent, /step 7/,
-  "la ragione non arriva a video");
-
-// Aperto, il passaggio si spegne: aggiornaPassaggio deve togliere l'attributo,
-// non lasciarlo appiccicato dalla volta prima.
-ultimoStato = tredici();
-aggiornaPassaggio();
-assert.equal(document.getElementById("vai-analisi").getAttribute("aria-disabled"), null,
-  "il passaggio resta spento su una catena che e' tornata sana");
-""")
 
 
-def test_lo_stadio_del_modello_dice_che_cosa_manca_e_quale_step_lo_produce(tmp_path):
-    """Lo stato vuoto che insegna, e i tre ingressi che lo mettono alla prova.
-
-    PRODUCT.md:181 dichiara vincolante che stati vuoti e prima apertura
-    insegnino: l'utente successivo confermato la pipeline non l'ha mai vista.
-    Questa schermata e' TUTTA stato vuoto, quindi e' il caso in cui quella
-    regola morde di piu'.
-
-    Prima apertura assoluta (nessuna corsa), corsa ferma allo step 1, corsa
-    arrivata al dodici: tre frasi diverse, e nessuna delle tre e' un rettangolo
-    muto.
-    """
-    _esegui(tmp_path, _DOM + _funzioni(
-        "testoDelloStadioModello", "aggiornaStadi", *_ANALISI,
-    ) + _TREDICI + """
-const prima = testoDelloStadioModello([]);
-assert.match(prima, /nessuna corsa/i,
-  `prima apertura assoluta: lo stadio non dice che non c'e' nessuna corsa: ${prima}`);
-
-const ferma = testoDelloStadioModello(tredici("mai eseguito"));
-assert.match(ferma, /step 12/,
-  `corsa ferma allo step 1: lo stadio non nomina lo step che produce il modello: ${ferma}`);
-assert.match(ferma, /mai eseguito/,
-  `lo stadio non dichiara in che stato e' quello step: ${ferma}`);
-
-const pronta = testoDelloStadioModello(tredici());
-assert.match(pronta, /step 12/, `lo stadio non nomina piu' lo step: ${pronta}`);
-assert.notEqual(pronta, ferma,
-  "lo stadio dice la stessa cosa a prior calcolato e a prior mai eseguito");
-
-// E il cablaggio: la frase arriva nella riga del markup, non resta in memoria.
-ultimoStato = [];
-aggiornaStadi();
-assert.match(document.getElementById("stadio-modello").textContent, /nessuna corsa/i,
-  "lo stadio del modello resta muto a video");
-""")
 
 
-def test_il_fuoco_non_si_perde_nel_passaggio_fra_le_due_schermate(tmp_path):
-    """Nascondere la schermata che tiene il cursore butta il fuoco su `<body>`.
-
-    Da sola tastiera quello e' il momento in cui si perde il posto: il
-    tabulatore riparte dall'inizio del documento e chi non vede lo schermo non
-    ha nessun canale che dica dov'e' finito. Il fuoco va posato sull'intestazione
-    della schermata che si apre, di là e di qua: al ritorno l'intestazione della
-    colonna e non il passaggio da cui si era partiti, che nel frattempo può
-    essersi spento -- e `focus()` su un comando spento non fa niente.
-    """
-    _esegui(tmp_path, _DOM + _funzioni(
-        "ragioneDelPassaggio", "mostraSchermata",
-        "testoDelloStadioModello", "aggiornaStadi", *_ANALISI,
-        "mostraAnalisi", "mostraPipeline",
-    ) + """
-const lavoro = document.getElementById("lavoro");
-const analisi = document.getElementById("analisi");
-mostraAnalisi();
-assert.equal(lavoro.hidden, true, "la pipeline resta a video sotto la seconda schermata");
-assert.equal(analisi.hidden, false, "la seconda schermata non si apre");
-assert.equal(aFuoco, document.getElementById("analisi-titolo"),
-  "il fuoco resta appeso all'elemento appena nascosto");
-
-mostraPipeline();
-assert.equal(lavoro.hidden, false, "non si torna piu' alla pipeline");
-assert.equal(analisi.hidden, true, "la seconda schermata resta aperta sotto la pipeline");
-assert.equal(aFuoco, document.getElementById("pipeline-titolo"),
-  "tornando indietro il fuoco non si posa sull'intestazione della colonna");
-""")
 
 
 def test_il_collegamento_perso_col_server_si_dichiara(tmp_path):
@@ -6777,859 +6007,60 @@ assert.equal(riga.hidden, true, "riconnesso, l'avviso resta acceso e diventa un 
         )
 
 
-def test_la_seconda_schermata_porta_i_quattro_stadi_in_ordine_di_dipendenza():
-    """Modello, struttura, pre-processore, post-processore: e' un ordine, non un
-    elenco. Ciascuno ha bisogno del precedente, e mostrarli in un ordine diverso
-    direbbe che si possono compilare in un ordine diverso.
-
-    Nel markup e non fabbricati da `app.js`, come la regione d'errore, lo stato
-    vuoto della vista e la didascalia: uno stato vuoto creato nell'istante in cui
-    ci si scrive dentro non preesiste a cio' che annuncia, ed e' la lezione che
-    in questo file e' gia' costata tre ricadute.
-    """
-    markup = _senza_commenti_html(_markup())
-    assert "hidden" in _elemento(markup, "analisi"), (
-        "la seconda schermata non nasce nascosta: lampeggia all'avvio sopra l'ingresso"
-    )
-    corpo = markup.split('id="analisi"', 1)[1]
-    titoli = re.findall(r"<h3[^>]*>(.*?)</h3>", corpo, flags=re.S)
-    assert titoli == ["1 · Modello", "2 · Struttura", "3 · Pre-processore", "4 · Post-processore"], (
-        f"i quattro stadi non ci sono, o non sono in ordine di dipendenza: {titoli}"
-    )
-    stadi = re.findall(r'<li class="stadio">(.*?)</li>', corpo, flags=re.S)
-    assert len(stadi) == 4, f"gli stadi non sono quattro voci d'elenco: {len(stadi)}"
-    for titolo, stadio in zip(titoli, stadi):
-        assert 'class="vuoto"' in stadio, (
-            f"lo stadio «{titolo}» e' un rettangolo muto: non dichiara di essere vuoto"
-        )
-        # Che cosa aspetta, e non solo che e' vuoto: «vuoto» da solo non insegna
-        # niente a chi la pipeline non l'ha mai vista girare.
-        assert "step" in stadio, (
-            f"lo stadio «{titolo}» non nomina niente che lo riempirebbe"
-        )
-
-
-def test_tornare_alla_scelta_della_corsa_spegne_anche_la_seconda_schermata(tmp_path):
-    """Le schermate erano due e adesso sono tre, e «Cambia corsa» ne conosceva due.
-
-    `#cambia-corsa` vive nella testata, cioe' fuori da <main>: si vede e si clicca
-    anche dalla schermata dell'analisi. `mostraIngresso` spegneva `#lavoro` e
-    accendeva `#ingresso`, e nessuno toccava `#analisi`: la scelta della corsa
-    compariva con i quattro stadi ancora stampati sotto.
-
-    Mutazione che lo uccide: togliere la riga che nasconde `#analisi`.
-    """
-    _esegui(tmp_path, _DOM + _funzioni("mostraSchermata", "mostraIngresso") + """
-// L'ingresso si ridisegna da /api/corse e questo banco prova altro: il disegno
-// ha i propri controlli.
-function disegnaIngresso() {}
-const analisi = document.getElementById("analisi");
-analisi.hidden = false;
-mostraIngresso();
-assert.equal(analisi.hidden, true,
-  "la scelta della corsa compare con i quattro stadi dell'analisi ancora stampati sotto");
-assert.equal(document.getElementById("lavoro").hidden, true, "la pipeline resta a video");
-assert.equal(document.getElementById("ingresso").hidden, false, "l'ingresso non compare");
-""")
-
-
-def test_il_passaggio_spento_non_apre_la_schermata_e_non_ruba_il_fuoco(tmp_path):
-    """Un bottone che porta una spiegazione non si spegne con `disabled`.
-
-    `disabled` lo toglie dal giro del tabulatore E dall'annuncio, cioè toglie
-    proprio la ragione per cui esiste. Il foglio lo dichiara già per iscritto
-    accanto a `.corsa-voce[aria-disabled]`: «resta raggiungibile da tastiera e
-    annunciata -- e' l'unica voce che porta una spiegazione». Il gesto si ferma
-    da sé.
-
-    E il ritorno posa il fuoco sull'intestazione della colonna, non sul
-    passaggio: sul passaggio bloccato `focus()` sarebbe un `no-op` con
-    `disabled`, e il fuoco cadrebbe su <body> -- il difetto che questa coppia di
-    funzioni esiste per chiudere.
-    """
-    _esegui(tmp_path, _DOM + _funzioni(
-        *_COLONNA, "mostraSchermata", "mostraAnalisi", "mostraPipeline",
-    ) + _TREDICI + """
-const analisi = document.getElementById("analisi");
-analisi.hidden = true;
-const rotta = tredici().map((v) => (v.numero === 7 ? { ...v, stato: "fallito" } : v));
-disegnaStep(rotta);
-
-mostraAnalisi();
-assert.equal(analisi.hidden, true,
-  "il passaggio bloccato apre lo stesso la schermata, e ci porta sul vuoto");
-
-// Aperta da una catena sana, il ritorno deve funzionare anche se nel frattempo
-// uno step e' fallito: e' il caso in cui il fuoco si perdeva.
-disegnaStep(tredici());
-mostraAnalisi();
-assert.equal(analisi.hidden, false, "il passaggio aperto non apre la schermata");
-disegnaStep(rotta);
-mostraPipeline();
-assert.equal(aFuoco, document.getElementById("pipeline-titolo"),
-  "il fuoco non si posa sull'intestazione della colonna: da tastiera si perde il posto");
-""")
-
-
-def test_l_annullamento_non_rimette_la_pipeline_sopra_la_schermata_dell_analisi(tmp_path):
-    """`caricaStato` non gira solo all'avvio: la rilegge anche l'annullamento
-    (Ctrl/Cmd+Z), che è un cambio di configurazione e non un cambio di schermata.
-
-    Scoprendo `#lavoro` senza guardare, la colonna della pipeline ricompariva
-    sotto le dita di chi stava guardando l'analisi, con le due schermate a
-    video insieme. È la stessa dimenticanza di «Cambia corsa», per la terza
-    strada: le schermate sono tre e ogni transizione se le riscriveva a mano.
-    """
-    _esegui(tmp_path, _banco_di_caricaStato() + """
-const analisi = document.getElementById("analisi");
-risponde = async () => ({ ok: true, status: 200, json: async () => ({ out_dir: "/tmp/corsa", steps: STEPS }) });
-
-analisi.hidden = false;
-document.getElementById("lavoro").hidden = true;
-await caricaStato();
-assert.equal(analisi.hidden, false,
-  "l'annullamento butta fuori dalla schermata dell'analisi chi ci stava");
-assert.equal(document.getElementById("lavoro").hidden, true,
-  "la colonna ricompare sotto la schermata dell'analisi: due schermate a video insieme");
-
-// Il controllo che smentisce: dall'ingresso, `caricaStato` deve scoprire la
-// pipeline come ha sempre fatto.
-analisi.hidden = true;
-document.getElementById("lavoro").hidden = true;
-document.getElementById("ingresso").hidden = false;
-await caricaStato();
-assert.equal(document.getElementById("lavoro").hidden, false, "la pipeline non compare piu'");
-assert.equal(document.getElementById("ingresso").hidden, true, "l'ingresso resta a video");
-""")
-
-
-def test_i_due_bottoni_del_passaggio_sono_legati_alle_due_funzioni_giuste():
-    """Il fuoco e le due funzioni hanno i loro banchi; il CABLAGGIO no.
-
-    Scambiati i due gestori, o cancellato un `addEventListener`, ogni banco di
-    questo file resta verde e premere Invio sul bottone non porta in nessun
-    posto. È la stessa metà che mancava al flusso degli eventi, e si chiude allo
-    stesso modo: nominando la coppia elemento→funzione.
-    """
-    modulo = _senza_commenti_js(_modulo())
-    for identificativo, funzione in (("vai-analisi", "mostraAnalisi"),
-                                     ("torna-pipeline", "mostraPipeline")):
-        atteso = f'document.getElementById("{identificativo}").addEventListener("click", {funzione})'
-        assert atteso in modulo, (
-            f"#{identificativo} non chiama piu' {funzione}: il bottone non porta da nessuna parte"
-        )
-
-
-def test_lo_stadio_del_modello_porta_il_comando_che_risolve(tmp_path):
-    """Un comando che funziona non è un segnaposto.
-
-    Tolto lo step 13 dalla colonna è morto il suo unico ingresso, e con lui
-    l'unico modo di lanciare il solutore dal browser. Da riga di comando non
-    c'è ripiego: `from_step` ha `le=9` (`core/config.py:530`), quindi
-    `meshrec run --from-step 13` non parte nemmeno. Il divieto del brief
-    riguarda i pannelli che mostrano numeri che nessuno ha calcolato; un
-    bottone legato a una tratta che esiste è l'opposto.
-
-    E nel MARKUP la schermata non porta nessun menù e nessun numero: da quando i
-    quattro stadi si riempiono, tutto cio' che mostra un valore lo costruisce
-    `disegnaAnalisi` dal carico di `/api/analisi`. Un `<select>` scritto qui
-    dentro sarebbe un menù le cui voci nessuna misura sostiene -- il difetto
-    preciso che questa schermata e' costruita per non produrre -- e i banchi
-    delle quattro schede, piu' sotto, provano eseguendo che i menù veri nascono
-    dai dati.
-    """
-    markup = _senza_commenti_html(_markup())
-    corpo = markup.split('id="analisi"', 1)[1]
-    primo = re.search(r'<li class="stadio">(.*?)</li>', corpo, flags=re.S).group(1)
-    assert 'id="risolvi"' in primo, "lo stadio del modello non porta il comando che risolve"
-    assert 'class="bottone bottone-primario esecuzione"' in primo, (
-        "il comando non segue la corsa come gli altri «Esegui»: `esecuzione` e' come "
-        "spegniLeEsecuzioni li trova"
-    )
-    assert 'id="analisi-errore"' in corpo and 'role="alert"' in corpo, (
-        "il rifiuto del solutore non ha dove essere annunciato: #errore vive nella colonna "
-        "del dettaglio, cioe' su una schermata che qui e' nascosta"
-    )
-    for vietato in ("<select", "id=\"caso\"", "id=\"grandezza\"", "Metriche"):
-        assert vietato not in corpo, (
-            f"la schermata dell'analisi porta «{vietato}» nel markup: un menù o una "
-            "tabella scritti qui mostrerebbero voci che nessuna misura sostiene. "
-            "Tutto cio' che porta un valore lo costruisce disegnaAnalisi dal carico "
-            "di /api/analisi"
-        )
-
-    _esegui(tmp_path, _DOM + _funzioni(*_COLONNA) + _TREDICI + """
-const comando = document.getElementById("risolvi");
-ultimoStato = tredici();
-aggiornaPassaggio();
-assert.equal(comando.getAttribute("aria-disabled"), null,
-  "col prior valido il comando resta spento");
-
-ultimoStato = tredici("mai eseguito");
-aggiornaPassaggio();
-assert.equal(comando.getAttribute("aria-disabled"), "true",
-  "senza prior il comando resta acceso e cade sul deck che non c'e'");
-
-// Il deck lo scrive lo step 11: fallito quello, non c'e' niente da risolvere,
-// e il comando non deve mandare una richiesta che fallira'.
-ultimoStato = tredici();
-ultimoStato[10].stato = "fallito";
-aggiornaPassaggio();
-assert.equal(comando.getAttribute("aria-disabled"), "true",
-  "con l'export fallito il comando parte lo stesso, e non c'e' un deck da risolvere");
-assert.match(document.getElementById("risolvi-ragione").textContent, /step 11/,
-  "il comando spento non dice quale step manca");
-// La stessa frase della riga sotto il passaggio, non una seconda lingua per
-// dire lo stesso fatto. Finche' il carico dell'analisi non e' arrivato le due
-// righe coincidono; da li' in poi il comando ne porta una seconda che il
-// passaggio non ha -- il verdetto sul solutore, che riguarda lui solo.
-assert.equal(datiAnalisi, null, "il banco parte con un carico dell'analisi gia' in memoria");
-assert.equal(
-  document.getElementById("risolvi-ragione").textContent,
-  document.getElementById("vai-analisi-ragione").textContent,
-  "il comando spento spiega la propria ragione con parole sue");
-""")
-
-
-def test_il_comando_che_risolve_si_ferma_da_se_e_dichiara_il_rifiuto(tmp_path):
-    """Tre proprietà del gesto, e nessuna si vede senza eseguirlo.
-
-    Senza prior non parte nessuna richiesta: `aria-disabled` lascia il bottone
-    cliccabile per costruzione, quindi la guardia deve stare nel gestore.
-
-    Col prior parte, e sulla tratta del solutore — `POST /api/solve`, che avvia
-    il comando `meshrec solve`. Non `POST /api/step/13`: quella rispondeva 200
-    e poi il sottoprocesso moriva su `from_step`, il cui tetto è 9.
-
-    E il rifiuto si vede: `dichiaraErrore` scrive in `#errore`, che vive nella
-    colonna del dettaglio, cioè su una schermata che da qui è nascosta. Un
-    rifiuto annunciato là sarebbe un clic senza ritorno.
-    """
-    _esegui(tmp_path, _DOM + _funzioni(
-        "ragioneDelPassaggio", "superata", "serverMuto", "ragioneDelRifiuto",
-        "apriRisoluzione", "risolvi",
-    ) + _TREDICI + """
-let ultimaRisoluzione = 0;
-let chiesto = [];
-let risponde = async () => ({ ok: true, status: 200 });
-globalThis.fetch = async (percorso, opzioni) => { chiesto.push([percorso, opzioni?.method]); return risponde(); };
-const riga = document.getElementById("analisi-errore");
-
-// Senza prior: nessuna richiesta.
-ultimoStato = tredici("mai eseguito");
-await risolvi();
-assert.deepEqual(chiesto, [], "il comando parte anche senza prior");
-
-// Col prior: la tratta del solutore.
-ultimoStato = tredici();
-await risolvi();
-assert.deepEqual(chiesto, [["/api/solve", "POST"]],
-  `la tratta non e' quella del solutore: ${JSON.stringify(chiesto)}`);
-assert.equal(riga.textContent, "", "un avvio riuscito lascia scritto un errore");
-
-// Rifiutato: si vede, e su questa schermata.
-risponde = async () => ({ ok: false, status: 400,
-  text: async () => JSON.stringify({ messaggio: "una corsa sta già girando" }) });
-await risolvi();
-assert.equal(riga.textContent, "una corsa sta già girando",
-  "il rifiuto del solutore non arriva a video: il clic non ha ritorno");
-""")
-
-
-# --------------------------------------------------------------------------
-# I quattro stadi della schermata dell'analisi.
-#
-# Ogni scheda si prova ESEGUENDOLA su un carico come quello che /api/analisi
-# manda davvero, e leggendo il testo che finirebbe a video. Un controllo che
-# cercasse una sottostringa nel sorgente resterebbe verde su una guardia resa
-# inerte, ed e' gia' successo su questo ramo.
-#
-# Il filo che li tiene insieme e' PRODUCT.md:170: dove un numero non c'e', a
-# video deve esserci il motivo che nomina lo step o la decisione mancante -- mai
-# uno zero, mai un rettangolo grigio.
-# --------------------------------------------------------------------------
-
-# Le funzioni delle quattro schede piu' cio' che le formatta. `numeroDelCampo`
-# viene da viewport.js, dove sta il resto delle decisioni numeriche del campo.
-_SCHEDE = _ANALISI + (
-    "aggiornaPassaggio", "ragioneDelPassaggio",
-    # `schedaPostprocessore` monta il menu del caso e della grandezza che il
-    # pannello dello step 13 gia' costruiva: e' cio' che «attuare quello che
-    # c'e' gia'» significa, e il banco lo esegue davvero invece di fidarsi.
-    "pannelloCampo", "didascaliaDellaVista",
-)
-
-
-def _banco_delle_schede() -> str:
-    return _DOM + _funzioni_viewport("numeroDelCampo") + _funzioni(*_SCHEDE)
-
-
-# Un carico dell'analisi minimo ma della forma vera: da qui i banchi cambiano il
-# solo campo che stanno provando, cosi' che nessuno di loro descriva una risposta
-# che il server non manderebbe mai.
-_CARICO = """
-const carico = () => ({
-  modelli: {
-    solido: { etichetta: "solido tetraedrico", produce: "lo step 11", pronto: true,
-              manca: null, instradato: true, motivo: null },
-    telaio: { etichetta: "telaio sulle membrature", produce: "lo step 12", pronto: true,
-              manca: null, instradato: false, motivo: "il telaio si costruisce e non si risolve" },
-  },
-  solutori: {
-    calculix: { disponibile: true, percorso: "/usr/bin/ccx", origine: "PATH", scelto: true,
-                motivo: null, dove_prenderlo: "CalculiX da http://www.dhondt.de/" },
-    opensees: { disponibile: false, percorso: null, origine: null, scelto: false,
-                motivo: "non nel PATH", dove_prenderlo: "OpenSees da https://opensees.berkeley.edu/" },
-  },
-  regioni: null,
-  regioni_motivo: "nessuna regione dichiarata: la frazione orfana la misura lo step 11",
-  regioni_dichiarate: [],
-  membrature: [],
-  membrature_motivo: "il prior geometrico non c'è: lo propone lo step 12",
-  giunzioni: [],
-  giunzioni_motivo: null,
-  azioni: { GRAVITA: "permanente_strutturale" },
-  categorie: [{ categoria: "A", descrizione: "Ambienti ad uso residenziale",
-                psi_0: 0.7, psi_1: 0.5, psi_2: 0.3, fonte: "NTC 2018 §2.5.2, Tab. 2.5.I" }],
-  configurazione: { analysis: { fixed_nset: "BASE" }, carichi: { combinazioni: [] } },
-  solve: null,
-  solve_motivo: "lo step 13 non è ancora stato eseguito: non c'è niente da rileggere",
-  metriche_illeggibili: null,
-});
-const membratura = (campi) => ({
-  indice: 0, lunghezza: 3000, sezione: [300, 500],
-  riempimento: { stato: "pieno", valore: 0.91, soglia: 0.6, affidabile: true },
-  regione: "pilastro", sezione_dichiarata: null,
-  stazioni: [], stazioni_motivo: null, ...campi,
-});
-const stazione = (campi) => ({
-  quota: 0, b: 300, h: 500, d: 454, mu: 0.0059, mu_min: 0.0013, mu_bil: 0.0231,
-  verdetto: "duttile", interferro_netto: 45.3, copriferro_netto: 38, ...campi,
-});
-"""
-
-
-def test_le_quattro_schede_non_si_toccano_finche_la_richiesta_non_e_tornata(tmp_path):
-    """Lo stato vuoto del markup e' quello della prima apertura assoluta.
-
-    Riscriverlo prima che la tratta risponda lo distruggerebbe, ed e' la stessa
-    lezione gia' costata tre ricadute sulla regione role="alert": una regione
-    creata nell'istante in cui ci si scrive dentro non preesiste a cio' che
-    annuncia.
-    """
-    markup = _senza_commenti_html(_markup())
-    corpo = markup.split('id="analisi"', 1)[1]
-    for contenitore, chi in (
-        ("modello-dati", "step 11"), ("stadio-struttura", "step 12"),
-        ("stadio-preprocessore", "step 11"), ("stadio-postprocessore", "step 13"),
-    ):
-        assert f'id="{contenitore}"' in corpo, f"manca il contenitore {contenitore}"
-        dentro = corpo.split(f'id="{contenitore}"', 1)[1].split("</div>", 1)[0]
-        assert 'class="vuoto"' in dentro, (
-            f"{contenitore} nasce senza uno stato vuoto: a corsa chiusa e' un rettangolo muto"
-        )
-        assert chi in dentro, f"{contenitore} non nomina lo step che produce cio' che manca"
-
-    _esegui(tmp_path, _banco_delle_schede() + """
-const scheda = document.getElementById("stadio-struttura");
-const segnaposto = document.createElement("p");
-segnaposto.className = "vuoto";
-segnaposto.textContent = "lo stato vuoto scritto nel markup";
-scheda.append(segnaposto);
-disegnaAnalisi();
-assert.ok(scheda.figli.includes(segnaposto),
-  "le schede si riscrivono prima che la richiesta sia tornata: lo stato vuoto del "
-  + `markup muore, e al suo posto resta ${JSON.stringify(testoDi(scheda.figli))}`);
-""")
-
-
-def test_la_frazione_orfana_assente_non_diventa_uno_zero(tmp_path):
-    """Uno zero direbbe «nessun elemento orfano», che e' l'opposto di «non
-    misurata». Il motivo nomina lo step che la misurerebbe."""
-    _esegui(tmp_path, _banco_delle_schede() + _CARICO + """
-const dati = carico();
-const testo = testoDi(schedaModello(dati, null, 0));
-assert.match(testo, /step 11/,
-  `la frazione orfana assente non nomina lo step che la misura: ${testo}`);
-assert.ok(!/frazione orfana\\s*0/.test(testo),
-  `la frazione orfana assente e' finita a video come uno zero: ${testo}`);
-""")
-
-
-def test_tutto_orfano_e_un_risultato_grave_e_si_vede_subito(tmp_path):
-    """`frazione_orfana` a 1 non e' una riga in piu' in una tabella: vuol dire
-    che nessun elemento del maglio e' caduto in una regione dichiarata."""
-    _esegui(tmp_path, _banco_delle_schede() + _CARICO + """
-const dati = carico();
-dati.regioni = { elementi_per_regione: {}, volume_per_regione: {},
-                 frazione_orfana: 1, contesi_risolti: 0,
-                 continuo: "il continuo di ogni regione: il calcestruzzo confinato" };
-dati.regioni_motivo = null;
-const nodi = schedaModello(dati, null, 0);
-const testo = testoDi(nodi);
-assert.match(testo, /Tutto il maglio è orfano/,
-  `tutto orfano passa come una riga qualunque: ${testo}`);
-const gravi = nodi.filter((n) => n.className === "rifiuto");
-assert.equal(gravi.length, 1, "il fatto grave non porta il proprio marchio");
-// E il controllo che sorveglia il numero esce con lui.
-assert.match(testo, /contesi risolti/, `manca il controllo accanto alla frazione: ${testo}`);
-assert.match(testo, /calcestruzzo confinato/,
-  `la limitazione dichiarata del modello solido non arriva a video: ${testo}`);
-
-// A frazione zero il marchio grave non c'e': un allarme sempre acceso non e' un allarme.
-dati.regioni.frazione_orfana = 0;
-assert.equal(schedaModello(dati, null, 0).filter((n) => n.className === "rifiuto").length, 0,
-  "il marchio grave resta acceso anche senza un solo elemento orfano");
-""")
-
-
-def test_senza_la_prova_la_scheda_dice_che_il_solutore_c_e_e_che_non_basta(tmp_path):
-    """La schermata resta utile anche senza eseguire niente.
-
-    `solve.disponibilita` dice gia' se il binario c'e' e da dove, e la
-    differenza fra «c'e'» e «funziona» va detta invece di sparire insieme alla
-    prova automatica. Il percorso esce a video prima di ogni esecuzione: e' la
-    sola cosa che permette a chi guarda di accorgersi che l'eseguibile nominato
-    dal `config.yaml` non e' quello che si aspettava.
-    """
-    _esegui(tmp_path, _banco_delle_schede() + _CARICO + """
-const dati = carico();
-const prima = ragioneDelSolutore(dati);
-assert.equal(prima.pronto, true,
-  "senza aver chiesto niente il comando nasce spento: sarebbe un rifiuto senza motivo");
-assert.match(prima.ragione, /\\/usr\\/bin\\/ccx/,
-  `il percorso che sta per essere eseguito non si legge: ${prima.ragione}`);
-assert.match(prima.ragione, /non è «funziona»/,
-  `«c'è» passa per «funziona»: ${prima.ragione}`);
-
-const testo = testoDi(schedaModello(dati, null, 0));
-assert.match(testo, /\\/usr\\/bin\\/ccx/, `il percorso non arriva nella scheda: ${testo}`);
-
-// Il solutore che non c'e' spegne il comando anche senza la prova: mandare il
-// deck a un binario assente e' un clic che fallisce, e la disponibilita' basta
-// a saperlo.
-dati.solutori.calculix.disponibile = false;
-dati.solutori.calculix.percorso = null;
-const assente = ragioneDelSolutore(dati);
-assert.equal(assente.pronto, false, "il comando resta acceso su un solutore che non c'e'");
-assert.match(assente.ragione, /dhondt/,
-  `il solutore assente non dice dove prenderlo: ${assente.ragione}`);
-""")
-
-
-def test_la_prova_del_solutore_parte_dal_gesto_e_non_dal_disegno(tmp_path):
-    """L'esecuzione sta dietro un bottone, e il suo esito torna a video.
-
-    Disegnare la scheda non deve chiedere niente al server: era proprio
-    l'apertura della schermata a far partire il binario. Premuto il bottone, la
-    prova parte, il referto entra nei dati dell'analisi e il motivo del
-    fallimento si legge nella scheda -- non resta nel registro del browser.
-    """
-    _esegui(tmp_path, _banco_delle_schede() + _CARICO + """
-datiAnalisi = carico();
-const chiamate = [];
-globalThis.fetch = async (percorso, opzioni) => {
-  chiamate.push([percorso, opzioni?.method]);
-  return { ok: true, status: 200, json: async () => ({
-    solutore: "calculix", percorso: "/usr/bin/ccx", disponibile: true,
-    funziona: false, codice: 0, uscita: "",
-    motivo: "«/usr/bin/ccx» è partito (codice 0) ma la sua uscita non è riconosciuta come calculix",
-  }) };
-};
-
-const scheda = document.getElementById("modello-dati");
-scheda.replaceChildren(...schedaModello(datiAnalisi, null, 0));
-assert.deepEqual(chiamate, [],
-  `disegnare la scheda dell'analisi ha gia' chiesto la prova: ${JSON.stringify(chiamate)}`);
-
-const bottone = scheda.discendenti().find((nodo) => nodo.tag === "button");
-assert.ok(bottone !== undefined, "la scheda non porta nessun gesto con cui provare il solutore");
-assert.match(bottone.textContent, /[Vv]erifica/, bottone.textContent);
-
-await bottone.scatena("click");
-assert.deepEqual(chiamate, [["/api/solutore/verifica", "POST"]],
-  `il gesto non chiede la prova al server: ${JSON.stringify(chiamate)}`);
-assert.equal(datiAnalisi.verifica.funziona, false, "il referto non entra nei dati dell'analisi");
-const testo = testoDi(document.getElementById("modello-dati").figli);
-assert.match(testo, /c'è ma non funziona/, `il verdetto della prova non arriva a video: ${testo}`);
-assert.match(testo, /codice 0/, `il motivo del fallimento resta nel registro: ${testo}`);
-""")
-
-
-def test_il_solutore_assente_e_quello_rotto_sono_due_diagnosi_diverse(tmp_path):
-    """La prima si chiude scaricando un programma, la seconda no: confonderle
-    manda a cercare nel posto sbagliato. `solve.verifica` il binario lo esegue,
-    perche' «c'e'» non e' «funziona»."""
-    _esegui(tmp_path, _banco_delle_schede() + _CARICO + """
-const dati = carico();
-assert.equal(ragioneDelSolutore(dati).pronto, true, "un solutore disponibile non basta");
-
-dati.verifica = { solutore: "opensees", percorso: null, disponibile: false,
-                  funziona: false, codice: null, uscita: "", motivo: "non nel PATH" };
-dati.solutori.opensees.scelto = true;
-const assente = ragioneDelSolutore(dati);
-assert.equal(assente.pronto, false, "un solutore assente lascia il comando acceso");
-assert.match(assente.ragione, /non è installato/, assente.ragione);
-assert.match(assente.ragione, /opensees\\.berkeley\\.edu/,
-  `il solutore assente non dice dove prenderlo: ${assente.ragione}`);
-
-dati.verifica = { solutore: "opensees", percorso: "/bin/cat", disponibile: true,
-                  funziona: false, codice: 0, uscita: "",
-                  motivo: "«/bin/cat» è partito (codice 0) ma la sua uscita non è riconosciuta" };
-const rotto = ragioneDelSolutore(dati);
-assert.equal(rotto.pronto, false, "un solutore che non funziona lascia il comando acceso");
-assert.match(rotto.ragione, /c'è ma non funziona/,
-  `«installato ma rotto» si legge come «non installato»: ${rotto.ragione}`);
-assert.ok(!/non è installato/.test(rotto.ragione),
-  `le due diagnosi si confondono: ${rotto.ragione}`);
-
-// Non ancora chiesta: non spegne niente. Un comando spento per una verifica che
-// non e' tornata sarebbe un rifiuto senza motivo.
-assert.equal(ragioneDelSolutore(null).pronto, true,
-  "il comando nasce spento prima ancora di aver chiesto qualcosa");
-""")
-
-
-def test_il_comando_che_risolve_si_spegne_col_solutore_che_non_funziona(tmp_path):
-    """Il passaggio no: si entra nella schermata anche senza solutore, ed e' li'
-    che si legge dove prenderlo. Il comando si', perche' cadrebbe."""
-    _esegui(tmp_path, _banco_delle_schede() + _CARICO + _TREDICI + """
-ultimoStato = tredici();
-datiAnalisi = carico();
-aggiornaPassaggio();
-assert.equal(document.getElementById("risolvi").getAttribute("aria-disabled"), null,
-  "col prior valido e il solutore disponibile il comando resta spento");
-
-datiAnalisi.verifica = { solutore: "calculix", percorso: null, disponibile: false,
-                         funziona: false, codice: null, uscita: "", motivo: "non nel PATH" };
-aggiornaPassaggio();
-assert.equal(document.getElementById("risolvi").getAttribute("aria-disabled"), "true",
-  "senza solutore il comando parte lo stesso e la corsa muore sul binario che non c'e'");
-assert.equal(document.getElementById("vai-analisi").getAttribute("aria-disabled"), null,
-  "il passaggio si chiude per un solutore assente: e' proprio la' che si legge dove prenderlo");
-assert.match(document.getElementById("risolvi-ragione").textContent, /non è installato/,
-  "il comando spento non dice perche'");
-assert.match(document.getElementById("risolvi-ragione").textContent, /dhondt/,
-  "il comando spento non dice dove prendere il solutore");
-""")
-
-
-def test_una_membratura_senza_stazioni_si_dichiara_invece_di_essere_una_riga_vuota(tmp_path):
-    _esegui(tmp_path, _banco_delle_schede() + _CARICO + """
-const dati = carico();
-dati.membrature = [membratura({
-  stazioni: [],
-  stazioni_motivo: "il prior non ha misurato nessuna fetta su questa membratura",
-})];
-dati.membrature_motivo = null;
-dati.regioni_dichiarate = ["pilastro"];
-const testo = testoDi(schedaStruttura(dati, null));
-assert.match(testo, /Membratura 0/, `la membratura non compare affatto: ${testo}`);
-assert.match(testo, /nessuna fetta/,
-  `la membratura senza stazioni non dice perche' non ne ha: ${testo}`);
-""")
-
-
-def test_il_riempimento_di_sezione_esce_con_la_soglia_e_con_l_affidabilita(tmp_path):
-    """Il numero e il controllo che lo sorveglia nella stessa riga: la soglia
-    dice dove sta il confine, l'affidabilita' se la misura vale."""
-    _esegui(tmp_path, _banco_delle_schede() + _CARICO + """
-const dati = carico();
-dati.membrature = [membratura({})];
-dati.membrature_motivo = null;
-const testo = testoDi(schedaStruttura(dati, null));
-assert.match(testo, /0,91/, `il riempimento di sezione non arriva a video: ${testo}`);
-assert.match(testo, /soglia 0,6/, `il riempimento esce senza la propria soglia: ${testo}`);
-assert.match(testo, /affidabile/, `il riempimento esce senza dire se la misura vale: ${testo}`);
-
-dati.membrature = [membratura({ riempimento: { stato: "vuoto", valore: 0.31,
-                                               soglia: 0.6, affidabile: false } })];
-const dubbio = testoDi(schedaStruttura(dati, null));
-assert.match(dubbio, /NON affidabile/,
-  `una misura non affidabile si legge come una buona: ${dubbio}`);
-""")
-
-
-def test_una_stazione_fragile_si_vede_e_non_viene_nascosta(tmp_path):
-    """Il programma rileva e non progetta: un verdetto sgradevole e' un
-    risultato, e la riga lo porta anche fuori dal colore (WCAG 1.4.1)."""
-    _esegui(tmp_path, _banco_delle_schede() + _CARICO + """
-const dati = carico();
-dati.membrature = [membratura({ stazioni: [
-  stazione({ quota: 0, verdetto: "fragile", mu: 0.0004 }),
-  stazione({ quota: 1500, verdetto: "duttile" }),
-  stazione({ quota: 3000, verdetto: "oltre_la_bilanciata", mu: 0.04 }),
-] })];
-dati.membrature_motivo = null;
-const nodi = schedaStruttura(dati, null);
-const testo = testoDi(nodi);
-assert.match(testo, /fragile/, `il verdetto fragile non arriva a video: ${testo}`);
-assert.match(testo, /oltre la bilanciata/,
-  `il verdetto oltre la bilanciata non arriva a video: ${testo}`);
-
-const righe = nodi.flatMap((n) => n.discendenti()).filter((n) => n.tag === "tr");
-const fuori = righe.filter((r) => r.className === "stazione-fuori");
-assert.equal(fuori.length, 2,
-  `le stazioni fuori dai due estremi non portano il proprio marchio: ${fuori.length}`);
-// I due estremi si dichiarano una volta sola, e sono quelli su cui il verdetto
-// si regge: senza, la parola «fragile» e' un giudizio senza metro.
-assert.match(testo, /μ_min/, `il minimo di norma non e' a video: ${testo}`);
-assert.match(testo, /bilanciata 0,0231/, `il rapporto della bilanciata non e' a video: ${testo}`);
-""")
-
-
-def test_una_giunzione_che_si_scavalca_lo_dice_e_l_attraversamento_pure(tmp_path):
-    """Un attraversamento indistinguibile da un incontro a T farebbe leggere
-    mezza colonna come lo scostamento di un giunto."""
-    _esegui(tmp_path, _banco_delle_schede() + _CARICO + """
-const dati = carico();
-dati.membrature_motivo = null;
-dati.giunzioni = [
-  { cede: 1, resta: 0, nodo: [0, 0, 0], distanza_proiezione: 412.5,
-    nodo_limitato: true, tipo_incontro: "attraversamento" },
-  { cede: 2, resta: 0, nodo: [0, 0, 0], distanza_proiezione: 3.2,
-    nodo_limitato: false, tipo_incontro: "estremo" },
-  { cede: 3, resta: 0, nodo: [0, 0, 0], distanza_proiezione: 1200,
-    nodo_limitato: false, tipo_incontro: "contenimento" },
-];
-const testo = testoDi(schedaStruttura(dati, null));
-assert.match(testo, /si scavalcano/,
-  `un nodo limitato si legge come un incontro normale: ${testo}`);
-assert.match(testo, /attraversamento/, `il tipo di incontro non arriva a video: ${testo}`);
-assert.match(testo, /contenimento/, `il contenimento non arriva a video: ${testo}`);
-assert.match(testo, /412,5 mm/, `la distanza di proiezione non arriva a video: ${testo}`);
-// L'incontro normale non prende il marchio del sospetto: un avviso sempre acceso
-// smette di essere un avviso.
-assert.ok(!/3,2 mm.*si scavalcano/s.test(testo),
-  `l'incontro a un estremo si porta dietro lo scavalco: ${testo}`);
-""")
-
-
-def test_senza_regioni_dichiarate_lo_stadio_lo_dice_invece_di_mostrare_zero(tmp_path):
-    """Zero membrature per una corsa che non ha dichiarato regioni non e' un
-    risultato: e' una domanda che nessuno ha ancora fatto."""
-    _esegui(tmp_path, _banco_delle_schede() + _CARICO + """
-const testo = testoDi(schedaStruttura(carico(), null));
-assert.match(testo, /Nessuna regione dichiarata/,
-  `senza regioni lo stadio della struttura tace: ${testo}`);
-assert.match(testo, /step 12/,
-  `lo stadio non nomina lo step che propone le membrature: ${testo}`);
-""")
-
-
-def test_senza_categoria_d_uso_il_comando_che_propone_resta_spento(tmp_path):
-    """Senza categoria i ψ della Tab. 2.5.I non si leggono, e sceglierne una
-    d'ufficio sarebbe indovinarla: fra residenziale e magazzino ψ₂ vale 0,3 e 0,8."""
-    _esegui(tmp_path, _banco_delle_schede() + _CARICO + """
-let ultimaProposta = 0;
-const gruppo = propostaDelleCombinazioni(carico());
-const discendenti = gruppo.discendenti();
-const comando = discendenti.find((n) => n.tag === "button");
-const menu = discendenti.filter((n) => n.tag === "select");
-
-assert.equal(comando.getAttribute("aria-disabled"), "true",
-  "il comando propone anche senza categoria d'uso, e i ψ se li sceglie da solo");
-assert.match(testoDi([gruppo]), /Categoria d'uso non scelta/,
-  `il comando spento non dice perche': ${testoDi([gruppo])}`);
-
-menu[0].value = "A";
-await menu[0].scatena("change");
-assert.equal(comando.getAttribute("aria-disabled"), null,
-  "scelta la categoria il comando resta spento");
-assert.match(testoDi([gruppo]), /già corrette a mano non vengono sovrascritte/,
-  "il comando acceso non dice che cosa NON tocca");
-
-// La sismica non si propone da sola: il primo valore del menu e' «nessuna»,
-// perche' nessuna natura dice «sismica» e sceglierne una sarebbe indovinare.
-assert.equal(menu[1].value, "", "l'azione sismica nasce scelta");
-assert.match(testoDi([gruppo]), /la \\[2\\.5\\.5\\] non si propone/,
-  "il menu della sismica non dice che senza di lei la combinazione sismica non esce");
-""")
-
-
-def test_una_combinazione_corretta_a_mano_si_distingue_dalla_proposta(tmp_path):
-    _esegui(tmp_path, _banco_delle_schede() + _CARICO + """
-let ultimaProposta = 0;
-const dati = carico();
-dati.configurazione.carichi.combinazioni = [
-  { nome: "SLU_FOND_TOP", tipo: "slu_fondamentale",
-    termini: [["GRAVITA", 1.3], ["CARICO_TOP", 1.5]], proposta: true },
-  { nome: "MIA", tipo: "sle_rara", termini: [["GRAVITA", 1]], proposta: false },
-];
-const testo = testoDi(schedaPreprocessore(dati, null));
-assert.match(testo, /proposta dal programma/, `una proposta non si dichiara tale: ${testo}`);
-assert.match(testo, /corretta a mano/,
-  `una combinazione corretta a mano si legge come una proposta: ${testo}`);
-assert.match(testo, /1,3·GRAVITA/,
-  `i coefficienti della combinazione non arrivano a video: ${testo}`);
-// Un decimale sempre, cosi' che «1» e «1,3» sulla stessa riga si leggano come
-// due coefficienti e non come un intero accanto a un decimale.
-assert.match(testo, /1,0·GRAVITA/, `un coefficiente unitario esce senza decimale: ${testo}`);
-// L'azione e la sua natura: e' da li' che il coefficiente parziale si sceglie.
-assert.match(testo, /permanente strutturale/, `la natura dell'azione non e' a video: ${testo}`);
-assert.match(testo, /«BASE»/, `il vincolo dichiarato non e' a video: ${testo}`);
-""")
-
-
-def test_un_azione_senza_natura_lo_dichiara_perche_e_lei_a_fermare_la_proposta(tmp_path):
-    _esegui(tmp_path, _banco_delle_schede() + _CARICO + """
-let ultimaProposta = 0;
-const dati = carico();
-dati.azioni = { GRAVITA: "permanente_strutturale", SPINTA_ORIZZONTALE: null };
-const testo = testoDi(schedaPreprocessore(dati, null));
-assert.match(testo, /natura non dichiarata/,
-  `un'azione senza natura passa come le altre: ${testo}`);
-""")
-
-
-def test_i_sette_verdetti_distinguono_non_applicabile_da_non_passato(tmp_path):
-    """«Questa domanda non ha senso qui» e «la risposta e' no» sono due cose, e
-    `solve.esito_non_applicabile` le separa apposta."""
-    _esegui(tmp_path, _banco_delle_schede() + _CARICO + """
-const dati = carico();
-dati.solve = {
-  eseguito: true, returncode: 0, avvisi: 0, errori: 0,
-  casi: { GRAVITA: {} }, modi: 0, frequenze_hz: [],
-  controlli: {
-    reazioni: { passato: true },
-    picco: { passato: false, applicabile: false, controllo: "picco", modello: "telaio",
-             motivo: "non vale: il telaio non ha una tensione per nodo" },
-    spostamenti: { passato: false },
-    vincolo_in_pianta: { passato: true },
-  },
-};
-dati.solve_motivo = null;
-const nodi = schedaPostprocessore(dati, null, 0);
-const testo = testoDi(nodi);
-assert.match(testo, /non vale su questo modello/,
-  `un controllo non applicabile si legge come un controllo fallito: ${testo}`);
-assert.match(testo, /spostamenti: NON passato/, `un verdetto fallito non si vede: ${testo}`);
-const gravi = nodi.filter((n) => n.className === "rifiuto");
-assert.equal(gravi.length, 1,
-  "il marchio del fallito finisce anche sul non applicabile, o non finisce affatto");
-// «Una chiave non si stampa mai, si stampa la sua etichetta» (PRODUCT.md): la
-// chiave del controllo porta il trattino basso, e a video no.
-assert.match(testo, /vincolo in pianta/, `il nome del controllo esce come chiave: ${testo}`);
-assert.ok(!/vincolo_in_pianta/.test(testo), `la chiave arriva a video cosi' com'e': ${testo}`);
-""")
-
-
-def test_lo_step_13_non_eseguito_dice_che_cosa_manca_e_non_resta_bianco(tmp_path):
-    _esegui(tmp_path, _banco_delle_schede() + _CARICO + """
-const testo = testoDi(schedaPostprocessore(carico(), null, 0));
-assert.match(testo, /step 13/, `il post-processore vuoto non nomina lo step: ${testo}`);
-
-// Una chiave che il server non ha mandato affatto e' lo stesso stato per chi
-// guarda, e non deve far sollevare la scheda fuori da ogni catch: e' il difetto
-// di 5d4d24b, un piano piu' in la'.
-const monco = carico();
-delete monco.solve;
-delete monco.solve_motivo;
-assert.match(testoDi(schedaPostprocessore(monco, null, 0)), /step 13/,
-  "un carico senza la chiave del solutore fa cadere la scheda invece di dichiararla");
-""")
-
-
-def test_il_server_che_non_risponde_lo_dicono_tutte_e_quattro_le_schede(tmp_path):
-    """Una schermata che non si aggiorna piu' non deve fingere di essere fresca,
-    e nessuna delle quattro deve restare vuota in silenzio -- il difetto di
-    `5d4d24b`, dove /api/schema cadeva fuori vista e spegneva due pannelli."""
-    _esegui(tmp_path, _banco_delle_schede() + """
-globalThis.fetch = async () => { throw new Error("connessione rifiutata"); };
-await caricaAnalisi();
-assert.equal(datiAnalisi, null, "un carico fallito entra comunque in memoria");
-for (const contenitore of ["modello-dati", "stadio-struttura",
-                           "stadio-preprocessore", "stadio-postprocessore"]) {
-  const scheda = document.getElementById(contenitore);
-  const testo = testoDi(scheda.figli);
-  assert.match(testo, /il server non ha risposto/,
-    `${contenitore} resta vuoto in silenzio col server caduto: ${testo}`);
-  assert.equal(scheda.firstElementChild.className, "errore",
-    `${contenitore} annuncia la caduta senza marcarla come un errore`);
-}
-
-// Un 200 con un corpo che non si legge non e' uno stato valido: `corpoLetto`
-// rende undefined, e undefined che entrasse in datiAnalisi farebbe sollevare le
-// quattro schede fuori da ogni catch.
-globalThis.fetch = async () => ({
-  ok: true, status: 200, json: async () => { throw new SyntaxError("boom"); },
-});
-await caricaAnalisi();
-assert.equal(datiAnalisi, null, "un corpo illeggibile entra in memoria come uno stato valido");
-assert.match(testoDi(document.getElementById("stadio-struttura").figli), /non si legge/,
-  "il corpo illeggibile non arriva a video");
-""")
-
-
-def test_l_analisi_non_si_richiede_a_schermata_chiusa_ne_a_stato_fermo(tmp_path):
-    """La tratta esegue il binario del solutore: chiederla due volte al secondo
-    dallo scorrere degli eventi vorrebbe dire due processi al secondo."""
-    _esegui(tmp_path, _banco_delle_schede() + _TREDICI + """
-let chiesto = 0;
-globalThis.fetch = async () => { chiesto += 1; throw new Error("nessun server"); };
-ultimoStato = tredici();
-
-document.getElementById("analisi").hidden = true;
-rileggiSeServe();
-assert.equal(chiesto, 0, "la tratta parte anche con la schermata dell'analisi chiusa");
-
-document.getElementById("analisi").hidden = false;
-rileggiSeServe();
-assert.equal(chiesto, 1, "aperta la schermata, la tratta non parte affatto");
-rileggiSeServe();
-assert.equal(chiesto, 1, "a stato fermo la tratta riparte a ogni giro di eventi");
-
-ultimoStato = tredici("mai eseguito");
-rileggiSeServe();
-assert.equal(chiesto, 2, "cambiato lo stato degli step, la schermata resta su un carico vecchio");
-""")
-
-
-def test_un_riempimento_non_verificabile_non_si_legge_come_uno_zero(tmp_path):
-    """Trovato eseguendo su una corsa vera (`runs/onda4`, 30/08/2026): quattro
-    membrature su cinque escono con `stato: "non_verificabile"` e `valore: 0.0`,
-    e la riga a video diceva «Riempimento di sezione 0».
-
-    Zero letto in una frazione occupata significa «la sezione e' vuota»; lo
-    stato dice invece che la misura non ha le condizioni per valere. Sono due
-    fatti opposti, e la seconda peggiore delle due letture e' quella che il
-    numero suggerisce.
-    """
-    _esegui(tmp_path, _banco_delle_schede() + _CARICO + """
-const dati = carico();
-dati.membrature_motivo = null;
-dati.membrature = [membratura({ riempimento: { stato: "non_verificabile", valore: 0,
-                                               soglia: 0.5, affidabile: true } })];
-const testo = testoDi(schedaStruttura(dati, null));
-assert.match(testo, /non verificabile/,
-  `una misura senza condizioni per valere non lo dichiara: ${testo}`);
-assert.ok(!/di sezione 0 /.test(testo),
-  `il valore di una misura non verificabile si legge come una sezione vuota: ${testo}`);
-// E lo stato non arriva a video con il proprio trattino basso: «non_verificabile»
-// e' la chiave, e una chiave non si stampa mai.
-assert.ok(!/non_verificabile/.test(testo), `la chiave arriva a video cosi' com'e': ${testo}`);
-""")
-
-
-def test_i_coefficienti_della_tabella_arrivano_scritti_all_italiana(tmp_path):
-    """Trovato eseguendo sul registro vero: le voci del menu della categoria
-    d'uso mostravano «ψ₂ 0.3» e «ψ₂ 0», cioè il punto decimale del JSON e uno
-    zero senza decimale, in una pagina dove ogni altro numero passa da
-    `numeroDelCampo`."""
-    _esegui(tmp_path, _banco_delle_schede() + _CARICO + """
-let ultimaProposta = 0;
-const dati = carico();
-dati.categorie = [
-  { categoria: "A", descrizione: "Residenziale", psi_0: 0.7, psi_1: 0.5, psi_2: 0.3,
-    fonte: "NTC 2018 §2.5.2, Tab. 2.5.I" },
-  { categoria: "VENTO", descrizione: "Vento", psi_0: 0.6, psi_1: 0.2, psi_2: 0,
-    fonte: "NTC 2018 §2.5.2, Tab. 2.5.I" },
-];
-const testo = testoDi([propostaDelleCombinazioni(dati)]);
-assert.match(testo, /ψ₂ 0,3/, `il coefficiente esce col punto decimale: ${testo}`);
-assert.ok(!/ψ₂ 0\\.3/.test(testo), `il punto decimale del JSON arriva a video: ${testo}`);
-assert.match(testo, /ψ₂ 0,0/, `uno zero esce senza il proprio decimale: ${testo}`);
-""")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 def test_il_proposito_dello_step_2_nomina_le_tre_cose_che_lo_step_fa():

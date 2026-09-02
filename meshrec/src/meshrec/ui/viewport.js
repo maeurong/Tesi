@@ -195,8 +195,8 @@ export function didascaliaDelCampo({ caso, grandezza, modale, frequenza, massimo
 //
 // Il movimento della vista, e ce n'e' uno solo: l'arrivo di una geometria
 // nell'inquadratura. Ogni strada che disegna passa da inquadra() -- mostraNuvola,
-// mostraMesh, mostraMeshPerCampo, mostraNuvolaPerMembratura -- quindi il
-// movimento sta li' dentro e non in quattro copie da tenere allineate.
+// mostraMesh, mostraMeshPerCampo -- quindi il movimento sta li' dentro e non in
+// tre copie da tenere allineate.
 //
 // Che cosa dice, perche' non e' una rifinitura. Fra lo step 5, il 6 e il 9 si
 // guarda lo stesso pezzo tre volte, e le tre superfici si somigliano: sostituite
@@ -759,29 +759,6 @@ export function creaViewport(contenitore) {
         clippingPlanes: pianiTaglio,
       })));
       descrivi(descrizione);
-      inquadra();
-    },
-    // Colore per membratura. E' la prova visiva che la scomposizione ha capito
-    // il pezzo, e si legge in un secondo dove nessuna metrica sarebbe cosi'
-    // rapida. -1 significa «nessuna membratura» e resta grigio: e'
-    // un'informazione, non un buco.
-    mostraNuvolaPerMembratura(punti, etichette) {
-      const geometria = new THREE.BufferGeometry();
-      geometria.setAttribute("position", new THREE.BufferAttribute(punti, 3));
-      const colori = new Float32Array(etichette.length * 3);
-      let massima = 0;
-      for (const valore of etichette) massima = Math.max(massima, valore);
-      for (let indice = 0; indice < etichette.length; indice += 1) {
-        const colore = new THREE.Color();
-        if (etichette[indice] < 0) colore.setRGB(0.68, 0.68, 0.65);
-        else colore.setHSL((etichette[indice] / (massima + 1)) * 0.8, 0.55, 0.45);
-        colore.toArray(colori, indice * 3);
-      }
-      geometria.setAttribute("color", new THREE.BufferAttribute(colori, 3));
-      gruppo.add(new THREE.Points(geometria, new THREE.PointsMaterial({
-        size: 1.5, sizeAttenuation: false, vertexColors: true, clippingPlanes: pianiTaglio,
-      })));
-      descrivi(`nuvola divisa in ${massima + 1} membrature`);
       inquadra();
     },
     // Un metodo solo per nuvola e superficie: `facce` a null da' dei punti, e
