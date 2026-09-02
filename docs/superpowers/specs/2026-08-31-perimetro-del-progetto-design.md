@@ -2,6 +2,22 @@
 
 Data: 2026-08-31
 
+
+> **Nota del 02/09/2026.** Questa spec resta come è stata scritta: registra la
+> decisione presa il 31/08/2026 e le ragioni che la reggevano. Due giorni dopo
+> l'autore ha provato l'interfaccia della linea parallela e l'ha dismessa: i due
+> branch che la portavano avanti sono stati eliminati e il codice già in `main`
+> è uscito con la mappa
+> [#161](https://github.com/maeurong/Tesi/issues/161). Il perimetro deciso qui
+> non cambia — il prodotto si chiude sul deck — ma la sezione E parla di una
+> linea che non esiste più, e `docs/linea-analisi-integrata.md` è stato
+> cancellato invece che scritto.
+>
+> Una correzione di fatto, non di decisione: qui sotto si legge che il prior
+> «misura telaio, membrature e armature». L'armatura il prior non l'ha mai
+> misurata — si dichiarava in configurazione. La frase era falsa già il giorno
+> in cui è stata scritta.
+
 ## La decisione
 
 MeshRec, come prodotto della tesi, va **dalla nuvola di punti al deck `.inp`**.

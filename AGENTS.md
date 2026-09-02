@@ -42,11 +42,14 @@ Non falliscono: spariscono. Due dipendenze esterne li fanno saltare in silenzio,
 e la suite resta verde.
 
 - Senza **`node`** (versione 22) saltano i test che eseguono davvero il
-  JavaScript dell'interfaccia. `tests/test_app_js.py` cerca `node` sul PATH e
-  senza di lui salta: sono circa 130 test.
-- Senza **`ccx`** (CalculiX) sul PATH saltano i benchmark di verifica.
-  Misurati il 28/08/2026 sul commit `20cb464`: **54 test saltati** contro l'unico
-  che salta sempre, `wildmeshing`, per cui non esiste una wheel Windows.
+  JavaScript dell'interfaccia: `test_app_js.py`, `test_viewport_js.py` e
+  `test_stile.py` cercano `node` sul PATH e senza di lui saltano. Misurato il
+  02/09/2026 con un PATH che non lo porta: **158 test saltati**.
+- Senza **`ccx`** (CalculiX) sul PATH salta il patch test, che e' l'unico
+  rimasto a eseguirlo. Misurato il 02/09/2026: **3 test saltati**. Erano 54 il
+  28/08/2026, quando i benchmark NAFEMS e la mensola giravano attraverso il
+  solutore integrato; sono usciti con la mappa #161. L'unico che salta sempre
+  resta `wildmeshing`, per cui non esiste una wheel Windows.
 
 In più, la configurazione predefinita **esclude due famiglie di test**:
 
@@ -74,13 +77,12 @@ senza, il lavoro fallisce invece di lasciar sparire i test in un verde.
 Il punto di ingresso è **`src/meshrec/core/steps.py`**. Contiene due tabelle che
 valgono più di qualsiasi diagramma:
 
-- `STEP_KEYS` — i tredici passaggi in ordine, dal caricamento della nuvola di
-  punti fino alla soluzione. **Il prodotto ne dichiara undici**: si chiude sul
-  deck `.inp` dello step 11, e per questo `to_step` ha 11 come predefinito. Gli
-  ultimi due — il prior geometrico e il solutore — restano funzionanti e
-  raggiungibili chiedendoli, ma appartengono a una linea di sviluppo che sta
-  fuori dal perimetro (`docs/linea-analisi-integrata.md`). Prima di aggiungere
-  capacità là dentro, leggi quel documento.
+- `STEP_KEYS` — i dodici passaggi in ordine, dal caricamento della nuvola di
+  punti fino al prior geometrico. **Il prodotto ne dichiara undici**: si chiude
+  sul deck `.inp` dello step 11, e per questo `to_step` ha 11 come predefinito.
+  L'ultimo — il prior geometrico, che misura telaio e membrature dalla
+  scansione — resta funzionante e raggiungibile chiedendolo (`meshrec wall`, o
+  `--to-step 12`), ma sta fuori da ciò che il prodotto promette.
 - `STEP_BLOCKS` — quale blocco di configurazione ogni passaggio legge davvero.
   È da qui che discende quali passaggi diventano non validi quando si cambia un
   parametro.

@@ -539,17 +539,14 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
     e' un ramo: i due modelli parametrici sono corse figlie con la propria
     cartella, non biforcazioni di questa funzione.
 
-    Dalla Fase 5 c'e' un tredicesimo step, il solutore: legge il deck che lo
-    step 11 ha scritto e vi applica `ccx`. NON e' parte del nucleo che questa
-    funzione esegue per difetto, e nemmeno lo step 12: `RunConfig.to_step` e'
-    predefinito a 11, il deck, perche' li' si chiude il perimetro del prodotto
-    (docs/linea-analisi-integrata.md). Chi li chiede esplicitamente li ottiene
-    -- il tetto resta 13 -- ma nessuna corsa di pipeline li paga senza averlo
-    chiesto. E' del
-    resto l'unico step che paga un processo esterno vero anziche' lavoro
-    in-process: chi elabora molti candidati (lo sweep) non deve pagarlo per
-    ciascuno, e per questo `sweep.run_candidate` chiede `--to-step 11`
-    esplicito al sottoprocesso invece di ereditare questo predefinito (vedi
+    Lo step 12, il prior geometrico, NON e' parte del nucleo che questa
+    funzione esegue per difetto: `RunConfig.to_step` e' predefinito a 11, il
+    deck, perche' li' si chiude il perimetro del prodotto (PRODUCT.md). Chi lo
+    chiede esplicitamente lo ottiene -- il tetto e' 12 -- ma nessuna corsa di
+    pipeline lo paga senza averlo chiesto: chi elabora molti candidati (lo
+    sweep) non deve pagarlo per ciascuno, e per questo `sweep.run_candidate`
+    chiede `--to-step 11` esplicito al sottoprocesso invece di ereditare questo
+    predefinito (vedi
     `sweep.py`, che per la stessa ragione non lo richiede in `REQUIRED_STEPS`).
 
     `cfg.run.from_step` salta gli step precedenti e ricarica dal disco

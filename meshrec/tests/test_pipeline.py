@@ -920,8 +920,8 @@ def test_una_corsa_fermata_al_dieci_non_si_dichiara_completa(tmp_path):
 
     Il confine si e' spostato una volta, e questo test con lui. Fermava a 11
     quando il nucleo di `run()` chiudeva allo step 12; ora il nucleo chiude al
-    deck dello step 11 -- e' il perimetro del prodotto, vedi
-    docs/linea-analisi-integrata.md -- quindi una corsa a 11 e' intera e
+    deck dello step 11 -- e' il perimetro del prodotto, vedi PRODUCT.md --
+    quindi una corsa a 11 e' intera e
     sostituisce, mentre la prima parziale e' quella a 10. Il guardiano e' lo
     stesso, un passo piu' sotto: sorveglia il confine, non il numero.
 

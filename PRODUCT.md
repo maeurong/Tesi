@@ -61,11 +61,15 @@ un deck riproducibile lo verifica chiunque abbia Abaqus, mentre una soluzione
 calcolata internamente la verifica solo chi si fida della catena che l'ha
 prodotta.
 
-Il pre-processore integrato — il prior geometrico che misura telaio, membrature
-e armature — e il solutore integrato, con la schermata che li governa, restano
-nel repository e restano funzionanti, ma stanno **fuori da questo perimetro**:
-sono una linea di sviluppo portata avanti in parallelo, descritta in
-[`docs/linea-analisi-integrata.md`](docs/linea-analisi-integrata.md).
+Il solutore integrato **non c'è più**. È esistito fino al 2 settembre 2026 come
+linea di sviluppo parallela — pre-processore, solutore, verifiche di norma — ed è
+stato rimosso per intero: sei moduli, la schermata che li governava, le sue
+rotte. Chi cerca quel codice lo trova nella cronologia, non in albero.
+
+Resta il **prior geometrico** (step 12), che misura telaio e membrature dalla
+scansione. Non è analisi: è misura del rilievo, sta a monte del deck, e il deck
+lo legge quando la configurazione dichiara `regioni`. Non ha interfaccia e non
+gira per difetto: si chiede con `meshrec wall`, o con `--to-step 12`.
 
 ## Positioning
 
