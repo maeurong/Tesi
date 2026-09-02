@@ -14,11 +14,9 @@ from pathlib import Path
 
 # `solve` e' leggero (numpy, e i moduli di questo pacchetto che non aprono
 # nulla): `pipeline` no -- tira dentro open3d, gmsh e pymeshlab. Sta quindi nei
-# rami che lo usano e non qui, come gia' fanno `sweep` e `report`. Non e' un
-# vezzo: `meshrec dottore` esiste per dire che cosa manca, e un dottore che
-# muore all'import di una dipendenza rotta e' inservibile proprio quando serve.
-# Misurato: con `libgomp.so.1` assente, `import pipeline` fa cadere l'intera
-# riga di comando con uno stack, `dottore` compreso.
+# rami che lo usano e non qui, come gia' fanno `sweep` e `report`. Misurato:
+# con `libgomp.so.1` assente, `import pipeline` fa cadere l'intera riga di
+# comando con uno stack.
 from meshrec.core import solve
 from meshrec.core.config import (
     AnalysisConfig,
@@ -125,31 +123,6 @@ def _build_parser() -> argparse.ArgumentParser:
     serve_command.add_argument("--port", type=int, default=None)
     serve_command.add_argument("--no-browser", action="store_true")
 
-    # #144 lascia aperto se il controllo delle dipendenze sia una tratta del
-    # server, un sottocomando, o entrambi (§8.3 del sequenziamento). Qui c'e' il
-    # sottocomando: argparse e' gia' in casa e non costa nulla. La tratta, se la
-    # si vorra', si aggiunge dove vive il server e leggera' la stessa
-    # `solve.disponibilita`: la logica non e' qui, e' li'.
-    dottore_command = commands.add_parser(
-        "dottore",
-        help="controlla che i solutori esterni ci siano e funzionino",
-        description=(
-            "Guarda i due solutori esterni: se ci sono, da dove, e se "
-            "rispondono davvero. Un solutore che non c'è non è un errore "
-            "finché non è quello scelto"
-        ),
-    )
-    dottore_command.add_argument(
-        "config",
-        type=Path,
-        nargs="?",
-        default=None,
-        help=(
-            "configurazione da cui leggere il solutore scelto e il suo "
-            "percorso. Se omessa, nessuno dei due è scelto e si guarda "
-            "soltanto che cosa è installato"
-        ),
-    )
     return parser
 
 
@@ -179,48 +152,6 @@ def _referto(nome: str, voce: dict[str, object], esito: dict[str, object] | None
     if esito["funziona"]:
         return [f"{etichetta} ok       {dove}"]
     return [f"{etichetta} ROTTO    {dove}", margine + str(esito["motivo"])]
-
-
-def _dottore(percorso_config: Path | None) -> int:
-    """Il referto sui solutori, e il codice d'uscita che lo riassume.
-
-    Chi ha scelto un solutore vuole sapere se **quello** funziona: gli altri
-    sono informazione, non un difetto. Chi non ne ha scelto nessuno vuole
-    sapere se può risolvere qualcosa, e la risposta è no soltanto se non ne
-    funziona nemmeno uno.
-
-    Si esegue il binario del solo solutore scelto. `solve.disponibilita` non
-    avvia processi di proposito, e avviarli tutti per un referto renderebbe
-    lento un comando che deve rispondere subito.
-    """
-    solutore = None
-    if percorso_config is not None:
-        cfg = load_config(percorso_config)
-        # Il blocco `solutore` lo dichiara l'onda 0 della Fase 8. Finché non
-        # c'è, una configurazione che non lo porta vale «nessun solutore
-        # scelto», che è lo stesso stato del comando senza configurazione: il
-        # referto esce lo stesso invece di cadere su un attributo mancante.
-        solutore = getattr(cfg, "solutore", None)
-
-    stato = solve.disponibilita(solutore)
-    esito = solve.verifica(solutore) if solutore is not None else None
-
-    print("MeshRec — solutori esterni")
-    if solutore is None:
-        print("nessun solutore scelto: leggo soltanto che cosa è installato")
-    for nome, voce in stato.items():
-        for riga in _referto(nome, voce, esito if voce["scelto"] else None):
-            print(riga)
-
-    if esito is not None:
-        if esito["funziona"]:
-            return 0
-        print(f"\nil solutore scelto ({esito['solutore']}) non è utilizzabile.")
-        return 1
-    if any(voce["disponibile"] for voce in stato.values()):
-        return 0
-    print("\nnessuno dei due solutori è installato: non c'è niente con cui risolvere.")
-    return 1
 
 
 # I tre tipi con cui questo programma parla all'operatore. Ricavati dai test che
@@ -287,12 +218,6 @@ def main(argv: list[str] | None = None) -> int:
             return _riporta(error)
         print(f"configurazione scritta in {args.config}")
         return 0
-
-    if args.command == "dottore":
-        try:
-            return _dottore(args.config)
-        except Exception as error:  # la riga di comando riporta il problema, non lo stack
-            return _riporta(error)
 
     if args.command == "sweep":
         from meshrec.core import sweep

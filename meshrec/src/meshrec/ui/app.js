@@ -1319,9 +1319,9 @@ async function mostraNuvolaDelloStep(numero, ordine) {
 
 // Gli step che producono una superficie o un volume: dal 5 in poi l'artefatto
 // non e' piu' una nuvola, e disegnarne i soli vertici mostrerebbe punti dove
-// c'e' un solido. Lo step 13 e' anche lui un volume (13_solution.vtu, lo
-// stesso contorno di /api/campo): senza di lui in questo insieme un clic sullo
-// step 13 chiederebbe /api/cloud/13, che non esiste.
+// c'e' un solido. Il 13 e' anche lui un volume (13_solution.vtu): l'insieme lo
+// tiene perche' chiedere /api/cloud/13 non troverebbe niente, anche se oggi
+// nessuna strada dell'interfaccia ci arriva.
 const STEP_CON_MESH = new Set([5, 6, 8, 9, 13]);
 
 async function mostraStep(numero, ordine) {

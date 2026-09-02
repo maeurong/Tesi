@@ -80,20 +80,6 @@ def test_senza_corsa_aperta_non_c_e_nessun_deck_da_consegnare(slegato):
     assert "nessuna corsa aperta" in risposta.json()["messaggio"]
 
 
-def test_senza_corsa_aperta_la_verifica_del_solutore_rifiuta_invece_di_sollevare(slegato):
-    """Ingresso degenere del gesto che esegue: nessuna corsa legata.
-
-    Senza corsa non c'e' nessuna configurazione da cui leggere quale solutore
-    provare, e il rifiuto nomina il legame che manca invece di lasciar cadere un
-    `TypeError` addosso a chi ha premuto. Nell'interfaccia il bottone non c'e'
-    affatto: vive nella schermata dell'analisi, che a corsa slegata resta chiusa.
-    """
-    risposta = slegato.post("/api/solutore/verifica")
-
-    assert risposta.status_code == 400
-    assert "nessuna corsa aperta" in risposta.json()["messaggio"]
-
-
 def test_creare_una_corsa_scrive_il_config_e_lega_l_applicazione(slegato, nuvola, tmp_path):
     risposta = slegato.post("/api/corse", json={"nome": "provino", "nuvola": str(nuvola)})
 
@@ -277,7 +263,7 @@ def test_una_corsa_di_riferimento_si_apre_ma_non_si_riscrive(slegato, nuvola, tm
     assert slegato.get("/api/corse").json()["corse"][0]["riferimento"] is True
     # Leggere si', sempre.
     assert slegato.get("/api/config").status_code == 200
-    for tratta in ("/api/step/1", "/api/step/1/from", "/api/wall"):
+    for tratta in ("/api/step/1", "/api/step/1/from"):
         risposta = slegato.post(tratta)
         assert risposta.status_code == 400, tratta
         assert "sola lettura" in risposta.json()["messaggio"], tratta
@@ -299,7 +285,7 @@ def test_le_tratte_che_scrivono_si_fermano_anche_senza_una_corsa(slegato):
     """A legame vuoto il Worker lanciava `meshrec.cli run None`: un 200 che non
     eseguiva niente e lasciava il lavoratore occupato, cosi' che la richiesta
     successiva rispondeva «uno step sta gia' girando»."""
-    for tratta in ("/api/step/1", "/api/step/1/from", "/api/wall"):
+    for tratta in ("/api/step/1", "/api/step/1/from"):
         risposta = slegato.post(tratta)
         assert risposta.status_code == 400, tratta
         assert "nessuna corsa" in risposta.json()["messaggio"], tratta

@@ -1185,9 +1185,9 @@ def prior(
             {
                 "punti": int(len(m.punti)),
                 # Indici dentro la nuvola segmentata (ARTIFACTS[2]) intera, non
-                # dentro `puliti`: e' quella che /api/membrature decima, e un
-                # indice relativo al solo `puliti` cadrebbe su un punto diverso
-                # ogni volta che il pavimento viene tolto.
+                # dentro `puliti`: un indice relativo al solo `puliti` cadrebbe
+                # su un punto diverso ogni volta che il pavimento viene tolto,
+                # e chi rilegge l'artefatto ha in mano la nuvola intera.
                 "indici": indici_pieni[m.punti].tolist(),
                 "asse": m.asse.tolist(),
                 "origine": m.origine.tolist(),

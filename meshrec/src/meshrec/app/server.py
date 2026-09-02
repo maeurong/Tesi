@@ -749,117 +749,6 @@ class CorsaScelta(BaseModel):
 MODELLO_DEL_SOLUTORE = {"calculix": "solido", "opensees": "telaio"}
 
 
-def _perche_non_instrada(modello: str, scelto: str) -> str:
-    """Perche' quel modello non e' quello che partirebbe adesso.
-
-    Nomina il solutore da scegliere invece di dire soltanto «non instradato»:
-    la strada esiste, e chi legge deve sapere qual e' il gesto che la apre.
-    """
-    per_modello = {valore: nome for nome, valore in MODELLO_DEL_SOLUTORE.items()}
-    return (
-        f"il solutore scelto è {scelto}, che risolve il modello "
-        f"{MODELLO_DEL_SOLUTORE[scelto]}. Per mandare al solutore il "
-        f"{modello}, scegli {per_modello[modello]}"
-    )
-
-
-def _letto_o_dichiarato(percorso: Path, che_cosa: str) -> tuple[dict[str, object], str | None]:
-    """Il JSON di un artefatto, oppure il motivo per cui non si legge.
-
-    `sweep.leggi_metriche` ripiega su `{}` in silenzio, ed e' giusto per uno
-    sweep -- un candidato storto non deve fermare la raccolta di tutti. Qui no:
-    `{}` e «mai eseguito» sono lo stesso corpo, e chi guarda la schermata non
-    avrebbe modo di distinguerli. Un file troncato da un processo ucciso si
-    dichiara.
-
-    ValueError e non json.JSONDecodeError, che ne e' una sottoclasse e lascia
-    fuori UnicodeDecodeError: quello lo solleva la lettura del file prima
-    ancora del parse, su un byte non UTF-8.
-    """
-    if not percorso.exists():
-        return {}, None
-    try:
-        with percorso.open(encoding="utf-8") as maniglia:
-            letto = json.load(maniglia)
-    except (OSError, ValueError) as errore:
-        return {}, (
-            f"{percorso.name} c'è ma non si legge ({type(errore).__name__}: "
-            f"{errore}). Un file troncato non è uno stato valido, e senza "
-            f"{che_cosa} non c'è niente da mostrare"
-        )
-    if not isinstance(letto, dict):
-        return {}, (
-            f"{percorso.name} non porta un oggetto ma un {type(letto).__name__}, "
-            f"e senza {che_cosa} non c'è niente da mostrare"
-        )
-    return letto, None
-
-
-def _stazioni_della_membratura(
-    voce: dict[str, object], sezione: object | None
-) -> tuple[list[dict[str, object]], str | None]:
-    """I verdetti stazione per stazione, oppure il motivo per cui non ce ne sono.
-
-    Un verdetto per fetta e non uno per membratura: una gabbia dichiarata una
-    volta sola puo' essere duttile dove la sezione e' piena e fragile dove si
-    restringe, e la media appiattirebbe le due cose in una
-    (`core/armatura.VerdettoStazione`).
-
-    Il calcolo e' di `armatura.verdetti` e non di qui: l'interfaccia mostra i
-    numeri che il core produce, e non ne produce di propri. Cio' che il core
-    dichiara di non sapere -- l'esponente della parabola oltre la C50/60, una
-    sezione troppo stretta per le barre dichiarate -- arriva come motivo e va a
-    video com'e', invece di diventare una lista vuota senza spiegazione.
-    """
-    fette = voce.get("sezioni_fette") or []
-    quote = voce.get("quote_fette") or []
-    if not fette:
-        return [], (
-            "il prior non ha misurato nessuna fetta su questa membratura: non ci "
-            "sono stazioni da giudicare, e la sezione media è una sintesi, non una "
-            "stazione"
-        )
-    if sezione is None:
-        return [], (
-            "nessuna regione dichiarata punta a questa membratura: il verdetto per "
-            "stazione ha bisogno dell'armatura, che si dichiara in `regioni`"
-        )
-    if sezione.armatura is None:
-        return [], (
-            "la sezione dichiarata non porta armatura: è di solo calcestruzzo, e "
-            "nessuna armatura si inventa"
-        )
-    classe = sezione.armatura.classe_calcestruzzo
-    try:
-        f_ctm = materiali.trova(classe).f_ctm
-        if f_ctm is None:
-            return [], (
-                f"il catalogo non porta la f_ctm di «{classe}»: senza, l'armatura "
-                "minima di norma [4.1.45] non si calcola"
-            )
-        esiti = armatura.verdetti(sezione.armatura, fette, quote, f_ctm)
-    except (KeyError, ValueError) as errore:
-        # KeyError rende il proprio messaggio fra apici (`repr`): scritto cosi'
-        # a video sarebbe una frase virgolettata dentro un'altra.
-        return [], str(errore.args[0] if isinstance(errore, KeyError) else errore)
-    return [esito._asdict() for esito in esiti], None
-
-
-class ProponiCombinazioni(BaseModel):
-    """La categoria d'uso e, dove c'è, quale azione fa da sisma.
-
-    La categoria non è un campo della configurazione e non ci diventa: è
-    l'ingresso della proposta, cioè un fatto dell'edificio che l'operatore
-    dichiara al momento di proporre. Scritta in `PipelineConfig` sposterebbe
-    l'impronta di ogni corsa che la porta senza che il modello sia cambiato.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    categoria_uso: str
-    azione_sismica: str | None = None
-
-
 def create_app(
     config_path: Path | None = None,
     radice_corse: Path = Path("runs"),
@@ -953,11 +842,10 @@ def create_app(
 
         **Il CSRF non era chiuso, e qui c'era scritto che lo fosse.** L'argomento
         era «i corpi sono application/json, quindi il browser fa il preflight»,
-        e vale per le sole tratte che un corpo ce l'hanno. Otto non ce l'hanno:
+        e vale per le sole tratte che un corpo ce l'hanno. Cinque non ce l'hanno:
         `/api/storico/indietro` e `/api/storico/avanti`, e prima di loro
-        `/api/cancel`, `/api/step/{numero}`, `/api/step/{numero}/from`,
-        `/api/wall`, `/api/model/{tipo}`, `/api/solve` -- di cui cinque
-        lanciano sottoprocessi.
+        `/api/cancel`, `/api/step/{numero}`, `/api/step/{numero}/from` -- di cui
+        due lanciano sottoprocessi.
         Una POST senza corpo non porta `Content-Type`, quindi e' una richiesta
         CORS-safelisted e il preflight non parte; l'`Host` che arriva e'
         `127.0.0.1`, quindi la guardia sopra la lascia passare. La risposta
@@ -965,7 +853,7 @@ def create_app(
         legge niente, ma l'effetto collaterale succede lo stesso, e un
         `<form method=POST>` auto-inviato non ha bisogno nemmeno di JS.
 
-        `Sec-Fetch-Site` lo chiude per tutte e otto in un punto solo: lo scrive
+        `Sec-Fetch-Site` lo chiude per tutte e cinque in un punto solo: lo scrive
         il browser e una pagina non lo puo' falsificare. Assente vuol dire che a
         chiamare non e' un browser -- `curl`, un test, la suite -- e passa: chi
         non ha un browser non ha nemmeno una vittima da far cliccare, che e' il
@@ -1518,302 +1406,13 @@ def create_app(
             filename=f"{cartella.name}_{pipeline.DECK_FILENAME}",
         )
 
-    @app.get("/api/wall")
-    def prior_geometrico() -> dict[str, object]:
-        """Il prior come sta sul disco. Un prior non calcolato lo dichiara.
 
-        Uno stato vuoto che insegna e non un 404 nudo: l'utente successivo non
-        conosce gli step, e «non ancora calcolato, ecco come» e' l'unica
-        risposta che gli serve.
-        """
-        cfg = corrente()
-        percorso = Path(cfg.run.out_dir) / pipeline.WALL_FILENAME
-        if not percorso.exists():
-            return {
-                "calcolato": False,
-                "motivo": (
-                    "il prior geometrico non è ancora stato calcolato: è lo "
-                    "step 12, e non fa parte della corsa predefinita. Si "
-                    "ottiene con il comando 'Calcola il prior' qui accanto, "
-                    "oppure eseguendo lo step 12 dalla colonna"
-                ),
-                "prior": None,
-            }
-        with percorso.open(encoding="utf-8") as handle:
-            return {"calcolato": True, "motivo": "", "prior": json.load(handle)}
 
-    @app.post("/api/wall")
-    def calcola_prior() -> dict[str, object]:
-        corrente()
-        non_in_sola_lettura("ricalcolare il prior")
-        lavoratore.start_comando(["wall", str(config_path)], etichetta="prior geometrico")
-        return {"avviato": "wall"}
 
-    @app.post("/api/solve")
-    def risolvi_analisi() -> dict[str, object]:
-        """Lo step 13 sugli artefatti gia' presenti. E' un'azione, non uno step.
 
-        Stessa strada del prior geometrico: `start_comando` e non `start`,
-        perche' non c'e' un intervallo di step da percorrere. `POST
-        /api/step/13` non e' un ripiego -- il tetto di `from_step` e' 12, quindi
-        quella tratta fa partire un sottoprocesso che muore sulla validazione
-        della configurazione, dopo aver risposto 200. Il tetto e' stato 9 fino
-        al 30/08/2026 e ora e' 12, ma il 13 resta fuori per la sua ragione, che
-        non e' il numero: e' l'unico step che paga un processo esterno vero.
-        """
-        corrente()
-        non_in_sola_lettura("eseguire il solutore")
-        lavoratore.start_comando(["solve", str(config_path)], etichetta="solutore")
-        return {"avviato": "solve"}
 
-    @app.get("/api/analisi")
-    def analisi() -> dict[str, object]:
-        """Tutto cio' che i quattro stadi della schermata dell'analisi mostrano.
 
-        Una tratta sola e non quattro: la schermata si apre tutta insieme, e
-        ogni fetch in piu' e' un modo in piu' di restare vuoti in silenzio.
-        Quello che si legge gia' da /api/wall, /api/metrics e /api/config passa
-        di qui **riletto e non ricalcolato**; quello che non aveva una tratta --
-        la disponibilita' vera dei solutori, il verdetto per stazione, le
-        categorie d'uso, le azioni dichiarate -- lo produce il core (`solve`,
-        `armatura`, `combinazioni`), mai questo modulo e mai il browser.
 
-        Ogni grandezza che esce di qui porta accanto o il proprio controllo o il
-        motivo per cui non c'e' (PRODUCT.md:170): mai una chiave a zero al posto
-        di una chiave assente.
-
-        `solutori` viene da `solve.disponibilita`, che guarda il PATH e il
-        percorso dichiarato e **non esegue niente**. La prova vera -- quella che
-        il binario lo lancia, perche' «c'e'» non e' «funziona» -- sta dietro un
-        gesto, su `POST /api/solutore/verifica`: il percorso del solutore lo
-        nomina il `config.yaml` della corsa, e una cartella che arriva da fuori
-        lo porta con se'. Finche' la prova stava qui, legare quella corsa e
-        aprire la schermata bastava a far partire il programma che quel file
-        nominava, senza un gesto e senza mostrarlo prima.
-        """
-        cfg = corrente()
-        out = Path(cfg.run.out_dir)
-        metriche, metriche_illeggibili = _letto_o_dichiarato(
-            out / pipeline.METRICS_FILENAME, "le metriche"
-        )
-        prior, prior_motivo = _letto_o_dichiarato(
-            out / pipeline.WALL_FILENAME, "il prior geometrico"
-        )
-        if prior_motivo is None and not (out / pipeline.WALL_FILENAME).exists():
-            prior_motivo = (
-                "il prior geometrico non è ancora stato calcolato: lo propone lo "
-                "step 12, e senza di lui non c'è nessuna struttura da mostrare"
-            )
-
-        esportazione = metriche.get("11_export")
-        regioni_misurate = (
-            esportazione.get("regioni") if isinstance(esportazione, dict) else None
-        )
-        if regioni_misurate is not None:
-            regioni_motivo = None
-        elif metriche_illeggibili is not None:
-            regioni_motivo = metriche_illeggibili
-        elif not cfg.regioni:
-            regioni_motivo = (
-                "nessuna regione dichiarata: la frazione orfana la misura "
-                "l'attribuzione dello step 11, che gira soltanto dove `regioni` "
-                "dichiara almeno una regione. Assente, non zero"
-            )
-        else:
-            regioni_motivo = (
-                "lo step 11 «Esportazione» non ha ancora attribuito gli elementi "
-                "alle regioni dichiarate: la frazione orfana non esiste ancora, ed "
-                "è assente e non zero"
-            )
-
-        # L'ultima regione vince, e non e' una scelta da fare qui: due regioni
-        # sulla stessa membratura sono una configurazione che il modello ammette,
-        # e dichiarare quale conta spetterebbe a chi la ammette.
-        per_membratura = {
-            regione.membratura: (nome, regione.sezione)
-            for nome, regione in cfg.regioni.items()
-        }
-        elenco = prior.get("membrature") or []
-        membrature = []
-        for indice, voce in enumerate(elenco):
-            nome, sezione = per_membratura.get(indice, (None, None))
-            stazioni, stazioni_motivo = _stazioni_della_membratura(voce, sezione)
-            membrature.append({
-                "indice": indice,
-                "lunghezza": voce.get("lunghezza"),
-                "sezione": voce.get("sezione"),
-                # Il riempimento di sezione porta con se' soglia e affidabilita':
-                # e' il numero e il controllo che lo sorveglia, e viaggiano
-                # insieme perche' `wall.riempimento` li scrive insieme.
-                "riempimento": voce.get("riempimento"),
-                "regione": nome,
-                "sezione_dichiarata": (
-                    None if sezione is None else sezione.model_dump(mode="json")
-                ),
-                "stazioni": stazioni,
-                "stazioni_motivo": stazioni_motivo,
-            })
-        if prior_motivo is None and not elenco:
-            prior_motivo = (
-                "lo step 12 ha calcolato il prior e non ha accettato nessuna "
-                "membratura: le regioni viste e scartate stanno in «scartate» del "
-                "prior, ciascuna col controllo che non ha passato"
-            )
-
-        giunzioni = prior.get("giunzioni")
-        giunzioni_motivo = None
-        if giunzioni is None:
-            giunzioni_motivo = (
-                "il prior non porta la chiave `giunzioni`: è una corsa scritta prima "
-                "che l'adiacenza fosse misurata, e dedurre qui gli incontri "
-                "fabbricherebbe una misura che nessuno ha fatto"
-            ) if elenco else prior_motivo
-
-        deck = out / pipeline.DECK_FILENAME
-        modelli = {
-            "solido": {
-                "etichetta": "solido tetraedrico",
-                "produce": "lo step 11 «Esportazione», sul maglio dello step 9",
-                "pronto": deck.is_file(),
-                "manca": None if deck.is_file() else (
-                    f"manca {pipeline.DECK_FILENAME}: lo scrive lo step 11"
-                ),
-                "instradato": MODELLO_DEL_SOLUTORE[cfg.solutore.nome] == "solido",
-                "motivo": None if MODELLO_DEL_SOLUTORE[cfg.solutore.nome] == "solido"
-                else _perche_non_instrada("solido", cfg.solutore.nome),
-            },
-            "telaio": {
-                "etichetta": "telaio sulle membrature",
-                "produce": "lo step 12 «Prior geometrico», via core/telaio.costruisci",
-                "pronto": bool(elenco),
-                "manca": None if elenco else prior_motivo,
-                "instradato": MODELLO_DEL_SOLUTORE[cfg.solutore.nome] == "telaio",
-                "motivo": None if MODELLO_DEL_SOLUTORE[cfg.solutore.nome] == "telaio"
-                else _perche_non_instrada("telaio", cfg.solutore.nome),
-            },
-        }
-
-        esito = metriche.get("13_solve")
-        return {
-            "modelli": modelli,
-            "solutori": solve.disponibilita(cfg.solutore),
-            "regioni": regioni_misurate,
-            "regioni_motivo": regioni_motivo,
-            "regioni_dichiarate": sorted(cfg.regioni),
-            "membrature": membrature,
-            "membrature_motivo": prior_motivo,
-            "giunzioni": giunzioni or [],
-            "giunzioni_motivo": giunzioni_motivo,
-            "azioni": combinazioni.azioni_dichiarate(cfg),
-            "categorie": [
-                {
-                    "categoria": voce.categoria,
-                    "descrizione": voce.descrizione,
-                    "psi_0": voce.psi_0,
-                    "psi_1": voce.psi_1,
-                    "psi_2": voce.psi_2,
-                    "fonte": voce.fonte,
-                }
-                for voce in combinazioni.PSI
-            ],
-            "configurazione": cfg.model_dump(mode="json"),
-            "solve": esito if isinstance(esito, dict) else None,
-            "solve_motivo": None if isinstance(esito, dict) else (
-                metriche_illeggibili
-                or "lo step 13 non è ancora stato eseguito: non c'è niente da rileggere"
-            ),
-            "metriche_illeggibili": metriche_illeggibili,
-        }
-
-    @app.post("/api/solutore/verifica")
-    def verifica_solutore() -> dict[str, object]:
-        """La prova vera del solutore, dietro un gesto e mai all'apertura.
-
-        POST e non GET perche' e' un'azione e non una lettura: esegue
-        l'eseguibile che `solutore.percorso` nomina, che e' un dato del
-        `config.yaml` della corsa e non di questo programma. Una GET che lancia
-        un processo la chiama anche chi la schermata l'ha solo aperta.
-
-        Il verdetto e i motivi li produce `solve.verifica`: qui non si decide
-        niente, si consegna. Un binario assente o che si pianta torna con
-        `funziona: False` e il proprio motivo, e non come un 400: e' una
-        diagnosi riuscita, non una richiesta rifiutata.
-
-        Nessuna guardia di sola lettura: la prova non scrive nella cartella
-        della corsa. Il gesto che scrive resta `POST /api/solve`, che la sua
-        guardia ce l'ha.
-        """
-        cfg = corrente()
-        return solve.verifica(cfg.solutore)
-
-    @app.post("/api/combinazioni")
-    def proponi_combinazioni(richiesta: ProponiCombinazioni) -> dict[str, object]:
-        """Le combinazioni di norma, proposte e scritte nella configurazione.
-
-        `aggiorna` e non `proponi`: una combinazione corretta a mano
-        (`proposta=False`) non torna a essere sovrascritta, e una proposta
-        omonima non entra. Sarebbe il programma che smentisce chi analizza, in
-        silenzio.
-
-        La categoria d'uso arriva dalla richiesta e non dalla configurazione,
-        dove non c'e' un campo che la porti: e' un fatto dell'edificio che
-        l'operatore dichiara al momento di proporre.
-        """
-        cfg = corrente()
-        non_in_sola_lettura("proporre le combinazioni")
-        if not richiesta.categoria_uso.strip():
-            raise ValueError(
-                "nessuna categoria d'uso scelta: i ψ della Tab. 2.5.I si leggono "
-                "per categoria, e sceglierne una d'ufficio sarebbe indovinarla -- "
-                "fra il residenziale e il magazzino ψ_2 vale 0,3 e 0,8. Scegli la "
-                "categoria e le combinazioni si propongono"
-            )
-        nuove = combinazioni.aggiorna(
-            cfg.carichi.combinazioni,
-            combinazioni.azioni_dichiarate(cfg),
-            richiesta.categoria_uso,
-            azione_sismica=richiesta.azione_sismica,
-        )
-        cfg.carichi.combinazioni = nuove
-        scrivi_config(cfg, "POST /api/combinazioni", ["carichi.combinazioni"])
-        return {"combinazioni": [voce.model_dump(mode="json") for voce in nuove]}
-
-    @app.post("/api/model/{tipo}")
-    def genera_modello(tipo: str) -> dict[str, object]:
-        """Genera un modello parametrico. E' un'azione, non un parametro.
-
-        Non scrive nulla in config.yaml: se lo facesse, rigenerare un modello in
-        piu' cambierebbe l'impronta di una corsa che non e' cambiata.
-        """
-        if tipo not in ("estruso", "primitive"):
-            raise ValueError(
-                f"modello '{tipo}' sconosciuto: i modelli parametrici sono "
-                "'estruso' e 'primitive'. as-built è la corsa madre e non si genera"
-            )
-        madre = Path(corrente().run.out_dir)
-        non_in_sola_lettura(f"generare il modello {tipo}")
-        lavoratore.start_comando(
-            ["model", str(config_path), "--tipo", tipo,
-             "--out-dir", str(madre.with_name(f"{madre.name}-{tipo}"))],
-            etichetta=f"modello {tipo}",
-        )
-        return {"avviato": tipo}
-
-    @app.get("/api/compare")
-    def confronto() -> dict[str, object]:
-        """Il confronto sulle cartelle che esistono davvero.
-
-        Le cartelle mancanti non vengono create ne' finte: il confronto dice
-        quale modello manca invece di mettere un trattino in una colonna di
-        numeri.
-        """
-        madre = Path(corrente().run.out_dir)
-        cartelle = [madre] + [
-            madre.with_name(f"{madre.name}-{tipo}")
-            for tipo in ("estruso", "primitive")
-            if madre.with_name(f"{madre.name}-{tipo}").is_dir()
-        ]
-        return report.confronta(cartelle)
 
     @app.get("/api/materiali")
     def catalogo_materiali() -> dict[str, object]:
@@ -2243,93 +1842,7 @@ def create_app(
             **metriche,
         }
 
-    @app.get("/api/membrature")
-    def membrature() -> Response:
-        """Un'etichetta di membratura per punto della nuvola disegnata.
 
-        E' la prova visiva che la scomposizione ha capito il pezzo, e si legge
-        in un secondo dove nessuna metrica sarebbe cosi' rapida. -1 significa
-        «nessuna membratura», che e' un'informazione e non un buco.
-        """
-        cfg = corrente()
-        percorso = Path(cfg.run.out_dir) / pipeline.WALL_FILENAME
-        if not percorso.exists():
-            raise FileNotFoundError(
-                "il prior geometrico non è ancora stato calcolato: è lo step 12"
-            )
-        # Gli indici di 12_wall.json valgono per la nuvola di ARTIFACTS[2] con
-        # cui il prior e' stato calcolato: se lo step 2 e' stato rifatto (un
-        # ritaglio diverso) senza rifare il 12, l'impronta salvata per lo
-        # step 12 non combacia piu' con quella che la configurazione corrente
-        # produce, e disegnare dipingerebbe le etichette sui punti sbagliati
-        # in silenzio invece di fermarsi (F5).
-        stato_prior = next(v for v in steps.run_state(cfg.run.out_dir, cfg) if v["chiave"] == "12_wall")
-        if stato_prior["stato"] == "non valido":
-            raise ValueError(
-                "il prior geometrico (step 12) è più vecchio della "
-                "configurazione corrente: rilancia `meshrec wall` prima di "
-                "vedere la mappa delle membrature"
-            )
-        with percorso.open(encoding="utf-8") as handle:
-            prior = json.load(handle)
-        punti, gruppi, _voxel = viewport.decimate_file(
-            Path(cfg.run.out_dir) / pipeline.ARTIFACTS[2],
-            ViewportConfig().max_points, cfg.input.spacing_sample, cfg.input.seed,
-            CACHE_DIR,
-        )
-        # Etichetta per punto PIENO, letta da "indici" (wall.prior, posizioni
-        # dentro ARTIFACTS[2] intera). Un gruppo di decimazione puo' contenere
-        # punti pieni di piu' membrature: vince la maggioranza del gruppo, non
-        # il primo punto -- lo stesso principio di /api/cluster (server.py),
-        # non la stessa implementazione (li' il voto e' geometrico, qui e' gia'
-        # un'etichetta per indice).
-        per_punto_pieno = np.full(sum(len(gruppo) for gruppo in gruppi), -1, dtype=np.int64)
-        for numero, voce in enumerate(prior["membrature"]):
-            per_punto_pieno[voce["indici"]] = numero
-        etichette = np.full(len(punti), -1.0)
-        for disegnato, gruppo in enumerate(gruppi):
-            # ponytail: fino a max_points (400.000) iterazioni con un Counter su
-            # gruppi piccoli -- rapido nella pratica su lab_crop/muro. Se un
-            # giorno diventasse un collo di bottiglia misurato, la stessa
-            # etichettatura si vettorizza con un bincount su (indice
-            # disegnato, etichetta+1).
-            migliore, _voti = Counter(per_punto_pieno[gruppo].tolist()).most_common(1)[0]
-            if migliore != -1:
-                etichette[disegnato] = float(migliore)
-        return Response(
-            content=viewport.campo_per_punto(etichette),
-            media_type="application/octet-stream",
-            headers={"X-Punti": str(len(punti)),
-                      "X-Membrature": str(len(prior["membrature"]))},
-        )
-
-    @app.get("/api/rigonfiamento")
-    def rigonfiamento(membratura: int) -> dict[str, object]:
-        """L'aggregato di rigonfiamento di una membratura: min, max, p95 [mm].
-
-        Non la mappa per cella: quella vive solo in memoria dentro
-        Membratura.rigonfiamento (wall.py) e non arriva su 12_wall.json, che
-        serializza il solo aggregato (wall.py, voce "rigonfiamento" di
-        wall.prior). Scriverla vorrebbe dire un artefatto nuovo (un .npy per
-        membratura accanto al JSON, con la propria provenienza da gestire) e
-        niente in questa fase la consuma: dichiarare qui dove sta e cosa
-        servirebbe evita a chi la cerchera' di ripartire da zero.
-        """
-        cfg = corrente()
-        percorso = Path(cfg.run.out_dir) / pipeline.WALL_FILENAME
-        if not percorso.exists():
-            raise FileNotFoundError(
-                "il prior geometrico non è ancora stato calcolato: è lo step 12"
-            )
-        with percorso.open(encoding="utf-8") as handle:
-            prior = json.load(handle)
-        if not 0 <= membratura < len(prior["membrature"]):
-            raise ValueError(
-                f"membratura {membratura} inesistente: il prior ne ha trovate "
-                f"{len(prior['membrature'])}"
-            )
-        mappa = prior["membrature"][membratura]["rigonfiamento"]
-        return {"min": mappa["min"], "max": mappa["max"], "p95": mappa["p95"], "celle": mappa["celle"]}
 
     @app.get("/api/mesh/{numero}")
     def mesh(numero: int) -> Response:
@@ -2374,9 +1887,8 @@ def create_app(
     def scarto() -> Response:
         """Lo scarto della superficie dalla nuvola, un Float32 per vertice.
 
-        Corrisponde vertice per vertice a `/api/mesh/6`, e per la stessa
-        garanzia di `/api/campo`: i due gestori leggono lo stesso file, non si
-        accordano fra loro.
+        Corrisponde vertice per vertice a `/api/mesh/6`, e la garanzia e' che
+        i due gestori leggono lo stesso file invece di accordarsi fra loro.
 
         **Limite dichiarato**, ed e' quello di `quality.vertex_deviation`:
         campiona i SOLI vertici, nel verso mesh_to_cloud. Dove la superficie
@@ -2414,70 +1926,6 @@ def create_app(
             headers={"X-Max": str(float(finiti.max())) if len(finiti) else ""},
         )
 
-    @app.get("/api/campo/{caso}/{grandezza}")
-    def campo(caso: str, grandezza: str) -> Response:
-        """Un campo dello step 13 (`solve.risolvi`), ristretto ai vertici del
-        contorno con la stessa corrispondenza di /api/mesh.
-
-        La chiave e' `f"{grandezza}_{caso}"` (contratto di `solve.risolvi`,
-        es. "VM_GRAVITA"): non c'e' un elenco di casi/grandezze validi da
-        tenere allineato altrove, la validita' e' la presenza della chiave in
-        `point_data`. Ne' `caso` ne' `grandezza` toccano mai il filesystem
-        (il percorso e' fisso, 13_solution.vtu della corsa corrente): un
-        valore come '..' fallisce lo stesso controllo di appartenenza di uno
-        inventato, non serve una guardia sui caratteri.
-
-        U_<caso> e' un vettore (spostamento nodale): la magnitudine e' lo
-        scalare che risponde, uno per vertice, come VM_<caso> gia' e' scalare.
-
-        L'unica intestazione e' `X-Max`, il massimo del campo, che finisce
-        nella didascalia della vista. Il p99 su cui si taglia la scala colore
-        (il picco isolato di una singolarita' del maglio - misurato il
-        22/08/2026 su runs/lab_telaio_v2, CARICO_TOP: 0,9811 MPa contro un p99
-        di 0,3962, al rango piu' vicino sui nodi del contorno come fa il browser -
-        stirerebbe la scala su un solo vertice) lo calcola il browser in `viewport.scalaDelCampo`:
-        e' una
-        decisione numerica, e questo progetto le prova eseguendole in node.
-        Le intestazioni `X-Min`, `X-P99` e `X-Sopra-P99` c'erano e nessuno le
-        leggeva: un dato che il client ignora invecchia in silenzio.
-        """
-        import meshio
-
-        cfg = corrente()
-        percorso = Path(cfg.run.out_dir) / pipeline.ARTIFACTS[13]
-        if not percorso.exists():
-            raise FileNotFoundError(
-                f"lo step 13 non ha ancora prodotto {pipeline.ARTIFACTS[13]}"
-            )
-        griglia = meshio.read(percorso)
-        if not griglia.point_data:
-            raise ValueError(f"{percorso.name} non contiene campi di soluzione")
-        chiave = f"{grandezza}_{caso}"
-        if chiave not in griglia.point_data:
-            if caso in griglia.point_data:
-                raise ValueError(
-                    f"'{caso}' è un modo, non un caso di carico: la sua forma è "
-                    "normalizzata sulla massa e non ha né millimetri né MPa"
-                )
-            raise ValueError(
-                f"nessun campo '{chiave}' in {percorso.name}: i campi disponibili "
-                f"sono {sorted(griglia.point_data)}"
-            )
-        _vertici, _facce, indici = _contorno_del_volume(percorso, griglia)
-        valori = np.asarray(griglia.point_data[chiave], dtype=np.float64)[indici]
-        if valori.ndim > 1:
-            valori = np.linalg.norm(valori, axis=1)
-        if len(valori) == 0:
-            return Response(
-                content=b"",
-                media_type="application/octet-stream",
-                headers={"X-Max": "0.0"},
-            )
-        return Response(
-            content=viewport.campo_per_punto(valori),
-            media_type="application/octet-stream",
-            headers={"X-Max": str(float(valori.max()))},
-        )
 
     @app.get("/api/events")
     def eventi(max_eventi: int | None = None) -> StreamingResponse:
