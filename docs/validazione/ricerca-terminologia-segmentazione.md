@@ -15,8 +15,9 @@ chiamano «segmentazione» — la questione sollevata da un tutore.
 
 **Dove stanno i 17 articoli.** Non nel repository: `.gitignore` esclude
 `Articoli/`, e `git log --all -- 'Articoli*'` è vuoto. Su questa macchina i 17
-PDF stanno in
-`/mnt/c/Users/mario/Università/OneDrive - Università degli Studi di Perugia/File di Pasquale Guarino - Mario Fiorenzoni/Articoli`.
+PDF stanno in una cartella OneDrive condivisa, fuori dal repository. Il
+percorso non è scritto qui: contiene il nome della persona con cui la
+cartella è condivisa, e questo repository è pubblico.
 Il testo è stato estratto con `pypdf` (nessun `pdftotext` disponibile in questo
 ambiente). La numerazione `art. N` segue l'ordine alfabetico dei file ed è la
 stessa di `ricerca-letteratura-scan-to-fem.md` §1.1 dove i due documenti
