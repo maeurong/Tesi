@@ -1,5 +1,15 @@
 # Validazione del programma — quadro d'insieme
 
+> **Nota del 03/09/2026.** Questo documento resta come è stato scritto. Descrive un
+> programma di validazione costruito sul solutore integrato — `core/solve.py`,
+> `core/convergenza.py`, il registro delle soglie `core/soglie.py` e i test
+> NAFEMS, della mensola e della GCI — che è uscito per intero dal repository
+> il 2-3 settembre 2026 con la mappa
+> [#161](https://github.com/maeurong/Tesi/issues/161). Ciò che qui è al
+> presente va letto al passato; resta il patch test. Quale validazione debba
+> tornare, e con quali oracoli, è una domanda aperta della mappa
+> [#33](https://github.com/maeurong/Tesi/issues/33).
+
 Aperto il 26/08/2026. Quattro ricerche indipendenti, condotte in parallelo su
 `main` a `a07071a`, hanno prodotto i documenti di questa cartella:
 

@@ -12,12 +12,14 @@
 #   questa matrice diventasse rossa per l'ultima cifra, la risposta e' la
 #   tolleranza dichiarata, non l'uguaglianza esatta.
 #
-# - `benchmark` gira **solo su Linux** e installa CalculiX, perche' i
-#   benchmark di verifica (NAFEMS LE10 e FV52, patch test, mensola contro
-#   Gere-Timoshenko, equilibrio delle reazioni) senza solutore non esistono.
+# - `benchmark` gira **solo su Linux** e installa CalculiX, perche' il patch
+#   test -- l'unico benchmark di verifica rimasto dal 03/09/2026, quando NAFEMS,
+#   la mensola e l'equilibrio delle reazioni sono usciti con la mappa #161 --
+#   senza solutore non esiste.
 #
 # Perche' due lavori invece di uno: senza solutore la suite **non fallisce**,
-# salta -- misurato il 26/08/2026, 1166 passed e 40 skipped, zero rossi. E'
+# salta -- misurato il 26/08/2026, 1166 passed e 40 skipped, zero rossi
+# (prima della mappa #161; oggi la suite predefinita conta ~1313). E'
 # il comportamento giusto per chi clona senza CalculiX, ma in CI diventa una
 # trappola: i benchmark potrebbero saltare per sempre e il verde direbbe
 # «tutto a posto». Nel lavoro `benchmark` il solutore e' quindi **dichiarato
@@ -61,7 +63,8 @@ jobs:
           enable-cache: true
 
       # I test della logica dell'interfaccia eseguono davvero il JavaScript e
-      # senza `node` si saltano: 130 test su questa sola voce. Averlo qui e'
+      # senza `node` si saltano: 158 test su questa sola voce, misurati il
+      # 03/09/2026 con un PATH che non lo porta. Averlo qui e'
       # meta' del valore di questa CI.
       - uses: actions/setup-node@v4
         with:
@@ -115,10 +118,11 @@ jobs:
             if [ -n "$trovato" ]; then sudo ln -s "$trovato" /usr/bin/ccx; fi
           fi
           # Dichiarato obbligatorio: se manca, il lavoro fallisce qui e si
-          # vede, invece di far sparire 53 test in un verde. Sono i test che
-          # *spariscono*, non quelli marcati: rimisurati il 28/08/2026 su
-          # 20cb464 lanciando la suite con `ccx` fuori dal PATH -- 54 saltati
-          # contro l'unico di base, che e' `wildmeshing` assente.
+          # vede, invece di far sparire test in un verde. Sono i test che
+          # *spariscono*, non quelli marcati: rimisurati il 03/09/2026
+          # lanciando la suite con `ccx` fuori dal PATH -- 3 saltati (erano 54
+          # il 28/08/2026, prima della mappa #161) contro l'unico di base, che
+          # e' `wildmeshing` assente.
           #
           # Il segnale NON e' il codice d'uscita: `ccx -v` stampa la versione e
           # poi esce con **201** (misurato sul runner al primo giro: il lavoro
@@ -142,10 +146,10 @@ jobs:
         working-directory: meshrec
         run: uv sync --frozen
 
-      # Tutti i marcatori: la suite predefinita piu' `validazione` (49 test) e
-      # `feasibility` (18). E' il numero che si cita in tesi, quindi si
-      # rimisura invece di ricopiarlo: `pytest tests -q -m <marcatore>
-      # --collect-only`, il 28/08/2026 su 20cb464.
+      # Tutti i marcatori: la suite predefinita piu' `validazione` (5 test, il
+      # solo patch test) e `feasibility` (5). E' il numero che si cita in tesi,
+      # quindi si rimisura invece di ricopiarlo: `pytest tests -q -m
+      # <marcatore> --collect-only`, il 03/09/2026 dopo la mappa #161.
       - name: la suite completa, marcatori compresi
         working-directory: meshrec
         run: uv run pytest -m "" -q

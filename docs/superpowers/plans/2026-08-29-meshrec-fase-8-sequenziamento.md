@@ -1,5 +1,15 @@
 # Fase 8 — Sequenziamento: come si esegue in parallelo ciò che la mappa #127 ha deciso
 
+> **Nota del 03/09/2026.** Questo piano istruisce a costruire OpenSees, la
+> sezione a fibre e l'armatura dichiarata dentro MeshRec. Tre giorni dopo la
+> sua stesura la decisione di perimetro
+> (`docs/superpowers/specs/2026-08-31-perimetro-del-progetto-design.md`) ha
+> chiuso il prodotto sul deck, e il 2-3 settembre la mappa
+> [#161](https://github.com/maeurong/Tesi/issues/161) ha rimosso tutto ciò che
+> questo piano descrive. La mappa che lo generava,
+> [#127](https://github.com/maeurong/Tesi/issues/127), è chiusa come
+> abbandonata. Resta come registro di come si sarebbe fatto.
+
 > **For agentic workers:** questo documento **non è** un piano di implementazione task-per-task. È il documento di sequenziamento che sta **prima** di `superpowers:writing-plans`: dice quali sottosistemi possono correre insieme, quali file ciascuno tocca in esclusiva, con quali firme si parlano, e che cosa nessuna onda può rompere. Il piano di ciascun sottosistema si scrive dopo, uno per sottosistema, dentro la propria onda.
 
 **Goal:** eseguire in parallelo, su sessioni separate, le tredici decisioni chiuse della mappa [#127](https://github.com/maeurong/Tesi/issues/127) senza che due sessioni si trovino a scrivere lo stesso punto dello stesso file, e senza che nessuna sposti l'impronta delle ventidue righe della tabella sperimentale.

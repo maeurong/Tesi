@@ -1,5 +1,15 @@
 # Il prior estende ciò che misura — Piano d'attuazione
 
+> **Nota del 03/09/2026.** Questo piano istruisce a costruire OpenSees, la
+> sezione a fibre e l'armatura dichiarata dentro MeshRec. Tre giorni dopo la
+> sua stesura la decisione di perimetro
+> (`docs/superpowers/specs/2026-08-31-perimetro-del-progetto-design.md`) ha
+> chiuso il prodotto sul deck, e il 2-3 settembre la mappa
+> [#161](https://github.com/maeurong/Tesi/issues/161) ha rimosso tutto ciò che
+> questo piano descrive. La mappa che lo generava,
+> [#127](https://github.com/maeurong/Tesi/issues/127), è chiusa come
+> abbandonata. Resta come registro di come si sarebbe fatto.
+
 > **Per chi esegue:** SOTTO-SKILL RICHIESTA: usa `superpowers:subagent-driven-development` (consigliata) oppure `superpowers:executing-plans` per attuare questo piano un compito alla volta. I passi usano caselle (`- [ ]`) per il tracciamento.
 
 **Obiettivo:** far uscire da `wall.misura` le venti sezioni di fetta e la base del piano di sezione che già calcola, aggiungere l'adiacenza fra membrature come misura del prior, e scriverle tutte in `12_wall.json`.

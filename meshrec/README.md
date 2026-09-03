@@ -34,7 +34,7 @@ predefinito.
 Il **materiale** non viene chiesto all'inizio e non viene indovinato: nome,
 modulo elastico, coefficiente di Poisson e densità si dichiarano allo step 11,
 che è il primo a pretenderli. Fino a lì la corsa attraversa tutta la geometria
-senza. Gli step 11 e 13 si fermano con un messaggio finché non ci sono.
+senza. Lo step 11 si ferma con un messaggio finché non ci sono.
 
 Le configurazioni del caso studio della tesi stanno in `casi/` e si aprono per
 nome — `uv run meshrec serve casi/lab_telaio.yaml`. Vedi `casi/README.md`.
@@ -94,8 +94,7 @@ in t/mm³ (1800 kg/m³ = 1.8e-9) e la gravità vale 9810 mm/s².
 
 ## Stato
 
-Fase 0 **completata**: scheletro, primitive geometriche, scrittura del deck
-Abaqus e verifiche di fattibilità delle dipendenze esterne, incluso CalculiX
-come solutore per il batch di Fase 5 (installato e verificato: scarto 1,34%
-dalla soluzione analitica su una colonna sotto peso proprio). Esiti completi
-in `docs/fase-0-esiti.md`.
+Lo stato del prodotto — che cosa promette, dove si chiude, che cosa resta
+fuori — sta in [`PRODUCT.md`](../PRODUCT.md) alla radice, ed è quello che fa
+fede. Questa sezione ne è stata a lungo una copia ferma alla Fase 0, ed è
+esattamente il tipo di documento che invecchia mentre l'altro cambia.

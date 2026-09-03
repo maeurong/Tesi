@@ -1,5 +1,15 @@
 # Fase 8 — I prompt delle nove sessioni
 
+> **Nota del 03/09/2026.** Questo piano istruisce a costruire OpenSees, la
+> sezione a fibre e l'armatura dichiarata dentro MeshRec. Tre giorni dopo la
+> sua stesura la decisione di perimetro
+> (`docs/superpowers/specs/2026-08-31-perimetro-del-progetto-design.md`) ha
+> chiuso il prodotto sul deck, e il 2-3 settembre la mappa
+> [#161](https://github.com/maeurong/Tesi/issues/161) ha rimosso tutto ciò che
+> questo piano descrive. La mappa che lo generava,
+> [#127](https://github.com/maeurong/Tesi/issues/127), è chiusa come
+> abbandonata. Resta come registro di come si sarebbe fatto.
+
 Da incollare, uno per chat, in una sessione nuova di Claude Code aperta su
 `/mnt/c/Users/mario/GitHub/Tesi`.
 
