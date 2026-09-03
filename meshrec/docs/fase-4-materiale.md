@@ -5,7 +5,7 @@ Data: 18/08/2026. Nasce all'apertura della Fase 4, dalla lettura della tavola
 
 ## Cosa e' il provino
 
-La tavola `MURO 1` (obra 0021, novembre 2021, ing. Jose A. Barros Cabezas) lo
+La tavola `MURO 1` (obra 0021, novembre 2021, l'ingegnere firmatario) lo
 dice per intero: `lab_frame.pcd` non e' un muro in muratura, e' un **telaio in
 cemento armato** di sei membrature prismatiche.
 

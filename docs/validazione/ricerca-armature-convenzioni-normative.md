@@ -38,8 +38,7 @@ verbatim, nei numeri che sono nomi — articoli, tabelle, classi, sigle — e de
 i blocchi di codice.
 
 **Una premessa del brief corretta in corso d'opera.** Il brief dice «il provino è
-spagnolo». `PRODUCT.md` dice soltanto che la tavola `MURO 1` è dell'ing. José A.
-Barros Cabezas, obra 0021, novembre 2021; non dichiara il paese. La ricerca
+spagnolo». `PRODUCT.md` dice soltanto che la tavola `MURO 1` è dell'l'ingegnere firmatario, obra 0021, novembre 2021; non dichiara il paese. La ricerca
 precedente [`materiali-intervallo.md`](materiali-intervallo.md) §1.5 tiene
 aperta l'ipotesi **Ecuador** (NEC-15 / NEC-SE-HM) accanto a quella spagnola, e
 non l'ha risolta. Quello che è certo è che la tavola è **in lingua spagnola**:

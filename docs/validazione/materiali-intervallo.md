@@ -196,8 +196,7 @@ il prodotto dei due: **0,70 x 29 962 = 20 973 MPa** fino a
 
 ### 1.5 Se il provino non è europeo
 
-La tavola è in spagnolo («obra 0021», novembre 2021, ing. José A. Barros
-Cabezas). Se il laboratorio non è italiano, il codice di riferimento potrebbe non
+La tavola è in spagnolo («obra 0021», novembre 2021, l'ingegnere firmatario). Se il laboratorio non è italiano, il codice di riferimento potrebbe non
 essere l'Eurocodice. **Caveat esplicito, non risolto in questa ricerca.** Due
 riferimenti alternativi, verificati solo per esistenza della formula:
 
@@ -604,5 +603,5 @@ Elenco esplicito, per non dover ricostruire il perimetro dopo:
   primaria dell'intervallo 0,15-0,25, citata attraverso Ahmed 2018.
 - **Nessuna statistica pubblicata** sulla classe di calcestruzzo usata nei provini
   di telaio in c.a. di laboratorio. Non esiste, o non l'ho trovata.
-- **Provenienza del provino** («obra 0021», ing. José A. Barros Cabezas): non
+- **Provenienza del provino** («obra 0021», l'ingegnere firmatario): non
   accertata. Se non è europea, la sezione 1.5 cambia l'intervallo.

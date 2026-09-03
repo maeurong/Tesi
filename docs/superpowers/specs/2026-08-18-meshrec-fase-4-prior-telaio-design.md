@@ -21,8 +21,7 @@ operazioni che una pipeline generica non può fare».
 
 La premessa è falsa sul caso studio, e la falsità è stata misurata all'apertura
 di questa fase, non ipotizzata. Il provino `lab_frame.pcd` non è una lastra: la
-tavola esecutiva `muro_1.pdf` (`MURO 1`, obra 0021, novembre 2021, ing. José A.
-Barros Cabezas) lo descrive come un **telaio in cemento armato** di sei
+tavola esecutiva `muro_1.pdf` (`MURO 1`, obra 0021, novembre 2021, l'ingegnere firmatario) lo descrive come un **telaio in cemento armato** di sei
 membrature prismatiche, e le misure sulla nuvola concordano con la tavola.
 
 | membratura | sezione [mm] | lunghezza [mm] | n. | riscontro sulla nuvola |

@@ -235,7 +235,7 @@ wall:
   union_tolerance: 0.02
   union_step_factor: 2.0
   # Riscontri dichiarati, dalla tavola MURO 1 (obra 0021, novembre 2021,
-  # ing. Jose A. Barros Cabezas). Sono dati del caso e non del programma: su
+  # l'ingegnere firmatario). Sono dati del caso e non del programma: su
   # una geometria mai vista queste tre voci restano null e il prior riporta
   # cio' che ha trovato senza inventare un'aspettativa.
   membrature_attese: 6

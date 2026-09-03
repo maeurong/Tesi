@@ -161,7 +161,7 @@ Materiale reale, presente nel repository:
   sei membrature prismatiche in tutto. Il tamponamento in blocchi previsto dalla
   tavola non è presente nel provino scansionato, e non fa parte del modello.
 - `muro_1.pdf` — tavola esecutiva `MURO 1` del provino (obra 0021, novembre
-  2021, ing. José A. Barros Cabezas): sezioni, armature e volume di calcestruzzo
+  2021, l'ingegnere firmatario): sezioni, armature e volume di calcestruzzo
   dichiarato, 0,4777 m³. È la verità di riferimento con cui le misure sulla
   nuvola possono essere contraddette. **Non è versionato** — `.gitignore` lo
   esclude esplicitamente — quindi vive solo nella copia di lavoro dell'autore:

@@ -69,8 +69,7 @@ del file e i dati su disco coincidono.
 ## 2. Perche' la fase ha cambiato nome
 
 Il piano di questa fase si apriva assumendo un muro: «due piani paralleli e
-uno spessore». La tavola `MURO 1` (obra 0021, novembre 2021, ing. Jose A.
-Barros Cabezas), letta all'apertura della Fase 4 e riportata per intero in
+uno spessore». La tavola `MURO 1` (obra 0021, novembre 2021, l'ingegnere firmatario), letta all'apertura della Fase 4 e riportata per intero in
 [`fase-4-materiale.md`](fase-4-materiale.md), dice il contrario:
 `lab_frame.pcd` e' un **telaio in cemento armato** di sei membrature
 prismatiche — due zapatas, una viga inferior, due columnas, una viga
