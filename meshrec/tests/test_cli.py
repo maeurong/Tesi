@@ -87,9 +87,8 @@ def test_from_step_overrides_the_configuration(tmp_path, monkeypatch):
         return {}
 
     # Sul modulo e non su `cli.pipeline`: `cli` importa `pipeline` dentro il
-    # ramo che lo usa e non piu' in testa al file, cosi' `meshrec dottore` --
-    # che serve proprio quando una dipendenza e' rotta -- non muore all'import
-    # di open3d.
+    # ramo che lo usa e non in testa al file, cosi' la riga di comando non
+    # muore all'import di open3d prima ancora di leggere gli argomenti.
     monkeypatch.setattr("meshrec.core.pipeline.run", fake_run)
     cfg = crea_config(input=config.InputConfig(path="nuvola.ply"))
     config.save_config(cfg, tmp_path / "config.yaml")
@@ -381,54 +380,9 @@ def test_il_comando_compare_scrive_la_pagina_e_nomina_i_modelli_assenti(tmp_path
     assert str(uscita) in capsys.readouterr().out
 
 
-def _config_con_solutore(tmp_path, monkeypatch, nome, percorso=None):
-    """Una configurazione che porta il blocco `solutore`, senza passare dal file.
-
-    Il blocco lo dichiara l'onda 0 della Fase 8 e in `PipelineConfig` non c'e'
-    ancora: `_ModelloBase` vieta i campi ignoti, quindi scriverlo nel YAML lo
-    farebbe rifiutare a caricamento. Si sostituisce quindi `load_config`, cosi'
-    il test prova `dottore` contro la forma dichiarata -- `cfg.solutore.nome` e
-    `cfg.solutore.percorso` -- invece che contro lo schema di oggi.
-    """
-    percorso_yaml = tmp_path / "c.yaml"
-    percorso_yaml.write_text("segnaposto\n", encoding="utf-8")
-
-    class _Cfg:
-        solutore = _SolutoreFinto(nome=nome, percorso=percorso)
-
-    monkeypatch.setattr(cli, "load_config", lambda _p: _Cfg())
-    return percorso_yaml
-
-
-# --- `meshrec dottore` (#144, sottocomando: vedi §8.3 del sequenziamento) -----
 from pathlib import Path  # noqa: E402
 from typing import NamedTuple  # noqa: E402
 
-
-
-class _SolutoreFinto(NamedTuple):
-    nome: str = "calculix"
-    percorso: Path | None = None
-
-
-def _niente_installato(monkeypatch):
-    monkeypatch.setattr(solve.shutil, "which", lambda _nome: None)
-
-
-def _solo_calculix(monkeypatch):
-    monkeypatch.setattr(
-        solve.shutil, "which", lambda nome: "/usr/bin/ccx" if nome == "ccx" else None
-    )
-    monkeypatch.setattr(
-        solve.subprocess, "run",
-        lambda *_a, **_k: _ProcessoFinto(201, b"This is Version 2.21\n", b""),
-    )
-
-
-class _ProcessoFinto(NamedTuple):
-    returncode: int
-    stdout: bytes
-    stderr: bytes
 
 
 def test_la_porta_occupata_si_dice_prima_di_annunciare_l_ascolto(capsys):

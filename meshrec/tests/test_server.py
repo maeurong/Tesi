@@ -3094,8 +3094,8 @@ def test_lo_step_12_e_il_tetto_di_esegui_da_qui_in_poi(cliente):
     seguito. Le due ragioni sono diverse e vanno tenute separate.
 
     'Riprendi da qui' nel pannello non deve far partire un processo esterno da
-    solo: per questo il tetto e' 12 e non 13. E resta 12 anche ora che il
-    predefinito e' 11, perche' l'interfaccia mostra tutti e tredici gli step:
+    solo: per questo il tetto e' 12. E resta 12 anche ora che il
+    predefinito e' 11, perche' lo stato porta tutti e dodici gli step:
     fermo a 11, la riga 12 resterebbe 'mai eseguita' dietro 'esegui da qui in
     poi', senza spiegazione e senza modo di eseguirla. Il perimetro del
     prodotto governa che cosa accade *senza chiedere* -- una corsa da riga di

@@ -83,9 +83,9 @@ BLOCCHI_FUORI_IMPRONTA: tuple[str, ...] = ("run", "wall", "model")
 #
 # La regola dell'omissione vale per l'IMPRONTA DI CANDIDATO di questo modulo e
 # NON per la catena degli step (`steps.step_fingerprints`), che hasha il
-# payload cosi' com'e': `{"regioni": {}}` e i predefiniti di `solutore` vi
-# entrano comunque. Aggiungere un blocco letto dallo step 11 sposta percio' le
-# impronte degli step 11, 12 e 13 una volta sola, e ogni corsa gia' su disco si
+# payload cosi' com'e': `{"regioni": {}}` vi entra comunque. Aggiungere un
+# blocco letto dallo step 11 sposta percio' le impronte degli step 11 e 12 una
+# volta sola, e ogni corsa gia' su disco si
 # dichiara da rieseguire da li' in giu' al primo avvio -- senza che l'operatore
 # abbia cambiato un campo. E' una volta sola e si accetta; inseguire
 # l'omissione dentro `step_fingerprints` sarebbe un'altra decisione.
@@ -201,23 +201,21 @@ def expand(
 
 # Le chiavi che rendono completo un candidato di sweep: derivate da
 # STEP_KEYS (fonte unica) invece di riscritte a mano, ma non tutte -- "12_wall"
-# e "13_solve" sono tagliate per chiave e non per posizione (un domani
-# STEP_KEYS piu' lungo non sbaglierebbe in silenzio con un indice numerico).
-# Ne' il prior ne' la soluzione sono un requisito di completezza dello sweep:
-# nessun asse della griglia li tocca (vedi BLOCCHI_FUORI_IMPRONTA), tutti
-# stanno a monte dello step 11, e un candidato e' completo quando ha il
-# proprio deck, non quando ha il prior o l'ha vista risolvere un solutore.
-# Stessa ragione per cui `run_candidate` chiede `--to-step 11` esplicito al
-# sottoprocesso invece di ereditare il predefinito di RunConfig.to_step, che ha
-# gia' valso 13, poi 12 dalla Fase 8, e ora 11 dal perimetro del prodotto: le
-# due esclusioni -- qui e li' -- si spiegano a vicenda, e hanno continuato a
-# spiegarsi mentre il predefinito cambiava tre volte sotto di esse, perche' e'
-# una decisione del chiamante e non un'eredita'.
+# e' tagliata per chiave e non per posizione (un domani STEP_KEYS piu' lungo
+# non sbaglierebbe in silenzio con un indice numerico). Il prior non e' un
+# requisito di completezza dello sweep: nessun asse della griglia lo tocca
+# (vedi BLOCCHI_FUORI_IMPRONTA), sta a valle dello step 11, e un candidato e'
+# completo quando ha il proprio deck, non quando ha il prior. Stessa ragione
+# per cui `run_candidate` chiede `--to-step 11` esplicito al sottoprocesso
+# invece di ereditare il predefinito di RunConfig.to_step, che ha gia' valso
+# 13, poi 12, e ora 11 dal perimetro del prodotto: le due esclusioni -- qui e
+# li' -- si spiegano a vicenda, perche' sono una decisione del chiamante e non
+# un'eredita'.
 from meshrec.core.pipeline import METRICS_FILENAME, METRICS_PARTIAL
 from meshrec.core.steps import STEP_KEYS
 
 REQUIRED_STEPS: tuple[str, ...] = tuple(
-    chiave for chiave in STEP_KEYS if chiave not in ("12_wall", "13_solve")
+    chiave for chiave in STEP_KEYS if chiave != "12_wall"
 )
 
 _TRACKED_PACKAGES: tuple[str, ...] = ("open3d", "tetgen", "pymeshfix", "pymeshlab", "numpy")

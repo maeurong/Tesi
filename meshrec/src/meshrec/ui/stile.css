@@ -266,7 +266,7 @@ h2:focus-visible { outline: 2px solid var(--accento); outline-offset: 2px; }
    comunque scorrere di qualche pixel. */
 .viewport canvas { display: block; }
 .viewport canvas:focus-visible { outline: 2px solid var(--accento); outline-offset: -2px; }
-/* Lo stato vuoto insegna a chi non conosce i tredici step: e' prosa, quindi
+/* Lo stato vuoto insegna a chi non conosce gli undici step: e' prosa, quindi
    prende la misura leggibile e non la larghezza del pannello. */
 /* Gli identificatori nella prosa -- `.pcd`, `.ply`, `experiments/` -- cadevano
    sul monospace generico del browser (Menlo qui, Courier New su Windows) mentre
@@ -370,7 +370,7 @@ a.bottone { display: inline-block; text-decoration: none; }
    caratteri, e la colonna centrale su uno schermo largo ne tiene 160: la riga
    che finisce fotografata nell'appendice usciva tutta d'un fiato. */
 .didascalia-vista { margin: 0; padding: var(--passo-2) var(--passo-3); border-top: 1px solid var(--bordo); background: var(--superficie); color: var(--testo); font-size: var(--tipo-corpo); line-height: var(--interlinea); max-width: var(--misura); font-variant-numeric: tabular-nums; text-wrap: pretty; }
-/* Vuota non lascia una fascia bianca sotto la vista: fuori dallo step 13 non
+/* Vuota non lascia una fascia bianca sotto la vista: fuori dallo step 7 non
    c'e' nessuna didascalia, e l'immagine si riprende quei pixel. Toglierla dal
    flusso e' lecito qui, a differenza di #conteggi e della riga d'errore: non
    e' una regione viva e non annuncia niente. */
@@ -464,7 +464,7 @@ a.bottone { display: inline-block; text-decoration: none; }
 .taglio input[type="range"] { width: 10rem; }
 .taglio :focus-visible { outline: 2px solid var(--accento); outline-offset: 2px; }
 .taglio output { min-width: 5.5rem; text-align: right; font-variant-numeric: tabular-nums; color: var(--tenue); }
-/* .step e' un <button> dentro il <li>, non piu' il <li> stesso: tredici righe
+/* .step e' un <button> dentro il <li>, non piu' il <li> stesso: undici righe
    cliccabili senza ruolo erano l'intera interfaccia irraggiungibile da tastiera.
    Le prime cinque dichiarazioni disfano cio' che il browser mette di suo su un
    bottone (carattere proprio, bordo, sfondo, testo centrato, larghezza al
@@ -502,11 +502,11 @@ a.bottone { display: inline-block; text-decoration: none; }
 .stato-fallito .step-stato { color: var(--guasto); font-weight: 600; }
 /* Il pallino di stato, in testa al nome. La colonna degli step e' l'unica cosa
    che dica a che punto sta la corsa, e finora lo diceva con il solo colore
-   della parola in fondo alla riga: tredici parole di lunghezza diversa,
+   della parola in fondo alla riga: undici parole di lunghezza diversa,
    allineate a destra, al corpo piu' piccolo del foglio. Per sapere dov'e'
    arrivata la pipeline si leggeva riga per riga.
    Il pallino non aggiunge un ruolo di colore: porta lo stesso della parola,
-   ma in tredici punti incolonnati alla stessa ascissa, cioe' una figura che
+   ma in undici punti incolonnati alla stessa ascissa, cioe' una figura che
    si legge in un colpo d'occhio e dal fondo della stanza in cui si proietta.
    E il colore non e' l'unico canale, ne' qui ne' prima: la parola resta al
    suo posto, ed e' lei che lo dice a chi usa un lettore di schermo.
@@ -753,7 +753,7 @@ a.bottone { display: inline-block; text-decoration: none; }
    4. Il marchio su una riga che ha appena cambiato stato. E' l'unico movimento
       di questo foglio che non risponde a un gesto, e porta un'informazione che
       prima non arrivava a nessuno: uno step che finisce dopo trentaquattro
-      secondi cambiava una parola in una colonna di tredici righe, e chi lo ha
+      secondi cambiava una parola in una colonna di undici righe, e chi lo ha
       lanciato nel frattempo guarda altrove. Vale anche al contrario, ed e' il
       caso piu' utile: modificato un parametro, gli step a valle diventano «non
       valido» tutti insieme, e finora quel fatto — che il lavoro fatto e'

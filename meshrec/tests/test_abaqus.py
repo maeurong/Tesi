@@ -3323,7 +3323,7 @@ def test_senza_combinazioni_il_deck_e_quello_di_prima(tmp_path):
         tmp_path, "con",
         (config.Combinazione(
             nome="SLU", tipo="slu_fondamentale",
-            termini=(("GRAVITA", 1.3),), proposta=True),),
+            termini=(("GRAVITA", 1.3),)),),
     )
 
     assert con.startswith(senza), "le combinazioni hanno cambiato i passi già scritti"
@@ -3341,7 +3341,7 @@ def test_una_combinazione_mette_piu_azioni_in_un_passo_solo(tmp_path):
         tmp_path, "somma",
         (config.Combinazione(
             nome="SLU", tipo="slu_fondamentale",
-            termini=(("GRAVITA", 1.3), ("CARICO_TOP", 1.5)), proposta=True),),
+            termini=(("GRAVITA", 1.3), ("CARICO_TOP", 1.5))),),
     )
     passo = _passo_del_deck(testo, "SLU")
 
@@ -3362,7 +3362,7 @@ def test_una_combinazione_che_cita_un_azione_non_dichiarata_e_rifiutata(tmp_path
             tmp_path, "ignota",
             (config.Combinazione(
                 nome="SLU", tipo="slu_fondamentale",
-                termini=(("VENTO", 1.5),), proposta=True),),
+                termini=(("VENTO", 1.5),)),),
         )
     assert "CARICO_TOP" in str(errore.value), str(errore.value)
 
@@ -3374,7 +3374,7 @@ def test_una_combinazione_a_un_termine_solo_e_legittima(tmp_path):
         tmp_path, "uno",
         (config.Combinazione(
             nome="SOLO_PESO", tipo="slu_fondamentale",
-            termini=(("GRAVITA", 1.3),), proposta=True),),
+            termini=(("GRAVITA", 1.3),)),),
     )
     passo = _passo_del_deck(testo, "SOLO_PESO")
     assert [riga for riga in passo if riga.startswith("ALL_WALL, GRAV,")]
@@ -3391,7 +3391,7 @@ def test_un_coefficiente_zero_scrive_il_termine_invece_di_toglierlo(tmp_path):
         tmp_path, "zero",
         (config.Combinazione(
             nome="SLU", tipo="slu_fondamentale",
-            termini=(("GRAVITA", 1.3), ("CARICO_TOP", 0.0)), proposta=True),),
+            termini=(("GRAVITA", 1.3), ("CARICO_TOP", 0.0))),),
     )
     passo = _passo_del_deck(testo, "SLU")
     righe_cload = [
@@ -3414,7 +3414,7 @@ def test_un_coefficiente_negativo_rovescia_il_carico_e_non_e_rifiutato(tmp_path)
         tmp_path, "negativo",
         (config.Combinazione(
             nome="MENO_TOP", tipo="sismica",
-            termini=(("CARICO_TOP", -1.0),), proposta=False),),
+            termini=(("CARICO_TOP", -1.0),)),),
     )
     passo = _passo_del_deck(testo, "MENO_TOP")
     assert _somma_cload_verticale(passo) == pytest.approx(+1000.0, rel=1e-9)
@@ -3442,7 +3442,7 @@ def test_le_combinazioni_entrano_dopo_i_casi_singoli_e_prima_del_modale(
         combinazioni=(
             config.Combinazione(
                 nome="SLU", tipo="slu_fondamentale",
-                termini=(("GRAVITA", 1.3), ("PUNTUALE", 1.5)), proposta=True),
+                termini=(("GRAVITA", 1.3), ("PUNTUALE", 1.5))),
         ),
     )
     percorso = tmp_path / "wall_model.inp"
@@ -3494,8 +3494,7 @@ def test_una_combinazione_con_due_distribuiti_scrive_due_pressioni_nel_passo(
         combinazioni=(
             config.Combinazione(
                 nome="SLU", tipo="slu_fondamentale",
-                termini=(("GRAVITA", 1.3), ("NEVE", 1.5), ("VENTO", 1.05)),
-                proposta=True),
+                termini=(("GRAVITA", 1.3), ("NEVE", 1.5), ("VENTO", 1.05))),
         ),
     )
     percorso = tmp_path / "m.inp"

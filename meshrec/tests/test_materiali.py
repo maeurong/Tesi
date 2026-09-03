@@ -1,7 +1,8 @@
 """Il catalogo dei materiali e' una tabella di norma, non numeri sparsi nel codice.
 
-Stessa disciplina di `tests/test_soglie.py`, e per la stessa ragione: una voce
-senza fonte non deve essere rappresentabile, e una voce che si giustifica da se'
+Stessa disciplina che aveva `tests/test_soglie.py` per il registro delle soglie
+(uscito il 03/09/2026), e per la stessa ragione: una voce senza fonte non deve
+essere rappresentabile, e una voce che si giustifica da se'
 -- col catalogo stesso, con una dispensa, con «da progetto» -- non e' una voce di
 norma. Il registro delle soglie ha gia' pagato quell'errore una volta (la fonte
 «Benzley» accanto a un numero che in Benzley non c'e'), e qui si evita per
@@ -22,14 +23,10 @@ import pytest
 
 from meshrec.core import materiali
 from meshrec.core.materiali import (
-    ALFA_CC,
     CATALOGO,
     FISSATA,
-    GAMMA_C,
-    GAMMA_S,
     VoceMateriale,
     trova,
-    valori_di_progetto,
 )
 
 
@@ -125,7 +122,7 @@ def test_le_due_classi_gia_in_uso_non_dichiarano_la_tab_4_1_i_come_proprio_elenc
 
 
 def test_ogni_voce_nostra_dichiara_perche_e_nostra():
-    """Come `test_soglie.py` gia' fa per le soglie.
+    """Come `test_soglie.py` faceva per le soglie.
 
     Vale in particolare per l'acciaio, la cui `origine` e' `nostra` per un solo
     motivo: `E_s` e' una scelta fra due fonti che divergono. Senza nota, quella
@@ -157,10 +154,8 @@ def test_ogni_f_k_e_positivo():
     """`f_k` nullo o negativo non e' impossibile per costruzione: e' rifiutato qui.
 
     `VoceMateriale` e' una `NamedTuple`, quindi un `f_k=0.0` e' costruibile --
-    vincolare il tipo renderebbe impossibile fabbricare una voce nei test, come
-    `soglie.Soglia` dichiara per la propria `fonte`. Il controllo sta sul
-    registro, dove serve, e `valori_di_progetto` lo ripete sul proprio ingresso
-    perche' accetta anche voci che il registro non ha filtrato.
+    vincolare il tipo renderebbe impossibile fabbricare una voce nei test. Il
+    controllo sta sul registro, dove serve.
     """
     non_positivi = [v.classe for v in CATALOGO if not math.isfinite(v.f_k) or v.f_k <= 0.0]
     assert not non_positivi, f"voci con resistenza caratteristica non positiva: {non_positivi}"
@@ -407,113 +402,6 @@ def test_gli_aggregati_leggeri_sono_fuori_campo_e_il_modulo_lo_dichiara():
 
 
 # --- i valori di progetto ------------------------------------------------
-
-
-def test_il_calcestruzzo_da_f_cd_e_non_f_yd():
-    """`f_cd = α_cc · f_ck / γ_c`, e `α_cc` non e' facoltativo.
-
-    NTC §4.1.2.1.1.1, espressione `[4.1.3]`: il coefficiente di lunga durata sta
-    dentro la formula, ha un nome e vale 0,85. Chi scrive `f_ck / 1,5` ottiene un
-    valore del 17,6% piu' alto del vero, e sbaglia dalla parte insicura.
-
-    Mutazione che lo uccide: togliere `ALFA_CC` dalla formula.
-    """
-    valori = valori_di_progetto(trova("C25/30"))
-    assert set(valori) == {"f_cd"}
-    assert valori["f_cd"] == pytest.approx(0.85 * 25.0 / 1.5)
-    assert valori["f_cd"] == pytest.approx(14.1667, abs=1e-4)
-
-
-def test_alpha_cc_e_applicato_a_ogni_voce_del_catalogo_e_non_solo_alla_c25_30():
-    """Da «impossibile per costruzione» a «misurato».
-
-    `valori_di_progetto` ha un solo ramo per famiglia, quindi oggi la divergenza
-    per classe non e' rappresentabile -- ma cio' che regge per costruzione regge
-    finche' la costruzione non cambia, e un caso speciale per le classi alte
-    (dove la norma **ha** riduzioni ulteriori, §11.2.10.2-3) e' esattamente la
-    modifica plausibile. Il test che lo provava su una sola classe non l'avrebbe
-    vista.
-
-    I due coefficienti sono scritti come letterali e non ripresi dal modulo: la
-    stessa espressione confrontata con se stessa non ucciderebbe una formula
-    sbagliata.
-
-    Mutazione che lo uccide: togliere `ALFA_CC` dalla formula, o applicarlo solo
-    sotto una certa classe.
-    """
-    calcestruzzi = [v for v in CATALOGO if v.famiglia == "calcestruzzo"]
-    assert len(calcestruzzi) == 17
-    for voce in calcestruzzi:
-        assert valori_di_progetto(voce)["f_cd"] == pytest.approx(0.85 * voce.f_k / 1.5), (
-            f"{voce.classe}: alpha_cc non applicato"
-        )
-
-    acciai = [v for v in CATALOGO if v.famiglia == "acciaio"]
-    assert len(acciai) == 2
-    for voce in acciai:
-        assert valori_di_progetto(voce)["f_yd"] == pytest.approx(voce.f_k / 1.15), voce.classe
-
-
-def test_l_acciaio_da_f_yd_e_non_f_cd():
-    """`f_yd = f_yk / γ_s`, senza alcun α: la `[4.1.5]` non ne ha.
-
-    E il 1,15 vale «sempre, per tutti i tipi di acciaio» -- la parola e' nel
-    testo di norma, §4.1.2.1.1.3.
-    """
-    valori = valori_di_progetto(trova("B450C"))
-    assert set(valori) == {"f_yd"}
-    assert valori["f_yd"] == pytest.approx(391.3043, abs=1e-4)
-
-
-def test_i_coefficienti_parziali_sono_quelli_delle_ntc():
-    """I tre numeri che la `[4.1.3]` e la `[4.1.5]` fissano, esposti e non sepolti.
-
-    `γ_c` e' quello europeo, `α_cc` no: la Circolare lo dice, «il coefficiente
-    αcc resta fissato a 0,85, a differenza di quello proposto dalla UNI EN
-    1992». Chi un giorno volesse una modalita' Eurocodice cambierebbe `ALFA_CC`
-    e non `GAMMA_C`.
-    """
-    assert ALFA_CC == 0.85
-    assert GAMMA_C == 1.5
-    assert GAMMA_S == 1.15
-
-
-def test_l_oracolo_di_collaudo_del_progetto_parte_da_rck_30_e_non_dalla_c25_30():
-    """`R_ck` = 30, B450C: `f_cd` = 14,110 MPa. Verificato per tre vie nella ricerca.
-
-    **L'ingresso e' `R_ck` = 30, non la classe C25/30**, e le due cose non
-    coincidono: la C25/30 ha `f_ck` = 25 per definizione e darebbe 14,17 MPa. Uno
-    scarto dello 0,4%, cioe' il modo peggiore di fallire. La `[11.2.1]`
-    `f_ck = 0,83 · R_ck` si applica qui, nel test, perche' l'ingresso e' un
-    `R_ck` di capitolato; il catalogo parte dal nome della classe e non la
-    incontra mai.
-
-    `k_bil` e `μ_bil` non si calcolano qui: sono del controllo di sezione, che
-    questo modulo non fa.
-    """
-    f_ck_da_rck = 0.83 * 30.0
-    voce = _voce(classe="da R_ck = 30", f_k=f_ck_da_rck)
-    assert valori_di_progetto(voce)["f_cd"] == pytest.approx(14.110, abs=5e-4)
-
-
-def test_valori_di_progetto_rifiuta_una_resistenza_non_positiva():
-    """Non e' impossibile per costruzione: un materiale dichiarato a mano puo' portarla.
-
-    Senza guardia, `f_k = 0` darebbe `f_cd = 0` in silenzio, e una sezione con
-    resistenza nulla non verrebbe letta come un difetto di dichiarazione ma come
-    un risultato.
-    """
-    for f_k in (0.0, -25.0, float("nan")):
-        with pytest.raises(ValueError, match="caratteristica"):
-            valori_di_progetto(_voce(f_k=f_k))
-
-
-def test_valori_di_progetto_rifiuta_una_famiglia_che_non_conosce():
-    """`Literal` non vincola a runtime, e cadere sul ramo dell'acciaio per una
-    famiglia sconosciuta restituirebbe un `f_yd` per un materiale che non e'
-    acciaio."""
-    with pytest.raises(ValueError, match="famiglia"):
-        valori_di_progetto(_voce(famiglia="muratura"))
 
 
 # --- la resistenza media a trazione --------------------------------------

@@ -5,7 +5,7 @@ const ETICHETTE = {
   "04_normals": "Normali", "05_reconstruct": "Superficie", "06_repair": "Riparazione",
   "07_surface_quality": "Qualità superficie", "08_simplify": "Semplificazione",
   "09_tetrahedralize": "Tetraedri", "10_volume_quality": "Qualità volume",
-  "11_export": "Esportazione", "12_wall": "Prior geometrico", "13_solve": "Analisi strutturale",
+  "11_export": "Esportazione", "12_wall": "Prior geometrico",
 };
 
 // Come si intitola ogni riga delle due tabelle di qualita', e in che unita'.
@@ -18,7 +18,7 @@ const ETICHETTE = {
 // cloud_to_mesh · mean` accanto a `4,41`, senza dire ne' che cos'e' ne' se sono
 // millimetri.
 //
-// Solo lo step 7 e il 10, e non tutti e tredici: sono le due tabelle su cui si
+// Solo lo step 7 e il 10, e non tutti e dodici: sono le due tabelle su cui si
 // decide se una configurazione va tenuta, e le altre restano chiavi finche'
 // qualcuno non ne ha bisogno. Una chiave senza etichetta non sparisce e non
 // prende un nome inventato -- si stampa com'e', come `nomeDelloStep` fa con uno
@@ -126,7 +126,6 @@ const PROPOSITI = {
   "10_volume_quality": "Misura il maglio: elementi rovesciati, volumi, angoli, allungamento.",
   "11_export": "Scrive il file .inp per Abaqus o CalculiX, con materiale, gravità e set di nodi.",
   "12_wall": "Cerca nella geometria le regioni che sembrano membrature, e le propone come prior.",
-  "13_solve": "Manda il deck a CalculiX e rilegge spostamenti e tensioni sul maglio.",
 };
 
 // Lo step che non sta nella colonna, e quello che chiude la colonna.
@@ -135,14 +134,10 @@ const PROPOSITI = {
 // voce di run_state, quindi il confine non va indovinato dall'ordine e uno step
 // aggiunto in mezzo alla catena non lo farebbe scivolare di uno.
 //
-// Lo step 13 resta lo step 13 -- il numero glielo da' steps.STEP_KEYS e non
-// cambia -- ma sta fuori dalla colonna. Perche' non sia un passo di elaborazione
-// geometrica lo dice la schermata stessa, in index.html, dove lo legge chi la
-// usa: qui non se ne tiene una seconda copia da far invecchiare.
-// `to_step` predefinito vale 11 (core/config.py), il deck: e' li' che si chiude
-// il perimetro del prodotto. La colonna arriva piu' in la' perche' l'interfaccia
-// mostra anche cio' che sta fuori.
-const STEP_DELL_ANALISI = "13_solve";
+// Lo step 12 resta lo step 12 -- il numero glielo da' steps.STEP_KEYS e non
+// cambia -- ma sta fuori dalla colonna: e' misura della scansione, non ha
+// interfaccia, e `to_step` predefinito vale 11 (core/config.py), il deck, che
+// e' dove si chiude il perimetro del prodotto.
 const STEP_DEL_PRIOR = "12_wall";
 
 // Nodo piu' proprieta' in una riga.
@@ -417,7 +412,7 @@ function segnaStepAperto(numero) {
 }
 
 // La riga vuota, senza contenuto: il contenuto lo scrive disegnaStep, che la
-// riusa. Un <button> e non il <li> con un gestore sopra — tredici voci d'elenco
+// riusa. Un <button> e non il <li> con un gestore sopra — undici voci d'elenco
 // con cursor: pointer erano l'intera interfaccia pilotabile col solo mouse
 // (WCAG 2.1.1, livello A) e annunciate come righe inerti (WCAG 4.1.2). Il
 // gestore delegato piu' sotto non cambia: il clic sale dal bottone e
@@ -434,7 +429,7 @@ function nuovaRiga() {
   // «esegui lo step 1», «e' lo step 12», «lo step 11 si ferma finche'...», «step
   // 5 in corso». Tutte istruzioni che indicavano una coordinata che la colonna
   // non mostrava da nessuna parte -- l'<ol> ha list-style: none -- e chi apre il
-  // programma per la prima volta aveva tredici nomi e nessun modo di contarli.
+  // programma per la prima volta aveva undici nomi e nessun modo di contarli.
   // Scritto da `voce.numero` e non dalla posizione nell'elenco: il numero e' un
   // dato del server, e un contatore CSS lo indovinerebbe dalla riga.
   const numero = document.createElement("span");
@@ -458,9 +453,9 @@ let ultimoStato = [];
 
 // Lo step la cui geometria si puo' mostrare al posto di quella di `numero`.
 //
-// Quattro step su tredici non scrivono GEOMETRIA, per costruzione e non per
+// Quattro step su dodici non scrivono GEOMETRIA, per costruzione e non per
 // guasto: il 7 e il 10 misurano, l'11 scrive un deck e il 12 un prior
-// (pipeline.ARTIFACTS ha nove chiavi su tredici). Cliccarli svuotava il
+// (pipeline.ARTIFACTS ha otto chiavi su dodici). Cliccarli svuotava il
 // viewport.
 //
 // Servono DUE condizioni:
@@ -479,7 +474,7 @@ let ultimoStato = [];
 //
 // `null` quando a monte non c'e' niente che soddisfi entrambe: e' l'unico caso
 // in cui svuotare la vista e' onesto.
-const STEP_CON_GEOMETRIA = new Set([1, 2, 3, 4, 5, 6, 8, 9, 13]);
+const STEP_CON_GEOMETRIA = new Set([1, 2, 3, 4, 5, 6, 8, 9]);
 
 function passoDaMostrare(numero) {
   for (let n = numero; n >= 1; n -= 1) {
@@ -506,7 +501,7 @@ function disegnaStep(steps) {
   // riscrivere lo stato per esprimere un evento.
   //
   // Vuoto alla prima passata, e non e' un caso limite da tollerare ma il
-  // comportamento voluto: al primo disegno tutti e tredici gli step sarebbero
+  // comportamento voluto: al primo disegno tutti gli step sarebbero
   // «cambiati» rispetto a niente, e la colonna si accenderebbe tutta all'avvio
   // dicendo che e' appena successo qualcosa che invece era gia' cosi'. Legare
   // una corsa ricarica la pagina, quindi non esiste una seconda strada per cui
@@ -514,13 +509,10 @@ function disegnaStep(steps) {
   const precedente = new Map(ultimoStato.map((voce) => [voce.numero, voce.stato]));
   ultimoStato = steps;
   // Lo stato resta intero e a essere filtrata e' la sola VISTA. `passoDaMostrare`
-  // cammina a monte da `corpo.steps.length`, che vale 13, e STEP_CON_GEOMETRIA
-  // elenca il 13: filtrando `ultimoStato` invece dell'elenco, la geometria del
-  // solutore diventerebbe irraggiungibile per una strada che non guarda nessuno.
-  const pipeline = steps.filter(
-    (voce) =>
-      voce.chiave !== STEP_DELL_ANALISI && voce.chiave !== STEP_DEL_PRIOR,
-  );
+  // cammina a monte da `corpo.steps.length`, che vale 12: filtrando `ultimoStato`
+  // invece dell'elenco, la geometria del prior diventerebbe irraggiungibile per
+  // una strada che non guarda nessuno.
+  const pipeline = steps.filter((voce) => voce.chiave !== STEP_DEL_PRIOR);
   const elenco = document.getElementById("elenco-step");
   // Le righe si costruiscono una volta sola e poi si aggiornano sul posto.
   // Ricostruirle a ogni evento — due volte al secondo mentre la pipeline gira —
@@ -806,7 +798,7 @@ let eraInCorso = false;
 function aggiornaDaStato(stato) {
   // A nessuna corsa aperta il flusso manda comunque lo stato del lavoratore,
   // con `steps` vuoto: la colonna degli step non esiste ancora e disegnarla
-  // sarebbe disegnare tredici righe di una corsa che nessuno ha scelto.
+  // sarebbe disegnare undici righe di una corsa che nessuno ha scelto.
   if (Array.isArray(stato.steps) && stato.steps.length > 0) disegnaStep(stato.steps);
   const barra = document.getElementById("in-corso");
   if (stato.in_corso && stato.da_secondi !== null) {
@@ -1107,8 +1099,7 @@ async function annullaLaCorsa() {
 document.getElementById("annulla").addEventListener("click", annullaLaCorsa);
 
 import {
-  creaViewport, scalaDelCampo, numeroDelCampo, didascaliaDelCampo, didascaliaDelloScarto,
-  unitaDelCampo, RAMPA,
+  creaViewport, scalaDelCampo, numeroDelCampo, didascaliaDelloScarto, RAMPA,
 } from "/ui/viewport.js";
 
 const vista = creaViewport(document.getElementById("viewport"));
@@ -1322,7 +1313,7 @@ async function mostraNuvolaDelloStep(numero, ordine) {
 // c'e' un solido. Il 13 e' anche lui un volume (13_solution.vtu): l'insieme lo
 // tiene perche' chiedere /api/cloud/13 non troverebbe niente, anche se oggi
 // nessuna strada dell'interfaccia ci arriva.
-const STEP_CON_MESH = new Set([5, 6, 8, 9, 13]);
+const STEP_CON_MESH = new Set([5, 6, 8, 9]);
 
 async function mostraStep(numero, ordine) {
   // La delega sta prima del contatore: incrementarlo qui e di nuovo la' sotto
@@ -1534,8 +1525,7 @@ async function mostraScartoDelloStep(ordine) {
   }
   const { taglio, sopraTaglio } = scalaDelCampo(valori);
   const testo = didascaliaDelloScarto({ massimo, taglio, sopraTaglio });
-  // Lo scarto e' una distanza: millimetri, e non passa da unitaDelCampo, che
-  // risponde sulle grandezze dello step 13.
+  // Lo scarto e' una distanza: millimetri.
   mostraLaScala(taglio, "mm");
   vista.svuota();
   vista.mostraMeshPerCampo(
@@ -1730,8 +1720,8 @@ document.getElementById("elenco-step").addEventListener("click", (evento) => {
 // volo ma viene battuto da un clic dell'utente.
 function ricaricaVista(numero, ordine = generazione) {
   // La didascalia della vista sta nel markup e sopravvive al cambio di step:
-  // senza questa riga, lasciato lo step 13 resterebbe «GRAVITA — tensione
-  // equivalente ...» sotto la nuvola dello step 2. Qui e non altrove perche'
+  // senza questa riga, lasciato lo step 7 resterebbe la frase dello scarto
+  // sotto la nuvola dello step 2. Qui e non altrove perche'
   // questo e' l'unico imbuto per cui la vista cambia, dal clic e dal fronte di
   // discesa; chi disegna un campo la riscrive subito dopo.
   didascaliaDellaVista().textContent = "";

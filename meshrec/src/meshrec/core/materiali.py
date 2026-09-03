@@ -1,17 +1,18 @@
 """Il catalogo dei materiali di norma: ogni voce con la fonte, l'origine del valore e la data.
 
 Unico luogo dove una classe di calcestruzzo o di acciaio ha i propri numeri,
-come `core/soglie.py` lo e' per le soglie di verifica e `core/config.py` per i
-parametri di elaborazione. **La forma e' quella di `soglie.py` e non una forma
-nuova**: chi ha imparato a leggere quel registro sa gia' leggere questo.
+come `core/config.py` lo e' per i parametri di elaborazione. La forma -- ogni
+voce con fonte, origine, data e nota -- e' quella del registro delle soglie di
+verifica che questo repository ha avuto fino al 03/09/2026 (`core/soglie.py`,
+uscito perche' nessuna corsa lo leggeva piu'): e' nata li' e resta qui.
 
 I numeri e i loro articoli vengono da
 `docs/validazione/ricerca-ntc-2018-numeri-per-il-catalogo.md`, che li ha letti
 sul testo di norma convertito e ne ha verificato l'oracolo per tre vie
 indipendenti.
 
-**`fonte` e `origine` sono cose diverse**, ed e' la lezione che `soglie.py` ha
-pagato una volta: la fonte e' l'autorita' contro cui il numero si giustifica,
+**`fonte` e `origine` sono cose diverse**, ed e' una lezione pagata una volta
+sul registro delle soglie: la fonte e' l'autorita' contro cui il numero si giustifica,
 l'origine dice se il numero **sta** in quell'autorita' (`letta`), se si
 **calcola** da un suo fatto (`derivata`), o se e' **nostro** (`nostra`), scelto
 dove la fonte non pubblica un valore o ne pubblica due che divergono. Una voce
@@ -26,7 +27,7 @@ prendere l'estremo alto di entrambi e' una scelta per la regola scritta qui
 sopra. L'etichetta resta `derivata` perche' la resistenza -- la grandezza
 principale della riga -- lo e' davvero, e chiamare `nostra` l'intera voce direbbe
 un'altra cosa falsa; le due scelte stanno percio' nella `nota` di ogni classe,
-che e' cio' per cui la forma di `soglie.py` esiste. Per l'acciaio `f_yk` e la densita'
+che e' cio' per cui la `nota` esiste. Per l'acciaio `f_yk` e la densita'
 sono lette in Tab. 11.3.Ia e nel §11.3.2.4, ma `E_s` e il coefficiente di
 Poisson non stanno nelle NTC: la voce e' percio' `nostra`, e la nota dice quali
 numeri lo sono e perche'. Marcare `letta` una riga che contiene una scelta
@@ -54,9 +55,9 @@ regime di produzione (`gamma_c` da 1,5 a 1,4, §4.1.2.1.1.1), l'essere la sezion
 armata o no (§4.1.11.1, 0,85 su `f_ctd`), il tipo di aggregato (§11.2.10.2-3,
 -10% su `f_ctm` e -20% su `E_cm` con aggregati di riciclo), una misura in opera
 (§11.2.6, la soglia dell'85%), il livello di conoscenza di una costruzione
-esistente (Circolare Tab. C8.5.IV, i fattori di confidenza). Quando serviranno
-entreranno come **argomenti espliciti** di `valori_di_progetto`, mai come
-predefiniti silenziosi: un fattore applicato di nascosto e' indistinguibile da
+esistente (Circolare Tab. C8.5.IV, i fattori di confidenza). Se un giorno un
+calcolo di progetto tornera' in questo programma, entreranno come **argomenti
+espliciti** di quel calcolo, mai come predefiniti silenziosi: un fattore applicato di nascosto e' indistinguibile da
 un fattore dimenticato.
 
 **Il catalogo copre i calcestruzzi ordinari, e nient'altro.** E' la definizione
@@ -84,9 +85,10 @@ luogo che li tiene. Le altre -- `f_cm`, i due frattili `f_ctk` 5% e 95%,
 `f_cfm`, `epsilon_c2`, `epsilon_cu` -- restano fuori per la stessa regola, che
 per loro dice ancora di no: stanno tutte, con i loro articoli, nella ricerca
 citata sopra. Nemmeno `f_ctd` e' qui, e quando servira' non sara' un campo: e'
-una resistenza di **progetto**, `f_ctk / gamma_c` per la `[4.1.4]`, quindi
-appartiene all'uscita di `valori_di_progetto` accanto a `f_cd`, dove sta gia' la
-regola che i valori di progetto non si tengono come dato. Il copriferro per
+una resistenza di **progetto**, `f_ctk / gamma_c` per la `[4.1.4]`, e i
+valori di progetto non si tengono come dato: il catalogo porta i soli
+caratteristici, e la riduzione con i coefficienti parziali spetta a chi
+calcola (oggi nessuno: il solutore integrato e' uscito con la mappa #161). Il copriferro per
 classe di esposizione non e' un dato di materiale, e non ha piu' una sede: la
 descrizione dell'armatura e' uscita con la mappa #161.
 """
@@ -105,14 +107,14 @@ class VoceMateriale(NamedTuple):
     """Un materiale di norma, con l'autorita' che lo giustifica e l'origine dei propri numeri.
 
     `f_k` e' **sempre caratteristico** -- `f_ck` per il calcestruzzo, `f_yk` per
-    l'acciaio -- e i valori di progetto si ottengono da `valori_di_progetto`.
-    Tenere qui un valore gia' ridotto renderebbe impossibile distinguerlo da un
-    caratteristico, e i coefficienti parziali verrebbero applicati due volte.
+    l'acciaio. Tenere qui un valore gia' ridotto renderebbe impossibile
+    distinguerlo da un caratteristico, e i coefficienti parziali verrebbero
+    applicati due volte da chi un giorno calcolasse.
 
     Il tipo resta permissivo su `fonte` e su `f_k` -- una stringa vuota e uno
     zero sono costruibili -- perche' vincolarli renderebbe impossibile
-    fabbricare una voce nei test. I controlli vivono sul registro e
-    sull'ingresso di `valori_di_progetto`, dove servono.
+    fabbricare una voce nei test. I controlli vivono sul registro, dove
+    servono.
 
     `f_ctm` e' l'unico campo che non vale per tutte e due le famiglie: e' la
     resistenza media a trazione **del calcestruzzo**, e sull'acciaio vale
@@ -146,14 +148,6 @@ class VoceMateriale(NamedTuple):
 
 FISSATA = date(2026, 8, 30)
 
-# NTC 2018 §4.1.2.1.1.1, espressione [4.1.3], e §4.1.2.1.1.3, espressione
-# [4.1.5]. La Circolare avverte che gamma_c e' quello europeo e alpha_cc no:
-# «il coefficiente alpha_cc resta fissato a 0,85, a differenza di quello
-# proposto dalla UNI EN 1992». Chi volesse una modalita' Eurocodice cambierebbe
-# ALFA_CC e non GAMMA_C.
-ALFA_CC = 0.85
-GAMMA_C = 1.5
-GAMMA_S = 1.15
 
 # La Tab. 4.1.I (riga 2126 delle NTC) elenca **quindici** classi. C28/35 e
 # C32/40 le ammette la frase che la segue, riga 2128, e la loro fonte deve dirlo:
@@ -451,31 +445,3 @@ def trova(classe: str) -> VoceMateriale:
     raise KeyError(f"classe di materiale sconosciuta: {classe!r}; il catalogo porta {elenco}")
 
 
-def valori_di_progetto(voce: VoceMateriale) -> dict[str, float]:
-    """Le resistenze di progetto della voce, dalle [4.1.3] e [4.1.5].
-
-        calcestruzzo:  f_cd = alpha_cc * f_ck / gamma_c     con alpha_cc = 0,85
-        acciaio:       f_yd = f_yk / gamma_s                con gamma_s = 1,15
-
-    Nessuna delle sei riduzioni ulteriori della norma e' applicata: vedi il
-    docstring del modulo per l'elenco e per il motivo.
-
-    Accetta anche una voce che il registro non ha filtrato -- un materiale
-    dichiarato a mano ha la stessa forma di una riga di catalogo -- e per questo
-    ripete qui il controllo sulla resistenza: senza, un `f_k` a zero darebbe una
-    resistenza di progetto nulla in silenzio, e una sezione senza resistenza si
-    leggerebbe come un risultato invece che come una dichiarazione incompleta.
-    """
-    if not math.isfinite(voce.f_k) or voce.f_k <= 0.0:
-        raise ValueError(
-            f"{voce.classe}: resistenza caratteristica non positiva o non finita "
-            f"({voce.f_k}), nessun valore di progetto è calcolabile"
-        )
-    if voce.famiglia == "calcestruzzo":
-        return {"f_cd": ALFA_CC * voce.f_k / GAMMA_C}
-    if voce.famiglia == "acciaio":
-        return {"f_yd": voce.f_k / GAMMA_S}
-    raise ValueError(
-        f"{voce.classe}: famiglia sconosciuta ({voce.famiglia!r}), i coefficienti parziali "
-        "da applicare non sono decidibili"
-    )

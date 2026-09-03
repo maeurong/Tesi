@@ -727,18 +727,6 @@ class CorsaScelta(BaseModel):
     nome: NomeCorsa
 
 
-# Quale dei due modelli il solutore riceve davvero oggi.
-#
-# `pipeline._step_solutore` passa `out / DECK_FILENAME` -- il deck dello step
-# 11, cioe' il solido tetraedrico -- e non ha un ramo per il telaio.
-# Quale modello va a risolvere non e' una scelta a se': la decide il solutore.
-# `pipeline.risolvi_corsa` instrada su `cfg.solutore.nome` -- opensees prende il
-# telaio a fibre, calculix il deck solido dello step 11 -- e questa tabella e' la
-# stessa conoscenza scritta per chi guarda invece che per chi esegue. Sta qui in
-# un posto solo perche' due grafie invecchierebbero separatamente: e' gia'
-# successo, quando il telaio non era instradato e questa costante lo diceva.
-MODELLO_DEL_SOLUTORE = {"calculix": "solido", "opensees": "telaio"}
-
 
 def create_app(
     config_path: Path | None = None,
@@ -1600,13 +1588,12 @@ def create_app(
         # 11: "riprendi da qui" nel pannello non deve far partire un processo
         # esterno da solo, per lo stesso motivo per cui sweep.run_candidate
         # chiede il proprio tetto esplicito. E resta 12 anche ora che il
-        # predefinito e' 11 e che l'interfaccia nasconde la riga del prior
-        # (MOSTRA_LINEA_ANALISI in app.js): quell'interruttore e' del client, e
+        # predefinito e' 11 e che l'interfaccia non mostra la riga del prior
+        # (il filtro di `disegnaStep` in app.js): quel filtro e' del client, e
         # questo tetto e' del server, che non ha modo di sapere come e' messo.
         # Farli inseguire l'uno l'altro accoppierebbe una decisione di
         # presentazione a una di esecuzione; il prior calcolato e non mostrato
-        # e' un file in piu' sul disco, non un difetto. Se la linea si riaccende,
-        # il tetto e' gia' quello giusto.
+        # e' un file in piu' sul disco, non un difetto.
         corrente()
         non_in_sola_lettura(f"eseguire dallo step {numero} in giù")
         lavoratore.start(config_path, numero, 12)

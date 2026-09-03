@@ -323,7 +323,7 @@ _DOM += _costante("elemento") + "\n"
 # legge tutte e due nello stesso filtro, quindi ogni banco che disegna la
 # colonna le vuole. Prese dal sorgente vero e non riscritte qui, per la stessa
 # ragione di `elemento`.
-_DOM += _costante("STEP_DELL_ANALISI") + "\n" + _costante("STEP_DEL_PRIOR") + "\n"
+_DOM += _costante("STEP_DEL_PRIOR") + "\n"
 
 
 # --------------------------------------------------------------------------
@@ -395,7 +395,7 @@ def test_ogni_riga_porta_il_numero_dello_step_che_le_istruzioni_nominano(tmp_pat
     indicano una coordinata che a video non c'era: l'elenco ha
     `list-style: none` e la riga portava il solo nome. Chi apre il programma
     per la prima volta -- il lettore dichiarato in PRODUCT.md -- leggeva
-    «esegui lo step 1» davanti a tredici parole e nessun modo di contarle.
+    «esegui lo step 1» davanti a undici parole e nessun modo di contarle.
 
     Il numero viene da `voce.numero`, cioe' dal server, e non dalla posizione
     nell'elenco: un contatore CSS lo indovinerebbe dalla riga e stamperebbe
@@ -2557,8 +2557,8 @@ def test_lo_stato_vuoto_della_vista_compare_solo_dove_non_c_e_niente(tmp_path):
 
     I conteggi in alto a sinistra portano il fatto («nessuno step ha ancora
     prodotto un artefatto»); la scatola al centro porta il modello
-    d'interazione, che il fatto non puo' dire: tredici righe con un pallino e
-    una parola somigliano a un elenco di stato molto piu' che a tredici bottoni.
+    d'interazione, che il fatto non puo' dire: undici righe con un pallino e
+    una parola somigliano a un elenco di stato molto piu' che a undici bottoni.
 
     E la scatola deve sparire appena si chiede una geometria, non appena una
     geometria arriva: `ricaricaVista` e' l'unico imbuto per cui la vista cambia,
@@ -3351,7 +3351,6 @@ ultimoStato = [
   // e non e' geometria che il viewport sappia disegnare.
   { numero: 11, chiave: "11_export", artefatto: "wall_model.inp" },
   { numero: 12, chiave: "12_wall", artefatto: null },
-  { numero: 13, chiave: "13_solve", artefatto: null },
 ];
 """
 
@@ -3361,9 +3360,9 @@ def test_uno_step_che_non_scolpisce_ripiega_sull_ultimo_artefatto_a_monte(tmp_pa
     artefatto per questo step» e la nuvola lavorata negli step precedenti
     spariva dallo schermo.
 
-    Quattro step su tredici non scrivono geometria per costruzione (il 7 e il
+    Quattro step su dodici non scrivono geometria per costruzione (il 7 e il
     10 misurano, l'11 scrive un deck, il 12 un prior), piu' l'8 quando la
-    semplificazione e' spenta, che e' il predefinito. Cinque righe su tredici
+    semplificazione e' spenta, che e' il predefinito. Cinque righe su dodici
     svuotavano il viewport.
 
     Il ripiego si prova sui numeri veri del registro, non sulla riga per
@@ -3374,7 +3373,6 @@ assert.equal(passoDaMostrare(7), 6, "lo step 7 misura: deve mostrare la superfic
 assert.equal(passoDaMostrare(10), 9, "lo step 10 misura: deve mostrare il volume del 9");
 assert.equal(passoDaMostrare(11), 9, "lo step 11 scrive un deck, non geometria");
 assert.equal(passoDaMostrare(12), 9, "lo step 12 scrive un prior, non geometria");
-assert.equal(passoDaMostrare(13), 9, "lo step 13 non ha ancora risolto");
 // Chi l'artefatto ce l'ha resta se stesso: il ripiego non deve spostare nulla
 // quando non c'e' niente da ripiegare.
 assert.equal(passoDaMostrare(9), 9);
@@ -3392,7 +3390,7 @@ def test_prima_che_arrivi_il_primo_stato_il_ripiego_non_indovina(tmp_path):
     """
     _esegui(tmp_path, _DOM + _costante("STEP_CON_GEOMETRIA") + _funzioni("passoDaMostrare") + """
 assert.deepEqual(ultimoStato, [], "il banco non parte piu' da un elenco vuoto");
-assert.equal(passoDaMostrare(13), null, "il ripiego indovina uno step su un elenco vuoto");
+assert.equal(passoDaMostrare(12), null, "il ripiego indovina uno step su un elenco vuoto");
 assert.equal(passoDaMostrare(null), null, "nessuno step ancora mostrato non e' uno step");
 """)
 
@@ -3949,54 +3947,6 @@ console.log("ok");
     assert uscita.strip() == "ok"
 
 
-def test_la_didascalia_di_una_forma_modale_non_porta_millimetri(tmp_path):
-    """Da un passo *FREQUENCY non escono ne' mm ne' MPa.
-
-    Nel viewport e' piu' facile cadere che altrove, perche' la vista di una
-    forma modale e' identica a quella di un caso di carico vero.
-
-    Giro 1: prima questo controllo cercava due sottostringhe nel sorgente della
-    funzione — l'anti-pattern che il docstring di questo file dichiara bandito.
-    Con la coda `, 0.0367 mm` appesa al ramo modale restava verde. Ora la
-    funzione viene eseguita e il controllo guarda il testo che esce.
-    """
-    uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
-        + _funzioni_viewport("numeroDelCampo", "didascaliaDelCampo", "unitaDelCampo") + """
-const testo = didascaliaDelCampo({ caso: "Modo 1", modale: true, frequenza: 12.34 });
-assert.ok(!/\\b(mm|MPa)\\b/.test(testo), `una forma modale non ha unita' fisiche: ${testo}`);
-assert.ok(testo.includes("12,34"), testo);
-// C13 del giro finale: la vista di un modo e' mostraStep(13), cioe' il modello
-// grigio e indeformato. La didascalia deve dirlo, e non deve annunciare
-// un'ampiezza che non e' a schermo.
-assert.ok(!/ampiezza/i.test(testo),
-  `annuncia un'ampiezza che la vista non disegna: ${testo}`);
-assert.ok(/non \u00e8 disegnata/.test(testo) && /indeformato/.test(testo),
-  `non dichiara che la forma non e' a schermo: ${testo}`);
-console.log("ok");
-""")
-    assert uscita.strip() == "ok"
-
-
-def test_la_didascalia_dello_spostamento_non_promette_un_amplificazione(tmp_path):
-    """Giro 1, C0: la didascalia dichiarava «amplificato ×1779 nella vista»
-    sopra un pezzo che non si muove di un pixel — il fattore non arrivava mai
-    al viewport, e non e' nemmeno derivabile da un campo di magnitudini
-    scalari, che non porta direzioni. Un numero falso proiettato in sede di
-    discussione: la didascalia dice solo cio' che la vista fa davvero.
-    """
-    uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
-        + _funzioni_viewport("numeroDelCampo", "didascaliaDelCampo", "unitaDelCampo") + """
-const testo = didascaliaDelCampo({
-  caso: "GRAVITA", grandezza: "U", massimo: 0.0367, taglio: 0.0365, sopraTaglio: 109,
-});
-assert.ok(!/amplific/i.test(testo), `la vista non deforma nulla: ${testo}`);
-assert.ok(testo.includes("0,0367"), testo);
-assert.ok(testo.includes("mm"), testo);
-console.log("ok");
-""")
-    assert uscita.strip() == "ok"
-
-
 def test_ogni_metrica_delle_due_tabelle_di_qualita_ha_la_sua_etichetta():
     """`core/report.py` porta la regola scritta -- «una chiave non si stampa mai,
     si stampa la sua etichetta», con l'unita' dentro l'etichetta perche' un
@@ -4219,37 +4169,34 @@ console.log("ok");
 # --------------------------------------------------------------------------
 # Ingressi degeneri della scala e dei testi.
 #
-# Giro 1: la tabella, non un elenco tenuto a mente. Questa fase ha gia' pagato
-# sei giri sulla stessa classe di guasto in `solve.py` — un valore non finito
-# che attraversa un controllo — chiusa quattro volte un caso alla volta prima
-# che qualcuno enumerasse. Qui l'elenco e' esplicito: chi aggiunge un sesto
-# testo a video lo aggiunge in questa tabella, non lo tiene a mente.
+# Giro 1: la tabella, non un elenco tenuto a mente. Questo progetto ha gia'
+# pagato sei giri sulla stessa classe di guasto -- un valore non finito che
+# attraversa un controllo -- chiusa quattro volte un caso alla volta prima che
+# qualcuno enumerasse. Qui l'elenco e' esplicito: chi aggiunge un testo a video
+# lo aggiunge in questa tabella, non lo tiene a mente. Oggi il solo testo con
+# numeri dentro e' la didascalia dello scarto dello step 7; quella del campo
+# dello step 13 e' uscita con la mappa #161.
 # `undefined` sta fra i valori anomali perche' e' cio' che arriva davvero da
-# un'intestazione assente o da un modo oltre quelli calcolati.
+# un'intestazione assente.
 # --------------------------------------------------------------------------
 
 
 _TESTI_CHE_FINISCONO_A_VIDEO = [
-    ("didascalia/massimo/U",
-     'didascaliaDelCampo({ caso: "GRAVITA", grandezza: "U", massimo: VALORE, taglio: 1.5, sopraTaglio: 7 })',
-     "0.0367"),
-    ("didascalia/massimo/VM",
-     'didascaliaDelCampo({ caso: "GRAVITA", grandezza: "VM", massimo: VALORE, taglio: 1.5, sopraTaglio: 7 })',
-     "6279.5"),
-    ("didascalia/frequenza",
-     'didascaliaDelCampo({ caso: "Modo 1", modale: true, frequenza: VALORE })', "12.34"),
-    ("didascalia/taglio",
-     'didascaliaDelCampo({ caso: "GRAVITA", grandezza: "U", massimo: 1.0, taglio: VALORE, sopraTaglio: 7 })',
-     "0.0367"),
-    ("didascalia/sopraTaglio",
-     'didascaliaDelCampo({ caso: "GRAVITA", grandezza: "U", massimo: 1.0, taglio: 1.5, sopraTaglio: VALORE })',
+    ("scarto/massimo",
+     'didascaliaDelloScarto({ massimo: VALORE, taglio: 1.5, sopraTaglio: 7 })',
+     "4.41"),
+    ("scarto/taglio",
+     'didascaliaDelloScarto({ massimo: 4.41, taglio: VALORE, sopraTaglio: 7 })',
+     "1.5"),
+    ("scarto/sopraTaglio",
+     'didascaliaDelloScarto({ massimo: 4.41, taglio: 1.5, sopraTaglio: VALORE })',
      "7"),
 ]
 
 def _banco_dei_testi() -> str:
     return (
         "import assert from 'node:assert/strict';\n"
-        + _funzioni_viewport("numeroDelCampo", "didascaliaDelCampo", "unitaDelCampo")
+        + _funzioni_viewport("numeroDelCampo", "didascaliaDelloScarto")
         + "\n"
     )
 
@@ -4318,46 +4265,6 @@ console.log("ok");
     assert uscita.strip() == "ok"
 
 
-def test_la_scala_del_campo_su_tutti_zero_non_e_una_barra_vuota(tmp_path):
-    """Tutti i valori a zero: la scala resta un numero leggibile (0), non NaN
-    ne' un buco silenzioso nella legenda, e nessun nodo e' sopra il taglio."""
-    uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
-        + _funzioni_viewport("scalaDelCampo", "numeroDelCampo", "didascaliaDelCampo", "unitaDelCampo") + """
-const zeri = new Float32Array(500);
-const { taglio, sopraTaglio } = scalaDelCampo(zeri);
-assert.equal(taglio, 0);
-assert.equal(sopraTaglio, 0);
-const legenda = didascaliaDelCampo({
-  caso: "GRAVITA", grandezza: "U", massimo: 0, taglio, sopraTaglio,
-});
-assert.ok(!/NaN|Infinity|∞/.test(legenda), legenda);
-assert.ok(legenda.includes("0"), legenda);
-// Il massimo coincide col taglio: nulla e' fuori dalla scala, e dirlo sarebbe
-// falso.
-assert.ok(!/fuori scala/.test(legenda), legenda);
-console.log("ok");
-""")
-    assert uscita.strip() == "ok"
-
-
-def test_la_scala_del_campo_su_un_campo_vuoto_non_incanta_la_legenda(tmp_path):
-    """Ingresso degenere: zero valori (il server risponde un corpo vuoto quando
-    il contorno non ha nodi). Nessun crash, nessun taglio NaN, legenda che si
-    legge."""
-    uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
-        + _funzioni_viewport("scalaDelCampo", "numeroDelCampo", "didascaliaDelCampo", "unitaDelCampo") + """
-const { taglio, sopraTaglio } = scalaDelCampo(new Float32Array(0));
-assert.equal(taglio, 0);
-assert.equal(sopraTaglio, 0);
-const legenda = didascaliaDelCampo({
-  caso: "GRAVITA", grandezza: "U", massimo: NaN, taglio, sopraTaglio,
-});
-assert.ok(!/NaN|Infinity|∞/.test(legenda) && legenda.length > 0, legenda);
-console.log("ok");
-""")
-    assert uscita.strip() == "ok"
-
-
 def test_la_scala_del_campo_ignora_nan_e_infinito_senza_incantarsi(tmp_path):
     """NaN e Infinity in mezzo ai valori non devono decidere la scala in
     silenzio: filtrati, il taglio resta quello dei valori finiti."""
@@ -4374,74 +4281,6 @@ assert.equal(sopraTaglio, 0, "nessun valore finito supera 1,0");
 console.log("ok");
 """)
     assert uscita.strip() == "ok"
-
-
-def test_la_didascalia_di_un_modo_oltre_quelli_calcolati_non_scrive_nan(tmp_path):
-    """Ingresso degenere: un modo richiesto oltre quelli calcolati non ha una
-    frequenza nota (undefined/NaN dal lato che la richiede). NaN.toFixed(2)
-    scriverebbe silenziosamente "NaN Hz": stesso trattamento degli altri
-    ingressi che il campo non puo' onorare, un messaggio dichiarato."""
-    uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
-        + _funzioni_viewport("numeroDelCampo", "didascaliaDelCampo", "unitaDelCampo") + """
-const testo = didascaliaDelCampo({ caso: "Modo 9", modale: true, frequenza: NaN });
-assert.ok(!testo.includes("NaN"), testo);
-assert.ok(testo.includes("frequenza non disponibile"), testo);
-assert.ok(testo.includes("indeformato"), testo);
-console.log("ok");
-""")
-    assert uscita.strip() == "ok"
-
-
-def test_la_legenda_del_campo_resta_leggibile_su_costante_e_su_zero(tmp_path):
-    """Ingressi degeneri visti dal lato di app.js: un campo costante (taglio ==
-    massimo, nessun picco da isolare) e un campo tutto a zero non producono una
-    legenda muta o con "NaN" scritto dentro."""
-    uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
-        + _funzioni_viewport("numeroDelCampo", "didascaliaDelCampo", "unitaDelCampo") + """
-const costante = didascaliaDelCampo({
-  caso: "GRAVITA", grandezza: "VM", massimo: 5.0, taglio: 5.0, sopraTaglio: 0,
-});
-assert.ok(!costante.includes("NaN"), costante);
-assert.ok(costante.includes("5") && costante.includes("MPa"), costante);
-assert.ok(!/fuori scala/.test(costante),
-  `su un campo costante il massimo e' rappresentabile: ${costante}`);
-const zero = didascaliaDelCampo({
-  caso: "GRAVITA", grandezza: "U", massimo: 0, taglio: 0, sopraTaglio: 0,
-});
-assert.ok(!zero.includes("NaN"), zero);
-assert.ok(zero.length > 0, "la didascalia e' vuota su un campo tutto a zero");
-console.log("ok");
-""")
-    assert uscita.strip() == "ok"
-
-
-def test_la_legenda_di_uno_spostamento_submillimetrico_non_arrotonda_a_zero(tmp_path):
-    """Trovato verificando nel browser (Task 9, corsa sintetica): con un solo
-    decimale uno spostamento vero come 0,0367 mm si legge "0 mm", la stessa
-    scala muta che il taglio esiste per evitare.
-
-    Giro 1: quattro decimali fissi spostavano la soglia di tre ordini invece di
-    toglierla — 2e-5 mm si legge ancora "0". Cifre significative, non decimali:
-    la soglia sparisce, e i conteggi di nodi restano interi esatti perche' non
-    passano dallo stesso formato.
-    """
-    uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
-        + _funzioni_viewport("numeroDelCampo", "didascaliaDelCampo", "unitaDelCampo") + """
-const conScala = (taglio, nodi, grandezza) => didascaliaDelCampo({
-  caso: "GRAVITA", grandezza, massimo: taglio, taglio, sopraTaglio: nodi,
-});
-const spostamento = conScala(0.0367, 3, "U");
-assert.ok(spostamento.includes("0,0367"), spostamento);
-const estremo = conScala(0.00002, 3, "U");
-assert.ok(estremo.includes("0,00002"), `2e-5 mm si legge ancora zero: ${estremo}`);
-// Il conteggio dei nodi non e' una misura: 13 957 nodi non diventano 13 960.
-const molti = conScala(1.5, 13957, "VM");
-assert.ok(molti.includes("13.957"), `il conteggio e' stato arrotondato: ${molti}`);
-console.log("ok");
-""")
-    assert uscita.strip() == "ok"
-
-
 
 
 def test_il_bottone_dello_scarto_non_fa_costruire_due_volte_lo_stesso_albero(tmp_path):
@@ -4869,7 +4708,7 @@ def test_il_marchio_del_cambio_sta_solo_sulle_righe_che_sono_cambiate(tmp_path):
        qualcosa che era gia' cosi'.
     2. **Lo stato che non cambia.** Gli eventi arrivano due volte al secondo per
        tutta la corsa: un marchio che non guarda il valore precedente
-       lampeggerebbe su tredici righe per i trentaquattro secondi di uno step.
+       lampeggerebbe su undici righe per i trentaquattro secondi di uno step.
     3. **Il marchio che resta attaccato.** Tolto solo al cambio successivo,
        l'animazione girerebbe una volta e mai piu', perche' e' l'attributo che
        ricompare a farla ripartire.
@@ -5928,14 +5767,14 @@ assert.equal(esito.textContent, "", "il fronte si e' ripetuto a ogni frame");
 # ma una schermata sua. La colonna, quindi, si ferma al dodici.
 # --------------------------------------------------------------------------
 
-# Le tredici chiavi come il server le manda, scritte per esteso: il confine fra
-# la colonna e la seconda schermata e' una CHIAVE, non un numero, e un banco che
-# fabbricasse le chiavi da un contatore non proverebbe piu' quel confine.
-_TREDICI = """
+# Le dodici chiavi come il server le manda, scritte per esteso: il confine fra
+# la colonna e il prior e' una CHIAVE, non un numero, e un banco che fabbricasse
+# le chiavi da un contatore non proverebbe piu' quel confine.
+_DODICI = """
 const CHIAVI = ["01_load", "02_segment", "03_downsample", "04_normals",
   "05_reconstruct", "06_repair", "07_surface_quality", "08_simplify",
-  "09_tetrahedralize", "10_volume_quality", "11_export", "12_wall", "13_solve"];
-const tredici = (stato = "valido") =>
+  "09_tetrahedralize", "10_volume_quality", "11_export", "12_wall"];
+const dodici = (stato = "valido") =>
   CHIAVI.map((chiave, i) => ({ numero: i + 1, chiave, stato }));
 """
 
@@ -5957,18 +5796,18 @@ def test_la_colonna_si_ferma_all_undici_e_non_perde_lo_stato_degli_altri_due(tmp
     """
     _esegui(tmp_path, _DOM + _funzioni(
         *_COLONNA,
-    ) + _TREDICI + """
-disegnaStep(tredici());
+    ) + _DODICI + """
+disegnaStep(dodici());
 assert.equal(elenco.childElementCount, 11,
   "la colonna della pipeline non si ferma all'undici");
 assert.deepEqual(
   elenco.children.map((riga) => riga.firstElementChild.dataset.numero),
   [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
   "la colonna non porta piu' gli undici step del perimetro, o li rinumera");
-assert.equal(ultimoStato.length, 13,
-  "il 12 e il 13 sono spariti anche dallo stato: nascosti e non cancellati e'"
-  + " esattamente cio' che distingue questa scelta, e passoDaMostrare non li"
-  + " troverebbe piu'");
+assert.equal(ultimoStato.length, 12,
+  "il 12 e' sparito anche dallo stato: fuori dalla colonna e non fuori dal"
+  + " programma e' esattamente cio' che distingue questa scelta, e"
+  + " passoDaMostrare non lo troverebbe piu'");
 """)
 
 

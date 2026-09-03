@@ -333,9 +333,11 @@ def tet_aspect_ratios(nodes: np.ndarray, tets: np.ndarray) -> np.ndarray:
     vale `(1+sqrt(3))/2 = 1,366` e quella di Abaqus `sqrt(2) = 1,414`.
 
     La conseguenza pratica e' che una soglia presa da un manuale Abaqus e
-    applicata a questo numero confronta due cose diverse. Il registro delle
-    soglie lo dichiara sulla voce `aspect_ratio_tet`; sta anche qui perche'
-    chi legge la funzione non passa necessariamente di la'.
+    applicata a questo numero confronta due cose diverse. Il tetto di 3 che
+    `TetConfig` usa e' quello di Verdict -- Stimpson, Ernst, Knupp, Pebay &
+    Thompson (2007), The Verdict Geometric Quality Library, SAND2007-1751,
+    §6 -- e la definizione sta qui, accanto al numero, perche' un numero senza
+    la propria definizione e' il modo tipico in cui una soglia diventa falsa.
     """
     n = np.asarray(nodes, dtype=np.float64)
     t = np.asarray(tets)

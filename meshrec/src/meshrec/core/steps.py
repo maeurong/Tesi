@@ -124,9 +124,9 @@ def write_state(
 ) -> None:
     """Registra l'esito di un solo step, senza toccare gli altri.
 
-    Rilegge e riscrive l'intero file a ogni step: sono tredici voci, il costo
+    Rilegge e riscrive l'intero file a ogni step: sono dodici voci, il costo
     e' nullo, e cosi' lo stato su disco resta un solo documento coerente
-    invece di tredici frammenti da ricomporre.
+    invece di dodici frammenti da ricomporre.
     """
     from meshrec.core.io import scrivi_atomico
 
@@ -146,7 +146,7 @@ def write_state(
 
 
 def run_state(out_dir: Path, cfg: PipelineConfig) -> list[dict[str, object]]:
-    """Stato dei tredici step per la corsa in `out_dir` con la configurazione `cfg`.
+    """Stato dei dodici step per la corsa in `out_dir` con la configurazione `cfg`.
 
     "valido" significa una cosa sola e verificabile: l'impronta salvata coincide
     con quella ricalcolata dalla configurazione corrente. Non e' un'etichetta

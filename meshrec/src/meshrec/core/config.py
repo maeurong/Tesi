@@ -464,9 +464,9 @@ class Modale(_ModelloBase):
     **Da dove viene il 40**, misurato il 26/08/2026 e ricostruibile con
     `docs/fase-7-cantiere/modi-per-la-normativa.py`. Il criterio non e' nostro:
     EN 1998-1 §4.3.3.3.1(3) chiede che i modi considerati catturino almeno il
-    90% della massa partecipante, e le NTC 2018 lo riportano al §7.3.3.1 -- lo
-    stesso criterio del verdetto `massa_modale` in `core/solve.py`, dove sta
-    anche la nota che dichiara il contesto preso in prestito.
+    90% della massa partecipante, e le NTC 2018 lo riportano al §7.3.3.1. Il
+    contesto e' preso in prestito: quel criterio e' per l'analisi modale, e qui
+    governa una soglia di maglio.
 
     La frazione non sale liscia al crescere dei modi: sale a **gradini**,
     perche' i modi entrano in coppie e ognuna porta la sua quota in un colpo.
@@ -1020,8 +1020,8 @@ class Momento(_ModelloBase):
     `ccx` 2.22, un momento concentrato su un C3D4 e' scartato **in
     silenzio** -- zero occorrenze di `warning` o `error`, `number of
     equations 3`, spostamento `0.000000E+00` su tutte e tre le componenti.
-    La guardia di `core/solve.py:438` non lo intercetta perche' non c'e'
-    nessun warning da intercettare.
+    Nessuna guardia sui warning lo intercetterebbe, perche' non c'e' nessun
+    warning da intercettare.
 
     `braccio` fissa la soglia di separazione fra i due gruppi di nodi, e il
     programma la contraddice se i nodi presi non la sostengono. Il momento
@@ -1131,12 +1131,12 @@ class CaricoDistribuito(_ModelloBase):
 
 
 class Combinazione(_ModelloBase):
-    """Una combinazione di azioni, proposta dal programma o corretta a mano (#146).
+    """Una combinazione di azioni, dichiarata dall'operatore, che il deck scrive
+    come passo proprio (#146).
 
-    `proposta` distingue le due cose, ed e' la ragione per cui il campo esiste:
-    il programma non puo' sapere la categoria d'uso di un edificio rilevato, e
-    generare senza chiedere sarebbe indovinare. Propone, l'operatore corregge,
-    e il flag dice quali voci nessuno ha ancora guardato.
+    Portava un flag `proposta` che distingueva le combinazioni generate dal
+    programma da quelle corrette a mano. Il generatore e' uscito con la mappa
+    #161, e con lui il flag: oggi ogni combinazione e' dell'operatore.
     """
 
     nome: NomeSet = Field(
@@ -1166,13 +1166,6 @@ class Combinazione(_ModelloBase):
             "arbitraria. Almeno un termine: uno `*STEP` senza azioni risolve e "
             "dà spostamenti nulli, indistinguibili da una struttura scarica. "
             "L'ordine è quello con cui i termini entrano nel deck"
-        ),
-    )
-    proposta: bool = Field(
-        description=(
-            "True = generata dal programma e non ancora toccata dall'operatore. "
-            "Nessun predefinito: chi scrive una combinazione a mano deve dire "
-            "che è sua, e chi la genera deve dire che è da rivedere"
         ),
     )
 

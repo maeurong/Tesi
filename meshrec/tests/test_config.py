@@ -1446,11 +1446,9 @@ def test_ogni_azione_dichiara_la_propria_natura_e_l_assenza_e_uno_stato():
 
 
 def test_le_combinazioni_si_dichiarano_dentro_i_carichi_e_partono_vuote():
-    """La struttura che #146 chiede, e che `core/combinazioni.py` riempira'.
-
-    `proposta` distingue una combinazione generata dal programma da una che
-    l'operatore ha corretto: il programma non puo' sapere la categoria d'uso di
-    un edificio rilevato, quindi propone e non decide.
+    """La struttura che #146 chiede. Il generatore che la riempiva
+    (`core/combinazioni.py`) e' uscito con la mappa #161: le combinazioni
+    restano, e adesso le scrive l'operatore.
     """
     assert config.CarichiConfig().combinazioni == ()
 
@@ -1463,7 +1461,6 @@ def test_le_combinazioni_si_dichiarano_dentro_i_carichi_e_partono_vuote():
         nome="SLU_1",
         tipo="slu_fondamentale",
         termini=(("GRAVITA", 1.3), ("SPINTA_ORIZZONTALE", 1.5)),
-        proposta=True,
     )
     assert combinazione.termini == (("GRAVITA", 1.3), ("SPINTA_ORIZZONTALE", 1.5))
     with pytest.raises(ValidationError):
@@ -1471,7 +1468,6 @@ def test_le_combinazioni_si_dichiarano_dentro_i_carichi_e_partono_vuote():
             nome="SLU_1",
             tipo="slu_inventato",
             termini=(("GRAVITA", 1.3),),
-            proposta=True,
         )
 
 
@@ -1481,7 +1477,6 @@ def _config_con_combinazione(nome: str = "SLU_1", **campi):
         "nome": nome,
         "tipo": "slu_fondamentale",
         "termini": (("GRAVITA", 1.3),),
-        "proposta": True,
     }
     combinazione.update(campi)
     return crea_config(
@@ -1528,9 +1523,9 @@ def test_due_combinazioni_che_differiscono_solo_per_maiuscole_sono_rifiutate():
             input=config.InputConfig(path="nuvola.ply"),
             carichi=config.CarichiConfig(combinazioni=[
                 {"nome": "C1", "tipo": "sle_rara",
-                 "termini": (("GRAVITA", 1.0),), "proposta": True},
+                 "termini": (("GRAVITA", 1.0),)},
                 {"nome": "c1", "tipo": "sle_frequente",
-                 "termini": (("GRAVITA", 1.0),), "proposta": True},
+                 "termini": (("GRAVITA", 1.0),)},
             ]),
         )
 
@@ -1561,7 +1556,6 @@ def test_il_nome_dellazione_di_un_termine_sta_nel_dominio_dei_nomi_di_set(azione
             nome="SLU_1",
             tipo="slu_fondamentale",
             termini=((azione, 1.3),),
-            proposta=True,
         )
 
 
@@ -1573,7 +1567,7 @@ def test_una_combinazione_senza_termini_e_rifiutata():
     """
     with pytest.raises(ValidationError):
         config.Combinazione(
-            nome="SLU_1", tipo="slu_fondamentale", termini=(), proposta=True
+            nome="SLU_1", tipo="slu_fondamentale", termini=()
         )
 
 

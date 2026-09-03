@@ -80,12 +80,10 @@ A = np.array(
 # della risoluzione del canale**. Cosi' la soglia resta dichiarata prima -- cio'
 # che varia e' la risoluzione della misura, non il risultato -- e segue da se'
 # se un domani il formato di stampa cambia.
-try:  # il registro arriva con la PR #49
-    from meshrec.core.soglie import trova
-
-    FATTORE = float(trova("patch_test_fattore_sul_pavimento").massimo)
-except (ImportError, KeyError):  # pragma: no cover - sparisce quando #49 e' fuso
-    FATTORE = 2.0
+# 2: Taylor, Simo, Zienkiewicz & Chan (1986), IJNME 22:39-62,
+# DOI 10.1002/nme.1620220105. Stava nel registro delle soglie
+# (`core/soglie.py`), uscito il 03/09/2026 perche' nessuna corsa lo leggeva piu'.
+FATTORE = 2.0
 
 
 def _pavimento_del_formato(atteso: np.ndarray) -> float:

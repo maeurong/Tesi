@@ -495,8 +495,8 @@ def write_inp(
         )
     # Le righe, non solo le colonne: un deck con zero elementi e' **valido**
     # per `ccx`, che lo risolve in silenzio. Reazioni nulle contro un peso
-    # nullo, e i sette verdetti di `core/solve.py` escono verdi su nulla --
-    # un controllo di conservazione che non ha niente da conservare non e'
+    # nullo, e ogni controllo di conservazione esce verde su nulla -- un
+    # controllo che non ha niente da conservare non e'
     # un controllo passato. Qui perche' e' il fondo comune di ogni chiamante;
     # `export_model` ne tiene una propria e identica, perche' col maglio vuoto
     # muore prima di arrivare fin qui (misurato: «nessun nodo da allineare»).
@@ -1317,8 +1317,8 @@ def coppia_equivalente(
     """Le righe *CLOAD di una coppia di forze staticamente equivalente al momento.
 
     Non un `*CLOAD` sui gradi 4-6: su un C3D4 `ccx` 2.22 lo scarta senza un
-    warning e con spostamento esattamente zero, e `controlla_avvisi`
-    (`core/solve.py`) non ha nulla da intercettare.
+    warning e con spostamento esattamente zero: nessuna guardia sugli avvisi
+    avrebbe nulla da intercettare.
 
     Il braccio lo dichiara l'operatore e questa funzione lo contraddice se i
     nodi presi non lo sostengono. La via opposta -- misurarlo sull'estensione
@@ -1337,8 +1337,9 @@ def coppia_equivalente(
     indistinguibili da quelle della sola gravita', e un oracolo di equilibrio
     che le confronti non puo' passare da li'. E' la ragione per cui i test di
     fattibilita' su una coppia verificano lo spostamento orizzontale e non le
-    reazioni, mentre quelli su una forza fanno l'opposto (vedi
-    tests/feasibility/test_calculix.py): l'asimmetria e' voluta, non da
+    reazioni, mentre quelli su una forza fanno l'opposto (lo facevano i test
+    di fattibilita' su CalculiX, usciti con la mappa #161): l'asimmetria e'
+    voluta, non da
     "uniformare" aggiungendo l'oracolo delle reazioni anche qui.
     """
     punti = np.asarray(nodes, dtype=np.float64)
@@ -1867,8 +1868,9 @@ def write_vtu(
     solutore: la tabella traduce, e un tipo non tradotto solleva invece di
     scrivere un file che nessun visualizzatore aprirebbe.
 
-    `point_data`, dalla Fase 5, sono i campi per nodo che lo step 13 scrive
-    (spostamenti e tensione equivalente per caso di carico, forme modali):
+    `point_data` sono campi per nodo, un array per nome. Li scriveva il
+    solutore integrato, uscito con la mappa #161; il parametro resta perche'
+    e' la forma generale di un `.vtu` con dati sui nodi:
     assente lascia il file identico a prima, e i chiamanti gia' scritti (lo
     step 9 e `export_model`) non cambiano comportamento.
 

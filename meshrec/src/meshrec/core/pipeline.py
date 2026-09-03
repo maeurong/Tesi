@@ -31,7 +31,7 @@ METRICS_FILENAME = "metrics.json"
 METRICS_PARTIAL = "metrics.partial.json"
 WALL_FILENAME = "12_wall.json"
 # Il deck di calcolo dello step 11: il file che si importa in Abaqus o si da' a
-# CalculiX, e che lo step 13 risolve senza copiarlo. Una costante perche' da
+# CalculiX. Una costante perche' da
 # adesso lo nomina anche il server, che lo consegna a chi lo chiede
 # (`/api/deck`): scritto due volte, il giorno che cambia ne cambia una sola.
 DECK_FILENAME = "wall_model.inp"
@@ -55,7 +55,6 @@ ARTIFACTS: dict[int, str] = {
     6: "06_repaired.ply",
     8: "08_simplified.ply",
     9: "09_volume.vtu",
-    13: "13_solution.vtu",
 }
 
 # Tabelle esplicite da from_step all'artefatto da ricaricare, verificate a mano
@@ -211,8 +210,8 @@ def _ricostruisci_membrature(prior: dict[str, object]) -> list:
     e assente vuol dire assente: il predefinito vuoto e' cio' che impedisce a
     `wall.giunzioni` di dedurre un'invasione su un piano che non c'e'. Ma su un
     prior **nuovo** vanno rilette, o i tre campi verrebbero scritti in
-    `12_wall.json` e buttati alla rilettura: chi fra armatura, telaio e
-    attribuzione passa di qui troverebbe `base_sezione` vuota su dati freschi,
+    `12_wall.json` e buttati alla rilettura: l'attribuzione, che passa di
+    qui, troverebbe `base_sezione` vuota su dati freschi,
     e `wall.giunzioni` gli renderebbe `[]` in silenzio.
     """
     from meshrec.core.wall import Membratura
@@ -281,9 +280,11 @@ def _membrature_del_prior(percorso: Path, chi: str) -> list:
 def _prior_letto(percorso: Path, chi: str) -> dict[str, object]:
     """Il `12_wall.json` come sta sul disco, per chi lo consuma tal quale.
 
-    `_membrature_del_prior` lo traduce in `Membratura`; `core/telaio.py` legge
-    invece il dizionario, giunzioni comprese, e le due porte del rifiuto --
-    l'assente e il troncato -- sono le stesse per tutti e due.
+    `_membrature_del_prior` lo traduce in `Membratura`. Era separata perche'
+    un secondo lettore (`core/telaio.py`, uscito con la mappa #161) leggeva il
+    dizionario grezzo con le stesse due porte del rifiuto -- l'assente e il
+    troncato. Oggi ha un chiamante solo; resta separata perche' le porte del
+    rifiuto stanno in un posto.
     """
     if not percorso.exists():
         raise FileNotFoundError(
@@ -403,52 +404,6 @@ def genera_modello(cfg: PipelineConfig, tipo: str, out_dir: Path) -> dict[str, o
     return esito
 
 
-_CHIAVI_DELL_ESPORTAZIONE = (
-    "element_type", "casi_di_carico", "constraint_plan_extent", "transform"
-)
-
-
-def _misure_dell_esportazione(out: Path) -> dict[str, object]:
-    """Le misure dello step 11 rilette da `metrics.json`, o il rifiuto.
-
-    Lo step 13 non le sa ricalcolare: il tipo di elemento, l'ordine dei casi di
-    carico scritti nel deck, l'estensione in pianta del vincolo e la 4x4 con cui
-    i nodi sono stati allineati sono cio' che `abaqus.export_model` ha fatto
-    davvero, e l'unica copia sta li'. Ognuno dei tre modi di non averle -- il
-    file assente, il file troncato, la chiave mancante -- nomina lo step 11,
-    perche' e' quello da rieseguire in tutti e tre.
-    """
-    percorso = out / METRICS_FILENAME
-    if not percorso.exists():
-        raise ValueError(
-            f"lo step 13 pretende le misure dello step 11, che stanno in "
-            f"{METRICS_FILENAME}, e questa corsa non ce l'ha. Esegui lo step 11"
-        )
-    try:
-        letto = json.loads(percorso.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as errore:
-        # ValueError e non json.JSONDecodeError, per la ragione gia' scritta
-        # nella coda di run(): il file si legge prima di essere interpretato, e
-        # un byte non UTF-8 solleva UnicodeDecodeError, che JSONDecodeError non
-        # copre.
-        raise ValueError(
-            f"lo step 13 pretende le misure dello step 11, e {METRICS_FILENAME} "
-            f"esiste ma non si legge ({errore}). Riesegui lo step 11"
-        ) from errore
-    esportazione = letto.get("11_export") if isinstance(letto, dict) else None
-    if not isinstance(esportazione, dict):
-        raise ValueError(
-            f"{METRICS_FILENAME} non porta le misure dello step 11 (chiave "
-            "'11_export'): questa corsa non è arrivata al deck. Esegui lo step 11"
-        )
-    mancanti = [chiave for chiave in _CHIAVI_DELL_ESPORTAZIONE if chiave not in esportazione]
-    if mancanti:
-        raise ValueError(
-            f"le misure dello step 11 in {METRICS_FILENAME} non portano "
-            f"{', '.join(mancanti)}: sono di una versione precedente del deck. "
-            "Riesegui lo step 11"
-        )
-    return esportazione
 
 
 def _maglio_di_volume(percorso: Path) -> tuple[np.ndarray, np.ndarray]:
@@ -468,9 +423,9 @@ def _maglio_di_volume(percorso: Path) -> tuple[np.ndarray, np.ndarray]:
     di volume (misurato il 31/08/2026: nodi `(6, 3)`, celle `(2, 3)`) e la
     corsa moriva piu' in la', dentro `quality.volume_metrics`, con un
     `IndexError` sulla quarta colonna che non c'e'. Il controllo di forma sta
-    qui e non presso i consumatori perche' i consumatori sono tre -- le
-    metriche dello step 10, l'esportazione dello step 11 e il solutore dello
-    step 13 -- e passano tutti di qui.
+    qui e non presso i consumatori perche' i consumatori sono due -- le
+    metriche dello step 10 e l'esportazione dello step 11 -- e passano tutti
+    e due di qui.
 
     E' lo stesso controllo che `server._contorno_del_volume` fa da sempre sul
     proprio ingresso, con una differenza voluta: li' le dieci colonne del
@@ -601,12 +556,11 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
     # cfg.run.to_step altrove. La riga si e' spostata con il perimetro del
     # prodotto, che chiude sul deck: lasciata dov'era, dopo lo step 12, ogni
     # corsa predefinita sarebbe caduta nel ramo di fusione e avrebbe conservato
-    # in metrics.json un 12_wall e un 13_solve misurati su un'altra geometria.
-    # Gli step 12 e 13 sono azioni in piu' che non ridefiniscono questa
-    # completezza: una corsa fermata a 11 (il predefinito, e lo sweep che lo
-    # chiede esplicito), una fermata a 12 e una arrivata a 13 sono ugualmente
-    # complete per questo flag -- la differenza fra le tre e' che cosa hanno in
-    # piu' del deck.
+    # in metrics.json un 12_wall misurato su un'altra geometria. Lo step 12 e'
+    # un'azione in piu' che non ridefinisce questa completezza: una corsa
+    # fermata a 11 (il predefinito, e lo sweep che lo chiede esplicito) e una
+    # fermata a 12 sono ugualmente complete per questo flag -- la differenza
+    # fra le due e' che cosa hanno in piu' del deck.
     pipeline_completa = False
 
     def registra(numero: int, avvio: float, artefatto: str | None) -> None:

@@ -13,7 +13,7 @@ sta nel corpo della PR che ha portato questo file.
 sa ritagliare solo funzioni di **primo livello**, e lo dichiara: `test_app_js.py`
 annota che `aggiornaCamera` «vive dentro `creaViewport`, che tocca three.js e
 non si [esegue]». Cosi' `viewport.js` risulta coperto per le sue funzioni pure
--- `scalaDelCampo`, `numeroDelCampo`, `didascaliaDelCampo`, `frazioneDellArrivo`
+-- `scalaDelCampo`, `numeroDelCampo`, `didascaliaDelloScarto`, `frazioneDellArrivo`
 -- e **scoperto** per tutto cio' che sta nella chiusura di `creaViewport`, che
 e' la scena, la camera e il fantasma. Questi quattro controlli entrano li'.
 

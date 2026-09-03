@@ -115,32 +115,6 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-# I nomi dei due solutori incolonnati: il referto si legge per colonne, e senza
-# allineamento la seconda riga non si confronta con la prima.
-_LARGHEZZA_NOME = 10
-
-
-def _referto(nome: str, voce: dict[str, object], esito: dict[str, object] | None) -> list[str]:
-    """Le righe che un solutore merita: che cosa c'è, dove, e se risponde.
-
-    Un solutore assente ha due vesti diverse a seconda che sia quello scelto o
-    no, ed è il punto del comando: chi usa solo CalculiX non deve leggere
-    OpenSees come un guasto da riparare.
-    """
-    margine = " " * (_LARGHEZZA_NOME + 1)
-    etichetta = f"{nome:<{_LARGHEZZA_NOME}}"
-    if not voce["disponibile"]:
-        if voce["scelto"]:
-            prima = f"{etichetta} MANCA    è il solutore scelto, e non si trova"
-        else:
-            prima = f"{etichetta} assente  non installato, e va bene se non lo usi"
-        return [prima, margine + str(voce["motivo"])]
-    dove = f"{voce['percorso']} ({voce['origine']})"
-    if esito is None:
-        return [f"{etichetta} presente {dove}"]
-    if esito["funziona"]:
-        return [f"{etichetta} ok       {dove}"]
-    return [f"{etichetta} ROTTO    {dove}", margine + str(esito["motivo"])]
 
 
 # I tre tipi con cui questo programma parla all'operatore. Ricavati dai test che

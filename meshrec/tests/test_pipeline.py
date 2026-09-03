@@ -1533,12 +1533,6 @@ def test_senza_regioni_lo_step_11_non_rilegge_il_prior(tmp_path):
     assert abaqus.CONTINUO_CONFINATO not in testo
 
 
-_ESITO_FINTO = {
-    "eseguito": True,
-    "solutore": "opensees",
-    "controlli": {"reazioni": {"passato": True}},
-    "frequenze_hz": [12.0],
-}
 
 
 def test_riprendere_dallo_step_10_non_ritetraedrizza(run_dir, tmp_path, monkeypatch):

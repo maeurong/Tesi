@@ -98,10 +98,6 @@ export function numeroDelCampo(valore, formato = { maximumSignificantDigits: 4 }
 // Che cosa si sta guardando quando la superficie porta il proprio scarto, e
 // soprattutto che cosa NON si sta guardando.
 //
-// Sorella di didascaliaDelCampo e separata da lei apposta: sono due grandezze
-// diverse, e una funzione sola con un ramo in piu' sarebbe il punto in cui il
-// limite dichiarato di questa comincia a valere anche per quella.
-//
 // Il limite non e' prudenza generica. `quality.vertex_deviation` campiona i
 // SOLI vertici, nel verso dalla superficie alla nuvola: dove la superficie
 // sbaglia FRA un vertice e l'altro questa mappa non lo vede, e la tabella
@@ -139,58 +135,6 @@ export function didascaliaDelloScarto({ massimo, taglio, sopraTaglio }) {
 // nodo-scheggia che il documento spende una sezione a rinnegare. Accostati
 // nella stessa frase, e col massimo marcato quando sta oltre il taglio, i due
 // numeri si leggono per quello che sono.
-// In che unita' e' un campo dello step 13. Estratta perche' adesso ha due
-// lettori: la didascalia sotto la vista e la chiave della scala colore, che
-// devono dire la stessa unita' sotto la stessa immagine. Scritta due volte,
-// il giorno che una grandezza nuova si aggiunge una delle due resta indietro
-// e la barra dichiara MPa sotto dei millimetri.
-export function unitaDelCampo(grandezza) {
-  return grandezza === "U" ? "mm" : "MPa";
-}
-
-export function didascaliaDelCampo({ caso, grandezza, modale, frequenza, massimo, taglio, sopraTaglio }) {
-  if (modale) {
-    // Un modo oltre quelli calcolati non ha una frequenza nota: NaN.toFixed()
-    // scriverebbe "NaN Hz" in silenzio, lo stesso guasto di un taglio muto.
-    const hz = numeroDelCampo(frequenza, { maximumFractionDigits: 2 });
-    // La vista di un modo e' il modello grigio e indeformato: mostraStep(13),
-    // nessuna forma applicata alle posizioni. «Ampiezza arbitraria» annunciava
-    // un'ampiezza che non e' a schermo, ed e' la stessa classe dell'«amplificato
-    // ×1779» che questo ramo ha gia' pagato: la didascalia dice solo cio' che
-    // la vista fa davvero.
-    const coda = "la forma modale non è disegnata, la vista mostra il modello indeformato";
-    return hz === null
-      ? `${caso}: frequenza non disponibile; ${coda}`
-      : `${caso} — ${hz} Hz: ${coda}`;
-  }
-  // «massimo reale» e non «massimo amplificato»: la vista non deforma nulla.
-  // Il campo che arriva dal server e' una magnitudine per nodo, senza
-  // direzione, e le posizioni restano quelle del contorno indeformato: una
-  // didascalia che dichiarasse un'amplificazione starebbe scrivendo un numero
-  // falso sopra un pezzo fermo.
-  const spostamento = grandezza === "U";
-  const nome = spostamento ? "spostamento" : "tensione equivalente";
-  const unita = unitaDelCampo(grandezza);
-  // Entrambi i numeri passano da numeroDelCampo, che dichiara quello che non
-  // si puo' scrivere invece di stamparlo. Il conteggio ha il proprio formato:
-  // e' un numero di nodi, non una misura, e non va arrotondato a cifre
-  // significative.
-  const tagliato = numeroDelCampo(taglio);
-  const nodi = numeroDelCampo(sopraTaglio, { maximumFractionDigits: 0 });
-  const scala = tagliato === null || nodi === null
-    ? "scala non disponibile, il campo non ha valori leggibili"
-    : `scala tagliata a ${tagliato} ${unita} (p99), ${nodi} nodi sopra`;
-  const scritto = numeroDelCampo(massimo);
-  if (scritto === null) return `${caso} — ${nome}: ${scala}; massimo non disponibile`;
-  // «reale» resta solo sullo spostamento: e' la grandezza che si guarda su una
-  // vista, ed e' li' che qualcuno potrebbe leggere il colore come una misura.
-  // «fuori scala» solo quando lo e' davvero: su un campo costante il massimo
-  // coincide col taglio, ed e' rappresentabile.
-  const fuori = Number.isFinite(massimo) && Number.isFinite(taglio) && massimo > taglio;
-  return `${caso} — ${nome}: ${scala}; massimo ${spostamento ? "reale " : ""}${scritto} ${unita}`
-    + (fuori ? ", fuori scala" : "");
-}
-
 // --- L'arrivo ---------------------------------------------------------------
 //
 // Il movimento della vista, e ce n'e' uno solo: l'arrivo di una geometria

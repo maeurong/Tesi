@@ -383,8 +383,8 @@ def semplifica_contorno(contorno: np.ndarray, tolleranza: float) -> np.ndarray:
     # La soglia e' `tolleranza`, cioe' quella che questa funzione **gia' usa**
     # per semplificare: un contorno i cui punti stanno tutti dentro quella
     # banda attorno a una retta verrebbe ridotto a un segmento dalla
-    # riduzione stessa. Nessuna soglia nuova da dichiarare, e nessuna voce da
-    # aggiungere a `core/soglie.py`: e' la coerenza interna della funzione.
+    # riduzione stessa. Nessuna soglia nuova da dichiarare: e' la coerenza
+    # interna della funzione.
     if len(punti) < 3:
         raise SezioneDegenere(0.0, tolleranza, len(punti))
     spessore = _spessore_di_sezione(punti)

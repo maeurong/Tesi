@@ -20,7 +20,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from meshrec.core import abaqus, quality, report, soglie
+from meshrec.core import abaqus, quality, report
 
 # Quattro punti vicini a una circonferenza di raggio 1, sfalsati in quota di
 # `e` a due a due: e' lo sliver di manuale. La sfera circoscritta resta
@@ -302,7 +302,10 @@ def test_il_registro_dichiara_la_collisione_di_nome():
     ratificata diventa falsa: resta giusta e viene applicata alla grandezza
     sbagliata.
     """
-    nota = soglie.trova("aspect_ratio_tet").nota
+    # Il registro delle soglie e' uscito il 03/09/2026: la definizione sta
+    # nella docstring della funzione che calcola il numero, che e' l'unico
+    # posto da cui non si puo' passare senza vederla.
+    nota = quality.tet_aspect_ratios.__doc__
     assert "Abaqus" in nota and "spigolo massimo e" in nota
 
 
@@ -334,8 +337,10 @@ def test_il_diedro_minimo_e_l_unica_metrica_che_lo_vede():
     ed e' il motivo per cui interroga le metriche invece di fissare un numero.
     """
     nodi = sliver(0.001)
-    limite = soglie.trova("diedro_minimo_tet").minimo
-    assert limite is not None
+    # 40 gradi: Stimpson, Ernst, Knupp, Pebay & Thompson (2007), The Verdict
+    # Geometric Quality Library, SAND2007-1751, §6, minimum dihedral angle.
+    # Stava nel registro delle soglie, uscito il 03/09/2026.
+    limite = 40.0
 
     visto_dal_diedro = float(quality.min_dihedral_angles(nodi, TETS)[0]) < limite
     visto_dal_raggio = float(quality.radius_edge_ratios(nodi, TETS)[0]) > 2.0
