@@ -159,11 +159,13 @@ body {
    bottone andava bene; adesso sono tre, e tre margini automatici li
    spargevano a distanze uguali lungo tutta la riga -- misurato a 1400 px:
    «Cambia corsa» a 320, «Interrompi» a 547, «Avvisami» a 815 -- cioe' tre
-   comandi che non si leggevano come un gruppo. Il margine automatico lo
-   porta il solo PRIMO bottone visibile: quelli dopo si spaziano col `gap`.
-   «Primo visibile» e non «primo»: «Cambia corsa» nasce nascosto, e a
-   ingresso il gruppo deve comunque stare a destra. */
-.testata .bottone:not(.bottone:not([hidden]) ~ .bottone) { margin-left: auto; }
+   comandi che non si leggevano come un gruppo. Il gruppo e' un elemento
+   (index.html) con un solo margine automatico: cosi' va a capo intero
+   quando l'esito e' lungo, invece di spezzarsi su due righe.
+   L'esito ha una misura: senza, una riga di fallimento si prendeva tutta la
+   larghezza e spingeva i comandi sotto anche a 1400 px. */
+.comandi-testata { display: flex; flex-wrap: wrap; gap: var(--passo-2); margin-left: auto; }
+.esito { max-width: 40rem; }
 /* Senza `letter-spacing: -0.01em`: a 18px vale 0,18px per coppia, cioe' meno
    di un pixel su sette caratteri. Non stringeva niente, e una dichiarazione che
    non fa nulla fa cercare un effetto che non c'e'. */
@@ -1023,9 +1025,11 @@ h3.titolo-step { margin: 0 0 var(--passo-1); font-size: var(--tipo-corpo); line-
   /* A colonna unica la riga di uno step e' larga quanto la finestra, e lo
      stato spinto a destra finiva a 700 px dal nome (misurato a 900 px):
      «Lettura ........ mai eseguito», due parole che vanno lette insieme e
-     stavano ai due capi dello schermo. Qui lo stato segue il nome. La
-     tabella del modello tiene la propria misura per la stessa ragione: un
-     numero a 800 px dalla sua etichetta non e' piu' il suo numero. */
+     stavano ai due capi dello schermo. Qui lo stato segue il nome. Le
+     tabelle delle metriche, nel modello e nel dettaglio, tengono la misura
+     della prosa per la stessa ragione: un numero a 800 px dalla sua
+     etichetta non e' piu' il suo numero. I campi invece restano larghi:
+     una casella larga si scrive meglio, e la sua etichetta le sta sopra. */
   .step-nome { margin-right: 0; }
-  .modello { max-width: var(--misura); }
+  .metriche { max-width: var(--misura); }
 }

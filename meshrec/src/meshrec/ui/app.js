@@ -508,6 +508,17 @@ function disegnaStep(steps) {
   // in modello.js: la terna e' privata di quel modulo, e non e' piu' cosa
   // che questa chiamata possa aggiustare da fuori.
   aggiornaModello(steps);
+  // La frase di stato del pannello aperto segue la colonna: modificato un
+  // parametro, lo step 3 passava a «non valido» a sinistra mentre a destra
+  // il pannello diceva ancora «Eseguito con i parametri correnti». Visto a
+  // video. Il pannello non si riapre a ogni frame (costa quattro fetch), si
+  // riscrive la sola frase, e solo se e' cambiata.
+  if (stepAperto !== null) {
+    const rigaDiStato = Array.from(document.getElementById("dettaglio").children)
+      .find((nodo) => nodo.className === "aiuto stato-dello-step");
+    const frase = fraseDelloStato(steps.find((voce) => voce.numero === stepAperto));
+    if (rigaDiStato && frase !== null && rigaDiStato.textContent !== frase) rigaDiStato.textContent = frase;
+  }
 }
 
 caricaStato();
@@ -618,7 +629,12 @@ function ultimaRigaDelRegistro() {
     const testo = righe[i].textContent.trim();
     if (testo !== "") return testo;
   }
-  return "nessun dettaglio";
+  // Vuoto e non «nessun dettaglio»: le righe del registro arrivano dallo
+  // stesso flusso dello stato, e il fronte di discesa puo' precedere di un
+  // giro l'ultima riga. Visto a video: esito «nessun dettaglio» sopra un
+  // registro che il ValueError lo aveva, un attimo dopo. Un dettaglio che
+  // non c'e' ANCORA non si dichiara assente: si tace, e la frase resta vera.
+  return "";
 }
 
 function esitoDellaCorsa(stato) {
@@ -644,7 +660,8 @@ function esitoDellaCorsa(stato) {
       // che scorre. E' la stessa distanza che il pannello aveva dal proprio
       // nome, e per cui il nome e' stato portato dentro il pannello.
       errore: `${soggetto}: esecuzione fallita (codice ${stato.exit_code}). `
-        + `Il motivo è nel registro, in fondo alla colonna Dettaglio: ${ultimaRigaDelRegistro()}`,
+        + "Il motivo è nel registro, in fondo alla colonna Dettaglio"
+        + (ultimaRigaDelRegistro() ? `: ${ultimaRigaDelRegistro()}` : "."),
       esito: null,
     };
   }

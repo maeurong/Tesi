@@ -663,7 +663,7 @@ def test_le_metriche_di_volume_non_pretendono_nuvola_ne_superficie(run_dir, tmp_
     non tocca `spacing`, non tocca `vertices`. La ripresa li ricaricava lo
     stesso, quindi in una cartella incompleta si fermava su `04_normals.ply`
     prima e su `06_repaired.ply` poi — due file che quello step non guarda —
-    e il consiglio che ne seguiva («Esegui da qui in giù dallo step 4»)
+    e il consiglio che ne seguiva («Esegui da qui fino al deck dallo step 4»)
     riscrive gli artefatti dal 4 al 10, cioè proprio quelli su cui si sta
     iterando. È la stessa trappola già chiusa per `02_segmented.ply`.
 

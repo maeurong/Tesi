@@ -265,7 +265,7 @@ class SurfaceConfig(_ModelloBase):
         le=14,
         title="profondità dell'ottree di Poisson",
         description=(
-            "più alta, superficie più fitta: su muro, 9 -> 8 porta i triangoli "
+            "più alta, superficie più fitta: su muro, da 9 a 8 porta i triangoli "
             "da 908.118 a 221.369"
         ),
     )
@@ -619,7 +619,7 @@ class RunConfig(_ModelloBase):
             "chiusura di volume. Tutte si "
             "sbloccano con `meshrec wall`, e non con una corsa chiesta fino a "
             "12: con `regioni` dichiarate lo step 11 legge il prior prima che "
-            "lo step 12 lo scriva, quindi una corsa 1->12 si ferma a 11 e non "
+            "lo step 12 lo scriva, quindi una corsa da 1 a 12 si ferma a 11 e non "
             "arriva mai a calcolarlo. "
             "sweep.py chiede to_step=11 esplicito al sottoprocesso invece di "
             "ereditare questo predefinito, e REQUIRED_STEPS in sweep.py non lo "

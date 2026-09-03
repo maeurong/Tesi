@@ -155,6 +155,8 @@ def _funzioni(*nomi: str) -> str:
 # volta, non c'e' un elenco per banco da tenere allineato.
 _COLONNA = (
     "segnaStepAperto", "nuovaRiga",
+    # La frase di stato del pannello aperto: disegnaStep la riscrive se cambia.
+    "fraseDelloStato",
     "superata", "serverMuto", "ragioneDelRifiuto", "corpoLetto",
     # Il pannello del modello, che `disegnaStep` chiama in coda: senza queste
     # tre il banco della colonna cade su un ReferenceError. Nel banco non
@@ -5179,7 +5181,7 @@ assert.deepEqual(
 assert.deepEqual(
   esitoDellaCorsa({ ...base, exit_code: 1 }),
   {
-    errore: "Lettura: esecuzione fallita (codice 1). Il motivo è nel registro, in fondo alla colonna Dettaglio: nessun dettaglio",
+    errore: "Lettura: esecuzione fallita (codice 1). Il motivo è nel registro, in fondo alla colonna Dettaglio.",
     esito: null,
   },
 );
@@ -7161,9 +7163,12 @@ const registro = document.getElementById("registro");
 for (const testo of ["", "   "]) {
   const riga = document.createElement("div"); riga.textContent = testo; registro.append(riga);
 }
-assert.equal(ultimaRigaDelRegistro(), "nessun dettaglio");
+assert.equal(ultimaRigaDelRegistro(), "");
 const { errore } = esitoDellaCorsa({ exit_code: 1, annullato: false, step: 2, a_step: 2, steps: [] });
-assert.match(errore, /nessun dettaglio/);
+// Senza una riga, la frase si chiude senza inventare un dettaglio assente:
+// la riga puo' arrivare un giro dopo, dallo stesso flusso.
+assert.match(errore, /colonna Dettaglio\.$/);
+assert.ok(!/nessun dettaglio/.test(errore));
 """)
 
 
@@ -7197,7 +7202,7 @@ assert.equal(dettagli.open, false, "il registro della corsa vecchia e' rimasto a
 
 // E muore subito, prima di scrivere una riga sua.
 aggiornaDaStato({ ...base, in_corso: false, exit_code: 1 });
-assert.match(esito.textContent, /nessun dettaglio/);
+assert.match(esito.textContent, /colonna Dettaglio\.$/);
 assert.ok(!esito.textContent.includes("ValueError"), "l'esito cita ancora la corsa precedente: " + esito.textContent);
 """)
 
@@ -7940,4 +7945,28 @@ assert.equal(scaricato().download, "lab-crop-09-tetraedri-scarto-rms-9-5-mm.png"
 // Le righe: lo step in figura, senza impronta perche' «non valido».
 const righe = righeDiProvenienza({ corsa: "runs/x", numero: 9, nome: "Tetraedri", impronta: undefined, conteggi: "c", didascalia: "", data: "d" });
 assert.equal(righe[0], "x · step 9, Tetraedri");
+""")
+
+
+def test_la_frase_di_stato_del_pannello_segue_la_colonna(tmp_path):
+    """Modificato un parametro, la colonna diceva «non valido» e il pannello
+    aperto diceva ancora «Eseguito con i parametri correnti»: due verita' a
+    venti centimetri l'una dall'altra. disegnaStep riscrive la sola frase, e
+    solo se e' cambiata.
+
+    Mutazione che lo uccide: togliere il blocco in coda a disegnaStep.
+    """
+    _esegui(tmp_path, _DOM + _funzioni(*_COLONNA, "disegnaStep") + """
+ETICHETTE["03_downsample"] = "Riduzione";
+stepAperto = 3;
+const dettaglio = document.getElementById("dettaglio");
+const riga = elemento("p", { className: "aiuto stato-dello-step", textContent: "vecchia" });
+dettaglio.append(riga);
+disegnaStep([{ numero: 3, chiave: "03_downsample", stato: "valido" }]);
+assert.match(riga.textContent, /parametri correnti/);
+disegnaStep([{ numero: 3, chiave: "03_downsample", stato: "non valido" }]);
+assert.match(riga.textContent, /parametri diversi/);
+// Uno step aperto che lo stato non conosce: la frase non si tocca.
+disegnaStep([{ numero: 4, chiave: "04_normals", stato: "valido" }]);
+assert.match(riga.textContent, /parametri diversi/);
 """)

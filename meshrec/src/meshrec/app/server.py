@@ -1384,7 +1384,7 @@ def create_app(
             raise ValueError(
                 f"nessun deck da esportare: {pipeline.DECK_FILENAME} lo scrive lo step 11, "
                 "che questa corsa non ha ancora eseguito. Esegui lo step 11, oppure "
-                "«Esegui da qui in giù» da uno step a monte"
+                "«Esegui da qui fino al deck» da uno step a monte"
             )
         # Il nome dice da quale corsa viene: tre `wall_model.inp` scaricati da
         # tre corse diverse sono tre file indistinguibili nella cartella dei
@@ -1551,7 +1551,7 @@ def create_app(
         # due volte: sul perche' del rifiuto e su cio' che resta possibile.
         if 1 <= da <= 12 and a < da:
             raise ValueError(
-                "«da qui in giù» arriva al deck (step 11): per il prior usa "
+                "«Esegui da qui fino al deck» si ferma all'11: per il prior usa "
                 "`meshrec wall` oppure lo step 12 da solo"
             )
         if not (1 <= da <= a <= 12):
