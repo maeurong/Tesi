@@ -2810,6 +2810,9 @@ def _banco_di_apriDettaglio() -> str:
         # L'intestazione e il gruppo che richiude i predefiniti: il pannello li
         # costruisce a ogni apertura, quindi il banco li incontra comunque.
         "intestazioneDelloStep", "fraseDelloStato", "reso", "cambiatoDalPredefinito", "gruppoDelBlocco",
+        # Il pannello va a video in un colpo solo, dentro una transizione di
+        # vista dove c'e': qui non c'e', e riscrivi cambia il DOM sul posto.
+        "riscrivi",
     ) + """
 // Vera mentre una corsa gira: i due «Esegui» nascono spenti se lo e'. Falsa
 // qui, che e' lo stato in cui un pannello si apre normalmente.
@@ -7786,3 +7789,48 @@ def test_ogni_blocco_della_pipeline_ha_un_titolo_che_non_e_la_chiave():
     for numero, blocchi in steps.STEP_BLOCKS.items():
         for blocco in blocchi:
             assert f"{blocco}: " in riga, f"il blocco «{blocco}» dello step {numero} resterebbe una chiave"
+
+
+def test_riscrivi_porta_la_bozza_a_video_con_o_senza_transizione(tmp_path):
+    """Il pannello del dettaglio si costruisce in una bozza e va a video in un
+    colpo solo. Dove `document.startViewTransition` c'e', il cambio avviene
+    dentro la sua callback e chi chiama aspetta `updateCallbackDone`, cioe'
+    il DOM nuovo e non la fine della dissolvenza; dove non c'e', il cambio e'
+    immediato e la promessa e' gia' risolta. In entrambi i casi i figli della
+    bozza diventano i figli del nodo.
+
+    Mutazione che lo uccide: aspettare `finished` invece di
+    `updateCallbackDone`, o chiamare `cambia()` fuori dalla callback.
+    """
+    _esegui(tmp_path, _DOM + _funzioni("riscrivi") + """
+const nodo = document.getElementById("dettaglio");
+nodo.append(elemento("p", { textContent: "vecchio" }));
+const bozza = elemento("div");
+bozza.append(elemento("h3", { textContent: "nuovo" }), elemento("p", { textContent: "corpo" }));
+
+// Senza l'API: sul posto, subito.
+await riscrivi(nodo, bozza);
+assert.deepEqual(nodo.children.map((n) => n.textContent), ["nuovo", "corpo"]);
+// Nel DOM vero i nodi si SPOSTANO e la bozza resta vuota; il DOM finto
+// copia i riferimenti e non lo sa, quindi qui non lo si chiede.
+
+// Con l'API: il cambio sta dentro la callback, e si aspetta updateCallbackDone.
+let dentro = null;
+document.startViewTransition = (cambia) => {
+  dentro = nodo.children.map((n) => n.textContent);
+  cambia();
+  return { updateCallbackDone: Promise.resolve("aggiornato"), finished: new Promise(() => {}) };
+};
+const bozza2 = elemento("div");
+bozza2.append(elemento("p", { textContent: "terzo" }));
+await riscrivi(nodo, bozza2);
+assert.deepEqual(dentro, ["nuovo", "corpo"], "la callback deve vedere il pannello vecchio ancora a video");
+assert.deepEqual(nodo.children.map((n) => n.textContent), ["terzo"]);
+
+// Un'apertura superata nel frattempo non arriva a video: lo decide il
+// controllo letto dentro la callback, non l'ordine in cui il motore le esegue.
+const bozza3 = elemento("div");
+bozza3.append(elemento("p", { textContent: "vecchia bozza" }));
+await riscrivi(nodo, bozza3, () => false);
+assert.deepEqual(nodo.children.map((n) => n.textContent), ["terzo"], "una bozza superata ha coperto quella piu' recente");
+""")

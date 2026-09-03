@@ -3061,6 +3061,32 @@ function pannelloDeck() {
 // tutti sul 5 — lo stesso guasto contro cui il foglio motiva il marchio.
 // stepAperto va con lui: e' lui a dire allo scorrere degli eventi quale
 // pannello ricaricare a fine corsa, e non c'e' nessun pannello da ricaricare.
+// Il pannello del dettaglio cambia contenuto in una transizione di vista:
+// cliccato un altro step, la colonna di destra si riscriveva di colpo, e due
+// pannelli con la stessa forma -- titolo, due bottoni, un gruppo -- si
+// scambiavano senza che nulla dicesse che era successo. La dissolvenza
+// incrociata lo dice, e vale solo per #dettaglio (view-transition-name nel
+// foglio; la radice non si anima). Dove l'API non c'e' il pannello cambia
+// come prima, e sotto prefers-reduced-motion il foglio spegne l'animazione:
+// la transizione parte lo stesso e dura zero, cosi' il codice ha una strada
+// sola. Si aspetta `updateCallbackDone` e non `finished`: chi chiama vuole
+// il DOM nuovo, non la fine della dissolvenza.
+// `ancoraValida` si legge DENTRO la callback, che il browser esegue al
+// fotogramma dopo: due clic nello stesso giro aprono due transizioni, la
+// seconda salta la prima ma ne esegue lo stesso la callback, e senza questo
+// controllo l'ordine in cui le due bozze arrivano a video lo deciderebbe il
+// motore. Cosi' lo decide `superata`, come per ogni altra tratta asincrona.
+function riscrivi(nodo, bozza, ancoraValida = () => true) {
+  const cambia = () => {
+    if (ancoraValida()) nodo.replaceChildren(...bozza.children);
+  };
+  if (typeof document.startViewTransition !== "function") {
+    cambia();
+    return Promise.resolve();
+  }
+  return document.startViewTransition(cambia).updateCallbackDone;
+}
+
 function fallisciDettaglio(dettaglio, ragione) {
   dettaglio.replaceChildren();
   dichiaraErrore(ragione);
@@ -3235,7 +3261,11 @@ async function apriDettaglio(numero, ordine = generazione) {
   // prossima riscrittura dell'elenco lo farebbe comparire mezzo secondo dopo
   // il clic, e a corsa ferma resterebbe indietro finche' qualcosa non si muove.
   segnaStepAperto(numero);
-  dettaglio.replaceChildren();
+  // Il pannello nuovo si costruisce in una bozza staccata, e va a video in un
+  // colpo solo dentro `riscrivi`, in fondo: cosi' la transizione di vista ha
+  // un prima e un dopo da incrociare, e il vecchio pannello resta a video
+  // finche' il nuovo non e' intero. `dettaglio` non si tocca fino a li'.
+  const bozza = elemento("div");
 
   // Svuotata a ogni apertura e prima di ogni tentativo: un errore gia' risolto
   // lasciato a video contraddice cio' che il pannello mostra. La riga adesso
@@ -3247,10 +3277,10 @@ async function apriDettaglio(numero, ordine = generazione) {
   // nella colonna a sinistra, a 1100 px di distanza su uno schermo largo. Chi
   // guarda la terza colonna deve sapere che cosa sta per eseguire senza
   // riattraversare lo schermo.
-  dettaglio.append(...intestazioneDelloStep(numero));
+  bozza.append(...intestazioneDelloStep(numero));
   const statoSuDisco = fraseDelloStato(ultimoStato.find((v) => v.numero === numero));
   if (statoSuDisco !== null) {
-    dettaglio.append(elemento("p", { className: "aiuto stato-dello-step", textContent: statoSuDisco }));
+    bozza.append(elemento("p", { className: "aiuto stato-dello-step", textContent: statoSuDisco }));
   }
 
   const azioni = document.createElement("div");
@@ -3303,7 +3333,7 @@ async function apriDettaglio(numero, ordine = generazione) {
     });
     azioni.append(bottone);
   }
-  dettaglio.append(azioni);
+  bozza.append(azioni);
 
   // Quanto costa il bottone qui sopra, detto prima di premerlo. E' la stessa
   // misura che la riga dell'attesa mostra mentre lo step gira, letta nel
@@ -3317,14 +3347,14 @@ async function apriDettaglio(numero, ordine = generazione) {
   // una riga assente e' l'unica alternativa onesta a un numero che non si ha.
   const misurato = ultimaDurata(ultimoStato.find((v) => v.numero === numero));
   if (misurato !== null) {
-    dettaglio.append(elemento("p", {
+    bozza.append(elemento("p", {
       className: "aiuto",
       textContent: `L'ultima esecuzione di questo step è durata ${misurato}.`,
     }));
   }
 
   for (const blocco of voce.blocchi) {
-    dettaglio.append(gruppoDelBlocco(blocco, voce.campi[blocco], ordine));
+    bozza.append(gruppoDelBlocco(blocco, voce.campi[blocco], ordine));
   }
 
   // Presa qui, prima dei pannelli sotto: la sezione Metriche piu' sotto la
@@ -3337,10 +3367,10 @@ async function apriDettaglio(numero, ordine = generazione) {
   // materiale sono quelli che dichiarano il blocco `analysis` in
   // steps.STEP_BLOCKS, e un elenco a mano resterebbe indietro al primo step
   // nuovo che lo legge.
-  if (voce.blocchi.includes("analysis")) dettaglio.append(pannelloMateriale(numero, ordine));
-  if (numero === STEP_CON_RITAGLIO) dettaglio.append(pannelloRitaglio(ordine));
-  if (numero === STEP_CON_DECK) dettaglio.append(pannelloDeck());
-  if (numero === STEP_CON_SCARTO) dettaglio.append(pannelloScarto(ordine));
+  if (voce.blocchi.includes("analysis")) bozza.append(pannelloMateriale(numero, ordine));
+  if (numero === STEP_CON_RITAGLIO) bozza.append(pannelloRitaglio(ordine));
+  if (numero === STEP_CON_DECK) bozza.append(pannelloDeck());
+  if (numero === STEP_CON_SCARTO) bozza.append(pannelloScarto(ordine));
 
   if (chiave) {
     const titolo = document.createElement("h3");
@@ -3355,18 +3385,19 @@ async function apriDettaglio(numero, ordine = generazione) {
         ([nome, valore]) => righeDellaMetrica(nome, valore, ETICHETTE_METRICHE[chiave]),
       ),
     ));
-    dettaglio.append(titolo, tabella);
+    bozza.append(titolo, tabella);
   }
 
   // Lo step 7 non ha parametri propri: senza metriche il pannello resterebbe
   // i soli bottoni, e un riquadro vuoto non distingue "niente da mostrare" da
   // "non ha caricato".
   if (voce.blocchi.length === 0 && !chiave) {
-    dettaglio.append(elemento("p", {
+    bozza.append(elemento("p", {
       className: "vuoto",
       textContent: "Questo step non ha parametri propri e non ha ancora prodotto metriche.",
     }));
   }
+  await riscrivi(dettaglio, bozza, () => !superata(ordine));
 }
 
 // Una metrica annidata diventa una riga per foglia, non una riga di JSON.

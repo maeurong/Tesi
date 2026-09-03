@@ -58,18 +58,23 @@
   --passo-6: 1.5rem;   /* 24px — sopra un titolo, cioe' fra due gruppi */
   --raggio: 0.25rem;   /* un solo raggio: erano due, 0,2 e 0,25 */
 
-  /* Movimento. Quattro durate: il ritorno di un comando toccato, la comparsa
-     di qualcosa che prima non c'era, il marchio su una riga che ha appena
-     cambiato stato, e il battito della riga che sta girando. Le ultime due
-     sono le piu' lunghe perche' sono le sole che non rispondono a un gesto:
-     uno step dura secondi, e chi lo ha lanciato non sta guardando la colonna
-     nell'istante in cui finisce. Il battito e' l'unico moto che si ripete, e
-     si ripete finche' dura lo step. Oltre queste quattro, in questo foglio non
-     c'e' niente da dire; la quinta e' l'arrivo di una geometria nella vista e
-     vive in viewport.js, dove la legge la camera. */
+  /* Movimento. Cinque durate: il ritorno di un comando toccato, la comparsa
+     di qualcosa che prima non c'era, l'apertura di un cassetto, il marchio su
+     una riga che ha appena cambiato stato, e il battito della riga che sta
+     girando. Le ultime due sono le piu' lunghe perche' sono le sole che non
+     rispondono a un gesto: uno step dura secondi, e chi lo ha lanciato non
+     sta guardando la colonna nell'istante in cui finisce. Il battito e'
+     l'unico moto che si ripete, e si ripete finche' dura lo step. L'apertura
+     sta in mezzo perche' sposta il resto della colonna: piu' lunga di una
+     comparsa, che non sposta niente, e piu' corta del marchio. Oltre queste
+     cinque, in questo foglio non c'e' niente da dire; la sesta e' l'arrivo di
+     una geometria nella vista e vive in viewport.js, dove la legge la camera.
+     La dissolvenza del pannello del dettaglio non e' una durata in piu': e'
+     una comparsa, e usa quella. */
   --durata-tocco: 120ms;
   --durata-comparsa: 200ms;
   --durata-pulsazione: 1.2s;
+  --durata-apertura: 300ms;
   --durata-cambio: 500ms;
   --curva: cubic-bezier(0.16, 1, 0.3, 1);
 
@@ -618,6 +623,41 @@ a.bottone { display: inline-block; text-decoration: none; }
 /* Aperta, i campi rientrano sotto il proprio riepilogo: senza, si allineano ai
    campi in vista sopra e la piega smette di leggersi come un contenitore. */
 .gruppo details[open] > summary { margin-bottom: var(--passo-2); }
+/* I cassetti si aprono, non scattano. Il registro si apre DA SOLO in fondo
+   alla colonna quando una corsa fallisce (app.js, fronte di discesa), e
+   quattordici rem che compaiono di colpo sotto la piega non dicono da dove
+   vengono; la piega dei predefiniti, che si apre a mano, segue la stessa
+   regola perche' e' lo stesso elemento. `::details-content` e' la scatola
+   che il browser mette attorno a cio' che sta sotto il summary: da alta zero
+   ad alta quanto serve, e `interpolate-size` sulla radice e' cio' che rende
+   `auto` un valore su cui si puo' transire. `content-visibility` con
+   `allow-discrete` tiene il contenuto nell'albero finche' la chiusura non e'
+   finita, altrimenti sparirebbe al primo fotogramma; il valore di
+   `content-visibility` non lo scrive questo foglio, lo alterna il browser
+   (hidden a cassetto chiuso, visible ad aperto) e qui si dichiara solo che
+   quel passaggio va transito. Dove `::details-content` o `interpolate-size`
+   non ci sono, il cassetto scatta come prima: e' una dichiarazione che il
+   browser che non la capisce salta.
+   `overflow-clip-margin`: il ritaglio serve solo mentre l'altezza cresce, ma
+   un ritaglio taglia anche i contorni del fuoco dei discendenti, e il
+   registro (tabindex="0", outline-offset 2px) e i campi delle pieghe li
+   hanno. Quattro pixel coprono contorno e scarto. */
+:root { interpolate-size: allow-keywords; }
+.gruppo details::details-content, .registro-dettagli::details-content {
+  height: 0;
+  overflow: clip;
+  overflow-clip-margin: 4px;
+  transition: height var(--durata-apertura) var(--curva), content-visibility var(--durata-apertura) allow-discrete;
+}
+.gruppo details[open]::details-content, .registro-dettagli[open]::details-content { height: auto; }
+/* La dissolvenza del pannello del dettaglio (riscrivi in app.js). Solo il
+   pannello ha un nome di transizione: la radice si cattura lo stesso, e senza
+   questa riga si incrocerebbe anche lei, congelando per un quarto di secondo
+   il battito e il respiro che stanno in altre zone. La durata e' quella della
+   comparsa: e' un contenuto che arriva, non un cassetto che si apre. */
+#dettaglio { view-transition-name: dettaglio; }
+::view-transition-old(root), ::view-transition-new(root) { animation: none; }
+::view-transition-old(dettaglio), ::view-transition-new(dettaglio) { animation-duration: var(--durata-comparsa); animation-timing-function: var(--curva); }
 /* min-width: 0 come .campo-riga, e per lo stesso motivo: dentro una griglia
    il minimo automatico e' il contenuto, e un <select> largo quanto la sua
    voce piu' lunga -- «— nessuna: la [2.5.5] non si propone —», nel
@@ -800,9 +840,14 @@ a.bottone { display: inline-block; text-decoration: none; }
 .rifiuto { margin: 0 0 var(--passo-1); padding-left: var(--passo-2); border-left: 2px solid var(--guasto); color: var(--guasto); font-size: var(--tipo-dato); line-height: var(--interlinea); max-width: var(--misura); text-wrap: pretty; }
 
 /* --- Movimento ------------------------------------------------------------
-   Cinque momenti, e nessuno decorativo. Il quinto non e' qui: e' l'arrivo di
+   Otto momenti, e nessuno decorativo. L'ottavo non e' qui: e' l'arrivo di
    una geometria nella vista, e sta in viewport.js perche' meta' di lui e' uno
-   spostamento di camera (DURATA_ARRIVO, frazioneDellArrivo).
+   spostamento di camera (DURATA_ARRIVO, frazioneDellArrivo). I momenti 5, 6 e
+   7 stanno accanto alle proprie regole, piu' in alto nel foglio: il battito
+   della riga che sta girando (aria-busy, con gli stati della colonna),
+   l'apertura dei cassetti (::details-content, con i gruppi) e la dissolvenza
+   del pannello del dettaglio al cambio di step (view-transition, li' accanto).
+   I primi quattro sono qui sotto, con le loro regole.
 
    1. Il respiro dello step in corso. Il progresso qui non e' una percentuale
       (le librerie non ne danno una, e fabbricarla sarebbe un numero che
@@ -867,8 +912,14 @@ a.bottone { display: inline-block; text-decoration: none; }
    un secondo annuncio sopra il piu' visibile dei cambiamenti e' decorazione.
    C'e' anche il fatto meccanico, e da solo basterebbe: #conteggi non torna
    quasi mai vuoto, quindi li' `:not(:empty)` smetterebbe di scattare dopo la
-   prima volta e la regola sembrerebbe una copertura che non c'e'. */
-.errore:not(:empty), .esito:not(:empty) { animation: comparsa var(--durata-comparsa) var(--curva); }
+   prima volta e la regola sembrerebbe una copertura che non c'e'.
+
+   Anche la riga «in corso», per la stessa ragione delle altre due della
+   testata: a corsa lanciata da riga di comando arriva da sola, e comunque
+   una riga che spunta di colpo accanto a due che compaiono e' l'eccezione
+   che si nota. Torna nascosta con `hidden`, che e' cio' che fa ripartire la
+   comparsa la volta dopo. */
+.errore:not(:empty), .esito:not(:empty), .in-corso:not([hidden]) { animation: comparsa var(--durata-comparsa) var(--curva); }
 @keyframes comparsa {
   from { opacity: 0; transform: translateY(-0.25rem); }
   to { opacity: 1; transform: none; }
@@ -903,6 +954,15 @@ a.bottone { display: inline-block; text-decoration: none; }
    compare lo stesso. */
 @media (prefers-reduced-motion: reduce) {
   .in-corso::before { animation: none; opacity: 1; }
+  /* I cassetti scattano: il registro si apre da solo, e la piega dei
+     predefiniti, che invece si apre a mano, segue lo stesso selettore -- il
+     contenuto che compare conferma il clic da se', senza bisogno del moto.
+     Del pannello del dettaglio resta la dissolvenza (old/new, sola opacita')
+     e sparisce il gruppo, che e' l'unico dei tre a spostare e ridimensionare:
+     stessa regola della comparsa qui sotto, che tiene il velo e toglie lo
+     spostamento. */
+  .gruppo details::details-content, .registro-dettagli::details-content { transition: none; }
+  ::view-transition-group(*) { animation: none; }
   [aria-busy="true"] .step-nome::before { animation: none; }
   @keyframes comparsa {
     from { opacity: 0; }
