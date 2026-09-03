@@ -32,6 +32,88 @@ const ETICHETTE = {
 // la didascalia dello scarto porta sotto la vista, cosi' il pannello e
 // l'immagine nominano la stessa grandezza allo stesso modo.
 const ETICHETTE_METRICHE = {
+  "01_load": {
+    "points_read": "punti letti",
+    "points_kept": "punti tenuti",
+    "points_dropped": "punti scartati (non finiti)",
+    "spacing": "spaziatura media [mm]",
+    "extent": "ingombro [mm]",
+    "bbox_min": "angolo minimo [mm]",
+    "bbox_max": "angolo massimo [mm]",
+    "scale": "fattore di scala",
+    "size_check": "controllo dell'ingombro atteso",
+  },
+  "02_segment": {
+    "points_before": "punti in ingresso",
+    "points_after": "punti tenuti",
+    "outliers_removed": "punti tolti come rumore",
+    "cropped": "ritagliato",
+    "cropped_points": "punti ritagliati",
+    "cropped_fraction": "frazione ritagliata",
+    "cropped_by_face": "punti ritagliati per faccia",
+    "method": "metodo",
+  },
+  "03_downsample": {
+    "points_before": "punti in ingresso",
+    "points_after": "punti tenuti",
+    "voxel_size": "lato del voxel [mm]",
+    "reduction": "riduzione",
+  },
+  "04_normals": {
+    "knn": "vicini per la normale",
+    "orient_knn": "vicini per l'orientamento",
+    "degenerate_normals": "normali degeneri",
+    "spacing": "spaziatura usata [mm]",
+  },
+  // Il 5, il 6 e l'8 portano anche le misure della superficie dello step 7:
+  // `pipeline._con_le_misure_della_superficie` le aggiunge a ogni step che
+  // scrive una superficie, perche' il pannello del modello sappia dire
+  // «aperta» anche su un fronte che si ferma li'. Le stesse chiavi vogliono le
+  // stesse etichette, ed e' per questo che le cinque righe dell'aspetto sono
+  // ricopiate tali e quali.
+  "05_reconstruct": {
+    "vertices": "vertici",
+    "triangles": "triangoli",
+    "watertight": "superficie chiusa",
+    "boundary_edges": "spigoli di bordo",
+    "area": "area della superficie [mm²]",
+    "volume": "volume racchiuso [mm³]",
+    "method": "metodo",
+    "density_threshold": "soglia di densità",
+    "vertices_trimmed": "vertici potati",
+    "aspect_ratio · min": "rapporto d'aspetto dei triangoli, minimo",
+    "aspect_ratio · median": "rapporto d'aspetto dei triangoli, mediano",
+    "aspect_ratio · mean": "rapporto d'aspetto dei triangoli, medio",
+    "aspect_ratio · max": "rapporto d'aspetto dei triangoli, massimo",
+    "aspect_ratio · non_finite": "triangoli con aspetto non misurabile",
+  },
+  "06_repair": {
+    "vertices": "vertici",
+    "triangles": "triangoli",
+    "watertight": "superficie chiusa",
+    "watertight_after": "chiusa dopo la riparazione",
+    "boundary_edges": "spigoli di bordo",
+    "area": "area della superficie [mm²]",
+    "volume": "volume racchiuso [mm³]",
+    "volume_before": "volume prima [mm³]",
+    "volume_after": "volume dopo [mm³]",
+    "components_before": "componenti prima",
+    "components_kept": "componenti tenute",
+    "holes_before": "fori prima",
+    "holes_over_threshold": "fori oltre la soglia, lasciati aperti",
+    "open_boundary_paths": "bordi aperti",
+    "open_paths_over_threshold": "bordi aperti oltre la soglia",
+    "degenerate_faces_removed": "facce degeneri tolte",
+    "duplicate_faces_removed": "facce duplicate tolte",
+    "duplicate_vertices_merged": "vertici duplicati fusi",
+    "orphan_vertices_removed": "vertici orfani tolti",
+    "orientation_flipped": "orientamento rigirato",
+    "aspect_ratio · min": "rapporto d'aspetto dei triangoli, minimo",
+    "aspect_ratio · median": "rapporto d'aspetto dei triangoli, mediano",
+    "aspect_ratio · mean": "rapporto d'aspetto dei triangoli, medio",
+    "aspect_ratio · max": "rapporto d'aspetto dei triangoli, massimo",
+    "aspect_ratio · non_finite": "triangoli con aspetto non misurabile",
+  },
   "07_surface_quality": {
     "vertices": "vertici",
     "triangles": "triangoli",
@@ -67,6 +149,38 @@ const ETICHETTE_METRICHE = {
     "geometric_error · mesh_to_cloud · diag_mesh_0": "diagonale d'ingombro della superficie [mm]",
     "geometric_error · mesh_to_cloud · diag_mesh_1": "diagonale d'ingombro della nuvola [mm]",
   },
+  "08_simplify": {
+    "enabled": "abilitata",
+    "mode": "modo",
+    "triangles_before": "triangoli prima",
+    "triangles_after": "triangoli dopo",
+    "vertices": "vertici",
+    "triangles": "triangoli",
+    "watertight": "superficie chiusa",
+    "boundary_edges": "spigoli di bordo",
+    "area": "area della superficie [mm²]",
+    "volume": "volume racchiuso [mm³]",
+    "aspect_ratio · min": "rapporto d'aspetto dei triangoli, minimo",
+    "aspect_ratio · median": "rapporto d'aspetto dei triangoli, mediano",
+    "aspect_ratio · mean": "rapporto d'aspetto dei triangoli, medio",
+    "aspect_ratio · max": "rapporto d'aspetto dei triangoli, massimo",
+    "aspect_ratio · non_finite": "triangoli con aspetto non misurabile",
+  },
+  "09_tetrahedralize": {
+    "nodes": "nodi",
+    "tets": "tetraedri",
+    "element": "elemento",
+    "steiner_points": "punti di Steiner inseriti",
+    "max_steiner_points": "punti di Steiner concessi",
+    "steiner_saturated": "punti di Steiner esauriti: mesh troncata",
+    "radius_edge_ratio_p99": "raggio-spigolo, 99º percentile",
+    "radius_edge_ratio_over_limit": "tetraedri oltre il limite raggio-spigolo",
+    "largest_element_volume": "volume dell'elemento più grande [mm³]",
+    "min_ratio": "rapporto minimo chiesto",
+    "max_volume": "volume massimo chiesto [mm³]",
+    "nobisect": "senza bisezione",
+    "seconds": "durata [s]",
+  },
   "10_volume_quality": {
     "nodes": "nodi",
     "tets": "tetraedri",
@@ -98,6 +212,20 @@ const ETICHETTE_METRICHE = {
     // questa stessa grandezza si intitola gia' «fuori vincolo [frazione]».
     "radius_edge_over_reference": "elementi oltre il metro di riferimento [frazione]",
     "reference_ratio": "metro di riferimento del raggio-spigolo",
+  },
+  "11_export": {
+    "element_type": "tipo di elemento",
+    "inp": "deck scritto",
+    "vtu": "vtu scritto",
+    "mass": "massa [t]",
+    "volume": "volume [mm³]",
+    "surface_area": "area della superficie [mm²]",
+    "extent": "ingombro [mm]",
+    "fixed_nset_coverage": "copertura del set di vincolo",
+    "boundary_spacing": "spaziatura al contorno [mm]",
+    "set_tolerance": "tolleranza dei set [mm]",
+    "pressure": "pressione [MPa]",
+    "casi_di_carico": "casi di carico",
   },
 };
 
@@ -3556,6 +3684,12 @@ async function apriDettaglio(numero, ordine = generazione) {
 const VALORE_LARGO = 14;
 const CLASSE_VALORE_LARGO = "metrica-larga";
 
+// Le metriche il cui «sì» e' una contraddizione, non una conferma.
+//
+// Un booleano vero non e' di per se' un allarme: `watertight` vero e'
+// esattamente cio' che si spera. Decide il set, non il tipo del valore.
+const METRICHE_D_ALLARME = new Set(["steiner_saturated"]);
+
 function righeDellaMetrica(nome, valore, etichette) {
   const annidata = valore !== null && typeof valore === "object" && !Array.isArray(valore);
   // Un dizionario vuoto non lascia righe: «{}» a video non e' una misura.
@@ -3567,6 +3701,13 @@ function righeDellaMetrica(nome, valore, etichette) {
   const testo = valoreDellaMetrica(valore);
   const dd = elemento("dd", { textContent: testo });
   if (testo.length > VALORE_LARGO) dd.className = CLASSE_VALORE_LARGO;
+  // Il controllo che contraddice: un vero su una chiave d'allarme e' la «mesh
+  // troncata in silenzio» del primo principio di prodotto, e non sta fra
+  // tredici righe uguali. `classList` e non `className`: la classe del valore
+  // largo la scrive la riga qui sopra, e sostituirla la perderebbe.
+  if (METRICHE_D_ALLARME.has(nome) && valore === true) {
+    dd.classList.toggle("metrica-avviso", true);
+  }
   // Il percorso appiattito e' la chiave: si cerca alla FOGLIA e non famiglia per
   // famiglia, perche' `aspect_ratio · mean` dello step 7 conta i triangoli e
   // quello del 10 i tetraedri, e un'etichetta di famiglia varrebbe per

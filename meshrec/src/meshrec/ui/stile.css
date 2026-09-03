@@ -726,6 +726,11 @@ a.bottone { display: inline-block; text-decoration: none; }
    quella che era. Allineato a sinistra: e' testo, non una misura da
    incolonnare. */
 .metriche dd.metrica-larga { grid-column: 1 / -1; text-align: left; }
+/* Il valore che contraddice, fra tredici righe che si somigliano. Il colore e'
+   il secondo canale e non il primo: l'etichetta accanto dice gia' «mesh
+   troncata» per esteso, cosi' chi non distingue le tinte non perde niente
+   (WCAG 1.4.1). Il peso e' la meta' che sopravvive alla proiezione. */
+.metriche dd.metrica-avviso { color: var(--guasto); font-weight: 600; }
 /* Il pannello del modello, sotto la pipeline. Riusa .metriche per le righe:
    stessa griglia e stesse cifre tabulari della colonna del dettaglio -- che
    adesso condividono anche il formattatore, valoreDellaMetrica -- cosi'

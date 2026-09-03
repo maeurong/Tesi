@@ -126,6 +126,31 @@ _COLONNA = (
 )
 
 
+def _etichette_metriche() -> dict:
+    """La tabella `ETICHETTE_METRICHE` letta dal sorgente vero, valutata con
+    `node`.
+
+    Non passa da `_costante`, che vede una riga sola, ne' da una copia scritta
+    qui: una copia lascerebbe che banco e modulo divergano in silenzio, ed e'
+    proprio la tabella su cui il banco deve dire qualcosa. Le due ancore si
+    controllano prima di tagliare, cosi' una costante rinominata fallisce
+    dicendo che l'estrazione si e' rotta invece di far cadere `node` su un
+    SyntaxError.
+    """
+    inizio, fine = "const ETICHETTE_METRICHE = ", "\n};\n"
+    testo = _modulo()
+    assert inizio in testo, f"ancora d'inizio assente: {inizio}"
+    coda = testo.split(inizio, 1)[1]
+    assert fine in coda, f"ancora di fine assente: {fine!r}"
+    corpo = inizio + coda.split(fine, 1)[0] + "\n};\n"
+    esito = subprocess.run(
+        [_node(), "-e", corpo + "console.log(JSON.stringify(ETICHETTE_METRICHE))"],
+        capture_output=True, text=True,
+    )
+    assert esito.returncode == 0, esito.stderr
+    return json.loads(esito.stdout)
+
+
 def _costante(nome: str) -> str:
     """La riga di una costante di modulo, presa dal sorgente vero.
 
@@ -3557,6 +3582,7 @@ def test_una_metrica_annidata_diventa_una_riga_per_foglia(tmp_path):
     Provato sulla forma vera che `quality.geometric_error` restituisce.
     """
     _esegui(tmp_path, _DOM + _costante("VALORE_LARGO") + "\n" + _costante("CLASSE_VALORE_LARGO")
+        + "\n" + _costante("METRICHE_D_ALLARME")
         + "\n" + _funzioni("righeDellaMetrica", "valoreDellaMetrica") + """
 const righe = righeDellaMetrica("geometric_error", {
   cloud_to_mesh: { mean: 4.41, max: 72.2, non_finite: 0 },
@@ -3623,6 +3649,7 @@ def test_una_metrica_che_e_una_lista_resta_una_riga_sola(tmp_path):
     teneva: tolta, `790 passed`.
     """
     _esegui(tmp_path, _DOM + _costante("VALORE_LARGO") + "\n" + _costante("CLASSE_VALORE_LARGO")
+        + "\n" + _costante("METRICHE_D_ALLARME")
         + "\n" + _funzioni("righeDellaMetrica", "valoreDellaMetrica") + """
 const righe = righeDellaMetrica("extent", [2.759, 0.785, 2.0]);
 assert.equal(righe.length, 2, "una lista si e' aperta in una riga per elemento");
@@ -4540,6 +4567,7 @@ def test_un_valore_troppo_lungo_per_la_colonna_del_numero_viene_marcato(tmp_path
     """
     _esegui(tmp_path, _DOM + _costante("VALORE_LARGO") + "\n"
         + _costante("CLASSE_VALORE_LARGO") + "\n"
+        + _costante("METRICHE_D_ALLARME") + "\n"
         + _funzioni("valoreDellaMetrica", "righeDellaMetrica") + """
 const corta = righeDellaMetrica("vertices", 339710);
 assert.equal(corta[1].textContent, "339.710", "il numero non passa piu' da toLocaleString");
@@ -4710,6 +4738,7 @@ def test_il_marchio_sui_numeri_sta_solo_sulle_metriche_che_sono_cambiate(tmp_pat
     stessa guardia scritta al contrario lascia la sottostringa al suo posto.
     """
     _esegui(tmp_path, _DOM + _costante("VALORE_LARGO") + "\n" + _costante("CLASSE_VALORE_LARGO")
+        + "\n" + _costante("METRICHE_D_ALLARME")
         + "\nlet metricheMostrate = { numero: null, valori: new Map() };\n"
         + _funzioni("righeDellaMetrica", "valoreDellaMetrica", "marcaLeMetricheCambiate") + """
 // La stessa composizione del pannello: le famiglie appiattite tutte insieme e
@@ -7332,3 +7361,53 @@ def test_l_ingresso_e_un_form_e_invio_lo_manda():
     assert 'getElementById("nuova-corsa").addEventListener("submit"' in _modulo(), (
         "il gestore sta ancora sul clic del bottone: da tastiera non lo raggiunge nessuno"
     )
+
+
+# --------------------------------------------------------------------------
+# Le metriche degli altri step: un nome, e l'avviso su cio' che contraddice.
+# --------------------------------------------------------------------------
+
+
+def test_le_metriche_che_contraddicono_hanno_un_etichetta_e_l_avviso(tmp_path):
+    """«Una chiave non si stampa mai, si stampa la sua etichetta» (PRODUCT.md):
+    la tabella copriva due step su undici, e sugli altri nove il pannello
+    mostrava `points_dropped` e `holes_over_threshold` cosi' com'erano.
+
+    `steiner_saturated` vero e' la «mesh troncata in silenzio» del primo
+    principio di prodotto, e non sta fra tredici righe uguali. Il canale non e'
+    solo il colore: l'etichetta stessa dice «mesh troncata».
+
+    Il set decide, non il tipo del valore: `watertight` vero e' una buona
+    notizia, e un avviso su ogni booleano vero direbbe il contrario.
+    """
+    _esegui(tmp_path, _DOM + "\n".join(
+        _costante(nome) for nome in ("VALORE_LARGO", "CLASSE_VALORE_LARGO", "METRICHE_D_ALLARME")
+    ) + "\n" + _funzioni("righeDellaMetrica", "valoreDellaMetrica") + f"""
+const ETICHETTE_METRICHE = {json.dumps(_etichette_metriche())};
+const righe = righeDellaMetrica("steiner_saturated", true, ETICHETTE_METRICHE["09_tetrahedralize"]);
+assert.equal(righe[0].textContent, "punti di Steiner esauriti: mesh troncata");
+assert.equal(righe[1].className, "metrica-avviso");
+const quiete = righeDellaMetrica("steiner_saturated", false, ETICHETTE_METRICHE["09_tetrahedralize"]);
+assert.equal(quiete[1].className, "", "il falso prende l'avviso del vero");
+// Un booleano vero che NON e' d'allarme resta quieto: decide il set.
+for (const [chiave, tabella] of [["watertight", "05_reconstruct"], ["enabled", "08_simplify"]]) {{
+  const buona = righeDellaMetrica(chiave, true, ETICHETTE_METRICHE[tabella]);
+  assert.equal(buona[1].className, "", `${{chiave}} vero e' diventato un avviso`);
+}}
+// Uno step senza tabella, e una chiave che la tabella non conosce: la chiave
+// grezza, non «undefined», e nessuna eccezione.
+const ignota = righeDellaMetrica("metrica_di_domani", 3, ETICHETTE_METRICHE["99_mai_esistito"]);
+assert.equal(ignota[0].textContent, "metrica_di_domani");
+// Le chiavi che il pannello mostrava grezze, una per step.
+for (const [chiave, nome] of [["01_load", "size_check"], ["06_repair", "watertight_after"], ["06_repair", "holes_over_threshold"], ["11_export", "fixed_nset_coverage"], ["02_segment", "points_after"], ["03_downsample", "voxel_size"], ["09_tetrahedralize", "steiner_points"]]) {{
+  assert.ok(ETICHETTE_METRICHE[chiave]?.[nome], `${{chiave}}.${{nome}} senza etichetta`);
+}}
+// Le cinque righe annidate dell'aspetto: 05, 06 e 08 portano la stessa
+// distribuzione dello step 7 (pipeline._con_le_misure_della_superficie).
+for (const chiave of ["05_reconstruct", "06_repair", "08_simplify"]) {{
+  for (const dentro of ["min", "median", "mean", "max", "non_finite"]) {{
+    assert.ok(ETICHETTE_METRICHE[chiave]?.[`aspect_ratio · ${{dentro}}`],
+      `${{chiave}} non etichetta aspect_ratio · ${{dentro}}`);
+  }}
+}}
+""")
