@@ -130,6 +130,19 @@ def test_ogni_step_che_scrive_una_superficie_dice_se_e_chiusa(run_dir):
     assert metrics["06_repair"]["watertight_after"] == metrics["06_repair"]["watertight"]
 
 
+def test_le_misure_della_superficie_rispettano_lo_step_e_le_facce_vuote():
+    """Lo step vince sulle misure aggiunte, e zero facce non si misurano:
+    `surface_metrics` indicizza `f[:, 0]` e su un array vuoto solleva."""
+    vertici = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+    facce = np.array([[0, 1, 2]])
+    unite = pipeline._con_le_misure_della_superficie({"vertices": 99, "watertight_after": True}, vertici, facce)
+    assert unite["vertices"] == 99, "la chiave dello step deve vincere"
+    assert unite["watertight"] is False and unite["boundary_edges"] == 3
+    assert unite["watertight_after"] is True
+    vuote = pipeline._con_le_misure_della_superficie({"triangles": 0}, vertici, np.zeros((0, 3), dtype=int))
+    assert vuote == {"triangles": 0}
+
+
 def test_the_surface_is_closed(run_dir):
     _, metrics = run_dir
     assert metrics["06_repair"]["watertight_after"] is True
