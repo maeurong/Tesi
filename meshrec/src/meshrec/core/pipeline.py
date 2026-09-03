@@ -490,6 +490,21 @@ def _unisci_metriche(out: Path, misure: dict[str, object]) -> dict[str, object]:
     return unite
 
 
+def _con_le_misure_della_superficie(
+    step_metrics: dict[str, object], vertices: np.ndarray, faces: np.ndarray
+) -> dict[str, object]:
+    """Le misure di `surface_metrics` che lo step non ha gia' scritto.
+
+    Il pannello del modello descrive il fronte, e il fronte puo' fermarsi a
+    uno qualunque degli step che scrivono una superficie: senza queste chiavi
+    un fronte al 5 non saprebbe dire «aperta». Le chiavi proprie dello step
+    vincono: `watertight_after` del 6 resta com'e'.
+    """
+    if len(faces) == 0:
+        return step_metrics
+    return {**quality.surface_metrics(vertices, faces), **step_metrics}
+
+
 def run(cfg: PipelineConfig) -> dict[str, object]:
     """Esegue la pipeline e restituisce le metriche di ogni step.
 
@@ -688,7 +703,7 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
             in_corso = 5
             avvio = time.monotonic()
             vertices, faces, step_metrics = surface.reconstruct(points, normals, cfg.surface)
-            metrics["05_reconstruct"] = step_metrics
+            metrics["05_reconstruct"] = _con_le_misure_della_superficie(step_metrics, vertices, faces)
             _write_mesh(out / ARTIFACTS[5], vertices, faces)
             registra(5, avvio, ARTIFACTS[5])
             if stop <= 5:
@@ -719,7 +734,7 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
             in_corso = 6
             avvio = time.monotonic()
             vertices, faces, step_metrics = repair.repair_surface(vertices, faces, cfg.repair)
-            metrics["06_repair"] = step_metrics
+            metrics["06_repair"] = _con_le_misure_della_superficie(step_metrics, vertices, faces)
             _write_mesh(out / ARTIFACTS[6], vertices, faces)
             registra(6, avvio, ARTIFACTS[6])
             if stop <= 6:
@@ -739,7 +754,7 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
             in_corso = 8
             avvio = time.monotonic()
             vertices, faces, step_metrics = surface.simplify(vertices, faces, cfg.simplify)
-            metrics["08_simplify"] = step_metrics
+            metrics["08_simplify"] = _con_le_misure_della_superficie(step_metrics, vertices, faces)
             if cfg.simplify.enabled:
                 _write_mesh(out / ARTIFACTS[8], vertices, faces)
             registra(8, avvio, ARTIFACTS[8] if cfg.simplify.enabled else None)

@@ -119,6 +119,17 @@ def test_the_run_directory_holds_config_metrics_and_the_deck(run_dir):
     assert config.load_config(out / "config.yaml").tet.min_ratio == pytest.approx(1.2)
 
 
+def test_ogni_step_che_scrive_una_superficie_dice_se_e_chiusa(run_dir):
+    """Il pannello del modello descrive il fronte, e il fronte puo' fermarsi al
+    5: senza queste chiavi un fronte al 5 non saprebbe dire «aperta». Le chiavi
+    proprie dello step non si toccano: `watertight_after` del 6 resta."""
+    _out, metrics = run_dir
+    for chiave in ("05_reconstruct", "06_repair", "08_simplify"):
+        for misura in ("vertices", "triangles", "watertight", "boundary_edges", "area", "volume"):
+            assert misura in metrics[chiave], f"{chiave} non porta {misura}"
+    assert metrics["06_repair"]["watertight_after"] == metrics["06_repair"]["watertight"]
+
+
 def test_the_surface_is_closed(run_dir):
     _, metrics = run_dir
     assert metrics["06_repair"]["watertight_after"] is True
