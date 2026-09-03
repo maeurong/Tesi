@@ -100,6 +100,16 @@ def risolvi(
         presi = np.flatnonzero(np.linalg.norm(punti - centro, axis=1) <= selettore.raggio)
     elif isinstance(selettore, SelettoreNodo):
         punto = np.asarray(selettore.punto, dtype=np.float64)
+        # Prima delle distanze: un `punto` non finito le rende TUTTE `nan`, e
+        # la guardia piu' sotto direbbe che i nodi non hanno coordinate finite
+        # -- che e' falso, i nodi sono sani. Rotto e' il selettore, e il
+        # messaggio deve nominare lui (#103).
+        if not np.all(np.isfinite(punto)):
+            raise ValueError(
+                f"il selettore '{nome}' ha un punto con coordinate non finite "
+                f"({selettore.punto}): non si può cercare il nodo più vicino a "
+                "un punto che non sta da nessuna parte"
+            )
         distanze = np.linalg.norm(punti - punto, axis=1)
         # Due modi indipendenti rendevano inerte la guardia qui sotto (#50),
         # entrambi eseguiti il 26/08/2026 e chiusi qui separatamente perche'

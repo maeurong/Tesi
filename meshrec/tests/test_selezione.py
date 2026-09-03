@@ -188,6 +188,31 @@ def test_il_selettore_a_nodo_non_sceglie_mai_il_nodo_non_finito():
     assert "nan" not in str(errore.value)
 
 
+def test_un_punto_non_finito_nel_selettore_incolpa_il_selettore_e_non_i_nodi():
+    """Terzo modo, trovato dalla review (#103): un `punto` con un `nan` rende
+    TUTTE le distanze `nan`, e la guardia sui nodi diceva «nessun nodo con
+    coordinate finite» -- falso, i nodi sono sani. Il messaggio deve nominare
+    il selettore e stampare il punto rotto, non un `nan` senza padrone.
+
+    Da un `config.yaml` non ci si arriva: `_ModelloBase` rifiuta i non finiti
+    alla lettura (`allow_inf_nan=False`), ed e' la prima porta. Questa e' la
+    seconda, per chi chiama `risolvi` senza passare dalla prima -- e' il
+    cancello di finitezza del progetto, che sta dove il numero si usa e non
+    solo dove entra. Il selettore si costruisce con `model_construct` apposta:
+    scavalca la validazione, come farebbe un chiamante di programma.
+
+    Mutazione che lo uccide: togliere la guardia sul punto e lasciare che sia
+    quella sui nodi a parlare.
+    """
+    nodi = np.array([[0.0, 0.0, 0.0], [10.0, 0.0, 0.0]])
+    selettore = config.SelettoreNodo.model_construct(tipo="nodo", punto=(float("nan"), 0.0, 0.0))
+    with pytest.raises(ValueError, match="selettore 'carico'.*non finite") as errore:
+        selezione.risolvi(selettore, nodi, {}, nome="carico", spigolo=10.0)
+    assert "nodo con coordinate finite" not in str(errore.value), (
+        "il messaggio incolpa i nodi invece del selettore"
+    )
+
+
 def test_col_nodo_non_finito_presente_vince_comunque_il_finito_piu_vicino():
     """Controprova del test sopra, e la meta' che lo rende non vacuo: un
     controllo che sollevasse **sempre** in presenza di un `nan` lo
