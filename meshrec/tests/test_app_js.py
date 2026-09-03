@@ -235,6 +235,9 @@ class Elemento {
   // proprio: il gesto passa dal gestore che gia' salva, e il banco deve poter
   // percorrere quella stessa strada.
   dispatchEvent(evento) { return this.scatena(evento.type); }
+  // Il salvataggio dell'immagine fabbrica un <a download> e lo clicca: e' il
+  // browser che scrive il file, e il banco deve poter vedere quel clic.
+  click() { this.cliccato = true; return this.scatena("click"); }
   // Il gestore vero, eseguito: e' cio' che mancava al banco. `await` perche' il
   // gestore del campo e' asincrono, e senza aspettarlo il controllo guarderebbe
   // lo stato di prima della risposta.
@@ -7226,4 +7229,84 @@ assert.equal(document.title, "✓ MeshRec", "la corsa conclusa non si vede dalla
 aggiornaDaStato({ ...base, in_corso: true, exit_code: null });
 aggiornaDaStato({ ...base, in_corso: false, exit_code: 1 });
 assert.equal(document.title, "✗ MeshRec", "il fallimento non si vede dalla barra delle schede");
+""")
+
+
+# --------------------------------------------------------------------------
+# I due comandi della vista: inquadra, e salva il PNG.
+# --------------------------------------------------------------------------
+
+
+def test_il_nome_del_file_dell_immagine_porta_corsa_step_e_didascalia(tmp_path):
+    """L'immagine finisce in appendice a un documento stampato, e li' il nome
+    del file e' l'unica provenienza che si porta dietro: quale corsa, quale
+    step, che cosa mostra.
+
+    Solo `[a-z0-9-]`: e' un nome di file su tre sistemi diversi, e la
+    didascalia porta virgole, accenti e unita'.
+    """
+    _esegui(tmp_path, _DOM + _funzioni("nomeDellImmagine") + """
+assert.equal(nomeDellImmagine("runs/lab_telaio_v2", 6, "Riparazione", "scarto RMS 9,5 mm"),
+  "lab-telaio-v2-06-riparazione-scarto-rms-9-5-mm.png");
+assert.equal(nomeDellImmagine("corsa", 5, "Superficie", ""), "corsa-05-superficie.png",
+  "la didascalia vuota lascia un trattino pendente");
+// I separatori di Windows, la barra finale, e il vuoto.
+assert.equal(nomeDellImmagine("runs\\\\lab", 1, "Lettura", ""), "lab-01-lettura.png");
+assert.equal(nomeDellImmagine("runs/lab/", 1, "Lettura", ""), "lab-01-lettura.png");
+assert.equal(nomeDellImmagine("", 1, "Lettura", ""), "corsa-01-lettura.png");
+// Gli accenti se ne vanno con la propria lettera, non con la parola.
+assert.equal(nomeDellImmagine("corsa", 2, "Segmentazione", "densità già misurata"),
+  "corsa-02-segmentazione-densita-gia-misurata.png");
+// Nessun trattino doppio, e nessuno agli estremi.
+const nome = nomeDellImmagine("corsa", 7, "Metriche", "— scarto: 9,5 mm —");
+assert.ok(/^[a-z0-9-]+\\.png$/.test(nome), "il nome porta caratteri che non sono [a-z0-9-]: " + nome);
+assert.ok(!nome.includes("--"), "trattini doppi nel nome: " + nome);
+""")
+
+
+def test_i_due_comandi_della_vista_stanno_nel_markup():
+    markup = _senza_commenti_html(_markup())
+    assert 'id="inquadra"' in markup and 'id="salva-immagine"' in markup
+
+
+def _banco_dei_comandi_della_vista() -> str:
+    """`salvaImmagine` con la vista finta e i tre elementi che legge."""
+    return _DOM + _funzioni("nomeDellImmagine", "didascaliaDellaVista", "salvaImmagine") + """
+const creati = [];
+const creaVero = document.createElement;
+document.createElement = (tag) => { const nodo = creaVero(tag); creati.push(nodo); return nodo; };
+const vista = { catture: 0, cattura() { this.catture += 1; return "data:image/png;base64,AAA"; } };
+let stepScelto = null;
+document.getElementById("corsa").textContent = "runs/lab_crop";
+document.getElementById("didascalia-vista").textContent = "scarto RMS 9,5 mm";
+ETICHETTE["06_repair"] = "Riparazione";
+ultimoStato = [{ numero: 6, chiave: "06_repair", stato: "valido" }];
+const scaricato = () => creati.filter((nodo) => nodo.tag === "a").at(-1);
+"""
+
+
+def test_salva_immagine_scrive_un_png_col_nome_della_corsa(tmp_path):
+    """Il PNG lo scrive il browser, dove chi lo salva lo trova: nessuna rotta
+    nuova e nessun file lasciato sul disco del server.
+
+    Senza uno step scelto non c'e' niente da salvare, e il comando non fabbrica
+    un file vuoto col nome di nessuna corsa. Uno step che lo stato non conosce
+    prende il proprio numero, non «undefined».
+    """
+    _esegui(tmp_path, _banco_dei_comandi_della_vista() + """
+// Nessuno step scelto: nessun file, nessuna cattura.
+salvaImmagine();
+assert.equal(scaricato(), undefined, "un file scaricato senza uno step scelto");
+assert.equal(vista.catture, 0, "la tela e' stata catturata senza uno step scelto");
+
+stepScelto = 6;
+salvaImmagine();
+assert.equal(scaricato().download, "lab-crop-06-riparazione-scarto-rms-9-5-mm.png");
+assert.equal(scaricato().href, "data:image/png;base64,AAA", "il file non porta la tela catturata");
+assert.equal(scaricato().cliccato, true, "il file non e' stato consegnato al browser");
+
+// Uno step che lo stato non conosce: il numero, non «undefined».
+ultimoStato = [];
+salvaImmagine();
+assert.equal(scaricato().download, "lab-crop-06-step-6-scarto-rms-9-5-mm.png");
 """)

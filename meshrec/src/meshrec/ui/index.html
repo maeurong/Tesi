@@ -217,22 +217,40 @@
              ogni larghezza. -->
         <p class="vuoto">Ogni step dell'elenco «Pipeline» si clicca per vederne l'artefatto.</p>
       </div>
-      <!-- Il velo del passaggio a monte, dietro la geometria corrente e quasi
-           trasparente: e' l'unico modo di vedere che cosa un passaggio ha
-           TOLTO mentre lo si guarda, invece di leggere due conteggi in due
-           momenti diversi.
-           Nasce nascosto e acceso: app.js lo mostra solo sugli step dove un
-           fantasma esiste, cioe' dove il conteggio cala davvero (il 2, il 3,
-           l'8). Un interruttore su uno step senza fantasma sarebbe un comando
-           che non fa nulla.
-           La casella sta dentro la propria etichetta: cosi' il nome
-           accessibile viene dall'etichetta senza un attributo che possa
-           scollarsene, e il comando si raggiunge col tabulatore senza
-           tabindex. -->
-      <label id="fantasma-comando" class="fantasma-comando" hidden>
-        <input type="checkbox" id="fantasma" checked>
-        Passaggio a monte
-      </label>
+      <!-- I comandi della vista, in un gruppo solo nell'angolo in alto a
+           destra. Non due bottoni sciolti: i quattro angoli della tela sono
+           gia' presi -- i conteggi in alto a sinistra, la scala del colore in
+           basso a sinistra, il taglio in basso a destra -- e l'unico rimasto e'
+           quello dove sta gia' il passaggio a monte. Sovrapposti li' sarebbero
+           finiti SOPRA la casella, sugli step 2, 3 e 8 dove esiste.
+           Nel gruppo i due comandi che valgono sempre stanno per primi e la
+           casella, che compare solo dove un fantasma c'e', li segue: cosi' i
+           bottoni non si spostano quando lei va e viene.
+           «Inquadra» rimette la camera sull'ingombro del pezzo dopo che la si
+           e' persa trascinando; «Salva immagine» scrive il PNG della tela, che
+           e' cio' che finisce in appendice. Le due funzioni esistono in
+           viewport.js da agosto -- preserveDrawingBuffer era pagato per una
+           cattura che nessuno chiamava. -->
+      <div class="comandi-vista">
+        <button type="button" id="inquadra" class="bottone">Inquadra</button>
+        <button type="button" id="salva-immagine" class="bottone">Salva immagine</button>
+        <!-- Il velo del passaggio a monte, dietro la geometria corrente e quasi
+             trasparente: e' l'unico modo di vedere che cosa un passaggio ha
+             TOLTO mentre lo si guarda, invece di leggere due conteggi in due
+             momenti diversi.
+             Nasce nascosto e acceso: app.js lo mostra solo sugli step dove un
+             fantasma esiste, cioe' dove il conteggio cala davvero (il 2, il 3,
+             l'8). Un interruttore su uno step senza fantasma sarebbe un comando
+             che non fa nulla.
+             La casella sta dentro la propria etichetta: cosi' il nome
+             accessibile viene dall'etichetta senza un attributo che possa
+             scollarsene, e il comando si raggiunge col tabulatore senza
+             tabindex. -->
+        <label id="fantasma-comando" class="fantasma-comando" hidden>
+          <input type="checkbox" id="fantasma" checked>
+          Passaggio a monte
+        </label>
+      </div>
       <!-- Il comando del taglio. Nasce nascosto: app.js lo mostra solo dove c'e'
            un volume disegnato, e l'intervallo del cursore lo scrive da li'
            leggendo l'ingombro della geometria. min, max e step non stanno qui

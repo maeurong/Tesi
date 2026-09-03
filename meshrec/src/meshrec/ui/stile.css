@@ -418,15 +418,22 @@ a.bottone { display: inline-block; text-decoration: none; }
    titoli di sezione -- e' l'unico canale che sopravvive alla distanza di una
    proiezione. */
 .vista-vuota p:first-child { color: var(--testo); }
-/* Il velo del passaggio a monte sta in ALTO a destra: i conteggi tengono
-   l'angolo sinistro e il taglio quello in basso a destra, e questo e' l'unico
-   angolo libero. Sopra il taglio e non sotto anche per ordine di lettura: dice
-   che cosa si sta guardando, mentre il taglio e' un attrezzo per guardarci
-   dentro.
-   `[hidden]` esplicito per la stessa ragione del comando del taglio qui sotto:
-   su un elemento con `display` dichiarato l'attributo da solo non basta, e la
-   casella resterebbe a video su ogni step dove un fantasma non esiste. */
-.fantasma-comando { position: absolute; top: var(--passo-2); right: var(--passo-2); display: flex; align-items: center; gap: var(--passo-2); padding: var(--passo-1) var(--passo-2); background: var(--velo); border: 1px solid var(--bordo-comando); border-radius: var(--raggio); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); color: var(--tenue); cursor: pointer; }
+/* I comandi della vista, nell'unico angolo della tela che resta libero: i
+   conteggi tengono l'alto a sinistra, la scala il basso a sinistra, il taglio
+   il basso a destra. Una fila sola, allineata a destra, che manda a capo invece
+   di uscire dalla tela quando la finestra si stringe -- e' il motivo per cui
+   .fantasma-comando non si posiziona piu' da se': stava in questo stesso
+   angolo, e due sovrapposti allo stesso posto sono uno sopra l'altro. */
+.comandi-vista { position: absolute; top: var(--passo-2); right: var(--passo-2); display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--passo-2); max-width: calc(100% - var(--passo-4)); }
+/* Il velo del passaggio a monte non si posiziona piu' da se': sta nel gruppo
+   dei comandi qui sopra, che tiene l'angolo in alto a destra per tutti e tre.
+   Sopra il taglio e non sotto anche per ordine di lettura: dice che cosa si
+   sta guardando, mentre il taglio e' un attrezzo per guardarci dentro.
+   `[hidden]` esplicito per la stessa ragione del comando del taglio piu'
+   sotto: su un elemento con `display` dichiarato l'attributo da solo non
+   basta, e la casella resterebbe a video su ogni step dove un fantasma non
+   esiste. */
+.fantasma-comando { display: flex; align-items: center; gap: var(--passo-2); padding: var(--passo-1) var(--passo-2); background: var(--velo); border: 1px solid var(--bordo-comando); border-radius: var(--raggio); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); color: var(--tenue); cursor: pointer; }
 .fantasma-comando[hidden] { display: none; }
 .fantasma-comando :focus-visible { outline: 2px solid var(--accento); outline-offset: 2px; }
 /* Il comando del taglio sta in basso a destra sulla vista: i conteggi occupano

@@ -1962,6 +1962,52 @@ quotaTaglio.addEventListener("input", applicaTaglio);
 // spegnerebbe il comando del taglio sotto una geometria che si puo' tagliare.
 asseTaglio.addEventListener("change", () => riallineaTaglio(passoDaMostrare(stepScelto)));
 
+// Il nome del file: corsa, step e didascalia, cosi' l'immagine in appendice
+// dice da sola da dove viene e che cosa mostra. Solo lettere, cifre e
+// trattini: e' un nome di file su tre sistemi diversi, e la didascalia porta
+// accenti, virgole e unita'.
+function nomeDellImmagine(outDir, numero, nome, didascalia) {
+  const corsa = String(outDir).split(/[\\/]/).filter(Boolean).pop() ?? "corsa";
+  return [corsa, String(numero).padStart(2, "0"), nome, didascalia]
+    .map((pezzo) => String(pezzo).toLowerCase().normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""))
+    .filter(Boolean)
+    .join("-") + ".png";
+}
+
+// Il PNG lo scrive il browser, dove chi lo salva lo trova gia': nessuna rotta
+// nuova, nessun file lasciato sul disco del server, nessuna cartella da
+// scegliere. `cattura()` e `preserveDrawingBuffer` esistono in viewport.js da
+// agosto ed erano meta' di una funzione: questo e' il chiamante che mancava.
+//
+// Di primo livello e non una freccia dentro addEventListener, per la stessa
+// ragione di `aggiornaDaStato`: dentro la freccia non la esegue nessun banco.
+function salvaImmagine() {
+  // Nessuno step scelto, niente da salvare: succede solo prima che una corsa
+  // sia aperta, e un file col nome di nessuna corsa sarebbe peggio del niente.
+  if (stepScelto === null) return;
+  const voce = ultimoStato.find((passo) => passo.numero === stepScelto);
+  const collegamento = document.createElement("a");
+  collegamento.href = vista.cattura();
+  collegamento.download = nomeDellImmagine(
+    document.getElementById("corsa").textContent,
+    stepScelto,
+    // La chiave non si stampa mai, si stampa la sua etichetta -- e dove
+    // l'etichetta non c'e' resta il numero, non «undefined».
+    ETICHETTE[voce?.chiave] ?? `step ${stepScelto}`,
+    didascaliaDellaVista().textContent,
+  );
+  collegamento.click();
+}
+
+// «Inquadra» rimette la camera sull'ingombro del pezzo: trascinando la si
+// perde, e non c'era modo di tornare indietro se non ricaricando lo step. A
+// scena vuota `inquadra()` torna senza fare niente (viewport.js), quindi non
+// serve una guardia qui.
+document.getElementById("inquadra").addEventListener("click", () => vista.inquadra());
+document.getElementById("salva-immagine").addEventListener("click", salvaImmagine);
+
 document.getElementById("elenco-step").addEventListener("click", (evento) => {
   const riga = evento.target.closest(".step");
   if (!riga) return;
