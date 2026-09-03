@@ -120,7 +120,7 @@ _COLONNA = (
     # quattro il banco della colonna cade su un ReferenceError. Nel banco non
     # c'e' server, quindi il pannello percorre il proprio ramo di rifiuto --
     # ed e' cio' che deve fare quando /api/metrics non risponde.
-    "fronteDelloStato", "chiaveDelFronte", "righeDelModello",
+    "fronteDelloStato", "chiaveDelFronte", "righeDelModello", "valoreDellaMetrica",
     "apriModello", "aggiornaModello",
     "disegnaStep",
 )
@@ -138,19 +138,22 @@ def _costante(nome: str) -> str:
     return trovato.group(0)
 
 
-def _tratto(inizio: str, fine: str) -> str:
-    """Un tratto del modulo fra due ancore, per le costanti su piu' righe che
-    `_costante` (una riga sola) non vede. Preso dal sorgente vero, per la
-    stessa ragione di `_costante`."""
-    testo = _modulo()
-    return inizio + testo.split(inizio, 1)[1].split(fine, 1)[0]
-
-
-# Le costanti e il formattatore del pannello, da `const NON_MISURATO` fino
-# alla riga prima di `righeDelModello`: NON_MISURATO, valoreDelModello,
-# RIGHE_DELLA_SUPERFICIE, RIGHE_DEL_MODELLO.
 def _tabella_del_modello() -> str:
-    return _tratto("const NON_MISURATO = ", "\n// Le righe del pannello") + "\n"
+    """Le costanti del pannello del modello, prese dal sorgente vero: da `const
+    NON_MISURATO` alla riga prima di `righeDelModello`, cioe' NON_MISURATO,
+    valoreDelModello, RIGHE_DELLA_SUPERFICIE e RIGHE_DEL_MODELLO.
+
+    Non passa da `_costante`, che vede una riga sola. Le due ancore si
+    controllano prima di tagliare: un'ancora sparita darebbe un taglio vuoto o
+    lungo mezzo modulo, e il banco fallirebbe dicendo qualcosa sul
+    comportamento invece che sull'estrazione che si e' rotta.
+    """
+    inizio, fine = "const NON_MISURATO = ", "\n// Le righe del pannello"
+    testo = _modulo()
+    assert inizio in testo, f"ancora d'inizio assente: {inizio}"
+    coda = testo.split(inizio, 1)[1]
+    assert fine in coda, f"ancora di fine assente: {fine}"
+    return inizio + coda.split(fine, 1)[0] + "\n"
 
 def _costante_viewport(nome: str) -> str:
     """La riga di una costante di `viewport.js`, presa dal sorgente vero.
@@ -6691,10 +6694,13 @@ assert.equal(fronteDelloStato([]), null);
 
 
 def test_le_righe_del_modello_leggono_le_chiavi_vere_e_dicono_non_misurato(tmp_path):
-    _esegui(tmp_path, _DOM + _funzioni("righeDelModello") + """
+    _esegui(tmp_path, _DOM + _funzioni("righeDelModello", "valoreDellaMetrica") + """
 const metriche = {
   "05_reconstruct": { vertices: 1234, triangles: 2468, watertight: false, boundary_edges: 12, area: 1.5, volume: 0 },
-  "01_load": { points_kept: 1000000, spacing: 1.19, extent: [2759, 785, 2000] },
+  "01_load": { points_kept: 1000000, spacing: 1.1934567, extent: [2759, 785, 2000] },
+  // I due versi hanno numeri diversi apposta: e' l'unico modo di vedere quale
+  // dei due il pannello sta davvero leggendo.
+  "07_surface_quality": { geometric_error: { cloud_to_mesh: { RMS: 111, max: 222 }, mesh_to_cloud: { RMS: 333, max: 444 } } },
 };
 const superficie = righeDelModello({ numero: 5, chiave: "05_reconstruct" }, metriche);
 const perNome = Object.fromEntries(superficie);
@@ -6707,7 +6713,22 @@ assert.equal(perNome["superficie"], "aperta");
 assert.equal(perNome["spigoli di bordo"], "12");
 const nuvola = Object.fromEntries(righeDelModello({ numero: 1, chiave: "01_load" }, metriche));
 assert.equal(nuvola["punti"], "1.000.000");
+// Sei cifre significative, come valoreDellaMetrica: la colonna del dettaglio e
+// questo pannello mostrano la stessa quantita' a due passi di distanza, e due
+// arrotondamenti diversi sarebbero due numeri diversi per la stessa cosa.
+assert.equal(nuvola["spaziatura media [mm]"], "1,19346");
 assert.equal(nuvola["ingombro [mm]"], "2759 × 785 × 2000");
+// Un ingombro senza numeri non e' un ingombro: un array vuoto non deve
+// diventare la stringa vuota, che a schermo si legge «misurato e nullo».
+const senzaIngombro = Object.fromEntries(righeDelModello({ numero: 1, chiave: "01_load" }, { "01_load": { extent: [] } }));
+assert.equal(senzaIngombro["ingombro [mm]"], "non misurato");
+// Lo scarto si legge nel verso mesh_to_cloud, che e' quello che il progetto
+// chiama «scarto dalla nuvola» (report.py, quality.py, e la legenda della
+// vista, alimentata dal verso per-vertice). Leggere cloud_to_mesh metterebbe
+// sotto lo stesso nome una misura diversa da quella gia' pubblicata.
+const scarto = Object.fromEntries(righeDelModello({ numero: 7, chiave: "07_surface_quality" }, metriche));
+assert.equal(scarto["scarto dalla nuvola, RMS [mm]"], "333");
+assert.equal(scarto["scarto dalla nuvola, massimo [mm]"], "444");
 const vecchia = Object.fromEntries(righeDelModello({ numero: 6, chiave: "06_repair" }, { "06_repair": { vertices: 3 } }));
 assert.equal(vecchia["vertici"], "3");
 assert.equal(vecchia["superficie"], "non misurato", "una corsa vecchia non inventa la chiusura");
@@ -6732,6 +6753,10 @@ def test_il_pannello_del_modello_sta_nel_markup_con_il_proprio_vuoto():
     vuoto = _elemento(markup, "modello-vuoto")
     assert "hidden" not in vuoto, "lo stato vuoto nasce visibile: a corsa aperta il fronte non c'e' ancora"
     assert 'id="modello-righe"' in markup
+    sezione = _elemento(markup, "modello")
+    assert "aria-labelledby" not in sezione, (
+        f"una <section> con un nome accessibile e' un landmark dentro il <nav>: {sezione}"
+    )
 
 
 def test_il_modello_si_rilegge_solo_quando_il_fronte_cambia(tmp_path):
@@ -6758,7 +6783,7 @@ def test_il_pannello_del_modello_non_chiede_le_metriche_quando_non_c_e_un_fronte
     non rilegge, e un corpo che non e' un oggetto lascia il fronte scritto ma
     le righe nascoste."""
     _esegui(tmp_path, _DOM + _funzioni(
-        "fronteDelloStato", "chiaveDelFronte", "righeDelModello",
+        "fronteDelloStato", "chiaveDelFronte", "righeDelModello", "valoreDellaMetrica",
         "apriModello", "aggiornaModello", "superata", "serverMuto", "corpoLetto",
     ) + """
 let richieste = 0;
@@ -6810,7 +6835,7 @@ def test_la_rilettura_del_modello_superata_non_riscrive_il_pannello(tmp_path):
     seconda. Stessa regola d'ordine delle altre tratte: vince chi e' partito
     per ultimo, non chi arriva per ultimo."""
     _esegui(tmp_path, _DOM + _funzioni(
-        "fronteDelloStato", "chiaveDelFronte", "righeDelModello",
+        "fronteDelloStato", "chiaveDelFronte", "righeDelModello", "valoreDellaMetrica",
         "apriModello", "aggiornaModello", "superata", "serverMuto", "corpoLetto",
     ) + """
 const inVolo = [];
@@ -6829,5 +6854,74 @@ await primo;
 const fronte = document.getElementById("modello-fronte");
 assert.match(fronte.textContent, /dopo lo step 8/, "la risposta vecchia ha riscritto il pannello");
 const righe = document.getElementById("modello-righe");
-assert.deepEqual(righe.figli.map((f) => f.testo).includes("8"), true);
+assert.ok(righe.figli.map((f) => f.testo).includes("8"),
+  `le righe non sono quelle dello step 8: ${righe.figli.map((f) => f.testo).join("|")}`);
+""")
+
+
+def test_una_risposta_vecchia_non_riscrive_il_pannello_gia_svuotato(tmp_path):
+    """Il fronte sparisce mentre una rilettura e' in volo -- si annulla una
+    corsa, si cambia un parametro, si lega un'altra cartella.
+
+    Se l'ordine si apre solo nel ramo con fronte, il ramo del vuoto esce senza
+    invalidare cio' che sta arrivando: la risposta vecchia ripopola un pannello
+    che nel frattempo e' stato svuotato. E siccome il vuoto ha segnato la
+    propria terna (la stringa vuota), ogni fotogramma successivo senza fronte
+    esce subito e quei numeri restano li' a descrivere un modello che non c'e'
+    piu'.
+    """
+    _esegui(tmp_path, _DOM + _funzioni(
+        "fronteDelloStato", "chiaveDelFronte", "righeDelModello", "valoreDellaMetrica",
+        "apriModello", "aggiornaModello", "superata", "serverMuto", "corpoLetto",
+    ) + """
+const inVolo = [];
+globalThis.fetch = async () => new Promise((risolvi) => inVolo.push(risolvi));
+const righe = document.getElementById("modello-righe");
+const vuoto = document.getElementById("modello-vuoto");
+
+const primo = aggiornaModello([{ numero: 6, chiave: "06_repair", stato: "valido", impronta: "x", secondi: 1 }]);
+assert.equal(inVolo.length, 1, "la prima rilettura non e' partita");
+// Il fronte sparisce prima che la risposta arrivi.
+await aggiornaModello([]);
+assert.equal(righe.hidden, true);
+inVolo[0]({ ok: true, status: 200, json: async () => ({ "06_repair": { vertices: 6 } }) });
+await primo;
+assert.equal(righe.hidden, true, "la risposta vecchia ha ripopolato un pannello svuotato");
+assert.match(vuoto.textContent, /esegui lo step 1/);
+
+// Il fotogramma dopo, ancora senza fronte: senza l'ordine aperto in cima, qui
+// il pannello resterebbe incastrato sui numeri di un fronte che non c'e' piu'.
+await aggiornaModello([]);
+assert.equal(righe.hidden, true);
+""")
+
+
+def test_un_guasto_nella_rilettura_non_incastra_il_pannello(tmp_path):
+    """`disegnaStep` lancia la rilettura e non l'aspetta. Se quella promessa
+    viene rigettata dopo che la terna e' stata segnata come mostrata, il
+    pannello resta con il contenuto vecchio e la terna nuova: nessun fotogramma
+    successivo lo ripara, perche' la terna non cambia piu'.
+
+    Il guasto qui e' una risposta che solleva quando la si guarda: `.catch` sta
+    sulla fetch, non su cio' che viene dopo, quindi il rigetto esce davvero
+    dalla tratta.
+    """
+    _esegui(tmp_path, _DOM + _funzioni(*_COLONNA) + """
+let risponde = () => ({ get ok() { throw new Error("risposta rotta"); } });
+globalThis.fetch = async () => risponde();
+const steps = [{ numero: 1, chiave: "01_load", stato: "valido", impronta: "a", secondi: 1 }];
+const respira = () => new Promise((risolvi) => setTimeout(risolvi, 0));
+const righe = document.getElementById("modello-righe");
+
+disegnaStep(steps);
+await respira();
+assert.equal(righe.figli.length, 0, "controprova: il guasto non e' arrivato al pannello");
+
+// Il fotogramma dopo, stesso fronte e server tornato in se'.
+risponde = () => ({ ok: true, status: 200, json: async () => ({ "01_load": { points_kept: 7 } }) });
+disegnaStep(steps);
+await respira();
+assert.equal(righe.hidden, false, "dopo un guasto il pannello non si ripara piu': la terna resta segnata");
+assert.ok(righe.figli.map((f) => f.testo).includes("7"),
+  `le righe non portano il numero riletto: ${righe.figli.map((f) => f.testo).join("|")}`);
 """)

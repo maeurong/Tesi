@@ -142,8 +142,12 @@
          (/api/metrics): il pannello non ne calcola, come la colonna del
          dettaglio. Nel markup e non fabbricato da app.js, per la stessa
          ragione degli altri due vuoti di questa pagina. Nessun aria-live: il
-         cambiamento lo annuncia gia' #conteggi. -->
-    <section class="modello" id="modello" aria-labelledby="modello-titolo">
+         cambiamento lo annuncia gia' #conteggi. E nessun aria-labelledby: una
+         <section> con un nome accessibile diventa un landmark, e questo
+         sarebbe un landmark dentro il <nav> della colonna. L'<h2> basta a
+         dire di che cosa si tratta e a farsi trovare nell'elenco delle
+         intestazioni. -->
+    <section class="modello" id="modello">
       <h2 id="modello-titolo">Modello</h2>
       <p class="aiuto" id="modello-fronte"></p>
       <p class="vuoto" id="modello-vuoto">Nessuno step valido: esegui lo step 1.</p>

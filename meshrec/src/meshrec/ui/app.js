@@ -516,16 +516,28 @@ function chiaveDelFronte(fronte) {
 
 const NON_MISURATO = "non misurato";
 
-// Un valore di metrics.json reso come testo del pannello. `chiusura` e' il
-// solo booleano che si legge come stato e non come si'/no.
+// Un valore di metrics.json reso come testo del pannello.
+//
+// Il numero lo formatta `valoreDellaMetrica`, che e' cio' che la colonna del
+// dettaglio usa gia': un secondo formattatore avrebbe messo la stessa quantita'
+// a due passi di distanza con due arrotondamenti diversi, che e' il difetto che
+// quella funzione porta scritto nel proprio commento.
+//
+// Qui sopra restano le sole due differenze che il pannello ha davvero.
+// `chiusura` e' il solo booleano che si legge come stato e non come si'/no; e
+// un ingombro e' tre numeri accanto, non il JSON di una lista, perche' qui le
+// liste sono corte e note (`extent`) e non le matrici quattro per quattro che
+// la colonna del dettaglio deve chiudere.
 function valoreDelModello(valore, forma) {
   if (valore === undefined || valore === null) return NON_MISURATO;
   if (forma === "chiusura") return valore ? "chiusa" : "aperta";
-  if (typeof valore === "boolean") return valore ? "sì" : "no";
-  if (Array.isArray(valore)) return valore.map((v) => valoreDelModello(v)).join(" × ");
-  if (typeof valore !== "number") return String(valore);
-  if (Number.isInteger(valore)) return valore.toLocaleString("it");
-  return valore.toLocaleString("it", { maximumSignificantDigits: 4 });
+  // Vuota, la lista non e' un valore: unita darebbe la stringa vuota, e una
+  // riga vuota a schermo si legge «misurato, e non c'e' niente».
+  if (Array.isArray(valore)) {
+    if (valore.length === 0) return NON_MISURATO;
+    return valore.map((v) => valoreDelModello(v)).join(" × ");
+  }
+  return valoreDellaMetrica(valore);
 }
 
 // [etichetta, percorso nelle metriche, forma]. Il percorso parte dalla chiave
@@ -565,8 +577,14 @@ const RIGHE_DEL_MODELLO = {
   "06_repair": RIGHE_DELLA_SUPERFICIE("06_repair"),
   "07_surface_quality": [
     ...RIGHE_DELLA_SUPERFICIE("07_surface_quality"),
-    ["scarto dalla nuvola, RMS [mm]", ["07_surface_quality", "geometric_error", "cloud_to_mesh", "RMS"]],
-    ["scarto dalla nuvola, massimo [mm]", ["07_surface_quality", "geometric_error", "cloud_to_mesh", "max"]],
+    // Il verso e' mesh_to_cloud e non cloud_to_mesh: e' quello che il progetto
+    // chiama «scarto dalla nuvola» dappertutto -- il report lo legge cosi'
+    // (report.py), la legenda della vista e' alimentata dallo scarto
+    // per-vertice, che e' lo stesso verso, e i numeri gia' pubblicati vengono
+    // da li'. Leggere l'altro verso metterebbe sotto lo stesso nome una misura
+    // diversa da quella che sta in tesi.
+    ["scarto dalla nuvola, RMS [mm]", ["07_surface_quality", "geometric_error", "mesh_to_cloud", "RMS"]],
+    ["scarto dalla nuvola, massimo [mm]", ["07_surface_quality", "geometric_error", "mesh_to_cloud", "max"]],
   ],
   "08_simplify": RIGHE_DELLA_SUPERFICIE("08_simplify"),
   "09_tetrahedralize": [
@@ -593,7 +611,9 @@ const RIGHE_DEL_MODELLO = {
 
 // Le righe del pannello per il fronte dato: coppie [etichetta, testo]. Pura.
 function righeDelModello(fronte, metriche) {
-  const righe = RIGHE_DEL_MODELLO[fronte.chiave] ?? [];
+  // `Object.hasOwn` e non `?? []`: una chiave come "constructor" o "toString"
+  // trova qualcosa sulla catena dei prototipi, e `??` la lascerebbe passare.
+  const righe = Object.hasOwn(RIGHE_DEL_MODELLO, fronte.chiave) ? RIGHE_DEL_MODELLO[fronte.chiave] : [];
   return righe.map(([etichetta, percorso, forma]) => {
     let valore = metriche;
     for (const passo of percorso) {
@@ -616,6 +636,15 @@ async function aggiornaModello(steps) {
   const chiave = chiaveDelFronte(fronte);
   if (chiave === fronteMostrato) return;
   fronteMostrato = chiave;
+  // L'ordine si apre QUI, prima di ogni uscita anticipata, e non dentro il ramo
+  // che chiede le metriche. Aperto la', il ramo del vuoto usciva senza
+  // invalidare cio' che stava arrivando: il fronte spariva mentre una rilettura
+  // era in volo, il pannello si svuotava, e la risposta vecchia lo ripopolava
+  // con i numeri di un fronte che non c'era piu'. Peggio, il vuoto aveva gia'
+  // segnato la propria terna, quindi ogni fotogramma successivo usciva subito e
+  // quei numeri restavano li'. Stesso precedente di `chiediStorico`, dove
+  // l'ordine si apre prima della prima attesa.
+  const ordine = apriModello();
   const vuoto = document.getElementById("modello-vuoto");
   const righe = document.getElementById("modello-righe");
   const titolo = document.getElementById("modello-fronte");
@@ -626,7 +655,6 @@ async function aggiornaModello(steps) {
     righe.hidden = true;
     return;
   }
-  const ordine = apriModello();
   const risposta = await fetch("/api/metrics").catch(serverMuto);
   const metriche = risposta.ok ? await corpoLetto(risposta) : null;
   if (superata(ordine, ultimoModello)) return;
@@ -703,7 +731,13 @@ function disegnaStep(steps) {
   // si sospende sulla prima attesa, e dallo scorrere degli eventi, cioe' sempre
   // dopo che il modulo e' stato valutato per intero.
   segnaStepAperto(stepAperto);
-  aggiornaModello(steps);
+  // Non attesa: `disegnaStep` e' sincrona e gira a ogni fotogramma del flusso.
+  // Il `catch` non e' prudenza generica: `fronteMostrato` viene scritto PRIMA
+  // dell'attesa, quindi una rilettura che muore a meta' lascerebbe il pannello
+  // con il contenuto vecchio e la terna nuova -- e nessun fotogramma successivo
+  // lo riparerebbe, perche' la terna non cambia piu'. Azzerarla riapre la
+  // strada al fotogramma dopo.
+  aggiornaModello(steps).catch(() => { fronteMostrato = ""; });
 }
 
 caricaStato();

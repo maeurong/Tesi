@@ -712,8 +712,9 @@ a.bottone { display: inline-block; text-decoration: none; }
    incolonnare. */
 .metriche dd.metrica-larga { grid-column: 1 / -1; text-align: left; }
 /* Il pannello del modello, sotto la pipeline. Riusa .metriche per le righe:
-   stessa griglia e stesse cifre tabulari della colonna del dettaglio, cosi'
-   «vertici 1.234» si legge uguale nelle due colonne. Solo lo stacco dal
+   stessa griglia e stesse cifre tabulari della colonna del dettaglio -- che
+   adesso condividono anche il formattatore, valoreDellaMetrica -- cosi'
+   «vertici 218.440» si legge uguale nelle due colonne. Solo lo stacco dal
    titolo e' suo, e non e' una scelta nuova ma il recupero di una regola gia'
    scritta: `.zona h2` da' a ogni titolo che non e' il primo della colonna lo
    stacco e il filetto sopra -- e' cosi' che «Registro» si separa da
