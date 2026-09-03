@@ -399,6 +399,10 @@ _DOM += _costante("STEP_DEL_PRIOR") + "\n"
 # sopra: `disegnaStep` chiama `aggiornaModello` in coda, e ogni banco che
 # disegna la colonna se le porta dietro.
 _DOM += _tabella_del_modello()
+# Le chiavi il cui «sì» e' una contraddizione. Sta qui e non nei singoli banchi
+# perche' `righeDelModello` la legge, e `aggiornaModello` in coda a `disegnaStep`
+# la porta dentro ogni banco che disegna la colonna.
+_DOM += _costante("METRICHE_D_ALLARME") + "\n"
 
 
 # --------------------------------------------------------------------------
@@ -3592,7 +3596,6 @@ def test_una_metrica_annidata_diventa_una_riga_per_foglia(tmp_path):
     Provato sulla forma vera che `quality.geometric_error` restituisce.
     """
     _esegui(tmp_path, _DOM + _costante("VALORE_LARGO") + "\n" + _costante("CLASSE_VALORE_LARGO")
-        + "\n" + _costante("METRICHE_D_ALLARME")
         + "\n" + _funzioni("righeDellaMetrica", "valoreDellaMetrica") + """
 const righe = righeDellaMetrica("geometric_error", {
   cloud_to_mesh: { mean: 4.41, max: 72.2, non_finite: 0 },
@@ -3659,7 +3662,6 @@ def test_una_metrica_che_e_una_lista_resta_una_riga_sola(tmp_path):
     teneva: tolta, `790 passed`.
     """
     _esegui(tmp_path, _DOM + _costante("VALORE_LARGO") + "\n" + _costante("CLASSE_VALORE_LARGO")
-        + "\n" + _costante("METRICHE_D_ALLARME")
         + "\n" + _funzioni("righeDellaMetrica", "valoreDellaMetrica") + """
 const righe = righeDellaMetrica("extent", [2.759, 0.785, 2.0]);
 assert.equal(righe.length, 2, "una lista si e' aperta in una riga per elemento");
@@ -4577,7 +4579,6 @@ def test_un_valore_troppo_lungo_per_la_colonna_del_numero_viene_marcato(tmp_path
     """
     _esegui(tmp_path, _DOM + _costante("VALORE_LARGO") + "\n"
         + _costante("CLASSE_VALORE_LARGO") + "\n"
-        + _costante("METRICHE_D_ALLARME") + "\n"
         + _funzioni("valoreDellaMetrica", "righeDellaMetrica") + """
 const corta = righeDellaMetrica("vertices", 339710);
 assert.equal(corta[1].textContent, "339.710", "il numero non passa piu' da toLocaleString");
@@ -4748,7 +4749,6 @@ def test_il_marchio_sui_numeri_sta_solo_sulle_metriche_che_sono_cambiate(tmp_pat
     stessa guardia scritta al contrario lascia la sottostringa al suo posto.
     """
     _esegui(tmp_path, _DOM + _costante("VALORE_LARGO") + "\n" + _costante("CLASSE_VALORE_LARGO")
-        + "\n" + _costante("METRICHE_D_ALLARME")
         + "\nlet metricheMostrate = { numero: null, valori: new Map() };\n"
         + _funzioni("righeDellaMetrica", "valoreDellaMetrica", "marcaLeMetricheCambiate") + """
 // La stessa composizione del pannello: le famiglie appiattite tutte insieme e
@@ -6900,6 +6900,35 @@ for (const guasto of [
 """)
 
 
+def test_il_pannello_del_modello_marca_lo_steiner_saturato(tmp_path):
+    """Spec §4.1: la saturazione dei punti di Steiner e' la «mesh troncata in
+    silenzio» del primo principio di prodotto. Nella colonna del dettaglio
+    l'avviso c'era gia'; qui la stessa misura si leggeva come tredicesima riga
+    uguale alle altre, e chi guarda il pannello del modello non guarda l'altra
+    colonna."""
+    _esegui(tmp_path, _DOM + _funzioni(
+        "fronteDelloStato", "chiaveDelFronte", "righeDelModello", "valoreDellaMetrica",
+        "apriModello", "aggiornaModello", "superata", "serverMuto", "corpoLetto",
+    ) + """
+let metriche = { "09_tetrahedralize": { nodes: 10, tets: 20, steiner_points: 3, steiner_saturated: true } };
+globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => metriche });
+const righe = document.getElementById("modello-righe");
+const nono = { numero: 9, chiave: "09_tetrahedralize", stato: "valido", impronta: "a", secondi: 1 };
+
+await aggiornaModello([nono]);
+const avvisate = righe.querySelectorAll(".metrica-avviso");
+assert.equal(avvisate.length, 1, "una riga sola, e non tutti i booleani veri");
+// L'etichetta e' il fratello prima: il marchio deve stare sul valore giusto,
+// non su una riga qualunque del pannello.
+assert.equal(righe.children[righe.children.indexOf(avvisate[0]) - 1].textContent, "Steiner saturato");
+
+// Falso e' la buona notizia: nessun marchio. E' il set a decidere, non il tipo.
+metriche = { "09_tetrahedralize": { nodes: 10, tets: 20, steiner_points: 3, steiner_saturated: false } };
+await aggiornaModello([{ ...nono, impronta: "b" }]);
+assert.equal(righe.querySelectorAll(".metrica-avviso").length, 0);
+""")
+
+
 def test_la_rilettura_del_modello_superata_non_riscrive_il_pannello(tmp_path):
     """Due cambi di fronte ravvicinati, e la prima risposta che arriva dopo la
     seconda. Stessa regola d'ordine delle altre tratte: vince chi e' partito
@@ -7024,6 +7053,13 @@ assert.match(fraseDelRitorno(prima, dopo), /^configurazione ripristinata/);
 assert.match(fraseDelRitorno(prima, dopo, { da: 2, a: 2 }), /^esecuzione dello step 2 annullata/);
 assert.match(fraseDelRitorno(prima, dopo, { da: 2, a: 5 }), /^esecuzione dallo step 2 al 5 annullata/);
 assert.match(fraseDelRitorno(prima, dopo, { da: 2, a: 11 }), /^esecuzione dallo step 2 all'11 annullata/);
+// «Avanti» rifa' cio' che «indietro» aveva annullato: chiamarlo «annullata»
+// dice all'utente il contrario di cio' che ha appena premuto. La
+// configurazione invece si «ripristina» nei due versi, perche' e' quello che
+// succede: torna a essere quella di un'altra volta.
+assert.match(fraseDelRitorno(prima, dopo, { da: 2, a: 5 }, "avanti"), /^esecuzione dallo step 2 al 5 rifatta/);
+assert.match(fraseDelRitorno(prima, dopo, null, "avanti"), /^configurazione ripristinata/);
+assert.match(fraseDelRitorno(prima, dopo, { da: 2, a: 5 }, "indietro"), /^esecuzione dallo step 2 al 5 annullata/);
 """)
 
 
@@ -7403,7 +7439,7 @@ def test_le_metriche_che_contraddicono_hanno_un_etichetta_e_l_avviso(tmp_path):
     notizia, e un avviso su ogni booleano vero direbbe il contrario.
     """
     _esegui(tmp_path, _DOM + "\n".join(
-        _costante(nome) for nome in ("VALORE_LARGO", "CLASSE_VALORE_LARGO", "METRICHE_D_ALLARME")
+        _costante(nome) for nome in ("VALORE_LARGO", "CLASSE_VALORE_LARGO")
     ) + "\n" + _funzioni("righeDellaMetrica", "valoreDellaMetrica") + f"""
 const ETICHETTE_METRICHE = {json.dumps(_etichette_metriche())};
 const righe = righeDellaMetrica("steiner_saturated", true, ETICHETTE_METRICHE["09_tetrahedralize"]);

@@ -748,6 +748,12 @@ a.bottone { display: inline-block; text-decoration: none; }
    questa riga. */
 .modello { margin-top: var(--passo-6); }
 .zona .modello h2 { margin-top: 0; border-top: 1px solid var(--bordo); padding-top: var(--passo-3); }
+/* Qui la colonna e' 18rem e non 25: le etichette vanno a capo per davvero, e
+   con la linea di base condivisa il valore si allinea all'ULTIMA riga
+   dell'etichetta -- «spaziatura media [mm]» su due righe lasciava l'unita' in
+   alto e il numero in basso, staccati. Allineati in cima, la coppia si legge
+   sulla prima riga e cio' che va a capo sta sotto senza portarsi via il numero. */
+.modello .metriche { align-items: start; }
 /* Un rifiuto non e' un errore del modulo (quello e' .errore, role="alert"):
    e' il verdetto di un controllo geometrico sulla regione, letto qui e non
    annunciato. Il bordo a sinistra e' il secondo canale (WCAG 1.4.1): chi non

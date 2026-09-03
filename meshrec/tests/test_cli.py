@@ -98,7 +98,13 @@ def test_from_step_overrides_the_configuration(tmp_path, monkeypatch):
 
 
 def test_a_failing_run_reports_the_error_without_a_traceback(tmp_path, capsys):
-    cfg = crea_config(input=config.InputConfig(path=tmp_path / "assente.ply"))
+    # `out_dir` esplicito: questa corsa parte davvero, e il predefinito
+    # `runs/default` e' relativo alla cartella da cui gira la suite -- il banco
+    # lasciava `runs/default/` nella radice del repository a ogni giro.
+    cfg = crea_config(
+        input=config.InputConfig(path=tmp_path / "assente.ply"),
+        run=config.RunConfig(out_dir=tmp_path / "out"),
+    )
     config.save_config(cfg, tmp_path / "config.yaml")
 
     assert cli.main(["run", str(tmp_path / "config.yaml")]) == 1

@@ -756,7 +756,11 @@ function righeDelModello(fronte, metriche) {
     for (const passo of percorso) {
       valore = valore !== null && typeof valore === "object" ? valore[passo] : undefined;
     }
-    return [etichetta, valoreDelModello(valore, forma)];
+    // Terza voce e non una classe scritta qui: questa funzione e' pura e non
+    // tocca il DOM. Si cerca alla FOGLIA, come righeDellaMetrica: e' la chiave
+    // che il set nomina, e la famiglia varrebbe per misure diverse.
+    const foglia = percorso[percorso.length - 1];
+    return [etichetta, valoreDelModello(valore, forma), METRICHE_D_ALLARME.has(foglia) && valore === true];
   });
 }
 
@@ -802,10 +806,14 @@ async function aggiornaModello(steps) {
     righe.hidden = true;
     return;
   }
-  righe.replaceChildren(...righeDelModello(fronte, metriche).flatMap(([etichetta, testo]) => [
-    elemento("dt", { textContent: etichetta }),
-    elemento("dd", { textContent: testo }),
-  ]));
+  righe.replaceChildren(...righeDelModello(fronte, metriche).flatMap(([etichetta, testo, allarme]) => {
+    const dd = elemento("dd", { textContent: testo });
+    // Lo stesso marchio della colonna del dettaglio, e per lo stesso motivo:
+    // una mesh troncata in silenzio non sta fra righe che si somigliano. Chi
+    // guarda questo pannello non sta guardando l'altra colonna.
+    if (allarme) dd.classList.add("metrica-avviso");
+    return [elemento("dt", { textContent: etichetta }), dd];
+  }));
   vuoto.hidden = true;
   righe.hidden = false;
 }
@@ -1349,7 +1357,7 @@ function gestoDelloStorico(evento) {
 // le due lingue per la stessa cosa che nomeDelloStep esiste per togliere. Dal
 // nuovo stato e non da `ultimoStato`, che a questo punto porta ancora quello
 // vecchio.
-function fraseDelRitorno(prima, dopo, esecuzione = null) {
+function fraseDelRitorno(prima, dopo, esecuzione = null, verso = "indietro") {
   const era = new Map(prima.map((voce) => [voce.numero, voce.stato]));
   const nome = (voce) => ETICHETTE[voce.chiave] ?? `step ${voce.numero}`;
   const passatiA = (stato) =>
@@ -1370,7 +1378,12 @@ function fraseDelRitorno(prima, dopo, esecuzione = null) {
   const dove = esecuzione.da === esecuzione.a
     ? `dello step ${esecuzione.da}`
     : `dallo step ${esecuzione.da} ${esecuzione.a === 11 ? "all'11" : `al ${esecuzione.a}`}`;
-  return `esecuzione ${dove} annullata: ${stati}`;
+  // Il verso e' del gesto, non della versione: «avanti» RIFA' l'esecuzione che
+  // «indietro» aveva annullato, e chiamarla «annullata» direbbe a chi ha appena
+  // premuto Ctrl+Maiusc+Z il contrario di quello che e' successo. La
+  // configurazione resta «ripristinata» nei due versi, perche' e' quello che
+  // le capita davvero: torna a essere quella di un'altra volta.
+  return `esecuzione ${dove} ${verso === "avanti" ? "rifatta" : "annullata"}: ${stati}`;
 }
 
 // Un contatore suo, non apriGenerazione(). La generazione e' condivisa, e
@@ -1450,7 +1463,7 @@ async function chiediStorico(verso) {
   // video quando il tasto e' stato premuto, non quello che c'e' adesso.
   mostraEsito(
     null,
-    fraseDelRitorno(prima, corpo.steps, corpo.tipo === "esecuzione" ? { da: corpo.da, a: corpo.a } : null),
+    fraseDelRitorno(prima, corpo.steps, corpo.tipo === "esecuzione" ? { da: corpo.da, a: corpo.a } : null, verso),
   );
   await caricaStato();
   // Il config e' cambiato sotto: la geometria di prima con lo stato nuovo a
