@@ -231,6 +231,10 @@ class Elemento {
     };
   }
   addEventListener(tipo, gestore) { (this.gestori[tipo] ??= []).push(gestore); }
+  // «Riporta» scatena `change` sul comando invece di scrivere per conto
+  // proprio: il gesto passa dal gestore che gia' salva, e il banco deve poter
+  // percorrere quella stessa strada.
+  dispatchEvent(evento) { return this.scatena(evento.type); }
   // Il gestore vero, eseguito: e' cio' che mancava al banco. `await` perche' il
   // gestore del campo e' asincrono, e senza aspettarlo il controllo guarderebbe
   // lo stato di prima della risposta.
@@ -1775,7 +1779,8 @@ def _banco_del_campo() -> str:
     """
     return _DOM + _funzioni(
         "valoreScritto", "ragioneDelRifiuto", "serverMuto", "superata", "corpoLetto",
-        "segnalaCampo", "apriBattuta", "scriviValore", "scriviParametro", "campoParametro",
+        "segnalaCampo", "apriBattuta", "scriviValore", "scriviParametro",
+        "testoDellAiuto", "campoParametro",
     ) + """
 // Il terzo contatore di Rilievo 1, per campo: scriviParametro lo legge dal
 // modulo per nome, non da un parametro, quindi il banco deve ricrearlo tale e
@@ -2693,7 +2698,8 @@ def _banco_di_apriDettaglio() -> str:
     return _DOM + _funzioni(
         *_COLONNA, "dichiaraErrore", "fallisciDettaglio",
         "ragioneDelRifiuto", "serverMuto", "superata", "corpoLetto", "valoreScritto",
-        "segnalaCampo", "apriBattuta", "scriviValore", "scriviParametro", "campoParametro", "apriDettaglio",
+        "segnalaCampo", "apriBattuta", "scriviValore", "scriviParametro",
+        "testoDellAiuto", "campoParametro", "apriDettaglio",
         "durataMisurata", "ultimaDurata",
         # L'intestazione e il gruppo che richiude i predefiniti: il pannello li
         # costruisce a ogni apertura, quindi il banco li incontra comunque.
@@ -5340,7 +5346,7 @@ def test_i_parametri_al_predefinito_si_richiudono_e_gli_altri_no(tmp_path):
     """
     _esegui(tmp_path, _DOM + _funzioni(
         "nuovaRiga", "segnalaCampo", "valoreScritto", "apriBattuta", "scriviParametro",
-        "campoParametro", "reso", "cambiatoDalPredefinito", "gruppoDelBlocco",
+        "testoDellAiuto", "campoParametro", "reso", "cambiatoDalPredefinito", "gruppoDelBlocco",
     ) + """
 let ultimaBattutaDelCampo = new Map();
 // `configurazione` la dichiara gia' _DOM: e' la variabile di modulo che il
@@ -5383,7 +5389,7 @@ def test_con_tutto_al_predefinito_la_piega_nasce_aperta(tmp_path):
     """
     _esegui(tmp_path, _DOM + _funzioni(
         "nuovaRiga", "segnalaCampo", "valoreScritto", "apriBattuta", "scriviParametro",
-        "campoParametro", "reso", "cambiatoDalPredefinito", "gruppoDelBlocco",
+        "testoDellAiuto", "campoParametro", "reso", "cambiatoDalPredefinito", "gruppoDelBlocco",
     ) + """
 let ultimaBattutaDelCampo = new Map();
 configurazione = { tet: { min_ratio: 1.8, nobisect: false } };
@@ -7031,4 +7037,83 @@ assert.equal(dettagli.open, false, "il registro della corsa vecchia e' rimasto a
 aggiornaDaStato({ ...base, in_corso: false, exit_code: 1 });
 assert.match(esito.textContent, /nessun dettaglio/);
 assert.ok(!esito.textContent.includes("ValueError"), "l'esito cita ancora la corsa precedente: " + esito.textContent);
+""")
+
+
+# --------------------------------------------------------------------------
+# Il predefinito del campo: detto sotto la casella, e rimesso da un bottone.
+# --------------------------------------------------------------------------
+
+
+def test_l_aiuto_del_campo_dice_il_predefinito(tmp_path):
+    """`/api/schema` manda gia' `default` per ogni campo, e il pannello lo
+    usava solo per decidere quali righe piegare: chi ha girato `min_ratio` tre
+    volte non aveva piu' modo di sapere da dove era partito.
+
+    Il controllo e' `!== undefined && !== null` e non `if (campo.default)`:
+    `0`, `false` e la stringa vuota sono predefiniti veri, e un `if` sul valore
+    li nasconderebbe proprio dove servono di piu'.
+    """
+    _esegui(tmp_path, _DOM + _funzioni("testoDellAiuto") + """
+assert.equal(testoDellAiuto({ description: "profondità dell'albero", default: 8 }, true, false), "profondità dell'albero — predefinito: 8");
+assert.equal(testoDellAiuto({ default: null }, true, false), "");
+assert.equal(testoDellAiuto({ description: "x" }, false, false), "x — si modifica dal file di configurazione");
+// I falsi che sono predefiniti veri.
+assert.equal(testoDellAiuto({ default: 0 }, true, false), "predefinito: 0");
+assert.equal(testoDellAiuto({ default: false }, true, false), "predefinito: false");
+assert.equal(testoDellAiuto({ default: "" }, true, false), "predefinito: ");
+// Senza description non resta un « — » pendente in testa.
+assert.equal(testoDellAiuto({ default: 8 }, true, false), "predefinito: 8");
+""")
+
+
+def test_riporta_rimette_il_predefinito_dello_schema_e_lo_scrive(tmp_path):
+    """Il bottone accanto alla casella, e solo dove ha senso.
+
+    Rimettere il predefinito passa dal gestore `change` che gia' salva, non da
+    una seconda strada verso il server: e' la stessa scrittura di una battuta a
+    mano, con lo stesso ripristino e lo stesso rifiuto a video. Su una corsa in
+    sola lettura il server dice di no, e il no si legge nella riga del campo.
+
+    Mutazione che lo uccide: `if (campo.default)` al posto del confronto con
+    undefined e null -- `0` e `false` sono predefiniti veri e perderebbero il
+    bottone.
+    """
+    _esegui(tmp_path, _banco_del_campo() + """
+configurazione = { downsample: { voxel_size: 25 }, segment: { crop_max: null } };
+const riporta = (riga) => riga.children.filter((f) => f.className.includes("riporta"));
+const campoCon = (schema) => campoParametro("downsample", "voxel_size", schema, generazione);
+
+// Senza predefinito non c'e' niente da rimettere, e `null` non e' un valore.
+assert.equal(riporta(campoCon({ description: "x" })).length, 0, "un bottone senza predefinito da rimettere");
+assert.equal(riporta(campoCon({ description: "x", default: null })).length, 0, "null preso per un predefinito");
+// I falsi che sono predefiniti veri: qui il bottone serve piu' che altrove.
+assert.equal(riporta(campoCon({ description: "x", default: 0 })).length, 1, "predefinito 0 senza bottone");
+assert.equal(riporta(campoCon({ description: "x", default: false })).length, 1, "predefinito false senza bottone");
+// Un composto non si scrive da qui: la casella e' in sola lettura e non c'e'
+// nessun gestore da scatenare.
+const composto = campoParametro("segment", "crop_max",
+  { description: "x", tipo: "composto", nullabile: true, default: [0, 0, 0] }, generazione);
+assert.equal(riporta(composto).length, 0, "un composto in sola lettura ha preso un bottone che scrive");
+
+// Il clic scrive, per la strada della battuta a mano.
+const riga = campoCon({ description: "x", default: 30 });
+const [, input] = riga.children;
+const [bottone] = riporta(riga);
+const messaggio = riga.children.find((f) => f.className === "errore-campo");
+assert.equal(bottone.textContent, "Riporta");
+assert.match(bottone.title, /30/, "il bottone non dice a che valore riporta");
+input.value = "25";
+risponde = accetta({ downsample: { voxel_size: 30 } });
+await bottone.scatena("click");
+await new Promise((r) => setTimeout(r, 0));
+assert.equal(richieste.at(-1).corpo.downsample.voxel_size, 30, "il predefinito non e' arrivato al server");
+assert.equal(input.value, "30", "la casella non mostra il valore rimesso");
+
+// La corsa registrata e' in sola lettura: il no del server si legge nella riga.
+risponde = rifiuta({ detail: "la corsa e' registrata: sola lettura" });
+await bottone.scatena("click");
+await new Promise((r) => setTimeout(r, 0));
+assert.match(messaggio.textContent, /sola lettura/, "il rifiuto del server non arriva a video: " + messaggio.textContent);
+assert.equal(configurazione.downsample.voxel_size, 30, "il valore rifiutato resta in memoria");
 """)

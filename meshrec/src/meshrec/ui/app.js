@@ -2587,6 +2587,23 @@ function campoDimensioniAttese(blocco, nome, campo, ordine) {
 //
 // Il tipo lo conosce solo il modello, e adesso /api/schema lo manda
 // (`_forma_del_campo` in app/server.py). Da li' discende la forma:
+// Il testo dell'aiuto sotto un campo. Il predefinito si dice: chi ha girato
+// min_ratio tre volte deve sapere da dove e' partito, e /api/schema lo manda
+// gia' -- il pannello lo usava solo per piegare i campi fermi.
+//
+// `!== undefined && !== null` e non `if (campo.default)`: `0`, `false` e la
+// stringa vuota sono predefiniti veri, e un controllo sul valore li
+// nasconderebbe proprio dove ce n'e' piu' bisogno.
+function testoDellAiuto(campo, scalare, bloccoAssente) {
+  return [
+    campo.description,
+    campo.default !== undefined && campo.default !== null
+      ? `predefinito: ${String(campo.default)}`
+      : null,
+    !scalare && !bloccoAssente ? "si modifica dal file di configurazione" : null,
+  ].filter(Boolean).join(" — ");
+}
+
 // un'enumerazione e' un menu, un booleano una spunta, un numero con entrambi
 // gli estremi un cursore con la sua casella accanto. Nessuna di queste e'
 // `type="number"`: la sanificazione silenziosa resta fuori dal pannello, e cio'
@@ -2720,13 +2737,30 @@ function campoParametro(blocco, nome, campo, ordine) {
     input.addEventListener("change", () => scriviParametro(blocco, nome, input, messaggio, ordine));
   }
   riga.append(input);
+  // Dire il predefinito e non saperlo rimettere lascerebbe il lavoro a chi
+  // legge: il bottone rimette il valore e lo scrive, per la stessa strada di
+  // una battuta a mano -- `change` sul comando, cioe' il gestore che gia' c'e'.
+  // Passare da li' e non da `scriviValore` diretto e' cio' che tiene allineati
+  // anche il cursore e la spunta, che sono l'altra meta' di quel comando.
+  // Solo su un campo vivo: dove la casella e' in sola lettura -- blocco
+  // assente, scelta unica -- non c'e' nessun gestore da scatenare, e la
+  // scrittura cadrebbe su un blocco che non esiste.
+  if (vivo && campo.default !== undefined && campo.default !== null) {
+    const riporta = elemento("button", {
+      type: "button", className: "bottone riporta", textContent: "Riporta",
+      title: `riporta al predefinito (${String(campo.default)})`,
+    });
+    riporta.addEventListener("click", () => {
+      input.value = String(campo.default);
+      if (spunta) input.checked = campo.default === true;
+      input.dispatchEvent(new Event("change"));
+    });
+    riga.append(riporta);
+  }
   const aiuto = document.createElement("small");
   aiuto.className = "aiuto";
   aiuto.id = `aiuto-${identita}`;
-  aiuto.textContent = [
-    campo.description,
-    !scalare && !bloccoAssente ? "si modifica dal file di configurazione" : null,
-  ].filter(Boolean).join(" — ");
+  aiuto.textContent = testoDellAiuto(campo, scalare, bloccoAssente);
   // Legato solo se c'e' qualcosa da leggere: uno schema che non descrive il
   // campo lascia l'aiuto vuoto, e un aria-describedby che punta a una riga muta
   // e' una descrizione promessa e non mantenuta.

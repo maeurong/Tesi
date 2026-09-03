@@ -637,6 +637,10 @@ a.bottone { display: inline-block; text-decoration: none; }
    accanto non agisce affatto. */
 .errore-campo { display: block; color: var(--guasto); font-size: var(--tipo-nota); line-height: var(--interlinea); max-width: var(--misura); overflow-wrap: anywhere; text-wrap: pretty; }
 .campo input[readonly] { background: var(--spento); color: var(--tenue); }
+/* «Riporta» sta sotto la casella e largo quanto la propria parola: la riga del
+   campo e' una griglia a colonna sola, e senza `justify-self` il bottone si
+   stirerebbe per tutta la larghezza come se fosse il comando principale. */
+.campo .riporta { justify-self: start; font-size: var(--tipo-nota); }
 /* display: block, e non e' una rifinitura: `.aiuto` veste anche i <small>
    dell'ingresso, che sono figli diretti di <section> e quindi restano inline.
    `max-width` non si applica a una scatola inline non rimpiazzata: su quelle
