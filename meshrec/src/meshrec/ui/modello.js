@@ -87,7 +87,7 @@ export const RIGHE_DEL_MODELLO = {
   ],
   "03_downsample": [
     ["punti", ["03_downsample", "points_after"]],
-    ["voxel [mm]", ["03_downsample", "voxel_size"]],
+    ["lato del voxel [mm]", ["03_downsample", "voxel_size"]],
     ["riduzione", ["03_downsample", "reduction"]],
   ],
   "04_normals": [
@@ -112,14 +112,14 @@ export const RIGHE_DEL_MODELLO = {
     ["nodi", ["09_tetrahedralize", "nodes"]],
     ["tetraedri", ["09_tetrahedralize", "tets"]],
     ["punti di Steiner", ["09_tetrahedralize", "steiner_points"]],
-    ["Steiner saturato", ["09_tetrahedralize", "steiner_saturated"]],
+    ["punti di Steiner esauriti: mesh troncata", ["09_tetrahedralize", "steiner_saturated"]],
   ],
   "10_volume_quality": [
     ["nodi", ["10_volume_quality", "nodes"]],
     ["tetraedri", ["10_volume_quality", "tets"]],
     ["volume totale [mm³]", ["10_volume_quality", "total_volume"]],
-    ["diedro minimo [°]", ["10_volume_quality", "min_dihedral_deg", "min"]],
-    ["elementi rovesciati", ["10_volume_quality", "inverted"]],
+    ["diedro minimo [gradi]", ["10_volume_quality", "min_dihedral_deg", "min"]],
+    ["elementi invertiti", ["10_volume_quality", "inverted"]],
   ],
   "11_export": [
     ["tipo di elemento", ["11_export", "element_type"]],
@@ -216,7 +216,8 @@ export function creaPannelloModello(dipendenze) {
       if (superata(ordine, ultimoModello)) return;
       titolo.textContent = `dopo lo step ${fronte.numero}, ${ETICHETTE[fronte.chiave] ?? fronte.chiave}`;
       if (metriche === null || typeof metriche !== "object") {
-        vuoto.textContent = "metriche non leggibili";
+        vuoto.textContent = "Le metriche della corsa non si leggono. "
+          + "Ricarica la pagina; se il messaggio resta, riesegui lo step.";
         vuoto.hidden = false;
         righe.hidden = true;
         return;
