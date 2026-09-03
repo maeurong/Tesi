@@ -11,11 +11,17 @@ cursore in avanti. «Indietro» arretra il cursore e restituisce il testo su cui
 e' arrivato; sulla prima versione non c'e' niente prima, e risponde None.
 
 Non sa niente di HTTP e non importa FastAPI: chi lo usa e' app/server.py.
+
+Dal 03/09/2026 una versione puo' essere un'esecuzione: porta una cartella
+`NNNN/` con cio' che l'esecuzione ha sostituito, e `scambia` la permuta con la
+corsa. Indietro e avanti restano funzioni del solo testo; lo scambio lo chiede
+il server, che sa quale versione sta togliendo.
 """
 
 from __future__ import annotations
 
 import json
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -31,9 +37,35 @@ TETTO = 200
 
 CARTELLA = ".storico"
 
+# Il file che ogni cartella di scambio porta: gli step che l'esecuzione ha
+# coperto e i nomi dei file che lo scambio governa. Sta nella cartella e non
+# nel registro perche' lo scambio deve funzionare anche con registro.jsonl
+# toccato a mano: il registro e' provenienza, questo e' meccanismo.
+SCAMBIO = "scambio.json"
+
 
 def _cartella(out_dir: Path) -> Path:
     return Path(out_dir) / CARTELLA
+
+
+def _cartella_di_scambio(out_dir: Path, numero: int) -> Path:
+    return _cartella(out_dir) / f"{numero:04d}"
+
+
+def _scarta_versione(out_dir: Path, numero: int) -> None:
+    """Toglie una versione con la sua cartella, se ne ha una: contiene o gli
+    artefatti di un futuro scartato o quelli di un passato oltre il tetto, e
+    in entrambi i casi nessun comando li puo' piu' raggiungere."""
+    _percorso(out_dir, numero).unlink()
+    cartella = _cartella_di_scambio(out_dir, numero)
+    if cartella.is_dir():
+        shutil.rmtree(cartella)
+
+
+def cursore(out_dir: Path) -> int:
+    """La versione su cui siamo. Pubblica perche' il server deve sapere QUALE
+    versione un «indietro» sta per togliere, e lo sa solo prima di chiamarlo."""
+    return _cursore(out_dir)
 
 
 def _percorso(out_dir: Path, numero: int) -> Path:
@@ -145,10 +177,12 @@ def _applica_tetto(out_dir: Path) -> None:
     if len(numeri) <= TETTO:
         return
     for numero in numeri[: len(numeri) - TETTO]:
-        _percorso(out_dir, numero).unlink()
+        _scarta_versione(out_dir, numero)
 
 
-def deposita(out_dir: Path, testo: str, endpoint: str, campi: list[str]) -> int:
+def deposita(
+    out_dir: Path, testo: str, endpoint: str, campi: list[str], scambio: dict | None = None
+) -> int:
     """Aggiunge `testo` in coda come versione nuova e torna il suo numero.
 
     Una scrittura nuova tronca la coda oltre il cursore: due futuri che
@@ -159,13 +193,41 @@ def deposita(out_dir: Path, testo: str, endpoint: str, campi: list[str]) -> int:
     corrente = _cursore(out_dir)
     for numero in _numeri(out_dir):
         if numero > corrente:
-            _percorso(out_dir, numero).unlink()
+            _scarta_versione(out_dir, numero)
 
     nuovo = corrente + 1
     io.scrivi_atomico(
         _percorso(out_dir, nuovo),
         lambda destinazione: destinazione.write_text(testo, encoding="utf-8"),
     )
+
+    file_scambiati: list[str] = []
+    if scambio is not None:
+        # Un'esecuzione. Gli artefatti si SPOSTANO nella cartella -- un rename
+        # sullo stesso filesystem, zero byte scritti anche per cento megabyte
+        # -- e lo stato e le metriche si COPIANO: la ripresa li rilegge per
+        # aggiungervi la voce nuova, e spostati via lascerebbero gli step a
+        # monte «mai eseguito» a esecuzione finita. Chi manca non e' un
+        # guasto: e' uno step mai eseguito, cioe' la prima esecuzione.
+        cartella_scambio = _cartella_di_scambio(out_dir, nuovo)
+        cartella_scambio.mkdir(parents=True, exist_ok=True)
+        for nome in scambio["sposta"]:
+            sorgente = Path(out_dir) / nome
+            if sorgente.exists():
+                sorgente.replace(cartella_scambio / nome)
+        for nome in scambio["copia"]:
+            sorgente = Path(out_dir) / nome
+            if sorgente.exists():
+                shutil.copy2(sorgente, cartella_scambio / nome)
+        file_scambiati = [*scambio["sposta"], *scambio["copia"]]
+        io.scrivi_atomico(
+            cartella_scambio / SCAMBIO,
+            lambda destinazione: destinazione.write_text(
+                json.dumps({"da": scambio["da"], "a": scambio["a"], "file": file_scambiati}),
+                encoding="utf-8",
+            ),
+        )
+
     # Lo stesso append_row del registro degli esperimenti della Fase 2, non una
     # seconda forma che gli somiglia: in sola aggiunta, un file che si allunga
     # non perde cio' che aveva. L'istante e' UTC perche' un registro che cambia
@@ -182,6 +244,7 @@ def deposita(out_dir: Path, testo: str, endpoint: str, campi: list[str]) -> int:
             "istante": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "endpoint": endpoint,
             "campi": campi,
+            "artefatti": file_scambiati,
         },
     )
 
@@ -208,3 +271,38 @@ def avanti(out_dir: Path) -> str | None:
         return None
     _scrivi_cursore(out_dir, successivi[0])
     return _percorso(out_dir, successivi[0]).read_text(encoding="utf-8")
+
+
+def scambia(out_dir: Path, numero: int) -> dict | None:
+    """Scambia i file di una versione di esecuzione fra la corsa e la sua
+    cartella. Torna gli step coperti, o None se la versione e' di sola
+    configurazione.
+
+    E' la propria inversa: dopo un «indietro» la cartella contiene cio' che
+    l'esecuzione aveva prodotto, e un «avanti» lo rimette con la stessa
+    chiamata. Per questo il modulo non ha due funzioni.
+
+    ponytail: lo scambio non e' atomico fra file. Ogni rename lo e', la
+    sequenza no: un processo ucciso a meta' lascia una parte dei file
+    scambiata. Il server mette steps.json per ULTIMO nell'elenco, cosi' uno
+    stato a meta' porta ancora le impronte di prima e gli step risultano «non
+    valido» invece di «valido» su artefatti misti.
+    """
+    cartella = _cartella_di_scambio(out_dir, numero)
+    dichiarazione = cartella / SCAMBIO
+    if not dichiarazione.exists():
+        return None
+    letto = json.loads(dichiarazione.read_text(encoding="utf-8"))
+    for nome in letto["file"]:
+        nella_corsa = Path(out_dir) / nome
+        nella_cartella = cartella / nome
+        if nella_corsa.exists() and nella_cartella.exists():
+            parcheggio = cartella / f"{nome}.scambio"
+            nella_corsa.replace(parcheggio)
+            nella_cartella.replace(nella_corsa)
+            parcheggio.replace(nella_cartella)
+        elif nella_corsa.exists():
+            nella_corsa.replace(nella_cartella)
+        elif nella_cartella.exists():
+            nella_cartella.replace(nella_corsa)
+    return {"da": letto["da"], "a": letto["a"]}

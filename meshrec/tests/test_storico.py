@@ -262,3 +262,102 @@ def test_la_coda_si_chiede_prima_di_depositare(tmp_path: Path):
     storico.indietro(tmp_path)
     # Adesso «due» sta oltre il cursore, e un deposito la cancellerebbe.
     assert storico.coda_oltre_il_cursore(tmp_path) is True
+
+
+def _scambio(da=2, a=2, sposta=("02_segmented.ply",), copia=("steps.json",)):
+    return {"da": da, "a": a, "sposta": list(sposta), "copia": list(copia)}
+
+
+def test_depositare_un_esecuzione_sposta_gli_artefatti_e_copia_lo_stato(tmp_path: Path):
+    """Spostare e non copiare: un rename sullo stesso filesystem costa zero byte
+    anche per un artefatto da cento megabyte. Lo stato invece si copia, perche'
+    la ripresa lo rilegge per aggiungere la voce nuova: spostato via, gli step
+    a monte risulterebbero «mai eseguito» a esecuzione finita."""
+    (tmp_path / "02_segmented.ply").write_bytes(b"mesh")
+    (tmp_path / "steps.json").write_text("{}", encoding="utf-8")
+    storico.deposita(tmp_path, "uno\n", "avvio", [])
+    numero = storico.deposita(tmp_path, "uno\n", "POST /api/step/2", [], scambio=_scambio())
+    cartella = tmp_path / storico.CARTELLA / f"{numero:04d}"
+    assert not (tmp_path / "02_segmented.ply").exists(), "l'artefatto non e' stato spostato"
+    assert (cartella / "02_segmented.ply").read_bytes() == b"mesh"
+    assert (tmp_path / "steps.json").exists(), "lo stato doveva restare nella corsa"
+    assert (cartella / "steps.json").read_text(encoding="utf-8") == "{}"
+    dichiarato = json.loads((cartella / storico.SCAMBIO).read_text(encoding="utf-8"))
+    assert dichiarato == {"da": 2, "a": 2, "file": ["02_segmented.ply", "steps.json"]}
+
+
+def test_un_artefatto_assente_non_ferma_il_deposito(tmp_path: Path):
+    """Uno step mai eseguito non ha artefatto: e' il caso normale della prima
+    esecuzione, non un guasto."""
+    storico.deposita(tmp_path, "uno\n", "avvio", [])
+    numero = storico.deposita(tmp_path, "uno\n", "POST /api/step/2", [], scambio=_scambio())
+    assert (tmp_path / storico.CARTELLA / f"{numero:04d}" / storico.SCAMBIO).exists()
+
+
+def test_lo_scambio_e_la_propria_inversa(tmp_path: Path):
+    """Indietro e avanti sono la stessa operazione: dopo due scambi ogni file e'
+    dove stava. Tre casi in un colpo: presente da entrambe le parti, solo nella
+    corsa, solo nella cartella."""
+    (tmp_path / "02_segmented.ply").write_bytes(b"prima")
+    (tmp_path / "steps.json").write_text("prima", encoding="utf-8")
+    storico.deposita(tmp_path, "uno\n", "avvio", [])
+    numero = storico.deposita(
+        tmp_path, "uno\n", "POST /api/step/2", [],
+        scambio=_scambio(sposta=("02_segmented.ply", "metrics.partial.json"), copia=("steps.json",)),
+    )
+    # L'esecuzione scrive la corsa nuova; il parziale esiste solo dopo.
+    (tmp_path / "02_segmented.ply").write_bytes(b"dopo")
+    (tmp_path / "steps.json").write_text("dopo", encoding="utf-8")
+    (tmp_path / "metrics.partial.json").write_text("parziale", encoding="utf-8")
+
+    assert storico.scambia(tmp_path, numero) == {"da": 2, "a": 2}
+    assert (tmp_path / "02_segmented.ply").read_bytes() == b"prima"
+    assert (tmp_path / "steps.json").read_text(encoding="utf-8") == "prima"
+    assert not (tmp_path / "metrics.partial.json").exists()
+    cartella = tmp_path / storico.CARTELLA / f"{numero:04d}"
+    assert (cartella / "02_segmented.ply").read_bytes() == b"dopo"
+    assert (cartella / "metrics.partial.json").read_text(encoding="utf-8") == "parziale"
+
+    assert storico.scambia(tmp_path, numero) == {"da": 2, "a": 2}
+    assert (tmp_path / "02_segmented.ply").read_bytes() == b"dopo"
+    assert (tmp_path / "steps.json").read_text(encoding="utf-8") == "dopo"
+    assert (tmp_path / "metrics.partial.json").read_text(encoding="utf-8") == "parziale"
+    assert not (cartella / "metrics.partial.json").exists()
+
+
+def test_una_versione_di_configurazione_non_scambia_niente(tmp_path: Path):
+    (tmp_path / "02_segmented.ply").write_bytes(b"resta")
+    storico.deposita(tmp_path, "uno\n", "avvio", [])
+    numero = storico.deposita(tmp_path, "due\n", "PUT /api/config", ["a"])
+    assert storico.scambia(tmp_path, numero) is None
+    assert (tmp_path / "02_segmented.ply").read_bytes() == b"resta"
+
+
+def test_la_troncatura_e_il_tetto_cancellano_anche_le_cartelle(tmp_path: Path, monkeypatch):
+    """Le cartelle oltre il cursore portano gli artefatti del futuro scartato:
+    tenerle sarebbe disco occupato da cio' che nessun comando puo' piu'
+    raggiungere. Il tetto pota le piu' vecchie con la stessa regola."""
+    storico.deposita(tmp_path, "uno\n", "avvio", [])
+    (tmp_path / "02_segmented.ply").write_bytes(b"x")
+    seconda = storico.deposita(tmp_path, "uno\n", "POST /api/step/2", [], scambio=_scambio())
+    (tmp_path / "02_segmented.ply").write_bytes(b"y")
+    terza = storico.deposita(tmp_path, "uno\n", "POST /api/step/2", [], scambio=_scambio())
+    storico.indietro(tmp_path)
+    storico.indietro(tmp_path)
+    storico.deposita(tmp_path, "tre\n", "PUT /api/config", ["a"])
+    assert not (tmp_path / storico.CARTELLA / f"{seconda:04d}").exists()
+    assert not (tmp_path / storico.CARTELLA / f"{terza:04d}").exists()
+
+    monkeypatch.setattr(storico, "TETTO", 2)
+    (tmp_path / "02_segmented.ply").write_bytes(b"z")
+    storico.deposita(tmp_path, "tre\n", "POST /api/step/2", [], scambio=_scambio())
+    storico.deposita(tmp_path, "quattro\n", "PUT /api/config", ["b"])
+    superstiti = sorted(p.name for p in (tmp_path / storico.CARTELLA).iterdir())
+    assert not any(nome == "0001.yaml" for nome in superstiti)
+    assert not any(nome.isdigit() and int(nome) < storico.cursore(tmp_path) - 1 for nome in superstiti)
+
+
+def test_il_cursore_e_pubblico(tmp_path: Path):
+    assert storico.cursore(tmp_path) == 0
+    storico.deposita(tmp_path, "uno\n", "avvio", [])
+    assert storico.cursore(tmp_path) == 1
