@@ -5108,6 +5108,9 @@ def _banco_di_esito() -> str:
         # I due «Esegui» seguono la corsa dallo stesso carico di «Annulla»:
         # aggiornaDaStato la chiama, quindi il banco la incontra.
         "spegniLeEsecuzioni",
+        # L'intervallo in esecuzione sulla colonna: aggiornaDaStato lo segna a
+        # ogni frame, e qui la colonna e' vuota (disegnaStep e' stubbato).
+        "segnaIntervalloInEsecuzione",
         "aggiornaDaStato",
     ) + """
 let corsaInCorso = false;
@@ -7660,4 +7663,75 @@ assert.equal(document.title, "✓ MeshRec");
 aggiornaDaStato({ ...base, in_corso: true, exit_code: null });
 assert.equal(document.title, "MeshRec",
   "la scheda dice ancora ✓ su una corsa che sta girando: " + document.title);
+""")
+
+
+def test_una_corsa_conclusa_ha_il_proprio_colore_e_l_interrotta_no(tmp_path):
+    """La riga dell'esito porta tre fatti con tre colori, come la colonna degli
+    step: conclusa (accento), interrotta (grigio), fallita (rosso). La classe
+    della riuscita la decide il chiamante, non il testo: «interrotta» arriva
+    come esito e non e' una riuscita.
+
+    Mutazione che lo uccide: passare `true` fisso a `mostraEsito` sul fronte
+    di discesa, che colorerebbe anche l'interruzione.
+    """
+    _esegui(tmp_path, _banco_di_esito() + """
+ETICHETTE["01_load"] = "Lettura";
+const steps = [{ numero: 1, chiave: "01_load", stato: "valido", secondi: 2 }];
+
+aggiornaDaStato({ in_corso: true, step: 1, a_step: 1, steps, da_secondi: 0.5, annullato: false, exit_code: null });
+aggiornaDaStato({ in_corso: false, step: 1, a_step: 1, steps, da_secondi: null, annullato: false, exit_code: 0 });
+assert.match(esito.textContent, /esecuzione conclusa/);
+assert.ok(esito.className.includes("esito-riuscito"), "la corsa conclusa non ha il proprio colore");
+assert.ok(!esito.className.includes("esito-fallito"));
+
+aggiornaDaStato({ in_corso: true, step: 1, a_step: 1, steps, da_secondi: 0.1, annullato: false, exit_code: null });
+assert.ok(!esito.className.includes("esito-riuscito"), "la riuscita vecchia e' rimasta sopra la corsa nuova");
+aggiornaDaStato({ in_corso: false, step: 1, a_step: 1, steps, da_secondi: null, annullato: true, exit_code: -15 });
+assert.match(esito.textContent, /esecuzione interrotta/);
+assert.ok(!esito.className.includes("esito-riuscito"), "un'interruzione e' una scelta, non una riuscita");
+assert.ok(!esito.className.includes("esito-fallito"));
+
+// Il terzo colore: una corsa fallita e' rossa e non verde.
+aggiornaDaStato({ in_corso: true, step: 1, a_step: 1, steps, da_secondi: 0.1, annullato: false, exit_code: null });
+aggiornaDaStato({ in_corso: false, step: 1, a_step: 1, steps, da_secondi: null, annullato: false, exit_code: 2 });
+assert.ok(esito.className.includes("esito-fallito"));
+assert.ok(!esito.className.includes("esito-riuscito"), "una corsa fallita ha preso il colore della riuscita");
+
+// Un esito passato senza il terzo argomento resta grigio: i ritorni della
+// cronologia non sono corse.
+mostraEsito(null, "configurazione ripristinata: nessuno step cambia stato");
+assert.ok(!esito.className.includes("esito-riuscito"));
+""")
+
+
+def test_la_colonna_segna_l_intervallo_che_sta_girando(tmp_path):
+    """Mentre una corsa dura, le righe da `step` ad `a_step` portano
+    aria-busy; a corsa ferma, o su un comando senza step, nessuna.
+    L'intervallo e non lo step corrente: il server non lo sa (stato.step e' il
+    capo di partenza e non avanza).
+
+    Mutazione che lo uccide: `numero === stato.step` al posto dell'intervallo,
+    che su una corsa da 5 a 11 segnerebbe la sola Superficie.
+    """
+    _esegui(tmp_path, _DOM + _funzioni("nuovaRiga", "segnaIntervalloInEsecuzione") + """
+const colonna = document.getElementById("elenco-step");
+colonna.replaceChildren(...[1, 2, 3, 4, 5].map(() => nuovaRiga()));
+[...colonna.children].forEach((riga, i) => { riga.firstElementChild.dataset.numero = i + 1; });
+const segnate = () => [...colonna.children].filter((r) => r.getAttribute("aria-busy") === "true").map((r) => Number(r.firstElementChild.dataset.numero));
+
+segnaIntervalloInEsecuzione({ in_corso: true, step: 2, a_step: 4 });
+assert.deepEqual(segnate(), [2, 3, 4]);
+
+// a_step assente: il solo capo.
+segnaIntervalloInEsecuzione({ in_corso: true, step: 3, a_step: null });
+assert.deepEqual(segnate(), [3]);
+
+// Corsa ferma: tutto tolto.
+segnaIntervalloInEsecuzione({ in_corso: false, step: 3, a_step: 3 });
+assert.deepEqual(segnate(), []);
+
+// Comando fuori pipeline: nessuno step, nessuna riga.
+segnaIntervalloInEsecuzione({ in_corso: true, step: null, a_step: null });
+assert.deepEqual(segnate(), []);
 """)

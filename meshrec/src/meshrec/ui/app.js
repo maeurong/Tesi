@@ -733,10 +733,17 @@ function preparaLeNotifiche(bottone) {
   });
 }
 
-function mostraEsito(errore, esito) {
+// `riuscita` e' vera solo per una corsa che e' arrivata in fondo: e' il terzo
+// colore della riga, dopo il grigio e il rosso, e chiude la simmetria con la
+// colonna degli step (valido / mai eseguito / fallito). Non si deduce dal
+// testo: «interrotta» e «configurazione ripristinata» arrivano come esiti e
+// non sono riuscite di una corsa -- la prima e' una scelta, la seconda un
+// ritorno -- quindi lo dice il chiamante, che sa da quale fatto viene.
+function mostraEsito(errore, esito, riuscita = false) {
   const riga = document.getElementById("esito");
   riga.textContent = errore ?? esito ?? "";
   riga.classList.toggle("esito-fallito", errore !== null && errore !== undefined);
+  riga.classList.toggle("esito-riuscito", riuscita && esito !== null && esito !== undefined);
 }
 
 // Vera mentre una corsa gira. La sa lo scorrere degli eventi, e serve ai due
@@ -784,11 +791,33 @@ let eraInCorso = false;
 // non lo esegue nessun banco. La decisione su come finisce una corsa e' pura e
 // gia' a tiro dei test; il CABLAGGIO -- quale regione riceve il testo, e chi la
 // svuota subito dopo -- era la meta' che restava fuori.
+// Le righe della colonna che stanno girando adesso. Mentre una corsa dura i
+// suoi secondi l'unico segnale era la riga «in corso» della testata, e la
+// colonna -- che e' la mappa della pipeline -- non diceva dove si stava.
+// Si segna l'INTERVALLO da `step` ad `a_step` e non lo step corrente, perche'
+// il server non lo sa: `stato.step` e' il capo di partenza e non avanza mai
+// (vedi descrizioneDellaCorsa). Un intervallo e' cio' che si sa, e non
+// inventa una posizione. Ogni frame rifa' tutte le righe, e le toglie tutte a
+// corsa ferma o su un comando fuori pipeline, che non ha uno step.
+// `aria-busy` e non un attributo dati: e' il segno che il markup ha per «ci
+// sto lavorando», e lo stesso attributo lo legge il foglio e lo sente chi non
+// vede ne' il fondo ne' il pallino -- come aria-current sullo step aperto.
+function segnaIntervalloInEsecuzione(stato) {
+  const dentro = stato.in_corso === true && stato.step !== null && stato.step !== undefined;
+  const a = stato.a_step ?? stato.step;
+  for (const riga of document.getElementById("elenco-step").children) {
+    const numero = Number(riga.firstElementChild?.dataset.numero);
+    if (dentro && numero >= stato.step && numero <= a) riga.setAttribute("aria-busy", "true");
+    else riga.removeAttribute("aria-busy");
+  }
+}
+
 function aggiornaDaStato(stato) {
   // A nessuna corsa aperta il flusso manda comunque lo stato del lavoratore,
   // con `steps` vuoto: la colonna degli step non esiste ancora e disegnarla
   // sarebbe disegnare undici righe di una corsa che nessuno ha scelto.
   if (Array.isArray(stato.steps) && stato.steps.length > 0) disegnaStep(stato.steps);
+  segnaIntervalloInEsecuzione(stato);
   const barra = document.getElementById("in-corso");
   if (stato.in_corso && stato.da_secondi !== null) {
     // stato.step e' null per un comando che non e' uno step della pipeline
@@ -862,7 +891,7 @@ function aggiornaDaStato(stato) {
     // il fallimento sparirebbe due righe piu' sotto, nella stessa passata, e a
     // video resterebbe qualcosa di indistinguibile da una corsa riuscita.
     const { errore, esito } = esitoDellaCorsa(stato);
-    mostraEsito(errore, esito);
+    mostraEsito(errore, esito, errore === null && !stato.annullato);
     // Fuori dalla scheda l'esito non si vede: il titolo lo porta nella barra
     // delle schede, e la notifica raggiunge chi sta guardando altro.
     document.title = titoloConEsito(errore, esito);
