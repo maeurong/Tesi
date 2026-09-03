@@ -1267,7 +1267,7 @@ def confronta(cartelle: list[Path]) -> dict[str, object]:
 _ETICHETTE_GRANDEZZE: tuple[tuple[str, str], ...] = (
     ("volume", "volume [mm³]"),
     ("massa", "massa [t]"),
-    ("scostamento_nuvola", "scostamento dalla nuvola [mm]"),
+    ("scostamento_nuvola", "scarto dalla nuvola, RMS [mm]"),
     ("gradi_di_liberta", "nodi e tipo di elemento"),
 )
 """Che cosa si intitola ogni riga della tabella delle grandezze confrontabili.
