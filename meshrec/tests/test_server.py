@@ -2968,22 +2968,28 @@ def test_il_deck_si_scarica_anche_mentre_una_corsa_gira(cliente):
     cliente.post("/api/cancel")
 
 
-def test_lo_step_12_e_il_tetto_di_esegui_da_qui_in_poi(cliente):
+def test_lo_step_11_e_il_tetto_di_esegui_da_qui_in_poi(cliente):
     """Il tetto e' una scelta dell'interfaccia (server.py), non un'eredita' dal
     predefinito di RunConfig.to_step -- che ha gia' valso 13, poi 12 dalla Fase
-    8 (#140), e ora 11 dal perimetro del prodotto: il tetto qui non lo ha mai
-    seguito. Le due ragioni sono diverse e vanno tenute separate.
-
-    'Riprendi da qui' nel pannello non deve far partire un processo esterno da
-    solo: per questo il tetto e' 12. E resta 12 anche ora che il
-    predefinito e' 11, perche' lo stato porta tutti e dodici gli step:
-    fermo a 11, la riga 12 resterebbe 'mai eseguita' dietro 'esegui da qui in
-    poi', senza spiegazione e senza modo di eseguirla. Il perimetro del
-    prodotto governa che cosa accade *senza chiedere* -- una corsa da riga di
-    comando -- non che cosa l'interfaccia rende raggiungibile a chi clicca."""
+    8 (#140), e ora 11 dal perimetro del prodotto. Il tetto qui adesso lo
+    segue: 11 e' il deck, dove si chiude il perimetro del prodotto (PRODUCT.md)
+    e dove finisce una corsa da riga di comando. Il prior (12) resta
+    raggiungibile con `meshrec wall` e con `POST /api/step/12`, ma non parte
+    da un bottone che non lo nomina."""
     risposta = cliente.post("/api/step/9/from")
 
-    assert risposta.json()["fino_a"] == 12
+    assert risposta.json()["fino_a"] == 11
+
+
+def test_da_qui_in_giu_si_ferma_al_deck(cliente, monkeypatch):
+    """PRODUCT.md: il prior non gira per difetto, e la colonna non lo mostra.
+    Farlo partire da un bottone che non lo nomina e' uno step invisibile che
+    l'utente paga."""
+    avviati = []
+    monkeypatch.setattr(server.Worker, "start", lambda self, *argomenti: avviati.append(argomenti))
+    assert cliente.post("/api/step/3/from").json() == {"avviato": 3, "fino_a": 11}
+    assert avviati[0][2] == 11
+    assert cliente.post("/api/step/12/from").status_code == 400
 
 
 

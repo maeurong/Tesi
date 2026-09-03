@@ -1596,19 +1596,11 @@ def create_app(
 
     @app.post("/api/step/{numero}/from")
     def esegui_da(numero: int) -> dict[str, object]:
-        # 12 e non 11 dalla Fase 4: lo step 12 e' il prior geometrico. Il
-        # tetto qui e' una scelta dell'interfaccia e non un'eredita' dal
-        # predefinito di RunConfig.to_step, che dal perimetro del prodotto vale
-        # 11: "riprendi da qui" nel pannello non deve far partire un processo
-        # esterno da solo, per lo stesso motivo per cui sweep.run_candidate
-        # chiede il proprio tetto esplicito. E resta 12 anche ora che il
-        # predefinito e' 11 e che l'interfaccia non mostra la riga del prior
-        # (il filtro di `disegnaStep` in app.js): quel filtro e' del client, e
-        # questo tetto e' del server, che non ha modo di sapere come e' messo.
-        # Farli inseguire l'uno l'altro accoppierebbe una decisione di
-        # presentazione a una di esecuzione; il prior calcolato e non mostrato
-        # e' un file in piu' sul disco, non un difetto.
-        return _avvia(numero, 12, f"POST /api/step/{numero}/from")
+        # 11, il deck: e' dove si chiude il perimetro del prodotto
+        # (PRODUCT.md) e dove finisce una corsa da riga di comando. Il prior
+        # (12) resta raggiungibile con `meshrec wall` e con
+        # `POST /api/step/12`, ma non parte da un bottone che non lo nomina.
+        return _avvia(numero, 11, f"POST /api/step/{numero}/from")
 
     @app.post("/api/cancel")
     def annulla() -> dict[str, object]:

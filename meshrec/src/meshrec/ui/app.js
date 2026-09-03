@@ -3570,7 +3570,7 @@ async function apriDettaglio(numero, ordine = generazione) {
   // quel colore. Dall'indice e non dall'etichetta, che e' testo da leggere.
   for (const [indice, [etichetta, percorso]] of [
     ["Esegui questo step", `/api/step/${numero}`],
-    ["Esegui da qui in giù", `/api/step/${numero}/from`],
+    ["Esegui da qui fino al deck", `/api/step/${numero}/from`],
   ].entries()) {
     const bottone = document.createElement("button");
     bottone.type = "button";
