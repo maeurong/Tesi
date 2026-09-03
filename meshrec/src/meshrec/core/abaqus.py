@@ -487,6 +487,17 @@ def write_inp(
 
     nodes = np.asarray(nodes, dtype=np.float64)
     elements = np.asarray(elements, dtype=np.int64)
+    # Quattro guardie sul maglio, in quest'ordine dichiarato: forma, colonne,
+    # righe degli elementi, nodi citati. Ognuna presuppone la precedente -- su
+    # un array a una dimensione le colonne non si contano, e «gli elementi
+    # citano nodi che non ci sono» ha senso solo se un elemento c'e'. Con piu'
+    # condizioni degeneri insieme parla la prima, e quale sia e' scritto qui
+    # e provato nei test (#124).
+    if elements.ndim != 2:
+        raise ValueError(
+            f"gli elementi devono avere due dimensioni (elementi × nodi per "
+            f"elemento), ne sono arrivate {elements.ndim}: non e' un maglio"
+        )
     attesi = NODI_PER_ELEMENTO[element_type]
     if elements.shape[1] != attesi:
         raise ValueError(
@@ -502,6 +513,22 @@ def write_inp(
     # muore prima di arrivare fin qui (misurato: «nessun nodo da allineare»).
     if len(elements) == 0:
         raise ValueError(MAGLIO_VUOTO)
+    # I nodi citati devono esistere: ogni indice in [0, len(nodes)). Il caso
+    # dell'issue #124 -- `nodes` vuoto con elementi -- e' un'istanza: scriveva
+    # un `*NODE` senza righe e sotto un elemento che cita quattro nodi che non
+    # ci sono, 406 byte senza sollevare. Ma un maglio con UN riferimento
+    # pendente in mezzo e' lo stesso difetto, e una guardia sul solo vuoto lo
+    # lascerebbe passare: la guardia sta sull'invariante.
+    massimo = int(elements.max())
+    minimo = int(elements.min())
+    if minimo < 0 or massimo >= len(nodes):
+        raise ValueError(
+            f"gli elementi citano nodi che non esistono: gli indici vanno da "
+            f"{minimo} a {massimo}, e i nodi sono {len(nodes)} (indici da 0 a "
+            f"{len(nodes) - 1}). Un deck con un riferimento pendente lo scarta "
+            "il solutore, o peggio lo risolve: il programma che lo scrive lo "
+            "dice prima"
+        )
 
     # Le superfici dei carichi distribuiti (#10) si derivano qui, prima che le
     # card *SURFACE si scrivano piu' sotto: entrano nello stesso dizionario del

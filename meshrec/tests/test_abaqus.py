@@ -1230,6 +1230,73 @@ def test_export_model_col_maglio_vuoto_nomina_gli_elementi_non_i_nodi(tmp_path):
     assert list(tmp_path.iterdir()) == [], "niente sul disco: né il deck né il .vtu"
 
 
+def test_un_elemento_che_cita_un_nodo_inesistente_non_scrive_un_deck(tmp_path):
+    """Il gemello del maglio senza elementi, un piano piu' in la' (#124).
+
+    Misurato prima della guardia: `nodes` a zero righe con un elemento
+    `[0, 1, 2, 3]` scriveva **406 byte** senza sollevare, e il deck portava un
+    `*NODE` senza righe e subito sotto un elemento che cita quattro nodi che
+    non esistono. `ccx` lo accetta o lo rifiuta per ragioni sue, e in entrambi
+    i casi il programma che l'ha scritto non ha detto nulla.
+
+    I nodi vuoti sono un caso di un invariante piu' largo: **ogni indice di
+    elemento deve cadere in `[0, len(nodes))`**. La guardia sta su quello, non
+    sul solo caso vuoto -- un maglio con un riferimento pendente in mezzo e'
+    lo stesso difetto, e una guardia sul vuoto lo lascerebbe passare.
+
+    Ordine dichiarato fra le guardie: forma, colonne, righe degli elementi,
+    poi i nodi. Con elementi E nodi vuoti parlano gli elementi: «non c'e' un
+    maglio» viene prima di «gli elementi citano nodi che non ci sono».
+
+    Mutazione che lo uccide: togliere il controllo sui limiti degli indici.
+    """
+    percorso = tmp_path / "pendente.inp"
+    elementi = np.array([[0, 1, 2, 3]], dtype=np.int64)
+    base = dict(node_sets={"BASE": np.zeros(0, dtype=np.int64)}, material=MATERIALE, element_type="C3D4")
+
+    # nodi vuoti, elementi no: il caso dell'issue
+    with pytest.raises(ValueError, match=r"nod[oi].*non esist") as errore:
+        abaqus.write_inp(percorso, np.zeros((0, 3)), elementi, **base)
+    assert not percorso.exists(), "il deck non si scrive a meta'"
+    assert "3" in str(errore.value), "il messaggio nomina l'indice piu' alto citato"
+
+    # quattro nodi, ma un elemento ne cita un quinto: stesso invariante
+    with pytest.raises(ValueError, match=r"nod[oi].*non esist"):
+        abaqus.write_inp(percorso, np.zeros((4, 3)), np.array([[0, 1, 2, 4]]), **base)
+    assert not percorso.exists()
+
+    # un indice negativo e' fuori dallo stesso intervallo
+    with pytest.raises(ValueError, match=r"nod[oi].*non esist"):
+        abaqus.write_inp(percorso, np.zeros((4, 3)), np.array([[0, 1, 2, -1]]), **base)
+    assert not percorso.exists()
+
+    # elementi E nodi vuoti: parlano gli elementi
+    with pytest.raises(ValueError, match="nessun elemento"):
+        abaqus.write_inp(percorso, np.zeros((0, 3)), np.zeros((0, 4), dtype=np.int64), **base)
+    assert not percorso.exists()
+
+
+def test_elementi_monodimensionali_danno_un_messaggio_e_non_uno_stack(tmp_path):
+    """Difetto minore di #124: `np.zeros((0,))` cadeva su `elements.shape[1]`
+    con `IndexError: tuple index out of range` -- uno stack al posto di una
+    frase. Nessun chiamante di produzione passa quella forma, ma un errore che
+    non nomina la causa e' un errore che tocca leggere nel codice.
+
+    La forma parla per prima: prima delle colonne, che su un array a una
+    dimensione non si possono nemmeno contare.
+
+    Mutazione che lo uccide: togliere il controllo su `ndim`.
+    """
+    percorso = tmp_path / "piatto.inp"
+    with pytest.raises(ValueError, match="due dimensioni"):
+        abaqus.write_inp(
+            percorso, np.zeros((4, 3)), np.zeros((0,), dtype=np.int64),
+            node_sets={"BASE": np.zeros(0, dtype=np.int64)},
+            material=MATERIALE, element_type="C3D4",
+        )
+    assert not percorso.exists()
+
+
 def test_tie_e_pressione_risolvono_le_superfici_ignorando_le_maiuscole(tmp_path):
     """Le due guardie di membership erano rimaste al confronto esatto.
 
