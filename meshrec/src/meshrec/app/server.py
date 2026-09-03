@@ -40,7 +40,6 @@ from meshrec.core import (
     materiali,
     pipeline,
     quality,
-    report,
     segment,
     steps,
     sweep,
@@ -731,7 +730,6 @@ class CorsaScelta(BaseModel):
 def create_app(
     config_path: Path | None = None,
     radice_corse: Path = Path("runs"),
-    radice_esperimenti: Path = Path("experiments"),
 ) -> FastAPI:
     """Applicazione legata a un file di configurazione, che e' la corsa corrente.
 
@@ -742,17 +740,12 @@ def create_app(
     (la forma vecchia, `serve config.yaml`) trova l'applicazione legata
     all'avvio, come e' sempre stato.
 
-    `radice_corse` e' la cartella dove le corse nascono e dove vengono cercate;
-    `radice_esperimenti` quella dei registri di sweep della galleria. Relative
-    come `run.out_dir` e `CACHE_DIR`: risolte rispetto alla cartella da cui gira
-    il server, non rispetto al file di configurazione. La galleria le cercava
-    accanto al config, e bastava aprire una configurazione che non stesse alla
-    radice del progetto -- oggi ogni corsa nuova, che vive in
-    `runs/<nome>/config.yaml` -- perche' sparisse senza dire perche'.
+    `radice_corse` e' la cartella dove le corse nascono e dove vengono cercate,
+    relativa come `run.out_dir` e `CACHE_DIR`: risolta rispetto alla cartella
+    da cui gira il server, non rispetto al file di configurazione.
     """
     config_path = Path(config_path) if config_path is not None else None
     radice_corse = Path(radice_corse)
-    radice_esperimenti = Path(radice_esperimenti)
     app = FastAPI(title="MeshRec", docs_url=None, redoc_url=None)
 
     def corrente() -> PipelineConfig:
@@ -1517,52 +1510,6 @@ def create_app(
         # non tutti sono serializzabili in JSON, e il pannello li mostra come
         # testo. default=str li rende senza inventarne il valore.
         return json.loads(json.dumps(fuori, default=str))
-
-    @app.get("/api/experiments")
-    def esperimenti() -> dict[str, object]:
-        """Nomi degli esperimenti della Fase 2. Sola lettura: mai una scrittura.
-
-        Una sottocartella di experiments/ senza registro.jsonl non e' un
-        esperimento concluso, e resta fuori dall'elenco.
-        """
-        radice = radice_esperimenti
-        if not radice.is_dir():
-            return {"esperimenti": []}
-        return {
-            "esperimenti": sorted(
-                voce.name for voce in radice.iterdir()
-                if (voce / "registro.jsonl").exists()
-            )
-        }
-
-    @app.get("/api/experiments/{nome}")
-    def esperimento(nome: str) -> dict[str, object]:
-        """Le righe del registro di un esperimento, per la galleria di curazione.
-
-        Le colonne e la formattazione di ogni cella sono quelle di
-        report._COLUMNS e report._cell: riusate, non riscelte. Sono le stesse
-        che finiscono nell'appendice della tesi (report.write_report), e due
-        elenchi di colonne che divergono sono precisamente il difetto che
-        questo ramo ha gia' inseguito per giorni.
-        """
-        radice = radice_esperimenti.resolve()
-        percorso = (radice / nome / "registro.jsonl").resolve()
-        if not percorso.is_relative_to(radice) or not percorso.exists():
-            raise FileNotFoundError(f"nessun registro per l'esperimento {nome}")
-        righe = sweep.load_registry(percorso)
-        return {
-            "nome": nome,
-            "righe": righe,
-            "fronte": sum(1 for riga in righe if riga.get("on_front")),
-            "colonne": [
-                {"chiave": chiave, "etichetta": etichetta}
-                for chiave, etichetta in report._COLUMNS
-            ],
-            "celle": [
-                [report._cell(riga, chiave) for chiave, _ in report._COLUMNS]
-                for riga in righe
-            ],
-        }
 
     lavoratore = Worker()
 

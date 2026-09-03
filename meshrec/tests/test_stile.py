@@ -266,7 +266,7 @@ def test_ogni_cosa_che_prende_il_fuoco_lo_mostra():
     testo = _senza_commenti()
     for famiglia in (
         ".bottone", ".campo input", ".campo select", ".step",
-        ".registro", ".galleria-tabella",
+        ".registro",
         ".gruppo details > summary", ".viewport canvas", "h2",
     ):
         assert f"{famiglia}:focus-visible" in testo, (

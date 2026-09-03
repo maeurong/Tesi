@@ -34,15 +34,10 @@ def cliente(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     # al chiamante quando questo flag e' vero (e' il predefinito), per dare a
     # chi testa la scelta di vederla. Qui si vuole il contratto HTTP che vede
     # il browser, non l'eccezione interna.
-    # Le due radici esplicite: dalla correzione dell'ingresso non discendono
-    # piu' dal percorso del config (`experiments/` accanto al config sparirebbe
-    # per ogni corsa che vive in `runs/<nome>/`), ma dalla cartella da cui gira
-    # il server -- che sotto pytest e' il repository, non tmp_path.
     return TestClient(
         create_app(
             tmp_path / "config.yaml",
             radice_corse=tmp_path / "runs",
-            radice_esperimenti=tmp_path / "experiments",
         ),
         # Il server risponde solo a un nome locale (middleware
         # `solo_dal_calcolatore_locale`, contro il DNS rebinding). Il
@@ -2850,129 +2845,21 @@ def test_un_box_malformato_e_rifiutato_e_non_tocca_la_configurazione(cliente, tm
 
 
 # --------------------------------------------------------------------------
-# Task 14: galleria di curazione. Due endpoint in sola lettura sui registri
-# della Fase 2 (core.sweep.load_registry), colonne riusate da
-# core.report._COLUMNS / core.report._cell.
+# La galleria di curazione e' uscita il 03/09/2026: era una finestra sui
+# registri di sweep della Fase 2, e chi usa il programma non la apriva. Il
+# core dello sweep resta; a sparire sono le rotte e la colonna.
 # --------------------------------------------------------------------------
 
 
-def test_la_galleria_elenca_gli_esperimenti_esistenti(cliente, tmp_path):
-    registro = tmp_path / "experiments" / "prova" / "registro.jsonl"
-    registro.parent.mkdir(parents=True)
-    registro.write_text(
-        json.dumps({"fingerprint": "abc", "axes": {}, "outcome": "riuscito", "on_front": True})
-        + "\n",
-        encoding="utf-8",
+def test_le_rotte_della_galleria_non_esistono_piu(cliente):
+    """Una rotta che sopravvive alla propria interfaccia e' codice che nessuno
+    esercita e che continua a leggere il disco: va via con lei."""
+    assert cliente.get("/api/experiments").status_code == 404
+    assert cliente.get("/api/experiments/qualunque").status_code == 404
+    assert not any(
+        getattr(rotta, "path", "").startswith("/api/experiments")
+        for rotta in cliente.app.routes
     )
-    elenco = cliente.get("/api/experiments").json()
-    assert "prova" in elenco["esperimenti"]
-    corpo = cliente.get("/api/experiments/prova").json()
-    assert corpo["righe"][0]["on_front"] is True
-    # Le colonne sono quelle di report._COLUMNS, non un elenco scelto qui:
-    # se un giorno divergono, questo campo lo dice.
-    from meshrec.core import report as report_modulo
-
-    assert [voce["chiave"] for voce in corpo["colonne"]] == [chiave for chiave, _ in report_modulo._COLUMNS]
-    assert len(corpo["celle"]) == 1
-    assert len(corpo["celle"][0]) == len(report_modulo._COLUMNS)
-
-
-def test_una_sottocartella_senza_registro_non_e_un_esperimento(cliente, tmp_path):
-    """Una cartella d'esperimento a meta' (nessun registro ancora scritto) non
-    e' un esperimento concluso: comparirebbe in elenco e /api/experiments/{nome}
-    risponderebbe con un registro vuoto, che sembra un esperimento senza
-    candidati invece di uno mai partito."""
-    (tmp_path / "experiments" / "a_meta").mkdir(parents=True)
-    elenco = cliente.get("/api/experiments").json()
-    assert elenco["esperimenti"] == []
-
-
-def test_un_esperimento_inesistente_risponde_quattrocento(cliente, tmp_path):
-    (tmp_path / "experiments").mkdir()
-    risposta = cliente.get("/api/experiments/non-esiste")
-    assert risposta.status_code == 400
-    assert "non-esiste" in risposta.json()["messaggio"]
-
-
-def test_la_galleria_non_scrive_mai_nei_registri(cliente, tmp_path):
-    """Le corse di riferimento e i registri della Fase 2 sono di sola lettura.
-
-    Il piano guarda un file solo dopo una chiamata sola; qui la difesa vale
-    su TUTTE le tratte /api/experiments* (scoperte dalle rotte dell'app, non
-    elencate a mano: un endpoint aggiunto domani con questo prefisso ci
-    entra da solo) e sul contenuto dell'intera cartella experiments/, non di
-    un file scelto in anticipo.
-    """
-    radice_esperimenti = tmp_path / "experiments"
-    for nome in ("prova", "seconda"):
-        cartella = radice_esperimenti / nome
-        cartella.mkdir(parents=True)
-        (cartella / "registro.jsonl").write_text(
-            json.dumps({"fingerprint": nome, "axes": {}, "outcome": "riuscito", "on_front": True})
-            + "\n",
-            encoding="utf-8",
-        )
-        # Un secondo file, non registro.jsonl: la difesa deve valere sulla
-        # cartella intera, non sul solo file che gli endpoint leggono oggi.
-        (cartella / "esperimento.yaml").write_text(f"nome: {nome}\n", encoding="utf-8")
-
-    def istantanea() -> dict[str, bytes]:
-        return {
-            str(percorso.relative_to(radice_esperimenti)): percorso.read_bytes()
-            for percorso in sorted(radice_esperimenti.rglob("*"))
-            if percorso.is_file()
-        }
-
-    prima = istantanea()
-
-    tratte_galleria = [
-        rotta for rotta in cliente.app.routes
-        if getattr(rotta, "path", "").startswith("/api/experiments")
-    ]
-    # Se domani sparisse /api/experiments/{nome} o l'intero prefisso non
-    # comparisse piu' fra le rotte, questo test non proverebbe piu' niente
-    # in silenzio: qui si accorge e si ferma.
-    assert len(tratte_galleria) >= 2, "le rotte della galleria non si trovano piu' in app.routes"
-
-    for rotta in tratte_galleria:
-        bersaglio = re.sub(r"\{[^}]+\}", "prova", rotta.path)
-        for metodo in rotta.methods:
-            if metodo == "HEAD":
-                continue
-            cliente.request(metodo, bersaglio)
-
-    assert istantanea() == prima, "la galleria ha scritto o cancellato qualcosa in experiments/"
-
-
-def test_la_galleria_mostra_il_candidato_di_fronte_su_lab_crop():
-    """Verifica sul dato vero, non su tmp_path: i quattro valori vengono da
-    meshrec/docs/fase-2-sweep.md, paragrafo 3, riga del fronte
-    (surface.poisson_depth = 7). Il client punta a casi/lab.yaml e experiments/
-    reali del repository: la tratta e' GET, quindi non scrive su nessuno dei due.
-    """
-    radice_repo = Path(__file__).resolve().parents[1]
-    cliente_reale = TestClient(
-        create_app(
-            radice_repo / "casi" / "lab.yaml",
-            radice_esperimenti=radice_repo / "experiments",
-        ),
-        base_url="http://127.0.0.1",
-        raise_server_exceptions=False,
-    )
-    corpo = cliente_reale.get("/api/experiments/lab_crop").json()
-    indice_colonne = {voce["chiave"]: i for i, voce in enumerate(corpo["colonne"])}
-    fronte = [i for i, riga in enumerate(corpo["righe"]) if riga.get("on_front")]
-    assert len(fronte) == 1, f"atteso un solo candidato di fronte, trovati {len(fronte)}"
-    celle = corpo["celle"][fronte[0]]
-
-    assert celle[indice_colonne["axes"]] == "surface.poisson_depth=7"
-    # All'italiana dal 31/08/2026, e non e' un dettaglio di questa tratta: la
-    # tabella che il browser riceve la formatta `report._cell`, la stessa che
-    # scrive l'appendice. Le due rese non possono divergere, ed e' proprio
-    # questo che il riuso di `_COLUMNS`/`_cell` esiste per garantire.
-    assert celle[indice_colonne["tets"]] == "50.630"
-    assert celle[indice_colonne["over"]] == "0,06844"
-    assert celle[indice_colonne["thickness_error"]] == "1,192"
 
 
 def _cartella_di_corsa(cliente) -> Path:
@@ -3667,7 +3554,6 @@ def cliente_con_regioni(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Test
         create_app(
             tmp_path / "config.yaml",
             radice_corse=tmp_path / "runs",
-            radice_esperimenti=tmp_path / "experiments",
         ),
         base_url="http://127.0.0.1",
         raise_server_exceptions=False,

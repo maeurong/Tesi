@@ -166,8 +166,8 @@
       </div>
       <!-- Lo stato vuoto della vista, ed e' l'ultimo che mancava: aprire una
            corsa lasciava al centro dello schermo 856x640 px bianchi, misurati,
-           senza una riga che dicesse cosa ci va. Gli altri tre vuoti di
-           questa pagina (le corse, il dettaglio, la galleria) dicono tutti
+           senza una riga che dicesse cosa ci va. Gli altri due vuoti di
+           questa pagina (le corse, il dettaglio) dicono tutti
            perche' non mostrano niente; questo no, ed era il piu' grande.
            Nel markup e non fabbricato da app.js, come la riga d'errore, la
            didascalia e gli altri due: uno stato vuoto creato nell'istante in
@@ -264,22 +264,6 @@
          role="alert" della riga d'errore. Spenta, il registro resta leggibile
          quando lo si vuole: e' raggiungibile col tabindex qui sopra. -->
     <div class="registro" id="registro" role="log" aria-live="off" tabindex="0"></div>
-    <h2>Galleria di curazione</h2>
-    <!-- Sola lettura: nessun clic qui scrive sul disco. I registri sono
-         quelli della Fase 2 (experiments/), la tabella sperimentale della
-         tesi. -->
-    <p class="aiuto">Registri della Fase 2. La riga di fronte è evidenziata.</p>
-    <!-- Lo stato vuoto che mancava, e vive nel markup come gli altri quattro:
-         senza cartella experiments/ accanto, il titolo e la riga qui sopra
-         promettevano una tabella sopra il nulla. Era l'unica delle sezioni di
-         questa colonna a non dire perche' non mostrava niente. -->
-    <p class="vuoto" id="galleria-vuoto" hidden>Nessun registro di sweep in <code>experiments/</code>: la galleria resta vuota finché non ne esiste uno.</p>
-    <div class="azioni" id="galleria-elenco"></div>
-    <!-- tabindex="0" per la stessa ragione del registro: la tabella e' a otto
-         colonne dentro una zona da 22rem, scorre in orizzontale e non contiene
-         niente su cui il fuoco possa posarsi, quindi senza questo attributo le
-         colonne fuori vista non si raggiungono da tastiera (WCAG 2.1.1). -->
-    <div class="galleria-tabella" id="galleria-tabella" tabindex="0"></div>
   </aside>
 </div>
 </main>
