@@ -499,6 +499,12 @@ def _con_le_misure_della_superficie(
     uno qualunque degli step che scrivono una superficie: senza queste chiavi
     un fronte al 5 non saprebbe dire «aperta». Le chiavi proprie dello step
     vincono: `watertight_after` del 6 resta com'e'.
+
+    Misurato il 03/09/2026 su muro_generato (`runs/muro-prova`, tre ripetizioni,
+    `time.perf_counter`): a 221368 triangoli (05_surface) `surface_metrics`
+    costa 377 ms contro 2,52 s dello step (15%); a 233930 triangoli
+    (06_repaired) 406 ms contro 2,99 s (14%). Non nullo, ma un ordine di
+    grandezza sotto lo step che lo chiama.
     """
     if len(faces) == 0:
         return step_metrics

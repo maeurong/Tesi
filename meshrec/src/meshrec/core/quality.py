@@ -33,10 +33,22 @@ def _edge_counts(faces: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return np.unique(edges, axis=0, return_counts=True)
 
 
+def _boundary_edges_da_conteggi(unique: np.ndarray, counts: np.ndarray) -> np.ndarray:
+    """I bordi aperti, dati i conteggi degli spigoli gia' calcolati: uno spigolo
+    che appartiene a un solo triangolo."""
+    return unique[counts == 1]
+
+
+def _is_watertight_da_conteggi(counts: np.ndarray) -> bool:
+    """Chiusa se ogni spigolo appartiene a esattamente due triangoli, dati i
+    conteggi gia' calcolati. Zero spigoli non e' una superficie chiusa."""
+    return bool(counts.size > 0 and (counts == 2).all())
+
+
 def boundary_edges(faces: np.ndarray) -> np.ndarray:
     """Spigoli appartenenti a un solo triangolo: bordi aperti della mesh."""
     unique, counts = _edge_counts(np.asarray(faces))
-    return unique[counts == 1]
+    return _boundary_edges_da_conteggi(unique, counts)
 
 
 def is_watertight(faces: np.ndarray) -> bool:
@@ -49,7 +61,7 @@ def is_watertight(faces: np.ndarray) -> bool:
     lettura utile in cui il nulla sia un solido chiuso.
     """
     _, counts = _edge_counts(np.asarray(faces))
-    return bool(counts.size > 0 and (counts == 2).all())
+    return _is_watertight_da_conteggi(counts)
 
 
 def is_oriented(faces: np.ndarray) -> bool:
@@ -443,11 +455,12 @@ def surface_metrics(vertices: np.ndarray, faces: np.ndarray) -> dict[str, object
     v = np.asarray(vertices, dtype=np.float64)
     f = np.asarray(faces)
     a, b, c = v[f[:, 0]], v[f[:, 1]], v[f[:, 2]]
+    unique, counts = _edge_counts(f)
     return {
         "vertices": int(len(v)),
         "triangles": int(len(f)),
-        "watertight": is_watertight(f),
-        "boundary_edges": int(len(boundary_edges(f))),
+        "watertight": _is_watertight_da_conteggi(counts),
+        "boundary_edges": int(len(_boundary_edges_da_conteggi(unique, counts))),
         "area": finito_o_none(float(np.linalg.norm(np.cross(b - a, c - a), axis=1).sum() / 2.0)),
         "volume": finito_o_none(mesh_volume(v, f)),
         "aspect_ratio": _distribution(triangle_aspect_ratios(v, f)),

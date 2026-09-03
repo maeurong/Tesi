@@ -87,6 +87,40 @@ def test_surface_metrics_on_a_punched_box_reports_the_opening():
     assert metrics["boundary_edges"] == 4
 
 
+def test_surface_metrics_matches_the_public_functions_on_a_closed_and_an_open_mesh():
+    vertices, faces = synth.box_mesh(SIZE)
+    for f in (faces, synth.punch_holes(faces)):
+        metrics = quality.surface_metrics(vertices, f)
+        assert metrics["watertight"] == quality.is_watertight(f)
+        assert metrics["boundary_edges"] == len(quality.boundary_edges(f))
+
+
+def test_surface_metrics_calls_edge_counts_once(monkeypatch):
+    vertices, faces = synth.box_mesh(SIZE)
+    originale = quality._edge_counts
+    chiamate = []
+
+    def contata(f):
+        chiamate.append(1)
+        return originale(f)
+
+    monkeypatch.setattr(quality, "_edge_counts", contata)
+    quality.surface_metrics(vertices, faces)
+    assert len(chiamate) == 1
+
+
+def test_surface_metrics_on_empty_faces_does_not_crash():
+    """Ingresso degenere: `faces` vuoto. La guardia sta nel chiamante di
+    pipeline, ma la funzione stessa non deve peggiorare rispetto a oggi."""
+    vertices = np.zeros((0, 3))
+    faces = np.zeros((0, 3), dtype=int)
+    metrics = quality.surface_metrics(vertices, faces)
+    assert metrics["watertight"] is False
+    assert metrics["boundary_edges"] == 0
+    assert metrics["area"] == 0.0
+    assert metrics["volume"] == 0.0
+
+
 def test_volume_metrics_flag_inverted_elements():
     nodes = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
     good = np.array([[0, 1, 2, 3]])

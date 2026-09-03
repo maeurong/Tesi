@@ -95,6 +95,31 @@ def _sorgente_di(nome: str, testo: str) -> str:
     return f"{prefisso}function {nome}(" + corpo.split("\n}\n", 1)[0] + "\n}"
 
 
+def _costruzione_pannello_modello() -> str:
+    """`aggiornaModello` non e' piu' una funzione di primo livello di app.js:
+    vive dentro la factory `creaPannelloModello` di modello.js, con il proprio
+    contatore (`apriModello`) chiuso li' dentro e non piu' estraibile da solo.
+    Un banco che chiede `aggiornaModello` si porta dietro l'importazione vera
+    e la costruzione, con le dipendenze che ogni richiesta di `aggiornaModello`
+    porta gia' con se' (`superata`, `serverMuto`, `corpoLetto`,
+    `valoreDellaMetrica` -- sempre nella stessa lista, vedi `_COLONNA`) piu'
+    quelle che `_DOM` dichiara per tutti (`elemento`, `ETICHETTE`,
+    `STEP_DEL_PRIOR`, `fetch`).
+
+    `fetch` passa per un involucro apposta: i banchi riassegnano
+    `globalThis.fetch` DOPO questa riga (per simulare una risposta), e una
+    presa diretta del legame lo congelerebbe al mutismo predefinito di `_DOM`.
+    """
+    percorso = (UI_DIR / "modello.js").resolve().as_uri()
+    return (
+        f"import {{ creaPannelloModello }} from {percorso!r};\n"
+        "const { aggiornaModello } = creaPannelloModello({\n"
+        "  fetch: (...args) => fetch(...args), elemento, superata, serverMuto,\n"
+        "  corpoLetto, valoreDellaMetrica, ETICHETTE, STEP_DEL_PRIOR,\n"
+        "});\n"
+    )
+
+
 def _funzioni(*nomi: str) -> str:
     """Le funzioni chieste, una volta sola ciascuna e nell'ordine dato.
 
@@ -103,9 +128,24 @@ def _funzioni(*nomi: str) -> str:
     corpoLetto` nello stesso modulo: `node` si ferma su un SyntaxError, cioe' un
     rosso che non parla del comportamento. Una funzione elencata due volte e' la
     stessa funzione, non due.
+
+    Cerca prima in app.js e, se non la trova li', in modello.js: dopo la
+    seconda mappa alcune di queste funzioni (`fronteDelloStato`,
+    `chiaveDelFronte`, `righeDelModello`) sono uscite di li'. `aggiornaModello`
+    e' un caso a parte, perche' non e' piu' una funzione di primo livello da
+    nessuna parte: vedi `_costruzione_pannello_modello`.
     """
-    testo = _modulo()
-    return "\n".join(_sorgente_di(nome, testo) for nome in dict.fromkeys(nomi))
+    testo_app = _modulo()
+    testo_modello = _modulo_modello()
+    pezzi = []
+    for nome in dict.fromkeys(nomi):
+        if nome == "aggiornaModello":
+            pezzi.append(_costruzione_pannello_modello())
+        elif f"function {nome}(" in testo_app:
+            pezzi.append(_sorgente_di(nome, testo_app))
+        else:
+            pezzi.append(_sorgente_di(nome, testo_modello))
+    return "\n".join(pezzi)
 
 
 # Le funzioni che disegnano la colonna degli step, in un elenco solo.
@@ -117,38 +157,36 @@ _COLONNA = (
     "segnaStepAperto", "nuovaRiga",
     "superata", "serverMuto", "ragioneDelRifiuto", "corpoLetto",
     # Il pannello del modello, che `disegnaStep` chiama in coda: senza queste
-    # quattro il banco della colonna cade su un ReferenceError. Nel banco non
+    # tre il banco della colonna cade su un ReferenceError. Nel banco non
     # c'e' server, quindi il pannello percorre il proprio ramo di rifiuto --
     # ed e' cio' che deve fare quando /api/metrics non risponde.
     "fronteDelloStato", "chiaveDelFronte", "righeDelModello", "valoreDellaMetrica",
-    "apriModello", "aggiornaModello",
+    "aggiornaModello",
     "disegnaStep",
 )
 
 
-def _etichette_metriche() -> dict:
-    """La tabella `ETICHETTE_METRICHE` letta dal sorgente vero, valutata con
-    `node`.
-
-    Non passa da `_costante`, che vede una riga sola, ne' da una copia scritta
-    qui: una copia lascerebbe che banco e modulo divergano in silenzio, ed e'
-    proprio la tabella su cui il banco deve dire qualcosa. Le due ancore si
-    controllano prima di tagliare, cosi' una costante rinominata fallisce
-    dicendo che l'estrazione si e' rotta invece di far cadere `node` su un
-    SyntaxError.
-    """
-    inizio, fine = "const ETICHETTE_METRICHE = ", "\n};\n"
-    testo = _modulo()
-    assert inizio in testo, f"ancora d'inizio assente: {inizio}"
-    coda = testo.split(inizio, 1)[1]
-    assert fine in coda, f"ancora di fine assente: {fine!r}"
-    corpo = inizio + coda.split(fine, 1)[0] + "\n};\n"
+def _importa(percorso: Path, corpo: str) -> str:
+    """Esegue con `node` un'importazione ES vera di un modulo dell'interfaccia
+    (etichette.js, modello.js) e restituisce lo stdout. A differenza di
+    `_sorgente_di`/`_costante`, che ritagliano testo da un modulo che non si
+    puo' importare cosi' com'e' (app.js porta percorsi assoluti dal server),
+    questi moduli nuovi non hanno quel problema: si possono importare per
+    davvero, e importarli e' anche il banco che li tiene valutabili da soli."""
     esito = subprocess.run(
-        [_node(), "-e", corpo + "console.log(JSON.stringify(ETICHETTE_METRICHE))"],
+        [_node(), "--input-type=module", "-e", f"import * as modulo from {percorso.resolve().as_uri()!r};\n" + corpo],
         capture_output=True, text=True,
     )
     assert esito.returncode == 0, esito.stderr
-    return json.loads(esito.stdout)
+    return esito.stdout
+
+
+def _etichette_metriche() -> dict:
+    """La tabella `ETICHETTE_METRICHE` di `etichette.js`, letta importando
+    davvero il modulo: una copia scritta qui lascerebbe che banco e modulo
+    divergano in silenzio, ed e' proprio la tabella su cui il banco deve dire
+    qualcosa."""
+    return json.loads(_importa(UI_DIR / "etichette.js", "console.log(JSON.stringify(modulo.ETICHETTE_METRICHE));"))
 
 
 def _costante(nome: str) -> str:
@@ -172,13 +210,21 @@ def _tabella_del_modello() -> str:
     controllano prima di tagliare: un'ancora sparita darebbe un taglio vuoto o
     lungo mezzo modulo, e il banco fallirebbe dicendo qualcosa sul
     comportamento invece che sull'estrazione che si e' rotta.
+
+    Sorgente `modello.js` e non piu' `app.js`: la tratta del pannello del
+    modello ci e' uscita.
     """
     inizio, fine = "const NON_MISURATO = ", "\n// Le righe del pannello"
-    testo = _modulo()
+    testo = _modulo_modello()
     assert inizio in testo, f"ancora d'inizio assente: {inizio}"
     coda = testo.split(inizio, 1)[1]
     assert fine in coda, f"ancora di fine assente: {fine}"
     return inizio + coda.split(fine, 1)[0] + "\n"
+
+
+def _modulo_modello() -> str:
+    """Il sorgente di `modello.js`. Gemella di `_modulo()` e `_modulo_viewport()`."""
+    return (UI_DIR / "modello.js").read_text(encoding="utf-8")
 
 def _costante_viewport(nome: str) -> str:
     """La riga di una costante di `viewport.js`, presa dal sorgente vero.
@@ -323,6 +369,11 @@ const document = {
   // attacca il proprio collegamento prima di cliccarlo.
   body: radice,
 };
+// Globale davvero, non solo un legame di questo modulo di prova: modello.js
+// si importa per davvero (e' un modulo a se', non un ritaglio incollato qui
+// dentro), e un `document` bare al suo interno lo trova solo passando da
+// `globalThis`.
+globalThis.document = document;
 
 // Il costruttore che il browser porta per <option>, e che `pannelloCampo` usa.
 // Reso come un <option> del DOM finto e non come un oggetto a parte: cosi' un
@@ -401,8 +452,12 @@ _DOM += _costante("STEP_DEL_PRIOR") + "\n"
 _DOM += _tabella_del_modello()
 # Le chiavi il cui «sì» e' una contraddizione. Sta qui e non nei singoli banchi
 # perche' `righeDelModello` la legge, e `aggiornaModello` in coda a `disegnaStep`
-# la porta dentro ogni banco che disegna la colonna.
-_DOM += _costante("METRICHE_D_ALLARME") + "\n"
+# la porta dentro ogni banco che disegna la colonna. Dal modulo vero e non da
+# `_costante`: la costante e' finita in etichette.js, che _importa_ (non
+# ritaglia) -- lo stesso Set non si scrive due volte a mano.
+_DOM += "const METRICHE_D_ALLARME = new Set(" + _importa(
+    UI_DIR / "etichette.js", "console.log(JSON.stringify([...modulo.METRICHE_D_ALLARME]));",
+).strip() + ");\n"
 
 
 # --------------------------------------------------------------------------
@@ -3961,11 +4016,12 @@ def test_ogni_metrica_delle_due_tabelle_di_qualita_ha_la_sua_etichetta():
                 chiavi.append(intero)
         return chiavi
 
-    testo = _modulo()
-    regioni = {}
-    for step in ("07_surface_quality", "10_volume_quality"):
-        apertura = testo.index(f'"{step}": {{')
-        regioni[step] = testo[apertura:testo.index("\n  },", apertura)]
+    # Dal modulo vero e non da un ritaglio di testo: `07_surface_quality`
+    # prende le sue sei righe base e le cinque `aspect_ratio` da `SUPERFICIE`
+    # con `...SUPERFICIE` (etichette.js), quindi non stanno piu' scritte
+    # dentro il blocco del passo -- una regione di testo le direbbe mancanti
+    # mentre l'oggetto vero le porta.
+    etichette_metriche = _etichette_metriche()
 
     cubo = o3d.geometry.TriangleMesh.create_box(1.0, 1.0, 1.0)
     vertici = np.asarray(cubo.vertices)
@@ -3979,7 +4035,7 @@ def test_ogni_metrica_delle_due_tabelle_di_qualita_ha_la_sua_etichetta():
     misure10 = quality.volume_metrics(nodi, np.array([[0, 1, 2, 3]]), 2.0)
 
     for step, misure in (("07_surface_quality", misure7), ("10_volume_quality", misure10)):
-        mancanti = [c for c in appiattite(misure) if f'"{c}":' not in regioni[step]]
+        mancanti = [c for c in appiattite(misure) if c not in etichette_metriche.get(step, {})]
         assert mancanti == [], (
             f"{step}: queste grandezze finiscono a video come chiave nuda, "
             f"senza nome e senza unità: {mancanti}"
@@ -6757,9 +6813,9 @@ const steps = [
   { numero: 5, chiave: "05_reconstruct", stato: "fallito" },
   { numero: 12, chiave: "12_wall", stato: "valido" },
 ];
-assert.equal(fronteDelloStato(steps).numero, 4, "il fronte e' il valido piu' alto, prior escluso");
-assert.equal(fronteDelloStato(steps.map((v) => ({ ...v, stato: "mai eseguito" }))), null);
-assert.equal(fronteDelloStato([]), null);
+assert.equal(fronteDelloStato(steps, STEP_DEL_PRIOR).numero, 4, "il fronte e' il valido piu' alto, prior escluso");
+assert.equal(fronteDelloStato(steps.map((v) => ({ ...v, stato: "mai eseguito" })), STEP_DEL_PRIOR), null);
+assert.equal(fronteDelloStato([], STEP_DEL_PRIOR), null);
 """)
 
 
@@ -6772,7 +6828,7 @@ const metriche = {
   // dei due il pannello sta davvero leggendo.
   "07_surface_quality": { geometric_error: { cloud_to_mesh: { RMS: 111, max: 222 }, mesh_to_cloud: { RMS: 333, max: 444 } } },
 };
-const superficie = righeDelModello({ numero: 5, chiave: "05_reconstruct" }, metriche);
+const superficie = righeDelModello({ numero: 5, chiave: "05_reconstruct" }, metriche, valoreDellaMetrica);
 const perNome = Object.fromEntries(superficie);
 // "1234" e non "1.234": in italiano CLDR non raggruppa a quattro cifre
 // (minimumGroupingDigits vale 2), e questo pannello formatta come la colonna
@@ -6781,7 +6837,7 @@ const perNome = Object.fromEntries(superficie);
 assert.equal(perNome["vertici"], "1234");
 assert.equal(perNome["superficie"], "aperta");
 assert.equal(perNome["spigoli di bordo"], "12");
-const nuvola = Object.fromEntries(righeDelModello({ numero: 1, chiave: "01_load" }, metriche));
+const nuvola = Object.fromEntries(righeDelModello({ numero: 1, chiave: "01_load" }, metriche, valoreDellaMetrica));
 assert.equal(nuvola["punti"], "1.000.000");
 // Sei cifre significative, come valoreDellaMetrica: la colonna del dettaglio e
 // questo pannello mostrano la stessa quantita' a due passi di distanza, e due
@@ -6790,29 +6846,29 @@ assert.equal(nuvola["spaziatura media [mm]"], "1,19346");
 assert.equal(nuvola["ingombro [mm]"], "2759 × 785 × 2000");
 // Un ingombro senza numeri non e' un ingombro: un array vuoto non deve
 // diventare la stringa vuota, che a schermo si legge «misurato e nullo».
-const senzaIngombro = Object.fromEntries(righeDelModello({ numero: 1, chiave: "01_load" }, { "01_load": { extent: [] } }));
+const senzaIngombro = Object.fromEntries(righeDelModello({ numero: 1, chiave: "01_load" }, { "01_load": { extent: [] } }, valoreDellaMetrica));
 assert.equal(senzaIngombro["ingombro [mm]"], "non misurato");
 // Lo scarto si legge nel verso mesh_to_cloud, che e' quello che il progetto
 // chiama «scarto dalla nuvola» (report.py, quality.py, e la legenda della
 // vista, alimentata dal verso per-vertice). Leggere cloud_to_mesh metterebbe
 // sotto lo stesso nome una misura diversa da quella gia' pubblicata.
-const scarto = Object.fromEntries(righeDelModello({ numero: 7, chiave: "07_surface_quality" }, metriche));
+const scarto = Object.fromEntries(righeDelModello({ numero: 7, chiave: "07_surface_quality" }, metriche, valoreDellaMetrica));
 assert.equal(scarto["scarto dalla nuvola, RMS [mm]"], "333");
 assert.equal(scarto["scarto dalla nuvola, massimo [mm]"], "444");
-const vecchia = Object.fromEntries(righeDelModello({ numero: 6, chiave: "06_repair" }, { "06_repair": { vertices: 3 } }));
+const vecchia = Object.fromEntries(righeDelModello({ numero: 6, chiave: "06_repair" }, { "06_repair": { vertices: 3 } }, valoreDellaMetrica));
 assert.equal(vecchia["vertici"], "3");
 assert.equal(vecchia["superficie"], "non misurato", "una corsa vecchia non inventa la chiusura");
-assert.deepEqual(righeDelModello({ numero: 7, chiave: "07_surface_quality" }, {}).map(([, v]) => v).every((v) => v === "non misurato"), true);
+assert.deepEqual(righeDelModello({ numero: 7, chiave: "07_surface_quality" }, {}, valoreDellaMetrica).map(([, v]) => v).every((v) => v === "non misurato"), true);
 // Un percorso annidato interrotto a meta': `geometric_error` c'e' ma non e' un
 // oggetto. Camminarci dentro senza guardare che cosa si sta aprendo solleverebbe.
-const rotto = Object.fromEntries(righeDelModello({ numero: 7, chiave: "07_surface_quality" }, { "07_surface_quality": { geometric_error: 3 } }));
+const rotto = Object.fromEntries(righeDelModello({ numero: 7, chiave: "07_surface_quality" }, { "07_surface_quality": { geometric_error: 3 } }, valoreDellaMetrica));
 assert.equal(rotto["scarto dalla nuvola, RMS [mm]"], "non misurato");
 // Una chiave che la tabella non conosce non ha righe, e non e' un errore: il
 // 12 e' escluso a monte, ma una chiave futura passerebbe di qui.
-assert.deepEqual(righeDelModello({ numero: 13, chiave: "13_futuro" }, {}), []);
+assert.deepEqual(righeDelModello({ numero: 13, chiave: "13_futuro" }, {}, valoreDellaMetrica), []);
 // Cio' che non e' ne' numero ne' booleano si scrive com'e': C3D4 e' un
 // identificatore, non un numero da formattare.
-const deck = Object.fromEntries(righeDelModello({ numero: 11, chiave: "11_export" }, { "11_export": { element_type: "C3D4" } }));
+const deck = Object.fromEntries(righeDelModello({ numero: 11, chiave: "11_export" }, { "11_export": { element_type: "C3D4" } }, valoreDellaMetrica));
 assert.equal(deck["tipo di elemento"], "C3D4");
 """)
 
@@ -6854,7 +6910,7 @@ def test_il_pannello_del_modello_non_chiede_le_metriche_quando_non_c_e_un_fronte
     le righe nascoste."""
     _esegui(tmp_path, _DOM + _funzioni(
         "fronteDelloStato", "chiaveDelFronte", "righeDelModello", "valoreDellaMetrica",
-        "apriModello", "aggiornaModello", "superata", "serverMuto", "corpoLetto",
+        "aggiornaModello", "superata", "serverMuto", "corpoLetto",
     ) + """
 let richieste = 0;
 let risponde = async () => ({ ok: true, status: 200, json: async () => ({ "01_load": { points_kept: 5 } }) });
@@ -6908,7 +6964,7 @@ def test_il_pannello_del_modello_marca_lo_steiner_saturato(tmp_path):
     colonna."""
     _esegui(tmp_path, _DOM + _funzioni(
         "fronteDelloStato", "chiaveDelFronte", "righeDelModello", "valoreDellaMetrica",
-        "apriModello", "aggiornaModello", "superata", "serverMuto", "corpoLetto",
+        "aggiornaModello", "superata", "serverMuto", "corpoLetto",
     ) + """
 let metriche = { "09_tetrahedralize": { nodes: 10, tets: 20, steiner_points: 3, steiner_saturated: true } };
 globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => metriche });
@@ -6935,7 +6991,7 @@ def test_la_rilettura_del_modello_superata_non_riscrive_il_pannello(tmp_path):
     per ultimo, non chi arriva per ultimo."""
     _esegui(tmp_path, _DOM + _funzioni(
         "fronteDelloStato", "chiaveDelFronte", "righeDelModello", "valoreDellaMetrica",
-        "apriModello", "aggiornaModello", "superata", "serverMuto", "corpoLetto",
+        "aggiornaModello", "superata", "serverMuto", "corpoLetto",
     ) + """
 const inVolo = [];
 globalThis.fetch = async () => new Promise((risolvi) => inVolo.push(risolvi));
@@ -6971,7 +7027,7 @@ def test_una_risposta_vecchia_non_riscrive_il_pannello_gia_svuotato(tmp_path):
     """
     _esegui(tmp_path, _DOM + _funzioni(
         "fronteDelloStato", "chiaveDelFronte", "righeDelModello", "valoreDellaMetrica",
-        "apriModello", "aggiornaModello", "superata", "serverMuto", "corpoLetto",
+        "aggiornaModello", "superata", "serverMuto", "corpoLetto",
     ) + """
 const inVolo = [];
 globalThis.fetch = async () => new Promise((risolvi) => inVolo.push(risolvi));
@@ -7469,6 +7525,116 @@ for (const chiave of ["05_reconstruct", "06_repair", "08_simplify"]) {{
   }}
 }}
 """)
+
+
+def test_etichette_js_non_importa_niente():
+    """`etichette.js` deve restare valutabile da solo con `node -e`: e' cosi'
+    che `_etichette_metriche()` lo legge, senza un server che gli serva un
+    secondo modulo. Un `import` lo romperebbe in silenzio per chi lo valuta
+    isolato."""
+    testo = _senza_commenti_js((UI_DIR / "etichette.js").read_text(encoding="utf-8"))
+    assert re.search(r"\bimport\b", testo) is None, (
+        "etichette.js importa qualcosa: non e' piu' valutabile da solo"
+    )
+
+
+def test_le_funzioni_pure_del_modello_girano_senza_un_dom():
+    """`fronteDelloStato`, `chiaveDelFronte` e `righeDelModello` sono pure:
+    prese da un node nudo, senza `document` ne' `fetch`, devono girare lo
+    stesso. Se una di loro toccasse un globale da browser questo banco
+    cadrebbe su un ReferenceError che lo nomina."""
+    uscita = _importa(UI_DIR / "modello.js", """
+const fronte = modulo.fronteDelloStato(
+  [{ numero: 1, chiave: "01_load", stato: "valido" }], "12_wall",
+);
+const chiave = modulo.chiaveDelFronte(fronte);
+const righe = modulo.righeDelModello(fronte, { "01_load": { points_kept: 5 } }, String);
+console.log(JSON.stringify({ numero: fronte.numero, chiave, punti: righe[0][1] }));
+""")
+    esito = json.loads(uscita)
+    assert esito == {"numero": 1, "chiave": "1|undefined|undefined", "punti": "5"}
+
+
+def test_creaPannelloModello_senza_una_dipendenza_solleva_subito(tmp_path):
+    """La factory deve accorgersi di una dipendenza mancante alla
+    costruzione, non al primo `aggiornaModello(...)`: un `TypeError` col nome
+    di chi manca, non un crash al primo fotogramma disegnato."""
+    percorso = (UI_DIR / "modello.js").resolve().as_uri()
+    _esegui(tmp_path, f"""
+import assert from 'node:assert/strict';
+import {{ creaPannelloModello }} from {percorso!r};
+const dipendenze = {{
+  fetch: () => {{}}, elemento: () => {{}}, superata: () => {{}}, serverMuto: () => {{}},
+  corpoLetto: () => {{}}, valoreDellaMetrica: () => {{}}, ETICHETTE: {{}}, STEP_DEL_PRIOR: "12_wall",
+}};
+for (const nome of Object.keys(dipendenze)) {{
+  const incomplete = {{ ...dipendenze }};
+  delete incomplete[nome];
+  assert.throws(() => creaPannelloModello(incomplete), new RegExp(nome),
+    `senza ${{nome}} la factory doveva sollevare nominandolo`);
+}}
+creaPannelloModello(dipendenze);
+""")
+
+
+def test_un_guasto_dopo_la_lettura_non_incastra_il_pannello(tmp_path):
+    """Non solo un guasto sulla fetch/lettura del corpo (gia' provato altrove):
+    anche un throw DOPO, nel rendering (`elemento` che rompe), deve azzerare
+    `fronteMostrato` invece di lasciare la terna segnata con il pannello
+    incastrato. Prima lo garantiva il `.catch` su `aggiornaModello(steps)` in
+    app.js, che avvolgeva l'intera chiamata; azzerarla solo sul guasto
+    fetch/corpo (comune ma non l'unico) lasciava scoperto tutto cio' che sta
+    dopo."""
+    percorso = (UI_DIR / "modello.js").resolve().as_uri()
+    _esegui(tmp_path, f"""
+import assert from 'node:assert/strict';
+import {{ creaPannelloModello }} from {percorso!r};
+
+let richieste = 0;
+const documentoFinto = {{
+  getElementById: () => ({{ set textContent(_v) {{}}, set hidden(_v) {{}} }}),
+}};
+globalThis.document = documentoFinto;
+
+const {{ aggiornaModello }} = creaPannelloModello({{
+  fetch: async () => {{ richieste += 1; return {{ ok: true, status: 200, json: async () => ({{ "01_load": {{ points_kept: 5 }} }}) }}; }},
+  // Rompe SOLO nel rendering: la fetch e la lettura del corpo vanno a buon
+  // fine, quindi un banco che guardasse solo quel tratto direbbe verde.
+  elemento: () => {{ throw new Error("elemento rotto"); }},
+  superata: () => false,
+  serverMuto: () => ({{ ok: false }}),
+  corpoLetto: async (risposta) => risposta.json(),
+  valoreDellaMetrica: (v) => String(v),
+  ETICHETTE: {{}},
+  STEP_DEL_PRIOR: "12_wall",
+}});
+
+const fronte = {{ numero: 1, chiave: "01_load", stato: "valido", impronta: "a", secondi: 1 }};
+await assert.doesNotReject(() => aggiornaModello([fronte]), "il guasto dopo la lettura non deve uscire da aggiornaModello");
+assert.equal(richieste, 1);
+
+// Stesso fronte: se la terna non fosse stata azzerata sul guasto, questa
+// rilettura uscirebbe subito senza una seconda fetch.
+await aggiornaModello([fronte]);
+assert.equal(richieste, 2, "la terna non e' stata azzerata dopo il guasto nel rendering: nessuna rilettura riparte");
+""")
+
+
+def test_ogni_step_ha_la_propria_tabella_salvo_il_prior():
+    """Dodici chiavi in `ETICHETTE`, undici tabelle in `ETICHETTE_METRICHE`:
+    il prior (`12_wall`) non ha pannello (`disegnaStep` lo filtra, PRODUCT.md
+    lo dichiara fuori dall'interfaccia). Una chiave senza tabella qui
+    cadrebbe su `undefined` nel pannello del dettaglio invece che su un rosso
+    che dice il nome."""
+    inizio, fine = "const ETICHETTE = {", "\n};"
+    testo = _modulo()
+    assert inizio in testo, f"ancora d'inizio assente: {inizio}"
+    corpo = testo.split(inizio, 1)[1].split(fine, 1)[0]
+    chiavi = re.findall(r'"(\d\d_\w+)":', corpo)
+    assert chiavi, "nessuna chiave trovata in ETICHETTE: l'estrazione si e' rotta"
+    tabelle = _etichette_metriche()
+    mancanti = [c for c in chiavi if c != "12_wall" and c not in tabelle]
+    assert mancanti == [], f"chiavi di ETICHETTE senza tabella in ETICHETTE_METRICHE: {mancanti}"
 
 
 def test_una_corsa_nuova_toglie_il_segno_dal_titolo(tmp_path):
