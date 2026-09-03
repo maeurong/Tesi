@@ -14,6 +14,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from meshrec.core.config import PipelineConfig
+from meshrec.core.io import scrivi_atomico
 
 # Le dodici chiavi del registro degli step. Lo step 7 non ha artefatto proprio
 # ma ha metriche, quindi c'e' anche lui. Lo step 12 e' il prior geometrico
@@ -138,8 +139,6 @@ def write_state(
     e' nullo, e cosi' lo stato su disco resta un solo documento coerente
     invece di dodici frammenti da ricomporre.
     """
-    from meshrec.core.io import scrivi_atomico
-
     salvato = read_state(out_dir)
     salvato[STEP_KEYS[numero - 1]] = {
         "impronta": impronta,
@@ -169,13 +168,15 @@ def dimentica(out_dir: Path, numeri: Iterable[int], nome: str = STATE_FILENAME) 
     non si crea e non si riscrive: e' gia' «mai eseguito», e riscriverlo
     perderebbe cio' che una persona potrebbe ancora recuperare a mano.
     """
-    from meshrec.core.io import scrivi_atomico
-
     percorso = Path(out_dir) / nome
     salvato = _leggi_mappa(percorso)
     if not salvato:
         return
     for numero in numeri:
+        # Uno zero prenderebbe l'ULTIMA chiave -- `STEP_KEYS[-1]`, il prior --
+        # e la toglierebbe in silenzio; un tredici solleverebbe.
+        if not 1 <= numero <= len(STEP_KEYS):
+            continue
         salvato.pop(STEP_KEYS[numero - 1], None)
     scrivi_atomico(
         percorso,

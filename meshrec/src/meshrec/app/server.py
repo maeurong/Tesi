@@ -1192,7 +1192,7 @@ def create_app(
         storico.deposita(out_dir, attuale, "modifica fuori dall'interfaccia", [])
         return coda
 
-    def _ripristina(testo: str | None, vuoto: str, rimetti, scambio: int) -> dict[str, object]:
+    def _ripristina(testo: str | None, vuoto: str, rimetti, versione: int) -> dict[str, object]:
         """`rimetti` riporta il cursore dove stava: indietro e avanti lo hanno
         gia' spostato quando questa funzione riceve il testo, e ogni rifiuto da
         qui in giu' deve annullare anche quello spostamento.
@@ -1272,7 +1272,7 @@ def create_app(
         # marca da se'. Ma dirlo e' obbligatorio -- un ritorno indietro che
         # cambia in silenzio lo stato di sette step e' una modifica invisibile
         # -- e lo dice `steps`, che porta lo stato nuovo per intero.
-        esecuzione = storico.scambia(Path(cfg_dopo.run.out_dir), scambio)
+        esecuzione = storico.scambia(Path(cfg_dopo.run.out_dir), versione)
         risposta: dict[str, object] = {
             "annullato": True,
             "tipo": "esecuzione" if esecuzione else "configurazione",
@@ -1312,7 +1312,7 @@ def create_app(
                 storico.indietro(out_dir),
                 "niente da annullare",
                 lambda: storico.avanti(out_dir),
-                scambio=da_togliere,
+                versione=da_togliere,
             )
 
     @app.post("/api/storico/avanti", response_model=None)
@@ -1342,7 +1342,7 @@ def create_app(
                 testo,
                 vuoto,
                 lambda: storico.indietro(out_dir),
-                scambio=storico.cursore(out_dir),
+                versione=storico.cursore(out_dir),
             )
 
     @app.get("/api/metrics")
@@ -1545,6 +1545,15 @@ def create_app(
         # La guardia sta PRIMA del deposito: `steps.dimentica(range(0, 1))`
         # farebbe `STEP_KEYS[-1]` e toglierebbe in silenzio la voce del prior,
         # e 13 solleverebbe `IndexError` a versione gia' depositata.
+        # Prima del dominio: `/api/step/12/from` chiede il 12 e riceve il tetto
+        # a 11, cioe' `a < da`. Il messaggio del dominio direbbe «chiesto 12,
+        # fino a 11» a chi ha appena chiesto uno step che esiste, e mentirebbe
+        # due volte: sul perche' del rifiuto e su cio' che resta possibile.
+        if 1 <= da <= 12 and a < da:
+            raise ValueError(
+                "«da qui in giù» arriva al deck (step 11): per il prior usa "
+                "`meshrec wall` oppure lo step 12 da solo"
+            )
         if not (1 <= da <= a <= 12):
             raise ValueError(
                 f"lo step va scelto fra 1 e 12 (chiesto {da}"
@@ -1939,6 +1948,13 @@ def create_app(
                 yield f"event: stato\ndata: {json.dumps(stato, default=str)}\n\n"
                 emesse += 1
                 righe = lavoratore.righe()
+                # Il registro si svuota a ogni avvio (Worker.start): sul
+                # fotogramma in cui si accorcia, `inviate` vale piu' di quante
+                # righe ci sono e il taglio mangia le prime della corsa nuova,
+                # che nessun fotogramma successivo ripesca. Sono quelle che il
+                # pannello dell'esito legge quando la corsa fallisce subito.
+                if len(righe) < inviate:
+                    inviate = 0
                 for riga in righe[inviate:]:
                     yield f"event: riga\ndata: {json.dumps(riga)}\n\n"
                 inviate = len(righe)

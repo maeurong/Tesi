@@ -235,14 +235,29 @@ def deposita(
                 encoding="utf-8",
             ),
         )
-        for nome in scambio["sposta"]:
-            sorgente = Path(out_dir) / nome
-            if sorgente.exists():
-                sorgente.replace(cartella_scambio / nome)
-        for nome in scambio["copia"]:
-            sorgente = Path(out_dir) / nome
-            if sorgente.exists():
-                shutil.copy2(sorgente, cartella_scambio / nome)
+        try:
+            for nome in scambio["sposta"]:
+                sorgente = Path(out_dir) / nome
+                if sorgente.exists():
+                    sorgente.replace(cartella_scambio / nome)
+            for nome in scambio["copia"]:
+                sorgente = Path(out_dir) / nome
+                if sorgente.exists():
+                    shutil.copy2(sorgente, cartella_scambio / nome)
+        except BaseException:
+            # Interrotta a meta' -- disco pieno sulla copia, o un Ctrl+C fra i
+            # rename -- questa versione resterebbe con dentro gli artefatti gia'
+            # spostati e il cursore ancora su `corrente`: il deposito successivo
+            # la tronca con rmtree, e quegli artefatti spariscono da entrambe le
+            # parti. Si disfa solo cio' che era stato SPOSTATO: le copie sono
+            # ancora nella corsa, e cio' che ne sta nella cartella e' al piu' un
+            # troncone che se ne va con lei.
+            for nome in scambio["sposta"]:
+                messo_da_parte = cartella_scambio / nome
+                if messo_da_parte.exists():
+                    messo_da_parte.replace(Path(out_dir) / nome)
+            _scarta_versione(out_dir, nuovo)
+            raise
 
     # Lo stesso append_row del registro degli esperimenti della Fase 2, non una
     # seconda forma che gli somiglia: in sola aggiunta, un file che si allunga
@@ -339,6 +354,13 @@ def scambia(out_dir: Path, numero: int) -> dict | None:
         return None
     letto = json.loads(dichiarazione.read_text(encoding="utf-8"))
     for nome in letto["file"]:
+        # L'elenco lo scrive il server da una lista chiusa, ma il file sta su
+        # disco: un nome scritto a mano con `../` -- o assoluto, che in
+        # `Path(out_dir) / nome` vince sulla radice -- uscirebbe dalla corsa e
+        # muoverebbe qualcosa che non le appartiene. Un nome che comincia per
+        # punto e' fuori anche lui: `.storico` e' il deposito stesso.
+        if "/" in nome or "\\" in nome or nome.startswith("."):
+            continue
         nella_corsa = Path(out_dir) / nome
         nella_cartella = cartella / nome
         if nella_corsa.exists() and nella_cartella.exists():

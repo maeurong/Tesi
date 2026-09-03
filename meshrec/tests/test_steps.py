@@ -257,3 +257,14 @@ def test_dimentica_non_riscrive_un_file_illeggibile(tmp_path):
     (tmp_path / "metrics.json").write_bytes(b"{tronc")
     steps.dimentica(tmp_path, [2], nome="metrics.json")
     assert (tmp_path / "metrics.json").read_bytes() == b"{tronc"
+
+
+def test_dimentica_ignora_i_numeri_fuori_dai_dodici_step(tmp_path):
+    """`STEP_KEYS[numero - 1]` su uno zero prende l'ULTIMA chiave e toglierebbe
+    in silenzio la voce del prior; su un tredici solleva `IndexError`. La
+    guardia degli endpoint sta a monte, ma questa e' una funzione pubblica del
+    nucleo e un numero fuori dominio non e' un motivo per perdere uno stato."""
+    steps.write_state(tmp_path, 1, "a", "riuscito", "01_cloud.ply", 1.0)
+    steps.write_state(tmp_path, 12, "z", "riuscito", "12_wall.json", 1.0)
+    steps.dimentica(tmp_path, [0, 13, -1])
+    assert set(steps.read_state(tmp_path)) == {"01_load", "12_wall"}

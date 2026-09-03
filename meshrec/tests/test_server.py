@@ -2989,7 +2989,68 @@ def test_da_qui_in_giu_si_ferma_al_deck(cliente, monkeypatch):
     monkeypatch.setattr(server.Worker, "start", lambda self, *argomenti: avviati.append(argomenti))
     assert cliente.post("/api/step/3/from").json() == {"avviato": 3, "fino_a": 11}
     assert avviati[0][2] == 11
-    assert cliente.post("/api/step/12/from").status_code == 400
+    # Il messaggio nomina le due strade che restano, perche' il rifiuto qui non
+    # e' «numero fuori dominio»: lo step 12 esiste e si puo' chiedere. Il
+    # messaggio del dominio 1..12 direbbe «chiesto 12, fino a 11», cioe' una
+    # frase che smentisce se stessa davanti a chi l'ha appena chiesto.
+    rifiuto = cliente.post("/api/step/12/from")
+    assert rifiuto.status_code == 400
+    assert rifiuto.json()["messaggio"] == (
+        "«da qui in giù» arriva al deck (step 11): per il prior usa "
+        "`meshrec wall` oppure lo step 12 da solo"
+    )
+
+
+def test_lo_step_12_da_solo_parte(cliente, monkeypatch):
+    """Il prior sta fuori dal perimetro del prodotto ma resta raggiungibile
+    chiedendolo per nome: e' `POST /api/step/12`, non un bottone che non lo
+    nomina."""
+    avviati = []
+    monkeypatch.setattr(server.Worker, "start", lambda self, *argomenti: avviati.append(argomenti))
+    risposta = cliente.post("/api/step/12")
+    assert risposta.status_code == 200
+    assert risposta.json() == {"avviato": 12, "fino_a": 12}
+    assert avviati[0][1:] == (12, 12)
+
+
+def test_avviare_mentre_gira_non_deposita_una_versione(cliente, tmp_path, monkeypatch):
+    """Il rifiuto sta sotto lo stesso lucchetto del deposito e PRIMA di esso:
+    depositare e poi rifiutare lascerebbe nello storico un'esecuzione che non
+    e' mai partita, cioe' un «annulla» che sposta artefatti a caso."""
+    from meshrec.app import storico
+
+    monkeypatch.setattr(server.Worker, "start", lambda self, *argomenti: None)
+    assert cliente.post("/api/step/1").status_code == 200
+    out_dir = tmp_path / "corsa"
+    prima = storico.cursore(out_dir)
+
+    monkeypatch.setattr(server.Worker, "is_running", lambda self: True)
+    rifiuto = cliente.post("/api/step/2")
+    assert rifiuto.status_code == 400
+    assert "sta già girando" in rifiuto.json()["messaggio"]
+    assert storico.cursore(out_dir) == prima
+
+
+def test_lo_stream_riparte_dalla_prima_riga_quando_il_registro_si_svuota(cliente, monkeypatch):
+    """`Worker.start` svuota `_righe` a ogni avvio (worker.py). Il generatore
+    teneva solo il conteggio di quelle gia' mandate, e sul fotogramma in cui il
+    registro si accorcia quel conteggio e' piu' alto di quante righe ci sono:
+    le prime della corsa nuova cadono nel taglio e nessun fotogramma successivo
+    le ripesca. Sono proprio quelle che #esito legge quando la corsa fallisce
+    subito, e il pannello diceva «nessun dettaglio» su una corsa che aveva
+    parlato."""
+    passate = iter([["prima", "corsa", "vecchia"], ["nuova"], ["nuova", "seconda"]])
+    stato = {"ultima": []}
+
+    def righe(self):
+        stato["ultima"] = next(passate, stato["ultima"])
+        return stato["ultima"]
+
+    monkeypatch.setattr(server.Worker, "righe", righe)
+    testo = cliente.get("/api/events?max_eventi=3").text
+    assert '"nuova"' in testo, "la prima riga della corsa nuova non deve cadere nel taglio"
+    assert '"seconda"' in testo
+    assert testo.count("event: riga") == 5, "nessuna riga mandata due volte"
 
 
 
