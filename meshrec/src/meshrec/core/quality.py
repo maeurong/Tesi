@@ -34,10 +34,14 @@ def _edge_counts(faces: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 
 
 def _boundary_edges_da_conteggi(unique: np.ndarray, counts: np.ndarray) -> np.ndarray:
+    """I bordi aperti, dati i conteggi degli spigoli gia' calcolati: uno spigolo
+    che appartiene a un solo triangolo."""
     return unique[counts == 1]
 
 
 def _is_watertight_da_conteggi(counts: np.ndarray) -> bool:
+    """Chiusa se ogni spigolo appartiene a esattamente due triangoli, dati i
+    conteggi gia' calcolati. Zero spigoli non e' una superficie chiusa."""
     return bool(counts.size > 0 and (counts == 2).all())
 
 

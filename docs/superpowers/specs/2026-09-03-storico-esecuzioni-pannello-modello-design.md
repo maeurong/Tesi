@@ -232,7 +232,10 @@ aggiunge dove si producono le superfici: in `pipeline.run`, dopo che gli step 5,
 6 e 8 hanno la propria coppia `(vertices, faces)`, le loro `step_metrics`
 ricevono le chiavi di `surface_metrics` che non hanno già (`watertight`,
 `boundary_edges`, `area`, `volume`, `aspect_ratio`). È numpy su un milione di
-triangoli, senza albero né campionamento: il costo non è nullo ma resta piccolo: misurato il 03/09/2026 su `muro_generato` (221.368 triangoli), 0,37-0,41 s per chiamata contro 2,5-3,0 s dello step, cioè circa il 15%, dopo aver tolto il doppio calcolo degli spigoli in `surface_metrics`.
+triangoli, senza albero né campionamento. Il costo non è nullo ma resta piccolo.
+Misurato il 03/09/2026 su `muro_generato` (221.368 triangoli), dopo aver tolto
+il doppio calcolo degli spigoli in `surface_metrics`: 0,37-0,41 s per chiamata
+contro 2,5-3,0 s dello step, cioè circa il 15%.
 Lo step 6 ha già `watertight_after`, che resta: due nomi per la stessa cosa
 sono un debito, ma rinominarlo tocca il report e le corse di riferimento, e non
 è di questo cantiere.
