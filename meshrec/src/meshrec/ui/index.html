@@ -48,6 +48,13 @@
        step o un comando. Il verbo dice l'azione e il complemento dice su che
        cosa cade. -->
   <button type="button" id="annulla" class="bottone" disabled>Interrompi il calcolo</button>
+  <!-- Il permesso di notifica si chiede una volta, da qui, e il bottone
+       sparisce con la risposta -- qualunque sia. Chiederlo da solo alla prima
+       apertura e' la finestra che ogni sito apre senza motivo, e che si nega
+       per riflesso. Nasce visibile e app.js lo nasconde dove non c'e' niente
+       da chiedere: un permesso gia' dato, gia' negato, o un browser senza
+       l'API. -->
+  <button type="button" id="notifiche" class="bottone">Avvisami a fine corsa</button>
   <!-- Il gesto e' solo da tastiera, e un comando che non si vede non esiste
        per chi non sa gia' che c'e'. Una riga tenue nella testata e non un
        bottone: annullare e' un ripensamento, non uno scopo del programma, e

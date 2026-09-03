@@ -945,6 +945,45 @@ function durataDellaCorsa(stato) {
 // La classe ACCANTO al testo e non al posto del testo: il fallimento si legge
 // per esteso comunque, e chi non distingue le tinte non perde niente (WCAG
 // 1.4.1). La classe aggiunge il peso visivo, non l'informazione.
+// Il titolo della scheda come segnale: chi ha cambiato finestra durante i
+// minuti di uno step vede il segno nella barra delle schede. Torna «MeshRec»
+// al fuoco sulla pagina.
+function titoloConEsito(errore, esito) {
+  if (errore) return "✗ MeshRec";
+  if (esito) return "✓ MeshRec";
+  return "MeshRec";
+}
+
+// L'esito anche fuori dalla scheda, e solo dove serve davvero.
+//
+// Niente a pagina a fuoco: la stessa frase sta gia' a video nella testata, e
+// ripeterla in un riquadro di sistema e' rumore. Niente senza testo: una
+// notifica vuota non dice come e' finita la corsa. E il permesso non si chiede
+// da qui -- la finestra che compare nel mezzo di un esito e' quella che ogni
+// sito apre senza motivo.
+function notificaFuoriDallaScheda(testo) {
+  if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+  if (!testo || document.hasFocus()) return;
+  new Notification("MeshRec", { body: testo });
+}
+
+// Il permesso si chiede da un bottone, una volta, e il bottone sparisce con la
+// risposta -- tranne quando la finestra viene chiusa senza scegliere
+// («default»), che lascia tutto com'era e si potra' richiedere.
+//
+// Un browser senza l'API non e' un caso di guasto: il bottone si nasconde e il
+// resto della pagina non se ne accorge.
+function preparaLeNotifiche(bottone) {
+  if (typeof Notification === "undefined" || Notification.permission !== "default") {
+    bottone.hidden = true;
+    return;
+  }
+  bottone.hidden = false;
+  bottone.addEventListener("click", async () => {
+    bottone.hidden = (await Notification.requestPermission()) !== "default";
+  });
+}
+
 function mostraEsito(errore, esito) {
   const riga = document.getElementById("esito");
   riga.textContent = errore ?? esito ?? "";
@@ -1075,6 +1114,10 @@ function aggiornaDaStato(stato) {
     // video resterebbe qualcosa di indistinguibile da una corsa riuscita.
     const { errore, esito } = esitoDellaCorsa(stato);
     mostraEsito(errore, esito);
+    // Fuori dalla scheda l'esito non si vede: il titolo lo porta nella barra
+    // delle schede, e la notifica raggiunge chi sta guardando altro.
+    document.title = titoloConEsito(errore, esito);
+    notificaFuoriDallaScheda(errore ?? esito ?? "");
     // Il registro si apre solo quando c'e' un motivo da leggere: aperto a
     // ogni esecuzione riuscita sarebbe la sezione di prima con un clic in piu'.
     if (errore !== null) document.getElementById("registro-dettagli").open = true;
@@ -1317,6 +1360,11 @@ async function annullaLaCorsa() {
 }
 
 document.getElementById("annulla").addEventListener("click", annullaLaCorsa);
+
+// Il segno nel titolo dura finche' non lo si e' letto: chi torna sulla pagina
+// l'ha appena letto, e la testata dice il resto.
+window.addEventListener("focus", () => { document.title = "MeshRec"; });
+preparaLeNotifiche(document.getElementById("notifiche"));
 
 import {
   creaViewport, scalaDelCampo, numeroDelCampo, didascaliaDelloScarto, RAMPA,

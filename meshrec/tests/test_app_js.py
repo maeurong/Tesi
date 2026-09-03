@@ -5003,6 +5003,10 @@ def _banco_di_esito() -> str:
         "ultimaRigaDelRegistro",
         "esitoDellaCorsa",
         "mostraEsito",
+        # Il titolo della scheda e la notifica: aggiornaDaStato le chiama sul
+        # fronte di discesa, e senza il banco cadrebbe su un ReferenceError.
+        "titoloConEsito",
+        "notificaFuoriDallaScheda",
         # I due «Esegui» seguono la corsa dallo stesso carico di «Annulla»:
         # aggiornaDaStato la chiama, quindi il banco la incontra.
         "spegniLeEsecuzioni",
@@ -7116,4 +7120,110 @@ await bottone.scatena("click");
 await new Promise((r) => setTimeout(r, 0));
 assert.match(messaggio.textContent, /sola lettura/, "il rifiuto del server non arriva a video: " + messaggio.textContent);
 assert.equal(configurazione.downsample.voxel_size, 30, "il valore rifiutato resta in memoria");
+""")
+
+
+# --------------------------------------------------------------------------
+# La fine della corsa fuori dalla scheda: il titolo, e la notifica.
+# --------------------------------------------------------------------------
+
+
+def test_il_titolo_della_scheda_porta_l_esito(tmp_path):
+    """Uno step dura minuti, e chi aspetta cambia finestra. Il titolo della
+    scheda e' l'unico segnale che arriva a chi non sta guardando la pagina."""
+    _esegui(tmp_path, _DOM + _funzioni("titoloConEsito") + """
+assert.equal(titoloConEsito(null, null), "MeshRec");
+assert.equal(titoloConEsito(null, "Segmentazione: conclusa"), "✓ MeshRec");
+assert.equal(titoloConEsito("Segmentazione: fallita", null), "✗ MeshRec");
+""")
+
+
+def test_la_notifica_non_parte_a_pagina_a_fuoco_ne_senza_permesso_ne_vuota(tmp_path):
+    """Una notifica a pagina aperta ripete cio' che sta gia' a video due righe
+    sotto il titolo; una notifica vuota e' un rumore che non dice niente.
+
+    Mutazione che lo uccide: togliere la guardia su `document.hasFocus()`.
+    """
+    _esegui(tmp_path, _DOM + _funzioni("notificaFuoriDallaScheda") + """
+const mandate = [];
+globalThis.Notification = class { constructor(titolo, opzioni) { mandate.push([titolo, opzioni.body]); } };
+Notification.permission = "granted";
+document.hasFocus = () => true;
+
+notificaFuoriDallaScheda("Segmentazione: conclusa");
+assert.deepEqual(mandate, [], "notifica mandata a pagina a fuoco");
+
+document.hasFocus = () => false;
+notificaFuoriDallaScheda("");
+assert.deepEqual(mandate, [], "notifica vuota mandata");
+
+notificaFuoriDallaScheda("Segmentazione: conclusa");
+assert.deepEqual(mandate, [["MeshRec", "Segmentazione: conclusa"]]);
+
+Notification.permission = "denied";
+notificaFuoriDallaScheda("Riparazione: fallita");
+assert.equal(mandate.length, 1, "notifica mandata senza permesso");
+""")
+
+
+def test_il_permesso_di_notifica_si_chiede_con_un_bottone_e_mai_da_solo(tmp_path):
+    """La finestra del permesso chiesta da sola all'apertura e' quella che ogni
+    sito apre senza motivo, e che si nega per riflesso. Qui la chiede un
+    bottone, e il bottone sparisce con la risposta -- qualunque sia, tranne la
+    finestra chiusa senza scegliere, che lascia tutto com'era.
+
+    Un browser senza l'API (o il DOM finto di `node`) non e' un caso di
+    guasto: il bottone si nasconde e il resto della pagina non se ne accorge.
+    """
+    assert 'id="notifiche"' in _senza_commenti_html(_markup())
+    _esegui(tmp_path, _DOM + _funzioni("preparaLeNotifiche") + """
+const bottone = document.getElementById("notifiche");
+
+// Senza l'API: il bottone sparisce e non promette niente.
+delete globalThis.Notification;
+preparaLeNotifiche(bottone);
+assert.equal(bottone.hidden, true, "il bottone resta a video in un browser senza notifiche");
+assert.equal((bottone.gestori.click ?? []).length, 0, "un gestore attaccato dove l'API non c'e'");
+
+// Permesso gia' negato: niente da chiedere una seconda volta.
+globalThis.Notification = { permission: "denied", requestPermission: async () => "denied" };
+preparaLeNotifiche(bottone);
+assert.equal(bottone.hidden, true, "il bottone chiede un permesso gia' negato");
+
+// Da decidere: il bottone c'e', e il clic chiede.
+let risposta = "granted";
+globalThis.Notification = { permission: "default", requestPermission: async () => risposta };
+preparaLeNotifiche(bottone);
+assert.equal(bottone.hidden, false, "il bottone non compare dove il permesso e' ancora da chiedere");
+await bottone.scatena("click");
+assert.equal(bottone.hidden, true, "il bottone resta dopo che il permesso e' stato dato");
+
+// Finestra chiusa senza scegliere: si potra' chiedere di nuovo.
+risposta = "default";
+preparaLeNotifiche(bottone);
+await bottone.scatena("click");
+assert.equal(bottone.hidden, false, "la finestra chiusa senza scegliere si porta via il bottone");
+""")
+
+
+def test_il_fronte_di_discesa_scrive_l_esito_anche_nel_titolo_della_scheda(tmp_path):
+    """Il cablaggio, non la sola funzione pura: il segno nel titolo deve
+    arrivarci dal fronte di discesa, che e' l'unico punto in cui si sa che una
+    corsa e' finita.
+
+    Mutazione che lo uccide: togliere `document.title = titoloConEsito(...)`
+    dal fronte di discesa.
+    """
+    _esegui(tmp_path, _banco_di_esito() + """
+ETICHETTE["01_load"] = "Lettura";
+const steps = [{ numero: 1, chiave: "01_load", stato: "valido", secondi: 12 }];
+const base = { step: 1, a_step: 1, steps, annullato: false };
+
+aggiornaDaStato({ ...base, in_corso: true, exit_code: null });
+aggiornaDaStato({ ...base, in_corso: false, exit_code: 0 });
+assert.equal(document.title, "✓ MeshRec", "la corsa conclusa non si vede dalla barra delle schede");
+
+aggiornaDaStato({ ...base, in_corso: true, exit_code: null });
+aggiornaDaStato({ ...base, in_corso: false, exit_code: 1 });
+assert.equal(document.title, "✗ MeshRec", "il fallimento non si vede dalla barra delle schede");
 """)
