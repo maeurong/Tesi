@@ -248,6 +248,7 @@ class Elemento {
     this.padre = null;
     this.gestori = {};
     this.classList = {
+      add: (nome) => this.classList.toggle(nome, true),
       toggle: (nome, attivo) => {
         const classi = new Set(this.className.split(" ").filter(Boolean));
         if (attivo) classi.add(nome); else classi.delete(nome);
@@ -262,7 +263,13 @@ class Elemento {
   dispatchEvent(evento) { return this.scatena(evento.type); }
   // Il salvataggio dell'immagine fabbrica un <a download> e lo clicca: e' il
   // browser che scrive il file, e il banco deve poter vedere quel clic.
-  click() { this.cliccato = true; return this.scatena("click"); }
+  click() {
+    this.cliccato = true;
+    // Il padre AL MOMENTO del clic: un <a download> che non sta nell'albero
+    // Firefox lo ignora in silenzio, e dopo il clic il modulo lo toglie.
+    this.padreAlClic = this.padre;
+    return this.scatena("click");
+  }
   // Il gestore vero, eseguito: e' cio' che mancava al banco. `await` perche' il
   // gestore del campo e' asincrono, e senza aspettarlo il controllo guarderebbe
   // lo stato di prima della risposta.
@@ -312,6 +319,9 @@ const document = {
     return perId.get(id);
   },
   querySelectorAll: (selettore) => radice.querySelectorAll(selettore),
+  // La radice del DOM finto e' il <body>: il salvataggio dell'immagine ci
+  // attacca il proprio collegamento prima di cliccarlo.
+  body: radice,
 };
 
 // Il costruttore che il browser porta per <option>, e che `pannelloCampo` usa.
@@ -7139,6 +7149,11 @@ const [bottone] = riporta(riga);
 const messaggio = riga.children.find((f) => f.className === "errore-campo");
 assert.equal(bottone.textContent, "Riporta");
 assert.match(bottone.title, /30/, "il bottone non dice a che valore riporta");
+// Venti «Riporta» in un pannello sono venti bottoni identici per chi ascolta:
+// il nome accessibile porta il campo, e il campo si nomina con la propria
+// etichetta, non con la chiave.
+assert.match(bottone.ariaLabel, /voxel_size/,
+  "il bottone non dice quale campo riporta: " + bottone.ariaLabel);
 input.value = "25";
 risponde = accetta({ downsample: { voxel_size: 30 } });
 await bottone.scatena("click");
@@ -7333,6 +7348,11 @@ salvaImmagine();
 assert.equal(scaricato().download, "lab-crop-06-riparazione-scarto-rms-9-5-mm.png");
 assert.equal(scaricato().href, "data:image/png;base64,AAA", "il file non porta la tela catturata");
 assert.equal(scaricato().cliccato, true, "il file non e' stato consegnato al browser");
+// Attaccato al documento durante il clic e tolto subito dopo: un <a download>
+// staccato dall'albero Firefox lo ignora in silenzio, e uno lasciato li'
+// sporca la pagina a ogni salvataggio.
+assert.ok(scaricato().padreAlClic, "il collegamento non era nell'albero: Firefox non scarica");
+assert.ok(!document.body.figli.includes(scaricato()), "il collegamento resta appeso al documento");
 
 // Uno step che lo stato non conosce: il numero, non «undefined».
 ultimoStato = [];
@@ -7370,7 +7390,9 @@ def test_l_ingresso_e_un_form_e_invio_lo_manda():
 
 def test_le_metriche_che_contraddicono_hanno_un_etichetta_e_l_avviso(tmp_path):
     """«Una chiave non si stampa mai, si stampa la sua etichetta» (PRODUCT.md):
-    la tabella copriva due step su undici, e sugli altri nove il pannello
+    la tabella copriva due step sugli undici che hanno un pannello -- dodici
+    sono gli step della pipeline, ma il prior geometrico non si apre da qui --
+    e sugli altri nove il pannello
     mostrava `points_dropped` e `holes_over_threshold` cosi' com'erano.
 
     `steiner_saturated` vero e' la «mesh troncata in silenzio» del primo
@@ -7410,4 +7432,30 @@ for (const chiave of ["05_reconstruct", "06_repair", "08_simplify"]) {{
       `${{chiave}} non etichetta aspect_ratio · ${{dentro}}`);
   }}
 }}
+""")
+
+
+def test_una_corsa_nuova_toglie_il_segno_dal_titolo(tmp_path):
+    """Il segno nel titolo lo toglie il fuoco sulla pagina -- ma se la corsa e'
+    finita MENTRE si guardava, il fuoco c'e' gia' e non scatta piu': lanciato lo
+    step successivo e cambiata finestra, la scheda diceva «✓ MeshRec» su una
+    corsa in corso. Il fronte di salita, che gia' azzera l'esito e il registro,
+    azzera anche il titolo.
+
+    Mutazione che lo uccide: togliere `document.title = "MeshRec"` dal fronte
+    di salita di `aggiornaDaStato`.
+    """
+    _esegui(tmp_path, _banco_di_esito() + """
+ETICHETTE["01_load"] = "Lettura";
+const steps = [{ numero: 1, chiave: "01_load", stato: "valido", secondi: 12 }];
+const base = { step: 1, a_step: 1, steps, annullato: false };
+
+aggiornaDaStato({ ...base, in_corso: true, exit_code: null });
+aggiornaDaStato({ ...base, in_corso: false, exit_code: 0 });
+assert.equal(document.title, "✓ MeshRec");
+
+// La corsa dopo, senza che nessuno abbia mai lasciato la pagina.
+aggiornaDaStato({ ...base, in_corso: true, exit_code: null });
+assert.equal(document.title, "MeshRec",
+  "la scheda dice ancora ✓ su una corsa che sta girando: " + document.title);
 """)

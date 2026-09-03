@@ -291,9 +291,10 @@ le altre. Da confermare in revisione della spec, una per una.
 
 1. **Il predefinito si vede, e si rimette.** `/api/schema` manda già
    `default` per ogni campo; il pannello lo usa solo per piegare i campi
-   fermi. L'aiuto del campo aggiunge «predefinito: X», e un campo spostato dal
-   predefinito porta un bottone «Riporta» che chiama `scriviValore` con il
-   predefinito. Chi ha girato `min_ratio` tre volte deve sapere da dove è
+   fermi. L'aiuto del campo aggiunge «predefinito: X», e ogni campo scalare
+   con un predefinito porta un bottone «Riporta» (sempre visibile:
+   condizionato al valore sarebbe stantìo proprio quando serve) che scrive il
+   predefinito per la stessa strada di una battuta a mano. Chi ha girato `min_ratio` tre volte deve sapere da dove è
    partito.
 2. **La scheda dice quando ha finito.** `document.title` diventa «✓ MeshRec»
    o «✗ MeshRec» sul fronte di discesa e torna «MeshRec» al fuoco sulla

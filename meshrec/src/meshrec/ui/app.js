@@ -31,6 +31,9 @@ const ETICHETTE = {
 // I due versi si dicono per esteso e non con una freccia: la stessa frase che
 // la didascalia dello scarto porta sotto la vista, cosi' il pannello e
 // l'immagine nominano la stessa grandezza allo stesso modo.
+// Undici step e non dodici: il prior geometrico (`12_wall`) non ha pannello --
+// `disegnaStep` lo filtra e PRODUCT.md dichiara che sta fuori dall'interfaccia
+// -- quindi una tabella per lui sarebbe etichette per righe che nessuno mostra.
 const ETICHETTE_METRICHE = {
   "01_load": {
     "points_read": "punti letti",
@@ -1272,6 +1275,11 @@ function aggiornaDaStato(stato) {
   // descrivere il piu' recente dei due fatti.
   if (!eraInCorso && stato.in_corso) {
     mostraEsito(null, null);
+    // Il titolo con lo stesso movimento: il segno se ne va col fuoco sulla
+    // pagina, ma una corsa finita MENTRE si guardava il fuoco ce l'ha gia' e
+    // quell'evento non scatta piu'. Senza questa riga, lanciato lo step dopo e
+    // cambiata finestra, la scheda dice «✓» su una corsa che sta girando.
+    document.title = "MeshRec";
     // Il registro non si svuota da solo fra due corse: senza, una corsa
     // morta prima di scrivere una riga cita quella di prima, e il worker
     // azzera le proprie righe qui allo stesso modo, all'avvio.
@@ -2132,7 +2140,12 @@ function salvaImmagine() {
     ETICHETTE[voce?.chiave] ?? `step ${stepScelto}`,
     didascaliaDellaVista().textContent,
   );
+  // Nell'albero durante il clic: Firefox ignora in silenzio un <a download>
+  // staccato. Tolto subito dopo, perche' un salvataggio non lascia residui
+  // nella pagina.
+  document.body.append(collegamento);
   collegamento.click();
+  collegamento.remove();
 }
 
 // «Inquadra» rimette la camera sull'ingombro del pezzo: trascinando la si
@@ -2977,6 +2990,10 @@ function campoParametro(blocco, nome, campo, ordine) {
     const riporta = elemento("button", {
       type: "button", className: "bottone riporta", textContent: "Riporta",
       title: `riporta al predefinito (${String(campo.default)})`,
+      // Venti «Riporta» in un pannello sono venti bottoni identici per chi
+      // ascolta: il nome accessibile dice quale campo, e lo dice con
+      // l'etichetta che si legge a video, non con la chiave.
+      ariaLabel: `Riporta ${etichetta.textContent} al predefinito`,
     });
     riporta.addEventListener("click", () => {
       input.value = String(campo.default);
@@ -3706,7 +3723,7 @@ function righeDellaMetrica(nome, valore, etichette) {
   // tredici righe uguali. `classList` e non `className`: la classe del valore
   // largo la scrive la riga qui sopra, e sostituirla la perderebbe.
   if (METRICHE_D_ALLARME.has(nome) && valore === true) {
-    dd.classList.toggle("metrica-avviso", true);
+    dd.classList.add("metrica-avviso");
   }
   // Il percorso appiattito e' la chiave: si cerca alla FOGLIA e non famiglia per
   // famiglia, perche' `aspect_ratio · mean` dello step 7 conta i triangoli e
