@@ -7577,6 +7577,49 @@ creaPannelloModello(dipendenze);
 """)
 
 
+def test_un_guasto_dopo_la_lettura_non_incastra_il_pannello(tmp_path):
+    """Non solo un guasto sulla fetch/lettura del corpo (gia' provato altrove):
+    anche un throw DOPO, nel rendering (`elemento` che rompe), deve azzerare
+    `fronteMostrato` invece di lasciare la terna segnata con il pannello
+    incastrato. Prima lo garantiva il `.catch` su `aggiornaModello(steps)` in
+    app.js, che avvolgeva l'intera chiamata; azzerarla solo sul guasto
+    fetch/corpo (comune ma non l'unico) lasciava scoperto tutto cio' che sta
+    dopo."""
+    percorso = (UI_DIR / "modello.js").resolve().as_uri()
+    _esegui(tmp_path, f"""
+import assert from 'node:assert/strict';
+import {{ creaPannelloModello }} from {percorso!r};
+
+let richieste = 0;
+const documentoFinto = {{
+  getElementById: () => ({{ set textContent(_v) {{}}, set hidden(_v) {{}} }}),
+}};
+globalThis.document = documentoFinto;
+
+const {{ aggiornaModello }} = creaPannelloModello({{
+  fetch: async () => {{ richieste += 1; return {{ ok: true, status: 200, json: async () => ({{ "01_load": {{ points_kept: 5 }} }}) }}; }},
+  // Rompe SOLO nel rendering: la fetch e la lettura del corpo vanno a buon
+  // fine, quindi un banco che guardasse solo quel tratto direbbe verde.
+  elemento: () => {{ throw new Error("elemento rotto"); }},
+  superata: () => false,
+  serverMuto: () => ({{ ok: false }}),
+  corpoLetto: async (risposta) => risposta.json(),
+  valoreDellaMetrica: (v) => String(v),
+  ETICHETTE: {{}},
+  STEP_DEL_PRIOR: "12_wall",
+}});
+
+const fronte = {{ numero: 1, chiave: "01_load", stato: "valido", impronta: "a", secondi: 1 }};
+await assert.doesNotReject(() => aggiornaModello([fronte]), "il guasto dopo la lettura non deve uscire da aggiornaModello");
+assert.equal(richieste, 1);
+
+// Stesso fronte: se la terna non fosse stata azzerata sul guasto, questa
+// rilettura uscirebbe subito senza una seconda fetch.
+await aggiornaModello([fronte]);
+assert.equal(richieste, 2, "la terna non e' stata azzerata dopo il guasto nel rendering: nessuna rilettura riparte");
+""")
+
+
 def test_ogni_step_ha_la_propria_tabella_salvo_il_prior():
     """Dodici chiavi in `ETICHETTE`, undici tabelle in `ETICHETTE_METRICHE`:
     il prior (`12_wall`) non ha pannello (`disegnaStep` lo filtra, PRODUCT.md

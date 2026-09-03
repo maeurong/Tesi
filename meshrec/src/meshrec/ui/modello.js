@@ -189,51 +189,51 @@ export function creaPannelloModello(dipendenze) {
     // segnato la propria terna, quindi ogni fotogramma successivo usciva subito e
     // quei numeri restavano li'. Stesso precedente di `chiediStorico`, dove
     // l'ordine si apre prima della prima attesa.
-    const ordine = apriModello();
-    const vuoto = document.getElementById("modello-vuoto");
-    const righe = document.getElementById("modello-righe");
-    const titolo = document.getElementById("modello-fronte");
-    if (fronte === null) {
-      titolo.textContent = "";
-      vuoto.textContent = "Nessuno step valido: esegui lo step 1.";
-      vuoto.hidden = false;
-      righe.hidden = true;
-      return;
-    }
-    let metriche;
+    // Da qui in poi tutto il corpo sta in un solo try: `fronteMostrato` e'
+    // gia' scritta sopra, e un throw QUALUNQUE punto dopo -- non solo il
+    // fetch/la lettura del corpo, anche il rendering (`replaceChildren`, un
+    // `elemento` che rompe) -- lascerebbe la terna segnata e il contenuto
+    // vecchio, senza che nessun fotogramma successivo lo ripari, perche' la
+    // terna non cambia piu'. Prima questo lo faceva il `.catch` su
+    // `aggiornaModello(steps)` in app.js, che avvolgeva l'intera chiamata;
+    // la terna e' privata di questo modulo adesso, quindi il ripiego copre
+    // qui la stessa estensione. Inghiotte e non rilancia, come faceva quel
+    // `.catch`.
     try {
+      const ordine = apriModello();
+      const vuoto = document.getElementById("modello-vuoto");
+      const righe = document.getElementById("modello-righe");
+      const titolo = document.getElementById("modello-fronte");
+      if (fronte === null) {
+        titolo.textContent = "";
+        vuoto.textContent = "Nessuno step valido: esegui lo step 1.";
+        vuoto.hidden = false;
+        righe.hidden = true;
+        return;
+      }
       const risposta = await fetch("/api/metrics").catch(serverMuto);
-      metriche = risposta.ok ? await corpoLetto(risposta) : null;
+      const metriche = risposta.ok ? await corpoLetto(risposta) : null;
+      if (superata(ordine, ultimoModello)) return;
+      titolo.textContent = `dopo lo step ${fronte.numero}, ${ETICHETTE[fronte.chiave] ?? fronte.chiave}`;
+      if (metriche === null || typeof metriche !== "object") {
+        vuoto.textContent = "metriche non leggibili";
+        vuoto.hidden = false;
+        righe.hidden = true;
+        return;
+      }
+      righe.replaceChildren(...righeDelModello(fronte, metriche, valoreDellaMetrica).flatMap(([etichetta, testo, allarme]) => {
+        const dd = elemento("dd", { textContent: testo });
+        // Lo stesso marchio della colonna del dettaglio, e per lo stesso motivo:
+        // una mesh troncata in silenzio non sta fra righe che si somigliano. Chi
+        // guarda questo pannello non sta guardando l'altra colonna.
+        if (allarme) dd.classList.add("metrica-avviso");
+        return [elemento("dt", { textContent: etichetta }), dd];
+      }));
+      vuoto.hidden = true;
+      righe.hidden = false;
     } catch {
-      // Non prudenza generica: `fronteMostrato` e' gia' scritto sopra, quindi
-      // un rigetto qui (una risposta che solleva quando la si guarda, non il
-      // rifiuto della fetch -- quello lo prende `serverMuto`) lascerebbe il
-      // pannello con il contenuto vecchio e la terna nuova, e nessun
-      // fotogramma successivo lo riparerebbe perche' la terna non cambia
-      // piu'. Azzerarla riapre la strada al fotogramma dopo. Prima app.js
-      // faceva questo dal `.catch` su `aggiornaModello(steps)`: la terna e'
-      // privata di questo modulo, quindi il ripiego trasloca qui dentro.
       fronteMostrato = "";
-      return;
     }
-    if (superata(ordine, ultimoModello)) return;
-    titolo.textContent = `dopo lo step ${fronte.numero}, ${ETICHETTE[fronte.chiave] ?? fronte.chiave}`;
-    if (metriche === null || typeof metriche !== "object") {
-      vuoto.textContent = "metriche non leggibili";
-      vuoto.hidden = false;
-      righe.hidden = true;
-      return;
-    }
-    righe.replaceChildren(...righeDelModello(fronte, metriche, valoreDellaMetrica).flatMap(([etichetta, testo, allarme]) => {
-      const dd = elemento("dd", { textContent: testo });
-      // Lo stesso marchio della colonna del dettaglio, e per lo stesso motivo:
-      // una mesh troncata in silenzio non sta fra righe che si somigliano. Chi
-      // guarda questo pannello non sta guardando l'altra colonna.
-      if (allarme) dd.classList.add("metrica-avviso");
-      return [elemento("dt", { textContent: etichetta }), dd];
-    }));
-    vuoto.hidden = true;
-    righe.hidden = false;
   }
 
   return { aggiornaModello };
