@@ -116,6 +116,12 @@ def _funzioni(*nomi: str) -> str:
 _COLONNA = (
     "segnaStepAperto", "nuovaRiga",
     "superata", "serverMuto", "ragioneDelRifiuto", "corpoLetto",
+    # Il pannello del modello, che `disegnaStep` chiama in coda: senza queste
+    # quattro il banco della colonna cade su un ReferenceError. Nel banco non
+    # c'e' server, quindi il pannello percorre il proprio ramo di rifiuto --
+    # ed e' cio' che deve fare quando /api/metrics non risponde.
+    "fronteDelloStato", "chiaveDelFronte", "righeDelModello",
+    "apriModello", "aggiornaModello",
     "disegnaStep",
 )
 
@@ -131,6 +137,20 @@ def _costante(nome: str) -> str:
     assert trovato is not None, f"nessuna costante {nome} in app.js"
     return trovato.group(0)
 
+
+def _tratto(inizio: str, fine: str) -> str:
+    """Un tratto del modulo fra due ancore, per le costanti su piu' righe che
+    `_costante` (una riga sola) non vede. Preso dal sorgente vero, per la
+    stessa ragione di `_costante`."""
+    testo = _modulo()
+    return inizio + testo.split(inizio, 1)[1].split(fine, 1)[0]
+
+
+# Le costanti e il formattatore del pannello, da `const NON_MISURATO` fino
+# alla riga prima di `righeDelModello`: NON_MISURATO, valoreDelModello,
+# RIGHE_DELLA_SUPERFICIE, RIGHE_DEL_MODELLO.
+def _tabella_del_modello() -> str:
+    return _tratto("const NON_MISURATO = ", "\n// Le righe del pannello") + "\n"
 
 def _costante_viewport(nome: str) -> str:
     """La riga di una costante di `viewport.js`, presa dal sorgente vero.
@@ -283,6 +303,12 @@ let generazione = 0;
 // Lo stato degli step che `disegnaStep` scrive e `passoDaMostrare` legge: senza,
 // il banco proverebbe una copia che non e' quella del modulo.
 let ultimoStato = [];
+// Le due variabili del pannello del modello, che `disegnaStep` fa girare a ogni
+// passata: `fronteMostrato` e' la terna gia' sullo schermo, `ultimoModello`
+// l'ordine delle riletture. Senza, il banco della colonna cadrebbe su un
+// ReferenceError invece di dire qualcosa sulla colonna.
+let fronteMostrato = "";
+let ultimoModello = 0;
 // Le variabili di modulo dell'analisi. `datiAnalisi` e `motivoAnalisi` a null
 // sono «non ancora chiesta», che e' lo stato in cui le quattro schede non si
 // toccano: senza, il banco proverebbe una copia che non e' quella del modulo.
@@ -324,6 +350,10 @@ _DOM += _costante("elemento") + "\n"
 # colonna le vuole. Prese dal sorgente vero e non riscritte qui, per la stessa
 # ragione di `elemento`.
 _DOM += _costante("STEP_DEL_PRIOR") + "\n"
+# Le costanti del pannello del modello, per la stessa ragione delle due qui
+# sopra: `disegnaStep` chiama `aggiornaModello` in coda, e ogni banco che
+# disegna la colonna se le porta dietro.
+_DOM += _tabella_del_modello()
 
 
 # --------------------------------------------------------------------------
@@ -6636,3 +6666,168 @@ def test_il_menu_della_classe_si_stacca_dai_quattro_valori_e_non_cita_la_tabella
     assert "campo-catalogo" in foglio, (
         "`campo-catalogo` non veste niente: la riga della classe si legge come un quinto valore"
     )
+
+
+# --------------------------------------------------------------------------
+# Il pannello «Modello»: descrive il fronte, cioe' lo step valido di numero
+# piu' alto, con i numeri che metrics.json porta gia'.
+# --------------------------------------------------------------------------
+
+
+def test_il_fronte_e_lo_step_valido_di_numero_piu_alto(tmp_path):
+    _esegui(tmp_path, _DOM + _funzioni("fronteDelloStato") + """
+const steps = [
+  { numero: 1, chiave: "01_load", stato: "valido" },
+  { numero: 2, chiave: "02_segment", stato: "valido" },
+  { numero: 3, chiave: "03_downsample", stato: "non valido" },
+  { numero: 4, chiave: "04_normals", stato: "valido" },
+  { numero: 5, chiave: "05_reconstruct", stato: "fallito" },
+  { numero: 12, chiave: "12_wall", stato: "valido" },
+];
+assert.equal(fronteDelloStato(steps).numero, 4, "il fronte e' il valido piu' alto, prior escluso");
+assert.equal(fronteDelloStato(steps.map((v) => ({ ...v, stato: "mai eseguito" }))), null);
+assert.equal(fronteDelloStato([]), null);
+""")
+
+
+def test_le_righe_del_modello_leggono_le_chiavi_vere_e_dicono_non_misurato(tmp_path):
+    _esegui(tmp_path, _DOM + _funzioni("righeDelModello") + """
+const metriche = {
+  "05_reconstruct": { vertices: 1234, triangles: 2468, watertight: false, boundary_edges: 12, area: 1.5, volume: 0 },
+  "01_load": { points_kept: 1000000, spacing: 1.19, extent: [2759, 785, 2000] },
+};
+const superficie = righeDelModello({ numero: 5, chiave: "05_reconstruct" }, metriche);
+const perNome = Object.fromEntries(superficie);
+// "1234" e non "1.234": in italiano CLDR non raggruppa a quattro cifre
+// (minimumGroupingDigits vale 2), e questo pannello formatta come la colonna
+// del dettaglio -- stesso toLocaleString("it"), stesso esito. Un milione, sotto,
+// il punto ce l'ha.
+assert.equal(perNome["vertici"], "1234");
+assert.equal(perNome["superficie"], "aperta");
+assert.equal(perNome["spigoli di bordo"], "12");
+const nuvola = Object.fromEntries(righeDelModello({ numero: 1, chiave: "01_load" }, metriche));
+assert.equal(nuvola["punti"], "1.000.000");
+assert.equal(nuvola["ingombro [mm]"], "2759 × 785 × 2000");
+const vecchia = Object.fromEntries(righeDelModello({ numero: 6, chiave: "06_repair" }, { "06_repair": { vertices: 3 } }));
+assert.equal(vecchia["vertici"], "3");
+assert.equal(vecchia["superficie"], "non misurato", "una corsa vecchia non inventa la chiusura");
+assert.deepEqual(righeDelModello({ numero: 7, chiave: "07_surface_quality" }, {}).map(([, v]) => v).every((v) => v === "non misurato"), true);
+// Un percorso annidato interrotto a meta': `geometric_error` c'e' ma non e' un
+// oggetto. Camminarci dentro senza guardare che cosa si sta aprendo solleverebbe.
+const rotto = Object.fromEntries(righeDelModello({ numero: 7, chiave: "07_surface_quality" }, { "07_surface_quality": { geometric_error: 3 } }));
+assert.equal(rotto["scarto dalla nuvola, RMS [mm]"], "non misurato");
+// Una chiave che la tabella non conosce non ha righe, e non e' un errore: il
+// 12 e' escluso a monte, ma una chiave futura passerebbe di qui.
+assert.deepEqual(righeDelModello({ numero: 13, chiave: "13_futuro" }, {}), []);
+// Cio' che non e' ne' numero ne' booleano si scrive com'e': C3D4 e' un
+// identificatore, non un numero da formattare.
+const deck = Object.fromEntries(righeDelModello({ numero: 11, chiave: "11_export" }, { "11_export": { element_type: "C3D4" } }));
+assert.equal(deck["tipo di elemento"], "C3D4");
+""")
+
+
+def test_il_pannello_del_modello_sta_nel_markup_con_il_proprio_vuoto():
+    markup = _senza_commenti_html(_markup())
+    assert 'id="modello"' in markup
+    vuoto = _elemento(markup, "modello-vuoto")
+    assert "hidden" not in vuoto, "lo stato vuoto nasce visibile: a corsa aperta il fronte non c'e' ancora"
+    assert 'id="modello-righe"' in markup
+
+
+def test_il_modello_si_rilegge_solo_quando_il_fronte_cambia(tmp_path):
+    """Il flusso SSE arriva ogni mezzo secondo; una fetch a ogni fotogramma
+    sarebbero due richieste al secondo per niente. La terna (numero, impronta,
+    secondi) e' cio' che cambia nei tre casi che contano: esecuzione finita,
+    annullamento, parametro modificato."""
+    _esegui(tmp_path, _DOM + _funzioni("fronteDelloStato", "chiaveDelFronte") + """
+const a = { numero: 6, impronta: "abc", secondi: 12.5 };
+assert.equal(chiaveDelFronte(a), chiaveDelFronte({ ...a }));
+assert.notEqual(chiaveDelFronte(a), chiaveDelFronte({ ...a, secondi: 13 }));
+assert.notEqual(chiaveDelFronte(a), chiaveDelFronte({ ...a, impronta: "abd" }));
+assert.equal(chiaveDelFronte(null), "");
+// Uno step valido mai cronometrato non ha ne' impronta ne' secondi: la terna
+// resta una stringa, e il confronto con la precedente non solleva.
+assert.equal(typeof chiaveDelFronte({ numero: 6 }), "string");
+assert.notEqual(chiaveDelFronte({ numero: 6 }), chiaveDelFronte(a));
+""")
+
+
+def test_il_pannello_del_modello_non_chiede_le_metriche_quando_non_c_e_un_fronte(tmp_path):
+    """Le tre condizioni d'ingresso che si vedono solo facendo girare la
+    tratta: nessuno step valido non chiede niente al server, la stessa terna
+    non rilegge, e un corpo che non e' un oggetto lascia il fronte scritto ma
+    le righe nascoste."""
+    _esegui(tmp_path, _DOM + _funzioni(
+        "fronteDelloStato", "chiaveDelFronte", "righeDelModello",
+        "apriModello", "aggiornaModello", "superata", "serverMuto", "corpoLetto",
+    ) + """
+let richieste = 0;
+let risponde = async () => ({ ok: true, status: 200, json: async () => ({ "01_load": { points_kept: 5 } }) });
+globalThis.fetch = async () => { richieste += 1; return risponde(); };
+const vuoto = document.getElementById("modello-vuoto");
+const righe = document.getElementById("modello-righe");
+const fronte = document.getElementById("modello-fronte");
+
+// Nessuno step valido, e il solo prior valido: due strade per lo stesso vuoto.
+await aggiornaModello([]);
+await aggiornaModello([{ numero: 1, chiave: "01_load", stato: "mai eseguito" }]);
+await aggiornaModello([{ numero: 12, chiave: "12_wall", stato: "valido", impronta: "w", secondi: 1 }]);
+assert.equal(richieste, 0, "senza un fronte non si chiede niente a /api/metrics");
+
+const uno = { numero: 1, chiave: "01_load", stato: "valido", impronta: "a", secondi: 1 };
+await aggiornaModello([uno]);
+assert.equal(richieste, 1);
+assert.equal(righe.hidden, false, "le righe restano nascoste su un corpo buono");
+await aggiornaModello([{ ...uno }]);
+assert.equal(richieste, 1, "la stessa terna rilegge le metriche a ogni fotogramma");
+await aggiornaModello([{ ...uno, secondi: 2 }]);
+assert.equal(richieste, 2, "una terna nuova non rilegge");
+
+// Torna a non avere fronte: il pannello si svuota da se' e non chiede niente.
+await aggiornaModello([]);
+assert.equal(richieste, 2);
+assert.equal(righe.hidden, true);
+assert.match(vuoto.textContent, /esegui lo step 1/);
+
+// Un corpo che non e' un oggetto, e una fetch che non risponde affatto.
+for (const guasto of [
+  async () => ({ ok: true, status: 200, json: async () => null }),
+  async () => ({ ok: true, status: 200, json: async () => "spazzatura" }),
+  async () => { throw new TypeError("server spento"); },
+]) {
+  risponde = guasto;
+  await aggiornaModello([{ numero: 5, chiave: "05_reconstruct", stato: "valido", impronta: guasto.name || String(Math.random()), secondi: 3 }]);
+  assert.match(vuoto.textContent, /metriche non leggibili/);
+  assert.equal(vuoto.hidden, false);
+  assert.equal(righe.hidden, true);
+  assert.match(fronte.textContent, /dopo lo step 5/, "il fronte si dice comunque");
+}
+""")
+
+
+def test_la_rilettura_del_modello_superata_non_riscrive_il_pannello(tmp_path):
+    """Due cambi di fronte ravvicinati, e la prima risposta che arriva dopo la
+    seconda. Stessa regola d'ordine delle altre tratte: vince chi e' partito
+    per ultimo, non chi arriva per ultimo."""
+    _esegui(tmp_path, _DOM + _funzioni(
+        "fronteDelloStato", "chiaveDelFronte", "righeDelModello",
+        "apriModello", "aggiornaModello", "superata", "serverMuto", "corpoLetto",
+    ) + """
+const inVolo = [];
+globalThis.fetch = async () => new Promise((risolvi) => inVolo.push(risolvi));
+const primo = aggiornaModello([{ numero: 6, chiave: "06_repair", stato: "valido", impronta: "x", secondi: 1 }]);
+const secondo = aggiornaModello([{ numero: 8, chiave: "08_simplify", stato: "valido", impronta: "y", secondi: 2 }]);
+assert.equal(inVolo.length, 2, "le due riletture non sono partite tutte e due");
+// La seconda rilettura arriva e si scrive per intero; solo dopo arriva la
+// prima. Aspettare `secondo` prima di sbloccare l'altra non e' pignoleria del
+// banco: senza, le due tratte finiscono nello stesso giro di microtask e
+// l'ordine di scrittura lo decide il motore, non il difetto che si prova.
+inVolo[1]({ ok: true, status: 200, json: async () => ({ "08_simplify": { vertices: 8 } }) });
+await secondo;
+inVolo[0]({ ok: true, status: 200, json: async () => ({ "06_repair": { vertices: 6 } }) });
+await primo;
+const fronte = document.getElementById("modello-fronte");
+assert.match(fronte.textContent, /dopo lo step 8/, "la risposta vecchia ha riscritto il pannello");
+const righe = document.getElementById("modello-righe");
+assert.deepEqual(righe.figli.map((f) => f.testo).includes("8"), true);
+""")

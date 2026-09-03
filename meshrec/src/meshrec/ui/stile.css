@@ -711,6 +711,22 @@ a.bottone { display: inline-block; text-decoration: none; }
    quella che era. Allineato a sinistra: e' testo, non una misura da
    incolonnare. */
 .metriche dd.metrica-larga { grid-column: 1 / -1; text-align: left; }
+/* Il pannello del modello, sotto la pipeline. Riusa .metriche per le righe:
+   stessa griglia e stesse cifre tabulari della colonna del dettaglio, cosi'
+   «vertici 1.234» si legge uguale nelle due colonne. Solo lo stacco dal
+   titolo e' suo, e non e' una scelta nuova ma il recupero di una regola gia'
+   scritta: `.zona h2` da' a ogni titolo che non e' il primo della colonna lo
+   stacco e il filetto sopra -- e' cosi' che «Registro» si separa da
+   «Dettaglio» nell'altra colonna. Qui il titolo sta dentro una <section>,
+   quindi e' *lui* il primo figlio e `.zona h2:first-child` glieli toglie
+   tutti e due. Rimessi sulla sezione e sul suo titolo: senza, questa sarebbe
+   l'unica seconda intestazione della schermata a galleggiare.
+   Il selettore porta `.zona` davanti apposta: serve a pareggiare il peso di
+   `.zona h2:first-child`, che senza vincerebbe e riporterebbe il filetto a
+   `none`. A parita' di peso vince chi sta piu' in basso nel foglio, ed e'
+   questa riga. */
+.modello { margin-top: var(--passo-6); }
+.zona .modello h2 { margin-top: 0; border-top: 1px solid var(--bordo); padding-top: var(--passo-3); }
 /* Un rifiuto non e' un errore del modulo (quello e' .errore, role="alert"):
    e' il verdetto di un controllo geometrico sulla regione, letto qui e non
    annunciato. Il bordo a sinistra e' il secondo canale (WCAG 1.4.1): chi non

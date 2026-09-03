@@ -134,6 +134,21 @@
          comando. Lo step 12, il prior geometrico, resta nella pipeline e
          nell'artefatto su disco ma non in questa colonna: non ha interfaccia,
          si chiede con `meshrec wall`. -->
+    <!-- Il modello al fronte, cioe' allo step valido di numero piu' alto.
+         Sta QUI, sotto la pipeline, perche' e' la risposta alla domanda che
+         quella colonna fa nascere -- «e adesso che cosa ho in mano?» -- e
+         perche' e' l'unico posto della schermata che era vuoto.
+         I numeri vengono da metrics.json, che il server serve tal quale
+         (/api/metrics): il pannello non ne calcola, come la colonna del
+         dettaglio. Nel markup e non fabbricato da app.js, per la stessa
+         ragione degli altri due vuoti di questa pagina. Nessun aria-live: il
+         cambiamento lo annuncia gia' #conteggi. -->
+    <section class="modello" id="modello" aria-labelledby="modello-titolo">
+      <h2 id="modello-titolo">Modello</h2>
+      <p class="aiuto" id="modello-fronte"></p>
+      <p class="vuoto" id="modello-vuoto">Nessuno step valido: esegui lo step 1.</p>
+      <dl class="metriche" id="modello-righe" hidden></dl>
+    </section>
   </nav>
   <section class="zona zona-vista" aria-label="Vista tridimensionale">
     <!-- #viewport e' l'inquadratura: la tela, e sopra di lei i conteggi e il

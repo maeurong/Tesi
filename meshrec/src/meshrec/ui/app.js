@@ -492,6 +492,159 @@ function nomeDelloStep(numero) {
   return ETICHETTE[voce?.chiave] ?? `step ${numero}`;
 }
 
+// --- Il modello al fronte ---------------------------------------------------
+
+// Lo step valido di numero piu' alto, prior escluso: e' cio' che si ha in
+// mano adesso. Pura: si prova senza DOM.
+function fronteDelloStato(steps) {
+  let fronte = null;
+  for (const voce of steps) {
+    if (voce.stato !== "valido" || voce.chiave === STEP_DEL_PRIOR) continue;
+    if (fronte === null || voce.numero > fronte.numero) fronte = voce;
+  }
+  return fronte;
+}
+
+// Cio' che, cambiando, chiede una rilettura di /api/metrics: un'esecuzione
+// finita cambia i secondi, un annullamento l'impronta o il numero, un
+// parametro modificato l'impronta. Il flusso SSE arriva ogni mezzo secondo,
+// e rileggere a ogni fotogramma sarebbero due richieste al secondo per niente.
+function chiaveDelFronte(fronte) {
+  if (fronte === null) return "";
+  return `${fronte.numero}|${fronte.impronta}|${fronte.secondi}`;
+}
+
+const NON_MISURATO = "non misurato";
+
+// Un valore di metrics.json reso come testo del pannello. `chiusura` e' il
+// solo booleano che si legge come stato e non come si'/no.
+function valoreDelModello(valore, forma) {
+  if (valore === undefined || valore === null) return NON_MISURATO;
+  if (forma === "chiusura") return valore ? "chiusa" : "aperta";
+  if (typeof valore === "boolean") return valore ? "sì" : "no";
+  if (Array.isArray(valore)) return valore.map((v) => valoreDelModello(v)).join(" × ");
+  if (typeof valore !== "number") return String(valore);
+  if (Number.isInteger(valore)) return valore.toLocaleString("it");
+  return valore.toLocaleString("it", { maximumSignificantDigits: 4 });
+}
+
+// [etichetta, percorso nelle metriche, forma]. Il percorso parte dalla chiave
+// dello step: alcune righe leggono lo step a monte (il 4 non conta i punti,
+// li ha contati il 3). Le chiavi sono quelle che pipeline.py scrive davvero,
+// verificate su runs/lab_telaio_v2/metrics.json il 03/09/2026.
+const RIGHE_DELLA_SUPERFICIE = (chiave) => [
+  ["vertici", [chiave, "vertices"]],
+  ["triangoli", [chiave, "triangles"]],
+  ["superficie", [chiave, "watertight"], "chiusura"],
+  ["spigoli di bordo", [chiave, "boundary_edges"]],
+  ["area [mm²]", [chiave, "area"]],
+  ["volume racchiuso [mm³]", [chiave, "volume"]],
+];
+
+const RIGHE_DEL_MODELLO = {
+  "01_load": [
+    ["punti", ["01_load", "points_kept"]],
+    ["spaziatura media [mm]", ["01_load", "spacing"]],
+    ["ingombro [mm]", ["01_load", "extent"]],
+  ],
+  "02_segment": [
+    ["punti", ["02_segment", "points_after"]],
+    ["punti tolti come rumore", ["02_segment", "outliers_removed"]],
+    ["punti ritagliati", ["02_segment", "cropped_points"]],
+  ],
+  "03_downsample": [
+    ["punti", ["03_downsample", "points_after"]],
+    ["voxel [mm]", ["03_downsample", "voxel_size"]],
+    ["riduzione", ["03_downsample", "reduction"]],
+  ],
+  "04_normals": [
+    ["punti", ["03_downsample", "points_after"]],
+    ["normali degeneri", ["04_normals", "degenerate_normals"]],
+  ],
+  "05_reconstruct": RIGHE_DELLA_SUPERFICIE("05_reconstruct"),
+  "06_repair": RIGHE_DELLA_SUPERFICIE("06_repair"),
+  "07_surface_quality": [
+    ...RIGHE_DELLA_SUPERFICIE("07_surface_quality"),
+    ["scarto dalla nuvola, RMS [mm]", ["07_surface_quality", "geometric_error", "cloud_to_mesh", "RMS"]],
+    ["scarto dalla nuvola, massimo [mm]", ["07_surface_quality", "geometric_error", "cloud_to_mesh", "max"]],
+  ],
+  "08_simplify": RIGHE_DELLA_SUPERFICIE("08_simplify"),
+  "09_tetrahedralize": [
+    ["nodi", ["09_tetrahedralize", "nodes"]],
+    ["tetraedri", ["09_tetrahedralize", "tets"]],
+    ["punti di Steiner", ["09_tetrahedralize", "steiner_points"]],
+    ["Steiner saturato", ["09_tetrahedralize", "steiner_saturated"]],
+  ],
+  "10_volume_quality": [
+    ["nodi", ["10_volume_quality", "nodes"]],
+    ["tetraedri", ["10_volume_quality", "tets"]],
+    ["volume totale [mm³]", ["10_volume_quality", "total_volume"]],
+    ["diedro minimo [°]", ["10_volume_quality", "min_dihedral_deg", "min"]],
+    ["elementi rovesciati", ["10_volume_quality", "inverted"]],
+  ],
+  "11_export": [
+    ["tipo di elemento", ["11_export", "element_type"]],
+    ["nodi", ["10_volume_quality", "nodes"]],
+    ["tetraedri", ["10_volume_quality", "tets"]],
+    ["massa [t]", ["11_export", "mass"]],
+    ["volume [mm³]", ["11_export", "volume"]],
+  ],
+};
+
+// Le righe del pannello per il fronte dato: coppie [etichetta, testo]. Pura.
+function righeDelModello(fronte, metriche) {
+  const righe = RIGHE_DEL_MODELLO[fronte.chiave] ?? [];
+  return righe.map(([etichetta, percorso, forma]) => {
+    let valore = metriche;
+    for (const passo of percorso) {
+      valore = valore !== null && typeof valore === "object" ? valore[passo] : undefined;
+    }
+    return [etichetta, valoreDelModello(valore, forma)];
+  });
+}
+
+let fronteMostrato = "";
+let ultimoModello = 0;
+
+function apriModello() {
+  ultimoModello += 1;
+  return ultimoModello;
+}
+
+async function aggiornaModello(steps) {
+  const fronte = fronteDelloStato(steps);
+  const chiave = chiaveDelFronte(fronte);
+  if (chiave === fronteMostrato) return;
+  fronteMostrato = chiave;
+  const vuoto = document.getElementById("modello-vuoto");
+  const righe = document.getElementById("modello-righe");
+  const titolo = document.getElementById("modello-fronte");
+  if (fronte === null) {
+    titolo.textContent = "";
+    vuoto.textContent = "Nessuno step valido: esegui lo step 1.";
+    vuoto.hidden = false;
+    righe.hidden = true;
+    return;
+  }
+  const ordine = apriModello();
+  const risposta = await fetch("/api/metrics").catch(serverMuto);
+  const metriche = risposta.ok ? await corpoLetto(risposta) : null;
+  if (superata(ordine, ultimoModello)) return;
+  titolo.textContent = `dopo lo step ${fronte.numero}, ${ETICHETTE[fronte.chiave] ?? fronte.chiave}`;
+  if (metriche === null || typeof metriche !== "object") {
+    vuoto.textContent = "metriche non leggibili";
+    vuoto.hidden = false;
+    righe.hidden = true;
+    return;
+  }
+  righe.replaceChildren(...righeDelModello(fronte, metriche).flatMap(([etichetta, testo]) => [
+    elemento("dt", { textContent: etichetta }),
+    elemento("dd", { textContent: testo }),
+  ]));
+  vuoto.hidden = true;
+  righe.hidden = false;
+}
+
 function disegnaStep(steps) {
   // Lo stato di prima, letto prima di sovrascriverlo: e' l'unica cosa che
   // distingue «lo step 6 e' appena diventato valido» da «lo step 6 e' valido»,
@@ -550,6 +703,7 @@ function disegnaStep(steps) {
   // si sospende sulla prima attesa, e dallo scorrere degli eventi, cioe' sempre
   // dopo che il modulo e' stato valutato per intero.
   segnaStepAperto(stepAperto);
+  aggiornaModello(steps);
 }
 
 caricaStato();
