@@ -92,9 +92,13 @@ def step_fingerprints(cfg: PipelineConfig) -> dict[int, str]:
     return marchi
 
 
-def read_state(out_dir: Path) -> dict[str, object]:
-    """Rilegge steps.json. Una corsa mai eseguita non ce l'ha: dizionario vuoto."""
-    percorso = Path(out_dir) / STATE_FILENAME
+def _leggi_mappa(percorso: Path) -> dict[str, object]:
+    """Il documento JSON in `percorso`, o vuoto se non c'e' o non si legge.
+
+    Vale per steps.json e per metrics.json, che hanno le stesse chiavi e lo
+    stesso destino: un file illeggibile e' un file assente, mai un'eccezione
+    verso chi lo chiede.
+    """
     if not percorso.exists():
         return {}
     try:
@@ -113,6 +117,11 @@ def read_state(out_dir: Path) -> dict[str, object]:
         # tornava uno stato assente: faceva saltare la lettura.
         return {}
     return contenuto if isinstance(contenuto, dict) else {}
+
+
+def read_state(out_dir: Path) -> dict[str, object]:
+    """Rilegge steps.json. Una corsa mai eseguita non ce l'ha: dizionario vuoto."""
+    return _leggi_mappa(Path(out_dir) / STATE_FILENAME)
 
 
 def write_state(
@@ -146,23 +155,30 @@ def write_state(
     )
 
 
-def dimentica(out_dir: Path, numeri: Iterable[int]) -> None:
-    """Toglie le voci degli step `numeri`, lasciando le altre.
+def dimentica(out_dir: Path, numeri: Iterable[int], nome: str = STATE_FILENAME) -> None:
+    """Toglie le voci degli step `numeri` da `nome`, lasciando le altre.
 
     Serve a chi sta per rieseguire quegli step dopo aver messo da parte i loro
     artefatti: finche' il worker non li riscrive sono «mai eseguito», e
     un'esecuzione da N a 12 che fallisce al passo k non deve lasciare
     «riuscito» sugli step k+1..12 con gli artefatti spostati altrove.
+
+    `nome` perche' le stesse chiavi governano anche metrics.json, e una misura
+    lasciata li' dopo che il suo artefatto e' stato messo da parte parlerebbe di
+    un risultato che nella corsa non c'e' piu'. Un file assente o illeggibile
+    non si crea e non si riscrive: e' gia' «mai eseguito», e riscriverlo
+    perderebbe cio' che una persona potrebbe ancora recuperare a mano.
     """
     from meshrec.core.io import scrivi_atomico
 
-    salvato = read_state(out_dir)
+    percorso = Path(out_dir) / nome
+    salvato = _leggi_mappa(percorso)
     if not salvato:
         return
     for numero in numeri:
         salvato.pop(STEP_KEYS[numero - 1], None)
     scrivi_atomico(
-        Path(out_dir) / STATE_FILENAME,
+        percorso,
         lambda destinazione: destinazione.write_text(
             json.dumps(salvato, indent=2, ensure_ascii=False), encoding="utf-8"
         ),

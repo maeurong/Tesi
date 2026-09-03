@@ -25,7 +25,7 @@ import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
-from meshrec.core import io, sweep
+from meshrec.core import io, pipeline, steps, sweep
 
 # Quante versioni si tengono. Misurato e non scelto: il config di lavoro
 # (meshrec/prova-interfaccia.yaml) pesa 1.328 byte, quindi duecento versioni
@@ -33,6 +33,13 @@ from meshrec.core import io, sweep
 # Il tetto vale per le versioni e non per registro.jsonl, che sta fuori di
 # proposito e non viene mai potato: circa 92 byte per modifica, per sempre,
 # perche' la provenienza di una versione scartata resta comunque un fatto.
+#
+# Dal 03/09/2026 il conto non regge piu': il tetto governa anche le cartelle di
+# artefatti delle esecuzioni, e duecento versioni non costano piu' 265 kB ma
+# potenzialmente gigabyte -- un solo 09_volume.vtu ne pesa centinaia di mega.
+# Resta 200 di proposito e senza un tetto in byte: chi ha bisogno dello spazio
+# cancella `.storico/` a mano, come il README dichiara, e paga solo la perdita
+# dell'annullamento.
 TETTO = 200
 
 CARTELLA = ".storico"
@@ -211,6 +218,23 @@ def deposita(
         # guasto: e' uno step mai eseguito, cioe' la prima esecuzione.
         cartella_scambio = _cartella_di_scambio(out_dir, nuovo)
         cartella_scambio.mkdir(parents=True, exist_ok=True)
+        file_scambiati = [*scambio["sposta"], *scambio["copia"]]
+        # La dichiarazione si scrive PRIMA di muovere qualsiasi file. L'elenco
+        # e' noto in anticipo, e `scambia` salta da se' i nomi che non trova ne'
+        # nella corsa ne' nella cartella: dichiararlo per intero non costa
+        # niente. Scritta dopo, un disco pieno sulla copia -- o un processo
+        # ucciso a meta' -- lasciava una cartella con dentro gli artefatti gia'
+        # spostati e nessun scambio.json: `scambia` la ignora, e il deposito
+        # successivo la cancella con rmtree. Erano artefatti persi per sempre,
+        # cioe' il solo modo in cui questa superficie poteva distruggere un
+        # risultato invece di conservarlo.
+        io.scrivi_atomico(
+            cartella_scambio / SCAMBIO,
+            lambda destinazione: destinazione.write_text(
+                json.dumps({"da": scambio["da"], "a": scambio["a"], "file": file_scambiati}),
+                encoding="utf-8",
+            ),
+        )
         for nome in scambio["sposta"]:
             sorgente = Path(out_dir) / nome
             if sorgente.exists():
@@ -219,14 +243,6 @@ def deposita(
             sorgente = Path(out_dir) / nome
             if sorgente.exists():
                 shutil.copy2(sorgente, cartella_scambio / nome)
-        file_scambiati = [*scambio["sposta"], *scambio["copia"]]
-        io.scrivi_atomico(
-            cartella_scambio / SCAMBIO,
-            lambda destinazione: destinazione.write_text(
-                json.dumps({"da": scambio["da"], "a": scambio["a"], "file": file_scambiati}),
-                encoding="utf-8",
-            ),
-        )
 
     # Lo stesso append_row del registro degli esperimenti della Fase 2, non una
     # seconda forma che gli somiglia: in sola aggiunta, un file che si allunga
@@ -271,6 +287,35 @@ def avanti(out_dir: Path) -> str | None:
         return None
     _scrivi_cursore(out_dir, successivi[0])
     return _percorso(out_dir, successivi[0]).read_text(encoding="utf-8")
+
+
+def elenco_di_scambio(da: int, a: int) -> dict:
+    """I file che un'esecuzione dallo step `da` allo step `a` puo' riscrivere.
+
+    Gli artefatti numerati vengono da `pipeline.ARTIFACTS`; gli step senza
+    artefatto numerato scrivono il deck con il suo .vtu (11) e il prior (12).
+    Gli estremi si guardano con `da <= n <= a` e non con `a >= n`: eseguire il
+    solo step 12 non riscrive il deck dello step 11, e portarlo via lascerebbe
+    steps.json a dire «11_export riuscito» su un file che nella corsa non c'e'
+    piu'.
+
+    Il parziale delle metriche si sposta: lo lascia solo un'esecuzione fallita,
+    e appartiene a lei. Stato e metriche si copiano, e steps.json sta per
+    ULTIMO: e' l'ordine in cui `scambia` permuta, e uno scambio interrotto a
+    meta' deve lasciare le impronte di prima.
+    """
+    sposta = [pipeline.ARTIFACTS[n] for n in range(da, a + 1) if n in pipeline.ARTIFACTS]
+    if da <= 11 <= a:
+        sposta += [pipeline.DECK_FILENAME, pipeline.WALL_VTU_FILENAME]
+    if da <= 12 <= a:
+        sposta.append(pipeline.WALL_FILENAME)
+    sposta.append(pipeline.METRICS_PARTIAL)
+    return {
+        "da": da,
+        "a": a,
+        "sposta": sposta,
+        "copia": [pipeline.METRICS_FILENAME, steps.STATE_FILENAME],
+    }
 
 
 def scambia(out_dir: Path, numero: int) -> dict | None:

@@ -3913,7 +3913,7 @@ def test_nessun_aiuto_mostra_un_letterale_di_python(cliente):
     assert not guasti, "un letterale di python nell'aiuto: " + ", ".join(sorted(guasti))
 
 
-def _corsa_con_lo_step_2_eseguito(cliente, tmp_path: Path) -> Path:
+def _corsa_con_lo_step_2_eseguito(tmp_path: Path) -> Path:
     """Una corsa con un artefatto e uno stato scritti a mano, come li lascia
     un'esecuzione riuscita dello step 2. Senza worker: qui si prova il deposito
     e lo scambio, non la pipeline."""
@@ -3938,7 +3938,7 @@ def test_eseguire_uno_step_deposita_prima_di_avviare(cliente, tmp_path, monkeypa
     e' un'esecuzione non annullabile, ed e' proprio il caso da togliere."""
     from meshrec.app import storico
 
-    out_dir = _corsa_con_lo_step_2_eseguito(cliente, tmp_path)
+    out_dir = _corsa_con_lo_step_2_eseguito(tmp_path)
     avviati = []
     monkeypatch.setattr(server.Worker, "start", lambda self, *argomenti: avviati.append(argomenti))
     assert cliente.post("/api/step/2").status_code == 200
@@ -3959,7 +3959,7 @@ def test_eseguire_uno_step_deposita_prima_di_avviare(cliente, tmp_path, monkeypa
 def test_un_deposito_che_solleva_non_avvia_il_worker(cliente, tmp_path, monkeypatch):
     from meshrec.app import storico
 
-    _corsa_con_lo_step_2_eseguito(cliente, tmp_path)
+    _corsa_con_lo_step_2_eseguito(tmp_path)
     avviati = []
     monkeypatch.setattr(server.Worker, "start", lambda self, *argomenti: avviati.append(argomenti))
 
@@ -3974,7 +3974,7 @@ def test_un_deposito_che_solleva_non_avvia_il_worker(cliente, tmp_path, monkeypa
 
 
 def test_annullare_un_esecuzione_rimette_artefatto_stato_e_metriche(cliente, tmp_path, monkeypatch):
-    out_dir = _corsa_con_lo_step_2_eseguito(cliente, tmp_path)
+    out_dir = _corsa_con_lo_step_2_eseguito(tmp_path)
     monkeypatch.setattr(server.Worker, "start", lambda self, *argomenti: None)
     assert cliente.post("/api/step/2").status_code == 200
     # L'esecuzione «finisce»: scrive l'artefatto nuovo e lo stato nuovo.
@@ -4007,7 +4007,7 @@ def test_annullare_un_esecuzione_rimette_artefatto_stato_e_metriche(cliente, tmp
 
 
 def test_annullare_un_esecuzione_fallita_rimette_lo_stato_di_prima(cliente, tmp_path, monkeypatch):
-    out_dir = _corsa_con_lo_step_2_eseguito(cliente, tmp_path)
+    out_dir = _corsa_con_lo_step_2_eseguito(tmp_path)
     monkeypatch.setattr(server.Worker, "start", lambda self, *argomenti: None)
     assert cliente.post("/api/step/2").status_code == 200
     from meshrec.core import steps
@@ -4038,7 +4038,7 @@ def test_uno_step_fuori_intervallo_e_rifiutato_prima_del_deposito(cliente, tmp_p
     depositata. Il rifiuto sta prima del deposito: nessuna versione nuova."""
     from meshrec.app import storico
 
-    out_dir = _corsa_con_lo_step_2_eseguito(cliente, tmp_path)
+    out_dir = _corsa_con_lo_step_2_eseguito(tmp_path)
     avviati = []
     monkeypatch.setattr(server.Worker, "start", lambda self, *argomenti: avviati.append(argomenti))
     for percorso in ("/api/step/0", "/api/step/13", "/api/step/13/from"):
@@ -4049,14 +4049,22 @@ def test_uno_step_fuori_intervallo_e_rifiutato_prima_del_deposito(cliente, tmp_p
     assert avviati == []
 
 
-def test_lo_storico_rifiuta_con_409_mentre_un_worker_gira(cliente, monkeypatch):
+def test_lo_storico_rifiuta_con_409_mentre_un_worker_gira(cliente, tmp_path, monkeypatch):
     """Scambiare file sotto un processo che li sta scrivendo non ha un esito
-    buono. 409 e non 400: la richiesta e' formata bene, e' il momento sbagliato."""
+    buono. 409 e non 400: la richiesta e' formata bene, e' il momento sbagliato.
+    Il rifiuto e' completo: cursore fermo e nessun file mosso."""
+    from meshrec.app import storico
+
+    out_dir = _corsa_con_lo_step_2_eseguito(tmp_path)
+    storico.deposita(out_dir, "uno\n", "avvio", [])
+    prima = storico.cursore(out_dir)
     monkeypatch.setattr(server.Worker, "is_running", lambda self: True)
     for verso in ("indietro", "avanti"):
         risposta = cliente.post(f"/api/storico/{verso}")
         assert risposta.status_code == 409, verso
         assert "interrompi il calcolo" in risposta.json()["messaggio"]
+        assert storico.cursore(out_dir) == prima, verso
+        assert (out_dir / "02_segmented.ply").read_bytes() == b"voxel 2", verso
 
 
 @pytest.mark.parametrize(
@@ -4069,7 +4077,7 @@ def test_metriche_illeggibili_non_fermano_l_esecuzione(cliente, tmp_path, monkey
     copia nella cartella e' quella rotta, e l'esecuzione parte lo stesso."""
     from meshrec.app import storico
 
-    out_dir = _corsa_con_lo_step_2_eseguito(cliente, tmp_path)
+    out_dir = _corsa_con_lo_step_2_eseguito(tmp_path)
     (out_dir / "metrics.json").write_bytes(rotte)
     avviati = []
     monkeypatch.setattr(server.Worker, "start", lambda self, *argomenti: avviati.append(argomenti))
@@ -4098,7 +4106,7 @@ def test_annullare_un_esecuzione_senza_cartella_dice_configurazione(cliente, tmp
     la sua cartella no, e l'annullamento vale per la sola configurazione."""
     from meshrec.app import storico
 
-    out_dir = _corsa_con_lo_step_2_eseguito(cliente, tmp_path)
+    out_dir = _corsa_con_lo_step_2_eseguito(tmp_path)
     monkeypatch.setattr(server.Worker, "start", lambda self, *argomenti: None)
     assert cliente.post("/api/step/2").status_code == 200
     shutil.rmtree(out_dir / storico.CARTELLA / f"{storico.cursore(out_dir):04d}")
@@ -4113,7 +4121,7 @@ def test_una_versione_illeggibile_non_scambia_niente(cliente, tmp_path, monkeypa
     `_ripristina` lascia i file dove stanno."""
     from meshrec.app import storico
 
-    out_dir = _corsa_con_lo_step_2_eseguito(cliente, tmp_path)
+    out_dir = _corsa_con_lo_step_2_eseguito(tmp_path)
     monkeypatch.setattr(server.Worker, "start", lambda self, *argomenti: None)
     assert cliente.post("/api/step/2").status_code == 200
     (out_dir / "02_segmented.ply").write_bytes(b"voxel 5")

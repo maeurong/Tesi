@@ -9,7 +9,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from meshrec.app import storico
+from meshrec.core import pipeline, steps
 
 
 def test_indietro_rimette_il_testo_di_prima_byte_per_byte(tmp_path: Path):
@@ -361,3 +364,42 @@ def test_il_cursore_e_pubblico(tmp_path: Path):
     assert storico.cursore(tmp_path) == 0
     storico.deposita(tmp_path, "uno\n", "avvio", [])
     assert storico.cursore(tmp_path) == 1
+
+
+def test_l_elenco_del_solo_prior_non_porta_via_il_deck():
+    """Lo step 12 non riscrive il deck dello step 11: portarlo via lo farebbe
+    sparire dalla corsa mentre steps.json continua a dire «11_export riuscito»,
+    cioe' proprio lo stato che lo scambio esiste per non produrre."""
+    assert storico.elenco_di_scambio(12, 12)["sposta"] == [
+        pipeline.WALL_FILENAME,
+        pipeline.METRICS_PARTIAL,
+    ]
+    undici = storico.elenco_di_scambio(11, 11)["sposta"]
+    assert pipeline.DECK_FILENAME in undici and pipeline.WALL_VTU_FILENAME in undici
+    assert pipeline.WALL_FILENAME not in undici
+    intera = storico.elenco_di_scambio(1, 12)
+    assert intera["copia"] == [pipeline.METRICS_FILENAME, steps.STATE_FILENAME]
+    assert intera["sposta"][0] == pipeline.ARTIFACTS[1]
+
+
+def test_lo_scambio_si_dichiara_prima_di_muovere_i_file(tmp_path: Path, monkeypatch):
+    """Una copia che fallisce a meta' non deve lasciare una cartella muta: senza
+    scambio.json dentro, `scambia` la ignora e il deposito successivo la
+    cancella con tutto cio' che aveva gia' spostato -- artefatti persi per
+    sempre. Dichiarato prima, un deposito interrotto resta annullabile."""
+    (tmp_path / "02_segmented.ply").write_bytes(b"mesh")
+    (tmp_path / "steps.json").write_text("{}", encoding="utf-8")
+    storico.deposita(tmp_path, "uno\n", "avvio", [])
+
+    def esplode(*_argomenti, **_parole):
+        raise OSError("disco pieno")
+
+    monkeypatch.setattr(storico.shutil, "copy2", esplode)
+    with pytest.raises(OSError):
+        storico.deposita(tmp_path, "due\n", "POST /api/step/2", [], scambio=_scambio())
+
+    numero = storico.cursore(tmp_path) + 1
+    cartella = tmp_path / storico.CARTELLA / f"{numero:04d}"
+    assert (cartella / storico.SCAMBIO).exists(), "la cartella senza dichiarazione e' irrecuperabile"
+    assert storico.scambia(tmp_path, numero) == {"da": 2, "a": 2}
+    assert (tmp_path / "02_segmented.ply").read_bytes() == b"mesh"

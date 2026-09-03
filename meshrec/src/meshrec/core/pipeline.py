@@ -35,6 +35,10 @@ WALL_FILENAME = "12_wall.json"
 # adesso lo nomina anche il server, che lo consegna a chi lo chiede
 # (`/api/deck`): scritto due volte, il giorno che cambia ne cambia una sola.
 DECK_FILENAME = "wall_model.inp"
+# Il maglio dello stesso step in forma leggibile da ParaView. Costante per lo
+# stesso motivo del deck: lo nomina anche lo scambio dello storico, che lo
+# sposta insieme al deck perche' lo scrive la stessa chiamata.
+WALL_VTU_FILENAME = "wall_model.vtu"
 
 
 class _FermataRichiesta(Exception):
@@ -350,7 +354,7 @@ def genera_modello(cfg: PipelineConfig, tipo: str, out_dir: Path) -> dict[str, o
 
     export = abaqus.export_model(
         out / DECK_FILENAME,
-        out / "wall_model.vtu",
+        out / WALL_VTU_FILENAME,
         nodi,
         elementi,
         analisi,
@@ -807,7 +811,7 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
         # di riferimento del modello (vedi abaqus.align_to_axes).
         metrics["11_export"] = abaqus.export_model(
             out / DECK_FILENAME,
-            out / "wall_model.vtu",
+            out / WALL_VTU_FILENAME,
             nodes,
             tets,
             cfg.analisi_dichiarata("lo step 11"),

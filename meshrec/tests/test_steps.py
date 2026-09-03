@@ -239,3 +239,21 @@ def test_dimentica_toglie_solo_le_voci_chieste(tmp_path):
 def test_dimentica_senza_stato_non_crea_il_file(tmp_path):
     steps.dimentica(tmp_path, [1])
     assert not (tmp_path / steps.STATE_FILENAME).exists()
+
+
+def test_dimentica_vale_anche_per_le_metriche(tmp_path):
+    """Le metriche portano le stesse chiavi dello stato, e uno step che sta per
+    essere rieseguito non deve lasciare in giro la misura di prima."""
+    (tmp_path / "metrics.json").write_text(
+        json.dumps({"01_load": {"punti": 1}, "02_segment": {"punti": 2}}), encoding="utf-8"
+    )
+    steps.dimentica(tmp_path, [2], nome="metrics.json")
+    assert json.loads((tmp_path / "metrics.json").read_text(encoding="utf-8")) == {
+        "01_load": {"punti": 1}
+    }
+
+
+def test_dimentica_non_riscrive_un_file_illeggibile(tmp_path):
+    (tmp_path / "metrics.json").write_bytes(b"{tronc")
+    steps.dimentica(tmp_path, [2], nome="metrics.json")
+    assert (tmp_path / "metrics.json").read_bytes() == b"{tronc"

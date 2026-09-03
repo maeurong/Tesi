@@ -1282,8 +1282,8 @@ def create_app(
             risposta.update(esecuzione)
         return risposta
 
-    @app.post("/api/storico/indietro")
-    def storico_indietro() -> dict[str, object]:
+    @app.post("/api/storico/indietro", response_model=None)
+    def storico_indietro() -> dict[str, object] | JSONResponse:
         """Rimette la versione precedente della configurazione.
 
         Non tace mai: a storico vuoto risponde col proprio «perche'», perche' un
@@ -1315,8 +1315,8 @@ def create_app(
                 scambio=da_togliere,
             )
 
-    @app.post("/api/storico/avanti")
-    def storico_avanti() -> dict[str, object]:
+    @app.post("/api/storico/avanti", response_model=None)
+    def storico_avanti() -> dict[str, object] | JSONResponse:
         with _LUCCHETTO_STORICO:
             non_in_sola_lettura("rifare una modifica")
             if (rifiuto := _in_corso()) is not None:
@@ -1533,53 +1533,14 @@ def create_app(
 
     lavoratore = Worker()
 
-    def _elenco_di_scambio(da: int, a: int) -> dict[str, object]:
-        """I file che un'esecuzione da `da` ad `a` puo' riscrivere.
-
-        Gli artefatti numerati vengono da `pipeline.ARTIFACTS`; gli step senza
-        artefatto numerato scrivono il deck con il suo .vtu (11) e il prior
-        (12). Il parziale delle metriche si sposta: lo lascia solo
-        un'esecuzione fallita, e appartiene a lei. Stato e metriche si copiano,
-        e steps.json sta per ULTIMO: e' l'ordine dello scambio, e uno scambio
-        interrotto a meta' deve lasciare le impronte di prima.
-        """
-        sposta = [pipeline.ARTIFACTS[n] for n in range(da, a + 1) if n in pipeline.ARTIFACTS]
-        if a >= 11:
-            sposta += [pipeline.DECK_FILENAME, "wall_model.vtu"]
-        if a >= 12:
-            sposta.append(pipeline.WALL_FILENAME)
-        sposta.append(pipeline.METRICS_PARTIAL)
-        return {
-            "da": da,
-            "a": a,
-            "sposta": sposta,
-            "copia": [pipeline.METRICS_FILENAME, steps.STATE_FILENAME],
-        }
-
-    def _dimentica_metriche(out_dir: Path, numeri: range) -> None:
-        percorso = out_dir / pipeline.METRICS_FILENAME
-        if not percorso.exists():
-            return
-        try:
-            letto = json.loads(percorso.read_text(encoding="utf-8"))
-        except ValueError:
-            return
-        if not isinstance(letto, dict):
-            return
-        for numero in numeri:
-            letto.pop(steps.STEP_KEYS[numero - 1], None)
-        scrivi_atomico(
-            percorso,
-            lambda destinazione: destinazione.write_text(
-                json.dumps(letto, indent=2, default=float, ensure_ascii=False), encoding="utf-8"
-            ),
-        )
-
     def _avvia(da: int, a: int, endpoint: str) -> dict[str, object]:
         """Deposita, poi avvia. In quest'ordine e sotto lo stesso lucchetto
         dello storico: un'esecuzione senza deposito non si puo' annullare, e
         un deposito che solleva lascia il worker fermo con il motivo in
         risposta."""
+        # Senza questa riga, a legame vuoto il Worker lanciava
+        # `python -m meshrec.cli run None` e restava occupato: un 200 che non
+        # eseguiva niente e bloccava anche la richiesta successiva.
         corrente()
         # La guardia sta PRIMA del deposito: `steps.dimentica(range(0, 1))`
         # farebbe `STEP_KEYS[-1]` e toglierebbe in silenzio la voce del prior,
@@ -1607,10 +1568,10 @@ def create_app(
                 config_path.read_text(encoding="utf-8"),
                 endpoint,
                 [],
-                scambio=_elenco_di_scambio(da, a),
+                scambio=storico.elenco_di_scambio(da, a),
             )
             steps.dimentica(out_dir, range(da, a + 1))
-            _dimentica_metriche(out_dir, range(da, a + 1))
+            steps.dimentica(out_dir, range(da, a + 1), nome=pipeline.METRICS_FILENAME)
             lavoratore.start(config_path, da, a)
         return {"avviato": da, "fino_a": a}
 
