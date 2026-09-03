@@ -125,14 +125,25 @@ def test_ogni_step_che_scrive_una_superficie_dice_se_e_chiusa(run_dir):
     proprie dello step non si toccano: `watertight_after` del 6 resta."""
     _out, metrics = run_dir
     for chiave in ("05_reconstruct", "06_repair", "08_simplify"):
-        for misura in ("vertices", "triangles", "watertight", "boundary_edges", "area", "volume"):
+        for misura in (
+            "vertices",
+            "triangles",
+            "watertight",
+            "boundary_edges",
+            "area",
+            "volume",
+            "aspect_ratio",
+        ):
             assert misura in metrics[chiave], f"{chiave} non porta {misura}"
     assert metrics["06_repair"]["watertight_after"] == metrics["06_repair"]["watertight"]
 
 
 def test_le_misure_della_superficie_rispettano_lo_step_e_le_facce_vuote():
     """Lo step vince sulle misure aggiunte, e zero facce non si misurano:
-    `surface_metrics` indicizza `f[:, 0]` e su un array vuoto solleva."""
+    `surface_metrics` su zero facce non solleva, produce misure prive di
+    senso (area 0, «chiusa» vera per assenza di spigoli) che finirebbero in
+    `metrics.json` come fatti. La guardia lascia le metriche dello step
+    com'erano."""
     vertici = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
     facce = np.array([[0, 1, 2]])
     unite = pipeline._con_le_misure_della_superficie({"vertices": 99, "watertight_after": True}, vertici, facce)
