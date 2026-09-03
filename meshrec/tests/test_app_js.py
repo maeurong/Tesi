@@ -446,6 +446,11 @@ _DOM += _costante("elemento") + "\n"
 # colonna le vuole. Prese dal sorgente vero e non riscritte qui, per la stessa
 # ragione di `elemento`.
 _DOM += _costante("STEP_DEL_PRIOR") + "\n"
+# Il rimedio in coda ai rifiuti che l'interfaccia non sa spiegare: lo usano
+# `caricaStato` e `apriDettaglio`, che stanno in banchi diversi.
+_DOM += _costante("RIMEDIO") + "\n"
+# I titoli dei gruppi di parametri: `gruppoDelBlocco` la legge a ogni pannello.
+_DOM += _costante("ETICHETTE_DEI_BLOCCHI") + "\n"
 # Le costanti del pannello del modello, per la stessa ragione delle due qui
 # sopra: `disegnaStep` chiama `aggiornaModello` in coda, e ogni banco che
 # disegna la colonna se le porta dietro.
@@ -2625,7 +2630,7 @@ def _banco_di_caricaStato() -> str:
     banco lo direbbe eseguendo, non ragionandoci sopra.
     """
     return _DOM + _funzioni(
-        "caricaStato", "mostraSchermata", *_COLONNA, "dichiaraErrore", "corpoLetto",
+        "caricaStato", "mostraSchermata", *_COLONNA, "dichiaraErrore", "mostraEsito", "corpoLetto",
     ) + """
 let risponde = null;
 globalThis.fetch = async () => risponde();
@@ -2758,25 +2763,29 @@ def test_caricaStato_non_crolla_su_un_corpo_che_non_si_legge(tmp_path):
     _esegui(tmp_path, _banco_di_caricaStato() + """
 risponde = async () => ({ ok: true, status: 200, json: async () => { throw new SyntaxError("boom"); } });
 await caricaStato();
-assert.match(rigaErrore.textContent, /non si legge/, "il corpo illeggibile non dice niente a video");
+// In testata (#esito) e non in #errore: all'avvio le tre schermate sono
+// nascoste e #errore sta dentro una di loro.
+const esito = document.getElementById("esito");
+assert.match(esito.textContent, /non si legge/, "il corpo illeggibile non dice niente a video");
+assert.match(esito.textContent, /Ricarica la pagina/, "un guasto fra server e pagina va detto con il rimedio");
 assert.equal(document.getElementById("corsa").textContent, "",
   "un corpo illeggibile non deve scrivere corsa");
 
-rigaErrore.textContent = "";
+esito.textContent = "";
 risponde = async () => ({ ok: true, status: 200, json: async () => null });
 await caricaStato();
-assert.match(rigaErrore.textContent, /non si legge/, "un null letterale fa sollevare caricaStato fuori da ogni catch");
+assert.match(esito.textContent, /non si legge/, "un null letterale fa sollevare caricaStato fuori da ogni catch");
 assert.equal(document.getElementById("corsa").textContent, "",
   "un null letterale non deve scrivere corsa");
 
-rigaErrore.textContent = "";
+esito.textContent = "";
 risponde = async () => ({ ok: true, status: 200, json: async () => ({ out_dir: "/tmp/corsa" }) });
 await caricaStato();
-assert.match(rigaErrore.textContent, /non si legge/,
+assert.match(esito.textContent, /non si legge/,
   "un corpo senza l'elenco degli step non dice niente a video");
 
 // --- il controllo che smentisce: un corpo buono deve continuare a funzionare
-rigaErrore.textContent = "";
+esito.textContent = "";
 risponde = async () => ({ ok: true, status: 200, json: async () => ({ out_dir: "/tmp/corsa", steps: STEPS }) });
 await caricaStato();
 assert.equal(rigaErrore.textContent, "", "un corpo buono non deve mostrare errore");
@@ -2800,7 +2809,7 @@ def _banco_di_apriDettaglio() -> str:
         "durataMisurata", "ultimaDurata",
         # L'intestazione e il gruppo che richiude i predefiniti: il pannello li
         # costruisce a ogni apertura, quindi il banco li incontra comunque.
-        "intestazioneDelloStep", "reso", "cambiatoDalPredefinito", "gruppoDelBlocco",
+        "intestazioneDelloStep", "fraseDelloStato", "reso", "cambiatoDalPredefinito", "gruppoDelBlocco",
     ) + """
 // Vera mentre una corsa gira: i due «Esegui» nascono spenti se lo e'. Falsa
 // qui, che e' lo stato in cui un pannello si apre normalmente.
@@ -2844,6 +2853,8 @@ def test_apriDettaglio_schema_illeggibile_non_avvelena_la_cache(tmp_path):
     invece di ritentare la richiesta.
     """
     _esegui(tmp_path, _banco_di_apriDettaglio() + """
+// Lo stato dello step 1, per la riga che il pannello aggiunge sotto l'intestazione.
+ultimoStato = [{ numero: 1, chiave: "01_load", stato: "non valido" }];
 risponde = {
   "/api/schema": async () => ({ ok: true, status: 200, json: async () => { throw new SyntaxError("boom"); } }),
 };
@@ -2868,6 +2879,9 @@ risponde = {
 };
 await apriDettaglio(1);
 assert.equal(schemaParametri, SCHEMA_BUONO, "lo schema buono non e' stato memorizzato");
+const rigaDiStato = document.getElementById("dettaglio").figli.find((n) => n.className === "aiuto stato-dello-step");
+assert.ok(rigaDiStato, "il pannello non spiega lo stato dello step");
+assert.match(rigaDiStato.textContent, /parametri diversi da quelli correnti/);
 assert.ok(document.getElementById("dettaglio").childElementCount > 0,
   "il pannello non si e' ripreso con uno schema buono, dopo che il primo era fallito");
 """)
@@ -5467,6 +5481,9 @@ const campi = {
 };
 
 const gruppo = gruppoDelBlocco("segment", campi, generazione);
+// Il titolo del gruppo e' l'etichetta del blocco, non la chiave.
+assert.equal(gruppo.figli.find((n) => n.tag === "legend").textContent, "segmentazione",
+  "la legend stampa la chiave grezza del blocco");
 const pieghe = gruppo.figli.filter((n) => n.tag === "details");
 assert.equal(pieghe.length, 1, "la piega non e' stata costruita");
 const [piega] = pieghe;
@@ -6951,7 +6968,7 @@ for (const guasto of [
 ]) {
   risponde = guasto;
   await aggiornaModello([{ numero: 5, chiave: "05_reconstruct", stato: "valido", impronta: guasto.name || String(Math.random()), secondi: 3 }]);
-  assert.match(vuoto.textContent, /metriche non leggibili/);
+  assert.match(vuoto.textContent, /non si leggono/);
   assert.equal(vuoto.hidden, false);
   assert.equal(righe.hidden, true);
   assert.match(fronte.textContent, /dopo lo step 5/, "il fronte si dice comunque");
@@ -6979,7 +6996,7 @@ const avvisate = righe.querySelectorAll(".metrica-avviso");
 assert.equal(avvisate.length, 1, "una riga sola, e non tutti i booleani veri");
 // L'etichetta e' il fratello prima: il marchio deve stare sul valore giusto,
 // non su una riga qualunque del pannello.
-assert.equal(righe.children[righe.children.indexOf(avvisate[0]) - 1].textContent, "Steiner saturato");
+assert.equal(righe.children[righe.children.indexOf(avvisate[0]) - 1].textContent, "punti di Steiner esauriti: mesh troncata");
 
 // Falso e' la buona notizia: nessun marchio. E' il set a decidere, non il tipo.
 metriche = { "09_tetrahedralize": { nodes: 10, tets: 20, steiner_points: 3, steiner_saturated: false } };
@@ -7735,3 +7752,37 @@ assert.deepEqual(segnate(), []);
 segnaIntervalloInEsecuzione({ in_corso: true, step: null, a_step: null });
 assert.deepEqual(segnate(), []);
 """)
+
+def test_la_frase_dello_stato_spiega_la_parola_della_colonna(tmp_path):
+    """«non valido» sta nella colonna, nella CLI e nella spec, e a chi non
+    conosce la pipeline suona come «rotto»: il pannello dello step aperto lo
+    spiega e dice che cosa fare. Uno stato che la tabella non conosce -- o
+    uno step che lo stato non conosce -- non prende una frase inventata.
+
+    Mutazione che lo uccide: `?? ""` al posto di `?? null`, che farebbe
+    comparire una riga vuota sotto ogni intestazione.
+    """
+    _esegui(tmp_path, _DOM + _funzioni("fraseDelloStato") + """
+assert.match(fraseDelloStato({ stato: "non valido" }), /parametri diversi da quelli correnti/);
+assert.match(fraseDelloStato({ stato: "non valido" }), /Riesegui/, "lo stato che chiede un gesto lo nomina");
+assert.match(fraseDelloStato({ stato: "valido" }), /parametri correnti/);
+assert.match(fraseDelloStato({ stato: "fallito" }), /registro/, "il fallito dice dove sta il motivo");
+assert.match(fraseDelloStato({ stato: "mai eseguito" }), /Mai eseguito/);
+assert.equal(fraseDelloStato({ stato: "in orbita" }), null);
+assert.equal(fraseDelloStato(undefined), null);
+""")
+
+
+def test_ogni_blocco_della_pipeline_ha_un_titolo_che_non_e_la_chiave():
+    """PRODUCT.md: «una chiave non si stampa mai, si stampa la sua etichetta».
+    Il titolo del gruppo stampava la chiave del blocco in maiuscoletto,
+    «DOWNSAMPLE» sopra «lato del voxel [mm]». La tabella e' sorvegliata
+    contro `STEP_BLOCKS`, che e' l'elenco vero dei blocchi che un pannello
+    puo' mostrare: un blocco nuovo senza etichetta tornerebbe chiave.
+    """
+    from meshrec.core import steps
+
+    riga = _costante("ETICHETTE_DEI_BLOCCHI")
+    for numero, blocchi in steps.STEP_BLOCKS.items():
+        for blocco in blocchi:
+            assert f"{blocco}: " in riga, f"il blocco «{blocco}» dello step {numero} resterebbe una chiave"
