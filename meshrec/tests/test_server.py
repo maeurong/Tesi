@@ -2996,7 +2996,7 @@ def test_da_qui_in_giu_si_ferma_al_deck(cliente, monkeypatch):
     rifiuto = cliente.post("/api/step/12/from")
     assert rifiuto.status_code == 400
     assert rifiuto.json()["messaggio"] == (
-        "«da qui in giù» arriva al deck (step 11): per il prior usa "
+        "«Esegui da qui fino al deck» si ferma all'11: per il prior usa "
         "`meshrec wall` oppure lo step 12 da solo"
     )
 

@@ -163,7 +163,7 @@ def _ingresso_di_ripresa(
     if not percorso.exists():
         raise ValueError(
             f"lo step {chiede} pretende {ARTIFACTS[da]}, che lo step {da} non ha ancora "
-            f"scritto. Esegui prima lo step {da}, oppure «Esegui da qui in giù» "
+            f"scritto. Esegui prima lo step {da}, oppure «Esegui da qui fino al deck» "
             f"dallo step {da}"
         )
     try:

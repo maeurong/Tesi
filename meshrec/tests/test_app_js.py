@@ -155,6 +155,8 @@ def _funzioni(*nomi: str) -> str:
 # volta, non c'e' un elenco per banco da tenere allineato.
 _COLONNA = (
     "segnaStepAperto", "nuovaRiga",
+    # La frase di stato del pannello aperto: disegnaStep la riscrive se cambia.
+    "fraseDelloStato",
     "superata", "serverMuto", "ragioneDelRifiuto", "corpoLetto",
     # Il pannello del modello, che `disegnaStep` chiama in coda: senza queste
     # tre il banco della colonna cade su un ReferenceError. Nel banco non
@@ -2810,6 +2812,9 @@ def _banco_di_apriDettaglio() -> str:
         # L'intestazione e il gruppo che richiude i predefiniti: il pannello li
         # costruisce a ogni apertura, quindi il banco li incontra comunque.
         "intestazioneDelloStep", "fraseDelloStato", "reso", "cambiatoDalPredefinito", "gruppoDelBlocco",
+        # Il pannello va a video in un colpo solo, dentro una transizione di
+        # vista dove c'e': qui non c'e', e riscrivi cambia il DOM sul posto.
+        "riscrivi",
     ) + """
 // Vera mentre una corsa gira: i due «Esegui» nascono spenti se lo e'. Falsa
 // qui, che e' lo stato in cui un pannello si apre normalmente.
@@ -5122,6 +5127,10 @@ def _banco_di_esito() -> str:
         # I due «Esegui» seguono la corsa dallo stesso carico di «Annulla»:
         # aggiornaDaStato la chiama, quindi il banco la incontra.
         "spegniLeEsecuzioni",
+        "avanzamentoDellaCorsa",
+        # L'intervallo in esecuzione sulla colonna: aggiornaDaStato lo segna a
+        # ogni frame, e qui la colonna e' vuota (disegnaStep e' stubbato).
+        "segnaIntervalloInEsecuzione",
         "aggiornaDaStato",
     ) + """
 let corsaInCorso = false;
@@ -5172,7 +5181,7 @@ assert.deepEqual(
 assert.deepEqual(
   esitoDellaCorsa({ ...base, exit_code: 1 }),
   {
-    errore: "Lettura: esecuzione fallita (codice 1). Il motivo è nel registro, in fondo alla colonna Dettaglio: nessun dettaglio",
+    errore: "Lettura: esecuzione fallita (codice 1). Il motivo è nel registro, in fondo alla colonna Dettaglio.",
     esito: null,
   },
 );
@@ -7154,9 +7163,12 @@ const registro = document.getElementById("registro");
 for (const testo of ["", "   "]) {
   const riga = document.createElement("div"); riga.textContent = testo; registro.append(riga);
 }
-assert.equal(ultimaRigaDelRegistro(), "nessun dettaglio");
+assert.equal(ultimaRigaDelRegistro(), "");
 const { errore } = esitoDellaCorsa({ exit_code: 1, annullato: false, step: 2, a_step: 2, steps: [] });
-assert.match(errore, /nessun dettaglio/);
+// Senza una riga, la frase si chiude senza inventare un dettaglio assente:
+// la riga puo' arrivare un giro dopo, dallo stesso flusso.
+assert.match(errore, /colonna Dettaglio\.$/);
+assert.ok(!/nessun dettaglio/.test(errore));
 """)
 
 
@@ -7190,7 +7202,7 @@ assert.equal(dettagli.open, false, "il registro della corsa vecchia e' rimasto a
 
 // E muore subito, prima di scrivere una riga sua.
 aggiornaDaStato({ ...base, in_corso: false, exit_code: 1 });
-assert.match(esito.textContent, /nessun dettaglio/);
+assert.match(esito.textContent, /colonna Dettaglio\.$/);
 assert.ok(!esito.textContent.includes("ValueError"), "l'esito cita ancora la corsa precedente: " + esito.textContent);
 """)
 
@@ -7398,7 +7410,7 @@ def test_il_nome_del_file_dell_immagine_porta_corsa_step_e_didascalia(tmp_path):
     Solo `[a-z0-9-]`: e' un nome di file su tre sistemi diversi, e la
     didascalia porta virgole, accenti e unita'.
     """
-    _esegui(tmp_path, _DOM + _funzioni("nomeDellImmagine") + """
+    _esegui(tmp_path, _DOM + _funzioni("nomeDellaCorsa", "nomeDellImmagine") + """
 assert.equal(nomeDellImmagine("runs/lab_telaio_v2", 6, "Riparazione", "scarto RMS 9,5 mm"),
   "lab-telaio-v2-06-riparazione-scarto-rms-9-5-mm.png");
 assert.equal(nomeDellImmagine("corsa", 5, "Superficie", ""), "corsa-05-superficie.png",
@@ -7424,7 +7436,7 @@ def test_i_due_comandi_della_vista_stanno_nel_markup():
 
 def _banco_dei_comandi_della_vista() -> str:
     """`salvaImmagine` con la vista finta e i tre elementi che legge."""
-    return _DOM + _funzioni("nomeDellImmagine", "didascaliaDellaVista", "salvaImmagine") + """
+    return _DOM + _costante("STEP_CON_GEOMETRIA") + "\n" + _funzioni("nomeDellaCorsa", "nomeDellImmagine", "didascaliaDellaVista", "passoDaMostrare", "righeDiProvenienza", "spezzaInRighe", "immagineConProvenienza", "dichiaraErrore", "salvaImmagine") + """
 const creati = [];
 const creaVero = document.createElement;
 document.createElement = (tag) => { const nodo = creaVero(tag); creati.push(nodo); return nodo; };
@@ -7448,12 +7460,12 @@ def test_salva_immagine_scrive_un_png_col_nome_della_corsa(tmp_path):
     """
     _esegui(tmp_path, _banco_dei_comandi_della_vista() + """
 // Nessuno step scelto: nessun file, nessuna cattura.
-salvaImmagine();
+await salvaImmagine();
 assert.equal(scaricato(), undefined, "un file scaricato senza uno step scelto");
 assert.equal(vista.catture, 0, "la tela e' stata catturata senza uno step scelto");
 
 stepScelto = 6;
-salvaImmagine();
+await salvaImmagine();
 assert.equal(scaricato().download, "lab-crop-06-riparazione-scarto-rms-9-5-mm.png");
 assert.equal(scaricato().href, "data:image/png;base64,AAA", "il file non porta la tela catturata");
 assert.equal(scaricato().cliccato, true, "il file non e' stato consegnato al browser");
@@ -7465,7 +7477,7 @@ assert.ok(!document.body.figli.includes(scaricato()), "il collegamento resta app
 
 // Uno step che lo stato non conosce: il numero, non «undefined».
 ultimoStato = [];
-salvaImmagine();
+await salvaImmagine();
 assert.equal(scaricato().download, "lab-crop-06-step-6-scarto-rms-9-5-mm.png");
 """)
 
@@ -7680,6 +7692,76 @@ assert.equal(document.title, "MeshRec",
 """)
 
 
+def test_una_corsa_conclusa_ha_il_proprio_colore_e_l_interrotta_no(tmp_path):
+    """La riga dell'esito porta tre fatti con tre colori, come la colonna degli
+    step: conclusa (accento), interrotta (grigio), fallita (rosso). La classe
+    della riuscita la decide il chiamante, non il testo: «interrotta» arriva
+    come esito e non e' una riuscita.
+
+    Mutazione che lo uccide: passare `true` fisso a `mostraEsito` sul fronte
+    di discesa, che colorerebbe anche l'interruzione.
+    """
+    _esegui(tmp_path, _banco_di_esito() + """
+ETICHETTE["01_load"] = "Lettura";
+const steps = [{ numero: 1, chiave: "01_load", stato: "valido", secondi: 2 }];
+
+aggiornaDaStato({ in_corso: true, step: 1, a_step: 1, steps, da_secondi: 0.5, annullato: false, exit_code: null });
+aggiornaDaStato({ in_corso: false, step: 1, a_step: 1, steps, da_secondi: null, annullato: false, exit_code: 0 });
+assert.match(esito.textContent, /esecuzione conclusa/);
+assert.ok(esito.className.includes("esito-riuscito"), "la corsa conclusa non ha il proprio colore");
+assert.ok(!esito.className.includes("esito-fallito"));
+
+aggiornaDaStato({ in_corso: true, step: 1, a_step: 1, steps, da_secondi: 0.1, annullato: false, exit_code: null });
+assert.ok(!esito.className.includes("esito-riuscito"), "la riuscita vecchia e' rimasta sopra la corsa nuova");
+aggiornaDaStato({ in_corso: false, step: 1, a_step: 1, steps, da_secondi: null, annullato: true, exit_code: -15 });
+assert.match(esito.textContent, /esecuzione interrotta/);
+assert.ok(!esito.className.includes("esito-riuscito"), "un'interruzione e' una scelta, non una riuscita");
+assert.ok(!esito.className.includes("esito-fallito"));
+
+// Il terzo colore: una corsa fallita e' rossa e non verde.
+aggiornaDaStato({ in_corso: true, step: 1, a_step: 1, steps, da_secondi: 0.1, annullato: false, exit_code: null });
+aggiornaDaStato({ in_corso: false, step: 1, a_step: 1, steps, da_secondi: null, annullato: false, exit_code: 2 });
+assert.ok(esito.className.includes("esito-fallito"));
+assert.ok(!esito.className.includes("esito-riuscito"), "una corsa fallita ha preso il colore della riuscita");
+
+// Un esito passato senza il terzo argomento resta grigio: i ritorni della
+// cronologia non sono corse.
+mostraEsito(null, "configurazione ripristinata: nessuno step cambia stato");
+assert.ok(!esito.className.includes("esito-riuscito"));
+""")
+
+
+def test_la_colonna_segna_l_intervallo_che_sta_girando(tmp_path):
+    """Mentre una corsa dura, le righe da `step` ad `a_step` portano
+    aria-busy; a corsa ferma, o su un comando senza step, nessuna.
+    L'intervallo e non lo step corrente: il server non lo sa (stato.step e' il
+    capo di partenza e non avanza).
+
+    Mutazione che lo uccide: `numero === stato.step` al posto dell'intervallo,
+    che su una corsa da 5 a 11 segnerebbe la sola Superficie.
+    """
+    _esegui(tmp_path, _DOM + _funzioni("nuovaRiga", "segnaIntervalloInEsecuzione") + """
+const colonna = document.getElementById("elenco-step");
+colonna.replaceChildren(...[1, 2, 3, 4, 5].map(() => nuovaRiga()));
+[...colonna.children].forEach((riga, i) => { riga.firstElementChild.dataset.numero = i + 1; });
+const segnate = () => [...colonna.children].filter((r) => r.getAttribute("aria-busy") === "true").map((r) => Number(r.firstElementChild.dataset.numero));
+
+segnaIntervalloInEsecuzione({ in_corso: true, step: 2, a_step: 4 });
+assert.deepEqual(segnate(), [2, 3, 4]);
+
+// a_step assente: il solo capo.
+segnaIntervalloInEsecuzione({ in_corso: true, step: 3, a_step: null });
+assert.deepEqual(segnate(), [3]);
+
+// Corsa ferma: tutto tolto.
+segnaIntervalloInEsecuzione({ in_corso: false, step: 3, a_step: 3 });
+assert.deepEqual(segnate(), []);
+
+// Comando fuori pipeline: nessuno step, nessuna riga.
+segnaIntervalloInEsecuzione({ in_corso: true, step: null, a_step: null });
+assert.deepEqual(segnate(), []);
+""")
+
 def test_la_frase_dello_stato_spiega_la_parola_della_colonna(tmp_path):
     """«non valido» sta nella colonna, nella CLI e nella spec, e a chi non
     conosce la pipeline suona come «rotto»: il pannello dello step aperto lo
@@ -7713,3 +7795,178 @@ def test_ogni_blocco_della_pipeline_ha_un_titolo_che_non_e_la_chiave():
     for numero, blocchi in steps.STEP_BLOCKS.items():
         for blocco in blocchi:
             assert f"{blocco}: " in riga, f"il blocco «{blocco}» dello step {numero} resterebbe una chiave"
+
+
+def test_riscrivi_porta_la_bozza_a_video_con_o_senza_transizione(tmp_path):
+    """Il pannello del dettaglio si costruisce in una bozza e va a video in un
+    colpo solo. Dove `document.startViewTransition` c'e', il cambio avviene
+    dentro la sua callback e chi chiama aspetta `updateCallbackDone`, cioe'
+    il DOM nuovo e non la fine della dissolvenza; dove non c'e', il cambio e'
+    immediato e la promessa e' gia' risolta. In entrambi i casi i figli della
+    bozza diventano i figli del nodo.
+
+    Mutazione che lo uccide: aspettare `finished` invece di
+    `updateCallbackDone`, o chiamare `cambia()` fuori dalla callback.
+    """
+    _esegui(tmp_path, _DOM + _funzioni("riscrivi") + """
+const nodo = document.getElementById("dettaglio");
+nodo.append(elemento("p", { textContent: "vecchio" }));
+const bozza = elemento("div");
+bozza.append(elemento("h3", { textContent: "nuovo" }), elemento("p", { textContent: "corpo" }));
+
+// Senza l'API: sul posto, subito.
+await riscrivi(nodo, bozza);
+assert.deepEqual(nodo.children.map((n) => n.textContent), ["nuovo", "corpo"]);
+// Nel DOM vero i nodi si SPOSTANO e la bozza resta vuota; il DOM finto
+// copia i riferimenti e non lo sa, quindi qui non lo si chiede.
+
+// Con l'API: il cambio sta dentro la callback, e si aspetta updateCallbackDone.
+let dentro = null;
+document.startViewTransition = (cambia) => {
+  dentro = nodo.children.map((n) => n.textContent);
+  cambia();
+  return { updateCallbackDone: Promise.resolve("aggiornato"), finished: new Promise(() => {}) };
+};
+const bozza2 = elemento("div");
+bozza2.append(elemento("p", { textContent: "terzo" }));
+await riscrivi(nodo, bozza2);
+assert.deepEqual(dentro, ["nuovo", "corpo"], "la callback deve vedere il pannello vecchio ancora a video");
+assert.deepEqual(nodo.children.map((n) => n.textContent), ["terzo"]);
+
+// Un'apertura superata nel frattempo non arriva a video: lo decide il
+// controllo letto dentro la callback, non l'ordine in cui il motore le esegue.
+const bozza3 = elemento("div");
+bozza3.append(elemento("p", { textContent: "vecchia bozza" }));
+await riscrivi(nodo, bozza3, () => false);
+assert.deepEqual(nodo.children.map((n) => n.textContent), ["terzo"], "una bozza superata ha coperto quella piu' recente");
+""")
+
+
+def test_l_attesa_dice_quanti_step_dell_intervallo_sono_conclusi(tmp_path):
+    """Su una corsa da piu' step la riga «in corso» diceva solo da dove a dove.
+    Il server non sa quale step gira, ma dimentica gli step dell'intervallo
+    prima di partire e ognuno torna «valido» quando finisce: il conteggio e'
+    un fatto letto dal disco. Su un solo step non si conta niente.
+
+    Mutazione che lo uccide: contare i «valido» di tutta la colonna invece
+    che dell'intervallo (lo step 1, valido da ieri, farebbe 1 su 3 all'avvio).
+    """
+    _esegui(tmp_path, _banco_di_esito() + """
+ETICHETTE["01_load"] = "Lettura";
+ETICHETTE["03_downsample"] = "Riduzione";
+ETICHETTE["05_reconstruct"] = "Superficie";
+const barra = document.getElementById("in-corso");
+const steps = [
+  { numero: 1, chiave: "01_load", stato: "valido" },
+  { numero: 3, chiave: "03_downsample", stato: "mai eseguito" },
+  { numero: 4, chiave: "04_normals", stato: "mai eseguito" },
+  { numero: 5, chiave: "05_reconstruct", stato: "mai eseguito" },
+];
+aggiornaDaStato({ in_corso: true, step: 3, a_step: 5, steps, da_secondi: 2, annullato: false, exit_code: null });
+assert.match(barra.textContent, /0 step su 3 conclusi/, barra.textContent);
+
+steps[1].stato = "valido";
+aggiornaDaStato({ in_corso: true, step: 3, a_step: 5, steps, da_secondi: 9, annullato: false, exit_code: null });
+assert.match(barra.textContent, /da Riduzione a Superficie in corso, 9 s · 1 step su 3 concluso/, barra.textContent);
+
+// Un solo step: nessun conteggio.
+aggiornaDaStato({ in_corso: true, step: 5, a_step: 5, steps, da_secondi: 1, annullato: false, exit_code: null });
+assert.ok(!/step su/.test(barra.textContent), barra.textContent);
+assert.equal(avanzamentoDellaCorsa({ step: null, a_step: null, steps }), null);
+""")
+
+
+def test_il_png_salvato_porta_le_righe_di_provenienza(tmp_path):
+    """«Salva immagine» scriveva la sola tela: in appendice la figura perdeva
+    corsa, step, configurazione e caso di carico. Le righe si compongono da
+    cio' che la pagina mostra gia', e la striscia si disegna con una tela 2D
+    dove c'e'; dove non c'e' (qui) torna la sola cattura, non nessun PNG.
+
+    Mutazione che lo uccide: scrivere le righe vuote (una riga bianca sotto
+    uno step senza didascalia), o perdere l'impronta.
+    """
+    _esegui(tmp_path, _banco_dei_comandi_della_vista() + """
+const righe = righeDiProvenienza({
+  corsa: "runs/lab_crop", numero: 6, nome: "Riparazione", impronta: "abcdef0123456789",
+  conteggi: "453.808 vertici, 891.775 triangoli", didascalia: "", data: "3/9/2026",
+});
+assert.deepEqual(righe, [
+  "lab_crop · step 6, Riparazione · impronta abcdef012345",
+  "453.808 vertici, 891.775 triangoli",
+  "MeshRec, 3/9/2026",
+]);
+assert.deepEqual(righeDiProvenienza({ // Il percorso alla Windows, con la barra rovesciata scritta per codice: in una
+// stringa JS `\\p` sarebbe un escape, e sparirebbe.
+corsa: "runs" + String.fromCharCode(92) + "pluto", numero: 3, nome: "Riduzione", impronta: undefined, conteggi: "", didascalia: "scarto RMS 9,5 mm", data: "oggi" }),
+  ["pluto · step 3, Riduzione", "scarto RMS 9,5 mm", "MeshRec, oggi"]);
+
+// Senza Image (qui): la sola cattura.
+assert.equal(await immagineConProvenienza("data:image/png;base64,AAA", righe), "data:image/png;base64,AAA");
+
+// Con una tela 2D finta: la striscia si disegna e il PNG e' quello composto.
+const scritte = [];
+globalThis.Image = class { constructor() { this.width = 1200; this.height = 800; } set src(v) { this.sorgente = v; } decode() { return Promise.resolve(); } };
+const telaFinta = { width: 0, height: 0, getContext: () => ({ fillRect() {}, drawImage() {}, measureText: (s) => ({ width: s.length * 8 }), fillText: (r) => scritte.push(r) }), toDataURL: () => "data:composto" };
+const creaPrima = document.createElement;
+document.createElement = (tag) => tag === "canvas" ? telaFinta : creaPrima(tag);
+assert.equal(await immagineConProvenienza("data:image/png;base64,AAA", righe), "data:composto");
+assert.deepEqual(scritte, righe, "a 1200 px ogni riga sta in una riga");
+assert.ok(telaFinta.height > 800, "la striscia non ha allungato la tela");
+
+// Una tela stretta: la riga lunga va a capo per parole, non si schiaccia.
+scritte.length = 0;
+globalThis.Image = class { constructor() { this.width = 200; this.height = 150; } set src(v) {} decode() { return Promise.resolve(); } };
+await immagineConProvenienza("data:image/png;base64,AAA", ["453.808 vertici, 891.775 triangoli"]);
+assert.deepEqual(scritte, ["453.808 vertici,", "891.775 triangoli"], scritte.join(" | "));
+document.createElement = creaPrima;
+""")
+
+
+def test_la_striscia_dice_lo_step_in_figura_e_tace_l_impronta_di_uno_step_non_valido(tmp_path):
+    """Due bugie evitate. Sullo step 11 la vista ripiega a monte, e nome del
+    file e striscia dicono lo step in figura, non quello scelto. Su uno step
+    «non valido» l'impronta che arriva e' della configurazione corrente, che
+    l'artefatto in figura non ha prodotto: non si scrive.
+
+    Mutazione che lo uccide: `stepScelto` al posto di `passoDaMostrare` nel
+    nome del file, o l'impronta scritta senza guardare lo stato.
+    """
+    _esegui(tmp_path, _banco_dei_comandi_della_vista() + """
+ETICHETTE["09_tetrahedralize"] = "Tetraedri";
+ETICHETTE["11_export"] = "Esportazione";
+ultimoStato = [
+  { numero: 9, chiave: "09_tetrahedralize", stato: "non valido", impronta: "0123456789abcdef", artefatto: "09_tets.vtu" },
+  { numero: 11, chiave: "11_export", stato: "valido", impronta: "fedcba9876543210", artefatto: "11_deck.inp" },
+];
+stepScelto = 11;
+await salvaImmagine();
+assert.equal(scaricato().download, "lab-crop-09-tetraedri-scarto-rms-9-5-mm.png", "il file nomina lo step scelto e non quello in figura");
+
+// Le righe: lo step in figura, senza impronta perche' «non valido».
+const righe = righeDiProvenienza({ corsa: "runs/x", numero: 9, nome: "Tetraedri", impronta: undefined, conteggi: "c", didascalia: "", data: "d" });
+assert.equal(righe[0], "x · step 9, Tetraedri");
+""")
+
+
+def test_la_frase_di_stato_del_pannello_segue_la_colonna(tmp_path):
+    """Modificato un parametro, la colonna diceva «non valido» e il pannello
+    aperto diceva ancora «Eseguito con i parametri correnti»: due verita' a
+    venti centimetri l'una dall'altra. disegnaStep riscrive la sola frase, e
+    solo se e' cambiata.
+
+    Mutazione che lo uccide: togliere il blocco in coda a disegnaStep.
+    """
+    _esegui(tmp_path, _DOM + _funzioni(*_COLONNA, "disegnaStep") + """
+ETICHETTE["03_downsample"] = "Riduzione";
+stepAperto = 3;
+const dettaglio = document.getElementById("dettaglio");
+const riga = elemento("p", { className: "aiuto stato-dello-step", textContent: "vecchia" });
+dettaglio.append(riga);
+disegnaStep([{ numero: 3, chiave: "03_downsample", stato: "valido" }]);
+assert.match(riga.textContent, /parametri correnti/);
+disegnaStep([{ numero: 3, chiave: "03_downsample", stato: "non valido" }]);
+assert.match(riga.textContent, /parametri diversi/);
+// Uno step aperto che lo stato non conosce: la frase non si tocca.
+disegnaStep([{ numero: 4, chiave: "04_normals", stato: "valido" }]);
+assert.match(riga.textContent, /parametri diversi/);
+""")

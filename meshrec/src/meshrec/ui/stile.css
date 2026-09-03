@@ -29,6 +29,13 @@
   --velo: color-mix(in srgb, var(--superficie) 85%, transparent);
   --evidenza: color-mix(in srgb, var(--accento) 8%, transparent);
   --selezione: color-mix(in srgb, var(--accento) 18%, transparent);
+  /* La terza forza della stessa tinta: la riga che sta girando adesso. Sta fra
+     il velo del passaggio e il fondo della scelta perche' e' piu' di un
+     passaggio -- dura secondi, non un gesto -- e meno di una scelta, che e'
+     una sola e ha anche il filetto. Un ruolo suo e non --evidenza riusata: due
+     significati sulla stessa dichiarazione sono proprio cio' che la riga qui
+     sopra dice di aver separato. Testo su esecuzione: sopra la selezione. */
+  --esecuzione: color-mix(in srgb, var(--accento) 12%, transparent);
   --spento: color-mix(in srgb, var(--tenue) 8%, transparent);
   /* Non colorato apposta, due volte.
      La superficie ricostruita nella vista resta il grigio caldo dichiarato in
@@ -51,15 +58,23 @@
   --passo-6: 1.5rem;   /* 24px — sopra un titolo, cioe' fra due gruppi */
   --raggio: 0.25rem;   /* un solo raggio: erano due, 0,2 e 0,25 */
 
-  /* Movimento. Tre durate: il ritorno di un comando toccato, la comparsa di
-     qualcosa che prima non c'era, e il marchio su una riga che ha appena
-     cambiato stato. La terza e' la piu' lunga perche' e' l'unica che non
-     risponde a un gesto: uno step dura secondi, e chi lo ha lanciato non sta
-     guardando la colonna nell'istante in cui finisce. Oltre queste tre, in
-     questo foglio non c'e' niente da dire; la quarta e' l'arrivo di una
-     geometria nella vista e vive in viewport.js, dove la legge la camera. */
+  /* Movimento. Cinque durate: il ritorno di un comando toccato, la comparsa
+     di qualcosa che prima non c'era, l'apertura di un cassetto, il marchio su
+     una riga che ha appena cambiato stato, e il battito della riga che sta
+     girando. Le ultime due sono le piu' lunghe perche' sono le sole che non
+     rispondono a un gesto: uno step dura secondi, e chi lo ha lanciato non
+     sta guardando la colonna nell'istante in cui finisce. Il battito e'
+     l'unico moto che si ripete, e si ripete finche' dura lo step. L'apertura
+     sta in mezzo perche' sposta il resto della colonna: piu' lunga di una
+     comparsa, che non sposta niente, e piu' corta del marchio. Oltre queste
+     cinque, in questo foglio non c'e' niente da dire; la sesta e' l'arrivo di
+     una geometria nella vista e vive in viewport.js, dove la legge la camera.
+     La dissolvenza del pannello del dettaglio non e' una durata in piu': e'
+     una comparsa, e usa quella. */
   --durata-tocco: 120ms;
   --durata-comparsa: 200ms;
+  --durata-pulsazione: 1.2s;
+  --durata-apertura: 300ms;
   --durata-cambio: 500ms;
   --curva: cubic-bezier(0.16, 1, 0.3, 1);
 
@@ -139,9 +154,18 @@ body {
 /* Le barre di scorrimento sono tre: le due colonne e il registro. */
 .zona, .registro { scrollbar-width: thin; scrollbar-color: var(--bordo-comando) transparent; }
 .testata { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--passo-2) var(--passo-4); padding: var(--passo-3) var(--passo-4); border-bottom: 1px solid var(--bordo); }
-/* Annulla e' l'unica azione della testata e agisce su tutta la corsa: sta
-   all'estremo opposto di cio' che descrive lo stato, non accanto. */
-.testata .bottone { margin-left: auto; }
+/* I comandi della testata stanno insieme, all'estremo opposto di cio' che
+   descrive lo stato. Erano uno («Annulla»), e `margin-left: auto` su ogni
+   bottone andava bene; adesso sono tre, e tre margini automatici li
+   spargevano a distanze uguali lungo tutta la riga -- misurato a 1400 px:
+   «Cambia corsa» a 320, «Interrompi» a 547, «Avvisami» a 815 -- cioe' tre
+   comandi che non si leggevano come un gruppo. Il gruppo e' un elemento
+   (index.html) con un solo margine automatico: cosi' va a capo intero
+   quando l'esito e' lungo, invece di spezzarsi su due righe.
+   L'esito ha una misura: senza, una riga di fallimento si prendeva tutta la
+   larghezza e spingeva i comandi sotto anche a 1400 px. */
+.comandi-testata { display: flex; flex-wrap: wrap; gap: var(--passo-2); margin-left: auto; }
+.esito { max-width: 40rem; }
 /* Senza `letter-spacing: -0.01em`: a 18px vale 0,18px per coppia, cioe' meno
    di un pixel su sette caratteri. Non stringeva niente, e una dichiarazione che
    non fa nulla fa cercare un effetto che non c'e'. */
@@ -355,6 +379,12 @@ a.bottone { display: inline-block; text-decoration: none; }
    (WCAG 1.4.1). Il peso porta il rango dove il colore non arriva -- proiettato
    su un muro, una differenza di tinta a questa taglia si perde. */
 .esito-fallito { color: var(--guasto); font-weight: 600; }
+/* Il terzo colore della riga: una corsa arrivata in fondo. Grigio per
+   «interrotta» e per i ritorni della cronologia, rosso per «fallita», accento
+   per «conclusa» -- la stessa terna della colonna degli step, letta da lontano
+   dopo un'attesa di minuti. Il peso come sul fallimento, per la ragione detta
+   sopra: la tinta a questa taglia, proiettata, si perde da sola. */
+.esito-riuscito { color: var(--accento); font-weight: 600; }
 .registro { max-height: 14rem; overflow: auto; font-family: var(--stack-cifre); font-size: var(--tipo-nota); line-height: var(--interlinea); border: 1px solid var(--bordo); border-radius: var(--raggio); padding: var(--passo-2); }
 /* Il registro e' una tappa di tabulazione (tabindex="0" in index.html, perche'
    scorre e non contiene nulla di focalizzabile): reso raggiungibile senza un
@@ -572,6 +602,28 @@ a.bottone { display: inline-block; text-decoration: none; }
 .stato-valido .step-nome::before { border-color: var(--accento); background: var(--accento); }
 .stato-non-valido .step-nome::before { border-color: var(--avviso); background: var(--avviso); }
 .stato-fallito .step-nome::before { border-color: var(--guasto); background: var(--guasto); }
+/* L'intervallo che sta girando (aria-busy, da app.js a ogni frame): il fondo
+   e' la terza forza dell'accento, il pallino torna vuoto col contorno
+   dell'accento e pulsa. Vuoto perche' l'artefatto di quello step non c'e'
+   ancora -- o sta per essere sostituito -- e pieno direbbe il contrario;
+   accento perche' e' la tinta dell'azione, e l'azione e' in corso. La regola
+   del pallino sta DOPO quelle degli stati, che hanno la stessa specificita':
+   una riga «valido» dentro l'intervallo e' prima di tutto in esecuzione.
+   Il fondo sta sul <li> e non sul bottone, per due ragioni misurate sul
+   foglio stesso: il marchio del cambio di stato (data-cambiato, piu' sotto)
+   anima il fondo del <li>, e un bottone pieno sopra lo coprirebbe per ogni
+   step dell'intervallo tranne l'ultimo; e lo step aperto colora il bottone
+   (aria-current, sopra) con la selezione, che cosi' resta visibile SOPRA
+   l'esecuzione insieme al filetto -- una riga aperta e in corso dice
+   entrambe le cose, la seconda col solo pallino. Il raggio e' quello del
+   bottone, perche' i due fondi sono la stessa scatola.
+   Sotto prefers-reduced-motion resta il pallino vuoto d'accento sul fondo. */
+.elenco-step [aria-busy="true"] { background: var(--esecuzione); border-radius: var(--raggio); }
+[aria-busy="true"] .step-nome::before { border-color: var(--accento); background: transparent; animation: pulsazione var(--durata-pulsazione) var(--curva) infinite alternate; }
+@keyframes pulsazione {
+  from { opacity: 1; }
+  to { opacity: 0.3; }
+}
 .azioni { display: flex; gap: var(--passo-2); flex-wrap: wrap; margin-bottom: var(--passo-6); }
 /* Fra due gruppi di parametri passa il doppio che fra due parametri dello
    stesso gruppo. Erano lo stesso valore, --passo-3 tutti e due, e con la
@@ -600,6 +652,41 @@ h3.titolo-step { margin: 0 0 var(--passo-1); font-size: var(--tipo-corpo); line-
 /* Aperta, i campi rientrano sotto il proprio riepilogo: senza, si allineano ai
    campi in vista sopra e la piega smette di leggersi come un contenitore. */
 .gruppo details[open] > summary { margin-bottom: var(--passo-2); }
+/* I cassetti si aprono, non scattano. Il registro si apre DA SOLO in fondo
+   alla colonna quando una corsa fallisce (app.js, fronte di discesa), e
+   quattordici rem che compaiono di colpo sotto la piega non dicono da dove
+   vengono; la piega dei predefiniti, che si apre a mano, segue la stessa
+   regola perche' e' lo stesso elemento. `::details-content` e' la scatola
+   che il browser mette attorno a cio' che sta sotto il summary: da alta zero
+   ad alta quanto serve, e `interpolate-size` sulla radice e' cio' che rende
+   `auto` un valore su cui si puo' transire. `content-visibility` con
+   `allow-discrete` tiene il contenuto nell'albero finche' la chiusura non e'
+   finita, altrimenti sparirebbe al primo fotogramma; il valore di
+   `content-visibility` non lo scrive questo foglio, lo alterna il browser
+   (hidden a cassetto chiuso, visible ad aperto) e qui si dichiara solo che
+   quel passaggio va transito. Dove `::details-content` o `interpolate-size`
+   non ci sono, il cassetto scatta come prima: e' una dichiarazione che il
+   browser che non la capisce salta.
+   `overflow-clip-margin`: il ritaglio serve solo mentre l'altezza cresce, ma
+   un ritaglio taglia anche i contorni del fuoco dei discendenti, e il
+   registro (tabindex="0", outline-offset 2px) e i campi delle pieghe li
+   hanno. Quattro pixel coprono contorno e scarto. */
+:root { interpolate-size: allow-keywords; }
+.gruppo details::details-content, .registro-dettagli::details-content {
+  height: 0;
+  overflow: clip;
+  overflow-clip-margin: 4px;
+  transition: height var(--durata-apertura) var(--curva), content-visibility var(--durata-apertura) allow-discrete;
+}
+.gruppo details[open]::details-content, .registro-dettagli[open]::details-content { height: auto; }
+/* La dissolvenza del pannello del dettaglio (riscrivi in app.js). Solo il
+   pannello ha un nome di transizione: la radice si cattura lo stesso, e senza
+   questa riga si incrocerebbe anche lei, congelando per un quarto di secondo
+   il battito e il respiro che stanno in altre zone. La durata e' quella della
+   comparsa: e' un contenuto che arriva, non un cassetto che si apre. */
+#dettaglio { view-transition-name: dettaglio; }
+::view-transition-old(root), ::view-transition-new(root) { animation: none; }
+::view-transition-old(dettaglio), ::view-transition-new(dettaglio) { animation-duration: var(--durata-comparsa); animation-timing-function: var(--curva); }
 /* min-width: 0 come .campo-riga, e per lo stesso motivo: dentro una griglia
    il minimo automatico e' il contenuto, e un <select> largo quanto la sua
    voce piu' lunga -- «— nessuna: la [2.5.5] non si propone —», nel
@@ -782,9 +869,14 @@ h3.titolo-step { margin: 0 0 var(--passo-1); font-size: var(--tipo-corpo); line-
 .rifiuto { margin: 0 0 var(--passo-1); padding-left: var(--passo-2); border-left: 2px solid var(--guasto); color: var(--guasto); font-size: var(--tipo-dato); line-height: var(--interlinea); max-width: var(--misura); text-wrap: pretty; }
 
 /* --- Movimento ------------------------------------------------------------
-   Cinque momenti, e nessuno decorativo. Il quinto non e' qui: e' l'arrivo di
+   Otto momenti, e nessuno decorativo. L'ottavo non e' qui: e' l'arrivo di
    una geometria nella vista, e sta in viewport.js perche' meta' di lui e' uno
-   spostamento di camera (DURATA_ARRIVO, frazioneDellArrivo).
+   spostamento di camera (DURATA_ARRIVO, frazioneDellArrivo). I momenti 5, 6 e
+   7 stanno accanto alle proprie regole, piu' in alto nel foglio: il battito
+   della riga che sta girando (aria-busy, con gli stati della colonna),
+   l'apertura dei cassetti (::details-content, con i gruppi) e la dissolvenza
+   del pannello del dettaglio al cambio di step (view-transition, li' accanto).
+   I primi quattro sono qui sotto, con le loro regole.
 
    1. Il respiro dello step in corso. Il progresso qui non e' una percentuale
       (le librerie non ne danno una, e fabbricarla sarebbe un numero che
@@ -849,8 +941,14 @@ h3.titolo-step { margin: 0 0 var(--passo-1); font-size: var(--tipo-corpo); line-
    un secondo annuncio sopra il piu' visibile dei cambiamenti e' decorazione.
    C'e' anche il fatto meccanico, e da solo basterebbe: #conteggi non torna
    quasi mai vuoto, quindi li' `:not(:empty)` smetterebbe di scattare dopo la
-   prima volta e la regola sembrerebbe una copertura che non c'e'. */
-.errore:not(:empty), .esito:not(:empty) { animation: comparsa var(--durata-comparsa) var(--curva); }
+   prima volta e la regola sembrerebbe una copertura che non c'e'.
+
+   Anche la riga «in corso», per la stessa ragione delle altre due della
+   testata: a corsa lanciata da riga di comando arriva da sola, e comunque
+   una riga che spunta di colpo accanto a due che compaiono e' l'eccezione
+   che si nota. Torna nascosta con `hidden`, che e' cio' che fa ripartire la
+   comparsa la volta dopo. */
+.errore:not(:empty), .esito:not(:empty), .in-corso:not([hidden]) { animation: comparsa var(--durata-comparsa) var(--curva); }
 @keyframes comparsa {
   from { opacity: 0; transform: translateY(-0.25rem); }
   to { opacity: 1; transform: none; }
@@ -885,6 +983,16 @@ h3.titolo-step { margin: 0 0 var(--passo-1); font-size: var(--tipo-corpo); line-
    compare lo stesso. */
 @media (prefers-reduced-motion: reduce) {
   .in-corso::before { animation: none; opacity: 1; }
+  /* I cassetti scattano: il registro si apre da solo, e la piega dei
+     predefiniti, che invece si apre a mano, segue lo stesso selettore -- il
+     contenuto che compare conferma il clic da se', senza bisogno del moto.
+     Del pannello del dettaglio resta la dissolvenza (old/new, sola opacita')
+     e sparisce il gruppo, che e' l'unico dei tre a spostare e ridimensionare:
+     stessa regola della comparsa qui sotto, che tiene il velo e toglie lo
+     spostamento. */
+  .gruppo details::details-content, .registro-dettagli::details-content { transition: none; }
+  ::view-transition-group(*) { animation: none; }
+  [aria-busy="true"] .step-nome::before { animation: none; }
   @keyframes comparsa {
     from { opacity: 0; }
     to { opacity: 1; }
@@ -914,4 +1022,14 @@ h3.titolo-step { margin: 0 0 var(--passo-1); font-size: var(--tipo-corpo); line-
   body { height: auto; min-height: 100vh; }
   .tre-zone { grid-template-columns: 1fr; }
   .zona-vista { min-height: 60vh; }
+  /* A colonna unica la riga di uno step e' larga quanto la finestra, e lo
+     stato spinto a destra finiva a 700 px dal nome (misurato a 900 px):
+     «Lettura ........ mai eseguito», due parole che vanno lette insieme e
+     stavano ai due capi dello schermo. Qui lo stato segue il nome. Le
+     tabelle delle metriche, nel modello e nel dettaglio, tengono la misura
+     della prosa per la stessa ragione: un numero a 800 px dalla sua
+     etichetta non e' piu' il suo numero. I campi invece restano larghi:
+     una casella larga si scrive meglio, e la sua etichetta le sta sopra. */
+  .step-nome { margin-right: 0; }
+  .metriche { max-width: var(--misura); }
 }

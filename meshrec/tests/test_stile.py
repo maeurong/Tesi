@@ -448,3 +448,22 @@ def test_l_etichetta_di_una_metrica_va_a_capo_come_prosa_e_non_come_una_chiave()
         "le due colonne hanno due interlinee diverse: senza linea di base "
         "condivisa l'etichetta e il suo numero partono da due altezze diverse"
     )
+
+
+def test_nessuna_prosa_fuori_dai_commenti():
+    """Un commento chiuso una riga troppo presto lascia la prosa nel foglio, e
+    il browser la legge come l'inizio di un selettore: la regola che segue
+    cade intera, senza un errore da nessuna parte. E' successo aggiungendo la
+    comparsa alla riga «in corso»: la frase scritta dopo il `*/` ha spento
+    anche la comparsa di esito ed errore, e a dirlo e' stato uno screenshot.
+
+    I commenti si sostituiscono con altrettante righe vuote, cosi' il numero
+    di riga segnalato e' quello del file vero. Prosa = quattro o piu' parole
+    senza nessuno dei segni di una regola.
+    """
+    sorgente = (UI_DIR / "stile.css").read_text(encoding="utf-8")
+    testo = COMMENTO.sub(lambda m: "\n" * m.group(0).count("\n"), sorgente)
+    for numero, riga in enumerate(testo.splitlines(), start=1):
+        if any(segno in riga for segno in "{}:;"):
+            continue
+        assert len(riga.split()) < 4, f"prosa fuori da un commento alla riga {numero}: {riga.strip()}"

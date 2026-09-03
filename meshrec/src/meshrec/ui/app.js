@@ -508,6 +508,17 @@ function disegnaStep(steps) {
   // in modello.js: la terna e' privata di quel modulo, e non e' piu' cosa
   // che questa chiamata possa aggiustare da fuori.
   aggiornaModello(steps);
+  // La frase di stato del pannello aperto segue la colonna: modificato un
+  // parametro, lo step 3 passava a «non valido» a sinistra mentre a destra
+  // il pannello diceva ancora «Eseguito con i parametri correnti». Visto a
+  // video. Il pannello non si riapre a ogni frame (costa quattro fetch), si
+  // riscrive la sola frase, e solo se e' cambiata.
+  if (stepAperto !== null) {
+    const rigaDiStato = Array.from(document.getElementById("dettaglio").children)
+      .find((nodo) => nodo.className === "aiuto stato-dello-step");
+    const frase = fraseDelloStato(steps.find((voce) => voce.numero === stepAperto));
+    if (rigaDiStato && frase !== null && rigaDiStato.textContent !== frase) rigaDiStato.textContent = frase;
+  }
 }
 
 caricaStato();
@@ -618,7 +629,12 @@ function ultimaRigaDelRegistro() {
     const testo = righe[i].textContent.trim();
     if (testo !== "") return testo;
   }
-  return "nessun dettaglio";
+  // Vuoto e non «nessun dettaglio»: le righe del registro arrivano dallo
+  // stesso flusso dello stato, e il fronte di discesa puo' precedere di un
+  // giro l'ultima riga. Visto a video: esito «nessun dettaglio» sopra un
+  // registro che il ValueError lo aveva, un attimo dopo. Un dettaglio che
+  // non c'e' ANCORA non si dichiara assente: si tace, e la frase resta vera.
+  return "";
 }
 
 function esitoDellaCorsa(stato) {
@@ -644,7 +660,8 @@ function esitoDellaCorsa(stato) {
       // che scorre. E' la stessa distanza che il pannello aveva dal proprio
       // nome, e per cui il nome e' stato portato dentro il pannello.
       errore: `${soggetto}: esecuzione fallita (codice ${stato.exit_code}). `
-        + `Il motivo è nel registro, in fondo alla colonna Dettaglio: ${ultimaRigaDelRegistro()}`,
+        + "Il motivo è nel registro, in fondo alla colonna Dettaglio"
+        + (ultimaRigaDelRegistro() ? `: ${ultimaRigaDelRegistro()}` : "."),
       esito: null,
     };
   }
@@ -754,10 +771,17 @@ function preparaLeNotifiche(bottone) {
   });
 }
 
-function mostraEsito(errore, esito) {
+// `riuscita` e' vera solo per una corsa che e' arrivata in fondo: e' il terzo
+// colore della riga, dopo il grigio e il rosso, e chiude la simmetria con la
+// colonna degli step (valido / mai eseguito / fallito). Non si deduce dal
+// testo: «interrotta» e «configurazione ripristinata» arrivano come esiti e
+// non sono riuscite di una corsa -- la prima e' una scelta, la seconda un
+// ritorno -- quindi lo dice il chiamante, che sa da quale fatto viene.
+function mostraEsito(errore, esito, riuscita = false) {
   const riga = document.getElementById("esito");
   riga.textContent = errore ?? esito ?? "";
   riga.classList.toggle("esito-fallito", errore !== null && errore !== undefined);
+  riga.classList.toggle("esito-riuscito", riuscita && esito !== null && esito !== undefined);
 }
 
 // Vera mentre una corsa gira. La sa lo scorrere degli eventi, e serve ai due
@@ -805,11 +829,49 @@ let eraInCorso = false;
 // non lo esegue nessun banco. La decisione su come finisce una corsa e' pura e
 // gia' a tiro dei test; il CABLAGGIO -- quale regione riceve il testo, e chi la
 // svuota subito dopo -- era la meta' che restava fuori.
+// A che punto e' una corsa su piu' step, contando gli step dell'intervallo
+// che risultano «valido». E' un conteggio e non una percentuale: il server non
+// sa quale step sta girando (vedi descrizioneDellaCorsa), ma prima di partire
+// dimentica gli step dell'intervallo in steps.json, e ognuno torna «valido»
+// quando finisce. Quindi «2 step su 7 conclusi» e' un fatto letto dal disco,
+// non una stima. Su un solo step non c'e' niente da contare: null.
+function avanzamentoDellaCorsa(stato) {
+  if (stato.step === null || stato.step === undefined) return null;
+  if (stato.a_step === null || stato.a_step === undefined || stato.a_step === stato.step) return null;
+  const totale = stato.a_step - stato.step + 1;
+  const conclusi = (stato.steps ?? []).filter(
+    (voce) => voce.numero >= stato.step && voce.numero <= stato.a_step && voce.stato === "valido",
+  ).length;
+  return `${conclusi} step su ${totale} ${conclusi === 1 ? "concluso" : "conclusi"}`;
+}
+
+// Le righe della colonna che stanno girando adesso. Mentre una corsa dura i
+// suoi secondi l'unico segnale era la riga «in corso» della testata, e la
+// colonna -- che e' la mappa della pipeline -- non diceva dove si stava.
+// Si segna l'INTERVALLO da `step` ad `a_step` e non lo step corrente, perche'
+// il server non lo sa: `stato.step` e' il capo di partenza e non avanza mai
+// (vedi descrizioneDellaCorsa). Un intervallo e' cio' che si sa, e non
+// inventa una posizione. Ogni frame rifa' tutte le righe, e le toglie tutte a
+// corsa ferma o su un comando fuori pipeline, che non ha uno step.
+// `aria-busy` e non un attributo dati: e' il segno che il markup ha per «ci
+// sto lavorando», e lo stesso attributo lo legge il foglio e lo sente chi non
+// vede ne' il fondo ne' il pallino -- come aria-current sullo step aperto.
+function segnaIntervalloInEsecuzione(stato) {
+  const dentro = stato.in_corso === true && stato.step !== null && stato.step !== undefined;
+  const a = stato.a_step ?? stato.step;
+  for (const riga of document.getElementById("elenco-step").children) {
+    const numero = Number(riga.firstElementChild?.dataset.numero);
+    if (dentro && numero >= stato.step && numero <= a) riga.setAttribute("aria-busy", "true");
+    else riga.removeAttribute("aria-busy");
+  }
+}
+
 function aggiornaDaStato(stato) {
   // A nessuna corsa aperta il flusso manda comunque lo stato del lavoratore,
   // con `steps` vuoto: la colonna degli step non esiste ancora e disegnarla
   // sarebbe disegnare undici righe di una corsa che nessuno ha scelto.
   if (Array.isArray(stato.steps) && stato.steps.length > 0) disegnaStep(stato.steps);
+  segnaIntervalloInEsecuzione(stato);
   const barra = document.getElementById("in-corso");
   if (stato.in_corso && stato.da_secondi !== null) {
     // stato.step e' null per un comando che non e' uno step della pipeline
@@ -842,8 +904,10 @@ function aggiornaDaStato(stato) {
       ? ultimaDurata((stato.steps ?? []).find((voce) => voce.numero === stato.step))
       : null;
     const scorso = durataMisurata(stato.da_secondi);
+    const avanzamento = avanzamentoDellaCorsa(stato);
     barra.textContent = stato.step !== null
       ? `${soggetto} in corso, ${scorso}${prima !== null ? ` · l'ultima volta ${prima}` : ""}`
+        + (avanzamento !== null ? ` · ${avanzamento}` : "")
       : `un comando è in corso, ${scorso}`;
     barra.hidden = false;
   } else {
@@ -883,7 +947,7 @@ function aggiornaDaStato(stato) {
     // il fallimento sparirebbe due righe piu' sotto, nella stessa passata, e a
     // video resterebbe qualcosa di indistinguibile da una corsa riuscita.
     const { errore, esito } = esitoDellaCorsa(stato);
-    mostraEsito(errore, esito);
+    mostraEsito(errore, esito, errore === null && !stato.annullato);
     // Fuori dalla scheda l'esito non si vede: il titolo lo porta nella barra
     // delle schede, e la notifica raggiunge chi sta guardando altro.
     document.title = titoloConEsito(errore, esito);
@@ -1745,9 +1809,15 @@ asseTaglio.addEventListener("change", () => riallineaTaglio(passoDaMostrare(step
 // dice da sola da dove viene e che cosa mostra. Solo lettere, cifre e
 // trattini: e' un nome di file su tre sistemi diversi, e la didascalia porta
 // accenti, virgole e unita'.
+// L'ultimo pezzo del percorso della corsa, con la barra di Windows o quella
+// di Unix: e' il nome della cartella, ed e' cio' che il nome del file e la
+// striscia di provenienza chiamano «corsa».
+function nomeDellaCorsa(outDir) {
+  return String(outDir).split(/[\\/]/).filter(Boolean).pop() ?? "corsa";
+}
+
 function nomeDellImmagine(outDir, numero, nome, didascalia) {
-  const corsa = String(outDir).split(/[\\/]/).filter(Boolean).pop() ?? "corsa";
-  return [corsa, String(numero).padStart(2, "0"), nome, didascalia]
+  return [nomeDellaCorsa(outDir), String(numero).padStart(2, "0"), nome, didascalia]
     .map((pezzo) => String(pezzo).toLowerCase().normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "")
       .replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""))
@@ -1762,24 +1832,115 @@ function nomeDellImmagine(outDir, numero, nome, didascalia) {
 //
 // Di primo livello e non una freccia dentro addEventListener, per la stessa
 // ragione di `aggiornaDaStato`: dentro la freccia non la esegue nessun banco.
-function salvaImmagine() {
-  // Nessuno step scelto, niente da salvare: succede solo prima che una corsa
-  // sia aperta, e un file col nome di nessuna corsa sarebbe peggio del niente.
+// Le righe scritte sotto l'immagine salvata: da quale corsa, quale step e
+// quale configurazione viene, che cosa mostra, e quando. «La provenienza e'
+// parte del risultato» (PRODUCT.md, principio 4): la vista sotto la tela porta
+// gia' tutto questo, ma «Salva immagine» scriveva la sola tela, e in appendice
+// la figura arrivava muta.
+// L'impronta e' quella dello step in steps.json -- il fingerprint della
+// configurazione a monte di quello step, quello con cui la pipeline decide
+// «valido» -- e NON quella del registro degli esperimenti, che e' un altro
+// hash su un altro perimetro: le due non si confrontano. Dodici caratteri
+// come nel report (`report.py`, «impronta (prime 12 cifre)»), cosi' la
+// figura e la tabella si cercano con la stessa chiave. Righe vuote non si
+// scrivono: uno step senza didascalia non lascia una riga bianca.
+function righeDiProvenienza({ corsa, numero, nome, impronta, conteggi, didascalia, data }) {
+  const chi = impronta ? `${nomeDellaCorsa(corsa)} · step ${numero}, ${nome} · impronta ${String(impronta).slice(0, 12)}`
+    : `${nomeDellaCorsa(corsa)} · step ${numero}, ${nome}`;
+  return [chi, conteggi, didascalia, `MeshRec, ${data}`].map((r) => String(r ?? "").trim()).filter(Boolean);
+}
+
+// Una riga spezzata in righe che stanno nella larghezza, misurate col
+// pennello: `fillText` con maxWidth non va a capo, schiaccia i glifi, e una
+// didascalia lunga sarebbe arrivata in appendice illeggibile. Parola per
+// parola; una parola sola piu' larga della riga resta intera.
+function spezzaInRighe(pennello, testo, larghezza) {
+  const righe = [];
+  let corrente = "";
+  for (const parola of testo.split(/\s+/).filter(Boolean)) {
+    const prova = corrente ? `${corrente} ${parola}` : parola;
+    if (corrente && pennello.measureText(prova).width > larghezza) {
+      righe.push(corrente);
+      corrente = parola;
+    } else {
+      corrente = prova;
+    }
+  }
+  if (corrente) righe.push(corrente);
+  return righe;
+}
+
+// La tela catturata piu' una striscia di carta sotto, con le righe di
+// provenienza. Tela 2D del browser e nient'altro. Carta e inchiostro sono
+// gli stessi valori di --sfondo e --testo in stile.css, COPIATI qui e non
+// letti da li': una tela non legge le proprieta' del foglio, e se la
+// tavolozza cambia questi due esadecimali vanno cambiati a mano. Il corpo
+// segue la larghezza dell'immagine, cosi' a stampa resta leggibile quanto la
+// figura. Dove non c'e' `Image` o una tela 2D -- il banco di prova, un
+// browser senza canvas -- torna la sola cattura: la striscia e' un di piu',
+// e senza di lei il PNG resta quello di prima, non nessun PNG.
+async function immagineConProvenienza(datiTela, righe) {
+  if (typeof Image === "undefined" || righe.length === 0) return datiTela;
+  const tela = document.createElement("canvas");
+  const pennello = tela.getContext?.("2d");
+  if (!pennello) return datiTela;
+  const immagine = new Image();
+  immagine.src = datiTela;
+  await immagine.decode();
+  const corpo = Math.max(14, Math.round(immagine.width / 60));
+  const interlinea = Math.round(corpo * 1.5);
+  const margine = corpo;
+  const carattere = `${corpo}px system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif`;
+  // Cambiare le misure della tela azzera il pennello, carattere compreso: si
+  // misura dopo la prima misura e si scrive dopo la seconda.
+  tela.width = immagine.width;
+  pennello.font = carattere;
+  const spezzate = righe.flatMap((riga) => spezzaInRighe(pennello, riga, immagine.width - margine * 2));
+  tela.height = immagine.height + margine * 2 + interlinea * spezzate.length;
+  pennello.fillStyle = "#fbfaf8";
+  pennello.fillRect(0, 0, tela.width, tela.height);
+  pennello.drawImage(immagine, 0, 0);
+  pennello.fillStyle = "#1c1b19";
+  pennello.font = carattere;
+  pennello.textBaseline = "top";
+  spezzate.forEach((riga, k) => pennello.fillText(riga, margine, immagine.height + margine + interlinea * k));
+  return tela.toDataURL("image/png");
+}
+
+async function salvaImmagine() {
   if (stepScelto === null) return;
-  const voce = ultimoStato.find((passo) => passo.numero === stepScelto);
+  // Lo step in figura e non quello scelto: su 7, 10 e 11 la vista ripiega a
+  // monte (passoDaMostrare), e #conteggi lo dice gia'. Nome del file e
+  // striscia devono dire lo stesso step, e devono dirlo di cio' che si vede.
+  // Tutto letto PRIMA dell'attesa: durante `decode()` un clic su un'altra
+  // riga cambia stepScelto, e il file uscirebbe col numero nuovo sopra
+  // l'immagine vecchia.
+  const mostrato = passoDaMostrare(stepScelto) ?? stepScelto;
+  const voce = ultimoStato.find((passo) => passo.numero === mostrato);
+  const nome = ETICHETTE[voce?.chiave] ?? `step ${mostrato}`;
+  const corsa = document.getElementById("corsa").textContent;
+  const didascalia = didascaliaDellaVista().textContent;
+  const righe = righeDiProvenienza({
+    corsa, numero: mostrato, nome,
+    // Solo a step «valido»: run_state manda per ogni step l'impronta della
+    // configurazione CORRENTE, e su «non valido» l'artefatto in figura viene
+    // da un'altra. Un'impronta che non ha prodotto l'immagine non si scrive.
+    impronta: voce?.stato === "valido" ? voce.impronta : undefined,
+    conteggi: document.getElementById("conteggi").textContent,
+    didascalia,
+    data: new Date().toLocaleDateString("it"),
+  });
+  const cattura = vista.cattura();
+  let dati;
+  try {
+    dati = await immagineConProvenienza(cattura, righe);
+  } catch (errore) {
+    dichiaraErrore(`l'immagine non si è potuta comporre: ${errore.message}`);
+    return;
+  }
   const collegamento = document.createElement("a");
-  collegamento.href = vista.cattura();
-  collegamento.download = nomeDellImmagine(
-    document.getElementById("corsa").textContent,
-    stepScelto,
-    // La chiave non si stampa mai, si stampa la sua etichetta -- e dove
-    // l'etichetta non c'e' resta il numero, non «undefined».
-    ETICHETTE[voce?.chiave] ?? `step ${stepScelto}`,
-    didascaliaDellaVista().textContent,
-  );
-  // Nell'albero durante il clic: Firefox ignora in silenzio un <a download>
-  // staccato. Tolto subito dopo, perche' un salvataggio non lascia residui
-  // nella pagina.
+  collegamento.href = dati;
+  collegamento.download = nomeDellImmagine(corsa, mostrato, nome, didascalia);
   document.body.append(collegamento);
   collegamento.click();
   collegamento.remove();
@@ -3032,6 +3193,32 @@ function pannelloDeck() {
 // tutti sul 5 — lo stesso guasto contro cui il foglio motiva il marchio.
 // stepAperto va con lui: e' lui a dire allo scorrere degli eventi quale
 // pannello ricaricare a fine corsa, e non c'e' nessun pannello da ricaricare.
+// Il pannello del dettaglio cambia contenuto in una transizione di vista:
+// cliccato un altro step, la colonna di destra si riscriveva di colpo, e due
+// pannelli con la stessa forma -- titolo, due bottoni, un gruppo -- si
+// scambiavano senza che nulla dicesse che era successo. La dissolvenza
+// incrociata lo dice, e vale solo per #dettaglio (view-transition-name nel
+// foglio; la radice non si anima). Dove l'API non c'e' il pannello cambia
+// come prima, e sotto prefers-reduced-motion il foglio spegne l'animazione:
+// la transizione parte lo stesso e dura zero, cosi' il codice ha una strada
+// sola. Si aspetta `updateCallbackDone` e non `finished`: chi chiama vuole
+// il DOM nuovo, non la fine della dissolvenza.
+// `ancoraValida` si legge DENTRO la callback, che il browser esegue al
+// fotogramma dopo: due clic nello stesso giro aprono due transizioni, la
+// seconda salta la prima ma ne esegue lo stesso la callback, e senza questo
+// controllo l'ordine in cui le due bozze arrivano a video lo deciderebbe il
+// motore. Cosi' lo decide `superata`, come per ogni altra tratta asincrona.
+function riscrivi(nodo, bozza, ancoraValida = () => true) {
+  const cambia = () => {
+    if (ancoraValida()) nodo.replaceChildren(...bozza.children);
+  };
+  if (typeof document.startViewTransition !== "function") {
+    cambia();
+    return Promise.resolve();
+  }
+  return document.startViewTransition(cambia).updateCallbackDone;
+}
+
 function fallisciDettaglio(dettaglio, ragione) {
   dettaglio.replaceChildren();
   dichiaraErrore(ragione);
@@ -3206,7 +3393,11 @@ async function apriDettaglio(numero, ordine = generazione) {
   // prossima riscrittura dell'elenco lo farebbe comparire mezzo secondo dopo
   // il clic, e a corsa ferma resterebbe indietro finche' qualcosa non si muove.
   segnaStepAperto(numero);
-  dettaglio.replaceChildren();
+  // Il pannello nuovo si costruisce in una bozza staccata, e va a video in un
+  // colpo solo dentro `riscrivi`, in fondo: cosi' la transizione di vista ha
+  // un prima e un dopo da incrociare, e il vecchio pannello resta a video
+  // finche' il nuovo non e' intero. `dettaglio` non si tocca fino a li'.
+  const bozza = elemento("div");
 
   // Svuotata a ogni apertura e prima di ogni tentativo: un errore gia' risolto
   // lasciato a video contraddice cio' che il pannello mostra. La riga adesso
@@ -3218,10 +3409,10 @@ async function apriDettaglio(numero, ordine = generazione) {
   // nella colonna a sinistra, a 1100 px di distanza su uno schermo largo. Chi
   // guarda la terza colonna deve sapere che cosa sta per eseguire senza
   // riattraversare lo schermo.
-  dettaglio.append(...intestazioneDelloStep(numero));
+  bozza.append(...intestazioneDelloStep(numero));
   const statoSuDisco = fraseDelloStato(ultimoStato.find((v) => v.numero === numero));
   if (statoSuDisco !== null) {
-    dettaglio.append(elemento("p", { className: "aiuto stato-dello-step", textContent: statoSuDisco }));
+    bozza.append(elemento("p", { className: "aiuto stato-dello-step", textContent: statoSuDisco }));
   }
 
   const azioni = document.createElement("div");
@@ -3274,7 +3465,7 @@ async function apriDettaglio(numero, ordine = generazione) {
     });
     azioni.append(bottone);
   }
-  dettaglio.append(azioni);
+  bozza.append(azioni);
 
   // Quanto costa il bottone qui sopra, detto prima di premerlo. E' la stessa
   // misura che la riga dell'attesa mostra mentre lo step gira, letta nel
@@ -3288,14 +3479,14 @@ async function apriDettaglio(numero, ordine = generazione) {
   // una riga assente e' l'unica alternativa onesta a un numero che non si ha.
   const misurato = ultimaDurata(ultimoStato.find((v) => v.numero === numero));
   if (misurato !== null) {
-    dettaglio.append(elemento("p", {
+    bozza.append(elemento("p", {
       className: "aiuto",
       textContent: `L'ultima esecuzione di questo step è durata ${misurato}.`,
     }));
   }
 
   for (const blocco of voce.blocchi) {
-    dettaglio.append(gruppoDelBlocco(blocco, voce.campi[blocco], ordine));
+    bozza.append(gruppoDelBlocco(blocco, voce.campi[blocco], ordine));
   }
 
   // Presa qui, prima dei pannelli sotto: la sezione Metriche piu' sotto la
@@ -3308,10 +3499,10 @@ async function apriDettaglio(numero, ordine = generazione) {
   // materiale sono quelli che dichiarano il blocco `analysis` in
   // steps.STEP_BLOCKS, e un elenco a mano resterebbe indietro al primo step
   // nuovo che lo legge.
-  if (voce.blocchi.includes("analysis")) dettaglio.append(pannelloMateriale(numero, ordine));
-  if (numero === STEP_CON_RITAGLIO) dettaglio.append(pannelloRitaglio(ordine));
-  if (numero === STEP_CON_DECK) dettaglio.append(pannelloDeck());
-  if (numero === STEP_CON_SCARTO) dettaglio.append(pannelloScarto(ordine));
+  if (voce.blocchi.includes("analysis")) bozza.append(pannelloMateriale(numero, ordine));
+  if (numero === STEP_CON_RITAGLIO) bozza.append(pannelloRitaglio(ordine));
+  if (numero === STEP_CON_DECK) bozza.append(pannelloDeck());
+  if (numero === STEP_CON_SCARTO) bozza.append(pannelloScarto(ordine));
 
   if (chiave) {
     const titolo = document.createElement("h3");
@@ -3326,18 +3517,19 @@ async function apriDettaglio(numero, ordine = generazione) {
         ([nome, valore]) => righeDellaMetrica(nome, valore, ETICHETTE_METRICHE[chiave]),
       ),
     ));
-    dettaglio.append(titolo, tabella);
+    bozza.append(titolo, tabella);
   }
 
   // Lo step 7 non ha parametri propri: senza metriche il pannello resterebbe
   // i soli bottoni, e un riquadro vuoto non distingue "niente da mostrare" da
   // "non ha caricato".
   if (voce.blocchi.length === 0 && !chiave) {
-    dettaglio.append(elemento("p", {
+    bozza.append(elemento("p", {
       className: "vuoto",
       textContent: "Questo step non ha parametri propri e non ha ancora prodotto metriche.",
     }));
   }
+  await riscrivi(dettaglio, bozza, () => !superata(ordine));
 }
 
 // Una metrica annidata diventa una riga per foglia, non una riga di JSON.
