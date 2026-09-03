@@ -4994,6 +4994,7 @@ def _banco_di_esito() -> str:
         "ultimaDurata",
         "durataDellaCorsa",
         "descrizioneDellaCorsa",
+        "ultimaRigaDelRegistro",
         "esitoDellaCorsa",
         "mostraEsito",
         # I due «Esegui» seguono la corsa dallo stesso carico di «Annulla»:
@@ -5049,7 +5050,7 @@ assert.deepEqual(
 assert.deepEqual(
   esitoDellaCorsa({ ...base, exit_code: 1 }),
   {
-    errore: "Lettura: esecuzione fallita (codice 1). Il motivo è nelle ultime righe del registro, in fondo alla colonna Dettaglio.",
+    errore: "Lettura: esecuzione fallita (codice 1). Il motivo è nel registro, in fondo alla colonna Dettaglio: nessun dettaglio",
     esito: null,
   },
 );
@@ -5247,11 +5248,25 @@ assert.match(esito.textContent, /esecuzione fallita \\(codice 2\\)/);
 assert.ok(esito.className.includes("esito-fallito"), "il fallimento non ha il proprio peso");
 assert.deepEqual(riaperte, [1], "il pannello non e' stato riaperto");
 assert.deepEqual(ricaricate, [1], "la vista e' rimasta indietro");
+// Il registro si apre da solo: c'e' un motivo da leggere.
+const dettagli = document.getElementById("registro-dettagli");
+assert.equal(dettagli.open, true, "un fallimento non ha aperto il registro");
 
 // Riparte: l'esito di prima se ne va, e con lui la sua classe.
 aggiornaDaStato({ in_corso: true, step: 1, a_step: 1, steps, da_secondi: 0.1, annullato: false, exit_code: null });
 assert.equal(esito.textContent, "", "l'esito vecchio e' rimasto sopra la corsa nuova");
 assert.ok(!esito.className.includes("esito-fallito"), "la classe del fallimento e' sopravvissuta");
+
+// Una corsa riuscita non tocca il registro: ne' lo apre da chiuso, ne' lo
+// richiude se l'utente l'aveva gia' aperto.
+dettagli.open = false;
+aggiornaDaStato({ in_corso: false, step: 1, a_step: 1, steps, da_secondi: null, annullato: false, exit_code: 0 });
+assert.equal(dettagli.open, false, "una corsa riuscita ha aperto il registro da sola");
+
+dettagli.open = true;
+aggiornaDaStato({ in_corso: true, step: 1, a_step: 1, steps, da_secondi: 0.1, annullato: false, exit_code: null });
+aggiornaDaStato({ in_corso: false, step: 1, a_step: 1, steps, da_secondi: null, annullato: false, exit_code: 0 });
+assert.equal(dettagli.open, true, "una corsa riuscita ha richiuso il registro che l'utente aveva aperto");
 """)
 
 
@@ -6924,4 +6939,58 @@ await respira();
 assert.equal(righe.hidden, false, "dopo un guasto il pannello non si ripara piu': la terna resta segnata");
 assert.ok(righe.figli.map((f) => f.testo).includes("7"),
   `le righe non portano il numero riletto: ${righe.figli.map((f) => f.testo).join("|")}`);
+""")
+
+
+def test_il_registro_sta_in_un_details_chiuso_alla_nascita():
+    """Chiuso e non tolto: serve ancora a leggere perche' uno step e' fallito,
+    ma a riposo non deve occupare quattordici righe della colonna."""
+    markup = _senza_commenti_html(_markup())
+    dettagli = _elemento(markup, "registro-dettagli")
+    assert dettagli.startswith("<details"), dettagli
+    assert " open" not in dettagli, "il registro nasce chiuso"
+    assert 'tabindex="0"' in _elemento(markup, "registro")
+
+
+def test_la_testata_nomina_le_esecuzioni_fra_le_cose_che_ctrl_z_annulla():
+    assert "annulla l'ultima modifica o esecuzione" in _markup()
+
+
+def test_la_frase_del_ritorno_antepone_l_esecuzione_annullata(tmp_path):
+    # ETICHETTE e' gia' dichiarata (vuota) in _DOM, come per ogni altro banco
+    # di questo file: si popola la stessa chiave con `ETICHETTE[...] = ...`,
+    # non con una seconda `const ETICHETTE`, che in JS sarebbe un
+    # SyntaxError su un identificatore ridichiarato.
+    _esegui(tmp_path, _DOM + _funzioni("fraseDelRitorno") + """
+ETICHETTE["02_segment"] = "Segmentazione";
+const prima = [{ numero: 2, chiave: "02_segment", stato: "non valido" }];
+const dopo = [{ numero: 2, chiave: "02_segment", stato: "valido" }];
+assert.match(fraseDelRitorno(prima, dopo), /^configurazione ripristinata/);
+assert.match(fraseDelRitorno(prima, dopo, { da: 2, a: 2 }), /^esecuzione dello step 2 annullata/);
+assert.match(fraseDelRitorno(prima, dopo, { da: 2, a: 5 }), /^esecuzione dallo step 2 al 5 annullata/);
+assert.match(fraseDelRitorno(prima, dopo, { da: 2, a: 11 }), /^esecuzione dallo step 2 all'11 annullata/);
+""")
+
+
+def test_un_fallimento_porta_l_ultima_riga_del_registro_e_lo_apre(tmp_path):
+    _esegui(tmp_path, _DOM + _funzioni("esitoDellaCorsa", "ultimaRigaDelRegistro", "descrizioneDellaCorsa", "nomeDelloStep") + """
+const registro = document.getElementById("registro");
+for (const testo of ["Traceback", "", "ValueError: nessun punto"]) {
+  const riga = document.createElement("div"); riga.textContent = testo; registro.append(riga);
+}
+assert.equal(ultimaRigaDelRegistro(), "ValueError: nessun punto");
+const { errore } = esitoDellaCorsa({ exit_code: 1, annullato: false, step: 2, a_step: 2, steps: [] });
+assert.match(errore, /ValueError: nessun punto/);
+assert.match(errore, /nel registro/);
+""")
+    # Sole righe bianche: nessuna parla, e la frase resta completa invece di
+    # rompersi su un ultimo dettaglio inventato.
+    _esegui(tmp_path, _DOM + _funzioni("esitoDellaCorsa", "ultimaRigaDelRegistro", "descrizioneDellaCorsa", "nomeDelloStep") + """
+const registro = document.getElementById("registro");
+for (const testo of ["", "   "]) {
+  const riga = document.createElement("div"); riga.textContent = testo; registro.append(riga);
+}
+assert.equal(ultimaRigaDelRegistro(), "nessun dettaglio");
+const { errore } = esitoDellaCorsa({ exit_code: 1, annullato: false, step: 2, a_step: 2, steps: [] });
+assert.match(errore, /nessun dettaglio/);
 """)

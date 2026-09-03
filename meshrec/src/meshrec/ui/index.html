@@ -55,8 +55,8 @@
        schermata serve a tornare indietro.
        <kbd> e non testo normale: e' l'elemento che il markup ha per un tasto,
        e chi legge con uno screen reader lo sente annunciato come tale. -->
-  <p class="aiuto scorciatoia"><kbd>Ctrl/Cmd</kbd>+<kbd>Z</kbd> annulla l'ultima
-    modifica ai parametri, con <kbd>Maiusc</kbd> la rifà.</p>
+  <p class="aiuto scorciatoia"><kbd>Ctrl/Cmd</kbd>+<kbd>Z</kbd> annulla l'ultima modifica o esecuzione,
+    con <kbd>Maiusc</kbd> la rifà.</p>
 </header>
 <!-- Le tre schermate si escludono a vicenda e nascono tutte nascoste:
      app.js ne scopre una quando /api/run ha risposto, e da li' in poi
@@ -268,21 +268,27 @@
          distruggerla, e test_app_js.py sorveglia che non ci si torni. -->
     <p class="errore" id="errore" role="alert"></p>
     <div id="dettaglio"><p class="vuoto">Scegli uno step per vederne parametri e metriche.</p></div>
-    <h2>Registro</h2>
-    <!-- tabindex="0": il registro e' alto 14rem e scorre, e dentro non c'e'
-         niente su cui il fuoco possa posarsi. Senza questo attributo Chrome non
-         lo rende raggiungibile da tastiera e le righe uscite dall'alto non si
-         possono piu' leggere senza il mouse (WCAG 2.1.1, livello A). Firefox
-         mette da solo il fuoco sui contenitori che scorrono; Chrome no. Le due
-         colonne che scorrono non ne hanno bisogno: contengono bottoni e campi,
-         e il fuoco che ci entra le porta in vista da se'. -->
-    <!-- aria-live="off" e non "polite": role="log" porta con se' una regione
-         viva, e qui dentro finisce tutto lo stdout del sottoprocesso. Un
-         lettore di schermo leggeva ad alta voce ogni riga di TetGen per i 34
-         secondi di uno step, coprendo l'unica cosa che va davvero sentita, il
-         role="alert" della riga d'errore. Spenta, il registro resta leggibile
-         quando lo si vuole: e' raggiungibile col tabindex qui sopra. -->
-    <div class="registro" id="registro" role="log" aria-live="off" tabindex="0"></div>
+    <!-- Chiuso e non tolto. Serve a una cosa sola, leggere perche' uno step
+         e' fallito, e per quella si apre da solo (app.js, fronte di discesa
+         di un'esecuzione fallita). A riposo occupava quattordici righe della
+         colonna per lo stdout di TetGen, che nessuno legge mentre gira. -->
+    <details id="registro-dettagli" class="registro-dettagli">
+      <summary>Registro dell'esecuzione</summary>
+      <!-- tabindex="0": il registro e' alto 14rem e scorre, e dentro non c'e'
+           niente su cui il fuoco possa posarsi. Senza questo attributo Chrome non
+           lo rende raggiungibile da tastiera e le righe uscite dall'alto non si
+           possono piu' leggere senza il mouse (WCAG 2.1.1, livello A). Firefox
+           mette da solo il fuoco sui contenitori che scorrono; Chrome no. Le due
+           colonne che scorrono non ne hanno bisogno: contengono bottoni e campi,
+           e il fuoco che ci entra le porta in vista da se'. -->
+      <!-- aria-live="off" e non "polite": role="log" porta con se' una regione
+           viva, e qui dentro finisce tutto lo stdout del sottoprocesso. Un
+           lettore di schermo leggeva ad alta voce ogni riga di TetGen per i 34
+           secondi di uno step, coprendo l'unica cosa che va davvero sentita, il
+           role="alert" della riga d'errore. Spenta, il registro resta leggibile
+           quando lo si vuole: e' raggiungibile col tabindex qui sopra. -->
+      <div class="registro" id="registro" role="log" aria-live="off" tabindex="0"></div>
+    </details>
   </aside>
 </div>
 </main>

@@ -352,6 +352,10 @@ a.bottone { display: inline-block; text-decoration: none; }
    contorno visibile sarebbe una tappa cieca, cioe' un difetto al posto di una
    correzione. Stesso contorno degli altri comandi, non uno suo. */
 .registro:focus-visible { outline: 2px solid var(--accento); outline-offset: 2px; }
+/* Il riassunto del registro chiuso: un comando, e come gli altri comandi si
+   vede dove sta il fuoco. */
+.registro-dettagli > summary { cursor: pointer; color: var(--tenue); font-weight: 600; margin-top: var(--passo-4); }
+.registro-dettagli > summary:focus-visible { outline: 2px solid var(--accento); outline-offset: 2px; }
 .riga-log { white-space: pre-wrap; word-break: break-word; }
 /* Una colonna: l'immagine, e sotto la sua didascalia. Non piu' un contenitore
    di soli sovrapposti — la didascalia sta nel flusso apposta, cosi' non copre

@@ -838,6 +838,19 @@ function descrizioneDellaCorsa(stato) {
 // L'ordine dei rami conta: un annullamento arriva con un codice d'uscita non
 // nullo (il segnale che lo ha fermato), quindi va guardato per primo,
 // altrimenti ogni annullamento si annuncerebbe come un fallimento.
+
+// L'ultima riga non vuota che il flusso ha portato: quella che dice che cosa
+// e' successo, senza le venti che dicono da dove. E' la riga che chi legge
+// cercherebbe per prima, e chi non apre il registro la ha gia' in testata.
+function ultimaRigaDelRegistro() {
+  const righe = Array.from(document.getElementById("registro").children);
+  for (let i = righe.length - 1; i >= 0; i -= 1) {
+    const testo = righe[i].textContent.trim();
+    if (testo !== "") return testo;
+  }
+  return "nessun dettaglio";
+}
+
 function esitoDellaCorsa(stato) {
   const { testo: soggetto, unoSolo } = descrizioneDellaCorsa(stato);
   // Una corsa finita senza codice d'uscita non e' piu' uno stato possibile: il
@@ -861,7 +874,7 @@ function esitoDellaCorsa(stato) {
       // che scorre. E' la stessa distanza che il pannello aveva dal proprio
       // nome, e per cui il nome e' stato portato dentro il pannello.
       errore: `${soggetto}: esecuzione fallita (codice ${stato.exit_code}). `
-        + "Il motivo è nelle ultime righe del registro, in fondo alla colonna Dettaglio.",
+        + `Il motivo è nel registro, in fondo alla colonna Dettaglio: ${ultimaRigaDelRegistro()}`,
       esito: null,
     };
   }
@@ -1062,6 +1075,9 @@ function aggiornaDaStato(stato) {
     // video resterebbe qualcosa di indistinguibile da una corsa riuscita.
     const { errore, esito } = esitoDellaCorsa(stato);
     mostraEsito(errore, esito);
+    // Il registro si apre solo quando c'e' un motivo da leggere: aperto a
+    // ogni esecuzione riuscita sarebbe la sezione di prima con un clic in piu'.
+    if (errore !== null) document.getElementById("registro-dettagli").open = true;
     if (stepAperto !== null) apriDettaglio(stepAperto);
     // La vista quanto il pannello: senza questa riga lo step rieseguito mostra
     // a destra le metriche nuove e nel viewport il contorno vecchio, col
@@ -1107,9 +1123,10 @@ function gestoDelloStorico(evento) {
   if (evento.key.toLowerCase() !== "z") return null;
   // La ripetizione automatica del tasto tenuto premuto batte una trentina di
   // eventi al secondo, e ognuno qui e' un POST che riscrive config.yaml
-  // davvero: un secondo di tasto premuto riavvolgerebbe lo storico fino
-  // all'avvio. La guardia dell'ordine non limita quel danno, lo NASCONDE --
-  // lascia a video il solo messaggio dell'ultima risposta.
+  // davvero — e, per un'esecuzione, sposta anche gli artefatti: un secondo di
+  // tasto premuto riavvolgerebbe lo storico fino all'avvio. La guardia
+  // dell'ordine non limita quel danno, lo NASCONDE -- lascia a video il solo
+  // messaggio dell'ultima risposta.
   if (evento.repeat) return null;
   // Dentro un campo scritto il gesto e' gia' preso, e da chi ha piu' diritto:
   // il browser annulla la scrittura nel campo. Questo ascoltatore sta sul
@@ -1140,7 +1157,7 @@ function gestoDelloStorico(evento) {
 // le due lingue per la stessa cosa che nomeDelloStep esiste per togliere. Dal
 // nuovo stato e non da `ultimoStato`, che a questo punto porta ancora quello
 // vecchio.
-function fraseDelRitorno(prima, dopo) {
+function fraseDelRitorno(prima, dopo, esecuzione = null) {
   const era = new Map(prima.map((voce) => [voce.numero, voce.stato]));
   const nome = (voce) => ETICHETTE[voce.chiave] ?? `step ${voce.numero}`;
   const passatiA = (stato) =>
@@ -1156,7 +1173,12 @@ function fraseDelRitorno(prima, dopo) {
       `${nonValidi.join(", ")} ${nonValidi.length === 1 ? "passa a «non valido»" : "passano a «non validi»"}`,
     );
   }
-  return `configurazione ripristinata: ${pezzi.length ? pezzi.join("; ") : "nessuno step cambia stato"}`;
+  const stati = pezzi.length ? pezzi.join("; ") : "nessuno step cambia stato";
+  if (esecuzione === null) return `configurazione ripristinata: ${stati}`;
+  const dove = esecuzione.da === esecuzione.a
+    ? `dello step ${esecuzione.da}`
+    : `dallo step ${esecuzione.da} ${esecuzione.a === 11 ? "all'11" : `al ${esecuzione.a}`}`;
+  return `esecuzione ${dove} annullata: ${stati}`;
 }
 
 // Un contatore suo, non apriGenerazione(). La generazione e' condivisa, e
@@ -1234,7 +1256,10 @@ async function chiediStorico(verso) {
   }
   // `prima`, catturato in cima: il termine di confronto e' lo stato che era a
   // video quando il tasto e' stato premuto, non quello che c'e' adesso.
-  mostraEsito(null, fraseDelRitorno(prima, corpo.steps));
+  mostraEsito(
+    null,
+    fraseDelRitorno(prima, corpo.steps, corpo.tipo === "esecuzione" ? { da: corpo.da, a: corpo.a } : null),
+  );
   await caricaStato();
   // Il config e' cambiato sotto: la geometria di prima con lo stato nuovo a
   // sinistra e' la vista che contraddice la propria didascalia. Senza ordine
