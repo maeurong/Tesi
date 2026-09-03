@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Iterable
 from pathlib import Path
 
 from meshrec.core.config import PipelineConfig
@@ -137,6 +138,29 @@ def write_state(
         "artefatto": artefatto,
         "secondi": float(secondi),
     }
+    scrivi_atomico(
+        Path(out_dir) / STATE_FILENAME,
+        lambda destinazione: destinazione.write_text(
+            json.dumps(salvato, indent=2, ensure_ascii=False), encoding="utf-8"
+        ),
+    )
+
+
+def dimentica(out_dir: Path, numeri: Iterable[int]) -> None:
+    """Toglie le voci degli step `numeri`, lasciando le altre.
+
+    Serve a chi sta per rieseguire quegli step dopo aver messo da parte i loro
+    artefatti: finche' il worker non li riscrive sono «mai eseguito», e
+    un'esecuzione da N a 12 che fallisce al passo k non deve lasciare
+    «riuscito» sugli step k+1..12 con gli artefatti spostati altrove.
+    """
+    from meshrec.core.io import scrivi_atomico
+
+    salvato = read_state(out_dir)
+    if not salvato:
+        return
+    for numero in numeri:
+        salvato.pop(STEP_KEYS[numero - 1], None)
     scrivi_atomico(
         Path(out_dir) / STATE_FILENAME,
         lambda destinazione: destinazione.write_text(

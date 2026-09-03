@@ -39,6 +39,13 @@ senza. Lo step 11 si ferma con un messaggio finché non ci sono.
 Le configurazioni del caso studio della tesi stanno in `casi/` e si aprono per
 nome — `uv run meshrec serve casi/lab_telaio.yaml`. Vedi `casi/README.md`.
 
+Dentro la cartella di una corsa, `.storico/` tiene ogni versione della
+configurazione e, per ogni esecuzione fatta dall'interfaccia, gli artefatti che
+quell'esecuzione ha sostituito: è ciò che Ctrl+Z rimette. Non ha un tetto sugli
+artefatti recenti — cinquanta esecuzioni dello step 2 tengono cinquanta
+`02_segmented.ply` — e si cancella a mano quando serve spazio; cancellarla costa
+solo l'annullamento.
+
 ### Proteggere una corsa di riferimento
 
 Una cartella di corsa che contiene un file vuoto chiamato `SOLA_LETTURA` si apre

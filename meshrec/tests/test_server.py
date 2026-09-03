@@ -3911,3 +3911,218 @@ def test_nessun_aiuto_mostra_un_letterale_di_python(cliente):
         if re.search(r"\b(None|True|False)\b", campo.get("description") or "")
     }
     assert not guasti, "un letterale di python nell'aiuto: " + ", ".join(sorted(guasti))
+
+
+def _corsa_con_lo_step_2_eseguito(cliente, tmp_path: Path) -> Path:
+    """Una corsa con un artefatto e uno stato scritti a mano, come li lascia
+    un'esecuzione riuscita dello step 2. Senza worker: qui si prova il deposito
+    e lo scambio, non la pipeline."""
+    from meshrec.core import steps
+
+    out_dir = tmp_path / "corsa"
+    out_dir.mkdir(exist_ok=True)
+    (out_dir / "02_segmented.ply").write_bytes(b"voxel 2")
+    cfg = load_config(tmp_path / "config.yaml")
+    impronte = steps.step_fingerprints(cfg)
+    steps.write_state(out_dir, 1, impronte[1], "riuscito", "01_cloud.ply", 1.0)
+    steps.write_state(out_dir, 2, impronte[2], "riuscito", "02_segmented.ply", 1.0)
+    (out_dir / "metrics.json").write_text(
+        json.dumps({"01_load": {"points_kept": 10}, "02_segment": {"points_after": 5}}),
+        encoding="utf-8",
+    )
+    return out_dir
+
+
+def test_eseguire_uno_step_deposita_prima_di_avviare(cliente, tmp_path, monkeypatch):
+    """Il deposito sta PRIMA di `lavoratore.start`: un'esecuzione senza deposito
+    e' un'esecuzione non annullabile, ed e' proprio il caso da togliere."""
+    from meshrec.app import storico
+
+    out_dir = _corsa_con_lo_step_2_eseguito(cliente, tmp_path)
+    avviati = []
+    monkeypatch.setattr(server.Worker, "start", lambda self, *argomenti: avviati.append(argomenti))
+    assert cliente.post("/api/step/2").status_code == 200
+    assert avviati == [(tmp_path / "config.yaml", 2, 2)]
+    numero = storico.cursore(out_dir)
+    cartella = out_dir / storico.CARTELLA / f"{numero:04d}"
+    assert (cartella / "02_segmented.ply").read_bytes() == b"voxel 2"
+    assert not (out_dir / "02_segmented.ply").exists()
+    dichiarato = json.loads((cartella / storico.SCAMBIO).read_text(encoding="utf-8"))
+    assert dichiarato["da"] == 2 and dichiarato["a"] == 2
+    assert dichiarato["file"][-1] == "steps.json", "steps.json va scambiato per ultimo"
+    stato = json.loads((out_dir / "steps.json").read_text(encoding="utf-8"))
+    assert "02_segment" not in stato and "01_load" in stato
+    metriche = json.loads((out_dir / "metrics.json").read_text(encoding="utf-8"))
+    assert "02_segment" not in metriche and "01_load" in metriche
+
+
+def test_un_deposito_che_solleva_non_avvia_il_worker(cliente, tmp_path, monkeypatch):
+    from meshrec.app import storico
+
+    _corsa_con_lo_step_2_eseguito(cliente, tmp_path)
+    avviati = []
+    monkeypatch.setattr(server.Worker, "start", lambda self, *argomenti: avviati.append(argomenti))
+
+    def esplode(*_argomenti, **_parole):
+        raise OSError("disco pieno")
+
+    monkeypatch.setattr(storico, "deposita", esplode)
+    risposta = cliente.post("/api/step/2")
+    assert risposta.status_code == 400
+    assert "disco pieno" in risposta.json()["messaggio"]
+    assert avviati == []
+
+
+def test_annullare_un_esecuzione_rimette_artefatto_stato_e_metriche(cliente, tmp_path, monkeypatch):
+    out_dir = _corsa_con_lo_step_2_eseguito(cliente, tmp_path)
+    monkeypatch.setattr(server.Worker, "start", lambda self, *argomenti: None)
+    assert cliente.post("/api/step/2").status_code == 200
+    # L'esecuzione «finisce»: scrive l'artefatto nuovo e lo stato nuovo.
+    from meshrec.core import steps
+
+    cfg = load_config(tmp_path / "config.yaml")
+    (out_dir / "02_segmented.ply").write_bytes(b"voxel 5")
+    steps.write_state(
+        out_dir, 2, steps.step_fingerprints(cfg)[2], "riuscito", "02_segmented.ply", 2.0
+    )
+    (out_dir / "metrics.json").write_text(
+        json.dumps({"01_load": {"points_kept": 10}, "02_segment": {"points_after": 3}}),
+        encoding="utf-8",
+    )
+
+    indietro = cliente.post("/api/storico/indietro").json()
+    assert indietro["annullato"] is True
+    assert indietro["tipo"] == "esecuzione"
+    assert (indietro["da"], indietro["a"]) == (2, 2)
+    assert (out_dir / "02_segmented.ply").read_bytes() == b"voxel 2"
+    assert json.loads((out_dir / "metrics.json").read_text(encoding="utf-8"))["02_segment"] == {
+        "points_after": 5
+    }
+    stato = next(voce for voce in indietro["steps"] if voce["numero"] == 2)
+    assert stato["secondi"] == 1.0, "lo stato rimesso e' quello di prima"
+
+    avanti = cliente.post("/api/storico/avanti").json()
+    assert avanti["annullato"] is True and avanti["tipo"] == "esecuzione"
+    assert (out_dir / "02_segmented.ply").read_bytes() == b"voxel 5"
+
+
+def test_annullare_un_esecuzione_fallita_rimette_lo_stato_di_prima(cliente, tmp_path, monkeypatch):
+    out_dir = _corsa_con_lo_step_2_eseguito(cliente, tmp_path)
+    monkeypatch.setattr(server.Worker, "start", lambda self, *argomenti: None)
+    assert cliente.post("/api/step/2").status_code == 200
+    from meshrec.core import steps
+
+    cfg = load_config(tmp_path / "config.yaml")
+    steps.write_state(out_dir, 2, steps.step_fingerprints(cfg)[2], "fallito", None, 0.0)
+    (out_dir / "metrics.partial.json").write_text("{}", encoding="utf-8")
+
+    indietro = cliente.post("/api/storico/indietro").json()
+    assert indietro["annullato"] is True
+    assert (out_dir / "02_segmented.ply").read_bytes() == b"voxel 2"
+    assert not (out_dir / "metrics.partial.json").exists()
+    assert next(voce for voce in indietro["steps"] if voce["numero"] == 2)["stato"] == "valido"
+
+
+def test_annullare_una_configurazione_dice_il_proprio_tipo(cliente):
+    corpo = cliente.get("/api/config").json()
+    corpo["tet"]["min_ratio"] = 1.9
+    assert cliente.put("/api/config", json=corpo).status_code == 200
+    indietro = cliente.post("/api/storico/indietro").json()
+    assert indietro["tipo"] == "configurazione"
+    assert "da" not in indietro
+
+
+def test_uno_step_fuori_intervallo_e_rifiutato_prima_del_deposito(cliente, tmp_path, monkeypatch):
+    """Senza guardia `steps.dimentica(range(0, 1))` fa `STEP_KEYS[-1]` e toglie
+    in silenzio la voce del prior; 13 solleva `IndexError` a versione già
+    depositata. Il rifiuto sta prima del deposito: nessuna versione nuova."""
+    from meshrec.app import storico
+
+    out_dir = _corsa_con_lo_step_2_eseguito(cliente, tmp_path)
+    avviati = []
+    monkeypatch.setattr(server.Worker, "start", lambda self, *argomenti: avviati.append(argomenti))
+    for percorso in ("/api/step/0", "/api/step/13", "/api/step/13/from"):
+        risposta = cliente.post(percorso)
+        assert risposta.status_code == 400, percorso
+        assert "fra 1 e 12" in risposta.json()["messaggio"]
+    assert not storico.esiste(out_dir)
+    assert avviati == []
+
+
+def test_lo_storico_rifiuta_con_409_mentre_un_worker_gira(cliente, monkeypatch):
+    """Scambiare file sotto un processo che li sta scrivendo non ha un esito
+    buono. 409 e non 400: la richiesta e' formata bene, e' il momento sbagliato."""
+    monkeypatch.setattr(server.Worker, "is_running", lambda self: True)
+    for verso in ("indietro", "avanti"):
+        risposta = cliente.post(f"/api/storico/{verso}")
+        assert risposta.status_code == 409, verso
+        assert "interrompi il calcolo" in risposta.json()["messaggio"]
+
+
+@pytest.mark.parametrize(
+    "rotte",
+    [b"{tronc", b"\xff\xfe non utf-8", b'["non", "un", "oggetto"]'],
+    ids=["troncato", "non-utf8", "non-oggetto"],
+)
+def test_metriche_illeggibili_non_fermano_l_esecuzione(cliente, tmp_path, monkeypatch, rotte):
+    """`_dimentica_metriche` non riscrive cio' che non ha saputo leggere: la
+    copia nella cartella e' quella rotta, e l'esecuzione parte lo stesso."""
+    from meshrec.app import storico
+
+    out_dir = _corsa_con_lo_step_2_eseguito(cliente, tmp_path)
+    (out_dir / "metrics.json").write_bytes(rotte)
+    avviati = []
+    monkeypatch.setattr(server.Worker, "start", lambda self, *argomenti: avviati.append(argomenti))
+    assert cliente.post("/api/step/2").status_code == 200
+    assert avviati == [(tmp_path / "config.yaml", 2, 2)]
+    assert (out_dir / "metrics.json").read_bytes() == rotte
+    cartella = out_dir / storico.CARTELLA / f"{storico.cursore(out_dir):04d}"
+    assert (cartella / "metrics.json").read_bytes() == rotte
+
+
+def test_una_corsa_senza_metriche_ne_stato_si_deposita_lo_stesso(cliente, tmp_path, monkeypatch):
+    """Prima esecuzione: metrics.json e steps.json non esistono ancora, e
+    nessuno dei due va creato per poterli dimenticare."""
+    out_dir = tmp_path / "corsa"
+    out_dir.mkdir()
+    avviati = []
+    monkeypatch.setattr(server.Worker, "start", lambda self, *argomenti: avviati.append(argomenti))
+    assert cliente.post("/api/step/1").status_code == 200
+    assert avviati == [(tmp_path / "config.yaml", 1, 1)]
+    assert not (out_dir / "metrics.json").exists()
+    assert not (out_dir / "steps.json").exists()
+
+
+def test_annullare_un_esecuzione_senza_cartella_dice_configurazione(cliente, tmp_path, monkeypatch):
+    """`.storico/` si cancella a mano quando serve spazio: la versione resta,
+    la sua cartella no, e l'annullamento vale per la sola configurazione."""
+    from meshrec.app import storico
+
+    out_dir = _corsa_con_lo_step_2_eseguito(cliente, tmp_path)
+    monkeypatch.setattr(server.Worker, "start", lambda self, *argomenti: None)
+    assert cliente.post("/api/step/2").status_code == 200
+    shutil.rmtree(out_dir / storico.CARTELLA / f"{storico.cursore(out_dir):04d}")
+    indietro = cliente.post("/api/storico/indietro").json()
+    assert indietro["annullato"] is True
+    assert indietro["tipo"] == "configurazione"
+    assert "da" not in indietro
+
+
+def test_una_versione_illeggibile_non_scambia_niente(cliente, tmp_path, monkeypatch):
+    """Lo scambio parte solo dopo la scrittura di config.yaml: un rifiuto di
+    `_ripristina` lascia i file dove stanno."""
+    from meshrec.app import storico
+
+    out_dir = _corsa_con_lo_step_2_eseguito(cliente, tmp_path)
+    monkeypatch.setattr(server.Worker, "start", lambda self, *argomenti: None)
+    assert cliente.post("/api/step/2").status_code == 200
+    (out_dir / "02_segmented.ply").write_bytes(b"voxel 5")
+    numero = storico.cursore(out_dir)
+    (out_dir / storico.CARTELLA / f"{numero - 1:04d}.yaml").write_text(
+        "input: [non una mappa", encoding="utf-8"
+    )
+    risposta = cliente.post("/api/storico/indietro").json()
+    assert risposta["annullato"] is False and risposta["guasto"] is True
+    assert (out_dir / "02_segmented.ply").read_bytes() == b"voxel 5"
+    cartella = out_dir / storico.CARTELLA / f"{numero:04d}"
+    assert (cartella / "02_segmented.ply").read_bytes() == b"voxel 2"

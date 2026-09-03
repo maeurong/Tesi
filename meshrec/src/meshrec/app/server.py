@@ -1192,7 +1192,7 @@ def create_app(
         storico.deposita(out_dir, attuale, "modifica fuori dall'interfaccia", [])
         return coda
 
-    def _ripristina(testo: str | None, vuoto: str, rimetti) -> dict[str, object]:
+    def _ripristina(testo: str | None, vuoto: str, rimetti, scambio: int) -> dict[str, object]:
         """`rimetti` riporta il cursore dove stava: indietro e avanti lo hanno
         gia' spostato quando questa funzione riceve il testo, e ogni rifiuto da
         qui in giu' deve annullare anche quello spostamento.
@@ -1267,12 +1267,20 @@ def create_app(
             rimetti()
             raise
         cfg_dopo = corrente()
-        # Gli artefatti restano sul disco: la catena di impronte li marca «non
-        # valido» da se', e questa superficie eredita quel meccanismo invece di
-        # duplicarlo. Ma dirlo e' obbligatorio -- un ritorno indietro che cambia
-        # in silenzio lo stato di sette step e' una modifica invisibile -- e lo
-        # dice `steps`, che porta lo stato nuovo per intero.
-        return {"annullato": True, "steps": steps.run_state(cfg_dopo.run.out_dir, cfg_dopo)}
+        # Se la versione era un'esecuzione, i suoi artefatti tornano con lo
+        # scambio; per una configurazione restano, e la catena di impronte li
+        # marca da se'. Ma dirlo e' obbligatorio -- un ritorno indietro che
+        # cambia in silenzio lo stato di sette step e' una modifica invisibile
+        # -- e lo dice `steps`, che porta lo stato nuovo per intero.
+        esecuzione = storico.scambia(Path(cfg_dopo.run.out_dir), scambio)
+        risposta: dict[str, object] = {
+            "annullato": True,
+            "tipo": "esecuzione" if esecuzione else "configurazione",
+            "steps": steps.run_state(cfg_dopo.run.out_dir, cfg_dopo),
+        }
+        if esecuzione:
+            risposta.update(esecuzione)
+        return risposta
 
     @app.post("/api/storico/indietro")
     def storico_indietro() -> dict[str, object]:
@@ -1292,18 +1300,27 @@ def create_app(
         """
         with _LUCCHETTO_STORICO:
             non_in_sola_lettura("annullare una modifica")
+            if (rifiuto := _in_corso()) is not None:
+                return rifiuto
             out_dir = Path(corrente().run.out_dir)
             _deposita_le_modifiche_fatte_a_mano(out_dir)
+            # Il numero PRIMA di muovere il cursore: e' la versione che
+            # «indietro» toglie, e la sola che puo' avere una cartella da
+            # scambiare.
+            da_togliere = storico.cursore(out_dir)
             return _ripristina(
                 storico.indietro(out_dir),
                 "niente da annullare",
                 lambda: storico.avanti(out_dir),
+                scambio=da_togliere,
             )
 
     @app.post("/api/storico/avanti")
     def storico_avanti() -> dict[str, object]:
         with _LUCCHETTO_STORICO:
             non_in_sola_lettura("rifare una modifica")
+            if (rifiuto := _in_corso()) is not None:
+                return rifiuto
             out_dir = Path(corrente().run.out_dir)
             coda_tolta = _deposita_le_modifiche_fatte_a_mano(out_dir)
             # Solo «avanti» ha bisogno di distinguere: dopo un deposito
@@ -1319,10 +1336,13 @@ def create_app(
                 if coda_tolta
                 else "niente da rifare"
             )
+            testo = storico.avanti(out_dir)
+            # Il numero DOPO: «avanti» rimette la versione su cui e' arrivato.
             return _ripristina(
-                storico.avanti(out_dir),
+                testo,
                 vuoto,
                 lambda: storico.indietro(out_dir),
+                scambio=storico.cursore(out_dir),
             )
 
     @app.get("/api/metrics")
@@ -1513,19 +1533,105 @@ def create_app(
 
     lavoratore = Worker()
 
+    def _elenco_di_scambio(da: int, a: int) -> dict[str, object]:
+        """I file che un'esecuzione da `da` ad `a` puo' riscrivere.
+
+        Gli artefatti numerati vengono da `pipeline.ARTIFACTS`; gli step senza
+        artefatto numerato scrivono il deck con il suo .vtu (11) e il prior
+        (12). Il parziale delle metriche si sposta: lo lascia solo
+        un'esecuzione fallita, e appartiene a lei. Stato e metriche si copiano,
+        e steps.json sta per ULTIMO: e' l'ordine dello scambio, e uno scambio
+        interrotto a meta' deve lasciare le impronte di prima.
+        """
+        sposta = [pipeline.ARTIFACTS[n] for n in range(da, a + 1) if n in pipeline.ARTIFACTS]
+        if a >= 11:
+            sposta += [pipeline.DECK_FILENAME, "wall_model.vtu"]
+        if a >= 12:
+            sposta.append(pipeline.WALL_FILENAME)
+        sposta.append(pipeline.METRICS_PARTIAL)
+        return {
+            "da": da,
+            "a": a,
+            "sposta": sposta,
+            "copia": [pipeline.METRICS_FILENAME, steps.STATE_FILENAME],
+        }
+
+    def _dimentica_metriche(out_dir: Path, numeri: range) -> None:
+        percorso = out_dir / pipeline.METRICS_FILENAME
+        if not percorso.exists():
+            return
+        try:
+            letto = json.loads(percorso.read_text(encoding="utf-8"))
+        except ValueError:
+            return
+        if not isinstance(letto, dict):
+            return
+        for numero in numeri:
+            letto.pop(steps.STEP_KEYS[numero - 1], None)
+        scrivi_atomico(
+            percorso,
+            lambda destinazione: destinazione.write_text(
+                json.dumps(letto, indent=2, default=float, ensure_ascii=False), encoding="utf-8"
+            ),
+        )
+
+    def _avvia(da: int, a: int, endpoint: str) -> dict[str, object]:
+        """Deposita, poi avvia. In quest'ordine e sotto lo stesso lucchetto
+        dello storico: un'esecuzione senza deposito non si puo' annullare, e
+        un deposito che solleva lascia il worker fermo con il motivo in
+        risposta."""
+        corrente()
+        # La guardia sta PRIMA del deposito: `steps.dimentica(range(0, 1))`
+        # farebbe `STEP_KEYS[-1]` e toglierebbe in silenzio la voce del prior,
+        # e 13 solleverebbe `IndexError` a versione gia' depositata.
+        if not (1 <= da <= a <= 12):
+            raise ValueError(
+                f"lo step va scelto fra 1 e 12 (chiesto {da}"
+                + (f", fino a {a}" if a != da else "")
+                + ")"
+            )
+        non_in_sola_lettura(
+            f"eseguire lo step {da}" if da == a else f"eseguire dallo step {da} in giù"
+        )
+        with _LUCCHETTO_STORICO:
+            if lavoratore.is_running():
+                raise RuntimeError(
+                    "uno step sta già girando: annullalo prima di avviarne un altro"
+                )
+            out_dir = Path(corrente().run.out_dir)
+            if not storico.esiste(out_dir):
+                storico.deposita(out_dir, config_path.read_text(encoding="utf-8"), "avvio", [])
+            _deposita_le_modifiche_fatte_a_mano(out_dir)
+            storico.deposita(
+                out_dir,
+                config_path.read_text(encoding="utf-8"),
+                endpoint,
+                [],
+                scambio=_elenco_di_scambio(da, a),
+            )
+            steps.dimentica(out_dir, range(da, a + 1))
+            _dimentica_metriche(out_dir, range(da, a + 1))
+            lavoratore.start(config_path, da, a)
+        return {"avviato": da, "fino_a": a}
+
+    def _in_corso() -> JSONResponse | None:
+        if not lavoratore.is_running():
+            return None
+        return JSONResponse(
+            status_code=409,
+            content={
+                "errore": "InCorso",
+                "messaggio": "uno step sta girando: aspetta la fine, oppure interrompi il calcolo",
+            },
+        )
+
     # Le mappe dell'ultima decimazione servita, per step. Il ritaglio e la
     # selezione le rileggono: senza, agirebbero su indici che non esistono.
     mappe: dict[int, list] = {}
 
     @app.post("/api/step/{numero}")
     def esegui_step(numero: int) -> dict[str, object]:
-        # Senza queste due righe, a legame vuoto il Worker lanciava
-        # `python -m meshrec.cli run None` e restava occupato: un 200 che non
-        # eseguiva niente e bloccava anche la richiesta successiva.
-        corrente()
-        non_in_sola_lettura(f"eseguire lo step {numero}")
-        lavoratore.start(config_path, numero, numero)
-        return {"avviato": numero, "fino_a": numero}
+        return _avvia(numero, numero, f"POST /api/step/{numero}")
 
     @app.post("/api/step/{numero}/from")
     def esegui_da(numero: int) -> dict[str, object]:
@@ -1541,10 +1647,7 @@ def create_app(
         # Farli inseguire l'uno l'altro accoppierebbe una decisione di
         # presentazione a una di esecuzione; il prior calcolato e non mostrato
         # e' un file in piu' sul disco, non un difetto.
-        corrente()
-        non_in_sola_lettura(f"eseguire dallo step {numero} in giù")
-        lavoratore.start(config_path, numero, 12)
-        return {"avviato": numero, "fino_a": 12}
+        return _avvia(numero, 12, f"POST /api/step/{numero}/from")
 
     @app.post("/api/cancel")
     def annulla() -> dict[str, object]:

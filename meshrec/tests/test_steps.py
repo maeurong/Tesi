@@ -224,3 +224,18 @@ def test_lo_step_12_e_l_ultimo_e_non_entra_nella_completezza_di_uno_sweep():
     """
     assert steps.STEP_KEYS[-1] == "12_wall"
     assert "12_wall" not in sweep.REQUIRED_STEPS
+
+
+def test_dimentica_toglie_solo_le_voci_chieste(tmp_path):
+    """Uno step che sta per essere rieseguito e' davvero «mai eseguito» finche'
+    il worker non lo riscrive; gli altri restano com'erano."""
+    steps.write_state(tmp_path, 1, "a", "riuscito", "01_cloud.ply", 1.0)
+    steps.write_state(tmp_path, 2, "b", "riuscito", "02_segmented.ply", 1.0)
+    steps.write_state(tmp_path, 3, "c", "riuscito", "03_downsampled.ply", 1.0)
+    steps.dimentica(tmp_path, range(2, 4))
+    assert set(steps.read_state(tmp_path)) == {"01_load"}
+
+
+def test_dimentica_senza_stato_non_crea_il_file(tmp_path):
+    steps.dimentica(tmp_path, [1])
+    assert not (tmp_path / steps.STATE_FILENAME).exists()
