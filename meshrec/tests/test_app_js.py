@@ -126,29 +126,27 @@ _COLONNA = (
 )
 
 
-def _etichette_metriche() -> dict:
-    """La tabella `ETICHETTE_METRICHE` letta dal sorgente vero, valutata con
-    `node`.
-
-    Non passa da `_costante`, che vede una riga sola, ne' da una copia scritta
-    qui: una copia lascerebbe che banco e modulo divergano in silenzio, ed e'
-    proprio la tabella su cui il banco deve dire qualcosa. Le due ancore si
-    controllano prima di tagliare, cosi' una costante rinominata fallisce
-    dicendo che l'estrazione si e' rotta invece di far cadere `node` su un
-    SyntaxError.
-    """
-    inizio, fine = "const ETICHETTE_METRICHE = ", "\n};\n"
-    testo = _modulo()
-    assert inizio in testo, f"ancora d'inizio assente: {inizio}"
-    coda = testo.split(inizio, 1)[1]
-    assert fine in coda, f"ancora di fine assente: {fine!r}"
-    corpo = inizio + coda.split(fine, 1)[0] + "\n};\n"
+def _importa(percorso: Path, corpo: str) -> str:
+    """Esegue con `node` un'importazione ES vera di un modulo dell'interfaccia
+    (etichette.js, modello.js) e restituisce lo stdout. A differenza di
+    `_sorgente_di`/`_costante`, che ritagliano testo da un modulo che non si
+    puo' importare cosi' com'e' (app.js porta percorsi assoluti dal server),
+    questi moduli nuovi non hanno quel problema: si possono importare per
+    davvero, e importarli e' anche il banco che li tiene valutabili da soli."""
     esito = subprocess.run(
-        [_node(), "-e", corpo + "console.log(JSON.stringify(ETICHETTE_METRICHE))"],
+        [_node(), "--input-type=module", "-e", f"import * as modulo from {percorso.resolve().as_uri()!r};\n" + corpo],
         capture_output=True, text=True,
     )
     assert esito.returncode == 0, esito.stderr
-    return json.loads(esito.stdout)
+    return esito.stdout
+
+
+def _etichette_metriche() -> dict:
+    """La tabella `ETICHETTE_METRICHE` di `etichette.js`, letta importando
+    davvero il modulo: una copia scritta qui lascerebbe che banco e modulo
+    divergano in silenzio, ed e' proprio la tabella su cui il banco deve dire
+    qualcosa."""
+    return json.loads(_importa(UI_DIR / "etichette.js", "console.log(JSON.stringify(modulo.ETICHETTE_METRICHE));"))
 
 
 def _costante(nome: str) -> str:
@@ -401,8 +399,12 @@ _DOM += _costante("STEP_DEL_PRIOR") + "\n"
 _DOM += _tabella_del_modello()
 # Le chiavi il cui «sì» e' una contraddizione. Sta qui e non nei singoli banchi
 # perche' `righeDelModello` la legge, e `aggiornaModello` in coda a `disegnaStep`
-# la porta dentro ogni banco che disegna la colonna.
-_DOM += _costante("METRICHE_D_ALLARME") + "\n"
+# la porta dentro ogni banco che disegna la colonna. Dal modulo vero e non da
+# `_costante`: la costante e' finita in etichette.js, che _importa_ (non
+# ritaglia) -- lo stesso Set non si scrive due volte a mano.
+_DOM += "const METRICHE_D_ALLARME = new Set(" + _importa(
+    UI_DIR / "etichette.js", "console.log(JSON.stringify([...modulo.METRICHE_D_ALLARME]));",
+).strip() + ");\n"
 
 
 # --------------------------------------------------------------------------
@@ -3961,11 +3963,12 @@ def test_ogni_metrica_delle_due_tabelle_di_qualita_ha_la_sua_etichetta():
                 chiavi.append(intero)
         return chiavi
 
-    testo = _modulo()
-    regioni = {}
-    for step in ("07_surface_quality", "10_volume_quality"):
-        apertura = testo.index(f'"{step}": {{')
-        regioni[step] = testo[apertura:testo.index("\n  },", apertura)]
+    # Dal modulo vero e non da un ritaglio di testo: `07_surface_quality`
+    # prende le sue sei righe base e le cinque `aspect_ratio` da `SUPERFICIE`
+    # con `...SUPERFICIE` (etichette.js), quindi non stanno piu' scritte
+    # dentro il blocco del passo -- una regione di testo le direbbe mancanti
+    # mentre l'oggetto vero le porta.
+    etichette_metriche = _etichette_metriche()
 
     cubo = o3d.geometry.TriangleMesh.create_box(1.0, 1.0, 1.0)
     vertici = np.asarray(cubo.vertices)
@@ -3979,7 +3982,7 @@ def test_ogni_metrica_delle_due_tabelle_di_qualita_ha_la_sua_etichetta():
     misure10 = quality.volume_metrics(nodi, np.array([[0, 1, 2, 3]]), 2.0)
 
     for step, misure in (("07_surface_quality", misure7), ("10_volume_quality", misure10)):
-        mancanti = [c for c in appiattite(misure) if f'"{c}":' not in regioni[step]]
+        mancanti = [c for c in appiattite(misure) if c not in etichette_metriche.get(step, {})]
         assert mancanti == [], (
             f"{step}: queste grandezze finiscono a video come chiave nuda, "
             f"senza nome e senza unità: {mancanti}"
@@ -7469,6 +7472,34 @@ for (const chiave of ["05_reconstruct", "06_repair", "08_simplify"]) {{
   }}
 }}
 """)
+
+
+def test_etichette_js_non_importa_niente():
+    """`etichette.js` deve restare valutabile da solo con `node -e`: e' cosi'
+    che `_etichette_metriche()` lo legge, senza un server che gli serva un
+    secondo modulo. Un `import` lo romperebbe in silenzio per chi lo valuta
+    isolato."""
+    testo = _senza_commenti_js((UI_DIR / "etichette.js").read_text(encoding="utf-8"))
+    assert re.search(r"\bimport\b", testo) is None, (
+        "etichette.js importa qualcosa: non e' piu' valutabile da solo"
+    )
+
+
+def test_ogni_step_ha_la_propria_tabella_salvo_il_prior():
+    """Dodici chiavi in `ETICHETTE`, undici tabelle in `ETICHETTE_METRICHE`:
+    il prior (`12_wall`) non ha pannello (`disegnaStep` lo filtra, PRODUCT.md
+    lo dichiara fuori dall'interfaccia). Una chiave senza tabella qui
+    cadrebbe su `undefined` nel pannello del dettaglio invece che su un rosso
+    che dice il nome."""
+    inizio, fine = "const ETICHETTE = {", "\n};"
+    testo = _modulo()
+    assert inizio in testo, f"ancora d'inizio assente: {inizio}"
+    corpo = testo.split(inizio, 1)[1].split(fine, 1)[0]
+    chiavi = re.findall(r'"(\d\d_\w+)":', corpo)
+    assert chiavi, "nessuna chiave trovata in ETICHETTE: l'estrazione si e' rotta"
+    tabelle = _etichette_metriche()
+    mancanti = [c for c in chiavi if c != "12_wall" and c not in tabelle]
+    assert mancanti == [], f"chiavi di ETICHETTE senza tabella in ETICHETTE_METRICHE: {mancanti}"
 
 
 def test_una_corsa_nuova_toglie_il_segno_dal_titolo(tmp_path):
