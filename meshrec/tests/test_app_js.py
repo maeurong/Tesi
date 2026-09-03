@@ -5125,6 +5125,7 @@ def _banco_di_esito() -> str:
         # I due «Esegui» seguono la corsa dallo stesso carico di «Annulla»:
         # aggiornaDaStato la chiama, quindi il banco la incontra.
         "spegniLeEsecuzioni",
+        "avanzamentoDellaCorsa",
         # L'intervallo in esecuzione sulla colonna: aggiornaDaStato lo segna a
         # ogni frame, e qui la colonna e' vuota (disegnaStep e' stubbato).
         "segnaIntervalloInEsecuzione",
@@ -7404,7 +7405,7 @@ def test_il_nome_del_file_dell_immagine_porta_corsa_step_e_didascalia(tmp_path):
     Solo `[a-z0-9-]`: e' un nome di file su tre sistemi diversi, e la
     didascalia porta virgole, accenti e unita'.
     """
-    _esegui(tmp_path, _DOM + _funzioni("nomeDellImmagine") + """
+    _esegui(tmp_path, _DOM + _funzioni("nomeDellaCorsa", "nomeDellImmagine") + """
 assert.equal(nomeDellImmagine("runs/lab_telaio_v2", 6, "Riparazione", "scarto RMS 9,5 mm"),
   "lab-telaio-v2-06-riparazione-scarto-rms-9-5-mm.png");
 assert.equal(nomeDellImmagine("corsa", 5, "Superficie", ""), "corsa-05-superficie.png",
@@ -7430,7 +7431,7 @@ def test_i_due_comandi_della_vista_stanno_nel_markup():
 
 def _banco_dei_comandi_della_vista() -> str:
     """`salvaImmagine` con la vista finta e i tre elementi che legge."""
-    return _DOM + _funzioni("nomeDellImmagine", "didascaliaDellaVista", "salvaImmagine") + """
+    return _DOM + _costante("STEP_CON_GEOMETRIA") + "\n" + _funzioni("nomeDellaCorsa", "nomeDellImmagine", "didascaliaDellaVista", "passoDaMostrare", "righeDiProvenienza", "spezzaInRighe", "immagineConProvenienza", "dichiaraErrore", "salvaImmagine") + """
 const creati = [];
 const creaVero = document.createElement;
 document.createElement = (tag) => { const nodo = creaVero(tag); creati.push(nodo); return nodo; };
@@ -7454,12 +7455,12 @@ def test_salva_immagine_scrive_un_png_col_nome_della_corsa(tmp_path):
     """
     _esegui(tmp_path, _banco_dei_comandi_della_vista() + """
 // Nessuno step scelto: nessun file, nessuna cattura.
-salvaImmagine();
+await salvaImmagine();
 assert.equal(scaricato(), undefined, "un file scaricato senza uno step scelto");
 assert.equal(vista.catture, 0, "la tela e' stata catturata senza uno step scelto");
 
 stepScelto = 6;
-salvaImmagine();
+await salvaImmagine();
 assert.equal(scaricato().download, "lab-crop-06-riparazione-scarto-rms-9-5-mm.png");
 assert.equal(scaricato().href, "data:image/png;base64,AAA", "il file non porta la tela catturata");
 assert.equal(scaricato().cliccato, true, "il file non e' stato consegnato al browser");
@@ -7471,7 +7472,7 @@ assert.ok(!document.body.figli.includes(scaricato()), "il collegamento resta app
 
 // Uno step che lo stato non conosce: il numero, non «undefined».
 ultimoStato = [];
-salvaImmagine();
+await salvaImmagine();
 assert.equal(scaricato().download, "lab-crop-06-step-6-scarto-rms-9-5-mm.png");
 """)
 
@@ -7833,4 +7834,110 @@ const bozza3 = elemento("div");
 bozza3.append(elemento("p", { textContent: "vecchia bozza" }));
 await riscrivi(nodo, bozza3, () => false);
 assert.deepEqual(nodo.children.map((n) => n.textContent), ["terzo"], "una bozza superata ha coperto quella piu' recente");
+""")
+
+
+def test_l_attesa_dice_quanti_step_dell_intervallo_sono_conclusi(tmp_path):
+    """Su una corsa da piu' step la riga «in corso» diceva solo da dove a dove.
+    Il server non sa quale step gira, ma dimentica gli step dell'intervallo
+    prima di partire e ognuno torna «valido» quando finisce: il conteggio e'
+    un fatto letto dal disco. Su un solo step non si conta niente.
+
+    Mutazione che lo uccide: contare i «valido» di tutta la colonna invece
+    che dell'intervallo (lo step 1, valido da ieri, farebbe 1 su 3 all'avvio).
+    """
+    _esegui(tmp_path, _banco_di_esito() + """
+ETICHETTE["01_load"] = "Lettura";
+ETICHETTE["03_downsample"] = "Riduzione";
+ETICHETTE["05_reconstruct"] = "Superficie";
+const barra = document.getElementById("in-corso");
+const steps = [
+  { numero: 1, chiave: "01_load", stato: "valido" },
+  { numero: 3, chiave: "03_downsample", stato: "mai eseguito" },
+  { numero: 4, chiave: "04_normals", stato: "mai eseguito" },
+  { numero: 5, chiave: "05_reconstruct", stato: "mai eseguito" },
+];
+aggiornaDaStato({ in_corso: true, step: 3, a_step: 5, steps, da_secondi: 2, annullato: false, exit_code: null });
+assert.match(barra.textContent, /0 step su 3 conclusi/, barra.textContent);
+
+steps[1].stato = "valido";
+aggiornaDaStato({ in_corso: true, step: 3, a_step: 5, steps, da_secondi: 9, annullato: false, exit_code: null });
+assert.match(barra.textContent, /da Riduzione a Superficie in corso, 9 s · 1 step su 3 concluso/, barra.textContent);
+
+// Un solo step: nessun conteggio.
+aggiornaDaStato({ in_corso: true, step: 5, a_step: 5, steps, da_secondi: 1, annullato: false, exit_code: null });
+assert.ok(!/step su/.test(barra.textContent), barra.textContent);
+assert.equal(avanzamentoDellaCorsa({ step: null, a_step: null, steps }), null);
+""")
+
+
+def test_il_png_salvato_porta_le_righe_di_provenienza(tmp_path):
+    """«Salva immagine» scriveva la sola tela: in appendice la figura perdeva
+    corsa, step, configurazione e caso di carico. Le righe si compongono da
+    cio' che la pagina mostra gia', e la striscia si disegna con una tela 2D
+    dove c'e'; dove non c'e' (qui) torna la sola cattura, non nessun PNG.
+
+    Mutazione che lo uccide: scrivere le righe vuote (una riga bianca sotto
+    uno step senza didascalia), o perdere l'impronta.
+    """
+    _esegui(tmp_path, _banco_dei_comandi_della_vista() + """
+const righe = righeDiProvenienza({
+  corsa: "runs/lab_crop", numero: 6, nome: "Riparazione", impronta: "abcdef0123456789",
+  conteggi: "453.808 vertici, 891.775 triangoli", didascalia: "", data: "3/9/2026",
+});
+assert.deepEqual(righe, [
+  "lab_crop · step 6, Riparazione · impronta abcdef012345",
+  "453.808 vertici, 891.775 triangoli",
+  "MeshRec, 3/9/2026",
+]);
+assert.deepEqual(righeDiProvenienza({ // Il percorso alla Windows, con la barra rovesciata scritta per codice: in una
+// stringa JS `\\p` sarebbe un escape, e sparirebbe.
+corsa: "runs" + String.fromCharCode(92) + "pluto", numero: 3, nome: "Riduzione", impronta: undefined, conteggi: "", didascalia: "scarto RMS 9,5 mm", data: "oggi" }),
+  ["pluto · step 3, Riduzione", "scarto RMS 9,5 mm", "MeshRec, oggi"]);
+
+// Senza Image (qui): la sola cattura.
+assert.equal(await immagineConProvenienza("data:image/png;base64,AAA", righe), "data:image/png;base64,AAA");
+
+// Con una tela 2D finta: la striscia si disegna e il PNG e' quello composto.
+const scritte = [];
+globalThis.Image = class { constructor() { this.width = 1200; this.height = 800; } set src(v) { this.sorgente = v; } decode() { return Promise.resolve(); } };
+const telaFinta = { width: 0, height: 0, getContext: () => ({ fillRect() {}, drawImage() {}, measureText: (s) => ({ width: s.length * 8 }), fillText: (r) => scritte.push(r) }), toDataURL: () => "data:composto" };
+const creaPrima = document.createElement;
+document.createElement = (tag) => tag === "canvas" ? telaFinta : creaPrima(tag);
+assert.equal(await immagineConProvenienza("data:image/png;base64,AAA", righe), "data:composto");
+assert.deepEqual(scritte, righe, "a 1200 px ogni riga sta in una riga");
+assert.ok(telaFinta.height > 800, "la striscia non ha allungato la tela");
+
+// Una tela stretta: la riga lunga va a capo per parole, non si schiaccia.
+scritte.length = 0;
+globalThis.Image = class { constructor() { this.width = 200; this.height = 150; } set src(v) {} decode() { return Promise.resolve(); } };
+await immagineConProvenienza("data:image/png;base64,AAA", ["453.808 vertici, 891.775 triangoli"]);
+assert.deepEqual(scritte, ["453.808 vertici,", "891.775 triangoli"], scritte.join(" | "));
+document.createElement = creaPrima;
+""")
+
+
+def test_la_striscia_dice_lo_step_in_figura_e_tace_l_impronta_di_uno_step_non_valido(tmp_path):
+    """Due bugie evitate. Sullo step 11 la vista ripiega a monte, e nome del
+    file e striscia dicono lo step in figura, non quello scelto. Su uno step
+    «non valido» l'impronta che arriva e' della configurazione corrente, che
+    l'artefatto in figura non ha prodotto: non si scrive.
+
+    Mutazione che lo uccide: `stepScelto` al posto di `passoDaMostrare` nel
+    nome del file, o l'impronta scritta senza guardare lo stato.
+    """
+    _esegui(tmp_path, _banco_dei_comandi_della_vista() + """
+ETICHETTE["09_tetrahedralize"] = "Tetraedri";
+ETICHETTE["11_export"] = "Esportazione";
+ultimoStato = [
+  { numero: 9, chiave: "09_tetrahedralize", stato: "non valido", impronta: "0123456789abcdef", artefatto: "09_tets.vtu" },
+  { numero: 11, chiave: "11_export", stato: "valido", impronta: "fedcba9876543210", artefatto: "11_deck.inp" },
+];
+stepScelto = 11;
+await salvaImmagine();
+assert.equal(scaricato().download, "lab-crop-09-tetraedri-scarto-rms-9-5-mm.png", "il file nomina lo step scelto e non quello in figura");
+
+// Le righe: lo step in figura, senza impronta perche' «non valido».
+const righe = righeDiProvenienza({ corsa: "runs/x", numero: 9, nome: "Tetraedri", impronta: undefined, conteggi: "c", didascalia: "", data: "d" });
+assert.equal(righe[0], "x · step 9, Tetraedri");
 """)

@@ -812,6 +812,22 @@ let eraInCorso = false;
 // non lo esegue nessun banco. La decisione su come finisce una corsa e' pura e
 // gia' a tiro dei test; il CABLAGGIO -- quale regione riceve il testo, e chi la
 // svuota subito dopo -- era la meta' che restava fuori.
+// A che punto e' una corsa su piu' step, contando gli step dell'intervallo
+// che risultano «valido». E' un conteggio e non una percentuale: il server non
+// sa quale step sta girando (vedi descrizioneDellaCorsa), ma prima di partire
+// dimentica gli step dell'intervallo in steps.json, e ognuno torna «valido»
+// quando finisce. Quindi «2 step su 7 conclusi» e' un fatto letto dal disco,
+// non una stima. Su un solo step non c'e' niente da contare: null.
+function avanzamentoDellaCorsa(stato) {
+  if (stato.step === null || stato.step === undefined) return null;
+  if (stato.a_step === null || stato.a_step === undefined || stato.a_step === stato.step) return null;
+  const totale = stato.a_step - stato.step + 1;
+  const conclusi = (stato.steps ?? []).filter(
+    (voce) => voce.numero >= stato.step && voce.numero <= stato.a_step && voce.stato === "valido",
+  ).length;
+  return `${conclusi} step su ${totale} ${conclusi === 1 ? "concluso" : "conclusi"}`;
+}
+
 // Le righe della colonna che stanno girando adesso. Mentre una corsa dura i
 // suoi secondi l'unico segnale era la riga «in corso» della testata, e la
 // colonna -- che e' la mappa della pipeline -- non diceva dove si stava.
@@ -871,8 +887,10 @@ function aggiornaDaStato(stato) {
       ? ultimaDurata((stato.steps ?? []).find((voce) => voce.numero === stato.step))
       : null;
     const scorso = durataMisurata(stato.da_secondi);
+    const avanzamento = avanzamentoDellaCorsa(stato);
     barra.textContent = stato.step !== null
       ? `${soggetto} in corso, ${scorso}${prima !== null ? ` · l'ultima volta ${prima}` : ""}`
+        + (avanzamento !== null ? ` · ${avanzamento}` : "")
       : `un comando è in corso, ${scorso}`;
     barra.hidden = false;
   } else {
@@ -1774,9 +1792,15 @@ asseTaglio.addEventListener("change", () => riallineaTaglio(passoDaMostrare(step
 // dice da sola da dove viene e che cosa mostra. Solo lettere, cifre e
 // trattini: e' un nome di file su tre sistemi diversi, e la didascalia porta
 // accenti, virgole e unita'.
+// L'ultimo pezzo del percorso della corsa, con la barra di Windows o quella
+// di Unix: e' il nome della cartella, ed e' cio' che il nome del file e la
+// striscia di provenienza chiamano «corsa».
+function nomeDellaCorsa(outDir) {
+  return String(outDir).split(/[\\/]/).filter(Boolean).pop() ?? "corsa";
+}
+
 function nomeDellImmagine(outDir, numero, nome, didascalia) {
-  const corsa = String(outDir).split(/[\\/]/).filter(Boolean).pop() ?? "corsa";
-  return [corsa, String(numero).padStart(2, "0"), nome, didascalia]
+  return [nomeDellaCorsa(outDir), String(numero).padStart(2, "0"), nome, didascalia]
     .map((pezzo) => String(pezzo).toLowerCase().normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "")
       .replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""))
@@ -1791,24 +1815,115 @@ function nomeDellImmagine(outDir, numero, nome, didascalia) {
 //
 // Di primo livello e non una freccia dentro addEventListener, per la stessa
 // ragione di `aggiornaDaStato`: dentro la freccia non la esegue nessun banco.
-function salvaImmagine() {
-  // Nessuno step scelto, niente da salvare: succede solo prima che una corsa
-  // sia aperta, e un file col nome di nessuna corsa sarebbe peggio del niente.
+// Le righe scritte sotto l'immagine salvata: da quale corsa, quale step e
+// quale configurazione viene, che cosa mostra, e quando. «La provenienza e'
+// parte del risultato» (PRODUCT.md, principio 4): la vista sotto la tela porta
+// gia' tutto questo, ma «Salva immagine» scriveva la sola tela, e in appendice
+// la figura arrivava muta.
+// L'impronta e' quella dello step in steps.json -- il fingerprint della
+// configurazione a monte di quello step, quello con cui la pipeline decide
+// «valido» -- e NON quella del registro degli esperimenti, che e' un altro
+// hash su un altro perimetro: le due non si confrontano. Dodici caratteri
+// come nel report (`report.py`, «impronta (prime 12 cifre)»), cosi' la
+// figura e la tabella si cercano con la stessa chiave. Righe vuote non si
+// scrivono: uno step senza didascalia non lascia una riga bianca.
+function righeDiProvenienza({ corsa, numero, nome, impronta, conteggi, didascalia, data }) {
+  const chi = impronta ? `${nomeDellaCorsa(corsa)} · step ${numero}, ${nome} · impronta ${String(impronta).slice(0, 12)}`
+    : `${nomeDellaCorsa(corsa)} · step ${numero}, ${nome}`;
+  return [chi, conteggi, didascalia, `MeshRec, ${data}`].map((r) => String(r ?? "").trim()).filter(Boolean);
+}
+
+// Una riga spezzata in righe che stanno nella larghezza, misurate col
+// pennello: `fillText` con maxWidth non va a capo, schiaccia i glifi, e una
+// didascalia lunga sarebbe arrivata in appendice illeggibile. Parola per
+// parola; una parola sola piu' larga della riga resta intera.
+function spezzaInRighe(pennello, testo, larghezza) {
+  const righe = [];
+  let corrente = "";
+  for (const parola of testo.split(/\s+/).filter(Boolean)) {
+    const prova = corrente ? `${corrente} ${parola}` : parola;
+    if (corrente && pennello.measureText(prova).width > larghezza) {
+      righe.push(corrente);
+      corrente = parola;
+    } else {
+      corrente = prova;
+    }
+  }
+  if (corrente) righe.push(corrente);
+  return righe;
+}
+
+// La tela catturata piu' una striscia di carta sotto, con le righe di
+// provenienza. Tela 2D del browser e nient'altro. Carta e inchiostro sono
+// gli stessi valori di --sfondo e --testo in stile.css, COPIATI qui e non
+// letti da li': una tela non legge le proprieta' del foglio, e se la
+// tavolozza cambia questi due esadecimali vanno cambiati a mano. Il corpo
+// segue la larghezza dell'immagine, cosi' a stampa resta leggibile quanto la
+// figura. Dove non c'e' `Image` o una tela 2D -- il banco di prova, un
+// browser senza canvas -- torna la sola cattura: la striscia e' un di piu',
+// e senza di lei il PNG resta quello di prima, non nessun PNG.
+async function immagineConProvenienza(datiTela, righe) {
+  if (typeof Image === "undefined" || righe.length === 0) return datiTela;
+  const tela = document.createElement("canvas");
+  const pennello = tela.getContext?.("2d");
+  if (!pennello) return datiTela;
+  const immagine = new Image();
+  immagine.src = datiTela;
+  await immagine.decode();
+  const corpo = Math.max(14, Math.round(immagine.width / 60));
+  const interlinea = Math.round(corpo * 1.5);
+  const margine = corpo;
+  const carattere = `${corpo}px system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif`;
+  // Cambiare le misure della tela azzera il pennello, carattere compreso: si
+  // misura dopo la prima misura e si scrive dopo la seconda.
+  tela.width = immagine.width;
+  pennello.font = carattere;
+  const spezzate = righe.flatMap((riga) => spezzaInRighe(pennello, riga, immagine.width - margine * 2));
+  tela.height = immagine.height + margine * 2 + interlinea * spezzate.length;
+  pennello.fillStyle = "#fbfaf8";
+  pennello.fillRect(0, 0, tela.width, tela.height);
+  pennello.drawImage(immagine, 0, 0);
+  pennello.fillStyle = "#1c1b19";
+  pennello.font = carattere;
+  pennello.textBaseline = "top";
+  spezzate.forEach((riga, k) => pennello.fillText(riga, margine, immagine.height + margine + interlinea * k));
+  return tela.toDataURL("image/png");
+}
+
+async function salvaImmagine() {
   if (stepScelto === null) return;
-  const voce = ultimoStato.find((passo) => passo.numero === stepScelto);
+  // Lo step in figura e non quello scelto: su 7, 10 e 11 la vista ripiega a
+  // monte (passoDaMostrare), e #conteggi lo dice gia'. Nome del file e
+  // striscia devono dire lo stesso step, e devono dirlo di cio' che si vede.
+  // Tutto letto PRIMA dell'attesa: durante `decode()` un clic su un'altra
+  // riga cambia stepScelto, e il file uscirebbe col numero nuovo sopra
+  // l'immagine vecchia.
+  const mostrato = passoDaMostrare(stepScelto) ?? stepScelto;
+  const voce = ultimoStato.find((passo) => passo.numero === mostrato);
+  const nome = ETICHETTE[voce?.chiave] ?? `step ${mostrato}`;
+  const corsa = document.getElementById("corsa").textContent;
+  const didascalia = didascaliaDellaVista().textContent;
+  const righe = righeDiProvenienza({
+    corsa, numero: mostrato, nome,
+    // Solo a step «valido»: run_state manda per ogni step l'impronta della
+    // configurazione CORRENTE, e su «non valido» l'artefatto in figura viene
+    // da un'altra. Un'impronta che non ha prodotto l'immagine non si scrive.
+    impronta: voce?.stato === "valido" ? voce.impronta : undefined,
+    conteggi: document.getElementById("conteggi").textContent,
+    didascalia,
+    data: new Date().toLocaleDateString("it"),
+  });
+  const cattura = vista.cattura();
+  let dati;
+  try {
+    dati = await immagineConProvenienza(cattura, righe);
+  } catch (errore) {
+    dichiaraErrore(`l'immagine non si è potuta comporre: ${errore.message}`);
+    return;
+  }
   const collegamento = document.createElement("a");
-  collegamento.href = vista.cattura();
-  collegamento.download = nomeDellImmagine(
-    document.getElementById("corsa").textContent,
-    stepScelto,
-    // La chiave non si stampa mai, si stampa la sua etichetta -- e dove
-    // l'etichetta non c'e' resta il numero, non «undefined».
-    ETICHETTE[voce?.chiave] ?? `step ${stepScelto}`,
-    didascaliaDellaVista().textContent,
-  );
-  // Nell'albero durante il clic: Firefox ignora in silenzio un <a download>
-  // staccato. Tolto subito dopo, perche' un salvataggio non lascia residui
-  // nella pagina.
+  collegamento.href = dati;
+  collegamento.download = nomeDellImmagine(corsa, mostrato, nome, didascalia);
   document.body.append(collegamento);
   collegamento.click();
   collegamento.remove();
