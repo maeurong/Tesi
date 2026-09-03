@@ -9,7 +9,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from meshrec.app import storico
+from meshrec.core import pipeline, steps
 
 
 def test_indietro_rimette_il_testo_di_prima_byte_per_byte(tmp_path: Path):
@@ -262,3 +265,216 @@ def test_la_coda_si_chiede_prima_di_depositare(tmp_path: Path):
     storico.indietro(tmp_path)
     # Adesso «due» sta oltre il cursore, e un deposito la cancellerebbe.
     assert storico.coda_oltre_il_cursore(tmp_path) is True
+
+
+def _scambio(da=2, a=2, sposta=("02_segmented.ply",), copia=("steps.json",)):
+    return {"da": da, "a": a, "sposta": list(sposta), "copia": list(copia)}
+
+
+def test_depositare_un_esecuzione_sposta_gli_artefatti_e_copia_lo_stato(tmp_path: Path):
+    """Spostare e non copiare: un rename sullo stesso filesystem costa zero byte
+    anche per un artefatto da cento megabyte. Lo stato invece si copia, perche'
+    la ripresa lo rilegge per aggiungere la voce nuova: spostato via, gli step
+    a monte risulterebbero «mai eseguito» a esecuzione finita."""
+    (tmp_path / "02_segmented.ply").write_bytes(b"mesh")
+    (tmp_path / "steps.json").write_text("{}", encoding="utf-8")
+    storico.deposita(tmp_path, "uno\n", "avvio", [])
+    numero = storico.deposita(tmp_path, "uno\n", "POST /api/step/2", [], scambio=_scambio())
+    cartella = tmp_path / storico.CARTELLA / f"{numero:04d}"
+    assert not (tmp_path / "02_segmented.ply").exists(), "l'artefatto non e' stato spostato"
+    assert (cartella / "02_segmented.ply").read_bytes() == b"mesh"
+    assert (tmp_path / "steps.json").exists(), "lo stato doveva restare nella corsa"
+    assert (cartella / "steps.json").read_text(encoding="utf-8") == "{}"
+    dichiarato = json.loads((cartella / storico.SCAMBIO).read_text(encoding="utf-8"))
+    assert dichiarato == {"da": 2, "a": 2, "file": ["02_segmented.ply", "steps.json"]}
+
+
+def test_un_artefatto_assente_non_ferma_il_deposito(tmp_path: Path):
+    """Uno step mai eseguito non ha artefatto: e' il caso normale della prima
+    esecuzione, non un guasto."""
+    storico.deposita(tmp_path, "uno\n", "avvio", [])
+    numero = storico.deposita(tmp_path, "uno\n", "POST /api/step/2", [], scambio=_scambio())
+    assert (tmp_path / storico.CARTELLA / f"{numero:04d}" / storico.SCAMBIO).exists()
+
+
+def test_lo_scambio_e_la_propria_inversa(tmp_path: Path):
+    """Indietro e avanti sono la stessa operazione: dopo due scambi ogni file e'
+    dove stava. Tre casi in un colpo: presente da entrambe le parti, solo nella
+    corsa, solo nella cartella."""
+    (tmp_path / "02_segmented.ply").write_bytes(b"prima")
+    (tmp_path / "steps.json").write_text("prima", encoding="utf-8")
+    storico.deposita(tmp_path, "uno\n", "avvio", [])
+    numero = storico.deposita(
+        tmp_path, "uno\n", "POST /api/step/2", [],
+        scambio=_scambio(sposta=("02_segmented.ply", "metrics.partial.json"), copia=("steps.json",)),
+    )
+    # L'esecuzione scrive la corsa nuova; il parziale esiste solo dopo.
+    (tmp_path / "02_segmented.ply").write_bytes(b"dopo")
+    (tmp_path / "steps.json").write_text("dopo", encoding="utf-8")
+    (tmp_path / "metrics.partial.json").write_text("parziale", encoding="utf-8")
+
+    assert storico.scambia(tmp_path, numero) == {"da": 2, "a": 2}
+    assert (tmp_path / "02_segmented.ply").read_bytes() == b"prima"
+    assert (tmp_path / "steps.json").read_text(encoding="utf-8") == "prima"
+    assert not (tmp_path / "metrics.partial.json").exists()
+    cartella = tmp_path / storico.CARTELLA / f"{numero:04d}"
+    assert (cartella / "02_segmented.ply").read_bytes() == b"dopo"
+    assert (cartella / "metrics.partial.json").read_text(encoding="utf-8") == "parziale"
+
+    assert storico.scambia(tmp_path, numero) == {"da": 2, "a": 2}
+    assert (tmp_path / "02_segmented.ply").read_bytes() == b"dopo"
+    assert (tmp_path / "steps.json").read_text(encoding="utf-8") == "dopo"
+    assert (tmp_path / "metrics.partial.json").read_text(encoding="utf-8") == "parziale"
+    assert not (cartella / "metrics.partial.json").exists()
+
+
+def test_una_versione_di_configurazione_non_scambia_niente(tmp_path: Path):
+    (tmp_path / "02_segmented.ply").write_bytes(b"resta")
+    storico.deposita(tmp_path, "uno\n", "avvio", [])
+    numero = storico.deposita(tmp_path, "due\n", "PUT /api/config", ["a"])
+    assert storico.scambia(tmp_path, numero) is None
+    assert (tmp_path / "02_segmented.ply").read_bytes() == b"resta"
+
+
+def test_la_troncatura_e_il_tetto_cancellano_anche_le_cartelle(tmp_path: Path, monkeypatch):
+    """Le cartelle oltre il cursore portano gli artefatti del futuro scartato:
+    tenerle sarebbe disco occupato da cio' che nessun comando puo' piu'
+    raggiungere. Il tetto pota le piu' vecchie con la stessa regola."""
+    storico.deposita(tmp_path, "uno\n", "avvio", [])
+    (tmp_path / "02_segmented.ply").write_bytes(b"x")
+    seconda = storico.deposita(tmp_path, "uno\n", "POST /api/step/2", [], scambio=_scambio())
+    (tmp_path / "02_segmented.ply").write_bytes(b"y")
+    terza = storico.deposita(tmp_path, "uno\n", "POST /api/step/2", [], scambio=_scambio())
+    storico.indietro(tmp_path)
+    storico.indietro(tmp_path)
+    storico.deposita(tmp_path, "tre\n", "PUT /api/config", ["a"])
+    assert not (tmp_path / storico.CARTELLA / f"{seconda:04d}").exists()
+    assert not (tmp_path / storico.CARTELLA / f"{terza:04d}").exists()
+
+    monkeypatch.setattr(storico, "TETTO", 2)
+    (tmp_path / "02_segmented.ply").write_bytes(b"z")
+    storico.deposita(tmp_path, "tre\n", "POST /api/step/2", [], scambio=_scambio())
+    storico.deposita(tmp_path, "quattro\n", "PUT /api/config", ["b"])
+    superstiti = sorted(p.name for p in (tmp_path / storico.CARTELLA).iterdir())
+    assert not any(nome == "0001.yaml" for nome in superstiti)
+    assert not any(nome.isdigit() and int(nome) < storico.cursore(tmp_path) - 1 for nome in superstiti)
+
+
+def test_il_cursore_e_pubblico(tmp_path: Path):
+    assert storico.cursore(tmp_path) == 0
+    storico.deposita(tmp_path, "uno\n", "avvio", [])
+    assert storico.cursore(tmp_path) == 1
+
+
+def test_l_elenco_del_solo_prior_non_porta_via_il_deck():
+    """Lo step 12 non riscrive il deck dello step 11: portarlo via lo farebbe
+    sparire dalla corsa mentre steps.json continua a dire «11_export riuscito»,
+    cioe' proprio lo stato che lo scambio esiste per non produrre."""
+    assert storico.elenco_di_scambio(12, 12)["sposta"] == [
+        pipeline.WALL_FILENAME,
+        pipeline.METRICS_PARTIAL,
+    ]
+    undici = storico.elenco_di_scambio(11, 11)["sposta"]
+    assert pipeline.DECK_FILENAME in undici and pipeline.WALL_VTU_FILENAME in undici
+    assert pipeline.WALL_FILENAME not in undici
+    intera = storico.elenco_di_scambio(1, 12)
+    assert intera["copia"] == [pipeline.METRICS_FILENAME, steps.STATE_FILENAME]
+    assert intera["sposta"][0] == pipeline.ARTIFACTS[1]
+
+
+def test_un_deposito_interrotto_a_meta_rimette_la_corsa_com_era(tmp_path: Path, monkeypatch):
+    """Un disco pieno sulla copia lascia la versione nuova a meta': gli artefatti
+    gia' spostati stanno nella cartella e il cursore e' ancora indietro. La
+    `deposita` successiva tronca quella versione con rmtree, e quegli artefatti
+    spariscono da tutte e due le parti -- e' il solo modo in cui questa
+    superficie puo' distruggere un risultato invece di conservarlo. Rimessa la
+    corsa com'era, resta solo l'eccezione da riportare a chi ha chiesto."""
+    (tmp_path / "02_segmented.ply").write_bytes(b"mesh")
+    stato = '{"01_load": {"esito": "riuscito"}}'
+    (tmp_path / "steps.json").write_text(stato, encoding="utf-8")
+    storico.deposita(tmp_path, "uno\n", "avvio", [])
+    prima = storico.cursore(tmp_path)
+
+    def esplode(sorgente, destinazione):
+        # Un disco pieno non fallisce prima di scrivere: lascia un troncone.
+        Path(destinazione).write_bytes(Path(sorgente).read_bytes()[:6])
+        raise OSError("disco pieno")
+
+    monkeypatch.setattr(storico.shutil, "copy2", esplode)
+    with pytest.raises(OSError):
+        storico.deposita(tmp_path, "due\n", "POST /api/step/2", [], scambio=_scambio())
+
+    assert (tmp_path / "02_segmented.ply").read_bytes() == b"mesh"
+    assert (tmp_path / "steps.json").read_text(encoding="utf-8") == stato
+    assert not (tmp_path / storico.CARTELLA / f"{prima + 1:04d}").exists()
+    assert not (tmp_path / storico.CARTELLA / f"{prima + 1:04d}.yaml").exists()
+    assert storico.cursore(tmp_path) == prima
+
+
+def test_lo_scambio_non_tocca_i_file_fuori_dalla_corsa(tmp_path: Path):
+    """`scambio.json` e' scritto dal server da una lista chiusa, ma sta su disco
+    dentro la cartella della corsa: un nome messo a mano non deve poter
+    raggiungere niente che stia fuori."""
+    corsa = tmp_path / "corsa"
+    corsa.mkdir()
+    (corsa / "02_segmented.ply").write_bytes(b"nella corsa")
+    (tmp_path / "fuori.txt").write_bytes(b"fuori")
+    cartella = corsa / storico.CARTELLA / "0001"
+    cartella.mkdir(parents=True)
+    (cartella / "02_segmented.ply").write_bytes(b"nella cartella")
+    (cartella / storico.SCAMBIO).write_text(
+        json.dumps({
+            "da": 2,
+            "a": 2,
+            "file": [
+                "../fuori.txt",
+                str(tmp_path / "fuori.txt"),
+                "..\\fuori.txt",
+                ".storico",
+                "02_segmented.ply",
+            ],
+        }),
+        encoding="utf-8",
+    )
+
+    assert storico.scambia(corsa, 1) == {"da": 2, "a": 2}
+    assert (tmp_path / "fuori.txt").read_bytes() == b"fuori"
+    assert list(tmp_path.glob("*.scambio")) == []
+    assert (corsa / "02_segmented.ply").read_bytes() == b"nella cartella"
+
+
+def test_una_dichiarazione_troncata_solleva_senza_muovere_niente(tmp_path: Path):
+    """Un `scambio.json` scritto a meta' -- il processo ucciso durante la
+    scrittura, o una manina dentro `.storico` -- non deve diventare uno scambio
+    parziale: senza sapere quali file governa, muoverne uno solo lascerebbe la
+    corsa con artefatti di due esecuzioni diverse."""
+    (tmp_path / "02_segmented.ply").write_bytes(b"nella corsa")
+    cartella = tmp_path / storico.CARTELLA / "0001"
+    cartella.mkdir(parents=True)
+    (cartella / "02_segmented.ply").write_bytes(b"nella cartella")
+    (cartella / storico.SCAMBIO).write_text('{"da": 2, "a": 2, "file": [', encoding="utf-8")
+
+    with pytest.raises(ValueError):
+        storico.scambia(tmp_path, 1)
+    assert (tmp_path / "02_segmented.ply").read_bytes() == b"nella corsa"
+    assert (cartella / "02_segmented.ply").read_bytes() == b"nella cartella"
+
+
+def test_lo_scambio_salta_i_nomi_che_non_stanno_da_nessuna_delle_due_parti(tmp_path: Path):
+    """Un nome assente non e' un guasto: e' uno step mai eseguito, cioe' la
+    prima esecuzione. L'elenco si dichiara per intero prima di muovere i file,
+    quindi porta anche nomi che nessuna delle due parti ha mai avuto."""
+    (tmp_path / "02_segmented.ply").write_bytes(b"nella corsa")
+    cartella = tmp_path / storico.CARTELLA / "0001"
+    cartella.mkdir(parents=True)
+    (cartella / "02_segmented.ply").write_bytes(b"nella cartella")
+    (cartella / storico.SCAMBIO).write_text(
+        json.dumps({"da": 2, "a": 5, "file": ["05_mesh.ply", "02_segmented.ply"]}),
+        encoding="utf-8",
+    )
+
+    assert storico.scambia(tmp_path, 1) == {"da": 2, "a": 5}
+    assert (tmp_path / "02_segmented.ply").read_bytes() == b"nella cartella"
+    assert (cartella / "02_segmented.ply").read_bytes() == b"nella corsa"
+    assert not (tmp_path / "05_mesh.ply").exists()
+    assert not (cartella / "05_mesh.ply").exists()

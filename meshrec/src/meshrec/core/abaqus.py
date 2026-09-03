@@ -496,7 +496,7 @@ def write_inp(
     if elements.ndim != 2:
         raise ValueError(
             f"gli elementi devono avere due dimensioni (elementi × nodi per "
-            f"elemento), ne sono arrivate {elements.ndim}: non e' un maglio"
+            f"elemento), ne sono arrivate {elements.ndim}: non è un maglio"
         )
     attesi = NODI_PER_ELEMENTO[element_type]
     if elements.shape[1] != attesi:

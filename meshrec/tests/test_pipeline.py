@@ -119,6 +119,41 @@ def test_the_run_directory_holds_config_metrics_and_the_deck(run_dir):
     assert config.load_config(out / "config.yaml").tet.min_ratio == pytest.approx(1.2)
 
 
+def test_ogni_step_che_scrive_una_superficie_dice_se_e_chiusa(run_dir):
+    """Il pannello del modello descrive il fronte, e il fronte puo' fermarsi al
+    5: senza queste chiavi un fronte al 5 non saprebbe dire «aperta». Le chiavi
+    proprie dello step non si toccano: `watertight_after` del 6 resta."""
+    _out, metrics = run_dir
+    for chiave in ("05_reconstruct", "06_repair", "08_simplify"):
+        for misura in (
+            "vertices",
+            "triangles",
+            "watertight",
+            "boundary_edges",
+            "area",
+            "volume",
+            "aspect_ratio",
+        ):
+            assert misura in metrics[chiave], f"{chiave} non porta {misura}"
+    assert metrics["06_repair"]["watertight_after"] == metrics["06_repair"]["watertight"]
+
+
+def test_le_misure_della_superficie_rispettano_lo_step_e_le_facce_vuote():
+    """Lo step vince sulle misure aggiunte, e zero facce non si misurano:
+    `surface_metrics` su zero facce non solleva, produce misure prive di
+    senso (area 0, «chiusa» vera per assenza di spigoli) che finirebbero in
+    `metrics.json` come fatti. La guardia lascia le metriche dello step
+    com'erano."""
+    vertici = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+    facce = np.array([[0, 1, 2]])
+    unite = pipeline._con_le_misure_della_superficie({"vertices": 99, "watertight_after": True}, vertici, facce)
+    assert unite["vertices"] == 99, "la chiave dello step deve vincere"
+    assert unite["watertight"] is False and unite["boundary_edges"] == 3
+    assert unite["watertight_after"] is True
+    vuote = pipeline._con_le_misure_della_superficie({"triangles": 0}, vertici, np.zeros((0, 3), dtype=int))
+    assert vuote == {"triangles": 0}
+
+
 def test_the_surface_is_closed(run_dir):
     _, metrics = run_dir
     assert metrics["06_repair"]["watertight_after"] is True

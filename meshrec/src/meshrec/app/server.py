@@ -40,7 +40,6 @@ from meshrec.core import (
     materiali,
     pipeline,
     quality,
-    report,
     segment,
     steps,
     sweep,
@@ -731,7 +730,6 @@ class CorsaScelta(BaseModel):
 def create_app(
     config_path: Path | None = None,
     radice_corse: Path = Path("runs"),
-    radice_esperimenti: Path = Path("experiments"),
 ) -> FastAPI:
     """Applicazione legata a un file di configurazione, che e' la corsa corrente.
 
@@ -742,17 +740,12 @@ def create_app(
     (la forma vecchia, `serve config.yaml`) trova l'applicazione legata
     all'avvio, come e' sempre stato.
 
-    `radice_corse` e' la cartella dove le corse nascono e dove vengono cercate;
-    `radice_esperimenti` quella dei registri di sweep della galleria. Relative
-    come `run.out_dir` e `CACHE_DIR`: risolte rispetto alla cartella da cui gira
-    il server, non rispetto al file di configurazione. La galleria le cercava
-    accanto al config, e bastava aprire una configurazione che non stesse alla
-    radice del progetto -- oggi ogni corsa nuova, che vive in
-    `runs/<nome>/config.yaml` -- perche' sparisse senza dire perche'.
+    `radice_corse` e' la cartella dove le corse nascono e dove vengono cercate,
+    relativa come `run.out_dir` e `CACHE_DIR`: risolta rispetto alla cartella
+    da cui gira il server, non rispetto al file di configurazione.
     """
     config_path = Path(config_path) if config_path is not None else None
     radice_corse = Path(radice_corse)
-    radice_esperimenti = Path(radice_esperimenti)
     app = FastAPI(title="MeshRec", docs_url=None, redoc_url=None)
 
     def corrente() -> PipelineConfig:
@@ -1199,7 +1192,7 @@ def create_app(
         storico.deposita(out_dir, attuale, "modifica fuori dall'interfaccia", [])
         return coda
 
-    def _ripristina(testo: str | None, vuoto: str, rimetti) -> dict[str, object]:
+    def _ripristina(testo: str | None, vuoto: str, rimetti, versione: int) -> dict[str, object]:
         """`rimetti` riporta il cursore dove stava: indietro e avanti lo hanno
         gia' spostato quando questa funzione riceve il testo, e ogni rifiuto da
         qui in giu' deve annullare anche quello spostamento.
@@ -1274,15 +1267,23 @@ def create_app(
             rimetti()
             raise
         cfg_dopo = corrente()
-        # Gli artefatti restano sul disco: la catena di impronte li marca «non
-        # valido» da se', e questa superficie eredita quel meccanismo invece di
-        # duplicarlo. Ma dirlo e' obbligatorio -- un ritorno indietro che cambia
-        # in silenzio lo stato di sette step e' una modifica invisibile -- e lo
-        # dice `steps`, che porta lo stato nuovo per intero.
-        return {"annullato": True, "steps": steps.run_state(cfg_dopo.run.out_dir, cfg_dopo)}
+        # Se la versione era un'esecuzione, i suoi artefatti tornano con lo
+        # scambio; per una configurazione restano, e la catena di impronte li
+        # marca da se'. Ma dirlo e' obbligatorio -- un ritorno indietro che
+        # cambia in silenzio lo stato di sette step e' una modifica invisibile
+        # -- e lo dice `steps`, che porta lo stato nuovo per intero.
+        esecuzione = storico.scambia(Path(cfg_dopo.run.out_dir), versione)
+        risposta: dict[str, object] = {
+            "annullato": True,
+            "tipo": "esecuzione" if esecuzione else "configurazione",
+            "steps": steps.run_state(cfg_dopo.run.out_dir, cfg_dopo),
+        }
+        if esecuzione:
+            risposta.update(esecuzione)
+        return risposta
 
-    @app.post("/api/storico/indietro")
-    def storico_indietro() -> dict[str, object]:
+    @app.post("/api/storico/indietro", response_model=None)
+    def storico_indietro() -> dict[str, object] | JSONResponse:
         """Rimette la versione precedente della configurazione.
 
         Non tace mai: a storico vuoto risponde col proprio «perche'», perche' un
@@ -1299,18 +1300,27 @@ def create_app(
         """
         with _LUCCHETTO_STORICO:
             non_in_sola_lettura("annullare una modifica")
+            if (rifiuto := _in_corso()) is not None:
+                return rifiuto
             out_dir = Path(corrente().run.out_dir)
             _deposita_le_modifiche_fatte_a_mano(out_dir)
+            # Il numero PRIMA di muovere il cursore: e' la versione che
+            # «indietro» toglie, e la sola che puo' avere una cartella da
+            # scambiare.
+            da_togliere = storico.cursore(out_dir)
             return _ripristina(
                 storico.indietro(out_dir),
                 "niente da annullare",
                 lambda: storico.avanti(out_dir),
+                versione=da_togliere,
             )
 
-    @app.post("/api/storico/avanti")
-    def storico_avanti() -> dict[str, object]:
+    @app.post("/api/storico/avanti", response_model=None)
+    def storico_avanti() -> dict[str, object] | JSONResponse:
         with _LUCCHETTO_STORICO:
             non_in_sola_lettura("rifare una modifica")
+            if (rifiuto := _in_corso()) is not None:
+                return rifiuto
             out_dir = Path(corrente().run.out_dir)
             coda_tolta = _deposita_le_modifiche_fatte_a_mano(out_dir)
             # Solo «avanti» ha bisogno di distinguere: dopo un deposito
@@ -1326,10 +1336,13 @@ def create_app(
                 if coda_tolta
                 else "niente da rifare"
             )
+            testo = storico.avanti(out_dir)
+            # Il numero DOPO: «avanti» rimette la versione su cui e' arrivato.
             return _ripristina(
-                storico.avanti(out_dir),
+                testo,
                 vuoto,
                 lambda: storico.indietro(out_dir),
+                versione=storico.cursore(out_dir),
             )
 
     @app.get("/api/metrics")
@@ -1518,53 +1531,69 @@ def create_app(
         # testo. default=str li rende senza inventarne il valore.
         return json.loads(json.dumps(fuori, default=str))
 
-    @app.get("/api/experiments")
-    def esperimenti() -> dict[str, object]:
-        """Nomi degli esperimenti della Fase 2. Sola lettura: mai una scrittura.
-
-        Una sottocartella di experiments/ senza registro.jsonl non e' un
-        esperimento concluso, e resta fuori dall'elenco.
-        """
-        radice = radice_esperimenti
-        if not radice.is_dir():
-            return {"esperimenti": []}
-        return {
-            "esperimenti": sorted(
-                voce.name for voce in radice.iterdir()
-                if (voce / "registro.jsonl").exists()
-            )
-        }
-
-    @app.get("/api/experiments/{nome}")
-    def esperimento(nome: str) -> dict[str, object]:
-        """Le righe del registro di un esperimento, per la galleria di curazione.
-
-        Le colonne e la formattazione di ogni cella sono quelle di
-        report._COLUMNS e report._cell: riusate, non riscelte. Sono le stesse
-        che finiscono nell'appendice della tesi (report.write_report), e due
-        elenchi di colonne che divergono sono precisamente il difetto che
-        questo ramo ha gia' inseguito per giorni.
-        """
-        radice = radice_esperimenti.resolve()
-        percorso = (radice / nome / "registro.jsonl").resolve()
-        if not percorso.is_relative_to(radice) or not percorso.exists():
-            raise FileNotFoundError(f"nessun registro per l'esperimento {nome}")
-        righe = sweep.load_registry(percorso)
-        return {
-            "nome": nome,
-            "righe": righe,
-            "fronte": sum(1 for riga in righe if riga.get("on_front")),
-            "colonne": [
-                {"chiave": chiave, "etichetta": etichetta}
-                for chiave, etichetta in report._COLUMNS
-            ],
-            "celle": [
-                [report._cell(riga, chiave) for chiave, _ in report._COLUMNS]
-                for riga in righe
-            ],
-        }
-
     lavoratore = Worker()
+
+    def _avvia(da: int, a: int, endpoint: str) -> dict[str, object]:
+        """Deposita, poi avvia. In quest'ordine e sotto lo stesso lucchetto
+        dello storico: un'esecuzione senza deposito non si puo' annullare, e
+        un deposito che solleva lascia il worker fermo con il motivo in
+        risposta."""
+        # Senza questa riga, a legame vuoto il Worker lanciava
+        # `python -m meshrec.cli run None` e restava occupato: un 200 che non
+        # eseguiva niente e bloccava anche la richiesta successiva.
+        corrente()
+        # La guardia sta PRIMA del deposito: `steps.dimentica(range(0, 1))`
+        # farebbe `STEP_KEYS[-1]` e toglierebbe in silenzio la voce del prior,
+        # e 13 solleverebbe `IndexError` a versione gia' depositata.
+        # Prima del dominio: `/api/step/12/from` chiede il 12 e riceve il tetto
+        # a 11, cioe' `a < da`. Il messaggio del dominio direbbe «chiesto 12,
+        # fino a 11» a chi ha appena chiesto uno step che esiste, e mentirebbe
+        # due volte: sul perche' del rifiuto e su cio' che resta possibile.
+        if 1 <= da <= 12 and a < da:
+            raise ValueError(
+                "«da qui in giù» arriva al deck (step 11): per il prior usa "
+                "`meshrec wall` oppure lo step 12 da solo"
+            )
+        if not (1 <= da <= a <= 12):
+            raise ValueError(
+                f"lo step va scelto fra 1 e 12 (chiesto {da}"
+                + (f", fino a {a}" if a != da else "")
+                + ")"
+            )
+        non_in_sola_lettura(
+            f"eseguire lo step {da}" if da == a else f"eseguire dallo step {da} in giù"
+        )
+        with _LUCCHETTO_STORICO:
+            if lavoratore.is_running():
+                raise RuntimeError(
+                    "uno step sta già girando: annullalo prima di avviarne un altro"
+                )
+            out_dir = Path(corrente().run.out_dir)
+            if not storico.esiste(out_dir):
+                storico.deposita(out_dir, config_path.read_text(encoding="utf-8"), "avvio", [])
+            _deposita_le_modifiche_fatte_a_mano(out_dir)
+            storico.deposita(
+                out_dir,
+                config_path.read_text(encoding="utf-8"),
+                endpoint,
+                [],
+                scambio=storico.elenco_di_scambio(da, a),
+            )
+            steps.dimentica(out_dir, range(da, a + 1))
+            steps.dimentica(out_dir, range(da, a + 1), nome=pipeline.METRICS_FILENAME)
+            lavoratore.start(config_path, da, a)
+        return {"avviato": da, "fino_a": a}
+
+    def _in_corso() -> JSONResponse | None:
+        if not lavoratore.is_running():
+            return None
+        return JSONResponse(
+            status_code=409,
+            content={
+                "errore": "InCorso",
+                "messaggio": "uno step sta girando: aspetta la fine, oppure interrompi il calcolo",
+            },
+        )
 
     # Le mappe dell'ultima decimazione servita, per step. Il ritaglio e la
     # selezione le rileggono: senza, agirebbero su indici che non esistono.
@@ -1572,32 +1601,15 @@ def create_app(
 
     @app.post("/api/step/{numero}")
     def esegui_step(numero: int) -> dict[str, object]:
-        # Senza queste due righe, a legame vuoto il Worker lanciava
-        # `python -m meshrec.cli run None` e restava occupato: un 200 che non
-        # eseguiva niente e bloccava anche la richiesta successiva.
-        corrente()
-        non_in_sola_lettura(f"eseguire lo step {numero}")
-        lavoratore.start(config_path, numero, numero)
-        return {"avviato": numero, "fino_a": numero}
+        return _avvia(numero, numero, f"POST /api/step/{numero}")
 
     @app.post("/api/step/{numero}/from")
     def esegui_da(numero: int) -> dict[str, object]:
-        # 12 e non 11 dalla Fase 4: lo step 12 e' il prior geometrico. Il
-        # tetto qui e' una scelta dell'interfaccia e non un'eredita' dal
-        # predefinito di RunConfig.to_step, che dal perimetro del prodotto vale
-        # 11: "riprendi da qui" nel pannello non deve far partire un processo
-        # esterno da solo, per lo stesso motivo per cui sweep.run_candidate
-        # chiede il proprio tetto esplicito. E resta 12 anche ora che il
-        # predefinito e' 11 e che l'interfaccia non mostra la riga del prior
-        # (il filtro di `disegnaStep` in app.js): quel filtro e' del client, e
-        # questo tetto e' del server, che non ha modo di sapere come e' messo.
-        # Farli inseguire l'uno l'altro accoppierebbe una decisione di
-        # presentazione a una di esecuzione; il prior calcolato e non mostrato
-        # e' un file in piu' sul disco, non un difetto.
-        corrente()
-        non_in_sola_lettura(f"eseguire dallo step {numero} in giù")
-        lavoratore.start(config_path, numero, 12)
-        return {"avviato": numero, "fino_a": 12}
+        # 11, il deck: e' dove si chiude il perimetro del prodotto
+        # (PRODUCT.md) e dove finisce una corsa da riga di comando. Il prior
+        # (12) resta raggiungibile con `meshrec wall` e con
+        # `POST /api/step/12`, ma non parte da un bottone che non lo nomina.
+        return _avvia(numero, 11, f"POST /api/step/{numero}/from")
 
     @app.post("/api/cancel")
     def annulla() -> dict[str, object]:
@@ -1913,6 +1925,7 @@ def create_app(
         def flusso():
             inviate = 0
             emesse = 0
+            avvio_visto = None
             while True:
                 # Nessuna corsa aperta non e' un errore qui, ed e' lo stato in
                 # cui la schermata d'ingresso vive: il browser apre
@@ -1935,7 +1948,27 @@ def create_app(
                 }
                 yield f"event: stato\ndata: {json.dumps(stato, default=str)}\n\n"
                 emesse += 1
+                # `avvii` (worker.py) e' l'identita' della corsa, letto PRIMA
+                # di righe(): due corse ravvicinate nello stesso poll possono
+                # lasciare la corsa nuova con lo stesso numero di righe della
+                # vecchia (o di piu'), e la sola guardia sul conteggio non se
+                # ne accorgeva -- la prima riga della corsa nuova cadeva nel
+                # taglio, proprio quella che il pannello dell'esito legge
+                # quando la corsa fallisce subito. Se una corsa parte fra
+                # queste due letture, righe() e' gia' quella nuova (svuotata
+                # e ripopolata) e questo giro puo' rimandare righe gia' viste;
+                # il giro dopo `avvii` risulta cambiato e il taglio riparte da
+                # zero. Ripetute sono accettabili, perse no.
+                avvio_ora = lavoratore.avvii
                 righe = lavoratore.righe()
+                if avvio_ora != avvio_visto:
+                    avvio_visto = avvio_ora
+                    inviate = 0
+                elif len(righe) < inviate:
+                    # Cintura: l'identita' e' quella vera; questo resta come
+                    # rete di sicurezza se `avvii` non si muove per un caso
+                    # non previsto.
+                    inviate = 0
                 for riga in righe[inviate:]:
                     yield f"event: riga\ndata: {json.dumps(riga)}\n\n"
                 inviate = len(righe)

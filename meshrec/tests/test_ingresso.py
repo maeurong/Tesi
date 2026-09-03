@@ -45,7 +45,6 @@ def slegato(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
         create_app(
             None,
             radice_corse=tmp_path / "runs",
-            radice_esperimenti=tmp_path / "experiments",
         ),
         base_url=BASE_LOCALE,
         raise_server_exceptions=False,
@@ -199,23 +198,6 @@ def test_con_una_configurazione_all_avvio_lo_stato_e_gia_legato(tmp_path, monkey
     cliente = TestClient(create_app(tmp_path / "config.yaml"), base_url=BASE_LOCALE, raise_server_exceptions=False)
 
     assert cliente.get("/api/run").json()["legata"] is True
-
-
-def test_la_galleria_non_dipende_da_dove_sta_il_config(slegato, nuvola, tmp_path):
-    """La galleria cercava `experiments/` accanto al file di configurazione.
-
-    Ogni corsa creata dall'ingresso vive in `runs/<nome>/config.yaml`, quindi
-    quella regola l'avrebbe fatta cercare in `runs/<nome>/experiments/` e
-    l'avrebbe lasciata vuota per sempre, senza dire perche'. La radice degli
-    esperimenti e' del progetto, non della corsa.
-    """
-    registro = tmp_path / "experiments" / "prova" / "registro.jsonl"
-    registro.parent.mkdir(parents=True)
-    registro.write_text('{"fingerprint": "aa", "on_front": true}\n', encoding="utf-8")
-    slegato.post("/api/corse", json={"nome": "provino", "nuvola": str(nuvola)})
-
-    assert slegato.get("/api/experiments").json()["esperimenti"] == ["prova"]
-    assert slegato.get("/api/experiments/prova").json()["fronte"] == 1
 
 
 @pytest.mark.parametrize("nome", ["127.0.0.1", "localhost", "127.0.0.1:8765"])

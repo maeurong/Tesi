@@ -224,3 +224,47 @@ def test_lo_step_12_e_l_ultimo_e_non_entra_nella_completezza_di_uno_sweep():
     """
     assert steps.STEP_KEYS[-1] == "12_wall"
     assert "12_wall" not in sweep.REQUIRED_STEPS
+
+
+def test_dimentica_toglie_solo_le_voci_chieste(tmp_path):
+    """Uno step che sta per essere rieseguito e' davvero «mai eseguito» finche'
+    il worker non lo riscrive; gli altri restano com'erano."""
+    steps.write_state(tmp_path, 1, "a", "riuscito", "01_cloud.ply", 1.0)
+    steps.write_state(tmp_path, 2, "b", "riuscito", "02_segmented.ply", 1.0)
+    steps.write_state(tmp_path, 3, "c", "riuscito", "03_downsampled.ply", 1.0)
+    steps.dimentica(tmp_path, range(2, 4))
+    assert set(steps.read_state(tmp_path)) == {"01_load"}
+
+
+def test_dimentica_senza_stato_non_crea_il_file(tmp_path):
+    steps.dimentica(tmp_path, [1])
+    assert not (tmp_path / steps.STATE_FILENAME).exists()
+
+
+def test_dimentica_vale_anche_per_le_metriche(tmp_path):
+    """Le metriche portano le stesse chiavi dello stato, e uno step che sta per
+    essere rieseguito non deve lasciare in giro la misura di prima."""
+    (tmp_path / "metrics.json").write_text(
+        json.dumps({"01_load": {"punti": 1}, "02_segment": {"punti": 2}}), encoding="utf-8"
+    )
+    steps.dimentica(tmp_path, [2], nome="metrics.json")
+    assert json.loads((tmp_path / "metrics.json").read_text(encoding="utf-8")) == {
+        "01_load": {"punti": 1}
+    }
+
+
+def test_dimentica_non_riscrive_un_file_illeggibile(tmp_path):
+    (tmp_path / "metrics.json").write_bytes(b"{tronc")
+    steps.dimentica(tmp_path, [2], nome="metrics.json")
+    assert (tmp_path / "metrics.json").read_bytes() == b"{tronc"
+
+
+def test_dimentica_ignora_i_numeri_fuori_dai_dodici_step(tmp_path):
+    """`STEP_KEYS[numero - 1]` su uno zero prende l'ULTIMA chiave e toglierebbe
+    in silenzio la voce del prior; su un tredici solleva `IndexError`. La
+    guardia degli endpoint sta a monte, ma questa e' una funzione pubblica del
+    nucleo e un numero fuori dominio non e' un motivo per perdere uno stato."""
+    steps.write_state(tmp_path, 1, "a", "riuscito", "01_cloud.ply", 1.0)
+    steps.write_state(tmp_path, 12, "z", "riuscito", "12_wall.json", 1.0)
+    steps.dimentica(tmp_path, [0, 13, -1])
+    assert set(steps.read_state(tmp_path)) == {"01_load", "12_wall"}

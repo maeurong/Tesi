@@ -31,7 +31,92 @@ const ETICHETTE = {
 // I due versi si dicono per esteso e non con una freccia: la stessa frase che
 // la didascalia dello scarto porta sotto la vista, cosi' il pannello e
 // l'immagine nominano la stessa grandezza allo stesso modo.
+// Undici step e non dodici: il prior geometrico (`12_wall`) non ha pannello --
+// `disegnaStep` lo filtra e PRODUCT.md dichiara che sta fuori dall'interfaccia
+// -- quindi una tabella per lui sarebbe etichette per righe che nessuno mostra.
 const ETICHETTE_METRICHE = {
+  "01_load": {
+    "points_read": "punti letti",
+    "points_kept": "punti tenuti",
+    "points_dropped": "punti scartati (non finiti)",
+    "spacing": "spaziatura media [mm]",
+    "extent": "ingombro [mm]",
+    "bbox_min": "angolo minimo [mm]",
+    "bbox_max": "angolo massimo [mm]",
+    "scale": "fattore di scala",
+    "size_check": "controllo dell'ingombro atteso",
+  },
+  "02_segment": {
+    "points_before": "punti in ingresso",
+    "points_after": "punti tenuti",
+    "outliers_removed": "punti tolti come rumore",
+    "cropped": "ritagliato",
+    "cropped_points": "punti ritagliati",
+    "cropped_fraction": "frazione ritagliata",
+    "cropped_by_face": "punti ritagliati per faccia",
+    "method": "metodo",
+  },
+  "03_downsample": {
+    "points_before": "punti in ingresso",
+    "points_after": "punti tenuti",
+    "voxel_size": "lato del voxel [mm]",
+    "reduction": "riduzione",
+  },
+  "04_normals": {
+    "knn": "vicini per la normale",
+    "orient_knn": "vicini per l'orientamento",
+    "degenerate_normals": "normali degeneri",
+    "spacing": "spaziatura usata [mm]",
+  },
+  // Il 5, il 6 e l'8 portano anche le misure della superficie dello step 7:
+  // `pipeline._con_le_misure_della_superficie` le aggiunge a ogni step che
+  // scrive una superficie, perche' il pannello del modello sappia dire
+  // «aperta» anche su un fronte che si ferma li'. Le stesse chiavi vogliono le
+  // stesse etichette, ed e' per questo che le cinque righe dell'aspetto sono
+  // ricopiate tali e quali.
+  "05_reconstruct": {
+    "vertices": "vertici",
+    "triangles": "triangoli",
+    "watertight": "superficie chiusa",
+    "boundary_edges": "spigoli di bordo",
+    "area": "area della superficie [mm²]",
+    "volume": "volume racchiuso [mm³]",
+    "method": "metodo",
+    "density_threshold": "soglia di densità",
+    "vertices_trimmed": "vertici potati",
+    "aspect_ratio · min": "rapporto d'aspetto dei triangoli, minimo",
+    "aspect_ratio · median": "rapporto d'aspetto dei triangoli, mediano",
+    "aspect_ratio · mean": "rapporto d'aspetto dei triangoli, medio",
+    "aspect_ratio · max": "rapporto d'aspetto dei triangoli, massimo",
+    "aspect_ratio · non_finite": "triangoli con aspetto non misurabile",
+  },
+  "06_repair": {
+    "vertices": "vertici",
+    "triangles": "triangoli",
+    "watertight": "superficie chiusa",
+    "watertight_after": "chiusa dopo la riparazione",
+    "boundary_edges": "spigoli di bordo",
+    "area": "area della superficie [mm²]",
+    "volume": "volume racchiuso [mm³]",
+    "volume_before": "volume prima [mm³]",
+    "volume_after": "volume dopo [mm³]",
+    "components_before": "componenti prima",
+    "components_kept": "componenti tenute",
+    "holes_before": "fori prima",
+    "holes_over_threshold": "fori oltre la soglia, lasciati aperti",
+    "open_boundary_paths": "bordi aperti",
+    "open_paths_over_threshold": "bordi aperti oltre la soglia",
+    "degenerate_faces_removed": "facce degeneri tolte",
+    "duplicate_faces_removed": "facce duplicate tolte",
+    "duplicate_vertices_merged": "vertici duplicati fusi",
+    "orphan_vertices_removed": "vertici orfani tolti",
+    "orientation_flipped": "orientamento rigirato",
+    "aspect_ratio · min": "rapporto d'aspetto dei triangoli, minimo",
+    "aspect_ratio · median": "rapporto d'aspetto dei triangoli, mediano",
+    "aspect_ratio · mean": "rapporto d'aspetto dei triangoli, medio",
+    "aspect_ratio · max": "rapporto d'aspetto dei triangoli, massimo",
+    "aspect_ratio · non_finite": "triangoli con aspetto non misurabile",
+  },
   "07_surface_quality": {
     "vertices": "vertici",
     "triangles": "triangoli",
@@ -67,6 +152,38 @@ const ETICHETTE_METRICHE = {
     "geometric_error · mesh_to_cloud · diag_mesh_0": "diagonale d'ingombro della superficie [mm]",
     "geometric_error · mesh_to_cloud · diag_mesh_1": "diagonale d'ingombro della nuvola [mm]",
   },
+  "08_simplify": {
+    "enabled": "abilitata",
+    "mode": "modo",
+    "triangles_before": "triangoli prima",
+    "triangles_after": "triangoli dopo",
+    "vertices": "vertici",
+    "triangles": "triangoli",
+    "watertight": "superficie chiusa",
+    "boundary_edges": "spigoli di bordo",
+    "area": "area della superficie [mm²]",
+    "volume": "volume racchiuso [mm³]",
+    "aspect_ratio · min": "rapporto d'aspetto dei triangoli, minimo",
+    "aspect_ratio · median": "rapporto d'aspetto dei triangoli, mediano",
+    "aspect_ratio · mean": "rapporto d'aspetto dei triangoli, medio",
+    "aspect_ratio · max": "rapporto d'aspetto dei triangoli, massimo",
+    "aspect_ratio · non_finite": "triangoli con aspetto non misurabile",
+  },
+  "09_tetrahedralize": {
+    "nodes": "nodi",
+    "tets": "tetraedri",
+    "element": "elemento",
+    "steiner_points": "punti di Steiner inseriti",
+    "max_steiner_points": "punti di Steiner concessi",
+    "steiner_saturated": "punti di Steiner esauriti: mesh troncata",
+    "radius_edge_ratio_p99": "raggio-spigolo, 99º percentile",
+    "radius_edge_ratio_over_limit": "tetraedri oltre il limite raggio-spigolo",
+    "largest_element_volume": "volume dell'elemento più grande [mm³]",
+    "min_ratio": "rapporto minimo chiesto",
+    "max_volume": "volume massimo chiesto [mm³]",
+    "nobisect": "senza bisezione",
+    "seconds": "durata [s]",
+  },
   "10_volume_quality": {
     "nodes": "nodi",
     "tets": "tetraedri",
@@ -98,6 +215,20 @@ const ETICHETTE_METRICHE = {
     // questa stessa grandezza si intitola gia' «fuori vincolo [frazione]».
     "radius_edge_over_reference": "elementi oltre il metro di riferimento [frazione]",
     "reference_ratio": "metro di riferimento del raggio-spigolo",
+  },
+  "11_export": {
+    "element_type": "tipo di elemento",
+    "inp": "deck scritto",
+    "vtu": "vtu scritto",
+    "mass": "massa [t]",
+    "volume": "volume [mm³]",
+    "surface_area": "area della superficie [mm²]",
+    "extent": "ingombro [mm]",
+    "fixed_nset_coverage": "copertura del set di vincolo",
+    "boundary_spacing": "spaziatura al contorno [mm]",
+    "set_tolerance": "tolleranza dei set [mm]",
+    "pressure": "pressione [MPa]",
+    "casi_di_carico": "casi di carico",
   },
 };
 
@@ -203,7 +334,7 @@ async function caricaStato() {
 // sola strada che chi riceve una scansione e apre il programma puo' davvero
 // percorrere. Legata una corsa la pagina si ricarica invece di ricucire lo
 // stato a mano: l'avvio e' gia' la sequenza giusta (stato, step, flusso degli
-// eventi, galleria), e riscriverne una seconda copia qui sarebbe due strade
+// eventi), e riscriverne una seconda copia qui sarebbe due strade
 // per lo stesso risultato, con una che invecchia.
 
 const rigaErroreIngresso = document.getElementById("ingresso-errore");
@@ -369,8 +500,14 @@ document.getElementById("sfoglia-nuvola").addEventListener("click", async (event
   if (corpo?.percorso) campo.value = corpo.percorso;
 });
 
-document.getElementById("crea-corsa").addEventListener("click", async (evento) => {
-  const bottone = evento.currentTarget;
+// Sul `submit` del form e non sul clic del bottone: da tastiera Invio manda il
+// form, e un gestore appeso al solo clic non lo raggiungeva. Il bottone e' di
+// tipo submit, quindi il clic passa di qui a sua volta -- un gestore solo, e
+// non due strade da tenere allineate.
+document.getElementById("nuova-corsa").addEventListener("submit", async (evento) => {
+  // Il form non si manda al server da se': la corsa la crea /api/corse.
+  evento.preventDefault();
+  const bottone = document.getElementById("crea-corsa");
   const richiesta = apriIngresso();
   bottone.disabled = true;
   rigaErroreIngresso.textContent = "";
@@ -492,6 +629,195 @@ function nomeDelloStep(numero) {
   return ETICHETTE[voce?.chiave] ?? `step ${numero}`;
 }
 
+// --- Il modello al fronte ---------------------------------------------------
+
+// Lo step valido di numero piu' alto, prior escluso: e' cio' che si ha in
+// mano adesso. Pura: si prova senza DOM.
+function fronteDelloStato(steps) {
+  let fronte = null;
+  for (const voce of steps) {
+    if (voce.stato !== "valido" || voce.chiave === STEP_DEL_PRIOR) continue;
+    if (fronte === null || voce.numero > fronte.numero) fronte = voce;
+  }
+  return fronte;
+}
+
+// Cio' che, cambiando, chiede una rilettura di /api/metrics: un'esecuzione
+// finita cambia i secondi, un annullamento l'impronta o il numero, un
+// parametro modificato l'impronta. Il flusso SSE arriva ogni mezzo secondo,
+// e rileggere a ogni fotogramma sarebbero due richieste al secondo per niente.
+function chiaveDelFronte(fronte) {
+  if (fronte === null) return "";
+  return `${fronte.numero}|${fronte.impronta}|${fronte.secondi}`;
+}
+
+const NON_MISURATO = "non misurato";
+
+// Un valore di metrics.json reso come testo del pannello.
+//
+// Il numero lo formatta `valoreDellaMetrica`, che e' cio' che la colonna del
+// dettaglio usa gia': un secondo formattatore avrebbe messo la stessa quantita'
+// a due passi di distanza con due arrotondamenti diversi, che e' il difetto che
+// quella funzione porta scritto nel proprio commento.
+//
+// Qui sopra restano le sole due differenze che il pannello ha davvero.
+// `chiusura` e' il solo booleano che si legge come stato e non come si'/no; e
+// un ingombro e' tre numeri accanto, non il JSON di una lista, perche' qui le
+// liste sono corte e note (`extent`) e non le matrici quattro per quattro che
+// la colonna del dettaglio deve chiudere.
+function valoreDelModello(valore, forma) {
+  if (valore === undefined || valore === null) return NON_MISURATO;
+  if (forma === "chiusura") return valore ? "chiusa" : "aperta";
+  // Vuota, la lista non e' un valore: unita darebbe la stringa vuota, e una
+  // riga vuota a schermo si legge «misurato, e non c'e' niente».
+  if (Array.isArray(valore)) {
+    if (valore.length === 0) return NON_MISURATO;
+    return valore.map((v) => valoreDelModello(v)).join(" × ");
+  }
+  return valoreDellaMetrica(valore);
+}
+
+// [etichetta, percorso nelle metriche, forma]. Il percorso parte dalla chiave
+// dello step: alcune righe leggono lo step a monte (il 4 non conta i punti,
+// li ha contati il 3). Le chiavi sono quelle che pipeline.py scrive davvero,
+// verificate su runs/lab_telaio_v2/metrics.json il 03/09/2026.
+const RIGHE_DELLA_SUPERFICIE = (chiave) => [
+  ["vertici", [chiave, "vertices"]],
+  ["triangoli", [chiave, "triangles"]],
+  ["superficie", [chiave, "watertight"], "chiusura"],
+  ["spigoli di bordo", [chiave, "boundary_edges"]],
+  ["area [mm²]", [chiave, "area"]],
+  ["volume racchiuso [mm³]", [chiave, "volume"]],
+];
+
+const RIGHE_DEL_MODELLO = {
+  "01_load": [
+    ["punti", ["01_load", "points_kept"]],
+    ["spaziatura media [mm]", ["01_load", "spacing"]],
+    ["ingombro [mm]", ["01_load", "extent"]],
+  ],
+  "02_segment": [
+    ["punti", ["02_segment", "points_after"]],
+    ["punti tolti come rumore", ["02_segment", "outliers_removed"]],
+    ["punti ritagliati", ["02_segment", "cropped_points"]],
+  ],
+  "03_downsample": [
+    ["punti", ["03_downsample", "points_after"]],
+    ["voxel [mm]", ["03_downsample", "voxel_size"]],
+    ["riduzione", ["03_downsample", "reduction"]],
+  ],
+  "04_normals": [
+    ["punti", ["03_downsample", "points_after"]],
+    ["normali degeneri", ["04_normals", "degenerate_normals"]],
+  ],
+  "05_reconstruct": RIGHE_DELLA_SUPERFICIE("05_reconstruct"),
+  "06_repair": RIGHE_DELLA_SUPERFICIE("06_repair"),
+  "07_surface_quality": [
+    ...RIGHE_DELLA_SUPERFICIE("07_surface_quality"),
+    // Il verso e' mesh_to_cloud e non cloud_to_mesh: e' quello che il progetto
+    // chiama «scarto dalla nuvola» dappertutto -- il report lo legge cosi'
+    // (report.py), la legenda della vista e' alimentata dallo scarto
+    // per-vertice, che e' lo stesso verso, e i numeri gia' pubblicati vengono
+    // da li'. Leggere l'altro verso metterebbe sotto lo stesso nome una misura
+    // diversa da quella che sta in tesi.
+    ["scarto dalla nuvola, RMS [mm]", ["07_surface_quality", "geometric_error", "mesh_to_cloud", "RMS"]],
+    ["scarto dalla nuvola, massimo [mm]", ["07_surface_quality", "geometric_error", "mesh_to_cloud", "max"]],
+  ],
+  "08_simplify": RIGHE_DELLA_SUPERFICIE("08_simplify"),
+  "09_tetrahedralize": [
+    ["nodi", ["09_tetrahedralize", "nodes"]],
+    ["tetraedri", ["09_tetrahedralize", "tets"]],
+    ["punti di Steiner", ["09_tetrahedralize", "steiner_points"]],
+    ["Steiner saturato", ["09_tetrahedralize", "steiner_saturated"]],
+  ],
+  "10_volume_quality": [
+    ["nodi", ["10_volume_quality", "nodes"]],
+    ["tetraedri", ["10_volume_quality", "tets"]],
+    ["volume totale [mm³]", ["10_volume_quality", "total_volume"]],
+    ["diedro minimo [°]", ["10_volume_quality", "min_dihedral_deg", "min"]],
+    ["elementi rovesciati", ["10_volume_quality", "inverted"]],
+  ],
+  "11_export": [
+    ["tipo di elemento", ["11_export", "element_type"]],
+    ["nodi", ["10_volume_quality", "nodes"]],
+    ["tetraedri", ["10_volume_quality", "tets"]],
+    ["massa [t]", ["11_export", "mass"]],
+    ["volume [mm³]", ["11_export", "volume"]],
+  ],
+};
+
+// Le righe del pannello per il fronte dato: coppie [etichetta, testo]. Pura.
+function righeDelModello(fronte, metriche) {
+  // `Object.hasOwn` e non `?? []`: una chiave come "constructor" o "toString"
+  // trova qualcosa sulla catena dei prototipi, e `??` la lascerebbe passare.
+  const righe = Object.hasOwn(RIGHE_DEL_MODELLO, fronte.chiave) ? RIGHE_DEL_MODELLO[fronte.chiave] : [];
+  return righe.map(([etichetta, percorso, forma]) => {
+    let valore = metriche;
+    for (const passo of percorso) {
+      valore = valore !== null && typeof valore === "object" ? valore[passo] : undefined;
+    }
+    // Terza voce e non una classe scritta qui: questa funzione e' pura e non
+    // tocca il DOM. Si cerca alla FOGLIA, come righeDellaMetrica: e' la chiave
+    // che il set nomina, e la famiglia varrebbe per misure diverse.
+    const foglia = percorso[percorso.length - 1];
+    return [etichetta, valoreDelModello(valore, forma), METRICHE_D_ALLARME.has(foglia) && valore === true];
+  });
+}
+
+let fronteMostrato = "";
+let ultimoModello = 0;
+
+function apriModello() {
+  ultimoModello += 1;
+  return ultimoModello;
+}
+
+async function aggiornaModello(steps) {
+  const fronte = fronteDelloStato(steps);
+  const chiave = chiaveDelFronte(fronte);
+  if (chiave === fronteMostrato) return;
+  fronteMostrato = chiave;
+  // L'ordine si apre QUI, prima di ogni uscita anticipata, e non dentro il ramo
+  // che chiede le metriche. Aperto la', il ramo del vuoto usciva senza
+  // invalidare cio' che stava arrivando: il fronte spariva mentre una rilettura
+  // era in volo, il pannello si svuotava, e la risposta vecchia lo ripopolava
+  // con i numeri di un fronte che non c'era piu'. Peggio, il vuoto aveva gia'
+  // segnato la propria terna, quindi ogni fotogramma successivo usciva subito e
+  // quei numeri restavano li'. Stesso precedente di `chiediStorico`, dove
+  // l'ordine si apre prima della prima attesa.
+  const ordine = apriModello();
+  const vuoto = document.getElementById("modello-vuoto");
+  const righe = document.getElementById("modello-righe");
+  const titolo = document.getElementById("modello-fronte");
+  if (fronte === null) {
+    titolo.textContent = "";
+    vuoto.textContent = "Nessuno step valido: esegui lo step 1.";
+    vuoto.hidden = false;
+    righe.hidden = true;
+    return;
+  }
+  const risposta = await fetch("/api/metrics").catch(serverMuto);
+  const metriche = risposta.ok ? await corpoLetto(risposta) : null;
+  if (superata(ordine, ultimoModello)) return;
+  titolo.textContent = `dopo lo step ${fronte.numero}, ${ETICHETTE[fronte.chiave] ?? fronte.chiave}`;
+  if (metriche === null || typeof metriche !== "object") {
+    vuoto.textContent = "metriche non leggibili";
+    vuoto.hidden = false;
+    righe.hidden = true;
+    return;
+  }
+  righe.replaceChildren(...righeDelModello(fronte, metriche).flatMap(([etichetta, testo, allarme]) => {
+    const dd = elemento("dd", { textContent: testo });
+    // Lo stesso marchio della colonna del dettaglio, e per lo stesso motivo:
+    // una mesh troncata in silenzio non sta fra righe che si somigliano. Chi
+    // guarda questo pannello non sta guardando l'altra colonna.
+    if (allarme) dd.classList.add("metrica-avviso");
+    return [elemento("dt", { textContent: etichetta }), dd];
+  }));
+  vuoto.hidden = true;
+  righe.hidden = false;
+}
+
 function disegnaStep(steps) {
   // Lo stato di prima, letto prima di sovrascriverlo: e' l'unica cosa che
   // distingue «lo step 6 e' appena diventato valido» da «lo step 6 e' valido»,
@@ -550,6 +876,13 @@ function disegnaStep(steps) {
   // si sospende sulla prima attesa, e dallo scorrere degli eventi, cioe' sempre
   // dopo che il modulo e' stato valutato per intero.
   segnaStepAperto(stepAperto);
+  // Non attesa: `disegnaStep` e' sincrona e gira a ogni fotogramma del flusso.
+  // Il `catch` non e' prudenza generica: `fronteMostrato` viene scritto PRIMA
+  // dell'attesa, quindi una rilettura che muore a meta' lascerebbe il pannello
+  // con il contenuto vecchio e la terna nuova -- e nessun fotogramma successivo
+  // lo riparerebbe, perche' la terna non cambia piu'. Azzerarla riapre la
+  // strada al fotogramma dopo.
+  aggiornaModello(steps).catch(() => { fronteMostrato = ""; });
 }
 
 caricaStato();
@@ -650,6 +983,19 @@ function descrizioneDellaCorsa(stato) {
 // L'ordine dei rami conta: un annullamento arriva con un codice d'uscita non
 // nullo (il segnale che lo ha fermato), quindi va guardato per primo,
 // altrimenti ogni annullamento si annuncerebbe come un fallimento.
+
+// L'ultima riga non vuota che il flusso ha portato: quella che dice che cosa
+// e' successo, senza le venti che dicono da dove. E' la riga che chi legge
+// cercherebbe per prima, e chi non apre il registro la ha gia' in testata.
+function ultimaRigaDelRegistro() {
+  const righe = Array.from(document.getElementById("registro").children);
+  for (let i = righe.length - 1; i >= 0; i -= 1) {
+    const testo = righe[i].textContent.trim();
+    if (testo !== "") return testo;
+  }
+  return "nessun dettaglio";
+}
+
 function esitoDellaCorsa(stato) {
   const { testo: soggetto, unoSolo } = descrizioneDellaCorsa(stato);
   // Una corsa finita senza codice d'uscita non e' piu' uno stato possibile: il
@@ -673,7 +1019,7 @@ function esitoDellaCorsa(stato) {
       // che scorre. E' la stessa distanza che il pannello aveva dal proprio
       // nome, e per cui il nome e' stato portato dentro il pannello.
       errore: `${soggetto}: esecuzione fallita (codice ${stato.exit_code}). `
-        + "Il motivo è nelle ultime righe del registro, in fondo alla colonna Dettaglio.",
+        + `Il motivo è nel registro, in fondo alla colonna Dettaglio: ${ultimaRigaDelRegistro()}`,
       esito: null,
     };
   }
@@ -744,6 +1090,45 @@ function durataDellaCorsa(stato) {
 // La classe ACCANTO al testo e non al posto del testo: il fallimento si legge
 // per esteso comunque, e chi non distingue le tinte non perde niente (WCAG
 // 1.4.1). La classe aggiunge il peso visivo, non l'informazione.
+// Il titolo della scheda come segnale: chi ha cambiato finestra durante i
+// minuti di uno step vede il segno nella barra delle schede. Torna «MeshRec»
+// al fuoco sulla pagina.
+function titoloConEsito(errore, esito) {
+  if (errore) return "✗ MeshRec";
+  if (esito) return "✓ MeshRec";
+  return "MeshRec";
+}
+
+// L'esito anche fuori dalla scheda, e solo dove serve davvero.
+//
+// Niente a pagina a fuoco: la stessa frase sta gia' a video nella testata, e
+// ripeterla in un riquadro di sistema e' rumore. Niente senza testo: una
+// notifica vuota non dice come e' finita la corsa. E il permesso non si chiede
+// da qui -- la finestra che compare nel mezzo di un esito e' quella che ogni
+// sito apre senza motivo.
+function notificaFuoriDallaScheda(testo) {
+  if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+  if (!testo || document.hasFocus()) return;
+  new Notification("MeshRec", { body: testo });
+}
+
+// Il permesso si chiede da un bottone, una volta, e il bottone sparisce con la
+// risposta -- tranne quando la finestra viene chiusa senza scegliere
+// («default»), che lascia tutto com'era e si potra' richiedere.
+//
+// Un browser senza l'API non e' un caso di guasto: il bottone si nasconde e il
+// resto della pagina non se ne accorge.
+function preparaLeNotifiche(bottone) {
+  if (typeof Notification === "undefined" || Notification.permission !== "default") {
+    bottone.hidden = true;
+    return;
+  }
+  bottone.hidden = false;
+  bottone.addEventListener("click", async () => {
+    bottone.hidden = (await Notification.requestPermission()) !== "default";
+  });
+}
+
 function mostraEsito(errore, esito) {
   const riga = document.getElementById("esito");
   riga.textContent = errore ?? esito ?? "";
@@ -874,6 +1259,13 @@ function aggiornaDaStato(stato) {
     // video resterebbe qualcosa di indistinguibile da una corsa riuscita.
     const { errore, esito } = esitoDellaCorsa(stato);
     mostraEsito(errore, esito);
+    // Fuori dalla scheda l'esito non si vede: il titolo lo porta nella barra
+    // delle schede, e la notifica raggiunge chi sta guardando altro.
+    document.title = titoloConEsito(errore, esito);
+    notificaFuoriDallaScheda(errore ?? esito ?? "");
+    // Il registro si apre solo quando c'e' un motivo da leggere: aperto a
+    // ogni esecuzione riuscita sarebbe la sezione di prima con un clic in piu'.
+    if (errore !== null) document.getElementById("registro-dettagli").open = true;
     if (stepAperto !== null) apriDettaglio(stepAperto);
     // La vista quanto il pannello: senza questa riga lo step rieseguito mostra
     // a destra le metriche nuove e nel viewport il contorno vecchio, col
@@ -889,7 +1281,19 @@ function aggiornaDaStato(stato) {
   // fallita» resterebbe a video sopra la corsa nuova che sta partendo proprio
   // per correggere quel fallimento, e sarebbe il piu' vecchio dei due testi a
   // descrivere il piu' recente dei due fatti.
-  if (!eraInCorso && stato.in_corso) mostraEsito(null, null);
+  if (!eraInCorso && stato.in_corso) {
+    mostraEsito(null, null);
+    // Il titolo con lo stesso movimento: il segno se ne va col fuoco sulla
+    // pagina, ma una corsa finita MENTRE si guardava il fuoco ce l'ha gia' e
+    // quell'evento non scatta piu'. Senza questa riga, lanciato lo step dopo e
+    // cambiata finestra, la scheda dice «✓» su una corsa che sta girando.
+    document.title = "MeshRec";
+    // Il registro non si svuota da solo fra due corse: senza, una corsa
+    // morta prima di scrivere una riga cita quella di prima, e il worker
+    // azzera le proprie righe qui allo stesso modo, all'avvio.
+    document.getElementById("registro").replaceChildren();
+    document.getElementById("registro-dettagli").open = false;
+  }
   // Il fronte si consuma solo quando c'e' un esito da annunciare: dentro la
   // finestra sopra, `eraInCorso` resta vero e aspetta il frame che porta il
   // codice.
@@ -919,9 +1323,10 @@ function gestoDelloStorico(evento) {
   if (evento.key.toLowerCase() !== "z") return null;
   // La ripetizione automatica del tasto tenuto premuto batte una trentina di
   // eventi al secondo, e ognuno qui e' un POST che riscrive config.yaml
-  // davvero: un secondo di tasto premuto riavvolgerebbe lo storico fino
-  // all'avvio. La guardia dell'ordine non limita quel danno, lo NASCONDE --
-  // lascia a video il solo messaggio dell'ultima risposta.
+  // davvero — e, per un'esecuzione, sposta anche gli artefatti: un secondo di
+  // tasto premuto riavvolgerebbe lo storico fino all'avvio. La guardia
+  // dell'ordine non limita quel danno, lo NASCONDE -- lascia a video il solo
+  // messaggio dell'ultima risposta.
   if (evento.repeat) return null;
   // Dentro un campo scritto il gesto e' gia' preso, e da chi ha piu' diritto:
   // il browser annulla la scrittura nel campo. Questo ascoltatore sta sul
@@ -952,7 +1357,7 @@ function gestoDelloStorico(evento) {
 // le due lingue per la stessa cosa che nomeDelloStep esiste per togliere. Dal
 // nuovo stato e non da `ultimoStato`, che a questo punto porta ancora quello
 // vecchio.
-function fraseDelRitorno(prima, dopo) {
+function fraseDelRitorno(prima, dopo, esecuzione = null, verso = "indietro") {
   const era = new Map(prima.map((voce) => [voce.numero, voce.stato]));
   const nome = (voce) => ETICHETTE[voce.chiave] ?? `step ${voce.numero}`;
   const passatiA = (stato) =>
@@ -968,7 +1373,17 @@ function fraseDelRitorno(prima, dopo) {
       `${nonValidi.join(", ")} ${nonValidi.length === 1 ? "passa a «non valido»" : "passano a «non validi»"}`,
     );
   }
-  return `configurazione ripristinata: ${pezzi.length ? pezzi.join("; ") : "nessuno step cambia stato"}`;
+  const stati = pezzi.length ? pezzi.join("; ") : "nessuno step cambia stato";
+  if (esecuzione === null) return `configurazione ripristinata: ${stati}`;
+  const dove = esecuzione.da === esecuzione.a
+    ? `dello step ${esecuzione.da}`
+    : `dallo step ${esecuzione.da} ${esecuzione.a === 11 ? "all'11" : `al ${esecuzione.a}`}`;
+  // Il verso e' del gesto, non della versione: «avanti» RIFA' l'esecuzione che
+  // «indietro» aveva annullato, e chiamarla «annullata» direbbe a chi ha appena
+  // premuto Ctrl+Maiusc+Z il contrario di quello che e' successo. La
+  // configurazione resta «ripristinata» nei due versi, perche' e' quello che
+  // le capita davvero: torna a essere quella di un'altra volta.
+  return `esecuzione ${dove} ${verso === "avanti" ? "rifatta" : "annullata"}: ${stati}`;
 }
 
 // Un contatore suo, non apriGenerazione(). La generazione e' condivisa, e
@@ -1046,7 +1461,10 @@ async function chiediStorico(verso) {
   }
   // `prima`, catturato in cima: il termine di confronto e' lo stato che era a
   // video quando il tasto e' stato premuto, non quello che c'e' adesso.
-  mostraEsito(null, fraseDelRitorno(prima, corpo.steps));
+  mostraEsito(
+    null,
+    fraseDelRitorno(prima, corpo.steps, corpo.tipo === "esecuzione" ? { da: corpo.da, a: corpo.a } : null, verso),
+  );
   await caricaStato();
   // Il config e' cambiato sotto: la geometria di prima con lo stato nuovo a
   // sinistra e' la vista che contraddice la propria didascalia. Senza ordine
@@ -1097,6 +1515,11 @@ async function annullaLaCorsa() {
 }
 
 document.getElementById("annulla").addEventListener("click", annullaLaCorsa);
+
+// Il segno nel titolo dura finche' non lo si e' letto: chi torna sulla pagina
+// l'ha appena letto, e la testata dice il resto.
+window.addEventListener("focus", () => { document.title = "MeshRec"; });
+preparaLeNotifiche(document.getElementById("notifiche"));
 
 import {
   creaViewport, scalaDelCampo, numeroDelCampo, didascaliaDelloScarto, RAMPA,
@@ -1265,9 +1688,8 @@ async function mostraNuvolaDelloStep(numero, ordine) {
   // uscire il rigetto da questa funzione asincrona, cioe' dentro una promessa
   // che nessuno guarda (ricaricaVista la consuma con .then). A video restava la
   // geometria di prima sotto la scritta «caricamento di ...», per sempre, e
-  // nessuno diceva perche'. `caricaGalleria` la guardia ce l'aveva gia'; le
-  // tre tratte che ne erano scoperte stavano tutte nella schermata
-  // dell'analisi, e sono uscite con lei.
+  // nessuno diceva perche'. Le tre tratte che ne erano scoperte stavano
+  // tutte nella schermata dell'analisi, e sono uscite con lei.
   const risposta = await fetch(`/api/cloud/${numero}`).catch(serverMuto);
   if (!risposta.ok) {
     const messaggio = await ragioneDelRifiuto(risposta);
@@ -1694,6 +2116,57 @@ quotaTaglio.addEventListener("input", applicaTaglio);
 // scelto lo step 11 il viewport porta il volume dello step 9, e passare qui 11
 // spegnerebbe il comando del taglio sotto una geometria che si puo' tagliare.
 asseTaglio.addEventListener("change", () => riallineaTaglio(passoDaMostrare(stepScelto)));
+
+// Il nome del file: corsa, step e didascalia, cosi' l'immagine in appendice
+// dice da sola da dove viene e che cosa mostra. Solo lettere, cifre e
+// trattini: e' un nome di file su tre sistemi diversi, e la didascalia porta
+// accenti, virgole e unita'.
+function nomeDellImmagine(outDir, numero, nome, didascalia) {
+  const corsa = String(outDir).split(/[\\/]/).filter(Boolean).pop() ?? "corsa";
+  return [corsa, String(numero).padStart(2, "0"), nome, didascalia]
+    .map((pezzo) => String(pezzo).toLowerCase().normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""))
+    .filter(Boolean)
+    .join("-") + ".png";
+}
+
+// Il PNG lo scrive il browser, dove chi lo salva lo trova gia': nessuna rotta
+// nuova, nessun file lasciato sul disco del server, nessuna cartella da
+// scegliere. `cattura()` e `preserveDrawingBuffer` esistono in viewport.js da
+// agosto ed erano meta' di una funzione: questo e' il chiamante che mancava.
+//
+// Di primo livello e non una freccia dentro addEventListener, per la stessa
+// ragione di `aggiornaDaStato`: dentro la freccia non la esegue nessun banco.
+function salvaImmagine() {
+  // Nessuno step scelto, niente da salvare: succede solo prima che una corsa
+  // sia aperta, e un file col nome di nessuna corsa sarebbe peggio del niente.
+  if (stepScelto === null) return;
+  const voce = ultimoStato.find((passo) => passo.numero === stepScelto);
+  const collegamento = document.createElement("a");
+  collegamento.href = vista.cattura();
+  collegamento.download = nomeDellImmagine(
+    document.getElementById("corsa").textContent,
+    stepScelto,
+    // La chiave non si stampa mai, si stampa la sua etichetta -- e dove
+    // l'etichetta non c'e' resta il numero, non «undefined».
+    ETICHETTE[voce?.chiave] ?? `step ${stepScelto}`,
+    didascaliaDellaVista().textContent,
+  );
+  // Nell'albero durante il clic: Firefox ignora in silenzio un <a download>
+  // staccato. Tolto subito dopo, perche' un salvataggio non lascia residui
+  // nella pagina.
+  document.body.append(collegamento);
+  collegamento.click();
+  collegamento.remove();
+}
+
+// «Inquadra» rimette la camera sull'ingombro del pezzo: trascinando la si
+// perde, e non c'era modo di tornare indietro se non ricaricando lo step. A
+// scena vuota `inquadra()` torna senza fare niente (viewport.js), quindi non
+// serve una guardia qui.
+document.getElementById("inquadra").addEventListener("click", () => vista.inquadra());
+document.getElementById("salva-immagine").addEventListener("click", salvaImmagine);
 
 document.getElementById("elenco-step").addEventListener("click", (evento) => {
   const riga = evento.target.closest(".step");
@@ -2368,6 +2841,23 @@ function campoDimensioniAttese(blocco, nome, campo, ordine) {
 //
 // Il tipo lo conosce solo il modello, e adesso /api/schema lo manda
 // (`_forma_del_campo` in app/server.py). Da li' discende la forma:
+// Il testo dell'aiuto sotto un campo. Il predefinito si dice: chi ha girato
+// min_ratio tre volte deve sapere da dove e' partito, e /api/schema lo manda
+// gia' -- il pannello lo usava solo per piegare i campi fermi.
+//
+// `!== undefined && !== null` e non `if (campo.default)`: `0`, `false` e la
+// stringa vuota sono predefiniti veri, e un controllo sul valore li
+// nasconderebbe proprio dove ce n'e' piu' bisogno.
+function testoDellAiuto(campo, scalare, bloccoAssente) {
+  return [
+    campo.description,
+    campo.default !== undefined && campo.default !== null
+      ? `predefinito: ${String(campo.default)}`
+      : null,
+    !scalare && !bloccoAssente ? "si modifica dal file di configurazione" : null,
+  ].filter(Boolean).join(" — ");
+}
+
 // un'enumerazione e' un menu, un booleano una spunta, un numero con entrambi
 // gli estremi un cursore con la sua casella accanto. Nessuna di queste e'
 // `type="number"`: la sanificazione silenziosa resta fuori dal pannello, e cio'
@@ -2501,13 +2991,34 @@ function campoParametro(blocco, nome, campo, ordine) {
     input.addEventListener("change", () => scriviParametro(blocco, nome, input, messaggio, ordine));
   }
   riga.append(input);
+  // Dire il predefinito e non saperlo rimettere lascerebbe il lavoro a chi
+  // legge: il bottone rimette il valore e lo scrive, per la stessa strada di
+  // una battuta a mano -- `change` sul comando, cioe' il gestore che gia' c'e'.
+  // Passare da li' e non da `scriviValore` diretto e' cio' che tiene allineati
+  // anche il cursore e la spunta, che sono l'altra meta' di quel comando.
+  // Solo su un campo vivo: dove la casella e' in sola lettura -- blocco
+  // assente, scelta unica -- non c'e' nessun gestore da scatenare, e la
+  // scrittura cadrebbe su un blocco che non esiste.
+  if (vivo && campo.default !== undefined && campo.default !== null) {
+    const riporta = elemento("button", {
+      type: "button", className: "bottone riporta", textContent: "Riporta",
+      title: `riporta al predefinito (${String(campo.default)})`,
+      // Venti «Riporta» in un pannello sono venti bottoni identici per chi
+      // ascolta: il nome accessibile dice quale campo, e lo dice con
+      // l'etichetta che si legge a video, non con la chiave.
+      ariaLabel: `Riporta ${etichetta.textContent} al predefinito`,
+    });
+    riporta.addEventListener("click", () => {
+      input.value = String(campo.default);
+      if (spunta) input.checked = campo.default === true;
+      input.dispatchEvent(new Event("change"));
+    });
+    riga.append(riporta);
+  }
   const aiuto = document.createElement("small");
   aiuto.className = "aiuto";
   aiuto.id = `aiuto-${identita}`;
-  aiuto.textContent = [
-    campo.description,
-    !scalare && !bloccoAssente ? "si modifica dal file di configurazione" : null,
-  ].filter(Boolean).join(" — ");
+  aiuto.textContent = testoDellAiuto(campo, scalare, bloccoAssente);
   // Legato solo se c'e' qualcosa da leggere: uno schema che non descrive il
   // campo lascia l'aiuto vuoto, e un aria-describedby che punta a una riga muta
   // e' una descrizione promessa e non mantenuta.
@@ -3072,7 +3583,7 @@ async function apriDettaglio(numero, ordine = generazione) {
   // quel colore. Dall'indice e non dall'etichetta, che e' testo da leggere.
   for (const [indice, [etichetta, percorso]] of [
     ["Esegui questo step", `/api/step/${numero}`],
-    ["Esegui da qui in giù", `/api/step/${numero}/from`],
+    ["Esegui da qui fino al deck", `/api/step/${numero}/from`],
   ].entries()) {
     const bottone = document.createElement("button");
     bottone.type = "button";
@@ -3203,6 +3714,12 @@ async function apriDettaglio(numero, ordine = generazione) {
 const VALORE_LARGO = 14;
 const CLASSE_VALORE_LARGO = "metrica-larga";
 
+// Le metriche il cui «sì» e' una contraddizione, non una conferma.
+//
+// Un booleano vero non e' di per se' un allarme: `watertight` vero e'
+// esattamente cio' che si spera. Decide il set, non il tipo del valore.
+const METRICHE_D_ALLARME = new Set(["steiner_saturated"]);
+
 function righeDellaMetrica(nome, valore, etichette) {
   const annidata = valore !== null && typeof valore === "object" && !Array.isArray(valore);
   // Un dizionario vuoto non lascia righe: «{}» a video non e' una misura.
@@ -3214,6 +3731,13 @@ function righeDellaMetrica(nome, valore, etichette) {
   const testo = valoreDellaMetrica(valore);
   const dd = elemento("dd", { textContent: testo });
   if (testo.length > VALORE_LARGO) dd.className = CLASSE_VALORE_LARGO;
+  // Il controllo che contraddice: un vero su una chiave d'allarme e' la «mesh
+  // troncata in silenzio» del primo principio di prodotto, e non sta fra
+  // tredici righe uguali. `classList` e non `className`: la classe del valore
+  // largo la scrive la riga qui sopra, e sostituirla la perderebbe.
+  if (METRICHE_D_ALLARME.has(nome) && valore === true) {
+    dd.classList.add("metrica-avviso");
+  }
   // Il percorso appiattito e' la chiave: si cerca alla FOGLIA e non famiglia per
   // famiglia, perche' `aspect_ratio · mean` dello step 7 conta i triangoli e
   // quello del 10 i tetraedri, e un'etichetta di famiglia varrebbe per
@@ -3285,115 +3809,3 @@ function valoreDellaMetrica(valore) {
   return valore.toLocaleString("it", { maximumSignificantDigits: 6 });
 }
 
-// Galleria di curazione: i registri della Fase 2 (/api/experiments*), in
-// sola lettura. Nessun clic da qui scrive mai sul disco.
-
-async function caricaGalleria() {
-  const risposta = await fetch("/api/experiments").catch(serverMuto);
-  const corpo = await corpoLetto(risposta);
-  // Silenzioso e non un errore a video: una corsa senza cartella experiments/
-  // accanto (la comune, durante lo sviluppo di uno step) non e' un guasto
-  // della galleria, e' solo che non c'e' niente da elencare.
-  //
-  // Silenzioso non vuol dire muto, e questa era la differenza mancante: la
-  // sezione restava un titolo e una riga d'aiuto sopra il nulla, l'unica della
-  // colonna senza uno stato vuoto che dicesse perche'. Le due strade che
-  // portano a zero — server che non risponde o registro che non c'e', ed
-  // elenco vuoto — finiscono nella stessa riga invece che in un `return` che
-  // lascia a video quello di prima.
-  const nomi = Array.isArray(corpo?.esperimenti) ? corpo.esperimenti : [];
-  document.getElementById("galleria-vuoto").hidden = nomi.length > 0;
-  const elenco = document.getElementById("galleria-elenco");
-  elenco.replaceChildren(...nomi.map((nome) => {
-    const bottone = document.createElement("button");
-    bottone.type = "button";
-    bottone.className = "bottone";
-    bottone.textContent = nome;
-    bottone.dataset.nome = nome;
-    return bottone;
-  }));
-}
-
-caricaGalleria();
-
-// Le colonne e le celle arrivano gia' formattate dal server (report._COLUMNS
-// e report._cell, riusate in server.py): questa funzione si limita a
-// disegnarle, senza una seconda scelta di colonne che potrebbe divergere da
-// quella dell'appendice della tesi.
-function disegnaTabellaGalleria(corpo) {
-  const contenitore = document.getElementById("galleria-tabella");
-  contenitore.replaceChildren();
-  if (corpo.righe.length === 0) {
-    contenitore.append(elemento("p", {
-      className: "vuoto",
-      textContent: `${corpo.nome}: registro vuoto.`,
-    }));
-    return;
-  }
-  const rigaTesta = document.createElement("tr");
-  for (const colonna of corpo.colonne) {
-    rigaTesta.append(elemento("th", { textContent: colonna.etichetta }));
-  }
-  const testa = document.createElement("thead");
-  testa.append(rigaTesta);
-  const corpoTabella = document.createElement("tbody");
-  corpo.righe.forEach((riga, indice) => {
-    const rigaHtml = document.createElement("tr");
-    // "fronte", non un nuovo nome: e' la stessa classe che report.write_report
-    // scrive sulla riga di fronte dell'appendice della tesi.
-    if (riga.on_front) rigaHtml.className = "fronte";
-    for (const cella of corpo.celle[indice]) {
-      rigaHtml.append(elemento("td", { textContent: cella }));
-    }
-    corpoTabella.append(rigaHtml);
-  });
-  const tabella = document.createElement("table");
-  tabella.append(testa, corpoTabella);
-  contenitore.append(
-    elemento("p", {
-      className: "aiuto",
-      textContent: `${corpo.nome}: ${corpo.righe.length} candidati, ${corpo.fronte} sul fronte.`,
-    }),
-    tabella,
-  );
-}
-
-// Un contatore fresco per clic, come apriGeometria/apriBattuta: due clic su
-// due esperimenti sovrapposti — o due riaperture dello stesso — non devono
-// far vincere la risposta piu' vecchia.
-let ultimaGalleria = 0;
-
-function apriGalleria() {
-  ultimaGalleria += 1;
-  return ultimaGalleria;
-}
-
-// Vero se questa richiesta ha scritto (compresa la dichiarazione di un
-// rifiuto), falso se e' stata scartata perche' superata da una piu' recente.
-async function mostraEsperimento(nome) {
-  const richiesta = apriGalleria();
-  const risposta = await fetch(`/api/experiments/${encodeURIComponent(nome)}`).catch(serverMuto);
-  if (!risposta.ok) {
-    const ragione = await ragioneDelRifiuto(risposta);
-    // Dopo l'ultima attesa e prima della prima scrittura, come le altre
-    // tratte del modulo.
-    if (superata(richiesta, ultimaGalleria)) return false;
-    dichiaraErrore(ragione);
-    return true;
-  }
-  const corpo = await corpoLetto(risposta);
-  if (superata(richiesta, ultimaGalleria)) return false;
-  if (corpo == null || !Array.isArray(corpo.righe) || !Array.isArray(corpo.colonne) || !Array.isArray(corpo.celle)) {
-    dichiaraErrore("il server ha risposto con un registro che non si legge");
-    return true;
-  }
-  dichiaraErrore(null);
-  disegnaTabellaGalleria(corpo);
-  return true;
-}
-
-document.getElementById("galleria-elenco").addEventListener("click", (evento) => {
-  const bottone = evento.target.closest("button");
-  if (!bottone) return;
-  mostraEsperimento(bottone.dataset.nome);
-});

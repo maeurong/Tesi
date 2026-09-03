@@ -237,10 +237,10 @@ h2:focus-visible { outline: 2px solid var(--accento); outline-offset: 2px; }
    e' il contrasto: era gia' questa colonna a sparire strizzando gli occhi. */
 .zona h2, .ingresso h2 { font-size: var(--tipo-nota); line-height: var(--interlinea-riga); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--testo); margin: var(--passo-6) 0 var(--passo-2); }
 /* Il filetto sopra un titolo di sezione, e solo nelle due colonne che scorrono.
-   La zona di destra impila sei sezioni — Dettaglio, Prior, Confronto,
-   Registro, Galleria e la loro tabella — dentro un contenitore che scorre, e
+   La zona di destra impila cinque sezioni — Dettaglio, Prior, Confronto,
+   Registro e la loro tabella — dentro un contenitore che scorre, e
    il loro titolo e' il carattere piu' piccolo e piu' tenue del foglio.
-   Strizzando gli occhi sparivano tutti e sei, mentre i bordi dei .gruppo che
+   Strizzando gli occhi sparivano tutte e cinque, mentre i bordi dei .gruppo che
    stanno DENTRO una sezione restavano: i sottogruppi leggevano piu' forte dei
    gruppi, cioe' la gerarchia era rovesciata. Il filetto e' lo stesso --bordo
    che separa le zone fra loro, un pixel, gia' il vocabolario della
@@ -268,7 +268,7 @@ h2:focus-visible { outline: 2px solid var(--accento); outline-offset: 2px; }
 .viewport canvas:focus-visible { outline: 2px solid var(--accento); outline-offset: -2px; }
 /* Lo stato vuoto insegna a chi non conosce gli undici step: e' prosa, quindi
    prende la misura leggibile e non la larghezza del pannello. */
-/* Gli identificatori nella prosa -- `.pcd`, `.ply`, `experiments/` -- cadevano
+/* Gli identificatori nella prosa -- `.pcd`, `.ply` -- cadevano
    sul monospace generico del browser (Menlo qui, Courier New su Windows) mentre
    il nome della corsa a due centimetri di distanza usa --stack-cifre. Due facce
    a larghezza fissa per lo stesso lavoro sulla stessa schermata. */
@@ -352,6 +352,10 @@ a.bottone { display: inline-block; text-decoration: none; }
    contorno visibile sarebbe una tappa cieca, cioe' un difetto al posto di una
    correzione. Stesso contorno degli altri comandi, non uno suo. */
 .registro:focus-visible { outline: 2px solid var(--accento); outline-offset: 2px; }
+/* Il riassunto del registro chiuso: un comando, e come gli altri comandi si
+   vede dove sta il fuoco. */
+.registro-dettagli > summary { cursor: pointer; color: var(--tenue); font-weight: 600; margin-top: var(--passo-4); }
+.registro-dettagli > summary:focus-visible { outline: 2px solid var(--accento); outline-offset: 2px; }
 .riga-log { white-space: pre-wrap; word-break: break-word; }
 /* Una colonna: l'immagine, e sotto la sua didascalia. Non piu' un contenitore
    di soli sovrapposti — la didascalia sta nel flusso apposta, cosi' non copre
@@ -414,15 +418,22 @@ a.bottone { display: inline-block; text-decoration: none; }
    titoli di sezione -- e' l'unico canale che sopravvive alla distanza di una
    proiezione. */
 .vista-vuota p:first-child { color: var(--testo); }
-/* Il velo del passaggio a monte sta in ALTO a destra: i conteggi tengono
-   l'angolo sinistro e il taglio quello in basso a destra, e questo e' l'unico
-   angolo libero. Sopra il taglio e non sotto anche per ordine di lettura: dice
-   che cosa si sta guardando, mentre il taglio e' un attrezzo per guardarci
-   dentro.
-   `[hidden]` esplicito per la stessa ragione del comando del taglio qui sotto:
-   su un elemento con `display` dichiarato l'attributo da solo non basta, e la
-   casella resterebbe a video su ogni step dove un fantasma non esiste. */
-.fantasma-comando { position: absolute; top: var(--passo-2); right: var(--passo-2); display: flex; align-items: center; gap: var(--passo-2); padding: var(--passo-1) var(--passo-2); background: var(--velo); border: 1px solid var(--bordo-comando); border-radius: var(--raggio); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); color: var(--tenue); cursor: pointer; }
+/* I comandi della vista, nell'unico angolo della tela che resta libero: i
+   conteggi tengono l'alto a sinistra, la scala il basso a sinistra, il taglio
+   il basso a destra. Una fila sola, allineata a destra, che manda a capo invece
+   di uscire dalla tela quando la finestra si stringe -- e' il motivo per cui
+   .fantasma-comando non si posiziona piu' da se': stava in questo stesso
+   angolo, e due sovrapposti allo stesso posto sono uno sopra l'altro. */
+.comandi-vista { position: absolute; top: var(--passo-2); right: var(--passo-2); display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--passo-2); max-width: calc(100% - var(--passo-4)); }
+/* Il velo del passaggio a monte non si posiziona piu' da se': sta nel gruppo
+   dei comandi qui sopra, che tiene l'angolo in alto a destra per tutti e tre.
+   Sopra il taglio e non sotto anche per ordine di lettura: dice che cosa si
+   sta guardando, mentre il taglio e' un attrezzo per guardarci dentro.
+   `[hidden]` esplicito per la stessa ragione del comando del taglio piu'
+   sotto: su un elemento con `display` dichiarato l'attributo da solo non
+   basta, e la casella resterebbe a video su ogni step dove un fantasma non
+   esiste. */
+.fantasma-comando { display: flex; align-items: center; gap: var(--passo-2); padding: var(--passo-1) var(--passo-2); background: var(--velo); border: 1px solid var(--bordo-comando); border-radius: var(--raggio); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); color: var(--tenue); cursor: pointer; }
 .fantasma-comando[hidden] { display: none; }
 .fantasma-comando :focus-visible { outline: 2px solid var(--accento); outline-offset: 2px; }
 /* Il comando del taglio sta in basso a destra sulla vista: i conteggi occupano
@@ -633,6 +644,10 @@ a.bottone { display: inline-block; text-decoration: none; }
    accanto non agisce affatto. */
 .errore-campo { display: block; color: var(--guasto); font-size: var(--tipo-nota); line-height: var(--interlinea); max-width: var(--misura); overflow-wrap: anywhere; text-wrap: pretty; }
 .campo input[readonly] { background: var(--spento); color: var(--tenue); }
+/* «Riporta» sta sotto la casella e largo quanto la propria parola: la riga del
+   campo e' una griglia a colonna sola, e senza `justify-self` il bottone si
+   stirerebbe per tutta la larghezza come se fosse il comando principale. */
+.campo .riporta { justify-self: start; font-size: var(--tipo-nota); }
 /* display: block, e non e' una rifinitura: `.aiuto` veste anche i <small>
    dell'ingresso, che sono figli diretti di <section> e quindi restano inline.
    `max-width` non si applica a una scatola inline non rimpiazzata: su quelle
@@ -711,24 +726,34 @@ a.bottone { display: inline-block; text-decoration: none; }
    quella che era. Allineato a sinistra: e' testo, non una misura da
    incolonnare. */
 .metriche dd.metrica-larga { grid-column: 1 / -1; text-align: left; }
-/* La colonna della galleria e' stretta (22rem) e la tabella dei candidati ha
-   otto colonne: scorre in orizzontale dentro il proprio contenitore, non la
-   pagina. */
-.galleria-tabella { overflow-x: auto; }
-/* Stessa tappa di tabulazione del registro, e per la stessa ragione: scorre e
-   non contiene niente su cui il fuoco possa posarsi (sono <th> e <td>), quindi
-   senza tabindex le colonne di destra non si raggiungono da tastiera. Otto
-   colonne dentro una zona da 22rem: quelle fuori vista sono la maggioranza.
-   Il registro aveva gia' chiuso questo difetto; questa e' la stessa forma
-   rimasta scoperta, e il contorno e' quello degli altri comandi. */
-.galleria-tabella:focus-visible { outline: 2px solid var(--accento); outline-offset: 2px; }
-.galleria-tabella table { border-collapse: collapse; width: 100%; font-size: var(--tipo-dato); line-height: var(--interlinea-riga); font-variant-numeric: tabular-nums; }
-.galleria-tabella th, .galleria-tabella td { padding: var(--passo-1) var(--passo-2); border-bottom: 1px solid var(--bordo); text-align: left; white-space: nowrap; }
-.galleria-tabella th { color: var(--tenue); font-weight: 600; }
-/* Il candidato di fronte: stesso canale doppio dello step aperto (fondo piu'
-   filetto), non il solo colore. */
-.galleria-tabella tr.fronte { background: var(--selezione); box-shadow: inset 2px 0 0 var(--accento); }
-
+/* Il valore che contraddice, fra tredici righe che si somigliano. Il colore e'
+   il secondo canale e non il primo: l'etichetta accanto dice gia' «mesh
+   troncata» per esteso, cosi' chi non distingue le tinte non perde niente
+   (WCAG 1.4.1). Il peso e' la meta' che sopravvive alla proiezione. */
+.metriche dd.metrica-avviso { color: var(--guasto); font-weight: 600; }
+/* Il pannello del modello, sotto la pipeline. Riusa .metriche per le righe:
+   stessa griglia e stesse cifre tabulari della colonna del dettaglio -- che
+   adesso condividono anche il formattatore, valoreDellaMetrica -- cosi'
+   «vertici 218.440» si legge uguale nelle due colonne. Solo lo stacco dal
+   titolo e' suo, e non e' una scelta nuova ma il recupero di una regola gia'
+   scritta: `.zona h2` da' a ogni titolo che non e' il primo della colonna lo
+   stacco e il filetto sopra -- e' cosi' che «Registro» si separa da
+   «Dettaglio» nell'altra colonna. Qui il titolo sta dentro una <section>,
+   quindi e' *lui* il primo figlio e `.zona h2:first-child` glieli toglie
+   tutti e due. Rimessi sulla sezione e sul suo titolo: senza, questa sarebbe
+   l'unica seconda intestazione della schermata a galleggiare.
+   Il selettore porta `.zona` davanti apposta: serve a pareggiare il peso di
+   `.zona h2:first-child`, che senza vincerebbe e riporterebbe il filetto a
+   `none`. A parita' di peso vince chi sta piu' in basso nel foglio, ed e'
+   questa riga. */
+.modello { margin-top: var(--passo-6); }
+.zona .modello h2 { margin-top: 0; border-top: 1px solid var(--bordo); padding-top: var(--passo-3); }
+/* Qui la colonna e' 18rem e non 25: le etichette vanno a capo per davvero, e
+   con la linea di base condivisa il valore si allinea all'ULTIMA riga
+   dell'etichetta -- «spaziatura media [mm]» su due righe lasciava l'unita' in
+   alto e il numero in basso, staccati. Allineati in cima, la coppia si legge
+   sulla prima riga e cio' che va a capo sta sotto senza portarsi via il numero. */
+.modello .metriche { align-items: start; }
 /* Un rifiuto non e' un errore del modulo (quello e' .errore, role="alert"):
    e' il verdetto di un controllo geometrico sulla regione, letto qui e non
    annunciato. Il bordo a sinistra e' il secondo canale (WCAG 1.4.1): chi non

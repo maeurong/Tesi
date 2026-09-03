@@ -64,6 +64,11 @@ class Worker:
         self.a_step: int | None = None
         self.etichetta: str | None = None
         self.annullato = False
+        # Identita' della corsa, non il suo conteggio: due avvii ravvicinati
+        # possono lasciare lo stesso numero di righe (o di piu'), e il flusso
+        # SSE in server.py usa questo contatore per sapere che le righe sono
+        # ripartite da zero anche quando il conteggio da solo non lo direbbe.
+        self.avvii = 0
         self.avviato: float | None = None
         # Quanto e' durata l'ultima corsa finita. `da_secondi()` smette di
         # rispondere a processo morto -- e' costruita per l'attesa, e a corsa
@@ -101,6 +106,7 @@ class Worker:
             raise RuntimeError("uno step sta già girando: annullalo prima di avviarne un altro")
         with self._lucchetto:
             self._righe.clear()
+        self.avvii += 1
         self.exit_code = None
         self.annullato = False
         self.durata = None
@@ -136,6 +142,7 @@ class Worker:
             raise RuntimeError("uno step sta già girando: annullalo prima di avviarne un altro")
         with self._lucchetto:
             self._righe.clear()
+        self.avvii += 1
         self.exit_code = None
         self.annullato = False
         self.durata = None

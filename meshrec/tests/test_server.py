@@ -34,15 +34,10 @@ def cliente(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     # al chiamante quando questo flag e' vero (e' il predefinito), per dare a
     # chi testa la scelta di vederla. Qui si vuole il contratto HTTP che vede
     # il browser, non l'eccezione interna.
-    # Le due radici esplicite: dalla correzione dell'ingresso non discendono
-    # piu' dal percorso del config (`experiments/` accanto al config sparirebbe
-    # per ogni corsa che vive in `runs/<nome>/`), ma dalla cartella da cui gira
-    # il server -- che sotto pytest e' il repository, non tmp_path.
     return TestClient(
         create_app(
             tmp_path / "config.yaml",
             radice_corse=tmp_path / "runs",
-            radice_esperimenti=tmp_path / "experiments",
         ),
         # Il server risponde solo a un nome locale (middleware
         # `solo_dal_calcolatore_locale`, contro il DNS rebinding). Il
@@ -1699,17 +1694,17 @@ def test_ogni_tratta_che_interroga_il_server_si_scarta_se_e_stata_superata():
     from meshrec.app.server import UI_DIR
 
     testo = (UI_DIR / "app.js").read_text(encoding="utf-8")
-    # caricaStato e caricaGalleria partono una volta sola all'avvio della
-    # pagina e non da un clic: non c'e' nessuna generazione che possa
-    # superarle. annullaLaCorsa non scrive nulla dopo l'attesa, quindi non ha
-    # niente da contraddire; ha un nome apposta per poter comparire qui invece
-    # di non essere mai incontrata.
+    # caricaStato parte una volta sola all'avvio della pagina e non da un
+    # clic: non c'e' nessuna generazione che possa superarla. annullaLaCorsa
+    # non scrive nulla dopo l'attesa, quindi non ha niente da contraddire; ha
+    # un nome apposta per poter comparire qui invece di non essere mai
+    # incontrata.
     # catalogoMateriali non scrive: rende un valore, e la guardia sta dove
     # quel valore tocca il documento. E' esente per la stessa ragione di
     # annullaLaCorsa -- non ha niente da contraddire -- e l'esenzione non e'
     # gratuita: l'assert qui sotto pretende che il suo unico chiamante guardi
     # l'ordine prima di scrivere, che e' cio' che questa regola difende.
-    senza_ordine = {"caricaStato", "annullaLaCorsa", "caricaGalleria", "catalogoMateriali"}
+    senza_ordine = {"caricaStato", "annullaLaCorsa", "catalogoMateriali"}
     assert re.search(
         r"catalogoMateriali\(\)\.then\(\(voci\) => \{\s*\n\s*if \(superata\(ordine\)\) return;",
         testo,
@@ -1728,18 +1723,12 @@ def test_ogni_tratta_che_interroga_il_server_si_scarta_se_e_stata_superata():
         assert "superata(" in sorgente, f"{nome} scrive senza guardare l'ordine:\n{sorgente}"
     # Senza questo, cancellare le funzioni farebbe passare il test a vuoto. Ed
     # e' anche l'unica rete che resta quando l'estrazione per graffe fallisce
-    # (vedi il tetto di _corpi_freccia_asincroni): le tratte reali sono 5
-    # nominate (mostraNuvolaDelloStep, mostraStep, scriviParametro,
-    # apriDettaglio, mostraEsperimento) piu' 2 freccia, quindi la soglia
-    # pareggia il numero vero. Se ne aggiungi una, alza la soglia invece di
-    # lasciarla indietro.
-    #
-    # Dalla schermata d'ingresso sono 11: 6 nominate (le 5 di prima piu'
-    # disegnaIngresso) e 5 freccia (le 2 di prima, il clic su una corsa, il clic
-    # che ne crea una, il clic che dichiara il materiale). Col bottone
-    # «Sfoglia», che chiede al server di aprire il selettore file, 12.
-    # Col gesto che prova il solutore (`verificaSolutore`, la tratta che ESEGUE
-    # il binario e che percio' non sta piu' dentro `GET /api/analisi`), 13.
+    # (vedi il tetto di _corpi_freccia_asincroni): le tratte reali sono 7
+    # nominate (disegnaIngresso, chiediStorico, mostraNuvolaDelloStep,
+    # mostraStep, mostraFantasmaDelloStep, scriviValore, apriDettaglio) piu' 6
+    # freccia, tredici in tutto -- la soglia pareggia il numero vero, contato
+    # rieseguendo questo stesso algoritmo su app.js. Se ne aggiungi una, alza
+    # la soglia invece di lasciarla indietro.
     assert interrogano >= 13, "le tratte attese sono sparite dal modulo"
 
 
@@ -2850,129 +2839,21 @@ def test_un_box_malformato_e_rifiutato_e_non_tocca_la_configurazione(cliente, tm
 
 
 # --------------------------------------------------------------------------
-# Task 14: galleria di curazione. Due endpoint in sola lettura sui registri
-# della Fase 2 (core.sweep.load_registry), colonne riusate da
-# core.report._COLUMNS / core.report._cell.
+# La galleria di curazione e' uscita il 03/09/2026: era una finestra sui
+# registri di sweep della Fase 2, e chi usa il programma non la apriva. Il
+# core dello sweep resta; a sparire sono le rotte e la colonna.
 # --------------------------------------------------------------------------
 
 
-def test_la_galleria_elenca_gli_esperimenti_esistenti(cliente, tmp_path):
-    registro = tmp_path / "experiments" / "prova" / "registro.jsonl"
-    registro.parent.mkdir(parents=True)
-    registro.write_text(
-        json.dumps({"fingerprint": "abc", "axes": {}, "outcome": "riuscito", "on_front": True})
-        + "\n",
-        encoding="utf-8",
+def test_le_rotte_della_galleria_non_esistono_piu(cliente):
+    """Una rotta che sopravvive alla propria interfaccia e' codice che nessuno
+    esercita e che continua a leggere il disco: va via con lei."""
+    assert cliente.get("/api/experiments").status_code == 404
+    assert cliente.get("/api/experiments/qualunque").status_code == 404
+    assert not any(
+        getattr(rotta, "path", "").startswith("/api/experiments")
+        for rotta in cliente.app.routes
     )
-    elenco = cliente.get("/api/experiments").json()
-    assert "prova" in elenco["esperimenti"]
-    corpo = cliente.get("/api/experiments/prova").json()
-    assert corpo["righe"][0]["on_front"] is True
-    # Le colonne sono quelle di report._COLUMNS, non un elenco scelto qui:
-    # se un giorno divergono, questo campo lo dice.
-    from meshrec.core import report as report_modulo
-
-    assert [voce["chiave"] for voce in corpo["colonne"]] == [chiave for chiave, _ in report_modulo._COLUMNS]
-    assert len(corpo["celle"]) == 1
-    assert len(corpo["celle"][0]) == len(report_modulo._COLUMNS)
-
-
-def test_una_sottocartella_senza_registro_non_e_un_esperimento(cliente, tmp_path):
-    """Una cartella d'esperimento a meta' (nessun registro ancora scritto) non
-    e' un esperimento concluso: comparirebbe in elenco e /api/experiments/{nome}
-    risponderebbe con un registro vuoto, che sembra un esperimento senza
-    candidati invece di uno mai partito."""
-    (tmp_path / "experiments" / "a_meta").mkdir(parents=True)
-    elenco = cliente.get("/api/experiments").json()
-    assert elenco["esperimenti"] == []
-
-
-def test_un_esperimento_inesistente_risponde_quattrocento(cliente, tmp_path):
-    (tmp_path / "experiments").mkdir()
-    risposta = cliente.get("/api/experiments/non-esiste")
-    assert risposta.status_code == 400
-    assert "non-esiste" in risposta.json()["messaggio"]
-
-
-def test_la_galleria_non_scrive_mai_nei_registri(cliente, tmp_path):
-    """Le corse di riferimento e i registri della Fase 2 sono di sola lettura.
-
-    Il piano guarda un file solo dopo una chiamata sola; qui la difesa vale
-    su TUTTE le tratte /api/experiments* (scoperte dalle rotte dell'app, non
-    elencate a mano: un endpoint aggiunto domani con questo prefisso ci
-    entra da solo) e sul contenuto dell'intera cartella experiments/, non di
-    un file scelto in anticipo.
-    """
-    radice_esperimenti = tmp_path / "experiments"
-    for nome in ("prova", "seconda"):
-        cartella = radice_esperimenti / nome
-        cartella.mkdir(parents=True)
-        (cartella / "registro.jsonl").write_text(
-            json.dumps({"fingerprint": nome, "axes": {}, "outcome": "riuscito", "on_front": True})
-            + "\n",
-            encoding="utf-8",
-        )
-        # Un secondo file, non registro.jsonl: la difesa deve valere sulla
-        # cartella intera, non sul solo file che gli endpoint leggono oggi.
-        (cartella / "esperimento.yaml").write_text(f"nome: {nome}\n", encoding="utf-8")
-
-    def istantanea() -> dict[str, bytes]:
-        return {
-            str(percorso.relative_to(radice_esperimenti)): percorso.read_bytes()
-            for percorso in sorted(radice_esperimenti.rglob("*"))
-            if percorso.is_file()
-        }
-
-    prima = istantanea()
-
-    tratte_galleria = [
-        rotta for rotta in cliente.app.routes
-        if getattr(rotta, "path", "").startswith("/api/experiments")
-    ]
-    # Se domani sparisse /api/experiments/{nome} o l'intero prefisso non
-    # comparisse piu' fra le rotte, questo test non proverebbe piu' niente
-    # in silenzio: qui si accorge e si ferma.
-    assert len(tratte_galleria) >= 2, "le rotte della galleria non si trovano piu' in app.routes"
-
-    for rotta in tratte_galleria:
-        bersaglio = re.sub(r"\{[^}]+\}", "prova", rotta.path)
-        for metodo in rotta.methods:
-            if metodo == "HEAD":
-                continue
-            cliente.request(metodo, bersaglio)
-
-    assert istantanea() == prima, "la galleria ha scritto o cancellato qualcosa in experiments/"
-
-
-def test_la_galleria_mostra_il_candidato_di_fronte_su_lab_crop():
-    """Verifica sul dato vero, non su tmp_path: i quattro valori vengono da
-    meshrec/docs/fase-2-sweep.md, paragrafo 3, riga del fronte
-    (surface.poisson_depth = 7). Il client punta a casi/lab.yaml e experiments/
-    reali del repository: la tratta e' GET, quindi non scrive su nessuno dei due.
-    """
-    radice_repo = Path(__file__).resolve().parents[1]
-    cliente_reale = TestClient(
-        create_app(
-            radice_repo / "casi" / "lab.yaml",
-            radice_esperimenti=radice_repo / "experiments",
-        ),
-        base_url="http://127.0.0.1",
-        raise_server_exceptions=False,
-    )
-    corpo = cliente_reale.get("/api/experiments/lab_crop").json()
-    indice_colonne = {voce["chiave"]: i for i, voce in enumerate(corpo["colonne"])}
-    fronte = [i for i, riga in enumerate(corpo["righe"]) if riga.get("on_front")]
-    assert len(fronte) == 1, f"atteso un solo candidato di fronte, trovati {len(fronte)}"
-    celle = corpo["celle"][fronte[0]]
-
-    assert celle[indice_colonne["axes"]] == "surface.poisson_depth=7"
-    # All'italiana dal 31/08/2026, e non e' un dettaglio di questa tratta: la
-    # tabella che il browser riceve la formatta `report._cell`, la stessa che
-    # scrive l'appendice. Le due rese non possono divergere, ed e' proprio
-    # questo che il riuso di `_COLUMNS`/`_cell` esiste per garantire.
-    assert celle[indice_colonne["tets"]] == "50.630"
-    assert celle[indice_colonne["over"]] == "0,06844"
-    assert celle[indice_colonne["thickness_error"]] == "1,192"
 
 
 def _cartella_di_corsa(cliente) -> Path:
@@ -3087,22 +2968,123 @@ def test_il_deck_si_scarica_anche_mentre_una_corsa_gira(cliente):
     cliente.post("/api/cancel")
 
 
-def test_lo_step_12_e_il_tetto_di_esegui_da_qui_in_poi(cliente):
+def test_lo_step_11_e_il_tetto_di_esegui_da_qui_in_poi(cliente):
     """Il tetto e' una scelta dell'interfaccia (server.py), non un'eredita' dal
     predefinito di RunConfig.to_step -- che ha gia' valso 13, poi 12 dalla Fase
-    8 (#140), e ora 11 dal perimetro del prodotto: il tetto qui non lo ha mai
-    seguito. Le due ragioni sono diverse e vanno tenute separate.
-
-    'Riprendi da qui' nel pannello non deve far partire un processo esterno da
-    solo: per questo il tetto e' 12. E resta 12 anche ora che il
-    predefinito e' 11, perche' lo stato porta tutti e dodici gli step:
-    fermo a 11, la riga 12 resterebbe 'mai eseguita' dietro 'esegui da qui in
-    poi', senza spiegazione e senza modo di eseguirla. Il perimetro del
-    prodotto governa che cosa accade *senza chiedere* -- una corsa da riga di
-    comando -- non che cosa l'interfaccia rende raggiungibile a chi clicca."""
+    8 (#140), e ora 11 dal perimetro del prodotto. Il tetto qui adesso lo
+    segue: 11 e' il deck, dove si chiude il perimetro del prodotto (PRODUCT.md)
+    e dove finisce una corsa da riga di comando. Il prior (12) resta
+    raggiungibile con `meshrec wall` e con `POST /api/step/12`, ma non parte
+    da un bottone che non lo nomina."""
     risposta = cliente.post("/api/step/9/from")
 
-    assert risposta.json()["fino_a"] == 12
+    assert risposta.json()["fino_a"] == 11
+
+
+def test_da_qui_in_giu_si_ferma_al_deck(cliente, monkeypatch):
+    """PRODUCT.md: il prior non gira per difetto, e la colonna non lo mostra.
+    Farlo partire da un bottone che non lo nomina e' uno step invisibile che
+    l'utente paga."""
+    avviati = []
+    monkeypatch.setattr(server.Worker, "start", lambda self, *argomenti: avviati.append(argomenti))
+    assert cliente.post("/api/step/3/from").json() == {"avviato": 3, "fino_a": 11}
+    assert avviati[0][2] == 11
+    # Il messaggio nomina le due strade che restano, perche' il rifiuto qui non
+    # e' «numero fuori dominio»: lo step 12 esiste e si puo' chiedere. Il
+    # messaggio del dominio 1..12 direbbe «chiesto 12, fino a 11», cioe' una
+    # frase che smentisce se stessa davanti a chi l'ha appena chiesto.
+    rifiuto = cliente.post("/api/step/12/from")
+    assert rifiuto.status_code == 400
+    assert rifiuto.json()["messaggio"] == (
+        "«da qui in giù» arriva al deck (step 11): per il prior usa "
+        "`meshrec wall` oppure lo step 12 da solo"
+    )
+
+
+def test_lo_step_12_da_solo_parte(cliente, monkeypatch):
+    """Il prior sta fuori dal perimetro del prodotto ma resta raggiungibile
+    chiedendolo per nome: e' `POST /api/step/12`, non un bottone che non lo
+    nomina."""
+    avviati = []
+    monkeypatch.setattr(server.Worker, "start", lambda self, *argomenti: avviati.append(argomenti))
+    risposta = cliente.post("/api/step/12")
+    assert risposta.status_code == 200
+    assert risposta.json() == {"avviato": 12, "fino_a": 12}
+    assert avviati[0][1:] == (12, 12)
+
+
+def test_avviare_mentre_gira_non_deposita_una_versione(cliente, tmp_path, monkeypatch):
+    """Il rifiuto sta sotto lo stesso lucchetto del deposito e PRIMA di esso:
+    depositare e poi rifiutare lascerebbe nello storico un'esecuzione che non
+    e' mai partita, cioe' un «annulla» che sposta artefatti a caso."""
+    from meshrec.app import storico
+
+    monkeypatch.setattr(server.Worker, "start", lambda self, *argomenti: None)
+    assert cliente.post("/api/step/1").status_code == 200
+    out_dir = tmp_path / "corsa"
+    prima = storico.cursore(out_dir)
+
+    monkeypatch.setattr(server.Worker, "is_running", lambda self: True)
+    rifiuto = cliente.post("/api/step/2")
+    assert rifiuto.status_code == 400
+    assert "sta già girando" in rifiuto.json()["messaggio"]
+    assert storico.cursore(out_dir) == prima
+
+
+def test_lo_stream_riparte_dalla_prima_riga_quando_il_registro_si_svuota(cliente, monkeypatch):
+    """`Worker.start` svuota `_righe` a ogni avvio (worker.py). Il generatore
+    teneva solo il conteggio di quelle gia' mandate, e sul fotogramma in cui il
+    registro si accorcia quel conteggio e' piu' alto di quante righe ci sono:
+    le prime della corsa nuova cadono nel taglio e nessun fotogramma successivo
+    le ripesca. Sono proprio quelle che #esito legge quando la corsa fallisce
+    subito, e il pannello diceva «nessun dettaglio» su una corsa che aveva
+    parlato."""
+    passate = iter([["prima", "corsa", "vecchia"], ["nuova"], ["nuova", "seconda"]])
+    stato = {"ultima": []}
+
+    def righe(self):
+        stato["ultima"] = next(passate, stato["ultima"])
+        return stato["ultima"]
+
+    monkeypatch.setattr(server.Worker, "righe", righe)
+    testo = cliente.get("/api/events?max_eventi=3").text
+    assert '"nuova"' in testo, "la prima riga della corsa nuova non deve cadere nel taglio"
+    assert '"seconda"' in testo
+    assert testo.count("event: riga") == 5, "nessuna riga mandata due volte"
+
+
+def test_lo_stream_riparte_con_lidentita_anche_se_le_righe_non_calano(cliente, monkeypatch):
+    """worker.py:97-115: `Worker.start` incrementa `avvii` subito dopo aver
+    svuotato `_righe`. Due corse ravvicinate nello stesso poll possono
+    lasciare la corsa nuova con lo stesso numero di righe della vecchia (o di
+    piu'): la guardia sul solo conteggio (`len(righe) < inviate`) non se ne
+    accorge, e la prima riga della corsa nuova si perde per sempre.
+    L'identita' della corsa deve bastare da sola, a prescindere dal
+    conteggio."""
+    turni = [
+        (0, ["vecchia"]),             # corsa A: 1 riga, gia' mandata
+        (1, ["nuova-1", "nuova-2"]),  # corsa B: avvii cambiato, 2 righe (>= della vecchia)
+    ]
+    turno = {"i": 0}
+
+    def avvii(self):
+        # Letta prima di righe() nel generatore: deve vedere il turno
+        # corrente, non quello gia' avanzato da righe().
+        return turni[turno["i"]][0]
+
+    def righe(self):
+        risultato = turni[turno["i"]][1]
+        turno["i"] = min(turno["i"] + 1, len(turni) - 1)
+        return risultato
+
+    monkeypatch.setattr(
+        server.Worker, "avvii", property(avvii, lambda self, valore: None), raising=False
+    )
+    monkeypatch.setattr(server.Worker, "righe", righe)
+
+    testo = cliente.get("/api/events?max_eventi=2").text
+    assert '"nuova-1"' in testo, "la prima riga della corsa nuova non deve cadere nel taglio"
+    assert '"nuova-2"' in testo
 
 
 
@@ -3667,7 +3649,6 @@ def cliente_con_regioni(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Test
         create_app(
             tmp_path / "config.yaml",
             radice_corse=tmp_path / "runs",
-            radice_esperimenti=tmp_path / "experiments",
         ),
         base_url="http://127.0.0.1",
         raise_server_exceptions=False,
@@ -4031,3 +4012,226 @@ def test_nessun_aiuto_mostra_un_letterale_di_python(cliente):
         if re.search(r"\b(None|True|False)\b", campo.get("description") or "")
     }
     assert not guasti, "un letterale di python nell'aiuto: " + ", ".join(sorted(guasti))
+
+
+def _corsa_con_lo_step_2_eseguito(tmp_path: Path) -> Path:
+    """Una corsa con un artefatto e uno stato scritti a mano, come li lascia
+    un'esecuzione riuscita dello step 2. Senza worker: qui si prova il deposito
+    e lo scambio, non la pipeline."""
+    from meshrec.core import steps
+
+    out_dir = tmp_path / "corsa"
+    out_dir.mkdir(exist_ok=True)
+    (out_dir / "02_segmented.ply").write_bytes(b"voxel 2")
+    cfg = load_config(tmp_path / "config.yaml")
+    impronte = steps.step_fingerprints(cfg)
+    steps.write_state(out_dir, 1, impronte[1], "riuscito", "01_cloud.ply", 1.0)
+    steps.write_state(out_dir, 2, impronte[2], "riuscito", "02_segmented.ply", 1.0)
+    (out_dir / "metrics.json").write_text(
+        json.dumps({"01_load": {"points_kept": 10}, "02_segment": {"points_after": 5}}),
+        encoding="utf-8",
+    )
+    return out_dir
+
+
+def test_eseguire_uno_step_deposita_prima_di_avviare(cliente, tmp_path, monkeypatch):
+    """Il deposito sta PRIMA di `lavoratore.start`: un'esecuzione senza deposito
+    e' un'esecuzione non annullabile, ed e' proprio il caso da togliere."""
+    from meshrec.app import storico
+
+    out_dir = _corsa_con_lo_step_2_eseguito(tmp_path)
+    avviati = []
+    monkeypatch.setattr(server.Worker, "start", lambda self, *argomenti: avviati.append(argomenti))
+    assert cliente.post("/api/step/2").status_code == 200
+    assert avviati == [(tmp_path / "config.yaml", 2, 2)]
+    numero = storico.cursore(out_dir)
+    cartella = out_dir / storico.CARTELLA / f"{numero:04d}"
+    assert (cartella / "02_segmented.ply").read_bytes() == b"voxel 2"
+    assert not (out_dir / "02_segmented.ply").exists()
+    dichiarato = json.loads((cartella / storico.SCAMBIO).read_text(encoding="utf-8"))
+    assert dichiarato["da"] == 2 and dichiarato["a"] == 2
+    assert dichiarato["file"][-1] == "steps.json", "steps.json va scambiato per ultimo"
+    stato = json.loads((out_dir / "steps.json").read_text(encoding="utf-8"))
+    assert "02_segment" not in stato and "01_load" in stato
+    metriche = json.loads((out_dir / "metrics.json").read_text(encoding="utf-8"))
+    assert "02_segment" not in metriche and "01_load" in metriche
+
+
+def test_un_deposito_che_solleva_non_avvia_il_worker(cliente, tmp_path, monkeypatch):
+    from meshrec.app import storico
+
+    _corsa_con_lo_step_2_eseguito(tmp_path)
+    avviati = []
+    monkeypatch.setattr(server.Worker, "start", lambda self, *argomenti: avviati.append(argomenti))
+
+    def esplode(*_argomenti, **_parole):
+        raise OSError("disco pieno")
+
+    monkeypatch.setattr(storico, "deposita", esplode)
+    risposta = cliente.post("/api/step/2")
+    assert risposta.status_code == 400
+    assert "disco pieno" in risposta.json()["messaggio"]
+    assert avviati == []
+
+
+def test_annullare_un_esecuzione_rimette_artefatto_stato_e_metriche(cliente, tmp_path, monkeypatch):
+    out_dir = _corsa_con_lo_step_2_eseguito(tmp_path)
+    monkeypatch.setattr(server.Worker, "start", lambda self, *argomenti: None)
+    assert cliente.post("/api/step/2").status_code == 200
+    # L'esecuzione «finisce»: scrive l'artefatto nuovo e lo stato nuovo.
+    from meshrec.core import steps
+
+    cfg = load_config(tmp_path / "config.yaml")
+    (out_dir / "02_segmented.ply").write_bytes(b"voxel 5")
+    steps.write_state(
+        out_dir, 2, steps.step_fingerprints(cfg)[2], "riuscito", "02_segmented.ply", 2.0
+    )
+    (out_dir / "metrics.json").write_text(
+        json.dumps({"01_load": {"points_kept": 10}, "02_segment": {"points_after": 3}}),
+        encoding="utf-8",
+    )
+
+    indietro = cliente.post("/api/storico/indietro").json()
+    assert indietro["annullato"] is True
+    assert indietro["tipo"] == "esecuzione"
+    assert (indietro["da"], indietro["a"]) == (2, 2)
+    assert (out_dir / "02_segmented.ply").read_bytes() == b"voxel 2"
+    assert json.loads((out_dir / "metrics.json").read_text(encoding="utf-8"))["02_segment"] == {
+        "points_after": 5
+    }
+    stato = next(voce for voce in indietro["steps"] if voce["numero"] == 2)
+    assert stato["secondi"] == 1.0, "lo stato rimesso e' quello di prima"
+
+    avanti = cliente.post("/api/storico/avanti").json()
+    assert avanti["annullato"] is True and avanti["tipo"] == "esecuzione"
+    assert (out_dir / "02_segmented.ply").read_bytes() == b"voxel 5"
+
+
+def test_annullare_un_esecuzione_fallita_rimette_lo_stato_di_prima(cliente, tmp_path, monkeypatch):
+    out_dir = _corsa_con_lo_step_2_eseguito(tmp_path)
+    monkeypatch.setattr(server.Worker, "start", lambda self, *argomenti: None)
+    assert cliente.post("/api/step/2").status_code == 200
+    from meshrec.core import steps
+
+    cfg = load_config(tmp_path / "config.yaml")
+    steps.write_state(out_dir, 2, steps.step_fingerprints(cfg)[2], "fallito", None, 0.0)
+    (out_dir / "metrics.partial.json").write_text("{}", encoding="utf-8")
+
+    indietro = cliente.post("/api/storico/indietro").json()
+    assert indietro["annullato"] is True
+    assert (out_dir / "02_segmented.ply").read_bytes() == b"voxel 2"
+    assert not (out_dir / "metrics.partial.json").exists()
+    assert next(voce for voce in indietro["steps"] if voce["numero"] == 2)["stato"] == "valido"
+
+
+def test_annullare_una_configurazione_dice_il_proprio_tipo(cliente):
+    corpo = cliente.get("/api/config").json()
+    corpo["tet"]["min_ratio"] = 1.9
+    assert cliente.put("/api/config", json=corpo).status_code == 200
+    indietro = cliente.post("/api/storico/indietro").json()
+    assert indietro["tipo"] == "configurazione"
+    assert "da" not in indietro
+
+
+def test_uno_step_fuori_intervallo_e_rifiutato_prima_del_deposito(cliente, tmp_path, monkeypatch):
+    """Senza guardia `steps.dimentica(range(0, 1))` fa `STEP_KEYS[-1]` e toglie
+    in silenzio la voce del prior; 13 solleva `IndexError` a versione già
+    depositata. Il rifiuto sta prima del deposito: nessuna versione nuova."""
+    from meshrec.app import storico
+
+    out_dir = _corsa_con_lo_step_2_eseguito(tmp_path)
+    avviati = []
+    monkeypatch.setattr(server.Worker, "start", lambda self, *argomenti: avviati.append(argomenti))
+    for percorso in ("/api/step/0", "/api/step/13", "/api/step/13/from"):
+        risposta = cliente.post(percorso)
+        assert risposta.status_code == 400, percorso
+        assert "fra 1 e 12" in risposta.json()["messaggio"]
+    assert not storico.esiste(out_dir)
+    assert avviati == []
+
+
+def test_lo_storico_rifiuta_con_409_mentre_un_worker_gira(cliente, tmp_path, monkeypatch):
+    """Scambiare file sotto un processo che li sta scrivendo non ha un esito
+    buono. 409 e non 400: la richiesta e' formata bene, e' il momento sbagliato.
+    Il rifiuto e' completo: cursore fermo e nessun file mosso."""
+    from meshrec.app import storico
+
+    out_dir = _corsa_con_lo_step_2_eseguito(tmp_path)
+    storico.deposita(out_dir, "uno\n", "avvio", [])
+    prima = storico.cursore(out_dir)
+    monkeypatch.setattr(server.Worker, "is_running", lambda self: True)
+    for verso in ("indietro", "avanti"):
+        risposta = cliente.post(f"/api/storico/{verso}")
+        assert risposta.status_code == 409, verso
+        assert "interrompi il calcolo" in risposta.json()["messaggio"]
+        assert storico.cursore(out_dir) == prima, verso
+        assert (out_dir / "02_segmented.ply").read_bytes() == b"voxel 2", verso
+
+
+@pytest.mark.parametrize(
+    "rotte",
+    [b"{tronc", b"\xff\xfe non utf-8", b'["non", "un", "oggetto"]'],
+    ids=["troncato", "non-utf8", "non-oggetto"],
+)
+def test_metriche_illeggibili_non_fermano_l_esecuzione(cliente, tmp_path, monkeypatch, rotte):
+    """`_dimentica_metriche` non riscrive cio' che non ha saputo leggere: la
+    copia nella cartella e' quella rotta, e l'esecuzione parte lo stesso."""
+    from meshrec.app import storico
+
+    out_dir = _corsa_con_lo_step_2_eseguito(tmp_path)
+    (out_dir / "metrics.json").write_bytes(rotte)
+    avviati = []
+    monkeypatch.setattr(server.Worker, "start", lambda self, *argomenti: avviati.append(argomenti))
+    assert cliente.post("/api/step/2").status_code == 200
+    assert avviati == [(tmp_path / "config.yaml", 2, 2)]
+    assert (out_dir / "metrics.json").read_bytes() == rotte
+    cartella = out_dir / storico.CARTELLA / f"{storico.cursore(out_dir):04d}"
+    assert (cartella / "metrics.json").read_bytes() == rotte
+
+
+def test_una_corsa_senza_metriche_ne_stato_si_deposita_lo_stesso(cliente, tmp_path, monkeypatch):
+    """Prima esecuzione: metrics.json e steps.json non esistono ancora, e
+    nessuno dei due va creato per poterli dimenticare."""
+    out_dir = tmp_path / "corsa"
+    out_dir.mkdir()
+    avviati = []
+    monkeypatch.setattr(server.Worker, "start", lambda self, *argomenti: avviati.append(argomenti))
+    assert cliente.post("/api/step/1").status_code == 200
+    assert avviati == [(tmp_path / "config.yaml", 1, 1)]
+    assert not (out_dir / "metrics.json").exists()
+    assert not (out_dir / "steps.json").exists()
+
+
+def test_annullare_un_esecuzione_senza_cartella_dice_configurazione(cliente, tmp_path, monkeypatch):
+    """`.storico/` si cancella a mano quando serve spazio: la versione resta,
+    la sua cartella no, e l'annullamento vale per la sola configurazione."""
+    from meshrec.app import storico
+
+    out_dir = _corsa_con_lo_step_2_eseguito(tmp_path)
+    monkeypatch.setattr(server.Worker, "start", lambda self, *argomenti: None)
+    assert cliente.post("/api/step/2").status_code == 200
+    shutil.rmtree(out_dir / storico.CARTELLA / f"{storico.cursore(out_dir):04d}")
+    indietro = cliente.post("/api/storico/indietro").json()
+    assert indietro["annullato"] is True
+    assert indietro["tipo"] == "configurazione"
+    assert "da" not in indietro
+
+
+def test_una_versione_illeggibile_non_scambia_niente(cliente, tmp_path, monkeypatch):
+    """Lo scambio parte solo dopo la scrittura di config.yaml: un rifiuto di
+    `_ripristina` lascia i file dove stanno."""
+    from meshrec.app import storico
+
+    out_dir = _corsa_con_lo_step_2_eseguito(tmp_path)
+    monkeypatch.setattr(server.Worker, "start", lambda self, *argomenti: None)
+    assert cliente.post("/api/step/2").status_code == 200
+    (out_dir / "02_segmented.ply").write_bytes(b"voxel 5")
+    numero = storico.cursore(out_dir)
+    (out_dir / storico.CARTELLA / f"{numero - 1:04d}.yaml").write_text(
+        "input: [non una mappa", encoding="utf-8"
+    )
+    risposta = cliente.post("/api/storico/indietro").json()
+    assert risposta["annullato"] is False and risposta["guasto"] is True
+    assert (out_dir / "02_segmented.ply").read_bytes() == b"voxel 5"
+    cartella = out_dir / storico.CARTELLA / f"{numero:04d}"
+    assert (cartella / "02_segmented.ply").read_bytes() == b"voxel 2"

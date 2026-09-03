@@ -116,8 +116,39 @@ def _funzioni(*nomi: str) -> str:
 _COLONNA = (
     "segnaStepAperto", "nuovaRiga",
     "superata", "serverMuto", "ragioneDelRifiuto", "corpoLetto",
+    # Il pannello del modello, che `disegnaStep` chiama in coda: senza queste
+    # quattro il banco della colonna cade su un ReferenceError. Nel banco non
+    # c'e' server, quindi il pannello percorre il proprio ramo di rifiuto --
+    # ed e' cio' che deve fare quando /api/metrics non risponde.
+    "fronteDelloStato", "chiaveDelFronte", "righeDelModello", "valoreDellaMetrica",
+    "apriModello", "aggiornaModello",
     "disegnaStep",
 )
+
+
+def _etichette_metriche() -> dict:
+    """La tabella `ETICHETTE_METRICHE` letta dal sorgente vero, valutata con
+    `node`.
+
+    Non passa da `_costante`, che vede una riga sola, ne' da una copia scritta
+    qui: una copia lascerebbe che banco e modulo divergano in silenzio, ed e'
+    proprio la tabella su cui il banco deve dire qualcosa. Le due ancore si
+    controllano prima di tagliare, cosi' una costante rinominata fallisce
+    dicendo che l'estrazione si e' rotta invece di far cadere `node` su un
+    SyntaxError.
+    """
+    inizio, fine = "const ETICHETTE_METRICHE = ", "\n};\n"
+    testo = _modulo()
+    assert inizio in testo, f"ancora d'inizio assente: {inizio}"
+    coda = testo.split(inizio, 1)[1]
+    assert fine in coda, f"ancora di fine assente: {fine!r}"
+    corpo = inizio + coda.split(fine, 1)[0] + "\n};\n"
+    esito = subprocess.run(
+        [_node(), "-e", corpo + "console.log(JSON.stringify(ETICHETTE_METRICHE))"],
+        capture_output=True, text=True,
+    )
+    assert esito.returncode == 0, esito.stderr
+    return json.loads(esito.stdout)
 
 
 def _costante(nome: str) -> str:
@@ -131,6 +162,23 @@ def _costante(nome: str) -> str:
     assert trovato is not None, f"nessuna costante {nome} in app.js"
     return trovato.group(0)
 
+
+def _tabella_del_modello() -> str:
+    """Le costanti del pannello del modello, prese dal sorgente vero: da `const
+    NON_MISURATO` alla riga prima di `righeDelModello`, cioe' NON_MISURATO,
+    valoreDelModello, RIGHE_DELLA_SUPERFICIE e RIGHE_DEL_MODELLO.
+
+    Non passa da `_costante`, che vede una riga sola. Le due ancore si
+    controllano prima di tagliare: un'ancora sparita darebbe un taglio vuoto o
+    lungo mezzo modulo, e il banco fallirebbe dicendo qualcosa sul
+    comportamento invece che sull'estrazione che si e' rotta.
+    """
+    inizio, fine = "const NON_MISURATO = ", "\n// Le righe del pannello"
+    testo = _modulo()
+    assert inizio in testo, f"ancora d'inizio assente: {inizio}"
+    coda = testo.split(inizio, 1)[1]
+    assert fine in coda, f"ancora di fine assente: {fine}"
+    return inizio + coda.split(fine, 1)[0] + "\n"
 
 def _costante_viewport(nome: str) -> str:
     """La riga di una costante di `viewport.js`, presa dal sorgente vero.
@@ -200,6 +248,7 @@ class Elemento {
     this.padre = null;
     this.gestori = {};
     this.classList = {
+      add: (nome) => this.classList.toggle(nome, true),
       toggle: (nome, attivo) => {
         const classi = new Set(this.className.split(" ").filter(Boolean));
         if (attivo) classi.add(nome); else classi.delete(nome);
@@ -208,6 +257,19 @@ class Elemento {
     };
   }
   addEventListener(tipo, gestore) { (this.gestori[tipo] ??= []).push(gestore); }
+  // «Riporta» scatena `change` sul comando invece di scrivere per conto
+  // proprio: il gesto passa dal gestore che gia' salva, e il banco deve poter
+  // percorrere quella stessa strada.
+  dispatchEvent(evento) { return this.scatena(evento.type); }
+  // Il salvataggio dell'immagine fabbrica un <a download> e lo clicca: e' il
+  // browser che scrive il file, e il banco deve poter vedere quel clic.
+  click() {
+    this.cliccato = true;
+    // Il padre AL MOMENTO del clic: un <a download> che non sta nell'albero
+    // Firefox lo ignora in silenzio, e dopo il clic il modulo lo toglie.
+    this.padreAlClic = this.padre;
+    return this.scatena("click");
+  }
   // Il gestore vero, eseguito: e' cio' che mancava al banco. `await` perche' il
   // gestore del campo e' asincrono, e senza aspettarlo il controllo guarderebbe
   // lo stato di prima della risposta.
@@ -257,6 +319,9 @@ const document = {
     return perId.get(id);
   },
   querySelectorAll: (selettore) => radice.querySelectorAll(selettore),
+  // La radice del DOM finto e' il <body>: il salvataggio dell'immagine ci
+  // attacca il proprio collegamento prima di cliccarlo.
+  body: radice,
 };
 
 // Il costruttore che il browser porta per <option>, e che `pannelloCampo` usa.
@@ -283,6 +348,12 @@ let generazione = 0;
 // Lo stato degli step che `disegnaStep` scrive e `passoDaMostrare` legge: senza,
 // il banco proverebbe una copia che non e' quella del modulo.
 let ultimoStato = [];
+// Le due variabili del pannello del modello, che `disegnaStep` fa girare a ogni
+// passata: `fronteMostrato` e' la terna gia' sullo schermo, `ultimoModello`
+// l'ordine delle riletture. Senza, il banco della colonna cadrebbe su un
+// ReferenceError invece di dire qualcosa sulla colonna.
+let fronteMostrato = "";
+let ultimoModello = 0;
 // Le variabili di modulo dell'analisi. `datiAnalisi` e `motivoAnalisi` a null
 // sono «non ancora chiesta», che e' lo stato in cui le quattro schede non si
 // toccano: senza, il banco proverebbe una copia che non e' quella del modulo.
@@ -324,6 +395,14 @@ _DOM += _costante("elemento") + "\n"
 # colonna le vuole. Prese dal sorgente vero e non riscritte qui, per la stessa
 # ragione di `elemento`.
 _DOM += _costante("STEP_DEL_PRIOR") + "\n"
+# Le costanti del pannello del modello, per la stessa ragione delle due qui
+# sopra: `disegnaStep` chiama `aggiornaModello` in coda, e ogni banco che
+# disegna la colonna se le porta dietro.
+_DOM += _tabella_del_modello()
+# Le chiavi il cui «sì» e' una contraddizione. Sta qui e non nei singoli banchi
+# perche' `righeDelModello` la legge, e `aggiornaModello` in coda a `disegnaStep`
+# la porta dentro ogni banco che disegna la colonna.
+_DOM += _costante("METRICHE_D_ALLARME") + "\n"
 
 
 # --------------------------------------------------------------------------
@@ -1742,7 +1821,8 @@ def _banco_del_campo() -> str:
     """
     return _DOM + _funzioni(
         "valoreScritto", "ragioneDelRifiuto", "serverMuto", "superata", "corpoLetto",
-        "segnalaCampo", "apriBattuta", "scriviValore", "scriviParametro", "campoParametro",
+        "segnalaCampo", "apriBattuta", "scriviValore", "scriviParametro",
+        "testoDellAiuto", "campoParametro",
     ) + """
 // Il terzo contatore di Rilievo 1, per campo: scriviParametro lo legge dal
 // modulo per nome, non da un parametro, quindi il banco deve ricrearlo tale e
@@ -2660,7 +2740,8 @@ def _banco_di_apriDettaglio() -> str:
     return _DOM + _funzioni(
         *_COLONNA, "dichiaraErrore", "fallisciDettaglio",
         "ragioneDelRifiuto", "serverMuto", "superata", "corpoLetto", "valoreScritto",
-        "segnalaCampo", "apriBattuta", "scriviValore", "scriviParametro", "campoParametro", "apriDettaglio",
+        "segnalaCampo", "apriBattuta", "scriviValore", "scriviParametro",
+        "testoDellAiuto", "campoParametro", "apriDettaglio",
         "durataMisurata", "ultimaDurata",
         # L'intestazione e il gruppo che richiude i predefiniti: il pannello li
         # costruisce a ogni apertura, quindi il banco li incontra comunque.
@@ -3135,108 +3216,6 @@ chiamata = 0;
 globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({ points_after: 7, completo: true }) });
 await applica.scatena("click");
 assert.match(esito.textContent, /^7\\s+punti/, "un clic normale, senza accavallamento, smette di funzionare");
-""")
-
-
-# --------------------------------------------------------------------------
-# Task 14: galleria di curazione. mostraEsperimento e' la stessa famiglia di
-# guardia di mostraNuvolaDelloStep/mostraStep (Rilievo 1): un contatore
-# fresco per clic, aperto prima della fetch e controllato dopo, prima di
-# ogni scrittura. Lo scanner strutturale sopra non vede questa tratta —
-# il click su #galleria-elenco chiama mostraEsperimento senza attenderla, e
-# "nessuna await fetch nel corpo risolto" del gestore la lascia fuori dal suo
-# raggio dichiarato — quindi la prova che il contatore e' controllato e non
-# solo aperto sta qui, non nello scanner.
-# --------------------------------------------------------------------------
-
-
-def _banco_di_galleria() -> str:
-    return _DOM + _funzioni(
-        "corpoLetto", "ragioneDelRifiuto", "serverMuto", "superata",
-        "apriGalleria", "dichiaraErrore", "disegnaTabellaGalleria", "mostraEsperimento",
-    ) + """
-let ultimaGalleria = 0;
-let risponde = [];
-let chiamata = 0;
-globalThis.fetch = async () => risponde[chiamata++]();
-"""
-
-
-def test_due_richieste_di_esperimento_sovrapposte_non_fanno_vincere_la_vecchia(tmp_path):
-    """Due clic su due esperimenti — o due riaperture dello stesso — possono
-    accavallarsi, e la risposta piu' vecchia non deve scrivere sopra la
-    tabella piu' recente.
-
-    Il contatore va aperto E controllato: `apriGalleria()` lasciato per
-    decorazione con la guardia (`superata(richiesta, ultimaGalleria)`) tolta
-    subito dopo resta invisibile allo scanner strutturale del file (vedi la
-    sua stessa dichiarazione di limite, sopra) — verificato mutando cosi'
-    questa coppia nel worktree di lavoro: lo scanner resta verde, solo
-    questo test diventa rosso.
-    """
-    _esegui(tmp_path, _banco_di_galleria() + """
-let risolvi1, risolvi2;
-risponde = [
-  () => new Promise((r) => { risolvi1 = r; }),
-  () => new Promise((r) => { risolvi2 = r; }),
-];
-
-const vecchia = mostraEsperimento("muro");
-const nuova = mostraEsperimento("lab_crop");
-
-// La piu' recente arriva per prima.
-risolvi2({
-  ok: true,
-  json: async () => ({
-    nome: "lab_crop", fronte: 1,
-    colonne: [{ chiave: "esito", etichetta: "esito" }],
-    righe: [{ on_front: true }],
-    celle: [["riuscito"]],
-  }),
-});
-assert.equal(await nuova, true, "la richiesta piu' recente non risulta scritta");
-assert.equal(
-  document.getElementById("galleria-tabella").figli[0].testo,
-  "lab_crop: 1 candidati, 1 sul fronte.",
-  "la tabella non mostra l'esperimento appena arrivato",
-);
-
-// La piu' vecchia, rimasta in volo, rientra per ultima.
-risolvi1({
-  ok: true,
-  json: async () => ({
-    nome: "muro", fronte: 0,
-    colonne: [{ chiave: "esito", etichetta: "esito" }],
-    righe: [],
-    celle: [],
-  }),
-});
-assert.equal(await vecchia, false, "la richiesta vecchia risulta scritta: doveva essere scartata");
-assert.equal(
-  document.getElementById("galleria-tabella").figli[0].testo,
-  "lab_crop: 1 candidati, 1 sul fronte.",
-  "la risposta vecchia, arrivata per ultima, ha scritto sopra la tabella piu' recente",
-);
-""")
-
-
-def test_mostraEsperimento_dichiara_il_rifiuto_del_server(tmp_path):
-    """Un 4xx del server (server.py solleva FileNotFoundError su un nome che
-    non esiste, il gestore generico lo traduce in {"errore", "messaggio"})
-    e' un rifiuto come gli altri: finisce nel canale d'errore condiviso, non
-    in un silenzio."""
-    _esegui(tmp_path, _banco_di_galleria() + """
-risponde = [() => ({
-  ok: false, status: 400,
-  text: async () => JSON.stringify({ messaggio: "nessun registro per l'esperimento fantasma" }),
-})];
-const scritto = await mostraEsperimento("fantasma");
-assert.equal(scritto, true, "un rifiuto e' comunque una scrittura: la ragione va dichiarata");
-assert.match(
-  rigaErrore.textContent,
-  /nessun registro per l'esperimento fantasma/,
-  "il rifiuto del server non arriva nella regione d'errore",
-);
 """)
 
 
@@ -5063,8 +5042,13 @@ def _banco_di_esito() -> str:
         "ultimaDurata",
         "durataDellaCorsa",
         "descrizioneDellaCorsa",
+        "ultimaRigaDelRegistro",
         "esitoDellaCorsa",
         "mostraEsito",
+        # Il titolo della scheda e la notifica: aggiornaDaStato le chiama sul
+        # fronte di discesa, e senza il banco cadrebbe su un ReferenceError.
+        "titoloConEsito",
+        "notificaFuoriDallaScheda",
         # I due «Esegui» seguono la corsa dallo stesso carico di «Annulla»:
         # aggiornaDaStato la chiama, quindi il banco la incontra.
         "spegniLeEsecuzioni",
@@ -5118,7 +5102,7 @@ assert.deepEqual(
 assert.deepEqual(
   esitoDellaCorsa({ ...base, exit_code: 1 }),
   {
-    errore: "Lettura: esecuzione fallita (codice 1). Il motivo è nelle ultime righe del registro, in fondo alla colonna Dettaglio.",
+    errore: "Lettura: esecuzione fallita (codice 1). Il motivo è nel registro, in fondo alla colonna Dettaglio: nessun dettaglio",
     esito: null,
   },
 );
@@ -5316,11 +5300,28 @@ assert.match(esito.textContent, /esecuzione fallita \\(codice 2\\)/);
 assert.ok(esito.className.includes("esito-fallito"), "il fallimento non ha il proprio peso");
 assert.deepEqual(riaperte, [1], "il pannello non e' stato riaperto");
 assert.deepEqual(ricaricate, [1], "la vista e' rimasta indietro");
+// Il registro si apre da solo: c'e' un motivo da leggere.
+const dettagli = document.getElementById("registro-dettagli");
+assert.equal(dettagli.open, true, "un fallimento non ha aperto il registro");
 
 // Riparte: l'esito di prima se ne va, e con lui la sua classe.
 aggiornaDaStato({ in_corso: true, step: 1, a_step: 1, steps, da_secondi: 0.1, annullato: false, exit_code: null });
 assert.equal(esito.textContent, "", "l'esito vecchio e' rimasto sopra la corsa nuova");
 assert.ok(!esito.className.includes("esito-fallito"), "la classe del fallimento e' sopravvissuta");
+
+// Una corsa riuscita non tocca il registro: ne' lo apre da chiuso, ne' lo
+// richiude se l'utente l'aveva gia' aperto.
+dettagli.open = false;
+aggiornaDaStato({ in_corso: false, step: 1, a_step: 1, steps, da_secondi: null, annullato: false, exit_code: 0 });
+assert.equal(dettagli.open, false, "una corsa riuscita ha aperto il registro da sola");
+
+// Il fronte di salita chiude sempre il registro (corsa nuova, righe vecchie):
+// l'apertura a mano va dopo, mentre la corsa gia' gira, per provare che sia
+// il SUCCESSO a non richiuderla e non il fronte di salita a non averlo fatto.
+aggiornaDaStato({ in_corso: true, step: 1, a_step: 1, steps, da_secondi: 0.1, annullato: false, exit_code: null });
+dettagli.open = true;
+aggiornaDaStato({ in_corso: false, step: 1, a_step: 1, steps, da_secondi: null, annullato: false, exit_code: 0 });
+assert.equal(dettagli.open, true, "una corsa riuscita ha richiuso il registro che l'utente aveva aperto");
 """)
 
 
@@ -5391,7 +5392,7 @@ def test_i_parametri_al_predefinito_si_richiudono_e_gli_altri_no(tmp_path):
     """
     _esegui(tmp_path, _DOM + _funzioni(
         "nuovaRiga", "segnalaCampo", "valoreScritto", "apriBattuta", "scriviParametro",
-        "campoParametro", "reso", "cambiatoDalPredefinito", "gruppoDelBlocco",
+        "testoDellAiuto", "campoParametro", "reso", "cambiatoDalPredefinito", "gruppoDelBlocco",
     ) + """
 let ultimaBattutaDelCampo = new Map();
 // `configurazione` la dichiara gia' _DOM: e' la variabile di modulo che il
@@ -5434,7 +5435,7 @@ def test_con_tutto_al_predefinito_la_piega_nasce_aperta(tmp_path):
     """
     _esegui(tmp_path, _DOM + _funzioni(
         "nuovaRiga", "segnalaCampo", "valoreScritto", "apriBattuta", "scriviParametro",
-        "campoParametro", "reso", "cambiatoDalPredefinito", "gruppoDelBlocco",
+        "testoDellAiuto", "campoParametro", "reso", "cambiatoDalPredefinito", "gruppoDelBlocco",
     ) + """
 let ultimaBattutaDelCampo = new Map();
 configurazione = { tet: { min_ratio: 1.8, nobisect: false } };
@@ -6738,3 +6739,759 @@ def test_il_menu_della_classe_si_stacca_dai_quattro_valori_e_non_cita_la_tabella
     assert "campo-catalogo" in foglio, (
         "`campo-catalogo` non veste niente: la riga della classe si legge come un quinto valore"
     )
+
+
+# --------------------------------------------------------------------------
+# Il pannello «Modello»: descrive il fronte, cioe' lo step valido di numero
+# piu' alto, con i numeri che metrics.json porta gia'.
+# --------------------------------------------------------------------------
+
+
+def test_il_fronte_e_lo_step_valido_di_numero_piu_alto(tmp_path):
+    _esegui(tmp_path, _DOM + _funzioni("fronteDelloStato") + """
+const steps = [
+  { numero: 1, chiave: "01_load", stato: "valido" },
+  { numero: 2, chiave: "02_segment", stato: "valido" },
+  { numero: 3, chiave: "03_downsample", stato: "non valido" },
+  { numero: 4, chiave: "04_normals", stato: "valido" },
+  { numero: 5, chiave: "05_reconstruct", stato: "fallito" },
+  { numero: 12, chiave: "12_wall", stato: "valido" },
+];
+assert.equal(fronteDelloStato(steps).numero, 4, "il fronte e' il valido piu' alto, prior escluso");
+assert.equal(fronteDelloStato(steps.map((v) => ({ ...v, stato: "mai eseguito" }))), null);
+assert.equal(fronteDelloStato([]), null);
+""")
+
+
+def test_le_righe_del_modello_leggono_le_chiavi_vere_e_dicono_non_misurato(tmp_path):
+    _esegui(tmp_path, _DOM + _funzioni("righeDelModello", "valoreDellaMetrica") + """
+const metriche = {
+  "05_reconstruct": { vertices: 1234, triangles: 2468, watertight: false, boundary_edges: 12, area: 1.5, volume: 0 },
+  "01_load": { points_kept: 1000000, spacing: 1.1934567, extent: [2759, 785, 2000] },
+  // I due versi hanno numeri diversi apposta: e' l'unico modo di vedere quale
+  // dei due il pannello sta davvero leggendo.
+  "07_surface_quality": { geometric_error: { cloud_to_mesh: { RMS: 111, max: 222 }, mesh_to_cloud: { RMS: 333, max: 444 } } },
+};
+const superficie = righeDelModello({ numero: 5, chiave: "05_reconstruct" }, metriche);
+const perNome = Object.fromEntries(superficie);
+// "1234" e non "1.234": in italiano CLDR non raggruppa a quattro cifre
+// (minimumGroupingDigits vale 2), e questo pannello formatta come la colonna
+// del dettaglio -- stesso toLocaleString("it"), stesso esito. Un milione, sotto,
+// il punto ce l'ha.
+assert.equal(perNome["vertici"], "1234");
+assert.equal(perNome["superficie"], "aperta");
+assert.equal(perNome["spigoli di bordo"], "12");
+const nuvola = Object.fromEntries(righeDelModello({ numero: 1, chiave: "01_load" }, metriche));
+assert.equal(nuvola["punti"], "1.000.000");
+// Sei cifre significative, come valoreDellaMetrica: la colonna del dettaglio e
+// questo pannello mostrano la stessa quantita' a due passi di distanza, e due
+// arrotondamenti diversi sarebbero due numeri diversi per la stessa cosa.
+assert.equal(nuvola["spaziatura media [mm]"], "1,19346");
+assert.equal(nuvola["ingombro [mm]"], "2759 × 785 × 2000");
+// Un ingombro senza numeri non e' un ingombro: un array vuoto non deve
+// diventare la stringa vuota, che a schermo si legge «misurato e nullo».
+const senzaIngombro = Object.fromEntries(righeDelModello({ numero: 1, chiave: "01_load" }, { "01_load": { extent: [] } }));
+assert.equal(senzaIngombro["ingombro [mm]"], "non misurato");
+// Lo scarto si legge nel verso mesh_to_cloud, che e' quello che il progetto
+// chiama «scarto dalla nuvola» (report.py, quality.py, e la legenda della
+// vista, alimentata dal verso per-vertice). Leggere cloud_to_mesh metterebbe
+// sotto lo stesso nome una misura diversa da quella gia' pubblicata.
+const scarto = Object.fromEntries(righeDelModello({ numero: 7, chiave: "07_surface_quality" }, metriche));
+assert.equal(scarto["scarto dalla nuvola, RMS [mm]"], "333");
+assert.equal(scarto["scarto dalla nuvola, massimo [mm]"], "444");
+const vecchia = Object.fromEntries(righeDelModello({ numero: 6, chiave: "06_repair" }, { "06_repair": { vertices: 3 } }));
+assert.equal(vecchia["vertici"], "3");
+assert.equal(vecchia["superficie"], "non misurato", "una corsa vecchia non inventa la chiusura");
+assert.deepEqual(righeDelModello({ numero: 7, chiave: "07_surface_quality" }, {}).map(([, v]) => v).every((v) => v === "non misurato"), true);
+// Un percorso annidato interrotto a meta': `geometric_error` c'e' ma non e' un
+// oggetto. Camminarci dentro senza guardare che cosa si sta aprendo solleverebbe.
+const rotto = Object.fromEntries(righeDelModello({ numero: 7, chiave: "07_surface_quality" }, { "07_surface_quality": { geometric_error: 3 } }));
+assert.equal(rotto["scarto dalla nuvola, RMS [mm]"], "non misurato");
+// Una chiave che la tabella non conosce non ha righe, e non e' un errore: il
+// 12 e' escluso a monte, ma una chiave futura passerebbe di qui.
+assert.deepEqual(righeDelModello({ numero: 13, chiave: "13_futuro" }, {}), []);
+// Cio' che non e' ne' numero ne' booleano si scrive com'e': C3D4 e' un
+// identificatore, non un numero da formattare.
+const deck = Object.fromEntries(righeDelModello({ numero: 11, chiave: "11_export" }, { "11_export": { element_type: "C3D4" } }));
+assert.equal(deck["tipo di elemento"], "C3D4");
+""")
+
+
+def test_il_pannello_del_modello_sta_nel_markup_con_il_proprio_vuoto():
+    markup = _senza_commenti_html(_markup())
+    assert 'id="modello"' in markup
+    vuoto = _elemento(markup, "modello-vuoto")
+    assert "hidden" not in vuoto, "lo stato vuoto nasce visibile: a corsa aperta il fronte non c'e' ancora"
+    assert 'id="modello-righe"' in markup
+    sezione = _elemento(markup, "modello")
+    assert "aria-labelledby" not in sezione, (
+        f"una <section> con un nome accessibile e' un landmark dentro il <nav>: {sezione}"
+    )
+
+
+def test_il_modello_si_rilegge_solo_quando_il_fronte_cambia(tmp_path):
+    """Il flusso SSE arriva ogni mezzo secondo; una fetch a ogni fotogramma
+    sarebbero due richieste al secondo per niente. La terna (numero, impronta,
+    secondi) e' cio' che cambia nei tre casi che contano: esecuzione finita,
+    annullamento, parametro modificato."""
+    _esegui(tmp_path, _DOM + _funzioni("fronteDelloStato", "chiaveDelFronte") + """
+const a = { numero: 6, impronta: "abc", secondi: 12.5 };
+assert.equal(chiaveDelFronte(a), chiaveDelFronte({ ...a }));
+assert.notEqual(chiaveDelFronte(a), chiaveDelFronte({ ...a, secondi: 13 }));
+assert.notEqual(chiaveDelFronte(a), chiaveDelFronte({ ...a, impronta: "abd" }));
+assert.equal(chiaveDelFronte(null), "");
+// Uno step valido mai cronometrato non ha ne' impronta ne' secondi: la terna
+// resta una stringa, e il confronto con la precedente non solleva.
+assert.equal(typeof chiaveDelFronte({ numero: 6 }), "string");
+assert.notEqual(chiaveDelFronte({ numero: 6 }), chiaveDelFronte(a));
+""")
+
+
+def test_il_pannello_del_modello_non_chiede_le_metriche_quando_non_c_e_un_fronte(tmp_path):
+    """Le tre condizioni d'ingresso che si vedono solo facendo girare la
+    tratta: nessuno step valido non chiede niente al server, la stessa terna
+    non rilegge, e un corpo che non e' un oggetto lascia il fronte scritto ma
+    le righe nascoste."""
+    _esegui(tmp_path, _DOM + _funzioni(
+        "fronteDelloStato", "chiaveDelFronte", "righeDelModello", "valoreDellaMetrica",
+        "apriModello", "aggiornaModello", "superata", "serverMuto", "corpoLetto",
+    ) + """
+let richieste = 0;
+let risponde = async () => ({ ok: true, status: 200, json: async () => ({ "01_load": { points_kept: 5 } }) });
+globalThis.fetch = async () => { richieste += 1; return risponde(); };
+const vuoto = document.getElementById("modello-vuoto");
+const righe = document.getElementById("modello-righe");
+const fronte = document.getElementById("modello-fronte");
+
+// Nessuno step valido, e il solo prior valido: due strade per lo stesso vuoto.
+await aggiornaModello([]);
+await aggiornaModello([{ numero: 1, chiave: "01_load", stato: "mai eseguito" }]);
+await aggiornaModello([{ numero: 12, chiave: "12_wall", stato: "valido", impronta: "w", secondi: 1 }]);
+assert.equal(richieste, 0, "senza un fronte non si chiede niente a /api/metrics");
+
+const uno = { numero: 1, chiave: "01_load", stato: "valido", impronta: "a", secondi: 1 };
+await aggiornaModello([uno]);
+assert.equal(richieste, 1);
+assert.equal(righe.hidden, false, "le righe restano nascoste su un corpo buono");
+await aggiornaModello([{ ...uno }]);
+assert.equal(richieste, 1, "la stessa terna rilegge le metriche a ogni fotogramma");
+await aggiornaModello([{ ...uno, secondi: 2 }]);
+assert.equal(richieste, 2, "una terna nuova non rilegge");
+
+// Torna a non avere fronte: il pannello si svuota da se' e non chiede niente.
+await aggiornaModello([]);
+assert.equal(richieste, 2);
+assert.equal(righe.hidden, true);
+assert.match(vuoto.textContent, /esegui lo step 1/);
+
+// Un corpo che non e' un oggetto, e una fetch che non risponde affatto.
+for (const guasto of [
+  async () => ({ ok: true, status: 200, json: async () => null }),
+  async () => ({ ok: true, status: 200, json: async () => "spazzatura" }),
+  async () => { throw new TypeError("server spento"); },
+]) {
+  risponde = guasto;
+  await aggiornaModello([{ numero: 5, chiave: "05_reconstruct", stato: "valido", impronta: guasto.name || String(Math.random()), secondi: 3 }]);
+  assert.match(vuoto.textContent, /metriche non leggibili/);
+  assert.equal(vuoto.hidden, false);
+  assert.equal(righe.hidden, true);
+  assert.match(fronte.textContent, /dopo lo step 5/, "il fronte si dice comunque");
+}
+""")
+
+
+def test_il_pannello_del_modello_marca_lo_steiner_saturato(tmp_path):
+    """Spec §4.1: la saturazione dei punti di Steiner e' la «mesh troncata in
+    silenzio» del primo principio di prodotto. Nella colonna del dettaglio
+    l'avviso c'era gia'; qui la stessa misura si leggeva come tredicesima riga
+    uguale alle altre, e chi guarda il pannello del modello non guarda l'altra
+    colonna."""
+    _esegui(tmp_path, _DOM + _funzioni(
+        "fronteDelloStato", "chiaveDelFronte", "righeDelModello", "valoreDellaMetrica",
+        "apriModello", "aggiornaModello", "superata", "serverMuto", "corpoLetto",
+    ) + """
+let metriche = { "09_tetrahedralize": { nodes: 10, tets: 20, steiner_points: 3, steiner_saturated: true } };
+globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => metriche });
+const righe = document.getElementById("modello-righe");
+const nono = { numero: 9, chiave: "09_tetrahedralize", stato: "valido", impronta: "a", secondi: 1 };
+
+await aggiornaModello([nono]);
+const avvisate = righe.querySelectorAll(".metrica-avviso");
+assert.equal(avvisate.length, 1, "una riga sola, e non tutti i booleani veri");
+// L'etichetta e' il fratello prima: il marchio deve stare sul valore giusto,
+// non su una riga qualunque del pannello.
+assert.equal(righe.children[righe.children.indexOf(avvisate[0]) - 1].textContent, "Steiner saturato");
+
+// Falso e' la buona notizia: nessun marchio. E' il set a decidere, non il tipo.
+metriche = { "09_tetrahedralize": { nodes: 10, tets: 20, steiner_points: 3, steiner_saturated: false } };
+await aggiornaModello([{ ...nono, impronta: "b" }]);
+assert.equal(righe.querySelectorAll(".metrica-avviso").length, 0);
+""")
+
+
+def test_la_rilettura_del_modello_superata_non_riscrive_il_pannello(tmp_path):
+    """Due cambi di fronte ravvicinati, e la prima risposta che arriva dopo la
+    seconda. Stessa regola d'ordine delle altre tratte: vince chi e' partito
+    per ultimo, non chi arriva per ultimo."""
+    _esegui(tmp_path, _DOM + _funzioni(
+        "fronteDelloStato", "chiaveDelFronte", "righeDelModello", "valoreDellaMetrica",
+        "apriModello", "aggiornaModello", "superata", "serverMuto", "corpoLetto",
+    ) + """
+const inVolo = [];
+globalThis.fetch = async () => new Promise((risolvi) => inVolo.push(risolvi));
+const primo = aggiornaModello([{ numero: 6, chiave: "06_repair", stato: "valido", impronta: "x", secondi: 1 }]);
+const secondo = aggiornaModello([{ numero: 8, chiave: "08_simplify", stato: "valido", impronta: "y", secondi: 2 }]);
+assert.equal(inVolo.length, 2, "le due riletture non sono partite tutte e due");
+// La seconda rilettura arriva e si scrive per intero; solo dopo arriva la
+// prima. Aspettare `secondo` prima di sbloccare l'altra non e' pignoleria del
+// banco: senza, le due tratte finiscono nello stesso giro di microtask e
+// l'ordine di scrittura lo decide il motore, non il difetto che si prova.
+inVolo[1]({ ok: true, status: 200, json: async () => ({ "08_simplify": { vertices: 8 } }) });
+await secondo;
+inVolo[0]({ ok: true, status: 200, json: async () => ({ "06_repair": { vertices: 6 } }) });
+await primo;
+const fronte = document.getElementById("modello-fronte");
+assert.match(fronte.textContent, /dopo lo step 8/, "la risposta vecchia ha riscritto il pannello");
+const righe = document.getElementById("modello-righe");
+assert.ok(righe.figli.map((f) => f.testo).includes("8"),
+  `le righe non sono quelle dello step 8: ${righe.figli.map((f) => f.testo).join("|")}`);
+""")
+
+
+def test_una_risposta_vecchia_non_riscrive_il_pannello_gia_svuotato(tmp_path):
+    """Il fronte sparisce mentre una rilettura e' in volo -- si annulla una
+    corsa, si cambia un parametro, si lega un'altra cartella.
+
+    Se l'ordine si apre solo nel ramo con fronte, il ramo del vuoto esce senza
+    invalidare cio' che sta arrivando: la risposta vecchia ripopola un pannello
+    che nel frattempo e' stato svuotato. E siccome il vuoto ha segnato la
+    propria terna (la stringa vuota), ogni fotogramma successivo senza fronte
+    esce subito e quei numeri restano li' a descrivere un modello che non c'e'
+    piu'.
+    """
+    _esegui(tmp_path, _DOM + _funzioni(
+        "fronteDelloStato", "chiaveDelFronte", "righeDelModello", "valoreDellaMetrica",
+        "apriModello", "aggiornaModello", "superata", "serverMuto", "corpoLetto",
+    ) + """
+const inVolo = [];
+globalThis.fetch = async () => new Promise((risolvi) => inVolo.push(risolvi));
+const righe = document.getElementById("modello-righe");
+const vuoto = document.getElementById("modello-vuoto");
+
+const primo = aggiornaModello([{ numero: 6, chiave: "06_repair", stato: "valido", impronta: "x", secondi: 1 }]);
+assert.equal(inVolo.length, 1, "la prima rilettura non e' partita");
+// Il fronte sparisce prima che la risposta arrivi.
+await aggiornaModello([]);
+assert.equal(righe.hidden, true);
+inVolo[0]({ ok: true, status: 200, json: async () => ({ "06_repair": { vertices: 6 } }) });
+await primo;
+assert.equal(righe.hidden, true, "la risposta vecchia ha ripopolato un pannello svuotato");
+assert.match(vuoto.textContent, /esegui lo step 1/);
+
+// Il fotogramma dopo, ancora senza fronte: senza l'ordine aperto in cima, qui
+// il pannello resterebbe incastrato sui numeri di un fronte che non c'e' piu'.
+await aggiornaModello([]);
+assert.equal(righe.hidden, true);
+""")
+
+
+def test_un_guasto_nella_rilettura_non_incastra_il_pannello(tmp_path):
+    """`disegnaStep` lancia la rilettura e non l'aspetta. Se quella promessa
+    viene rigettata dopo che la terna e' stata segnata come mostrata, il
+    pannello resta con il contenuto vecchio e la terna nuova: nessun fotogramma
+    successivo lo ripara, perche' la terna non cambia piu'.
+
+    Il guasto qui e' una risposta che solleva quando la si guarda: `.catch` sta
+    sulla fetch, non su cio' che viene dopo, quindi il rigetto esce davvero
+    dalla tratta.
+    """
+    _esegui(tmp_path, _DOM + _funzioni(*_COLONNA) + """
+let risponde = () => ({ get ok() { throw new Error("risposta rotta"); } });
+globalThis.fetch = async () => risponde();
+const steps = [{ numero: 1, chiave: "01_load", stato: "valido", impronta: "a", secondi: 1 }];
+const respira = () => new Promise((risolvi) => setTimeout(risolvi, 0));
+const righe = document.getElementById("modello-righe");
+
+disegnaStep(steps);
+await respira();
+assert.equal(righe.figli.length, 0, "controprova: il guasto non e' arrivato al pannello");
+
+// Il fotogramma dopo, stesso fronte e server tornato in se'.
+risponde = () => ({ ok: true, status: 200, json: async () => ({ "01_load": { points_kept: 7 } }) });
+disegnaStep(steps);
+await respira();
+assert.equal(righe.hidden, false, "dopo un guasto il pannello non si ripara piu': la terna resta segnata");
+assert.ok(righe.figli.map((f) => f.testo).includes("7"),
+  `le righe non portano il numero riletto: ${righe.figli.map((f) => f.testo).join("|")}`);
+""")
+
+
+def test_il_registro_sta_in_un_details_chiuso_alla_nascita():
+    """Chiuso e non tolto: serve ancora a leggere perche' uno step e' fallito,
+    ma a riposo non deve occupare quattordici righe della colonna."""
+    markup = _senza_commenti_html(_markup())
+    dettagli = _elemento(markup, "registro-dettagli")
+    assert dettagli.startswith("<details"), dettagli
+    assert " open" not in dettagli, "il registro nasce chiuso"
+    assert 'tabindex="0"' in _elemento(markup, "registro")
+
+
+def test_la_testata_nomina_le_esecuzioni_fra_le_cose_che_ctrl_z_annulla():
+    assert "annulla l'ultima modifica o esecuzione" in _markup()
+
+
+def test_la_frase_del_ritorno_antepone_l_esecuzione_annullata(tmp_path):
+    # ETICHETTE e' gia' dichiarata (vuota) in _DOM, come per ogni altro banco
+    # di questo file: si popola la stessa chiave con `ETICHETTE[...] = ...`,
+    # non con una seconda `const ETICHETTE`, che in JS sarebbe un
+    # SyntaxError su un identificatore ridichiarato.
+    _esegui(tmp_path, _DOM + _funzioni("fraseDelRitorno") + """
+ETICHETTE["02_segment"] = "Segmentazione";
+const prima = [{ numero: 2, chiave: "02_segment", stato: "non valido" }];
+const dopo = [{ numero: 2, chiave: "02_segment", stato: "valido" }];
+assert.match(fraseDelRitorno(prima, dopo), /^configurazione ripristinata/);
+assert.match(fraseDelRitorno(prima, dopo, { da: 2, a: 2 }), /^esecuzione dello step 2 annullata/);
+assert.match(fraseDelRitorno(prima, dopo, { da: 2, a: 5 }), /^esecuzione dallo step 2 al 5 annullata/);
+assert.match(fraseDelRitorno(prima, dopo, { da: 2, a: 11 }), /^esecuzione dallo step 2 all'11 annullata/);
+// «Avanti» rifa' cio' che «indietro» aveva annullato: chiamarlo «annullata»
+// dice all'utente il contrario di cio' che ha appena premuto. La
+// configurazione invece si «ripristina» nei due versi, perche' e' quello che
+// succede: torna a essere quella di un'altra volta.
+assert.match(fraseDelRitorno(prima, dopo, { da: 2, a: 5 }, "avanti"), /^esecuzione dallo step 2 al 5 rifatta/);
+assert.match(fraseDelRitorno(prima, dopo, null, "avanti"), /^configurazione ripristinata/);
+assert.match(fraseDelRitorno(prima, dopo, { da: 2, a: 5 }, "indietro"), /^esecuzione dallo step 2 al 5 annullata/);
+""")
+
+
+def test_un_fallimento_porta_l_ultima_riga_del_registro_e_lo_apre(tmp_path):
+    _esegui(tmp_path, _DOM + _funzioni("esitoDellaCorsa", "ultimaRigaDelRegistro", "descrizioneDellaCorsa", "nomeDelloStep") + """
+const registro = document.getElementById("registro");
+for (const testo of ["Traceback", "", "ValueError: nessun punto"]) {
+  const riga = document.createElement("div"); riga.textContent = testo; registro.append(riga);
+}
+assert.equal(ultimaRigaDelRegistro(), "ValueError: nessun punto");
+const { errore } = esitoDellaCorsa({ exit_code: 1, annullato: false, step: 2, a_step: 2, steps: [] });
+assert.match(errore, /ValueError: nessun punto/);
+assert.match(errore, /nel registro/);
+""")
+    # Sole righe bianche: nessuna parla, e la frase resta completa invece di
+    # rompersi su un ultimo dettaglio inventato.
+    _esegui(tmp_path, _DOM + _funzioni("esitoDellaCorsa", "ultimaRigaDelRegistro", "descrizioneDellaCorsa", "nomeDelloStep") + """
+const registro = document.getElementById("registro");
+for (const testo of ["", "   "]) {
+  const riga = document.createElement("div"); riga.textContent = testo; registro.append(riga);
+}
+assert.equal(ultimaRigaDelRegistro(), "nessun dettaglio");
+const { errore } = esitoDellaCorsa({ exit_code: 1, annullato: false, step: 2, a_step: 2, steps: [] });
+assert.match(errore, /nessun dettaglio/);
+""")
+
+
+def test_una_corsa_nuova_svuota_il_registro_della_precedente(tmp_path):
+    """`#registro` non si svuotava da solo fra due corse: solo `#esito` lo fa,
+    sul fronte di salita. La corsa 1 falliva con «ValueError: X»; l'utente la
+    rilanciava e la corsa 2 moriva prima di scrivere una riga sua; `#esito`
+    diceva ancora «...: ValueError: X» -- della corsa 1. Prima la frase era
+    generica e la riga stantia non si vedeva; ora cita l'ultima riga per
+    intero, e la riga stantia e' un dato falso.
+
+    Mutazione che lo uccide: togliere lo svuotamento del registro dal fronte
+    di salita di `aggiornaDaStato`.
+    """
+    _esegui(tmp_path, _banco_di_esito() + """
+ETICHETTE["01_load"] = "Lettura";
+const steps = [{ numero: 1, chiave: "01_load", stato: "valido", secondi: 12 }];
+const base = { step: 1, a_step: 1, steps, annullato: false };
+
+// La corsa 1 fallisce e lascia una riga nel registro, aperto.
+const registro = document.getElementById("registro");
+const dettagli = document.getElementById("registro-dettagli");
+const riga = document.createElement("div"); riga.textContent = "ValueError: X"; registro.append(riga);
+dettagli.open = true;
+
+// La corsa 2 parte: il fronte di salita svuota e richiude il registro della
+// corsa precedente, prima che quella nuova abbia scritto niente.
+aggiornaDaStato({ ...base, in_corso: true, exit_code: null });
+assert.equal(registro.childElementCount, 0, "il registro della corsa vecchia e' rimasto");
+assert.equal(dettagli.open, false, "il registro della corsa vecchia e' rimasto aperto");
+
+// E muore subito, prima di scrivere una riga sua.
+aggiornaDaStato({ ...base, in_corso: false, exit_code: 1 });
+assert.match(esito.textContent, /nessun dettaglio/);
+assert.ok(!esito.textContent.includes("ValueError"), "l'esito cita ancora la corsa precedente: " + esito.textContent);
+""")
+
+
+# --------------------------------------------------------------------------
+# Il predefinito del campo: detto sotto la casella, e rimesso da un bottone.
+# --------------------------------------------------------------------------
+
+
+def test_l_aiuto_del_campo_dice_il_predefinito(tmp_path):
+    """`/api/schema` manda gia' `default` per ogni campo, e il pannello lo
+    usava solo per decidere quali righe piegare: chi ha girato `min_ratio` tre
+    volte non aveva piu' modo di sapere da dove era partito.
+
+    Il controllo e' `!== undefined && !== null` e non `if (campo.default)`:
+    `0`, `false` e la stringa vuota sono predefiniti veri, e un `if` sul valore
+    li nasconderebbe proprio dove servono di piu'.
+    """
+    _esegui(tmp_path, _DOM + _funzioni("testoDellAiuto") + """
+assert.equal(testoDellAiuto({ description: "profondità dell'albero", default: 8 }, true, false), "profondità dell'albero — predefinito: 8");
+assert.equal(testoDellAiuto({ default: null }, true, false), "");
+assert.equal(testoDellAiuto({ description: "x" }, false, false), "x — si modifica dal file di configurazione");
+// I falsi che sono predefiniti veri.
+assert.equal(testoDellAiuto({ default: 0 }, true, false), "predefinito: 0");
+assert.equal(testoDellAiuto({ default: false }, true, false), "predefinito: false");
+assert.equal(testoDellAiuto({ default: "" }, true, false), "predefinito: ");
+// Senza description non resta un « — » pendente in testa.
+assert.equal(testoDellAiuto({ default: 8 }, true, false), "predefinito: 8");
+""")
+
+
+def test_riporta_rimette_il_predefinito_dello_schema_e_lo_scrive(tmp_path):
+    """Il bottone accanto alla casella, e solo dove ha senso.
+
+    Rimettere il predefinito passa dal gestore `change` che gia' salva, non da
+    una seconda strada verso il server: e' la stessa scrittura di una battuta a
+    mano, con lo stesso ripristino e lo stesso rifiuto a video. Su una corsa in
+    sola lettura il server dice di no, e il no si legge nella riga del campo.
+
+    Mutazione che lo uccide: `if (campo.default)` al posto del confronto con
+    undefined e null -- `0` e `false` sono predefiniti veri e perderebbero il
+    bottone.
+    """
+    _esegui(tmp_path, _banco_del_campo() + """
+configurazione = { downsample: { voxel_size: 25 }, segment: { crop_max: null } };
+const riporta = (riga) => riga.children.filter((f) => f.className.includes("riporta"));
+const campoCon = (schema) => campoParametro("downsample", "voxel_size", schema, generazione);
+
+// Senza predefinito non c'e' niente da rimettere, e `null` non e' un valore.
+assert.equal(riporta(campoCon({ description: "x" })).length, 0, "un bottone senza predefinito da rimettere");
+assert.equal(riporta(campoCon({ description: "x", default: null })).length, 0, "null preso per un predefinito");
+// I falsi che sono predefiniti veri: qui il bottone serve piu' che altrove.
+assert.equal(riporta(campoCon({ description: "x", default: 0 })).length, 1, "predefinito 0 senza bottone");
+assert.equal(riporta(campoCon({ description: "x", default: false })).length, 1, "predefinito false senza bottone");
+// Un composto non si scrive da qui: la casella e' in sola lettura e non c'e'
+// nessun gestore da scatenare.
+const composto = campoParametro("segment", "crop_max",
+  { description: "x", tipo: "composto", nullabile: true, default: [0, 0, 0] }, generazione);
+assert.equal(riporta(composto).length, 0, "un composto in sola lettura ha preso un bottone che scrive");
+
+// Il clic scrive, per la strada della battuta a mano.
+const riga = campoCon({ description: "x", default: 30 });
+const [, input] = riga.children;
+const [bottone] = riporta(riga);
+const messaggio = riga.children.find((f) => f.className === "errore-campo");
+assert.equal(bottone.textContent, "Riporta");
+assert.match(bottone.title, /30/, "il bottone non dice a che valore riporta");
+// Venti «Riporta» in un pannello sono venti bottoni identici per chi ascolta:
+// il nome accessibile porta il campo, e il campo si nomina con la propria
+// etichetta, non con la chiave.
+assert.match(bottone.ariaLabel, /voxel_size/,
+  "il bottone non dice quale campo riporta: " + bottone.ariaLabel);
+input.value = "25";
+risponde = accetta({ downsample: { voxel_size: 30 } });
+await bottone.scatena("click");
+await new Promise((r) => setTimeout(r, 0));
+assert.equal(richieste.at(-1).corpo.downsample.voxel_size, 30, "il predefinito non e' arrivato al server");
+assert.equal(input.value, "30", "la casella non mostra il valore rimesso");
+
+// La corsa registrata e' in sola lettura: il no del server si legge nella riga.
+risponde = rifiuta({ detail: "la corsa e' registrata: sola lettura" });
+await bottone.scatena("click");
+await new Promise((r) => setTimeout(r, 0));
+assert.match(messaggio.textContent, /sola lettura/, "il rifiuto del server non arriva a video: " + messaggio.textContent);
+assert.equal(configurazione.downsample.voxel_size, 30, "il valore rifiutato resta in memoria");
+""")
+
+
+# --------------------------------------------------------------------------
+# La fine della corsa fuori dalla scheda: il titolo, e la notifica.
+# --------------------------------------------------------------------------
+
+
+def test_il_titolo_della_scheda_porta_l_esito(tmp_path):
+    """Uno step dura minuti, e chi aspetta cambia finestra. Il titolo della
+    scheda e' l'unico segnale che arriva a chi non sta guardando la pagina."""
+    _esegui(tmp_path, _DOM + _funzioni("titoloConEsito") + """
+assert.equal(titoloConEsito(null, null), "MeshRec");
+assert.equal(titoloConEsito(null, "Segmentazione: conclusa"), "✓ MeshRec");
+assert.equal(titoloConEsito("Segmentazione: fallita", null), "✗ MeshRec");
+""")
+
+
+def test_la_notifica_non_parte_a_pagina_a_fuoco_ne_senza_permesso_ne_vuota(tmp_path):
+    """Una notifica a pagina aperta ripete cio' che sta gia' a video due righe
+    sotto il titolo; una notifica vuota e' un rumore che non dice niente.
+
+    Mutazione che lo uccide: togliere la guardia su `document.hasFocus()`.
+    """
+    _esegui(tmp_path, _DOM + _funzioni("notificaFuoriDallaScheda") + """
+const mandate = [];
+globalThis.Notification = class { constructor(titolo, opzioni) { mandate.push([titolo, opzioni.body]); } };
+Notification.permission = "granted";
+document.hasFocus = () => true;
+
+notificaFuoriDallaScheda("Segmentazione: conclusa");
+assert.deepEqual(mandate, [], "notifica mandata a pagina a fuoco");
+
+document.hasFocus = () => false;
+notificaFuoriDallaScheda("");
+assert.deepEqual(mandate, [], "notifica vuota mandata");
+
+notificaFuoriDallaScheda("Segmentazione: conclusa");
+assert.deepEqual(mandate, [["MeshRec", "Segmentazione: conclusa"]]);
+
+Notification.permission = "denied";
+notificaFuoriDallaScheda("Riparazione: fallita");
+assert.equal(mandate.length, 1, "notifica mandata senza permesso");
+""")
+
+
+def test_il_permesso_di_notifica_si_chiede_con_un_bottone_e_mai_da_solo(tmp_path):
+    """La finestra del permesso chiesta da sola all'apertura e' quella che ogni
+    sito apre senza motivo, e che si nega per riflesso. Qui la chiede un
+    bottone, e il bottone sparisce con la risposta -- qualunque sia, tranne la
+    finestra chiusa senza scegliere, che lascia tutto com'era.
+
+    Un browser senza l'API (o il DOM finto di `node`) non e' un caso di
+    guasto: il bottone si nasconde e il resto della pagina non se ne accorge.
+    """
+    assert 'id="notifiche"' in _senza_commenti_html(_markup())
+    _esegui(tmp_path, _DOM + _funzioni("preparaLeNotifiche") + """
+const bottone = document.getElementById("notifiche");
+
+// Senza l'API: il bottone sparisce e non promette niente.
+delete globalThis.Notification;
+preparaLeNotifiche(bottone);
+assert.equal(bottone.hidden, true, "il bottone resta a video in un browser senza notifiche");
+assert.equal((bottone.gestori.click ?? []).length, 0, "un gestore attaccato dove l'API non c'e'");
+
+// Permesso gia' negato: niente da chiedere una seconda volta.
+globalThis.Notification = { permission: "denied", requestPermission: async () => "denied" };
+preparaLeNotifiche(bottone);
+assert.equal(bottone.hidden, true, "il bottone chiede un permesso gia' negato");
+
+// Da decidere: il bottone c'e', e il clic chiede.
+let risposta = "granted";
+globalThis.Notification = { permission: "default", requestPermission: async () => risposta };
+preparaLeNotifiche(bottone);
+assert.equal(bottone.hidden, false, "il bottone non compare dove il permesso e' ancora da chiedere");
+await bottone.scatena("click");
+assert.equal(bottone.hidden, true, "il bottone resta dopo che il permesso e' stato dato");
+
+// Finestra chiusa senza scegliere: si potra' chiedere di nuovo.
+risposta = "default";
+preparaLeNotifiche(bottone);
+await bottone.scatena("click");
+assert.equal(bottone.hidden, false, "la finestra chiusa senza scegliere si porta via il bottone");
+""")
+
+
+def test_il_fronte_di_discesa_scrive_l_esito_anche_nel_titolo_della_scheda(tmp_path):
+    """Il cablaggio, non la sola funzione pura: il segno nel titolo deve
+    arrivarci dal fronte di discesa, che e' l'unico punto in cui si sa che una
+    corsa e' finita.
+
+    Mutazione che lo uccide: togliere `document.title = titoloConEsito(...)`
+    dal fronte di discesa.
+    """
+    _esegui(tmp_path, _banco_di_esito() + """
+ETICHETTE["01_load"] = "Lettura";
+const steps = [{ numero: 1, chiave: "01_load", stato: "valido", secondi: 12 }];
+const base = { step: 1, a_step: 1, steps, annullato: false };
+
+aggiornaDaStato({ ...base, in_corso: true, exit_code: null });
+aggiornaDaStato({ ...base, in_corso: false, exit_code: 0 });
+assert.equal(document.title, "✓ MeshRec", "la corsa conclusa non si vede dalla barra delle schede");
+
+aggiornaDaStato({ ...base, in_corso: true, exit_code: null });
+aggiornaDaStato({ ...base, in_corso: false, exit_code: 1 });
+assert.equal(document.title, "✗ MeshRec", "il fallimento non si vede dalla barra delle schede");
+""")
+
+
+# --------------------------------------------------------------------------
+# I due comandi della vista: inquadra, e salva il PNG.
+# --------------------------------------------------------------------------
+
+
+def test_il_nome_del_file_dell_immagine_porta_corsa_step_e_didascalia(tmp_path):
+    """L'immagine finisce in appendice a un documento stampato, e li' il nome
+    del file e' l'unica provenienza che si porta dietro: quale corsa, quale
+    step, che cosa mostra.
+
+    Solo `[a-z0-9-]`: e' un nome di file su tre sistemi diversi, e la
+    didascalia porta virgole, accenti e unita'.
+    """
+    _esegui(tmp_path, _DOM + _funzioni("nomeDellImmagine") + """
+assert.equal(nomeDellImmagine("runs/lab_telaio_v2", 6, "Riparazione", "scarto RMS 9,5 mm"),
+  "lab-telaio-v2-06-riparazione-scarto-rms-9-5-mm.png");
+assert.equal(nomeDellImmagine("corsa", 5, "Superficie", ""), "corsa-05-superficie.png",
+  "la didascalia vuota lascia un trattino pendente");
+// I separatori di Windows, la barra finale, e il vuoto.
+assert.equal(nomeDellImmagine("runs\\\\lab", 1, "Lettura", ""), "lab-01-lettura.png");
+assert.equal(nomeDellImmagine("runs/lab/", 1, "Lettura", ""), "lab-01-lettura.png");
+assert.equal(nomeDellImmagine("", 1, "Lettura", ""), "corsa-01-lettura.png");
+// Gli accenti se ne vanno con la propria lettera, non con la parola.
+assert.equal(nomeDellImmagine("corsa", 2, "Segmentazione", "densità già misurata"),
+  "corsa-02-segmentazione-densita-gia-misurata.png");
+// Nessun trattino doppio, e nessuno agli estremi.
+const nome = nomeDellImmagine("corsa", 7, "Metriche", "— scarto: 9,5 mm —");
+assert.ok(/^[a-z0-9-]+\\.png$/.test(nome), "il nome porta caratteri che non sono [a-z0-9-]: " + nome);
+assert.ok(!nome.includes("--"), "trattini doppi nel nome: " + nome);
+""")
+
+
+def test_i_due_comandi_della_vista_stanno_nel_markup():
+    markup = _senza_commenti_html(_markup())
+    assert 'id="inquadra"' in markup and 'id="salva-immagine"' in markup
+
+
+def _banco_dei_comandi_della_vista() -> str:
+    """`salvaImmagine` con la vista finta e i tre elementi che legge."""
+    return _DOM + _funzioni("nomeDellImmagine", "didascaliaDellaVista", "salvaImmagine") + """
+const creati = [];
+const creaVero = document.createElement;
+document.createElement = (tag) => { const nodo = creaVero(tag); creati.push(nodo); return nodo; };
+const vista = { catture: 0, cattura() { this.catture += 1; return "data:image/png;base64,AAA"; } };
+let stepScelto = null;
+document.getElementById("corsa").textContent = "runs/lab_crop";
+document.getElementById("didascalia-vista").textContent = "scarto RMS 9,5 mm";
+ETICHETTE["06_repair"] = "Riparazione";
+ultimoStato = [{ numero: 6, chiave: "06_repair", stato: "valido" }];
+const scaricato = () => creati.filter((nodo) => nodo.tag === "a").at(-1);
+"""
+
+
+def test_salva_immagine_scrive_un_png_col_nome_della_corsa(tmp_path):
+    """Il PNG lo scrive il browser, dove chi lo salva lo trova: nessuna rotta
+    nuova e nessun file lasciato sul disco del server.
+
+    Senza uno step scelto non c'e' niente da salvare, e il comando non fabbrica
+    un file vuoto col nome di nessuna corsa. Uno step che lo stato non conosce
+    prende il proprio numero, non «undefined».
+    """
+    _esegui(tmp_path, _banco_dei_comandi_della_vista() + """
+// Nessuno step scelto: nessun file, nessuna cattura.
+salvaImmagine();
+assert.equal(scaricato(), undefined, "un file scaricato senza uno step scelto");
+assert.equal(vista.catture, 0, "la tela e' stata catturata senza uno step scelto");
+
+stepScelto = 6;
+salvaImmagine();
+assert.equal(scaricato().download, "lab-crop-06-riparazione-scarto-rms-9-5-mm.png");
+assert.equal(scaricato().href, "data:image/png;base64,AAA", "il file non porta la tela catturata");
+assert.equal(scaricato().cliccato, true, "il file non e' stato consegnato al browser");
+// Attaccato al documento durante il clic e tolto subito dopo: un <a download>
+// staccato dall'albero Firefox lo ignora in silenzio, e uno lasciato li'
+// sporca la pagina a ogni salvataggio.
+assert.ok(scaricato().padreAlClic, "il collegamento non era nell'albero: Firefox non scarica");
+assert.ok(!document.body.figli.includes(scaricato()), "il collegamento resta appeso al documento");
+
+// Uno step che lo stato non conosce: il numero, non «undefined».
+ultimoStato = [];
+salvaImmagine();
+assert.equal(scaricato().download, "lab-crop-06-step-6-scarto-rms-9-5-mm.png");
+""")
+
+
+def test_l_ingresso_e_un_form_e_invio_lo_manda():
+    """Battuto il nome e il percorso, Invio non faceva niente: bisognava
+    lasciare i tasti e cercare il bottone. Due caselle e un bottone di invio
+    sono un form, e il form Invio lo manda da se'.
+
+    `novalidate` perche' la validazione la fa `ragioneLocale`, che scrive nella
+    riga `role="alert"`: la bolla del browser la coprirebbe con un messaggio
+    che non e' nemmeno nella lingua dell'interfaccia.
+    """
+    markup = _senza_commenti_html(_markup())
+    assert re.search(r'<form[^>]*id="nuova-corsa"', markup), (
+        "i due campi e il bottone non stanno in un <form>: Invio non manda niente"
+    )
+    assert "novalidate" in _elemento(markup, "nuova-corsa"), (
+        "senza novalidate la bolla del browser copre la riga d'errore"
+    )
+    assert 'type="submit"' in _elemento(markup, "crea-corsa")
+    assert 'getElementById("nuova-corsa").addEventListener("submit"' in _modulo(), (
+        "il gestore sta ancora sul clic del bottone: da tastiera non lo raggiunge nessuno"
+    )
+
+
+# --------------------------------------------------------------------------
+# Le metriche degli altri step: un nome, e l'avviso su cio' che contraddice.
+# --------------------------------------------------------------------------
+
+
+def test_le_metriche_che_contraddicono_hanno_un_etichetta_e_l_avviso(tmp_path):
+    """«Una chiave non si stampa mai, si stampa la sua etichetta» (PRODUCT.md):
+    la tabella copriva due step sugli undici che hanno un pannello -- dodici
+    sono gli step della pipeline, ma il prior geometrico non si apre da qui --
+    e sugli altri nove il pannello
+    mostrava `points_dropped` e `holes_over_threshold` cosi' com'erano.
+
+    `steiner_saturated` vero e' la «mesh troncata in silenzio» del primo
+    principio di prodotto, e non sta fra tredici righe uguali. Il canale non e'
+    solo il colore: l'etichetta stessa dice «mesh troncata».
+
+    Il set decide, non il tipo del valore: `watertight` vero e' una buona
+    notizia, e un avviso su ogni booleano vero direbbe il contrario.
+    """
+    _esegui(tmp_path, _DOM + "\n".join(
+        _costante(nome) for nome in ("VALORE_LARGO", "CLASSE_VALORE_LARGO")
+    ) + "\n" + _funzioni("righeDellaMetrica", "valoreDellaMetrica") + f"""
+const ETICHETTE_METRICHE = {json.dumps(_etichette_metriche())};
+const righe = righeDellaMetrica("steiner_saturated", true, ETICHETTE_METRICHE["09_tetrahedralize"]);
+assert.equal(righe[0].textContent, "punti di Steiner esauriti: mesh troncata");
+assert.equal(righe[1].className, "metrica-avviso");
+const quiete = righeDellaMetrica("steiner_saturated", false, ETICHETTE_METRICHE["09_tetrahedralize"]);
+assert.equal(quiete[1].className, "", "il falso prende l'avviso del vero");
+// Un booleano vero che NON e' d'allarme resta quieto: decide il set.
+for (const [chiave, tabella] of [["watertight", "05_reconstruct"], ["enabled", "08_simplify"]]) {{
+  const buona = righeDellaMetrica(chiave, true, ETICHETTE_METRICHE[tabella]);
+  assert.equal(buona[1].className, "", `${{chiave}} vero e' diventato un avviso`);
+}}
+// Uno step senza tabella, e una chiave che la tabella non conosce: la chiave
+// grezza, non «undefined», e nessuna eccezione.
+const ignota = righeDellaMetrica("metrica_di_domani", 3, ETICHETTE_METRICHE["99_mai_esistito"]);
+assert.equal(ignota[0].textContent, "metrica_di_domani");
+// Le chiavi che il pannello mostrava grezze, una per step.
+for (const [chiave, nome] of [["01_load", "size_check"], ["06_repair", "watertight_after"], ["06_repair", "holes_over_threshold"], ["11_export", "fixed_nset_coverage"], ["02_segment", "points_after"], ["03_downsample", "voxel_size"], ["09_tetrahedralize", "steiner_points"]]) {{
+  assert.ok(ETICHETTE_METRICHE[chiave]?.[nome], `${{chiave}}.${{nome}} senza etichetta`);
+}}
+// Le cinque righe annidate dell'aspetto: 05, 06 e 08 portano la stessa
+// distribuzione dello step 7 (pipeline._con_le_misure_della_superficie).
+for (const chiave of ["05_reconstruct", "06_repair", "08_simplify"]) {{
+  for (const dentro of ["min", "median", "mean", "max", "non_finite"]) {{
+    assert.ok(ETICHETTE_METRICHE[chiave]?.[`aspect_ratio · ${{dentro}}`],
+      `${{chiave}} non etichetta aspect_ratio · ${{dentro}}`);
+  }}
+}}
+""")
+
+
+def test_una_corsa_nuova_toglie_il_segno_dal_titolo(tmp_path):
+    """Il segno nel titolo lo toglie il fuoco sulla pagina -- ma se la corsa e'
+    finita MENTRE si guardava, il fuoco c'e' gia' e non scatta piu': lanciato lo
+    step successivo e cambiata finestra, la scheda diceva «✓ MeshRec» su una
+    corsa in corso. Il fronte di salita, che gia' azzera l'esito e il registro,
+    azzera anche il titolo.
+
+    Mutazione che lo uccide: togliere `document.title = "MeshRec"` dal fronte
+    di salita di `aggiornaDaStato`.
+    """
+    _esegui(tmp_path, _banco_di_esito() + """
+ETICHETTE["01_load"] = "Lettura";
+const steps = [{ numero: 1, chiave: "01_load", stato: "valido", secondi: 12 }];
+const base = { step: 1, a_step: 1, steps, annullato: false };
+
+aggiornaDaStato({ ...base, in_corso: true, exit_code: null });
+aggiornaDaStato({ ...base, in_corso: false, exit_code: 0 });
+assert.equal(document.title, "✓ MeshRec");
+
+// La corsa dopo, senza che nessuno abbia mai lasciato la pagina.
+aggiornaDaStato({ ...base, in_corso: true, exit_code: null });
+assert.equal(document.title, "MeshRec",
+  "la scheda dice ancora ✓ su una corsa che sta girando: " + document.title);
+""")

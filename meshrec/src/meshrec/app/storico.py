@@ -11,15 +11,21 @@ cursore in avanti. «Indietro» arretra il cursore e restituisce il testo su cui
 e' arrivato; sulla prima versione non c'e' niente prima, e risponde None.
 
 Non sa niente di HTTP e non importa FastAPI: chi lo usa e' app/server.py.
+
+Dal 03/09/2026 una versione puo' essere un'esecuzione: porta una cartella
+`NNNN/` con cio' che l'esecuzione ha sostituito, e `scambia` la permuta con la
+corsa. Indietro e avanti restano funzioni del solo testo; lo scambio lo chiede
+il server, che sa quale versione sta togliendo.
 """
 
 from __future__ import annotations
 
 import json
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
-from meshrec.core import io, sweep
+from meshrec.core import io, pipeline, steps, sweep
 
 # Quante versioni si tengono. Misurato e non scelto: il config di lavoro
 # (meshrec/prova-interfaccia.yaml) pesa 1.328 byte, quindi duecento versioni
@@ -27,13 +33,46 @@ from meshrec.core import io, sweep
 # Il tetto vale per le versioni e non per registro.jsonl, che sta fuori di
 # proposito e non viene mai potato: circa 92 byte per modifica, per sempre,
 # perche' la provenienza di una versione scartata resta comunque un fatto.
+#
+# Dal 03/09/2026 il conto non regge piu': il tetto governa anche le cartelle di
+# artefatti delle esecuzioni, e duecento versioni non costano piu' 265 kB ma
+# potenzialmente gigabyte -- un solo 09_volume.vtu ne pesa centinaia di mega.
+# Resta 200 di proposito e senza un tetto in byte: chi ha bisogno dello spazio
+# cancella `.storico/` a mano, come il README dichiara, e paga solo la perdita
+# dell'annullamento.
 TETTO = 200
 
 CARTELLA = ".storico"
 
+# Il file che ogni cartella di scambio porta: gli step che l'esecuzione ha
+# coperto e i nomi dei file che lo scambio governa. Sta nella cartella e non
+# nel registro perche' lo scambio deve funzionare anche con registro.jsonl
+# toccato a mano: il registro e' provenienza, questo e' meccanismo.
+SCAMBIO = "scambio.json"
+
 
 def _cartella(out_dir: Path) -> Path:
     return Path(out_dir) / CARTELLA
+
+
+def _cartella_di_scambio(out_dir: Path, numero: int) -> Path:
+    return _cartella(out_dir) / f"{numero:04d}"
+
+
+def _scarta_versione(out_dir: Path, numero: int) -> None:
+    """Toglie una versione con la sua cartella, se ne ha una: contiene o gli
+    artefatti di un futuro scartato o quelli di un passato oltre il tetto, e
+    in entrambi i casi nessun comando li puo' piu' raggiungere."""
+    _percorso(out_dir, numero).unlink()
+    cartella = _cartella_di_scambio(out_dir, numero)
+    if cartella.is_dir():
+        shutil.rmtree(cartella)
+
+
+def cursore(out_dir: Path) -> int:
+    """La versione su cui siamo. Pubblica perche' il server deve sapere QUALE
+    versione un «indietro» sta per togliere, e lo sa solo prima di chiamarlo."""
+    return _cursore(out_dir)
 
 
 def _percorso(out_dir: Path, numero: int) -> Path:
@@ -145,10 +184,12 @@ def _applica_tetto(out_dir: Path) -> None:
     if len(numeri) <= TETTO:
         return
     for numero in numeri[: len(numeri) - TETTO]:
-        _percorso(out_dir, numero).unlink()
+        _scarta_versione(out_dir, numero)
 
 
-def deposita(out_dir: Path, testo: str, endpoint: str, campi: list[str]) -> int:
+def deposita(
+    out_dir: Path, testo: str, endpoint: str, campi: list[str], scambio: dict | None = None
+) -> int:
     """Aggiunge `testo` in coda come versione nuova e torna il suo numero.
 
     Una scrittura nuova tronca la coda oltre il cursore: due futuri che
@@ -159,13 +200,65 @@ def deposita(out_dir: Path, testo: str, endpoint: str, campi: list[str]) -> int:
     corrente = _cursore(out_dir)
     for numero in _numeri(out_dir):
         if numero > corrente:
-            _percorso(out_dir, numero).unlink()
+            _scarta_versione(out_dir, numero)
 
     nuovo = corrente + 1
     io.scrivi_atomico(
         _percorso(out_dir, nuovo),
         lambda destinazione: destinazione.write_text(testo, encoding="utf-8"),
     )
+
+    file_scambiati: list[str] = []
+    if scambio is not None:
+        # Un'esecuzione. Gli artefatti si SPOSTANO nella cartella -- un rename
+        # sullo stesso filesystem, zero byte scritti anche per cento megabyte
+        # -- e lo stato e le metriche si COPIANO: la ripresa li rilegge per
+        # aggiungervi la voce nuova, e spostati via lascerebbero gli step a
+        # monte «mai eseguito» a esecuzione finita. Chi manca non e' un
+        # guasto: e' uno step mai eseguito, cioe' la prima esecuzione.
+        cartella_scambio = _cartella_di_scambio(out_dir, nuovo)
+        cartella_scambio.mkdir(parents=True, exist_ok=True)
+        file_scambiati = [*scambio["sposta"], *scambio["copia"]]
+        # La dichiarazione si scrive PRIMA di muovere qualsiasi file. L'elenco
+        # e' noto in anticipo, e `scambia` salta da se' i nomi che non trova ne'
+        # nella corsa ne' nella cartella: dichiararlo per intero non costa
+        # niente. Scritta dopo, un disco pieno sulla copia -- o un processo
+        # ucciso a meta' -- lasciava una cartella con dentro gli artefatti gia'
+        # spostati e nessun scambio.json: `scambia` la ignora, e il deposito
+        # successivo la cancella con rmtree. Erano artefatti persi per sempre,
+        # cioe' il solo modo in cui questa superficie poteva distruggere un
+        # risultato invece di conservarlo.
+        io.scrivi_atomico(
+            cartella_scambio / SCAMBIO,
+            lambda destinazione: destinazione.write_text(
+                json.dumps({"da": scambio["da"], "a": scambio["a"], "file": file_scambiati}),
+                encoding="utf-8",
+            ),
+        )
+        try:
+            for nome in scambio["sposta"]:
+                sorgente = Path(out_dir) / nome
+                if sorgente.exists():
+                    sorgente.replace(cartella_scambio / nome)
+            for nome in scambio["copia"]:
+                sorgente = Path(out_dir) / nome
+                if sorgente.exists():
+                    shutil.copy2(sorgente, cartella_scambio / nome)
+        except BaseException:
+            # Interrotta a meta' -- disco pieno sulla copia, o un Ctrl+C fra i
+            # rename -- questa versione resterebbe con dentro gli artefatti gia'
+            # spostati e il cursore ancora su `corrente`: il deposito successivo
+            # la tronca con rmtree, e quegli artefatti spariscono da entrambe le
+            # parti. Si disfa solo cio' che era stato SPOSTATO: le copie sono
+            # ancora nella corsa, e cio' che ne sta nella cartella e' al piu' un
+            # troncone che se ne va con lei.
+            for nome in scambio["sposta"]:
+                messo_da_parte = cartella_scambio / nome
+                if messo_da_parte.exists():
+                    messo_da_parte.replace(Path(out_dir) / nome)
+            _scarta_versione(out_dir, nuovo)
+            raise
+
     # Lo stesso append_row del registro degli esperimenti della Fase 2, non una
     # seconda forma che gli somiglia: in sola aggiunta, un file che si allunga
     # non perde cio' che aveva. L'istante e' UTC perche' un registro che cambia
@@ -182,6 +275,7 @@ def deposita(out_dir: Path, testo: str, endpoint: str, campi: list[str]) -> int:
             "istante": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "endpoint": endpoint,
             "campi": campi,
+            "artefatti": file_scambiati,
         },
     )
 
@@ -208,3 +302,74 @@ def avanti(out_dir: Path) -> str | None:
         return None
     _scrivi_cursore(out_dir, successivi[0])
     return _percorso(out_dir, successivi[0]).read_text(encoding="utf-8")
+
+
+def elenco_di_scambio(da: int, a: int) -> dict:
+    """I file che un'esecuzione dallo step `da` allo step `a` puo' riscrivere.
+
+    Gli artefatti numerati vengono da `pipeline.ARTIFACTS`; gli step senza
+    artefatto numerato scrivono il deck con il suo .vtu (11) e il prior (12).
+    Gli estremi si guardano con `da <= n <= a` e non con `a >= n`: eseguire il
+    solo step 12 non riscrive il deck dello step 11, e portarlo via lascerebbe
+    steps.json a dire «11_export riuscito» su un file che nella corsa non c'e'
+    piu'.
+
+    Il parziale delle metriche si sposta: lo lascia solo un'esecuzione fallita,
+    e appartiene a lei. Stato e metriche si copiano, e steps.json sta per
+    ULTIMO: e' l'ordine in cui `scambia` permuta, e uno scambio interrotto a
+    meta' deve lasciare le impronte di prima.
+    """
+    sposta = [pipeline.ARTIFACTS[n] for n in range(da, a + 1) if n in pipeline.ARTIFACTS]
+    if da <= 11 <= a:
+        sposta += [pipeline.DECK_FILENAME, pipeline.WALL_VTU_FILENAME]
+    if da <= 12 <= a:
+        sposta.append(pipeline.WALL_FILENAME)
+    sposta.append(pipeline.METRICS_PARTIAL)
+    return {
+        "da": da,
+        "a": a,
+        "sposta": sposta,
+        "copia": [pipeline.METRICS_FILENAME, steps.STATE_FILENAME],
+    }
+
+
+def scambia(out_dir: Path, numero: int) -> dict | None:
+    """Scambia i file di una versione di esecuzione fra la corsa e la sua
+    cartella. Torna gli step coperti, o None se la versione e' di sola
+    configurazione.
+
+    E' la propria inversa: dopo un «indietro» la cartella contiene cio' che
+    l'esecuzione aveva prodotto, e un «avanti» lo rimette con la stessa
+    chiamata. Per questo il modulo non ha due funzioni.
+
+    ponytail: lo scambio non e' atomico fra file. Ogni rename lo e', la
+    sequenza no: un processo ucciso a meta' lascia una parte dei file
+    scambiata. Il server mette steps.json per ULTIMO nell'elenco, cosi' uno
+    stato a meta' porta ancora le impronte di prima e gli step risultano «non
+    valido» invece di «valido» su artefatti misti.
+    """
+    cartella = _cartella_di_scambio(out_dir, numero)
+    dichiarazione = cartella / SCAMBIO
+    if not dichiarazione.exists():
+        return None
+    letto = json.loads(dichiarazione.read_text(encoding="utf-8"))
+    for nome in letto["file"]:
+        # L'elenco lo scrive il server da una lista chiusa, ma il file sta su
+        # disco: un nome scritto a mano con `../` -- o assoluto, che in
+        # `Path(out_dir) / nome` vince sulla radice -- uscirebbe dalla corsa e
+        # muoverebbe qualcosa che non le appartiene. Un nome che comincia per
+        # punto e' fuori anche lui: `.storico` e' il deposito stesso.
+        if "/" in nome or "\\" in nome or nome.startswith("."):
+            continue
+        nella_corsa = Path(out_dir) / nome
+        nella_cartella = cartella / nome
+        if nella_corsa.exists() and nella_cartella.exists():
+            parcheggio = cartella / f"{nome}.scambio"
+            nella_corsa.replace(parcheggio)
+            nella_cartella.replace(nella_corsa)
+            parcheggio.replace(nella_cartella)
+        elif nella_corsa.exists():
+            nella_corsa.replace(nella_cartella)
+        elif nella_cartella.exists():
+            nella_cartella.replace(nella_corsa)
+    return {"da": letto["da"], "a": letto["a"]}
