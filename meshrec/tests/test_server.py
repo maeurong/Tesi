@@ -1694,17 +1694,17 @@ def test_ogni_tratta_che_interroga_il_server_si_scarta_se_e_stata_superata():
     from meshrec.app.server import UI_DIR
 
     testo = (UI_DIR / "app.js").read_text(encoding="utf-8")
-    # caricaStato e caricaGalleria partono una volta sola all'avvio della
-    # pagina e non da un clic: non c'e' nessuna generazione che possa
-    # superarle. annullaLaCorsa non scrive nulla dopo l'attesa, quindi non ha
-    # niente da contraddire; ha un nome apposta per poter comparire qui invece
-    # di non essere mai incontrata.
+    # caricaStato parte una volta sola all'avvio della pagina e non da un
+    # clic: non c'e' nessuna generazione che possa superarla. annullaLaCorsa
+    # non scrive nulla dopo l'attesa, quindi non ha niente da contraddire; ha
+    # un nome apposta per poter comparire qui invece di non essere mai
+    # incontrata.
     # catalogoMateriali non scrive: rende un valore, e la guardia sta dove
     # quel valore tocca il documento. E' esente per la stessa ragione di
     # annullaLaCorsa -- non ha niente da contraddire -- e l'esenzione non e'
     # gratuita: l'assert qui sotto pretende che il suo unico chiamante guardi
     # l'ordine prima di scrivere, che e' cio' che questa regola difende.
-    senza_ordine = {"caricaStato", "annullaLaCorsa", "caricaGalleria", "catalogoMateriali"}
+    senza_ordine = {"caricaStato", "annullaLaCorsa", "catalogoMateriali"}
     assert re.search(
         r"catalogoMateriali\(\)\.then\(\(voci\) => \{\s*\n\s*if \(superata\(ordine\)\) return;",
         testo,
@@ -1723,18 +1723,12 @@ def test_ogni_tratta_che_interroga_il_server_si_scarta_se_e_stata_superata():
         assert "superata(" in sorgente, f"{nome} scrive senza guardare l'ordine:\n{sorgente}"
     # Senza questo, cancellare le funzioni farebbe passare il test a vuoto. Ed
     # e' anche l'unica rete che resta quando l'estrazione per graffe fallisce
-    # (vedi il tetto di _corpi_freccia_asincroni): le tratte reali sono 5
-    # nominate (mostraNuvolaDelloStep, mostraStep, scriviParametro,
-    # apriDettaglio, mostraEsperimento) piu' 2 freccia, quindi la soglia
-    # pareggia il numero vero. Se ne aggiungi una, alza la soglia invece di
-    # lasciarla indietro.
-    #
-    # Dalla schermata d'ingresso sono 11: 6 nominate (le 5 di prima piu'
-    # disegnaIngresso) e 5 freccia (le 2 di prima, il clic su una corsa, il clic
-    # che ne crea una, il clic che dichiara il materiale). Col bottone
-    # «Sfoglia», che chiede al server di aprire il selettore file, 12.
-    # Col gesto che prova il solutore (`verificaSolutore`, la tratta che ESEGUE
-    # il binario e che percio' non sta piu' dentro `GET /api/analisi`), 13.
+    # (vedi il tetto di _corpi_freccia_asincroni): le tratte reali sono 7
+    # nominate (disegnaIngresso, chiediStorico, mostraNuvolaDelloStep,
+    # mostraStep, mostraFantasmaDelloStep, scriviValore, apriDettaglio) piu' 6
+    # freccia, tredici in tutto -- la soglia pareggia il numero vero, contato
+    # rieseguendo questo stesso algoritmo su app.js. Se ne aggiungi una, alza
+    # la soglia invece di lasciarla indietro.
     assert interrogano >= 13, "le tratte attese sono sparite dal modulo"
 
 

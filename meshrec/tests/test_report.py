@@ -2300,8 +2300,8 @@ def test_quello_che_non_e_una_grandezza_non_viene_raggruppato():
 
 
 def test_la_tabella_dello_sweep_raggruppa_i_tetraedri_e_lascia_stare_l_impronta(tmp_path):
-    """La stessa riga che l'appendice stampa e che /api/experiments serve
-    all'interfaccia: `_cell` e' uno solo per tutti e due.
+    """La stessa riga che l'appendice della tesi stampa: `_cell` la formatta
+    una volta sola, e la mutazione sotto la romperebbe li'.
 
     Mutazione che deve morire: togliere il ramo `int` di `_cell` -- i
     tetraedri, che nel registro sono interi e non passano da `_numero`,
