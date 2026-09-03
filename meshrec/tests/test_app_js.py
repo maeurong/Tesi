@@ -7310,3 +7310,25 @@ ultimoStato = [];
 salvaImmagine();
 assert.equal(scaricato().download, "lab-crop-06-step-6-scarto-rms-9-5-mm.png");
 """)
+
+
+def test_l_ingresso_e_un_form_e_invio_lo_manda():
+    """Battuto il nome e il percorso, Invio non faceva niente: bisognava
+    lasciare i tasti e cercare il bottone. Due caselle e un bottone di invio
+    sono un form, e il form Invio lo manda da se'.
+
+    `novalidate` perche' la validazione la fa `ragioneLocale`, che scrive nella
+    riga `role="alert"`: la bolla del browser la coprirebbe con un messaggio
+    che non e' nemmeno nella lingua dell'interfaccia.
+    """
+    markup = _senza_commenti_html(_markup())
+    assert re.search(r'<form[^>]*id="nuova-corsa"', markup), (
+        "i due campi e il bottone non stanno in un <form>: Invio non manda niente"
+    )
+    assert "novalidate" in _elemento(markup, "nuova-corsa"), (
+        "senza novalidate la bolla del browser copre la riga d'errore"
+    )
+    assert 'type="submit"' in _elemento(markup, "crea-corsa")
+    assert 'getElementById("nuova-corsa").addEventListener("submit"' in _modulo(), (
+        "il gestore sta ancora sul clic del bottone: da tastiera non lo raggiunge nessuno"
+    )

@@ -369,8 +369,14 @@ document.getElementById("sfoglia-nuvola").addEventListener("click", async (event
   if (corpo?.percorso) campo.value = corpo.percorso;
 });
 
-document.getElementById("crea-corsa").addEventListener("click", async (evento) => {
-  const bottone = evento.currentTarget;
+// Sul `submit` del form e non sul clic del bottone: da tastiera Invio manda il
+// form, e un gestore appeso al solo clic non lo raggiungeva. Il bottone e' di
+// tipo submit, quindi il clic passa di qui a sua volta -- un gestore solo, e
+// non due strade da tenere allineate.
+document.getElementById("nuova-corsa").addEventListener("submit", async (evento) => {
+  // Il form non si manda al server da se': la corsa la crea /api/corse.
+  evento.preventDefault();
+  const bottone = document.getElementById("crea-corsa");
   const richiesta = apriIngresso();
   bottone.disabled = true;
   rigaErroreIngresso.textContent = "";

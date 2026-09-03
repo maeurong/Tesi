@@ -85,41 +85,50 @@
   <h3>Nuova corsa</h3>
   <!-- Percorso e non caricamento: il file sta gia' su questa macchina e la
        scansione di riferimento pesa 152 MB. -->
-  <label class="campo" for="nuova-nome">
-    <span>nome della corsa</span>
-    <!-- aria-describedby e non il <small> dentro la <label>: dentro, la frase
-         entra nel nome accessibile e il campo si annuncia col proprio aiuto
-         attaccato. Descritto e' cio' che serve, nominato no. -->
-    <input type="text" id="nuova-nome" autocomplete="off" spellcheck="false"
-           aria-describedby="aiuto-nuova-nome">
-  </label>
-  <small class="aiuto" id="aiuto-nuova-nome">Diventa il nome della cartella: lettere, cifre, punto, trattino, trattino basso.</small>
-  <!-- Un <div> e non una <label>, e la <label> nomina per `for`. Avvolgendo
-       tutto, si portava dentro anche il tasto: una <label> nomina con tutto il
-       proprio sottoalbero, e il campo si annunciava «percorso del file di punti
-       Sfoglia...». Ed e' markup invalido: dentro una <label> non ci va un
-       secondo elemento etichettabile, e il <button> lo e'. Stessa forma e
-       stessa ragione dei campi dei parametri in app.js.
-       `campo-con-bottone` sparisce con l'occasione: nel foglio non esiste
-       nessuna regola con quel nome. -->
-  <div class="campo">
-    <label for="nuova-nuvola">percorso del file di punti</label>
-    <!-- Il campo e il bottone, non il bottone al posto del campo: sfogliare e'
-         una comodita', ma un percorso si incolla, e da una sessione remota la
-         finestra non si apre affatto. -->
-    <span class="campo-riga">
-      <input type="text" id="nuova-nuvola" autocomplete="off" spellcheck="false"
-             placeholder="../Nuvole di punti/scansione.pcd"
-             aria-describedby="aiuto-nuova-nuvola">
-      <button type="button" id="sfoglia-nuvola" class="bottone">Sfoglia&hellip;</button>
-    </span>
-  </div>
-  <small class="aiuto" id="aiuto-nuova-nuvola">Percorso sul disco di questa macchina, assoluto o relativo alla cartella da cui gira il programma. «Sfoglia» apre il selettore file del sistema.</small>
-  <!-- Il comando pieno dell'ingresso: sotto due caselle, un tasto che sfoglia e
-       una lista di corse, e' l'unica cosa che questa schermata chiede di fare a
-       chi non ne ha ancora nessuna. «Sfoglia» resta il contorno grigio: due
-       fondi pieni nella stessa colonna smettono di dire quale sia il primo. -->
-  <button type="button" id="crea-corsa" class="bottone bottone-primario">Crea la corsa</button>
+  <!-- Un <form>, e non tre elementi sciolti: battuto il nome e il percorso,
+       Invio non faceva niente e bisognava lasciare i tasti per cercare il
+       bottone. Due caselle e un comando che le manda sono un form, e Invio lo
+       manda il browser senza una riga di codice.
+       `novalidate` perche' la validazione la fa `ragioneLocale` in app.js, che
+       scrive nella riga d'errore qui sotto: la bolla del browser la
+       coprirebbe, e in una lingua che non e' quella dell'interfaccia. -->
+  <form id="nuova-corsa" novalidate>
+    <label class="campo" for="nuova-nome">
+      <span>nome della corsa</span>
+      <!-- aria-describedby e non il <small> dentro la <label>: dentro, la frase
+           entra nel nome accessibile e il campo si annuncia col proprio aiuto
+           attaccato. Descritto e' cio' che serve, nominato no. -->
+      <input type="text" id="nuova-nome" autocomplete="off" spellcheck="false"
+             aria-describedby="aiuto-nuova-nome">
+    </label>
+    <small class="aiuto" id="aiuto-nuova-nome">Diventa il nome della cartella: lettere, cifre, punto, trattino, trattino basso.</small>
+    <!-- Un <div> e non una <label>, e la <label> nomina per `for`. Avvolgendo
+         tutto, si portava dentro anche il tasto: una <label> nomina con tutto il
+         proprio sottoalbero, e il campo si annunciava «percorso del file di punti
+         Sfoglia...». Ed e' markup invalido: dentro una <label> non ci va un
+         secondo elemento etichettabile, e il <button> lo e'. Stessa forma e
+         stessa ragione dei campi dei parametri in app.js.
+         `campo-con-bottone` sparisce con l'occasione: nel foglio non esiste
+         nessuna regola con quel nome. -->
+    <div class="campo">
+      <label for="nuova-nuvola">percorso del file di punti</label>
+      <!-- Il campo e il bottone, non il bottone al posto del campo: sfogliare e'
+           una comodita', ma un percorso si incolla, e da una sessione remota la
+           finestra non si apre affatto. -->
+      <span class="campo-riga">
+        <input type="text" id="nuova-nuvola" autocomplete="off" spellcheck="false"
+               placeholder="../Nuvole di punti/scansione.pcd"
+               aria-describedby="aiuto-nuova-nuvola">
+        <button type="button" id="sfoglia-nuvola" class="bottone">Sfoglia&hellip;</button>
+      </span>
+    </div>
+    <small class="aiuto" id="aiuto-nuova-nuvola">Percorso sul disco di questa macchina, assoluto o relativo alla cartella da cui gira il programma. «Sfoglia» apre il selettore file del sistema.</small>
+    <!-- Il comando pieno dell'ingresso: sotto due caselle, un tasto che sfoglia e
+         una lista di corse, e' l'unica cosa che questa schermata chiede di fare a
+         chi non ne ha ancora nessuna. «Sfoglia» resta il contorno grigio: due
+         fondi pieni nella stessa colonna smettono di dire quale sia il primo. -->
+    <button type="submit" id="crea-corsa" class="bottone bottone-primario">Crea la corsa</button>
+  </form>
   <!-- Stessa regola della riga d'errore del pannello: vive nel markup, non
        viene fabbricata, e a vuota non occupa spazio. -->
   <p class="errore" id="ingresso-errore" role="alert"></p>
