@@ -5263,8 +5263,11 @@ dettagli.open = false;
 aggiornaDaStato({ in_corso: false, step: 1, a_step: 1, steps, da_secondi: null, annullato: false, exit_code: 0 });
 assert.equal(dettagli.open, false, "una corsa riuscita ha aperto il registro da sola");
 
-dettagli.open = true;
+// Il fronte di salita chiude sempre il registro (corsa nuova, righe vecchie):
+// l'apertura a mano va dopo, mentre la corsa gia' gira, per provare che sia
+// il SUCCESSO a non richiuderla e non il fronte di salita a non averlo fatto.
 aggiornaDaStato({ in_corso: true, step: 1, a_step: 1, steps, da_secondi: 0.1, annullato: false, exit_code: null });
+dettagli.open = true;
 aggiornaDaStato({ in_corso: false, step: 1, a_step: 1, steps, da_secondi: null, annullato: false, exit_code: 0 });
 assert.equal(dettagli.open, true, "una corsa riuscita ha richiuso il registro che l'utente aveva aperto");
 """)
@@ -6993,4 +6996,39 @@ for (const testo of ["", "   "]) {
 assert.equal(ultimaRigaDelRegistro(), "nessun dettaglio");
 const { errore } = esitoDellaCorsa({ exit_code: 1, annullato: false, step: 2, a_step: 2, steps: [] });
 assert.match(errore, /nessun dettaglio/);
+""")
+
+
+def test_una_corsa_nuova_svuota_il_registro_della_precedente(tmp_path):
+    """`#registro` non si svuotava da solo fra due corse: solo `#esito` lo fa,
+    sul fronte di salita. La corsa 1 falliva con «ValueError: X»; l'utente la
+    rilanciava e la corsa 2 moriva prima di scrivere una riga sua; `#esito`
+    diceva ancora «...: ValueError: X» -- della corsa 1. Prima la frase era
+    generica e la riga stantia non si vedeva; ora cita l'ultima riga per
+    intero, e la riga stantia e' un dato falso.
+
+    Mutazione che lo uccide: togliere lo svuotamento del registro dal fronte
+    di salita di `aggiornaDaStato`.
+    """
+    _esegui(tmp_path, _banco_di_esito() + """
+ETICHETTE["01_load"] = "Lettura";
+const steps = [{ numero: 1, chiave: "01_load", stato: "valido", secondi: 12 }];
+const base = { step: 1, a_step: 1, steps, annullato: false };
+
+// La corsa 1 fallisce e lascia una riga nel registro, aperto.
+const registro = document.getElementById("registro");
+const dettagli = document.getElementById("registro-dettagli");
+const riga = document.createElement("div"); riga.textContent = "ValueError: X"; registro.append(riga);
+dettagli.open = true;
+
+// La corsa 2 parte: il fronte di salita svuota e richiude il registro della
+// corsa precedente, prima che quella nuova abbia scritto niente.
+aggiornaDaStato({ ...base, in_corso: true, exit_code: null });
+assert.equal(registro.childElementCount, 0, "il registro della corsa vecchia e' rimasto");
+assert.equal(dettagli.open, false, "il registro della corsa vecchia e' rimasto aperto");
+
+// E muore subito, prima di scrivere una riga sua.
+aggiornaDaStato({ ...base, in_corso: false, exit_code: 1 });
+assert.match(esito.textContent, /nessun dettaglio/);
+assert.ok(!esito.textContent.includes("ValueError"), "l'esito cita ancora la corsa precedente: " + esito.textContent);
 """)

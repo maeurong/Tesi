@@ -1093,7 +1093,14 @@ function aggiornaDaStato(stato) {
   // fallita» resterebbe a video sopra la corsa nuova che sta partendo proprio
   // per correggere quel fallimento, e sarebbe il piu' vecchio dei due testi a
   // descrivere il piu' recente dei due fatti.
-  if (!eraInCorso && stato.in_corso) mostraEsito(null, null);
+  if (!eraInCorso && stato.in_corso) {
+    mostraEsito(null, null);
+    // Il registro non si svuota da solo fra due corse: senza, una corsa
+    // morta prima di scrivere una riga cita quella di prima, e il worker
+    // azzera le proprie righe qui allo stesso modo, all'avvio.
+    document.getElementById("registro").replaceChildren();
+    document.getElementById("registro-dettagli").open = false;
+  }
   // Il fronte si consuma solo quando c'e' un esito da annunciare: dentro la
   // finestra sopra, `eraInCorso` resta vero e aspetta il frame che porta il
   // codice.
