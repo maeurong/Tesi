@@ -361,7 +361,16 @@ a.bottone { display: inline-block; text-decoration: none; }
    Il contorno del tasto usa --bordo-comando e non --bordo: qui il bordo E' il
    solo segnale che «Ctrl/Cmd» e «Z» sono capsule e non parole della frase, e
    --bordo sta a 1,41:1 dichiarato -- proiettato sparisce e resta testo. */
-.scorciatoia { margin: 0; }
+/* `text-wrap: balance`: la frase va a capo una volta nella testata a 1400px
+   -- misurato: «con Maiusc» sopra e «la rifà.» sola sulla seconda riga, una
+   vedova di due parole in ogni schermata. Bilanciata, le due righe si
+   spartiscono le parole e la scorciatoia si legge come una frase e non come
+   un'etichetta con la coda. `balance` e non `pretty`: qui le righe sono due e
+   il rimedio giusto per due righe e' pareggiarle, non evitare l'orfana.
+   Due classi nel selettore perche' l'elemento porta anche .aiuto, che piu'
+   sotto dichiara `text-wrap: pretty` a pari specificita' e vincerebbe per
+   ordine: misurato, con la sola .scorciatoia la vedova restava. */
+.aiuto.scorciatoia { margin: 0; text-wrap: balance; }
 .scorciatoia kbd { font-family: var(--stack-cifre); font-size: 0.9em; padding: 0 var(--passo-1); border: 1px solid var(--bordo-comando); border-radius: var(--raggio); background: var(--superficie); }
 /* Il colore ACCANTO al testo e non al posto del testo: «esecuzione fallita» si
    legge per esteso comunque, e chi non distingue le tinte non perde niente
@@ -382,7 +391,12 @@ a.bottone { display: inline-block; text-decoration: none; }
 .registro:focus-visible { outline: 2px solid var(--accento); outline-offset: 2px; }
 /* Il riassunto del registro chiuso: un comando, e come gli altri comandi si
    vede dove sta il fuoco. */
-.registro-dettagli > summary { cursor: pointer; color: var(--tenue); font-weight: 600; margin-top: var(--passo-4); }
+/* Al corpo del dato, come «Metriche» (h3) e come i gruppi di parametri: e'
+   il quarto titolo della colonna e stava a 16px in grassetto, cioe' piu'
+   grande del titolo dello step di cui e' un pezzo. Grigio perche' e' un
+   cassetto chiuso, non un fatto: il peso dice che si apre, la tinta che a
+   riposo non chiede niente. */
+.registro-dettagli > summary { cursor: pointer; color: var(--tenue); font-weight: 600; font-size: var(--tipo-dato); line-height: var(--interlinea-riga); margin-top: var(--passo-4); }
 .registro-dettagli > summary:focus-visible { outline: 2px solid var(--accento); outline-offset: 2px; }
 .riga-log { white-space: pre-wrap; word-break: break-word; }
 /* Una colonna: l'immagine, e sotto la sua didascalia. Non piu' un contenitore
@@ -622,7 +636,13 @@ a.bottone { display: inline-block; text-decoration: none; }
    dei due «Esegui», perche' e' la risposta alla domanda che chi apre la terza
    colonna si pone per prima. Il margine sotto e' zero: la riga del proposito
    gli sta attaccata e le due sono una cosa sola. */
-.titolo-step { margin: 0 0 var(--passo-1); font-size: var(--tipo-corpo); line-height: var(--interlinea-riga); }
+/* `h3.titolo-step` e non `.titolo-step`: `.zona h3` (piu' sopra) vale
+   0,1,1 e batteva la sola classe (0,1,0), quindi il corpo dichiarato qui non
+   arrivava mai a video -- il titolo dello step stava a 14px, come «Metriche»
+   e come il cassetto del registro, cioe' alla pari dei propri pezzi.
+   Misurato: 14px calcolati sul titolo prima di questa riga. A 16px il
+   pannello ha un'intestazione e tre sezioni al corpo del dato sotto di lei. */
+h3.titolo-step { margin: 0 0 var(--passo-1); font-size: var(--tipo-corpo); line-height: var(--interlinea-riga); }
 /* La piega dei parametri rimasti al predefinito. Il riepilogo si legge come una
    riga di comando e non come un titolo: e' un gesto, non una sezione. */
 .gruppo details > summary { cursor: pointer; font-size: var(--tipo-nota); line-height: var(--interlinea-riga); color: var(--tenue); padding: var(--passo-1) 0; }
