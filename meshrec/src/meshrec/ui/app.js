@@ -35,7 +35,7 @@ const PROPOSITI = {
   "07_surface_quality": "Misura la superficie: se è chiusa, quanto sono regolari i triangoli, quanto si scosta dalla nuvola di partenza.",
   "08_simplify": "Rifà o dirada i triangoli. È opzionale: finché non si rifanno a misura uniforme la superficie passa avanti com'è.",
   "09_tetrahedralize": "Riempie il volume di tetraedri: è il maglio su cui si calcola.",
-  "10_volume_quality": "Misura il maglio: elementi rovesciati, volumi, angoli, allungamento.",
+  "10_volume_quality": "Misura il maglio: elementi invertiti, volumi, angoli, allungamento.",
   "11_export": "Scrive il file .inp per Abaqus o CalculiX, con materiale, gravità e set di nodi.",
   "12_wall": "Cerca nella geometria le regioni che sembrano membrature, e le propone come prior.",
 };
@@ -54,6 +54,14 @@ const STEP_DEL_PRIOR = "12_wall";
 
 // Nodo piu' proprieta' in una riga.
 const elemento = (tag, proprieta) => Object.assign(document.createElement(tag), proprieta);
+
+// La coda di ogni rifiuto che l'interfaccia non sa spiegare: un corpo che
+// non si legge e' un guasto fra server e pagina, non un errore di chi guarda,
+// e l'unica cosa che si puo' fare e' ripartire. Detto una volta e riusato,
+// cosi' i cinque messaggi della stessa famiglia offrono lo stesso rimedio.
+// Il sesto, in modello.js, ha un rimedio suo -- rieseguire lo step, che
+// riscrive le metriche -- e non passa da qui apposta.
+const RIMEDIO = "Ricarica la pagina; se il messaggio torna, riavvia «meshrec serve» dal terminale.";
 
 async function caricaStato() {
   const risposta = await fetch("/api/run");
@@ -76,7 +84,19 @@ async function caricaStato() {
     return;
   }
   if (corpo == null || !Array.isArray(corpo.steps)) {
-    dichiaraErrore("il server ha risposto con uno stato della corsa che non si legge");
+    // In testata e non in #errore: a questo punto le tre schermate sono
+    // ancora tutte nascoste, e #errore vive dentro #lavoro. Scritto la'
+    // il messaggio esisteva e nessuno lo vedeva: la pagina restava bianca
+    // con la sola testata, che e' l'unica regione sempre a video.
+    // #esito e' anche la riga che aggiornaDaStato svuota sul fronte di salita
+    // di una corsa e riscrive su quello di discesa: se lo stream degli eventi
+    // porta un fronte mentre questo messaggio e' a video, lo copre. Accettato:
+    // un fronte che arriva vuol dire che il server risponde, e la corsa che
+    // annuncia e' il fatto piu' recente.
+    mostraEsito(
+      "il server ha risposto con uno stato della corsa che non si legge. " + RIMEDIO,
+      null,
+    );
     return;
   }
   mostraSchermata("lavoro");
@@ -169,7 +189,8 @@ async function disegnaIngresso() {
     return;
   }
   if (corpo == null || !Array.isArray(corpo.corse)) {
-    rigaErroreIngresso.textContent = "il server ha risposto con un elenco di corse che non si legge";
+    rigaErroreIngresso.textContent =
+      "il server ha risposto con un elenco di corse che non si legge. " + RIMEDIO;
     return;
   }
   const elenco = document.getElementById("corse-elenco");
@@ -1045,8 +1066,7 @@ async function chiediStorico(verso) {
   // == e non ===: il corpo di questa tratta non e' mai legittimamente null.
   if (corpo == null) {
     mostraEsito(
-      "il server ha risposto con un corpo che non si legge. "
-        + "Ricarica la pagina; se il messaggio torna, riavvia «meshrec serve» dal terminale.",
+      "il server ha risposto con un corpo che non si legge. " + RIMEDIO,
       null,
     );
     return;
@@ -3031,10 +3051,20 @@ function fallisciDettaglio(dettaglio, ragione) {
 // `<details>` nativo e non un pannello richiudibile scritto a mano: porta con
 // se' il gesto da tastiera, il ruolo e lo stato annunciato, e non c'e' niente
 // da mantenere.
+// Il nome del blocco di configurazione come si legge, non come si scrive nel
+// file: «una chiave non si stampa mai, si stampa la sua etichetta» (PRODUCT.md)
+// valeva gia' per i campi e per le metriche, e il titolo del gruppo la
+// violava in maiuscoletto -- «DOWNSAMPLE» sopra «lato del voxel [mm]». Le
+// parole sono quelle della colonna degli step, cosi' il gruppo e lo step che
+// lo esegue si chiamano allo stesso modo. Un blocco che la tabella non
+// conosce resta la chiave, come nomeDelloStep fa con uno step ignoto.
+// Su una riga sola: il banco la estrae con `_costante`, che ne vede una.
+const ETICHETTE_DEI_BLOCCHI = { input: "lettura", segment: "segmentazione", downsample: "riduzione", normals: "normali", surface: "superficie", repair: "riparazione", simplify: "semplificazione", tet: "tetraedri", analysis: "analisi", carichi: "carichi", selettori: "selettori", regioni: "regioni", wall: "prior geometrico" };
+
 function gruppoDelBlocco(blocco, campi, ordine) {
   const gruppo = document.createElement("fieldset");
   gruppo.className = "gruppo";
-  gruppo.append(elemento("legend", { textContent: blocco }));
+  gruppo.append(elemento("legend", { textContent: ETICHETTE_DEI_BLOCCHI[blocco] ?? blocco }));
   const cambiati = [];
   const fermi = [];
   for (const [nome, campo] of Object.entries(campi)) {
@@ -3094,6 +3124,27 @@ function intestazioneDelloStep(numero) {
 // ordine: la generazione del clic che ha chiesto questo pannello. Il
 // ricaricamento dallo scorrere degli eventi non ne apre una: prende quella in
 // corso, cosi' un clic dell'utente arrivato nel frattempo lo batte.
+// Che cosa vuol dire lo stato che la colonna scrive accanto allo step, e che
+// cosa farne. «non valido» sta nella colonna, nel registro, nella CLI e nella
+// spec, e la parola non si cambia; ma a chi non conosce la pipeline suona
+// come «rotto», mentre dice solo che l'artefatto sul disco viene da
+// parametri diversi da quelli correnti. La frase sta nel pannello dello step
+// aperto, subito prima dei due bottoni di esecuzione: e' il posto in cui si
+// decide se rieseguire. Uno stato che non si conosce non prende una frase.
+// La tabella sta dentro la funzione e non a livello di modulo: il banco la
+// estrae con `_funzioni`, che prende la funzione intera, e una costante su
+// piu' righe non la vedrebbe.
+function fraseDelloStato(voce) {
+  const frasi = {
+    "valido": "Eseguito con i parametri correnti: l'artefatto sul disco li rispecchia.",
+    "non valido": "Eseguito con parametri diversi da quelli correnti: l'artefatto sul disco "
+      + "non li rispecchia. Riesegui lo step per aggiornarlo.",
+    "mai eseguito": "Mai eseguito in questa corsa.",
+    "fallito": "L'ultima esecuzione è fallita: il motivo è nel registro, in fondo a questa colonna.",
+  };
+  return frasi[voce?.stato] ?? null;
+}
+
 async function apriDettaglio(numero, ordine = generazione) {
   const dettaglio = document.getElementById("dettaglio");
   if (schemaParametri === null) {
@@ -3115,7 +3166,7 @@ async function apriDettaglio(numero, ordine = generazione) {
     // successivo ritenterebbe la richiesta.
     // == e non ===: lo schema non e' mai legittimamente null per intero.
     if (corpo == null) {
-      fallisciDettaglio(dettaglio, "il server ha risposto con uno schema che non si legge");
+      fallisciDettaglio(dettaglio, "il server ha risposto con uno schema che non si legge. " + RIMEDIO);
       return;
     }
     schemaParametri = corpo;
@@ -3144,7 +3195,7 @@ async function apriDettaglio(numero, ordine = generazione) {
   // == e non ===: ne' la configurazione ne' le metriche sono mai
   // legittimamente null per intero.
   if (corpoConfig == null || corpoMetriche == null) {
-    fallisciDettaglio(dettaglio, "il server ha risposto con un corpo che non si legge");
+    fallisciDettaglio(dettaglio, "il server ha risposto con un corpo che non si legge. " + RIMEDIO);
     return;
   }
   configurazione = corpoConfig;
@@ -3168,6 +3219,10 @@ async function apriDettaglio(numero, ordine = generazione) {
   // guarda la terza colonna deve sapere che cosa sta per eseguire senza
   // riattraversare lo schermo.
   dettaglio.append(...intestazioneDelloStep(numero));
+  const statoSuDisco = fraseDelloStato(ultimoStato.find((v) => v.numero === numero));
+  if (statoSuDisco !== null) {
+    dettaglio.append(elemento("p", { className: "aiuto stato-dello-step", textContent: statoSuDisco }));
+  }
 
   const azioni = document.createElement("div");
   azioni.className = "azioni";
