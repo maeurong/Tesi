@@ -3053,6 +3053,40 @@ def test_lo_stream_riparte_dalla_prima_riga_quando_il_registro_si_svuota(cliente
     assert testo.count("event: riga") == 5, "nessuna riga mandata due volte"
 
 
+def test_lo_stream_riparte_con_lidentita_anche_se_le_righe_non_calano(cliente, monkeypatch):
+    """worker.py:97-115: `Worker.start` incrementa `avvii` subito dopo aver
+    svuotato `_righe`. Due corse ravvicinate nello stesso poll possono
+    lasciare la corsa nuova con lo stesso numero di righe della vecchia (o di
+    piu'): la guardia sul solo conteggio (`len(righe) < inviate`) non se ne
+    accorge, e la prima riga della corsa nuova si perde per sempre.
+    L'identita' della corsa deve bastare da sola, a prescindere dal
+    conteggio."""
+    turni = [
+        (0, ["vecchia"]),             # corsa A: 1 riga, gia' mandata
+        (1, ["nuova-1", "nuova-2"]),  # corsa B: avvii cambiato, 2 righe (>= della vecchia)
+    ]
+    turno = {"i": 0}
+
+    def avvii(self):
+        # Letta prima di righe() nel generatore: deve vedere il turno
+        # corrente, non quello gia' avanzato da righe().
+        return turni[turno["i"]][0]
+
+    def righe(self):
+        risultato = turni[turno["i"]][1]
+        turno["i"] = min(turno["i"] + 1, len(turni) - 1)
+        return risultato
+
+    monkeypatch.setattr(
+        server.Worker, "avvii", property(avvii, lambda self, valore: None), raising=False
+    )
+    monkeypatch.setattr(server.Worker, "righe", righe)
+
+    testo = cliente.get("/api/events?max_eventi=2").text
+    assert '"nuova-1"' in testo, "la prima riga della corsa nuova non deve cadere nel taglio"
+    assert '"nuova-2"' in testo
+
+
 
 
 # Il banco del velo. Gemello di _BANCO_ORDINE, con una differenza sola e

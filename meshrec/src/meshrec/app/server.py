@@ -1925,6 +1925,7 @@ def create_app(
         def flusso():
             inviate = 0
             emesse = 0
+            avvio_visto = None
             while True:
                 # Nessuna corsa aperta non e' un errore qui, ed e' lo stato in
                 # cui la schermata d'ingresso vive: il browser apre
@@ -1947,13 +1948,26 @@ def create_app(
                 }
                 yield f"event: stato\ndata: {json.dumps(stato, default=str)}\n\n"
                 emesse += 1
+                # `avvii` (worker.py) e' l'identita' della corsa, letto PRIMA
+                # di righe(): due corse ravvicinate nello stesso poll possono
+                # lasciare la corsa nuova con lo stesso numero di righe della
+                # vecchia (o di piu'), e la sola guardia sul conteggio non se
+                # ne accorgeva -- la prima riga della corsa nuova cadeva nel
+                # taglio, proprio quella che il pannello dell'esito legge
+                # quando la corsa fallisce subito. Se una corsa parte fra
+                # queste due letture, righe() e' gia' quella nuova (svuotata
+                # e ripopolata) e questo giro puo' rimandare righe gia' viste;
+                # il giro dopo `avvii` risulta cambiato e il taglio riparte da
+                # zero. Ripetute sono accettabili, perse no.
+                avvio_ora = lavoratore.avvii
                 righe = lavoratore.righe()
-                # Il registro si svuota a ogni avvio (Worker.start): sul
-                # fotogramma in cui si accorcia, `inviate` vale piu' di quante
-                # righe ci sono e il taglio mangia le prime della corsa nuova,
-                # che nessun fotogramma successivo ripesca. Sono quelle che il
-                # pannello dell'esito legge quando la corsa fallisce subito.
-                if len(righe) < inviate:
+                if avvio_ora != avvio_visto:
+                    avvio_visto = avvio_ora
+                    inviate = 0
+                elif len(righe) < inviate:
+                    # Cintura: l'identita' e' quella vera; questo resta come
+                    # rete di sicurezza se `avvii` non si muove per un caso
+                    # non previsto.
                     inviate = 0
                 for riga in righe[inviate:]:
                     yield f"event: riga\ndata: {json.dumps(riga)}\n\n"
