@@ -306,7 +306,7 @@ def test_il_trascinamento_non_resta_premuto_quando_il_puntatore_se_ne_va():
         "qualcuno tocca"
     )
     alzato = _corpo_di(r"const alzato = \(evento\) => \{", "\n  };")
-    assert "premuto = false" in alzato and "dita.delete(evento.pointerId)" in alzato, (
+    assert "premuto = false" in alzato and "puntatori.delete(evento.pointerId)" in alzato, (
         f"il gestore che alza un dito non azzera lo stato del trascinamento: {alzato}"
     )
 
@@ -367,10 +367,30 @@ def test_la_pinza_segue_i_diti_invece_di_scorrere_per_conto_suo():
     al proprio posto.
     """
     testo = _senza_commenti(_modulo())
-    assert "orbita.raggio *= pinza / adesso;" in testo, (
+    assert "Math.max(0.25, pinza / adesso)" in testo, (
         "il fattore della pinza non e' piu' il rapporto fra la distanza di prima "
         "e quella di adesso: o il verso e' rovesciato, o il pezzo non segue piu' "
         "i diti"
+    )
+    # Il tetto per fotogramma, che e' la stessa difesa che `fattoreDiZoom` porta
+    # sulla rotella: due puntatori quasi sovrapposti al primo tocco danno un
+    # rapporto qualunque, e senza limite il raggio salta di colpo. Nessun gesto
+    # vero cambia la distanza di quattro volte dentro un fotogramma, quindi il
+    # tetto prende solo il caso patologico.
+    assert "Math.min(4, Math.max(0.25," in testo, (
+        "la pinza non ha piu' un tetto per fotogramma: due puntatori a pochi "
+        "pixel bastano per un salto di scala in un colpo solo"
+    )
+    assert "adesso >= DISTANZA_MINIMA && pinza >= DISTANZA_MINIMA" in testo, (
+        "la pinza non scarta piu' le distanze troppo piccole, dove il rapporto "
+        "fra due letture non e' un gesto ma rumore"
+    )
+    # Il terzo dito non congela l'interazione: `>= 2` e non `=== 2`. Con
+    # l'uguaglianza esatta, un palmo appoggiato mentre si pizzica fermava tutto
+    # -- ne' pinza ne' rotazione -- senza niente a schermo che lo dicesse.
+    assert "if (puntatori.size >= 2) {" in testo, (
+        "col terzo puntatore giu' il gesto si blocca invece di ignorare quelli "
+        "oltre i primi due"
     )
     # L'aritmetica, eseguita: allargare avvicina, riavvicinare riporta indietro.
     raggio = 100.0

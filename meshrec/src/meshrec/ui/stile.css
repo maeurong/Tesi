@@ -1308,10 +1308,18 @@ h3.titolo-step { margin: 0 0 var(--passo-1); font-size: var(--tipo-corpo); line-
    al pallino di stato, e il pallino sta allineato alla prima riga di base del
    nome. Cosi' cresce la zona che riceve il tocco e non si muove niente di cio'
    che si legge.
-   La casella del fantasma sale con loro: e' 1,15em, cioe' meno di 19 px, ed e'
-   il bersaglio piu' piccolo di tutta l'interfaccia. */
+   Il fantasma sale sull'ETICHETTA e non sulla casella, ed e' una correzione a
+   quello che questo stesso blocco faceva nella sua prima grafia. La casella
+   era portata a 1,6em, che nel contesto di `--tipo-dato` fa 22,4 px: meta'
+   strada verso i 44 che il blocco dichiara, cioe' una delle sue tre righe che
+   manca la soglia che le altre due centrano esatta. E ingrandire il quadratino
+   e' comunque la cosa sbagliata: quello che deve essere grande e' la zona che
+   riceve il tocco, non il segno che si guarda -- una casella da 44 px accanto
+   a un testo da 14 sarebbe fuori scala. L'etichetta avvolge gia' la casella
+   (index.html), quindi e' lei il bersaglio, e alzando lei il quadratino resta
+   della misura che ha su ogni altro schermo. */
 @media (pointer: coarse) {
   .step { min-height: 2.75rem; }
-  .fantasma-comando input[type="checkbox"] { width: 1.6em; height: 1.6em; }
+  .fantasma-comando { min-height: 2.75rem; }
   .taglio input[type="range"] { height: 2.75rem; }
 }

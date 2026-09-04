@@ -517,42 +517,48 @@ export function creaViewport(contenitore) {
   let premuto = false;
   let premutoConCtrl = false;
   let ultimo = { x: 0, y: 0 };
-  // I puntatori giu' in questo momento. Col mouse ce n'e' sempre uno solo e
-  // questa mappa non cambia niente; col dito ce ne possono essere due, ed e'
-  // l'unico modo di sapere che il gesto in corso e' una pinza e non una
-  // rotazione. `pointerId` come chiave perche' e' cio' che il browser promette
-  // stabile per la vita di un dito sullo schermo.
-  const dita = new Map();
+  // I puntatori giu' in questo momento -- `puntatori` e non `dita`, perche' qui
+  // dentro finisce anche il mouse: ogni `pointerdown` ci passa, e il nome deve
+  // dire che cosa la mappa contiene e non il caso per cui e' stata scritta.
+  // Col mouse ce n'e' sempre uno solo e questa mappa non cambia niente; col
+  // dito ce ne possono essere due o piu', ed e' l'unico modo di sapere che il
+  // gesto in corso e' una pinza e non una rotazione. `pointerId` come chiave
+  // perche' e' cio' che il browser promette stabile per la vita di un
+  // puntatore sullo schermo.
+  const puntatori = new Map();
+  // Sotto questa distanza in pixel due puntatori non sono una pinza ma una
+  // mis-lettura, e il rapporto fra le loro distanze e' un numero qualunque.
+  const DISTANZA_MINIMA = 12;
   // La distanza fra i due diti all'ultimo fotogramma: null quando i diti non
   // sono due, cosi' la pinza riparte pulita ogni volta invece di ereditare la
   // distanza di una pinza di prima.
   let pinza = null;
 
-  const distanzaFraIDita = () => {
-    const [a, b] = [...dita.values()];
+  const distanzaFraIPrimiDue = () => {
+    const [a, b] = [...puntatori.values()];
     return Math.hypot(a.x - b.x, a.y - b.y);
   };
 
   tela.addEventListener("pointerdown", (evento) => {
-    dita.set(evento.pointerId, { x: evento.clientX, y: evento.clientY });
+    puntatori.set(evento.pointerId, { x: evento.clientX, y: evento.clientY });
     // Il secondo dito chiude la rotazione invece di continuarla: senza,
     // appoggiando il secondo dito il modello scatterebbe di un mezzo giro,
     // perche' `ultimo` resterebbe la posizione del primo mentre i pointermove
     // cominciano ad arrivare anche dall'altro.
-    premuto = dita.size === 1;
-    pinza = dita.size === 2 ? distanzaFraIDita() : null;
+    premuto = puntatori.size === 1;
+    pinza = puntatori.size === 2 ? distanzaFraIPrimiDue() : null;
     premutoConCtrl = evento.ctrlKey;
     ultimo = { x: evento.clientX, y: evento.clientY };
     tela.setPointerCapture(evento.pointerId);
   });
   const alzato = (evento) => {
-    dita.delete(evento.pointerId);
+    puntatori.delete(evento.pointerId);
     pinza = null;
     // Tolto un dito da una pinza ne resta uno solo, e da li' il gesto e' di
     // nuovo una rotazione: riparte dalla posizione di quel dito, non da dove
     // stava il primo prima della pinza.
-    if (dita.size === 1) {
-      const [restante] = [...dita.values()];
+    if (puntatori.size === 1) {
+      const [restante] = [...puntatori.values()];
       ultimo = { x: restante.x, y: restante.y };
       premuto = true;
     } else {
@@ -573,19 +579,36 @@ export function creaViewport(contenitore) {
   // sintetizza dal ctrl+clic WebKit non lo ha sempre riportato.
   tela.addEventListener("contextmenu", (evento) => { if (evento.ctrlKey || premutoConCtrl) evento.preventDefault(); });
   tela.addEventListener("pointermove", (evento) => {
-    if (dita.has(evento.pointerId)) {
-      dita.set(evento.pointerId, { x: evento.clientX, y: evento.clientY });
+    if (puntatori.has(evento.pointerId)) {
+      puntatori.set(evento.pointerId, { x: evento.clientX, y: evento.clientY });
     }
     // La pinza: due diti che si allontanano avvicinano il pezzo, ed e' lo
     // stesso verso della rotella. Il fattore e' il rapporto fra le due
     // distanze, quindi il pezzo segue i diti invece di scorrere a velocita'
     // propria -- allargando del doppio si dimezza il raggio, e riavvicinando
     // i diti si torna esattamente da dove si era partiti.
-    if (dita.size === 2) {
-      const adesso = distanzaFraIDita();
-      if (pinza !== null && adesso > 0) {
+    if (puntatori.size >= 2) {
+      const adesso = distanzaFraIPrimiDue();
+      // `>= 2` e non `=== 2`: col terzo dito giu' -- un palmo appoggiato sul
+      // vetro mentre si pizzica -- il ramo esatto non scattava e nemmeno
+      // quello della rotazione, perche' `premuto` e' vero solo col primo dito
+      // solo. L'interazione si fermava, senza niente a schermo che lo
+      // dicesse, finche' non si staccava una mano. I diti oltre i primi due si
+      // ignorano invece di bloccare tutto.
+      //
+      // Sotto i pochi pixel la distanza non e' un gesto ma una mis-lettura, e
+      // un rapporto calcolato li' sopra e' un numero qualunque. Il tetto per
+      // fotogramma e' la stessa difesa che `fattoreDiZoom` porta sulla
+      // rotella, dove il limite al delta esiste per una scala saltata di
+      // colpo: nessuna pinza vera cambia la distanza fra i diti di quattro
+      // volte dentro un fotogramma, quindi il tetto non tocca il gesto e
+      // prende solo il caso patologico. La proprieta' che conta -- il pezzo
+      // segue i diti, e riavvicinandoli si torna da dove si era partiti --
+      // resta intatta per ogni gesto che una mano possa fare.
+      if (pinza !== null && adesso >= DISTANZA_MINIMA && pinza >= DISTANZA_MINIMA) {
+        const fattore = Math.min(4, Math.max(0.25, pinza / adesso));
         laCameraPassaAlGesto();
-        orbita.raggio *= pinza / adesso;
+        orbita.raggio *= fattore;
         aggiornaCamera();
       }
       pinza = adesso;
