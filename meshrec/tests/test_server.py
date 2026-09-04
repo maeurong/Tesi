@@ -7,6 +7,7 @@ import json
 import re
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -4235,3 +4236,74 @@ def test_una_versione_illeggibile_non_scambia_niente(cliente, tmp_path, monkeypa
     assert (out_dir / "02_segmented.ply").read_bytes() == b"voxel 5"
     cartella = out_dir / storico.CARTELLA / f"{numero:04d}"
     assert (cartella / "02_segmented.ply").read_bytes() == b"voxel 2"
+
+
+def test_a_corsa_finita_le_nuvole_sono_gia_decimate(cliente, tmp_path, monkeypatch):
+    """Il primo clic su uno step-nuvola non deve pagare la decimazione a freddo.
+
+    E' l'unica attesa dell'interfaccia che superi la soglia di un gesto.
+    Misurata il 04/09/2026 su una nuvola sintetica da 1.505.012 punti, con lo
+    stesso giro fatto due volte a minuti di distanza sulla stessa macchina:
+    1,132 s al primo clic dopo una riesecuzione senza questo meccanismo, 0,084 s
+    con. Dal secondo clic in poi le due strade coincidono (0,071 contro 0,072),
+    che e' il modo in cui si vede che a cambiare e' soltanto CHI paga il freddo.
+
+    Il difetto che questo controllo ferma non e' «lo scaldacache e' sparito» --
+    quello si vedrebbe -- ma il suo gemello silenzioso: scaldare una voce che
+    poi la richiesta non ritrova. La chiave della cache porta dentro budget,
+    campione e seme (`viewport.decimate_file`), quindi basta che il thread e la
+    rotta li leggano da due posti diversi, o che uno dei due cambi, perche' il
+    lavoro venga fatto due volte -- una a vuoto -- senza che niente diventi
+    rosso e senza che l'attesa torni a farsi notare in un banco.
+
+    Percio' l'asserzione non guarda il nome del file ne' chiama una funzione
+    privata: fotografa la cartella della cache dopo la corsa, chiede la nuvola,
+    e pretende che non sia comparso niente di nuovo. Se la voce scaldata fosse
+    quella sbagliata, la richiesta ne scriverebbe una sua e il confronto lo
+    direbbe.
+    """
+    import numpy as np
+    from meshrec.core import io, pipeline
+
+    corsa = tmp_path / "corsa"
+    punti = np.random.default_rng(0).random((60_000, 3)) * 100.0
+    io.write_cloud(corsa / pipeline.ARTIFACTS[1], punti)
+
+    # Nessun sottoprocesso: qui si prova che il server scalda cio' che poi
+    # serve, non che la pipeline giri. Il lavoratore dichiara una corsa finita
+    # bene, che e' l'unica condizione in cui scaldare ha senso.
+    def start_finto(self, *argomenti) -> None:
+        # L'artefatto lo riscrive il finto avvio, e non e' una comodita': la
+        # rotta DEPOSITA prima di partire, cioe' porta via da out_dir il file
+        # dello step che sta per rifare. Senza questa riga il thread non
+        # troverebbe niente da decimare e il banco misurerebbe il proprio
+        # allestimento invece del meccanismo.
+        io.write_cloud(corsa / pipeline.ARTIFACTS[1], punti)
+        # Lo stato che il lavoratore vero lascia a corsa riuscita, scritto
+        # sull'istanza: `exit_code` e `annullato` nascono in `__init__`, quindi
+        # posati sulla classe li coprirebbe comunque il valore dell'istanza.
+        self.exit_code = 0
+        self.annullato = False
+
+    monkeypatch.setattr(server.Worker, "start", start_finto)
+    monkeypatch.setattr(server.Worker, "is_running", lambda self: False)
+
+    assert cliente.post("/api/step/1").status_code == 200
+
+    cache = tmp_path / "cache"
+    for _ in range(100):
+        if cache.exists() and any(cache.glob("*.npz")):
+            break
+        time.sleep(0.05)
+    scaldate = sorted(p.name for p in cache.glob("*.npz"))
+    assert scaldate, (
+        "a corsa finita nessuna nuvola e' stata decimata in anticipo: il primo "
+        "clic sullo step 1 torna a pagare la decimazione a freddo"
+    )
+
+    assert cliente.get("/api/cloud/1").status_code == 200
+    assert sorted(p.name for p in cache.glob("*.npz")) == scaldate, (
+        "la richiesta ha scritto una voce di cache sua: quella scaldata a fine "
+        "corsa e' stata calcolata con parametri che la rotta non chiede, quindi "
+        "il lavoro e' stato fatto due volte e l'attesa e' rimasta dov'era"
+    )
