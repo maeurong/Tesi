@@ -107,6 +107,53 @@ def to_float32(array: np.ndarray) -> bytes:
     return np.ascontiguousarray(np.asarray(array), dtype="<f4").tobytes()
 
 
+def vertex_normals(vertices: np.ndarray, faces: np.ndarray) -> np.ndarray:
+    """Le normali per vertice, con la stessa definizione che usa il browser.
+
+    Non una definizione qualsiasi: e' `BufferGeometry.computeVertexNormals` di
+    three.js, replicata riga per riga sul vendor che il progetto serve. Per ogni
+    triangolo (a, b, c) la normale di faccia e' `(c - b) x (a - b)`, sommata
+    NON normalizzata ai tre vertici -- il modulo del prodotto vettoriale e' il
+    doppio dell'area, quindi la somma pesa ogni faccia per la propria area -- e
+    alla fine ogni vertice si normalizza dividendo per `length() || 1`, cioe' un
+    vertice senza area attorno resta a zero invece di diventare NaN.
+    Cambiare una qualsiasi di quelle tre scelte non produce normali «un po'
+    diverse»: cambia l'illuminazione del pezzo che finisce in appendice, e lo fa
+    senza che nessun numero a video lo dichiari. Il verso del prodotto
+    vettoriale da solo ribalta il chiaro e lo scuro.
+
+    Esiste perche' quel calcolo, fatto in JavaScript sul thread principale,
+    blocca l'interfaccia. Misurato nel browser il 04/09/2026 su 908.118
+    triangoli -- il conteggio che l'aiuto dello step 5 cita per la scansione di
+    riferimento a `poisson_depth` 9 -- mediano di sette prove: 1078 ms. Qui la
+    stessa cosa e' un pugno di operazioni su array interi.
+
+    `np.add.at` sarebbe la traduzione ovvia dell'accumulo ed e' la strada
+    sbagliata: e' un ciclo Python mascherato, e su 2,7 milioni di scritture
+    sparse costa piu' del calcolo che deve accelerare. `bincount` fa la stessa
+    somma per dispersione in C, una volta per componente e per spigolo.
+    """
+    vertici = np.asarray(vertices, dtype=np.float64)
+    facce = np.asarray(faces, dtype=np.int64)
+    normali = np.zeros((len(vertici), 3), dtype=np.float64)
+    if len(facce) == 0:
+        return normali
+    a, b, c = vertici[facce[:, 0]], vertici[facce[:, 1]], vertici[facce[:, 2]]
+    faccia = np.cross(c - b, a - b)
+    for spigolo in range(3):
+        indici = facce[:, spigolo]
+        for componente in range(3):
+            normali[:, componente] += np.bincount(
+                indici, weights=faccia[:, componente], minlength=len(vertici)
+            )
+    lunghezze = np.linalg.norm(normali, axis=1)
+    # `length() || 1` di three.js: la lunghezza zero non divide, non azzera e
+    # non solleva -- lascia il vertice a (0, 0, 0), che e' cio' che il browser
+    # ottiene oggi su un vertice senza triangoli attorno.
+    lunghezze[lunghezze == 0.0] = 1.0
+    return normali / lunghezze[:, None]
+
+
 # Gettone del contratto di decimate, non della sorgente. Va alzato ogni volta
 # che cambia CHE COSA decimate promette, non come lo calcola: una voce scritta
 # sotto il contratto vecchio resterebbe altrimenti valida per chiave e servirebbe

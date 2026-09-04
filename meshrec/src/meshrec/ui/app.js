@@ -1458,12 +1458,26 @@ async function mostraStep(numero, ordine) {
   vista.mostraMesh(
     new Float32Array(grezzi, 0, vertici * 3),
     new Uint32Array(grezzi, vertici * 3 * 4, triangoli * 3),
+    normaliDellaRisposta(risposta, grezzi, vertici, triangoli),
   );
   // I conteggi sono quelli che il server ha contato sull'artefatto: per lo
   // step 9 sono i vertici e i triangoli del contorno, non i nodi del volume.
   document.getElementById("conteggi").textContent =
     `${vertici.toLocaleString("it")} vertici, ${triangoli.toLocaleString("it")} triangoli`;
   return true;
+}
+
+// Le normali in coda al corpo di /api/mesh, quando ci sono.
+//
+// Il taglio non si deduce dalla lunghezza del corpo ma dall'intestazione che il
+// server manda: un corpo troncato a meta' del download avrebbe la coda mancante
+// e si leggerebbe come «senza normali», cioe' il pezzo si disegnerebbe scuro
+// senza che niente lo dichiari. `corpoBinarioLetto` gia' distingue un download
+// interrotto da uno finito, e questa riga non deve reintrodurre quella
+// confusione da un'altra parte.
+function normaliDellaRisposta(risposta, grezzi, vertici, triangoli) {
+  if (risposta.headers.get("X-Normals") !== "1") return null;
+  return new Float32Array(grezzi, (vertici * 3 + triangoli * 3) * 4, vertici * 3);
 }
 
 // --- Il fantasma del passaggio a monte --------------------------------------
@@ -1642,7 +1656,11 @@ async function mostraScartoDelloStep(ordine) {
     new Float32Array(grezziMesh, 0, vertici * 3),
     new Uint32Array(grezziMesh, vertici * 3 * 4, triangoli * 3),
     valori,
-    { taglio, descrizione: testo },
+    {
+      taglio,
+      descrizione: testo,
+      normali: normaliDellaRisposta(rispostaMesh, grezziMesh, vertici, triangoli),
+    },
   );
   document.getElementById("conteggi").textContent =
     `${vertici.toLocaleString("it")} vertici, ${triangoli.toLocaleString("it")} triangoli`;

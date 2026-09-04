@@ -245,7 +245,10 @@ def test_la_mesh_torna_in_binario_con_i_conteggi(cliente, tmp_path):
     vertici = int(risposta.headers["X-Vertices"])
     triangoli = int(risposta.headers["X-Triangles"])
     assert vertici == 8 and triangoli == 12
-    assert len(risposta.content) == vertici * 3 * 4 + triangoli * 3 * 4
+    # Tre code, non due: posizioni, indici e — dal 04/09/2026 — le normali,
+    # che sono un Float32 per componente per vertice come le posizioni.
+    assert risposta.headers["X-Normals"] == "1"
+    assert len(risposta.content) == (vertici * 3 + triangoli * 3 + vertici * 3) * 4
 
 
 def test_lo_scarto_corrisponde_vertice_per_vertice_alla_superficie_servita(cliente, tmp_path):
@@ -1086,10 +1089,18 @@ def _mesh_dalla_risposta(risposta):
 
     vertici = int(risposta.headers["X-Vertices"])
     triangoli = int(risposta.headers["X-Triangles"])
-    assert len(risposta.content) == vertici * 3 * 4 + triangoli * 3 * 4
+    # Tre code, non due: posizioni, indici e — dal 04/09/2026 — le normali,
+    # che sono un Float32 per componente per vertice come le posizioni.
+    assert risposta.headers["X-Normals"] == "1"
+    assert len(risposta.content) == (vertici * 3 + triangoli * 3 + vertici * 3) * 4
     return (
         np.frombuffer(risposta.content, dtype="<f4", count=vertici * 3).reshape(vertici, 3),
-        np.frombuffer(risposta.content, dtype="<u4", offset=vertici * 3 * 4).reshape(triangoli, 3),
+        # `count` esplicito: senza, la lettura prende anche la coda delle
+        # normali e il reshape salta. Il corpo ha tre code, e ognuna va letta
+        # con la propria lunghezza.
+        np.frombuffer(
+            risposta.content, dtype="<u4", offset=vertici * 3 * 4, count=triangoli * 3
+        ).reshape(triangoli, 3),
     )
 
 
@@ -1937,6 +1948,11 @@ def test_fra_due_geometrie_della_stessa_generazione_vince_chi_e_partita_dopo(num
             "comandoDelFantasma",
             "mostraFantasmaDelloStep",
             "ricaricaVista",
+            # Il taglio della coda delle normali: `mostraStep` la chiama per
+            # passarle alla vista, e senza il ritaglio il banco cade su un
+            # riferimento che non esiste — cioe' su nessuna scrittura nel
+            # viewport, che e' esattamente cio' che questo banco conta.
+            "normaliDellaRisposta",
         )
     )
     banco = (

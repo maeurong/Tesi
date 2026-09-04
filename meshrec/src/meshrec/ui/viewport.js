@@ -258,6 +258,26 @@ function oltreIlPolo(phi, passo) {
   return grezzo;
 }
 
+// Le normali: quelle che il server manda, o quelle che il browser si calcola.
+//
+// `computeVertexNormals` gira sul thread principale, e finche' dura e' ferma
+// la pagina intera -- non solo la vista. Misurato qui dentro il 04/09/2026 su
+// 908.118 triangoli, il conteggio che l'aiuto dello step 5 cita per la
+// scansione di riferimento a `poisson_depth` 9: mediano di sette prove,
+// 1078 ms. Adesso quel calcolo lo fa il server in numpy e le manda in coda al
+// corpo (`viewport.vertex_normals`, replica riga per riga di questo stesso
+// algoritmo di three.js), quindi di la' non resta niente da fare.
+//
+// Il ripiego non e' cortesia verso un server vecchio: e' la sola strada per un
+// chiamante che le normali non le ha, come `mostraFantasma` sul fantasma di uno
+// step a monte, che riceve la geometria da una risposta gia' consumata. Dove
+// arrivano si usano, dove non arrivano si calcolano, e in nessuno dei due casi
+// la scena e' diversa -- e' la stessa definizione applicata dalle due parti.
+function posaLeNormali(geometria, normali) {
+  if (normali) geometria.setAttribute("normal", new THREE.BufferAttribute(normali, 3));
+  else geometria.computeVertexNormals();
+}
+
 export function creaViewport(contenitore) {
   const scena = new THREE.Scene();
   scena.background = new THREE.Color(0xfbfaf8);
@@ -686,11 +706,11 @@ export function creaViewport(contenitore) {
     // Qui arrivano solo triangoli: l'unico .vtu servito e' tetraedrico, e
     // `_contorno_del_volume` (app/server.py) solleva su una griglia che non
     // porta celle "tetra".
-    mostraMesh(vertici, facce) {
+    mostraMesh(vertici, facce, normali = null) {
       const geometria = new THREE.BufferGeometry();
       geometria.setAttribute("position", new THREE.BufferAttribute(vertici, 3));
       geometria.setIndex(new THREE.BufferAttribute(facce, 1));
-      geometria.computeVertexNormals();
+      posaLeNormali(geometria, normali);
       gruppo.add(new THREE.Mesh(geometria, new THREE.MeshStandardMaterial({
         color: 0xb8b2a7, roughness: 0.9, metalness: 0.0, side: THREE.DoubleSide,
         clippingPlanes: pianiTaglio,
@@ -713,11 +733,11 @@ export function creaViewport(contenitore) {
     // descrizione: la stessa frase che finisce sotto la vista, cosi' chi
     // ascolta lo screen reader riceve il caso di carico, la grandezza, l'unita'
     // e i due numeri della scala invece di un conteggio di facce.
-    mostraMeshPerCampo(vertici, facce, valori, { taglio, descrizione }) {
+    mostraMeshPerCampo(vertici, facce, valori, { taglio, descrizione, normali = null }) {
       const geometria = new THREE.BufferGeometry();
       geometria.setAttribute("position", new THREE.BufferAttribute(vertici, 3));
       geometria.setIndex(new THREE.BufferAttribute(facce, 1));
-      geometria.computeVertexNormals();
+      posaLeNormali(geometria, normali);
       const colori = new Float32Array(valori.length * 3);
       // Sequenziale: una tinta sola, chiara verso scura al crescere del
       // valore. Non un arcobaleno che attraversa piu' tinte: una scala di
@@ -761,7 +781,7 @@ export function creaViewport(contenitore) {
     // sul foglio di stile lo raggiunge. Se i colori della scena passeranno ai
     // token CSS, questo passa con loro: non vale aprire quel cantiere per un
     // colore solo.
-    mostraFantasma(vertici, facce = null) {
+    mostraFantasma(vertici, facce = null, normali = null) {
       togliFantasma();
       const geometria = new THREE.BufferGeometry();
       geometria.setAttribute("position", new THREE.BufferAttribute(vertici, 3));
@@ -773,7 +793,7 @@ export function creaViewport(contenitore) {
         }));
       } else {
         geometria.setIndex(new THREE.BufferAttribute(facce, 1));
-        geometria.computeVertexNormals();
+        posaLeNormali(geometria, normali);
         fantasma = new THREE.Mesh(geometria, new THREE.MeshStandardMaterial({
           color: 0x9a5f4a, roughness: 0.9, metalness: 0.0, side: THREE.DoubleSide,
           transparent: true, opacity: 0.15, depthWrite: false,

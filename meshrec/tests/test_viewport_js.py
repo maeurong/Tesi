@@ -65,7 +65,12 @@ def _corpo_di(intestazione: str, chiusura: str = "\n  }") -> str:
 
 def _corpo_del_fantasma() -> str:
     """Il corpo di mostraFantasma, dove stanno i due materiali del velo."""
-    return _corpo_di(r"mostraFantasma\(vertici, facce\s*=\s*null\) \{", "\n    }")
+    # La firma porta anche le normali dal 04/09/2026, e il terzo parametro e'
+    # opzionale come il secondo: la regex li accetta senza pretenderli, cosi'
+    # non si rompe al prossimo che si aggiunge in coda.
+    return _corpo_di(
+        r"mostraFantasma\(vertici, facce\s*=\s*null(?:,[^)]*)?\) \{", "\n    }"
+    )
 
 
 def test_il_viewport_restituisce_ogni_comando_che_l_interfaccia_gli_chiede():
@@ -172,7 +177,12 @@ def test_il_velo_e_materia_della_stessa_scena_della_geometria():
         f"una delle due materie del fantasma ignora il piano di taglio, e mostra "
         f"la geometria che il taglio ha tolto: {corpo}"
     )
-    assert "computeVertexNormals();" in corpo, (
+    # `posaLeNormali` e non piu' `computeVertexNormals` diretto: dal 04/09/2026
+    # le normali possono arrivare col corpo della risposta, e quella funzione
+    # sceglie fra le due strade. Cio' che questo controllo sorveglia non cambia:
+    # che il ramo della superficie le normali le abbia, da una parte o
+    # dall'altra. Il fantasma oggi passa `null` e se le calcola.
+    assert "posaLeNormali(geometria, normali)" in corpo, (
         f"il velo di una superficie non ha normali: esce piatto e nero invece che "
         f"illuminato come la geometria che sta dietro: {corpo}"
     )

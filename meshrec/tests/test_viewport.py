@@ -201,3 +201,82 @@ def test_decimate_file_pulisce_la_voce_vecchia_anche_se_cambia_il_budget(tmp_pat
     viewport.decimate_file(sorgente, 5_000, 20_000, 0, cache_dir)
     viewport.decimate_file(sorgente, 2_000, 20_000, 0, cache_dir)
     assert len(list(cache_dir.glob("*.npz"))) == 1, "e' rimasta piu' di una voce per la stessa sorgente"
+
+
+def test_le_normali_sono_quelle_di_three_js_e_non_una_definizione_vicina():
+    """`vertex_normals` replica `computeVertexNormals`, e il verso conta.
+
+    Il calcolo si è spostato dal browser al server perché in JavaScript blocca
+    il thread principale: misurato nel browser il 04/09/2026 su 908.118
+    triangoli — il conteggio che l'aiuto dello step 5 cita per la scansione di
+    riferimento a `poisson_depth` 9 — mediano di sette prove, 1078 ms; in numpy,
+    sugli stessi triangoli, 64 ms.
+
+    Uno spostamento del genere si rompe in un modo solo, e non è un'eccezione:
+    è una definizione che diverge. Le tre scelte che three.js fa, e che qui
+    vanno rifatte identiche:
+
+    1. **Il verso.** La normale di faccia è `(c - b) x (a - b)`. Scambiare i due
+       fattori la ribalta, e con lei il chiaro e lo scuro del pezzo che finisce
+       in appendice. Nessun conteggio a video lo dichiarerebbe.
+    2. **Il peso.** La somma ai vertici è del prodotto vettoriale NON
+       normalizzato, il cui modulo è il doppio dell'area: ogni faccia pesa per
+       la propria area. Normalizzare prima di sommare dà una media diversa, e
+       una superficie con triangoli molto disuguali si illumina in un altro modo.
+    3. **Il degenere.** `normalize()` di three.js divide per `length() || 1`,
+       quindi un vertice senza area attorno resta a (0, 0, 0). Dividere e basta
+       darebbe NaN, e un NaN in un attributo di normale annerisce il vertice.
+
+    Il confronto contro le normali vere di three.js sulla mesh vera è stato
+    fatto nel browser, ed è la misura che ha autorizzato il cambiamento: su
+    71.511 vertici lo scarto massimo per componente è 6,0e-7 — l'ultimo bit di
+    un float32 — e l'angolo peggiore fra le due normali 0,0224 gradi. Qui resta
+    quello che una suite può tenere: le tre scelte, una per assert, su geometrie
+    di cui la normale giusta si sa a mano.
+    """
+    import numpy as np
+
+    from meshrec.core.viewport import vertex_normals
+
+    # Un quadrato nel piano z = 0, i due triangoli avvolti in senso antiorario
+    # guardando da +z. Con la convenzione di three.js la normale esce verso +z:
+    # scambiati i fattori del prodotto vettoriale uscirebbe verso -z, e questo
+    # assert è l'unico posto in cui quel segno è scritto.
+    quadrato = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0]])
+    facce = np.array([[0, 1, 2], [0, 2, 3]])
+    normali = vertex_normals(quadrato, facce)
+    assert np.allclose(normali, np.array([[0.0, 0.0, 1.0]] * 4)), (
+        f"il verso del prodotto vettoriale non è quello di three.js: le normali "
+        f"escono {normali.tolist()} invece che tutte verso +z, e il pezzo si "
+        "illumina dalla parte sbagliata"
+    )
+
+    # Il peso per area. Due triangoli che condividono il vertice 0, su due piani
+    # diversi e di area molto diversa: il grande deve dominare. Normalizzando le
+    # facce prima di sommarle, la normale del vertice 0 starebbe a 45 gradi fra
+    # i due piani; pesando per area sta vicina al piano del triangolo grande.
+    a_ponte = np.array(
+        [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 0.02], [0.02, 0.0, 0.02]]
+    )
+    # faccia grande nel piano z = 0 (area 0,5), faccia piccola quasi verticale
+    ponte = np.array([[0, 1, 2], [0, 3, 4]])
+    n0 = vertex_normals(a_ponte, ponte)[0]
+    assert abs(n0[2]) > 0.99, (
+        f"la somma non pesa le facce per la propria area: la normale del vertice "
+        f"condiviso è {n0.tolist()}, cioè il triangolo minuscolo conta quanto "
+        "quello grande"
+    )
+
+    # Il vertice degenere: nessun triangolo lo tocca. three.js lo lascia a zero
+    # perché divide per `length() || 1`; una divisione secca darebbe NaN, e un
+    # NaN in un attributo di normale annerisce il vertice invece di lasciarlo
+    # com'era.
+    con_orfano = np.vstack([quadrato, np.array([[9.0, 9.0, 9.0]])])
+    orfano = vertex_normals(con_orfano, facce)[4]
+    assert np.array_equal(orfano, np.zeros(3)), (
+        f"il vertice senza triangoli attorno non resta a zero: vale {orfano.tolist()}"
+    )
+    assert np.isfinite(vertex_normals(con_orfano, facce)).all(), (
+        "un vertice degenere produce NaN o infinito: nel browser diventa un "
+        "vertice nero e non lo dichiara nessuno"
+    )

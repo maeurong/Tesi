@@ -1075,6 +1075,10 @@ def _banco_di_geometria() -> str:
         "segnalaArtefattoMancante",
         "mostraNuvolaDelloStep",
         "mostraStep",
+        # Il taglio della coda delle normali dal corpo di /api/mesh: `caricaMesh`
+        # la chiama, e senza il ritaglio il banco cade su un riferimento che non
+        # esiste invece di provare l'arbitraggio che esiste per provare.
+        "normaliDellaRisposta",
     ) + """
 let ultimaGeometria = 0;
 const STEP_CON_MESH = new Set([5, 6, 8, 9]);
