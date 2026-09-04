@@ -3620,17 +3620,68 @@ let metricheMostrate = { numero: null, valori: new Map() };
 // l'animazione la volta dopo.
 function marcaLeMetricheCambiate(numero, righe) {
   const valori = new Map();
+  const uscita = [];
   // A coppie perche' righeDellaMetrica torna [dt, dd] appiattite: l'etichetta
   // e' la chiave, e per una metrica annidata porta gia' dentro il percorso.
   for (let i = 0; i + 1 < righe.length; i += 2) {
     const nome = righe[i].textContent;
     const dd = righe[i + 1];
     const prima = numero === metricheMostrate.numero ? metricheMostrate.valori.get(nome) : undefined;
-    if (prima !== undefined && prima !== dd.textContent) dd.dataset.cambiato = "";
+    uscita.push(righe[i], dd);
+    if (prima !== undefined && prima !== dd.textContent) {
+      dd.dataset.cambiato = "";
+      // Il numero di prima, tenuto invece di buttato. Il marchio dice CHE una
+      // misura e' cambiata e dura mezzo secondo; per sapere DA CHE COSA
+      // bisognava ricordarselo, e chi tara la pipeline fa esattamente questo
+      // tutto il giorno -- cambia un parametro, riesegue, confronta. Il
+      // confronto e' il lavoro, e il termine di paragone il programma ce
+      // l'aveva in mano proprio nell'istante in cui accendeva il marchio:
+      // `prima` e' questa riga, due righe piu' su.
+      //
+      // Un `dd` FRATELLO e non un figlio del valore, e sono tre cose in una.
+      // Un `dl` ammette piu' `dd` per lo stesso `dt`, quindi chi ascolta sente
+      // due descrizioni dello stesso termine invece di un testo solo in cui i
+      // due numeri sono tenuti separati da uno spazio. Il `dd` del valore
+      // resta intatto, e resta intatto anche il suo `textContent`, che questa
+      // stessa funzione rilegge al giro dopo per il confronto: appeso dentro,
+      // avrebbe memorizzato «3,9 l'ultima volta 4,41» come se fosse il valore,
+      // e alla passata seguente NIENTE avrebbe combaciato -- ogni riga
+      // cambiata per sempre, il marchio acceso su tutto. E prende la larghezza
+      // intera del pannello invece dei 14ch della colonna del valore: dentro,
+      // «l'ultima volta -253.461.000» mandava a capo due volte il volume
+      // racchiuso, cioe' tre righe per una metrica sola, nella colonna che
+      // esiste apposta perche' un valore non si spezzi.
+      //
+      // «l'ultima volta» e non «prima»: e' la parola che la testata usa gia'
+      // per lo stesso concetto sulla durata di uno step, e due parole per una
+      // cosa sola sullo stesso schermo si leggono come due cose. Che questa
+      // viva in memoria e sparisca cambiando step, mentre quella della testata
+      // venga dal file di stato e sopravviva a un ricaricamento, e' una
+      // differenza di provenienza e non di significato: tacere e' esatto,
+      // dire un numero che non si ha non lo sarebbe.
+      //
+      // Nessun verso e nessun giudizio: non «migliorato», non una freccia, non
+      // un segno colorato. Non perche' la direzione del meglio non esista mai
+      // -- `sweep.objectives` ne dichiara tre, tutti da minimizzare, e due di
+      // quegli assi sono righe di questo pannello -- ma perche' e' dichiarata
+      // sulla TERNA: `pareto_front` sceglie per dominanza, «nessun punteggio
+      // pesato, nessun peso arbitrario», e una freccia per riga sarebbe un
+      // giudizio su un asse solo staccato dagli altri due, cioe' proprio il
+      // peso arbitrario che quella funzione rifiuta. Sulle grandezze continue
+      // che non sono assi il verso non e' dichiarato affatto. Due numeri
+      // accostati lasciano la lettura a chi sa che cosa sta tarando.
+      //
+      // Vale anche per cio' che numero non e': «superficie chiusa — no,
+      // l'ultima volta sì» e' il caso in cui questa riga serve di piu'.
+      uscita.push(elemento("dd", { className: "prima", textContent: `l'ultima volta ${prima}` }));
+    }
     valori.set(nome, dd.textContent);
   }
+  // Il dispari non si butta: righeDellaMetrica torna sempre coppie, e il
+  // giorno che non lo facesse una riga sparirebbe dal pannello in silenzio.
+  if (righe.length % 2) uscita.push(righe[righe.length - 1]);
   metricheMostrate = { numero, valori };
-  return righe;
+  return uscita;
 }
 
 // Solo qui dentro l'`Array.isArray`: dopo la guardia di `annidata`, `typeof

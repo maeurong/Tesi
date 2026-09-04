@@ -197,11 +197,20 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
    ferme al proprio minimo, e il guadagno e' che il minimo e' piu' stretto di
    prima: 17rem contro 18 e 20rem contro 22, 80 px restituiti alla vista. Sopra,
    crescono fino al tetto invece di restare due strisce.
-   I minimi sono misurati, non scelti. La riga di step piu' lunga («7 Qualità
-   superficie   valido») misura 228 px a contenuto, e sono 228 del bottone
-   `.step` intero, padding compreso: con i 16 px di margine della zona per lato
-   la colonna sta larga a 17rem, e le undici righe restano alte 37 px l'una,
-   cioe' una riga sola, verificato a 272 px.
+   I minimi sono misurati, non scelti, e il primo va dichiarato con cio' che NON
+   compra. La riga di step piu' lunga non e' «7 Qualità superficie   valido» --
+   che a 228 px sta larga -- ma la stessa riga nel suo stato piu' lungo, «mai
+   eseguito»: misurati a video il 04/09/2026 clonando ogni riga con ognuno dei
+   quattro stati che `run_state` dichiara, il caso peggiore e' 269 px di
+   bottone, che coi 32 del margine della zona fanno 301, cioe' 19rem. A 17rem quella riga sola va a capo sul nome, con lo stato che
+   resta al proprio posto in cima; le altre dieci restano alte 37 px.
+   Le 19rem non si pagano: costerebbero 32 px di vista su OGNI portatile, per
+   sempre, per non mandare a capo un'etichetta sola nel suo stato piu' lungo --
+   e la vista e' l'unica cosa che questa schermata esiste per mostrare. Da
+   notare che nemmeno le 18rem di prima le compravano: quella riga andava a capo
+   anche allora, su ogni corsa in cui lo step 7 non fosse ancora stato eseguito.
+   Il minimo nuovo non introduce l'andata a capo, la eredita e ne allarga di
+   poco il campo.
    Sulla colonna del dettaglio il minimo non compra invece l'assenza di andate a
    capo, e vale la pena scriverlo perche' la prima grafia di questa riga lo
    affermava: l'etichetta di metrica piu' lunga misura 298 px a contenuto, ma
@@ -938,6 +947,33 @@ h3.titolo-step { margin: 0 0 var(--passo-1); font-size: var(--tipo-corpo); line-
    troncata» per esteso, cosi' chi non distingue le tinte non perde niente
    (WCAG 1.4.1). Il peso e' la meta' che sopravvive alla proiezione. */
 .metriche dd.metrica-avviso { color: var(--guasto); font-weight: 600; }
+/* Il numero di prima, sotto quello di adesso e solo sulle righe cambiate.
+   Un `dd` fratello, quindi prende la larghezza intera del pannello e ci sta su
+   una riga: perche' fratello e non figlio sta in app.js, accanto al codice che
+   lo fabbrica. Qui restano le due cose che sono di resa.
+   `--tenue` come le etichette, ed e' voluto che sia il grigio del contorno e
+   non quello del dato: il numero che vale e' quello sopra, questo e' il metro
+   con cui si legge.
+   `font-weight: 400` esplicito perche' su una riga d'allarme il `dd` del valore
+   porta `metrica-avviso`, che ingrassa a 600. Non e' ereditarieta' -- sono
+   fratelli -- ma la regola sotto vale per ogni `.prima`, e senza il peso
+   dichiarato basta un giorno una regola di famiglia sui `dd` del pannello
+   perche' il metro prenda il rilievo dell'allarme che non gli appartiene: ad
+   allarmare e' lo stato di adesso.
+   Cifre tabulari e allineamento a destra come il fratello sopra, cosi' le
+   unita' si incolonnano fra le due righe e la differenza si legge per
+   posizione prima che per lettura.
+   Nessuna animazione propria: il marchio del cambio sta sul `dd` del valore e
+   la sua durata e' gia' una delle cinque dichiarate. Un secondo moto sullo
+   stesso evento sarebbe la sesta.
+   Il `padding-bottom` e' quello che dice A CHI appartiene. La griglia ha un
+   solo passo fra le righe, quindi il valore di prima nasceva a 4 px dal proprio
+   valore e a 4 px dall'etichetta della metrica successiva: distanze uguali, e
+   la vicinanza non diceva piu' di quale numero fosse la storia -- visto a
+   video sulle undici righe di una riesecuzione. Con questo, 4 px sopra e 8
+   sotto: la coppia sta insieme e il gruppo dopo si stacca. E' lo stesso passo
+   di 4 px, non un valore nuovo. */
+.metriche dd.prima { grid-column: 1 / -1; text-align: right; padding-bottom: var(--passo-1); font-size: var(--tipo-nota); line-height: var(--interlinea-riga); font-weight: 400; color: var(--tenue); font-variant-numeric: tabular-nums; }
 /* Il pannello del modello, sotto la pipeline. Riusa .metriche per le righe:
    stessa griglia e stesse cifre tabulari della colonna del dettaglio -- che
    adesso condividono anche il formattatore, valoreDellaMetrica -- cosi'
