@@ -12,6 +12,7 @@ import math
 import re
 import subprocess
 import sys
+import traceback
 import threading
 import time
 import zipfile
@@ -1582,7 +1583,106 @@ def create_app(
             steps.dimentica(out_dir, range(da, a + 1))
             steps.dimentica(out_dir, range(da, a + 1), nome=pipeline.METRICS_FILENAME)
             lavoratore.start(config_path, da, a)
+            _scalda_le_nuvole(out_dir, da, a, corrente().input)
         return {"avviato": da, "fino_a": a}
+
+    # Gli step con una nuvola. Una nuvola disegnata non e' l'artefatto: e' la sua
+    # decimazione, che `decimate_file` calcola e tiene su disco per (sorgente,
+    # budget, campione, seme, mtime). Rieseguito lo step, l'mtime cambia e la
+    # voce vale per la corsa nuova, non per quella di prima.
+    _STEP_CON_NUVOLA = (1, 2, 3, 4)
+
+    def _scalda_le_nuvole(out_dir: Path, da: int, a: int, ingresso: InputConfig) -> None:
+        """Decima in anticipo le nuvole che la corsa appena avviata riscrivera'.
+
+        La decimazione a cache fredda e' l'unica attesa dell'interfaccia che
+        superi la soglia di un gesto. Misurata il 04/09/2026 su una nuvola
+        sintetica da 1.505.012 punti: 1,24 s in tutto -- 0,07 di lettura, 0,30
+        di spaziatura media, 0,87 dentro `voxel_down_sample_and_trace` di Open3D
+        -- contro i 50-130 ms della stessa richiesta a cache calda, e contro i
+        30-50 ms di uno step con una mesh, che quella strada non la percorre.
+        Sulla scansione di riferimento, quattro volte piu' grande, il conto
+        cresce con lei.
+
+        Il costo non si toglie: sta quasi tutto dentro una chiamata C++ di
+        Open3D, e non e' nostro da rendere piu' veloce. Si sposta. Chi ha appena
+        lanciato uno step sta gia' aspettando -- il piu' lungo misurato dura
+        34,39 s -- e un secondo speso li' dentro non lo vede nessuno, mentre lo
+        stesso secondo dopo il clic e' l'interfaccia che non risponde.
+
+        Su un thread suo e dopo la fine della corsa, non prima: durante, il
+        sottoprocesso ha i propri thread di calcolo e l'artefatto non e' ancora
+        scritto. Se qualcosa qui dentro va storto non se ne accorge nessuno, ed
+        e' voluto: al peggio il primo clic paga il freddo, cioe' quello che
+        pagava comunque prima di questa funzione. Nessun ramo dell'interfaccia
+        dipende dal fatto che abbia funzionato.
+
+        La configurazione la riceve per copia e non la rilegge da `corrente()`:
+        fra l'avvio e la fine chi guarda puo' aver cambiato un campo, e
+        scaldare con parametri che non sono quelli della corsa scriverebbe una
+        voce che nessuna richiesta poi ritrova -- lavoro buttato, e per giunta
+        silenzioso.
+        """
+        def lavora() -> None:
+            try:
+                while lavoratore.is_running():
+                    time.sleep(0.2)
+                # Fallita o interrotta, gli artefatti a valle non ci sono o non
+                # valgono: scaldarli sarebbe decimare la nuvola di prima e
+                # tenerla per una corsa che non l'ha prodotta.
+                #
+                # Il lavoratore e' uno solo e vive oltre la corsa: fra l'uscita
+                # dal ciclo e questa riga puo' esserne partita un'altra, e allora
+                # qui si legge lo stato SUA. Non e' un buco: `start` rimette
+                # `exit_code` a None, e None non e' 0, quindi il caso si chiude
+                # da se' rinunciando a scaldare -- che e' anche la cosa giusta,
+                # perche' l'artefatto di questa corsa sta per essere riscritto
+                # dall'altra. Resta una finestra in cui `decimate_file` legge un
+                # file mentre la corsa nuova lo riscrive: l'eccezione la
+                # raccoglie il ramo qui sotto, e l'mtime nella chiave impedisce
+                # che una lettura a meta' finisca in cache come voce buona.
+                # ponytail: nessuna identita' di corsa catturata, si cattura un
+                # numero di generazione il giorno che il sintomo si vede.
+                if lavoratore.exit_code != 0 or lavoratore.annullato:
+                    return
+                # Il budget predefinito, che e' l'unico che l'interfaccia
+                # chiede: app.js chiama /api/cloud/N senza `max_points`. La
+                # rotta pero' accetta anche un budget esplicito, e quello e' una
+                # chiave di cache diversa -- mentre `_rimuovi_voci_vecchie`
+                # tiene una voce sola per sorgente. Chi chiede un budget suo,
+                # cioe' chi sta indagando a mano, paga il freddo e puo' vedersi
+                # cancellare la voce da questo thread: e' quello che gli
+                # succedeva comunque prima, e non vale una seconda voce per
+                # sorgente tenuta in vita per una strada che l'interfaccia non
+                # percorre.
+                budget = ViewportConfig().max_points
+                for numero in _STEP_CON_NUVOLA:
+                    if not (da <= numero <= a):
+                        continue
+                    percorso = out_dir / pipeline.ARTIFACTS[numero]
+                    if not percorso.exists():
+                        continue
+                    viewport.decimate_file(
+                        percorso, budget, ingresso.spacing_sample, ingresso.seed, CACHE_DIR
+                    )
+            except Exception as errore:
+                # Nudo apposta: questo thread non ha nessuno a cui riferire e
+                # non deve poter rovinare una corsa riuscita. Un artefatto
+                # sparito sotto, un disco pieno, una nuvola vuota: tutti casi in
+                # cui la cosa giusta e' non scaldare niente e lasciare che il
+                # clic paghi il freddo, cioe' quello che pagava comunque.
+                # Ma non muto. Un `pass` secco ingoia allo stesso modo un disco
+                # pieno e un errore di battitura in questa funzione, e il
+                # secondo non si vedrebbe MAI: il meccanismo e' invisibile per
+                # costruzione, quindi il suo unico sintomo sarebbe un'attesa
+                # che nessuno collega. Su stderr, come `_riporta` in cli.py:
+                # chi ha lanciato `meshrec serve` ha quel flusso davanti, e chi
+                # non ha problemi non ci legge niente.
+                print("scaldacache delle nuvole fallito, il primo clic pagherà "
+                      "la decimazione a freddo", file=sys.stderr)
+                traceback.print_exception(errore, file=sys.stderr)
+
+        threading.Thread(target=lavora, daemon=True).start()
 
     def _in_corso() -> JSONResponse | None:
         if not lavoratore.is_running():
