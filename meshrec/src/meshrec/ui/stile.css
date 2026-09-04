@@ -114,8 +114,10 @@
        Otto destre sulla prima schermata che si vede.
      25rem = 400px: 69 caratteri sulla prosa a 13px, 60 su quella a 16px, e una
      destra sola. Resta in rem, quindi segue l'ingrandimento del testo come
-     tutto il resto della scala. Nella colonna di destra (22rem) il tetto e'
-     piu' largo della zona e non morde: la' non cambia niente. */
+     tutto il resto della scala. Nella colonna di destra il tetto e'
+     piu' largo della zona e non morde: al massimo delle 26rem che quella
+     traccia raggiunge restano 384 px di contenuto contro i 400 di questo
+     tetto. La' non cambia niente. */
   --misura: 25rem;
 
   /* Nessun tema scuro, e questa riga lo dichiara al browser: senza, chi ha il
@@ -178,7 +180,37 @@ body {
    escludono a vicenda, ma una pagina che ne nasconde una non deve restare
    senza <main> -- «vai al contenuto principale» non troverebbe piu' nulla. */
 main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-.tre-zone { display: grid; grid-template-columns: 18rem 1fr 22rem; flex: 1; min-height: 0; }
+/* Le due fiancate seguono la finestra, la vista si prende il resto. Erano due
+   numeri fissi, 18rem e 22rem, uguali a ogni misura di schermo: misurati il
+   04/09/2026 restavano 288 px e 352 px da 1000 px di finestra fino a 3440.
+   Le due estremita' sbagliavano in due modi opposti. Su un portatile stretto
+   -- 1093 px, cioe' un 1366x768 al 125% di Windows -- le due fiancate
+   prendevano 640 px dei 1093, e alla vista, che e' l'unica cosa che questa
+   schermata esiste per mostrare, ne restavano 453: meno delle due colonne che
+   la commentano. Su un monitor da scrivania a 2560 px restavano due strisce di
+   288 e 352 px appiccicate ai bordi di una tela da 1920, con le etichette delle
+   metriche che andavano a capo per mancanza di spazio mentre di spazio ce n'era.
+   Che cosa comprano i clamp, larghezza per larghezza, perche' «fluide» da solo
+   direbbe piu' di quel che fanno: il termine in `vw` supera il minimo solo da
+   1600 px di finestra per la colonna del dettaglio e da 1943 per quella degli
+   step. Sotto quelle soglie -- cioe' su tutti i portatili -- le due tracce sono
+   ferme al proprio minimo, e il guadagno e' che il minimo e' piu' stretto di
+   prima: 17rem contro 18 e 20rem contro 22, 80 px restituiti alla vista. Sopra,
+   crescono fino al tetto invece di restare due strisce.
+   I minimi sono misurati, non scelti. La riga di step piu' lunga («7 Qualità
+   superficie   valido») misura 228 px a contenuto, e sono 228 del bottone
+   `.step` intero, padding compreso: con i 16 px di margine della zona per lato
+   la colonna sta larga a 17rem, e le undici righe restano alte 37 px l'una,
+   cioe' una riga sola, verificato a 272 px.
+   Sulla colonna del dettaglio il minimo non compra invece l'assenza di andate a
+   capo, e vale la pena scriverlo perche' la prima grafia di questa riga lo
+   affermava: l'etichetta di metrica piu' lunga misura 298 px a contenuto, ma
+   dentro `.metriche` la colonna della `dt` e' una frazione di quel che resta
+   tolta la colonna del valore, e non li raggiunge mai. Contate a video sulle 26
+   metriche dello step 7: 21 vanno a capo a 320 px di zona, 16 a 416. Il tetto
+   di 26rem le riduce, non le toglie. I tetti sono i valori oltre i quali una
+   colonna di testo smette di essere piu' leggibile e diventa solo piu' larga. */
+.tre-zone { display: grid; grid-template-columns: clamp(17rem, 14vw, 20rem) 1fr clamp(20rem, 20vw, 26rem); flex: 1; min-height: 0; }
 /* Serve perche' .tre-zone dichiara display: grid, che batte la regola [hidden]
    del browser. .ingresso non dichiara display e non ne ha bisogno. */
 .tre-zone[hidden] { display: none; }
@@ -187,7 +219,25 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
    prima cosa che vede chi non ha mai aperto il programma, e non ha niente da
    confrontare affiancato. Scorre per conto suo perche' l'elenco delle corse
    cresce con l'uso. */
-.ingresso { padding: var(--passo-4); overflow: auto; background: var(--superficie); flex: 1; min-height: 0; }
+/* La colonna sta in mezzo, e il centraggio e' un margine della zona e non dei
+   suoi figli. Allineata a sinistra com'era, su un monitor da scrivania la
+   misura leggibile lasciava tutto il resto vuoto da una parte sola: misurato
+   il 04/09/2026 a 2560x1300 px, 400 px di contenuto nell'angolo in alto a
+   sinistra e 2160 di bianco a destra, cioe' l'84% della larghezza della prima schermata che
+   vede chi apre il programma -- ed e' proprio l'utente successivo, che la
+   pipeline non la conosce, a doverla leggere.
+   Il margine sta QUI e non su `.ingresso > *`, che e' la prima grafia di
+   questa riga e va ricordata perche' a video sembrava funzionare: `margin-inline:
+   auto` sui figli lo disfa qualunque regola successiva che dichiari `margin`
+   per intero, e in questo foglio ce ne sono due -- i titoli di sezione e di
+   sottosezione, che portano `margin: var(--passo-6) 0 var(--passo-2)`. I tre
+   titoli restavano a sinistra mentre il resto si centrava: due bordi sinistri a
+   500 px l'uno dall'altro sulla schermata che questo stesso blocco e' costato
+   di ridurre a una destra sola. Sul contenitore non c'e' niente da disfare.
+   La colonna resta una e la sua larghezza non cambia: cambia solo dove sta.
+   Sotto la misura il `max` sceglie il margine normale, quindi non c'e' nessuna
+   finestra stretta in cui questa riga sposti qualcosa. */
+.ingresso { padding: var(--passo-4) max(var(--passo-4), (100% - var(--misura)) / 2); overflow: auto; background: var(--superficie); flex: 1; min-height: 0; }
 .ingresso > * { max-width: var(--misura); }
 /* I campi non hanno piu' una larghezza propria: erano 40rem contro le 66ch di
    tutto il resto della colonna, cioe' due bordi destri diversi a un centinaio
@@ -423,19 +473,56 @@ a.bottone { display: inline-block; text-decoration: none; }
    flusso e' lecito qui, a differenza di #conteggi e della riga d'errore: non
    e' una regione viva e non annuncia niente. */
 .didascalia-vista:empty { display: none; }
-/* In alto a sinistra, e sempre, non solo a una colonna. Stavano in basso, cioe'
-   sul bordo che il comando del taglio occupa gia' dall'altra parte, e i due si
-   incontravano: il taglio viene dopo nel markup, quindi copriva il conteggio
-   dei punti. Un numero misurato che sparisce senza dirlo.
-   La collisione era gia' nota e riparata, ma sotto @media (max-width: 60rem),
-   cioe' agganciata alla larghezza della FINESTRA quando dipende da quella della
-   COLONNA. A tre colonne la vista non e' larga quanto la finestra: e' la
-   finestra meno i 18rem e i 22rem delle due fiancate fisse. Appena sopra il
-   breakpoint le restavano 321 px, meno della meta' dei 700 px che il commento
-   dichiarava misurati come soglia di contatto — e la media query non scattava.
-   Ancorarli in cima toglie la condizione invece di inseguirla, e l'override
-   nel blocco a una colonna sparisce con lei. */
-.conteggi { position: absolute; top: var(--passo-2); left: var(--passo-2); margin: 0; padding: var(--passo-1) var(--passo-2); background: var(--velo); border-radius: var(--raggio); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); font-variant-numeric: tabular-nums; color: var(--tenue); }
+/* La fascia alta della tela: i conteggi a sinistra, i comandi della vista a
+   destra, in una riga sola che li tiene distanti.
+   E' il terzo giro dello stesso difetto. I conteggi stavano in basso, dove il
+   comando del taglio li copriva; sono saliti in cima, e da li' hanno incontrato
+   i comandi della vista, che l'angolo opposto lo tenevano gia'. Il primo giro
+   inseguiva la collisione con @media (max-width: 60rem), cioe' con la larghezza
+   della FINESTRA quando dipende da quella della COLONNA; il secondo l'ha spostata
+   di novanta gradi. Due scatole assolute agganciate a due angoli non hanno
+   nessuna relazione di posizione fra loro: si toccano quando la vista si
+   stringe, e chi viene dopo nel markup copre l'altro.
+   Misurato il 04/09/2026 a 1093x614 px -- un 1366x768 al 125% di Windows, che
+   e' il portatile piu' diffuso -- coi conteggi della scansione di riferimento:
+   il testo arrivava a 741 px e i bottoni cominciavano a 515, cioe' 226 px di
+   numeri sotto i due comandi. A 1000 px restava leggibile «20.957 vertici, 41.».
+   Un contenitore solo toglie la condizione invece di spostarla: la distanza fra
+   i due non e' piu' la larghezza della vista, e' un gap; e quando non ci stanno
+   affiancati vanno a capo, che e' l'unico modo di non sovrapporsi mai.
+   `pointer-events: none` perche' la fascia e' larga quanto la tela: senza, ogni
+   trascinamento cominciato nella banda alta cadrebbe su di lei invece che sul
+   canvas, e il modello non ruoterebbe piu'. I figli se lo riprendono. Stessa
+   ragione di `.scala` e `.vista-vuota`, portata al caso piu' largo. */
+/* `pointer-events` si spegne sulla fascia e si riaccende sul solo gruppo dei
+   comandi, che e' l'unica cosa qui dentro che si tocchi. La prima grafia lo
+   riaccendeva su tutti i figli (`.barra-vista > *`) e lo rispegneva sui
+   conteggi: funzionava, ma solo perche' le due regole hanno la stessa
+   specificita' e la seconda stava piu' in basso nel file. Chi un giorno
+   raggruppa le regole dei conteggi piu' in su le inverte e i conteggi tornano a
+   ingoiare il trascinamento, in silenzio e senza che niente diventi rosso. Due
+   selettori disgiunti non hanno nessun ordine da rispettare, e sono anche una
+   dichiarazione in meno: i conteggi ereditano `none` dalla fascia. */
+.barra-vista { position: absolute; top: var(--passo-2); left: var(--passo-2); right: var(--passo-2); display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--passo-2); pointer-events: none; }
+/* min-width: 0 perche' dentro una riga flex il minimo di una scatola di testo
+   e' la sua parola piu' lunga, non zero: senza, un conteggio lungo spingerebbe
+   i comandi fuori dalla tela invece di andare a capo lui.
+   Che i conteggi non ricevano il puntatore e' la stessa scelta che `.scala`
+   porta gia' con la stessa motivazione: non sono un comando, e un
+   trascinamento che cominci sopra di loro deve girare il modello come ovunque
+   altrove sulla tela. Prima valeva `auto` e quel gesto non faceva niente. Il
+   foglio diceva che i conteggi non ne avevano bisogno perche' erano «vecchi
+   quanto la vista», che non e' una ragione ma il motivo per cui nessuno ci
+   aveva guardato. Misurato a 1408x658 px sui conteggi della scansione di
+   riferimento: 496 px di riquadro su 792 di tela, e adesso che il riquadro cede
+   la larghezza invece di uscire dalla tela quella striscia sarebbe cresciuta.
+   Il prezzo, dichiarato e non nascosto: i conteggi non si selezionano piu' col
+   mouse, e `user-select: text` non lo compra indietro -- e' la stessa
+   proprieta' a togliere l'uno e l'altro. Si paga perche' quei numeri escono di
+   qui per altre due strade: app.js li copia da se' nella provenienza, e la
+   didascalia sotto la vista porta gia' taglio, grandezza e unita' ed e'
+   selezionabile. Mezza tela che non ruota non ha nessuna via alternativa. */
+.conteggi { min-width: 0; margin: 0; padding: var(--passo-1) var(--passo-2); background: var(--velo); border-radius: var(--raggio); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); font-variant-numeric: tabular-nums; color: var(--tenue); }
 /* Vuoti, i conteggi restavano un rettangolo bianco di 16x8 px sopra la vista,
    misurato a video. Non si tolgono dall'albero, per la stessa ragione della
    riga d'errore: aria-live="polite" vuole una regione viva prima che ci si
@@ -462,15 +549,26 @@ a.bottone { display: inline-block; text-decoration: none; }
    titoli di sezione -- e' l'unico canale che sopravvive alla distanza di una
    proiezione. */
 .vista-vuota p:first-child { color: var(--testo); }
-/* I comandi della vista, nell'unico angolo della tela che resta libero: i
-   conteggi tengono l'alto a sinistra, la scala il basso a sinistra, il taglio
-   il basso a destra. Una fila sola, allineata a destra, che manda a capo invece
-   di uscire dalla tela quando la finestra si stringe -- e' il motivo per cui
-   .fantasma-comando non si posiziona piu' da se': stava in questo stesso
-   angolo, e due sovrapposti allo stesso posto sono uno sopra l'altro. */
-.comandi-vista { position: absolute; top: var(--passo-2); right: var(--passo-2); display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--passo-2); max-width: calc(100% - var(--passo-4)); }
+/* I comandi della vista, all'estremo destro della fascia alta. Una fila sola,
+   allineata a destra, che manda a capo invece di uscire dalla tela quando la
+   finestra si stringe -- e' il motivo per cui .fantasma-comando non si
+   posiziona piu' da se': stava in questo stesso angolo, e due sovrapposti allo
+   stesso posto sono uno sopra l'altro.
+   Non si restringe (`flex: none`): sono bottoni, e un bottone stretto fino a
+   mandare a capo la propria etichetta smette di dirsi. A cedere lo spazio e'
+   il testo dei conteggi, che a capo ci va senza perdere niente.
+   `margin-left: auto` e non `justify-content: space-between` sulla fascia, ed
+   e' lo stesso margine unico che tiene insieme i comandi della testata. La
+   differenza si vede solo quando il gruppo va a capo, che coi conteggi corti di
+   tutti i giorni non succede e con quelli della scansione di riferimento su una
+   vista da portatile si': con `space-between` un elemento solo
+   sulla propria riga si allinea all'INIZIO, cioe' i due bottoni saltavano da
+   destra a sinistra nel momento in cui i conteggi si allungavano. Col margine
+   automatico restano a destra su entrambe le righe. */
+.comandi-vista { pointer-events: auto; flex: none; margin-left: auto; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--passo-2); }
 /* Il velo del passaggio a monte non si posiziona piu' da se': sta nel gruppo
-   dei comandi qui sopra, che tiene l'angolo in alto a destra per tutti e tre.
+   dei comandi qui sopra, che tiene l'estremo destro della fascia per tutti e
+   tre.
    Sopra il taglio e non sotto anche per ordine di lettura: dice che cosa si
    sta guardando, mentre il taglio e' un attrezzo per guardarci dentro.
    `[hidden]` esplicito per la stessa ragione del comando del taglio piu'
@@ -480,13 +578,15 @@ a.bottone { display: inline-block; text-decoration: none; }
 .fantasma-comando { display: flex; align-items: center; gap: var(--passo-2); padding: var(--passo-1) var(--passo-2); background: var(--velo); border: 1px solid var(--bordo-comando); border-radius: var(--raggio); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); color: var(--tenue); cursor: pointer; }
 .fantasma-comando[hidden] { display: none; }
 .fantasma-comando :focus-visible { outline: 2px solid var(--accento); outline-offset: 2px; }
-/* Il comando del taglio sta in basso a destra sulla vista: i conteggi occupano
-   gia' l'angolo sinistro. hidden non basta su un elemento con display: flex,
+/* Il comando del taglio sta in basso a destra sulla vista: in alto corre la
+   fascia dei conteggi e dei comandi, e in basso a sinistra sta la scala.
+   Restano due angoli soli, tutti e due in basso, e questo e' quello lontano
+   dalla scala. hidden non basta su un elemento con display: flex,
    che lo sovrascriverebbe e lo lascerebbe a video. */
-/* La chiave della scala colore, in basso a sinistra: l'unico dei quattro
-   angoli dell'inquadratura ancora libero -- i conteggi stanno in alto a
-   sinistra e il comando del taglio in basso a destra -- e quello piu' lontano
-   dal comando, che si usa mentre la si guarda.
+/* La chiave della scala colore, in basso a sinistra: la fascia dei conteggi e
+   dei comandi corre lungo tutto il bordo alto, e dei due angoli bassi rimasti
+   questo e' quello piu' lontano dal comando del taglio, che si usa mentre la
+   si guarda.
    Stesso velo e stesso raggio del comando del taglio: sono due cose appoggiate
    sulla stessa immagine, e due materiali diversi le farebbero leggere come due
    piani. La barra e' alta poco piu' del testo perche' la scala si legge
@@ -500,9 +600,9 @@ a.bottone { display: inline-block; text-decoration: none; }
    trascinamento che cominci sopra di lei deve girare il modello come ovunque
    altrove sulla tela. Senza, l'angolo in basso a sinistra e' un rettangolo
    morto in cui il primo gesto non fa niente -- e chi lo incontra prova due
-   volte prima di spostare la mano. I conteggi e il comando del taglio non ne
-   hanno bisogno per due ragioni opposte: quello e' vecchio quanto la vista, e
-   quest'altro contiene comandi veri. */
+   volte prima di spostare la mano. Il comando del taglio non ne ha bisogno per la
+   ragione opposta: contiene comandi veri. I conteggi ce l'hanno adesso, per
+   questa stessa ragione portata alla loro fascia. */
 .scala { pointer-events: none; position: absolute; bottom: var(--passo-2); left: var(--passo-2); display: flex; align-items: center; flex-wrap: wrap; gap: var(--passo-1) var(--passo-2); max-width: calc(100% - var(--passo-4)); padding: var(--passo-1) var(--passo-2); background: var(--velo); border: 1px solid var(--bordo-comando); border-radius: var(--raggio); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); font-variant-numeric: tabular-nums; color: var(--tenue); }
 .scala[hidden] { display: none; }
 /* Il gradiente lo scrive app.js dalla costante RAMPA di viewport.js, che e'
@@ -1002,15 +1102,20 @@ h3.titolo-step { margin: 0 0 var(--passo-1); font-size: var(--tipo-corpo); line-
 /* --- Una colonna sola ------------------------------------------------------
    In fondo al foglio apposta: una regola stretta scritta piu' in alto della
    regola larga che modifica perde a parita' di peso.
-   La soglia non e' un numero scelto: e' la somma delle tre tracce dichiarate a
-   .tre-zone, 18rem + 22rem + 22rem. Sotto di essa la colonna centrale — la
-   vista, cioe' l'unica cosa che questa schermata esiste per mostrare — sarebbe
-   piu' stretta del pannello che la commenta: a 60rem le restavano 321 px
-   contro i 352 della zona di destra. Un artefatto primario piu' piccolo di
-   entrambi i suoi margini non e' piu' primario, e a quel punto la colonna
-   unica, dove la vista prende la larghezza intera della finestra, e' la
-   composizione migliore. Cambiando una larghezza di traccia va cambiata anche
-   questa somma. */
+   La soglia e' 62rem e ci resta: cambiando le tracce il numero non si e'
+   mosso, e tenerlo fermo e' una scelta, non una derivazione. Cio' che e'
+   cambiato e' che cosa compra. La somma che la spiega adesso e' i due minimi
+   dichiarati a .tre-zone piu' `--misura`, cioe' la colonna di prosa di questo
+   foglio: 17rem + 20rem + 25rem. Sotto di essa la colonna centrale — la vista, cioe'
+   l'unica cosa che questa schermata esiste per mostrare — si avvicina troppo al
+   pannello che la commenta. Un artefatto primario piu' piccolo di entrambi i
+   suoi margini non e' piu' primario, e a quel punto la colonna unica, dove la
+   vista prende la larghezza intera della finestra, e' la composizione migliore.
+   Il numero non e' cambiato con le tracce fluide, ma cio' che compra si': con
+   le vecchie tracce fisse alla soglia restavano 22rem alla vista, quanto la
+   fiancata destra; con i minimi nuovi ne restano 25, cioe' la vista e' la piu'
+   larga delle tre fino all'ultimo pixel prima di impilarsi. Cambiando un minimo
+   di traccia va cambiata anche questa somma. */
 /* A una colonna la vista perde il contenitore alto quanto lo schermo, e
    .viewport { flex: 1 } di un genitore alto quanto il suo contenuto vale
    zero: la scena sparirebbe. L'altezza gliela da' la finestra, col min-height
@@ -1021,7 +1126,16 @@ h3.titolo-step { margin: 0 0 var(--passo-1); font-size: var(--tipo-corpo); line-
      pagina, e l'altezza fissa la taglierebbe. */
   body { height: auto; min-height: 100vh; }
   .tre-zone { grid-template-columns: 1fr; }
-  .zona-vista { min-height: 60vh; }
+  /* Un pavimento sotto il 60vh, e serve perche' 60vh e' una frazione di una
+     grandezza che qui e' gia' piccola. Misurato il 04/09/2026 a 960x540 px --
+     un 1920x1080 al 200%, cioe' un portatile ad alta densita' come lo
+     consegnano — la vista riceveva 960x324 px: un modello tridimensionale
+     dentro una feritoia da 3:1. 24rem sono 384 px, cioe' `--misura` meno il
+     margine della zona: e' il lato del quadrato sotto il quale l'immagine
+     diventa piu' bassa che larga per ragioni che non hanno a che fare col
+     pezzo. Piu' in basso di cosi' la pagina scorre di piu' invece di
+     schiacciare l'immagine. */
+  .zona-vista { min-height: max(60vh, 24rem); }
   /* A colonna unica la riga di uno step e' larga quanto la finestra, e lo
      stato spinto a destra finiva a 700 px dal nome (misurato a 900 px):
      «Lettura ........ mai eseguito», due parole che vanno lette insieme e
@@ -1032,4 +1146,51 @@ h3.titolo-step { margin: 0 0 var(--passo-1); font-size: var(--tipo-corpo); line-
      una casella larga si scrive meglio, e la sua etichetta le sta sopra. */
   .step-nome { margin-right: 0; }
   .metriche { max-width: var(--misura); }
+}
+
+/* --- Schermi bassi ---------------------------------------------------------
+   L'asse verticale non era mai stato guardato: tutto il foglio decide sulla
+   larghezza, e l'altezza la riceve da `height: 100vh` senza mai chiedersi
+   quanta ne sia rimasta. Su un portatile ne resta poca. Misurato il 04/09/2026
+   su un 1366x768 al 125% di Windows, che vuol dire 1093x614 px di finestra:
+   la testata prendeva 108 px dei 614, cioe' il 17,6%, perche' sotto i ~1200 px
+   i suoi cinque blocchi non stanno piu' su una riga e la scorciatoia va a capo
+   con tutto il gruppo dei comandi. Alle tre zone restavano 506 px.
+   Qui non si toglie niente da leggere: si stringe solo cio' che e' aria, il
+   respiro verticale della testata e il margine delle due colonne che scorrono.
+   Rende 12 px, da 108 a 96 misurati a 1093x614. E' poco, e va detto quanto e'
+   poco: il grosso di quella testata non e' respiro ma il fatto che cinque
+   blocchi non stanno su una riga, e quello questo blocco non lo tocca.
+   Il ritaglio del margine delle colonne e' orizzontale e non aiuta l'altezza:
+   sta qui perche' e' la stessa condizione -- una finestra da cui prendere il
+   meno possibile -- e perche' le due colonne che scorrono, a mezzo schermo,
+   guadagnano piu' dal contenuto che dalla cornice. La zona della vista ne e'
+   esclusa apposta, per la ragione scritta sulla riga.
+   Ne resta fuori anche la schermata d'ingresso, e non per dimenticanza: non
+   porta la classe `.zona`, e non le serve. Il suo contenuto sta in una colonna
+   sola alta poche centinaia di pixel, che a 614 px di finestra ci sta intera
+   senza scorrere: non c'e' niente in coda che una cornice piu' stretta
+   porterebbe a video. Stringerla toglierebbe respiro senza comprare una riga.
+   Cio' che NON si fa, e la misura dice perche' e' una scelta e non un
+   risparmio: la scorciatoia della testata costa 43 px a 1093 px di finestra --
+   una riga intera, il 7% dell'altezza utile -- e 12 px sopra i ~1200, dove
+   divide la riga coi comandi. Nasconderla sotto una soglia comprerebbe
+   davvero quella riga. Resta perche' e' l'unico posto in cui quel gesto e'
+   scritto, e chi apre il programma per la prima volta non ha modo di
+   indovinarlo: il prodotto dichiara che l'utente successivo deve poter
+   capire, e 43 px sono il prezzo di quella riga del prodotto.
+   `max-height` e non `max-width` apposta: un monitor 2560x1080 e' largo e
+   basso, e a lui questo blocco serve quanto a un portatile. La soglia e' 46rem
+   (736 px) perche' sopra di essa la finestra e' alta abbastanza da non pagare
+   il ritaglio: un 1440x900 ne ha circa 790. */
+@media (max-height: 46rem) {
+  .testata { padding-top: var(--passo-2); padding-bottom: var(--passo-2); row-gap: var(--passo-1); }
+  /* `:not(.zona-vista)` e non `.zona`, ed e' la prima grafia di questa riga:
+     la zona della vista dichiara `padding: 0` (piu' su in questo foglio) perche'
+     la tela arriva ai bordi, e una regola scritta piu' in basso a parita' di
+     specificita' glielo disfaceva. Misurato a 1093x523 px: l'inquadratura
+     scendeva a 477 px dei 501 della colonna, cioe' 12 px di cornice su quattro
+     lati intorno all'unica cosa che questa schermata esiste per mostrare -- e
+     proprio sugli schermi bassi che questo blocco esiste per aiutare. */
+  .zona:not(.zona-vista) { padding: var(--passo-3); }
 }
