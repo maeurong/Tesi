@@ -1965,11 +1965,45 @@ def create_app(
                 f"{percorso.name} non è una mesh disegnabile: "
                 f"{len(vertici)} vertici e {len(facce)} triangoli"
             )
-        corpo = viewport.to_float32(vertici) + np.ascontiguousarray(facce, dtype="<u4").tobytes()
+        # Le normali viaggiano col corpo invece di essere ricalcolate di la'.
+        # `computeVertexNormals` di three.js gira sul thread PRINCIPALE del
+        # browser: finche' dura, la pagina intera e' ferma -- non solo la vista,
+        # anche i bottoni e la colonna degli step. Misurato nel browser il
+        # 04/09/2026 su 908.118 triangoli, il conteggio che l'aiuto dello step 5
+        # cita per la scansione di riferimento a `poisson_depth` 9: mediano di
+        # sette prove, 1078 ms. Qui lo stesso calcolo, in numpy e sugli stessi
+        # 908.118 triangoli, ha un mediano di 64 ms: diciassette volte meno, e
+        # su un thread che non e' quello con cui l'utente sta parlando.
+        #
+        # Il prezzo, misurato e non stimato: il corpo cresce di un terzo -- tre
+        # Float32 per vertice in piu' sopra posizioni e indici, 2,58 MB che
+        # diventano 3,43 sulla mesh dello step 6 di una corsa da 143.102
+        # triangoli -- e la risposta passa da una quarantina di millisecondi a
+        # 60-90. Su un socket locale sono i millisecondi piu' economici che
+        # questa applicazione possa spendere.
+        #
+        # `viewport.vertex_normals` non e' una definizione qualsiasi: e' quella
+        # di three.js replicata, verso del prodotto vettoriale compreso. Un
+        # segno sbagliato non darebbe normali «un po' diverse», ribalterebbe il
+        # chiaro e lo scuro del pezzo che finisce in appendice.
+        normali = viewport.vertex_normals(vertici, facce)
+        corpo = (
+            viewport.to_float32(vertici)
+            + np.ascontiguousarray(facce, dtype="<u4").tobytes()
+            + viewport.to_float32(normali)
+        )
         return Response(
             content=corpo,
             media_type="application/octet-stream",
-            headers={"X-Vertices": str(len(vertici)), "X-Triangles": str(len(facce))},
+            # X-Normals dichiara che la coda c'e', e il browser ci si aggancia
+            # invece di dedurla dalla lunghezza del corpo: dedurla vorrebbe dire
+            # che un corpo troncato a meta' si legge come «senza normali» e la
+            # pagina disegna un pezzo nero senza dire niente.
+            headers={
+                "X-Vertices": str(len(vertici)),
+                "X-Triangles": str(len(facce)),
+                "X-Normals": "1",
+            },
         )
 
     @app.get("/api/scarto")
