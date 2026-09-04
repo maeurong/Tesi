@@ -334,7 +334,14 @@ class Elemento {
   get firstElementChild() { return this.figli[0] ?? null; }
   get lastElementChild() { return this.figli[this.figli.length - 1] ?? null; }
   get scrollHeight() { return this.figli.length; }
-  get textContent() { return this.testo; }
+  // Il proprio testo PIU' quello dei figli, come il DOM vero. Tornava il solo
+  // `this.testo`, e quella differenza non era innocua: `marcaLeMetricheCambiate` appende
+  // dentro il `dd` il valore di prima e poi rilegge `textContent` al giro
+  // dopo, quindi il banco non poteva vedere il difetto in cui la rilettura
+  // torna i due numeri attaccati e ogni riga risulta cambiata per sempre. Una
+  // finta DOM piu' comoda del vero e' una finta DOM che nasconde una classe di
+  // difetti.
+  get textContent() { return this.testo + this.figli.map((f) => f.textContent).join(""); }
   set textContent(valore) { this.testo = String(valore); }
   append(...nodi) { for (const nodo of nodi) { nodo.padre = this; this.figli.push(nodo); } }
   replaceChildren(...nodi) { this.figli = []; this.append(...nodi); }
@@ -4834,6 +4841,11 @@ const disegna = (numero, metriche) => marcaLeMetricheCambiate(
 );
 const accesi = (righe) =>
   righe.flatMap((n) => ("cambiato" in n.dataset ? [n.textContent] : []));
+// Il valore di prima e' un `dd` FRATELLO con la classe `prima`, non un figlio
+// del valore: cosi' il `dd` del valore resta intatto e questa stessa funzione
+// lo puo' rileggere al giro dopo per il confronto.
+const storia = (righe) =>
+  righe.flatMap((n) => (n.className === "prima" ? [n.textContent] : []));
 
 // Annidata apposta: e' la forma vera dello step 7, e la chiave con cui si
 // confronta e' l'etichetta appiattita, non il nome della famiglia.
@@ -4846,8 +4858,35 @@ assert.deepEqual(accesi(disegna(7, PRIMA)), [],
 
 // Una corsa finisce: un solo numero e' diverso, e la famiglia accanto no.
 const DOPO = { vertices: 19314, geometric_error: { mean: 3.9, max: 72.2 } };
-assert.deepEqual(accesi(disegna(7, DOPO)), ["3,9"],
+// Una passata sola, guardata da due parti: chiamare `disegna` due volte
+// consumerebbe il confronto, perche' la seconda troverebbe i valori che la
+// prima ha appena memorizzato e non marcherebbe piu' niente.
+const passata = disegna(7, DOPO);
+assert.deepEqual(accesi(passata), ["3,9"],
   "il marchio non e' sul solo numero cambiato, o non e' solo suo");
+
+// Il numero di prima e' quello vero, e viaggia in una riga sua.
+assert.deepEqual(storia(passata), ["l'ultima volta 4,41"],
+  "la riga marcata non porta il valore che aveva l'ultima volta");
+
+// Il `dd` del valore non e' stato toccato: se il valore di prima gli finisse
+// dentro, `textContent` tornerebbe i due numeri e il confronto del giro dopo
+// non combacerebbe piu' con niente.
+assert.deepEqual(accesi(passata), ["3,9"],
+  "il valore di prima e' finito DENTRO il valore di adesso");
+
+// IL TRANELLO, ed e' la ragione per cui questo banco esiste nella forma che
+// ha. `marcaLeMetricheCambiate` appende il valore di prima DENTRO il `dd` e al
+// giro seguente rilegge il `dd` per confrontarlo. Rileggendolo dopo l'append,
+// la chiave memorizzata sarebbe "3,9prima 4,41" invece di "3,9", e alla
+// passata dopo NIENTE combacerebbe piu': ogni riga risulterebbe cambiata per
+// sempre e il marchio, che esiste per dire «guarda questo», si accenderebbe su
+// tutto. Due passate identiche di fila sono l'unico modo di vederlo: la prima
+// appende, la seconda dice se cio' che e' stato memorizzato era il valore o il
+// valore piu' la sua storia.
+assert.deepEqual(accesi(disegna(7, DOPO)), [],
+  "ripetuta identica, la passata dichiara cambiato tutto: il valore memorizzato "
+  + "porta dentro anche quello di prima");
 
 assert.deepEqual(accesi(disegna(10, { vertices: 1 })), [],
   "cambiando step si dichiara cambiato un numero solo guardato per la prima volta");
@@ -4857,6 +4896,9 @@ assert.deepEqual(accesi(disegna(10, { vertices: 1, min_ratio: 0.21 })), [],
 """)
     assert ".metriche dd[data-cambiato]" in _foglio(), (
         "il foglio non veste piu' il marchio sui numeri: il cambio resta senza animazione"
+    )
+    assert ".metriche dd.prima" in _foglio(), (
+        "il foglio non veste piu' il valore di prima: senza `grid-column: 1 / -1` finisce\n        nella colonna da 14ch del valore, che esiste apposta perche' un numero non\n        si spezzi, e il volume racchiuso ci va a capo due volte"
     )
 
 
