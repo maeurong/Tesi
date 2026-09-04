@@ -153,7 +153,13 @@ def test_la_misura_leggibile_e_una_lunghezza_e_raggiunge_la_prosa():
         f"--misura non e' piu' una lunghezza assoluta: {valore}"
     )
 
-    regola = foglio.split(".aiuto {", 1)[1].split("}", 1)[0]
+    # Ancorato a inizio riga: `split(".aiuto {")` prendeva qualunque regola che
+    # finisse con quel selettore, e dal 04/09/2026 ce n'e' una piu' in alto nel
+    # foglio (`.ingresso form > .aiuto`). Il banco leggeva quella e dichiarava
+    # sparito un `display: block` che non si era mosso.
+    regola = re.search(r"^\.aiuto \{([^}]*)\}", foglio, flags=re.MULTILINE)
+    assert regola is not None, "`.aiuto` non e' piu' dichiarata nel foglio"
+    regola = regola.group(1)
     assert "display: block" in regola, (
         "`.aiuto` senza `display: block`: sui <small> dell'ingresso resta inline, "
         "e su una scatola inline il max-width qui accanto non fa nulla"
