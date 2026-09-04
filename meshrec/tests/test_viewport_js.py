@@ -266,13 +266,18 @@ def test_il_trascinamento_non_resta_premuto_quando_il_puntatore_se_ne_va():
     si tace solo con ctrl (il clic destro vero tiene «Salva immagine con
     nome»), e un pointercancel azzera il trascinamento.
 
-    Mutazioni che lo uccidono, una per asserzione: togliere `if (evento.ctrlKey)`
-    dal contextmenu; togliere il pointercancel.
+    Il ctrl si legge dal pointerdown (`premutoConCtrl`) oltre che dal
+    contextmenu: WebKit non lo ha sempre riportato sul menu che macOS
+    sintetizza dal ctrl+clic.
+
+    Mutazioni che lo uccidono, una per asserzione: togliere la condizione dal
+    contextmenu; togliere il pointercancel.
     """
     testo = _senza_commenti(_modulo())
-    assert re.search(r'"contextmenu", \(evento\) => \{ if \(evento\.ctrlKey\) evento\.preventDefault\(\); \}', testo), (
+    assert re.search(r'"contextmenu", \(evento\) => \{ if \(evento\.ctrlKey \|\| premutoConCtrl\) evento\.preventDefault\(\); \}', testo), (
         "il menu contestuale va taciuto con ctrl e solo con ctrl"
     )
+    assert "premutoConCtrl = evento.ctrlKey;" in testo, "il ctrl del pointerdown non viene ricordato"
     assert re.search(r'"pointercancel", \(\) => \{ premuto = false; \}', testo), (
         "un trascinamento interrotto dal browser resta premuto"
     )

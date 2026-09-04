@@ -495,9 +495,11 @@ export function creaViewport(contenitore) {
   }
 
   let premuto = false;
+  let premutoConCtrl = false;
   let ultimo = { x: 0, y: 0 };
   tela.addEventListener("pointerdown", (evento) => {
     premuto = true;
+    premutoConCtrl = evento.ctrlKey;
     ultimo = { x: evento.clientX, y: evento.clientY };
     tela.setPointerCapture(evento.pointerId);
   });
@@ -510,8 +512,10 @@ export function creaViewport(contenitore) {
   // Su macOS ctrl+clic e' il clic destro, e apriva il menu contestuale sopra
   // la tela proprio nel gesto che vincola a x. Si tace il menu solo con ctrl
   // premuto: il clic destro vero lo tiene, e con lui «Salva immagine con
-  // nome» del browser.
-  tela.addEventListener("contextmenu", (evento) => { if (evento.ctrlKey) evento.preventDefault(); });
+  // nome» del browser. Il ctrl lo si legge dal pointerdown, che precede il
+  // menu e riporta i modificatori su ogni motore; sul contextmenu che macOS
+  // sintetizza dal ctrl+clic WebKit non lo ha sempre riportato.
+  tela.addEventListener("contextmenu", (evento) => { if (evento.ctrlKey || premutoConCtrl) evento.preventDefault(); });
   tela.addEventListener("pointermove", (evento) => {
     if (!premuto) return;
     laCameraPassaAlGesto();
