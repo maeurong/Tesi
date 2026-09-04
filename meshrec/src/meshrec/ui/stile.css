@@ -375,8 +375,22 @@ h2:focus-visible { outline: 2px solid var(--accento); outline-offset: 2px; }
 .viewport { position: relative; flex: 1; min-height: 0; }
 /* display: block perche' una tela inline lascia sotto di se' lo spazio del
    tratto discendente della riga: alta quanto il contenitore, lo farebbe
-   comunque scorrere di qualche pixel. */
-.viewport canvas { display: block; }
+   comunque scorrere di qualche pixel.
+   `touch-action: none` perche' sulla tela i gesti sono nostri. Senza -- cioe'
+   col predefinito `auto`, che e' quello che c'era -- il browser si tiene il
+   trascinamento col dito e lo tratta come uno scorrimento della pagina:
+   comincia a scorrere, manda `pointercancel`, e la rotazione muore a meta'.
+   Non e' un caso teorico. Misurato il 04/09/2026: sotto i 992 px di finestra
+   la pagina e' alta 1284 px e scorre davvero -- e 992 px non e' una misura
+   esotica, e' un 1366x768 al 125% di Windows con la finestra non a tutto
+   schermo, o un 1920x1080 al 200%. Li' su un portatile col touch il modello
+   non si gira affatto.
+   La pinza la raccoglie viewport.js dal flusso dei puntatori. Prima ingrandiva
+   la PAGINA, che non e' quello che chiede chi pizzica sopra un modello; adesso
+   avvicina il pezzo, com'e' sempre stato per la rotella. Fuori dalla tela il
+   gesto del browser resta intatto: questa riga vale un elemento solo, e chi
+   ingrandisce la pagina da tastiera o dal menu non perde niente. */
+.viewport canvas { display: block; touch-action: none; }
 .viewport canvas:focus-visible { outline: 2px solid var(--accento); outline-offset: -2px; }
 /* Lo stato vuoto insegna a chi non conosce gli undici step: e' prosa, quindi
    prende la misura leggibile e non la larghezza del pannello. */
@@ -1275,4 +1289,29 @@ h3.titolo-step { margin: 0 0 var(--passo-1); font-size: var(--tipo-corpo); line-
      lati intorno all'unica cosa che questa schermata esiste per mostrare -- e
      proprio sugli schermi bassi che questo blocco esiste per aiutare. */
   .zona:not(.zona-vista) { padding: var(--passo-3); }
+}
+
+/* --- Quando il puntatore e' un dito -------------------------------------
+   Non «quando lo schermo e' piccolo»: sono due cose diverse, e confonderle e'
+   il difetto classico. Un portatile Windows con lo schermo touch e' largo
+   1920 px e si comanda col dito; un monitor da scrivania e' largo uguale e non
+   ha nulla da toccare. `pointer: coarse` chiede la cosa giusta -- che
+   precisione ha lo strumento con cui si punta -- invece di dedurla dalla
+   larghezza.
+   Le righe della pipeline sono alte 37 px misurati, che col mouse sono
+   comodi e col dito stanno sotto i 44 px che le linee guida chiedono a un
+   bersaglio. Qui salgono, e salgono SOLO qui: allargarle per tutti costerebbe
+   altezza proprio sugli schermi bassi per cui il blocco `max-height` qui sopra
+   esiste, e nella colonna della pipeline ci stanno undici righe piu' il
+   pannello del modello.
+   `min-height` e non `padding`: il padding sposterebbe anche il testo rispetto
+   al pallino di stato, e il pallino sta allineato alla prima riga di base del
+   nome. Cosi' cresce la zona che riceve il tocco e non si muove niente di cio'
+   che si legge.
+   La casella del fantasma sale con loro: e' 1,15em, cioe' meno di 19 px, ed e'
+   il bersaglio piu' piccolo di tutta l'interfaccia. */
+@media (pointer: coarse) {
+  .step { min-height: 2.75rem; }
+  .fantasma-comando input[type="checkbox"] { width: 1.6em; height: 1.6em; }
+  .taglio input[type="range"] { height: 2.75rem; }
 }

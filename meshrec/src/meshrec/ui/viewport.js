@@ -517,18 +517,54 @@ export function creaViewport(contenitore) {
   let premuto = false;
   let premutoConCtrl = false;
   let ultimo = { x: 0, y: 0 };
+  // I puntatori giu' in questo momento. Col mouse ce n'e' sempre uno solo e
+  // questa mappa non cambia niente; col dito ce ne possono essere due, ed e'
+  // l'unico modo di sapere che il gesto in corso e' una pinza e non una
+  // rotazione. `pointerId` come chiave perche' e' cio' che il browser promette
+  // stabile per la vita di un dito sullo schermo.
+  const dita = new Map();
+  // La distanza fra i due diti all'ultimo fotogramma: null quando i diti non
+  // sono due, cosi' la pinza riparte pulita ogni volta invece di ereditare la
+  // distanza di una pinza di prima.
+  let pinza = null;
+
+  const distanzaFraIDita = () => {
+    const [a, b] = [...dita.values()];
+    return Math.hypot(a.x - b.x, a.y - b.y);
+  };
+
   tela.addEventListener("pointerdown", (evento) => {
-    premuto = true;
+    dita.set(evento.pointerId, { x: evento.clientX, y: evento.clientY });
+    // Il secondo dito chiude la rotazione invece di continuarla: senza,
+    // appoggiando il secondo dito il modello scatterebbe di un mezzo giro,
+    // perche' `ultimo` resterebbe la posizione del primo mentre i pointermove
+    // cominciano ad arrivare anche dall'altro.
+    premuto = dita.size === 1;
+    pinza = dita.size === 2 ? distanzaFraIDita() : null;
     premutoConCtrl = evento.ctrlKey;
     ultimo = { x: evento.clientX, y: evento.clientY };
     tela.setPointerCapture(evento.pointerId);
   });
-  tela.addEventListener("pointerup", () => { premuto = false; });
+  const alzato = (evento) => {
+    dita.delete(evento.pointerId);
+    pinza = null;
+    // Tolto un dito da una pinza ne resta uno solo, e da li' il gesto e' di
+    // nuovo una rotazione: riparte dalla posizione di quel dito, non da dove
+    // stava il primo prima della pinza.
+    if (dita.size === 1) {
+      const [restante] = [...dita.values()];
+      ultimo = { x: restante.x, y: restante.y };
+      premuto = true;
+    } else {
+      premuto = false;
+    }
+  };
+  tela.addEventListener("pointerup", alzato);
   // Il browser puo' togliere il puntatore alla tela senza un pointerup: un
   // menu che si apre, una finestra che prende il fuoco. Senza questa riga il
   // trascinamento interrotto cosi' restava «premuto», e la scena seguiva il
   // mouse a tasto alzato finche' non si cliccava di nuovo.
-  tela.addEventListener("pointercancel", () => { premuto = false; });
+  tela.addEventListener("pointercancel", alzato);
   // Su macOS ctrl+clic e' il clic destro, e apriva il menu contestuale sopra
   // la tela proprio nel gesto che vincola a x. Si tace il menu solo con ctrl
   // premuto: il clic destro vero lo tiene, e con lui «Salva immagine con
@@ -537,6 +573,24 @@ export function creaViewport(contenitore) {
   // sintetizza dal ctrl+clic WebKit non lo ha sempre riportato.
   tela.addEventListener("contextmenu", (evento) => { if (evento.ctrlKey || premutoConCtrl) evento.preventDefault(); });
   tela.addEventListener("pointermove", (evento) => {
+    if (dita.has(evento.pointerId)) {
+      dita.set(evento.pointerId, { x: evento.clientX, y: evento.clientY });
+    }
+    // La pinza: due diti che si allontanano avvicinano il pezzo, ed e' lo
+    // stesso verso della rotella. Il fattore e' il rapporto fra le due
+    // distanze, quindi il pezzo segue i diti invece di scorrere a velocita'
+    // propria -- allargando del doppio si dimezza il raggio, e riavvicinando
+    // i diti si torna esattamente da dove si era partiti.
+    if (dita.size === 2) {
+      const adesso = distanzaFraIDita();
+      if (pinza !== null && adesso > 0) {
+        laCameraPassaAlGesto();
+        orbita.raggio *= pinza / adesso;
+        aggiornaCamera();
+      }
+      pinza = adesso;
+      return;
+    }
     if (!premuto) return;
     laCameraPassaAlGesto();
     // Col modificatore conta il solo spostamento orizzontale: un asse, un

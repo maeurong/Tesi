@@ -4306,19 +4306,31 @@ def test_a_corsa_finita_le_nuvole_sono_gia_decimate(cliente, tmp_path, monkeypat
 
     assert cliente.post("/api/step/1").status_code == 200
 
+    # `.tmp` escluso, e non e' pedanteria: `scrivi_atomico` scrive su
+    # `<nome>.tmp.npz` e poi rinomina (core/io.py), quindi un `glob("*.npz")`
+    # cattura anche il temporaneo mentre la scrittura e' in corso. Fotografato
+    # li', l'elenco porta il nome temporaneo; un istante dopo il rename lo fa
+    # sparire, e il confronto in fondo trova due elenchi diversi accusando la
+    # rotta di aver scritto una voce sua. E' successo davvero, sul banco di
+    # macOS del 04/09/2026 e non in locale: una corsa fra il thread che scalda
+    # e il banco che guarda, che sulla macchina piu' lenta si apre e su quella
+    # piu' veloce no. Il difetto era del controllo, non del meccanismo.
+    def voci() -> list[str]:
+        return sorted(f.name for f in cache.glob("*.npz") if ".tmp." not in f.name)
+
     cache = tmp_path / "cache"
-    for _ in range(100):
-        if cache.exists() and any(cache.glob("*.npz")):
+    for _ in range(200):
+        if cache.exists() and voci():
             break
         time.sleep(0.05)
-    scaldate = sorted(p.name for p in cache.glob("*.npz"))
+    scaldate = voci()
     assert scaldate, (
         "a corsa finita nessuna nuvola e' stata decimata in anticipo: il primo "
         "clic sullo step 1 torna a pagare la decimazione a freddo"
     )
 
     assert cliente.get("/api/cloud/1").status_code == 200
-    assert sorted(p.name for p in cache.glob("*.npz")) == scaldate, (
+    assert voci() == scaldate, (
         "la richiesta ha scritto una voce di cache sua: quella scaldata a fine "
         "corsa e' stata calcolata con parametri che la rotta non chiede, quindi "
         "il lavoro e' stato fatto due volte e l'attesa e' rimasta dov'era"
