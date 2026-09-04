@@ -175,7 +175,18 @@ body {
 /* Il nome della corsa e' un identificatore di cartella, non prosa: le cifre
    tabulari e lo stack a larghezza fissa lo tengono leggibile carattere per
    carattere accanto al titolo. */
-.corsa { margin: 0; color: var(--tenue); font-family: var(--stack-cifre); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); overflow-wrap: anywhere; }
+/* `--testo` e non `--tenue`, ed e' una correzione di rango. Misurata la
+   testata a 1093 px il 04/09/2026: il titolo del programma prende 77 px, il
+   nome della corsa 51, i tre comandi 444 -- otto volte e mezzo il nome della
+   corsa. Ma «MeshRec» chi guarda lo sa gia', mentre QUALE corsa ha aperto e' la
+   domanda che si rifa' ogni volta che torna allo schermo, ed e' anche il primo
+   anello della provenienza che questo prodotto mette fra i propri principi.
+   Tenue, spariva: nella prova a sfocatura era l'unica cosa della testata che non
+   si leggeva piu'. Il corpo resta `--tipo-dato` e lo stack resta quello a
+   larghezza fissa -- e' un identificatore di cartella, non un titolo -- quindi
+   a cambiare e' il solo contrasto, che e' il canale che sopravvive alla
+   proiezione in aula. */
+.corsa { margin: 0; color: var(--testo); font-family: var(--stack-cifre); font-size: var(--tipo-dato); line-height: var(--interlinea-riga); overflow-wrap: anywhere; }
 /* Il landmark unico, che contiene le due schermate: l'ingresso e il lavoro si
    escludono a vicenda, ma una pagina che ne nasconde una non deve restare
    senza <main> -- «vai al contenuto principale» non troverebbe piu' nulla. */
@@ -248,6 +259,24 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
    finestra stretta in cui questa riga sposti qualcosa. */
 .ingresso { padding: var(--passo-4) max(var(--passo-4), (100% - var(--misura)) / 2); overflow: auto; background: var(--superficie); flex: 1; min-height: 0; }
 .ingresso > * { max-width: var(--misura); }
+/* Dove cade il vuoto nel form d'ingresso, e prima cadeva nel posto sbagliato.
+   Un campo e' un gruppo di tre cose -- etichetta, casella, aiuto -- e l'aiuto
+   e' un figlio del form, non del campo: `.campo` portava 12 px di margine sotto
+   e l'aiuto non ne portava nessuno, quindi misurati a video il 04/09/2026 sulla
+   schermata d'ingresso i vuoti erano 12 px fra una casella e il PROPRIO aiuto e
+   0 px fra quell'aiuto e l'etichetta del campo SEGUENTE. La vicinanza diceva il
+   contrario di cio' che i tre elementi sono: l'aiuto toccava la cosa che non
+   descrive e stava staccato da quella che descrive. Lo stesso zero separava
+   l'ultimo aiuto da «Crea la corsa», cioe' dal comando.
+   Adesso il gruppo e' stretto -- 4 px dentro, come fra etichetta e casella --
+   e il vuoto che lo chiude sta dopo l'aiuto, dove il gruppo finisce davvero.
+   `:has` e non un contenitore nuovo nel markup: la relazione «questo campo ha
+   un aiuto dopo di se'» esiste gia' nella pagina, e il foglio la sa leggere --
+   e' lo stesso idioma di `.campo:has(input[type="range"])` piu' sotto. Scoped
+   a `.ingresso` perche' i campi del pannello del dettaglio hanno il proprio
+   aiuto DENTRO il campo, dove il problema non si pone. */
+.ingresso form .campo:has(+ .aiuto) { margin-bottom: var(--passo-1); }
+.ingresso form > .aiuto { margin-bottom: var(--passo-6); }
 /* I campi non hanno piu' una larghezza propria: erano 40rem contro le 66ch di
    tutto il resto della colonna, cioe' due bordi destri diversi a un centinaio
    di pixel l'uno dall'altro nella stessa schermata, ed e' la prima cosa che
@@ -369,7 +398,24 @@ code { font-family: var(--stack-cifre); }
 /* Un comando spento non e' un comando pallido: il testo scende a --tenue, che
    resta sopra 4,5:1, e il cursore dice che non c'e' niente da premere. Il
    contorno resta pieno perche' l'elemento c'e' ancora e non deve sparire. */
-.bottone:disabled { color: var(--tenue); cursor: default; }
+/* Il contorno di un comando spento e' `--bordo` e non piu' `--bordo-comando`,
+   e i due nel foglio hanno gia' due ruoli distinti: uno separa e non porta
+   informazione, l'altro disegna il contorno di cio' che si puo' toccare.
+   Cambiava solo il colore del testo, che a occhi socchiusi non si vede: nella
+   prova a sfocatura del 04/09/2026, con una corsa ferma, i tre comandi della
+   testata leggevano come tre contorni di uguale forza e «Interrompi il calcolo»
+   -- spento, perche' non c'era niente da interrompere -- pesava quanto i due
+   vivi. Un comando morto che si annuncia come vivo e' la stessa specie di
+   difetto delle righe che questo progetto insegue: sembrare di poter fare una
+   cosa che non si puo' fare.
+   Il testo resta `--tenue`, quindi chi non distingue le tinte non perde niente:
+   il canale che cambia e' il peso del contorno, non l'informazione.
+   E non e' una regressione di contrasto, benche' `--bordo` stia sotto il 3:1
+   che `--bordo-comando` esiste per rispettare: WCAG 1.4.11 esclude per iscritto
+   i componenti inattivi dal proprio requisito. La soglia protegge chi deve
+   riconoscere un comando che puo' usare; qui il comando non si puo' usare, ed
+   e' proprio quello che il contorno piu' debole dichiara. */
+.bottone:disabled { color: var(--tenue); border-color: var(--bordo); cursor: default; }
 .bottone:disabled:hover { background: var(--superficie); }
 /* Il comando che porta fuori il deck e' un collegamento vero e non un bottone:
    il file sta gia' sul disco ed e' il browser a scaricarlo. Vestito da comando
