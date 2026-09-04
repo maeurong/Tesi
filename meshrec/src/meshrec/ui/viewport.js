@@ -75,13 +75,38 @@ export const RAMPA = { chiaro: "#d9e8e4", scuro: "#2f5d50" };
 // chiesti -- alt, ctrl, shift -- e non c'e' un ordine piu' giusto: c'e' un
 // ordine, ed e' provato.
 //
+// cmd vale quanto ctrl: su macOS ctrl+clic e' il clic destro, e la mano che
+// vuole vincolare un asse cerca il tasto accanto alla barra, che li' e' cmd.
+// Questo progetto sta anche su macOS (gestoDelloStorico in app.js paga la
+// stessa ragione).
+//
 // Pura e fuori da creaViewport per la ragione gia' pagata da scalaDelCampo:
 // dentro una funzione che tocca three.js nessun banco la eseguirebbe.
 export function asseDelGesto(evento) {
   if (evento.altKey) return [0, 0, 1];
-  if (evento.ctrlKey) return [1, 0, 0];
+  if (evento.ctrlKey || evento.metaKey) return [1, 0, 0];
   if (evento.shiftKey) return [0, 1, 0];
   return null;
+}
+
+// Di quanto la rotella chiede di avvicinare o allontanare: un fattore sul
+// raggio dell'orbita, maggiore di 1 per allontanare.
+//
+// Proporzionale al delta e non fisso per evento. Era 1,1 per ogni evento, e
+// una tacca del mouse e un colpetto del trackpad valevano uguale; il trackpad
+// di un Mac ne manda decine per gesto, di pochi pixel l'uno, e una sola
+// carezza a due dita moltiplicava il raggio per 1,1 trenta volte, cioe' per
+// 17: la scena spariva. Qui una tacca di mouse (deltaY 100 in pixel) vale
+// exp(0,1) = 1,105, quanto prima, e trenta colpetti da 3 px valgono
+// exp(0,09) = 1,09: un gesto, uno scatto. Il pizzico a due dita arriva dallo
+// stesso evento, con ctrlKey, e non ha bisogno di un ramo suo. deltaMode 1 e
+// 2 sono righe e pagine, che Firefox manda con certe impostazioni: 16 px e
+// 400 px per unita'. Il limite a una tacca per evento tiene a bada un delta
+// anomalo, che altrimenti sarebbe un salto di scala in un colpo.
+export function fattoreDiZoom(evento) {
+  const perUnita = evento.deltaMode === 1 ? 16 : evento.deltaMode === 2 ? 400 : 1;
+  const delta = Math.max(-100, Math.min(100, evento.deltaY * perUnita));
+  return Math.exp(delta / 1000);
 }
 
 // Ogni numero che finisce a video passa di qui, e null e' «non si puo'
@@ -477,6 +502,16 @@ export function creaViewport(contenitore) {
     tela.setPointerCapture(evento.pointerId);
   });
   tela.addEventListener("pointerup", () => { premuto = false; });
+  // Il browser puo' togliere il puntatore alla tela senza un pointerup: un
+  // menu che si apre, una finestra che prende il fuoco. Senza questa riga il
+  // trascinamento interrotto cosi' restava «premuto», e la scena seguiva il
+  // mouse a tasto alzato finche' non si cliccava di nuovo.
+  tela.addEventListener("pointercancel", () => { premuto = false; });
+  // Su macOS ctrl+clic e' il clic destro, e apriva il menu contestuale sopra
+  // la tela proprio nel gesto che vincola a x. Si tace il menu solo con ctrl
+  // premuto: il clic destro vero lo tiene, e con lui «Salva immagine con
+  // nome» del browser.
+  tela.addEventListener("contextmenu", (evento) => { if (evento.ctrlKey) evento.preventDefault(); });
   tela.addEventListener("pointermove", (evento) => {
     if (!premuto) return;
     laCameraPassaAlGesto();
@@ -497,7 +532,7 @@ export function creaViewport(contenitore) {
   tela.addEventListener("wheel", (evento) => {
     evento.preventDefault();
     laCameraPassaAlGesto();
-    orbita.raggio *= evento.deltaY > 0 ? 1.1 : 0.9;
+    orbita.raggio *= fattoreDiZoom(evento);
     aggiornaCamera();
   }, { passive: false });
 

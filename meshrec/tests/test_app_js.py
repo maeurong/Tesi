@@ -7970,3 +7970,45 @@ assert.match(riga.textContent, /parametri diversi/);
 disegnaStep([{ numero: 4, chiave: "04_normals", stato: "valido" }]);
 assert.match(riga.textContent, /parametri diversi/);
 """)
+
+
+def test_lo_zoom_della_rotella_e_proporzionale_al_delta_e_non_fisso_per_evento(tmp_path):
+    """Il trackpad di un Mac manda decine di eventi `wheel` per gesto, di pochi
+    pixel l'uno. Con un fattore fisso per evento (era 1,1) trenta colpetti da
+    3 px moltiplicavano il raggio per 17 e la scena spariva; una tacca di mouse
+    (deltaY 100) deve valere quanto prima, cioe' 1,1 circa.
+
+    Mutazione che lo uccide: tornare a `evento.deltaY > 0 ? 1.1 : 0.9`.
+    """
+    uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
+        + _funzioni_viewport("fattoreDiZoom") + """
+const tacca = fattoreDiZoom({ deltaY: 100, deltaMode: 0 });
+assert.ok(Math.abs(tacca - 1.105) < 0.005, `una tacca di mouse vale ${tacca}`);
+let carezza = 1;
+for (let k = 0; k < 30; k += 1) carezza *= fattoreDiZoom({ deltaY: 3, deltaMode: 0 });
+assert.ok(carezza > 1.05 && carezza < 1.15, `trenta colpetti da 3 px valgono ${carezza}`);
+assert.ok(fattoreDiZoom({ deltaY: -100, deltaMode: 0 }) < 1, "il verso negativo avvicina");
+assert.ok(Math.abs(fattoreDiZoom({ deltaY: 3, deltaMode: 1 }) - fattoreDiZoom({ deltaY: 48, deltaMode: 0 })) < 1e-9, "una riga vale 16 px");
+assert.equal(fattoreDiZoom({ deltaY: 5000, deltaMode: 0 }), fattoreDiZoom({ deltaY: 100, deltaMode: 0 }), "un delta anomalo vale al piu' una tacca");
+console.log("ok");
+""")
+    assert uscita.strip() == "ok"
+
+
+def test_cmd_vincola_l_asse_x_come_ctrl_e_alt_resta_primo(tmp_path):
+    """Su macOS ctrl+clic e' il clic destro: il gesto vincolato a x deve
+    rispondere anche a cmd (`metaKey`), e la priorita' alt > ctrl > shift non
+    cambia.
+
+    Mutazione che lo uccide: togliere `|| evento.metaKey` da asseDelGesto.
+    """
+    uscita = _esegui(tmp_path, "import assert from 'node:assert/strict';\n"
+        + _funzioni_viewport("asseDelGesto") + """
+assert.deepEqual(asseDelGesto({ metaKey: true }), [1, 0, 0]);
+assert.deepEqual(asseDelGesto({ ctrlKey: true }), [1, 0, 0]);
+assert.deepEqual(asseDelGesto({ metaKey: true, altKey: true }), [0, 0, 1]);
+assert.deepEqual(asseDelGesto({ metaKey: true, shiftKey: true }), [1, 0, 0]);
+assert.equal(asseDelGesto({}), null);
+console.log("ok");
+""")
+    assert uscita.strip() == "ok"
