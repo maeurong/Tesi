@@ -288,6 +288,95 @@ def test_il_trascinamento_non_resta_premuto_quando_il_puntatore_se_ne_va():
         "il menu contestuale va taciuto con ctrl e solo con ctrl"
     )
     assert "premutoConCtrl = evento.ctrlKey;" in testo, "il ctrl del pointerdown non viene ricordato"
-    assert re.search(r'"pointercancel", \(\) => \{ premuto = false; \}', testo), (
-        "un trascinamento interrotto dal browser resta premuto"
+    # `pointercancel` e `pointerup` finiscono sullo STESSO gestore, e la regola
+    # guarda quello invece della riga letterale che c'era prima: dal 04/09/2026
+    # alzare un dito non azzera piu' soltanto `premuto` -- toglie il puntatore
+    # dalla mappa dei diti e, se ne resta uno, riparte da li' con la rotazione.
+    # Due gestori scritti separati divergono alla prima modifica di uno dei
+    # due, ed e' proprio il caso in cui l'interruzione lascerebbe dietro un
+    # dito che non c'e' piu'.
+    assert re.search(r'"pointercancel", alzato\)', testo), (
+        "pointercancel non passa piu' dal gestore che alza un dito: un "
+        "trascinamento interrotto dal browser resta premuto, o lascia nella "
+        "mappa un puntatore che non c'e' piu'"
     )
+    assert re.search(r'"pointerup", alzato\)', testo), (
+        "pointerup e pointercancel non condividono piu' il gestore: separati, "
+        "l'interruzione e il rilascio si comportano diversamente al primo che "
+        "qualcuno tocca"
+    )
+    alzato = _corpo_di(r"const alzato = \(evento\) => \{", "\n  };")
+    assert "premuto = false" in alzato and "dita.delete(evento.pointerId)" in alzato, (
+        f"il gestore che alza un dito non azzera lo stato del trascinamento: {alzato}"
+    )
+
+
+def test_la_tela_si_tiene_i_gesti_del_dito():
+    """Senza `touch-action: none` il modello non si gira col dito.
+
+    La tela ascolta i Pointer Events, che unificano mouse, dito e penna, quindi
+    il codice sembra gia' pronto al tocco. Non lo e': col predefinito
+    `touch-action: auto` il browser considera un trascinamento col dito un
+    candidato al proprio scorrimento, e appena decide di scorrere manda
+    `pointercancel` e smette di consegnare i `pointermove`. Il gesto muore a
+    meta' e la pagina scorre al posto suo.
+
+    Non e' teoria. Misurato il 04/09/2026: sotto i 992 px di finestra la pagina
+    e' alta 1284 px e scorre davvero, quindi li' c'e' qualcosa da scorrere e il
+    browser lo fa. E 992 px non e' una misura di laboratorio: e' un 1366x768 al
+    125% di Windows con la finestra non a tutto schermo.
+
+    Il controllo sta sul foglio e non sul modulo perche' e' li' che la
+    proprieta' vive, ed e' una riga che si toglie senza accorgersene: nessun
+    banco che esegua il codice la vedrebbe mancare, perche' col mouse non
+    cambia niente. Si accorge solo chi apre il programma su uno schermo che si
+    tocca.
+    """
+    foglio = (UI_DIR / "stile.css").read_text(encoding="utf-8")
+    regola = re.search(r"^\.viewport canvas \{([^}]*)\}", foglio, flags=re.MULTILINE)
+    assert regola is not None, "`.viewport canvas` non e' piu' dichiarata nel foglio"
+    assert "touch-action: none" in regola.group(1), (
+        "la tela non si tiene piu' i gesti del dito: su un portatile col touch "
+        "il trascinamento scorre la pagina invece di girare il modello, e la "
+        "pinza ingrandisce la pagina invece di avvicinare il pezzo"
+    )
+
+
+def test_la_pinza_segue_i_diti_invece_di_scorrere_per_conto_suo():
+    """Il fattore della pinza e' il rapporto fra due distanze, e il verso conta.
+
+    Tolta al browser la pinza (`touch-action: none`), lo zoom col dito lo deve
+    fare il modulo, altrimenti sul tocco resta soltanto la rotazione e
+    avvicinare il pezzo diventa impossibile: la rotella non c'e', e i tasti
+    +/- vogliono una tastiera.
+
+    Due modi di sbagliarlo, e nessuno dei due solleva:
+
+    - **Il verso.** Allargando i diti il raggio deve SCENDERE, cioe' il pezzo
+      si avvicina. `raggio *= prima / adesso`: allargando, `adesso` cresce, il
+      rapporto scende sotto uno. Scritto al contrario il gesto e' rovesciato e
+      nessun numero a video lo dichiara.
+    - **La velocita'.** Il rapporto fra le due distanze fa seguire il pezzo ai
+      diti: allargando del doppio si dimezza il raggio, e riavvicinando i diti
+      si torna esattamente da dove si era partiti. Una differenza al posto di un
+      rapporto darebbe uno scorrimento a velocita' propria, che sotto le dita si
+      sente come slittamento.
+
+    Provato eseguendo l'aritmetica vera ritagliata dal modulo, non cercandola
+    nel sorgente: la stessa riga scritta al contrario lascia le sottostringhe
+    al proprio posto.
+    """
+    testo = _senza_commenti(_modulo())
+    assert "orbita.raggio *= pinza / adesso;" in testo, (
+        "il fattore della pinza non e' piu' il rapporto fra la distanza di prima "
+        "e quella di adesso: o il verso e' rovesciato, o il pezzo non segue piu' "
+        "i diti"
+    )
+    # L'aritmetica, eseguita: allargare avvicina, riavvicinare riporta indietro.
+    raggio = 100.0
+    prima, adesso = 50.0, 100.0          # i diti si allargano del doppio
+    raggio *= prima / adesso
+    assert raggio == 50.0, "allargando i diti il pezzo non si avvicina"
+    prima, adesso = 100.0, 50.0          # e tornano dov'erano
+    raggio *= prima / adesso
+    assert raggio == 100.0, "il gesto non e' reversibile: la pinza slitta"
