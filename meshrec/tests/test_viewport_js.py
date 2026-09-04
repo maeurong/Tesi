@@ -257,3 +257,27 @@ def test_la_rotazione_a_mano_muore_con_la_geometria_che_descriveva():
         "la posizione di compenso resta addosso al gruppo: la geometria nuova "
         "nasce spostata del perno di quella di prima"
     )
+
+
+def test_il_trascinamento_non_resta_premuto_quando_il_puntatore_se_ne_va():
+    """Su macOS ctrl+clic e' il clic destro: apriva il menu contestuale sopra la
+    tela nel gesto che vincola a x, e il pointerup finiva nel menu. `premuto`
+    restava vero e la scena seguiva il mouse a tasto alzato. Due righe: il menu
+    si tace solo con ctrl (il clic destro vero tiene «Salva immagine con
+    nome»), e un pointercancel azzera il trascinamento.
+
+    Il ctrl si legge dal pointerdown (`premutoConCtrl`) oltre che dal
+    contextmenu: WebKit non lo ha sempre riportato sul menu che macOS
+    sintetizza dal ctrl+clic.
+
+    Mutazioni che lo uccidono, una per asserzione: togliere la condizione dal
+    contextmenu; togliere il pointercancel.
+    """
+    testo = _senza_commenti(_modulo())
+    assert re.search(r'"contextmenu", \(evento\) => \{ if \(evento\.ctrlKey \|\| premutoConCtrl\) evento\.preventDefault\(\); \}', testo), (
+        "il menu contestuale va taciuto con ctrl e solo con ctrl"
+    )
+    assert "premutoConCtrl = evento.ctrlKey;" in testo, "il ctrl del pointerdown non viene ricordato"
+    assert re.search(r'"pointercancel", \(\) => \{ premuto = false; \}', testo), (
+        "un trascinamento interrotto dal browser resta premuto"
+    )
