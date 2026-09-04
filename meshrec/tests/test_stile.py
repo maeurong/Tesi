@@ -8,6 +8,7 @@ vedeva nulla. Questi tre controlli sono l'unica sorveglianza che quel file ha.
 """
 
 import re
+from html.parser import HTMLParser
 from pathlib import Path
 
 from meshrec.app.server import UI_DIR
@@ -188,6 +189,84 @@ def test_ogni_sovrapposto_della_vista_sa_ancora_nascondersi():
             f".{classe} dichiara un display ma non si sa piu' nascondere: "
             "l'attributo hidden non morde, e resta a video"
         )
+
+
+# I tag che si chiudono da se': senza, la pila qui sotto non tornerebbe mai
+# indietro da un <img> e conterebbe come antenato chi antenato non e'.
+VUOTI = frozenset("area base br col embed hr img input link meta param source track wbr".split())
+
+
+class _Antenati(HTMLParser):
+    """Le classi che stanno sopra a ciascuna classe cercata, lette dal markup.
+
+    Un parser e non una regex perche' la domanda e' di annidamento -- chi sta
+    dentro chi -- e una regex sa rispondere solo di vicinanza nel testo. Per
+    giunta cosi' un `class` con piu' nomi, o scritto fra virgolette singole,
+    e' gia' letto per quello che e'.
+    """
+
+    def __init__(self, cercate: set[str]) -> None:
+        super().__init__()
+        self.cercate = cercate
+        self.antenati: dict[str, set[str]] = {}
+        self._pila: list[set[str]] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        classi = set((dict(attrs).get("class") or "").split())
+        for nome in classi & self.cercate:
+            self.antenati[nome] = {c for livello in self._pila for c in livello}
+        if tag not in VUOTI:
+            self._pila.append(classi)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag not in VUOTI and self._pila:
+            self._pila.pop()
+
+
+def test_i_conteggi_e_i_comandi_della_vista_stanno_in_una_fascia_sola():
+    """Due scatole agganciate a due angoli non hanno nessuna relazione fra loro.
+
+    E' il terzo giro dello stesso difetto, e i due precedenti l'hanno spostato
+    invece di toglierlo: i conteggi stavano in basso e il comando del taglio li
+    copriva, sono saliti in cima e li' hanno incontrato i comandi della vista.
+    `position: absolute` su tutti e due significa che la distanza fra loro e' la
+    larghezza della tela, cioe' nessuna garanzia: si toccano appena la vista si
+    stringe, e chi viene dopo nel markup copre l'altro. Misurato il 04/09/2026 a
+    1093x614 px, 226 px di conteggi finiti sotto i bottoni.
+
+    La riparazione e' strutturale -- un contenitore solo, una riga flex, un gap
+    -- e una riparazione strutturale si disfa senza fare rosso niente: basta
+    togliere il `<div>` che raggruppa, o rimettere a una delle due il proprio
+    ancoraggio, e la pagina continua a girare finche' qualcuno non la guarda
+    su uno schermo stretto. Il quarto giro lo ferma questo controllo.
+
+    Mutazioni che lo uccidono: togliere `class="barra-vista"` dal markup;
+    rimettere `position: absolute` su `.conteggi` o su `.comandi-vista`.
+    """
+    lettore = _Antenati({"conteggi", "comandi-vista"})
+    lettore.feed((UI_DIR / "index.html").read_text(encoding="utf-8"))
+    for nome in ("conteggi", "comandi-vista"):
+        assert nome in lettore.antenati, f".{nome} non e' piu' nel markup della vista"
+        assert "barra-vista" in lettore.antenati[nome], (
+            f".{nome} e' uscita dalla fascia: senza un genitore comune i due tornano "
+            f"a stare uno accanto all'altro per caso ({sorted(lettore.antenati[nome])})"
+        )
+
+    # TUTTE le regole che portano quel selettore, non la prima: a parita' di
+    # specificita' il CSS applica l'ULTIMA dichiarazione, quindi una seconda
+    # `.conteggi { position: absolute }` scritta piu' in basso vincerebbe a
+    # video mentre una guardia che legge solo il primo blocco resta verde. E' il
+    # modo esatto in cui questo difetto e' gia' tornato due volte.
+    foglio = _senza_commenti()
+    for nome in ("conteggi", "comandi-vista"):
+        regole = re.findall(rf"^\.{nome}\s*\{{([^}}]*)\}}", foglio, flags=re.MULTILINE)
+        assert regole, f".{nome} non e' piu' dichiarata nel foglio"
+        for corpo in regole:
+            assert not re.search(r"position\s*:\s*(absolute|fixed)", corpo), (
+                f".{nome} torna ad ancorarsi al proprio angolo: fuori dal flusso non "
+                "cede piu' larghezza all'altra e non va a capo, che e' l'unico modo "
+                "che hanno di non sovrapporsi mai"
+            )
 
 
 
