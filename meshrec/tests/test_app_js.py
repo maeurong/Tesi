@@ -8058,3 +8058,39 @@ assert.equal(asseDelGesto({}), null);
 console.log("ok");
 """)
     assert uscita.strip() == "ok"
+
+
+def test_un_corpo_piu_corto_dei_conteggi_dichiarati_lo_dice_invece_di_appendersi(tmp_path):
+    """Il ritaglio del corpo puo' sollevare, e il rigetto non deve sparire.
+
+    `/api/mesh` manda tre code in un corpo solo -- posizioni, indici, normali --
+    e il browser le taglia sui conteggi che stanno nelle intestazioni. Se il
+    corpo e' piu' corto di quanto quelle promettono, `new Float32Array(buffer,
+    offset, lunghezza)` solleva RangeError: verificato nel browser, solleva e
+    non restituisce spazzatura, che e' la meta' buona della notizia.
+
+    La meta' cattiva e' dove finisce quel rigetto. `mostraStep` e' asincrona e
+    il chiamante la consuma con `.then`: senza un `.catch` il rigetto esce
+    dentro una promessa che nessuno guarda, e a video resta «caricamento di
+    ...» per sempre, con la geometria dello step di prima sotto. E' lo stesso
+    buco che `.catch(serverMuto)` chiude un piano piu' sotto, al livello del
+    fetch; scoperto restava cio' che succede DOPO che il corpo e' arrivato.
+
+    Non e' un caso di rete -- quello lo distingue gia' `corpoBinarioLetto`, che
+    separa un download interrotto da uno finito -- ma di intestazioni che non
+    corrispondono al corpo.
+
+    Mutazione che lo uccide: togliere il `.catch` dalla catena di `mostraStep`.
+    """
+    modulo = _modulo()
+    catena = modulo[modulo.index("mostraStep(mostrato, ordine).then("):]
+    catena = catena[: catena.index("\n}")]
+    assert ".catch(" in catena, (
+        "la catena di mostraStep non ha piu' un `.catch`: un ritaglio che "
+        "solleva lascia «caricamento di ...» a video per sempre, dentro una "
+        "promessa che nessuno guarda"
+    )
+    assert "segnalaArtefattoMancante(" in catena, (
+        "il `.catch` non dice niente a video: un rigetto silenzioso e un "
+        "caricamento appeso sono indistinguibili per chi guarda"
+    )
