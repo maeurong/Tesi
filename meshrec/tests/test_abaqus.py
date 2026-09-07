@@ -321,6 +321,24 @@ def test_export_model_writes_both_files_and_reports_mass(tmp_path):
     assert len(read_back.points) == len(nodes)
 
 
+def test_il_deck_del_muro_porta_il_solo_passo_di_gravita(tmp_path):
+    """Deck nudo, PR 1: nessun carico oltre il peso proprio. Un *STEP, nessun
+    *CLOAD ne' *DSLOAD ne' *SURFACE ne' *FREQUENCY; niente chiave dei casi
+    di carico nelle metriche."""
+    vertices, faces = synth.box_mesh((100.0, 40.0, 200.0))
+    nodes, tets, _ = volume.tetrahedralize_with_metrics(vertices, faces, TET_LINEARE)
+    metrics = abaqus.export_model(
+        tmp_path / "wall_model.inp", tmp_path / "wall_model.vtu",
+        nodes, tets, config.AnalysisConfig(material=MATERIALE), TET_LINEARE,
+    )
+    deck = (tmp_path / "wall_model.inp").read_text()
+    assert deck.count("*STEP") == 1
+    for card in ("*CLOAD", "*DSLOAD", "*SURFACE", "*FREQUENCY"):
+        assert card not in deck
+    assert "casi_di_carico" not in metrics
+    assert "selettori" not in metrics
+
+
 
 
 

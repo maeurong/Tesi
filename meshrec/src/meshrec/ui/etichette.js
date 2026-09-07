@@ -195,8 +195,6 @@ export const ETICHETTE_METRICHE = {
     "fixed_nset_coverage": "copertura del set di vincolo",
     "boundary_spacing": "spaziatura al contorno [mm]",
     "set_tolerance": "tolleranza dei set [mm]",
-    "pressure": "pressione [MPa]",
-    "casi_di_carico": "casi di carico",
   },
 };
 
