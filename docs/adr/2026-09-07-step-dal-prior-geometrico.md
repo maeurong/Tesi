@@ -47,6 +47,20 @@ Fatti misurati oggi (da `meshrec/`, `uv run python`, gmsh 4.15.2, scratchpad
    `fuse` sono casi normali). Prismi che non si toccano restano solidi
    distinti nello stesso file: la metrica riporta `solidi`, nessuna
    eccezione, e in CAE «combine into single part» li tiene insieme.
+   **Misurato il 07/09/2026** ([#188](https://github.com/maeurong/Tesi/issues/188),
+   gmsh 4.15.2 / OCCT 7.8.1): un pilastro con 1, 2 o 3° di fuori piombo
+   sotto una trave orizzontale fonde in **un solido** con le opzioni
+   predefinite, volume esatto, nessuna scheggia; compenetrazione di 3 mm
+   idem. Restano **due solidi** anche i prismi a contatto **solo di
+   spigolo** (testa inclinata tangente all'intradosso) o con un gioco di
+   0,05 mm: caso da nominare nella metrica come i disgiunti. L'unica leva
+   che tocca il `fuse` è `Geometry.ToleranceBoolean` (→ `SetFuzzyValue`):
+   `Geometry.Tolerance`, `OCCFix*`, `removeAllDuplicates` e un `fragment`
+   preventivo non hanno effetto; `healShapes` prima del `fuse` è
+   distruttivo. Decisione: **nessun parametro in `ModelConfig`**, opzioni
+   predefinite; se un caso reale mostra giochi sub-millimetrici,
+   `ToleranceBoolean = 1.0` mm, sempre sotto lo spessore minimo (a 400 mm
+   su un pilastro da 300 il volume cala del 29%).
 2. **Un file per corsa figlia**: `runs/<madre>-<tipo>/modello.step`, accanto
    a `modello.json` e a `wall_model.inp` (`pipeline.py:37, 198`). Il nome
    della costante segue `MODEL_FILENAME`: `MODEL_STEP_FILENAME =
