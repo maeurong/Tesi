@@ -333,10 +333,15 @@ def test_il_deck_del_muro_porta_il_solo_passo_di_gravita(tmp_path):
     )
     deck = (tmp_path / "wall_model.inp").read_text()
     assert deck.count("*STEP") == 1
+    assert deck.count("*DLOAD") == 1
+    assert "ALL_WALL, GRAV, 9810.0, 0.0, 0.0, -1.0" in deck
     for card in ("*CLOAD", "*DSLOAD", "*SURFACE", "*FREQUENCY"):
         assert card not in deck
-    assert "casi_di_carico" not in metrics
-    assert "selettori" not in metrics
+    for chiave in (
+        "casi_di_carico", "selettori", "pressure",
+        "carichi_posizionati", "carichi_distribuiti",
+    ):
+        assert chiave not in metrics
 
 
 

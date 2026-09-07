@@ -435,8 +435,9 @@ def test_il_predefinito_dei_modi_supera_il_valore_misurato_insufficiente():
 
     Misurato il 26/08/2026 su `runs/lab_telaio_v2`: coi venti modi la
     direzione verticale cattura l'87,46% della massa partecipante. Il perche'
-    e la scelta del 40 stanno in `docs/validazione/modi-per-la-normativa.md`,
-    rimisurabili con `docs/fase-7-cantiere/modi-per-la-normativa.py`.
+    e la scelta del 40 stanno in `docs/validazione/modi-per-la-normativa.md`.
+    Lo script che li rimisurava e' uscito col deck nudo: il deck non scrive
+    piu' il passo modale.
     """
     assert config.Modale().modi > 20
 
