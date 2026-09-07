@@ -133,7 +133,7 @@ letti, e questa tabella è la fonte da citare accanto.
 
 ## Che cosa resta fuori, e perché
 
-**Il carico posizionato in sommità non è confrontabile su C3D10.**
+**Il carico posizionato in sommità non era confrontabile su C3D10.**
 La ripartizione per area tributaria, uscita col deck nudo,
 **sollevava di proposito** (guardia introdotta con
 [#45 parte prima](https://github.com/maeurong/Tesi/pull/53)): valeva per le
@@ -149,5 +149,5 @@ implementata qui**: nessuna delle cinque grandezze che #45 chiede ne ha
 bisogno, perché gravità e spinta sono entrambe `*DLOAD, GRAV`, cioè forze di
 massa che non passavano da quella ripartizione.
 
-Chi volesse il confronto anche sul caso `CARICO_TOP` deve prima implementare
-quella formula.
+Il confronto sul caso `CARICO_TOP` sarebbe passato prima per quella formula.
+Il caso è uscito col deck nudo e non c'è più nulla da confrontare.

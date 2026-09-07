@@ -1,16 +1,18 @@
 #!/usr/bin/env python
-"""Non piu' eseguibile dal 08/09/2026: il deck nudo non scrive la spinta
-orizzontale ne' il passo modale, che questo script chiedeva a `export_model`.
-I numeri di `docs/validazione/scarto-c3d4-c3d10-telaio.md`, misurati il
-26/08/2026, sono la misura storica, riproducibile dal commit che la ha
-prodotta (cronologia git). Tenuto come documento di cantiere, non come
-strumento.
+"""Documento di cantiere, non piu' eseguibile. Rompe all'import di
+`meshrec.core.solve`, uscito da main il 02/09/2026 (mappa #161), e dal
+08/09/2026 chiederebbe a `export_model` carichi che il deck nudo non scrive
+piu'. I numeri che produceva stanno in
+`docs/validazione/scarto-c3d4-c3d10-telaio.md`, misura del 26/08/2026,
+riproducibile dal commit che la ha prodotta. Quello che segue descrive come
+lavorava quando girava.
 
-Rimisura i numeri di `docs/validazione/scarto-c3d4-c3d10-telaio.md` (#45).
+Rimisurava i numeri di `docs/validazione/scarto-c3d4-c3d10-telaio.md` (#45).
 
-Non fa parte del programma: sta sotto `docs/` apposta, sul modello di
+Non faceva parte del programma: sta sotto `docs/` apposta, sul modello di
 `docs/fase-6-cantiere/misura-carichi.py`.
 
+    si lanciava con:
     uv run python docs/fase-7-cantiere/scarto-c3d4-c3d10.py [cartella-runs]
 
 **Che cosa asserisce, e che cosa no.** Non ogni valore del documento porta qui
