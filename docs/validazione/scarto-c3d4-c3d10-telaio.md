@@ -134,12 +134,12 @@ letti, e questa tabella è la fonte da citare accanto.
 ## Che cosa resta fuori, e perché
 
 **Il carico posizionato in sommità non è confrontabile su C3D10.**
-`abaqus.ripartisci` **solleva di proposito** (guardia introdotta con
-[#45 parte prima](https://github.com/maeurong/Tesi/pull/53)): la ripartizione
-per area tributaria vale per le facce a soli vertici, e su una faccia a sei
-nodi darebbe tutto il carico ai vertici, dove il vettore dei carichi
-consistenti dà **zero**. L'errore conserverebbe la risultante, quindi
-`controlla_reazioni` non lo vedrebbe.
+La ripartizione per area tributaria, uscita col deck nudo,
+**sollevava di proposito** (guardia introdotta con
+[#45 parte prima](https://github.com/maeurong/Tesi/pull/53)): valeva per le
+facce a soli vertici, e su una faccia a sei nodi avrebbe dato tutto il carico
+ai vertici, dove il vettore dei carichi consistenti dà **zero**. L'errore
+avrebbe conservato la risultante, quindi `controlla_reazioni` non lo vedeva.
 
 La formula giusta è `p·[0, 0, 0, A/3, A/3, A/3]` ed è verificata su fonte
 primaria in `docs/validazione/carichi-consistenti-tet10.md` (Abaqus Theory
@@ -147,7 +147,7 @@ Guide §3.2.6, verbatim: «a constant pressure on an element face produces zero
 equivalent loads at the corner nodes»). **È implementabile, ma non è stata
 implementata qui**: nessuna delle cinque grandezze che #45 chiede ne ha
 bisogno, perché gravità e spinta sono entrambe `*DLOAD, GRAV`, cioè forze di
-massa che non passano da `ripartisci`.
+massa che non passavano da quella ripartizione.
 
 Chi volesse il confronto anche sul caso `CARICO_TOP` deve prima implementare
 quella formula.

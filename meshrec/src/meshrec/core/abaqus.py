@@ -94,9 +94,8 @@ def _passo_statico(
         # Forze nodali esplicite, una componente per riga come vuole `*CLOAD`.
         # Servono al patch test nella variante a carichi (vedi #46): la
         # trazione di uno stato tensionale costante si integra sulle facce di
-        # bordo e diventa un vettore per nodo, che nessuna delle vie esistenti
-        # sa esprimere -- `ripartisci` distribuisce una risultante per area
-        # tributaria, che e' un'altra cosa.
+        # bordo e diventa un vettore per nodo, che nessun'altra via del deck
+        # sa esprimere.
         righe += ["*CLOAD"]
         for nodo in sorted(carichi_nodali):
             for grado, valore in enumerate(carichi_nodali[nodo], start=1):
@@ -704,78 +703,6 @@ def aree_tributarie(
             for nodo in (nodi[0], primo, secondo):
                 aree[nodo] += area / 3.0
     return aree
-
-
-def ripartisci(
-    risultante: float,
-    nodes: np.ndarray,
-    elements: np.ndarray,
-    indici: np.ndarray,
-    element_type: str,
-    *,
-    nome: str,
-) -> tuple[np.ndarray, dict[str, object]]:
-    """La risultante divisa fra i nodi dell'insieme, in proporzione all'area tributaria.
-
-    La superficie su cui si pesa e' quella che `element_surface` gia'
-    costruisce: le facce **di bordo** con **tutti** i nodi nell'insieme. Una
-    faccia interna non entra -- il carico finirebbe applicato dentro il
-    solido -- e nemmeno una con tre nodi su quattro nell'insieme, perche'
-    non e' quella faccia.
-
-    Le quote sono normalizzate sul totale, quindi la loro somma e'
-    esattamente `risultante` anche quando qualche nodo dell'insieme non
-    tocca alcuna faccia e resta a zero.
-    """
-    # Su una faccia quadratica questa ripartizione e' **sbagliata**, e sbagliata
-    # in un modo che nessuna guardia di conservazione vedrebbe. La formula
-    # consistente per pressione uniforme su un triangolo a 6 nodi da' **zero ai
-    # tre vertici** e un terzo dell'area a ciascun nodo di lato -- Abaqus Theory
-    # Guide §3.2.6, verbatim: «a constant pressure on an element face produces
-    # zero equivalent loads at the corner nodes». Qui la ripartizione va per
-    # area tributaria sui soli vertici, cioe' l'esatto contrario.
-    #
-    # La risultante resterebbe giusta, perche' `quote` normalizza sul totale:
-    # l'errore e' **autoequilibrato**, risultante e momento nulli, e attraversa
-    # `controlla_reazioni` indenne mettendo carico spurio proprio sui vertici,
-    # dove si legge il picco di tensione. Meglio fermarsi che mentire in modo
-    # invisibile. Vedi docs/validazione/carichi-consistenti-tet10.md.
-    attesi = NODI_PER_ELEMENTO.get(element_type)
-    if attesi is not None and attesi != ANGOLI_PER_ELEMENTO[element_type]:
-        raise NotImplementedError(
-            f"carico '{nome}' su elementi {element_type}: la ripartizione per area "
-            "tributaria vale per le facce a vertici soli. Su una faccia quadratica i "
-            "carichi consistenti danno zero ai vertici, e questa funzione darebbe "
-            "loro tutto il carico conservando la risultante -- un errore che nessun "
-            "controllo di equilibrio vede. Usa un elemento lineare per i carichi "
-            "distribuiti finché la formula consistente non è implementata."
-        )
-    indici = np.asarray(indici, dtype=np.int64)
-    superficie = element_surface(elements, indici, element_type)
-    aree = aree_tributarie(nodes, elements, superficie, element_type)[indici]
-    totale = float(aree.sum())
-    # Forma positiva -- buono se e solo se finito e positivo -- e non
-    # `totale <= 0.0`: con quel confronto un'area `NaN` cadeva dalla parte
-    # permissiva, le quote uscivano tutte `NaN` e finivano interpolate nelle
-    # righe `*CLOAD` del deck. Un `.inp` con `nan` al posto di una forza e'
-    # peggio di un deck mancante: il solutore lo legge.
-    if not (np.isfinite(totale) and totale > 0.0):
-        raise ValueError(
-            f"il carico '{nome}' agisce su {indici.size} nodi la cui area di bordo "
-            f"vale {totale}: nessuna area utilizzabile su cui ripartire la "
-            "risultante. Un insieme di nodi tutto interno al solido, o una "
-            "coordinata non finita, producono questo, e un carico applicato a "
-            "nulla non è un carico"
-        )
-    quote = risultante * aree / totale
-    resoconto: dict[str, object] = {
-        "nodi": int(indici.size),
-        "area_totale": totale,
-        # Stessa forma positiva: `aree == 0.0` con un `NaN` e' `False`, quindi
-        # il conteggio dichiarava sano un insieme che non lo era.
-        "nodi_ad_area_nulla": int((~(np.isfinite(aree) & (aree > 0.0))).sum()),
-    }
-    return quote, resoconto
 
 
 def boundary_faces(elements: np.ndarray) -> np.ndarray:
