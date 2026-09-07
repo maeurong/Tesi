@@ -18,48 +18,9 @@ from meshrec.core.config import (
 
 _SET_ITEMS_PER_LINE = 8
 
-# Una componente di direzione che vale meno di questa frazione della piu'
-# grande dello stesso vettore non scrive la sua riga *CLOAD. Il confronto
-# con lo zero esatto bastava alla forza, che prende le componenti dalla
-# configurazione, e non al momento: `np.cross(asse, separazione)` scrive
-# 1e-16 dove la geometria vuole zero, e meta' delle righe di una coppia
-# erano quel rumore. La soglia sta quattro ordini di grandezza sopra
-# l'arrotondamento del prodotto vettoriale (~1e-16 relativo) e otto sotto
-# qualunque componente che sposti un risultato: risultante e momento
-# realizzati non cambiano in modo misurabile.
-SOGLIA_COMPONENTE_RELATIVA: float = 1e-12
-
 
 class UnconstrainedModelWarning(UserWarning):
     """L'insieme vincolato raggiunge meno della meta' della superficie d'appoggio."""
-
-
-def _gradi_da_scrivere(direzione: np.ndarray) -> list[tuple[int, float]]:
-    """I gradi di liberta con una componente che conta, e la componente stessa.
-
-    Il filtro vive sulla **direzione**, non sul valore che finisce nel deck.
-    La direzione e' un versore, la stessa per tutti i nodi del carico: qui si
-    decide *quali gradi di liberta* ricevono una riga, non *quali nodi*. Una
-    componente a 1e-16 e' rumore di `np.cross(asse, separazione)`, dove la
-    geometria vuole zero, e meta' delle righe di una coppia erano quel
-    rumore; il confronto e' relativo alla componente piu' grande dello stesso
-    vettore (vedi `SOGLIA_COMPONENTE_RELATIVA`) perche' su uno dei due
-    percorsi che la chiamano lo zero non arriva mai esatto.
-
-    **Un nodo a quota nulla scrive comunque la sua riga, a zero.** Il valore
-    scritto e' `quota * componente`, e la quota non passa di qui: un nodo ad
-    area tributaria nulla porta nel deck una riga a `-0.000000000e+00`.
-    Non e' una svista da correggere filtrando a valle. `docs/fase-6-carichi.md`
-    § 4 pubblica per `CARICO_TOP` una tabella con 3.036 righe `*CLOAD`, di cui
-    703 a zero, e spiega li' che cosa sono quei 703 nodi: togliere le righe
-    mute porterebbe il conteggio a 2.333 e smentirebbe una tabella gia'
-    pubblicata. Il comportamento e' fissato da un test apposta.
-
-    Una direzione con tutte le componenti nulle rende una lista vuota: la
-    soglia vale zero e nessun `abs(c) > 0.0` passa. Non solleva e non divide.
-    """
-    soglia = SOGLIA_COMPONENTE_RELATIVA * float(np.abs(direzione).max())
-    return [(g, c) for g, c in enumerate(direzione, start=1) if abs(c) > soglia]
 
 
 def _set_lines(indices: np.ndarray) -> list[str]:
@@ -72,11 +33,11 @@ def _set_lines(indices: np.ndarray) -> list[str]:
 
 
 def _passo_statico(
-    nome: str, carichi: list[str], *, elset: str, fixed_nset: str | None,
+    nome: str, dload: list[str], *, elset: str, fixed_nset: str | None,
     print_nsets: tuple[str, ...],
     carichi_nodali: dict[int, tuple[float, float, float]] | None = None,
 ) -> list[str]:
-    """Un passo statico completo: nome a commento, carichi, uscite.
+    """Un passo statico completo: nome a commento, `*DLOAD`, uscite.
 
     Il nome sta in un commento e non in `*STEP, NAME=` perche' CalculiX
     rifiuta quel parametro e ne emette un avviso; un avviso benigno
@@ -89,7 +50,7 @@ def _passo_statico(
     dare.
     """
     righe = [f"** NOME PASSO: {nome}", "*STEP", "*STATIC", "*DLOAD, OP=NEW"]
-    righe += carichi
+    righe += dload
     if carichi_nodali:
         # Forze nodali esplicite, una componente per riga come vuole `*CLOAD`.
         # Servono al patch test nella variante a carichi (vedi #46): la
@@ -222,7 +183,7 @@ def write_inp(
     `(nome, dipendente, indipendente, tolleranza)`. Un *TIE a tre elementi non
     scrive affatto quel parametro: assente non e' la stessa cosa di zero.
 
-    `regioni` e' la sesta, della Fase 8 (#135): la mappa da nome di regione ai
+    `regioni`, della Fase 8 (#135): la mappa da nome di regione ai
     suoi elementi e al suo materiale, `(indici, Material)`, di norma quella che
     `core/attribuzione.py` misura e che la pipeline completa col materiale
     della sezione. Senza di essa il deck ha la sola sezione su `elset`,
@@ -553,8 +514,8 @@ def element_surface(
     Una faccia interna, condivisa da due elementi adiacenti, non entra mai:
     e' contata due volte nella tabella (una per elemento) e viene esclusa allo
     stesso modo di `boundary_faces`, per occorrenza. Senza questo filtro un
-    *TIE o un carico laterale su una selezione di nodi larga finirebbero
-    applicati dentro il solido, non sulla sua pelle.
+    *TIE su una selezione di nodi larga finirebbe applicato dentro il
+    solido, non sulla sua pelle.
 
     L'ordine delle coppie e' quello degli elementi e, dentro un elemento,
     quello dei numeri di faccia: e' funzione del dato e non dell'iterazione,

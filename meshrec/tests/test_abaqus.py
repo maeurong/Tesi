@@ -1474,56 +1474,6 @@ def test_una_faccia_a_quattro_nodi_si_divide_a_ventaglio_dal_primo():
 
 
 
-def test_una_componente_minuscola_ma_vera_scrive_la_sua_riga():
-    """La soglia relativa taglia il rumore del prodotto vettoriale, non un dato.
-
-    Entrambi i chiamanti passano un versore, quindi la componente piu' grande
-    non scende sotto 1/sqrt(3) e la soglia assoluta sta fra 5,8e-13 e 1e-12:
-    e' quattro ordini di grandezza sopra l'arrotondamento di
-    `np.cross(asse, separazione)` (~1e-16 relativo) e otto sotto qualunque
-    componente che sposti un risultato. Una direzione con una componente a
-    8,3e-10 del massimo e' una direzione dichiarata, non rumore, e la sua
-    riga si scrive.
-
-    Mutazione che lo uccide: portare `SOGLIA_COMPONENTE_RELATIVA` a 1e-3. La
-    seconda componente sparisce e restano due gradi su tre.
-    """
-    gradi = abaqus._gradi_da_scrivere(np.array([1.0, 8.3e-10, -1.0]))
-    assert [g for g, _ in gradi] == [1, 2, 3]
-
-
-def test_il_filtro_delle_componenti_e_un_confronto_stretto():
-    """Una componente esattamente sulla soglia non e' sopra la soglia.
-
-    `abs(c) > soglia`, non `>=`: la soglia e' il confine del rumore e cio'
-    che ci sta esattamente sopra e' rumore quanto cio' che ci sta sotto. Il
-    caso e' costruibile esatto -- `1e-12 * 1.0` e' `1e-12` in doppia
-    precisione -- e non serve cercare una geometria che ci caschi.
-
-    Mutazione che lo uccide: `abs(c) >= soglia`. Il secondo grado torna
-    dentro e i gradi diventano due.
-    """
-    direzione = np.array([1.0, abaqus.SOGLIA_COMPONENTE_RELATIVA, 0.0])
-    assert direzione[1] == abaqus.SOGLIA_COMPONENTE_RELATIVA * abs(direzione).max()
-    assert [g for g, _ in abaqus._gradi_da_scrivere(direzione)] == [1]
-
-
-def test_una_direzione_tutta_nulla_non_scrive_alcun_grado():
-    """Zero componenti utili sono zero righe, non una divisione per zero.
-
-    La soglia e' relativa alla componente piu' grande: su un vettore nullo
-    vale zero, e `abs(c) > 0.0` non passa per nessuna componente. Nessun
-    chiamante ci arriva oggi -- `write_inp` normalizza la forza per il suo
-    modulo -- ma la funzione e' privata e chi la riusa deve sapere che rende
-    `[]`.
-
-    Mutazione che lo uccide: dividere per `np.abs(direzione).max()` invece di
-    moltiplicare, cioe' scrivere la soglia come un rapporto. `ZeroDivisionError`
-    o un `nan` che fa passare tutto.
-    """
-    assert abaqus._gradi_da_scrivere(np.zeros(3)) == []
-
-
 
 
 def test_un_fixed_nset_sconosciuto_nomina_gli_insiemi_disponibili(cube_mesh, tmp_path):
