@@ -1,5 +1,12 @@
 #!/usr/bin/env python
-"""Rimisura i numeri di `docs/validazione/scarto-c3d4-c3d10-telaio.md` (#45).
+"""Non piu' eseguibile dal 08/09/2026: il deck nudo non scrive la spinta
+orizzontale ne' il passo modale, che questo script chiedeva a `export_model`.
+I numeri di `docs/validazione/scarto-c3d4-c3d10-telaio.md`, misurati il
+26/08/2026, sono la misura storica, riproducibile dal commit che la ha
+prodotta (cronologia git). Tenuto come documento di cantiere, non come
+strumento.
+
+Rimisura i numeri di `docs/validazione/scarto-c3d4-c3d10-telaio.md` (#45).
 
 Non fa parte del programma: sta sotto `docs/` apposta, sul modello di
 `docs/fase-6-cantiere/misura-carichi.py`.
