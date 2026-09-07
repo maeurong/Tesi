@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from meshrec.core import steps, sweep
-from meshrec.core.config import InputConfig, PipelineConfig, SelettoreSfera
+from meshrec.core.config import InputConfig, PipelineConfig
 from materiale import ANALISI
 
 
@@ -151,38 +151,6 @@ def test_lo_step_dodici_non_cambia_le_impronte_degli_undici_precedenti(tmp_path)
     assert diverse[12] != impronte[12]
 
 
-def test_cambiare_i_carichi_invalida_dall_undici_in_giu(tmp_path):
-    """I carichi entrano nella catena di impronte allo step 11, quindi cambi a
-    carichi invalidano lo step 11 e il 12, per la stessa catena cumulativa."""
-    from meshrec.core.config import CarichiConfig, SpintaOrizzontale
-
-    prima = _config(tmp_path)
-    dopo = _config(tmp_path)
-    dopo.carichi.spinta = SpintaOrizzontale(coefficiente=0.1, asse="x")
-
-    marchi_prima = steps.step_fingerprints(prima)
-    marchi_dopo = steps.step_fingerprints(dopo)
-
-    for numero in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10):
-        assert marchi_prima[numero] == marchi_dopo[numero], f"step {numero} non doveva cambiare"
-    for numero in (11, 12):
-        assert marchi_prima[numero] != marchi_dopo[numero], f"step {numero} doveva cambiare"
-
-
-def test_cambiare_un_selettore_invalida_lo_step_11(tmp_path):
-    """Un selettore cambiato e uno step 11 non rifatto = deck vecchio, in silenzio.
-
-    Mutazione che lo uccide: non aggiungere "selettori" a STEP_BLOCKS[11].
-    Le due impronte di step restano uguali e la corsa riusa il deck.
-    """
-    uno = _config(tmp_path)
-    uno.selettori = {"piastra": SelettoreSfera(tipo="sfera", centro=(0.0, 0.0, 0.0), raggio=5.0)}
-    altro = _config(tmp_path)
-    altro.selettori = {"piastra": SelettoreSfera(tipo="sfera", centro=(0.0, 0.0, 0.0), raggio=9.0)}
-
-    assert steps.step_fingerprints(uno)[11] != steps.step_fingerprints(altro)[11]
-
-
 def test_cambiare_una_regione_invalida_lo_step_11(tmp_path):
     """Le regioni partizionano ALL_WALL in `*ELSET` e portano una
     `*SOLID SECTION` per ciascuna: cambiarle cambia il deck.
@@ -192,7 +160,7 @@ def test_cambiare_una_regione_invalida_lo_step_11(tmp_path):
     """
     from meshrec.core.config import RegioneConfig
 
-    assert steps.STEP_BLOCKS[11] == ("tet", "analysis", "carichi", "selettori", "regioni")
+    assert steps.STEP_BLOCKS[11] == ("tet", "analysis", "regioni")
 
     materiale = {
         "material": {"name": "CLS", "young": 31476.0, "poisson": 0.2, "density": 2.5e-9},
@@ -268,3 +236,9 @@ def test_dimentica_ignora_i_numeri_fuori_dai_dodici_step(tmp_path):
     steps.write_state(tmp_path, 12, "z", "riuscito", "12_wall.json", 1.0)
     steps.dimentica(tmp_path, [0, 13, -1])
     assert set(steps.read_state(tmp_path)) == {"01_load", "12_wall"}
+
+
+def test_lo_step_11_legge_tet_analysis_e_regioni():
+    """Dalla PR 1 del deck nudo carichi e selettori non esistono piu': lo
+    step 11 non puo' dichiarare di leggerli."""
+    assert steps.STEP_BLOCKS[11] == ("tet", "analysis", "regioni")

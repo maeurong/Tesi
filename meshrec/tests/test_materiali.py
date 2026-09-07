@@ -315,8 +315,8 @@ def test_ogni_voce_di_calcestruzzo_dichiara_le_due_scelte_che_la_norma_lascia_ap
 def test_ogni_voce_di_calcestruzzo_dichiara_lo_scarto_con_le_corse_di_riferimento():
     """1,972%: il 2,5493e-9 di norma contro il 2,5e-9 che le corse usano.
 
-    `casi/lab.yaml`, `casi/lab_telaio.yaml`, `casi/prova-interfaccia.yaml` e i due
-    `lab_telaio_v4_posizionati*.yaml` girano con 2,5e-9 t/mm³. Il catalogo tiene
+    `casi/lab.yaml`, `casi/lab_telaio.yaml` e `casi/prova-interfaccia.yaml`
+    girano con 2,5e-9 t/mm³. Il catalogo tiene
     il valore di norma, perche' 25,0 kN/m³ e' quello che la Tab. 3.1.I pubblica
     per il calcestruzzo **armato** e le sezioni servite sono armate, e perche' le
     corse di riferimento sono dati di tesi in sola lettura.

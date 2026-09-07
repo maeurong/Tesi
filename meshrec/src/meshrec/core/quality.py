@@ -816,7 +816,7 @@ def scarto_con_segno(
         )
     # #89. Qui la funzione **riceve** un ingresso e insieme **conta**, e #36
     # tiene le due cose separate: chi conta marca, chi riceve un valore non
-    # rappresentabile solleva. Vince il ricevere, come in `selezione.py`: un
+    # rappresentabile solleva. Vince il ricevere: un
     # `nan` qui non rende `nan` le frazioni, le **spegne**. `con_segno = nan`
     # e' insieme falso in `fuori` (`> 0`) e in `dentro` (`< 0`), quindi il
     # punto sparisce da `mancante_frazione` e da `inventata_frazione` in una
