@@ -47,9 +47,9 @@ def _mappa_casefold(nomi: Iterable[str]) -> dict[str, str]:
     `docs/fase-6-cantiere/sonda-caso-nomi/README.md`): ogni punto che
     confronta un nome di set con un altro deve normalizzare il caso allo
     stesso modo, o due nomi che per `ccx` sono lo stesso `*NSET` passerebbero
-    controlli diversi. Estratta qui perche' il confronto ricorre in piu'
-    punti del modulo (i sei nomi di faccia, i passi riservati, le regioni), e
-    la soglia per estrarla era il terzo.
+    controlli diversi. Estratta perche' il confronto ricorre in tre punti: i
+    sei nomi di faccia qui sopra, le regioni (`_nomi_senza_collisioni`) e le
+    superfici dei `*TIE` in `core/abaqus.py`, che la importa da qui.
     """
     return {nome.casefold(): nome for nome in nomi}
 
@@ -426,17 +426,19 @@ class AnalysisConfig(_ModelloBase):
         """Due passi con la stessa etichetta non sono due casi di carico.
 
         I campi per nodo del file risolto sono indicizzati col nome del
-        caso: `U_<CASO>`, `VM_<CASO>`. Se `step_name` ripete uno dei nomi
-        riservati, il secondo passo sovrascrive il primo e un caso sparisce
-        dal `.vtu` -- nessuna eccezione, nessun avviso, un file con una chiave
-        in meno di quanti passi il deck contiene.
+        caso: `U_<CASO>`, `VM_<CASO>`. I tre nomi riservati non li scrive piu'
+        nessun passo, ma un `.vtu` di una corsa vecchia li porta ancora, e un
+        `step_name` omonimo vi si sovrapporrebbe -- nessuna eccezione, nessun
+        avviso, una chiave che non dice piu' quale passo l'ha prodotta.
         """
         if self.step_name.upper() in NOMI_PASSO_RISERVATI:
             raise ValueError(
                 f"step_name={self.step_name!r} è un nome riservato: "
-                f"{', '.join(NOMI_PASSO_RISERVATI)} sono le etichette che la "
-                "pipeline assegna da sé agli altri casi di carico, e due passi "
-                "sulla stessa etichetta si sovrascriverebbero a vicenda nel .vtu"
+                f"{', '.join(NOMI_PASSO_RISERVATI)} erano le etichette che il "
+                "deck assegnava da sé agli altri passi. Nessun passo le scrive "
+                "più, ma un .vtu già su disco le porta ancora come chiavi dei "
+                "campi per nodo, e un passo omonimo vi sarebbe indistinguibile "
+                "da quello che c'era"
             )
         return self
 

@@ -349,11 +349,11 @@ def test_i_blocchi_nuovi_stanno_in_pipelineconfig_e_nella_lista_di_esclusione_gi
 
 @pytest.mark.parametrize("riservato", ["SPINTA_ORIZZONTALE", "CARICO_TOP", "MODALE"])
 def test_step_name_non_puo_ripetere_un_nome_di_caso_di_carico(riservato):
-    """M13 della revisione finale: `abaqus.export_model` assegna da se' i nomi
-    degli altri casi di carico, e `solve.risolvi` usa quel nome come chiave di
-    `point_data`. Con `analysis.step_name: SPINTA_ORIZZONTALE` due passi
-    finiscono sulla stessa etichetta, il secondo sovrascrive il primo e un
-    caso di carico sparisce dal `.vtu` senza errore.
+    """M13 della revisione finale: i tre nomi erano le etichette che il deck
+    assegnava da se' agli altri passi, e che indicizzano i campi per nodo del
+    file risolto. Col deck nudo nessun passo li scrive piu', ma un `.vtu` di
+    una corsa vecchia li porta ancora: con `analysis.step_name:
+    SPINTA_ORIZZONTALE` la chiave non direbbe piu' quale passo l'ha prodotta.
     """
     with pytest.raises(ValidationError, match="riservato"):
         config.AnalysisConfig(material=MATERIALE, step_name=riservato)
