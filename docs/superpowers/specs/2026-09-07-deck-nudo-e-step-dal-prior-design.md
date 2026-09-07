@@ -251,13 +251,14 @@ Quattro PR separate su `main`, ciascuna verde su Linux e macOS e con un `main`
 coerente dietro di sé. Non un ramo unico come in #161: qui gli stati
 intermedi sono coerenti per costruzione.
 
-1. `feat/deck-nudo-carichi` — escono carichi, selettori, `lateral_*`, i passi
-   e i materiali multipli del deck. Il deck torna alla forma precedente alla
-   Fase 5 (materiale unico, vincolo, un passo). Una sessione.
+1. `feat/deck-nudo-carichi` — escono carichi, selettori, `lateral_*` e i passi.
+   Il deck torna alla forma precedente alla Fase 5 (materiale unico, vincolo,
+   un passo). Una sessione.
 2. `feat/deck-nudo-analisi` — escono analisi, materiale dichiarato, catalogo,
-   `meshrec init`; entrano `export` e il rifiuto nominato; cade `mass`; il
-   patch test si porta le card; file di caso e prosa. Dipende dalla 1. Una
-   sessione.
+   i materiali multipli del deck (la `*SOLID SECTION` per regione, alimentata
+   da `regioni.materiale`) e `meshrec init`; entrano `export` e il rifiuto
+   nominato; cade `mass`; il patch test si porta le card; file di caso e
+   prosa. Dipende dalla 1. Una sessione.
 3. `feat/step-dal-prior` — scrittura dello STEP e metrica. Indipendente dalle
    prime due nel codice: può correre in parallelo alla 1 su un altro
    worktree. Mezza sessione.
