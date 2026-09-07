@@ -1391,6 +1391,56 @@ def test_il_deck_dello_step_11_porta_un_solo_passo(tmp_path):
     assert "*SURFACE" not in deck
 
 
+def test_una_config_yaml_vecchia_arriva_al_deck_a_un_passo(tmp_path):
+    """La catena intera su una `config.yaml` scritta prima del deck nudo.
+
+    `test_config.py` prova la meta' di sopra -- `load_config` non solleva sui
+    blocchi usciti -- e il test qui sopra prova la meta' di sotto, ma partendo
+    da una configurazione costruita a mano in python. Nessuna riga le
+    incatenava: un `cfg` nato da uno yaml vecchio che attraversa
+    `pipeline.run` fino allo step 11 e produce il deck a un passo. E' la corsa
+    che le `runs/` gia' su disco fanno davvero.
+
+    I blocchi vecchi sono quelli di `runs/geoandgeo-lab/config.yaml`, con le
+    due chiavi laterali a `null` come le scriveva l'interfaccia quando
+    restavano vuote.
+
+    Mutazione che lo uccide: `extra="forbid"` su `_ModelloBase` (`load_config`
+    solleva), o un passo in piu' rimesso nel deck del muro.
+    """
+    pytest.importorskip("pymeshfix")
+    vecchia = tmp_path / "config.yaml"
+    config.save_config(_config_cubo(tmp_path), vecchia)
+    # Le due chiavi laterali vanno *dentro* il `model:` gia' scritto: un
+    # secondo `model:` in coda sarebbe una chiave omonima, che
+    # `_LoaderChiaviUniche` rifiuta prima di arrivare al punto in esame.
+    testo = vecchia.read_text(encoding="utf-8").replace(
+        "model:\n", "model:\n  lateral_nset: null\n  lateral_pressure: null\n", 1
+    )
+    vecchia.write_text(
+        testo
+        + "carichi:\n"
+        "  spinta:\n    coefficiente: 0.1\n    asse: y\n"
+        "  carico_sommita:\n    risultante: 1200.0\n    nset: TOP\n"
+        "  modale: {}\n"
+        "selettori:\n"
+        "  angolo:\n    tipo: sfera\n    centro: [0.0, 0.0, 0.0]\n    raggio: 5.0\n",
+        encoding="utf-8",
+    )
+
+    cfg = config.load_config(vecchia)
+    assert not hasattr(cfg.model, "lateral_nset")
+    assert not hasattr(cfg.model, "lateral_pressure")
+    assert not hasattr(cfg, "carichi")
+    cfg.run.to_step = 11
+    pipeline.run(cfg)
+
+    deck = (tmp_path / "out" / "wall_model.inp").read_text()
+    assert deck.count("*STEP") == 1
+    for card in ("*CLOAD", "*DSLOAD", "*SURFACE", "*FREQUENCY"):
+        assert card not in deck
+
+
 # --- Lo step 11 rilegge il prior dello step 12 (#135) -----------------------
 #
 # Le membrature non esistono allo step 11: `RegioneConfig.membratura` cita per

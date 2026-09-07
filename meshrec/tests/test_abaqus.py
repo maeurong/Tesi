@@ -46,10 +46,6 @@ def cube_mesh():
     )
 
 
-
-
-
-
 def _base_and_top(nodes: np.ndarray, tolerance: float = 1e-6) -> dict[str, np.ndarray]:
     z = nodes[:, 2]
     return {
@@ -290,14 +286,6 @@ def test_il_deck_non_contiene_piu_card_che_calculix_scavalca(tmp_path):
     assert "*EL FILE" in testo
 
 
-
-
-
-
-
-
-
-
 def test_export_model_writes_both_files_and_reports_mass(tmp_path):
     meshio = pytest.importorskip("meshio")
     vertices, faces = synth.box_mesh((100.0, 40.0, 200.0))
@@ -344,8 +332,34 @@ def test_il_deck_del_muro_porta_il_solo_passo_di_gravita(tmp_path):
         assert chiave not in metrics
 
 
+def test_le_superfici_senza_tie_finiscono_nelle_metriche_senza_pressione(tmp_path):
+    """Le superfici restano una via viva del deck nudo, senza la pressione.
 
+    `pipeline.py` chiama `export_model(..., element_surfaces=...)` senza
+    `ties`, e nessuna riga provava quel percorso attraverso `export_model`:
+    le prove sulle superfici passano tutte da `write_inp` diretto e leggono il
+    testo del deck, non il dizionario delle metriche. Qui si guardano
+    entrambi -- la `*SURFACE` scritta e l'area misurata -- e si fissa che con
+    le superfici non torni nessuna chiave `pressure`: il carico laterale e'
+    uscito, la superficie no.
 
+    Mutazione che lo uccide: togliere la chiave `surface_area` dal dizionario
+    di `export_model`, o rimettere una `pressure` accanto alle superfici.
+    """
+    nodi_base = np.flatnonzero(_CUBO[:, 2] <= 1e-9)
+    superficie = abaqus.element_surface(_ESAEDRO, nodi_base, "C3D8I")
+    metrics = abaqus.export_model(
+        tmp_path / "wall_model.inp", tmp_path / "wall_model.vtu",
+        _CUBO, _ESAEDRO, config.AnalysisConfig(material=MATERIALE), TET_LINEARE,
+        element_type="C3D8I",
+        element_surfaces={"FACCIA_BASSA": superficie},
+        ties=(),
+    )
+    deck = (tmp_path / "wall_model.inp").read_text(encoding="ascii")
+    assert "*SURFACE, TYPE=ELEMENT, NAME=FACCIA_BASSA" in deck
+    assert "*TIE" not in deck
+    assert metrics["surface_area"]["FACCIA_BASSA"] > 0.0
+    assert "pressure" not in metrics
 
 
 def _yaw(angle_deg: float) -> np.ndarray:
@@ -924,8 +938,6 @@ def test_la_superficie_esportata_ha_l_area_delle_facce_che_dichiara(tmp_path):
     assert "1, S1" in testo
 
 
-
-
 def test_il_tie_nomina_due_superfici_gia_dichiarate(tmp_path):
     """Un *TIE che punta a una superficie mai dichiarata e' un deck rotto che
     il solutore rifiuta solo alla lettura: l'errore arriva prima."""
@@ -1353,8 +1365,6 @@ def test_solo_i_nodi_della_superficie_hanno_area(cube_mesh):
     assert con_area == toccati
 
 
-
-
 def test_una_faccia_a_quattro_nodi_si_divide_a_ventaglio_dal_primo():
     """Ingresso degenere non coperto dal banco tetraedrico del brief: qui la
     faccia ha quattro nodi (un C3D8), e il ventaglio parte dal primo come in
@@ -1374,106 +1384,6 @@ def test_una_faccia_a_quattro_nodi_si_divide_a_ventaglio_dal_primo():
     assert aree.shape == (len(_CUBO),)
     assert aree[:4] == pytest.approx([1 / 3, 1 / 6, 1 / 3, 1 / 6])
     assert aree[4:] == pytest.approx([0.0, 0.0, 0.0, 0.0])
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 def test_un_fixed_nset_sconosciuto_nomina_gli_insiemi_disponibili(cube_mesh, tmp_path):
@@ -1855,21 +1765,3 @@ def test_un_dizionario_di_regioni_vuoto_scrive_il_deck_di_prima(tmp_path, cube_m
         )
 
     assert vuoto.read_bytes() == assente.read_bytes()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

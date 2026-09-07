@@ -569,6 +569,30 @@ def test_una_configurazione_si_rilegge_con_e_senza_i_blocchi_che_non_esistono_pi
     assert riletta.regioni == {}
 
 
+def test_le_due_chiavi_laterali_a_null_si_rileggono_come_quelle_valorizzate(tmp_path):
+    """`null` non e' un valore piu' facile da ignorare degli altri.
+
+    La riletta con valori concreti (`LATO`, `0.05`) e' gia' provata sopra. Il
+    `null` merita la sua riga perche' e' cio' che una `config.yaml` scritta
+    dall'interfaccia porta quando i due campi restavano vuoti, ed e' la forma
+    che arriva davvero dalle corse gia' su disco. Il meccanismo -- `extra`
+    ignorato di default su `_ModelloBase` -- e' indifferente al valore, ma
+    nessuna riga lo esercitava alla lettera.
+
+    Mutazione che lo uccide: `extra="forbid"` su `_ModelloBase`. `load_config`
+    solleva invece di rendere un `ModelConfig` costruito.
+    """
+    vecchia = tmp_path / "vecchia_null.yaml"
+    vecchia.write_text(
+        "input:\n  path: nuvola.ply\n"
+        "model:\n  lateral_nset: null\n  lateral_pressure: null\n",
+        encoding="utf-8",
+    )
+    riletta = config.load_config(vecchia)
+    assert not hasattr(riletta.model, "lateral_nset")
+    assert not hasattr(riletta.model, "lateral_pressure")
+
+
 def _materiale_dichiarato(**campi) -> dict:
     """Un `MaterialeDichiarato` come lo scrive l'operatore, coi minimi ammessi."""
     return {

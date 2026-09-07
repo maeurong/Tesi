@@ -20,7 +20,7 @@ import numpy as np
 import pytest
 
 from meshrec.core import abaqus
-from meshrec.core.config import Material
+from meshrec.core.config import AnalysisConfig, Material, TetConfig
 
 MATERIALE = Material(name="PROVA", young=1000.0, poisson=0.25, density=1.0e-9)
 
@@ -28,6 +28,7 @@ MATERIALE = Material(name="PROVA", young=1000.0, poisson=0.25, density=1.0e-9)
 NODI = np.array([[0.0, 0.0, 0.0], [10.0, 0.0, 0.0], [0.0, 10.0, 0.0], [0.0, 0.0, 10.0]])
 TET = np.array([[0, 1, 2, 3]])
 SET = {"BASE": np.array([0])}
+TET_LINEARE = TetConfig(element="C3D4")
 
 
 def _righe(percorso) -> list[str]:
@@ -135,3 +136,39 @@ def test_ogni_grado_di_liberta_e_esprimibile(grado):
             spostamenti_imposti={0: {grado: 2.0}},
         )
         assert f"1, {grado}, {grado}, 2.000000000e+00" in _blocco(_righe(percorso), "*BOUNDARY")
+
+
+@pytest.mark.parametrize(
+    "chiamata, kwarg",
+    [
+        ("write_inp", "carichi"),
+        ("write_inp", "pressure"),
+        ("write_inp", "nset_selettori"),
+        ("export_model", "selettori"),
+    ],
+)
+def test_i_vecchi_kwarg_non_hanno_piu_un_ramo_di_compatibilita(chiamata, kwarg, tmp_path):
+    """I quattro nomi usciti col deck nudo devono restare rifiutati.
+
+    Il `TypeError` e' gia' garanzia del linguaggio finche' le due firme non
+    hanno `**kwargs`. Il punto della riga di contratto non e' il `TypeError`
+    in se': e' impedire che *torni* un ramo di compatibilita' silenzioso, che
+    accetti il vecchio nome e lo ignori. Un tale ramo passa sempre per un
+    `**kwargs` sulla firma, e questo test e' la sola riga che lo vede.
+
+    Mutazione che lo uccide: aggiungere `**_compat` a `write_inp` o a
+    `export_model`. Il `TypeError` sparisce e i quattro casi diventano rossi.
+    """
+    percorso = tmp_path / "m.inp"
+    with pytest.raises(TypeError):
+        if chiamata == "write_inp":
+            abaqus.write_inp(
+                percorso, NODI, TET, node_sets=SET, material=MATERIALE,
+                **{kwarg: {}},
+            )
+        else:
+            abaqus.export_model(
+                percorso, tmp_path / "m.vtu", NODI, TET,
+                AnalysisConfig(material=MATERIALE), TET_LINEARE,
+                **{kwarg: {}},
+            )
