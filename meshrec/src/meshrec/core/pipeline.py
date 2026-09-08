@@ -823,8 +823,6 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
             )
             prismi = attribuzione.prismi_delle_regioni(membrature, cfg.regioni)
             etichette, attribuzione_metriche = attribuzione.attribuisci(nodes, tets, prismi)
-            # Il continuo del modello solido e' il calcestruzzo confinato, ed
-            # e' una limitazione dichiarata: vedi `abaqus.CONTINUO_CONFINATO`.
             # Fino alla mappa #161 la regione portava una sezione con tre
             # materiali e qui si sceglieva il confinato fra i tre; adesso ne
             # dichiara uno, ed e' quello -- la limitazione resta, ma non c'e'
@@ -850,13 +848,7 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
             regioni=regioni_deck,
         )
         if attribuzione_metriche is not None:
-            # Il resoconto dell'attribuzione **e** la limitazione dichiarata:
-            # chi legge metrics.json non apre il deck, e senza questa chiave
-            # crederebbe che il modello distingua nucleo e copriferro.
-            metrics["11_export"]["regioni"] = {
-                **attribuzione_metriche,
-                "continuo": abaqus.CONTINUO_CONFINATO,
-            }
+            metrics["11_export"]["regioni"] = attribuzione_metriche
         registra(11, avvio, DECK_FILENAME)
         pipeline_completa = True
 

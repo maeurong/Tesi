@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 from pydantic import ValidationError
 
-from meshrec.core import abaqus, config, io, pipeline, quality, steps, synth
+from meshrec.core import config, io, pipeline, quality, steps, synth
 from materiale import ANALISI, MATERIALE, crea_config
 
 
@@ -1423,28 +1423,26 @@ def test_generare_un_modello_senza_materiale_non_lascia_una_cartella_a_meta(tmp_
     assert not (figlia / "config.yaml").exists()
 
 
-def test_il_deck_dello_step_11_porta_un_solo_passo(tmp_path):
-    """Dalla PR 1 del deck nudo la pipeline non passa piu' carichi al deck:
-    un solo *STEP (la gravita'), nessun *CLOAD, nessun *DSLOAD, nessuna
-    *SURFACE nel deck del muro."""
+def test_il_deck_dello_step_11_e_nudo(tmp_path):
+    """Dalla PR 2 del deck nudo la pipeline scrive il solo maglio: nessun
+    passo, nessun vincolo, nessuna sezione e nessun materiale nel deck del
+    muro. Sezione e materiale si assegnano in Abaqus, sul deck importato."""
     cfg = _config_cubo(tmp_path)
     cfg.run.to_step = 11
     pipeline.run(cfg)
     deck = (tmp_path / "out" / "wall_model.inp").read_text()
-    assert deck.count("*STEP") == 1
-    assert "*CLOAD" not in deck
-    assert "*DSLOAD" not in deck
-    assert "*SURFACE" not in deck
+    for card in ("*STEP", "*BOUNDARY", "*SOLID SECTION", "*MATERIAL"):
+        assert card not in deck
 
 
-def test_una_config_yaml_vecchia_arriva_al_deck_a_un_passo(tmp_path):
+def test_una_config_yaml_vecchia_arriva_al_deck_nudo(tmp_path):
     """La catena intera su una `config.yaml` scritta prima del deck nudo.
 
     `test_config.py` prova la meta' di sopra -- `load_config` non solleva sui
     blocchi usciti -- e il test qui sopra prova la meta' di sotto, ma partendo
     da una configurazione costruita a mano in python. Nessuna riga le
     incatenava: un `cfg` nato da uno yaml vecchio che attraversa
-    `pipeline.run` fino allo step 11 e produce il deck a un passo. E' la corsa
+    `pipeline.run` fino allo step 11 e produce il deck nudo. E' la corsa
     che le `runs/` gia' su disco fanno davvero.
 
     I blocchi vecchi sono quelli di `runs/geoandgeo-lab/config.yaml`, con le
@@ -1452,7 +1450,7 @@ def test_una_config_yaml_vecchia_arriva_al_deck_a_un_passo(tmp_path):
     restavano vuote.
 
     Mutazione che lo uccide: `extra="forbid"` su `_ModelloBase` (`load_config`
-    solleva), o un passo in piu' rimesso nel deck del muro.
+    solleva), o una card rimessa nel deck del muro.
     """
     pytest.importorskip("pymeshfix")
     vecchia = tmp_path / "config.yaml"
@@ -1482,8 +1480,7 @@ def test_una_config_yaml_vecchia_arriva_al_deck_a_un_passo(tmp_path):
     pipeline.run(cfg)
 
     deck = (tmp_path / "out" / "wall_model.inp").read_text()
-    assert deck.count("*STEP") == 1
-    for card in ("*CLOAD", "*DSLOAD", "*SURFACE", "*FREQUENCY"):
+    for card in ("*STEP", "*BOUNDARY", "*SOLID SECTION", "*MATERIAL"):
         assert card not in deck
 
 
@@ -1517,9 +1514,9 @@ def test_lo_step_11_rilegge_il_prior_e_porta_il_materiale_della_regione_nel_deck
     quello che la prima ha scritto, e lo step 11 lo rilegge invece di
     pretendere membrature che alla sua ora non esistono.
 
-    Il deck che ne esce porta due materiali -- il calcestruzzo confinato della
-    regione e il materiale unico della corsa, che resta il ripiego degli
-    orfani -- e il resoconto dice quanti elementi sono finiti dove.
+    Il deck che ne esce porta l'`*ELSET` della regione -- il materiale che lo
+    riempie si assegna in Abaqus, non qui -- e il resoconto dice quanti
+    elementi sono finiti dove.
 
     Mutazione che deve morire: passare `regioni=None` a `export_model` allo
     step 11, o costruire le regioni senza rileggere il prior.
@@ -1535,15 +1532,12 @@ def test_lo_step_11_rilegge_il_prior_e_porta_il_materiale_della_regione_nel_deck
 
     testo = (cfg.run.out_dir / pipeline.DECK_FILENAME).read_text(encoding="ascii")
     assert "*ELSET, ELSET=NUCLEO" in testo
-    assert "*SOLID SECTION, ELSET=NUCLEO, MATERIAL=CLS_C25" in testo
-    assert "*MATERIAL, NAME=CLS_C25" in testo
+    assert "*SOLID SECTION" not in testo
+    assert "*MATERIAL" not in testo
 
     resoconto = metriche["11_export"]["regioni"]
     assert resoconto["elementi_per_regione"]["NUCLEO"] > 0
     assert 0.0 <= resoconto["frazione_orfana"] <= 1.0
-    # La limitazione dichiarata sta anche qui, non solo nel deck: chi legge
-    # metrics.json non apre il .inp.
-    assert resoconto["continuo"] == abaqus.CONTINUO_CONFINATO
 
 
 def test_lo_step_11_senza_il_prior_nomina_lo_step_12_e_il_comando_wall(tmp_path):
@@ -1612,7 +1606,6 @@ def test_senza_regioni_lo_step_11_non_rilegge_il_prior(tmp_path):
     assert "regioni" not in metriche["11_export"]
     testo = (cfg.run.out_dir / pipeline.DECK_FILENAME).read_text(encoding="ascii")
     assert "*ELSET" not in testo
-    assert abaqus.CONTINUO_CONFINATO not in testo
 
 
 

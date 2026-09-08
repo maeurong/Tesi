@@ -37,18 +37,34 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+from typing import NamedTuple
 
 import numpy as np
 import pytest
 
 from ccx_utils import read_dat_displacements
 from meshrec.core import abaqus, synth, volume
-from meshrec.core.config import Material
 
 pytestmark = pytest.mark.validazione
 
 LATO = (100.0, 100.0, 100.0)  # mm
-MATERIALE = Material(name="PROVA", young=30000.0, poisson=0.2, density=2.4e-9)
+
+
+class _Materiale(NamedTuple):
+    """Il materiale del provino, dichiarato qui perche' il deck non lo porta.
+
+    `config.Material` resta il materiale della pipeline; questo test non lo usa
+    piu', perche' non lo passa piu' a nessuno: le card del materiale se le
+    scrive `_appendi_analisi`, e le servono nome, modulo elastico e Poisson.
+    La densita' non c'e' perche' non c'e' il peso proprio (vedi sotto).
+    """
+
+    name: str
+    young: float
+    poisson: float
+
+
+MATERIALE = _Materiale(name="PROVA", young=30000.0, poisson=0.2)
 
 # Gradiente costante del campo di spostamento, u = A x. Nullo nell'origine, che
 # e' l'unico modo per far convivere il campo imposto con il nodo vincolato a
@@ -160,21 +176,89 @@ def _nodo_piu_vicino(nodi: np.ndarray, punto) -> int:
     return int(np.argmin(np.linalg.norm(nodi - np.asarray(punto, dtype=float), axis=1)))
 
 
-def _risolvi(tmp_path, nodi, tets, **kwargs) -> dict[int, tuple[float, float, float]]:
-    """Scrive il deck con `write_inp`, lancia `ccx`, rende gli spostamenti.
+def _appendi_analisi(
+    percorso, *, materiale, fixed_nset, print_nsets=(),
+    spostamenti_imposti=None, carichi_nodali=None,
+) -> None:
+    """Le card che il deck nudo non scrive piu' e che `ccx` pretende.
 
-    Passa per l'esportatore vero e non per un deck scritto qui: un secondo
-    scrittore dentro i test potrebbe divergere da quello di produzione senza
-    che nulla lo dica, ed e' proprio l'esportatore che questo test deve
-    sorvegliare.
+    Sezione, materiale, `*BOUNDARY` (il set vincolato, poi gli spostamenti
+    nodo per nodo) e un passo statico con le forze nodali e le stampe, nello
+    stesso ordine in cui `abaqus.write_inp` le scriveva fino al 08/09/2026
+    (commit 8004950): il deck che ne esce e' quello che questo test risolveva
+    prima, meno le due card dichiarate qui sotto.
+
+    **Non scritte apposta.** `*DENSITY` e `*DLOAD ... GRAV, 0.0` erano il peso
+    proprio che il deck imponeva e che questo test azzerava; un passo statico
+    senza forze di volume non le legge.
+
+    **Scritte apposta.** `<fixed_nset>, 1, 3` resta: nella variante a carichi
+    e' il sesto vincolo che toglie i moti rigidi, e `ccx` su matrice singolare
+    esce **zero senza avvisi** (docs/validazione/ricerca-calculix-e-c3d4.md).
+    `RF` sul set vincolato resta: tiene nel `.dat` il blocco `forces` che il
+    filtro di `read_dat_displacements` (`tests/ccx_utils.py`) esiste per
+    saltare, e questo e' l'unico test che lo esercita.
+
+    Scritte qui e non in `write_inp`: sono decisioni di chi analizza -- il
+    materiale, il vincolo, il passo -- e questo e' l'unico posto del progetto
+    in cui servono.
+    """
+    righe = [
+        f"*SOLID SECTION, ELSET=ALL_WALL, MATERIAL={materiale.name}",
+        f"*MATERIAL, NAME={materiale.name}",
+        "*ELASTIC",
+        f"{materiale.young}, {materiale.poisson}",
+        "*BOUNDARY",
+        f"{fixed_nset}, 1, 3",
+    ]
+    for nodo in sorted(spostamenti_imposti or {}):
+        for grado in sorted(spostamenti_imposti[nodo]):
+            valore = spostamenti_imposti[nodo][grado]
+            righe.append(f"{int(nodo) + 1}, {grado}, {grado}, {valore:.9e}")
+    righe += ["** NOME PASSO: PATCH", "*STEP", "*STATIC"]
+    if carichi_nodali:
+        righe.append("*CLOAD")
+        for nodo in sorted(carichi_nodali):
+            for grado, valore in enumerate(carichi_nodali[nodo], start=1):
+                if valore != 0.0:
+                    righe.append(f"{int(nodo) + 1}, {grado}, {valore:.9e}")
+    for nome in print_nsets:
+        righe += [f"*NODE PRINT, NSET={nome}", "U"]
+    righe += [
+        f"*NODE PRINT, NSET={fixed_nset}", "RF",
+        "*NODE FILE", "U", "*EL FILE", "S, E", "*END STEP", "",
+    ]
+    with open(percorso, "a", encoding="ascii") as deck:
+        deck.write("\n".join(righe))
+
+
+def _risolvi(
+    tmp_path, nodi, tets, *, node_sets, fixed_nset, element_type="C3D4",
+    spostamenti_imposti=None, carichi_nodali=None,
+) -> dict[int, tuple[float, float, float]]:
+    """Scrive il deck con `write_inp`, appende l'analisi, lancia `ccx`.
+
+    Il maglio passa per l'esportatore vero e non per un deck scritto qui: un
+    secondo scrittore dentro i test potrebbe divergere da quello di produzione
+    senza che nulla lo dica, ed e' proprio l'esportatore che questo test deve
+    sorvegliare. Cio' che `write_inp` non scrive piu' -- materiale, vincoli,
+    passo -- lo appende il test: vedi `_appendi_analisi`.
+
+    `write_inp` chiude il file con una riga vuota, quindi l'append non incolla
+    la prima card all'ultima riga di `*NSET`.
     """
     eseguibile = _ccx_o_salta()
     abaqus.write_inp(
         tmp_path / "patch.inp", nodi, tets,
-        material=MATERIALE,
-        gravity=0.0,  # nessuna forza di volume: la tensione dev'essere costante
+        node_sets=node_sets, element_type=element_type,
+    )
+    _appendi_analisi(
+        tmp_path / "patch.inp",
+        materiale=MATERIALE,
+        fixed_nset=fixed_nset,
         print_nsets=("TUTTI",),
-        **kwargs,
+        spostamenti_imposti=spostamenti_imposti,
+        carichi_nodali=carichi_nodali,
     )
     esito = subprocess.run(
         [eseguibile, "-i", "patch"],

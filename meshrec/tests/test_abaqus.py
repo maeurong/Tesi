@@ -61,7 +61,6 @@ def test_inp_is_readable_by_meshio(tmp_path, cube_mesh):
     abaqus.write_inp(
         path, nodes, tets,
         node_sets=_base_and_top(nodes),
-        material=MATERIALE,
     )
 
     mesh = meshio.read(path)
@@ -73,30 +72,6 @@ def test_inp_is_readable_by_meshio(tmp_path, cube_mesh):
     assert np.array_equal(reread_tets, tets)
 
 
-def test_inp_contains_sets_material_and_gravity_step(tmp_path, cube_mesh):
-    nodes, tets = cube_mesh
-    sets = _base_and_top(nodes)
-    path = tmp_path / "model.inp"
-
-    abaqus.write_inp(
-        path, nodes, tets,
-        node_sets=sets,
-        material=MATERIALE,
-        print_nsets=("TOP",),
-    )
-    text = path.read_text(encoding="ascii")
-
-    assert "*ELEMENT, TYPE=C3D4, ELSET=ALL_WALL" in text
-    assert "*NSET, NSET=BASE" in text
-    assert "*NSET, NSET=TOP" in text
-    assert "*SOLID SECTION, ELSET=ALL_WALL, MATERIAL=MURATURA" in text
-    assert "1500.0, 0.2" in text
-    assert "1.8e-09" in text
-    assert "BASE, 1, 3" in text
-    assert "ALL_WALL, GRAV, 9810.0, 0.0, 0.0, -1.0" in text
-    assert "*NODE PRINT, NSET=TOP" in text
-
-
 def test_node_and_element_indices_are_one_based(tmp_path, cube_mesh):
     nodes, tets = cube_mesh
     path = tmp_path / "model.inp"
@@ -104,7 +79,6 @@ def test_node_and_element_indices_are_one_based(tmp_path, cube_mesh):
     abaqus.write_inp(
         path, nodes, tets,
         node_sets=_base_and_top(nodes),
-        material=MATERIALE,
     )
     lines = path.read_text(encoding="ascii").splitlines()
 
@@ -142,7 +116,6 @@ def test_base_set_written_matches_expected_and_holds_only_the_lowest_nodes(tmp_p
     abaqus.write_inp(
         path, nodes, tets,
         node_sets=sets,
-        material=MATERIALE,
     )
     text = path.read_text(encoding="ascii")
 
@@ -151,35 +124,6 @@ def test_base_set_written_matches_expected_and_holds_only_the_lowest_nodes(tmp_p
     assert written_base == set(sets["BASE"].tolist())
     assert len(written_base) >= 4
     assert np.allclose(nodes[sorted(written_base), 2], nodes[:, 2].min())
-
-
-def test_material_values_round_trip_with_precision(tmp_path, cube_mesh):
-    """Materiale con valori non predefiniti, scelti per mettere in difficolta la
-    formattazione (young con molte cifre decimali, poisson diverso dal default,
-    densita in notazione scientifica lontana dal default): i valori riletti dal
-    testo devono coincidere numericamente con quelli di partenza, non solo
-    'sembrare giusti' guardando le cifre stampate."""
-    nodes, tets = cube_mesh
-    material = Material(name="LATERIZIO", young=2750.123456789, poisson=0.27, density=7.654321e-6)
-    path = tmp_path / "model.inp"
-
-    abaqus.write_inp(
-        path, nodes, tets,
-        node_sets=_base_and_top(nodes),
-        material=material,
-    )
-    lines = path.read_text(encoding="ascii").splitlines()
-
-    elastic_line = lines[lines.index("*ELASTIC") + 1]
-    written_young, written_poisson = (float(value) for value in elastic_line.split(","))
-    written_density = float(lines[lines.index("*DENSITY") + 1])
-
-    assert written_young == pytest.approx(material.young)
-    assert written_poisson == pytest.approx(material.poisson)
-    assert written_density == pytest.approx(material.density)
-
-    assert f"*MATERIAL, NAME={material.name}" in lines
-    assert f"*SOLID SECTION, ELSET=ALL_WALL, MATERIAL={material.name}" in lines
 
 
 def test_alignment_puts_thickness_on_x_length_on_y_height_on_z():
@@ -245,47 +189,6 @@ def test_build_node_sets_ha_le_chiavi_della_costante():
     assert set(sets) == set(config.NOMI_SET_DI_FACCIA)
 
 
-def test_il_deck_non_contiene_piu_card_che_calculix_scavalca(tmp_path):
-    """Zero avvisi non e' cosmesi: e' cio' che rende leggibile un avviso vero.
-
-    Misurato il 21/08/2026 sul deck as-built: `ccx` 2.22 emette due avvisi,
-    "parameter not recognized: NAME=GRAVITA" e "parameter not recognized:
-    FIELD". Sono card Abaqus che CalculiX non conosce, e nessuno le leggeva.
-    Un avviso benigno tollerato e' un avviso che nasconde quello vero.
-
-    `*NODE FILE` e `*EL FILE` sono keyword Abaqus legacy, valide, e sono quelle
-    che CalculiX vuole per l'uscita ascii: il cambio non perde la validita' del
-    lato Abaqus. Il nome del passo scende a commento.
-
-    Sostituisce `test_output_requests_are_in_the_modern_form`, che asseriva il
-    contrario: la forma «moderna» *OUTPUT, FIELD e' proprio quella che
-    CalculiX scarta con un avviso.
-
-    `synth.box_mesh` da' la sola superficie triangolare (il brief la passava
-    diretta a `write_inp`, che pero' vuole C3D4 a quattro nodi): qui si
-    tetraedrizza prima, come fa il resto del file.
-    """
-    vertices, faces = synth.box_mesh((100.0, 100.0, 100.0))
-    nodi, elementi = volume.tetrahedralize(
-        vertices, faces, max_volume=100_000.0, min_ratio=1.8, max_steiner_points=-1, nobisect=False
-    )
-    percorso = tmp_path / "deck.inp"
-
-    abaqus.write_inp(
-        percorso, nodi, elementi,
-        node_sets={"BASE": np.array([0])}, material=MATERIALE, step_name="GRAVITA",
-    )
-
-    testo = percorso.read_text(encoding="ascii")
-    assert "*OUTPUT" not in testo
-    assert "*NODE OUTPUT" not in testo
-    assert "*ELEMENT OUTPUT" not in testo
-    assert "*STEP, NAME=" not in testo
-    assert "** NOME PASSO: GRAVITA" in testo
-    assert "*NODE FILE" in testo
-    assert "*EL FILE" in testo
-
-
 def test_export_model_writes_both_files_and_reports_mass(tmp_path):
     meshio = pytest.importorskip("meshio")
     vertices, faces = synth.box_mesh((100.0, 40.0, 200.0))
@@ -309,27 +212,30 @@ def test_export_model_writes_both_files_and_reports_mass(tmp_path):
     assert len(read_back.points) == len(nodes)
 
 
-def test_il_deck_del_muro_porta_il_solo_passo_di_gravita(tmp_path):
-    """Deck nudo, PR 1: nessun carico oltre il peso proprio. Un *STEP, nessun
-    *CLOAD ne' *DSLOAD ne' *SURFACE ne' *FREQUENCY; niente chiave dei casi
-    di carico nelle metriche."""
-    vertices, faces = synth.box_mesh((100.0, 40.0, 200.0))
-    nodes, tets, _ = volume.tetrahedralize_with_metrics(vertices, faces, TET_LINEARE)
-    metrics = abaqus.export_model(
-        tmp_path / "wall_model.inp", tmp_path / "wall_model.vtu",
-        nodes, tets, config.AnalysisConfig(material=MATERIALE), TET_LINEARE,
+def test_write_inp_scrive_il_solo_maglio(tmp_path):
+    """Il deck nudo per costruzione: intestazione, nodi, elementi, insiemi.
+
+    Nessuna sezione, nessun materiale, nessun vincolo, nessun passo: chi
+    analizza le assegna in Abaqus (spec 2026-09-07). L'asserzione e'
+    sull'**elenco esatto** delle card e non su qualche `not in`: una card
+    nuova qualunque, aggiunta un domani, la rompe.
+
+    Mutazione che lo uccide: rimettere in `write_inp` una qualsiasi delle card
+    uscite -- `*SOLID SECTION`, `*MATERIAL`, `*BOUNDARY`, `*STEP`.
+    """
+    percorso = tmp_path / "nudo.inp"
+
+    abaqus.write_inp(
+        percorso, _CUBO, _ESAEDRO,
+        node_sets={"BASE": np.array([0, 1, 2, 3])}, element_type="C3D8I",
     )
-    deck = (tmp_path / "wall_model.inp").read_text()
-    assert deck.count("*STEP") == 1
-    assert deck.count("*DLOAD") == 1
-    assert "ALL_WALL, GRAV, 9810.0, 0.0, 0.0, -1.0" in deck
-    for card in ("*CLOAD", "*DSLOAD", "*SURFACE", "*FREQUENCY"):
-        assert card not in deck
-    for chiave in (
-        "casi_di_carico", "selettori", "pressure",
-        "carichi_posizionati", "carichi_distribuiti",
-    ):
-        assert chiave not in metrics
+    card = [
+        r.split(",")[0]
+        for r in percorso.read_text(encoding="ascii").splitlines()
+        if r.startswith("*") and not r.startswith("**")
+    ]
+
+    assert card == ["*HEADING", "*NODE", "*ELEMENT", "*NSET"]
 
 
 def test_le_superfici_senza_tie_finiscono_nelle_metriche_senza_pressione(tmp_path):
@@ -773,7 +679,6 @@ def test_il_deck_dichiara_il_tipo_di_elemento_che_gli_si_chiede(tmp_path):
     abaqus.write_inp(
         percorso, nodi, esaedri,
         node_sets={"BASE": np.array([0, 1, 2, 3])},
-        material=MATERIALE,
         element_type="C3D8I",
     )
 
@@ -793,7 +698,6 @@ def test_un_tipo_di_elemento_che_non_combacia_coi_nodi_viene_rifiutato(tmp_path)
         abaqus.write_inp(
             tmp_path / "storto.inp", nodi, esaedri,
             node_sets={"BASE": np.array([0])},
-            material=MATERIALE,
             element_type="C3D4",
         )
 
@@ -928,7 +832,6 @@ def test_la_superficie_esportata_ha_l_area_delle_facce_che_dichiara(tmp_path):
     abaqus.write_inp(
         percorso, _CUBO, _ESAEDRO,
         node_sets={"BASE": nodi_base},
-        material=MATERIALE,
         element_type="C3D8I",
         element_surfaces={"FACCIA_BASSA": superficie},
     )
@@ -947,7 +850,6 @@ def test_il_tie_nomina_due_superfici_gia_dichiarate(tmp_path):
         abaqus.write_inp(
             tmp_path / "rotto.inp", _CUBO, _ESAEDRO,
             node_sets={"BASE": np.array([0, 1, 2, 3])},
-            material=MATERIALE,
             element_type="C3D8I",
             element_surfaces={"UNA": superficie},
             ties=(("GIUNZIONE_1", "UNA", "MAI_DICHIARATA"),),
@@ -983,7 +885,7 @@ def test_un_maglio_senza_elementi_non_scrive_un_deck(tmp_path):
         abaqus.write_inp(
             percorso, np.zeros((0, 3)), np.zeros((0, 10), dtype=np.int64),
             node_sets={"BASE": np.zeros(0, dtype=np.int64)},
-            material=MATERIALE, element_type="C3D10",
+            element_type="C3D10",
         )
     assert not percorso.exists()
 
@@ -992,7 +894,7 @@ def test_un_maglio_senza_elementi_non_scrive_un_deck(tmp_path):
         abaqus.write_inp(
             percorso, np.zeros((0, 3)), np.zeros((0, 10), dtype=np.int64),
             node_sets={"BASE": np.zeros(0, dtype=np.int64)},
-            material=MATERIALE, element_type="C3D999",
+            element_type="C3D999",
         )
     assert not percorso.exists()
 
@@ -1045,7 +947,7 @@ def test_un_elemento_che_cita_un_nodo_inesistente_non_scrive_un_deck(tmp_path):
     """
     percorso = tmp_path / "pendente.inp"
     elementi = np.array([[0, 1, 2, 3]], dtype=np.int64)
-    base = dict(node_sets={"BASE": np.zeros(0, dtype=np.int64)}, material=MATERIALE, element_type="C3D4")
+    base = dict(node_sets={"BASE": np.zeros(0, dtype=np.int64)}, element_type="C3D4")
 
     # nodi vuoti, elementi no: il caso dell'issue
     with pytest.raises(ValueError, match=r"nod[oi].*non esist") as errore:
@@ -1085,7 +987,7 @@ def test_elementi_monodimensionali_danno_un_messaggio_e_non_uno_stack(tmp_path):
         abaqus.write_inp(
             percorso, np.zeros((4, 3)), np.zeros((0,), dtype=np.int64),
             node_sets={"BASE": np.zeros(0, dtype=np.int64)},
-            material=MATERIALE, element_type="C3D4",
+            element_type="C3D4",
         )
     assert not percorso.exists()
 
@@ -1111,7 +1013,6 @@ def test_il_tie_risolve_le_superfici_ignorando_le_maiuscole(tmp_path):
     abaqus.write_inp(
         percorso, _CUBO, _ESAEDRO,
         node_sets={"BASE": np.array([0, 1, 2, 3])},
-        material=MATERIALE,
         element_type="C3D8I",
         element_surfaces={"PELLE": superficie, "CUOIO": superficie},
         ties=(("GIUNZIONE_1", "pelle", "Cuoio"),),
@@ -1132,7 +1033,7 @@ def test_una_superficie_mai_dichiarata_resta_un_rifiuto_anche_col_casefold(tmp_p
         abaqus.write_inp(
             tmp_path / "rotto.inp", _CUBO, _ESAEDRO,
             node_sets={"BASE": np.array([0, 1, 2, 3])},
-            material=MATERIALE, element_type="C3D8I",
+            element_type="C3D8I",
             element_surfaces={"PELLE": superficie},
             ties=(("GIUNZIONE_1", "pelle", "MAI_DICHIARATA"),),
         )
@@ -1152,7 +1053,6 @@ def test_il_tie_con_tolleranza_scrive_position_tolerance(tmp_path):
     abaqus.write_inp(
         percorso, _CUBO, _ESAEDRO,
         node_sets={"BASE": np.array([0, 1, 2, 3])},
-        material=MATERIALE,
         element_type="C3D8I",
         element_surfaces={"UNA": superficie, "DUE": superficie},
         ties=(("GIUNZIONE_1", "UNA", "DUE", 3.5),),
@@ -1174,7 +1074,6 @@ def test_il_tie_senza_tolleranza_non_scrive_position_tolerance(tmp_path):
     abaqus.write_inp(
         percorso, _CUBO, _ESAEDRO,
         node_sets={"BASE": np.array([0, 1, 2, 3])},
-        material=MATERIALE,
         element_type="C3D8I",
         element_surfaces={"UNA": superficie, "DUE": superficie},
         ties=(("GIUNZIONE_1", "UNA", "DUE"),),
@@ -1413,26 +1312,30 @@ def test_un_fixed_nset_sconosciuto_nomina_gli_insiemi_disponibili(cube_mesh, tmp
         )
 
 
-def test_un_fixed_nset_in_minuscolo_arriva_al_deck_senza_sollevare(cube_mesh, tmp_path):
+def test_un_fixed_nset_in_minuscolo_non_solleva_a_mesh_gia_costruita(cube_mesh, tmp_path):
     """`fixed_nset: base` nello YAML non deve morire a mesh gia' costruita.
 
     Il gemello a monte sta in `tests/test_config.py`
     (`test_fixed_nset_canonicalizza_il_nome_dei_sei`) e guarda il solo campo;
-    qui si pretende che la normalizzazione arrivi fino al deck scritto, cioe'
-    che il `*BOUNDARY` nomini `BASE` e non `base`. E' lo stesso percorso che
-    prima costava una tetraedralizzazione intera per poi sollevare.
+    qui si pretende che la normalizzazione regga fino in fondo alla corsa,
+    dove `export_model` cerca `cfg.fixed_nset` fra i sei insiemi. Col deck
+    nudo il `*BOUNDARY` non c'e' piu' e non e' li' che si guarda: la
+    canonicalizzazione si vede nel fatto che la corsa arriva al deck scritto
+    invece di sollevare dopo una tetraedralizzazione intera.
 
     Mutazione che lo uccide: ritipare `AnalysisConfig.fixed_nset` da
-    `NomeSetDiFaccia` a `NomeSet`. Torna il `ValueError` di `write_inp`.
+    `NomeSetDiFaccia` a `NomeSet`. `base` resta minuscolo, e la guardia di
+    `export_model` solleva.
     """
     nodi, tetraedri = cube_mesh
     analisi = config.AnalysisConfig(material=MATERIALE, fixed_nset="base")
     assert analisi.fixed_nset == "BASE"
     percorso = tmp_path / "m.inp"
-    abaqus.export_model(
+    metriche = abaqus.export_model(
         percorso, tmp_path / "m.vtu", nodi, tetraedri, analisi, TET_LINEARE,
     )
-    assert "\nBASE, 1, 3\n" in percorso.read_text(encoding="ascii")
+    assert percorso.exists()
+    assert metriche["fixed_nset_coverage"] > 0.0
 
 
 # --- Le regioni nel deck (#135) --------------------------------------------
@@ -1442,44 +1345,23 @@ def test_un_fixed_nset_in_minuscolo_arriva_al_deck_senza_sollevare(cube_mesh, tm
 # la card *ELEMENT dichiara, e le regioni lo partizionano.
 
 
-def test_senza_regioni_il_deck_scrive_la_sola_sezione_di_all_wall(tmp_path, cube_mesh):
-    """Una corsa senza regioni produce il deck di prima, non uno nuovo.
+def test_ogni_regione_ha_il_suo_elset(tmp_path, cube_mesh):
+    """Un *ELSET per regione, indici 1-based, e **nessuna** sezione.
 
-    E' il vincolo piu' stretto della molteplicita': le ventidue righe dei
-    registri sono la provenienza della tabella sperimentale, e un deck diverso
-    a parita' di configurazione le renderebbe irriproducibili in silenzio.
+    Le regioni sono insiemi di elementi e nient'altro: il materiale che li
+    riempie lo assegna chi analizza, in Abaqus.
 
-    Mutazione che lo uccide: scrivere comunque un *ELSET, o una seconda riga
-    *SOLID SECTION, quando `regioni` e' assente.
+    Mutazione che lo uccide: scrivere gli indici degli elementi 0-based, o
+    rimettere una `*SOLID SECTION` accanto all'insieme.
     """
     nodi, tetraedri = cube_mesh
     percorso = tmp_path / "model.inp"
 
     abaqus.write_inp(
-        percorso, nodi, tetraedri, node_sets=_base_and_top(nodi), material=MATERIALE,
-    )
-    righe = percorso.read_text(encoding="ascii").splitlines()
-
-    assert [r for r in righe if r.startswith("*SOLID SECTION")] == [
-        "*SOLID SECTION, ELSET=ALL_WALL, MATERIAL=MURATURA"
-    ]
-    assert not [r for r in righe if r.startswith("*ELSET")]
-
-
-def test_ogni_regione_ha_il_suo_elset_e_la_sua_sezione(tmp_path, cube_mesh):
-    """Un *ELSET per regione, una *SOLID SECTION per ciascuno, indici 1-based.
-
-    Mutazione che lo uccide: scrivere gli indici degli elementi 0-based, o una
-    sola sezione per l'unione delle regioni.
-    """
-    nodi, tetraedri = cube_mesh
-    percorso = tmp_path / "model.inp"
-
-    abaqus.write_inp(
-        percorso, nodi, tetraedri, node_sets=_base_and_top(nodi), material=MATERIALE,
+        percorso, nodi, tetraedri, node_sets=_base_and_top(nodi),
         regioni={
-            "PILASTRO": (np.array([0, 1, 2]), MATERIALE),
-            "TRAVE": (np.arange(3, len(tetraedri)), MATERIALE),
+            "PILASTRO": np.array([0, 1, 2]),
+            "TRAVE": np.arange(3, len(tetraedri)),
         },
     )
     righe = percorso.read_text(encoding="ascii").splitlines()
@@ -1487,75 +1369,75 @@ def test_ogni_regione_ha_il_suo_elset_e_la_sua_sezione(tmp_path, cube_mesh):
     assert "*ELEMENT, TYPE=C3D4, ELSET=ALL_WALL" in righe
     assert righe[righe.index("*ELSET, ELSET=PILASTRO") + 1] == "1, 2, 3"
     assert "*ELSET, ELSET=TRAVE" in righe
-    assert [r for r in righe if r.startswith("*SOLID SECTION")] == [
-        "*SOLID SECTION, ELSET=PILASTRO, MATERIAL=MURATURA",
-        "*SOLID SECTION, ELSET=TRAVE, MATERIAL=MURATURA",
-    ]
+    assert not [r for r in righe if r.startswith("*SOLID SECTION")]
 
 
-def test_una_regione_senza_elementi_e_rifiutata(tmp_path, cube_mesh):
-    """Un *ELSET vuoto non ferma `ccx`: il modello gira senza quella sezione.
+def test_una_regione_vuota_avvisa_e_non_scrive_l_elset(tmp_path, cube_mesh):
+    """Una regione senza elementi avvisa, e il deck si scrive lo stesso.
 
-    Mutazione che lo uccide: scrivere la card e lasciarla senza righe.
+    Fino al deck nudo era un rifiuto: un *ELSET vuoto non ferma `ccx`, che
+    risolve un modello in cui quella sezione non esiste. Ma il deck nudo non
+    porta sezioni, quindi un insieme mancante non falsa piu' nessun calcolo:
+    resta un'informazione per chi ha dichiarato la regione, e il posto di
+    un'informazione e' un avviso, non una corsa interrotta.
+
+    L'avviso **nomina la regione**: con quattro regioni dichiarate, «una
+    regione e' vuota» manderebbe a cercare quale.
+
+    Mutazione che lo uccide: scrivere la card e lasciarla senza righe, o
+    tacere del tutto.
     """
     nodi, tetraedri = cube_mesh
+    percorso = tmp_path / "model.inp"
 
-    with pytest.raises(ValueError, match="non contiene alcun elemento"):
+    with pytest.warns(abaqus.RegioneVuotaWarning, match="TRAVE_1"):
         abaqus.write_inp(
-            tmp_path / "model.inp", nodi, tetraedri,
-            node_sets=_base_and_top(nodi), material=MATERIALE,
-            regioni={"VUOTA": (np.array([], dtype=np.int64), MATERIALE)},
+            percorso, nodi, tetraedri, node_sets=_base_and_top(nodi),
+            regioni={
+                "TRAVE_1": np.array([], dtype=np.int64),
+                "PILASTRO_1": np.arange(len(tetraedri)),
+            },
+        )
+    deck = percorso.read_text(encoding="ascii")
+
+    assert "*ELSET, ELSET=PILASTRO_1" in deck
+    assert "TRAVE_1" not in deck
+
+
+@pytest.mark.parametrize(
+    "indici",
+    [
+        pytest.param(lambda n: np.array([0, n]), id="oltre-l-ultimo"),
+        pytest.param(lambda n: np.array([-1, 0]), id="prima-del-primo"),
+    ],
+)
+def test_una_regione_con_indici_fuori_dal_maglio_e_rifiutata(tmp_path, cube_mesh, indici):
+    """Indici fuori da `[0, len(elements))`: rifiuto con messaggio, deck non scritto.
+
+    Senza la guardia l'indicizzazione grezza solleva un `IndexError` sul
+    limite superiore e **scrive un *ELSET con numeri inventati** su quello
+    inferiore, perche' un indice negativo in numpy conta dalla fine. Il primo
+    manda a cercare un difetto in numpy, il secondo non manda da nessuna
+    parte: il deck e' valido e attribuisce alla regione elementi che non sono
+    i suoi.
+
+    Il messaggio nomina la regione, come quello della regione vuota: con
+    quattro regioni dichiarate, sapere che una ha indici fuori posto senza
+    sapere quale non chiude la ricerca.
+
+    Mutazione che lo uccide: togliere la guardia e tornare a indicizzare
+    direttamente.
+    """
+    nodi, tetraedri = cube_mesh
+    percorso = tmp_path / "model.inp"
+
+    with pytest.raises(ValueError, match="FUORI_MISURA"):
+        abaqus.write_inp(
+            percorso, nodi, tetraedri, node_sets=_base_and_top(nodi),
+            regioni={"FUORI_MISURA": indici(len(tetraedri))},
         )
 
-
-def test_gli_orfani_tengono_la_sezione_di_all_wall(tmp_path, cube_mesh):
-    """Un elemento senza regione resta senza materiale: `ccx` non lo accetta.
-
-    Il ripiego e' la sezione su `ALL_WALL` col materiale unico della corsa, e
-    sta **prima** delle regioni: chi ha una regione la sovrascrive.
-
-    Mutazione che lo uccide: omettere il ripiego quando qualche elemento resta
-    fuori dalle regioni, o scriverlo dopo di esse.
-    """
-    nodi, tetraedri = cube_mesh
-    percorso = tmp_path / "model.inp"
-
-    abaqus.write_inp(
-        percorso, nodi, tetraedri, node_sets=_base_and_top(nodi), material=MATERIALE,
-        regioni={"PILASTRO": (np.array([0, 1, 2]), MATERIALE)},
-    )
-    sezioni = [
-        r for r in percorso.read_text(encoding="ascii").splitlines()
-        if r.startswith("*SOLID SECTION")
-    ]
-
-    assert sezioni == [
-        "*SOLID SECTION, ELSET=ALL_WALL, MATERIAL=MURATURA",
-        "*SOLID SECTION, ELSET=PILASTRO, MATERIAL=MURATURA",
-    ]
-
-
-def test_senza_orfani_il_ripiego_non_si_scrive(tmp_path, cube_mesh):
-    """Nessun elemento fuori dalle regioni: nessuna sezione su `ALL_WALL`.
-
-    Mutazione che lo uccide: scrivere il ripiego sempre, che lascerebbe nel
-    deck una sezione che non attribuisce niente a nessuno.
-    """
-    nodi, tetraedri = cube_mesh
-    meta = len(tetraedri) // 2
-    percorso = tmp_path / "model.inp"
-
-    abaqus.write_inp(
-        percorso, nodi, tetraedri, node_sets=_base_and_top(nodi), material=MATERIALE,
-        regioni={
-            "PILASTRO": (np.arange(meta), MATERIALE),
-            "TRAVE": (np.arange(meta, len(tetraedri)), MATERIALE),
-        },
-    )
-    testo = percorso.read_text(encoding="ascii")
-
-    assert "*SOLID SECTION, ELSET=ALL_WALL" not in testo
-    assert testo.count("*SOLID SECTION") == 2
+    assert not percorso.exists(), "il deck non si scrive a meta'"
 
 
 def test_export_model_porta_le_regioni_fino_al_deck(tmp_path, cube_mesh):
@@ -1566,7 +1448,13 @@ def test_export_model_porta_le_regioni_fino_al_deck(tmp_path, cube_mesh):
     misurata sui nodi non allineati che la pipeline ha in mano, e arrivare qui
     come soli indici.
 
-    Mutazione che lo uccide: accettare `regioni` e non passarlo a `write_inp`.
+    Le tuple `(indici, Material)` restano la forma che `export_model` riceve
+    finche' `ExportConfig` non esiste: e' lui a spacchettarle e a passare a
+    `write_inp` i soli indici. Il materiale non arriva piu' al deck, e
+    l'asserzione negativa sulla sezione e' li' a dirlo.
+
+    Mutazione che lo uccide: accettare `regioni` e non passarlo a `write_inp`,
+    o rimettere nel deck la sezione della regione.
     """
     nodi, tetraedri = cube_mesh
     percorso = tmp_path / "m.inp"
@@ -1578,168 +1466,7 @@ def test_export_model_porta_le_regioni_fino_al_deck(tmp_path, cube_mesh):
     testo = percorso.read_text(encoding="ascii")
 
     assert "*ELSET, ELSET=PILASTRO" in testo
-    assert "*SOLID SECTION, ELSET=PILASTRO, MATERIAL=MURATURA" in testo
-
-
-# --- Un materiale per regione (#135) ---------------------------------------
-#
-# Il continuo del modello solido e' il calcestruzzo confinato, e la scelta e'
-# una limitazione dichiarata: un tetraedro non ha fibre, quindi il deck non
-# rappresenta la distinzione fra nucleo e copriferro. Chi legge il deck fra sei
-# mesi lo deve trovare scritto, o credera' che la distinzione ci sia.
-
-CLS_C25 = config.Material(name="CLS_C25", young=31476.0, poisson=0.2, density=2.5e-9)
-CLS_C30 = config.Material(name="CLS_C30", young=32837.0, poisson=0.2, density=2.5e-9)
-
-
-def test_ogni_regione_scrive_il_proprio_materiale(tmp_path, cube_mesh):
-    """Due regioni di classe diversa, due *MATERIAL, due sezioni che li citano.
-
-    E' la molteplicita' vera: senza di essa le regioni sarebbero soltanto
-    insiemi, tutti con le stesse proprieta', e il deck acquisterebbe nomi
-    invece che materiali.
-
-    Mutazione che lo uccide: far citare a ogni *SOLID SECTION il materiale
-    unico della corsa, che e' esattamente il comportamento di prima.
-    """
-    nodi, tetraedri = cube_mesh
-    meta = len(tetraedri) // 2
-    percorso = tmp_path / "model.inp"
-
-    abaqus.write_inp(
-        percorso, nodi, tetraedri, node_sets=_base_and_top(nodi), material=MATERIALE,
-        regioni={
-            "NUCLEO": (np.arange(meta), CLS_C25),
-            "TESTA": (np.arange(meta, len(tetraedri)), CLS_C30),
-        },
-    )
-    righe = percorso.read_text(encoding="ascii").splitlines()
-
-    assert [r for r in righe if r.startswith("*SOLID SECTION")] == [
-        "*SOLID SECTION, ELSET=NUCLEO, MATERIAL=CLS_C25",
-        "*SOLID SECTION, ELSET=TESTA, MATERIAL=CLS_C30",
-    ]
-    assert [r for r in righe if r.startswith("*MATERIAL")] == [
-        "*MATERIAL, NAME=CLS_C25",
-        "*MATERIAL, NAME=CLS_C30",
-    ]
-    # Il modulo di ciascuno, non solo il nome: due card omonime con le stesse
-    # proprieta' passerebbero la prima asserzione senza portare due materiali.
-    assert righe[righe.index("*MATERIAL, NAME=CLS_C25") + 2] == "31476.0, 0.2"
-    assert righe[righe.index("*MATERIAL, NAME=CLS_C30") + 2] == "32837.0, 0.2"
-
-
-def test_gli_orfani_restano_sul_materiale_unico_della_corsa(tmp_path, cube_mesh):
-    """Il ripiego su `ALL_WALL` cita `analysis.material`, e resta dov'e' (#145).
-
-    Il materiale della corsa e' il primo *MATERIAL scritto perche' la sua
-    sezione e' la prima: su due sezioni sovrapposte `ccx` applica l'ultima
-    senza un avviso, e il ripiego deve poter essere sovrascritto.
-
-    Mutazione che lo uccide: far citare al ripiego il materiale di una regione.
-    """
-    nodi, tetraedri = cube_mesh
-    percorso = tmp_path / "model.inp"
-
-    abaqus.write_inp(
-        percorso, nodi, tetraedri, node_sets=_base_and_top(nodi), material=MATERIALE,
-        regioni={"NUCLEO": (np.array([0, 1, 2]), CLS_C25)},
-    )
-    righe = percorso.read_text(encoding="ascii").splitlines()
-
-    assert [r for r in righe if r.startswith("*SOLID SECTION")] == [
-        "*SOLID SECTION, ELSET=ALL_WALL, MATERIAL=MURATURA",
-        "*SOLID SECTION, ELSET=NUCLEO, MATERIAL=CLS_C25",
-    ]
-    assert [r for r in righe if r.startswith("*MATERIAL")] == [
-        "*MATERIAL, NAME=MURATURA",
-        "*MATERIAL, NAME=CLS_C25",
-    ]
-
-
-def test_due_regioni_sullo_stesso_materiale_scrivono_una_card_sola(tmp_path, cube_mesh):
-    """Lo stesso materiale in due regioni e' un materiale, non due.
-
-    `ccx` legge due *MATERIAL omonimi senza protestare e tiene l'ultimo: il
-    deck resterebbe valido, ma porterebbe una card che non aggiunge nulla e un
-    nome definito due volte. Una sola, e le due sezioni la citano.
-
-    Mutazione che lo uccide: scrivere una card per regione invece che per
-    materiale distinto.
-    """
-    nodi, tetraedri = cube_mesh
-    meta = len(tetraedri) // 2
-    percorso = tmp_path / "model.inp"
-
-    abaqus.write_inp(
-        percorso, nodi, tetraedri, node_sets=_base_and_top(nodi), material=MATERIALE,
-        regioni={
-            "NUCLEO": (np.arange(meta), CLS_C25),
-            "TESTA": (np.arange(meta, len(tetraedri)), CLS_C25),
-        },
-    )
-    righe = percorso.read_text(encoding="ascii").splitlines()
-
-    assert [r for r in righe if r.startswith("*MATERIAL")] == ["*MATERIAL, NAME=CLS_C25"]
-    assert [r for r in righe if r.startswith("*SOLID SECTION")] == [
-        "*SOLID SECTION, ELSET=NUCLEO, MATERIAL=CLS_C25",
-        "*SOLID SECTION, ELSET=TESTA, MATERIAL=CLS_C25",
-    ]
-
-
-def test_due_materiali_omonimi_ignorando_le_maiuscole_sono_rifiutati(tmp_path, cube_mesh):
-    """`ccx` risolve i nomi senza distinguere il caso: `cls_c25` e' `CLS_C25`.
-
-    Due materiali diversi sotto lo stesso nome darebbero un deck che il
-    solutore legge senza un avviso, applicando all'una e all'altra regione le
-    proprieta' dell'ultima card. E' il difetto del caso dei nomi, gia' occorso
-    quattro volte in questo repository.
-
-    Mutazione che lo uccide: confrontare i nomi senza `casefold`.
-    """
-    nodi, tetraedri = cube_mesh
-    meta = len(tetraedri) // 2
-    minuscolo = config.Material(name="cls_c25", young=32837.0, poisson=0.2, density=2.5e-9)
-
-    with pytest.raises(ValueError, match="senza distinguere le maiuscole"):
-        abaqus.write_inp(
-            tmp_path / "model.inp", nodi, tetraedri,
-            node_sets=_base_and_top(nodi), material=MATERIALE,
-            regioni={
-                "NUCLEO": (np.arange(meta), CLS_C25),
-                "TESTA": (np.arange(meta, len(tetraedri)), minuscolo),
-            },
-        )
-
-
-def test_il_deck_a_regioni_dichiara_che_non_distingue_nucleo_e_copriferro(tmp_path, cube_mesh):
-    """La limitazione sta scritta nel deck, non solo nella relazione.
-
-    Chi apre il `.inp` fra sei mesi vede un calcestruzzo per regione: senza
-    questa riga crederebbe che il modello distingua il nucleo confinato dal
-    copriferro, che e' una distinzione della sezione a fibre e non di un
-    solido a tetraedri.
-
-    Mutazione che lo uccide: togliere il commento, o scriverlo anche quando le
-    regioni non ci sono -- il deck di una corsa monomaterica non cambia.
-    """
-    nodi, tetraedri = cube_mesh
-    con = tmp_path / "con.inp"
-    senza = tmp_path / "senza.inp"
-
-    abaqus.write_inp(
-        con, nodi, tetraedri, node_sets=_base_and_top(nodi), material=MATERIALE,
-        regioni={"NUCLEO": (np.arange(len(tetraedri)), CLS_C25)},
-    )
-    abaqus.write_inp(
-        senza, nodi, tetraedri, node_sets=_base_and_top(nodi), material=MATERIALE,
-    )
-
-    assert f"** {abaqus.CONTINUO_CONFINATO}" in con.read_text(encoding="ascii").splitlines()
-    assert abaqus.CONTINUO_CONFINATO not in senza.read_text(encoding="ascii")
-    # `ccx` tronca le righe lunghe: un commento oltre la larghezza di lettura
-    # arriverebbe al solutore spezzato, e la meta' orfana non e' piu' un commento.
-    assert len(f"** {abaqus.CONTINUO_CONFINATO}") <= 132
+    assert "*SOLID SECTION" not in testo
 
 
 def test_un_dizionario_di_regioni_vuoto_scrive_il_deck_di_prima(tmp_path, cube_mesh):
@@ -1751,8 +1478,12 @@ def test_un_dizionario_di_regioni_vuoto_scrive_il_deck_di_prima(tmp_path, cube_m
     byte e non sulle card, perche' una riga in piu' in qualunque punto basta a
     rendere la corsa irriproducibile.
 
-    Mutazione che lo uccide: scrivere il commento della limitazione, o
-    riorganizzare i *MATERIAL, senza guardare se le regioni ci sono.
+    Nessuna riga di commento `**`: il deck nudo non ha piu' nulla da
+    dichiarare a chi lo legge, e una riga di prosa in un file altrimenti fatto
+    di sole card e' esattamente la differenza che romperebbe il confronto.
+
+    Mutazione che lo uccide: scrivere un commento, o un *ELSET, senza guardare
+    se le regioni ci sono.
     """
     nodi, tetraedri = cube_mesh
     vuoto = tmp_path / "vuoto.inp"
@@ -1760,8 +1491,69 @@ def test_un_dizionario_di_regioni_vuoto_scrive_il_deck_di_prima(tmp_path, cube_m
 
     for percorso, regioni in ((vuoto, {}), (assente, None)):
         abaqus.write_inp(
-            percorso, nodi, tetraedri, node_sets=_base_and_top(nodi), material=MATERIALE,
+            percorso, nodi, tetraedri, node_sets=_base_and_top(nodi),
             regioni=regioni,
         )
 
     assert vuoto.read_bytes() == assente.read_bytes()
+    assert not [
+        r for r in assente.read_text(encoding="ascii").splitlines() if r.startswith("**")
+    ]
+
+
+# --- I nomi usciti dalla firma (deck nudo) ---------------------------------
+#
+# Il maglio minimo che basta a produrre un deck: un tetraedro solo. Veniva da
+# `tests/test_condizioni_imposte.py`, uscito col deck nudo -- le sue sette
+# prove guardavano le card `*BOUNDARY` e `*CLOAD`, che `write_inp` non scrive
+# piu' e che il patch test si appende da se' (`tests/validazione/`).
+NODI = np.array([[0.0, 0.0, 0.0], [10.0, 0.0, 0.0], [0.0, 10.0, 0.0], [0.0, 0.0, 10.0]])
+TET = np.array([[0, 1, 2, 3]])
+SET = {"BASE": np.array([0])}
+
+
+@pytest.mark.parametrize(
+    ("chiamata", "kwarg"),
+    [
+        ("write_inp", "material"),
+        ("write_inp", "fixed_nset"),
+        ("write_inp", "gravity"),
+        ("write_inp", "step_name"),
+        ("write_inp", "print_nsets"),
+        ("write_inp", "spostamenti_imposti"),
+        ("write_inp", "carichi_nodali"),
+        ("write_inp", "carichi"),
+        ("write_inp", "pressure"),
+        ("write_inp", "nset_selettori"),
+        ("export_model", "selettori"),
+    ],
+)
+def test_i_vecchi_kwarg_non_hanno_piu_un_ramo_di_compatibilita(chiamata, kwarg, tmp_path):
+    """I nomi usciti dalle due firme devono restare rifiutati.
+
+    Il `TypeError` e' gia' garanzia del linguaggio finche' le due firme non
+    hanno `**kwargs`. Il punto della riga di contratto non e' il `TypeError`
+    in se': e' impedire che *torni* un ramo di compatibilita' silenzioso, che
+    accetti il vecchio nome e lo ignori. Un tale ramo passa sempre per un
+    `**kwargs` sulla firma, e questo test e' la sola riga che lo vede.
+
+    Sette dei dieci nomi di `write_inp` escono col deck nudo -- materiale,
+    vincolo, gravita', passo, stampe, spostamenti imposti, forze nodali: sono
+    decisioni di chi analizza, non dell'esportatore. Gli altri tre erano gia'
+    usciti col deck a un passo.
+
+    Veniva da `tests/test_condizioni_imposte.py`, che il deck nudo svuota.
+
+    Mutazione che lo uccide: aggiungere `**_compat` a `write_inp` o a
+    `export_model`. Il `TypeError` sparisce e gli undici casi diventano rossi.
+    """
+    percorso = tmp_path / "m.inp"
+    with pytest.raises(TypeError):
+        if chiamata == "write_inp":
+            abaqus.write_inp(percorso, NODI, TET, node_sets=SET, **{kwarg: {}})
+        else:
+            abaqus.export_model(
+                percorso, tmp_path / "m.vtu", NODI, TET,
+                config.AnalysisConfig(material=MATERIALE), TET_LINEARE,
+                **{kwarg: {}},
+            )
