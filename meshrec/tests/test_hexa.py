@@ -858,3 +858,14 @@ def test_il_prisma_fuori_piombo_fonde_con_la_trave_e_lo_scarto_e_il_cuneo(tmp_pa
     assert metrica["volume_analitico"] == pytest.approx(analitico, rel=1e-9)
     assert metrica["volume"] == pytest.approx(analitico - cuneo, rel=1e-9)
     assert metrica["scarto_relativo"] == pytest.approx(cuneo / analitico, rel=1e-6)
+
+
+def test_un_prisma_solo_non_fonde_nulla_e_il_volume_e_quello(tmp_path):
+    """Un solo prisma: nessun `fuse` (vuole oggetto e strumento), un solido,
+    volume esattamente area·lunghezza."""
+    pilastro = _prisma_scatola((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), (300.0, 300.0), 3000.0)
+    metrica = hexa.scrivi_step([pilastro], tmp_path / "modello.step")
+    assert metrica["solidi"] == 1
+    assert metrica["volume"] == pytest.approx(300.0 * 300.0 * 3000.0, rel=1e-9)
+    assert metrica["scarto_relativo"] == pytest.approx(0.0, abs=1e-9)
+    assert _rileggi_step(tmp_path / "modello.step") == (1, pytest.approx(300.0 * 300.0 * 3000.0, rel=1e-9))
