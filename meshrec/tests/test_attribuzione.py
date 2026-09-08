@@ -14,7 +14,6 @@ import numpy as np
 import pytest
 
 from meshrec.core import abaqus, attribuzione, config, hexa
-from materiale import MATERIALE
 
 
 def _prisma(centro, lati, altezza):
@@ -50,12 +49,7 @@ def _maglio(baricentri):
 
 def _regione(membratura):
     """Una `RegioneConfig` col minimo che la configurazione pretende."""
-    return config.RegioneConfig(
-        membratura=membratura,
-        materiale=config.MaterialeDichiarato(
-            material=MATERIALE, provenienza="a_mano", norma="NTC 2018 Tab. 4.1.I"
-        ),
-    )
+    return config.RegioneConfig(membratura=membratura)
 
 
 def _membratura(contorno_lati=(100.0, 100.0)):

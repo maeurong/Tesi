@@ -7,7 +7,7 @@ import json
 
 from meshrec import cli
 from meshrec.core import config, io, synth
-from materiale import ANALISI, MATERIALE, _tre_cartelle_finte, crea_config
+from materiale import ANALISI, _tre_cartelle_finte, crea_config
 
 
 SIZE = (120.0, 60.0, 240.0)
@@ -33,32 +33,27 @@ def _config_cubo_su_disco(tmp_path):
     return tmp_path / "config.yaml"
 
 
-def test_init_writes_a_loadable_configuration(tmp_path):
-    target = tmp_path / "config.yaml"
-    assert (
-        cli.main(
-            [
-                "init", str(target),
-                "--input", "nuvola.ply",
-                "--materiale", "CALCESTRUZZO_C25_30",
-                "--young", "31500.0",
-                "--poisson", "0.2",
-                "--densita", "2.5e-9",
-            ]
-        )
-        == 0
-    )
-    scritta = config.load_config(target)
-    assert scritta.input.path.name == "nuvola.ply"
-    assert scritta.analysis.material.name == "CALCESTRUZZO_C25_30"
-    assert scritta.analysis.material.young == pytest.approx(31500.0)
+def test_init_non_esiste_piu(tmp_path, capsys):
+    """Ingresso degenere: qualcuno lancia ancora `meshrec init`.
 
+    `init` scriveva una configurazione di esempio col materiale battuto a mano,
+    e il materiale e' uscito il 08/09/2026 (PR feat/deck-nudo-analisi): si
+    assegna in Abaqus sull'`*ELSET`. Un comando che scrive un blocco che il
+    modello rifiuta produrrebbe un file che non si rilegge.
 
-def test_init_refuses_to_invent_a_material(capsys):
-    """Senza materiale dichiarato `init` non scrive nulla: il programma non sceglie al posto tuo."""
-    with pytest.raises(SystemExit):
-        cli.main(["init", "config.yaml", "--input", "nuvola.ply"])
-    assert "--materiale" in capsys.readouterr().err
+    Il rifiuto e' quello di `argparse` -- sottocomando sconosciuto, uscita 2 --
+    e nessun file viene scritto.
+
+    Mutazione che lo uccide: rimettere `add_parser("init", ...)`.
+    """
+    bersaglio = tmp_path / "config.yaml"
+
+    with pytest.raises(SystemExit) as uscita:
+        cli.main(["init", str(bersaglio), "--input", "nuvola.ply"])
+
+    assert uscita.value.code == 2
+    assert "invalid choice" in capsys.readouterr().err
+    assert not bersaglio.exists()
 
 
 def test_run_executes_the_pipeline_and_writes_the_deck(tmp_path):

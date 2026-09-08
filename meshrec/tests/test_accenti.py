@@ -127,7 +127,11 @@ def test_le_descrizioni_che_il_pannello_mostra_portano_gli_accenti():
     # Se lo schema smette di risolvere qualcosa il controllo diventa cieco
     # invece che rosso: zero descrizioni significa che e' cambiata la forma,
     # non che il difetto e' sparito.
-    assert len(descrizioni) > 40, (
+    # La soglia era 40 su 45 descrizioni. Il 08/09/2026 il deck e' diventato
+    # nudo e con `MaterialeDichiarato` e `RegioneConfig.materiale` sono uscite
+    # sei descrizioni: 39. La soglia scende a 30 -- resta un tetto che vede lo
+    # schema smettere di risolvere, non un numero che insegue il conteggio.
+    assert len(descrizioni) > 30, (
         f"solo {len(descrizioni)} descrizioni raggiunte: lo schema non morde piu'"
     )
 
@@ -188,10 +192,14 @@ def test_gli_identificatori_italiani_restano_in_ascii():
     Senza questo controllo, la guardia qui sopra resterebbe verde anche se
     qualcuno «finisse il lavoro» accentandoli.
 
-    Mutazione che lo uccide: rinominare `--densita` in `--densità` in `cli.py`.
+    Mutazione che lo uccide: rinominare `densita_dispersione` in
+    `densità_dispersione` in `core/wall.py`.
+
+    `--densita` stava in questo elenco ed e' uscito il 08/09/2026 col comando
+    `meshrec init`, che era il suo unico luogo: un flag che non esiste non si
+    puo' accentare.
     """
     identificatori = [
-        "--densita",
         "densita_dispersione",
         "limite_densita_dispersione",
         "unita",

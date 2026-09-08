@@ -115,13 +115,7 @@ def test_due_chiavi_omonime_nello_yaml_sono_rifiutate(tmp_path):
         "    poisson: 0.2\n    density: 1.8e-9\n"
         "regioni:\n"
         "  pilastro:\n    membratura: 0\n"
-        "    materiale:\n      material:\n        name: MURATURA\n"
-        "        young: 1500.0\n        poisson: 0.2\n        density: 1.8e-9\n"
-        "      provenienza: a_mano\n      norma: NTC 2018 Tab. 4.1.I\n"
-        "  pilastro:\n    membratura: 1\n"
-        "    materiale:\n      material:\n        name: MURATURA\n"
-        "        young: 1500.0\n        poisson: 0.2\n        density: 1.8e-9\n"
-        "      provenienza: a_mano\n      norma: NTC 2018 Tab. 4.1.I\n",
+        "  pilastro:\n    membratura: 1\n",
         encoding="utf-8",
     )
     with pytest.raises(ValueError, match="pilastro"):
@@ -626,18 +620,8 @@ def test_le_due_chiavi_laterali_a_null_si_rileggono_come_quelle_valorizzate(tmp_
     assert not hasattr(riletta.model, "lateral_pressure")
 
 
-def _materiale_dichiarato(**campi) -> dict:
-    """Un `MaterialeDichiarato` come lo scrive l'operatore, coi minimi ammessi."""
-    return {
-        "material": MATERIALE.model_dump(),
-        "provenienza": "a_mano",
-        "norma": "NTC 2018 Tab. 4.1.I",
-        **campi,
-    }
-
-
 def _regione(**campi) -> dict:
-    return {"membratura": 0, "materiale": _materiale_dichiarato(), **campi}
+    return {"membratura": 0, **campi}
 
 
 def test_le_regioni_vuote_escono_dall_impronta_e_dal_payload():
@@ -693,97 +677,62 @@ def test_una_regione_dichiarata_entra_nell_impronta():
     assert fingerprint(piena) != fingerprint(vuota)
 
 
-def test_una_regione_e_una_membratura_e_il_suo_materiale():
-    """Due campi e basta: il prisma e cio' che il deck gli scrive dentro.
+def test_una_regione_e_la_sola_membratura():
+    """Un campo e basta: quale prisma. Il materiale non c'e' piu' -- si assegna
+    in Abaqus sull'`*ELSET` che il deck scrive (08/09/2026, PR
+    feat/deck-nudo-analisi).
 
-    Portava una `sezione` con tre materiali e l'armatura, perche' una sezione a
-    fibre se li porta dentro. Uscito il solutore a fibre con la mappa #161, di
-    quei quattro il deck ne leggeva uno.
+    L'insieme esatto dei campi, non la sola assenza di `materiale`: un campo
+    che facesse la stessa cosa sotto un altro nome passerebbe un `not in` e non
+    passa questo.
 
-    Mutazione che lo uccide: rimettere un secondo materiale che nessuno legge.
+    Mutazione che lo uccide: rimettere un campo qualsiasi su `RegioneConfig`.
     """
     cfg = crea_config(
         input=config.InputConfig(path="nuvola.ply"),
         regioni={"trave": _regione()},
     )
 
-    regione = cfg.regioni["trave"]
-    assert regione.membratura == 0
-    assert regione.materiale.material.name
-    assert set(config.RegioneConfig.model_fields) == {"membratura", "materiale"}
+    assert cfg.regioni["trave"].membratura == 0
+    assert set(config.RegioneConfig.model_fields) == {"membratura"}
 
 
-def test_il_materiale_dichiarato_non_ha_una_veste_da_scegliere():
-    """#141 senza eccezioni: le voci sono **sempre** caratteristiche.
+def test_una_regione_che_dichiara_ancora_un_materiale_e_rifiutata_per_nome(tmp_path):
+    """Ingresso degenere: un `config.yaml` scritto prima del 08/09/2026.
 
-    Il programma deriva i valori di progetto applicando i coefficienti di
-    norma. Un campo che permettesse di dichiarare «questo valore e' gia'
-    ridotto» aprirebbe la strada a una doppia riduzione o a nessuna, senza che
-    nulla se ne accorga. Le parole «gia' ridotte» di #146 riguardano il fattore
-    di confidenza e il livello di conoscenza, che valgono sulla muratura e non
-    su un calcestruzzo.
+    Senza il validatore la chiave non e' un errore: pydantic ignora le chiavi
+    in piu', la corsa parte e il materiale dichiarato non arriva in nessun
+    deck. Un file che cambia significato in silenzio e' il difetto preciso che
+    il rifiuto nominato esiste per impedire.
 
-    Il test guarda il comportamento e non la prosa: asserire sottostringhe di
-    una `description` si sarebbe rotto riscrivendo quella descrizione senza che
-    nulla cambiasse, e sarebbe restato verde con un campo `veste` chiamato in
-    un altro modo.
-
-    Mutazione che lo uccide: reintrodurre un campo qualsiasi su
-    `MaterialeDichiarato` -- il modello smette di rifiutare la chiave in piu'.
+    Mutazione che lo uccide: togliere il validatore `before` da
+    `RegioneConfig`. La `load_config` torna una `PipelineConfig` buona.
     """
-    # L'insieme esatto dei campi, non la sola assenza di `veste`: un campo che
-    # facesse la stessa cosa sotto un altro nome («qualita», «stato»...)
-    # passerebbe un `not in` e non passa questo.
-    assert set(config.MaterialeDichiarato.model_fields) == {
-        "material", "f_k", "provenienza", "classe", "norma",
-    }
-    # `f_k` e' e resta caratteristica: il dominio che lo dice e' il positivo
-    # stretto, non la prosa. Togliere `gt=0.0` lasciava la suite verde.
-    assert config.MaterialeDichiarato.model_validate(
-        _materiale_dichiarato(f_k=25.0)
-    ).f_k == 25.0
-    for storto in (0.0, -25.0):
-        with pytest.raises(ValidationError):
-            config.MaterialeDichiarato.model_validate(_materiale_dichiarato(f_k=storto))
-
-
-def test_la_provenienza_da_catalogo_pretende_la_classe_e_a_mano_la_rifiuta():
-    """I due campi si dichiaravano indipendenti: `provenienza='catalogo'` senza
-    `classe` passava, e `provenienza='a_mano'` con `classe` pure.
-
-    E' il difetto preciso che #141 esiste per impedire: in onda 2 si cercherebbe
-    nel catalogo una classe `None`, oppure la tabella di provenienza della tesi
-    direbbe «da catalogo» senza dire quale voce.
-
-    Mutazione che lo uccide: togliere il validatore. Entrambe le chiamate
-    passano e la provenienza smette di essere verificabile.
-    """
-    with pytest.raises(ValidationError, match="catalogo"):
-        config.MaterialeDichiarato.model_validate(
-            _materiale_dichiarato(provenienza="catalogo")
-        )
-    with pytest.raises(ValidationError, match="catalogo"):
-        config.MaterialeDichiarato.model_validate(
-            _materiale_dichiarato(provenienza="a_mano", classe="C25/30")
-        )
-    dal_catalogo = config.MaterialeDichiarato.model_validate(
-        _materiale_dichiarato(provenienza="catalogo", classe="C25/30")
+    percorso = tmp_path / "config.yaml"
+    percorso.write_text(
+        "input:\n  path: nuvola.ply\n"
+        "regioni:\n"
+        "  pilastro:\n"
+        "    membratura: 0\n"
+        "    materiale:\n"
+        "      material:\n"
+        "        name: CLS\n        young: 31476.0\n"
+        "        poisson: 0.2\n        density: 2.5e-9\n"
+        "      provenienza: a_mano\n"
+        "      norma: NTC 2018 Tab. 4.1.I\n",
+        encoding="utf-8",
     )
-    assert dal_catalogo.classe == "C25/30"
-    assert config.MaterialeDichiarato.model_validate(
-        _materiale_dichiarato(provenienza="a_mano")
-    ).classe is None
 
+    with pytest.raises(ValidationError) as rifiuto:
+        config.load_config(percorso)
 
-@pytest.mark.parametrize("vuota", ["", "   "])
-def test_la_norma_di_un_materiale_dichiarato_non_puo_essere_vuota(vuota):
-    """Per la sua stessa descrizione `norma` e' cio' che distingue un valore di
-    norma da uno inventato: vuota, passava e finiva in tabella.
-
-    Mutazione che lo uccide: togliere `min_length=1` dal vincolo di `norma`.
-    """
-    with pytest.raises(ValidationError):
-        config.MaterialeDichiarato.model_validate(_materiale_dichiarato(norma=vuota))
+    detto = str(rifiuto.value)
+    assert "materiale" in detto
+    assert "08/09/2026" in detto
+    # Il percorso dice **quale** regione: con dodici regioni dichiarate, un
+    # messaggio senza il nome manda a cercare a mano.
+    percorsi = [".".join(str(v) for v in errore["loc"]) for errore in rifiuto.value.errors()]
+    assert any(p.startswith("regioni.pilastro") for p in percorsi), percorsi
 
 
 def test_due_regioni_che_differiscono_solo_per_maiuscole_sono_rifiutate():

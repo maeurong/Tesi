@@ -194,23 +194,10 @@ def test_cambiare_una_regione_invalida_lo_step_11(tmp_path):
 
     assert steps.STEP_BLOCKS[11] == ("tet", "export", "regioni")
 
-    materiale = {
-        "material": {"name": "CLS", "young": 31476.0, "poisson": 0.2, "density": 2.5e-9},
-        "provenienza": "a_mano",
-        "norma": "NTC 2018 Tab. 4.1.I",
-    }
     uno = _config(tmp_path)
-    uno.regioni = {
-        "pilastro": RegioneConfig.model_validate(
-            {"membratura": 0, "materiale": materiale}
-        )
-    }
+    uno.regioni = {"pilastro": RegioneConfig.model_validate({"membratura": 0})}
     altro = _config(tmp_path)
-    altro.regioni = {
-        "pilastro": RegioneConfig.model_validate(
-            {"membratura": 1, "materiale": materiale}
-        )
-    }
+    altro.regioni = {"pilastro": RegioneConfig.model_validate({"membratura": 1})}
 
     assert steps.step_fingerprints(uno)[11] != steps.step_fingerprints(altro)[11]
 

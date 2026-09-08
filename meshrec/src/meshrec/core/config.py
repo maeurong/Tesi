@@ -823,84 +823,8 @@ NOMI_SET_DI_FACCIA: tuple[str, ...] = (
 NOMI_ELSET_FABBRICATI: tuple[str, ...] = ("ALL_WALL",)
 
 
-class MaterialeDichiarato(_ModelloBase):
-    """Il materiale di una regione, con cio' che dichiara di se' (#141).
-
-    Sta qui e non dentro `Material`, che e' congelato: un campo nuovo la'
-    sposterebbe l'impronta di tutte le ventidue righe dei registri, perche'
-    `analysis` non e' fra i blocchi esclusi. Il modello congelato viene riusato
-    intero e il resto -- resistenza, provenienza, norma -- gli sta accanto.
-
-    **Non c'e' un campo `veste`, ed e' una decisione e non una dimenticanza.**
-    La proposta di dichiarare se un valore fosse «caratteristico» o «gia'
-    ridotto» apriva la strada a una doppia riduzione o a nessuna, senza che
-    nulla se ne accorgesse. #141 vale senza eccezioni: le voci sono **sempre**
-    caratteristiche, e i valori di progetto li deriva il programma applicando i
-    coefficienti di norma. Le parole «gia' ridotte» di #146 riguardano il
-    fattore di confidenza e il livello di conoscenza, che si applicano alla
-    muratura e non a un calcestruzzo.
-    """
-
-    material: Material = Field(
-        description="il modello elastico isotropo, dichiarato per intero come altrove"
-    )
-    f_k: float | None = Field(
-        default=None,
-        gt=0.0,
-        description=(
-            "resistenza CARATTERISTICA [MPa]: f_ck per un calcestruzzo, f_yk per "
-            "un acciaio. Mai un valore di progetto: i γ di norma li applica il "
-            "programma, e una voce già ridotta verrebbe ridotta due volte"
-        ),
-    )
-    provenienza: Literal["catalogo", "a_mano"] = Field(
-        description=(
-            "da dove viene questa voce: da una classe del catalogo dei materiali "
-            "oppure battuta a mano. Senza dichiararlo un numero non ha provenienza, "
-            "ed è la sola cosa che distingue un valore di norma da uno inventato"
-        ),
-    )
-    classe: str | None = Field(
-        default=None,
-        description=(
-            "la voce del catalogo, es. «C25/30» o «B450C», quando la provenienza "
-            "è `catalogo`. Assente per una voce battuta a mano, e obbligatoria "
-            "per una che viene dal catalogo: i due campi si dichiarano insieme"
-        ),
-    )
-    norma: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)] = Field(
-        description=(
-            "la norma con cui il valore è dichiarato, per articolo e non per "
-            "pagina di una dispensa: es. «NTC 2018 Tab. 4.1.I», la tabella che "
-            "porta i valori delle classi -- la 4.1.II dice invece dove una "
-            "classe si può impiegare. Non può essere vuota: è la sola cosa che "
-            "distingue un valore di norma da uno inventato, e vuota passerebbe "
-            "fino alla tabella di provenienza"
-        ),
-    )
-
-    @model_validator(mode="after")
-    def _la_provenienza_e_la_classe_si_dichiarano_insieme(self) -> "MaterialeDichiarato":
-        """La provenienza dice da dove viene il numero, la classe dice quale voce.
-
-        Erano indipendenti: `provenienza='catalogo'` senza `classe` passava, e
-        `provenienza='a_mano'` con `classe` pure. La prima manda a cercare nel
-        catalogo una voce `None`; la seconda mette in tabella «da catalogo»
-        senza dire quale voce, che e' il difetto preciso che #141 esiste per
-        impedire.
-        """
-        if (self.provenienza == "catalogo") != (self.classe is not None):
-            raise ValueError(
-                f"provenienza='{self.provenienza}' e classe={self.classe!r} non "
-                "stanno insieme: una voce dal catalogo dichiara quale voce è, e "
-                "una battuta a mano non ne ha una. Senza, la tabella di "
-                "provenienza direbbe «da catalogo» senza dire di che cosa"
-            )
-        return self
-
-
 class RegioneConfig(_ModelloBase):
-    """Un prisma di membratura e il materiale che il deck gli scrive dentro.
+    """Un prisma di membratura, e nient'altro.
 
     Il nome della regione e' la chiave del dizionario `PipelineConfig.regioni`,
     e diventa un `*ELSET` nel deck: e' per questo che le chiavi seguono le
@@ -909,8 +833,9 @@ class RegioneConfig(_ModelloBase):
     Portava una `sezione` con tre materiali -- nucleo confinato, copriferro,
     acciaio -- e l'armatura, perche' una sezione a fibre se li porta dentro.
     Uscito il solutore a fibre con la mappa #161, di quei quattro il deck ne
-    leggeva uno: quello. Tre campi che l'operatore compila e che nessuno
-    consuma sono tre numeri senza un controllo che li smentisca.
+    leggeva uno. Dal 08/09/2026 non ne legge piu' nessuno: il deck e' nudo, e
+    il materiale si assegna in Abaqus sull'`*ELSET` che la regione produce.
+    Resta il solo indice del prisma.
     """
 
     membratura: int = Field(
@@ -922,9 +847,28 @@ class RegioneConfig(_ModelloBase):
             "e il rifiuto dell'indice fuori intervallo spetta a chi legge il prior"
         ),
     )
-    materiale: MaterialeDichiarato = Field(
-        description="il materiale che il deck scrive per questa regione"
-    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _rifiuta_il_materiale(cls, dati: object) -> object:
+        """Un `config.yaml` scritto prima del 08/09/2026 porta ancora il campo.
+
+        Senza questo rifiuto la chiave non e' un errore: pydantic ignora cio'
+        che il modello non dichiara, la corsa parte e il materiale scritto
+        dall'operatore non arriva in nessun deck. Un file che cambia
+        significato in silenzio e' peggio di un file rifiutato.
+
+        Il messaggio non nomina la regione: la chiave del dizionario la
+        conosce solo chi valida il blocco, e pydantic la mette da se' nel
+        percorso dell'errore (`regioni.<nome>`).
+        """
+        if isinstance(dati, dict) and "materiale" in dati:
+            raise ValueError(
+                "il campo `materiale` di una regione non esiste più (08/09/2026, "
+                "PR feat/deck-nudo-analisi): il materiale si assegna in Abaqus "
+                "sull'`*ELSET`"
+            )
+        return dati
 
 
 class PipelineConfig(_ModelloBase):

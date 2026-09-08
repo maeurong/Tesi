@@ -15,7 +15,6 @@ from fastapi.testclient import TestClient
 
 from meshrec.app import server
 from meshrec.app.server import create_app
-from meshrec.core import materiali
 from meshrec.core.config import InputConfig, PipelineConfig, load_config, save_config
 from materiale import ANALISI
 
@@ -99,15 +98,8 @@ def test_una_regione_che_collide_con_lelset_fabbricato_e_rifiutata_dallendpoint(
 
     Mutazione che lo uccide: togliere `ALL_WALL` da `NOMI_ELSET_FABBRICATI`.
     """
-    materiale = {
-        "material": {"name": "CLS", "young": 31476.0, "poisson": 0.2, "density": 2.5e-9},
-        "provenienza": "a_mano",
-        "norma": "NTC 2018 Tab. 4.1.I",
-    }
     guasta = cliente.get("/api/config").json()
-    guasta["regioni"] = {
-        "all_wall": {"membratura": 0, "materiale": materiale}
-    }
+    guasta["regioni"] = {"all_wall": {"membratura": 0}}
     risposta = cliente.put("/api/config", json=guasta)
     assert risposta.status_code == 422
     # Il messaggio si legge a video: nomina la regione, l'insieme con cui
@@ -2302,84 +2294,17 @@ def test_le_metriche_di_una_corsa_mai_eseguita_sono_vuote_e_non_sollevano(client
     assert risposta.json() == {}
 
 
-def test_il_catalogo_dei_materiali_porta_le_classi_di_calcestruzzo(cliente):
-    """Il pannello del materiale chiedeva quattro numeri battuti a mano.
+def test_la_rotta_del_catalogo_dei_materiali_non_esiste_piu(cliente):
+    """Ingresso degenere: qualcuno chiede ancora `/api/materiali`.
 
-    Il catalogo di `core.materiali` esiste dal 30/08/2026 con le classi della
-    Tab. 4.1.I delle NTC 2018, e nessuna tratta lo serviva: il modulo elastico
-    di norma restava scritto a mano, arrotondato, e con la classe che lo
-    giustifica nominata da nessuna parte. Una corsa reale portava `young:
-    31500` dove la [11.2.2] su C25/30 da' 31475,81.
+    Il catalogo serviva il pannello del materiale, uscito il 08/09/2026 con la
+    PR feat/deck-nudo-analisi: il materiale si assegna in Abaqus sull'`*ELSET`,
+    e una tratta che nessuno interroga e' codice che nessun consumatore
+    sorveglia.
 
-    L'acciaio resta fuori: lo step 11 dichiara il materiale del continuo
-    solido, che in un cemento armato e' il calcestruzzo. L'acciaio vive nelle
-    sezioni delle membrature, e offrirlo qui darebbe un modello di solo
-    acciaio senza che nulla lo segnali.
+    Mutazione che lo uccide: rimettere la rotta. La risposta torna 200.
     """
-    risposta = cliente.get("/api/materiali")
-    assert risposta.status_code == 200
-    voci = risposta.json()["voci"]
-
-    classi = [voce["classe"] for voce in voci]
-    assert "C25/30" in classi
-    assert "C90/105" in classi
-    # Nessun acciaio, e il conto per intero: cosi' una voce nuova nel catalogo
-    # arriva al pannello senza aggiornare questo elenco, ma una famiglia nuova
-    # che ci entrasse di straforo si vede.
-    assert not [voce for voce in voci if voce["famiglia"] != "calcestruzzo"]
-    assert len(voci) == len(
-        [voce for voce in materiali.CATALOGO if voce.famiglia == "calcestruzzo"]
-    )
-
-
-def test_il_catalogo_serve_le_avvertenze_della_classe_accanto_alla_nota(cliente):
-    """Il pannello mostra le avvertenze della classe, non la nota intera.
-
-    La `nota` resta servita perche' e' la provenienza per intero -- la difesa
-    dei numeri che vale per ogni classe -- ma sopra il menu' del materiale
-    l'unica cosa da leggere e' cio' che riguarda la classe appena scelta. Le due
-    chiavi viaggiano insieme: chi legge il catalogo ha la prima, chi sceglie una
-    classe ha la seconda.
-
-    Mutazione che lo uccide: servire la sola `nota`, e lasciare al pannello il
-    compito di ritagliarla.
-    """
-    voci = cliente.get("/api/materiali").json()["voci"]
-    bassa = next(v for v in voci if v["classe"] == "C8/10")
-    piana = next(v for v in voci if v["classe"] == "C25/30")
-
-    assert any("Sotto la classe minima" in a for a in bassa["avvertenze"]), (
-        f"le avvertenze di C8/10 non arrivano alla tratta: {bassa['avvertenze']}"
-    )
-    assert len(" ".join(bassa["avvertenze"])) < len(bassa["nota"]), (
-        "le avvertenze sono lunghe quanto la nota: non e' stato separato niente"
-    )
-    assert piana["avvertenze"] == [], (
-        f"una classe senza condizioni d'uso porta comunque avvertenze: {piana['avvertenze']}"
-    )
-    assert "11.2.10.4" in piana["nota"], "la nota servita ha perso la difesa dei numeri"
-
-
-def test_ogni_voce_del_catalogo_porta_i_numeri_e_la_fonte(cliente):
-    """I tre valori meccanici e l'autorita' che li giustifica, insieme.
-
-    Servire i numeri senza la fonte li renderebbe indistinguibili da valori
-    inventati, che e' il difetto che `core.materiali` esiste per impedire: il
-    menu' li mostra, e chi legge il modello deve poter risalire all'articolo.
-    """
-    voci = cliente.get("/api/materiali").json()["voci"]
-    voce = next(v for v in voci if v["classe"] == "C25/30")
-
-    atteso = materiali.trova("C25/30")
-    assert voce["young"] == pytest.approx(atteso.young)
-    assert voce["poisson"] == pytest.approx(atteso.poisson)
-    assert voce["density"] == pytest.approx(atteso.density)
-    assert voce["f_k"] == pytest.approx(25.0)
-    # Il modulo elastico non e' tabellato: lo da' la [11.2.2]. Il valore
-    # arrotondato che una corsa reale portava a mano era 31500.
-    assert voce["young"] == pytest.approx(31475.81, abs=0.01)
-    assert voce["fonte"].strip()
-    assert "NTC 2018" in voce["fonte"]
+    assert cliente.get("/api/materiali").status_code == 404
 
 
 def test_lo_schema_dice_quali_parametri_appartengono_a_ogni_step(cliente):
@@ -3595,20 +3520,10 @@ def test_una_corsa_di_riferimento_non_prende_uno_storico(cliente, tmp_path):
 @pytest.fixture()
 def cliente_con_regioni(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     """Come `cliente`, ma con una regione dichiarata nel config sul disco."""
-    materiale = {
-        "material": {"name": "CLS", "young": 31476.0, "poisson": 0.2, "density": 2.5e-9},
-        "provenienza": "a_mano",
-        "norma": "NTC 2018 Tab. 4.1.I",
-    }
     cfg = PipelineConfig(
         input=InputConfig(path=tmp_path / "nuvola.ply"),
         analysis=ANALISI,
-        regioni={
-            "pilastro": {
-                "membratura": 0,
-                "materiale": materiale,
-            }
-        },
+        regioni={"pilastro": {"membratura": 0}},
     )
     cfg.run.out_dir = tmp_path / "corsa"
     # pydantic ignora i campi che il modello non ha: senza questa riga il
@@ -3625,6 +3540,41 @@ def cliente_con_regioni(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Test
         base_url="http://127.0.0.1",
         raise_server_exceptions=False,
     )
+
+
+def test_una_regione_col_materiale_nel_corpo_della_put_e_rifiutata_dicendo_quale(cliente):
+    """Ingresso degenere: `PUT /api/config` con un `regioni.X.materiale`.
+
+    E' la via vera per cui una configurazione vecchia rientra dopo che il campo
+    e' uscito: il pannello rimanda indietro cio' che ha letto. Senza il
+    validatore la chiave in piu' viene ignorata e la PUT risponde 200 su una
+    configurazione che dice una cosa che il programma non fa piu'.
+
+    Mutazione che lo uccide: togliere il validatore `before` da
+    `RegioneConfig`.
+    """
+    corpo = cliente.get("/api/config").json()
+    corpo["regioni"] = {
+        "pilastro": {
+            "membratura": 0,
+            "materiale": {
+                "material": {
+                    "name": "CLS", "young": 31476.0, "poisson": 0.2, "density": 2.5e-9,
+                },
+                "provenienza": "a_mano",
+                "norma": "NTC 2018 Tab. 4.1.I",
+            },
+        }
+    }
+
+    risposta = cliente.put("/api/config", json=corpo)
+
+    assert risposta.status_code == 422
+    detto = risposta.json()["messaggio"]
+    # Con dodici regioni dichiarate, un rifiuto che non dice quale manda a
+    # cercare a mano.
+    assert "pilastro" in detto, detto
+    assert "materiale" in detto, detto
 
 
 @pytest.mark.parametrize("banco", ["cliente", "cliente_con_regioni"])

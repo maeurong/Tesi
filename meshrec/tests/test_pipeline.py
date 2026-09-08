@@ -1442,17 +1442,9 @@ def test_una_config_yaml_vecchia_arriva_al_deck_nudo(tmp_path):
 # e' leggere il futuro. Il flusso e' arrivare a 12, dichiarare le regioni,
 # rieseguire lo step 11.
 
-_CLS_NUCLEO = config.Material(name="CLS_C25", young=31476.0, poisson=0.2, density=2.5e-9)
-
-
-def _regione(membratura, materiale):
-    """Una `RegioneConfig` col materiale chiesto."""
-    return config.RegioneConfig(
-        membratura=membratura,
-        materiale=config.MaterialeDichiarato(
-            material=materiale, provenienza="a_mano", norma="NTC 2018 Tab. 4.1.I"
-        ),
-    )
+def _regione(membratura):
+    """Una `RegioneConfig`: l'indice del prisma, e nient'altro."""
+    return config.RegioneConfig(membratura=membratura)
 
 
 def test_lo_step_11_rilegge_il_prior_e_porta_l_elset_della_regione_nel_deck(tmp_path):
@@ -1473,7 +1465,7 @@ def test_lo_step_11_rilegge_il_prior_e_porta_l_elset_della_regione_nel_deck(tmp_
     pipeline.run(cfg)
     assert (cfg.run.out_dir / pipeline.WALL_FILENAME).exists()
 
-    cfg.regioni = {"NUCLEO": _regione(0, _CLS_NUCLEO)}
+    cfg.regioni = {"NUCLEO": _regione(0)}
     cfg.run.from_step = 9
     cfg.run.to_step = 11
     metriche = pipeline.run(cfg)
@@ -1500,7 +1492,7 @@ def test_lo_step_11_senza_il_prior_nomina_lo_step_12_e_il_comando_wall(tmp_path)
     manca, invece di sollevare.
     """
     cfg = _config_cubo(tmp_path)
-    cfg.regioni = {"NUCLEO": _regione(0, _CLS_NUCLEO)}
+    cfg.regioni = {"NUCLEO": _regione(0)}
     cfg.run.to_step = 11
 
     with pytest.raises(FileNotFoundError) as errore:
@@ -1528,7 +1520,7 @@ def test_un_prior_troncato_e_dichiarato_invece_di_valere_come_prior(tmp_path):
     percorso = cfg.run.out_dir / pipeline.WALL_FILENAME
     percorso.write_text(percorso.read_text(encoding="utf-8")[:80], encoding="utf-8")
 
-    cfg.regioni = {"NUCLEO": _regione(0, _CLS_NUCLEO)}
+    cfg.regioni = {"NUCLEO": _regione(0)}
     cfg.run.from_step = 9
     cfg.run.to_step = 11
 
