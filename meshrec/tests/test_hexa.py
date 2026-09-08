@@ -8,6 +8,8 @@ sotto prova.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -783,3 +785,151 @@ def test_il_cuneo_e_calcolato_dalla_geometria_e_allarga_le_facce_a_contatto():
     # una differenza di poche facce fra piattaforme non fabbrica un rosso.
     assert len(modello["superfici"][dipendente]) >= 15, "senza il cuneo sarebbero 10"
     assert len(modello["superfici"][indipendente]) >= 21, "senza il cuneo sarebbero 16"
+
+
+def _prisma_scatola(origine, asse, lati, lunghezza):
+    """Un parallelepipedo come Prisma: contorno rettangolare centrato nel piano locale."""
+    a, b = lati
+    contorno = np.array([[-a / 2, -b / 2], [a / 2, -b / 2], [a / 2, b / 2], [-a / 2, b / 2]])
+    return hexa.Prisma(
+        contorno=contorno, origine=np.asarray(origine, dtype=np.float64),
+        asse=np.asarray(asse, dtype=np.float64), lunghezza=float(lunghezza),
+    )
+
+
+def _rileggi_step(percorso):
+    """Solidi e volume totale del file STEP, riletti con gmsh: e' l'oracolo, non la funzione."""
+    import gmsh
+    gmsh.initialize()
+    try:
+        gmsh.option.setNumber("General.Terminal", 0)
+        entita = gmsh.model.occ.importShapes(str(percorso))
+        gmsh.model.occ.synchronize()
+        solidi = [tag for dim, tag in entita if dim == 3]
+        return len(solidi), sum(gmsh.model.occ.getMass(3, tag) for tag in solidi)
+    finally:
+        gmsh.finalize()
+
+
+def test_due_prismi_a_t_danno_un_solido_di_volume_analitico(tmp_path):
+    """Pilastro verticale 300x300x3000 e trave 300x500x4000 appoggiata in testa,
+    a contatto: un solido, volume = somma dei due (rel 1e-9)."""
+    pilastro = _prisma_scatola((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), (300.0, 300.0), 3000.0)
+    trave = _prisma_scatola((-500.0, 0.0, 3250.0), (1.0, 0.0, 0.0), (300.0, 500.0), 4000.0)
+    metrica = hexa.scrivi_step([pilastro, trave], tmp_path / "modello.step")
+    atteso = 300.0 * 300.0 * 3000.0 + 300.0 * 500.0 * 4000.0
+    assert metrica["solidi"] == 1
+    assert metrica["volume_analitico"] == pytest.approx(atteso, rel=1e-9)
+    assert metrica["volume"] == pytest.approx(atteso, rel=1e-9)
+    assert metrica["scarto_relativo"] == pytest.approx(0.0, abs=1e-9)
+    solidi, volume = _rileggi_step(tmp_path / "modello.step")
+    assert solidi == 1
+    assert volume == pytest.approx(atteso, rel=1e-9)
+
+
+def test_due_prismi_disgiunti_restano_due_solidi_e_il_file_si_scrive(tmp_path):
+    """Dieci millimetri d'aria: nessuna eccezione, `solidi == 2`, volume = somma."""
+    a = _prisma_scatola((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), (300.0, 300.0), 3000.0)
+    b = _prisma_scatola((310.0, 0.0, 0.0), (0.0, 0.0, 1.0), (300.0, 300.0), 3000.0)
+    metrica = hexa.scrivi_step([a, b], tmp_path / "modello.step")
+    assert metrica["solidi"] == 2
+    assert metrica["volume"] == pytest.approx(2 * 300.0 * 300.0 * 3000.0, rel=1e-9)
+    # Niente si compenetra: i due volumi coincidono e lo scarto e' zero. Uno
+    # `scarto_relativo` costante nel ramo multi-solido passerebbe senza queste due.
+    assert metrica["volume_analitico"] == pytest.approx(metrica["volume"], rel=1e-9)
+    assert metrica["scarto_relativo"] == pytest.approx(0.0, abs=1e-9)
+    assert _rileggi_step(tmp_path / "modello.step")[0] == 2
+
+
+def test_costruisci_senza_membrature_solleva_prima_di_toccare_il_disco():
+    """Il gemello di `test_zero_prismi_non_scrivono_un_file` sull'altra porta del
+    modulo: lista vuota di membrature, non sezione rifiutata. Il piano la dava
+    coperta da `test_una_corsa_figlia_fallita...`, che prova invece il
+    riempimento «vuoto» -- un'altra guardia, un altro messaggio."""
+    with pytest.raises(ValueError, match="nessuna membratura"):
+        hexa.costruisci([], "estruso", ModelConfig())
+
+
+def test_zero_prismi_non_scrivono_un_file(tmp_path):
+    with pytest.raises(ValueError, match="membratura"):
+        hexa.scrivi_step([], tmp_path / "modello.step")
+    assert not (tmp_path / "modello.step").exists()
+
+
+def test_una_lunghezza_non_finita_solleva_prima_di_gmsh_e_non_scrive(tmp_path):
+    """`lunghezza=nan` arrivava fino a `occ.extrude`, che abbatte il processo con
+    SIGSEGV (verificato a mano il 08/09/2026: exit 139). La guardia sta prima di
+    `gmsh.initialize()` e nomina indice e valore, come in `mesh_prisma`."""
+    buono = _prisma_scatola((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), (300.0, 300.0), 3000.0)
+    rotto = _prisma_scatola((1000.0, 0.0, 0.0), (0.0, 0.0, 1.0), (300.0, 300.0), 1.0)
+    rotto = hexa.Prisma(
+        contorno=rotto.contorno, origine=rotto.origine, asse=rotto.asse,
+        lunghezza=float("nan"),
+    )
+    with pytest.raises(ValueError, match=r"prisma 1.*nan"):
+        hexa.scrivi_step([buono, rotto], tmp_path / "modello.step")
+    assert not (tmp_path / "modello.step").exists()
+
+
+def test_un_contorno_collineare_solleva_prima_di_gmsh_e_non_scrive(tmp_path):
+    """Tre punti su una retta: area zero. Prima della guardia lo scarto relativo
+    divideva per zero *dopo* aver scritto il file, e restava un `modello.step`
+    che nessuna metrica accompagnava."""
+    collineare = hexa.Prisma(
+        contorno=np.array([[0.0, 0.0], [100.0, 0.0], [200.0, 0.0]]),
+        origine=np.zeros(3), asse=ASSE_Z, lunghezza=3000.0,
+    )
+    with pytest.raises(ValueError, match=r"prisma 0.*area"):
+        hexa.scrivi_step([collineare], tmp_path / "modello.step")
+    assert not (tmp_path / "modello.step").exists()
+
+
+def test_una_scrittura_interrotta_non_lascia_un_modello_step_col_nome_finale(tmp_path, monkeypatch):
+    """`gmsh.write` che muore a meta' non deve lasciare un `modello.step` monco
+    col nome finale: chi rilegge gli artefatti lo prenderebbe per completo.
+    Come gli altri artefatti, passa da `io.scrivi_atomico`."""
+    import gmsh
+
+    def a_meta(percorso, *args, **kwargs):
+        Path(percorso).write_text("ISO-10303-21;\n", encoding="utf-8")
+        raise RuntimeError("scrittura interrotta")
+
+    monkeypatch.setattr(gmsh, "write", a_meta)
+    pilastro = _prisma_scatola((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), (300.0, 300.0), 3000.0)
+    with pytest.raises(RuntimeError, match="scrittura interrotta"):
+        hexa.scrivi_step([pilastro], tmp_path / "modello.step")
+    assert not (tmp_path / "modello.step").exists()
+
+
+def test_il_prisma_fuori_piombo_fonde_con_la_trave_e_lo_scarto_e_il_cuneo(tmp_path):
+    """Due gradi di fuori piombo (misurato in #188: fonde a opzioni predefinite).
+    La testa inclinata entra nella trave per un cuneo B*tan(theta)*(B/2)^2/2
+    (la formula di esperimento.py, caso_piombo): il volume fuso e' l'analitico
+    meno il cuneo, e lo scarto lo dichiara -- 1,35e-4, non zero."""
+    theta = np.radians(2.0)
+    asse = np.array([np.sin(theta), 0.0, np.cos(theta)])
+    lunghezza = 3000.0 / np.cos(theta)
+    pilastro = _prisma_scatola((0.0, 0.0, 0.0), asse, (300.0, 300.0), lunghezza)
+    trave = _prisma_scatola((-500.0, 0.0, 3250.0), (1.0, 0.0, 0.0), (300.0, 500.0), 4000.0)
+    metrica = hexa.scrivi_step([pilastro, trave], tmp_path / "modello.step")
+    analitico = 300.0 * 300.0 * lunghezza + 300.0 * 500.0 * 4000.0
+    cuneo = 300.0 * np.tan(theta) * 150.0 ** 2 / 2.0
+    assert metrica["solidi"] == 1
+    assert metrica["volume_analitico"] == pytest.approx(analitico, rel=1e-9)
+    assert metrica["volume"] == pytest.approx(analitico - cuneo, rel=1e-9)
+    assert metrica["scarto_relativo"] == pytest.approx(cuneo / analitico, rel=1e-6)
+
+
+def test_un_prisma_solo_non_fonde_nulla_e_il_volume_e_quello(tmp_path):
+    """Un solo prisma: nessun `fuse` (vuole oggetto e strumento), un solido,
+    volume esattamente area·lunghezza."""
+    pilastro = _prisma_scatola((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), (300.0, 300.0), 3000.0)
+    metrica = hexa.scrivi_step([pilastro], tmp_path / "modello.step")
+    assert metrica["solidi"] == 1
+    assert metrica["volume"] == pytest.approx(300.0 * 300.0 * 3000.0, rel=1e-9)
+    assert metrica["scarto_relativo"] == pytest.approx(0.0, abs=1e-9)
+    assert _rileggi_step(tmp_path / "modello.step") == (1, pytest.approx(300.0 * 300.0 * 3000.0, rel=1e-9))
+    # `schema: "AP214"` e' l'unico campo della metrica che nessun altro controllo
+    # smentisce: gmsh 4.15.2 lo scrive come FILE_SCHEMA(('AUTOMOTIVE_DESIGN ...')).
+    intestazione = (tmp_path / "modello.step").read_text(encoding="utf-8", errors="replace")[:2000]
+    assert "AUTOMOTIVE_DESIGN" in intestazione

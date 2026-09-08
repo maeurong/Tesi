@@ -1212,6 +1212,52 @@ def _scrivi_prior_telaio(cfg, telaio, spaziatura=_SPAZIATURA_TELAIO):
     return esito_prior
 
 
+@pytest.mark.parametrize("tipo", ["estruso", "primitive"])
+def test_genera_modello_scrive_anche_la_geometria_step(tmp_path, tipo):
+    """Accanto al deck, `modello.step`: un solido per il telaio sintetico, la
+    metrica in `esito["step"]` e in modello.json, per entrambi i tipi."""
+    cfg = _config_cubo(tmp_path)
+    _scrivi_prior_telaio(cfg, _TELAIO_QUATTRO_MEMBRATURE)
+    figlia = tmp_path / f"figlia-{tipo}"
+    esito = pipeline.genera_modello(cfg, tipo, figlia)
+    assert (figlia / pipeline.MODEL_STEP_FILENAME).exists()
+    assert esito["step"]["solidi"] == 1
+    assert esito["step"]["volume"] > 0.0
+    # Il telaio sintetico compenetra alle giunzioni: lo scarto e' 0,0209
+    # (estruso) e 0,0178 (primitive). Zero vorrebbe dire che il `fuse` non ha
+    # fuso -- quattro solidi accostati, volume uguale alla somma -- e passerebbe
+    # con il solo estremo superiore.
+    assert 0.005 < esito["step"]["scarto_relativo"] < 0.05
+    riletto = json.loads((figlia / pipeline.MODEL_FILENAME).read_text(encoding="utf-8"))
+    assert riletto["step"]["file"].endswith("modello.step")
+
+
+def test_senza_geometria_step_non_resta_un_modello_json_che_la_dichiara(tmp_path, monkeypatch):
+    """`scrivi_step` che solleva dopo il deck: l'eccezione propaga e
+    `modello.json` non viene scritto -- non deve restare un modello.json che
+    dichiara uno step senza il file."""
+    from meshrec.core import hexa
+
+    def rotto(prismi, percorso):
+        raise RuntimeError("step rotto")
+
+    monkeypatch.setattr(hexa, "scrivi_step", rotto)
+
+    cfg = _config_cubo(tmp_path)
+    _scrivi_prior_telaio(cfg, _TELAIO_QUATTRO_MEMBRATURE)
+    figlia = tmp_path / "figlia-estruso"
+
+    with pytest.raises(RuntimeError, match="step rotto"):
+        pipeline.genera_modello(cfg, "estruso", figlia)
+
+    # Lo step si scrive prima del deck: caduto lui, la figlia resta col solo
+    # `config.yaml`, che `report.confronta` rifiuta a voce alta. Col deck
+    # dentro e senza `modello.json` la leggerebbe invece come «as-built».
+    assert not (figlia / pipeline.DECK_FILENAME).exists()
+    assert sorted(p.name for p in figlia.iterdir()) == ["config.yaml"]
+    assert not (figlia / pipeline.MODEL_FILENAME).exists()
+
+
 def test_la_ricostruzione_legge_riempimento_sezione_e_densita_dispersione_dalle_chiavi_giuste(tmp_path):
     """Giro di correzione 2: dei quindici campi di `Membratura`, dodici sono
     presi 1:1 dal JSON del prior e tre stanno annidati sotto `"riempimento"`.
