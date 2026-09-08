@@ -783,3 +783,78 @@ def test_il_cuneo_e_calcolato_dalla_geometria_e_allarga_le_facce_a_contatto():
     # una differenza di poche facce fra piattaforme non fabbrica un rosso.
     assert len(modello["superfici"][dipendente]) >= 15, "senza il cuneo sarebbero 10"
     assert len(modello["superfici"][indipendente]) >= 21, "senza il cuneo sarebbero 16"
+
+
+def _prisma_scatola(origine, asse, lati, lunghezza):
+    """Un parallelepipedo come Prisma: contorno rettangolare centrato nel piano locale."""
+    a, b = lati
+    contorno = np.array([[-a / 2, -b / 2], [a / 2, -b / 2], [a / 2, b / 2], [-a / 2, b / 2]])
+    return hexa.Prisma(
+        contorno=contorno, origine=np.asarray(origine, dtype=np.float64),
+        asse=np.asarray(asse, dtype=np.float64), lunghezza=float(lunghezza),
+    )
+
+
+def _rileggi_step(percorso):
+    """Solidi e volume totale del file STEP, riletti con gmsh: e' l'oracolo, non la funzione."""
+    import gmsh
+    gmsh.initialize()
+    try:
+        gmsh.option.setNumber("General.Terminal", 0)
+        entita = gmsh.model.occ.importShapes(str(percorso))
+        gmsh.model.occ.synchronize()
+        solidi = [tag for dim, tag in entita if dim == 3]
+        return len(solidi), sum(gmsh.model.occ.getMass(3, tag) for tag in solidi)
+    finally:
+        gmsh.finalize()
+
+
+def test_due_prismi_a_t_danno_un_solido_di_volume_analitico(tmp_path):
+    """Pilastro verticale 300x300x3000 e trave 300x500x4000 appoggiata in testa,
+    a contatto: un solido, volume = somma dei due (rel 1e-9)."""
+    pilastro = _prisma_scatola((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), (300.0, 300.0), 3000.0)
+    trave = _prisma_scatola((-500.0, 0.0, 3250.0), (1.0, 0.0, 0.0), (300.0, 500.0), 4000.0)
+    metrica = hexa.scrivi_step([pilastro, trave], tmp_path / "modello.step")
+    atteso = 300.0 * 300.0 * 3000.0 + 300.0 * 500.0 * 4000.0
+    assert metrica["solidi"] == 1
+    assert metrica["volume_analitico"] == pytest.approx(atteso, rel=1e-9)
+    assert metrica["volume"] == pytest.approx(atteso, rel=1e-9)
+    assert metrica["scarto_relativo"] == pytest.approx(0.0, abs=1e-9)
+    solidi, volume = _rileggi_step(tmp_path / "modello.step")
+    assert solidi == 1
+    assert volume == pytest.approx(atteso, rel=1e-9)
+
+
+def test_due_prismi_disgiunti_restano_due_solidi_e_il_file_si_scrive(tmp_path):
+    """Dieci millimetri d'aria: nessuna eccezione, `solidi == 2`, volume = somma."""
+    a = _prisma_scatola((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), (300.0, 300.0), 3000.0)
+    b = _prisma_scatola((310.0, 0.0, 0.0), (0.0, 0.0, 1.0), (300.0, 300.0), 3000.0)
+    metrica = hexa.scrivi_step([a, b], tmp_path / "modello.step")
+    assert metrica["solidi"] == 2
+    assert metrica["volume"] == pytest.approx(2 * 300.0 * 300.0 * 3000.0, rel=1e-9)
+    assert _rileggi_step(tmp_path / "modello.step")[0] == 2
+
+
+def test_zero_prismi_non_scrivono_un_file(tmp_path):
+    with pytest.raises(ValueError, match="membratura"):
+        hexa.scrivi_step([], tmp_path / "modello.step")
+    assert not (tmp_path / "modello.step").exists()
+
+
+def test_il_prisma_fuori_piombo_fonde_con_la_trave_e_lo_scarto_e_il_cuneo(tmp_path):
+    """Due gradi di fuori piombo (misurato in #188: fonde a opzioni predefinite).
+    La testa inclinata entra nella trave per un cuneo B*tan(theta)*(B/2)^2/2
+    (la formula di esperimento.py, caso_piombo): il volume fuso e' l'analitico
+    meno il cuneo, e lo scarto lo dichiara -- 1,35e-4, non zero."""
+    theta = np.radians(2.0)
+    asse = np.array([np.sin(theta), 0.0, np.cos(theta)])
+    lunghezza = 3000.0 / np.cos(theta)
+    pilastro = _prisma_scatola((0.0, 0.0, 0.0), asse, (300.0, 300.0), lunghezza)
+    trave = _prisma_scatola((-500.0, 0.0, 3250.0), (1.0, 0.0, 0.0), (300.0, 500.0), 4000.0)
+    metrica = hexa.scrivi_step([pilastro, trave], tmp_path / "modello.step")
+    analitico = 300.0 * 300.0 * lunghezza + 300.0 * 500.0 * 4000.0
+    cuneo = 300.0 * np.tan(theta) * 150.0 ** 2 / 2.0
+    assert metrica["solidi"] == 1
+    assert metrica["volume_analitico"] == pytest.approx(analitico, rel=1e-9)
+    assert metrica["volume"] == pytest.approx(analitico - cuneo, rel=1e-9)
+    assert metrica["scarto_relativo"] == pytest.approx(cuneo / analitico, rel=1e-6)

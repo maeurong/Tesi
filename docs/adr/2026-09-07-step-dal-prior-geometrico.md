@@ -71,8 +71,11 @@ Fatti misurati oggi (da `meshrec/`, `uv run python`, gmsh 4.15.2, scratchpad
    `affineTransform`: il prisma nasce dove sta.
 4. **Verifica come metrica, non come asserzione**: `esito["step"] = {"file",
    "solidi", "volume": Σ getMass, "volume_analitico": Σ area·lunghezza dei
-   prismi *tagliati* (già in `mesh_prisma`, chiave `volume_analitico`),
-   "scarto_relativo"}`. Nel telaio di laboratorio i due coincidono fino al
+   prismi **non tagliati**, gli stessi che entrano nel `fuse` (corretto il
+   08/09/2026 in annotazione del piano: la spec dice «somma area per
+   lunghezza delle membrature», e lo scarto misura così la compenetrazione
+   alle giunzioni — 2,09 % / 1,78 % sul telaio sintetico, 1,35e-4 per il
+   cuneo di un pilastro a 2° sotto una trave), "scarto_relativo"}`. Nel telaio di laboratorio i due coincidono fino al
    cuneo del fuori piombo (`_cuneo_vertice`, `hexa.py:496`): il numero si
    mostra con il suo contraddittorio, come vuole PRODUCT.md, senza fingere
    un'uguaglianza che il taglio non promette. L'uguaglianza esatta (rel

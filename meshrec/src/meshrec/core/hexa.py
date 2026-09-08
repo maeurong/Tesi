@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import warnings
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 
@@ -327,6 +328,79 @@ def prisma_di(membratura, tipo: str) -> Prisma:
             lunghezza=float(membratura.lunghezza),
         )
     raise ValueError(f"modello '{tipo}' sconosciuto: i modelli sono 'estruso' e 'primitive'")
+
+
+MODEL_STEP_SCHEMA = "AP214"  # l'unico che gmsh scrive: dichiarato, non scelto
+
+
+def scrivi_step(prismi: list[Prisma], percorso: Path) -> dict[str, object]:
+    """Il solido fuso dei prismi, scritto in STEP; la metrica lo contraddice.
+
+    I prismi sono quelli **non tagliati**: la fusione booleana toglie da se'
+    la doppia contabilita' alle giunzioni, che `taglia_giunzioni` esiste per
+    togliere alla mesh. Costruzione diretta in coordinate globali nel kernel
+    OpenCASCADE, poi `occ.fuse` a opzioni predefinite: misurato il 07/09/2026
+    (#188) che fino a 3 gradi di fuori piombo e 3 mm di compenetrazione
+    fonde in un solido a volume esatto; prismi disgiunti, a contatto di solo
+    spigolo o con un gioco sotto il decimo di millimetro restano solidi
+    distinti, e la metrica lo dice con `solidi`.
+
+    `volume_analitico` e' la somma area·lunghezza dei prismi cosi' come
+    arrivano: sul telaio del prior i due volumi coincidono fino alla
+    compenetrazione alle giunzioni, e lo scarto e' il numero da leggere.
+    """
+    if not prismi:
+        raise ValueError(
+            "nessuna membratura da scrivere in STEP: il prior non ne ha accettata "
+            "alcuna. Guarda le regioni scartate e il controllo che le ha respinte"
+        )
+    import gmsh
+
+    analitico = float(sum(
+        abs(_area_poligono(np.asarray(p.contorno, dtype=np.float64))) * float(p.lunghezza)
+        for p in prismi
+    ))
+    gmsh.initialize()
+    try:
+        gmsh.option.setNumber("General.Terminal", 0)
+        occ = gmsh.model.occ
+        volumi = []
+        for p in prismi:
+            asse = np.asarray(p.asse, dtype=np.float64)
+            asse = asse / np.linalg.norm(asse)
+            e1, e2 = _base_del_piano(asse)
+            origine = np.asarray(p.origine, dtype=np.float64)
+            punti = [
+                occ.addPoint(*(origine + u * e1 + v * e2))
+                for u, v in np.asarray(p.contorno, dtype=np.float64)
+            ]
+            linee = [
+                occ.addLine(punti[i], punti[(i + 1) % len(punti)])
+                for i in range(len(punti))
+            ]
+            superficie = occ.addPlaneSurface([occ.addCurveLoop(linee)])
+            estruso = occ.extrude([(2, superficie)], *(asse * float(p.lunghezza)))
+            volumi += [tag for dim, tag in estruso if dim == 3]
+        if len(volumi) > 1:
+            fusi, _ = occ.fuse([(3, volumi[0])], [(3, t) for t in volumi[1:]])
+        else:
+            fusi = [(3, volumi[0])]
+        occ.synchronize()
+        # Ordinati per tag: il conteggio e' discreto e non deve dipendere
+        # dall'ordine in cui gmsh li restituisce.
+        solidi = sorted(tag for dim, tag in fusi if dim == 3)
+        volume = float(sum(occ.getMass(3, tag) for tag in solidi))
+        gmsh.write(str(percorso))
+    finally:
+        gmsh.finalize()
+    return {
+        "file": str(percorso),
+        "schema": MODEL_STEP_SCHEMA,
+        "solidi": len(solidi),
+        "volume": volume,
+        "volume_analitico": analitico,
+        "scarto_relativo": abs(volume - analitico) / analitico,
+    }
 
 
 def dentro(prisma: Prisma, punti: np.ndarray, tolleranza: float = 0.0) -> np.ndarray:
