@@ -180,11 +180,15 @@ def test_build_node_sets_ha_le_chiavi_della_costante():
     contro la costante stessa lega il test alla fonte, non a una sua copia.
 
     Mutazione che lo uccide: rinominare una voce di `NOMI_SET_DI_FACCIA`
-    senza rinominarla anche qui.
+    senza rinominarla anche qui. E `SET_DI_BASE`, il set su cui `export_model`
+    misura la copertura, deve essere una di quelle chiavi: rinominare «BASE»
+    nei due posti sopra e non nella costante farebbe morire `export_model` di
+    `KeyError` a tetraedralizzazione finita.
     """
     nodes = np.array([[x, y, z] for x in (0.0, 50.0) for y in (0.0, 1000.0) for z in (0.0, 300.0)])
     sets = abaqus.build_node_sets(nodes, tolerance=1.0)
     assert set(sets) == set(config.NOMI_SET_DI_FACCIA)
+    assert abaqus.SET_DI_BASE in sets
 
 
 def test_export_model_writes_both_files(tmp_path):
