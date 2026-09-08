@@ -1228,6 +1228,27 @@ def test_genera_modello_scrive_anche_la_geometria_step(tmp_path, tipo):
     assert riletto["step"]["file"].endswith("modello.step")
 
 
+def test_senza_geometria_step_non_resta_un_modello_json_che_la_dichiara(tmp_path, monkeypatch):
+    """`scrivi_step` che solleva dopo il deck: l'eccezione propaga e
+    `modello.json` non viene scritto -- non deve restare un modello.json che
+    dichiara uno step senza il file."""
+    from meshrec.core import hexa
+
+    def rotto(prismi, percorso):
+        raise RuntimeError("step rotto")
+
+    monkeypatch.setattr(hexa, "scrivi_step", rotto)
+
+    cfg = _config_cubo(tmp_path)
+    _scrivi_prior_telaio(cfg, _TELAIO_QUATTRO_MEMBRATURE)
+    figlia = tmp_path / "figlia-estruso"
+
+    with pytest.raises(RuntimeError, match="step rotto"):
+        pipeline.genera_modello(cfg, "estruso", figlia)
+
+    assert not (figlia / pipeline.MODEL_FILENAME).exists()
+
+
 def test_la_ricostruzione_legge_riempimento_sezione_e_densita_dispersione_dalle_chiavi_giuste(tmp_path):
     """Giro di correzione 2: dei quindici campi di `Membratura`, dodici sono
     presi 1:1 dal JSON del prior e tre stanno annidati sotto `"riempimento"`.
