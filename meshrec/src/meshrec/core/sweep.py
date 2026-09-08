@@ -21,7 +21,7 @@ from pathlib import Path
 
 import numpy as np
 
-from meshrec.core.config import ExperimentConfig, PipelineConfig
+from meshrec.core.config import BLOCCHI_RIMOSSI, ExperimentConfig, PipelineConfig
 
 
 # I blocchi di PipelineConfig che non entrano mai nell'impronta di sweep.
@@ -130,6 +130,11 @@ def with_override(cfg: PipelineConfig, path: str, value: object) -> PipelineConf
         node = node.get(part) if isinstance(node, dict) else None
         if node is None:
             blocco = ".".join(parts[: indice + 1])
+            if blocco in BLOCCHI_RIMOSSI:
+                raise ValueError(
+                    f"l'asse '{path}' punta a '{blocco}', che non esiste più "
+                    f"({BLOCCHI_RIMOSSI[blocco]}): togli l'asse dall'esperimento"
+                )
             raise ValueError(
                 f"l'asse '{path}' scende dentro '{blocco}', che questa configurazione "
                 f"non dichiara: compila '{blocco}' nella base dell'esperimento prima "

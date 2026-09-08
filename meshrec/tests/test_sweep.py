@@ -1025,6 +1025,11 @@ def test_un_asse_dentro_un_blocco_che_non_esiste_dice_quale_asse_e_quale_blocco(
     non dice ne' quale asse dell'esperimento l'ha chiesto ne' che il blocco
     non esiste piu'.
 
+    Il ramo `analysis.material.young` dice anche che il blocco non esiste
+    piu', con la data: chi obbedisce al messaggio di oggi ("compila
+    'analysis'") e chi rifiuta i blocchi tolti (`config.BLOCCHI_RIMOSSI`)
+    non devono contraddirsi.
+
     Mutazione che lo uccide: togliere la guardia sulla chiave assente. Torna
     un `KeyError` col solo nome del blocco.
     """
@@ -1034,3 +1039,24 @@ def test_un_asse_dentro_un_blocco_che_non_esiste_dice_quale_asse_e_quale_blocco(
     messaggio = str(rifiuto.value)
     assert asse in messaggio
     assert asse.split(".")[0] in messaggio
+    if asse == "analysis.material.young":
+        assert "non esiste più" in messaggio
+        assert "08/09/2026" in messaggio
+        assert "compila" not in messaggio
+
+
+def test_un_asse_su_un_passo_assente_di_un_blocco_vivo_dice_ancora_di_compilarlo():
+    """Un blocco vivo (`tet` non e' mai stato tolto) con un passo che non c'e'
+    nel suo dump non e' lo stesso caso del blocco tolto: resta il messaggio di
+    oggi, "compila", non "non esiste piu'".
+
+    Mutazione che lo uccide: estendere ai blocchi vivi il messaggio nuovo
+    pensato per `config.BLOCCHI_RIMOSSI`.
+    """
+    with pytest.raises(ValueError) as rifiuto:
+        sweep.with_override(_base(), "tet.non_esiste.qualcosa", 1.0)
+
+    messaggio = str(rifiuto.value)
+    assert "tet.non_esiste" in messaggio
+    assert "compila" in messaggio
+    assert "non esiste più" not in messaggio
