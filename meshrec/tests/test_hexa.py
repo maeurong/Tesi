@@ -834,7 +834,20 @@ def test_due_prismi_disgiunti_restano_due_solidi_e_il_file_si_scrive(tmp_path):
     metrica = hexa.scrivi_step([a, b], tmp_path / "modello.step")
     assert metrica["solidi"] == 2
     assert metrica["volume"] == pytest.approx(2 * 300.0 * 300.0 * 3000.0, rel=1e-9)
+    # Niente si compenetra: i due volumi coincidono e lo scarto e' zero. Uno
+    # `scarto_relativo` costante nel ramo multi-solido passerebbe senza queste due.
+    assert metrica["volume_analitico"] == pytest.approx(metrica["volume"], rel=1e-9)
+    assert metrica["scarto_relativo"] == pytest.approx(0.0, abs=1e-9)
     assert _rileggi_step(tmp_path / "modello.step")[0] == 2
+
+
+def test_costruisci_senza_membrature_solleva_prima_di_toccare_il_disco():
+    """Il gemello di `test_zero_prismi_non_scrivono_un_file` sull'altra porta del
+    modulo: lista vuota di membrature, non sezione rifiutata. Il piano la dava
+    coperta da `test_una_corsa_figlia_fallita...`, che prova invece il
+    riempimento «vuoto» -- un'altra guardia, un altro messaggio."""
+    with pytest.raises(ValueError, match="nessuna membratura"):
+        hexa.costruisci([], "estruso", ModelConfig())
 
 
 def test_zero_prismi_non_scrivono_un_file(tmp_path):
@@ -916,3 +929,7 @@ def test_un_prisma_solo_non_fonde_nulla_e_il_volume_e_quello(tmp_path):
     assert metrica["volume"] == pytest.approx(300.0 * 300.0 * 3000.0, rel=1e-9)
     assert metrica["scarto_relativo"] == pytest.approx(0.0, abs=1e-9)
     assert _rileggi_step(tmp_path / "modello.step") == (1, pytest.approx(300.0 * 300.0 * 3000.0, rel=1e-9))
+    # `schema: "AP214"` e' l'unico campo della metrica che nessun altro controllo
+    # smentisce: gmsh 4.15.2 lo scrive come FILE_SCHEMA(('AUTOMOTIVE_DESIGN ...')).
+    intestazione = (tmp_path / "modello.step").read_text(encoding="utf-8", errors="replace")[:2000]
+    assert "AUTOMOTIVE_DESIGN" in intestazione
