@@ -196,6 +196,7 @@ def calcola_prior(
 
 
 MODEL_FILENAME = "modello.json"
+MODEL_STEP_FILENAME = "modello.step"
 
 
 def _ricostruisci_membrature(prior: dict[str, object]) -> list:
@@ -361,6 +362,15 @@ def genera_modello(cfg: PipelineConfig, tipo: str, out_dir: Path) -> dict[str, o
         ties=modello["ties"],
     )
 
+    # La geometria per Abaqus, accanto al deck: i prismi NON tagliati -- la
+    # fusione toglie da se' la doppia contabilita' alle giunzioni -- fusi in
+    # un solido. E' una seconda uscita: la mesh esaedrica e il suo deck non
+    # cambiano (spec 2026-09-07, ADR STEP dal prior geometrico).
+    step = hexa.scrivi_step(
+        [hexa.prisma_di(membratura, tipo) for membratura in membrature],
+        out / MODEL_STEP_FILENAME,
+    )
+
     # Lo scostamento dalla nuvola sorgente e' il perno del confronto (Task 12):
     # e' definito allo stesso modo per i tre modelli. Si misura qui, dove la
     # nuvola segmentata della madre e i nodi del modello sono entrambi a
@@ -375,6 +385,7 @@ def genera_modello(cfg: PipelineConfig, tipo: str, out_dir: Path) -> dict[str, o
         "blocchi": modello["blocchi"],
         "hexa": quality.hexa_metrics(nodi, elementi),
         "export": export,
+        "step": step,
         "scostamento_nuvola": {
             "rms": float(np.sqrt(np.mean(scarti ** 2))),
             "max": float(scarti.max()),

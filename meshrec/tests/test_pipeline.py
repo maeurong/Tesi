@@ -1212,6 +1212,22 @@ def _scrivi_prior_telaio(cfg, telaio, spaziatura=_SPAZIATURA_TELAIO):
     return esito_prior
 
 
+@pytest.mark.parametrize("tipo", ["estruso", "primitive"])
+def test_genera_modello_scrive_anche_la_geometria_step(tmp_path, tipo):
+    """Accanto al deck, `modello.step`: un solido per il telaio sintetico, la
+    metrica in `esito["step"]` e in modello.json, per entrambi i tipi."""
+    cfg = _config_cubo(tmp_path)
+    _scrivi_prior_telaio(cfg, _TELAIO_QUATTRO_MEMBRATURE)
+    figlia = tmp_path / f"figlia-{tipo}"
+    esito = pipeline.genera_modello(cfg, tipo, figlia)
+    assert (figlia / pipeline.MODEL_STEP_FILENAME).exists()
+    assert esito["step"]["solidi"] >= 1
+    assert esito["step"]["volume"] > 0.0
+    assert esito["step"]["scarto_relativo"] < 0.05
+    riletto = json.loads((figlia / pipeline.MODEL_FILENAME).read_text(encoding="utf-8"))
+    assert riletto["step"]["file"].endswith("modello.step")
+
+
 def test_la_ricostruzione_legge_riempimento_sezione_e_densita_dispersione_dalle_chiavi_giuste(tmp_path):
     """Giro di correzione 2: dei quindici campi di `Membratura`, dodici sono
     presi 1:1 dal JSON del prior e tre stanno annidati sotto `"riempimento"`.
