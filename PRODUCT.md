@@ -121,8 +121,11 @@ stampato.
 lettura e controllo di scala, segmentazione con ritaglio a box o
 automatica, riduzione a voxel, normali, ricostruzione della superficie,
 riparazione, metriche di superficie, semplificazione opzionale,
-tetraedrizzazione, metriche di volume, esportazione. Motore di sweep su griglia
-con fronte di Pareto e registro degli esperimenti. Report HTML statico.
+tetraedrizzazione, metriche di volume, esportazione. A richiesta, dal prior
+geometrico (step 12), i modelli parametrici `estruso` e `primitive`: ciascuno con
+il proprio deck e con `modello.step`, la geometria fusa dei prismi. Motore di
+sweep su griglia con fronte di Pareto e registro degli esperimenti. Report HTML
+statico.
 
 **Terminologia da preservare alla lettera.** Sono identificatori, non parole:
 `C3D4`, `C3D10`, `BASE`, `TOP`, `FACE_FRONT`, `FACE_BACK`, `SIDE_LEFT`,
