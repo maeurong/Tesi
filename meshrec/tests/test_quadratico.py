@@ -143,34 +143,3 @@ def test_il_volume_del_maglio_quadratico_e_quello_della_scatola():
     volumi = quality.element_volumes(nodi, tets)
     atteso = LATO[0] * LATO[1] * LATO[2]
     assert float(np.abs(volumi).sum()) == pytest.approx(atteso, rel=1e-6)
-
-
-def test_un_carico_distribuito_su_facce_quadratiche_si_ferma_invece_di_mentire():
-    """L'errore che nessun controllo di equilibrio vedrebbe.
-
-    Su una faccia a 6 nodi la ripartizione per area tributaria mette tutto il
-    carico sui **vertici**, mentre la formula consistente per pressione
-    uniforme da' **zero ai vertici** e un terzo dell'area a ciascun nodo di
-    lato -- Abaqus Theory Guide §3.2.6.
-
-    La risultante resterebbe giusta, perche' `ripartisci` normalizza sul
-    totale: l'errore e' **autoequilibrato**, con risultante e momento nulli, e
-    attraverserebbe `controlla_reazioni` indenne. Sarebbe un numero plausibile
-    e falso proprio sui vertici, dove si legge il picco di tensione.
-
-    Mutazione che lo uccide: togliere la guardia e lasciar ripartire.
-    """
-    nodi, tets = _maglio(order=2)
-    bordo = np.unique(abaqus.boundary_faces(tets))
-    with pytest.raises(NotImplementedError, match="consistenti"):
-        abaqus.ripartisci(1000.0, nodi, tets, bordo, "C3D10", nome="PROVA")
-
-
-def test_sul_lineare_la_ripartizione_resta_quella_di_sempre():
-    """Regressione: su un triangolo a 3 nodi un terzo per nodo **e'** la
-    formula consistente, e la guardia non deve toccarla."""
-    nodi, tets = _maglio(order=1)
-    bordo = np.unique(abaqus.boundary_faces(tets))
-    quote, resoconto = abaqus.ripartisci(1000.0, nodi, tets, bordo, "C3D4", nome="PROVA")
-    assert float(quote.sum()) == pytest.approx(1000.0)
-    assert resoconto["area_totale"] > 0.0

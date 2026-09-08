@@ -1,26 +1,34 @@
 #!/usr/bin/env python
-"""Rimisura i numeri di `docs/validazione/modi-per-la-normativa.md`.
+"""Documento di cantiere, non piu' eseguibile. Rompe all'import di
+`meshrec.core.solve`, uscito da main il 02/09/2026 (mappa #161), e chiedeva il
+passo MODALE, uscito il 08/09/2026 col deck nudo. I numeri che produceva
+stanno in `docs/validazione/modi-per-la-normativa.md`, misura del 26/08/2026,
+riproducibile dal commit che la ha prodotta. Quello che segue descrive come
+lavorava quando girava.
 
-Non fa parte del programma: sta sotto `docs/` apposta, sul modello di
+Rimisurava i numeri di `docs/validazione/modi-per-la-normativa.md`.
+
+Non faceva parte del programma: sta sotto `docs/` apposta, sul modello di
 `docs/fase-7-cantiere/scarto-con-segno.py`.
 
+    si lanciava con:
     uv run python docs/fase-7-cantiere/modi-per-la-normativa.py [cartella-runs]
 
-**Legge e non scrive dentro `runs/`.** Prende la superficie riparata di due
-corse e la rimaglia in una cartella temporanea; nessun artefatto delle corse
-viene riscritto.
+**Leggeva e non scriveva dentro `runs/`.** Prendeva la superficie riparata di
+due corse e la rimagliava in una cartella temporanea; nessun artefatto delle
+corse veniva riscritto.
 
 **Che cosa asserisce, e perche' cosi'.** Non i valori percentuali: il maglio
 cambia con la piattaforma (TetGen e gmsh danno maglie diverse su Linux x86-64
 e macOS arm64 a parita' di versione e di ingresso, #66), quindi una
 percentuale incollata qui fallirebbe altrove per un motivo che non e' un
-difetto. Gli `assert` guardano i **fatti** che reggono la scelta del
+difetto. Gli `assert` guardavano i **fatti** che reggevano la scelta del
 predefinito -- chi sta sotto il 90% e chi lo supera -- che sono l'unica cosa
 che il documento pretende. E' la stessa lezione di
 `tests/validazione/test_convergenza_mensola.py`, dove una soglia tarata su
 una piattaforma sola e' stata bocciata dalla CI.
 
-Serve `ccx` sul PATH.
+Serviva `ccx` sul PATH.
 """
 
 from __future__ import annotations

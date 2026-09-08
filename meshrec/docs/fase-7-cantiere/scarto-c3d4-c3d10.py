@@ -1,9 +1,18 @@
 #!/usr/bin/env python
-"""Rimisura i numeri di `docs/validazione/scarto-c3d4-c3d10-telaio.md` (#45).
+"""Documento di cantiere, non piu' eseguibile. Rompe all'import di
+`meshrec.core.solve`, uscito da main il 02/09/2026 (mappa #161), e dal
+08/09/2026 chiederebbe a `export_model` carichi che il deck nudo non scrive
+piu'. I numeri che produceva stanno in
+`docs/validazione/scarto-c3d4-c3d10-telaio.md`, misura del 26/08/2026,
+riproducibile dal commit che la ha prodotta. Quello che segue descrive come
+lavorava quando girava.
 
-Non fa parte del programma: sta sotto `docs/` apposta, sul modello di
+Rimisurava i numeri di `docs/validazione/scarto-c3d4-c3d10-telaio.md` (#45).
+
+Non faceva parte del programma: sta sotto `docs/` apposta, sul modello di
 `docs/fase-6-cantiere/misura-carichi.py`.
 
+    si lanciava con:
     uv run python docs/fase-7-cantiere/scarto-c3d4-c3d10.py [cartella-runs]
 
 **Che cosa asserisce, e che cosa no.** Non ogni valore del documento porta qui

@@ -100,25 +100,31 @@ def test_an_axis_with_no_values_is_rejected():
 def test_due_chiavi_omonime_nello_yaml_sono_rifiutate(tmp_path):
     """`safe_load` tiene l'ultima e la prima sparisce senza un segnale.
 
-    E' l'unico ingresso degenere senza sintomo: gli altri almeno
-    risolvono zero nodi. Un selettore corretto e riscritto sotto lo
-    stesso nome verrebbe applicato nella versione che l'operatore
-    credeva di aver sostituito.
+    E' l'unico ingresso degenere senza sintomo: gli altri almeno risolvono
+    zero elementi. Una regione corretta e riscritta sotto lo stesso nome
+    verrebbe scritta nel deck nella versione che l'operatore credeva di aver
+    sostituito.
 
-    Mutazione che lo uccide: tornare a `yaml.safe_load`. Il file viene
-    letto, `raggio` vale 9.0 e nessuno sa che il 5.0 c'era.
+    Mutazione che lo uccide: tornare a `yaml.safe_load`. Il file viene letto,
+    `membratura` vale 1 e nessuno sa che lo 0 c'era.
     """
     percorso = tmp_path / "config.yaml"
     percorso.write_text(
         "input:\n  path: nuvola.ply\n"
         "analysis:\n  material:\n    name: MURATURA\n    young: 1500.0\n"
         "    poisson: 0.2\n    density: 1.8e-9\n"
-        "selettori:\n"
-        "  angolo:\n    tipo: sfera\n    centro: [0.0, 0.0, 0.0]\n    raggio: 5.0\n"
-        "  angolo:\n    tipo: sfera\n    centro: [0.0, 0.0, 0.0]\n    raggio: 9.0\n",
+        "regioni:\n"
+        "  pilastro:\n    membratura: 0\n"
+        "    materiale:\n      material:\n        name: MURATURA\n"
+        "        young: 1500.0\n        poisson: 0.2\n        density: 1.8e-9\n"
+        "      provenienza: a_mano\n      norma: NTC 2018 Tab. 4.1.I\n"
+        "  pilastro:\n    membratura: 1\n"
+        "    materiale:\n      material:\n        name: MURATURA\n"
+        "        young: 1500.0\n        poisson: 0.2\n        density: 1.8e-9\n"
+        "      provenienza: a_mano\n      norma: NTC 2018 Tab. 4.1.I\n",
         encoding="utf-8",
     )
-    with pytest.raises(ValueError, match="angolo"):
+    with pytest.raises(ValueError, match="pilastro"):
         config.load_config(percorso)
 
 
@@ -307,16 +313,11 @@ def test_l_impronta_delle_configurazioni_del_caso_studio_e_quella_misurata(caso,
 
 
 def test_i_blocchi_nuovi_stanno_in_pipelineconfig_e_nella_lista_di_esclusione_giusta():
-    """I tre blocchi della Fase 4 e 5 viaggiano con la configurazione, perche'
-    gli step 12 e 13 li leggono, ma non sono esclusi dall'impronta allo stesso
-    modo.
+    """I blocchi che viaggiano con la configurazione ma non entrano
+    nell'impronta allo stesso modo.
 
     `wall` e `model` ne restano sempre fuori: nessun asse della Fase 2 li tocca
-    e non cambiano il deck. `carichi` ne esce solo quando e' vuoto, perche'
-    STEP_BLOCKS[11] lo legge e cambia il deck, che e' artefatto richiesto di
-    ogni candidato. Misurato il 22/08/2026 sulle 22 righe di experiments/muro e
-    experiments/lab_crop: l'esclusione condizionata ne cambia 0 su 22,
-    l'inclusione secca 22 su 22.
+    e non cambiano il deck.
 
     L'ultima asserzione e' quella che smentisce: un blocco nelle due liste
     insieme sarebbe una contraddizione, "sempre fuori" e "fuori solo se vuoto".
@@ -325,146 +326,34 @@ def test_i_blocchi_nuovi_stanno_in_pipelineconfig_e_nella_lista_di_esclusione_gi
     #161): l'esclusione era secca, quindi la sua uscita non muove le ventidue
     righe -- che e' precisamente la ragione per cui ci stava.
 
-    `regioni` (#135, #141, #136) va invece nell'esclusione **condizionata**,
-    come `carichi` e `selettori`: STEP_BLOCKS[11] lo legge e cambia il deck,
-    quindi due candidati con regioni diverse sono esperimenti diversi. E' un
-    `dict` che nasce `{}` -- cioe' falso -- ed e' per questo che il blocco e'
-    un dizionario a chiavi libere e non un modello con campi: un modello
+    `regioni` (#135, #141, #136) e' l'unico rimasto nell'esclusione
+    **condizionata**: STEP_BLOCKS[11] lo legge e cambia il deck, quindi due
+    candidati con regioni diverse sono esperimenti diversi. E' un `dict` che
+    nasce `{}` -- cioe' falso -- ed e' per questo che il blocco e' un
+    dizionario a chiavi libere e non un modello con campi: un modello
     porterebbe i propri predefiniti, e basta un campo truthy fra quelli perche'
-    l'omissione non scatti mai.
+    l'omissione non scatti mai. Misurato il 22/08/2026 sulle 22 righe di
+    experiments/muro e experiments/lab_crop: l'esclusione condizionata ne
+    cambia 0 su 22, l'inclusione secca 22 su 22.
     """
     from meshrec.core.sweep import BLOCCHI_FUORI_IMPRONTA, BLOCCHI_VUOTI_FUORI_IMPRONTA
 
     campi = set(PipelineConfig.model_fields)
-    assert {"wall", "model", "carichi"} <= campi
+    assert {"wall", "model"} <= campi
     assert set(BLOCCHI_FUORI_IMPRONTA) == {"run", "wall", "model"}
-    assert set(BLOCCHI_VUOTI_FUORI_IMPRONTA) == {"carichi", "selettori", "regioni"}
+    assert set(BLOCCHI_VUOTI_FUORI_IMPRONTA) == {"regioni"}
     assert set(BLOCCHI_FUORI_IMPRONTA) <= campi
     assert set(BLOCCHI_VUOTI_FUORI_IMPRONTA) <= campi
     assert not set(BLOCCHI_FUORI_IMPRONTA) & set(BLOCCHI_VUOTI_FUORI_IMPRONTA)
 
 
-def test_i_casi_di_carico_non_hanno_valori_predefiniti():
-    """La spinta e il carico si dichiarano, come il materiale.
-
-    Stessa ragione di config.Material: un predefinito di muratura a 1500 MPa
-    era finito in silenzio nella configurazione di un telaio in calcestruzzo, e
-    nessuno l'aveva scelto. Un coefficiente di spinta predefinito sarebbe lo
-    stesso errore su una grandezza che nessun dato puo' suggerire.
-
-    Il test verifica che ogni campo di ogni modello e' obbligatorio campo per
-    campo, non solo che l'istanziazione a vuoto fallisce (il quale potrebbe
-    fallire per il motivo sbagliato, e.g. se solo asse restasse obbligatorio).
-
-    **L'unica eccezione, e perche' e' un'eccezione.** `Modale.modi` ha un
-    predefinito dal 26/08/2026. La regola qui sopra parla di grandezze «che
-    nessun dato puo' suggerire»: il modulo elastico, la densita', quanto vale
-    una spinta. Il numero di modi non e' di quella specie -- non e' una
-    proprieta' del corpo ne' una scelta di progetto, ma un parametro di
-    **discretizzazione**, e un dato lo suggerisce eccome: EN 1998-1
-    §4.3.3.3.1(3) chiede il 90% della massa partecipante, e il 40 e' il valore
-    misurato che ce lo porta con margine su entrambi i corpi di riferimento
-    (`docs/validazione/modi-per-la-normativa.md`). Il precedente in casa e'
-    `AnalysisConfig.set_tolerance_factor`, predefinito e misurato allo stesso
-    modo. Il campo resta comunque scrivibile, e il verdetto `massa_modale`
-    misura se il valore usato e' bastato: il predefinito fa partire bene, non
-    decide al posto di nessuno.
-
-    **La seconda eccezione, dalla Fase 8.** `natura` (#146) ha predefinito
-    `None` su ogni azione. Non e' una congettura sul valore, e' l'assenza
-    dichiarata: «questa azione non ha detto che natura ha», che il generatore
-    delle combinazioni deve poter leggere per rifiutarsi invece di scegliere un
-    coefficiente da solo. Obbligatorio non poteva essere: renderebbe
-    illeggibile ogni configurazione gia' scritta, e la regola dell'omissione
-    copre i blocchi aggiunti, non i campi resi obbligatori.
-    """
-    for modello, campi_attesi, con_predefinito in (
-        (config.SpintaOrizzontale, {"coefficiente", "asse", "natura"}, {"natura"}),
-        (config.CaricoSommita, {"risultante", "nset", "natura"}, {"natura"}),
-        (config.Modale, {"modi"}, {"modi"}),
-    ):
-        for nome_campo, info_campo in modello.model_fields.items():
-            assert nome_campo in campi_attesi, (
-                f"{modello.__name__}.{nome_campo} non era nel set atteso"
-            )
-            if nome_campo in con_predefinito:
-                assert not info_campo.is_required(), (
-                    f"{modello.__name__}.{nome_campo} dovrebbe avere un "
-                    "predefinito misurato"
-                )
-                continue
-            assert info_campo.is_required(), (
-                f"{modello.__name__}.{nome_campo} ha un predefinito, "
-                "dovrebbe essere obbligatorio"
-            )
-        assert set(modello.model_fields) == campi_attesi, (
-            f"{modello.__name__} ha campi extra: "
-            f"{set(modello.model_fields) - campi_attesi}"
-        )
-
-
-def test_un_analisi_senza_casi_dichiarati_ha_il_solo_peso_proprio():
-    """Chi non dichiara nulla ottiene l'unico caso derivabile dai dati.
-
-    Densita' e gravita' sono gia' nella configurazione, quindi il peso proprio
-    non e' un predefinito indovinato: e' l'unica cosa che il programma sa gia'.
-    I tre casi di carico sono nullabili e restano None se non dichiarati.
-    """
-    carichi = config.CarichiConfig()
-
-    assert carichi.spinta is None
-    assert carichi.carico_sommita is None
-    assert carichi.modale is None
-
-
-def test_chiedere_un_passo_modale_senza_dire_quanti_modi_prende_il_predefinito():
-    """`modale: {}` vale «fai l'analisi modale, coi modi che servono».
-
-    Prima del 26/08/2026 `modi` era obbligatorio e `modale: {}` era un errore
-    di validazione: chi voleva un'analisi modale doveva inventarsi un numero.
-    Il numero pero' non e' una preferenza dell'operatore, e' una condizione di
-    sufficienza che la norma fissa (EN 1998-1 §4.3.3.3.1(3): il 90% della
-    massa partecipante), quindi il posto giusto e' il predefinito.
-    """
-    assert config.Modale().modi == 40
-    assert config.CarichiConfig.model_validate({"modale": {}}).modale.modi == 40
-
-
-def test_il_predefinito_dei_modi_supera_il_valore_misurato_insufficiente():
-    """Il 20 storico non arrivava al 90%: il predefinito deve stargli sopra.
-
-    Misurato il 26/08/2026 su `runs/lab_telaio_v2`: coi venti modi la
-    direzione verticale cattura l'87,46% della massa partecipante. Il perche'
-    e la scelta del 40 stanno in `docs/validazione/modi-per-la-normativa.md`,
-    rimisurabili con `docs/fase-7-cantiere/modi-per-la-normativa.py`.
-    """
-    assert config.Modale().modi > 20
-
-
-def test_dichiarare_i_modi_batte_il_predefinito():
-    """Il predefinito non e' un cancello: chi scrive un numero ottiene quello.
-
-    Vale anche per un numero che la norma non accetterebbe -- il verdetto
-    `massa_modale` lo marca dopo, non lo si vieta qui.
-    """
-    assert config.Modale(modi=3).modi == 3
-    assert config.CarichiConfig.model_validate({"modale": {"modi": 20}}).modale.modi == 20
-
-
-def test_il_coefficiente_di_spinta_rifiuta_lo_zero_e_il_negativo():
-    with pytest.raises(ValidationError):
-        config.SpintaOrizzontale(coefficiente=0.0, asse="y")
-    with pytest.raises(ValidationError):
-        config.SpintaOrizzontale(coefficiente=-0.1, asse="y")
-
-
 @pytest.mark.parametrize("riservato", ["SPINTA_ORIZZONTALE", "CARICO_TOP", "MODALE"])
 def test_step_name_non_puo_ripetere_un_nome_di_caso_di_carico(riservato):
-    """M13 della revisione finale: `abaqus.export_model` assegna da se' i nomi
-    degli altri casi di carico, e `solve.risolvi` usa quel nome come chiave di
-    `point_data`. Con `analysis.step_name: SPINTA_ORIZZONTALE` due passi
-    finiscono sulla stessa etichetta, il secondo sovrascrive il primo e un
-    caso di carico sparisce dal `.vtu` senza errore.
+    """M13 della revisione finale: i tre nomi erano le etichette che il deck
+    assegnava da se' agli altri passi, e che indicizzano i campi per nodo del
+    file risolto. Col deck nudo nessun passo li scrive piu', ma un `.vtu` di
+    una corsa vecchia li porta ancora: con `analysis.step_name:
+    SPINTA_ORIZZONTALE` la chiave non direbbe piu' quale passo l'ha prodotta.
     """
     with pytest.raises(ValidationError, match="riservato"):
         config.AnalysisConfig(material=MATERIALE, step_name=riservato)
@@ -518,178 +407,23 @@ def test_il_materiale_resta_obbligatorio_dentro_l_analisi():
         config.AnalysisConfig()
 
 
-def test_i_quattro_selettori_si_dichiarano_per_nome():
-    """Il blocco `selettori` accetta le quattro forme e le tiene per nome.
-
-    Mutazione che lo uccide: dare a `SelettoreSfera.tipo` un letterale
-    diverso da `"sfera"`. La dichiarazione della sfera non trova piu'
-    alcun membro dell'unione che la accetti e la configurazione non nasce.
-
-    **Non** lo uccide togliere `discriminator="tipo"`: misurato su
-    pydantic 2.13.4, l'unione in modalita' smart sceglie comunque il
-    modello giusto, perche' i quattro `Literal` sono valori esatti e
-    distinti. Cio' che il discriminatore compra davvero e' la qualita'
-    dell'errore, e ha il proprio test qui sotto.
-    """
-    cfg = crea_config(
-        input=config.InputConfig(path="nuvola.ply"),
-        selettori={
-            "piastra": {"tipo": "box", "min": [0.0, 0.0, 0.0], "max": [10.0, 10.0, 10.0]},
-            "angolo": {"tipo": "sfera", "centro": [1.0, 2.0, 3.0], "raggio": 5.0},
-            "punta": {"tipo": "nodo", "punto": [1.0, 2.0, 3.0]},
-            "appoggio": {"tipo": "nset", "nome": "BASE"},
-        },
-    )
-    assert isinstance(cfg.selettori["piastra"], config.SelettoreBox)
-    assert isinstance(cfg.selettori["angolo"], config.SelettoreSfera)
-    assert isinstance(cfg.selettori["punta"], config.SelettoreNodo)
-    assert isinstance(cfg.selettori["appoggio"], config.SelettoreNset)
-    assert cfg.selettori["angolo"].raggio == pytest.approx(5.0)
-
-
-def test_un_tipo_di_selettore_ignoto_da_un_errore_solo():
-    """Cio' che il discriminatore compra: un errore che nomina il campo giusto.
-
-    Misurato su pydantic 2.13.4: con `discriminator="tipo"` un `tipo`
-    sconosciuto produce **un** errore, che dice qual e' il campo
-    sbagliato e quali valori accetta. Senza, l'unione in modalita' smart
-    prova tutti e quattro i membri e ne riporta **quattro**, uno per
-    membro, e chi legge deve capire da se' quale volesse.
-
-    Mutazione che lo uccide: togliere `discriminator="tipo"` dall'alias
-    `Selettore`. Il conteggio degli errori passa da 1 a 4.
-    """
-    with pytest.raises(ValidationError) as scoppio:
-        crea_config(
-            input=config.InputConfig(path="nuvola.ply"),
-            selettori={"strana": {"tipo": "palla", "centro": [0.0, 0.0, 0.0], "raggio": 5.0}},
-        )
-    errori = scoppio.value.errors()
-    assert len(errori) == 1, [e["type"] for e in errori]
-    assert errori[0]["type"] == "union_tag_invalid"
-    assert errori[0]["ctx"]["discriminator"] == "'tipo'"
-
-
-def test_senza_selettori_il_blocco_e_vuoto_non_assente():
-    """Chi non dichiara nulla ottiene un dizionario vuoto, non None.
-
-    Mutazione che lo uccide: predefinito `None` invece di
-    `default_factory=dict`. Il codice a valle itera sul blocco, e un None
-    esplode con un TypeError invece di non fare nulla.
-    """
-    cfg = crea_config(input=config.InputConfig(path="nuvola.ply"))
-    assert cfg.selettori == {}
-
-
-def test_la_box_rovesciata_e_rifiutata_e_nomina_la_componente():
-    """`min > max` non arriva alla mesh: risolverebbe zero nodi come altri quattro.
-
-    Mutazione che lo uccide: togliere il validatore. La box rovesciata
-    viene accettata e da' lo stesso sintomo di quattro condizioni
-    diverse, che e' precisamente cio' che la spec vieta.
-    """
-    with pytest.raises(ValidationError, match=r"\by\b"):
-        crea_config(
-            input=config.InputConfig(path="nuvola.ply"),
-            selettori={"rotta": {"tipo": "box", "min": [0.0, 9.0, 0.0], "max": [10.0, 1.0, 10.0]}},
-        )
-
-
-@pytest.mark.parametrize("raggio", [0.0, -5.0])
-def test_la_sfera_senza_raggio_positivo_e_rifiutata(raggio):
-    """Raggio nullo o negativo non e' una sfera piccola, e' una sfera che non c'e'.
-
-    Mutazione che lo uccide: `ge=0.0` al posto di `gt=0.0`, che lascia
-    passare il raggio zero.
-    """
-    with pytest.raises(ValidationError):
-        crea_config(
-            input=config.InputConfig(path="nuvola.ply"),
-            selettori={"vuota": {"tipo": "sfera", "centro": [0.0, 0.0, 0.0], "raggio": raggio}},
-        )
-
-
-@pytest.mark.parametrize("nome", config.NOMI_SET_DI_FACCIA)
-def test_un_selettore_non_puo_chiamarsi_come_uno_dei_sei(nome):
-    """I nomi dell'operatore e i sei di build_node_sets condividono lo spazio del deck.
-
-    Mutazione che lo uccide: controllare la collisione solo su BASE.
-    Il test passa su BASE e cade sugli altri cinque.
-    """
-    with pytest.raises(ValidationError, match=nome):
-        crea_config(
-            input=config.InputConfig(path="nuvola.ply"),
-            selettori={nome: {"tipo": "nset", "nome": "TOP"}},
-        )
-
-
-@pytest.mark.parametrize("nome", ["base", "Top", "Face_Front"])
-def test_un_selettore_non_puo_chiamarsi_come_uno_dei_sei_ignorando_il_caso(nome):
-    """Il deck e' case-insensitive sui *NSET (misurato,
-    docs/fase-6-cantiere/sonda-caso-nomi/README.md): un selettore che
-    differisce solo per maiuscole da uno dei sei collide comunque nel deck.
-
-    Mutazione che lo uccide: tornare al confronto diretto
-    `set(self.selettori) & set(NOMI_SET_DI_FACCIA)`, senza casefold. Il
-    test sui sei nomi esatti (uppercase) continuerebbe a passare, questi
-    tre cadrebbero.
-    """
-    atteso = next(s for s in config.NOMI_SET_DI_FACCIA if s.casefold() == nome.casefold())
-    with pytest.raises(ValidationError, match=atteso):
-        crea_config(
-            input=config.InputConfig(path="nuvola.ply"),
-            selettori={nome: {"tipo": "nset", "nome": "TOP"}},
-        )
-
-
-@pytest.mark.parametrize("nome", config.NOMI_SET_DI_FACCIA)
-def test_selettore_nset_canonicalizza_il_nome_dei_sei(nome):
-    """`SelettoreNset.nome` in caso non canonico (`top`) diventa il caso
-    canonico dei sei (`TOP`): un confronto esatto a valle
-    (`core/selezione.py`) fallirebbe altrimenti su un nome che collide
-    solo ignorando le maiuscole.
-
-    Mutazione che lo uccide: ritipare `SelettoreNset.nome` da
-    `NomeSetDiFaccia` a `NomeSet`, cioe' togliere la normalizzazione. Nessun
-    test in questo file la copriva prima che questo esistesse: toglierla non
-    faceva cadere nulla.
-    """
-    selettore = config.SelettoreNset(tipo="nset", nome=nome.casefold())
-    assert selettore.nome == nome
-
-
 @pytest.mark.parametrize("nome", config.NOMI_SET_DI_FACCIA)
 def test_fixed_nset_canonicalizza_il_nome_dei_sei(nome):
     """`fixed_nset: base` nello YAML non deve morire dopo la tetraedralizzazione.
 
     Misurato prima di questa correzione: `AnalysisConfig(fixed_nset='base')`
     passava la validazione, faceva girare la mesh di volume per minuti, e
-    solo allora `export_model` sollevava -- mentre `SelettoreNset(nome='base')`
-    era gia' normalizzato a `BASE` a validazione. Stesso spazio di nomi,
-    stesso `ccx` che risolve gli `*NSET` senza distinguere le maiuscole
-    (`docs/fase-6-cantiere/sonda-caso-nomi/README.md`), tre campi e tre
-    comportamenti diversi. La guardia in `abaqus.write_inp` dichiarava nel
-    proprio messaggio di conoscere la trappola e la lasciava aperta.
+    solo allora `export_model` sollevava. `ccx` risolve gli `*NSET` senza
+    distinguere le maiuscole (`docs/fase-6-cantiere/sonda-caso-nomi/README.md`)
+    e il nome va normalizzato dove si dichiara, non dove si usa. La guardia in
+    `abaqus.write_inp` dichiarava nel proprio messaggio di conoscere la
+    trappola e la lasciava aperta.
 
     Mutazione che lo uccide: ritipare `fixed_nset` da `NomeSetDiFaccia` a
     `NomeSet`. Il nome resta minuscolo e l'errore torna a valle.
     """
     analisi = config.AnalysisConfig(material=MATERIALE, fixed_nset=nome.casefold())
     assert analisi.fixed_nset == nome
-
-
-@pytest.mark.parametrize("nome", config.NOMI_SET_DI_FACCIA)
-def test_il_nset_del_carico_in_sommita_canonicalizza_il_nome_dei_sei(nome):
-    """Terzo campo dello stesso spazio di nomi, stessa regola.
-
-    `CaricoSommita(nset='top')` era accettato e sollevava dentro `write_inp`,
-    a mesh gia' costruita.
-
-    Mutazione che lo uccide: ritipare `CaricoSommita.nset` da
-    `NomeSetDiFaccia` a `NomeSet`.
-    """
-    carico = config.CaricoSommita(risultante=1000.0, nset=nome.casefold())
-    assert carico.nset == nome
 
 
 def test_un_nome_di_set_che_non_e_fra_i_sei_resta_come_scritto():
@@ -703,63 +437,6 @@ def test_un_nome_di_set_che_non_e_fra_i_sei_resta_come_scritto():
     per esempio con `.upper()`. `montante` diventerebbe `MONTANTE`.
     """
     assert config.AnalysisConfig(material=MATERIALE, fixed_nset="montante").fixed_nset == "montante"
-
-
-def test_selettore_nset_gia_canonico_non_solleva_e_resta_intatto():
-    """Ingresso degenere: un nome gia' nel caso canonico non e' toccato.
-
-    Mutazione che lo uccide: far sollevare `_caso_canonico_dei_sei` quando la
-    mappa restituisce il nome che ha ricevuto.
-    """
-    selettore = config.SelettoreNset(tipo="nset", nome="TOP")
-    assert selettore.nome == "TOP"
-
-
-def test_due_selettori_che_differiscono_solo_per_caso_collidono():
-    """Due chiavi distinte nel dizionario Python sono lo stesso nome nel deck
-    (stessa misura di docs/fase-6-cantiere/sonda-caso-nomi/README.md).
-
-    Mutazione che lo uccide: controllare solo la collisione coi sei nomi
-    di faccia, senza confrontare i selettori dell'operatore fra loro.
-    """
-    with pytest.raises(ValidationError) as scoppio:
-        crea_config(
-            input=config.InputConfig(path="nuvola.ply"),
-            selettori={
-                "piastra": {"tipo": "sfera", "centro": [0.0, 0.0, 0.0], "raggio": 1.0},
-                "PIASTRA": {"tipo": "sfera", "centro": [1.0, 1.0, 1.0], "raggio": 2.0},
-            },
-        )
-    messaggio = str(scoppio.value)
-    assert "piastra" in messaggio
-    assert "PIASTRA" in messaggio
-
-
-@pytest.mark.parametrize("nome", ["nome invalido", "piastra!"])
-def test_un_nome_di_selettore_con_spazio_o_simbolo_e_rifiutato(nome):
-    """`NomeSet` finisce interpolato in un deck ascii: spazi e simboli non ci stanno.
-
-    Mutazione che lo uccide: allargare il pattern di `NomeSet` (per
-    esempio a `.+` invece di `^[A-Za-z0-9_.-]+$`).
-    """
-    with pytest.raises(ValidationError):
-        crea_config(
-            input=config.InputConfig(path="nuvola.ply"),
-            selettori={nome: {"tipo": "sfera", "centro": [0.0, 0.0, 0.0], "raggio": 1.0}},
-        )
-
-
-def test_un_selettore_dichiarato_e_mai_citato_non_e_un_errore():
-    """Dichiarare e non usare e' lecito: e' un appunto, non un difetto.
-
-    Mutazione che lo uccide: un validatore che pretende che ogni
-    selettore sia citato da almeno un carico.
-    """
-    cfg = crea_config(
-        input=config.InputConfig(path="nuvola.ply"),
-        selettori={"mai_usato": {"tipo": "sfera", "centro": [0.0, 0.0, 0.0], "raggio": 1.0}},
-    )
-    assert "mai_usato" in cfg.selettori
 
 
 def test_i_sei_nomi_dichiarati_sono_quelli_che_il_deck_fabbrica():
@@ -795,270 +472,6 @@ def test_i_sei_nomi_dichiarati_sono_quelli_che_il_deck_fabbrica():
     assert tuple(insiemi) == config.NOMI_SET_DI_FACCIA
     for nome, indici in atteso.items():
         assert sorted(insiemi[nome].tolist()) == indici, nome
-
-
-def _config_con_posizionato(**campi_carico):
-    base = {"nome": "PRESSA", "selettore": "piastra", "forza": [0.0, 0.0, -12000.0]}
-    base.update(campi_carico)
-    return crea_config(
-        input=config.InputConfig(path="nuvola.ply"),
-        selettori={"piastra": {"tipo": "box", "min": [0.0, 0.0, 0.0], "max": [1.0, 1.0, 1.0]}},
-        carichi=config.CarichiConfig(posizionati=[base]),
-    )
-
-
-def test_un_posizionato_porta_nome_selettore_e_forza():
-    """La forma minima di un carico posizionato entra e si rilegge.
-
-    Mutazione che lo uccide: predefinito `None` su `posizionati` invece
-    della tupla vuota. `cfg.carichi.posizionati[0]` diventa un TypeError.
-    """
-    cfg = _config_con_posizionato()
-    assert cfg.carichi.posizionati[0].nome == "PRESSA"
-    assert cfg.carichi.posizionati[0].forza == (0.0, 0.0, -12000.0)
-    assert cfg.carichi.posizionati[0].momento is None
-
-
-def test_senza_posizionati_la_tupla_e_vuota():
-    """Chi non dichiara carichi posizionati ottiene (), non None.
-
-    Mutazione che lo uccide: `default=None`. Il codice a valle itera.
-    """
-    cfg = crea_config(input=config.InputConfig(path="nuvola.ply"))
-    assert cfg.carichi.posizionati == ()
-
-
-def test_il_momento_rifiuta_modulo_o_braccio_non_positivi():
-    """Un momento a modulo o braccio nullo o negativo non descrive una coppia.
-
-    Stessa convenzione di `test_il_coefficiente_di_spinta_rifiuta_lo_zero_e_il_negativo`
-    per `Field(gt=0.0)`.
-
-    Mutazione che lo uccide: togliere `gt=0.0` da `Momento.modulo` o
-    `Momento.braccio`. Entrambe le chiamate smettono di sollevare.
-    """
-    with pytest.raises(ValidationError):
-        config.Momento(asse=[0.0, 0.0, 1.0], modulo=0.0, braccio=1.0)
-    with pytest.raises(ValidationError):
-        config.Momento(asse=[0.0, 0.0, 1.0], modulo=-1.0, braccio=1.0)
-    with pytest.raises(ValidationError):
-        config.Momento(asse=[0.0, 0.0, 1.0], modulo=1.0, braccio=0.0)
-    with pytest.raises(ValidationError):
-        config.Momento(asse=[0.0, 0.0, 1.0], modulo=1.0, braccio=-1.0)
-
-
-def test_il_momento_rifiuta_lasse_nullo():
-    """Un asse [0, 0, 0] non e' una direzione: si vede dalla configurazione, senza mesh.
-
-    Mutazione che lo uccide: togliere il validatore sul modulo di `asse`.
-    Il momento entra con una direzione che non esiste.
-    """
-    with pytest.raises(ValidationError, match="asse"):
-        config.Momento(asse=[0.0, 0.0, 0.0], modulo=1.0, braccio=1.0)
-
-
-def test_un_carico_dichiara_o_forza_o_momento_mai_entrambi():
-    """Forza e momento insieme sono due carichi: due voci, non una.
-
-    Mutazione che lo uccide: un validatore che controlla solo il caso
-    "nessuno dei due". Questo test cade, l'altro passa.
-    """
-    with pytest.raises(ValidationError, match="uno solo"):
-        _config_con_posizionato(momento={"asse": [0.0, 0.0, 1.0], "modulo": 1.0, "braccio": 1.0})
-
-
-def test_un_carico_senza_forza_ne_momento_e_rifiutato():
-    """Un carico che non dice quanto vale non e' un carico.
-
-    Mutazione che lo uccide: un validatore che controlla solo il caso
-    "entrambi". Questo test cade, l'altro passa.
-    """
-    with pytest.raises(ValidationError, match="uno solo"):
-        _config_con_posizionato(forza=None)
-
-
-def test_la_forza_nulla_e_rifiutata():
-    """Un vettore forza di modulo zero scriverebbe un passo che non carica nulla.
-
-    Mutazione che lo uccide: togliere il controllo sul modulo. Il carico
-    entra e produce un passo statico identico al peso proprio, con un
-    nome che promette altro.
-    """
-    with pytest.raises(ValidationError, match="modulo"):
-        _config_con_posizionato(forza=[0.0, 0.0, 0.0])
-
-
-def test_un_carico_che_cita_un_selettore_non_dichiarato_e_rifiutato():
-    """Il riferimento si controlla senza mesh: e' un rifiuto a validazione.
-
-    Mutazione che lo uccide: spostare il controllo a valle, dove il
-    sintomo sarebbe "zero nodi" e si confonderebbe con altri quattro.
-    """
-    with pytest.raises(ValidationError, match="fantasma"):
-        crea_config(
-            input=config.InputConfig(path="nuvola.ply"),
-            selettori={"piastra": {"tipo": "nset", "nome": "TOP"}},
-            carichi=config.CarichiConfig(
-                posizionati=[{"nome": "PRESSA", "selettore": "fantasma", "forza": [0.0, 0.0, -1.0]}]
-            ),
-        )
-
-
-def test_un_carico_puo_citare_il_selettore_cambiando_le_maiuscole():
-    """Il selettore dichiarato 'piastra' e citato 'Piastra' sono lo stesso *NSET nel deck.
-
-    Stessa regola del confronto sui riservati e sulla chiave di `visti`:
-    ignora il caso, come misurato in docs/fase-6-cantiere/sonda-caso-nomi/.
-
-    Il carico e' normalizzato al nome canonico dichiarato ('piastra', non
-    'Piastra'): a valle (`core/abaqus.py`) il confronto con `nset_selettori`
-    e' un'uguaglianza esatta, e senza questa normalizzazione un carico
-    validato qui sollevava comunque in `write_inp` con un messaggio che
-    negava una dichiarazione vera.
-
-    Mutazione che lo uccide: togliere `.casefold()` dal confronto fra
-    `carico.selettore` e le chiavi di `self.selettori`. Il carico verrebbe
-    rifiutato con "non e' dichiarato", messaggio falso perche' dichiarato
-    lo e' davvero.
-    """
-    cfg = crea_config(
-        input=config.InputConfig(path="nuvola.ply"),
-        selettori={"piastra": {"tipo": "nset", "nome": "TOP"}},
-        carichi=config.CarichiConfig(
-            posizionati=[{"nome": "PRESSA", "selettore": "Piastra", "forza": [0.0, 0.0, -1.0]}]
-        ),
-    )
-    assert cfg.carichi.posizionati[0].selettore == "piastra"
-
-
-@pytest.mark.parametrize("riservato", config.NOMI_PASSO_RISERVATI)
-def test_un_carico_non_puo_chiamarsi_come_un_passo_riservato(riservato):
-    """Il nome del carico diventa il nome del passo, e tre nomi sono gia' presi.
-
-    Mutazione che lo uccide: controllare solo CARICO_TOP.
-    """
-    with pytest.raises(ValidationError, match=riservato):
-        _config_con_posizionato(nome=riservato)
-
-
-@pytest.mark.parametrize("variante", ["carico_top", "Modale", "Spinta_Orizzontale", "gravita"])
-def test_il_nome_riservato_e_preso_anche_cambiando_le_maiuscole(variante):
-    """Stessa regola dei selettori: il confronto sui nomi ignora il caso.
-
-    `gravita` e' il predefinito di `analysis.step_name`, che non sta fra i
-    riservati ma e' preso lo stesso.
-
-    Mutazione che lo uccide: togliere `.casefold()` dal confronto coi
-    riservati. Tutte e quattro le varianti passano la validazione.
-    """
-    with pytest.raises(ValidationError, match="già preso"):
-        _config_con_posizionato(nome=variante)
-
-
-def test_due_posizionati_che_differiscono_solo_per_caso_collidono():
-    """Due passi omonimi a meno del caso sono indistinguibili nel rapporto.
-
-    Mutazione che lo uccide: togliere `.casefold()` dalla chiave di
-    `visti`. I due carichi passano e il deck esce con due passi che
-    solo una lettura attenta distingue.
-    """
-    with pytest.raises(ValidationError, match="PRESSA"):
-        crea_config(
-            input=config.InputConfig(path="nuvola.ply"),
-            selettori={"piastra": {"tipo": "nset", "nome": "TOP"}},
-            carichi=config.CarichiConfig(posizionati=[
-                {"nome": "PRESSA", "selettore": "piastra", "forza": [0.0, 0.0, -1.0]},
-                {"nome": "pressa", "selettore": "piastra", "forza": [0.0, 0.0, -2.0]},
-            ]),
-        )
-
-
-def test_due_posizionati_non_possono_avere_lo_stesso_nome():
-    """Due passi omonimi nel deck: i due risultati diventano indistinguibili.
-
-    Mutazione che lo uccide: togliere il controllo di unicita'. Il deck
-    esce con due `** NOME PASSO: PRESSA`.
-    """
-    with pytest.raises(ValidationError, match="PRESSA"):
-        crea_config(
-            input=config.InputConfig(path="nuvola.ply"),
-            selettori={"piastra": {"tipo": "nset", "nome": "TOP"}},
-            carichi=config.CarichiConfig(posizionati=[
-                {"nome": "PRESSA", "selettore": "piastra", "forza": [0.0, 0.0, -1.0]},
-                {"nome": "PRESSA", "selettore": "piastra", "forza": [0.0, 0.0, -2.0]},
-            ]),
-        )
-
-
-def test_senza_distribuiti_la_tupla_e_vuota():
-    """Stessa regola dei posizionati: tupla vuota e non None.
-
-    Una corsa senza distribuiti e una con la lista vuota sono lo stesso
-    esperimento, ed e' la regola che l'impronta di sweep gia' applica al
-    blocco intero.
-    """
-    assert config.CarichiConfig().distribuiti == ()
-
-
-def test_una_pressione_nulla_non_e_un_carico():
-    """Scriverebbe un passo statico identico al peso proprio, con un altro nome.
-
-    Mutazione che lo uccide: togliere il validatore. La configurazione passa e
-    il deck esce con un `*DSLOAD` a zero, cioe' un caso di carico che promette
-    qualcosa e ripete la gravita'.
-    """
-    with pytest.raises(ValidationError, match="pressione nulla"):
-        config.CaricoDistribuito(nome="VENTO", selettore="tetto", pressione=0.0)
-
-
-def test_una_pressione_negativa_e_ammessa_perche_la_depressione_e_un_carico():
-    """Il vento che solleva una falda tira, non preme: il segno negativo serve.
-
-    Sta accanto al test dello zero apposta: senza, «rifiuta lo zero» e
-    «rifiuta il non positivo» sarebbero indistinguibili, e un `gt=0.0` messo
-    per sbaglio passerebbe inosservato.
-    """
-    assert config.CaricoDistribuito(
-        nome="SOLLEVAMENTO", selettore="falda", pressione=-0.3
-    ).pressione == -0.3
-
-
-def test_un_distribuito_cita_un_selettore_dichiarato():
-    with pytest.raises(ValidationError, match="che non è dichiarato"):
-        crea_config(
-            input=config.InputConfig(path="nuvola.ply"),
-            selettori={"piastra": {"tipo": "nset", "nome": "TOP"}},
-            carichi=config.CarichiConfig(distribuiti=[
-                {"nome": "VENTO", "selettore": "inesistente", "pressione": 0.25},
-            ]),
-        )
-
-
-def test_un_distribuito_e_un_posizionato_non_possono_avere_lo_stesso_nome():
-    """Le due liste condividono un solo spazio di nomi, perche' scrivono passi.
-
-    E' il difetto che due cicli separati -- uno sui posizionati, uno sui
-    distribuiti, ognuno col proprio insieme dei nomi visti -- lascerebbero
-    passare: ciascuno dei due nomi sarebbe unico nella propria lista, e il deck
-    uscirebbe con due `** NOME PASSO: SPINTA_VENTO`.
-
-    Mutazione che lo uccide: spezzare il ciclo di
-    `_i_carichi_col_selettore_citano_selettori_dichiarati` in due.
-    """
-    with pytest.raises(ValidationError, match="SPINTA_VENTO"):
-        crea_config(
-            input=config.InputConfig(path="nuvola.ply"),
-            selettori={"piastra": {"tipo": "nset", "nome": "TOP"}},
-            carichi=config.CarichiConfig(
-                posizionati=[
-                    {"nome": "SPINTA_VENTO", "selettore": "piastra",
-                     "forza": [0.0, 0.0, -1.0]},
-                ],
-                distribuiti=[
-                    {"nome": "SPINTA_VENTO", "selettore": "piastra", "pressione": 0.25},
-                ],
-            ),
-        )
 
 
 @pytest.mark.parametrize("cattivo", ["con spazio", "BASE\n*BOUNDARY\nTOP, 1, 3", "base!"])
@@ -1118,9 +531,13 @@ def test_una_configurazione_si_rilegge_con_e_senza_i_blocchi_che_non_esistono_pi
     Un blocco **aggiunto** non puo' rendere illeggibile cio' che e' gia' stato
     scritto: e' la regola dell'omissione che tiene ferme le 22 righe dei
     registri. Un blocco **tolto** nemmeno, ed e' la meta' che serve adesso: le
-    `config.yaml` gia' su disco portano un `solutore:` che il modello non ha
-    piu', e devono continuare ad aprirsi. Verificato il 02/09/2026 sulle tre
-    corse vere in runs/ -- default, prova, prova2 -- che si aprono tutte.
+    `config.yaml` gia' su disco portano un `solutore:` che la mappa #161 ha
+    tolto, e i blocchi che il deck nudo ha tolto con la PR 1 -- `carichi:`,
+    `selettori:`, e le due chiavi laterali dentro `model:`. Devono continuare
+    ad aprirsi: `runs/geoandgeo-lab/config.yaml` li porta ancora tutti.
+
+    Ignorati e non rifiutati, in questa PR: il rifiuto nominato dei blocchi
+    usciti e' un'altra decisione e arriva dopo.
 
     Mutazione che lo uccide: `extra="forbid"` su `_ModelloBase`.
     """
@@ -1128,17 +545,52 @@ def test_una_configurazione_si_rilegge_con_e_senza_i_blocchi_che_non_esistono_pi
     minima.write_text("input:\n  path: nuvola.ply\n", encoding="utf-8")
     cfg = config.load_config(minima)
     assert cfg.regioni == {}
-    assert cfg.carichi.combinazioni == ()
 
-    # Il blocco che la mappa #161 ha tolto, come lo scrivono le corse gia' fatte.
+    # I blocchi usciti, come li scrivono le corse gia' fatte: `solutore:` con
+    # la mappa #161, gli altri col deck nudo.
     vecchia = tmp_path / "vecchia.yaml"
     vecchia.write_text(
-        "input:\n  path: nuvola.ply\nsolutore:\n  nome: calculix\n  percorso: null\n",
+        "input:\n  path: nuvola.ply\n"
+        "solutore:\n  nome: calculix\n  percorso: null\n"
+        "carichi:\n"
+        "  spinta:\n    coefficiente: 0.1\n    asse: y\n"
+        "  carico_sommita:\n    risultante: 1200.0\n    nset: TOP\n"
+        "  modale: {}\n"
+        "selettori:\n"
+        "  angolo:\n    tipo: sfera\n    centro: [0.0, 0.0, 0.0]\n    raggio: 5.0\n"
+        "model:\n  lateral_nset: LATO\n  lateral_pressure: 0.05\n",
         encoding="utf-8",
     )
     riletta = config.load_config(vecchia)
-    assert not hasattr(riletta, "solutore"), "il blocco e' uscito e non deve tornare"
+    for uscito in ("solutore", "carichi", "selettori"):
+        assert not hasattr(riletta, uscito), f"il blocco {uscito} e' uscito e non deve tornare"
+    assert not hasattr(riletta.model, "lateral_nset")
+    assert not hasattr(riletta.model, "lateral_pressure")
     assert riletta.regioni == {}
+
+
+def test_le_due_chiavi_laterali_a_null_si_rileggono_come_quelle_valorizzate(tmp_path):
+    """`null` non e' un valore piu' facile da ignorare degli altri.
+
+    La riletta con valori concreti (`LATO`, `0.05`) e' gia' provata sopra. Il
+    `null` merita la sua riga perche' e' cio' che una `config.yaml` scritta
+    dall'interfaccia porta quando i due campi restavano vuoti, ed e' la forma
+    che arriva davvero dalle corse gia' su disco. Il meccanismo -- `extra`
+    ignorato di default su `_ModelloBase` -- e' indifferente al valore, ma
+    nessuna riga lo esercitava alla lettera.
+
+    Mutazione che lo uccide: `extra="forbid"` su `_ModelloBase`. `load_config`
+    solleva invece di rendere un `ModelConfig` costruito.
+    """
+    vecchia = tmp_path / "vecchia_null.yaml"
+    vecchia.write_text(
+        "input:\n  path: nuvola.ply\n"
+        "model:\n  lateral_nset: null\n  lateral_pressure: null\n",
+        encoding="utf-8",
+    )
+    riletta = config.load_config(vecchia)
+    assert not hasattr(riletta.model, "lateral_nset")
+    assert not hasattr(riletta.model, "lateral_pressure")
 
 
 def _materiale_dichiarato(**campi) -> dict:
@@ -1196,8 +648,8 @@ def test_una_regione_dichiarata_entra_nell_impronta():
 
     Due candidati con regioni diverse sono esperimenti diversi -- lo step 11
     li legge e il deck cambia -- e senza questa distinzione il secondo
-    sovrascriverebbe il primo, che e' esattamente il difetto per cui
-    `carichi` e `selettori` stanno nella stessa lista.
+    sovrascriverebbe il primo in silenzio, con la stessa cartella
+    `fingerprint(cfg)[:12]`.
     """
     from meshrec.core.sweep import fingerprint
 
@@ -1302,8 +754,7 @@ def test_la_norma_di_un_materiale_dichiarato_non_puo_essere_vuota(vuota):
 
 
 def test_due_regioni_che_differiscono_solo_per_maiuscole_sono_rifiutate():
-    """Stessa ragione dei selettori, misurata in
-    docs/fase-6-cantiere/sonda-caso-nomi/: `ccx` risolve i nomi di insieme
+    """Misurata in docs/fase-6-cantiere/sonda-caso-nomi/: `ccx` risolve i nomi di insieme
     senza distinguere le maiuscole, quindi due chiavi distinte nel dizionario
     python sono un solo nome nel deck.
     """
@@ -1356,8 +807,7 @@ def test_una_regione_puo_chiamarsi_come_un_set_di_faccia(nome):
 
 @pytest.mark.parametrize("nome", ["", "pi lastro", "regione!"])
 def test_un_nome_di_regione_con_spazio_o_simbolo_e_rifiutato(nome):
-    """Gemello di `test_un_nome_di_selettore_con_spazio_o_simbolo_e_rifiutato`:
-    anche il nome di una regione finisce interpolato in un deck ascii, come
+    """Il nome di una regione finisce interpolato in un deck ascii, come
     `*ELSET`, e otto rami lo leggeranno.
 
     Mutazione che lo uccide: ritipare `regioni` da `dict[NomeSet, ...]` a
@@ -1385,8 +835,8 @@ def test_una_membratura_negativa_e_rifiutata_dalla_configurazione():
 
 
 def test_le_regioni_convivono_con_un_analisi_assente():
-    """`analysis` e' `X | None` e ogni validatore che l'ha letto diritto e' gia'
-    caduto una volta (vedi `_i_carichi_col_selettore_citano_selettori_dichiarati`).
+    """`analysis` e' `X | None` e un validatore che lo legge diritto cade sulla
+    nuvola appena caricata: e' gia' successo una volta.
 
     Una corsa nasce dalla sola nuvola: le regioni possono essere dichiarate
     prima che il materiale unico della corsa esista.
@@ -1411,187 +861,6 @@ def test_le_regioni_sopravvivono_al_giro_su_disco(tmp_path):
     riletta = config.load_config(percorso)
 
     assert riletta.model_dump() == cfg.model_dump()
-
-
-def test_ogni_azione_dichiara_la_propria_natura_e_l_assenza_e_uno_stato():
-    """#146: ogni azione dichiara la propria natura, e senza dichiararla nessun
-    coefficiente si sceglie da solo.
-
-    Il predefinito e' `None` e non una natura plausibile: «non dichiarata» e'
-    uno stato che il generatore delle combinazioni deve poter leggere per
-    rifiutarsi, non un buco da riempire con una congettura. E' anche la sola
-    forma che l'impronta ammetta -- vedi il test sotto.
-
-    `Modale` non compare: non e' un'azione, e' un'analisi in frequenza, e non
-    porta coefficienti in nessuna combinazione.
-    """
-    azioni = (
-        config.SpintaOrizzontale,
-        config.CaricoSommita,
-        config.CaricoPosizionato,
-        config.CaricoDistribuito,
-    )
-    for modello in azioni:
-        assert "natura" in modello.model_fields, f"{modello.__name__} non dichiara la natura"
-        campo = modello.model_fields["natura"]
-        assert campo.default is None, f"{modello.__name__}.natura ha un predefinito"
-        assert campo.description
-
-    assert "natura" not in config.Modale.model_fields
-
-    spinta = config.SpintaOrizzontale(coefficiente=0.1, asse="x", natura="variabile")
-    assert spinta.natura == "variabile"
-    with pytest.raises(ValidationError):
-        config.SpintaOrizzontale(coefficiente=0.1, asse="x", natura="accidentale")
-
-
-def test_le_combinazioni_si_dichiarano_dentro_i_carichi_e_partono_vuote():
-    """La struttura che #146 chiede. Il generatore che la riempiva
-    (`core/combinazioni.py`) e' uscito con la mappa #161: le combinazioni
-    restano, e adesso le scrive l'operatore.
-    """
-    assert config.CarichiConfig().combinazioni == ()
-
-    # I due termini sono nomi che una configurazione puo' davvero portare:
-    # `GRAVITA` e' il predefinito di `analysis.step_name` e
-    # `SPINTA_ORIZZONTALE` una delle etichette riservate. Un esempio con
-    # `peso_proprio` e `neve` insegnerebbe a chi legge una sintassi che nessun
-    # deck di questo programma conosce.
-    combinazione = config.Combinazione(
-        nome="SLU_1",
-        tipo="slu_fondamentale",
-        termini=(("GRAVITA", 1.3), ("SPINTA_ORIZZONTALE", 1.5)),
-    )
-    assert combinazione.termini == (("GRAVITA", 1.3), ("SPINTA_ORIZZONTALE", 1.5))
-    with pytest.raises(ValidationError):
-        config.Combinazione(
-            nome="SLU_1",
-            tipo="slu_inventato",
-            termini=(("GRAVITA", 1.3),),
-        )
-
-
-def _config_con_combinazione(nome: str = "SLU_1", **campi):
-    """Una configurazione col solo carico `PRESSA` e una combinazione."""
-    combinazione = {
-        "nome": nome,
-        "tipo": "slu_fondamentale",
-        "termini": (("GRAVITA", 1.3),),
-    }
-    combinazione.update(campi)
-    return crea_config(
-        input=config.InputConfig(path="nuvola.ply"),
-        selettori={"piastra": {"tipo": "nset", "nome": "TOP"}},
-        carichi=config.CarichiConfig(
-            posizionati=[
-                {"nome": "PRESSA", "selettore": "piastra", "forza": [0.0, 0.0, -1.0]}
-            ],
-            combinazioni=[combinazione],
-        ),
-    )
-
-
-def test_una_combinazione_col_nome_del_passo_di_peso_proprio_e_rifiutata():
-    """`GRAVITA` e' il predefinito di `analysis.step_name`: il deck avrebbe due
-    `*STEP` omonimi, `ccx` ne risolverebbe uno e il rapporto ne mostrerebbe due.
-
-    Mutazione che lo uccide: lasciare `Combinazione.nome` fuori dal ciclo
-    `visti`/`riservati` dei carichi.
-    """
-    with pytest.raises(ValidationError, match="già preso"):
-        _config_con_combinazione(nome="GRAVITA")
-
-
-def test_una_combinazione_col_nome_di_unetichetta_riservata_e_rifiutata():
-    """`MODALE` sta in `NOMI_PASSO_RISERVATI`: la fabbrica `abaqus.export_model`.
-
-    Mutazione che lo uccide: controllare le combinazioni solo contro i nomi dei
-    carichi e non contro i riservati.
-    """
-    with pytest.raises(ValidationError, match="già preso"):
-        _config_con_combinazione(nome="MODALE")
-
-
-def test_due_combinazioni_che_differiscono_solo_per_maiuscole_sono_rifiutate():
-    """`C1` e `c1` sono un solo nome nel deck: `ccx` non distingue le maiuscole.
-
-    Mutazione che lo uccide: togliere `.casefold()` dalla chiave con cui le
-    combinazioni entrano in `visti`.
-    """
-    with pytest.raises(ValidationError, match="C1"):
-        crea_config(
-            input=config.InputConfig(path="nuvola.ply"),
-            carichi=config.CarichiConfig(combinazioni=[
-                {"nome": "C1", "tipo": "sle_rara",
-                 "termini": (("GRAVITA", 1.0),)},
-                {"nome": "c1", "tipo": "sle_frequente",
-                 "termini": (("GRAVITA", 1.0),)},
-            ]),
-        )
-
-
-def test_una_combinazione_e_un_carico_omonimi_sono_rifiutati_dallo_stesso_ciclo():
-    """Un solo spazio di nomi: entrambi scrivono un `*STEP`.
-
-    E' il difetto che due validatori separati -- uno sui carichi, uno sulle
-    combinazioni, ognuno col proprio `visti` -- lascerebbero passare, perche'
-    ciascun nome sarebbe unico nella propria famiglia.
-
-    Mutazione che lo uccide: spostare le combinazioni in un validatore proprio.
-    """
-    with pytest.raises(ValidationError, match="PRESSA"):
-        _config_con_combinazione(nome="pressa")
-
-
-@pytest.mark.parametrize("azione", ["G 1, *STEP\ninject", "", "*STEP", "a capo\n"])
-def test_il_nome_dellazione_di_un_termine_sta_nel_dominio_dei_nomi_di_set(azione):
-    """L'altra meta' della riga di deck che `nome` gia' protegge: un a capo
-    dentro il nome di un'azione apre una scheda `*` arbitraria nel file.
-
-    Mutazione che lo uccide: ritipare gli elementi di `termini` da `NomeSet` a
-    `str`.
-    """
-    with pytest.raises(ValidationError):
-        config.Combinazione(
-            nome="SLU_1",
-            tipo="slu_fondamentale",
-            termini=((azione, 1.3),),
-        )
-
-
-def test_una_combinazione_senza_termini_e_rifiutata():
-    """Uno `*STEP` senza azioni risolve e da' spostamenti nulli, che nessuno
-    distingue da una struttura scarica.
-
-    Mutazione che lo uccide: togliere `min_length=1` da `termini`.
-    """
-    with pytest.raises(ValidationError):
-        config.Combinazione(
-            nome="SLU_1", tipo="slu_fondamentale", termini=()
-        )
-
-
-def test_ogni_campo_nuovo_di_primo_livello_dei_carichi_ha_un_predefinito_falso():
-    """La trappola meno visibile delle quattro (§6 del sequenziamento).
-
-    `carichi` sta in BLOCCHI_VUOTI_FUORI_IMPRONTA, e il predicato di vuotezza
-    e' `not any(payload["carichi"].values())`: un solo campo di primo livello
-    con predefinito truthy renderebbe il blocco sempre non vuoto e sposterebbe
-    tutte e ventidue le righe dei registri -- mentre il test dei blocchi
-    resterebbe verde, perche' il blocco *e'* nella lista giusta.
-
-    Mutazione che lo uccide: dare a `combinazioni` un predefinito non vuoto, o
-    aggiungere a CarichiConfig un `bool = True` qualsiasi.
-    """
-    predefiniti = config.CarichiConfig().model_dump(mode="json")
-
-    for nome, valore in predefiniti.items():
-        assert not valore, (
-            f"carichi.{nome} nasce truthy ({valore!r}): l'omissione del blocco "
-            "vuoto non scatterebbe piu' e le 22 righe dei registri si "
-            "muoverebbero, con il test dei blocchi ancora verde"
-        )
-    assert not any(predefiniti.values())
 
 
 def test_una_corsa_di_pipeline_finisce_allo_step_11_e_il_tetto_e_il_dodici():
@@ -1627,3 +896,15 @@ def test_una_corsa_di_pipeline_finisce_allo_step_11_e_il_tetto_e_il_dodici():
     assert "il predefinito coincide con esso" not in descrizione, (
         "la descrizione afferma ancora una coincidenza col tetto che non c'e' piu'"
     )
+
+
+def test_pipeline_config_non_ha_piu_carichi_ne_selettori():
+    """Dalla PR 1 del deck nudo la configurazione non porta piu' carichi,
+    selettori ne' pressione laterale: le classi stesse escono dal modulo."""
+    campi = set(config.PipelineConfig.model_fields)
+
+    assert "carichi" not in campi
+    assert "selettori" not in campi
+    assert not hasattr(config, "CarichiConfig")
+    assert not hasattr(config, "Selettore")
+    assert "lateral_pressure" not in config.ModelConfig.model_fields

@@ -46,10 +46,10 @@ STEP_KEYS: tuple[str, ...] = (
 # discende l'invalidazione a valle: cambiare surface.poisson_depth non puo'
 # invalidare lo step 3, e deve invalidare tutto da 5 in giu'.
 #
-# Lo step 12 non ripete "carichi": la catena di `step_fingerprints` e'
-# cumulativa (l'impronta di ogni step incorpora quella del precedente), quindi
-# un cambio ai carichi -- gia' entrato in catena allo step 11 -- invalida il 12
-# comunque, senza bisogno di dichiararlo una seconda volta qui.
+# Lo step 12 non ripete i blocchi dello step 11: la catena di
+# `step_fingerprints` e' cumulativa (l'impronta di ogni step incorpora quella
+# del precedente), quindi un cambio gia' entrato in catena allo step 11
+# invalida il 12 comunque, senza bisogno di dichiararlo una seconda volta qui.
 STEP_BLOCKS: dict[int, tuple[str, ...]] = {
     1: ("input",),
     2: ("segment",),
@@ -61,10 +61,11 @@ STEP_BLOCKS: dict[int, tuple[str, ...]] = {
     8: ("simplify",),
     9: ("tet",),
     10: ("tet",),
-    # `regioni` sta con `carichi` e `selettori` (Fase 8, #135): partiziona
-    # ALL_WALL in `*ELSET` e porta una `*SOLID SECTION` per regione, quindi
-    # cambia il deck che lo step 11 scrive.
-    11: ("tet", "analysis", "carichi", "selettori", "regioni"),
+    # `regioni` (Fase 8, #135) partiziona ALL_WALL in `*ELSET` e porta una
+    # `*SOLID SECTION` per regione, quindi cambia il deck che lo step 11
+    # scrive. Col deck nudo e' l'ultimo blocco rimasto accanto a `tet` e
+    # `analysis`.
+    11: ("tet", "analysis", "regioni"),
     12: ("wall",),
 }
 

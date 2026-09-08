@@ -110,8 +110,6 @@ invariante, o libreria terza) · **R** = solo regressione autoreferenziale · **
 | `constraint_plan_extent` | `abaqus.constraint_plan_extent` | r_a = ptp(scelti_a)/ptp(tutti_a), a∈{x,y}; `minimo` = min | =1 su due piedi (`test_abaqus.test_l_estensione_in_pianta_del_vincolo_vale_uno_su_due_piedi`), crolla su un angolo (`test_abaqus.test_l_estensione_in_pianta_crolla_se_il_vincolo_tiene_un_angolo`, `test_abaqus.test_l_estensione_in_pianta_crolla_anche_quando_e_x_l_asse_stretto`) | **O** |
 | `aree_tributarie` | `abaqus.aree_tributarie` | ventaglio dal 1° nodo; A_tri = ‖(p₁−p₀)×(p₂−p₀)‖/2; ⅓ a ciascuno | Σ = 100·40 calcolato a mano, **non** contro `surface_area` — `test_abaqus.test_le_aree_tributarie_sommano_all_area_della_superficie` | **O** |
 | `surface_area` | `abaqus.surface_area` | = `aree_tributarie(...).sum()` | faccia di cubo unitario = 1 — `test_abaqus.test_la_superficie_di_elemento_di_una_faccia_nominata_ha_l_area_giusta` | **O** |
-| `ripartisci` | `abaqus.ripartisci` | q_i = R · A_i / ΣA | somma = risultante — `test_abaqus.test_la_ripartizione_pesata_conserva_la_risultante` | **O** |
-| `coppia_equivalente` | `abaqus.coppia_equivalente` | separazione = fix_sign(1° vettore singolare di P_⊥asse); F = M/b_eff | **Σ F = 0 e M_z = 3000 ricalcolato dalle righe `*CLOAD` del deck** — `test_abaqus.test_la_coppia_realizza_il_momento_dichiarato` | **O** — il più forte del repo |
 | `element_surface` | `abaqus.element_surface` | facce di bordo con **tutti** i nodi nel set | S1 del C3D8 + area = 1 — `test_abaqus.test_la_superficie_di_elemento_di_una_faccia_nominata_ha_l_area_giusta`; 3 nodi su 4 → `[]` — `test_abaqus.test_la_superficie_di_elemento_non_nomina_una_faccia_solo_sfiorata` | **O** |
 | `volume` / `mass` export | `abaqus.export_model` | V = Σ\|V_elem\|; m = V·ρ | scatola nota, rel 1e-6 — `test_oracoli_mancanti.test_il_volume_e_la_massa_del_deck_sono_quelli_della_scatola` | **O** |
 
@@ -263,8 +261,6 @@ avviso o errore: `volume.TruncatedRefinementWarning`, saturazione Steiner
 (`test_volume.test_a_mesh_the_constraint_does_not_govern_is_reported`);
 `abaqus.UnconstrainedModelWarning`
 (`test_abaqus.test_export_warns_when_the_constrained_set_misses_the_footprint`);
-`abaqus.SelettoreIsotropoWarning`
-(`test_abaqus.test_un_selettore_quadrato_avvisa_che_la_direzione_non_e_determinata`);
 determinante ≠ +1 in `solve._rotazione_ai_punti`
 (`test_solve.test_una_rotazione_con_determinante_diverso_da_uno_non_si_applica`).
 

@@ -1377,67 +1377,68 @@ def test_generare_un_modello_senza_materiale_non_lascia_una_cartella_a_meta(tmp_
     assert not (figlia / "config.yaml").exists()
 
 
-def test_lo_step_11_passa_i_selettori(monkeypatch, tmp_path):
-    """Il percorso as-built e' quello della tesi: se non passa i selettori, non esistono.
-
-    Mutazione che lo uccide: togliere `selettori=cfg.selettori` dalla
-    chiamata di core/pipeline.py:439-448. La cattura non vede la chiave e
-    l'assert cade.
-    """
-    visti: dict[str, object] = {}
-    originale = abaqus.export_model
-
-    def spia(*args, **kwargs):
-        visti.update(kwargs)
-        return originale(*args, **kwargs)
-
-    monkeypatch.setattr(abaqus, "export_model", spia)
-
+def test_il_deck_dello_step_11_porta_un_solo_passo(tmp_path):
+    """Dalla PR 1 del deck nudo la pipeline non passa piu' carichi al deck:
+    un solo *STEP (la gravita'), nessun *CLOAD, nessun *DSLOAD, nessuna
+    *SURFACE nel deck del muro."""
     cfg = _config_cubo(tmp_path)
     cfg.run.to_step = 11
-    # Banda in quota fra 200 e 240 mm su un cubo alto 240 (SIZE): prende
-    # piu' di zero nodi e meno di tutti, qualunque sia il permutare degli
-    # assi orizzontali fatto da align_to_axes (z resta il verticale).
-    cfg.selettori = {"piastra": config.SelettoreBox(
-        tipo="box", min=(-1e9, -1e9, 200.0), max=(1e9, 1e9, 1e9)
-    )}
     pipeline.run(cfg)
+    deck = (tmp_path / "out" / "wall_model.inp").read_text()
+    assert deck.count("*STEP") == 1
+    assert "*CLOAD" not in deck
+    assert "*DSLOAD" not in deck
+    assert "*SURFACE" not in deck
 
-    assert visti.get("selettori")
 
+def test_una_config_yaml_vecchia_arriva_al_deck_a_un_passo(tmp_path):
+    """La catena intera su una `config.yaml` scritta prima del deck nudo.
 
-def test_il_percorso_esaedrico_non_riceve_selettori(monkeypatch, tmp_path):
-    """`selezione.spigolo_medio` media tutte le coppie di nodi dentro un
-    elemento, che coincide con gli spigoli solo per un tetraedro: su un
-    esaedro conterebbe anche le diagonali, allentando in silenzio la soglia
-    dei tre spigoli. Il percorso esaedrico (`genera_modello`) non deve
-    passare `selettori` a `export_model`, altrimenti quel limite diventa
-    raggiungibile.
+    `test_config.py` prova la meta' di sopra -- `load_config` non solleva sui
+    blocchi usciti -- e il test qui sopra prova la meta' di sotto, ma partendo
+    da una configurazione costruita a mano in python. Nessuna riga le
+    incatenava: un `cfg` nato da uno yaml vecchio che attraversa
+    `pipeline.run` fino allo step 11 e produce il deck a un passo. E' la corsa
+    che le `runs/` gia' su disco fanno davvero.
 
-    Mutazione che lo uccide: aggiungere `selettori=cfg.selettori` alla
-    chiamata di `abaqus.export_model` dentro `genera_modello`
-    (core/pipeline.py:190-202). La cattura vedrebbe la chiave e l'assert
-    cadrebbe.
+    I blocchi vecchi sono quelli di `runs/geoandgeo-lab/config.yaml`, con le
+    due chiavi laterali a `null` come le scriveva l'interfaccia quando
+    restavano vuote.
+
+    Mutazione che lo uccide: `extra="forbid"` su `_ModelloBase` (`load_config`
+    solleva), o un passo in piu' rimesso nel deck del muro.
     """
-    visti: dict[str, object] = {}
-    originale = abaqus.export_model
+    pytest.importorskip("pymeshfix")
+    vecchia = tmp_path / "config.yaml"
+    config.save_config(_config_cubo(tmp_path), vecchia)
+    # Le due chiavi laterali vanno *dentro* il `model:` gia' scritto: un
+    # secondo `model:` in coda sarebbe una chiave omonima, che
+    # `_LoaderChiaviUniche` rifiuta prima di arrivare al punto in esame.
+    testo = vecchia.read_text(encoding="utf-8").replace(
+        "model:\n", "model:\n  lateral_nset: null\n  lateral_pressure: null\n", 1
+    )
+    vecchia.write_text(
+        testo
+        + "carichi:\n"
+        "  spinta:\n    coefficiente: 0.1\n    asse: y\n"
+        "  carico_sommita:\n    risultante: 1200.0\n    nset: TOP\n"
+        "  modale: {}\n"
+        "selettori:\n"
+        "  angolo:\n    tipo: sfera\n    centro: [0.0, 0.0, 0.0]\n    raggio: 5.0\n",
+        encoding="utf-8",
+    )
 
-    def spia(*args, **kwargs):
-        visti.update(kwargs)
-        return originale(*args, **kwargs)
-
-    monkeypatch.setattr(abaqus, "export_model", spia)
-
-    cfg = _config_cubo(tmp_path)
-    cfg.selettori = {"piastra": config.SelettoreSfera(
-        tipo="sfera", centro=(0.0, 0.0, 0.0), raggio=5.0
-    )}
+    cfg = config.load_config(vecchia)
+    assert not hasattr(cfg.model, "lateral_nset")
+    assert not hasattr(cfg.model, "lateral_pressure")
+    assert not hasattr(cfg, "carichi")
+    cfg.run.to_step = 11
     pipeline.run(cfg)
-    visti.clear()  # pipeline.run chiama gia' export_model (step 11, as-built): isola la sola chiamata di genera_modello
 
-    pipeline.genera_modello(cfg, "estruso", tmp_path / "figlia")
-
-    assert "selettori" not in visti
+    deck = (tmp_path / "out" / "wall_model.inp").read_text()
+    assert deck.count("*STEP") == 1
+    for card in ("*CLOAD", "*DSLOAD", "*SURFACE", "*FREQUENCY"):
+        assert card not in deck
 
 
 # --- Lo step 11 rilegge il prior dello step 12 (#135) -----------------------

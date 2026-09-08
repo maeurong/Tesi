@@ -348,10 +348,6 @@ def genera_modello(cfg: PipelineConfig, tipo: str, out_dir: Path) -> dict[str, o
     out.mkdir(parents=True, exist_ok=True)
     save_config(cfg, out / "config.yaml")
 
-    carico = None
-    if cfg.model.lateral_nset is not None and cfg.model.lateral_pressure is not None:
-        carico = (cfg.model.lateral_nset, float(cfg.model.lateral_pressure))
-
     export = abaqus.export_model(
         out / DECK_FILENAME,
         out / WALL_VTU_FILENAME,
@@ -363,7 +359,6 @@ def genera_modello(cfg: PipelineConfig, tipo: str, out_dir: Path) -> dict[str, o
         element_type=cfg.model.element,
         element_surfaces=modello["superfici"],
         ties=modello["ties"],
-        pressure=carico,
     )
 
     # Lo scostamento dalla nuvola sorgente e' il perno del confronto (Task 12):
@@ -838,8 +833,6 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
             cfg.analisi_dichiarata("lo step 11"),
             cfg.tet,
             reference=vertices,
-            carichi=cfg.carichi,
-            selettori=cfg.selettori,
             regioni=regioni_deck,
         )
         if attribuzione_metriche is not None:

@@ -2521,21 +2521,19 @@ def test_l_etichetta_non_e_la_chiave_ribattuta(cliente):
 
 
 def test_il_pannello_dello_step_11_mostra_solo_i_blocchi_che_comanda(cliente):
-    """`STEP_BLOCKS` assegna blocchi interi e non si tocca: e' la tabella da
-    cui discende l'invalidazione a valle (`steps.step_fingerprints`), e
-    toglierne un blocco invaliderebbe le corse di riferimento. La correzione
-    e' a grana di campo, dentro `schema()`.
+    """`STEP_BLOCKS` assegna blocchi interi: e' la tabella da cui discende
+    l'invalidazione a valle (`steps.step_fingerprints`), e toglierne un blocco
+    sposta le impronte delle corse gia' su disco -- deciso una volta col deck
+    nudo, non una manovra di questo endpoint. La correzione di cio' che si
+    **vede** e' a grana di campo, dentro `schema()`.
 
-    Lo step 11 esporta il modello: non tetraedrizza (quello e' il 9) e i
-    carichi non hanno ancora una sede propria. `selettori` e' un
-    `dict[NomeSet, Selettore]`, cioe' una sezione vuota per costruzione: una
-    sezione che non puo' mai contenere nulla non compare.
+    Lo step 11 esporta il modello: non tetraedrizza (quello e' il 9).
+    `regioni` e' un `dict[NomeSet, RegioneConfig]`, cioe' una sezione vuota per
+    costruzione: una sezione che non puo' mai contenere nulla non compare.
     """
     from meshrec.core import steps
 
-    assert steps.STEP_BLOCKS[11] == (
-        "tet", "analysis", "carichi", "selettori", "regioni",
-    ), (
+    assert steps.STEP_BLOCKS[11] == ("tet", "analysis", "regioni"), (
         "STEP_BLOCKS e' stata cambiata: la catena delle impronte a valle "
         "discende da li'"
     )
@@ -2570,33 +2568,6 @@ def test_reference_ratio_sta_nel_pannello_dello_step_che_lo_usa(cliente):
     assert "min_ratio" in corpo["9"]["campi"]["tet"], (
         "lo step 9 ha perso il vincolo che chiede davvero a TetGen"
     )
-
-
-def test_lo_schema_non_esplode_sul_blocco_selettori(cliente):
-    """`selettori` (STEP_BLOCKS[11]) e' un `dict[NomeSet, Selettore]`, non un
-    modello: non ha `model_fields` come `carichi` (un `BaseModel`), e prima
-    della guardia lo endpoint lo tratta comunque cosi' e va in 400.
-
-    Due mutazioni, due modi di fallire:
-
-    1. togliere la guardia su `hasattr(annidato, "model_fields")` in
-       `schema()` (core/app/server.py) e tornare a chiamare
-       `annidato.model_fields` incondizionatamente -- l'AttributeError torna
-       e la richiesta a `/api/schema` torna a rispondere 400.
-    2. far rendere alla guardia dei campi inventati invece di nessun campo --
-       resterebbe 200, e senza l'asserzione sotto il test non se ne
-       accorgerebbe.
-
-    Il blocco non compare piu' nemmeno come sezione vuota: una sezione che per
-    costruzione non puo' contenere nulla non ha niente da mostrare.
-    """
-    risposta = cliente.get("/api/schema")
-    assert risposta.status_code == 200
-    corpo = risposta.json()
-    assert "selettori" not in corpo["11"]["blocchi"]
-    assert "selettori" not in corpo["11"]["campi"]
-    # Lo step 11 risponde comunque: la guardia non deve spegnere il pannello.
-    assert corpo["11"]["campi"]["analysis"]
 
 
 def test_il_tempo_dello_step_viene_dal_server_e_non_dal_browser(cliente):
@@ -3689,9 +3660,9 @@ def test_lo_schema_non_esplode_sul_blocco_regioni(banco, request):
     elenca le regioni dichiarate -- la variante popolata e' la sola che se ne
     accorgerebbe.
 
-    Il blocco non compare, per la stessa ragione di `selettori`: le sue chiavi
-    le sceglie l'operatore, non ci sono campi fissi da descrivere, e una
-    sezione che per costruzione non puo' contenere nulla non si mostra.
+    Il blocco non compare: le sue chiavi le sceglie l'operatore, non ci sono
+    campi fissi da descrivere, e una sezione che per costruzione non puo'
+    contenere nulla non si mostra.
     """
     from meshrec.core import steps
 

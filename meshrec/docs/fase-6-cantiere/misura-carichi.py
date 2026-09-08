@@ -1,18 +1,25 @@
 #!/usr/bin/env python
-"""Rimisura i numeri di `docs/fase-6-carichi.md`.
+"""Documento di cantiere, non piu' eseguibile. Rompe all'import di
+`meshrec.core.solve`, uscito da main il 02/09/2026 (mappa #161), e importa
+anche `meshrec.core.selezione`, uscito il 08/09/2026 col deck nudo. I numeri
+che produceva stanno in `docs/fase-6-carichi.md`, riproducibili dal commit che
+li ha prodotti. Quello che segue descrive come lavorava quando girava.
 
-Non fa parte del programma: sta sotto `docs/` apposta, sul modello di
-`docs/fase-5-cantiere/misura-deficit.py`. Legge gli artefatti gia' scritti
+Rimisurava i numeri di `docs/fase-6-carichi.md`.
+
+Non faceva parte del programma: sta sotto `docs/` apposta, sul modello di
+`docs/fase-5-cantiere/misura-deficit.py`. Leggeva gli artefatti gia' scritti
 (la corsa dimostrativa in `runs/lab_telaio_v4_posizionati_top/`, quella
 "prima" in `runs/lab_telaio_v4_posizionati/` tenuta come prova del difetto
 del § 5.4, e la corsa della Fase 5 in `runs/lab_telaio_v2/` e
-`runs/lab_telaio_v3_pesata_dload_fix/`, tutte in sola lettura) e rifa' da capo le sonde
-su `ccx` vero -- il posizionato, il momento, il rumore di fondo a sola
+`runs/lab_telaio_v3_pesata_dload_fix/`, tutte in sola lettura) e rifaceva da
+capo le sonde su `ccx` vero -- il posizionato, il momento, il rumore di fondo a sola
 gravita', e i due banchi sintetici della prima taratura. Ogni valore che il
-documento pubblica porta qui il
-proprio `assert`: se qualcosa si muove, questo script cade invece di
+documento pubblica portava qui il
+proprio `assert`: se qualcosa si muoveva, lo script cadeva invece di
 stampare in silenzio un numero diverso da quello scritto.
 
+    si lanciava con:
     uv run python docs/fase-6-cantiere/misura-carichi.py
 """
 

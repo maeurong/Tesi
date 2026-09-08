@@ -321,19 +321,6 @@ def test_le_metriche_di_superficie_su_una_mesh_sana_restano_numeri():
     assert metriche["area"] > 0.0
 
 
-def test_un_carico_non_si_ripartisce_su_un_area_non_calcolabile():
-    """Il difetto piu' grave trovato dal giro di review: righe `*CLOAD` con `nan`.
-
-    `totale <= 0.0` lasciava passare un'area `NaN`, le quote uscivano tutte
-    `NaN` e finivano interpolate nel deck. Un `.inp` con `nan` al posto di una
-    forza e' peggio di un deck mancante, perche' il solutore lo legge.
-    """
-    corrotti = NODI_SANI.copy()
-    corrotti[0, 2] = float("nan")
-    with pytest.raises(ValueError, match="non è un carico"):
-        abaqus.ripartisci(100.0, corrotti, TET, [0, 1, 2], "C3D4", nome="PROVA")
-
-
 def test_l_allineamento_rifiuta_un_insieme_vuoto():
     """La guardia va dove passano tutti i chiamanti, non solo dove l'avevo messa.
 

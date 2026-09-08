@@ -1,7 +1,9 @@
 # Quanti modi servono per il 90% di massa partecipante
 
-Misurato il 26/08/2026. Rimisurabile con
-`meshrec/docs/fase-7-cantiere/modi-per-la-normativa.py`.
+Misurato il 26/08/2026. È una misura storica: lo script che la produceva,
+`meshrec/docs/fase-7-cantiere/modi-per-la-normativa.py`, resta come documento
+di cantiere e non è più eseguibile; la misura si riproduce dal commit che la ha
+prodotta (cronologia git).
 
 [#75](https://github.com/maeurong/Tesi/issues/75) aveva trovato il difetto e
 si era fermato lì: coi venti modi che il caso del telaio chiedeva, la

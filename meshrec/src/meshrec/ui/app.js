@@ -3282,7 +3282,7 @@ function fallisciDettaglio(dettaglio, ragione) {
 // lo esegue si chiamano allo stesso modo. Un blocco che la tabella non
 // conosce resta la chiave, come nomeDelloStep fa con uno step ignoto.
 // Su una riga sola: il banco la estrae con `_costante`, che ne vede una.
-const ETICHETTE_DEI_BLOCCHI = { input: "lettura", segment: "segmentazione", downsample: "riduzione", normals: "normali", surface: "superficie", repair: "riparazione", simplify: "semplificazione", tet: "tetraedri", analysis: "analisi", carichi: "carichi", selettori: "selettori", regioni: "regioni", wall: "prior geometrico" };
+const ETICHETTE_DEI_BLOCCHI = { input: "lettura", segment: "segmentazione", downsample: "riduzione", normals: "normali", surface: "superficie", repair: "riparazione", simplify: "semplificazione", tet: "tetraedri", analysis: "analisi", regioni: "regioni", wall: "prior geometrico" };
 
 function gruppoDelBlocco(blocco, campi, ordine) {
   const gruppo = document.createElement("fieldset");

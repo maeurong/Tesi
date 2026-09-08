@@ -35,8 +35,8 @@ from meshrec.core.config import ExperimentConfig, PipelineConfig
 # Questa lista e' la stessa conoscenza che STEP_BLOCKS (core/steps.py) tiene
 # come fonte unica -- quale blocco conta per quale step -- scritta una seconda
 # volta a mano. Le due possono divergere in silenzio, ed e' cosi' che
-# l'esclusione di `carichi` e' sopravvissuta: tenerle d'accordo e' un obbligo,
-# non una comodita'.
+# un'esclusione e' sopravvissuta al blocco che la giustificava: tenerle
+# d'accordo e' un obbligo, non una comodita'.
 #
 # `solutore` stava qui fino alla mappa #161, ed e' uscito col blocco: era
 # escluso in secco, quindi toglierlo non muove le ventidue righe gia'
@@ -45,21 +45,21 @@ BLOCCHI_FUORI_IMPRONTA: tuple[str, ...] = ("run", "wall", "model")
 
 # I blocchi che entrano nell'impronta solo quando portano qualcosa.
 #
-# `carichi` e' letto dallo step 11 (STEP_BLOCKS[11]) e cambia il deck, che e'
-# artefatto richiesto di ogni candidato -- lo sweep arriva a --to-step 11.
-# Quindi due candidati con carichi diversi sono esperimenti diversi e devono
-# avere impronte diverse: la cartella di un candidato e' fingerprint(cfg)[:12],
-# e senza questa distinzione la seconda corsa sovrascrive la prima in silenzio,
-# con verify_registry che se ne accorge solo a posteriori e solo se eseguito.
+# `regioni` (Fase 8, #135) e' letto dallo step 11 (STEP_BLOCKS[11]), partiziona
+# ALL_WALL in `*ELSET` e cambia il deck, che e' artefatto richiesto di ogni
+# candidato -- lo sweep arriva a --to-step 11. Quindi due candidati con regioni
+# diverse sono esperimenti diversi e devono avere impronte diverse: la cartella
+# di un candidato e' fingerprint(cfg)[:12], e senza questa distinzione la
+# seconda corsa sovrascrive la prima in silenzio, con verify_registry che se ne
+# accorge solo a posteriori e solo se eseguito.
 #
-# Perche' condizionato e non secco: misurato il 22/08/2026 sulle 22 righe di
-# experiments/muro e experiments/lab_crop, includere `carichi` senza condizione
-# cambia l'impronta di 22 righe su 22, cioe' la provenienza della tabella
-# sperimentale della tesi. Con l'omissione del blocco vuoto ne cambia 0 su 22:
-# quelle righe sono nate prima della Fase 5 e hanno i tre campi tutti nulli.
-# La regola regge anche da sola, non solo per compatibilita': una corsa senza
-# carichi e una corsa i cui carichi sono tutti assenti sono lo stesso
-# esperimento.
+# Perche' condizionato e non secco: includere un blocco senza condizione
+# cambierebbe l'impronta delle 22 righe di experiments/muro e
+# experiments/lab_crop, cioe' la provenienza della tabella sperimentale della
+# tesi -- nate prima della Fase 8, il blocco non ce l'hanno. Con l'omissione
+# del blocco vuoto ne cambia 0 su 22. La regola regge anche da sola, non solo
+# per compatibilita': una corsa senza regioni e una corsa le cui regioni sono
+# assenti sono lo stesso esperimento.
 #
 # E' l'unica regola condizionata dell'impronta, e va dichiarata come tale:
 # dentro l'impronta sopravvivono gia' quattro valori nulli (segment.crop_min,
@@ -68,28 +68,22 @@ BLOCCHI_FUORI_IMPRONTA: tuple[str, ...] = ("run", "wall", "model")
 # La regola copre i blocchi AGGIUNTI, non i campi TOLTI: togliere un campo da
 # un modello sposta l'impronta di ogni riga gia' registrata.
 #
-# `selettori` segue `carichi` e per la stessa ragione: e' letto dallo step 11,
-# cambia il deck, e due candidati con selettori diversi sono esperimenti
-# diversi. La regola dell'omissione quando vuoto tiene ferma la provenienza
-# delle righe gia' registrate, che il blocco non ce l'hanno.
-#
-# `regioni` (Fase 8, #135) segue entrambi: STEP_BLOCKS[11] lo legge, partiziona
-# ALL_WALL in `*ELSET` e cambia il deck. E' un `dict[NomeSet, RegioneConfig]`
-# che nasce `{}` -- cioe' falso -- e la forma a dizionario e' precisamente cio'
-# che rende sicura la sua presenza in questa lista: un modello con campi
-# porterebbe i propri predefiniti, e basta uno solo truthy fra quelli perche'
-# il predicato di vuotezza qui sotto non scatti piu' e le ventidue righe si
-# muovano, con il test dei blocchi verde.
+# `regioni` e' un `dict[NomeSet, RegioneConfig]` che nasce `{}` -- cioe' falso
+# -- e la forma a dizionario e' precisamente cio' che rende sicura la sua
+# presenza in questa lista: un modello con campi porterebbe i propri
+# predefiniti, e basta uno solo truthy fra quelli perche' il predicato di
+# vuotezza qui sotto non scatti piu' e le ventidue righe si muovano, con il
+# test dei blocchi verde.
 #
 # La regola dell'omissione vale per l'IMPRONTA DI CANDIDATO di questo modulo e
 # NON per la catena degli step (`steps.step_fingerprints`), che hasha il
-# payload cosi' com'e': `{"regioni": {}}` vi entra comunque. Aggiungere un
-# blocco letto dallo step 11 sposta percio' le impronte degli step 11 e 12 una
-# volta sola, e ogni corsa gia' su disco si
-# dichiara da rieseguire da li' in giu' al primo avvio -- senza che l'operatore
-# abbia cambiato un campo. E' una volta sola e si accetta; inseguire
-# l'omissione dentro `step_fingerprints` sarebbe un'altra decisione.
-BLOCCHI_VUOTI_FUORI_IMPRONTA: tuple[str, ...] = ("carichi", "selettori", "regioni")
+# payload cosi' com'e': `{"regioni": {}}` vi entra comunque. Aggiungere o
+# togliere un blocco letto dallo step 11 sposta percio' le impronte degli step
+# 11 e 12 una volta sola, e ogni corsa gia' su disco si dichiara da rieseguire
+# da li' in giu' al primo avvio -- senza che l'operatore abbia cambiato un
+# campo. E' una volta sola e si accetta; inseguire l'omissione dentro
+# `step_fingerprints` sarebbe un'altra decisione.
+BLOCCHI_VUOTI_FUORI_IMPRONTA: tuple[str, ...] = ("regioni",)
 
 
 def fingerprint(cfg: PipelineConfig) -> str:
@@ -158,12 +152,10 @@ def expand(
     base non produce un secondo candidato identico.
 
     Il rifiuto qui sotto esiste perche' due candidati che differissero solo per
-    un blocco fuori impronta avrebbero la stessa impronta. Non riguarda piu'
-    `carichi`, uscito da BLOCCHI_FUORI_IMPRONTA: un asse su un carico produce
-    candidati distinguibili, ed e' un esperimento legittimo -- lo stesso carico
-    in due posti. Resta il caso degenere dell'asse su un carico che sta vuoto a
-    tutti i livelli, che non produce candidati distinti: non serve una guardia,
-    lo assorbe la deduplica per impronta qui sotto.
+    un blocco fuori impronta avrebbero la stessa impronta. Resta il caso
+    degenere dell'asse su un blocco condizionato che sta vuoto a tutti i
+    livelli, che non produce candidati distinti: non serve una guardia, lo
+    assorbe la deduplica per impronta qui sotto.
     """
     for asse in experiment.axes:
         blocco = asse.path.split(".")[0]

@@ -599,9 +599,10 @@ def _forma_del_campo(campo: object) -> dict[str, object]:
 # I campi che il pannello di uno step non mostra, benche' il blocco sia suo in
 # `STEP_BLOCKS`. Quella tabella assegna blocchi interi ed e' anche la tabella
 # da cui discende l'invalidazione a valle (`steps.step_fingerprints`):
-# toglierne un blocco romperebbe la catena delle impronte e invaliderebbe le
-# corse di riferimento. La correzione e' qui, a grana di campo, dove riguarda
-# solo cio' che si vede.
+# toglierne un blocco sposta la catena delle impronte e dichiara da rieseguire
+# le corse gia' su disco. E' cio' che il deck nudo ha fatto una volta, con la
+# decisione presa (spec 2026-09-07); per il solo nascondere un campo il posto
+# resta qui, a grana di campo, dove riguarda solo cio' che si vede.
 #
 # Una voce e' un blocco intero (`tet`) o un campo solo (`tet.reference_ratio`).
 _FUORI_DAL_PANNELLO: dict[int, frozenset[str]] = {
@@ -609,9 +610,8 @@ _FUORI_DAL_PANNELLO: dict[int, frozenset[str]] = {
     # vincolo: non tocca nulla di cio' che lo step 9 fa, e nel pannello del 9
     # sembrerebbe un secondo `min_ratio`.
     9: frozenset({"tet.reference_ratio"}),
-    # Lo step 11 esporta il modello: non tetraedrizza (quello e' il 9), e i
-    # carichi non hanno ancora una sede propria -- escono da qui senza che se
-    # ne inventi una.
+    # Lo step 11 esporta il modello: non tetraedrizza (quello e' il 9), e `tet`
+    # si dichiara nei pannelli del 9 e del 10.
     #
     # `gravity`, `fixed_nset` e `step_name` sono tornati in questo pannello con
     # la mappa #161. Descrivono il caso di carico e non la geometria, e per
@@ -622,7 +622,7 @@ _FUORI_DAL_PANNELLO: dict[int, frozenset[str]] = {
     # `material` resta fuori: ha gia' il proprio pannello -- quattro caselle
     # che partono insieme -- e qui compariva una seconda volta, come riga di
     # sola lettura col JSON del modello dentro.
-    11: frozenset({"tet", "carichi", "analysis.material"}),
+    11: frozenset({"tet", "analysis.material"}),
 }
 
 
@@ -1472,7 +1472,7 @@ def create_app(
             for blocco in blocchi:
                 if blocco in escluse:
                     continue
-                # `selettori` e' un `dict[NomeSet, Selettore]`, non un
+                # `regioni` e' un `dict[NomeSet, RegioneConfig]`, non un
                 # `BaseModel`: le sue voci sono nominate dall'operatore, non
                 # campi fissi da descrivere uno per uno. Niente `model_fields`
                 # da leggere, quindi nessun campo da elencare per questo blocco.
@@ -1518,7 +1518,7 @@ def create_app(
                     for nome, campo in annidato.model_fields.items()
                     if f"{blocco}.{nome}" not in escluse
                 }
-            # Un blocco senza campi non diventa una sezione vuota: `selettori`
+            # Un blocco senza campi non diventa una sezione vuota: `regioni`
             # e' un `dict` a chiavi libere e non ne puo' avere per costruzione,
             # e una sezione che non puo' mai contenere nulla non ha niente da
             # mostrare.
