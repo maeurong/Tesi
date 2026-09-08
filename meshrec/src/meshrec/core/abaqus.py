@@ -22,6 +22,7 @@ _SET_ITEMS_PER_LINE = 8
 # non si scrive piu' e non c'e' piu' nulla da scegliere -- restano due misure
 # di qualita' della geometria, e si fanno sulla base.
 SET_DI_BASE = "BASE"
+SET_DI_TOP = "TOP"
 
 
 class UnconstrainedModelWarning(UserWarning):
@@ -1007,10 +1008,10 @@ def export_model(
     # valido, e nessuna metrica lo contraddice -- `fixed_nset_coverage` va a 1,
     # cioe' al valore migliore possibile, proprio mentre `BASE` non e' piu' la
     # base. `BASE` e `TOP` sono i due opposti: se si toccano, si toccano tutti.
-    condivisi = np.intersect1d(node_sets[SET_DI_BASE], node_sets["TOP"])
+    condivisi = np.intersect1d(node_sets[SET_DI_BASE], node_sets[SET_DI_TOP])
     if len(condivisi):
         raise ValueError(
-            f"'{SET_DI_BASE}' e 'TOP' condividono {len(condivisi)} nodi con una "
+            f"'{SET_DI_BASE}' e '{SET_DI_TOP}' condividono {len(condivisi)} nodi con una "
             f"tolleranza di {tolerance:.3f} mm: la banda supera l'altezza del pezzo "
             "e gli insiemi di faccia non sono più distinti. Abbassa "
             "export.set_tolerance_factor"

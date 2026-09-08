@@ -530,19 +530,6 @@ def _campi_cambiati(
     return cambiati
 
 
-def _modello_del_blocco(annotazione: object) -> object:
-    """Il modello annidato di un blocco di `PipelineConfig`.
-
-    Oggi e' l'annotazione stessa: col deck nudo nessun blocco di
-    `PipelineConfig` e' piu' nullabile (`analysis` era l'unico) e non c'e'
-    piu' un `None` da scartare da un'unione. La funzione resta perche' i due
-    chiamanti dicono cosi' cosa cercano, e perche' i loro controlli a valle --
-    `hasattr(..., "model_fields")` -- valgono per ogni annotazione, comprese
-    quelle che modelli non sono (`regioni` e' un `dict`).
-    """
-    return annotazione
-
-
 # I tipi che si battono in una riga sola. `Path` sta con `str` e non fra i
 # composti: per python e' un oggetto, per chi lo scrive e' un percorso, ed e'
 # il campo piu' importante del pannello dello step 1.
@@ -640,7 +627,7 @@ def _etichetta_del_percorso(percorso: tuple[object, ...]) -> str:
             break
         campo = campi[pezzo]
         etichetta = campo.title or pezzo
-        modello = _modello_del_blocco(campo.annotation)
+        modello = campo.annotation
     return etichetta or ".".join(pezzi) or "la configurazione"
 
 
@@ -1414,8 +1401,9 @@ def create_app(
                 # affatto, come questo dict: senza, `model_fields` verrebbe
                 # chiesto a un `dict[...]` e /api/schema uscirebbe 200 con i
                 # campi mancanti invece di sollevare dove qualcuno se ne
-                # accorge. Il difetto muto e' il peggiore dei due.
-                annidato = _modello_del_blocco(modelli[blocco].annotation)
+                # accorge. Il difetto muto e' il peggiore dei due -- le
+                # annotazioni che non sono modelli le scarta questo `hasattr`.
+                annidato = modelli[blocco].annotation
                 if not hasattr(annidato, "model_fields"):
                     campi[blocco] = {}
                     continue

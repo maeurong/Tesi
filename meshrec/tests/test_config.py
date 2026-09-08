@@ -817,6 +817,34 @@ def test_due_blocchi_usciti_danno_un_rifiuto_solo_che_li_nomina_entrambi(tmp_pat
     assert rifiuto.value.error_count() == 1
 
 
+def test_tre_blocchi_usciti_danno_un_rifiuto_solo_e_non_nominano_un_blocco_vivo(tmp_path):
+    """`analysis`, `carichi` e `selettori` sono tre voci di `BLOCCHI_RIMOSSI`:
+    un `config.yaml` che porta tutti e tre, piu' un blocco mai esistito
+    (`solutore`), riceve un rifiuto solo che nomina i tre tolti e non
+    `solutore` -- il validatore raccoglie solo cio' che sta in
+    `BLOCCHI_RIMOSSI`, non ogni chiave sconosciuta.
+
+    Mutazione che lo uccide: iterare `dati` invece di `BLOCCHI_RIMOSSI.items()`.
+    """
+    with pytest.raises(ValueError) as rifiuto:
+        config.load_config(
+            _yaml_vecchia(
+                tmp_path, BLOCCO_ANALYSIS + BLOCCO_CARICHI + "selettori:\n  voce: {}\n" + "solutore:\n  voce: {}\n"
+            )
+        )
+
+    # `str(rifiuto.value)` di pydantic riecheggia l'input grezzo nel
+    # `input_value=...` del rendering di debug, "solutore" incluso: il
+    # messaggio da controllare e' quello composto dal validatore, non
+    # quel rendering.
+    messaggio = rifiuto.value.errors()[0]["msg"]
+    assert "analysis" in messaggio
+    assert "carichi" in messaggio
+    assert "selettori" in messaggio
+    assert "solutore" not in messaggio
+    assert rifiuto.value.error_count() == 1
+
+
 def test_la_configurazione_non_esporta_piu_i_simboli_dell_analisi():
     """Col deck nudo il materiale, la gravita' e il passo di carico escono dal modulo.
 

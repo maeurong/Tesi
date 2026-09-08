@@ -213,6 +213,7 @@ def test_build_node_sets_ha_le_chiavi_della_costante():
     sets = abaqus.build_node_sets(nodes, tolerance=1.0)
     assert set(sets) == set(config.NOMI_SET_DI_FACCIA)
     assert abaqus.SET_DI_BASE in sets
+    assert abaqus.SET_DI_TOP in sets
 
 
 def test_export_model_writes_both_files(tmp_path):

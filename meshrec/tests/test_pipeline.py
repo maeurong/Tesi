@@ -1228,6 +1228,31 @@ def test_genera_modello_scrive_anche_la_geometria_step(tmp_path, tipo):
     assert riletto["step"]["file"].endswith("modello.step")
 
 
+def test_il_deck_parametrico_e_nudo_quanto_quello_del_muro(tmp_path):
+    """`genera_modello` scrive `*TIE`/`*SURFACE` (il legame fra membrature) e
+    nessuna card di materiale, vincolo o passo: il deck parametrico e' nudo
+    quanto quello del muro (spec 2026-09-07).
+
+    `test_il_telaio_costruito_dichiara_le_superfici_del_tie` (test_hexa.py)
+    guarda il dizionario che `hexa.costruisci` produce, non il file scritto:
+    qui si legge il `.inp`.
+
+    Mutazione che lo uccide: togliere `ties=` o `element_surfaces=` dalla
+    chiamata a `export_model` in `genera_modello` (pipeline.py).
+    """
+    cfg = _config_cubo(tmp_path)
+    _scrivi_prior_telaio(cfg, _TELAIO_QUATTRO_MEMBRATURE)
+    figlia = tmp_path / "figlia-estruso"
+
+    pipeline.genera_modello(cfg, "estruso", figlia)
+
+    testo = (figlia / pipeline.DECK_FILENAME).read_text(encoding="ascii")
+    assert "*TIE, NAME=" in testo
+    assert "*SURFACE, TYPE=ELEMENT" in testo
+    for card in ("*SOLID SECTION", "*MATERIAL", "*BOUNDARY", "*STEP"):
+        assert card not in testo
+
+
 def test_senza_geometria_step_non_resta_un_modello_json_che_la_dichiara(tmp_path, monkeypatch):
     """`scrivi_step` che solleva dopo il deck: l'eccezione propaga e
     `modello.json` non viene scritto -- non deve restare un modello.json che

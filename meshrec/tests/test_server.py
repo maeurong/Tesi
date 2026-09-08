@@ -3579,10 +3579,10 @@ def test_una_regione_col_materiale_nel_corpo_della_put_e_rifiutata_dicendo_quale
 def test_lo_schema_non_esplode_sul_blocco_regioni(banco, request):
     """`regioni` (STEP_BLOCKS[11]) e' un `dict[NomeSet, RegioneConfig]`, non un
     modello: senza la guardia su `hasattr(annidato, "model_fields")` in
-    `schema()`, `_modello_del_blocco` ne prende la chiave -- una stringa -- e
-    le chiede `model_fields`, con l'`AttributeError` fuori vista che spegne il
-    pannello dello step 11. E' il difetto di `5d4d24b`, ripetuto su un blocco
-    nuovo.
+    `schema()`, l'annotazione del blocco -- `dict[NomeSet, RegioneConfig]` --
+    si vede chiedere `model_fields`, con l'`AttributeError` fuori vista che
+    spegne il pannello dello step 11. E' il difetto di `5d4d24b`, ripetuto su
+    un blocco nuovo.
 
     Le due varianti del banco perche' l'oracolo del brief le chiede entrambe,
     con regioni popolate e senza. Vale la pena dichiarare che oggi esercitano
