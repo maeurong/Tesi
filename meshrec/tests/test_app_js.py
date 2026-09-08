@@ -37,7 +37,6 @@ from fastapi.testclient import TestClient
 from meshrec.app.server import UI_DIR, create_app
 from meshrec.core import report
 from meshrec.core.config import InputConfig, PipelineConfig, save_config
-from materiale import ANALISI
 
 # Il server risponde solo a un nome locale (middleware
 # `solo_dal_calcolatore_locale` in server.py, contro il DNS rebinding). Il
@@ -1354,7 +1353,7 @@ def test_il_fuori_scala_non_scrive_null_sul_disco(tmp_path):
     fronte non fabbrica piu' un `null` che nessuno ha battuto.
     """
     percorso = tmp_path / "config.yaml"
-    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"), analysis=ANALISI)
+    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"))
     cfg.run.out_dir = tmp_path / "corsa"
     cfg.downsample.voxel_size = 25.0
     cfg.wall.membrature_attese = 8
@@ -1394,7 +1393,7 @@ def test_una_battuta_illeggibile_non_cambia_la_configurazione_su_disco(tmp_path)
     rifiuta tutto passerebbe la prima meta' e lascerebbe l'interfaccia inutile.
     """
     percorso = tmp_path / "config.yaml"
-    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"), analysis=ANALISI)
+    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"))
     cfg.run.out_dir = tmp_path / "corsa"
     save_config(cfg, percorso)
     cliente = TestClient(create_app(percorso), base_url=BASE_LOCALE, raise_server_exceptions=False)

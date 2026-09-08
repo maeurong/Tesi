@@ -9,7 +9,6 @@ import pytest
 from pydantic import ValidationError
 
 from meshrec.core import config, io, pipeline, quality, steps, synth
-from materiale import ANALISI, crea_config
 
 
 SIZE = (120.0, 60.0, 240.0)
@@ -30,11 +29,17 @@ def _config_cubo(tmp_path):
     cloud_path = tmp_path / "box.ply"
     io.write_cloud(cloud_path, synth.sample_box_surface(SIZE, SPACING))
     return config.PipelineConfig(
-        analysis=ANALISI,
         input=config.InputConfig(path=cloud_path, spacing_sample=5000),
         downsample=config.DownsampleConfig(voxel_size=SPACING),
         surface=config.SurfaceConfig(poisson_depth=8, density_quantile=0.02),
         tet=config.TetConfig(min_ratio=1.2),
+        # Il predefinito 6.0 e' tarato su un muro vero (1,8 m di altezza,
+        # spaziatura 22 mm): qui il pezzo e' alto 240 mm e il maglio esaedrico
+        # della corsa figlia ha spaziatura 25, quindi la banda a 6.0 vale 150 mm
+        # e `BASE` e `TOP` si toccano. E' il banco a essere piccolo, non la
+        # tolleranza a essere sbagliata: qui vale 50 mm, cioe' un quinto
+        # dell'altezza, che e' l'ordine di grandezza del caso vero.
+        export=config.ExportConfig(set_tolerance_factor=2.0),
         run=config.RunConfig(out_dir=tmp_path / "out", to_step=12),
     )
 
@@ -99,7 +104,7 @@ def run_dir(tmp_path_factory):
     cloud_path = base / "box.ply"
     io.write_cloud(cloud_path, synth.sample_box_surface(SIZE, SPACING))
 
-    cfg = crea_config(
+    cfg = config.PipelineConfig(
         input=config.InputConfig(path=cloud_path, spacing_sample=5000),
         downsample=config.DownsampleConfig(voxel_size=SPACING),
         surface=config.SurfaceConfig(poisson_depth=8, density_quantile=0.02),
@@ -219,7 +224,7 @@ def test_the_same_configuration_run_twice_gives_the_same_result(tmp_path):
     io.write_cloud(cloud_path, synth.sample_box_surface(SIZE, 8.0))
 
     def once(name):
-        cfg = crea_config(
+        cfg = config.PipelineConfig(
             input=config.InputConfig(path=cloud_path, spacing_sample=2000),
             downsample=config.DownsampleConfig(voxel_size=8.0),
             surface=config.SurfaceConfig(poisson_depth=7, density_quantile=0.02),
@@ -254,7 +259,7 @@ def test_resuming_from_tetrahedralize_still_works_when_simplify_is_enabled(tmp_p
     io.write_cloud(cloud_path, synth.sample_box_surface(SIZE, SPACING))
 
     def makecfg(from_step):
-        return crea_config(
+        return config.PipelineConfig(
             input=config.InputConfig(path=cloud_path, spacing_sample=5000),
             downsample=config.DownsampleConfig(voxel_size=SPACING),
             surface=config.SurfaceConfig(poisson_depth=8, density_quantile=0.02),
@@ -702,7 +707,7 @@ def test_lo_step_11_ricarica_la_superficie_semplificata_quando_e_accesa(tmp_path
     io.write_cloud(cloud_path, synth.sample_box_surface(SIZE, SPACING))
 
     def makecfg(from_step, to_step):
-        return crea_config(
+        return config.PipelineConfig(
             input=config.InputConfig(path=cloud_path, spacing_sample=5000),
             downsample=config.DownsampleConfig(voxel_size=SPACING),
             surface=config.SurfaceConfig(poisson_depth=8, density_quantile=0.02),
@@ -913,7 +918,6 @@ def corsa_all_undici(tmp_path_factory):
     cloud_path = base / "box.ply"
     io.write_cloud(cloud_path, synth.sample_box_surface(SIZE, SPACING))
     cfg = config.PipelineConfig(
-        analysis=ANALISI,
         input=config.InputConfig(path=cloud_path, spacing_sample=5000),
         downsample=config.DownsampleConfig(voxel_size=SPACING),
         surface=config.SurfaceConfig(poisson_depth=8, density_quantile=0.02),
@@ -1355,20 +1359,33 @@ def test_generare_un_modello_senza_prior_dice_che_cosa_manca(tmp_path):
         pipeline.genera_modello(cfg, "estruso", tmp_path / "figlia")
 
 
-def test_senza_materiale_la_corsa_arriva_alle_metriche_di_volume(tmp_path):
-    """Una nuvola appena caricata deve poter attraversare la geometria.
+def test_una_corsa_senza_export_arriva_al_deck_col_predefinito(tmp_path):
+    """Ingresso degenere: una `config.yaml` che il blocco `export` non lo porta.
 
-    Gli step 1-10 non leggono `analysis` (`steps.STEP_BLOCKS`): chiedere il
-    materiale prima di loro sarebbe chiederlo per nulla.
+    E' la forma di ogni corsa nata prima che il blocco esistesse. Il
+    predefinito deve bastare a scrivere il deck: un campo obbligatorio qui
+    fermerebbe la catena dopo l'intera geometria, al punto di massimo spreco.
     """
-    cfg = _config_cubo(tmp_path)
-    cfg.analysis = None
-    cfg.run = config.RunConfig(out_dir=tmp_path / "out", to_step=10)
+    pytest.importorskip("pymeshfix")
+    percorso = tmp_path / "senza-export.yaml"
+    config.save_config(_config_cubo(tmp_path), percorso)
+    testo = percorso.read_text(encoding="utf-8")
+    righe = testo.splitlines(keepends=True)
+    inizio = next(n for n, riga in enumerate(righe) if riga.startswith("export:"))
+    fine = next(
+        (n for n in range(inizio + 1, len(righe)) if not righe[n].startswith(" ")),
+        len(righe),
+    )
+    percorso.write_text("".join(righe[:inizio] + righe[fine:]), encoding="utf-8")
 
+    cfg = config.load_config(percorso)
+    assert cfg.export.set_tolerance_factor == pytest.approx(6.0)
+
+    cfg.run.to_step = 11
     metriche = pipeline.run(cfg)
 
-    assert "10_volume_quality" in metriche
-    assert "11_export" not in metriche
+    assert (tmp_path / "out" / "wall_model.inp").exists()
+    assert metriche["11_export"]["set_tolerance"] > 0.0
 
 
 def test_il_deck_dello_step_11_e_nudo(tmp_path):
@@ -1383,24 +1400,22 @@ def test_il_deck_dello_step_11_e_nudo(tmp_path):
         assert card not in deck
 
 
-def test_una_config_yaml_vecchia_arriva_al_deck_nudo(tmp_path):
+def test_una_config_yaml_vecchia_e_rifiutata_prima_di_scrivere_qualunque_cosa(tmp_path):
     """La catena intera su una `config.yaml` scritta prima del deck nudo.
 
-    `test_config.py` prova la meta' di sopra -- `load_config` non solleva sui
-    blocchi usciti -- e il test qui sopra prova la meta' di sotto, ma partendo
-    da una configurazione costruita a mano in python. Nessuna riga le
-    incatenava: un `cfg` nato da uno yaml vecchio che attraversa
-    `pipeline.run` fino allo step 11 e produce il deck nudo. E' la corsa
-    che le `runs/` gia' su disco fanno davvero.
+    `test_config.py` prova che `load_config` rifiuta i blocchi usciti; qui si
+    prova la conseguenza che conta per chi lancia una corsa: il rifiuto arriva
+    prima di ogni scrittura, e la cartella della corsa non nasce nemmeno. Una
+    corsa che partisse e morisse a meta' lascerebbe artefatti parziali di una
+    configurazione che il programma ha gia' dichiarato di non saper eseguire.
 
     I blocchi vecchi sono quelli di `runs/geoandgeo-lab/config.yaml`, con le
     due chiavi laterali a `null` come le scriveva l'interfaccia quando
-    restavano vuote.
+    restavano vuote: quelle restano ignorate, `carichi:` e `selettori:` no.
 
-    Mutazione che lo uccide: `extra="forbid"` su `_ModelloBase` (`load_config`
-    solleva), o una card rimessa nel deck del muro.
+    Mutazione che lo uccide: togliere `carichi`/`selettori` da
+    `BLOCCHI_RIMOSSI` -- la corsa ripartirebbe e la cartella comparirebbe.
     """
-    pytest.importorskip("pymeshfix")
     vecchia = tmp_path / "config.yaml"
     config.save_config(_config_cubo(tmp_path), vecchia)
     # Le due chiavi laterali vanno *dentro* il `model:` gia' scritto: un
@@ -1420,16 +1435,12 @@ def test_una_config_yaml_vecchia_arriva_al_deck_nudo(tmp_path):
         encoding="utf-8",
     )
 
-    cfg = config.load_config(vecchia)
-    assert not hasattr(cfg.model, "lateral_nset")
-    assert not hasattr(cfg.model, "lateral_pressure")
-    assert not hasattr(cfg, "carichi")
-    cfg.run.to_step = 11
-    pipeline.run(cfg)
+    with pytest.raises(ValidationError) as rifiuto:
+        config.load_config(vecchia)
 
-    deck = (tmp_path / "out" / "wall_model.inp").read_text()
-    for card in ("*STEP", "*BOUNDARY", "*SOLID SECTION", "*MATERIAL"):
-        assert card not in deck
+    detto = str(rifiuto.value)
+    assert "carichi" in detto and "selettori" in detto
+    assert not (tmp_path / "out").exists()
 
 
 # --- Lo step 11 rilegge il prior dello step 12 (#135) -----------------------
@@ -1703,7 +1714,7 @@ def test_riprendere_da_valle_con_la_semplificazione_accesa_rilegge_lo_step_8(tmp
     io.write_cloud(cloud_path, synth.sample_box_surface(SIZE, SPACING))
 
     def makecfg(from_step, to_step):
-        return crea_config(
+        return config.PipelineConfig(
             input=config.InputConfig(path=cloud_path, spacing_sample=5000),
             downsample=config.DownsampleConfig(voxel_size=SPACING),
             surface=config.SurfaceConfig(poisson_depth=8, density_quantile=0.02),

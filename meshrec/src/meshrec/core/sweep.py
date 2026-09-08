@@ -119,13 +119,15 @@ def with_override(cfg: PipelineConfig, path: str, value: object) -> PipelineConf
     node = data
     parts = path.split(".")
     for indice, part in enumerate(parts[:-1]):
-        node = node[part]
-        # Un blocco puo' essere assente per intero -- `analysis` non esiste
-        # finche' il materiale non e' dichiarato, cioe' su ogni corsa nata
-        # dall'interfaccia. Questa strada cammina il dump e non l'attributo,
-        # quindi non passa da `PipelineConfig.analisi_dichiarata`: senza questa
-        # riga la riga sotto dava `TypeError: 'NoneType' object is not
-        # subscriptable`, che non dice ne' quale asse ne' che cosa manca.
+        # Il blocco puo' non esserci affatto: `analysis`, `carichi` e
+        # `selettori` sono usciti col deck nudo e gli `esperimento.yaml` gia'
+        # scritti li portano ancora come assi. Questa strada cammina il dump e
+        # non l'attributo, quindi non passa dalla validazione di
+        # `PipelineConfig`: senza questa riga l'indicizzazione dava
+        # `KeyError('analysis')` sul blocco assente e `TypeError: 'NoneType'
+        # object is not subscriptable` su quello nullo, e nessuno dei due dice
+        # quale asse dell'esperimento l'ha chiesto.
+        node = node.get(part) if isinstance(node, dict) else None
         if node is None:
             blocco = ".".join(parts[: indice + 1])
             raise ValueError(

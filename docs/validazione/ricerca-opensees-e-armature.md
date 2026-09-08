@@ -604,7 +604,8 @@ comandi:
   forza di volume negli argomenti opzionali dell'elemento — `b1, b2, b3` di
   `FourNodeTetrahedron` e `TenNodeTetrahedron` — oppure come masse nodali più
   un carico. In mm/N/MPa/t la forza di volume vale ρ·g con ρ in t/mm³ e g in
-  mm/s², cioè lo stesso prodotto che `config.GRAVITY_MM_S2` già sorveglia. [V
+  mm/s², cioè lo stesso prodotto che la costante GRAVITY_MM_S2 sorvegliava
+  prima di uscire dalla configurazione col deck nudo. [V
   per le firme, [INF] per la conseguenza]
 - non essendoci una scheda di gravità, **non esiste il controllo di equilibrio
   che CalculiX offre gratis**: la quota tributaria che `solve.controlla_reazioni`

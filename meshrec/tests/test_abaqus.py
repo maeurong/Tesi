@@ -44,6 +44,30 @@ def cube_mesh():
     )
 
 
+@pytest.fixture
+def maglio_fitto():
+    """Lo stesso parallelepipedo, ma abbastanza fitto da avere sei facce distinte.
+
+    `cube_mesh` produce 16 nodi: la spaziatura di bordo vale 70,7 mm su un
+    pezzo alto 200, e col fattore predefinito 6,0 la banda dei set di faccia
+    vale 424 mm, cioe' piu' del doppio dell'altezza. `BASE` e `TOP` diventano
+    lo stesso insieme -- tutti i nodi -- e `export_model` lo rifiuta.
+
+    Non e' la tolleranza a essere sbagliata: e' il banco a essere degenere, e
+    lo era anche prima che qualcuno lo dicesse -- `fixed_nset_coverage` valeva
+    1, il valore migliore possibile, su un deck in cui `BASE` era il modello
+    intero. Misurato l'08/09/2026 su `SIZE`: `max_volume=1000` da' 428 nodi,
+    `BASE` 201 e `TOP` 200 senza nodi in comune.
+
+    `cube_mesh` resta com'e': la usano decine di prove a cui la mesh grossa
+    basta e che non passano da `export_model`.
+    """
+    vertices, faces = synth.box_mesh(SIZE)
+    return volume.tetrahedralize(
+        vertices, faces, max_volume=1_000.0, min_ratio=1.8, max_steiner_points=-1, nobisect=False
+    )
+
+
 def _base_and_top(nodes: np.ndarray, tolerance: float = 1e-6) -> dict[str, np.ndarray]:
     z = nodes[:, 2]
     return {
@@ -194,7 +218,11 @@ def test_build_node_sets_ha_le_chiavi_della_costante():
 def test_export_model_writes_both_files(tmp_path):
     meshio = pytest.importorskip("meshio")
     vertices, faces = synth.box_mesh((100.0, 40.0, 200.0))
-    nodes, tets, _ = volume.tetrahedralize_with_metrics(vertices, faces, TET_LINEARE)
+    # `max_volume` esplicito per la stessa ragione della fixture `maglio_fitto`:
+    # senza, il maglio ha 16 nodi e i sei set di faccia coincidono.
+    nodes, tets, _ = volume.tetrahedralize_with_metrics(
+        vertices, faces, config.TetConfig(element="C3D4", max_volume=1_000.0)
+    )
 
     metrics = abaqus.export_model(
         tmp_path / "wall_model.inp",
@@ -258,7 +286,10 @@ def test_le_superfici_senza_tie_finiscono_nelle_metriche_senza_pressione(tmp_pat
     superficie = abaqus.element_surface(_ESAEDRO, nodi_base, "C3D8I")
     metrics = abaqus.export_model(
         tmp_path / "wall_model.inp", tmp_path / "wall_model.vtu",
-        _CUBO, _ESAEDRO, config.ExportConfig(), TET_LINEARE,
+        # Un esaedro solo, di lato 1: la banda predefinita (sei volte la
+        # spaziatura di bordo) coprirebbe il cubo intero e `BASE` e `TOP`
+        # sarebbero lo stesso insieme. Qui la banda vale un decimo del lato.
+        _CUBO, _ESAEDRO, config.ExportConfig(set_tolerance_factor=0.1), TET_LINEARE,
         element_type="C3D8I",
         element_surfaces={"FACCIA_BASSA": superficie},
         ties=(),
@@ -426,12 +457,10 @@ def test_i_nodi_bassi_dopo_l_allineamento_coprono_tutta_la_luce():
     assert rapporto > 0.95, f"il vincolo copre solo {rapporto:.3f} della luce"
 
 
-def test_export_model_estimates_the_triad_on_the_reference_it_is_given(tmp_path):
+def test_export_model_estimates_the_triad_on_the_reference_it_is_given(tmp_path, maglio_fitto):
     """Il riferimento arriva fino al deck: e' la strada che usa la pipeline."""
     vertices, faces = synth.box_mesh(SIZE)
-    nodes, tets = volume.tetrahedralize(
-        vertices, faces, max_volume=100_000.0, min_ratio=1.8, max_steiner_points=-1, nobisect=False
-    )
+    nodes, tets = maglio_fitto
 
     metrics = abaqus.export_model(
         tmp_path / "m.inp",
@@ -511,14 +540,14 @@ def test_the_coverage_counts_columns_of_the_footprint_not_nodes():
     assert abaqus.footprint_coverage(nodes, bordo, tutti, 5.0) == 1.0
 
 
-def test_export_warns_when_the_constrained_set_misses_the_footprint(tmp_path, cube_mesh, monkeypatch):
+def test_export_warns_when_the_constrained_set_misses_the_footprint(tmp_path, maglio_fitto, monkeypatch):
     """La guardia sul set vuoto era cieca su tutto cio' che non era vuoto.
 
     La copertura e' sostituita perche' costruire una geometria che la faccia
     scendere richiederebbe una scansione reale: sul parallelepipedo sintetico la
     base e' un piano esatto e la copertura vale 1 per qualunque tolleranza.
     """
-    nodes, tets = cube_mesh
+    nodes, tets = maglio_fitto
     monkeypatch.setattr(abaqus, "footprint_coverage", lambda *args: 0.3)
 
     with pytest.warns(abaqus.UnconstrainedModelWarning, match="export.set_tolerance_factor"):
@@ -534,8 +563,8 @@ def test_export_warns_when_the_constrained_set_misses_the_footprint(tmp_path, cu
     assert metrics["fixed_nset_coverage"] == 0.3
 
 
-def test_export_reports_how_much_of_the_footprint_is_constrained(tmp_path, cube_mesh):
-    nodes, tets = cube_mesh
+def test_export_reports_how_much_of_the_footprint_is_constrained(tmp_path, maglio_fitto):
+    nodes, tets = maglio_fitto
 
     metrics = abaqus.export_model(
         tmp_path / "wall_model.inp",
@@ -1389,7 +1418,7 @@ def test_una_regione_con_indici_fuori_dal_maglio_e_rifiutata(tmp_path, cube_mesh
     assert not percorso.exists(), "il deck non si scrive a meta'"
 
 
-def test_export_model_porta_le_regioni_fino_al_deck(tmp_path, cube_mesh):
+def test_export_model_porta_le_regioni_fino_al_deck(tmp_path, maglio_fitto):
     """Le regioni si misurano fuori di qui e arrivano al deck da questo passaggio.
 
     Gli indici degli elementi non cambiano con `align_to_axes`, che sposta le
@@ -1403,7 +1432,7 @@ def test_export_model_porta_le_regioni_fino_al_deck(tmp_path, cube_mesh):
     Mutazione che lo uccide: accettare `regioni` e non passarlo a `write_inp`,
     o rimettere nel deck la sezione della regione.
     """
-    nodi, tetraedri = cube_mesh
+    nodi, tetraedri = maglio_fitto
     percorso = tmp_path / "m.inp"
 
     abaqus.export_model(
@@ -1416,7 +1445,7 @@ def test_export_model_porta_le_regioni_fino_al_deck(tmp_path, cube_mesh):
     assert "*SOLID SECTION" not in testo
 
 
-def test_una_regione_vuota_avvisa_anche_attraverso_export_model(tmp_path, cube_mesh):
+def test_una_regione_vuota_avvisa_anche_attraverso_export_model(tmp_path, maglio_fitto):
     """L'avviso di `write_inp` non si ferma dentro `export_model`.
 
     La prova gemella chiama `write_inp` diretto; questa passa dalla strada che
@@ -1428,7 +1457,7 @@ def test_una_regione_vuota_avvisa_anche_attraverso_export_model(tmp_path, cube_m
     `warnings.catch_warnings()` che ingoi, o rifiutare la regione vuota qui
     invece di lasciarla passare.
     """
-    nodi, tetraedri = cube_mesh
+    nodi, tetraedri = maglio_fitto
     percorso = tmp_path / "m.inp"
 
     with pytest.warns(abaqus.RegioneVuotaWarning, match="TRAVE_1"):
@@ -1533,3 +1562,34 @@ def test_i_vecchi_kwarg_non_hanno_piu_un_ramo_di_compatibilita(chiamata, kwarg, 
                 config.ExportConfig(), TET_LINEARE,
                 **{kwarg: {}},
             )
+
+
+def test_una_tolleranza_che_fa_coincidere_base_e_top_e_un_rifiuto(tmp_path, cube_mesh):
+    """Sopra una certa tolleranza i sei set di faccia diventano lo stesso set.
+
+    Misurato: con `set_tolerance_factor` a 1e4 la banda supera l'ingombro del
+    pezzo e ogni nodo cade in tutti e sei gli insiemi. Il deck usciva valido e
+    silenzioso, con `BASE` e `TOP` che sono lo stesso insieme di nodi: un
+    modello vincolato ovunque, che nessuna metrica contraddiceva --
+    `fixed_nset_coverage` va a 1, cioe' al valore migliore possibile.
+
+    Il rifiuto nomina il parametro da cui dipende, perche' e' l'unica cosa che
+    chi lo legge puo' cambiare.
+
+    Mutazione che lo uccide: togliere la guardia. Il deck esce senza un
+    segnale.
+    """
+    nodes, tets = cube_mesh
+
+    with pytest.raises(ValueError) as rifiuto:
+        abaqus.export_model(
+            tmp_path / "coincidenti.inp",
+            tmp_path / "coincidenti.vtu",
+            nodes,
+            tets,
+            config.ExportConfig(set_tolerance_factor=1e4),
+            TET_LINEARE,
+        )
+
+    assert "export.set_tolerance_factor" in str(rifiuto.value)
+    assert not (tmp_path / "coincidenti.inp").exists()

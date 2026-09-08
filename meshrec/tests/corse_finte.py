@@ -1,24 +1,15 @@
-"""Il materiale di prova, in un posto solo.
+"""Il banco delle tre cartelle di corsa, in un posto solo.
 
-`config.Material` non ha piu' valori predefiniti: il materiale e' una decisione
-di chi analizza, non un valore che il programma possa supplire (vedi
-`docs/fase-4-materiale.md`). Ne discende che ogni configurazione di prova deve
-dichiararne uno, e che quel materiale merita un posto unico invece di una copia
-per file di test.
+Sta qui e non in `tests/test_report.py` perche' `tests/` non e' un pacchetto
+(nessun `__init__.py`, e' `tests/` stessa a finire su `sys.path`): un
+`from tests.test_report import _tre_cartelle_finte` in `test_cli.py` non
+risolverebbe.
 
-I valori sono quelli dell'ex predefinito, muratura: qui non contano, contano
-solo dove un test guarda il deck e si aspetta `MATERIAL=MURATURA`.
+Il file si chiamava `materiale.py` e portava il materiale di prova con la
+`AnalysisConfig` che lo avvolgeva. Col deck nudo (PR feat/deck-nudo-analisi)
+il materiale non sta piu' nella configurazione, e cio' che resta e' il solo
+banco del confronto fra corse: il nome lo dice.
 """
-
-from meshrec.core import config
-
-MATERIALE = config.Material(name="MURATURA", young=1500.0, poisson=0.2, density=1.8e-9)
-ANALISI = config.AnalysisConfig(material=MATERIALE)
-
-
-def crea_config(**campi) -> config.PipelineConfig:
-    """`PipelineConfig` con il materiale di prova gia' dichiarato."""
-    return config.PipelineConfig(analysis=ANALISI, **campi)
 
 
 def _tre_cartelle_finte(tmp_path):
@@ -27,11 +18,6 @@ def _tre_cartelle_finte(tmp_path):
     Il confronto non ricalcola nulla: legge metrics.json, 12_wall.json e
     modello.json. Un banco che scrive quei tre file esercita esattamente il
     codice sotto prova, senza far girare la pipeline per ogni test.
-
-    Sta qui e non in tests/test_report.py perche' tests/ non e' un pacchetto
-    (nessun __init__.py, e' tests/ stessa a finire su sys.path): un
-    `from tests.test_report import _tre_cartelle_finte` in test_cli.py non
-    risolverebbe.
 
     Vengono qui distinti apposta cloud_to_mesh e mesh_to_cloud (con la
     chiave RMS maiuscola, quella vera restituita da PyMeshLab -- vedi

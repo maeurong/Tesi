@@ -646,7 +646,8 @@ tale va dichiarata invece che presentata come dato di norma. Lo stesso punto è
 già sollevato in [`materiali-intervallo.md`](materiali-intervallo.md) §2.1.
 
 **Attenzione all'incoerenza interna che ne segue.** Se il programma usa `g` =
-9810 mm/s² (come `config.GRAVITY_MM_S2`) e `ρ` = 2,5·10⁻⁹ t/mm³, il peso che ne
+9810 mm/s² (come faceva la costante GRAVITY_MM_S2, uscita dalla
+configurazione col deck nudo il 08/09/2026) e `ρ` = 2,5·10⁻⁹ t/mm³, il peso che ne
 esce è 24,525 kN/m³, non i 25,0 della Tab. 3.1.I. Se si vuole che il modello pesi
 quanto la norma dice, la densità da mettere è **2,5493·10⁻⁹**, non 2,5·10⁻⁹. Lo
 scarto è del 2%, sotto la banda di incertezza sul modulo (±8% a classe nota, ±34%

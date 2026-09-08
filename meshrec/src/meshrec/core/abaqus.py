@@ -17,7 +17,8 @@ from meshrec.core.config import (
 _SET_ITEMS_PER_LINE = 8
 
 # L'insieme su cui si misurano copertura ed estensione in pianta del vincolo.
-# Era `AnalysisConfig.fixed_nset`, cioe' una scelta: col deck nudo il vincolo
+# Era un campo della configurazione, `analysis.fixed_nset`, cioe' una
+# scelta: col deck nudo il vincolo
 # non si scrive piu' e non c'e' piu' nulla da scegliere -- restano due misure
 # di qualita' della geometria, e si fanno sulla base.
 SET_DI_BASE = "BASE"
@@ -1000,8 +1001,20 @@ def export_model(
     spacing = boundary_spacing(aligned, bordo_facce)
     tolerance = cfg.set_tolerance_factor * spacing
     node_sets = build_node_sets(aligned, tolerance)
-    if len(node_sets[SET_DI_BASE]) == 0:
-        raise ValueError(f"il set vincolato '{SET_DI_BASE}' e vuoto: tolleranza {tolerance:.3f} mm troppo stretta")
+    # Sopra una certa tolleranza la banda supera l'ingombro del pezzo e i sei
+    # insiemi di faccia diventano lo stesso insieme. Misurato: con
+    # `set_tolerance_factor` a 1e4 i sei coincidono, il deck esce formalmente
+    # valido, e nessuna metrica lo contraddice -- `fixed_nset_coverage` va a 1,
+    # cioe' al valore migliore possibile, proprio mentre `BASE` non e' piu' la
+    # base. `BASE` e `TOP` sono i due opposti: se si toccano, si toccano tutti.
+    condivisi = np.intersect1d(node_sets[SET_DI_BASE], node_sets["TOP"])
+    if len(condivisi):
+        raise ValueError(
+            f"'{SET_DI_BASE}' e 'TOP' condividono {len(condivisi)} nodi con una "
+            f"tolleranza di {tolerance:.3f} mm: la banda supera l'altezza del pezzo "
+            "e gli insiemi di faccia non sono più distinti. Abbassa "
+            "export.set_tolerance_factor"
+        )
 
     # La guardia sul set vuoto era cieca su tutto il resto: un `BASE` da 9 nodi
     # produce un deck formalmente valido per un modello di fatto non vincolato,

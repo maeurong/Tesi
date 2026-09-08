@@ -8,7 +8,7 @@ Due forme, controllate insieme:
 
 - `` `file.py:riga` `` -- la forma per numero. Slitta a ogni merge.
 - `` `modulo.simbolo` `` -- la forma per nome, `quality.mesh_volume`,
-  `solve.controlla_reazioni`, `config.AnalysisConfig.gravity`. Un nome non
+  `solve.controlla_reazioni`, `config.ExportConfig.set_tolerance_factor`. Un nome non
   slitta, e questa e' la forma da preferire ovunque un simbolo esista.
 
 Ordina cio' che trova in **tre** categorie, e solo la prima e' un difetto:

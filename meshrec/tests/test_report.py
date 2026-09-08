@@ -14,7 +14,7 @@ import pytest
 
 from meshrec.core import pipeline, report, steps, sweep
 from meshrec.core.config import InputConfig, PipelineConfig, load_config, save_config
-from materiale import ANALISI, _tre_cartelle_finte
+from corse_finte import _tre_cartelle_finte
 
 
 def _png_minimo() -> bytes:
@@ -478,7 +478,7 @@ def _corsa_con_impronte(tmp_path, impronte_scritte, chiavi=steps.STEP_KEYS, esit
     step eseguito e gli altri mai — non si presenta in nessun test.
     `esiti` mappa la chiave all'esito salvato; per il resto vale "riuscito".
     """
-    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"), analysis=ANALISI)
+    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"))
     corsa = tmp_path / "corsa"
     corsa.mkdir()
     save_config(cfg, corsa / report.CONFIG_FILENAME)
@@ -552,7 +552,7 @@ def test_una_configurazione_non_valida_rende_la_coerenza_non_verificabile(tmp_pa
 
 def test_senza_steps_json_la_coerenza_non_e_verificabile(tmp_path):
     """Ogni corsa anteriore a steps.json cade qui: non e' un caso teorico."""
-    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"), analysis=ANALISI)
+    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"))
     corsa = _corsa(tmp_path, metriche={"01_load": {"points_kept": 10}})
     save_config(cfg, corsa / report.CONFIG_FILENAME)
 
@@ -855,7 +855,7 @@ def test_senza_steps_json_nessuna_frase_riferisce_una_lettura_che_non_c_e(tmp_pa
     chiave in meno in metrics.json — cioe' una corsa parziale, il caso normale
     dell'interfaccia — perche' esca.
     """
-    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"), analysis=ANALISI)
+    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"))
     corsa = _corsa(tmp_path, metriche={"01_load": {"misura": 1}})
     save_config(cfg, corsa / report.CONFIG_FILENAME)
 
@@ -912,7 +912,7 @@ def test_una_corsa_senza_step_eseguiti_non_stampa_zero_su_zero(tmp_path):
     guarda: «0 su 0» e' un rapporto che non si puo' leggere, e «restano fuori
     dal conteggio» nomina un conteggio che non c'e'.
     """
-    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"), analysis=ANALISI)
+    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"))
     corsa = _corsa(tmp_path, metriche={})
     save_config(cfg, corsa / report.CONFIG_FILENAME)
     (corsa / steps.STATE_FILENAME).write_text("{}", encoding="utf-8")
@@ -1993,8 +1993,8 @@ def test_un_parametro_senza_title_si_stampa_con_la_chiave(tmp_path):
     e la prova portava con se' la propria data di scadenza: un `assert not
     ...title` che si dichiarava obsoleto se qualcuno avesse dato un'etichetta a
     quel campo. Qualcuno l'ha fatto, nello stesso giorno e su un altro ramo --
-    i quattro campi di `Material` hanno ora il `title` che il pannello gia'
-    mostrava -- e la guardia ha morso al primo merge. Il campo nuovo non e'
+    i quattro campi di `Material` avevano ricevuto il `title` che il pannello
+    gia' mostrava, e la classe e' poi uscita col deck nudo -- e la guardia ha morso al primo merge. Il campo nuovo non e'
     piu' sicuro del vecchio: e' semplicemente uno dei cinquantaquattro ancora
     senza etichetta, e quando toccherà a lui la guardia dirà di nuovo dove
     guardare.

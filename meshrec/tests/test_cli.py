@@ -7,7 +7,7 @@ import json
 
 from meshrec import cli
 from meshrec.core import config, io, synth
-from materiale import ANALISI, _tre_cartelle_finte, crea_config
+from corse_finte import _tre_cartelle_finte
 
 
 SIZE = (120.0, 60.0, 240.0)
@@ -23,10 +23,13 @@ def _config_cubo_su_disco(tmp_path):
     cloud_path = tmp_path / "box.ply"
     io.write_cloud(cloud_path, synth.sample_box_surface(SIZE, 8.0))
     cfg = config.PipelineConfig(
-        analysis=ANALISI,
         input=config.InputConfig(path=cloud_path, spacing_sample=2000),
         downsample=config.DownsampleConfig(voxel_size=8.0),
         surface=config.SurfaceConfig(poisson_depth=7, density_quantile=0.02),
+        # Stessa ragione di `_config_cubo` in test_pipeline.py: il predefinito
+        # 6.0 e' tarato su un muro vero, e su un pezzo alto 240 mm la banda
+        # supererebbe l'altezza nel maglio esaedrico della corsa figlia.
+        export=config.ExportConfig(set_tolerance_factor=2.0),
         run=config.RunConfig(out_dir=tmp_path / "out", to_step=12),
     )
     config.save_config(cfg, tmp_path / "config.yaml")
@@ -60,7 +63,7 @@ def test_run_executes_the_pipeline_and_writes_the_deck(tmp_path):
     pytest.importorskip("pymeshfix")
     cloud_path = tmp_path / "box.ply"
     io.write_cloud(cloud_path, synth.sample_box_surface(SIZE, 8.0))
-    cfg = crea_config(
+    cfg = config.PipelineConfig(
         input=config.InputConfig(path=cloud_path, spacing_sample=2000),
         downsample=config.DownsampleConfig(voxel_size=8.0),
         surface=config.SurfaceConfig(poisson_depth=7, density_quantile=0.02),
@@ -85,7 +88,7 @@ def test_from_step_overrides_the_configuration(tmp_path, monkeypatch):
     # ramo che lo usa e non in testa al file, cosi' la riga di comando non
     # muore all'import di open3d prima ancora di leggere gli argomenti.
     monkeypatch.setattr("meshrec.core.pipeline.run", fake_run)
-    cfg = crea_config(input=config.InputConfig(path="nuvola.ply"))
+    cfg = config.PipelineConfig(input=config.InputConfig(path="nuvola.ply"))
     config.save_config(cfg, tmp_path / "config.yaml")
 
     assert cli.main(["run", str(tmp_path / "config.yaml"), "--from-step", "5"]) == 0
@@ -96,7 +99,7 @@ def test_a_failing_run_reports_the_error_without_a_traceback(tmp_path, capsys):
     # `out_dir` esplicito: questa corsa parte davvero, e il predefinito
     # `runs/default` e' relativo alla cartella da cui gira la suite -- il banco
     # lasciava `runs/default/` nella radice del repository a ogni giro.
-    cfg = crea_config(
+    cfg = config.PipelineConfig(
         input=config.InputConfig(path=tmp_path / "assente.ply"),
         run=config.RunConfig(out_dir=tmp_path / "out"),
     )
@@ -116,7 +119,7 @@ def test_from_step_out_of_domain_is_rejected_by_pydantic_not_a_keyerror(tmp_path
     invece del rifiuto di pydantic che gli da' il nome. Lo step 13 e' il primo
     fuori dominio oggi, e ci resta apposta: e' un'azione, non una ripresa.
     """
-    cfg = crea_config(input=config.InputConfig(path="nuvola.ply"))
+    cfg = config.PipelineConfig(input=config.InputConfig(path="nuvola.ply"))
     config.save_config(cfg, tmp_path / "config.yaml")
 
     assert cli.main(["run", str(tmp_path / "config.yaml"), "--from-step", "13"]) == 1
@@ -126,7 +129,7 @@ def test_from_step_out_of_domain_is_rejected_by_pydantic_not_a_keyerror(tmp_path
 
 
 def test_run_config_rejects_an_out_of_domain_assignment(tmp_path):
-    cfg = crea_config(input=config.InputConfig(path="nuvola.ply"))
+    cfg = config.PipelineConfig(input=config.InputConfig(path="nuvola.ply"))
     with pytest.raises(pydantic.ValidationError):
         cfg.run.from_step = 999
 
@@ -144,7 +147,7 @@ def test_the_sweep_command_runs_a_two_candidate_grid_on_the_synthetic_cube(tmp_p
 
     cloud = tmp_path / "cubo.ply"
     io.write_cloud(cloud, synth.sample_box_surface(size=(100.0, 40.0, 200.0), spacing=4.0))
-    base = crea_config(
+    base = config.PipelineConfig(
         input=config.InputConfig(path=str(cloud)),
         surface=config.SurfaceConfig(poisson_depth=6),
     )
@@ -257,7 +260,7 @@ def test_the_sweep_command_reports_the_thickness_gate_failure(tmp_path, capsys):
 
     cloud = tmp_path / "cubo.ply"
     io.write_cloud(cloud, synth.sample_box_surface(size=(100.0, 40.0, 200.0), spacing=4.0))
-    base = crea_config(
+    base = config.PipelineConfig(
         input=config.InputConfig(path=str(cloud)),
         surface=config.SurfaceConfig(poisson_depth=6),
     )
@@ -370,7 +373,7 @@ def test_il_comando_model_senza_il_prior_dice_che_cosa_manca(tmp_path, capsys):
 
 
 def test_il_comando_compare_scrive_la_pagina_e_nomina_i_modelli_assenti(tmp_path, capsys):
-    """Stesso banco di test_report.py: una definizione sola in materiale.py,
+    """Stesso banco di test_report.py: una definizione sola in corse_finte.py,
     perche' tests/ non e' un pacchetto e un import fra file di test per nome
     puntato non risolverebbe."""
     cartelle = _tre_cartelle_finte(tmp_path)[:2]

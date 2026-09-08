@@ -24,7 +24,6 @@ import numpy as np
 import pytest
 
 from meshrec.core import abaqus, config, quality, synth
-from meshrec.core.config import GRAVITY_MM_S2
 
 # Tetraedro regolare di lato 1: base equilatera nel piano z = 0 e apice sopra
 # il baricentro, ad altezza sqrt(6)/3.
@@ -142,38 +141,16 @@ def test_il_volume_del_deck_e_quello_della_scatola(tmp_path):
     )
     esito = abaqus.export_model(
         tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tets,
-        config.ExportConfig(),
+        # Trenta nodi su una scatola alta 200 mm: la spaziatura di bordo vale
+        # 50 mm, e col fattore predefinito 6.0 la banda dei set di faccia
+        # supererebbe l'altezza del pezzo. Il volume non dipende dai set, ma
+        # `export_model` rifiuta il deck prima di calcolarlo.
+        config.ExportConfig(set_tolerance_factor=1.0),
         config.TetConfig(element="C3D4"),
     )
 
     atteso = lati[0] * lati[1] * lati[2]
     assert esito["volume"] == pytest.approx(atteso, rel=1e-6)
-
-
-# --- O4: la costante di gravita', che nessun test asseriva ---------------
-
-
-def test_la_gravita_e_novecentootto_metri_al_secondo_quadro_in_millimetri():
-    """9,81 m/s^2 nel sistema mm, N, MPa, tonnellata, secondo.
-
-    Un fattore 1000 sbagliato qui darebbe un peso proprio mille volte fuori, e
-    il deck girerebbe lo stesso producendo numeri plausibili: e' la classe di
-    errore piu' cara e nessun test la copriva.
-    """
-    assert GRAVITY_MM_S2 == pytest.approx(9.81 * 1000.0, rel=1e-12)
-
-
-def test_densita_per_volume_per_gravita_da_newton():
-    """La coerenza dimensionale del sistema, in un solo confronto.
-
-    Un metro cubo d'acqua pesa 9810 N. In unita' di lavoro: `V = 1e9 mm^3`,
-    `rho = 1e-9 t/mm^3`, e `rho V g` deve dare 9810. Se una delle tre unita'
-    fosse dichiarata male, questo numero non tornerebbe -- ed era verificato
-    solo **di rimbalzo**, dentro un test sulle reazioni.
-    """
-    volume_mm3 = 1.0e9
-    densita_acqua = 1.0e-9  # t/mm^3
-    assert densita_acqua * volume_mm3 * GRAVITY_MM_S2 == pytest.approx(9810.0, rel=1e-12)
 
 
 # --- O5: le grandezze che avevano solo test di regressione ---------------

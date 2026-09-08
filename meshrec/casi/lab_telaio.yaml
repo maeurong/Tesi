@@ -66,18 +66,7 @@ tet:
   max_steiner_points: -1
   nobisect: true
   element: C3D4
-analysis:
-  material:
-    # Il valore e' un'assunzione dell'operatore, scelta su C25/30: la tavola
-    # MURO 1 non dichiara la classe del calcestruzzo (stessa avvertenza di
-    # fase-4-materiale.md).
-    name: CALCESTRUZZO_C25_30
-    young: 31500.0
-    poisson: 0.2
-    density: 2.5493e-09
-  gravity: 9810.0
-  fixed_nset: BASE
-  step_name: GRAVITA
+export:
   set_tolerance_factor: 6.0
 wall:
   cell_factor: 4.0

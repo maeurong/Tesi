@@ -530,15 +530,17 @@ def _campi_cambiati(
     return cambiati
 
 
-def _modello_del_blocco(annotazione: object) -> type:
+def _modello_del_blocco(annotazione: object) -> object:
     """Il modello annidato di un blocco di `PipelineConfig`.
 
-    `analysis` puo' essere assente, quindi la sua annotazione e'
-    `AnalysisConfig | None`: i campi stanno sul modello, non sull'unione, e
-    leggerli dall'annotazione grezza faceva cadere `/api/schema` -- cioe' il
-    pannello degli step 11 e 13 -- con un `AttributeError` fuori vista.
+    Oggi e' l'annotazione stessa: col deck nudo nessun blocco di
+    `PipelineConfig` e' piu' nullabile (`analysis` era l'unico) e non c'e'
+    piu' un `None` da scartare da un'unione. La funzione resta perche' i due
+    chiamanti dicono cosi' cosa cercano, e perche' i loro controlli a valle --
+    `hasattr(..., "model_fields")` -- valgono per ogni annotazione, comprese
+    quelle che modelli non sono (`regioni` e' un `dict`).
     """
-    return next(t for t in get_args(annotazione) or (annotazione,) if t is not type(None))
+    return annotazione
 
 
 # I tipi che si battono in una riga sola. `Path` sta con `str` e non fra i
@@ -927,7 +929,6 @@ def create_app(
                     "nome": cartella.name,
                     "nuvola": None,
                     "modificata": None,
-                    "materiale": None,
                     "riferimento": (cartella / SENTINELLA_SOLA_LETTURA).exists(),
                     "errore": None,
                 }
@@ -941,7 +942,6 @@ def create_app(
                     voce["errore"] = _rifiuto_leggibile(errore)
                 else:
                     voce["nuvola"] = str(cfg.input.path)
-                    voce["materiale"] = cfg.analysis.material.name if cfg.analysis else None
                 corse.append(voce)
         return {"radice": str(radice_corse), "corse": corse, "corrente": nome_corrente()}
 
@@ -950,8 +950,8 @@ def create_app(
         """Fa nascere una corsa dalla sola nuvola, e ci lega l'applicazione.
 
         Scrive `input.path` e `run.out_dir` e nient'altro: ogni altro parametro
-        resta al proprio predefinito, dichiarato in `config.py`, e il materiale
-        resta assente finche' non lo dichiara chi analizza.
+        resta al proprio predefinito, dichiarato in `config.py`. Il materiale
+        non e' fra questi: col deck nudo si assegna in Abaqus.
         """
         # Prima di ogni altra cosa: `Path("")` e' `PosixPath('.')`, e senza
         # questo ramo un campo lasciato vuoto tornava indietro come
@@ -1410,17 +1410,11 @@ def create_app(
                 # campi fissi da descrivere uno per uno. Niente `model_fields`
                 # da leggere, quindi nessun campo da elencare per questo blocco.
                 #
-                # Le due meta' di questo blocco vengono da due rami e servono a
-                # due casi diversi: nessuna copre l'altro, e tenerne una sola
-                # reintroduce il difetto che l'altra aveva chiuso.
-                # _modello_del_blocco scarta il None da `X | None` -- senza,
-                # `analysis` faceva cadere /api/schema con un AttributeError,
-                # cioe' spegneva il pannello degli step 11 e 13. La guardia
-                # regge le annotazioni che non sono modelli affatto, come
-                # questo dict, su cui _modello_del_blocco da solo prenderebbe
-                # NomeSet e chiederebbe model_fields a una stringa. Il difetto
-                # muto e' il peggiore dei due: esce 200 con i campi mancanti,
-                # invece di sollevare dove qualcuno se ne accorge.
+                # La guardia regge le annotazioni che non sono modelli
+                # affatto, come questo dict: senza, `model_fields` verrebbe
+                # chiesto a un `dict[...]` e /api/schema uscirebbe 200 con i
+                # campi mancanti invece di sollevare dove qualcuno se ne
+                # accorge. Il difetto muto e' il peggiore dei due.
                 annidato = _modello_del_blocco(modelli[blocco].annotation)
                 if not hasattr(annidato, "model_fields"):
                     campi[blocco] = {}

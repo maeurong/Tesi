@@ -12,7 +12,6 @@ import pytest
 
 from meshrec.app.worker import CODIFICA_DEL_TUBO, Worker
 from meshrec.core.config import InputConfig, PipelineConfig, save_config
-from materiale import ANALISI
 
 
 def test_un_worker_appena_creato_non_sta_girando():
@@ -20,7 +19,7 @@ def test_un_worker_appena_creato_non_sta_girando():
 
 
 def test_il_worker_cattura_le_righe_del_processo(tmp_path):
-    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "assente.ply"), analysis=ANALISI)
+    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "assente.ply"))
     cfg.run.out_dir = tmp_path / "corsa"
     percorso = tmp_path / "config.yaml"
     save_config(cfg, percorso)
@@ -42,7 +41,7 @@ def test_il_tempo_trascorso_lo_misura_il_worker_e_finisce_con_lo_step(tmp_path):
     """Il cronometro deve stare dove lo step parte davvero: misurato nel
     browser conterebbe da quando quella pagina ha visto lo stato 'in corso',
     e tornerebbe a zero a ogni ricarica mentre il calcolo prosegue."""
-    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "assente.ply"), analysis=ANALISI)
+    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "assente.ply"))
     cfg.run.out_dir = tmp_path / "corsa"
     percorso = tmp_path / "config.yaml"
     save_config(cfg, percorso)
@@ -93,7 +92,7 @@ def test_avviare_un_secondo_step_mentre_il_primo_gira_solleva(tmp_path):
     """E' un errore del chiamante, non un esito dell'elaborazione: la nuvola
     assente tiene comunque il processo in volo abbastanza a lungo (avvio
     dell'interprete) da coglierlo con is_running() subito dopo lo start."""
-    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "assente.ply"), analysis=ANALISI)
+    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "assente.ply"))
     cfg.run.out_dir = tmp_path / "corsa"
     percorso = tmp_path / "config.yaml"
     save_config(cfg, percorso)
@@ -196,7 +195,7 @@ def test_una_riga_non_decodificabile_non_uccide_il_lettore(tmp_path, monkeypatch
     fuori = _eccezioni_dei_thread(monkeypatch)
     monkeypatch.setenv("PYTHONIOENCODING", "latin-1")
 
-    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "città.ply"), analysis=ANALISI)
+    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "città.ply"))
     cfg.run.out_dir = tmp_path / "corsa"
     percorso = tmp_path / "configurazione già scelta.yaml"
     save_config(cfg, percorso)
@@ -232,7 +231,7 @@ def test_un_accento_italiano_vero_arriva_integro_al_registro(tmp_path):
     Mutazione che lo uccide: `encoding="ascii"` (o qualunque codifica che non
     porti gli accenti) sui `Popen` di `worker.py`.
     """
-    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "più_città.ply"), analysis=ANALISI)
+    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "più_città.ply"))
     cfg.run.out_dir = tmp_path / "corsa"
     percorso = tmp_path / "config.yaml"
     save_config(cfg, percorso)
@@ -366,7 +365,7 @@ def test_la_durata_della_corsa_sopravvive_alla_corsa(tmp_path):
     istantanea SSE, l'ordine inverso lascerebbe una finestra in cui il browser
     vede il fronte di discesa senza il numero.
     """
-    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "assente.ply"), analysis=ANALISI)
+    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "assente.ply"))
     cfg.run.out_dir = tmp_path / "corsa"
     percorso = tmp_path / "config.yaml"
     save_config(cfg, percorso)

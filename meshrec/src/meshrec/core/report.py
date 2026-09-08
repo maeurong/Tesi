@@ -790,8 +790,9 @@ def _etichette(percorso: tuple[str, ...]) -> list[str]:
             return nomi + list(percorso[len(nomi) :])
         campo = campi[passo]
         nomi.append(campo.title or passo)
-        # `analysis` e' `AnalysisConfig | None`: i campi stanno sul modello e
-        # non sull'unione, e leggerli dall'annotazione grezza li perderebbe.
+        # Un campo nullabile (`tet.max_volume`, `repair.max_hole_area`) e'
+        # `X | None`: il tipo sta dentro l'unione, e leggerlo dall'annotazione
+        # grezza lo perderebbe.
         modello = next(
             (
                 tipo
@@ -811,9 +812,10 @@ def _sezione_parametri(configurazione: dict[str, object]) -> str:
     restano blocchi. La forma e' quella che «Metriche per step» usa da sempre
     -- un <h3> e la sua tabella -- riusata invece di inventarne una seconda.
 
-    Un blocco che non e' una mappa (`analysis: null` sta in ogni corsa senza
-    analisi) resta una riga sola col nome del blocco: passarlo a `_piatto` gli
-    darebbe il nome vuoto, cioe' la cella bianca di sempre.
+    Un blocco che non e' una mappa resta una riga sola col nome del blocco:
+    passarlo a `_piatto` gli darebbe il nome vuoto, cioe' la cella bianca di
+    sempre. La forma arriva dai `config.yaml` gia' su disco, che portano
+    blocchi nulli.
     """
     pezzi = []
     for blocco, dentro in configurazione.items():

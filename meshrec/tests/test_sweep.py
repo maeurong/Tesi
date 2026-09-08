@@ -7,12 +7,11 @@ import pytest
 from pydantic import ValidationError
 
 from meshrec.core import config, pipeline, steps, sweep
-from materiale import ANALISI, MATERIALE, crea_config
 
 
 
 def _base() -> config.PipelineConfig:
-    return crea_config(input=config.InputConfig(path="nuvola.ply", scale=1000.0))
+    return config.PipelineConfig(input=config.InputConfig(path="nuvola.ply", scale=1000.0))
 
 
 def test_un_candidato_fallito_porta_ancora_le_sue_metriche_parziali(tmp_path):
@@ -267,7 +266,7 @@ def test_a_candidate_that_fails_becomes_a_row_and_not_an_exception(tmp_path):
     Qui il fallimento e' provocato con una nuvola inesistente, che e' il modo
     piu rapido di far uscire `meshrec run` con codice diverso da zero.
     """
-    cfg = crea_config(input=config.InputConfig(path=str(tmp_path / "assente.ply")))
+    cfg = config.PipelineConfig(input=config.InputConfig(path=str(tmp_path / "assente.ply")))
 
     row = sweep.run_candidate({}, cfg, tmp_path / "candidato", timeout_s=120.0)
 
@@ -285,7 +284,7 @@ def test_a_candidate_that_succeeds_records_its_artifacts(tmp_path):
 
     cloud = tmp_path / "cubo.ply"
     io.write_cloud(cloud, synth.sample_box_surface(size=(100.0, 40.0, 200.0), spacing=4.0))
-    cfg = crea_config(
+    cfg = config.PipelineConfig(
         input=config.InputConfig(path=str(cloud)),
         surface=config.SurfaceConfig(poisson_depth=6),
     )
@@ -843,14 +842,13 @@ def test_un_asse_su_un_blocco_fuori_impronta_viene_rifiutato(tmp_path):
     sweep: l'errore arriva prima di eseguire, non dopo aver scritto le righe."""
     from meshrec.core.config import AxisSpec, ExperimentConfig, InputConfig
 
-    from materiale import crea_config
 
     esperimento = ExperimentConfig(
         name="prova",
         base=tmp_path / "base.yaml",
         axes=[AxisSpec(path="wall.min_cells", values=[8, 12])],
     )
-    base = crea_config(input=InputConfig(path=tmp_path / "n.ply"))
+    base = config.PipelineConfig(input=InputConfig(path=tmp_path / "n.ply"))
     with pytest.raises(ValueError, match="non entra nell'impronta"):
         sweep.expand(esperimento, base)
 
@@ -1014,3 +1012,25 @@ def test_l_uscita_del_candidato_ucciso_entra_nella_riga_come_testo_non_come_repr
     assert row["complete"] is False
     assert "*WARNING: nodo isolato in città.ply" in row["stderr"]
     assert "\\x" not in row["stderr"] and not row["stderr"].endswith("'")
+
+
+@pytest.mark.parametrize("asse", ["analysis.material.young", "carichi.spinta.coefficiente"])
+def test_un_asse_dentro_un_blocco_che_non_esiste_dice_quale_asse_e_quale_blocco(asse):
+    """Un asse scritto su un blocco tolto non e' un `KeyError` nudo.
+
+    Gli `esperimento.yaml` gia' scritti portano assi dentro `analysis` e
+    `carichi`, che il deck nudo ha tolto. `with_override` cammina il dump, e
+    la guardia che c'era copriva il solo blocco presente-ma-nullo: sul blocco
+    assente per intero l'indicizzazione sollevava `KeyError('analysis')`, che
+    non dice ne' quale asse dell'esperimento l'ha chiesto ne' che il blocco
+    non esiste piu'.
+
+    Mutazione che lo uccide: togliere la guardia sulla chiave assente. Torna
+    un `KeyError` col solo nome del blocco.
+    """
+    with pytest.raises(ValueError) as rifiuto:
+        sweep.with_override(_base(), asse, 1.0)
+
+    messaggio = str(rifiuto.value)
+    assert asse in messaggio
+    assert asse.split(".")[0] in messaggio

@@ -49,15 +49,7 @@ tet:
   max_steiner_points: -1
   nobisect: true
   element: C3D4
-analysis:
-  material:
-    name: MURATURA
-    young: 1500.0
-    poisson: 0.2
-    density: 1.8e-09
-  gravity: 9810.0
-  fixed_nset: BASE
-  step_name: GRAVITA
+export:
   set_tolerance_factor: 6.0
 run:
   out_dir: runs\sweep\muro\83bbe93f7ce6

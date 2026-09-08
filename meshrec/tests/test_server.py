@@ -16,12 +16,11 @@ from fastapi.testclient import TestClient
 from meshrec.app import server
 from meshrec.app.server import create_app
 from meshrec.core.config import InputConfig, PipelineConfig, load_config, save_config
-from materiale import ANALISI
 
 
 @pytest.fixture()
 def cliente(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
-    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"), analysis=ANALISI)
+    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"))
     cfg.run.out_dir = tmp_path / "corsa"
     save_config(cfg, tmp_path / "config.yaml")
     # I-5 della revisione: CACHE_DIR e' una costante di modulo che punta a
@@ -65,7 +64,7 @@ def test_lo_stato_della_corsa_elenca_i_dodici_step(cliente):
 
 def test_la_configurazione_torna_intera(cliente):
     corpo = cliente.get("/api/config").json()
-    assert set(corpo) >= {"input", "segment", "surface", "tet", "analysis"}
+    assert set(corpo) >= {"input", "segment", "surface", "tet", "export"}
 
 
 def test_scrivere_la_configurazione_invalida_gli_step_a_valle(cliente, tmp_path):
@@ -3522,7 +3521,6 @@ def cliente_con_regioni(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Test
     """Come `cliente`, ma con una regione dichiarata nel config sul disco."""
     cfg = PipelineConfig(
         input=InputConfig(path=tmp_path / "nuvola.ply"),
-        analysis=ANALISI,
         regioni={"pilastro": {"membratura": 0}},
     )
     cfg.run.out_dir = tmp_path / "corsa"
@@ -3825,50 +3823,21 @@ def test_un_valore_fuori_dominio_e_rifiutato_in_italiano_e_per_etichetta(cliente
     assert "14" in detto, f"il rifiuto non dice l'estremo violato: {detto}"
 
 
-def test_i_quattro_campi_del_materiale_sono_rifiutati_per_etichetta(cliente):
-    """Ingresso degenere: il server rifiuta un campo del materiale.
-
-    Gli stessi due difetti del `poisson_depth` qui sopra, sopravvissuti dentro
-    `Material` perche' i suoi quattro campi portavano solo `description` e mai
-    `title`: `_etichetta_del_percorso` ricadeva sulla chiave e sotto il bottone
-    compariva «young: deve superare 0». `young` nell'interfaccia non esiste --
-    si chiama «modulo elastico E [MPa]», e il docstring di
-    `PipelineConfig.analisi_dichiarata` lo dice per iscritto proprio di questi
-    campi.
-
-    Mutazione che lo uccide: togliere il `title` dai campi di `Material`.
-    """
-    corrente = cliente.get("/api/config").json()
-    corrente["analysis"] = {"material": {
-        "name": "CLS", "young": -1.0, "poisson": 0.2, "density": 2.5e-9,
-    }}
-
-    risposta = cliente.put("/api/config", json=corrente)
-
-    assert risposta.status_code == 422
-    detto = risposta.json()["messaggio"]
-    assert "young" not in detto, f"il rifiuto stampa la chiave grezza: {detto}"
-    assert "modulo elastico E [MPa]" in detto, (
-        f"il rifiuto non nomina il campo con la sua etichetta: {detto}"
-    )
-    assert "deve superare 0" in detto, f"il rifiuto non dice il vincolo violato: {detto}"
-
-
 def test_il_nome_fuori_dai_caratteri_ammessi_e_rifiutato_in_italiano_senza_la_regex(cliente):
-    """Ingresso degenere: si dichiara il materiale col nome della classe.
+    """Ingresso degenere: si nomina una regione con una barra.
 
-    «C25/30» e' il primo nome che a chi sceglie una classe viene in mente, e la
-    barra non passa `NomeSet`. Il rifiuto era «name: String should match
-    pattern '^[A-Za-z0-9_.-]+$'»: inglese, chiave grezza, e una regex in faccia
-    a chi sta dichiarando un calcestruzzo. La forma non era in
-    `_RIFIUTI_TRADOTTI`, quindi usciva come pydantic la scrive.
+    Il banco era il nome del materiale, e «C25/30» era il primo nome che a chi
+    sceglie una classe veniva in mente; il materiale e' uscito dalla
+    configurazione l'08/09/2026, ma la stessa barra su un nome di regione
+    percorre la stessa `NomeSet` e la stessa traduzione. Il rifiuto era «name:
+    String should match pattern '^[A-Za-z0-9_.-]+$'»: inglese, chiave grezza, e
+    una regex in faccia a chi sta nominando un pezzo di muro. La forma non era
+    in `_RIFIUTI_TRADOTTI`, quindi usciva come pydantic la scrive.
 
     Mutazione che lo uccide: togliere la riga del pattern dalla tabella.
     """
     corrente = cliente.get("/api/config").json()
-    corrente["analysis"] = {"material": {
-        "name": "C25/30", "young": 30000.0, "poisson": 0.2, "density": 2.5e-9,
-    }}
+    corrente["regioni"] = {"C25/30": {"membratura": 0}}
 
     risposta = cliente.put("/api/config", json=corrente)
 
@@ -3876,9 +3845,8 @@ def test_il_nome_fuori_dai_caratteri_ammessi_e_rifiutato_in_italiano_senza_la_re
     detto = risposta.json()["messaggio"]
     assert "String should match" not in detto, f"il rifiuto e' in inglese: {detto}"
     assert "[A-Za-z0-9" not in detto and "pattern" not in detto, (
-        f"il rifiuto stampa la regex a chi dichiara un materiale: {detto}"
+        f"il rifiuto stampa la regex a chi nomina una regione: {detto}"
     )
-    assert "name" not in detto, f"il rifiuto stampa la chiave grezza: {detto}"
     assert "trattino basso" in detto, (
         f"il rifiuto non dice quali caratteri il nome ammette: {detto}"
     )
@@ -4240,3 +4208,42 @@ def test_a_corsa_finita_le_nuvole_sono_gia_decimate(cliente, tmp_path, monkeypat
         "corsa e' stata calcolata con parametri che la rotta non chiede, quindi "
         "il lavoro e' stato fatto due volte e l'attesa e' rimasta dov'era"
     )
+
+
+def test_il_blocco_analysis_nel_corpo_della_put_e_un_rifiuto_leggibile(cliente):
+    """La PUT accetta un `PipelineConfig` intero: e' la via per cui un blocco
+    tolto arriva al programma da un pannello vecchio o da un client scritto a
+    mano. Il rifiuto deve nominare il blocco, non uscire come 500.
+
+    Mutazione che lo uccide: togliere `analysis` da `BLOCCHI_RIMOSSI`.
+    """
+    corpo = cliente.get("/api/config").json()
+    corpo["analysis"] = None
+
+    risposta = cliente.put("/api/config", json=corpo)
+
+    assert risposta.status_code == 422
+    assert "analysis" in risposta.json()["messaggio"]
+
+
+def test_una_corsa_col_blocco_analysis_resta_in_elenco_col_suo_errore(cliente, tmp_path):
+    """Ingresso degenere: le corse gia' su disco portano `analysis:`.
+
+    L'elenco non e' il posto dove si rifiuta: una corsa vecchia perde la
+    propria riga, non l'intero elenco. `load_config` sta gia' dentro il `try`
+    che riempie `voce["errore"]`, e il rifiuto nominato ci arriva come tutti
+    gli altri.
+
+    Mutazione che lo uccide: far uscire `load_config` dal `try` dell'elenco.
+    """
+    vecchia = tmp_path / "runs" / "vecchia"
+    vecchia.mkdir(parents=True)
+    (vecchia / "config.yaml").write_text(
+        "input:\n  path: nuvola.ply\nanalysis: null\n", encoding="utf-8"
+    )
+
+    risposta = cliente.get("/api/corse")
+
+    assert risposta.status_code == 200
+    voce = next(v for v in risposta.json()["corse"] if v["nome"] == "vecchia")
+    assert "analysis" in voce["errore"]

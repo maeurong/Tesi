@@ -53,8 +53,8 @@ LATO = (100.0, 100.0, 100.0)  # mm
 class _Materiale(NamedTuple):
     """Il materiale del provino, dichiarato qui perche' il deck non lo porta.
 
-    `config.Material` resta il materiale della pipeline; questo test non lo usa
-    piu', perche' non lo passa piu' a nessuno: le card del materiale se le
+    `config.Material` e' uscito dalla configurazione l'08/09/2026 col deck
+    nudo, e a questo test non serviva gia' piu': le card del materiale se le
     scrive `_appendi_analisi`, e le servono nome, modulo elastico e Poisson.
     La densita' non c'e' perche' non c'e' il peso proprio (vedi sotto).
     """
