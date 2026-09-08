@@ -53,7 +53,7 @@ import tempfile
 from pathlib import Path
 
 RADICE = Path(__file__).resolve().parents[2]
-SALTA = {".git", "node_modules", ".venv", "__pycache__"}
+SALTA = {".git", ".claude", "node_modules", ".venv", "__pycache__"}
 
 RIFERIMENTO = re.compile(r"(?<![\w/.-])([A-Za-z_][\w./-]*\.[A-Za-z]{1,5}):(\d+)(?:-(\d+))?")
 ABBREVIATO = re.compile(r"`:(\d+)")
