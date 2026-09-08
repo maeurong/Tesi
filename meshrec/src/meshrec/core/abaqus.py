@@ -9,13 +9,18 @@ from pathlib import Path
 import numpy as np
 
 from meshrec.core.config import (
-    AnalysisConfig,
-    Material,
+    ExportConfig,
     TetConfig,
     _mappa_casefold,
 )
 
 _SET_ITEMS_PER_LINE = 8
+
+# L'insieme su cui si misurano copertura ed estensione in pianta del vincolo.
+# Era `AnalysisConfig.fixed_nset`, cioe' una scelta: col deck nudo il vincolo
+# non si scrive piu' e non c'e' piu' nulla da scegliere -- restano due misure
+# di qualita' della geometria, e si fanno sulla base.
+SET_DI_BASE = "BASE"
 
 
 class UnconstrainedModelWarning(UserWarning):
@@ -925,19 +930,19 @@ def export_model(
     path_vtu: Path,
     nodes: np.ndarray,
     elements: np.ndarray,
-    cfg: AnalysisConfig,
+    cfg: ExportConfig,
     tet_cfg: TetConfig,
     reference: np.ndarray | None = None,
     element_type: str | None = None,
     element_surfaces: dict[str, list[tuple[int, int]]] | None = None,
     ties: tuple[tuple[str, str, str] | tuple[str, str, str, float], ...] = (),
-    regioni: dict[str, tuple[np.ndarray, Material]] | None = None,
+    regioni: dict[str, np.ndarray] | None = None,
 ) -> dict[str, object]:
     """Step 11: allinea, costruisce i set, scrive il deck e il file di visualizzazione.
 
-    `regioni` sono gli elementi di ciascuna regione col materiale della sua
-    sezione, misurati da `core/attribuzione.py` e passati di qui a `write_inp`.
-    Gli indici e non le coordinate: `align_to_axes` sposta i nodi e non l'ordine degli elementi,
+    `regioni` sono gli elementi di ciascuna regione, misurati da
+    `core/attribuzione.py` e passati di qui a `write_inp`. Indici e non
+    coordinate: `align_to_axes` sposta i nodi e non l'ordine degli elementi,
     quindi l'attribuzione si misura fuori di qui, sui nodi non allineati che
     la pipeline ha in mano e nello stesso riferimento in cui il prior misura.
 
@@ -995,20 +1000,8 @@ def export_model(
     spacing = boundary_spacing(aligned, bordo_facce)
     tolerance = cfg.set_tolerance_factor * spacing
     node_sets = build_node_sets(aligned, tolerance)
-    # Prima dell'indicizzazione, non dopo: il controllo con messaggio civile
-    # di `write_inp` non veniva mai raggiunto, perche' qui sotto `KeyError`
-    # arrivava per primo -- e arrivava dopo che tutta la mesh era stata
-    # costruita.
-    if cfg.fixed_nset not in node_sets:
-        raise ValueError(
-            f"il set vincolato '{cfg.fixed_nset}' non e fra gli insiemi che il modello "
-            f"offre ({sorted(node_sets)}). Il caso non c'entra: `AnalysisConfig.fixed_nset` "
-            "è un NomeSetDiFaccia e riscrive da sé i sei nomi nel proprio caso "
-            "canonico, quindi ciò che arriva qui è un nome diverso, non un 'base' "
-            "scritto minuscolo"
-        )
-    if len(node_sets[cfg.fixed_nset]) == 0:
-        raise ValueError(f"il set vincolato '{cfg.fixed_nset}' e vuoto: tolleranza {tolerance:.3f} mm troppo stretta")
+    if len(node_sets[SET_DI_BASE]) == 0:
+        raise ValueError(f"il set vincolato '{SET_DI_BASE}' e vuoto: tolleranza {tolerance:.3f} mm troppo stretta")
 
     # La guardia sul set vuoto era cieca su tutto il resto: un `BASE` da 9 nodi
     # produce un deck formalmente valido per un modello di fatto non vincolato,
@@ -1019,13 +1012,13 @@ def export_model(
     # Avrebbe segnalato entrambe le corse sotto l'euristica precedente
     # (55,78% sul muro e 34,76% su lab_crop), e tace sotto quella attuale
     # (100,00% e 98,93%).
-    coverage = footprint_coverage(aligned, boundary, node_sets[cfg.fixed_nset], spacing)
+    coverage = footprint_coverage(aligned, boundary, node_sets[SET_DI_BASE], spacing)
     if coverage <= 0.5:
         warnings.warn(
-            f"l'insieme vincolato '{cfg.fixed_nset}' raggiunge il {coverage:.2%} della "
+            f"l'insieme vincolato '{SET_DI_BASE}' raggiunge il {coverage:.2%} della "
             f"superficie d'appoggio con una tolleranza di {tolerance:.3f} mm: il modello "
             "è vincolato su una chiazza, non sulla base. Alza "
-            "analysis.set_tolerance_factor o verifica la geometria.",
+            "export.set_tolerance_factor o verifica la geometria.",
             UnconstrainedModelWarning,
             stacklevel=2,
         )
@@ -1038,7 +1031,7 @@ def export_model(
         element_type=tipo,
         element_surfaces=element_surfaces,
         ties=ties,
-        regioni={nome: indici for nome, (indici, _) in (regioni or {}).items()},
+        regioni=regioni,
     )
     write_vtu(path_vtu, aligned, elements, element_type=tipo)
 
@@ -1049,10 +1042,9 @@ def export_model(
         "boundary_spacing": float(spacing),
         "set_tolerance": float(tolerance),
         "fixed_nset_coverage": float(coverage),
-        "constraint_plan_extent": constraint_plan_extent(aligned, node_sets[cfg.fixed_nset]),
+        "constraint_plan_extent": constraint_plan_extent(aligned, node_sets[SET_DI_BASE]),
         "node_sets": {name: int(len(indices)) for name, indices in node_sets.items()},
         "volume": volume,
-        "mass": volume * cfg.material.density,
         "element_type": tipo,
         "inp": str(path_inp),
         "vtu": str(path_vtu),

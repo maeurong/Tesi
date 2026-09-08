@@ -111,7 +111,7 @@ invariante, o libreria terza) · **R** = solo regressione autoreferenziale · **
 | `aree_tributarie` | `abaqus.aree_tributarie` | ventaglio dal 1° nodo; A_tri = ‖(p₁−p₀)×(p₂−p₀)‖/2; ⅓ a ciascuno | Σ = 100·40 calcolato a mano, **non** contro `surface_area` — `test_abaqus.test_le_aree_tributarie_sommano_all_area_della_superficie` | **O** |
 | `surface_area` | `abaqus.surface_area` | = `aree_tributarie(...).sum()` | faccia di cubo unitario = 1 — `test_abaqus.test_la_superficie_di_elemento_di_una_faccia_nominata_ha_l_area_giusta` | **O** |
 | `element_surface` | `abaqus.element_surface` | facce di bordo con **tutti** i nodi nel set | S1 del C3D8 + area = 1 — `test_abaqus.test_la_superficie_di_elemento_di_una_faccia_nominata_ha_l_area_giusta`; 3 nodi su 4 → `[]` — `test_abaqus.test_la_superficie_di_elemento_non_nomina_una_faccia_solo_sfiorata` | **O** |
-| `volume` / `mass` export | `abaqus.export_model` | V = Σ\|V_elem\|; m = V·ρ | scatola nota, rel 1e-6 — `test_oracoli_mancanti.test_il_volume_e_la_massa_del_deck_sono_quelli_della_scatola` | **O** |
+| `volume` export | `abaqus.export_model` | V = Σ\|V_elem\| | scatola nota, rel 1e-6 — `test_oracoli_mancanti.test_il_volume_del_deck_e_quello_della_scatola` | **O** |
 
 ## Soluzione (`solve.py`)
 
@@ -341,7 +341,7 @@ D/O/G/N sono quelle del registro in [`README.md`](README.md) §3.
 | D8 — `element_volumes` accetta 10 colonne ma C3D10 non esiste più | **falsa oggi**: C3D10 è stato ripristinato (`76bbc00`, `479d671`) | `abaqus.NODI_PER_ELEMENTO`, `quality.element_volumes` |
 | O1 — `tet_aspect_ratios` senza alcun test | **chiusa** (`aa2716f`) | `test_oracoli_mancanti.test_l_aspetto_del_tetraedro_regolare_vale_uno`, `test_oracoli_mancanti.test_l_aspetto_del_tetraedro_rettangolo_ha_forma_chiusa`, `test_oracoli_mancanti.test_l_aspetto_di_un_tetraedro_degenere_e_infinito` |
 | O2 — `boundary_spacing` senza chiamate dirette | **chiusa** (`aa2716f`) | `test_oracoli_mancanti.test_la_spaziatura_di_bordo_del_tetraedro_regolare_e_il_suo_lato`, `test_oracoli_mancanti.test_la_spaziatura_di_bordo_scala_con_la_geometria` |
-| O3 — `export["volume"]`/`export["mass"]` senza asserzione di valore | **chiusa** (`aa2716f`) | `test_oracoli_mancanti.test_il_volume_e_la_massa_del_deck_sono_quelli_della_scatola` |
+| O3 — `export["volume"]` senza asserzione di valore | **chiusa** (`aa2716f`) | `test_oracoli_mancanti.test_il_volume_del_deck_e_quello_della_scatola` (`export["mass"]` non esiste piu': col deck nudo `export_model` non ha una densita' con cui moltiplicare il volume) |
 | O4 — `GRAVITY_MM_S2` che nessun test asserisce | **chiusa** (`aa2716f`) | `test_oracoli_mancanti.test_la_gravita_e_novecentootto_metri_al_secondo_quadro_in_millimetri`, `test_oracoli_mancanti.test_densita_per_volume_per_gravita_da_newton` |
 | O5 — `radius_edge_ratio_p99`, `extent` di `thickness`, `u_max`, ingombro/bbox | **chiusa in parte**: p99 ed `extent` hanno ora un oracolo, `u_max` ce l'ha in forma chiusa; ingombro/bbox resta **R** | `test_oracoli_mancanti.test_l_ingombro_di_una_lastra_allineata_e_il_suo_spessore`, `test_oracoli_mancanti.test_il_percentile_del_raggio_spigolo_e_davvero_un_percentile`, `test_solve.test_risolvi_porta_il_sesto_verdetto_col_rapporto_calcolabile_a_mano` |
 | G1 — `bimodal` coi modi in bin contigui, falsa per costruzione | **chiusa** (`0a622a5`) | `quality.thickness` |

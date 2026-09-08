@@ -66,7 +66,7 @@ def _tre_cartelle_finte(tmp_path):
                 "radius_edge_ratio": {"p50": 1.4},
                 "nodes": 1000,
             },
-            "11_export": {"volume": 1.0e8, "mass": 0.25, "node_sets": {"BASE": 40}},
+            "11_export": {"volume": 1.0e8, "node_sets": {"BASE": 40}},
         }
         (cartella / "metrics.json").write_text(json.dumps(metriche), encoding="utf-8")
         if tipo is None:
@@ -97,7 +97,7 @@ def _tre_cartelle_finte(tmp_path):
                     "hexa": {"hexes": 5000, "nodes": 7000, "inverted": 0,
                               "total_volume": 0.98e8,
                               "scaled_jacobian": {"p50": 0.95, "min": 0.61}},
-                    "export": {"volume": 0.98e8, "mass": 0.245, "element_type": "C3D8I"},
+                    "export": {"volume": 0.98e8, "element_type": "C3D8I"},
                     "scostamento_nuvola": {"rms": 6.2, "max": 21.0, "nota": ""},
                     "nota_giunzioni": nota_giunzioni,
                 }),

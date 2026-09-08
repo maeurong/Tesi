@@ -61,11 +61,12 @@ STEP_BLOCKS: dict[int, tuple[str, ...]] = {
     8: ("simplify",),
     9: ("tet",),
     10: ("tet",),
-    # `regioni` (Fase 8, #135) partiziona ALL_WALL in `*ELSET` e porta una
-    # `*SOLID SECTION` per regione, quindi cambia il deck che lo step 11
-    # scrive. Col deck nudo e' l'ultimo blocco rimasto accanto a `tet` e
-    # `analysis`.
-    11: ("tet", "analysis", "regioni"),
+    # `regioni` (Fase 8, #135) partiziona ALL_WALL in `*ELSET`, quindi cambia
+    # il deck che lo step 11 scrive. `export` porta la sola tolleranza con cui
+    # gli insiemi di faccia sono estratti: col deck nudo e' tutto cio' che
+    # resta da dichiarare qui, e ha preso il posto di `analysis`, che il deck
+    # non scrive piu'.
+    11: ("tet", "export", "regioni"),
     12: ("wall",),
 }
 

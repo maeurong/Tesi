@@ -63,6 +63,39 @@ def test_cambiare_un_parametro_invalida_solo_da_li_in_giu(tmp_path):
         assert marchi_prima[numero] != marchi_dopo[numero], f"step {numero} doveva cambiare"
 
 
+def test_cambiare_la_tolleranza_degli_insiemi_invalida_lo_step_11_e_non_il_9(tmp_path):
+    """La tolleranza e' passata da `analysis` a `export`, e la catena la segue.
+
+    Il blocco che la porta e' letto dal solo step 11: il 9 e il 10
+    tetraedrizzano e misurano, e non hanno idea di come si estraggano gli
+    insiemi di faccia. Il 12 cade dietro al 11 perche' la catena e' cumulativa.
+
+    La controprova sta nella seconda meta': `tet.min_ratio` muove il 9 e tutto
+    cio' che segue, com'e' sempre stato.
+
+    Mutazione che lo uccide: lasciare `export` fuori da STEP_BLOCKS[11], o
+    metterlo anche nel 9. Nel primo caso una tolleranza nuova riusa il deck
+    vecchio, nel secondo rifa' la tetraedralizzazione per nulla.
+    """
+    prima = _config(tmp_path)
+    dopo = _config(tmp_path)
+    dopo.export.set_tolerance_factor = 4.0
+
+    marchi_prima = steps.step_fingerprints(prima)
+    marchi_dopo = steps.step_fingerprints(dopo)
+
+    for numero in range(1, 11):
+        assert marchi_prima[numero] == marchi_dopo[numero], f"step {numero} non doveva cambiare"
+    for numero in (11, 12):
+        assert marchi_prima[numero] != marchi_dopo[numero], f"step {numero} doveva cambiare"
+
+    maglio = _config(tmp_path)
+    maglio.tet.min_ratio = 2.5
+    marchi_maglio = steps.step_fingerprints(maglio)
+    for numero in (9, 10, 11, 12):
+        assert marchi_prima[numero] != marchi_maglio[numero], f"step {numero} doveva cambiare"
+
+
 def test_uno_stato_salvato_con_impronta_diversa_e_non_valido(tmp_path):
     cfg = _config(tmp_path)
     corsa = tmp_path / "corsa"
@@ -152,15 +185,14 @@ def test_lo_step_dodici_non_cambia_le_impronte_degli_undici_precedenti(tmp_path)
 
 
 def test_cambiare_una_regione_invalida_lo_step_11(tmp_path):
-    """Le regioni partizionano ALL_WALL in `*ELSET` e portano una
-    `*SOLID SECTION` per ciascuna: cambiarle cambia il deck.
+    """Le regioni partizionano ALL_WALL in `*ELSET`: cambiarle cambia il deck.
 
     Mutazione che lo uccide: non aggiungere "regioni" a STEP_BLOCKS[11]. Le due
-    impronte restano uguali e la corsa riusa un deck monomaterico.
+    impronte restano uguali e la corsa riusa un deck con la partizione vecchia.
     """
     from meshrec.core.config import RegioneConfig
 
-    assert steps.STEP_BLOCKS[11] == ("tet", "analysis", "regioni")
+    assert steps.STEP_BLOCKS[11] == ("tet", "export", "regioni")
 
     materiale = {
         "material": {"name": "CLS", "young": 31476.0, "poisson": 0.2, "density": 2.5e-9},
@@ -238,7 +270,8 @@ def test_dimentica_ignora_i_numeri_fuori_dai_dodici_step(tmp_path):
     assert set(steps.read_state(tmp_path)) == {"01_load", "12_wall"}
 
 
-def test_lo_step_11_legge_tet_analysis_e_regioni():
-    """Dalla PR 1 del deck nudo carichi e selettori non esistono piu': lo
-    step 11 non puo' dichiarare di leggerli."""
-    assert steps.STEP_BLOCKS[11] == ("tet", "analysis", "regioni")
+def test_lo_step_11_legge_tet_export_e_regioni():
+    """Dalla PR 1 del deck nudo carichi e selettori non esistono piu', e col
+    blocco `export` il materiale non e' piu' un ingresso dello step 11: lo
+    step non puo' dichiarare di leggere nulla di tutto cio'."""
+    assert steps.STEP_BLOCKS[11] == ("tet", "export", "regioni")

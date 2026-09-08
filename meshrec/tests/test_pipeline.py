@@ -9,7 +9,7 @@ import pytest
 from pydantic import ValidationError
 
 from meshrec.core import config, io, pipeline, quality, steps, synth
-from materiale import ANALISI, MATERIALE, crea_config
+from materiale import ANALISI, crea_config
 
 
 SIZE = (120.0, 60.0, 240.0)
@@ -196,14 +196,6 @@ def test_the_base_set_holds_only_the_nodes_at_the_lowest_level(run_dir):
     tolerance = metrics["11_export"]["set_tolerance"]
     assert len(indices) == metrics["11_export"]["node_sets"]["BASE"]
     assert points[indices][:, 2].max() <= points[:, 2].min() + tolerance + 1e-9
-
-
-def test_the_mass_follows_from_density_and_volume(run_dir):
-    _, metrics = run_dir
-    density = MATERIALE.density
-    assert metrics["11_export"]["mass"] == pytest.approx(
-        metrics["11_export"]["volume"] * density, rel=1e-9
-    )
 
 
 def test_geometric_error_against_the_source_cloud_is_reported(run_dir):
@@ -1379,50 +1371,6 @@ def test_senza_materiale_la_corsa_arriva_alle_metriche_di_volume(tmp_path):
     assert "11_export" not in metriche
 
 
-def test_lo_step_11_senza_materiale_si_ferma_dicendo_che_cosa_manca(tmp_path):
-    cfg = _config_cubo(tmp_path)
-    cfg.analysis = None
-    cfg.run = config.RunConfig(out_dir=tmp_path / "out", to_step=11)
-
-    with pytest.raises(ValueError, match="analysis.material"):
-        pipeline.run(cfg)
-
-    stato = steps.read_state(tmp_path / "out")
-    assert stato["11_export"]["esito"] == "fallito"
-
-
-def test_generare_un_modello_senza_materiale_dice_che_cosa_manca(tmp_path):
-    """La corsa figlia esporta lo stesso deck dello step 11: stesso rifiuto.
-
-    Il difetto che il rifiuto impedisce e' `AttributeError: 'NoneType' object
-    has no attribute 'material'` dentro `abaqus.export_model`, che non dice a
-    chi legge quale sia la decisione che manca.
-    """
-    cfg = _config_cubo(tmp_path)
-    _scrivi_prior_telaio(cfg, _TELAIO_QUATTRO_MEMBRATURE)
-    cfg.analysis = None
-
-    with pytest.raises(ValueError, match="analysis.material"):
-        pipeline.genera_modello(cfg, "estruso", tmp_path / "figlia-senza-materiale")
-
-
-def test_generare_un_modello_senza_materiale_non_lascia_una_cartella_a_meta(tmp_path):
-    """Stessa invariante di `test_una_corsa_figlia_fallita_non_lascia_una_cartella_orfana`,
-    sull'altra strada che puo' fallire: una figlia con dentro il solo
-    `config.yaml` viene inclusa da /api/compare (e' una directory) e rifiutata
-    senza ne' `modello.json` ne' corsa madre da leggere.
-    """
-    cfg = _config_cubo(tmp_path)
-    _scrivi_prior_telaio(cfg, _TELAIO_QUATTRO_MEMBRATURE)
-    cfg.analysis = None
-    figlia = tmp_path / "figlia-senza-materiale"
-
-    with pytest.raises(ValueError, match="analysis.material"):
-        pipeline.genera_modello(cfg, "estruso", figlia)
-
-    assert not (figlia / "config.yaml").exists()
-
-
 def test_il_deck_dello_step_11_e_nudo(tmp_path):
     """Dalla PR 2 del deck nudo la pipeline scrive il solo maglio: nessun
     passo, nessun vincolo, nessuna sezione e nessun materiale nel deck del
@@ -1507,7 +1455,7 @@ def _regione(membratura, materiale):
     )
 
 
-def test_lo_step_11_rilegge_il_prior_e_porta_il_materiale_della_regione_nel_deck(tmp_path):
+def test_lo_step_11_rilegge_il_prior_e_porta_l_elset_della_regione_nel_deck(tmp_path):
     """Il prior della corsa gia' fatta diventa i prismi dell'attribuzione.
 
     La seconda corsa riparte dallo step 9 e si ferma all'11: `12_wall.json` e'

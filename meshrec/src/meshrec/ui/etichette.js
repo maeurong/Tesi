@@ -188,7 +188,6 @@ export const ETICHETTE_METRICHE = {
     "element_type": "tipo di elemento",
     "inp": "deck scritto",
     "vtu": "vtu scritto",
-    "mass": "massa [t]",
     "volume": "volume [mm³]",
     "surface_area": "area della superficie [mm²]",
     "extent": "ingombro [mm]",

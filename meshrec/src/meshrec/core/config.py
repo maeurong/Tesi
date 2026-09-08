@@ -382,6 +382,30 @@ class TetConfig(_ModelloBase):
     )
 
 
+class ExportConfig(_ModelloBase):
+    """Step 11: come si costruiscono gli insiemi di nodi delle facce."""
+
+    set_tolerance_factor: float = Field(
+        default=6.0,
+        gt=0.0,
+        title="tolleranza degli insiemi di faccia [multipli della spaziatura]",
+        description=(
+            "moltiplica la spaziatura dei nodi sul bordo del maglio di volume e "
+            "dà la tolleranza con cui i set di faccia sono estratti. Il "
+            "predefinito 6 è misurato: è il più piccolo intero che copre almeno "
+            "il 95% della superficie d'appoggio su entrambe le corse di "
+            "riferimento e per i quattro set utilizzabili. Il margine ha la "
+            "stessa struttura di quello di tet.min_ratio: 5 è il primo valore "
+            "che non regge (SIDE_LEFT di lab_crop si ferma al 94,37%), 4 il primo "
+            "che crolla (77,89%), e sopra 6 si compra copertura marginale a "
+            "prezzo pieno (a 8 il BASE del muro cresce del 41% per l'1,58% di "
+            "copertura). Il predefinito precedente, 0,5 volte il volume medio "
+            "dell'elemento, lasciava BASE al 55,78% della base sul muro e al "
+            "34,76% su lab_crop. Vedi docs/fase-1-tolleranza-set.md"
+        ),
+    )
+
+
 # Le tre etichette che il deck assegnava da se' agli altri passi, e che
 # indicizzano i campi per nodo del file risolto: non sono disponibili per il
 # nome del passo di peso proprio. Nessun passo le scrive piu', ma un `.vtu`
@@ -914,6 +938,7 @@ class PipelineConfig(_ModelloBase):
     repair: RepairConfig = Field(default_factory=RepairConfig)
     simplify: SimplifyConfig = Field(default_factory=SimplifyConfig)
     tet: TetConfig = Field(default_factory=TetConfig)
+    export: ExportConfig = Field(default_factory=ExportConfig)
     analysis: AnalysisConfig | None = Field(
         default=None,
         description=(

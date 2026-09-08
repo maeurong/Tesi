@@ -611,18 +611,9 @@ _FUORI_DAL_PANNELLO: dict[int, frozenset[str]] = {
     # sembrerebbe un secondo `min_ratio`.
     9: frozenset({"tet.reference_ratio"}),
     # Lo step 11 esporta il modello: non tetraedrizza (quello e' il 9), e `tet`
-    # si dichiara nei pannelli del 9 e del 10.
-    #
-    # `gravity`, `fixed_nset` e `step_name` sono tornati in questo pannello con
-    # la mappa #161. Descrivono il caso di carico e non la geometria, e per
-    # questo stavano nel pannello dello step 13: uscito quello, l'unico posto
-    # che resta e' lo step che li scrive nel deck. Fuori da qui sarebbero tre
-    # campi che il deck porta e che nessuno puo' piu' dichiarare.
-    #
-    # `material` resta fuori: ha gia' il proprio pannello -- quattro caselle
-    # che partono insieme -- e qui compariva una seconda volta, come riga di
-    # sola lettura col JSON del modello dentro.
-    11: frozenset({"tet", "analysis.material"}),
+    # si dichiara nei pannelli del 9 e del 10. Di `export` resta tutto: e' un
+    # campo solo, la tolleranza con cui gli insiemi di faccia sono estratti.
+    11: frozenset({"tet"}),
 }
 
 

@@ -24,7 +24,7 @@ import numpy as np
 import pytest
 
 from meshrec.core import abaqus, config, quality, synth
-from meshrec.core.config import GRAVITY_MM_S2, Material
+from meshrec.core.config import GRAVITY_MM_S2
 
 # Tetraedro regolare di lato 1: base equilatera nel piano z = 0 e apice sopra
 # il baricentro, ad altezza sqrt(6)/3.
@@ -120,15 +120,17 @@ def test_la_spaziatura_di_bordo_scala_con_la_geometria():
     assert doppia == pytest.approx(2.0 * singola, rel=1e-12)
 
 
-# --- O3: volume e massa del deck, che vanno in colonna nel report --------
+# --- O3: il volume del deck, che va in colonna nel report ----------------
 
 
-def test_il_volume_e_la_massa_del_deck_sono_quelli_della_scatola(tmp_path):
-    """I due numeri che il report di confronto mette in colonna.
+def test_il_volume_del_deck_e_quello_della_scatola(tmp_path):
+    """Il numero che il report di confronto mette in colonna.
 
-    Su una scatola il volume e' il prodotto delle tre dimensioni e la massa e'
-    quel volume per la densita': due valori che si scrivono senza eseguire
-    nulla. Nessuna asserzione li copriva.
+    Su una scatola il volume e' il prodotto delle tre dimensioni: un valore
+    che si scrive senza eseguire nulla. Nessuna asserzione lo copriva.
+
+    La massa gli stava accanto e non c'e' piu': il deck nudo non porta
+    materiale, quindi `export_model` non ha una densita' con cui moltiplicare.
     """
     lati = (100.0, 40.0, 200.0)
     vertici, facce = synth.box_mesh(lati)
@@ -138,16 +140,14 @@ def test_il_volume_e_la_massa_del_deck_sono_quelli_della_scatola(tmp_path):
         vertici, facce, max_volume=20_000.0,
         min_ratio=1.8, max_steiner_points=-1, nobisect=False, order=1,
     )
-    materiale = Material(name="PROVA", young=30_000.0, poisson=0.2, density=2.4e-9)
     esito = abaqus.export_model(
         tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tets,
-        config.AnalysisConfig(material=materiale),
+        config.ExportConfig(),
         config.TetConfig(element="C3D4"),
     )
 
     atteso = lati[0] * lati[1] * lati[2]
     assert esito["volume"] == pytest.approx(atteso, rel=1e-6)
-    assert esito["mass"] == pytest.approx(atteso * materiale.density, rel=1e-6)
 
 
 # --- O4: la costante di gravita', che nessun test asseriva ---------------

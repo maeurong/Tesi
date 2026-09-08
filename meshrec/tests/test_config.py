@@ -241,7 +241,9 @@ def test_lo_schema_non_sposta_l_impronta_dei_registri_in_silenzio():
 
     Il campo `fingerprint` delle righe non si riscrive: e' un dato misurato.
     L'aggregato invece si aggiorna quando lo schema cambia apposta, e allora
-    lo si dice nel commit.
+    lo si dice nel commit. **Aggiornato l'08/09/2026**: il blocco `export` e'
+    entrato in `PipelineConfig`, quindi ogni configurazione ne porta uno anche
+    dove lo YAML non lo dichiara, e le ventidue impronte si sono mosse tutte.
     """
     import hashlib
     import json
@@ -268,7 +270,7 @@ def test_lo_schema_non_sposta_l_impronta_dei_registri_in_silenzio():
 
     assert len(marchi) == 22, f"attese 22 righe nei due registri, trovate {len(marchi)}"
     aggregato = hashlib.sha256("\n".join(marchi).encode("utf-8")).hexdigest()
-    assert aggregato == "9b409e2d30a7465e81ea1268f913c766316280db9d40983f258ffe7f7bf79bd6", (
+    assert aggregato == "21b0d1f7f934a44feaba12cc5e32bc119f0a21d524e3e93b069c53ca1061bb01", (
         "lo schema della configurazione ha spostato l'impronta delle righe "
         "registrate: se e' voluto, aggiorna l'aggregato e dillo nel commit"
     )
@@ -277,8 +279,8 @@ def test_lo_schema_non_sposta_l_impronta_dei_registri_in_silenzio():
 @pytest.mark.parametrize(
     ("caso", "impronta"),
     [
-        ("lab.yaml", "3e72227dcbb1dc20bf14763402aab60c1a65893e78321b8f8fc013b9a966b097"),
-        ("muro.yaml", "78f0cf059e50f08e7b6823d240def3bdc0ba2172e908d85e03d8b71350a6cda1"),
+        ("lab.yaml", "e162a11097fab116bc472a4be3f1853d6606bdd01e53fc9fe1cf916acb1f02c2"),
+        ("muro.yaml", "32ca43609d7e7ab11fd8f09d23987ce184f6ef09295da5d0853bb3719af0306c"),
     ],
 )
 def test_l_impronta_delle_configurazioni_del_caso_studio_e_quella_misurata(caso, impronta):
@@ -304,6 +306,12 @@ def test_l_impronta_delle_configurazioni_del_caso_studio_e_quella_misurata(caso,
     restano valide e leggibili -- ognuna porta la propria configurazione -- ma
     non si rigenerano piu' da qui. `casi/muro.yaml` non e' toccato: e'
     muratura, e 1,8e-9 e' il suo valore giusto.
+
+    **Le due impronte sono cambiate di nuovo l'08/09/2026**, e per una ragione
+    di schema e non di valori: il blocco `export` e' entrato in
+    `PipelineConfig` con la tolleranza degli insiemi di faccia, che stava in
+    `analysis`. Nessuno dei due YAML lo dichiara, ma il predefinito entra nel
+    dump e quindi nell'impronta.
     """
     from meshrec.core.sweep import fingerprint
 
@@ -345,6 +353,31 @@ def test_i_blocchi_nuovi_stanno_in_pipelineconfig_e_nella_lista_di_esclusione_gi
     assert set(BLOCCHI_FUORI_IMPRONTA) <= campi
     assert set(BLOCCHI_VUOTI_FUORI_IMPRONTA) <= campi
     assert not set(BLOCCHI_FUORI_IMPRONTA) & set(BLOCCHI_VUOTI_FUORI_IMPRONTA)
+
+
+def test_export_ha_la_tolleranza_e_rifiuta_zero(tmp_path):
+    """Il blocco dello step 11: un campo solo, con un dominio.
+
+    La tolleranza degli insiemi di faccia era in `analysis`, dove stava
+    accanto al materiale e al passo di carico -- cose che il deck nudo non
+    scrive piu'. Qui e' sola, ed e' l'unica cosa che lo step 11 comanda.
+
+    Il predefinito si legge da uno YAML che il blocco non lo porta affatto:
+    una corsa nata prima di questo blocco deve scrivere il deck di sempre,
+    non fermarsi su un campo obbligatorio.
+
+    Mutazione che lo uccide: togliere `gt=0.0` dal campo. Con tolleranza nulla
+    `build_node_sets` non trova un solo nodo e la corsa muore a mesh gia'
+    costruita, che e' precisamente cio' che la validazione esiste per anticipare.
+    """
+    percorso = tmp_path / "senza-export.yaml"
+    percorso.write_text("input:\n  path: nuvola.ply\n", encoding="utf-8")
+
+    assert config.load_config(percorso).export.set_tolerance_factor == pytest.approx(6.0)
+
+    for cattivo in (0.0, -1.0, float("inf"), float("nan")):
+        with pytest.raises(ValidationError):
+            config.ExportConfig(set_tolerance_factor=cattivo)
 
 
 @pytest.mark.parametrize("riservato", ["SPINTA_ORIZZONTALE", "CARICO_TOP", "MODALE"])

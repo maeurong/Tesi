@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from meshrec.core import config, pipeline, steps, sweep
 from materiale import ANALISI, MATERIALE, crea_config
@@ -54,6 +55,25 @@ def test_the_fingerprint_changes_with_any_processing_parameter():
     assert sweep.fingerprint(changed) != sweep.fingerprint(_base())
     assert changed.tet.min_ratio == pytest.approx(2.5)
     assert _base().tet.min_ratio == pytest.approx(1.8)
+
+
+def test_la_tolleranza_degli_insiemi_e_un_asse_e_resta_validata():
+    """`export.set_tolerance_factor` e' un asse di sweep come `tet.min_ratio`.
+
+    `with_override` passa dal dump e da `model_validate` proprio per non
+    lasciare entrare un valore fuori dominio: sull'asse nuovo lo si pretende
+    qui, perche' `gt=0` sul campo non basta se la strada dello sweep lo aggira.
+
+    Mutazione che lo uccide: tornare ad assegnare l'attributo. Lo zero passa
+    intatto fino allo step 11.
+    """
+    cambiata = sweep.with_override(_base(), "export.set_tolerance_factor", 4.0)
+
+    assert cambiata.export.set_tolerance_factor == pytest.approx(4.0)
+    assert sweep.fingerprint(cambiata) != sweep.fingerprint(_base())
+
+    with pytest.raises(ValidationError):
+        sweep.with_override(_base(), "export.set_tolerance_factor", 0.0)
 
 
 def test_one_axis_at_a_time_does_not_multiply_the_levels():

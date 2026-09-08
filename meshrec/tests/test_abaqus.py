@@ -5,8 +5,6 @@ import numpy as np
 import pytest
 
 from meshrec.core import abaqus, config, synth, volume
-from meshrec.core.config import Material
-from materiale import ANALISI, MATERIALE
 
 
 SIZE = (100.0, 40.0, 200.0)
@@ -189,7 +187,7 @@ def test_build_node_sets_ha_le_chiavi_della_costante():
     assert set(sets) == set(config.NOMI_SET_DI_FACCIA)
 
 
-def test_export_model_writes_both_files_and_reports_mass(tmp_path):
+def test_export_model_writes_both_files(tmp_path):
     meshio = pytest.importorskip("meshio")
     vertices, faces = synth.box_mesh((100.0, 40.0, 200.0))
     nodes, tets, _ = volume.tetrahedralize_with_metrics(vertices, faces, TET_LINEARE)
@@ -199,14 +197,14 @@ def test_export_model_writes_both_files_and_reports_mass(tmp_path):
         tmp_path / "wall_model.vtu",
         nodes,
         tets,
-        config.AnalysisConfig(material=MATERIALE),
+        config.ExportConfig(),
         TET_LINEARE,
     )
 
     assert (tmp_path / "wall_model.inp").exists()
     assert (tmp_path / "wall_model.vtu").exists()
     assert metrics["volume"] == pytest.approx(100.0 * 40.0 * 200.0, rel=0.02)
-    assert metrics["mass"] == pytest.approx(metrics["volume"] * 1.8e-9, rel=1e-6)
+    assert "mass" not in metrics, "la massa e' il volume per una densita' che il deck non porta piu'"
     assert metrics["node_sets"]["BASE"] > 0
     read_back = meshio.read(tmp_path / "wall_model.vtu")
     assert len(read_back.points) == len(nodes)
@@ -256,7 +254,7 @@ def test_le_superfici_senza_tie_finiscono_nelle_metriche_senza_pressione(tmp_pat
     superficie = abaqus.element_surface(_ESAEDRO, nodi_base, "C3D8I")
     metrics = abaqus.export_model(
         tmp_path / "wall_model.inp", tmp_path / "wall_model.vtu",
-        _CUBO, _ESAEDRO, config.AnalysisConfig(material=MATERIALE), TET_LINEARE,
+        _CUBO, _ESAEDRO, config.ExportConfig(), TET_LINEARE,
         element_type="C3D8I",
         element_surfaces={"FACCIA_BASSA": superficie},
         ties=(),
@@ -436,7 +434,7 @@ def test_export_model_estimates_the_triad_on_the_reference_it_is_given(tmp_path)
         tmp_path / "m.vtu",
         nodes,
         tets,
-        config.AnalysisConfig(material=MATERIALE),
+        config.ExportConfig(),
         TET_LINEARE,
         reference=vertices,
     )
@@ -519,13 +517,13 @@ def test_export_warns_when_the_constrained_set_misses_the_footprint(tmp_path, cu
     nodes, tets = cube_mesh
     monkeypatch.setattr(abaqus, "footprint_coverage", lambda *args: 0.3)
 
-    with pytest.warns(abaqus.UnconstrainedModelWarning, match="appoggio"):
+    with pytest.warns(abaqus.UnconstrainedModelWarning, match="export.set_tolerance_factor"):
         metrics = abaqus.export_model(
             tmp_path / "wall_model.inp",
             tmp_path / "wall_model.vtu",
             nodes,
             tets,
-            config.AnalysisConfig(material=MATERIALE),
+            config.ExportConfig(),
             TET_LINEARE,
         )
 
@@ -540,7 +538,7 @@ def test_export_reports_how_much_of_the_footprint_is_constrained(tmp_path, cube_
         tmp_path / "wall_model.vtu",
         nodes,
         tets,
-        config.AnalysisConfig(material=MATERIALE),
+        config.ExportConfig(),
         TET_LINEARE,
     )
 
@@ -738,7 +736,7 @@ def test_export_model_rifiuta_l_incoerenza_tipo_nodi_prima_di_qualunque_calcolo(
             tmp_path / "m.vtu",
             nodes,
             tets,
-            config.AnalysisConfig(material=MATERIALE),
+            config.ExportConfig(),
             TET_LINEARE,
             element_type="C3D8",
         )
@@ -919,7 +917,7 @@ def test_export_model_col_maglio_vuoto_nomina_gli_elementi_non_i_nodi(tmp_path):
             tmp_path / "m.vtu",
             np.zeros((8, 3)),
             np.zeros((0, 4), dtype=np.int64),
-            config.AnalysisConfig(material=MATERIALE),
+            config.ExportConfig(),
             TET_LINEARE,
         )
     assert list(tmp_path.iterdir()) == [], "niente sul disco: né il deck né il .vtu"
@@ -1285,59 +1283,6 @@ def test_una_faccia_a_quattro_nodi_si_divide_a_ventaglio_dal_primo():
     assert aree[4:] == pytest.approx([0.0, 0.0, 0.0, 0.0])
 
 
-def test_un_fixed_nset_sconosciuto_nomina_gli_insiemi_disponibili(cube_mesh, tmp_path):
-    """Un vincolo scritto male si rifiuta dicendo quali insiemi esistono.
-
-    `export_model` indicizzava `node_sets[cfg.fixed_nset]` direttamente, e
-    il controllo con messaggio civile di `write_inp` non veniva mai
-    raggiunto: un `fixed_nset` sconosciuto produceva un `KeyError` nudo dopo
-    che tutta la mesh era stata costruita.
-
-    Il nome di prova era `base` (minuscolo), e non lo e' piu': dal momento in
-    cui `fixed_nset` e' un `NomeSetDiFaccia`, `base` si normalizza a `BASE` a
-    validazione e non arriva mai qui. Serviva un nome davvero fuori dai sei,
-    ed e' il caso che questo controllo deve coprire: un errore di battitura,
-    non una differenza di maiuscole.
-
-    Mutazione che lo uccide: togliere la guardia di `export_model` (quella
-    subito dopo `build_node_sets`, non quella di `write_inp`: si arriva prima
-    alla prima) e tornare a indicizzare. L'errore torna a essere un
-    `KeyError`, che `pytest.raises(ValueError)` non cattura.
-    """
-    nodi, tetraedri = cube_mesh
-    analisi = config.AnalysisConfig(material=MATERIALE, fixed_nset="BASAMENTO")
-    with pytest.raises(ValueError, match="SIDE_RIGHT"):
-        abaqus.export_model(
-            tmp_path / "m.inp", tmp_path / "m.vtu", nodi, tetraedri, analisi, TET_LINEARE,
-        )
-
-
-def test_un_fixed_nset_in_minuscolo_non_solleva_a_mesh_gia_costruita(cube_mesh, tmp_path):
-    """`fixed_nset: base` nello YAML non deve morire a mesh gia' costruita.
-
-    Il gemello a monte sta in `tests/test_config.py`
-    (`test_fixed_nset_canonicalizza_il_nome_dei_sei`) e guarda il solo campo;
-    qui si pretende che la normalizzazione regga fino in fondo alla corsa,
-    dove `export_model` cerca `cfg.fixed_nset` fra i sei insiemi. Col deck
-    nudo il `*BOUNDARY` non c'e' piu' e non e' li' che si guarda: la
-    canonicalizzazione si vede nel fatto che la corsa arriva al deck scritto
-    invece di sollevare dopo una tetraedralizzazione intera.
-
-    Mutazione che lo uccide: ritipare `AnalysisConfig.fixed_nset` da
-    `NomeSetDiFaccia` a `NomeSet`. `base` resta minuscolo, e la guardia di
-    `export_model` solleva.
-    """
-    nodi, tetraedri = cube_mesh
-    analisi = config.AnalysisConfig(material=MATERIALE, fixed_nset="base")
-    assert analisi.fixed_nset == "BASE"
-    percorso = tmp_path / "m.inp"
-    metriche = abaqus.export_model(
-        percorso, tmp_path / "m.vtu", nodi, tetraedri, analisi, TET_LINEARE,
-    )
-    assert percorso.exists()
-    assert metriche["fixed_nset_coverage"] > 0.0
-
-
 # --- Le regioni nel deck (#135) --------------------------------------------
 #
 # `ALL_WALL` non si rinomina e non si toglie (PRODUCT.md lo elenca fra i
@@ -1448,10 +1393,8 @@ def test_export_model_porta_le_regioni_fino_al_deck(tmp_path, cube_mesh):
     misurata sui nodi non allineati che la pipeline ha in mano, e arrivare qui
     come soli indici.
 
-    Le tuple `(indici, Material)` restano la forma che `export_model` riceve
-    finche' `ExportConfig` non esiste: e' lui a spacchettarle e a passare a
-    `write_inp` i soli indici. Il materiale non arriva piu' al deck, e
-    l'asserzione negativa sulla sezione e' li' a dirlo.
+    `regioni` e' un `dict[str, np.ndarray]` e nient'altro: il materiale della
+    sezione non entra piu' in questa firma, perche' il deck non porta sezioni.
 
     Mutazione che lo uccide: accettare `regioni` e non passarlo a `write_inp`,
     o rimettere nel deck la sezione della regione.
@@ -1460,13 +1403,42 @@ def test_export_model_porta_le_regioni_fino_al_deck(tmp_path, cube_mesh):
     percorso = tmp_path / "m.inp"
 
     abaqus.export_model(
-        percorso, tmp_path / "m.vtu", nodi, tetraedri, ANALISI, TET_LINEARE,
-        regioni={"PILASTRO": (np.arange(len(tetraedri)), MATERIALE)},
+        percorso, tmp_path / "m.vtu", nodi, tetraedri, config.ExportConfig(), TET_LINEARE,
+        regioni={"PILASTRO": np.arange(len(tetraedri))},
     )
     testo = percorso.read_text(encoding="ascii")
 
     assert "*ELSET, ELSET=PILASTRO" in testo
     assert "*SOLID SECTION" not in testo
+
+
+def test_una_regione_vuota_avvisa_anche_attraverso_export_model(tmp_path, cube_mesh):
+    """L'avviso di `write_inp` non si ferma dentro `export_model`.
+
+    La prova gemella chiama `write_inp` diretto; questa passa dalla strada che
+    la pipeline usa davvero. `export_model` non filtra gli avvisi e non li
+    trasforma in errori: chi ha dichiarato la regione la vede nominata, e il
+    deck si scrive lo stesso con l'altra.
+
+    Mutazione che lo uccide: avvolgere la chiamata a `write_inp` in un
+    `warnings.catch_warnings()` che ingoi, o rifiutare la regione vuota qui
+    invece di lasciarla passare.
+    """
+    nodi, tetraedri = cube_mesh
+    percorso = tmp_path / "m.inp"
+
+    with pytest.warns(abaqus.RegioneVuotaWarning, match="TRAVE_1"):
+        abaqus.export_model(
+            percorso, tmp_path / "m.vtu", nodi, tetraedri, config.ExportConfig(), TET_LINEARE,
+            regioni={
+                "TRAVE_1": np.array([], dtype=np.int64),
+                "PILASTRO_1": np.arange(len(tetraedri)),
+            },
+        )
+    deck = percorso.read_text(encoding="ascii")
+
+    assert "*ELSET, ELSET=PILASTRO_1" in deck
+    assert "TRAVE_1" not in deck
 
 
 def test_un_dizionario_di_regioni_vuoto_scrive_il_deck_di_prima(tmp_path, cube_mesh):
@@ -1554,6 +1526,6 @@ def test_i_vecchi_kwarg_non_hanno_piu_un_ramo_di_compatibilita(chiamata, kwarg, 
         else:
             abaqus.export_model(
                 percorso, tmp_path / "m.vtu", NODI, TET,
-                config.AnalysisConfig(material=MATERIALE), TET_LINEARE,
+                config.ExportConfig(), TET_LINEARE,
                 **{kwarg: {}},
             )

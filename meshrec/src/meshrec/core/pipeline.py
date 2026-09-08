@@ -328,13 +328,6 @@ def genera_modello(cfg: PipelineConfig, tipo: str, out_dir: Path) -> dict[str, o
         sorgente / WALL_FILENAME, "un modello parametrico"
     )
 
-    # Letta qui e non al punto d'uso, per la stessa ragione per cui il
-    # save_config sta dopo `costruisci`: e' una lettura pura, e lasciata a valle
-    # di `out.mkdir` faceva nascere la cartella figlia con dentro il solo
-    # config.yaml ogni volta che il materiale non era dichiarato -- esattamente
-    # lo stato che il commento qui sotto esiste per impedire.
-    analisi = cfg.analisi_dichiarata(f"il modello parametrico «{tipo}»")
-
     out = Path(out_dir)
 
     # save_config solo dopo costruisci: se la generazione fallisce (sulla
@@ -366,7 +359,7 @@ def genera_modello(cfg: PipelineConfig, tipo: str, out_dir: Path) -> dict[str, o
         out / WALL_VTU_FILENAME,
         nodi,
         elementi,
-        analisi,
+        cfg.export,
         cfg.tet,
         reference=nodi,
         element_type=cfg.model.element,
@@ -823,15 +816,10 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
             )
             prismi = attribuzione.prismi_delle_regioni(membrature, cfg.regioni)
             etichette, attribuzione_metriche = attribuzione.attribuisci(nodes, tets, prismi)
-            # Fino alla mappa #161 la regione portava una sezione con tre
-            # materiali e qui si sceglieva il confinato fra i tre; adesso ne
-            # dichiara uno, ed e' quello -- la limitazione resta, ma non c'e'
-            # piu' una scelta da fare in silenzio al posto di chi legge.
+            # Soli indici: il deck nudo non porta sezioni, quindi il materiale
+            # che la regione dichiara non ha piu' una strada verso il .inp.
             regioni_deck = {
-                nome: (
-                    np.flatnonzero(etichette == posizione),
-                    cfg.regioni[nome].materiale.material,
-                )
+                nome: np.flatnonzero(etichette == posizione)
                 for posizione, nome in enumerate(prismi)
             }
         # `vertices` e' la superficie da cui la mesh di volume e' stata
@@ -842,7 +830,7 @@ def run(cfg: PipelineConfig) -> dict[str, object]:
             out / WALL_VTU_FILENAME,
             nodes,
             tets,
-            cfg.analisi_dichiarata("lo step 11"),
+            cfg.export,
             cfg.tet,
             reference=vertices,
             regioni=regioni_deck,

@@ -2533,26 +2533,18 @@ def test_il_pannello_dello_step_11_mostra_solo_i_blocchi_che_comanda(cliente):
     """
     from meshrec.core import steps
 
-    assert steps.STEP_BLOCKS[11] == ("tet", "analysis", "regioni"), (
+    assert steps.STEP_BLOCKS[11] == ("tet", "export", "regioni"), (
         "STEP_BLOCKS e' stata cambiata: la catena delle impronte a valle "
         "discende da li'"
     )
     corpo = cliente.get("/api/schema").json()
-    assert corpo["11"]["blocchi"] == ["analysis"]
-    assert set(corpo["11"]["campi"]) == {"analysis"}
-    # Di `analysis` lo step 11 comanda una cosa sola: la tolleranza con cui
-    # estrae i set di faccia. `gravity`, `fixed_nset` e `step_name` sono
-    # tornati qui con la mappa #161: stavano nel pannello dello step 13, e
-    # uscito quello l'unico posto che resta e' lo step che li scrive nel deck.
-    # `material` resta fuori -- ha gia' il proprio pannello qui sotto, e in
-    # questo elenco compariva una seconda volta come riga di sola lettura con
-    # dentro il JSON del modello.
-    assert set(corpo["11"]["campi"]["analysis"]) == {
-        "set_tolerance_factor", "gravity", "fixed_nset", "step_name",
-    }
-    assert "material" not in corpo["11"]["campi"]["analysis"], (
-        "il materiale ha il proprio pannello e qui tornerebbe come JSON grezzo"
-    )
+    assert corpo["11"]["blocchi"] == ["export"]
+    assert set(corpo["11"]["campi"]) == {"export"}
+    # Il blocco `export` porta una cosa sola: la tolleranza con cui lo step 11
+    # estrae i set di faccia. Materiale, gravita', vincolo e passo di carico
+    # sono usciti col deck nudo -- il deck non li scrive piu', quindi non c'e'
+    # piu' nulla da dichiarare qui.
+    assert set(corpo["11"]["campi"]["export"]) == {"set_tolerance_factor"}
     # Il blocco resta intero dove lo step lo comanda davvero.
     assert corpo["9"]["blocchi"] == ["tet"] and corpo["9"]["campi"]["tet"]
 
@@ -3678,7 +3670,7 @@ def test_lo_schema_non_esplode_sul_blocco_regioni(banco, request):
     assert "regioni" not in corpo["11"]["blocchi"]
     assert "regioni" not in corpo["11"]["campi"]
     # Lo step 11 risponde comunque: la guardia non deve spegnere il pannello.
-    assert corpo["11"]["campi"]["analysis"]
+    assert corpo["11"]["campi"]["export"]
 
 
 # --------------------------------------------------------------------------

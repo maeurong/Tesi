@@ -1072,7 +1072,6 @@ mancare.
 
 CONFRONTABILI: dict[str, bool] = {
     "volume": True,
-    "massa": True,
     "scostamento_nuvola": True,
     "gradi_di_liberta": True,
     "qualita_elementi": False,
@@ -1080,8 +1079,9 @@ CONFRONTABILI: dict[str, bool] = {
 }
 """Quali grandezze si confrontano fra i tre modelli senza mentire.
 
-- volume e massa: si', ed e' anche il confronto con il volume dichiarato dal
-  disegno, quando il disegno c'e';
+- volume: si', ed e' anche il confronto con il volume dichiarato dal disegno,
+  quando il disegno c'e'. La massa gli stava accanto ed e' uscita col deck
+  nudo: senza materiale nel deck non c'e' una densita' con cui moltiplicarlo;
 - scostamento dalla nuvola sorgente: si', ed e' il perno -- e' definito allo
   stesso modo per tutti e tre e risponde alla domanda vera, quanto costa in
   fedelta' al rilievo la regolarizzazione della forma;
@@ -1202,7 +1202,6 @@ def confronta(cartelle: list[Path]) -> dict[str, object]:
     mancanti = [nome for nome in MODELLI if nome not in presenti]
 
     volume: dict[str, float] = {}
-    massa: dict[str, float] = {}
     scostamento: dict[str, object] = {}
     gradi: dict[str, object] = {}
     qualita: dict[str, dict] = {}
@@ -1216,7 +1215,6 @@ def confronta(cartelle: list[Path]) -> dict[str, object]:
             export = voce["metriche"].get("11_export", {})
             volumi = voce["metriche"].get("10_volume_quality", {})
             volume[nome] = export.get("volume")
-            massa[nome] = export.get("mass")
             scostamento[nome] = (
                 voce["metriche"]
                 .get("07_surface_quality", {})
@@ -1232,7 +1230,6 @@ def confronta(cartelle: list[Path]) -> dict[str, object]:
             esaedri = voce["modello"].get("hexa", {})
             metriche_modello = voce["modello"].get("modello", {})
             volume[nome] = export.get("volume")
-            massa[nome] = export.get("mass")
             scostamento[nome] = (voce["modello"].get("scostamento_nuvola") or {}).get("rms")
             gradi[nome] = {"nodi": esaedri.get("nodes"), "elemento": export.get("element_type")}
             qualita[nome] = {"scaled_jacobian": esaedri.get("scaled_jacobian")}
@@ -1254,7 +1251,6 @@ def confronta(cartelle: list[Path]) -> dict[str, object]:
         "scheda_singola": len(presenti) == 1,
         "confrontabili": dict(CONFRONTABILI),
         "volume": volume,
-        "massa": massa,
         "scostamento_nuvola": scostamento,
         "gradi_di_liberta": gradi,
         "qualita": qualita,
@@ -1266,7 +1262,6 @@ def confronta(cartelle: list[Path]) -> dict[str, object]:
 
 _ETICHETTE_GRANDEZZE: tuple[tuple[str, str], ...] = (
     ("volume", "volume [mm³]"),
-    ("massa", "massa [t]"),
     ("scostamento_nuvola", "scarto dalla nuvola, RMS [mm]"),
     ("gradi_di_liberta", "nodi e tipo di elemento"),
 )
@@ -1279,7 +1274,7 @@ l'appendice.
 
 L'unita' sta dentro l'etichetta, come in
 ("thickness_error", "errore di spessore [mm]"): in un'appendice cartacea una
-colonna «massa» con dentro 0,25 non dice se sono tonnellate o chilogrammi.
+colonna «volume» con dentro 1e8 non dice se sono millimetri cubi o metri cubi.
 mm³ e non mm3 ne' mm^3: l'esponente si scrive in apice, ed e' una grafia sola
 per tutto il prodotto -- config.py la usa nei titoli che l'interfaccia mostra,
 app.js nelle etichette delle metriche e questa tabella qui. Il caret era la

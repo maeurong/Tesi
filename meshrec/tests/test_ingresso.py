@@ -335,18 +335,6 @@ def test_un_nome_col_punto_resta_legittimo(slegato, nuvola, tmp_path):
     assert (tmp_path / "runs" / "lab.v2" / "config.yaml").is_file()
 
 
-def test_lo_schema_descrive_il_materiale_anche_se_il_blocco_e_opzionale(slegato):
-    """`analysis` opzionale rende la sua annotazione un'unione con None: letta
-    grezza faceva cadere /api/schema, cioe' il pannello dello step 11."""
-    corpo = slegato.get("/api/schema").json()
-
-    # Nello step 11 di `analysis` resta la sola tolleranza dei set di faccia
-    # (`_FUORI_DAL_PANNELLO`), perche' il materiale ha gia' il proprio
-    # pannello: che il blocco arrivi non vuoto e' cio' che prova che l'unione
-    # con None non fa cadere lo schema.
-    assert corpo["11"]["campi"]["analysis"]
-
-
 def test_scrivere_la_configurazione_senza_una_corsa_e_un_rifiuto_leggibile(slegato):
     """Ingresso degenere: la PUT arriva mentre l'applicazione non e' legata.
 

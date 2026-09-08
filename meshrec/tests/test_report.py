@@ -1384,8 +1384,8 @@ def test_le_grandezze_si_intitolano_con_l_etichetta_non_con_la_chiave(tmp_path):
 
     for _, etichetta in report._ETICHETTE_GRANDEZZE:
         assert f"<th>{etichetta}</th>" in testo
-    # `volume` e `massa` sono chiave ed etichetta insieme e non provano niente:
-    # mordono solo le due che differiscono.
+    # `volume` e' chiave ed etichetta insieme e non prova niente: mordono solo
+    # le due che differiscono.
     assert "gradi_di_liberta" not in testo
     assert "scostamento_nuvola" not in testo
 
@@ -1484,16 +1484,47 @@ def test_l_etichetta_della_riga_nomina_cio_che_la_cella_contiene(tmp_path):
     assert (etichetta, celle) in _righe_grandezze(testo)
 
 
+def test_una_massa_gia_sul_disco_non_torna_nella_tabella(tmp_path):
+    """Le corse fatte prima del deck nudo portano ancora `mass` nei loro file.
+
+    `metrics.json` la scrive sotto `11_export`, `modello.json` sotto `export`:
+    due chiavi che nessuna riga legge piu'. Il confronto le deve ignorare --
+    non sollevare, e non far ricomparire una riga «massa» calcolata con una
+    densita' che il deck di oggi non dichiara.
+
+    Mutazione che deve morire: rimettere `massa` in `CONFRONTABILI` o in
+    `_ETICHETTE_GRANDEZZE`.
+    """
+    cartelle = _tre_cartelle_finte(tmp_path)
+    for cartella in cartelle:
+        for nome, dentro in (("metrics.json", "11_export"), (pipeline.MODEL_FILENAME, "export")):
+            percorso = cartella / nome
+            if not percorso.exists():
+                continue
+            dati = json.loads(percorso.read_text(encoding="utf-8"))
+            dati[dentro]["mass"] = 0.25
+            percorso.write_text(json.dumps(dati), encoding="utf-8")
+
+    esito = report.confronta(cartelle)
+    testo = report.write_comparison_report(cartelle, tmp_path / "confronto.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert "massa" not in esito
+    assert "massa" not in esito["confrontabili"]
+    assert not [i for i, _celle in _righe_grandezze(testo) if "massa" in i]
+
+
 def test_ogni_grandezza_numerica_porta_l_unita_nell_etichetta(tmp_path):
     """Un numero senza unita' in un'appendice cartacea non si ricostruisce.
 
-    Una colonna «massa» con dentro 0,25 non dice se sono tonnellate o
-    chilogrammi, e il lettore non ha il codice sotto mano. Il precedente e'
-    _COLUMNS, che scrive ("thickness_error", "errore di spessore [mm]").
+    Una colonna «volume» con dentro 100.000.000 non dice se sono millimetri
+    cubi o metri cubi, e il lettore non ha il codice sotto mano. Il precedente
+    e' _COLUMNS, che scrive ("thickness_error", "errore di spessore [mm]").
     Nessun elenco tenuto a mano: e' numerica la riga le cui celle sono tutte
     numeri.
 
-    Mutazione che deve morire: togliere `[mm^3]` da volume o `[t]` da massa.
+    Mutazione che deve morire: togliere `[mm^3]` da volume.
     """
     cartelle = _tre_cartelle_finte(tmp_path)
     testo = report.write_comparison_report(cartelle, tmp_path / "confronto.html").read_text(
@@ -1505,7 +1536,7 @@ def test_ogni_grandezza_numerica_porta_l_unita_nell_etichetta(tmp_path):
         for intestazione, celle in _righe_grandezze(testo)
         if celle and all(re.fullmatch(r"-?[\d.,]+", c) for c in celle)
     ]
-    assert len(numeriche) == 3, f"righe di soli numeri trovate: {numeriche}"
+    assert len(numeriche) == 2, f"righe di soli numeri trovate: {numeriche}"
     senza = [i for i in numeriche if "[" not in i]
     assert not senza, f"grandezze numeriche senza unita' nell'etichetta: {senza}"
 
