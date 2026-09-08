@@ -4,14 +4,14 @@ import json
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from meshrec.core import config, pipeline, steps, sweep
-from materiale import ANALISI, MATERIALE, crea_config
 
 
 
 def _base() -> config.PipelineConfig:
-    return crea_config(input=config.InputConfig(path="nuvola.ply", scale=1000.0))
+    return config.PipelineConfig(input=config.InputConfig(path="nuvola.ply", scale=1000.0))
 
 
 def test_un_candidato_fallito_porta_ancora_le_sue_metriche_parziali(tmp_path):
@@ -54,6 +54,25 @@ def test_the_fingerprint_changes_with_any_processing_parameter():
     assert sweep.fingerprint(changed) != sweep.fingerprint(_base())
     assert changed.tet.min_ratio == pytest.approx(2.5)
     assert _base().tet.min_ratio == pytest.approx(1.8)
+
+
+def test_la_tolleranza_degli_insiemi_e_un_asse_e_resta_validata():
+    """`export.set_tolerance_factor` e' un asse di sweep come `tet.min_ratio`.
+
+    `with_override` passa dal dump e da `model_validate` proprio per non
+    lasciare entrare un valore fuori dominio: sull'asse nuovo lo si pretende
+    qui, perche' `gt=0` sul campo non basta se la strada dello sweep lo aggira.
+
+    Mutazione che lo uccide: tornare ad assegnare l'attributo. Lo zero passa
+    intatto fino allo step 11.
+    """
+    cambiata = sweep.with_override(_base(), "export.set_tolerance_factor", 4.0)
+
+    assert cambiata.export.set_tolerance_factor == pytest.approx(4.0)
+    assert sweep.fingerprint(cambiata) != sweep.fingerprint(_base())
+
+    with pytest.raises(ValidationError):
+        sweep.with_override(_base(), "export.set_tolerance_factor", 0.0)
 
 
 def test_one_axis_at_a_time_does_not_multiply_the_levels():
@@ -247,7 +266,7 @@ def test_a_candidate_that_fails_becomes_a_row_and_not_an_exception(tmp_path):
     Qui il fallimento e' provocato con una nuvola inesistente, che e' il modo
     piu rapido di far uscire `meshrec run` con codice diverso da zero.
     """
-    cfg = crea_config(input=config.InputConfig(path=str(tmp_path / "assente.ply")))
+    cfg = config.PipelineConfig(input=config.InputConfig(path=str(tmp_path / "assente.ply")))
 
     row = sweep.run_candidate({}, cfg, tmp_path / "candidato", timeout_s=120.0)
 
@@ -265,7 +284,7 @@ def test_a_candidate_that_succeeds_records_its_artifacts(tmp_path):
 
     cloud = tmp_path / "cubo.ply"
     io.write_cloud(cloud, synth.sample_box_surface(size=(100.0, 40.0, 200.0), spacing=4.0))
-    cfg = crea_config(
+    cfg = config.PipelineConfig(
         input=config.InputConfig(path=str(cloud)),
         surface=config.SurfaceConfig(poisson_depth=6),
     )
@@ -823,14 +842,13 @@ def test_un_asse_su_un_blocco_fuori_impronta_viene_rifiutato(tmp_path):
     sweep: l'errore arriva prima di eseguire, non dopo aver scritto le righe."""
     from meshrec.core.config import AxisSpec, ExperimentConfig, InputConfig
 
-    from materiale import crea_config
 
     esperimento = ExperimentConfig(
         name="prova",
         base=tmp_path / "base.yaml",
         axes=[AxisSpec(path="wall.min_cells", values=[8, 12])],
     )
-    base = crea_config(input=InputConfig(path=tmp_path / "n.ply"))
+    base = config.PipelineConfig(input=InputConfig(path=tmp_path / "n.ply"))
     with pytest.raises(ValueError, match="non entra nell'impronta"):
         sweep.expand(esperimento, base)
 
@@ -994,3 +1012,51 @@ def test_l_uscita_del_candidato_ucciso_entra_nella_riga_come_testo_non_come_repr
     assert row["complete"] is False
     assert "*WARNING: nodo isolato in città.ply" in row["stderr"]
     assert "\\x" not in row["stderr"] and not row["stderr"].endswith("'")
+
+
+@pytest.mark.parametrize("asse", ["analysis.material.young", "carichi.spinta.coefficiente"])
+def test_un_asse_dentro_un_blocco_che_non_esiste_dice_quale_asse_e_quale_blocco(asse):
+    """Un asse scritto su un blocco tolto non e' un `KeyError` nudo.
+
+    Gli `esperimento.yaml` gia' scritti portano assi dentro `analysis` e
+    `carichi`, che il deck nudo ha tolto. `with_override` cammina il dump, e
+    la guardia che c'era copriva il solo blocco presente-ma-nullo: sul blocco
+    assente per intero l'indicizzazione sollevava `KeyError('analysis')`, che
+    non dice ne' quale asse dell'esperimento l'ha chiesto ne' che il blocco
+    non esiste piu'.
+
+    Il ramo `analysis.material.young` dice anche che il blocco non esiste
+    piu', con la data: chi obbedisce al messaggio di oggi ("compila
+    'analysis'") e chi rifiuta i blocchi tolti (`config.BLOCCHI_RIMOSSI`)
+    non devono contraddirsi.
+
+    Mutazione che lo uccide: togliere la guardia sulla chiave assente. Torna
+    un `KeyError` col solo nome del blocco.
+    """
+    with pytest.raises(ValueError) as rifiuto:
+        sweep.with_override(_base(), asse, 1.0)
+
+    messaggio = str(rifiuto.value)
+    assert asse in messaggio
+    assert asse.split(".")[0] in messaggio
+    if asse == "analysis.material.young":
+        assert "non esiste più" in messaggio
+        assert "08/09/2026" in messaggio
+        assert "compila" not in messaggio
+
+
+def test_un_asse_su_un_passo_assente_di_un_blocco_vivo_dice_ancora_di_compilarlo():
+    """Un blocco vivo (`tet` non e' mai stato tolto) con un passo che non c'e'
+    nel suo dump non e' lo stesso caso del blocco tolto: resta il messaggio di
+    oggi, "compila", non "non esiste piu'".
+
+    Mutazione che lo uccide: estendere ai blocchi vivi il messaggio nuovo
+    pensato per `config.BLOCCHI_RIMOSSI`.
+    """
+    with pytest.raises(ValueError) as rifiuto:
+        sweep.with_override(_base(), "tet.non_esiste.qualcosa", 1.0)
+
+    messaggio = str(rifiuto.value)
+    assert "tet.non_esiste" in messaggio
+    assert "compila" in messaggio
+    assert "non esiste più" not in messaggio

@@ -13,14 +13,9 @@ import traceback
 from pathlib import Path
 
 from meshrec.core.config import (
-    AnalysisConfig,
-    InputConfig,
-    Material,
-    PipelineConfig,
     RunConfig,
     load_config,
     load_experiment,
-    save_config,
 )
 
 
@@ -47,19 +42,6 @@ def _build_parser() -> argparse.ArgumentParser:
         help="esegue soltanto questo step, riusando gli artefatti a monte",
     )
     run_command.add_argument("--out-dir", type=Path, default=None)
-
-    init_command = commands.add_parser("init", help="scrive una configurazione completa di esempio")
-    init_command.add_argument("config", type=Path)
-    init_command.add_argument("--input", type=Path, required=True, help="nuvola di partenza")
-    # Il materiale non ha predefiniti: la classe e i parametri meccanici sono
-    # una decisione dell'operatore e vanno dichiarati qui, non ereditati in
-    # silenzio da un valore scritto nel codice. Vedi `config.Material`.
-    init_command.add_argument("--materiale", required=True, help="nome del materiale")
-    init_command.add_argument("--young", type=float, required=True, help="modulo elastico [MPa]")
-    init_command.add_argument(
-        "--poisson", type=float, required=True, help="coefficiente di Poisson"
-    )
-    init_command.add_argument("--densita", type=float, required=True, help="densità [t/mm³]")
 
     sweep_command = commands.add_parser("sweep", help="esegue una griglia di candidati")
     sweep_command.add_argument("experiment", type=Path)
@@ -161,26 +143,6 @@ def _riporta(errore: BaseException) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
-
-    if args.command == "init":
-        try:
-            materiale = Material(
-                name=args.materiale,
-                young=args.young,
-                poisson=args.poisson,
-                density=args.densita,
-            )
-            save_config(
-                PipelineConfig(
-                    input=InputConfig(path=args.input),
-                    analysis=AnalysisConfig(material=materiale),
-                ),
-                args.config,
-            )
-        except Exception as error:  # i domini stanno in pydantic, non in argparse
-            return _riporta(error)
-        print(f"configurazione scritta in {args.config}")
-        return 0
 
     if args.command == "sweep":
         from meshrec.core import sweep

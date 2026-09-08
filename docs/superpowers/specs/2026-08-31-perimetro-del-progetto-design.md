@@ -18,6 +18,16 @@ Data: 2026-08-31
 > misurata — si dichiarava in configurazione. La frase era falsa già il giorno
 > in cui è stata scritta.
 
+> **Nota dell'08/09/2026.** Il perimetro resta il deck, ma il deck è cambiato:
+> dall'8 settembre 2026 esce **nudo** — mesh, sei set di faccia, un `*ELSET`
+> per regione — e materiali, sezioni, vincoli e carichi si assegnano in
+> Abaqus/CAE. I blocchi `analysis`, `carichi` e `selettori` della configurazione
+> non esistono più e uno yaml che li porta viene rifiutato per nome. Accanto al
+> deck del modello parametrico esce la geometria STEP del prior. Le ragioni
+> stanno in `docs/adr/2026-09-07-deck-nudo-via-analisi-carichi-selettori.md` e
+> `docs/adr/2026-09-07-step-dal-prior-geometrico.md`, il disegno in
+> `docs/superpowers/specs/2026-09-07-deck-nudo-e-step-dal-prior-design.md`.
+
 ## La decisione
 
 MeshRec, come prodotto della tesi, va **dalla nuvola di punti al deck `.inp`**.

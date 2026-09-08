@@ -1,5 +1,8 @@
 # Fase 8 — Il prior estende ciò che misura
 
+> **Superato in parte il 08/09/2026.** Le regioni restano — la sola `membratura`, un `*ELSET` per regione nel deck — ma il materiale per regione e la `*SOLID SECTION` non esistono più: il deck esce nudo e il materiale si assegna in Abaqus/CAE sull'`*ELSET`. Vedi `docs/adr/2026-09-07-deck-nudo-via-analisi-carichi-selettori.md`.
+
+
 **Data:** 29 agosto 2026
 **Ticket:** [#142](https://github.com/maeurong/Tesi/issues/142), [#143](https://github.com/maeurong/Tesi/issues/143), figli della mappa [#127](https://github.com/maeurong/Tesi/issues/127)
 **Sottosistema:** A della decomposizione di Fase 8

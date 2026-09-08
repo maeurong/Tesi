@@ -1,5 +1,8 @@
 # Fase 6 — carichi posizionati su una mesh senza topologia
 
+> **Superato il 08/09/2026.** Il deck `.inp` esce nudo: materiale, vincoli e carichi non si dichiarano più in configurazione, si assegnano in Abaqus/CAE sul deck importato. Il documento resta come cronaca di fase. Vedi `docs/adr/2026-09-07-deck-nudo-via-analisi-carichi-selettori.md`.
+
+
 Data di chiusura: 22 agosto 2026. Corsa dimostrativa: `runs/lab_telaio_v4_posizionati_top`,
 generata in questa sessione sul ramo `feat/impronta-carichi` a partire dagli
 stessi artefatti geometrici di `runs/lab_telaio_v2` — stessa nuvola, stesso

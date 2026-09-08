@@ -1,5 +1,8 @@
 # Fase 5 — analisi strutturale del telaio as-built
 
+> **Superato il 08/09/2026.** Il deck `.inp` esce nudo: materiale, vincoli e carichi non si dichiarano più in configurazione, si assegnano in Abaqus/CAE sul deck importato. Il documento resta come cronaca di fase. Vedi `docs/adr/2026-09-07-deck-nudo-via-analisi-carichi-selettori.md`.
+
+
 Data di apertura: 21/08/2026. Corsa di riferimento: `runs/lab_telaio_v2`,
 rigenerata il 21/08/2026 alle 22:14 sul ramo `feat/fase-5-analisi-strutturale`.
 Ogni numero di questo documento e' stato misurato su quella corsa, e porta

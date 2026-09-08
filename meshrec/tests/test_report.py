@@ -14,7 +14,7 @@ import pytest
 
 from meshrec.core import pipeline, report, steps, sweep
 from meshrec.core.config import InputConfig, PipelineConfig, load_config, save_config
-from materiale import ANALISI, _tre_cartelle_finte
+from corse_finte import _tre_cartelle_finte
 
 
 def _png_minimo() -> bytes:
@@ -478,7 +478,7 @@ def _corsa_con_impronte(tmp_path, impronte_scritte, chiavi=steps.STEP_KEYS, esit
     step eseguito e gli altri mai — non si presenta in nessun test.
     `esiti` mappa la chiave all'esito salvato; per il resto vale "riuscito".
     """
-    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"), analysis=ANALISI)
+    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"))
     corsa = tmp_path / "corsa"
     corsa.mkdir()
     save_config(cfg, corsa / report.CONFIG_FILENAME)
@@ -552,7 +552,7 @@ def test_una_configurazione_non_valida_rende_la_coerenza_non_verificabile(tmp_pa
 
 def test_senza_steps_json_la_coerenza_non_e_verificabile(tmp_path):
     """Ogni corsa anteriore a steps.json cade qui: non e' un caso teorico."""
-    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"), analysis=ANALISI)
+    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"))
     corsa = _corsa(tmp_path, metriche={"01_load": {"points_kept": 10}})
     save_config(cfg, corsa / report.CONFIG_FILENAME)
 
@@ -855,7 +855,7 @@ def test_senza_steps_json_nessuna_frase_riferisce_una_lettura_che_non_c_e(tmp_pa
     chiave in meno in metrics.json — cioe' una corsa parziale, il caso normale
     dell'interfaccia — perche' esca.
     """
-    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"), analysis=ANALISI)
+    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"))
     corsa = _corsa(tmp_path, metriche={"01_load": {"misura": 1}})
     save_config(cfg, corsa / report.CONFIG_FILENAME)
 
@@ -912,7 +912,7 @@ def test_una_corsa_senza_step_eseguiti_non_stampa_zero_su_zero(tmp_path):
     guarda: «0 su 0» e' un rapporto che non si puo' leggere, e «restano fuori
     dal conteggio» nomina un conteggio che non c'e'.
     """
-    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"), analysis=ANALISI)
+    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"))
     corsa = _corsa(tmp_path, metriche={})
     save_config(cfg, corsa / report.CONFIG_FILENAME)
     (corsa / steps.STATE_FILENAME).write_text("{}", encoding="utf-8")
@@ -1384,8 +1384,8 @@ def test_le_grandezze_si_intitolano_con_l_etichetta_non_con_la_chiave(tmp_path):
 
     for _, etichetta in report._ETICHETTE_GRANDEZZE:
         assert f"<th>{etichetta}</th>" in testo
-    # `volume` e `massa` sono chiave ed etichetta insieme e non provano niente:
-    # mordono solo le due che differiscono.
+    # `volume` e' chiave ed etichetta insieme e non prova niente: mordono solo
+    # le due che differiscono.
     assert "gradi_di_liberta" not in testo
     assert "scostamento_nuvola" not in testo
 
@@ -1484,16 +1484,47 @@ def test_l_etichetta_della_riga_nomina_cio_che_la_cella_contiene(tmp_path):
     assert (etichetta, celle) in _righe_grandezze(testo)
 
 
+def test_una_massa_gia_sul_disco_non_torna_nella_tabella(tmp_path):
+    """Le corse fatte prima del deck nudo portano ancora `mass` nei loro file.
+
+    `metrics.json` la scrive sotto `11_export`, `modello.json` sotto `export`:
+    due chiavi che nessuna riga legge piu'. Il confronto le deve ignorare --
+    non sollevare, e non far ricomparire una riga «massa» calcolata con una
+    densita' che il deck di oggi non dichiara.
+
+    Mutazione che deve morire: rimettere `massa` in `CONFRONTABILI` o in
+    `_ETICHETTE_GRANDEZZE`.
+    """
+    cartelle = _tre_cartelle_finte(tmp_path)
+    for cartella in cartelle:
+        for nome, dentro in (("metrics.json", "11_export"), (pipeline.MODEL_FILENAME, "export")):
+            percorso = cartella / nome
+            if not percorso.exists():
+                continue
+            dati = json.loads(percorso.read_text(encoding="utf-8"))
+            dati[dentro]["mass"] = 0.25
+            percorso.write_text(json.dumps(dati), encoding="utf-8")
+
+    esito = report.confronta(cartelle)
+    testo = report.write_comparison_report(cartelle, tmp_path / "confronto.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert "massa" not in esito
+    assert "massa" not in esito["confrontabili"]
+    assert not [i for i, _celle in _righe_grandezze(testo) if "massa" in i]
+
+
 def test_ogni_grandezza_numerica_porta_l_unita_nell_etichetta(tmp_path):
     """Un numero senza unita' in un'appendice cartacea non si ricostruisce.
 
-    Una colonna «massa» con dentro 0,25 non dice se sono tonnellate o
-    chilogrammi, e il lettore non ha il codice sotto mano. Il precedente e'
-    _COLUMNS, che scrive ("thickness_error", "errore di spessore [mm]").
+    Una colonna «volume» con dentro 100.000.000 non dice se sono millimetri
+    cubi o metri cubi, e il lettore non ha il codice sotto mano. Il precedente
+    e' _COLUMNS, che scrive ("thickness_error", "errore di spessore [mm]").
     Nessun elenco tenuto a mano: e' numerica la riga le cui celle sono tutte
     numeri.
 
-    Mutazione che deve morire: togliere `[mm^3]` da volume o `[t]` da massa.
+    Mutazione che deve morire: togliere `[mm^3]` da volume.
     """
     cartelle = _tre_cartelle_finte(tmp_path)
     testo = report.write_comparison_report(cartelle, tmp_path / "confronto.html").read_text(
@@ -1505,7 +1536,7 @@ def test_ogni_grandezza_numerica_porta_l_unita_nell_etichetta(tmp_path):
         for intestazione, celle in _righe_grandezze(testo)
         if celle and all(re.fullmatch(r"-?[\d.,]+", c) for c in celle)
     ]
-    assert len(numeriche) == 3, f"righe di soli numeri trovate: {numeriche}"
+    assert len(numeriche) == 2, f"righe di soli numeri trovate: {numeriche}"
     senza = [i for i in numeriche if "[" not in i]
     assert not senza, f"grandezze numeriche senza unita' nell'etichetta: {senza}"
 
@@ -1962,8 +1993,8 @@ def test_un_parametro_senza_title_si_stampa_con_la_chiave(tmp_path):
     e la prova portava con se' la propria data di scadenza: un `assert not
     ...title` che si dichiarava obsoleto se qualcuno avesse dato un'etichetta a
     quel campo. Qualcuno l'ha fatto, nello stesso giorno e su un altro ramo --
-    i quattro campi di `Material` hanno ora il `title` che il pannello gia'
-    mostrava -- e la guardia ha morso al primo merge. Il campo nuovo non e'
+    i quattro campi di `Material` avevano ricevuto il `title` che il pannello
+    gia' mostrava, e la classe e' poi uscita col deck nudo -- e la guardia ha morso al primo merge. Il campo nuovo non e'
     piu' sicuro del vecchio: e' semplicemente uno dei cinquantaquattro ancora
     senza etichetta, e quando toccherà a lui la guardia dirà di nuovo dove
     guardare.

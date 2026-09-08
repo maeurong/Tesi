@@ -9,18 +9,28 @@ from pathlib import Path
 import numpy as np
 
 from meshrec.core.config import (
-    GRAVITY_MM_S2,
-    AnalysisConfig,
-    Material,
+    ExportConfig,
     TetConfig,
     _mappa_casefold,
 )
 
 _SET_ITEMS_PER_LINE = 8
 
+# L'insieme su cui si misurano copertura ed estensione in pianta del vincolo.
+# Era un campo della configurazione, `analysis.fixed_nset`, cioe' una
+# scelta: col deck nudo il vincolo
+# non si scrive piu' e non c'e' piu' nulla da scegliere -- restano due misure
+# di qualita' della geometria, e si fanno sulla base.
+SET_DI_BASE = "BASE"
+SET_DI_TOP = "TOP"
+
 
 class UnconstrainedModelWarning(UserWarning):
     """L'insieme vincolato raggiunge meno della meta' della superficie d'appoggio."""
+
+
+class RegioneVuotaWarning(UserWarning):
+    """Una regione dichiarata non ha nessun elemento: il suo *ELSET non si scrive."""
 
 
 def _set_lines(indices: np.ndarray) -> list[str]:
@@ -30,48 +40,6 @@ def _set_lines(indices: np.ndarray) -> list[str]:
         ", ".join(str(value) for value in one_based[start : start + _SET_ITEMS_PER_LINE])
         for start in range(0, len(one_based), _SET_ITEMS_PER_LINE)
     ]
-
-
-def _passo_statico(
-    nome: str, dload: list[str], *, elset: str, fixed_nset: str | None,
-    print_nsets: tuple[str, ...],
-    carichi_nodali: dict[int, tuple[float, float, float]] | None = None,
-) -> list[str]:
-    """Un passo statico completo: nome a commento, `*DLOAD`, uscite.
-
-    Il nome sta in un commento e non in `*STEP, NAME=` perche' CalculiX
-    rifiuta quel parametro e ne emette un avviso; un avviso benigno
-    tollerato nasconde quello vero. `*NODE FILE`/`*EL FILE` invece di
-    `*OUTPUT, FIELD`: sono keyword Abaqus legacy valide, e sono quelle che
-    CalculiX vuole per l'uscita ascii.
-
-    `RF` su `fixed_nset` non e' un'uscita in piu': e' il controllo di
-    conservazione, e sta nel deck perche' e' li' che il solutore lo puo'
-    dare.
-    """
-    righe = [f"** NOME PASSO: {nome}", "*STEP", "*STATIC", "*DLOAD, OP=NEW"]
-    righe += dload
-    if carichi_nodali:
-        # Forze nodali esplicite, una componente per riga come vuole `*CLOAD`.
-        # Servono al patch test nella variante a carichi (vedi #46): la
-        # trazione di uno stato tensionale costante si integra sulle facce di
-        # bordo e diventa un vettore per nodo, che nessun'altra via del deck
-        # sa esprimere.
-        righe += ["*CLOAD"]
-        for nodo in sorted(carichi_nodali):
-            for grado, valore in enumerate(carichi_nodali[nodo], start=1):
-                if valore != 0.0:
-                    righe += [f"{int(nodo) + 1}, {grado}, {valore:.9e}"]
-    for name in print_nsets:
-        righe += [f"*NODE PRINT, NSET={name}", "U"]
-    # Senza set vincolato non c'e' RF da stampare, e non e' una mancanza: un
-    # modello cinematicamente incompleto per costruzione -- il benchmark modale
-    # FV52 lo e', e i suoi primi tre modi **devono** essere moti rigidi -- non ha
-    # reazioni su cui chiudere il bilancio.
-    if fixed_nset is not None:
-        righe += [f"*NODE PRINT, NSET={fixed_nset}", "RF"]
-    righe += ["*NODE FILE", "U", "*EL FILE", "S, E", "*END STEP"]
-    return righe
 
 
 MAGLIO_VUOTO = (
@@ -89,126 +57,38 @@ stesso testo, e non due testi che scivolano l'uno dall'altro.
 """
 
 
-CONTINUO_CONFINATO = (
-    "il continuo di ogni regione: il calcestruzzo confinato. Un tetraedro non "
-    "ha fibre, e non distingue nucleo da copriferro"
-)
-"""Un solo testo per il commento nel deck e per la chiave nel resoconto.
-
-Il testo non porta accenti perche' finisce in un deck scritto in ascii, ed e'
-per questo che la frase non ha copula (vedi tests/test_accenti.py).
-
-Il continuo del modello solido e' il calcestruzzo confinato, e la scelta e' una
-**limitazione dichiarata** e non una ovvieta': la distinzione fra nucleo e
-copriferro e' un concetto della sezione a fibre, dove sono fibre diverse dello
-stesso elemento, e un tetraedro non ha fibre. Fra i due il nucleo e' quello che
-domina il volume. L'acciaio non e' un materiale del continuo: senza barre
-modellate non ha un elemento a cui appartenere.
-
-Scritto nel deck e non solo qui: chi apre il `.inp` fra sei mesi vede un
-calcestruzzo per regione, e senza quella riga crederebbe che il modello
-distingua cio' che non distingue. Un testo solo, perche' il commento del deck e
-la chiave del resoconto non possano dire due cose diverse.
-"""
-
-
-def _materiali_del_deck(citati: list[tuple[str, Material]]) -> list[Material]:
-    """Un `*MATERIAL` per nome distinto, nell'ordine in cui le sezioni li citano.
-
-    `citati` sono i materiali che il deck nomina davvero, ciascuno con chi lo
-    dichiara -- serve solo a scrivere di chi parla il rifiuto.
-
-    Lo stesso materiale in due regioni e' un materiale e non due: `ccx` legge
-    due card omonime senza protestare e tiene l'ultima, quindi la seconda non
-    aggiungerebbe nulla e lascerebbe un nome definito due volte.
-
-    Due materiali **diversi** sotto lo stesso nome sono invece rifiutati, e il
-    confronto ignora le maiuscole: `ccx` risolve i nomi senza distinguerle
-    (misurato in docs/fase-6-cantiere/sonda-caso-nomi/), quindi le due card
-    diventerebbero una sola e a una delle due regioni toccherebbero in silenzio
-    le proprieta' dell'altra.
-    """
-    scritti: dict[str, tuple[str, Material]] = {}
-    for chi, materiale in citati:
-        gia_chi, gia = scritti.setdefault(materiale.name.casefold(), (chi, materiale))
-        if gia != materiale:
-            raise ValueError(
-                f"{chi} dichiara il materiale '{materiale.name}', ma {gia_chi} ne "
-                f"dichiara un altro sotto il nome '{gia.name}': `ccx` risolve i nomi "
-                "senza distinguere le maiuscole, quindi le due card diventerebbero "
-                "una sola e una delle due regioni prenderebbe in silenzio le "
-                "proprietà dell'altra"
-            )
-    return [materiale for _, materiale in scritti.values()]
-
-
 def write_inp(
     path: Path,
     nodes: np.ndarray,
     elements: np.ndarray,
     *,
     node_sets: dict[str, np.ndarray],
-    material: Material,
     element_type: str = "C3D4",
-    fixed_nset: str | None = "BASE",
-    print_nsets: tuple[str, ...] = (),
-    gravity: float = GRAVITY_MM_S2,
     elset: str = "ALL_WALL",
-    regioni: dict[str, tuple[np.ndarray, Material]] | None = None,
-    step_name: str = "GRAVITA",
+    regioni: dict[str, np.ndarray] | None = None,
     element_surfaces: dict[str, list[tuple[int, int]]] | None = None,
     ties: tuple[tuple[str, str, str] | tuple[str, str, str, float], ...] = (),
-    spostamenti_imposti: dict[int, dict[int, float]] | None = None,
-    carichi_nodali: dict[int, tuple[float, float, float]] | None = None,
-) -> dict[str, object]:
-    """Scrive un modello pronto all'analisi statica sotto peso proprio.
+) -> None:
+    """Scrive il maglio e nient'altro: `*HEADING`, `*NODE`, `*ELEMENT`, gli
+    `*NSET` di faccia, le `*SURFACE` e i `*TIE` se dati, un `*ELSET` per regione.
+
+    Niente sezione, materiale, vincolo, passo, carico: sono decisioni di chi
+    analizza, e si assegnano in Abaqus sul deck importato (spec 2026-09-07).
+    Il deck da solo non e' risolvibile, ed e' voluto -- un deck che si risolve
+    da se' porta scelte strutturali prese da un esportatore.
 
     `element_type` e' il nome che il solutore legge, e il numero di nodi per
-    elemento deve combaciare con esso: un array di otto colonne dichiarato
-    C3D4 produrrebbe un deck che nessun solutore puo' leggere, e l'errore
-    arriverebbe dopo l'intera pipeline invece che qui.
+    elemento deve combaciare con esso. Ogni tupla di `ties` e'
+    `(nome, dipendente, indipendente)` o, con la `POSITION TOLERANCE` di
+    Ruling AH, `(nome, dipendente, indipendente, tolleranza)`: a tre elementi
+    quel parametro non si scrive affatto, assente non e' zero.
 
-    Il predefinito C3D4 non e' un parametro di elaborazione con un valore
-    scelto: e' il comportamento che questa funzione aveva prima della Fase 4,
-    tenuto perche' i chiamanti gia' scritti continuino a valere. Chi sceglie
-    davvero il tipo lo prende da `tet.element` o da `model.element`.
-
-    `element_surfaces` e `ties` sono le due aggiunte della Fase 4 e sono
-    entrambe facoltative: senza di esse il deck e' identico a quello che
-    questa funzione scriveva prima, ed e' cosi' che le corse tetraedriche
-    restano confrontabili con quelle gia' fatte.
-
-    Ogni tupla di `ties` e' `(nome, dipendente, indipendente)` o, con la
-    `POSITION TOLERANCE` di Ruling AH (giro di correzione 6),
-    `(nome, dipendente, indipendente, tolleranza)`. Un *TIE a tre elementi non
-    scrive affatto quel parametro: assente non e' la stessa cosa di zero.
-
-    `regioni`, della Fase 8 (#135): la mappa da nome di regione ai
-    suoi elementi e al suo materiale, `(indici, Material)`, di norma quella che
-    `core/attribuzione.py` misura e che la pipeline completa col materiale
-    della sezione. Senza di essa il deck ha la sola sezione su `elset`,
-    identica a prima -- ed e' cosi' che le corse gia' registrate restano
-    riproducibili. Con essa il deck scrive un `*ELSET` per regione, una
-    `*SOLID SECTION` per ciascuno e un `*MATERIAL` per nome distinto; `elset`
-    (`ALL_WALL`) non si rinomina e non si toglie, resta l'insieme di tutti gli
-    elementi dichiarato dalla card `*ELEMENT` ed e' quello che le regioni
-    partizionano.
-
-    Gli indici e il materiale insieme e non due dizionari a chiavi uguali: due
-    strutture da tenere allineate a mano sono il modo in cui la classe di
-    difetto torna, e una regione senza il proprio materiale ricadrebbe in
-    silenzio su quello unico della corsa -- cioe' proprio il deck monomaterico
-    che dichiarare le regioni serve a non produrre.
-
-    Il materiale delle regioni e' il **calcestruzzo confinato** della loro
-    sezione, e il deck lo dichiara: vedi `CONTINUO_CONFINATO`. Gli orfani
-    restano su `material`, il materiale unico della corsa (#145).
+    `regioni` (#135) mappa il nome della regione ai suoi indici di elemento,
+    0-based, di norma quelli che `core/attribuzione.py` misura. Una regione
+    senza indici avvisa e non scrive card. `elset` (`ALL_WALL`) non si rinomina
+    e non si toglie: resta l'insieme di tutti gli elementi dichiarato da
+    `*ELEMENT`, quello che le regioni partizionano.
     """
-    if fixed_nset is not None and fixed_nset not in node_sets:
-        raise ValueError(f"il set vincolato '{fixed_nset}' non e fra i node_sets forniti")
-    for name in print_nsets:
-        if name not in node_sets:
-            raise ValueError(f"il set richiesto in stampa '{name}' non e fra i node_sets forniti")
     if element_type not in NODI_PER_ELEMENTO:
         raise ValueError(
             f"tipo di elemento '{element_type}' sconosciuto: "
@@ -229,16 +109,6 @@ def write_inp(
                 "superfici dichiarate: un deck così viene rifiutato dal solutore "
                 "solo alla lettura, e questo errore arriva prima"
             )
-    for nome_regione, (indici_regione, _) in (regioni or {}).items():
-        # Prima che si scriva una riga: un *ELSET vuoto non ferma `ccx`, che
-        # risolve un modello in cui quella sezione semplicemente non c'e'.
-        if len(np.asarray(indici_regione)) == 0:
-            raise ValueError(
-                f"la regione '{nome_regione}' non contiene alcun elemento: un "
-                "*ELSET vuoto non ferma il solutore, che risolve un modello in "
-                "cui quella sezione non esiste. Il deck non si scrive a metà"
-            )
-
     nodes = np.asarray(nodes, dtype=np.float64)
     elements = np.asarray(elements, dtype=np.int64)
     # Quattro guardie sul maglio, in quest'ordine dichiarato: forma, colonne,
@@ -315,77 +185,38 @@ def write_inp(
         lines.append(f"{dipendente}, {indipendente}")
 
     # Le regioni (#135) partizionano `elset`, che resta l'insieme di tutti gli
-    # elementi: gli *ELSET prima delle sezioni che li citano, e la sezione su
-    # `elset` solo se qualche elemento e' rimasto fuori da ogni regione. Senza
-    # sezione quell'elemento non ha materiale e il deck non e' leggibile;
-    # scriverla comunque lascerebbe invece una sezione che non attribuisce
-    # niente a nessuno. Sta **prima** delle regioni perche' e' il ripiego: chi
-    # ha una regione la sovrascrive.
-    attribuiti = np.zeros(len(elements), dtype=bool)
-    if regioni:
-        # Sopra gli *ELSET che spiega, e solo quando le regioni ci sono: senza
-        # di esse il deck non ha nulla da dichiarare ed e' quello di prima.
-        lines.append(f"** {CONTINUO_CONFINATO}")
-    for nome_regione, (indici_regione, _) in (regioni or {}).items():
+    # elementi dichiarato dalla card *ELEMENT: un *ELSET per regione, e
+    # nient'altro -- la sezione che lo riempie la assegna chi analizza.
+    for nome_regione, indici_regione in (regioni or {}).items():
         indici_regione = np.asarray(indici_regione, dtype=np.int64)
-        attribuiti[indici_regione] = True
+        if len(indici_regione) == 0:
+            # Non piu' un rifiuto: senza sezioni nel deck un insieme mancante
+            # non falsa piu' nessun calcolo, e resta un'informazione per chi ha
+            # dichiarato la regione. L'avviso la nomina, o con quattro regioni
+            # dichiarate manderebbe a cercare quale.
+            warnings.warn(
+                f"la regione '{nome_regione}' non ha elementi attribuiti: "
+                "nessun *ELSET scritto",
+                RegioneVuotaWarning,
+                stacklevel=2,
+            )
+            continue
+        # Un indice negativo in numpy conta dalla fine: senza questa guardia
+        # scriverebbe un *ELSET valido con elementi che non sono i suoi, e il
+        # deck non manderebbe da nessuna parte. Il messaggio nomina la regione.
+        if indici_regione.min() < 0 or indici_regione.max() >= len(elements):
+            raise ValueError(
+                f"la regione '{nome_regione}' cita elementi che non esistono: "
+                f"gli indici vanno da {int(indici_regione.min())} a "
+                f"{int(indici_regione.max())}, e gli elementi sono "
+                f"{len(elements)} (indici da 0 a {len(elements) - 1})"
+            )
         lines.append(f"*ELSET, ELSET={nome_regione}")
         lines += _set_lines(indici_regione)
-    citati = [
-        (f"la regione '{nome_regione}'", materiale)
-        for nome_regione, (_, materiale) in (regioni or {}).items()
-    ]
-    if not attribuiti.all():
-        lines.append(f"*SOLID SECTION, ELSET={elset}, MATERIAL={material.name}")
-        # In testa perche' la sua sezione e' la prima, e il ripiego deve poter
-        # essere sovrascritto da chi ha una regione.
-        citati.insert(0, ("il materiale della corsa", material))
-    lines += [
-        f"*SOLID SECTION, ELSET={nome_regione}, MATERIAL={materiale.name}"
-        for nome_regione, (_, materiale) in (regioni or {}).items()
-    ]
-    # Solo i materiali che una sezione cita: senza orfani il materiale unico
-    # della corsa non e' scritto, per la stessa ragione per cui non e' scritta
-    # la sua sezione -- una card che non attribuisce niente a nessuno.
-    for materiale in _materiali_del_deck(citati):
-        lines += [
-            f"*MATERIAL, NAME={materiale.name}",
-            "*ELASTIC",
-            f"{materiale.young}, {materiale.poisson}",
-            "*DENSITY",
-            f"{materiale.density:.9g}",
-        ]
-    lines.append("*BOUNDARY")
-    if fixed_nset is not None:
-        lines += [f"{fixed_nset}, 1, 3"]
-
-    if spostamenti_imposti:
-        # Spostamento imposto a valore non nullo, nodo per nodo e grado per
-        # grado. Serve al patch test (vedi #46): la variante canonica impone
-        # su tutto il bordo un campo di spostamento lineare noto e risolve
-        # l'interno, e nessun set puo' esprimerlo perche' il valore cambia da
-        # nodo a nodo.
-        #
-        # Sta nello stesso blocco `*BOUNDARY` del set vincolato, e non lo
-        # sostituisce: chi impone spostamenti deve comunque togliere i moti
-        # rigidi, e il modo piu' semplice e' un campo nullo nell'origine con
-        # un nodo li'. Un nodo che compare in entrambi riceverebbe due
-        # condizioni sullo stesso grado, quindi il chiamante lo esclude.
-        for nodo in sorted(spostamenti_imposti):
-            for grado in sorted(spostamenti_imposti[nodo]):
-                valore = spostamenti_imposti[nodo][grado]
-                lines += [f"{int(nodo) + 1}, {grado}, {grado}, {valore:.9e}"]
-
-    peso = f"{elset}, GRAV, {gravity}, 0.0, 0.0, -1.0"
-    lines += _passo_statico(
-        step_name, [peso], elset=elset, fixed_nset=fixed_nset,
-        print_nsets=print_nsets, carichi_nodali=carichi_nodali,
-    )
 
     lines.append("")
 
     Path(path).write_text("\n".join(lines), encoding="ascii")
-    return {}
 
 
 def fix_sign(direction: np.ndarray) -> np.ndarray:
@@ -1101,19 +932,19 @@ def export_model(
     path_vtu: Path,
     nodes: np.ndarray,
     elements: np.ndarray,
-    cfg: AnalysisConfig,
+    cfg: ExportConfig,
     tet_cfg: TetConfig,
     reference: np.ndarray | None = None,
     element_type: str | None = None,
     element_surfaces: dict[str, list[tuple[int, int]]] | None = None,
     ties: tuple[tuple[str, str, str] | tuple[str, str, str, float], ...] = (),
-    regioni: dict[str, tuple[np.ndarray, Material]] | None = None,
+    regioni: dict[str, np.ndarray] | None = None,
 ) -> dict[str, object]:
     """Step 11: allinea, costruisce i set, scrive il deck e il file di visualizzazione.
 
-    `regioni` sono gli elementi di ciascuna regione col materiale della sua
-    sezione, misurati da `core/attribuzione.py` e passati di qui a `write_inp`.
-    Gli indici e non le coordinate: `align_to_axes` sposta i nodi e non l'ordine degli elementi,
+    `regioni` sono gli elementi di ciascuna regione, misurati da
+    `core/attribuzione.py` e passati di qui a `write_inp`. Indici e non
+    coordinate: `align_to_axes` sposta i nodi e non l'ordine degli elementi,
     quindi l'attribuzione si misura fuori di qui, sui nodi non allineati che
     la pipeline ha in mano e nello stesso riferimento in cui il prior misura.
 
@@ -1171,20 +1002,20 @@ def export_model(
     spacing = boundary_spacing(aligned, bordo_facce)
     tolerance = cfg.set_tolerance_factor * spacing
     node_sets = build_node_sets(aligned, tolerance)
-    # Prima dell'indicizzazione, non dopo: il controllo con messaggio civile
-    # di `write_inp` non veniva mai raggiunto, perche' qui sotto `KeyError`
-    # arrivava per primo -- e arrivava dopo che tutta la mesh era stata
-    # costruita.
-    if cfg.fixed_nset not in node_sets:
+    # Sopra una certa tolleranza la banda supera l'ingombro del pezzo e i sei
+    # insiemi di faccia diventano lo stesso insieme. Misurato: con
+    # `set_tolerance_factor` a 1e4 i sei coincidono, il deck esce formalmente
+    # valido, e nessuna metrica lo contraddice -- `fixed_nset_coverage` va a 1,
+    # cioe' al valore migliore possibile, proprio mentre `BASE` non e' piu' la
+    # base. `BASE` e `TOP` sono i due opposti: se si toccano, si toccano tutti.
+    condivisi = np.intersect1d(node_sets[SET_DI_BASE], node_sets[SET_DI_TOP])
+    if len(condivisi):
         raise ValueError(
-            f"il set vincolato '{cfg.fixed_nset}' non e fra gli insiemi che il modello "
-            f"offre ({sorted(node_sets)}). Il caso non c'entra: `AnalysisConfig.fixed_nset` "
-            "è un NomeSetDiFaccia e riscrive da sé i sei nomi nel proprio caso "
-            "canonico, quindi ciò che arriva qui è un nome diverso, non un 'base' "
-            "scritto minuscolo"
+            f"'{SET_DI_BASE}' e '{SET_DI_TOP}' condividono {len(condivisi)} nodi con una "
+            f"tolleranza di {tolerance:.3f} mm: la banda supera l'altezza del pezzo "
+            "e gli insiemi di faccia non sono più distinti. Abbassa "
+            "export.set_tolerance_factor"
         )
-    if len(node_sets[cfg.fixed_nset]) == 0:
-        raise ValueError(f"il set vincolato '{cfg.fixed_nset}' e vuoto: tolleranza {tolerance:.3f} mm troppo stretta")
 
     # La guardia sul set vuoto era cieca su tutto il resto: un `BASE` da 9 nodi
     # produce un deck formalmente valido per un modello di fatto non vincolato,
@@ -1195,13 +1026,13 @@ def export_model(
     # Avrebbe segnalato entrambe le corse sotto l'euristica precedente
     # (55,78% sul muro e 34,76% su lab_crop), e tace sotto quella attuale
     # (100,00% e 98,93%).
-    coverage = footprint_coverage(aligned, boundary, node_sets[cfg.fixed_nset], spacing)
+    coverage = footprint_coverage(aligned, boundary, node_sets[SET_DI_BASE], spacing)
     if coverage <= 0.5:
         warnings.warn(
-            f"l'insieme vincolato '{cfg.fixed_nset}' raggiunge il {coverage:.2%} della "
+            f"l'insieme vincolato '{SET_DI_BASE}' raggiunge il {coverage:.2%} della "
             f"superficie d'appoggio con una tolleranza di {tolerance:.3f} mm: il modello "
             "è vincolato su una chiazza, non sulla base. Alza "
-            "analysis.set_tolerance_factor o verifica la geometria.",
+            "export.set_tolerance_factor o verifica la geometria.",
             UnconstrainedModelWarning,
             stacklevel=2,
         )
@@ -1211,11 +1042,7 @@ def export_model(
         aligned,
         elements,
         node_sets=node_sets,
-        material=cfg.material,
         element_type=tipo,
-        fixed_nset=cfg.fixed_nset,
-        gravity=cfg.gravity,
-        step_name=cfg.step_name,
         element_surfaces=element_surfaces,
         ties=ties,
         regioni=regioni,
@@ -1229,10 +1056,9 @@ def export_model(
         "boundary_spacing": float(spacing),
         "set_tolerance": float(tolerance),
         "fixed_nset_coverage": float(coverage),
-        "constraint_plan_extent": constraint_plan_extent(aligned, node_sets[cfg.fixed_nset]),
+        "constraint_plan_extent": constraint_plan_extent(aligned, node_sets[SET_DI_BASE]),
         "node_sets": {name: int(len(indices)) for name, indices in node_sets.items()},
         "volume": volume,
-        "mass": volume * cfg.material.density,
         "element_type": tipo,
         "inp": str(path_inp),
         "vtu": str(path_vtu),

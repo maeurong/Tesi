@@ -18,7 +18,6 @@ from fastapi.testclient import TestClient
 from meshrec.app import server
 from meshrec.app.server import create_app
 from meshrec.core.config import InputConfig, PipelineConfig, load_config, save_config
-from materiale import ANALISI
 
 
 # Il server risponde solo a un nome locale (middleware `solo_dal_calcolatore_locale`
@@ -86,8 +85,6 @@ def test_creare_una_corsa_scrive_il_config_e_lega_l_applicazione(slegato, nuvola
     scritto = load_config(tmp_path / "runs" / "provino" / "config.yaml")
     assert scritto.input.path == nuvola
     assert scritto.run.out_dir == tmp_path / "runs" / "provino"
-    # Il materiale non e' stato chiesto e non e' stato inventato.
-    assert scritto.analysis is None
     stato = slegato.get("/api/run").json()
     assert stato["legata"] is True
     assert len(stato["steps"]) == 12
@@ -191,7 +188,7 @@ def test_una_cartella_senza_config_non_e_una_corsa(slegato, tmp_path):
 
 def test_con_una_configurazione_all_avvio_lo_stato_e_gia_legato(tmp_path, monkeypatch):
     """Controprova: la forma vecchia, `serve config.yaml`, continua a valere."""
-    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"), analysis=ANALISI)
+    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"))
     cfg.run.out_dir = tmp_path / "corsa"
     save_config(cfg, tmp_path / "config.yaml")
     monkeypatch.setattr(server, "CACHE_DIR", tmp_path / "cache")
@@ -335,25 +332,13 @@ def test_un_nome_col_punto_resta_legittimo(slegato, nuvola, tmp_path):
     assert (tmp_path / "runs" / "lab.v2" / "config.yaml").is_file()
 
 
-def test_lo_schema_descrive_il_materiale_anche_se_il_blocco_e_opzionale(slegato):
-    """`analysis` opzionale rende la sua annotazione un'unione con None: letta
-    grezza faceva cadere /api/schema, cioe' il pannello dello step 11."""
-    corpo = slegato.get("/api/schema").json()
-
-    # Nello step 11 di `analysis` resta la sola tolleranza dei set di faccia
-    # (`_FUORI_DAL_PANNELLO`), perche' il materiale ha gia' il proprio
-    # pannello: che il blocco arrivi non vuoto e' cio' che prova che l'unione
-    # con None non fa cadere lo schema.
-    assert corpo["11"]["campi"]["analysis"]
-
-
 def test_scrivere_la_configurazione_senza_una_corsa_e_un_rifiuto_leggibile(slegato):
     """Ingresso degenere: la PUT arriva mentre l'applicazione non e' legata.
 
     `save_config(nuova, None)` cadrebbe con un TypeError, che dice al browser
     che il programma si e' rotto invece di dirgli che non ha aperto una corsa.
     """
-    cfg = PipelineConfig(input=InputConfig(path=Path("nuvola.ply")), analysis=ANALISI)
+    cfg = PipelineConfig(input=InputConfig(path=Path("nuvola.ply")))
 
     risposta = slegato.put("/api/config", json=cfg.model_dump(mode="json"))
 

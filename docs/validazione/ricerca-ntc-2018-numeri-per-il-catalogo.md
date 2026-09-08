@@ -1426,7 +1426,7 @@ T_1 = 2 * sqrt(d)          [7.3.6]      d in metri, T_1 in secondi
 Tre cose che si sbagliano:
 
 - **`d` è in metri.** Il progetto lavora in millimetri
-  (`config.GRAVITY_MM_S2` = 9810,0): passare millimetri alla `[7.3.6]` dà un
+  (g = 9810,0 mm/s²): passare millimetri alla `[7.3.6]` dà un
   periodo 31,6 volte più grande [I].
 - **`d` è lo spostamento sotto i carichi della `[2.5.7]` applicati
   orizzontalmente**, non sotto una forza sismica: si prende il peso sismico e lo

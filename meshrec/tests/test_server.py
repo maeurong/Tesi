@@ -15,14 +15,12 @@ from fastapi.testclient import TestClient
 
 from meshrec.app import server
 from meshrec.app.server import create_app
-from meshrec.core import materiali
 from meshrec.core.config import InputConfig, PipelineConfig, load_config, save_config
-from materiale import ANALISI
 
 
 @pytest.fixture()
 def cliente(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
-    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"), analysis=ANALISI)
+    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"))
     cfg.run.out_dir = tmp_path / "corsa"
     save_config(cfg, tmp_path / "config.yaml")
     # I-5 della revisione: CACHE_DIR e' una costante di modulo che punta a
@@ -66,7 +64,7 @@ def test_lo_stato_della_corsa_elenca_i_dodici_step(cliente):
 
 def test_la_configurazione_torna_intera(cliente):
     corpo = cliente.get("/api/config").json()
-    assert set(corpo) >= {"input", "segment", "surface", "tet", "analysis"}
+    assert set(corpo) >= {"input", "segment", "surface", "tet", "export"}
 
 
 def test_scrivere_la_configurazione_invalida_gli_step_a_valle(cliente, tmp_path):
@@ -99,15 +97,8 @@ def test_una_regione_che_collide_con_lelset_fabbricato_e_rifiutata_dallendpoint(
 
     Mutazione che lo uccide: togliere `ALL_WALL` da `NOMI_ELSET_FABBRICATI`.
     """
-    materiale = {
-        "material": {"name": "CLS", "young": 31476.0, "poisson": 0.2, "density": 2.5e-9},
-        "provenienza": "a_mano",
-        "norma": "NTC 2018 Tab. 4.1.I",
-    }
     guasta = cliente.get("/api/config").json()
-    guasta["regioni"] = {
-        "all_wall": {"membratura": 0, "materiale": materiale}
-    }
+    guasta["regioni"] = {"all_wall": {"membratura": 0}}
     risposta = cliente.put("/api/config", json=guasta)
     assert risposta.status_code == 422
     # Il messaggio si legge a video: nomina la regione, l'insieme con cui
@@ -1711,16 +1702,7 @@ def test_ogni_tratta_che_interroga_il_server_si_scarta_se_e_stata_superata():
     # non scrive nulla dopo l'attesa, quindi non ha niente da contraddire; ha
     # un nome apposta per poter comparire qui invece di non essere mai
     # incontrata.
-    # catalogoMateriali non scrive: rende un valore, e la guardia sta dove
-    # quel valore tocca il documento. E' esente per la stessa ragione di
-    # annullaLaCorsa -- non ha niente da contraddire -- e l'esenzione non e'
-    # gratuita: l'assert qui sotto pretende che il suo unico chiamante guardi
-    # l'ordine prima di scrivere, che e' cio' che questa regola difende.
-    senza_ordine = {"caricaStato", "annullaLaCorsa", "catalogoMateriali"}
-    assert re.search(
-        r"catalogoMateriali\(\)\.then\(\(voci\) => \{\s*\n\s*if \(superata\(ordine\)\) return;",
-        testo,
-    ), "il menu' del catalogo si riempie senza guardare se il pannello e' stato superato"
+    senza_ordine = {"caricaStato", "annullaLaCorsa"}
     tratte = [
         (nome, _sorgente_di(nome, testo))
         for nome in re.findall(r"^async function (\w+)\(", testo, re.MULTILINE)
@@ -1737,11 +1719,12 @@ def test_ogni_tratta_che_interroga_il_server_si_scarta_se_e_stata_superata():
     # e' anche l'unica rete che resta quando l'estrazione per graffe fallisce
     # (vedi il tetto di _corpi_freccia_asincroni): le tratte reali sono 7
     # nominate (disegnaIngresso, chiediStorico, mostraNuvolaDelloStep,
-    # mostraStep, mostraFantasmaDelloStep, scriviValore, apriDettaglio) piu' 6
-    # freccia, tredici in tutto -- la soglia pareggia il numero vero, contato
-    # rieseguendo questo stesso algoritmo su app.js. Se ne aggiungi una, alza
-    # la soglia invece di lasciarla indietro.
-    assert interrogano >= 13, "le tratte attese sono sparite dal modulo"
+    # mostraStep, mostraFantasmaDelloStep, scriviValore, apriDettaglio) piu' 5
+    # freccia, dodici in tutto -- erano tredici finche' il pannello del
+    # materiale portava la propria PUT. La soglia pareggia il numero vero,
+    # contato rieseguendo questo stesso algoritmo su app.js. Se ne aggiungi
+    # una, alza la soglia invece di lasciarla indietro.
+    assert interrogano >= 12, "le tratte attese sono sparite dal modulo"
 
 
 def test_due_geometrie_in_volo_nella_stessa_generazione_non_si_arbitrano_per_arrivo():
@@ -2310,84 +2293,17 @@ def test_le_metriche_di_una_corsa_mai_eseguita_sono_vuote_e_non_sollevano(client
     assert risposta.json() == {}
 
 
-def test_il_catalogo_dei_materiali_porta_le_classi_di_calcestruzzo(cliente):
-    """Il pannello del materiale chiedeva quattro numeri battuti a mano.
+def test_la_rotta_del_catalogo_dei_materiali_non_esiste_piu(cliente):
+    """Ingresso degenere: qualcuno chiede ancora `/api/materiali`.
 
-    Il catalogo di `core.materiali` esiste dal 30/08/2026 con le classi della
-    Tab. 4.1.I delle NTC 2018, e nessuna tratta lo serviva: il modulo elastico
-    di norma restava scritto a mano, arrotondato, e con la classe che lo
-    giustifica nominata da nessuna parte. Una corsa reale portava `young:
-    31500` dove la [11.2.2] su C25/30 da' 31475,81.
+    Il catalogo serviva il pannello del materiale, uscito il 08/09/2026 con la
+    PR feat/deck-nudo-analisi: il materiale si assegna in Abaqus sull'`*ELSET`,
+    e una tratta che nessuno interroga e' codice che nessun consumatore
+    sorveglia.
 
-    L'acciaio resta fuori: lo step 11 dichiara il materiale del continuo
-    solido, che in un cemento armato e' il calcestruzzo. L'acciaio vive nelle
-    sezioni delle membrature, e offrirlo qui darebbe un modello di solo
-    acciaio senza che nulla lo segnali.
+    Mutazione che lo uccide: rimettere la rotta. La risposta torna 200.
     """
-    risposta = cliente.get("/api/materiali")
-    assert risposta.status_code == 200
-    voci = risposta.json()["voci"]
-
-    classi = [voce["classe"] for voce in voci]
-    assert "C25/30" in classi
-    assert "C90/105" in classi
-    # Nessun acciaio, e il conto per intero: cosi' una voce nuova nel catalogo
-    # arriva al pannello senza aggiornare questo elenco, ma una famiglia nuova
-    # che ci entrasse di straforo si vede.
-    assert not [voce for voce in voci if voce["famiglia"] != "calcestruzzo"]
-    assert len(voci) == len(
-        [voce for voce in materiali.CATALOGO if voce.famiglia == "calcestruzzo"]
-    )
-
-
-def test_il_catalogo_serve_le_avvertenze_della_classe_accanto_alla_nota(cliente):
-    """Il pannello mostra le avvertenze della classe, non la nota intera.
-
-    La `nota` resta servita perche' e' la provenienza per intero -- la difesa
-    dei numeri che vale per ogni classe -- ma sopra il menu' del materiale
-    l'unica cosa da leggere e' cio' che riguarda la classe appena scelta. Le due
-    chiavi viaggiano insieme: chi legge il catalogo ha la prima, chi sceglie una
-    classe ha la seconda.
-
-    Mutazione che lo uccide: servire la sola `nota`, e lasciare al pannello il
-    compito di ritagliarla.
-    """
-    voci = cliente.get("/api/materiali").json()["voci"]
-    bassa = next(v for v in voci if v["classe"] == "C8/10")
-    piana = next(v for v in voci if v["classe"] == "C25/30")
-
-    assert any("Sotto la classe minima" in a for a in bassa["avvertenze"]), (
-        f"le avvertenze di C8/10 non arrivano alla tratta: {bassa['avvertenze']}"
-    )
-    assert len(" ".join(bassa["avvertenze"])) < len(bassa["nota"]), (
-        "le avvertenze sono lunghe quanto la nota: non e' stato separato niente"
-    )
-    assert piana["avvertenze"] == [], (
-        f"una classe senza condizioni d'uso porta comunque avvertenze: {piana['avvertenze']}"
-    )
-    assert "11.2.10.4" in piana["nota"], "la nota servita ha perso la difesa dei numeri"
-
-
-def test_ogni_voce_del_catalogo_porta_i_numeri_e_la_fonte(cliente):
-    """I tre valori meccanici e l'autorita' che li giustifica, insieme.
-
-    Servire i numeri senza la fonte li renderebbe indistinguibili da valori
-    inventati, che e' il difetto che `core.materiali` esiste per impedire: il
-    menu' li mostra, e chi legge il modello deve poter risalire all'articolo.
-    """
-    voci = cliente.get("/api/materiali").json()["voci"]
-    voce = next(v for v in voci if v["classe"] == "C25/30")
-
-    atteso = materiali.trova("C25/30")
-    assert voce["young"] == pytest.approx(atteso.young)
-    assert voce["poisson"] == pytest.approx(atteso.poisson)
-    assert voce["density"] == pytest.approx(atteso.density)
-    assert voce["f_k"] == pytest.approx(25.0)
-    # Il modulo elastico non e' tabellato: lo da' la [11.2.2]. Il valore
-    # arrotondato che una corsa reale portava a mano era 31500.
-    assert voce["young"] == pytest.approx(31475.81, abs=0.01)
-    assert voce["fonte"].strip()
-    assert "NTC 2018" in voce["fonte"]
+    assert cliente.get("/api/materiali").status_code == 404
 
 
 def test_lo_schema_dice_quali_parametri_appartengono_a_ogni_step(cliente):
@@ -2533,26 +2449,18 @@ def test_il_pannello_dello_step_11_mostra_solo_i_blocchi_che_comanda(cliente):
     """
     from meshrec.core import steps
 
-    assert steps.STEP_BLOCKS[11] == ("tet", "analysis", "regioni"), (
+    assert steps.STEP_BLOCKS[11] == ("tet", "export", "regioni"), (
         "STEP_BLOCKS e' stata cambiata: la catena delle impronte a valle "
         "discende da li'"
     )
     corpo = cliente.get("/api/schema").json()
-    assert corpo["11"]["blocchi"] == ["analysis"]
-    assert set(corpo["11"]["campi"]) == {"analysis"}
-    # Di `analysis` lo step 11 comanda una cosa sola: la tolleranza con cui
-    # estrae i set di faccia. `gravity`, `fixed_nset` e `step_name` sono
-    # tornati qui con la mappa #161: stavano nel pannello dello step 13, e
-    # uscito quello l'unico posto che resta e' lo step che li scrive nel deck.
-    # `material` resta fuori -- ha gia' il proprio pannello qui sotto, e in
-    # questo elenco compariva una seconda volta come riga di sola lettura con
-    # dentro il JSON del modello.
-    assert set(corpo["11"]["campi"]["analysis"]) == {
-        "set_tolerance_factor", "gravity", "fixed_nset", "step_name",
-    }
-    assert "material" not in corpo["11"]["campi"]["analysis"], (
-        "il materiale ha il proprio pannello e qui tornerebbe come JSON grezzo"
-    )
+    assert corpo["11"]["blocchi"] == ["export"]
+    assert set(corpo["11"]["campi"]) == {"export"}
+    # Il blocco `export` porta una cosa sola: la tolleranza con cui lo step 11
+    # estrae i set di faccia. Materiale, gravita', vincolo e passo di carico
+    # sono usciti col deck nudo -- il deck non li scrive piu', quindi non c'e'
+    # piu' nulla da dichiarare qui.
+    assert set(corpo["11"]["campi"]["export"]) == {"set_tolerance_factor"}
     # Il blocco resta intero dove lo step lo comanda davvero.
     assert corpo["9"]["blocchi"] == ["tet"] and corpo["9"]["campi"]["tet"]
 
@@ -3611,20 +3519,9 @@ def test_una_corsa_di_riferimento_non_prende_uno_storico(cliente, tmp_path):
 @pytest.fixture()
 def cliente_con_regioni(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     """Come `cliente`, ma con una regione dichiarata nel config sul disco."""
-    materiale = {
-        "material": {"name": "CLS", "young": 31476.0, "poisson": 0.2, "density": 2.5e-9},
-        "provenienza": "a_mano",
-        "norma": "NTC 2018 Tab. 4.1.I",
-    }
     cfg = PipelineConfig(
         input=InputConfig(path=tmp_path / "nuvola.ply"),
-        analysis=ANALISI,
-        regioni={
-            "pilastro": {
-                "membratura": 0,
-                "materiale": materiale,
-            }
-        },
+        regioni={"pilastro": {"membratura": 0}},
     )
     cfg.run.out_dir = tmp_path / "corsa"
     # pydantic ignora i campi che il modello non ha: senza questa riga il
@@ -3643,14 +3540,49 @@ def cliente_con_regioni(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Test
     )
 
 
+def test_una_regione_col_materiale_nel_corpo_della_put_e_rifiutata_dicendo_quale(cliente):
+    """Ingresso degenere: `PUT /api/config` con un `regioni.X.materiale`.
+
+    E' la via vera per cui una configurazione vecchia rientra dopo che il campo
+    e' uscito: il pannello rimanda indietro cio' che ha letto. Senza il
+    validatore la chiave in piu' viene ignorata e la PUT risponde 200 su una
+    configurazione che dice una cosa che il programma non fa piu'.
+
+    Mutazione che lo uccide: togliere il validatore `before` da
+    `RegioneConfig`.
+    """
+    corpo = cliente.get("/api/config").json()
+    corpo["regioni"] = {
+        "pilastro": {
+            "membratura": 0,
+            "materiale": {
+                "material": {
+                    "name": "CLS", "young": 31476.0, "poisson": 0.2, "density": 2.5e-9,
+                },
+                "provenienza": "a_mano",
+                "norma": "NTC 2018 Tab. 4.1.I",
+            },
+        }
+    }
+
+    risposta = cliente.put("/api/config", json=corpo)
+
+    assert risposta.status_code == 422
+    detto = risposta.json()["messaggio"]
+    # Con dodici regioni dichiarate, un rifiuto che non dice quale manda a
+    # cercare a mano.
+    assert "pilastro" in detto, detto
+    assert "materiale" in detto, detto
+
+
 @pytest.mark.parametrize("banco", ["cliente", "cliente_con_regioni"])
 def test_lo_schema_non_esplode_sul_blocco_regioni(banco, request):
     """`regioni` (STEP_BLOCKS[11]) e' un `dict[NomeSet, RegioneConfig]`, non un
     modello: senza la guardia su `hasattr(annidato, "model_fields")` in
-    `schema()`, `_modello_del_blocco` ne prende la chiave -- una stringa -- e
-    le chiede `model_fields`, con l'`AttributeError` fuori vista che spegne il
-    pannello dello step 11. E' il difetto di `5d4d24b`, ripetuto su un blocco
-    nuovo.
+    `schema()`, l'annotazione del blocco -- `dict[NomeSet, RegioneConfig]` --
+    si vede chiedere `model_fields`, con l'`AttributeError` fuori vista che
+    spegne il pannello dello step 11. E' il difetto di `5d4d24b`, ripetuto su
+    un blocco nuovo.
 
     Le due varianti del banco perche' l'oracolo del brief le chiede entrambe,
     con regioni popolate e senza. Vale la pena dichiarare che oggi esercitano
@@ -3678,7 +3610,7 @@ def test_lo_schema_non_esplode_sul_blocco_regioni(banco, request):
     assert "regioni" not in corpo["11"]["blocchi"]
     assert "regioni" not in corpo["11"]["campi"]
     # Lo step 11 risponde comunque: la guardia non deve spegnere il pannello.
-    assert corpo["11"]["campi"]["analysis"]
+    assert corpo["11"]["campi"]["export"]
 
 
 # --------------------------------------------------------------------------
@@ -3891,50 +3823,21 @@ def test_un_valore_fuori_dominio_e_rifiutato_in_italiano_e_per_etichetta(cliente
     assert "14" in detto, f"il rifiuto non dice l'estremo violato: {detto}"
 
 
-def test_i_quattro_campi_del_materiale_sono_rifiutati_per_etichetta(cliente):
-    """Ingresso degenere: il server rifiuta un campo del materiale.
-
-    Gli stessi due difetti del `poisson_depth` qui sopra, sopravvissuti dentro
-    `Material` perche' i suoi quattro campi portavano solo `description` e mai
-    `title`: `_etichetta_del_percorso` ricadeva sulla chiave e sotto il bottone
-    compariva «young: deve superare 0». `young` nell'interfaccia non esiste --
-    si chiama «modulo elastico E [MPa]», e il docstring di
-    `PipelineConfig.analisi_dichiarata` lo dice per iscritto proprio di questi
-    campi.
-
-    Mutazione che lo uccide: togliere il `title` dai campi di `Material`.
-    """
-    corrente = cliente.get("/api/config").json()
-    corrente["analysis"] = {"material": {
-        "name": "CLS", "young": -1.0, "poisson": 0.2, "density": 2.5e-9,
-    }}
-
-    risposta = cliente.put("/api/config", json=corrente)
-
-    assert risposta.status_code == 422
-    detto = risposta.json()["messaggio"]
-    assert "young" not in detto, f"il rifiuto stampa la chiave grezza: {detto}"
-    assert "modulo elastico E [MPa]" in detto, (
-        f"il rifiuto non nomina il campo con la sua etichetta: {detto}"
-    )
-    assert "deve superare 0" in detto, f"il rifiuto non dice il vincolo violato: {detto}"
-
-
 def test_il_nome_fuori_dai_caratteri_ammessi_e_rifiutato_in_italiano_senza_la_regex(cliente):
-    """Ingresso degenere: si dichiara il materiale col nome della classe.
+    """Ingresso degenere: si nomina una regione con una barra.
 
-    «C25/30» e' il primo nome che a chi sceglie una classe viene in mente, e la
-    barra non passa `NomeSet`. Il rifiuto era «name: String should match
-    pattern '^[A-Za-z0-9_.-]+$'»: inglese, chiave grezza, e una regex in faccia
-    a chi sta dichiarando un calcestruzzo. La forma non era in
-    `_RIFIUTI_TRADOTTI`, quindi usciva come pydantic la scrive.
+    Il banco era il nome del materiale, e «C25/30» era il primo nome che a chi
+    sceglie una classe veniva in mente; il materiale e' uscito dalla
+    configurazione l'08/09/2026, ma la stessa barra su un nome di regione
+    percorre la stessa `NomeSet` e la stessa traduzione. Il rifiuto era «name:
+    String should match pattern '^[A-Za-z0-9_.-]+$'»: inglese, chiave grezza, e
+    una regex in faccia a chi sta nominando un pezzo di muro. La forma non era
+    in `_RIFIUTI_TRADOTTI`, quindi usciva come pydantic la scrive.
 
     Mutazione che lo uccide: togliere la riga del pattern dalla tabella.
     """
     corrente = cliente.get("/api/config").json()
-    corrente["analysis"] = {"material": {
-        "name": "C25/30", "young": 30000.0, "poisson": 0.2, "density": 2.5e-9,
-    }}
+    corrente["regioni"] = {"C25/30": {"membratura": 0}}
 
     risposta = cliente.put("/api/config", json=corrente)
 
@@ -3942,9 +3845,8 @@ def test_il_nome_fuori_dai_caratteri_ammessi_e_rifiutato_in_italiano_senza_la_re
     detto = risposta.json()["messaggio"]
     assert "String should match" not in detto, f"il rifiuto e' in inglese: {detto}"
     assert "[A-Za-z0-9" not in detto and "pattern" not in detto, (
-        f"il rifiuto stampa la regex a chi dichiara un materiale: {detto}"
+        f"il rifiuto stampa la regex a chi nomina una regione: {detto}"
     )
-    assert "name" not in detto, f"il rifiuto stampa la chiave grezza: {detto}"
     assert "trattino basso" in detto, (
         f"il rifiuto non dice quali caratteri il nome ammette: {detto}"
     )
@@ -4306,3 +4208,42 @@ def test_a_corsa_finita_le_nuvole_sono_gia_decimate(cliente, tmp_path, monkeypat
         "corsa e' stata calcolata con parametri che la rotta non chiede, quindi "
         "il lavoro e' stato fatto due volte e l'attesa e' rimasta dov'era"
     )
+
+
+def test_il_blocco_analysis_nel_corpo_della_put_e_un_rifiuto_leggibile(cliente):
+    """La PUT accetta un `PipelineConfig` intero: e' la via per cui un blocco
+    tolto arriva al programma da un pannello vecchio o da un client scritto a
+    mano. Il rifiuto deve nominare il blocco, non uscire come 500.
+
+    Mutazione che lo uccide: togliere `analysis` da `BLOCCHI_RIMOSSI`.
+    """
+    corpo = cliente.get("/api/config").json()
+    corpo["analysis"] = None
+
+    risposta = cliente.put("/api/config", json=corpo)
+
+    assert risposta.status_code == 422
+    assert "analysis" in risposta.json()["messaggio"]
+
+
+def test_una_corsa_col_blocco_analysis_resta_in_elenco_col_suo_errore(cliente, tmp_path):
+    """Ingresso degenere: le corse gia' su disco portano `analysis:`.
+
+    L'elenco non e' il posto dove si rifiuta: una corsa vecchia perde la
+    propria riga, non l'intero elenco. `load_config` sta gia' dentro il `try`
+    che riempie `voce["errore"]`, e il rifiuto nominato ci arriva come tutti
+    gli altri.
+
+    Mutazione che lo uccide: far uscire `load_config` dal `try` dell'elenco.
+    """
+    vecchia = tmp_path / "runs" / "vecchia"
+    vecchia.mkdir(parents=True)
+    (vecchia / "config.yaml").write_text(
+        "input:\n  path: nuvola.ply\nanalysis: null\n", encoding="utf-8"
+    )
+
+    risposta = cliente.get("/api/corse")
+
+    assert risposta.status_code == 200
+    voce = next(v for v in risposta.json()["corse"] if v["nome"] == "vecchia")
+    assert "analysis" in voce["errore"]

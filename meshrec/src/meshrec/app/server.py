@@ -38,7 +38,6 @@ from meshrec.app import storico
 from meshrec.app.worker import Worker
 from meshrec.core import (
     io,
-    materiali,
     pipeline,
     quality,
     segment,
@@ -531,17 +530,6 @@ def _campi_cambiati(
     return cambiati
 
 
-def _modello_del_blocco(annotazione: object) -> type:
-    """Il modello annidato di un blocco di `PipelineConfig`.
-
-    `analysis` puo' essere assente, quindi la sua annotazione e'
-    `AnalysisConfig | None`: i campi stanno sul modello, non sull'unione, e
-    leggerli dall'annotazione grezza faceva cadere `/api/schema` -- cioe' il
-    pannello degli step 11 e 13 -- con un `AttributeError` fuori vista.
-    """
-    return next(t for t in get_args(annotazione) or (annotazione,) if t is not type(None))
-
-
 # I tipi che si battono in una riga sola. `Path` sta con `str` e non fra i
 # composti: per python e' un oggetto, per chi lo scrive e' un percorso, ed e'
 # il campo piu' importante del pannello dello step 1.
@@ -611,18 +599,9 @@ _FUORI_DAL_PANNELLO: dict[int, frozenset[str]] = {
     # sembrerebbe un secondo `min_ratio`.
     9: frozenset({"tet.reference_ratio"}),
     # Lo step 11 esporta il modello: non tetraedrizza (quello e' il 9), e `tet`
-    # si dichiara nei pannelli del 9 e del 10.
-    #
-    # `gravity`, `fixed_nset` e `step_name` sono tornati in questo pannello con
-    # la mappa #161. Descrivono il caso di carico e non la geometria, e per
-    # questo stavano nel pannello dello step 13: uscito quello, l'unico posto
-    # che resta e' lo step che li scrive nel deck. Fuori da qui sarebbero tre
-    # campi che il deck porta e che nessuno puo' piu' dichiarare.
-    #
-    # `material` resta fuori: ha gia' il proprio pannello -- quattro caselle
-    # che partono insieme -- e qui compariva una seconda volta, come riga di
-    # sola lettura col JSON del modello dentro.
-    11: frozenset({"tet", "analysis.material"}),
+    # si dichiara nei pannelli del 9 e del 10. Di `export` resta tutto: e' un
+    # campo solo, la tolleranza con cui gli insiemi di faccia sono estratti.
+    11: frozenset({"tet"}),
 }
 
 
@@ -648,7 +627,7 @@ def _etichetta_del_percorso(percorso: tuple[object, ...]) -> str:
             break
         campo = campi[pezzo]
         etichetta = campo.title or pezzo
-        modello = _modello_del_blocco(campo.annotation)
+        modello = campo.annotation
     return etichetta or ".".join(pezzi) or "la configurazione"
 
 
@@ -937,7 +916,6 @@ def create_app(
                     "nome": cartella.name,
                     "nuvola": None,
                     "modificata": None,
-                    "materiale": None,
                     "riferimento": (cartella / SENTINELLA_SOLA_LETTURA).exists(),
                     "errore": None,
                 }
@@ -951,7 +929,6 @@ def create_app(
                     voce["errore"] = _rifiuto_leggibile(errore)
                 else:
                     voce["nuvola"] = str(cfg.input.path)
-                    voce["materiale"] = cfg.analysis.material.name if cfg.analysis else None
                 corse.append(voce)
         return {"radice": str(radice_corse), "corse": corse, "corrente": nome_corrente()}
 
@@ -960,8 +937,8 @@ def create_app(
         """Fa nascere una corsa dalla sola nuvola, e ci lega l'applicazione.
 
         Scrive `input.path` e `run.out_dir` e nient'altro: ogni altro parametro
-        resta al proprio predefinito, dichiarato in `config.py`, e il materiale
-        resta assente finche' non lo dichiara chi analizza.
+        resta al proprio predefinito, dichiarato in `config.py`. Il materiale
+        non e' fra questi: col deck nudo si assegna in Abaqus.
         """
         # Prima di ogni altra cosa: `Path("")` e' `PosixPath('.')`, e senza
         # questo ramo un campo lasciato vuoto tornava indietro come
@@ -1399,63 +1376,6 @@ def create_app(
             filename=f"{cartella.name}_{pipeline.DECK_FILENAME}",
         )
 
-
-
-
-
-
-
-
-
-    @app.get("/api/materiali")
-    def catalogo_materiali() -> dict[str, object]:
-        """Le classi di calcestruzzo di `core.materiali`, per il menu' del materiale.
-
-        Il pannello del materiale chiedeva quattro numeri battuti a mano mentre
-        il catalogo di norma esisteva gia': una corsa reale portava `young:
-        31500` dove la [11.2.2] su C25/30 da' 31475,81, cioe' il valore giusto
-        arrotondato a mano e senza la classe che lo giustifica scritta da
-        nessuna parte.
-
-        **Solo il calcestruzzo.** Lo step 11 dichiara il materiale del continuo
-        solido, che in un cemento armato e' il calcestruzzo. Offrirci l'acciaio
-        darebbe un modello di solo acciaio senza che nulla lo segnali: il
-        continuo e' uno, ed e' quello che il deck scrive. Il filtro e' sulla famiglia e non su un elenco di
-        nomi, cosi' una classe nuova nel catalogo arriva al menu' da se'.
-
-        `fonte` viaggia con i numeri e non e' un ornamento: senza, i tre valori
-        sono indistinguibili da valori inventati, ed e' precisamente cio' che
-        quel catalogo esiste per impedire.
-
-        `nota` e `avvertenze` viaggiano tutte e due, e non sono un doppione: la
-        prima e' la provenienza per intero, per chi legge il catalogo; la
-        seconda porta le sole condizioni d'uso della classe, ed e' cio' che il
-        pannello mostra a chi ne ha scelta una. Servita la sola nota, l'avviso
-        che C8/10 sta sotto la classe minima arrivava sotto il menu' in coda a
-        mille caratteri sulla scelta di Poisson e della densita'.
-
-        La tratta non legge la configurazione e non ne dipende: il catalogo e'
-        lo stesso per ogni corsa, e chiederne una qui renderebbe il menu'
-        indisponibile sulla schermata d'ingresso, dove corsa non ce n'e'.
-        """
-        return {
-            "voci": [
-                {
-                    "classe": voce.classe,
-                    "famiglia": voce.famiglia,
-                    "young": voce.young,
-                    "poisson": voce.poisson,
-                    "density": voce.density,
-                    "f_k": voce.f_k,
-                    "fonte": voce.fonte,
-                    "nota": voce.nota,
-                    "avvertenze": list(voce.avvertenze),
-                }
-                for voce in materiali.CATALOGO
-                if voce.famiglia == "calcestruzzo"
-            ]
-        }
-
     @app.get("/api/schema")
     def schema() -> dict[str, object]:
         """Quali parametri appartengono a quale step, con descrizione e dominio.
@@ -1477,18 +1397,13 @@ def create_app(
                 # campi fissi da descrivere uno per uno. Niente `model_fields`
                 # da leggere, quindi nessun campo da elencare per questo blocco.
                 #
-                # Le due meta' di questo blocco vengono da due rami e servono a
-                # due casi diversi: nessuna copre l'altro, e tenerne una sola
-                # reintroduce il difetto che l'altra aveva chiuso.
-                # _modello_del_blocco scarta il None da `X | None` -- senza,
-                # `analysis` faceva cadere /api/schema con un AttributeError,
-                # cioe' spegneva il pannello degli step 11 e 13. La guardia
-                # regge le annotazioni che non sono modelli affatto, come
-                # questo dict, su cui _modello_del_blocco da solo prenderebbe
-                # NomeSet e chiederebbe model_fields a una stringa. Il difetto
-                # muto e' il peggiore dei due: esce 200 con i campi mancanti,
-                # invece di sollevare dove qualcuno se ne accorge.
-                annidato = _modello_del_blocco(modelli[blocco].annotation)
+                # La guardia regge le annotazioni che non sono modelli
+                # affatto, come questo dict: senza, `model_fields` verrebbe
+                # chiesto a un `dict[...]` e /api/schema uscirebbe 200 con i
+                # campi mancanti invece di sollevare dove qualcuno se ne
+                # accorge. Il difetto muto e' il peggiore dei due -- le
+                # annotazioni che non sono modelli le scarta questo `hasattr`.
+                annidato = modelli[blocco].annotation
                 if not hasattr(annidato, "model_fields"):
                     campi[blocco] = {}
                     continue

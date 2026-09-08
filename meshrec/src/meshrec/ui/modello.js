@@ -125,7 +125,6 @@ export const RIGHE_DEL_MODELLO = {
     ["tipo di elemento", ["11_export", "element_type"]],
     ["nodi", ["10_volume_quality", "nodes"]],
     ["tetraedri", ["10_volume_quality", "tets"]],
-    ["massa [t]", ["11_export", "mass"]],
     ["volume [mm³]", ["11_export", "volume"]],
   ],
 };

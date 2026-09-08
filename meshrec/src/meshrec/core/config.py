@@ -11,7 +11,6 @@ from typing import Annotated, Literal
 
 import yaml
 from pydantic import (
-    AfterValidator,
     BaseModel,
     ConfigDict,
     Field,
@@ -19,25 +18,7 @@ from pydantic import (
     model_validator,
 )
 
-GRAVITY_MM_S2: float = 9810.0
-
 NomeSet = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_.-]+$")]
-
-
-def _caso_canonico_dei_sei(nome: str) -> str:
-    """Uno dei sei nomi di faccia riscritto nel proprio caso canonico, gli altri intatti.
-
-    `node_sets` porta i sei nomi di faccia nel caso canonico (`TOP`, non
-    `top`): un confronto esatto a valle (`abaqus.write_inp`) fallirebbe su un
-    nome che collide solo ignorando le
-    maiuscole, ed e' un errore che arriva dopo la tetraedralizzazione invece
-    che a validazione. Un nome fuori dai sei passa intatto: chi lo rifiuta e'
-    la guardia a valle, che sa quali insiemi il deck contiene davvero.
-    """
-    return _mappa_casefold(NOMI_SET_DI_FACCIA).get(nome.casefold(), nome)
-
-
-NomeSetDiFaccia = Annotated[NomeSet, AfterValidator(_caso_canonico_dei_sei)]
 
 
 def _mappa_casefold(nomi: Iterable[str]) -> dict[str, str]:
@@ -47,9 +28,9 @@ def _mappa_casefold(nomi: Iterable[str]) -> dict[str, str]:
     `docs/fase-6-cantiere/sonda-caso-nomi/README.md`): ogni punto che
     confronta un nome di set con un altro deve normalizzare il caso allo
     stesso modo, o due nomi che per `ccx` sono lo stesso `*NSET` passerebbero
-    controlli diversi. Estratta perche' il confronto ricorre in tre punti: i
-    sei nomi di faccia qui sopra, le regioni (`_nomi_senza_collisioni`) e le
-    superfici dei `*TIE` in `core/abaqus.py`, che la importa da qui.
+    controlli diversi. Estratta perche' il confronto ricorre in due punti: le
+    regioni (`_nomi_senza_collisioni`) e le superfici dei `*TIE` in
+    `core/abaqus.py`, che la importa da qui.
     """
     return {nome.casefold(): nome for nome in nomi}
 
@@ -116,41 +97,6 @@ class _ModelloBase(BaseModel):
     """
 
     model_config = ConfigDict(allow_inf_nan=False)
-
-
-class Material(_ModelloBase):
-    """Materiale elastico isotropo, dichiarato per intero dall'operatore.
-
-    Nessun campo ha un predefinito, e la mancanza e' deliberata. Il predefinito
-    precedente (muratura, 1500 MPa) e' finito in silenzio nella configurazione
-    del telaio in calcestruzzo di `lab_frame`, dove il modulo elastico giusto e'
-    piu di venti volte piu grande: nessuno aveva scelto quel materiale, era li'
-    perche' il modello lo metteva da solo. La classe e i parametri meccanici
-    sono una decisione di chi analizza, non un valore che il programma possa
-    dedurre dalla nuvola o supplire per conto suo.
-    """
-
-    # I quattro `title` sono le etichette del riquadro «materiale», ripetute
-    # qui verbatim e non riscritte: sono cio' che il rifiuto del server stampa
-    # (`_etichetta_del_percorso` in app/server.py legge `title`), e senza di
-    # essi sotto il bottone compariva «young: deve superare 0». `young` e
-    # `density` nell'interfaccia non esistono -- lo dice gia' il docstring di
-    # `analisi_dichiarata`, che manda chi sbaglia al pannello e non al YAML --
-    # e una chiave non si stampa mai, si stampa la sua etichetta (PRODUCT.md).
-    # Dove il titolo dice tutto, la `description` non lo ripete: sarebbe la
-    # stessa frase due volte, una dentro l'altra.
-    name: NomeSet = Field(
-        title="nome",
-        description=(
-            "nome del materiale. Il vincolo non è cosmetico: il nome viene interpolato "
-            "in `*MATERIAL, NAME=...` e il deck è scritto in ascii, quindi un carattere "
-            "fuori tabella romperebbe l'esportazione dopo l'intera pipeline, e un a capo "
-            "inietterebbe card nel deck senza che nulla se ne accorga"
-        ),
-    )
-    young: float = Field(gt=0.0, title="modulo elastico E [MPa]")
-    poisson: float = Field(ge=0.0, lt=0.5, title="coefficiente di Poisson")
-    density: float = Field(gt=0.0, title="densità [t/mm³]")
 
 
 class InputConfig(_ModelloBase):
@@ -382,29 +328,13 @@ class TetConfig(_ModelloBase):
     )
 
 
-# Le tre etichette che il deck assegnava da se' agli altri passi, e che
-# indicizzano i campi per nodo del file risolto: non sono disponibili per il
-# nome del passo di peso proprio. Nessun passo le scrive piu', ma un `.vtu`
-# di una corsa vecchia le porta ancora, e un passo omonimo li' sarebbe
-# indistinguibile da quello che c'era.
-NOMI_PASSO_RISERVATI = ("SPINTA_ORIZZONTALE", "CARICO_TOP", "MODALE")
+class ExportConfig(_ModelloBase):
+    """Step 11: come si costruiscono gli insiemi di nodi delle facce."""
 
-
-class AnalysisConfig(_ModelloBase):
-    """Materiale e analisi."""
-
-    material: Material = Field(title="materiale del modello")
-    gravity: float = Field(
-        default=GRAVITY_MM_S2,
-        gt=0.0,
-        title="accelerazione di gravità [mm/s²]",
-    )
-    fixed_nset: NomeSetDiFaccia = Field(default="BASE", title="set di nodi incastrati")
-    step_name: NomeSet = Field(default="GRAVITA", title="nome del passo di carico")
     set_tolerance_factor: float = Field(
         default=6.0,
         gt=0.0,
-        title="tolleranza dei set di faccia, in multipli della spaziatura dei nodi",
+        title="tolleranza degli insiemi di faccia [multipli della spaziatura]",
         description=(
             "moltiplica la spaziatura dei nodi sul bordo del maglio di volume e "
             "dà la tolleranza con cui i set di faccia sono estratti. Il "
@@ -420,27 +350,6 @@ class AnalysisConfig(_ModelloBase):
             "34,76% su lab_crop. Vedi docs/fase-1-tolleranza-set.md"
         ),
     )
-
-    @model_validator(mode="after")
-    def _il_nome_del_passo_non_e_riservato(self) -> "AnalysisConfig":
-        """Due passi con la stessa etichetta non sono due casi di carico.
-
-        I campi per nodo del file risolto sono indicizzati col nome del
-        caso: `U_<CASO>`, `VM_<CASO>`. I tre nomi riservati non li scrive piu'
-        nessun passo, ma un `.vtu` di una corsa vecchia li porta ancora, e un
-        `step_name` omonimo vi si sovrapporrebbe -- nessuna eccezione, nessun
-        avviso, una chiave che non dice piu' quale passo l'ha prodotta.
-        """
-        if self.step_name.upper() in NOMI_PASSO_RISERVATI:
-            raise ValueError(
-                f"step_name={self.step_name!r} è un nome riservato: "
-                f"{', '.join(NOMI_PASSO_RISERVATI)} erano le etichette che il "
-                "deck assegnava da sé agli altri passi. Nessun passo le scrive "
-                "più, ma un .vtu già su disco le porta ancora come chiavi dei "
-                "campi per nodo, e un passo omonimo vi sarebbe indistinguibile "
-                "da quello che c'era"
-            )
-        return self
 
 
 class RunConfig(_ModelloBase):
@@ -799,84 +708,8 @@ NOMI_SET_DI_FACCIA: tuple[str, ...] = (
 NOMI_ELSET_FABBRICATI: tuple[str, ...] = ("ALL_WALL",)
 
 
-class MaterialeDichiarato(_ModelloBase):
-    """Il materiale di una regione, con cio' che dichiara di se' (#141).
-
-    Sta qui e non dentro `Material`, che e' congelato: un campo nuovo la'
-    sposterebbe l'impronta di tutte le ventidue righe dei registri, perche'
-    `analysis` non e' fra i blocchi esclusi. Il modello congelato viene riusato
-    intero e il resto -- resistenza, provenienza, norma -- gli sta accanto.
-
-    **Non c'e' un campo `veste`, ed e' una decisione e non una dimenticanza.**
-    La proposta di dichiarare se un valore fosse «caratteristico» o «gia'
-    ridotto» apriva la strada a una doppia riduzione o a nessuna, senza che
-    nulla se ne accorgesse. #141 vale senza eccezioni: le voci sono **sempre**
-    caratteristiche, e i valori di progetto li deriva il programma applicando i
-    coefficienti di norma. Le parole «gia' ridotte» di #146 riguardano il
-    fattore di confidenza e il livello di conoscenza, che si applicano alla
-    muratura e non a un calcestruzzo.
-    """
-
-    material: Material = Field(
-        description="il modello elastico isotropo, dichiarato per intero come altrove"
-    )
-    f_k: float | None = Field(
-        default=None,
-        gt=0.0,
-        description=(
-            "resistenza CARATTERISTICA [MPa]: f_ck per un calcestruzzo, f_yk per "
-            "un acciaio. Mai un valore di progetto: i γ di norma li applica il "
-            "programma, e una voce già ridotta verrebbe ridotta due volte"
-        ),
-    )
-    provenienza: Literal["catalogo", "a_mano"] = Field(
-        description=(
-            "da dove viene questa voce: da una classe del catalogo dei materiali "
-            "oppure battuta a mano. Senza dichiararlo un numero non ha provenienza, "
-            "ed è la sola cosa che distingue un valore di norma da uno inventato"
-        ),
-    )
-    classe: str | None = Field(
-        default=None,
-        description=(
-            "la voce del catalogo, es. «C25/30» o «B450C», quando la provenienza "
-            "è `catalogo`. Assente per una voce battuta a mano, e obbligatoria "
-            "per una che viene dal catalogo: i due campi si dichiarano insieme"
-        ),
-    )
-    norma: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)] = Field(
-        description=(
-            "la norma con cui il valore è dichiarato, per articolo e non per "
-            "pagina di una dispensa: es. «NTC 2018 Tab. 4.1.I», la tabella che "
-            "porta i valori delle classi -- la 4.1.II dice invece dove una "
-            "classe si può impiegare. Non può essere vuota: è la sola cosa che "
-            "distingue un valore di norma da uno inventato, e vuota passerebbe "
-            "fino alla tabella di provenienza"
-        ),
-    )
-
-    @model_validator(mode="after")
-    def _la_provenienza_e_la_classe_si_dichiarano_insieme(self) -> "MaterialeDichiarato":
-        """La provenienza dice da dove viene il numero, la classe dice quale voce.
-
-        Erano indipendenti: `provenienza='catalogo'` senza `classe` passava, e
-        `provenienza='a_mano'` con `classe` pure. La prima manda a cercare nel
-        catalogo una voce `None`; la seconda mette in tabella «da catalogo»
-        senza dire quale voce, che e' il difetto preciso che #141 esiste per
-        impedire.
-        """
-        if (self.provenienza == "catalogo") != (self.classe is not None):
-            raise ValueError(
-                f"provenienza='{self.provenienza}' e classe={self.classe!r} non "
-                "stanno insieme: una voce dal catalogo dichiara quale voce è, e "
-                "una battuta a mano non ne ha una. Senza, la tabella di "
-                "provenienza direbbe «da catalogo» senza dire di che cosa"
-            )
-        return self
-
-
 class RegioneConfig(_ModelloBase):
-    """Un prisma di membratura e il materiale che il deck gli scrive dentro.
+    """Un prisma di membratura, e nient'altro.
 
     Il nome della regione e' la chiave del dizionario `PipelineConfig.regioni`,
     e diventa un `*ELSET` nel deck: e' per questo che le chiavi seguono le
@@ -885,8 +718,9 @@ class RegioneConfig(_ModelloBase):
     Portava una `sezione` con tre materiali -- nucleo confinato, copriferro,
     acciaio -- e l'armatura, perche' una sezione a fibre se li porta dentro.
     Uscito il solutore a fibre con la mappa #161, di quei quattro il deck ne
-    leggeva uno: quello. Tre campi che l'operatore compila e che nessuno
-    consuma sono tre numeri senza un controllo che li smentisca.
+    leggeva uno. Dal 08/09/2026 non ne legge piu' nessuno: il deck e' nudo, e
+    il materiale si assegna in Abaqus sull'`*ELSET` che la regione produce.
+    Resta il solo indice del prisma.
     """
 
     membratura: int = Field(
@@ -898,9 +732,56 @@ class RegioneConfig(_ModelloBase):
             "e il rifiuto dell'indice fuori intervallo spetta a chi legge il prior"
         ),
     )
-    materiale: MaterialeDichiarato = Field(
-        description="il materiale che il deck scrive per questa regione"
-    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _rifiuta_il_materiale(cls, dati: object) -> object:
+        """Un `config.yaml` scritto prima del 08/09/2026 porta ancora il campo.
+
+        Senza questo rifiuto la chiave non e' un errore: pydantic ignora cio'
+        che il modello non dichiara, la corsa parte e il materiale scritto
+        dall'operatore non arriva in nessun deck. Un file che cambia
+        significato in silenzio e' peggio di un file rifiutato.
+
+        Il messaggio non nomina la regione: la chiave del dizionario la
+        conosce solo chi valida il blocco, e pydantic la mette da se' nel
+        percorso dell'errore (`regioni.<nome>`).
+        """
+        if isinstance(dati, dict) and "materiale" in dati:
+            raise ValueError(
+                "il campo `materiale` di una regione non esiste più (08/09/2026, "
+                "PR feat/deck-nudo-analisi): il materiale si assegna in Abaqus "
+                "sull'`*ELSET`"
+            )
+        return dati
+
+
+# I blocchi che una `config.yaml` gia' su disco porta ancora e che la
+# configurazione non ha piu'. Non si ignorano come gli altri campi estranei:
+# dichiaravano il materiale, i carichi e i selettori, cioe' cosa il deck
+# doveva contenere, e un file che li porta descrive una corsa che il programma
+# non esegue piu'. Ignorarli darebbe un deck diverso da quello che il file
+# dichiara, senza un segnale. Il motivo dice la data, la PR e -- dove esiste --
+# dove il parametro sopravvissuto e' andato a stare: e' l'unica cosa che chi
+# legge il rifiuto puo' fare.
+#
+# `solutore` (mappa #161) resta ignorato: nessun file lo porta, nessun
+# parametro e' migrato altrove; se un giorno entra `extra="forbid"` (ADR,
+# approccio C) lo prende quello.
+BLOCCHI_RIMOSSI: dict[str, str] = {
+    "analysis": (
+        "08/09/2026, PR feat/deck-nudo-analisi: materiali, vincoli e carichi si "
+        "assegnano in Abaqus sul deck; `set_tolerance_factor` sta ora in `export`"
+    ),
+    "carichi": (
+        "08/09/2026, PR #190: il deck nudo non scrive passi di carico, e spinta "
+        "e carico di sommità si assegnano in Abaqus"
+    ),
+    "selettori": (
+        "08/09/2026, PR #190: i selettori nominavano i nodi dei carichi, e sono "
+        "usciti con loro"
+    ),
+}
 
 
 class PipelineConfig(_ModelloBase):
@@ -914,17 +795,7 @@ class PipelineConfig(_ModelloBase):
     repair: RepairConfig = Field(default_factory=RepairConfig)
     simplify: SimplifyConfig = Field(default_factory=SimplifyConfig)
     tet: TetConfig = Field(default_factory=TetConfig)
-    analysis: AnalysisConfig | None = Field(
-        default=None,
-        description=(
-            "materiale e analisi. Assente finché non viene dichiarato: `analysis` "
-            "è letto dai soli step 11 e 13 (vedi `steps.STEP_BLOCKS`), e pretenderlo "
-            "alla nascita di una corsa costringeva a scegliere la classe del "
-            "calcestruzzo prima di aver guardato un punto della nuvola. Il materiale "
-            "resta obbligatorio *dentro* `AnalysisConfig`: quell'invariante nasce da "
-            "un difetto misurato e non è allentata qui"
-        ),
-    )
+    export: ExportConfig = Field(default_factory=ExportConfig)
     wall: WallConfig = Field(default_factory=WallConfig)
     model: ModelConfig = Field(default_factory=ModelConfig)
     regioni: dict[NomeSet, RegioneConfig] = Field(
@@ -939,6 +810,34 @@ class PipelineConfig(_ModelloBase):
         ),
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def _rifiuta_i_blocchi_rimossi(cls, dati: object) -> object:
+        """Un blocco tolto si rifiuta per nome, e tutti in un messaggio solo.
+
+        Conta la chiave e non il valore: `analysis: null` e' la forma che ogni
+        corsa nata dall'interfaccia porta su disco, ed e' il caso piu'
+        frequente, non il piu' raro.
+
+        Un rifiuto per blocco costerebbe una corsa a blocco --
+        `runs/geoandgeo-lab/config.yaml` porta `analysis:` e `carichi:`, si
+        toglierebbe il primo e si scoprirebbe il secondo al giro dopo. Qui si
+        raccolgono tutti e si nominano insieme.
+        """
+        if isinstance(dati, dict):
+            trovati = [
+                f"`{blocco}` non esiste più ({motivo})"
+                for blocco, motivo in BLOCCHI_RIMOSSI.items()
+                if blocco in dati
+            ]
+            if trovati:
+                raise ValueError(
+                    "questo config.yaml porta blocchi tolti dalla configurazione: "
+                    + "; ".join(trovati)
+                    + ". Vanno tolti dal file: il programma non li legge più"
+                )
+        return dati
+
     @model_validator(mode="after")
     def _i_nomi_delle_regioni_non_collidono_con_all_wall(self) -> "PipelineConfig":
         """I nomi delle regioni non collidono con l'`*ELSET` fabbricato.
@@ -951,9 +850,7 @@ class PipelineConfig(_ModelloBase):
 
         I nomi fabbricati confrontati sono quelli degli `*ELSET`, cioe'
         `ALL_WALL` e non i sei di faccia: quelli sono `*NSET`, e nel deck sono
-        un altro spazio di nomi. Il validatore non legge `self.analysis`, che
-        puo' essere assente: una corsa nasce dalla sola nuvola e le regioni si
-        dichiarano prima del materiale unico.
+        un altro spazio di nomi.
         """
         _nomi_senza_collisioni(
             self.regioni, "la regione", "le regioni", "*ELSET", NOMI_ELSET_FABBRICATI
@@ -961,32 +858,6 @@ class PipelineConfig(_ModelloBase):
         return self
 
     run: RunConfig = Field(default_factory=RunConfig)
-
-    def analisi_dichiarata(self, chiede: str) -> AnalysisConfig:
-        """L'analisi, oppure un rifiuto che dice chi la pretende e dove darla.
-
-        Unico varco verso `self.analysis` per chi ne pretende uno: cosi' la
-        guardia sta in un posto solo e nessun chiamante puo' leggere `None`
-        scambiandolo per un materiale.
-
-        `chiede` e' l'etichetta del chiamante e non un numero: `meshrec model`
-        esporta lo stesso deck dello step 11 ma step non e', e chi lo lancia
-        veniva mandato a guardare uno step che nel pannello poteva gia' essere
-        verde. Il messaggio nomina il pannello e non i campi YAML per la stessa
-        ragione: `young` e `density` nell'interfaccia non esistono, si chiamano
-        «modulo elastico E [MPa]» e «densita [t/mm³]». Il nome del campo resta
-        pero' nella coda, perche' chi arriva qui da `meshrec run` un pannello
-        non ce l'ha e deve sapere dove scrivere.
-        """
-        if self.analysis is None:
-            raise ValueError(
-                f"{chiede} pretende il materiale, e questa corsa non lo dichiara. "
-                "Dichiaralo nel pannello dello step 11, riquadro «materiale»: nome, "
-                "modulo elastico, coefficiente di Poisson, densità -- da riga di "
-                "comando è analysis.material nel config.yaml della corsa. Il "
-                "programma non lo deduce dalla nuvola e non ne mette uno per conto suo"
-            )
-        return self.analysis
 
 
 class _LoaderChiaviUniche(yaml.SafeLoader):

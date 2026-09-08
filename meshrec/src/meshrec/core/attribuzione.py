@@ -109,10 +109,10 @@ def attribuisci(
     serve perche' «alla maggiore» non decide fra due sezioni identiche, e
     senza di esso deciderebbe l'ordine interno del ciclo invece di un dato.
 
-    Un tetraedro che non cade in nessun prisma e' orfano: prende
-    `analysis.material`, il materiale unico della corsa, che resta dov'e'
-    (#145). Non e' un ripiego silenzioso -- `frazione_orfana` lo misura, e alta
-    significa che la scomposizione non descrive il pezzo.
+    Un tetraedro che non cade in nessun prisma e' orfano: resta fuori da ogni
+    `*ELSET` di regione, e nel deck e' il solo `ALL_WALL` a contenerlo. Non e'
+    un ripiego silenzioso -- `frazione_orfana` lo misura, e alta significa che
+    la scomposizione non descrive il pezzo.
     """
     elementi = np.asarray(elements, dtype=np.int64)
     # Le righe prima delle colonne: un maglio vuoto darebbe una frazione

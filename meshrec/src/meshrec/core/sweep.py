@@ -21,7 +21,7 @@ from pathlib import Path
 
 import numpy as np
 
-from meshrec.core.config import ExperimentConfig, PipelineConfig
+from meshrec.core.config import BLOCCHI_RIMOSSI, ExperimentConfig, PipelineConfig
 
 
 # I blocchi di PipelineConfig che non entrano mai nell'impronta di sweep.
@@ -119,15 +119,22 @@ def with_override(cfg: PipelineConfig, path: str, value: object) -> PipelineConf
     node = data
     parts = path.split(".")
     for indice, part in enumerate(parts[:-1]):
-        node = node[part]
-        # Un blocco puo' essere assente per intero -- `analysis` non esiste
-        # finche' il materiale non e' dichiarato, cioe' su ogni corsa nata
-        # dall'interfaccia. Questa strada cammina il dump e non l'attributo,
-        # quindi non passa da `PipelineConfig.analisi_dichiarata`: senza questa
-        # riga la riga sotto dava `TypeError: 'NoneType' object is not
-        # subscriptable`, che non dice ne' quale asse ne' che cosa manca.
+        # Il blocco puo' non esserci affatto: `analysis`, `carichi` e
+        # `selettori` sono usciti col deck nudo e gli `esperimento.yaml` gia'
+        # scritti li portano ancora come assi. Questa strada cammina il dump e
+        # non l'attributo, quindi non passa dalla validazione di
+        # `PipelineConfig`: senza questa riga l'indicizzazione dava
+        # `KeyError('analysis')` sul blocco assente e `TypeError: 'NoneType'
+        # object is not subscriptable` su quello nullo, e nessuno dei due dice
+        # quale asse dell'esperimento l'ha chiesto.
+        node = node.get(part) if isinstance(node, dict) else None
         if node is None:
             blocco = ".".join(parts[: indice + 1])
+            if blocco in BLOCCHI_RIMOSSI:
+                raise ValueError(
+                    f"l'asse '{path}' punta a '{blocco}', che non esiste più "
+                    f"({BLOCCHI_RIMOSSI[blocco]}): togli l'asse dall'esperimento"
+                )
             raise ValueError(
                 f"l'asse '{path}' scende dentro '{blocco}', che questa configurazione "
                 f"non dichiara: compila '{blocco}' nella base dell'esperimento prima "

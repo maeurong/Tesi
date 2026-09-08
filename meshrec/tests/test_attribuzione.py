@@ -14,7 +14,6 @@ import numpy as np
 import pytest
 
 from meshrec.core import abaqus, attribuzione, config, hexa
-from materiale import MATERIALE
 
 
 def _prisma(centro, lati, altezza):
@@ -50,12 +49,7 @@ def _maglio(baricentri):
 
 def _regione(membratura):
     """Una `RegioneConfig` col minimo che la configurazione pretende."""
-    return config.RegioneConfig(
-        membratura=membratura,
-        materiale=config.MaterialeDichiarato(
-            material=MATERIALE, provenienza="a_mano", norma="NTC 2018 Tab. 4.1.I"
-        ),
-    )
+    return config.RegioneConfig(membratura=membratura)
 
 
 def _membratura(contorno_lati=(100.0, 100.0)):
@@ -262,14 +256,15 @@ def test_i_prismi_escono_nell_ordine_delle_regioni():
     assert np.ptp(prismi["TRAVE"].contorno[:, 0]) == pytest.approx(300.0)
 
 
-def test_con_tutti_gli_elementi_orfani_il_deck_e_rifiutato_invece_che_monomaterico(tmp_path):
-    """Nessun baricentro dentro il prisma: la regione resta vuota, e il deck no.
+def test_con_tutti_gli_elementi_orfani_il_deck_avvisa_e_non_scrive_l_elset(tmp_path):
+    """Nessun baricentro dentro il prisma: la regione resta vuota, e il deck lo dice.
 
-    E' la chiusura fra questo modulo e `abaqus.write_inp`. Una regione senza
-    elementi diventerebbe un `*ELSET` vuoto, che `ccx` legge senza protestare
-    risolvendo un modello dove quella sezione non c'e': il deck sarebbe di
-    fatto monomaterico pur nascendo da una configurazione che dichiara una
-    regione. Il rifiuto e' la dichiarazione.
+    E' la chiusura fra questo modulo e `abaqus.write_inp`. Fino al deck nudo
+    era un rifiuto: un `*ELSET` vuoto lasciava una regione senza sezione, e il
+    deck usciva di fatto monomaterico da una configurazione che ne dichiarava
+    due. Il deck nudo non porta sezioni, quindi l'insieme mancante non falsa
+    piu' nessun calcolo -- resta un'informazione, e il posto di
+    un'informazione e' un avviso che nomina la regione.
 
     Mutazione che lo uccide: costruire il dizionario delle regioni saltando
     quelle rimaste vuote, che le farebbe sparire in silenzio.
@@ -281,9 +276,12 @@ def test_con_tutti_gli_elementi_orfani_il_deck_e_rifiutato_invece_che_monomateri
 
     assert (etichette == -1).all()
     assert resoconto["frazione_orfana"] == 1.0
-    with pytest.raises(ValueError, match="non contiene alcun elemento"):
+    percorso = tmp_path / "model.inp"
+    with pytest.warns(abaqus.RegioneVuotaWarning, match="LONTANA"):
         abaqus.write_inp(
-            tmp_path / "model.inp", nodi, elementi,
-            node_sets={"BASE": np.array([0])}, material=MATERIALE,
-            regioni={"LONTANA": (np.flatnonzero(etichette == 0), MATERIALE)},
+            percorso, nodi, elementi,
+            node_sets={"BASE": np.array([0])},
+            regioni={"LONTANA": np.flatnonzero(etichette == 0)},
         )
+
+    assert "*ELSET, ELSET=LONTANA" not in percorso.read_text(encoding="ascii")

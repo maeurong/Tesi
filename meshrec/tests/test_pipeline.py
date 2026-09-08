@@ -8,8 +8,7 @@ import numpy as np
 import pytest
 from pydantic import ValidationError
 
-from meshrec.core import abaqus, config, io, pipeline, quality, steps, synth
-from materiale import ANALISI, MATERIALE, crea_config
+from meshrec.core import config, io, pipeline, quality, steps, synth
 
 
 SIZE = (120.0, 60.0, 240.0)
@@ -30,11 +29,17 @@ def _config_cubo(tmp_path):
     cloud_path = tmp_path / "box.ply"
     io.write_cloud(cloud_path, synth.sample_box_surface(SIZE, SPACING))
     return config.PipelineConfig(
-        analysis=ANALISI,
         input=config.InputConfig(path=cloud_path, spacing_sample=5000),
         downsample=config.DownsampleConfig(voxel_size=SPACING),
         surface=config.SurfaceConfig(poisson_depth=8, density_quantile=0.02),
         tet=config.TetConfig(min_ratio=1.2),
+        # Il predefinito 6.0 e' tarato su un muro vero (1,8 m di altezza,
+        # spaziatura 22 mm): qui il pezzo e' alto 240 mm e il maglio esaedrico
+        # della corsa figlia ha spaziatura 25, quindi la banda a 6.0 vale 150 mm
+        # e `BASE` e `TOP` si toccano. E' il banco a essere piccolo, non la
+        # tolleranza a essere sbagliata: qui vale 50 mm, cioe' un quinto
+        # dell'altezza, che e' l'ordine di grandezza del caso vero.
+        export=config.ExportConfig(set_tolerance_factor=2.0),
         run=config.RunConfig(out_dir=tmp_path / "out", to_step=12),
     )
 
@@ -99,7 +104,7 @@ def run_dir(tmp_path_factory):
     cloud_path = base / "box.ply"
     io.write_cloud(cloud_path, synth.sample_box_surface(SIZE, SPACING))
 
-    cfg = crea_config(
+    cfg = config.PipelineConfig(
         input=config.InputConfig(path=cloud_path, spacing_sample=5000),
         downsample=config.DownsampleConfig(voxel_size=SPACING),
         surface=config.SurfaceConfig(poisson_depth=8, density_quantile=0.02),
@@ -198,14 +203,6 @@ def test_the_base_set_holds_only_the_nodes_at_the_lowest_level(run_dir):
     assert points[indices][:, 2].max() <= points[:, 2].min() + tolerance + 1e-9
 
 
-def test_the_mass_follows_from_density_and_volume(run_dir):
-    _, metrics = run_dir
-    density = MATERIALE.density
-    assert metrics["11_export"]["mass"] == pytest.approx(
-        metrics["11_export"]["volume"] * density, rel=1e-9
-    )
-
-
 def test_geometric_error_against_the_source_cloud_is_reported(run_dir):
     pytest.importorskip("pymeshlab")
     _, metrics = run_dir
@@ -227,7 +224,7 @@ def test_the_same_configuration_run_twice_gives_the_same_result(tmp_path):
     io.write_cloud(cloud_path, synth.sample_box_surface(SIZE, 8.0))
 
     def once(name):
-        cfg = crea_config(
+        cfg = config.PipelineConfig(
             input=config.InputConfig(path=cloud_path, spacing_sample=2000),
             downsample=config.DownsampleConfig(voxel_size=8.0),
             surface=config.SurfaceConfig(poisson_depth=7, density_quantile=0.02),
@@ -262,7 +259,7 @@ def test_resuming_from_tetrahedralize_still_works_when_simplify_is_enabled(tmp_p
     io.write_cloud(cloud_path, synth.sample_box_surface(SIZE, SPACING))
 
     def makecfg(from_step):
-        return crea_config(
+        return config.PipelineConfig(
             input=config.InputConfig(path=cloud_path, spacing_sample=5000),
             downsample=config.DownsampleConfig(voxel_size=SPACING),
             surface=config.SurfaceConfig(poisson_depth=8, density_quantile=0.02),
@@ -710,7 +707,7 @@ def test_lo_step_11_ricarica_la_superficie_semplificata_quando_e_accesa(tmp_path
     io.write_cloud(cloud_path, synth.sample_box_surface(SIZE, SPACING))
 
     def makecfg(from_step, to_step):
-        return crea_config(
+        return config.PipelineConfig(
             input=config.InputConfig(path=cloud_path, spacing_sample=5000),
             downsample=config.DownsampleConfig(voxel_size=SPACING),
             surface=config.SurfaceConfig(poisson_depth=8, density_quantile=0.02),
@@ -921,7 +918,6 @@ def corsa_all_undici(tmp_path_factory):
     cloud_path = base / "box.ply"
     io.write_cloud(cloud_path, synth.sample_box_surface(SIZE, SPACING))
     cfg = config.PipelineConfig(
-        analysis=ANALISI,
         input=config.InputConfig(path=cloud_path, spacing_sample=5000),
         downsample=config.DownsampleConfig(voxel_size=SPACING),
         surface=config.SurfaceConfig(poisson_depth=8, density_quantile=0.02),
@@ -1232,6 +1228,31 @@ def test_genera_modello_scrive_anche_la_geometria_step(tmp_path, tipo):
     assert riletto["step"]["file"].endswith("modello.step")
 
 
+def test_il_deck_parametrico_e_nudo_quanto_quello_del_muro(tmp_path):
+    """`genera_modello` scrive `*TIE`/`*SURFACE` (il legame fra membrature) e
+    nessuna card di materiale, vincolo o passo: il deck parametrico e' nudo
+    quanto quello del muro (spec 2026-09-07).
+
+    `test_il_telaio_costruito_dichiara_le_superfici_del_tie` (test_hexa.py)
+    guarda il dizionario che `hexa.costruisci` produce, non il file scritto:
+    qui si legge il `.inp`.
+
+    Mutazione che lo uccide: togliere `ties=` o `element_surfaces=` dalla
+    chiamata a `export_model` in `genera_modello` (pipeline.py).
+    """
+    cfg = _config_cubo(tmp_path)
+    _scrivi_prior_telaio(cfg, _TELAIO_QUATTRO_MEMBRATURE)
+    figlia = tmp_path / "figlia-estruso"
+
+    pipeline.genera_modello(cfg, "estruso", figlia)
+
+    testo = (figlia / pipeline.DECK_FILENAME).read_text(encoding="ascii")
+    assert "*TIE, NAME=" in testo
+    assert "*SURFACE, TYPE=ELEMENT" in testo
+    for card in ("*SOLID SECTION", "*MATERIAL", "*BOUNDARY", "*STEP"):
+        assert card not in testo
+
+
 def test_senza_geometria_step_non_resta_un_modello_json_che_la_dichiara(tmp_path, monkeypatch):
     """`scrivi_step` che solleva dopo il deck: l'eccezione propaga e
     `modello.json` non viene scritto -- non deve restare un modello.json che
@@ -1363,98 +1384,63 @@ def test_generare_un_modello_senza_prior_dice_che_cosa_manca(tmp_path):
         pipeline.genera_modello(cfg, "estruso", tmp_path / "figlia")
 
 
-def test_senza_materiale_la_corsa_arriva_alle_metriche_di_volume(tmp_path):
-    """Una nuvola appena caricata deve poter attraversare la geometria.
+def test_una_corsa_senza_export_arriva_al_deck_col_predefinito(tmp_path):
+    """Ingresso degenere: una `config.yaml` che il blocco `export` non lo porta.
 
-    Gli step 1-10 non leggono `analysis` (`steps.STEP_BLOCKS`): chiedere il
-    materiale prima di loro sarebbe chiederlo per nulla.
+    E' la forma di ogni corsa nata prima che il blocco esistesse. Il
+    predefinito deve bastare a scrivere il deck: un campo obbligatorio qui
+    fermerebbe la catena dopo l'intera geometria, al punto di massimo spreco.
     """
-    cfg = _config_cubo(tmp_path)
-    cfg.analysis = None
-    cfg.run = config.RunConfig(out_dir=tmp_path / "out", to_step=10)
+    pytest.importorskip("pymeshfix")
+    percorso = tmp_path / "senza-export.yaml"
+    config.save_config(_config_cubo(tmp_path), percorso)
+    testo = percorso.read_text(encoding="utf-8")
+    righe = testo.splitlines(keepends=True)
+    inizio = next(n for n, riga in enumerate(righe) if riga.startswith("export:"))
+    fine = next(
+        (n for n in range(inizio + 1, len(righe)) if not righe[n].startswith(" ")),
+        len(righe),
+    )
+    percorso.write_text("".join(righe[:inizio] + righe[fine:]), encoding="utf-8")
 
+    cfg = config.load_config(percorso)
+    assert cfg.export.set_tolerance_factor == pytest.approx(6.0)
+
+    cfg.run.to_step = 11
     metriche = pipeline.run(cfg)
 
-    assert "10_volume_quality" in metriche
-    assert "11_export" not in metriche
+    assert (tmp_path / "out" / "wall_model.inp").exists()
+    assert metriche["11_export"]["set_tolerance"] > 0.0
 
 
-def test_lo_step_11_senza_materiale_si_ferma_dicendo_che_cosa_manca(tmp_path):
-    cfg = _config_cubo(tmp_path)
-    cfg.analysis = None
-    cfg.run = config.RunConfig(out_dir=tmp_path / "out", to_step=11)
-
-    with pytest.raises(ValueError, match="analysis.material"):
-        pipeline.run(cfg)
-
-    stato = steps.read_state(tmp_path / "out")
-    assert stato["11_export"]["esito"] == "fallito"
-
-
-def test_generare_un_modello_senza_materiale_dice_che_cosa_manca(tmp_path):
-    """La corsa figlia esporta lo stesso deck dello step 11: stesso rifiuto.
-
-    Il difetto che il rifiuto impedisce e' `AttributeError: 'NoneType' object
-    has no attribute 'material'` dentro `abaqus.export_model`, che non dice a
-    chi legge quale sia la decisione che manca.
-    """
-    cfg = _config_cubo(tmp_path)
-    _scrivi_prior_telaio(cfg, _TELAIO_QUATTRO_MEMBRATURE)
-    cfg.analysis = None
-
-    with pytest.raises(ValueError, match="analysis.material"):
-        pipeline.genera_modello(cfg, "estruso", tmp_path / "figlia-senza-materiale")
-
-
-def test_generare_un_modello_senza_materiale_non_lascia_una_cartella_a_meta(tmp_path):
-    """Stessa invariante di `test_una_corsa_figlia_fallita_non_lascia_una_cartella_orfana`,
-    sull'altra strada che puo' fallire: una figlia con dentro il solo
-    `config.yaml` viene inclusa da /api/compare (e' una directory) e rifiutata
-    senza ne' `modello.json` ne' corsa madre da leggere.
-    """
-    cfg = _config_cubo(tmp_path)
-    _scrivi_prior_telaio(cfg, _TELAIO_QUATTRO_MEMBRATURE)
-    cfg.analysis = None
-    figlia = tmp_path / "figlia-senza-materiale"
-
-    with pytest.raises(ValueError, match="analysis.material"):
-        pipeline.genera_modello(cfg, "estruso", figlia)
-
-    assert not (figlia / "config.yaml").exists()
-
-
-def test_il_deck_dello_step_11_porta_un_solo_passo(tmp_path):
-    """Dalla PR 1 del deck nudo la pipeline non passa piu' carichi al deck:
-    un solo *STEP (la gravita'), nessun *CLOAD, nessun *DSLOAD, nessuna
-    *SURFACE nel deck del muro."""
+def test_il_deck_dello_step_11_e_nudo(tmp_path):
+    """Dalla PR 2 del deck nudo la pipeline scrive il solo maglio: nessun
+    passo, nessun vincolo, nessuna sezione e nessun materiale nel deck del
+    muro. Sezione e materiale si assegnano in Abaqus, sul deck importato."""
     cfg = _config_cubo(tmp_path)
     cfg.run.to_step = 11
     pipeline.run(cfg)
     deck = (tmp_path / "out" / "wall_model.inp").read_text()
-    assert deck.count("*STEP") == 1
-    assert "*CLOAD" not in deck
-    assert "*DSLOAD" not in deck
-    assert "*SURFACE" not in deck
+    for card in ("*STEP", "*BOUNDARY", "*SOLID SECTION", "*MATERIAL"):
+        assert card not in deck
 
 
-def test_una_config_yaml_vecchia_arriva_al_deck_a_un_passo(tmp_path):
+def test_una_config_yaml_vecchia_e_rifiutata_prima_di_scrivere_qualunque_cosa(tmp_path):
     """La catena intera su una `config.yaml` scritta prima del deck nudo.
 
-    `test_config.py` prova la meta' di sopra -- `load_config` non solleva sui
-    blocchi usciti -- e il test qui sopra prova la meta' di sotto, ma partendo
-    da una configurazione costruita a mano in python. Nessuna riga le
-    incatenava: un `cfg` nato da uno yaml vecchio che attraversa
-    `pipeline.run` fino allo step 11 e produce il deck a un passo. E' la corsa
-    che le `runs/` gia' su disco fanno davvero.
+    `test_config.py` prova che `load_config` rifiuta i blocchi usciti; qui si
+    prova la conseguenza che conta per chi lancia una corsa: il rifiuto arriva
+    prima di ogni scrittura, e la cartella della corsa non nasce nemmeno. Una
+    corsa che partisse e morisse a meta' lascerebbe artefatti parziali di una
+    configurazione che il programma ha gia' dichiarato di non saper eseguire.
 
     I blocchi vecchi sono quelli di `runs/geoandgeo-lab/config.yaml`, con le
     due chiavi laterali a `null` come le scriveva l'interfaccia quando
-    restavano vuote.
+    restavano vuote: quelle restano ignorate, `carichi:` e `selettori:` no.
 
-    Mutazione che lo uccide: `extra="forbid"` su `_ModelloBase` (`load_config`
-    solleva), o un passo in piu' rimesso nel deck del muro.
+    Mutazione che lo uccide: togliere `carichi`/`selettori` da
+    `BLOCCHI_RIMOSSI` -- la corsa ripartirebbe e la cartella comparirebbe.
     """
-    pytest.importorskip("pymeshfix")
     vecchia = tmp_path / "config.yaml"
     config.save_config(_config_cubo(tmp_path), vecchia)
     # Le due chiavi laterali vanno *dentro* il `model:` gia' scritto: un
@@ -1474,17 +1460,12 @@ def test_una_config_yaml_vecchia_arriva_al_deck_a_un_passo(tmp_path):
         encoding="utf-8",
     )
 
-    cfg = config.load_config(vecchia)
-    assert not hasattr(cfg.model, "lateral_nset")
-    assert not hasattr(cfg.model, "lateral_pressure")
-    assert not hasattr(cfg, "carichi")
-    cfg.run.to_step = 11
-    pipeline.run(cfg)
+    with pytest.raises(ValidationError) as rifiuto:
+        config.load_config(vecchia)
 
-    deck = (tmp_path / "out" / "wall_model.inp").read_text()
-    assert deck.count("*STEP") == 1
-    for card in ("*CLOAD", "*DSLOAD", "*SURFACE", "*FREQUENCY"):
-        assert card not in deck
+    detto = str(rifiuto.value)
+    assert "carichi" in detto and "selettori" in detto
+    assert not (tmp_path / "out").exists()
 
 
 # --- Lo step 11 rilegge il prior dello step 12 (#135) -----------------------
@@ -1497,29 +1478,21 @@ def test_una_config_yaml_vecchia_arriva_al_deck_a_un_passo(tmp_path):
 # e' leggere il futuro. Il flusso e' arrivare a 12, dichiarare le regioni,
 # rieseguire lo step 11.
 
-_CLS_NUCLEO = config.Material(name="CLS_C25", young=31476.0, poisson=0.2, density=2.5e-9)
+def _regione(membratura):
+    """Una `RegioneConfig`: l'indice del prisma, e nient'altro."""
+    return config.RegioneConfig(membratura=membratura)
 
 
-def _regione(membratura, materiale):
-    """Una `RegioneConfig` col materiale chiesto."""
-    return config.RegioneConfig(
-        membratura=membratura,
-        materiale=config.MaterialeDichiarato(
-            material=materiale, provenienza="a_mano", norma="NTC 2018 Tab. 4.1.I"
-        ),
-    )
-
-
-def test_lo_step_11_rilegge_il_prior_e_porta_il_materiale_della_regione_nel_deck(tmp_path):
+def test_lo_step_11_rilegge_il_prior_e_porta_l_elset_della_regione_nel_deck(tmp_path):
     """Il prior della corsa gia' fatta diventa i prismi dell'attribuzione.
 
     La seconda corsa riparte dallo step 9 e si ferma all'11: `12_wall.json` e'
     quello che la prima ha scritto, e lo step 11 lo rilegge invece di
     pretendere membrature che alla sua ora non esistono.
 
-    Il deck che ne esce porta due materiali -- il calcestruzzo confinato della
-    regione e il materiale unico della corsa, che resta il ripiego degli
-    orfani -- e il resoconto dice quanti elementi sono finiti dove.
+    Il deck che ne esce porta l'`*ELSET` della regione -- il materiale che lo
+    riempie si assegna in Abaqus, non qui -- e il resoconto dice quanti
+    elementi sono finiti dove.
 
     Mutazione che deve morire: passare `regioni=None` a `export_model` allo
     step 11, o costruire le regioni senza rileggere il prior.
@@ -1528,22 +1501,19 @@ def test_lo_step_11_rilegge_il_prior_e_porta_il_materiale_della_regione_nel_deck
     pipeline.run(cfg)
     assert (cfg.run.out_dir / pipeline.WALL_FILENAME).exists()
 
-    cfg.regioni = {"NUCLEO": _regione(0, _CLS_NUCLEO)}
+    cfg.regioni = {"NUCLEO": _regione(0)}
     cfg.run.from_step = 9
     cfg.run.to_step = 11
     metriche = pipeline.run(cfg)
 
     testo = (cfg.run.out_dir / pipeline.DECK_FILENAME).read_text(encoding="ascii")
     assert "*ELSET, ELSET=NUCLEO" in testo
-    assert "*SOLID SECTION, ELSET=NUCLEO, MATERIAL=CLS_C25" in testo
-    assert "*MATERIAL, NAME=CLS_C25" in testo
+    assert "*SOLID SECTION" not in testo
+    assert "*MATERIAL" not in testo
 
     resoconto = metriche["11_export"]["regioni"]
     assert resoconto["elementi_per_regione"]["NUCLEO"] > 0
     assert 0.0 <= resoconto["frazione_orfana"] <= 1.0
-    # La limitazione dichiarata sta anche qui, non solo nel deck: chi legge
-    # metrics.json non apre il .inp.
-    assert resoconto["continuo"] == abaqus.CONTINUO_CONFINATO
 
 
 def test_lo_step_11_senza_il_prior_nomina_lo_step_12_e_il_comando_wall(tmp_path):
@@ -1558,7 +1528,7 @@ def test_lo_step_11_senza_il_prior_nomina_lo_step_12_e_il_comando_wall(tmp_path)
     manca, invece di sollevare.
     """
     cfg = _config_cubo(tmp_path)
-    cfg.regioni = {"NUCLEO": _regione(0, _CLS_NUCLEO)}
+    cfg.regioni = {"NUCLEO": _regione(0)}
     cfg.run.to_step = 11
 
     with pytest.raises(FileNotFoundError) as errore:
@@ -1586,7 +1556,7 @@ def test_un_prior_troncato_e_dichiarato_invece_di_valere_come_prior(tmp_path):
     percorso = cfg.run.out_dir / pipeline.WALL_FILENAME
     percorso.write_text(percorso.read_text(encoding="utf-8")[:80], encoding="utf-8")
 
-    cfg.regioni = {"NUCLEO": _regione(0, _CLS_NUCLEO)}
+    cfg.regioni = {"NUCLEO": _regione(0)}
     cfg.run.from_step = 9
     cfg.run.to_step = 11
 
@@ -1612,7 +1582,6 @@ def test_senza_regioni_lo_step_11_non_rilegge_il_prior(tmp_path):
     assert "regioni" not in metriche["11_export"]
     testo = (cfg.run.out_dir / pipeline.DECK_FILENAME).read_text(encoding="ascii")
     assert "*ELSET" not in testo
-    assert abaqus.CONTINUO_CONFINATO not in testo
 
 
 
@@ -1770,7 +1739,7 @@ def test_riprendere_da_valle_con_la_semplificazione_accesa_rilegge_lo_step_8(tmp
     io.write_cloud(cloud_path, synth.sample_box_surface(SIZE, SPACING))
 
     def makecfg(from_step, to_step):
-        return crea_config(
+        return config.PipelineConfig(
             input=config.InputConfig(path=cloud_path, spacing_sample=5000),
             downsample=config.DownsampleConfig(voxel_size=SPACING),
             surface=config.SurfaceConfig(poisson_depth=8, density_quantile=0.02),
