@@ -349,6 +349,18 @@ def genera_modello(cfg: PipelineConfig, tipo: str, out_dir: Path) -> dict[str, o
     out.mkdir(parents=True, exist_ok=True)
     save_config(cfg, out / "config.yaml")
 
+    # Prima del deck, non dopo: se `scrivi_step` solleva a deck gia' scritto, la
+    # figlia resta con `config.yaml` + deck + vtu e senza `modello.json`, e
+    # `report.confronta` la legge come «as-built» in silenzio; col solo
+    # `config.yaml` la rifiuta a voce alta. I prismi sono quelli NON tagliati --
+    # la fusione toglie da se' la doppia contabilita' alle giunzioni. E' una
+    # seconda uscita: la mesh esaedrica e il suo deck non cambiano (spec
+    # 2026-09-07, ADR STEP dal prior geometrico).
+    step = hexa.scrivi_step(
+        [hexa.prisma_di(membratura, tipo) for membratura in membrature],
+        out / MODEL_STEP_FILENAME,
+    )
+
     export = abaqus.export_model(
         out / DECK_FILENAME,
         out / WALL_VTU_FILENAME,
@@ -360,15 +372,6 @@ def genera_modello(cfg: PipelineConfig, tipo: str, out_dir: Path) -> dict[str, o
         element_type=cfg.model.element,
         element_surfaces=modello["superfici"],
         ties=modello["ties"],
-    )
-
-    # La geometria per Abaqus, accanto al deck: i prismi NON tagliati -- la
-    # fusione toglie da se' la doppia contabilita' alle giunzioni -- fusi in
-    # un solido. E' una seconda uscita: la mesh esaedrica e il suo deck non
-    # cambiano (spec 2026-09-07, ADR STEP dal prior geometrico).
-    step = hexa.scrivi_step(
-        [hexa.prisma_di(membratura, tipo) for membratura in membrature],
-        out / MODEL_STEP_FILENAME,
     )
 
     # Lo scostamento dalla nuvola sorgente e' il perno del confronto (Task 12):

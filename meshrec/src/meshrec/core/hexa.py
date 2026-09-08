@@ -21,7 +21,7 @@ from pathlib import Path
 
 import numpy as np
 
-from meshrec.core import abaqus
+from meshrec.core import abaqus, io
 from meshrec.core.config import ModelConfig
 from meshrec.core.wall import ruoli_dell_incontro
 
@@ -334,7 +334,7 @@ MODEL_STEP_SCHEMA = "AP214"  # l'unico che gmsh scrive: dichiarato, non scelto
 
 
 def scrivi_step(prismi: list[Prisma], percorso: Path) -> dict[str, object]:
-    """Il solido fuso dei prismi, scritto in STEP; la metrica lo contraddice.
+    """Il solido fuso dei prismi, scritto in STEP; la metrica porta il suo contraddittorio.
 
     I prismi sono quelli **non tagliati**: la fusione booleana toglie da se'
     la doppia contabilita' alle giunzioni, che `taglia_giunzioni` esiste per
@@ -348,18 +348,39 @@ def scrivi_step(prismi: list[Prisma], percorso: Path) -> dict[str, object]:
     `volume_analitico` e' la somma area·lunghezza dei prismi cosi' come
     arrivano: sul telaio del prior i due volumi coincidono fino alla
     compenetrazione alle giunzioni, e lo scarto e' il numero da leggere.
+
+    Va chiamata serialmente, mai con una sessione gmsh gia' aperta:
+    `gmsh.initialize()`/`finalize()` sono globali, come per `mesh_prisma`.
     """
     if not prismi:
         raise ValueError(
             "nessuna membratura da scrivere in STEP: il prior non ne ha accettata "
             "alcuna. Guarda le regioni scartate e il controllo che le ha respinte"
         )
+    # Prima di gmsh, non dentro: misurato il 08/09/2026 che `lunghezza=nan`
+    # arriva a `occ.extrude` e abbatte il processo con SIGSEGV, e che un
+    # contorno di area zero si scopre solo alla divisione dello scarto, a file
+    # gia' scritto. La stessa area serve poi per `volume_analitico`.
+    volumi_analitici = []
+    for indice, p in enumerate(prismi):
+        lunghezza = float(p.lunghezza)
+        if not (np.isfinite(lunghezza) and lunghezza > 0.0):
+            raise ValueError(
+                f"prisma {indice}: lunghezza={p.lunghezza!r} non è finita e "
+                "positiva: un prisma richiede un'estrusione di lunghezza "
+                "maggiore di zero"
+            )
+        area = abs(_area_poligono(np.asarray(p.contorno, dtype=np.float64)))
+        if not area > 0.0:
+            raise ValueError(
+                f"prisma {indice}: area del contorno = {area!r}, il contorno è "
+                "degenere (vertici allineati o coincidenti) e non si estrude"
+            )
+        volumi_analitici.append(area * lunghezza)
+
     import gmsh
 
-    analitico = float(sum(
-        abs(_area_poligono(np.asarray(p.contorno, dtype=np.float64))) * float(p.lunghezza)
-        for p in prismi
-    ))
+    analitico = float(sum(volumi_analitici))
     gmsh.initialize()
     try:
         gmsh.option.setNumber("General.Terminal", 0)
@@ -390,7 +411,7 @@ def scrivi_step(prismi: list[Prisma], percorso: Path) -> dict[str, object]:
         # dall'ordine in cui gmsh li restituisce.
         solidi = sorted(tag for dim, tag in fusi if dim == 3)
         volume = float(sum(occ.getMass(3, tag) for tag in solidi))
-        gmsh.write(str(percorso))
+        io.scrivi_atomico(percorso, lambda destinazione: gmsh.write(str(destinazione)))
     finally:
         gmsh.finalize()
     return {

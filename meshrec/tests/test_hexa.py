@@ -8,6 +8,8 @@ sotto prova.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -838,6 +840,51 @@ def test_due_prismi_disgiunti_restano_due_solidi_e_il_file_si_scrive(tmp_path):
 def test_zero_prismi_non_scrivono_un_file(tmp_path):
     with pytest.raises(ValueError, match="membratura"):
         hexa.scrivi_step([], tmp_path / "modello.step")
+    assert not (tmp_path / "modello.step").exists()
+
+
+def test_una_lunghezza_non_finita_solleva_prima_di_gmsh_e_non_scrive(tmp_path):
+    """`lunghezza=nan` arrivava fino a `occ.extrude`, che abbatte il processo con
+    SIGSEGV (verificato a mano il 08/09/2026: exit 139). La guardia sta prima di
+    `gmsh.initialize()` e nomina indice e valore, come in `mesh_prisma`."""
+    buono = _prisma_scatola((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), (300.0, 300.0), 3000.0)
+    rotto = _prisma_scatola((1000.0, 0.0, 0.0), (0.0, 0.0, 1.0), (300.0, 300.0), 1.0)
+    rotto = hexa.Prisma(
+        contorno=rotto.contorno, origine=rotto.origine, asse=rotto.asse,
+        lunghezza=float("nan"),
+    )
+    with pytest.raises(ValueError, match=r"prisma 1.*nan"):
+        hexa.scrivi_step([buono, rotto], tmp_path / "modello.step")
+    assert not (tmp_path / "modello.step").exists()
+
+
+def test_un_contorno_collineare_solleva_prima_di_gmsh_e_non_scrive(tmp_path):
+    """Tre punti su una retta: area zero. Prima della guardia lo scarto relativo
+    divideva per zero *dopo* aver scritto il file, e restava un `modello.step`
+    che nessuna metrica accompagnava."""
+    collineare = hexa.Prisma(
+        contorno=np.array([[0.0, 0.0], [100.0, 0.0], [200.0, 0.0]]),
+        origine=np.zeros(3), asse=ASSE_Z, lunghezza=3000.0,
+    )
+    with pytest.raises(ValueError, match=r"prisma 0.*area"):
+        hexa.scrivi_step([collineare], tmp_path / "modello.step")
+    assert not (tmp_path / "modello.step").exists()
+
+
+def test_una_scrittura_interrotta_non_lascia_un_modello_step_col_nome_finale(tmp_path, monkeypatch):
+    """`gmsh.write` che muore a meta' non deve lasciare un `modello.step` monco
+    col nome finale: chi rilegge gli artefatti lo prenderebbe per completo.
+    Come gli altri artefatti, passa da `io.scrivi_atomico`."""
+    import gmsh
+
+    def a_meta(percorso, *args, **kwargs):
+        Path(percorso).write_text("ISO-10303-21;\n", encoding="utf-8")
+        raise RuntimeError("scrittura interrotta")
+
+    monkeypatch.setattr(gmsh, "write", a_meta)
+    pilastro = _prisma_scatola((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), (300.0, 300.0), 3000.0)
+    with pytest.raises(RuntimeError, match="scrittura interrotta"):
+        hexa.scrivi_step([pilastro], tmp_path / "modello.step")
     assert not (tmp_path / "modello.step").exists()
 
 

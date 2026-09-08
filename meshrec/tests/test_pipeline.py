@@ -1221,9 +1221,13 @@ def test_genera_modello_scrive_anche_la_geometria_step(tmp_path, tipo):
     figlia = tmp_path / f"figlia-{tipo}"
     esito = pipeline.genera_modello(cfg, tipo, figlia)
     assert (figlia / pipeline.MODEL_STEP_FILENAME).exists()
-    assert esito["step"]["solidi"] >= 1
+    assert esito["step"]["solidi"] == 1
     assert esito["step"]["volume"] > 0.0
-    assert esito["step"]["scarto_relativo"] < 0.05
+    # Il telaio sintetico compenetra alle giunzioni: lo scarto e' 0,0209
+    # (estruso) e 0,0178 (primitive). Zero vorrebbe dire che il `fuse` non ha
+    # fuso -- quattro solidi accostati, volume uguale alla somma -- e passerebbe
+    # con il solo estremo superiore.
+    assert 0.005 < esito["step"]["scarto_relativo"] < 0.05
     riletto = json.loads((figlia / pipeline.MODEL_FILENAME).read_text(encoding="utf-8"))
     assert riletto["step"]["file"].endswith("modello.step")
 
@@ -1246,6 +1250,11 @@ def test_senza_geometria_step_non_resta_un_modello_json_che_la_dichiara(tmp_path
     with pytest.raises(RuntimeError, match="step rotto"):
         pipeline.genera_modello(cfg, "estruso", figlia)
 
+    # Lo step si scrive prima del deck: caduto lui, la figlia resta col solo
+    # `config.yaml`, che `report.confronta` rifiuta a voce alta. Col deck
+    # dentro e senza `modello.json` la leggerebbe invece come «as-built».
+    assert not (figlia / pipeline.DECK_FILENAME).exists()
+    assert sorted(p.name for p in figlia.iterdir()) == ["config.yaml"]
     assert not (figlia / pipeline.MODEL_FILENAME).exists()
 
 
