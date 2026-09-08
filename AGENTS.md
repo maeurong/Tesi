@@ -79,7 +79,9 @@ valgono più di qualsiasi diagramma:
 
 - `STEP_KEYS` — i dodici passaggi in ordine, dal caricamento della nuvola di
   punti fino al prior geometrico. **Il prodotto ne dichiara undici**: si chiude
-  sul deck `.inp` dello step 11, e per questo `to_step` ha 11 come predefinito.
+  sul deck `.inp` **nudo** dello step 11 — mesh e insiemi, senza materiale,
+  vincoli né carichi, che si assegnano in Abaqus — e per questo `to_step` ha 11
+  come predefinito.
   L'ultimo — il prior geometrico, che misura telaio e membrature dalla
   scansione — resta funzionante e raggiungibile chiedendolo (`meshrec wall`, o
   `--to-step 12`), ma sta fuori da ciò che il prodotto promette.

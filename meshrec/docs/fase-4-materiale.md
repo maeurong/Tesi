@@ -1,5 +1,8 @@
 # Il materiale del provino di laboratorio
 
+> **Superato il 08/09/2026.** Il deck `.inp` esce nudo: materiale, vincoli e carichi non si dichiarano più in configurazione, si assegnano in Abaqus/CAE sul deck importato. Il documento resta come cronaca di fase. Vedi `docs/adr/2026-09-07-deck-nudo-via-analisi-carichi-selettori.md`.
+
+
 Data: 18/08/2026. Nasce all'apertura della Fase 4, dalla lettura della tavola
 `muro_1.pdf`.
 

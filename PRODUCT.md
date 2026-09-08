@@ -53,13 +53,21 @@ riparazione opache e non citabili in un lavoro scientifico.
 Il successo ha due metà: il metodo — una pipeline parametrizzata, misurata e
 validata — e i risultati ottenuti applicandolo al caso studio della tesi.
 
-**Perimetro.** Il prodotto va dalla nuvola di punti al deck `.inp` e si ferma
-lì. L'analisi strutturale si esegue in Abaqus, a mano, sul deck che il programma
-ha scritto; i suoi risultati appartengono alla tesi e non sono un'uscita del
-software. Fermarsi al deck sposta il carico della prova su un formato standard:
-un deck riproducibile lo verifica chiunque abbia Abaqus, mentre una soluzione
-calcolata internamente la verifica solo chi si fida della catena che l'ha
-prodotta.
+**Perimetro.** Il prodotto va dalla nuvola di punti al deck `.inp` **nudo**, che
+Abaqus completa; e dal prior geometrico alla geometria STEP dei modelli
+parametrici. Il deck porta la mesh e i suoi insiemi — nodi, elementi, i sei set
+di faccia, un `*ELSET` per regione — e nient'altro: materiali, sezioni, vincoli e
+carichi si assegnano in Abaqus/CAE, sul deck importato, dall'8 settembre 2026
+(decisione presa col tutor: ADR
+`docs/adr/2026-09-07-deck-nudo-via-analisi-carichi-selettori.md`). Accanto al
+deck del modello parametrico esce `modello.step`, la geometria fusa dei prismi
+del prior (ADR `docs/adr/2026-09-07-step-dal-prior-geometrico.md`). L'analisi
+strutturale si esegue in Abaqus, a mano; i suoi risultati appartengono alla tesi
+e non sono un'uscita del software. Fermarsi al deck sposta il carico della prova
+su un formato standard: un deck riproducibile lo verifica chiunque abbia Abaqus,
+mentre una soluzione calcolata internamente la verifica solo chi si fida della
+catena che l'ha prodotta. La decisione del perimetro è in
+`docs/superpowers/specs/2026-08-31-perimetro-del-progetto-design.md`.
 
 Il solutore integrato **non c'è più**. È esistito fino al 2 settembre 2026 come
 linea di sviluppo parallela — pre-processore, solutore, verifiche di norma — ed è
@@ -109,8 +117,8 @@ stampato.
 
 ## Capabilities and Constraints
 
-**Capacità confermate.** Undici step dalla lettura della nuvola al deck pronto
-all'analisi: lettura e controllo di scala, segmentazione con ritaglio a box o
+**Capacità confermate.** Undici step dalla lettura della nuvola al deck nudo:
+lettura e controllo di scala, segmentazione con ritaglio a box o
 automatica, riduzione a voxel, normali, ricostruzione della superficie,
 riparazione, metriche di superficie, semplificazione opzionale,
 tetraedrizzazione, metriche di volume, esportazione. Motore di sweep su griglia
@@ -130,9 +138,11 @@ l'interfaccia. Riproducibilità a parità di configurazione: il parallelismo del
 librerie è fissato a un thread perché altrimenti la stessa configurazione
 produce risultati diversi.
 
-**Fatti di prodotto esplicitamente non decisi.** Il controllo dei dati con Abaqus
-non è mai stato eseguito, perché non c'è licenza sulla macchina di sviluppo: nulla
-deve affermare che il deck sia stato validato da Abaqus. I set di faccia
+**Fatti di prodotto esplicitamente non decisi.** Sulla macchina di sviluppo non
+c'è licenza Abaqus. Il 7 settembre 2026 l'autore ha importato in Abaqus/CAE, su
+un'altra macchina, il deck nudo di un pilastro sintetico e la geometria STEP di
+un telaio sintetico: il deck importa, i set si selezionano, un job gira; lo STEP
+importa. Nessuna corsa reale è stata validata in Abaqus, e nulla deve affermarlo. I set di faccia
 `FACE_FRONT` e `FACE_BACK` sono misurati inutilizzabili su una scansione reale, e
 i nomi dei set di faccia sono convenzioni, non identificazioni delle facce
 fisiche.

@@ -1,5 +1,8 @@
 # MeshRec Fase 6 — Carichi posizionati su una mesh senza topologia
 
+> **Superato il 08/09/2026.** Il deck `.inp` esce nudo: materiale, vincoli e carichi non si dichiarano più in configurazione, si assegnano in Abaqus/CAE sul deck importato. Il documento resta come cronaca di fase. Vedi `docs/adr/2026-09-07-deck-nudo-via-analisi-carichi-selettori.md`.
+
+
 - **Data:** 22 agosto 2026
 - **Stato:** design approvato in sessione di brainstorming
 - **Dipende da:** Fase 5 chiusa e fusa (risoluzione con CalculiX, `meshrec/docs/fase-5-analisi.md`).
