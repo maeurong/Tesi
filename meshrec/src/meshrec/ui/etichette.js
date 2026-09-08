@@ -191,7 +191,7 @@ export const ETICHETTE_METRICHE = {
     "volume": "volume [mm³]",
     "surface_area": "area della superficie [mm²]",
     "extent": "ingombro [mm]",
-    "fixed_nset_coverage": "copertura del set di vincolo",
+    "fixed_nset_coverage": "copertura della base",
     "boundary_spacing": "spaziatura al contorno [mm]",
     "set_tolerance": "tolleranza dei set [mm]",
   },

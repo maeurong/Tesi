@@ -1711,16 +1711,7 @@ def test_ogni_tratta_che_interroga_il_server_si_scarta_se_e_stata_superata():
     # non scrive nulla dopo l'attesa, quindi non ha niente da contraddire; ha
     # un nome apposta per poter comparire qui invece di non essere mai
     # incontrata.
-    # catalogoMateriali non scrive: rende un valore, e la guardia sta dove
-    # quel valore tocca il documento. E' esente per la stessa ragione di
-    # annullaLaCorsa -- non ha niente da contraddire -- e l'esenzione non e'
-    # gratuita: l'assert qui sotto pretende che il suo unico chiamante guardi
-    # l'ordine prima di scrivere, che e' cio' che questa regola difende.
-    senza_ordine = {"caricaStato", "annullaLaCorsa", "catalogoMateriali"}
-    assert re.search(
-        r"catalogoMateriali\(\)\.then\(\(voci\) => \{\s*\n\s*if \(superata\(ordine\)\) return;",
-        testo,
-    ), "il menu' del catalogo si riempie senza guardare se il pannello e' stato superato"
+    senza_ordine = {"caricaStato", "annullaLaCorsa"}
     tratte = [
         (nome, _sorgente_di(nome, testo))
         for nome in re.findall(r"^async function (\w+)\(", testo, re.MULTILINE)
@@ -1737,11 +1728,12 @@ def test_ogni_tratta_che_interroga_il_server_si_scarta_se_e_stata_superata():
     # e' anche l'unica rete che resta quando l'estrazione per graffe fallisce
     # (vedi il tetto di _corpi_freccia_asincroni): le tratte reali sono 7
     # nominate (disegnaIngresso, chiediStorico, mostraNuvolaDelloStep,
-    # mostraStep, mostraFantasmaDelloStep, scriviValore, apriDettaglio) piu' 6
-    # freccia, tredici in tutto -- la soglia pareggia il numero vero, contato
-    # rieseguendo questo stesso algoritmo su app.js. Se ne aggiungi una, alza
-    # la soglia invece di lasciarla indietro.
-    assert interrogano >= 13, "le tratte attese sono sparite dal modulo"
+    # mostraStep, mostraFantasmaDelloStep, scriviValore, apriDettaglio) piu' 5
+    # freccia, dodici in tutto -- erano tredici finche' il pannello del
+    # materiale portava la propria PUT. La soglia pareggia il numero vero,
+    # contato rieseguendo questo stesso algoritmo su app.js. Se ne aggiungi
+    # una, alza la soglia invece di lasciarla indietro.
+    assert interrogano >= 12, "le tratte attese sono sparite dal modulo"
 
 
 def test_due_geometrie_in_volo_nella_stessa_generazione_non_si_arbitrano_per_arrivo():
