@@ -6578,9 +6578,9 @@ def test_i_tre_comandi_della_vista_stanno_nel_markup():
 
 def _banco_dei_comandi_della_vista() -> str:
     """`salvaImmagine` con la vista finta e i tre elementi che legge."""
-    return _DOM + _costante("STEP_CON_GEOMETRIA") + "\n" + _funzioni("nomeDellaCorsa", "nomeDellImmagine", "didascaliaDellaVista", "passoDaMostrare", "righeDiProvenienza", "valoreDellaMetrica", "righeDeiParametri", "superata", "spezzaInRighe", "spezzaInCampi", "immagineConProvenienza", "dichiaraErrore", "serverMuto", "ragioneDelRifiuto", "corpoLetto", "salvaImmagine") + """
+    return _DOM + _costante("STEP_CON_GEOMETRIA") + "\n" + _funzioni("nomeDellaCorsa", "nomeDellImmagine", "didascaliaDellaVista", "passoDaMostrare", "schedaDiProvenienza", "valoreDellaMetrica", "blocchiDeiParametri", "superata", "spezzaInRighe", "immagineConProvenienza", "dichiaraErrore", "serverMuto", "ragioneDelRifiuto", "corpoLetto", "salvaImmagine") + """
 let schemaParametri = null;
-// Un server che serve schema e configurazione: senza, la striscia non puo'
+// Un server che serve schema e configurazione: senza, il cartiglio non puo'
 // dire i parametri e il comando dichiara l'errore. I banchi che provano quel
 // ramo lo sovrascrivono.
 const SCHEMA_DEL_BANCO = { "6": { blocchi: ["repair"], campi: { repair: { max_hole_area: { etichetta: "area massima del buco [mm²]", default: null } } } } };
@@ -7024,55 +7024,104 @@ assert.equal(avanzamentoDellaCorsa({ step: null, a_step: null, steps }), null);
 """)
 
 
-def test_il_png_salvato_porta_le_righe_di_provenienza(tmp_path):
-    """«Salva immagine» scriveva la sola tela: in appendice la figura perdeva
-    corsa, step, configurazione e caso di carico. Le righe si compongono da
-    cio' che la pagina mostra gia', e la striscia si disegna con una tela 2D
-    dove c'e'; dove non c'e' (qui) torna la sola cattura, non nessun PNG.
-
-    Mutazione che lo uccide: scrivere le righe vuote (una riga bianca sotto
-    uno step senza didascalia), o perdere l'impronta.
-    """
-    _esegui(tmp_path, _banco_dei_comandi_della_vista() + """
-const righe = righeDiProvenienza({
-  corsa: "runs/lab_crop", numero: 6, nome: "Riparazione", impronta: "abcdef0123456789",
-  conteggi: "453.808 vertici, 891.775 triangoli", didascalia: "", data: "3/9/2026",
-});
-assert.deepEqual(righe, [
-  "lab_crop · step 6, Riparazione · impronta abcdef012345",
-  "453.808 vertici, 891.775 triangoli",
-  "MeshRec, 3/9/2026",
-]);
-assert.deepEqual(righeDiProvenienza({ // Il percorso alla Windows, con la barra rovesciata scritta per codice: in una
-// stringa JS `\\p` sarebbe un escape, e sparirebbe.
-corsa: "runs" + String.fromCharCode(92) + "pluto", numero: 3, nome: "Riduzione", impronta: undefined, conteggi: "", didascalia: "scarto RMS 9,5 mm", data: "oggi" }),
-  ["pluto · step 3, Riduzione", "scarto RMS 9,5 mm", "MeshRec, oggi"]);
-
-// Senza Image (qui): la sola cattura.
-assert.equal(await immagineConProvenienza("data:image/png;base64,AAA", righe), "data:image/png;base64,AAA");
-
-// Con una tela 2D finta: la striscia si disegna e il PNG e' quello composto.
+def _banco_del_cartiglio() -> str:
+    """Il banco dei comandi con una tela 2D finta che annota ogni scritta:
+    testo, posizione e lo stato di font, colore e allineamento al momento
+    della chiamata. `immagineDi(larghezza, altezza)` monta l'`Image` finta."""
+    return _banco_dei_comandi_della_vista() + """
 const scritte = [];
-globalThis.Image = class { constructor() { this.width = 1200; this.height = 800; } set src(v) { this.sorgente = v; } decode() { return Promise.resolve(); } };
-const telaFinta = { width: 0, height: 0, getContext: () => ({ fillRect() {}, drawImage() {}, measureText: (s) => ({ width: s.length * 8 }), fillText: (r) => scritte.push(r) }), toDataURL: () => "data:composto" };
+const pennelloFinto = {
+  font: "", fillStyle: "", textAlign: "left", textBaseline: "",
+  fillRect() {}, drawImage() {},
+  measureText: (s) => ({ width: s.length * 8 }),
+  fillText(testo, x, y) { scritte.push({ testo, x, y, font: this.font, fillStyle: this.fillStyle, textAlign: this.textAlign }); },
+};
+const telaFinta = { width: 0, height: 0, getContext: () => pennelloFinto, toDataURL: () => "data:composto" };
 const creaPrima = document.createElement;
 document.createElement = (tag) => tag === "canvas" ? telaFinta : creaPrima(tag);
-assert.equal(await immagineConProvenienza("data:image/png;base64,AAA", righe), "data:composto");
-assert.deepEqual(scritte, righe, "a 1200 px ogni riga sta in una riga");
-assert.ok(telaFinta.height > 800, "la striscia non ha allungato la tela");
+const immagineDi = (width, height) => {
+  globalThis.Image = class { constructor() { this.width = width; this.height = height; } set src(v) {} decode() { return Promise.resolve(); } };
+};
+const testi = () => scritte.map((s) => s.testo);
+const campi = (quanti) => Array.from({ length: quanti }, (_, k) => [`campo ${k + 1}`, String(k + 1)]);
+const scheda = (quanti, resto = {}) => ({
+  titolo: "Step 5 · Superficie", meta: ["corsa demo · 10/09/2026", "impronta abcdef012345"],
+  conteggi: "453.808 vertici, 891.775 triangoli", didascalia: "scarto RMS 9,5 mm",
+  blocchi: [{ nome: "superficie", campi: campi(quanti) }], ...resto,
+});
+"""
 
-// Una tela stretta: la riga lunga va a capo per parole, non si schiaccia.
+
+def test_il_png_salvato_porta_il_cartiglio_di_provenienza(tmp_path):
+    """«Salva immagine» scriveva la sola tela: in appendice la figura perdeva
+    corsa, step, configurazione e caso di carico. La scheda si compone da cio'
+    che la pagina mostra gia', e il cartiglio si disegna con una tela 2D dove
+    c'e'; dove non c'e' torna la sola cattura, non nessun PNG.
+
+    Il cartiglio sta a destra, largo due quinti dell'immagine, alto quanto lei:
+    con 2 campi o con 12 il PNG esce di norma della stessa misura. La
+    striscia sotto cresceva con le righe, e sei step della stessa corsa
+    uscivano di sei altezze diverse.
+
+    Mutazione che lo uccide: allungare la tela con le righe, perdere
+    l'impronta, o scrivere una riga vuota per una didascalia vuota.
+    """
+    _esegui(tmp_path, _banco_del_cartiglio() + """
+const composta = schedaDiProvenienza({
+  corsa: "runs/lab_crop", numero: 6, nome: "Riparazione", impronta: "abcdef0123456789",
+  conteggi: "453.808 vertici, 891.775 triangoli", blocchi: [{ nome: "riparazione", campi: [["attiva", "no"]] }], didascalia: "", data: "3/9/2026",
+});
+assert.deepEqual(composta, {
+  titolo: "Step 6 · Riparazione",
+  meta: ["corsa lab_crop · 3/9/2026", "impronta abcdef012345"],
+  conteggi: "453.808 vertici, 891.775 triangoli",
+  didascalia: "",
+  blocchi: [{ nome: "riparazione", campi: [["attiva", "no"]] }],
+});
+// Il percorso alla Windows, con la barra rovesciata scritta per codice: in una
+// stringa JS `\\p` sarebbe un escape, e sparirebbe. Senza impronta e senza
+// blocchi: la meta ha una riga sola, i blocchi sono vuoti.
+assert.deepEqual(schedaDiProvenienza({ corsa: "runs" + String.fromCharCode(92) + "pluto", numero: 3, nome: "Riduzione", impronta: undefined, conteggi: "", didascalia: "scarto RMS 9,5 mm", data: "oggi" }),
+  { titolo: "Step 3 · Riduzione", meta: ["corsa pluto · oggi"], conteggi: "", didascalia: "scarto RMS 9,5 mm", blocchi: [] });
+
+// Senza Image, o senza una tela 2D: la sola cattura, intatta.
+const ImageDelBanco = globalThis.Image;
+delete globalThis.Image;
+assert.equal(await immagineConProvenienza("data:image/png;base64,AAA", scheda(2)), "data:image/png;base64,AAA");
+immagineDi(1824, 1230);
+const contestoPrima = telaFinta.getContext;
+telaFinta.getContext = () => null;
+assert.equal(await immagineConProvenienza("data:image/png;base64,AAA", scheda(2)), "data:image/png;base64,AAA");
+telaFinta.getContext = contestoPrima;
+
+// Misure fisse: larga W + W/3, alta H, con 2 campi come con 12.
+for (const quanti of [2, 12]) {
+  scritte.length = 0;
+  assert.equal(await immagineConProvenienza("data:image/png;base64,AAA", scheda(quanti)), "data:composto");
+  assert.equal(telaFinta.width, 1824 + 730, `larghezza con ${quanti} campi`);
+  assert.equal(telaFinta.height, 1230, `altezza con ${quanti} campi`);
+  assert.equal(scritte.filter((s) => s.textAlign === "right").length, quanti, "un valore a destra per campo");
+}
+
+// Step «non valido»: nessun blocco, nessuna riga di parametri, stesse misure.
 scritte.length = 0;
-globalThis.Image = class { constructor() { this.width = 200; this.height = 150; } set src(v) {} decode() { return Promise.resolve(); } };
-await immagineConProvenienza("data:image/png;base64,AAA", ["453.808 vertici, 891.775 triangoli"]);
-assert.deepEqual(scritte, ["453.808 vertici,", "891.775 triangoli"], scritte.join(" | "));
-document.createElement = creaPrima;
+await immagineConProvenienza("data:image/png;base64,AAA", scheda(0, { meta: ["corsa demo · 10/09/2026"], blocchi: [], conteggi: "", didascalia: "" }));
+assert.deepEqual(testi(), ["Step 5 · Superficie", "corsa demo · 10/09/2026", "MeshRec"], testi().join(" | "));
+assert.equal(telaFinta.width, 1824 + 730);
+assert.equal(telaFinta.height, 1230);
+for (const s of scritte) assert.ok(s.testo.trim(), "scritta una riga vuota");
+
+// Un blocco senza campi si disegna col solo nome.
+scritte.length = 0;
+await immagineConProvenienza("data:image/png;base64,AAA", scheda(0, { blocchi: [{ nome: "riparazione", campi: [] }] }));
+assert.ok(testi().includes("riparazione"), testi().join(" | "));
+assert.equal(scritte.filter((s) => s.textAlign === "right").length, 0);
 """)
 
 
-def test_la_striscia_dice_lo_step_in_figura_e_tace_l_impronta_di_uno_step_non_valido(tmp_path):
+def test_il_cartiglio_dice_lo_step_in_figura_e_tace_l_impronta_di_uno_step_non_valido(tmp_path):
     """Due bugie evitate. Sullo step 11 la vista ripiega a monte, e nome del
-    file e striscia dicono lo step in figura, non quello scelto. Su uno step
+    file e cartiglio dicono lo step in figura, non quello scelto. Su uno step
     «non valido» l'impronta che arriva e' della configurazione corrente, che
     l'artefatto in figura non ha prodotto: non si scrive.
 
@@ -7090,17 +7139,19 @@ stepScelto = 11;
 await salvaImmagine();
 assert.equal(scaricato().download, "lab-crop-09-tetraedri-scarto-rms-9-5-mm.png", "il file nomina lo step scelto e non quello in figura");
 
-// Le righe: lo step in figura, senza impronta perche' «non valido».
-const righe = righeDiProvenienza({ corsa: "runs/x", numero: 9, nome: "Tetraedri", impronta: undefined, conteggi: "c", didascalia: "", data: "d" });
-assert.equal(righe[0], "x · step 9, Tetraedri");
+// La scheda: lo step in figura, senza impronta perche' «non valido».
+const composta = schedaDiProvenienza({ corsa: "runs/x", numero: 9, nome: "Tetraedri", impronta: undefined, conteggi: "c", didascalia: "", data: "d" });
+assert.equal(composta.titolo, "Step 9 · Tetraedri");
+assert.deepEqual(composta.meta, ["corsa x · d"]);
 """)
 
 
-def test_le_righe_dei_parametri_dicono_una_riga_per_blocco_dello_step(tmp_path):
+def test_i_blocchi_dei_parametri_dicono_un_blocco_per_blocco_dello_step(tmp_path):
     """La figura in appendice deve dire con quali parametri e' stata prodotta,
     predefiniti compresi: chi legge la tesi non ha la configurazione sotto
-    mano. Una riga per blocco, nell'ordine dello schema, con le etichette del
-    pannello e non le chiavi.
+    mano. Un blocco per blocco, nell'ordine dello schema, con le etichette del
+    pannello e non le chiavi, e i campi come coppie etichetta/valore: il
+    cartiglio le scrive su due colonne, non in fila.
 
     Il vuoto e' «non impostato», la stessa parola del report (core/report.py,
     NON_IMPOSTATO): «automatico» era falso per crop_min (nessun ritaglio) e
@@ -7133,47 +7184,54 @@ const corrente = {
   surface: { method: "poisson", depth: 7, voxel_size: 0, soglia: 0.05, pesi: [1, 2, 4] },
   repair: { enabled: false, fill_holes: null },
 };
-assert.deepEqual(righeDeiParametri(voce, corrente), [
-  "superficie · algoritmo di ricostruzione: poisson · profondità dell'ottree di Poisson: 7 · lato della cella più fine [mm]: 0 · soglia: 0,05 · pesi: [1,2,4]",
-  "riparazione · attiva: no · chiudi i buchi: non impostato",
+assert.deepEqual(blocchiDeiParametri(voce, corrente), [
+  { nome: "superficie", campi: [
+    ["algoritmo di ricostruzione", "poisson"],
+    ["profondità dell'ottree di Poisson", "7"],
+    ["lato della cella più fine [mm]", "0"],
+    ["soglia", "0,05"],
+    ["pesi", "[1,2,4]"],
+  ] },
+  { nome: "riparazione", campi: [["attiva", "no"], ["chiudi i buchi", "non impostato"]] },
 ]);
 // Il percorso della nuvola: il solo nome del file, con la barra di Windows scritta per codice.
 const lettura = { blocchi: ["input"], campi: { input: { path: { etichetta: "nuvola" }, crop_min: { etichetta: "ritaglio da", default: null } } } };
-assert.deepEqual(righeDeiParametri(lettura, { input: { path: "/home/mario/x/lab_frame.pcd", crop_min: null } }), ["lettura · nuvola: lab_frame.pcd · ritaglio da: non impostato"]);
-assert.deepEqual(righeDeiParametri(lettura, { input: { path: "C:" + String.fromCharCode(92) + "dati" + String.fromCharCode(92) + "lab.pcd" } }), ["lettura · nuvola: lab.pcd · ritaglio da: non impostato"]);
+assert.deepEqual(blocchiDeiParametri(lettura, { input: { path: "/home/mario/x/lab_frame.pcd", crop_min: null } }),
+  [{ nome: "lettura", campi: [["nuvola", "lab_frame.pcd"], ["ritaglio da", "non impostato"]] }]);
+assert.deepEqual(blocchiDeiParametri(lettura, { input: { path: "C:" + String.fromCharCode(92) + "dati" + String.fromCharCode(92) + "lab.pcd" } }),
+  [{ nome: "lettura", campi: [["nuvola", "lab.pcd"], ["ritaglio da", "non impostato"]] }]);
 // Un modello annidato (non lista) in JSON.
-assert.deepEqual(righeDeiParametri({ blocchi: ["altro"], campi: { altro: { m: {} } } }, { altro: { m: { a: 1 } } }), ["altro · m: {\\"a\\":1}"]);
+assert.deepEqual(blocchiDeiParametri({ blocchi: ["altro"], campi: { altro: { m: {} } } }, { altro: { m: { a: 1 } } }),
+  [{ nome: "altro", campi: [["m", "{\\"a\\":1}"]] }]);
 
-// Uno step senza blocchi (il 7): nessuna riga, la striscia resta quella di oggi.
-assert.deepEqual(righeDeiParametri({ blocchi: [], campi: {} }, corrente), []);
-// Uno step che lo schema non conosce: nessuna riga, nessuna eccezione.
-assert.deepEqual(righeDeiParametri(undefined, corrente), []);
+// Uno step senza blocchi (il 7): nessun blocco, il cartiglio resta senza parametri.
+assert.deepEqual(blocchiDeiParametri({ blocchi: [], campi: {} }, corrente), []);
+// Uno step che lo schema non conosce: nessun blocco, nessuna eccezione.
+assert.deepEqual(blocchiDeiParametri(undefined, corrente), []);
+// Un blocco che lo schema elenca ma senza campi: il solo nome.
+assert.deepEqual(blocchiDeiParametri({ blocchi: ["repair"], campi: {} }, corrente), [{ nome: "riparazione", campi: [] }]);
 // Un blocco che la corrente non porta: ogni campo vale «non impostato».
-assert.deepEqual(righeDeiParametri(voce, { surface: corrente.surface }),
-  [righeDeiParametri(voce, corrente)[0], "riparazione · attiva: non impostato · chiudi i buchi: non impostato"]);
+assert.deepEqual(blocchiDeiParametri(voce, { surface: corrente.surface }),
+  [blocchiDeiParametri(voce, corrente)[0], { nome: "riparazione", campi: [["attiva", "non impostato"], ["chiudi i buchi", "non impostato"]] }]);
 // Un blocco che la tabella non conosce resta la chiave, con un campo senza etichetta.
-assert.deepEqual(righeDeiParametri({ blocchi: ["altro"], campi: { altro: { k: {} } } }, { altro: { k: "v" } }), ["altro · k: v"]);
+assert.deepEqual(blocchiDeiParametri({ blocchi: ["altro"], campi: { altro: { k: {} } } }, { altro: { k: "v" } }), [{ nome: "altro", campi: [["k", "v"]] }]);
 """)
 
 
 def test_il_png_salvato_porta_i_parametri_dello_step_in_figura(tmp_path):
-    """La striscia porta i parametri solo a step «valido», la stessa regola
+    """Il cartiglio porta i parametri solo a step «valido», la stessa regola
     dell'impronta: su «non valido» la configurazione corrente non ha prodotto
-    la figura, e scriverla sotto sarebbe una bugia. Lo schema si legge una
+    la figura, e scriverla accanto sarebbe una bugia. Lo schema si legge una
     volta e resta in memoria come fa apriDettaglio; la configurazione si
     rilegge a ogni salvataggio. Un server che non risponde, o risponde con un
     corpo che non si legge, non produce un file a meta'.
 
     Mutazione che lo uccide: scrivere i parametri anche su «non valido»,
-    rileggere lo schema a ogni salvataggio, o salvare il PNG senza righe
-    quando /api/config rifiuta.
+    rileggere lo schema a ogni salvataggio, o salvare il PNG senza i
+    parametri quando /api/config rifiuta.
     """
-    _esegui(tmp_path, _banco_dei_comandi_della_vista() + """
-const scritte = [];
-globalThis.Image = class { constructor() { this.width = 5000; this.height = 800; } set src(v) {} decode() { return Promise.resolve(); } };
-const telaFinta = { width: 0, height: 0, getContext: () => ({ fillRect() {}, drawImage() {}, measureText: (s) => ({ width: s.length * 8 }), fillText: (r) => scritte.push(r) }), toDataURL: () => "data:composto" };
-const creaPrima = document.createElement;
-document.createElement = (tag) => tag === "canvas" ? telaFinta : creaPrima(tag);
+    _esegui(tmp_path, _banco_del_cartiglio() + """
+immagineDi(5000, 800);
 const richieste = [];
 const fetchBuona = globalThis.fetch;
 const bottone = document.getElementById("salva-immagine");
@@ -7200,35 +7258,39 @@ assert.equal(spentoDuranteLAttesa, true, "il comando e' acceso durante la richie
 assert.equal(bottone.disabled, false, "il comando resta spento a salvataggio finito");
 assert.equal(creati.filter((nodo) => nodo.tag === "a").length, 1, "il clic durante l'attesa ha scritto un secondo file");
 assert.equal(scaricato().href, "data:composto");
-assert.deepEqual(scritte, [
-  "lab_crop · step 6, Riparazione",
-  "riparazione · area massima del buco [mm²]: non impostato",
+// Lo step del banco non porta impronta: la meta ha la sola riga corsa · data.
+assert.deepEqual(testi(), [
+  "Step 6 · Riparazione",
+  testi()[1],
   "scarto RMS 9,5 mm",
-  scritte.at(-1),
-], scritte.join(" | "));
-assert.match(scritte.at(-1), /^MeshRec, /);
+  "riparazione",
+  "area massima del buco [mm²]",
+  "non impostato",
+  "MeshRec",
+], testi().join(" | "));
+assert.match(testi()[1], /^corsa lab_crop · \d/);
 assert.deepEqual(richieste, ["/api/schema", "/api/config"]);
 
 // Secondo salvataggio: lo schema e' in memoria, la configurazione si rilegge.
 scritte.length = 0;
 await salvaImmagine();
 assert.deepEqual(richieste, ["/api/schema", "/api/config", "/api/config"]);
-assert.equal(scritte[1], "riparazione · area massima del buco [mm²]: non impostato");
+assert.deepEqual(testi().slice(3, 6), ["riparazione", "area massima del buco [mm²]", "non impostato"]);
 
 // Su «non valido» i parametri tacciono, come l'impronta.
 scritte.length = 0;
 ultimoStato = [{ numero: 6, chiave: "06_repair", stato: "non valido", impronta: "0123456789abcdef" }];
 await salvaImmagine();
-assert.deepEqual(scritte, ["lab_crop · step 6, Riparazione", "scarto RMS 9,5 mm", scritte.at(-1)], scritte.join(" | "));
+assert.deepEqual(testi(), ["Step 6 · Riparazione", testi()[1], "scarto RMS 9,5 mm", "MeshRec"], testi().join(" | "));
 assert.deepEqual(richieste, ["/api/schema", "/api/config", "/api/config"], "su «non valido» il comando ha chiesto al server");
 
-// Uno step «valido» che lo schema non conosce: il file si salva, senza righe di parametri.
+// Uno step «valido» che lo schema non conosce: il file si salva, senza parametri.
 scritte.length = 0;
 ultimoStato = [{ numero: 9, chiave: "09_tetrahedralize", stato: "valido", impronta: "0123456789abcdef" }];
 stepScelto = 9;
 await salvaImmagine();
 assert.equal(scaricato().download, "lab-crop-09-step-9-scarto-rms-9-5-mm.png");
-assert.deepEqual(scritte, ["lab_crop · step 9, step 9 · impronta 0123456789ab", "scarto RMS 9,5 mm", scritte.at(-1)], scritte.join(" | "));
+assert.deepEqual(testi(), ["Step 9 · step 9", testi()[1], "impronta 0123456789ab", "scarto RMS 9,5 mm", "MeshRec"], testi().join(" | "));
 stepScelto = 6;
 
 // Il server rifiuta la configurazione: errore dichiarato, nessun file.
@@ -7259,51 +7321,114 @@ document.createElement = creaPrima;
 """)
 
 
-def test_le_righe_dei_parametri_vanno_a_capo_per_campo_e_le_continuazioni_rientrano(tmp_path):
-    """Spezzata per parole, una riga di parametri usciva «profondità dell'ottree
-    di» / «· Poisson: 7», col separatore a inizio riga e la continuazione allo
-    stesso margine di un blocco nuovo: due righe che sembrano due blocchi. Si
-    spezza sui campi, e le continuazioni rientrano di un margine in piu'. Le
-    altre righe (conteggi, didascalia) restano spezzate per parole.
+def test_il_cartiglio_ha_una_gerarchia_e_la_tela_cresce_se_non_basta(tmp_path):
+    """Cinque righe dello stesso corpo, peso e colore, con i parametri in fila
+    separati da « · », si leggevano male. Il cartiglio ha tre tagli: titolo in
+    grassetto e piu' grande, corpo per conteggi ed etichette, piccolo grigio
+    per corsa, data, impronta, nomi dei blocchi e la firma. Ogni campo ha
+    l'etichetta a sinistra e il valore a destra, con almeno un em fra i due;
+    l'etichetta va a capo per parole e il valore chiude la sua ultima riga se
+    ci sta, altrimenti scende alla riga dopo. Un valore piu' largo della
+    colonna va a sinistra su una riga propria: allineato a destra si sarebbe
+    disegnato sopra l'immagine. La firma sta in fondo alla colonna, non sotto
+    l'ultimo campo.
 
-    Mutazione che lo uccide: spezzare sugli spazi anche le righe con « · »,
-    o scrivere ogni riga alla stessa x.
+    Con una tela bassa e molti campi la colonna non basta: la tela cresce in
+    altezza, non taglia.
+
+    Mutazione che lo uccide: un font solo, i valori a sinistra, il valore
+    sempre sotto l'etichetta spezzata, la firma subito sotto i parametri, o
+    una scritta oltre il fondo della tela.
     """
-    _esegui(tmp_path, _banco_dei_comandi_della_vista() + """
-const scritte = [];
-// 440 px: margine 14, riga 412 px (51 caratteri da 8 px), continuazione 398 (49).
-globalThis.Image = class { constructor() { this.width = 440; this.height = 150; } set src(v) {} decode() { return Promise.resolve(); } };
-const telaFinta = { width: 0, height: 0, getContext: () => ({ fillRect() {}, drawImage() {}, measureText: (s) => ({ width: s.length * 8 }), fillText: (r, x) => scritte.push([r, x]) }), toDataURL: () => "data:composto" };
-const creaPrima = document.createElement;
-document.createElement = (tag) => tag === "canvas" ? telaFinta : creaPrima(tag);
-await immagineConProvenienza("data:image/png;base64,AAA", [
-  "superficie · algoritmo di ricostruzione: poisson · profondità dell'ottree di Poisson: 7 · lato: 0",
-  "453.808 vertici, 891.775 triangoli e ancora molte altre parole per andare a capo",
-]);
-assert.deepEqual(scritte, [
-  ["superficie · algoritmo di ricostruzione: poisson", 14],
-  ["profondità dell'ottree di Poisson: 7 · lato: 0", 28],
-  ["453.808 vertici, 891.775 triangoli e ancora molte", 14],
-  ["altre parole per andare a capo", 14],
-], JSON.stringify(scritte));
-for (const [riga] of scritte) assert.ok(!riga.startsWith("·"), riga);
+    _esegui(tmp_path, _banco_del_cartiglio() + """
+// 1824 px: colonna 730, corpo 33, titolo 43, piccolo 28, larghezza utile 664
+// (83 caratteri da 8 px), distacco etichetta/valore un em, cioe' 33 px.
+immagineDi(1824, 1230);
+const lunga = "parola ".repeat(12).trim(); // 83 caratteri, 664 px: sta da sola, non con «7,5» a un em.
+const spezzata = "vocabolo ".repeat(12).trim(); // 107 caratteri: 9 parole (640 px) e 3 (208): «sì» sta sull'ultima.
+const spezzataPiena = "vocabolo ".repeat(18).trim(); // 9 e 9 parole: «no» non sta sull'ultima.
+const largo = "x".repeat(90); // 720 px, piu' della colonna: senza spazi non si spezza.
+await immagineConProvenienza("data:image/png;base64,AAA", scheda(1, { blocchi: [
+  { nome: "superficie", campi: [["soglia", "0,05"], [lunga, "7,5"], [spezzata, "sì"], [spezzataPiena, "no"], ["nuvola", largo]] },
+] }));
+const [titolo, corsa, impronta] = scritte;
+assert.equal(titolo.testo, "Step 5 · Superficie");
+assert.match(titolo.font, /^bold 43px /, titolo.font);
+assert.equal(titolo.fillStyle, "#1c1b19");
+assert.equal(titolo.x, 1824 + 33, "il titolo non parte al margine della colonna");
+assert.equal(corsa.testo, "corsa demo · 10/09/2026");
+assert.match(corsa.font, /^28px /, corsa.font);
+assert.equal(corsa.fillStyle, "#605d58");
+assert.equal(impronta.testo, "impronta abcdef012345");
+assert.equal(impronta.fillStyle, "#605d58");
+assert.ok(corsa.y > titolo.y && impronta.y > corsa.y, "le righe non scendono");
 
-// Un campo solo piu' largo della riga: resta il ripiego per parole, rientrato.
+const conteggi = scritte.find((s) => s.testo === "453.808 vertici, 891.775 triangoli");
+assert.match(conteggi.font, /^33px /, conteggi.font);
+const blocco = scritte.find((s) => s.testo === "superficie");
+assert.equal(blocco.fillStyle, "#605d58");
+assert.match(blocco.font, /^28px /);
+
+// Un campo che sta: etichetta e valore sulla stessa riga, il valore a destra.
+const soglia = scritte.find((s) => s.testo === "soglia");
+const valore = scritte.find((s) => s.testo === "0,05");
+assert.equal(valore.y, soglia.y, "il valore non e' sulla riga dell'etichetta");
+assert.equal(valore.textAlign, "right");
+assert.equal(valore.x, 1824 + 730 - 33, "il valore non e' ancorato al margine destro");
+assert.equal(soglia.textAlign, "left");
+assert.equal(soglia.x, 1824 + 33);
+
+// Un campo che sta da solo ma non col valore a un em: il valore scende.
+const etichettaLunga = scritte.find((s) => s.testo === lunga);
+const setteEMezzo = scritte.find((s) => s.testo === "7,5");
+assert.ok(etichettaLunga, "l'etichetta lunga e' stata spezzata pur stando nella colonna");
+assert.ok(setteEMezzo.y > etichettaLunga.y, "il valore non e' sceso alla riga dopo");
+assert.equal(setteEMezzo.textAlign, "right");
+
+// Un'etichetta piu' larga della colonna: a capo per parole; il valore chiude
+// l'ultima riga se ci sta, altrimenti scende.
+const si = scritte.find((s) => s.testo === "sì");
+const no = scritte.find((s) => s.testo === "no");
+const pezzi = scritte.filter((s) => spezzata.startsWith(s.testo) && s.y > etichettaLunga.y && s.y <= si.y);
+assert.equal(pezzi.length, 2, testi().join(" | "));
+assert.equal(si.y, pezzi.at(-1).y, "il valore non chiude l'ultima riga dell'etichetta pur stando");
+for (const p of pezzi) assert.equal(p.x, 1824 + 33);
+const pezziPieni = scritte.filter((s) => spezzataPiena.startsWith(s.testo) && s.y > si.y && s.y < no.y);
+assert.equal(pezziPieni.length, 2, testi().join(" | "));
+assert.ok(no.y > pezziPieni.at(-1).y, "il valore che non sta e' rimasto sulla riga dell'etichetta");
+assert.equal(no.textAlign, "right");
+
+// Un valore piu' largo della colonna: a sinistra, su una riga propria.
+const nuvola = scritte.find((s) => s.testo === "nuvola");
+const lungo = scritte.find((s) => s.testo === largo);
+assert.equal(lungo.x, 1824 + 33, "il valore largo non e' a sinistra: a destra copre l'immagine");
+assert.equal(lungo.textAlign, "left");
+assert.ok(lungo.y > nuvola.y, "il valore largo non e' su una riga propria");
+
+// La firma: ultima, piccola, grigia, in fondo alla colonna.
+const firma = scritte.at(-1);
+assert.equal(firma.testo, "MeshRec");
+assert.equal(firma.fillStyle, "#605d58");
+assert.ok(firma.y >= 1230 - 2 * 33, `la firma sta a ${firma.y}, non in fondo`);
+assert.ok(firma.y > lungo.y + 33, "la firma sta subito sotto i parametri");
+for (const s of scritte) assert.ok(s.y >= 0 && s.y + 43 <= telaFinta.height, `${s.testo} a ${s.y} esce dalla tela`);
+
+// Straripamento: tela bassa e molti campi, la tela cresce e nulla esce.
 scritte.length = 0;
-await immagineConProvenienza("data:image/png;base64,AAA", ["a · un campo con una etichetta davvero molto lunga che non sta in una riga sola: 1"]);
-assert.deepEqual(scritte, [
-  ["a", 14],
-  ["un campo con una etichetta davvero molto lunga", 28],
-  ["che non sta in una riga sola: 1", 28],
-], JSON.stringify(scritte));
-document.createElement = creaPrima;
+immagineDi(300, 120);
+await immagineConProvenienza("data:image/png;base64,AAA", scheda(12));
+assert.equal(telaFinta.width, 300 + 120);
+assert.ok(telaFinta.height > 120, "la tela non e' cresciuta");
+assert.equal(scritte.at(-1).testo, "MeshRec");
+assert.ok(scritte.at(-1).y >= telaFinta.height - 2 * 12, "la firma non e' in fondo alla tela cresciuta");
+for (const s of scritte) assert.ok(s.y + 16 <= telaFinta.height, `${s.testo} a ${s.y} esce dalla tela alta ${telaFinta.height}`);
 """)
 
 
 def test_uno_schema_che_non_si_legge_non_entra_in_cache(tmp_path):
     """Lo schema si legge una volta per pagina e resta in memoria. Un corpo che
     non si legge non deve restarci: messo in cache, ogni salvataggio dopo
-    partirebbe da uno schema nullo e la striscia tacerebbe i parametri per
+    partirebbe da uno schema nullo e il cartiglio tacerebbe i parametri per
     sempre, senza piu' un errore a dirlo.
 
     Mutazione che lo uccide: assegnare `schemaParametri` prima di guardare il
@@ -7523,8 +7648,8 @@ def test_salva_tutti_scarica_un_png_per_step_in_ordine_e_salta_chi_ripiega(tmp_p
     """Un PNG per ogni step che ha un artefatto proprio, in ordine crescente:
     nessuno ZIP, il browser chiede una volta il consenso a piu' download. Lo
     step 7 ripiega sul 6 (passoDaMostrare) e non entra: sarebbe il PNG del 6
-    scritto due volte col numero sbagliato sopra. «Non valido» (il 4) entra: la
-    striscia tace impronta e parametri da se'. Senza uno step scelto il giro
+    scritto due volte col numero sbagliato sopra. «Non valido» (il 4) entra: il
+    cartiglio tace impronta e parametri da se'. Senza uno step scelto il giro
     parte comunque e alla fine non ripristina niente: resta l'ultimo.
 
     Durante e dopo, una riga di stato dice che cosa sta partendo e che cosa e'
