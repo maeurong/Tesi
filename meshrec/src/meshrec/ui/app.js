@@ -1840,8 +1840,8 @@ asseTaglio.addEventListener("change", () => riallineaTaglio(passoDaMostrare(step
 // trattini: e' un nome di file su tre sistemi diversi, e la didascalia porta
 // accenti, virgole e unita'.
 // L'ultimo pezzo del percorso della corsa, con la barra di Windows o quella
-// di Unix: e' il nome della cartella, ed e' cio' che il nome del file e la
-// striscia di provenienza chiamano «corsa».
+// di Unix: e' il nome della cartella, ed e' cio' che il nome del file e il
+// cartiglio di provenienza chiamano «corsa».
 function nomeDellaCorsa(outDir) {
   return String(outDir).split(/[\\/]/).filter(Boolean).pop() ?? "corsa";
 }
@@ -1862,8 +1862,8 @@ function nomeDellImmagine(outDir, numero, nome, didascalia) {
 //
 // Di primo livello e non una freccia dentro addEventListener, per la stessa
 // ragione di `aggiornaDaStato`: dentro la freccia non la esegue nessun banco.
-// Le righe scritte sotto l'immagine salvata: da quale corsa, quale step e
-// quale configurazione viene, che cosa mostra, e quando. «La provenienza e'
+// La scheda scritta accanto all'immagine salvata: da quale corsa, quale step
+// e quale configurazione viene, che cosa mostra, e quando. «La provenienza e'
 // parte del risultato» (PRODUCT.md, principio 4): la vista sotto la tela porta
 // gia' tutto questo, ma «Salva immagine» scriveva la sola tela, e in appendice
 // la figura arrivava muta.
@@ -1872,45 +1872,52 @@ function nomeDellImmagine(outDir, numero, nome, didascalia) {
 // «valido» -- e NON quella del registro degli esperimenti, che e' un altro
 // hash su un altro perimetro: le due non si confrontano. Dodici caratteri
 // come nel report (`report.py`, «impronta (prime 12 cifre)»), cosi' la
-// figura e la tabella si cercano con la stessa chiave. Righe vuote non si
-// scrivono: uno step senza didascalia non lascia una riga bianca.
-function righeDiProvenienza({ corsa, numero, nome, impronta, conteggi, parametri = [], didascalia, data }) {
-  const chi = impronta ? `${nomeDellaCorsa(corsa)} · step ${numero}, ${nome} · impronta ${String(impronta).slice(0, 12)}`
-    : `${nomeDellaCorsa(corsa)} · step ${numero}, ${nome}`;
-  return [chi, conteggi, ...parametri, didascalia, `MeshRec, ${data}`].map((r) => String(r ?? "").trim()).filter(Boolean);
+// figura e la tabella si cercano con la stessa chiave. Conteggi e didascalia
+// vuoti restano vuoti: il cartiglio non ne scrive la riga.
+function schedaDiProvenienza({ corsa, numero, nome, impronta, conteggi, blocchi = [], didascalia, data }) {
+  const meta = [`corsa ${nomeDellaCorsa(corsa)} · ${data}`];
+  if (impronta) meta.push(`impronta ${String(impronta).slice(0, 12)}`);
+  return {
+    titolo: `Step ${numero} · ${nome}`,
+    meta,
+    conteggi: String(conteggi ?? "").trim(),
+    didascalia: String(didascalia ?? "").trim(),
+    blocchi,
+  };
 }
 
-// I parametri dello step in figura, una riga per blocco, predefiniti compresi:
-// l'impronta dice CHE la configurazione era quella, non QUALE era, e chi legge
-// la figura in appendice non ha il file di configurazione sotto mano. Le
-// parole sono quelle del pannello (ETICHETTE_DEI_BLOCCHI, `campo.etichetta`),
-// cosi' figura e pannello si cercano con gli stessi nomi; una chiave si stampa
+// I parametri dello step in figura, un blocco per blocco con i suoi campi
+// come coppie etichetta/valore, predefiniti compresi: l'impronta dice CHE la
+// configurazione era quella, non QUALE era, e chi legge la figura in
+// appendice non ha il file di configurazione sotto mano. Le parole sono
+// quelle del pannello (ETICHETTE_DEI_BLOCCHI, `campo.etichetta`), cosi'
+// figura e pannello si cercano con gli stessi nomi; una chiave si stampa
 // solo dove lo schema non porta un'etichetta, come fa campoParametro.
 // Il valore vuoto del pannello si scrive «non impostato», la parola del
 // report (NON_IMPOSTATO in core/report.py): figura e tabella devono dire la
 // stessa cosa dello stesso vuoto, e «automatico» sarebbe falso per crop_min
 // (nessun ritaglio) o expected_size (non misurato). Il resto passa da
 // valoreDellaMetrica -- liste in JSON, sì/no, numeri con la virgola -- perche'
-// #conteggi due righe sopra scrive «9,5 mm» e la striscia non puo' scrivere
-// 0.05; un modello annidato, che valoreDellaMetrica non vede, in JSON per la
-// ragione di campoParametro: String() ne farebbe "[object Object]".
+// #conteggi scrive «9,5 mm» e il cartiglio non puo' scrivere 0.05; un modello
+// annidato, che valoreDellaMetrica non vede, in JSON per la ragione di
+// campoParametro: String() ne farebbe "[object Object]".
 // Il percorso della nuvola solo per nome: il PNG finisce in una tesi, e la
 // cartella di questa macchina non dice niente a chi la legge.
-// Uno step che lo schema non conosce, o senza blocchi (il 7), non ha righe: la
-// striscia resta quella di sempre.
-function righeDeiParametri(voceDelloSchema, configurazione) {
+// Uno step che lo schema non conosce, o senza blocchi (il 7), non ha blocchi:
+// il cartiglio salta la sezione. Un blocco senza campi porta il solo nome.
+function blocchiDeiParametri(voceDelloSchema, configurazione) {
   const scritto = (blocco, nome, valore) => {
     if (valore == null) return "non impostato";
     if (blocco === "input" && nome === "path") return String(valore).split(/[\\/]/).pop();
     if (typeof valore === "object" && !Array.isArray(valore)) return JSON.stringify(valore);
     return valoreDellaMetrica(valore);
   };
-  return (voceDelloSchema?.blocchi ?? []).map((blocco) => [
-    ETICHETTE_DEI_BLOCCHI[blocco] ?? blocco,
-    ...Object.entries(voceDelloSchema.campi?.[blocco] ?? {}).map(
-      ([nome, campo]) => `${campo.etichetta ?? nome}: ${scritto(blocco, nome, configurazione?.[blocco]?.[nome])}`,
+  return (voceDelloSchema?.blocchi ?? []).map((blocco) => ({
+    nome: ETICHETTE_DEI_BLOCCHI[blocco] ?? blocco,
+    campi: Object.entries(voceDelloSchema.campi?.[blocco] ?? {}).map(
+      ([nome, campo]) => [campo.etichetta ?? nome, scritto(blocco, nome, configurazione?.[blocco]?.[nome])],
     ),
-  ].join(" · "));
+  }));
 }
 
 // Una riga spezzata in righe che stanno nella larghezza, misurate col
@@ -1933,69 +1940,108 @@ function spezzaInRighe(pennello, testo, larghezza) {
   return righe;
 }
 
-// Una riga di parametri si spezza sui campi e non sulle parole: per parole
-// usciva «profondità dell'ottree di» / «· Poisson: 7», col separatore a inizio
-// riga e un'etichetta a meta'. Si accumula finche' sta; un campo solo piu'
-// largo della riga ripiega sulle parole, che e' l'unico taglio rimasto. Le
-// continuazioni hanno meno spazio di `rientro`, perche' si scrivono rientrate:
-// alla stessa x di un blocco nuovo, due righe dello stesso blocco sembravano
-// due blocchi.
-function spezzaInCampi(pennello, testo, larghezza, rientro) {
-  const righe = [];
-  let corrente = "";
-  const sta = (s) => pennello.measureText(s).width <= (righe.length ? larghezza - rientro : larghezza);
-  for (const campo of testo.split(" · ")) {
-    const prova = corrente ? `${corrente} · ${campo}` : campo;
-    if (!corrente || sta(prova)) {
-      corrente = prova;
-    } else {
-      righe.push(corrente);
-      corrente = campo;
-    }
-  }
-  if (corrente) righe.push(corrente);
-  return righe.flatMap((riga, k) => spezzaInRighe(pennello, riga, k ? larghezza - rientro : larghezza));
-}
-
-// La tela catturata piu' una striscia di carta sotto, con le righe di
-// provenienza. Tela 2D del browser e nient'altro. Carta e inchiostro sono
-// gli stessi valori di --sfondo e --testo in stile.css, COPIATI qui e non
-// letti da li': una tela non legge le proprieta' del foglio, e se la
-// tavolozza cambia questi due esadecimali vanno cambiati a mano. Il corpo
-// segue la larghezza dell'immagine, cosi' a stampa resta leggibile quanto la
-// figura. Dove non c'e' `Image` o una tela 2D -- il banco di prova, un
-// browser senza canvas -- torna la sola cattura: la striscia e' un di piu',
-// e senza di lei il PNG resta quello di prima, non nessun PNG.
-async function immagineConProvenienza(datiTela, righe) {
-  if (typeof Image === "undefined" || righe.length === 0) return datiTela;
+// La tela catturata con a destra il cartiglio della scheda, come in un
+// disegno tecnico. A destra e non sotto per due ragioni. La misura: la
+// colonna e' due quinti della larghezza e alta quanto l'immagine, cosi' ogni
+// step della corsa esce del PNG di norma della stessa misura, senza contare
+// righe -- la striscia sotto cresceva con le righe, e sei step della stessa
+// finestra uscivano di sei altezze. La gerarchia: tre tagli (titolo in
+// grassetto, corpo, piccolo grigio) e ogni campo su una riga con l'etichetta
+// a sinistra e il valore a destra; cinque righe uguali con i campi in fila
+// separati da « · » non si leggevano.
+// Tela 2D del browser e nient'altro. Carta, inchiostro, grigio e filo sono
+// gli stessi valori di --sfondo, --testo, --tenue e --bordo in stile.css,
+// COPIATI qui e non letti da li': una tela non legge le proprieta' del
+// foglio, e se la tavolozza cambia questi esadecimali vanno cambiati a mano.
+// Il corpo segue la larghezza della colonna, cosi' a stampa resta leggibile
+// quanto la figura: a tela larga 1824 la colonna e' 730 e colonna/22 sono
+// 33 px, circa 6 pt con la figura stampata a 160 mm; il primo taglio, un
+// terzo con colonna/28, dava 22 px, 4 pt, illeggibili. Dove non c'e' `Image` o una tela 2D -- il banco di prova,
+// un browser senza canvas -- torna la sola cattura: il cartiglio e' un di
+// piu', e senza di lui il PNG resta quello di prima, non nessun PNG.
+async function immagineConProvenienza(datiTela, scheda) {
+  if (typeof Image === "undefined") return datiTela;
   const tela = document.createElement("canvas");
   const pennello = tela.getContext?.("2d");
   if (!pennello) return datiTela;
   const immagine = new Image();
   immagine.src = datiTela;
   await immagine.decode();
-  const corpo = Math.max(14, Math.round(immagine.width / 60));
-  const interlinea = Math.round(corpo * 1.5);
+  const colonna = Math.round(immagine.width * 0.4);
+  const corpo = Math.max(12, Math.round(colonna / 22));
   const margine = corpo;
-  const carattere = `${corpo}px system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif`;
-  // Cambiare le misure della tela azzera il pennello, carattere compreso: si
-  // misura dopo la prima misura e si scrive dopo la seconda.
-  tela.width = immagine.width;
-  pennello.font = carattere;
-  const disponibile = immagine.width - margine * 2;
-  // Le righe con « · » -- i parametri, e la prima -- per campi, con le
-  // continuazioni rientrate di un margine; le altre per parole, come prima.
-  const spezzate = righe.flatMap((riga) => (riga.includes(" · ")
-    ? spezzaInCampi(pennello, riga, disponibile, margine).map((testo, k) => ({ testo, x: margine + (k ? margine : 0) }))
-    : spezzaInRighe(pennello, riga, disponibile).map((testo) => ({ testo, x: margine }))));
-  tela.height = immagine.height + margine * 2 + interlinea * spezzate.length;
+  const utile = colonna - margine * 2;
+  const famiglia = 'system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
+  const taglio = (dimensione, colore, peso = "") => ({ font: `${peso}${dimensione}px ${famiglia}`, dimensione, colore, interlinea: Math.round(dimensione * 1.45) });
+  const titolo = taglio(Math.round(corpo * 1.3), "#1c1b19", "bold ");
+  const normale = taglio(corpo, "#1c1b19");
+  const piccolo = taglio(Math.round(corpo * 0.85), "#605d58");
+  const sinistra = immagine.width + margine;
+  const destra = immagine.width + colonna - margine;
+  // Prima si misura e si dispone, poi si scrive: cambiare le misure della
+  // tela azzera il pennello, carattere compreso.
+  const scritte = [];
+  let y = margine;
+  const paragrafo = (testo, stile, x = sinistra, textAlign = "left") => {
+    pennello.font = stile.font;
+    for (const riga of spezzaInRighe(pennello, testo, utile)) {
+      scritte.push({ testo: riga, x, y, stile, textAlign });
+      y += stile.interlinea;
+    }
+  };
+  const mezzaRiga = () => { y += Math.round(normale.interlinea / 2); };
+  paragrafo(scheda.titolo, titolo);
+  for (const riga of scheda.meta) paragrafo(riga, piccolo);
+  if (scheda.conteggi || scheda.didascalia) mezzaRiga();
+  if (scheda.conteggi) paragrafo(scheda.conteggi, normale);
+  if (scheda.didascalia) paragrafo(scheda.didascalia, normale);
+  for (const blocco of scheda.blocchi) {
+    mezzaRiga();
+    paragrafo(blocco.nome, piccolo);
+    pennello.font = normale.font;
+    const misura = (s) => pennello.measureText(s).width;
+    for (const [etichetta, valore] of blocco.campi) {
+      const righe = spezzaInRighe(pennello, etichetta, utile);
+      righe.forEach((riga, k) => {
+        scritte.push({ testo: riga, x: sinistra, y, stile: normale, textAlign: "left" });
+        if (k < righe.length - 1) y += normale.interlinea;
+      });
+      // Il valore chiude l'ultima riga dell'etichetta se ci sta con un em di
+      // distacco -- «isolato 20» con due spazi si leggeva attaccato -- e
+      // scende sotto solo se davvero non sta. Un valore senza spazi piu' largo
+      // della colonna (un JSON, un nome di file lungo) allineato a destra si
+      // disegnerebbe verso sinistra sopra il filo e l'immagine: va a sinistra
+      // su una riga propria, e straripa fuori dalla tela, non sulla figura.
+      if (misura(valore) > utile) {
+        if (righe.length) y += normale.interlinea;
+        scritte.push({ testo: valore, x: sinistra, y, stile: normale, textAlign: "left" });
+      } else {
+        if (misura(righe.at(-1) ?? "") + corpo + misura(valore) > utile) y += normale.interlinea;
+        scritte.push({ testo: valore, x: destra, y, stile: normale, textAlign: "right" });
+      }
+      y += normale.interlinea;
+    }
+  }
+  // La firma in fondo alla colonna, non sotto l'ultimo campo. Se il contenuto
+  // arriva piu' giu' la tela cresce quanto serve, non taglia.
+  // ponytail: con una tela bassa e molti campi a capo il PNG esce piu' alto
+  // dell'immagine e la misura fissa salta; la strada e' una colonna piu' larga.
+  const altezza = Math.max(immagine.height, y + piccolo.interlinea + margine);
+  scritte.push({ testo: "MeshRec", x: sinistra, y: altezza - margine - piccolo.dimensione, stile: piccolo, textAlign: "left" });
+  tela.width = immagine.width + colonna;
+  tela.height = altezza;
   pennello.fillStyle = "#fbfaf8";
   pennello.fillRect(0, 0, tela.width, tela.height);
   pennello.drawImage(immagine, 0, 0);
-  pennello.fillStyle = "#1c1b19";
-  pennello.font = carattere;
+  pennello.fillStyle = "#ddd9d2";
+  pennello.fillRect(immagine.width, 0, 1, tela.height);
   pennello.textBaseline = "top";
-  spezzate.forEach((riga, k) => pennello.fillText(riga.testo, riga.x, immagine.height + margine + interlinea * k));
+  for (const riga of scritte) {
+    pennello.font = riga.stile.font;
+    pennello.fillStyle = riga.stile.colore;
+    pennello.textAlign = riga.textAlign;
+    pennello.fillText(riga.testo, riga.x, riga.y);
+  }
   return tela.toDataURL("image/png");
 }
 
@@ -2013,7 +2059,7 @@ async function salvaImmagine() {
   const ordine = generazione;
   // Lo step in figura e non quello scelto: su 7, 10 e 11 la vista ripiega a
   // monte (passoDaMostrare), e #conteggi lo dice gia'. Nome del file e
-  // striscia devono dire lo stesso step, e devono dirlo di cio' che si vede.
+  // cartiglio devono dire lo stesso step, e devono dirlo di cio' che si vede.
   // Tutto letto PRIMA dell'attesa: durante le richieste al server e
   // `decode()` un clic su un'altra riga cambia stepScelto, e il file
   // uscirebbe col numero nuovo sopra l'immagine vecchia. La tela compresa:
@@ -2031,7 +2077,7 @@ async function salvaImmagine() {
   // da un'altra. Un'impronta che non ha prodotto l'immagine non si scrive, e
   // per la stessa ragione non si scrivono i suoi parametri.
   const valido = voce?.stato === "valido";
-  // Un salvataggio alla volta: da quando la striscia chiede schema e
+  // Un salvataggio alla volta: da quando il cartiglio chiede schema e
   // configurazione al server, un secondo clic durante l'attesa scriverebbe un
   // secondo file, e i due arriverebbero in un ordine qualunque. Spento e non
   // un contatore di generazione: qui non c'e' una richiesta da superare, il
@@ -2044,12 +2090,12 @@ async function salvaImmagine() {
   const eraSpento = bottone.disabled === true;
   bottone.disabled = true;
   try {
-    let parametri = [];
+    let blocchi = [];
     if (valido) {
       // Schema e configurazione arrivano dal server, come in apriDettaglio:
       // lo schema una volta per pagina, la configurazione a ogni salvataggio,
       // perche' un campo modificato dal pannello un istante prima deve stare
-      // nella striscia. Il rifiuto ferma il salvataggio: un PNG senza i
+      // nel cartiglio. Il rifiuto ferma il salvataggio: un PNG senza i
       // parametri che prometteva sarebbe una figura a meta', e nessuno se ne
       // accorgerebbe guardandola.
       if (schemaParametri === null) {
@@ -2069,16 +2115,16 @@ async function salvaImmagine() {
         if (!superata(ordine)) dichiaraErrore("l'immagine non si è potuta salvare: i parametri non si sono letti. " + ragione);
         return;
       }
-      parametri = righeDeiParametri(schemaParametri[String(mostrato)], corpo);
+      blocchi = blocchiDeiParametri(schemaParametri[String(mostrato)], corpo);
     }
-    const righe = righeDiProvenienza({
+    const scheda = schedaDiProvenienza({
       corsa, numero: mostrato, nome,
       impronta: valido ? voce.impronta : undefined,
-      conteggi, parametri, didascalia, data,
+      conteggi, blocchi, didascalia, data,
     });
     let dati;
     try {
-      dati = await immagineConProvenienza(cattura, righe);
+      dati = await immagineConProvenienza(cattura, scheda);
     } catch (errore) {
       if (!superata(ordine)) dichiaraErrore(`l'immagine non si è potuta comporre: ${errore.message}`);
       return;
