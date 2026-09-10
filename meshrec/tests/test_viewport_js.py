@@ -145,7 +145,7 @@ def test_il_fantasma_se_ne_va_col_passaggio_che_lo_ha_prodotto():
         f"togliFantasma non azzera il riferimento: il prossimo disegno lo perde "
         f"sulla scheda invece di sostituirlo: {corpo}"
     )
-    svuota = _corpo_di(r"svuota\(\) \{", "\n    }")
+    svuota = _corpo_di(r"function svuota\(\) \{")
     assert "togliFantasma();" in svuota, (
         "svuota() lascia in scena il fantasma del passaggio che si sta lasciando"
     )
@@ -246,26 +246,87 @@ def test_il_taglio_segue_il_modello_che_gira():
     )
 
 
-def test_la_rotazione_a_mano_muore_con_la_geometria_che_descriveva():
-    """Sopravvivendo a un ridisegno, la rotazione metterebbe a video -- e in
-    appendice, che e' dove queste immagini vanno a finire -- un orientamento che
-    le coordinate dell'artefatto nuovo non hanno, senza che niente lo dica.
+def test_la_rotazione_a_mano_sopravvive_a_svuota_e_muore_in_azzera():
+    """La camera e l'orientamento a mano sono un riferimento della CORSA, non
+    dello step: fra lo step 5, il 6 e il 9 si guarda lo stesso pezzo, e un
+    ridisegno che rimettesse il gruppo all'identita' costringerebbe a rifare il
+    gesto a ogni clic. Il rovescio del controllo di prima, deciso il 10/09/2026:
+    svuota() lascia quaternione e posizione dove stanno, e a rimetterli
+    all'identita' e' azzera(), che l'interfaccia chiama quando la corsa cambia.
 
-    In svuota(), che ogni strada che disegna attraversa. La camera invece non si
-    azzera, ed e' una differenza voluta: la camera inquadra, non descrive il
-    pezzo.
+    Mutazione che lo uccide, eseguita su questo file: rimettere
+    `gruppo.quaternion.identity()` dentro svuota(), oppure toglierlo da azzera().
+    """
+    # `function svuota()` nella chiusura, come togliFantasma, e non un metodo:
+    # azzera() la chiama senza passare da `this`.
+    svuota = _corpo_di(r"function svuota\(\) \{")
+    assert "gruppo.quaternion.identity();" not in svuota, (
+        "svuota() azzera la rotazione a mano: cambiando step si rifa' il gesto"
+    )
+    assert "gruppo.position.set(0, 0, 0);" not in svuota, (
+        "svuota() azzera la posizione di compenso: la geometria nuova salta al perno"
+    )
+    azzera = _corpo_di(r"azzera\(\) \{", chiusura="\n    }")
+    assert "gruppo.quaternion.identity();" in azzera, (
+        "azzera() non rimette la rotazione all'identita': la corsa nuova nasce "
+        "con l'orientamento di quella vecchia"
+    )
+    assert "gruppo.position.set(0, 0, 0);" in azzera, (
+        "azzera() non rimette la posizione di compenso: la corsa nuova nasce "
+        "spostata del perno di quella vecchia"
+    )
+    assert "inquadratoUnaVolta = false;" in azzera, (
+        "azzera() non riapre la prima inquadratura: la corsa nuova non si rinquadra"
+    )
+    assert "svuota();" in azzera, "azzera() lascia in scena la geometria della corsa vecchia"
+
+
+def test_le_tre_strade_inquadrano_solo_la_prima_volta():
+    """Il bottone «Inquadra» resta l'unico modo di rifare l'inquadratura: le tre
+    strade che disegnano la chiedono solo alla prima geometria della corsa,
+    altrimenti centro, raggio e angoli restano dove l'utente li ha messi. La
+    comparsa resta a ogni disegno: dice «vista nuova» senza muovere niente.
+
+    Mutazione che lo uccide, eseguita su questo file: `inquadra()` incondizionato
+    in una delle tre strade.
+    """
+    strade = {
+        "mostraNuvola": _corpo_di(r"mostraNuvola\(punti\) \{", chiusura="\n    }"),
+        "mostraMesh": _corpo_di(r"mostraMesh\(vertici, facce, normali\s*=\s*null\) \{", chiusura="\n    }"),
+        "mostraMeshPerCampo": _corpo_di(r"mostraMeshPerCampo\([^)]*\) \{", chiusura="\n    }"),
+    }
+    for nome, corpo in strade.items():
+        assert "inquadra();" not in corpo, f"{nome} rifa' l'inquadratura a ogni disegno"
+        assert "inquadraLaPrimaVolta();" in corpo, f"{nome} non passa dalla prima inquadratura"
+    prima = _corpo_di(r"function inquadraLaPrimaVolta\(\) \{")
+    assert "if (inquadratoUnaVolta) comparsa();" in prima and "else inquadra();" in prima, (
+        f"la prima inquadratura non distingue la prima geometria dalle altre: {prima}"
+    )
+
+
+def test_il_fantasma_segue_la_rotazione_del_gruppo():
+    """Il velo sta in scena come fratello del gruppo (vedi il controllo sopra),
+    quindi la rotazione a mano del gruppo non lo tocca da sola: nasceva
+    all'identita' sotto un pezzo girato, e girando il pezzo restava fermo. Un
+    posto solo che copia quaternione e posizione, chiamato da chi lo crea e da
+    chi gira.
 
     Mutazione che lo uccide, eseguita su questo file: togliere
-    `gruppo.quaternion.identity()` da svuota().
+    `allineaIlFantasma();` da mostraFantasma o da ruotaIlModello.
     """
-    corpo = _corpo_di(r"svuota\(\) \{", chiusura="\n    }")
-    assert "gruppo.quaternion.identity();" in corpo, (
-        "la rotazione a mano sopravvive al ridisegno: l'artefatto nuovo si "
-        "mostra in un orientamento che le sue coordinate non hanno"
+    allinea = _corpo_di(r"function allineaIlFantasma\(\) \{")
+    # Prima che un velo esista si gira lo stesso: senza la guardia ogni
+    # rotazione a mano su uno step senza fantasma solleva su null.
+    assert "if (fantasma === null) return;" in allinea, (
+        "allineaIlFantasma non sopporta l'assenza del velo: girare senza fantasma solleva"
     )
-    assert "gruppo.position.set(0, 0, 0);" in corpo, (
-        "la posizione di compenso resta addosso al gruppo: la geometria nuova "
-        "nasce spostata del perno di quella di prima"
+    assert "fantasma.quaternion.copy(gruppo.quaternion);" in allinea, allinea
+    assert "fantasma.position.copy(gruppo.position);" in allinea, allinea
+    assert "allineaIlFantasma();" in _corpo_del_fantasma(), (
+        "il fantasma nasce all'identita' sotto un gruppo girato a mano"
+    )
+    assert "allineaIlFantasma();" in _corpo_di(r"function ruotaIlModello\(asse, angolo\) \{"), (
+        "girando il pezzo a mano il velo resta fermo"
     )
 
 

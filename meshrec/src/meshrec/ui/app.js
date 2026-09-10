@@ -101,7 +101,15 @@ async function caricaStato() {
   }
   mostraSchermata("lavoro");
   document.getElementById("cambia-corsa").hidden = false;
-  document.getElementById("corsa").textContent = corpo.out_dir;
+  // La camera e l'orientamento a mano sono un riferimento della corsa
+  // (viewport.js, azzera()): cambiata la corsa il pezzo e' un altro e la
+  // prima geometria si rinquadra da se'. Solo se e' cambiata davvero: lo
+  // stato della stessa corsa torna anche dopo «Annulla» (annullaLaCorsa
+  // richiama caricaStato con lo stesso out_dir), e azzerare li' butterebbe
+  // via il gesto dell'utente a ogni ritorno.
+  const corsa = document.getElementById("corsa");
+  if (corsa.textContent !== corpo.out_dir) vista.azzera();
+  corsa.textContent = corpo.out_dir;
   disegnaStep(corpo.steps);
   // Aprire una corsa e trovare il centro bianco. La corsa ha gia' i propri
   // artefatti sul disco: si mostra il piu' avanzato che possiede, invece di
@@ -2030,6 +2038,10 @@ async function salvaImmagine() {
   // secondo clic non deve proprio partire. Riacceso in `finally`, cosi' un
   // rifiuto del server non lascia il comando morto.
   const bottone = document.getElementById("salva-immagine");
+  // Riacceso com'era e non acceso secco: dentro il giro di salvaTuttiGliStep
+  // il bottone e' gia' spento, e riaccenderlo qui lo lascerebbe vivo fra uno
+  // step e l'altro.
+  const eraSpento = bottone.disabled === true;
   bottone.disabled = true;
   try {
     let parametri = [];
@@ -2077,8 +2089,90 @@ async function salvaImmagine() {
     document.body.append(collegamento);
     collegamento.click();
     collegamento.remove();
+    // `true` solo a file consegnato: i rami di rifiuto qui sopra tornano
+    // undefined, e il giro di salvaTuttiGliStep si ferma su quello.
+    return true;
+  } finally {
+    bottone.disabled = eraSpento;
+  }
+}
+
+// «Salva un'immagine per step»: il salvataggio di sopra ripetuto su ogni step
+// che ha un artefatto proprio, in ordine, con la camera dove l'utente l'ha
+// lasciata. Uno step alla volta: si sceglie, si aspetta la geometria, si
+// cattura. Chi ripiega a monte (il 7 sul 6) non entra: sarebbe il PNG del 6
+// scritto due volte col numero sbagliato sopra.
+//
+// Il giro e' una sequenza di clic, e come i clic risponde alla generazione:
+// se l'utente clicca altrove a meta', il giro e' superato e si ferma senza
+// dire niente -- ha scelto lui -- e senza tornare allo step di partenza, che
+// butterebbe via quel clic. Una geometria che non arriva, o un salvataggio
+// che non consegna il file, lo fermano con un errore: continuare scriverebbe
+// i PNG degli step dopo come se quello mancasse per caso. L'errore si scrive
+// DOPO il ritorno allo step di partenza, perche' apriDettaglio svuota #errore
+// a pannello aperto; e un guasto imprevisto (la cattura della tela sta prima
+// del try di salvaImmagine) prende la stessa strada invece di uscire dal
+// gestore del clic senza traccia a video.
+async function salvaTuttiGliStep() {
+  const bottone = document.getElementById("salva-tutti");
+  const singolo = document.getElementById("salva-immagine");
+  // «Salva immagine» spento e' un salvataggio singolo in volo: il suo finally
+  // riaccenderebbe il bottone a meta' giro. Il giro non parte.
+  if (singolo.disabled) return;
+  bottone.disabled = true;
+  singolo.disabled = true;
+  const esito = document.getElementById("esito-salvataggio");
+  const partenza = stepScelto;
+  const numeri = ultimoStato.map((voce) => voce.numero)
+    .filter((numero) => passoDaMostrare(numero) === numero)
+    .sort((a, b) => a - b);
+  let ordine = generazione;
+  let errore = null;
+  let salvati = 0;
+  esito.textContent = numeri.length > 0 ? `Salvataggio di ${numeri.length} immagini in corso…` : "";
+  try {
+    try {
+      for (const numero of numeri) {
+        let disegnato;
+        ({ ordine, disegnato } = scegliStep(numero));
+        const arrivata = await disegnato;
+        if (superata(ordine)) break;
+        if (arrivata !== true) {
+          errore = `il salvataggio si è fermato allo step ${numero} (${nomeDelloStep(numero)}): la sua geometria non è arrivata, e gli step dopo non sono stati salvati. Riesegui lo step e rilancia il salvataggio.`;
+          break;
+        }
+        const consegnata = await salvaImmagine();
+        if (superata(ordine)) break;
+        if (consegnata !== true) {
+          // La ragione l'ha gia' scritta salvaImmagine in #errore; qui si
+          // aggiunge dove si e' fermato il giro, e si tiene da parte perche'
+          // il ritorno allo step di partenza la cancellerebbe.
+          errore = `${rigaErrore.textContent} Il salvataggio si è fermato allo step ${numero} (${nomeDelloStep(numero)}) e gli step dopo non sono stati salvati. Riesegui lo step e rilancia il salvataggio.`;
+          break;
+        }
+        salvati += 1;
+      }
+    } catch (guasto) {
+      errore = `il salvataggio si è fermato: ${guasto.message}. Riesegui lo step e rilancia il salvataggio.`;
+    }
+    if (!superata(ordine) && partenza !== null) {
+      const ritorno = scegliStep(partenza);
+      ordine = ritorno.ordine;
+      await ritorno.dettaglio;
+    }
   } finally {
     bottone.disabled = false;
+    singolo.disabled = false;
+    if (superata(ordine)) {
+      esito.textContent = "";
+    } else if (errore !== null) {
+      // Sull'errore parla #errore da solo: due righe che dicono l'esito di
+      // uno stesso giro si contraddirebbero.
+      esito.textContent = "";
+      dichiaraErrore(errore);
+    } else {
+      esito.textContent = salvati > 0 ? `${salvati} immagini salvate, step ${numeri[0]}–${numeri[numeri.length - 1]}` : "";
+    }
   }
 }
 
@@ -2088,11 +2182,14 @@ async function salvaImmagine() {
 // serve una guardia qui.
 document.getElementById("inquadra").addEventListener("click", () => vista.inquadra());
 document.getElementById("salva-immagine").addEventListener("click", salvaImmagine);
+document.getElementById("salva-tutti").addEventListener("click", salvaTuttiGliStep);
 
-document.getElementById("elenco-step").addEventListener("click", (evento) => {
-  const riga = evento.target.closest(".step");
-  if (!riga) return;
-  const numero = Number(riga.dataset.numero);
+// Cio' che fa un clic su una riga della colonna, con nome: lo fa anche il giro
+// di salvaTuttiGliStep, che ha bisogno di sapere quando la geometria e' a
+// video (`disegnato`, la promessa di ricaricaVista) e quando il pannello ha
+// finito di scrivere (`dettaglio`). Il gestore del clic non guarda nessuna
+// delle due.
+function scegliStep(numero) {
   stepScelto = numero;
   // Una sola generazione per il clic, passata a tutte e due le tratte: se la
   // guardia stesse su mostraStep e non su apriDettaglio, meta' del difetto
@@ -2102,8 +2199,15 @@ document.getElementById("elenco-step").addEventListener("click", (evento) => {
   // il suo intervallo esce dall'ingombro di cio' che e' disegnato. Non si rifa'
   // affatto se questo clic e' stato superato, altrimenti una risposta vecchia
   // riporterebbe il cursore sullo spento sotto le dita di chi lo sta muovendo.
-  ricaricaVista(numero, ordine);
-  apriDettaglio(numero, ordine);
+  const disegnato = ricaricaVista(numero, ordine);
+  const dettaglio = apriDettaglio(numero, ordine);
+  return { ordine, disegnato, dettaglio };
+}
+
+document.getElementById("elenco-step").addEventListener("click", (evento) => {
+  const riga = evento.target.closest(".step");
+  if (!riga) return;
+  scegliStep(Number(riga.dataset.numero));
 });
 
 // La geometria mostrata e il cursore che ne dipende, in un punto solo: due
@@ -2147,12 +2251,15 @@ function ricaricaVista(numero, ordine = generazione) {
     // non ci sono.
     comandoDelFantasma().hidden = true;
     riallineaTaglio(null);
-    return;
+    return Promise.resolve(false);
   }
   // `disegnato` e' falso quando la risposta e' stata scartata: senza guardarlo,
   // il cursore si rifarebbe sull'ingombro di una geometria che qualcun altro
   // ha disegnato, cioe' su una lettura che non appartiene a questo numero.
-  mostraStep(mostrato, ordine).then((disegnato) => {
+  // Restituita: il giro di salvaTuttiGliStep aspetta la geometria prima di
+  // catturare la tela, e vuole sapere se e' arrivata. Risolve con cio' che
+  // mostraStep ha risposto, e con false se la catena e' caduta.
+  return mostraStep(mostrato, ordine).then((disegnato) => {
     if (disegnato && !superata(ordine)) {
       // `=== true` e non solo truthy: mostraStep torna "vuoto" dal ramo del
       // rifiuto dichiarato, dove ha svuotato la vista e scritto perche'.
@@ -2180,6 +2287,7 @@ function ricaricaVista(numero, ordine = generazione) {
     // scartata o l'artefatto non c'e' piu', mostraFantasmaDelloStep serve
     // comunque a NASCONDERE la casella, che e' cio' che deve succedere.
     mostraFantasmaDelloStep(numero, ordine);
+    return disegnato;
   }).catch(() => {
     // La catena non aveva un `.catch`, ed e' lo stesso buco che
     // `.catch(serverMuto)` chiude un piano piu' sotto, al livello del fetch:
@@ -2193,11 +2301,13 @@ function ricaricaVista(numero, ordine = generazione) {
     // Non e' un caso di rete -- quello lo distingue gia' `corpoBinarioLetto` --
     // ma di intestazioni che non corrispondono al corpo, e per quello la cosa
     // giusta e' dirlo dove si dicono gli artefatti che non arrivano.
-    if (superata(ordine)) return;
+    if (superata(ordine)) return false;
     segnalaArtefattoMancante(
       "la geometria è arrivata incompleta: i conteggi dichiarati non "
       + "corrispondono ai dati ricevuti. Riprova, e se torna riesegui lo step."
     );
+    // Falso come la risposta scartata: a video non c'e' la geometria chiesta.
+    return false;
   });
 }
 

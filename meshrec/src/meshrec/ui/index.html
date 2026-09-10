@@ -253,10 +253,11 @@
            se', quindi il posto nel markup lo decide la lettura e non l'occhio. -->
       <div class="barra-vista">
         <p class="conteggi" id="conteggi" aria-live="polite"></p>
+        <p class="conteggi" id="esito-salvataggio" role="status"></p>
         <!-- I comandi della vista, in un gruppo solo, all'estremo destro della
              fascia. Non due bottoni sciolti: sovrapposti sarebbero finiti SOPRA
              la casella del passaggio a monte, sugli step 2, 3 e 8 dove esiste.
-             Nel gruppo i due comandi che valgono sempre stanno per primi e la
+             Nel gruppo i comandi che valgono sempre stanno per primi e la
              casella, che compare solo dove un fantasma c'e', li segue: cosi' i
              bottoni non si spostano quando lei va e viene.
              «Inquadra» rimette la camera sull'ingombro del pezzo dopo che la si
@@ -265,10 +266,21 @@
              provenienza: corsa, step, impronta e parametri con cui la figura
              e' stata prodotta (app.js, righeDiProvenienza). Le due funzioni esistono in
              viewport.js da agosto -- preserveDrawingBuffer era pagato per una
-             cattura che nessuno chiamava. -->
+             cattura che nessuno chiamava.
+             «Salva un'immagine per step» e' lo stesso salvataggio ripetuto su
+             ogni step che ha un artefatto proprio, in ordine, con la camera
+             dove l'utente l'ha lasciata: e' l'appendice intera in un gesto.
+             Non «Salva tutti gli step», che si leggeva come «salva la
+             configurazione degli step»: il nome dice che cosa esce. Un PNG
+             per step e nessun archivio: Chrome chiede una volta il consenso a
+             piu' download dalla stessa pagina, poi li lascia passare.
+             L'esito del giro sta nella riga di stato qui sotto (role="status",
+             nel markup come #collegamento-perso): senza, sei file che partono
+             si sentivano solo come sei cambi dei conteggi. -->
         <div class="comandi-vista">
           <button type="button" id="inquadra" class="bottone">Inquadra</button>
           <button type="button" id="salva-immagine" class="bottone">Salva immagine</button>
+          <button type="button" id="salva-tutti" class="bottone">Salva un'immagine per step</button>
           <!-- Il velo del passaggio a monte, dietro la geometria corrente e quasi
                trasparente: e' l'unico modo di vedere che cosa un passaggio ha
                TOLTO mentre lo si guarda, invece di leggere due conteggi in due

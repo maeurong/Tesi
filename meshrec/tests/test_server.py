@@ -1577,12 +1577,17 @@ def test_il_clic_sullo_step_sceglie_fra_nuvola_e_mesh_senza_perdere_il_pannello(
     # gestore del clic, il test passava lo stesso.
     gestore = testo.split('getElementById("elenco-step").addEventListener', 1)[1]
     gestore = gestore.split("\n});", 1)[0]
+    # Dal 10/09/2026 il gestore delega a `scegliStep`, che ha un nome perche'
+    # lo chiama anche il giro di «Salva tutti gli step»: si segue quella sola
+    # delega, e il corpo di scegliStep e' quello che deve fare le due cose.
+    assert re.search(r"scegliStep\(", gestore), gestore
+    scelta = _sorgente_di("scegliStep", testo)
     # Il numero d'ordine del giro 2 (I-4) aggiunge un argomento a entrambe: cio'
     # che il test difende e' che il clic le chiami tutte e due sullo step
     # cliccato, non quanti argomenti passi. La geometria passa da ricaricaVista,
     # che e' l'unico punto in cui e' chiesta.
-    assert re.search(r"ricaricaVista\(numero[,)]", gestore), gestore
-    assert re.search(r"apriDettaglio\(numero[,)]", gestore), gestore
+    assert re.search(r"ricaricaVista\(numero[,)]", scelta), scelta
+    assert re.search(r"apriDettaglio\(numero[,)]", scelta), scelta
 
 
 def _sorgente_di(nome: str, testo: str) -> str:
@@ -2009,7 +2014,8 @@ def test_svuota_libera_i_buffer_e_non_tocca_i_piani_di_taglio():
     from meshrec.app.server import UI_DIR
 
     testo = (UI_DIR / "viewport.js").read_text(encoding="utf-8")
-    corpo = testo.split("svuota() {", 1)[1].split("\n    },", 1)[0]
+    # `function svuota()` nella chiusura di creaViewport, chiusa a due spazi.
+    corpo = testo.split("function svuota() {", 1)[1].split("\n  }\n", 1)[0]
     assert "geometry?.dispose()" in corpo
     assert "material?.dispose()" in corpo
     righe = [r for r in corpo.splitlines() if not r.strip().startswith("//")]
@@ -2211,12 +2217,15 @@ def test_il_fronte_di_discesa_ricarica_anche_la_vista_e_non_solo_il_pannello():
     assert "apriGenerazione" not in corpo, "il fronte di discesa annulla una geometria in volo"
     # Lo stesso punto serve il clic: se il clic smettesse di passarci, il
     # riallineamento del cursore resterebbe scritto per un solo chiamante.
-    # Il solo corpo del gestore: fino alla graffa che lo chiude. Sul resto del
-    # file la ricerca troverebbe la definizione di ricaricaVista, che sta piu'
-    # sotto, e passerebbe anche con un clic che non ci passa piu'.
+    # Dal 10/09/2026 il clic delega a `scegliStep`, che ha un nome perche' lo
+    # chiama anche il giro di «Salva tutti gli step»: si segue quella sola
+    # delega. Il solo corpo del gestore, fino alla graffa che lo chiude: sul
+    # resto del file la ricerca troverebbe la definizione di ricaricaVista, che
+    # sta piu' sotto, e passerebbe anche con un clic che non ci passa piu'.
     gestore = testo.split('getElementById("elenco-step").addEventListener', 1)[1]
     gestore = gestore.split("\n});", 1)[0]
-    assert re.search(r"ricaricaVista\(numero[,)]", gestore), gestore
+    assert re.search(r"scegliStep\(", gestore), gestore
+    assert re.search(r"ricaricaVista\(numero[,)]", _sorgente_di("scegliStep", testo))
 
 
 def test_i_moduli_dell_interfaccia_sono_sintatticamente_validi():
