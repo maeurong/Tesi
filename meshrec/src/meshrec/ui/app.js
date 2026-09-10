@@ -1866,10 +1866,43 @@ function nomeDellImmagine(outDir, numero, nome, didascalia) {
 // come nel report (`report.py`, «impronta (prime 12 cifre)»), cosi' la
 // figura e la tabella si cercano con la stessa chiave. Righe vuote non si
 // scrivono: uno step senza didascalia non lascia una riga bianca.
-function righeDiProvenienza({ corsa, numero, nome, impronta, conteggi, didascalia, data }) {
+function righeDiProvenienza({ corsa, numero, nome, impronta, conteggi, parametri = [], didascalia, data }) {
   const chi = impronta ? `${nomeDellaCorsa(corsa)} · step ${numero}, ${nome} · impronta ${String(impronta).slice(0, 12)}`
     : `${nomeDellaCorsa(corsa)} · step ${numero}, ${nome}`;
-  return [chi, conteggi, didascalia, `MeshRec, ${data}`].map((r) => String(r ?? "").trim()).filter(Boolean);
+  return [chi, conteggi, ...parametri, didascalia, `MeshRec, ${data}`].map((r) => String(r ?? "").trim()).filter(Boolean);
+}
+
+// I parametri dello step in figura, una riga per blocco, predefiniti compresi:
+// l'impronta dice CHE la configurazione era quella, non QUALE era, e chi legge
+// la figura in appendice non ha il file di configurazione sotto mano. Le
+// parole sono quelle del pannello (ETICHETTE_DEI_BLOCCHI, `campo.etichetta`),
+// cosi' figura e pannello si cercano con gli stessi nomi; una chiave si stampa
+// solo dove lo schema non porta un'etichetta, come fa campoParametro.
+// Il valore vuoto del pannello si scrive «non impostato», la parola del
+// report (NON_IMPOSTATO in core/report.py): figura e tabella devono dire la
+// stessa cosa dello stesso vuoto, e «automatico» sarebbe falso per crop_min
+// (nessun ritaglio) o expected_size (non misurato). Il resto passa da
+// valoreDellaMetrica -- liste in JSON, sì/no, numeri con la virgola -- perche'
+// #conteggi due righe sopra scrive «9,5 mm» e la striscia non puo' scrivere
+// 0.05; un modello annidato, che valoreDellaMetrica non vede, in JSON per la
+// ragione di campoParametro: String() ne farebbe "[object Object]".
+// Il percorso della nuvola solo per nome: il PNG finisce in una tesi, e la
+// cartella di questa macchina non dice niente a chi la legge.
+// Uno step che lo schema non conosce, o senza blocchi (il 7), non ha righe: la
+// striscia resta quella di sempre.
+function righeDeiParametri(voceDelloSchema, configurazione) {
+  const scritto = (blocco, nome, valore) => {
+    if (valore == null) return "non impostato";
+    if (blocco === "input" && nome === "path") return String(valore).split(/[\\/]/).pop();
+    if (typeof valore === "object" && !Array.isArray(valore)) return JSON.stringify(valore);
+    return valoreDellaMetrica(valore);
+  };
+  return (voceDelloSchema?.blocchi ?? []).map((blocco) => [
+    ETICHETTE_DEI_BLOCCHI[blocco] ?? blocco,
+    ...Object.entries(voceDelloSchema.campi?.[blocco] ?? {}).map(
+      ([nome, campo]) => `${campo.etichetta ?? nome}: ${scritto(blocco, nome, configurazione?.[blocco]?.[nome])}`,
+    ),
+  ].join(" · "));
 }
 
 // Una riga spezzata in righe che stanno nella larghezza, misurate col
@@ -1890,6 +1923,30 @@ function spezzaInRighe(pennello, testo, larghezza) {
   }
   if (corrente) righe.push(corrente);
   return righe;
+}
+
+// Una riga di parametri si spezza sui campi e non sulle parole: per parole
+// usciva «profondità dell'ottree di» / «· Poisson: 7», col separatore a inizio
+// riga e un'etichetta a meta'. Si accumula finche' sta; un campo solo piu'
+// largo della riga ripiega sulle parole, che e' l'unico taglio rimasto. Le
+// continuazioni hanno meno spazio di `rientro`, perche' si scrivono rientrate:
+// alla stessa x di un blocco nuovo, due righe dello stesso blocco sembravano
+// due blocchi.
+function spezzaInCampi(pennello, testo, larghezza, rientro) {
+  const righe = [];
+  let corrente = "";
+  const sta = (s) => pennello.measureText(s).width <= (righe.length ? larghezza - rientro : larghezza);
+  for (const campo of testo.split(" · ")) {
+    const prova = corrente ? `${corrente} · ${campo}` : campo;
+    if (!corrente || sta(prova)) {
+      corrente = prova;
+    } else {
+      righe.push(corrente);
+      corrente = campo;
+    }
+  }
+  if (corrente) righe.push(corrente);
+  return righe.flatMap((riga, k) => spezzaInRighe(pennello, riga, k ? larghezza - rientro : larghezza));
 }
 
 // La tela catturata piu' una striscia di carta sotto, con le righe di
@@ -1917,7 +1974,12 @@ async function immagineConProvenienza(datiTela, righe) {
   // misura dopo la prima misura e si scrive dopo la seconda.
   tela.width = immagine.width;
   pennello.font = carattere;
-  const spezzate = righe.flatMap((riga) => spezzaInRighe(pennello, riga, immagine.width - margine * 2));
+  const disponibile = immagine.width - margine * 2;
+  // Le righe con « · » -- i parametri, e la prima -- per campi, con le
+  // continuazioni rientrate di un margine; le altre per parole, come prima.
+  const spezzate = righe.flatMap((riga) => (riga.includes(" · ")
+    ? spezzaInCampi(pennello, riga, disponibile, margine).map((testo, k) => ({ testo, x: margine + (k ? margine : 0) }))
+    : spezzaInRighe(pennello, riga, disponibile).map((testo) => ({ testo, x: margine }))));
   tela.height = immagine.height + margine * 2 + interlinea * spezzate.length;
   pennello.fillStyle = "#fbfaf8";
   pennello.fillRect(0, 0, tela.width, tela.height);
@@ -1925,47 +1987,92 @@ async function immagineConProvenienza(datiTela, righe) {
   pennello.fillStyle = "#1c1b19";
   pennello.font = carattere;
   pennello.textBaseline = "top";
-  spezzate.forEach((riga, k) => pennello.fillText(riga, margine, immagine.height + margine + interlinea * k));
+  spezzate.forEach((riga, k) => pennello.fillText(riga.testo, riga.x, immagine.height + margine + interlinea * k));
   return tela.toDataURL("image/png");
 }
 
 async function salvaImmagine() {
   if (stepScelto === null) return;
+  // Svuotata prima di ogni tentativo, come in apriDettaglio: un rifiuto del
+  // salvataggio precedente lasciato a video contraddirebbe il PNG riuscito.
+  dichiaraErrore(null);
   // Lo step in figura e non quello scelto: su 7, 10 e 11 la vista ripiega a
   // monte (passoDaMostrare), e #conteggi lo dice gia'. Nome del file e
   // striscia devono dire lo stesso step, e devono dirlo di cio' che si vede.
-  // Tutto letto PRIMA dell'attesa: durante `decode()` un clic su un'altra
-  // riga cambia stepScelto, e il file uscirebbe col numero nuovo sopra
-  // l'immagine vecchia.
+  // Tutto letto PRIMA dell'attesa: durante le richieste al server e
+  // `decode()` un clic su un'altra riga cambia stepScelto, e il file
+  // uscirebbe col numero nuovo sopra l'immagine vecchia. La tela compresa:
+  // catturata dopo un'attesa, sarebbe gia' quella dell'altro step.
   const mostrato = passoDaMostrare(stepScelto) ?? stepScelto;
   const voce = ultimoStato.find((passo) => passo.numero === mostrato);
   const nome = ETICHETTE[voce?.chiave] ?? `step ${mostrato}`;
   const corsa = document.getElementById("corsa").textContent;
   const didascalia = didascaliaDellaVista().textContent;
-  const righe = righeDiProvenienza({
-    corsa, numero: mostrato, nome,
-    // Solo a step «valido»: run_state manda per ogni step l'impronta della
-    // configurazione CORRENTE, e su «non valido» l'artefatto in figura viene
-    // da un'altra. Un'impronta che non ha prodotto l'immagine non si scrive.
-    impronta: voce?.stato === "valido" ? voce.impronta : undefined,
-    conteggi: document.getElementById("conteggi").textContent,
-    didascalia,
-    data: new Date().toLocaleDateString("it"),
-  });
+  const conteggi = document.getElementById("conteggi").textContent;
+  const data = new Date().toLocaleDateString("it");
   const cattura = vista.cattura();
-  let dati;
+  // Solo a step «valido»: run_state manda per ogni step l'impronta della
+  // configurazione CORRENTE, e su «non valido» l'artefatto in figura viene
+  // da un'altra. Un'impronta che non ha prodotto l'immagine non si scrive, e
+  // per la stessa ragione non si scrivono i suoi parametri.
+  const valido = voce?.stato === "valido";
+  // Un salvataggio alla volta: da quando la striscia chiede schema e
+  // configurazione al server, un secondo clic durante l'attesa scriverebbe un
+  // secondo file, e i due arriverebbero in un ordine qualunque. Spento e non
+  // un contatore di generazione: qui non c'e' una richiesta da superare, il
+  // secondo clic non deve proprio partire. Riacceso in `finally`, cosi' un
+  // rifiuto del server non lascia il comando morto.
+  const bottone = document.getElementById("salva-immagine");
+  bottone.disabled = true;
   try {
-    dati = await immagineConProvenienza(cattura, righe);
-  } catch (errore) {
-    dichiaraErrore(`l'immagine non si è potuta comporre: ${errore.message}`);
-    return;
+    let parametri = [];
+    if (valido) {
+      // Schema e configurazione arrivano dal server, come in apriDettaglio:
+      // lo schema una volta per pagina, la configurazione a ogni salvataggio,
+      // perche' un campo modificato dal pannello un istante prima deve stare
+      // nella striscia. Il rifiuto ferma il salvataggio: un PNG senza i
+      // parametri che prometteva sarebbe una figura a meta', e nessuno se ne
+      // accorgerebbe guardandola.
+      if (schemaParametri === null) {
+        const risposta = await fetch("/api/schema").catch(serverMuto);
+        const corpo = risposta.ok ? await corpoLetto(risposta) : null;
+        if (corpo == null) {
+          dichiaraErrore("l'immagine non si è potuta salvare: i parametri non si sono letti. "
+            + (risposta.ok ? "il server ha risposto con uno schema che non si legge. " + RIMEDIO : await ragioneDelRifiuto(risposta)));
+          return;
+        }
+        schemaParametri = corpo;
+      }
+      const risposta = await fetch("/api/config").catch(serverMuto);
+      const corpo = risposta.ok ? await corpoLetto(risposta) : null;
+      if (corpo == null) {
+        dichiaraErrore("l'immagine non si è potuta salvare: i parametri non si sono letti. "
+          + (risposta.ok ? "il server ha risposto con una configurazione che non si legge. " + RIMEDIO : await ragioneDelRifiuto(risposta)));
+        return;
+      }
+      parametri = righeDeiParametri(schemaParametri[String(mostrato)], corpo);
+    }
+    const righe = righeDiProvenienza({
+      corsa, numero: mostrato, nome,
+      impronta: valido ? voce.impronta : undefined,
+      conteggi, parametri, didascalia, data,
+    });
+    let dati;
+    try {
+      dati = await immagineConProvenienza(cattura, righe);
+    } catch (errore) {
+      dichiaraErrore(`l'immagine non si è potuta comporre: ${errore.message}`);
+      return;
+    }
+    const collegamento = document.createElement("a");
+    collegamento.href = dati;
+    collegamento.download = nomeDellImmagine(corsa, mostrato, nome, didascalia);
+    document.body.append(collegamento);
+    collegamento.click();
+    collegamento.remove();
+  } finally {
+    bottone.disabled = false;
   }
-  const collegamento = document.createElement("a");
-  collegamento.href = dati;
-  collegamento.download = nomeDellImmagine(corsa, mostrato, nome, didascalia);
-  document.body.append(collegamento);
-  collegamento.click();
-  collegamento.remove();
 }
 
 // «Inquadra» rimette la camera sull'ingombro del pezzo: trascinando la si
