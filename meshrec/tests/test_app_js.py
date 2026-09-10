@@ -6511,7 +6511,13 @@ def test_i_due_comandi_della_vista_stanno_nel_markup():
 
 def _banco_dei_comandi_della_vista() -> str:
     """`salvaImmagine` con la vista finta e i tre elementi che legge."""
-    return _DOM + _costante("STEP_CON_GEOMETRIA") + "\n" + _funzioni("nomeDellaCorsa", "nomeDellImmagine", "didascaliaDellaVista", "passoDaMostrare", "righeDiProvenienza", "spezzaInRighe", "immagineConProvenienza", "dichiaraErrore", "salvaImmagine") + """
+    return _DOM + _costante("STEP_CON_GEOMETRIA") + "\n" + _funzioni("nomeDellaCorsa", "nomeDellImmagine", "didascaliaDellaVista", "passoDaMostrare", "righeDiProvenienza", "valoreDellaMetrica", "righeDeiParametri", "superata", "spezzaInRighe", "spezzaInCampi", "immagineConProvenienza", "dichiaraErrore", "serverMuto", "ragioneDelRifiuto", "corpoLetto", "salvaImmagine") + """
+let schemaParametri = null;
+// Un server che serve schema e configurazione: senza, la striscia non puo'
+// dire i parametri e il comando dichiara l'errore. I banchi che provano quel
+// ramo lo sovrascrivono.
+const SCHEMA_DEL_BANCO = { "6": { blocchi: ["repair"], campi: { repair: { max_hole_area: { etichetta: "area massima del buco [mm²]", default: null } } } } };
+globalThis.fetch = async (percorso) => ({ ok: true, status: 200, json: async () => percorso === "/api/schema" ? SCHEMA_DEL_BANCO : { repair: { max_hole_area: null } } });
 const creati = [];
 const creaVero = document.createElement;
 document.createElement = (tag) => { const nodo = creaVero(tag); creati.push(nodo); return nodo; };
@@ -7020,6 +7026,281 @@ assert.equal(scaricato().download, "lab-crop-09-tetraedri-scarto-rms-9-5-mm.png"
 // Le righe: lo step in figura, senza impronta perche' «non valido».
 const righe = righeDiProvenienza({ corsa: "runs/x", numero: 9, nome: "Tetraedri", impronta: undefined, conteggi: "c", didascalia: "", data: "d" });
 assert.equal(righe[0], "x · step 9, Tetraedri");
+""")
+
+
+def test_le_righe_dei_parametri_dicono_una_riga_per_blocco_dello_step(tmp_path):
+    """La figura in appendice deve dire con quali parametri e' stata prodotta,
+    predefiniti compresi: chi legge la tesi non ha la configurazione sotto
+    mano. Una riga per blocco, nell'ordine dello schema, con le etichette del
+    pannello e non le chiavi.
+
+    Il vuoto e' «non impostato», la stessa parola del report (core/report.py,
+    NON_IMPOSTATO): «automatico» era falso per crop_min (nessun ritaglio) e
+    expected_size (non misurato). I numeri con la virgola, come #conteggi due
+    righe sopra. Il percorso della nuvola solo per nome: il PNG finisce nella
+    tesi, non su questa macchina.
+
+    Mutazione che lo uccide: scrivere la chiave al posto dell'etichetta,
+    perdere i predefiniti, rendere una lista con String(), o un reale con il
+    punto.
+    """
+    _esegui(tmp_path, _banco_dei_comandi_della_vista() + """
+const voce = {
+  blocchi: ["surface", "repair"],
+  campi: {
+    surface: {
+      method: { etichetta: "algoritmo di ricostruzione", default: "poisson" },
+      depth: { etichetta: "profondità dell'ottree di Poisson", default: 9 },
+      voxel_size: { etichetta: "lato della cella più fine [mm]", default: null },
+      soglia: { etichetta: "soglia", default: 0.1 },
+      pesi: { default: [1, 2, 4] },
+    },
+    repair: {
+      enabled: { etichetta: "attiva", default: true },
+      fill_holes: { etichetta: "chiudi i buchi", default: true },
+    },
+  },
+};
+const corrente = {
+  surface: { method: "poisson", depth: 7, voxel_size: 0, soglia: 0.05, pesi: [1, 2, 4] },
+  repair: { enabled: false, fill_holes: null },
+};
+assert.deepEqual(righeDeiParametri(voce, corrente), [
+  "superficie · algoritmo di ricostruzione: poisson · profondità dell'ottree di Poisson: 7 · lato della cella più fine [mm]: 0 · soglia: 0,05 · pesi: [1,2,4]",
+  "riparazione · attiva: no · chiudi i buchi: non impostato",
+]);
+// Il percorso della nuvola: il solo nome del file, con la barra di Windows scritta per codice.
+const lettura = { blocchi: ["input"], campi: { input: { path: { etichetta: "nuvola" }, crop_min: { etichetta: "ritaglio da", default: null } } } };
+assert.deepEqual(righeDeiParametri(lettura, { input: { path: "/home/mario/x/lab_frame.pcd", crop_min: null } }), ["lettura · nuvola: lab_frame.pcd · ritaglio da: non impostato"]);
+assert.deepEqual(righeDeiParametri(lettura, { input: { path: "C:" + String.fromCharCode(92) + "dati" + String.fromCharCode(92) + "lab.pcd" } }), ["lettura · nuvola: lab.pcd · ritaglio da: non impostato"]);
+// Un modello annidato (non lista) in JSON.
+assert.deepEqual(righeDeiParametri({ blocchi: ["altro"], campi: { altro: { m: {} } } }, { altro: { m: { a: 1 } } }), ["altro · m: {\\"a\\":1}"]);
+
+// Uno step senza blocchi (il 7): nessuna riga, la striscia resta quella di oggi.
+assert.deepEqual(righeDeiParametri({ blocchi: [], campi: {} }, corrente), []);
+// Uno step che lo schema non conosce: nessuna riga, nessuna eccezione.
+assert.deepEqual(righeDeiParametri(undefined, corrente), []);
+// Un blocco che la corrente non porta: ogni campo vale «non impostato».
+assert.deepEqual(righeDeiParametri(voce, { surface: corrente.surface }),
+  [righeDeiParametri(voce, corrente)[0], "riparazione · attiva: non impostato · chiudi i buchi: non impostato"]);
+// Un blocco che la tabella non conosce resta la chiave, con un campo senza etichetta.
+assert.deepEqual(righeDeiParametri({ blocchi: ["altro"], campi: { altro: { k: {} } } }, { altro: { k: "v" } }), ["altro · k: v"]);
+""")
+
+
+def test_il_png_salvato_porta_i_parametri_dello_step_in_figura(tmp_path):
+    """La striscia porta i parametri solo a step «valido», la stessa regola
+    dell'impronta: su «non valido» la configurazione corrente non ha prodotto
+    la figura, e scriverla sotto sarebbe una bugia. Lo schema si legge una
+    volta e resta in memoria come fa apriDettaglio; la configurazione si
+    rilegge a ogni salvataggio. Un server che non risponde, o risponde con un
+    corpo che non si legge, non produce un file a meta'.
+
+    Mutazione che lo uccide: scrivere i parametri anche su «non valido»,
+    rileggere lo schema a ogni salvataggio, o salvare il PNG senza righe
+    quando /api/config rifiuta.
+    """
+    _esegui(tmp_path, _banco_dei_comandi_della_vista() + """
+const scritte = [];
+globalThis.Image = class { constructor() { this.width = 5000; this.height = 800; } set src(v) {} decode() { return Promise.resolve(); } };
+const telaFinta = { width: 0, height: 0, getContext: () => ({ fillRect() {}, drawImage() {}, measureText: (s) => ({ width: s.length * 8 }), fillText: (r) => scritte.push(r) }), toDataURL: () => "data:composto" };
+const creaPrima = document.createElement;
+document.createElement = (tag) => tag === "canvas" ? telaFinta : creaPrima(tag);
+const richieste = [];
+const fetchBuona = globalThis.fetch;
+const bottone = document.getElementById("salva-immagine");
+// Durante l'attesa il comando e' spento, e un secondo clic non parte. Lo
+// stato si annota e si guarda DOPO: un assert dentro la fetch sarebbe un
+// rifiuto per serverMuto, e il banco direbbe rosso per la ragione sbagliata.
+let spentoDuranteLAttesa;
+globalThis.fetch = async (percorso) => {
+  richieste.push(percorso);
+  if (spentoDuranteLAttesa === undefined) {
+    spentoDuranteLAttesa = bottone.disabled;
+    await bottone.click();
+  }
+  return fetchBuona(percorso);
+};
+bottone.addEventListener("click", salvaImmagine);
+
+stepScelto = 6;
+// Un errore del salvataggio precedente non resta a video sopra un PNG riuscito.
+dichiaraErrore("vecchio errore");
+await salvaImmagine();
+assert.equal(document.getElementById("errore").textContent, "", "l'errore di prima resta a video sopra un file riuscito");
+assert.equal(spentoDuranteLAttesa, true, "il comando e' acceso durante la richiesta");
+assert.equal(bottone.disabled, false, "il comando resta spento a salvataggio finito");
+assert.equal(creati.filter((nodo) => nodo.tag === "a").length, 1, "il clic durante l'attesa ha scritto un secondo file");
+assert.equal(scaricato().href, "data:composto");
+assert.deepEqual(scritte, [
+  "lab_crop · step 6, Riparazione",
+  "riparazione · area massima del buco [mm²]: non impostato",
+  "scarto RMS 9,5 mm",
+  scritte.at(-1),
+], scritte.join(" | "));
+assert.match(scritte.at(-1), /^MeshRec, /);
+assert.deepEqual(richieste, ["/api/schema", "/api/config"]);
+
+// Secondo salvataggio: lo schema e' in memoria, la configurazione si rilegge.
+scritte.length = 0;
+await salvaImmagine();
+assert.deepEqual(richieste, ["/api/schema", "/api/config", "/api/config"]);
+assert.equal(scritte[1], "riparazione · area massima del buco [mm²]: non impostato");
+
+// Su «non valido» i parametri tacciono, come l'impronta.
+scritte.length = 0;
+ultimoStato = [{ numero: 6, chiave: "06_repair", stato: "non valido", impronta: "0123456789abcdef" }];
+await salvaImmagine();
+assert.deepEqual(scritte, ["lab_crop · step 6, Riparazione", "scarto RMS 9,5 mm", scritte.at(-1)], scritte.join(" | "));
+assert.deepEqual(richieste, ["/api/schema", "/api/config", "/api/config"], "su «non valido» il comando ha chiesto al server");
+
+// Uno step «valido» che lo schema non conosce: il file si salva, senza righe di parametri.
+scritte.length = 0;
+ultimoStato = [{ numero: 9, chiave: "09_tetrahedralize", stato: "valido", impronta: "0123456789abcdef" }];
+stepScelto = 9;
+await salvaImmagine();
+assert.equal(scaricato().download, "lab-crop-09-step-9-scarto-rms-9-5-mm.png");
+assert.deepEqual(scritte, ["lab_crop · step 9, step 9 · impronta 0123456789ab", "scarto RMS 9,5 mm", scritte.at(-1)], scritte.join(" | "));
+stepScelto = 6;
+
+// Il server rifiuta la configurazione: errore dichiarato, nessun file.
+ultimoStato = [{ numero: 6, chiave: "06_repair", stato: "valido", impronta: "0123456789abcdef" }];
+const salvatiPrima = creati.filter((nodo) => nodo.tag === "a").length;
+globalThis.fetch = async (percorso) => percorso === "/api/config"
+  ? { ok: false, status: 500, text: async () => JSON.stringify({ errore: "x", messaggio: "configurazione non leggibile" }) }
+  : fetchBuona(percorso);
+await salvaImmagine();
+assert.equal(creati.filter((nodo) => nodo.tag === "a").length, salvatiPrima, "un file scaricato con la configurazione rifiutata");
+assert.match(document.getElementById("errore").textContent, /^l'immagine non si è potuta salvare: i parametri non si sono letti\\. configurazione non leggibile$/);
+assert.equal(bottone.disabled, false, "il comando resta spento dopo un rifiuto");
+
+// Un corpo che non si legge: stesso esito.
+globalThis.fetch = async (percorso) => percorso === "/api/config"
+  ? { ok: true, status: 200, json: async () => { throw new SyntaxError("x"); } }
+  : fetchBuona(percorso);
+await salvaImmagine();
+assert.equal(creati.filter((nodo) => nodo.tag === "a").length, salvatiPrima, "un file scaricato con un corpo che non si legge");
+assert.match(document.getElementById("errore").textContent, /non si legge/);
+
+// Il server non risponde affatto: dichiarato, non sollevato.
+globalThis.fetch = async () => { throw new Error("nessun server nel banco"); };
+await salvaImmagine();
+assert.equal(creati.filter((nodo) => nodo.tag === "a").length, salvatiPrima);
+assert.match(document.getElementById("errore").textContent, /non ha risposto/);
+document.createElement = creaPrima;
+""")
+
+
+def test_le_righe_dei_parametri_vanno_a_capo_per_campo_e_le_continuazioni_rientrano(tmp_path):
+    """Spezzata per parole, una riga di parametri usciva «profondità dell'ottree
+    di» / «· Poisson: 7», col separatore a inizio riga e la continuazione allo
+    stesso margine di un blocco nuovo: due righe che sembrano due blocchi. Si
+    spezza sui campi, e le continuazioni rientrano di un margine in piu'. Le
+    altre righe (conteggi, didascalia) restano spezzate per parole.
+
+    Mutazione che lo uccide: spezzare sugli spazi anche le righe con « · »,
+    o scrivere ogni riga alla stessa x.
+    """
+    _esegui(tmp_path, _banco_dei_comandi_della_vista() + """
+const scritte = [];
+// 440 px: margine 14, riga 412 px (51 caratteri da 8 px), continuazione 398 (49).
+globalThis.Image = class { constructor() { this.width = 440; this.height = 150; } set src(v) {} decode() { return Promise.resolve(); } };
+const telaFinta = { width: 0, height: 0, getContext: () => ({ fillRect() {}, drawImage() {}, measureText: (s) => ({ width: s.length * 8 }), fillText: (r, x) => scritte.push([r, x]) }), toDataURL: () => "data:composto" };
+const creaPrima = document.createElement;
+document.createElement = (tag) => tag === "canvas" ? telaFinta : creaPrima(tag);
+await immagineConProvenienza("data:image/png;base64,AAA", [
+  "superficie · algoritmo di ricostruzione: poisson · profondità dell'ottree di Poisson: 7 · lato: 0",
+  "453.808 vertici, 891.775 triangoli e ancora molte altre parole per andare a capo",
+]);
+assert.deepEqual(scritte, [
+  ["superficie · algoritmo di ricostruzione: poisson", 14],
+  ["profondità dell'ottree di Poisson: 7 · lato: 0", 28],
+  ["453.808 vertici, 891.775 triangoli e ancora molte", 14],
+  ["altre parole per andare a capo", 14],
+], JSON.stringify(scritte));
+for (const [riga] of scritte) assert.ok(!riga.startsWith("·"), riga);
+
+// Un campo solo piu' largo della riga: resta il ripiego per parole, rientrato.
+scritte.length = 0;
+await immagineConProvenienza("data:image/png;base64,AAA", ["a · un campo con una etichetta davvero molto lunga che non sta in una riga sola: 1"]);
+assert.deepEqual(scritte, [
+  ["a", 14],
+  ["un campo con una etichetta davvero molto lunga", 28],
+  ["che non sta in una riga sola: 1", 28],
+], JSON.stringify(scritte));
+document.createElement = creaPrima;
+""")
+
+
+def test_uno_schema_che_non_si_legge_non_entra_in_cache(tmp_path):
+    """Lo schema si legge una volta per pagina e resta in memoria. Un corpo che
+    non si legge non deve restarci: messo in cache, ogni salvataggio dopo
+    partirebbe da uno schema nullo e la striscia tacerebbe i parametri per
+    sempre, senza piu' un errore a dirlo.
+
+    Mutazione che lo uccide: assegnare `schemaParametri` prima di guardare il
+    corpo, o dopo l'errore.
+    """
+    _esegui(tmp_path, _banco_dei_comandi_della_vista() + """
+const fetchBuona = globalThis.fetch;
+const richieste = [];
+globalThis.fetch = async (percorso) => { richieste.push(percorso); return { ok: true, status: 200, json: async () => { throw new SyntaxError("x"); } }; };
+stepScelto = 6;
+await salvaImmagine();
+assert.equal(scaricato(), undefined, "un file scaricato con uno schema che non si legge");
+assert.match(document.getElementById("errore").textContent, /^l'immagine non si è potuta salvare: i parametri non si sono letti\\. il server ha risposto con uno schema che non si legge\\. /);
+assert.equal(schemaParametri, null, "lo schema nullo e' entrato in cache");
+assert.deepEqual(richieste, ["/api/schema"], "la configurazione e' stata chiesta senza uno schema");
+assert.equal(document.getElementById("salva-immagine").disabled, false, "il comando resta spento dopo il rifiuto");
+
+// Il server torna: lo schema si richiede, e il file si salva.
+globalThis.fetch = async (percorso) => { richieste.push(percorso); return fetchBuona(percorso); };
+await salvaImmagine();
+assert.deepEqual(richieste, ["/api/schema", "/api/schema", "/api/config"]);
+assert.equal(scaricato().download, "lab-crop-06-riparazione-scarto-rms-9-5-mm.png");
+""")
+
+
+def test_lo_step_e_la_tela_si_leggono_prima_dell_attesa(tmp_path):
+    """Durante le richieste al server un clic su un'altra riga cambia
+    stepScelto e la vista ridisegna: il file deve portare il numero e la tela
+    di quando il comando e' partito, non il numero nuovo sopra l'immagine
+    vecchia o viceversa.
+
+    Mutazione che lo uccide: catturare la tela o leggere stepScelto dopo un
+    `await`.
+    """
+    _esegui(tmp_path, _banco_dei_comandi_della_vista() + """
+ETICHETTE["09_tetrahedralize"] = "Tetraedri";
+ultimoStato = [
+  { numero: 6, chiave: "06_repair", stato: "valido" },
+  { numero: 9, chiave: "09_tetrahedralize", stato: "valido" },
+];
+const fetchBuona = globalThis.fetch;
+globalThis.fetch = async (percorso) => {
+  // L'utente cambia riga mentre il server risponde.
+  stepScelto = 9;
+  vista.cattura = () => "data:image/png;base64,ALTRA";
+  return fetchBuona(percorso);
+};
+stepScelto = 6;
+await salvaImmagine();
+assert.equal(scaricato().download, "lab-crop-06-riparazione-scarto-rms-9-5-mm.png", "il file porta lo step scelto dopo l'attesa");
+assert.equal(scaricato().href, "data:image/png;base64,AAA", "il file porta la tela catturata dopo l'attesa");
+
+// Il clic sull'altra riga apre una generazione (apriGenerazione nel gestore
+// dell'elenco), e il pannello nuovo svuota #errore: un rifiuto del server
+// arrivato dopo non si scrive sotto lo step che l'utente sta guardando adesso.
+document.getElementById("errore").textContent = "";
+globalThis.fetch = async (percorso) => {
+  generazione += 1;
+  return percorso === "/api/config" ? { ok: false, status: 503, text: async () => "fermo" } : fetchBuona(percorso);
+};
+const prima = creati.filter((nodo) => nodo.tag === "a").length;
+await salvaImmagine();
+assert.equal(document.getElementById("errore").textContent, "", "il rifiuto e' scritto sotto una generazione superata");
+assert.equal(creati.filter((nodo) => nodo.tag === "a").length, prima, "un file e' uscito da un salvataggio rifiutato");
 """)
 
 
