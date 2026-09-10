@@ -634,10 +634,12 @@ a.bottone { display: inline-block; text-decoration: none; }
    sulla propria riga si allinea all'INIZIO, cioe' i due bottoni saltavano da
    destra a sinistra nel momento in cui i conteggi si allungavano. Col margine
    automatico restano a destra su entrambe le righe. */
-.comandi-vista { pointer-events: auto; flex: none; margin-left: auto; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--passo-2); }
+.comandi-vista { pointer-events: auto; flex: 0 1 auto; margin-left: auto; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--passo-2); }
 /* Il velo del passaggio a monte non si posiziona piu' da se': sta nel gruppo
-   dei comandi qui sopra, che tiene l'estremo destro della fascia per tutti e
-   tre.
+   dei comandi qui sopra, che tiene l'estremo destro della fascia per tutto il
+   gruppo. Il gruppo puo' restringersi (`flex: 0 1 auto`, non `none`): con
+   `none` il `flex-wrap` interno non scattava mai, e a 1000 e 1093 px sullo
+   step 3 la casella usciva dalla tela a destra, visto a video il 10/09/2026.
    Sopra il taglio e non sotto anche per ordine di lettura: dice che cosa si
    sta guardando, mentre il taglio e' un attrezzo per guardarci dentro.
    `[hidden]` esplicito per la stessa ragione del comando del taglio piu'

@@ -2278,11 +2278,36 @@ globalThis.fetch = async () => risponde();
 let chiesto = "mai";
 let stepScelto = null;
 function ricaricaVista(numero) { chiesto = numero; }
+// La vista si azzera quando la corsa cambia, e solo allora: il banco conta.
+const vista = { azzerate: 0, azzera() { this.azzerate += 1; } };
 // La schermata d'ingresso ha i propri banchi: qui serve solo che il ramo
 // "nessuna corsa aperta" arrivi in fondo, per poter guardare che da li' NON
 // parta nessuna richiesta di geometria.
 function mostraIngresso() {}
 """
+
+
+def test_una_corsa_nuova_azzera_la_vista_e_la_stessa_corsa_no(tmp_path):
+    """La camera e l'orientamento a mano sono un riferimento della corsa
+    (viewport.js, azzera()): cambiando corsa il pezzo e' un altro e il
+    riferimento non vale piu', quindi si azzera e la prima geometria si
+    rinquadra da se'. Lo stato della STESSA corsa torna da caricaStato anche
+    dopo «Annulla» (annullaLaCorsa la richiama con lo stesso out_dir), e
+    azzerare li' butterebbe via il gesto dell'utente a ogni ritorno.
+
+    Mutazione che lo uccide: chiamare `vista.azzera()` senza confrontare
+    `out_dir` con la corsa a video.
+    """
+    _esegui(tmp_path, _banco_di_caricaStato() + """
+risponde = async () => ({ ok: true, status: 200, json: async () => ({ out_dir: "/tmp/corsa", steps: STEPS }) });
+await caricaStato();
+assert.equal(vista.azzerate, 1, "la prima corsa aperta non azzera la vista");
+await caricaStato();
+assert.equal(vista.azzerate, 1, "la stessa corsa riletta azzera la vista: il gesto dell'utente se ne va a ogni «Annulla»");
+risponde = async () => ({ ok: true, status: 200, json: async () => ({ out_dir: "/tmp/altra", steps: STEPS }) });
+await caricaStato();
+assert.equal(vista.azzerate, 2, "una corsa diversa non azzera la vista: il pezzo nuovo nasce con l'orientamento del vecchio");
+""")
 
 
 def test_aprire_una_corsa_mostra_da_se_l_artefatto_piu_avanzato(tmp_path):
@@ -3265,6 +3290,32 @@ assert.equal(
 // Il cursore si rifa' lo stesso: sulla vista vuota ingombro() torna null e il
 // comando si nasconde, che e' cio' che deve succedere.
 assert.equal(allineato, 9, "una vista vuota lascia il cursore del taglio come stava");
+""")
+
+
+def test_ricarica_vista_risolve_con_l_esito_della_geometria(tmp_path):
+    """Il giro «Salva tutti gli step» deve sapere quando la geometria e' a video
+    prima di catturare la tela, e se e' arrivata davvero: ricaricaVista era
+    l'unico imbuto e non restituiva niente. Ora risolve con cio' che mostraStep
+    ha risposto -- true, "vuoto", false -- e con false quando la catena cade.
+
+    Mutazione che lo uccide: togliere il `return` davanti alla catena di
+    mostraStep, o non rendere `disegnato` dal `.then`.
+    """
+    _esegui(tmp_path, _DOM + _costante("STEP_CON_GEOMETRIA") + _funzioni(
+        "didascaliaDellaVista", "superata", "passoDaMostrare", "nomeDelloStep", "comandoDelFantasma",
+        "segnalaArtefattoMancante", "ricaricaVista"
+    ) + _RIPIEGO + """
+const vista = { svuota: () => {} };
+function riallineaTaglio() {}
+let risposta = true;
+async function mostraStep() { if (risposta instanceof Error) throw risposta; return risposta; }
+
+assert.equal(await ricaricaVista(9, generazione), true, "una geometria disegnata non risolve true");
+risposta = "vuoto";
+assert.equal(await ricaricaVista(9, generazione), "vuoto", "un artefatto mancante non risolve «vuoto»");
+risposta = new RangeError("corpo corto");
+assert.equal(await ricaricaVista(9, generazione), false, "una catena caduta non risolve false");
 """)
 
 
@@ -6504,9 +6555,25 @@ assert.ok(!nome.includes("--"), "trattini doppi nel nome: " + nome);
 """)
 
 
-def test_i_due_comandi_della_vista_stanno_nel_markup():
+def test_i_tre_comandi_della_vista_stanno_nel_markup():
     markup = _senza_commenti_html(_markup())
     assert 'id="inquadra"' in markup and 'id="salva-immagine"' in markup
+    assert 'id="salva-tutti"' in markup, "il tasto «Salva un'immagine per step» non e' nel markup"
+    # «Salva tutti gli step» si leggeva come «salva la configurazione degli
+    # step»: il nome dice che cosa esce, un'immagine, e quante, una per step.
+    assert _elemento(markup, "salva-tutti") + "Salva un'immagine per step</button>" in markup, (
+        "il tasto del giro non si chiama «Salva un'immagine per step»"
+    )
+    assert 'getElementById("salva-tutti").addEventListener("click", salvaTuttiGliStep)' in _modulo(), (
+        "il tasto «Salva un'immagine per step» non e' collegato al giro"
+    )
+    # L'esito del giro ha una regione viva nel markup, come #collegamento-perso:
+    # sei file che partono senza una riga che lo dica si sentono solo come sei
+    # cambi di #conteggi.
+    assert re.search(r'<p[^>]*id="esito-salvataggio"', markup), "manca la regione dell'esito del giro"
+    assert 'role="status"' in _elemento(markup, "esito-salvataggio"), (
+        "l'esito del giro non e' una regione di stato: chi ascolta non lo sente"
+    )
 
 
 def _banco_dei_comandi_della_vista() -> str:
@@ -7404,3 +7471,257 @@ def test_un_corpo_piu_corto_dei_conteggi_dichiarati_lo_dice_invece_di_appendersi
         "il `.catch` non dice niente a video: un rigetto silenzioso e un "
         "caricamento appeso sono indistinguibili per chi guarda"
     )
+
+
+# --------------------------------------------------------------------------
+# «Salva tutti gli step»: un giro di scegliStep + salvaImmagine, in ordine.
+# --------------------------------------------------------------------------
+
+
+def _banco_del_giro() -> str:
+    """Il banco dei comandi della vista piu' il giro. ricaricaVista e
+    apriDettaglio hanno i propri banchi: qui sono finte che registrano l'ordine
+    delle richieste e rispondono cio' che il banco decide, step per step.
+    `inClic` gira durante l'attesa della geometria: e' la finestra in cui
+    l'utente puo' cliccare altrove o guardare i bottoni."""
+    return _banco_dei_comandi_della_vista() + _funzioni(
+        "apriGenerazione", "nomeDelloStep", "scegliStep", "salvaTuttiGliStep"
+    ) + """
+const chiesti = [];
+const esiti = {};
+let inClic = null;
+function ricaricaVista(numero, ordine) {
+  chiesti.push(numero);
+  return (async () => {
+    await inClic?.(numero);
+    // Come mostraStep: superata, non ha disegnato.
+    if (superata(ordine)) return false;
+    return esiti[numero] ?? true;
+  })();
+}
+async function apriDettaglio() {}
+const salvaTutti = document.getElementById("salva-tutti");
+salvaTutti.addEventListener("click", salvaTuttiGliStep);
+const salva = document.getElementById("salva-immagine");
+const esitoDelGiro = document.getElementById("esito-salvataggio");
+// Una corsa arrivata al 6, col 7 che misura e non scolpisce: il registro di
+// _RIPIEGO tagliato dove serve a questo giro.
+ultimoStato = [
+  { numero: 1, chiave: "01_load", artefatto: "01_cloud.ply", stato: "valido" },
+  { numero: 2, chiave: "02_segment", artefatto: "02_segmented.ply", stato: "valido" },
+  { numero: 3, chiave: "03_downsample", artefatto: "03_downsampled.ply", stato: "valido" },
+  { numero: 4, chiave: "04_normals", artefatto: "04_normals.ply", stato: "non valido" },
+  { numero: 5, chiave: "05_reconstruct", artefatto: "05_surface.ply", stato: "valido" },
+  { numero: 6, chiave: "06_repair", artefatto: "06_repaired.ply", stato: "valido" },
+  { numero: 7, chiave: "07_surface_quality", artefatto: null, stato: "valido" },
+];
+const numeriDeiFile = () => creati.filter((nodo) => nodo.tag === "a").map((nodo) => Number(nodo.download.split("-")[2]));
+"""
+
+
+def test_salva_tutti_scarica_un_png_per_step_in_ordine_e_salta_chi_ripiega(tmp_path):
+    """Un PNG per ogni step che ha un artefatto proprio, in ordine crescente:
+    nessuno ZIP, il browser chiede una volta il consenso a piu' download. Lo
+    step 7 ripiega sul 6 (passoDaMostrare) e non entra: sarebbe il PNG del 6
+    scritto due volte col numero sbagliato sopra. «Non valido» (il 4) entra: la
+    striscia tace impronta e parametri da se'. Senza uno step scelto il giro
+    parte comunque e alla fine non ripristina niente: resta l'ultimo.
+
+    Durante e dopo, una riga di stato dice che cosa sta partendo e che cosa e'
+    partito: chi ascolta sentiva solo #conteggi cambiare sei volte.
+
+    Mutazione che lo uccide: elencare `ultimoStato` senza `passoDaMostrare(n)
+    === n`, o senza ordinare.
+    """
+    _esegui(tmp_path, _banco_del_giro() + """
+let esitoDurante = null;
+inClic = async () => { esitoDurante ??= esitoDelGiro.textContent; };
+await salvaTutti.scatena("click");
+assert.equal(esitoDurante, "Salvataggio di 6 immagini in corso…", "durante il giro nessuna riga dice che sta salvando");
+assert.equal(esitoDelGiro.textContent, "6 immagini salvate, step 1–6", "a giro finito nessuna riga dice che cosa e' partito");
+assert.deepEqual(numeriDeiFile(), [1, 2, 3, 4, 5, 6], "i file non sono uno per step, in ordine");
+assert.deepEqual(chiesti, [1, 2, 3, 4, 5, 6], "il giro non ha chiesto gli step nell'ordine dei file");
+assert.equal(stepScelto, 6, "senza uno step di partenza il giro ha ripristinato qualcosa");
+assert.equal(rigaErrore.textContent, "", "un giro riuscito lascia un errore a video");
+assert.equal(salvaTutti.disabled, false, "il tasto del giro resta spento a giro finito");
+assert.equal(salva.disabled, false, "«Salva immagine» resta spento a giro finito");
+""")
+
+
+def test_salva_tutti_torna_allo_step_di_partenza(tmp_path):
+    """Il giro cambia lo step a video per catturarlo: finito, l'utente deve
+    ritrovare quello che stava guardando, non l'ultimo della pipeline.
+
+    Mutazione che lo uccide: togliere `scegliStep(partenza)` in coda al giro.
+    """
+    _esegui(tmp_path, _banco_del_giro() + """
+stepScelto = 3;
+await salvaTutti.scatena("click");
+assert.deepEqual(chiesti, [1, 2, 3, 4, 5, 6, 3], "il giro non e' tornato sullo step di partenza");
+assert.equal(stepScelto, 3);
+assert.equal(numeriDeiFile().length, 6, "il ritorno allo step di partenza ha scritto un file in piu'");
+""")
+
+
+def test_salva_tutti_si_ferma_e_lo_dice_quando_una_geometria_non_arriva(tmp_path):
+    """Una geometria che non arriva («vuoto»: l'artefatto non c'e' piu' sul
+    disco) ferma il giro: continuare scriverebbe i PNG degli step dopo come se
+    quello mancasse per caso, e nessuno guardando la cartella se ne
+    accorgerebbe. L'errore nomina lo step colpevole, e va scritto DOPO il
+    ritorno allo step di partenza: apriDettaglio svuota #errore a pannello
+    aperto, e scritto prima sparirebbe.
+
+    Mutazione che lo uccide: `await salvaImmagine()` senza guardare l'esito.
+    """
+    _esegui(tmp_path, _banco_del_giro() + """
+stepScelto = 2;
+esiti[4] = "vuoto";
+// Come quello vero (app.js, apriDettaglio): #errore si svuota dopo le attese
+// del pannello. Senza questa riga l'errore scritto PRIMA del ritorno passava
+// lo stesso, e la mutazione che lo sposta in testa restava verde.
+apriDettaglio = async () => { await null; rigaErrore.textContent = ""; };
+await salvaTutti.scatena("click");
+assert.deepEqual(numeriDeiFile(), [1, 2, 3], "il giro ha scritto file oltre lo step che manca");
+assert.deepEqual(chiesti, [1, 2, 3, 4, 2], "il giro non si e' fermato sullo step che manca, o non e' tornato indietro");
+assert.match(rigaErrore.textContent, /step 4/, "l'errore non nomina lo step colpevole: " + rigaErrore.textContent);
+assert.match(rigaErrore.textContent, /Riesegui lo step e rilancia il salvataggio\./, "l'errore dice cosa e' successo ma non cosa fare");
+assert.equal(esitoDelGiro.textContent, "", "sull'errore la riga di stato parla sopra #errore");
+assert.equal(stepScelto, 2);
+assert.equal(salvaTutti.disabled, false, "il tasto del giro resta spento dopo l'errore");
+assert.equal(salva.disabled, false, "«Salva immagine» resta spento dopo l'errore");
+""")
+
+
+def test_salva_tutti_tace_e_si_ferma_se_l_utente_clicca_altrove(tmp_path):
+    """Un clic su un'altra riga a meta' giro apre una generazione nuova: il
+    giro e' superato come ogni altra tratta, si ferma senza errore -- l'utente
+    ha scelto, non e' un guasto -- e senza il file dello step in volo, che
+    sarebbe la tela di un altro step. E non torna allo step di partenza:
+    tornarci butterebbe via il clic appena fatto.
+
+    Mutazione che lo uccide: togliere `superata(ordine)` dal giro.
+    """
+    _esegui(tmp_path, _banco_del_giro() + """
+stepScelto = 1;
+inClic = async (numero) => { if (numero === 3) { stepScelto = 5; apriGenerazione(); } };
+await salvaTutti.scatena("click");
+assert.deepEqual(numeriDeiFile(), [1, 2], "il giro ha scritto il file dello step in volo, o e' andato avanti");
+assert.deepEqual(chiesti, [1, 2, 3], "il giro e' andato avanti dopo il clic dell'utente, o e' tornato indietro");
+assert.equal(stepScelto, 5, "il giro ha buttato via il clic dell'utente");
+assert.equal(rigaErrore.textContent, "", "il clic dell'utente e' stato dichiarato un errore");
+assert.equal(salvaTutti.disabled, false);
+""")
+
+
+def test_salva_tutti_spegne_i_due_comandi_e_non_parte_due_volte(tmp_path):
+    """Durante il giro «Salva immagine» e il tasto stesso sono spenti: un
+    secondo giro sopra il primo scriverebbe dodici file in un ordine qualunque,
+    e un salvataggio singolo a meta' giro un PNG di uno step che nessuno ha
+    scelto. Il giro tiene spento il proprio bottone e «Salva immagine»;
+    salvaImmagine, che lo spegne e riaccende da se', lo lascia come lo ha
+    trovato invece di riaccenderlo fra uno step e l'altro.
+
+    Mutazione che lo uccide: `bottone.disabled = false` secco in coda a
+    salvaImmagine, o togliere lo spegnimento in testa al giro.
+    """
+    _esegui(tmp_path, _banco_del_giro() + """
+const spenti = [];
+inClic = async () => { spenti.push([salvaTutti.disabled, salva.disabled]); };
+const primo = salvaTutti.scatena("click");
+await salvaTutti.scatena("click");
+await primo;
+assert.equal(numeriDeiFile().length, 6, "un secondo clic durante il giro ha fatto partire un secondo giro");
+assert.ok(spenti.length === 6 && spenti.every(([giro, singolo]) => giro && singolo),
+  "fra uno step e l'altro un comando era acceso: " + JSON.stringify(spenti));
+assert.equal(salvaTutti.disabled, false);
+assert.equal(salva.disabled, false);
+""")
+
+
+def test_salva_tutti_senza_step_non_scrive_niente_e_riaccende(tmp_path):
+    """Una corsa mai partita, o senza uno step disegnabile: nessun file, nessun
+    errore, i due comandi riaccesi. Il vuoto non e' un guasto."""
+    _esegui(tmp_path, _banco_del_giro() + """
+ultimoStato = [];
+await salvaTutti.scatena("click");
+assert.deepEqual(numeriDeiFile(), [], "senza step il giro ha scritto un file");
+ultimoStato = [{ numero: 7, chiave: "07_surface_quality", artefatto: null, stato: "valido" }];
+await salvaTutti.scatena("click");
+assert.deepEqual(numeriDeiFile(), [], "senza uno step disegnabile il giro ha scritto un file");
+assert.deepEqual(chiesti, [], "senza step il giro ha chiesto una geometria");
+assert.equal(rigaErrore.textContent, "");
+assert.equal(salvaTutti.disabled, false);
+assert.equal(salva.disabled, false);
+""")
+
+
+def test_salva_tutti_riaccende_i_due_comandi_anche_se_un_salvataggio_solleva(tmp_path):
+    """salvaImmagine si difende da se' dal server e dalla composizione del PNG,
+    ma la cattura della tela sta prima del suo `try`: se solleva, il giro cade
+    con lei. I due comandi devono riaccendersi comunque, altrimenti un guasto
+    lascia «Salva immagine» e «Salva un'immagine per step» morti fino al
+    ricarico. E il guasto va a video: prima usciva dal gestore del clic come
+    rigetto, senza una riga che lo dicesse.
+
+    Mutazione che lo uccide: togliere il `finally` in coda a salvaTuttiGliStep,
+    o il `catch` che porta il messaggio in #errore.
+    """
+    _esegui(tmp_path, _banco_del_giro() + """
+vista.cattura = () => { throw new Error("tela persa"); };
+await salvaTutti.scatena("click");
+assert.match(rigaErrore.textContent, /tela persa/, "un guasto imprevisto non arriva a video: " + rigaErrore.textContent);
+assert.deepEqual(numeriDeiFile(), [], "un salvataggio caduto ha scritto un file");
+assert.equal(salvaTutti.disabled, false, "il tasto del giro resta spento dopo un salvataggio caduto");
+assert.equal(salva.disabled, false, "«Salva immagine» resta spento dopo un salvataggio caduto");
+""")
+
+
+def test_salva_tutti_si_ferma_se_un_salvataggio_fallisce(tmp_path):
+    """salvaImmagine su schema o configurazione rifiutati, o su una tela che
+    non si compone, scrive l'errore e torna senza file: il giro proseguiva e lo
+    step dopo cancellava il messaggio (apriDettaglio svuota #errore), cosi' un
+    PNG mancava dalla cartella senza che niente lo dicesse. Ora salvaImmagine
+    risponde `true` solo dopo aver consegnato il file, e il giro si ferma sul
+    primo che non lo fa: torna allo step di partenza e riscrive l'errore dopo,
+    come per la geometria che non arriva.
+
+    Mutazione che lo uccide: `await salvaImmagine()` senza guardare la risposta,
+    o `return` senza `true` in coda a salvaImmagine.
+    """
+    _esegui(tmp_path, _banco_del_giro() + """
+stepScelto = 1;
+// La configurazione rifiutata solo allo step 3: gli altri si salvano.
+const fetchBuono = globalThis.fetch;
+globalThis.fetch = async (percorso) => (percorso === "/api/config" && stepScelto === 3)
+  ? { ok: false, status: 500, text: async () => JSON.stringify({ messaggio: "configurazione non leggibile" }) }
+  : fetchBuono(percorso);
+apriDettaglio = async () => { await null; rigaErrore.textContent = ""; };
+await salvaTutti.scatena("click");
+assert.deepEqual(numeriDeiFile(), [1, 2], "il giro e' andato avanti dopo un salvataggio fallito");
+assert.deepEqual(chiesti, [1, 2, 3, 1], "il giro non si e' fermato sul salvataggio fallito, o non e' tornato indietro");
+assert.match(rigaErrore.textContent, /configurazione non leggibile/, "la ragione del rifiuto non e' a video: " + rigaErrore.textContent);
+assert.match(rigaErrore.textContent, /step 3/, "l'errore non nomina lo step colpevole: " + rigaErrore.textContent);
+assert.equal(esitoDelGiro.textContent, "", "sull'errore la riga di stato parla sopra #errore");
+assert.equal(stepScelto, 1);
+assert.equal(salvaTutti.disabled, false);
+assert.equal(salva.disabled, false);
+""")
+
+
+def test_salva_tutti_non_parte_sopra_un_salvataggio_singolo_in_volo(tmp_path):
+    """«Salva immagine» spento vuol dire un salvataggio singolo in volo: il suo
+    `finally` riaccenderebbe il bottone a meta' giro. Il giro non parte, e
+    lascia il bottone come lo trova.
+
+    Mutazione che lo uccide: togliere la guardia su `singolo.disabled` in testa
+    a salvaTuttiGliStep.
+    """
+    _esegui(tmp_path, _banco_del_giro() + """
+salva.disabled = true;
+await salvaTutti.scatena("click");
+assert.deepEqual(chiesti, [], "il giro e' partito sopra un salvataggio singolo in volo");
+assert.equal(salva.disabled, true, "il giro ha riacceso «Salva immagine» mentre un salvataggio era in volo");
+// Mai toccato: nel DOM finto `disabled` nasce undefined, e cosi' resta.
+assert.notEqual(salvaTutti.disabled, true, "il giro ha spento il proprio tasto senza partire");
+assert.equal(esitoDelGiro.textContent, "");
+""")

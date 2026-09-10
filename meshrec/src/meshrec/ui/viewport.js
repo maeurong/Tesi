@@ -384,9 +384,10 @@ export function creaViewport(contenitore) {
   // La prima inquadratura non ha un «da»: orbita nasce con raggio 1 e centro
   // all'origine, e interpolare da li' sarebbe una picchiata da un millimetro
   // fino a qualche metro -- un movimento che non racconta nessun cambiamento,
-  // perche' prima non c'era niente da cambiare. Non si azzera in svuota():
-  // svuotare e ridisegnare e' proprio la sostituzione che l'assestamento deve
-  // rendere leggibile.
+  // perche' prima non c'era niente da cambiare. Dal 10/09/2026 la camera e'
+  // un riferimento della corsa, non dello step: si riapre in azzera(), che
+  // l'interfaccia chiama quando la corsa cambia, e non in svuota(), che ogni
+  // clic su uno step attraversa.
   let inquadratoUnaVolta = false;
   // Interrogata a ogni arrivo e non copiata all'avvio: la preferenza di sistema
   // si cambia mentre la pagina e' aperta, e una copia resterebbe indietro.
@@ -511,7 +512,18 @@ export function creaViewport(contenitore) {
     pernoRuotato.copy(perno).applyQuaternion(gruppo.quaternion);
     gruppo.position.copy(perno).sub(pernoRuotato);
     gruppo.updateMatrixWorld(true);
+    allineaIlFantasma();
     riscriviIlPiano();
+  }
+
+  // Il velo e' fratello del gruppo e non figlio (vedi mostraFantasma), quindi
+  // la rotazione a mano non lo raggiunge da sola: nasceva all'identita' sotto
+  // un pezzo girato, e girando restava fermo. Le stesse due grandezze copiate
+  // da chi lo crea e da chi gira.
+  function allineaIlFantasma() {
+    if (fantasma === null) return;
+    fantasma.quaternion.copy(gruppo.quaternion);
+    fantasma.position.copy(gruppo.position);
   }
 
   let premuto = false;
@@ -729,47 +741,69 @@ export function creaViewport(contenitore) {
     comparsa();
   }
 
+  // Le tre strade che disegnano inquadrano solo la prima geometria della
+  // corsa: dopo, centro, raggio e angoli restano dove l'utente li ha messi, e
+  // il bottone «Inquadra» e' l'unico modo di rifarli. La comparsa resta a ogni
+  // disegno, per la ragione scritta sopra DURATA_ARRIVO: dice «vista nuova»
+  // senza muovere niente.
+  function inquadraLaPrimaVolta() {
+    if (inquadratoUnaVolta) comparsa();
+    else inquadra();
+  }
+
+  // Nella chiusura e non nel letterale, come togliFantasma: azzera() la
+  // chiama, e un metodo si chiamerebbe solo passando da `this`.
+  function svuota() {
+    // Il fantasma e' del passaggio che si sta lasciando, e se ne va con lui.
+    // In testa e non in fondo: ogni strada che disegna chiama svuota() due
+    // volte -- una al caricamento e una prima di disegnare -- e cosi' la
+    // seconda lo trova gia' tolto invece di lasciarlo sotto la geometria
+    // nuova.
+    togliFantasma();
+    // Togliere un oggetto dalla scena non libera i suoi buffer: in three.js
+    // sono gli eventi di dispose a cancellarli davvero (three.js r180,
+    // onGeometryDispose, toglie l'indice e ogni attributo). Senza, ogni
+    // passaggio fra lo step 5, il 6 e il 9 lasciava sul posto 7,6 MB di
+    // attributi piu' un materiale, e il ciclo fra gli step e' un gesto che
+    // si ripete.
+    // Ogni oggetto ha il materiale che gli ha creato mostraNuvola o
+    // mostraMesh, e nessun altro lo usa: liberarlo qui non lascia scoperto
+    // nessuno.
+    // pianiTaglio non si tocca: non e' una risorsa della scheda grafica ed
+    // e' condiviso apposta perche' sopravviva alla geometria. Azzerarlo qui
+    // farebbe nascere la geometria nuova senza taglio mentre il comando lo
+    // dichiara attivo.
+    gruppo.traverse((oggetto) => {
+      oggetto.geometry?.dispose();
+      oggetto.material?.dispose();
+    });
+    gruppo.clear();
+    // La rotazione a mano NON se ne va con la geometria: gli artefatti di
+    // una corsa stanno nelle stesse coordinate, e fra lo step 5, il 6 e il
+    // 9 si guarda lo stesso pezzo. Rifare il gesto a ogni clic era il costo
+    // che questa riga imponeva. Se ne va in azzera(), con la corsa.
+    // Il box e' appena stato liberato dalla traversata qui sopra: tenerne il
+    // riferimento lascerebbe mostraBox a riscrivere una geometria che non
+    // esiste piu' sulla scheda.
+    box = null;
+    descrivi("vuota");
+  }
+
   return {
-    svuota() {
-      // Il fantasma e' del passaggio che si sta lasciando, e se ne va con lui.
-      // In testa e non in fondo: ogni strada che disegna chiama svuota() due
-      // volte -- una al caricamento e una prima di disegnare -- e cosi' la
-      // seconda lo trova gia' tolto invece di lasciarlo sotto la geometria
-      // nuova.
-      togliFantasma();
-      // Togliere un oggetto dalla scena non libera i suoi buffer: in three.js
-      // sono gli eventi di dispose a cancellarli davvero (three.js r180,
-      // onGeometryDispose, toglie l'indice e ogni attributo). Senza, ogni
-      // passaggio fra lo step 5, il 6 e il 9 lasciava sul posto 7,6 MB di
-      // attributi piu' un materiale, e il ciclo fra gli step e' un gesto che
-      // si ripete.
-      // Ogni oggetto ha il materiale che gli ha creato mostraNuvola o
-      // mostraMesh, e nessun altro lo usa: liberarlo qui non lascia scoperto
-      // nessuno.
-      // pianiTaglio non si tocca: non e' una risorsa della scheda grafica ed
-      // e' condiviso apposta perche' sopravviva alla geometria. Azzerarlo qui
-      // farebbe nascere la geometria nuova senza taglio mentre il comando lo
-      // dichiara attivo.
-      gruppo.traverse((oggetto) => {
-        oggetto.geometry?.dispose();
-        oggetto.material?.dispose();
-      });
-      gruppo.clear();
-      // La rotazione a mano se ne va con la geometria che descriveva.
-      // Sopravvivendo a un ridisegno metterebbe a video -- e in appendice, che
-      // e' dove queste immagini vanno a finire -- un orientamento che le
-      // coordinate dell'artefatto nuovo non hanno, senza che niente lo dica.
-      // La camera invece non si azzera: quella inquadra, non descrive il pezzo.
+    // La corsa cambia: rotazione a mano, posizione di compenso e prima
+    // inquadratura tornano allo stato di apertura, e la geometria se ne va.
+    // Qui e non in svuota(): fra uno step e l'altro della stessa corsa il
+    // pezzo e' lo stesso, e il riferimento che l'utente si e' costruito con
+    // la mano vale ancora.
+    azzera() {
       gruppo.quaternion.identity();
       gruppo.position.set(0, 0, 0);
       gruppo.updateMatrixWorld(true);
       riscriviIlPiano();
-      // Il box e' appena stato liberato dalla traversata qui sopra: tenerne il
-      // riferimento lascerebbe mostraBox a riscrivere una geometria che non
-      // esiste piu' sulla scheda.
-      box = null;
-      descrivi("vuota");
+      inquadratoUnaVolta = false;
+      svuota();
     },
+    svuota,
     mostraNuvola(punti) {
       const geometria = new THREE.BufferGeometry();
       geometria.setAttribute("position", new THREE.BufferAttribute(punti, 3));
@@ -778,7 +812,7 @@ export function creaViewport(contenitore) {
       });
       gruppo.add(new THREE.Points(geometria, materiale));
       descrivi(`nuvola di ${(punti.length / 3).toLocaleString("it")} punti`);
-      inquadra();
+      inquadraLaPrimaVolta();
     },
     // Qui arrivano solo triangoli: l'unico .vtu servito e' tetraedrico, e
     // `_contorno_del_volume` (app/server.py) solleva su una griglia che non
@@ -793,7 +827,7 @@ export function creaViewport(contenitore) {
         clippingPlanes: pianiTaglio,
       })));
       descrivi(`superficie di ${(facce.length / 3).toLocaleString("it")} facce`);
-      inquadra();
+      inquadraLaPrimaVolta();
     },
     // Il campo per nodo (spostamento o tensione equivalente) sopra la
     // superficie di contorno. La scala si taglia al p99 e non al massimo: su
@@ -839,7 +873,7 @@ export function creaViewport(contenitore) {
         clippingPlanes: pianiTaglio,
       })));
       descrivi(descrizione);
-      inquadra();
+      inquadraLaPrimaVolta();
     },
     // Un metodo solo per nuvola e superficie: `facce` a null da' dei punti, e
     // le tre coppie del fantasma sono due nuvole e una superficie.
@@ -877,6 +911,7 @@ export function creaViewport(contenitore) {
           clippingPlanes: pianiTaglio,
         }));
       }
+      allineaIlFantasma();
       scena.add(fantasma);
     },
     togliFantasma,
