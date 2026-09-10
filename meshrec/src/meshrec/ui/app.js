@@ -1996,6 +1996,13 @@ async function salvaImmagine() {
   // Svuotata prima di ogni tentativo, come in apriDettaglio: un rifiuto del
   // salvataggio precedente lasciato a video contraddirebbe il PNG riuscito.
   dichiaraErrore(null);
+  // La generazione in corso, non una nuova: salvare non e' navigare, e aprirne
+  // una butterebbe via il clic che l'utente ha appena fatto. Serve per il
+  // rifiuto: un clic su un'altra riga durante l'attesa apre un pannello che
+  // svuota #errore, e il rifiuto del salvataggio vecchio finirebbe scritto
+  // sotto lo step nuovo. Il file invece esce comunque: porta lo step e la
+  // tela letti prima dell'attesa, che sono quelli chiesti.
+  const ordine = generazione;
   // Lo step in figura e non quello scelto: su 7, 10 e 11 la vista ripiega a
   // monte (passoDaMostrare), e #conteggi lo dice gia'. Nome del file e
   // striscia devono dire lo stesso step, e devono dirlo di cio' che si vede.
@@ -2037,8 +2044,8 @@ async function salvaImmagine() {
         const risposta = await fetch("/api/schema").catch(serverMuto);
         const corpo = risposta.ok ? await corpoLetto(risposta) : null;
         if (corpo == null) {
-          dichiaraErrore("l'immagine non si è potuta salvare: i parametri non si sono letti. "
-            + (risposta.ok ? "il server ha risposto con uno schema che non si legge. " + RIMEDIO : await ragioneDelRifiuto(risposta)));
+          const ragione = risposta.ok ? "il server ha risposto con uno schema che non si legge. " + RIMEDIO : await ragioneDelRifiuto(risposta);
+          if (!superata(ordine)) dichiaraErrore("l'immagine non si è potuta salvare: i parametri non si sono letti. " + ragione);
           return;
         }
         schemaParametri = corpo;
@@ -2046,8 +2053,8 @@ async function salvaImmagine() {
       const risposta = await fetch("/api/config").catch(serverMuto);
       const corpo = risposta.ok ? await corpoLetto(risposta) : null;
       if (corpo == null) {
-        dichiaraErrore("l'immagine non si è potuta salvare: i parametri non si sono letti. "
-          + (risposta.ok ? "il server ha risposto con una configurazione che non si legge. " + RIMEDIO : await ragioneDelRifiuto(risposta)));
+        const ragione = risposta.ok ? "il server ha risposto con una configurazione che non si legge. " + RIMEDIO : await ragioneDelRifiuto(risposta);
+        if (!superata(ordine)) dichiaraErrore("l'immagine non si è potuta salvare: i parametri non si sono letti. " + ragione);
         return;
       }
       parametri = righeDeiParametri(schemaParametri[String(mostrato)], corpo);
@@ -2061,7 +2068,7 @@ async function salvaImmagine() {
     try {
       dati = await immagineConProvenienza(cattura, righe);
     } catch (errore) {
-      dichiaraErrore(`l'immagine non si è potuta comporre: ${errore.message}`);
+      if (!superata(ordine)) dichiaraErrore(`l'immagine non si è potuta comporre: ${errore.message}`);
       return;
     }
     const collegamento = document.createElement("a");

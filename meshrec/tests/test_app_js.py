@@ -6511,7 +6511,7 @@ def test_i_due_comandi_della_vista_stanno_nel_markup():
 
 def _banco_dei_comandi_della_vista() -> str:
     """`salvaImmagine` con la vista finta e i tre elementi che legge."""
-    return _DOM + _costante("STEP_CON_GEOMETRIA") + "\n" + _funzioni("nomeDellaCorsa", "nomeDellImmagine", "didascaliaDellaVista", "passoDaMostrare", "righeDiProvenienza", "valoreDellaMetrica", "righeDeiParametri", "spezzaInRighe", "spezzaInCampi", "immagineConProvenienza", "dichiaraErrore", "serverMuto", "ragioneDelRifiuto", "corpoLetto", "salvaImmagine") + """
+    return _DOM + _costante("STEP_CON_GEOMETRIA") + "\n" + _funzioni("nomeDellaCorsa", "nomeDellImmagine", "didascaliaDellaVista", "passoDaMostrare", "righeDiProvenienza", "valoreDellaMetrica", "righeDeiParametri", "superata", "spezzaInRighe", "spezzaInCampi", "immagineConProvenienza", "dichiaraErrore", "serverMuto", "ragioneDelRifiuto", "corpoLetto", "salvaImmagine") + """
 let schemaParametri = null;
 // Un server che serve schema e configurazione: senza, la striscia non puo'
 // dire i parametri e il comando dichiara l'errore. I banchi che provano quel
@@ -7288,6 +7288,19 @@ stepScelto = 6;
 await salvaImmagine();
 assert.equal(scaricato().download, "lab-crop-06-riparazione-scarto-rms-9-5-mm.png", "il file porta lo step scelto dopo l'attesa");
 assert.equal(scaricato().href, "data:image/png;base64,AAA", "il file porta la tela catturata dopo l'attesa");
+
+// Il clic sull'altra riga apre una generazione (apriGenerazione nel gestore
+// dell'elenco), e il pannello nuovo svuota #errore: un rifiuto del server
+// arrivato dopo non si scrive sotto lo step che l'utente sta guardando adesso.
+document.getElementById("errore").textContent = "";
+globalThis.fetch = async (percorso) => {
+  generazione += 1;
+  return percorso === "/api/config" ? { ok: false, status: 503, text: async () => "fermo" } : fetchBuona(percorso);
+};
+const prima = creati.filter((nodo) => nodo.tag === "a").length;
+await salvaImmagine();
+assert.equal(document.getElementById("errore").textContent, "", "il rifiuto e' scritto sotto una generazione superata");
+assert.equal(creati.filter((nodo) => nodo.tag === "a").length, prima, "un file e' uscito da un salvataggio rifiutato");
 """)
 
 
