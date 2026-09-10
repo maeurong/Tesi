@@ -870,16 +870,20 @@ def create_app(
             content={"errore": type(errore).__name__, "messaggio": str(errore)},
         )
 
+    # no-cache: un F5 rivalida la pagina ma non i moduli importati, e un
+    # viewport.js vecchio con un app.js nuovo ha gia' rotto l'apertura della corsa.
+    RIVALIDA_SEMPRE = {"Cache-Control": "no-cache"}
+
     @app.get("/")
     def interfaccia() -> FileResponse:
-        return FileResponse(UI_DIR / "index.html")
+        return FileResponse(UI_DIR / "index.html", headers=RIVALIDA_SEMPRE)
 
     @app.get("/ui/{nome:path}")
     def statico(nome: str) -> FileResponse:
         percorso = (UI_DIR / nome).resolve()
         if not percorso.is_relative_to(UI_DIR) or not percorso.is_file():
             raise FileNotFoundError(f"nessun file dell'interfaccia chiamato {nome}")
-        return FileResponse(percorso)
+        return FileResponse(percorso, headers=RIVALIDA_SEMPRE)
 
     @app.get("/api/run")
     def stato_corsa() -> dict[str, object]:

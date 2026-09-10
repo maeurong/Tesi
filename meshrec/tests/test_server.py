@@ -54,6 +54,29 @@ def test_la_radice_serve_l_interfaccia(cliente):
     assert "text/html" in risposta.headers["content-type"]
 
 
+@pytest.mark.parametrize("percorso", [
+    "/", "/ui/app.js", "/ui/viewport.js", "/ui/vendor/three.module.min.js",
+])
+def test_l_interfaccia_si_rivalida_sempre_e_non_esce_mai_dalla_cache(cliente, percorso):
+    """Senza Cache-Control il browser applica la freschezza euristica sul
+    Last-Modified: un F5 rivalida la pagina, non i moduli importati. Il caso
+    del 09/09: viewport.js vecchio dalla cache con app.js nuovo, `vista.azzera
+    is not a function`, sei PNG con «nessuna corsa» in testata. `no-cache` e
+    non `no-store`: il browser tiene la copia e chiede se e' ancora buona."""
+    risposta = cliente.get(percorso)
+    assert risposta.status_code == 200
+    assert risposta.headers["cache-control"] == "no-cache"
+    assert "etag" in risposta.headers
+
+
+@pytest.mark.parametrize("percorso", ["/ui/inesistente.js", "/ui/%2e%2e/pyproject.toml"])
+def test_i_file_fuori_dall_interfaccia_restano_rifiutati(cliente, percorso):
+    risposta = cliente.get(percorso)
+    assert risposta.status_code == 400
+    assert risposta.json()["errore"] == "FileNotFoundError"
+    assert "cache-control" not in risposta.headers
+
+
 def test_lo_stato_della_corsa_elenca_i_dodici_step(cliente):
     """STEP_KEYS finisce sul prior dello step 12, e /api/run le elenca tutte."""
     corpo = cliente.get("/api/run").json()
