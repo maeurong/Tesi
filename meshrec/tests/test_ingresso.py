@@ -501,10 +501,11 @@ def test_i_launcher_non_chiedono_una_configurazione():
     scattava sempre -- il launcher dichiarava uv assente anche quando c'era.
     """
     radice = Path(__file__).resolve().parents[1]
-    command = (radice / "MeshRec.command").read_text(encoding="utf-8")
+    bundle_rel = "MeshRec.app/Contents/MacOS/MeshRec"
+    bundle = (radice / bundle_rel).read_text(encoding="utf-8")
     bat = (radice / "MeshRec.bat").read_text(encoding="utf-8")
 
-    assert 'uv run meshrec serve "$@"' in command
+    assert 'uv run meshrec serve "$@"' in bundle
     assert "uv run meshrec serve %*" in bat
 
     # Sulle sole righe eseguibili: un commento che cita `casi/lab_telaio.yaml`
@@ -517,27 +518,27 @@ def test_i_launcher_non_chiedono_una_configurazione():
 
     corpo_bat = "\n".join(istruzioni(bat, ("rem", "@rem")))
     for corpo, nome in (
-        ("\n".join(istruzioni(command, ("#",))), "MeshRec.command"),
+        ("\n".join(istruzioni(bundle, ("#",))), bundle_rel),
         (corpo_bat, "MeshRec.bat"),
     ):
         assert ".yaml" not in corpo, f"{nome} passa una configurazione al programma"
         assert "askopenfilename" not in corpo, f"{nome} apre un selettore file"
-    # Solo sul .bat: `>/dev/null` nel .command e' legittimo e c'e'.
+    # Solo sul .bat: `>/dev/null` nel bundle macOS e' legittimo e c'e'.
     assert "/dev/null" not in corpo_bat, "redirezione Unix in un file .bat"
-    # Un .command senza bit di esecuzione non si apre col doppio clic: il
-    # Finder lo mostra come documento di testo.
-    assert os.access(radice / "MeshRec.command", os.X_OK), "MeshRec.command non e' eseguibile"
+    # Uno script del bundle senza bit di esecuzione non si apre col doppio
+    # clic: il Finder lancia MeshRec.app ma il processo interno fallisce.
+    assert os.access(radice / bundle_rel, os.X_OK), f"{bundle_rel} non e' eseguibile"
     # E il bit deve stare *nell'indice di git*, non solo su questo disco:
     # `core.fileMode` qui e' false, quindi il permesso locale non viene
     # registrato da solo e un clone fresco riceverebbe un 100644 inerte. Il
     # difetto e' esattamente di quelli che passano inosservati: il file gira
     # sulla macchina di chi lo scrive e non su quella di chi lo riceve.
     modo = subprocess.run(
-        ["git", "ls-files", "-s", "MeshRec.command"],
+        ["git", "ls-files", "-s", bundle_rel],
         cwd=radice, capture_output=True, text=True, check=True,
     ).stdout.split()
     assert modo and modo[0] == "100755", (
-        f"MeshRec.command e' {modo[0] if modo else 'assente'} nell'indice di git, "
+        f"{bundle_rel} e' {modo[0] if modo else 'assente'} nell'indice di git, "
         "non 100755: su un clone fresco il doppio clic non lo apre"
     )
 

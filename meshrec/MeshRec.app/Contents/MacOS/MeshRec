@@ -1,0 +1,22 @@
+#!/bin/sh
+# Avvio col doppio clic dal Finder (macOS). Sostituisce MeshRec.command.
+#
+# Un bundle .app non apre il Terminale: la cartella corrente e' la home, nessuno
+# legge stdout. Quindi: cd nella cartella del programma (tre livelli sopra il
+# bundle), l'uscita nel log dell'utente, e gli errori in un dialogo.
+cd "$(dirname "$0")/../../.." || exit 1
+
+PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+export PATH
+LOG="$HOME/Library/Logs/MeshRec.log"
+mkdir -p "$(dirname "$LOG")"
+
+if ! command -v uv >/dev/null 2>&1; then
+    osascript -e 'display dialog "uv non trovato. Installalo con:\n\ncurl -LsSf https://astral.sh/uv/install.sh | sh\n\ne riapri MeshRec." with title "MeshRec" buttons {"OK"} default button 1 with icon stop'
+    exit 1
+fi
+
+if ! uv run meshrec serve "$@" >>"$LOG" 2>&1; then
+    osascript -e "display dialog \"MeshRec si è fermato con un errore. Le ultime righe sono in:\n$LOG\" with title \"MeshRec\" buttons {\"OK\"} default button 1 with icon stop"
+    exit 1
+fi
