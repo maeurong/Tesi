@@ -34,7 +34,7 @@ from pydantic import (
     ValidationError,
 )
 
-from meshrec.app import immagini, info, storico
+from meshrec.app import identita, immagini, storico
 from meshrec.app.worker import Worker
 from meshrec.core import (
     io,
@@ -887,7 +887,7 @@ def create_app(
 
     @app.get("/api/info")
     def informazioni_sul_programma() -> dict[str, object]:
-        return info.informazioni()
+        return identita.informazioni()
 
     @app.get("/api/run")
     def stato_corsa() -> dict[str, object]:
