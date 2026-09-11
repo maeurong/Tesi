@@ -1,0 +1,1298 @@
+{
+  "docs/validazione/controlla-riferimenti.py": {
+    "mtime": 1788873122.02908,
+    "seen": 1789080457.22503,
+    "ast_hash": "37e5d2daae6527a0d880ebd713b3453e",
+    "semantic_hash": "37e5d2daae6527a0d880ebd713b3453e"
+  },
+  "meshrec/docs/fase-5-cantiere/misura-deficit.py": {
+    "mtime": 1787658438.7395453,
+    "seen": 1789080457.2250335,
+    "ast_hash": "230228772b44f5a0d45df2382144babb",
+    "semantic_hash": "230228772b44f5a0d45df2382144babb"
+  },
+  "meshrec/docs/fase-6-cantiere/misura-carichi.py": {
+    "mtime": 1788873122.0446143,
+    "seen": 1789080457.2250354,
+    "ast_hash": "fba2425dfa97f4817b99f2d9fd296d4f",
+    "semantic_hash": "fba2425dfa97f4817b99f2d9fd296d4f"
+  },
+  "meshrec/docs/fase-6-cantiere/sonda-trvec/base.inc": {
+    "mtime": 1788205222.4168239,
+    "seen": 1789080457.2250364,
+    "ast_hash": "405b5bde8590bc75dbed4885ccaac71a",
+    "semantic_hash": "405b5bde8590bc75dbed4885ccaac71a"
+  },
+  "meshrec/docs/fase-6-cantiere/sonda-trvec/cubo.inc": {
+    "mtime": 1788205222.430545,
+    "seen": 1789080457.2250369,
+    "ast_hash": "ee8896d59b6bf5705ec021b290404abb",
+    "semantic_hash": "ee8896d59b6bf5705ec021b290404abb"
+  },
+  "meshrec/docs/fase-6-cantiere/sonda-trvec/genera_cubo.py": {
+    "mtime": 1788205222.4664855,
+    "seen": 1789080457.225037,
+    "ast_hash": "20fc66717367b5e8a9d6c594dbd64434",
+    "semantic_hash": "20fc66717367b5e8a9d6c594dbd64434"
+  },
+  "meshrec/docs/fase-7-cantiere/modi-per-la-normativa.py": {
+    "mtime": 1788873122.0466146,
+    "seen": 1789080457.2250378,
+    "ast_hash": "c1fe79e04da879804d52143cab30e00b",
+    "semantic_hash": "c1fe79e04da879804d52143cab30e00b"
+  },
+  "meshrec/docs/fase-7-cantiere/punto-fisso-degenere.py": {
+    "mtime": 1787860188.7028146,
+    "seen": 1789080457.2250383,
+    "ast_hash": "bc1003fde6ba5f089c7a59872121ce7d",
+    "semantic_hash": "bc1003fde6ba5f089c7a59872121ce7d"
+  },
+  "meshrec/docs/fase-7-cantiere/scarto-c3d4-c3d10.py": {
+    "mtime": 1788873122.0476146,
+    "seen": 1789080457.2250388,
+    "ast_hash": "c8d349dabc47afeef43493cedbac09ff",
+    "semantic_hash": "c8d349dabc47afeef43493cedbac09ff"
+  },
+  "meshrec/docs/fase-7-cantiere/scarto-con-segno.py": {
+    "mtime": 1787860188.743327,
+    "seen": 1789080457.2250392,
+    "ast_hash": "c2eb226447dd765af8b8f77221c28eee",
+    "semantic_hash": "c2eb226447dd765af8b8f77221c28eee"
+  },
+  "meshrec/pyproject.toml": {
+    "mtime": 1788205222.530486,
+    "seen": 1789080457.2250402,
+    "ast_hash": "1aa33278dd27f4c0aa4d5932e2d651bd",
+    "semantic_hash": "1aa33278dd27f4c0aa4d5932e2d651bd"
+  },
+  "meshrec/src/meshrec/__init__.py": {
+    "mtime": 1787568450.7659338,
+    "seen": 1789080457.2250407,
+    "ast_hash": "828c17d26d946869f76c5365f2bfa812",
+    "semantic_hash": "828c17d26d946869f76c5365f2bfa812"
+  },
+  "meshrec/src/meshrec/app/__init__.py": {
+    "mtime": 1787568450.7669342,
+    "seen": 1789080457.2250412,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "meshrec/src/meshrec/app/server.py": {
+    "mtime": 1789077923.257282,
+    "seen": 1789080457.2250414,
+    "ast_hash": "12543fae8f6fb2b6890a68fdabf39124",
+    "semantic_hash": "12543fae8f6fb2b6890a68fdabf39124"
+  },
+  "meshrec/src/meshrec/app/storico.py": {
+    "mtime": 1788444656.203758,
+    "seen": 1789080457.2250419,
+    "ast_hash": "ffb98ad292356e5c645be09342e6deb2",
+    "semantic_hash": "ffb98ad292356e5c645be09342e6deb2"
+  },
+  "meshrec/src/meshrec/app/worker.py": {
+    "mtime": 1788444656.2157795,
+    "seen": 1789080457.2250423,
+    "ast_hash": "9242ae900cc72d42fb7e3c23e6074c1a",
+    "semantic_hash": "9242ae900cc72d42fb7e3c23e6074c1a"
+  },
+  "meshrec/src/meshrec/cli.py": {
+    "mtime": 1788873122.0506146,
+    "seen": 1789080457.225043,
+    "ast_hash": "220c225e367a4f7713f5e6924bd9ea22",
+    "semantic_hash": "220c225e367a4f7713f5e6924bd9ea22"
+  },
+  "meshrec/src/meshrec/core/__init__.py": {
+    "mtime": 1787568450.7694376,
+    "seen": 1789080457.2250435,
+    "ast_hash": "46993cede10ad54d002273c84f98249a",
+    "semantic_hash": "46993cede10ad54d002273c84f98249a"
+  },
+  "meshrec/src/meshrec/core/abaqus.py": {
+    "mtime": 1788873122.0520444,
+    "seen": 1789080457.2250438,
+    "ast_hash": "145c3e6cb585e8e4fe6e2076c6cbbae0",
+    "semantic_hash": "145c3e6cb585e8e4fe6e2076c6cbbae0"
+  },
+  "meshrec/src/meshrec/core/attribuzione.py": {
+    "mtime": 1788873122.0535553,
+    "seen": 1789080457.2250443,
+    "ast_hash": "be173275e075c92f9a053fdd664fa431",
+    "semantic_hash": "be173275e075c92f9a053fdd664fa431"
+  },
+  "meshrec/src/meshrec/core/config.py": {
+    "mtime": 1788873122.0545595,
+    "seen": 1789080457.2250447,
+    "ast_hash": "3931efc3295ce7841d1a8311a9db16df",
+    "semantic_hash": "3931efc3295ce7841d1a8311a9db16df"
+  },
+  "meshrec/src/meshrec/core/gmsh_backend.py": {
+    "mtime": 1787568450.7709432,
+    "seen": 1789080457.2250452,
+    "ast_hash": "87c054931d9ae92c03b8c742d27dbd4c",
+    "semantic_hash": "87c054931d9ae92c03b8c742d27dbd4c"
+  },
+  "meshrec/src/meshrec/core/hexa.py": {
+    "mtime": 1788873122.0555584,
+    "seen": 1789080457.2250457,
+    "ast_hash": "bef5afe4c1fec2a7b2610fa2cf0e4491",
+    "semantic_hash": "bef5afe4c1fec2a7b2610fa2cf0e4491"
+  },
+  "meshrec/src/meshrec/core/io.py": {
+    "mtime": 1787658438.7566235,
+    "seen": 1789080457.2250462,
+    "ast_hash": "006846ecbb835760713296e0adce74dc",
+    "semantic_hash": "006846ecbb835760713296e0adce74dc"
+  },
+  "meshrec/src/meshrec/core/pipeline.py": {
+    "mtime": 1788873122.0565584,
+    "seen": 1789080457.2250469,
+    "ast_hash": "8adafe49a65d11a03f43d3170ca25c4c",
+    "semantic_hash": "8adafe49a65d11a03f43d3170ca25c4c"
+  },
+  "meshrec/src/meshrec/core/quality.py": {
+    "mtime": 1788873122.0575583,
+    "seen": 1789080457.225047,
+    "ast_hash": "ea8fe37c95e69d26393023f25d0b1e70",
+    "semantic_hash": "ea8fe37c95e69d26393023f25d0b1e70"
+  },
+  "meshrec/src/meshrec/core/repair.py": {
+    "mtime": 1787838771.3924773,
+    "seen": 1789080457.2250476,
+    "ast_hash": "17d18a5b4ad9d5b5b498be6b6011a5f7",
+    "semantic_hash": "17d18a5b4ad9d5b5b498be6b6011a5f7"
+  },
+  "meshrec/src/meshrec/core/report.py": {
+    "mtime": 1788873122.0595605,
+    "seen": 1789080457.225048,
+    "ast_hash": "71932fb43e7421559dcdad92eb0bba2d",
+    "semantic_hash": "71932fb43e7421559dcdad92eb0bba2d"
+  },
+  "meshrec/src/meshrec/core/segment.py": {
+    "mtime": 1787658438.7601287,
+    "seen": 1789080457.2250485,
+    "ast_hash": "2ff301307221a746e9630f3de5977d2b",
+    "semantic_hash": "2ff301307221a746e9630f3de5977d2b"
+  },
+  "meshrec/src/meshrec/core/steps.py": {
+    "mtime": 1788873122.0605588,
+    "seen": 1789080457.225049,
+    "ast_hash": "f50a3d657cfbb247676ac4ad74e0ec0d",
+    "semantic_hash": "f50a3d657cfbb247676ac4ad74e0ec0d"
+  },
+  "meshrec/src/meshrec/core/surface.py": {
+    "mtime": 1787838771.6056194,
+    "seen": 1789080457.2250495,
+    "ast_hash": "8dba2ea8faf9767d885f12842acbcd4c",
+    "semantic_hash": "8dba2ea8faf9767d885f12842acbcd4c"
+  },
+  "meshrec/src/meshrec/core/sweep.py": {
+    "mtime": 1788873122.0616415,
+    "seen": 1789080457.2250502,
+    "ast_hash": "2e2e77ca8954c6019663cea6b63880c9",
+    "semantic_hash": "2e2e77ca8954c6019663cea6b63880c9"
+  },
+  "meshrec/src/meshrec/core/synth.py": {
+    "mtime": 1787860189.1304688,
+    "seen": 1789080457.2250504,
+    "ast_hash": "8514b095eb0001b70f052e9246b5996a",
+    "semantic_hash": "8514b095eb0001b70f052e9246b5996a"
+  },
+  "meshrec/src/meshrec/core/viewport.py": {
+    "mtime": 1788555614.0418203,
+    "seen": 1789080457.225051,
+    "ast_hash": "9473956c21565e6fce090a1636658064",
+    "semantic_hash": "9473956c21565e6fce090a1636658064"
+  },
+  "meshrec/src/meshrec/core/volume.py": {
+    "mtime": 1788138779.889654,
+    "seen": 1789080457.2250512,
+    "ast_hash": "4d2039493ee6536fd0a63f79d0a5c963",
+    "semantic_hash": "4d2039493ee6536fd0a63f79d0a5c963"
+  },
+  "meshrec/src/meshrec/core/wall.py": {
+    "mtime": 1788423680.1060386,
+    "seen": 1789080457.2250516,
+    "ast_hash": "65d41e112eb50a08219fa4449b08410d",
+    "semantic_hash": "65d41e112eb50a08219fa4449b08410d"
+  },
+  "meshrec/src/meshrec/ui/app.js": {
+    "mtime": 1789077923.2702868,
+    "seen": 1789080457.2250519,
+    "ast_hash": "7836699de891590a97081c7848b69cfa",
+    "semantic_hash": "7836699de891590a97081c7848b69cfa"
+  },
+  "meshrec/src/meshrec/ui/etichette.js": {
+    "mtime": 1788873122.0646603,
+    "seen": 1789080457.2250524,
+    "ast_hash": "eb478df6d4669ebd866d6e2168a2c3f9",
+    "semantic_hash": "eb478df6d4669ebd866d6e2168a2c3f9"
+  },
+  "meshrec/src/meshrec/ui/modello.js": {
+    "mtime": 1788873122.0661018,
+    "seen": 1789080457.2250528,
+    "ast_hash": "d1ee64e8e9eb3f124d18ba358f9e8e80",
+    "semantic_hash": "d1ee64e8e9eb3f124d18ba358f9e8e80"
+  },
+  "meshrec/src/meshrec/ui/vendor/three.core.min.js": {
+    "mtime": 1787838771.9334784,
+    "seen": 1789080457.2250535,
+    "ast_hash": "f5156dd8e42f98471b0adb4afba68f96",
+    "semantic_hash": "f5156dd8e42f98471b0adb4afba68f96"
+  },
+  "meshrec/src/meshrec/ui/vendor/three.module.min.js": {
+    "mtime": 1787838771.9775066,
+    "seen": 1789080457.225054,
+    "ast_hash": "55ff257d7d6f7caa59f1963ef7b49beb",
+    "semantic_hash": "55ff257d7d6f7caa59f1963ef7b49beb"
+  },
+  "meshrec/src/meshrec/ui/viewport.js": {
+    "mtime": 1789064247.7340076,
+    "seen": 1789080457.2250543,
+    "ast_hash": "f562eb99c95cc0d5589609c8459a07f4",
+    "semantic_hash": "f562eb99c95cc0d5589609c8459a07f4"
+  },
+  "meshrec/tests/ccx_utils.py": {
+    "mtime": 1787838772.054371,
+    "seen": 1789080457.2250547,
+    "ast_hash": "3030d21f4f7bc4c6e0935a43b1fa7a82",
+    "semantic_hash": "3030d21f4f7bc4c6e0935a43b1fa7a82"
+  },
+  "meshrec/tests/conftest.py": {
+    "mtime": 1787838772.0857587,
+    "seen": 1789080457.2250557,
+    "ast_hash": "4c3a6f1402c716facaf2e654b20aa3bf",
+    "semantic_hash": "4c3a6f1402c716facaf2e654b20aa3bf"
+  },
+  "meshrec/tests/corse_finte.py": {
+    "mtime": 1788873122.0681052,
+    "seen": 1789080457.225056,
+    "ast_hash": "8fef407542254f16c604542837e6752e",
+    "semantic_hash": "8fef407542254f16c604542837e6752e"
+  },
+  "meshrec/tests/feasibility/test_gmsh.py": {
+    "mtime": 1787568450.7902215,
+    "seen": 1789080457.2250564,
+    "ast_hash": "1281367f48ac7da8761bc196268bac46",
+    "semantic_hash": "1281367f48ac7da8761bc196268bac46"
+  },
+  "meshrec/tests/feasibility/test_pymeshfix.py": {
+    "mtime": 1787568450.7912202,
+    "seen": 1789080457.2250571,
+    "ast_hash": "adba66e5b90f51315837d6705824a9f5",
+    "semantic_hash": "adba66e5b90f51315837d6705824a9f5"
+  },
+  "meshrec/tests/feasibility/test_pymeshlab.py": {
+    "mtime": 1787568450.7912202,
+    "seen": 1789080457.2250574,
+    "ast_hash": "ab589cab29520fb830f1d1e7b3b3e2a7",
+    "semantic_hash": "ab589cab29520fb830f1d1e7b3b3e2a7"
+  },
+  "meshrec/tests/feasibility/test_wildmeshing.py": {
+    "mtime": 1787568450.7912202,
+    "seen": 1789080457.2250578,
+    "ast_hash": "f45a040356d834ffef45f94c3f6de488",
+    "semantic_hash": "f45a040356d834ffef45f94c3f6de488"
+  },
+  "meshrec/tests/test_abaqus.py": {
+    "mtime": 1788873122.070608,
+    "seen": 1789080457.225058,
+    "ast_hash": "76e6a5f923bac821e7b7d29405427098",
+    "semantic_hash": "76e6a5f923bac821e7b7d29405427098"
+  },
+  "meshrec/tests/test_accenti.py": {
+    "mtime": 1788873122.070608,
+    "seen": 1789080457.2250586,
+    "ast_hash": "9636bd91c9444ee3800a0b1b407af03c",
+    "semantic_hash": "9636bd91c9444ee3800a0b1b407af03c"
+  },
+  "meshrec/tests/test_app_js.py": {
+    "mtime": 1789077923.3453052,
+    "seen": 1789080457.225059,
+    "ast_hash": "b5d80371ba4164d11ff20a95d1d7f10e",
+    "semantic_hash": "b5d80371ba4164d11ff20a95d1d7f10e"
+  },
+  "meshrec/tests/test_attribuzione.py": {
+    "mtime": 1788873122.0746586,
+    "seen": 1789080457.2250595,
+    "ast_hash": "1789f74c8ff76b18a421ac90665fc3c3",
+    "semantic_hash": "1789f74c8ff76b18a421ac90665fc3c3"
+  },
+  "meshrec/tests/test_cancello_finitezza.py": {
+    "mtime": 1788873122.0756586,
+    "seen": 1789080457.22506,
+    "ast_hash": "cf08d1fbe052409faaf0f0ed9b1e2104",
+    "semantic_hash": "cf08d1fbe052409faaf0f0ed9b1e2104"
+  },
+  "meshrec/tests/test_cli.py": {
+    "mtime": 1788873122.0766587,
+    "seen": 1789080457.2250605,
+    "ast_hash": "ddecde1553620380a04d3d1bc3439bbf",
+    "semantic_hash": "ddecde1553620380a04d3d1bc3439bbf"
+  },
+  "meshrec/tests/test_config.py": {
+    "mtime": 1788873122.0776582,
+    "seen": 1789080457.225061,
+    "ast_hash": "1f81753bd46316ab63769aee7f6c3fbe",
+    "semantic_hash": "1f81753bd46316ab63769aee7f6c3fbe"
+  },
+  "meshrec/tests/test_gmsh_backend.py": {
+    "mtime": 1787568450.7957363,
+    "seen": 1789080457.2250612,
+    "ast_hash": "339a99b2d99dd895ed0e1afa8c5cf361",
+    "semantic_hash": "339a99b2d99dd895ed0e1afa8c5cf361"
+  },
+  "meshrec/tests/test_guardie_e_nomi.py": {
+    "mtime": 1788423680.1937885,
+    "seen": 1789080457.2250617,
+    "ast_hash": "5c7ad94e32f9d47db7d5812bcc61b84b",
+    "semantic_hash": "5c7ad94e32f9d47db7d5812bcc61b84b"
+  },
+  "meshrec/tests/test_hexa.py": {
+    "mtime": 1788873122.0786583,
+    "seen": 1789080457.2250621,
+    "ast_hash": "77b6bfff8e9c7ae2fa3698497c892432",
+    "semantic_hash": "77b6bfff8e9c7ae2fa3698497c892432"
+  },
+  "meshrec/tests/test_ingresso.py": {
+    "mtime": 1788873122.0796585,
+    "seen": 1789080457.2250624,
+    "ast_hash": "d04e49a5ce2eff5395f03850fe0acd52",
+    "semantic_hash": "d04e49a5ce2eff5395f03850fe0acd52"
+  },
+  "meshrec/tests/test_io.py": {
+    "mtime": 1787665085.777941,
+    "seen": 1789080457.2250628,
+    "ast_hash": "fd687b7147d9e480facb23ce44781dca",
+    "semantic_hash": "fd687b7147d9e480facb23ce44781dca"
+  },
+  "meshrec/tests/test_oracoli_mancanti.py": {
+    "mtime": 1788873122.0806599,
+    "seen": 1789080457.2250633,
+    "ast_hash": "9283761af7b302dae535d0e5f687a972",
+    "semantic_hash": "9283761af7b302dae535d0e5f687a972"
+  },
+  "meshrec/tests/test_pipeline.py": {
+    "mtime": 1788873122.0823627,
+    "seen": 1789080457.2250636,
+    "ast_hash": "7777bd660ff0d4df72de5dfe1161b2cf",
+    "semantic_hash": "7777bd660ff0d4df72de5dfe1161b2cf"
+  },
+  "meshrec/tests/test_quadratico.py": {
+    "mtime": 1788873122.0833654,
+    "seen": 1789080457.2250643,
+    "ast_hash": "d31d3f4ce8c5ae4b3fd7c97b48048301",
+    "semantic_hash": "d31d3f4ce8c5ae4b3fd7c97b48048301"
+  },
+  "meshrec/tests/test_quality.py": {
+    "mtime": 1788447873.912647,
+    "seen": 1789080457.2250645,
+    "ast_hash": "59eb52d887e030a1faa60220f5bf0cc4",
+    "semantic_hash": "59eb52d887e030a1faa60220f5bf0cc4"
+  },
+  "meshrec/tests/test_repair.py": {
+    "mtime": 1787568450.799005,
+    "seen": 1789080457.2250652,
+    "ast_hash": "3b858db233859689ed4cc10731a85679",
+    "semantic_hash": "3b858db233859689ed4cc10731a85679"
+  },
+  "meshrec/tests/test_report.py": {
+    "mtime": 1788873122.0843654,
+    "seen": 1789080457.2250655,
+    "ast_hash": "86e1dbdb37afe7b89b2f5a2fda6f6aab",
+    "semantic_hash": "86e1dbdb37afe7b89b2f5a2fda6f6aab"
+  },
+  "meshrec/tests/test_riferimenti_documenti.py": {
+    "mtime": 1787870656.3972807,
+    "seen": 1789080457.225066,
+    "ast_hash": "4db399ea71ec69b8da252e4b5c21ba33",
+    "semantic_hash": "4db399ea71ec69b8da252e4b5c21ba33"
+  },
+  "meshrec/tests/test_segment.py": {
+    "mtime": 1787658438.7811544,
+    "seen": 1789080457.2250662,
+    "ast_hash": "84d58f1387899ed76e123968fff3721c",
+    "semantic_hash": "84d58f1387899ed76e123968fff3721c"
+  },
+  "meshrec/tests/test_server.py": {
+    "mtime": 1789077923.353306,
+    "seen": 1789080457.2250667,
+    "ast_hash": "3539adf62623860a18a6ddd0548066a5",
+    "semantic_hash": "3539adf62623860a18a6ddd0548066a5"
+  },
+  "meshrec/tests/test_steps.py": {
+    "mtime": 1788873122.0873935,
+    "seen": 1789080457.2250674,
+    "ast_hash": "79a0b09b198a760601b603bb460bee71",
+    "semantic_hash": "79a0b09b198a760601b603bb460bee71"
+  },
+  "meshrec/tests/test_stile.py": {
+    "mtime": 1788555614.0945,
+    "seen": 1789080457.2250676,
+    "ast_hash": "950a16c1ef5cc16bdef5607e33349c53",
+    "semantic_hash": "950a16c1ef5cc16bdef5607e33349c53"
+  },
+  "meshrec/tests/test_storico.py": {
+    "mtime": 1788444656.3709602,
+    "seen": 1789080457.225068,
+    "ast_hash": "d5fe40933870874b5f46acd82e3d9dd9",
+    "semantic_hash": "d5fe40933870874b5f46acd82e3d9dd9"
+  },
+  "meshrec/tests/test_surface.py": {
+    "mtime": 1787838772.555059,
+    "seen": 1789080457.2250686,
+    "ast_hash": "75d0fb72296d94893336f0fe47682681",
+    "semantic_hash": "75d0fb72296d94893336f0fe47682681"
+  },
+  "meshrec/tests/test_sweep.py": {
+    "mtime": 1788873122.0883918,
+    "seen": 1789080457.2250688,
+    "ast_hash": "f5a69c384e6a5a17a3e31f6860b0c4a8",
+    "semantic_hash": "f5a69c384e6a5a17a3e31f6860b0c4a8"
+  },
+  "meshrec/tests/test_synth.py": {
+    "mtime": 1787568450.8041584,
+    "seen": 1789080457.2250693,
+    "ast_hash": "1f7acfe9624eebf05b64469af601674f",
+    "semantic_hash": "1f7acfe9624eebf05b64469af601674f"
+  },
+  "meshrec/tests/test_viewport.py": {
+    "mtime": 1788555614.100033,
+    "seen": 1789080457.2250695,
+    "ast_hash": "739aa09a2b1bfbbff40d47f7482e346a",
+    "semantic_hash": "739aa09a2b1bfbbff40d47f7482e346a"
+  },
+  "meshrec/tests/test_viewport_js.py": {
+    "mtime": 1789064247.7968957,
+    "seen": 1789080457.22507,
+    "ast_hash": "2c8f2d54f8f0589acefcacaa1bcae264",
+    "semantic_hash": "2c8f2d54f8f0589acefcacaa1bcae264"
+  },
+  "meshrec/tests/test_volume.py": {
+    "mtime": 1788138779.9380312,
+    "seen": 1789080457.2250705,
+    "ast_hash": "de76907b657e88c59196fe87483fb0c2",
+    "semantic_hash": "de76907b657e88c59196fe87483fb0c2"
+  },
+  "meshrec/tests/test_wall.py": {
+    "mtime": 1788058433.7256956,
+    "seen": 1789080457.2250712,
+    "ast_hash": "f16f463fa8e9b806d070d3bdb6b75b85",
+    "semantic_hash": "f16f463fa8e9b806d070d3bdb6b75b85"
+  },
+  "meshrec/tests/test_worker.py": {
+    "mtime": 1788873122.0893912,
+    "seen": 1789080457.2250714,
+    "ast_hash": "314c0440d3f8a15082eff802cf7c58a7",
+    "semantic_hash": "314c0440d3f8a15082eff802cf7c58a7"
+  },
+  "meshrec/tests/validazione/test_patch_test.py": {
+    "mtime": 1788873122.090894,
+    "seen": 1789080457.225072,
+    "ast_hash": "cdf1697f8433a667c0cfddba423e02a1",
+    "semantic_hash": "cdf1697f8433a667c0cfddba423e02a1"
+  },
+  ".github/workflows/suite.yml": {
+    "mtime": 1788423679.8226123,
+    "seen": 1789080457.2250724,
+    "ast_hash": "0bb7f44cf101c41233044fc986a5ebcc",
+    "semantic_hash": "0bb7f44cf101c41233044fc986a5ebcc"
+  },
+  ".impeccable/critique/2026-08-14T17-47-36Z__meshrec-src-meshrec-ui-index-html.md": {
+    "mtime": 1787568450.7121542,
+    "seen": 1789080457.2250729,
+    "ast_hash": "9c845c5c362a7d9dbd3f9643a4fd70b0",
+    "semantic_hash": "9c845c5c362a7d9dbd3f9643a4fd70b0"
+  },
+  ".impeccable/critique/2026-08-14T18-50-32Z__meshrec-src-meshrec-ui-index-html.md": {
+    "mtime": 1787568450.7121542,
+    "seen": 1789080457.2250764,
+    "ast_hash": "a846b8d4dbc9ede248b61fb7a3f6d0e0",
+    "semantic_hash": "a846b8d4dbc9ede248b61fb7a3f6d0e0"
+  },
+  ".impeccable/critique/2026-08-16T11-21-22Z__meshrec-src-meshrec-ui-index-html.md": {
+    "mtime": 1787568450.7121542,
+    "seen": 1789080457.225077,
+    "ast_hash": "431fbbaa767c3782385a32537dcee9f3",
+    "semantic_hash": "431fbbaa767c3782385a32537dcee9f3"
+  },
+  "AGENTS.md": {
+    "mtime": 1788873122.0169456,
+    "seen": 1789080457.2250779,
+    "ast_hash": "6055cf61a6d01f307392ca30c092f524",
+    "semantic_hash": "6055cf61a6d01f307392ca30c092f524"
+  },
+  "CLAUDE.md": {
+    "mtime": 1788205222.2801402,
+    "seen": 1789080457.2250783,
+    "ast_hash": "94e0cef30a9b8dfd6b74b65b92703e03",
+    "semantic_hash": "94e0cef30a9b8dfd6b74b65b92703e03"
+  },
+  "CONTEXT.md": {
+    "mtime": 1788873122.0169456,
+    "seen": 1789080457.2250788,
+    "ast_hash": "00a2e46c09a866e14d7b29792c827a13",
+    "semantic_hash": "00a2e46c09a866e14d7b29792c827a13"
+  },
+  "PRODUCT.md": {
+    "mtime": 1788873122.0189462,
+    "seen": 1789080457.2250793,
+    "ast_hash": "de663f6f51d00e789f2889a45dc0a859",
+    "semantic_hash": "de663f6f51d00e789f2889a45dc0a859"
+  },
+  "README.md": {
+    "mtime": 1788356229.8372629,
+    "seen": 1789080457.2250795,
+    "ast_hash": "5f5496f5cf6e2d1d013c51e9e44b3b32",
+    "semantic_hash": "5f5496f5cf6e2d1d013c51e9e44b3b32"
+  },
+  "analisi-abaqus/README.md": {
+    "mtime": 1788356229.8463984,
+    "seen": 1789080457.22508,
+    "ast_hash": "d906919bb38ec81daab6088429466cab",
+    "semantic_hash": "d906919bb38ec81daab6088429466cab"
+  },
+  "docs/adr/2026-09-07-deck-nudo-via-analisi-carichi-selettori.md": {
+    "mtime": 1788873122.0189462,
+    "seen": 1789080457.2250803,
+    "ast_hash": "aa974b5791dd11b9bb8d027eed0911e8",
+    "semantic_hash": "aa974b5791dd11b9bb8d027eed0911e8"
+  },
+  "docs/adr/2026-09-07-step-dal-prior-geometrico.md": {
+    "mtime": 1788873122.020449,
+    "seen": 1789080457.2250807,
+    "ast_hash": "260b8a48c3505177440f12cd04d01f15",
+    "semantic_hash": "260b8a48c3505177440f12cd04d01f15"
+  },
+  "docs/meshreconstructorpro-panoramica.md": {
+    "mtime": 1787568450.7142088,
+    "seen": 1789080457.2250812,
+    "ast_hash": "0c69430e82b94f6fba7cff6bf0c53f3c",
+    "semantic_hash": "0c69430e82b94f6fba7cff6bf0c53f3c"
+  },
+  "docs/superpowers/plans/2026-08-12-meshrec-fase-0.md": {
+    "mtime": 1787568450.7152133,
+    "seen": 1789080457.2250817,
+    "ast_hash": "af35f9824b632eacdf9c50d079eff476",
+    "semantic_hash": "af35f9824b632eacdf9c50d079eff476"
+  },
+  "docs/superpowers/plans/2026-08-12-meshrec-fase-1.md": {
+    "mtime": 1787568450.716213,
+    "seen": 1789080457.2250822,
+    "ast_hash": "9b091756279dbea7666b1a4bd728f323",
+    "semantic_hash": "9b091756279dbea7666b1a4bd728f323"
+  },
+  "docs/superpowers/plans/2026-08-13-meshrec-fase-3-interfaccia.md": {
+    "mtime": 1787568450.7182128,
+    "seen": 1789080457.2250826,
+    "ast_hash": "ce86775c42787d29ff0cfcbd9237ff1a",
+    "semantic_hash": "ce86775c42787d29ff0cfcbd9237ff1a"
+  },
+  "docs/superpowers/plans/2026-08-16-meshrec-critica-giro-3.md": {
+    "mtime": 1787568450.7182128,
+    "seen": 1789080457.2250829,
+    "ast_hash": "2cbb675176b3410e82ec439ff1955adc",
+    "semantic_hash": "2cbb675176b3410e82ec439ff1955adc"
+  },
+  "docs/superpowers/plans/2026-08-17-meshrec-fase-3-5-viewport.md": {
+    "mtime": 1787838770.4015768,
+    "seen": 1789080457.2250834,
+    "ast_hash": "e8e052cafbe2908d8301f7391ebf5bd4",
+    "semantic_hash": "e8e052cafbe2908d8301f7391ebf5bd4"
+  },
+  "docs/superpowers/plans/2026-08-18-meshrec-fase-4-prior-telaio.md": {
+    "mtime": 1788423679.848125,
+    "seen": 1789080457.2250836,
+    "ast_hash": "454edc77abab80a84aa36a7a2b2e8678",
+    "semantic_hash": "454edc77abab80a84aa36a7a2b2e8678"
+  },
+  "docs/superpowers/plans/2026-08-22-fase-6-carichi-posizionati.md": {
+    "mtime": 1787658438.7375455,
+    "seen": 1789080457.225084,
+    "ast_hash": "5333f85f4629f8e9b61081400dc9a613",
+    "semantic_hash": "5333f85f4629f8e9b61081400dc9a613"
+  },
+  "docs/superpowers/plans/2026-08-29-fase-8-prompt-sessioni.md": {
+    "mtime": 1788423679.8661344,
+    "seen": 1789080457.2250843,
+    "ast_hash": "63fb79e0001475cfefae54f74f9c205d",
+    "semantic_hash": "63fb79e0001475cfefae54f74f9c205d"
+  },
+  "docs/superpowers/plans/2026-08-29-meshrec-fase-8-prior-esteso.md": {
+    "mtime": 1788423679.8831384,
+    "seen": 1789080457.225086,
+    "ast_hash": "5334f7001ab3ebfef81421fbcc2214a3",
+    "semantic_hash": "5334f7001ab3ebfef81421fbcc2214a3"
+  },
+  "docs/superpowers/plans/2026-08-29-meshrec-fase-8-sequenziamento.md": {
+    "mtime": 1788423679.895138,
+    "seen": 1789080457.2250865,
+    "ast_hash": "10c4413fff682c17a45e91c97205352f",
+    "semantic_hash": "10c4413fff682c17a45e91c97205352f"
+  },
+  "docs/superpowers/plans/2026-09-03-storico-esecuzioni-pannello-modello.md": {
+    "mtime": 1788444656.155238,
+    "seen": 1789080457.225087,
+    "ast_hash": "de9f8aa059fda1ab154f61da2202643f",
+    "semantic_hash": "de9f8aa059fda1ab154f61da2202643f"
+  },
+  "docs/superpowers/plans/2026-09-07-deck-nudo-1-carichi.md": {
+    "mtime": 1788873122.0214531,
+    "seen": 1789080457.2250872,
+    "ast_hash": "070e3b92bf730ad4762a60c34f6bfbb6",
+    "semantic_hash": "070e3b92bf730ad4762a60c34f6bfbb6"
+  },
+  "docs/superpowers/plans/2026-09-08-deck-nudo-2-analisi.md": {
+    "mtime": 1788873122.0214531,
+    "seen": 1789080457.2250876,
+    "ast_hash": "1b835cc455dbd8d13e988fcae67700f3",
+    "semantic_hash": "1b835cc455dbd8d13e988fcae67700f3"
+  },
+  "docs/superpowers/plans/2026-09-08-deck-nudo-3-step-dal-prior.md": {
+    "mtime": 1788873122.0225773,
+    "seen": 1789080457.225088,
+    "ast_hash": "f0ed1609332e3566fcdb4820d21dddae",
+    "semantic_hash": "f0ed1609332e3566fcdb4820d21dddae"
+  },
+  "docs/superpowers/specs/2026-08-12-meshrec-fase-1-ambito-design.md": {
+    "mtime": 1787568450.7197168,
+    "seen": 1789080457.2250886,
+    "ast_hash": "6de3c98c0bcfdfa389b188f48116a67a",
+    "semantic_hash": "6de3c98c0bcfdfa389b188f48116a67a"
+  },
+  "docs/superpowers/specs/2026-08-12-meshreconstructor-architettura-design.md": {
+    "mtime": 1788205222.3203657,
+    "seen": 1789080457.225089,
+    "ast_hash": "2c5c2a36dcbab6cffc1c713de3968094",
+    "semantic_hash": "2c5c2a36dcbab6cffc1c713de3968094"
+  },
+  "docs/superpowers/specs/2026-08-12-meshreconstructor-fase-0-1-design.md": {
+    "mtime": 1787568450.7222235,
+    "seen": 1789080457.2250893,
+    "ast_hash": "cc16898cc16c530861bc188b2355cbf4",
+    "semantic_hash": "cc16898cc16c530861bc188b2355cbf4"
+  },
+  "docs/superpowers/specs/2026-08-13-meshrec-fase-2-sweep-design.md": {
+    "mtime": 1787568450.7222235,
+    "seen": 1789080457.2250898,
+    "ast_hash": "3a8569f42f1734c3660e6955b63455cc",
+    "semantic_hash": "3a8569f42f1734c3660e6955b63455cc"
+  },
+  "docs/superpowers/specs/2026-08-13-meshrec-fase-3-interfaccia-design.md": {
+    "mtime": 1788205222.3301153,
+    "seen": 1789080457.2250903,
+    "ast_hash": "b9fff914df0b3d930b95010f3eb55e4f",
+    "semantic_hash": "b9fff914df0b3d930b95010f3eb55e4f"
+  },
+  "docs/superpowers/specs/2026-08-16-meshrec-fase-3-5-viewport-design.md": {
+    "mtime": 1788205222.3392587,
+    "seen": 1789080457.2250907,
+    "ast_hash": "7f81b90957692cb5c30bd82a2972a188",
+    "semantic_hash": "7f81b90957692cb5c30bd82a2972a188"
+  },
+  "docs/superpowers/specs/2026-08-18-meshrec-fase-4-prior-telaio-design.md": {
+    "mtime": 1788423679.9076488,
+    "seen": 1789080457.225091,
+    "ast_hash": "86e67009bba9f2aaad612746cbc69cb7",
+    "semantic_hash": "86e67009bba9f2aaad612746cbc69cb7"
+  },
+  "docs/superpowers/specs/2026-08-22-meshrec-fase-6-carichi-posizionati-design.md": {
+    "mtime": 1788873122.0245783,
+    "seen": 1789080457.2250917,
+    "ast_hash": "0858641710785d3d021b4a5b3e9b0cb9",
+    "semantic_hash": "0858641710785d3d021b4a5b3e9b0cb9"
+  },
+  "docs/superpowers/specs/2026-08-29-meshrec-fase-8-prior-esteso-design.md": {
+    "mtime": 1788873122.0255787,
+    "seen": 1789080457.225092,
+    "ast_hash": "97ef43ee9cf7228dc71aa9a59fc7de56",
+    "semantic_hash": "97ef43ee9cf7228dc71aa9a59fc7de56"
+  },
+  "docs/superpowers/specs/2026-08-31-perimetro-del-progetto-design.md": {
+    "mtime": 1788873122.0265777,
+    "seen": 1789080457.2250926,
+    "ast_hash": "fe2b8c508d342da0574ef36f81734523",
+    "semantic_hash": "fe2b8c508d342da0574ef36f81734523"
+  },
+  "docs/superpowers/specs/2026-09-03-storico-esecuzioni-pannello-modello-design.md": {
+    "mtime": 1788447873.8100994,
+    "seen": 1789080457.225093,
+    "ast_hash": "922e44abf8c15fefe3ee8006f70e439e",
+    "semantic_hash": "922e44abf8c15fefe3ee8006f70e439e"
+  },
+  "docs/superpowers/specs/2026-09-07-deck-nudo-e-step-dal-prior-design.md": {
+    "mtime": 1788873122.0265777,
+    "seen": 1789080457.2250934,
+    "ast_hash": "efd8e29b9f130f4d009e061de591bfb7",
+    "semantic_hash": "efd8e29b9f130f4d009e061de591bfb7"
+  },
+  "docs/validazione/README.md": {
+    "mtime": 1788873122.0275774,
+    "seen": 1789080457.2250938,
+    "ast_hash": "92f0c0fa18fca732d6f2ef6906ccfc0e",
+    "semantic_hash": "92f0c0fa18fca732d6f2ef6906ccfc0e"
+  },
+  "docs/validazione/benchmark-nafems.md": {
+    "mtime": 1787867955.0385737,
+    "seen": 1789080457.225094,
+    "ast_hash": "0928e521ba2b22a72a356a553a749a75",
+    "semantic_hash": "0928e521ba2b22a72a356a553a749a75"
+  },
+  "docs/validazione/carichi-consistenti-tet10.md": {
+    "mtime": 1787838770.5063226,
+    "seen": 1789080457.2250946,
+    "ast_hash": "ef6d58756664f90212cc3e53cbe71fc0",
+    "semantic_hash": "ef6d58756664f90212cc3e53cbe71fc0"
+  },
+  "docs/validazione/convergenza-di-maglio.md": {
+    "mtime": 1787838770.5243797,
+    "seen": 1789080457.2250953,
+    "ast_hash": "bbe8a845748cc0ad8590aeda5dc6723c",
+    "semantic_hash": "bbe8a845748cc0ad8590aeda5dc6723c"
+  },
+  "docs/validazione/inventario-grandezze.md": {
+    "mtime": 1788873122.0305922,
+    "seen": 1789080457.2250955,
+    "ast_hash": "ee5a8e8046110df588e04e4c63c3c512",
+    "semantic_hash": "ee5a8e8046110df588e04e4c63c3c512"
+  },
+  "docs/validazione/materiali-intervallo.md": {
+    "mtime": 1788423679.9362342,
+    "seen": 1789080457.225096,
+    "ast_hash": "90ac49f65ae67a110f5c61d193d1ae89",
+    "semantic_hash": "90ac49f65ae67a110f5c61d193d1ae89"
+  },
+  "docs/validazione/mensola-benzley.md": {
+    "mtime": 1787867955.1116781,
+    "seen": 1789080457.2250965,
+    "ast_hash": "21aafc817efe13e4b9e5ab30d9135fde",
+    "semantic_hash": "21aafc817efe13e4b9e5ab30d9135fde"
+  },
+  "docs/validazione/modi-per-la-normativa.md": {
+    "mtime": 1788873122.0321043,
+    "seen": 1789080457.2250967,
+    "ast_hash": "3ba9580a1d22ac0a5285d9a1157fdde7",
+    "semantic_hash": "3ba9580a1d22ac0a5285d9a1157fdde7"
+  },
+  "docs/validazione/ricerca-armature-convenzioni-normative.md": {
+    "mtime": 1788873122.0327263,
+    "seen": 1789080457.2250972,
+    "ast_hash": "8d74c11e39d12089ad00fa5e11941f90",
+    "semantic_hash": "8d74c11e39d12089ad00fa5e11941f90"
+  },
+  "docs/validazione/ricerca-armature-librerie-python.md": {
+    "mtime": 1787934742.527625,
+    "seen": 1789080457.2250977,
+    "ast_hash": "6881a3669b6c2c0ea0c3e10f8241400d",
+    "semantic_hash": "6881a3669b6c2c0ea0c3e10f8241400d"
+  },
+  "docs/validazione/ricerca-armature-opensees-fibre.md": {
+    "mtime": 1788205222.3557973,
+    "seen": 1789080457.2250981,
+    "ast_hash": "e5b891801abe59a2eb4516ea01a95d2f",
+    "semantic_hash": "e5b891801abe59a2eb4516ea01a95d2f"
+  },
+  "docs/validazione/ricerca-armature-preprocessori.md": {
+    "mtime": 1787935226.2335236,
+    "seen": 1789080457.2250986,
+    "ast_hash": "a3c6ce7d5742f713e511c53637497926",
+    "semantic_hash": "a3c6ce7d5742f713e511c53637497926"
+  },
+  "docs/validazione/ricerca-calculix-e-c3d4.md": {
+    "mtime": 1787867955.1410687,
+    "seen": 1789080457.225099,
+    "ast_hash": "83e34c35e57664b3a8b8905b3379ca0e",
+    "semantic_hash": "83e34c35e57664b3a8b8905b3379ca0e"
+  },
+  "docs/validazione/ricerca-ntc-2018-numeri-per-il-catalogo.md": {
+    "mtime": 1788873122.034989,
+    "seen": 1789080457.2250996,
+    "ast_hash": "8cf068242f883072d03fc95d7f72ce81",
+    "semantic_hash": "8cf068242f883072d03fc95d7f72ce81"
+  },
+  "docs/validazione/ricerca-opensees-e-armature.md": {
+    "mtime": 1788873122.0359883,
+    "seen": 1789080457.225101,
+    "ast_hash": "43de6fed3b3afd367f771829d434352b",
+    "semantic_hash": "43de6fed3b3afd367f771829d434352b"
+  },
+  "docs/validazione/ricerca-terminologia-segmentazione.md": {
+    "mtime": 1788356231.7122605,
+    "seen": 1789080457.2251012,
+    "ast_hash": "84c2345c5770fe70e206aaf224f251e8",
+    "semantic_hash": "84c2345c5770fe70e206aaf224f251e8"
+  },
+  "docs/validazione/ricerca-vv-standard.md": {
+    "mtime": 1787867955.1868813,
+    "seen": 1789080457.2251017,
+    "ast_hash": "a9072dba5c4a8506c11b7f34a4aedde8",
+    "semantic_hash": "a9072dba5c4a8506c11b7f34a4aedde8"
+  },
+  "docs/validazione/scarto-c3d4-c3d10-telaio.md": {
+    "mtime": 1788873122.0369883,
+    "seen": 1789080457.2251024,
+    "ast_hash": "d0c86590bedcedd573cb1cdd355e31a4",
+    "semantic_hash": "d0c86590bedcedd573cb1cdd355e31a4"
+  },
+  "docs/validazione/scarto-con-segno.md": {
+    "mtime": 1787870656.2903595,
+    "seen": 1789080457.2251027,
+    "ast_hash": "2ca892d227a8f141c06c1aa0e808ea85",
+    "semantic_hash": "2ca892d227a8f141c06c1aa0e808ea85"
+  },
+  "meshrec/README.md": {
+    "mtime": 1788444656.1732426,
+    "seen": 1789080457.2251031,
+    "ast_hash": "0ec9e2abd7a2fddb14c21b0d7bf67fc0",
+    "semantic_hash": "0ec9e2abd7a2fddb14c21b0d7bf67fc0"
+  },
+  "meshrec/casi/README.md": {
+    "mtime": 1787600969.7526536,
+    "seen": 1789080457.2251036,
+    "ast_hash": "c4b7d0a9b2c6293f07b3caa0761f095d",
+    "semantic_hash": "c4b7d0a9b2c6293f07b3caa0761f095d"
+  },
+  "meshrec/casi/lab.yaml": {
+    "mtime": 1788873122.037988,
+    "seen": 1789080457.225104,
+    "ast_hash": "d4c24c3fb1661338a7736622f307540d",
+    "semantic_hash": "d4c24c3fb1661338a7736622f307540d"
+  },
+  "meshrec/casi/lab_telaio.yaml": {
+    "mtime": 1788873122.0389895,
+    "seen": 1789080457.2251043,
+    "ast_hash": "aefd8ea49887c91058a4a710cc3f08f6",
+    "semantic_hash": "aefd8ea49887c91058a4a710cc3f08f6"
+  },
+  "meshrec/casi/muro.yaml": {
+    "mtime": 1788873122.0404923,
+    "seen": 1789080457.2251048,
+    "ast_hash": "ef9873661f5b9f2388c216813201ed76",
+    "semantic_hash": "ef9873661f5b9f2388c216813201ed76"
+  },
+  "meshrec/casi/prova-interfaccia.yaml": {
+    "mtime": 1788873122.041496,
+    "seen": 1789080457.2251055,
+    "ast_hash": "2741683c403a82ed99961adeb636f842",
+    "semantic_hash": "2741683c403a82ed99961adeb636f842"
+  },
+  "meshrec/docs/fase-0-esiti.md": {
+    "mtime": 1787568450.7247407,
+    "seen": 1789080457.225106,
+    "ast_hash": "a91e28a70b0d13b1a5b7965581224a60",
+    "semantic_hash": "a91e28a70b0d13b1a5b7965581224a60"
+  },
+  "meshrec/docs/fase-1-debito.md": {
+    "mtime": 1787568450.7262511,
+    "seen": 1789080457.2251065,
+    "ast_hash": "5810b23f1de99b0327b2ed793984ee7c",
+    "semantic_hash": "5810b23f1de99b0327b2ed793984ee7c"
+  },
+  "meshrec/docs/fase-1-esiti-lab-frame.md": {
+    "mtime": 1787568450.7262511,
+    "seen": 1789080457.225107,
+    "ast_hash": "aa1ebb3d39ffce6551e6cb347198cd4a",
+    "semantic_hash": "aa1ebb3d39ffce6551e6cb347198cd4a"
+  },
+  "meshrec/docs/fase-1-esiti.md": {
+    "mtime": 1787568450.727255,
+    "seen": 1789080457.2251072,
+    "ast_hash": "1feabfddb93e54eaad60233890d9c706",
+    "semantic_hash": "1feabfddb93e54eaad60233890d9c706"
+  },
+  "meshrec/docs/fase-1-min-ratio.md": {
+    "mtime": 1788090375.1307764,
+    "seen": 1789080457.2251077,
+    "ast_hash": "05c601481d45c374b1168b1b6adbc07f",
+    "semantic_hash": "05c601481d45c374b1168b1b6adbc07f"
+  },
+  "meshrec/docs/fase-1-tolleranza-set.md": {
+    "mtime": 1787568450.7282734,
+    "seen": 1789080457.2251081,
+    "ast_hash": "0006dee0d4d986799d3f585c4fcb5970",
+    "semantic_hash": "0006dee0d4d986799d3f585c4fcb5970"
+  },
+  "meshrec/docs/fase-2-sweep.md": {
+    "mtime": 1787568450.7282734,
+    "seen": 1789080457.2251084,
+    "ast_hash": "4242e2837579571791201ebce2488fb0",
+    "semantic_hash": "4242e2837579571791201ebce2488fb0"
+  },
+  "meshrec/docs/fase-3-interfaccia.md": {
+    "mtime": 1787867955.2320175,
+    "seen": 1789080457.225109,
+    "ast_hash": "28c273197b957a09e78c07d481f2c687",
+    "semantic_hash": "28c273197b957a09e78c07d481f2c687"
+  },
+  "meshrec/docs/fase-3-registro-decisioni.md": {
+    "mtime": 1787838770.8752959,
+    "seen": 1789080457.2251093,
+    "ast_hash": "7114f78d59fd9ba651ed1a939c89978a",
+    "semantic_hash": "7114f78d59fd9ba651ed1a939c89978a"
+  },
+  "meshrec/docs/fase-3-rulings-inventario.md": {
+    "mtime": 1787568450.7312784,
+    "seen": 1789080457.2251098,
+    "ast_hash": "6c6f271858cfaf409a4ef193e2ae0dbe",
+    "semantic_hash": "6c6f271858cfaf409a4ef193e2ae0dbe"
+  },
+  "meshrec/docs/fase-4-cantiere/README.md": {
+    "mtime": 1787568450.7317894,
+    "seen": 1789080457.2251103,
+    "ast_hash": "894dd9007ed0efad2bccbebe23decdb0",
+    "semantic_hash": "894dd9007ed0efad2bccbebe23decdb0"
+  },
+  "meshrec/docs/fase-4-cantiere/correzioni-finali-report.md": {
+    "mtime": 1787568450.732793,
+    "seen": 1789080457.2251105,
+    "ast_hash": "ca593a333a27ed161b03f044ea1015a0",
+    "semantic_hash": "ca593a333a27ed161b03f044ea1015a0"
+  },
+  "meshrec/docs/fase-4-cantiere/correzioni-finali.md": {
+    "mtime": 1787568450.732793,
+    "seen": 1789080457.225111,
+    "ast_hash": "607c9f68ea7df42ec664b1534a9d9f3c",
+    "semantic_hash": "607c9f68ea7df42ec664b1534a9d9f3c"
+  },
+  "meshrec/docs/fase-4-cantiere/preambolo-dispaccio.md": {
+    "mtime": 1787568450.733793,
+    "seen": 1789080457.2251115,
+    "ast_hash": "9c43055de8806ccb16d8d27464c2484b",
+    "semantic_hash": "9c43055de8806ccb16d8d27464c2484b"
+  },
+  "meshrec/docs/fase-4-cantiere/progress.md": {
+    "mtime": 1787568450.7347941,
+    "seen": 1789080457.2251117,
+    "ast_hash": "1f80a200cd46d9f428fb657712222422",
+    "semantic_hash": "1f80a200cd46d9f428fb657712222422"
+  },
+  "meshrec/docs/fase-4-cantiere/rulings-fase-4.md": {
+    "mtime": 1787568450.7347941,
+    "seen": 1789080457.2251124,
+    "ast_hash": "f7f3fdf7339b0ee99922bad73570ecb4",
+    "semantic_hash": "f7f3fdf7339b0ee99922bad73570ecb4"
+  },
+  "meshrec/docs/fase-4-cantiere/setaccio-task-8-15.md": {
+    "mtime": 1787568450.7358205,
+    "seen": 1789080457.225113,
+    "ast_hash": "a1c009a68343dc984e133682d05e6b87",
+    "semantic_hash": "a1c009a68343dc984e133682d05e6b87"
+  },
+  "meshrec/docs/fase-4-cantiere/task-1-brief.md": {
+    "mtime": 1787568450.73682,
+    "seen": 1789080457.2251132,
+    "ast_hash": "7ccd2453936cfb888805b6f94eda090d",
+    "semantic_hash": "7ccd2453936cfb888805b6f94eda090d"
+  },
+  "meshrec/docs/fase-4-cantiere/task-1-report.md": {
+    "mtime": 1787568450.73682,
+    "seen": 1789080457.2251136,
+    "ast_hash": "475d1dd0c2a11cbf479517fe147589d1",
+    "semantic_hash": "475d1dd0c2a11cbf479517fe147589d1"
+  },
+  "meshrec/docs/fase-4-cantiere/task-10-brief.md": {
+    "mtime": 1787568450.73682,
+    "seen": 1789080457.225114,
+    "ast_hash": "42b8af54153b1d04b5185b929f2c9b5f",
+    "semantic_hash": "42b8af54153b1d04b5185b929f2c9b5f"
+  },
+  "meshrec/docs/fase-4-cantiere/task-10-report.md": {
+    "mtime": 1787568450.73782,
+    "seen": 1789080457.2251146,
+    "ast_hash": "8456e3f61ea90f26097bbc632a3b87d6",
+    "semantic_hash": "8456e3f61ea90f26097bbc632a3b87d6"
+  },
+  "meshrec/docs/fase-4-cantiere/task-11-brief.md": {
+    "mtime": 1787568450.73782,
+    "seen": 1789080457.2251148,
+    "ast_hash": "2d4aed214d782b63f0033fc48d9b5064",
+    "semantic_hash": "2d4aed214d782b63f0033fc48d9b5064"
+  },
+  "meshrec/docs/fase-4-cantiere/task-11-report.md": {
+    "mtime": 1787568450.73782,
+    "seen": 1789080457.2251153,
+    "ast_hash": "4f2f74ab28affedac399bc2557b2d562",
+    "semantic_hash": "4f2f74ab28affedac399bc2557b2d562"
+  },
+  "meshrec/docs/fase-4-cantiere/task-12-brief.md": {
+    "mtime": 1787568450.7393234,
+    "seen": 1789080457.225116,
+    "ast_hash": "f58fb27003a6706fd6bfbc097a668cc5",
+    "semantic_hash": "f58fb27003a6706fd6bfbc097a668cc5"
+  },
+  "meshrec/docs/fase-4-cantiere/task-12-report.md": {
+    "mtime": 1787568450.7393234,
+    "seen": 1789080457.2251165,
+    "ast_hash": "f6a08fab2f3f481fe63ee1ad453a2f68",
+    "semantic_hash": "f6a08fab2f3f481fe63ee1ad453a2f68"
+  },
+  "meshrec/docs/fase-4-cantiere/task-13-brief.md": {
+    "mtime": 1787568450.7403264,
+    "seen": 1789080457.2251177,
+    "ast_hash": "28d63d70d7f930fad712d159aaf53f5b",
+    "semantic_hash": "28d63d70d7f930fad712d159aaf53f5b"
+  },
+  "meshrec/docs/fase-4-cantiere/task-13-report.md": {
+    "mtime": 1787568450.7403264,
+    "seen": 1789080457.2251182,
+    "ast_hash": "e110ffde4e001d2e4963b2b71af52c8c",
+    "semantic_hash": "e110ffde4e001d2e4963b2b71af52c8c"
+  },
+  "meshrec/docs/fase-4-cantiere/task-14-brief.md": {
+    "mtime": 1787568450.7413263,
+    "seen": 1789080457.2251184,
+    "ast_hash": "fa0e25f4f8944a95ffcf352ecb7939b3",
+    "semantic_hash": "fa0e25f4f8944a95ffcf352ecb7939b3"
+  },
+  "meshrec/docs/fase-4-cantiere/task-14-report.md": {
+    "mtime": 1787568450.7418284,
+    "seen": 1789080457.2251189,
+    "ast_hash": "388e736132c4caa529045c09b9a1262a",
+    "semantic_hash": "388e736132c4caa529045c09b9a1262a"
+  },
+  "meshrec/docs/fase-4-cantiere/task-15-brief.md": {
+    "mtime": 1788423679.9712512,
+    "seen": 1789080457.2251196,
+    "ast_hash": "a6a8cf850376a1fd0f38a781c9ef65b2",
+    "semantic_hash": "a6a8cf850376a1fd0f38a781c9ef65b2"
+  },
+  "meshrec/docs/fase-4-cantiere/task-15-report.md": {
+    "mtime": 1787568450.7418284,
+    "seen": 1789080457.2251198,
+    "ast_hash": "07d0366877e087a975366d9534ef51ac",
+    "semantic_hash": "07d0366877e087a975366d9534ef51ac"
+  },
+  "meshrec/docs/fase-4-cantiere/task-2-brief.md": {
+    "mtime": 1787568450.7418284,
+    "seen": 1789080457.2251203,
+    "ast_hash": "f094829d1ac6d21867ae1d27623da58f",
+    "semantic_hash": "f094829d1ac6d21867ae1d27623da58f"
+  },
+  "meshrec/docs/fase-4-cantiere/task-2-report.md": {
+    "mtime": 1787568450.7438374,
+    "seen": 1789080457.2251208,
+    "ast_hash": "2779ad965695fd32374a5747f4e5cbf6",
+    "semantic_hash": "2779ad965695fd32374a5747f4e5cbf6"
+  },
+  "meshrec/docs/fase-4-cantiere/task-3-brief.md": {
+    "mtime": 1787568450.7438374,
+    "seen": 1789080457.225121,
+    "ast_hash": "565725498dc3cddc20cf286ed2c5d5ac",
+    "semantic_hash": "565725498dc3cddc20cf286ed2c5d5ac"
+  },
+  "meshrec/docs/fase-4-cantiere/task-3-report.md": {
+    "mtime": 1787568450.7453618,
+    "seen": 1789080457.2251215,
+    "ast_hash": "4ff7ec879480c4d83175eebbe9a5f64f",
+    "semantic_hash": "4ff7ec879480c4d83175eebbe9a5f64f"
+  },
+  "meshrec/docs/fase-4-cantiere/task-4-brief.md": {
+    "mtime": 1787568450.7453618,
+    "seen": 1789080457.225122,
+    "ast_hash": "053467762cdedb88463e646037f11ffa",
+    "semantic_hash": "053467762cdedb88463e646037f11ffa"
+  },
+  "meshrec/docs/fase-4-cantiere/task-4-report.md": {
+    "mtime": 1787568450.746368,
+    "seen": 1789080457.2251222,
+    "ast_hash": "ff5603bfd90472d6435c1e51e72cc5f6",
+    "semantic_hash": "ff5603bfd90472d6435c1e51e72cc5f6"
+  },
+  "meshrec/docs/fase-4-cantiere/task-5-brief.md": {
+    "mtime": 1787568450.746368,
+    "seen": 1789080457.225123,
+    "ast_hash": "376b8bb217d5dca41a04d7cbbadc74fc",
+    "semantic_hash": "376b8bb217d5dca41a04d7cbbadc74fc"
+  },
+  "meshrec/docs/fase-4-cantiere/task-5-report.md": {
+    "mtime": 1787568450.7473657,
+    "seen": 1789080457.2251234,
+    "ast_hash": "5589cf8039e16c500b6f7e3759dd72f1",
+    "semantic_hash": "5589cf8039e16c500b6f7e3759dd72f1"
+  },
+  "meshrec/docs/fase-4-cantiere/task-6-brief.md": {
+    "mtime": 1787568450.7473657,
+    "seen": 1789080457.2251236,
+    "ast_hash": "021ec739f45fc4455fe4c464a2a61423",
+    "semantic_hash": "021ec739f45fc4455fe4c464a2a61423"
+  },
+  "meshrec/docs/fase-4-cantiere/task-6-report.md": {
+    "mtime": 1787568450.7483652,
+    "seen": 1789080457.2251241,
+    "ast_hash": "c27a0f05810cc2d30107cf9c456719e7",
+    "semantic_hash": "c27a0f05810cc2d30107cf9c456719e7"
+  },
+  "meshrec/docs/fase-4-cantiere/task-6-review.md": {
+    "mtime": 1787568450.7483652,
+    "seen": 1789080457.2251246,
+    "ast_hash": "e8688308cc4c5506388cbb67cf51b725",
+    "semantic_hash": "e8688308cc4c5506388cbb67cf51b725"
+  },
+  "meshrec/docs/fase-4-cantiere/task-7-brief.md": {
+    "mtime": 1787568450.7493668,
+    "seen": 1789080457.2251248,
+    "ast_hash": "ce46b616ddc2bdad43368f5a9923aada",
+    "semantic_hash": "ce46b616ddc2bdad43368f5a9923aada"
+  },
+  "meshrec/docs/fase-4-cantiere/task-7-report.md": {
+    "mtime": 1787568450.7493668,
+    "seen": 1789080457.2251253,
+    "ast_hash": "7880110fd408aa474c7fd9c67ce7a19b",
+    "semantic_hash": "7880110fd408aa474c7fd9c67ce7a19b"
+  },
+  "meshrec/docs/fase-4-cantiere/task-7-review.md": {
+    "mtime": 1787568450.7493668,
+    "seen": 1789080457.2251258,
+    "ast_hash": "8c205fe40ad07f67e388e1405f711e41",
+    "semantic_hash": "8c205fe40ad07f67e388e1405f711e41"
+  },
+  "meshrec/docs/fase-4-cantiere/task-8-brief.md": {
+    "mtime": 1787568450.7508695,
+    "seen": 1789080457.225126,
+    "ast_hash": "394304fc314b5c9f60fe4e58a0dae7e7",
+    "semantic_hash": "394304fc314b5c9f60fe4e58a0dae7e7"
+  },
+  "meshrec/docs/fase-4-cantiere/task-8-fix-1.md": {
+    "mtime": 1787568450.7508695,
+    "seen": 1789080457.2251267,
+    "ast_hash": "593eda9ebb40b06b0cbfafacf2ea87aa",
+    "semantic_hash": "593eda9ebb40b06b0cbfafacf2ea87aa"
+  },
+  "meshrec/docs/fase-4-cantiere/task-8-fix-3.md": {
+    "mtime": 1787568450.7518733,
+    "seen": 1789080457.225127,
+    "ast_hash": "b7b6b3baef259d6c90bf7d1de92e7ee8",
+    "semantic_hash": "b7b6b3baef259d6c90bf7d1de92e7ee8"
+  },
+  "meshrec/docs/fase-4-cantiere/task-8-report.md": {
+    "mtime": 1787568450.7518733,
+    "seen": 1789080457.2251275,
+    "ast_hash": "c7b6c528113e936e8c5f65a566d4814f",
+    "semantic_hash": "c7b6c528113e936e8c5f65a566d4814f"
+  },
+  "meshrec/docs/fase-4-cantiere/task-9-brief.md": {
+    "mtime": 1787568450.7530372,
+    "seen": 1789080457.2251277,
+    "ast_hash": "8241e18980545079dd650e2f2f213154",
+    "semantic_hash": "8241e18980545079dd650e2f2f213154"
+  },
+  "meshrec/docs/fase-4-cantiere/task-9-report.md": {
+    "mtime": 1787568450.7530372,
+    "seen": 1789080457.2251282,
+    "ast_hash": "7812f528dad1a0f6343f220532d92259",
+    "semantic_hash": "7812f528dad1a0f6343f220532d92259"
+  },
+  "meshrec/docs/fase-4-materiale.md": {
+    "mtime": 1788873122.0426142,
+    "seen": 1789080457.2251287,
+    "ast_hash": "d4b62d78da6b8f00c4ee83fd4061e047",
+    "semantic_hash": "d4b62d78da6b8f00c4ee83fd4061e047"
+  },
+  "meshrec/docs/fase-4-prior-telaio.md": {
+    "mtime": 1788423679.9862523,
+    "seen": 1789080457.225129,
+    "ast_hash": "a48236dd47c5843716402c7e444e9794",
+    "semantic_hash": "a48236dd47c5843716402c7e444e9794"
+  },
+  "meshrec/docs/fase-5-analisi.md": {
+    "mtime": 1788873122.0426142,
+    "seen": 1789080457.2251294,
+    "ast_hash": "31ca0c945972e366937ba8c416c70c3b",
+    "semantic_hash": "31ca0c945972e366937ba8c416c70c3b"
+  },
+  "meshrec/docs/fase-6-cantiere/sonda-caso-nomi/README.md": {
+    "mtime": 1787658438.7415657,
+    "seen": 1789080457.22513,
+    "ast_hash": "8a59b4fbbf01130f08835fd4e91652ad",
+    "semantic_hash": "8a59b4fbbf01130f08835fd4e91652ad"
+  },
+  "meshrec/docs/fase-6-cantiere/sonda-cload-persiste/README.md": {
+    "mtime": 1787860188.6242013,
+    "seen": 1789080457.2251303,
+    "ast_hash": "4aa9813c32c5db68ad135e8219e3d35b",
+    "semantic_hash": "4aa9813c32c5db68ad135e8219e3d35b"
+  },
+  "meshrec/docs/fase-6-cantiere/sonda-trvec.md": {
+    "mtime": 1788205222.382102,
+    "seen": 1789080457.2251308,
+    "ast_hash": "25c648b875bb4f128e2d85bbf87d6caa",
+    "semantic_hash": "25c648b875bb4f128e2d85bbf87d6caa"
+  },
+  "meshrec/docs/fase-6-carichi.md": {
+    "mtime": 1788873122.0456152,
+    "seen": 1789080457.225131,
+    "ast_hash": "a86a98b22f6961cfd829712e7c1637a4",
+    "semantic_hash": "a86a98b22f6961cfd829712e7c1637a4"
+  },
+  "meshrec/docs/raffinamento-interfaccia-step.md": {
+    "mtime": 1787931382.5955222,
+    "seen": 1789080457.2251315,
+    "ast_hash": "e4930bf49f1467f16c4d330d1b0c38be",
+    "semantic_hash": "e4930bf49f1467f16c4d330d1b0c38be"
+  },
+  "meshrec/docs/superpowers/plans/2026-08-13-meshrec-debito-fase-1.md": {
+    "mtime": 1787568450.7560422,
+    "seen": 1789080457.225132,
+    "ast_hash": "e4cc559e1400243e1881291d4b009f4d",
+    "semantic_hash": "e4cc559e1400243e1881291d4b009f4d"
+  },
+  "meshrec/docs/superpowers/plans/2026-08-13-meshrec-fase-2-sweep.md": {
+    "mtime": 1787568450.7570422,
+    "seen": 1789080457.2251322,
+    "ast_hash": "6ca71392bb9a6e2091de047809178082",
+    "semantic_hash": "6ca71392bb9a6e2091de047809178082"
+  },
+  "meshrec/docs/superpowers/plans/2026-08-21-meshrec-fase-5-analisi-strutturale.md": {
+    "mtime": 1787568450.7583175,
+    "seen": 1789080457.2251327,
+    "ast_hash": "47ffae8794c7a9b8b1936e026a7b7024",
+    "semantic_hash": "47ffae8794c7a9b8b1936e026a7b7024"
+  },
+  "meshrec/docs/superpowers/specs/2026-08-21-meshrec-fase-5-analisi-strutturale-design.md": {
+    "mtime": 1787568450.7583175,
+    "seen": 1789080457.2251334,
+    "ast_hash": "8cc3813137f924720c99f3c749cf40de",
+    "semantic_hash": "8cc3813137f924720c99f3c749cf40de"
+  },
+  "meshrec/experiments/lab_crop/esperimento.yaml": {
+    "mtime": 1787600969.7562838,
+    "seen": 1789080457.2251337,
+    "ast_hash": "02e225e78de923562e65fa6467abb04d",
+    "semantic_hash": "02e225e78de923562e65fa6467abb04d"
+  },
+  "meshrec/experiments/lab_crop/report.html": {
+    "mtime": 1787568450.7608314,
+    "seen": 1789080457.2251341,
+    "ast_hash": "b84319e1025b4e280c4af3043e3e945a",
+    "semantic_hash": "b84319e1025b4e280c4af3043e3e945a"
+  },
+  "meshrec/experiments/muro/esperimento.yaml": {
+    "mtime": 1787600969.7572842,
+    "seen": 1789080457.2251344,
+    "ast_hash": "800da64ca90c15ba21310cf15f717aa8",
+    "semantic_hash": "800da64ca90c15ba21310cf15f717aa8"
+  },
+  "meshrec/experiments/muro/report.html": {
+    "mtime": 1787568450.7629266,
+    "seen": 1789080457.2251348,
+    "ast_hash": "894302b3def3f7bb959dc99fabf9037a",
+    "semantic_hash": "894302b3def3f7bb959dc99fabf9037a"
+  },
+  "meshrec/src/meshrec/ui/index.html": {
+    "mtime": 1789077923.3113043,
+    "seen": 1789080457.2251353,
+    "ast_hash": "5ea1a19c4f35dc885d8dd876e9616563",
+    "semantic_hash": "5ea1a19c4f35dc885d8dd876e9616563"
+  },
+  "meshrec/src/meshrec/ui/vendor/README.md": {
+    "mtime": 1787838771.8760142,
+    "seen": 1789080457.2251358,
+    "ast_hash": "4bb10b52b1e04f82a0c4e0cdf212dcf7",
+    "semantic_hash": "4bb10b52b1e04f82a0c4e0cdf212dcf7"
+  },
+  "docs/validazione/ricerca-letteratura-scan-to-fem.md": {
+    "mtime": 1787867955.163375,
+    "seen": 1789080457.225136,
+    "ast_hash": "aa50f62e42ce5c9262043ac81e25a54a",
+    "semantic_hash": "aa50f62e42ce5c9262043ac81e25a54a"
+  }
+}
