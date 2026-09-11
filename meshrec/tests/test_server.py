@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from meshrec.app import server
+from meshrec.app import immagini, server
 from meshrec.app.server import create_app
 from meshrec.core.config import InputConfig, PipelineConfig, load_config, save_config
 
@@ -4324,6 +4324,29 @@ def test_un_corpo_sopra_il_limite_e_rifiutato_con_413(cliente, tmp_path):
     from meshrec.app.immagini import LIMITE_BYTE
     grande = "data:image/png;base64," + "A" * (LIMITE_BYTE + 1)
     risposta = cliente.post("/api/immagine", json=_corpo_immagine(dati=grande))
+    assert risposta.status_code == 413
+    assert risposta.json()["errore"] == "ImmagineTroppoGrande"
+    assert not (tmp_path / "corsa" / "immagini").exists()
+
+
+def test_un_corpo_sopra_il_limite_senza_content_length_dichiarato_e_rifiutato_con_413(
+    cliente, tmp_path, monkeypatch
+):
+    """Il test sopra passa sempre dal controllo sul Content-Length dichiarato,
+    perche' TestClient lo calcola da solo su json=. Qui il corpo va senza
+    quell'header (un generatore forza l'invio chunked), cosi' a decidere e' il
+    secondo controllo, su len(corpo) dopo la lettura. LIMITE_BYTE e' patchato
+    a un valore piccolo per non scrivere decine di MB in un test."""
+    monkeypatch.setattr(immagini, "LIMITE_BYTE", 64)
+
+    def corpo_a_pezzi():
+        yield b"x" * 100
+
+    risposta = cliente.post(
+        "/api/immagine",
+        content=corpo_a_pezzi(),
+        headers={"Content-Type": "application/json"},
+    )
     assert risposta.status_code == 413
     assert risposta.json()["errore"] == "ImmagineTroppoGrande"
     assert not (tmp_path / "corsa" / "immagini").exists()
