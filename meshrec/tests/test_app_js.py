@@ -6528,33 +6528,6 @@ assert.equal(document.title, "✗ MeshRec", "il fallimento non si vede dalla bar
 # --------------------------------------------------------------------------
 
 
-def test_il_nome_del_file_dell_immagine_porta_corsa_step_e_didascalia(tmp_path):
-    """L'immagine finisce in appendice a un documento stampato, e li' il nome
-    del file e' l'unica provenienza che si porta dietro: quale corsa, quale
-    step, che cosa mostra.
-
-    Solo `[a-z0-9-]`: e' un nome di file su tre sistemi diversi, e la
-    didascalia porta virgole, accenti e unita'.
-    """
-    _esegui(tmp_path, _DOM + _funzioni("nomeDellaCorsa", "nomeDellImmagine") + """
-assert.equal(nomeDellImmagine("runs/lab_telaio_v2", 6, "Riparazione", "scarto RMS 9,5 mm"),
-  "lab-telaio-v2-06-riparazione-scarto-rms-9-5-mm.png");
-assert.equal(nomeDellImmagine("corsa", 5, "Superficie", ""), "corsa-05-superficie.png",
-  "la didascalia vuota lascia un trattino pendente");
-// I separatori di Windows, la barra finale, e il vuoto.
-assert.equal(nomeDellImmagine("runs\\\\lab", 1, "Lettura", ""), "lab-01-lettura.png");
-assert.equal(nomeDellImmagine("runs/lab/", 1, "Lettura", ""), "lab-01-lettura.png");
-assert.equal(nomeDellImmagine("", 1, "Lettura", ""), "corsa-01-lettura.png");
-// Gli accenti se ne vanno con la propria lettera, non con la parola.
-assert.equal(nomeDellImmagine("corsa", 2, "Segmentazione", "densità già misurata"),
-  "corsa-02-segmentazione-densita-gia-misurata.png");
-// Nessun trattino doppio, e nessuno agli estremi.
-const nome = nomeDellImmagine("corsa", 7, "Metriche", "— scarto: 9,5 mm —");
-assert.ok(/^[a-z0-9-]+\\.png$/.test(nome), "il nome porta caratteri che non sono [a-z0-9-]: " + nome);
-assert.ok(!nome.includes("--"), "trattini doppi nel nome: " + nome);
-""")
-
-
 def test_i_tre_comandi_della_vista_stanno_nel_markup():
     markup = _senza_commenti_html(_markup())
     assert 'id="inquadra"' in markup and 'id="salva-immagine"' in markup
@@ -6578,13 +6551,27 @@ def test_i_tre_comandi_della_vista_stanno_nel_markup():
 
 def _banco_dei_comandi_della_vista() -> str:
     """`salvaImmagine` con la vista finta e i tre elementi che legge."""
-    return _DOM + _costante("STEP_CON_GEOMETRIA") + "\n" + _funzioni("nomeDellaCorsa", "nomeDellImmagine", "didascaliaDellaVista", "passoDaMostrare", "schedaDiProvenienza", "valoreDellaMetrica", "blocchiDeiParametri", "superata", "spezzaInRighe", "immagineConProvenienza", "dichiaraErrore", "serverMuto", "ragioneDelRifiuto", "corpoLetto", "salvaImmagine") + """
+    return _DOM + _costante("STEP_CON_GEOMETRIA") + "\n" + _funzioni("nomeDellaCorsa", "didascaliaDellaVista", "passoDaMostrare", "schedaDiProvenienza", "valoreDellaMetrica", "blocchiDeiParametri", "superata", "spezzaInRighe", "immagineConProvenienza", "dichiaraErrore", "serverMuto", "ragioneDelRifiuto", "corpoLetto", "consegnaImmagine", "salvaImmagine") + """
 let schemaParametri = null;
 // Un server che serve schema e configurazione: senza, il cartiglio non puo'
 // dire i parametri e il comando dichiara l'errore. I banchi che provano quel
 // ramo lo sovrascrivono.
 const SCHEMA_DEL_BANCO = { "6": { blocchi: ["repair"], campi: { repair: { max_hole_area: { etichetta: "area massima del buco [mm²]", default: null } } } } };
-globalThis.fetch = async (percorso) => ({ ok: true, status: 200, json: async () => percorso === "/api/schema" ? SCHEMA_DEL_BANCO : { repair: { max_hole_area: null } } });
+// La consegna al server: la fetch finta registra ogni POST a /api/immagine
+// (corpo JSON parsato). Il nome del file lo decide il server (immagini.py,
+// provato in test_immagini.py); qui il percorso e' una stringa fissa, e i
+// test controllano il corpo consegnato (numero, nome, didascalia), non un
+// nome sintetizzato lato JS.
+const consegne = [];
+globalThis.fetch = async (percorso, opzioni) => {
+  if (percorso === "/api/immagine") {
+    const corpo = JSON.parse(opzioni.body);
+    const percorsoScritto = "runs/lab/immagini/x.png";
+    consegne.push({ ...corpo, percorso: percorsoScritto });
+    return { ok: true, status: 200, json: async () => ({ percorso: percorsoScritto }) };
+  }
+  return { ok: true, status: 200, json: async () => percorso === "/api/schema" ? SCHEMA_DEL_BANCO : { repair: { max_hole_area: null } } };
+};
 const creati = [];
 const creaVero = document.createElement;
 document.createElement = (tag) => { const nodo = creaVero(tag); creati.push(nodo); return nodo; };
@@ -6594,39 +6581,38 @@ document.getElementById("corsa").textContent = "runs/lab_crop";
 document.getElementById("didascalia-vista").textContent = "scarto RMS 9,5 mm";
 ETICHETTE["06_repair"] = "Riparazione";
 ultimoStato = [{ numero: 6, chiave: "06_repair", stato: "valido" }];
-const scaricato = () => creati.filter((nodo) => nodo.tag === "a").at(-1);
+// L'ultima consegna al server: prima leggeva l'<a download> scaricato dal
+// browser, ora legge la POST /api/immagine registrata dalla fetch finta.
+const scaricato = () => consegne.at(-1);
 """
 
 
 def test_salva_immagine_scrive_un_png_col_nome_della_corsa(tmp_path):
-    """Il PNG lo scrive il browser, dove chi lo salva lo trova: nessuna rotta
-    nuova e nessun file lasciato sul disco del server.
+    """Il PNG va al server, in runs/<corsa>/immagini/: nessuno ZIP, nessun
+    pannello «Salva» per ogni figura.
 
-    Senza uno step scelto non c'e' niente da salvare, e il comando non fabbrica
-    un file vuoto col nome di nessuna corsa. Uno step che lo stato non conosce
-    prende il proprio numero, non «undefined».
+    Senza uno step scelto non c'e' niente da consegnare, e il comando non
+    fabbrica un file vuoto col nome di nessuna corsa. Uno step che lo stato
+    non conosce prende il proprio numero, non «undefined».
     """
     _esegui(tmp_path, _banco_dei_comandi_della_vista() + """
-// Nessuno step scelto: nessun file, nessuna cattura.
+// Nessuno step scelto: nessuna consegna, nessuna cattura.
 await salvaImmagine();
-assert.equal(scaricato(), undefined, "un file scaricato senza uno step scelto");
+assert.equal(scaricato(), undefined, "una consegna senza uno step scelto");
 assert.equal(vista.catture, 0, "la tela e' stata catturata senza uno step scelto");
 
 stepScelto = 6;
 await salvaImmagine();
-assert.equal(scaricato().download, "lab-crop-06-riparazione-scarto-rms-9-5-mm.png");
-assert.equal(scaricato().href, "data:image/png;base64,AAA", "il file non porta la tela catturata");
-assert.equal(scaricato().cliccato, true, "il file non e' stato consegnato al browser");
-// Attaccato al documento durante il clic e tolto subito dopo: un <a download>
-// staccato dall'albero Firefox lo ignora in silenzio, e uno lasciato li'
-// sporca la pagina a ogni salvataggio.
-assert.ok(scaricato().padreAlClic, "il collegamento non era nell'albero: Firefox non scarica");
-assert.ok(!document.body.figli.includes(scaricato()), "il collegamento resta appeso al documento");
+assert.equal(scaricato().numero, 6);
+assert.equal(scaricato().nome, "Riparazione");
+assert.equal(scaricato().didascalia, "scarto RMS 9,5 mm");
+assert.equal(scaricato().dati, "data:image/png;base64,AAA", "la consegna non porta la tela catturata");
 
 // Uno step che lo stato non conosce: il numero, non «undefined».
 ultimoStato = [];
 await salvaImmagine();
-assert.equal(scaricato().download, "lab-crop-06-step-6-scarto-rms-9-5-mm.png");
+assert.equal(scaricato().numero, 6);
+assert.equal(scaricato().nome, "step 6", "uno step che lo stato non conosce prende il proprio numero, non «undefined»");
 """)
 
 
@@ -7137,7 +7123,8 @@ ultimoStato = [
 ];
 stepScelto = 11;
 await salvaImmagine();
-assert.equal(scaricato().download, "lab-crop-09-tetraedri-scarto-rms-9-5-mm.png", "il file nomina lo step scelto e non quello in figura");
+assert.equal(scaricato().numero, 9, "il file nomina lo step in figura e non quello scelto");
+assert.equal(scaricato().nome, "Tetraedri");
 
 // La scheda: lo step in figura, senza impronta perche' «non valido».
 const composta = schedaDiProvenienza({ corsa: "runs/x", numero: 9, nome: "Tetraedri", impronta: undefined, conteggi: "c", didascalia: "", data: "d" });
@@ -7239,13 +7226,13 @@ const bottone = document.getElementById("salva-immagine");
 // stato si annota e si guarda DOPO: un assert dentro la fetch sarebbe un
 // rifiuto per serverMuto, e il banco direbbe rosso per la ragione sbagliata.
 let spentoDuranteLAttesa;
-globalThis.fetch = async (percorso) => {
+globalThis.fetch = async (percorso, opzioni) => {
   richieste.push(percorso);
   if (spentoDuranteLAttesa === undefined) {
     spentoDuranteLAttesa = bottone.disabled;
     await bottone.click();
   }
-  return fetchBuona(percorso);
+  return fetchBuona(percorso, opzioni);
 };
 bottone.addEventListener("click", salvaImmagine);
 
@@ -7256,8 +7243,8 @@ await salvaImmagine();
 assert.equal(document.getElementById("errore").textContent, "", "l'errore di prima resta a video sopra un file riuscito");
 assert.equal(spentoDuranteLAttesa, true, "il comando e' acceso durante la richiesta");
 assert.equal(bottone.disabled, false, "il comando resta spento a salvataggio finito");
-assert.equal(creati.filter((nodo) => nodo.tag === "a").length, 1, "il clic durante l'attesa ha scritto un secondo file");
-assert.equal(scaricato().href, "data:composto");
+assert.equal(consegne.length, 1, "il clic durante l'attesa ha scritto una seconda consegna");
+assert.equal(scaricato().dati, "data:composto");
 // Lo step del banco non porta impronta: la meta ha la sola riga corsa · data.
 assert.deepEqual(testi(), [
   "Step 6 · Riparazione",
@@ -7269,12 +7256,12 @@ assert.deepEqual(testi(), [
   "MeshRec",
 ], testi().join(" | "));
 assert.match(testi()[1], /^corsa lab_crop · \d/);
-assert.deepEqual(richieste, ["/api/schema", "/api/config"]);
+assert.deepEqual(richieste, ["/api/schema", "/api/config", "/api/immagine"]);
 
 // Secondo salvataggio: lo schema e' in memoria, la configurazione si rilegge.
 scritte.length = 0;
 await salvaImmagine();
-assert.deepEqual(richieste, ["/api/schema", "/api/config", "/api/config"]);
+assert.deepEqual(richieste, ["/api/schema", "/api/config", "/api/immagine", "/api/config", "/api/immagine"]);
 assert.deepEqual(testi().slice(3, 6), ["riparazione", "area massima del buco [mm²]", "non impostato"]);
 
 // Su «non valido» i parametri tacciono, come l'impronta.
@@ -7282,40 +7269,41 @@ scritte.length = 0;
 ultimoStato = [{ numero: 6, chiave: "06_repair", stato: "non valido", impronta: "0123456789abcdef" }];
 await salvaImmagine();
 assert.deepEqual(testi(), ["Step 6 · Riparazione", testi()[1], "scarto RMS 9,5 mm", "MeshRec"], testi().join(" | "));
-assert.deepEqual(richieste, ["/api/schema", "/api/config", "/api/config"], "su «non valido» il comando ha chiesto al server");
+assert.deepEqual(richieste, ["/api/schema", "/api/config", "/api/immagine", "/api/config", "/api/immagine", "/api/immagine"], "su «non valido» il comando non ha chiesto schema o configurazione al server, ma ha comunque consegnato");
 
 // Uno step «valido» che lo schema non conosce: il file si salva, senza parametri.
 scritte.length = 0;
 ultimoStato = [{ numero: 9, chiave: "09_tetrahedralize", stato: "valido", impronta: "0123456789abcdef" }];
 stepScelto = 9;
 await salvaImmagine();
-assert.equal(scaricato().download, "lab-crop-09-step-9-scarto-rms-9-5-mm.png");
+assert.equal(scaricato().numero, 9);
+assert.equal(scaricato().nome, "step 9");
 assert.deepEqual(testi(), ["Step 9 · step 9", testi()[1], "impronta 0123456789ab", "scarto RMS 9,5 mm", "MeshRec"], testi().join(" | "));
 stepScelto = 6;
 
 // Il server rifiuta la configurazione: errore dichiarato, nessun file.
 ultimoStato = [{ numero: 6, chiave: "06_repair", stato: "valido", impronta: "0123456789abcdef" }];
-const salvatiPrima = creati.filter((nodo) => nodo.tag === "a").length;
-globalThis.fetch = async (percorso) => percorso === "/api/config"
+const salvatiPrima = consegne.length;
+globalThis.fetch = async (percorso, opzioni) => percorso === "/api/config"
   ? { ok: false, status: 500, text: async () => JSON.stringify({ errore: "x", messaggio: "configurazione non leggibile" }) }
-  : fetchBuona(percorso);
+  : fetchBuona(percorso, opzioni);
 await salvaImmagine();
-assert.equal(creati.filter((nodo) => nodo.tag === "a").length, salvatiPrima, "un file scaricato con la configurazione rifiutata");
+assert.equal(consegne.length, salvatiPrima, "una consegna con la configurazione rifiutata");
 assert.match(document.getElementById("errore").textContent, /^l'immagine non si è potuta salvare: i parametri non si sono letti\\. configurazione non leggibile$/);
 assert.equal(bottone.disabled, false, "il comando resta spento dopo un rifiuto");
 
 // Un corpo che non si legge: stesso esito.
-globalThis.fetch = async (percorso) => percorso === "/api/config"
+globalThis.fetch = async (percorso, opzioni) => percorso === "/api/config"
   ? { ok: true, status: 200, json: async () => { throw new SyntaxError("x"); } }
-  : fetchBuona(percorso);
+  : fetchBuona(percorso, opzioni);
 await salvaImmagine();
-assert.equal(creati.filter((nodo) => nodo.tag === "a").length, salvatiPrima, "un file scaricato con un corpo che non si legge");
+assert.equal(consegne.length, salvatiPrima, "una consegna con un corpo che non si legge");
 assert.match(document.getElementById("errore").textContent, /non si legge/);
 
 // Il server non risponde affatto: dichiarato, non sollevato.
 globalThis.fetch = async () => { throw new Error("nessun server nel banco"); };
 await salvaImmagine();
-assert.equal(creati.filter((nodo) => nodo.tag === "a").length, salvatiPrima);
+assert.equal(consegne.length, salvatiPrima);
 assert.match(document.getElementById("errore").textContent, /non ha risposto/);
 document.createElement = creaPrima;
 """)
@@ -7440,17 +7428,18 @@ const richieste = [];
 globalThis.fetch = async (percorso) => { richieste.push(percorso); return { ok: true, status: 200, json: async () => { throw new SyntaxError("x"); } }; };
 stepScelto = 6;
 await salvaImmagine();
-assert.equal(scaricato(), undefined, "un file scaricato con uno schema che non si legge");
+assert.equal(scaricato(), undefined, "una consegna con uno schema che non si legge");
 assert.match(document.getElementById("errore").textContent, /^l'immagine non si è potuta salvare: i parametri non si sono letti\\. il server ha risposto con uno schema che non si legge\\. /);
 assert.equal(schemaParametri, null, "lo schema nullo e' entrato in cache");
 assert.deepEqual(richieste, ["/api/schema"], "la configurazione e' stata chiesta senza uno schema");
 assert.equal(document.getElementById("salva-immagine").disabled, false, "il comando resta spento dopo il rifiuto");
 
 // Il server torna: lo schema si richiede, e il file si salva.
-globalThis.fetch = async (percorso) => { richieste.push(percorso); return fetchBuona(percorso); };
+globalThis.fetch = async (percorso, opzioni) => { richieste.push(percorso); return fetchBuona(percorso, opzioni); };
 await salvaImmagine();
-assert.deepEqual(richieste, ["/api/schema", "/api/schema", "/api/config"]);
-assert.equal(scaricato().download, "lab-crop-06-riparazione-scarto-rms-9-5-mm.png");
+assert.deepEqual(richieste, ["/api/schema", "/api/schema", "/api/config", "/api/immagine"]);
+assert.equal(scaricato().numero, 6);
+assert.equal(scaricato().nome, "Riparazione");
 """)
 
 
@@ -7470,29 +7459,30 @@ ultimoStato = [
   { numero: 9, chiave: "09_tetrahedralize", stato: "valido" },
 ];
 const fetchBuona = globalThis.fetch;
-globalThis.fetch = async (percorso) => {
+globalThis.fetch = async (percorso, opzioni) => {
   // L'utente cambia riga mentre il server risponde.
   stepScelto = 9;
   vista.cattura = () => "data:image/png;base64,ALTRA";
-  return fetchBuona(percorso);
+  return fetchBuona(percorso, opzioni);
 };
 stepScelto = 6;
 await salvaImmagine();
-assert.equal(scaricato().download, "lab-crop-06-riparazione-scarto-rms-9-5-mm.png", "il file porta lo step scelto dopo l'attesa");
-assert.equal(scaricato().href, "data:image/png;base64,AAA", "il file porta la tela catturata dopo l'attesa");
+assert.equal(scaricato().numero, 6, "il file porta lo step scelto dopo l'attesa");
+assert.equal(scaricato().nome, "Riparazione");
+assert.equal(scaricato().dati, "data:image/png;base64,AAA", "il file porta la tela catturata dopo l'attesa");
 
 // Il clic sull'altra riga apre una generazione (apriGenerazione nel gestore
 // dell'elenco), e il pannello nuovo svuota #errore: un rifiuto del server
 // arrivato dopo non si scrive sotto lo step che l'utente sta guardando adesso.
 document.getElementById("errore").textContent = "";
-globalThis.fetch = async (percorso) => {
+globalThis.fetch = async (percorso, opzioni) => {
   generazione += 1;
-  return percorso === "/api/config" ? { ok: false, status: 503, text: async () => "fermo" } : fetchBuona(percorso);
+  return percorso === "/api/config" ? { ok: false, status: 503, text: async () => "fermo" } : fetchBuona(percorso, opzioni);
 };
-const prima = creati.filter((nodo) => nodo.tag === "a").length;
+const prima = consegne.length;
 await salvaImmagine();
 assert.equal(document.getElementById("errore").textContent, "", "il rifiuto e' scritto sotto una generazione superata");
-assert.equal(creati.filter((nodo) => nodo.tag === "a").length, prima, "un file e' uscito da un salvataggio rifiutato");
+assert.equal(consegne.length, prima, "una consegna e' uscita da un salvataggio rifiutato");
 """)
 
 
@@ -7640,7 +7630,7 @@ ultimoStato = [
   { numero: 6, chiave: "06_repair", artefatto: "06_repaired.ply", stato: "valido" },
   { numero: 7, chiave: "07_surface_quality", artefatto: null, stato: "valido" },
 ];
-const numeriDeiFile = () => creati.filter((nodo) => nodo.tag === "a").map((nodo) => Number(nodo.download.split("-")[2]));
+const numeriDeiFile = () => consegne.map((c) => c.numero);
 """
 
 
@@ -7670,6 +7660,24 @@ assert.equal(stepScelto, 6, "senza uno step di partenza il giro ha ripristinato 
 assert.equal(rigaErrore.textContent, "", "un giro riuscito lascia un errore a video");
 assert.equal(salvaTutti.disabled, false, "il tasto del giro resta spento a giro finito");
 assert.equal(salva.disabled, false, "«Salva immagine» resta spento a giro finito");
+""")
+
+
+def test_salva_tutti_non_sovrascrive_la_riga_in_corso_a_meta_giro(tmp_path):
+    """Dentro il giro «Salva immagine» e' gia' spento quando salvaImmagine gira
+    (salvaTuttiGliStep lo spegne prima di partire): la riga "Salvataggio di N
+    immagini in corso…" non deve sparire dopo il primo file, sostituita da
+    "Salvata in …" — chi ascolta la regione viva perderebbe il conto.
+
+    Mutazione che lo uccide: scrivere sempre "Salvata in ..." in salvaImmagine
+    senza guardare se il bottone era gia' spento prima del salvataggio.
+    """
+    _esegui(tmp_path, _banco_del_giro() + """
+let chiamate = 0;
+let vistoAMeta = null;
+inClic = async () => { chiamate += 1; if (chiamate === 2) vistoAMeta = esitoDelGiro.textContent; };
+await salvaTutti.scatena("click");
+assert.equal(vistoAMeta, "Salvataggio di 6 immagini in corso…", "la riga «in corso» e' stata sovrascritta a meta' giro");
 """)
 
 
@@ -7817,9 +7825,9 @@ def test_salva_tutti_si_ferma_se_un_salvataggio_fallisce(tmp_path):
 stepScelto = 1;
 // La configurazione rifiutata solo allo step 3: gli altri si salvano.
 const fetchBuono = globalThis.fetch;
-globalThis.fetch = async (percorso) => (percorso === "/api/config" && stepScelto === 3)
+globalThis.fetch = async (percorso, opzioni) => (percorso === "/api/config" && stepScelto === 3)
   ? { ok: false, status: 500, text: async () => JSON.stringify({ messaggio: "configurazione non leggibile" }) }
-  : fetchBuono(percorso);
+  : fetchBuono(percorso, opzioni);
 apriDettaglio = async () => { await null; rigaErrore.textContent = ""; };
 await salvaTutti.scatena("click");
 assert.deepEqual(numeriDeiFile(), [1, 2], "il giro e' andato avanti dopo un salvataggio fallito");
@@ -7849,4 +7857,95 @@ assert.equal(salva.disabled, true, "il giro ha riacceso «Salva immagine» mentr
 // Mai toccato: nel DOM finto `disabled` nasce undefined, e cosi' resta.
 assert.notEqual(salvaTutti.disabled, true, "il giro ha spento il proprio tasto senza partire");
 assert.equal(esitoDelGiro.textContent, "");
+""")
+
+
+def test_l_immagine_va_al_server_e_l_esito_dice_il_percorso(tmp_path):
+    """Consegna via POST /api/immagine: 200 -> percorso; rifiuto -> dichiaraErrore, null.
+
+    Il mock del 200 risponde con `json:`, non `text:`: `corpoLetto` (app.js)
+    legge `risposta.json()`, come ogni altro mock di un 200 in questo file
+    (vedi test_corpoLetto_distingue_illeggibile_da_null e i mock di
+    /api/schema, /api/config qui sotto). Un mock con solo `text:` fa cadere
+    `corpoLetto` sul proprio ramo "illeggibile" (risposta.json non e' una
+    funzione), e il test fallirebbe per la ragione sbagliata."""
+    sorgente = _DOM + _funzioni("consegnaImmagine", "serverMuto", "ragioneDelRifiuto", "corpoLetto", "dichiaraErrore", "superata") + """
+const chiamate = [];
+globalThis.fetch = async (url, opzioni) => {
+  chiamate.push([url, opzioni]);
+  const corpo = JSON.parse(opzioni.body);
+  if (corpo.numero === 99) return { ok: false, status: 409, text: async () => JSON.stringify({errore: "NessunaCorsa", messaggio: "nessuna corsa aperta"}) };
+  return { ok: true, status: 200, json: async () => ({percorso: "runs/lab/immagini/lab-05-superficie.png"}) };
+};
+const esito = await consegnaImmagine({ numero: 5, nome: "Superficie", didascalia: "", dati: "data:image/png;base64,AAAA" });
+assert.equal(esito.percorso, "runs/lab/immagini/lab-05-superficie.png");
+assert.equal(chiamate[0][0], "/api/immagine");
+assert.equal(chiamate[0][1].method, "POST");
+assert.equal(chiamate[0][1].headers["Content-Type"], "application/json");
+const rifiuto = await consegnaImmagine({ numero: 99, nome: "", didascalia: "", dati: "data:image/png;base64,AAAA" });
+assert.equal(rifiuto, null);
+assert.ok(document.getElementById("errore").textContent.includes("nessuna corsa aperta"));
+"""
+    _esegui(tmp_path, sorgente)
+
+
+def test_salva_immagine_non_scarica_piu_dal_browser():
+    """La mossa: rimettere `<a download>` riaprirebbe il pannello Salva in pywebview."""
+    corpo = _sorgente_di("salvaImmagine", _modulo())
+    assert ".download =" not in corpo
+    assert "consegnaImmagine(" in corpo
+
+
+def test_consegna_immagine_col_server_muto_dichiara_e_torna_null(tmp_path):
+    """Ingresso degenere: fetch rifiutata (server spento) -> dichiaraErrore col
+    messaggio di serverMuto, ritorno null."""
+    sorgente = _DOM + _funzioni("consegnaImmagine", "serverMuto", "ragioneDelRifiuto", "corpoLetto", "dichiaraErrore", "superata") + """
+globalThis.fetch = async () => { throw new Error("ECONNREFUSED"); };
+const esito = await consegnaImmagine({ numero: 1, nome: "", didascalia: "", dati: "data:image/png;base64,AAAA" });
+assert.equal(esito, null);
+assert.ok(document.getElementById("errore").textContent.includes("il server non ha risposto"), document.getElementById("errore").textContent);
+"""
+    _esegui(tmp_path, sorgente)
+
+
+def test_consegna_immagine_su_200_senza_percorso_dichiara_col_rimedio_e_torna_null(tmp_path):
+    """Ingresso degenere: 200 senza un campo percorso stringa -> dichiaraErrore
+    col RIMEDIO, ritorno null."""
+    sorgente = _DOM + _funzioni("consegnaImmagine", "serverMuto", "ragioneDelRifiuto", "corpoLetto", "dichiaraErrore", "superata") + """
+globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({}) });
+const esito = await consegnaImmagine({ numero: 1, nome: "", didascalia: "", dati: "data:image/png;base64,AAAA" });
+assert.equal(esito, null);
+assert.ok(document.getElementById("errore").textContent.includes(RIMEDIO), document.getElementById("errore").textContent);
+"""
+    _esegui(tmp_path, sorgente)
+
+
+def test_consegna_immagine_superata_non_scrive_lerrore(tmp_path):
+    """Ingresso degenere: un clic su un altro step durante l'attesa
+    (superata(ordine)) -> niente scritto in #errore."""
+    sorgente = _DOM + _funzioni("consegnaImmagine", "serverMuto", "ragioneDelRifiuto", "corpoLetto", "dichiaraErrore", "superata") + """
+globalThis.fetch = async () => {
+  generazione += 1; // un clic altrove ha aperto una nuova generazione durante l'attesa
+  return { ok: false, status: 409, text: async () => JSON.stringify({errore: "NessunaCorsa", messaggio: "nessuna corsa aperta"}) };
+};
+const ordine = generazione;
+const esito = await consegnaImmagine({ numero: 1, nome: "", didascalia: "", dati: "data:image/png;base64,AAAA" }, ordine);
+assert.equal(esito, null);
+assert.equal(document.getElementById("errore").textContent, "", document.getElementById("errore").textContent);
+"""
+    _esegui(tmp_path, sorgente)
+
+
+def test_salva_immagine_scrive_lesito_col_percorso_a_200(tmp_path):
+    """Ingresso degenere: 200 con percorso -> #esito-salvataggio dice "Salvata
+    in <percorso>", salvaImmagine torna true."""
+    _esegui(tmp_path, _banco_dei_comandi_della_vista() + """
+const fetchBase = globalThis.fetch;
+globalThis.fetch = async (percorso, opzioni) => percorso === "/api/immagine"
+  ? { ok: true, status: 200, json: async () => ({ percorso: "runs/lab_crop/immagini/lab-crop-06-riparazione.png" }) }
+  : fetchBase(percorso, opzioni);
+stepScelto = 6;
+const esito = await salvaImmagine();
+assert.equal(esito, true);
+assert.equal(document.getElementById("esito-salvataggio").textContent, "Salvata in runs/lab_crop/immagini/lab-crop-06-riparazione.png");
 """)

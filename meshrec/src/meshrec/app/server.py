@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Annotated, Literal, get_args, get_origin
 
 import numpy as np
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import (
@@ -34,7 +34,7 @@ from pydantic import (
     ValidationError,
 )
 
-from meshrec.app import storico
+from meshrec.app import immagini, storico
 from meshrec.app.worker import Worker
 from meshrec.core import (
     io,
@@ -1041,6 +1041,61 @@ def create_app(
             )
         scelto = esito.stdout.strip()
         return {"percorso": scelto or None}
+
+    class ImmagineDaSalvare(BaseModel):
+        model_config = ConfigDict(extra="forbid")
+
+        numero: int = Field(ge=1, le=99)
+        nome: str = ""
+        didascalia: str = ""
+        dati: str
+
+    @app.post("/api/immagine", response_model=None)
+    async def salva_immagine(richiesta: Request) -> JSONResponse | dict[str, object]:
+        """Il PNG del viewport, scritto in `<out_dir>/immagini/`.
+
+        Il corpo si legge a mano e non con un modello nella firma: il limite di
+        dimensione deve rispondere 413 prima di decodificare cinquanta
+        megabyte, e un modello nella firma li avrebbe gia' letti.
+
+        Le corse in sola lettura accettano: un PNG in `immagini/` non tocca
+        configurazione ne' artefatti, e sono proprio le corse di riferimento
+        quelle di cui servono le figure.
+        """
+        dichiarata = richiesta.headers.get("content-length")
+        if dichiarata is not None and dichiarata.isdigit() and int(dichiarata) > immagini.LIMITE_BYTE:
+            return JSONResponse(status_code=413, content={
+                "errore": "ImmagineTroppoGrande",
+                "messaggio": f"il corpo della richiesta supera i {immagini.LIMITE_BYTE // (1024 * 1024)} MB",
+            })
+        if config_path is None:
+            return JSONResponse(status_code=409, content={
+                "errore": "NessunaCorsa",
+                "messaggio": "nessuna corsa aperta: apri o crea una corsa prima di salvare l'immagine",
+            })
+        corpo = await richiesta.body()
+        if len(corpo) > immagini.LIMITE_BYTE:
+            return JSONResponse(status_code=413, content={
+                "errore": "ImmagineTroppoGrande",
+                "messaggio": f"il corpo della richiesta supera i {immagini.LIMITE_BYTE // (1024 * 1024)} MB",
+            })
+        try:
+            dati = ImmagineDaSalvare.model_validate_json(corpo)
+        except ValidationError:
+            return JSONResponse(status_code=400, content={
+                "errore": "ImmagineNonValida",
+                "messaggio": "l'immagine non si è potuta leggere: il corpo non ha i campi attesi "
+                             "(numero, nome, didascalia, dati)",
+            })
+        try:
+            png = immagini.decodifica_png(dati.dati)
+        except ValueError as errore:
+            return JSONResponse(status_code=400, content={
+                "errore": "ImmagineNonValida",
+                "messaggio": str(errore),
+            })
+        percorso = immagini.salva(Path(corrente().run.out_dir), dati.numero, dati.nome, dati.didascalia, png)
+        return {"percorso": str(percorso)}
 
     @app.get("/api/config")
     def configurazione() -> dict[str, object]:

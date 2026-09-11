@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from meshrec.app import server
+from meshrec.app import immagini, server
 from meshrec.app.server import create_app
 from meshrec.core.config import InputConfig, PipelineConfig, load_config, save_config
 
@@ -4279,3 +4279,127 @@ def test_una_corsa_col_blocco_analysis_resta_in_elenco_col_suo_errore(cliente, t
     assert risposta.status_code == 200
     voce = next(v for v in risposta.json()["corse"] if v["nome"] == "vecchia")
     assert "analysis" in voce["errore"]
+
+
+PNG_MINIMO_B64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+
+
+def _corpo_immagine(**cambi):
+    corpo = {"numero": 5, "nome": "Superficie", "didascalia": "vista dall'alto",
+             "dati": "data:image/png;base64," + PNG_MINIMO_B64}
+    corpo.update(cambi)
+    return corpo
+
+
+def test_l_immagine_si_salva_accanto_alla_corsa(cliente, tmp_path):
+    risposta = cliente.post("/api/immagine", json=_corpo_immagine())
+    assert risposta.status_code == 200, risposta.text
+    percorso = Path(risposta.json()["percorso"])
+    assert percorso == tmp_path / "corsa" / "immagini" / "corsa-05-superficie-vista-dall-alto.png"
+    assert percorso.read_bytes().startswith(b"\x89PNG")
+
+
+def test_una_didascalia_lunga_si_salva_col_nome_tagliato(cliente, tmp_path):
+    # Stessa regressione di test_immagini.py, verificata sopra la rotta.
+    risposta = cliente.post("/api/immagine", json=_corpo_immagine(didascalia="x" * 300))
+    assert risposta.status_code == 200, risposta.text
+    percorso = Path(risposta.json()["percorso"])
+    assert percorso.exists()
+    assert len(percorso.name) <= 124
+
+
+def test_senza_corsa_legata_l_immagine_non_si_salva(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "CACHE_DIR", tmp_path / "cache")
+    slegato = TestClient(create_app(None, radice_corse=tmp_path / "runs"),
+                         base_url="http://127.0.0.1", raise_server_exceptions=False)
+    risposta = slegato.post("/api/immagine", json=_corpo_immagine())
+    assert risposta.status_code == 409
+    assert risposta.json()["errore"] == "NessunaCorsa"
+    assert risposta.json()["messaggio"] == (
+        "nessuna corsa aperta: apri o crea una corsa prima di salvare l'immagine"
+    )
+    assert not (tmp_path / "runs").exists()
+
+
+@pytest.mark.parametrize("dati", [
+    "", "data:image/jpeg;base64,AAAA", "data:image/png;base64,***",
+    "data:image/png;base64," + "R0lGODlh",
+])
+def test_un_corpo_che_non_e_un_png_e_rifiutato_senza_scrivere(cliente, tmp_path, dati):
+    risposta = cliente.post("/api/immagine", json=_corpo_immagine(dati=dati))
+    assert risposta.status_code == 400
+    assert risposta.json()["errore"] == "ImmagineNonValida"
+    assert not (tmp_path / "corsa" / "immagini").exists()
+
+
+def test_un_corpo_sopra_il_limite_e_rifiutato_con_413(cliente, tmp_path):
+    from meshrec.app.immagini import LIMITE_BYTE
+    grande = "data:image/png;base64," + "A" * (LIMITE_BYTE + 1)
+    risposta = cliente.post("/api/immagine", json=_corpo_immagine(dati=grande))
+    assert risposta.status_code == 413
+    assert risposta.json()["errore"] == "ImmagineTroppoGrande"
+    assert risposta.json()["messaggio"] == "il corpo della richiesta supera i 50 MB"
+    assert not (tmp_path / "corsa" / "immagini").exists()
+
+
+def test_un_corpo_sopra_il_limite_senza_content_length_dichiarato_e_rifiutato_con_413(
+    cliente, tmp_path, monkeypatch
+):
+    """Il test sopra passa sempre dal controllo sul Content-Length dichiarato,
+    perche' TestClient lo calcola da solo su json=. Qui il corpo va senza
+    quell'header (un generatore forza l'invio chunked), cosi' a decidere e' il
+    secondo controllo, su len(corpo) dopo la lettura. LIMITE_BYTE e' patchato
+    a un valore piccolo per non scrivere decine di MB in un test."""
+    monkeypatch.setattr(immagini, "LIMITE_BYTE", 64)
+
+    def corpo_a_pezzi():
+        yield b"x" * 100
+
+    risposta = cliente.post(
+        "/api/immagine",
+        content=corpo_a_pezzi(),
+        headers={"Content-Type": "application/json"},
+    )
+    assert risposta.status_code == 413
+    assert risposta.json()["errore"] == "ImmagineTroppoGrande"
+    assert not (tmp_path / "corsa" / "immagini").exists()
+
+
+def test_un_corpo_senza_i_campi_attesi_e_rifiutato(cliente):
+    risposta = cliente.post("/api/immagine", json={"numero": "cinque"})
+    assert risposta.status_code == 400
+    assert risposta.json()["errore"] == "ImmagineNonValida"
+    assert risposta.json()["messaggio"] == (
+        "l'immagine non si è potuta leggere: il corpo non ha i campi attesi "
+        "(numero, nome, didascalia, dati)"
+    )
+
+
+def test_il_nome_lo_decide_il_server_e_resta_dentro_immagini(cliente, tmp_path):
+    risposta = cliente.post("/api/immagine", json=_corpo_immagine(nome="../../fuori", didascalia="/x"))
+    assert risposta.status_code == 200, risposta.text
+    percorso = Path(risposta.json()["percorso"])
+    assert percorso.parent == tmp_path / "corsa" / "immagini"
+    assert percorso.name == "corsa-05-fuori-x.png"
+
+
+def test_lo_stesso_nome_sovrascrive(cliente, tmp_path):
+    cliente.post("/api/immagine", json=_corpo_immagine())
+    risposta = cliente.post("/api/immagine", json=_corpo_immagine())
+    assert risposta.status_code == 200
+    assert len(list((tmp_path / "corsa" / "immagini").iterdir())) == 1
+
+
+def test_una_corsa_in_sola_lettura_accetta_le_immagini(cliente, tmp_path):
+    # Le corse di riferimento sono quelle di cui servono le figure in appendice.
+    (tmp_path / "SOLA_LETTURA").write_text("")
+    risposta = cliente.post("/api/immagine", json=_corpo_immagine())
+    assert risposta.status_code == 200, risposta.text
+
+
+def test_immagini_che_e_un_file_torna_un_messaggio_col_percorso(cliente, tmp_path):
+    (tmp_path / "corsa").mkdir()
+    (tmp_path / "corsa" / "immagini").write_text("")
+    risposta = cliente.post("/api/immagine", json=_corpo_immagine())
+    assert risposta.status_code == 400
+    assert str(tmp_path / "corsa" / "immagini") in risposta.json()["messaggio"]
