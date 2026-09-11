@@ -37,6 +37,49 @@ def senza_webview(monkeypatch):
     monkeypatch.setitem(sys.modules, "webview", None)  # import fallisce
 
 
+class _ChiaveRegistroFinta:
+    """Context manager di `winreg.OpenKey`: un dizionario {valore: (dato, tipo)}."""
+
+    def __init__(self, dati):
+        self._dati = dati
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+
+def _winreg_finto(mappa):
+    """Registro finto: mappa (radice, chiave) -> {valore: (dato, tipo)}.
+
+    `OpenKey`/`QueryValueEx` sollevano `OSError` per chiavi/valori assenti,
+    come il vero `winreg` quando la chiave non esiste.
+    """
+    modulo = types.ModuleType("winreg")
+    modulo.HKEY_LOCAL_MACHINE = "HKLM"
+    modulo.HKEY_CURRENT_USER = "HKCU"
+
+    def OpenKey(radice, chiave):
+        if (radice, chiave) not in mappa:
+            raise OSError("chiave assente")
+        return _ChiaveRegistroFinta(mappa[(radice, chiave)])
+
+    def QueryValueEx(aperta, valore):
+        if valore not in aperta._dati:
+            raise OSError("valore assente")
+        return aperta._dati[valore]
+
+    modulo.OpenKey = OpenKey
+    modulo.QueryValueEx = QueryValueEx
+    return modulo
+
+
+@pytest.fixture()
+def windows(monkeypatch):
+    monkeypatch.setattr(finestra.sys, "platform", "win32")
+
+
 def test_con_pywebview_apre_la_finestra_e_torna_a_chiusura(webview_finto, tmp_path, monkeypatch):
     monkeypatch.setattr(finestra, "webview2_presente", lambda: True)
     esito = finestra.apri("http://127.0.0.1:8765/", cache=tmp_path)
@@ -98,4 +141,63 @@ def test_trova_chromium_torna_none_se_non_c_e_nulla(monkeypatch):
     monkeypatch.setattr(finestra.sys, "platform", "darwin")
     monkeypatch.setattr(finestra.Path, "is_file", lambda self: False)
     monkeypatch.setattr(finestra.shutil, "which", lambda nome: None)
+    assert finestra.trova_chromium() is None
+
+
+def test_webview2_presente_vero_con_chiave_hklm(windows, monkeypatch):
+    chiave = finestra._CHIAVI_WEBVIEW2[0]
+    mappa = {("HKLM", chiave): {"pv": ("120.0.0.0", 1)}}
+    monkeypatch.setitem(sys.modules, "winreg", _winreg_finto(mappa))
+    assert finestra.webview2_presente() is True
+
+
+def test_webview2_presente_vero_con_solo_hkcu(windows, monkeypatch):
+    chiave = finestra._CHIAVI_WEBVIEW2[1]
+    mappa = {("HKCU", chiave): {"pv": ("120.0.0.0", 1)}}
+    monkeypatch.setitem(sys.modules, "winreg", _winreg_finto(mappa))
+    assert finestra.webview2_presente() is True
+
+
+def test_webview2_presente_falso_senza_alcuna_chiave(windows, monkeypatch):
+    monkeypatch.setitem(sys.modules, "winreg", _winreg_finto({}))
+    assert finestra.webview2_presente() is False
+
+
+def test_webview2_presente_falso_con_versione_zero(windows, monkeypatch):
+    chiave = finestra._CHIAVI_WEBVIEW2[0]
+    mappa = {("HKLM", chiave): {"pv": ("0.0.0.0", 1)}}
+    monkeypatch.setitem(sys.modules, "winreg", _winreg_finto(mappa))
+    assert finestra.webview2_presente() is False
+
+
+def test_trova_chromium_windows_trova_msedge_in_app_paths(windows, monkeypatch):
+    chiave = finestra._APP_PATHS.format("msedge.exe")
+    percorso = r"C:\Program Files\Microsoft\Edge\msedge.exe"
+    mappa = {("HKLM", chiave): {"": (percorso, 1)}}
+    monkeypatch.setitem(sys.modules, "winreg", _winreg_finto(mappa))
+    monkeypatch.setattr(finestra.Path, "is_file", lambda self: True)
+    assert finestra.trova_chromium() == [percorso]
+
+
+def test_trova_chromium_windows_prova_chrome_dopo_msedge(windows, monkeypatch):
+    chiave_chrome = finestra._APP_PATHS.format("chrome.exe")
+    percorso = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+    mappa = {("HKLM", chiave_chrome): {"": (percorso, 1)}}  # msedge assente
+    monkeypatch.setitem(sys.modules, "winreg", _winreg_finto(mappa))
+    monkeypatch.setattr(finestra.Path, "is_file", lambda self: True)
+    assert finestra.trova_chromium() == [percorso]
+
+
+def test_trova_chromium_windows_none_senza_chiavi(windows, monkeypatch):
+    monkeypatch.setitem(sys.modules, "winreg", _winreg_finto({}))
+    monkeypatch.setattr(finestra.Path, "is_file", lambda self: True)
+    assert finestra.trova_chromium() is None
+
+
+def test_trova_chromium_windows_none_se_il_file_non_esiste(windows, monkeypatch):
+    chiave = finestra._APP_PATHS.format("msedge.exe")
+    percorso = r"C:\Program Files\Microsoft\Edge\msedge.exe"
+    mappa = {("HKLM", chiave): {"": (percorso, 1)}}
+    monkeypatch.setitem(sys.modules, "winreg", _winreg_finto(mappa))
+    monkeypatch.setattr(finestra.Path, "is_file", lambda self: False)
     assert finestra.trova_chromium() is None
