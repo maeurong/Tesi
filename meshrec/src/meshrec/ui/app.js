@@ -2045,6 +2045,29 @@ async function immagineConProvenienza(datiTela, scheda) {
   return tela.toDataURL("image/png");
 }
 
+// La consegna al server: prima il PNG usciva con `<a download>` verso la
+// cartella Downloads, e dentro la finestra pywebview quel gesto apre un
+// pannello «Salva» modale per ogni immagine. Il file va accanto alla corsa,
+// in immagini/, dove finisce in appendice. Torna {percorso} a file scritto,
+// null dopo aver detto perche' no.
+async function consegnaImmagine(corpo, ordine = generazione) {
+  const risposta = await fetch("/api/immagine", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(corpo),
+  }).catch(serverMuto);
+  if (!risposta.ok) {
+    if (!superata(ordine)) dichiaraErrore("l'immagine non si è potuta salvare: " + await ragioneDelRifiuto(risposta));
+    return null;
+  }
+  const letto = await corpoLetto(risposta);
+  if (letto == null || typeof letto.percorso !== "string") {
+    if (!superata(ordine)) dichiaraErrore("l'immagine non si è potuta salvare: il server ha risposto senza dire dove l'ha scritta. " + RIMEDIO);
+    return null;
+  }
+  return letto;
+}
+
 async function salvaImmagine() {
   if (stepScelto === null) return;
   // Svuotata prima di ogni tentativo, come in apriDettaglio: un rifiuto del
@@ -2129,13 +2152,11 @@ async function salvaImmagine() {
       if (!superata(ordine)) dichiaraErrore(`l'immagine non si è potuta comporre: ${errore.message}`);
       return;
     }
-    const collegamento = document.createElement("a");
-    collegamento.href = dati;
-    collegamento.download = nomeDellImmagine(corsa, mostrato, nome, didascalia);
-    document.body.append(collegamento);
-    collegamento.click();
-    collegamento.remove();
-    // `true` solo a file consegnato: i rami di rifiuto qui sopra tornano
+    const esito = await consegnaImmagine({ numero: mostrato, nome, didascalia, dati }, ordine);
+    if (superata(ordine)) return;
+    if (esito === null) return;
+    document.getElementById("esito-salvataggio").textContent = `Salvata in ${esito.percorso}`;
+    // `true` solo a file scritto: i rami di rifiuto qui sopra tornano
     // undefined, e il giro di salvaTuttiGliStep si ferma su quello.
     return true;
   } finally {
