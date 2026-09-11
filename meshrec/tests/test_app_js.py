@@ -6528,33 +6528,6 @@ assert.equal(document.title, "✗ MeshRec", "il fallimento non si vede dalla bar
 # --------------------------------------------------------------------------
 
 
-def test_il_nome_del_file_dell_immagine_porta_corsa_step_e_didascalia(tmp_path):
-    """L'immagine finisce in appendice a un documento stampato, e li' il nome
-    del file e' l'unica provenienza che si porta dietro: quale corsa, quale
-    step, che cosa mostra.
-
-    Solo `[a-z0-9-]`: e' un nome di file su tre sistemi diversi, e la
-    didascalia porta virgole, accenti e unita'.
-    """
-    _esegui(tmp_path, _DOM + _funzioni("nomeDellaCorsa", "nomeDellImmagine") + """
-assert.equal(nomeDellImmagine("runs/lab_telaio_v2", 6, "Riparazione", "scarto RMS 9,5 mm"),
-  "lab-telaio-v2-06-riparazione-scarto-rms-9-5-mm.png");
-assert.equal(nomeDellImmagine("corsa", 5, "Superficie", ""), "corsa-05-superficie.png",
-  "la didascalia vuota lascia un trattino pendente");
-// I separatori di Windows, la barra finale, e il vuoto.
-assert.equal(nomeDellImmagine("runs\\\\lab", 1, "Lettura", ""), "lab-01-lettura.png");
-assert.equal(nomeDellImmagine("runs/lab/", 1, "Lettura", ""), "lab-01-lettura.png");
-assert.equal(nomeDellImmagine("", 1, "Lettura", ""), "corsa-01-lettura.png");
-// Gli accenti se ne vanno con la propria lettera, non con la parola.
-assert.equal(nomeDellImmagine("corsa", 2, "Segmentazione", "densità già misurata"),
-  "corsa-02-segmentazione-densita-gia-misurata.png");
-// Nessun trattino doppio, e nessuno agli estremi.
-const nome = nomeDellImmagine("corsa", 7, "Metriche", "— scarto: 9,5 mm —");
-assert.ok(/^[a-z0-9-]+\\.png$/.test(nome), "il nome porta caratteri che non sono [a-z0-9-]: " + nome);
-assert.ok(!nome.includes("--"), "trattini doppi nel nome: " + nome);
-""")
-
-
 def test_i_tre_comandi_della_vista_stanno_nel_markup():
     markup = _senza_commenti_html(_markup())
     assert 'id="inquadra"' in markup and 'id="salva-immagine"' in markup
@@ -6578,22 +6551,22 @@ def test_i_tre_comandi_della_vista_stanno_nel_markup():
 
 def _banco_dei_comandi_della_vista() -> str:
     """`salvaImmagine` con la vista finta e i tre elementi che legge."""
-    return _DOM + _costante("STEP_CON_GEOMETRIA") + "\n" + _funzioni("nomeDellaCorsa", "nomeDellImmagine", "didascaliaDellaVista", "passoDaMostrare", "schedaDiProvenienza", "valoreDellaMetrica", "blocchiDeiParametri", "superata", "spezzaInRighe", "immagineConProvenienza", "dichiaraErrore", "serverMuto", "ragioneDelRifiuto", "corpoLetto", "consegnaImmagine", "salvaImmagine") + """
+    return _DOM + _costante("STEP_CON_GEOMETRIA") + "\n" + _funzioni("nomeDellaCorsa", "didascaliaDellaVista", "passoDaMostrare", "schedaDiProvenienza", "valoreDellaMetrica", "blocchiDeiParametri", "superata", "spezzaInRighe", "immagineConProvenienza", "dichiaraErrore", "serverMuto", "ragioneDelRifiuto", "corpoLetto", "consegnaImmagine", "salvaImmagine") + """
 let schemaParametri = null;
 // Un server che serve schema e configurazione: senza, il cartiglio non puo'
 // dire i parametri e il comando dichiara l'errore. I banchi che provano quel
 // ramo lo sovrascrivono.
 const SCHEMA_DEL_BANCO = { "6": { blocchi: ["repair"], campi: { repair: { max_hole_area: { etichetta: "area massima del buco [mm²]", default: null } } } } };
 // La consegna al server: la fetch finta registra ogni POST a /api/immagine
-// (corpo JSON parsato) e risponde con lo stesso percorso che il server vero
-// scriverebbe -- nomeDellImmagine sulla corsa del banco -- cosi' i test che
-// controllavano il nome del file scaricato controllano il percorso tornato.
+// (corpo JSON parsato). Il nome del file lo decide il server (immagini.py,
+// provato in test_immagini.py); qui il percorso e' una stringa fissa, e i
+// test controllano il corpo consegnato (numero, nome, didascalia), non un
+// nome sintetizzato lato JS.
 const consegne = [];
 globalThis.fetch = async (percorso, opzioni) => {
   if (percorso === "/api/immagine") {
     const corpo = JSON.parse(opzioni.body);
-    const corsaDelBanco = document.getElementById("corsa").textContent;
-    const percorsoScritto = `${corsaDelBanco}/immagini/${nomeDellImmagine(corsaDelBanco, corpo.numero, corpo.nome, corpo.didascalia)}`;
+    const percorsoScritto = "runs/lab/immagini/x.png";
     consegne.push({ ...corpo, percorso: percorsoScritto });
     return { ok: true, status: 200, json: async () => ({ percorso: percorsoScritto }) };
   }
@@ -6630,13 +6603,16 @@ assert.equal(vista.catture, 0, "la tela e' stata catturata senza uno step scelto
 
 stepScelto = 6;
 await salvaImmagine();
-assert.equal(scaricato().percorso, "runs/lab_crop/immagini/lab-crop-06-riparazione-scarto-rms-9-5-mm.png");
+assert.equal(scaricato().numero, 6);
+assert.equal(scaricato().nome, "Riparazione");
+assert.equal(scaricato().didascalia, "scarto RMS 9,5 mm");
 assert.equal(scaricato().dati, "data:image/png;base64,AAA", "la consegna non porta la tela catturata");
 
 // Uno step che lo stato non conosce: il numero, non «undefined».
 ultimoStato = [];
 await salvaImmagine();
-assert.equal(scaricato().percorso, "runs/lab_crop/immagini/lab-crop-06-step-6-scarto-rms-9-5-mm.png");
+assert.equal(scaricato().numero, 6);
+assert.equal(scaricato().nome, "step 6", "uno step che lo stato non conosce prende il proprio numero, non «undefined»");
 """)
 
 
@@ -7147,7 +7123,8 @@ ultimoStato = [
 ];
 stepScelto = 11;
 await salvaImmagine();
-assert.equal(scaricato().percorso, "runs/lab_crop/immagini/lab-crop-09-tetraedri-scarto-rms-9-5-mm.png", "il file nomina lo step scelto e non quello in figura");
+assert.equal(scaricato().numero, 9, "il file nomina lo step in figura e non quello scelto");
+assert.equal(scaricato().nome, "Tetraedri");
 
 // La scheda: lo step in figura, senza impronta perche' «non valido».
 const composta = schedaDiProvenienza({ corsa: "runs/x", numero: 9, nome: "Tetraedri", impronta: undefined, conteggi: "c", didascalia: "", data: "d" });
@@ -7299,7 +7276,8 @@ scritte.length = 0;
 ultimoStato = [{ numero: 9, chiave: "09_tetrahedralize", stato: "valido", impronta: "0123456789abcdef" }];
 stepScelto = 9;
 await salvaImmagine();
-assert.equal(scaricato().percorso, "runs/lab_crop/immagini/lab-crop-09-step-9-scarto-rms-9-5-mm.png");
+assert.equal(scaricato().numero, 9);
+assert.equal(scaricato().nome, "step 9");
 assert.deepEqual(testi(), ["Step 9 · step 9", testi()[1], "impronta 0123456789ab", "scarto RMS 9,5 mm", "MeshRec"], testi().join(" | "));
 stepScelto = 6;
 
@@ -7460,7 +7438,8 @@ assert.equal(document.getElementById("salva-immagine").disabled, false, "il coma
 globalThis.fetch = async (percorso, opzioni) => { richieste.push(percorso); return fetchBuona(percorso, opzioni); };
 await salvaImmagine();
 assert.deepEqual(richieste, ["/api/schema", "/api/schema", "/api/config", "/api/immagine"]);
-assert.equal(scaricato().percorso, "runs/lab_crop/immagini/lab-crop-06-riparazione-scarto-rms-9-5-mm.png");
+assert.equal(scaricato().numero, 6);
+assert.equal(scaricato().nome, "Riparazione");
 """)
 
 
@@ -7488,7 +7467,8 @@ globalThis.fetch = async (percorso, opzioni) => {
 };
 stepScelto = 6;
 await salvaImmagine();
-assert.equal(scaricato().percorso, "runs/lab_crop/immagini/lab-crop-06-riparazione-scarto-rms-9-5-mm.png", "il file porta lo step scelto dopo l'attesa");
+assert.equal(scaricato().numero, 6, "il file porta lo step scelto dopo l'attesa");
+assert.equal(scaricato().nome, "Riparazione");
 assert.equal(scaricato().dati, "data:image/png;base64,AAA", "il file porta la tela catturata dopo l'attesa");
 
 // Il clic sull'altra riga apre una generazione (apriGenerazione nel gestore
@@ -7683,6 +7663,24 @@ assert.equal(salva.disabled, false, "«Salva immagine» resta spento a giro fini
 """)
 
 
+def test_salva_tutti_non_sovrascrive_la_riga_in_corso_a_meta_giro(tmp_path):
+    """Dentro il giro «Salva immagine» e' gia' spento quando salvaImmagine gira
+    (salvaTuttiGliStep lo spegne prima di partire): la riga "Salvataggio di N
+    immagini in corso…" non deve sparire dopo il primo file, sostituita da
+    "Salvata in …" — chi ascolta la regione viva perderebbe il conto.
+
+    Mutazione che lo uccide: scrivere sempre "Salvata in ..." in salvaImmagine
+    senza guardare se il bottone era gia' spento prima del salvataggio.
+    """
+    _esegui(tmp_path, _banco_del_giro() + """
+let chiamate = 0;
+let vistoAMeta = null;
+inClic = async () => { chiamate += 1; if (chiamate === 2) vistoAMeta = esitoDelGiro.textContent; };
+await salvaTutti.scatena("click");
+assert.equal(vistoAMeta, "Salvataggio di 6 immagini in corso…", "la riga «in corso» e' stata sovrascritta a meta' giro");
+""")
+
+
 def test_salva_tutti_torna_allo_step_di_partenza(tmp_path):
     """Il giro cambia lo step a video per catturarlo: finito, l'utente deve
     ritrovare quello che stava guardando, non l'ultimo della pipeline.
@@ -7860,29 +7858,6 @@ assert.equal(salva.disabled, true, "il giro ha riacceso «Salva immagine» mentr
 assert.notEqual(salvaTutti.disabled, true, "il giro ha spento il proprio tasto senza partire");
 assert.equal(esitoDelGiro.textContent, "");
 """)
-
-
-def test_la_regola_di_nome_del_js_e_quella_del_server_coincidono(tmp_path):
-    """Il messaggio a video (app.js) e il file su disco (immagini.py) devono
-    dire lo stesso nome: i casi sono gli stessi di test_immagini.py, e il JS
-    vero gira su di essi."""
-    from meshrec.app import immagini
-
-    casi = [
-        ("runs/lab_telaio_v2", 6, "Riparazione", "scarto RMS 9,5 mm"),
-        ("corsa", 5, "Superficie", ""),
-        ("runs\\\\lab", 1, "Lettura", ""),
-        ("", 1, "Lettura", ""),
-        ("lab", 2, "Perché", "città à è"),
-        ("lab", 3, "../../etc", "/passwd"),
-        ("lab", 4, "", ""),
-    ]
-    attesi = [immagini.nome_dell_immagine(c.replace("\\\\", "\\"), n, no, d) for c, n, no, d in casi]
-    righe = "\n".join(
-        f'assert.equal(nomeDellImmagine("{c}", {n}, "{no}", "{d}"), "{a}");'
-        for (c, n, no, d), a in zip(casi, attesi)
-    )
-    _esegui(tmp_path, _DOM + _funzioni("nomeDellaCorsa", "nomeDellImmagine") + righe)
 
 
 def test_l_immagine_va_al_server_e_l_esito_dice_il_percorso(tmp_path):

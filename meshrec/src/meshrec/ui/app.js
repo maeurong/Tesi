@@ -1846,19 +1846,11 @@ function nomeDellaCorsa(outDir) {
   return String(outDir).split(/[\\/]/).filter(Boolean).pop() ?? "corsa";
 }
 
-function nomeDellImmagine(outDir, numero, nome, didascalia) {
-  return [nomeDellaCorsa(outDir), String(numero).padStart(2, "0"), nome, didascalia]
-    .map((pezzo) => String(pezzo).toLowerCase().normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""))
-    .filter(Boolean)
-    .join("-") + ".png";
-}
-
-// Il PNG lo scrive il browser, dove chi lo salva lo trova gia': nessuna rotta
-// nuova, nessun file lasciato sul disco del server, nessuna cartella da
-// scegliere. `cattura()` e `preserveDrawingBuffer` esistono in viewport.js da
-// agosto ed erano meta' di una funzione: questo e' il chiamante che mancava.
+// Il PNG lo scrive il server, in `runs/<corsa>/immagini/`: il nome del file
+// lo decide la stessa regola in `immagini.py` (`nome_dell_immagine`), non il
+// client, cosi' un `../` nel nome non puo' uscire dalla cartella.
+// `cattura()` e `preserveDrawingBuffer` esistono in viewport.js da agosto ed
+// erano meta' di una funzione: questo e' il chiamante che mancava.
 //
 // Di primo livello e non una freccia dentro addEventListener, per la stessa
 // ragione di `aggiornaDaStato`: dentro la freccia non la esegue nessun banco.
@@ -2074,11 +2066,14 @@ async function salvaImmagine() {
   // salvataggio precedente lasciato a video contraddirebbe il PNG riuscito.
   dichiaraErrore(null);
   // La generazione in corso, non una nuova: salvare non e' navigare, e aprirne
-  // una butterebbe via il clic che l'utente ha appena fatto. Serve per il
-  // rifiuto: un clic su un'altra riga durante l'attesa apre un pannello che
-  // svuota #errore, e il rifiuto del salvataggio vecchio finirebbe scritto
-  // sotto lo step nuovo. Il file invece esce comunque: porta lo step e la
-  // tela letti prima dell'attesa, che sono quelli chiesti.
+  // una butterebbe via il clic che l'utente ha appena fatto. Serve a sapere
+  // quando il salvataggio e' superato: un clic su un'altra riga durante
+  // l'attesa apre un pannello che svuota #errore, e sia il rifiuto sia
+  // «Salvata in...» del salvataggio vecchio tacciono (guardia su
+  // superata(ordine)) -- quelle regioni appartengono allo step mostrato
+  // adesso, non a quello per cui il salvataggio era partito. Il file invece
+  // esce comunque sul server: porta lo step e la tela letti prima
+  // dell'attesa, che sono quelli chiesti.
   const ordine = generazione;
   // Lo step in figura e non quello scelto: su 7, 10 e 11 la vista ripiega a
   // monte (passoDaMostrare), e #conteggi lo dice gia'. Nome del file e
@@ -2155,7 +2150,10 @@ async function salvaImmagine() {
     const esito = await consegnaImmagine({ numero: mostrato, nome, didascalia, dati }, ordine);
     if (superata(ordine)) return;
     if (esito === null) return;
-    document.getElementById("esito-salvataggio").textContent = `Salvata in ${esito.percorso}`;
+    // Solo a salvataggio singolo: dentro salvaTuttiGliStep il bottone e' gia'
+    // spento (eraSpento true), e la riga "Salvataggio di N immagini in
+    // corso…" scritta prima del giro non deve sparire dopo il primo file.
+    if (!eraSpento) document.getElementById("esito-salvataggio").textContent = `Salvata in ${esito.percorso}`;
     // `true` solo a file scritto: i rami di rifiuto qui sopra tornano
     // undefined, e il giro di salvaTuttiGliStep si ferma su quello.
     return true;

@@ -4299,6 +4299,15 @@ def test_l_immagine_si_salva_accanto_alla_corsa(cliente, tmp_path):
     assert percorso.read_bytes().startswith(b"\x89PNG")
 
 
+def test_una_didascalia_lunga_si_salva_col_nome_tagliato(cliente, tmp_path):
+    # Stessa regressione di test_immagini.py, verificata sopra la rotta.
+    risposta = cliente.post("/api/immagine", json=_corpo_immagine(didascalia="x" * 300))
+    assert risposta.status_code == 200, risposta.text
+    percorso = Path(risposta.json()["percorso"])
+    assert percorso.exists()
+    assert len(percorso.name) <= 124
+
+
 def test_senza_corsa_legata_l_immagine_non_si_salva(tmp_path, monkeypatch):
     monkeypatch.setattr(server, "CACHE_DIR", tmp_path / "cache")
     slegato = TestClient(create_app(None, radice_corse=tmp_path / "runs"),
@@ -4306,6 +4315,9 @@ def test_senza_corsa_legata_l_immagine_non_si_salva(tmp_path, monkeypatch):
     risposta = slegato.post("/api/immagine", json=_corpo_immagine())
     assert risposta.status_code == 409
     assert risposta.json()["errore"] == "NessunaCorsa"
+    assert risposta.json()["messaggio"] == (
+        "nessuna corsa aperta: apri o crea una corsa prima di salvare l'immagine"
+    )
     assert not (tmp_path / "runs").exists()
 
 
@@ -4326,6 +4338,7 @@ def test_un_corpo_sopra_il_limite_e_rifiutato_con_413(cliente, tmp_path):
     risposta = cliente.post("/api/immagine", json=_corpo_immagine(dati=grande))
     assert risposta.status_code == 413
     assert risposta.json()["errore"] == "ImmagineTroppoGrande"
+    assert risposta.json()["messaggio"] == "il corpo della richiesta supera i 50 MB"
     assert not (tmp_path / "corsa" / "immagini").exists()
 
 
@@ -4356,6 +4369,10 @@ def test_un_corpo_senza_i_campi_attesi_e_rifiutato(cliente):
     risposta = cliente.post("/api/immagine", json={"numero": "cinque"})
     assert risposta.status_code == 400
     assert risposta.json()["errore"] == "ImmagineNonValida"
+    assert risposta.json()["messaggio"] == (
+        "l'immagine non si è potuta leggere: il corpo non ha i campi attesi "
+        "(numero, nome, didascalia, dati)"
+    )
 
 
 def test_il_nome_lo_decide_il_server_e_resta_dentro_immagini(cliente, tmp_path):
@@ -4385,4 +4402,4 @@ def test_immagini_che_e_un_file_torna_un_messaggio_col_percorso(cliente, tmp_pat
     (tmp_path / "corsa" / "immagini").write_text("")
     risposta = cliente.post("/api/immagine", json=_corpo_immagine())
     assert risposta.status_code == 400
-    assert "immagini" in risposta.json()["messaggio"]
+    assert str(tmp_path / "corsa" / "immagini") in risposta.json()["messaggio"]

@@ -5,8 +5,8 @@ una finestra pywebview quel gesto apre un pannello «Salva» modale per ogni
 immagine, e «salva un'immagine per step» ne aprirebbe undici. Il file va
 dove finisce in appendice: `runs/<corsa>/immagini/`.
 
-Il nome lo decide il server con la regola di `nomeDellImmagine` in app.js,
-non il client: così un `../` nel nome non puo' uscire dalla cartella.
+Il nome lo decide `nome_dell_immagine` qui sotto, non il client: così un
+`../` nel nome non puo' uscire dalla cartella.
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ def _nome_della_corsa(out_dir: object) -> str:
 
 def nome_dell_immagine(corsa: object, numero: int, nome: object, didascalia: object) -> str:
     pezzi = [_pezzo(_nome_della_corsa(corsa)), f"{int(numero):02d}", _pezzo(nome), _pezzo(didascalia)]
-    return "-".join(p for p in pezzi if p) + ".png"
+    return "-".join(p for p in pezzi if p)[:120].rstrip("-") + ".png"
 
 
 def decodifica_png(dati: str) -> bytes:
@@ -50,8 +50,8 @@ def decodifica_png(dati: str) -> bytes:
         raise ValueError("l'immagine non è un data URL image/png")
     try:
         png = base64.b64decode(dati[len(_PREFISSO):], validate=True)
-    except (binascii.Error, ValueError) as errore:
-        raise ValueError(f"l'immagine non si decodifica: {errore}") from None
+    except (binascii.Error, ValueError):
+        raise ValueError("l'immagine non si decodifica: il base64 non è valido") from None
     if not png.startswith(_FIRMA_PNG):
         raise ValueError("i byte decodificati non sono un PNG")
     return png

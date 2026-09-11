@@ -1066,26 +1066,33 @@ def create_app(
         if dichiarata is not None and dichiarata.isdigit() and int(dichiarata) > immagini.LIMITE_BYTE:
             return JSONResponse(status_code=413, content={
                 "errore": "ImmagineTroppoGrande",
-                "messaggio": f"l'immagine supera i {immagini.LIMITE_BYTE // (1024 * 1024)} MB",
+                "messaggio": f"il corpo della richiesta supera i {immagini.LIMITE_BYTE // (1024 * 1024)} MB",
             })
         if config_path is None:
             return JSONResponse(status_code=409, content={
                 "errore": "NessunaCorsa",
-                "messaggio": "nessuna corsa aperta: l'immagine si salva accanto a una corsa",
+                "messaggio": "nessuna corsa aperta: apri o crea una corsa prima di salvare l'immagine",
             })
         corpo = await richiesta.body()
         if len(corpo) > immagini.LIMITE_BYTE:
             return JSONResponse(status_code=413, content={
                 "errore": "ImmagineTroppoGrande",
-                "messaggio": f"l'immagine supera i {immagini.LIMITE_BYTE // (1024 * 1024)} MB",
+                "messaggio": f"il corpo della richiesta supera i {immagini.LIMITE_BYTE // (1024 * 1024)} MB",
             })
         try:
             dati = ImmagineDaSalvare.model_validate_json(corpo)
-            png = immagini.decodifica_png(dati.dati)
-        except (ValueError, ValidationError) as errore:
+        except ValidationError:
             return JSONResponse(status_code=400, content={
                 "errore": "ImmagineNonValida",
-                "messaggio": f"l'immagine non si è potuta leggere: {errore}",
+                "messaggio": "l'immagine non si è potuta leggere: il corpo non ha i campi attesi "
+                             "(numero, nome, didascalia, dati)",
+            })
+        try:
+            png = immagini.decodifica_png(dati.dati)
+        except ValueError as errore:
+            return JSONResponse(status_code=400, content={
+                "errore": "ImmagineNonValida",
+                "messaggio": str(errore),
             })
         percorso = immagini.salva(Path(corrente().run.out_dir), dati.numero, dati.nome, dati.didascalia, png)
         return {"percorso": str(percorso)}

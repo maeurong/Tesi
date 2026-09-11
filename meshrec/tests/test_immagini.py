@@ -7,6 +7,7 @@ qui (per il file su disco): `test_app_js.py` verifica che coincidano.
 from __future__ import annotations
 
 import base64
+import re
 from pathlib import Path
 
 import pytest
@@ -32,6 +33,15 @@ def test_il_nome_del_file_segue_la_regola_di_app_js(corsa, numero, nome, didasca
     assert immagini.nome_dell_immagine(corsa, numero, nome, didascalia) == atteso
 
 
+def test_una_didascalia_lunga_non_sfonda_il_tetto_del_nome_file():
+    # Regressione reale: una didascalia con la ragione di un rifiuto (spesso
+    # lunga) produceva un nome oltre i 255 byte che il filesystem rifiuta.
+    nome = immagini.nome_dell_immagine("corsa", 1, "Superficie", "x" * 300)
+    assert len(nome) <= 124
+    assert nome.endswith(".png")
+    assert not nome.endswith("-.png")
+
+
 def test_decodifica_un_data_url_png():
     dati = "data:image/png;base64," + base64.b64encode(PNG_MINIMO).decode("ascii")
     assert immagini.decodifica_png(dati) == PNG_MINIMO
@@ -46,6 +56,13 @@ def test_decodifica_un_data_url_png():
 def test_un_data_url_che_non_e_un_png_viene_rifiutato(dati):
     with pytest.raises(ValueError):
         immagini.decodifica_png(dati)
+
+
+def test_un_base64_non_valido_da_un_messaggio_fisso_in_italiano():
+    # Niente errore grezzo di binascii (inglese) verso il browser.
+    with pytest.raises(ValueError) as errore:
+        immagini.decodifica_png("data:image/png;base64,***non-base64***")
+    assert str(errore.value) == "l'immagine non si decodifica: il base64 non è valido"
 
 
 def test_salva_scrive_dentro_immagini_e_sovrascrive(tmp_path: Path):
@@ -67,5 +84,5 @@ def test_salva_non_esce_dalla_cartella_immagini(tmp_path: Path):
 def test_immagini_che_e_un_file_e_non_una_cartella_dice_il_percorso(tmp_path: Path):
     (tmp_path / "corsa").mkdir()
     (tmp_path / "corsa" / "immagini").write_text("non una cartella")
-    with pytest.raises(OSError, match="immagini"):
+    with pytest.raises(OSError, match=re.escape(str(tmp_path / "corsa" / "immagini"))):
         immagini.salva(tmp_path / "corsa", 1, "Lettura", "", PNG_MINIMO)
