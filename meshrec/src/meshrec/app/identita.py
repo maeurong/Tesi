@@ -43,7 +43,7 @@ def _doi(radice: Path) -> str | None:
         return None
     try:
         voci = yaml.safe_load(cff.read_text(encoding="utf-8"))
-    except (yaml.YAMLError, OSError):
+    except (yaml.YAMLError, OSError, UnicodeDecodeError):
         return None
     doi = voci.get("doi") if isinstance(voci, dict) else None
     return str(doi) if doi else None

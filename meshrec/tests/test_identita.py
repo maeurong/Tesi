@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 from pathlib import Path
 
+import pytest
+from fastapi.testclient import TestClient
+
 from meshrec.app import identita
+from meshrec.app.server import create_app
 
 
 def test_senza_git_e_senza_cff_le_voci_mancanti_sono_null(tmp_path: Path):
@@ -48,3 +53,28 @@ def test_senza_pacchetto_installato_la_versione_dice_sorgente(tmp_path: Path, mo
 
     monkeypatch.setattr(identita.metadata, "version", manca)
     assert identita.informazioni(tmp_path)["versione"] == "sorgente"
+
+
+def test_un_cff_non_utf8_non_rompe_il_doi(tmp_path: Path):
+    (tmp_path / "CITATION.cff").write_bytes(b"\xff\xfe cff")
+    assert identita.informazioni(tmp_path)["doi"] is None
+
+
+def test_un_cff_non_utf8_non_fa_cadere_la_rotta(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    (tmp_path / "CITATION.cff").write_bytes(b"\xff\xfe cff")
+    monkeypatch.setattr(identita, "RADICE_REPO", tmp_path)
+    cliente = TestClient(create_app(), base_url="http://127.0.0.1")
+    risposta = cliente.get("/api/info")
+    assert risposta.status_code == 200
+    assert risposta.json()["doi"] is None
+
+
+def test_radice_repo_punta_alla_radice_vera():
+    assert (identita.RADICE_REPO / "meshrec" / "pyproject.toml").is_file()
+    assert (identita.RADICE_REPO / "LICENSE").is_file()
+
+
+def test_informazioni_senza_argomenti_legge_il_commit_vero():
+    if shutil.which("git") is None:
+        pytest.skip("git non disponibile su questa macchina")
+    assert identita.informazioni()["commit"] is not None
