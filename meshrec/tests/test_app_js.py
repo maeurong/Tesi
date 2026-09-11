@@ -504,6 +504,28 @@ def test_il_pie_di_pagina_esiste_nel_markup():
     assert '<footer class="informazioni" id="informazioni"' in markup
 
 
+def test_il_pie_di_pagina_sta_fuori_dal_div_di_lavoro():
+    """Il piè si vede anche con la schermata d'ingresso a video (#lavoro porta
+    `hidden`): deve stare fuori dal div che quell'attributo nasconde, non
+    dentro. Una sottostringa da sola non lo direbbe: un refactor che spostasse
+    `<footer>` dentro `#lavoro` lo farebbe sparire insieme alla zona nascosta,
+    e `test_il_pie_di_pagina_esiste_nel_markup` resterebbe verde lo stesso."""
+    markup = _senza_commenti_html(_markup())
+    apertura = markup.index('<div class="tre-zone" id="lavoro"')
+    profondita = 0
+    chiusura = None
+    for tag in re.finditer(r"<div\b|</div>", markup[apertura:]):
+        profondita += 1 if tag.group() == "<div" else -1
+        if profondita == 0:
+            chiusura = apertura + tag.end()
+            break
+    assert chiusura is not None, "il div di #lavoro non si chiude mai"
+    indice_footer = markup.index('<footer class="informazioni"')
+    assert indice_footer > chiusura, (
+        "il pie' di pagina e' finito dentro #lavoro: sparirebbe con hidden"
+    )
+
+
 def test_la_regione_d_errore_sta_fuori_da_cio_che_viene_riscritto():
     """Strada 3. `#dettaglio` viene svuotato con replaceChildren() a ogni
     apertura di pannello: la regione dentro di li' non sopravvive a un clic."""
