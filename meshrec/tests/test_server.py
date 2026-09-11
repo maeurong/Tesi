@@ -4409,3 +4409,10 @@ def test_api_info_risponde_sempre(cliente):
     risposta = cliente.get("/api/info")
     assert risposta.status_code == 200
     assert set(risposta.json()) == {"nome", "versione", "commit", "licenza", "doi", "doi_url", "repository"}
+
+
+def test_il_favicon_e_un_file_servito_e_non_un_data_uri(cliente):
+    pagina = cliente.get("/").text
+    assert 'href="/ui/icona-32.png"' in pagina
+    assert "data:image/png;base64" not in pagina
+    assert cliente.get("/ui/icona-32.png").status_code == 200
