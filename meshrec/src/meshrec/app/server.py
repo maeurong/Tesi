@@ -34,7 +34,7 @@ from pydantic import (
     ValidationError,
 )
 
-from meshrec.app import immagini, storico
+from meshrec.app import immagini, info, storico
 from meshrec.app.worker import Worker
 from meshrec.core import (
     io,
@@ -884,6 +884,10 @@ def create_app(
         if not percorso.is_relative_to(UI_DIR) or not percorso.is_file():
             raise FileNotFoundError(f"nessun file dell'interfaccia chiamato {nome}")
         return FileResponse(percorso, headers=RIVALIDA_SEMPRE)
+
+    @app.get("/api/info")
+    def informazioni_sul_programma() -> dict[str, object]:
+        return info.informazioni()
 
     @app.get("/api/run")
     def stato_corsa() -> dict[str, object]:

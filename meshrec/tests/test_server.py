@@ -4403,3 +4403,9 @@ def test_immagini_che_e_un_file_torna_un_messaggio_col_percorso(cliente, tmp_pat
     risposta = cliente.post("/api/immagine", json=_corpo_immagine())
     assert risposta.status_code == 400
     assert str(tmp_path / "corsa" / "immagini") in risposta.json()["messaggio"]
+
+
+def test_api_info_risponde_sempre(cliente):
+    risposta = cliente.get("/api/info")
+    assert risposta.status_code == 200
+    assert set(risposta.json()) == {"nome", "versione", "commit", "licenza", "doi", "doi_url", "repository"}
