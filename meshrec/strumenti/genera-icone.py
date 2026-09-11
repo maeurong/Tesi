@@ -15,14 +15,16 @@ import sys
 import tempfile
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 RADICE = Path(__file__).resolve().parent.parent
 UI = RADICE / "src" / "meshrec" / "ui"
 SORGENTE = UI / "icona.svg"
 ICNS = RADICE / "MeshRec.app" / "Contents" / "Resources" / "icona.icns"
 MISURE_PNG = (32, 180, 512)
-MISURE_ICNS = (16, 32, 64, 128, 256, 512, 1024)
+# 64 e 1024 non hanno uno slot nell'iconset di iconutil: generarli e' rasterizzare a vuoto.
+MISURE_ICNS = (16, 32, 128, 256, 512)
+RAGGIO_ANGOLI = 104 / 512  # rx del rect nell'SVG (104 su un viewBox 512), in frazione del lato
 
 
 def rasterizza(misura: int, destinazione: Path) -> None:
@@ -32,7 +34,16 @@ def rasterizza(misura: int, destinazione: Path) -> None:
             check=True, capture_output=True,
         )
         prodotto = Path(cartella) / (SORGENTE.name + ".png")
-        Image.open(prodotto).convert("RGBA").resize((misura, misura)).save(destinazione)
+        immagine = Image.open(prodotto).convert("RGBA").resize((misura, misura))
+        # qlmanage compone il render su sfondo bianco: senza questa maschera gli
+        # angoli arrotondati del chip portano un quadrato bianco opaco dietro,
+        # visibile nel Dock/taskbar su sfondo scuro.
+        maschera = Image.new("L", (misura, misura), 0)
+        ImageDraw.Draw(maschera).rounded_rectangle(
+            (0, 0, misura - 1, misura - 1), radius=round(misura * RAGGIO_ANGOLI), fill=255
+        )
+        immagine.putalpha(maschera)
+        immagine.save(destinazione)
 
 
 def main() -> int:
