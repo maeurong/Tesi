@@ -1725,12 +1725,12 @@ def test_ogni_tratta_che_interroga_il_server_si_scarta_se_e_stata_superata():
     from meshrec.app.server import UI_DIR
 
     testo = (UI_DIR / "app.js").read_text(encoding="utf-8")
-    # caricaStato parte una volta sola all'avvio della pagina e non da un
-    # clic: non c'e' nessuna generazione che possa superarla. annullaLaCorsa
-    # non scrive nulla dopo l'attesa, quindi non ha niente da contraddire; ha
-    # un nome apposta per poter comparire qui invece di non essere mai
-    # incontrata.
-    senza_ordine = {"caricaStato", "annullaLaCorsa"}
+    # caricaStato e mostraInformazioni partono una volta sola all'avvio della
+    # pagina e non da un clic: non c'e' nessuna generazione che possa
+    # superarle. annullaLaCorsa non scrive nulla dopo l'attesa, quindi non ha
+    # niente da contraddire; ha un nome apposta per poter comparire qui invece
+    # di non essere mai incontrata.
+    senza_ordine = {"caricaStato", "annullaLaCorsa", "mostraInformazioni"}
     tratte = [
         (nome, _sorgente_di(nome, testo))
         for nome in re.findall(r"^async function (\w+)\(", testo, re.MULTILINE)

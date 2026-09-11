@@ -486,6 +486,24 @@ def test_la_regione_d_errore_esiste_nel_markup_e_non_nasce_nascosta():
     assert "hidden" not in elemento, f"hidden la toglie dall'albero: {elemento}"
 
 
+def test_il_pie_di_pagina_tace_le_voci_nulle_e_porta_il_link_al_repository(tmp_path):
+    sorgente = _DOM + _funzioni("righeDelleInformazioni") + """
+const piene = righeDelleInformazioni({nome: "MeshRec", versione: "1.0.0", commit: "abc1234", licenza: "MIT", doi: "10.5281/zenodo.99", doi_url: "https://doi.org/10.5281/zenodo.99", repository: "https://github.com/maeurong/meshrec"});
+assert.deepEqual(piene.map((r) => r.testo), ["MeshRec 1.0.0", "abc1234", "MIT", "doi 10.5281/zenodo.99", "come citare"]);
+assert.equal(piene[4].href, "https://github.com/maeurong/meshrec");
+assert.equal(piene[3].href, "https://doi.org/10.5281/zenodo.99");
+const vuote = righeDelleInformazioni({nome: "MeshRec", versione: "sorgente", commit: null, licenza: "MIT", doi: null, doi_url: null, repository: "https://github.com/maeurong/meshrec"});
+assert.deepEqual(vuote.map((r) => r.testo), ["MeshRec sorgente", "MIT", "come citare"]);
+assert.ok(!JSON.stringify(vuote).includes("null"));
+"""
+    _esegui(tmp_path, sorgente)
+
+
+def test_il_pie_di_pagina_esiste_nel_markup():
+    markup = _senza_commenti_html(_markup())
+    assert '<footer class="informazioni" id="informazioni"' in markup
+
+
 def test_la_regione_d_errore_sta_fuori_da_cio_che_viene_riscritto():
     """Strada 3. `#dettaglio` viene svuotato con replaceChildren() a ogni
     apertura di pannello: la regione dentro di li' non sopravvive a un clic."""
