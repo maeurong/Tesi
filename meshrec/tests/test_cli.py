@@ -472,3 +472,111 @@ def test_un_errore_scritto_dal_programma_resta_una_riga_sola(tmp_path, capsys):
     detto = capsys.readouterr().err
     assert "controlla input.path" in detto
     assert "Traceback" not in detto
+
+
+def _porta_libera():
+    """Bind su 0, leggi la porta, chiudi: stessa forma di test_la_porta_occupata..."""
+    import socket as _socket
+
+    libera = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+    libera.bind(("127.0.0.1", 0))
+    porta = libera.getsockname()[1]
+    libera.close()
+    return porta
+
+
+def _server_finto(monkeypatch):
+    """uvicorn.Server finto: «parte» subito e registra should_exit."""
+    import uvicorn
+
+    stato = {"should_exit": False, "serviti": 0}
+
+    class Server:
+        def __init__(self, config):
+            self.config = config
+            self.started = True
+
+        @property
+        def should_exit(self):
+            return stato["should_exit"]
+
+        @should_exit.setter
+        def should_exit(self, valore):
+            stato["should_exit"] = valore
+
+        def run(self):
+            stato["serviti"] += 1
+            while not stato["should_exit"]:
+                import time
+
+                time.sleep(0.01)
+
+    monkeypatch.setattr(uvicorn, "Server", Server)
+    return stato
+
+
+def test_serve_apre_la_finestra_e_ferma_il_server_quando_si_chiude(monkeypatch, capsys):
+    from meshrec.app import finestra
+
+    stato = _server_finto(monkeypatch)
+    chiamate = []
+
+    def apri(indirizzo, *, cache, forza_browser=False, avvisa=None):
+        chiamate.append((indirizzo, forza_browser))
+        return "finestra"
+
+    monkeypatch.setattr(finestra, "apri", apri)
+    codice = cli.main(["serve", "--port", str(_porta_libera())])
+    assert codice == 0
+    assert stato["serviti"] == 1
+    assert stato["should_exit"] is True
+    assert chiamate and chiamate[0][1] is False
+    assert "MeshRec in ascolto su" in capsys.readouterr().err
+
+
+def test_serve_browser_forza_il_browser_e_resta_in_ascolto_fino_a_should_exit(monkeypatch):
+    from meshrec.app import finestra
+    import threading
+
+    stato = _server_finto(monkeypatch)
+    chiamate = []
+
+    def apri(indirizzo, *, cache, forza_browser=False, avvisa=None):
+        chiamate.append(forza_browser)
+        # Nel ramo browser il server resta vivo: qualcuno deve fermarlo.
+        threading.Timer(0.05, lambda: stato.__setitem__("should_exit", True)).start()
+        return "browser"
+
+    monkeypatch.setattr(finestra, "apri", apri)
+    assert cli.main(["serve", "--port", str(_porta_libera()), "--browser"]) == 0
+    assert chiamate == [True]
+
+
+def test_serve_no_browser_non_apre_nulla(monkeypatch):
+    from meshrec.app import finestra
+    import threading
+
+    stato = _server_finto(monkeypatch)
+    monkeypatch.setattr(finestra, "apri", lambda *a, **k: pytest.fail("non doveva aprire"))
+    threading.Timer(0.05, lambda: stato.__setitem__("should_exit", True)).start()
+    assert cli.main(["serve", "--port", str(_porta_libera()), "--no-browser"]) == 0
+
+
+def test_se_il_server_non_parte_entro_il_tempo_serve_lo_dice(monkeypatch, capsys):
+    import uvicorn
+
+    class ServerCheNonParte:
+        def __init__(self, config):
+            self.started = False
+            self.should_exit = False
+
+        def run(self):
+            while not self.should_exit:
+                import time
+
+                time.sleep(0.01)
+
+    monkeypatch.setattr(uvicorn, "Server", ServerCheNonParte)
+    monkeypatch.setattr(cli, "ATTESA_AVVIO_S", 0.2)
+    assert cli.main(["serve", "--port", str(_porta_libera()), "--no-browser"]) == 1
+    assert "non si è messo in ascolto" in capsys.readouterr().err

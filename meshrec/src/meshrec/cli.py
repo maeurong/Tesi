@@ -92,7 +92,11 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     serve_command.add_argument("--port", type=int, default=None)
-    serve_command.add_argument("--no-browser", action="store_true")
+    serve_command.add_argument("--no-browser", action="store_true", help="solo il server, nessuna finestra")
+    serve_command.add_argument(
+        "--browser", action="store_true",
+        help="nel browser di sistema invece che nella finestra (DevTools, debug)",
+    )
 
     return parser
 
@@ -105,6 +109,10 @@ def _build_parser() -> argparse.ArgumentParser:
 # mancante, RuntimeError quelli che nascono da un lavoro che non si e' potuto
 # fare. Vedi `_riporta` per il debito che questo elenco porta.
 _DIAGNOSTICI = (ValueError, OSError, RuntimeError)
+
+# Quanto aspettare che uvicorn si metta in ascolto prima di dire che non ce
+# l'ha fatta.
+ATTESA_AVVIO_S = 10.0
 
 
 def _riporta(errore: BaseException) -> int:
@@ -221,12 +229,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "serve":
         import socket
-        import threading
-        import webbrowser
 
-        import uvicorn
-
-        from meshrec.app.server import create_app
         from meshrec.core.config import ServerConfig
 
         impostazioni = ServerConfig()
@@ -260,15 +263,53 @@ def main(argv: list[str] | None = None) -> int:
         finally:
             prova.close()
 
-        if impostazioni.open_browser and not args.no_browser:
-            # Dopo un secondo: uvicorn non e' ancora in ascolto al momento della
-            # chiamata, e un browser aperto su una porta chiusa mostra un errore
-            # invece dell'interfaccia.
-            threading.Timer(1.0, webbrowser.open, args=(indirizzo,)).start()
+        import threading
+        import time
+
+        import uvicorn
+
+        from meshrec.app import finestra
+        from meshrec.app.server import CACHE_DIR, create_app
+
+        # uvicorn in un thread e il thread principale al guscio: pywebview
+        # vuole il thread principale (Cocoa) e uvicorn, fuori da esso, salta
+        # da solo i gestori di segnale. `should_exit` lo ferma.
+        server = uvicorn.Server(uvicorn.Config(
+            create_app(args.config), host=impostazioni.host, port=impostazioni.port, log_level="warning",
+        ))
+        thread = threading.Thread(target=server.run, name="uvicorn", daemon=True)
+        thread.start()
+        scadenza = time.monotonic() + ATTESA_AVVIO_S
+        while not server.started and thread.is_alive() and time.monotonic() < scadenza:
+            time.sleep(0.05)
+        if not server.started:
+            server.should_exit = True
+            thread.join(timeout=2)
+            print(
+                f"il server non si è messo in ascolto su {indirizzo} entro {ATTESA_AVVIO_S:.0f} s. "
+                "Rilancia con `--no-browser` per vedere l'errore di uvicorn.",
+                file=sys.stderr,
+            )
+            return 1
         print(f"MeshRec in ascolto su {indirizzo}", file=sys.stderr)
-        uvicorn.run(
-            create_app(args.config), host=impostazioni.host, port=impostazioni.port, log_level="warning"
-        )
+        if args.no_browser or not impostazioni.open_browser:
+            try:
+                thread.join()
+            except KeyboardInterrupt:
+                server.should_exit = True
+                thread.join(timeout=5)
+            return 0
+        modo = finestra.apri(indirizzo, cache=CACHE_DIR.parent, forza_browser=args.browser)
+        if modo == "browser":
+            # Come prima: il server resta in ascolto finche' Ctrl-C.
+            try:
+                thread.join()
+            except KeyboardInterrupt:
+                server.should_exit = True
+                thread.join(timeout=5)
+            return 0
+        server.should_exit = True
+        thread.join(timeout=5)
         return 0
 
     from meshrec.core import pipeline
