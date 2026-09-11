@@ -1,0 +1,2 @@
+{"derived_from": {"path": "https://learn.microsoft.com/en-us/windows/win32/shell/app-registration", "sha256": "06b234ffb32822919f6aa81a1f285fb5663edc7c770d7198fde1d1198629c502", "bytes": 17139},
+ "tool": "defuddle", "tool_version": "0.19.1", "extracted": "2026-09-11"}

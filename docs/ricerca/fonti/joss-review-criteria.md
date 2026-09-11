@@ -1,0 +1,242 @@
+## Review criteria
+
+## The JOSS paper
+
+As outlined in the [submission guidelines provided to authors](paper.html#what-should-my-paper-contain), the JOSS paper (the compiled PDF associated with this submission) should only include:
+
+- A list of the authors of the software and their affiliations.
+- A summary describing the high-level functionality and purpose of the software for a diverse, non-specialist audience.
+- A clear statement of need that illustrates the purpose of the software.
+- A description of how this software compares to other commonly-used packages in this research area.
+- Mentions (if applicable) of any ongoing research projects using the software or recent scholarly publications enabled by it.
+- A list of key references including a link to the software archive.
+
+> [!important] Important
+> Note the paper *should not* include software documentation such as API (Application Programming Interface) functionality, as this should be outlined in the software documentation.
+
+## Review items
+
+> [!important] Important
+> Note, if you’ve not yet been involved in a JOSS review, you can see an example JOSS review checklist [here](review_checklist.html).
+
+### Scope and significance
+
+Reviewers should verify that the software demonstrates clear research impact or credible scholarly significance. The submission should show evidence of meaningful contribution to the research community rather than being a one-off tool for a single analysis.
+
+Signals of research impact or scholarly significance may include:
+
+- Published research citing or using the software
+- Evidence of adoption by other research groups
+- Integration into established research workflows or pipelines
+- Demonstrated performance improvements or novel capabilities compared to alternatives
+- Clear potential for reuse and citation by other researchers in the domain
+
+> [!note] Note
+> The decision on scope and significance is ultimately one made by JOSS editors. Reviewers are asked to flag submissions of questionable scope during the review process so that the editor can bring this to the attention of the JOSS editorial team.
+
+### Development history and open-source practice
+
+> [!note] Note
+> The criteria in this section also serve as pre-review screening gates. If you find a clear failure here early in your review — for example, a repository made public days before submission, or a commit history concentrated into a short window — flag it to the handling editor immediately rather than proceeding with a full review. The editor can then close the review and issue a desk rejection.
+
+Beyond the immediate research contribution, reviewers should evaluate whether the software represents a sustained, collaborative effort that follows good open-source practices:
+
+#### Development timeline
+
+The project should show evidence of sustained development over time (preferably months or years) rather than rapid, recent code generation. Look for:
+
+- Commit history spanning an extended period
+- Iterative improvements and refinements
+- Evolution of features and capabilities
+
+> **Good:** Commits distributed over 6+ months showing gradual feature development  
+> **OK:** Development spanning 6+ months but with sporadic or bursty activity patterns (e.g., concentrated bursts, rather than steady continuous development)  
+> **Not acceptable:** All or most commits concentrated in the last few weeks before submission
+
+#### Open development
+
+The software should have been developed openly from early stages. For projects with recently created public repositories, there should be at least six months of public development history with:
+
+- Evidence of releases or version tags
+- Public issues and/or pull requests
+- Ideally, external engagement from users or contributors outside the core team
+
+> **Good:** Repository public from inception with documented releases and community interaction  
+> **OK:** Repository made public 6+ months ago with clear evidence of ongoing development  
+> **Not acceptable:** Repository made public immediately before submission with limited public development history
+
+> [!note] Note
+> Software previously developed privately may be acceptable if authors can demonstrate that the work represents substantial effort and the software has been publicly available with demonstrated use for at least six months.
+
+#### Collaborative effort
+
+The commit history should show contributions from multiple developers and evidence of iterative refinement through community feedback:
+
+- Multiple contributors to the codebase
+- Code review through pull requests
+- Responses to issues and feature requests
+- Evidence of community-driven improvements
+
+> **Good:** Multiple developers contributing to the codebase with evidence of iterative refinement through community feedback (issues, pull requests, code review)  
+> **OK:** Single author but shows other evidence of community engagement, either in the repository or evidenced in the paper  
+> **Not acceptable:** Single author with no evidence of community engagement, external use, or collaborative input
+
+For single-author projects, community engagement evidence in the paper is acceptable and may be the primary signal. Look for:
+
+- The paper explicitly describing community use and influence, e.g. *“The code has been used in publications X, Y, Z and has been modified and extended in response to those applications.”* A well-established research impact (such as software that has been in active use in a research community for years) counts here even if the repository lacks external contributors.
+- The author list itself as evidence of collaborative context. A single developer working closely with a research group — where advisors, collaborators, or domain experts are co-authors — is meaningfully different from a solo project with no broader community. If the author list seems unexpectedly short given the scope of the work, it is appropriate to raise this.
+
+#### Good practices
+
+The project should demonstrate that it is a reusable, non-throwaway research software project that follows good open-source practices:
+
+- **License:** OSI-approved license (required)
+- **Documentation:** README, installation instructions, usage examples, API documentation
+- **Quality assurance:** Automated tests, continuous integration, and/or documented verification processes
+- **Releases:** Tagged versions or formal release process
+- **Community pathways:** Clear contribution guidelines and support channels
+
+> **Good:** All elements present and well-maintained  
+> **OK:** Core elements present (license, docs, tests, contribution guidelines)  
+> **Bad (not acceptable):** Missing critical elements or appears to be a one-time code dump
+
+### Documentation
+
+There should be sufficient documentation for you, the reviewer to understand the core functionality of the software under review. A high-level overview of this documentation should be included in a `README` file (or equivalent). There should be:
+
+#### Installation instructions
+
+Software dependencies should be clearly documented and their installation handled by an automated procedure. Where possible, software installation should be managed with a package manager. However, this criterion depends upon the maturity and availability of software packaging and distribution in the programming language being used. For example, Python packages should be `pip install` able, and have adopted [packaging conventions](https://packaging.python.org/), while Fortran submissions with a Makefile may be sufficient.
+
+> **Good:** The software is simple to install, and follows established distribution and dependency management approaches for the language being used  
+> **OK:** A list of dependencies to install, together with some kind of script to handle their installation (e.g., a Makefile)  
+> **Bad (not acceptable):** Dependencies are unclear, and/or installation process lacks automation
+
+#### Example usage
+
+The authors should include examples of how to use the software (ideally to solve real-world analysis problems).
+
+#### API documentation
+
+Reviewers should check that the software API is documented to a suitable level.
+
+> **Good:** All functions/methods are documented including example inputs and outputs  
+> **OK:** Core API functionality is documented  
+> **Bad (not acceptable):** API is undocumented
+
+> [!note] Note
+> The decision on API documentation is left largely to the discretion of the reviewer and their experience of evaluating the software.
+
+#### Community guidelines
+
+There should be clear guidelines for third-parties wishing to:
+
+- Contribute to the software
+- Report issues or problems with the software
+- Seek support
+
+### Functionality
+
+Reviewers are expected to install the software they are reviewing and to verify the core functionality of the software.
+
+### Tests
+
+Authors are strongly encouraged to include an automated test suite covering the core functionality of their software.
+
+> **Good:** An automated test suite hooked up to continuous integration (GitHub Actions, Circle CI, or similar)  
+> **OK:** Documented manual steps that can be followed to objectively check the expected functionality of the software (e.g., a sample input file to assert behavior)  
+> **Bad (not acceptable):** No way for you, the reviewer, to objectively assess whether the software works
+
+### Software paper content
+
+The JOSS paper must include specific required sections beyond the basic summary and references. Reviewers should verify that all required sections are present and substantive.
+
+#### Statement of need (required)
+
+The paper must have a clearly labeled “Statement of need” section that:
+
+- Clearly states what problems the software is designed to solve
+- Identifies who the target audience is
+- Explains the software’s relation to other work in the field
+
+This section should make a compelling case for why the software is needed and what gap it fills in the research ecosystem.
+
+> **Good:** Clear problem statement, well-defined target audience, and context within the broader field  
+> **OK:** Addresses the key elements but could be more specific about audience or context  
+> **Bad (not acceptable):** Vague about the problem being solved, unclear target audience, or missing context
+
+#### State of the field (required)
+
+The paper must have a section that:
+
+Authors must describe how their software compares to other commonly-used packages in the research area. When related tools exist, authors must provide a clear “build vs. contribute” justification explaining:
+
+- Their unique scholarly contribution
+- Why existing alternatives are insufficient for their research needs
+- What gap their software fills
+
+> **Good:** Thorough comparison with existing tools and clear explanation of why a new tool was necessary  
+> **OK:** Identifies related work and explains key differences  
+> **Bad (not acceptable):** Ignores existing similar tools or fails to justify why contributing to existing projects wasn’t appropriate
+
+#### Software design (required)
+
+The paper must include a section explaining the architectural choices made:
+
+- Trade-offs considered during design
+- The design/architecture chosen and why
+- Why these choices matter for the research application
+
+The content should be compelling and demonstrate meaningful design thinking, not just a superficial description of the code structure.
+
+> **Good:** Thoughtful discussion of design decisions and their implications  
+> **OK:** Clear explanation of architecture with some rationale  
+> **Bad (not acceptable):** Generic code structure description without explaining design reasoning
+
+#### Research impact statement (required)
+
+The paper must provide evidence of either:
+
+**Realized impact:**
+
+- Publications using the software
+- Evidence of external use and adoption
+- Integration with other research tools or workflows
+
+**OR credible near-term significance:**
+
+- Benchmark results demonstrating improvements
+- Reproducible research materials showing capabilities
+- Community-readiness signals (e.g., requests from other groups, presentations at relevant venues)
+
+The evidence should be compelling and specific, not aspirational.
+
+> **Good:** Multiple citations, documented external users, or strong benchmark results with reproducible materials  
+> **OK:** Some evidence of use beyond the authors’ group or solid benchmarks  
+> **Bad (not acceptable):** Only statements about potential future use without concrete evidence
+
+## Other considerations
+
+### Authorship
+
+As part of the review process, you are asked to check whether the submitting author has made a ‘substantial contribution’ to the submitted software (as determined by the commit history) and to check that ‘the full list of paper authors seems appropriate and complete?’
+
+As discussed in the [submission guidelines for authors](submitting.html#authorship), authorship is a complex topic with different practices in different communities. Ultimately, the authors themselves are responsible for deciding which contributions are sufficient for co-authorship, although JOSS policy is that purely financial contributions are not considered sufficient. Your job as a reviewer is to check that the list of authors appears reasonable, and if it’s not obviously complete/correct, to raise this as a question during the review.
+
+### What happens if the software I’m reviewing doesn’t meet the JOSS criteria?
+
+We ask that reviewers grade submissions in one of three categories: 1) Accept 2) Minor Revisions 3) Major Revisions. Unlike some journals we do not reject outright submissions requiring major revisions - we’re more than happy to give the author as long as they need to make these modifications/improvements.
+
+### What about submissions that rely upon proprietary languages/development environments?
+
+As outlined in our author guidelines, submissions that rely upon a proprietary/closed source language or development environment are acceptable provided that they meet the other submission requirements and that you, the reviewer, are able to install the software & verify the functionality of the submission as required by our reviewer guidelines.
+
+If an open source or free variant of the programming language exists, feel free to encourage the submitting author to consider making their software compatible with the open source/free variant.
+
+### Where can the repository be hosted?
+
+Repositories must be hosted at a location that allows outside users to freely open issues and propose code changes, such as GitHub, GitLab, Bitbucket, etc. Submissions will not be accepted if the repository is hosted at a location where accounts must be manually approved (or paid for), regardless of if this approval is done by the owners of the repository or some other entity.
+
+### Using AI to generate code
+
+JOSS has a detailed policy describing what we consider appropriate use of AI by authors and reviewers. Please [review these guidelines](https://joss.theoj.org/about#ai-policy) before starting your review.

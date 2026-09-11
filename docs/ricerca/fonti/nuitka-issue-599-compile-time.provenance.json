@@ -1,0 +1,2 @@
+{"derived_from": {"path": "https://github.com/Nuitka/Nuitka/issues/599", "sha256": "f9f9f082f49e28af78de5b39ea9ad9801587d164658019d58c4c53e130c0ec38", "bytes": 3398},
+ "tool": "defuddle", "tool_version": "0.19.1", "extracted": "2026-09-11"}

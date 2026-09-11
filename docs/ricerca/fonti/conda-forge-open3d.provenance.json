@@ -1,0 +1,2 @@
+{"derived_from": {"path": "https://anaconda.org/conda-forge/open3d", "sha256": "b9fdcb95f639b7343620b7d93092516e298e3cc4eb052934ae5726f63394cb8b", "bytes": 676},
+ "tool": "defuddle", "tool_version": "0.19.1", "extracted": "2026-09-11"}

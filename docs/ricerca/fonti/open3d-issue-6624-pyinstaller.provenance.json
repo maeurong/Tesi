@@ -1,0 +1,2 @@
+{"derived_from": {"path": "https://github.com/isl-org/Open3D/issues/6624", "sha256": "43c5332aca388d2e42ec76722e8e39f20fc2263c7504733e4cd631ee0dcaf79a", "bytes": 2290},
+ "tool": "defuddle", "tool_version": "0.19.1", "extracted": "2026-09-11"}

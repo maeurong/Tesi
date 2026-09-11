@@ -1,0 +1,2 @@
+{"derived_from": {"path": "https://anaconda.org/conda-forge/pymeshlab", "sha256": "3ad2104db3f01c6078b2d486661724cc86ae2f5d08880e5d0cfceaf7c4007584", "bytes": 659},
+ "tool": "defuddle", "tool_version": "0.19.1", "extracted": "2026-09-11"}

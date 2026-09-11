@@ -1,0 +1,2 @@
+{"derived_from": {"path": "https://www.electronjs.org/docs/latest/tutorial/application-distribution", "sha256": "9ff75d22deb61aac69a9db7d6bae18af4937fc3154107eb72abab485462ab73a", "bytes": 4014},
+ "tool": "defuddle", "tool_version": "0.19.1", "extracted": "2026-09-11"}

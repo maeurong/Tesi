@@ -1,0 +1,2 @@
+{"derived_from": {"path": "https://github.com/pyinstaller/pyinstaller/issues/7339", "sha256": "6e203e6dd01058e945a8141e51a17db1b9b2383aa26a208cd73ea8cfed4ca670", "bytes": 1780},
+ "tool": "defuddle", "tool_version": "0.19.1", "extracted": "2026-09-11"}

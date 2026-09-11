@@ -1,0 +1,2 @@
+{"derived_from": {"path": "https://pypi.org/project/tetgen/", "sha256": "586a97c20fefce1fb72761fcb7a8b7a20b3f7764e8807083c3fd073d6bc5a3ef", "bytes": 56890},
+ "tool": "defuddle", "tool_version": "0.19.1", "extracted": "2026-09-11"}

@@ -1,0 +1,2 @@
+{"derived_from": {"path": "https://github.com/pyinstaller/pyinstaller-hooks-contrib/pull/611", "sha256": "268454c636a352636f507de10fda2a1c677c0468a700ecef83f3670d5b914de0", "bytes": 1350},
+ "tool": "defuddle", "tool_version": "0.19.1", "extracted": "2026-09-11"}

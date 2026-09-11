@@ -1,0 +1,2 @@
+{"derived_from": {"path": "https://napari.org/dev/naps/2-conda-based-packaging.html", "sha256": "d8b7d6b12054aa3c2020bc0915e3b2173c94791c111e92ca595152394c7aa0dc", "bytes": 44413},
+ "tool": "defuddle", "tool_version": "0.19.1", "extracted": "2026-09-11"}

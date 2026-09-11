@@ -1,0 +1,2 @@
+{"derived_from": {"path": "https://raw.githubusercontent.com/Kitware/ParaView/master/README.md", "sha256": "8a10d57c92cb8cf0ab935e75cb36ccbf0324fb5c00d2bafb1b8ce69ef2536f01", "bytes": 3408},
+ "tool": "curl", "tool_version": "8.7.1", "extracted": "2026-09-11"}

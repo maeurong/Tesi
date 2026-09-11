@@ -1,0 +1,2 @@
+{"derived_from": {"path": "https://developer.chrome.com/blog/update-install-criteria", "sha256": "2a0d7eba0491831a720c54ecf87d215791c6cf6c4aceb25c0ccb13db9823de11", "bytes": 7603},
+ "tool": "defuddle", "tool_version": "0.19.1", "extracted": "2026-09-11"}

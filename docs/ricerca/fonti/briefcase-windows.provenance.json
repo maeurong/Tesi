@@ -1,0 +1,2 @@
+{"derived_from": {"path": "https://briefcase.beeware.org/en/stable/reference/platforms/windows/", "sha256": "83d87b29c42567aef1dc8b4632ef31249294604f7304e0cce027876b9a243500", "bytes": 16218},
+ "tool": "defuddle", "tool_version": "0.19.1", "extracted": "2026-09-11"}

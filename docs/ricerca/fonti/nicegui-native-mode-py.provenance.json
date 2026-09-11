@@ -1,0 +1,2 @@
+{"derived_from": {"path": "https://github.com/zauberzeug/nicegui/blob/main/nicegui/native/native_mode.py", "sha256": "44424a84486efddaccef4795ef09d8a7c7f0838d893558bbfe7fe03dc2fcabda", "bytes": 10321},
+ "tool": "gh api (base64 -d)", "tool_version": "2.100.0", "extracted": "2026-09-11"}

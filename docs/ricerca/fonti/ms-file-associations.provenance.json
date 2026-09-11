@@ -1,0 +1,2 @@
+{"derived_from": {"path": "https://learn.microsoft.com/en-us/windows/win32/shell/fa-intro", "sha256": "e816cfa7418209ba8cba720828d051a64b97e625aa41951c39baee71d40a15d1", "bytes": 2973},
+ "tool": "defuddle", "tool_version": "0.19.1", "extracted": "2026-09-11"}

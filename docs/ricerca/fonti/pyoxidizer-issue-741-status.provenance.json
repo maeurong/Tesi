@@ -1,0 +1,2 @@
+{"derived_from": {"path": "https://github.com/indygreg/PyOxidizer/issues/741", "sha256": "5dae1fc275da2b3475940aaf1d6e5213ebb742bbbd68f386168be960eff558b8", "bytes": 824},
+ "tool": "defuddle", "tool_version": "0.19.1", "extracted": "2026-09-11"}

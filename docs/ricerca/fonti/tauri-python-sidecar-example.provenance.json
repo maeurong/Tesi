@@ -1,0 +1,2 @@
+{"derived_from": {"path": "https://github.com/dieharders/example-tauri-v2-python-server-sidecar/blob/master/README.md", "sha256": "b7b09a4ea33e3145bf0472f2415dfd4c7cc3ae7954a70c5a5009d7e7bb87037f", "bytes": 8428},
+ "tool": "gh api (base64 -d)", "tool_version": "2.100.0", "extracted": "2026-09-11"}

@@ -1,0 +1,2 @@
+{"derived_from": {"path": "https://pywebview.flowrl.com/guide/web_engine", "sha256": "4dc13675c3a8345d92880a46d2a8d67b882f03dae54269ae5766d9039e071638", "bytes": 1755},
+ "tool": "defuddle", "tool_version": "0.19.1", "extracted": "2026-09-11"}

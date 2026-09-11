@@ -1,0 +1,2 @@
+{"derived_from": {"path": "https://github.com/encode/uvicorn/blob/master/docs/deployment/index.md", "sha256": "4e0d41cbf2185249e27f7e3a846cb9af5e2bd749ed01967d66bb81461b23748c", "bytes": 13448},
+ "tool": "gh api (base64 -d)", "tool_version": "2.100.0", "extracted": "2026-09-11"}

@@ -1,0 +1,2 @@
+{"derived_from": {"path": "https://github.com/pyinstaller/pyinstaller-hooks-contrib/tree/master/_pyinstaller_hooks_contrib/stdhooks", "sha256": "dc5a48a970b6937726f421dcc864c0832cc1778adc9968169953f7e8a0b9c1ad", "bytes": 39645},
+ "tool": "defuddle", "tool_version": "0.19.1", "extracted": "2026-09-11"}

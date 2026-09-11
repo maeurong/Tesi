@@ -1,0 +1,2 @@
+{"derived_from": {"path": "https://pypi.org/project/open3d/0.19.0/", "sha256": "ef5aab67b774813f48d3ca554d57a1c7f494948cbcb3edf08f800abcff80105a", "bytes": 24996},
+ "tool": "defuddle", "tool_version": "0.19.1", "extracted": "2026-09-11"}
