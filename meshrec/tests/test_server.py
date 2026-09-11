@@ -4416,3 +4416,45 @@ def test_il_favicon_e_un_file_servito_e_non_un_data_uri(cliente):
     assert 'href="/ui/icona-32.png"' in pagina
     assert "data:image/png;base64" not in pagina
     assert cliente.get("/ui/icona-32.png").status_code == 200
+
+
+def test_su_macos_il_selettore_non_passa_parent_altrove_si(monkeypatch, tmp_path):
+    """Su macOS un `askopenfilename(parent=...)` nasce come sheet agganciato
+    alla radice -- che qui e' `withdraw()`, mai mostrata, ferma nell'angolo di
+    default: lo sheet esce tagliato sul bordo e gli sheet non si trascinano.
+    Su Windows/Linux il parent serve solo a modalita' e posizione, resta.
+    """
+    import io
+    import sys
+    import types
+
+    radice_finta = types.SimpleNamespace(
+        withdraw=lambda: None,
+        attributes=lambda *a: None,
+        destroy=lambda: None,
+    )
+    tk_finto = types.ModuleType("tkinter")
+    tk_finto.Tk = lambda: radice_finta
+    filedialog_finto = types.ModuleType("tkinter.filedialog")
+    catturati: dict[str, object] = {}
+
+    def askopenfilename_finto(**kwargs):
+        catturati.update(kwargs)
+        return ""
+
+    filedialog_finto.askopenfilename = askopenfilename_finto
+    tk_finto.filedialog = filedialog_finto
+
+    monkeypatch.setattr(sys, "argv", ["selettore", str(tmp_path)])
+    monkeypatch.setitem(sys.modules, "tkinter", tk_finto)
+    monkeypatch.setitem(sys.modules, "tkinter.filedialog", filedialog_finto)
+    monkeypatch.setattr(sys, "stdout", io.TextIOWrapper(io.BytesIO()))
+
+    monkeypatch.setattr(sys, "platform", "darwin")
+    exec(server._SELETTORE, {})
+    assert "parent" not in catturati
+
+    catturati.clear()
+    monkeypatch.setattr(sys, "platform", "win32")
+    exec(server._SELETTORE, {})
+    assert catturati["parent"] is radice_finta

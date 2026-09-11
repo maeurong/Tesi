@@ -437,12 +437,18 @@ radice.withdraw()
 # Senza questo la finestra nasce dietro al browser e sembra che il clic non
 # abbia fatto niente.
 radice.attributes("-topmost", True)
-scelto = filedialog.askopenfilename(
-    parent=radice,
+# Su macOS un dialogo con `parent` nasce come sheet agganciato alla radice:
+# quella è `withdraw()`, mai mostrata, ferma nell'angolo di default, e lo
+# sheet esce tagliato sul bordo -- e non si trascina. Altrove `parent` serve
+# solo a modalità e posizione, e resta.
+argomenti = dict(
     title="MeshRec - scegli la nuvola di punti",
     initialdir=sys.argv[1],
     filetypes=[("Nuvole di punti", "*.pcd *.ply *.xyz"), ("Tutti i file", "*")],
 )
+if sys.platform != "darwin":
+    argomenti["parent"] = radice
+scelto = filedialog.askopenfilename(**argomenti)
 radice.destroy()
 # In byte e non con `write`, e la codifica dichiarata da tutte e due le parti.
 # `sys.stdout.write` su Windows userebbe la codepage locale (cp1252), e il
