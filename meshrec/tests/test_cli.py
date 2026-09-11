@@ -580,3 +580,41 @@ def test_se_il_server_non_parte_entro_il_tempo_serve_lo_dice(monkeypatch, capsys
     monkeypatch.setattr(cli, "ATTESA_AVVIO_S", 0.2)
     assert cli.main(["serve", "--port", str(_porta_libera()), "--no-browser"]) == 1
     assert "non si è messo in ascolto" in capsys.readouterr().err
+
+
+def test_serve_col_no_browser_il_timeout_non_suggerisce_no_browser(monkeypatch, capsys):
+    """Minor: l'utente l'ha gia' usato, il suggerimento non ha senso."""
+    import uvicorn
+
+    class ServerCheNonParte:
+        def __init__(self, config):
+            self.started = False
+            self.should_exit = False
+
+        def run(self):
+            while not self.should_exit:
+                import time
+
+                time.sleep(0.01)
+
+    monkeypatch.setattr(uvicorn, "Server", ServerCheNonParte)
+    monkeypatch.setattr(cli, "ATTESA_AVVIO_S", 0.2)
+    assert cli.main(["serve", "--port", str(_porta_libera()), "--no-browser"]) == 1
+    detto = capsys.readouterr().err
+    assert "l'errore di uvicorn è qui sopra" in detto
+    assert "--no-browser" not in detto.split("qui sopra")[-1]
+
+
+def test_serve_se_il_guscio_solleva_ferma_comunque_il_server(monkeypatch, capsys):
+    from meshrec.app import finestra
+
+    stato = _server_finto(monkeypatch)
+
+    def apri(indirizzo, *, cache, forza_browser=False, avvisa=None):
+        raise RuntimeError("cocoa")
+
+    monkeypatch.setattr(finestra, "apri", apri)
+    codice = cli.main(["serve", "--port", str(_porta_libera())])
+    assert codice == 1
+    assert stato["should_exit"] is True
+    assert "cocoa" in capsys.readouterr().err

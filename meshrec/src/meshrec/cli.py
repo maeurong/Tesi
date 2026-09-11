@@ -79,7 +79,9 @@ def _build_parser() -> argparse.ArgumentParser:
     compare_command.add_argument("cartelle", type=Path, nargs="+")
     compare_command.add_argument("--out", type=Path, required=True)
 
-    serve_command = commands.add_parser("serve", help="avvia il server locale e apre il browser")
+    serve_command = commands.add_parser(
+        "serve", help="avvia il server locale e apre MeshRec in una finestra (o nel browser con --browser)"
+    )
     serve_command.add_argument(
         "config",
         type=Path,
@@ -285,9 +287,14 @@ def main(argv: list[str] | None = None) -> int:
         if not server.started:
             server.should_exit = True
             thread.join(timeout=2)
+            suggerimento = (
+                "l'errore di uvicorn è qui sopra."
+                if args.no_browser
+                else "Rilancia con `--no-browser` per vedere l'errore di uvicorn."
+            )
             print(
                 f"il server non si è messo in ascolto su {indirizzo} entro {ATTESA_AVVIO_S:.0f} s. "
-                "Rilancia con `--no-browser` per vedere l'errore di uvicorn.",
+                f"{suggerimento}",
                 file=sys.stderr,
             )
             return 1
@@ -299,7 +306,14 @@ def main(argv: list[str] | None = None) -> int:
                 server.should_exit = True
                 thread.join(timeout=5)
             return 0
-        modo = finestra.apri(indirizzo, cache=CACHE_DIR.parent, forza_browser=args.browser)
+        try:
+            modo = finestra.apri(indirizzo, cache=CACHE_DIR.parent, forza_browser=args.browser)
+        except Exception as errore:
+            # Un guscio che crasha (Cocoa, WebView2 rotto) non deve lasciare
+            # uvicorn appeso: ferma il server anche quando apri() non torna.
+            server.should_exit = True
+            thread.join(timeout=5)
+            return _riporta(errore)
         if modo == "browser":
             # Come prima: il server resta in ascolto finche' Ctrl-C.
             try:
