@@ -1,0 +1,1 @@
+{"derived_from": {"path": "https://pypi.org/pypi/gmsh/4.15.2/json", "sha256": "fa935f097621368d4fa8d6d2640a31b4a82d9ca7a436f1fa02ade0fcf135f81b", "bytes": 433}, "tool": "curl + python3 json", "tool_version": "n/d", "extracted": "2026-09-11"}

@@ -1,0 +1,2 @@
+{"derived_from": {"path": "https://melatonin.dev/blog/code-signing-on-windows-with-azure-trusted-signing/", "sha256": "721121fe831ab0dea7dc35d4e6a55d3214fd4a04cc1df3515b648cecd2f0778d", "bytes": 26081},
+ "tool": "defuddle", "tool_version": "0.19.1", "extracted": "2026-09-11"}

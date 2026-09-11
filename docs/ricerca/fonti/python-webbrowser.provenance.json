@@ -1,0 +1,2 @@
+{"derived_from": {"path": "https://docs.python.org/3/library/webbrowser.html", "sha256": "740bc14b8eebc29422eeaf2d71d535268a27b4147936a2d5d2f31b135d39f5b9", "bytes": 8857},
+ "tool": "defuddle", "tool_version": "0.19.1", "extracted": "2026-09-11"}

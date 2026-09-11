@@ -1,0 +1,2 @@
+{"derived_from": {"path": "https://docs.github.com/en/actions/reference/runners/github-hosted-runners", "sha256": "6bb3248c409986797d4acecf0b2aa8fd63feb580b846509b8a52957d7c4ff3d2", "bytes": 12187},
+ "tool": "defuddle", "tool_version": "0.19.1", "extracted": "2026-09-11"}

@@ -1,0 +1,2 @@
+{"derived_from": {"path": "https://peter.sh/experiments/chromium-command-line-switches/", "sha256": "93eec3e150acde03f781d060396f8812ae0f65d79836136868d38e2a0083c7e1", "bytes": 3413},
+ "tool": "defuddle (estratto righe --app/--app-id/--user-data-dir/--window-size/--no-first-run)", "tool_version": "0.19.1", "extracted": "2026-09-11"}

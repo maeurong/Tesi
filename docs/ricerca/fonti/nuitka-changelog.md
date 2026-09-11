@@ -1,0 +1,2505 @@
+## Current Release
+
+- - [Upcoming Release 4.3](https://nuitka.net/changelog/Changelog-next.html)
+
+In this document, we track the per-version changes and comments for 4.2 down to Nuitka 2.0 release.
+
+## Nuitka Release 4.2
+
+This release adds many new features and corrections with a focus on Python 3.14 official support, new installers for Windows and Linux (macOS already had one), and initial, experimental support for Python 3.15.
+
+### Bug Fixes
+
+- **Python3:** Fix, nested generators did not make the exception being handled in the delegating generator visible to the code they delegate to, so `sys.exc_info()` gave wrong results there. (Fixed in 4.1.1 already.)
+	```python
+	import sys
+	def inner():
+	    print(sys.exc_info()[0])  # 4.1: None (bug), 4.1.1: KeyError (correct)
+	    yield 1
+	def outer():
+	    try:
+	        raise KeyError("caught")
+	    except KeyError:
+	        yield from inner()
+	next(outer())
+	```
+- **Python 3.10+:** Fix, compiled coroutines left the result of their send slot uninitialized when they finished by raising, so callers like `asyncio` could observe garbage values. (Fixed in 4.1.1 already.)
+- **Python 3.14:** Fix, debug builds in module mode needed handling for the reference tracing runtime access, and adapted headers are no longer used for MSVC, where the compiler and runtime layouts match. (Fixed in 4.1.1 already.)
+- **Python 3.11/3.12:** Fix, optimized class calls bypassing `object_new` did not initialize the managed dict inline values, so the first attribute assignment fell back to a separately allocated dictionary, which was non-optimal and caused incompatibility in corner cases. (Fixed in 4.1.2 already.)
+- **Python 3.11+:** Fix, compiled frame locals were not stored in the interpreter frame `localsplus` slots, making them invisible to CPython frame introspection. (Fixed in 4.1.2 already.)
+- **Python 3.12+:** Fix, the `__type_params__` attribute of generic functions was always empty. (Fixed in 4.1.2 already.)
+- **Python 3.14:** Fix, frame locals were cleared too late in the deallocator, after the code object and extra locals were already released, which could cause crashes. (Fixed in 4.1.2 already.)
+- **Python 3.14:** Fix, type complaint exception messages now use the `__qualname__` of the offending type, as CPython does. (Fixed in 4.1.2 already.)
+- **Python 3.14:** Fix, the `ctypes` dependency configuration did not work in flavors where `_ctypes` is a built-in module rather than an extension module. (Fixed in 4.1.3 already.)
+- **Python 3.12+:** Fix, the `has_builtin_module` helper of Nuitka package configuration did not return a boolean value, which could break conditional configuration. (Fixed in 4.1.3 already.)
+- **Standalone:** Fix, standard library path detection for the “Python Build Standalone” flavor now considers symlinks in directory components. (Fixed in 4.1.2 already.)
+- **Plugins:** Fix, `mypyc` runtime detection didn’t happen for submodules of a package, which affected at least the `chardet` module. (Fixed in 4.1.1 already.)
+- **Windows:** Enables UTF-8 mode for attached consoles, since otherwise the CRT runtime could hang or corrupt outputs and inputs. (Fixed in 4.1.1 already.)
+- **Windows:** Fix, `multiprocessing` was not fully working in onefile DLL mode, since spawning needs to point to the outer binary, not the DLL. (Fixed in 4.1.1 already.)
+- **Windows:** Fix, memory issue for 32 bit Python onefile compression, where parallel zstandard compression ran into memory issues for even small files when using multiple threads. (Fixed in 4.1.1 already.)
+- **Windows:** Fix, console attaching did not work for onefile DLL mode with runtime DLLs included, since the DLL uses a separate CRT instance with uninitialized stdio streams, so Python level output and input were not working. (Fixed in 4.1.3 already.)
+- **Windows:** Fix, relative paths for the onefile temp directory specification did not work in onefile DLL mode. (Fixed in 4.1.3 already.)
+- **Windows:** Fix, DLL dependency scanning failed when it encountered folders without read permission, these are now ignored. (Fixed in 4.1.3 already.)
+- **macOS:** Fix, header padding is now also possible for `--mode=dll`, since otherwise `install_name_tool` cannot rewrite the load paths of the output. (Fixed in 4.1.1 already.)
+- **macOS:** Fix, existing signatures of frameworks were no longer copied, as they became invalid after relocation and broke re-signing of the binaries. (Fixed in 4.1.1 already.)
+- **macOS:** Fix, now handles another form of self dependency from absolute paths. (Fixed in 4.1.1 already.)
+- **macOS:** Fix, detection of statically linked libraries did not work, since the `file` command output was not used yet, so they were treated like dynamic ones, leading to errors. (Fixed in 4.1.2 already.)
+- **macOS:** Fix, now detects another variation of self dependencies, where a less-versioned binary depends on its more versioned self. (Fixed in 4.1.2 already.)
+- **Debian:** Fix, `--disable-ccache` did not work when the compiler binary was a symlink, e.g. from the Debian `ccache` package. (Fixed in 4.1.2 already.)
+- **Linux:** Fix, large constant blobs could cause linker errors on the `x86_64` architecture, since the default small code model limits code and data to 2GB, now the medium code model is used in that case. (Fixed in 4.1.3 already.)
+- **AIX:** Fix, potential memory leak in the `dladdr` helper. (Fixed in 4.1.3 already.)
+- Fix, no longer depended on `os.__file__` for detecting the standard library path, since that is not a usable path when Nuitka itself is compiled in accelerated mode, now `types.__file__` is used instead.
+- Fix, trimming the `importlib` bootstrap frames off the traceback on error exit now handles missing tracebacks, since very early failures can have no traceback at all.
+- Fix, when creating generator, coroutine, and asyncgen objects, the assignment of closure variables was not checked for exceptions, so such assignments could be wrongly optimized away.
+	```python
+	def make(flag):
+	    if flag:
+	        raise ValueError
+	    x = 1
+	    def gen():
+	        yield x  # x is a closure variable
+	    return gen()
+	make(True)  # must raise ValueError here
+	```
+- Fix, when running a package main module with `--python-flag=-m`, the `__spec__` value was `None`, breaking code that uses it, e.g. `importlib.resources.files()`, now a proper `ModuleSpec` is set.
+	```python
+	# package_main/__main__.py
+	import importlib.resources
+	# Running as "python -m package_main", this needs __spec__.
+	print(importlib.resources.files("package_main"))
+	```
+- Fix, for fixed import modules, accessing a missing import name used the attribute lookup and raised `AttributeError`, now it raises `ImportError` as CPython does.
+- Fix, fixed imports that failed at runtime could segfault, now the failure is handled properly.
+- Fix, the hard import modules `site`, `pkg_resources`, and `importlib_resources` are now treated as possibly raising, since they can be broken in broken installs.
+- Fix, file listing no longer crashes on case-insensitive filesystems when a directory that needs to be ignored differs in actual case.
+- Fix, the optimization was not fully deterministic, since iterating over the set of escapable variables had unstable ordering, causing behavior differences between otherwise identical builds.
+- Fix, decoding of localized filenames only copied the bytes, so multi-byte characters in paths were not decoded at all. On Linux the environment locale is now respected with a UTF-8 fallback, and FreeBSD and NetBSD use the macOS UTF-8 handling.
+- **Python 2:** Fix, when Nuitka itself was compiled by Nuitka, executing Scons could race on the import lock, since `subprocess.Popen(close_fds=True)` imports the `resource` module late, which is now pre-loaded.
+- **Python 2.6:** Fix, `re.sub(flags=...)` does not work there, now a wrapper is used when flags argument is needed.
+- **Python 3.5:** Fix, now uses `PyImport_CreateModuleFromInitfunc` for the meta path loader.
+- **Python 3.7+:** Fix, the outermost iterator of an async comprehension was wrongly awaited, since whether the qualifier is async was not checked before wrapping, causing a `TypeError` at runtime.
+	```python
+	import asyncio
+	async def source():
+	    yield 1
+	    yield 2
+	async def main():
+	    # The outermost iterator of an async comprehension must be
+	    # a plain iterable, it must not be awaited.
+	    return [i for x in [1] async for i in source()]
+	print(asyncio.run(main()))  # [1, 2], not TypeError
+	```
+- **Python 3.8+:** Fix, when `anext()` or `aclose()` failed with “asynchronous generator is already running”, the `asend` and `athrow` wrappers were left unclosed, so using them again could misbehave.
+- **Python 3.9+:** Fix, generic aliases did not release their values when being released, now they do.
+- **Python 3.11+:** Fix, a `__class_getitem__` set to `None` or a non-callable now makes the type non-subscriptable with `TypeError` correctly.
+- **Python 3.12.4+:** Fix, throwing an exception into the `asend` or `athrow` wrappers of an already running async generator was not rejected, which could run the generator body concurrently.
+- **Python 3.13+:** Fix, was rejecting clearing of suspended frames in general, now only generator-owned suspended frames are rejected, as CPython does.
+- **Python 3.13+:** Fix, when adapting header files, an assertion in `pycore_long.h` referenced a stripped macro, causing link errors in debug builds.
+- **Python 3.14:** Fix, now follows the CPython changes in `async` / `await` error messages and the `with` statement attribute lookup order.
+- **Python 3.14:** Fix, reference count leaked the `__annotate__` functions, now they are properly released.
+- **Python 3.14.7+:** Fix, the error message for source files with encoding issues matches CPython 3.14.7 changes, where the byte position is reported relative to the seek point after the encoding declaration.
+- **Python 3.15:** Fix, follow `__cached__` module attribute removal.
+- **Python 3.15:** Fix, follow the `TypeVarTuple` object changes.
+- **Python 3.15:** Fix, follow the changes in duplicate parameter and encoding error messages.
+- **Python 3.15:** Fix, follow the complex call argument error message changes.
+- **Python 3.15:** Fix, the `_math_integer` extension module reports its `__name__` wrongly as `math.integer`, which is now worked around as well.
+- **Compatibility:** Fix, the `__builtins__` value of compiled functions is not always a module, but can already be a dict, e.g. for functions created with `exec`, so accessing `__builtins__` failed in those cases.
+	```python
+	import builtins
+	namespace = {"__builtins__": vars(builtins)}
+	exec(
+	    """
+	def f():
+	    return 42
+	""",
+	    namespace,
+	)
+	f = namespace["f"]
+	print(f.__builtins__ is vars(builtins))  # must be True
+	```
+- **Plugins:** Fix, permission errors during DLL and data file scans now give a clear error message pointing at the unreadable directory and its likely cause, instead of crashing outright.
+- **Plugins:** Fix, `replacements_re` were not really working newline neutral.
+- **Plugins:** Fix, now splits comma-separated `--noinclude-qt-plugins` just like `--include-qt-plugins`.
+- **Windows:** Fix, the length check for generated C source filenames only considered the basename, so long build directory paths could exceed the path length limit, now the full path is budgeted and a hashed name is used when needed.
+- **Windows:** Fix, removing an environment variable during startup did not clear the underlying process environment, so unset variables could still be visible to child processes, causing issues with PGO at times.
+- **Windows:** Fix, prevented a file handle leak in the pefile-based DLL dependency detection, which is used for ARM64 or with `--experimental=force-dependencies-pefile`, since the PE file was not closed after use.
+- **MSYS2:** Fix, DLL configuration paths were not normalized, which turned them into illegal paths errors during compilation.
+- **macOS:** Fix, now checks for the `create-dmg` tool availability early during options processing.
+- **macOS:** Fix, dependency scans no longer run into permission issues.
+- **macOS:** Fix, no longer crashes at runtime on Chinese app names.
+- **macOS:** Fix, now unlocks the keychain more robustly for CI and ssh contexts.
+- **Linux:** Fix, onefile mode now links `pthread` explicitly, which older Linux versions require, since there `pthread` is not yet part of `libc`.
+- **Distutils:** Fix, for `--project` the `tool.nuitka` options were not used.
+- **Distutils:** Fix, using `--project` with a project that has no name set now gives a clear error message telling where to set it, instead of failing later in confusing ways.
+- **Distutils:** Fix, the entry point options now pass the project name through, so `--main-entry-point` builds derive their output name from the project, and the misnamed `--project-requires` option was renamed.
+- **PGO:** Fix, the Python PGO output is now initialized before the meta path loader, since probes during loader setup otherwise wrote to an uninitialized file handle and crashed.
+- **PGO:** Fix, executing the compiled binary during Python PGO did not work for uninstalled Python, where the execution environment setup was missing. It is now executed via a script if necessary, and internal `NUITKA_*` environment variables are no longer passed to it, since they could cause the created binary to fail at runtime.
+- **Onefile:** Fix, memory issues with parallel zstandard compression are now avoided on 32 bit Python in general, since the check is based on the Python itself rather than the x86 architecture, and Android 32/64 bit detection was corrected.
+- **Onefile:** Fix, manually sent signals were not forwarded to the Python process in onefile mode, and on non-Windows the child process was not terminated on them at all. It now distinguishes signals from the terminal, forwarding only manually sent ones, terminates the child process on non-Windows, and suppresses duplicated `SIGINT` delivery to the child.
+- **Report:** Fix, could crash when writing the report before the build directory was created.
+- **Zig:** Fix, need to use the newest `zig` on macOS.
+- **Zig:** Fix, produced binaries for the native CPU architecture of the compilation machine by default, making them not portable to older machines. Nuitka now creates machine portable binaries by default, with the new `--target-arch` option allowing to select a higher baseline ISA for speed.
+- **NoGil:** Fix, frame objects are now owned by the frame object rather than the generator.
+- **NoGil:** Fix, clearing list objects now stores the item pointer atomically and frees with shared-aware allocation in GIL-disabled builds.
+- **NoGil:** Now tracks more connections in our `tp_traverse` methods of compiled types.
+- **UI:** Fix, no longer emits a false missing-file warning for `--include-data-files-external`.
+- **AIX:** Added COFF dump based DLL dependency detection, with various fixes to the parsing, e.g. ignoring hex values and `exp` archive members, column based parsing, more error checks, and listing only the native architecture.
+- **AIX:** The Python DLL locating code is now more general, and a wrong structure entry for the `dladdr` helper was corrected.
+
+### Package Support
+
+- **Standalone:** Added support for the `pyDOE3` package. (Added in 4.1.1 already.)
+- **Standalone:** Added support for the `mssql_python` package. (Added in 4.1.1 already.)
+- **Standalone:** No longer proposes to recompile the `charset_normalizer` extension module. (Added in 4.1.1 already.)
+- **Standalone:** Added support for the `emoji` package. (Added in 4.1.2 already.)
+- **Standalone:** Added support for the `mitmproxy` package. (Added in 4.1.2 already.)
+- **Plugins:** Fix, PyQt5 markdown data files caused errors on Linux, they are now excluded. (Fixed in 4.1.1 already.)
+- **Plugins:** Added support for newer `pkg_resources` versions, where the `EggProvider` was removed. (Added in 4.1.1 already.)
+- **Plugins:** Fix, build artifacts with `.a`, `.prl`, and `.la` suffixes in QML directories were no longer included, now they are included again. (Fixed in 4.1.2 already.)
+- **Standalone:** Added automatic detection of `cffi` dependencies.
+- **Standalone:** Added support for newer `scipy`.
+- **Standalone:** Added support for newer `sqlfluff`.
+- **Standalone:** Added support for newer `datasets`.
+- **Standalone:** Added support for newest `toga`.
+- **Standalone:** Added a workaround for deep recursion in the `univers.maven` package, where its `list2tuple` function was replaced with a non-recursive version.
+- **Standalone:** Fix, platform specific `gi` modules are now included as well.
+- **Plugins:** Fix, added the missing `webview.platforms.win32` dependency for newer `pywebview`, and fixed accidental assignments instead of comparisons that caused too many modules to be included when Qt was used.
+- **Plugins:** Detects Qt plugin XML and webview modules automatically.
+- **Plugins:** Fix, avoided a warning when the `gi` module is not usable.
+- **Plugins:** Added support for `Tcl` and `Tk` from zip files.
+- **Plugins:** Fix, object files on Windows are now also ignored for `PySide6`.
+- **macOS:** No longer needs the onefile workaround for `PySide2`.
+- **macOS:** Added a workaround for a `PySide6` packaging issue.
+- **macOS:** Added a non-deployment handler for `urllib.request`, catching the common case where `certifi` is not used.
+
+### New Features
+
+- **Python 3.14:** Pronounced Python 3.14 as officially supported.
+- **Python 3.14:** Made deferred annotations the default mode.
+- **Python 3.14:** Added support for module-level deferred annotations, and Python source generation for `__annotate__` functions.
+- **Python 3.14:** Added support for `__annotate__` for classes, and delaying class level annotations when the `--experimental=deferred-annotations` flag is given. With 4.2, this is the default mode. (Added in 4.1.1 already.)
+- **Python 3.14:** Added the `--experimental=no-bytecode-to-compiled-fallback` flag for requiring bytecode code generation to succeed.
+- **Python 3.15:** Added initial support for compiling with Python 3.15.
+- **Python 3.7+:** Added support for `importlib.resources.contents` and `importlib.resources.is_resource`, which had been overlooked so far. (Added in 4.1.3 already.)
+- **Python 3.12+:** Added support for the no-argument form of `importlib.resources.files()` as well.
+- **Linux:** Added support for `app` mode, creating a `.desktop` file for the compiled result, usable with standalone and onefile.
+- **Installer:** Added an installer for Windows via NSIS with `--windows-create-installer`, and relocated the macOS DMG creation into the installer as `--macos-create-installer`.
+- **Installer:** Added support for a Linux installer via AppImage with `--linux-create-installer`, using `appimagetool` from `PATH` or a cached download.
+- **OS400:** Detects IBMi Python as a flavor.
+- **Plugins:** Added the ability to resolve variable references to compile-time constants during tree building, used for `pyqtgraph` to resolve `QT_LIB`, enabling dead code elimination of unused Qt binding branches. (Added in 4.1.3 already.)
+- **Plugins:** Added the `onMetaPathLoaderEntryTemplate` plugin method, allowing plugins to modify the template arguments used to generate the meta path loader entries for modules.
+- **Plugins:** Added the ability to set defines differently for onefile builds and backend builds.
+- **UI:** Added the `--update-check` option to check if a newer Nuitka version is available.
+- **macOS:** Added the `--macos-app-macos-min-version` option for the minimum app version, and now sets `CFBundleVersion`.
+- **macOS:** Added the `--macos-app-category-type` option to set the app category for the app store.
+- **PGO:** Added the `--pgo-python-error-exit` option to control error-exit handling.
+- **Reports:** Added totals for C compilation and linking as well, reporting the accumulated user and system CPU time and module count of compilation, and the CPU time of linking, next to the existing code generation totals.
+
+### Optimization
+
+- **Python 3.14:** Added `_zstd` and `_remote_debugging` to the standard library modules known to never raise on import, allowing their imports to be optimized accordingly. (Fixed in 4.1.2 already.)
+- Replaced our uses of `PyCallable_Check` with a direct `tp_call` NULL check, which avoids the expensive `__call__` attribute lookup fallback that `PyCallable_Check` does.
+- Runtime `isinstance` checks now use our own implementation with the faster type checking helpers, instead of the generic `PyObject_IsInstance`.
+- Made the new style code objects the default. These are treated as constant objects now and remove the need for a special path to generate them. It reduces the generated code volume by a lot.
+- Loop value traces for the same loop are now considered the same, regardless of being complete or incomplete, enabling more merging of optimization traces.
+- The constant blob is now always created as an object file, removing the special Windows resource mode, and the blob creation code was made generic.
+- Loader tables no longer need a NULL terminator, since the entry count is now passed into the using code, making them more compact.
+- The shape of `iter` results is now always known, enabling more optimizations in general. As a consequence, `os.uname()[0]`, the OS name, is now known at compile time, allowing platform checks based on it to be statically optimized.
+- Added `enumerate` and `zip` built-in nodes, in preparation of full optimization for them.
+- Expanded dual type operations with previously missing sub helpers, and fixed mistakes for existing ones.
+
+### Anti-Bloat
+
+- Avoided more `tkinter` dependencies from `PIL`. (Fixed in 4.1.1 already.)
+- Avoided including `matplotlib` due to `pandas` plotting. (Fixed in 4.1.1 already.)
+- Avoided including `setuptools_scm` when using `shtab`. (Fixed in 4.1.3 already.)
+- Avoided including `setuptools` when using `vcs_versioning`. (Fixed in 4.1.3 already.)
+- Avoided using `click` when using `httpx`.
+- Avoided a `toga` cleanup error during program shutdown on Windows.
+
+### Organizational
+
+- **Actions:** Introduced an “integration” branch as an intermediate step before develop, for PRs that are not considered fully merge-safe, or that may hit a hotfix release instead.
+- **Project:** Corrected a few mistakes done when changing the license, referencing the runtime exception everywhere and using a proper link to the correct version of the license file on the web. (Fixed in 4.1.1 already.)
+- **Debian:** Made builds work inside containers that have the `x-bit` stripped from the install file, by making it an executable script. (Fixed in 4.1.1 already.)
+- **Release:** Fix, the inline copy of `atomicwrites` was still needed for Python 2. (Fixed in 4.1.1 already.)
+- **UI:** Fix, duplicate data file targets were not detected, which now warns and uses the first variant. (Fixed in 4.1.1 already.)
+- **RPM:** Fix, the inline copy of `atomicwrites` was still needed for the update check, and is no longer executed during RPM builds. (Fixed in 4.1.3 already.)
+- **Release:** Better error message for build failures in the PyPI release script.
+- **Zed:** Added autoformatting on save for source files and Nuitka Package Configuration files.
+- **AI:** Added the `--assume-yes-for-downloads` flag to autoformat commands.
+- **AI:** Expanded agent guidance with a verification matrix, skill index, and syntax restrictions.
+- **AI:** Made it clear that the issue template is to be followed strictly by AI assistants, and that issues ignoring it will be closed as invalid.
+- **AI:** Disallowed local imports unless necessary.
+- **AI:** Pointed to the CMD files for repo tools on Windows.
+- **AI:** Modernized the agent config, removing cursor compatibility, splitting rules into multiple files, and dropping OpenAI and Gemini specific files.
+- **Visual Code:** Also generated a clangd config for the OS/Python combination.
+- **Visual Code:** No longer started the pylint check automatically.
+- **Modules:** Merged upstream enhancements into the inline `stubgen` copy, improving the generated type stubs.
+- **Actions:** Enabled Python 3.14 in CI.
+- **Actions:** Dropped an unneeded requirements file installation in CI.
+- **Docs:** Updated the man pages with the new CodeMeter plugin options.
+- **Plugins:** Added separate `plugin-warning` and `plugin-error` levels for plugin messages in package configuration, allowing plugins to report errors.
+- **UI:** Added `{PYTHON_VERSION}` and `{PYTHON_VERSION_FULL}` variables for project expansion, expanding to e.g. `3.10` and `3.10.11` respectively.
+- **Debugging:** Added the `--devel-no-bytecode-to-compiled-fallback` option to check coverage.
+- **Quality:** Added checker tools for pyright, basedpyright, ruff, and clangd, plus initial cleanups for fewer linter errors.
+- **Quality:** Added `--assume-yes-for-downloads` support to the checker tools.
+- **Quality:** Use PyLint from the private pip space.
+- **Quality:** Autoformat now removes empty module configurations from the YAML package configuration, which had accumulated when config features were removed.
+- **Quality:** The autoformat tool now outputs the diff when generated files would change with the `--check` option.
+- **Quality:** Autoformat converts em-dashes to regular dashes in C files.
+- **Quality:** Autoformat removes the spaces between words in `spell-checker: ignore` lines.
+- **Quality:** The repo ruff configuration no longer formats, since our own autoformat is used, and more unwanted warnings were disabled.
+- **Quality:** Autoformat now respects the exclusion of certain areas for JSON files and image files too, which it previously formatted and optimized regardless.
+- **Quality:** The git pre-push hook no longer fails on submodules that are not checked out, skipping the missing files.
+- **Quality:** The YAML checker no longer outputs traces on success, only reporting problems, and the autoformat progress bar total was improved.
+
+### Tests
+
+- Disabled parts of the `pkgutil_usage` test with newer `pkg_resources` versions that lost some features. (Fixed in 4.1.1 already.)
+- Ignored clang download warnings in output comparisons as well. (Fixed in 4.1.1 already.)
+- Ignored differences from messages about Qt font usage in output comparisons. (Fixed in 4.1.1 already.)
+- Rejected using `--all` and `--pattern` at the same time in the test runner. (Fixed in 4.1.1 already.)
+- **macOS:** Ignored the `libffi-trampolines.dylib` system library used by Python 3.14 in test comparisons. (Fixed in 4.1.1 already.)
+- **Debugging:** Fix, deep hashing checks failed with active exceptions, which was relatively easy to trigger, e.g. with `SystemExit` being set. (Fixed in 4.1.1 already.)
+- Added support for compiled-only and uncompiled-only exclusive output lines to the output comparison tool, allowing tests of Nuitka-exclusive features while still comparing the rest of the output.
+- Allowed file accesses under system library paths in tests for the Debian Python flavor, since its Python relies on system-packaged libraries.
+- No longer update resume information for “only” search mode runs.
+- **Python 3.11+:** Normalized traceback comparison by dropping the PEP 657 caret lines from CPython’s output, which Nuitka does not produce, and stripping blank lines between frames.
+- Added `--no-debug-immortal-assumptions` to PySide tests.
+- **Linux:** Allowed reading the `/usr/share/zoneinfo` directory itself in test file access checks, not just paths below it, since the system time zone info lives there.
+- Added app bundle mode and signature verification to the comparison test tool, where the signature is verified before running, since some programs like Qt WebEngine modify themselves on launch.
+- **Python 3.15:** Added support for running tests with it.
+- Added a `wait_for` condition for test cases of `nuitka-watch`, where a case is skipped until the condition is met, used e.g. to wait for pip installs to start working.
+
+### Cleanups
+
+- Fixed pylint warnings in the coverage rendering tool. (Fixed in 4.1.1 already.)
+- **Quality:** Enforced the required versions for the private pipspace packages used for YAML formatting. (Fixed in 4.1.2 already.)
+- Fixed the styling of links in informational messages, as the underline of the link was not reset and leaked into the following text. (Fixed in 4.1.3 already.)
+- **Quality:** Updated to the latest `ruamel.yaml` package and stopped using its private interface. (Fixed in 4.1.3 already.)
+- Generated internal class names in the node code now start with an underscore, so it is obvious they must not be used directly, and the stable alias names should be used instead.
+- Cleaned up the pylint watching code.
+- **Watch:** The `nuitka-watch` tool retries git operations on all platforms.
+- **Watch:** The `nuitka-watch` tool outputs which pip update failed.
+- **Watch:** The `nuitka-watch` tool writes XML reports like ElementTree does.
+- **Watch:** Improved the automatic staging of changes of `nuitka-watch`.
+- The warning about a missing `clang-format` binary now uses the shared once-per-warning mechanism, instead of a hand-coded flag.
+- Completed the finalization of dead trailing statements, so that removed dead statements free their nodes properly when optimization removes them.
+- Nuitka’s internal value hashing is now stable for dict values, with sorted items, where previously the insertion order was used. Since dicts with the same contents can have different insertion orders, equal dicts could hash differently, which matters for reproducible builds and caching, preparing this for future use.
+- The Jinja2 inline copy no longer imports the `pkg_resources` inline copy unless `PackageLoader` is used.
+- **Windows:** `pdb` files included as data files are now properly traced, avoiding warnings in onefile mode, and allowing manual copying of such files to be rejected in the future.
+
+### Summary
+
+This release makes Python 3.14 officially supported, with deferred annotations becoming the default there, adds new installers for Windows and Linux AppImage and Linux `app` mode for desktop integration, and provides initial, experimental Python 3.15 support.
+
+The Python source generation for `__annotate__` functions might lead the way to better package support where source code is required elsewhere.
+
+The new style code objects became the default, greatly reducing the generated code volume, and constant blobs are now always object files, removing the special Windows resource mode. Optimization work continues with faster type checks, more merging of optimization traces, and statically known shapes of `iter` results, making e.g. the OS name from `os.uname()` a compile time constant.
+
+New `enumerate` and `zip` built-in nodes prepare for inline optimized re-formulations of them in future releases, promising exciting performance improvements, but for now the gains are not that much yet.
+
+Python 3.15 support is experimental at best (with that version not being final yet), and merely initial, more work will be needed to get there.
+
+## Nuitka Release 4.1
+
+This release adds many new features and corrections with a focus on async code compatibility, missing generics features, and Python 3.14 compatibility and Python compilation scalability yet again.
+
+### Bug Fixes
+
+- **Python 3.14:** Fix, decorators were breaking when disabling deferred annotations. (Fixed in 4.0.1 already.)
+- Fix, nested loops could have wrong traces lead to mis-optimization. (Fixed in 4.0.1 already.)
+- **Plugins:** Fix, run-time check of package configuration was incorrect. (Fixed in 4.0.1 already.)
+- **Compatibility:** Fix, `__builtins__` lacked necessary compatibility in compiled functions. (Fixed in 4.0.1 already.)
+- **Distutils:** Fix, incorrect UTF-8 decoding was used for TOML input file parsing. (Fixed in 4.0.1 already.)
+- Fix, multiple hard value assignments could cause compile time crashes. (Fixed in 4.0.1 already.)
+- Fix, string concatenation was not properly annotating exception exits. (Fixed in 4.0.2 already.)
+- **Windows:** Fix, `--verbose-output` and `--show-modules-output` did not work with forward slashes. (Fixed in 4.0.2 already.)
+- **Python 3.14:** Fix, there were various compatibility issues including dictionary watchers and inline values. (Fixed in 4.0.2 already.)
+- **Python 3.14:** Fix, stack pointer initialization to `localsplus` was incorrect to avoid garbage collection issues. (Fixed in 4.0.2 already.)
+- **Python 3.12+:** Fix, generic type variable scoping in classes was incorrect. (Fixed in 4.0.2 already.)
+- **Python 3.12+:** Fix, there were various issues with function generics. (Fixed in 4.0.2 already.)
+- **Python 3.8+:** Fix, names in named expressions were not mangled. (Fixed in 4.0.2 already.)
+- **Plugins:** Fix, module checksums were not robust against quoting style of module-name entry in YAML configurations. (Fixed in 4.0.2 already.)
+- **Plugins:** Fix, doing imports in queried expressions caused corruption. (Fixed in 4.0.2 already.)
+- **UI:** Fix, support for `uv_build` in the `--project` option was broken. (Fixed in 4.0.2 already.)
+- **Compatibility:** Fix, names assigned in assignment expressions were not mangled. (Fixed in 4.0.2 already.)
+- **Python 3.12+:** Fix, there were still various issues with function generics. (Fixed in 4.0.3 already.)
+- **Clang:** Fix, debug mode was disabled for clang generally, but only ClangCL and macOS Clang didn’t want it. (Fixed in 4.0.3 already.)
+- **Zig:** Fix, `--windows-console-mode=attach|disable` was not working when using Zig. (Fixed in 4.0.3 already.)
+- **macOS:** Fix, yet another way self dependencies can look like, needed to have support added. (Fixed in 4.0.3 already.)
+- **Python 3.12+:** Fix, generic types in classes had bugs with multiple type variables. (Fixed in 4.0.3 already.)
+- **Scons:** Fix, repeated builds were not producing binary identical results. (Fixed in 4.0.3 already.)
+- **Scons:** Fix, compiling with newer Python versions did not fall back to Zig when the developer prompt MSVC was unusable, and error reporting could crash. (Fixed in 4.0.4 already.)
+- **Zig:** Fix, the workaround for Windows console mode `attach` or `disable` was incorrectly applied on non-Windows platforms. (Fixed in 4.0.4 already.)
+- **Standalone:** Fix, linking with Python Build Standalone failed because `libHacl_Hash_SHA2` was not filtered out unconditionally. (Fixed in 4.0.4 already.)
+- **Python 3.6+:** Fix, exceptions like `CancelledError` thrown into an async generator awaiting an inner awaitable could be swallowed, causing crashes. (Fixed in 4.0.4 already.)
+- Fix, not all ordered set modules accepted generators for update. (Fixed in 4.0.5 already.)
+- **Plugins:** Disabled warning about rebuilding the `pytokens` extension module. (Fixed in 4.0.5 already.)
+- **Standalone:** Filtered `libHacl_Hash_SHA2` from link libs unconditionally. (Fixed in 4.0.5 already.)
+- **Debugging:** Disabled unusable unicode consistency checks for Python versions 3.4 to 3.6. (Fixed in 4.0.5 already.)
+- **Python3.12+** Avoided cloning call nodes on class level which caused issues with generic functions in combination with decorators. (Added in 4.0.5 already.)
+- **Python 3.12+:** Added support for generic type variables in `async def` functions. (Added in 4.0.5 already.)
+- **UI:** Fix, flushing outputs for prompts was not working in all cases when progress bars were enabled. (Fixed in 4.0.6 already.)
+- **UI:** Fix, unused variable warnings were missing at C compile time when using `zig` as a C compiler. (Fixed in 4.0.6 already.)
+- **Scons:** Fix, forced stdout and stderr paths as a feature was broken. (Fixed in 4.0.6 already.)
+- Fix, replacing a branch did not accurately track shared active variables causing optimization crashes. (Fixed in 4.0.7 already.)
+- **macOS:** Fix, failed to remove extended attributes because files need to be made writable first. (Fixed in 4.0.7 already.)
+- Fix, dict `pop` and `setdefault` using with `:=` rewrites lacked exception-exit annotations for un-hashable keys. (Fixed in 4.0.8 already.)
+- **Python 3.13:** Fix, the `__parameters__` attribute of generic classes was not working. (Fixed in 4.0.8 already.)
+- **Python 3.11+:** Fix, starred arguments were not working as type variables. (Fixed in 4.0.8 already.)
+- **Python2:** Fix, `FileNotFoundError` compatibility fallback handling was not working properly. (Fixed in 4.0.8 already.)
+- **Compatibility:** Fix, loop ownership check in value traces was missing, causing issues with nested loops.
+- **Windows:** Improved `--windows-console-mode=attach` to properly handle console handles, enabling cases like `os.system` to work nicely.
+- **Python2:** Fix, there was a compatibility issue where providing default values to the `mkdtemp` function was failing.
+- **Windows:** Fix, there were spurious issues with C23 embedding in 32-bit MinGW64 by switching to `coff_obj` resource mode for it as well.
+- **Plugins:** Fix, the `post-import-code` execution could fail because the triggering sub-package was not yet available in `sys.modules`.
+- **UI:** Fix, listing package DLLs with `--list-package-dlls` was broken due to recent plugin lifecycle changes.
+- **UI:** Fix, `--list-package-exe` was not working properly on non-Windows platforms failing to detect executable files correctly.
+- **UI:** Handled paths starting with `{PROGRAM_DIR}` the same as a relative path when parsing the `--onefile-tempdir-spec` option.
+- **Plugins:** Followed multiprocessing `forkserver` changes for newer Python versions.
+- **Python 3.12+:** Fix, generic class type parameters handling was incorrect.
+- **Python 3.12:** Fix, deferred evaluation of type aliases was failing.
+- **Python 3.12+:** Aligned `sum` built-in float summation with CPython’s compensated sum for better accuracy.
+- **Python 3.10+:** Fix, uncompiled coroutine `throw()` return handling was incorrect, restoring completed coroutine results via `StopIteration.value` rather than exposing them as ordinary return values to the outer await chain.
+- **Python 3.13+:** Fix, uncompiled coroutine `cancel()/await` suspension handling was incorrect, improved to ensure integration compatibility.
+- **macOS:** Made finding `create-dmg` more robustly by also checking the Homebrew path for Intel and from `PATH` properly.
+- **Compatibility:** Fix, class frames were not exposing frame locals.
+- **UI:** Detected `static-libpython` problems, which affected some forms of Anaconda.
+- **Distutils:** Rejected `--project` mixed with `--main` arguments as it is not useful.
+- **macOS:** Fix, `zig` from `PATH` or from `ziglang` was not being used.
+- **Distutils:** Fix, the wrong `module-root` config value was being checked for `uv` build backend.
+- **macOS:** Fix, was attempting to change removed (rejected) DLLs, which of course failed and errored out.
+- **Python 3.14:** Fix, tuple reuse was not fully compatible, potentially causing crashes due to outdated hash caches.
+- Fix, fake modules were still being attempted to located when imported by other code, which could conflict with existing modules.
+- **Python 3.5+:** Fix, failed to send uncompiled coroutines the sent in value in `yield from`.
+- Fix, older `gcc` compilers lacking newer intrinsic methods had compilation issues that needed to be addressed.
+- **Standalone:** Fix, multiphase module extension modules with post-load code were not working properly.
+- Fix, Avoid using the non-inline copy of `pkg_resources` with the inline copy of Jinja2. These could mismatch and cause errors.
+- Fix, loops could make releasing of previous values very unclear, causing optimization errors.
+- Fix, `incbin` resource mode was not working with old `gcc` C++ fallback.
+- **Python 3.4 to 3.6:** Fix, bytecode demotion was not working properly for these versions, also bytecode only files not working.
+- **Plugins:** Added a check for the broken `patchelf` versions 0.10 and 0.11 to prevent breaking Qt plugins.
+- **Android:** Allowed `patchelf` version 0.18 on Android.
+- **Windows:** Fix, the header path for self uninstalled Python was not detected correctly.
+- **Release:** Fix, inclusion of the `pkg_resources` inline copy for Python 2 to source distributions was missing.
+- **UI:** Detected the OBS versions of SUSE Linux better.
+- **Suse:** Allowed using `patchelf` 0.18.0 there too.
+- **Python 3.11:** Fix, package and module dicts were not aligned close enough to avoid a CPython bug.
+- Fix, unbound compiled methods could crash when called without an object passed.
+- **Standalone:** Fix, multiphase module extension modules with postload. (Fixed in 4.0.8 already.)
+- **Onefile:** Fix, while waiting for the child, it may already be terminated.
+- **macOS:** Removed existing absolute rpaths for Homebrew and MacPorts.
+- **Python 3.14:** Avoided warning in CPython headers.
+- **Python 3.14:** Followed allocator changes more closely.
+- **Compatibility:** Avoided using `pkg_resources` for Jinja2 template location for loading.
+- **No-GIL:** Applied some bug fixes to get basic things to work.
+
+### Package Support
+
+- **Standalone:** Add support for newer `paddle` version. (Added in 4.0.1 already.)
+- **Standalone:** Add workaround for refcount checks of `pandas`. (Fixed in 4.0.1 already.)
+- **Standalone:** Add support for newer `h5py` version. (Added in 4.0.2 already.)
+- **Standalone:** Add support for newer `scipy` package. (Added in 4.0.2 already.)
+- **Plugins:** Revert accidental `os.getenv` over `os.environ.get` changes in anti-bloat configurations that stopped them from working. Affected packages are `networkx`, `persistent`, and `tensorflow`. (Fixed in 4.0.5 already.)
+- **Standalone:** Added missing DLLs for `openvino`. (Added in 4.0.7 already.)
+- Enhanced the package configuration YAML schema by adding the `relative_to` parameter for `from_filenames` DLL specification, avoiding error-prone purely relative paths.
+- **Standalone:** Fix, `flet_desktop` app assets were missing, now preserving the packaged runtime and sidecar DLLs.
+- **Standalone:** Added support for the `tyro` package.
+- **Standalone:** Added data files for the `perfetto` package.
+- **Standalone:** Added support for `anyio` process forking.
+- **Standalone:** Added support for the `plotly.graph` package.
+- **Anaconda:** Fix, dependencies for the `numpy` conda package on Windows were incorrect.
+- **Plugins:** Enhanced the auto-icon hack in PySide6 to use compatible class names.
+- **Standalone:** Fix, Qt libraries were duplicated with `PySide6` WebEngine framework support on macOS.
+- **Plugins:** Fix, automatic detection of `mypyc` runtime dependencies was including all top level modules of the containing package by accident. (Fixed in 4.0.5 already.)
+- **Anaconda:** Fix, `delvewheel` plugin was not working with Python 3.8+. This enhances compatibility with installed PyPI packages that use it for their DLLs. (Fixed in 4.0.6 already.)
+- **Plugins:** Fix, our protection workaround could confuse methods used with `PySide6`.
+
+### New Features
+
+- **UI:** Added the `--recommended-python-version` option to display recommended Python versions for supported, working, or commercial usage.
+- **UI:** Add message to inform users about `Nuitka[onefile]` if compression is not installed. (Added in 4.0.1 already.)
+- **UI:** Add support for `uv_build` in the `--project` option. (Added in 4.0.1 already.)
+- **Onefile:** Allow extra includes as well. (Added in 4.0.2 already.)
+- **UI:** Add `nuitka-project-set` feature to define project variables, checking for collisions with reserved runtime variables. (Added in 4.0.2 already.)
+- **Scons:** Added new option to select `--reproducible` builds or not. (Added in 4.0.6 already.)
+- **Python 3.10+:** Added support for `importlib.metadata.package_distributions()`. (Added in 4.0.8 already.)
+- **Plugins:** Added support for the multiprocessing `forkserver` context. (Added in 4.0.8 already, for 4.1 Python 3.6 and earlier, as well as 3.14 support were added too.)
+- **Reports:** Added structured resource usage (`rusage`) performance information to compilation reports.
+- **Reports:** Included individual module-level C compiler caching (`ccache` / `clcache`) statistics in compilation reports.
+- Added support for detecting and correctly resolving the Python prefix for the `PyEnv on Homebrew` Python flavor.
+- **macOS:** Added support for `rusage` information for Scons.
+- **UI:** Added the `__compiled__.extension_filename` attribute to give the real filename of the containing extension module.
+- **Windows:** Added support for `--clang` or ARM. (Added in 4.0.8 already.)
+- **Windows:** Added support for resources names as not just integers, important when we copy them from template files.
+- **MacPorts:** Added basic support for this Python flavor. More work will be needed to get it to work fully though.
+
+### Optimization
+
+- Avoid including `importlib._bootstrap` and `importlib._bootstrap_external`. (Added in 4.0.1 already.)
+- **Linux:** Cached the `syscall` used for time keeping during compilation to avoid loading `libc` for each trace. (Added in 4.0.8 already.)
+- **UI:** Output a warning for modules that remain unfinished after the third optimization pass.
+- Added an extra micro pass trigger when new variables are introduced or variable usage changes severely, ensuring optimizations are fully propagated, avoiding unnecessary extra full passes.
+- Provided scripts to compile Python statically with PGO tailored for Nuitka on Linux, Windows, and macOS.
+- Added support for running the Data Composer tool from a compiled Nuitka binary without spawning an uncompiled Python process.
+- Enhanced the usage of `vectorcall` for `PyCFunction` objects by directly checking for its presence instead of relying purely on flags, allowing more frequent use of this faster execution path.
+- Cached frequently used declarations for top-level variables to speed up C code generation.
+- Sped up trace collection merging by avoiding unnecessary set creation and using a set instead of a list for escaped traces.
+- Optimized plugin hook execution by tracking overloaded methods and added an option to show plugin usage statistics.
+- Improved performance of module location by avoiding unnecessary module name reconstruction and redundant filesystem checks for pre-loaded packages.
+- Improved the caching of distribution name lookups to effectively avoid repeated IO operations across all package types.
+- **Plugins:** Cached callback plugin dispatch for `onFunctionBodyParsing` and `onClassBodyParsing` to skip argument computation when no plugin overrides them.
+- **Python 3.13:** Handled sub-packages of `pathlib` as hard modules.
+- Handled hard attributes through merge traces as well.
+- Made constant blobs more compact by avoiding repeated identifiers and unnecessary fields.
+- Enhanced Python compilation scripts further. (Fixed in 4.0.8 already.)
+- Recognized late incomplete variables better. (Fixed in 4.0.8 already.)
+- Made constant blobs more compact. (Fixed in 4.0.8 already.)
+- Optimized calls with only constant keywords and variable posargs too.
+
+### Anti-Bloat
+
+- Fix, memory bloat occurred when C compiling `sqlalchemy`. (Fixed in 4.0.2 already.)
+- Avoid using `pydoc` in `PySimpleGUI`. (Added in 4.0.2 already.)
+- Avoided using `doctest` from `zodbpickle`. (Added in 4.0.5 already.)
+- Avoided inclusion of `cython` when using `pyav`. (Added in 4.0.7 already.)
+- Avoided including `typing_extensions` when using `numpy`. (Added in 4.0.7 already.)
+
+### Organizational
+
+- **UI:** Relocated the warning about the available source code of extension modules to be evaluated at a more appropriate time.
+- **Debian:** Remove recommendation for `libfuse2` package as it is no longer useful.
+- **Debian:** Used `platformdirs` instead of `appdirs`.
+- **Debugging:** Removed Python 3.11+ restriction for `clang-format` as it is available everywhere, even Python 2.7, and we still want nicely formatted code when we read things. (Added in 4.0.6 already.)
+- Removed no longer useful inline copy of `wax_off`. We have our own stubs generator project.
+- **Release:** Added missing package to the CI container for building Nuitka Debian packages.
+- **Developer:** Updated AI instructions for creating Minimal Reproducible Examples (MRE) to skip unneeded C compilation.
+- **Debugging:** Added an internal function for checking if a string is a valid Python identifier.
+- **AI:** Added a task in Visual Studio Code to export the currently selected Python interpreter path to a file, making it available as “python” and “pip” matching the selected interpreter. This makes it easier to use a specific version with no instructions needed.
+- **AI:** Updated the rules to instruct AI to only generate useful comments that add context not present in the code.
+- **Containers:** Added template rendering support for Jinja2 (`.j2`) container files in our internal Podman tools.
+- **Projects:** Clarified the current status and rationale of Python 2.6 support in the developer manual.
+- **Debugging:** Added experimental flag `--experimental=ignore-extra-micro-pass` to allow ignoring extra micro pass detection.
+- **Visual Code:** Added integration scripts for `bash` and `zsh` autocompletion of Nuitka CLI options. These are now also integrated into Visual Studio Code terminal profiles and the Debian package.
+- **RPM:** Included the Python compile script for Linux.
+- **RPM:** Removed the requirement for `distutils` in the spec.
+
+### Tests
+
+- Install only necessary build tools for test cases.
+- Avoided spurious failures in reference counting tests due to Python internal caching differences. (Fixed in 4.0.3 already.)
+- Fix, the parsing of the compilation report for reflected tests was incorrect.
+- **Python 3.14:** Ignored a syntax error message change.
+- **Python 3.14:** Added test execution support options to the main test runner to use this version as well.
+- Fix, the runner binary path was mishandled for the third pass of reflected compilations.
+- Removed the usage of obsolete plugins in reflected compilation tests.
+- **Debugging:** Prevented boolean testing of `namedtuples` to avoid unexpected bugs.
+- Added the `Test` suffix to syntax test files and disabled “python” mode and spell checking for them to resolve issues reported in IDEs.
+- Fix, newline handling in diff outputs from the output comparison tool was incorrect.
+- Covered `post-import-code` functionality with a new subpackage test case.
+- Prevented the program test suite from running an unnecessary variant to save execution time.
+- **macOS:** Ignored differences from GUI framework error traces in headless runs in output comparisons.
+- Reflected test for Nuitka, where it compiles itself and compares its operation has been restored to functional state.
+- Used the new method to clear internal caches if available for reference counts.
+- Disabled running nested loops test with Python 2.6.
+- **Containers:** Detected Python 2 defaulting containers in Podman tooling.
+
+### Cleanups
+
+- **UI:** Fix, there was a double space in the Windows Runtime DLLs inclusion message. (Fixed in 4.0.1 already.)
+- **Onefile:** Separated files and defines for extra includes for onefile boot and Python build.
+- **Scons:** Provided nicer errors in case of “unset” variables being used, so we can tell it.
+- Refactored the process execution results to correctly utilize our `namedtuples` variant, that makes it easier to understand what code does with the results.
+- **Quality:** Enabled automatic conversion of em-dashes and en-dashes in code comments to the autoformat tool. AI won’t stop producing them and they can cause `SyntaxError` for older Python versions, nor is unnecessarily using UTF-8 welcome.
+- Ensured that cloned outline nodes are assigned their correct names immediately upon creation, that avoids inconsistencies during their creation.
+- **Quality:** Updated to the latest versions of `black` and adopted a faster `isort` execution by caching results.
+- **Quality:** Modified the PyLint wrapper to exit gracefully instead of raising an error when no matching files require checking.
+- **Quality:** Avoided checking YAML package configuration files twice, since autoformat already handles them.
+- **Quality:** Ensured that YAML package configuration checks output the original filename instead of the temporary one when a failure occurs.
+- **Quality:** Prevented pushing of tags from triggering git pre-push quality checks.
+- **Quality:** Silenced the output of `optipng` and `jpegoptim` during image optimization auto-formatting.
+- **Visual Code:** Added the generated Python alias path file to the ignore list.
+- **Quality:** Enabled auto-formatting for the Nuitka devcontainer configuration file.
+- **Watch:** Avoided absolute paths in compilation to make reports more comparable across machines.
+- **Quality:** Changed `mdformat` checks to run only once and silently.
+- **Scons:** Disabled format security errors in debug mode and moved Python-related warning disables into common build setup code.
+- **Quality:** Updated to the latest `deepdiff` version.
+- **Scons:** Avoided MSVC telemetry since it can produce outputs that break CI.
+- **Debugging:** Enhanced non-deployment handler for importing excluded modules.
+- Split import module finding functionality into more pieces for enhanced readability.
+- **Debugging:** Added more assertions for constants loading and checking.
+- **macOS:** Dropped the `universal` target arch.
+- **Debugging:** Added more traces for deep hash verification.
+
+### Summary
+
+This release builds on the scalability improvements established in 4.0, with enhanced Python 3.14 support, expanded package compatibility, and significant optimization work.
+
+The `--project` option seems usable now.
+
+Python 3.14 support remains experimental, but only barely made the cut, and probably will get there in hotfixes. Some of the corrections came in so late before the release, that it was just not possible to feel good about declaring it fully supported just yet.
+
+## Nuitka Release 4.0
+
+This release is a major release with many new features and the long wanted improvements for scalability of the Python compilation.
+
+### Bug Fixes
+
+- **Accelerated:** The enhanced detection for uninstalled Anaconda and WinPython was not fully working. (Fixed in 2.8.1 already.)
+- **Onefile:** Fixed an issue in DLL mode where signal handlers were not being registered, which could prevent proper program termination on signals like CTRL-C. (Fixed in 2.8.1 already.)
+- **Windows:** Fixed incorrect handling of forward slashes in cache directory paths, which caused issues with Nuitka-Action. (Fixed in 2.8.1 already.)
+- **UI:** The `--output-dir` option was not being honored in accelerated mode when `--output-filename` was also provided. (Fixed in 2.8.2 already.)
+- **UI:** The `--output-filename` option help said it wouldn’t work for standalone mode when in fact it did for a while already. (Fixed in 2.8.2 already.)
+- **Onefile:** On **Windows**, fixed a crash when using `--output-dir` where it was checking for the wrong folder to exist. (Fixed in 2.8.2 already.)
+- **macOS:** Fixed a crash that could occur when many package-specific directories were used, which could lead to the `otool` command line being too long. (Fixed in 2.8.2 already.)
+- **Standalone:** For the “Python Build Standalone” flavor, ensured that debug builds correctly recognize all their specific built-in modules, preventing potential errors. (Fixed in 2.8.4 already.)
+- **macOS:** Fixed an issue where `$ORIGIN` r-paths were set but ended up unused, which in some cases caused errors by exhausting the header space and preventing the build entirely. (Fixed in 2.8.5 already.)
+- **macOS:** Fixed an issue to ensure the system `xattr` binary is used.
+	Otherwise, using `arch -x86_64 python` for compilation could fail when some packages are installed that provide `xattr` as well, because that might be an `arm64` binary only and would not work. (Fixed in 2.8.5 already.)
+- **UI:** Fixed a misleading typo in the rejection message for unsupported Python 3.13.4. (Fixed in 2.8.5 already.)
+- **Accelerated:** The runner scripts `.cmd` or `.sh` now are also placed respecting the `--output-filename` and `--output-dir` options. (Fixed in 2.8.5 already.)
+- **Plugins:** Ensured that plugins detected by namespace usage are also activated in module mode. (Fixed in 2.8.5 already.)
+- **Standalone:** Fixed an issue where non-existent packages listed in `top_level.txt` files could cause errors during metadata collection. (Fixed in 2.8.6 already.)
+- **Standalone:** Corrected the classification of the `site` module, which was previously treated as a standard library module in some cases. (Fixed in 2.8.6 already.)
+- **Windows:** Ensured that temporary link libraries and export files created during compilation are properly deleted, preventing them from being included in the standalone distribution. (Fixed in 2.8.6 already.)
+- **Python3.14:** Adapted to core changes by no longer inlining `hacl` code for this version. (Fixed in 2.8.6 already.)
+- **Python 3.14:** Follow allocator changes and immortal flags changes.
+- **Python 3.14:** Follow GC changes for compiled frames as well.
+- **Python 3.14:** Catch attempts to clear a compiled suspended frame object.
+- Fixed a potential mis-optimization for uses of `locals()` when transforming the variable name reference call. (Fixed in 2.8.6 already.)
+- **Module:** Fixed `pkgutil.iter_modules` not working when loading a module into a namespace. (Fixed in 2.8.7 already.)
+- **Reports:** Fixed a crash when creating the compilation report before the source directory is created. (Fixed in 2.8.7 already.)
+- **Standalone:** Fixed ignoring of non-existent packages from `top_level.txt` for metadata. (Fixed in 2.8.7 already.)
+- **UI:** The `--no-progress-bar` option was not disabling the **Scons** progress bars. (Fixed in 2.8.7 already.)
+- **UI:** Fixed an exception in the `tqdm` progress bar during process shutdown. (Fixed in 2.8.7 already.)
+- **Windows:** Fixed incorrect `sys.executable` value in onefile DLL mode. (Fixed in 2.8.9 already.)
+- **Python3.14:** Added missing implicit dependency for `_ctypes` on **Windows**. (Fixed in 2.8.9 already.)
+- **Python3.13+:** Fixed missing export of `PyInterpreter_*` API.
+- **Python3.14:** Adapted to change in evaluation order of `__exit__` and `__enter__`.
+- **Multiprocessing:** Fixed issue where `sys.argv` was not yet corrected when `argparse` was used early in spawned processes.
+- **Scons:** Fixed an issue where Zig was not used as a fallback when MinGW64 was present but unusable.
+- **Windows:** Made onefile binary work on systems without runtime DLLs installed as well.
+- **Scons:** Made tracing robust against threaded outputs.
+- **Python3.12+:** Enhanced workaround for loading of extension modules with sub-packages to cover more cases.
+- **Scons:** Fixed missing Zig version output.
+- **Scons:** Fixed Zig detection to enforce PATH or CC usage on macOS instead of download, since it’s not available.
+- **UI:** Fixed normalization of user paths, improving macOS support for reporting.
+- **Linux:** Fixed the workaround for the `memset` zero length warning, which was wrongly applied to **Clang**. Only **GCC** requires it, and **Clang** complained about it.
+- **Linux:** More robust fallback to `g++` when `gcc` is too old for C11 support.
+- **Compatibility:** Fixed a bug where `del` of a subscript could cause wrong runtime behavior due to missing control flow escape annotations for the subscript value itself and the index.
+- **macOS:** Fixed an issue where `Info.plist` user-facing entitlements keys mapping to multiple internal entitlements were not handled correctly.
+- **UI:** Ensured tracing uses at least 80 characters for very narrow terminals to maintain readability.
+- **Compatibility:** Fixed an issue where nested loops could have incorrect traces, potentially leading to mis-optimizations.
+- **Linux:** Fixed an issue where `_XOPEN_SOURCE` was mistakenly appended for Clang, causing warnings.
+- **Scons:** Improved passed variables handling by detecting `None` or invalid types earlier.
+- Fixed a bug where propagating class dictionaries needed extra micro passes to ensure proper optimization of their traces for the new variables.
+- **Scons:** Fixed an issue with process spawning when using `rusage` capture.
+- **Scons:** Followed the file closing behavior of the standard communicate closer to avoid potential hangs.
+
+### Package Support
+
+- **Anti-Bloat:** Avoided a warning during program shutdown when using a compiled `xgboost` package. (Fixed in 2.8.1 already.)
+- **Standalone:** Added support for the `oracledb` package. (Fixed in 2.8.2 already.)
+- **macOS:** Added support for newer `PySide6` versions. (Fixed in 2.8.4 already.)
+- **Standalone:** Added support for including more metadata for the `transformers` package. (Fixed in 2.8.5 already.)
+- **Standalone:** Metadata from Nuitka Package Configuration is now only included if the corresponding package is part of the compilation. (Fixed in 2.8.5 already.)
+- **Standalone:** Added support for the `win32ctypes` package. (Fixed in 2.8.6 already.)
+- **Standalone:** Added support for newer versions of the `dask` package. (Fixed in 2.8.6 already.)
+- **Standalone:** Added support for the `dataparser` package. (Added in 2.8.7 already.)
+- **Standalone:** Added support for `puremagic`, `pygments.lexers` and `tomli` in standalone mode.
+- **Standalone:** Added automatic detection of `mypyc` runtime dependencies, no need to manually configure that anymore. Also our configuration was often only correct for a single OS, and single upstream versions which is now fixed for packages having it before.
+- **Standalone:** Added support for the newer `av` (PyAV) package version.
+- **Standalone:** Added support for the `sentry_sdk`, `jedi`, `parso`, and `line_profiler` packages.
+- **Standalone:** Added support for newer `pandas` versions.
+
+### New Features
+
+- **UI:** Added support for `--project` parameter to build using configuration from `pyproject.toml` (e.g. Poetry, Setuptools).
+	With this, you can simply run `python -m nuitka --project --mode=onefile` and it will use the `pyproject.toml` or `setup.py/setup.cfg` files to get the configuration and build the Nuitka binary.
+	Previously Nuitka could only be used for building wheels with `build` package, and for building wheels that is still the best way.
+	The `--project` option is currently compatible with `build` and `poetry` and detects the used build system automatically.
+- **Zig:** Added experimental support for using **Zig** project’s `zig cc` as a C compiler backend for **Nuitka**. This can be enabled by setting the `CC` environment variable to point to the `zig` or `zig.exe` executable.
+- **Reports:** Started capturing `rusage` for OSes that support it.
+	- Only POSIX-compliant OSes will do it (**Linux**, **macOS**, and all **BSD** variants), but **Android** does not.
+		- Not yet part of the actual report, as we need to figure out how to use and present the information.
+- **Scons:** Added experimental support for enabling Thin LTO with the **Clang** compiler.
+- **Standalone:** Honor `--nofollow-import-to` for stdlib modules as well.
+	This allows users to manually reduce standard library usage, but it can also cause crashes from extension modules not prepared for the absence of standard library modules.
+- **Onefile:** Allowed disabling the onefile timeout and hard killing on CTRL-C entirely by providing `--onefile-child-grace-time=infinity`.
+- **Scons:** Added newer inline copy of **Scons** which supports Visual Studio 2026. (Added in 2.8.7 already.)
+- **Scons:** Allowed using Python versions only partially supported for **Nuitka** with **Scons**. (Added in 2.8.7 already.)
+- **UI:** Added option `--devel-profile-compilation` for compile time profiling. Also renamed the old runtime profiling option `--profile` to `--debug-profile-runtime`, that is however still broken.
+- **Reports:** Including CPU instr and cycle counters in timing on native Linux.
+	- With appropriate configuration on Linux this allows to get at very precise timing configuration so we can judge even small compile time improvements correctly. We then don’t need many runs to average out noise from other effects.
+		- Don’t use wall clock but process time for steps that are not doing IO like module optimization for more accurate values otherwise, it is however not very accurate still.
+- **Python3.12+:** Added support for function type syntax (generics).
+- **Python3.14:** Added groundwork for deferred evaluation of function annotations.
+- **Python3.14:** Added support for uncompiled generator integration which is crucial for `asyncio` correctness and general usability with modern frameworks.
+- **Debugging:** Added `--debug-self-forking` to debug fork bombs.
+- **Windows:** Added `--include-windows-runtime-dlls` option to control inclusion of Windows C runtime DLLs. Defaults to `auto`.
+- **Python 3.14:** Added experimental support for deferred annotations.
+- **Plugins:** Added option `--qt-debug-plugins` for debugging Qt plugin loading.
+- **DLLs:** Added support for DLL tags to potentially control inclusion with more granularity.
+- **macOS:** Added support for many more protected resource entitlements (Siri, Bluetooth, HomeKit, etc.) to the bundle details.
+- **Python:** Added support for `@nuitka_ignore` decorator to exclude functions from compilation.
+	```python
+	@nuitka_ignore
+	def my_cpython_func():
+	    # This function is not compiled, but stays bytecode
+	    ...
+	```
+- **UI:** Added support for merging user and standard YAML Nuitka package configurations, currently only including proper merging of implicit imports.
+
+### Optimization
+
+- Avoid making duplicate hard imports by dropping assignments if the variable was already assigned to the same value.
+- Found previous assignment traces faster.
+	- The assignment and `del` nodes were using functions to find what they already knew from the last micro pass. The `self.variable_trace` already kept track of the previous value trace situation.
+		- For matching unescaped traces we will do similar, but it’s not really used right now, so make it only a TODO as that will eventually be very similar.
+		- Also speeds up the first micro pass even more, because it doesn’t have to search and do other things. If no previous trace exists, none is attempted to be used.
+		- Also the common check if no by-name uses or merges of a value occurred was always used inverted and now should be slightly faster to use and allow to short-circuit.
+		- While this accelerated the first micro pass by a lot for per-assignment work, it mainly means to cleanup the design such that traces are easier to re-recognize. And this is a first step with immediate impacts.
+- Much faster Python passes.
+	- The “Escape” and “Unknown” traces now have their own number spaces. This allows doing some quick checks for a trace without using the actual object, but just its number.
+		- Narrow the scope of variables to the outline scope that uses them, so that they don’t need to be dealt with in merging later code where they don’t ever change anymore and are not used at all.
+		- When checking for unused variables, do not ask the trace collection to filter its traces. Instead it works off the ones attached to the variable already. This avoids a lot of searching work. It also uses a method to decide if a trace constitutes usage rather than a long `elif` chain.
+- Faster variable trace maintenance.
+	- We now trace variables in trace collection as a dictionary per variable with a dictionary of the versions, this is closer to our frequent usage per variable.
+		- That makes it a lot easier to update variables after the tracing is finished to know their users and writers.
+		- Requires a lot less work, but also makes work less memory local such that the performance gain is relatively small despite less work being done.
+		- It also avoids having to maintain a per-variable set for its using scopes.
+		- Decide presence of writing traces for parameter variables faster.
+- Avoid unnecessary micro passes.
+	- Detect variable references discarded sooner for better micro-pass efficiency. We were spending an extra pass on the whole module to stabilize the variable usage, which can end up being a lot of work.
+		- After a module optimization pass found no changes, we no longer make an extra micro pass to avoid stabilization bugs, but only check against it not happening in debug mode. Depending on the number of micro passes, this can be a relatively high performance gain. For the `telethon.tl.types` module this was a 13% performance gain on top.
+- For “PASS 1” of `telethon.tl.types`, which has been one of the known troublemakers with many classes and type annotations, all changes combined improve the compilation time by 1500%.
+- Faster code generation.
+	- Indentation in generated C code is no longer performed to speed up code generation. To restore readability, use the new option `--devel-generate-readable-code` which will use `clang-format` to format the C code.
+- Recognized module variable usages inside outlined functions that are in a loop, which improves the effectiveness of caching at run-time. (Added in 2.8.6 already.)
+- **Standalone:** Partially solved a TODO of minimizing intermediate directories in r-paths of ELF platforms, by only putting them there if the directory they point to will contain DLLs or binaries. This removes unused elements and reduces r-path size.
+- **Windows:** Made the caching of external paths effective, which significantly speeds up DLL resolution in subsequent compilations. (Fixed in 2.8.6 already.)
+- **macOS:** Removed extended attributes from data files as well, improving performance. (Fixed in 2.8.7 already.)
+- **Scons:** Stopped detecting installed **MinGW** to avoid overhead as it is not supported. (Fixed in 2.8.9 already.)
+- **Scons:** Added caching for MSVC information to reduce compilation time and if already available, use that to detect Windows SDK location rather that using `vswhere.exe` each time.
+- Avoid computing large `%` string interpolations at compile time. These could cause constants to be included in the binary as a result.
+- Avoid including `importlib._bootstrap` and `importlib._bootstrap_external` as they are available as frozen modules.
+- Fixed un-hashable dictionary keys not being properly optimized, forcing runtime handling.
+
+### Anti-Bloat
+
+- Avoid including `tzdata` on non-Windows platforms. (Fixed in 2.8.7 already.)
+- Avoid including `pyparsing.testing` in the `pyparsing` package.
+- Added configuration to avoid compiled via C for large generated files for the `sqlfluff` package.
+
+### Organizational
+
+- **UI:** Don’t say `--include-data-files-external` doesn’t work in standalone mode.
+	It actually has worked for a while, and we since renamed that option, but the help still said it wouldn’t work in standalone mode.
+- **Debugging:** Added assertions for code object creation.
+	We were getting assertions from Python when built with **Zig**, and these are supposed to provide those as well.
+- **Debugging:** In case of tool commands failing, output the too long command line if that was the error given.
+- **Anti-Bloat:** Don’t allow custom `nofollow` modes, point the user to the correct option instead. This was never needed, but two ways of providing this user decision make no sense.
+- UI: The help text for `--include-data-files-external` was updated to reflect that it works in standalone mode. (Fixed in 2.8.5 already.)
+- **Release:** Use lowercase names for source archives in PyPI uploads. (Fixed in 2.8.7 already.)
+- **Quality:** Fixed an issue where “assume yes” was not being passed for downloads in the commit hook.
+- **UI:** Improved wording for missing C compiler message.
+- **Debugging:** More clear verbose trace for dropped expressions.
+- **Debugging:** Output what module had extra changes during debug extra micro pass.
+- **Quality:** Manage more development tools (`clang-format`, etc.) via private pip space for better consistency and isolation.
+- **AI:** Enhanced pull request template with directions for AI-driven PRs.
+- **AI:** Added agent command `create-mre` to assist in creating a minimal reproduction example (**MRE**).
+- **User Manual:** Added documentation about redistribution requirements for Python 3.12-3.14.
+- **Quality:** Added `--un-pushed` argument to auto-format tool for checking only un-pushed changes.
+- **Scons:** Improved error message to point to Zig support if no C compiler is found.
+- **MonolithPy:** Follow rename of our Python fork to **MonolithPy** to avoid confusion with the **Nuitka** compiler project itself.
+- **Scons:** Prefer English output and warn user for missing English language pack with MSVC in case or outputs being made.
+- **UI:** When running non-interactively, print the default response that is assumed for user queries to stdout as well, so it becomes visible in the logs.
+- **UI:** Warn when using protected resources options without standalone/bundle mode enabled on **macOS**.
+- **Reports:** Sort DLLs and entry points in compilation reports by destination path for deterministic output.
+- **Quality:** Skip files with `spell-checker: disable` in `codespell` checks.
+- **Release:** Avoid compiling bytecode for inline copies that are not compatible with the running **Python** version during install.
+- **Visual Studio:** Ignored names in backticks and code blocks in ReST for spelling checks.
+- **Actions:** Ensured compilation reports are always recorded, even in case of errors, as they are most useful then.
+- **AI:** Added a workflow `create-mre` to assist in creating a Minimal Reproducible Example from a larger file triggering a Nuitka bug. This has guidance on avoiding standalone mode and instructions for reducing code to just produce a MRE that is really small.
+- **AI:** Added a workflow `fix-module-not-found-error` for solving simple `ModuleNotFoundError` at runtime errors.
+- **AI:** Added further strategies for Minimal Reproducible Example (MRE) reduction to the agent workflow.
+- **UI:** Reject input paths from standard library locations to prevent compiling files from there as main files.
+
+### Tests
+
+- Added support for `--all` with `--max-failures` option to the test runner to stop after a specified number of failures, or just run all tests and output the failed tests in the end.
+	Also the tests specified can be a glob pattern, to match multiple tests, not just a test name.
+	Added examples to the help output of the runner to guide the usage of the developers.
+- Ignore multiline source code outputs of Python3.14 in tracebacks for output comparison, Nuitka won’t do those.
+- Added test cases for poetry and distutils. Also verify that standalone mode works with `--project` for the supported build systems.
+- Made the distutils tests cases much more consistent.
+- **Watch:** Improved binary name detection from compilation reports for better mode support beyond standalone mode.
+- Allow downloading tools (like `clang-format`) for all test cases.
+- Added options to enforce **Zig** or **Clang** usage for C compiling.
+- Suppress `pip` output when not running interactively to avoid test output differences.
+- Added `nuitka.format` and `nuitka.package_config` to self-compilation tests.
+- Added colorization to test comparison diffs if a tty is available.
+- Avoided using `--nofollow-imports` in tests as some Python flavors do not work with it when using `--mode=standalone`.
+
+### Cleanups
+
+- Moved options to new `nuitka.options` package.
+- **Python3.14:** Fixed a type mismatch warning seen with **MSVC**. (Fixed in 2.8.9 already.)
+- Massive amounts of spelling cleanups. Correct spelling is more and more places allows identification of bugs more immediately, therefore these are very worthwhile.
+- Code cleanup and style improvements in `Errors` and `OutputDirectories` modules.
+- Replaced usages of `os.environ.get` with `os.getenv` for consistency and denser code.
+- Moved **MSVC** re-dist detection to `DllDependenciesWin32`.
+- **Release:** Don’t install `zstandard` by default anymore.
+- **UI:** Tone down complaint about checksum mismatches.
+- Static source files are now provided by Nuitka directly.
+- Renamed C function `modulecode_` to `module_code_` for consistency.
+
+### Summary
+
+This release is finally a break-through for scalability. We will continue the push for scalability in the next release as well, but with more of a focus on the C compilation step, to generate C code that is easier for the backend compiler.
+
+Also, this release finally addresses many usability problems. The non-deployment hooks for imports not found, that were actively excluded, are one such thing. The start of `--project` enables far easier adoption of Nuitka for existing projects.
+
+Other huge improvements are related to generics, they are now much better support, closing gaps in the Python3.12 support.
+
+The onefile DLL mode as used on Windows is finally perfect and should have no issues anymore, while enabling big future improvements.
+
+Unfortunately 3.14 support is not yet ready and will have to be delayed until the next release.
+
+## Nuitka Release 2.8
+
+This release adds a ton of new features and corrections.
+
+### Bug Fixes
+
+- **Standalone**: For the “Python Build Standalone” flavor ensured that debug builds correctly recognize all their specific built-in modules, preventing potential errors. (Fixed in 2.7.2 already.)
+- **Linux**: Fixed a crash when attempting to modify the RPATH of statically linked executables (e.g., from `imageio-ffmpeg`). (Fixed in 2.7.2 already.)
+- **Anaconda**: Updated `PySide2` support to correctly handle path changes in newer Conda packages and improved path normalization for robustness. (Fixed in 2.7.2 already.)
+- **macOS**: Corrected handling of `QtWebKit` framework resources. Previous special handling was removed as symlinking is now default, which also resolved an issue of file duplication. (Fixed in 2.7.2 already.)
+- **Debugging**: Resolved an issue in debug builds where an incorrect assertion was done during the addition of distribution metadata. (Fixed in 2.7.1 already.)
+- **Module**: Corrected an issue preventing `stubgen` from functioning with Python versions earlier than 3.6. (Fixed in 2.7.1 already.)
+- **UI**: Prevented **Nuitka** from crashing when `--include-module` was used with a built-in module. (Fixed in 2.7.1 already.)
+- **Module**: Addressed a compatibility issue where the `code` mode for the constants blob failed with the C++ fallback. This fallback is utilized on very old GCC versions (e.g., default on **CentOS7**), which are generally not recommended. (Fixed in 2.7.1 already.)
+- **Standalone**: Resolved an assertion error that could occur in certain Python setups due to extension module suffix ordering. The issue involved incorrect calculation of the derived module name when the wrong suffix was applied (e.g., using `.so` to derive a module name like `gdbmmodule` instead of just `gdbm`). This was observed with Python 2 on **CentOS7** but could potentially affect other versions with unconventional extension module configurations. (Fixed in 2.7.1 already.)
+- **Python 3.12.0**: Corrected the usage of an internal structure identifier that is only available in Python 3.12.1 and later versions. (Fixed in 2.7.1 already.)
+- **Plugins**: Prevented crashes in Python setups where importing `pkg_resources` results in a `PermissionError`. This typically occurs in broken installations, for instance, where some packages are installed with root privileges. (Fixed in 2.7.1 already.)
+- **macOS**: Implemented a workaround for data file names that previously could not be signed within app bundles. The attempt in release 2.7 to sign these files inadvertently caused a regression for cases involving illegal filenames. (Fixed in 2.7.1 already.)
+- **Python 2.6**: Addressed an issue where `staticmethod` objects lacked the `__func__` attribute. **Nuitka** now tracks the original function as a distinct value. (Fixed in 2.7.1 already.)
+- Corrected behavior for `orderedset` implementations that lack a `union` method, ensuring **Nuitka** does not attempt to use it. (Fixed in 2.7.1 already.)
+- **Python 2.6**: Ensured compatibility for setups where the `_PyObject_GC_IS_TRACKED` macro is unavailable. This macro is now used beyond assertions, necessitating support outside of debug mode. (Fixed in 2.7.1 already.)
+- **Python 2.6**: Resolved an issue caused by the absence of `sys.version_info.releaselevel` by utilizing a numeric index instead and adding a new helper function to access it. (Fixed in 2.7.1 already.)
+- **Module**: Corrected the `__compiled__.main` value to accurately reflects the package in which a module is loaded, this was not the case for Python versions prior to 3.12. (Fixed in 2.7.1 already.)
+- **Plugins**: Further improved the `dill-compat` plugin by preventing assertions related to empty annotations and by removing hard-coded module names for greater flexibility. (Fixed in 2.7.1 already.)
+- **Windows**: For onefile mode using DLL mode, ensure all necessary environment variables are correctly set for `QtWebEngine`. Previously, default Qt paths could point incorrectly near the onefile binary. (Fixed in 2.7.3 already.)
+- **PySide6**: Fixed an issue with `PySide6` where slots defined in base classes might not be correctly handled, leading to them only working for the first class that used them. (Fixed in 2.7.3 already.)
+- **Plugins**: Enhanced Qt binding plugin support by checking for module presence without strictly requiring metadata. This improves compatibility with environments like Homebrew or `uv` where package metadata might be absent. (Fixed in 2.7.3 already.)
+- **macOS**: Ensured the `apple` target is specified during linking to prevent potential linker warnings about using an `unknown` target in certain configurations. (Fixed in 2.7.3 already.)
+- **macOS**: Disabled the use of static `libpython` with `pyenv` installations, as this configuration is currently broken. (Fixed in 2.7.3 already.)
+- **macOS**: Improved error handling for the `--macos-app-protected-resource` option by catching cases where a description is not provided. (Fixed in 2.7.3 already.)
+- **Plugins**: Enhanced workarounds for `PySide6`, now also covering single-shot timer callbacks. (Fixed in 2.7.4 already.)
+- **Plugins**: Ensured that the Qt binding module is included when using accelerated mode with Qt bindings. (Fixed in 2.7.4 already.)
+- **macOS**: Avoided signing through symlinks and minimized their use to prevent potential issues, especially during code signing of application bundles. (Fixed in 2.7.4 already.)
+- **Windows**: Implemented path shortening for paths used in onefile DLL mode to prevent issues with long or Unicode paths. This also benefits module mode. (Fixed in 2.7.4 already.)
+- **UI**: The options nanny plugin no longer uses a deprecated option for macOS app bundles, preventing potential warnings or issues. (Fixed in 2.7.4 already.)
+- **Plugins**: Ensured the correct macOS target architecture is used. This particularly useful for `PySide2` with universal CPython binaries, to prevent compile time crashes e.g. when cross-compiling for a different architecture. (Fixed in 2.7.4 already.)
+- **UI**: Fixed a crash that occurred on **macOS** if the `ccache` download was rejected by the user. (Fixed in 2.7.4 already.)
+- **UI**: Improved the warning message related to macOS application icons for better clarity. (Added in 2.7.4 already.)
+- **Standalone**: Corrected an issue with QML plugins on **macOS** when using newer `PySide6` versions. (Fixed in 2.7.4 already.)
+- **Python 3.10+**: Fixed a memory leak where the matched value in pattern matching constructs was not being released. (Fixed in 2.7.4 already.)
+- **Python3**: Fixed an issue where exception exits for larger `range` objects, which are not optimized away, were not correctly annotated by the compiler. (Fixed in 2.7.4 already.)
+- **Windows**: Corrected an issue with the automatic use of icons for `PySide6` applications on non-Windows if Windows icon options were used. (Fixed in 2.7.4 already.)
+- **Onefile**: When using DLL mode there was a load error for the DLL with MSVC 14.2 or earlier, but older MSVC is to be supported. (Fixed in 2.7.5 already.)
+- **Onefile**: Fix, the splash screen was showing in DLL mode twice or more; these extra copies couldn’t be stopped. (Fixed in 2.7.5 already.)
+- **Standalone**: Fixed an issue where data files were no longer checked for conflicts with included DLLs. The order of data file and DLL copying was restored, and macOS app signing was made a separate step to remove the order dependency. (Fixed in 2.7.6 already.)
+- **macOS**: Corrected our workaround using symlinks for files that cannot be signed. When `--output-directory` was used, as it made incorrect assumptions about the `dist` folder path. (Fixed in 2.7.6 already.)
+- **UI**: Prevented checks on onefile target specifications when not actually compiling in onefile mode, e.g. on macOS with `--mode=app`. (Fixed in 2.7.6 already.)
+- **UI**: Improved error messages for data directory options by include the relevant part in the output. (Fixed in 2.7.6 already.)
+- **Plugins**: Suppressed `UserWarning` messages from the `pkg_resources` module during compilation. (Fixed in 2.7.6 already.)
+- **Python3.11+**: Fixed an issue where descriptors for compiled methods were incorrectly exposed for Python 3.11 and 3.12. (Fixed in 2.7.7 already.)
+- **Plugins**: Avoided loading modules when checking for data file existence. This prevents unnecessary module loading and potential crashes in broken installations. (Fixed in 2.7.9 already.)
+- **Plugins**: The `global_change_function` anti-bloat feature now operates on what should be the qualified names (`__qualname__`) instead of just function names, preventing incorrect replacements of methods with the same name in different classes. (Fixed in 2.7.9 already.)
+- **Onefile**: The `containing_dir` attribute of the `__compiled__` object was regressed in DLL mode on **Windows**, pointing to the temporary DLL directory instead of the directory containing the onefile binary. (Fixed in 2.7.10 already, note that the solution in 2.7.9 had a regression.)
+- **Compatibility**: Fixed a crash that occurred when an import attempted to go outside its package boundaries. (Fixed in 2.7.11 already.)
+- **macOS**: Ignored a warning from `codesign` when using self-signed certificates. (Fixed in 2.7.11 already.)
+- **Onefile**: Fixed an issue in DLL mode where environment variables from other onefile processes (related to temporary paths and process IDs) were not being ignored, which could lead to conflicts. (Fixed in 2.7.12 already.)
+- **Compatibility**: Fixed a potential crash that could occur when processing an empty code body. (Fixed in 2.7.13 already.)
+- **Plugins**: Ensured that DLL directories created by plugins could be at the top level when necessary, improving flexibility. (Fixed in 2.7.13 already.)
+- **Onefile**: On **Windows**, corrected an issue in DLL mode where `original_argv0` was `None`; it is now properly set. (Fixed in 2.7.13 already.)
+- **macOS**: Avoided a warning that appeared on newer macOS versions. (Fixed in 2.7.13 already.)
+- **macOS**: Allowed another DLL to be missing for `PySide6` to support more setups. (Fixed in 2.7.13 already.)
+- **Standalone**: Corrected the existing import workaround for Python 3.12 that was incorrectly renaming existing modules of matching names into sub-modules of the currently imported module. (Fixed in 2.7.14 already.)
+- **Standalone**: On **Windows**, ensured that the DLL search path correctly uses the proper DLL directory. (Fixed in 2.7.14 already.)
+- **Python 3.5+**: Fixed a memory leak where the called object could be leaked in calls with keyword arguments following a star dict argument. (Fixed in 2.7.14 already.)
+- **Python 3.13**: Fixed an issue where `PyState_FindModule` was not working correctly with extension modules due to sub-interpreter changes. (Fixed in 2.7.14 already.)
+- **Onefile**: Corrected an issue where the process ID (PID) was not set in a timely manner, which could affect onefile operations. (Fixed in 2.7.14 already.)
+- **Compatibility**: Fixed a crash that could occur when a function with both a star-list argument and keyword-only arguments was called without any arguments. (Fixed in 2.7.16 already.)
+- **Standalone**: Corrected an issue where distribution names were not checked case-insensitively, which could lead to metadata not being included. (Fixed in 2.7.16 already.)
+- **Linux**: Avoid using full zlib with extern declarations but instead only the CRC32 functions we need. Otherwise conflicts with OS headers could occur.
+- **Standalone**: Fixed an issue where scanning for standard library dependencies was unnecessarily performed.
+- **Plugins**: Made the runtime query code robust against modules that in stdout during import
+	This affected at least `toga` giving some warnings on Windows with mere stdout prints. We now have a marker for the start of our output that we look for and safely ignore them.
+- **Windows**: Do not attempt to attach to the console when running in DLL mode. For onefile with DLL mode, this was unnecessary as the bootstrap already handles it, and for pure DLL mode, it is not desired.
+- **Onefile**: Removed unnecessary parent process monitoring in onefile mode, as there is no child process launched.
+- **Anaconda**: Determine version and project name for conda packages more reliably
+	It seems Anaconda is giving variables in package metadata and often no project name, so we derive it from the conda files and its meta data in those cases.
+- **macOS**: Make sure the SSL certificates are found when downloading on macOS, ensuring successful downloads.
+- **Windows**: Fixed an issue where console mode `attach` was not working in onefile DLL mode.
+- **Scons**: Fixed an issue where `pragma` was used with older `gcc` `gcc` can give warnings about them. This fixes building on older OSes with the system gcc.
+- **Compatibility**: Fix, need to avoid using filenames with more than 250 chars for long module names.
+	- For cache files, const files, and C files, we need to make sure, we don’t exceed the 255 char limits per path element that literally every OS has.
+		- Also enhanced the check code for legal paths to cover this, so user options are covered from this errors too.
+		- Moved file hashing to file operations where it makes more sense to allow module names to use hashing to provide a legal filename to refer to themselves.
+- **Compatibility**: Fixed an issue where walking included compiled packages through the Nuitka loader could produce incorrect names in some cases.
+- **Windows**: Fixed wrong calls made when checking `stderr` properties during launch if it was `None`.
+- **Debugging**: Fixed an issue where the segfault non-deployment disable itself before doing anything else.
+- **Plugins**: Fix, the warning to choose a GUI plugin for `matplotlib` was given with `tk-inter` plugin enabled still, which is of course not appropriate.
+- **Distutils**: Fix, do not recreate the build folder with a `.gitignore` file.
+	We were re-creating it as soon as we looked at what it would be, now it’s created only when asking for that to happen.
+- **No-GIL**: Addressed compile errors for the free-threaded dictionary implementation that were introduced by necessary hot-fixes in the version 2.7.
+- **Compatibility**: Fixed handling of generic classes and generic type declarations in Python 3.12.
+- **macOS**: Fixed an issue where entitlements were not properly provided for code signing.
+- **Onefile**: Fixed delayed shutdown for terminal applications in onefile DLL mode.
+	Was waiting for non-used child processes, which don’t exist and then the timeout for that operation, which is always happening on CTRL-C or terminal shutdown.
+- Python3.13: Fix, seems interpreter frames with None code objects exist and need to be handled as well.
+- **Standalone**: Fix, need to allow for `setuptools` package to be user provided.
+- **Windows**: Avoided using non-encodable dist and build folder names.
+	Some paths don’t become short, but still be non-encodable from the file system for tools. In these cases, temporary filenames are used to avoid errors from C compilers and other tools.
+- Python3.13: Fix, ignore stdlib `cgi` module that might be left over from previous installs
+	The module was removed during development, and if you install over an old alpha version of 3.13 a newer Python, Nuitka would crash on it.
+- **macOS**: Allowed the `lib` folder for the Python Build Standalone flavor, improving compatibility.
+- **macOS**: Allowed libraries for `rpath` resolution to be found in all Homebrew folders and not just `lib`.
+- **Onefile**: Need to allow `..` in paths to allow outside installation paths.
+
+### Package Support
+
+- **Standalone**: Introduced support for the `nicegui` package. (Added in 2.7.1 already.)
+- **Standalone**: Extended support to include `xgboost.core` on **macOS**. (Added in 2.7.1 already.)
+- **Standalone**: Added needed data files for `ursina` package. (Added in 2.7.1 already.)
+- **Standalone**: Added support for newer versions of the `pydantic` package. (Added in 2.7.4 already.)
+- **Standalone**: Extended `libonnxruntime` support to **macOS**, enabling its use in compiled applications on this platform. (Added in 2.7.4 already.)
+- **Standalone**: Added necessary data files for the `pygameextra` package. (Added in 2.7.4 already.)
+- **Standalone**: Included GL backends for the `arcade` package. (Added in 2.7.4 already.)
+- **Standalone**: Added more data directories for the `ursina` and `panda3d` packages, improving their out-of-the-box compatibility. (Added in 2.7.4 already.)
+- **Standalone**: Added support for newer `skimage` package. (Added in 2.7.5 already.)
+- **Standalone**: Added support for the `PyTaskbar` package. (Added in 2.7.6 already.)
+- **macOS**: Added `tk-inter` support for Python 3.13 with official CPython builds, which now use framework files for Tcl/Tk. (Added in 2.7.6 already.)
+- **Standalone**: Added support for the `paddlex` package. (Added in 2.7.6 already.)
+- **Standalone**: Added support for the `jinxed` package, which dynamically loads terminal information. (Added in 2.7.6 already.)
+- **Windows**: Added support for the `ansicon` package by including a missing DLL. (Added in 2.7.6 already.)
+- **macOS**: Enhanced configuration for the `pypylon` package, however, it’s not sufficient. (Added in 2.7.6 already.)
+- **Standalone**: Added support for newer `numpy` versions. (Added in 2.7.7 already.)
+- **Standalone**: Added support for older `vtk` package. (Added in 2.7.8 already.)
+- **Standalone**: Added support for newer `certifi` versions that use `importlib.resources`. (Added in 2.7.9 already.)
+- **Standalone:** Added support for the `reportlab.graphics.barcode` module. (Added in 2.7.9 already.)
+- **Standalone**: Added support for newer versions of the `transformers` package. (Added in 2.7.11 already.)
+- **Standalone**: Added support for newer versions of the `sklearn` package. (Added in 2.7.12 already.)
+- **Standalone**: Added support for newer versions of the `scipy` package. (Added in 2.7.12 already.)
+- **Standalone**: Added support for older versions of the `cv2` package (specifically version 4.4). (Added in 2.7.12 already.)
+- **Standalone**: Added initial support for the `vllm` package. (Added in 2.7.12 already.)
+- **Standalone**: Ensured all necessary DLLs for the `pygame` package are included. (Added in 2.7.12 already.)
+- **Standalone**: Added support for newer versions of the `zaber_motion` package. (Added in 2.7.13 already.)
+- **Standalone**: Added missing dependencies for the `pymediainfo` package. (Added in 2.7.13 already.)
+- **Standalone**: Added support for newer versions of the `sklearn` package by including a missing dependency. (Added in 2.7.13 already.)
+- **Standalone**: Added support for newer versions of the `toga` package. (Added in 2.7.14 already.)
+- **Standalone**: Added support for the `wordninja-enhanced` package. (Added in 2.7.14 already.)
+- **Standalone**: Added support for the `Fast-SSIM` package. (Added in 2.7.14 already.)
+- **Standalone**: Added a missing data file for the `rfc3987_syntax` package. (Added in 2.7.14 already.)
+- **Standalone**: Added missing data files for the `trimesh` package. (Added in 2.7.15 already.)
+- **Standalone**: Added support for the `gdsfactory`, `klayout`, and `kfactory` packages. (Added in 2.7.15 already.)
+- **Standalone**: Added support for the `vllm` package. (Added in 2.7.16 already.)
+- **Standalone**: Added support for newer versions of the `tkinterweb` package. (Added in 2.7.15 already.)
+- **Standalone**: Added support for newer versions of the `cmsis_pack_manager` package. (Added in 2.7.15 already.)
+- **Standalone**: Added missing data files for the `idlelib` package. (Added in 2.7.15 already.)
+- **Standalone**: Avoid including debug binary on non-Windows for Qt Webkit.
+- **Standalone**: Add dependencies for **pymediainfo** package.
+- **Standalone**: Added support for the `winpty` package.
+- **Standalone:** Added support for newer versions of the `gi` package.
+- **Standalone:** Added support for newer versions of the `litellm` package.
+- **Standalone**: Added support for the `traits` and `pyface` packages.
+- **Standalone:** Added support for newer versions of the `transformers` package.
+- **Standalone**: Added data files for `rasterio` package.
+- **Standalone**: Added support for `ortools` package.
+- Standalone: Added support newer “vtk” package
+
+### New Features
+
+- **Python3.14**: Added experimental support for Python3.14, not recommended for use yet, as this is very fresh and might be missing a lot of fixes.
+- **Release**: Added an extra dependency group for the Nuitka build-backend, intended for use in `pyproject.toml` and other build-system dependencies. To use it depend in `Nuitka[build-wheel]` instead of Nuitka. (Added in 2.7.7 already.)
+	For release we also added `Nuitka[onefile]`, `Nuitka[standalone]`, `Nuitka[app]` as extra dependency groups. If icon conversions are used, e.g. `Nuitka[onefile,icon-conversion]` adds the necessary packages for that. If you don’t care about what’s being pulled in `Nuitka[all]` can be used, by default `Nuitka` only comes with the bare minimum needed and will inform about missing packages.
+- **macOS**: Added `--macos-sign-keyring-filename` and `--macos-sign-keyring-password` to automatically unlock a keyring for use during signing. This is very useful for CI where no UI prompt can be used.
+- **Windows**: Detect when `input` cannot be used due to no console or the console not providing proper standard input and produce a dialog for entry instead. Shells like `cmd.exe` execute inputs as commands entered when attaching to them. With this, the user is informed to make the input into the dialog instead. In case of no terminal, this just brings up the dialog for GUI mode.
+- **Plugins**: Introduced `global_change_function` to the anti-bloat engine, allowing function replacements across all sub-modules of a package at once. (Added in 2.7.6 already.)
+- **Reports**: For Python 3.13+, the compilation report now includes information on GIL usage. (Added in 2.7.7 already.)
+- **macOS**: Added an option to prevent an application from running in multiple instances. (Added in 2.7.7 already.)
+- **AIX**: Added support for this OS as well, now standalone and module mode work there too.
+- **Scons**: When C a compilation fails to due warnings in `--debug` mode, recognize that and provide the proper extra options to use if you want to ignore that.
+- **Non-Deployment**: Added a non-deployment handler to catch modules
+- **Non-Deployment**: Added non-deployment handler to catch modules that error exit on import, while assumed to work perfectly.
+	This will give people an indication that the `numpy` module is expected to work and that maybe just the newest version is not and we need to be told about it.
+- **Non-Deployment**: Added a non-deployment handler for `DistributionNotFound` exceptions in the main program, which now points the user to the necessary metadata options.
+- **UI**: Made `--include-data-files-external` the primary option for placing data files alongside the created program.
+	This now works with standalone mode too, and is no longer onefile specific, the name should reflect that and people can now use it more broadly.
+- **Plugins**: Added support for multiple warnings of the same kind. The `dill-compat` plugin needs that as it supports multiple packages.
+- **Plugins**: Added detector for the `dill-compat` plugin that detects usages of `dill`, `cloudpickle` and `ray.cloudpickle`.
+- **Standalone**: Add support for including Visual Code runtime dlls on Windows.
+	- When MSVC (Visual Studio) is installed, we take the runtime DLLs from its folders. We cannot take the ones from the `redist` packages installed to system folders for license reasons.
+		- Gives a warning when these DLLs would be needed, but were not found.
+		- We might want to add an option later to exclude them again, for size purposes, but correctness out of the box is more important for now.
+- **UI**: Make sure the distribution name is correct for `--include-distribution-metadata` option values.
+- **Plugins**: Added support for configuring re-compilation of extension modules from their source code.
+	- When we have both Python code and an extension module, we only had a global option available on the command line.
+		- This adds `--recompile-extension-modules` for more fine grained choices as it allows to specify names and patterns.
+		- For `zmq`, we need to enforce it to never be compiled, as it checks if it is compiled with Cython at runtime, so re-compilation is never possible.
+- **Reports**: Include environment flags for C compiler and linker picked up for the compilation. Sometimes these cause compilation errors that and this will reveal there presence.
+
+### Optimization
+
+- Enhanced detection of `raise` statements that use compile-time constant values which are not actual exception instances.
+	This improvement prevents **Nuitka** from crashing during code generation when encountering syntactically valid but semantically incorrect code, such as `raise NotImplemented`. While such code is erroneous, it should not cause a compiler crash. (Added in 2.7.1 already.)
+- With unknown locals dictionary variables trust very hard values there too.
+	- With this using hard import names also optimize inside of classes.
+		- This makes `gcloud` metadata work, which previously wasn’t resolved in their code.
+- **macOS**: Enhanced `PySide2` support by removing the general requirement for onefile mode. Onefile mode is now only enforced for `QtWebEngine` due to its specific stability issues when not bundled this way. (Added in 2.7.4 already.)
+- **Scons**: Added support for C23 embedding of the constants blob with ClangCL, avoiding the use of resources. Since the onefile bootstrap does not yet honor this for its payload, this feature is not yet complete but could help with size limitations in the future.
+- **Plugins**: Overhauled the UPX plugin.
+	Use better compression than before, hint the user at disabling onefile compression where applicable to avoid double compression. Output warnings for files that are not considered compressible. Check for `upx` binary sooner.
+- **Scons**: Avoid compiling `hacl` code for macOS where it’s not needed.
+
+### Anti-Bloat
+
+- Improved handling of the `astropy` package by implementing global replacements instead of per-module ones. Similar global handling has also been applied to `IPython` to reduce overhead. (Added in 2.7.1 already.)
+- Avoid `docutils` usage in the `markdown2` package. (Added in 2.7.1 already.)
+- Reduced compiled size by avoiding the use of “docutils” within the `markdown2` package. (Added in 2.7.1 already.)
+- Avoid including the testing framework from the `langsmith` package. (Added in 2.7.6 already.)
+- Avoid including `setuptools` from `jax.version`. (Added in 2.7.6 already.)
+- Avoid including `unittest` from the `reportlab` package. (Added in 2.7.6 already.)
+- Avoid including `IPython` for the `keras` package using a more global approach. (Added in 2.7.11 already.)
+- Avoid including the `triton` package when compiling `transformers`. (Added in 2.7.11 already.)
+- Avoid a bloat warning for an optional import in the `seaborn` package. (Added in 2.7.13 already.)
+- Avoid compiling generated `google.protobuf.*_pb2` files. (Added in 2.7.7 already.)
+- Avoid including `triton` and `setuptools` when using the `xformers` package. (Added in 2.7.16 already.)
+- Refined `dask` support to not remove `pandas.testing` when `pytest` usage is allowed. (Added in 2.7.16 already.)
+- Avoid compiling the `tensorflow` module that is very slow and contains generated code.
+- Avoid using `setuptools` in `cupy` package.
+- Avoid false bloat warning in `seadoc` package.
+- Avoid using `dask` in `sklearn` package.
+- Avoid using `cupy.testing` in the `cupy` package.
+- Avoid using `IPython` in the `roboflow` package.
+- Avoid including `ray` for the `vllm` package.
+- Avoid using `dill` in the `torch` package.
+
+### Organizational
+
+- **UI**: Remove obsolete options to control the compilation mode from help output. We are keeping them only to not break existing workflows, but `--mode=...` should be used now, and these options will start triggering warnings soon.
+- **Python3.13.4**: Reject broken CPython official release for Windows.
+	The link library included is not the one needed for GIL, and as such it breaks Nuitka heavily and must be errored out on, all smaller or larger micro versions work, but this one does not.
+- **Release**: Do not use Nuitka 2.7.9 as it broke data file access via `__file__` in onefile mode on Windows. This is a brown paper bag release, with 2.7.10 containing only the fix for that. Sorry for the inconvenience.
+- **Release**: Ensured proper handling of newer `setuptools` versions during Nuitka installation. (Fixed in 2.7.4 already.)
+- **UI**: Sort `--list-distribution-metadata` output and remove duplicates. (Changed in 2.7.8 already.)
+- **Visual Code**: Added a Python 2.6 configuration for Win32 to aid in comparisons and legacy testing.
+- **UI**: Now lists available Qt plugin families if `--include-qt-plugin` cannot find one.
+- **UI**: Warn about compiling a file named `__main__.py` which should be avoided, instead you should specify the package directory in that case.
+	- **UI**: Make it an error to compile a file named `__init__.py` for standalone mode.
+- **Debugging**: The `--edit` option now correctly finds files even when using long, non-shortened temporary file paths.
+- **Debugging**: The `pyside6` plugin now enforces `--no-debug-immortal-assumptions` when `--debug` is on because PySide6 violates these and we don’t need Nuitka to check for that then as it will abort when it finds them.
+- **Quality**: Avoid writing auto-formatted files with same contents
+	- That avoids stirring up tools that listen to changes.
+		- For example the Nuitka website auto-builder otherwise rebuilt per release post on docs update.
+- **Quality**: Use latest version of `deepdiff`.
+- **Quality**: Added autoformat for JSON files.
+- **Release**: The man pages were using outdated options and had no example for standalone or app modes. Also the actual options were no longer included.
+- **GitHub**: Use the `--mode` options in the issue template as well.
+- **GitHub**: Enhanced wordings for bug report template to give more directions and more space for excellent reports to be made.
+- **GitHub**: The bug report template now requests the output of our package metadata listing tool, as it provides more insight into how Nuitka perceives the environment.
+- **Debugging**: Re-enabled important warnings for Clang, which had unnoticed for a long time and prevented a few things from being recognized.
+- **Debugging**: Support arbitrary debuggers through –debugger-choice.
+	> Support arbitrary debuggers for use in the `--debugger` mode, if you specify all of their command line you can do anything there.
+	> 
+	> Also added predefined `valgrind-memcheck` mode for memory checker tool of Valgrind to be used.
+- **UI**: Added rich as a progress bar that can be used. Since it’s available via pip, it can likely be found and requires no inline copy. Added colors and similar behavior for `tqdm` as well.
+- **UI**: Remove obsolete warning for Linux with `upx` plugin.
+	We don’t use `appimage` anymore for a while now, so its constraints no longer apply.
+- **UI:** Add warnings for module specific options too. The logic to not warn on GitHub Actions was inverted, this restores warnings for normal users.
+- **UI**: Output the module name in question for `options-nanny` plugin and parameter warnings.
+- **UI**: When a forbidden import comes from an implicit import, report it properly.
+	Sometimes `.pyi` files from extension modules cause an import, but it was not clear which one; now it will indicate the module causing it.
+- **UI**: More clear error message in case a Python for scons was not found.
+- **Actions**: Cover debug mode compilation at least once.
+- **Quality**: Resolve paths from all OSes in `--edit`. Sometime I want to look at a file on a different OS, and there is no need to enforce being on the same one for path resolution to work.
+- **Actions**: Updated to a newer Ubuntu version for testing, as to get `clang-format` installed anymore.
+- **Debugging:** Allow for C stack output in signal handlers, this is most useful when doing the non-deployment handler that catches them to know where they came from more precisely.
+- **UI**: Show no-GIL in output of Python flavor in compilation if relevant.
+- **License:** Changed the license of remaining project files to **AGPLv3** granting an exception for created binaries much like gcc does. As a result, going forward we need everybody to sign a CLA that allows re-licensing.
+
+### Tests
+
+- Removed Azure CI configuration, as testing has been fully migrated to GitHub Actions. (Changed in 2.7.9 already.)
+- Improved test robustness against short paths for package-containing directories. (Added in 2.7.4 already.)
+- Prevented test failures caused by rejected download prompts during test execution, making CI more stable. (Added in 2.7.4 already.)
+- Refactored common testing code to avoid using `doctests`, preventing warnings in specific standalone mode test scenarios related to reference counting. (Added in 2.7.4 already.)
+- Tests: Cover the memory leaking call re-formulation with a reference count test.
+
+### Cleanups
+
+- **Plugins**: Improved `pkg_resources` integration by using the `__loader__` attribute of the registering module for loader type registration, avoiding modification of the global `builtins` dictionary. (Fixed in 2.7.2 already.)
+- Improved the logging mechanism for module search scans. It is now possible to enable tracing for individual `locateModule` calls, significantly enhancing readability and aiding debugging efforts.
+- **Scons**: Refactored architecture specific options into dedicated functions to improve code clarity.
+- **Spelling**: Various spelling and wording cleanups.
+	- Avoid using `#ifdef` in C code templates, and let’s just avoid it generally.
+		- Added missing slot function names to the ignored word list.
+		- Renamed variables related to slots to be more verbose and proper spelling as a result, as that’s for better understanding of their use anyway.
+- **Scons**: Specify versions supported for Scons by excluding the ones that are not, rather than manually maintaining a list. This adds automatic support for Python 3.14.
+- **Plugins**: Removed a useless call to `intern` as it did not have thought it does.
+- Attach copyright during code generation for code specializations
+	- This also enhances the formatting for almost all files by making leading and trailing new lines more consistent.
+		- One C file turns out unused and was removed as a left over from a previous refactoring.
+
+### Summary
+
+This release was supposed to focus on scalability, but that didn’t happen **again** due to a variety of important issues coming up as well as a created downtime after high private difficulties after a planned surgery. However, the upcoming release will have it finally.
+
+The onefile DLL mode as used on Windows has driven a lot of need for corrections, some of which are only in the final release, and this is probably the first time it should be usable for everything.
+
+For compatibility, working with the popular (yet - not yes recommended **UV-Python**), **Windows** UI fixes for temporary onefile and **macOS** improvements, as well as improved **Android** support are excellent.
+
+The next release of Nuitka however will have to focus on scalability and maintenance only. But as usual, not sure if it can happen.
+
+## Nuitka Release 2.7
+
+This release adds a ton of new features and corrections.
+
+### Bug Fixes
+
+- **macOS:** Correctly recognize self-dependencies of DLLs that include an architecture suffix on `x86_64`. (Fixed in 2.6.1 already.)
+- **Standalone:** Resolved an issue where `.pyi` files associated with versioned extension module filenames were not detected. (Fixed in 2.6.1 already.)
+- **Standalone:** Fixed `.pyi` file parsing failures caused by single-line triple quotes. (Fixed in 2.6.1 already.)
+- **Standalone:** Corrected the `__spec__.origin` path for packages where `__init__` is an extension module.
+	While this primarily affected the module’s `repr` string, code relying on `origin` for resource location could previously encounter errors. (Fixed in 2.6.1 already.)
+- **Multidist:** Ensured created binaries use the name they were launched with, rather than the path of the actual binary file.
+	This allows entry points invoked via `subprocess` with different process names to function correctly from a single binary distribution. (Fixed in 2.6.1 already.)
+- **Windows:** Fixed unusable `sys.stdin` when attaching to a console (`--windows-console-mode=attach`) without an active terminal, which previously led to errors when forking processes. (Fixed in 2.6.1 already.)
+- **Modules:** Prevented crashes in module mode when encountering potentially optimizable `importlib` distribution calls that are non-optimizable in this mode. (Fixed in 2.6.1 already.)
+- **Python3:** Resolved errors with newer `setuptools` versions caused by namespace packages not providing a `path_finder`. (Fixed in 2.6.1 already.)
+- **Windows:** Removed a UTF-8 comment from a C header file that could prevent MSVC from compiling correctly in certain system locales. (Fixed in 2.6.2 already.)
+- **Standalone:** Ensured that user-inhibited data files have their associated tags cleared to prevent confusion in plugins. (Fixed in 2.6.2 already.)
+- **Standalone:** Corrected `pkgutil.iter_modules` to prevent incomplete module listings.
+	Previously, if a package directory existed, Python’s file finder could interfere, yielding incomplete results that excluded compiled modules. (Fixed in 2.6.2 already.)
+- **Windows:** Addressed a C compiler warning related to onefile compression on 32-bit Windows during bootstrap compilation.
+- **Python3.12+:** Resolved a `SystemError` when accessing the `module` attribute of `type` variables.
+- **Metadata:** Handled cases where reading record data from distribution files might fail because the files do not always exist. (Fixed in 2.6.3 already.)
+- **Compatibility:** Fixed dependency resolution for shared libraries that are symbolic links on non-Windows platforms.
+	Resolution failed if dependencies originated from the symlink target and that target was not in the system library path or nearby as another symlink. (Fixed in 2.6.3 already.)
+- **Standalone:** Prevented the use of `msvcp140.dll` from `PySide6` (specifically `shiboken6`) by other packages to avoid potential compatibility crashes. (Fixed in 2.6.3 already.)
+- **Standalone:** Fixed `.pyi` file parsing failures caused by comments appearing after `import` statements. (Fixed in 2.6.3 already.)
+- **UI:** Corrected the output of DLL and EXE listings, which no longer provided the correct sub-folder information. (Fixed in 2.6.3 already.)
+- **macOS:** Restored the attachment of icons to application bundles. (Fixed in 2.6.3 already.)
+- **Onefile:** Resolved a C compiler warning on 32-bit Windows related to missing type conversion for the decompression buffer size. (Fixed in 2.6.3 already.)
+- **Python3.12+:** Ensured type aliases have a usable `module` attribute containing the correct module name. (Fixed in 2.6.3 already.)
+- **Python3.12+:** Improved compatibility for type alias values.
+	Corrected the creation process for compound type aliases, resolving errors in libraries like `pydantic` when used in schemas. (Fixed in 2.6.5 already.)
+- **Python3.12+:** Implemented a workaround for extension modules failing to set the correct package context, which previously caused significant compatibility issues (e.g., namespace collisions).
+	This was particularly problematic when static libpython was unavailable (common on Windows and official macOS CPython). The workaround involves saving/restoring the module context and correcting potentially wrongly named sub-modules created during extension module loading.
+	This improves compatibility for packages like `PySide6QtAds`, `onnx`, `mediapipe`, `paddleocr`, and newer `scipy` versions, which were previously affected. (Fixed in 2.6.6 already.)
+- **Plugins:** Prevented a crash in the Nuitka Package Configuration helper function `get_data` when falling back to `pkgutil` for data files not found naively. (Fixed in 2.6.6 already.)
+- **Standalone:** Corrected the rpath value used for finding dependent DLLs in sub-folders on non-Windows platforms.
+	It previously excluded the DLL’s own folder (`$ORIGIN`), sometimes preventing DLLs from loading. (Fixed in 2.6.7 already.)
+- **Standalone:** Preserved existing `$ORIGIN` -relative rpaths in DLLs on Linux.
+	Some PyPI packages rely on these existing paths to reference content in other packages; replacing them previously broke these setups. (Fixed in 2.6.7 already.)
+- **Standalone:** Now treats shared library dependencies specified with paths as implicit rpaths.
+	This fixes builds using Python distributions like **Python Build Standalone** (installed by `uv`), which may have an `$ORIGIN` -relative `libpython` dependency that needs to be respected. (Fixed in 2.6.7 already.)
+- **Python3:** Ensured generators preserve external exceptions and restore their own upon resuming.
+	This fixes issues where generators used as context managers, handling an exception via `yield`, could prevent an outer `with` statement from correctly re-raising its own exception. (Fixed in 2.6.7 already.)
+- **Android:** Removed the Termux `rpath` value pointing into its installation from standalone builds.
+	While ineffective after APK packaging due to Android security, this value should not have been present. (Fixed in 2.6.7 already.)
+- **Python Build Standalone:** Added the rpath to `libpython` by default in all modes for **Python Build Standalone** distributions.
+	This resolves issues with uninstalled `libpython` on **Linux**. (Fixed in 2.6.8 already.)
+- **Standalone:** Resolved incompatibility with older Linux distributions caused by using newer `patchelf` options introduced in 2.6.8’s rpath changes. (Fixed in 2.6.9 already.)
+- **Python3.9:** Fixed errors in the `spacy` plugin when using older `importlib.metadata` versions. (Fixed in 2.6.8 already.)
+- **Standalone:** Prevented `requests` package imports from being incorrectly treated as sub-packages. (Fixed in 2.6.8 already.)
+- **Distutils on macOS:** Improved integration for scanned extension modules where determining the correct architecture can be difficult. (Fixed in 2.6.8 already.)
+- **Windows:** Defined `dotnet` as a dependency to ensure all UI features requiring it are properly enabled.
+- **Scons:** Ensured the correct `link.exe` executable is used for the MSVC backend, avoiding potential conflicts with linkers added to the `PATH` (e.g., by `git`). (Fixed in 2.6.9 already.)
+- **Scons:** Avoided using `config.txt` with `clcache` when using MSVC.
+	This prevents potential race conditions during the first use where multiple `clcache` threads might attempt to create the file simultaneously. (Fixed in 2.6.9 already.)
+- **Standalone:** Ensured extension modules are loaded during the `create_module` phase of the Nuitka loader for better compatibility.
+	Loading them later during `exec_module` caused issues with some extension modules, such as those created by `mypy` (used in `black`).
+- **Python3.13:** Corrected the workaround for extension module package context issues, resolving errors that occurred when the module and package names were identical.
+- **Module:** Prevented stub generation attempts for namespace packages, which previously resulted in warnings as there is no source code to process.
+- **Debian:** Ensured consistent casing for the installer name used in Debian package metadata.
+- **Poetry:** Updated detection logic for newer `poetry` versions to handle changes in installer name casing, which could previously impact system DLL usage determination.
+- **Module:** Improved stub generation (`stubgen`) for generics, handling of missing `typing` imports, and other cases.
+- **Plugins:** Fixed potential corruption and crashes in the `dill-compat` plugin when handling functions with keyword defaults.
+- **Standalone:** Added support for newer `py-cpuinfo` versions on non-Windows platforms.
+- **Accelerated:** Prevented Nuitka’s `sys.path_hook` from overriding standard Python path loader hooks, as it doesn’t yet support all their functionalities.
+- **Python3.12.7+:** Set additional unicode immortal attributes (including for non-attributes) to prevent triggering Python core assertions when enabled.
+- **Compatibility:** Ensured errors are properly fetched during class variable lookups.
+	Previously, an error exit could occur without an exception being set, leading to crashes when attempting to attach tracebacks.
+- **Python3.13:** Adapted dictionary value creation and copying to follow internal layout changes, preventing potential crashes and corruption caused by using obsolete Python 3.11/3.12 code.
+- **Scons:** Corrected the default LTO module count calculation to refer to the number of compiled modules.
+- **Package:** Ensured namespace parent modules are included in compiled packages.
+	These were previously missed due to the removal of reliance on `--include-package` for delayed namespace package handling.
+- **macOS:** Ensured data files included in application bundles are also signed.
+- **Windows:** Applied short path conversion to the directory part of `sys.argv[0]` as well.
+	This prevents issues with tools called using this path that might not handle non-shortened (potentially unicode) paths correctly.
+
+### Package Support
+
+- **Standalone:** Included necessary data files for the `blib2to3` package. (Added in 2.6.1 already.)
+- **Standalone:** Added support for newer `numba` versions. (Added in 2.6.2 already.)
+- **Standalone:** Added support for newer `huggingface_hub` versions. (Added in 2.6.2 already.)
+- **Anti-Bloat:** Provided additional `numpy.testing` stubs required for proper execution of some `sklearn` modules. (Fixed in 2.6.2 already.)
+- **Standalone:** Enhanced configuration for `fontTools`. Avoided configuring hidden dependencies now detected by parsing provided Python files like `.pyi` files. (Fixed in 2.6.2 already.)
+- **Standalone:** Corrected plugin configuration for newer `PySide6` `sqldrivers` on macOS. (Fixed in 2.6.3 already.)
+- **Python3.12+:** Introduced standalone support for `mediapipe`, including a workaround for extension module sub-module creation issues. (Fixed in 2.6.3 already.)
+- **Python3.12+:** Introduced standalone support for `onnx`, including a workaround for extension module sub-module creation issues. (Fixed in 2.6.3 already.)
+- **Standalone:** Added support for newer `sqlglot` versions. (Added in 2.6.5 already.)
+- **Standalone:** Included `asset` data files for the `arcade` package. (Added in 2.6.5 already.)
+- **Standalone:** Added implicit dependencies for `sqlalchemy.orm`. (Added in 2.6.5 already.)
+- **macOS:** Included additional frameworks required for PySide 6.8 web-engine support. (Added in 2.6.5 already.)
+- **Standalone:** Enhanced `cv2` support to handle potentially Python minor version-specific config files by allowing optional data file discovery in plugins. (Added in 2.6.6 already.)
+- **Standalone:** Added support for the `scipy` sub-module loader mechanism.
+	By treating it as a lazy loader, implicit dependencies within `scipy` are now correctly detected without requiring explicit configuration. (Added in 2.6.7 already.)
+- **Standalone:** Automatically include Django database engine modules. (Added in 2.6.7 already.)
+- **Homebrew:** Added `tk-inter` support for Python versions using **Tcl/Tk** version 9.
+- **Standalone:** Included a missing data file for the `jenn` package.
+- **Standalone:** Added support for newer `scipy.optimize._cobyla` versions. (Fixed in 2.6.8 already.)
+- **Anaconda:** Fixed issues with bare `mkl` usage (without `numpy`).
+- **Standalone:** Included a missing data file for the `cyclonedx` package.
+- **Compatibility:** Enabled pickling of local compiled functions using `cloudpickle` and `ray.cloudpickle`.
+- **Standalone:** Added support for `mitmproxy` on macOS.
+- **Standalone:** Included necessary data files for `python-docs` and `mne`.
+- **Standalone:** Added support for newer `toga` versions, requiring handling of its lazy loader.
+- **Standalone:** Introduced support for the `black` code formatter package.
+- **Standalone:** Included metadata when the `travertino` package is used.
+- **Standalone:** Significantly enhanced support for detecting dependencies derived from `django` settings.
+- **Standalone:** Added support for the `duckdb` package.
+
+### New Features
+
+- **DLL Mode:** Introduced a new experimental mode (`--mode=dll`) to create standalone DLL distributions.
+	While functional for many cases, documentation is currently limited, and features like multiprocessing require further work involving interaction with the launching binary.
+	This mode is intended to improve Windows GUI compatibility (tray icons, notifications) for onefile applications by utilizing an internal DLL structure.
+- **Windows:** Onefile mode now internally uses the new DLL mode by default, interacting with a DLL instead of an executable in temporary mode.
+	Use `--onefile-no-dll` to revert to the previous behavior if issues arise.
+- **Windows:** Added support for dependency analysis on Windows ARM builds using `pefile` (as Dependency Walker lacks ARM support).
+- **Android:** Enabled module mode support when using Termux Python. (Added in 2.6.7 already.)
+- **Compatibility:** Added support for **Python Build Standalone** distributions (e.g., as downloaded by `uv`).
+	Note that static `libpython` is not supported with these distributions as the included static library is currently unusable. (Added in 2.6.7 already.)
+- **Windows:** Enabled taskbar grouping for compiled applications if product and company names are provided in the version information. (Added in 2.6.4 already.)
+- **Windows:** Automatically use icons provided via `--windows-icon-from-ico` for `PySide6` applications.
+	This eliminates the need to separately provide the icon as a PNG file, avoiding duplication.
+- **Nuitka Package Configuration:** Allowed using values from `constants` and `variable` declarations within `when` conditions where feasible.
+- **Reports:** Clearly indicate if an included package is “vendored” (e.g., packages bundled within `setuptools`).
+- **Compatibility:** Added support for the `safe_path` (`-P`) Python flag, preventing the use of the current directory in module searches.
+- **Compatibility:** Added support for the `dont_write_bytecode` (`-B`) Python flag, disabling the writing of `.pyc` files at runtime (primarily for debugging purposes, as compiled code doesn’t generate them).
+- **UI:** Introduced a new experimental tool for scanning distribution metadata, producing output similar to `pip list -v`. Intended for debugging metadata scan results.
+- **Plugins:** Enhanced the `dill-compat` plugin to transfer `__annotations__` and `__qualname__`.
+	Added an option to control whether the plugin should also handle `cloudpickle` and `ray.cloudpickle`.
+- **AIX:** Implemented initial enhancements towards enabling Nuitka usage on AIX, although further work is required.
+
+### Optimization
+
+- Optimized finalizer handling in compiled generators, coroutines, and asyncgens by avoiding slower C API calls introduced in 2.6, restoring performance for these objects.
+- Implemented a more compact encoding for empty strings in data blobs.
+	Instead of 2 bytes (unicode) + null terminator, a dedicated type indicator reduces this frequent value to a single byte.
+
+### Anti-Bloat
+
+- Avoided including `matplotlib` when used by the `tqdm` package. (Added in 2.6.2 already.)
+- Avoided including `matplotlib` when used by the `scipy` package. (Added in 2.6.2 already.)
+- Avoided including `cython` when used by the `fontTools` package. (Added in 2.6.2 already.)
+- Avoided including `sparse` when used by the `scipy` package. (Added in 2.6.3 already.)
+- Avoided including `ndonnx` when used by the `scipy` package. (Added in 2.6.3 already.)
+- Avoided including `setuptools` for the `jaxlib` package.
+	Also prevented attempts to query the version from `jaxlib` source code using git. (Added in 2.6.3 already.)
+- Avoided including `yaml` when used by the `scipy` package. (Added in 2.6.4 already.)
+- Avoided including `charset_normalizer` for the `numpy` package. (Added in 2.6.5 already.)
+- Avoided including `lxml` for the `pandas` package. (Added in 2.6.5 already.)
+- Avoided including `PIL` (Pillow) for the `sklearn` package. (Added in 2.6.5 already.)
+- Avoided including `numba` when used by the `smt` package. (Added in 2.6.7 already.)
+- Avoided including more optional `pygame` dependencies. (Added in 2.6.8 already.)
+- Avoided including `setuptools`, `tomli`, and `tomllib` for the `incremental` package.
+- Avoided including `IPython` when used by the `rich` package vendored within `pip`.
+- For reporting purposes, treated usage of `ipywidgets` as equivalent to using `IPython`.
+- Added support for `assert_raises` within Nuitka’s `numpy.testing` stub.
+
+### Organizational
+
+- **UI:** Improved the output format for used command line options.
+	Filenames provided as positional arguments now use the report path format. Info traces now support an optional leader for intended value output, enhancing readability.
+- **Reports:** Saved and restored timing information for cached modules.
+	This eliminates timing differences based on whether a module was loaded from cache, reducing noise in **Nuitka-Watch** comparisons where cached module timings previously changed with every new compilation.
+- **Actions:** Added compilation report artifacts to all CI runs involving empty module compilations.
+- **Debugging:** Enabled the `--edit` option to find modules within `.app` bundles created on macOS. (Added in 2.6.1 already.)
+- **User Manual:** Updated the Nuitka-Action example; linking directly to its documentation might be preferable. (Changed in 2.6.1 already.)
+- **Quality:** Enforced ASCII encoding for all Nuitka C files to prevent accidental inclusion of non-ASCII characters.
+- **Quality:** Added syntax validation for `global_replacements` result values, similar to existing checks for `replacements`.
+	Also added validation to ensure `global_replacements_re` and `replacements_re` result values are valid regular expressions.
+- **Plugins:** Ensured error messages for illegal module names in implicit imports correctly report the originating plugin name.
+- **Quality:** Enabled use of `clang-format-21` if available and applied formatting changes specific to this newer version.
+- **Quality:** Suppressed `pylint` warnings related to `setuptools` usage when running with Python 3.12+.
+- **UI:** Disallowed mixed usage of Anaconda and Poetry *without* an active Poetry virtual environment.
+	This avoids issues caused by a Poetry bug where it incorrectly sets the `INSTALLER` metadata for Conda packages in this scenario, making reliable detection of Conda packages impossible.
+- **macOS:** Deprecated `--macos-target-arch` in favor of the standard `--target-arch` option, with plans for eventual removal.
+- **Release:** Ensured usage of a compatible `setuptools` version during `osc` uploads.
+- **UI:** Improved the error message for invalid custom anti-bloat modes by listing the allowed values.
+- **Release:** Removed CPython test git submodules from the repository.
+	These submodules caused issues, such as being cloned during `pip install` and sometimes failing, potentially breaking Nuitka installation.
+
+### Tests
+
+- Enabled passing extra options via the `NUITKA_EXTRA_OPTIONS` environment variable for `distutils` test cases involving `pyproject.toml`.
+- Removed the standalone test for the `gi` package, as it’s better covered by Nuitka-Watch and prone to failures in CI due to lack of an X11 display.
+- Ensured tests correctly ignore the current directory when necessary by using the new `--python-flag=safe_path`.
+	This forces the use of the original source code as intended, rather than potentially finding modules in the current directory.
+- Corrected the implementation of the `retry` mechanism for `pipenv` installation within the `nuitka-watch` tool.
+- Added support for passing extra options via environment variables to the `nuitka-watch` tool.
+
+### Cleanups
+
+- **Distutils:** Standardized usage to `--module=package` where appropriate, instead of manually adding package contents, resulting in more conventional Nuitka command lines.
+- Refactored `.pyi` file creation into a dedicated function, simplifying the post-processing code.
+
+### Summary
+
+This release was supposed to focus on scalability, but that didn’t happen due to a variety of important issues coming up as well as unplanned private difficulties.
+
+The added DLL mode will be very interesting to many users, but needs more polish in future releases.
+
+For compatibility, working with the popular (yet - not yes recommended **UV-Python**), **Windows** UI fixes for temporary onefile and **macOS** improvements, as well as improved **Android** support are excellent.
+
+The next release of Nuitka however will have to focus on scalability and maintenance only. But as usual, not sure if it can happen.
+
+## Nuitka Release 2.6
+
+This release has all-around improvements, with a lot effort spent on bug fixes in the memory leak domain, and preparatory actions for scalability improvements.
+
+### Bug Fixes
+
+- **MSYS2:** Path normalization to native Windows format was required in more places for the `MinGW` variant of **MSYS2**.
+	The `os.path.normpath` function doesn’t normalize to native Win32 paths with MSYS2, instead using forward slashes. This required manual normalization in additional areas. (Fixed in 2.5.1)
+- **UI:** Fix, give a proper error when extension modules asked to include failed to be located. instead of a proper error message. (Fixed in 2.5.1)
+- Fix, files with illegal module names (containing `.`) in their basename were incorrectly considered as potential sub-modules for `--include-package`. These are now skipped. (Fixed in 2.5.1)
+- **Stubgen:** Improved stability by preventing crashes when stubgen encounters code it cannot handle. Exceptions from it are now ignored. (Fixed in 2.5.1)
+- **Stubgen:** Addressed a crash that occurred when encountering assignments to non-variables. (Fixed in 2.5.1)
+- **Python 3:** Fixed a regression introduced in 2.5 release that could lead to segmentation faults in exception handling for generators. (Fixed in 2.5.2)
+- **Python 3.11+:** Corrected an issue where dictionary copies of large split directories could become corrupted. This primarily affected instance dictionaries, which are created as copies until updated, potentially causing problems when adding new keys. (Fixed in 2.5.2)
+- **Python 3.11+:** Removed the assumption that module dictionaries always contain only strings as keys. Some modules, like `Foundation` on macOS, use non-string keys. (Fixed in 2.5.2)
+- **Deployment:** Ensured that the `--deployment` option correctly affects the C compilation process. Previously, only individual disables were applied. (Fixed in 2.5.2)
+- **Compatibility:** Fixed a crash that could occur during compilation when unary operations were used within binary operations. (Fixed in 2.5.3)
+- **Onefile:** Corrected the handling of `__compiled__.original_argv0`, which could lead to crashes. (Fixed in 2.5.4)
+- **Compatibility:** Resolved a segmentation fault occurring at runtime when calling `tensorflow.function` with only keyword arguments. (Fixed in 2.5.5)
+- **macOS:** Harmless warnings generated for x64 DLLs on arm64 with newer macOS versions are now ignored. (Fixed in 2.5.5)
+- **Python 3.13:** Addressed a crash in Nuitka’s dictionary code that occurred when copying dictionaries due to internal changes in Python 3.13. (Fixed in 2.5.6)
+- **macOS:** Improved onefile mode signing by applying `--macos-signed-app-name` to the signature of binaries, not just app bundles. (Fixed in 2.5.6)
+- **Standalone:** Corrected an issue where too many paths were added as extra directories from the Nuitka package configuration. This primarily affected the `win32com` package, which currently relies on the `package-dirs` import hack. (Fixed in 2.5.6)
+- **Python 2:** Prevented crashes on macOS when creating onefile bundles with Python 2 by handling negative CRC32 values. This issue may have affected other versions as well. (Fixed in 2.5.6)
+- **Plugins:** Restored the functionality of code provided in `pre-import-code`, which was no longer being applied due to a regression. (Fixed in 2.5.6)
+- **macOS:** Suppressed the app bundle mode recommendation when it is already in use. (Fixed in 2.5.6)
+- **macOS:** Corrected path normalization when the output directory argument includes “~”.
+- **macOS:** GitHub Actions Python is now correctly identified as a Homebrew Python to ensure proper DLL resolution. (Fixed in 2.5.7)
+- **Compatibility:** Fixed a reference leak that could occur with values sent to generator objects. Asyncgen and coroutines were not affected. (Fixed in 2.5.7)
+- **Standalone:** The `--include-package` scan now correctly handles cases where both a package init file and competing Python files exist, preventing compile-time conflicts. (Fixed in 2.5.7)
+- **Modules:** Resolved an issue where handling string constants in modules created for Python 3.12 could trigger assertions, and modules created with 3.12.7 or newer failed to load on older Python 3.12 versions when compiled with Nuitka 2.5.5-2.5.6. (Fixed in 2.5.7)
+- **Python 3.10+:** Corrected the tuple code used when calling certain method descriptors. This issue primarily affected a Python 2 assertion, which was not impacted in practice. (Fixed in 2.5.7)
+- **Python 3.13:** Updated resource readers to accept multiple arguments for `importlib.resources.read_text`, and correctly handle `encoding` and `errors` as keyword-only arguments.
+- **Scons:** The platform encoding is no longer used to decode `ccache` logs. Instead, `latin1` is used, as it is sufficient for matching filenames across log lines and avoids potential encoding errors. (Fixed in 2.5.7)
+- **Python 3.12+:** Requests to statically link libraries for `hacl` are now ignored, as these libraries do not exist. (Fixed in 2.5.7)
+- **Compatibility:** Fixed a memory leak affecting the results of functions called via specs. This primarily impacted overloaded hard import operations. (Fixed in 2.5.7)
+- **Standalone:** When multiple distributions for a package are found, the one with the most accurate file matching is now selected. This improves handling of cases where an older version of a package (e.g., `python-opencv`) is overwritten with a different variant (e.g., `python-opencv-headless`), ensuring the correct version is used for Nuitka package configuration and reporting. (Fixed in 2.5.8)
+- **Python 2:** Prevented a potential crash during onefile initialization on Python 2 by passing the directory name directly from the onefile bootstrap, avoiding the use of `os.dirname` which may not be fully loaded at that point. (Fixed in 2.5.8)
+- **Anaconda:** Preserved necessary `PATH` environment variables on Windows for packages that require loading DLLs from those locations. Only `PATH` entries not pointing inside the installation prefix are removed. (Fixed in 2.5.8)
+- **Anaconda:** Corrected the `is_conda_package` check to function properly when distribution names and package names differ. (Fixed in 2.5.8)
+- **Anaconda:** Improved package name resolution for Anaconda distributions by checking conda metadata when file metadata is unavailable through the usual methods. (Fixed in 2.5.8)
+- **MSYS2:** Normalized the downloaded gcc path to use native Windows slashes, preventing potential compilation failures. (Fixed in 2.5.9)
+- **Python 3.13:** Restored static libpython functionality on Linux by adapting to a signature change in an unexposed API. (Fixed in 2.5.9)
+- **Python 3.6+:** Prevented `asyncgen` from being resurrected when a finalizer is attached, resolving memory leaks that could occur with `asyncio` in the presence of exceptions. (Fixed in 2.5.10)
+- **UI:** Suppressed the gcc download prompt that could appear during `--version` output on Windows systems without MSVC or with an improperly installed gcc.
+- Ensured compatibility with monkey patched `os.lstat` or `os.stat` functions, which are used in some testing scenarios.
+- **Data Composer:** Improved the determinism of the JSON statistics output by sorting keys, enabling reliable build comparisons.
+- **Python 3.6+:** Fixed a memory leak in `asyncgen` with finalizers, which could lead to significant memory consumption when using `asyncio` and encountering exceptions.
+- **Scons:** Optimized empty generators (an optimization result) to avoid generating unused context code, eliminating C compilation warnings.
+- **Python 3.6+:** Fixed a reference leak affecting the `asend` value in `asyncgen`. While typically `None`, this could lead to observable reference leaks in certain cases.
+- **Python 3.5+:** Improved handling of `coroutine` and `asyncgen` resurrection, preventing memory leaks with `asyncio` and `asyncgen`, and ensuring correct execution of `finally` code in coroutines.
+- **Python 3:** Corrected the handling of `generator` objects resurrecting during deallocation. While not explicitly demonstrated, this addresses potential issues similar to those encountered with coroutines, particularly for old-style coroutines created with the `types.coroutine` decorator.
+- **PGO:** Fixed a potential crash during runtime trace collection by ensuring timely initialization of the output mechanism.
+
+### Package Support
+
+- **Standalone:** Added inclusion of metadata for `jupyter_client` to support its own usage of metadata. (Added in 2.5.1)
+- **Standalone:** Added support for the `llama_cpp` package. (Added in 2.5.1)
+- **Standalone:** Added support for the `litellm` package. (Added in 2.5.2)
+- **Standalone:** Added support for the `lab_lamma` package. (Added in 2.5.2)
+- **Standalone:** Added support for `docling` metadata. (Added in 2.5.5)
+- **Standalone:** Added support for `pypdfium` on Linux. (Added in 2.5.5)
+- **Standalone:** Added support for using the `debian` package. (Added in 2.5.5)
+- **Standalone:** Added support for the `pdfminer` package. (Added in 2.5.5)
+- **Standalone:** Included missing dependencies for the `torch._dynamo.polyfills` package. (Added in 2.5.6)
+- **Standalone:** Added support for `rtree` on Linux. The previous static configuration only worked on Windows and macOS; this update detects it from the module code. (Added in 2.5.6)
+- **Standalone:** Added missing `pywebview` JavaScript data files. (Added in 2.5.7)
+- **Standalone:** Added support for newer versions of the `sklearn` package. (Added in 2.5.7)
+- **Standalone:** Added support for newer versions of the `dask` package. (Added in 2.5.7)
+- **Standalone:** Added support for newer versions of the `transformers` package. (Added in 2.5.7)
+- **Windows:** Placed `numpy` DLLs at the top level for improved support in the Nuitka VM. (Added in 2.5.7)
+- **Standalone:** Allowed excluding browsers when including `playwright`. (Added in 2.5.7)
+- **Standalone:** Added support for newer versions of the `sqlfluff` package. (Added in 2.5.8)
+- **Standalone:** Added support for the `opencv` conda package, disabling unnecessary workarounds for its dependencies. (Added in 2.5.8)
+- **Standalone:** Added support for newer versions of the `soundfile` package.
+- **Standalone:** Added support for newer versions of the `coincurve` package.
+- **Standalone:** Added support for newer versions of the `apscheduler` package.
+- **macOS:** Removed the error and workaround forcing that required bundle mode for PyQt5 on macOS, as standalone mode now appears to function correctly.
+- **Standalone:** Added support for `seleniumbase` package downloads.
+
+### New Features
+
+- **Module:** Implemented 2-phase loading for all modules in Python 3.5 and higher. This improves loading modules as sub-packages in Python 3.12+, where the loading context is no longer accessible.
+- **UI:** Introduced the `app` value for the `--mode` parameter. This creates an app bundle on macOS and a onefile binary on other platforms, replacing the `--macos-create-app-bundle` option. (Added in 2.5.5)
+- **UI:** Added a `package` mode, similar to `module`, which automatically includes all sub-modules of a package without requiring manual specification with `--include-package`.
+- **Module:** Added an option to completely disable the use of `stubgen`. (Added in 2.5.1)
+- **Homebrew:** Added support for `tcl9` with the `tk-inter` plugin.
+- **Package Resolution:** Improved handling of multiple distributions installed for the same package name. Nuitka now attempts to identify the most recently installed distribution, enabling proper recognition of different versions in scenarios like `python-opencv` and `python-opencv-headless`.
+- **Python 3.13.1 Compatibility:** Addressed an issue where a workaround introduced for Python 3.10.0 broke standalone mode in Python 3.13.1. (Added in 2.5.6)
+- **Plugins:** Introduced a new feature for absolute source paths (typically derived from variables or relative to constants). This offers greater flexibility compared to the `by_code` DLL feature, which may be removed in the future. (Added in 2.5.6)
+- **Plugins:** Added support for `when` conditions in `variable` sections within Nuitka Package configuration.
+- **macOS:** App bundles now automatically switch to the containing directory when not launched from the command line. This prevents the current directory from defaulting to `/`, which is rarely correct and can be unexpected for users. (Added in 2.5.6)
+- **Compatibility:** Relaxed the restriction on setting the compiled frame `f_trace`. Instead of outright rejection, the deployment flag `--no-deployment-flag=frame-useless-set-trace` can be used to allow it, although it will be ignored.
+- **Windows:** Added the ability to detect extension module entry points using an inline copy of `pefile`. This enables `--list-package-dlls` to verify extension module validity on the platform. It also opens possibilities for automatic extension module detection on major operating systems.
+- **Watch:** Added support for using `conda` packages instead of PyPI packages.
+- **UI:** Introduced `--list-package-exe` to complement `--list-package-dlls` for package analysis when creating Nuitka Package Configuration.
+- **Windows ARM:** Removed workarounds that are no longer necessary for compilation. While the lack of dependency analysis might require correction in a hotfix, this configuration should now be supported.
+
+### Optimization
+
+- **Scalability:** Implemented experimental code for more compact code object usage, leading to more scalable C code and constants usage. This is expected to speed up C compilation and code generation in the future once fully validated.
+- **Scons:** Added support for C23 embedding of the constants blob. This will be utilized with Clang 19+ and GCC 15+, except on Windows and macOS where other methods are currently employed.
+- **Compilation:** Improved performance by avoiding redundant path checks in cases of duplicated package directories. This significantly speeds up certain scenarios where file system access is slow.
+- **Scons:** Enhanced detection of static libpython, including for self-compiled, uninstalled Python installations.
+
+### Anti-Bloat
+
+- Improved `no_docstrings` support for the `xgboost` package. (Added in 2.5.7)
+- Avoided unnecessary usage of `numpy` for the `PIL` package.
+- Avoided unnecessary usage of `yaml` for the `numpy` package.
+- Excluded `tcltest` TCL code when using `tk-inter`, as these TCL files are unused.
+- Avoided using `IPython` from the `comm` package.
+- Avoided using `pytest` from the `pdbp` package.
+
+### Organizational
+
+- **UI:** Added categories for plugins in the `--help` output. Non-package support plugin options are now shown by default. Introduced a dedicated `--help-plugins` option and highlighted it in the general `--help` output. This allows viewing all plugin options without needing to enable a specific plugin.
+- **UI:** Improved warnings for onefile and OS-specific options. These warnings are now displayed unless the command originates from a Nuitka-Action context, where users typically build for different modes with a single configuration set.
+- **Nuitka-Action:** The default `mode` is now `app`, building an application bundle on macOS and a onefile binary on other platforms.
+- **UI:** The executable path in `--version` output now uses the report path. This avoids exposing the user’s home directory, encouraging more complete output sharing.
+- **UI:** The Python flavor name is now included in the startup compilation message.
+- **UI:** Improved handling of missing Windows version information. If only partial version information (e.g., product or file version) is provided, an explicit error is given instead of an assertion error during post-processing.
+- **UI:** Corrected an issue where the container argument for `run-inside-nuitka-container` could not be a non-template file. (Fixed in 2.5.2)
+- **Release:** The PyPI upload `sdist` creation now uses a virtual environment. This ensures consistent project name casing, as it is determined by the setuptools version. While currently using the deprecated filename format, this change prepares for the new format.
+- **Release:** The `osc` binary is now used from the virtual environment to avoid potential issues with a broken system installation, as currently observed on Ubuntu.
+- **Debugging:** Added an experimental option to disable the automatic conversion to short paths on Windows.
+- **UI:** Improved handling of external data files that overwrite the original file. Nuitka now prompts the user to provide an output directory to prevent unintended overwrites. (Added in 2.5.6)
+- **UI:** Introduced the alias `--include-data-files-external` for the external data files option. This clarifies that the feature is not specific to onefile mode and encourages its wider use.
+- **UI:** Allowed `none` as a valid value for the macOS icon option. This disables the warning about a missing icon when intentionally not providing one.
+- **UI:** Added an error check for icon filenames without suffixes, preventing cases where the file type cannot be inferred.
+- **UI:** Corrected the examples for `--include-package-data` with file patterns, which used incorrect delimiters.
+- **Scons:** Added a warning about using gcc with LTO when `make` is unavailable, as this combination will not work. This provides a clearer message than the standard gcc warnings, which can be difficult for Python users to interpret.
+- **Debugging:** Added an option to preserve printing during reference count tests. This can be helpful for debugging by providing additional trace information.
+- **Debugging:** Added a small code snippet for module reference leak testing to the Developer Manual.
+
+### Tests
+
+- Temporarily disabled tests that expose regressions in Python 3.13.1 that mean not to follow.
+- Improved test organization by using more common code for package tests. The scanning for test cases and main files now utilizes shared code.
+- Added support for testing variations of a test with different extra flags. This is achieved by exposing a `NUITKA_TEST_VARIANT` environment variable.
+- Improved detection of commercial-only test cases by identifying them through their names rather than hardcoding them in the runner. These tests are now removed from the standard distribution to reduce clutter.
+- Utilized `--mode` options in tests for better control and clarity. Standalone mode tests now explicitly check for the application of the mode and error out if it’s missing. Mode options are added to the project options of each test case instead of requiring global configuration.
+- Added a test case to ensure comprehensive coverage of external data file usage in onefile mode. This helps detect regressions that may have gone unnoticed previously.
+- Increased test coverage for coroutines and async generators, including checks for `inspect.isawaitable` and testing both function and context objects.
+
+### Cleanups
+
+- Unified the code used for generating source archives for PyPI uploads, ensuring consistency between production and standard archives.
+- Harmonized the usage of `include <...>` vs `include "..."` based on the origin of the included files, improving code style consistency.
+- Removed code duplication in the exception handler generator code by utilizing the `DROP_GENERATOR_EXCEPTION` functions.
+- Updated Python version checks to reflect current compatibility. Checks for `>=3.4` were changed to `>=3`, and outdated references to Python 3.3 in comments were updated to simply “Python 3”.
+- **Scons:** Simplified and streamlined the code for the command options. An `OrderedDict` is now used to ensure more stable build outputs and prevent unnecessary differences in recorded output.
+- Improved the `executeToolChecked` function by adding an argument to indicate whether decoding of returned `bytes` output to `unicode` is desired. This eliminates redundant decoding in many places.
+
+### Summary
+
+This a major release that it consolidates Nuitka big time.
+
+The scalability work has progressed, even if no immediately visible effects are there yet, the next releases will have them, as this is the main area of improvement these days.
+
+The memory leaks found are very important and very old, this is the first time that `asyncio` should be working perfect with Nuitka, it was usable before, but compatibility is now much higher.
+
+Also, this release puts out a much nicer help output and handling of plugins help, which no longer needs tricks to see a plugin option that is not enabled (yet), during `--help`. The user interface is hopefully more clean due to it.
+
+## Nuitka Release 2.5
+
+This release focused on Python 3.13 support, but also on improved compatibility, made many performance optimizations, enhanced error reporting, and better debugging support.
+
+### Bug Fixes
+
+- **Windows:** Fixed a regression in onefile mode that incorrectly handled program and command line paths containing spaces. Fixed in 2.4.4 already.
+- **Windows:** Corrected an issue where console output handles were being opened with closed file handles. Fixed in 2.4.2 already.
+- **Standalone:** Restored the ability to use trailing slashes on the command line to specify the target directory for data files on Windows. Fixed in 2.4.2 already.
+- **Compatibility:** Fixed a parsing error that occurred with relative imports in `.pyi` files, which could affect some extension modules with available source code. Fixed in 2.4.3 already.
+- **Modules:** Ensured that extension modules load correctly into packages when using Python 3.12. Fixed in 2.4.4 already.
+- **Windows:** Improved command line handling for onefile mode to ensure full compatibility with quoting. Fixed in 2.4.4 already.
+- **Data Directories:** Allowed the use of non-normalized paths on the command line when specifying data directories. Fixed in 2.4.5 already.
+- **Python 3.11+:** Fixed an issue where `inspect` module functions could raise `StopIteration` when examining compiled functions on the stack. Fixed in 2.4.5 already.
+- **importlib\_metadata:** Improved compatibility with `importlib_metadata` by handling cases where it might be broken, preventing potential compilation crashes. Fixed in 2.4.5 already.
+- **Plugins:** Fixed a crash that occurred when using the `no_asserts` YAML configuration option. Fixed in 2.4.6 already.
+- **Scons:** Improved error tolerance when reading `ccache` log files to prevent crashes on Windows caused by non-ASCII module names or paths. Fixed in 2.4.11 already.
+- **Scons:** Prevented the C standard option from being applied to C++ compilers, resolving an issue with the splash screen on Windows when using Clang. Fixed in 2.4.8 already.
+- **macOS:** Enhanced handling of DLL self-dependencies to accommodate cases where DLLs use both `.so` and `.dylib` extensions for self-references. Fixed in 2.4.8 already.
+- **Compatibility:** Fixed a memory leak that occurred when using `deepcopy` on compiled methods. Fixed in 2.4.9 already.
+- **MSYS2:** Excluded the `bin` directory from being considered a system DLL folder when determining DLL inclusion. Fixed in 2.4.9 already.
+- **Python 3.10+:** Fixed a crash that could occur when a `match` statement failed to match a class with arguments. Fixed in 2.4.9 already.
+- **MSYS2:** Implemented a workaround for non-normalized paths returned by `os.path.normpath` in **MSYS2** Python environments. Fixed in 2.4.11 already.
+- **Python 3.12:** Resolved an issue where Nuitka’s constant code was triggering assertions in Python 3.12.7. Fixed in 2.4.10 already.
+- **UI:** Ensured that the `--include-package` option includes both Python modules and extension modules that are sub-modules of the specified package. Fixed in 2.4.11 already.
+- **Windows:** Prevented encoding issues with CMD files used for accelerated mode on Windows.
+- **Standalone:** Improved the standard library scan to avoid assuming the presence of specific files, which might have been deleted by the user or a Python distribution.
+- **Compatibility:** Added `suffix`, `suffixes`, and `stem` attributes to Nuitka resource readers to improve compatibility with file objects.
+- **Compatibility:** Backported the error message change for `yield from` used at the module level, using dynamic detection instead of hardcoded text per version.
+- **Compatibility:** Fixed an issue where calling built-in functions with keyword-only arguments could result in errors due to incorrect argument passing.
+- **Compatibility:** Fixed reference leaks that occurred when using `list.insert` and `list.index` with 2 or 3 arguments.
+- **Windows:** Prioritized relative paths over absolute paths for the result executable when absolute paths are not file system encodable. This helps address issues related to non-ASCII short paths on some Chinese systems.
+- **Compatibility:** Improved compatibility with C extensions by handling cases where the attribute slot is not properly implemented, preventing potential segfaults.
+- **Compatibility:** Prevent the leakage of `sys.frozen` when using the `multiprocessing` module and its plugin, resolving a long-standing TODO and potentially breaking compatibility with packages that relied on this behavior.
+- **Compatibility:** Fixed an issue where matching calls with keyword-only arguments could lead to incorrect optimization and argument passing errors.
+- **Compatibility:** Corrected the handling of iterators in for loops to avoid assuming the presence of slots, preventing potential issues.
+- **macOS:** Added support for cyclic DLL dependencies, where DLLs have circular references.
+- **Compatibility:** Ensured the use of updated expressions during optimization phase for side effects to prevent crashes caused by referencing obsolete information.
+- **Python 3.10+:** Fixed a crash that could occur in complex cases when re-formulating `match` statements.
+- **Python 3.4-3.5:** Corrected an issue in Nuitka’s custom `PyDict_Next` implementation that could lead to incorrect results in older Python 3 versions.
+- **Python 3.10+:** Ensured that `AttributeError` is raised with the correct keyword arguments, avoiding a `TypeError` that occurred previously.
+- **Plugins:** Added a data file function that avoids loading packages, preventing potential crashes caused by incompatible dependencies (e.g., `numpy` versions).
+- **Compatibility:** Ensured that Nuitka’s package reader closes data files after reading them to prevent resource warnings in certain Python configurations.
+- **Standalone:** Exposed `setuptools` contained vendor packages in standalone distributions to match the behavior of the `setuptools` package.
+- **Accelerated Mode:** Enabled the `django` module parameter in accelerated mode to correctly detect used extensions.
+- **Compatibility:** Prevented resource warnings for unclosed files when trace outputs are sent to files via command line options.
+- **Compatibility:** Enabled the use of `xmlrpc.server` without requiring the `pydoc` module.
+- **Plugins:** Fixed an issue in the `anti-bloat` configuration where `change_function` and `change_classes` ignored “when” clauses, leading to unintended changes.
+- **Python 3.12 (Linux):** Enhanced static `libpython` handling for Linux. Static `libpython` is now used only when the inline copy is available (not in official Debian packages). The inline copy of `hacl` is used for all Linux static `libpython` uses with Python 3.12 or higher.
+- **Standalone:** Further improved the standard library scan to avoid assuming the presence of files that might have been manually deleted.
+- **UI:** Fixed the `--include-raw-dir` option, which was not functioning correctly. Only the Nuitka Package configuration was being used previously.
+
+### Package Support
+
+- **arcade:** Improved standalone configuration for the `arcade` package. Added in 2.4.3 already.
+- **license-expression:** Added a missing data file for the `license-expression` package in standalone distributions. Added in 2.4.6 already.
+- **pydantic:** Included a missing implicit dependency required for deprecated decorators in the `pydantic` package to function correctly in standalone mode. Fixed in 2.4.5 already.
+- **spacy:** Added a missing implicit dependency for the `spacy` package in standalone distributions. Added in 2.4.7 already.
+- **trio:** Updated standalone support for newer versions of the `trio` package. Added in 2.4.8 already.
+- **tensorflow:** Updated standalone support for newer versions of the `tensorflow` package. Added in 2.4.8 already.
+- **pygame-ce:** Added standalone support for the `pygame-ce` package. Added in 2.4.8 already.
+- **toga:** Added standalone support for newer versions of the `toga` package on Windows. Added in 2.4.9 already.
+- **django:** Implemented a workaround for a `django` debug feature that attempted to extract column numbers from compiled frames. Added in 2.4.9 already.
+- **PySide6:** Improved standalone support for `PySide6` on macOS by allowing the recognition of potentially unusable plugins. Added in 2.4.9 already.
+- **polars:** Added a missing dependency for the `polars` package in standalone distributions. Added in 2.4.9 already.
+- **django:** Enhanced handling of cases where the `django` settings module parameter is absent in standalone distributions. Added in 2.4.9 already.
+- **win32ctypes:** Included missing implicit dependencies for `win32ctypes` modules on Windows in standalone distributions. Added in 2.4.9 already.
+- **arcade:** Added a missing data file for the `arcade` package in standalone distributions. Added in 2.4.9 already.
+- **PySide6:** Allowed `PySide6` extras to be optional on macOS in standalone distributions, preventing complaints about missing DLLs when they are not installed. Added in 2.4.11 already.
+- **driverless-selenium:** Added standalone support for the `driverless-selenium` package. Added in 2.4.11 already.
+- **tkinterdnd2:** Updated standalone support for newer versions of the `tkinterdnd2` package. Added in 2.4.11 already.
+- **kivymd:** Updated standalone support for newer versions of the `kivymd` package. Added in 2.4.11 already.
+- **gssapi:** Added standalone support for the `gssapi` package. Added in 2.4.11 already.
+- **azure.cognitiveservices.speech:** Added standalone support for the `azure.cognitiveservices.speech` package on macOS.
+- **mne:** Added standalone support for the `mne` package.
+- **fastapi:** Added a missing dependency for the `fastapi` package in standalone distributions.
+- **pyav:** Updated standalone support for newer versions of the `pyav` package.
+- **py\_mini\_racer:** Added standalone support for the `py_mini_racer` package.
+- **keras:** Improved standalone support for `keras` by extending its sub-modules path to include the `keras.api` sub-package.
+- **transformers:** Updated standalone support for newer versions of the `transformers` package.
+- **win32com.server.register:** Updated standalone support for newer versions of the `win32com.server.register` package.
+- **Python 3.12+:** Added support for `distutils` in `setuptools` for Python 3.12 and later.
+- **cv2:** Enabled automatic scanning of missing implicit imports for the `cv2` package in standalone distributions.
+- **lttbc:** Added standalone support for the `lttbc` package.
+- **win32file:** Added a missing dependency for the `win32file` package in standalone distributions.
+- **kivy:** Fixed an issue where the `kivy` clipboard was not working on Linux due to missing dependencies in standalone distributions.
+- **paddleocr:** Added missing data files for the `paddleocr` package in standalone distributions.
+- **playwright:** Added standalone support for the `playwright` package with a new plugin.
+- **PySide6:** Allowed `PySide6` extras to be optional on macOS in standalone distributions, preventing complaints about missing DLLs when they are not installed.
+
+### New Features
+
+- **Python 3.13:** Added experimental support for Python 3.13.
+	> [!warning] Warning
+	> Python 3.13 support is not yet recommended for production use due to limited testing. On Windows, only MSVC and ClangCL are currently supported due to workarounds needed for incompatible structure layouts.
+- **UI:** Introduced a new `--mode` selector to replace the options `--standalone`, `--onefile`, `--module`, and `--macos-create-app-bundle`.
+	> [!note] Note
+	> The `app` mode creates an app bundle on macOS and a onefile binary on other operating systems to provide the best deployment option for each platform.
+- **Windows:** Added a new `hide` choice for the `--windows-console-mode` option. This generates a console program that hides the console window as soon as possible, although it may still briefly flash.
+- **UI:** Added the `--python-flag=-B` option to disable the use of bytecode cache (`.pyc`) files during imports. This is mainly relevant for accelerated mode and dynamic imports in non-isolated standalone mode.
+- **Modules:** Enabled the generation of type stubs (`.pyi` files) for compiled modules using an inline copy of `stubgen`. This provides more accurate and informative type hints for compiled code.
+	> [!note] Note
+	> Nuitka also adds implicit imports to compiled extension modules, ensuring that dependencies are not hidden.
+- **Plugins:** Changed the data files configuration to a list of items, allowing the use of `when` conditions for more flexible control. Done in 2.4.6 already.
+- **Onefile:** Removed the MSVC requirement for the splash screen in onefile mode. It now works with MinGW64, Clang, and ClangCL. Done for 2.4.8 already.
+- **Reports:** Added information about the file system encoding used during compilation to help debug encoding issues.
+- **Windows:** Improved the `attach` mode for `--windows-console-mode` when forced redirects are used.
+- **Distutils:** Added the ability to disable Nuitka in `pyproject.toml` builds using the `build_with_nuitka` setting. This allows falling back to the standard `build` backend without modifying code or configuration. This setting can also be passed on the command line using `--config-setting`.
+- **Distutils:** Added support for commercial file embedding in `distutils` packages.
+- **Linux:** Added support for using uninstalled self-compiled Python installations on Linux.
+- **Plugins:** Enabled the `matplotlib` plugin to react to active Qt and `tkinter` plugins for backend selection.
+- **Runtime:** Added a new `original_argv0` attribute to the `__compiled__` value to provide access to the original start value of `sys.argv[0]`, which might be needed by applications when Nuitka modifies it to an absolute path.
+- **Reports:** Added a list of DLLs that are actively excluded because they are located outside of the PyPI package.
+- **Plugins:** Allowed plugins to override the compilation mode for standard library modules when necessary.
+
+### Optimization
+
+- **Performance:** Implemented experimental support for “dual types”, which can significantly speed up integer operations in specific cases (achieving speedups of 12x or more in some very specific loops). This feature is still under development but shows promising potential for future performance gains, esp. when combined with future PGO (Profile Guided Optimization) work revealing likely runtime types more often and more types being covered.
+- **Performance:** Improved the speed of module variable access.
+	> - For Python 3.6 to 3.10, this optimization utilizes dictionary version tags but may be less effective when module variables are frequently written to.
+	> - For Python 3.11+, it relies on dictionary key versions, making it less susceptible to dictionary changes but potentially slightly slower for cache hits compared to Python 3.10.
+- **Performance:** Accelerated string dictionary lookups for Python 3.11+ by leveraging knowledge about the key and the module dictionary’s likely structure. This also resolves a previous TODO item, where initial 3.11 support was not as fast as our support for 3.10 was in this domain.
+- **Performance:** Optimized module dictionary updates to occur only when values actually change, improving caching efficiency.
+- **Performance:** Enhanced exception handling by removing bloat in the abstracted differences between Python 3.12 and earlier versions. This simplifies the generated C code, reduces conversions, and improves efficiency for all Python versions. This affects both C compile time and runtime performance favorably and solves a huge TODO for Python 3.12 performance.
+- **Performance:** Removed the use of CPython APIs calls for accessing exception context and cause values, which can be slow.
+- **Performance:** Utilized Nuitka’s own faster methods for creating `int` and `long` values, avoiding slower CPython API calls.
+- **Performance:** Implemented a custom variant of `_PyGen_FetchStopIterationValue` to avoid CPython API calls in generator handling, further improving performance on generators, coroutines and asyncgen.
+- **Windows:** Aligned with CPython’s change in reference counting implementation on Windows for Python 3.12+, which improves performance with LTO (Link Time Optimization) enabled.
+- **Optimization:** Expanded static optimization to include unary operations, improving the handling of number operations and preparing for full support of dual types.
+- **Optimization:** Added static optimization for `os.stat` and `os.lstat` calls.
+- **Performance:** Passed the exception state directly into unpacking functions, eliminating redundant exception fetching and improving code efficiency.
+- **Performance:** Introduced a dedicated helper for unpacking length checks, resulting in faster and more compact code helping scalability as well.
+- **Performance:** Generated more efficient code for raising built-in exceptions by directly creating them through the base exception’s `new` method instead of calling them as functions. This can speed up some things by a lot.
+- **Performance:** Optimized exception creation by avoiding unnecessary tuple allocations for empty exceptions. This hack avoids hitting the memory allocator as much.
+- **Performance:** Replaced remaining uses of `PyTuple_Pack` with Nuitka’s own helpers to avoid CPython API calls.
+- **Code Generation:** Replaced implicit exception raise nodes with direct exception creation nodes for improved C code generation.
+- **Windows:** Aligned with CPython’s change in managing object reference counters on Windows for Python 3.12+, improving performance with LTO enabled.
+- **Performance:** Removed remaining CPython API calls when creating `int` values in various parts of the code, including specialization code, helpers, and constants loading.
+- **Windows:** Avoided scanning for DLLs in the `PATH` environment variable when they are not intended to be used from the system. This prevents potential crashes related to non-encodable DLL paths and makes those scans faster too.
+- **Windows:** Updated to a newer MinGW64 version from 13.2 to 14.2 for potentially improved binary code generation with that compiler.
+- **Code Size:** Reduced the size of constant blobs by avoiding module-level constants for the global values `-1`, `0`, and `1`.
+- **Code Generation:** Improved code generation for variables by directly placing `NameError` exceptions into the thread state when raised, making for more compact C code.
+- **Optimization:** Statically optimized the `sys.ps1` and `sys.ps2` values to not exist (unless in module mode), potentially enabling more static optimization in packages that detect interactive usage checking them.
+- **Performance:** Limited the use of `tqdm` locking to no-GIL and Scons builds where threading is actively used.
+- **Optimization:** Implemented a faster check for non-frame statement sequences by decoupling frames and normal statement sequences and using dedicated accessors. This improves performance during the optimization phase.
+
+### Anti-Bloat
+
+- Prevented the inclusion of `importlib_metadata` for the `numpy` package. Added in 2.4.2 already.
+- Avoided the use of `dask` in the `pandera` package. Added in 2.4.5 already.
+- Removed `numba` for newer versions of the `shap` package. Added in 2.4.6 already.
+- Prevented attempts to include both Python 2 and Python 3 code for the `aenum` package, avoiding `SyntaxError` warnings. Added in 2.4.7 already.
+- Enhanced handling for the `sympy` package. Added in 2.4.7 already.
+- Allowed `pydoc` for the `pyqtgraph` package. Added in 2.4.7 already.
+- Avoided `pytest` in the `time_machine` package. Added in 2.4.9 already.
+- Avoided `pytest` in the `anyio` package.
+- Avoided `numba` in the `pandas` package.
+- Updated anti-bloat measures for newer versions of the `torch` package with increased coverage.
+- Avoided `pygame.tests` and `cv2` for the `pygame` package.
+- Allowed `unittest` in the `absl.testing` package.
+- Allowed `setuptools` in the `tufup` package.
+- Avoided test modules when using the `bsdiff4` package.
+- Treated the use of the `wheel` module the same as using the `setuptools` package.
+
+### Organizational
+
+- **Development Environment:** Added experimental support for a devcontainer to the repository, providing an easier way to set up a Linux-based development environment. This feature is still under development and may require further refinement.
+- **Issue Reporting:** Clarified the issue reporting process on GitHub, emphasizing the importance of testing reproducers against Python first to ensure the issue is related to Nuitka.
+- **Issue Reporting:** Discouraged the use of `--deployment` in issue reports, as it hinders the automatic identification of issues, that should be the first thing to remove.
+- **UI:** Improved the clarity of help message of the option for marking data files as external, emphasizing that files must be included before being used.
+- **UI:** Added checks to the Qt plugins to ensure that specified plugin families exist, preventing unnoticed errors.
+- **UI:** Implemented heuristic detection of terminal link support, paving the way for adding links to options and groups in the command line interface.
+- **UI:** Removed obsolete caching-related options from the help output, as they have been replaced by more general options.
+- **Plugins:** Improved error messages when retrieving information from packages during compilation.
+- **Quality:** Implemented a workaround for an `isort` bug that prevented it from handling UTF-8 comments.
+- **Quality:** Updated GitHub actions to use `clang-format-20`.
+- **Quality:** Updated to the latest version of `black` for code formatting.
+- **Release Process:** Updated the release script tests for Debian and PyPI to use the correct runner names. (Changed in 2.4.1 already.
+- **UI:** Disabled progress bar locking, as Nuitka currently doesn’t utilize threads.
+- **UI:** Added heuristic detection of terminal link support and introduced an experimental terminal link as a first step towards a more interactive command line interface.
+- **Debugging:** Fixed a crash in the “explain reference counts” feature that could occur with unusual `dict` values mistaken for modules.
+- **Debugging:** Included reference counts of tracebacks when dumping reference counts at program end.
+- **Debugging:** Added assertions and traces to improve debugging of input/output handling.
+- **Quality:** Added checks for configuration module names in Nuitka package configuration to catch errors caused by using filenames instead of module names.
+- **UI:** Removed obsolete options controlling cache behavior, directing users to the more general cache options.
+- **Scons:** Ensured that the `CC` environment variable is used consistently for `--version` and onefile bootstrap builds, as well as the Python build, preventing inconsistencies in compiler usage and outputs.
+- **Distutils:** Added the `compiled-package-hidden-by-package` mnemonic for use in `distutils` to handle the expected warning when a Python package is replaced with a compiled package and the Python code is yet to be deleted.
+- **Dependency Management:** Started experimental support for downloading Nuitka dependencies like `ordered-set`. This feature is not yet ready for general use.
+
+### Tests
+
+- Added Python 3.13 to the GitHub Actions test matrix.
+- Significantly enhanced construct-based tests for clearer results. The new approach executes code with a boolean flag instead of generating different code, potentially leading to the removal of custom templating.
+- Removed the `2to3` conversion code from the test suite, as it is being removed from newer Python versions. Tests are now split with version requirements as needed.
+- Fixed an issue where the test runner did not discover and use Python 3.12+, resulting in insufficient test coverage for those versions on GitHub Actions.
+- Ensured that the `compare_with_cpython` test function defaults to executing the system’s Python interpreter instead of relying on the `PYTHON` environment variable.
+- Set up continuous integration with Azure Pipelines to run Nuitka tests against the factory branch on each commit.
+- Enforced the use of static `libpython` for construct-based tests to eliminate DLL call overhead and provide more accurate performance measurements.
+- Improved the robustness of many construct tests, making them less sensitive to unrelated optimization changes.
+- Removed a test that was only applicable to Nuitka Commercial, as it was not useful to always skip it in the standard version. Commercial tests are now also recognized by their names.
+- Added handling for segmentation faults in `distutils` test cases, providing debug output for easier diagnosis of these failures.
+- Prevented resource warnings for unclosed files in a reflected test.
+
+### Cleanups
+
+- **WASI:** Corrected the signatures of C function getters and setters for compiled types in `WASI` to ensure they match the calling conventions. Casts are now performed locally to the compiled types instead of in the function signature. Call entries also have the correct signature used by Python C code.
+- **WASI:** Improved code cleanliness by adhering to `PyCFunction` signatures in `WASI`.
+- **Code Generation:** Fixed a regression in code generation that caused misaligned indentation in some cases.
+- **Code Formatting:** Changed some code for identical formatting with `clang-format-20` to eliminate differences between the new and old versions.
+- **Caching:** Enforced proper indentation in Nuitka cache files stored in JSON format.
+- **Code Cleanliness:** Replaced checks for Python 3.4 or higher with checks for Python 3, simplifying the code and reflecting the fact that Python 3.3 is no longer supported.
+- **Code Cleanliness:** Removed remaining Python 3.3 specific code from frame templates.
+- **Code Cleanliness:** Performed numerous spelling corrections and renamed internal helper functions for consistency and clarity.
+- **Plugins:** Renamed the `get_module_directory` helper function in the Nuitka Package configuration to remove the leading underscore, improving readability.
+- **Plugins:** Moved the `numexpr.cpuinfo` workaround to the appropriate location in the Nuitka Package configuration, resolving an old TODO item.
+
+### Summary
+
+This a major release that brings support for Python 3.13, relatively soon after its release.
+
+Our plugin system and Nuitka plugin configuration was used a lot for support of many more third-party packages, and numerous other enhancements in the domain of avoiding bloat.
+
+This release focuses on improved compatibility, new break through performance optimizations, to build on in the future, enhanced error reporting, and better debugging support.
+
+## Nuitka Release 2.4
+
+This release largely contains bug fixes for the previous changes, but also finishes full compatibility with the `match` statements of 3.10, something that was long overdue since there were always some incompatible behaviors there.
+
+In terms of bug fixes, it’s also huge. An upgrade is required, especially for new `setuptools` that made compiled programs segfault at startup.
+
+### Bug Fixes
+
+- UI: Fix, we had reversed `disable` / `force` and wrong option name recommendation for `--windows-console-mode` when the user used old-style options.
+- Python3.10+: Fix, must not check for `len` greater or equal of 0 or for sequence `match` cases. That is unnecessary and incompatible and can raise exceptions with custom sequences not implementing `__len__`. Fixed in 2.3.1 already.
+- Python3.10+: Fix, `match` sequence with final star arguments failed in some cases to capture the rest. The assigned value then was empty.when it shouldn’t have been. Fixed in 2.3.1 already.
+- Python3.8+: Fix, calls to variable args functions now need to be done differently, or else they can crash, as was observed with 3.10 in PGO instrumentation, at least. Fixed in 2.3.1 already.
+- PGO: Fix, using `nuitka-run` did not execute the program created as expected. Fixed in 2.3.1 already.
+- Linux: Support extension modules used as DLLs by other DLLs or extension modules. That makes newer `tensorflow` and potentially more packages work again. Fixed in 2.3.1 already.
+- Python3.10+: Matches classes were not fully compatible.
+	We need to check against case-defined class `__match_args__`, not the matched value type `__match_args` that is not necessarily the same.
+	Also, properly annotating the exception exit of subscript matches; the subscript value can indeed raise an exception.
+	Collect keyword and positional match values in one go and detect duplicate attributes used, which we previously did not.
+- Scons: Fix, do not crash when `clang` is not reporting its version correctly. It happened if **Clang** usage was required with `--clang` option but not installed. Fixed in 2.3.2 already.
+- Debian: Fix, detecting the **Debian** flavor of Python was not working anymore, and as a result, the intended defaults were no longer applied by **Nuitka**, leading to incorrect suggestions that didn’t work. Fixed in 2.3.3 already.
+- Ubuntu: Fix, the static link library for Python 3.12 is not usable unless we provide parts of **HACL** for the `sha2` module so as not to cause link errors. Fixed in 2.3.3 already.
+- Standalone: Fix, importing newer `pkg_resources` was crashing. Fixed in 2.3.3 already.
+- Python3.11+: Added support for newer Python with `dill-compat`. Fixed in 2.3.4 already.
+- Standalone: Support locating Windows icons for `pywebview`. Fixed in 2.3.4 already.
+- Standalone: Added support for `spacy` related packages. Fixed in 2.3.4 already.
+- Python3.12: Fix, our workaround for `cv2` support cannot use the `imp` module anymore. Fixed in 2.3.4 already.
+- Compatibility: Added support for `__init__` files that are extension modules. Architecture checks for macOS were false negatives for them, and the case insensitive import scan failed to find them on Windows. Fixed in 2.3.4 already.
+- Standalone: Added missing dependencies for standard library extension modules, mainly exhibited on macOS. Fixed in 2.3.4 already.
+- Windows: Fix build failures on mapped network drives. Fixed in 2.3.4 already.
+- Python3.12: Fix, need to set frame `prev_inst` or else `f_lasti` is random. Some packages; for example PySide6; use this to check what bytecode calls them or how they import them and it could crash when attempting it. Fixed in 2.3.6 already.
+- Fix, fork bomb in `cpuinfo` package no longer happens. Fixed in 2.3.8 already.
+- Nuitka-Python: Fix, cannot ask for shared library prefixes. Fixed in 2.3.8 already.
+- Standalone: Make sure `keras` package dependency for `tensorflow` is visible. Fixed in 2.3.10 already.
+- Linux: Fix, for static executables we should ignore errors setting a DLL load path. Fixed in 2.3.10 already.
+- Compatibility: Fix, nuitka resource readers also need to have `.parent` attribute. Fixed in 2.3.10 already.
+- Fix, need to force no-locale language outputs for tools outputs on non-Windows. Our previous methods were not forcing enough.
+	For non-Windows this makes Nuitka work on systems with locales active for message outputs only. Fixed in 2.3.10 already.
+- Fix, was not using proper result value for `SET_ATTRIBUTE` to check success in a few corner cases. Fixed in 2.3.10 already.
+- Windows: Retry deleting dist and build folders, allowing users to recognize still running programs and not crashing on Anti-Virus software still locking parts of them.
+- Fix, `dict.fromkeys` didn’t give compatible error messages for no args given.
+- Fix, output correct unsupported exception messages for in-place operations
+	For in-place `**`, it was also incompatible, since it must not mention the `pow` function.
+- Fix, included metadata could lead to instable code generation. We were using a dictionary for it, but that is not as stable order for the C compiler to fully benefit.
+- Fix, including data files for packages that are extension modules was not working yet.
+- macOS: Detect the DLL path of `libpython` (if used) by looking at dependencies of the running Python binary rather than encoding what CPython does. Doing that covers other Python flavors as well.
+- Fix, need to prefer extension modules over Python code for packages.
+- Fix, immutable constant values are not to be treated as very trusted.
+- Python3: Fix, the `__loader__` attribute of a module should be an object and not only the class, otherwise only static methods can work.
+- Python3: Added `.name` and `.path` attributes to Nuitka loader objects for enhanced compatibility with code that expects source code loaders.
+- Fix, the `sys.argv[0]` needs to be absolute for best usability.
+	For `dirname(sys.argv[0])` to be usable even if the program is launched via `PATH` environment by a shell, we cannot rely on how we are launched since that won’t be a good path, unlike with Python interpreter, where it always is.
+- Standalone: Fix, adding missing dependencies for some crypto packages.
+- Python3.12: Need to write to thread local variable during import. This however doesn’t work for Windows and non-static libpython flavors in general.
+- macOS: Enforce using system `codesign` as the Anaconda one is not working for us.
+- Fix, we need to read `.pyi` files as source code. Otherwise unicode characters can cause crashes.
+- Standalone: Fix, some packages query private values for distribution objects, so use the same attribute name for the path.
+- Multidist: Make sure to follow the multidist reformulation modules. Otherwise in accelerated mode, these could end up not being included.
+- Fix, need to hold a reference of the iterable while converting it to `list`.
+- Plugins: Fix, this wasn’t properly ignoring `None` values in load descriptions as intended.
+- macOS: Need to allow DLLs from all Homebrew paths.
+- Reports: Do not crash during report writing for very early errors.
+- Python3.11+: Fix, need to make sure we have `split` as a constant value when using exception groups.
+- Debian: More robust against problematic distribution folders with no metadata, these apparently can happen with OS upgrades.
+- Fix, was leaking exception in case of `--python-flag=-m` mode that could cause errors.
+- Compatibility: Close standard file handles on process forks as CPython does. This should enhance things for compilations using `attach` on Windows.
+
+### Package Support
+
+- Standalone: Added data file for older `bokeh` version. Fixed in 2.3.1 already.
+- Standalone: Support older `pandas` versions as well.
+- Standalone: Added data files for `panel` package.
+- Standalone: Added support for the newer `kivy` version and added macOS support as well. Fixed in 2.3.4 already.
+- Standalone: Include all `kivy.uix` packages with `kivy`, so their typical config driven usage is not too hard.
+- Standalone: Added implicit dependencies of `lxml.sax` module. Fixed in 2.3.4 already.
+- Standalone: Added implicit dependencies for `zeroconf` package. Fixed in 2.3.4 already.
+- Standalone: Added support for `numpy` version 2. Fixed in 2.3.7 already.
+- Standalone: More complete support for `tables` package. Fixed in 2.3.8 already.
+- Standalone: Added implicit dependencies for `scipy.signal` package. Fixed in 2.3.8 already.
+- Standalone: Added support for `moviepy` and `imageio_ffmeg` packages. Fixed in 2.3.8 already.
+- Standalone: Added support for newer `scipy`. Fixed in 2.3.10 already.
+- Standalone: Added data files for `bpy` package. For full support more work will be needed.
+- Standalone: Added support for `nes_py` and `gym_tetris` packages.
+- Standalone: Added support for `dash` and `plotly`.
+- Standalone: Added support for `usb1` package.
+- Standalone: Added support for `azure.cognitiveservices.speech` package.
+- Standalone: Added implicit dependencies for `tinycudann` package.
+- Standalone: Added support for newer `win32com.server.register`.
+- Standalone: Added support for `jaxtyping` package.
+- Standalone: Added support for `open3d` package.
+- Standalone: Added workaround for `torch` submodule import function.
+- Standalone: Added support for newer `paddleocr`.
+
+### New Features
+
+- Experimental support for Python 3.13 beta 3. We try to follow its release cycle closely and aim to support it at the time of CPython release. We also detect no-GIL Python and can make use of it. The GIL status is output in the `--version` format and the GIL usage is available as a new `{GIL}` variable for project options.
+- Scons: Added experimental option `--experimental=force-system-scons` to enforce system Scons to be used. That allows for the non-use of inline copy, which can be interesting for experiments with newer Scons releases. Added in 2.3.2 already.
+- Debugging: A new non-deployment handler helps when segmentation faults occurred. The crashing program then outputs a message pointing to a page with helpful information unless the deployment mode is active.
+- Begin merging changes for WASI support. Parts of the C changes were merged and for other parts, command line option `--target=wasi` was added, and we are starting to address cross platform compilation for it. More work will be necessary to fully merge it, right not it doesn’t work at all yet.
+- PGO: Added support for using it in standalone mode as well, so once we use it more, it will immediately be practical.
+- Make the `--list-package-dlls` use plugins as well, and make `delvewheel` and announce its DLL path internally, too. Listing DLLs for packages using plugins can use these paths for more complete outputs.
+- Plugins: The `no-qt` plugin was usable in accelerated mode.
+- Reports: Added included metadata and reasons for it.
+- Standalone: Added support for `spacy` with a new plugin.
+- Compatibility: Use existing source files as if they were `.pyi` files for extension modules. That gives us dependencies for code that installs source code and extension modules.
+- Plugins: Make version information, onefile mode, and onefile cached mode indication available in Nuitka Package Configuration, too.
+- Onefile: Warn about using `tendo.singleton` in non-cached onefile mode.
+	Tendo uses the running binary name for locking by default. So it’s not going to work if that changes for each execution, make the user aware of that, so they can use cached mode instead.
+- Reports: Include the micro pass counts and tracing merge statistics so we can see the impact of new optimization.
+- Plugins: Allow to specify modes in the Nuitka Package Configuration for `annotations`, `doc_strings`, and `asserts`. These overrule global configuration, which is often not practical. Some modules may require annotations, but for other packages, we will know they are fine without them. Simply disabling annotations globally barely works. For some modules, removing annotations can give a 30% compile-time speedup.
+- Standalone: Added module configuration for Django to find commands and load its engine.
+- Allow negative values for –jobs to be relative to the system core count so that you can tell Nuitka to use all but two cores with `--jobs=-2` and need not hardcode your current code count.
+- Python3.12: Annotate libraries that are currently not supported
+	We will need to provide our own Python3.12 variant to make them work.
+- Python3.11+: Catch calls to uncompiled function objects with compiled code objects. We now raise a `RuntimeError` in the bytecode making it easier to catch them rather than segfaulting.
+
+### Optimization
+
+- Statically optimize constant subscripts of variables with immutable constant values.
+- Forward propagate very trusted values for variable references enabling a lot more optimization.
+- Python3.8+: Calls of C functions are faster and more compact code using vector calls, too.
+- Python3.10+: Mark our compiled types as immutable.
+- Python3.12: Constant returning functions are dealing with immortal values only. Makes their usage slightly faster since no reference count handling is needed.
+- Python3.10+: Faster attribute descriptor lookups. Have our own replacement of `PyDesc_IsData` that had become an API call, making it very slow on Windows specifically.
+- Avoid using Python API function for determining sequence sizes when getting a length size for list creations.
+- Data Composer: More compact and portable Python3 `int` (Python2 `long`) value representation.
+	Rather than fixed native length 8 or 4 bytes, we use variable length encoding which for small values uses only a single byte.
+	This also avoids using `struct.pack` with C types, as we might be doing cross platform, so this makes part of the WASI changes unnecessary at the same time.
+	Large values are also more compact because middle 31-bit portions can be less than 4 bytes and save space on average.
+- Data Composer: Store bytecode blob size more efficient and portable, too.
+- Prepare having knowledge of `__prepare__` result to be dictionaries per compile time decisions.
+- Added more hard trust for the `typing` module.
+	The `typing.Text` is a constant too. In debug mode, we now check all exports of `typing` for constant values. This will allow to find missing values sooner in the future.
+	Added the other types to be known to exist. That should help scalability for types intensive code somewhat by removing error handling for them.
+- macOS: Should use static libpython with Anaconda as it works there too, and reduces issues with Python3.12 and extension module imports.
+- Standalone: Statically optimize by OS in `sysconfig`.
+	Consequently, standalone distributions can exclude OS-specific packages such as `_aix_support` and `_osx_support`.
+- Avoid changing code names for complex call helpers
+	The numbering of complex call helper as normally applied to all functions are, caused this issue. When part of the code is used from the bytecode cache, they never come to exist and the C code of modules using them then didn’t match.
+	This avoids an extra C re-compilation for some modules that were using renumbered function the second time around a compilation happens. Added in 2.3.10 already.
+- Avoid using C-API when creating `__path__` value.
+- Faster indentation of generated code.
+
+### Anti-Bloat
+
+- Add new `pydoc` bloat mode to trigger warnings when using it.
+- Recognize usage of `numpy.distutils` as `setuptools` bloat for more direct reporting.
+- Avoid compiling large `opcua` modules that generate huge C files much like `asyncua` package. Added in 2.3.1 already.
+- Avoid `shiboken2` and `shiboken6` modules from `matplotlib` package when the `no-qt` plugin is used. Added in 2.3.6 already.
+- Changes for not using `pydoc` and `distutils` in `numpy` version 2. Added in 2.3.7 already.
+- Avoid `numpy` and `packaging` dependencies from `PIL` package.
+- Avoid using `webbrowser` module from `pydoc`.
+- Avoid using `unittest` in `keras` package. Added in 2.3.1 already.
+- Avoid `distutils` from `_oxs_support` (used by `sysconfig`) module on macOS.
+- Avoid using `pydoc` for `werkzeug` package. Fixed in 2.3.10 already.
+- Avoid using `pydoc` for `site` module. Fixed in 2.3.10 already.
+- Avoid `pydoc` from `xmlrpc.server`. Fixed in 2.3.10 already.
+- Added `no_docstrings` support for numpy2 as well. Fixed in 2.3.10 already.
+- Avoid `pydoc` in `joblib.memory`.
+- Avoid `setuptools` in `gsplat` package.
+- Avoid `dask` and `jax` in `scipy` package.
+- Avoid using `matplotlib` for `networkx` package.
+
+### Organizational
+
+- Python3.12: Added annotations of official support for **Nuitka** PyPI package and test runner options that were still missing. Fixed in 2.3.1 already.
+- UI: Change runner scripts. The `nuitka3` is no more. Instead, we have `nuitka2` where it applies. Also, we now use CMD files rather than batch files.
+- UI: Check filenames for data files for illegal paths on the respective platforms. Some user errors with data file options become more apparent this way.
+- UI: Check spec paths more for illegal paths as well. Also do not accept system paths like `{TEMP}` and no path separator after it.
+- UI: Handle report writing interrupt with CTRL-C more gracefully. No need to present this this as a general problem, rather inform the user that he did it.
+- NoGIL: Warn if using a no-GIL Python version, as this mode is not yet officially supported by **Nuitka**.
+- Added badges to the `README.rst` of **Nuitka** to display package support and more. Added in 2.3.1 already.
+- UI: Use the retry decorator when removing directories in general. It will be more thorough with properly annotated retries on Windows. For the dist folder, mention the running program as a probable cause.
+- Quality: Check `replacements` and `replacements_plain` Nuitka package configuration values.
+- Quality: Catch backlashes in paths provided in Nuitka Package Configuration values for `dest_path`, `relative_path`, `dirs`, `raw_dirs` and `empty_dirs`.
+- Debugging: Disable pagination in `gdb` with the `--debugger` option.
+- PGO: Warn if the PGO binary does not run successfully.
+- UI: The new console mode option is a Windows-specific option now, move it to that group.
+- UI: Detect “rye python” on macOS. Added in 2.3.8 already.
+- UI: Be forgiving about release candidates; Ubuntu shipped one in a LTS release. Changed in 2.3.8 already.
+- Debugging: Allow fine-grained debug control for immortal checks
+	Can use `--no-debug-immortal-assumptions` to allow for corrupted immortal objects, which might be done by non-Nuitka code and then break the debug mode.
+- UI: Avoid leaking compile time Nuitka environment variables to the child processes.
+	They were primarily visible with `--run`, but we should avoid it for everything.
+	For non-Windows, we now recognize if we are the exact re-execution and otherwise, reject them.
+- Watch: Delete the existing `virtualenv` in case of errors updating or upgrading it.
+- Watch: Keep track of Nuitka compiled program exit code in newly added result files, too.
+- Watch: Redo compilations in case of previous errors when executing the compile program.
+- Quality: Wasn’t detecting files to ignore for PyLint on Windows properly, also detect crashes of PyLint.
+
+### Tests
+
+- Added test to cover the `dill-compat` plugin.
+- macOS: Make actual use of `ctypes` in its standalone test to ensure correctness on that OS, too.
+- Make compile extension module test work on macOS, too.
+- Avoid using `2to3` in our tests since newer Python no longer contains it by default, we split up tests with mixed contents into two tests instead.
+- Python3.11+: Make large constants test executable for as well. We no longer can easily create those values on the fly and output them due to security enhancements.
+- Python3.3: Remove support from the test runner as well.
+- Tests: Added construct-based tests for coroutines so we can compare their performance as well.
+
+### Cleanups
+
+- Make try/finally variable releases through common code. It will allow us to apply special exception value trace handling for only those for scalability improvements, while also making many re-formulations simpler.
+- Avoid using `anti-bloat` configuration values `replacements` where `replacements_plain` is good enough. A lot of config pre-date its addition.
+- Avoid Python3 and Python3.5+ specific Jinja2 modules on versions before that, and consequently, avoid warning about the `SyntaxError` given.
+- Moved code object extraction of `dill-compat` plugin from Python module template to C code helper for shared usage and better editing.
+- Also call `va_end` for standards compliance when using `va_start`. Some C compilers may need that, so we better do it even if what we have seen so far doesn’t need it.
+- Don’t pass main filename to the tree building anymore, and make `nuitka.Options` functions usage explicit when importing.
+- Change comments that still mentioned Python 3.3 as where a change in Python happened since we no longer support this version. Now, we consider what’s first seen in Python 3.4 is a Python3 change.
+- Cleanup, change Python 3.4 checks to 3.0 checks as Python3.3 is no longer supported. Cleans up version checks, as we now treat `>=3.4` either as `>=3` or can drop checks entirely.
+- The usual flow of spelling cleanups, this time for C codes.
+
+### Summary
+
+This release cycle was a longer than usual, with much new optimization and package support requiring attention.
+
+For optimization we got quite a few things going, esp. with more forward propagation, but the big ones for scalability are still all queued up and things are only prepared.
+
+The 3.13 work was continuing smoothly and seems to be doing fine. We are still on track for supporting it right after release.
+
+The parts where we try and address WASI prepare cross-compilation, but we will not aim at it generally immediately, and target our own Nuitka standalone backend Python that is supposed to be added in coming releases.
+
+## Nuitka Release 2.3
+
+This release bumps the long-awaited 3.12 support to a complete level. Now, Nuitka behaves identically to CPython 3.12 for the most part.
+
+In terms of bug fixes, it’s also huge. Especially for Unicode paths and software with Unicode extension module names and Unicode program names, and even non-UTF8 code names, there have been massive amounts of improvements.
+
+### Bug Fixes
+
+- Standalone: Added support for `python-magic-bin` package. Fixed in 2.2.1 already.
+- Fix: The cache directory creation could fail when multiple compilations started simultaneously. Fixed in 2.2.1 already.
+- macOS: For `arm64` builds, DLLs can also have an architecture dependent suffix; check that as well. Makes the `soundfile` dependency scan work. Fixed in 2.2.1 already.
+- Fix: Modules where lazy loaders handling adds hard imports when a module is first processed did not affect the current module, potentially causing it not to resolve hidden imports. Fixed in 2.2.1 already.
+- macOS: The use of `libomp` in `numba` needs to cause the extension module not to be included and not to look elsewhere. Fixed in 2.2.1 already.
+- Python3.6+: Fix, added support for keyword arguments of `ModuleNotFoundError`. Fixed in 2.2.1 already.
+- macOS: Detect more versioned DLLs and `arm64` specific filenames. Fixed in 2.2.1 already.
+- Fix, was not annotating exception exit when converting an import to a hard submodule import. Fixed in 2.2.2 already.
+- Fix, branches that became empty can still have traces that need to be merged.
+	Otherwise, usages outside the branch will not see propagated assignment statements. As a result, these falsely became unassigned instead. Fixed in 2.2.2 already.
+- Windows: Fix, uninstalled self-compiled Python didn’t have proper installation prefix added for DLL scan, resulting in runtime DLLs not picked up from there. Fixed in 2.2.2 already.
+- Standalone: Added support for newer `PySide6` version 6.7. It needed correction on macOS and has a new data file type. Fixed in 2.2.3 already.
+- Standalone: Complete support for `pyocd` package. Fixed in 2.2.3 already.
+- Module: Fix, the created `.pyi` files were incomplete.
+	The list of imported modules created in the finalization step was incomplete, we now go over the actual done modules and mark all non-included modules as dependencies.
+- Scons: Fix, need to avoid using Unicode paths towards the linker on Windows. Instead, use a temporary output filename and rename it to the actual filename after Scons has completed.
+- Windows: Avoid passing Unicode paths to the dependency walker on Windows, as it cannot handle those. Also, the temporary filenames in the build folder must be in short paths, as it cannot handle them in case that is a Unicode path.
+- Scons: For `ccache` on Windows, the log filename must be a short path too, if the build folder is a Unicode path.
+- Windows: Make sure the Scons build executes inside a short path as well, so that a potential Unicode path is visible to the C compiler when resolving the current directory.
+- Windows: The encoding of Unicode paths for accelerated mode values of `__file__` was not making sure that hex sequences were correctly terminated, so in some cases, it produced ambiguous C literals.
+- Windows: Execute binaries created with `--windows-uac-admin` with and `--run` options with proper UAC prompt.
+- Fix, need to allow for non-UTF8 Unicode in variable names, function names, class names, and method names.
+- Python3.10+: Fix, `match` statements that captured the rest of mapping checks were not working yet.
+	```python
+	match value:
+	   case {"key1": 5, **rest}:
+	      ... # rest was not assigned here
+	```
+- Windows: When deleting build folders, make sure the retries leading to a complete deletion always.
+- Python2: Fix, could crash with non- `unicode` program paths on Windows.
+- Avoid giving `SyntaxWarning` from reading source code
+	For example, the standard `site` module of Python 3.12 gives warnings about illegal escape sequences that nobody cares about apparently.
+- Fix, the `matplotlib` warnings by `options-nanny` were still given even if the `no-qt` plugin was used, since the variable name referenced there was not actually set yet by that plugin.
+- Windows: Fix, when using the uninstalled self-compiled Python, we need `python.exe` to find DLL dependencies. Otherwise it doesn’t locate the MSVC runtime and Python DLL properly.
+- Standalone: Added support for `freetype` package.
+
+### New Features
+
+- Support for Python 3.12 is finally there. We focused on scalability first and because we did things the correct way immediately, rather than rushing to get it working and improving only later.
+	As a result, the correctness and performance of **Nuitka** with previous Python releases are improved as well.
+	Some things got delayed, though. We need to do more work to take advantage of other core changes. Concerning exceptions normalized at creation time, the created module code doesn’t yet take advantage. Also, more efficient two-digit long handling is possible with Python 3.12, but not implemented. It will take more time before we have these changes completed.
+- Experimental support for Python 3.13 beta 1 is also there, and potentially surprising, but we will try and follow its release cycle closely and aim to support it at the time of release.
+	**Nuitka** has followed all of its core changes so far, and basic tests are passing; the accelerated, module, standalone, and onefile modes all work as expected. The only thing delayed is the uncompiled generator integration, where we need to replicate the exact CPython behavior. We need to have perfect integration only for working with the `asyncio` loop, so we wait with it until release candidates appear.
+- Plugins: Added support to include directories entirely unchanged by adding `raw_dir` values for `data-files` section, see.
+- UI: The new command line option `--include-raw-dir` was added to allow including directories entirely unchanged.
+- Module: Added support for creating modules with Unicode names. Needs a different DLL entry function name and to make use of two-phase initialization for the created extension module.
+- Added support for OpenBSD standalone mode.
+
+### Optimization
+
+- Python3: Avoid API calls for allocators
+	Most effective with Python 3.11 or higher but also many other types like `bytes`, `dict` keys, `float`, and `list` objects are faster to create with all Python3 versions.
+- Python3.5+: Directly use the **Python** allocator functions for object creation, avoiding the DLL API calls. The coverage is complete with Python3.11 or higher, but many object types like `float`, `dict`, `list`, `bytes` benefit even before that version.
+- Python3: Faster creation of `StopIteration` objects.
+	With Python 3.12, the object is created directly and set as the current exception without normalization checks.
+	We also added a new specialized function to create the exception object and populate it directly, avoiding the overhead of calling of the `StopIteration` type.
+- Python3.10+: When accessing freelists, we were not passing for `tstate` but locally getting the interpreter object, which can be slower by a few percent in some configurations. We now use the free lists more efficient with `tuple`, `list`, and `dict` objects.
+- Python3.8+: Call uncompiled functions via vector calls.
+	We avoid an API call that ends up being slower than using the same function via the vector call directly.
+- Python3.4+: Avoid using `_PyObject_LengthHint` API calls in `list.extend` and have our variant that is faster to call.
+- Added specialization for `os.path.normpath`. We might benefit from compile time analysis of it once we want to detect file accesses.
+- Avoid using module constants accessor for global constant values
+	For example, with `()`, we used the module-level accessor for no reason, as it is already available as a global value. As a result, constant blobs shrink, and the compiled code becomes slightly smaller, too.
+- Anti-Bloat: Avoid using `dask` from the `sparse` module. Added in 2.2.2 already.
+
+### Organizational
+
+- UI: Major change in console handling.
+	Compiled programs on Windows now have a third mode, besides console or not. You can now create GUI applications that attach to an available console and output there.
+	The new option `--console` controls this and allows to enforce console with the `force` value and disable using it with the `disable` value, the `attach` value activates the new behavior.
+	> [!note] Note
+	> Redirection of outputs to a file in `attach` mode only works if it is launched correctly, for example, interactively in a shell, but some forms of invocation will not work; prominently, `subprocess.call` without inheritable outputs will still output to a terminal.
+	On macOS, the distinction doesn’t exist anymore; technically it wasn’t valid for a while already; you need to use bundles for non-console applications, though, by default otherwise a console is forced by macOS itself.
+- Detect `patchelf` usage in buggy version `0.18.0` and ask the user to upgrade or downgrade it, as this specific version is known to be broken.
+- UI: Make clear that the `--nofollow-import-to` option accepts patters.
+- UI: Added warning for module mode and usage of the options to force outputs as they don’t have any effect.
+- UI: Check the success of Scons in creating the expected binary immediately after running it and not only once we reach post-processing.
+- UI: Detect empty user package configuration files
+- UI: Do not output module `ast` when a plugin reports an error for the module, for example, a forbidden import.
+- Actions: Update from deprecated action versions to the latest versions.
+
+### Tests
+
+- Use [Nuitka Project Options](https://nuitka.net/user-documentation/user-manual.html#nuitka-project-options) for the user plugin test rather than passing by environment variables to the test runner.
+- Added a new search mode, `skip`, to complement `resume` which resumes right after the last test `resume` stopped on. We can use that while support for a Python version is not complete.
+
+### Cleanups
+
+- Solved a TODO about using unified code for setting the `StopIteration`, coroutines, generators, and asyncgen used to be different.
+- Unified how the binary result filename is passed to Scons for modules and executables to use the same `result_exe` key.
+
+### Summary
+
+This release marks a huge step in catching up with compatibility of Python. After being late with 3.12 support, we will now be early with 3.13 support if all goes well.
+
+The many Unicode support related changes also enhanced Nuitka to generate 2 phase loading extension modules, which also will be needed for sub-interpreter support later on.
+
+From here on, we need to re-visit compatibility. A few more obscured 3.10 features are missing, the 3.11 compatibility is not yet complete, and we need to take advantage of the new caching possibilities to enhance performance for example with attribute lookups to where it can be with the core changes there.
+
+For the coming releases until 3.13 is released, we hope to focus on scalability a lot more and get a much needed big improvement there, and complete these other tasks on the side.
+
+## Nuitka Release 2.2
+
+This release focused on compatibility and significant optimization progress for loops, such as list operations within. The main line of change is to be able to support Python 3.12 in the next release.
+
+### Bug Fixes
+
+- Standalone: Added support for `pypdfium2` package. Fixed in 2.1.1 already.
+- Standalone: Make `cefpython3` work on Linux. Fixed in 2.1.1 already.
+- ArchLinux: Added platform linker option to be usable with their current Arch Python package. Fixed in 2.1.1 already.
+- Fix, `ctypes.CDLL` optimization used a misspelled argument name for `use_last_error`, such that keyword argument calls were statically optimized into `TypeError` at compile-time. Fixed in 2.1.1 already.
+- Fix, `list.insert` was not properly annotating exceptions. Raises by producing the inserted value raised or the index was not annotated and, therefore, could fail to be caught locally. Fixed in 2.1.1 already.
+- Standalone: Added support for `selenium` package. Fixed in 2.1.2 already.
+- Standalone: Added support for `hydra` package. Fixed in 2.1.2 already.
+- Standalone: Updated `dotenv` workaround for newer version. Fixed in 2.1.3 already.
+- Fix, **PySide6** slots failed to be moved between threads. For that we need to make function renames visible in the owning class as well. Fixed in 2.1.3 already.
+- Standalone: Added support for `win32com.server.register`. Fixed in 2.1.3 already.
+- Standalone: Handle “string” import errors of `uvicorn` gracefully. Fixed in 2.1.3 already.
+- Fix, the `dill-compat` plugin needs also needs to expose the compiled type names as built-ins for the `pickle` module to find them.
+- Standalone: Added support for `gruut` package. Fixed in 2.1.3 already.
+- Standalone: Added support for newer `toga` to also include `toga_winforms` metadata. Fixed in 2.1.3 already.
+- Standalone: Added support for newer `tensorflow` package. Fixed in 2.1.4 already.
+- Standalone: Fix, `matplotlib` needs to emit a dependency on the backend to be included. Otherwise it could be missing at run-time in some cases. Fixed in 2.1.4 already.
+- Onefile: Respect `XDG_CACHE_HOME` variable on non-Windows platforms. Some users might configure that to not to be `~/.cache`, respect that. Fixed in 2.1.4 already.
+- Python2: Some cases of `list.insert` were not properly handling all index types. Fixed in 2.1.4 already.
+- Fix, optimized `list.remove` failed to handle tuple arguments properly. Removing tuple values from lists could cause errors. Fixed in 2.1.4 already.
+- Standalone: Added missing implicit dependencies for `pyarrow.datasets`. Fixed in 2.1.4 already.
+- Standalone: Added support for `dask.dataframe` module. Fixed in 2.1.4 already.
+- Standalone: Added DLLs for `tensorrt_libs` package. Fixed in 2.1.4 already.
+- Standalone: Added missing metadata of `numpy` for `xarray` package. Fixed in 2.1.4 already.
+- Standalone: Added support for newer `scipy`. Fixed in 2.1.5 already.
+- Standalone: Fix, older `gcc` could give warning about C code to work with `PYTHONPATH` which caused build errors on older systems. Fixed in 2.1.5 already.
+- Fix, `locals` representing nodes could not be cloned, and as a result, some code re-formulations failed to compile in `try` constructs. Fixed in 2.1.5 already.
+- Standalone: Added data files for `names` package. Fixed in 2.1.5 already.
+- Standalone: Added data files for `randomname` package. Fixed in 2.1.5 already.
+- Standalone: Fix, the standalone standard library scan was not fully ignoring git folders, subfolders were still looked at and could cause issues. Fixed in 2.1.5 already.
+- Standalone: Added support for newer `transformers`. Fixed in 2.1.5 already.
+- Standalone: Add support for newer `bitsandbytes`. Fixed in 2.1.5 already.
+- Scons: Fix, when locating binaries, do not use directories but only files.
+	A directory on `PATH` that was named `gcc` could be mistaken to be a `gcc` binary causing errors. Fixed in 2.1.6 already.
+- Windows: Fix, by default, scan only for `.bin` and `.exe` binaries for Nuitka Package Configuration EXE dependency patterns. This was the intended value, but it had not taken effect yet. Fixed in 2.1.6 already.
+- Fix, the `__compiled__.containing_dir` should be an absolute path. For it to be usable after a change of directory is done by the program that is required. Fixed in 2.1.6 already.
+- Standalone: Added support for more parts of `networkx` package. Fixed in 2.1.6 already.
+- Windows: Fix working with UNC paths and re-parse points at compile time.
+	Now Nuitka should work with mapped and even unmapped to drive paths like `\\some-hostname\unc-test` as they are common in some VM setups.
+- Windows: Make sure the download path is an external use path in scons as well, otherwise the home directory could be an unusable path for MinGW64, causing it not to find files.
+- Standalone: Added missing dependency of `sspilib` that prevented `requests-ntlm` from working on Windows.
+- Python3.5+: Add support for using dictionary un-packings in class declarations. That is a rarely used in actual Python code, but was found missing by tests recently.
+- Python3.11: Fix, code objects `co_qualname` attribute was not actually the qualified name, but the same as `co_name` only.
+- Anaconda: Fix, must not consider the Anaconda `lib` directory as a system directory, because then those DLLs that are not included.
+- Fix, cannot trust dynamic hard modules as much otherwise, `huggingface_hub.utils.tqdm` ended up being a module and not the class it’s supposed to be.
+- macOS: Fix, on newer macOS the `libc++` and `libz` DLLs cannot be found anymore, we need to ignore that actively as our code insists on full resolution to catch bugs.
+- Fix, support for newer `zaber_motion` was not really working.
+- Standalone: Added required data files for `pyviz_comms`.
+- Standalone: Added required data files for `panel` package.
+- Standalone: Added required data files for `bokeh` package.
+- Standalone: Fixup `scipy` for Anaconda.
+- Fix, need to make parent module usages more explicit.
+	Otherwise, plugin mechanisms like `no-follow` from a parent module cannot affect its child modules, as they can end up being followed to only after them.
+- Fix, the `dill-compat` plugin in module mode cannot assume the main module name to be the one from compile time, need to look the actual one up at runtime.
+
+### New Features
+
+- Added experimental support for Python 3.12, this is passing basic tests, but known to crash a lot at run-time still, you are recommended to use pre-releases of Nuitka, as official support is not going to happen before 2.3 release.
+- Standalone: Added support for `tensorflow.function` JIT
+	With preserved source code of decorated functions and we can provide it at run-time to `tensorflow` JIT so it can do its tracing executions.
+- For Nuitka Package Configuration, we now have `change_class` similar to `change_function` to replace a full class definition with something else, this can be used to modify classes to become stubs or even unusable.
+- For the experimental `@pyqtSlot` decorator, we also should handle the `@asyncSlot` the same way. Added in 2.1.1 already.
+- Added new kind of warning of `plugin` category and use it in the Nuitka Package Configuration to inform `matplotlib` users to select a GUI backend via plugin selection. Added in 2.1.4 already.
+- Zig: Added support for `zig` as CC value. Due to it not supporting C11 fully yet, we need to use the C++ workaround and cannot compile for Python 3.11 or higher yet.
+- For the `__compiled__` value, we now have a `__compiled__.main` that is the name of the compiled module. For modules, **Nuitka** determines this at run time; in other modes, it is the name of the main module.
+
+### Optimization
+
+- Use `set` specific API in contains tests, rather than generic sequence one.
+- Lower `value in something` tests for known `set` and `list` values to use `frozenset` and `tuple` respectively.
+- Recognize exact type shapes of loop variables where possible. This enables appends to list to be optimized to their dedicated nodes among other things, with those often being a lot faster than generic code. This speeds up e.g. list `append` tests by a significant amount.
+- Optimization: Have dedicated helper for `list.remove`, such that it is not using a Python DLL call where that is slow.
+- ArchLinux: Enable static libpython by default, it is usable indeed. Added in 2.1.2 already.
+- Anti-Bloat: Avoid `unittest` usage in `antlr` package.
+- Anti-Bloat: Avoid `IPython` in `celery` package. Added in 2.1.2 already.
+- Anti-Bloat: Avoid using `setuptools` in `transformers` package for more modules. Added in 2.1.3 already.
+- Anti-Bloat: Avoid testing packages for newer `tensorflow` package as well. Added in 2.1.4 already.
+- Optimization: Avoid recompiling `azure` package which is not performance relevant. Added in 2.1.4 already.
+- Avoid packages owned by Nuitka plugins in `matploblib` backends unless the corresponding plugin is actually active. Added in 2.1.4 already.
+- Anti-Bloat: Avoid `setuptools` in `deepspeed` package. Added in 2.1.4 already.
+- Anti-Bloat: Avoid `setuptools` in `transformers` package. Added in 2.1.4 already.
+- Anti-Bloat: Avoid `scipy` usage causing `torch` or `cupy` usage. Added in 2.1.4 already.
+- Anti-Bloat: Recognize `keras` testing modules as `unittest` bloat.
+- Faster code generation due to enhancements in how identifiers are cached for module names and the indentation codes.
+- Optimization: Handle `no_docstrings` issue for `torio` package.
+- Anti-Bloat: Avoid `IPython` from `imgui_bundle` package.
+- Anti-Bloat: Remove testing module usage when `dask` is used.
+- Anti-Bloat: Avoid `unitest` usage in `tf_keras` package as well.
+- Anti-Bloat: Avoid `IPython` from `bokeh` package.
+
+### Organizational
+
+- UI: Catch conflicts between data files and EXE/DLLs/extension module filenames. Previously, you could overwrite binaries with data files, but that is now rejected as an explicit error.
+- Onefile: Avoid using the program name without suffix inside the dist folder, as that avoids collisions with data file directories of the same name, e.g., if the package and main binary have the same name, they would clash previously, but adding a `.bin` suffix to the binary avoids that entirely.
+- UI: Don’t force `{VERSION}` in specs to be resolved to four digits.
+	That made it hard for users, who will be surprised to see `1.0` become `1.0.0.0` when that is only needed for Windows version information really.
+- UI: Catch wrong values for `--jobs` value sooner, negative and non-integer values error exit immediately. Added in 2.1.1 already.
+- UI: Nicer usage name when invoked with `python -m nuitka`
+	The recommended form of invocation of Nuitka should not have an ugly invocation reference mentioning `__main__.py` instead put the `python -m nuitka` notion there.
+- UI: Reorder options for the plugins group to be more readable.
+- Plugins: Remove obsolete plugins from standard plugin documentation. Removed in 2.1.4 already.
+- UI: The Windows release was coming from the compiling **Python** and as such wrong, for example, **Windows 11** always showed up as **Windows 10**, and some older versions of **Python** didn’t know Windows 10, yet, so this could be confusing in issue analysis.
+- UI: Do not warn about static libpython for Python debug mode compilation. It is misleading as often it doesn’t work for that configuration, and it’s only a distraction since debugging Python reference counts is not about performance. Changed in 2.1.4 already.
+- UI: Catch newlines in spec values. They break code C code generation potentially; they also are likely copy&paste mistakes that won’t do what the user expects. Added in 2.1.4 already.
+- Quality: Updated to the latest version of black.
+- Quality: Fix, `isort` and `black` can corrupt outputs, catch that.
+- Debugging: Generate Scons debug script
+	It can serve to quickly re-execute a Scons compilation without re-executing Nuitka again. This is best used where there is no Python level change but only C changes and no expectation of producing a usable result.
+	Because no post-processing is applied, and as a consequence this is not usable to produce binaries that work. In the future, we might expand this to be able to run post-processing still.
+- Debugging: Disabling all freelists is now honored for more code, tuples and empty dictionaries as well.
+- UI: Add macOS version to help output, which is sometimes vital for issue analysis.
+- Reports: Add the OS release to reports as well.
+- Reports: Exclude parent path imports from compilation reports for module usages that are found and end up not being excluded.
+- Watch: Reporting more problems, catching more errors, and adding the ability to create PRs from changes. However, it does not yet do it automatically.
+- Visual Code: Have plugins C files in the include path as well.
+
+### Tests
+
+- Tests: Fix, cannot assume `setuptools` to be installed, some RPM based systems don’t have it.
+- Run commercial code signing test only on Windows.
+- Allow for standalone testing file access to the Azure agent folders. For tests on Azure, it’s like the home directory.
+- Make sure optimization tests are named to make it clear that they are tests.
+
+### Cleanups
+
+- Remove useless `--execute-with-pythonpath` option, we don’t use that anymore at all.
+
+### Summary
+
+The JIT mechanism added for `tensorflow` should be possible to generalize and will be applied to other JITs, like `numba` and others in the future as well.
+
+The road to Python 3.12 is not fully complete, but the end feels closer now, and the subsequent release hopefully will add the official support for it.
+
+## Nuitka Release 2.1
+
+This release had focus on new features and new optimization. There is a also a large amount of compatibility with things newly added to support anti-bloat better, and workaround problems with newer package versions that would otherwise need source code at run-time.
+
+### Bug Fixes
+
+- Windows: Using older MSVC before 14.3 was not working anymore. Fixed in 2.0.1 already.
+- Compatibility: The `dill-compat` plugin didn’t work for functions with closure variables taken. Fixed in 2.0.1 already.
+	```python
+	def get_local_closure(b):
+	  def _local_multiply(x, y):
+	    return x * y + b
+	  return _local_multiply
+	fn = get_local_closure(1)
+	fn2 = dill.loads(dill.dumps(fn))
+	print(fn2(2, 3))
+	```
+- Windows: Fix, sometimes `kernel32.dll` is actually reported as a dependency, remove assertion against that. Fixed in 2.0.1 already.
+- UI: The help output for `--output-filename` was not formatted properly. Fixed in 2.0.1 already.
+- Standalone: Added support for the `scapy` package. Fixed in 2.0.2 already.
+- Standalone: Added `PonyORM` implicit dependencies. Fixed in 2.0.2 already.
+- Standalone: Added support for `cryptoauthlib`, `betterproto`, `tracerite`, `sklearn.util`, and `qt_material` packages. Fixed in 2.0.2 already.
+- Standalone: Added missing data file for `scipy` package. Fixed in 2.0.2 already.
+- Standalone: Added missing DLLs for `speech_recognition` package. Fixed in 2.0.2 already.
+- Standalone: Added missing DLL for `gmsh` package. Fixed in 2.0.2 already.
+- UI: Using reporting path in macOS dependency scan error message, otherwise these contain home directory paths for no good reason. Fixed in 2.0.2 already.
+- UI: Fix, could crash when compiling directories with trailing slashes used. At least on Windows, this happened for the “/” slash value. Fixed in 2.0.2 already.
+- Module: Fix, convenience option `--run` was not considering `--output-dir` directory to load the result module. Without this, the check for un-replaced module was always triggering for module source in current directory, despite doing the right thing and putting it elsewhere. Fixed in 2.0.2 already.
+- Python2: Avoid values for `__file__` of modules that are unicode and solve a TODO that restores consistency over modules mode `__file__` values. Fixed in 2.0.2 already.
+- Windows: Fix, short paths with and without dir name cached wrongly, which could lead to shorted paths even where not asked for them. Fixed in 2.0.2 already.
+- Fix, comparing list values that changed could segfault. This is a bug fix Python did, that we didn’t follow yet and that became apparent after using our dedicated list helpers more often. Fixed in 2.0.2 already.
+- Standalone: Added support for `tiktoken` package. Fixed in 2.0.2 already.
+- Standalone: Fix, namespace packages had wrong runtime `__path__` value. Fixed in 2.0.2 already.
+- Python3.11: Fix, was using tuples from freelist of the wrong size
+	- CPython changed the index for the size, to not use zero, which was wasteful when introduced with 3.10, but to `size-1` but we did not follow that and then used a tuple one bit larger than necessary.
+		- As a result, code producing a lot short living tuples could end up creating new ones over and over, causing bad memory allocations and slow performance.
+	Fixed in 2.0.2 already.
+- macOS: Fix, need to allow non-existent and versioned dependencies of DLLs to themselves. Fixed in 2.0.2 already.
+- Windows: Fix PGO (Profile Guided Optimization) build errors with MinGW64, this feature is not yet ready for general use, but these errors shouldn’t happen. Fixed in 2.0.2 already.
+- Plugins: Fix, do not load `importlib_metadata` unless really necessary.
+	The `pkg_resources` plugin used to load it, and that then had harmful effects for our handling of distribution information in some configurations. Fixed in 2.0.3 already.
+- Plugins: Avoid warnings from plugin evaluated code, it could happen that a `UserWarning` would be displayed during compilation. Fixed in 2.0.3 already.
+- Fix, loading pickles with compiled functions in module mode was not working. Fixed in 2.0.3 already.
+- Standalone: Added data files for `h2o` package. Fixed in 2.0.3 already.
+- Fix, variable assignment from variables that started to raise were not recognized.
+	When a variable assignment from a variable became a raise expression, that wasn’t caught and propagated as it should have been. Fixed in 2.0.3 already.
+- Make the `NUITKA_PYTHONPATH` usage more robust. Fixed in 2.0.3 already.
+- Fix, PySide2/6 argument name for slot connection and disconnect should be `slot`, wasn’t working with keyword argument calls. Fixed in 2.0.3 already.
+- Standalone: Added support for `paddle` and `paddleocr` packages. Fixed in 2.0.4 already.
+- Standalone: Added support for `diatheke`. Fixed in 2.0.4 already.
+- Standalone: Added support for `zaber-motion` package. Fixed in 2.0.4 already.
+- Standalone: Added support for `plyer` package. Fixed in 2.0.4 already.
+- Fix, added handling of `OSError` for metadata read, otherwise corrupt packages can have Nuitka crashing. Fixed in 2.0.4 already.
+- Fix, need to annotate potential exception exit when making a fixed import from hard module attribute. Fixed in 2.0.4 already.
+- Fix, didn’t consider Nuitka project options with `--main` and `--script-path`. This is of course the only way Nuitka-Action does call it, so they didn’t work there at all. Fixed in 2.0.4 already.
+- Scons: Fix, need to close progress bar when about to error exit. Otherwise error outputs will be garbled by incomplete progress bar. Fixed in 2.0.4 already.
+- Fix, need to convert relative from imports to hard imports too, or else packages needed to be followed are not included. Fixed in 2.0.5 already.
+- Standalone: Added `pygame_menu` data files. Fixed in 2.0.6 already.
+- Windows: Fix, wasn’t working when compiling on network mounted drive letters. Fixed in 2.0.6 already.
+- Fix, the `.pyi` parser was crashing on some comments with a leading `from` in the line, recognize these better. Fixed in 2.0.6 already.
+- Actions: Fix, some yaml configs could fail to load plugins. Fixed in 2.0.6 already.
+- Standalone: Added support for newer `torch` packages that otherwise require source code.
+- Fix, inline copies of `tqdm` etc. left sub-modules behind, removing only the top level `sys.modules` entry may not be enough.
+
+### New Features
+
+- Plugins: Added support for `constants` in Nuitka package configurations. We can now using `when` clauses, define variable values to be defined, e.g. to specify the DLL suffix, or the DLL path, based on platform dependent properties.
+- Plugins: Make `relative_path`, `suffix`, `prefix` in DLL Nuitka package configurations allowed to be an expression rather than just a constant value.
+- Plugins: Make not only booleans related to the python version available, but also strings `python_version_str` and `python_version_full_str`, to use them when constructing e.g. DLL paths in Nuitka Package Configuration.
+- Plugins: Added helper function `iterate_modules` for producing the submodules of a given package, for using in expressions of Nuitka package configuration.
+- macOS: Added support for Tcl/Tk detection on Homebrew Python.
+- Added `module` attribute to `__compiled__` values
+	So far it was impossible to distinguish non-standalone, i.e. accelerated mode and module compilation by looking at the `__compiled__` attribute, so we add an indicator for module mode that closes this gap.
+- Plugins: Added `appdirs` and `importlib` for use in Nuitka package config expressions.
+- Plugins: Added ability to specify modules to not follow when a module is used. This `nofollow` configuration is for rare use cases only.
+- Plugins: Added values `extension_std_suffix` and `extension_suffix` for use in expressions, to e.g. construct DLL suffix patterns from it.
+- UI: Added more control over caching with per cache category environment variables, as [documented in the User Manual.](https://nuitka.net/doc/user-manual.html#control-where-caches-live).
+- Plugins: Added support for reporting module detections
+	The `delvewheel` plugin now puts the version of that packaging tool used by a particular module in the report rather than tracing it to the user, that in the normal case won’t care. This is more for debugging purposes of Nuitka.
+
+### Optimization
+
+- Scalability: Do not make loop analysis at all for very trusted value traces, their point is to not change, and waiting for that to be confirmed has no point.
+- Use very trusted value traces in functions not just as mere assign traces or else expected optimization will not be done on them in many cases. With this a lot more cases of hard values are optimized leading also to generally more compact and correct results in terms of imports, metadata, code avoided on the wrong OS, etc.
+- Scalability: When specializing assignments, make sure to have the proper value trace immediately.
+	When changing to a hard value, the value trace was still an assign trace and not very trusted for one for micro pass of the module.
+	This had the effect to need one more micro pass to get to benefiting of the unescapable nature of those values, which meant more micro passes than necessary and those being more complex due to escaped traces, and therefore taking longer for affected modules.
+- Scalability: The code trying avoid merge traces of merge traces, and to instead flatten merge traces was only handling part of these correctly, and correcting it reduced optimization time for some functions from infinite to instant. Less memory usage should also come out of this, even where this was not affecting compile time as much. Added in 2.0.1 already.
+- Scalability: Some codes that checked for variables were testing for temporary variable and normal variable both one after another, making some optimization steps and code generation slower than necessary due to the extra calls.
+- Scalability: A variable assignment from variable that were later recognized to become a raise was not recognized as such, and this then wasn’t caught and propagated as it should, preventing more optimization of the affected code. Make sure to convert more directly when observing things to change, rather than doing it one pass later.
+- The fix proper reuse of tuples released to the freelist with matching sizes causes less memory usage and faster performance for the 3.11 version. Added in 2.0.2 already.
+- Statically optimize `sys.exit` into exception raise of `SystemExit`.
+	This should make a bunch of dead code obvious to Nuitka, it can now tell this aborts execution of a branch, potentially eliminating imports, etc.
+- macOS: Enable python static link library for Homebrew too. Added in 2.0.1 already. Added in 2.0.3 already.
+- Avoid compiling bloated module namespace of `altair` package. Added in 2.0.3 already.
+- Anti-Bloat: Avoid including `kubernetes` for `tensorflow` unless used otherwise. Added in 2.0.3 already.
+- Anti-Bloat: Avoid including setuptools for `tqdm`. Added in 2.0.3 already.
+- Anti-Bloat: Avoid `IPython` in `fire` package. Added in 2.0.3 already.
+- Anti-Bloat: Avoid including `Cython` for `pydantic` package. Added in 2.0.3 already.
+- Anti-Bloat: Changes to avoid `triton` in newer `torch` as well. Added in 2.0.5 already.
+- Anti-Bloat: Avoid `setuptools` via `setuptools_scm` in `pyarrow`.
+- Anti-Bloat: Made more packages equivalent to using `setuptools` which we want to avoid, all of `Cython`, `cython`, `pyximport`, `paddle.utils.cpp_extension`, `torch.utils.cpp_extension` were added for better reports of the actual causes.
+
+### Organizational
+
+- Moved the changelog of Nuitka to the website, just point to there from Nuitka repo.
+- UI: Proper error message from Nuitka when scons build fails with a detail mnemonic page. Read more on for detailed information.
+- Windows: Reject all MinGW64 that are not are not the `WinLibs` that Nuitka itself downloaded. As these packages break very easily, we need to control if it’s a working set of `ccache`, `make`, `binutils` and gcc with all the necessary workarounds and features like `LTO` working on Windows properly.
+- Quality: Added auto-format of PNG and JPEG images. This aims at making it simpler to add images to our repositories, esp. Nuitka Website. This now makes `optipng` and `jpegoptim` calls as necessary. Previously this was manual steps for the website to be applied.
+- User Manual: Be more clear about compiler version needs on Windows for Python 3.11.
+- User Manual: Added examples for error message with low C compiler memory, such that maybe they can be found via search by users.
+- User Manual: Removed sections that are unnecessary or better maintained as separate pages on the website.
+- Quality: Avoid empty `no-auto-follow` values, for silently ignoring it there is a dedicated string `ignore` that must be used.
+- Quality: Enforce normalized paths for `dest_path` and `relative_path`. Users were uncertain if a leading dot made sense, but we now disallow it for clarity.
+- Quality: Check more keys with expressions for syntax errors, to catch these mistakes in configuration sooner.
+- Quality: Scanning through all files with the auto-format tool should now be faster, and CPython test suite directories (test submodules) if present are ignored.
+- Release: Remove month from manpage generation, that’s only noise in diffs.
+- Removed digital art folders, these were only making checkouts larger for no good reason. We will have better ones on the website in the future.
+- Scons: Allow C warnings when compiling for running in debugger automatically.
+- UI: The macOS app bundle option is not experimental at all. This has been untrue for years now, remove that cautioning.
+- macOS: Discontinue support for PyQt6.
+	With newer PyQt6 we would have to package frameworks properly, and we don’t have that yet and it will be a lot of developer time to get it.
+	Instead point people to PySide6 which is the better choice and is perfectly supported by Qt company and Nuitka.
+- Removed version numbering, month of creation, etc. from the man pages generated.
+- Moved `Credits.rst` file to be on the website and maintain it there rather than syncing of from the Nuitka repository.
+- Bumped copyright year and split the license text such that it is now at the bottom of the files rather than eating up the first page, this is aimed at making the code more readable.
+
+### Cleanups
+
+- With `sys.exit` being optimized, we were able to make our trick to avoid following `nuitka` because of accidentally finding the `setup` as an import more simple.
+	```python
+	# Don't allow importing this, and make recognizable that
+	# the above imports are not to follow. Sometimes code imports
+	# setup and then Nuitka ends up including itself.
+	if __name__ != "__main__":
+	   sys.exit("Cannot import 'setup' module of Nuitka")
+	```
+- Scons: Don’t scan for `ccache` on Windows, the `WinLibs` package contains it nowadays, and since it’s now required to be used, there is no point for this code anymore.
+- Minor cleanups coming from trying out `ruff` as a linter on Nuitka, it found a few uses of not using `not in`, but that was it.
+
+### Tests
+
+- Removed test with chinese filenames, we need to avoid chinese names in the repo. These have been seen as preventing installation on some systems that are not capable of handling them in the git, zip, pip tooling, so lets avoid them entirely now that Nuitka handles these just fine.
+- Tests: More macOS standalone tests that need to be bundles were getting the project configuration to do it.
+
+### Summary
+
+This release added much needed tools for our Nuitka Package configuration, but also cleans up scalability and optimization that was supposed to work, but did not yet, or not anymore.
+
+The usability improved again, as it does always, but the big improvements for scalability that will implement existing algorithms more efficient, are yet to come, this release was mainly driven by the need to get `torch` to work in its latest version out of the box with stable Nuitka, but this couldn’t be done as a hotfix
+
+## Nuitka Release 2.0
+
+This release had focus on new features and new optimization. There is a really large amount of compatibility with things newly added, but also massive amounts of new features, and esp. for macOS and Windows, lot of platform specified new abilities and corrections.
+
+### Bug Fixes
+
+- Fix, workaround for private functions as Qt slots not having names mangled. Fixed in 1.9.1 already.
+- Fix, when using Nuitka with `pdm` it was not detected as using pip packages. Fixed in 1.9.1 already.
+- Fix, for `pydantic` our lazy loader parser didn’t handle all cases properly yet. Fixed in 1.9.1 already.
+- Standalone: Added data files for `pyocd` package. Fixed in 1.9.1 already.
+- Standalone: Added DLL for `cmsis_pack_manager` package. Fixed in 1.9.1 already.
+- Standalone: Fix, the specs expanded at run time in some causes could contain random characters. Fixed in 1.9.2 already.
+- Fix, `{"a":b, ...}.get("b")` could crash at runtime. Fixed in 1.9.2 already.
+- Standalone: Added data files for `pyproj` package. Fixed in 1.9.2 already.
+- Standalone: Added more metadata requirements for `transformers` package. Fixed in 1.9.2 already.
+- Plugins: Fix, could crash when including packages from the command line, if they had yaml configuration that requires checking the using module, e.g. anti-bloat work. Fixed in 1.9.3 already.
+- Standalone: Added support for `delphifmx` package. Fixed in 1.9.4 already.
+- Android: Fix, cannot exclude `libz` on that platform, it’s not a full Linux OS. Fixed in 1.9.3 already.
+- Standalone: Add needed DLLs for `bitsandbytes` package. Fixed in 1.9.3 already.
+- Windows: Fix, newer `joblib` was not working anymore. Fixed in 1.9.3 already.
+- Windows: Fix, could crash when working with junctions that switch drives. Fixed in 1.9.3 already.
+- Fix, was crashing with poetry installed environments. Fixed in 1.9.3 already.
+- Standalone: Added support for newer `chromadb` package. Fixed in 1.9.3 already.
+- Fix, could crash in report creation on modules excluded that were asked via command line for inclusion. Fixed in 1.9.3 already.
+- Anti-Bloat: Fix for newer `streamlit`, it was causing `SyntaxError` for the compilation. Fixed in 1.9.4 already.
+- Arch: Added support for their OS release file location too. Fixed in 1.9.4 already.
+- Windows: Fix, MinGW64 doesn’t accept chinese module names a C source files. Use short paths for these instead. Fixed in 1.9.4 already.
+- Standalone: Added missing DLL for `libusb_package` package. Fixed in 1.9.4 already.
+- Fix, properly skip directories with non-module top level names when trying to find top level packages of distributions. Fixed in 1.9.4 already.
+- Fix, avoid memory leak bug in triggered by `rich` package. Fixed in 1.9.4 already.
+- Python3.11+: Fix, didn’t detect non-keywords on star dict calls in some cases. Fixed in 1.9.4 already.
+- Fix, avoid crashes due to unrecognized installers on macOS and Windows, some packages that are built via legacy fallbacks of certain pip versions do not leave any indication of their origin at all. Fixed in 1.9.4 already.
+- Windows: Fix, need to indicate that the program is long path aware or else it cannot work with the paths. Fixed in 1.9.4 already.
+- Debian: The `extern` namespace might not exist in the `pkg_resources` module, make the code work with versions that remove it and use the proper external package names then. Fixed in 1.9.6 already.
+- Compatibility: Fix, need to also have `.exists` method in our files reader objects. Fixed in 1.9.5 already.
+- macOS: Fix, PyQt5 standalone can fail due to `libqpdf` too.
+- Compatibility: Make `dill-compat` plugin support module mode too, previously this only worked for executables only. Fixed in 1.9.6 already.
+- Standalone: Added data file for `curl_cffi` package. Fixed in 1.9.6 already.
+- Windows: Fix warnings given by MinGW64 in debug mode for onefile compilation. Fixed in 1.9.6 already.
+- Python2: The handling of DLL permission changes was not robust against using unicode filenames. Fixed in 1.9.7 already.
+- Python2: Fix, could crash on Debian packages when detecting their installer. Fixed in 1.9.7 already.
+- Standalone: Added required data file for `astor` package. Fixed in 1.9.7 already.
+- Reports: Fix, in case of build crashes during optimization, the bug report creation could be crashing because the module is not in the list of done modules yet. Fixed in 1.9.7 already.
+- Python2: Fix, `unittest.mock` was not yet available, code attempting to use it was crashing the compilation. Fixed in 1.9.7 already.
+- Accelerated: Fix, tensorflow configuration removing `site` usage needs to apply only to standalone mode. Fixed in 1.9.7 already.
+- Plugins: Fix, the `get_dist_name` Nuitka Package Configuration function could crash in some rare configurations. Fixed in 1.9.7 already.
+- Standalone: Added necessary data file for `pygame` package. Added in 1.9.7 already.
+- Standalone: Fix, was not properly handling standard library overloading module names for decisions. Inclusion and compilation mode were made as if the module was part of the standard library, rather than user code. This is now properly checking if it’s also an actual standard library module.
+- Plugins: Fix, crashing on missing absence message with no UPX binary was found.
+- Windows: Fix, couldn’t load extension modules from UNC paths, so standalone distributions failed to launch from network drives. This now works again and was a regression from adding support for symlinks on Windows.
+- Standalone: Added support for non-legacy `pillow` in `imageio` package.
+- Standalone: Added required `easyOCR` data file.
+- Nuitka-Python: Fix, do not demote to non-LTO for “too many” modules there in the default auto mode, it doesn’t work without it.
+- Fix, `python setup.py install` could fail. Apparently it tries to lookup Nuitka during installation, which then could fail, due to hacks we due to make sure wheels are platform dependent. That hack is of course not really needed for install, since no collision is going to happen there.
+- macOS: Fix, the standard `matplotlib` plugin that uses native UI was not included yet, and it was also not working due to bindings requiring uncompiled functions, which is now worked around.
+- Compatibility: Add back PySide6 workaround for overloading names like `update` with slots.
+- Standalone: Added `geopandas` data files.
+- Python2: Fix, code objects must be made from `str` exactly, `unicode` however was used in some configurations after recent improvements to the run time path handling.
+- Standalone: Added missing data files for `boto`, the predecessor of `boto3` as well.
+- Standalone: Added missing DLL for `tensorflow` factorization module.
+- Compatibility: Fix, PySide2 and PySide6 signal disconnection without arguments were not working yet.
+- Standalone: Added support for `toga`.
+- Scons: Fix, need to Avoid picking up `clang` from PATH on Windows with `--clang` provided, as only our WinLibs version is really working.
+- Fix, version of `setuptools` when included (which we try to avoid very much) was `None` which breaks some users of it, now it’s the correct version so checks of e.g. `setuptools_scm` can succeed.
+- Fix, icon options for platforms were conflated, so what should be windows only icon could get used on other platforms as well.
+- Fix, could not create compiled methods from compiled methods. Also now errors out for invalid types given properly.
+
+### New Features
+
+- Plugins: Added support for module decisions, these are `parameters` provided by the user which can be used to influence the Nuitka per package configuration with a new `get_parameter` function. We are using these to control important choices in the user, sometimes warning it to make that decision, if the default can be considered problematic.
+- Plugins: Added support for `variables` in Nuitka package configurations. We can now query at compile time, values from installed packages and use them, e.g. to know what backend is to be used.
+- Standalone: Added module decision to disable Torch JIT. This is generally the right idea, but the decision is still asked for since some packages and programs want to do Torch Tracing, and that is then disabled as well. This makes a bunch of transformers programs work.
+- Standalone: Added module decision to disable Numba JIT. This makes `numba` work in some cases, but not all. Some packages go very deep with JIT integration, but simpler uses will now compile.
+- New option `--include-onefile-external-data` allows you to specify file patterns that you included by other data files others, but to put those files not inside, but on the outside of the onefile binary. This makes it easier to create deployments fully within Nuitka project configuration, and to change your mind back and forth without adding/removing the data file option.
+- macOS: Added new value `auto` for detecting signing identity, if only one is available in the system.
+- macOS: Added support for `--copyright` and `--trademark` information to be in app bundles as well, this was previously Windows only.
+- Windows: Added support for using junctions in the Python environment, these are used e.g. when installing via `scoop`. Added in 1.9.2 already.
+- Added option `--cf-protection` to select the control flow protection mode for the GCC compiler and deviate from default values of some environments to less strict values.
+- Reports: Added output filename to report, mainly intended for automatically locating the compilation result independent of options used.
+- Plugins: Now provides a checksum for yaml files, but not yet verifies them at runtime, to ask the user to run the checker tool to update it when they make modifications.
+- Windows: Detect when we create too large compiled executables. There is a limit of 2GB that you might e.g. violate by attempting to embed very large files. This doesn’t cover onefile yet.
+- Watch: The tool can now create PRs with the changes in Nuitka-Watch for merging, this is for using it in the CI.
+- Watch: Scanning for Python versions now requires `pipenv` to be installed in them to be found.
+- Watch: Added ability to create branch and PR from watch run results.
+- Plugins: Added `overridden-environment-variables` feature to package configuration. These are environment variable changes that only last during the import of that module and are undone later.
+- Plugins: Added `force-environment-variables` feature to package configuration. These are environment variable changes done on module import that are not undone.
+- Nuitka-Action: Nuitka options that can be given multiple times, cannot be specified multiple times in your workflow. As a workaround, Nuitka now allows in Actions, to use new lines as separator. This is best done with this kind of quoting a multiline string.
+	```yaml
+	include-data-dir: |
+	   a=b
+	   c=d
+	```
+- The Nuitka Package Configuration `no-auto-follow` now applies recursively, i.e. that a top level package can have it, and not every sub-package that uses a package but should not be automatically followed, does have to say this. With this e.g. `networkx` configuration became simpler, and yet covered automatically older versions as well, and future changes too.
+- Windows: Added support for compiling in case sensitive folders. When this option is enabled, using `os.path.normcase` can make filenames not found, so with a few cleanups, for lazy code that wasn’t really using the APIs designed for comparisons and filename suffix testing, this works now better.
+- The `__compiled__` value has a new attribute `containing_dir` that allows to find where a module, accelerate executable, a standalone dist folder, a macOS app bundle, or the onefile binary lives in a consistent fashion. This allows esp. better use than `sys.argv[0]` which points deep into the `.app` bundle, and can be used cross platform.
+
+### Optimization
+
+- Scalability: Avoid variables that are not shared to be treated as if they were, marking their type shape as `tshape_unknown` in the first micro pass. These micro passes are not visible, but basically constitute a full visit of the module tree over and over, until no more optimization is changing it. This can lead to quicker resolution, as that unknown type shape effectively disallowed all optimization for variables and reduce the number of necessary micro passes by one.
+- Escaped variables did provide a type shape `tshape_unknown` and while a lot of optimization looks for value knowledge, and gets by the escaped nature of the value, sometimes, this was seriously inhibiting some of the type based optimization.
+- Loop type shape analysis now succeeds in detecting the types for this code example, which is sort of a break-through for future performance enhancements in generated code.
+	```python
+	# Initial the value of "i" is "NUITKA_NINT_UNASSIGNED" in its
+	# indicator part. The C compiler will remove that assignment
+	# as it's only checked in the assignment coming up.
+	i = 0
+	# Assignment from a constant, produces a value where both the C
+	# and the object value are value. This is indicated by a value
+	# of "NUITKA_NINT_BOTH_VALID". The code generation will assign
+	# both the object member from a prepared value, and the clong
+	# member to 0.
+	# For the conditional check, "NUITKA_NINT_CLONG_VALID" will
+	# always be set, and therefore function will resort to comparing
+	# that clong member against 9 simply, that will always be very
+	# fast. Depending on how well the C compiler can tell if an overflow
+	# can even occur, such that an object might get created, it can even
+	# optimize that statically. In this case it probably could, but we
+	# do not rely on that to be fast.
+	while i < 9:  # RICH_COMPARE_LT_CBOOL_NINT_CLONG
+	   # Here, we might change the type of the object. In Python2,
+	   # this can change from \`\`int\`\` to \`\`long\`\`, and our type
+	   # analysis tells us that. We can consider another thing,
+	   # not "NINT", but "NINTLONG" or so, to special case that
+	   # code. We ignore Python2 here, but multiple possible types
+	   # will be an issue, e.g. list or tuple, float or complex.
+	   # So this calls a function, that returns a value of type
+	   # "NINT" (actually it will become an in-place operation
+	   # but lets ignore that too).
+	   # That function is "BINARY_OPERATION_ADD_NINT_NINT_CLONG"(i, 1)
+	   # and it is going to check if the CLONG is valid, add the one,
+	   # and set to result to a new int. It will reset the
+	   # "NUITKA_NINT_OBJECT_VALID" flag, since the object will not be
+	   # bothered to create.
+	   i = i + 1
+	# Since "NUITKA_INT_OBJECT_VALID" not given, need to create the
+	# PyObject and return it.
+	return i
+	```
+- Python3.11+: Use `tomllib` from standard library for our distutils integration into pyproject based builds.
+- Avoid late specialization for `None` returns in generators and do it during tree building already, to remove noise.
+- Added successful detection of static libpython for self compiled Python Linux and macOS. This makes it work with `pyenv` as well.
+- Standalone: Avoid including `.pyx` files when scanning for data files, these are code files too, in this case source files that are definitely unused most of the time.
+- macOS: Make static libpython default with CPython for more compact standalone distribution and faster binaries.
+- Remove non-existent entries from `sys.path`, avoiding many file system lookups during import scans.
+- Anti-Bloat: Avoid using `triton` in `torch` package in more cases. Added in 1.9.2 already.
+- Anti-Bloat: Avoid using `pytest` in `knetworkx` package in more cases. Added in 1.9.2 already.
+- Anti-Bloat: Avoid using `IPython` in `distributed` package. Added in 1.9.3 already.
+- Anti-Bloat: Avoid using `dask` in `skimage`. Added in 1.9.3 already.
+- Anti-Bloat: Avoid using `triton` in the `bitsandbytes` package. Added in 1.9.3 already.
+- Anti-Bloat: Avoid `IPython` in `tf_keras` package as well. Added in 1.9.6 already.
+- Anti-Bloat: Avoid `unittest` in `mock.mock` module. Added in 1.9.7 already.
+- Avoid importing `setuptools_scm` during compilation when using the `tqdm` inline copy, this also avoids a warning on Ubuntu. Added in 1.9.7 already.
+- Anti-Bloat: Avoid `doctest` in `skimage` in their `tifffile` inline copy as well. Added in 1.9.7 already.
+- Anti-Bloat: Avoid `h5py.tests` with older `h5py` as well. Added in 1.9.7 already.
+- Anti-Bloat: Using `distributed.utils_test` is also considered using `pytest`.
+- Anti-Bloat: Avoid `IPython` in the `pip` package.
+- Anti-Bloat: Avoid `site` module for older `tensorflow` versions too.
+- Anti-Bloat: Avoid more `unittest` usages in `tensorflow` packages.
+- Anti-Bloat: Avoid `nose` in `skimage` package.
+- Anti-Bloat: Avoid `nose` in `networkx` package.
+- Anti-Bloat: Avoid `nose` in `pywt` package.
+
+### Organizational
+
+- UI: Change template paths over from `%VAR%` to `{VAR}`.
+	The old spec values are migrated transparently and continue to work, but get a warning when used.
+	The new code detects unknown variable names and more formatting issues than before.
+	Using only the `{PID}` value for process ID, is now making it temporary value for onefile, that was previously a bug.
+	The main benefit and reason of doing this, is that Windows `CMD.EXE` does expand those values before Nuitka sees them as even with quoting `%TEMP%` is the current one on the building machine, a recipe for disaster. As some people still use that, and e.g. `os.system` or `subprocess` with `shell=True` will use it too, this is just not sustainable for a good user experience.
+	As a result, compile time and run time variables now clash, there is e.g. `{VERSION}` (program version information given) and `{Version}` (Nuitka version), and we should clean that up too.
+- Project: Added Code of Conduct. Adapted from the one used in the Linux kernel.
+- UI: Warnings given by Nuitka used to be in red color, changed those to be yellow for consistency.
+- User Manual: Added pointer for Nuitka-Action [Nuitka-Action](https://github.com/Nuitka/Nuitka-Action) for users interested in using Nuitka in GitHub workflows.
+- Added `.gitignore` to build folder that just causes these folders to be ignored by git.
+- User Manual: Added information on how to debug fork bombs from created binaries.
+- Debugging: The output of `--experimental=--report-refcounts` that we use to show leaks of compiled time objects at program exit, now counts and reports on functions, generator objects and compiled cells as well.
+- Quality: Warnings from `yamllint` not disabled are errors. These were only output, but didn’t cause the autoformat to error exit yet.
+- UI: Enhanced formatting of info traces, drop the `:INFO` part that shouts, and reserve that for errors and warnings. Also format info messages to make sure they fit into the line.
+- UI: Changed `--show-source-changes` to accept module pattern to make it easier to only see the ones currently being worked on. To get the old behavior of showing everything, use `*` as a pattern.
+- UI: Allow using `~` in data files source path for command line options and expand it properly.
+- Quality: Enhanced schema for our package configuration yaml files to detect suffixes with leading dots, that is not wanted. These now fail checks, but we also tolerate them now.
+- Quality: Check module names used in the package configuration yaml files for validity, this catches e.g. trailing dots.
+- Quality: Make sure to really prefer `clang-format` from Visual Code and MSVC for formatting C code, otherwise a system installed one could be used that gives slightly different outputs.
+- Scons: Allow disabling to enforce no warnings for C compilation
+	Currently only for gcc, where we need it until loop tracing is better, we can now use `--experimental=allow-c-warnings` options to make `--debug` work for some known currently unavoidable warnings.
+- macOS: Make `--macos-create-app-bundle` imply standalone mode, it’s not working or useful for accelerated mode anyway.
+- Standalone: Added support for using self-compiled Python versions that are not installed on Linux and macOS. This avoids having to do `make install` and can ease debugging with changes made in Python core itself. Added in 1.9.6 already.
+- Release: Added ability to simple re-date hotfixes. Previously the version bump commit needed to be dropped, now a fixup commit is easy to generate.
+- Release: Man pages are no longer built during package builds, but are available statically in the git, which should make it easier.
+- Release: Disable verbose output in package installation of Nuitka, it never was any use, and just makes things hard to read.
+- UI: Check user yaml file present immediately. Otherwise it was crashing when parsing yaml files first time with less comprehensible exceptions. Added in 1.9.7 already.
+- Quality: Updated to latest `rstfmt`, `black` and `isort` versions.
+- Debian: Remove references to PDF documentation that no longer exists.
+- Quality: Do not crash when collecting modified files due to deleted files.
+- UI: Detect the Alpine flavor of Python as well.
+- UI: Detect `manylinux` Pythons as a Python flavors as well.
+- UI: Detect self compiled uninstalled Python as a dedicated flavor.
+
+### Cleanups
+
+- For the Nuitka-Action part of the available options is now generated from Nuitka option definitions itself, adding some previously missing options as a result. As a result, adding `--include-onefile-external-data` was automatic this time.
+- The warnings for onefile only options without onefile mode provided have been moved to common code, and in some cases were having wrong texts corrected.
+- Use enum definitions in the Nuitka Package Configuration schema rather than manual `oneOf` types.
+- The User Manual was proof read and had a bunch of wordings improved.
+- Cleanup, avoid “unused but set variable” warning from the C compiler for hard some forms of hard imports.
+- Prefer `os.getenv` over `os.environ.get` for readability.
+- Changed parts of the C codes that `clang-format` had a hard time with to something more normal.
+
+### Tests
+
+- When locating the standalone binary created, use a compilation report and resolve the path specified there. This allows macOS app bundles to be used in these tests as well.
+- Made the PyQt tests executable on macOS too adding necessary options.
+- Added reference test case for unpacking into a list, this was not covered but under suspect of reference leaking which turns out to be wrong.
+- Much enhanced usage of `virtualenv` in the `distutils` test cases. We make more sure to delete them even in case of issues. We disable warnings during Nuitka package installation. The code to execute a case was factored out and became more clear. We now handle errors in execution with stating what case actually failed, this was a bit hard to tell previously. Also do not install Nuitka when a pyproject case is used, since the build tool installs Nuitka itself.
+
+### Summary
+
+This release deserves the 2.0 marker, as it is ground breaking in many ways. The loop type analysis stands out on the optimization front. This will open an avenue for much optimized code at least for some benchmark examples this summer.
+
+The new features for package configuration, demonstrate abilities to avoid plugins for Nuitka, where those previously would have been used. The new `variables` and `parameters` made it unnecessary to have them, and still add compile time variable use and user decisions and information, without them.
+
+The scope of supported Python configurations got expanded a bit, and the the usual slew of anti-bloat work and new packages supported, makes Nuitka an ever more round package.
+
+The improved user dialog with less noisy messages and slightly better coloring, continues a trend, where Nuitka becomes more and more easy to use.

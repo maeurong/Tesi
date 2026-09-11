@@ -1,0 +1,2 @@
+{"derived_from": {"path": "https://raw.githubusercontent.com/softprops/action-gh-release/master/README.md", "sha256": "b92c483df0a13c98f7bf2805d20dca64a74291bc3de6e06bd0fd39dd03b2f798", "bytes": 20802},
+ "tool": "curl", "tool_version": "8.7.1", "extracted": "2026-09-11"}

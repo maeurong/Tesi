@@ -1,0 +1,2 @@
+{"derived_from": {"path": "https://github.com/ofek/hatch-vcs", "sha256": "4b60c77e1788be7c22f09862c8b6f97b39c5cd3358bb9fe458fc13232fdc72cf", "bytes": 8307},
+ "tool": "defuddle", "tool_version": "0.19.1", "extracted": "2026-09-11"}

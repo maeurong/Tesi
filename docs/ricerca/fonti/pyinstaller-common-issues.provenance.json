@@ -1,0 +1,2 @@
+{"derived_from": {"path": "https://pyinstaller.org/en/stable/common-issues-and-pitfalls.html", "sha256": "e1bf9e7630b62fece06d7bbe2030c53edd8bab9efb18d9c71e66118698b2adcc", "bytes": 30285},
+ "tool": "defuddle", "tool_version": "0.19.1", "extracted": "2026-09-11"}
