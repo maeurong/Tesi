@@ -39,6 +39,8 @@
 - Consumes: `scrivi_atomico(path: Path, scrittore: Callable[[Path], None])` da `meshrec/core/io.py:118`; regola di nome di `nomeDellImmagine` in `app.js:1849-1856` e `nomeDellaCorsa` in `app.js:1845-1847`.
 - Produces: `nome_dell_immagine(corsa: str, numero: int, nome: str, didascalia: str) -> str`; `decodifica_png(dati: str) -> bytes` (solleva `ValueError`); `salva(out_dir: Path, numero: int, nome: str, didascalia: str, png: bytes) -> Path`; costanti `CARTELLA = "immagini"`, `LIMITE_BYTE = 50 * 1024 * 1024`.
 
+**Dispatch:** backend-engineer · sequenziale, primo di PR1 · skill-gate: `superpowers:test-driven-development` (con `caveman:caveman`, `ponytail:ponytail`) · ricerca: `nessun riferimento pertinente` · ingressi: spec §2
+
 **Ricerca:** nessun riferimento pertinente (la regola di nome è del codice esistente).
 
 - [ ] **Step 1: Scrivere i test che falliscono**
@@ -247,6 +249,8 @@ git -C /Users/mario/GitHub/Tesi commit -m "feat(immagini): nome e scrittura del 
 - Consumes: `immagini.decodifica_png`, `immagini.salva`, `immagini.LIMITE_BYTE` (Task 1); `config_path`, `corrente()` chiusure di `create_app` (`server.py:733-741`).
 - Produces: `POST /api/immagine` → 200 `{"percorso": str}`; 409 `{"errore": "NessunaCorsa"}`; 413 `{"errore": "ImmagineTroppoGrande"}`; 400 `{"errore": "ImmagineNonValida"}` o `{"errore": "ValueError"|"OSError", ...}` dal gestore generico.
 
+**Dispatch:** backend-engineer · sequenziale dopo Task 1 (importa `immagini`) · skill-gate: `superpowers:test-driven-development` (con `caveman:caveman`, `ponytail:ponytail`) · ricerca: `nessun riferimento pertinente` · ingressi: spec §2
+
 **Ricerca:** nessun riferimento pertinente.
 
 Decisione di piano: le corse in **sola lettura** (`SOLA_LETTURA`, `server.py:752-768`) **accettano** il salvataggio delle immagini. `runs/muro` e `runs/lab_crop` sono le corse di riferimento della tesi ed è proprio di quelle che servono le figure; un PNG in `immagini/` non tocca configurazione né artefatti. Deviazione dalla spec: «`immagini/` esiste come file → 500» diventa **400** con il messaggio di `OSError`, perché il gestore generico risponde 400 a ogni eccezione e la spec chiede solo «messaggio che dice il percorso, nessuna eccezione non gestita».
@@ -430,6 +434,8 @@ git -C /Users/mario/GitHub/Tesi commit -m "feat(server): POST /api/immagine scri
 - Consumes: `POST /api/immagine` (Task 2); `serverMuto` (`app.js:2403`), `ragioneDelRifiuto`, `corpoLetto`, `superata`, `dichiaraErrore` (`app.js:2434`).
 - Produces: `async function consegnaImmagine(corpo)` → `{percorso}` oppure `null` dopo aver chiamato `dichiaraErrore`; `salvaImmagine` torna `true` solo a file scritto.
 
+**Dispatch:** frontend-engineer · sequenziale dopo Task 2 (Step 5 prova la rotta vera; `tests/test_app_js.py` già toccato da Task 1) · skill-gate: `superpowers:test-driven-development` (logica di consegna, nessuno stile: `impeccable` non serve; con `caveman:caveman`, `ponytail:ponytail`) · ricerca: `docs/ricerca/2026-09-11-guscio-desktop.md:169` · ingressi: spec §2
+
 **Ricerca:** `docs/ricerca/2026-09-11-guscio-desktop.md:169` (download data URL non documentato in pywebview: la ragione del salvataggio via server).
 
 - [ ] **Step 1: Scrivere il test che fallisce**
@@ -550,6 +556,8 @@ Round pre-commit in parallelo (`security-reviewer`, `code-reviewer`, `test-write
 
 **Interfaces:**
 - Produces: i file sopra; `/ui/icona-32.png` servito dalla rotta statica (`server.py:880-885`).
+
+**Dispatch:** frontend-engineer · parallelo con Task 5 e Task 7 (con Task 5 un solo file in comune, `tests/test_server.py`, entrambi in coda: chi commette secondo rilegge il file prima di aggiungere) · **gate: Mario** allo Step 1, l'SVG si mostra prima dei derivati · skill-gate: `impeccable` (critica del render contro `PRODUCT.md` prima di mostrarlo; con `caveman:caveman`, `ponytail:ponytail`) · ricerca: `docs/ricerca/2026-09-11-identita-e-autorevolezza.md:206`, `:210`, `docs/ricerca/2026-09-11-guscio-desktop.md:62-63` · ingressi: spec §3
 
 **Ricerca:** `docs/ricerca/2026-09-11-identita-e-autorevolezza.md:206` (pattern accademico: glifo semplice + nome), `:210` (una sorgente SVG in `ui/`, il PNG al posto del data URI), `docs/ricerca/2026-09-11-guscio-desktop.md:62-63` (`.ico` Windows, `.icns` macOS; l'icona del Dock arriva solo dal bundle).
 
@@ -687,6 +695,8 @@ git -C /Users/mario/GitHub/Tesi commit -m "feat(ui): icona di MeshRec, sorgente 
 
 **Interfaces:**
 - Produces: `informazioni(radice: Path | None = None) -> dict` con chiavi `nome`, `versione`, `commit`, `licenza`, `doi`, `repository`; `GET /api/info` che la restituisce.
+
+**Dispatch:** backend-engineer · parallelo con Task 4 e Task 7 (vedi nota su `tests/test_server.py` in Task 4) · skill-gate: `superpowers:test-driven-development` (con `caveman:caveman`, `ponytail:ponytail`) · ricerca: `docs/ricerca/2026-09-11-identita-e-autorevolezza.md:176-177`, `:101-103` · ingressi: spec §3
 
 **Ricerca:** `docs/ricerca/2026-09-11-identita-e-autorevolezza.md:176-177` (`importlib.metadata.version`: una sola fonte di verità), `:101-103` (`CITATION.cff` letto da Zenodo: il DOI sta lì).
 
@@ -859,6 +869,8 @@ git -C /Users/mario/GitHub/Tesi commit -m "feat(server): GET /api/info dice vers
 - Consumes: `GET /api/info` (Task 5).
 - Produces: `function righeDelleInformazioni(info) -> Array<{testo, href?}>`; `async function mostraInformazioni()`; markup `<footer class="informazioni" id="informazioni">`.
 
+**Dispatch:** frontend-engineer · sequenziale dopo Task 4 (`index.html`) e Task 5 (`/api/info`); parallelo con Task 8 · skill-gate: `impeccable` (scoped al solo `<footer>`: spec §3 vieta grafica nuova, quindi critica e tipografia, non colori nuovi) più `superpowers:test-driven-development` su `righeDelleInformazioni` (con `caveman:caveman`, `ponytail:ponytail`) · ricerca: `docs/ricerca/2026-09-11-identita-e-autorevolezza.md:54`, `:109` · ingressi: spec §3
+
 **Ricerca:** `docs/ricerca/2026-09-11-identita-e-autorevolezza.md:54` (la versione interrogabile è un segnale di maturità), `:109` (la forma della citazione).
 
 - [ ] **Step 1: Test che fallisce**
@@ -967,6 +979,8 @@ git -C /Users/mario/GitHub/Tesi commit -m "feat(ui): pie' di pagina con versione
 
 **Interfaces:**
 - Produces: `webview2_presente() -> bool`; `trova_chromium() -> list[str] | None` (comando pronto per `Popen`, senza l'URL); `apri(indirizzo: str, *, cache: Path, forza_browser: bool = False, avvisa=print) -> str` che torna `"finestra"`, `"app"` o `"browser"` **dopo** che la finestra è stata chiusa (per `finestra` e `app`), subito (per `browser`).
+
+**Dispatch:** backend-engineer · parallelo con Task 4 e Task 5 (file disgiunti: `pyproject.toml`, `uv.lock`, `finestra.py`, `test_finestra.py`) · skill-gate: `superpowers:test-driven-development` (con `caveman:caveman`, `ponytail:ponytail`) · ricerca: `docs/ricerca/2026-09-11-guscio-desktop.md:46-49`, `:56`, `:69-70`, `:86-96` · ingressi: spec §1
 
 **Ricerca:** `docs/ricerca/2026-09-11-guscio-desktop.md:46-49` (WebView2 e il fallback MSHTML da evitare, chiave di registro), `:56` (`ALLOW_DOWNLOADS`), `:69-70` (evento di chiusura, forma minima), `:86-96` (`--app`, `--user-data-dir`, App Paths, perché il profilo dedicato fa tornare `wait`).
 
@@ -1231,6 +1245,10 @@ git -C /Users/mario/GitHub/Tesi commit -m "feat(finestra): pywebview, poi Chromi
 - Consumes: `finestra.apri` (Task 7); `create_app`, `ServerConfig`.
 - Produces: `meshrec serve [--port N] [--no-browser] [--browser] [config]`; codice 0 a finestra chiusa, 1 su porta occupata o server che non parte.
 
+**Dispatch:** backend-engineer · sequenziale dopo Task 7 (`finestra.apri`); parallelo con Task 6 · skill-gate: `superpowers:test-driven-development` (con `caveman:caveman`, `ponytail:ponytail`) · ricerca: `docs/ricerca/2026-09-11-guscio-desktop.md:67`, `:70` · ingressi: spec §1
+
+Nota di dispatch: lo Step 4 apre e chiude una finestra vera — lo fa Mario o il thread principale davanti al Mac, non il subagente; il subagente chiude allo Step 3 e riporta.
+
 **Ricerca:** `docs/ricerca/2026-09-11-guscio-desktop.md:67` (uvicorn fuori dal thread principale, `should_exit`), `:70` (forma minima).
 
 - [ ] **Step 1: Test che falliscono**
@@ -1423,6 +1441,8 @@ git -C /Users/mario/GitHub/Tesi commit -m "feat(cli): serve apre la finestra e f
 
 **Interfaces:**
 - Consumes: `icona.icns` (Task 4), `icona.ico` (Task 4), `MeshRec.bat` (esistente).
+
+**Dispatch:** coder · sequenziale dopo Task 4 (`icona.icns`), Task 6 e Task 8 (la prova e il README descrivono finestra e piè di pagina); ultimo di PR2 · **gate: Mario** allo Step 4, la PR resta aperta finché `docs/prove/2026-09-finestra-windows.md` non porta l'esito · skill-gate: `ponytail:ponytail` (con `caveman:caveman`; `wizard` non si applica: la prova gira su Windows e il piano chiede una checklist `.md`) · ricerca: `docs/ricerca/2026-09-11-guscio-desktop.md:159-160`, `:76`, `docs/ricerca/2026-09-11-distribuzione-binaria.md:159` · ingressi: spec §3 (bundle, `.ps1`) e §1 (prova Windows)
 
 **Ricerca:** `docs/ricerca/2026-09-11-guscio-desktop.md:159-160` (bundle minimo e `.lnk`), `:76` (la finestra `cmd` accanto alla finestra su Windows resta), `docs/ricerca/2026-09-11-distribuzione-binaria.md:159` (Gatekeeper su Sequoia: Privacy e sicurezza › Apri comunque).
 
@@ -1617,6 +1637,10 @@ Round pre-commit in parallelo (`security-reviewer`: sottoprocessi, registro, Pow
 
 ### Task 10: Rename del repository
 
+**Dispatch:** coder · sequenziale, primo di PR3 (ogni task dopo scrive l'URL nuovo) · skill-gate: false — meccanico: `gh repo rename` + `sed` verificato da `grep` a zero righe (resta `caveman:caveman`) · ricerca: `docs/ricerca/2026-09-11-identita-e-autorevolezza.md:237` · ingressi: spec §4
+
+Nota di dispatch: gli appunti in `~/.claude/projects/` sono fuori repo e li aggiorna il thread principale, non il subagente.
+
 **Files:**
 - GitHub: `maeurong/Tesi` → `maeurong/meshrec`
 - Modify: ogni file con `maeurong/Tesi` fuori da `docs/ricerca/fonti/` e `.git/` (elenco con il `grep` del passo 1)
@@ -1651,6 +1675,8 @@ git -C /Users/mario/GitHub/Tesi commit -m "chore(repo): il repository si chiama 
 Poi aggiornare gli appunti dell'assistente (`~/.claude/projects/-Users-mario/memory/progetto-tesi-meshrec-deck-nudo.md` e affini) con l'URL nuovo: fuori dal repo, ma va fatto nella stessa sessione.
 
 ### Task 11: `CITATION.cff`
+
+**Dispatch:** coder · sequenziale dopo Task 10 (`repository-code` porta l'URL nuovo); parallelo con Task 12 · skill-gate: false — contenuto nel piano, validazione `uvx cffconvert --validate` (resta `caveman:caveman`) · ricerca: `docs/ricerca/2026-09-11-identita-e-autorevolezza.md:91-103`, `:109` · ingressi: spec §4
 
 **Files:**
 - Create: `CITATION.cff` (radice del repo)
@@ -1695,6 +1721,8 @@ git -C /Users/mario/GitHub/Tesi commit -m "docs(cff): CITATION.cff, il software 
 ```
 
 ### Task 12: `CHANGELOG.md` e versione 1.0.0
+
+**Dispatch:** architect · sequenziale dopo Task 10 (`gh pr list --repo maeurong/meshrec`); parallelo con Task 11 · skill-gate: `documentation` (con `caveman:caveman`) · ricerca: `docs/ricerca/2026-09-11-identita-e-autorevolezza.md:158`, `:38` · ingressi: nessun ingresso esterno (documento e numero di versione, non codice)
 
 **Files:**
 - Create: `CHANGELOG.md` (radice)
@@ -1750,6 +1778,10 @@ git -C /Users/mario/GitHub/Tesi commit -m "chore(release): CHANGELOG e versione 
 
 ### Task 13: Screenshot e badge nel README
 
+**Dispatch:** architect · Step 1-2 paralleli con Task 11 e Task 12 (file disgiunti); Step 3 (push, PR) dopo che Task 11 e Task 12 sono committati · skill-gate: `documentation` (con `caveman:caveman`) · ricerca: `docs/ricerca/2026-09-11-identita-e-autorevolezza.md:170-172`, `:54`, `:58` · ingressi: nessun ingresso esterno (README e un PNG)
+
+Nota di dispatch: lo Step 1 vuole la finestra pywebview a schermo — Mario o il thread principale davanti al Mac.
+
 **Files:**
 - Create: `docs/immagini/viewport.png`
 - Modify: `README.md:1-14`
@@ -1788,6 +1820,8 @@ git -C /Users/mario/GitHub/Tesi push -u origin chore/identita
 Round pre-commit: `craft-reviewer` (README, CHANGELOG, CFF), `code-reviewer`, `spec-reviewer` contro §4. `gh pr create`, merge.
 
 ### Task 14: Zenodo, tag, release (a mano, con Mario)
+
+**Dispatch:** coder · sequenziale dopo PR3 fusa (Task 13) · **gate: Mario** — toggle Zenodo prima del tag (Step 1) e lettura del DOI dalla pagina Zenodo (Step 3) · skill-gate: false — procedura di cinque righe già nel piano; `wizard` produrrebbe uno script per un interruttore solo (resta `caveman:caveman`) · ricerca: `docs/ricerca/2026-09-11-identita-e-autorevolezza.md:107-109` · ingressi: spec §4
 
 **Files:**
 - Create: `docs/prove/2026-09-zenodo.md`
@@ -1828,6 +1862,8 @@ Dopo che Zenodo ha assegnato il DOI (Mario lo legge dalla pagina Zenodo): branch
 
 ### Task 15: Chiusura
 
+**Dispatch:** thread principale, nessun subagente (`/graphify --update` va lanciato in sessione, gli appunti sono suoi) · sequenziale dopo Task 14 · skill-gate: `graphify`, `superpowers:finishing-a-development-branch` · ricerca: `nessun riferimento pertinente` · ingressi: nessun ingresso esterno
+
 - [ ] `/graphify --update` sul repo (il grafo è committato in `graphify-out/`; docs nuove = costo semantico, da fare o dichiarare).
 - [ ] Appunti dell'assistente: URL nuovo, stato delle tre PR, esito della prova Windows.
 - [ ] `superpowers:finishing-a-development-branch` per ogni branch fuso.
@@ -1841,3 +1877,38 @@ Dopo che Zenodo ha assegnato il DOI (Mario lo legge dalla pagina Zenodo): branch
 **Deviazioni dichiarate.** (a) `immagini/` come file → 400 e non 500 (gestore generico). (b) Le corse in sola lettura accettano le immagini. (c) Il bundle non ha un Terminale: dialogo `osascript` e log in `~/Library/Logs/MeshRec.log`. (d) `/api/info` porta anche `doi_url`, così `app.js` non contiene `https://`.
 
 **Coerenza dei nomi.** `immagini.nome_dell_immagine`, `immagini.decodifica_png`, `immagini.salva`, `immagini.LIMITE_BYTE` (Task 1 ↔ 2). `consegnaImmagine` (Task 3). `info.informazioni` con chiavi `nome, versione, commit, licenza, doi, doi_url, repository` (Task 5 ↔ 6). `finestra.apri(indirizzo, *, cache, forza_browser, avvisa)` → `"finestra" | "app" | "browser"` (Task 7 ↔ 8). `cli.ATTESA_AVVIO_S` (Task 8). `icona-32.png`, `icona.ico`, `icona.icns` (Task 4 ↔ 9).
+
+
+## Sequenza di dispatch
+
+Tre PR in fila; dentro ogni PR le righe sotto dicono chi parte insieme e chi aspetta. Frecce = «aspetta». Ruolo fra parentesi.
+
+    PR1 feat/salva-immagine-server
+      Task 1 (backend-engineer)
+        → Task 2 (backend-engineer)
+          → Task 3 (frontend-engineer)  → round review, PR
+
+    PR2 feat/finestra — parte quando PR1 è fusa
+      onda 1, in parallelo:
+        Task 4 (frontend-engineer)  [gate Mario: l'SVG prima dei derivati]
+        Task 5 (backend-engineer)
+        Task 7 (backend-engineer)
+        (4 e 5 aggiungono entrambi in coda a tests/test_server.py: il secondo rilegge prima di scrivere)
+      onda 2, in parallelo:
+        Task 6 (frontend-engineer)  ← 4, 5
+        Task 8 (backend-engineer)   ← 7      [Step 4: finestra a schermo, Mario o thread principale]
+      onda 3:
+        Task 9 (coder)              ← 4, 6, 8   [gate Mario: esito Windows in docs/prove/, la PR non si fonde senza]
+      → round review, PR aperta finché l'esito non c'è
+
+    PR3 chore/identita — parte quando PR2 è fusa
+      Task 10 (coder)                          [appunti fuori repo: thread principale]
+        → in parallelo: Task 11 (coder), Task 12 (architect), Task 13 Step 1-2 (architect)
+                        [Task 13 Step 1: finestra a schermo, Mario o thread principale]
+          → Task 13 Step 3 (push, PR)  ← 11, 12   → round review, merge
+            → Task 14 (coder)                  [gate Mario: toggle Zenodo prima del tag; poi il DOI letto da Zenodo]
+              → Task 15 (thread principale)
+
+Gate umani, tre: Task 4 Step 1 (icona a vista), Task 9 Step 4 (prova Windows), Task 14 Step 1 e 3 (Zenodo). Non sono gate ma servono una persona davanti al Mac: Task 8 Step 4 e Task 13 Step 1.
+
+Skill-gate false, tre, tutti meccanici: Task 10 (rename + sed), Task 11 (CFF dato nel piano, validato da cffconvert), Task 14 (procedura di cinque righe). Ogni brief nomina comunque `caveman:caveman` e, per chi scrive codice, `ponytail:ponytail`.
