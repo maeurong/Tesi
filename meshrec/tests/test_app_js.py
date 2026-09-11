@@ -7850,3 +7850,26 @@ assert.equal(salva.disabled, true, "il giro ha riacceso «Salva immagine» mentr
 assert.notEqual(salvaTutti.disabled, true, "il giro ha spento il proprio tasto senza partire");
 assert.equal(esitoDelGiro.textContent, "");
 """)
+
+
+def test_la_regola_di_nome_del_js_e_quella_del_server_coincidono(tmp_path):
+    """Il messaggio a video (app.js) e il file su disco (immagini.py) devono
+    dire lo stesso nome: i casi sono gli stessi di test_immagini.py, e il JS
+    vero gira su di essi."""
+    from meshrec.app import immagini
+
+    casi = [
+        ("runs/lab_telaio_v2", 6, "Riparazione", "scarto RMS 9,5 mm"),
+        ("corsa", 5, "Superficie", ""),
+        ("runs\\\\lab", 1, "Lettura", ""),
+        ("", 1, "Lettura", ""),
+        ("lab", 2, "Perché", "città à è"),
+        ("lab", 3, "../../etc", "/passwd"),
+        ("lab", 4, "", ""),
+    ]
+    attesi = [immagini.nome_dell_immagine(c.replace("\\\\", "\\"), n, no, d) for c, n, no, d in casi]
+    righe = "\n".join(
+        f'assert.equal(nomeDellImmagine("{c}", {n}, "{no}", "{d}"), "{a}");'
+        for (c, n, no, d), a in zip(casi, attesi)
+    )
+    _esegui(tmp_path, _DOM + _funzioni("nomeDellaCorsa", "nomeDellImmagine") + righe)
