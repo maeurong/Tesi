@@ -5,7 +5,7 @@ con [versionamento semantico](https://semver.org/lang/it/).
 
 ## [Unreleased]
 
-## [1.0.0] — 2026-09-19
+## [1.0.0] — 2026-09-12
 
 Prima versione: quella discussa in sede di tesi.
 

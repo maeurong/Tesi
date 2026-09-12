@@ -10,7 +10,7 @@ authors:
   - family-names: Fiorenzoni
     given-names: Mario
 version: 1.0.0
-date-released: "2026-09-19"
+date-released: "2026-09-12"
 license: MIT
 repository-code: "https://github.com/maeurong/meshrec"
 keywords:
