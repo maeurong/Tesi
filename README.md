@@ -1,7 +1,13 @@
 # MeshRec
 
-Da un rilievo fotogrammetrico di una struttura in cemento armato a un modello a
-elementi finiti pronto per l'analisi, in modo riproducibile e documentabile.
+[![Release](https://img.shields.io/github/v/release/maeurong/meshrec)](https://github.com/maeurong/meshrec/releases)
+[![Licenza MIT](https://img.shields.io/github/license/maeurong/meshrec)](LICENSE)
+[![Python 3.12](https://img.shields.io/badge/python-3.12-blue)](meshrec/pyproject.toml)
+
+**Dal rilievo fotogrammetrico al modello FEM.** Ingressi: `.pcd`, `.ply`, `.xyz`.
+Uscite: deck Abaqus `.inp` e geometria `.step`.
+
+![Il viewport di MeshRec su una corsa del caso studio](docs/immagini/viewport.png)
 
 Il percorso è di undici passaggi — segmentazione della nuvola di punti,
 ricostruzione della superficie, riempimento a tetraedri, esportazione del
