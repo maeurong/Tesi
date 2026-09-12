@@ -1642,27 +1642,27 @@ Round pre-commit in parallelo (`security-reviewer`: sottoprocessi, registro, Pow
 Nota di dispatch: gli appunti in `~/.claude/projects/` sono fuori repo e li aggiorna il thread principale, non il subagente.
 
 **Files:**
-- GitHub: `maeurong/meshrec` → `maeurong/meshrec`
-- Modify: ogni file con `maeurong/meshrec` fuori da `docs/ricerca/fonti/` e `.git/` (elenco con il `grep` del passo 1)
+- GitHub: `maeurong/Tesi` → `maeurong/meshrec`
+- Modify: ogni file con `maeurong/Tesi` fuori da `docs/ricerca/fonti/` e `.git/` (elenco con il `grep` del passo 1)
 
 **Ricerca:** `docs/ricerca/2026-09-11-identita-e-autorevolezza.md:237` (il record DOI congela il nome: rename prima di Zenodo).
 
 - [ ] **Step 1: Inventario**
 
-Run: `grep -rln "maeurong/meshrec" /Users/mario/GitHub/Tesi --exclude-dir=fonti --exclude-dir=.git --exclude-dir=.venv --exclude-dir=graphify-out`
+Run: `grep -rln "maeurong/Tesi" /Users/mario/GitHub/Tesi --exclude-dir=fonti --exclude-dir=.git --exclude-dir=.venv --exclude-dir=graphify-out`
 Expected: l'elenco dei file (al 11/09/2026: 29, fra `docs/`, `meshrec/tests/`, `meshrec/docs/`).
 
 - [ ] **Step 2: Rename su GitHub e remote**
 
-Run: `gh repo rename meshrec --repo maeurong/meshrec --yes`
+Run: `gh repo rename meshrec --repo maeurong/Tesi --yes`
 Run: `gh repo edit maeurong/meshrec --description "MeshRec — dal rilievo fotogrammetrico al modello FEM"`
 Run: `git -C /Users/mario/GitHub/Tesi remote set-url origin https://github.com/maeurong/meshrec.git`
 Run: `git -C /Users/mario/GitHub/Tesi fetch --dry-run` → nessun errore.
 
 - [ ] **Step 3: Sostituzione**
 
-Run: `grep -rl "maeurong/meshrec" /Users/mario/GitHub/Tesi --exclude-dir=fonti --exclude-dir=.git --exclude-dir=.venv --exclude-dir=graphify-out | xargs sed -i '' 's#maeurong/meshrec#maeurong/meshrec#g'`
-Run: `grep -rn "maeurong/meshrec" /Users/mario/GitHub/Tesi --exclude-dir=fonti --exclude-dir=.git --exclude-dir=.venv --exclude-dir=graphify-out | wc -l` → `0`.
+Run: `grep -rl "maeurong/Tesi" /Users/mario/GitHub/Tesi --exclude-dir=fonti --exclude-dir=.git --exclude-dir=.venv --exclude-dir=graphify-out | xargs sed -i '' 's#maeurong/Tesi#maeurong/meshrec#g'`
+Run: `grep -rn "maeurong/Tesi" /Users/mario/GitHub/Tesi --exclude-dir=fonti --exclude-dir=.git --exclude-dir=.venv --exclude-dir=graphify-out | wc -l` → `0`.
 Run: `uv run pytest -q` (i test in `test_accenti.py`, `test_guardie_e_nomi.py` e altri citano l'URL nei docstring: devono restare verdi).
 
 - [ ] **Step 4: Commit**

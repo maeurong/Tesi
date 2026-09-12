@@ -259,7 +259,7 @@ Ordine vincolante, perché ogni passo scrive l'URL o il numero del precedente:
 
 1. **Rename** `gh repo rename meshrec` (GitHub reindirizza il vecchio URL);
    descrizione «MeshRec — dal rilievo fotogrammetrico al modello FEM»;
-   `git remote set-url origin`; ogni URL `maeurong/meshrec` in README, docs, spec,
+   `git remote set-url origin`; ogni URL `maeurong/Tesi` in README, docs, spec,
    `CLAUDE.md`, `AGENTS.md`, `PRODUCT.md` aggiornato con un `sed` verificato
    da `grep`. La cartella locale resta `~/GitHub/Tesi`.
 2. **`CITATION.cff`** in radice: `cff-version 1.2.0`, `title` MeshRec,
@@ -284,7 +284,7 @@ Ordine vincolante, perché ogni passo scrive l'URL o il numero del precedente:
 
 ### Ingressi degeneri
 
-- rename fatto e `grep -r "maeurong/meshrec"` trova ancora una riga → il passo
+- rename fatto e `grep -r "maeurong/Tesi"` trova ancora una riga → il passo
   non è chiuso; il test è il `grep` a zero righe (escluso `docs/ricerca/fonti/`,
   che è materiale catturato e non si tocca)
 - `cffconvert --validate` fallisce → il CFF non si committa

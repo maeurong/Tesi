@@ -4,7 +4,7 @@
 [![Licenza MIT](https://img.shields.io/github/license/maeurong/meshrec)](LICENSE)
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue)](meshrec/pyproject.toml)
 
-**Dal rilievo fotogrammetrico al modello FEM.** Ingressi: `.pcd`, `.ply`, `.xyz`.
+**Dal rilievo fotogrammetrico di una struttura in cemento armato al modello FEM, in modo riproducibile.** Ingressi: `.pcd`, `.ply`, `.xyz`.
 Uscite: deck Abaqus `.inp` e geometria `.step`.
 
 ![Il viewport di MeshRec su una corsa del caso studio](docs/immagini/viewport.png)
