@@ -3,6 +3,7 @@
 [![Release](https://img.shields.io/github/v/release/maeurong/meshrec)](https://github.com/maeurong/meshrec/releases)
 [![Licenza MIT](https://img.shields.io/github/license/maeurong/meshrec)](LICENSE)
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue)](meshrec/pyproject.toml)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.22728395.svg)](https://doi.org/10.5281/zenodo.22728395)
 
 **Dal rilievo fotogrammetrico di una struttura in cemento armato al modello FEM, in modo riproducibile.** Ingressi: `.pcd`, `.ply`, `.xyz`.
 Uscite: deck Abaqus `.inp` e geometria `.step`.
