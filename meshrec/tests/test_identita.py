@@ -40,6 +40,15 @@ def test_il_doi_viene_dal_citation_cff(tmp_path: Path):
     assert voci["doi_url"] == "https://doi.org/10.5281/zenodo.1234"
 
 
+def test_un_cff_valido_senza_doi_lascia_doi_a_none(tmp_path: Path):
+    """Punto 7 fix wave (test mancante): CFF valido ma senza la chiave `doi`
+    -- non e' il ramo illeggibile, e' un `dict` a cui manca solo quella voce."""
+    (tmp_path / "CITATION.cff").write_text("cff-version: 1.2.0\ntitle: MeshRec\n", encoding="utf-8")
+    voci = identita.informazioni(tmp_path)
+    assert voci["doi"] is None
+    assert voci["doi_url"] is None
+
+
 def test_un_cff_illeggibile_non_rompe(tmp_path: Path):
     (tmp_path / "CITATION.cff").write_text("::: non yaml :::\n  - [", encoding="utf-8")
     assert identita.informazioni(tmp_path)["doi"] is None

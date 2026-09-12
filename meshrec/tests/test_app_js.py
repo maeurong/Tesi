@@ -499,6 +499,20 @@ assert.ok(!JSON.stringify(vuote).includes("null"));
     _esegui(tmp_path, sorgente)
 
 
+def test_mostra_informazioni_con_fetch_che_rigetta_non_solleva(tmp_path):
+    """Punto 7 fix wave (test mancante): se /api/info rigetta, `mostraInformazioni`
+    non deve sollevare e il footer resta vuoto (uccide la rimozione di
+    `.catch(serverMuto)` o dell'early return). `_DOM` fa gia' rigettare
+    `fetch` di default: e' il caso "nessun server nel banco"."""
+    sorgente = _DOM + _funzioni(
+        "mostraInformazioni", "serverMuto", "corpoLetto", "righeDelleInformazioni"
+    ) + """
+await mostraInformazioni();
+assert.equal(document.getElementById("informazioni").children.length, 0);
+"""
+    _esegui(tmp_path, sorgente)
+
+
 def test_il_pie_di_pagina_esiste_nel_markup():
     markup = _senza_commenti_html(_markup())
     assert '<footer class="informazioni" id="informazioni"' in markup

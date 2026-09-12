@@ -1,7 +1,7 @@
 @echo off
 rem Avvio col doppio clic da Esplora risorse (Windows).
 rem
-rem Come il gemello MeshRec.command: nessun argomento, si sposta nella propria
+rem Come il gemello MeshRec.app: nessun argomento, si sposta nella propria
 rem cartella (i percorsi relativi del programma -- run.out_dir, runs\,
 rem experiments\, .cache\viewport -- sono risolti da li') e tiene aperta la
 rem finestra sugli errori. `meshrec serve` senza configurazione apre la

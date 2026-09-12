@@ -13,7 +13,7 @@ import yaml
 NOME = "MeshRec"
 LICENZA = "MIT"
 REPOSITORY = "https://github.com/maeurong/meshrec"
-# server.py -> app -> meshrec -> src -> meshrec -> radice del repo
+# identita.py -> app -> meshrec -> src -> meshrec -> radice del repo
 RADICE_REPO = Path(__file__).resolve().parents[4]
 
 
