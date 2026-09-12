@@ -5,18 +5,18 @@
 > sua stesura la decisione di perimetro
 > (`docs/superpowers/specs/2026-08-31-perimetro-del-progetto-design.md`) ha
 > chiuso il prodotto sul deck, e il 2-3 settembre la mappa
-> [#161](https://github.com/maeurong/Tesi/issues/161) ha rimosso tutto ciò che
+> [#161](https://github.com/maeurong/meshrec/issues/161) ha rimosso tutto ciò che
 > questo piano descrive. La mappa che lo generava,
-> [#127](https://github.com/maeurong/Tesi/issues/127), è chiusa come
+> [#127](https://github.com/maeurong/meshrec/issues/127), è chiusa come
 > abbandonata. Resta come registro di come si sarebbe fatto.
 
 > **For agentic workers:** questo documento **non è** un piano di implementazione task-per-task. È il documento di sequenziamento che sta **prima** di `superpowers:writing-plans`: dice quali sottosistemi possono correre insieme, quali file ciascuno tocca in esclusiva, con quali firme si parlano, e che cosa nessuna onda può rompere. Il piano di ciascun sottosistema si scrive dopo, uno per sottosistema, dentro la propria onda.
 
-**Goal:** eseguire in parallelo, su sessioni separate, le tredici decisioni chiuse della mappa [#127](https://github.com/maeurong/Tesi/issues/127) senza che due sessioni si trovino a scrivere lo stesso punto dello stesso file, e senza che nessuna sposti l'impronta delle ventidue righe della tabella sperimentale.
+**Goal:** eseguire in parallelo, su sessioni separate, le tredici decisioni chiuse della mappa [#127](https://github.com/maeurong/meshrec/issues/127) senza che due sessioni si trovino a scrivere lo stesso punto dello stesso file, e senza che nessuna sposti l'impronta delle ventidue righe della tabella sperimentale.
 
 **Che cosa contiene:** il grafo delle dipendenze dedotto dai file e dalle firme, le onde di parallelismo, i contratti d'interfaccia fra sottosistemi, i punti di collisione con la loro strategia, l'invariante da riverificare dopo ogni onda, l'ordine consigliato, e i punti in cui il lavoro si ferma perché una decisione non c'è.
 
-**Spec:** la mappa wayfinder [#127](https://github.com/maeurong/Tesi/issues/127) e i suoi diciannove ticket chiusi, [#128](https://github.com/maeurong/Tesi/issues/128)–[#146](https://github.com/maeurong/Tesi/issues/146). Ogni ticket porta in commento la decisione presa con il proprio ragionamento: **sono la specifica, e questo documento non le riapre.**
+**Spec:** la mappa wayfinder [#127](https://github.com/maeurong/meshrec/issues/127) e i suoi diciannove ticket chiusi, [#128](https://github.com/maeurong/meshrec/issues/128)–[#146](https://github.com/maeurong/meshrec/issues/146). Ogni ticket porta in commento la decisione presa con il proprio ragionamento: **sono la specifica, e questo documento non le riapre.**
 
 ---
 
@@ -89,14 +89,14 @@ La decomposizione in otto sottosistemi è presa come data. Verificata contro i t
 
 ### I sei ticket che la tabella non nomina, e perché
 
-[#128](https://github.com/maeurong/Tesi/issues/128), [#129](https://github.com/maeurong/Tesi/issues/129), [#130](https://github.com/maeurong/Tesi/issues/130), [#131](https://github.com/maeurong/Tesi/issues/131), [#132](https://github.com/maeurong/Tesi/issues/132) portano l'etichetta `wayfinder:research`, [#133](https://github.com/maeurong/Tesi/issues/133) l'etichetta `wayfinder:task`. **Nessuno dei sei contiene una decisione**: contengono reperti e una verifica eseguita. Non sono un sottosistema scoperto — sono l'ingresso delle decisioni, e non hanno niente da sequenziare. Restano da consultare come fonte (in particolare #130 per l'idioma delle fibre e #132 per i domini dei campi d'armatura), non da attuare.
+[#128](https://github.com/maeurong/meshrec/issues/128), [#129](https://github.com/maeurong/meshrec/issues/129), [#130](https://github.com/maeurong/meshrec/issues/130), [#131](https://github.com/maeurong/meshrec/issues/131), [#132](https://github.com/maeurong/meshrec/issues/132) portano l'etichetta `wayfinder:research`, [#133](https://github.com/maeurong/meshrec/issues/133) l'etichetta `wayfinder:task`. **Nessuno dei sei contiene una decisione**: contengono reperti e una verifica eseguita. Non sono un sottosistema scoperto — sono l'ingresso delle decisioni, e non hanno niente da sequenziare. Restano da consultare come fonte (in particolare #130 per l'idioma delle fibre e #132 per i domini dei campi d'armatura), non da attuare.
 
 ### Un pezzo che sta a cavallo di due case: lo scrittore del `.tcl`
 
 Nessun ticket assegna esplicitamente **chi scrive le card della sezione a fibre nel deck OpenSees**. Sono l'intersezione di due sottosistemi:
 
-- D possiede il **modello** — quali elementi, con quale sezione a quale quota, con quale connettività ([#134](https://github.com/maeurong/Tesi/issues/134), [#142](https://github.com/maeurong/Tesi/issues/142), [#143](https://github.com/maeurong/Tesi/issues/143));
-- E possiede l'**artefatto** — che il modello esca come `.tcl` eseguibile da chiunque abbia la distribuzione standard, che è la ragione dichiarata per cui `openseespy` è stato scartato ([#139](https://github.com/maeurong/Tesi/issues/139)).
+- D possiede il **modello** — quali elementi, con quale sezione a quale quota, con quale connettività ([#134](https://github.com/maeurong/meshrec/issues/134), [#142](https://github.com/maeurong/meshrec/issues/142), [#143](https://github.com/maeurong/meshrec/issues/143));
+- E possiede l'**artefatto** — che il modello esca come `.tcl` eseguibile da chiunque abbia la distribuzione standard, che è la ragione dichiarata per cui `openseespy` è stato scartato ([#139](https://github.com/maeurong/meshrec/issues/139)).
 
 **Non lo si risolve rifacendo la tabella.** Lo si dichiara e si taglia dove il codice già taglia: `core/abaqus.py` è lo scrittore di deck e `core/hexa.py` è il costruttore di modello, e i due sono separati oggi. Per analogia, **E possiede lo scrittore** (`core/opensees.py`: nodi, elementi, materiali, `section Fiber`, `patch rect`, `layer straight`, il blocco d'analisi) e **D possiede ciò che gli si dà da scrivere** (la struttura dati del telaio). Il contratto fra i due è in §4.
 
@@ -182,9 +182,9 @@ graph TD
 | arco | ragione, in un fatto |
 |---|---|
 | W0 → tutto | quattro sottosistemi aggiungono o cambiano un blocco di `PipelineConfig`, e `sweep.fingerprint` fa `model_dump` sull'intera configurazione: il primo che atterra sposta la base su cui gli altri misurano |
-| A → C | `μ_min = 0,26·(f_ctm/f_yk)·b·d` dipende da `b` e `d`, cioè **dalla stazione** ([#136](https://github.com/maeurong/Tesi/issues/136) Q3). Senza le venti sezioni di fetta che A fa uscire da `misura`, C non ha su che cosa pronunciare il verdetto |
-| B → C | `f_cd` e `f_yd` si derivano da `f_ck` e `f_yk`, che sono **campi nuovi** e vivono nel blocco nuovo di B ([#141](https://github.com/maeurong/Tesi/issues/141)) |
-| B → F | F assegna un materiale per regione: senza la forma «regione → sezione → materiali» di [#135](https://github.com/maeurong/Tesi/issues/135) non ha dove scrivere l'assegnazione |
+| A → C | `μ_min = 0,26·(f_ctm/f_yk)·b·d` dipende da `b` e `d`, cioè **dalla stazione** ([#136](https://github.com/maeurong/meshrec/issues/136) Q3). Senza le venti sezioni di fetta che A fa uscire da `misura`, C non ha su che cosa pronunciare il verdetto |
+| B → C | `f_cd` e `f_yd` si derivano da `f_ck` e `f_yk`, che sono **campi nuovi** e vivono nel blocco nuovo di B ([#141](https://github.com/maeurong/meshrec/issues/141)) |
+| B → F | F assegna un materiale per regione: senza la forma «regione → sezione → materiali» di [#135](https://github.com/maeurong/meshrec/issues/135) non ha dove scrivere l'assegnazione |
 | A ⇢ F | dipendenza debole: F attribuisce per **baricentro dentro il prisma**, e il prisma nasce da `hexa.prisma_di` sulle membrature che il prior già scrive oggi. F **non** ha bisogno delle sezioni per fetta. L'arco esiste solo perché A cambia `Membratura` e `pipeline._ricostruisci_membrature`, che F attraversa |
 | A, C, E → D | il telaio consuma sezioni per stazione (A), adiacenza e nodi (A), armatura per stazione (C), e uno scrittore di deck (E) |
 | F → G | collisione di file, non di concetto: entrambi scrivono `core/abaqus.py` (§5) |
@@ -203,10 +203,10 @@ Tutto ciò che tocca `config.py`, `sweep.py`, `steps.py` si fa **qui e una volta
 
 | cosa | ticket | file |
 |---|---|---|
-| blocco `solutore` (nome + percorso facoltativo), in `BLOCCHI_FUORI_IMPRONTA` **e** in `STEP_BLOCKS[13]` | [#139](https://github.com/maeurong/Tesi/issues/139) | `config.py`, `sweep.py`, `steps.py` |
-| blocco nuovo delle regioni/sezioni/materiali/armature, in `BLOCCHI_VUOTI_FUORI_IMPRONTA` **e** in `STEP_BLOCKS` degli step che lo leggono | [#135](https://github.com/maeurong/Tesi/issues/135), [#141](https://github.com/maeurong/Tesi/issues/141), [#136](https://github.com/maeurong/Tesi/issues/136) | `config.py`, `sweep.py`, `steps.py` |
-| `natura` dell'azione e schema delle combinazioni dentro `carichi` (già in `BLOCCHI_VUOTI_FUORI_IMPRONTA`) | [#146](https://github.com/maeurong/Tesi/issues/146) | `config.py` |
-| `RunConfig.to_step` predefinito 13 → 12, e la descrizione riscritta perché smetta di affermare la coincidenza col tetto | [#140](https://github.com/maeurong/Tesi/issues/140) | `config.py` |
+| blocco `solutore` (nome + percorso facoltativo), in `BLOCCHI_FUORI_IMPRONTA` **e** in `STEP_BLOCKS[13]` | [#139](https://github.com/maeurong/meshrec/issues/139) | `config.py`, `sweep.py`, `steps.py` |
+| blocco nuovo delle regioni/sezioni/materiali/armature, in `BLOCCHI_VUOTI_FUORI_IMPRONTA` **e** in `STEP_BLOCKS` degli step che lo leggono | [#135](https://github.com/maeurong/meshrec/issues/135), [#141](https://github.com/maeurong/meshrec/issues/141), [#136](https://github.com/maeurong/meshrec/issues/136) | `config.py`, `sweep.py`, `steps.py` |
+| `natura` dell'azione e schema delle combinazioni dentro `carichi` (già in `BLOCCHI_VUOTI_FUORI_IMPRONTA`) | [#146](https://github.com/maeurong/meshrec/issues/146) | `config.py` |
+| `RunConfig.to_step` predefinito 13 → 12, e la descrizione riscritta perché smetta di affermare la coincidenza col tetto | [#140](https://github.com/maeurong/meshrec/issues/140) | `config.py` |
 | `/api/schema` regge i blocchi nuovi | conseguenza | `app/server.py` |
 
 **Perché in una sessione sola e sequenziale.** Quattro modifiche allo stesso file, e ciascuna sposta l'impronta se sbagliata. Farle in parallelo significa quattro rami che riscrivono `PipelineConfig` e quattro merge da riconciliare a mano sull'unico artefatto che la tesi non può permettersi di muovere.
@@ -290,10 +290,10 @@ Chi attua un sottosistema vede solo il proprio. **Questa sezione è il modo in c
 **Dall'onda 0 (lo schema).**
 
 - **`veste` non esiste**, e non va scritto. §4.4 lo dava obbligatorio su
-  `MaterialeDichiarato`. Mario ha deciso che vale [#141](https://github.com/maeurong/Tesi/issues/141)
+  `MaterialeDichiarato`. Mario ha deciso che vale [#141](https://github.com/maeurong/meshrec/issues/141)
   senza eccezioni: le voci sono **sempre caratteristiche** e il programma deriva i
   valori di progetto con i γ di norma. Le parole «già ridotte» di
-  [#146](https://github.com/maeurong/Tesi/issues/146) riguardavano il fattore di
+  [#146](https://github.com/maeurong/meshrec/issues/146) riguardavano il fattore di
   confidenza e il livello di conoscenza, che non si applicano perché il materiale è
   calcestruzzo e non muratura. Un test sorveglia contro la reintroduzione.
 - Di conseguenza `f_k` è **sempre caratteristico**, non «caratteristico o ridotto»
@@ -333,7 +333,7 @@ chi costruisce il telaio dai nodi di uno e le sezioni dell'altro deve saperlo.
 **Dal ramo E (il solutore).**
 
 - **`leggi_uscite` non produce mai un `VM_` sul telaio.** §4.6 lo prometteva in prosa,
-  ma la tabella controllo × modello che [#138](https://github.com/maeurong/Tesi/issues/138)
+  ma la tabella controllo × modello che [#138](https://github.com/maeurong/meshrec/issues/138)
   obbliga a scrivere dichiara il controllo `picco` **non applicabile** al telaio: la
   tensione lì vive per fibra, non per nodo. Vale la tabella.
 - **§4.6 e §4.7 non chiudono, e la casella è vuota.** `scrivi_tcl` riceve
@@ -573,7 +573,7 @@ class RegioneConfig(_ModelloBase):
     sezione: SezioneConfig
 ```
 
-> **`analysis.material` resta dov'è**, come materiale unico della corsa monomaterica ([#135](https://github.com/maeurong/Tesi/issues/135)) e come materiale dell'orfano ([#145](https://github.com/maeurong/Tesi/issues/145)). Non è debito.
+> **`analysis.material` resta dov'è**, come materiale unico della corsa monomaterica ([#135](https://github.com/maeurong/meshrec/issues/135)) e come materiale dell'orfano ([#145](https://github.com/maeurong/meshrec/issues/145)). Non è debito.
 
 ### 4.5 C → D, H: armatura e verdetto
 
@@ -617,7 +617,7 @@ def verdetti(armatura: ArmaturaConfig, sezioni_per_fetta: np.ndarray,
     costruisce comunque."""
 ```
 
-Oracolo di collaudo già pubblicato in [#136](https://github.com/maeurong/Tesi/issues/136): `R_ck = 30`, B450C → `f_cd = 14,11 MPa`, `k_bil = 0,641`, `μ_bil ≈ 1,87 %`.
+Oracolo di collaudo già pubblicato in [#136](https://github.com/maeurong/meshrec/issues/136): `R_ck = 30`, B450C → `f_cd = 14,11 MPa`, `k_bil = 0,641`, `μ_bil ≈ 1,87 %`.
 
 ### 4.6 E → D, G, H: il solutore
 
@@ -746,8 +746,8 @@ def proponi(azioni: dict[str, Natura], categoria_uso: str) -> list[Combinazione]
 | 7 | **`core/pipeline.py`** — A cambia `_ricostruisci_membrature`, F aggancia l'attribuzione allo step 11, D aggancia il telaio | A, D, F | **Un proprietario per onda:** A in onda 1, F in onda 2, D in onda 3. Mai due nella stessa |
 | 8 | **`app/server.py` e `ui/app.js`** — ogni sottosistema vuole mostrare il proprio numero | tutti → H | **H è l'unico scrittore, sempre.** Gli altri producono il numero e lo scrivono in `metrics.json` / `12_wall.json`; H lo mostra. Un ramo che tocca `ui/` fuori da H va fermato in review |
 | 9 | **`/api/schema` davanti a un blocco nuovo** — difetto già occorso: `5d4d24b fix(app): lo schema non esplode più sul blocco selettori`, e `server.py` documenta che leggere l'annotazione grezza di `analysis` «faceva cadere `/api/schema`, cioè il pannello degli step 11 e 13, con un `AttributeError` fuori vista» | onda 0 | Il blocco nuovo entra **con** il suo test su `/api/schema`, nello stesso commit. Non è lavoro di H: è il costo del blocco |
-| 10 | **`core/soglie.py`** — cinque sottosistemi hanno grandezze «candidate a diventare una soglia» (distanza di proiezione, frazione orfana, `riempimento_sezione`, i coefficienti NTC) | A, B, C, F, G | **Nessuno ci scrive in questa fase.** I ticket [#143](https://github.com/maeurong/Tesi/issues/143) e [#145](https://github.com/maeurong/Tesi/issues/145) dicono la stessa cosa: hanno la forma giusta ma non ancora una fonte, quindi **per ora si misurano e si mostrano**. `soglie.py` pretende una fonte, e ratificarla qui sarebbe la soglia decisa dopo aver visto il numero — il difetto che quel modulo esiste per impedire |
-| 11 | **`ALL_WALL`** — letterale da preservare per `PRODUCT.md`, e insieme il solo `*ELSET` cui una sezione si riferisca oggi | B, F | Resta, e **diventa l'insieme che le regioni partizionano** ([#135](https://github.com/maeurong/Tesi/issues/135)). Non si rinomina, non si toglie |
+| 10 | **`core/soglie.py`** — cinque sottosistemi hanno grandezze «candidate a diventare una soglia» (distanza di proiezione, frazione orfana, `riempimento_sezione`, i coefficienti NTC) | A, B, C, F, G | **Nessuno ci scrive in questa fase.** I ticket [#143](https://github.com/maeurong/meshrec/issues/143) e [#145](https://github.com/maeurong/meshrec/issues/145) dicono la stessa cosa: hanno la forma giusta ma non ancora una fonte, quindi **per ora si misurano e si mostrano**. `soglie.py` pretende una fonte, e ratificarla qui sarebbe la soglia decisa dopo aver visto il numero — il difetto che quel modulo esiste per impedire |
+| 11 | **`ALL_WALL`** — letterale da preservare per `PRODUCT.md`, e insieme il solo `*ELSET` cui una sezione si riferisca oggi | B, F | Resta, e **diventa l'insieme che le regioni partizionano** ([#135](https://github.com/maeurong/meshrec/issues/135)). Non si rinomina, non si toglie |
 | 12 | **`casi_di_carico`, l'ordine** — «un ordine diverso da quello del deck scambierebbe i risultati» | E, G | Le combinazioni entrano **dopo** i casi singoli. Chi tocca quella lista lo dichiara nel commit |
 
 ---
@@ -763,7 +763,7 @@ def proponi(azioni: dict[str, Natura], categoria_uso: str) -> list[Combinazione]
 I quattro modi precisi in cui l'onda 0 può romperla:
 
 1. **Un blocco nuovo non dichiarato in nessuna delle due liste** → 22 righe su 22.
-2. **Un campo nuovo dentro `analysis` o dentro `Material`** → 22 su 22. `analysis` **non** è fra i blocchi esclusi, e `Material` è congelato: è la ragione per cui `f_ck` e `f_yk` vivono nel blocco nuovo e non lì ([#141](https://github.com/maeurong/Tesi/issues/141)).
+2. **Un campo nuovo dentro `analysis` o dentro `Material`** → 22 su 22. `analysis` **non** è fra i blocchi esclusi, e `Material` è congelato: è la ragione per cui `f_ck` e `f_yk` vivono nel blocco nuovo e non lì ([#141](https://github.com/maeurong/meshrec/issues/141)).
 3. **Un campo con predefinito *truthy* dentro un blocco di `BLOCCHI_VUOTI_FUORI_IMPRONTA`.** Il predicato è `not any((payload.get(blocco) or {}).values())`: un `bool = True` o una stringa non vuota rende il blocco sempre non vuoto, l'esclusione condizionata non scatta più, e le 22 righe si muovono. Riguarda `regioni` e `carichi`. **È la trappola meno visibile delle quattro**, perché il blocco *è* nella lista giusta e il test dei blocchi passa lo stesso.
 4. **Un campo tolto.** La regola dell'omissione «copre i blocchi AGGIUNTI, non i campi TOLTI»: togliere un campo da un modello sposta l'impronta di ogni riga già registrata.
 
@@ -841,7 +841,7 @@ In ordine decrescente:
 1. **L'impronta delle ventidue righe** (onda 0). Un errore qui non si vede subito e non si ripara: rompe la provenienza di una tabella che sta in tesi. È la ragione per cui l'onda 0 è sola, sequenziale, e finisce con tre test verdi.
 2. **La forma di ciò che A restituisce** (onda 1). Tre consumatori. Un cambio tardivo è lavoro perso in tre rami paralleli, non in uno.
 3. **La divergenza fra `sweep.BLOCCHI_*` e `steps.STEP_BLOCKS`** (onda 0). Difetto già occorso una volta, e la sua firma è il silenzio: nessun test rosso, solo un'invalidazione a valle che non scatta.
-4. **La tabella controllo × modello di [#138](https://github.com/maeurong/Tesi/issues/138)** (onda 1, ramo E). Il ticket dice che va scritta **prima** di implementare, non dedotta dopo. Un controllo che gira su un modello dove non significa niente produce un numero verde che non vale nulla, ed è la classe di falso che il progetto è costruito per non produrre.
+4. **La tabella controllo × modello di [#138](https://github.com/maeurong/meshrec/issues/138)** (onda 1, ramo E). Il ticket dice che va scritta **prima** di implementare, non dedotta dopo. Un controllo che gira su un modello dove non significa niente produce un numero verde che non vale nulla, ed è la classe di falso che il progetto è costruito per non produrre.
 5. **L'ordine di `casi_di_carico`** (onda 3, ramo G). Un ordine diverso da quello del deck scambia i risultati, in silenzio.
 
 ### 7.5 Che cosa costa poco sbagliare
@@ -856,7 +856,7 @@ Queste non sono cose da risolvere in attuazione. Sono punti in cui chi lavora **
 
 ### 8.1 L'inviluppo modale — blocca metà di G
 
-[#146](https://github.com/maeurong/Tesi/issues/146) decide che la sismica entra **in entrambe le forme**, statica equivalente e modale con spettro. Ma la modale con spettro pretende la combinazione delle risposte modali (SRSS o CQC), che è un'operazione **sui risultati** e produce una grandezza senza segno che **non appartiene a nessun caso**. Il contratto di [#138](https://github.com/maeurong/Tesi/issues/138) è «un campo per caso»: `U_<CASO>`, `VM_<CASO>`, `MODO_<n>`.
+[#146](https://github.com/maeurong/meshrec/issues/146) decide che la sismica entra **in entrambe le forme**, statica equivalente e modale con spettro. Ma la modale con spettro pretende la combinazione delle risposte modali (SRSS o CQC), che è un'operazione **sui risultati** e produce una grandezza senza segno che **non appartiene a nessun caso**. Il contratto di [#138](https://github.com/maeurong/meshrec/issues/138) è «un campo per caso»: `U_<CASO>`, `VM_<CASO>`, `MODO_<n>`.
 
 Il ticket stesso lo dichiara non deciso e la mappa lo porta in «Not yet specified». **Conseguenza sul sequenziamento:** l'onda 3, ramo G, attua la **statica lineare equivalente** e si ferma prima della modale con spettro. Non è un rinvio deciso qui: è una decisione che manca.
 
@@ -864,8 +864,8 @@ Il ticket stesso lo dichiara non deciso e la mappa lo porta in «Not yet specifi
 
 Due frasi che vanno lette nell'ordine giusto, o si contraddicono:
 
-- [#146](https://github.com/maeurong/Tesi/issues/146) Q6: «Mario ha deciso che **le resistenze si dichiarano già ridotte**, e il programma non applica nessun fattore», con l'obbligo che ne discende — se un valore dichiarato è già ridotto, il programma **non può distinguerlo** da un caratteristico, e deve registrare che cosa quel numero dichiara di essere.
-- [#141](https://github.com/maeurong/Tesi/issues/141) Q3: «le voci sono **sempre caratteristiche** e il programma deriva i valori di progetto con i γ di norma», e la sezione si apre dicendo di sistemare «un'ambiguità lasciata aperta da #146», separando **γ** (aritmetica di norma, il programma la applica) da **FC**, il fattore di confidenza (giudizio, resta all'operatore).
+- [#146](https://github.com/maeurong/meshrec/issues/146) Q6: «Mario ha deciso che **le resistenze si dichiarano già ridotte**, e il programma non applica nessun fattore», con l'obbligo che ne discende — se un valore dichiarato è già ridotto, il programma **non può distinguerlo** da un caratteristico, e deve registrare che cosa quel numero dichiara di essere.
+- [#141](https://github.com/maeurong/meshrec/issues/141) Q3: «le voci sono **sempre caratteristiche** e il programma deriva i valori di progetto con i γ di norma», e la sezione si apre dicendo di sistemare «un'ambiguità lasciata aperta da #146», separando **γ** (aritmetica di norma, il programma la applica) da **FC**, il fattore di confidenza (giudizio, resta all'operatore).
 
 **#141 è successivo e si dichiara la riconciliazione: vale #141.** Non le riporto come contraddizione aperta.
 
@@ -873,7 +873,7 @@ Due frasi che vanno lette nell'ordine giusto, o si contraddicono:
 
 ### 8.3 Dove vive il comando di controllo delle dipendenze
 
-[#144](https://github.com/maeurong/Tesi/issues/144) chiude con «Non deciso qui: se sia una tratta del server, un sottocomando della riga di comando accanto a `run`/`serve`/`wall`, o entrambi». Questo documento lo **sequenzia** senza deciderlo: E scrive in onda 1 la logica di disponibilita e verifica dentro `core/solve.py` — i due nomi non esistono ancora, li fissa E — e il sottocomando in `cli.py`, perché argparse è già in casa e `cli.py` è esclusiva di E; la tratta del server, se la si vuole, arriva in onda 4 con H, che è l'unico proprietario di `app/server.py`. Se la decisione fosse «solo il server», l'onda 1 di E si accorcia e l'onda 4 si allunga: non cambia il grafo.
+[#144](https://github.com/maeurong/meshrec/issues/144) chiude con «Non deciso qui: se sia una tratta del server, un sottocomando della riga di comando accanto a `run`/`serve`/`wall`, o entrambi». Questo documento lo **sequenzia** senza deciderlo: E scrive in onda 1 la logica di disponibilita e verifica dentro `core/solve.py` — i due nomi non esistono ancora, li fissa E — e il sottocomando in `cli.py`, perché argparse è già in casa e `cli.py` è esclusiva di E; la tratta del server, se la si vuole, arriva in onda 4 con H, che è l'unico proprietario di `app/server.py`. Se la decisione fosse «solo il server», l'onda 1 di E si accorcia e l'onda 4 si allunga: non cambia il grafo.
 
 ### 8.4 La visualizzazione dei risultati
 

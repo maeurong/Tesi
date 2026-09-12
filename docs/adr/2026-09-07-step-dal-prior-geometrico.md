@@ -47,7 +47,7 @@ Fatti misurati oggi (da `meshrec/`, `uv run python`, gmsh 4.15.2, scratchpad
    `fuse` sono casi normali). Prismi che non si toccano restano solidi
    distinti nello stesso file: la metrica riporta `solidi`, nessuna
    eccezione, e in CAE «combine into single part» li tiene insieme.
-   **Misurato il 07/09/2026** ([#188](https://github.com/maeurong/Tesi/issues/188),
+   **Misurato il 07/09/2026** ([#188](https://github.com/maeurong/meshrec/issues/188),
    gmsh 4.15.2 / OCCT 7.8.1): un pilastro con 1, 2 o 3° di fuori piombo
    sotto una trave orizzontale fonde in **un solido** con le opzioni
    predefinite, volume esatto, nessuna scheggia; compenetrazione di 3 mm

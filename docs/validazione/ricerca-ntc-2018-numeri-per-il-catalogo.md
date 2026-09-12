@@ -3,7 +3,7 @@
 > **Nota del 02/09/2026.** Questo documento è una ricerca, e resta come è stata
 > scritta: registra che cosa la norma chiede e come il programma lo teneva
 > allora. La descrizione dell'armatura di cui parla è uscita dal programma con
-> la mappa [#161](https://github.com/maeurong/Tesi/issues/161), quando la linea
+> la mappa [#161](https://github.com/maeurong/meshrec/issues/161), quando la linea
 > dell'analisi integrata è stata dismessa. I numeri di norma qui dentro restano
 > veri; i rimandi al codice descrivono uno stato passato, e sono al passato.
 

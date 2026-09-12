@@ -1,6 +1,6 @@
 """Il patch test: il gradino piu' basso e piu' solido della verifica del codice.
 
-Ticket https://github.com/maeurong/Tesi/issues/46. Riferimento:
+Ticket https://github.com/maeurong/meshrec/issues/46. Riferimento:
 Taylor, Simo, Zienkiewicz & Chan (1986), «The patch test -- a condition for
 assessing FEM convergence», IJNME 22:39-62, DOI 10.1002/nme.1620220105, che
 formalizza il test di Irons come condizione **necessaria** di consistenza e,

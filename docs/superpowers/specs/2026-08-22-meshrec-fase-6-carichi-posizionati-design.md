@@ -6,13 +6,13 @@
 - **Data:** 22 agosto 2026
 - **Stato:** design approvato in sessione di brainstorming
 - **Dipende da:** Fase 5 chiusa e fusa (risoluzione con CalculiX, `meshrec/docs/fase-5-analisi.md`).
-- **Mappa di charting:** [Fase 6 — carichi posizionati su una mesh senza topologia](https://github.com/maeurong/Tesi/issues/4).
-  Quattro ticket chiusi ne alimentano le decisioni: [#5](https://github.com/maeurong/Tesi/issues/5) (TRVEC),
-  [#6](https://github.com/maeurong/Tesi/issues/6) (forma del selettore),
-  [#7](https://github.com/maeurong/Tesi/issues/7) (ingressi degeneri),
-  [#8](https://github.com/maeurong/Tesi/issues/8) (impronta di sweep, già in codice: `911f15f`).
-  Questa spec chiude anche [#9](https://github.com/maeurong/Tesi/issues/9) (ripartizione)
-  e [#11](https://github.com/maeurong/Tesi/issues/11) (taglio).
+- **Mappa di charting:** [Fase 6 — carichi posizionati su una mesh senza topologia](https://github.com/maeurong/meshrec/issues/4).
+  Quattro ticket chiusi ne alimentano le decisioni: [#5](https://github.com/maeurong/meshrec/issues/5) (TRVEC),
+  [#6](https://github.com/maeurong/meshrec/issues/6) (forma del selettore),
+  [#7](https://github.com/maeurong/meshrec/issues/7) (ingressi degeneri),
+  [#8](https://github.com/maeurong/meshrec/issues/8) (impronta di sweep, già in codice: `911f15f`).
+  Questa spec chiude anche [#9](https://github.com/maeurong/meshrec/issues/9) (ripartizione)
+  e [#11](https://github.com/maeurong/meshrec/issues/11) (taglio).
 - **Documento di esito collegato:** `meshrec/docs/fase-6-carichi.md`, da scrivere alla chiusura.
 
 Ogni numero di questa spec dichiara il file e il campo da cui viene, ed è stato
@@ -69,8 +69,8 @@ quasi costante del prior. Quindi:
 
 | # | cantiere | perché fuori |
 |---|---|---|
-| 1 | distribuito `P` sull'as-built ([#10](https://github.com/maeurong/Tesi/issues/10)) | richiede di aprire `element_surfaces` sul percorso as-built (`core/pipeline.py:439-448` non lo passa) e una decisione di prodotto in più, ereditata dalla caduta di `TRVEC` |
-| 2 | guardie sul modello mal vincolato ([#12](https://github.com/maeurong/Tesi/issues/12)) | parte «verifica» della destinazione, ma indipendente dai posizionati |
+| 1 | distribuito `P` sull'as-built ([#10](https://github.com/maeurong/meshrec/issues/10)) | richiede di aprire `element_surfaces` sul percorso as-built (`core/pipeline.py:439-448` non lo passa) e una decisione di prodotto in più, ereditata dalla caduta di `TRVEC` |
+| 2 | guardie sul modello mal vincolato ([#12](https://github.com/maeurong/meshrec/issues/12)) | parte «verifica» della destinazione, ma indipendente dai posizionati |
 | 3 | selezione col mouse | `ui/viewport.js:208` fa solo orbita, nessun raycast esiste; `app/server.py:817` butta gli `indici` che `_contorno_del_volume` gli restituisce (`app/server.py:128`) |
 | 4 | vista deformata | endpoint vettoriale, più il rifiuto delle chiavi assenti da `point_data` che `app/server.py:894` già fa per gli scalari |
 | 5 | round-trip dello YAML | `save_config` è chiamato **32 volte in 11 file** (misurato in sessione, `def` esclusa) e `ruamel` non compare in `pyproject.toml`, che per lo YAML dichiara `pyyaml>=6.0` alla riga 15 |
@@ -82,7 +82,7 @@ Il documento di esito lo scrive, invece di lasciarlo intendere:
 - **non ricostruisce topologia.** Nessuna faccia nominata, nessuno spigolo, nessuna
   membratura. Il selettore prende nodi per criterio geometrico, e basta.
 - **non applica alcun carico distribuito sull'as-built.** Né `P` né direzionale.
-  `ccx` 2.22 rifiuta `TRVEC` con errore fatale (misurato, [#5](https://github.com/maeurong/Tesi/issues/5)),
+  `ccx` 2.22 rifiuta `TRVEC` con errore fatale (misurato, [#5](https://github.com/maeurong/meshrec/issues/5)),
   e `P` richiede il cantiere 1 della coda.
 - **non identifica fisicamente le facce.** I nomi `FACE_FRONT`, `SIDE_LEFT` e
   compagni restano nomi di convenzione, come `build_node_sets` già dichiara nel
@@ -99,7 +99,7 @@ Il documento di esito lo scrive, invece di lasciarlo intendere:
 
 ### 3.1 Forma: elenco nominato alla radice
 
-Deciso in [#6](https://github.com/maeurong/Tesi/issues/6) misurando due
+Deciso in [#6](https://github.com/maeurong/meshrec/issues/6) misurando due
 frammenti risolti sui **14 103 nodi** di `runs/lab_telaio_v2` (`metrics.json`,
 `09_tetrahedralize.nodes`; 51 913 tetraedri nello stesso campo `tets`). Due
 carichi sullo stesso posto danno 212 nodi sia con il selettore annidato in ogni
@@ -167,7 +167,7 @@ dalla #6.
 Cinque ingressi diversi danno oggi lo stesso identico sintomo: `min > max`, box
 piatta, box fuori dai bounds, `raggio: 0` e `raggio: -5` risolvono **tutti zero
 nodi** sui 14 103. Un oracolo unico a valle non potrebbe dire quale sia successo
-([#7](https://github.com/maeurong/Tesi/issues/7)).
+([#7](https://github.com/maeurong/meshrec/issues/7)).
 
 **A monte, a validazione della configurazione, senza mesh:**
 
@@ -323,7 +323,7 @@ la differenza fra i due è una cosa da guardare, non da nascondere.
 `core/sweep.py:64` dichiara `BLOCCHI_VUOTI_FUORI_IMPRONTA = ("carichi",)`.
 
 Il nuovo blocco `selettori` va aggiunto a **entrambi**, con la stessa regola
-«omesso quando vuoto» già scelta in [#8](https://github.com/maeurong/Tesi/issues/8)
+«omesso quando vuoto» già scelta in [#8](https://github.com/maeurong/meshrec/issues/8)
 e implementata in `911f15f`. Senza l'aggiunta a `STEP_BLOCKS[11]`, cambiare un
 selettore non invalida lo step 11 e il deck resta quello vecchio in silenzio;
 senza l'aggiunta a `BLOCCHI_VUOTI_FUORI_IMPRONTA`, due candidati con selettori

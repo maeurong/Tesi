@@ -444,7 +444,7 @@ Expected: circa 15 file, poche centinaia di righe aggiunte, qualche migliaio tol
 
 ```bash
 git -C /Users/mario/GitHub/Tesi push -u origin feat/deck-nudo-carichi
-gh pr create --repo maeurong/Tesi --base main --head feat/deck-nudo-carichi \
+gh pr create --repo maeurong/meshrec --base main --head feat/deck-nudo-carichi \
   --title "refactor(deck): via carichi e selettori, il deck torna al solo passo di gravita'" \
   --body-file <file con: cosa esce, cosa resta per la PR 2, l'esito della corsa vera del Task 3 Step 7, link a spec e ADR>
 ```

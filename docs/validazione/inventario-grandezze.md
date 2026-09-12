@@ -5,10 +5,10 @@
 > `core/convergenza.py`, il registro delle soglie `core/soglie.py` e i test
 > NAFEMS, della mensola e della GCI — che è uscito per intero dal repository
 > il 2-3 settembre 2026 con la mappa
-> [#161](https://github.com/maeurong/Tesi/issues/161). Ciò che qui è al
+> [#161](https://github.com/maeurong/meshrec/issues/161). Ciò che qui è al
 > presente va letto al passato; resta il patch test. Quale validazione debba
 > tornare, e con quali oracoli, è una domanda aperta della mappa
-> [#33](https://github.com/maeurong/Tesi/issues/33).
+> [#33](https://github.com/maeurong/meshrec/issues/33).
 
 **Verificato contro `main` a `a6e9f81`**, albero di lavoro pulito.
 

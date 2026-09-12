@@ -1,6 +1,6 @@
 """Il cancello di finitezza: cio' che non e' un numero non passa per buono.
 
-La decisione sta in https://github.com/maeurong/Tesi/issues/36.
+La decisione sta in https://github.com/maeurong/meshrec/issues/36.
 
 `core/solve.py` ha gia' attraversato questa classe di difetto e l'ha chiusa:
 ogni suo controllo verifica `np.isfinite` prima di confrontare, e un valore non

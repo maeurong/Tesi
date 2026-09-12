@@ -1,7 +1,7 @@
 # Lo scarto C3D4 contro C3D10 sul telaio reale
 
 Misurato il 26/08/2026 per chiudere
-[#45](https://github.com/maeurong/Tesi/issues/45). È il numero che dice quanto
+[#45](https://github.com/maeurong/meshrec/issues/45). È il numero che dice quanto
 il tetraedro lineare stava sbagliando **sul nostro caso**, invece che sulla
 mensola di Benzley.
 
@@ -25,7 +25,7 @@ vincolo `BASE` con `set_tolerance_factor` 6,0, spinta orizzontale 0,1 g in y,
 20 modi. Solutore CalculiX 2.22 su macOS arm64.
 
 **Le corse in `runs/` non sono state rigenerate**, come deciso in
-[#41](https://github.com/maeurong/Tesi/issues/41): le due corse di questo
+[#41](https://github.com/maeurong/meshrec/issues/41): le due corse di questo
 confronto sono state scritte fuori dall'albero del repository.
 
 ### La controprova che rende il confronto citabile
@@ -87,7 +87,7 @@ controllo che il ticket stesso proponeva — la massa è geometria e non
 formulazione — e passa esattamente.
 
 **Il benchmark sintetico aveva predetto il caso reale.** Sulla mensola di
-Gere-Timoshenko ([#47](https://github.com/maeurong/Tesi/issues/47)) C3D4
+Gere-Timoshenko ([#47](https://github.com/maeurong/meshrec/issues/47)) C3D4
 dava **−12,73 %** sulla freccia; qui, sul telaio rilevato, dà **−12,36 %**.
 Quattro decimi di punto percentuale di distanza, su due geometrie che non
 hanno niente in comune. È il risultato più forte di questa misura: il
@@ -100,7 +100,7 @@ membrature non è una mensola.
 
 **La tensione è dove il lineare è peggio, e di molto.** −65,6 % sul picco di
 von Mises sotto peso proprio. Concorda con la direzione già misurata in
-[#55](https://github.com/maeurong/Tesi/issues/55), dove la colonna della
+[#55](https://github.com/maeurong/meshrec/issues/55), dove la colonna della
 tensione si comportava diversamente da quella dello spostamento.
 
 **Il picco però sta nello stesso posto**: 1,55 mm di differenza in quota su
@@ -136,7 +136,7 @@ letti, e questa tabella è la fonte da citare accanto.
 **Il carico posizionato in sommità non era confrontabile su C3D10.**
 La ripartizione per area tributaria, uscita col deck nudo,
 **sollevava di proposito** (guardia introdotta con
-[#45 parte prima](https://github.com/maeurong/Tesi/pull/53)): valeva per le
+[#45 parte prima](https://github.com/maeurong/meshrec/pull/53)): valeva per le
 facce a soli vertici, e su una faccia a sei nodi avrebbe dato tutto il carico
 ai vertici, dove il vettore dei carichi consistenti dà **zero**. L'errore
 avrebbe conservato la risultante, quindi `controlla_reazioni` non lo vedeva.
