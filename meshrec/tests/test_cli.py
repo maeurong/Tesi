@@ -494,6 +494,7 @@ def _server_finto(monkeypatch):
     class Server:
         def __init__(self, config):
             self.config = config
+            stato["config"] = config
             self.started = True
 
         @property
@@ -708,3 +709,151 @@ def test_serve_se_il_guscio_solleva_ferma_comunque_il_server(monkeypatch, capsys
     assert codice == 1
     assert stato["should_exit"] is True
     assert "cocoa" in capsys.readouterr().err
+
+
+# --- Chiusura della finestra: il bug del 12/09/2026 -------------------------
+# Sintomo di Mario: chiusa la finestra, il rilancio dice «la porta 8765 e' gia'
+# occupata» e il launcher del bundle mostra il dialogo d'errore. Misurato con
+# la finestra vera (scratchpad/repro-chiusura.py, giro C): il processo esce
+# 5,34 s dopo la chiusura -- cioe' `join(timeout=5)` scaduto -- e la porta
+# resta non-bindabile per 30,67 s. Senza connessione SSE aperta: 0,67 s.
+# I due test qui sotto tengono i due anelli della catena.
+
+
+def test_lo_spegnimento_non_resta_appeso_su_una_connessione_sse(monkeypatch):
+    """`should_exit` deve fermare uvicorn anche con `/api/events` aperto.
+
+    `flusso()` (server.py:2053-2106) e' un generatore SINCRONO con `while True`
+    e `time.sleep(0.5)`: non guarda ne' la disconnessione del client ne'
+    `should_exit`. Starlette lo fa girare in un thread del pool anyio, e finche'
+    quel thread gira la connessione resta in `server_state.connections`; con
+    `timeout_graceful_shutdown` a None (il default, che cli.py non cambia)
+    `Server.shutdown()` ci aspetta sopra per sempre.
+
+    L'interfaccia apre quella connessione al caricamento, sempre
+    (app.js:816, `EventSource("/api/events")`): questo non e' un caso limite,
+    e' il caso normale di ogni finestra aperta.
+    """
+    import threading
+    import time
+    import urllib.request
+
+    import uvicorn
+
+    from meshrec.app.server import create_app
+    from meshrec.app.worker import Worker
+
+    # Il lifespan sta DOPO l'attesa delle connessioni dentro `Server.shutdown()`:
+    # senza il tetto graceful nessun fix lato applicazione lo puo' sbloccare.
+    # Stesso valore che `serve` passa a uvicorn, pinnato da
+    # test_serve_mette_un_tetto_allo_spegnimento_di_uvicorn.
+    annullamenti = []
+    monkeypatch.setattr(Worker, "cancel", lambda self: annullamenti.append(1))
+    porta = _porta_libera()
+    server = uvicorn.Server(uvicorn.Config(
+        create_app(None), host="127.0.0.1", port=porta, log_level="warning",
+        timeout_graceful_shutdown=2,
+    ))
+    thread = threading.Thread(target=server.run, name="uvicorn", daemon=True)
+    thread.start()
+    scadenza = time.monotonic() + 10
+    while not server.started and thread.is_alive() and time.monotonic() < scadenza:
+        time.sleep(0.05)
+    assert server.started, "il server di prova non si e' messo in ascolto"
+
+    flusso = urllib.request.urlopen(f"http://127.0.0.1:{porta}/api/events", timeout=10)
+    try:
+        # La prima riga prova che lo stream e' vivo: senza, il test passerebbe
+        # anche solo perche' la connessione non e' mai stata servita.
+        assert flusso.readline().startswith(b"event: stato")
+        server.should_exit = True
+        thread.join(timeout=5)
+        assert not thread.is_alive(), (
+            "uvicorn non si e' spento entro 5 s con una connessione SSE aperta: "
+            "e' il join(timeout=5) di cli.py che scade, e la porta resta occupata"
+        )
+        assert annullamenti, (
+            "il lifespan non e' scattato: `lavoratore.cancel()` resta codice morto "
+            "e lo step in corso resta orfano alla chiusura della finestra"
+        )
+    finally:
+        flusso.close()
+        server.should_exit = True
+
+
+def test_la_sonda_della_porta_non_si_fa_ingannare_da_un_time_wait(monkeypatch, capsys):
+    """Rilanciare subito dopo la chiusura deve funzionare.
+
+    Il processo muore lasciando la connessione SSE in TIME_WAIT su quella
+    porta: ~30 s in cui il `bind` nudo di cli.py:249-265 da' EADDRINUSE, mentre
+    uvicorn (asyncio, `reuse_address=True`) ci si sarebbe messo in ascolto
+    benissimo. Il messaggio «la porta ... e' gia' occupata» e' quindi falso:
+    accusa una copia viva di MeshRec che non esiste piu'.
+    """
+    import socket as _socket
+
+    from meshrec.app import finestra
+
+    ascolto = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+    ascolto.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
+    ascolto.bind(("127.0.0.1", 0))
+    porta = ascolto.getsockname()[1]
+    ascolto.listen(1)
+    cliente = _socket.create_connection(("127.0.0.1", porta))
+    servito, _ = ascolto.accept()
+    ascolto.close()
+    servito.close()  # il lato server chiude per primo: TIME_WAIT su questa porta
+    cliente.close()
+
+    _server_finto(monkeypatch)
+    monkeypatch.setattr(finestra, "apri", lambda *a, **k: "finestra")
+    codice = cli.main(["serve", "--port", str(porta)])
+    catturato = capsys.readouterr().err
+    assert "già occupata" not in catturato, (
+        "la sonda accusa una porta che e' solo in TIME_WAIT dalla corsa di prima"
+    )
+    assert codice == 0
+
+
+def test_lo_spegnimento_senza_nessun_client_sse_resta_immediato():
+    """Il rovescio del test qui sopra: senza connessioni la chiusura deve
+    restare istantanea (0,67 s misurati il 12/09), non farsi rallentare dal
+    tetto graceful ne' dall'attesa dell'Event di spegnimento."""
+    import threading
+    import time
+
+    import uvicorn
+
+    from meshrec.app.server import create_app
+
+    porta = _porta_libera()
+    server = uvicorn.Server(uvicorn.Config(
+        create_app(None), host="127.0.0.1", port=porta, log_level="warning",
+        timeout_graceful_shutdown=2,
+    ))
+    thread = threading.Thread(target=server.run, name="uvicorn", daemon=True)
+    thread.start()
+    scadenza = time.monotonic() + 10
+    while not server.started and thread.is_alive() and time.monotonic() < scadenza:
+        time.sleep(0.05)
+    assert server.started, "il server di prova non si e' messo in ascolto"
+    try:
+        server.should_exit = True
+        thread.join(timeout=2)
+        assert not thread.is_alive()
+    finally:
+        server.should_exit = True
+
+
+def test_serve_mette_un_tetto_allo_spegnimento_di_uvicorn(monkeypatch):
+    """Senza `timeout_graceful_shutdown`, `Server.shutdown()` aspetta ogni
+    connessione SSE per sempre: il `join(timeout=5)` di serve scade e il
+    processo muore a meta' spegnimento, lasciando la porta in TIME_WAIT. Il
+    tetto sta sotto quel join, e va tenuto sotto."""
+    from meshrec.app import finestra
+
+    stato = _server_finto(monkeypatch)
+    monkeypatch.setattr(finestra, "apri", lambda *a, **k: "finestra")
+    assert cli.main(["serve", "--port", str(_porta_libera())]) == 0
+    assert stato["config"].timeout_graceful_shutdown == 2
+    assert stato["config"].timeout_graceful_shutdown < 5

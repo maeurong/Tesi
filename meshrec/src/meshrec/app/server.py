@@ -1518,6 +1518,12 @@ def create_app(
         return json.loads(json.dumps(fuori, default=str))
 
     lavoratore = Worker()
+    # `flusso()` (/api/events) e' un generatore SINCRONO che gira in un thread
+    # del pool anyio: finche' dorme, la connessione SSE resta aperta e uvicorn
+    # la aspetta. Questo Event e' l'unica via che ha quel thread per sapere che
+    # il server sta chiudendo, e senza il generatore resta appeso dentro
+    # Py_Finalize -- uno per connessione, gettoni del pool anyio inclusi.
+    spegni = threading.Event()
 
     @asynccontextmanager
     async def _ciclo_vita(app: FastAPI):
@@ -1525,6 +1531,7 @@ def create_app(
         # per finestra, `--app`, Ctrl-C e `--no-browser`, senza toccare
         # cli.py. Senza questo, lo step in corso resta orfano alla chiusura.
         yield
+        spegni.set()
         lavoratore.cancel()
 
     app.router.lifespan_context = _ciclo_vita
@@ -2103,7 +2110,10 @@ def create_app(
                 inviate = len(righe)
                 if max_eventi is not None and emesse >= max_eventi:
                     return
-                time.sleep(0.5)
+                # Non `time.sleep`: un `sleep` non si accorge dello spegnimento
+                # e tiene la connessione (quindi il server) in piedi.
+                if spegni.wait(0.5):
+                    return
 
         return StreamingResponse(flusso(), media_type="text/event-stream")
 

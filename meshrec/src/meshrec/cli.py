@@ -247,6 +247,12 @@ def main(argv: list[str] | None = None) -> int:
         # 30/08/2026 su un utente che ha lavorato per ore su un processo
         # rimasto vivo, convinto di usare la versione appena aggiornata.
         prova = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        # Come uvicorn (asyncio usa `reuse_address=True`): senza, un socket in
+        # TIME_WAIT lasciato dalla copia appena chiusa fa dire «porta gia'
+        # occupata» per ~30 s, su una porta dove il server si metterebbe in
+        # ascolto benissimo. Contro un listener vivo il bind resta rifiutato
+        # (errno 48) -- cioe' la sonda continua a fare il suo mestiere.
+        prova.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             prova.bind((impostazioni.host, impostazioni.port))
         except OSError as errore:
@@ -278,6 +284,10 @@ def main(argv: list[str] | None = None) -> int:
         # da solo i gestori di segnale. `should_exit` lo ferma.
         server = uvicorn.Server(uvicorn.Config(
             create_app(args.config), host=impostazioni.host, port=impostazioni.port, log_level="warning",
+            # Senza, `shutdown()` aspetta ogni connessione SSE per sempre e il
+            # lifespan (che sta dopo quell'attesa) non parte mai. Sotto il
+            # `join(timeout=5)` qui sotto, e va tenuto sotto.
+            timeout_graceful_shutdown=2,
         ))
         thread = threading.Thread(target=server.run, name="uvicorn", daemon=True)
         thread.start()

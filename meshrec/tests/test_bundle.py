@@ -56,3 +56,13 @@ def test_la_versione_del_plist_segue_pyproject():
     versione = tomllib.loads((RADICE / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
     assert plist["CFBundleShortVersionString"] == versione
     assert plist["CFBundleVersion"] == versione
+
+
+def test_lo_script_del_bundle_scrive_il_codice_d_uscita_nel_log():
+    """Il dialogo dice solo «si e' fermato con un errore»: il numero che
+    distingue un'uscita ordinata (1) da una morte per segnale (134/139) andava
+    perso con l'`if ! uv run ...`. Senza, la prossima diagnosi e' inventata."""
+    testo = (BUNDLE / "MacOS" / "MeshRec").read_text(encoding="utf-8")
+    assert "codice=$?" in testo
+    assert "uscito con codice $codice" in testo
+    assert 'exit "$codice"' in testo  # il bundle non maschera l'uscita con 1
