@@ -859,7 +859,7 @@ Riportato per intero e alla lettera, come approvato in fase di progetto:
   distribuito vero richiede di aprire `element_surfaces` sul percorso
   as-built, che oggi non li passa: è il primo cantiere della coda.~~
   **Superato il 27/08/2026**, chiudendo
-  [#10](https://github.com/maeurong/Tesi/issues/10): il § 10 racconta come.
+  [#10](https://github.com/maeurong/meshrec/issues/10): il § 10 racconta come.
   Resta vero il pezzo su `TRVEC`, e resta vero che un carico distribuito
   **direzionale** non esiste — la pressione è normale alla faccia, e la
   direzione libera si ottiene con un posizionato, che è forza nodale e non
@@ -922,7 +922,7 @@ prima della consegna. Sta al § 5.5, accanto al meccanismo che ripara, non qui.
 
 ## 10. La pressione sull'as-built, e la guardia che la smentisce
 
-Chiude [#10](https://github.com/maeurong/Tesi/issues/10), il primo cantiere
+Chiude [#10](https://github.com/maeurong/meshrec/issues/10), il primo cantiere
 della coda del § 9. Il ticket poneva due domande — da quali facce si costruisce
 la superficie, e in che direzione il carico può agire — e la risposta alla
 seconda era già stata scritta senza accorgersene.

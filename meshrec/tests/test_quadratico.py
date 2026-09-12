@@ -1,6 +1,6 @@
 """Il tetraedro quadratico: i nodi di lato stanno dove Abaqus li aspetta.
 
-Ticket https://github.com/maeurong/Tesi/issues/45. C3D10 non e' un ripristino:
+Ticket https://github.com/maeurong/meshrec/issues/45. C3D10 non e' un ripristino:
 il commit `66b526d` aveva tolto un'opzione dichiarabile il cui unico effetto
 era sollevare `NotImplementedError` dopo l'intera tetraedrizzazione, con la
 motivazione «TetGen produce i nodi di lato con order=2, ma il deck scrive i

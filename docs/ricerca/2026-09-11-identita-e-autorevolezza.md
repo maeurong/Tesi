@@ -20,7 +20,7 @@ Tutte lette da `/Users/mario/GitHub/Tesi`, `main`, HEAD `b711053`:
 - Nessun tag git (`git tag | wc -l` → 0), nessuna release GitHub (`gh release list` vuoto). `[M]`
 - Favicon PNG in `data:` URI in `meshrec/src/meshrec/ui/index.html:12`, aggiunta per zittire il 404; nessuna schermata «Informazioni su», nessuna stringa di versione nella UI (`grep -i "version\|about\|informazioni" index.html` → vuoto). `[M]`
 - `versione_corrente()` in `meshrec/src/meshrec/app/storico.py:160` è la versione dello storico annulla/ripeti, **non** la versione del programma: non c'è oggi nulla nel codice che esponga «MeshRec 0.1.0». `[M]`
-- Repo GitHub `maeurong/Tesi`, pubblico, creato `2026-08-13T13:48:22Z`, 773 commit da `2026-08-12`, 10 topic già impostati (`scan-to-fem`, `point-cloud`, `reinforced-concrete`, …), descrizione «Pipeline scan-to-FEM da fotogrammetria», `homepageUrl` vuoto. `[M]` `gh repo view maeurong/Tesi --json createdAt,repositoryTopics,description,homepageUrl`
+- Repo GitHub `maeurong/meshrec`, pubblico, creato `2026-08-13T13:48:22Z`, 773 commit da `2026-08-12`, 10 topic già impostati (`scan-to-fem`, `point-cloud`, `reinforced-concrete`, …), descrizione «Pipeline scan-to-FEM da fotogrammetria», `homepageUrl` vuoto. `[M]` `gh repo view maeurong/meshrec --json createdAt,repositoryTopics,description,homepageUrl`
 - `docs/meshreconstructorpro-panoramica.md:1-4`: il programma dei tutor è un eseguibile Windows nativo con CPython 3.12, PySide6/Qt6, Open3D, VTK/PyVista, TetGen, meshio. `[V]` (file interno)
 
 ---
@@ -232,7 +232,7 @@ Costo in ore di Mario, esclusa l'implementazione UI che spetta a chi dispaccia.
 
 Conclusione `[INF]`: **il nome tiene**. Nessun pacchetto, nessun prodotto, nessun dominio. Il vicino più stretto è il `MeshReconstructorPro` dei tutor — e qui la vicinanza è un pregio: dice «stessa famiglia, nuova generazione» a chi conosce il vecchio.
 
-### 4.2 Il vero problema d'identità: `maeurong/Tesi`
+### 4.2 Il vero problema d'identità: `maeurong/meshrec`
 
 `[M]` il repo si chiama `Tesi`, non `meshrec`. Ogni URL, badge, citazione e DOI Zenodo porterà «Tesi» — il contrario di «considerato come un programma qualsiasi». GitHub rinomina con redirect automatico dei vecchi URL (documentato nelle stesse pagine release/repo lette; il remote locale va aggiornato con `git remote set-url`). Costo: 10 minuti; da fare **prima** della release e del toggle Zenodo, perché il record DOI congela il nome.
 

@@ -2,9 +2,9 @@
 
 **Data:** 7 settembre 2026
 **Stato:** approvata dall'autore, pronta per `superpowers:writing-plans`
-**Mappa:** [#187](https://github.com/maeurong/Tesi/issues/187) — i ticket
-[#188](https://github.com/maeurong/Tesi/issues/188) (fusione fuori piombo) e
-[#189](https://github.com/maeurong/Tesi/issues/189) (baseline del collaudo)
+**Mappa:** [#187](https://github.com/maeurong/meshrec/issues/187) — i ticket
+[#188](https://github.com/maeurong/meshrec/issues/188) (fusione fuori piombo) e
+[#189](https://github.com/maeurong/meshrec/issues/189) (baseline del collaudo)
 sono chiusi.
 **ADR:** [Deck nudo](../../adr/2026-09-07-deck-nudo-via-analisi-carichi-selettori.md),
 [STEP dal prior geometrico](../../adr/2026-09-07-step-dal-prior-geometrico.md).

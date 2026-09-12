@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+message: "Se usi MeshRec in un lavoro, cita il software con questi metadati."
+title: "MeshRec"
+abstract: >-
+  Pipeline riproducibile da nuvola di punti fotogrammetrica a modello a
+  elementi finiti di strutture in cemento armato: segmentazione,
+  ricostruzione della superficie, riempimento a tetraedri, deck Abaqus.
+type: software
+authors:
+  - family-names: Fiorenzoni
+    given-names: Mario
+version: 1.0.0
+date-released: "2026-09-12"
+license: MIT
+repository-code: "https://github.com/maeurong/meshrec"
+keywords:
+  - photogrammetry
+  - point cloud
+  - finite element mesh
+  - reinforced concrete
+  - Abaqus

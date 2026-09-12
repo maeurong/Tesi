@@ -396,5 +396,5 @@ Ogni voce: URL · tag · perché conta qui · cosa se ne prende. Copia in `fonti
 - `du -sh .venv .venv/lib/python3.12/site-packages/{open3d,pymeshlab,scipy,numpy} .venv/lib/libgmsh.4.15.dylib` — cwd `meshrec/`, HEAD b711053
 - `grep -n libpath .venv/lib/python3.12/site-packages/gmsh.py` → righe 41-80, ordine di ricerca della libreria
 - `ls .venv/lib/python3.12/site-packages/pymeshlab/{Frameworks,PlugIns}` → Qt frameworks; 66 plugin
-- `gh repo view maeurong/Tesi --json isPrivate,visibility` → PUBLIC; `head -1 LICENSE` → MIT
+- `gh repo view maeurong/meshrec --json isPrivate,visibility` → PUBLIC; `head -1 LICENSE` → MIT
 - `du -shL ~/.local/share/uv/python/cpython-3.12-macos-aarch64-none` → 57M; `uv --version` → 0.12.9

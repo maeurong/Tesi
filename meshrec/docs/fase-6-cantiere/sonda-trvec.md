@@ -5,7 +5,7 @@ nessun `.dat` scritto. Non e' la trappola del silenzio: la card non passa.**
 
 Misurato il 22/08/2026 su `ccx` 2.22, arm64 (macOS 25.5.0, Darwin), binario
 `~/.local/bin/ccx` -> `~/.local/share/calculix-2.22/bin/ccx`, `ccx -v` risponde
-`This is Version 2.22`. Repo `maeurong/Tesi`, ramo `research/trvec-su-c3d4`,
+`This is Version 2.22`. Repo `maeurong/meshrec`, ramo `research/trvec-su-c3d4`,
 partito da HEAD `6d3275c`.
 
 Tutti i deck stanno in `meshrec/docs/fase-6-cantiere/sonda-trvec/`. Sono

@@ -1,6 +1,6 @@
 """Guardie che non potevano scattare, e nomi standard con formule diverse.
 
-Ticket https://github.com/maeurong/Tesi/issues/38.
+Ticket https://github.com/maeurong/meshrec/issues/38.
 
 Sette punti in cui il programma teneva un ramo incapace di dare l'esito che
 prometteva, oppure usava un nome preso da una fonte esterna per una grandezza

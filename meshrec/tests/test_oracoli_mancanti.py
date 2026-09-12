@@ -1,6 +1,6 @@
 """Le grandezze che il programma stampava senza nulla che le contraddicesse.
 
-Ticket https://github.com/maeurong/Tesi/issues/37. Violavano il principio n. 1
+Ticket https://github.com/maeurong/meshrec/issues/37. Violavano il principio n. 1
 di `PRODUCT.md`: *«un numero mostrato senza un controllo che lo smentisca non
 vale piu' di un numero assente»*.
 

@@ -1,8 +1,8 @@
 # Benchmark NAFEMS — geometrie quotate, vincoli, target e fonti
 
 Data: 2026-08-26. Raccolta: agente `researcher` (sola lettura), ticket
-[#42](https://github.com/maeurong/Tesi/issues/42) della mappa
-[#33](https://github.com/maeurong/Tesi/issues/33). Repo `Tesi`, branch `main`, HEAD `a07071a`.
+[#42](https://github.com/maeurong/meshrec/issues/42) della mappa
+[#33](https://github.com/maeurong/meshrec/issues/33). Repo `Tesi`, branch `main`, HEAD `a07071a`.
 
 Scopo: fornire tutto ciò che serve a **costruire i deck** LE1, LE2, LE10, LE11, FV32, FV52
 senza aprire le pubblicazioni NAFEMS a pagamento. Sostituisce e completa il §2 di

@@ -8,7 +8,7 @@ Data: 2026-08-31
 > l'autore ha provato l'interfaccia della linea parallela e l'ha dismessa: i due
 > branch che la portavano avanti sono stati eliminati e il codice già in `main`
 > è uscito con la mappa
-> [#161](https://github.com/maeurong/Tesi/issues/161). Il perimetro deciso qui
+> [#161](https://github.com/maeurong/meshrec/issues/161). Il perimetro deciso qui
 > non cambia — il prodotto si chiude sul deck — ma la sezione E parla di una
 > linea che non esiste più, e `docs/linea-analisi-integrata.md` è stato
 > cancellato invece che scritto.

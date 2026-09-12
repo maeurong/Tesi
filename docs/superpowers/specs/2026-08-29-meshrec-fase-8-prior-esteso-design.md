@@ -4,7 +4,7 @@
 
 
 **Data:** 29 agosto 2026
-**Ticket:** [#142](https://github.com/maeurong/Tesi/issues/142), [#143](https://github.com/maeurong/Tesi/issues/143), figli della mappa [#127](https://github.com/maeurong/Tesi/issues/127)
+**Ticket:** [#142](https://github.com/maeurong/meshrec/issues/142), [#143](https://github.com/maeurong/meshrec/issues/143), figli della mappa [#127](https://github.com/maeurong/meshrec/issues/127)
 **Sottosistema:** A della decomposizione di Fase 8
 
 ## Perché

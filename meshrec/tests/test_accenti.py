@@ -20,7 +20,7 @@ Nessuna regex sull'apostrofo le vede: una passata che sistemasse solo la prima
 classe lascerebbe le altre sbagliate **sembrando finita**.
 
 **Due strati, non uno** (la decisione sta in
-https://github.com/maeurong/Tesi/issues/18):
+https://github.com/maeurong/meshrec/issues/18):
 
 - **per provenienza** dove una porta esiste. Le descrizioni del pannello
   raggiungono il browser da un punto solo, `/api/schema`, che legge le

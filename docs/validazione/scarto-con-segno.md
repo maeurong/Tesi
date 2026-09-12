@@ -1,8 +1,8 @@
 # Errore geometrico con segno: materia inventata contro materia mancante
 
 Misurato il 26/08/2026 per chiudere
-[#73](https://github.com/maeurong/Tesi/issues/73). Giustificazione del segno
-riscritta il 28/08/2026 per [#112](https://github.com/maeurong/Tesi/issues/112);
+[#73](https://github.com/maeurong/meshrec/issues/73). Giustificazione del segno
+riscritta il 28/08/2026 per [#112](https://github.com/maeurong/meshrec/issues/112);
 i riferimenti al codice sono per nome e verificati contro `main` a `a6e9f81`.
 
 ## Perché il segno non è un dettaglio
@@ -26,7 +26,7 @@ una parte non tornano indietro dall'altra.
 Corsa `runs/lab_telaio_v2`: nuvola segmentata di **4 269 608** punti contro la
 superficie riparata di 10 968 vertici e 21 932 facce. Tolleranza **5 mm**,
 cioè `errore_geometrico_max` ratificata in
-[#35](https://github.com/maeurong/Tesi/issues/35).
+[#35](https://github.com/maeurong/meshrec/issues/35).
 
 | | frazione dei punti | RMS | massimo |
 |---|---|---|---|
@@ -95,11 +95,11 @@ esattamente dove una ricostruzione di Poisson tende a sbagliare.
 **Perché il dentro/fuori è definito, e non è la chiusura a garantirlo.** La
 stesura precedente scriveva «la superficie è `watertight: true`, quindi il
 dentro/fuori è definito». **L'inferenza è falsa**, e
-[#48](https://github.com/maeurong/Tesi/issues/48) l'ha misurata falsa:
+[#48](https://github.com/maeurong/meshrec/issues/48) l'ha misurata falsa:
 `is_watertight` conta gli spigoli, e una superficie capovolta ne ha due per
 spigolo come una diritta. Chiusa e rovesciata supera quel controllo, e con essa
 dentro e fuori si scambiano senza sintomo.
-[#90](https://github.com/maeurong/Tesi/issues/90) ha tolto l'inferenza dal
+[#90](https://github.com/maeurong/meshrec/issues/90) ha tolto l'inferenza dal
 codice: il controllo vero è `quality.is_watertight` **e** `quality.is_oriented`,
 ed è quello che `quality.scarto_con_segno` pubblica nella chiave
 `segno_definito`.
@@ -164,7 +164,7 @@ da quei dieci vertici.
 **`precision` campiona i soli vertici**, quindi sottostima l'errore dove i
 triangoli sono grandi — lo stesso limite che `vertex_deviation` già dichiara.
 Campionare l'area richiederebbe un generatore pseudocasuale, e
-[#66](https://github.com/maeurong/Tesi/issues/66) ha misurato che ciò che
+[#66](https://github.com/maeurong/meshrec/issues/66) ha misurato che ciò che
 dipende dal maglio dipende dalla piattaforma: un numero pubblicato non deve
 cambiare fra due macchine.
 

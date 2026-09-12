@@ -1,6 +1,6 @@
 [project]
 name = "meshrec"
-version = "0.1.0"
+version = "1.0.0"
 description = "Pipeline riproducibile da nuvola di punti a modello FEM di strutture in cemento armato"
 requires-python = ">=3.12,<3.13"
 dependencies = [

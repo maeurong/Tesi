@@ -5,7 +5,7 @@ Misurato il 26/08/2026. È una misura storica: lo script che la produceva,
 di cantiere e non è più eseguibile; la misura si riproduce dal commit che la ha
 prodotta (cronologia git).
 
-[#75](https://github.com/maeurong/Tesi/issues/75) aveva trovato il difetto e
+[#75](https://github.com/maeurong/meshrec/issues/75) aveva trovato il difetto e
 si era fermato lì: coi venti modi che il caso del telaio chiedeva, la
 direzione **verticale** cattura l'**87,46%** della massa partecipante, sotto
 il 90% che EN 1998-1 §4.3.3.3.1(3) chiede (NTC 2018 §7.3.3.1 riporta lo stesso
@@ -70,10 +70,10 @@ questo cambia completamente come va scelto un valore.
 Quel disallineamento è il risultato più importante del documento. **Il bordo
 del gradino si sposta col maglio**, e i magli cambiano: TetGen e gmsh
 producono maglie diverse su Linux x86-64 e macOS arm64 a parità di versione e
-di ingresso ([#66](https://github.com/maeurong/Tesi/issues/66)). Un predefinito
+di ingresso ([#66](https://github.com/maeurong/meshrec/issues/66)). Un predefinito
 appoggiato sul bordo di un gradino mobile passa sulla macchina dove è stato
 tarato e fallisce altrove — che è esattamente l'errore già commesso e bocciato
-dalla CI in [#72](https://github.com/maeurong/Tesi/issues/72), dove una soglia
+dalla CI in [#72](https://github.com/maeurong/meshrec/issues/72), dove una soglia
 tarata su macOS non reggeva su Linux.
 
 ## La scelta: 40, non 32

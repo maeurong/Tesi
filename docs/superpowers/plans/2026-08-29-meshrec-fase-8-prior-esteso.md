@@ -5,9 +5,9 @@
 > sua stesura la decisione di perimetro
 > (`docs/superpowers/specs/2026-08-31-perimetro-del-progetto-design.md`) ha
 > chiuso il prodotto sul deck, e il 2-3 settembre la mappa
-> [#161](https://github.com/maeurong/Tesi/issues/161) ha rimosso tutto ciò che
+> [#161](https://github.com/maeurong/meshrec/issues/161) ha rimosso tutto ciò che
 > questo piano descrive. La mappa che lo generava,
-> [#127](https://github.com/maeurong/Tesi/issues/127), è chiusa come
+> [#127](https://github.com/maeurong/meshrec/issues/127), è chiusa come
 > abbandonata. Resta come registro di come si sarebbe fatto.
 
 > **Per chi esegue:** SOTTO-SKILL RICHIESTA: usa `superpowers:subagent-driven-development` (consigliata) oppure `superpowers:executing-plans` per attuare questo piano un compito alla volta. I passi usano caselle (`- [ ]`) per il tracciamento.

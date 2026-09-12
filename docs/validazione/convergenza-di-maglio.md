@@ -1,7 +1,7 @@
 # Convergenza di maglio: che cosa la GCI misura, e dove non si può fare
 
 Misurato il 26/08/2026 per chiudere
-[#71](https://github.com/maeurong/Tesi/issues/71). ASME V&V chiama la stima
+[#71](https://github.com/maeurong/meshrec/issues/71). ASME V&V chiama la stima
 dell'errore di discretizzazione «the largest omission in the verification
 process»: senza, ogni numero pubblicato è un numero senza barra d'errore.
 
@@ -30,7 +30,7 @@ maglio convergente**, e quella vale davvero 0,00116 % — dentro la banda,
 verificato. Il residuo dello 0,279 % **non è discretizzazione**: è **errore di
 modello**, la teoria di trave contro l'elasticità tridimensionale.
 
-[#47](https://github.com/maeurong/Tesi/issues/47) lo aveva già visto
+[#47](https://github.com/maeurong/meshrec/issues/47) lo aveva già visto
 dall'altro lato, trovando il C3D10 **fra** Eulero-Bernoulli e Timoshenko,
 cioè dove la soluzione esatta del solido deve stare.
 
@@ -60,7 +60,7 @@ L'errore vero è praticamente lo stesso; la **GCI cambia di ventitré volte**.
 Non è una contraddizione: su una grandezza già convergente le tre frecce
 differiscono per quantità minime, e la GCI che ne discende misura il **rumore
 del maglio** invece della discretizzazione. Il maglio dipende dalla
-piattaforma ([#66](https://github.com/maeurong/Tesi/issues/66)), quindi quel
+piattaforma ([#66](https://github.com/maeurong/meshrec/issues/66)), quindi quel
 rumore anche.
 
 Conseguenza pratica: **una GCI molto piccola non va citata come cifra**, va
