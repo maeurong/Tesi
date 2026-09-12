@@ -1308,3 +1308,9 @@ h3.titolo-step { margin: 0 0 var(--passo-1); font-size: var(--tipo-corpo); line-
   .fantasma-comando { min-height: 2.75rem; }
   .taglio input[type="range"] { height: 2.75rem; }
 }
+
+/* Il pie' di pagina delle informazioni: corpo di nota, colore tenue, una
+   riga sola separata da un filo. Non e' una zona: non porta comandi. */
+.informazioni { display: flex; flex-wrap: wrap; gap: 0 var(--passo-3); padding: var(--passo-2) var(--passo-6); border-top: 1px solid var(--bordo); font-size: var(--tipo-nota); line-height: var(--interlinea-riga); color: var(--tenue); }
+.informazioni a { color: inherit; }
+.informazioni span + span::before { content: "·"; margin-right: var(--passo-3); }

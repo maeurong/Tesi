@@ -17,6 +17,7 @@ import threading
 import time
 import zipfile
 from collections import Counter
+from contextlib import asynccontextmanager
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Literal, get_args, get_origin
@@ -34,7 +35,7 @@ from pydantic import (
     ValidationError,
 )
 
-from meshrec.app import immagini, storico
+from meshrec.app import identita, immagini, storico
 from meshrec.app.worker import Worker
 from meshrec.core import (
     io,
@@ -437,12 +438,18 @@ radice.withdraw()
 # Senza questo la finestra nasce dietro al browser e sembra che il clic non
 # abbia fatto niente.
 radice.attributes("-topmost", True)
-scelto = filedialog.askopenfilename(
-    parent=radice,
+# Su macOS un dialogo con `parent` nasce come sheet agganciato alla radice:
+# quella è `withdraw()`, mai mostrata, ferma nell'angolo di default, e lo
+# sheet esce tagliato sul bordo -- e non si trascina. Altrove `parent` serve
+# solo a modalità e posizione, e resta.
+argomenti = dict(
     title="MeshRec - scegli la nuvola di punti",
     initialdir=sys.argv[1],
     filetypes=[("Nuvole di punti", "*.pcd *.ply *.xyz"), ("Tutti i file", "*")],
 )
+if sys.platform != "darwin":
+    argomenti["parent"] = radice
+scelto = filedialog.askopenfilename(**argomenti)
 radice.destroy()
 # In byte e non con `write`, e la codifica dichiarata da tutte e due le parti.
 # `sys.stdout.write` su Windows userebbe la codepage locale (cp1252), e il
@@ -884,6 +891,10 @@ def create_app(
         if not percorso.is_relative_to(UI_DIR) or not percorso.is_file():
             raise FileNotFoundError(f"nessun file dell'interfaccia chiamato {nome}")
         return FileResponse(percorso, headers=RIVALIDA_SEMPRE)
+
+    @app.get("/api/info")
+    def informazioni_sul_programma() -> dict[str, object]:
+        return identita.informazioni()
 
     @app.get("/api/run")
     def stato_corsa() -> dict[str, object]:
@@ -1507,6 +1518,28 @@ def create_app(
         return json.loads(json.dumps(fuori, default=str))
 
     lavoratore = Worker()
+    # `flusso()` (/api/events) e' un generatore SINCRONO che gira in un thread
+    # del pool anyio: finche' dorme, la connessione SSE resta aperta e uvicorn
+    # la aspetta. Questo Event e' l'unica via che ha quel thread per sapere che
+    # il server sta chiudendo, e senza il generatore resta appeso dentro
+    # Py_Finalize -- uno per connessione, gettoni del pool anyio inclusi.
+    spegni = threading.Event()
+    # Su `app.state` perche' chi spegne e' fuori di qui: cli.py lo alza insieme
+    # a `should_exit`. Dal lifespan soltanto sarebbe troppo tardi -- quel ramo
+    # gira DOPO che uvicorn ha finito di aspettare le connessioni, cioe' dopo
+    # aver aspettato proprio il thread che questo Event deve svegliare.
+    app.state.spegni = spegni
+
+    @asynccontextmanager
+    async def _ciclo_vita(app: FastAPI):
+        # Uvicorn esegue questo ramo quando `should_exit` diventa vero: vale
+        # per finestra, `--app`, Ctrl-C e `--no-browser`, senza toccare
+        # cli.py. Senza questo, lo step in corso resta orfano alla chiusura.
+        yield
+        spegni.set()
+        lavoratore.cancel()
+
+    app.router.lifespan_context = _ciclo_vita
 
     def _avvia(da: int, a: int, endpoint: str) -> dict[str, object]:
         """Deposita, poi avvia. In quest'ordine e sotto lo stesso lucchetto
@@ -2082,7 +2115,10 @@ def create_app(
                 inviate = len(righe)
                 if max_eventi is not None and emesse >= max_eventi:
                     return
-                time.sleep(0.5)
+                # Non `time.sleep`: un `sleep` non si accorge dello spegnimento
+                # e tiene la connessione (quindi il server) in piedi.
+                if spegni.wait(0.5):
+                    return
 
         return StreamingResponse(flusso(), media_type="text/event-stream")
 

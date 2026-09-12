@@ -1725,12 +1725,12 @@ def test_ogni_tratta_che_interroga_il_server_si_scarta_se_e_stata_superata():
     from meshrec.app.server import UI_DIR
 
     testo = (UI_DIR / "app.js").read_text(encoding="utf-8")
-    # caricaStato parte una volta sola all'avvio della pagina e non da un
-    # clic: non c'e' nessuna generazione che possa superarla. annullaLaCorsa
-    # non scrive nulla dopo l'attesa, quindi non ha niente da contraddire; ha
-    # un nome apposta per poter comparire qui invece di non essere mai
-    # incontrata.
-    senza_ordine = {"caricaStato", "annullaLaCorsa"}
+    # caricaStato e mostraInformazioni partono una volta sola all'avvio della
+    # pagina e non da un clic: non c'e' nessuna generazione che possa
+    # superarle. annullaLaCorsa non scrive nulla dopo l'attesa, quindi non ha
+    # niente da contraddire; ha un nome apposta per poter comparire qui invece
+    # di non essere mai incontrata.
+    senza_ordine = {"caricaStato", "annullaLaCorsa", "mostraInformazioni"}
     tratte = [
         (nome, _sorgente_di(nome, testo))
         for nome in re.findall(r"^async function (\w+)\(", testo, re.MULTILINE)
@@ -4403,3 +4403,88 @@ def test_immagini_che_e_un_file_torna_un_messaggio_col_percorso(cliente, tmp_pat
     risposta = cliente.post("/api/immagine", json=_corpo_immagine())
     assert risposta.status_code == 400
     assert str(tmp_path / "corsa" / "immagini") in risposta.json()["messaggio"]
+
+
+def test_api_info_risponde_sempre(cliente):
+    risposta = cliente.get("/api/info")
+    assert risposta.status_code == 200
+    assert set(risposta.json()) == {"nome", "versione", "commit", "licenza", "doi", "doi_url", "repository"}
+
+
+def test_il_favicon_e_un_file_servito_e_non_un_data_uri(cliente):
+    pagina = cliente.get("/").text
+    assert 'href="/ui/icona-32.png"' in pagina
+    assert "data:image/png;base64" not in pagina
+    assert cliente.get("/ui/icona-32.png").status_code == 200
+
+
+def test_su_macos_il_selettore_non_passa_parent_altrove_si(monkeypatch, tmp_path):
+    """Su macOS un `askopenfilename(parent=...)` nasce come sheet agganciato
+    alla radice -- che qui e' `withdraw()`, mai mostrata, ferma nell'angolo di
+    default: lo sheet esce tagliato sul bordo e gli sheet non si trascinano.
+    Su Windows/Linux il parent serve solo a modalita' e posizione, resta.
+    """
+    import io
+    import sys
+    import types
+
+    radice_finta = types.SimpleNamespace(
+        withdraw=lambda: None,
+        attributes=lambda *a: None,
+        destroy=lambda: None,
+    )
+    tk_finto = types.ModuleType("tkinter")
+    tk_finto.Tk = lambda: radice_finta
+    filedialog_finto = types.ModuleType("tkinter.filedialog")
+    catturati: dict[str, object] = {}
+
+    def askopenfilename_finto(**kwargs):
+        catturati.update(kwargs)
+        return ""
+
+    filedialog_finto.askopenfilename = askopenfilename_finto
+    tk_finto.filedialog = filedialog_finto
+
+    monkeypatch.setattr(sys, "argv", ["selettore", str(tmp_path)])
+    monkeypatch.setitem(sys.modules, "tkinter", tk_finto)
+    monkeypatch.setitem(sys.modules, "tkinter.filedialog", filedialog_finto)
+    monkeypatch.setattr(sys, "stdout", io.TextIOWrapper(io.BytesIO()))
+
+    monkeypatch.setattr(sys, "platform", "darwin")
+    exec(server._SELETTORE, {})
+    assert "parent" not in catturati
+
+    catturati.clear()
+    monkeypatch.setattr(sys, "platform", "win32")
+    exec(server._SELETTORE, {})
+    assert catturati["parent"] is radice_finta
+
+
+def test_lo_shutdown_ferma_lo_step_in_corso(tmp_path, monkeypatch):
+    """Punto 1 fix wave: chiusura dell'app (finestra, --app, Ctrl-C,
+    --no-browser) non deve lasciare lo step orfano. TestClient esegue lo
+    shutdown del lifespan solo se usato come context manager."""
+    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"))
+    cfg.run.out_dir = tmp_path / "corsa"
+    save_config(cfg, tmp_path / "config.yaml")
+    monkeypatch.setattr(server, "CACHE_DIR", tmp_path / "cache")
+
+    chiamate = []
+    monkeypatch.setattr(server.Worker, "cancel", lambda self: chiamate.append(self) or False)
+
+    with TestClient(
+        create_app(tmp_path / "config.yaml", radice_corse=tmp_path / "runs"),
+        base_url="http://127.0.0.1",
+        raise_server_exceptions=False,
+    ):
+        pass
+
+    assert len(chiamate) == 1
+
+
+def test_cancel_senza_step_in_corso_non_solleva():
+    """Ingresso degenere: nessuno step in esecuzione -> torna False, niente
+    eccezione (gia' cosi', si verifica che resti tale)."""
+    from meshrec.app.worker import Worker
+
+    assert Worker().cancel() is False

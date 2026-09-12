@@ -63,6 +63,40 @@ const elemento = (tag, proprieta) => Object.assign(document.createElement(tag), 
 // riscrive le metriche -- e non passa da qui apposta.
 const RIMEDIO = "Ricarica la pagina; se il messaggio torna, riavvia «meshrec serve» dal terminale.";
 
+// Le voci del pie' di pagina, da /api/info. Una voce nulla non si scrive:
+// «commit null» a video direbbe che qualcosa e' rotto, e non lo e'.
+function righeDelleInformazioni(info) {
+  const righe = [{ testo: `${info.nome} ${info.versione}` }];
+  if (info.commit) righe.push({ testo: info.commit });
+  righe.push({ testo: info.licenza });
+  if (info.doi) righe.push({ testo: `doi ${info.doi}`, href: info.doi_url });
+  righe.push({ testo: "come citare", href: info.repository });
+  return righe;
+}
+
+// Il server puo' non rispondere (muto o non ok): il pie' di pagina resta
+// vuoto, senza errore a video, e la chiamata in coda al file non lo attende.
+async function mostraInformazioni() {
+  const risposta = await fetch("/api/info").catch(serverMuto);
+  const info = risposta.ok ? await corpoLetto(risposta) : null;
+  if (info == null) return;
+  const piede = document.getElementById("informazioni");
+  piede.replaceChildren(...righeDelleInformazioni(info).map((riga) => {
+    const voce = document.createElement("span");
+    if (riga.href) {
+      const collegamento = document.createElement("a");
+      collegamento.href = riga.href;
+      collegamento.target = "_blank";
+      collegamento.rel = "noopener";
+      collegamento.textContent = riga.testo;
+      voce.append(collegamento);
+    } else {
+      voce.textContent = riga.testo;
+    }
+    return voce;
+  }));
+}
+
 async function caricaStato() {
   const risposta = await fetch("/api/run");
   const corpo = await corpoLetto(risposta);
@@ -534,6 +568,8 @@ function disegnaStep(steps) {
 }
 
 caricaStato();
+// Senza await: il pie' di pagina non deve ritardare la schermata.
+mostraInformazioni();
 
 // Il progresso non e' una percentuale: le librerie di calcolo non ne
 // forniscono una, e una barra fabbricata sarebbe un numero plausibile che

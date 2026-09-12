@@ -20,6 +20,9 @@ dependencies = [
     # non e' piu' un extra. Era gia' dichiarato fra le dipendenze facoltative e
     # gia' usato da core/gmsh_backend.py.
     "gmsh>=4.15.2",
+    # Il guscio della finestra (app/finestra.py). >=6.2: prima crashava su
+    # Apple Silicon e su Windows mancava il fallback coreclr di pythonnet.
+    "pywebview>=6.2",
 ]
 
 [project.scripts]

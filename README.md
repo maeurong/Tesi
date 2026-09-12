@@ -31,6 +31,9 @@ uv sync
 uv run meshrec serve
 ```
 
-Si apre nel browser l'elenco delle corse già eseguite, con la possibilità di
-crearne una nuova da un file di punti (`.pcd`, `.ply`, `.xyz`). Su Windows e
-macOS bastano i launcher `meshrec/MeshRec.bat` e `meshrec/MeshRec.command`.
+Si apre in una finestra propria con l'elenco delle corse già eseguite, e la
+possibilità di crearne una nuova da un file di punti (`.pcd`, `.ply`, `.xyz`).
+Su macOS basta il doppio clic su `meshrec/MeshRec.app` (al primo avvio macOS
+chiede di autorizzarlo da Impostazioni di Sistema › Privacy e sicurezza ›
+«Apri comunque»); su Windows `meshrec/MeshRec.bat`, e
+`meshrec/crea-collegamento.ps1` mette MeshRec nel menu Start con la sua icona.

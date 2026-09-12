@@ -5,13 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MeshRec</title>
 <link rel="stylesheet" href="/ui/stile.css">
-<!-- L'icona della scheda: il pallino pieno dello stato «valido», nel colore
-     dell'accento, un PNG di 32 px scritto qui dentro e non servito come file
-     (un SVG porterebbe un xmlns, cioe' un indirizzo che il banco della rete
-     esterna rifiuta a ragione) -- il server
-     rispondeva 404 a /favicon.ico a ogni apertura, e la scheda portava
-     l'icona generica del browser accanto al «✓ MeshRec» del titolo. -->
-<link rel="icon" type="image/png" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAApklEQVR42u2XwQ3AIAgA3cdHV3CELtANnIIpnMLlHMDy0KcGqwRsfNzHmHBRBDTXcxtJzBHYVcAhHoGCL2usAhYJSEJyg1T22NUC0AnaAlYJxA/BK3FWYCY4SWL1sQ9fRy/h8mLsiEBgEAgjAolBIFEFHEPwiqMIeEYBTxEARgHYQkD8CsSTUPwZqihE4qVYvBmpaMcqBhIVI5mKoVTFWH5+Rv8UeAErVQ9saIjCAAAAAABJRU5ErkJggg==">
+<!-- L'icona della scheda e della finestra: la sorgente e' icona.svg, i PNG
+     li scrive strumenti/genera-icone.py. Un file servito e non un data URI:
+     lo stesso PNG serve al bundle .app e al collegamento Windows. -->
+<link rel="icon" type="image/png" sizes="32x32" href="/ui/icona-32.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/ui/icona-180.png">
 </head>
 <body>
 <header class="testata">
@@ -364,6 +362,11 @@
     </details>
   </aside>
 </div>
+<!-- Chi e' il programma: versione, commit, licenza, come citare. Le voci le
+     scrive app.js da /api/info; l'URL del repository arriva da li' e non da
+     qui, perche' l'interfaccia non porta indirizzi di rete (test_server.py,
+     rete esterna). -->
+<footer class="informazioni" id="informazioni" aria-label="Informazioni sul programma"></footer>
 </main>
 <script type="module" src="/ui/app.js"></script>
 </body>

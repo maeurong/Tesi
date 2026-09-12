@@ -1,0 +1,33 @@
+#!/bin/sh
+# Avvio col doppio clic dal Finder (macOS). Sostituisce MeshRec.command.
+#
+# Un bundle .app non apre il Terminale: la cartella corrente e' la home, nessuno
+# legge stdout. Quindi: cd nella cartella del programma (tre livelli sopra il
+# bundle), l'uscita nel log dell'utente, e gli errori in un dialogo.
+cd "$(dirname "$0")/../../.." || exit 1
+
+if [ ! -f pyproject.toml ]; then
+    osascript -e 'display dialog "MeshRec.app va avviato dalla cartella meshrec/ del progetto, non da Applicazioni: rimettilo lì e riapri." with title "MeshRec" buttons {"OK"} default button 1 with icon stop'
+    exit 1
+fi
+
+PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+export PATH
+LOG="$HOME/Library/Logs/MeshRec.log"
+mkdir -p "$(dirname "$LOG")"
+
+if ! command -v uv >/dev/null 2>&1; then
+    osascript -e 'display dialog "uv non trovato. Installalo con:\n\ncurl -LsSf https://astral.sh/uv/install.sh | sh\n\ne riapri MeshRec." with title "MeshRec" buttons {"OK"} default button 1 with icon stop'
+    exit 1
+fi
+
+# Il codice d'uscita si cattura: `if ! uv run ...` lo perdeva, e il dialogo dice
+# solo «si è fermato con un errore». 1 = uscita ordinata del programma,
+# 134/139 = SIGABRT/SIGSEGV in chiusura: due diagnosi diverse, stesso dialogo.
+uv run meshrec serve "$@" >>"$LOG" 2>&1
+codice=$?
+if [ "$codice" -ne 0 ]; then
+    echo "MeshRec uscito con codice $codice" >>"$LOG"
+    osascript -e "display dialog \"MeshRec si è fermato con un errore. Le ultime righe sono in:\n$LOG\" with title \"MeshRec\" buttons {\"OK\"} default button 1 with icon stop"
+    exit "$codice"
+fi

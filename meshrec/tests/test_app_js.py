@@ -486,6 +486,60 @@ def test_la_regione_d_errore_esiste_nel_markup_e_non_nasce_nascosta():
     assert "hidden" not in elemento, f"hidden la toglie dall'albero: {elemento}"
 
 
+def test_il_pie_di_pagina_tace_le_voci_nulle_e_porta_il_link_al_repository(tmp_path):
+    sorgente = _DOM + _funzioni("righeDelleInformazioni") + """
+const piene = righeDelleInformazioni({nome: "MeshRec", versione: "1.0.0", commit: "abc1234", licenza: "MIT", doi: "10.5281/zenodo.99", doi_url: "https://doi.org/10.5281/zenodo.99", repository: "https://github.com/maeurong/meshrec"});
+assert.deepEqual(piene.map((r) => r.testo), ["MeshRec 1.0.0", "abc1234", "MIT", "doi 10.5281/zenodo.99", "come citare"]);
+assert.equal(piene[4].href, "https://github.com/maeurong/meshrec");
+assert.equal(piene[3].href, "https://doi.org/10.5281/zenodo.99");
+const vuote = righeDelleInformazioni({nome: "MeshRec", versione: "sorgente", commit: null, licenza: "MIT", doi: null, doi_url: null, repository: "https://github.com/maeurong/meshrec"});
+assert.deepEqual(vuote.map((r) => r.testo), ["MeshRec sorgente", "MIT", "come citare"]);
+assert.ok(!JSON.stringify(vuote).includes("null"));
+"""
+    _esegui(tmp_path, sorgente)
+
+
+def test_mostra_informazioni_con_fetch_che_rigetta_non_solleva(tmp_path):
+    """Punto 7 fix wave (test mancante): se /api/info rigetta, `mostraInformazioni`
+    non deve sollevare e il footer resta vuoto (uccide la rimozione di
+    `.catch(serverMuto)` o dell'early return). `_DOM` fa gia' rigettare
+    `fetch` di default: e' il caso "nessun server nel banco"."""
+    sorgente = _DOM + _funzioni(
+        "mostraInformazioni", "serverMuto", "corpoLetto", "righeDelleInformazioni"
+    ) + """
+await mostraInformazioni();
+assert.equal(document.getElementById("informazioni").children.length, 0);
+"""
+    _esegui(tmp_path, sorgente)
+
+
+def test_il_pie_di_pagina_esiste_nel_markup():
+    markup = _senza_commenti_html(_markup())
+    assert '<footer class="informazioni" id="informazioni"' in markup
+
+
+def test_il_pie_di_pagina_sta_fuori_dal_div_di_lavoro():
+    """Il piè si vede anche con la schermata d'ingresso a video (#lavoro porta
+    `hidden`): deve stare fuori dal div che quell'attributo nasconde, non
+    dentro. Una sottostringa da sola non lo direbbe: un refactor che spostasse
+    `<footer>` dentro `#lavoro` lo farebbe sparire insieme alla zona nascosta,
+    e `test_il_pie_di_pagina_esiste_nel_markup` resterebbe verde lo stesso."""
+    markup = _senza_commenti_html(_markup())
+    apertura = markup.index('<div class="tre-zone" id="lavoro"')
+    profondita = 0
+    chiusura = None
+    for tag in re.finditer(r"<div\b|</div>", markup[apertura:]):
+        profondita += 1 if tag.group() == "<div" else -1
+        if profondita == 0:
+            chiusura = apertura + tag.end()
+            break
+    assert chiusura is not None, "il div di #lavoro non si chiude mai"
+    indice_footer = markup.index('<footer class="informazioni"')
+    assert indice_footer > chiusura, (
+        "il pie' di pagina e' finito dentro #lavoro: sparirebbe con hidden"
+    )
+
+
 def test_la_regione_d_errore_sta_fuori_da_cio_che_viene_riscritto():
     """Strada 3. `#dettaglio` viene svuotato con replaceChildren() a ogni
     apertura di pannello: la regione dentro di li' non sopravvive a un clic."""
