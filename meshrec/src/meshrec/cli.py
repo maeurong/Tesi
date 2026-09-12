@@ -307,7 +307,12 @@ def main(argv: list[str] | None = None) -> int:
                 thread.join(timeout=5)
             return 0
         try:
-            modo = finestra.apri(indirizzo, cache=CACHE_DIR.parent, forza_browser=args.browser)
+            modo = finestra.apri(
+                indirizzo,
+                cache=CACHE_DIR.parent.resolve(),
+                porta=impostazioni.port,
+                forza_browser=args.browser,
+            )
         except Exception as errore:
             # Un guscio che crasha (Cocoa, WebView2 rotto) non deve lasciare
             # uvicorn appeso: ferma il server anche quando apri() non torna.

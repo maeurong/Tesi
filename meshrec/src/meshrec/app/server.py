@@ -17,6 +17,7 @@ import threading
 import time
 import zipfile
 from collections import Counter
+from contextlib import asynccontextmanager
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Literal, get_args, get_origin
@@ -1517,6 +1518,16 @@ def create_app(
         return json.loads(json.dumps(fuori, default=str))
 
     lavoratore = Worker()
+
+    @asynccontextmanager
+    async def _ciclo_vita(app: FastAPI):
+        # Uvicorn esegue questo ramo quando `should_exit` diventa vero: vale
+        # per finestra, `--app`, Ctrl-C e `--no-browser`, senza toccare
+        # cli.py. Senza questo, lo step in corso resta orfano alla chiusura.
+        yield
+        lavoratore.cancel()
+
+    app.router.lifespan_context = _ciclo_vita
 
     def _avvia(da: int, a: int, endpoint: str) -> dict[str, object]:
         """Deposita, poi avvia. In quest'ordine e sotto lo stesso lucchetto

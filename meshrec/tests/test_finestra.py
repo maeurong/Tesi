@@ -82,7 +82,7 @@ def windows(monkeypatch):
 
 def test_con_pywebview_apre_la_finestra_e_torna_a_chiusura(webview_finto, tmp_path, monkeypatch):
     monkeypatch.setattr(finestra, "webview2_presente", lambda: True)
-    esito = finestra.apri("http://127.0.0.1:8765/", cache=tmp_path)
+    esito = finestra.apri("http://127.0.0.1:8765/", cache=tmp_path, porta=8765)
     assert esito == "finestra"
     assert webview_finto.finestre[0][:2] == ("MeshRec", "http://127.0.0.1:8765/")
     assert webview_finto.settings["ALLOW_DOWNLOADS"] is True
@@ -102,14 +102,33 @@ def test_senza_webview2_su_windows_passa_a_chromium(webview_finto, tmp_path, mon
 
     monkeypatch.setattr(finestra.subprocess, "Popen", Popen)
     detti = []
-    esito = finestra.apri("http://127.0.0.1:8765/", cache=tmp_path, avvisa=detti.append)
+    esito = finestra.apri("http://127.0.0.1:8765/", cache=tmp_path, porta=8765, avvisa=detti.append)
     assert esito == "app"
     assert webview_finto.finestre == []
     assert lanci[0][0] == "/finto/msedge"
     assert "--app=http://127.0.0.1:8765/" in lanci[0]
-    assert f"--user-data-dir={tmp_path / 'finestra'}" in lanci[0]
+    assert f"--user-data-dir={tmp_path / 'finestra-8765'}" in lanci[0]
     assert "--no-first-run" in lanci[0]
     assert any("WebView2" in d for d in detti)
+
+
+def test_profilo_chromium_e_per_porta(webview_finto, tmp_path, monkeypatch):
+    """Punto 2 fix wave: una seconda istanza su un'altra porta non deve
+    riusare il profilo Chromium in lock della prima."""
+    monkeypatch.setattr(finestra, "webview2_presente", lambda: False)
+    monkeypatch.setattr(finestra, "trova_chromium", lambda: ["/finto/msedge"])
+    lanci = []
+
+    class Popen:
+        def __init__(self, comando, **k):
+            lanci.append(comando)
+
+        def wait(self):
+            return 0
+
+    monkeypatch.setattr(finestra.subprocess, "Popen", Popen)
+    finestra.apri("http://127.0.0.1:8766/", cache=tmp_path, porta=8766)
+    assert f"--user-data-dir={tmp_path / 'finestra-8766'}" in lanci[0]
 
 
 def test_senza_pywebview_e_senza_chromium_apre_il_browser(senza_webview, tmp_path, monkeypatch):
@@ -117,7 +136,7 @@ def test_senza_pywebview_e_senza_chromium_apre_il_browser(senza_webview, tmp_pat
     aperti = []
     monkeypatch.setattr(finestra.webbrowser, "open", aperti.append)
     detti = []
-    esito = finestra.apri("http://127.0.0.1:8765/", cache=tmp_path, avvisa=detti.append)
+    esito = finestra.apri("http://127.0.0.1:8765/", cache=tmp_path, porta=8765, avvisa=detti.append)
     assert esito == "browser"
     assert aperti == ["http://127.0.0.1:8765/"]
     assert any("browser" in d for d in detti)
@@ -126,10 +145,37 @@ def test_senza_pywebview_e_senza_chromium_apre_il_browser(senza_webview, tmp_pat
 def test_forza_browser_salta_la_finestra_anche_con_pywebview(webview_finto, tmp_path, monkeypatch):
     aperti = []
     monkeypatch.setattr(finestra.webbrowser, "open", aperti.append)
-    esito = finestra.apri("http://127.0.0.1:8765/", cache=tmp_path, forza_browser=True)
+    esito = finestra.apri("http://127.0.0.1:8765/", cache=tmp_path, porta=8765, forza_browser=True)
     assert esito == "browser"
     assert webview_finto.finestre == []
     assert aperti == ["http://127.0.0.1:8765/"]
+
+
+def test_pywebview_che_solleva_scende_a_chromium(webview_finto, tmp_path, monkeypatch):
+    """Punto 4 fix wave: `create_window`/`start` che sollevano non devono
+    far fallire `apri` -- si scende al gradino dopo (Chromium, poi browser)."""
+    monkeypatch.setattr(finestra, "webview2_presente", lambda: True)
+
+    def start_che_fallisce():
+        raise RuntimeError("il display non risponde")
+
+    webview_finto.start = start_che_fallisce
+    monkeypatch.setattr(finestra, "trova_chromium", lambda: ["/finto/msedge"])
+    lanci = []
+
+    class Popen:
+        def __init__(self, comando, **k):
+            lanci.append(comando)
+
+        def wait(self):
+            return 0
+
+    monkeypatch.setattr(finestra.subprocess, "Popen", Popen)
+    detti = []
+    esito = finestra.apri("http://127.0.0.1:8765/", cache=tmp_path, porta=8765, avvisa=detti.append)
+    assert esito == "app"
+    assert lanci[0][0] == "/finto/msedge"
+    assert any("non si è aperta" in d for d in detti)
 
 
 def test_webview2_presente_e_vero_fuori_da_windows(monkeypatch):

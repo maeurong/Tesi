@@ -521,7 +521,7 @@ def test_serve_apre_la_finestra_e_ferma_il_server_quando_si_chiude(monkeypatch, 
     stato = _server_finto(monkeypatch)
     chiamate = []
 
-    def apri(indirizzo, *, cache, forza_browser=False, avvisa=None):
+    def apri(indirizzo, *, cache, porta, forza_browser=False, avvisa=None):
         chiamate.append((indirizzo, forza_browser))
         return "finestra"
 
@@ -534,6 +534,26 @@ def test_serve_apre_la_finestra_e_ferma_il_server_quando_si_chiude(monkeypatch, 
     assert "MeshRec in ascolto su" in capsys.readouterr().err
 
 
+def test_serve_passa_porta_e_cache_assoluta_ad_apri(monkeypatch):
+    """Punti 2 e 3 fix wave: il profilo Chromium e' per porta, e `cache' e'
+    assoluta (security minor)."""
+    from meshrec.app import finestra
+
+    _server_finto(monkeypatch)
+    ricevuto = {}
+    porta = _porta_libera()
+
+    def apri(indirizzo, *, cache, porta, forza_browser=False, avvisa=None):
+        ricevuto["cache"] = cache
+        ricevuto["porta"] = porta
+        return "finestra"
+
+    monkeypatch.setattr(finestra, "apri", apri)
+    assert cli.main(["serve", "--port", str(porta)]) == 0
+    assert ricevuto["porta"] == porta
+    assert ricevuto["cache"].is_absolute()
+
+
 def test_serve_browser_forza_il_browser_e_resta_in_ascolto_fino_a_should_exit(monkeypatch):
     from meshrec.app import finestra
     import threading
@@ -541,7 +561,7 @@ def test_serve_browser_forza_il_browser_e_resta_in_ascolto_fino_a_should_exit(mo
     stato = _server_finto(monkeypatch)
     chiamate = []
 
-    def apri(indirizzo, *, cache, forza_browser=False, avvisa=None):
+    def apri(indirizzo, *, cache, porta, forza_browser=False, avvisa=None):
         chiamate.append(forza_browser)
         # Nel ramo browser il server resta vivo: qualcuno deve fermarlo.
         threading.Timer(0.05, lambda: stato.__setitem__("should_exit", True)).start()
@@ -605,12 +625,82 @@ def test_serve_col_no_browser_il_timeout_non_suggerisce_no_browser(monkeypatch, 
     assert "--no-browser" not in detto.split("qui sopra")[-1]
 
 
+def test_serve_col_server_lento_a_fermarsi_main_torna_entro_5s(monkeypatch):
+    """Punto 7 fix wave (test mancante): un `run()` che ignora `should_exit`
+    per 0,3 s non deve far restare `main` appeso oltre `join(timeout=5)`."""
+    import time as _time
+
+    import uvicorn
+
+    from meshrec.app import finestra
+
+    class ServerLento:
+        def __init__(self, config):
+            self.started = True
+            self.should_exit = False
+
+        def run(self):
+            scadenza = _time.monotonic() + 0.3
+            while _time.monotonic() < scadenza:
+                _time.sleep(0.01)
+            while not self.should_exit:
+                _time.sleep(0.01)
+
+    monkeypatch.setattr(uvicorn, "Server", ServerLento)
+    monkeypatch.setattr(finestra, "apri", lambda *a, **k: "finestra")
+    inizio = _time.monotonic()
+    codice = cli.main(["serve", "--port", str(_porta_libera())])
+    durata = _time.monotonic() - inizio
+    assert codice == 0
+    assert durata < 5
+
+
+def test_serve_col_server_che_parte_al_terzo_giro_di_polling(monkeypatch, capsys):
+    """Punto 7 fix wave (test mancante): `started` non immediato -- il
+    polling deve comunque rilevare l'avvio."""
+    import time as _time
+
+    import uvicorn
+
+    from meshrec.app import finestra
+
+    letture = {"n": 0}
+
+    class Server:
+        def __init__(self, config):
+            self._should_exit = False
+
+        @property
+        def started(self):
+            letture["n"] += 1
+            return letture["n"] >= 3
+
+        @property
+        def should_exit(self):
+            return self._should_exit
+
+        @should_exit.setter
+        def should_exit(self, valore):
+            self._should_exit = valore
+
+        def run(self):
+            while not self._should_exit:
+                _time.sleep(0.01)
+
+    monkeypatch.setattr(uvicorn, "Server", Server)
+    monkeypatch.setattr(finestra, "apri", lambda *a, **k: "finestra")
+    codice = cli.main(["serve", "--port", str(_porta_libera())])
+    assert codice == 0
+    assert letture["n"] >= 3
+    assert "MeshRec in ascolto su" in capsys.readouterr().err
+
+
 def test_serve_se_il_guscio_solleva_ferma_comunque_il_server(monkeypatch, capsys):
     from meshrec.app import finestra
 
     stato = _server_finto(monkeypatch)
 
-    def apri(indirizzo, *, cache, forza_browser=False, avvisa=None):
+    def apri(indirizzo, *, cache, porta, forza_browser=False, avvisa=None):
         raise RuntimeError("cocoa")
 
     monkeypatch.setattr(finestra, "apri", apri)

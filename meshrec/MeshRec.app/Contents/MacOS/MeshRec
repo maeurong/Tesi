@@ -6,6 +6,11 @@
 # bundle), l'uscita nel log dell'utente, e gli errori in un dialogo.
 cd "$(dirname "$0")/../../.." || exit 1
 
+if [ ! -f pyproject.toml ]; then
+    osascript -e 'display dialog "MeshRec.app va avviato dalla cartella meshrec/ del progetto, non da Applicazioni: rimettilo lì e riapri." with title "MeshRec" buttons {"OK"} default button 1 with icon stop'
+    exit 1
+fi
+
 PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
 export PATH
 LOG="$HOME/Library/Logs/MeshRec.log"

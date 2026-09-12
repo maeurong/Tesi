@@ -4458,3 +4458,33 @@ def test_su_macos_il_selettore_non_passa_parent_altrove_si(monkeypatch, tmp_path
     monkeypatch.setattr(sys, "platform", "win32")
     exec(server._SELETTORE, {})
     assert catturati["parent"] is radice_finta
+
+
+def test_lo_shutdown_ferma_lo_step_in_corso(tmp_path, monkeypatch):
+    """Punto 1 fix wave: chiusura dell'app (finestra, --app, Ctrl-C,
+    --no-browser) non deve lasciare lo step orfano. TestClient esegue lo
+    shutdown del lifespan solo se usato come context manager."""
+    cfg = PipelineConfig(input=InputConfig(path=tmp_path / "nuvola.ply"))
+    cfg.run.out_dir = tmp_path / "corsa"
+    save_config(cfg, tmp_path / "config.yaml")
+    monkeypatch.setattr(server, "CACHE_DIR", tmp_path / "cache")
+
+    chiamate = []
+    monkeypatch.setattr(server.Worker, "cancel", lambda self: chiamate.append(self) or False)
+
+    with TestClient(
+        create_app(tmp_path / "config.yaml", radice_corse=tmp_path / "runs"),
+        base_url="http://127.0.0.1",
+        raise_server_exceptions=False,
+    ):
+        pass
+
+    assert len(chiamate) == 1
+
+
+def test_cancel_senza_step_in_corso_non_solleva():
+    """Ingresso degenere: nessuno step in esecuzione -> torna False, niente
+    eccezione (gia' cosi', si verifica che resti tale)."""
+    from meshrec.app.worker import Worker
+
+    assert Worker().cancel() is False

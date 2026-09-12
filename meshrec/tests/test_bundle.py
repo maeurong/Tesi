@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import plistlib
 import stat
+import tomllib
 from pathlib import Path
 
 RADICE = Path(__file__).resolve().parent.parent
@@ -39,3 +40,19 @@ def test_il_collegamento_windows_punta_al_bat_con_l_icona():
     assert "MeshRec.bat" in testo
     assert "icona.ico" in testo
     assert "WScript.Shell" in testo
+
+
+def test_lo_script_del_bundle_avvisa_se_spostato_fuori_dal_progetto():
+    """Punto 5 fix wave: bundle spostato fuori da meshrec/ -> dialogo che lo
+    dice, non un errore muto di uv."""
+    testo = (BUNDLE / "MacOS" / "MeshRec").read_text(encoding="utf-8")
+    assert "pyproject.toml" in testo
+
+
+def test_la_versione_del_plist_segue_pyproject():
+    """Punto 6 fix wave: se pyproject.toml cambia versione e il plist non
+    segue, questo test diventa rosso."""
+    plist = plistlib.loads((BUNDLE / "Info.plist").read_bytes())
+    versione = tomllib.loads((RADICE / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
+    assert plist["CFBundleShortVersionString"] == versione
+    assert plist["CFBundleVersion"] == versione

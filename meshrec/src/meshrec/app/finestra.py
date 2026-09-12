@@ -80,6 +80,7 @@ def apri(
     indirizzo: str,
     *,
     cache: Path,
+    porta: int,
     forza_browser: bool = False,
     avvisa: Callable[[str], object] = lambda testo: print(testo, file=sys.stderr),
 ) -> str:
@@ -90,15 +91,20 @@ def apri(
         except ImportError:
             webview = None
         if webview is not None and webview2_presente():
-            webview.settings["ALLOW_DOWNLOADS"] = True
-            webview.create_window(TITOLO, indirizzo, width=LARGHEZZA, height=ALTEZZA)
-            webview.start()
-            return "finestra"
-        if webview is not None:
+            try:
+                webview.settings["ALLOW_DOWNLOADS"] = True
+                webview.create_window(TITOLO, indirizzo, width=LARGHEZZA, height=ALTEZZA)
+                webview.start()
+                return "finestra"
+            except Exception as errore:
+                avvisa(f"la finestra non si è aperta ({errore}): provo con Edge o Chrome")
+        elif webview is not None:
             avvisa("il runtime WebView2 manca: apro con Edge o Chrome in modalità app")
         comando = trova_chromium()
         if comando is not None:
-            profilo = Path(cache) / "finestra"
+            # Un profilo per porta: due istanze su porte diverse non devono
+            # riusare lo stesso profilo Chromium in lock (finale Important 2).
+            profilo = Path(cache) / f"finestra-{porta}"
             processo = subprocess.Popen([
                 *comando,
                 f"--app={indirizzo}",
