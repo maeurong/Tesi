@@ -198,7 +198,7 @@ request.
 
 ### Rimosso
 
-- Il solutore integrato e le verifiche di norma (2 settembre 2026, sul ramo principale):
+- Il solutore integrato e le verifiche di norma (2 settembre 2026):
   l'analisi si fa in Abaqus. Escono i sei moduli del solutore, le rotte che li servivano e la
   schermata dell'analisi.
 - Carichi e selettori: il deck torna al solo passo di gravità (#190, 8 settembre 2026).
