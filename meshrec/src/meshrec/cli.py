@@ -250,9 +250,14 @@ def main(argv: list[str] | None = None) -> int:
         # Come uvicorn (asyncio usa `reuse_address=True`): senza, un socket in
         # TIME_WAIT lasciato dalla copia appena chiusa fa dire «porta gia'
         # occupata» per ~30 s, su una porta dove il server si metterebbe in
-        # ascolto benissimo. Contro un listener vivo il bind resta rifiutato
-        # (errno 48) -- cioe' la sonda continua a fare il suo mestiere.
-        prova.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        # ascolto benissimo. Su POSIX contro un listener vivo il bind resta
+        # rifiutato (errno 48) -- cioe' la sonda continua a fare il suo
+        # mestiere. Su Windows no: li' SO_REUSEADDR lascia bindare SOPRA un
+        # listener attivo, e la sonda diventerebbe cieca proprio nel caso per
+        # cui esiste (MeshRec.bat e' un bersaglio spedito). Windows tiene
+        # quindi il bind nudo, TIME_WAIT compreso.
+        if sys.platform != "win32":
+            prova.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             prova.bind((impostazioni.host, impostazioni.port))
         except OSError as errore:
@@ -282,20 +287,30 @@ def main(argv: list[str] | None = None) -> int:
         # uvicorn in un thread e il thread principale al guscio: pywebview
         # vuole il thread principale (Cocoa) e uvicorn, fuori da esso, salta
         # da solo i gestori di segnale. `should_exit` lo ferma.
+        app = create_app(args.config)
         server = uvicorn.Server(uvicorn.Config(
-            create_app(args.config), host=impostazioni.host, port=impostazioni.port, log_level="warning",
+            app, host=impostazioni.host, port=impostazioni.port, log_level="warning",
             # Senza, `shutdown()` aspetta ogni connessione SSE per sempre e il
             # lifespan (che sta dopo quell'attesa) non parte mai. Sotto il
             # `join(timeout=5)` qui sotto, e va tenuto sotto.
             timeout_graceful_shutdown=2,
         ))
+
+        def ferma():
+            # `should_exit` da solo non basta: il generatore di /api/events
+            # dorme in un thread e tiene aperta la sua connessione, che e'
+            # esattamente cio' che uvicorn aspetta prima di spegnersi. L'Event
+            # lo sveglia, il tetto graceful qui sopra resta la cintura.
+            app.state.spegni.set()
+            server.should_exit = True
+
         thread = threading.Thread(target=server.run, name="uvicorn", daemon=True)
         thread.start()
         scadenza = time.monotonic() + ATTESA_AVVIO_S
         while not server.started and thread.is_alive() and time.monotonic() < scadenza:
             time.sleep(0.05)
         if not server.started:
-            server.should_exit = True
+            ferma()
             thread.join(timeout=2)
             suggerimento = (
                 "l'errore di uvicorn è qui sopra."
@@ -313,7 +328,7 @@ def main(argv: list[str] | None = None) -> int:
             try:
                 thread.join()
             except KeyboardInterrupt:
-                server.should_exit = True
+                ferma()
                 thread.join(timeout=5)
             return 0
         try:
@@ -326,7 +341,7 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as errore:
             # Un guscio che crasha (Cocoa, WebView2 rotto) non deve lasciare
             # uvicorn appeso: ferma il server anche quando apri() non torna.
-            server.should_exit = True
+            ferma()
             thread.join(timeout=5)
             return _riporta(errore)
         if modo == "browser":
@@ -334,10 +349,10 @@ def main(argv: list[str] | None = None) -> int:
             try:
                 thread.join()
             except KeyboardInterrupt:
-                server.should_exit = True
+                ferma()
                 thread.join(timeout=5)
             return 0
-        server.should_exit = True
+        ferma()
         thread.join(timeout=5)
         return 0
 

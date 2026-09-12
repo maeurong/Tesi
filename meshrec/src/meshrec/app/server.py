@@ -1524,6 +1524,11 @@ def create_app(
     # il server sta chiudendo, e senza il generatore resta appeso dentro
     # Py_Finalize -- uno per connessione, gettoni del pool anyio inclusi.
     spegni = threading.Event()
+    # Su `app.state` perche' chi spegne e' fuori di qui: cli.py lo alza insieme
+    # a `should_exit`. Dal lifespan soltanto sarebbe troppo tardi -- quel ramo
+    # gira DOPO che uvicorn ha finito di aspettare le connessioni, cioe' dopo
+    # aver aspettato proprio il thread che questo Event deve svegliare.
+    app.state.spegni = spegni
 
     @asynccontextmanager
     async def _ciclo_vita(app: FastAPI):

@@ -743,16 +743,20 @@ def test_lo_spegnimento_non_resta_appeso_su_una_connessione_sse(monkeypatch):
     from meshrec.app.server import create_app
     from meshrec.app.worker import Worker
 
-    # Il lifespan sta DOPO l'attesa delle connessioni dentro `Server.shutdown()`:
-    # senza il tetto graceful nessun fix lato applicazione lo puo' sbloccare.
-    # Stesso valore che `serve` passa a uvicorn, pinnato da
+    # Il tetto graceful qui vale 30 s, non i 2 di `serve`, ed e' voluto: cosi'
+    # l'unica cosa che puo' far finire il thread entro il `join(timeout=5)` e'
+    # `spegni`, cioe' il generatore che si accorge da se' dello spegnimento. Con
+    # 2 s il test sarebbe verde anche con il `time.sleep(0.5)` di prima, cioe'
+    # non pinnerebbe niente: lo spegnimento lo chiuderebbe uvicorn cancellando i
+    # task allo scadere del tetto. Che il tetto vero sia 2 lo pinna
     # test_serve_mette_un_tetto_allo_spegnimento_di_uvicorn.
     annullamenti = []
     monkeypatch.setattr(Worker, "cancel", lambda self: annullamenti.append(1))
     porta = _porta_libera()
+    app = create_app(None)
     server = uvicorn.Server(uvicorn.Config(
-        create_app(None), host="127.0.0.1", port=porta, log_level="warning",
-        timeout_graceful_shutdown=2,
+        app, host="127.0.0.1", port=porta, log_level="warning",
+        timeout_graceful_shutdown=30,
     ))
     thread = threading.Thread(target=server.run, name="uvicorn", daemon=True)
     thread.start()
@@ -766,6 +770,7 @@ def test_lo_spegnimento_non_resta_appeso_su_una_connessione_sse(monkeypatch):
         # La prima riga prova che lo stream e' vivo: senza, il test passerebbe
         # anche solo perche' la connessione non e' mai stata servita.
         assert flusso.readline().startswith(b"event: stato")
+        app.state.spegni.set()
         server.should_exit = True
         thread.join(timeout=5)
         assert not thread.is_alive(), (
@@ -857,3 +862,33 @@ def test_serve_mette_un_tetto_allo_spegnimento_di_uvicorn(monkeypatch):
     assert cli.main(["serve", "--port", str(_porta_libera())]) == 0
     assert stato["config"].timeout_graceful_shutdown == 2
     assert stato["config"].timeout_graceful_shutdown < 5
+
+
+def test_su_windows_la_sonda_non_scambia_reuseaddr_per_cortesia(monkeypatch):
+    """Su Windows `SO_REUSEADDR` lascia bindare SOPRA un listener **attivo**:
+    la sonda diventerebbe cieca esattamente nel caso per cui esiste — la copia
+    vecchia rimasta in ascolto — e `MeshRec.bat` e' un bersaglio spedito. Li'
+    il bind resta nudo, TIME_WAIT compreso."""
+    import socket as _socket
+    import sys as _sys
+
+    from meshrec.app import finestra
+
+    opzioni = []
+    vero = _socket.socket
+
+    class Spia(vero):
+        def setsockopt(self, livello, nome, valore):
+            opzioni.append((livello, nome, valore))
+            return super().setsockopt(livello, nome, valore)
+
+    porta = _porta_libera()
+    monkeypatch.setattr(_socket, "socket", Spia)
+    monkeypatch.setattr(_sys, "platform", "win32")
+    _server_finto(monkeypatch)
+    monkeypatch.setattr(finestra, "apri", lambda *a, **k: "finestra")
+    assert cli.main(["serve", "--port", str(porta)]) == 0
+    assert (_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1) not in opzioni, (
+        "la sonda ha chiesto SO_REUSEADDR su win32: li' permette il bind sopra "
+        "un listener vivo, cioe' spegne la sonda"
+    )
